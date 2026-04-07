@@ -1,0 +1,6 @@
+[mcp_servers.cerebras-explorer]
+command = "node"
+args = ["/absolute/path/to/cerebras-explorer-mcp/src/index.mjs"]
+
+[mcp_servers.cerebras-explorer.env]
+CEREBRAS_API_KEY = "${CEREBRAS_API_KEY}"

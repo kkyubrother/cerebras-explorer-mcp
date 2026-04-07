@@ -1,0 +1,7 @@
+For architecture lookup, symbol tracing, middleware tracing, route discovery, or impact mapping,
+use the external Cerebras explorer first.
+
+Preferred flow:
+1. Call `explore_repo` through the `cerebras-explorer` MCP server.
+2. Read only the cited files you need to verify.
+3. Keep native wide search as a fallback, not the default.

@@ -1,0 +1,17 @@
+{
+  "name": "cerebras-explorer-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Read-only autonomous repository explorer MCP server backed by a configurable Cerebras model.",
+  "bin": {
+    "cerebras-explorer-mcp": "./src/index.mjs"
+  },
+  "scripts": {
+    "start": "node ./src/index.mjs",
+    "test": "node --test ./tests/*.test.mjs"
+  },
+  "engines": {
+    "node": ">=18.17.0"
+  }
+}
