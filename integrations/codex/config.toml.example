@@ -1,6 +1,8 @@
 [mcp_servers.cerebras-explorer]
-command = "node"
+command = "/absolute/path/to/node"
 args = ["/absolute/path/to/cerebras-explorer-mcp/src/index.mjs"]
+# Optional fallback if your environment is slow to spawn subprocesses.
+# startup_timeout_sec = 60
 
 [mcp_servers.cerebras-explorer.env]
 CEREBRAS_API_KEY = "${CEREBRAS_API_KEY}"

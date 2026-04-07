@@ -144,7 +144,7 @@ export CEREBRAS_EXPLORER_MODEL="zai-glm-4.7"
 
 ```bash
 cd cerebras-explorer-mcp
-node ./src/index.mjs
+/absolute/path/to/node ./src/index.mjs
 ```
 
 ### 3) 테스트
@@ -168,10 +168,36 @@ claude mcp add --transport stdio cerebras-explorer \
 ```bash
 codex mcp add cerebras-explorer \
   --env CEREBRAS_API_KEY="$CEREBRAS_API_KEY" \
-  -- node /absolute/path/to/cerebras-explorer-mcp/src/index.mjs
+  -- /absolute/path/to/node /absolute/path/to/cerebras-explorer-mcp/src/index.mjs
 ```
 
 프로젝트에 포함한 예시는 `integrations/codex/` 아래에 있습니다.
+
+`nvm` 같은 셸 초기화 의존 환경에서는 `node` 대신 **Node 절대 경로**를 넣는 편이 안전합니다.
+
+예:
+
+```bash
+which node
+# /home/you/.nvm/versions/node/v24.14.1/bin/node
+```
+
+### Codex startup timeout 트러블슈팅
+
+Codex에서 아래처럼 보이면:
+
+```text
+MCP client for `cerebras-explorer` timed out after 30 seconds.
+```
+
+다음 순서로 확인하는 것이 맞습니다.
+
+1. 먼저 이 저장소를 최신 버전으로 업데이트합니다.
+   - 구버전 stdio 파서는 `\r\n\r\n` 헤더 구분자만 받아서, LF-only MCP 헤더를 보내는 클라이언트에서는 startup timeout처럼 보일 수 있었습니다.
+2. Codex 등록 명령에서 `node` 대신 Node 절대 경로를 사용합니다.
+   - 특히 `nvm` 환경에서는 Codex가 셸 PATH를 그대로 재현하지 못하면 `node`를 못 찾을 수 있습니다.
+3. 그래도 느리면 그때 `startup_timeout_sec`를 늘립니다.
+   - 이 서버는 정상이라면 시작 직후 `initialize`에 응답하므로, timeout 증상은 보통 부팅 지연보다 프로세스 실행/stdio 호환 문제일 가능성이 큽니다.
 
 ## 내부 동작 순서
 

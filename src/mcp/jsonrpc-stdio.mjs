@@ -1,6 +1,6 @@
 function parseHeaders(headerText) {
   const headers = {};
-  const lines = headerText.split('\r\n');
+  const lines = headerText.split(/\r?\n/);
   for (const line of lines) {
     const separator = line.indexOf(':');
     if (separator <= 0) continue;
@@ -34,7 +34,10 @@ export class StdioJsonRpcServer {
 
   async processBuffer() {
     while (true) {
-      const headerEnd = this.buffer.indexOf('\r\n\r\n');
+      const crlfHeaderEnd = this.buffer.indexOf('\r\n\r\n');
+      const lfHeaderEnd = this.buffer.indexOf('\n\n');
+      const hasCrLfHeaders = crlfHeaderEnd >= 0 && (lfHeaderEnd < 0 || crlfHeaderEnd <= lfHeaderEnd);
+      const headerEnd = hasCrLfHeaders ? crlfHeaderEnd : lfHeaderEnd;
       if (headerEnd < 0) {
         return;
       }
@@ -46,7 +49,7 @@ export class StdioJsonRpcServer {
         throw new Error('Missing or invalid Content-Length header.');
       }
 
-      const messageStart = headerEnd + 4;
+      const messageStart = headerEnd + (hasCrLfHeaders ? 4 : 2);
       const messageEnd = messageStart + contentLength;
       if (this.buffer.length < messageEnd) {
         return;
