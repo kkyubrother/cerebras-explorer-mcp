@@ -155,13 +155,36 @@ npm test
 
 ## Claude Code 연결 예시
 
+전역(모든 프로젝트에서 사용)으로 등록:
+
 ```bash
-claude mcp add --transport stdio cerebras-explorer \
-  --env CEREBRAS_API_KEY="$CEREBRAS_API_KEY" \
+claude mcp add -s user cerebras-explorer \
+  -e CEREBRAS_API_KEY="$CEREBRAS_API_KEY" \
+  -- node /absolute/path/to/cerebras-explorer-mcp/src/index.mjs
+```
+
+현재 프로젝트에만 등록:
+
+```bash
+claude mcp add cerebras-explorer \
+  -e CEREBRAS_API_KEY="$CEREBRAS_API_KEY" \
   -- node /absolute/path/to/cerebras-explorer-mcp/src/index.mjs
 ```
 
 프로젝트에 포함한 예시는 `integrations/claude/` 아래에 있습니다.
+
+### Claude Code "Failed to connect" 트러블슈팅
+
+`/mcp` 패널에서 `cerebras-explorer`가 `failed` 상태로 표시되면:
+
+1. **이 저장소를 최신 버전으로 업데이트합니다.**
+   - Claude Code v2.1.94+(프로토콜 `2025-11-25`)부터 MCP stdio 전송 방식이 변경됐습니다.
+   - 구형 stdio 파서는 `Content-Length: N\r\n\r\n{...}` 헤더 방식만 처리했지만, 신형 Claude Code는 NDJSON 방식(`{...}\n`)으로 보냅니다.
+   - 파서가 헤더를 찾지 못해 응답 없이 대기 → Claude Code 타임아웃 → "Failed to connect"가 됩니다.
+   - 현재 버전은 두 방식을 자동 감지하므로 업데이트 후 재등록하면 해결됩니다.
+2. **등록 명령을 확인합니다.**
+   - `node` 명령이 PATH에 있는지, 경로가 절대 경로인지 확인합니다.
+   - `claude mcp list`로 등록된 command/args를 재확인합니다.
 
 ## Codex 연결 예시
 
@@ -193,7 +216,8 @@ MCP client for `cerebras-explorer` timed out after 30 seconds.
 다음 순서로 확인하는 것이 맞습니다.
 
 1. 먼저 이 저장소를 최신 버전으로 업데이트합니다.
-   - 구버전 stdio 파서는 `\r\n\r\n` 헤더 구분자만 받아서, LF-only MCP 헤더를 보내는 클라이언트에서는 startup timeout처럼 보일 수 있었습니다.
+   - 구버전 stdio 파서는 `Content-Length` 헤더 방식만 지원했습니다. LF-only 헤더(`\n\n`)나 NDJSON(`{...}\n`) 방식을 보내는 클라이언트에서는 timeout처럼 보일 수 있었습니다.
+   - 현재 버전은 Content-Length 방식과 NDJSON 방식을 자동 감지합니다.
 2. Codex 등록 명령에서 `node` 대신 Node 절대 경로를 사용합니다.
    - 특히 `nvm` 환경에서는 Codex가 셸 PATH를 그대로 재현하지 못하면 `node`를 못 찾을 수 있습니다.
 3. 그래도 느리면 그때 `startup_timeout_sec`를 늘립니다.

@@ -323,7 +323,7 @@ Codex도 동일하다.
 
 ### 포함
 
-- MCP stdio 서버
+- MCP stdio 서버 (Content-Length 방식 + NDJSON 방식 자동 감지)
 - `explore_repo`
 - 내부 repo toolkit
 - Cerebras API 클라이언트
