@@ -207,11 +207,35 @@ claude mcp add cerebras-explorer \
 
 ## Codex 연결 예시
 
+### 1) MCP 서버 등록
+
 ```bash
 codex mcp add cerebras-explorer \
   --env CEREBRAS_API_KEY="$CEREBRAS_API_KEY" \
   -- /absolute/path/to/node /absolute/path/to/cerebras-explorer-mcp/src/index.mjs
 ```
+
+### 2) 에이전트 역할 파일 등록 (선택)
+
+`~/.codex/agents/cerebras_explorer.toml`을 만들면 Codex가 해당 역할을 자동으로 로드합니다.
+
+```toml
+name = "cerebras_explorer"
+description = "Read-only repository explorer that delegates search/read loops to the external Cerebras MCP explorer."
+sandbox_mode = "read-only"
+
+developer_instructions = """
+Use the MCP tool `explore_repo` before doing broad native repository search.
+Prefer one high-level delegation over many small read/grep steps.
+Treat the MCP result as the primary exploration report.
+Use native reads only to verify evidence or when the report is insufficient.
+Do not modify files.
+"""
+```
+
+> **주의:** `mcp_servers`를 역할 파일에 배열(`mcp_servers = ["cerebras-explorer"]`)로 넣으면
+> `invalid type: sequence, expected a map` 에러가 발생합니다.
+> MCP 서버는 `~/.codex/config.toml`의 `[mcp_servers.cerebras-explorer]`에서만 정의하세요.
 
 프로젝트에 포함한 예시는 `integrations/codex/` 아래에 있습니다.
 
