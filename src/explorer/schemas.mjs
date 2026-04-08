@@ -45,6 +45,36 @@ export const EXPLORE_REPO_INPUT_SCHEMA = {
   required: ['task'],
 };
 
+// Schema for structured followup items — used in AI model output
+const FOLLOWUP_ITEM_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    description: { type: 'string' },
+    priority: { type: 'string', enum: ['recommended', 'optional'] },
+    suggestedCall: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        task: { type: 'string' },
+        scope: { type: 'array', items: { type: 'string' } },
+        budget: { type: 'string', enum: ['quick', 'normal', 'deep'] },
+        hints: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            symbols: { type: 'array', items: { type: 'string' } },
+            strategy: { type: 'string' },
+          },
+          required: ['symbols', 'strategy'],
+        },
+      },
+      required: ['task', 'scope', 'budget', 'hints'],
+    },
+  },
+  required: ['description', 'priority', 'suggestedCall'],
+};
+
 export const EXPLORE_RESULT_JSON_SCHEMA = {
   name: 'explore_repo_result',
   strict: true,
@@ -84,7 +114,7 @@ export const EXPLORE_RESULT_JSON_SCHEMA = {
       },
       followups: {
         type: 'array',
-        items: { type: 'string' },
+        items: FOLLOWUP_ITEM_SCHEMA,
       },
     },
     required: [
@@ -139,6 +169,122 @@ export function validateExploreRepoArgs(args) {
   }
 }
 
+/**
+ * Compute a continuous confidence score (0.0–1.0) and breakdown factors
+ * based on evidence grounding and exploration stats.
+ *
+ * @param {object[]} groundedEvidence - evidence items after grounding filter
+ * @param {number} totalEvidenceBefore - count before grounding filter
+ * @param {object} stats - runtime stats (stoppedByBudget, grepCalls, etc.)
+ * @returns {{ score: number, level: string, factors: object }}
+ */
+export function computeConfidenceScore(groundedEvidence, totalEvidenceBefore, stats) {
+  let score = 0.5;
+  const factors = {
+    evidenceCount: groundedEvidence.length,
+    evidenceGrounded: groundedEvidence.length,
+    evidenceDropped: totalEvidenceBefore - groundedEvidence.length,
+    crossVerified: false,
+    symbolSearchUsed: (stats.grepCalls ?? 0) > 0,
+    stoppedByBudget: stats.stoppedByBudget ?? false,
+    adjustments: [],
+  };
+
+  // All evidence grounded (none dropped)
+  if (factors.evidenceDropped === 0 && groundedEvidence.length > 0) {
+    score += 0.2;
+    factors.adjustments.push('+0.20 (all evidence grounded)');
+  } else if (factors.evidenceDropped > 0) {
+    score -= 0.3;
+    factors.adjustments.push('-0.30 (some evidence not grounded in inspected ranges)');
+  }
+
+  // Cross-verified: evidence from 2+ distinct files
+  const uniqueFiles = new Set(groundedEvidence.map(e => e.path));
+  factors.crossVerified = uniqueFiles.size >= 2;
+  if (factors.crossVerified) {
+    score += 0.15;
+    factors.adjustments.push('+0.15 (cross-verified across multiple files)');
+  }
+
+  // Symbol/grep search was used
+  if (factors.symbolSearchUsed) {
+    score += 0.05;
+    factors.adjustments.push('+0.05 (symbol search used)');
+  }
+
+  // Stopped by budget
+  if (factors.stoppedByBudget) {
+    score -= 0.2;
+    factors.adjustments.push('-0.20 (stopped by budget before completion)');
+  }
+
+  // Only a single evidence item
+  if (groundedEvidence.length === 1) {
+    score -= 0.1;
+    factors.adjustments.push('-0.10 (single evidence point)');
+  }
+
+  // No evidence at all
+  if (groundedEvidence.length === 0) {
+    score = 0.1;
+    factors.adjustments = ['score=0.10 (no grounded evidence)'];
+  }
+
+  score = Math.max(0, Math.min(1, score));
+
+  let level;
+  if (score >= 0.7) {
+    level = 'high';
+  } else if (score >= 0.4) {
+    level = 'medium';
+  } else {
+    level = 'low';
+  }
+
+  return {
+    score: Math.round(score * 100) / 100,
+    level,
+    factors,
+  };
+}
+
+/**
+ * Normalize a structured followup item from the AI model output.
+ * Accepts both legacy string format and new structured object format.
+ */
+function normalizeFollowupItem(item) {
+  if (typeof item === 'string') {
+    // Legacy string followup — wrap in minimal structured format
+    return {
+      description: item,
+      priority: 'optional',
+      suggestedCall: null,
+    };
+  }
+  if (!item || typeof item !== 'object') {
+    return null;
+  }
+  const description = typeof item.description === 'string' ? item.description : '';
+  if (!description) {
+    return null;
+  }
+  const priority = item.priority === 'recommended' ? 'recommended' : 'optional';
+  let suggestedCall = null;
+  if (item.suggestedCall && typeof item.suggestedCall === 'object') {
+    suggestedCall = {
+      task: typeof item.suggestedCall.task === 'string' ? item.suggestedCall.task : description,
+      scope: Array.isArray(item.suggestedCall.scope) ? item.suggestedCall.scope.filter(s => typeof s === 'string') : [],
+      budget: ['quick', 'normal', 'deep'].includes(item.suggestedCall.budget) ? item.suggestedCall.budget : 'normal',
+      hints: {
+        symbols: Array.isArray(item.suggestedCall.hints?.symbols) ? item.suggestedCall.hints.symbols.filter(s => typeof s === 'string') : [],
+        strategy: typeof item.suggestedCall.hints?.strategy === 'string' ? item.suggestedCall.hints.strategy : null,
+      },
+    };
+  }
+  return { description, priority, suggestedCall };
+}
+
 export function normalizeExploreResult(raw, stats) {
   const safe = raw && typeof raw === 'object' ? raw : {};
   return {
@@ -163,7 +309,7 @@ export function normalizeExploreResult(raw, stats) {
       ? safe.candidatePaths.filter(item => typeof item === 'string')
       : [],
     followups: Array.isArray(safe.followups)
-      ? safe.followups.filter(item => typeof item === 'string')
+      ? safe.followups.map(normalizeFollowupItem).filter(Boolean)
       : [],
     stats,
   };

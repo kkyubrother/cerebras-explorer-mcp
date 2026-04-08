@@ -13,9 +13,17 @@ import {
 } from './prompt.mjs';
 import {
   EXPLORE_RESULT_JSON_SCHEMA,
+  computeConfidenceScore,
   normalizeExploreResult,
   validateExploreRepoArgs,
 } from './schemas.mjs';
+
+// Evidence items whose line range is within this many lines of an observed
+// range are kept as "partial" matches rather than being dropped entirely.
+const EVIDENCE_LINE_TOLERANCE = 2;
+
+// Common entry-point filename patterns (used to identify codeMap.entryPoints)
+const ENTRY_POINT_PATTERNS = /^(index|main|app|server|cli|start|entry)\.(m?[jt]s|py|go|rb|rs)$/i;
 
 function nowMs() {
   return Date.now();
@@ -64,12 +72,180 @@ function recordObservedRange(observedRanges, targetPath, startLine, endLine) {
   observedRanges.set(targetPath, current);
 }
 
-function overlapsRecordedRange(observedRanges, evidenceItem) {
+/**
+ * Check whether an evidence item's line range overlaps with any observed read
+ * range for that file. Returns an object with:
+ *   - overlaps: boolean — true if within EVIDENCE_LINE_TOLERANCE
+ *   - partial: boolean — true when overlap is only within tolerance (not exact)
+ */
+function checkEvidenceGrounding(observedRanges, evidenceItem) {
   const ranges = observedRanges.get(evidenceItem.path);
   if (!ranges || ranges.length === 0) {
-    return false;
+    return { overlaps: false, partial: false };
   }
-  return ranges.some(range => evidenceItem.startLine <= range.endLine && evidenceItem.endLine >= range.startLine);
+  for (const range of ranges) {
+    // Exact overlap
+    if (evidenceItem.startLine <= range.endLine && evidenceItem.endLine >= range.startLine) {
+      return { overlaps: true, partial: false };
+    }
+    // Tolerance overlap (within EVIDENCE_LINE_TOLERANCE lines of the observed range)
+    const toleratedStart = evidenceItem.startLine - EVIDENCE_LINE_TOLERANCE;
+    const toleratedEnd = evidenceItem.endLine + EVIDENCE_LINE_TOLERANCE;
+    if (toleratedStart <= range.endLine && toleratedEnd >= range.startLine) {
+      return { overlaps: true, partial: true };
+    }
+  }
+  return { overlaps: false, partial: false };
+}
+
+/**
+ * Build a codeMap from the set of files observed during exploration.
+ * Returns null if no files were observed.
+ */
+function buildCodeMap(observedRanges) {
+  const paths = [...observedRanges.keys()];
+  if (paths.length === 0) {
+    return null;
+  }
+
+  const entryPoints = [];
+  const keyModules = [];
+
+  for (const filePath of paths) {
+    const basename = filePath.split('/').pop() ?? filePath;
+    const isEntry = ENTRY_POINT_PATTERNS.test(basename);
+    if (isEntry) {
+      entryPoints.push(filePath);
+    }
+    const ranges = observedRanges.get(filePath) ?? [];
+    const linesRead = ranges.reduce((sum, r) => sum + (r.endLine - r.startLine + 1), 0);
+    keyModules.push({
+      path: filePath,
+      role: guessModuleRole(filePath),
+      linesRead,
+    });
+  }
+
+  return { entryPoints, keyModules };
+}
+
+/**
+ * Guess a human-readable role for a module based on its file path.
+ */
+function guessModuleRole(filePath) {
+  const lower = filePath.toLowerCase();
+  if (/test|spec/.test(lower)) return 'test';
+  if (/route|controller/.test(lower)) return 'route/controller';
+  if (/middleware|auth/.test(lower)) return 'middleware';
+  if (/model|schema|entity/.test(lower)) return 'data model';
+  if (/service|handler/.test(lower)) return 'service';
+  if (/util|helper|common/.test(lower)) return 'utility';
+  if (/config|setting/.test(lower)) return 'configuration';
+  if (/index|main|app|server/.test(lower)) return 'entry point';
+  if (/client|api/.test(lower)) return 'API client';
+  if (/cache/.test(lower)) return 'cache';
+  if (/prompt/.test(lower)) return 'prompt';
+  return 'module';
+}
+
+/**
+ * Generate a Mermaid flowchart from a codeMap.
+ * Only produces a diagram when there are 2–12 key modules.
+ */
+function buildMermaidDiagram(codeMap) {
+  if (!codeMap || codeMap.keyModules.length < 2 || codeMap.keyModules.length > 12) {
+    return null;
+  }
+
+  const entrySet = new Set(codeMap.entryPoints);
+  const nodes = codeMap.keyModules.map(m => {
+    const id = m.path.replace(/[^a-zA-Z0-9]/g, '_');
+    const label = m.path.split('/').pop() ?? m.path;
+    return { id, label, path: m.path, isEntry: entrySet.has(m.path) };
+  });
+
+  const lines = ['graph TD'];
+  for (const node of nodes) {
+    if (node.isEntry) {
+      lines.push(`  ${node.id}[["${node.label}"]];`);
+    } else {
+      lines.push(`  ${node.id}["${node.label}"];`);
+    }
+  }
+
+  // Connect entry points to non-entry modules
+  const entries = nodes.filter(n => n.isEntry);
+  const nonEntries = nodes.filter(n => !n.isEntry);
+  for (const entry of entries) {
+    for (const mod of nonEntries) {
+      lines.push(`  ${entry.id} --> ${mod.id};`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
+/**
+ * Build a recentActivity summary from captured git_log tool results.
+ */
+function buildRecentActivity(capturedGitLogs) {
+  if (capturedGitLogs.length === 0) {
+    return null;
+  }
+
+  const allCommits = [];
+  const fileCommitCounts = new Map();
+  const authorSet = new Set();
+
+  for (const logResult of capturedGitLogs) {
+    if (!logResult || !Array.isArray(logResult.commits)) {
+      continue;
+    }
+    for (const commit of logResult.commits) {
+      allCommits.push(commit);
+      if (typeof commit.author === 'string') {
+        authorSet.add(commit.author);
+      }
+    }
+    if (typeof logResult.path === 'string' && logResult.path && Array.isArray(logResult.commits)) {
+      fileCommitCounts.set(logResult.path, (fileCommitCounts.get(logResult.path) ?? 0) + logResult.commits.length);
+    }
+  }
+
+  if (allCommits.length === 0) {
+    return null;
+  }
+
+  // Deduplicate commits by hash
+  const seen = new Set();
+  const uniqueCommits = [];
+  for (const commit of allCommits) {
+    if (commit.hash && !seen.has(commit.hash)) {
+      seen.add(commit.hash);
+      uniqueCommits.push(commit);
+    }
+  }
+
+  const hotFiles = [...fileCommitCounts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([file, count]) => `${file} (${count} commits)`);
+
+  const recentCommits = uniqueCommits.slice(0, 5).map(c => ({
+    hash: c.hash ?? '',
+    message: c.subject ?? c.message ?? '',
+    author: c.author ?? '',
+    date: c.date ?? '',
+  }));
+
+  const lastModified = recentCommits.length > 0 ? recentCommits[0].date : '';
+
+  return {
+    hotFiles,
+    recentAuthors: [...authorSet].slice(0, 10),
+    lastModified,
+    recentCommits,
+  };
 }
 
 export class ExplorerRuntime {
@@ -137,6 +313,7 @@ export class ExplorerRuntime {
     let finalObject = null;
     let lastAssistantContent = '';
     const observedRanges = new Map();
+    const capturedGitLogs = [];
 
     for (let turnIndex = 0; turnIndex < budgetConfig.maxTurns; turnIndex += 1) {
       const completion = await this.chatClient.createChatCompletion({
@@ -211,6 +388,11 @@ export class ExplorerRuntime {
           }
         }
 
+        // Capture git_log results for recentActivity construction
+        if (toolName === 'repo_git_log' && !toolResult?.error) {
+          capturedGitLogs.push({ ...toolResult, path: toolArgs.path ?? null });
+        }
+
         messages.push({
           role: 'tool',
           tool_call_id: toolCall.id,
@@ -238,20 +420,51 @@ export class ExplorerRuntime {
       candidatePaths,
     );
     normalized.candidatePaths = normalized.candidatePaths.slice(0, 80);
+
+    // Ground evidence — accept items within EVIDENCE_LINE_TOLERANCE of an
+    // observed range (partial matches are flagged but not dropped).
+    const totalEvidenceBefore = normalized.evidence.length;
     normalized.evidence = normalized.evidence
       .map(item => ({
         ...item,
         path: item.path.replace(/^\.\//, ''),
       }))
       .filter(item => item.path && item.why)
-      .filter(item => overlapsRecordedRange(observedRanges, item));
+      .map(item => {
+        const { overlaps, partial } = checkEvidenceGrounding(observedRanges, item);
+        if (!overlaps) {
+          return null;
+        }
+        if (partial) {
+          return { ...item, groundingStatus: 'partial' };
+        }
+        return { ...item, groundingStatus: 'exact' };
+      })
+      .filter(Boolean);
 
-    if (Array.isArray(finalObject?.evidence) && normalized.evidence.length < finalObject.evidence.length) {
+    // Compute continuous confidence score from grounding data
+    const { score: confidenceScore, level: confidenceLevel, factors: confidenceFactors } =
+      computeConfidenceScore(normalized.evidence, totalEvidenceBefore, stats);
+    normalized.confidenceScore = confidenceScore;
+    normalized.confidenceLevel = confidenceLevel;
+    normalized.confidenceFactors = confidenceFactors;
+
+    // Override model-reported confidence if evidence was dropped
+    if (totalEvidenceBefore > normalized.evidence.length) {
       normalized.confidence = 'low';
-      normalized.followups = mergeCandidatePaths(
-        normalized.followups,
-        ['Some evidence items were dropped because they were not grounded in inspected line ranges.'],
-      );
+      normalized.followups = mergeCandidatePaths(normalized.followups, [
+        {
+          description: 'Some evidence items were dropped because they were not grounded in inspected line ranges.',
+          priority: 'optional',
+          suggestedCall: null,
+        },
+      ]);
+    }
+
+    // Align model-reported confidence level with computed level when it is higher
+    const LEVEL_ORDER = { low: 0, medium: 1, high: 2 };
+    if (LEVEL_ORDER[normalized.confidence] > LEVEL_ORDER[confidenceLevel]) {
+      normalized.confidence = confidenceLevel;
     }
 
     if (!normalized.summary) {
@@ -260,6 +473,27 @@ export class ExplorerRuntime {
     if (!normalized.answer) {
       normalized.answer = lastAssistantContent || 'Explorer did not return a final answer.';
       normalized.confidence = 'low';
+    }
+
+    // Build codeMap from observed file ranges
+    const codeMap = buildCodeMap(observedRanges);
+    if (codeMap) {
+      normalized.codeMap = codeMap;
+
+      // Generate Mermaid diagram for structure-related queries (breadth-first strategy)
+      const strategy = args.hints?.strategy ?? null;
+      if (!strategy || strategy === 'breadth-first') {
+        const diagram = buildMermaidDiagram(codeMap);
+        if (diagram) {
+          normalized.diagram = diagram;
+        }
+      }
+    }
+
+    // Build recentActivity from captured git_log results
+    const recentActivity = buildRecentActivity(capturedGitLogs);
+    if (recentActivity) {
+      normalized.recentActivity = recentActivity;
     }
 
     return normalized;
@@ -299,7 +533,7 @@ export class ExplorerRuntime {
         confidence: 'low',
         evidence: [],
         candidatePaths: [],
-        followups: ['Inspect cited files manually if higher confidence is required.'],
+        followups: [],
       },
       usage: completion.usage ?? null,
     };

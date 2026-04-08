@@ -9,9 +9,9 @@
 | **P1** | 1.2 | 심볼 인덱스 (tree-sitter) | ★★★★★ | Large | TODO |
 | **P1** | 2.1 | 탐색 전략 엔진 | ★★★★ | Medium | ✅ DONE |
 | **P1** | 2.2 | 결과 캐싱 | ★★★ | Small | ✅ DONE |
-| **P2** | 3.1 | 다층 출력 포맷 | ★★★ | Medium | TODO |
-| **P2** | 3.2 | 신뢰도 개선 | ★★★ | Medium | TODO |
-| **P2** | 3.3 | 실행 가능한 followups | ★★★ | Small | TODO |
+| **P2** | 3.1 | 다층 출력 포맷 | ★★★ | Medium | ✅ DONE |
+| **P2** | 3.2 | 신뢰도 개선 | ★★★ | Medium | ✅ DONE |
+| **P2** | 3.3 | 실행 가능한 followups | ★★★ | Small | ✅ DONE |
 | **P2** | 4.2 | 다중 MCP 도구 | ★★★★ | Medium | TODO |
 | **P3** | 2.3 | 매크로 도구 체이닝 | ★★ | Medium | TODO |
 | **P3** | 4.1 | 모델 라우팅 | ★★ | Medium | TODO |
@@ -58,16 +58,27 @@
 
 **완료 시:** 함수/클래스 수준의 코드 이해 가능. 같은 budget으로 2-3배 더 깊은 탐색.
 
-### Milestone 3: Polish (P2)
+### Milestone 3: Polish (P2) — ✅ 완료 (2026-04-08)
 > **목표:** 출력 품질과 도구 다양성 향상
 
-- [ ] 출력 스키마 확장 (`codeMap`, `diagram`, `recentActivity`)
-- [ ] 신뢰도 점수 연속화 (0.0-1.0) + 근거 설명
-- [ ] 실행 가능한 followups 포맷
+- [x] 출력 스키마 확장 (`codeMap`, `diagram`, `recentActivity`) — `src/explorer/runtime.mjs`
+- [x] 신뢰도 점수 연속화 (0.0-1.0) + 근거 설명 — `computeConfidenceScore()` in `src/explorer/schemas.mjs`
+- [x] 실행 가능한 followups 포맷 — `EXPLORE_RESULT_JSON_SCHEMA` 구조화된 객체 배열
 - [ ] 특화 MCP 도구 추가 (`explain_symbol`, `trace_dependency`, `summarize_changes`)
 - [ ] 출력 스키마 문서화
 
-**완료 시:** parent model이 즉시 활용 가능한 풍부한 구조화 정보 제공.
+**구현 결과:**
+- `confidenceScore` (0.0–1.0): evidence grounding, cross-verification, grep 사용, budget 소진 여부에 따라 계산
+- `confidenceLevel`: score 기반으로 low/medium/high 재계산 (모델 보고값이 높으면 하향 조정)
+- `confidenceFactors`: evidenceCount, evidenceDropped, crossVerified, symbolSearchUsed, stoppedByBudget 및 adjustments 목록
+- evidence 부분 일치 허용: ±2줄 tolerance, `groundingStatus: "exact"|"partial"` 플래그
+- `followups` 구조화: `{description, priority: "recommended"|"optional", suggestedCall: {task, scope, budget, hints}}` — legacy string도 자동 정규화
+- `codeMap`: 탐색된 파일 목록으로 자동 빌드 — `entryPoints` (index/main/app/server 패턴), `keyModules` (path, role, linesRead)
+- `diagram`: breadth-first 전략 또는 미지정 시 Mermaid flowchart 자동 생성 (2–12 모듈 범위)
+- `recentActivity`: `repo_git_log` 호출 결과 캡처 → `hotFiles`, `recentAuthors`, `lastModified`, `recentCommits`
+- 테스트 4종 추가: 기본 필드, legacy followup 정규화, git recentActivity, partial match evidence
+
+**완료 효과:** parent model이 즉시 활용 가능한 풍부한 구조화 정보 제공.
 
 ### Milestone 4: Ecosystem (P3)
 > **목표:** 유연성과 확장성 확보

@@ -1,4 +1,6 @@
-# Phase 3: 출력 품질 향상 (Output Quality)
+# Phase 3: 출력 품질 향상 (Output Quality) ✅ 완료 (2026-04-08)
+
+> **구현 완료.** 아래 각 섹션 끝에 실제 구현 결과를 기록함.
 
 ## 3.1 다층적 출력 포맷 — P2
 
@@ -65,6 +67,12 @@
 
 생성 조건: git 도구를 사용한 탐색일 때 자동 포함
 
+### ✅ 구현 결과 (3.1)
+
+- **`codeMap`**: `buildCodeMap(observedRanges)` — 탐색 중 읽은 파일에서 자동 생성. `entryPoints`(index/main/app/server 패턴), `keyModules`(path, role, linesRead). `dependencies` 필드는 import 파싱이 필요해 현재 미포함(추후 tree-sitter 도입 시 확장).
+- **`diagram`**: `buildMermaidDiagram(codeMap)` — 2–12 모듈 범위에서만 생성. breadth-first 전략 또는 strategy 미지정 시 자동 포함. entry point는 `[[이중 대괄호]]`, 나머지는 `[단일]` 노드.
+- **`recentActivity`**: `buildRecentActivity(capturedGitLogs)` — `repo_git_log` 호출 결과를 캡처하여 `hotFiles`, `recentAuthors`, `lastModified`, `recentCommits` 구성. git이 없는 디렉토리에서는 `null`(필드 생략).
+
 ---
 
 ## 3.2 신뢰도(Confidence) 개선 — P2
@@ -126,6 +134,24 @@
 }
 ```
 
+### ✅ 구현 결과 (3.2)
+
+- **연속 신뢰도 점수**: `computeConfidenceScore(groundedEvidence, totalBefore, stats)` → `{score, level, factors}`. Base=0.5, 규칙에 따라 ±조정, [0,1] 클램핑.
+- **`confidenceScore`** (숫자), **`confidenceLevel`** (low/medium/high), **`confidenceFactors`** (`evidenceCount`, `evidenceDropped`, `crossVerified`, `symbolSearchUsed`, `stoppedByBudget`, `adjustments` 배열) 모두 반환값에 포함.
+- **모델 보고값 하향 조정**: 계산된 `confidenceLevel`이 모델 보고값보다 낮으면 `confidence` 필드를 하향 조정.
+- **부분 일치 허용**: `EVIDENCE_LINE_TOLERANCE = 2`. `checkEvidenceGrounding()` — exact/partial/없음 3단계. partial은 `groundingStatus: "partial"` 플래그 후 유지, exact는 `groundingStatus: "exact"`. 범위 밖은 제거.
+
+계산 규칙 (계획 대비 구현):
+| 조건 | 계획 | 실제 |
+|------|------|------|
+| evidence 전부 grounded | +0.2 | ✅ +0.20 |
+| 다중 파일 교차 검증 | +0.15 | ✅ +0.15 |
+| scope 전체 탐색 | +0.1 | 미구현 (측정 어려움) |
+| 심볼 기반 탐색 (grep) | +0.05 | ✅ +0.05 |
+| evidence 일부 제거 | -0.3 | ✅ -0.30 |
+| budget 소진 | -0.2 | ✅ -0.20 |
+| 단일 evidence | -0.1 | ✅ -0.10 |
+
 ---
 
 ## 3.3 후속 탐색 제안 지능화 — P2
@@ -178,3 +204,10 @@
 ### 가치
 - parent model이 사용자에게 "더 조사할까요?" 제안 시 바로 실행 가능
 - 탐색 연속성 보장: 이전 탐색 결과를 기반으로 다음 탐색 최적화
+
+### ✅ 구현 결과 (3.3)
+
+- **`EXPLORE_RESULT_JSON_SCHEMA.followups`**: `string[]` → 구조화된 객체 배열로 변경. 각 항목: `{description, priority: "recommended"|"optional", suggestedCall: {task, scope, budget, hints: {symbols, strategy}}}`.
+- **Legacy 호환**: `normalizeFollowupItem()` — string 타입 followup은 자동으로 `{description, priority: "optional", suggestedCall: null}` 형태로 정규화.
+- **프롬프트 업데이트**: system prompt의 Final JSON shape에 followups 구조화 포맷 가이드 추가. `buildFinalizePrompt()`에 structured followup 예시 포함.
+- **`suggestedCall.hints.strategy`**: 6개 전략 중 하나를 명시하도록 모델에 가이드.

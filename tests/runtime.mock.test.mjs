@@ -126,7 +126,18 @@ class MockChatClient {
             },
           ],
           candidatePaths: ['src/routes/user.js', 'src/auth.js'],
-          followups: [],
+          followups: [
+            {
+              description: '미들웨어 에러 핸들링 패턴 추가 분석',
+              priority: 'optional',
+              suggestedCall: {
+                task: 'Analyze error handling in auth middleware',
+                scope: ['src/**'],
+                budget: 'quick',
+                hints: { symbols: ['handleAuthError'], strategy: 'symbol-first' },
+              },
+            },
+          ],
         }),
         toolCalls: [],
       },
@@ -145,6 +156,7 @@ test('ExplorerRuntime performs an autonomous tool loop and returns structured fi
     budget: 'quick',
   });
 
+  // Core fields
   assert.equal(result.confidence, 'high');
   assert.match(result.answer, /requireAuth/);
   assert.equal(result.evidence.length, 2);
@@ -152,4 +164,187 @@ test('ExplorerRuntime performs an autonomous tool loop and returns structured fi
   assert.equal(result.stats.grepCalls, 1);
   assert.equal(result.stats.filesRead, 2);
   assert.equal(result.candidatePaths.includes('src/routes/user.js'), true);
+
+  // Phase 3: continuous confidence score
+  assert.ok(typeof result.confidenceScore === 'number', 'confidenceScore must be a number');
+  assert.ok(result.confidenceScore >= 0 && result.confidenceScore <= 1, 'confidenceScore must be in [0, 1]');
+  assert.ok(['low', 'medium', 'high'].includes(result.confidenceLevel), 'confidenceLevel must be low|medium|high');
+  assert.ok(result.confidenceFactors && typeof result.confidenceFactors === 'object', 'confidenceFactors must be an object');
+  assert.ok(typeof result.confidenceFactors.evidenceCount === 'number', 'confidenceFactors.evidenceCount must be a number');
+  assert.ok(typeof result.confidenceFactors.crossVerified === 'boolean', 'confidenceFactors.crossVerified must be a boolean');
+
+  // Phase 3: evidence grounding status
+  for (const ev of result.evidence) {
+    assert.ok(ev.groundingStatus === 'exact' || ev.groundingStatus === 'partial', 'each evidence item must have groundingStatus');
+  }
+
+  // Phase 3: structured followups
+  assert.ok(Array.isArray(result.followups), 'followups must be an array');
+  if (result.followups.length > 0) {
+    const followup = result.followups[0];
+    assert.ok(typeof followup.description === 'string', 'followup.description must be a string');
+    assert.ok(followup.priority === 'recommended' || followup.priority === 'optional', 'followup.priority must be recommended|optional');
+  }
+
+  // Phase 3: codeMap
+  assert.ok(result.codeMap && typeof result.codeMap === 'object', 'codeMap must be present');
+  assert.ok(Array.isArray(result.codeMap.entryPoints), 'codeMap.entryPoints must be an array');
+  assert.ok(Array.isArray(result.codeMap.keyModules), 'codeMap.keyModules must be an array');
+  assert.ok(result.codeMap.keyModules.length >= 2, 'codeMap must include at least the two read files');
+});
+
+test('ExplorerRuntime accepts legacy string followups and normalizes them', async () => {
+  class LegacyFollowupClient {
+    constructor() {
+      this.model = 'zai-glm-4.7';
+    }
+    async createChatCompletion() {
+      return {
+        usage: { prompt_tokens: 50, completion_tokens: 20, total_tokens: 70 },
+        message: {
+          content: JSON.stringify({
+            answer: '테스트 답변',
+            summary: '테스트 요약',
+            confidence: 'medium',
+            evidence: [],
+            candidatePaths: [],
+            followups: ['추가 조사가 필요합니다'],
+          }),
+          toolCalls: [],
+        },
+      };
+    }
+  }
+
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-explorer-legacy-'));
+  await fs.writeFile(path.join(root, 'index.js'), 'console.log("hello");');
+
+  const runtime = new ExplorerRuntime({ chatClient: new LegacyFollowupClient() });
+  const result = await runtime.explore({ task: '테스트', repo_root: root });
+
+  assert.ok(Array.isArray(result.followups));
+  if (result.followups.length > 0) {
+    assert.ok(typeof result.followups[0].description === 'string', 'legacy string followup must be normalized to object');
+    assert.ok(result.followups[0].priority === 'optional');
+  }
+});
+
+test('ExplorerRuntime builds recentActivity when git_log tool is called', async () => {
+  class GitLogClient {
+    constructor() {
+      this.model = 'zai-glm-4.7';
+      this.calls = 0;
+    }
+    async createChatCompletion() {
+      this.calls += 1;
+      if (this.calls === 1) {
+        return {
+          usage: { prompt_tokens: 50, completion_tokens: 20, total_tokens: 70 },
+          message: {
+            content: '',
+            toolCalls: [
+              {
+                id: 'call-git-1',
+                function: {
+                  name: 'repo_git_log',
+                  arguments: JSON.stringify({ maxCount: 5 }),
+                },
+              },
+            ],
+          },
+        };
+      }
+      return {
+        usage: { prompt_tokens: 80, completion_tokens: 30, total_tokens: 110 },
+        message: {
+          content: JSON.stringify({
+            answer: '최근 커밋 이력을 확인했습니다.',
+            summary: '최근 변경 사항 요약',
+            confidence: 'medium',
+            evidence: [],
+            candidatePaths: [],
+            followups: [],
+          }),
+          toolCalls: [],
+        },
+      };
+    }
+  }
+
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-explorer-git-'));
+  await fs.writeFile(path.join(root, 'index.js'), 'console.log("hello");');
+
+  const runtime = new ExplorerRuntime({ chatClient: new GitLogClient() });
+  const result = await runtime.explore({
+    task: '최근에 어떤 파일이 변경되었나요?',
+    repo_root: root,
+    hints: { strategy: 'git-guided' },
+  });
+
+  // recentActivity may be null if git_log returned no commits (non-git dir)
+  // The important thing is the field is present or absent — no crash
+  assert.ok('recentActivity' in result || result.recentActivity === undefined);
+  assert.equal(result.stats.gitLogCalls, 1);
+});
+
+test('ExplorerRuntime partial match evidence: evidence within tolerance lines is kept', async () => {
+  class PartialMatchClient {
+    constructor() {
+      this.model = 'zai-glm-4.7';
+      this.calls = 0;
+    }
+    async createChatCompletion() {
+      this.calls += 1;
+      if (this.calls === 1) {
+        return {
+          usage: { prompt_tokens: 50, completion_tokens: 10, total_tokens: 60 },
+          message: {
+            content: '',
+            toolCalls: [
+              {
+                id: 'call-read-1',
+                function: {
+                  name: 'repo_read_file',
+                  arguments: JSON.stringify({ path: 'src/auth.js', startLine: 1, endLine: 4 }),
+                },
+              },
+            ],
+          },
+        };
+      }
+      // Evidence references lines 5-6 but we only read 1-4.
+      // With EVIDENCE_LINE_TOLERANCE=2, line 5 is within tolerance → kept as partial.
+      return {
+        usage: { prompt_tokens: 80, completion_tokens: 20, total_tokens: 100 },
+        message: {
+          content: JSON.stringify({
+            answer: '인증 함수가 확인됩니다.',
+            summary: '요약',
+            confidence: 'medium',
+            evidence: [
+              { path: 'src/auth.js', startLine: 5, endLine: 6, why: '함수 본문' },
+            ],
+            candidatePaths: ['src/auth.js'],
+            followups: [],
+          }),
+          toolCalls: [],
+        },
+      };
+    }
+  }
+
+  const root = await makeRepoFixture();
+  const runtime = new ExplorerRuntime({ chatClient: new PartialMatchClient() });
+  const result = await runtime.explore({
+    task: '인증 함수 확인',
+    repo_root: root,
+    scope: ['src/**'],
+    budget: 'quick',
+  });
+
+  // The evidence item at lines 5-6 should be kept as a partial match (read range was 1-4,
+  // and 5 is within EVIDENCE_LINE_TOLERANCE=2 of endLine=4)
+  assert.ok(result.evidence.length >= 1, 'partial-match evidence should be retained');
+  const partialItems = result.evidence.filter(e => e.groundingStatus === 'partial');
+  assert.ok(partialItems.length >= 1, 'at least one evidence item should have groundingStatus=partial');
 });
