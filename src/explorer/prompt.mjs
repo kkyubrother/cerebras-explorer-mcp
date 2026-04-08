@@ -42,8 +42,18 @@ function formatScope(scope = []) {
   return scope.join(', ');
 }
 
-export function buildExplorerSystemPrompt({ repoRoot, budgetConfig }) {
-  return [
+/**
+ * Build the system prompt for the explorer agent.
+ *
+ * @param {object} opts
+ * @param {string}   opts.repoRoot
+ * @param {object}   opts.budgetConfig
+ * @param {string}   [opts.projectContext] - Injected from .cerebras-explorer.json
+ * @param {string[]} [opts.previousSummaries] - Summaries from prior session calls
+ * @param {string[]} [opts.keyFiles] - Key files from project config (prioritise these)
+ */
+export function buildExplorerSystemPrompt({ repoRoot, budgetConfig, projectContext, previousSummaries, keyFiles }) {
+  const parts = [
     'You are Cerebras Explorer, an autonomous READ-ONLY repository exploration agent.',
     'You MUST use repo tools to inspect the repository before answering unless the answer is already obvious from prior tool results.',
     'You MUST remain read-only. Never suggest writing files, running mutating shell commands, or making direct edits.',
@@ -68,6 +78,27 @@ export function buildExplorerSystemPrompt({ repoRoot, budgetConfig }) {
     '- repo_git_blame: line-level author/commit for a file range. Use to find "who wrote this and why".',
     '- repo_git_diff: diff between two refs. Use stat=true first for overview, then full diff for details.',
     '- repo_git_show: full details of a single commit (message + patch). Use after git_log to inspect a specific change.',
+  ];
+
+  // Project context from .cerebras-explorer.json
+  if (typeof projectContext === 'string' && projectContext.trim()) {
+    parts.push('', 'Project context:', projectContext.trim());
+  }
+
+  // Key files to check early for architecture questions
+  if (Array.isArray(keyFiles) && keyFiles.length > 0) {
+    parts.push('', `Key files (check these first for structural questions): ${keyFiles.join(', ')}`);
+  }
+
+  // Previous session summaries for continuity
+  if (Array.isArray(previousSummaries) && previousSummaries.length > 0) {
+    parts.push('', 'Findings from previous exploration in this session (do not re-examine already-confirmed facts):');
+    for (const summary of previousSummaries) {
+      parts.push(`- ${summary}`);
+    }
+  }
+
+  parts.push(
     '',
     'Final JSON shape:',
     '{',
@@ -103,16 +134,18 @@ export function buildExplorerSystemPrompt({ repoRoot, budgetConfig }) {
     repoRoot,
     '',
     `Exploration budget: ${budgetConfig.label} (maxTurns=${budgetConfig.maxTurns}, maxReadLinesPerCall=${budgetConfig.maxReadLines}, maxSearchResults=${budgetConfig.maxSearchResults}).`,
-  ].join('\n');
+  );
+
+  return parts.join('\n');
 }
 
-export function buildExplorerUserPrompt({ task, scope, budget, hints }) {
+export function buildExplorerUserPrompt({ task, scope, budget, hints, sessionCandidatePaths }) {
   const strategy = hints?.strategy ?? detectStrategy(task);
   const strategyLine = strategy
     ? `Strategy: ${strategy} — ${STRATEGY_DESCRIPTIONS[strategy]}`
     : 'Strategy: auto (no dominant pattern detected — start with repo_list_dir or repo_grep)';
 
-  return [
+  const lines = [
     'Delegated exploration request:',
     task.trim(),
     '',
@@ -121,13 +154,26 @@ export function buildExplorerUserPrompt({ task, scope, budget, hints }) {
     strategyLine,
     'Hints:',
     formatHintBlock(hints),
+  ];
+
+  // Inject paths from a previous session call as context
+  if (Array.isArray(sessionCandidatePaths) && sessionCandidatePaths.length > 0) {
+    lines.push(
+      '',
+      `Files found in prior session calls (likely relevant — check these early): ${sessionCandidatePaths.slice(0, 15).join(', ')}`,
+    );
+  }
+
+  lines.push(
     '',
     'Work plan:',
     '1. Discover likely relevant files using the suggested strategy above.',
     '2. Read only the smallest ranges needed to answer.',
     '3. Stop once evidence is sufficient.',
     '4. Return the final JSON result.',
-  ].join('\n');
+  );
+
+  return lines.join('\n');
 }
 
 export function buildFinalizePrompt() {

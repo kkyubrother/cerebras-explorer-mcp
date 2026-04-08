@@ -41,6 +41,11 @@ export const EXPLORE_REPO_INPUT_SCHEMA = {
         },
       },
     },
+    session: {
+      type: 'string',
+      description:
+        'Optional session ID returned by a previous explore_repo call. When provided, the explorer carries over discovered file paths and prior summaries to accelerate follow-up exploration.',
+    },
   },
   required: ['task'],
 };
@@ -149,6 +154,9 @@ export function validateExploreRepoArgs(args) {
   }
   if (args.repo_root !== undefined && typeof args.repo_root !== 'string') {
     throw new Error('repo_root must be a string when provided.');
+  }
+  if (args.session !== undefined && (typeof args.session !== 'string' || !args.session.trim())) {
+    throw new Error('session must be a non-empty string when provided.');
   }
   if (args.hints !== undefined) {
     if (!args.hints || typeof args.hints !== 'object' || Array.isArray(args.hints)) {

@@ -16,9 +16,9 @@
 | **P3** | 2.3 | 매크로 도구 체이닝 | ★★ | Medium | TODO |
 | **P3** | 4.1 | 모델 라우팅 | ★★ | Medium | ✅ DONE |
 | **P3** | 4.3 | 프로바이더 추상화 | ★★★ | Medium | ✅ DONE |
-| **P3** | 5.1 | 인터랙티브 모드 | ★★★ | Large | TODO |
-| **P3** | 5.2 | 진행 상황 리포팅 | ★★ | Small | TODO |
-| **P3** | 5.3 | 프로젝트별 설정 파일 | ★★ | Small | TODO |
+| **P3** | 5.1 | 인터랙티브 모드 | ★★★ | Large | ✅ DONE |
+| **P3** | 5.2 | 진행 상황 리포팅 | ★★ | Small | ✅ DONE |
+| **P3** | 5.3 | 프로젝트별 설정 파일 | ★★ | Small | ✅ DONE |
 
 ## 단계별 마일스톤
 
@@ -79,6 +79,38 @@
 - 테스트 4종 추가: 기본 필드, legacy followup 정규화, git recentActivity, partial match evidence
 
 **완료 효과:** parent model이 즉시 활용 가능한 풍부한 구조화 정보 제공.
+
+### Milestone 5: DX (P3) — ✅ 완료 (2026-04-08)
+> **목표:** 개발자 경험 향상으로 탐색 품질과 편의성 극대화
+
+- [x] 인터랙티브 세션 모드 — `src/explorer/session.mjs` (`SessionStore`, `globalSessionStore`)
+- [x] MCP 진행 알림 — `notifications/progress` via `jsonrpc-stdio.mjs` + `server.mjs`
+- [x] 프로젝트별 설정 파일 — `.cerebras-explorer.json` 로딩 + 적용
+
+**구현 결과:**
+
+**5.1 인터랙티브 세션 모드:**
+- `SessionStore`: TTL(기본 30분)/maxCalls(기본 5회) 기반 인메모리 세션 관리
+- 세션 누적 데이터: `candidatePaths`(50개), `evidencePaths`(30개), `summaries`(최근 3개), `followups`
+- `stats.sessionId` 반환 → 다음 호출 시 `session: "sess_..."` 파라미터로 전달
+- 후속 호출 시 자동 컨텍스트 주입: 이전 `candidatePaths` → user prompt hint, 이전 `summaries` → system prompt "Previous findings"
+
+**5.2 진행 상황 리포팅:**
+- `StdioJsonRpcServer.sendNotification(method, params)` 메서드 추가
+- `_meta.progressToken` 감지 → `notifications/progress` 자동 전송
+- 턴별 메시지: "Starting exploration..." → "Turn N/M: repo_grep, repo_read_file..." → "Synthesizing findings..."
+- `startMcpServer`의 lazy closure 패턴으로 transport 참조 문제 해결
+
+**5.3 프로젝트별 설정 파일:**
+- `loadProjectConfig(repoRoot)`: `.cerebras-explorer.json` 자동 로딩
+- `normalizeProjectConfig(raw)`: 타입 검증 및 정규화
+- 적용 우선순위: 함수 인자 > 설정 파일 > 기본값
+- 지원 필드: `defaultBudget`, `defaultScope`, `extraIgnoreDirs`, `projectContext`, `keyFiles`, `entryPoints`
+- `extraIgnoreDirs`: `RepoToolkit.ignoreDirs` 확장 세트로 적용
+- `projectContext`: system prompt에 "Project context:" 섹션으로 주입
+- `keyFiles`: system prompt에 "Key files" 힌트로 주입
+
+**테스트 추가:** 25종 (session.test.mjs + project-config.test.mjs) + runtime 3종 (onProgress, sessionId, session context injection)
 
 ### Milestone 4: Ecosystem (P3) — 부분 완료 (2026-04-08)
 > **목표:** 유연성과 확장성 확보

@@ -348,3 +348,131 @@ test('ExplorerRuntime partial match evidence: evidence within tolerance lines is
   const partialItems = result.evidence.filter(e => e.groundingStatus === 'partial');
   assert.ok(partialItems.length >= 1, 'at least one evidence item should have groundingStatus=partial');
 });
+
+test('ExplorerRuntime calls onProgress callback on each turn', async () => {
+  class TwoTurnClient {
+    constructor() { this.model = 'mock'; this.calls = 0; }
+    async createChatCompletion() {
+      this.calls += 1;
+      if (this.calls === 1) {
+        return {
+          usage: { prompt_tokens: 50, completion_tokens: 10, total_tokens: 60 },
+          message: {
+            content: '',
+            toolCalls: [{
+              id: 'c1',
+              function: { name: 'repo_grep', arguments: JSON.stringify({ pattern: 'auth' }) },
+            }],
+          },
+        };
+      }
+      return {
+        usage: { prompt_tokens: 60, completion_tokens: 20, total_tokens: 80 },
+        message: {
+          content: JSON.stringify({
+            answer: '답변', summary: '요약', confidence: 'low',
+            evidence: [], candidatePaths: [], followups: [],
+          }),
+          toolCalls: [],
+        },
+      };
+    }
+  }
+
+  const root = await makeRepoFixture();
+  const runtime = new ExplorerRuntime({ chatClient: new TwoTurnClient() });
+  const progressEvents = [];
+
+  const result = await runtime.explore(
+    { task: '인증 함수 찾기', repo_root: root, scope: ['src/**'], budget: 'quick' },
+    { onProgress: (evt) => progressEvents.push(evt) },
+  );
+
+  assert.ok(progressEvents.length >= 2, 'onProgress must be called at least twice');
+  for (const evt of progressEvents) {
+    assert.ok(typeof evt.progress === 'number', 'progress must be a number');
+    assert.ok(typeof evt.total === 'number', 'total must be a number');
+    assert.ok(typeof evt.message === 'string', 'message must be a string');
+  }
+  assert.ok(result.answer);
+});
+
+test('ExplorerRuntime returns sessionId in stats when sessionStore is provided', async () => {
+  class SimpleClient {
+    constructor() { this.model = 'mock'; }
+    async createChatCompletion() {
+      return {
+        usage: { prompt_tokens: 30, completion_tokens: 10, total_tokens: 40 },
+        message: {
+          content: JSON.stringify({
+            answer: '세션 테스트', summary: '요약', confidence: 'low',
+            evidence: [], candidatePaths: ['src/auth.js'], followups: [],
+          }),
+          toolCalls: [],
+        },
+      };
+    }
+  }
+
+  const root = await makeRepoFixture();
+  const { SessionStore } = await import('../src/explorer/session.mjs');
+  const sessionStore = new SessionStore();
+
+  const runtime = new ExplorerRuntime({ chatClient: new SimpleClient() });
+  const result = await runtime.explore(
+    { task: '테스트', repo_root: root },
+    { sessionStore },
+  );
+
+  assert.ok(typeof result.stats.sessionId === 'string', 'stats.sessionId must be a string');
+  assert.ok(result.stats.sessionId.startsWith('sess_'), 'sessionId must start with sess_');
+
+  // Session should store candidatePaths from this call
+  const session = sessionStore.get(result.stats.sessionId);
+  assert.ok(session, 'session must exist in the store');
+  assert.ok(session.candidatePaths.includes('src/auth.js'), 'candidatePaths must be accumulated');
+});
+
+test('ExplorerRuntime injects previous session context into next call', async () => {
+  const capturedPrompts = [];
+
+  class CapturingClient {
+    constructor() { this.model = 'mock'; }
+    async createChatCompletion({ messages }) {
+      capturedPrompts.push(messages[0].content); // system prompt
+      return {
+        usage: { prompt_tokens: 30, completion_tokens: 10, total_tokens: 40 },
+        message: {
+          content: JSON.stringify({
+            answer: 'ok', summary: 'previous context test', confidence: 'low',
+            evidence: [], candidatePaths: [], followups: [],
+          }),
+          toolCalls: [],
+        },
+      };
+    }
+  }
+
+  const root = await makeRepoFixture();
+  const { SessionStore } = await import('../src/explorer/session.mjs');
+  const sessionStore = new SessionStore();
+  const runtime = new ExplorerRuntime({ chatClient: new CapturingClient() });
+
+  // First call — creates session
+  const first = await runtime.explore({ task: '첫 번째 탐색', repo_root: root }, { sessionStore });
+  const sessionId = first.stats.sessionId;
+
+  // Second call — uses session ID
+  await runtime.explore(
+    { task: '두 번째 탐색', repo_root: root, session: sessionId },
+    { sessionStore },
+  );
+
+  // The second system prompt should include the previous summary
+  const secondSystemPrompt = capturedPrompts[1];
+  assert.ok(
+    secondSystemPrompt.includes('previous context test') ||
+    secondSystemPrompt.includes('Findings from previous'),
+    'Second call must reference previous session summary in system prompt',
+  );
+});

@@ -1,4 +1,5 @@
 import path from 'node:path';
+import fs from 'node:fs/promises';
 
 export const DEFAULT_EXPLORER_MODEL = 'zai-glm-4.7';
 
@@ -160,4 +161,68 @@ export function classifyTaskComplexity(task) {
     return 'complex';
   }
   return 'moderate';
+}
+
+/**
+ * Load the project-level configuration file from the repository root.
+ *
+ * Looks for `.cerebras-explorer.json` in `repoRoot`. Returns an empty object
+ * when the file is absent, unreadable, or contains invalid JSON.
+ *
+ * Recognised fields (all optional):
+ *   defaultBudget       — "quick"|"normal"|"deep"
+ *   defaultScope        — string[] of glob patterns
+ *   extraIgnoreDirs     — string[] of directory names to skip during traversal
+ *   projectContext      — string injected into the explorer's system prompt
+ *   entryPoints         — string[] of key entry-point file paths
+ *   keyFiles            — string[] of important files (searched first on arch queries)
+ *   customSymbolPatterns— object: {ext: regexString}
+ *   languages           — string[] (informational, future use)
+ *
+ * @param {string} repoRoot
+ * @returns {Promise<object>}
+ */
+export async function loadProjectConfig(repoRoot) {
+  const configPath = path.join(repoRoot, '.cerebras-explorer.json');
+  try {
+    const raw = await fs.readFile(configPath, 'utf8');
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed;
+    }
+  } catch {
+    // File not found, not readable, or invalid JSON — silently use defaults.
+  }
+  return {};
+}
+
+/**
+ * Validate and normalise a raw project config object into a known shape.
+ * Unknown fields are dropped; type errors are coerced or silently ignored.
+ */
+export function normalizeProjectConfig(raw) {
+  if (!raw || typeof raw !== 'object') return {};
+
+  const config = {};
+
+  if (['quick', 'normal', 'deep'].includes(raw.defaultBudget)) {
+    config.defaultBudget = raw.defaultBudget;
+  }
+  if (Array.isArray(raw.defaultScope)) {
+    config.defaultScope = raw.defaultScope.filter(s => typeof s === 'string');
+  }
+  if (Array.isArray(raw.extraIgnoreDirs)) {
+    config.extraIgnoreDirs = raw.extraIgnoreDirs.filter(s => typeof s === 'string');
+  }
+  if (typeof raw.projectContext === 'string' && raw.projectContext.trim()) {
+    config.projectContext = raw.projectContext.trim();
+  }
+  if (Array.isArray(raw.entryPoints)) {
+    config.entryPoints = raw.entryPoints.filter(s => typeof s === 'string');
+  }
+  if (Array.isArray(raw.keyFiles)) {
+    config.keyFiles = raw.keyFiles.filter(s => typeof s === 'string');
+  }
+
+  return config;
 }

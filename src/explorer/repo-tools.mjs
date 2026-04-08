@@ -259,13 +259,13 @@ function buildGitignoreMatcher(rules) {
   return relPath => entries.some(match => match(relPath));
 }
 
-function shouldIgnorePath(relPath, dirent, gitignoreMatcher) {
+function shouldIgnorePath(relPath, dirent, gitignoreMatcher, ignoreDirs = DEFAULT_IGNORE_DIRS) {
   if (dirent?.isSymbolicLink?.()) {
     return true;
   }
 
   const parts = relPath.split('/');
-  if (parts.some(part => DEFAULT_IGNORE_DIRS.has(part))) {
+  if (parts.some(part => ignoreDirs.has(part))) {
     return true;
   }
   if (!dirent.isDirectory()) {
@@ -356,6 +356,7 @@ export class RepoToolkit {
     budgetConfig,
     logger = () => {},
     cache = null,
+    extraIgnoreDirs = [],
   }) {
     this.repoRoot = repoRoot;
     this.repoRootReal = null;
@@ -366,6 +367,10 @@ export class RepoToolkit {
     this.gitignoreMatcher = null;
     this._hasRipgrep = null;
     this._hasGit = null;
+    // Combined ignore set: built-ins + project-specific extras
+    this.ignoreDirs = extraIgnoreDirs.length > 0
+      ? new Set([...DEFAULT_IGNORE_DIRS, ...extraIgnoreDirs])
+      : DEFAULT_IGNORE_DIRS;
   }
 
   async initialize(scope = []) {
@@ -399,7 +404,7 @@ export class RepoToolkit {
       for (const entry of entries) {
         const rel = current === '.' ? entry.name : path.join(current, entry.name);
         const relPosix = sanitizeRelativePath(rel);
-        if (shouldIgnorePath(relPosix, entry, this.gitignoreMatcher)) {
+        if (shouldIgnorePath(relPosix, entry, this.gitignoreMatcher, this.ignoreDirs)) {
           continue;
         }
 
@@ -454,7 +459,7 @@ export class RepoToolkit {
 
         const rel = currentRel === '.' ? entry.name : `${currentRel}/${entry.name}`;
         const relPosix = sanitizeRelativePath(rel);
-        if (shouldIgnorePath(relPosix, entry, this.gitignoreMatcher)) {
+        if (shouldIgnorePath(relPosix, entry, this.gitignoreMatcher, this.ignoreDirs)) {
           continue;
         }
 

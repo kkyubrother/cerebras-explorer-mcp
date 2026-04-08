@@ -1,4 +1,6 @@
-# Phase 5: 개발자 경험 (DX)
+# Phase 5: 개발자 경험 (DX) ✅ 완료 (2026-04-08)
+
+> **5.1, 5.2, 5.3 구현 완료.** 아래 각 섹션 끝에 실제 구현 결과를 기록함.
 
 ## 5.1 인터랙티브 모드 — P3
 
@@ -38,6 +40,21 @@
 ### 가치
 - parent model이 "더 깊이 파봐"라고 하면 이전 결과 기반으로 효율적 확장
 - 점진적 탐색: quick → normal → deep으로 단계적 심화
+
+### ✅ 구현 결과 (5.1)
+
+- **`SessionStore`** (`src/explorer/session.mjs`): TTL=30분, maxCalls=5 인메모리 세션 관리
+  - `create(repoRoot)` → `sess_<hex16>` ID 생성
+  - `get(id)` → null(만료/미존재) 또는 session 객체
+  - `update(id, result)` → candidatePaths(50), evidencePaths(30), summaries(최근 3), followups 누적
+  - `isExhausted(id)`, `prune()`, `size` 지원
+- **`globalSessionStore`**: MCP 서버에서 사용하는 싱글턴
+- **`explore(args, { sessionStore })`**: session 파라미터 감지 → 이전 세션 로드 또는 신규 생성
+  - user prompt에 `sessionCandidatePaths` 주입 (이전 발견 파일 목록)
+  - system prompt에 `previousSummaries` 주입 ("Findings from previous exploration:")
+  - 결과에 `stats.sessionId` 포함
+- 입력 스키마에 `session: string (optional)` 필드 추가
+- 계획 대비: 세션 ID는 항상 새로 생성(명시적 전달 없으면) — 계획과 동일
 
 ---
 
@@ -93,6 +110,18 @@ async explore(args, { onProgress }) {
 ### 가치
 - parent model이 사용자에게 중간 상태를 보여줄 수 있음
 - deep budget (16턴)에서 "멈춘 건 아닌지" 불안 해소
+
+### ✅ 구현 결과 (5.2)
+
+- **`StdioJsonRpcServer.sendNotification(method, params)`** (`jsonrpc-stdio.mjs`): 비요청 JSON-RPC 알림 전송
+- **`_meta.progressToken` 감지** (`server.mjs`): `message.params._meta.progressToken` 추출
+- **`makeProgressCallback(progressToken)`** (`server.mjs`): progressToken 있을 때만 알림 전송 (없으면 null)
+- **`explore(args, { onProgress })`** (`runtime.mjs`): 턴별 onProgress 콜백
+  - 탐색 시작: "Starting exploration..."
+  - 도구 실행 전: "Turn N/M: repo_grep, repo_read_file..." (도구명 최대 3개 표시)
+  - 합성 단계: "Synthesizing findings..."
+  - budget 소진: "Budget exhausted — synthesizing partial answer..."
+- **lazy closure 패턴** (`server.mjs`): `transport`가 할당되기 전에 핸들러를 만들어도 동작하는 `() => transport?.sendNotification(...)` 클로저
 
 ---
 
@@ -164,3 +193,19 @@ export async function loadProjectConfig(repoRoot) {
 - 모노레포에서 `defaultScope`로 관련 패키지만 탐색
 - `projectContext`로 모델에게 프로젝트 배경 제공 → 더 정확한 답변
 - `keyFiles`로 아키텍처 질문 시 빠른 진입점 제공
+
+### ✅ 구현 결과 (5.3)
+
+- **`loadProjectConfig(repoRoot)`** (`config.mjs`): `.cerebras-explorer.json` 비동기 로딩
+  - 파일 없음/파싱 오류/배열 JSON → 빈 객체 반환 (silent fallback)
+- **`normalizeProjectConfig(raw)`** (`config.mjs`): 타입 검증 및 정규화
+  - `defaultBudget`: "quick"|"normal"|"deep" 중 하나여야 함 (외 드롭)
+  - `defaultScope`, `extraIgnoreDirs`, `keyFiles`, `entryPoints`: string 원소만 필터
+  - `projectContext`: 공백 trim, 빈 문자열 드롭
+  - 미지원 필드는 무시
+- **적용 우선순위** (높은 순): 함수 인자 > `.cerebras-explorer.json` > 기본값
+- **`extraIgnoreDirs`**: `RepoToolkit.ignoreDirs = new Set([...DEFAULT_IGNORE_DIRS, ...extraIgnoreDirs])`
+  - `shouldIgnorePath()` 함수에 `ignoreDirs` 파라미터 추가 (기본값 = DEFAULT_IGNORE_DIRS)
+- **`projectContext`**: `buildExplorerSystemPrompt()` → "Project context:" 섹션으로 주입
+- **`keyFiles`**: `buildExplorerSystemPrompt()` → "Key files (check these first):" 힌트로 주입
+- 계획의 `customSymbolPatterns`, `languages` 필드는 미구현 (tree-sitter 도입 시 확장)

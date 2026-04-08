@@ -1,6 +1,7 @@
 import { DEFAULT_PROTOCOL_VERSION, getExplorerModel, isTruthyEnv } from '../explorer/config.mjs';
 import { exploreRepository } from '../explorer/runtime.mjs';
 import { EXPLORE_REPO_INPUT_SCHEMA, validateExploreRepoArgs } from '../explorer/schemas.mjs';
+import { globalSessionStore } from '../explorer/session.mjs';
 import { StdioJsonRpcServer } from './jsonrpc-stdio.mjs';
 
 const SERVER_INFO = {
@@ -14,7 +15,7 @@ const EXPLORE_REPO_TOOL = {
   name: 'explore_repo',
   title: 'Autonomous repository explorer',
   description:
-    'Delegates read-only codebase exploration to a standalone Cerebras explorer agent. The parent model gives one high-level task; the explorer performs its own search/read loop and returns structured findings.',
+    'Delegates read-only codebase exploration to a standalone Cerebras explorer agent. The parent model gives one high-level task; the explorer performs its own search/read loop and returns structured findings. Pass the returned stats.sessionId as "session" in a follow-up call to carry over discovered context.',
   inputSchema: EXPLORE_REPO_INPUT_SCHEMA,
 };
 
@@ -33,15 +34,9 @@ const EXPLAIN_SYMBOL_TOOL = {
         type: 'string',
         description: 'The symbol name to explain (function, class, variable, type, etc.).',
       },
-      repo_root: {
-        type: 'string',
-        description: 'Optional repository root. Defaults to the MCP server working directory.',
-      },
-      scope: {
-        type: 'array',
-        items: { type: 'string' },
-        description: 'Optional path prefixes or glob patterns to limit the search.',
-      },
+      repo_root: { type: 'string' },
+      scope: { type: 'array', items: { type: 'string' } },
+      session: { type: 'string', description: 'Optional session ID for continuity.' },
     },
     required: ['symbol'],
   },
@@ -65,11 +60,9 @@ const TRACE_DEPENDENCY_TOOL = {
         enum: ['downstream', 'upstream', 'both'],
         description: 'downstream = what this file imports; upstream = what imports this file; both = full graph.',
       },
-      maxDepth: {
-        type: 'number',
-        description: 'Maximum dependency chain depth to follow (default: 3).',
-      },
+      maxDepth: { type: 'number' },
       repo_root: { type: 'string' },
+      session: { type: 'string' },
     },
     required: ['entryPoint'],
   },
@@ -84,19 +77,11 @@ const SUMMARIZE_CHANGES_TOOL = {
     type: 'object',
     additionalProperties: false,
     properties: {
-      since: {
-        type: 'string',
-        description: "Time reference: '1 week ago', a commit hash, or a branch name.",
-      },
-      until: {
-        type: 'string',
-        description: 'End time reference. Defaults to HEAD.',
-      },
-      path: {
-        type: 'string',
-        description: 'Limit the summary to changes in this path.',
-      },
+      since: { type: 'string', description: "Time reference: '1 week ago', a commit hash, or a branch name." },
+      until: { type: 'string' },
+      path: { type: 'string' },
       repo_root: { type: 'string' },
+      session: { type: 'string' },
     },
     required: [],
   },
@@ -111,24 +96,12 @@ const FIND_SIMILAR_CODE_TOOL = {
     type: 'object',
     additionalProperties: false,
     properties: {
-      reference: {
-        type: 'string',
-        description: 'A file path (optionally with line range) or a short code snippet to use as the search reference.',
-      },
-      startLine: {
-        type: 'number',
-        description: 'First line of the reference range (when reference is a file path).',
-      },
-      endLine: {
-        type: 'number',
-        description: 'Last line of the reference range.',
-      },
-      scope: {
-        type: 'array',
-        items: { type: 'string' },
-        description: 'Optional path prefixes or glob patterns to limit the search.',
-      },
+      reference: { type: 'string', description: 'A file path or short code snippet to use as the reference.' },
+      startLine: { type: 'number' },
+      endLine: { type: 'number' },
+      scope: { type: 'array', items: { type: 'string' } },
       repo_root: { type: 'string' },
+      session: { type: 'string' },
     },
     required: ['reference'],
   },
@@ -136,22 +109,16 @@ const FIND_SIMILAR_CODE_TOOL = {
 
 // ─── Tool registry ─────────────────────────────────────────────────────────
 
-/** Returns whether the extra specialized tools should be exposed. */
 function extraToolsEnabled() {
   const v = process.env.CEREBRAS_EXPLORER_EXTRA_TOOLS;
-  if (v === undefined || v === null) return true;  // default: on
+  if (v === undefined || v === null) return true;
   return isTruthyEnv(v);
 }
 
 function buildToolList() {
   const tools = [EXPLORE_REPO_TOOL];
   if (extraToolsEnabled()) {
-    tools.push(
-      EXPLAIN_SYMBOL_TOOL,
-      TRACE_DEPENDENCY_TOOL,
-      SUMMARIZE_CHANGES_TOOL,
-      FIND_SIMILAR_CODE_TOOL,
-    );
+    tools.push(EXPLAIN_SYMBOL_TOOL, TRACE_DEPENDENCY_TOOL, SUMMARIZE_CHANGES_TOOL, FIND_SIMILAR_CODE_TOOL);
   }
   return tools;
 }
@@ -159,56 +126,54 @@ function buildToolList() {
 // ─── Specialized tool task builders ────────────────────────────────────────
 
 function buildExplainSymbolArgs(args) {
-  const { symbol, repo_root, scope } = args;
+  const { symbol, repo_root, scope, session } = args;
   if (!symbol || typeof symbol !== 'string' || !symbol.trim()) {
     throw Object.assign(new Error('explain_symbol requires a non-empty "symbol" argument.'), { code: -32602 });
   }
   return {
     task: `Explain the symbol "${symbol.trim()}": where it is defined, what it does, its parameters/return type if applicable, and where it is called or used in the codebase.`,
-    repo_root,
-    scope,
+    repo_root, scope, session,
     budget: 'normal',
     hints: { symbols: [symbol.trim()], strategy: 'symbol-first' },
   };
 }
 
 function buildTraceDependencyArgs(args) {
-  const { entryPoint, direction = 'both', maxDepth = 3, repo_root } = args;
+  const { entryPoint, direction = 'both', maxDepth = 3, repo_root, session } = args;
   if (!entryPoint || typeof entryPoint !== 'string' || !entryPoint.trim()) {
     throw Object.assign(new Error('trace_dependency requires a non-empty "entryPoint" argument.'), { code: -32602 });
   }
   const depthNote = Number.isFinite(maxDepth) ? ` Follow at most ${maxDepth} levels deep.` : '';
   return {
-    task: `Trace the import/dependency chain of "${entryPoint.trim()}". Direction: ${direction}.${depthNote} List which modules are imported and which modules import this file. Show the full dependency graph as accurately as possible.`,
-    repo_root,
+    task: `Trace the import/dependency chain of "${entryPoint.trim()}". Direction: ${direction}.${depthNote} List which modules are imported and which modules import this file.`,
+    repo_root, session,
     budget: 'normal',
     hints: { files: [entryPoint.trim()], strategy: 'reference-chase' },
   };
 }
 
 function buildSummarizeChangesArgs(args) {
-  const { since, until, path: filePath, repo_root } = args;
+  const { since, until, path: filePath, repo_root, session } = args;
   const sincePart = since ? `since "${since}"` : 'in recent history';
   const untilPart = until ? ` until "${until}"` : '';
   const pathPart = filePath ? ` for path: ${filePath}` : '';
   return {
-    task: `Summarize the code changes ${sincePart}${untilPart}${pathPart}. Describe what files changed, the key modifications, and the overall intent of the changes based on commit messages and diffs.`,
-    repo_root,
+    task: `Summarize the code changes ${sincePart}${untilPart}${pathPart}. Describe what files changed, the key modifications, and the overall intent of the changes.`,
+    repo_root, session,
     budget: 'normal',
     hints: { strategy: 'git-guided' },
   };
 }
 
 function buildFindSimilarCodeArgs(args) {
-  const { reference, startLine, endLine, scope, repo_root } = args;
+  const { reference, startLine, endLine, scope, repo_root, session } = args;
   if (!reference || typeof reference !== 'string' || !reference.trim()) {
     throw Object.assign(new Error('find_similar_code requires a non-empty "reference" argument.'), { code: -32602 });
   }
   const lineNote = startLine && endLine ? ` (lines ${startLine}–${endLine})` : '';
   return {
-    task: `Find code patterns similar to "${reference.trim()}"${lineNote} across the codebase. Look for duplicate logic, similar implementations, repeated patterns, or code that follows the same convention.`,
-    repo_root,
-    scope,
+    task: `Find code patterns similar to "${reference.trim()}"${lineNote} across the codebase.`,
+    repo_root, scope, session,
     budget: 'normal',
     hints: { files: [reference.trim()], strategy: 'pattern-scan' },
   };
@@ -216,18 +181,38 @@ function buildFindSimilarCodeArgs(args) {
 
 // ─── Request handler ────────────────────────────────────────────────────────
 
-export function createMcpRequestHandler({ logger = () => {}, runtimeOptions = {} } = {}) {
+export function createMcpRequestHandler({
+  logger = () => {},
+  runtimeOptions = {},
+  sendNotification = null,
+  sessionStore = globalSessionStore,
+} = {}) {
   let negotiatedProtocolVersion = DEFAULT_PROTOCOL_VERSION;
 
-  async function callTool(exploreArgs, logger, runtimeOptions) {
-    const result = await exploreRepository(exploreArgs, { logger, ...runtimeOptions });
+  /**
+   * Build an onProgress callback that fires MCP notifications/progress when
+   * `progressToken` is present and `sendNotification` is wired up.
+   */
+  function makeProgressCallback(progressToken) {
+    if (!progressToken || !sendNotification) return null;
+    return ({ progress, total, message }) => {
+      try {
+        sendNotification('notifications/progress', { progressToken, progress, total, message });
+      } catch {
+        // Swallow errors — progress notification failure must not abort exploration.
+      }
+    };
+  }
+
+  async function callTool(exploreArgs, progressToken) {
+    const result = await exploreRepository(exploreArgs, {
+      logger,
+      ...runtimeOptions,
+      onProgress: makeProgressCallback(progressToken),
+      sessionStore,
+    });
     return {
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify(result, null, 2),
-        },
-      ],
+      content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
       structuredContent: result,
     };
   }
@@ -242,14 +227,13 @@ export function createMcpRequestHandler({ logger = () => {}, runtimeOptions = {}
         const toolCount = buildToolList().length;
         return {
           protocolVersion: negotiatedProtocolVersion,
-          capabilities: {
-            tools: {
-              listChanged: false,
-            },
-          },
+          capabilities: { tools: { listChanged: false } },
           serverInfo: SERVER_INFO,
           instructions:
-            `This MCP server exposes ${toolCount} tool(s) powered by the Cerebras ${getExplorerModel()} model. The primary tool is explore_repo (general-purpose); the specialized tools (explain_symbol, trace_dependency, summarize_changes, find_similar_code) are pre-configured shortcuts that wrap it.`,
+            `This MCP server exposes ${toolCount} tool(s) powered by the Cerebras ${getExplorerModel()} model. ` +
+            'explore_repo is the general-purpose tool; the specialized tools are pre-configured shortcuts. ' +
+            'Pass _meta.progressToken in tool calls to receive turn-by-turn notifications/progress updates. ' +
+            'Use stats.sessionId from one call as "session" in the next call for incremental exploration.',
         };
       }
       case 'ping':
@@ -259,41 +243,36 @@ export function createMcpRequestHandler({ logger = () => {}, runtimeOptions = {}
       case 'tools/call': {
         const name = message.params?.name;
         const args = message.params?.arguments ?? {};
+        const progressToken = message.params?._meta?.progressToken ?? null;
 
         try {
           if (name === 'explore_repo') {
             validateExploreRepoArgs(args);
-            return await callTool(args, logger, runtimeOptions);
+            return await callTool(args, progressToken);
           }
-
           if (name === 'explain_symbol') {
-            return await callTool(buildExplainSymbolArgs(args), logger, runtimeOptions);
+            return await callTool(buildExplainSymbolArgs(args), progressToken);
           }
-
           if (name === 'trace_dependency') {
-            return await callTool(buildTraceDependencyArgs(args), logger, runtimeOptions);
+            return await callTool(buildTraceDependencyArgs(args), progressToken);
           }
-
           if (name === 'summarize_changes') {
-            return await callTool(buildSummarizeChangesArgs(args), logger, runtimeOptions);
+            return await callTool(buildSummarizeChangesArgs(args), progressToken);
           }
-
           if (name === 'find_similar_code') {
-            return await callTool(buildFindSimilarCodeArgs(args), logger, runtimeOptions);
+            return await callTool(buildFindSimilarCodeArgs(args), progressToken);
           }
 
           const error = new Error(`Unknown tool: ${name}`);
           error.code = -32601;
           throw error;
         } catch (error) {
-          // Argument validation errors → isError response (not JSON-RPC error)
           if (error.code === -32602) {
             return {
               isError: true,
               content: [{ type: 'text', text: `Invalid arguments for ${name}: ${error.message}` }],
             };
           }
-          // explore_repo-specific validation errors
           if (name === 'explore_repo') {
             return {
               isError: true,
@@ -321,24 +300,21 @@ export function createMcpRequestHandler({ logger = () => {}, runtimeOptions = {}
     logger(`Ignoring notification: ${message.method}`);
   }
 
-  return {
-    handleRequest,
-    handleNotification,
-  };
+  return { handleRequest, handleNotification };
 }
 
 export function startMcpServer({ logger = () => {}, runtimeOptions = {} } = {}) {
+  // Use a lazy-binding closure so that sendNotification can reference `transport`
+  // before it is assigned (transport is created after the handler).
+  let transport;
+
   const { handleRequest, handleNotification } = createMcpRequestHandler({
     logger,
     runtimeOptions,
+    sendNotification: (method, params) => transport?.sendNotification(method, params),
   });
 
-  const transport = new StdioJsonRpcServer({
-    logger,
-    handleRequest,
-    handleNotification,
-  });
-
+  transport = new StdioJsonRpcServer({ logger, handleRequest, handleNotification });
   transport.start();
   return transport;
 }

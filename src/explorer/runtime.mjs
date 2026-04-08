@@ -1,5 +1,13 @@
 import { CerebrasChatClient, extractFirstJsonObject } from './cerebras-client.mjs';
-import { getBudgetConfig, getRepoRoot, getModelForBudget, classifyTaskComplexity, isTruthyEnv } from './config.mjs';
+import {
+  getBudgetConfig,
+  getRepoRoot,
+  getModelForBudget,
+  classifyTaskComplexity,
+  isTruthyEnv,
+  loadProjectConfig,
+  normalizeProjectConfig,
+} from './config.mjs';
 import {
   collectCandidatePathsFromToolResult,
   mergeCandidatePaths,
@@ -85,11 +93,9 @@ function checkEvidenceGrounding(observedRanges, evidenceItem) {
     return { overlaps: false, partial: false };
   }
   for (const range of ranges) {
-    // Exact overlap
     if (evidenceItem.startLine <= range.endLine && evidenceItem.endLine >= range.startLine) {
       return { overlaps: true, partial: false };
     }
-    // Tolerance overlap (within EVIDENCE_LINE_TOLERANCE lines of the observed range)
     const toleratedStart = evidenceItem.startLine - EVIDENCE_LINE_TOLERANCE;
     const toleratedEnd = evidenceItem.endLine + EVIDENCE_LINE_TOLERANCE;
     if (toleratedStart <= range.endLine && toleratedEnd >= range.startLine) {
@@ -99,10 +105,6 @@ function checkEvidenceGrounding(observedRanges, evidenceItem) {
   return { overlaps: false, partial: false };
 }
 
-/**
- * Build a codeMap from the set of files observed during exploration.
- * Returns null if no files were observed.
- */
 function buildCodeMap(observedRanges) {
   const paths = [...observedRanges.keys()];
   if (paths.length === 0) {
@@ -120,19 +122,12 @@ function buildCodeMap(observedRanges) {
     }
     const ranges = observedRanges.get(filePath) ?? [];
     const linesRead = ranges.reduce((sum, r) => sum + (r.endLine - r.startLine + 1), 0);
-    keyModules.push({
-      path: filePath,
-      role: guessModuleRole(filePath),
-      linesRead,
-    });
+    keyModules.push({ path: filePath, role: guessModuleRole(filePath), linesRead });
   }
 
   return { entryPoints, keyModules };
 }
 
-/**
- * Guess a human-readable role for a module based on its file path.
- */
 function guessModuleRole(filePath) {
   const lower = filePath.toLowerCase();
   if (/test|spec/.test(lower)) return 'test';
@@ -146,13 +141,11 @@ function guessModuleRole(filePath) {
   if (/client|api/.test(lower)) return 'API client';
   if (/cache/.test(lower)) return 'cache';
   if (/prompt/.test(lower)) return 'prompt';
+  if (/session/.test(lower)) return 'session';
+  if (/provider/.test(lower)) return 'provider';
   return 'module';
 }
 
-/**
- * Generate a Mermaid flowchart from a codeMap.
- * Only produces a diagram when there are 2–12 key modules.
- */
 function buildMermaidDiagram(codeMap) {
   if (!codeMap || codeMap.keyModules.length < 2 || codeMap.keyModules.length > 12) {
     return null;
@@ -174,7 +167,6 @@ function buildMermaidDiagram(codeMap) {
     }
   }
 
-  // Connect entry points to non-entry modules
   const entries = nodes.filter(n => n.isEntry);
   const nonEntries = nodes.filter(n => !n.isEntry);
   for (const entry of entries) {
@@ -186,9 +178,6 @@ function buildMermaidDiagram(codeMap) {
   return lines.join('\n');
 }
 
-/**
- * Build a recentActivity summary from captured git_log tool results.
- */
 function buildRecentActivity(capturedGitLogs) {
   if (capturedGitLogs.length === 0) {
     return null;
@@ -217,7 +206,6 @@ function buildRecentActivity(capturedGitLogs) {
     return null;
   }
 
-  // Deduplicate commits by hash
   const seen = new Set();
   const uniqueCommits = [];
   for (const commit of allCommits) {
@@ -239,23 +227,14 @@ function buildRecentActivity(capturedGitLogs) {
     date: c.date ?? '',
   }));
 
-  const lastModified = recentCommits.length > 0 ? recentCommits[0].date : '';
-
   return {
     hotFiles,
     recentAuthors: [...authorSet].slice(0, 10),
-    lastModified,
+    lastModified: recentCommits.length > 0 ? recentCommits[0].date : '',
     recentCommits,
   };
 }
 
-/**
- * Resolve which model to use, considering auto-routing by task complexity.
- *
- * When CEREBRAS_EXPLORER_AUTO_ROUTE=true, the task text is analysed and the
- * budget label used for model selection may differ from the exploration budget
- * (maxTurns, maxReadLines, etc. are unaffected).
- */
 function resolveModelBudget(task, budgetLabel) {
   if (!isTruthyEnv(process.env.CEREBRAS_EXPLORER_AUTO_ROUTE)) {
     return budgetLabel;
@@ -266,53 +245,99 @@ function resolveModelBudget(task, budgetLabel) {
   return budgetLabel;
 }
 
+/**
+ * Describe the tool calls that are about to be executed, for progress messages.
+ */
+function describePendingTools(toolCalls) {
+  if (!Array.isArray(toolCalls) || toolCalls.length === 0) return '';
+  const names = [...new Set(toolCalls.map(c => c.function?.name ?? 'unknown'))];
+  const displayed = names.slice(0, 3).join(', ');
+  return names.length > 3 ? `${displayed} (+${names.length - 3} more)` : displayed;
+}
+
 export class ExplorerRuntime {
   /**
    * @param {object} [opts]
-   * @param {object} [opts.chatClient] - Pre-built chat client (overrides factory).
-   *   Pass this in tests or when you need a specific client instance.
+   * @param {object}   [opts.chatClient]   - Pre-built chat client (overrides factory).
    * @param {Function} [opts.logger]
    */
-  constructor({
-    chatClient = null,
-    logger = () => {},
-  } = {}) {
+  constructor({ chatClient = null, logger = () => {} } = {}) {
     this._explicitChatClient = chatClient;
     this.logger = logger;
   }
 
-  async explore(args) {
+  /**
+   * @param {object} args - explore_repo arguments (validated by validateExploreRepoArgs)
+   * @param {object} [callOpts]
+   * @param {Function} [callOpts.onProgress]    - Called with {progress, total, message}
+   * @param {object}   [callOpts.sessionStore]  - SessionStore instance for session management
+   */
+  async explore(args, { onProgress = null, sessionStore = null } = {}) {
     validateExploreRepoArgs(args);
 
     const budgetConfig = getBudgetConfig(args.budget);
     const repoRoot = getRepoRoot(args.repo_root);
 
-    // Resolve the model, potentially overriding by task complexity routing
-    const modelBudget = resolveModelBudget(args.task, budgetConfig.label);
+    // Load .cerebras-explorer.json project config
+    const rawProjectConfig = await loadProjectConfig(repoRoot);
+    const projectConfig = normalizeProjectConfig(rawProjectConfig);
+
+    // Apply project config defaults (explicit args take priority)
+    const effectiveBudgetLabel = args.budget ?? projectConfig.defaultBudget ?? 'normal';
+    const effectiveScope = args.scope ?? projectConfig.defaultScope ?? [];
+    const projectContext = projectConfig.projectContext ?? null;
+    const keyFiles = projectConfig.keyFiles ?? [];
+    const extraIgnoreDirs = projectConfig.extraIgnoreDirs ?? [];
+
+    const modelBudget = resolveModelBudget(args.task, effectiveBudgetLabel);
     const chatClient = this._explicitChatClient ?? createChatClient({ budget: modelBudget });
+
+    // Session integration
+    let sessionId = null;
+    let sessionData = null;
+    if (sessionStore) {
+      if (args.session && args.session.trim()) {
+        sessionData = sessionStore.get(args.session);
+      }
+      if (!sessionData) {
+        sessionId = sessionStore.create(repoRoot);
+        sessionData = sessionStore.get(sessionId);
+      } else {
+        sessionId = args.session;
+      }
+    }
 
     const repoToolkit = new RepoToolkit({
       repoRoot,
       budgetConfig,
       logger: this.logger,
       cache: globalRepoCache,
+      extraIgnoreDirs,
     });
-    await repoToolkit.initialize(args.scope ?? []);
+    await repoToolkit.initialize(effectiveScope);
 
     const startedAt = nowMs();
     const tools = repoToolkit.buildToolDefinitions();
+
     const messages = [
       {
         role: 'system',
-        content: buildExplorerSystemPrompt({ repoRoot, budgetConfig }),
+        content: buildExplorerSystemPrompt({
+          repoRoot,
+          budgetConfig,
+          projectContext,
+          keyFiles,
+          previousSummaries: sessionData?.summaries ?? [],
+        }),
       },
       {
         role: 'user',
         content: buildExplorerUserPrompt({
           task: args.task,
-          scope: args.scope,
+          scope: effectiveScope,
           budget: budgetConfig.label,
           hints: args.hints,
+          sessionCandidatePaths: sessionData?.candidatePaths ?? [],
         }),
       },
     ];
@@ -336,6 +361,7 @@ export class ExplorerRuntime {
       elapsedMs: 0,
       stoppedByBudget: false,
       repoRoot,
+      sessionId,
     };
 
     let candidatePaths = [];
@@ -345,6 +371,17 @@ export class ExplorerRuntime {
     const capturedGitLogs = [];
 
     for (let turnIndex = 0; turnIndex < budgetConfig.maxTurns; turnIndex += 1) {
+      // Progress: starting a new turn
+      if (onProgress) {
+        onProgress({
+          progress: turnIndex,
+          total: budgetConfig.maxTurns,
+          message: turnIndex === 0
+            ? 'Starting exploration...'
+            : `Turn ${turnIndex + 1}/${budgetConfig.maxTurns}: continuing...`,
+        });
+      }
+
       const completion = await chatClient.createChatCompletion({
         messages,
         tools,
@@ -366,19 +403,34 @@ export class ExplorerRuntime {
         assistantMessage.tool_calls = completion.message.toolCalls.map(call => ({
           id: call.id,
           type: 'function',
-          function: {
-            name: call.function.name,
-            arguments: call.function.arguments,
-          },
+          function: { name: call.function.name, arguments: call.function.arguments },
         }));
       }
 
       messages.push(assistantMessage);
 
       if (completion.message.toolCalls.length === 0) {
+        // No more tool calls — model is ready to synthesize
+        if (onProgress) {
+          onProgress({
+            progress: budgetConfig.maxTurns - 1,
+            total: budgetConfig.maxTurns,
+            message: 'Synthesizing findings...',
+          });
+        }
         lastAssistantContent = completion.message.content || '';
         finalObject = extractFirstJsonObject(lastAssistantContent);
         break;
+      }
+
+      // Progress: describe which tools are about to run
+      if (onProgress) {
+        const toolDesc = describePendingTools(completion.message.toolCalls);
+        onProgress({
+          progress: turnIndex + 1,
+          total: budgetConfig.maxTurns,
+          message: `Turn ${turnIndex + 1}/${budgetConfig.maxTurns}: ${toolDesc}`,
+        });
       }
 
       for (const toolCall of completion.message.toolCalls) {
@@ -390,11 +442,7 @@ export class ExplorerRuntime {
         try {
           toolResult = await repoToolkit.callTool(toolName, toolArgs);
         } catch (error) {
-          toolResult = {
-            error: true,
-            message: error.message,
-            tool: toolName,
-          };
+          toolResult = { error: true, message: error.message, tool: toolName };
         }
 
         candidatePaths = mergeCandidatePaths(
@@ -403,12 +451,7 @@ export class ExplorerRuntime {
         );
 
         if (toolName === 'repo_read_file' && !toolResult?.error) {
-          recordObservedRange(
-            observedRanges,
-            toolResult.path,
-            toolResult.startLine,
-            toolResult.endLine,
-          );
+          recordObservedRange(observedRanges, toolResult.path, toolResult.startLine, toolResult.endLine);
         }
 
         if (toolName === 'repo_grep' && Array.isArray(toolResult?.matches)) {
@@ -417,7 +460,6 @@ export class ExplorerRuntime {
           }
         }
 
-        // Capture git_log results for recentActivity construction
         if (toolName === 'repo_git_log' && !toolResult?.error) {
           capturedGitLogs.push({ ...toolResult, path: toolArgs.path ?? null });
         }
@@ -432,6 +474,13 @@ export class ExplorerRuntime {
 
     if (!finalObject) {
       stats.stoppedByBudget = true;
+      if (onProgress) {
+        onProgress({
+          progress: budgetConfig.maxTurns,
+          total: budgetConfig.maxTurns,
+          message: 'Budget exhausted — synthesizing partial answer...',
+        });
+      }
       const finalized = await this.finalizeAfterToolLoop({
         chatClient,
         messages,
@@ -445,85 +494,65 @@ export class ExplorerRuntime {
     Object.assign(stats, globalRepoCache.stats());
 
     const normalized = normalizeExploreResult(finalObject, stats);
-    normalized.candidatePaths = mergeCandidatePaths(
-      normalized.candidatePaths,
-      candidatePaths,
-    );
-    normalized.candidatePaths = normalized.candidatePaths.slice(0, 80);
+    normalized.candidatePaths = mergeCandidatePaths(normalized.candidatePaths, candidatePaths).slice(0, 80);
 
-    // Ground evidence — accept items within EVIDENCE_LINE_TOLERANCE of an
-    // observed range (partial matches are flagged but not dropped).
+    // Ground evidence
     const totalEvidenceBefore = normalized.evidence.length;
     normalized.evidence = normalized.evidence
-      .map(item => ({
-        ...item,
-        path: item.path.replace(/^\.\//, ''),
-      }))
+      .map(item => ({ ...item, path: item.path.replace(/^\.\//, '') }))
       .filter(item => item.path && item.why)
       .map(item => {
         const { overlaps, partial } = checkEvidenceGrounding(observedRanges, item);
-        if (!overlaps) {
-          return null;
-        }
-        if (partial) {
-          return { ...item, groundingStatus: 'partial' };
-        }
-        return { ...item, groundingStatus: 'exact' };
+        if (!overlaps) return null;
+        return { ...item, groundingStatus: partial ? 'partial' : 'exact' };
       })
       .filter(Boolean);
 
-    // Compute continuous confidence score from grounding data
+    // Confidence scoring
     const { score: confidenceScore, level: confidenceLevel, factors: confidenceFactors } =
       computeConfidenceScore(normalized.evidence, totalEvidenceBefore, stats);
     normalized.confidenceScore = confidenceScore;
     normalized.confidenceLevel = confidenceLevel;
     normalized.confidenceFactors = confidenceFactors;
 
-    // Override model-reported confidence if evidence was dropped
     if (totalEvidenceBefore > normalized.evidence.length) {
       normalized.confidence = 'low';
-      normalized.followups = mergeCandidatePaths(normalized.followups, [
-        {
-          description: 'Some evidence items were dropped because they were not grounded in inspected line ranges.',
-          priority: 'optional',
-          suggestedCall: null,
-        },
-      ]);
+      normalized.followups = mergeCandidatePaths(normalized.followups, [{
+        description: 'Some evidence items were dropped because they were not grounded in inspected line ranges.',
+        priority: 'optional',
+        suggestedCall: null,
+      }]);
     }
 
-    // Align model-reported confidence level with computed level when it is higher
     const LEVEL_ORDER = { low: 0, medium: 1, high: 2 };
     if (LEVEL_ORDER[normalized.confidence] > LEVEL_ORDER[confidenceLevel]) {
       normalized.confidence = confidenceLevel;
     }
 
-    if (!normalized.summary) {
-      normalized.summary = normalized.answer;
-    }
+    if (!normalized.summary) normalized.summary = normalized.answer;
     if (!normalized.answer) {
       normalized.answer = lastAssistantContent || 'Explorer did not return a final answer.';
       normalized.confidence = 'low';
     }
 
-    // Build codeMap from observed file ranges
+    // codeMap + Mermaid diagram
     const codeMap = buildCodeMap(observedRanges);
     if (codeMap) {
       normalized.codeMap = codeMap;
-
-      // Generate Mermaid diagram for structure-related queries (breadth-first strategy)
       const strategy = args.hints?.strategy ?? null;
       if (!strategy || strategy === 'breadth-first') {
         const diagram = buildMermaidDiagram(codeMap);
-        if (diagram) {
-          normalized.diagram = diagram;
-        }
+        if (diagram) normalized.diagram = diagram;
       }
     }
 
-    // Build recentActivity from captured git_log results
+    // recentActivity from git_log
     const recentActivity = buildRecentActivity(capturedGitLogs);
-    if (recentActivity) {
-      normalized.recentActivity = recentActivity;
+    if (recentActivity) normalized.recentActivity = recentActivity;
+
+    // Update session with this call's result
+    if (sessionStore && sessionId) {
+      sessionStore.update(sessionId, normalized);
     }
 
     return normalized;
@@ -533,10 +562,7 @@ export class ExplorerRuntime {
     const completion = await chatClient.createChatCompletion({
       messages: [
         ...messages,
-        {
-          role: 'user',
-          content: buildFinalizePrompt(),
-        },
+        { role: 'user', content: buildFinalizePrompt() },
       ],
       responseFormat: {
         type: 'json_schema',
@@ -550,10 +576,7 @@ export class ExplorerRuntime {
 
     const structured = extractFirstJsonObject(completion.message.content);
     if (structured) {
-      return {
-        result: structured,
-        usage: completion.usage ?? null,
-      };
+      return { result: structured, usage: completion.usage ?? null };
     }
 
     return {
@@ -571,6 +594,7 @@ export class ExplorerRuntime {
 }
 
 export async function exploreRepository(args, options = {}) {
-  const runtime = new ExplorerRuntime(options);
-  return await runtime.explore(args);
+  const { onProgress, sessionStore, ...runtimeOptions } = options;
+  const runtime = new ExplorerRuntime(runtimeOptions);
+  return runtime.explore(args, { onProgress, sessionStore });
 }

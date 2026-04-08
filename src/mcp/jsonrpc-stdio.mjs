@@ -140,4 +140,15 @@ export class StdioJsonRpcServer {
       process.stdout.write(message);
     }
   }
+
+  /**
+   * Send an unsolicited JSON-RPC notification (no id field).
+   * Used for MCP progress notifications and other server-initiated events.
+   *
+   * @param {string} method - Notification method, e.g. "notifications/progress"
+   * @param {object} params
+   */
+  sendNotification(method, params) {
+    this.send({ jsonrpc: '2.0', method, params });
+  }
 }
