@@ -12,10 +12,10 @@
 | **P2** | 3.1 | 다층 출력 포맷 | ★★★ | Medium | ✅ DONE |
 | **P2** | 3.2 | 신뢰도 개선 | ★★★ | Medium | ✅ DONE |
 | **P2** | 3.3 | 실행 가능한 followups | ★★★ | Small | ✅ DONE |
-| **P2** | 4.2 | 다중 MCP 도구 | ★★★★ | Medium | TODO |
+| **P2** | 4.2 | 다중 MCP 도구 | ★★★★ | Medium | ✅ DONE |
 | **P3** | 2.3 | 매크로 도구 체이닝 | ★★ | Medium | TODO |
-| **P3** | 4.1 | 모델 라우팅 | ★★ | Medium | TODO |
-| **P3** | 4.3 | 프로바이더 추상화 | ★★★ | Medium | TODO |
+| **P3** | 4.1 | 모델 라우팅 | ★★ | Medium | ✅ DONE |
+| **P3** | 4.3 | 프로바이더 추상화 | ★★★ | Medium | ✅ DONE |
 | **P3** | 5.1 | 인터랙티브 모드 | ★★★ | Large | TODO |
 | **P3** | 5.2 | 진행 상황 리포팅 | ★★ | Small | TODO |
 | **P3** | 5.3 | 프로젝트별 설정 파일 | ★★ | Small | TODO |
@@ -80,15 +80,40 @@
 
 **완료 효과:** parent model이 즉시 활용 가능한 풍부한 구조화 정보 제공.
 
-### Milestone 4: Ecosystem (P3)
+### Milestone 4: Ecosystem (P3) — 부분 완료 (2026-04-08)
 > **목표:** 유연성과 확장성 확보
 
-- [ ] 프로바이더 추상화 + failover
-- [ ] 모델 라우팅 (복잡도별)
+- [x] 프로바이더 추상화 + failover — `src/explorer/providers/`
+- [x] 모델 라우팅 (복잡도별 + budget별) — `config.mjs` + `runtime.mjs`
+- [x] 다중 MCP 도구 (explain_symbol, trace_dependency, summarize_changes, find_similar_code) — `src/mcp/server.mjs`
 - [ ] 인터랙티브 세션 모드
 - [ ] MCP 진행 알림
 - [ ] 프로젝트별 설정 파일 지원
 - [ ] 매크로 도구
+
+**구현 결과:**
+
+**4.1 모델 라우팅:**
+- `getModelForBudget(budget)`: `CEREBRAS_EXPLORER_MODEL_QUICK/NORMAL/DEEP` 환경변수 지원
+- `classifyTaskComplexity(task)`: 한/영 키워드로 simple/moderate/complex 분류
+- `CEREBRAS_EXPLORER_AUTO_ROUTE=true`: 작업 복잡도 기반 모델 자동 선택 (탐색 budget 독립)
+- `ExplorerRuntime`: lazy chatClient 생성 — 명시적 `chatClient` 전달 시 그대로 사용, 없으면 `createChatClient({ budget })`
+
+**4.2 다중 MCP 도구:**
+- `explain_symbol(symbol, repo_root?, scope?)` — symbol-first 전략으로 explore_repo 호출
+- `trace_dependency(entryPoint, direction?, maxDepth?, repo_root?)` — reference-chase 전략
+- `summarize_changes(since?, until?, path?, repo_root?)` — git-guided 전략
+- `find_similar_code(reference, startLine?, endLine?, scope?, repo_root?)` — pattern-scan 전략
+- `CEREBRAS_EXPLORER_EXTRA_TOOLS=false`로 비활성화 가능 (기본: 활성화)
+
+**4.3 프로바이더 추상화:**
+- `AbstractChatClient`: createChatCompletion 인터페이스 계약
+- `OpenAICompatChatClient`: Groq, Together, Fireworks 등 OpenAI-compat API 지원 (`EXPLORER_OPENAI_*`)
+- `OllamaChatClient`: Ollama 로컬 모델 (`http://localhost:11434/v1`, `EXPLORER_OLLAMA_*`)
+- `FailoverChatClient`: 순차 fallover + 타임아웃 (`EXPLORER_FAILOVER`, `EXPLORER_FAILOVER_TIMEOUT_MS`)
+- `createChatClient({ budget })`: `EXPLORER_PROVIDER` 환경변수로 provider 선택
+
+**테스트 추가:** 23종 (providers.test.mjs) + mcp-server 도구 목록 검증
 
 **완료 시:** 다양한 환경/프로바이더에서 유연하게 동작하는 완성된 탐색 플랫폼.
 

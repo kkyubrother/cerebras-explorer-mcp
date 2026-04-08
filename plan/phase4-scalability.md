@@ -1,4 +1,6 @@
-# Phase 4: 멀티 모델 & 확장성 (Scalability)
+# Phase 4: 멀티 모델 & 확장성 (Scalability) — 부분 완료 (2026-04-08)
+
+> **4.1, 4.2, 4.3 구현 완료.** 아래 각 섹션 끝에 실제 구현 결과를 기록함.
 
 ## 4.1 모델 라우팅 — P3
 
@@ -32,6 +34,16 @@ CEREBRAS_EXPLORER_AUTO_ROUTE=true
 | simple | "어디", "찾아", "위치", "정의" | quick 모델 |
 | moderate | "구조", "아키텍처", "패턴", "설명" | normal 모델 |
 | complex | "원인", "왜", "버그", "보안", "성능" | deep 모델 |
+
+### ✅ 구현 결과 (4.1)
+
+- **`getModelForBudget(budget)`** (`config.mjs`): `CEREBRAS_EXPLORER_MODEL_QUICK/NORMAL/DEEP` 환경변수 조회 → 없으면 `CEREBRAS_EXPLORER_MODEL` 글로벌 폴백
+- **`classifyTaskComplexity(task)`** (`config.mjs`): 한/영 regex로 simple/moderate/complex 분류
+  - simple: "어디", "찾아", "위치", "defined", "where", "find", "locate" 등
+  - complex: "원인", "왜", "버그", "보안", "성능", "security", "vulnerability", "performance" 등
+  - moderate: 그 외 모든 경우 (기본값)
+- **`resolveModelBudget(task, budget)`** (`runtime.mjs`): `CEREBRAS_EXPLORER_AUTO_ROUTE=true`일 때 복잡도 기반으로 modelBudget 오버라이드 (탐색 budget maxTurns 등은 불변)
+- **`ExplorerRuntime` lazy chatClient**: `chatClient` 파라미터 없으면 `explore()` 호출 시 `createChatClient({ budget: modelBudget })`로 생성 → 기존 테스트 호환 유지
 
 ---
 
@@ -130,6 +142,18 @@ CEREBRAS_EXPLORER_AUTO_ROUTE=true
 - `explore_repo`는 범용 도구로 유지 — 새 도구들은 특화된 shortcuts
 - MCP `tools/list`에서 선택적 노출 (환경변수로 on/off)
 
+### ✅ 구현 결과 (4.2)
+
+- **4개 특화 도구 추가** (`src/mcp/server.mjs`): `explain_symbol`, `trace_dependency`, `summarize_changes`, `find_similar_code`
+- 각 도구는 `exploreRepository`를 미리 구성된 task/hints/strategy로 호출하는 wrapper
+  - `explain_symbol`: `symbol-first` 전략, budget=normal
+  - `trace_dependency`: `reference-chase` 전략, direction(downstream/upstream/both), maxDepth 지원
+  - `summarize_changes`: `git-guided` 전략, since/until/path 모두 optional
+  - `find_similar_code`: `pattern-scan` 전략, 파일 경로 또는 코드 스니펫 입력
+- **`CEREBRAS_EXPLORER_EXTRA_TOOLS=false`**: 4개 도구 비활성화 (기본: 활성화)
+- 반환값: 기존 `explore_repo`와 동일한 구조화 응답 (answer, evidence, codeMap 등 포함)
+- `find_similar_code.returns.similarity` 필드는 현재 미구현 (LLM이 자연어로 유사도 설명)
+
 ---
 
 ## 4.3 프로바이더 추상화 — P3
@@ -199,3 +223,23 @@ class AbstractChatClient {
 - Cerebras 장애 시 자동 failover
 - 로컬 모델로 오프라인/에어갭 환경 지원
 - 사용자가 선호하는 모델/프로바이더 선택 가능
+
+### ✅ 구현 결과 (4.3)
+
+파일 구조: `src/explorer/providers/`
+- `abstract.mjs`: `AbstractChatClient` — `createChatCompletion(opts)` 인터페이스 + JSDoc
+- `openai-compat.mjs`: `OpenAICompatChatClient` — 표준 OpenAI format, Cerebras 전용 필드 미포함
+  - `EXPLORER_OPENAI_API_KEY`, `EXPLORER_OPENAI_BASE_URL`, `EXPLORER_OPENAI_MODEL` (default: `gpt-4o-mini`)
+- `ollama.mjs`: `OllamaChatClient` — `OpenAICompatChatClient` 상속, 기본 `http://localhost:11434/v1`
+  - `EXPLORER_OLLAMA_BASE_URL`, `EXPLORER_OLLAMA_MODEL` (default: `llama3`)
+- `failover.mjs`: `FailoverChatClient` — 순차 시도 + 타임아웃(Promise.race)
+  - `EXPLORER_FAILOVER="cerebras,openai-compat"` (쉼표 구분)
+  - `EXPLORER_FAILOVER_TIMEOUT_MS=30000`
+- `index.mjs`: `createChatClient({ budget, fetchImpl, logger })` 팩토리
+  - `EXPLORER_PROVIDER=cerebras|openai-compat|ollama` (기본: cerebras)
+  - `EXPLORER_FAILOVER` 설정 시 `FailoverChatClient` 자동 생성
+
+계획 대비 차이:
+- Ollama 별도 provider 대신 `OpenAICompatChatClient` 상속으로 구현 (Ollama `/v1` endpoint가 OpenAI-compatible)
+- `cerebras-client.mjs`는 하위 호환성을 위해 유지 — providers/index.mjs가 이를 import해 CerebrasChatClient 생성
+- `reasoning_effort`는 `OpenAICompatChatClient`에서 silently ignored (표준 OpenAI API 미지원)

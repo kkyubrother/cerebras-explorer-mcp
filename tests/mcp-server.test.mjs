@@ -135,7 +135,13 @@ test('MCP request handler exposes explore_repo and returns structuredContent', a
     params: {},
   });
   assert.equal(Array.isArray(listed.tools), true);
-  assert.equal(listed.tools[0].name, 'explore_repo');
+  const toolNames = listed.tools.map(t => t.name);
+  assert.ok(toolNames.includes('explore_repo'), 'explore_repo must be in tool list');
+  // Extra tools are on by default
+  assert.ok(toolNames.includes('explain_symbol'), 'explain_symbol must be in tool list');
+  assert.ok(toolNames.includes('trace_dependency'), 'trace_dependency must be in tool list');
+  assert.ok(toolNames.includes('summarize_changes'), 'summarize_changes must be in tool list');
+  assert.ok(toolNames.includes('find_similar_code'), 'find_similar_code must be in tool list');
 
   const called = await handleRequest({
     jsonrpc: '2.0',

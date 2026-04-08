@@ -1,5 +1,5 @@
 import { CerebrasChatClient, extractFirstJsonObject } from './cerebras-client.mjs';
-import { getBudgetConfig, getRepoRoot } from './config.mjs';
+import { getBudgetConfig, getRepoRoot, getModelForBudget, classifyTaskComplexity, isTruthyEnv } from './config.mjs';
 import {
   collectCandidatePathsFromToolResult,
   mergeCandidatePaths,
@@ -17,6 +17,7 @@ import {
   normalizeExploreResult,
   validateExploreRepoArgs,
 } from './schemas.mjs';
+import { createChatClient } from './providers/index.mjs';
 
 // Evidence items whose line range is within this many lines of an observed
 // range are kept as "partial" matches rather than being dropped entirely.
@@ -248,12 +249,35 @@ function buildRecentActivity(capturedGitLogs) {
   };
 }
 
+/**
+ * Resolve which model to use, considering auto-routing by task complexity.
+ *
+ * When CEREBRAS_EXPLORER_AUTO_ROUTE=true, the task text is analysed and the
+ * budget label used for model selection may differ from the exploration budget
+ * (maxTurns, maxReadLines, etc. are unaffected).
+ */
+function resolveModelBudget(task, budgetLabel) {
+  if (!isTruthyEnv(process.env.CEREBRAS_EXPLORER_AUTO_ROUTE)) {
+    return budgetLabel;
+  }
+  const complexity = classifyTaskComplexity(task);
+  if (complexity === 'simple') return 'quick';
+  if (complexity === 'complex') return 'deep';
+  return budgetLabel;
+}
+
 export class ExplorerRuntime {
+  /**
+   * @param {object} [opts]
+   * @param {object} [opts.chatClient] - Pre-built chat client (overrides factory).
+   *   Pass this in tests or when you need a specific client instance.
+   * @param {Function} [opts.logger]
+   */
   constructor({
-    chatClient = new CerebrasChatClient(),
+    chatClient = null,
     logger = () => {},
   } = {}) {
-    this.chatClient = chatClient;
+    this._explicitChatClient = chatClient;
     this.logger = logger;
   }
 
@@ -262,6 +286,11 @@ export class ExplorerRuntime {
 
     const budgetConfig = getBudgetConfig(args.budget);
     const repoRoot = getRepoRoot(args.repo_root);
+
+    // Resolve the model, potentially overriding by task complexity routing
+    const modelBudget = resolveModelBudget(args.task, budgetConfig.label);
+    const chatClient = this._explicitChatClient ?? createChatClient({ budget: modelBudget });
+
     const repoToolkit = new RepoToolkit({
       repoRoot,
       budgetConfig,
@@ -289,7 +318,7 @@ export class ExplorerRuntime {
     ];
 
     const stats = {
-      model: this.chatClient.model,
+      model: chatClient.model,
       budget: budgetConfig.label,
       turns: 0,
       toolCalls: 0,
@@ -316,7 +345,7 @@ export class ExplorerRuntime {
     const capturedGitLogs = [];
 
     for (let turnIndex = 0; turnIndex < budgetConfig.maxTurns; turnIndex += 1) {
-      const completion = await this.chatClient.createChatCompletion({
+      const completion = await chatClient.createChatCompletion({
         messages,
         tools,
         reasoningEffort: budgetConfig.reasoningEffort,
@@ -404,6 +433,7 @@ export class ExplorerRuntime {
     if (!finalObject) {
       stats.stoppedByBudget = true;
       const finalized = await this.finalizeAfterToolLoop({
+        chatClient,
         messages,
         reasoningEffort: budgetConfig.reasoningEffort,
       });
@@ -499,8 +529,8 @@ export class ExplorerRuntime {
     return normalized;
   }
 
-  async finalizeAfterToolLoop({ messages, reasoningEffort }) {
-    const completion = await this.chatClient.createChatCompletion({
+  async finalizeAfterToolLoop({ chatClient, messages, reasoningEffort }) {
+    const completion = await chatClient.createChatCompletion({
       messages: [
         ...messages,
         {

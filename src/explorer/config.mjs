@@ -119,3 +119,45 @@ export function getRepoRoot(inputRepoRoot) {
 export function isTruthyEnv(value) {
   return value === '1' || value === 'true' || value === 'yes';
 }
+
+/**
+ * Return the model to use for a given budget label.
+ * Reads budget-specific env vars first, then falls back to the global model.
+ *
+ * Env vars:
+ *   CEREBRAS_EXPLORER_MODEL_QUICK   — model for quick budget
+ *   CEREBRAS_EXPLORER_MODEL_NORMAL  — model for normal budget
+ *   CEREBRAS_EXPLORER_MODEL_DEEP    — model for deep budget
+ */
+export function getModelForBudget(budget) {
+  if (budget === 'quick') {
+    return process.env.CEREBRAS_EXPLORER_MODEL_QUICK?.trim() || getExplorerModel();
+  }
+  if (budget === 'deep') {
+    return process.env.CEREBRAS_EXPLORER_MODEL_DEEP?.trim() || getExplorerModel();
+  }
+  return process.env.CEREBRAS_EXPLORER_MODEL_NORMAL?.trim() || getExplorerModel();
+}
+
+/**
+ * Classify the complexity of a task string as 'simple', 'moderate', or 'complex'.
+ * Used for automatic model routing when CEREBRAS_EXPLORER_AUTO_ROUTE=true.
+ *
+ * - simple:   "where is X defined?" type questions → cheapest/fastest model
+ * - complex:  performance/security/bug-cause analysis → most capable model
+ * - moderate: everything else → normal model
+ */
+export function classifyTaskComplexity(task) {
+  const t = task.toLowerCase();
+  if (
+    /어디\s|찾아|위치|선언|정의\s|defined|where\s|find\s|locate|definition/.test(t)
+  ) {
+    return 'simple';
+  }
+  if (
+    /원인|왜\s|버그|보안|성능|취약|race.*cond|security|vulnerabilit|performance|memory.?leak|오류.*원인|bug.*cause/.test(t)
+  ) {
+    return 'complex';
+  }
+  return 'moderate';
+}
