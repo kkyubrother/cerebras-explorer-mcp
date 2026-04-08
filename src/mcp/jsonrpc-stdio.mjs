@@ -17,6 +17,7 @@ export class StdioJsonRpcServer {
     this.handleRequest = handleRequest;
     this.handleNotification = handleNotification;
     this.buffer = Buffer.alloc(0);
+    this.useNdjson = false; // set to true when client uses NDJSON format
   }
 
   start() {
@@ -34,39 +35,64 @@ export class StdioJsonRpcServer {
 
   async processBuffer() {
     while (true) {
-      const crlfHeaderEnd = this.buffer.indexOf('\r\n\r\n');
-      const lfHeaderEnd = this.buffer.indexOf('\n\n');
-      const hasCrLfHeaders = crlfHeaderEnd >= 0 && (lfHeaderEnd < 0 || crlfHeaderEnd <= lfHeaderEnd);
-      const headerEnd = hasCrLfHeaders ? crlfHeaderEnd : lfHeaderEnd;
-      if (headerEnd < 0) {
-        return;
+      // Detect transport format: Content-Length framing vs newline-delimited JSON (NDJSON)
+      const firstByte = this.buffer.length > 0 ? this.buffer[0] : -1;
+      const isNdjson = firstByte === 0x7b; // starts with '{'
+
+      if (isNdjson) {
+        this.useNdjson = true;
+        // NDJSON: each message is a JSON object terminated by '\n'
+        const newlinePos = this.buffer.indexOf('\n');
+        if (newlinePos < 0) {
+          return; // wait for more data
+        }
+        const body = this.buffer.subarray(0, newlinePos).toString('utf8').trim();
+        this.buffer = this.buffer.subarray(newlinePos + 1);
+        if (!body) continue;
+        let message;
+        try {
+          message = JSON.parse(body);
+        } catch (error) {
+          this.logger(`Ignoring malformed NDJSON payload: ${error.message}`);
+          continue;
+        }
+        await this.dispatchMessage(message);
+      } else {
+        // Content-Length framing (legacy)
+        const crlfHeaderEnd = this.buffer.indexOf('\r\n\r\n');
+        const lfHeaderEnd = this.buffer.indexOf('\n\n');
+        const hasCrLfHeaders = crlfHeaderEnd >= 0 && (lfHeaderEnd < 0 || crlfHeaderEnd <= lfHeaderEnd);
+        const headerEnd = hasCrLfHeaders ? crlfHeaderEnd : lfHeaderEnd;
+        if (headerEnd < 0) {
+          return;
+        }
+
+        const headerText = this.buffer.subarray(0, headerEnd).toString('utf8');
+        const headers = parseHeaders(headerText);
+        const contentLength = Number.parseInt(headers['content-length'] || '', 10);
+        if (!Number.isFinite(contentLength)) {
+          throw new Error('Missing or invalid Content-Length header.');
+        }
+
+        const messageStart = headerEnd + (hasCrLfHeaders ? 4 : 2);
+        const messageEnd = messageStart + contentLength;
+        if (this.buffer.length < messageEnd) {
+          return;
+        }
+
+        const body = this.buffer.subarray(messageStart, messageEnd).toString('utf8');
+        this.buffer = this.buffer.subarray(messageEnd);
+
+        let message;
+        try {
+          message = JSON.parse(body);
+        } catch (error) {
+          this.logger(`Ignoring malformed JSON-RPC payload: ${error.message}`);
+          continue;
+        }
+
+        await this.dispatchMessage(message);
       }
-
-      const headerText = this.buffer.subarray(0, headerEnd).toString('utf8');
-      const headers = parseHeaders(headerText);
-      const contentLength = Number.parseInt(headers['content-length'] || '', 10);
-      if (!Number.isFinite(contentLength)) {
-        throw new Error('Missing or invalid Content-Length header.');
-      }
-
-      const messageStart = headerEnd + (hasCrLfHeaders ? 4 : 2);
-      const messageEnd = messageStart + contentLength;
-      if (this.buffer.length < messageEnd) {
-        return;
-      }
-
-      const body = this.buffer.subarray(messageStart, messageEnd).toString('utf8');
-      this.buffer = this.buffer.subarray(messageEnd);
-
-      let message;
-      try {
-        message = JSON.parse(body);
-      } catch (error) {
-        this.logger(`Ignoring malformed JSON-RPC payload: ${error.message}`);
-        continue;
-      }
-
-      await this.dispatchMessage(message);
     }
   }
 
@@ -107,7 +133,11 @@ export class StdioJsonRpcServer {
 
   send(payload) {
     const json = JSON.stringify(payload);
-    const message = `Content-Length: ${Buffer.byteLength(json, 'utf8')}\r\nContent-Type: application/json\r\n\r\n${json}`;
-    process.stdout.write(message);
+    if (this.useNdjson) {
+      process.stdout.write(json + '\n');
+    } else {
+      const message = `Content-Length: ${Buffer.byteLength(json, 'utf8')}\r\nContent-Type: application/json\r\n\r\n${json}`;
+      process.stdout.write(message);
+    }
   }
 }
