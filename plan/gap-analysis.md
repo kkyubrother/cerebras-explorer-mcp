@@ -1,0 +1,42 @@
+# 현재 상태 요약 및 격차 분석
+
+## 현재 상태
+
+cerebras-explorer는 단일 `explore_repo` 도구로, Cerebras의 저비용 모델(`zai-glm-4.7`)을 활용해 자율적 레포 탐색 루프를 수행합니다.
+
+### 보유 도구 (4개, 읽기 전용)
+
+| 도구 | 기능 |
+|------|------|
+| `repo_list_dir` | 디렉토리 구조 탐색 (depth 1-4) |
+| `repo_find_files` | 글로브 패턴으로 파일 검색 |
+| `repo_grep` | 정규식으로 파일 내용 검색 |
+| `repo_read_file` | 특정 파일의 라인 범위 읽기 |
+
+### 주요 특성
+
+- Evidence grounding: 실제 읽은 라인 범위만 증거로 인정
+- Budget 제어: quick/normal/deep 3단계
+- 안전 경계: scope 제한, symlink 차단, 바이너리 필터링, .gitignore 존중
+- 구조화된 JSON 출력 (answer, summary, confidence, evidence, stats)
+- MCP stdio 전송: NDJSON + Content-Length 자동 감지
+
+## Claude Code/Codex 내장 탐색 대비 격차
+
+| 영역 | Claude Code 내장 | cerebras-explorer | 격차 수준 |
+|------|-----------------|-------------------|-----------|
+| 코드 의미 분석 | LSP, tree-sitter | 없음 | **Critical** |
+| Git 이력 추적 | git log/blame/diff | 없음 | **Critical** |
+| 심볼 탐색 | Go to definition, references | regex grep만 | **High** |
+| 캐싱/인덱싱 | 세션 내 컨텍스트 유지 | 매번 cold start | **High** |
+| 다중 도구 조합 | 자유로운 도구 체이닝 | 4개 도구 고정 | **Medium** |
+| 웹 검색 | WebSearch/WebFetch | 없음 | **Medium** |
+| 대규모 레포 | ripgrep 기반 | naive regex | **High** |
+| 출력 품질 | 대화형, 맥락적 | 구조화된 JSON 1회 | **Medium** |
+
+## 핵심 강점 (유지 및 강화 대상)
+
+1. **비용 효율성**: Cerebras의 빠르고 저렴한 추론으로 parent model 토큰 절감
+2. **단일 위임**: 한 번 호출로 완결된 답변 — 내장 도구의 "여러 턴 왔다갔다"보다 효율적
+3. **Evidence grounding**: 읽지 않은 코드를 증거로 제시하지 않는 신뢰성
+4. **결정적 탐색**: temperature 0.1로 재현 가능한 결과
