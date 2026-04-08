@@ -1077,7 +1077,7 @@ export class RepoToolkit {
         function: {
           name: 'repo_symbol_context',
           description:
-            'MACRO: retrieves a symbol\'s definition body, its callers, and its callees in a single call. Saves 2–4 turns compared to separate grep + read + grep. Use this as the first step for any symbol-first or reference-chase task.',
+            'MACRO: retrieves a symbol\'s definition body and its callers in a single call. Saves 2–4 turns compared to separate grep + read + grep. Use this as the first step for any symbol-first or reference-chase task.',
           parameters: {
             type: 'object',
             additionalProperties: false,
