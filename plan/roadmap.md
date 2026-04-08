@@ -118,9 +118,9 @@
 - [x] 프로바이더 추상화 + failover — `src/explorer/providers/`
 - [x] 모델 라우팅 (복잡도별 + budget별) — `config.mjs` + `runtime.mjs`
 - [x] 다중 MCP 도구 (explain_symbol, trace_dependency, summarize_changes, find_similar_code) — `src/mcp/server.mjs`
-- [ ] 인터랙티브 세션 모드
-- [ ] MCP 진행 알림
-- [ ] 프로젝트별 설정 파일 지원
+- [x] 인터랙티브 세션 모드 — `src/explorer/session.mjs` (Phase 5에서 구현)
+- [x] MCP 진행 알림 — `notifications/progress` via `src/mcp/server.mjs` + `jsonrpc-stdio.mjs` (Phase 5에서 구현)
+- [x] 프로젝트별 설정 파일 지원 — `.cerebras-explorer.json` via `src/explorer/config.mjs` (Phase 5에서 구현)
 - [ ] 매크로 도구
 
 **구현 결과:**
