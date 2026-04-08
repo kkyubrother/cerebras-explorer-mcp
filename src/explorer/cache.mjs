@@ -107,4 +107,8 @@ export function cacheKeyGitShow(ref) {
   return `git_show:${ref}`;
 }
 
+export function cacheKeySymbols(filePath, kind) {
+  return `symbols:${filePath}:${kind ?? 'all'}`;
+}
+
 export { GIT_TOOL_TTL_MS };

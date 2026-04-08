@@ -109,7 +109,7 @@ stats에 캐시 히트율 포함:
 
 ---
 
-## 2.3 다중 도구 체이닝 최적화 — P3 ⏭ (미구현)
+## 2.3 다중 도구 체이닝 최적화 — P3 ✅ 완료 (2026-04-08)
 
 **목표:** 모델 턴 수를 줄이는 매크로 도구
 
@@ -157,3 +157,21 @@ stats에 캐시 히트율 포함:
 ### 가치
 - `quick` budget (6턴)에서도 충분한 정보 획득 가능
 - 모델이 3번 호출할 것을 1번으로 축소
+
+### ✅ 구현 결과 (2.3)
+
+- **`repo_symbol_context(symbol, scope?, depth?)` (매크로)** (repo-tools.mjs):
+  - 1회 호출로: grep → categorize → symbols → readFile 수행
+  - 반환: `{symbol, definition: {path, line, endLine, kind, exported, content}, callers: [...], callerCount, truncated}`
+  - `definition.content`: 정의 본문 코드 포함 (readFile 자동 실행)
+  - depth 파라미터: 1–3 (현재는 1단계만 구현, 호출 체인 확장은 추후)
+  - 시스템 프롬프트에 "MACRO" 태그로 표기하여 모델이 우선 사용하도록 유도
+- **`repo_grep` contextLines 확장**:
+  - `contextLines: 0–5` 파라미터 추가
+  - `_enrichMatchesWithContext()` 메서드: 파일별 1회 읽기 후 전후 N줄 삽입
+  - 매칭 결과에 `context` 필드 추가 (`"N | line\nN+1 | line..."` 형식)
+  - ripgrep/native 양쪽에서 동작 (post-hoc file read 방식)
+- **계획 대비 차이:**
+  - `repo_symbol_context`: callers는 구현, callees(피호출자)는 grep으로 근사 구현 (정확한 AST 분석 없음)
+  - `repo_grep` contextLines 확장: 계획에 없던 bonus 기능
+  - `repo_grep includeSymbol` 옵션: 미구현 (tree-sitter 없이는 정확한 함수 범위 판단 어려움)

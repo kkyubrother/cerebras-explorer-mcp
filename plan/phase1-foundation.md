@@ -107,7 +107,7 @@ repo_git_show    — 특정 커밋의 상세 내용 (메시지 + diff)
 
 ---
 
-## 1.2 심볼 인덱스 도구 (경량 AST) — P1 (미착수)
+## 1.2 심볼 인덱스 도구 (경량 AST) — P1 ✅ 완료 (2026-04-08)
 
 **목표:** 함수/클래스/타입 정의와 참조를 정확히 추적
 
@@ -167,6 +167,24 @@ repo_references  — 특정 심볼의 사용처 검색 (import 포함)
 ### 가치
 - `grep`으로 "auth"를 검색하면 주석/문자열까지 나오지만, `repo_symbols`는 실제 `function auth()`만 반환
 - 호출 그래프 추적이 가능해져 코드 이해도 대폭 향상
+
+### ✅ 구현 결과 (1.2)
+
+- **`src/explorer/symbols.mjs`** (신규):
+  - `extractSymbols(content, filePath, kind?)` → `{name, kind, line, endLine, exported}[]`
+  - `detectLanguage(filePath)`: 확장자 기반 언어 감지 (js/mjs/cjs → javascript, ts/tsx → typescript, py, go, rs, java/kt, rb, php, 그 외 generic)
+  - `categorizeReference(line, symbol, filePath)` → `'import'|'definition'|'usage'`
+  - 언어별 regex 패턴 세트: JS/TS/Python/Go/Rust/Java/Ruby/PHP/generic
+  - `endLine` 추정: brace-counting (JS/TS/Go/Rust/Java), indentation-based (Python)
+  - tree-sitter 대신 regex 구현 — zero dependencies 원칙 유지
+- **`repo_symbols(path, kind?)`** (repo-tools.mjs):
+  - `kind`: function|class|variable|type|all (기본: all)
+  - 반환: `{path, totalLines, symbols: [...]}`
+  - LRU 캐시 지원 (`cacheKeySymbols`)
+- **`repo_references(symbol, scope?)`** (repo-tools.mjs):
+  - 내부적으로 grep 호출 → categorizeReference로 분류
+  - 반환: `{symbol, definition: {path, line, context, type}, references: [...], truncated}`
+- **계획 대비 차이:** `repo_references`는 계획의 `kind` 필드 대신 `type: 'import'|'definition'|'usage'` 사용. 단순하고 충분.
 
 ---
 

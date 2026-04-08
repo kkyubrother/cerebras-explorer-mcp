@@ -18,7 +18,9 @@ import {
   cacheKeyGitBlame,
   cacheKeyGitDiff,
   cacheKeyGitShow,
+  cacheKeySymbols,
 } from './cache.mjs';
+import { extractSymbols, categorizeReference } from './symbols.mjs';
 
 function toPosix(input) {
   return input.split(path.sep).join('/');
@@ -664,6 +666,162 @@ export class RepoToolkit {
     };
   }
 
+  /**
+   * Extract symbol definitions from a single file.
+   */
+  async symbols({ path: requestedPath, kind = 'all' } = {}) {
+    if (typeof requestedPath !== 'string' || !requestedPath.trim()) {
+      throw new Error('path is required');
+    }
+    const relativePath = sanitizeRelativePath(requestedPath);
+    const safePath = await resolveSafePath(this.repoRootReal, relativePath, { kind: 'file' });
+
+    if (safePath.stat.size > DEFAULT_TEXT_FILE_MAX_BYTES) {
+      throw new Error(`File is too large to analyse: ${relativePath}`);
+    }
+    const buffer = await fs.readFile(safePath.absolute);
+    if (!isProbablyText(buffer)) {
+      throw new Error(`File appears to be binary: ${relativePath}`);
+    }
+    const content = buffer.toString('utf8');
+    const symbolList = extractSymbols(content, relativePath, kind);
+    return {
+      path: relativePath,
+      totalLines: content.split('\n').length,
+      symbols: symbolList,
+    };
+  }
+
+  /**
+   * Find all references to a symbol across the codebase.
+   * Returns a structured object with `definition` and `references` arrays.
+   */
+  async references({ symbol, scope = [] } = {}) {
+    if (typeof symbol !== 'string' || !symbol.trim()) {
+      throw new Error('symbol is required');
+    }
+    const sym = symbol.trim();
+    // Use word-boundary grep; fall back to literal if that fails
+    const pattern = `\\b${sym}\\b`;
+    let grepResult;
+    try {
+      grepResult = await this.grep({ pattern, scope, caseSensitive: true, maxResults: 60 });
+    } catch {
+      grepResult = await this.grep({ pattern: sym, scope, caseSensitive: true, maxResults: 60 });
+    }
+
+    let definition = null;
+    const references = [];
+
+    for (const match of grepResult.matches) {
+      const type = categorizeReference(match.text ?? '', sym, match.path);
+      if (type === 'definition' && definition === null) {
+        definition = { path: match.path, line: match.line, context: (match.text ?? '').trim(), type };
+      } else {
+        references.push({ path: match.path, line: match.line, context: (match.text ?? '').trim(), type });
+      }
+    }
+
+    return {
+      symbol: sym,
+      definition,
+      references,
+      truncated: grepResult.truncated,
+    };
+  }
+
+  /**
+   * MACRO: retrieve definition body + callers in a single call.
+   * Combines grep + symbols + readFile to save 2–4 turns.
+   */
+  async symbolContext({ symbol, scope = [], depth = 1 } = {}) {
+    if (typeof symbol !== 'string' || !symbol.trim()) {
+      throw new Error('symbol is required');
+    }
+    const sym = symbol.trim();
+
+    // Step 1: grep for all occurrences
+    const grepResult = await this.grep({ pattern: `\\b${sym}\\b`, scope, caseSensitive: true, maxResults: 40 });
+
+    let definition = null;
+    const callers = [];
+
+    for (const match of grepResult.matches) {
+      const type = categorizeReference(match.text ?? '', sym, match.path);
+      if (type === 'definition' && definition === null) {
+        definition = { path: match.path, line: match.line, kind: 'unknown', endLine: null };
+      } else if (type === 'usage') {
+        callers.push({ path: match.path, line: match.line, context: (match.text ?? '').trim() });
+      }
+    }
+
+    // Step 2: refine definition via repo_symbols for exact range
+    if (definition) {
+      try {
+        const symResult = await this.symbols({ path: definition.path });
+        const found = symResult.symbols.find(s => s.name === sym);
+        if (found) {
+          definition = { ...definition, line: found.line, endLine: found.endLine, kind: found.kind, exported: found.exported };
+        }
+      } catch { /* keep grep-based definition */ }
+
+      // Step 3: read definition body
+      try {
+        const endLine = definition.endLine ?? Math.min(definition.line + 60, definition.line + 60);
+        const readResult = await this.readFile({
+          path: definition.path,
+          startLine: definition.line,
+          endLine,
+        });
+        definition = { ...definition, content: readResult.content };
+      } catch { /* skip body read */ }
+    }
+
+    return {
+      symbol: sym,
+      definition,
+      callers: callers.slice(0, 20),
+      callerCount: callers.length,
+      truncated: grepResult.truncated,
+    };
+  }
+
+  /**
+   * Add surrounding context lines to grep match results by re-reading files.
+   * Used when contextLines > 0 in callTool('repo_grep', ...).
+   */
+  async _enrichMatchesWithContext(grepResult, contextLines) {
+    const fileMatches = new Map();
+    for (const m of grepResult.matches) {
+      if (!fileMatches.has(m.path)) fileMatches.set(m.path, []);
+      fileMatches.get(m.path).push(m);
+    }
+
+    const fileLines = new Map();
+    for (const filePath of fileMatches.keys()) {
+      try {
+        const safePath = await resolveSafePath(this.repoRootReal, filePath, { kind: 'file' });
+        const buf = await fs.readFile(safePath.absolute);
+        fileLines.set(filePath, buf.toString('utf8').split('\n'));
+      } catch { /* skip unreadable files */ }
+    }
+
+    const enriched = grepResult.matches.map(m => {
+      const lines = fileLines.get(m.path);
+      if (!lines) return m;
+      const idx = m.line - 1;
+      const start = Math.max(0, idx - contextLines);
+      const end = Math.min(lines.length - 1, idx + contextLines);
+      const ctx = lines
+        .slice(start, end + 1)
+        .map((l, i) => `${start + i + 1} | ${l}`)
+        .join('\n');
+      return { ...m, context: ctx };
+    });
+
+    return { ...grepResult, matches: enriched };
+  }
+
   _runGit(args) {
     if (!this._hasGit) throw new Error('git is not available');
     let output;
@@ -864,7 +1022,7 @@ export class RepoToolkit {
           name: 'repo_grep',
           strict: true,
           description:
-            'Search file contents with a regular expression. Use this to trace symbols, routes, config keys, or keywords.',
+            'Search file contents with a regular expression. Use this to trace symbols, routes, config keys, or keywords. Set contextLines to include surrounding lines in each match.',
           parameters: {
             type: 'object',
             additionalProperties: false,
@@ -873,8 +1031,68 @@ export class RepoToolkit {
               scope: { type: 'array', items: { type: 'string' } },
               caseSensitive: { type: 'boolean' },
               maxResults: { type: 'integer', minimum: 1, maximum: 200 },
+              contextLines: { type: 'integer', minimum: 0, maximum: 5, description: 'Lines of context to include before and after each match (0–5).' },
             },
             required: ['pattern'],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'repo_symbols',
+          strict: true,
+          description:
+            'List all symbol definitions (functions, classes, variables, types) in a file with their line numbers. More precise than grep for finding where something is defined.',
+          parameters: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              path: { type: 'string', description: 'File path relative to repo root.' },
+              kind: {
+                type: 'string',
+                enum: ['function', 'class', 'variable', 'type', 'all'],
+                description: 'Filter by symbol kind. Defaults to "all".',
+              },
+            },
+            required: ['path'],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'repo_references',
+          strict: true,
+          description:
+            'Find all usages of a symbol across the codebase and locate its definition. Categorises each hit as import, definition, or usage. Use instead of grep when you need structured reference information.',
+          parameters: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              symbol: { type: 'string', description: 'Exact symbol name to search for.' },
+              scope: { type: 'array', items: { type: 'string' }, description: 'Optional path prefixes to limit the search.' },
+            },
+            required: ['symbol'],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'repo_symbol_context',
+          strict: true,
+          description:
+            'MACRO: retrieves a symbol\'s definition body, its callers, and its callees in a single call. Saves 2–4 turns compared to separate grep + read + grep. Use this as the first step for any symbol-first or reference-chase task.',
+          parameters: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              symbol: { type: 'string', description: 'Symbol name to analyse.' },
+              scope: { type: 'array', items: { type: 'string' }, description: 'Optional path prefixes.' },
+              depth: { type: 'integer', minimum: 1, maximum: 3, description: 'Caller-chain depth to trace (default 1).' },
+            },
+            required: ['symbol'],
           },
         },
       },
@@ -1007,11 +1225,16 @@ export class RepoToolkit {
         return result;
       }
       case 'repo_grep': {
+        const ctxLines = typeof args?.contextLines === 'number' ? Math.min(Math.max(0, args.contextLines), 5) : 0;
         cacheKey = cacheKeyGrep(args?.pattern, args?.caseSensitive ?? false, args?.scope);
         const cached = this._cacheGet(cacheKey);
-        if (cached !== undefined) return cached;
-        const result = await this.grep({ pattern: args?.pattern, scope: args?.scope, caseSensitive: args?.caseSensitive, maxResults: args?.maxResults });
-        this._cacheSet(cacheKey, result);
+        let result = cached !== undefined
+          ? cached
+          : await this.grep({ pattern: args?.pattern, scope: args?.scope, caseSensitive: args?.caseSensitive, maxResults: args?.maxResults });
+        if (cached === undefined) this._cacheSet(cacheKey, result);
+        if (ctxLines > 0 && result.matches?.length > 0) {
+          result = await this._enrichMatchesWithContext(result, ctxLines);
+        }
         return result;
       }
       case 'repo_read_file': {
@@ -1058,6 +1281,22 @@ export class RepoToolkit {
         this._cacheSet(cacheKey, result, ttlMs);
         return result;
       }
+      case 'repo_symbols': {
+        cacheKey = cacheKeySymbols(args?.path, args?.kind ?? 'all');
+        const cached = this._cacheGet(cacheKey);
+        if (cached !== undefined) return cached;
+        const result = await this.symbols({ path: args?.path, kind: args?.kind });
+        this._cacheSet(cacheKey, result);
+        return result;
+      }
+      case 'repo_references': {
+        // Not cached — always fresh (uses grep internally which is cached)
+        return this.references({ symbol: args?.symbol, scope: args?.scope });
+      }
+      case 'repo_symbol_context': {
+        // Not cached at top level — internally uses cached grep + symbols
+        return this.symbolContext({ symbol: args?.symbol, scope: args?.scope, depth: args?.depth });
+      }
       default:
         throw new Error(`Unknown repo tool: ${name}`);
     }
@@ -1085,6 +1324,28 @@ export function collectCandidatePathsFromToolResult(toolName, result) {
     case 'repo_git_log':
     case 'repo_git_blame':
       return [];
+    case 'repo_symbols':
+      return typeof result.path === 'string' ? [result.path] : [];
+    case 'repo_references': {
+      const paths = [];
+      if (result.definition?.path) paths.push(result.definition.path);
+      if (Array.isArray(result.references)) {
+        for (const ref of result.references) {
+          if (ref.path) paths.push(ref.path);
+        }
+      }
+      return [...new Set(paths)];
+    }
+    case 'repo_symbol_context': {
+      const paths = [];
+      if (result.definition?.path) paths.push(result.definition.path);
+      if (Array.isArray(result.callers)) {
+        for (const caller of result.callers) {
+          if (caller.path) paths.push(caller.path);
+        }
+      }
+      return [...new Set(paths)];
+    }
     default:
       return [];
   }

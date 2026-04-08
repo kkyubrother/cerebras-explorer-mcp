@@ -70,6 +70,7 @@ function incrementToolStats(stats, toolName) {
   if (toolName === 'repo_git_blame') stats.gitBlameCalls += 1;
   if (toolName === 'repo_git_diff') stats.gitDiffCalls += 1;
   if (toolName === 'repo_git_show') stats.gitShowCalls += 1;
+  if (toolName === 'repo_symbols' || toolName === 'repo_references' || toolName === 'repo_symbol_context') stats.symbolCalls += 1;
 }
 
 function recordObservedRange(observedRanges, targetPath, startLine, endLine) {
@@ -355,6 +356,7 @@ export class ExplorerRuntime {
       gitBlameCalls: 0,
       gitDiffCalls: 0,
       gitShowCalls: 0,
+      symbolCalls: 0,
       inputTokens: 0,
       outputTokens: 0,
       totalTokens: 0,

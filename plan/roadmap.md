@@ -6,14 +6,14 @@
 |----------|-------|---------|--------|--------|------|
 | **P0** | 1.1 | Git 메타데이터 도구 | ★★★★★ | Medium | ✅ DONE |
 | **P0** | 1.3 | ripgrep 네이티브 통합 | ★★★★ | Small | ✅ DONE |
-| **P1** | 1.2 | 심볼 인덱스 (tree-sitter) | ★★★★★ | Large | TODO |
+| **P1** | 1.2 | 심볼 인덱스 (tree-sitter) | ★★★★★ | Large | ✅ DONE |
 | **P1** | 2.1 | 탐색 전략 엔진 | ★★★★ | Medium | ✅ DONE |
 | **P1** | 2.2 | 결과 캐싱 | ★★★ | Small | ✅ DONE |
 | **P2** | 3.1 | 다층 출력 포맷 | ★★★ | Medium | ✅ DONE |
 | **P2** | 3.2 | 신뢰도 개선 | ★★★ | Medium | ✅ DONE |
 | **P2** | 3.3 | 실행 가능한 followups | ★★★ | Small | ✅ DONE |
 | **P2** | 4.2 | 다중 MCP 도구 | ★★★★ | Medium | ✅ DONE |
-| **P3** | 2.3 | 매크로 도구 체이닝 | ★★ | Medium | TODO |
+| **P3** | 2.3 | 매크로 도구 체이닝 | ★★ | Medium | ✅ DONE |
 | **P3** | 4.1 | 모델 라우팅 | ★★ | Medium | ✅ DONE |
 | **P3** | 4.3 | 프로바이더 추상화 | ★★★ | Medium | ✅ DONE |
 | **P3** | 5.1 | 인터랙티브 모드 | ★★★ | Large | ✅ DONE |
@@ -41,22 +41,34 @@
 
 **완료 효과:** "코드의 역사"를 아는 탐색기로 진화. 대규모 레포에서도 빠른 검색.
 
-### Milestone 2: Intelligence (P1) — 부분 완료 (2026-04-08)
+### Milestone 2: Intelligence (P1) — ✅ 완료 (2026-04-08)
 > **목표:** 스마트한 탐색으로 턴 효율성 극대화
 
-- [ ] tree-sitter WASM 통합 (최소 JS/TS/Python)
-- [ ] `repo_symbols`, `repo_references` 도구 추가
+- [x] 심볼 인덱스 (`repo_symbols`, `repo_references`, `repo_symbol_context`) — `src/explorer/symbols.mjs` + `repo-tools.mjs`
+- [x] 매크로 도구 체이닝 (`repo_symbol_context`, `repo_grep` contextLines) — `repo-tools.mjs`
 - [x] 탐색 전략 엔진 (system prompt + hints 확장) — `detectStrategy()` + system prompt 전략 가이드
 - [x] LRU 캐시 계층 구현 — `cache.mjs` `LruCache` + `globalRepoCache` 싱글턴
 - [x] 프롬프트 업데이트: 전략 선택 가이드 — `buildExplorerSystemPrompt`에 6개 전략 가이드 추가
 
-**구현 결과:**
+**구현 결과 (신규, 2026-04-08):**
+- **1.2 심볼 인덱스** (`src/explorer/symbols.mjs`):
+  - `extractSymbols(content, filePath, kind)`: JS/TS/Python/Go/Rust/Java/Ruby regex 기반 추출
+  - `{name, kind, line, endLine, exported}[]` 반환 (endLine: brace-counting 또는 indentation 기반)
+  - `detectLanguage(filePath)`: 확장자 기반 언어 감지
+  - `categorizeReference(line, symbol, filePath)`: import/definition/usage 분류
+  - tree-sitter 대신 regex 구현 (zero-dependency 유지)
+- **`repo_symbols`**: 파일 심볼 목록 추출, kind 필터, LRU 캐시 지원
+- **`repo_references`**: 심볼 grep + categorize → definition + references 반환
+- **`repo_symbol_context` (매크로)**: grep + symbols + readFile 1회 호출로 definition body + callers 반환. 2–4턴 절약.
+- **`repo_grep` contextLines**: contextLines=0–5 파라미터 추가. 매칭 전후 N줄 포함. ripgrep/native 양쪽 지원.
+- `stats.symbolCalls` 추가
+- 프롬프트: symbol-first/reference-chase 전략 설명 업데이트, 심볼 도구 사용 가이드 추가
+
+**기존 구현 결과:**
 - `detectStrategy(task)`: 6가지 전략(symbol-first, reference-chase, git-guided, breadth-first, blame-guided, pattern-scan)을 한/영 키워드로 자동 감지
 - hints.strategy 필드: 직접 전략 지정 가능, enum 검증
 - LRU 캐시: 50MB 상한, 파일/grep/git 결과 캐싱, git ops TTL 60초
 - stats에 cacheHits/cacheMisses/cacheHitRate 포함
-
-**완료 시:** 함수/클래스 수준의 코드 이해 가능. 같은 budget으로 2-3배 더 깊은 탐색.
 
 ### Milestone 3: Polish (P2) — ✅ 완료 (2026-04-08)
 > **목표:** 출력 품질과 도구 다양성 향상

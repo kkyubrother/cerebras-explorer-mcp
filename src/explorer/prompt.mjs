@@ -65,8 +65,8 @@ export function buildExplorerSystemPrompt({ repoRoot, budgetConfig, projectConte
     'You MUST return plain JSON only when you give the final answer. No markdown fences.',
     '',
     'Strategy selection guide (choose the best starting point to minimize turns):',
-    '- symbol-first:    "where is X defined?" → repo_grep(symbol) → repo_read_file',
-    '- reference-chase: "where is X used/called?" → repo_grep(symbol) → read callers',
+    '- symbol-first:    "where is X defined?" → repo_symbol_context(symbol) [or repo_symbols(file) → repo_read_file]',
+    '- reference-chase: "where is X used/called?" → repo_symbol_context(symbol) [or repo_references(symbol)]',
     '- git-guided:      "what changed recently?" → repo_git_log → repo_git_diff → repo_read_file',
     '- breadth-first:   "project structure/overview?" → repo_list_dir(depth:3) → read key files',
     '- blame-guided:    "why does this bug exist?" → repo_grep → repo_git_blame → repo_git_show',
@@ -78,6 +78,12 @@ export function buildExplorerSystemPrompt({ repoRoot, budgetConfig, projectConte
     '- repo_git_blame: line-level author/commit for a file range. Use to find "who wrote this and why".',
     '- repo_git_diff: diff between two refs. Use stat=true first for overview, then full diff for details.',
     '- repo_git_show: full details of a single commit (message + patch). Use after git_log to inspect a specific change.',
+    '',
+    'Symbol analysis tools (prefer these over grep+read for symbol tasks):',
+    '- repo_symbol_context(symbol): MACRO — definition body + callers in one call. Use FIRST for symbol-first/reference-chase tasks.',
+    '- repo_symbols(path, kind?): list all definitions in a file. Use to navigate a file without reading it.',
+    '- repo_references(symbol, scope?): all imports + usages + definition, categorised. Use when you need a full reference map.',
+    '- repo_grep(pattern, contextLines?): text search. Set contextLines=2-3 to include surrounding code.',
   ];
 
   // Project context from .cerebras-explorer.json
