@@ -339,6 +339,7 @@ export class ExplorerRuntime {
           budget: budgetConfig.label,
           hints: args.hints,
           sessionCandidatePaths: sessionData?.candidatePaths ?? [],
+          language: args.language,
         }),
       },
     ];

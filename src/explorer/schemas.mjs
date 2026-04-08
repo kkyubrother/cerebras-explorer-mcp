@@ -46,6 +46,11 @@ export const EXPLORE_REPO_INPUT_SCHEMA = {
       description:
         'Optional session ID returned by a previous explore_repo call. When provided, the explorer carries over discovered file paths and prior summaries to accelerate follow-up exploration.',
     },
+    language: {
+      type: 'string',
+      description:
+        'Optional BCP-47 language tag (e.g. "ko", "en", "ja") for the response language. When omitted, the explorer infers the language from the task text.',
+    },
   },
   required: ['task'],
 };
@@ -157,6 +162,9 @@ export function validateExploreRepoArgs(args) {
   }
   if (args.session !== undefined && (typeof args.session !== 'string' || !args.session.trim())) {
     throw new Error('session must be a non-empty string when provided.');
+  }
+  if (args.language !== undefined && (typeof args.language !== 'string' || !args.language.trim())) {
+    throw new Error('language must be a non-empty string when provided.');
   }
   if (args.hints !== undefined) {
     if (!args.hints || typeof args.hints !== 'object' || Array.isArray(args.hints)) {

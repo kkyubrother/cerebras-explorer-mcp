@@ -37,6 +37,8 @@ const EXPLAIN_SYMBOL_TOOL = {
       repo_root: { type: 'string' },
       scope: { type: 'array', items: { type: 'string' } },
       session: { type: 'string', description: 'Optional session ID for continuity.' },
+      language: { type: 'string', description: 'BCP-47 language tag for the response (e.g. "ko", "en"). Defaults to auto-detect.' },
+      context: { type: 'string', description: 'Optional additional context from the parent agent to guide exploration.' },
     },
     required: ['symbol'],
   },
@@ -63,6 +65,8 @@ const TRACE_DEPENDENCY_TOOL = {
       maxDepth: { type: 'number' },
       repo_root: { type: 'string' },
       session: { type: 'string' },
+      language: { type: 'string', description: 'BCP-47 language tag for the response (e.g. "ko", "en"). Defaults to auto-detect.' },
+      context: { type: 'string', description: 'Optional additional context from the parent agent to guide exploration.' },
     },
     required: ['entryPoint'],
   },
@@ -82,6 +86,8 @@ const SUMMARIZE_CHANGES_TOOL = {
       path: { type: 'string' },
       repo_root: { type: 'string' },
       session: { type: 'string' },
+      language: { type: 'string', description: 'BCP-47 language tag for the response (e.g. "ko", "en"). Defaults to auto-detect.' },
+      context: { type: 'string', description: 'Optional additional context from the parent agent to guide exploration.' },
     },
     required: [],
   },
@@ -102,6 +108,8 @@ const FIND_SIMILAR_CODE_TOOL = {
       scope: { type: 'array', items: { type: 'string' } },
       repo_root: { type: 'string' },
       session: { type: 'string' },
+      language: { type: 'string', description: 'BCP-47 language tag for the response (e.g. "ko", "en"). Defaults to auto-detect.' },
+      context: { type: 'string', description: 'Optional additional context from the parent agent to guide exploration.' },
     },
     required: ['reference'],
   },
@@ -126,54 +134,58 @@ function buildToolList() {
 // ─── Specialized tool task builders ────────────────────────────────────────
 
 function buildExplainSymbolArgs(args) {
-  const { symbol, repo_root, scope, session } = args;
+  const { symbol, repo_root, scope, session, language, context } = args;
   if (!symbol || typeof symbol !== 'string' || !symbol.trim()) {
     throw Object.assign(new Error('explain_symbol requires a non-empty "symbol" argument.'), { code: -32602 });
   }
+  let task = `Explain the symbol "${symbol.trim()}": where it is defined, what it does, its parameters/return type if applicable, and where it is called or used in the codebase.`;
+  if (context) task += `\n\nAdditional context: ${context}`;
   return {
-    task: `Explain the symbol "${symbol.trim()}": where it is defined, what it does, its parameters/return type if applicable, and where it is called or used in the codebase.`,
-    repo_root, scope, session,
+    task, repo_root, scope, session, language,
     budget: 'normal',
     hints: { symbols: [symbol.trim()], strategy: 'symbol-first' },
   };
 }
 
 function buildTraceDependencyArgs(args) {
-  const { entryPoint, direction = 'both', maxDepth = 3, repo_root, session } = args;
+  const { entryPoint, direction = 'both', maxDepth = 3, repo_root, session, language, context } = args;
   if (!entryPoint || typeof entryPoint !== 'string' || !entryPoint.trim()) {
     throw Object.assign(new Error('trace_dependency requires a non-empty "entryPoint" argument.'), { code: -32602 });
   }
   const depthNote = Number.isFinite(maxDepth) ? ` Follow at most ${maxDepth} levels deep.` : '';
+  let task = `Trace the import/dependency chain of "${entryPoint.trim()}". Direction: ${direction}.${depthNote} List which modules are imported and which modules import this file.`;
+  if (context) task += `\n\nAdditional context: ${context}`;
   return {
-    task: `Trace the import/dependency chain of "${entryPoint.trim()}". Direction: ${direction}.${depthNote} List which modules are imported and which modules import this file.`,
-    repo_root, session,
+    task, repo_root, session, language,
     budget: 'normal',
     hints: { files: [entryPoint.trim()], strategy: 'reference-chase' },
   };
 }
 
 function buildSummarizeChangesArgs(args) {
-  const { since, until, path: filePath, repo_root, session } = args;
+  const { since, until, path: filePath, repo_root, session, language, context } = args;
   const sincePart = since ? `since "${since}"` : 'in recent history';
   const untilPart = until ? ` until "${until}"` : '';
   const pathPart = filePath ? ` for path: ${filePath}` : '';
+  let task = `Summarize the code changes ${sincePart}${untilPart}${pathPart}. Describe what files changed, the key modifications, and the overall intent of the changes.`;
+  if (context) task += `\n\nAdditional context: ${context}`;
   return {
-    task: `Summarize the code changes ${sincePart}${untilPart}${pathPart}. Describe what files changed, the key modifications, and the overall intent of the changes.`,
-    repo_root, session,
+    task, repo_root, session, language,
     budget: 'normal',
     hints: { strategy: 'git-guided' },
   };
 }
 
 function buildFindSimilarCodeArgs(args) {
-  const { reference, startLine, endLine, scope, repo_root, session } = args;
+  const { reference, startLine, endLine, scope, repo_root, session, language, context } = args;
   if (!reference || typeof reference !== 'string' || !reference.trim()) {
     throw Object.assign(new Error('find_similar_code requires a non-empty "reference" argument.'), { code: -32602 });
   }
   const lineNote = startLine && endLine ? ` (lines ${startLine}–${endLine})` : '';
+  let task = `Find code patterns similar to "${reference.trim()}"${lineNote} across the codebase.`;
+  if (context) task += `\n\nAdditional context: ${context}`;
   return {
-    task: `Find code patterns similar to "${reference.trim()}"${lineNote} across the codebase.`,
-    repo_root, scope, session,
+    task, repo_root, scope, session, language,
     budget: 'normal',
     hints: { files: [reference.trim()], strategy: 'pattern-scan' },
   };

@@ -66,9 +66,12 @@ Parent model (Claude Code / Codex)
     "symbols": ["requireAuth"],
     "files": ["src/routes/user.js"],
     "regex": ["/users/me"]
-  }
+  },
+  "language": "ko"
 }
 ```
+
+- `language` (선택): BCP-47 언어 태그(예: `"ko"`, `"en"`, `"ja"`). 생략 시 task 텍스트에서 자동 추론합니다.
 
 반환 예시:
 
@@ -99,6 +102,22 @@ Parent model (Claude Code / Codex)
   }
 }
 ```
+
+### 특화 도구 (Specialized Tools)
+
+`CEREBRAS_EXPLORER_EXTRA_TOOLS=false`로 비활성화하지 않는 한, 다음 4개 특화 도구가 함께 노출됩니다. 내부적으로 `explore_repo`에 위임하는 편의 도구입니다.
+
+| 도구 | 설명 | 전략 |
+|------|------|------|
+| `explain_symbol` | 심볼의 정의 위치, 역할, 사용처를 설명 | symbol-first |
+| `trace_dependency` | 파일의 import/dependency 체인을 추적 | reference-chase |
+| `summarize_changes` | 기간/경로별 git 변경 사항을 요약 | git-guided |
+| `find_similar_code` | 참조 파일/코드와 유사한 패턴을 탐색 | pattern-scan |
+
+모든 특화 도구는 다음 공통 선택 파라미터를 지원합니다:
+
+- `language`: BCP-47 언어 태그 — 응답 언어를 명시적으로 지정
+- `context`: 상위 에이전트가 탐색 의도를 전달하는 추가 컨텍스트
 
 ## 프로젝트 구조
 

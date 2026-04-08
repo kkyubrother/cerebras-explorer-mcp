@@ -1,6 +1,6 @@
 const STRATEGY_DESCRIPTIONS = {
-  'symbol-first':    'Find where a symbol is defined. Start with repo_grep(symbol) → repo_read_file.',
-  'reference-chase': 'Find all callers/usages. Start with repo_grep(symbol) → read each caller.',
+  'symbol-first':    'Find where a symbol is defined. Start with repo_symbol_context(symbol); fall back to repo_grep → repo_read_file.',
+  'reference-chase': 'Find all callers/usages. Start with repo_symbol_context(symbol); fall back to repo_references(symbol) → read each caller.',
   'git-guided':      'Understand recent changes. Start with repo_git_log → repo_git_diff → repo_read_file.',
   'breadth-first':   'Understand project structure. Start with repo_list_dir(depth:3) → read key files.',
   'blame-guided':    'Trace a bug to its origin. Start with repo_grep → repo_git_blame → repo_git_show.',
@@ -55,14 +55,22 @@ function formatScope(scope = []) {
 export function buildExplorerSystemPrompt({ repoRoot, budgetConfig, projectContext, previousSummaries, keyFiles }) {
   const parts = [
     'You are Cerebras Explorer, an autonomous READ-ONLY repository exploration agent.',
-    'You MUST use repo tools to inspect the repository before answering unless the answer is already obvious from prior tool results.',
-    'You MUST remain read-only. Never suggest writing files, running mutating shell commands, or making direct edits.',
-    'You MUST narrow the search before reading many files: prefer repo_find_files and repo_grep, then repo_read_file.',
-    'You MUST read the smallest relevant ranges possible.',
-    'You SHOULD gather at least two evidence points before using confidence=high when the task is non-trivial.',
-    'You MUST stop exploring once you have enough evidence to answer.',
-    'You MUST answer in the same natural language as the delegated task unless the task explicitly asks for another language.',
-    'You MUST return plain JSON only when you give the final answer. No markdown fences.',
+    '',
+    '## Core Principles',
+    '',
+    '### 1. Evidence-driven (use tools before answering)',
+    '- MUST use repo tools to inspect the repository before answering unless the answer is already obvious from prior tool results.',
+    '- SHOULD gather at least two evidence points before using confidence=high when the task is non-trivial.',
+    '- MUST stop exploring once you have enough evidence to answer.',
+    '',
+    '### 2. Minimal footprint (read-only, narrow, small)',
+    '- MUST remain read-only. Never suggest writing files, running mutating shell commands, or making direct edits.',
+    '- MUST narrow the search before reading many files: prefer repo_find_files and repo_grep, then repo_read_file.',
+    '- MUST read the smallest relevant ranges possible.',
+    '',
+    '### 3. Output discipline (language, format)',
+    '- MUST answer in the same natural language as the delegated task unless the task explicitly requests another language.',
+    '- MUST return plain JSON only when you give the final answer. No markdown fences.',
     '',
     'Strategy selection guide (choose the best starting point to minimize turns):',
     '- symbol-first:    "where is X defined?" → repo_symbol_context(symbol) [or repo_symbols(file) → repo_read_file]',
@@ -145,7 +153,7 @@ export function buildExplorerSystemPrompt({ repoRoot, budgetConfig, projectConte
   return parts.join('\n');
 }
 
-export function buildExplorerUserPrompt({ task, scope, budget, hints, sessionCandidatePaths }) {
+export function buildExplorerUserPrompt({ task, scope, budget, hints, sessionCandidatePaths, language }) {
   const strategy = hints?.strategy ?? detectStrategy(task);
   const strategyLine = strategy
     ? `Strategy: ${strategy} — ${STRATEGY_DESCRIPTIONS[strategy]}`
@@ -162,6 +170,10 @@ export function buildExplorerUserPrompt({ task, scope, budget, hints, sessionCan
     formatHintBlock(hints),
   ];
 
+  if (typeof language === 'string' && language.trim()) {
+    lines.push(`Response language: ${language.trim()}`);
+  }
+
   // Inject paths from a previous session call as context
   if (Array.isArray(sessionCandidatePaths) && sessionCandidatePaths.length > 0) {
     lines.push(
@@ -170,14 +182,12 @@ export function buildExplorerUserPrompt({ task, scope, budget, hints, sessionCan
     );
   }
 
-  lines.push(
-    '',
-    'Work plan:',
-    '1. Discover likely relevant files using the suggested strategy above.',
-    '2. Read only the smallest ranges needed to answer.',
-    '3. Stop once evidence is sufficient.',
-    '4. Return the final JSON result.',
-  );
+  if (strategy) {
+    lines.push(
+      '',
+      `Follow the ${strategy} strategy above. Stop as soon as evidence is sufficient.`,
+    );
+  }
 
   return lines.join('\n');
 }
@@ -185,12 +195,8 @@ export function buildExplorerUserPrompt({ task, scope, budget, hints, sessionCan
 export function buildFinalizePrompt() {
   return [
     'Produce the final exploration result now.',
-    'Return valid JSON only — no markdown fences.',
     'Do not call any tools.',
     'Ground every evidence item in files and line ranges already inspected.',
-    '',
-    'For followups, use the structured object format:',
-    '  {"description": "...", "priority": "recommended|optional", "suggestedCall": {"task": "...", "scope": [], "budget": "normal", "hints": {"symbols": [], "strategy": "symbol-first"}}}',
-    'Use an empty array [] if no further investigation is needed.',
+    'Use an empty array [] for followups if no further investigation is needed.',
   ].join('\n');
 }
