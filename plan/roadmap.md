@@ -4,8 +4,8 @@
 
 | Priority | Phase | Feature | Impact | Effort | 상태 |
 |----------|-------|---------|--------|--------|------|
-| **P0** | 1.1 | Git 메타데이터 도구 | ★★★★★ | Medium | TODO |
-| **P0** | 1.3 | ripgrep 네이티브 통합 | ★★★★ | Small | TODO |
+| **P0** | 1.1 | Git 메타데이터 도구 | ★★★★★ | Medium | ✅ DONE |
+| **P0** | 1.3 | ripgrep 네이티브 통합 | ★★★★ | Small | ✅ DONE |
 | **P1** | 1.2 | 심볼 인덱스 (tree-sitter) | ★★★★★ | Large | TODO |
 | **P1** | 2.1 | 탐색 전략 엔진 | ★★★★ | Medium | TODO |
 | **P1** | 2.2 | 결과 캐싱 | ★★★ | Small | TODO |
@@ -22,15 +22,24 @@
 
 ## 단계별 마일스톤
 
-### Milestone 1: Foundation (P0)
+### Milestone 1: Foundation (P0) — ✅ 완료 (2026-04-08)
 > **목표:** 내장 탐색기와의 핵심 격차 해소
 
-- [ ] Git 메타데이터 도구 4종 (`git_log`, `git_blame`, `git_diff`, `git_show`)
-- [ ] ripgrep 통합 (fallback 포함)
-- [ ] 프롬프트 업데이트: 새 도구 사용법 안내
-- [ ] 테스트 추가
+- [x] Git 메타데이터 도구 4종 (`repo_git_log`, `repo_git_blame`, `repo_git_diff`, `repo_git_show`) — `src/explorer/repo-tools.mjs`
+- [x] ripgrep 통합 (fallback 포함) — `_grepWithRipgrep()` + `_hasRipgrep` 자동 감지
+- [x] 프롬프트 업데이트: 새 도구 사용법 안내 — `src/explorer/prompt.mjs`
+- [x] runtime stats에 git 도구 호출 카운터 추가 — `src/explorer/runtime.mjs`
+- [x] 테스트 추가 — `tests/repo-tools.test.mjs` (git 6종 + ripgrep 1종 + candidatePaths 1종)
 
-**완료 시:** "코드의 역사"를 아는 탐색기로 진화. 대규모 레포에서도 빠른 검색.
+**구현 결과:**
+- `repo_git_log`: 파일/디렉토리별 커밋 이력, since/author/grep 필터 지원
+- `repo_git_blame`: --porcelain 파싱으로 라인별 작성자/커밋 추적
+- `repo_git_diff`: stat 요약 또는 full patch 선택, ref 입력 검증
+- `repo_git_show`: 커밋 메시지 + patch (8KB 이상 자동 truncate)
+- ripgrep: `--json` 출력 파싱, maxBuffer 200KB, ripgrep 없으면 자동 fallback
+- git ref injection 방지: `^[0-9a-zA-Z_./:^~\-]+$` 화이트리스트 검증
+
+**완료 효과:** "코드의 역사"를 아는 탐색기로 진화. 대규모 레포에서도 빠른 검색.
 
 ### Milestone 2: Intelligence (P1)
 > **목표:** 스마트한 탐색으로 턴 효율성 극대화

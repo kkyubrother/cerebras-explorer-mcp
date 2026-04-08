@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import {
   DEFAULT_GREP_FILE_MAX_BYTES,
   DEFAULT_IGNORE_DIRS,
@@ -284,6 +285,38 @@ function isProbablyText(buffer) {
   return suspicious / sample.length < 0.15;
 }
 
+function parseDiffOutput(diffText) {
+  const files = [];
+  let current = null;
+  for (const line of diffText.split('\n')) {
+    if (line.startsWith('diff --git ')) {
+      if (current) files.push(current);
+      const match = line.match(/diff --git a\/(.*) b\/(.*)/);
+      current = { path: match?.[2] ?? '', additions: 0, deletions: 0, patch: '' };
+    } else if (current) {
+      if (line.startsWith('+') && !line.startsWith('+++')) current.additions++;
+      else if (line.startsWith('-') && !line.startsWith('---')) current.deletions++;
+      current.patch += line + '\n';
+    }
+  }
+  if (current) files.push(current);
+  for (const f of files) {
+    if (f.patch.length > 8000) {
+      f.patch = f.patch.slice(0, 8000) + '\n... (truncated)';
+    }
+  }
+  return files;
+}
+
+function detectBinary(cmd, args) {
+  try {
+    execFileSync(cmd, args, { stdio: 'pipe', timeout: 3000 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function tryBuildRegex(pattern, caseSensitive = false) {
   const source = String(pattern || '');
   try {
@@ -304,6 +337,8 @@ function dedupeArray(values) {
   return [...new Set(values)];
 }
 
+const DEFAULT_GIT_OUTPUT_MAX_BYTES = 100 * 1024;
+
 export class RepoToolkit {
   constructor({
     repoRoot,
@@ -316,6 +351,8 @@ export class RepoToolkit {
     this.logger = logger;
     this.baseScopeRules = createScopeRules([]);
     this.gitignoreMatcher = null;
+    this._hasRipgrep = null;
+    this._hasGit = null;
   }
 
   async initialize(scope = []) {
@@ -323,6 +360,8 @@ export class RepoToolkit {
     const rules = await loadGitignoreRules(this.repoRootReal);
     this.gitignoreMatcher = rules.length ? buildGitignoreMatcher(rules) : null;
     this.baseScopeRules = createScopeRules(scope);
+    this._hasRipgrep = detectBinary('rg', ['--version']);
+    this._hasGit = detectBinary('git', ['--version']);
   }
 
   buildEffectiveScopeRules(scope = []) {
@@ -448,9 +487,75 @@ export class RepoToolkit {
     };
   }
 
+  _grepWithRipgrep({ pattern, scope = [], caseSensitive = false, maxResults }) {
+    const rgArgs = [
+      '--json',
+      '--no-binary',
+      '--max-filesize', '256K',
+      '--glob', '!.git',
+    ];
+    if (!caseSensitive) rgArgs.push('--ignore-case');
+    const perFileMax = Math.min(maxResults, 50);
+    rgArgs.push('--max-count', String(perFileMax));
+    rgArgs.push('--', pattern);
+
+    const normalizedScope = normalizeScope(scope);
+    if (normalizedScope.length > 0) {
+      for (const s of normalizedScope) {
+        rgArgs.push(path.join(this.repoRootReal, s));
+      }
+    } else {
+      rgArgs.push(this.repoRootReal);
+    }
+
+    let rawOutput;
+    try {
+      rawOutput = execFileSync('rg', rgArgs, {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+        maxBuffer: DEFAULT_GIT_OUTPUT_MAX_BYTES * 2,
+        cwd: this.repoRootReal,
+      });
+    } catch (err) {
+      // exit code 1 = no matches (not an error), stderr contains real errors
+      if (err.status === 1 && !err.stderr?.trim()) {
+        return { pattern, caseSensitive, matches: [], truncated: false };
+      }
+      // ripgrep failed for another reason — surface via null to trigger fallback
+      return null;
+    }
+
+    const matches = [];
+    for (const line of rawOutput.split('\n')) {
+      if (!line.trim()) continue;
+      let obj;
+      try { obj = JSON.parse(line); } catch { continue; }
+      if (obj.type !== 'match') continue;
+      const filePath = obj.data?.path?.text;
+      const lineNum = obj.data?.line_number;
+      const text = obj.data?.lines?.text ?? '';
+      if (!filePath || !lineNum) continue;
+      const relPath = toPosix(path.relative(this.repoRootReal, filePath));
+      matches.push({ path: relPath, line: lineNum, text: text.slice(0, 300).replace(/\n$/, '') });
+      if (matches.length >= maxResults) break;
+    }
+
+    return {
+      pattern,
+      caseSensitive,
+      matches,
+      truncated: matches.length >= maxResults,
+    };
+  }
+
   async grep({ pattern, scope = [], caseSensitive = false, maxResults = this.budgetConfig.maxSearchResults } = {}) {
     if (typeof pattern !== 'string' || !pattern.trim()) {
       throw new Error('pattern is required');
+    }
+
+    if (this._hasRipgrep) {
+      const result = this._grepWithRipgrep({ pattern, scope, caseSensitive, maxResults });
+      if (result !== null) return result;
     }
 
     const regex = tryBuildRegex(pattern, caseSensitive);
@@ -541,6 +646,160 @@ export class RepoToolkit {
     };
   }
 
+  _runGit(args) {
+    if (!this._hasGit) throw new Error('git is not available');
+    let output;
+    try {
+      output = execFileSync('git', args, {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+        maxBuffer: DEFAULT_GIT_OUTPUT_MAX_BYTES,
+        cwd: this.repoRootReal,
+      });
+    } catch (err) {
+      const msg = err.stderr?.trim() || err.message || 'git command failed';
+      throw new Error(`git error: ${msg}`);
+    }
+    return output;
+  }
+
+  _validateGitPath(filePath) {
+    if (!filePath) return null;
+    const rel = sanitizeRelativePath(filePath);
+    ensureWithinRoot(this.repoRootReal, path.resolve(this.repoRootReal, rel));
+    return rel;
+  }
+
+  async gitLog({ path: filePath, maxCount = 20, since, author, grep: grepFilter } = {}) {
+    const count = Math.min(Number(maxCount) || 20, 100);
+    const args = ['log', `--format=%H|%an|%ai|%s`, `-n`, String(count)];
+    if (since) args.push(`--since=${since}`);
+    if (author) args.push(`--author=${author}`);
+    if (grepFilter) args.push(`--grep=${grepFilter}`);
+    const rel = this._validateGitPath(filePath);
+    if (rel) args.push('--', rel);
+
+    const output = this._runGit(args);
+    const commits = output
+      .trim()
+      .split('\n')
+      .filter(Boolean)
+      .map(line => {
+        const pipeIdx = line.indexOf('|');
+        const p2 = line.indexOf('|', pipeIdx + 1);
+        const p3 = line.indexOf('|', p2 + 1);
+        return {
+          hash: line.slice(0, pipeIdx),
+          author: line.slice(pipeIdx + 1, p2),
+          date: line.slice(p2 + 1, p3),
+          message: line.slice(p3 + 1),
+        };
+      });
+    return { commits };
+  }
+
+  async gitBlame({ path: filePath, startLine, endLine } = {}) {
+    if (!filePath) throw new Error('path is required');
+    const rel = this._validateGitPath(filePath);
+    const args = ['blame', '--porcelain'];
+    if (startLine) {
+      const end = endLine ?? Math.min(Number(startLine) + 49, 99999);
+      args.push(`-L${startLine},${end}`);
+    }
+    args.push('--', rel);
+
+    const output = this._runGit(args);
+    return this._parseBlamePorcelain(output);
+  }
+
+  _parseBlamePorcelain(output) {
+    const lines = [];
+    const commitMeta = {};
+    const rawLines = output.split('\n');
+    let i = 0;
+    while (i < rawLines.length) {
+      const headerMatch = rawLines[i]?.match(/^([0-9a-f]{40}) \d+ (\d+)/);
+      if (headerMatch) {
+        const hash = headerMatch[1];
+        const lineNum = parseInt(headerMatch[2], 10);
+        if (!commitMeta[hash]) commitMeta[hash] = {};
+        i++;
+        while (i < rawLines.length && !rawLines[i].startsWith('\t')) {
+          const spaceIdx = rawLines[i].indexOf(' ');
+          if (spaceIdx !== -1) {
+            const key = rawLines[i].slice(0, spaceIdx);
+            const val = rawLines[i].slice(spaceIdx + 1);
+            commitMeta[hash][key] = val;
+          }
+          i++;
+        }
+        const content = rawLines[i]?.slice(1) ?? '';
+        const meta = commitMeta[hash];
+        const ts = parseInt(meta['author-time'] ?? '0', 10);
+        lines.push({
+          line: lineNum,
+          hash: hash.slice(0, 8),
+          author: meta['author'] ?? '',
+          date: ts ? new Date(ts * 1000).toISOString().slice(0, 10) : '',
+          content,
+        });
+        i++;
+      } else {
+        i++;
+      }
+    }
+    return { lines };
+  }
+
+  async gitDiff({ from = 'HEAD~1', to = 'HEAD', path: filePath, stat = false } = {}) {
+    const args = ['diff'];
+    if (stat) {
+      args.push('--stat');
+    } else {
+      args.push('--unified=3');
+    }
+    args.push(`${from}..${to}`);
+    const rel = this._validateGitPath(filePath);
+    if (rel) args.push('--', rel);
+
+    const output = this._runGit(args);
+
+    if (stat) {
+      return { from, to, stat: output.trim() };
+    }
+
+    const files = parseDiffOutput(output);
+    return { from, to, files };
+  }
+
+  async gitShow({ ref } = {}) {
+    if (!ref) throw new Error('ref is required');
+    // Validate ref: only allow safe characters
+    if (!/^[0-9a-zA-Z_./:^~\-]+$/.test(ref)) {
+      throw new Error(`Invalid ref: ${ref}`);
+    }
+    // Get metadata (hash, author, date, message) separately from file list
+    const metaOutput = this._runGit(['log', '-1', '--format=%H|%an|%ai|%B', ref]);
+    const metaStr = metaOutput.trim();
+    const firstNl = metaStr.indexOf('\n');
+    const headerLine = firstNl === -1 ? metaStr : metaStr.slice(0, firstNl);
+    const p1 = headerLine.indexOf('|');
+    const p2 = headerLine.indexOf('|', p1 + 1);
+    const p3 = headerLine.indexOf('|', p2 + 1);
+    const hash = headerLine.slice(0, p1);
+    const author = headerLine.slice(p1 + 1, p2);
+    const date = headerLine.slice(p2 + 1, p3);
+    const bodyFromHeader = headerLine.slice(p3 + 1);
+    const bodyRest = firstNl === -1 ? '' : metaStr.slice(firstNl + 1).trim();
+    const message = bodyRest ? `${bodyFromHeader}\n${bodyRest}`.trim() : bodyFromHeader.trim();
+
+    const patchArgs = ['show', '--format=', '--unified=3', ref];
+    const patchOutput = this._runGit(patchArgs);
+    const files = parseDiffOutput(patchOutput);
+
+    return { hash, author, date, message, files };
+  }
+
   buildToolDefinitions() {
     return [
       {
@@ -620,6 +879,83 @@ export class RepoToolkit {
           },
         },
       },
+      {
+        type: 'function',
+        function: {
+          name: 'repo_git_log',
+          strict: false,
+          description:
+            'Show recent git commit history for the repo or a specific file/directory. Use to understand "what changed recently" or "who changed this".',
+          parameters: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              path: { type: 'string', description: 'Optional file or directory to filter commits.' },
+              maxCount: { type: 'integer', minimum: 1, maximum: 100, description: 'Number of commits to return (default 20).' },
+              since: { type: 'string', description: 'Start date filter, e.g. "2 weeks ago" or "2024-01-01".' },
+              author: { type: 'string', description: 'Filter by author name or email.' },
+              grep: { type: 'string', description: 'Filter by commit message keyword.' },
+            },
+            required: [],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'repo_git_blame',
+          strict: false,
+          description:
+            'Show line-by-line author and commit info for a file. Use to find who wrote a specific section and why it was changed.',
+          parameters: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              path: { type: 'string', description: 'File path (required).' },
+              startLine: { type: 'integer', minimum: 1, description: 'First line to blame (defaults to start of file).' },
+              endLine: { type: 'integer', minimum: 1, description: 'Last line to blame.' },
+            },
+            required: ['path'],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'repo_git_diff',
+          strict: false,
+          description:
+            'Show changes between two commits or branches. Use to understand "what changed in a PR" or "how did this file evolve".',
+          parameters: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              from: { type: 'string', description: 'Start ref (default "HEAD~1").' },
+              to: { type: 'string', description: 'End ref (default "HEAD").' },
+              path: { type: 'string', description: 'Optional file path to narrow the diff.' },
+              stat: { type: 'boolean', description: 'Return only the diffstat summary instead of full patch.' },
+            },
+            required: [],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'repo_git_show',
+          strict: false,
+          description:
+            'Show the details of a specific commit: message, author, date, and changed files with patches.',
+          parameters: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              ref: { type: 'string', description: 'Commit hash, tag, or branch name (required).' },
+            },
+            required: ['ref'],
+          },
+        },
+      },
     ];
   }
 
@@ -650,6 +986,29 @@ export class RepoToolkit {
           startLine: args?.startLine,
           endLine: args?.endLine,
         });
+      case 'repo_git_log':
+        return await this.gitLog({
+          path: args?.path,
+          maxCount: args?.maxCount,
+          since: args?.since,
+          author: args?.author,
+          grep: args?.grep,
+        });
+      case 'repo_git_blame':
+        return await this.gitBlame({
+          path: args?.path,
+          startLine: args?.startLine,
+          endLine: args?.endLine,
+        });
+      case 'repo_git_diff':
+        return await this.gitDiff({
+          from: args?.from,
+          to: args?.to,
+          path: args?.path,
+          stat: args?.stat,
+        });
+      case 'repo_git_show':
+        return await this.gitShow({ ref: args?.ref });
       default:
         throw new Error(`Unknown repo tool: ${name}`);
     }
@@ -671,6 +1030,12 @@ export function collectCandidatePathsFromToolResult(toolName, result) {
         : [];
     case 'repo_read_file':
       return typeof result.path === 'string' ? [result.path] : [];
+    case 'repo_git_diff':
+    case 'repo_git_show':
+      return Array.isArray(result.files) ? result.files.map(f => f.path).filter(Boolean) : [];
+    case 'repo_git_log':
+    case 'repo_git_blame':
+      return [];
     default:
       return [];
   }

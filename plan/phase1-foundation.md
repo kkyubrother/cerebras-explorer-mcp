@@ -1,6 +1,6 @@
-# Phase 1: 핵심 도구 확장 (Foundation)
+# Phase 1: 핵심 도구 확장 (Foundation) — ✅ P0 완료 (2026-04-08)
 
-## 1.1 Git 메타데이터 도구 추가 — P0
+## 1.1 Git 메타데이터 도구 추가 — ✅ 완료
 
 **목표:** 코드의 "누가, 언제, 왜"를 파악하는 능력 확보
 
@@ -17,8 +17,18 @@ repo_git_show    — 특정 커밋의 상세 내용 (메시지 + diff)
 
 - `child_process.execFileSync('git', [...])` 사용, read-only 명령만 허용
 - repo_root 내에서만 실행 가능하도록 경로 검증
-- 출력 크기 제한 (budget별 차등)
-- 허용 명령어 화이트리스트로 안전성 보장
+- 출력 크기 제한 (`DEFAULT_GIT_OUTPUT_MAX_BYTES = 100KB`)
+- ref injection 방지: `^[0-9a-zA-Z_./:^~\-]+$` 화이트리스트로 안전성 보장
+- `_hasGit` 플래그로 git 미설치 환경 감지 (initialize() 시 자동 탐지)
+
+### 실제 구현 위치
+
+- 메서드: `src/explorer/repo-tools.mjs` — `_runGit()`, `_validateGitPath()`, `gitLog()`, `gitBlame()`, `_parseBlamePorcelain()`, `gitDiff()`, `gitShow()`
+- 도구 정의: `buildToolDefinitions()` — 4개 추가 (strict: false, 파라미터 optional 많음)
+- 디스패치: `callTool()` — 4개 case 추가
+- 후보 경로: `collectCandidatePathsFromToolResult()` — diff/show는 변경 파일 경로 추출
+- 통계: `src/explorer/runtime.mjs` — `gitLogCalls`, `gitBlameCalls`, `gitDiffCalls`, `gitShowCalls`
+- 프롬프트: `src/explorer/prompt.mjs` — git 도구 사용 시점 가이드 추가
 
 ### 각 도구 상세
 
@@ -97,7 +107,7 @@ repo_git_show    — 특정 커밋의 상세 내용 (메시지 + diff)
 
 ---
 
-## 1.2 심볼 인덱스 도구 (경량 AST) — P1
+## 1.2 심볼 인덱스 도구 (경량 AST) — P1 (미착수)
 
 **목표:** 함수/클래스/타입 정의와 참조를 정확히 추적
 
@@ -160,39 +170,47 @@ repo_references  — 특정 심볼의 사용처 검색 (import 포함)
 
 ---
 
-## 1.3 ripgrep 네이티브 통합 — P0
+## 1.3 ripgrep 네이티브 통합 — ✅ 완료
 
 **목표:** 대규모 레포에서의 검색 성능 10-100x 개선
 
 ### 구현 방향
 
-- 현재: naive `fs.readFileSync` + `RegExp` 순차 스캔
+- 이전: naive `fs.readFileSync` + `RegExp` 순차 스캔
 - 개선: `child_process.execFileSync('rg', [...])` 호출
-- ripgrep 미설치 시 현재 구현으로 graceful fallback
+- ripgrep 미설치 시 기존 구현으로 graceful fallback
 
-### 변경 사항
+### 실제 구현 (`_grepWithRipgrep`)
 
 ```javascript
-// repo-tools.mjs의 grep 메서드 수정
-async grep(pattern, opts) {
+// repo-tools.mjs의 grep 메서드 — 실제 구현
+async grep({ pattern, scope, caseSensitive, maxResults }) {
   if (this._hasRipgrep) {
-    return this._grepWithRipgrep(pattern, opts);
+    const result = this._grepWithRipgrep({ pattern, scope, caseSensitive, maxResults });
+    if (result !== null) return result;  // null이면 fallback
   }
-  return this._grepNative(pattern, opts);  // 기존 구현
+  // 기존 native 구현
 }
 ```
 
-### ripgrep 호출 옵션
+### ripgrep 실제 호출 옵션
 ```bash
-rg --json              # 구조화된 출력
-   --max-count N       # 파일당 최대 매칭 수
-   --max-filesize 256K # 대형 파일 제외
-   --glob '!.git'      # 디렉토리 제외
-   --type-add '...'    # 커스텀 타입 정의
+rg --json              # 구조화된 출력 (NDJSON)
    --no-binary         # 바이너리 제외
-   <pattern>
-   <scope_paths>
+   --max-filesize 256K # 대형 파일 제외
+   --glob '!.git'      # .git 디렉토리 제외
+   --ignore-case       # caseSensitive=false 시
+   --max-count 50      # 파일당 최대 매칭 수
+   -- <pattern>
+   <scope_paths | repoRoot>
 ```
+
+### 구현 세부 사항
+
+- `_hasRipgrep`: `initialize()` 시 `rg --version` 실행으로 자동 탐지
+- `maxBuffer`: 200KB (DEFAULT_GIT_OUTPUT_MAX_BYTES × 2)
+- ripgrep exit code 1 (no matches) = 정상, stderr 있을 때만 fallback
+- scope 경로가 있으면 해당 경로만 검색, 없으면 repoRoot 전체
 
 ### 이점
 - `.gitignore` 자동 존중 (nested 포함)

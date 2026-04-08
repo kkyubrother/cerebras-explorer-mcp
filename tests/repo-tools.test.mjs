@@ -3,9 +3,32 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 
 import { getBudgetConfig } from '../src/explorer/config.mjs';
-import { RepoToolkit } from '../src/explorer/repo-tools.mjs';
+import { RepoToolkit, collectCandidatePathsFromToolResult } from '../src/explorer/repo-tools.mjs';
+
+function hasGit() {
+  try { execFileSync('git', ['--version'], { stdio: 'pipe' }); return true; } catch { return false; }
+}
+function hasRipgrep() {
+  try { execFileSync('rg', ['--version'], { stdio: 'pipe' }); return true; } catch { return false; }
+}
+
+async function makeGitRepoFixture() {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-git-'));
+  const git = (args) => execFileSync('git', args, { cwd: root, stdio: 'pipe', encoding: 'utf8' });
+  git(['init', '-b', 'main']);
+  git(['config', 'user.email', 'test@example.com']);
+  git(['config', 'user.name', 'Test User']);
+  await fs.writeFile(path.join(root, 'hello.js'), 'console.log("hello");\n');
+  git(['add', '.']);
+  git(['commit', '-m', 'initial commit: add hello.js']);
+  await fs.writeFile(path.join(root, 'hello.js'), 'console.log("hello world");\n');
+  git(['add', '.']);
+  git(['commit', '-m', 'update: expand greeting']);
+  return root;
+}
 
 async function makeRepoFixture() {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-explorer-'));
@@ -131,4 +154,102 @@ test('RepoToolkit blocks symlink reads and skips symlink entries during traversa
     toolkit.readFile({ path: 'src/linked-secret.txt', startLine: 1, endLine: 1 }),
     /Symlinks are not supported|Path resolves outside repo root/,
   );
+});
+
+test('collectCandidatePathsFromToolResult handles git diff and show results', () => {
+  const diffResult = { from: 'HEAD~1', to: 'HEAD', files: [{ path: 'src/foo.js', additions: 2, deletions: 1, patch: '' }] };
+  assert.deepEqual(collectCandidatePathsFromToolResult('repo_git_diff', diffResult), ['src/foo.js']);
+
+  const showResult = { hash: 'abc', author: 'a', date: 'd', message: 'm', files: [{ path: 'src/bar.js', additions: 1, deletions: 0, patch: '' }] };
+  assert.deepEqual(collectCandidatePathsFromToolResult('repo_git_show', showResult), ['src/bar.js']);
+
+  assert.deepEqual(collectCandidatePathsFromToolResult('repo_git_log', { commits: [] }), []);
+  assert.deepEqual(collectCandidatePathsFromToolResult('repo_git_blame', { lines: [] }), []);
+});
+
+test('RepoToolkit git tools: gitLog returns commits', { skip: !hasGit() }, async () => {
+  const root = await makeGitRepoFixture();
+  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig('normal') });
+  await toolkit.initialize();
+
+  const log = await toolkit.gitLog({ maxCount: 10 });
+  assert.ok(Array.isArray(log.commits), 'commits is an array');
+  assert.ok(log.commits.length >= 2, 'at least 2 commits');
+  assert.ok(log.commits[0].hash, 'commit has hash');
+  assert.ok(log.commits[0].author, 'commit has author');
+  assert.ok(log.commits[0].message, 'commit has message');
+});
+
+test('RepoToolkit git tools: gitLog filters by file path', { skip: !hasGit() }, async () => {
+  const root = await makeGitRepoFixture();
+  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig('normal') });
+  await toolkit.initialize();
+
+  const log = await toolkit.gitLog({ path: 'hello.js', maxCount: 5 });
+  assert.ok(log.commits.length >= 1, 'has commits for hello.js');
+  assert.ok(log.commits.some(c => c.message.includes('greeting')), 'second commit found');
+});
+
+test('RepoToolkit git tools: gitBlame returns line authorship', { skip: !hasGit() }, async () => {
+  const root = await makeGitRepoFixture();
+  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig('normal') });
+  await toolkit.initialize();
+
+  const blame = await toolkit.gitBlame({ path: 'hello.js', startLine: 1, endLine: 1 });
+  assert.ok(Array.isArray(blame.lines), 'lines is an array');
+  assert.ok(blame.lines.length >= 1, 'at least one blamed line');
+  assert.ok(blame.lines[0].hash, 'line has commit hash');
+  assert.ok(blame.lines[0].author, 'line has author');
+  assert.equal(blame.lines[0].line, 1, 'line number is 1');
+});
+
+test('RepoToolkit git tools: gitDiff returns file changes', { skip: !hasGit() }, async () => {
+  const root = await makeGitRepoFixture();
+  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig('normal') });
+  await toolkit.initialize();
+
+  const diff = await toolkit.gitDiff({ from: 'HEAD~1', to: 'HEAD' });
+  assert.ok(Array.isArray(diff.files), 'files is an array');
+  assert.ok(diff.files.length >= 1, 'at least one changed file');
+  assert.equal(diff.files[0].path, 'hello.js');
+
+  const stat = await toolkit.gitDiff({ from: 'HEAD~1', to: 'HEAD', stat: true });
+  assert.ok(typeof stat.stat === 'string', 'stat returns string summary');
+  assert.match(stat.stat, /hello\.js/);
+});
+
+test('RepoToolkit git tools: gitShow returns commit details', { skip: !hasGit() }, async () => {
+  const root = await makeGitRepoFixture();
+  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig('normal') });
+  await toolkit.initialize();
+
+  const show = await toolkit.gitShow({ ref: 'HEAD' });
+  assert.ok(show.hash, 'has hash');
+  assert.ok(show.author, 'has author');
+  assert.ok(show.message, 'has message');
+  assert.ok(Array.isArray(show.files), 'has files array');
+  assert.ok(show.files.some(f => f.path === 'hello.js'), 'hello.js is in changed files');
+});
+
+test('RepoToolkit git tools: gitShow rejects invalid ref', { skip: !hasGit() }, async () => {
+  const root = await makeGitRepoFixture();
+  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig('normal') });
+  await toolkit.initialize();
+
+  await assert.rejects(
+    toolkit.gitShow({ ref: 'HEAD; rm -rf /' }),
+    /Invalid ref/,
+  );
+});
+
+test('RepoToolkit grep uses ripgrep when available', { skip: !hasRipgrep() }, async () => {
+  const repoRoot = await makeRepoFixture();
+  const toolkit = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig('normal') });
+  await toolkit.initialize(['src/**', 'docs/**']);
+
+  assert.equal(toolkit._hasRipgrep, true, 'ripgrep detected');
+  const result = await toolkit.grep({ pattern: 'requireAuth' });
+  assert.ok(result.matches.length >= 2, 'ripgrep finds matches');
+  assert.ok(result.matches.some(m => m.path === 'src/auth.js'), 'finds in auth.js');
+  assert.ok(result.matches.some(m => m.path === 'src/routes/user.js'), 'finds in user.js');
 });

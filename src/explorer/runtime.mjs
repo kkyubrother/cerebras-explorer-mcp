@@ -48,6 +48,10 @@ function incrementToolStats(stats, toolName) {
   if (toolName === 'repo_grep') stats.grepCalls += 1;
   if (toolName === 'repo_find_files') stats.findFileCalls += 1;
   if (toolName === 'repo_list_dir') stats.listDirCalls += 1;
+  if (toolName === 'repo_git_log') stats.gitLogCalls += 1;
+  if (toolName === 'repo_git_blame') stats.gitBlameCalls += 1;
+  if (toolName === 'repo_git_diff') stats.gitDiffCalls += 1;
+  if (toolName === 'repo_git_show') stats.gitShowCalls += 1;
 }
 
 function recordObservedRange(observedRanges, targetPath, startLine, endLine) {
@@ -115,6 +119,10 @@ export class ExplorerRuntime {
       findFileCalls: 0,
       grepCalls: 0,
       filesRead: 0,
+      gitLogCalls: 0,
+      gitBlameCalls: 0,
+      gitDiffCalls: 0,
+      gitShowCalls: 0,
       inputTokens: 0,
       outputTokens: 0,
       totalTokens: 0,
