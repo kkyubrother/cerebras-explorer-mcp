@@ -74,8 +74,8 @@
 - 코드 수정
 - 테스트 실행
 - 셸 명령 자동 실행
-- 런타임 중 다중 모델 자동 라우팅
-- fallback provider
+
+> **참고:** 런타임 모델 자동 라우팅(`CEREBRAS_EXPLORER_AUTO_ROUTE`)과 failover provider(`EXPLORER_FAILOVER`) 기능이 내부 구현으로 존재하지만, 공개 계약(제품 목표)은 **Cerebras 기반 explorer**에 한정한다. 해당 기능은 내부 구현 메모 수준이며, 지원을 약속하는 공개 기능이 아니다.
 
 ---
 
@@ -119,7 +119,14 @@ Claude Code / Codex
          - repo_list_dir
          - repo_find_files
          - repo_grep
+         - repo_symbols
+         - repo_references
+         - repo_symbol_context
          - repo_read_file
+         - repo_git_log
+         - repo_git_blame
+         - repo_git_diff
+         - repo_git_show
       -> CerebrasChatClient
          - model: configurable via env (default zai-glm-4.7)
       -> final grounded JSON
@@ -134,7 +141,11 @@ Claude Code / Codex
 - 디렉터리 목록
 - 파일 glob 검색
 - 정규식 grep
+- 심볼 정의 추출
+- 심볼 사용처 추적
+- 심볼 컨텍스트 매크로 호출
 - 특정 파일 라인 범위 읽기
+- git 이력 조회, blame, diff, show
 
 #### `CerebrasChatClient`
 
@@ -170,7 +181,7 @@ Cerebras는 OpenAI 호환 API를 제공하지만, 일부 OpenAI 전용 파라미
 
 #### `MCP Server`
 
-상위 모델에게는 `explore_repo` 하나만 노출한다.
+기본적으로 상위 모델에게 5개의 도구를 노출한다: `explore_repo`, `explain_symbol`, `trace_dependency`, `summarize_changes`, `find_similar_code`. `CEREBRAS_EXPLORER_EXTRA_TOOLS=false`로 설정하면 `explore_repo` 하나만 노출된다.
 
 ---
 
@@ -191,9 +202,11 @@ Cerebras는 OpenAI 호환 API를 제공하지만, 일부 OpenAI 전용 파라미
 
 - 기본 모델: `zai-glm-4.7`
 - override: `CEREBRAS_EXPLORER_MODEL` 또는 `CEREBRAS_MODEL`
-- 외부 fallback provider는 허용하지 않는다.
+- budget별 모델 지정: `CEREBRAS_EXPLORER_MODEL_QUICK`, `CEREBRAS_EXPLORER_MODEL_NORMAL`, `CEREBRAS_EXPLORER_MODEL_DEEP`
 
-이 프로젝트는 Cerebras provider 안에서만 동작한다. 모델 이름은 바꿀 수 있지만, 부모 모델이 아닌 explorer 내부 모델만 교체한다.
+이 프로젝트의 문서화된 계약은 Cerebras provider 기준이다. 모델 이름은 바꿀 수 있지만, 부모 모델이 아닌 explorer 내부 모델만 교체한다.
+
+내부 구현에는 `EXPLORER_PROVIDER` 및 `EXPLORER_FAILOVER` 환경변수를 통한 provider 전환/failover 기능이 존재하나, 이는 공개 계약이 아닌 내부 구현이다.
 
 ---
 
@@ -211,11 +224,50 @@ Cerebras는 OpenAI 호환 API를 제공하지만, 일부 OpenAI 전용 파라미
 
 심볼, 라우트, 설정 키, 문자열 흔적 찾기용.
 
-### 8.4 `repo_read_file`
+- `contextLines` 옵션으로 전후 문맥을 함께 반환할 수 있다.
+
+### 8.4 `repo_symbols`
+
+파일 안의 함수, 클래스, 변수, 타입 정의를 추출한다.
+
+- 현재 구현은 tree-sitter가 아니라 **regex 기반 경량 심볼 인덱서**다.
+- 지원 언어별 패턴으로 `{name, kind, line, endLine, exported}`를 만든다.
+
+### 8.5 `repo_references`
+
+특정 심볼의 사용처를 코드베이스 전역에서 찾는다.
+
+- 각 매치를 `import`, `definition`, `usage`로 분류한다.
+- 정확한 semantic reference resolver가 아니라 grep + 분류기 기반이다.
+
+### 8.6 `repo_symbol_context`
+
+심볼 하나에 대해 정의 본문과 호출자 정보를 한 번에 반환하는 매크로 도구다.
+
+- symbol-first, reference-chase 질문에서 첫 진입점으로 사용한다.
+- 현재 `depth`는 인터페이스상 존재하지만 실질적으로 1단계 수준만 구현돼 있다.
+
+### 8.7 `repo_read_file`
 
 필요한 라인 범위만 읽기용.
 
-이 4개면 explorer MVP에는 충분하다.
+### 8.8 `repo_git_log`
+
+특정 파일/디렉터리 또는 전체 저장소의 최근 커밋 흐름을 본다.
+
+### 8.9 `repo_git_blame`
+
+파일의 특정 라인 범위에 대한 작성자와 커밋 정보를 본다.
+
+### 8.10 `repo_git_diff`
+
+두 ref 사이 변경 파일과 patch 또는 diffstat을 본다.
+
+### 8.11 `repo_git_show`
+
+특정 커밋의 메시지와 변경 파일을 본다.
+
+이 도구 집합으로 구조 탐색, 심볼 추적, 코드 읽기, 변경 이력 분석까지 모두 처리한다.
 
 ---
 
@@ -226,21 +278,65 @@ Cerebras는 OpenAI 호환 API를 제공하지만, 일부 OpenAI 전용 파라미
   "answer": "string",
   "summary": "string",
   "confidence": "low|medium|high",
+  "confidenceScore": 0.0,
+  "confidenceFactors": {
+    "evidenceCount": 0,
+    "evidenceDropped": 0,
+    "crossVerified": false,
+    "symbolSearchUsed": false,
+    "stoppedByBudget": false,
+    "adjustments": []
+  },
   "evidence": [
     {
       "path": "relative/path",
       "startLine": 1,
       "endLine": 10,
-      "why": "why it matters"
+      "why": "why it matters",
+      "groundingStatus": "exact|partial"
     }
   ],
   "candidatePaths": ["relative/path"],
-  "followups": ["optional next checks"],
+  "followups": [
+    {
+      "description": "optional next check",
+      "priority": "recommended|optional",
+      "suggestedCall": {
+        "task": "string",
+        "scope": ["relative/path/or/glob"],
+        "budget": "quick|normal|deep",
+        "hints": {
+          "symbols": ["string"],
+          "strategy": "symbol-first|reference-chase|git-guided|breadth-first|blame-guided|pattern-scan"
+        }
+      }
+    }
+  ],
+  "codeMap": {
+    "entryPoints": ["relative/path"],
+    "keyModules": [
+      {
+        "path": "relative/path",
+        "role": "string",
+        "linesRead": 0
+      }
+    ]
+  },
+  "diagram": "optional mermaid flowchart",
+  "recentActivity": {
+    "hotFiles": ["relative/path (N commits / range)"],
+    "recentAuthors": ["name"],
+    "lastModified": "YYYY-MM-DD",
+    "recentCommits": [
+      {"hash": "abc123", "message": "string", "date": "ISO"}
+    ]
+  },
   "stats": {
     "model": "${CEREBRAS_EXPLORER_MODEL:-zai-glm-4.7}",
     "budget": "quick|normal|deep",
     "turns": 0,
-    "toolCalls": 0
+    "toolCalls": 0,
+    "sessionId": "sess_..."
   }
 }
 ```
@@ -341,15 +437,18 @@ Codex도 동일하다.
 - 내부 repo toolkit
 - Cerebras API 클라이언트
 - autonomous tool loop
+- 심볼/참조 추적용 경량 regex 기반 인덱서
+- git 메타데이터 기반 탐색
+- 세션 기반 후속 탐색
+- MCP progress notification
 - 기본 테스트
 - Claude/Codex integration 예시
 
 ### 제외
 
 - 공식 MCP SDK 의존성
-- tree-sitter/LSP 통합
+- tree-sitter/LSP 기반 정밀 semantic 분석
 - 병렬 repo 샤딩 탐색
-- git diff awareness
 - write-back agent
 
 ---
@@ -362,13 +461,14 @@ Codex도 동일하다.
 - `map_impact`
 - `find_entrypoints`
 - nested `.gitignore` / `.ignore` 지원
-- ripgrep 연동
+- `repo_symbol_context.depth > 1` 확장
+- `repo_grep.includeSymbol`
 
 ### Phase 3
 
 - tree-sitter 기반 구조 인덱스
 - import graph / call graph
-- cache layer
+- 정량화된 유사도 점수 (`find_similar_code.similarity`)
 - repo fingerprint 기반 warm-start
 
 ---

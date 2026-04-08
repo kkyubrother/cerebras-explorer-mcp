@@ -35,7 +35,7 @@
 1. **세션 저장소**: 메모리 기반 Map, 세션별 탐색 결과 누적
 2. **자동 hints 주입**: 이전 세션의 `candidatePaths`, `evidence`를 다음 호출의 hints로 자동 추가
 3. **컨텍스트 유지**: 이전 세션의 핵심 발견사항을 system prompt에 요약 포함
-4. **세션 만료**: 30분 TTL 또는 최대 5회 호출
+4. **세션 만료**: 30분 TTL 또는 최대 5회 호출 (단, 현재 `explore()`는 `isExhausted()` 검사를 수행하지 않으므로 maxCalls 초과 시에도 호출이 거부되지 않음)
 
 ### 가치
 - parent model이 "더 깊이 파봐"라고 하면 이전 결과 기반으로 효율적 확장
@@ -131,7 +131,7 @@ async explore(args, { onProgress }) {
 
 ### 설정 파일 위치
 
-레포 루트의 `.cerebras-explorer.json` 또는 `.cerebras-explorer.yaml`
+레포 루트의 `.cerebras-explorer.json` (YAML 포맷은 현재 미지원)
 
 ### 설정 스키마
 
@@ -171,8 +171,9 @@ async explore(args, { onProgress }) {
 
 1. 함수 호출 인자 (최우선)
 2. `.cerebras-explorer.json` (레포 루트)
-3. 환경변수
-4. 하드코딩된 기본값
+3. 하드코딩된 기본값
+
+> **참고:** 환경변수는 설정 파일보다 높은 우선순위를 갖지 않는다. 실제 적용 순서는 함수 인자 > JSON 설정 > 기본값이다.
 
 ### 구현
 
@@ -204,8 +205,10 @@ export async function loadProjectConfig(repoRoot) {
   - `projectContext`: 공백 trim, 빈 문자열 드롭
   - 미지원 필드는 무시
 - **적용 우선순위** (높은 순): 함수 인자 > `.cerebras-explorer.json` > 기본값
+  - `defaultBudget`: 설정 파일에서 읽지만, 런타임에서 `args.budget ?? projectConfig.defaultBudget ?? 'normal'` 순서로 적용됨 (`budgetConfig` 초기 계산은 `args.budget`만 참조하므로, 설정 파일의 `defaultBudget`은 모델 라우팅에는 반영되나 `getBudgetConfig` 호출에는 적용되지 않음)
+  - `entryPoints`: 설정 파일에서 정규화되지만, 런타임에서 이를 소비하는 코드가 없어 실제 동작에 영향을 주지 않음 (future-use)
 - **`extraIgnoreDirs`**: `RepoToolkit.ignoreDirs = new Set([...DEFAULT_IGNORE_DIRS, ...extraIgnoreDirs])`
   - `shouldIgnorePath()` 함수에 `ignoreDirs` 파라미터 추가 (기본값 = DEFAULT_IGNORE_DIRS)
 - **`projectContext`**: `buildExplorerSystemPrompt()` → "Project context:" 섹션으로 주입
 - **`keyFiles`**: `buildExplorerSystemPrompt()` → "Key files (check these first):" 힌트로 주입
-- 계획의 `customSymbolPatterns`, `languages` 필드는 미구현 (tree-sitter 도입 시 확장)
+- 계획의 `customSymbolPatterns`, `languages`, `entryPoints` 필드는 미구현 또는 미사용 (future-use)
