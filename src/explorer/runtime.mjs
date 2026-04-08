@@ -5,6 +5,7 @@ import {
   mergeCandidatePaths,
   RepoToolkit,
 } from './repo-tools.mjs';
+import { globalRepoCache } from './cache.mjs';
 import {
   buildExplorerSystemPrompt,
   buildExplorerUserPrompt,
@@ -89,6 +90,7 @@ export class ExplorerRuntime {
       repoRoot,
       budgetConfig,
       logger: this.logger,
+      cache: globalRepoCache,
     });
     await repoToolkit.initialize(args.scope ?? []);
 
@@ -228,6 +230,7 @@ export class ExplorerRuntime {
     }
 
     stats.elapsedMs = nowMs() - startedAt;
+    Object.assign(stats, globalRepoCache.stats());
 
     const normalized = normalizeExploreResult(finalObject, stats);
     normalized.candidatePaths = mergeCandidatePaths(

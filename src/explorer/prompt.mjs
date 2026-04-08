@@ -1,3 +1,23 @@
+const STRATEGY_DESCRIPTIONS = {
+  'symbol-first':    'Find where a symbol is defined. Start with repo_grep(symbol) → repo_read_file.',
+  'reference-chase': 'Find all callers/usages. Start with repo_grep(symbol) → read each caller.',
+  'git-guided':      'Understand recent changes. Start with repo_git_log → repo_git_diff → repo_read_file.',
+  'breadth-first':   'Understand project structure. Start with repo_list_dir(depth:3) → read key files.',
+  'blame-guided':    'Trace a bug to its origin. Start with repo_grep → repo_git_blame → repo_git_show.',
+  'pattern-scan':    'Analyze a pattern across the codebase. Start with repo_grep → read multiple files.',
+};
+
+export function detectStrategy(task) {
+  const t = task.toLowerCase();
+  if (/누가|언제|변경|커밋|commit|changed|who\s|when\s|recent|이력|history|수정/.test(t)) return 'git-guided';
+  if (/정의|어디|위치|defined|where\s|definition|located|선언|구현/.test(t)) return 'symbol-first';
+  if (/호출|사용|참조|called|used by|references|callers|import/.test(t)) return 'reference-chase';
+  if (/구조|아키텍처|개요|structure|architecture|overview|전체|레이아웃/.test(t)) return 'breadth-first';
+  if (/버그|원인|왜\s|bug|cause|why\s|blame|문제/.test(t)) return 'blame-guided';
+  if (/패턴|모든|전부|pattern|all\s|every\s|similar|비교/.test(t)) return 'pattern-scan';
+  return null;
+}
+
 function formatHintBlock(hints = {}) {
   const lines = [];
   if (Array.isArray(hints.symbols) && hints.symbols.length) {
@@ -34,6 +54,15 @@ export function buildExplorerSystemPrompt({ repoRoot, budgetConfig }) {
     'You MUST answer in the same natural language as the delegated task unless the task explicitly asks for another language.',
     'You MUST return plain JSON only when you give the final answer. No markdown fences.',
     '',
+    'Strategy selection guide (choose the best starting point to minimize turns):',
+    '- symbol-first:    "where is X defined?" → repo_grep(symbol) → repo_read_file',
+    '- reference-chase: "where is X used/called?" → repo_grep(symbol) → read callers',
+    '- git-guided:      "what changed recently?" → repo_git_log → repo_git_diff → repo_read_file',
+    '- breadth-first:   "project structure/overview?" → repo_list_dir(depth:3) → read key files',
+    '- blame-guided:    "why does this bug exist?" → repo_grep → repo_git_blame → repo_git_show',
+    '- pattern-scan:    "how is X done across codebase?" → repo_grep → read multiple files',
+    'Follow the suggested strategy if one is provided in the user prompt.',
+    '',
     'Available git tools (use when history or authorship context is needed):',
     '- repo_git_log: commit history for the repo or a specific file. Use to find "what changed recently".',
     '- repo_git_blame: line-level author/commit for a file range. Use to find "who wrote this and why".',
@@ -60,17 +89,23 @@ export function buildExplorerSystemPrompt({ repoRoot, budgetConfig }) {
 }
 
 export function buildExplorerUserPrompt({ task, scope, budget, hints }) {
+  const strategy = hints?.strategy ?? detectStrategy(task);
+  const strategyLine = strategy
+    ? `Strategy: ${strategy} — ${STRATEGY_DESCRIPTIONS[strategy]}`
+    : 'Strategy: auto (no dominant pattern detected — start with repo_list_dir or repo_grep)';
+
   return [
     'Delegated exploration request:',
     task.trim(),
     '',
     `Requested budget: ${budget}`,
     `Scope: ${formatScope(scope)}`,
+    strategyLine,
     'Hints:',
     formatHintBlock(hints),
     '',
     'Work plan:',
-    '1. Discover likely relevant files.',
+    '1. Discover likely relevant files using the suggested strategy above.',
     '2. Read only the smallest ranges needed to answer.',
     '3. Stop once evidence is sufficient.',
     '4. Return the final JSON result.',

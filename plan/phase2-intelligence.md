@@ -1,6 +1,13 @@
 # Phase 2: 지능형 탐색 전략 (Intelligence)
 
-## 2.1 탐색 전략 엔진 (Strategy Planner) — P1
+> **구현 상태:** 2026-04-08
+> - ✅ 2.1 탐색 전략 엔진 — 완료
+> - ✅ 2.2 탐색 결과 캐싱 — 완료
+> - ⏭ 2.3 다중 도구 체이닝 — 미구현 (P3 우선순위, Milestone 4로 이관)
+
+---
+
+## 2.1 탐색 전략 엔진 (Strategy Planner) — P1 ✅
 
 **목표:** 질문 유형에 따라 최적의 탐색 경로를 선택하여 턴 수 절약
 
@@ -39,9 +46,15 @@
    - "호출", "사용", "참조" → reference-chase
    - "구조", "아키텍처", "개요" → breadth-first
 
+### 구현 결과 (2026-04-08)
+
+- `src/explorer/schemas.mjs`: hints에 `strategy` 필드 추가 (enum 검증 포함)
+- `src/explorer/prompt.mjs`: `detectStrategy(task)` 함수 구현 (6개 전략 키워드 감지), `buildExplorerSystemPrompt`에 전략 선택 가이드 6줄 추가, `buildExplorerUserPrompt`에 전략 라인 삽입
+- `STRATEGY_DESCRIPTIONS` 상수로 각 전략의 시작점 설명 제공
+
 ---
 
-## 2.2 탐색 결과 캐싱 — P1
+## 2.2 탐색 결과 캐싱 — P1 ✅
 
 **목표:** 동일 세션 내 반복 탐색 비용 절감
 
@@ -88,9 +101,15 @@ stats에 캐시 히트율 포함:
 - 메모리 제한: 총 캐시 크기 50MB 상한
 - `explore_repo` 호출 간에도 캐시 공유 (같은 프로세스)
 
+### 구현 결과 (2026-04-08)
+
+- `src/explorer/cache.mjs` (신규): `LruCache` 클래스 + `globalRepoCache` 싱글턴 + 캐시 키 빌더 8개
+- `src/explorer/repo-tools.mjs`: `RepoToolkit` 생성자에 `cache` 옵션 추가, `callTool` 전체에 캐시 read/write 레이어 적용
+- `src/explorer/runtime.mjs`: `globalRepoCache`를 `RepoToolkit`에 전달, `stats`에 `cacheHits/cacheMisses/cacheHitRate/cacheEntries/cacheSizeBytes` 포함
+
 ---
 
-## 2.3 다중 도구 체이닝 최적화 — P3
+## 2.3 다중 도구 체이닝 최적화 — P3 ⏭ (미구현)
 
 **목표:** 모델 턴 수를 줄이는 매크로 도구
 

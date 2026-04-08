@@ -8,6 +8,17 @@ import {
   DEFAULT_TEXT_FILE_MAX_BYTES,
   DEFAULT_WALK_FILE_LIMIT,
 } from './config.mjs';
+import {
+  GIT_TOOL_TTL_MS,
+  cacheKeyListDir,
+  cacheKeyFindFiles,
+  cacheKeyGrep,
+  cacheKeyReadFile,
+  cacheKeyGitLog,
+  cacheKeyGitBlame,
+  cacheKeyGitDiff,
+  cacheKeyGitShow,
+} from './cache.mjs';
 
 function toPosix(input) {
   return input.split(path.sep).join('/');
@@ -344,11 +355,13 @@ export class RepoToolkit {
     repoRoot,
     budgetConfig,
     logger = () => {},
+    cache = null,
   }) {
     this.repoRoot = repoRoot;
     this.repoRootReal = null;
     this.budgetConfig = budgetConfig;
     this.logger = logger;
+    this.cache = cache;
     this.baseScopeRules = createScopeRules([]);
     this.gitignoreMatcher = null;
     this._hasRipgrep = null;
@@ -959,56 +972,87 @@ export class RepoToolkit {
     ];
   }
 
+  _cacheGet(key) {
+    return this.cache ? this.cache.get(key) : undefined;
+  }
+
+  _cacheSet(key, value, ttlMs = null) {
+    if (this.cache) this.cache.set(key, value, ttlMs);
+  }
+
   async callTool(name, args) {
+    let cacheKey;
+    let ttlMs = null;
+
     switch (name) {
-      case 'repo_list_dir':
-        return await this.listDirectory({
-          dirPath: args?.dirPath,
-          depth: args?.depth,
-          maxEntries: args?.maxEntries,
-        });
-      case 'repo_find_files':
-        return await this.findFiles({
-          pattern: args?.pattern,
-          scope: args?.scope,
-          maxResults: args?.maxResults,
-        });
-      case 'repo_grep':
-        return await this.grep({
-          pattern: args?.pattern,
-          scope: args?.scope,
-          caseSensitive: args?.caseSensitive,
-          maxResults: args?.maxResults,
-        });
-      case 'repo_read_file':
-        return await this.readFile({
-          path: args?.path,
-          startLine: args?.startLine,
-          endLine: args?.endLine,
-        });
-      case 'repo_git_log':
-        return await this.gitLog({
-          path: args?.path,
-          maxCount: args?.maxCount,
-          since: args?.since,
-          author: args?.author,
-          grep: args?.grep,
-        });
-      case 'repo_git_blame':
-        return await this.gitBlame({
-          path: args?.path,
-          startLine: args?.startLine,
-          endLine: args?.endLine,
-        });
-      case 'repo_git_diff':
-        return await this.gitDiff({
-          from: args?.from,
-          to: args?.to,
-          path: args?.path,
-          stat: args?.stat,
-        });
-      case 'repo_git_show':
-        return await this.gitShow({ ref: args?.ref });
+      case 'repo_list_dir': {
+        cacheKey = cacheKeyListDir(args?.dirPath ?? '.', args?.depth ?? 2, args?.maxEntries ?? this.budgetConfig.maxDirectoryEntries);
+        const cached = this._cacheGet(cacheKey);
+        if (cached !== undefined) return cached;
+        const result = await this.listDirectory({ dirPath: args?.dirPath, depth: args?.depth, maxEntries: args?.maxEntries });
+        this._cacheSet(cacheKey, result);
+        return result;
+      }
+      case 'repo_find_files': {
+        cacheKey = cacheKeyFindFiles(args?.pattern, args?.scope);
+        const cached = this._cacheGet(cacheKey);
+        if (cached !== undefined) return cached;
+        const result = await this.findFiles({ pattern: args?.pattern, scope: args?.scope, maxResults: args?.maxResults });
+        this._cacheSet(cacheKey, result);
+        return result;
+      }
+      case 'repo_grep': {
+        cacheKey = cacheKeyGrep(args?.pattern, args?.caseSensitive ?? false, args?.scope);
+        const cached = this._cacheGet(cacheKey);
+        if (cached !== undefined) return cached;
+        const result = await this.grep({ pattern: args?.pattern, scope: args?.scope, caseSensitive: args?.caseSensitive, maxResults: args?.maxResults });
+        this._cacheSet(cacheKey, result);
+        return result;
+      }
+      case 'repo_read_file': {
+        cacheKey = cacheKeyReadFile(args?.path, args?.startLine ?? 1, args?.endLine ?? this.budgetConfig.maxReadLines);
+        const cached = this._cacheGet(cacheKey);
+        if (cached !== undefined) return cached;
+        const result = await this.readFile({ path: args?.path, startLine: args?.startLine, endLine: args?.endLine });
+        this._cacheSet(cacheKey, result);
+        return result;
+      }
+      case 'repo_git_log': {
+        ttlMs = GIT_TOOL_TTL_MS;
+        cacheKey = cacheKeyGitLog(args?.path, args?.maxCount ?? 20, args?.since, args?.author, args?.grep);
+        const cached = this._cacheGet(cacheKey);
+        if (cached !== undefined) return cached;
+        const result = await this.gitLog({ path: args?.path, maxCount: args?.maxCount, since: args?.since, author: args?.author, grep: args?.grep });
+        this._cacheSet(cacheKey, result, ttlMs);
+        return result;
+      }
+      case 'repo_git_blame': {
+        ttlMs = GIT_TOOL_TTL_MS;
+        cacheKey = cacheKeyGitBlame(args?.path, args?.startLine, args?.endLine);
+        const cached = this._cacheGet(cacheKey);
+        if (cached !== undefined) return cached;
+        const result = await this.gitBlame({ path: args?.path, startLine: args?.startLine, endLine: args?.endLine });
+        this._cacheSet(cacheKey, result, ttlMs);
+        return result;
+      }
+      case 'repo_git_diff': {
+        ttlMs = GIT_TOOL_TTL_MS;
+        cacheKey = cacheKeyGitDiff(args?.from ?? 'HEAD~1', args?.to ?? 'HEAD', args?.path, args?.stat ?? false);
+        const cached = this._cacheGet(cacheKey);
+        if (cached !== undefined) return cached;
+        const result = await this.gitDiff({ from: args?.from, to: args?.to, path: args?.path, stat: args?.stat });
+        this._cacheSet(cacheKey, result, ttlMs);
+        return result;
+      }
+      case 'repo_git_show': {
+        ttlMs = GIT_TOOL_TTL_MS;
+        cacheKey = cacheKeyGitShow(args?.ref);
+        const cached = this._cacheGet(cacheKey);
+        if (cached !== undefined) return cached;
+        const result = await this.gitShow({ ref: args?.ref });
+        this._cacheSet(cacheKey, result, ttlMs);
+        return result;
+      }
       default:
         throw new Error(`Unknown repo tool: ${name}`);
     }

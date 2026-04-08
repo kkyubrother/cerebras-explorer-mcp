@@ -33,6 +33,12 @@ export const EXPLORE_REPO_INPUT_SCHEMA = {
         symbols: { type: 'array', items: { type: 'string' } },
         files: { type: 'array', items: { type: 'string' } },
         regex: { type: 'array', items: { type: 'string' } },
+        strategy: {
+          type: 'string',
+          enum: ['symbol-first', 'reference-chase', 'git-guided', 'breadth-first', 'blame-guided', 'pattern-scan'],
+          description:
+            'Exploration strategy hint. If omitted, the strategy is auto-detected from the task text.',
+        },
       },
     },
   },
@@ -125,6 +131,10 @@ export function validateExploreRepoArgs(args) {
           throw new Error(`hints.${key} must be an array of strings when provided.`);
         }
       }
+    }
+    const validStrategies = ['symbol-first', 'reference-chase', 'git-guided', 'breadth-first', 'blame-guided', 'pattern-scan'];
+    if (args.hints.strategy !== undefined && !validStrategies.includes(args.hints.strategy)) {
+      throw new Error(`hints.strategy must be one of: ${validStrategies.join(', ')}.`);
     }
   }
 }

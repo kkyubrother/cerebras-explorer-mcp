@@ -7,8 +7,8 @@
 | **P0** | 1.1 | Git 메타데이터 도구 | ★★★★★ | Medium | ✅ DONE |
 | **P0** | 1.3 | ripgrep 네이티브 통합 | ★★★★ | Small | ✅ DONE |
 | **P1** | 1.2 | 심볼 인덱스 (tree-sitter) | ★★★★★ | Large | TODO |
-| **P1** | 2.1 | 탐색 전략 엔진 | ★★★★ | Medium | TODO |
-| **P1** | 2.2 | 결과 캐싱 | ★★★ | Small | TODO |
+| **P1** | 2.1 | 탐색 전략 엔진 | ★★★★ | Medium | ✅ DONE |
+| **P1** | 2.2 | 결과 캐싱 | ★★★ | Small | ✅ DONE |
 | **P2** | 3.1 | 다층 출력 포맷 | ★★★ | Medium | TODO |
 | **P2** | 3.2 | 신뢰도 개선 | ★★★ | Medium | TODO |
 | **P2** | 3.3 | 실행 가능한 followups | ★★★ | Small | TODO |
@@ -41,14 +41,20 @@
 
 **완료 효과:** "코드의 역사"를 아는 탐색기로 진화. 대규모 레포에서도 빠른 검색.
 
-### Milestone 2: Intelligence (P1)
+### Milestone 2: Intelligence (P1) — 부분 완료 (2026-04-08)
 > **목표:** 스마트한 탐색으로 턴 효율성 극대화
 
 - [ ] tree-sitter WASM 통합 (최소 JS/TS/Python)
 - [ ] `repo_symbols`, `repo_references` 도구 추가
-- [ ] 탐색 전략 엔진 (system prompt + hints 확장)
-- [ ] LRU 캐시 계층 구현
-- [ ] 프롬프트 업데이트: 전략 선택 가이드
+- [x] 탐색 전략 엔진 (system prompt + hints 확장) — `detectStrategy()` + system prompt 전략 가이드
+- [x] LRU 캐시 계층 구현 — `cache.mjs` `LruCache` + `globalRepoCache` 싱글턴
+- [x] 프롬프트 업데이트: 전략 선택 가이드 — `buildExplorerSystemPrompt`에 6개 전략 가이드 추가
+
+**구현 결과:**
+- `detectStrategy(task)`: 6가지 전략(symbol-first, reference-chase, git-guided, breadth-first, blame-guided, pattern-scan)을 한/영 키워드로 자동 감지
+- hints.strategy 필드: 직접 전략 지정 가능, enum 검증
+- LRU 캐시: 50MB 상한, 파일/grep/git 결과 캐싱, git ops TTL 60초
+- stats에 cacheHits/cacheMisses/cacheHitRate 포함
 
 **완료 시:** 함수/클래스 수준의 코드 이해 가능. 같은 budget으로 2-3배 더 깊은 탐색.
 
