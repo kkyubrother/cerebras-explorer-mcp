@@ -145,6 +145,19 @@ Cerebras chat completion API에 직접 연결한다.
 - tool calling 지원
 - structured final JSON 유도
 
+**Cerebras API 호환성 주의사항**
+
+Cerebras는 OpenAI 호환 API를 제공하지만, 일부 OpenAI 전용 파라미터는 지원하지 않는다. 지원하지 않는 파라미터를 포함하면 `422 Unprocessable Entity` 에러가 발생한다.
+
+| 파라미터 | OpenAI | Cerebras | 비고 |
+|---------|--------|----------|------|
+| `tools[].function.strict` | ✅ | ❌ | tool argument 스키마 강제 검증 (OpenAI 전용) |
+| `clear_thinking` | ❌ | ❌ | 존재하지 않는 파라미터 |
+| `response_format.json_schema.strict` | ✅ | ✅ | structured output 스키마 강제 (지원됨) |
+| `reasoning_effort` | ✅ | ✅ | `"none"` \| `"low"` \| `"medium"` \| `"high"` |
+
+`tools[].function.strict`와 `response_format.json_schema.strict`는 이름이 같지만 위치와 역할이 다르다. 전자는 tool 인자 검증(OpenAI 전용), 후자는 응답 JSON 스키마 강제(Cerebras 지원)이다.
+
 #### `ExplorerRuntime`
 
 실제 autonomous loop를 담당한다.

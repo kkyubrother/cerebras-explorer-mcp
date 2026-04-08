@@ -982,7 +982,6 @@ export class RepoToolkit {
         type: 'function',
         function: {
           name: 'repo_list_dir',
-          strict: true,
           description:
             'List directories and files under a path. Use this to understand top-level structure before searching more deeply.',
           parameters: {
@@ -1001,7 +1000,6 @@ export class RepoToolkit {
         type: 'function',
         function: {
           name: 'repo_find_files',
-          strict: true,
           description:
             'Find files by glob-like pattern, for example "src/**/*.ts" or "**/auth*.py".',
           parameters: {
@@ -1020,7 +1018,6 @@ export class RepoToolkit {
         type: 'function',
         function: {
           name: 'repo_grep',
-          strict: true,
           description:
             'Search file contents with a regular expression. Use this to trace symbols, routes, config keys, or keywords. Set contextLines to include surrounding lines in each match.',
           parameters: {
@@ -1041,7 +1038,6 @@ export class RepoToolkit {
         type: 'function',
         function: {
           name: 'repo_symbols',
-          strict: true,
           description:
             'List all symbol definitions (functions, classes, variables, types) in a file with their line numbers. More precise than grep for finding where something is defined.',
           parameters: {
@@ -1063,7 +1059,6 @@ export class RepoToolkit {
         type: 'function',
         function: {
           name: 'repo_references',
-          strict: true,
           description:
             'Find all usages of a symbol across the codebase and locate its definition. Categorises each hit as import, definition, or usage. Use instead of grep when you need structured reference information.',
           parameters: {
@@ -1081,7 +1076,6 @@ export class RepoToolkit {
         type: 'function',
         function: {
           name: 'repo_symbol_context',
-          strict: true,
           description:
             'MACRO: retrieves a symbol\'s definition body, its callers, and its callees in a single call. Saves 2–4 turns compared to separate grep + read + grep. Use this as the first step for any symbol-first or reference-chase task.',
           parameters: {
@@ -1100,7 +1094,6 @@ export class RepoToolkit {
         type: 'function',
         function: {
           name: 'repo_read_file',
-          strict: true,
           description:
             'Read a specific file range with line numbers. Prefer narrow ranges instead of whole files.',
           parameters: {
@@ -1119,7 +1112,7 @@ export class RepoToolkit {
         type: 'function',
         function: {
           name: 'repo_git_log',
-          strict: false,
+
           description:
             'Show recent git commit history for the repo or a specific file/directory. Use to understand "what changed recently" or "who changed this".',
           parameters: {
@@ -1140,7 +1133,7 @@ export class RepoToolkit {
         type: 'function',
         function: {
           name: 'repo_git_blame',
-          strict: false,
+
           description:
             'Show line-by-line author and commit info for a file. Use to find who wrote a specific section and why it was changed.',
           parameters: {
@@ -1159,7 +1152,7 @@ export class RepoToolkit {
         type: 'function',
         function: {
           name: 'repo_git_diff',
-          strict: false,
+
           description:
             'Show changes between two commits or branches. Use to understand "what changed in a PR" or "how did this file evolve".',
           parameters: {
@@ -1179,7 +1172,7 @@ export class RepoToolkit {
         type: 'function',
         function: {
           name: 'repo_git_show',
-          strict: false,
+
           description:
             'Show the details of a specific commit: message, author, date, and changed files with patches.',
           parameters: {

@@ -124,7 +124,6 @@ export class CerebrasChatClient {
       max_completion_tokens: maxCompletionTokens,
       reasoning_effort: reasoningEffort,
       parallel_tool_calls: parallelToolCalls,
-      clear_thinking: false,
       stream: false,
     };
 
