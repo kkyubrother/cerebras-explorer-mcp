@@ -1,6 +1,8 @@
-# Phase 4: 멀티 모델 & 확장성 (Scalability) — 부분 완료 (2026-04-08)
+# Phase 4: 멀티 모델 & 확장성 (Scalability) — 구현 메모 (2026-04-08)
 
-> **4.1, 4.2, 4.3 구현 완료.** 아래 각 섹션 끝에 실제 구현 결과를 기록함.
+> 이 문서는 코드베이스에 존재하는 확장성 관련 구현 메모다.
+> 문서화된 제품 목표와 공개 계약은 Cerebras 기반 explorer이며, provider abstraction은 현재 내부 구현으로만 취급한다.
+> 4.1, 4.2, 4.3 구현 상태는 아래에 정리한다.
 
 ## 4.1 모델 라우팅 — P3
 
@@ -160,6 +162,8 @@ CEREBRAS_EXPLORER_AUTO_ROUTE=true
 
 **목표:** Cerebras 외 다른 추론 백엔드 지원
 
+> 현재 코드에는 관련 구현이 존재하지만, 이것을 공개 지원 계약으로 보지는 않는다.
+
 ### 아키텍처
 
 ```
@@ -167,37 +171,6 @@ CerebrasChatClient → AbstractChatClient (interface)
                       ├── CerebrasProvider      — 현재 구현
                       ├── OpenAICompatProvider   — Groq, Together, Fireworks 등
                       └── OllamaProvider         — 로컬 모델
-```
-
-### 환경변수
-
-```bash
-# 프로바이더 선택
-EXPLORER_PROVIDER=cerebras          # default
-# EXPLORER_PROVIDER=openai-compat
-# EXPLORER_PROVIDER=ollama
-
-# Cerebras (기존)
-CEREBRAS_API_KEY="sk-..."
-CEREBRAS_API_BASE_URL="https://api.cerebras.ai/v1"
-CEREBRAS_EXPLORER_MODEL="zai-glm-4.7"
-
-# OpenAI-compatible
-EXPLORER_OPENAI_API_KEY="..."
-EXPLORER_OPENAI_BASE_URL="https://api.groq.com/openai/v1"
-EXPLORER_OPENAI_MODEL="llama-3.3-70b-versatile"
-
-# Ollama
-EXPLORER_OLLAMA_BASE_URL="http://localhost:11434"
-EXPLORER_OLLAMA_MODEL="qwen2.5-coder:32b"
-```
-
-### Failover 설정 (선택)
-
-```bash
-# 자동 failover 체인
-EXPLORER_FAILOVER="cerebras,openai-compat,ollama"
-EXPLORER_FAILOVER_TIMEOUT_MS=5000
 ```
 
 ### 프로바이더 인터페이스
@@ -220,26 +193,16 @@ class AbstractChatClient {
 ```
 
 ### 가치
-- Cerebras 장애 시 자동 failover
-- 로컬 모델로 오프라인/에어갭 환경 지원
-- 사용자가 선호하는 모델/프로바이더 선택 가능
+- 내부 실험이나 구조 분리에 활용 가능
+- 클라이언트 추상화 경계를 코드 차원에서 분리 가능
 
 ### ✅ 구현 결과 (4.3)
 
 파일 구조: `src/explorer/providers/`
 - `abstract.mjs`: `AbstractChatClient` — `createChatCompletion(opts)` 인터페이스 + JSDoc
-- `openai-compat.mjs`: `OpenAICompatChatClient` — 표준 OpenAI format, Cerebras 전용 필드 미포함
-  - `EXPLORER_OPENAI_API_KEY`, `EXPLORER_OPENAI_BASE_URL`, `EXPLORER_OPENAI_MODEL` (default: `gpt-4o-mini`)
-- `ollama.mjs`: `OllamaChatClient` — `OpenAICompatChatClient` 상속, 기본 `http://localhost:11434/v1`
-  - `EXPLORER_OLLAMA_BASE_URL`, `EXPLORER_OLLAMA_MODEL` (default: `llama3`)
-- `failover.mjs`: `FailoverChatClient` — 순차 시도 + 타임아웃(Promise.race)
-  - `EXPLORER_FAILOVER="cerebras,openai-compat"` (쉼표 구분)
-  - `EXPLORER_FAILOVER_TIMEOUT_MS=30000`
-- `index.mjs`: `createChatClient({ budget, fetchImpl, logger })` 팩토리
-  - `EXPLORER_PROVIDER=cerebras|openai-compat|ollama` (기본: cerebras)
-  - `EXPLORER_FAILOVER` 설정 시 `FailoverChatClient` 자동 생성
+- provider abstraction 및 failover 관련 구현 파일들이 존재
+- `index.mjs` 팩토리가 chat client 생성을 담당
+- 현재 공개 문서에서는 Cerebras 이외 provider를 지원 계약으로 설명하지 않음
 
 계획 대비 차이:
-- Ollama 별도 provider 대신 `OpenAICompatChatClient` 상속으로 구현 (Ollama `/v1` endpoint가 OpenAI-compatible)
-- `cerebras-client.mjs`는 하위 호환성을 위해 유지 — providers/index.mjs가 이를 import해 CerebrasChatClient 생성
-- `reasoning_effort`는 `OpenAICompatChatClient`에서 silently ignored (표준 OpenAI API 미지원)
+- provider abstraction은 코드에 존재하지만, 프로젝트 목표와 공개 문서에서는 비목표로 유지

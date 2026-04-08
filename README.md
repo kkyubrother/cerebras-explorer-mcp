@@ -47,8 +47,11 @@ Parent model (Claude Code / Codex)
 - **읽기 전용**: 파일 수정, bash 실행, 네트워크 탐색 없음
 - **자율 탐색 루프**: 모델이 내부 도구를 직접 호출하며 파일을 찾고 읽음
 - **예산 기반 동작**: `quick | normal | deep`
+- **전략 기반 탐색**: symbol-first, reference-chase, git-guided 등 질문 유형별 전략 유도
+- **세션/진행 상황 지원**: 세션 ID 기반 후속 탐색과 MCP progress notification 지원
+- **프로젝트별 설정 파일 지원**: `.cerebras-explorer.json`으로 기본 scope, key files, context 지정 가능
 - **근거 강제**: 최종 evidence는 실제로 읽거나 grep으로 확인한 라인 범위에만 남김
-- **MCP 친화적 반환**: `answer`, `summary`, `confidence`, `evidence`, `candidatePaths`, `followups`, `stats`
+- **MCP 친화적 반환**: `answer`, `summary`, `confidence`, `evidence`, `candidatePaths`, `followups`, `stats`에 더해 `confidenceScore`, `confidenceFactors`, `codeMap`, `diagram`, `recentActivity` 지원
 
 ## 공개 MCP 도구
 
@@ -72,6 +75,7 @@ Parent model (Claude Code / Codex)
 ```
 
 - `language` (선택): BCP-47 언어 태그(예: `"ko"`, `"en"`, `"ja"`). 생략 시 task 텍스트에서 자동 추론합니다.
+- `session` (선택): 이전 탐색의 `stats.sessionId`를 넘기면 candidate paths와 요약을 다음 탐색에 재사용합니다.
 
 반환 예시:
 
@@ -80,6 +84,7 @@ Parent model (Claude Code / Codex)
   "answer": "registerUserRoutes는 /users/me 라우트에 requireAuth 미들웨어를 직접 연결한다.",
   "summary": "auth.js에서 requireAuth를 정의하고, user.js에서 이를 import해 /users/me에 적용한다.",
   "confidence": "high",
+  "confidenceScore": 0.91,
   "evidence": [
     {
       "path": "src/routes/user.js",
@@ -95,13 +100,41 @@ Parent model (Claude Code / Codex)
     }
   ],
   "candidatePaths": ["src/routes/user.js", "src/auth.js"],
-  "followups": [],
+  "followups": [
+    {
+      "description": "인증 미들웨어의 다른 사용처를 추적",
+      "priority": "recommended",
+      "suggestedCall": {
+        "task": "Trace other routes that use requireAuth",
+        "scope": ["src/**"],
+        "budget": "normal",
+        "hints": {
+          "symbols": ["requireAuth"],
+          "strategy": "reference-chase"
+        }
+      }
+    }
+  ],
+  "codeMap": {
+    "entryPoints": ["src/index.mjs"],
+    "keyModules": [
+      {
+        "path": "src/routes/user.js",
+        "role": "route module",
+        "linesRead": 12
+      }
+    ]
+  },
+  "diagram": "flowchart TD\n  A[[src/index.mjs]] --> B[src/routes/user.js]",
   "stats": {
     "model": "${CEREBRAS_EXPLORER_MODEL:-zai-glm-4.7}",
-    "budget": "quick"
+    "budget": "quick",
+    "sessionId": "sess_abc123"
   }
 }
 ```
+
+`repo_git_log`를 활용한 탐색에서는 `recentActivity`가 함께 반환될 수 있습니다.
 
 ### 특화 도구 (Specialized Tools)
 
@@ -299,19 +332,64 @@ MCP client for `cerebras-explorer` timed out after 30 seconds.
 
 즉, **코드 탐색 전용 explorer**입니다.
 
+## 벤치마크
+
+반복 가능한 품질 측정을 위해 선언형 질의 세트와 점수 계산기를 포함합니다.
+
+- 기본 벤치마크 파일: `benchmarks/core.json`
+- 실행 스크립트: `scripts/run-benchmark.mjs`
+- npm 스크립트: `npm run benchmark`
+
+예:
+
+```bash
+npm run benchmark
+```
+
+특정 저장소 루트나 케이스만 실행하려면:
+
+```bash
+node ./scripts/run-benchmark.mjs \
+  --suite ./benchmarks/core.json \
+  --repo-root /absolute/path/to/repo \
+  --case explain-request-handler \
+  --verbose
+```
+
+JSON 리포트 저장:
+
+```bash
+node ./scripts/run-benchmark.mjs \
+  --suite ./benchmarks/core.json \
+  --output ./benchmark-report.json
+```
+
+벤치마크는 exact-string 정답 대신 다음 요소를 가중치로 평가합니다.
+
+- 답변/요약 키워드 그룹 일치율
+- evidence / candidatePaths에 기대 파일이 포함되는지
+- grounded evidence 개수
+- sessionId, recentActivity, budget stop 여부 같은 구조적 체크
+
+즉, 모델이 문장을 조금 다르게 생성해도 핵심 사실과 근거가 맞으면 안정적으로 점수가 나옵니다.
+
 ## 현재 제한 사항
 
 - `.gitignore`는 루트 파일만 단순 반영합니다.
 - 대용량 바이너리 / 압축 파일은 탐색 대상에서 제외합니다.
 - 최종 품질은 저장소 구조와 질문 품질에 영향을 받습니다.
-- 더 정교한 심볼 인덱싱(LSP/ctags/tree-sitter)은 아직 넣지 않았습니다.
+- 심볼 인덱싱은 regex 기반이며, LSP/tree-sitter 수준의 정밀한 semantic 분석은 아직 없습니다.
+- `repo_symbol_context.depth > 1`, `repo_grep.includeSymbol`, `find_similar_code.similarity` 같은 일부 정밀 기능은 아직 미구현입니다.
+
+참고:
+- 코드베이스 안에는 provider abstraction 관련 구현이 일부 존재하지만, 이 프로젝트의 문서화된 목표와 공개 인터페이스는 Cerebras 기반 explorer에 맞춰져 있습니다.
 
 ## 다음 확장 포인트
 
-- `trace_symbol`
 - `map_impact`
 - `find_entrypoints`
 - repo-specific ignore 정책
-- tree-sitter / ripgrep / git metadata 연결
+- tree-sitter 기반 심볼 정밀도 향상
+- `find_similar_code` 구조화 유사도 점수
 
 상세 설계 근거는 [DESIGN.md](./DESIGN.md)에 정리해 두었습니다.

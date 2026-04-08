@@ -3,7 +3,7 @@
 > **구현 상태:** 2026-04-08
 > - ✅ 2.1 탐색 전략 엔진 — 완료
 > - ✅ 2.2 탐색 결과 캐싱 — 완료
-> - ⏭ 2.3 다중 도구 체이닝 — 미구현 (P3 우선순위, Milestone 4로 이관)
+> - ✅ 2.3 다중 도구 체이닝 — 완료
 
 ---
 
@@ -128,19 +128,16 @@ stats에 캐시 히트율 포함:
   "returns": {
     "definition": {
       "path": "src/auth.js",
-      "startLine": 15,
+      "line": 15,
       "endLine": 45,
+      "kind": "function",
       "content": "function handleAuth(req, res) { ... }"
     },
     "callers": [
       {"path": "src/routes/user.js", "line": 23, "context": "..."}
     ],
-    "callees": [
-      {"symbol": "verifyToken", "path": "src/jwt.js", "line": 8}
-    ],
-    "imports": [
-      {"path": "src/routes/user.js", "line": 1, "statement": "import { handleAuth } from '../auth'"}
-    ]
+    "callerCount": 1,
+    "truncated": false
   }
 }
 ```
@@ -172,6 +169,6 @@ stats에 캐시 히트율 포함:
   - 매칭 결과에 `context` 필드 추가 (`"N | line\nN+1 | line..."` 형식)
   - ripgrep/native 양쪽에서 동작 (post-hoc file read 방식)
 - **계획 대비 차이:**
-  - `repo_symbol_context`: callers는 구현, callees(피호출자)는 grep으로 근사 구현 (정확한 AST 분석 없음)
+  - `repo_symbol_context`: 현재 반환은 definition + callers 중심이며, `callees`/`imports` 구조화 반환은 하지 않음
   - `repo_grep` contextLines 확장: 계획에 없던 bonus 기능
   - `repo_grep includeSymbol` 옵션: 미구현 (tree-sitter 없이는 정확한 함수 범위 판단 어려움)

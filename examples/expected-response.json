@@ -2,20 +2,46 @@
   "answer": "registerUserRoutes는 /users/me 라우트에 requireAuth 미들웨어를 직접 연결한다.",
   "summary": "auth.js에서 requireAuth를 정의하고, user.js에서 이를 import해 /users/me에 적용한다.",
   "confidence": "high",
+  "confidenceScore": 0.9,
   "evidence": [
     {
       "path": "src/routes/user.js",
       "startLine": 1,
       "endLine": 5,
-      "why": "라우트가 requireAuth를 import하고 /users/me에 연결한다."
+      "why": "라우트가 requireAuth를 import하고 /users/me에 연결한다.",
+      "groundingStatus": "exact"
     },
     {
       "path": "src/auth.js",
       "startLine": 1,
       "endLine": 6,
-      "why": "requireAuth의 실제 구현이 여기 있다."
+      "why": "requireAuth의 실제 구현이 여기 있다.",
+      "groundingStatus": "exact"
     }
   ],
   "candidatePaths": ["src/routes/user.js", "src/auth.js", "docs/auth.md"],
-  "followups": []
+  "followups": [],
+  "codeMap": {
+    "entryPoints": [],
+    "keyModules": [
+      {
+        "path": "src/routes/user.js",
+        "role": "route/controller",
+        "linesRead": 5
+      },
+      {
+        "path": "src/auth.js",
+        "role": "middleware",
+        "linesRead": 6
+      }
+    ]
+  },
+  "diagram": "graph TD\n  src_routes_user_js[\"user.js\"];\n  src_auth_js[\"auth.js\"];",
+  "stats": {
+    "model": "zai-glm-4.7",
+    "budget": "quick",
+    "turns": 3,
+    "toolCalls": 4,
+    "sessionId": "sess_example"
+  }
 }

@@ -107,7 +107,7 @@ repo_git_show    — 특정 커밋의 상세 내용 (메시지 + diff)
 
 ---
 
-## 1.2 심볼 인덱스 도구 (경량 AST) — P1 ✅ 완료 (2026-04-08)
+## 1.2 심볼 인덱스 도구 (regex 기반 경량 구현) — P1 ✅ 완료 (2026-04-08)
 
 **목표:** 함수/클래스/타입 정의와 참조를 정확히 추적
 
@@ -120,11 +120,10 @@ repo_references  — 특정 심볼의 사용처 검색 (import 포함)
 
 ### 구현 방향
 
-- tree-sitter WASM 바인딩 사용
-- 지원 언어: JavaScript, TypeScript, Python, Go, Rust, Java
-- 의존성: `web-tree-sitter` + 언어별 grammar `.wasm` 파일
+- 언어별 regex 패턴 기반 경량 심볼 추출
+- 지원 언어: JavaScript, TypeScript, Python, Go, Rust, Java, Ruby, PHP
 - 정의(definition)와 참조(reference)를 구분하여 반환
-- fallback: tree-sitter 미지원 언어는 regex 기반 heuristic
+- zero dependencies 원칙 유지
 
 ### `repo_symbols` 상세
 ```json
