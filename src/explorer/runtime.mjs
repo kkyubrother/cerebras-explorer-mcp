@@ -321,35 +321,28 @@ export class ExplorerRuntime {
   }
 
   /**
-   * @param {object} args - explore_repo arguments (validated by validateExploreRepoArgs)
-   * @param {object} [callOpts]
-   * @param {Function} [callOpts.onProgress]    - Called with {progress, total, message}
-   * @param {object}   [callOpts.sessionStore]  - SessionStore instance for session management
+   * Shared setup for explore() and freeExplore().
+   * Returns all the common infrastructure: budgetConfig, repoRoot, projectConfig,
+   * session data, repoToolkit, chatClient, tools, and timing helpers.
    */
-  async explore(args, { onProgress = null, sessionStore = null } = {}) {
-    validateExploreRepoArgs(args);
+  async _initExploreContext({ budgetLabel, repoRootArg, scope, session, taskText, sessionStore }) {
+    const budgetConfig = getBudgetConfig(budgetLabel);
+    const repoRoot = getRepoRoot(repoRootArg);
 
-    const budgetConfig = getBudgetConfig(args.budget);
-    const repoRoot = getRepoRoot(args.repo_root);
-
-    // Load .cerebras-explorer.json project config
     const rawProjectConfig = await loadProjectConfig(repoRoot);
     const projectConfig = normalizeProjectConfig(rawProjectConfig);
 
-    // Apply project config defaults (explicit args take priority)
-    const effectiveBudgetLabel = args.budget ?? projectConfig.defaultBudget ?? 'normal';
-    const effectiveScope = args.scope ?? projectConfig.defaultScope ?? [];
+    const effectiveBudgetLabel = budgetLabel ?? projectConfig.defaultBudget ?? 'normal';
+    const effectiveScope = scope ?? projectConfig.defaultScope ?? [];
     const projectContext = projectConfig.projectContext ?? null;
     const keyFiles = projectConfig.keyFiles ?? [];
     const extraIgnoreDirs = projectConfig.extraIgnoreDirs ?? [];
 
-    const modelBudget = resolveModelBudget(args.task, effectiveBudgetLabel);
+    const modelBudget = resolveModelBudget(taskText, effectiveBudgetLabel);
     const chatClient = this._explicitChatClient ?? createChatClient({ budget: modelBudget });
 
-    // Session integration
-    const sessionResolution = resolveSessionForExplore(sessionStore, args.session, repoRoot);
+    const sessionResolution = resolveSessionForExplore(sessionStore, session, repoRoot);
     if (!sessionResolution.ok) {
-      // Session was explicitly requested but invalid — reject rather than silently creating a new one
       const err = new Error(`Invalid session: ${sessionResolution.reason}`);
       err.code = -32602;
       err.sessionError = sessionResolution.reason;
@@ -366,8 +359,41 @@ export class ExplorerRuntime {
     });
     await repoToolkit.initialize(effectiveScope);
 
-    const startedAt = nowMs();
     const tools = repoToolkit.buildToolDefinitions();
+    const reasoningEffort = getReasoningEffortForBudget(chatClient.model, budgetConfig.label);
+    const temperature = budgetConfig.temperature ?? getExplorerTemperature();
+    const topP = budgetConfig.topP ?? getExplorerTopP();
+
+    return {
+      budgetConfig, repoRoot, projectConfig, effectiveScope, projectContext, keyFiles,
+      chatClient, sessionId, sessionData, sessionStatus, remainingCalls,
+      repoToolkit, tools, reasoningEffort, temperature, topP,
+    };
+  }
+
+  /**
+   * @param {object} args - explore_repo arguments (validated by validateExploreRepoArgs)
+   * @param {object} [callOpts]
+   * @param {Function} [callOpts.onProgress]    - Called with {progress, total, message}
+   * @param {object}   [callOpts.sessionStore]  - SessionStore instance for session management
+   */
+  async explore(args, { onProgress = null, sessionStore = null } = {}) {
+    validateExploreRepoArgs(args);
+
+    const {
+      budgetConfig, repoRoot, projectConfig, effectiveScope, projectContext, keyFiles,
+      chatClient, sessionId, sessionData, sessionStatus, remainingCalls,
+      repoToolkit, tools, reasoningEffort, temperature, topP,
+    } = await this._initExploreContext({
+      budgetLabel: args.budget,
+      repoRootArg: args.repo_root,
+      scope: args.scope,
+      session: args.session,
+      taskText: args.task,
+      sessionStore,
+    });
+
+    const startedAt = nowMs();
 
     const messages = [
       {
@@ -393,10 +419,6 @@ export class ExplorerRuntime {
         }),
       },
     ];
-
-    const reasoningEffort = getReasoningEffortForBudget(chatClient.model, budgetConfig.label);
-    const temperature = budgetConfig.temperature ?? getExplorerTemperature();
-    const topP = budgetConfig.topP ?? getExplorerTopP();
 
     const stats = {
       model: chatClient.model,
@@ -732,40 +754,21 @@ export class ExplorerRuntime {
 
     const thoroughnessMap = { quick: 'quick', normal: 'normal', deep: 'deep' };
     const budgetLabel = thoroughnessMap[args.thoroughness] ?? 'normal';
-    const budgetConfig = getBudgetConfig(budgetLabel);
-    const repoRoot = getRepoRoot(args.repo_root);
 
-    const rawProjectConfig = await loadProjectConfig(repoRoot);
-    const projectConfig = normalizeProjectConfig(rawProjectConfig);
-    const effectiveScope = args.scope ?? projectConfig.defaultScope ?? [];
-    const projectContext = projectConfig.projectContext ?? null;
-    const keyFiles = projectConfig.keyFiles ?? [];
-    const extraIgnoreDirs = projectConfig.extraIgnoreDirs ?? [];
-
-    const modelBudget = resolveModelBudget(args.prompt, budgetLabel);
-    const chatClient = this._explicitChatClient ?? createChatClient({ budget: modelBudget });
-
-    // Session integration (shared with explore)
-    const sessionResolution = resolveSessionForExplore(sessionStore, args.session, repoRoot);
-    if (!sessionResolution.ok) {
-      const err = new Error(`Invalid session: ${sessionResolution.reason}`);
-      err.code = -32602;
-      err.sessionError = sessionResolution.reason;
-      throw err;
-    }
-    const { sessionId, sessionData, sessionStatus, remainingCalls } = sessionResolution;
-
-    const repoToolkit = new RepoToolkit({
-      repoRoot,
-      budgetConfig,
-      logger: this.logger,
-      cache: globalRepoCache,
-      extraIgnoreDirs,
+    const {
+      budgetConfig, repoRoot, effectiveScope, projectContext, keyFiles,
+      chatClient, sessionId, sessionData, sessionStatus, remainingCalls,
+      tools, reasoningEffort, temperature, topP,
+    } = await this._initExploreContext({
+      budgetLabel,
+      repoRootArg: args.repo_root,
+      scope: args.scope,
+      session: args.session,
+      taskText: args.prompt,
+      sessionStore,
     });
-    await repoToolkit.initialize(effectiveScope);
 
     const startedAt = nowMs();
-    const tools = repoToolkit.buildToolDefinitions();
 
     const messages = [
       {
@@ -789,10 +792,6 @@ export class ExplorerRuntime {
         }),
       },
     ];
-
-    const reasoningEffort = getReasoningEffortForBudget(chatClient.model, budgetConfig.label);
-    const temperature = budgetConfig.temperature ?? getExplorerTemperature();
-    const topP = budgetConfig.topP ?? getExplorerTopP();
 
     const stats = {
       model: chatClient.model,

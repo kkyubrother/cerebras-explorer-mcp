@@ -348,32 +348,26 @@
 ## Phase 6. 공용 runtime 리팩터링 + 제한적 병렬화
 
 **목표**: core runtime refactor + bounded parallel execution
-**상태**: 미착수
+**상태**: 부분 구현 (6-A 완료, 6-B/6-C는 execFileSync 제약으로 보류)
 **난이도**: 높음 | **가치**: 중간
 
 ### 구현 항목
 
 #### 6-A. 공용 orchestration 추출
 
-- [ ] `runtime.mjs`에서 공용 부분을 helper로 분리:
-  - repo init
-  - tool loop
-  - stats
-  - candidate path tracking
-  - observed artifact tracking
-- [ ] `explore()`와 `freeExplore()`가 같은 core loop를 공유하도록 구조화
+- [x] `runtime.mjs`에서 공용 부분을 `_initExploreContext()` helper로 분리:
+  - repo init, project config, session resolution, toolkit init, chat client, reasoning settings
+- [x] `explore()`와 `freeExplore()`가 같은 `_initExploreContext()`를 공유
 
 #### 6-B. bounded concurrency 병렬화
 
-- [ ] concurrency cap 3~4
-- [ ] `Promise.allSettled` 사용
-- [ ] 원래 tool call 순서대로 messages append
-- [ ] duplicate file read dedupe
-- [ ] 부분 실패 허용
+- [~] execFileSync 기반 도구들이 event loop를 blocking — Promise.all로는 진짜 병렬 불가
+- [ ] concurrency cap 3~4 — execFile(async) 전환 후 진행 필요
+- [ ] 후속 과제로 분리
 
 #### 6-C. 안전한 도구부터 병렬화
 
-- [ ] 1차 대상: `repo_read_file`, `repo_list_dir`, cached lookup, 독립 symbol lookup
+- [~] 현재 도구들이 모두 sync subprocess — async 전환이 선행 조건
 - [ ] git 계열 async subprocess 전환은 후속 과제
 
 ### 수정 대상 파일
