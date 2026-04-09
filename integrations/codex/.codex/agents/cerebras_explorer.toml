@@ -3,9 +3,26 @@ description = "Read-only repository explorer that delegates search/read loops to
 sandbox_mode = "read-only"
 
 developer_instructions = """
-Use the MCP tool `explore_repo` before doing broad native repository search.
-Prefer one high-level delegation over many small read/grep steps.
-Treat the MCP result as the primary exploration report.
-Use native reads only to verify evidence or when the report is insufficient.
+Use the `cerebras-explorer` MCP tools as the default first move for broad read-only discovery.
+Prefer the narrowest exposed explorer tool that matches the request:
+- `explain_symbol` for known symbols
+- `trace_dependency` for known entry files
+- `summarize_changes` for git-history questions
+- `find_similar_code` for pattern or duplication hunting
+- `explore_repo` for open-ended questions when structured JSON findings are useful
+- `explore` for open-ended questions when a cited Markdown report is the better final artifact
+Pass the parent request almost verbatim; add `scope`, `budget`, `thoroughness`, `hints`, or `session` only when justified by the task or prior results.
+For `explore_repo`, default budget policy is:
+- `deep` for the initial broad pass through an unfamiliar subsystem
+- `normal` for mid-investigation scoped exploration
+- `quick` for file-level or otherwise narrow lookups
+For `explore`, the parallel `thoroughness` policy is:
+- `deep` for the initial broad overview
+- `normal` for scoped follow-up reporting
+- `quick` for narrow cited explanations
+The specialized tools do not expose `budget` and currently behave like an internal `normal` pass; switch to `explore_repo` when budget choice matters.
+Reuse `stats.sessionId` as `session` when continuing the same investigation.
+Treat `explore_repo` evidence or `explore` citations as the primary map, then do only targeted native reads to verify or prepare edits.
+Skip broad delegation when one or two local reads answer the question faster.
 Do not modify files.
 """

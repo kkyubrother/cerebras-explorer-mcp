@@ -2,7 +2,7 @@
 
 환경 변수로 선택한 Cerebras 모델을 사용하는, 읽기 전용 자율 코드 탐색 MCP 서버입니다.
 
-핵심 목적은 **Claude Code / Codex 같은 메인 모델이 직접 `Read`/`Grep`/`Glob`를 여러 번 돌리지 않게 하고**, 상위 모델은 `explore_repo(...)` 한 번만 위임한 뒤 구조화된 탐색 결과만 받도록 만드는 것입니다.
+핵심 목적은 **Claude Code / Codex 같은 메인 모델이 직접 `Read`/`Grep`/`Glob`를 여러 번 돌리지 않게 하고**, 상위 모델은 `explore_repo(...)` 또는 `explore(...)` 한 번만 위임한 뒤 구조화된 결과나 사람이 읽기 좋은 보고서만 받도록 만드는 것입니다.
 
 ## 왜 이렇게 설계했나
 
@@ -15,7 +15,7 @@
 
 2. **기존 `cerebras-code-mcp` 저장소**
    - MCP 서버가 “고수준 도구 하나”를 외부 모델 호출로 감싼다는 점은 그대로 가져왔습니다.
-   - 대신 기존 구현의 `write` 중심 구조를 버리고, `explore_repo`라는 **탐색 전용 도구 하나**로 바꿨습니다.
+   - 대신 기존 구현의 `write` 중심 구조를 버리고, `explore_repo`와 `explore`라는 **탐색 전용 도구들**로 바꿨습니다.
    - 모델은 기본값 `zai-glm-4.7`을 유지하되, 필요하면 **`CEREBRAS_EXPLORER_MODEL` 환경 변수로 바꿀 수 있게** 했습니다.
 
 즉, 이 프로젝트는 “Claude/Codex의 탐색 비용을 줄이기 위한 외부 autonomous explorer”입니다.
@@ -25,6 +25,7 @@
 ```text
 Parent model (Claude Code / Codex)
   -> MCP tool: explore_repo(task, scope, budget, hints)
+     or MCP tool: explore(prompt, scope, thoroughness)
     -> cerebras-explorer-mcp
       -> internal repo tools
          - repo_list_dir
@@ -37,7 +38,7 @@ Parent model (Claude Code / Codex)
 
 중요한 점은 상위 모델에 low-level 파일 도구를 노출하지 않는다는 점입니다.
 
-- 상위 모델은 `explore_repo`만 호출합니다.
+- 상위 모델은 필요에 따라 `explore_repo` 또는 `explore`를 호출합니다.
 - 실제 파일 탐색 루프는 MCP 서버 안에서 선택된 Cerebras 모델이 자체적으로 수행합니다.
 - 따라서 “메인은 위임 1회, explorer가 자율 탐색”이라는 목표를 만족합니다.
 
@@ -137,6 +138,36 @@ Parent model (Claude Code / Codex)
 ```
 
 `repo_git_log`를 활용한 탐색에서는 `recentActivity`가 함께 반환될 수 있습니다.
+
+권장 사용처:
+
+- `explore_repo`: 후속 자동화, 추가 도구 호출, 편집 전 검증처럼 **구조화된 JSON 필드**가 필요한 경우
+- `explore`: 아키텍처 설명, 온보딩 요약, 사용자에게 바로 보여줄 답변처럼 **사람이 읽는 Markdown 보고서**가 필요한 경우
+
+### `explore` (beta)
+
+입력 스키마:
+
+```json
+{
+  "prompt": "인증 서브시스템의 구조를 파일:라인 인용과 함께 설명해라",
+  "repo_root": "/absolute/or/relative/path",
+  "scope": ["src/auth/**", "src/routes/**"],
+  "thoroughness": "deep",
+  "language": "ko"
+}
+```
+
+- `prompt`: 사람이 읽을 수 있는 설명형 보고서를 만들 질문 또는 요청
+- `thoroughness`: `quick`, `normal`, `deep` 중 하나. 내부적으로 `explore_repo`의 budget 계층과 같은 깊이 정책을 사용합니다.
+- `session`: 이전 탐색의 `stats.sessionId`를 넘기면 후속 보고서에도 후보 경로와 요약을 재사용합니다.
+
+반환 특성:
+
+- JSON 필드 묶음 대신 **Markdown 보고서 본문**이 중심입니다.
+- 본문 안에 inline file:line citation이 들어갑니다.
+- 사용자 설명, 아키텍처 브리핑, 조사 결과 공유에 적합합니다.
+- 후속 자동화나 정형 후처리가 중요하면 `explore_repo`를 우선 사용하세요.
 
 ### 특화 도구 (Specialized Tools)
 
@@ -267,10 +298,19 @@ description = "Read-only repository explorer that delegates search/read loops to
 sandbox_mode = "read-only"
 
 developer_instructions = """
-Use the MCP tool `explore_repo` before doing broad native repository search.
-Prefer one high-level delegation over many small read/grep steps.
-Treat the MCP result as the primary exploration report.
-Use native reads only to verify evidence or when the report is insufficient.
+Use the `cerebras-explorer` MCP tools as the default first move for broad read-only discovery.
+Prefer the narrowest exposed explorer tool that matches the request:
+- `explain_symbol` for known symbols
+- `trace_dependency` for known entry files
+- `summarize_changes` for git-history questions
+- `find_similar_code` for pattern or duplication hunting
+- `explore_repo` for open-ended questions when structured JSON findings are useful
+- `explore` for open-ended questions when a cited Markdown report is the better final artifact
+Pass the parent request almost verbatim; add `scope`, `budget`, `thoroughness`, `hints`, or `session` only when justified by the task or prior results.
+For `explore_repo`, use `deep` for the initial broad pass, `normal` for scoped follow-up exploration, and `quick` for file-level or narrow lookups.
+For `explore`, use `thoroughness: deep` for the initial broad overview, `normal` for scoped follow-up reporting, and `quick` for narrow cited explanations.
+The specialized tools do not expose `budget` and currently behave like an internal `normal` pass; use `explore_repo` when budget choice matters.
+Treat `explore_repo` evidence or `explore` citations as the primary map, then do only targeted native reads to verify or prepare edits.
 Do not modify files.
 """
 ```
@@ -310,11 +350,11 @@ MCP client for `cerebras-explorer` timed out after 30 seconds.
 
 ## 내부 동작 순서
 
-1. 부모 모델이 `explore_repo`를 호출합니다.
+1. 부모 모델이 `explore_repo` 또는 `explore`를 호출합니다.
 2. MCP 서버가 read-only repo toolkit을 준비합니다.
 3. 선택된 Cerebras 모델이 내부 도구를 사용해 탐색 루프를 수행합니다.
-4. 충분한 근거가 모이면 최종 JSON을 생성합니다.
-5. MCP 서버는 구조화된 결과만 부모 모델에 반환합니다.
+4. 충분한 근거가 모이면 최종 JSON 또는 Markdown 보고서를 생성합니다.
+5. MCP 서버는 그 결과만 부모 모델에 반환합니다.
 
 ## 예산 정책
 

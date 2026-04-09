@@ -1,7 +1,15 @@
-For architecture lookup, symbol tracing, middleware tracing, route discovery, or impact mapping,
-use the external Cerebras explorer first.
+Use the external Cerebras explorer first for broad read-only discovery:
+architecture lookup, symbol tracing, dependency or route/middleware tracing, config origin lookup,
+impact mapping before edits, change summary, or similar-pattern hunting.
 
 Preferred flow:
-1. Call `explore_repo` through the `cerebras-explorer` MCP server.
-2. Read only the cited files you need to verify.
-3. Keep native wide search as a fallback, not the default.
+1. Use the narrowest `cerebras-explorer` tool that fits the question: `explain_symbol`, `trace_dependency`, `summarize_changes`, `find_similar_code`, `explore_repo`, or `explore`.
+2. Prefer `explore_repo` when you want structured JSON findings for follow-up analysis or edits.
+3. Prefer `explore` when you want a cited Markdown report or architecture explanation to hand back to the user.
+4. When using `explore_repo`, prefer `deep` for the first broad pass, `normal` for scoped follow-up exploration, and `quick` for file-level or narrow lookups.
+5. When using `explore`, use `thoroughness` with the same policy: `deep` for broad overview, `normal` for scoped follow-up reporting, `quick` for narrow cited explanations.
+6. Remember that the specialized tools do not expose `budget`; use `explore_repo` when budget choice matters.
+7. Add `scope` and known anchors only when they are already implied by the task.
+8. Reuse `stats.sessionId` as `session` for follow-up exploration.
+9. Read only the cited files you need to verify or edit.
+10. Keep native wide search as a fallback, not the default.
