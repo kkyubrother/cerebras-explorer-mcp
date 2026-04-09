@@ -130,6 +130,8 @@ export const BUDGETS = {
     maxWalkFiles: 1500,
     maxCompletionTokens: 4000,
     finalizeMaxCompletionTokens: 1500,
+    temperature: 0.3,
+    topP: 0.95,
   },
   normal: {
     label: 'normal',
@@ -140,6 +142,8 @@ export const BUDGETS = {
     maxWalkFiles: 3000,
     maxCompletionTokens: 6000,
     finalizeMaxCompletionTokens: 2000,
+    temperature: 0.8,
+    topP: 0.95,
   },
   deep: {
     label: 'deep',
@@ -150,6 +154,8 @@ export const BUDGETS = {
     maxWalkFiles: 6000,
     maxCompletionTokens: 8000,
     finalizeMaxCompletionTokens: 3000,
+    temperature: 1.0,
+    topP: 0.95,
   },
 };
 

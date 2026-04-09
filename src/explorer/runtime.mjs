@@ -348,8 +348,8 @@ export class ExplorerRuntime {
     ];
 
     const reasoningEffort = getReasoningEffortForBudget(chatClient.model, budgetConfig.label);
-    const temperature = getExplorerTemperature();
-    const topP = getExplorerTopP();
+    const temperature = budgetConfig.temperature ?? getExplorerTemperature();
+    const topP = budgetConfig.topP ?? getExplorerTopP();
 
     const stats = {
       model: chatClient.model,

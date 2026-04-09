@@ -60,13 +60,13 @@
 
 | 상태 | 항목 | 위치 | 구체적 변경 내용 |
 |------|------|------|-----------------|
-| 🔲 | budget별 temperature 차별화 | `config.mjs` + `runtime.mjs:351` | quick: 0.3 / normal: 0.8 / deep: 1.0 로 분리. `BUDGETS`에 `temperature` 필드 추가 또는 별도 헬퍼 |
-| 🔲 | budget별 top_p 명시 | `config.mjs` | 세 budget 모두 `top_p: 0.95` 명시 (현재는 global default) |
-| 🔲 | runtime에서 global temperature 대신 budget별 temperature 사용 | `runtime.mjs:351–352` | `getExplorerTemperature()` → budget별 값으로 교체 |
-| 🔲 | 테스트: quick budget payload에 `reasoning_effort: 'none'` 포함 검증 | `tests/cerebras-client.test.mjs` | |
-| 🔲 | 테스트: normal/deep payload에 `clear_thinking: false` 포함 검증 | `tests/cerebras-client.test.mjs` | |
-| 🔲 | 테스트: budget별 temperature 값이 payload에 올바르게 들어가는지 검증 | `tests/cerebras-client.test.mjs` | |
-| 🔲 | 테스트: assistant reasoning이 다음 turn에 round-trip되는지 검증 | `tests/runtime.mock.test.mjs` | |
+| ✅ | budget별 temperature 차별화 | `config.mjs` + `runtime.mjs:351` | quick: 0.3 / normal: 0.8 / deep: 1.0 — BUDGETS에 temperature 필드 추가 |
+| ✅ | budget별 top_p 명시 | `config.mjs` | 세 budget 모두 `topP: 0.95` 명시 |
+| ✅ | runtime에서 global temperature 대신 budget별 temperature 사용 | `runtime.mjs:351–352` | `budgetConfig.temperature ?? getExplorerTemperature()` |
+| ✅ | 테스트: quick budget payload에 `reasoning_effort: 'none'` 포함 검증 | `tests/cerebras-client.test.mjs` | Phase 2 테스트 추가 |
+| ✅ | 테스트: normal/deep payload에 `clear_thinking: false` 포함 검증 | `tests/cerebras-client.test.mjs` | Phase 2 테스트 추가 |
+| ✅ | 테스트: budget별 temperature 값이 payload에 올바르게 들어가는지 검증 | `tests/cerebras-client.test.mjs` | Phase 2 테스트 추가 |
+| ✅ | 테스트: assistant reasoning이 다음 turn에 round-trip되는지 검증 | `tests/runtime.mock.test.mjs` | 기존 "forwards assistant reasoning" 테스트가 커버 (temperature assertion 업데이트) |
 
 ---
 

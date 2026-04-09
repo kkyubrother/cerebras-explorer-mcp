@@ -710,7 +710,8 @@ test('ExplorerRuntime forwards assistant reasoning into the next turn when avail
 
       if (this.calls === 1) {
         assert.equal(reasoningEffort, 'none');
-        assert.equal(temperature, 1);
+        // quick budget now has temperature: 0.3 (Phase 2 budget-specific temperature)
+        assert.equal(temperature, 0.3);
         assert.equal(topP, 0.95);
         return {
           usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
