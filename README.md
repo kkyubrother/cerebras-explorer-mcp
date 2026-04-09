@@ -181,6 +181,8 @@ cerebras-explorer-mcp/
 
 ## 빠른 실행
 
+**요구사항**: Node.js 22 이상
+
 ### 1) 환경 변수
 
 ```bash

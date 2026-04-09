@@ -675,7 +675,8 @@ sessionStore.update(id, {
 * 일부 cached lookup
 * 독립적인 symbol lookup
 
-git 계열까지 진짜 병렬 이득을 보려면 이후 async subprocess 전환이 필요할 수 있습니다.
+> **구현 완료 (2026-04-09)**: `execFileSync` → `execFileAsync` (promisify) 전환으로 `git` / `rg` 계열도
+> 포함해 모든 subprocess가 async로 전환됨. `explore()` 루프에 `runWithConcurrency(cap=4)` 적용.
 
 ## 작업 항목
 
