@@ -126,7 +126,7 @@ test('RepoToolkit enforces the initial scope as a hard boundary', async () => {
   );
 });
 
-test('RepoToolkit blocks symlink reads and skips symlink entries during traversal', async () => {
+test('RepoToolkit blocks symlink reads and skips symlink entries during traversal', { skip: process.platform === 'win32' }, async () => {
   const repoRoot = await makeRepoFixture();
   const outsideDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-explorer-outside-'));
   const outsideFile = path.join(outsideDir, 'outside-secret.txt');
