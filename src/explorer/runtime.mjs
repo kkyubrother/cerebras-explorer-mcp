@@ -154,18 +154,20 @@ function checkEvidenceGrounding(observedRanges, evidenceItem) {
   return { overlaps: false, partial: false };
 }
 
-function buildCodeMap(observedRanges) {
+function buildCodeMap(observedRanges, configEntryPoints = []) {
   const paths = [...observedRanges.keys()];
   if (paths.length === 0) {
     return null;
   }
 
+  // Phase 4: config entryPoints take priority over pattern-based detection
+  const configEntrySet = new Set(configEntryPoints);
   const entryPoints = [];
   const keyModules = [];
 
   for (const filePath of paths) {
     const basename = filePath.split('/').pop() ?? filePath;
-    const isEntry = ENTRY_POINT_PATTERNS.test(basename);
+    const isEntry = configEntrySet.has(filePath) || ENTRY_POINT_PATTERNS.test(basename);
     if (isEntry) {
       entryPoints.push(filePath);
     }
@@ -688,7 +690,7 @@ export class ExplorerRuntime {
     }
 
     // codeMap + Mermaid diagram
-    const codeMap = buildCodeMap(observedRanges);
+    const codeMap = buildCodeMap(observedRanges, projectConfig.entryPoints ?? []);
     if (codeMap) {
       normalized.codeMap = codeMap;
       const strategy = args.hints?.strategy ?? null;

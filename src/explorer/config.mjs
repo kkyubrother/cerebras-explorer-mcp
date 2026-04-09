@@ -253,10 +253,8 @@ export function classifyTaskComplexity(task) {
  *   defaultScope        — string[] of glob patterns
  *   extraIgnoreDirs     — string[] of directory names to skip during traversal
  *   projectContext      — string injected into the explorer's system prompt
- *   entryPoints         — string[] of key entry-point file paths
+ *   entryPoints         — string[] of key entry-point file paths (used by codeMap and breadth-first exploration)
  *   keyFiles            — string[] of important files (searched first on arch queries)
- *   customSymbolPatterns— object: {ext: regexString}
- *   languages           — string[] (informational, future use)
  *
  * @param {string} repoRoot
  * @returns {Promise<object>}

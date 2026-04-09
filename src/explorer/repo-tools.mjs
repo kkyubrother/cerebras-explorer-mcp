@@ -746,6 +746,8 @@ export class RepoToolkit {
     if (typeof symbol !== 'string' || !symbol.trim()) {
       throw new Error('symbol is required');
     }
+    // Phase 4: depth is accepted but clamped to 1 — only direct callers are supported.
+    const effectiveDepth = 1;
     const sym = symbol.trim();
 
     // Step 1: grep for all occurrences
@@ -791,6 +793,7 @@ export class RepoToolkit {
       callers: callers.slice(0, 20),
       callerCount: callers.length,
       truncated: grepResult.truncated,
+      effectiveDepth,
     };
   }
 
@@ -1092,7 +1095,7 @@ export class RepoToolkit {
             properties: {
               symbol: { type: 'string', description: 'Symbol name to analyse.' },
               scope: { type: 'array', items: { type: 'string' }, description: 'Optional path prefixes.' },
-              depth: { type: 'integer', minimum: 1, maximum: 3, description: 'Caller-chain depth to trace (default 1).' },
+              depth: { type: 'integer', minimum: 1, maximum: 3, description: 'Caller-chain depth (currently only direct callers are supported — effectiveDepth is always 1).' },
             },
             required: ['symbol'],
           },

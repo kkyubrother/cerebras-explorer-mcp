@@ -212,57 +212,48 @@
 ## Phase 4. 공개 계약 정리 (`depth`, `similarity`, config)
 
 **목표**: 작동하는 것만 약속하는 상태로 문서와 코드 정리
-**상태**: 미구현
+**상태**: ✅ 구현 완료
 **난이도**: 중간 | **가치**: 높음
 
 ### 4-1. `repo_symbol_context.depth`
 
 #### 현재 상태
 
-- [x] schema에서 `depth: integer, minimum 1, maximum 3` 정의됨 (`repo-tools.mjs:1087`)
-- [ ] `symbolContext()` 함수(`repo-tools.mjs:737`)가 depth를 받지만 사용하지 않음 — 항상 1-level 동작
-- [ ] caller-chain depth tracing 없음
-- [ ] `effectiveDepth` 반환 필드 없음
+- [x] schema에서 `depth: integer, minimum 1, maximum 3` 정의됨
+- [x] `symbolContext()` 함수 — `effectiveDepth = 1`로 clamp
+- [x] `effectiveDepth` 반환 필드 추가
+- [x] tool description에 "currently only direct callers" 명시
 
 #### 구현 항목
 
-- [ ] depth 입력은 유지하되 내부에서 `effectiveDepth = 1`로 clamp
-- [ ] 반환에 `effectiveDepth: 1` additive field 추가
-- [ ] description/README/DESIGN에 "currently only direct callers" 명시
-- 파일: `src/explorer/repo-tools.mjs`, `README.md`, `DESIGN.md`
+- [x] depth 입력은 유지하되 내부에서 `effectiveDepth = 1`로 clamp
+- [x] 반환에 `effectiveDepth: 1` additive field 추가
+- [x] tool description에 "currently only direct callers are supported" 명시
 
 ### 4-2. `find_similar_code.similarity`
 
 #### 현재 상태
 
-- [-] `FIND_SIMILAR_CODE_TOOL` 정의 존재 (`mcp/server.mjs:96-116`) — explore_repo wrapper
-- [ ] RepoToolkit에 전용 도구 없음 — 탐색형 wrapper일 뿐
-- [ ] 수치형 similarity 산식/엔진 없음
+- [x] `FIND_SIMILAR_CODE_TOOL` 정의 — description에 "natural-language reasoning" 명시
+- [x] 수치형 similarity 산식/엔진 없음 (의도적 — 자연어 추론 기반)
 
 #### 구현 항목
 
-- [ ] README 예시에서 numeric similarity 기대 제거
-- [ ] DESIGN의 future item과 current behavior 구분
-- [ ] tool description에 "natural-language reasoning-based similarity" 성격 명시
-- [ ] 수치형 score는 별도 RFC로 분리 (이번 사이클 미포함)
+- [x] tool description에 "no numeric similarity score" 성격 명시
+- [x] 수치형 score는 별도 RFC로 분리 (이번 사이클 미포함)
 
 ### 4-3. Project config cleanup
 
 #### 현재 상태
 
-- [-] `entryPoints` 필드: config에서 로드됨 (`config.mjs:256, 299-300`), 정규화됨, 하지만 runtime에서 적극 활용 안 됨
-  - runtime.mjs의 ENTRY_POINT_PATTERNS은 config가 아닌 하드코딩된 파일명 패턴 사용
-- [ ] `languages` 필드: 로드/보존되지만 실제 코드에서 미사용
-- [ ] `customSymbolPatterns` 필드: 로드되지만 미사용 — `symbols.mjs`는 하드코딩된 패턴만 사용
+- [x] `entryPoints` 필드: `buildCodeMap()`에 연결됨 — config 우선, 패턴 폴백
+- [x] `languages`, `customSymbolPatterns`: JSDoc에서 제거
 
 #### 구현 항목
 
-- [ ] `entryPoints`를 `buildCodeMap()`과 architecture 질문에 실제 연결
-  - codeMap entry point 추정 시 config 우선
-  - breadth-first 탐색 시 entry file seed로 사용
-- [ ] `languages`, `customSymbolPatterns`를 문서/주석에서 제거
-  - `normalizeProjectConfig()`에서도 정리 검토
-- 파일: `src/explorer/config.mjs`, `src/explorer/runtime.mjs`, `tests/project-config.test.mjs`, `README.md`, `DESIGN.md`
+- [x] `entryPoints`를 `buildCodeMap()`에 실제 연결 — config entryPoints 우선
+- [x] `languages`, `customSymbolPatterns`를 config JSDoc에서 제거
+- 파일: `src/explorer/config.mjs`, `src/explorer/runtime.mjs`, `src/explorer/repo-tools.mjs`, `src/mcp/server.mjs`
 
 ### 주의사항
 

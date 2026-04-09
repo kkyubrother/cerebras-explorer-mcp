@@ -97,7 +97,7 @@ const FIND_SIMILAR_CODE_TOOL = {
   name: 'find_similar_code',
   title: 'Find similar code patterns',
   description:
-    'Finds code that uses patterns similar to a reference file, path, or snippet. Useful for discovering duplicates, repeated logic, or convention violations. Uses the pattern-scan strategy.',
+    'Finds code that uses patterns similar to a reference file, path, or snippet via natural-language reasoning (no numeric similarity score). Useful for discovering duplicates, repeated logic, or convention violations. Uses the pattern-scan strategy.',
   inputSchema: {
     type: 'object',
     additionalProperties: false,
