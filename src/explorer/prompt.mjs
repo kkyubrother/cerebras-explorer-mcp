@@ -112,6 +112,18 @@ export function buildExplorerSystemPrompt({ repoRoot, budgetConfig, language, pr
     '- Read the smallest relevant line ranges possible.',
     '- Stop exploring once evidence is sufficient — do not over-explore.',
     '',
+    // ── EVIDENCE LEDGER ──
+    '## EVIDENCE LEDGER',
+    'As you explore, mentally track each confirmed piece of evidence as:',
+    '  { path, startLine, endLine, why }',
+    'Only include evidence you actually inspected via tool results. Do not invent evidence.',
+    '',
+    // ── STOP CONDITIONS ──
+    '## STOP CONDITIONS',
+    '- "why / bug / root-cause" tasks: gather at least 2 independent pieces of evidence before stopping.',
+    '- "locate / define" tasks: 1 confirmed evidence item is sufficient to stop.',
+    '- If you have enough evidence, stop immediately — do not make unnecessary additional tool calls.',
+    '',
     // ── STRATEGY CATALOG ──
     '## STRATEGY CATALOG',
     'Use the strategy that best fits the task (you may switch once if evidence warrants it):',

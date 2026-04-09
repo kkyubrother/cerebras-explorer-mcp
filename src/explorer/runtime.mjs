@@ -381,7 +381,20 @@ export class ExplorerRuntime {
     const observedRanges = new Map();
     const capturedGitLogs = [];
 
+    // Checkpoint interval: inject a self-assessment message every N turns.
+    // Only active for budgets with enough turns to benefit (>6).
+    const CHECKPOINT_INTERVAL = 4;
+    const checkpointEnabled = budgetConfig.maxTurns > 6;
+
     for (let turnIndex = 0; turnIndex < budgetConfig.maxTurns; turnIndex += 1) {
+      // Checkpoint: every CHECKPOINT_INTERVAL turns, ask the model to self-assess.
+      if (checkpointEnabled && turnIndex > 0 && turnIndex % CHECKPOINT_INTERVAL === 0) {
+        messages.push({
+          role: 'user',
+          content: 'Checkpoint: Based on the evidence gathered so far, can you answer the task with sufficient confidence? If yes, synthesize the final answer now. If not, select exactly one more tool call to gather the missing evidence.',
+        });
+      }
+
       // Progress: starting a new turn
       if (onProgress) {
         onProgress({
@@ -556,6 +569,14 @@ export class ExplorerRuntime {
     const LEVEL_ORDER = { low: 0, medium: 1, high: 2 };
     if (LEVEL_ORDER[normalized.confidence] > LEVEL_ORDER[confidenceLevel]) {
       normalized.confidence = confidenceLevel;
+    }
+
+    // Critic-lite verify pass: downgrade over-confident claims.
+    // If the model asserts confidence=high but has fewer than 2 grounded evidence
+    // items, lower confidence to medium. This catches too-early synthesis.
+    if (normalized.confidence === 'high' && normalized.evidence.length < 2) {
+      normalized.confidence = 'medium';
+      normalized.confidenceLevel = 'medium';
     }
 
     if (!normalized.summary) normalized.summary = normalized.answer;

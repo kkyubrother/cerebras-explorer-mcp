@@ -93,12 +93,12 @@
 
 | 상태 | 항목 | 위치 | 구체적 변경 내용 |
 |------|------|------|-----------------|
-| 🔲 | Checkpoint message 삽입 (4~5턴마다) | `runtime.mjs` agentic loop | "지금까지 근거로 답 가능한가? 불가능하면 다음 tool 1개만 선택" user 메시지 삽입 |
-| 🔲 | critic-lite verify pass 추가 | `runtime.mjs:finalizeAfterToolLoop()` 또는 별도 단계 | finalize 직전 "unsupported claim 있으면 confidence 낮춤" 1회 pass |
-| 🔲 | evidence ledger 프롬프트 규칙 추가 | `prompt.mjs` | 탐색 중 `{path, startLine, endLine, why}` 후보를 내부 관리하도록 명시 |
-| 🔲 | too-early stop 방지 규칙 추가 | `prompt.mjs` | why/bug/root-cause → 독립 근거 2개 이상 권장, locate/define → 1개 허용 |
-| 🔲 | 테스트: deep budget에서 budget exhaustion 비율 감소 확인 | `scripts/run-benchmark.mjs` | Phase 0 기준선과 비교 |
-| 🔲 | 테스트: confidence=high인데 evidence 1개뿐인 케이스 감소 확인 | `tests/runtime.mock.test.mjs` | |
+| ✅ | Checkpoint message 삽입 (4~5턴마다) | `runtime.mjs` agentic loop | CHECKPOINT_INTERVAL=4, maxTurns>6일 때만 활성화 |
+| ✅ | critic-lite verify pass 추가 | `runtime.mjs` explore() | confidence=high + evidence<2 → medium으로 다운그레이드 |
+| ✅ | evidence ledger 프롬프트 규칙 추가 | `prompt.mjs` | ##EVIDENCE LEDGER 섹션 추가 |
+| ✅ | too-early stop 방지 규칙 추가 | `prompt.mjs` | ##STOP CONDITIONS 섹션 추가 |
+| 🔲 | 테스트: deep budget에서 budget exhaustion 비율 감소 확인 | `scripts/run-benchmark.mjs` | 실제 API 실행 필요 — Phase 0 기준선 필요 |
+| ✅ | 테스트: confidence=high인데 evidence 1개뿐인 케이스 감소 확인 | `tests/runtime.mock.test.mjs` | Phase 4 critic-lite 테스트 + checkpoint 테스트 추가 |
 
 ---
 

@@ -601,6 +601,142 @@ test('Phase 1 — malformed freeform content still produces strict-schema result
   assert.ok(Array.isArray(result.followups), 'followups must be an array on fallback');
 });
 
+// ── Phase 4 — 멀티턴 안정화 장치 ─────────────────────────────────────────────
+
+test('Phase 4 — checkpoint message is inserted for normal/deep budget after every 4 turns', async () => {
+  // Verifies that for budgets with maxTurns > 6, a checkpoint user message is
+  // injected into the conversation every CHECKPOINT_INTERVAL (4) turns.
+  const capturedMessages = [];
+
+  class CheckpointObserverClient {
+    constructor() { this.model = 'zai-glm-4.7'; this.calls = 0; }
+    async createChatCompletion({ messages }) {
+      this.calls += 1;
+      capturedMessages.push([...messages]);
+
+      if (this.calls <= 4) {
+        // Keep making tool calls for the first 4 turns to trigger checkpoint
+        return {
+          usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+          message: {
+            content: '',
+            toolCalls: [{
+              id: `call-${this.calls}`,
+              function: { name: 'repo_grep', arguments: JSON.stringify({ pattern: 'auth' }) },
+            }],
+          },
+        };
+      }
+      // Turn 5: answer without tools
+      return {
+        usage: { prompt_tokens: 30, completion_tokens: 20, total_tokens: 50 },
+        message: {
+          content: JSON.stringify({
+            answer: '분석 완료', summary: '요약', confidence: 'low',
+            evidence: [], candidatePaths: [], followups: [],
+          }),
+          toolCalls: [],
+        },
+      };
+    }
+  }
+
+  const root = await makeRepoFixture();
+  const client = new CheckpointObserverClient();
+  const runtime = new ExplorerRuntime({ chatClient: client });
+  // Use 'normal' budget (maxTurns=10 > 6 → checkpoint enabled)
+  await runtime.explore({ task: '인증 분석', repo_root: root, budget: 'normal' });
+
+  // The 5th call to createChatCompletion (turnIndex=4) should have a checkpoint
+  // user message injected before it. That means capturedMessages[4] should contain
+  // a user message with "Checkpoint" text.
+  const turn5Messages = capturedMessages[4];
+  const checkpointMsg = turn5Messages.find(
+    m => m.role === 'user' && m.content?.includes('Checkpoint'),
+  );
+  assert.ok(checkpointMsg, 'checkpoint message must be injected at turnIndex=4 for normal budget');
+});
+
+test('Phase 4 — checkpoint is NOT inserted for quick budget (maxTurns <= 6)', async () => {
+  const capturedMessages = [];
+
+  class NoCheckpointClient {
+    constructor() { this.model = 'zai-glm-4.7'; this.calls = 0; }
+    async createChatCompletion({ messages }) {
+      this.calls += 1;
+      capturedMessages.push([...messages]);
+      return {
+        usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+        message: {
+          content: JSON.stringify({
+            answer: '빠른 답변', summary: '요약', confidence: 'low',
+            evidence: [], candidatePaths: [], followups: [],
+          }),
+          toolCalls: [],
+        },
+      };
+    }
+  }
+
+  const root = await makeRepoFixture();
+  const runtime = new ExplorerRuntime({ chatClient: new NoCheckpointClient() });
+  // Use 'quick' budget (maxTurns=6 → checkpoint disabled)
+  await runtime.explore({ task: '테스트', repo_root: root, budget: 'quick' });
+
+  // No message should contain "Checkpoint"
+  const hasCheckpoint = capturedMessages.some(msgs =>
+    msgs.some(m => m.role === 'user' && m.content?.includes('Checkpoint')),
+  );
+  assert.equal(hasCheckpoint, false, 'checkpoint must NOT be inserted for quick budget');
+});
+
+test('Phase 4 — critic-lite: confidence=high with only 1 evidence item is downgraded to medium', async () => {
+  // The critic-lite verify pass must downgrade high confidence to medium when
+  // fewer than 2 grounded evidence items are present.
+  class OverconfidentClient {
+    constructor() { this.model = 'zai-glm-4.7'; this.calls = 0; }
+    async createChatCompletion() {
+      this.calls += 1;
+      if (this.calls === 1) {
+        // Read one file so the evidence has an observed range
+        return {
+          usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+          message: {
+            content: '',
+            toolCalls: [{
+              id: 'call-1',
+              function: { name: 'repo_read_file', arguments: JSON.stringify({ path: 'src/auth.js', startLine: 1, endLine: 4 }) },
+            }],
+          },
+        };
+      }
+      // Finalize: model claims high confidence with only 1 evidence item
+      return {
+        usage: { prompt_tokens: 30, completion_tokens: 20, total_tokens: 50 },
+        message: {
+          content: JSON.stringify({
+            answer: '자신있게 단정합니다.',
+            summary: '요약',
+            confidence: 'high',
+            evidence: [{ path: 'src/auth.js', startLine: 1, endLine: 4, why: '유일한 근거' }],
+            candidatePaths: ['src/auth.js'],
+            followups: [],
+          }),
+          toolCalls: [],
+        },
+      };
+    }
+  }
+
+  const root = await makeRepoFixture();
+  const runtime = new ExplorerRuntime({ chatClient: new OverconfidentClient() });
+  const result = await runtime.explore({ task: '인증 함수 분석', repo_root: root, budget: 'quick' });
+
+  // critic-lite must downgrade high → medium when evidence.length < 2
+  assert.equal(result.confidence, 'medium',
+    'confidence=high with 1 evidence item must be downgraded to medium by critic-lite');
+});
+
 // ── Phase 3 — 프롬프트 구조 재배치 + 전략 유연화 ─────────────────────────────
 
 test('Phase 3 — system prompt has HARD REQUIREMENTS within first 30 lines', () => {
