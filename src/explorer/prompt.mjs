@@ -195,8 +195,15 @@ export function buildExplorerUserPrompt({ task, scope, budget, hints, sessionCan
 export function buildFinalizePrompt() {
   return [
     'Produce the final exploration result now.',
-    'Do not call any tools.',
-    'Ground every evidence item in files and line ranges already inspected.',
-    'Use an empty array [] for followups if no further investigation is needed.',
+    'HARD REQUIREMENTS — violations will cause the response to be rejected:',
+    '  • Output exactly one JSON object. No markdown fences, no prose before or after.',
+    '  • Do not call any tools.',
+    '  • Every evidence item must be grounded in a file path and line range already inspected.',
+    '  • Use only information gathered during this session — no fabricated claims.',
+    'SCHEMA REQUIREMENTS:',
+    '  • Required fields: answer, summary, confidence (low|medium|high), evidence[], candidatePaths[], followups[]',
+    '  • evidence items: { path, startLine, endLine, why }',
+    '  • followups items: { description, priority (recommended|optional), suggestedCall? }',
+    '  • Use an empty array [] for followups if no further investigation is needed.',
   ].join('\n');
 }

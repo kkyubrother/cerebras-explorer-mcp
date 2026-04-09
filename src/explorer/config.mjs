@@ -129,6 +129,7 @@ export const BUDGETS = {
     maxDirectoryEntries: 120,
     maxWalkFiles: 1500,
     maxCompletionTokens: 4000,
+    finalizeMaxCompletionTokens: 1500,
   },
   normal: {
     label: 'normal',
@@ -138,6 +139,7 @@ export const BUDGETS = {
     maxDirectoryEntries: 200,
     maxWalkFiles: 3000,
     maxCompletionTokens: 6000,
+    finalizeMaxCompletionTokens: 2000,
   },
   deep: {
     label: 'deep',
@@ -147,6 +149,7 @@ export const BUDGETS = {
     maxDirectoryEntries: 300,
     maxWalkFiles: 6000,
     maxCompletionTokens: 8000,
+    finalizeMaxCompletionTokens: 3000,
   },
 };
 

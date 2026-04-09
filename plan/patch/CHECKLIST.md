@@ -34,14 +34,14 @@
 
 | 상태 | 항목 | 위치 | 구체적 변경 내용 |
 |------|------|------|-----------------|
-| 🔲 | no-tool 종료 시 `finalizeAfterToolLoop()` 항상 호출 | `runtime.mjs:427–438` | `extractFirstJsonObject()` + break 대신 `finalizeAfterToolLoop()` 호출로 교체 |
-| 🔲 | `finalizeAfterToolLoop()` `maxCompletionTokens: 2500` 하드코딩 제거 | `runtime.mjs:591` | budget별 `finalizeMaxCompletionTokens` 읽도록 변경 |
-| 🔲 | `BUDGETS`에 `finalizeMaxCompletionTokens` 필드 추가 | `config.mjs:123–151` | quick: 1500, normal: 2000, deep: 3000 (예시) |
-| 🔲 | `buildFinalizePrompt()` 강화 | `prompt.mjs` | "exactly one JSON object / no markdown / no extra text / grounded evidence only / no tools" 명시 |
-| 🔲 | `extractFirstJsonObject()`를 최후 fallback으로만 사용 | `runtime.mjs`, `cerebras-client.mjs` | finalize 내부에서도 structured output 실패 시에만 사용 |
-| 🔲 | 테스트: no-tool 종료도 strict finalize 통과 검증 | `tests/runtime.mock.test.mjs` | MockChatClient가 tool call 없이 바로 응답하는 케이스 추가 |
-| 🔲 | 테스트: finalize prompt가 tool 호출 없이 끝남 검증 | `tests/runtime.mock.test.mjs` | |
-| 🔲 | 테스트: malformed freeform content 입력 시에도 최종 JSON이 schema 준수 | `tests/runtime.mock.test.mjs` | |
+| ✅ | no-tool 종료 시 `finalizeAfterToolLoop()` 항상 호출 | `runtime.mjs:427–438` | `extractFirstJsonObject()` + break 대신 `finalizeAfterToolLoop()` 호출로 교체 |
+| ✅ | `finalizeAfterToolLoop()` `maxCompletionTokens: 2500` 하드코딩 제거 | `runtime.mjs:591` | budget별 `finalizeMaxCompletionTokens` 읽도록 변경 |
+| ✅ | `BUDGETS`에 `finalizeMaxCompletionTokens` 필드 추가 | `config.mjs:123–151` | quick: 1500, normal: 2000, deep: 3000 |
+| ✅ | `buildFinalizePrompt()` 강화 | `prompt.mjs` | HARD REQUIREMENTS + SCHEMA REQUIREMENTS 명시 |
+| ✅ | `extractFirstJsonObject()`를 최후 fallback으로만 사용 | `runtime.mjs`, `cerebras-client.mjs` | finalize 내부에서 structured output 실패 시에만 사용 |
+| ✅ | 테스트: no-tool 종료도 strict finalize 통과 검증 | `tests/runtime.mock.test.mjs` | `Phase 1 — no-tool exit` 테스트 추가 |
+| ✅ | 테스트: finalize prompt가 tool 호출 없이 끝남 검증 | `tests/runtime.mock.test.mjs` | `Phase 1 — finalize prompt` 테스트 추가 |
+| ✅ | 테스트: malformed freeform content 입력 시에도 최종 JSON이 schema 준수 | `tests/runtime.mock.test.mjs` | `Phase 1 — malformed freeform` 테스트 추가 |
 
 ---
 

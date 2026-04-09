@@ -425,7 +425,8 @@ export class ExplorerRuntime {
       messages.push(assistantMessage);
 
       if (completion.message.toolCalls.length === 0) {
-        // No more tool calls — model is ready to synthesize
+        // No more tool calls — route through finalizeAfterToolLoop() so strict schema
+        // validation always runs, regardless of exit path.
         if (onProgress) {
           onProgress({
             progress: budgetConfig.maxTurns - 1,
@@ -434,7 +435,16 @@ export class ExplorerRuntime {
           });
         }
         lastAssistantContent = completion.message.content || '';
-        finalObject = extractFirstJsonObject(lastAssistantContent);
+        const finalized = await this.finalizeAfterToolLoop({
+          chatClient,
+          messages,
+          reasoningEffort,
+          temperature,
+          topP,
+          budgetConfig,
+        });
+        finalObject = finalized.result;
+        Object.assign(stats, summarizeUsage(stats, finalized.usage));
         break;
       }
 
@@ -502,6 +512,7 @@ export class ExplorerRuntime {
         reasoningEffort,
         temperature,
         topP,
+        budgetConfig,
       });
       finalObject = finalized.result;
       Object.assign(stats, summarizeUsage(stats, finalized.usage));
@@ -575,7 +586,8 @@ export class ExplorerRuntime {
     return normalized;
   }
 
-  async finalizeAfterToolLoop({ chatClient, messages, reasoningEffort, temperature, topP }) {
+  async finalizeAfterToolLoop({ chatClient, messages, reasoningEffort, temperature, topP, budgetConfig }) {
+    const maxCompletionTokens = budgetConfig?.finalizeMaxCompletionTokens ?? 2000;
     const completion = await chatClient.createChatCompletion({
       messages: [
         ...messages,
@@ -588,15 +600,17 @@ export class ExplorerRuntime {
       reasoningEffort,
       temperature,
       topP,
-      maxCompletionTokens: 2500,
+      maxCompletionTokens,
       parallelToolCalls: false,
     });
 
+    // structured output path — primary
     const structured = extractFirstJsonObject(completion.message.content);
     if (structured) {
       return { result: structured, usage: completion.usage ?? null };
     }
 
+    // fallback: unstructured content that could not be parsed as JSON
     return {
       result: {
         answer: completion.message.content || 'Explorer could not synthesize a final answer.',

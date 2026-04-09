@@ -468,13 +468,135 @@ test('ExplorerRuntime injects previous session context into next call', async ()
     { sessionStore },
   );
 
-  // The second system prompt should include the previous summary
-  const secondSystemPrompt = capturedPrompts[1];
+  // Each explore() now makes 2 chat completions (agentic + finalize).
+  // First explore: capturedPrompts[0] (agentic), capturedPrompts[1] (finalize)
+  // Second explore: capturedPrompts[2] (agentic), capturedPrompts[3] (finalize)
+  // The second explore's agentic system prompt should include the previous summary.
+  const secondSystemPrompt = capturedPrompts[2];
   assert.ok(
     secondSystemPrompt.includes('previous context test') ||
     secondSystemPrompt.includes('Findings from previous'),
     'Second call must reference previous session summary in system prompt',
   );
+});
+
+// ── Phase 1 — 최종 출력 경로 단일화 ──────────────────────────────────────────
+
+test('Phase 1 — no-tool exit always routes through finalize (strict schema)', async () => {
+  // When the model answers immediately with no tool calls the response must still
+  // go through finalizeAfterToolLoop so the strict schema is always applied.
+  // We verify this by checking that the result conforms to strict schema even
+  // when the MockClient returns valid JSON without any tool calls.
+  class ImmediateAnswerClient {
+    constructor() { this.model = 'zai-glm-4.7'; this.calls = 0; }
+    async createChatCompletion() {
+      this.calls += 1;
+      // First call (agentic loop): no tool calls — triggers finalizeAfterToolLoop
+      // Second call (finalize): returns the JSON answer
+      return {
+        usage: { prompt_tokens: 30, completion_tokens: 20, total_tokens: 50 },
+        message: {
+          content: JSON.stringify({
+            answer: '즉시 답변합니다.',
+            summary: '도구 없이 바로 답변했습니다.',
+            confidence: 'medium',
+            evidence: [],
+            candidatePaths: [],
+            followups: [],
+          }),
+          toolCalls: [],
+        },
+      };
+    }
+  }
+
+  const root = await makeRepoFixture();
+  const client = new ImmediateAnswerClient();
+  const runtime = new ExplorerRuntime({ chatClient: client });
+  const result = await runtime.explore({ task: '단순 질문', repo_root: root, budget: 'quick' });
+
+  assertStrictSchema(result);
+  // finalize was called: total calls = 1 (agentic loop no-tool) + 1 (finalize) = 2
+  assert.equal(client.calls, 2, 'finalizeAfterToolLoop must be called even on no-tool exit');
+});
+
+test('Phase 1 — finalize prompt triggers no additional tool calls', async () => {
+  // Verifies that the finalize step is called with parallelToolCalls:false and
+  // the model honours the no-tool instruction (no toolCalls in finalize response).
+  const capturedRequests = [];
+
+  class TrackingClient {
+    constructor() { this.model = 'zai-glm-4.7'; this.calls = 0; }
+    async createChatCompletion(req) {
+      this.calls += 1;
+      capturedRequests.push(req);
+      return {
+        usage: { prompt_tokens: 30, completion_tokens: 15, total_tokens: 45 },
+        message: {
+          content: JSON.stringify({
+            answer: '분석 완료',
+            summary: '요약',
+            confidence: 'low',
+            evidence: [],
+            candidatePaths: [],
+            followups: [],
+          }),
+          toolCalls: [],
+        },
+      };
+    }
+  }
+
+  const root = await makeRepoFixture();
+  const client = new TrackingClient();
+  const runtime = new ExplorerRuntime({ chatClient: client });
+  await runtime.explore({ task: '테스트', repo_root: root, budget: 'quick' });
+
+  // The finalize request (last call) must have parallelToolCalls:false
+  const finalizeReq = capturedRequests[capturedRequests.length - 1];
+  assert.equal(finalizeReq.parallelToolCalls, false, 'finalize request must have parallelToolCalls:false');
+
+  // The finalize user message must include the finalize prompt keywords
+  const finalizeMessages = finalizeReq.messages;
+  const lastUserMsg = [...finalizeMessages].reverse().find(m => m.role === 'user');
+  assert.ok(lastUserMsg?.content?.includes('HARD REQUIREMENTS'), 'finalize prompt must include HARD REQUIREMENTS');
+});
+
+test('Phase 1 — malformed freeform content still produces strict-schema result', async () => {
+  // When the model returns non-JSON content the fallback path in finalizeAfterToolLoop
+  // must still produce a result that passes strict schema (with confidence=low).
+  class MalformedFinalizeClient {
+    constructor() { this.model = 'zai-glm-4.7'; this.calls = 0; }
+    async createChatCompletion() {
+      this.calls += 1;
+      if (this.calls === 1) {
+        // agentic loop: no tool calls → triggers finalize
+        return {
+          usage: { prompt_tokens: 20, completion_tokens: 5, total_tokens: 25 },
+          message: { content: '', toolCalls: [] },
+        };
+      }
+      // finalize call: returns plain prose (not valid JSON)
+      return {
+        usage: { prompt_tokens: 30, completion_tokens: 20, total_tokens: 50 },
+        message: {
+          content: 'The authentication middleware is located in src/auth.js.',
+          toolCalls: [],
+        },
+      };
+    }
+  }
+
+  const root = await makeRepoFixture();
+  const runtime = new ExplorerRuntime({ chatClient: new MalformedFinalizeClient() });
+  const result = await runtime.explore({ task: '인증 위치 찾기', repo_root: root, budget: 'quick' });
+
+  // Fallback path must still produce schema-compliant structure
+  assert.equal(typeof result.answer, 'string', 'answer must be a string even on malformed content');
+  assert.ok(result.answer.length > 0, 'answer must not be empty');
+  assert.equal(result.confidence, 'low', 'confidence must be low on fallback path');
+  assert.ok(Array.isArray(result.evidence), 'evidence must be an array on fallback');
+  assert.ok(Array.isArray(result.followups), 'followups must be an array on fallback');
 });
 
 // ── Phase 0 baseline metrics ──────────────────────────────────────────────────
