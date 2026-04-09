@@ -1,1480 +1,2264 @@
-# zai-glm-4.7 프롬프트/에이전트 설계 분석 보고서
+# cerebras-explorer-mcp 계획 분석 보고서
 
-`cerebras-explorer-mcp` 기준
+검토 범위는 `plan/roadmap.md`, `plan/explorer-mode.md`, `plan/git-history-confidence.md`와 함께, 실제 구현 경로인 `src/explorer/*`, `src/mcp/server.mjs`, `README.md`, `DESIGN.md`, 관련 테스트와 벤치마크 설정까지 포함했습니다. 로컬에서 `npm test`도 실행해 봤고, 현재 테스트는 통과하지만 세 계획 문서가 다루는 핵심 리스크들 중 일부는 아직 테스트로 보호되지 않는 상태였습니다.
 
-아래 평가는 사용자가 첨부한 현재 프롬프트/파라미터 설명, GLM thinking-mode 발췌, GLM-4.7 안내 문서, 그리고 실제 업로드된 저장소 코드 점검을 함께 반영했습니다. 특히 이 프로젝트는 `api.cerebras.ai/v1`를 직접 호출하므로, **런타임 계약의 기준 문서는 Z.ai native 예시보다 Cerebras의 GLM-4.7 migration / chat completions / structured outputs 문서**로 두는 것이 맞습니다. 업로드된 공식 자료도 GLM-4.7이 agentic coding·tool use·preserved thinking을 핵심 강점으로 내세운다는 점을 분명히 보여줍니다.    ([Cerebras Inference][1])
+먼저 총평을 한 문장으로 말하면 이렇습니다.
 
-## 총평
-
-현재 설계는 이미 방향이 좋습니다.
-특히 다음은 강점입니다.
-
-* **read-only 탐색 에이전트**로 역할이 선명하다.
-* **전략 힌트(symbol / reference / git / blame / breadth / pattern)**가 있어 불필요한 탐색을 줄이려는 의도가 분명하다.
-* **evidence / candidatePaths / followups** 형태의 결과 스키마가 실무적으로 유용하다.
-* `EXPLORE_RESULT_JSON_SCHEMA`가 이미 `strict: true`, `additionalProperties: false`로 잘 설계돼 있다.
-
-하지만 품질을 크게 깎는 병목도 분명합니다.
-
-1. **가장 큰 런타임 문제**: strict JSON finalize가 “항상” 적용되지 않습니다. 현재는 모델이 tool call 없이 바로 응답하면 `extractFirstJsonObject()`로 바로 수용하고, dedicated finalize는 주로 예산 소진 시점에만 호출됩니다.
-2. **가장 큰 파라미터 문제**: `temperature: 0.1` 고정은 GLM-4.7 공식 권장과 정면으로 충돌합니다. Cerebras는 GLM-4.7에서 기본값 `temperature=1`, `top_p=0.95`를 권장하고, reasoning이 켜진 상태에서 `temperature < 0.8`은 품질을 떨어뜨릴 수 있다고 경고합니다. ([Cerebras Inference][1])
-3. **가장 큰 멀티턴 문제**: `clear_thinking`이 빠져 있어 reasoning 연속성이 유지되지 않습니다. Cerebras는 `clear_thinking=false`를 agentic/coding workflow에 권장하며, chat completions 응답에는 `message.reasoning` 필드도 따로 제공합니다. ([Cerebras Inference][2])
-4. **문서 계약 불일치**: 현재 `reasoningEffort: low|medium`를 GLM에 사용하고 있지만, Cerebras 문서에서는 GLM-4.7 쪽에 대해 명시적으로 노출된 값이 사실상 `none`(비활성화)이며, `low|medium|high`는 GPT-OSS 쪽으로 설명됩니다. 최소한 **문서화되지 않은 사용**입니다. ([Cerebras Inference][2])
-5. **프롬프트 구조 문제**: 현재 system prompt의 정보 순서는 나쁘지 않지만, GLM-4.7이 특히 **프롬프트 앞부분**을 더 강하게 본다는 공식 가이드 기준으로는 아직 최적이 아닙니다. hard constraints, 출력 계약, 언어, stop 조건이 더 앞에 와야 합니다. ([Cerebras Inference][1])
-
-**한 줄 결론**:
-현재 시스템은 “아이디어는 맞지만, GLM-4.7/Cerebras가 기대하는 운영 계약과 샘플링 계약에 완전히 맞춰져 있지 않다”가 정확한 진단입니다.
+> **세 문서 모두 문제 인식은 대체로 정확하고 파일 타깃도 잘 짚고 있지만, “기능 확장 속도”가 “계약 정합성·신뢰도 검증·세션 의미론 정리”보다 앞서 가고 있습니다.**
+> 지금 시점의 가장 중요한 일은 새 기능 추가 자체보다, 이미 약속한 인터페이스와 confidence 체계를 더 정직하게 만드는 것입니다.
 
 ---
 
-# 챕터 1: 현재 프롬프트의 구조 분석
+# 1. `roadmap.md` — Active Backlog 분석
 
-## 1-1. 시스템 프롬프트 구조 평가
+## 1.1 전체 backlog 요약 및 구조 파악
 
-현재 `buildExplorerSystemPrompt`는 대체로 다음 흐름입니다.
+`roadmap.md`는 “큰 기능은 대부분 들어갔고, 이제 남은 것은 **동작 불일치**, **문서/스키마 정리**, **선택적 확장**”이라는 관점으로 backlog를 정리하고 있습니다. 이 framing 자체는 좋습니다. 실제 코드도 그런 상태에 가깝습니다. 즉, 기초 뼈대는 이미 있고, 지금 문제는 “없어서 못 쓰는 것”보다 “있는 줄 알았는데 완전히 맞지는 않는 것”에 더 가깝습니다.
 
-`역할 → 핵심 원칙 → 전략 가이드 → 도구 설명 → 프로젝트 컨텍스트 → JSON shape → budget`
+### backlog 항목별 실제 문제를 평이한 언어로 풀면
 
-이 구조는 인간이 읽기엔 자연스럽습니다.
-또한 “Evidence-driven / Minimal footprint / Output discipline”이라는 3축은 코드 탐색 에이전트에 잘 맞습니다. 특히 “non-trivial task에서 confidence=high 전에 evidence 2개 이상”이라는 규칙은 실제로 좋은 품질 게이트입니다.
+| 항목                                            | 실제로 해결하려는 문제                                      | 제 판단                            |
+| --------------------------------------------- | ------------------------------------------------- | ------------------------------- |
+| P1. Session exhaustion enforcement            | 세션이 최대 호출 수를 넘으면 막아야 하는데, 현재는 실제 런타임에서 안 막힘       | **진짜 P1**                       |
+| P2. `repo_symbol_context.depth` 정합성           | API는 `depth`를 받지만, 실제로는 1단계만 동작함                  | **공개 계약 신뢰 문제**                 |
+| P2. `find_similar_code` structured similarity | “유사도 점수”가 있는 것처럼 기대를 만들었는데 실제 계산 로직은 없음           | **가짜 정밀도(false precision) 리스크** |
+| P3. Project config field cleanup              | 설정 파일에 있는 필드 몇 개가 문서에는 보이지만 실제 코드에서는 안 씀          | **죽은 설정(dead config) 정리 문제**    |
+| P1. Explorer Mode                             | 현재 구조화 JSON 중심인데, 사람용 자연어 탐색 리포트 수요를 별도 도구로 풀려는 것 | **기능 확장**                       |
+| P3. Public docs polish                        | README/예시/주석과 실제 구현의 틈을 줄이기                       | **오픈소스 신뢰도 유지**                 |
 
-다만 **GLM-4.7 최적화 관점**에서는 순서가 약간 아쉽습니다.
+### 우선순위 분류(P1/P2/P3)는 합리적인가?
 
-### 좋은 점
+부분적으로는 합리적이지만, 그대로 받아들이기에는 아쉬움이 있습니다.
 
-* 역할이 명확합니다. “autonomous READ-ONLY repository exploration agent”는 GLM-4.7이 좋아하는 역할 프롬프트 형태입니다.
-* MUST/SHOULD를 사용합니다.
-* 전략 가이드가 비교적 구체적입니다.
-* 예산 한도를 prompt에 넣어 “끝없는 탐색”을 억제하려는 의도가 있습니다.
+#### 합리적인 점
 
-### 약한 점
+* **Session exhaustion enforcement를 P1로 둔 것**은 맞습니다.
+  이건 “나중에 멋지게 개선하면 좋은 기능”이 아니라, 이미 존재하는 세션 개념의 **계약 위반(contract violation)** 입니다.
+* **Project config cleanup을 P3로 둔 것**도 대체로 맞습니다.
+  당장 결과 품질을 망가뜨리는 문제라기보다는, 축적되면 신뢰를 깎는 종류의 debt입니다.
 
-가장 중요한 규칙 몇 개가 **너무 뒤에 있거나 한 번만 등장**합니다.
+#### 아쉬운 점
 
-예를 들어 실제로 가장 중요한 규칙은 아래입니다.
+* **Explorer Mode를 P1로 둔 것은 제품 전략상 이해되지만, 기술적 우선순위로는 다소 공격적**입니다.
+  지금 코드베이스에는 세션 의미론, `depth` 계약, git confidence 같은 “정확성/신뢰성” 이슈가 남아 있습니다. 이 상태에서 새 public tool을 추가하면, 사용자 관점에서는 기능은 늘었는데 핵심 신뢰도가 아직 흔들리는 모양새가 됩니다.
+* **`repo_symbol_context.depth`는 P2이지만, 외부 계약 신뢰라는 관점에서는 P1에 가까운 P2**입니다.
+  이미 tool schema가 `minimum:1, maximum:3`으로 depth를 광고하고 있기 때문입니다.
+* **`find_similar_code` structured similarity는 지금 문서 상태에 따라 P2 또는 P3**입니다.
+  만약 공개 문서가 수치형 similarity를 강하게 약속하고 있다면 P2가 맞고, 이미 README에서 미구현이라고 솔직히 적고 있다면 문서 정리만으로 우선순위를 낮출 수 있습니다.
+* **git confidence 문제는 roadmap의 active backlog에 직접 링크돼 있지 않다는 점**이 눈에 띕니다. 별도 문서는 잘 써져 있지만, 사용자 신뢰에 미치는 영향만 보면 backlog 상에서도 최소 P2 이상으로 걸어 둘 만합니다.
 
-* final answer는 JSON only
-* read-only
-* evidence grounding
-* stop early, but not too early
-* default language
-* tool order
+제 관점에서의 실제 우선순위는 아래가 더 자연스럽습니다.
 
-그런데 현재는 이 규칙이 여러 구역에 분산돼 있고, JSON shape는 prompt 후반부에 한 번만 나타납니다. Cerebras 가이드는 GLM-4.7이 **system prompt 초반의 required rules를 더 강하게 반영**한다고 명시하고, MUST/REQUIRED/STRICTLY 같은 직접적 표현을 권장합니다. 또 multilingual 모델이라 **default language를 system prompt에서 명시**하라고 권합니다. ([Cerebras Inference][1])
-
-즉, 지금 구조는 “좋은 문서형 prompt”이지, “GLM-4.7 최적의 hard-constraint prompt”는 아닙니다.
-
-## 1-2. MUST / SHOULD 패턴 평가
-
-현재 MUST/SHOULD 패턴은 전반적으로 괜찮습니다.
-다만 중요도 분리가 더 명확해야 합니다.
-
-예를 들어:
-
-* `MUST use repo tools before answering`
-* `MUST remain read-only`
-* `MUST return plain JSON only`
-
-이 셋은 사실상 **위반 시 실패**입니다.
-
-반면
-
-* `SHOULD gather at least two evidence points before confidence=high`
-
-이건 quality heuristic입니다.
-
-지금은 문장만 보면 둘의 위계가 보이지만, **실행 제약(hard failure) vs 품질 규칙(soft preference)**로 나누어 더 강하게 구조화하는 편이 낫습니다. GLM-4.7은 soft suggestion보다 explicit rule을 더 잘 따르며, front-loaded hard rules에 특히 민감합니다. ([Cerebras Inference][1])
-
-실전적으로는 아래 두 층으로 나누는 것이 좋습니다.
-
-* **HARD REQUIREMENTS**: 위반하면 실패로 간주
-* **QUALITY TARGETS**: high confidence 조건, evidence 수, followups 품질 등
-
-## 1-3. 정보 배치 순서 평가
-
-현재 prompt의 핵심 문제는 “논리적으로는 맞는데, GLM용 배치로는 최적이 아님”입니다.
-
-지금처럼 전략 가이드, git 도구, symbol 도구 설명이 길게 이어진 뒤 JSON shape가 나오면, 모델은 초반에 tool-use의 디테일을 많이 보고 **최종 출력 계약**은 상대적으로 뒤늦게 받습니다. GLM-4.7 migration guide는 중요한 지시를 system prompt의 시작 부분에 두라고 강조하고, 길어진 컨텍스트에서는 instruction-following이 약해질 수 있다고도 경고합니다. ([Cerebras Inference][1])
-
-따라서 더 좋은 순서는 이렇습니다.
-
-`역할 → 하드 규칙 → 출력 계약(JSON, language, read-only, grounding) → stop 조건 → tool-order decision policy → strategy catalog → project/session context`
-
-이렇게 바꾸면 모델이 “나는 어떤 존재인가” 다음으로 곧바로 “절대로 깨면 안 되는 규칙”을 봅니다.
+| 제안 우선순위      | 항목                                                    |
+| ------------ | ----------------------------------------------------- |
+| P1           | Session validity/exhaustion enforcement + repoRoot 검증 |
+| P1~P2        | git confidence false-low 완화                           |
+| P2           | `repo_symbol_context.depth` 계약 정리                     |
+| P2           | Explorer Mode Phase A(코어)                             |
+| P2~P3        | `find_similar_code` similarity 결정                     |
+| P3           | config cleanup                                        |
+| release gate | public docs polish                                    |
 
 ---
 
-## 1-4. 유저 프롬프트 구조 평가
+## 1.2 각 항목별 상세 분석
 
-`buildExplorerUserPrompt`는 꽤 실용적입니다.
+## 1.2.1 Session exhaustion enforcement
 
-현재 구조:
+### 현재 상태
 
-`task → budget → scope → strategy → hints → response language → prior candidate paths`
+코드상 `SessionStore`에는 분명히 `isExhausted()`가 있습니다. 호출 수 제한도 존재합니다. 기본 `maxCalls`는 5입니다.
+문제는 **실제 탐색 런타임(`ExplorerRuntime.explore`)이 이 값을 전혀 검사하지 않는다는 점**입니다.
 
-### 장점
+현재 흐름은 사실상 아래와 같습니다.
 
-* delegated task가 선명합니다.
-* budget/scope가 함께 있어 불필요한 repo 전역 탐색을 줄일 수 있습니다.
-* strategy 설명까지 함께 넣어서 시작 branching을 줄입니다.
-* hints(symbols/files/regex)가 있으면 초반 탐색 효율이 좋아집니다.
-* `sessionCandidatePaths`는 매우 좋은 **저비용 세션 메모리**입니다.
+```js
+if (args.session) {
+  sessionData = sessionStore.get(args.session);
+}
+if (!sessionData) {
+  sessionId = sessionStore.create(repoRoot);
+  sessionData = sessionStore.get(sessionId);
+} else {
+  sessionId = args.session;
+}
+```
 
-### 한계
+즉,
 
-#### 1) 전략 자동 감지가 너무 regex 중심
+* 세션 ID가 없으면 새 세션 생성
+* 세션 ID가 있어도 `get()`이 실패하면 그냥 새 세션 생성
+* **exhausted 여부는 확인하지 않음**
+* 더 나쁜 점은 **세션이 다른 repo에 속해 있는지도 확인하지 않음**
 
-현재 `detectStrategy(task)`는 한국어/영어 키워드 정규식으로 6개 전략 중 하나를 고릅니다. 이 방식은 단일 의도 질문엔 효과적이지만, 복합 질문에 약합니다.
+이건 단순히 “maxCalls를 안 막는다” 수준이 아닙니다.
+현재 구현은 **unknown session / expired session / exhausted session / repo mismatch**를 모두 사실상 “새 세션 silently 생성” 쪽으로 흘리기 쉽습니다.
 
-예를 들어:
+### 어떻게 고쳐야 하나
 
-* “왜 auth middleware가 특정 route에서만 빠지는지 보고, 최근 변경도 같이 확인해줘”
-* “이 함수 어디서 정의되고 최근 누가 바꿨는지도 봐줘”
+핵심은 “세션 재사용 실패”를 하나의 경우로 뭉개지 말고, 상태를 나눠야 한다는 점입니다.
 
-이런 질문은 `blame-guided + git-guided`, 또는 `symbol-first + git-guided`가 섞여야 합니다. 지금 방식은 **한 전략만 강제**하므로, 잘못 걸리면 탐색 출발이 비효율적입니다.
+권장 상태 분류는 이 정도입니다.
 
-#### 2) override 여지가 없음
+| 상태                       | 현재         | 권장                         |
+| ------------------------ | ---------- | -------------------------- |
+| session 미지정              | 새 세션 생성    | 그대로 유지                     |
+| session 존재 + 유효          | 재사용        | 그대로 유지                     |
+| session 존재 + 만료(expired) | 새 세션 생성    | **명시적 오류 또는 명시적 회전 상태 반환** |
+| session 존재 + exhausted   | 새 세션 생성 가능 | **기본은 거부**가 더 안전           |
+| session 존재 + 다른 repoRoot | 검증 없음      | **반드시 거부**                 |
 
-현재 user prompt는 사실상
-`Follow the {strategy} strategy above.`
-라고 말합니다.
+특히 `repoRoot` mismatch는 문서에 없지만, 실무적으로 매우 중요합니다.
+`SessionStore.create(repoRoot)`는 이미 `repoRoot`를 저장하고 있습니다. 그런데 런타임이 그걸 재사용 시 검증하지 않습니다. 그러면 A 저장소에서 모은 `candidatePaths`, `summaries`가 B 저장소 탐색에 주입될 수 있습니다. 이건 작은 버그가 아니라 **cross-repo context contamination**입니다.
 
-즉 모델이 첫 tool result를 본 뒤 “이 전략이 잘못됐다”고 판단해도, prompt 구조상 전략을 바꾸기 어렵습니다. agent loop는 첫 1~2턴의 방향 전환 능력이 중요한데, 현재 구조는 그 유연성이 약합니다.
+### 구현 방식: 에러 반환 vs 자동 회전(auto-rotate)
 
-#### 3) `sessionCandidatePaths`는 좋지만 설명 정보가 부족
+#### 1) 명확한 에러 반환
 
-지금은 파일 경로만 주입됩니다. 이건 충분히 유용하지만, 다음 형태면 더 좋습니다.
+장점:
+
+* 호출자 입장에서 상태가 명확합니다.
+* 자동화된 상위 에이전트가 “왜 continuity가 끊겼는지”를 정확히 이해할 수 있습니다.
+* 잘못된 세션 ID 오타와 정상적인 새 세션 시작이 구분됩니다.
+* repo mismatch를 강하게 막을 수 있습니다.
+
+단점:
+
+* 인터랙티브 UX에서는 한 번 더 호출해야 할 수 있습니다.
+* 단순 사용자는 “그냥 이어서 해줘” 기대와 어긋날 수 있습니다.
+
+#### 2) 자동 회전(auto-rotate)
+
+장점:
+
+* 사용자는 실패를 덜 체감합니다.
+* 인터랙티브 모드에서는 부드럽습니다.
+* 세션 TTL이 짧을 때 편합니다.
+
+단점:
+
+* **continuity가 끊긴 사실이 가려집니다.**
+* 상위 모델은 같은 세션이 이어졌다고 착각할 수 있습니다.
+* 조사 결과 누락/중복 탐색의 원인이 추적하기 어려워집니다.
+* repo mismatch와 섞이면 더 위험합니다.
+
+### 어떤 선택이 더 나은가
+
+이 프로젝트는 “상위 모델이 구조화된 도구 결과를 믿고 후속 호출을 이어가는” 아키텍처입니다.
+그렇다면 **기본값은 에러 반환이 더 낫습니다.**
+
+정확히 말하면:
+
+* `session` 파라미터가 **없을 때만** 새 세션을 자동 생성
+* `session` 파라미터가 **있을 때 실패하면** 기본은 거부
+* 다만 선택적으로 `allowSessionRotate: true` 같은 opt-in을 나중에 추가할 수 있음
+
+이 절충안이 가장 현실적입니다.
+왜냐하면 “세션을 명시적으로 준 호출”은 사용자가 **continuity를 기대하고 있다**는 뜻이기 때문입니다. 이 기대를 silent rotate로 깨면 안 됩니다.
+
+### 추천 구현
+
+가장 좋은 형태는 단순 에러만이 아니라 **상태를 드러내는 additive 필드**를 함께 두는 것입니다.
+
+예:
 
 ```json
-[
-  {"path":"src/explorer/runtime.mjs","why":"finalization flow"},
-  {"path":"src/explorer/cerebras-client.mjs","why":"chat completion payload"}
-]
+{
+  "stats": {
+    "sessionId": "sess_xxx",
+    "sessionResolution": "reused | created | expired | exhausted | repo_mismatch",
+    "remainingCalls": 2
+  }
+}
 ```
 
-즉, 단순 경로 나열보다 **경로 + relevance hint**가 더 강력한 압축 메모리입니다.
+또는 invalid session일 때는 JSON-RPC 에러를 주고, 설명 메시지에 “새 세션으로 다시 시작하라”를 포함하는 방식도 가능합니다.
+
+### 결론
+
+* **이 항목은 P1이 맞습니다.**
+* 구현 시 **exhaustion만 보지 말고 repoRoot validation까지 같이 해야 합니다.**
+* 기본 정책은 **invalid/exhausted session 재사용 거부**가 더 낫습니다.
+* auto-rotate는 편하지만, 이 프로젝트의 신뢰 모델과는 잘 맞지 않습니다.
 
 ---
 
-## 1-5. Finalize 프롬프트 평가
+## 1.2.2 `repo_symbol_context.depth` 정합성
 
-현재 finalize prompt는 짧고 깔끔하지만, GLM-4.7용으로는 너무 약합니다.
+### 현재 어떤 상태인가
 
-```txt
-Produce the final exploration result now.
-Do not call any tools.
-Ground every evidence item in files and line ranges already inspected.
-Use an empty array [] for followups if no further investigation is needed.
+`repo_symbol_context`는 tool schema에서 `depth: 1..3`을 받습니다.
+하지만 실제 구현은 `depth` 값을 받아도 **전혀 재귀 확장하지 않습니다.**
+
+실제 함수는 대략 이렇게 동작합니다.
+
+1. `grep`으로 심볼 출현 위치 탐색
+2. 정의(definition)와 사용(callers) 분류
+3. 정의 파일에 대해 `repo_symbols`로 범위 정교화
+4. 정의 본문만 `readFile`
+5. direct callers만 반환
+
+즉, 지금의 `depth`는 사실상 **설계상의 미래 약속**이지, 현재 기능이 아닙니다.
+
+### API 계약과 실제 구현이 어긋날 때의 신뢰 비용
+
+이 문제의 본질은 “depth가 더 좋은 기능으로 동작하지 않는다”가 아니라, **도구 설명이 사용자의 mental model을 잘못 만든다**는 데 있습니다.
+
+특히 이 프로젝트는 상위 에이전트가 tool schema를 읽고 도구를 선택합니다.
+그러면 상위 모델은 `depth: 3`을 믿고 “한 번에 caller chain 3단계까지 오겠지”라고 기대할 수 있습니다. 실제로는 depth 1 결과만 받으면, 상위 모델은:
+
+* 왜 정보가 부족한지 잘 모르고,
+* 불필요한 후속 호출을 하거나,
+* 잘못된 추론으로 빈칸을 메울 수 있습니다.
+
+즉, 이건 사람 사용자보다 **도구를 사용하는 다른 LLM/agent에게 더 위험한 문서 거짓말**입니다.
+
+### `depth > 1` 실제 구현의 기술적 복잡도
+
+겉보기엔 단순히 재귀를 한 번 더 돌리면 될 것 같지만, 실제로는 생각보다 어렵습니다.
+
+#### 왜 어려운가
+
+현재 구현은 “심볼 이름이 이 줄에 있다” 정도는 알지만,
+그 사용이 **어떤 함수/메서드/클래스의 문맥 안에서 발생했는지**를 정밀하게 알지 못합니다.
+
+진짜 `depth > 1`을 구현하려면 최소한 아래가 필요합니다.
+
+| 필요한 것                              | 현재 상태       |
+| ---------------------------------- | ----------- |
+| usage line이 속한 enclosing symbol 찾기 | 부분적으로만 가능   |
+| caller symbol 이름을 안정적으로 추출         | 언어별/패턴별 불안정 |
+| 재귀 확장 시 cycle detection            | 없음          |
+| fan-out 제한                         | 없음          |
+| depth별 결과 표현 구조                    | 없음          |
+| 다국어/regex 기반 심볼 추출 품질 보정           | 제한적         |
+
+즉, 지금 구조에서 `depth > 1`은 “한 줄 if문 추가”가 아니라 **caller graph 구축 문제**에 가깝습니다.
+
+### 선택지 평가: 구현 vs 축소
+
+#### A. `depth > 1` 실제 구현
+
+장점:
+
+* 문서/스키마와 실제 기능이 맞아집니다.
+* symbol trace 계열 질문의 turn saving이 커질 수 있습니다.
+* 미래 확장성은 좋아집니다.
+
+단점:
+
+* regex 기반 심볼 추출의 한계 때문에 결과 품질이 불균일할 가능성이 큽니다.
+* 반환 스키마가 더 풍부해져야 할 수도 있습니다.
+* 구현 난이도 대비 효익이 애매합니다.
+
+#### B. 파라미터/문서를 depth=1 수준으로 축소
+
+장점:
+
+* 가장 정직합니다.
+* 구현 복잡도를 즉시 줄입니다.
+* 현재 macro tool의 역할(“2~4턴 절약”)에는 충분할 수 있습니다.
+
+단점:
+
+* 이미 공개된 인터페이스를 축소하는 셈입니다.
+* 미래 기능 기대를 접어야 합니다.
+
+### 제 추천
+
+현 시점에서는 **정직한 축소가 더 낫습니다.**
+
+정확히는:
+
+* schema는 당장 제거 대신 **`depth`를 받아도 1로 clamp**하고,
+* 결과에 `effectiveDepth: 1`, `depthHonored: false` 같은 additive 힌트를 넣거나,
+* 최소한 description/README를 “currently only direct callers”로 명확히 바꾸는 편이 맞습니다.
+
+완전한 `depth > 1`은 regex 기반 현재 아키텍처와 잘 맞지 않습니다.
+정말 구현하려면 반환 형태도 다음처럼 edge/graph 중심으로 바꾸는 편이 맞습니다.
+
+```json
+{
+  "symbol": "requireAuth",
+  "definition": { ... },
+  "edges": [
+    { "from": "indexHandler", "to": "requireAuth", "depth": 1, "path": "src/index.js", "line": 10 },
+    { "from": "serverStart", "to": "indexHandler", "depth": 2, "path": "src/server.js", "line": 22 }
+  ],
+  "truncated": false
+}
 ```
 
-### 문제 1: 출력 계약이 약함
-
-이 프롬프트에는 “정확히 하나의 JSON object만 출력하라”, “schema와 정확히 일치하라”, “markdown 금지”, “여분 텍스트 금지”가 없습니다.
-
-현재 dedicated finalize path에서는 `response_format: json_schema`가 있기 때문에 그나마 안전하지만, prompt 자체는 약합니다. Cerebras structured outputs는 `strict=true`일 때 token-level constrained decoding으로 스키마 위반을 막아줍니다. 즉 **문법 안정성은 response_format이 맡고**, prompt는 **semantic self-check**를 맡아야 합니다. 현재 finalize prompt는 그 semantic self-check도 약합니다. ([Cerebras Inference][3])
-
-### 문제 2: 실제 코드상 main success path가 finalize를 우회
-
-이게 더 큽니다.
-
-실제 runtime을 보면:
-
-* tool call이 더 이상 없으면
-* 모델 응답에서 `extractFirstJsonObject(lastAssistantContent)`를 시도
-* parse되면 바로 finalObject로 채택
-
-즉 **정상 종료 경로에서는 dedicated finalize를 거치지 않을 수 있습니다.**
-이 경우 strict schema, stronger finalize prompt, no-tools rule이 모두 적용되지 않습니다.
-
-이건 prompt 문제를 넘어 **제어 흐름 문제**입니다.
-
-### 문제 3: grounding 지시가 너무 늦게 나옴
-
-“Ground every evidence item…”이 finalize 시점에만 나타납니다.
-하지만 좋은 grounding은 finalize 때 갑자기 생기는 게 아니라, 탐색 중부터 **evidence ledger**처럼 관리되어야 합니다.
-
-현재는 후처리에서 observed range와 evidence overlap을 검사해 증거를 드롭합니다. 이건 방어적으로는 좋지만, 모델 입장에서는 “탐색 중 어떤 항목을 나중에 evidence로 쓸지”를 미리 관리하도록 유도받지 못합니다.
+그 정도 각오가 없다면, 지금은 **기능 축소가 더 좋은 엔지니어링**입니다.
 
 ---
 
-# 챕터 2: API 파라미터 설정 분석
+## 1.2.3 `find_similar_code` structured similarity
 
-## 2-1. `temperature: 0.1` 고정값 분석
+### 현재 어떤 상태인가
 
-이 부분은 매우 중요합니다.
+`find_similar_code`는 현재 별도의 similarity engine이 아닙니다.
+실제 `server.mjs`를 보면, 이 도구도 결국 `explore_repo` 호출 인자를 만들기 위한 wrapper입니다. 즉:
 
-Cerebras GLM-4.7 migration guide는 기본 sampling으로 `temperature=1.0`, `top_p=0.95`를 권장하고, instruction-following 쪽은 `temperature=0.8` 수준을 제시합니다. 특히 **thinking이 켜진 상태에서는 `temperature < 0.8`을 피하라**고 명시합니다. 더 deterministic한 결과가 필요해 `temperature < 0.8`을 쓰려면 **thinking도 꺼라**고 합니다. ([Cerebras Inference][1])
+* 전용 검색 인덱스 없음
+* 전용 유사도 계산기 없음
+* 수치형 similarity 산식 없음
+* LLM이 자연어로 “비슷하다”고 서술하는 수준
 
-즉 현재 설정은 다음과 같이 해석됩니다.
+따라서 지금 숫자형 `similarity` 필드를 추가하면, 그 숫자는 거의 반드시 **가짜 정밀도**가 됩니다.
 
-* quick: reasoning off + temp 0.1 → 문서와 완전히 충돌하지는 않음
-* normal: reasoning on(또는 적어도 off 아님) + temp 0.1 → 공식 경고 구간
-* deep: reasoning on + temp 0.1 → 공식 경고 구간
+### similarity를 계산하는 방법 비교
 
-### 낮은 temperature의 장점
+| 방법                                        | 장점             | 단점                           | zero dependencies 적합성 | 제 판단                      |
+| ----------------------------------------- | -------------- | ---------------------------- | --------------------- | ------------------------- |
+| Embedding 기반                              | 의미적 유사도 품질이 좋음 | 외부 모델 비용, 재현성 낮음, latency 증가 | 낮음~중간                 | 품질은 좋지만 이 프로젝트 철학과 거리가 있음 |
+| Heuristic lexical 기반                      | 결정적, 빠름, 설명 가능 | 의미적 유사도에 약함                  | 높음                    | 현실적인 1차 후보                |
+| Structural fingerprint 기반                 | 중복 코드 탐지에 강함   | 의미적 유사도엔 약함                  | 높음                    | “유사”보다 “유사 패턴/복제”에 적합     |
+| Hybrid (heuristic shortlist + LLM rerank) | 균형이 좋음         | 여전히 숫자 의미가 모호                | 중간                    | 숫자보다 rank/band가 나음        |
 
-자율 탐색 에이전트에서는 낮은 temperature가 다음 장점이 있습니다.
+### 현실적인 산식 후보
 
-* 같은 task에서 tool call 패턴이 더 재현 가능
-* 불필요한 브랜치 탐색 감소
-* JSON 형식 흔들림 감소 가능
+#### 1) Heuristic score
 
-### 낮은 temperature의 단점
+예를 들면:
 
-하지만 repo exploration agent는 단순 추출기가 아니라 **부분 관찰에서 다음 탐색을 결정**하는 정책 모델입니다.
-너무 낮은 temperature는:
+* identifier overlap
+* import overlap
+* file extension/language match
+* normalized token shingles Jaccard
+* function count / shape similarity
 
-* 처음 떠오른 전략에 과도하게 고착
-* grep → read → refine 같은 대안 경로를 덜 시도
-* 애매한 task에서 탐색 다양성이 부족
-* thinking이 켜져 있어도 reasoning이 경직돼 “한 번 잘못 잡은 계획”을 수정하기 어려움
+```text
+score = 0.35 * identifier_overlap
+      + 0.25 * import_overlap
+      + 0.20 * normalized_token_overlap
+      + 0.20 * structural_shape_overlap
+```
 
-으로 이어질 수 있습니다.
+장점:
 
-### 현재 설정이 특히 나쁜 이유
+* 재현 가능
+* 테스트 가능
+* zero dependencies 친화적
 
-핵심은 “0.1이 낮다” 자체보다 **reasoning과의 조합**입니다.
-Cerebras 가이드가 바로 그 조합을 경고합니다. ([Cerebras Inference][1])
+단점:
 
-### budget별 권장안
+* “의미는 같은데 표현이 다른 코드”를 잘 못 잡음
+* 언어별 편차 큼
 
-| budget |  현재 |        권장 |
-| ------ | --: | --------: |
-| quick  | 0.1 | 0.2 ~ 0.4 |
-| normal | 0.1 |       0.8 |
-| deep   | 0.1 | 0.9 ~ 1.0 |
+#### 2) Embedding score
 
-설명:
+코드 조각이나 파일 요약을 embedding으로 바꿔 cosine similarity 계산.
 
-* **quick**: reasoning을 끄면 low temp 유지 가능. 다만 0.1은 지나치게 경직될 수 있어 0.2~0.4가 더 무난합니다.
-* **normal/deep**: GLM-4.7 reasoning을 살리려면 0.8 이상이 맞습니다.
+장점:
 
----
+* 더 semantic
+* 비교적 robust
 
-## 2-2. `reasoningEffort` 설정 분석
+단점:
 
-현재 매핑:
+* 외부 서비스 의존
+* 비용/속도 문제
+* 숫자가 안정적이어도 왜 그 숫자인지 설명하기 어려움
 
-* quick = `"none"`
-* normal = `"low"`
-* deep = `"medium"`
+#### 3) 숫자 대신 band
 
-여기엔 두 층의 문제가 있습니다.
+`0.83` 같은 정밀 수치 대신:
 
-### 1) 개념적 타당성
+```json
+{
+  "similarityBand": "high",
+  "reasons": ["shared provider abstraction", "same createChatCompletion shape"]
+}
+```
 
-탐색 에이전트에서 reasoning이 실제로 도움이 되는 구간은 분명 있습니다.
+이게 오히려 이 프로젝트 철학에 맞습니다.
 
-도움이 되는 국면:
+### 제거하는 편이 나은 경우
 
-* 여러 후보 파일 중 다음 읽을 파일 선택
-* “이 정도면 답할 수 있는가?” sufficiency 판단
-* 여러 파일/커밋 정보를 종합해 원인 설명
-* followups 우선순위화
-* git / blame / symbol / grep 결과를 하나의 서사로 연결
+저는 현재 상태라면 **수치형 similarity를 문서에서 제거하는 편이 더 낫다**고 봅니다.
 
-오히려 방해가 되는 국면:
+이유는 간단합니다.
 
-* 단순 “어디 정의됐나?”
-* 단순 “어디서 import되나?”
-* 명백한 grep 기반 사실 확인
-* 예산이 빡빡한 quick 질의
+1. 지금 구조는 similarity engine이 아니라 **탐색형 wrapper**다.
+2. 숫자를 주려면 deterministic algorithm이 필요하다.
+3. algorithm이 없으면 숫자는 LLM 서술을 포장한 가짜 precision이 된다.
+4. 이 프로젝트는 evidence/grounding을 중시하는데, similarity 숫자는 오히려 그 철학을 해친다.
 
-따라서 **quick=none**은 좋은 방향입니다.
-문제는 normal/deep가 “low/medium reasoning effort”라는 API knob로 정말 GLM에서 의도대로 동작하느냐입니다.
+### 제안
 
-### 2) 문서 계약 문제
+가장 좋은 절충안은 아래 둘 중 하나입니다.
 
-현재 Cerebras chat completions / reasoning 문서를 보면 `reasoning_effort`는 모델별 지원값이 다르고, GLM-4.7은 **reasoning enabled by default**이며 문서상 명시적으로 노출된 제어는 `none`(비활성화)입니다. 반면 `low|medium|high`는 GPT-OSS 쪽으로 기술됩니다. 즉 지금의 `low`/`medium` 사용은 적어도 **문서화된 GLM-4.7 사용법은 아닙니다.** ([Cerebras Inference][2])
+#### 보수적 안
 
-실무적으로는 다음 중 하나일 수 있습니다.
+* README에서 numeric similarity 기대를 제거
+* 대신 “유사 이유(reasoned similarity)”를 강조
+* benchmark도 qualitative match 중심 유지
 
-* 서버가 무시한다
-* 내부적으로 허용하지만 비권장/미문서 상태다
-* 지금은 동작하지만 향후 바뀔 수 있다
+#### 공격적 안
 
-따라서 이건 “최적화 논점”이 아니라 먼저 **호환성 리스크**로 봐야 합니다.
+* heuristic score를 명시적으로 도입
+* score 정의를 README/DESIGN에 공개
+* `similarityMethod: "heuristic-v1"` 같이 버전 필드 추가
 
-### `"high"` reasoning을 고려할 상황?
-
-Cerebras GLM-4.7 문서 계약만 보면, `high`를 GLM에서 신뢰하고 쓰는 것은 추천하기 어렵습니다.
-더 깊은 reasoning이 필요하면 다음 방식이 안전합니다.
-
-* reasoning은 켠다 (`reasoning_effort`를 생략)
-* prompt에 “Think step by step” / “Break the problem down logically”를 deep budget에서만 넣는다
-* preserved thinking + checkpoint + critic pass로 깊이를 얻는다
-
-이 방식은 migration guide와도 일치합니다. ([Cerebras Inference][1])
-
----
-
-## 2-3. `clear_thinking` 미설정 문제
-
-이건 현재 설계의 핵심 약점 중 하나입니다.
-
-Cerebras chat completions 문서는 `clear_thinking`의 기본값이 `true`이며, `false`일 때 이전 thinking이 preserved되고 agentic workflows에 권장된다고 설명합니다. Z.ai thinking-mode 문서도 coding/agent 시나리오에서 preserved thinking이 reasoning continuity, performance, cache hit에 도움이 된다고 밝히며, `clear_thinking=false`와 함께 **이전 reasoning을 원형 그대로 되돌려 보내야 한다**고 명시합니다. ([Cerebras Inference][2])
-
-현재 코드의 문제는 두 겹입니다.
-
-### 1) `clear_thinking`을 아예 보내지 않음
-
-즉 기본값 `true`.
-
-### 2) 응답의 reasoning을 보존하지 않음
-
-Cerebras chat completions 응답에는 `message.reasoning` 필드가 있고, reasoning guide는 prior reasoning을 넘길 때 이를 포함하라고 설명합니다. 현재 client는 `message.content`와 `tool_calls`만 꺼내고 `message.reasoning`을 버립니다. ([Cerebras Inference][2])
-
-### 멀티턴 tool loop에 주는 영향
-
-* 초반 가설이 중간에 사라짐
-* “왜 이 파일을 보고 있었는가”가 약해짐
-* stop condition 판단이 매 턴 새로 흔들릴 수 있음
-* deep budget에서 계획 drift가 늘어남
-
-### `clear_thinking:false`로 바꾸면 기대 효과
-
-* 다턴 일관성 향상
-* tool result 기반 reasoning continuity 향상
-* 복합 탐색에서 mid-course correction 개선
-* prompt caching / cache hit 측면 이점 가능
-
-### 주의사항
-
-단순히 `clear_thinking:false`만 넣어서는 불완전합니다.
-
-**반드시 같이 해야 할 것**
-
-1. `message.reasoning` 추출
-2. assistant message에 reasoning을 다시 실어 보냄
-3. reasoning을 수정/요약/재정렬하지 않음
-
-또한 Cerebras reasoning 문서는 `raw` reasoning format이 `json_schema`와 호환되지 않는다고 명시합니다. structured finalization을 유지할 생각이면 reasoning format은 `parsed` 계열로 다루는 편이 안전합니다. ([Cerebras Inference][4])
+제 개인적 추천은 **지금은 제거**, 나중에 deterministic heuristic이 준비되면 다시 넣는 것입니다.
 
 ---
 
-## 2-4. `maxCompletionTokens` 설정 분석
+## 1.2.4 Project config field cleanup
 
-Cerebras는 `max_completion_tokens`가 **reasoning tokens를 포함**한다고 명시합니다. 즉 “보이는 답변”만이 아니라 hidden/parsed reasoning도 이 예산을 먹습니다. ([Cerebras Inference][2])
+### 현재 상태
 
-현재 설정:
+`.cerebras-explorer.json` 관련 주석과 로더는 `languages`, `customSymbolPatterns`, `entryPoints`를 인정하는 것처럼 보입니다.
+그런데 실제 정규화(`normalizeProjectConfig`)와 런타임 소비 경로를 보면:
 
-* quick 4000
-* normal 6000
-* deep 8000
+* `entryPoints`는 정규화는 되지만 실질 소비 안 됨
+* `languages`는 문서상 언급되지만 정규화/소비 안 됨
+* `customSymbolPatterns`도 문서상 언급되지만 정규화/소비 안 됨
+
+즉, 이 세 필드는 현재 **“있다고 적혀 있지만 실제로는 기능이 아님”** 상태입니다.
+
+### 필드별 부가 가치
+
+| 필드                     | 실제로 연결하면 생기는 가치                 | 지금 제거할 때의 장점 |
+| ---------------------- | ------------------------------- | ------------ |
+| `entryPoints`          | 아키텍처 질문/diagram/trace 시작점 품질 향상 | 간단해짐         |
+| `languages`            | 도구 선택/프롬프트 힌트/심볼 추출 우선순위 개선     | 죽은 옵션 제거     |
+| `customSymbolPatterns` | 지원 언어 밖 DSL/사내 규칙 확장 가능         | 유지보수 리스크 제거  |
+
+### `entryPoints`를 연결할 경우
+
+이건 세 필드 중 **가장 투자 대비 가치가 큰 항목**입니다.
+
+왜냐하면 현재 `buildCodeMap()`은 파일명 패턴(`index`, `main`, `app`, `server`)으로 entry point를 추정하는데, 이건 꽤 거칩니다. `entryPoints`를 실제로 연결하면:
+
+* diagram의 시작점 정확도 향상
+* `trace_dependency` 질문의 초기 seed 개선
+* breadth-first 구조 탐색의 초기 읽기 파일 선정 개선
+* 구조 질문에서 “무엇이 진짜 시작 파일인가”를 더 repo-specific하게 다룰 수 있음
+
+즉, `entryPoints`는 **실제로 탐색 품질을 올릴 수 있는 설정**입니다.
+
+### `customSymbolPatterns`를 연결할 경우
+
+가치는 분명 있습니다. 특히:
+
+* shell script
+* SQL migration
+* proto
+* custom DSL
+* framework convention file
+
+같은 데서 “정의”를 잡고 싶을 때 유용할 수 있습니다.
+
+하지만 이건 생각보다 위험합니다.
+
+* 사용자 제공 regex 검증 필요
+* catastrophic backtracking 리스크
+* 언어별 line range/endLine 계산 방식 일관성 문제
+* 테스트 조합 폭발
+
+즉, **가치는 높지만 설계가 필요**합니다. 지금 backlog의 “cleanup” 수준 항목으로 다루기엔 조금 무겁습니다.
+
+### `languages`를 연결할 경우
+
+이 필드는 정보적 힌트로는 쓸모가 있습니다.
+예:
+
+* 프롬프트에서 “이 repo는 TS/TSX 중심”이라 알려주기
+* 심볼 도구를 우선 시도할지 grep을 우선 시도할지 조정
+* 파일 필터링/우선순위 조정
+
+하지만 현재 구조에서는 **직접적인 기능 개선 효과가 약합니다.**
+그래서 이 필드는 지금 바로 연결하는 것보다, “정말 어디에 쓸지 정하고 넣을 때” 다시 도입하는 편이 낫습니다.
+
+### 연결하지 않고 제거할 때의 득실
+
+#### 득
+
+* 문서 신뢰도 회복
+* 설정 파일 단순화
+* 테스트/지원 범위 축소
+
+#### 실
+
+* 미래 확장 여지 축소
+* 고급 사용자의 repo-specific tuning 포인트 감소
+
+### 제 추천
+
+가장 실용적인 결정은 이것입니다.
+
+1. **`entryPoints`는 실제 기능에 연결**
+2. **`languages`, `customSymbolPatterns`는 일단 문서/주석에서 제거**
+3. 나중에 별도 설계 문서가 생기면 재도입
+
+즉, “셋 다 살릴지 버릴지”가 아니라 **유효한 것부터 살리고, 애매한 것은 과감히 숨기는 전략**이 맞습니다.
+
+---
+
+## 1.2.5 Explorer Mode (roadmap 상 간략 기재)와 `explorer-mode.md`의 일관성
+
+### 일관적인 부분
+
+roadmap의 요약은 `explorer-mode.md`와 큰 방향에서 잘 맞습니다.
+
+* 별도 MCP tool `explore`
+* 자연어 프롬프트 → 자연어 리포트
+* thoroughness 기반 깊이 제어
+* 전략 미지정
+* 병렬 도구 실행
+
+즉, 한 줄짜리 backlog 항목이 실제 상세 기획 문서와 **방향성 측면에서는 일치**합니다.
+
+### 미묘하게 어긋나는 부분
+
+하지만 세부 구현 위험은 roadmap 요약에 충분히 드러나지 않습니다.
+
+#### 1) 병렬 실행은 “새 기능”이면서 동시에 “기존 공유 루프 리팩터링”
+
+`explorer-mode.md`는 병렬 실행이 `explore_repo`에도 적용 가능하다고 적고 있습니다.
+즉, 이건 Explorer mode 전용 enhancement가 아니라 **공용 runtime loop 변경**입니다.
+
+roadmap의 한 줄 설명만 보면 독립 기능 추가처럼 보이지만, 실제론 blast radius가 큽니다.
+
+#### 2) 세션 연속성은 생각보다 복잡
+
+`explorer-mode.md`는 기존 `SessionStore` 재사용을 말하지만, 현재 `SessionStore.update()`는 다음 필드를 기대합니다.
+
+* `candidatePaths`
+* `evidence`
+* `summary`
+* `followups`
+
+그런데 `explore`의 planned output은 `report`, `filesExamined`, `toolsUsed`, `elapsedMs`, `sessionId`, `stats`입니다.
+즉, 그대로 재사용하면:
+
+* summary는 누적되지 않음
+* evidencePaths는 축적되지 않음
+* followups는 갱신되지 않거나 이전 값이 남을 수 있음
+* `filesExamined`는 `candidatePaths`와 의미가 다름
+
+이건 roadmap 요약만 봐서는 잘 드러나지 않는 **숨은 의존성**입니다.
+
+#### 3) `filesExamined` 정의가 부정확할 수 있음
+
+기획 문서 예시에서는 `filesExamined: [...observedRanges.keys()]`처럼 제안하는데, 이건 실제로는 “읽거나 grep line이 기록된 파일”만 잡습니다.
+`repo_list_dir`, `repo_find_files`, `repo_symbols`, `repo_git_log`, 일부 `repo_git_show`는 탐색에 활용돼도 `observedRanges`에 안 들어갈 수 있습니다.
+
+즉, 이 이름은 실제론 `filesRead`에 가깝고, `filesExamined`로 부르면 과장될 수 있습니다.
 
 ### 판단
 
-* **quick 4000**: reasoning을 끄면 충분할 가능성이 큽니다.
-* **normal 6000**: reasoning이 켜져 있고 evidence/followups가 길면 꽤 타이트합니다.
-* **deep 8000**: multi-file evidence, followups, summary가 길어지면 빠듯할 수 있습니다.
+* **방향 일관성은 좋다**
+* 그러나 **실제 구현 복잡도와 공유 코드 영향 범위가 roadmap 요약보다 훨씬 크다**
 
-더 큰 문제는 **finalizeAfterToolLoop가 2500으로 하드코딩**돼 있다는 점입니다.
-실제 final JSON은 다음을 동시에 담습니다.
-
-* answer
-* summary
-* confidence
-* evidence 배열
-* candidatePaths 배열
-* followups 배열
-
-여기에 reasoning까지 포함되면 2500은 작을 수 있습니다.
-
-### 권장안
-
-| 경로          |                     권장 |
-| ----------- | ---------------------: |
-| quick main  |             4000 유지 가능 |
-| normal main |                   8000 |
-| deep main   |          12000 ~ 16000 |
-| finalize    | 최소 4000, deep는 6000 이상 |
-
-모델 최대 output이 40k이므로, 지금은 headroom이 충분합니다. 중요한 것은 “무조건 크게”가 아니라, **reasoning + structured final answer가 함께 들어갈 수 있는 여지**를 주는 것입니다. ([Cerebras Inference][1])
-
----
-
-# 챕터 3: 프롬프트 내용의 약점 분석
-
-## 3-1. JSON 출력 신뢰성 문제
-
-현재 system prompt의 핵심 지시는:
-
-> MUST return plain JSON only when you give the final answer. No markdown fences.
-
-이 정도만으로는 GLM-4.7이 항상 순수 JSON만 내보낸다고 보기 어렵습니다.
-특히 모델이 도중에:
-
-* ` ```json ` fence
-* JSON 앞뒤 설명 문장
-* 한국어/영어 메타 설명
-* JSON 비슷한 객체 + 후행 텍스트
-
-를 섞는 실패 패턴은 충분히 현실적입니다.
-
-그런데 더 큰 문제는 현재 runtime이 이를 **강하게 금지하지 않고 수습**한다는 점입니다. `extractFirstJsonObject()`는 입력 문자열 안에서 첫 번째 balanced object를 찾아 parse합니다. 즉, “순수 JSON only”가 아니어도 통과될 수 있습니다. 이건 복구 장치로는 유용하지만, **형식 discipline을 학습시키는 방향과는 반대**입니다.
-
-Cerebras structured outputs는 `response_format={type:"json_schema", strict:true}`를 쓰면 invalid output을 불가능하게 만들 수 있습니다. 따라서 GLM-4.7에서 순수 JSON 안정성을 얻는 가장 확실한 방법은 “더 세게 말하기”가 아니라 **최종 응답 경로를 전부 strict schema로 통일**하는 것입니다. ([Cerebras Inference][3])
-
-### 더 강하게 강제하는 기법
-
-우선순위 순서로 정리하면:
-
-1. **모든 final answer를 strict `json_schema`로 통일**
-2. finalize prompt에 “exactly one JSON object / no extra text” 추가
-3. schema description 추가
-4. nested field descriptions 강화
-5. 필요 시 짧은 few-shot exemplar 추가
-
-Z.ai structured output best practices도 **간단한 schema부터 시작하고, key field에는 description/example를 주고, fallback schema와 validation을 준비**하라고 권합니다. ([Z.AI][5])
-
----
-
-## 3-2. 전략 자동 감지의 한계
-
-정규식 기반 전략 감지는 구현 비용이 낮고 시작점으로는 좋습니다.
-하지만 한계가 명확합니다.
-
-### 취약한 경우
-
-* 복합 질문
-* 맥락 의존 질문
-* 한국어/영어 혼합 표현
-* 간접 표현
-* “원인 + 최근 변경 + 호출 경로”처럼 다층 의도
-
-또한 현재 감지는 **단 하나의 dominant strategy**만 선택합니다.
-하지만 실제 좋은 탐색은 종종 다음과 같습니다.
-
-* 1턴: breadth/symbol로 좁히기
-* 2턴: grep or references
-* 3턴: git/blame로 원인 확인
-* 4턴: finalize
-
-즉 전략은 label 하나보다 **초기 priors**에 가깝습니다.
-
-### 구조적 문제
-
-현재 prompt는 감지된 전략을 사실상 고정해 버립니다.
-모델이 첫 결과를 본 뒤 “전략을 바꾸는 편이 싸다”고 판단해도, 프롬프트가 이를 허용하지 않습니다.
-
-### fallback의 충분성
-
-`auto (start with repo_list_dir or repo_grep)`는 나쁘지 않지만 약합니다.
-미감지 시 fallback도 다음처럼 더 구체적이어야 합니다.
-
-* 구조 질문이면 `repo_list_dir(depth:3)`
-* symbol/hint 있으면 `repo_symbol_context`
-* 나머지는 `repo_grep` with small context
-* file read는 2차 단계
-
----
-
-## 3-3. 도구 사용 우선순위 지시의 모호성
-
-현재 system prompt 안에는 약간의 긴장 관계가 있습니다.
-
-* 한쪽에서는 `prefer repo_find_files and repo_grep, then repo_read_file`
-* 다른 쪽에서는 symbol analysis tools를 grep+read보다 먼저 쓰라고 함
-
-즉 모델 입장에서는
-“무조건 grep 먼저인가?”
-“symbol task면 symbol_context 먼저인가?”
-가 완전히 정리돼 있지 않습니다.
-
-이 모호성은 특히 low temperature에서 더 나쁩니다.
-모델이 첫 해석에 고착되면 불필요하게 `repo_read_file`로 먼저 가거나, 반대로 symbol task인데도 grep으로 우회할 수 있습니다.
-
-### 더 좋은 방식
-
-자연어 preference가 아니라 **decision tree**가 필요합니다.
+따라서 backlog 항목에 한 줄 더 있었으면 좋았겠습니다.
 
 예:
 
-* symbol 정의/호출 질문 → `repo_symbol_context`
-* 최근 변경/저자 질문 → `repo_git_log`
-* 구조 질문 → `repo_list_dir(depth:3)`
-* ambiguous question → `repo_grep` or `repo_find_files`
-* `repo_read_file`은 항상 2차 정밀 확인 단계
-
-이렇게 하면 tool choice가 훨씬 안정됩니다.
+* “shared runtime loop refactor 가능성 있음”
+* “SessionStore 재사용 방식 별도 검토 필요”
 
 ---
 
-## 3-4. evidence grounding 지시의 약점
+## 1.2.6 Public docs polish
 
-현재 grounding 규칙은 finalize prompt에서만 강하게 드러납니다.
-하지만 실제로는 탐색 중에 아래가 필요합니다.
+### 문서와 실제 동작 불일치가 오픈소스 프로젝트에서 가지는 실질 리스크
 
-* 어떤 read range를 봤는가
-* 나중에 evidence로 쓸 후보가 무엇인가
-* 그 후보가 file evidence인지 git evidence인지
-* 아직 부족한 근거가 무엇인가
+이 프로젝트에서 문서 불일치는 일반적인 오픈소스보다 더 위험합니다.
 
-즉 finalize 시점이 아니라 **exploration 시점에서 evidence ledger를 누적**해야 합니다.
+왜냐하면 이 프로젝트의 사용자 중 상당수는 사람이 아니라 **상위 LLM/agent**일 가능성이 높기 때문입니다.
+즉, README와 tool description은 단순한 홍보 문구가 아니라, **다른 모델이 이 시스템을 어떻게 사용할지 결정하는 운영 계약서**에 가깝습니다.
 
-좋은 점은 현재 runtime이 `observedRanges`를 수집하고, 후처리에서 overlap 기반 grounding filter를 거는 것입니다.
-하지만 이건 사후 보정입니다.
-더 좋은 구조는 모델에게도 다음을 명시하는 것입니다.
+실질 리스크는 다음과 같습니다.
 
-> “탐색 중, 나중에 evidence로 쓸 수 있는 항목을 내부적으로 path/start/end/why 형태로 기록하라.”
+| 리스크           | 설명                                   |
+| ------------- | ------------------------------------ |
+| 잘못된 tool 선택   | 상위 모델이 `depth=3`을 믿고 한 번만 호출하는 식의 오판 |
+| 잘못된 후처리       | 존재하지 않는 `similarity` 필드를 기대          |
+| 과도한 신뢰/과도한 불신 | confidence 의미를 잘못 이해                 |
+| 이슈 증가         | “문서에는 되는데 왜 안 되냐” 유형의 issue 발생       |
+| 유지보수 비용 증가    | 코드보다 문서 설명과 기대치가 문제를 확대              |
 
-### git evidence의 구조적 문제
+### 이 프로젝트에서 특히 중요한 이유
 
-현재 evidence 스키마는 file range만 표현합니다.
+이 프로젝트는 스스로를 “read-only grounded explorer”로 포지셔닝합니다.
+즉, 사용자가 기대하는 핵심 가치는 화려한 기능 수보다 **정직한 contract**입니다.
 
-```json
-{"path":"...","startLine":1,"endLine":10,"why":"..."}
-```
+그런 관점에서 문서 불일치는 단순 polish가 아닙니다.
+이건 브랜드 신뢰와 직결됩니다.
 
-그래서 아래 같은 근거를 예쁘게 담기 어렵습니다.
+### 좋은 점도 있음
 
-* 특정 commit 메시지
-* git blame 결과의 author/commit
-* diff between refs
-* recent history pattern
+공정하게 말하면, README는 이미 몇 가지 미구현 항목을 제한 사항으로 솔직하게 적고 있습니다.
+예를 들어 `repo_symbol_context.depth > 1`, `find_similar_code.similarity`가 미구현이라는 점을 숨기지 않습니다. 이건 좋습니다.
 
-즉 git-guided / blame-guided 전략의 핵심 증거가 스키마상 2급 시민입니다.
+문제는:
 
----
+* 문서 일부는 솔직한데,
+* 설정 필드나 세션 semantics처럼 **아직 완전히 드러나지 않은 틈**이 남아 있다는 점입니다.
 
-## 3-5. 멀티턴 일관성 문제
+### 결론
 
-10~16턴 탐색에서 에이전트 품질을 결정하는 것은 “한 번에 똑똑함”보다 **계획 유지 + 중간 수정 + 조기 종료 판단**입니다.
+`Public docs polish`를 P3로 두는 건 이해되지만, 실제 운영상으로는 **각 기능 수정과 함께 바로 갱신해야 하는 release gate**에 가깝습니다.
+특히:
 
-현재는 다음 이유로 일관성이 약해질 수 있습니다.
+* session semantics
+* `depth`
+* `similarity`
+* config fields
+* 새 `explore` 도구 설명
 
-* preserved thinking 미사용
-* 전략 override 불가
-* sufficiency checkpoint 없음
-* finalization이 항상 dedicated path가 아님
-
-### “Stop as soon as evidence is sufficient”의 양면성
-
-이 지시는 좋지만 위험합니다.
-
-좋은 점:
-
-* 과탐색 방지
-* 토큰 절약
-* 빠른 답변
-
-나쁜 점:
-
-* 충분성 기준이 불명확하면 너무 일찍 멈춤
-* 특히 low temp에서 “처음 plausible한 답”에 고착될 수 있음
-
-그래서 조기 종료 규칙은 다음과 같이 더 구체화돼야 합니다.
-
-* trivial task: 1 evidence 가능
-* non-trivial task: 2 independent evidence 필요
-* causal claim / why question: code evidence + history/reference evidence 권장
-* uncertainty가 남으면 low confidence로 종료
+이 다섯 가지는 문서와 함께 움직여야 합니다.
 
 ---
 
-## 3-6. 언어 혼용 문제
+## 1.3 Constraints 분석
 
-현재 system prompt는 영어이고, user task는 한국어일 수 있으며, language는 user prompt 후반부의 `Response language: ko`로 들어갑니다.
+roadmap의 네 가지 원칙은 모두 타당합니다. 다만 구현 방식에 꽤 직접적인 제약을 줍니다.
 
-Cerebras migration guide는 GLM-4.7이 multilingual이라 **default language를 system prompt에서 명시하지 않으면 언어 전환이 발생할 수 있다**고 말합니다. Z.ai thinking docs도 reasoning/tool-use 과정에서 thinking continuity를 강조합니다. 따라서 현재처럼 language control이 user prompt 후반부에만 있는 구조는, 최종 답변 언어는 어느 정도 유도해도 **reasoning 언어와 JSON 값의 언어 일관성까지 강하게 보장하지는 못한다**고 보는 편이 안전합니다. 이 부분은 문서와 현재 구조를 근거로 한 추론입니다. ([Cerebras Inference][1])
+| 제약                     | 구현에 미치는 영향                                                     | 특히 영향 큰 항목                               |
+| ---------------------- | -------------------------------------------------------------- | ---------------------------------------- |
+| zero dependencies      | tree-sitter, fancy diff parser, embedding stack 같은 선택이 어려워짐    | `depth`, similarity, git diff grounding  |
+| read-only              | bash fallback이나 edit-type 확장은 제한, 하지만 이 프로젝트의 안전성에는 유리         | Explorer Mode, git tooling               |
+| Node 18.17+            | 최신 but not bleeding edge. async subprocess, worker_threads는 가능 | 병렬 도구 실행                                 |
+| additive schema change | 기존 클라이언트 안 깨뜨려야 함                                              | git evidence schema, session metadata 확장 |
 
-실제로 나타날 수 있는 패턴:
+### zero dependencies
 
-* `answer`는 한국어, `summary`는 영어 섞임
-* `why` 필드가 한국어/영어 혼합
-* followups description만 영어로 남음
+이 원칙은 이 프로젝트의 장점이기도 하고 족쇄이기도 합니다.
 
----
+#### 장점
 
-# 챕터 4: 개선 방향 제안
+* 설치 단순
+* 배포 단순
+* 유지보수성 높음
 
-아래는 **바로 적용 가능한 수준**으로 적겠습니다.
+#### 제약
 
----
+* `repo_symbol_context.depth`를 tree-sitter 없이 정밀하게 구현하기 어려움
+* similarity를 embedding 없이 semantic하게 계산하기 어려움
+* git diff hunk parser도 직접 써야 함
+* customSymbolPatterns 같은 기능을 robust하게 다듬기 어려움
 
-## 4-1. 시스템 프롬프트 재구성
+결론적으로 zero dependencies는 **기능을 못 하게 만드는 제약**이 아니라,
+“애매한 고급 기능은 과감히 포기하고, 단순하고 정직한 기능만 남기라”는 압력으로 작용합니다.
 
-### 핵심 원칙
+### read-only
 
-Cerebras 가이드에 맞춰 다음을 맨 앞으로 당깁니다.
+이 제약은 세 backlog 항목에는 크게 방해되지 않습니다. 오히려 정체성 강화에 가깝습니다.
 
-1. 역할
-2. hard rules
-3. final output contract
-4. language
-5. tool-order policy
-6. stop 조건
-7. strategy catalog
-8. project/session context
+다만 Explorer Mode에서 Claude Code의 Bash-style 자유 탐색을 흉내 내고 싶어질 때, 이 원칙 때문에:
 
-### 변경 전
+* mutate command 금지
+* 임시 파일 생성/정리 금지
+* 외부 툴 체인 확장 제한
 
-현재는 “Core Principles → Strategy guide → Tool catalog → JSON shape” 순입니다.
+이 생깁니다.
+그래서 Explorer Mode는 “자유형”이더라도 **같은 RepoToolkit 도구 세트 안에서만 자유로워야** 합니다. 이건 좋은 제약입니다.
 
-### 변경 후 예시
+### Node 18.17+
 
-```js
-export function buildExplorerSystemPrompt({
-  repoRoot,
-  budgetConfig,
-  projectContext,
-  previousSummaries,
-  keyFiles,
-  defaultLanguage,
-}) {
-  const lines = [
-    'You are Cerebras Explorer, a READ-ONLY repository exploration agent.',
-    '',
-    'HARD REQUIREMENTS:',
-    '- REQUIRED: Use repo tools before answering unless the answer is already directly supported by prior tool results in this session.',
-    '- REQUIRED: Remain strictly read-only. Never propose edits, writes, or mutating shell commands.',
-    '- REQUIRED: Final output must be exactly one JSON object matching the required schema. No markdown fences. No prose before or after the JSON object.',
-    `- REQUIRED: Final JSON text must use ${defaultLanguage || 'the delegated task language'}. Keep code identifiers, paths, and symbols unchanged.`,
-    '- REQUIRED: Never cite files or line ranges you did not inspect in this session.',
-    '- REQUIRED: For non-trivial tasks, do not use confidence="high" unless at least two independent evidence items support the answer.',
-    '- REQUIRED: Stop as soon as the answer is sufficiently grounded. Do not continue exploring once further tool calls are unlikely to change the answer.',
-    '',
-    'TOOL ORDER POLICY:',
-    '- Symbol definition / usage question -> repo_symbol_context first.',
-    '- History / authorship / recent change question -> repo_git_log first, then repo_git_diff / repo_git_show / repo_git_blame.',
-    '- Architecture / overview question -> repo_list_dir(depth:3) first, then read only key files.',
-    '- Ambiguous question -> repo_grep or repo_find_files before any repo_read_file.',
-    '- repo_read_file is a precision tool: use it after narrowing.',
-    '',
-    'EVIDENCE LEDGER:',
-    '- While exploring, internally track candidate evidence as (path, startLine, endLine, why).',
-    '- Only include evidence items that come from inspected ranges.',
-    '- If evidence is insufficient, either continue exploring or lower confidence.',
-    '',
-    'STRATEGY CATALOG:',
-    '- symbol-first: repo_symbol_context -> repo_read_file',
-    '- reference-chase: repo_symbol_context or repo_references -> repo_read_file',
-    '- git-guided: repo_git_log -> repo_git_diff -> repo_read_file',
-    '- breadth-first: repo_list_dir -> read key files',
-    '- blame-guided: repo_grep -> repo_git_blame -> repo_git_show',
-    '- pattern-scan: repo_grep -> read multiple files',
-  ];
+이 제약은 겉보기엔 약하지만, 병렬 도구 실행에 꽤 중요합니다.
 
-  if (projectContext) {
-    lines.push('', 'PROJECT CONTEXT:', projectContext.trim());
-  }
-  if (keyFiles?.length) {
-    lines.push('', `KEY FILES: ${keyFiles.join(', ')}`);
-  }
-  if (previousSummaries?.length) {
-    lines.push('', 'PRIOR FINDINGS:');
-    for (const s of previousSummaries) lines.push(`- ${s}`);
-  }
+현재 repo tool 중 git/grep 일부는 `execFileSync` 기반입니다.
+즉, 단순히 `Promise.all`을 쓴다고 진짜 병렬이 되지 않을 수 있습니다. event loop를 막기 때문입니다.
 
-  lines.push(
-    '',
-    'FINAL RESULT FIELDS:',
-    '- answer: direct answer',
-    '- summary: short synthesis',
-    '- confidence: low|medium|high',
-    '- evidence: grounded inspected file ranges only',
-    '- candidatePaths: likely relevant files',
-    '- followups: only when further investigation is useful',
-    '',
-    `Repository root: ${repoRoot}`,
-    `Budget: ${budgetConfig.label} (maxTurns=${budgetConfig.maxTurns}, maxReadLines=${budgetConfig.maxReadLines}, maxSearchResults=${budgetConfig.maxSearchResults})`,
-  );
+따라서 Node 18.17+에서 병렬화를 하려면:
 
-  return lines.join('\n');
-}
-```
+* `execFile` async화
+* bounded concurrency
+* 또는 worker/thread 분리
 
-### 왜 더 좋은가
+중 하나가 필요합니다.
+즉, “Node 버전은 충분하지만, 현재 구현 방식은 병렬화 친화적이지 않다”가 정확합니다.
 
-* GLM-4.7이 더 강하게 보는 prompt 앞부분에 규칙을 몰아넣습니다. ([Cerebras Inference][1])
-* default language를 system prompt 차원에서 명시합니다. ([Cerebras Inference][1])
-* tool-order ambiguity를 decision policy로 바꿉니다.
-* evidence grounding을 탐색 중 규칙으로 승격합니다.
+### additive schema change
+
+이건 특히 `git-history-confidence.md`와 직접 연결됩니다.
+
+* `explore_repo`의 output schema는 이미 소비자들이 있을 수 있음
+* evidence item에 `kind`를 추가하는 건 additive이지만,
+* 실제 consumer가 `evidence[].path`만 본다면 동작 의미가 달라질 수 있음
+
+즉, additive change는 단순히 “필드만 추가하면 된다”가 아닙니다.
+**기존 필드 의미를 보존하면서 새 의미 체계를 겹쳐야 한다**는 뜻입니다.
+
+이 제약은 아주 중요합니다.
+그래서 git evidence는 “clean redesign”보다 “legacy 보존 + kind branching” 쪽으로 갈 가능성이 높습니다.
 
 ---
 
-## 4-2. Finalize 프롬프트 강화
+## 1.4 전체 backlog의 구현 순서 제안
 
-### 현재 문제
+## 제안 순서
 
-현재 finalize prompt는 너무 짧고 semantic self-check가 약합니다.
+| 단계 | 작업                                                       | 이유                                    |
+| -- | -------------------------------------------------------- | ------------------------------------- |
+| 1  | Session enforcement + repoRoot validation + runtime test | correctness bug, blast radius 작고 가치 큼 |
+| 2  | `repo_symbol_context.depth` 결정(구현 or 축소)                 | public contract 정리                    |
+| 3  | `find_similar_code` 결정(점수 도입 or 문서 기대 제거)                | 가짜 정밀도 제거                             |
+| 4  | Project config cleanup (`entryPoints` 우선 연결)             | 구조 질문 품질 향상                           |
+| 5  | Explorer Mode Phase A만 도입                                | shared contract가 정리된 뒤 추가             |
+| 6  | Public docs polish                                       | release gate                          |
 
-### 권장안
+## 독립적으로 작업 가능한 항목
 
-```js
-export function buildFinalizePrompt() {
-  return [
-    'Return the final exploration result now.',
-    'You MUST NOT call any tools.',
-    'Output MUST be exactly one JSON object that matches the provided response schema.',
-    'Do not output markdown fences or any extra text before or after the JSON object.',
-    'Before answering, verify internally that every evidence item refers only to files and line ranges already inspected in this session.',
-    'If any claim is only partially supported, lower confidence and explain the gap in summary instead of inventing evidence.',
-    'Use [] for followups when no further investigation is needed.',
-    'Internal self-check: schema-valid, no extra keys, grounded evidence only, language consistent, no markdown.',
-  ].join('\n');
-}
-```
+상대적으로 독립적인 것:
 
-### self-check를 넣는 이유
+* Session enforcement
+* `depth` 계약 정리
+* `find_similar_code` 문서 기대치 정리
+* config cleanup
 
-Cerebras는 critic agents와 validation pass를 권장합니다. 별도 critic agent를 두지 않더라도, finalize prompt 안에 self-check를 심으면 **single-agent critic-lite**가 됩니다. ([Cerebras Inference][1])
+상대적으로 의존성이 큰 것:
 
-### few-shot 예시를 넣을까?
+* Explorer Mode
+* docs polish
 
-제 의견은 이렇습니다.
+## 숨은 의존성
 
-* **문법 안정성**을 위해서는 굳이 few-shot이 필요 없습니다. strict `json_schema`가 이미 invalid JSON을 막아주기 때문입니다. ([Cerebras Inference][3])
-* **semantic 품질**(예: evidence를 얼마나 잘 쓰는가)을 위해서만 아주 짧은 exemplar가 도움이 될 수 있습니다.
-* 토큰 비용은 적지만, 매 턴 누적되므로 **finalize prompt에 1개 초미니 예시만** 넣는 것이 상한선입니다.
+### 1) Explorer Mode ↔ Session semantics
+
+새 `explore` 도구는 세션을 재사용하고 싶어 하지만, 현재 SessionStore는 structured exploration 결과 형식에 맞춰져 있습니다.
+즉, Explorer Mode는 backlog 상 독립 기능처럼 보이지만, 사실상 session contract를 먼저 정리해야 안전합니다.
+
+### 2) Explorer Mode ↔ shared runtime loop
+
+병렬 실행, progress, fallback, tool result ordering은 `explore_repo`와 충돌 가능한 공용 경로입니다.
+
+### 3) config `entryPoints` ↔ Explorer Mode
+
+explore-style architecture report는 entry point 힌트를 특히 잘 활용할 수 있습니다.
+즉, `entryPoints`를 먼저 연결하면 Explorer Mode의 품질이 좋아질 수 있습니다.
+
+### 4) `find_similar_code` ↔ benchmark
+
+numeric similarity를 도입하면 benchmark도 따라와야 합니다. 현재 benchmark는 similarity 수치를 검증하지 않습니다.
+
+### 최종 제안
+
+roadmap만 놓고 보면 **기능 추가보다 계약 정리를 먼저** 하는 편이 맞습니다.
+제일 좋은 순서는 이렇게 압축됩니다.
+
+> **세션 정리 → 공개 계약(`depth`, `similarity`) 정리 → 설정/문서 정리 → 새 `explore` 도구 추가**
+
+---
+
+# 2. `explorer-mode.md` — 자유형 탐색 도구 `explore` 기획 분석
+
+## 2.1 기획 의도 해설
+
+### 왜 `explore_repo`와 별도로 `explore`가 필요한가
+
+이 기획의 출발점은 타당합니다.
+
+현재 `explore_repo`는:
+
+* 구조화 JSON 고정
+* `answer`, `summary`, `confidence`, `evidence`, `followups`
+* 상위 모델이 후처리하기 쉬움
+
+반면 어떤 작업은 이 구조가 오히려 답답합니다.
 
 예:
 
-```txt
-Example shape:
-{"answer":"...","summary":"...","confidence":"medium","evidence":[{"path":"src/x.ts","startLine":10,"endLine":18,"why":"..."}],"candidatePaths":["src/x.ts"],"followups":[]}
-```
+* “plan 문서를 다 읽고 구현과 대조해 상세한 리뷰 리포트를 써라”
+* “테스트 전략의 약점을 사람에게 설명하라”
+* “아키텍처를 서술형으로 분석하라”
 
-추천은:
+이런 작업은 결과가 본질적으로 **서술형(report-like)** 입니다.
+JSON 필드에 억지로 넣으면:
 
-* 먼저 strict schema + stronger prompt만 적용
-* 그래도 evidence/followups 품질이 흔들리면 mini exemplar 추가
+* nuance가 줄고
+* 긴 분석이 잘리고
+* “중간 판단/불확실성/권고”가 부자연스러워집니다
 
----
+즉, `explore_repo`는 **machine-friendly**, `explore`는 **human-friendly**라는 분리가 가능합니다.
 
-## 4-3. API 파라미터 최적화 제안
+### 이원화 전략이 MCP 생태계에서 가지는 의미
 
-### 권장 budget 테이블
+MCP 관점에서 보면 이건 꽤 흥미로운 선택입니다.
 
-| budget | reasoning             | temperature | top_p | clear_thinking | maxCompletionTokens |
-| ------ | --------------------- | ----------: | ----: | -------------- | ------------------: |
-| quick  | `none`                |  0.25 ~ 0.4 |  0.95 | 의미 없음/생략       |                4000 |
-| normal | reasoning on(파라미터 생략) |         0.8 |  0.95 | false          |                8000 |
-| deep   | reasoning on(파라미터 생략) |   0.9 ~ 1.0 |  0.95 | false          |         12000~16000 |
+MCP에서는 도구가 discovery되고, 클라이언트는 여러 서버의 도구를 합쳐 registry로 노출하며, 모델은 name/title/description/inputSchema를 보고 어떤 도구를 부를지 결정합니다. 따라서 같은 서버 안에서도 “기계 친화적인 structured tool”과 “사람 친화적인 report tool”을 나눠 제공하는 전략은 충분히 의미가 있습니다. ([모델 컨텍스트 프로토콜][1])
 
-이 표는 Cerebras가 권장하는 GLM-4.7 sampling과 reasoning 계약에 맞춘 것입니다. reasoning이 필요한 경우 temperature를 너무 낮추지 말고, deterministic이 필요하면 reasoning을 끄는 방향이 공식 가이드와 일치합니다. ([Cerebras Inference][1])
+이 프로젝트의 차별점 자체가 “low-level repo tools를 상위 모델에게 직접 주지 않고, 내부에 탐색 sub-agent를 숨긴다”는 데 있는데, `explore_repo`와 `explore`의 이원화는 그 전략을 더 분명하게 만듭니다.
 
-### `config.mjs` 권장 예시
+* `explore_repo`: orchestration-friendly tool
+* `explore`: analyst-friendly tool
 
-```js
-export const BUDGETS = {
-  quick: {
-    label: 'quick',
-    maxTurns: 6,
-    maxSearchResults: 20,
-    maxReadLines: 140,
-    reasoningEnabled: false,
-    preserveThinking: false,
-    temperature: 0.3,
-    topP: 0.95,
-    maxCompletionTokens: 4000,
-    finalizeMaxCompletionTokens: 3500,
-  },
-  normal: {
-    label: 'normal',
-    maxTurns: 10,
-    maxSearchResults: 40,
-    maxReadLines: 220,
-    reasoningEnabled: true,
-    preserveThinking: true,
-    temperature: 0.8,
-    topP: 0.95,
-    maxCompletionTokens: 8000,
-    finalizeMaxCompletionTokens: 4500,
-  },
-  deep: {
-    label: 'deep',
-    maxTurns: 16,
-    maxSearchResults: 80,
-    maxReadLines: 320,
-    reasoningEnabled: true,
-    preserveThinking: true,
-    temperature: 1.0,
-    topP: 0.95,
-    maxCompletionTokens: 14000,
-    finalizeMaxCompletionTokens: 6500,
-  },
-};
-```
+### 다만 주의할 점
 
-### 왜 `reasoningEffort` enum을 버리라고 하나
+이원화가 성공하려면 두 도구의 **역할 경계가 아주 선명해야** 합니다.
+그렇지 않으면 사용자는 물론 상위 모델도 “둘 중 뭐 쓰지?” 상태가 됩니다.
 
-현재 Cerebras GLM-4.7 문서상 믿을 수 있는 knob는 사실상:
+제 결론은:
 
-* reasoning on: 파라미터 생략
-* reasoning off: `reasoning_effort="none"`
-
-입니다. 따라서 `low|medium`은 GLM용 정책 knob로 유지하지 않는 편이 낫습니다. ([Cerebras Inference][2])
-
-### `clear_thinking: false` 도입 시 구현 예시
-
-```js
-async createChatCompletion({
-  messages,
-  tools,
-  responseFormat,
-  reasoningEffort,
-  temperature = 1.0,
-  topP = 0.95,
-  maxCompletionTokens = 4000,
-  parallelToolCalls = true,
-  clearThinking,
-  reasoningFormat = 'parsed',
-  seed,
-}) {
-  const payload = {
-    model: this.model,
-    messages,
-    temperature,
-    top_p: topP,
-    max_completion_tokens: maxCompletionTokens,
-    parallel_tool_calls: parallelToolCalls,
-    stream: false,
-    reasoning_format: reasoningFormat,
-  };
-
-  if (reasoningEffort !== undefined) payload.reasoning_effort = reasoningEffort;
-  if (clearThinking !== undefined) payload.clear_thinking = clearThinking;
-  if (responseFormat) payload.response_format = responseFormat;
-  if (Array.isArray(tools) && tools.length) payload.tools = tools;
-  if (seed !== undefined) payload.seed = seed;
-
-  // ...
-  return {
-    usage: parsed.usage ?? null,
-    message: {
-      role: message.role || 'assistant',
-      content: extractMessageText(message.content),
-      rawContent: message.content,
-      reasoning: typeof message.reasoning === 'string' ? message.reasoning : '',
-      toolCalls: Array.isArray(message.tool_calls) ? ... : [],
-    },
-  };
-}
-```
-
-Cerebras는 `message.reasoning`을 응답에 담고, `seed`도 best-effort deterministic 용도로 지원합니다. ([Cerebras Inference][2])
-
-### runtime 반영 예시
-
-```js
-const reasoningEffort = budgetConfig.reasoningEnabled ? undefined : 'none';
-const clearThinking = budgetConfig.reasoningEnabled && budgetConfig.preserveThinking
-  ? false
-  : undefined;
-const reasoningFormat = budgetConfig.reasoningEnabled && budgetConfig.preserveThinking
-  ? 'parsed'
-  : 'hidden';
-
-const completion = await chatClient.createChatCompletion({
-  messages,
-  tools,
-  reasoningEffort,
-  clearThinking,
-  reasoningFormat,
-  temperature: budgetConfig.temperature,
-  topP: budgetConfig.topP,
-  maxCompletionTokens: budgetConfig.maxCompletionTokens,
-  parallelToolCalls: shouldAllowParallel(args.hints?.strategy),
-});
-```
+* **기획 의도는 매우 타당**
+* 하지만 **도구 경계 설명과 session/output contract 정리 없이는 혼란이 커질 수 있음**
 
 ---
 
-## 4-4. 전략 지시 구조 개선
+## 2.2 입력 스키마 (`explore` 도구) 분석
 
-### 현재
+## 2.2.1 `thoroughness` 레벨과 maxTurns 매핑의 적절성
 
-* strategy를 감지해 user prompt에 박아넣음
-* follow 강제
-* override 불가
+기획안의 매핑은 이렇습니다.
 
-### 개선
+| thoroughness | maxTurns | maxReadLines | maxSearchResults |
+| ------------ | -------: | -----------: | ---------------: |
+| quick        |        3 |          200 |               30 |
+| medium       |        6 |          300 |               50 |
+| thorough     |       12 |          500 |               80 |
 
-“확인 가능한 전략 제안”으로 낮추는 게 맞습니다.
+### 좋은 점
 
-```js
-const strategyLine = strategy
-  ? `Initial strategy suggestion: ${strategy} — ${STRATEGY_DESCRIPTIONS[strategy]}`
-  : 'Initial strategy suggestion: auto';
+* 사람 입장에서 이해하기 쉽습니다.
+* `budget: normal/deep`보다 “thoroughness”가 리포트형 탐색엔 더 자연스럽습니다.
+* quick/medium/thorough라는 단어는 사람이 기대치를 조절하기 좋습니다.
 
-lines.push(
-  strategyLine,
-  'You may keep this strategy or switch once after the first tool result if another strategy would reduce turns or improve evidence quality.',
-  'Prefer the smallest set of tool calls that can establish grounded evidence.'
-);
-```
+### 아쉬운 점
 
-### 전략별 numbered steps 예시
+* `medium=6`, `thorough=12`는 turn 수만 보면 합리적이지만, **tool-call 수나 토큰량 제어와는 직접 연결되지 않습니다.**
+* 현재 구현은 한 turn 안에서 여러 tool call이 나올 수 있는데, 병렬화가 들어가면 `12 turns`가 꽤 무거워질 수 있습니다.
+* 기존 `budget` 체계와 새로운 `thoroughness` 체계가 **의미는 비슷하지만 이름이 다른 이중 budget system**이 됩니다.
 
-#### symbol-first
+### 제 판단
 
-```txt
-SYMBOL-FIRST STEPS:
-1. Use repo_symbol_context(symbol) first.
-2. If unresolved, use repo_references(symbol) or repo_grep.
-3. Read only the smallest relevant ranges.
-4. Finalize as soon as the answer is grounded.
-```
-
-#### git-guided
-
-```txt
-GIT-GUIDED STEPS:
-1. Use repo_git_log first to identify candidate commits or hot files.
-2. Use repo_git_diff(stat=true) or repo_git_show to narrow the change.
-3. Read only the affected file ranges needed to explain the change.
-4. If the task is causal, connect git evidence to current code evidence before finalizing.
-```
-
-#### blame-guided
-
-```txt
-BLAME-GUIDED STEPS:
-1. Use repo_grep to find the suspicious code path.
-2. Use repo_git_blame on the smallest relevant range.
-3. Use repo_git_show only for the most relevant commit(s).
-4. Finalize only when you can connect the blamed change to the observed code behavior.
-```
-
-이렇게 단계화를 주면 GLM-4.7이 plan drift를 덜 일으킵니다. complex task를 작은 substep으로 나누라는 Cerebras 가이드와도 맞습니다. ([Cerebras Inference][1])
-
----
-
-## 4-5. JSON 출력 안정성 강화 기법
-
-### 가장 효과적인 방법
-
-**Cerebras strict structured outputs를 최종 응답 경로 전체에 강제하는 것**입니다.
-
-지금 좋은 점은 이미 `EXPLORE_RESULT_JSON_SCHEMA`가 잘 설계돼 있다는 점입니다.
-문제는 이 스키마를 항상 쓰지 않는다는 것입니다.
-
-### 반드시 바꿔야 할 부분
-
-현재:
-
-```js
-if (completion.message.toolCalls.length === 0) {
-  finalObject = extractFirstJsonObject(lastAssistantContent);
-  break;
-}
-```
-
-권장:
-
-```js
-if (completion.message.toolCalls.length === 0) {
-  const finalized = await this.finalizeAfterToolLoop({
-    chatClient,
-    messages,
-    reasoningEffort,
-    clearThinking,
-    maxCompletionTokens: budgetConfig.finalizeMaxCompletionTokens,
-  });
-  finalObject = finalized.result;
-  Object.assign(stats, summarizeUsage(stats, finalized.usage));
-  break;
-}
-```
-
-즉 **“tool loop 종료”와 “final JSON generation”을 분리**해야 합니다.
-
-### structured output 설명 강화
-
-Cerebras `response_format.json_schema`에는 `description` 필드가 있고, 이 설명이 모델의 출력 생성에 쓰입니다. 따라서 지금 schema 객체에 짧고 강한 설명을 넣는 것이 좋습니다. ([Cerebras Inference][2])
-
-```js
-responseFormat: {
-  type: 'json_schema',
-  json_schema: {
-    name: 'explore_repo_result',
-    description: 'Final grounded repository exploration result. Every evidence item must cite only inspected file ranges from this session.',
-    strict: true,
-    schema: EXPLORE_RESULT_JSON_SCHEMA.schema,
-  },
-}
-```
-
-### Z.ai/Cerebras structured output 조사 결과를 반영한 팁
-
-* schema는 가능하면 단순하게 유지
-* key field에 description 보강
-* fallback simplified schema 준비
-* post-validate/logging 유지
-  이건 Z.ai structured output best practice와도 일치합니다. ([Z.AI][5])
-
----
-
-## 4-6. 에이전트 루프 전반의 품질 향상 전략
-
-## A. tool call 직후 “다음 단계 계획” 유도
-
-ReAct는 reasoning과 action을 interleave할 때 reasoning trace가 다음 행동 계획을 업데이트하는 데 도움이 된다고 보여줍니다. GLM-4.7도 interleaved thinking을 agent/tool-use 강점으로 내세웁니다. 따라서 각 tool result 뒤에 모델이 짧은 next-step plan을 내부적으로 유지하게 하는 것이 좋습니다. ([arXiv][6])
-
-실무 적용은 두 가지입니다.
-
-### 방법 1: hidden reasoning에 맡기기
-
-preserved thinking을 켜고 reasoning을 보존하면 된다.
-
-### 방법 2: 짧은 visible planning sentence 허용
+* quick=3, medium=6은 적절
+* thorough=12도 가능은 하지만, **진짜 comprehensive mode**로 동작하려면 turn 외에 별도 guardrail이 필요합니다.
 
 예:
 
-```txt
-Before each tool call, briefly state the next step in one sentence.
-```
+* max total tool calls
+* max total read lines across session
+* max report length
+* max parallel reads per turn
 
-다만 이 프로젝트는 중간 출력이 사용자에게 바로 보이는 UX가 아니라 MCP 내부 루프이므로, 저는 **visible sentence보다 parsed reasoning 보존**을 추천합니다.
+즉, 단순 turn mapping만으로는 충분하지 않습니다.
 
----
+## 2.2.2 `scope`, `session`, `repo_root` 설계의 완성도
 
-## B. critic 패턴 도입
+### `scope`
 
-Cerebras migration guide는 critic agents를 권장합니다. 꼭 멀티에이전트일 필요는 없습니다. 단일 에이전트 안에서도 2-pass로 만들 수 있습니다. ([Cerebras Inference][1])
+좋습니다. 기존 도구와 일관성이 있습니다.
+자유형 탐색일수록 scope가 더 중요합니다. 안 그러면 “리포트형 도구”가 과도하게 넓게 헤매기 쉽습니다.
 
-### 단일 에이전트 critic-lite 예시
+### `repo_root`
 
-1. explore loop
-2. verify pass (no tools)
-3. strict finalize
+필수는 아니어도 있어야 합니다.
+다만 session과 같이 쓸 때는 반드시 repoRoot binding 검증이 필요합니다. 지금 기존 runtime에도 그 검증이 없기 때문에, Explorer Mode를 추가하기 전에 고쳐야 합니다.
 
-검증 프롬프트 예:
+### `session`
 
-```txt
-Verification pass:
-- Check whether every claim in the draft answer is supported by inspected evidence.
-- Identify any unsupported or weakly supported claim internally.
-- If evidence is insufficient, lower confidence and keep followups.
-- Do not call tools.
-- Do not output anything except the final JSON object.
-```
-
----
-
-## C. 중간 체크포인트 삽입
-
-5턴마다 아래를 넣으면 좋습니다.
-
-```js
-if ((turnIndex + 1) % 5 === 0) {
-  messages.push({
-    role: 'user',
-    content: [
-      'Checkpoint:',
-      '- Decide whether the answer is already sufficiently grounded.',
-      '- If yes, finalize on the next turn.',
-      '- If no, choose exactly one highest-value next tool call.',
-    ].join('\n'),
-  });
-}
-```
-
-이건 “Stop as soon as evidence is sufficient”를 추상 규칙이 아니라 **주기적 의사결정 루틴**으로 바꾸는 장치입니다.
-
----
-
-## D. evidence schema 개선
-
-현재 스키마의 가장 큰 구조적 약점은 git evidence를 잘 담지 못하는 점입니다.
-
-### 권장 schema 방향
-
-```js
-evidence: {
-  type: 'array',
-  items: {
-    anyOf: [
-      {
-        type: 'object',
-        additionalProperties: false,
-        properties: {
-          kind: { const: 'file_range' },
-          path: { type: 'string' },
-          startLine: { type: 'integer' },
-          endLine: { type: 'integer' },
-          why: { type: 'string' },
-        },
-        required: ['kind', 'path', 'startLine', 'endLine', 'why'],
-      },
-      {
-        type: 'object',
-        additionalProperties: false,
-        properties: {
-          kind: { const: 'git_commit' },
-          commit: { type: 'string' },
-          path: { type: 'string' },
-          why: { type: 'string' },
-        },
-        required: ['kind', 'commit', 'path', 'why'],
-      },
-      {
-        type: 'object',
-        additionalProperties: false,
-        properties: {
-          kind: { const: 'git_blame' },
-          path: { type: 'string' },
-          startLine: { type: 'integer' },
-          endLine: { type: 'integer' },
-          commit: { type: 'string' },
-          author: { type: 'string' },
-          why: { type: 'string' },
-        },
-        required: ['kind', 'path', 'startLine', 'endLine', 'commit', 'author', 'why'],
-      }
-    ]
-  }
-}
-```
-
-Cerebras structured outputs는 `anyOf`와 nested schema를 지원하지만, strict mode에는 schema 길이/복잡도 제한도 있으므로 너무 과도하게 키우지는 말아야 합니다. ([Cerebras Inference][2])
-
----
-
-# 챕터 5: 컨텍스트 창 및 토큰 예산 분석
-
-## 5-1. 131,072 token 컨텍스트 창의 실질적 활용
-
-Cerebras GLM-4.7 기준 컨텍스트는 약 131k, output 상한은 40k입니다. 하지만 migration guide는 instruction-following 품질이 보통 이 최대치보다 훨씬 짧은 길이에서 가장 좋고, 최대치에 가까워질수록 약해질 수 있다고 경고합니다. ([Cerebras Inference][1])
-
-### 전형적 세션의 대략적 토큰 추정
-
-아래는 추정치입니다.
-
-| 구성 요소                                   |       대략 토큰 |
-| --------------------------------------- | ----------: |
-| system prompt + project/session context |  900 ~ 1600 |
-| tool schema 묶음                          | 1200 ~ 2500 |
-| user prompt                             |   150 ~ 350 |
-| grep 결과 1회                              |   150 ~ 700 |
-| read_file 1회                            |  250 ~ 1200 |
-| git_diff / git_show 1회                  |  300 ~ 2000 |
-| assistant visible text 1턴               |    50 ~ 200 |
-| reasoning 1턴(보존 시)                      | 150 ~ 1000+ |
-
-### 실제 의미
-
-* normal 10턴은 쉽게 **15k~40k**
-* deep 16턴은 **40k~90k**
-* 여기에 preserved thinking과 큰 git payload가 섞이면 **100k+**도 충분히 갈 수 있습니다.
-
-즉 131k는 넓지만, “깊은 tool loop + raw tool JSON 누적”에서는 결코 무한대가 아닙니다.
-
----
-
-## 5-2. 컨텍스트가 차오를 때의 문제
-
-Claude Code 문서는 context window가 빨리 차고, 차오를수록 성능이 떨어지며, 이전 지시를 잊거나 실수가 늘어날 수 있다고 설명합니다. LangChain도 agent reliability의 핵심이 “right information and tools in the right format”이라고 정리합니다. ([Anthropic][7])
-
-현재 구조에서 이 위험이 커지는 이유는:
-
-* tool result 원문 JSON을 모두 message history에 계속 넣음
-* grep/read/git 결과가 누적됨
-* dedicated compaction 없음
-* preserved thinking을 켜면 reasoning까지 더해짐
-
-따라서 대응은 필수입니다.
-
-### 권장 대응
-
-1. 오래된 raw tool 결과를 영구 저장하지 말고, session summary로 압축
-2. `candidatePaths`, `observedRanges`, `recentActivity`, `evidence ledger`는 구조화 state로 보존
-3. tool JSON 원문은 필요한 일부만 남김
-4. breadth-first에서 overview를 만든 뒤 raw directory listing은 drop 가능
-5. git는 `stat=true` 또는 commit shortlist로 좁힌 뒤 상세 diff 읽기
-
----
-
-## 5-3. Preserved Thinking의 토큰 비용
-
-Cerebras는 reasoning tokens가 `max_completion_tokens`에 포함되고, hidden이어도 생성/과금/예산에 포함된다고 설명합니다. reasoning guide도 prior reasoning을 넘기려면 reasoning을 다시 포함해야 한다고 말합니다. ([Cerebras Inference][2])
-
-즉 `clear_thinking:false`는 공짜가 아닙니다.
-
-### 장점
-
-* reasoning continuity
-* 장기 tool loop 안정성
-* better multi-turn coherence
-
-### 비용
-
-* 컨텍스트 누적
-* completion budget 소모
-* deep session에서 맥락 압박 증가
-
-### 현실적 균형점
-
-제가 추천하는 균형은 이렇습니다.
-
-* **quick**: reasoning off
-* **normal**: task/strategy 기반 조건부 on
-* **deep**: reasoning on + preserved thinking on
-* **checkpoint 이후** 오래된 raw tool 결과는 압축
-
-즉 preserved thinking은 “항상 켜기”보다 **multi-hop 탐색에서만 켜기**가 좋습니다.
-
----
-
-## 5-4. 도구 결과 크기 제어
-
-현재 `maxReadLines`, `maxSearchResults`는 꽤 합리적입니다.
-문제는 숫자 자체보다 **누적 방식**입니다.
-
-### 지금 설정의 의미
-
-* quick/normal/deep가 점진적으로 커짐
-* 한 번에 repo 전체를 읽는 일은 방지
-* search/read 폭주를 어느 정도 막음
-
-### 추가 권장 전략
-
-#### grep
-
-* 기본 `contextLines=1~2`
-* path + line + snippet만 유지
-* 동일 파일 다중 hit는 묶어서 요약
-
-#### read_file
-
-* 항상 hit 주변 window 읽기
-* 2단계 read 허용: 작은 read → 필요 시 확장 read
-
-#### git
-
-* `repo_git_log` 소수 커밋 shortlist
-* `repo_git_diff(stat=true)` 우선
-* full diff는 매우 선별적으로
-
-#### tool set 자체
-
-Cerebras chat completions 문서는 **too many tools consume prompt tokens and may hurt performance or context length**라고 명시합니다. 현재 tool set이 아주 과도하지는 않지만, 전략별로 불필요한 툴을 감추는 것도 고려할 만합니다. ([Cerebras Inference][2])
-
----
-
-# 챕터 6: 참고 자료 기반 외부 best practice 정리
-
-## 6-1. GLM 계열 모델의 instruction following 특성
-
-Cerebras의 GLM-4.7 migration guide 핵심은 네 가지입니다.
-
-1. **front-load instructions**
-2. **clear/direct rules**
-3. **default language 명시**
-4. **role prompt 명시**
-
-또한 complex tasks에는 “Think step by step” 같은 reasoning directive를 넣고, simple tasks에는 reasoning을 최소화하라고 권장합니다. GLM-4.7은 coding/agentic workflows를 핵심 사용처로 잡고 있습니다. ([Cerebras Inference][1])
-
-적용 인사이트:
-
-* prompt를 “좋은 설명문”이 아니라 “앞부분이 강한 operating contract”로 바꿔야 함
-* language directive는 system prompt에서 강하게
-* reasoning은 예산이 아니라 task complexity에 따라 켜고 꺼야 함
-
----
-
-## 6-2. 에이전트 루프 프롬프트 설계 best practice
-
-### ReAct
-
-ReAct는 reasoning trace와 action을 interleave하면, reasoning이 action plan을 유도·업데이트하고 예외를 다루는 데 도움이 되며, action은 외부 정보원을 통해 추가 정보를 얻도록 만든다고 설명합니다. 이건 repo exploration tool loop와 매우 잘 맞습니다. ([arXiv][6])
-
-적용:
-
-* tool result 뒤 reasoning continuity가 중요
-* preserved thinking이 특히 가치 있음
-* “다음 단계”를 짧게라도 유지하는 설계가 유리
-
-### Reflexion
-
-Reflexion은 언어적 feedback과 episodic memory buffer가 후속 시도에서 더 나은 결정을 돕는다고 보여줍니다. ([arXiv][8])
-
-적용:
-
-* `previousSummaries`
-* `sessionCandidatePaths`
-* checkpoint feedback
-* dropped evidence에 대한 self-correction
-
-이런 구조는 사실상 Reflexion-lite입니다.
-
-### SWE-agent
-
-SWE-agent는 agent-computer interface(ACI) 설계가 repo navigation과 task execution 성능에 큰 영향을 준다고 말합니다. ([arXiv][9])
-
-적용:
-
-* tool descriptions와 selection policy는 단순 부가 정보가 아니라 성능 요소
-* `repo_symbol_context`, `repo_git_*`, `repo_grep`의 역할 구분이 중요
-* strategy별 툴 노출/우선순위 최적화가 성능에 직접 영향
-
----
-
-## 6-3. 구조화 JSON 출력 강제 기법
-
-Cerebras structured outputs는 `json_schema + strict=true`일 때 constrained decoding으로 schema 위반을 막습니다. 또한 strict mode에서는 모든 object에 `additionalProperties:false`가 필요합니다. 현재 프로젝트 스키마는 이 요구를 이미 잘 지키고 있습니다. ([Cerebras Inference][3])
-
-적용 인사이트:
-
-* final answer는 **무조건 strict schema**
-* `json_object`는 legacy fallback
-* schema description/property descriptions 보강
-* parse-repair보다 schema-constrained finalization이 우선
-
----
-
-## 6-4. 멀티턴 에이전트 컨텍스트 관리 전략
-
-LangChain은 model context를 **instructions, messages, tools, model, response format**의 묶음으로 보며, 이 결정들이 reliability와 cost를 직접 좌우한다고 설명합니다. 또한 오래된 대화를 summary로 대체하는 summarization middleware를 대표적 lifecycle pattern으로 제시합니다. ([LangChain Docs][10])
-
-Claude Code 문서는 context가 차오를수록 성능이 떨어지고, 이전 지시를 잊거나 실수가 늘 수 있으며, compaction/summarization이 중요하다고 설명합니다. 또한 subagent는 별도 context window를 써서 연구/탐색을 메인 대화에서 격리할 수 있습니다. ([Anthropic][7])
-
-적용:
-
-* 오래된 tool 결과를 summary message로 압축
-* main loop와 finalizer/critic를 분리
-* 추후에는 explorer 서브에이전트를 별도 context window로 운영하는 구조도 고려 가능
-
----
-
-## 6-5. 코드 탐색 에이전트 사례
-
-### OpenHands
-
-OpenHands planning agent 예시는 **read-only tools로 plan을 만들고, 이후 execution agent가 실행**하는 2단계 구조를 보여줍니다. custom tool set, custom system prompt, testing/validation structure를 강조합니다. ([OpenHands Docs][11])
-
-적용:
-
-* 현재 explorer는 이미 read-only planner 성격이 강함
-* 그 다음 단계로 “verify/finalize critic”를 붙이면 OpenHands식 분업에 가까워짐
-
-### Aider
-
-Aider는 repo map을 사용해 전체 저장소의 핵심 클래스/함수/시그니처를 압축 제공하고, irrelevant files를 많이 넣으면 LLM이 혼란스러워진다고 명시합니다. 또한 복잡한 변경은 먼저 계획하고, 목표를 작은 단계로 쪼개라고 조언합니다. ([Aider][12])
-
-적용:
-
-* `candidatePaths`를 단순 리스트에서 mini repo map으로 강화 가능
-* breadth-first 전략에 repo map/entry point summary가 특히 효과적
-* “관련 없는 파일을 많이 읽지 말라”는 현재 minimal footprint 철학이 맞다
-
----
-
-# 챕터 7: 우선순위별 개선 로드맵
-
-## 7-1. 즉시 적용 가능한 것
-
-| 항목                                                 | 예상 효과                        | 난이도   |    |
-| -------------------------------------------------- | ---------------------------- | ----- | -- |
-| normal/deep의 `temperature:0.1` 제거, GLM 권장 영역으로 조정  | 매우 큼                         | 낮음    |    |
-| GLM에서 `reasoningEffort: low                        | medium`제거,`none` 또는 생략으로 재설계 | 큼     | 낮음 |
-| 최종 응답을 항상 strict `json_schema` finalize로 통일        | 매우 큼                         | 낮음~중간 |    |
-| `clear_thinking` + `message.reasoning` plumbing 추가 | 매우 큼                         | 중간    |    |
-| system/finalize prompt front-load 강화               | 큼                            | 낮음    |    |
-
-### 제가 지목하는 “첫 번째 개선”
-
-**가장 낮은 비용으로 가장 큰 품질 향상을 기대할 수 있는 첫 개선은**
-`normal/deep에서 temperature 0.1 고정을 없애고, GLM-4.7 권장 reasoning 계약에 맞추는 것`입니다.
+표면적으로는 맞는 설계지만, 실제로는 가장 덜 완성돼 있습니다.
 
 이유:
 
-* 코드 수정량이 가장 작음
-* 모든 normal/deep 호출에 즉시 적용됨
-* 공식 문서와의 충돌을 바로 해소함
-* 현재 품질 저하 가능성이 가장 넓게 퍼져 있는 설정임 ([Cerebras Inference][1])
+1. 현재 SessionStore는 structured mode 결과를 전제로 설계돼 있음
+2. `explore`는 `report` 중심이라 summary/evidence/followups 갱신 방식이 다름
+3. invalid/exhausted session 처리 정책도 아직 정해지지 않음
 
-**바로 뒤이은 2순위**는
-“final answer를 항상 strict json_schema finalize로 통일”입니다.
+즉, `session` 필드는 기획서 표면만 보면 완성돼 있지만, **실제로는 의미론이 미완성**입니다.
+
+## 2.2.3 빠진 파라미터
+
+제가 보기엔 최소 3개가 부족합니다.
+
+### 1) `language` 또는 `response_language`
+
+현재 `explore_repo`는 language 힌트를 받을 수 있습니다.
+`explore`는 자연어 report가 핵심이므로, 오히려 이 필드가 더 중요합니다.
+
+예:
+
+* prompt는 영어지만 결과는 한국어로 받고 싶을 수 있음
+* parent model이 cross-lingual orchestration을 할 수 있음
+
+### 2) `context`
+
+specialized tools에는 이미 `context` 개념이 있습니다.
+자유형 탐색에서는 더더욱 유용합니다.
+
+예:
+
+* “코드 스타일이 아니라 아키텍처 관점만 봐라”
+* “성능보다 테스트 커버리지에 집중해라”
+
+prompt에 전부 집어넣을 수도 있지만, `context`가 있으면 parent model이 더 깔끔하게 제어할 수 있습니다.
+
+### 3) `maxReportLength` 또는 `reportStyle`
+
+자연어 리포트는 길이 폭주 위험이 있습니다.
+특히 `thorough` 모드에서는 “많이 읽었으니 많이 써야 한다”로 흐르기 쉽습니다.
+
+예:
+
+```json
+{
+  "reportStyle": "concise | balanced | detailed"
+}
+```
+
+혹은
+
+```json
+{
+  "maxReportLength": 3000
+}
+```
+
+이런 제어점이 있으면 훨씬 실전적입니다.
+
+### 추가로 고려할 수 있는 것
+
+* `format: markdown | plain` (문서에도 Phase C로 있음)
+* `focus: architecture | tests | git | symbols` 같은 soft hint
+* `continueOnError`는 굳이 public 파라미터일 필요는 없어 보입니다
+
+### 총평
+
+입력 스키마는 **초안으로는 괜찮지만, public tool로 내놓기엔 아직 한두 군데 비어 있는 느낌**입니다.
+특히 `language`는 Phase C가 아니라 초기에 넣는 편이 맞습니다.
 
 ---
 
-## 7-2. 단기 개선
+## 2.3 출력 형식 분석
 
-| 항목                                                  | 예상 효과 | 난이도 |
-| --------------------------------------------------- | ----- | --- |
-| strategy를 “제안”으로 낮추고 first-result 이후 override 허용    | 큼     | 낮음  |
-| strategy별 numbered step 가이드 추가                      | 큼     | 낮음  |
-| checkpoint prompt(예: 5턴마다 sufficiency 판단)           | 중간~큼  | 낮음  |
-| evidence ledger 지시 추가                               | 큼     | 낮음  |
-| finalize schema description / field descriptions 보강 | 중간    | 낮음  |
-| finalize max tokens 상향                              | 중간    | 낮음  |
+## 2.3.1 `report` 단일 자연어 필드 vs `explore_repo` 구조
+
+### `report` 단일 자연어 필드의 장점
+
+* 사람이 읽기 좋음
+* 분석 맥락과 권고를 자연스럽게 담을 수 있음
+* 복잡한 질문을 한 번에 서술하기 좋음
+
+### 한계
+
+* 후처리 난이도 높음
+* benchmark 만들기 어려움
+* session continuity에 필요한 structured memory 추출이 어려움
+* “어떤 사실이 관찰이고 어떤 것이 해석인지” 경계가 흐려질 수 있음
+
+### `explore_repo` 구조의 장점
+
+* 자동화 친화적
+* evidence 재검증 용이
+* confidence pipeline과 연동 가능
+* follow-up chaining이 쉬움
+
+### 한계
+
+* 사람에게 보여주는 긴 리뷰에는 부자연스러울 수 있음
+* 출력이 schema에 과도하게 종속됨
+* narrative nuance가 희생됨
+
+### 사용 시나리오를 정리하면
+
+| 시나리오                        | 더 적합한 도구             |
+| --------------------------- | -------------------- |
+| 상위 모델이 다음 tool call을 계획해야 함 | `explore_repo`       |
+| UI에서 사람이 긴 분석 리포트를 읽을 것     | `explore`            |
+| 벤치마크/회귀 테스트                 | `explore_repo` 쪽이 유리 |
+| 감사/리뷰/설계 해설                 | `explore`가 자연스러움     |
+
+즉, 둘은 경쟁 관계라기보다 **출력 소비자 타입이 다른 도구**입니다.
+
+## 2.3.2 `structuredContent`로 메타데이터를 분리하는 방식의 MCP 표준 적합성
+
+이 방향은 MCP와 잘 맞습니다. MCP 도구 결과는 텍스트 `content`와 JSON `structuredContent`를 함께 가질 수 있고, `outputSchema`도 둘 수 있습니다. 공식 spec도 structured content를 반환할 때는 backward compatibility를 위해 텍스트 블록에도 직렬화된 정보를 함께 실어 두는 방식을 권장합니다. ([모델 컨텍스트 프로토콜][2])
+
+그래서 기획 문서의 방향 자체는 맞습니다.
+다만 지금 제안된 형태는 **절반만 맞습니다.**
+
+현재 제안:
+
+```json
+{
+  "content": [{ "type": "text", "text": result.report }],
+  "structuredContent": {
+    "filesExamined": [...],
+    "toolsUsed": 12,
+    "elapsedMs": 8500,
+    "sessionId": "abc123"
+  }
+}
+```
+
+### 문제점 1) structuredContent에 `report`가 없음
+
+structuredContent를 주는 이유가 “machine-readable metadata”라면, `report`도 사실 그 구조 안에 있어야 더 일관적입니다.
+
+추천:
+
+```json
+{
+  "report": "...",
+  "filesRead": [...],
+  "toolsUsed": 12,
+  "elapsedMs": 8500,
+  "sessionId": "abc123",
+  "stats": { ... }
+}
+```
+
+그리고 `content`에는 `report` 텍스트를 그대로 넣으면 됩니다.
+
+### 문제점 2) `sessionId`가 텍스트에 없으면 일부 클라이언트가 follow-up을 못 할 수 있음
+
+일부 MCP 클라이언트/브리지/로그 시스템은 `content`만 보여 주거나 저장할 수 있습니다.
+그 경우 structuredContent에만 `sessionId`가 있으면 다음 호출에 쓰기 어렵습니다.
+
+### 문제점 3) `filesExamined`라는 이름이 과장될 수 있음
+
+앞서 말했듯 `observedRanges.keys()` 기준이면 실제론 “읽은 파일/grep 매치가 있던 파일”에 가깝습니다.
+따라서:
+
+* `filesRead`
+* `artifactsInspected`
+* `pathsTouched`
+
+중 하나가 더 정직합니다.
+
+### 제 추천 출력 형태
+
+```json
+{
+  "content": [
+    { "type": "text", "text": "<markdown report>" }
+  ],
+  "structuredContent": {
+    "report": "<same markdown report>",
+    "filesRead": ["src/a.js", "src/b.js"],
+    "candidatePaths": ["src/a.js", "src/c.js"],
+    "toolsUsed": 12,
+    "elapsedMs": 8500,
+    "sessionId": "sess_123",
+    "stats": { ... }
+  }
+}
+```
+
+그리고 tool definition에 `outputSchema`도 붙이는 편이 좋습니다.
+이게 MCP 생태계에서 더 예측 가능하게 작동합니다. ([모델 컨텍스트 프로토콜][2])
 
 ---
 
-## 7-3. 중장기 개선
+## 2.4 시스템 프롬프트(`buildExploreSystemPrompt`) 분석
 
-| 항목                                         | 예상 효과 | 난이도   |
-| ------------------------------------------ | ----- | ----- |
-| git evidence를 담는 union schema 도입           | 중간~큼  | 중간    |
-| raw tool result compaction / summarization | 매우 큼  | 중간~높음 |
-| mini repo map / symbol summary 주입          | 큼     | 중간    |
-| critic pass 또는 explorer/validator 2-pass   | 매우 큼  | 중간    |
-| strategy별 tool exposure 조정 / dynamic tools | 중간    | 중간    |
-| benchmark harness + seed 기반 ablation       | 큼     | 중간    |
+## 2.4.1 강점
+
+기획된 프롬프트의 좋은 점은 명확합니다.
+
+* read-only 원칙을 분명히 둠
+* search/read 순서를 강제함
+* git/symbol/list 도구 활용 힌트가 있음
+* 충분하면 멈추라고 함
+* 자연어 report를 markdown으로 쓰게 함
+* 같은 언어로 답하라고 함
+
+즉, 기본적인 “탐색 에이전트의 태도”는 잘 잡았습니다.
+
+## 2.4.2 약점
+
+하지만 `explore_repo`의 현재 structured prompt에 비해, hallucination 억제와 종료 기준은 확실히 약합니다.
+
+### 약점 1) “충분히 읽었다”의 기준이 너무 추상적
+
+현재 문구는:
+
+* plan your investigation
+* gather information
+* stop as soon as you can answer
+
+정도입니다.
+
+이건 사람한테는 괜찮지만, 모델은 여기서 흔들립니다.
+
+* 어떤 질문은 2개 파일만 읽어도 충분
+* 어떤 질문은 10개 파일을 봐야 충분
+* 어떤 경우는 하나 더 읽으면 중요한 모순을 발견
+
+즉, stop criterion이 없습니다.
+
+### 약점 2) 사실과 해석을 구분시키지 않음
+
+자연어 report에서는 특히 다음 구분이 중요합니다.
+
+* observed fact
+* plausible inference
+* unresolved uncertainty
+
+이 구분이 없으면 보고서는 그럴듯하지만, 근거가 어디까지 직접 관찰인지 흐려집니다.
+
+### 약점 3) source citation discipline이 약함
+
+“file paths and line numbers where relevant” 정도로는 약합니다.
+적어도 주요 주장마다 출처 표시를 유도해야 합니다.
+
+### 약점 4) error recovery가 너무 낙관적
+
+“directory read fails → repo_list_dir” 같은 예시는 좋지만,
+
+* fallback loop 방지
+* 같은 실패 반복 방지
+* 너무 많은 grep 결과 축소 규칙
+
+이 더 필요합니다.
+
+## 2.4.3 모델이 “충분히 읽었다”고 판단하는 기준을 얼마나 잘 유도하는가
+
+현재 프롬프트만으로는 **충분히 잘 유도하지 못합니다.**
+
+제가 추천하는 exit checklist는 이렇습니다.
+
+```text
+Before finishing, check:
+1. Have you answered every major sub-question in the prompt?
+2. Does each major conclusion cite at least one inspected artifact?
+3. Is there one obvious missing check that would likely change the conclusion?
+4. If uncertainty remains, state it explicitly instead of guessing.
+```
+
+이 정도는 들어가야 모델이 불필요한 과탐색과 섣부른 종료 사이에서 균형을 잡습니다.
+
+## 2.4.4 할루시네이션 억제 전략이 충분한가
+
+현재는 **불충분**합니다.
+
+왜냐하면 `explore_repo`는 최종적으로 evidence grounding과 confidence scoring이 있지만, `explore`는 설계상 그것을 약화시키는 방향이기 때문입니다.
+
+자연어 보고서 모드에서 hallucination을 억제하려면 적어도 아래 중 하나는 있어야 합니다.
+
+### 옵션 A: 보고서 내 source marker 강제
+
+예:
+
+* `src/foo.ts:10-22`
+* `commit abc1234`
+* `plan/roadmap.md`
+
+### 옵션 B: 보고서와 별도로 간단한 structured provenance metadata 유지
+
+예:
+
+```json
+{
+  "sourceRefs": [
+    { "kind": "file_range", "path": "src/foo.ts", "startLine": 10, "endLine": 22 },
+    { "kind": "git_commit", "commit": "abc1234" }
+  ]
+}
+```
+
+### 옵션 C: “모르는 건 모른다고 말하라”를 더 강하게 지시
+
+현재도 간접적으로는 있지만, 명시도가 약합니다.
+
+## 2.4.5 개선 제안
+
+제가 추천하는 prompt 보강은 세 가지입니다.
+
+### 1) claim discipline 추가
+
+```text
+Do not summarize unread files as facts.
+Separate direct observations from inferences.
+When uncertain, say what is missing.
+```
+
+### 2) source discipline 추가
+
+```text
+For every major claim, cite at least one inspected file path and line range, or a specific git artifact.
+```
+
+### 3) stop discipline 추가
+
+```text
+Stop when one more tool call is unlikely to materially change the answer.
+```
+
+### 총평
+
+현재 기획 프롬프트는 “좋은 초안”입니다.
+하지만 `explore_repo` 수준의 신뢰도를 유지하려면, 자유형이라고 해서 provenance discipline까지 느슨해지면 안 됩니다.
 
 ---
 
-## 7-4. 추천 실행 순서
+## 2.5 `ExplorerRuntime.freeExplore()` 구현 계획 분석
 
-### 1단계: 오늘 바로 바꿀 것
+## 2.5.1 기존 `explore()`에서 분기하지 않고 별도 메서드로 분리하는 결정의 타당성
 
-1. `temperature` 재설정
-2. `reasoningEffort low/medium` 제거
-3. `top_p: 0.95` 명시
-4. final answer를 항상 strict finalize로 통일
-5. finalize prompt 강화
+문서의 직관은 맞습니다.
+`explore()` 안에 mode 분기를 잔뜩 넣으면 복잡해질 가능성이 큽니다.
 
-### 2단계: 이번 주에 바꿀 것
+하지만 “public method는 분리”와 “내부 루프도 복제”는 다른 이야기입니다.
 
-1. `clear_thinking: false` + `message.reasoning` 보존
-2. strategy override 허용
-3. checkpoint prompt 삽입
-4. finalize token 상향
+### 제가 추천하는 구조
 
-### 3단계: 다음 스프린트
+* public API는 분리
 
-1. evidence schema 확장
-2. tool history compaction
-3. critic pass
-4. repo map / symbol summary 압축 주입
+  * `explore()`
+  * `freeExplore()`
+
+* 내부 orchestration은 공유
+
+  * `_runExplorationLoop(modeConfig)`
+
+즉:
+
+```js
+async explore(args, opts) {
+  return this._runExplorationLoop(structuredModeConfig);
+}
+
+async freeExplore(args, opts) {
+  return this._runExplorationLoop(reportModeConfig);
+}
+```
+
+이유는 간단합니다.
+두 모드는 이미 다음을 공유합니다.
+
+* repoRoot resolution
+* project config loading
+* session loading
+* tool definitions
+* tool loop
+* progress reporting
+* candidate path tracking
+* observed range tracking
+* elapsed/stats 계산
+
+이걸 복제하면 향후 drift가 생깁니다.
+따라서 “별도 메서드”는 맞지만, “별도 구현”은 위험합니다.
+
+## 2.5.2 현재 순차 실행 → 병렬 도구 실행 전환 시 고려할 동시성 이슈
+
+이 기획 문서는 병렬화를 약간 가볍게 보고 있습니다. 실제론 꽤 많은 이슈가 있습니다.
+
+### 먼저 짚을 사실
+
+현재 runtime은 모델 호출 시 이미 `parallelToolCalls: true`를 넘기고 있습니다.
+즉, 모델은 한 턴에 여러 tool call을 낼 수 있는 상태입니다. 다만 실행 루프가 순차로 돌 뿐입니다.
+
+이건 말하자면 **모델은 병렬 의도를 표현하고 있는데, 런타임이 직렬로 소화 중인 상태**입니다.
+
+### 실제 고려해야 할 이슈
+
+| 이슈                  | 설명                                                | 대응                                     |
+| ------------------- | ------------------------------------------------- | -------------------------------------- |
+| 동일 파일 중복 읽기         | 같은 턴에 같은 파일 여러 범위 읽기 요청 가능                        | in-flight dedupe, range merge          |
+| 순서 안정성              | 병렬 완료 순서가 원래 요청 순서와 다를 수 있음                       | 결과는 원래 tool call 순서대로 messages에 append |
+| 부분 실패               | 하나 실패했다고 전체 턴 실패하면 안 됨                            | `Promise.allSettled` 스타일               |
+| sync subprocess 문제  | 일부 tool은 `execFileSync`라 Promise.all만으로 진짜 병렬 안 됨 | async subprocess로 전환 or bounded worker |
+| cache stampede      | 같은 key를 여러 call이 동시에 조회                           | cache에 in-flight promise 저장            |
+| rate/latency 폭주     | 턴당 너무 많은 읽기가 나가면 비용 증가                            | concurrency cap                        |
+| error recovery 상호작용 | 실패한 call의 fallback을 다음 턴 힌트에 어떻게 넣을지              | 실패 이유를 구조화해 누적                         |
+
+### 특히 중요한 한 가지
+
+현재 git/grep 일부 구현은 sync subprocess입니다.
+따라서 문서의 예시처럼 `Promise.all([...repoToolkit.callTool(...)])`만 쓰면 **코드가 병렬처럼 보여도 실제 성능 이점이 제한적일 수 있습니다.**
+
+이건 Explorer Mode 기획에서 가장 과소평가된 기술 포인트 중 하나입니다.
+
+### 추천
+
+초기에는:
+
+* **bounded concurrency (예: 3~4)**
+* **append 순서 보존**
+* **duplicate read dedupe**
+* **allSettled**
+* **진짜 병렬이 필요한 tool만 async 전환**
+
+정도가 현실적입니다.
 
 ---
 
-# 최종 제안 요약
+## 2.6 구현 Phase A/B/C 검토
 
-## 가장 중요한 진단 5개
+| Phase | 작업 성격                                                  | 예상 난이도 | 위험도 | 평가               |
+| ----- | ------------------------------------------------------ | -----: | --: | ---------------- |
+| A     | 새 input schema, prompt, freeExplore, server 등록, 기본 테스트 |     중간 |  중간 | 현실적              |
+| B     | 병렬화, fallback, session continuity, progress            |     높음 |  높음 | 실제 핵심 리팩터링       |
+| C     | 자동 thoroughness, format, benchmark                     |     중간 |  중간 | polish지만 생각보다 넓음 |
 
-1. **현재 프롬프트는 나쁘지 않지만, GLM-4.7이 선호하는 front-loaded hard-constraint 구조로는 덜 다듬어져 있습니다.** ([Cerebras Inference][1])
-2. **`temperature:0.1` 고정은 normal/deep에서 공식 권장과 충돌합니다.** GLM-4.7 reasoning을 살릴 생각이면 0.8 이하를 피해야 합니다. ([Cerebras Inference][1])
-3. **`clear_thinking` 미사용 + `message.reasoning` 미보존 때문에 멀티턴 탐색의 강점을 스스로 버리고 있습니다.** ([Cerebras Inference][2])
-4. **strict JSON schema는 이미 잘 만들어져 있는데, main success path에서 항상 사용되지 않는 것이 가장 큰 출력 안정성 손실입니다.** ([Cerebras Inference][3])
-5. **전략 자동 감지는 시작점으로는 좋지만, override 불가와 git evidence 스키마 부족 때문에 깊은 질문에서 병목이 생깁니다.**
+## 2.6.1 Phase A 평가
 
-## 제가 이 프로젝트에 바로 적용하라고 권하는 최소 패치
+좋습니다. 다만 “기본 테스트”는 단순 happy path로 끝나면 안 됩니다.
 
-* `temperature`: quick 0.3 / normal 0.8 / deep 1.0
-* `reasoning_effort`: quick만 `"none"`, 나머지는 생략
-* `top_p: 0.95` 추가
-* `clear_thinking:false` + `message.reasoning` 보존
-* final answer는 항상 `json_schema strict:true` dedicated finalize
-* system prompt를 front-load 구조로 재배치
-* finalize prompt에 self-check와 exact-one-JSON 규칙 추가
+최소한 있어야 할 테스트:
 
-이 6개만 해도, 현재 설계의 품질은 꽤 크게 올라갈 가능성이 높습니다.
+* `explore` returns report text
+* structuredContent에 sessionId/stats 포함
+* invalid session 처리
+* report-only 결과가 SessionStore에 어떤 영향을 주는지
+* progress notification path
 
-원하시면 다음 답변에서 제가 바로 `prompt.mjs`, `config.mjs`, `cerebras-client.mjs`, `runtime.mjs` 기준으로 **실제 패치 초안(diff 스타일)**까지 적어드릴 수 있습니다.
+즉, Core라고 해도 session semantics는 Phase A에서 피해 갈 수 없습니다.
 
-[1]: https://inference-docs.cerebras.ai/resources/glm-47-migration "https://inference-docs.cerebras.ai/resources/glm-47-migration"
-[2]: https://inference-docs.cerebras.ai/api-reference/chat-completions "https://inference-docs.cerebras.ai/api-reference/chat-completions"
-[3]: https://inference-docs.cerebras.ai/capabilities/structured-outputs "https://inference-docs.cerebras.ai/capabilities/structured-outputs"
-[4]: https://inference-docs.cerebras.ai/capabilities/reasoning "https://inference-docs.cerebras.ai/capabilities/reasoning"
-[5]: https://docs.z.ai/guides/capabilities/struct-output "https://docs.z.ai/guides/capabilities/struct-output"
-[6]: https://arxiv.org/abs/2210.03629 "https://arxiv.org/abs/2210.03629"
-[7]: https://www.anthropic.com/engineering/claude-code-best-practices "https://www.anthropic.com/engineering/claude-code-best-practices"
-[8]: https://arxiv.org/abs/2303.11366 "https://arxiv.org/abs/2303.11366"
-[9]: https://arxiv.org/abs/2405.15793 "https://arxiv.org/abs/2405.15793"
-[10]: https://docs.langchain.com/oss/python/langchain/context-engineering "https://docs.langchain.com/oss/python/langchain/context-engineering"
-[11]: https://docs.openhands.dev/sdk/guides/agent-custom "https://docs.openhands.dev/sdk/guides/agent-custom"
-[12]: https://aider.chat/docs/repomap.html "https://aider.chat/docs/repomap.html"
+## 2.6.2 Phase B 평가
+
+이 문서에서 가장 무거운 Phase입니다.
+
+특히 7번 “병렬 도구 실행 — `freeExplore()`와 `explore()` 모두에 적용”은 사실상 다음을 의미합니다.
+
+* `runtime.mjs`의 공용 툴 루프 리팩터링
+* stats, observedRanges, candidatePaths 수집 로직 재검증
+* ordering semantics 재검증
+* 기존 `explore_repo` 회귀 테스트 재실행
+
+즉, 이건 Explorer mode enhancement가 아니라 **core runtime refactor**입니다.
+
+제 생각에는 이 작업은 Explorer Mode Phase B 안에 넣기보다, **독립 backlog 항목**으로 빼는 편이 더 맞습니다.
+
+## 2.6.3 Phase C 평가
+
+겉보기엔 polish지만, 각각 생각보다 가볍지 않습니다.
+
+### thoroughness 자동 감지
+
+이미 코드베이스에 task complexity classifier가 있는 만큼 재사용은 가능해 보입니다.
+하지만 자동 상향 조정은 latency 예측 가능성을 해칩니다.
+
+### format 옵션
+
+나쁘지 않지만, 실제론 `markdown`만 있어도 초기엔 충분할 가능성이 큽니다.
+
+### benchmark
+
+필수입니다. 오히려 benchmark는 Phase C가 아니라 더 앞에 와야 할 수도 있습니다.
+새 public tool인데 회귀 기준 없이 넣는 것은 좋지 않습니다.
+
+### 총평
+
+* Phase A: 타당
+* Phase B: 실제로 제일 위험
+* Phase C: polish 같지만 평가 체계까지 묶이면 중요
+
+---
+
+## 2.7 `explore` vs `explore_repo` 공존 전략 평가
+
+### 혼용 시 발생할 수 있는 혼란
+
+가장 큰 혼란은 “둘 다 비슷하게 들린다”는 점입니다.
+
+* `explore_repo`
+* `explore`
+
+사람에게도 비슷하고, 모델에게도 비슷합니다.
+게다가 MCP 클라이언트는 여러 서버의 도구를 한 registry에 합쳐 모델에게 노출합니다. tool의 name/title/description/inputSchema는 실제 선택 품질에 직접 영향을 줍니다. ([모델 컨텍스트 프로토콜][1])
+
+이 맥락에서 `explore`는 너무 일반적인 이름일 수 있습니다.
+다른 서버에도 흔히 있을 법한 이름이기 때문입니다. MCP spec도 tool name uniqueness는 서버 내부 범위일 뿐이고, 여러 서버를 합치면 충돌 가능성이 있다고 설명합니다. ([모델 컨텍스트 프로토콜][2])
+
+### 권장 가이드라인
+
+#### `explore_repo` 설명에는 반드시 넣어야 할 문구
+
+* structured JSON output
+* evidence/confidence/followups returned
+* use for programmatic chaining and automation
+
+#### `explore` 설명에는 반드시 넣어야 할 문구
+
+* human-readable report
+* not intended for strict programmatic parsing
+* confidence/evidence are narrative unless otherwise noted
+* best for audits, reviews, and broad investigations
+
+### 이름 자체도 고민해볼 만함
+
+솔직히 말하면, `explore`보다는 아래가 더 명확합니다.
+
+* `explore_report`
+* `freeform_explore`
+* `analyze_repo_report`
+
+지금 이름이 절대 틀린 건 아니지만, MCP 다중 서버 환경에서는 generic name이 손해일 수 있습니다.
+
+### 가장 좋은 공존 전략
+
+* 기본 general-purpose structured tool은 여전히 `explore_repo`
+* `explore`는 사람이 읽는 리포트가 필요한 경우에만 선택
+* specialized tools(`explain_symbol`, `trace_dependency`, `summarize_changes`, `find_similar_code`)도 계속 별도 존재
+
+즉, 선택 우선순위를 문서/description에 아주 명시적으로 써줘야 합니다.
+
+예:
+
+1. narrow task면 specialized tool
+2. automation이면 `explore_repo`
+3. human report면 `explore`
+
+---
+
+## 2.8 제안자가 예상하지 못했을 리스크 및 개선 포인트
+
+이 문서의 가장 큰 맹점은 **새 도구의 출력 형식보다, 그 출력이 기존 세션/평가/공용 runtime에 어떻게 녹아드는지**를 덜 보고 있다는 점입니다.
+
+### 맹점 1) SessionStore와 결과 shape 불일치
+
+이미 설명했듯 현재 SessionStore는 `summary/evidence/followups/candidatePaths` 기반입니다.
+`report` 하나만 반환하면 기존 세션 기억이 제대로 작동하지 않습니다.
+
+### 맹점 2) `filesExamined` 정의 부정확
+
+현재 제안 방식이면 실제론 `filesRead`에 가깝습니다. 이건 작은 naming issue가 아니라 **사용자 신뢰 문제**입니다.
+
+### 맹점 3) 병렬화가 생각보다 공용 리팩터링
+
+explore mode enhancement처럼 써 있지만 실제론 `explore_repo`에 큰 영향을 줍니다.
+
+### 맹점 4) report mode의 provenance 약화
+
+`explore_repo`가 가진 구조화 evidence discipline을 잃는 대가를 충분히 다루지 않았습니다.
+
+### 맹점 5) 평가 체계 부재
+
+자유형 리포트는 예쁜 예시 하나 만들기는 쉽지만, regression benchmark가 훨씬 어렵습니다.
+
+### 개선 포인트
+
+제가 제안하는 개선은 다음 다섯 가지입니다.
+
+1. `freeExplore()`를 만들되 내부 공용 루프는 분리 추출
+2. `outputSchema`와 `structuredContent.report`를 함께 설계
+3. session memory packet을 mode-agnostic하게 재설계
+4. `explore` report에도 최소 provenance discipline 유지
+5. 병렬화는 Explorer Mode와 분리된 공용 runtime 프로젝트로 별도 추적
+
+### 총평
+
+이 기획은 **제품적으로 매력적이고 방향도 좋다**는 점에서 높은 점수를 줄 수 있습니다.
+하지만 구현 난이도는 문서가 암시하는 것보다 분명히 높습니다.
+특히 **Phase A는 쉬워 보이지만, Phase B가 사실상 핵심 난관**입니다.
+
+---
+
+# 3. `git-history-confidence.md` — Git Confidence 저하 문제 분석
+
+## 3.1 문제 현상 해설
+
+이 문서는 세 계획 중에서 **문제 진단 정확도**가 가장 높습니다. 실제 코드와 거의 정확히 맞물립니다.
+
+### 비전공자도 이해할 수 있게 설명하면
+
+현재 시스템은 “무엇을 실제로 읽었는가”를 기준으로 답변의 confidence를 깎거나 올립니다.
+그런데 이 “읽음”의 기준이 거의 파일 라인 범위 중심입니다.
+
+문제는 git 질문에서는 근거가 꼭 파일 라인 범위가 아니라는 점입니다.
+
+예:
+
+* 어떤 커밋이 언제 들어왔는지
+* 누가 이 줄을 마지막으로 바꿨는지
+* 어떤 diff hunk가 버그 원인이었는지
+
+이런 건 git log / blame / diff / show가 근거인데, 현재 평가지표는 그 근거를 잘 받아주지 못합니다.
+
+비유하면 이렇습니다.
+
+> **탐정은 분명히 CCTV와 통화기록을 확인했는데, 판사는 “종이 문서 몇 쪽 읽었는지만 증거로 인정한다”고 하는 상황**입니다.
+
+그래서 모델이 git 도구를 써서 꽤 괜찮은 답을 해도, 시스템은 “파일 라인 evidence가 부족하네?”라고 보고 confidence를 낮춰 버립니다.
+
+### 사용자 경험에 미치는 실질적 영향
+
+이건 꽤 큽니다.
+
+* history 질문에서 자꾸 `low`가 뜨면, 사용자는 “이 도구는 git 쪽은 약한가 보다”라고 느낍니다.
+* 상위 에이전트는 low confidence를 보고 불필요하게 추가 탐색을 시도할 수 있습니다.
+* 실제로 맞는 답인데도 “신뢰도 낮음” 딱지가 붙으면, 도구 전체의 credibility가 떨어집니다.
+
+즉, 이 문제는 단순 scoring bug가 아니라 **프로젝트의 핵심 가치인 ‘grounded structured answer’에 금이 가는 문제**입니다.
+
+---
+
+## 3.2 5가지 Root Cause 각각의 심층 분석
+
+## 3.2.1 Observed range 수집이 file-read 중심
+
+### 왜 이런 설계가 처음에 선택됐는가
+
+이 설계는 사실 매우 자연스러운 출발이었습니다.
+
+* `repo_read_file`은 line range가 명확함
+* `repo_grep`도 match line이 명확함
+* file path + line range는 grounding하기 쉬움
+* hallucination 방지 효과가 큼
+
+즉, MVP 단계에서 “읽은 파일 범위만 믿는다”는 정책은 좋은 선택이었습니다.
+
+### 한계는 무엇인가
+
+문제는 git 정보는 본질적으로 다른 shape를 가진다는 점입니다.
+
+* `git log`는 commit timeline
+* `git blame`은 line + author + commit
+* `git diff`는 old/new hunk
+* `git show`는 commit patch + message
+
+이들은 “file line range”로 일부는 환원될 수 있지만, 일부는 환원되면 의미가 손실됩니다.
+
+현재 런타임은 실제로 `observedRanges`를 아래 경우에만 기록합니다.
+
+* `repo_read_file`
+* `repo_grep`
+
+그래서 파이프라인은 사실상 이렇게 됩니다.
+
+```text
+git tool 사용
+   ↓
+유용한 사실 확보
+   ↓
+observedRanges에는 안 남음
+   ↓
+final evidence가 file-range와 안 맞음
+   ↓
+drop
+   ↓
+confidence low
+```
+
+즉, 설계의 출발은 합리적이었지만, 기능 범위가 git으로 넓어진 뒤 verifier가 따라오지 못한 전형적인 사례입니다.
+
+---
+
+## 3.2.2 Evidence schema의 표현력 부족
+
+현재 evidence schema는 사실상 이것뿐입니다.
+
+```json
+{
+  "path": "relative/path",
+  "startLine": 1,
+  "endLine": 10,
+  "why": "reason"
+}
+```
+
+이건 file-range evidence에는 아주 좋습니다.
+하지만 git evidence에는 부족합니다.
+
+### 왜 새 kind가 필요한가
+
+#### `git_commit`
+
+“이 변경은 commit `abc1234`에서 들어왔다”는 게 핵심 근거인 경우가 있습니다.
+이건 path/line으로 줄이면 commit identity가 사라집니다.
+
+#### `git_diff_hunk`
+
+버그 원인이 특정 hunk일 수 있습니다.
+그런데 diff는 old/new line range를 함께 가질 수 있고, path rename도 있을 수 있습니다.
+
+#### `git_blame_line`
+
+“이 줄은 누가 언제 바꿨는가”는 blame 고유 근거입니다.
+author/commit/line 정보가 같이 있어야 합니다.
+
+### schema 레벨에서 시각적으로 보면
+
+#### 현재
+
+```json
+evidence[] = {
+  path, startLine, endLine, why
+}
+```
+
+#### 필요한 방향
+
+```json
+evidence[] = one of:
+- { kind: "file_range", path, startLine, endLine, why }
+- { kind: "git_commit", commit, path?, why }
+- { kind: "git_diff_hunk", oldPath?, newPath?, oldStartLine?, newStartLine?, commit?, why }
+- { kind: "git_blame_line", path, line, commit, author?, why }
+```
+
+### 문서의 proposed schema에 대한 보완 의견
+
+문서 안의 초안:
+
+```json
+{
+  "kind": "file_range | git_commit | git_diff_hunk | git_blame_line",
+  "path": "...",
+  "startLine": 10,
+  "endLine": 18,
+  "commit": "abc1234",
+  "author": "...",
+  "why": "..."
+}
+```
+
+이건 첫걸음으로는 좋습니다.
+하지만 특히 `git_diff_hunk`에는 약간 부족합니다.
+
+왜냐하면 diff hunk는 보통:
+
+* old path / new path
+* old range / new range
+* sometimes rename only
+* deletion or addition only
+
+을 가질 수 있기 때문입니다.
+
+즉, `startLine/endLine` 하나만 두면 **이 range가 old file 기준인지 new file 기준인지 모호**합니다.
+그래서 `git_diff_hunk`는 최소한 old/new 쌍을 고려해야 합니다.
+
+---
+
+## 3.2.3 Confidence penalty 미분화
+
+현재 구조의 핵심 문제는 이것입니다.
+
+> **지원되지 않는 근거(unsupported evidence)** 와
+> **실제로 부정확하거나 날조된 근거(ungrounded/fabricated evidence)** 를
+> 거의 같은 방향으로 처벌한다.
+
+현재 `computeConfidenceScore()`는 대략:
+
+* evidenceDropped > 0 이면 -0.30
+* grounded evidence 0이면 score=0.1
+* dropped가 있으면 최종 confidence를 low로 강등
+
+이 구조입니다.
+
+### 억울하게 처벌받는 케이스
+
+#### 케이스 1) `repo_git_log` 중심 질문
+
+질문: “최근 어떤 변화가 있었나?”
+모델은 `git log`를 보고 요약을 잘함.
+하지만 file-range evidence가 없으면 grounded evidence가 빈약해 보입니다.
+
+이건 “답이 나쁨”이 아니라 **현재 schema가 그 근거를 잘 못 담음**에 가깝습니다.
+
+#### 케이스 2) `repo_git_show` patch 기반 질문
+
+모델이 patch를 충분히 읽고 “이 함수의 인증 조건이 여기서 추가되었다”고 답했는데, 추가로 `repo_read_file`를 하지 않았다는 이유로 evidence가 drop될 수 있습니다.
+
+#### 케이스 3) `repo_git_blame` 기반 질문
+
+누가 바꿨는지는 blame이 가장 직접 근거인데, 평가 기준이 file read 중심이면 오히려 blame answer가 손해 봅니다.
+
+### false positive 패널티 문제
+
+현재 `evidenceDropped` 하나로만 보면 시스템은 이런 판단을 못 합니다.
+
+* “지원되지 않는 좋은 evidence”
+* “형식이 틀린 evidence”
+* “실제로 읽지 않은 파일을 인용한 evidence”
+
+이 셋은 성격이 완전히 다릅니다.
+하지만 지금은 모두 “drop”입니다.
+
+이건 scoring system으로서 설명 가능성이 떨어집니다.
+
+---
+
+## 3.2.4 Prompt-runtime 계약 불일치
+
+이건 문서가 정확히 짚었습니다.
+
+프롬프트는:
+
+* git-guided 써라
+* blame-guided 써라
+* git tools 활용해라
+
+라고 합니다.
+
+그런데 finalize prompt는:
+
+* inspected 된 file/line range에 grounding하라
+
+고 합니다.
+
+즉, 모델에게는 “git로 찾아라”라고 해 놓고, 채점기는 “결국 file line range로 가져와야 인정”하는 구조입니다.
+
+### 이런 불일치는 왜 생기는가
+
+이건 굉장히 흔한 성장통입니다.
+
+1. 처음엔 file-based explorer로 출발
+2. 이후 git tool 추가
+3. prompt는 빨리 확장
+4. verifier/schema/confidence는 늦게 확장
+5. 기능은 늘었는데 채점 기준은 옛날 것
+
+즉, 기능 레이어와 검증 레이어의 진화 속도가 어긋난 결과입니다.
+
+### 추가로 한 가지 더
+
+현재 최종 confidence 병합 로직은 runtime이 계산한 confidence가 더 낮을 때만 모델 confidence를 낮춥니다.
+반대로 모델이 `low`라고 썼는데 runtime score가 `medium`이어도 **상향하지 않습니다**.
+
+이 말은 곧, git 질문에서 모델이 prompt의 압박 때문에 스스로 low를 내면, runtime scoring을 고쳐도 `confidence`가 low로 남을 수 있다는 뜻입니다.
+
+즉, 이 문제는 scoring만의 문제가 아니라 **prompt contract 정리 없이는 완전히 해소되지 않습니다.**
+
+---
+
+## 3.2.5 테스트 공백
+
+문서 진단이 맞습니다. 현재 테스트는 주로:
+
+* recentActivity가 생기는지
+* crash 없이 끝나는지
+
+를 봅니다.
+
+하지만 핵심 버그를 잡으려면 필요한 테스트는 다른 종류입니다.
+
+### 처음부터 이 버그를 잡을 수 있었던 테스트
+
+#### 1) git-guided end-to-end mock test
+
+* 모델이 `repo_git_log` 호출
+* commit 기반 answer/evidence 생성
+* 결과가 구조적으로 `low`에 고정되지 않는지 확인
+
+#### 2) blame retention test
+
+* `repo_git_blame`를 쓴 뒤 line-level evidence가 유지되는지
+
+#### 3) diff hunk grounding test
+
+* `repo_git_diff` 또는 `repo_git_show` patch를 읽고
+* 해당 hunk 근거가 retained 되는지
+
+#### 4) mixed evidence test
+
+* file-range + git evidence가 섞인 경우
+* 둘 다 적절히 점수에 반영되는지
+
+#### 5) legacy regression test
+
+* 순수 file-range 질문의 confidence 동작은 그대로인지
+
+현재 테스트 공백은 단순히 “케이스가 부족하다”가 아니라,
+**confidence architecture가 어떤 종류의 근거를 인정해야 하는지에 대한 테스트가 없었다**는 뜻입니다.
+
+---
+
+## 3.3 5개 Phase 구현 계획 평가
+
+## 3.3.1 Phase 1 — fast-path stabilization
+
+### 가치
+
+높습니다.
+특히 false-low를 빨리 줄인다는 점에서 사용자 체감 개선이 큽니다.
+
+### 좋은 점
+
+* schema 대수술 없이 완화 가능
+* blame/diff/show 계열의 부당한 low를 먼저 줄일 수 있음
+* “지원 못하는 evidence”와 “hallucination”을 덜 혼동하게 만들 수 있음
+
+### 하지만 임시 방편으로 남을 위험
+
+아주 큽니다.
+
+왜냐하면 fast-path는 결국 file-range 중심 체계를 유지한 채 git를 억지로 끼워 맞추는 방식이기 때문입니다.
+
+예:
+
+* diff hunk를 억지로 line range로 환원
+* git log는 별도 hint로만 보정
+* commit-level semantics는 여전히 비주류
+
+이러면 당장은 좋아져도, 나중에 “굳이 schema 확장까지 해야 하나?” 분위기가 생겨 임시 방편이 굳어질 수 있습니다.
+
+### 추가 비판
+
+문서가 Phase 1을 꽤 가볍게 보지만, 실제로는 `repo_git_diff`/`repo_git_show`에서 hunk line parsing을 하려면 현재 `parseDiffOutput()` 수준보다 훨씬 정교한 파서가 필요합니다. 지금 구현은 파일별 additions/deletions 카운트와 patch 텍스트 정도만 다룹니다. 즉, Phase 1조차도 생각보다 작은 작업은 아닙니다.
+
+---
+
+## 3.3.2 Phase 2 — evidence schema 확장
+
+### `kind` 필드 도입의 장점
+
+* 개념적으로 가장 정직합니다.
+* git evidence를 first-class citizen으로 대우하게 됩니다.
+* prompt/runtime/scoring을 한 언어로 정리할 수 있습니다.
+
+### 하위 호환성 위험
+
+문서도 언급하지만, 생각보다 넓습니다.
+
+외부 consumer뿐 아니라 내부 코드도 영향을 받습니다.
+
+예:
+
+* `normalizeExploreResult()`는 현재 legacy shape만 남기고 나머지를 버림
+* `SessionStore.update()`는 `evidence[].path`를 모아 evidencePaths를 만듦
+* benchmark evaluator는 `evidence_paths` 중심
+* README/examples/tests가 다 file-range를 전제
+
+즉, 이건 schema 한 줄 추가가 아니라 **내부 consumer migration**입니다.
+
+### 마이그레이션 전략 제안
+
+#### 전략 A: 단일 `evidence[]` + `kind`
+
+가장 개념적으로 깔끔합니다.
+하지만 strict schema와 conditional field 조합이 복잡해질 수 있습니다.
+
+#### 전략 B: legacy `evidence[]` 유지 + `gitEvidence[]` 추가
+
+더 안전하지만, 의미가 두 배열로 갈라집니다.
+
+### 제 판단
+
+장기적으로는 `kind` 기반 단일 배열이 맞습니다.
+다만 초기 migration은 아래처럼 가는 게 현실적입니다.
+
+1. legacy shape 유지
+2. `kind` optional 추가
+3. git kind에 필요한 필드를 점진 추가
+4. internal consumer를 순차적으로 kind-aware하게 변경
+5. 문서와 benchmark evaluator를 함께 업데이트
+
+### 한 가지 더
+
+strict structured output JSON schema를 계속 쓸 거라면, `oneOf` 같은 복잡한 schema는 provider/model compliance를 해칠 수 있습니다. 그래서 초기엔 완전한 이상형보다 **조금 느슨한 additive schema + runtime validation**이 더 실용적일 수 있습니다.
+
+---
+
+## 3.3.3 Phase 3 — confidence scoring 분리
+
+문서 방향은 좋습니다.
+`droppedUnsupported / droppedUngrounded / droppedMalformed`는 아주 좋은 출발입니다.
+
+### 설계 완성도 평가
+
+상당히 좋지만, 여기에 몇 가지를 더 생각해볼 수 있습니다.
+
+#### 추가 고려할 분류
+
+* `droppedOutOfScope`: scope 밖 파일이라 버림
+* `droppedRepoMismatch`: session 오염 등으로 다른 repo path가 들어옴
+* `retainedPartial`: 부분 grounding
+* `supportedByGitMetadata`: git evidence로는 인정되지만 file-range는 아님
+
+### 패널티 차등의 예시
+
+* unsupported type: 0 또는 아주 약한 패널티
+* malformed: 강한 패널티
+* ungrounded: 중간~강한 패널티
+* fabricated-looking external path: 매우 강한 패널티
+
+이렇게 나뉘면 결과 설명력이 훨씬 좋아집니다.
+
+### 중요한 추가 포인트
+
+confidence는 단순 숫자만이 아니라, **사용자에게 “왜 낮은가”를 말할 수 있어야** 합니다.
+이 문서의 방향은 그 점에서 맞습니다.
+
+---
+
+## 3.3.4 Phase 4 — prompt contract 정리
+
+### 실현 가능성
+
+높습니다. 하지만 **Phase 2와 강하게 연결**됩니다.
+
+모델이 git result를 근거로 써도 된다는 걸 알려주려면:
+
+* schema가 그걸 표현할 수 있어야 하고
+* runtime이 그걸 grounding할 수 있어야 하며
+* scoring이 그걸 낮게 보지 않아야 합니다
+
+즉, prompt만 먼저 바꿔 봐야 효과가 제한적입니다.
+
+### 추천 프롬프트 전략
+
+* history 질문에서는 commit/hash/hunk/blame을 정당한 evidence로 인정
+* 단, 가능하면 file read로 보강하라고 지시
+* “git result만으로 답한 경우”와 “file read까지 보강한 경우”를 구분해 쓰게 함
+
+예:
+
+```text
+For history questions, git commits, diff hunks, and blame lines are valid evidence.
+If the answer depends on current code semantics, supplement git evidence with file reads.
+```
+
+이 정도면 runtime 계약과 잘 맞출 수 있습니다.
+
+---
+
+## 3.3.5 Phase 5 — 테스트 및 벤치마크
+
+### 제안된 테스트의 충분성
+
+좋은 출발입니다. 하지만 아직 조금 더 필요합니다.
+
+추가로 필요한 것:
+
+* mixed evidence regression
+* legacy file-only confidence regression
+* malformed git evidence penalty test
+* unsupported kind graceful handling
+* benchmark evaluator가 git evidence kind를 해석하는지
+
+### benchmark 관점
+
+현재 `benchmarks/core.json`은 confidence pipeline을 보긴 하지만, git-guided false-low를 직접 재현하는 케이스가 없습니다.
+이건 꼭 추가돼야 합니다.
+
+예:
+
+* `summarize_changes` 시나리오
+* blame-guided root cause 시나리오
+* log-only history summary 시나리오
+
+### 총평
+
+Phase 5는 “마지막에 붙이는 품질 개선”이 아니라, 이 문서 전체의 성공 여부를 결정하는 핵심입니다.
+
+---
+
+## 3.4 구현 순서 재평가
+
+문서 제안 순서:
+
+1. Phase 1
+2. Phase 5
+3. Phase 2
+4. Phase 3
+5. Phase 4
+6. benchmark
+
+이 순서는 **대체로 합리적**입니다.
+특히 “false low를 먼저 줄이고, 그 다음 테스트를 깐다”는 의도는 이해됩니다.
+
+### 하지만 제가 더 선호하는 순서
+
+저는 다음이 더 낫다고 봅니다.
+
+1. **최소 failing regression test 하나 먼저 작성**
+2. Phase 1 fast-path stabilization
+3. 테스트 확대(Phase 5의 일부)
+4. Phase 2 schema 확장
+5. internal consumer migration
+6. Phase 4 prompt contract 정리
+7. Phase 3 scoring calibration
+8. benchmark 보강
+
+### 왜 이렇게 보나
+
+* 테스트를 완전히 Phase 1 뒤로 미루면, “무엇이 버그였는지”를 정확히 고정하지 못할 수 있습니다.
+* prompt contract는 scoring과 분리돼 있지 않습니다. 실제 모델 출력이 달라져야 scoring calibration도 안정됩니다.
+* benchmark는 맨 끝 full sweep으로 두되, 최소 1개 케이스는 중간부터 넣는 게 좋습니다.
+
+### 결론
+
+문서 순서는 **크게 틀리진 않지만**, 실제 구현에서는 테스트를 더 앞당기고, prompt contract를 scoring calibration보다 약간 앞에 두는 편이 더 안정적입니다.
+
+---
+
+## 3.5 Risks 섹션 보충
+
+문서에 적힌 세 가지 리스크는 타당합니다. 여기에 몇 가지를 더 추가하겠습니다.
+
+## 추가 리스크 1) diff hunk schema 자체가 모호할 수 있음
+
+앞서 말했듯 old/new range 구분이 없으면 `git_diff_hunk`가 충분히 표현되지 않습니다.
+
+## 추가 리스크 2) 내부 consumer migration 누락
+
+외부 클라이언트보다 오히려 내부 코드가 먼저 깨질 수 있습니다.
+
+* session evidencePaths 누적
+* benchmark evaluator
+* docs/example/tests
+
+## 추가 리스크 3) `repo_git_log` 과대평가 위험
+
+반대로 scoring을 너무 느슨하게 하면, “git tool 썼다”는 이유만으로 confidence가 올라가 버릴 수 있습니다.
+즉, **git 사용 여부**와 **git evidence 품질**를 구분해야 합니다.
+
+## 추가 리스크 4) 모델 self-confidence가 계속 low일 수 있음
+
+앞서 말한 one-way merge 때문에 prompt contract 정리가 늦으면 runtime만 고쳐도 `confidence` low가 남을 수 있습니다.
+
+## 특히 diff hunk line parsing edge case 구체 열거
+
+이건 문서보다 더 구체적으로 적어 두는 게 좋습니다.
+
+* rename-only diff
+* copy diff
+* file deletion (`/dev/null`)
+* new file addition
+* mode-only change (`chmod`)
+* binary patch / `Binary files differ`
+* merge commit combined diff (`diff --cc`, `@@@`)
+* submodule diff
+* quoted path / space / unicode path
+* `\ No newline at end of file`
+* very large patch truncation
+* abbreviated commit hash ambiguity
+* old/new path가 다른 rename + hunk 혼합
+
+이 중 몇 개는 “지원 안 함”으로 명시해도 괜찮습니다.
+중요한 건 **의도적으로 지원 범위를 적는 것**입니다.
+
+---
+
+## 3.6 Success Criteria 평가
+
+문서의 success criteria는 방향은 좋지만, 몇 개는 더 측정 가능하게 바꾸면 좋겠습니다.
+
+### 현재 기준 평가
+
+#### “git-guided / blame-guided 질문이 구조적 이유만으로 low에 고정되지 않는다”
+
+좋은 목표입니다.
+하지만 자동화하려면 더 명시적이어야 합니다.
+
+예:
+
+* curated git scenarios N개에서
+* 충분한 git evidence가 있을 때
+* `confidenceLevel !== low`
+* 그리고 `droppedUnsupported`가 설명 가능하게 기록
+
+#### “git evidence가 drop되는 이유가 결과에 설명 가능하게 나타난다”
+
+좋습니다.
+이건 `confidenceFactors`나 결과 metadata에 reason code를 넣으면 측정 가능합니다.
+
+#### “새로운 테스트가 현재 버그를 재현하고, 수정 후 통과한다”
+
+아주 좋습니다. 반드시 있어야 합니다.
+
+#### “기존 file-range 중심 탐색의 confidence 동작은 유지된다”
+
+매우 중요합니다.
+이 항목이 없으면 git 개선이 전체 scoring 체계를 무너뜨릴 수 있습니다.
+
+### 자동화된 검증 방식 제안
+
+제가 추천하는 자동화 기준은 아래와 같습니다.
+
+| 검증 항목                       | 방식                                              |
+| --------------------------- | ----------------------------------------------- |
+| false-low rate              | git fixture 질문 세트에서 `confidenceLevel=low` 비율 측정 |
+| retained git evidence count | kind별 retained 수 집계                             |
+| drop reason explainability  | `confidenceFactors`에 reason code 존재 확인          |
+| legacy no-regression        | 기존 confidence benchmark 유지                      |
+| mixed evidence robustness   | file+git 혼합 케이스에서 expected level 확인             |
+
+특히 첫 번째 목표는 이렇게 구체화할 수 있습니다.
+
+> “지원되는 git evidence만 사용한 fixture 질문 세트에서, budget stop이 아니고 malformed evidence가 없는 경우 `confidenceLevel`이 구조적 이유만으로 `low`가 되지 않는다.”
+
+이 정도면 훨씬 자동화 친화적입니다.
+
+---
+
+# 4. 세 계획 문서를 아우르는 종합 평가
+
+## 4.1 계획들 간의 상호 의존성
+
+세 문서는 서로 독립적이면서도, 실제 코드 레벨에서는 꽤 많이 겹칩니다.
+
+### 충돌 가능한 코드 영역
+
+| 파일                            | roadmap 관련                | explorer-mode 관련           | git-confidence 관련                          | 충돌도   |
+| ----------------------------- | ------------------------- | -------------------------- | ------------------------------------------ | ----- |
+| `src/explorer/runtime.mjs`    | session semantics         | freeExplore, parallel loop | observed git evidence, confidence pipeline | 매우 높음 |
+| `src/explorer/prompt.mjs`     | docs/contract 일부          | explore prompt             | git evidence contract                      | 높음    |
+| `src/explorer/schemas.mjs`    | contract 정리               | explore input schema       | evidence schema 확장                         | 높음    |
+| `src/explorer/repo-tools.mjs` | `depth` 정합성               | 병렬화 영향 간접                  | diff/blame parsing                         | 높음    |
+| `src/explorer/session.mjs`    | exhaustion                | session continuity         | 간접 영향                                      | 중간    |
+| `src/mcp/server.mjs`          | public docs/tool exposure | `explore` tool 등록          | 간접                                         | 중간    |
+| `README.md` / `DESIGN.md`     | docs polish               | 새 tool 문서                  | git confidence schema 설명                   | 높음    |
+
+### `explorer-mode.md`와 `git-history-confidence.md`가 동시에 진행될 경우
+
+가장 위험한 충돌은 `runtime.mjs`입니다.
+
+* Explorer Mode는 tool loop, result extraction, session integration을 건드립니다.
+* Git confidence는 observedRanges, evidence grounding, confidence scoring을 건드립니다.
+
+둘 다 “탐색 루프의 중앙”을 만집니다.
+따라서 동시에 다른 브랜치에서 작업하면 merge conflict뿐 아니라 **논리 충돌**도 큽니다.
+
+예:
+
+* 병렬 tool execution 리팩터링 중
+* git evidence capture 훅을 어디에 꽂을지 바뀜
+* result ordering semantics가 달라지면 grounding logic도 재검증 필요
+
+### roadmap backlog 항목 중 연결되는 것들
+
+* **Explorer Mode** ↔ `explorer-mode.md` 직접 대응
+* **Public docs polish** ↔ 두 기획 문서의 최종 릴리즈 전제
+* **Session exhaustion enforcement** ↔ Explorer Mode session continuity와 연결
+* **`repo_symbol_context.depth`** ↔ Explorer Mode 자유형 탐색 품질에도 간접 영향
+* **config cleanup (`entryPoints`)** ↔ Explorer Mode architecture report 품질 향상 가능
+
+즉, 세 문서는 따로 써도 실제 작업 순서상으론 꽤 얽혀 있습니다.
+
+---
+
+## 4.2 프로젝트 전체 아키텍처 관점에서의 평가
+
+## 장점
+
+### 1) 고수준 wrapper 전략이 명확하다
+
+이 프로젝트의 핵심 차별점은 low-level repo tools를 상위 모델에게 그대로 노출하는 대신, 내부에 별도 explorer agent를 두고 `explore_repo` 같은 고수준 도구로 감싼다는 점입니다.
+이건 비용 절감과 turn 절감 측면에서 분명한 장점입니다.
+
+### 2) read-only 경계가 강하다
+
+MCP는 tool safety와 사용자 통제를 강조하는데, read-only 경계를 강하게 가져가는 것은 이 생태계에서 신뢰를 쌓기 좋은 방향입니다. 공식 문서도 tool invocation과 데이터 접근에 대해 명시적 사용자 통제와 주의가 필요하다고 강조합니다. ([모델 컨텍스트 프로토콜][3])
+
+### 3) zero dependencies는 배포와 유지보수에 유리하다
+
+설치가 단순하고, 라이브러리 drift에 덜 흔들립니다.
+
+### 4) 테스트와 benchmark 문화가 이미 있다
+
+이건 매우 좋습니다. 모든 오픈소스가 이 정도 기반을 갖고 있지는 않습니다.
+
+## 한계
+
+### 1) regex 기반 심볼 분석의 천장
+
+현재 아키텍처는 빠르고 가볍지만, 깊은 semantic graph에는 한계가 있습니다.
+`depth > 1` 문제도 결국 여기서 옵니다.
+
+### 2) sync subprocess 기반 도구 실행
+
+git/grep 일부가 sync라서, “병렬 실행”의 이득이 생각보다 작고 event loop blocking 리스크가 있습니다.
+
+### 3) prompt와 runtime contract 결합도 높음
+
+기능을 하나 추가할 때:
+
+* prompt
+* schema
+* runtime
+* scoring
+* tests
+* docs
+
+가 같이 움직여야 합니다.
+이건 품질을 높이는 구조이기도 하지만, 변화 비용이 큽니다.
+
+### 4) session store가 아직 mode-agnostic하지 않음
+
+structured mode에는 맞지만, future explore mode까지 포괄하려면 일반화가 필요합니다.
+
+## 장기 유지 가능성 평가
+
+현재 설계는 **소~중규모 프로젝트에는 충분히 유지 가능**합니다.
+다만 규모가 커지면 아래 병목이 생길 가능성이 높습니다.
+
+| 규모 증가 축          | 예상 병목                                          |
+| ---------------- | ---------------------------------------------- |
+| 더 큰 repo         | grep/read/git latency                          |
+| 더 많은 동시 클라이언트    | single-process shared cache/session contention |
+| 더 많은 모델/provider | provider abstraction 관리 복잡도                    |
+| 더 많은 tool mode   | prompt/runtime/schema drift                    |
+| 더 다양한 언어         | regex symbol precision 한계                      |
+
+즉, 지금 설계는 “날렵한 1세대 설계”로는 좋지만, 성공해서 사용량이 늘면 **인덱싱/비동기화/세션 추상화** 쪽 투자가 필요해질 가능성이 큽니다.
+
+---
+
+## 4.3 이 프로젝트가 MCP 생태계에서 가지는 차별점과 한계
+
+MCP 아키텍처에서는 호스트가 여러 MCP 서버에 연결하고, 도구들을 discovery해서 하나의 registry처럼 모델에 노출합니다. 이 프로젝트는 그 위에서 low-level filesystem/git tool 묶음을 그대로 내놓기보다, 내부 자율 탐색 루프를 감싼 “고수준 탐색 도구”를 제공한다는 점이 분명한 차별점입니다. 즉, MCP의 tool primitive 위에 또 하나의 작은 specialist agent를 올린 형태라고 볼 수 있습니다. ([모델 컨텍스트 프로토콜][1])
+
+### 차별점
+
+* parent model의 turn 소모를 줄임
+* repo-specific 탐색 전략을 서버 내부에 캡슐화
+* evidence/confidence/followups 같은 구조화 산출물을 제공
+* read-only grounded explorer라는 포지셔닝이 명확
+
+### 한계
+
+* 내부 sub-agent가 opaque해져서 디버깅이 더 어려울 수 있음
+* high-level tool이 실패하면 parent model이 세밀하게 개입하기 어려움
+* schema evolution 비용이 큼
+* low-level precise control이 필요한 사용자는 답답할 수 있음
+
+즉, 이 프로젝트는 “MCP tool server”이면서 동시에 “MCP 안의 mini-agent”입니다.
+그게 장점이자 한계입니다.
+
+---
+
+## 4.4 전체적으로 가장 시급히 해결해야 할 것과 그 이유
+
+하나만 꼽으라면 저는 **git confidence false-low 문제**를 먼저 꼽겠습니다.
+
+### 이유
+
+이 프로젝트의 핵심 약속은 단순 요약이 아니라 **grounded exploration with trust signals**입니다.
+그런데 git/history 질문이라는 꽤 중요한 카테고리에서, 구조적 이유만으로 confidence가 낮아지는 건 그 약속 자체를 흔듭니다.
+
+사용자 입장에서는:
+
+* 답이 맞아 보여도 low confidence
+* 그러면 도구를 덜 믿게 됨
+* 특히 “최근 변경”, “누가 바꿨나”, “왜 바뀌었나”는 실제 현업에서 자주 묻는 질문
+
+즉, 이건 눈에 보이는 신뢰 저하입니다.
+
+### 다만 같은 sprint에서 꼭 같이 처리했으면 하는 것
+
+**Session exhaustion enforcement + repoRoot validation** 입니다.
+이건 난이도 대비 효과가 큰 correctness bug라서, git confidence보다 구현은 쉽고 위험도는 낮습니다.
+
+### 최종 우선순위 제안
+
+1. **Session validity/exhaustion/repoRoot semantics 정리**
+2. **git confidence false-low 완화 + 회귀 테스트**
+3. **`repo_symbol_context.depth` 계약 정리**
+4. **Explorer Mode는 Phase A만 신중히 도입**
+5. **config/doc polish**
+
+---
+
+# 최종 총평
+
+세 문서를 통틀어 보면, 제안자는 프로젝트를 꽤 잘 이해하고 있습니다.
+특히 `git-history-confidence.md`는 실제 코드의 병목을 정확히 짚고 있고, `explorer-mode.md`도 제품 방향성 자체는 설득력이 있습니다.
+
+하지만 세 문서에 공통으로 보이는 패턴이 하나 있습니다.
+
+> **“새 capability를 추가하는 감각”은 좋지만, 그것이 기존 contract·session semantics·confidence verifier와 어떻게 맞물리는지에 대한 보수성이 조금 부족합니다.**
+
+이 프로젝트는 일반적인 오픈소스보다 **정직한 계약**이 더 중요합니다.
+왜냐하면 이 도구를 읽고 사용하는 쪽이 사람뿐 아니라 다른 LLM/agent이기 때문입니다.
+
+그래서 제가 내리는 최종 평가는 이렇습니다.
+
+* **좋은 점**: 문제 인식 정확, 구현 파일 타깃 적절, 확장 방향 명확
+* **아쉬운 점**: contract drift와 shared runtime blast radius를 다소 가볍게 봄
+* **가장 중요한 다음 단계**: 새 기능보다 먼저, 이미 약속한 것들을 더 정직하게 만들 것
+
+원하시면 제가 이 분석을 바탕으로 바로 이어서
+**“실행 우선순위가 반영된 실제 작업 계획표(1주/2주/Phase별)”** 형태로 다시 정리해드릴 수 있습니다.
+
+[1]: https://modelcontextprotocol.io/docs/learn/architecture "https://modelcontextprotocol.io/docs/learn/architecture"
+[2]: https://modelcontextprotocol.io/specification/draft/server/tools "https://modelcontextprotocol.io/specification/draft/server/tools"
+[3]: https://modelcontextprotocol.io/specification/2025-11-25 "https://modelcontextprotocol.io/specification/2025-11-25"

@@ -1,320 +1,814 @@
-# 실행 우선순위가 반영된 실제 작업 계획표
+# 실행 우선순위가 반영된 실제 작업 계획표 (Phase별)
 
-아래 순서는 “무엇이 가장 중요하냐”보다 **무엇을 먼저 고쳐야 다음 개선이 제대로 측정되느냐**를 기준으로 잡았습니다.
-즉, **코드 착수 1순위는 출력 계약 단일화**, **설정만 빨리 바꿀 1순위는 temperature/top_p 정렬**입니다. GLM-4.7/Cerebras 문서 기준으로는 GLM-4.7은 reasoning이 기본 활성화되어 있고, agentic workflow에는 `clear_thinking: false`가 권장되며, 기본 샘플링은 `temperature=1.0`, `top_p=0.95`입니다. 또한 required rules는 프롬프트 앞쪽에 배치하고, 언어를 명시적으로 고정하는 편이 더 안정적입니다. ([Cerebras Inference][1])
+이 프로젝트는 지금 **“기능을 더 늘리는 단계”보다 “이미 약속한 계약을 더 정직하게 만드는 단계”**에 가깝습니다.
+그래서 실행 순서는 아래 원칙으로 잡는 게 가장 안전합니다.
 
-현재 코드 기준으로는 no-tool 종료 시 strict finalize를 항상 거치지 않고, freeform 응답에서 첫 JSON object를 추출해 종료하는 경로가 있습니다. 또한 Cerebras client는 `temperature: 0.1` 중심으로 설계되어 있고 `top_p`, `clear_thinking`, `message.reasoning` round-trip이 빠져 있습니다. [runtime.mjs](sandbox:/mnt/data/repo/cerebras-explorer-mcp-master/src/explorer/runtime.mjs) · [cerebras-client.mjs](sandbox:/mnt/data/repo/cerebras-explorer-mcp-master/src/explorer/cerebras-client.mjs) · [config.mjs](sandbox:/mnt/data/repo/cerebras-explorer-mcp-master/src/explorer/config.mjs)
+## 먼저 확정할 방향
 
-## 전체 실행 순서 요약
+이번 사이클에서는 아래처럼 **결정부터 고정**하는 편이 좋습니다.
 
-| Phase   | 우선순위 | 핵심 목표                          | 손대는 파일                                             | 기대 효과                      | 난이도   |
-| ------- | ---- | ------------------------------ | -------------------------------------------------- | -------------------------- | ----- |
-| Phase 0 | P0   | 회귀 방지용 기준선 확보                  | tests, benchmark script                            | 이후 개선 효과를 비교 가능            | 낮음    |
-| Phase 1 | P0   | 최종 출력 경로를 strict finalize로 단일화 | runtime, prompt, config, tests                     | JSON 안정성 즉시 상승             | 낮음~중간 |
-| Phase 2 | P0   | GLM-4.7/Cerebras 파라미터 계약 정렬    | config, cerebras-client, runtime, providers, tests | reasoning/agent loop 품질 상승 | 중간    |
-| Phase 3 | P1   | 프롬프트 구조 재배치 + 전략 유연화           | prompt, runtime, tests                             | tool 선택 안정화, 언어 혼용 감소      | 낮음~중간 |
-| Phase 4 | P1   | 멀티턴 안정화 장치 추가                  | runtime, prompt, tests                             | deep 탐색 품질 상승              | 중간    |
-| Phase 5 | P2   | evidence/schema/context 고도화    | schemas, runtime, session                          | git/blame형 질문 품질 상승        | 중간~높음 |
+| 항목                             | 이번 사이클 결정                                                                             |
+| ------------------------------ | ------------------------------------------------------------------------------------- |
+| Session 처리                     | **명시적 거부**를 기본값으로 채택. invalid / expired / exhausted / repo mismatch 시 새 세션 자동 회전하지 않음 |
+| `repo_symbol_context.depth`    | **실구현하지 않음.** 일단 `effectiveDepth=1`로 정직하게 정리                                          |
+| `find_similar_code.similarity` | **수치형 similarity 제거**. 자연어 설명 중심으로 유지                                                 |
+| project config                 | `entryPoints`만 실제 기능에 연결. `languages`, `customSymbolPatterns`는 문서/주석에서 제외             |
+| `explore` 도구                   | **코어(beta) 먼저**, 병렬 실행은 나중                                                            |
+| 병렬 tool 실행                     | `explore` 도입과 분리해서 **공용 runtime 리팩터링 Phase**로 뒤로 배치                                   |
 
 ---
 
-## Phase 0 — 기준선/안전망 먼저 만들기
+## 전체 순서 한눈에 보기
 
-### 목표
+| Phase | 목표                                       | 성격               | 위험도 | 릴리즈 가치 |
+| ----- | ---------------------------------------- | ---------------- | --- | ------ |
+| 1     | Session semantics 고정                     | correctness fix  | 낮음  | 매우 높음  |
+| 2     | Git confidence false-low 빠른 완화           | trust fix        | 중간  | 매우 높음  |
+| 3     | Git evidence schema + scoring 분리         | 구조 개선            | 높음  | 높음     |
+| 4     | 공개 계약 정리 (`depth`, `similarity`, config) | contract cleanup | 중간  | 높음     |
+| 5     | `explore` 코어(beta) 도입                    | 기능 추가            | 중간  | 높음     |
+| 6     | 공용 runtime 리팩터링 + 제한적 병렬화                | 성능/구조 개선         | 높음  | 중간     |
+| 7     | docs / benchmark / examples 최종 정리        | release gate     | 중간  | 높음     |
 
-지금 상태를 **비교 가능한 숫자**로 고정합니다. 이 단계를 먼저 해야 Phase 1~5에서 “좋아졌는지”를 말할 수 있습니다.
+---
+
+## 공통 실행 규칙
+
+모든 Phase에 아래 규칙을 적용하는 걸 권장합니다.
+
+1. **테스트 먼저, 구현 나중**
+   특히 `runtime.mjs`를 건드리는 작업은 regression test 없이 진행하지 않기.
+
+2. **한 PR = 한 의미 변화**
+   세션 의미론, git confidence, explorer mode, 병렬화는 각각 따로.
+
+3. **문서 변경은 같은 PR에 포함**
+   public contract가 바뀌면 README / DESIGN / tool description도 같이 수정.
+
+4. **`runtime.mjs`는 직렬 작업**
+   이 파일은 blast radius가 크므로 여러 기능을 동시에 얹지 않기.
+
+---
+
+# Phase 1. Session semantics hardening
+
+## 목표
+
+현재 `SessionStore.isExhausted()`는 존재하지만 `ExplorerRuntime.explore()` 경로에서 실제로 쓰이지 않습니다.
+먼저 이 문제를 **명시적이고 예측 가능한 세션 계약**으로 고정해야 합니다.
+
+## 이번 Phase에서 확정할 정책
+
+`session` 파라미터가 **없을 때만** 새 세션 생성
+`session` 파라미터가 **있을 때**는 아래 상태를 구분
+
+| 상태                    | 처리    |
+| --------------------- | ----- |
+| 유효한 세션                | 재사용   |
+| 존재하지 않음 / 만료됨         | 에러 반환 |
+| exhausted             | 에러 반환 |
+| 다른 `repo_root`에 묶인 세션 | 에러 반환 |
+
+자동 회전(auto-rotate)은 이번 사이클에서는 넣지 않는 편이 좋습니다.
+이 프로젝트는 “continuity를 정직하게 전달하는 것”이 더 중요하기 때문입니다.
+
+## 작업 항목
+
+### 1) runtime에 session resolution helper 추가
+
+`src/explorer/runtime.mjs`
+
+예상 흐름:
+
+* `resolveSessionForExplore(sessionStore, requestedSessionId, repoRoot)`
+* 반환:
+
+   * `sessionId`
+   * `sessionData`
+   * `sessionStatus: created | reused`
+* 실패:
+
+   * `invalid_session`
+   * `expired_session`
+   * `exhausted_session`
+   * `repo_mismatch`
+
+### 2) `repoRoot` binding 검증 추가
+
+현재 `SessionStore.create(repoRoot)`는 repoRoot를 저장하지만, 재사용 시 이 값을 검증하지 않습니다.
+반드시 체크해야 합니다.
+
+### 3) 결과 metadata에 session 상태 드러내기
+
+`stats` 또는 top-level additive field에 아래 정보 추가 권장:
+
+```json
+{
+  "stats": {
+    "sessionId": "sess_xxx",
+    "sessionStatus": "created | reused",
+    "remainingCalls": 3
+  }
+}
+```
+
+### 4) MCP error surface 정리
+
+`src/mcp/server.mjs`
+
+invalid session은 그냥 “새 세션이 생김”이 아니라, 사용자/상위 모델이 이해할 수 있는 에러로 돌려야 합니다.
+
+예시 메시지:
+
+* `Invalid session: expired`
+* `Invalid session: exhausted`
+* `Invalid session: bound to a different repository root`
+
+## 수정 파일
+
+* `src/explorer/runtime.mjs`
+* `src/explorer/session.mjs`
+* `src/mcp/server.mjs`
+* `tests/runtime.mock.test.mjs`
+* `tests/session.test.mjs`
+
+## 완료 기준
+
+* exhausted session 재사용 시 새 세션이 silently 생성되지 않음
+* repo mismatch session 재사용이 차단됨
+* 유효한 세션은 정상 재사용됨
+* `session` 없이 호출하면 새 세션 생성
+* 관련 테스트가 모두 통과
+
+## PR 분리 권장
+
+**PR-1: Session enforcement only**
+
+이 Phase는 작지만 가치가 큽니다.
+독립 패치 릴리즈 후보로 삼아도 됩니다.
+
+---
+
+# Phase 2. Git confidence false-low fast-path stabilization
+
+## 목표
+
+git 기반 질문에서 구조적으로 `low`가 되는 현상을 먼저 줄입니다.
+이 Phase에서는 **public evidence schema는 아직 바꾸지 않고**, 내부 grounding을 먼저 개선합니다.
+
+## 핵심 아이디어
+
+지금은 `observedRanges`가 사실상 `repo_read_file` / `repo_grep` 중심입니다.
+이를 조금 넓혀서:
+
+* `repo_git_blame` → line range 관측
+* `repo_git_diff` / `repo_git_show` → diff hunk line range 관측
+* `repo_git_log`만 사용된 경우 → unsupported evidence를 곧바로 hallucination처럼 취급하지 않음
+
+으로 바꿉니다.
+
+## 작업 항목
+
+### 1) blame line 관측 추가
+
+`src/explorer/runtime.mjs`
+
+`repo_git_blame` 결과의 `lines[]`를 읽어 `observedRanges` 또는 별도 observed structure에 반영합니다.
+
+예:
+
+* path + line 단위 관측
+* contiguous range merge 가능하면 더 좋음
+
+### 2) diff/show hunk 파싱 추가
+
+`src/explorer/repo-tools.mjs`
+
+현재 `parseDiffOutput()`은 파일별 additions/deletions 카운트와 patch 문자열 위주입니다.
+여기에 **hunk line range 추출**을 추가해야 합니다.
+
+필요한 최소 정보:
+
+* new file 기준 start/end range
+* 가능하면 old/new range 모두 추출
+
+이 Phase에서는 일단 **new-file range 기준 grounding**만 해도 충분합니다.
+
+### 3) `repo_git_log` 전용 질문에 대한 confidence 완화
+
+`src/explorer/schemas.mjs`의 `computeConfidenceScore()`
+
+현재는 grounded evidence가 0이면 거의 자동으로 `score=0.1`로 떨어집니다.
+이걸 그대로 두면 git log 중심 질문이 계속 손해를 봅니다.
+
+이번 Phase에서는 다음 정도의 완화가 적절합니다.
+
+* `gitLogCalls > 0` 이고
+* `recentActivity`가 존재하며
+* malformed evidence가 없고
+* budget stop도 아니면
+
+무조건 `low`로 고정되지 않게 floor를 완화
+
+핵심은 **“file-range가 없었다”와 “근거가 부실했다”를 동일시하지 않는 것**입니다.
+
+### 4) confidence factors에 git activity 힌트 추가
+
+예:
+
+```json
+{
+  "confidenceFactors": {
+    "gitLogCalls": 1,
+    "gitDiffCalls": 1,
+    "gitBlameCalls": 0,
+    "gitGroundingHint": true
+  }
+}
+```
+
+## 수정 파일
+
+* `src/explorer/runtime.mjs`
+* `src/explorer/repo-tools.mjs`
+* `src/explorer/schemas.mjs`
+* `tests/runtime.mock.test.mjs`
+* `tests/repo-tools.test.mjs`
+
+## 완료 기준
+
+* blame 기반 질문에서 line evidence retain 비율이 올라감
+* diff/show 기반 질문에서 patch-derived line evidence가 grounding됨
+* log-only history 질문이 구조적 이유만으로 자동 `low`가 되지 않음
+* 기존 file-range 질문 confidence 동작은 유지
+
+## 주의사항
+
+이 Phase는 **임시 완화책**입니다.
+여기서 멈추면 안 되고, 반드시 다음 Phase의 schema 확장으로 이어져야 합니다.
+
+---
+
+# Phase 3. Git evidence schema 확장 + scoring 분리
+
+## 목표
+
+git evidence를 file-range에 억지로 끼워 맞추지 않고, **first-class evidence type**으로 승격합니다.
+
+이 Phase가 끝나야 git confidence 문제를 “근본적으로” 해결했다고 말할 수 있습니다.
+
+## 이번 Phase에서 채택할 스키마 방향
+
+`evidence[]`는 유지하되, 각 item에 `kind`를 추가하는 additive 확장으로 갑니다.
+
+추천 형태:
+
+```json
+{
+  "kind": "file_range | git_commit | git_diff_hunk | git_blame_line",
+  "path": "optional",
+  "startLine": 10,
+  "endLine": 18,
+  "commit": "optional",
+  "author": "optional",
+  "oldPath": "optional",
+  "newPath": "optional",
+  "oldStartLine": 1,
+  "oldEndLine": 5,
+  "newStartLine": 10,
+  "newEndLine": 14,
+  "why": "..."
+}
+```
+
+## 작업 항목
+
+### 1) `EXPLORE_RESULT_JSON_SCHEMA` 확장
+
+`src/explorer/schemas.mjs`
+
+중요한 점은 **backward compatibility**입니다.
+
+권장 방식:
+
+* legacy file-range evidence도 계속 허용
+* `kind`가 없으면 normalize 단계에서 `file_range`로 간주
+* strict schema는 유지하되, git 필드들을 optional로 추가
+
+### 2) `normalizeExploreResult()` kind-aware 처리
+
+현재는 evidence를 무조건 `path/startLine/endLine/why`로 정규화합니다.
+이걸 아래처럼 바꿔야 합니다.
+
+* legacy evidence → `kind: file_range`
+* `git_commit` → `commit`, `path?`, `why`
+* `git_blame_line` → `path`, `line`, `commit`, `author?`, `why`
+* `git_diff_hunk` → old/new range 계열 허용
+
+### 3) runtime grounding 분기
+
+`src/explorer/runtime.mjs`
+
+`checkEvidenceGrounding()`를 단일 함수로 두지 말고, kind별 함수로 나누는 게 좋습니다.
+
+예:
+
+* `groundFileRangeEvidence`
+* `groundGitCommitEvidence`
+* `groundGitDiffHunkEvidence`
+* `groundGitBlameLineEvidence`
+
+### 4) confidence drop reason 분리
+
+`computeConfidenceScore()`를 아래처럼 재구성합니다.
+
+```json
+{
+  "droppedUnsupported": 0,
+  "droppedUngrounded": 1,
+  "droppedMalformed": 0
+}
+```
+
+필요하면 추가로:
+
+* `droppedOutOfScope`
+* `droppedRepoMismatch`
+
+도 고려할 수 있습니다.
+
+### 5) prompt contract 정리
+
+`src/explorer/prompt.mjs`
+
+이 Phase 안에서 같이 정리하는 편이 좋습니다.
+이제 모델은 “git evidence type도 정당한 근거”라는 걸 명시적으로 알아야 합니다.
+
+지시 예시:
+
+* history 질문에서는 commit/hash/diff hunk/blame line을 evidence로 써도 됨
+* current code semantics를 주장할 때는 file read로 보강 권장
+
+## 수정 파일
+
+* `src/explorer/schemas.mjs`
+* `src/explorer/runtime.mjs`
+* `src/explorer/prompt.mjs`
+* 필요 시 `src/explorer/repo-tools.mjs`
+* `tests/runtime.mock.test.mjs`
+* `tests/benchmark-evaluator.test.mjs`
+
+## 완료 기준
+
+* git evidence가 structural reason만으로 drop되지 않음
+* evidence drop reason이 설명 가능하게 metadata에 남음
+* file-only 질문의 scoring regression 없음
+* git-guided / blame-guided 회귀 테스트 통과
+
+## PR 분리 권장
+
+이 Phase는 가능하면 둘로 나누는 게 좋습니다.
+
+* **PR-3A:** schema + normalize + grounding
+* **PR-3B:** scoring + prompt contract
+
+한 PR에 다 몰면 리뷰가 어려워집니다.
+
+---
+
+# Phase 4. 공개 계약 정리 (`depth`, `similarity`, config)
+
+## 목표
+
+이 Phase는 “작동하는 것만 약속한다”를 문서와 코드에 반영하는 단계입니다.
+새 기능보다 사용자 신뢰 회복이 목적입니다.
+
+---
+
+## 4-1. `repo_symbol_context.depth`
+
+### 이번 사이클 결정
+
+**`depth > 1` 구현하지 않음**
+
+대신:
+
+* 입력은 당장 깨지지 않게 계속 받되
+* 내부에서는 `effectiveDepth = 1`로 clamp
+* description / README / DESIGN에 “현재 direct callers만 지원” 명시
+
+### 이유
+
+완전한 `depth > 1`은 단순 반복 호출이 아니라 caller graph 추출 문제에 가깝고, 지금 아키텍처의 regex 기반 심볼 분석과 잘 맞지 않습니다.
 
 ### 작업
 
-`tests/runtime.mock.test.mjs`, `tests/cerebras-client.test.mjs`, `scripts/run-benchmark.mjs`에 아래를 추가합니다.
+* `src/explorer/repo-tools.mjs`
+* `README.md`
+* `DESIGN.md`
 
-* JSON parse 성공률
-* strict schema 적합률
-* 평균 tool turns
-* budget exhaustion 비율
-* grounded evidence 개수
-* no-tool 종료 경로 비율
-* deep budget에서 평균 total tokens
+가능하면 반환에 additive field 추가:
 
-### 완료 기준
-
-* 현재 main 브랜치 결과를 1회 저장
-* 이후 각 PR마다 같은 케이스로 비교 가능
-
-### 메모
-
-이 단계는 품질 개선이 아니라 **측정 인프라**입니다. 작지만 꼭 먼저 두는 게 좋습니다.
+```json
+{
+  "effectiveDepth": 1
+}
+```
 
 ---
 
-## Phase 1 — 최종 출력 경로 단일화
+## 4-2. `find_similar_code.similarity`
 
-### 왜 1순위인가
+### 이번 사이클 결정
 
-지금은 no-tool 종료 시 바로 `extractFirstJsonObject()`로 빠지는 경로가 있어서, **strict schema를 이미 정의해 놓고도 항상 활용하지 못합니다.** Structured Outputs의 strict mode는 valid JSON, 스키마 준수, 타입 안정성을 보장하도록 설계되어 있습니다. ([Cerebras Inference][2])
+**수치형 similarity 기대 제거**
 
-### 대상 파일
+### 이유
 
-[runtime.mjs](sandbox:/mnt/data/repo/cerebras-explorer-mcp-master/src/explorer/runtime.mjs)
-[prompt.mjs](sandbox:/mnt/data/repo/cerebras-explorer-mcp-master/src/explorer/prompt.mjs)
-[config.mjs](sandbox:/mnt/data/repo/cerebras-explorer-mcp-master/src/explorer/config.mjs)
-[schemas.mjs](sandbox:/mnt/data/repo/cerebras-explorer-mcp-master/src/explorer/schemas.mjs)
+현재 구현은 dedicated similarity engine이 아니라 `explore_repo` wrapper입니다.
+지금 숫자를 붙이면 가짜 precision이 됩니다.
 
-### 작업 항목
+### 작업
 
-1. `toolCalls.length === 0`일 때도 **항상** `finalizeAfterToolLoop()`를 거치게 변경
-2. `finalizeAfterToolLoop()`의 `maxCompletionTokens: 2500` 하드코딩 제거
-3. budget별 `finalizeMaxCompletionTokens` 추가
-4. `buildFinalizePrompt()` 강화
+* README 예시에서 numeric similarity 제거
+* DESIGN의 future item과 current behavior 구분
+* 필요 시 tool description에 “natural-language reasoning-based similarity” 성격 명시
 
-    * exactly one JSON object
-    * no markdown
-    * no extra text
-    * grounded evidence only
-    * no tools
-5. `extractFirstJsonObject()`는 **최후 fallback**으로만 남기기
+수치형 score는 나중에 별도 RFC로 분리:
 
-### 바로 적용할 코드 방향
+* heuristic-v1
+* embedding-based
+* hybrid rank only
 
-현재는 [runtime.mjs](sandbox:/mnt/data/repo/cerebras-explorer-mcp-master/src/explorer/runtime.mjs) 에서 “tool call 없음 → freeform JSON 추출 → 종료” 흐름입니다. 이것을 “tool call 없음 → dedicated strict finalize → 종료”로 바꿉니다.
-
-### 완료 기준
-
-* 성공 경로 100%가 strict finalize를 통과
-* markdown fence / 앞뒤 설명문이 섞인 응답이 더 이상 main path에서 통과하지 않음
-* 관련 테스트 추가:
-
-    * no-tool 종료도 strict finalize 사용
-    * finalize prompt가 툴 호출 없이 끝남
-    * malformed freeform assistant content가 있어도 최종 JSON은 스키마 준수
-
-### 기대 효과
-
-가장 빠르게 체감되는 개선입니다. 이후 파라미터 튜닝 결과도 훨씬 깨끗하게 비교됩니다.
+이번 사이클에는 넣지 않는 것이 맞습니다.
 
 ---
 
-## Phase 2 — Cerebras/GLM-4.7 실행 파라미터 정렬
+## 4-3. Project config cleanup
 
-### 왜 바로 다음인가
+### 이번 사이클 결정
 
-GLM-4.7 문서상 기본 샘플링은 `temperature=1.0`, `top_p=0.95`이고, thinking이 켜진 상태에서 `temperature < 0.8`은 품질 저하를 유발할 수 있으니 이런 경우 reasoning도 꺼야 한다고 안내합니다. 또 agentic workflow에는 `clear_thinking: false`가 권장되며, `clear_thinking` 기본값은 `true`입니다. `max_completion_tokens`는 reasoning tokens까지 포함합니다. ([Cerebras Inference][1])
+* `entryPoints` → **실제 기능 연결**
+* `languages` → 문서/주석에서 제거
+* `customSymbolPatterns` → 문서/주석에서 제거
 
-### 대상 파일
+### `entryPoints` 연결 방식
 
-[config.mjs](sandbox:/mnt/data/repo/cerebras-explorer-mcp-master/src/explorer/config.mjs)
-[cerebras-client.mjs](sandbox:/mnt/data/repo/cerebras-explorer-mcp-master/src/explorer/cerebras-client.mjs)
-[runtime.mjs](sandbox:/mnt/data/repo/cerebras-explorer-mcp-master/src/explorer/runtime.mjs)
-[providers/abstract.mjs](sandbox:/mnt/data/repo/cerebras-explorer-mcp-master/src/explorer/providers/abstract.mjs)
-[providers/openai-compat.mjs](sandbox:/mnt/data/repo/cerebras-explorer-mcp-master/src/explorer/providers/openai-compat.mjs)
+`buildCodeMap()`과 architecture 질문 힌트에 활용합니다.
 
-### 작업 항목
+예:
 
-1. `reasoningEffort: low|medium` 제거 또는 내부 정책 플래그로 전환
+* codeMap entry point 추정 시 filename heuristic보다 config 우선
+* diagram 생성 시 configured entryPoints 우선 표시
+* breadth-first 탐색 초기에 entry file seed로 사용 가능
 
-    * 문서상 GLM-4.7은 reasoning enabled by default이고, documented disable knob는 `none`입니다. ([Cerebras Inference][3])
-2. budget를 아래처럼 재정의
+### 작업
 
-    * quick: reasoning off, `temperature 0.3`, `top_p 0.95`
-    * normal: reasoning on, `temperature 0.8`, `top_p 0.95`, `clear_thinking false`
-    * deep: reasoning on, `temperature 1.0`, `top_p 0.95`, `clear_thinking false`
-3. `cerebras-client.mjs`에 `top_p`, `clear_thinking`, `reasoning` 필드 처리 추가
-4. assistant 응답의 `message.reasoning` 추출
-5. reasoning이 있는 assistant turn은 다음 요청에 그대로 다시 전달
+* `src/explorer/config.mjs`
+* `src/explorer/runtime.mjs`
+* `tests/project-config.test.mjs`
+* `README.md`
+* `DESIGN.md`
 
-    * Cerebras 문서는 reasoning이 포함된 assistant message를 다시 넘기라고 명시합니다. ([Cerebras Inference][3])
-6. `openai-compat` provider에서는 해당 필드를 무시하되 인터페이스는 받아들일 수 있게 정리
+## 완료 기준
 
-### 권장 budget 설정
+* README/DESIGN/주석/실제 behavior가 일치
+* `depth`와 `similarity`에 대해 사용자 기대치가 과장되지 않음
+* `entryPoints`가 실제 output/codeMap에 반영됨
 
-* quick: `reasoning_effort="none"`, `temperature=0.3`, `top_p=0.95`, `maxCompletionTokens=4000`
-* normal: reasoning on, `temperature=0.8`, `top_p=0.95`, `clear_thinking=false`, `maxCompletionTokens=8000`
-* deep: reasoning on, `temperature=1.0`, `top_p=0.95`, `clear_thinking=false`, `maxCompletionTokens=12000~14000`
+## 이 Phase의 위치가 중요한 이유
 
-### 완료 기준
-
-* Cerebras payload에 `top_p`가 포함됨
-* normal/deep에서 `clear_thinking:false`
-* quick에서 reasoning off
-* assistant reasoning이 턴 간 round-trip됨
-* `tests/cerebras-client.test.mjs`에 payload 검증 추가
-
-### 실무 팁
-
-“설정만 빨리 바꾸는 핫픽스” 1개를 고르라면 이 Phase에서 **normal/deep temperature + top_p**만 먼저 바꿔도 됩니다. 다만 **정식 착수 순서**는 Phase 1이 먼저입니다.
+이 정리가 끝나야 `explore`라는 새 public tool을 추가해도 “문서만 멋지고 실제는 다름” 상태를 반복하지 않게 됩니다.
 
 ---
 
-## Phase 3 — 프롬프트 구조 재배치 + 전략 유연화
+# Phase 5. `explore` 코어(beta) 도입
 
-### 왜 여기서 하나
+## 목표
 
-파라미터 정렬까지 끝내야 prompt 개편 효과를 제대로 볼 수 있습니다. GLM-4.7은 required rules를 system prompt 앞쪽에 두고, MUST/REQUIRED 같은 직접적인 표현과 default language 명시를 권장합니다. ([Cerebras Inference][1])
+자유형 탐색 도구를 도입하되, **공유 runtime 대수술 없이** 먼저 코어 기능만 안정적으로 넣습니다.
 
-### 대상 파일
+핵심은:
 
-[prompt.mjs](sandbox:/mnt/data/repo/cerebras-explorer-mcp-master/src/explorer/prompt.mjs)
-[runtime.mjs](sandbox:/mnt/data/repo/cerebras-explorer-mcp-master/src/explorer/runtime.mjs)
+* natural-language report
+* same repository toolset
+* same read-only boundary
+* no parallel runtime refactor yet
 
-### 작업 항목
+## 이번 Phase에서 꼭 반영할 설계
 
-1. system prompt 순서를 재배치
+### 1) 입력 스키마에 `language`와 `context`를 처음부터 넣기
 
-    * 역할
-    * HARD REQUIREMENTS
-    * FINAL OUTPUT CONTRACT
-    * LANGUAGE RULE
-    * TOOL ORDER POLICY
-    * STRATEGY CATALOG
-    * PROJECT CONTEXT
-2. user prompt의 `Follow the {strategy} strategy above.`를 완화
+기획 문서 초안에는 빠져 있지만, 실제로는 초기에 넣는 편이 맞습니다.
 
-    * “initial strategy suggestion”으로 낮춤
-    * 첫 tool result 후 1회 전략 전환 허용
-3. default language를 system prompt에서도 다시 고정
-4. tool-order를 자연어 선호가 아니라 decision policy로 변경
+추천 input:
 
-    * symbol question → `repo_symbol_context`
-    * history question → `repo_git_log`
-    * ambiguous → `repo_grep` / `repo_find_files`
-    * `repo_read_file`은 정밀 확인 단계
+* `prompt`
+* `thoroughness`
+* `scope`
+* `repo_root`
+* `session`
+* `language`
+* `context`
 
-### 완료 기준
+### 2) output은 `report` + `structuredContent` 병행
 
-* system prompt 앞 20~30줄 안에 hard rule이 모두 배치
-* strategy mis-detection 시 1회 override 가능
-* 한국어 task에서 `answer/summary/why` 언어 혼합 빈도 감소
+권장 형태:
 
-### 기대 효과
+```json
+{
+  "content": [{ "type": "text", "text": "<markdown report>" }],
+  "structuredContent": {
+    "report": "<same markdown report>",
+    "filesRead": ["..."],
+    "toolsUsed": 12,
+    "elapsedMs": 8500,
+    "sessionId": "sess_xxx",
+    "stats": { ... }
+  }
+}
+```
 
-* 불필요한 `repo_read_file` 선호 감소
-* 한국어/영어 혼용 감소
-* wrong strategy 고착 완화
+`filesExamined`보다는 **`filesRead`** 또는 `pathsTouched`가 더 정직합니다.
 
----
+### 3) `freeExplore()`는 public 메서드로 분리하되, 내부 공통 조각은 공유
 
-## Phase 4 — 멀티턴 안정화 장치
+좋은 방향:
 
-### 왜 필요한가
+* public method는 분리
+* 내부 repo init / message loop / stats 수집은 helper로 공유
 
-GLM-4.7은 interleaved thinking / preserved thinking을 agentic 작업에 맞춰 강화했고, `clear_thinking:false`는 과거 tool-calling reasoning이 미래 tool call에 도움이 될 때 권장됩니다. ([Cerebras Inference][1])
+### 4) beta feature flag 권장
 
-### 대상 파일
+공개 노출 전 아래 같은 환경변수로 beta gate를 거는 편이 좋습니다.
 
-[runtime.mjs](sandbox:/mnt/data/repo/cerebras-explorer-mcp-master/src/explorer/runtime.mjs)
-[prompt.mjs](sandbox:/mnt/data/repo/cerebras-explorer-mcp-master/src/explorer/prompt.mjs)
+예:
 
-### 작업 항목
+* `CEREBRAS_EXPLORER_ENABLE_EXPLORE=true`
 
-1. **Checkpoint message** 삽입
+초기 배포에서는 기본 off도 고려할 만합니다.
 
-    * 4~5턴마다
-    * “지금까지 근거로 답 가능한가?”
-    * “불가능하면 가장 가치 높은 다음 tool 1개만 선택”
-2. **critic-lite verify pass** 추가
+## 작업 항목
 
-    * finalize 직전 1회
-    * unsupported claim이 있으면 confidence를 낮추게 함
-3. **evidence ledger** 규칙 추가
+### 1) 새 스키마/출력 스키마 정의
 
-    * 탐색 중 `path/start/end/why` 후보를 내부적으로 관리하도록 프롬프트에 명시
-4. too-early stop 방지 규칙 추가
+`src/explorer/schemas.mjs` 또는 별도 `explore-report-schema`
 
-    * why/bug/root-cause 질문은 2개 이상의 독립 근거 권장
-    * trivial locate/define 질문은 1개 근거 허용
+### 2) 새 프롬프트 추가
 
-### 완료 기준
+`src/explorer/prompt.mjs`
 
-* deep budget에서 budget exhaustion 비율 감소
-* high confidence인데 grounded evidence 1개뿐인 케이스 감소
-* why/bug 질문의 followup 품질 향상
+주의:
 
-### 기대 효과
+* 사실 / 해석 / 불확실성 구분
+* 주요 주장에 file path/line 또는 git artifact 근거 요구
+* “더 읽어야 결론이 바뀔 가능성이 낮으면 멈추라”는 stop rule 포함
 
-깊은 탐색의 “흔들림”을 줄입니다. Phase 2의 preserved thinking과 같이 들어가면 체감이 큽니다.
+### 3) runtime 메서드 추가
 
----
+`src/explorer/runtime.mjs`
 
-## Phase 5 — evidence/schema/context 고도화
+`freeExplore()` 구현:
 
-### 왜 마지막인가
+* thoroughness → budget mapping
+* freeform prompt builder
+* final answer는 text report 추출
+* structuredContent metadata 구성
 
-이건 가장 가치가 있지만 구조 변경 범위가 큽니다. 앞 단계가 정리된 뒤 해야 리스크가 낮습니다.
+### 4) SessionStore를 mode-neutral packet으로 최소 정리
 
-### 대상 파일
+현재 `SessionStore.update()`는 structured explore 결과 shape에 기대고 있습니다.
+`explore`를 넣기 전에 아래처럼 중립화하는 게 좋습니다.
 
-[schemas.mjs](sandbox:/mnt/data/repo/cerebras-explorer-mcp-master/src/explorer/schemas.mjs)
-[runtime.mjs](sandbox:/mnt/data/repo/cerebras-explorer-mcp-master/src/explorer/runtime.mjs)
-[session.mjs](sandbox:/mnt/data/repo/cerebras-explorer-mcp-master/src/explorer/session.mjs)
+예:
 
-### 작업 항목
+```js
+sessionStore.update(id, {
+  candidatePaths,
+  sourcePaths,
+  summary,
+  followups,
+  mode
+});
+```
 
-1. evidence를 union type으로 확장
+`explore`는 `report`를 요약한 짧은 summary만 session memory에 넣으면 충분합니다.
 
-    * `file_range`
-    * `git_commit`
-    * `git_blame`
-2. `sessionCandidatePaths`를 단순 문자열 배열에서 구조화
+### 5) MCP server 등록
 
-    * `{ path, why }`
-3. 오래된 tool result compaction 도입
+`src/mcp/server.mjs`
 
-    * raw tool JSON을 계속 쌓지 말고 checkpoint summary로 축약
-4. strategy별 동적 tool 노출 검토
+툴 설명에서 반드시 역할을 분리:
 
-    * deep/context-heavy 세션에서 prompt token 절약
+* `explore_repo`: structured JSON for automation
+* `explore`: human-readable report
 
-### 완료 기준
+## 수정 파일
 
-* git/blame 중심 질문에서도 evidence가 자연스럽게 표현됨
-* deep 세션에서 컨텍스트 증가 속도 완화
-* session 재사용 시 relevance hint 품질 상승
+* `src/explorer/runtime.mjs`
+* `src/explorer/prompt.mjs`
+* `src/explorer/schemas.mjs`
+* `src/explorer/session.mjs`
+* `src/mcp/server.mjs`
+* `tests/mcp-server.test.mjs`
+* `tests/runtime.mock.test.mjs`
 
-### 기대 효과
+## 완료 기준
 
-“무엇이 바뀌었나”, “왜 생겼나”, “누가/언제 건드렸나” 같은 질문 품질이 올라갑니다.
+* `explore`가 markdown report를 정상 반환
+* `structuredContent.report`와 text content가 일관됨
+* 세션 연속성은 최소 수준으로 작동
+* 기존 `explore_repo`는 회귀 없음
+* 문서에 beta 성격과 tool selection 가이드가 포함됨
 
----
+## 이번 Phase에서 **하지 않을 것**
 
-## PR 단위로 쪼개면 이렇게 가는 게 좋습니다
-
-### PR-1
-
-Phase 0 + Phase 1
-출력 안정화 전용 PR
-
-### PR-2
-
-Phase 2
-Cerebras 파라미터/Preserved Thinking 정렬 PR
-
-### PR-3
-
-Phase 3
-Prompt refactor PR
-
-### PR-4
-
-Phase 4
-Checkpoint / critic-lite / evidence ledger PR
-
-### PR-5
-
-Phase 5
-Schema/context 확장 PR
+* 병렬 tool 실행
+* 복잡한 auto-thoroughness
+* 고급 format 옵션
+* `explore_repo`와 공용 loop 대수술
 
 ---
 
-## 딱 하나만 먼저 한다면
+# Phase 6. 공용 runtime 리팩터링 + 제한적 병렬화
 
-**코드 착수 1순위:**
-`runtime.mjs`에서 **모든 종료 경로를 dedicated strict finalize로 통일**하세요. [runtime.mjs](sandbox:/mnt/data/repo/cerebras-explorer-mcp-master/src/explorer/runtime.mjs) · [schemas.mjs](sandbox:/mnt/data/repo/cerebras-explorer-mcp-master/src/explorer/schemas.mjs)
+## 목표
 
-**설정 핫픽스 1순위:**
-`normal/deep`의 `temperature: 0.1`을 버리고 `top_p: 0.95`를 명시하세요. GLM-4.7은 일반적으로 `temperature=1.0`, instruction-following에선 `0.8` 수준을 권장하고, thinking이 켜진 상태에서 `temperature < 0.8`은 품질 저하 가능성이 있다고 안내합니다. ([Cerebras Inference][1])
+이 Phase는 **Explorer Mode 고도화가 아니라 core runtime refactor**입니다.
+위험도가 가장 높으므로, `explore` 코어가 안정된 뒤로 미루는 것이 맞습니다.
 
-원하면 다음 답변에서 이 계획표를 바로 **PR 체크리스트 형식**이나 **diff 순서 형식**으로 바꿔서 적어드리겠습니다.
+## 권장 접근
 
-[1]: https://inference-docs.cerebras.ai/resources/glm-47-migration "Migrate to GLM 4.7 - Cerebras Inference"
-[2]: https://inference-docs.cerebras.ai/capabilities/structured-outputs "Structured Outputs - Cerebras Inference"
-[3]: https://inference-docs.cerebras.ai/api-reference/chat-completions "Chat Completions - Cerebras Inference"
+### 6-A. 먼저 공용 orchestration 추출
+
+`runtime.mjs`에서 아래 공용 부분을 helper로 분리:
+
+* repo init
+* tool loop
+* stats
+* candidate path tracking
+* observed artifact tracking
+
+이걸 먼저 하지 않으면 `explore()`와 `freeExplore()`가 서서히 drift합니다.
+
+### 6-B. 병렬화는 bounded concurrency로 시작
+
+처음부터 무제한 `Promise.all`은 피하는 게 좋습니다.
+
+권장:
+
+* concurrency cap 3~4
+* `Promise.allSettled`
+* 원래 tool call 순서대로 messages append
+* duplicate file read dedupe
+* 부분 실패 허용
+
+### 6-C. 병렬화 대상은 “안전한 도구”부터
+
+중요한 현실 체크:
+현재 git/grep 일부는 sync subprocess 기반이어서, 코드를 병렬처럼 바꿔도 실제 이득이 제한될 수 있습니다.
+
+그래서 1차 병렬화는 다음 같은 도구부터 시작하는 것이 현실적입니다.
+
+* `repo_read_file`
+* `repo_list_dir`
+* 일부 cached lookup
+* 독립적인 symbol lookup
+
+git 계열까지 진짜 병렬 이득을 보려면 이후 async subprocess 전환이 필요할 수 있습니다.
+
+## 작업 항목
+
+* 공용 tool loop helper 추출
+* message ordering 보존
+* in-flight dedupe
+* partial failure policy
+* progress notification 정합성 유지
+* parallel stats 추가 가능
+
+## 수정 파일
+
+* `src/explorer/runtime.mjs`
+* `src/explorer/repo-tools.mjs`
+* 필요 시 `src/explorer/cache.mjs`
+* `tests/runtime.mock.test.mjs`
+
+## 완료 기준
+
+* `explore_repo`와 `explore`가 같은 core loop를 공유
+* 순서가 뒤섞이지 않음
+* 중복 읽기 감소
+* 일부 tool 실패가 전체 턴 실패로 번지지 않음
+* 병렬화로 기존 회귀가 생기지 않음
+
+## 이 Phase를 뒤로 미루는 이유
+
+이 작업은 `runtime.mjs`의 blast radius가 가장 큽니다.
+세션/신뢰도/새 도구 도입이 안정되기 전에 먼저 하면 디버깅이 매우 어려워집니다.
+
+---
+
+# Phase 7. docs / benchmark / examples 최종 정리
+
+## 목표
+
+앞선 모든 변경이 외부 사용자에게 **정확하게 보이도록** 마무리합니다.
+
+## 작업 항목
+
+### 1) README / DESIGN 최종 동기화
+
+반드시 반영할 것:
+
+* session invalid/exhausted semantics
+* `repo_symbol_context.depth` 실제 동작
+* `find_similar_code`가 score를 주지 않는다는 점
+* project config에서 실제 지원하는 필드
+* `explore`와 `explore_repo`의 역할 차이
+* `explore`가 beta인지 여부
+
+### 2) examples 갱신
+
+* `examples/expected-response.json`
+* `examples/explore-request.json`
+* 새 `explore` 예시 필요 시 추가
+
+### 3) benchmark 강화
+
+추가 권장 케이스:
+
+* git-guided false-low regression
+* blame-guided grounding
+* diff/show evidence retention
+* `explore` smoke benchmark는 정답 비교보다 format/sanity 위주
+
+### 4) tool description 재점검
+
+`server.mjs`의 설명문은 MCP 클라이언트가 그대로 보고 tool selection에 활용할 가능성이 큽니다.
+설명문을 아주 명확히 써야 합니다.
+
+## 수정 파일
+
+* `README.md`
+* `DESIGN.md`
+* `benchmarks/core.json`
+* `scripts/run-benchmark.mjs`
+* `tests/benchmark-evaluator.test.mjs`
+* `examples/*`
+* `src/mcp/server.mjs`
+
+## 완료 기준
+
+* 문서/예시/스키마/실제 동작이 일치
+* benchmark가 git confidence 회귀를 잡음
+* `explore` / `explore_repo` 선택 기준이 명확함
+
+---
+
+# 권장 PR 순서
+
+실제로는 아래처럼 끊는 게 가장 관리하기 쉽습니다.
+
+| PR    | 내용                                                            |
+| ----- | ------------------------------------------------------------- |
+| PR-1  | Session enforcement + repoRoot validation + tests             |
+| PR-2  | Git confidence fast-path stabilization + tests                |
+| PR-3A | Git evidence schema expansion + normalize/grounding           |
+| PR-3B | Confidence scoring split + prompt contract update             |
+| PR-4  | Contract cleanup (`depth`, `similarity`, config/entryPoints`) |
+| PR-5  | `explore` core(beta)                                          |
+| PR-6  | Shared runtime refactor + bounded parallel execution          |
+| PR-7  | Docs / benchmark / examples final sweep                       |
+
+---
+
+# 병렬 진행 가능 / 불가
+
+## 병렬 진행 비권장
+
+아래는 같은 시점에 진행하지 않는 편이 좋습니다.
+
+* Phase 2 ↔ Phase 5
+  둘 다 `runtime.mjs`를 깊게 건드립니다.
+* Phase 3 ↔ Phase 6
+  evidence/grounding과 shared loop refactor가 서로 얽힙니다.
+* Phase 5 ↔ Phase 6
+  `explore` core가 안정되기 전에 병렬화하면 원인 추적이 어려워집니다.
+
+## 부분 병렬 가능
+
+* Phase 4의 문서 정리는 Phase 3 후반부터 초안 작성 가능
+* benchmark 케이스 설계는 Phase 2부터 병행 가능
+* `entryPoints` 테스트 작성은 Phase 3 후반과 병행 가능
+
+---
+
+# 최종 추천 순서 한 줄 요약
+
+> **Session 고정 → Git 신뢰도 정상화 → 공개 계약 정리 → `explore` 코어(beta) → 공용 runtime 병렬화 → 최종 문서/벤치마크 정리**
+
+이 순서가 좋은 이유는 단순합니다.
+지금 이 프로젝트의 가장 큰 리스크는 “기능이 부족한 것”이 아니라 **도구 계약과 신뢰도 신호가 어긋나는 것**이기 때문입니다.
+
+원하시면 다음 단계로 바로 이어서
+**각 Phase를 GitHub Issue / 체크리스트 형태로 쪼갠 실행용 TODO 문서**로 바꿔드리겠습니다.
