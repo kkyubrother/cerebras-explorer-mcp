@@ -22,7 +22,7 @@
 | ✅ | no-tool 종료 경로 비율 지표 추가 | `scripts/run-benchmark.mjs` | `toolCalls === 0` 기준 |
 | ✅ | grounded evidence 개수 지표 추가 | `scripts/run-benchmark.mjs` | exact+partial 합산 |
 | ✅ | deep budget 평균 total tokens 지표 추가 | `scripts/run-benchmark.mjs` | deep budget 케이스만 필터링 |
-| 🔲 | 현재 main 브랜치 기준 결과 1회 저장 | `benchmarks/` | 비교 기준선 확보 (실제 API 실행 필요) |
+| ✅ | 현재 main 브랜치 기준 결과 1회 저장 | `benchmarks/baseline-2026-04-09.json` | 5/5 pass, avg 90%, avg turns 7.6, 0% budget exhaustion |
 
 ---
 

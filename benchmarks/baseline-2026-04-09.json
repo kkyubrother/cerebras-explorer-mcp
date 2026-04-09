@@ -1,0 +1,1764 @@
+{
+  "suite": {
+    "name": "core-readonly-exploration",
+    "description": "Representative benchmark queries for cerebras-explorer on its own codebase.",
+    "path": "C:\\Users\\daeryun\\IdeaProjects\\cerebras-explorer-mcp\\benchmarks\\core.json",
+    "repoRoot": "C:\\Users\\daeryun\\IdeaProjects\\cerebras-explorer-mcp"
+  },
+  "summary": {
+    "caseCount": 5,
+    "passedCount": 5,
+    "failedCount": 0,
+    "averageScore": 0.898
+  },
+  "metrics": {
+    "avgToolTurns": 7.6,
+    "budgetExhaustionRate": 0,
+    "noToolExitRate": 0,
+    "avgGroundedEvidence": 4.8,
+    "deepBudgetAvgTotalTokens": null
+  },
+  "cases": [
+    {
+      "caseDefinition": {
+        "id": "explain-request-handler",
+        "description": "Explain the MCP request handler factory.",
+        "tool": "explain_symbol",
+        "args": {
+          "symbol": "createMcpRequestHandler",
+          "language": "ko"
+        },
+        "expectations": [
+          {
+            "label": "Answer identifies the symbol and its handler role",
+            "source": "answer",
+            "groups": [
+              [
+                "createMcpRequestHandler"
+              ],
+              [
+                "mcp"
+              ],
+              [
+                "request handler",
+                "요청 핸들러"
+              ],
+              [
+                "handleRequest",
+                "handleNotification"
+              ]
+            ],
+            "weight": 0.45
+          },
+          {
+            "label": "Answer mentions handled MCP methods",
+            "source": "combined_text",
+            "groups": [
+              [
+                "initialize"
+              ],
+              [
+                "tools/list"
+              ],
+              [
+                "tools/call"
+              ]
+            ],
+            "weight": 0.2
+          },
+          {
+            "label": "Evidence cites implementation and tests",
+            "source": "evidence_paths",
+            "groups": [
+              [
+                "src/mcp/server.mjs"
+              ],
+              [
+                "tests/mcp-server.test.mjs"
+              ]
+            ],
+            "weight": 0.25
+          },
+          {
+            "label": "Candidate paths include the implementation file",
+            "source": "candidate_paths",
+            "groups": [
+              [
+                "src/mcp/server.mjs"
+              ]
+            ],
+            "weight": 0.1
+          }
+        ],
+        "checks": [
+          {
+            "label": "Returns at least two grounded evidence items",
+            "type": "min_grounded_evidence_count",
+            "value": 2,
+            "weight": 0.1
+          }
+        ],
+        "passScore": 0.72
+      },
+      "evaluation": {
+        "id": "explain-request-handler",
+        "description": "Explain the MCP request handler factory.",
+        "score": 1,
+        "passScore": 0.72,
+        "passed": true,
+        "expectations": [
+          {
+            "label": "Answer identifies the symbol and its handler role",
+            "source": "answer",
+            "weight": 0.45,
+            "minCoverage": 1,
+            "matchedCount": 4,
+            "totalCount": 4,
+            "coverage": 1,
+            "details": [
+              {
+                "group": [
+                  "createMcpRequestHandler"
+                ],
+                "matched": true,
+                "matchedToken": "createMcpRequestHandler"
+              },
+              {
+                "group": [
+                  "mcp"
+                ],
+                "matched": true,
+                "matchedToken": "mcp"
+              },
+              {
+                "group": [
+                  "request handler",
+                  "요청 핸들러"
+                ],
+                "matched": true,
+                "matchedToken": "요청 핸들러"
+              },
+              {
+                "group": [
+                  "handleRequest",
+                  "handleNotification"
+                ],
+                "matched": true,
+                "matchedToken": "handleRequest"
+              }
+            ],
+            "passed": true,
+            "pointsEarned": 0.45
+          },
+          {
+            "label": "Answer mentions handled MCP methods",
+            "source": "combined_text",
+            "weight": 0.2,
+            "minCoverage": 1,
+            "matchedCount": 3,
+            "totalCount": 3,
+            "coverage": 1,
+            "details": [
+              {
+                "group": [
+                  "initialize"
+                ],
+                "matched": true,
+                "matchedToken": "initialize"
+              },
+              {
+                "group": [
+                  "tools/list"
+                ],
+                "matched": true,
+                "matchedToken": "tools/list"
+              },
+              {
+                "group": [
+                  "tools/call"
+                ],
+                "matched": true,
+                "matchedToken": "tools/call"
+              }
+            ],
+            "passed": true,
+            "pointsEarned": 0.2
+          },
+          {
+            "label": "Evidence cites implementation and tests",
+            "source": "evidence_paths",
+            "weight": 0.25,
+            "minCoverage": 1,
+            "matchedCount": 2,
+            "totalCount": 2,
+            "coverage": 1,
+            "details": [
+              {
+                "group": [
+                  "src/mcp/server.mjs"
+                ],
+                "matched": true,
+                "matchedToken": "src/mcp/server.mjs"
+              },
+              {
+                "group": [
+                  "tests/mcp-server.test.mjs"
+                ],
+                "matched": true,
+                "matchedToken": "tests/mcp-server.test.mjs"
+              }
+            ],
+            "passed": true,
+            "pointsEarned": 0.25
+          },
+          {
+            "label": "Candidate paths include the implementation file",
+            "source": "candidate_paths",
+            "weight": 0.1,
+            "minCoverage": 1,
+            "matchedCount": 1,
+            "totalCount": 1,
+            "coverage": 1,
+            "details": [
+              {
+                "group": [
+                  "src/mcp/server.mjs"
+                ],
+                "matched": true,
+                "matchedToken": "src/mcp/server.mjs"
+              }
+            ],
+            "passed": true,
+            "pointsEarned": 0.1
+          }
+        ],
+        "checks": [
+          {
+            "label": "Returns at least two grounded evidence items",
+            "type": "min_grounded_evidence_count",
+            "expected": 2,
+            "actual": 2,
+            "passed": true,
+            "weight": 0.1,
+            "pointsEarned": 0.1
+          }
+        ]
+      },
+      "result": {
+        "answer": "createMcpRequestHandler는 MCP(Model Context Protocol) 서버의 요청 핸들러를 생성하는 함수입니다. src/mcp/server.mjs의 196-315줄에 정의되어 있으며, MCP 프로토콜 메시지를 처리하고 다양한 리포지토리 탐색 도구(explore_repo, explain_symbol, trace_dependency, summarize_changes, find_similar_code)를 노출합니다. 매개변수는 logger(기본값: 빈 함수), runtimeOptions(기본값: 빈 객체), sendNotification(기본값: null), sessionStore(기본값: globalSessionStore)를 받으며, { handleRequest, handleNotification } 객체를 반환합니다. handleRequest는 initialize, ping, tools/list, tools/call 같은 요청 메서드를 처리하고, handleNotification은 notifications/initialized, notifications/cancelled 같은 알림을 처리합니다.",
+        "summary": "createMcpRequestHandler는 MCP 서버의 핵심 핸들러 팩토리 함수로, 프로토콜 버전 협상, 도구 목록 노출, 도구 호출 처리, 진행률 알림 지원을 제공하며 handleRequest와 handleNotification 두 함수를 반환합니다.",
+        "confidence": "low",
+        "evidence": [
+          {
+            "path": "src/mcp/server.mjs",
+            "startLine": 196,
+            "endLine": 315,
+            "why": "함수 정의, 매개변수, 내부 로직, 반환값 전체 확인",
+            "groundingStatus": "exact"
+          },
+          {
+            "path": "tests/mcp-server.test.mjs",
+            "startLine": 117,
+            "endLine": 121,
+            "why": "테스트에서의 사용 방식 확인",
+            "groundingStatus": "exact"
+          }
+        ],
+        "candidatePaths": [
+          "src/mcp/server.mjs",
+          "benchmarks/core.json",
+          "scripts/run-benchmark.mjs",
+          "tests/mcp-server.test.mjs"
+        ],
+        "followups": [
+          {
+            "description": "Some evidence items were dropped because they were not grounded in inspected line ranges.",
+            "priority": "optional",
+            "suggestedCall": null
+          }
+        ],
+        "stats": {
+          "model": "zai-glm-4.7",
+          "budget": "normal",
+          "turns": 5,
+          "toolCalls": 4,
+          "listDirCalls": 0,
+          "findFileCalls": 0,
+          "grepCalls": 0,
+          "filesRead": 3,
+          "gitLogCalls": 0,
+          "gitBlameCalls": 0,
+          "gitDiffCalls": 0,
+          "gitShowCalls": 0,
+          "symbolCalls": 1,
+          "inputTokens": 24554,
+          "outputTokens": 1936,
+          "totalTokens": 26490,
+          "elapsedMs": 4998,
+          "stoppedByBudget": false,
+          "repoRoot": "C:\\Users\\daeryun\\IdeaProjects\\cerebras-explorer-mcp",
+          "sessionId": "sess_3cd9998ba81cf476",
+          "cacheHits": 0,
+          "cacheMisses": 3,
+          "cacheHitRate": 0,
+          "cacheEntries": 3,
+          "cacheSizeBytes": 12860
+        },
+        "confidenceScore": 0.35,
+        "confidenceLevel": "low",
+        "confidenceFactors": {
+          "evidenceCount": 2,
+          "evidenceGrounded": 2,
+          "evidenceDropped": 1,
+          "crossVerified": true,
+          "symbolSearchUsed": false,
+          "stoppedByBudget": false,
+          "adjustments": [
+            "-0.30 (some evidence not grounded in inspected ranges)",
+            "+0.15 (cross-verified across multiple files)"
+          ]
+        },
+        "codeMap": {
+          "entryPoints": [
+            "src/mcp/server.mjs"
+          ],
+          "keyModules": [
+            {
+              "path": "src/mcp/server.mjs",
+              "role": "entry point",
+              "linesRead": 126
+            },
+            {
+              "path": "tests/mcp-server.test.mjs",
+              "role": "test",
+              "linesRead": 21
+            }
+          ]
+        }
+      },
+      "elapsedMs": 5034
+    },
+    {
+      "caseDefinition": {
+        "id": "trace-index-dependency",
+        "description": "Trace the dependency chain from the process entry point.",
+        "tool": "trace_dependency",
+        "args": {
+          "entryPoint": "src/index.mjs",
+          "direction": "downstream",
+          "maxDepth": 3,
+          "language": "ko"
+        },
+        "expectations": [
+          {
+            "label": "Answer includes the entry point and server module",
+            "source": "combined_text",
+            "groups": [
+              [
+                "src/index.mjs"
+              ],
+              [
+                "src/mcp/server.mjs"
+              ],
+              [
+                "startMcpServer"
+              ]
+            ],
+            "weight": 0.35
+          },
+          {
+            "label": "Answer includes key downstream runtime modules",
+            "source": "combined_text",
+            "groups": [
+              [
+                "src/explorer/runtime.mjs"
+              ],
+              [
+                "src/explorer/config.mjs"
+              ],
+              [
+                "src/mcp/jsonrpc-stdio.mjs"
+              ]
+            ],
+            "weight": 0.25
+          },
+          {
+            "label": "Evidence covers the top-level import chain",
+            "source": "evidence_paths",
+            "groups": [
+              [
+                "src/index.mjs"
+              ],
+              [
+                "src/mcp/server.mjs"
+              ]
+            ],
+            "weight": 0.25
+          },
+          {
+            "label": "Candidate paths include runtime internals",
+            "source": "candidate_paths",
+            "groups": [
+              [
+                "src/explorer/runtime.mjs"
+              ],
+              [
+                "src/explorer/providers/index.mjs"
+              ]
+            ],
+            "weight": 0.15
+          }
+        ],
+        "checks": [
+          {
+            "label": "Returns at least two grounded evidence items",
+            "type": "min_grounded_evidence_count",
+            "value": 2,
+            "weight": 0.1
+          }
+        ],
+        "passScore": 0.72
+      },
+      "evaluation": {
+        "id": "trace-index-dependency",
+        "description": "Trace the dependency chain from the process entry point.",
+        "score": 0.826,
+        "passScore": 0.72,
+        "passed": true,
+        "expectations": [
+          {
+            "label": "Answer includes the entry point and server module",
+            "source": "combined_text",
+            "weight": 0.35,
+            "minCoverage": 1,
+            "matchedCount": 2,
+            "totalCount": 3,
+            "coverage": 0.6666666666666666,
+            "details": [
+              {
+                "group": [
+                  "src/index.mjs"
+                ],
+                "matched": true,
+                "matchedToken": "src/index.mjs"
+              },
+              {
+                "group": [
+                  "src/mcp/server.mjs"
+                ],
+                "matched": true,
+                "matchedToken": "src/mcp/server.mjs"
+              },
+              {
+                "group": [
+                  "startMcpServer"
+                ],
+                "matched": false,
+                "matchedToken": null
+              }
+            ],
+            "passed": false,
+            "pointsEarned": 0.2333333333333333
+          },
+          {
+            "label": "Answer includes key downstream runtime modules",
+            "source": "combined_text",
+            "weight": 0.25,
+            "minCoverage": 1,
+            "matchedCount": 3,
+            "totalCount": 3,
+            "coverage": 1,
+            "details": [
+              {
+                "group": [
+                  "src/explorer/runtime.mjs"
+                ],
+                "matched": true,
+                "matchedToken": "src/explorer/runtime.mjs"
+              },
+              {
+                "group": [
+                  "src/explorer/config.mjs"
+                ],
+                "matched": true,
+                "matchedToken": "src/explorer/config.mjs"
+              },
+              {
+                "group": [
+                  "src/mcp/jsonrpc-stdio.mjs"
+                ],
+                "matched": true,
+                "matchedToken": "src/mcp/jsonrpc-stdio.mjs"
+              }
+            ],
+            "passed": true,
+            "pointsEarned": 0.25
+          },
+          {
+            "label": "Evidence covers the top-level import chain",
+            "source": "evidence_paths",
+            "weight": 0.25,
+            "minCoverage": 1,
+            "matchedCount": 2,
+            "totalCount": 2,
+            "coverage": 1,
+            "details": [
+              {
+                "group": [
+                  "src/index.mjs"
+                ],
+                "matched": true,
+                "matchedToken": "src/index.mjs"
+              },
+              {
+                "group": [
+                  "src/mcp/server.mjs"
+                ],
+                "matched": true,
+                "matchedToken": "src/mcp/server.mjs"
+              }
+            ],
+            "passed": true,
+            "pointsEarned": 0.25
+          },
+          {
+            "label": "Candidate paths include runtime internals",
+            "source": "candidate_paths",
+            "weight": 0.15,
+            "minCoverage": 1,
+            "matchedCount": 1,
+            "totalCount": 2,
+            "coverage": 0.5,
+            "details": [
+              {
+                "group": [
+                  "src/explorer/runtime.mjs"
+                ],
+                "matched": true,
+                "matchedToken": "src/explorer/runtime.mjs"
+              },
+              {
+                "group": [
+                  "src/explorer/providers/index.mjs"
+                ],
+                "matched": false,
+                "matchedToken": null
+              }
+            ],
+            "passed": false,
+            "pointsEarned": 0.075
+          }
+        ],
+        "checks": [
+          {
+            "label": "Returns at least two grounded evidence items",
+            "type": "min_grounded_evidence_count",
+            "expected": 2,
+            "actual": 8,
+            "passed": true,
+            "weight": 0.1,
+            "pointsEarned": 0.1
+          }
+        ]
+      },
+      "result": {
+        "answer": "src/index.mjs의 import/dependency 체인 추적 결과:\n\n**[Downstream - src/index.mjs가 import하는 모듈] (최대 3단계)**\n\nLevel 0: src/index.mjs (진입점)\n├─ Level 1: src/mcp/server.mjs\n   ├─ Level 2: src/explorer/config.mjs\n   │  └─ Level 3: 'node:path', 'node:fs/promises' (Node.js 내장)\n   ├─ Level 2: src/explorer/runtime.mjs\n   │  └─ Level 3: './cerebras-client.mjs', './config.mjs', './repo-tools.mjs', './cache.mjs', './prompt.mjs', './schemas.mjs', './providers/index.mjs'\n   ├─ Level 2: src/explorer/schemas.mjs\n   │  └─ Level 3: (import 없음, 순수 데이터 export)\n   ├─ Level 2: src/explorer/session.mjs\n   │  └─ Level 3: 'node:crypto' (Node.js 내장)\n   └─ Level 2: src/mcp/jsonrpc-stdio.mjs\n      └─ Level 3: (import 없음, 순수 구현)\n\n**[Upstream - src/index.mjs를 import하는 모듈]**\n- 실제로 import하는 모듈: 없음 (진입점 파일임)\n- 실행 참조: examples/call-server-via-stdio.mjs (spawn으로 프로세스 실행, import는 아님)\n- 설정 참조: package.json, README.md, benchmarks/core.json 등에서 진입점으로 지정",
+        "summary": "src/index.mjs는 MCP 서버의 진입점으로, 단일 모듈(server.mjs)만 직접 import합니다. server.mjs는 5개의 explorer 모듈과 1개의 JSON-RPC 서버 모듈을 import하며, 이들 중 일부는 Node.js 내장 모듈과 추가적인 내부 모듈을 import합니다. src/index.mjs를 직접 import하는 모듈은 없으나, 예제 파일에서 spawn으로 실행되고 설정 파일에서 진입점으로 참조됩니다.",
+        "confidence": "high",
+        "evidence": [
+          {
+            "path": "src/index.mjs",
+            "startLine": 1,
+            "endLine": 14,
+            "why": "진입점 파일의 import 구조 확인 - startMcpServer만 import",
+            "groundingStatus": "exact"
+          },
+          {
+            "path": "src/mcp/server.mjs",
+            "startLine": 1,
+            "endLine": 6,
+            "why": "Level 2 모듈들의 import 확인 - 5개의 explorer 모듈과 jsonrpc-stdio.mjs",
+            "groundingStatus": "exact"
+          },
+          {
+            "path": "src/explorer/config.mjs",
+            "startLine": 1,
+            "endLine": 2,
+            "why": "Level 3 내장 모듈 import 확인 - node:path, node:fs/promises",
+            "groundingStatus": "exact"
+          },
+          {
+            "path": "src/explorer/runtime.mjs",
+            "startLine": 1,
+            "endLine": 31,
+            "why": "Level 3 내부 모듈 import 확인 - 7개의 내부 모듈 import",
+            "groundingStatus": "exact"
+          },
+          {
+            "path": "src/explorer/schemas.mjs",
+            "startLine": 1,
+            "endLine": 30,
+            "why": "import 없음 확인 - 순수 데이터 export",
+            "groundingStatus": "exact"
+          },
+          {
+            "path": "src/explorer/session.mjs",
+            "startLine": 1,
+            "endLine": 1,
+            "why": "Level 3 내장 모듈 import 확인 - node:crypto",
+            "groundingStatus": "exact"
+          },
+          {
+            "path": "src/mcp/jsonrpc-stdio.mjs",
+            "startLine": 1,
+            "endLine": 155,
+            "why": "import 없음 확인 - 순수 구현",
+            "groundingStatus": "exact"
+          },
+          {
+            "path": "examples/call-server-via-stdio.mjs",
+            "startLine": 8,
+            "endLine": 12,
+            "why": "spawn 실행 참조 확인 - import는 아님",
+            "groundingStatus": "exact"
+          }
+        ],
+        "candidatePaths": [
+          "src/index.mjs",
+          "src/mcp/server.mjs",
+          "src/explorer/config.mjs",
+          "src/explorer/runtime.mjs",
+          "src/explorer/schemas.mjs",
+          "src/explorer/session.mjs",
+          "src/mcp/jsonrpc-stdio.mjs",
+          "examples/call-server-via-stdio.mjs",
+          "package.json",
+          "tests/project-config.test.mjs",
+          "benchmarks/core.json",
+          "tests/symbols.test.mjs",
+          "README.md",
+          "integrations/codex/config.toml.example"
+        ],
+        "followups": [],
+        "stats": {
+          "model": "zai-glm-4.7",
+          "budget": "normal",
+          "turns": 9,
+          "toolCalls": 9,
+          "listDirCalls": 0,
+          "findFileCalls": 0,
+          "grepCalls": 0,
+          "filesRead": 8,
+          "gitLogCalls": 0,
+          "gitBlameCalls": 0,
+          "gitDiffCalls": 0,
+          "gitShowCalls": 0,
+          "symbolCalls": 1,
+          "inputTokens": 87102,
+          "outputTokens": 4579,
+          "totalTokens": 91681,
+          "elapsedMs": 10792,
+          "stoppedByBudget": false,
+          "repoRoot": "C:\\Users\\daeryun\\IdeaProjects\\cerebras-explorer-mcp",
+          "sessionId": "sess_24f644d29b709a30",
+          "cacheHits": 0,
+          "cacheMisses": 11,
+          "cacheHitRate": 0,
+          "cacheEntries": 11,
+          "cacheSizeBytes": 72654
+        },
+        "confidenceScore": 0.85,
+        "confidenceLevel": "high",
+        "confidenceFactors": {
+          "evidenceCount": 8,
+          "evidenceGrounded": 8,
+          "evidenceDropped": 0,
+          "crossVerified": true,
+          "symbolSearchUsed": false,
+          "stoppedByBudget": false,
+          "adjustments": [
+            "+0.20 (all evidence grounded)",
+            "+0.15 (cross-verified across multiple files)"
+          ]
+        },
+        "codeMap": {
+          "entryPoints": [
+            "src/index.mjs",
+            "src/mcp/server.mjs"
+          ],
+          "keyModules": [
+            {
+              "path": "src/index.mjs",
+              "role": "entry point",
+              "linesRead": 14
+            },
+            {
+              "path": "examples/call-server-via-stdio.mjs",
+              "role": "entry point",
+              "linesRead": 43
+            },
+            {
+              "path": "src/mcp/server.mjs",
+              "role": "entry point",
+              "linesRead": 220
+            },
+            {
+              "path": "src/explorer/config.mjs",
+              "role": "configuration",
+              "linesRead": 220
+            },
+            {
+              "path": "src/mcp/jsonrpc-stdio.mjs",
+              "role": "module",
+              "linesRead": 155
+            },
+            {
+              "path": "src/explorer/runtime.mjs",
+              "role": "module",
+              "linesRead": 50
+            },
+            {
+              "path": "src/explorer/schemas.mjs",
+              "role": "data model",
+              "linesRead": 30
+            },
+            {
+              "path": "src/explorer/session.mjs",
+              "role": "session",
+              "linesRead": 30
+            }
+          ]
+        }
+      },
+      "elapsedMs": 10830
+    },
+    {
+      "caseDefinition": {
+        "id": "session-context-flow",
+        "description": "Trace how session state is stored and injected into later calls.",
+        "tool": "explore_repo",
+        "args": {
+          "task": "세션 컨텍스트가 후속 explore 호출에 어떻게 재사용되는지 추적해라. 정의 위치, 저장되는 정보, 다음 호출에 주입되는 지점을 설명해라.",
+          "scope": [
+            "src/**",
+            "tests/**"
+          ],
+          "budget": "normal",
+          "language": "ko",
+          "hints": {
+            "symbols": [
+              "SessionStore",
+              "globalSessionStore",
+              "exploreRepository"
+            ],
+            "strategy": "reference-chase"
+          }
+        },
+        "expectations": [
+          {
+            "label": "Answer mentions the session store and later-call reuse",
+            "source": "combined_text",
+            "groups": [
+              [
+                "SessionStore",
+                "sessionStore"
+              ],
+              [
+                "previousSummaries",
+                "summaries",
+                "이전 요약"
+              ],
+              [
+                "candidatePaths",
+                "sessionCandidatePaths"
+              ],
+              [
+                "sessionStore.update",
+                "update",
+                "갱신"
+              ]
+            ],
+            "weight": 0.45
+          },
+          {
+            "label": "Evidence covers runtime and session implementation files",
+            "source": "evidence_paths",
+            "groups": [
+              [
+                "src/explorer/runtime.mjs"
+              ],
+              [
+                "src/explorer/session.mjs"
+              ],
+              [
+                "src/mcp/server.mjs"
+              ]
+            ],
+            "weight": 0.35
+          },
+          {
+            "label": "Candidate paths include the relevant tests",
+            "source": "candidate_paths",
+            "groups": [
+              [
+                "tests/runtime.mock.test.mjs"
+              ],
+              [
+                "tests/session.test.mjs"
+              ]
+            ],
+            "weight": 0.2
+          }
+        ],
+        "checks": [
+          {
+            "label": "Returns at least three evidence items",
+            "type": "min_evidence_count",
+            "value": 3,
+            "weight": 0.1
+          },
+          {
+            "label": "Returns a session id in stats",
+            "type": "has_session_id",
+            "value": true,
+            "weight": 0.05
+          }
+        ],
+        "passScore": 0.72
+      },
+      "evaluation": {
+        "id": "session-context-flow",
+        "description": "Trace how session state is stored and injected into later calls.",
+        "score": 0.899,
+        "passScore": 0.72,
+        "passed": true,
+        "expectations": [
+          {
+            "label": "Answer mentions the session store and later-call reuse",
+            "source": "combined_text",
+            "weight": 0.45,
+            "minCoverage": 1,
+            "matchedCount": 4,
+            "totalCount": 4,
+            "coverage": 1,
+            "details": [
+              {
+                "group": [
+                  "SessionStore",
+                  "sessionStore"
+                ],
+                "matched": true,
+                "matchedToken": "SessionStore"
+              },
+              {
+                "group": [
+                  "previousSummaries",
+                  "summaries",
+                  "이전 요약"
+                ],
+                "matched": true,
+                "matchedToken": "previousSummaries"
+              },
+              {
+                "group": [
+                  "candidatePaths",
+                  "sessionCandidatePaths"
+                ],
+                "matched": true,
+                "matchedToken": "candidatePaths"
+              },
+              {
+                "group": [
+                  "sessionStore.update",
+                  "update",
+                  "갱신"
+                ],
+                "matched": true,
+                "matchedToken": "sessionStore.update"
+              }
+            ],
+            "passed": true,
+            "pointsEarned": 0.45
+          },
+          {
+            "label": "Evidence covers runtime and session implementation files",
+            "source": "evidence_paths",
+            "weight": 0.35,
+            "minCoverage": 1,
+            "matchedCount": 2,
+            "totalCount": 3,
+            "coverage": 0.6666666666666666,
+            "details": [
+              {
+                "group": [
+                  "src/explorer/runtime.mjs"
+                ],
+                "matched": true,
+                "matchedToken": "src/explorer/runtime.mjs"
+              },
+              {
+                "group": [
+                  "src/explorer/session.mjs"
+                ],
+                "matched": false,
+                "matchedToken": null
+              },
+              {
+                "group": [
+                  "src/mcp/server.mjs"
+                ],
+                "matched": true,
+                "matchedToken": "src/mcp/server.mjs"
+              }
+            ],
+            "passed": false,
+            "pointsEarned": 0.2333333333333333
+          },
+          {
+            "label": "Candidate paths include the relevant tests",
+            "source": "candidate_paths",
+            "weight": 0.2,
+            "minCoverage": 1,
+            "matchedCount": 2,
+            "totalCount": 2,
+            "coverage": 1,
+            "details": [
+              {
+                "group": [
+                  "tests/runtime.mock.test.mjs"
+                ],
+                "matched": true,
+                "matchedToken": "tests/runtime.mock.test.mjs"
+              },
+              {
+                "group": [
+                  "tests/session.test.mjs"
+                ],
+                "matched": true,
+                "matchedToken": "tests/session.test.mjs"
+              }
+            ],
+            "passed": true,
+            "pointsEarned": 0.2
+          }
+        ],
+        "checks": [
+          {
+            "label": "Returns at least three evidence items",
+            "type": "min_evidence_count",
+            "expected": 3,
+            "actual": 4,
+            "passed": true,
+            "weight": 0.1,
+            "pointsEarned": 0.1
+          },
+          {
+            "label": "Returns a session id in stats",
+            "type": "has_session_id",
+            "expected": true,
+            "actual": true,
+            "passed": true,
+            "weight": 0.05,
+            "pointsEarned": 0.05
+          }
+        ]
+      },
+      "result": {
+        "answer": "세션 컨텍스트는 SessionStore 클래스를 통해 관리되며 세 가지 단계로 재사용됩니다: (1) 정의 및 저장, (2) 후속 호출에 주입, (3) 결과 업데이트.\n\n1. 정의 위치 및 저장 정보: SessionStore는 src/explorer/session.mjs:59-173에 정의된 클래스입니다. create() 메서드(라인 72-83)가 세션 생성 시 다음 정보를 저장합니다: id, repoRoot, calls, createdAt, lastUsedAt, candidatePaths, evidencePaths, candidatePathsWithContext({path, why}[]), summaries[], followups[]. update() 메서드(라인 105-148)는 탐색 결과를 받아 이 필드들을 누적 업데이트합니다.\n\n2. 후속 호출에 주입되는 지점: ExplorerRuntime.explore() 메서드(src/explorer/runtime.mjs:279-376)에서 세션을 로드하여 프롬프트에 주입합니다:\n   - 세션 로드(라인 300-312): args.session이 있으면 sessionStore.get()으로 조회, 없으면 sessionStore.create()로 새 세션 생성\n   - System prompt 주입(라인 335): previousSummaries: sessionData?.summaries ?? []\n   - User prompt 주입(라인 345): sessionCandidatePaths: sessionData?.candidatePathsWithContext ?? sessionData?.candidatePaths ?? []\n\n3. 결과 저장 지점: 탐색 완료 후 sessionStore.update()가 호출되어 세션을 갱신합니다(src/explorer/runtime.mjs:610-611).\n\n전역 인스턴스 globalSessionStore(src/explorer/session.mjs:176)가 MCP 서버(src/mcp/server.mjs:200)에서 기본값으로 사용되어, 세션 컨텍스트가 여러 exploreRepository 호출 간에 공유됩니다.",
+        "summary": "SessionStore 클래스가 세션 생성/조회/업데이트를 관리하며, ExplorerRuntime.explore()에서 세션 데이터(previousSummaries, sessionCandidatePaths)를 프롬프트에 주입하여 후속 호출이 이전 탐색 결과를 재사용하고, 완료 후 sessionStore.update()로 결과를 누적 저장합니다.",
+        "confidence": "low",
+        "evidence": [
+          {
+            "path": "src/mcp/server.mjs",
+            "startLine": 200,
+            "endLine": 225,
+            "why": "MCP 서버에서 globalSessionStore가 기본값으로 사용되고 exploreRepository에 전달되는 흐름 확인",
+            "groundingStatus": "exact"
+          },
+          {
+            "path": "src/explorer/runtime.mjs",
+            "startLine": 300,
+            "endLine": 312,
+            "why": "ExplorerRuntime.explore()에서 세션 로드 및 생성 로직 확인",
+            "groundingStatus": "exact"
+          },
+          {
+            "path": "src/explorer/runtime.mjs",
+            "startLine": 335,
+            "endLine": 345,
+            "why": "세션 데이터(previousSummaries, sessionCandidatePaths)가 시스템/사용자 프롬프트에 주입되는 지점 확인",
+            "groundingStatus": "exact"
+          },
+          {
+            "path": "src/explorer/runtime.mjs",
+            "startLine": 610,
+            "endLine": 614,
+            "why": "탐색 완료 후 sessionStore.update()로 세션 결과가 저장되는 지점 확인",
+            "groundingStatus": "exact"
+          }
+        ],
+        "candidatePaths": [
+          "src/explorer/session.mjs",
+          "src/explorer/runtime.mjs",
+          "src/mcp/server.mjs",
+          "tests/benchmark-evaluator.test.mjs",
+          "tests/runtime.mock.test.mjs",
+          "tests/session.test.mjs"
+        ],
+        "followups": [
+          {
+            "description": "Some evidence items were dropped because they were not grounded in inspected line ranges.",
+            "priority": "optional",
+            "suggestedCall": null
+          }
+        ],
+        "stats": {
+          "model": "zai-glm-4.7",
+          "budget": "normal",
+          "turns": 6,
+          "toolCalls": 8,
+          "listDirCalls": 0,
+          "findFileCalls": 0,
+          "grepCalls": 1,
+          "filesRead": 3,
+          "gitLogCalls": 0,
+          "gitBlameCalls": 0,
+          "gitDiffCalls": 0,
+          "gitShowCalls": 0,
+          "symbolCalls": 4,
+          "inputTokens": 43901,
+          "outputTokens": 3704,
+          "totalTokens": 47605,
+          "elapsedMs": 8503,
+          "stoppedByBudget": false,
+          "repoRoot": "C:\\Users\\daeryun\\IdeaProjects\\cerebras-explorer-mcp",
+          "sessionId": "sess_418b839ed7eb3bb4",
+          "cacheHits": 0,
+          "cacheMisses": 16,
+          "cacheHitRate": 0,
+          "cacheEntries": 16,
+          "cacheSizeBytes": 87034
+        },
+        "confidenceScore": 0.4,
+        "confidenceLevel": "low",
+        "confidenceFactors": {
+          "evidenceCount": 4,
+          "evidenceGrounded": 4,
+          "evidenceDropped": 3,
+          "crossVerified": true,
+          "symbolSearchUsed": true,
+          "stoppedByBudget": false,
+          "adjustments": [
+            "-0.30 (some evidence not grounded in inspected ranges)",
+            "+0.15 (cross-verified across multiple files)",
+            "+0.05 (symbol search used)"
+          ]
+        },
+        "codeMap": {
+          "entryPoints": [
+            "src/mcp/server.mjs"
+          ],
+          "keyModules": [
+            {
+              "path": "src/explorer/runtime.mjs",
+              "role": "module",
+              "linesRead": 126
+            },
+            {
+              "path": "src/mcp/server.mjs",
+              "role": "entry point",
+              "linesRead": 41
+            }
+          ]
+        }
+      },
+      "elapsedMs": 8530
+    },
+    {
+      "caseDefinition": {
+        "id": "similar-provider-patterns",
+        "description": "Find modules that implement the provider abstraction pattern.",
+        "tool": "find_similar_code",
+        "args": {
+          "reference": "src/explorer/providers/openai-compat.mjs",
+          "scope": [
+            "src/explorer/providers/**"
+          ],
+          "language": "ko",
+          "context": "같은 provider abstraction 패턴을 따르는 구현 파일을 찾아라."
+        },
+        "expectations": [
+          {
+            "label": "Answer names the provider implementation files",
+            "source": "combined_text",
+            "groups": [
+              [
+                "abstract.mjs"
+              ],
+              [
+                "openai-compat.mjs"
+              ],
+              [
+                "ollama.mjs"
+              ],
+              [
+                "failover.mjs"
+              ]
+            ],
+            "weight": 0.45
+          },
+          {
+            "label": "Answer mentions the shared abstraction",
+            "source": "combined_text",
+            "groups": [
+              [
+                "AbstractChatClient"
+              ],
+              [
+                "createChatCompletion"
+              ],
+              [
+                "model getter",
+                "model"
+              ]
+            ],
+            "weight": 0.25
+          },
+          {
+            "label": "Evidence covers at least three provider files",
+            "source": "evidence_paths",
+            "groups": [
+              [
+                "src/explorer/providers/abstract.mjs"
+              ],
+              [
+                "src/explorer/providers/openai-compat.mjs"
+              ],
+              [
+                "src/explorer/providers/ollama.mjs"
+              ],
+              [
+                "src/explorer/providers/failover.mjs"
+              ]
+            ],
+            "weight": 0.3,
+            "minCoverage": 0.75
+          }
+        ],
+        "checks": [
+          {
+            "label": "Returns at least four grounded evidence items",
+            "type": "min_grounded_evidence_count",
+            "value": 4,
+            "weight": 0.1
+          }
+        ],
+        "passScore": 0.72
+      },
+      "evaluation": {
+        "id": "similar-provider-patterns",
+        "description": "Find modules that implement the provider abstraction pattern.",
+        "score": 1,
+        "passScore": 0.72,
+        "passed": true,
+        "expectations": [
+          {
+            "label": "Answer names the provider implementation files",
+            "source": "combined_text",
+            "weight": 0.45,
+            "minCoverage": 1,
+            "matchedCount": 4,
+            "totalCount": 4,
+            "coverage": 1,
+            "details": [
+              {
+                "group": [
+                  "abstract.mjs"
+                ],
+                "matched": true,
+                "matchedToken": "abstract.mjs"
+              },
+              {
+                "group": [
+                  "openai-compat.mjs"
+                ],
+                "matched": true,
+                "matchedToken": "openai-compat.mjs"
+              },
+              {
+                "group": [
+                  "ollama.mjs"
+                ],
+                "matched": true,
+                "matchedToken": "ollama.mjs"
+              },
+              {
+                "group": [
+                  "failover.mjs"
+                ],
+                "matched": true,
+                "matchedToken": "failover.mjs"
+              }
+            ],
+            "passed": true,
+            "pointsEarned": 0.45
+          },
+          {
+            "label": "Answer mentions the shared abstraction",
+            "source": "combined_text",
+            "weight": 0.25,
+            "minCoverage": 1,
+            "matchedCount": 3,
+            "totalCount": 3,
+            "coverage": 1,
+            "details": [
+              {
+                "group": [
+                  "AbstractChatClient"
+                ],
+                "matched": true,
+                "matchedToken": "AbstractChatClient"
+              },
+              {
+                "group": [
+                  "createChatCompletion"
+                ],
+                "matched": true,
+                "matchedToken": "createChatCompletion"
+              },
+              {
+                "group": [
+                  "model getter",
+                  "model"
+                ],
+                "matched": true,
+                "matchedToken": "model getter"
+              }
+            ],
+            "passed": true,
+            "pointsEarned": 0.25
+          },
+          {
+            "label": "Evidence covers at least three provider files",
+            "source": "evidence_paths",
+            "weight": 0.3,
+            "minCoverage": 0.75,
+            "matchedCount": 4,
+            "totalCount": 4,
+            "coverage": 1,
+            "details": [
+              {
+                "group": [
+                  "src/explorer/providers/abstract.mjs"
+                ],
+                "matched": true,
+                "matchedToken": "src/explorer/providers/abstract.mjs"
+              },
+              {
+                "group": [
+                  "src/explorer/providers/openai-compat.mjs"
+                ],
+                "matched": true,
+                "matchedToken": "src/explorer/providers/openai-compat.mjs"
+              },
+              {
+                "group": [
+                  "src/explorer/providers/ollama.mjs"
+                ],
+                "matched": true,
+                "matchedToken": "src/explorer/providers/ollama.mjs"
+              },
+              {
+                "group": [
+                  "src/explorer/providers/failover.mjs"
+                ],
+                "matched": true,
+                "matchedToken": "src/explorer/providers/failover.mjs"
+              }
+            ],
+            "passed": true,
+            "pointsEarned": 0.3
+          }
+        ],
+        "checks": [
+          {
+            "label": "Returns at least four grounded evidence items",
+            "type": "min_grounded_evidence_count",
+            "expected": 4,
+            "actual": 5,
+            "passed": true,
+            "weight": 0.1,
+            "pointsEarned": 0.1
+          }
+        ]
+      },
+      "result": {
+        "answer": "src/explorer/providers/openai-compat.mjs와 동일한 provider abstraction 패턴을 따르는 파일은 다음과 같습니다:\n\n1. **ollama.mjs** - OpenAICompatChatClient를 상속하여 재사용 패턴 적용\n2. **failover.mjs** - AbstractChatClient를 직접 상속하여 여러 provider를 순차적으로 시도하는 wrapper 패턴 구현\n3. **abstract.mjs** - 모든 provider의 기본 인터페이스 정의 (model getter, createChatCompletion 메서드)\n\n또한 index.mjs에서 import되는 CerebrasChatClient도 같은 패턴을 따르는 것으로 확인되었으나, 파일 접근 제한으로 직접 내용 확인은 불가능했습니다.",
+        "summary": "provider abstraction 패턴은 AbstractChatClient를 기본 클래스로 사용하며, 직접 상속(openai-compat.mjs, failover.mjs)하거나 간접 상속(ollama.mjs)하는 방식으로 구현됩니다. 모든 구현은 model property와 createChatCompletion 메서드를 필수로 제공해야 합니다.",
+        "confidence": "high",
+        "evidence": [
+          {
+            "path": "src/explorer/providers/openai-compat.mjs",
+            "startLine": 34,
+            "endLine": 48,
+            "why": "OpenAICompatChatClient가 AbstractChatClient를 상속하고 constructor에서 apiKey, baseUrl, model, fetchImpl, logger를 받는 기준 패턴 확인",
+            "groundingStatus": "exact"
+          },
+          {
+            "path": "src/explorer/providers/ollama.mjs",
+            "startLine": 1,
+            "endLine": 27,
+            "why": "OllamaChatClient가 OpenAICompatChatClient를 상속하여 같은 provider 패턴 재사용",
+            "groundingStatus": "exact"
+          },
+          {
+            "path": "src/explorer/providers/failover.mjs",
+            "startLine": 14,
+            "endLine": 32,
+            "why": "FailoverChatClient가 AbstractChatClient를 직접 상속하고 model getter, createChatCompletion 구현",
+            "groundingStatus": "exact"
+          },
+          {
+            "path": "src/explorer/providers/abstract.mjs",
+            "startLine": 8,
+            "endLine": 45,
+            "why": "AbstractChatClient 기본 클래스 정의로 model getter와 createChatCompletion 메서드를 필수로 요구하는 인터페이스 확인",
+            "groundingStatus": "exact"
+          },
+          {
+            "path": "src/explorer/providers/index.mjs",
+            "startLine": 1,
+            "endLine": 31,
+            "why": "CerebrasChatClient가 ../cerebras-client.mjs에서 import되어 같은 패턴을 따르는 것으로 추정되는 증거",
+            "groundingStatus": "exact"
+          }
+        ],
+        "candidatePaths": [
+          "src/explorer/providers/ollama.mjs",
+          "src/explorer/providers/failover.mjs",
+          "src/explorer/providers/abstract.mjs",
+          "src/explorer/providers/openai-compat.mjs",
+          "src/explorer/providers/index.mjs",
+          "src/explorer/runtime.mjs",
+          "src/explorer/cerebras-client.mjs"
+        ],
+        "followups": [],
+        "stats": {
+          "model": "zai-glm-4.7",
+          "budget": "normal",
+          "turns": 9,
+          "toolCalls": 12,
+          "listDirCalls": 1,
+          "findFileCalls": 2,
+          "grepCalls": 2,
+          "filesRead": 7,
+          "gitLogCalls": 0,
+          "gitBlameCalls": 0,
+          "gitDiffCalls": 0,
+          "gitShowCalls": 0,
+          "symbolCalls": 0,
+          "inputTokens": 77230,
+          "outputTokens": 4013,
+          "totalTokens": 81243,
+          "elapsedMs": 10572,
+          "stoppedByBudget": false,
+          "repoRoot": "C:\\Users\\daeryun\\IdeaProjects\\cerebras-explorer-mcp",
+          "sessionId": "sess_e465f4912d27513e",
+          "cacheHits": 0,
+          "cacheMisses": 28,
+          "cacheHitRate": 0,
+          "cacheEntries": 26,
+          "cacheSizeBytes": 119666
+        },
+        "confidenceScore": 0.9,
+        "confidenceLevel": "high",
+        "confidenceFactors": {
+          "evidenceCount": 5,
+          "evidenceGrounded": 5,
+          "evidenceDropped": 0,
+          "crossVerified": true,
+          "symbolSearchUsed": true,
+          "stoppedByBudget": false,
+          "adjustments": [
+            "+0.20 (all evidence grounded)",
+            "+0.15 (cross-verified across multiple files)",
+            "+0.05 (symbol search used)"
+          ]
+        },
+        "codeMap": {
+          "entryPoints": [
+            "src/explorer/providers/index.mjs"
+          ],
+          "keyModules": [
+            {
+              "path": "src/explorer/providers/openai-compat.mjs",
+              "role": "provider",
+              "linesRead": 158
+            },
+            {
+              "path": "src/explorer/providers/ollama.mjs",
+              "role": "provider",
+              "linesRead": 29
+            },
+            {
+              "path": "src/explorer/providers/abstract.mjs",
+              "role": "provider",
+              "linesRead": 47
+            },
+            {
+              "path": "src/explorer/providers/failover.mjs",
+              "role": "provider",
+              "linesRead": 56
+            },
+            {
+              "path": "src/explorer/providers/index.mjs",
+              "role": "entry point",
+              "linesRead": 71
+            },
+            {
+              "path": "src/explorer/runtime.mjs",
+              "role": "module",
+              "linesRead": 1
+            },
+            {
+              "path": "src/explorer/cerebras-client.mjs",
+              "role": "API client",
+              "linesRead": 1
+            }
+          ]
+        }
+      },
+      "elapsedMs": 10771
+    },
+    {
+      "caseDefinition": {
+        "id": "confidence-pipeline",
+        "description": "Trace how evidence grounding and confidence scoring are computed.",
+        "tool": "explore_repo",
+        "args": {
+          "task": "confidenceScore와 evidence 정규화가 어디서 계산되고, runtime이 어떤 입력을 넘기는지 추적해라. 계산 함수, 호출 지점, 후처리 흐름을 설명해라.",
+          "scope": [
+            "src/**",
+            "tests/**"
+          ],
+          "budget": "normal",
+          "language": "ko",
+          "hints": {
+            "symbols": [
+              "computeConfidenceScore",
+              "normalizeExploreResult",
+              "exploreRepository",
+              "ExplorerRuntime"
+            ],
+            "strategy": "symbol-first"
+          }
+        },
+        "expectations": [
+          {
+            "label": "Answer mentions normalization, grounding, and scoring flow",
+            "source": "combined_text",
+            "groups": [
+              [
+                "normalizeExploreResult"
+              ],
+              [
+                "computeConfidenceScore"
+              ],
+              [
+                "checkEvidenceGrounding",
+                "grounding"
+              ],
+              [
+                "observedRanges"
+              ],
+              [
+                "exploreRepository",
+                "ExplorerRuntime"
+              ]
+            ],
+            "weight": 0.55
+          },
+          {
+            "label": "Evidence cites runtime and schema files",
+            "source": "evidence_paths",
+            "groups": [
+              [
+                "src/explorer/runtime.mjs"
+              ],
+              [
+                "src/explorer/schemas.mjs"
+              ]
+            ],
+            "weight": 0.3
+          },
+          {
+            "label": "Candidate paths surface verification tests",
+            "source": "candidate_paths",
+            "groups": [
+              [
+                "tests/runtime.mock.test.mjs"
+              ],
+              [
+                "tests/project-config.test.mjs"
+              ]
+            ],
+            "weight": 0.15
+          }
+        ],
+        "checks": [
+          {
+            "label": "Returns at least four grounded evidence items",
+            "type": "min_grounded_evidence_count",
+            "value": 4,
+            "weight": 0.1
+          }
+        ],
+        "passScore": 0.72
+      },
+      "evaluation": {
+        "id": "confidence-pipeline",
+        "description": "Trace how evidence grounding and confidence scoring are computed.",
+        "score": 0.764,
+        "passScore": 0.72,
+        "passed": true,
+        "expectations": [
+          {
+            "label": "Answer mentions normalization, grounding, and scoring flow",
+            "source": "combined_text",
+            "weight": 0.55,
+            "minCoverage": 1,
+            "matchedCount": 4,
+            "totalCount": 5,
+            "coverage": 0.8,
+            "details": [
+              {
+                "group": [
+                  "normalizeExploreResult"
+                ],
+                "matched": true,
+                "matchedToken": "normalizeExploreResult"
+              },
+              {
+                "group": [
+                  "computeConfidenceScore"
+                ],
+                "matched": true,
+                "matchedToken": "computeConfidenceScore"
+              },
+              {
+                "group": [
+                  "checkEvidenceGrounding",
+                  "grounding"
+                ],
+                "matched": true,
+                "matchedToken": "grounding"
+              },
+              {
+                "group": [
+                  "observedRanges"
+                ],
+                "matched": false,
+                "matchedToken": null
+              },
+              {
+                "group": [
+                  "exploreRepository",
+                  "ExplorerRuntime"
+                ],
+                "matched": true,
+                "matchedToken": "ExplorerRuntime"
+              }
+            ],
+            "passed": false,
+            "pointsEarned": 0.44000000000000006
+          },
+          {
+            "label": "Evidence cites runtime and schema files",
+            "source": "evidence_paths",
+            "weight": 0.3,
+            "minCoverage": 1,
+            "matchedCount": 2,
+            "totalCount": 2,
+            "coverage": 1,
+            "details": [
+              {
+                "group": [
+                  "src/explorer/runtime.mjs"
+                ],
+                "matched": true,
+                "matchedToken": "src/explorer/runtime.mjs"
+              },
+              {
+                "group": [
+                  "src/explorer/schemas.mjs"
+                ],
+                "matched": true,
+                "matchedToken": "src/explorer/schemas.mjs"
+              }
+            ],
+            "passed": true,
+            "pointsEarned": 0.3
+          },
+          {
+            "label": "Candidate paths surface verification tests",
+            "source": "candidate_paths",
+            "weight": 0.15,
+            "minCoverage": 1,
+            "matchedCount": 0,
+            "totalCount": 2,
+            "coverage": 0,
+            "details": [
+              {
+                "group": [
+                  "tests/runtime.mock.test.mjs"
+                ],
+                "matched": false,
+                "matchedToken": null
+              },
+              {
+                "group": [
+                  "tests/project-config.test.mjs"
+                ],
+                "matched": false,
+                "matchedToken": null
+              }
+            ],
+            "passed": false,
+            "pointsEarned": 0
+          }
+        ],
+        "checks": [
+          {
+            "label": "Returns at least four grounded evidence items",
+            "type": "min_grounded_evidence_count",
+            "expected": 4,
+            "actual": 5,
+            "passed": true,
+            "weight": 0.1,
+            "pointsEarned": 0.1
+          }
+        ]
+      },
+      "result": {
+        "answer": "confidenceScore와 evidence 정규화는 src/explorer/schemas.mjs에 정의되어 있으며, src/explorer/runtime.mjs의 후처리 단계에서 계산됩니다. runtime은 LLM의 원본 응답과 탐색 통계(stats)를 입력으로 넘깁니다.",
+        "summary": "1) normalizeExploreResult: schemas.mjs:311-349에서 원본 결과의 evidence 필터링/정규화 수행. 2) computeConfidenceScore: schemas.mjs:204-270에서 grounded evidence 개수, 파일 간 교차검증, 심볼 검색 사용 여부, 예산 중단 여부 등으로 점수 계산. 3) 호출 흐름: ExplorerRuntime.explore → normalizeExploreResult(538라인) → evidence grounding 필터(541-557라인) → computeConfidenceScore(561라인) → 최종 결과 반환. 4) runtime 입력: LLM 응답 객체(finalObject) + 탐색 통계(stats)로, stats에는 grepCalls, stoppedByBudget 등의 메타데이터 포함.",
+        "confidence": "low",
+        "evidence": [
+          {
+            "path": "src/explorer/schemas.mjs",
+            "startLine": 204,
+            "endLine": 270,
+            "why": "computeConfidenceScore 함수 정의 - 신뢰도 점수 계산 로직",
+            "groundingStatus": "exact"
+          },
+          {
+            "path": "src/explorer/runtime.mjs",
+            "startLine": 538,
+            "endLine": 578,
+            "why": "후처리 흐름 - 정규화, grounding 필터, confidence score 계산 호출 지점",
+            "groundingStatus": "exact"
+          },
+          {
+            "path": "src/explorer/runtime.mjs",
+            "startLine": 656,
+            "endLine": 660,
+            "why": "exploreRepository 진입점 - ExplorerRuntime 인스턴스화 및 explore 호출",
+            "groundingStatus": "exact"
+          },
+          {
+            "path": "src/mcp/server.mjs",
+            "startLine": 220,
+            "endLine": 225,
+            "why": "MCP 서버에서 exploreRepository 호출 시 입력 전달 방식",
+            "groundingStatus": "exact"
+          },
+          {
+            "path": "src/explorer/runtime.mjs",
+            "startLine": 355,
+            "endLine": 376,
+            "why": "stats 객체 구조 - runtime이 computeConfidenceScore에 넘기는 통계 정보",
+            "groundingStatus": "exact"
+          }
+        ],
+        "candidatePaths": [
+          "src/explorer/schemas.mjs",
+          "src/explorer/runtime.mjs",
+          "src/mcp/server.mjs"
+        ],
+        "followups": [
+          {
+            "description": "Some evidence items were dropped because they were not grounded in inspected line ranges.",
+            "priority": "optional",
+            "suggestedCall": null
+          }
+        ],
+        "stats": {
+          "model": "zai-glm-4.7",
+          "budget": "normal",
+          "turns": 9,
+          "toolCalls": 13,
+          "listDirCalls": 0,
+          "findFileCalls": 0,
+          "grepCalls": 1,
+          "filesRead": 7,
+          "gitLogCalls": 0,
+          "gitBlameCalls": 0,
+          "gitDiffCalls": 0,
+          "gitShowCalls": 0,
+          "symbolCalls": 5,
+          "inputTokens": 77325,
+          "outputTokens": 3135,
+          "totalTokens": 80460,
+          "elapsedMs": 8516,
+          "stoppedByBudget": false,
+          "repoRoot": "C:\\Users\\daeryun\\IdeaProjects\\cerebras-explorer-mcp",
+          "sessionId": "sess_ed9f715ef6bd554c",
+          "cacheHits": 1,
+          "cacheMisses": 36,
+          "cacheHitRate": 0.027,
+          "cacheEntries": 34,
+          "cacheSizeBytes": 155442
+        },
+        "confidenceScore": 0.4,
+        "confidenceLevel": "low",
+        "confidenceFactors": {
+          "evidenceCount": 5,
+          "evidenceGrounded": 5,
+          "evidenceDropped": 1,
+          "crossVerified": true,
+          "symbolSearchUsed": true,
+          "stoppedByBudget": false,
+          "adjustments": [
+            "-0.30 (some evidence not grounded in inspected ranges)",
+            "+0.15 (cross-verified across multiple files)",
+            "+0.05 (symbol search used)"
+          ]
+        },
+        "codeMap": {
+          "entryPoints": [
+            "src/mcp/server.mjs"
+          ],
+          "keyModules": [
+            {
+              "path": "src/explorer/runtime.mjs",
+              "role": "module",
+              "linesRead": 247
+            },
+            {
+              "path": "src/explorer/schemas.mjs",
+              "role": "data model",
+              "linesRead": 83
+            },
+            {
+              "path": "src/mcp/server.mjs",
+              "role": "entry point",
+              "linesRead": 31
+            }
+          ]
+        }
+      },
+      "elapsedMs": 8549
+    }
+  ],
+  "generatedAt": "2026-04-09T01:36:44.032Z"
+}
