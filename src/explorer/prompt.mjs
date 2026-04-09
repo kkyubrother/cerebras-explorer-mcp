@@ -192,12 +192,22 @@ export function buildExplorerUserPrompt({ task, scope, budget, hints, sessionCan
     lines.push(`Response language: ${language.trim()}`);
   }
 
-  // Inject paths from a previous session call as context
+  // Inject paths from a previous session call as context.
+  // Accepts both string[] (legacy) and { path, why }[] (Phase 5 enriched format).
   if (Array.isArray(sessionCandidatePaths) && sessionCandidatePaths.length > 0) {
-    lines.push(
-      '',
-      `Files found in prior session calls (likely relevant — check these early): ${sessionCandidatePaths.slice(0, 15).join(', ')}`,
-    );
+    const isEnriched = typeof sessionCandidatePaths[0] === 'object' && sessionCandidatePaths[0] !== null;
+    const sample = sessionCandidatePaths.slice(0, 15);
+    if (isEnriched) {
+      const formatted = sample
+        .map(e => `${e.path}${e.why ? ` (${e.why})` : ''}`)
+        .join('; ');
+      lines.push('', `Files from prior session with context (check these early):\n  ${formatted}`);
+    } else {
+      lines.push(
+        '',
+        `Files found in prior session calls (likely relevant — check these early): ${sample.join(', ')}`,
+      );
+    }
   }
 
   if (strategy) {

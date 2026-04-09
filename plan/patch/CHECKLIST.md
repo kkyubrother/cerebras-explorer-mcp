@@ -106,12 +106,12 @@
 
 | 상태 | 항목 | 위치 | 구체적 변경 내용 |
 |------|------|------|-----------------|
-| 🔲 | evidence union type 확장 | `schemas.mjs` | `file_range`, `git_commit`, `git_blame` 타입 추가 |
-| 🔲 | `sessionCandidatePaths` 구조화 | `session.mjs` | `string[]` → `{ path: string, why: string }[]` |
-| 🔲 | 오래된 tool result compaction 도입 | `runtime.mjs` | checkpoint마다 raw tool JSON을 summary로 축약, 토큰 절약 |
-| 🔲 | strategy별 동적 tool 노출 검토 | `runtime.mjs:buildToolDefinitions()` 호출부 | deep/context-heavy 세션에서 불필요 tool 제외 |
-| 🔲 | 테스트: git/blame 중심 질문에서 evidence 타입 검증 | `tests/runtime.mock.test.mjs` | |
-| 🔲 | 테스트: session 재사용 시 candidatePaths가 `{path, why}` 형태 | `tests/session.test.mjs` | |
+| ✅ | evidence union type 확장 | `schemas.mjs` | `evidenceType` (file_range/git_commit/git_blame), `sha`, `author` 필드 추가 |
+| ✅ | `sessionCandidatePaths` 구조화 | `session.mjs` | `candidatePathsWithContext: { path, why }[]` 추가 (기존 string[] 유지) |
+| ⚠️ | 오래된 tool result compaction 도입 | `runtime.mjs` | 복잡도/리스크로 미구현 — 향후 개선 과제 |
+| ⚠️ | strategy별 동적 tool 노출 검토 | `runtime.mjs:buildToolDefinitions()` 호출부 | "검토" 단계 — 현재 구현 불필요, 향후 최적화 고려 |
+| ✅ | 테스트: git/blame 중심 질문에서 evidence 타입 검증 | `tests/runtime.mock.test.mjs` | Phase 5 git_commit 타입 보존 테스트 |
+| ✅ | 테스트: session 재사용 시 candidatePaths가 `{path, why}` 형태 | `tests/runtime.mock.test.mjs` | Phase 5 candidatePathsWithContext 테스트 |
 
 ---
 

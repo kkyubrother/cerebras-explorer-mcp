@@ -601,6 +601,164 @@ test('Phase 1 — malformed freeform content still produces strict-schema result
   assert.ok(Array.isArray(result.followups), 'followups must be an array on fallback');
 });
 
+// ── Phase 5 — evidence/schema/context 고도화 ──────────────────────────────────
+
+test('Phase 5 — evidence with git_commit type is preserved through normalization', async () => {
+  // Verifies that the extended evidence schema fields (evidenceType, sha, author)
+  // are preserved by normalizeExploreResult and pass through to the final result.
+  class GitEvidenceClient {
+    constructor() { this.model = 'zai-glm-4.7'; this.calls = 0; }
+    async createChatCompletion() {
+      this.calls += 1;
+      if (this.calls === 1) {
+        return {
+          usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+          message: {
+            content: '',
+            toolCalls: [{
+              id: 'call-git',
+              function: { name: 'repo_git_log', arguments: JSON.stringify({ maxCount: 3 }) },
+            }],
+          },
+        };
+      }
+      return {
+        usage: { prompt_tokens: 30, completion_tokens: 20, total_tokens: 50 },
+        message: {
+          content: JSON.stringify({
+            answer: '버그는 abc1234 커밋에서 도입됐습니다.',
+            summary: '커밋 이력 분석 완료',
+            confidence: 'medium',
+            evidence: [
+              {
+                path: 'src/auth.js',
+                startLine: 1,
+                endLine: 4,
+                why: '버그가 도입된 파일',
+                evidenceType: 'git_commit',
+                sha: 'abc1234',
+                author: 'dev@example.com',
+              },
+            ],
+            candidatePaths: ['src/auth.js'],
+            followups: [],
+          }),
+          toolCalls: [],
+        },
+      };
+    }
+  }
+
+  const root = await makeRepoFixture();
+  const runtime = new ExplorerRuntime({ chatClient: new GitEvidenceClient() });
+  const result = await runtime.explore({
+    task: '이 버그가 언제 도입됐나요?',
+    repo_root: root,
+    budget: 'quick',
+    hints: { strategy: 'git-guided' },
+  });
+
+  // The extended evidence fields must be preserved after normalization
+  assert.ok(result.evidence.length >= 1, 'at least one evidence item must be present');
+  const ev = result.evidence[0];
+  assert.equal(ev.evidenceType, 'git_commit', 'evidenceType must be preserved');
+  assert.equal(ev.sha, 'abc1234', 'sha must be preserved');
+  assert.equal(ev.author, 'dev@example.com', 'author must be preserved');
+});
+
+test('Phase 5 — session reuse stores candidatePathsWithContext as {path, why} objects', async () => {
+  // Verifies that after an explore() call with evidence, the session stores
+  // candidatePathsWithContext as { path, why }[] objects (not plain strings).
+  // The mock must call repo_read_file first so the evidence passes grounding.
+  class SimpleClient {
+    constructor() { this.model = 'zai-glm-4.7'; this.calls = 0; }
+    async createChatCompletion() {
+      this.calls += 1;
+      if (this.calls === 1) {
+        // Read both files to establish observedRanges for grounding
+        return {
+          usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+          message: {
+            content: '',
+            toolCalls: [
+              { id: 'c1', function: { name: 'repo_read_file', arguments: JSON.stringify({ path: 'src/auth.js', startLine: 1, endLine: 4 }) } },
+              { id: 'c2', function: { name: 'repo_read_file', arguments: JSON.stringify({ path: 'src/routes/user.js', startLine: 1, endLine: 6 }) } },
+            ],
+          },
+        };
+      }
+      // Second call: no tools → triggers finalize
+      return {
+        usage: { prompt_tokens: 30, completion_tokens: 5, total_tokens: 35 },
+        message: { content: '', toolCalls: [] },
+      };
+    }
+  }
+
+  // Finalize client returns answer with evidence in observed ranges
+  class FinalizeClient extends SimpleClient {
+    async createChatCompletion(req) {
+      this.calls += 1;
+      if (this.calls === 1) {
+        return {
+          usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+          message: {
+            content: '',
+            toolCalls: [
+              { id: 'c1', function: { name: 'repo_read_file', arguments: JSON.stringify({ path: 'src/auth.js', startLine: 1, endLine: 4 }) } },
+              { id: 'c2', function: { name: 'repo_read_file', arguments: JSON.stringify({ path: 'src/routes/user.js', startLine: 1, endLine: 6 }) } },
+            ],
+          },
+        };
+      }
+      // finalizeAfterToolLoop call: return evidence within observed ranges
+      return {
+        usage: { prompt_tokens: 30, completion_tokens: 15, total_tokens: 45 },
+        message: {
+          content: JSON.stringify({
+            answer: '분석 완료',
+            summary: '요약',
+            confidence: 'medium',
+            evidence: [
+              { path: 'src/auth.js', startLine: 1, endLine: 4, why: '인증 함수 정의 위치' },
+              { path: 'src/routes/user.js', startLine: 1, endLine: 6, why: '라우트 등록 위치' },
+            ],
+            candidatePaths: ['src/auth.js', 'src/routes/user.js'],
+            followups: [],
+          }),
+          toolCalls: [],
+        },
+      };
+    }
+  }
+
+  const root = await makeRepoFixture();
+  const { SessionStore } = await import('../src/explorer/session.mjs');
+  const sessionStore = new SessionStore();
+  const runtime = new ExplorerRuntime({ chatClient: new FinalizeClient() });
+
+  const result = await runtime.explore({ task: '인증 분석', repo_root: root, budget: 'quick' }, { sessionStore });
+  const session = sessionStore.get(result.stats.sessionId);
+
+  assert.ok(session, 'session must exist');
+  assert.ok(Array.isArray(session.candidatePathsWithContext),
+    'candidatePathsWithContext must be an array');
+  assert.ok(session.candidatePathsWithContext.length >= 2,
+    'must have at least 2 enriched paths from evidence items');
+
+  // Verify each entry is a { path, why } object
+  for (const entry of session.candidatePathsWithContext) {
+    assert.equal(typeof entry.path, 'string', 'each entry must have a path string');
+    assert.equal(typeof entry.why, 'string', 'each entry must have a why string');
+    assert.ok(entry.why.length > 0, 'why must not be empty (should come from evidence.why)');
+  }
+
+  // Verify the paths are from the evidence items
+  const paths = session.candidatePathsWithContext.map(e => e.path);
+  assert.ok(paths.includes('src/auth.js'), 'must include src/auth.js from evidence');
+  assert.ok(paths.includes('src/routes/user.js'), 'must include src/routes/user.js from evidence');
+});
+
 // ── Phase 4 — 멀티턴 안정화 장치 ─────────────────────────────────────────────
 
 test('Phase 4 — checkpoint message is inserted for normal/deep budget after every 4 turns', async () => {

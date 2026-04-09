@@ -114,6 +114,13 @@ export const EXPLORE_RESULT_JSON_SCHEMA = {
             startLine: { type: 'integer' },
             endLine: { type: 'integer' },
             why: { type: 'string' },
+            // Optional extended evidence fields for git/blame context (Phase 5)
+            evidenceType: {
+              type: 'string',
+              enum: ['file_range', 'git_commit', 'git_blame'],
+            },
+            sha: { type: 'string' },    // for git_commit / git_blame
+            author: { type: 'string' }, // for git_blame
           },
           required: ['path', 'startLine', 'endLine', 'why'],
         },
@@ -313,12 +320,22 @@ export function normalizeExploreResult(raw, stats) {
     evidence: Array.isArray(safe.evidence)
       ? safe.evidence
           .filter(item => item && typeof item === 'object')
-          .map(item => ({
-            path: typeof item.path === 'string' ? item.path : '',
-            startLine: Number.isInteger(item.startLine) ? item.startLine : 1,
-            endLine: Number.isInteger(item.endLine) ? item.endLine : 1,
-            why: typeof item.why === 'string' ? item.why : '',
-          }))
+          .map(item => {
+            const base = {
+              path: typeof item.path === 'string' ? item.path : '',
+              startLine: Number.isInteger(item.startLine) ? item.startLine : 1,
+              endLine: Number.isInteger(item.endLine) ? item.endLine : 1,
+              why: typeof item.why === 'string' ? item.why : '',
+            };
+            // Preserve optional extended evidence fields (Phase 5)
+            const EVIDENCE_TYPES = ['file_range', 'git_commit', 'git_blame'];
+            if (typeof item.evidenceType === 'string' && EVIDENCE_TYPES.includes(item.evidenceType)) {
+              base.evidenceType = item.evidenceType;
+            }
+            if (typeof item.sha === 'string' && item.sha) base.sha = item.sha;
+            if (typeof item.author === 'string' && item.author) base.author = item.author;
+            return base;
+          })
           .filter(item => item.path && item.why)
       : [],
     candidatePaths: Array.isArray(safe.candidatePaths)

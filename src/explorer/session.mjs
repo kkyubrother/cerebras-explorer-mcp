@@ -32,6 +32,20 @@ function dedupeAppend(existing, incoming, limit) {
 }
 
 /**
+ * Deduplicate and append structured { path, why } objects by path.
+ * Later entries for the same path overwrite earlier ones (most recent why wins).
+ */
+function dedupeContextPaths(existing, incoming, limit) {
+  const map = new Map(existing.map(e => [e.path, e]));
+  for (const item of incoming) {
+    if (typeof item.path === 'string' && item.path) {
+      map.set(item.path, { path: item.path, why: typeof item.why === 'string' ? item.why : '' });
+    }
+  }
+  return [...map.values()].slice(0, limit);
+}
+
+/**
  * In-memory session store for stateful, multi-call exploration.
  *
  * Each session accumulates:
@@ -63,6 +77,7 @@ export class SessionStore {
       lastUsedAt: Date.now(),
       candidatePaths: [],
       evidencePaths: [],
+      candidatePathsWithContext: [], // Phase 5: structured { path, why }[] from evidence
       summaries: [],
       followups: [],
     });
@@ -109,6 +124,15 @@ export class SessionStore {
       session.evidencePaths = dedupeAppend(
         session.evidencePaths,
         newPaths,
+        MAX_EVIDENCE_PATHS,
+      );
+      // Phase 5: accumulate structured { path, why } from evidence items
+      const newPathsWithContext = result.evidence
+        .filter(e => typeof e.path === 'string' && e.path)
+        .map(e => ({ path: e.path, why: typeof e.why === 'string' ? e.why : '' }));
+      session.candidatePathsWithContext = dedupeContextPaths(
+        session.candidatePathsWithContext,
+        newPathsWithContext,
         MAX_EVIDENCE_PATHS,
       );
     }

@@ -342,7 +342,7 @@ export class ExplorerRuntime {
           scope: effectiveScope,
           budget: budgetConfig.label,
           hints: args.hints,
-          sessionCandidatePaths: sessionData?.candidatePaths ?? [],
+          sessionCandidatePaths: sessionData?.candidatePathsWithContext ?? sessionData?.candidatePaths ?? [],
           language: args.language,
         }),
       },
@@ -539,11 +539,17 @@ export class ExplorerRuntime {
     normalized.candidatePaths = mergeCandidatePaths(normalized.candidatePaths, candidatePaths).slice(0, 80);
 
     // Ground evidence
+    const GIT_EVIDENCE_TYPES = new Set(['git_commit', 'git_blame']);
     const totalEvidenceBefore = normalized.evidence.length;
     normalized.evidence = normalized.evidence
       .map(item => ({ ...item, path: item.path.replace(/^\.\//, '') }))
       .filter(item => item.path && item.why)
       .map(item => {
+        // Git-type evidence (commit sha / blame line) is inherently grounded via
+        // git_log/git_blame tool results — skip file range observation check.
+        if (GIT_EVIDENCE_TYPES.has(item.evidenceType)) {
+          return { ...item, groundingStatus: 'exact' };
+        }
         const { overlaps, partial } = checkEvidenceGrounding(observedRanges, item);
         if (!overlaps) return null;
         return { ...item, groundingStatus: partial ? 'partial' : 'exact' };
