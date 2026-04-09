@@ -1,6 +1,9 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+
+const execFileAsync = promisify(execFile);
 import {
   DEFAULT_GREP_FILE_MAX_BYTES,
   DEFAULT_IGNORE_DIRS,
@@ -329,9 +332,9 @@ function parseDiffOutput(diffText) {
   return files;
 }
 
-function detectBinary(cmd, args) {
+async function detectBinary(cmd, args) {
   try {
-    execFileSync(cmd, args, { stdio: 'pipe', timeout: 3000 });
+    await execFileAsync(cmd, args, { timeout: 3000 });
     return true;
   } catch {
     return false;
@@ -388,8 +391,8 @@ export class RepoToolkit {
     const rules = await loadGitignoreRules(this.repoRootReal);
     this.gitignoreMatcher = rules.length ? buildGitignoreMatcher(rules) : null;
     this.baseScopeRules = createScopeRules(scope);
-    this._hasRipgrep = detectBinary('rg', ['--version']);
-    this._hasGit = detectBinary('git', ['--version']);
+    this._hasRipgrep = await detectBinary('rg', ['--version']);
+    this._hasGit = await detectBinary('git', ['--version']);
   }
 
   buildEffectiveScopeRules(scope = []) {
@@ -515,7 +518,7 @@ export class RepoToolkit {
     };
   }
 
-  _grepWithRipgrep({ pattern, scope = [], caseSensitive = false, maxResults }) {
+  async _grepWithRipgrep({ pattern, scope = [], caseSensitive = false, maxResults }) {
     const rgArgs = [
       '--json',
       '--no-binary',
@@ -538,15 +541,15 @@ export class RepoToolkit {
 
     let rawOutput;
     try {
-      rawOutput = execFileSync('rg', rgArgs, {
+      const { stdout } = await execFileAsync('rg', rgArgs, {
         encoding: 'utf8',
-        stdio: ['ignore', 'pipe', 'pipe'],
         maxBuffer: DEFAULT_GIT_OUTPUT_MAX_BYTES * 2,
         cwd: this.repoRootReal,
       });
+      rawOutput = stdout;
     } catch (err) {
       // exit code 1 = no matches (not an error), stderr contains real errors
-      if (err.status === 1 && !err.stderr?.trim()) {
+      if (err.code === 1 && !err.stderr?.trim()) {
         return { pattern, caseSensitive, matches: [], truncated: false };
       }
       // ripgrep failed for another reason — surface via null to trigger fallback
@@ -582,7 +585,7 @@ export class RepoToolkit {
     }
 
     if (this._hasRipgrep) {
-      const result = this._grepWithRipgrep({ pattern, scope, caseSensitive, maxResults });
+      const result = await this._grepWithRipgrep({ pattern, scope, caseSensitive, maxResults });
       if (result !== null) return result;
     }
 
@@ -833,21 +836,19 @@ export class RepoToolkit {
     return { ...grepResult, matches: enriched };
   }
 
-  _runGit(args) {
+  async _runGit(args) {
     if (!this._hasGit) throw new Error('git is not available');
-    let output;
     try {
-      output = execFileSync('git', args, {
+      const { stdout } = await execFileAsync('git', args, {
         encoding: 'utf8',
-        stdio: ['ignore', 'pipe', 'pipe'],
         maxBuffer: DEFAULT_GIT_OUTPUT_MAX_BYTES,
         cwd: this.repoRootReal,
       });
+      return stdout;
     } catch (err) {
       const msg = err.stderr?.trim() || err.message || 'git command failed';
       throw new Error(`git error: ${msg}`);
     }
-    return output;
   }
 
   _validateGitPath(filePath) {
@@ -866,7 +867,7 @@ export class RepoToolkit {
     const rel = this._validateGitPath(filePath);
     if (rel) args.push('--', rel);
 
-    const output = this._runGit(args);
+    const output = await this._runGit(args);
     const commits = output
       .trim()
       .split('\n')
@@ -895,7 +896,7 @@ export class RepoToolkit {
     }
     args.push('--', rel);
 
-    const output = this._runGit(args);
+    const output = await this._runGit(args);
     return this._parseBlamePorcelain(output);
   }
 
@@ -949,7 +950,7 @@ export class RepoToolkit {
     const rel = this._validateGitPath(filePath);
     if (rel) args.push('--', rel);
 
-    const output = this._runGit(args);
+    const output = await this._runGit(args);
 
     if (stat) {
       return { from, to, stat: output.trim() };
@@ -966,7 +967,7 @@ export class RepoToolkit {
       throw new Error(`Invalid ref: ${ref}`);
     }
     // Get metadata (hash, author, date, message) separately from file list
-    const metaOutput = this._runGit(['log', '-1', '--format=%H|%an|%ai|%B', ref]);
+    const metaOutput = await this._runGit(['log', '-1', '--format=%H|%an|%ai|%B', ref]);
     const metaStr = metaOutput.trim();
     const firstNl = metaStr.indexOf('\n');
     const headerLine = firstNl === -1 ? metaStr : metaStr.slice(0, firstNl);
@@ -981,7 +982,7 @@ export class RepoToolkit {
     const message = bodyRest ? `${bodyFromHeader}\n${bodyRest}`.trim() : bodyFromHeader.trim();
 
     const patchArgs = ['show', '--format=', '--unified=3', ref];
-    const patchOutput = this._runGit(patchArgs);
+    const patchOutput = await this._runGit(patchArgs);
     const files = parseDiffOutput(patchOutput);
 
     return { hash, author, date, message, files };

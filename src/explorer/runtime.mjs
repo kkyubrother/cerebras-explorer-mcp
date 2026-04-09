@@ -37,6 +37,37 @@ import { createChatClient } from './providers/index.mjs';
 // range are kept as "partial" matches rather than being dropped entirely.
 const EVIDENCE_LINE_TOLERANCE = 2;
 
+// Maximum number of tool calls to execute in parallel within a single turn.
+const TOOL_CONCURRENCY = 4;
+
+/**
+ * Run async tasks from an array in parallel, capped at `limit` concurrent.
+ * Returns results in the same order as the input items.
+ * @template T, R
+ * @param {T[]} items
+ * @param {number} limit
+ * @param {(item: T, index: number) => Promise<R>} fn
+ * @returns {Promise<R[]>}
+ */
+async function runWithConcurrency(items, limit, fn) {
+  const results = new Array(items.length);
+  const queue = items.map((item, i) => ({ item, i }));
+
+  async function worker() {
+    while (queue.length > 0) {
+      const { item, i } = queue.shift();
+      results[i] = await fn(item, i);
+    }
+  }
+
+  const workers = Array.from(
+    { length: Math.min(limit, items.length) },
+    () => worker(),
+  );
+  await Promise.all(workers);
+  return results;
+}
+
 // Common entry-point filename patterns (used to identify codeMap.entryPoints)
 const ENTRY_POINT_PATTERNS = /^(index|main|app|server|cli|start|entry)\.(m?[jt]s|py|go|rb|rs)$/i;
 
@@ -542,17 +573,25 @@ export class ExplorerRuntime {
         });
       }
 
-      for (const toolCall of completion.message.toolCalls) {
-        const toolName = toolCall.function.name;
-        const toolArgs = safeJsonParse(toolCall.function.arguments || '{}');
-        incrementToolStats(stats, toolName);
+      // Phase 6-B: execute up to TOOL_CONCURRENCY tool calls in parallel
+      const toolCallResults = await runWithConcurrency(
+        completion.message.toolCalls,
+        TOOL_CONCURRENCY,
+        async (toolCall) => {
+          const toolName = toolCall.function.name;
+          const toolArgs = safeJsonParse(toolCall.function.arguments || '{}');
+          let toolResult;
+          try {
+            toolResult = await repoToolkit.callTool(toolName, toolArgs);
+          } catch (error) {
+            toolResult = { error: true, message: error.message, tool: toolName };
+          }
+          return { toolCall, toolName, toolArgs, toolResult };
+        },
+      );
 
-        let toolResult;
-        try {
-          toolResult = await repoToolkit.callTool(toolName, toolArgs);
-        } catch (error) {
-          toolResult = { error: true, message: error.message, tool: toolName };
-        }
+      for (const { toolCall, toolName, toolArgs, toolResult } of toolCallResults) {
+        incrementToolStats(stats, toolName);
 
         candidatePaths = mergeCandidatePaths(
           candidatePaths,

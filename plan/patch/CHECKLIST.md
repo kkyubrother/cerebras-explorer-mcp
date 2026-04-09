@@ -348,7 +348,7 @@
 ## Phase 6. 공용 runtime 리팩터링 + 제한적 병렬화
 
 **목표**: core runtime refactor + bounded parallel execution
-**상태**: 부분 구현 (6-A 완료, 6-B/6-C는 execFileSync 제약으로 보류)
+**상태**: ✅ 구현 완료
 **난이도**: 높음 | **가치**: 중간
 
 ### 구현 항목
@@ -361,14 +361,15 @@
 
 #### 6-B. bounded concurrency 병렬화
 
-- [~] execFileSync 기반 도구들이 event loop를 blocking — Promise.all로는 진짜 병렬 불가
-- [ ] concurrency cap 3~4 — execFile(async) 전환 후 진행 필요
-- [ ] 후속 과제로 분리
+- [x] `execFileSync` → `execFile` (async, promisify) 전환 — `repo-tools.mjs`
+  - `detectBinary()`, `_runGit()`, `_grepWithRipgrep()` 모두 async 전환 완료
+- [x] concurrency cap 4 — `runWithConcurrency()` 헬퍼 추가 (`runtime.mjs`)
+- [x] `explore()` tool loop를 `runWithConcurrency(TOOL_CONCURRENCY=4)`로 병렬화
 
 #### 6-C. 안전한 도구부터 병렬화
 
-- [~] 현재 도구들이 모두 sync subprocess — async 전환이 선행 조건
-- [ ] git 계열 async subprocess 전환은 후속 과제
+- [x] git/grep 계열 async subprocess 전환 완료 (`repo-tools.mjs`)
+- [x] `explore()` 루프에서 병렬 tool call 실행 (parallelToolCalls: true와 연동)
 
 ### 수정 대상 파일
 

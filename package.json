@@ -13,6 +13,6 @@
     "benchmark": "node ./scripts/run-benchmark.mjs --suite ./benchmarks/core.json"
   },
   "engines": {
-    "node": ">=18.17.0"
+    "node": ">=22.0.0"
   }
 }
