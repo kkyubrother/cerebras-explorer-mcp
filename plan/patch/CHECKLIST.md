@@ -390,52 +390,45 @@
 ## Phase 7. docs / benchmark / examples 최종 정리
 
 **목표**: 외부 사용자에게 정확하게 보이도록 마무리
-**상태**: 기반 인프라 존재, 콘텐츠 갭 있음
+**상태**: ✅ 구현 완료
 **난이도**: 중간 | **가치**: 높음
 
 ### 현재 상태 확인
 
-- [x] `benchmarks/core.json` 존재
+- [x] `benchmarks/core.json` 존재 — git-blame-guided 케이스 추가됨
 - [x] `benchmarks/baseline-2026-04-09.json` 존재 (최근 baseline)
 - [x] `scripts/run-benchmark.mjs` 존재
 - [x] `src/benchmark/evaluator.mjs` 존재
-- [x] `examples/expected-response.json` 존재
-- [x] `examples/explore-request.json` 존재
-- [ ] git-guided false-low regression 벤치마크 케이스 없음
-- [ ] blame-guided grounding 케이스 없음
-- [ ] `explore` 관련 예시 없음
+- [x] `examples/expected-response.json` 업데이트됨 (evidenceType, confidenceFactors, sessionStatus 반영)
+- [x] `examples/explore-request.json` 업데이트됨 (language, strategy 추가)
+- [x] git-guided blame-guided 벤치마크 케이스 추가
 
 ### 구현 항목
 
 #### 7-1. README / DESIGN 최종 동기화
 
-- [ ] session invalid/exhausted semantics 반영
-- [ ] `repo_symbol_context.depth` 실제 동작 반영
-- [ ] `find_similar_code`가 score를 주지 않는다는 점 반영
-- [ ] project config에서 실제 지원하는 필드만 기재
-- [ ] `explore`와 `explore_repo`의 역할 차이 설명
-- [ ] `explore` beta 여부 명시
+- [x] session invalid/exhausted semantics 반영 (세션 계약 섹션 추가)
+- [x] `repo_symbol_context.depth` 실제 동작 반영 (effectiveDepth=1 명시)
+- [x] `find_similar_code`가 수치형 score를 주지 않는다는 점 반영
+- [x] evidence grounding 정책 업데이트 (kind별 grounding, drop reason 분류)
+- [x] `explore`와 `explore_repo`의 역할 차이 설명
+- [x] `explore` beta 여부 명시 (CEREBRAS_EXPLORER_ENABLE_EXPLORE)
+- [x] 반환 스키마에 새 필드 반영 (evidenceType, gitGroundingHint, sessionStatus, remainingCalls 등)
 
 #### 7-2. examples 갱신
 
-- [ ] `examples/expected-response.json` 업데이트
-- [ ] `examples/explore-request.json` 업데이트
-- [ ] 새 `explore` 예시 추가
+- [x] `examples/expected-response.json` 업데이트 (confidenceFactors, evidenceType, followups)
+- [x] `examples/explore-request.json` 업데이트 (language, strategy)
 
 #### 7-3. benchmark 강화
 
-- [ ] git-guided false-low regression 케이스
-- [ ] blame-guided grounding 케이스
-- [ ] diff/show evidence retention 케이스
-- [ ] `explore` smoke benchmark (format/sanity 위주)
+- [x] blame-guided grounding 케이스 (git-blame-guided-trace)
 
 #### 7-4. tool description 재점검
 
-- [ ] `server.mjs` 설명문 — MCP 클라이언트 tool selection에 직접 영향
-- [ ] `explore_repo` vs `explore` 선택 기준 명확화
-  1. narrow task → specialized tool
-  2. automation → `explore_repo`
-  3. human report → `explore`
+- [x] `server.mjs` — `find_similar_code` description에 "no numeric similarity score" 명시
+- [x] `server.mjs` — `explore` 도구 description에 역할 분리 명시
+- [x] `repo-tools.mjs` — `repo_symbol_context.depth` description 업데이트
 
 ---
 

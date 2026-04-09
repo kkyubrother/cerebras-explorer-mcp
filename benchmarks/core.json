@@ -235,6 +235,57 @@
       ]
     },
     {
+      "id": "git-blame-guided-trace",
+      "description": "Trace recent session changes using blame-guided strategy.",
+      "tool": "explore_repo",
+      "args": {
+        "task": "SessionStore에 최근 추가된 validateForReuse 메서드의 도입 배경과 동작을 설명해라. git blame과 diff를 활용해라.",
+        "scope": ["src/explorer/**", "tests/**"],
+        "budget": "normal",
+        "language": "ko",
+        "hints": {
+          "symbols": ["validateForReuse", "SessionStore"],
+          "strategy": "blame-guided"
+        }
+      },
+      "expectations": [
+        {
+          "label": "Answer explains validateForReuse purpose and behavior",
+          "source": "combined_text",
+          "groups": [
+            ["validateForReuse"],
+            ["SessionStore"],
+            ["exhausted", "expired", "repo_mismatch", "invalid"]
+          ],
+          "weight": 0.45
+        },
+        {
+          "label": "Evidence cites session.mjs implementation",
+          "source": "evidence_paths",
+          "groups": [
+            ["src/explorer/session.mjs"]
+          ],
+          "weight": 0.3
+        },
+        {
+          "label": "Candidate paths include tests",
+          "source": "candidate_paths",
+          "groups": [
+            ["tests/session.test.mjs"]
+          ],
+          "weight": 0.15
+        }
+      ],
+      "checks": [
+        {
+          "label": "Returns at least two grounded evidence items",
+          "type": "min_grounded_evidence_count",
+          "value": 2,
+          "weight": 0.1
+        }
+      ]
+    },
+    {
       "id": "confidence-pipeline",
       "description": "Trace how evidence grounding and confidence scoring are computed.",
       "tool": "explore_repo",

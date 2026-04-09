@@ -191,6 +191,20 @@ GLM 4.7 마이그레이션 기준으로 explorer runtime은 다음 원칙을 따
 
 기본적으로 상위 모델에게 5개의 도구를 노출한다: `explore_repo`, `explain_symbol`, `trace_dependency`, `summarize_changes`, `find_similar_code`. `CEREBRAS_EXPLORER_EXTRA_TOOLS=false`로 설정하면 `explore_repo` 하나만 노출된다.
 
+`CEREBRAS_EXPLORER_ENABLE_EXPLORE=true`로 설정하면 추가로 `explore` 도구가 노출된다 (beta).
+
+- `explore_repo`: 구조화된 JSON 반환 — 자동화, 파이프라인, 후처리에 적합
+- `explore`: 사람이 읽을 수 있는 Markdown 보고서 반환 — 아키텍처 개요, 광범위한 질문에 적합
+
+두 도구는 같은 `_initExploreContext()` 인프라를 공유하며, 세션도 호환된다.
+
+#### 세션 계약
+
+- 세션은 `stats.sessionId`로 반환되며, 다음 호출에서 `session` 파라미터로 전달하면 재사용된다.
+- 명시적으로 요청된 세션이 invalid/expired/exhausted/repo_mismatch인 경우, silent fallback 없이 에러를 반환한다.
+- `stats.sessionStatus`가 `created` 또는 `reused`를 표시하고, `stats.remainingCalls`가 남은 호출 수를 표시한다.
+- `find_similar_code`는 수치형 similarity score를 제공하지 않는다 — 자연어 추론 기반이다.
+
 ---
 
 ## 6. 독립성 정의
@@ -253,7 +267,8 @@ GLM 4.7 마이그레이션 기준으로 explorer runtime은 다음 원칙을 따
 심볼 하나에 대해 정의 본문과 호출자 정보를 한 번에 반환하는 매크로 도구다.
 
 - symbol-first, reference-chase 질문에서 첫 진입점으로 사용한다.
-- 현재 `depth`는 인터페이스상 존재하지만 실질적으로 1단계 수준만 구현돼 있다.
+- `depth` 파라미터는 인터페이스상 1–3을 허용하지만, 실질적으로 `effectiveDepth = 1`로 고정된다 (직접 호출자만 반환).
+- 반환값에 `effectiveDepth: 1` 필드가 포함되어 실제 동작을 투명하게 표시한다.
 
 ### 8.7 `repo_read_file`
 
@@ -290,9 +305,15 @@ GLM 4.7 마이그레이션 기준으로 explorer runtime은 다음 원칙을 따
   "confidenceFactors": {
     "evidenceCount": 0,
     "evidenceDropped": 0,
+    "droppedUngrounded": 0,
+    "droppedMalformed": 0,
     "crossVerified": false,
     "symbolSearchUsed": false,
     "stoppedByBudget": false,
+    "gitLogCalls": 0,
+    "gitDiffCalls": 0,
+    "gitBlameCalls": 0,
+    "gitGroundingHint": "none|git_tools_used",
     "adjustments": []
   },
   "evidence": [
@@ -301,7 +322,10 @@ GLM 4.7 마이그레이션 기준으로 explorer runtime은 다음 원칙을 따
       "startLine": 1,
       "endLine": 10,
       "why": "why it matters",
-      "groundingStatus": "exact|partial"
+      "evidenceType": "file_range|git_commit|git_blame|git_diff_hunk",
+      "groundingStatus": "exact|partial",
+      "sha": "optional — commit hash for git evidence",
+      "author": "optional — for git_blame/git_commit"
     }
   ],
   "candidatePaths": ["relative/path"],
@@ -344,7 +368,9 @@ GLM 4.7 마이그레이션 기준으로 explorer runtime은 다음 원칙을 따
     "budget": "quick|normal|deep",
     "turns": 0,
     "toolCalls": 0,
-    "sessionId": "sess_..."
+    "sessionId": "sess_...",
+    "sessionStatus": "created|reused",
+    "remainingCalls": 5
   }
 }
 ```
@@ -365,8 +391,14 @@ GLM 4.7 마이그레이션 기준으로 explorer runtime은 다음 원칙을 따
 
 - `repo_read_file`로 실제 읽은 line range를 기록한다.
 - `repo_grep`로 실제 일치한 line을 기록한다.
-- 최종 evidence는 **기록된 line range와 겹치는 항목만 유지**한다.
-- 누락된 evidence가 있으면 confidence를 낮춘다.
+- `repo_git_blame`로 조회한 line을 기록한다.
+- `repo_git_diff`/`repo_git_show`에서 추출한 hunk range를 기록한다.
+- 최종 evidence는 **kind별로 다르게 grounding**한다:
+  - `file_range` (기본): 기록된 line range와 겹치는 항목만 유지
+  - `git_commit`: git tool 결과로부터 생성된 것이므로 자동 grounded
+  - `git_blame`: git tool 결과로부터 생성된 것이므로 자동 grounded
+  - `git_diff_hunk`: hunk range 매칭 또는 sha 존재 시 grounded
+- 누락된 evidence가 있으면 confidence를 낮추며, `droppedUngrounded`/`droppedMalformed`로 분류한다.
 
 이 정책 덕분에 “탐색은 했다고 하는데 근거가 빈약한” 출력을 줄일 수 있다.
 

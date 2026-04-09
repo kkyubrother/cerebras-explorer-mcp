@@ -3,8 +3,10 @@
   "repo_root": "./fixtures/demo-repo",
   "scope": ["src/**", "docs/**"],
   "budget": "quick",
+  "language": "ko",
   "hints": {
     "symbols": ["requireAuth"],
-    "regex": ["/users/me"]
+    "regex": ["/users/me"],
+    "strategy": "symbol-first"
   }
 }

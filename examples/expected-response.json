@@ -3,12 +3,32 @@
   "summary": "auth.js에서 requireAuth를 정의하고, user.js에서 이를 import해 /users/me에 적용한다.",
   "confidence": "high",
   "confidenceScore": 0.9,
+  "confidenceLevel": "high",
+  "confidenceFactors": {
+    "evidenceCount": 2,
+    "evidenceGrounded": 2,
+    "evidenceDropped": 0,
+    "droppedUngrounded": 0,
+    "droppedMalformed": 0,
+    "crossVerified": true,
+    "symbolSearchUsed": false,
+    "stoppedByBudget": false,
+    "gitLogCalls": 0,
+    "gitDiffCalls": 0,
+    "gitBlameCalls": 0,
+    "gitGroundingHint": "none",
+    "adjustments": [
+      "+0.20 (all evidence grounded)",
+      "+0.15 (cross-verified across multiple files)"
+    ]
+  },
   "evidence": [
     {
       "path": "src/routes/user.js",
       "startLine": 1,
       "endLine": 5,
       "why": "라우트가 requireAuth를 import하고 /users/me에 연결한다.",
+      "evidenceType": "file_range",
       "groundingStatus": "exact"
     },
     {
@@ -16,11 +36,26 @@
       "startLine": 1,
       "endLine": 6,
       "why": "requireAuth의 실제 구현이 여기 있다.",
+      "evidenceType": "file_range",
       "groundingStatus": "exact"
     }
   ],
   "candidatePaths": ["src/routes/user.js", "src/auth.js", "docs/auth.md"],
-  "followups": [],
+  "followups": [
+    {
+      "description": "role-based access control 레이어 추가 분석",
+      "priority": "optional",
+      "suggestedCall": {
+        "task": "RBAC 미들웨어가 있는지 조사해라",
+        "scope": ["src/**"],
+        "budget": "normal",
+        "hints": {
+          "symbols": ["requireAuth", "requireRole"],
+          "strategy": "reference-chase"
+        }
+      }
+    }
+  ],
   "codeMap": {
     "entryPoints": [],
     "keyModules": [
@@ -42,6 +77,8 @@
     "budget": "quick",
     "turns": 3,
     "toolCalls": 4,
-    "sessionId": "sess_example"
+    "sessionId": "sess_example",
+    "sessionStatus": "created",
+    "remainingCalls": 4
   }
 }
