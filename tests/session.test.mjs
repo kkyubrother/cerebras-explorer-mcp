@@ -117,3 +117,66 @@ test('SessionStore.prune removes expired sessions', () => {
     resolve();
   }, 5));
 });
+
+// --- Phase 1: validateForReuse tests ---
+
+test('validateForReuse returns ok for a valid, non-exhausted session with matching repoRoot', () => {
+  const store = new SessionStore({ maxCalls: 5 });
+  const id = store.create('/repo/A');
+  const result = store.validateForReuse(id, '/repo/A');
+  assert.equal(result.ok, true);
+  assert.ok(result.session);
+  assert.equal(result.remainingCalls, 5);
+});
+
+test('validateForReuse rejects with invalid_session for unknown ID', () => {
+  const store = new SessionStore();
+  const result = store.validateForReuse('sess_nonexistent', '/repo');
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, 'invalid_session');
+});
+
+test('validateForReuse rejects with invalid_session for null/undefined ID', () => {
+  const store = new SessionStore();
+  assert.equal(store.validateForReuse(null, '/repo').reason, 'invalid_session');
+  assert.equal(store.validateForReuse(undefined, '/repo').reason, 'invalid_session');
+  assert.equal(store.validateForReuse('', '/repo').reason, 'invalid_session');
+});
+
+test('validateForReuse rejects with expired_session for TTL-expired session', () => {
+  const store = new SessionStore({ ttlMs: 1 });
+  const id = store.create('/repo');
+  return new Promise(resolve => setTimeout(() => {
+    const result = store.validateForReuse(id, '/repo');
+    assert.equal(result.ok, false);
+    assert.equal(result.reason, 'expired_session');
+    resolve();
+  }, 5));
+});
+
+test('validateForReuse rejects with exhausted_session when maxCalls reached', () => {
+  const store = new SessionStore({ maxCalls: 2 });
+  const id = store.create('/repo');
+  store.update(id, { candidatePaths: [], evidence: [], summary: '', followups: [] });
+  store.update(id, { candidatePaths: [], evidence: [], summary: '', followups: [] });
+  const result = store.validateForReuse(id, '/repo');
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, 'exhausted_session');
+});
+
+test('validateForReuse rejects with repo_mismatch when repoRoot differs', () => {
+  const store = new SessionStore();
+  const id = store.create('/repo/A');
+  const result = store.validateForReuse(id, '/repo/B');
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, 'repo_mismatch');
+});
+
+test('validateForReuse tracks remainingCalls correctly after updates', () => {
+  const store = new SessionStore({ maxCalls: 3 });
+  const id = store.create('/repo');
+  store.update(id, { candidatePaths: [], evidence: [], summary: '', followups: [] });
+  const result = store.validateForReuse(id, '/repo');
+  assert.equal(result.ok, true);
+  assert.equal(result.remainingCalls, 2);
+});

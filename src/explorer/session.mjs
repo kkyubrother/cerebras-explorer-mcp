@@ -155,6 +155,40 @@ export class SessionStore {
     return !session || session.calls >= this._maxCalls;
   }
 
+  /**
+   * Validate a session for reuse. Returns an object describing the outcome.
+   * @param {string} id - Session ID to validate.
+   * @param {string} repoRoot - Expected repo root.
+   * @returns {{ ok: boolean, reason?: string, session?: object, remainingCalls?: number }}
+   */
+  validateForReuse(id, repoRoot) {
+    if (!id || typeof id !== 'string') {
+      return { ok: false, reason: 'invalid_session' };
+    }
+    const raw = this._sessions.get(id);
+    if (!raw) {
+      return { ok: false, reason: 'invalid_session' };
+    }
+    // Check TTL expiration
+    if (Date.now() - raw.lastUsedAt > this._ttlMs) {
+      this._sessions.delete(id);
+      return { ok: false, reason: 'expired_session' };
+    }
+    // Check exhaustion
+    if (raw.calls >= this._maxCalls) {
+      return { ok: false, reason: 'exhausted_session' };
+    }
+    // Check repo root binding
+    if (raw.repoRoot && repoRoot && raw.repoRoot !== repoRoot) {
+      return { ok: false, reason: 'repo_mismatch' };
+    }
+    return {
+      ok: true,
+      session: raw,
+      remainingCalls: this._maxCalls - raw.calls,
+    };
+  }
+
   /** Remove all expired sessions. Call periodically to reclaim memory. */
   prune() {
     const now = Date.now();

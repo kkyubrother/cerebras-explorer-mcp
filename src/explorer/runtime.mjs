@@ -76,6 +76,51 @@ function incrementToolStats(stats, toolName) {
   if (toolName === 'repo_symbols' || toolName === 'repo_references' || toolName === 'repo_symbol_context') stats.symbolCalls += 1;
 }
 
+/**
+ * Resolve session for an explore() call.
+ * Returns { ok, sessionId, sessionData, sessionStatus, remainingCalls } on success,
+ * or { ok: false, reason } when an explicitly requested session is invalid.
+ *
+ * When no session is requested (or sessionStore is null), a new session is created.
+ * When a session is explicitly requested but fails validation, we reject rather
+ * than silently creating a new one.
+ */
+function resolveSessionForExplore(sessionStore, requestedSessionId, repoRoot) {
+  if (!sessionStore) {
+    return { ok: true, sessionId: null, sessionData: null, sessionStatus: null, remainingCalls: null };
+  }
+
+  const trimmedId = requestedSessionId && typeof requestedSessionId === 'string'
+    ? requestedSessionId.trim()
+    : '';
+
+  if (trimmedId) {
+    // Explicit session requested — validate it strictly
+    const validation = sessionStore.validateForReuse(trimmedId, repoRoot);
+    if (!validation.ok) {
+      return { ok: false, reason: validation.reason };
+    }
+    return {
+      ok: true,
+      sessionId: trimmedId,
+      sessionData: validation.session,
+      sessionStatus: 'reused',
+      remainingCalls: validation.remainingCalls,
+    };
+  }
+
+  // No session requested — create a new one
+  const newId = sessionStore.create(repoRoot);
+  const newData = sessionStore.get(newId);
+  return {
+    ok: true,
+    sessionId: newId,
+    sessionData: newData,
+    sessionStatus: 'created',
+    remainingCalls: sessionStore._maxCalls,
+  };
+}
+
 function recordObservedRange(observedRanges, targetPath, startLine, endLine) {
   if (!targetPath) {
     return;
@@ -297,19 +342,15 @@ export class ExplorerRuntime {
     const chatClient = this._explicitChatClient ?? createChatClient({ budget: modelBudget });
 
     // Session integration
-    let sessionId = null;
-    let sessionData = null;
-    if (sessionStore) {
-      if (args.session && args.session.trim()) {
-        sessionData = sessionStore.get(args.session);
-      }
-      if (!sessionData) {
-        sessionId = sessionStore.create(repoRoot);
-        sessionData = sessionStore.get(sessionId);
-      } else {
-        sessionId = args.session;
-      }
+    const sessionResolution = resolveSessionForExplore(sessionStore, args.session, repoRoot);
+    if (!sessionResolution.ok) {
+      // Session was explicitly requested but invalid — reject rather than silently creating a new one
+      const err = new Error(`Invalid session: ${sessionResolution.reason}`);
+      err.code = -32602;
+      err.sessionError = sessionResolution.reason;
+      throw err;
     }
+    const { sessionId, sessionData, sessionStatus, remainingCalls } = sessionResolution;
 
     const repoToolkit = new RepoToolkit({
       repoRoot,
@@ -373,6 +414,8 @@ export class ExplorerRuntime {
       stoppedByBudget: false,
       repoRoot,
       sessionId,
+      sessionStatus,
+      remainingCalls,
     };
 
     let candidatePaths = [];
