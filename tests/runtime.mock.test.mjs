@@ -477,6 +477,105 @@ test('ExplorerRuntime injects previous session context into next call', async ()
   );
 });
 
+// ── Phase 0 baseline metrics ──────────────────────────────────────────────────
+
+/**
+ * Assert that `result` passes all required-field type checks (strict schema compliance).
+ * Re-use this helper in every test that produces a result to track schema compliance rate.
+ */
+function assertStrictSchema(result) {
+  assert.ok(typeof result.answer === 'string' && result.answer.length > 0,
+    'strict schema: answer must be a non-empty string');
+  assert.ok(typeof result.summary === 'string',
+    'strict schema: summary must be a string');
+  assert.ok(['low', 'medium', 'high'].includes(result.confidence),
+    'strict schema: confidence must be low|medium|high');
+  assert.ok(Array.isArray(result.evidence),
+    'strict schema: evidence must be an array');
+  assert.ok(Array.isArray(result.candidatePaths),
+    'strict schema: candidatePaths must be an array');
+  assert.ok(Array.isArray(result.followups),
+    'strict schema: followups must be an array');
+  assert.ok(result.stats && typeof result.stats === 'object',
+    'strict schema: stats must be an object');
+  assert.ok(typeof result.stats.turns === 'number',
+    'strict schema: stats.turns must be a number');
+}
+
+test('Phase 0 metric — JSON parse success: model content parsed into correct field types', async () => {
+  // Verifies that when the model returns valid JSON the runtime correctly parses every
+  // top-level field. This is the "JSON parse success" baseline.
+  class JsonSuccessClient {
+    constructor() { this.model = 'zai-glm-4.7'; }
+    async createChatCompletion() {
+      return {
+        usage: { prompt_tokens: 40, completion_tokens: 20, total_tokens: 60 },
+        message: {
+          content: JSON.stringify({
+            answer: '인증 함수 위치를 확인했습니다.',
+            summary: 'requireAuth는 auth.js에 정의됩니다.',
+            confidence: 'high',
+            evidence: [{ path: 'src/auth.js', startLine: 1, endLine: 4, why: '함수 정의' }],
+            candidatePaths: ['src/auth.js'],
+            followups: [],
+          }),
+          toolCalls: [],
+        },
+      };
+    }
+  }
+
+  const root = await makeRepoFixture();
+  const runtime = new ExplorerRuntime({ chatClient: new JsonSuccessClient() });
+  const result = await runtime.explore({ task: '인증 함수 찾기', repo_root: root });
+
+  // JSON parse success: each field has the correct runtime type
+  assert.equal(typeof result.answer, 'string', 'answer must parse to string');
+  assert.equal(typeof result.summary, 'string', 'summary must parse to string');
+  assert.ok(['low', 'medium', 'high'].includes(result.confidence), 'confidence must parse to valid label');
+  assert.ok(Array.isArray(result.evidence), 'evidence must parse to array');
+  assert.ok(Array.isArray(result.candidatePaths), 'candidatePaths must parse to array');
+  assert.ok(Array.isArray(result.followups), 'followups must parse to array');
+  assert.equal(typeof result.confidenceScore, 'number', 'confidenceScore must be a number after parse');
+  assertStrictSchema(result);
+});
+
+test('Phase 0 metric — strict schema compliance: all required fields present across budgets', async () => {
+  // Verifies that every supported budget label produces a result conforming to strict schema.
+  // This is the "strict schema 적합률" baseline.
+  class MinimalClient {
+    constructor() { this.model = 'zai-glm-4.7'; }
+    async createChatCompletion() {
+      return {
+        usage: { prompt_tokens: 30, completion_tokens: 15, total_tokens: 45 },
+        message: {
+          content: JSON.stringify({
+            answer: '테스트 답변',
+            summary: '테스트 요약',
+            confidence: 'medium',
+            evidence: [],
+            candidatePaths: [],
+            followups: [],
+          }),
+          toolCalls: [],
+        },
+      };
+    }
+  }
+
+  const root = await makeRepoFixture();
+
+  for (const budget of ['quick', 'normal', 'deep']) {
+    const runtime = new ExplorerRuntime({ chatClient: new MinimalClient() });
+    const result = await runtime.explore({ task: '테스트', repo_root: root, budget });
+    assertStrictSchema(result);
+    assert.equal(result.stats.budget, budget,
+      `budget label must be '${budget}' in stats`);
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 test('ExplorerRuntime forwards assistant reasoning into the next turn when available', async () => {
   class ReasoningClient {
     constructor() {

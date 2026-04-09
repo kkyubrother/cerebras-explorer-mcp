@@ -100,6 +100,53 @@ function formatPercent(score) {
   return `${Math.round(score * 100)}%`;
 }
 
+/**
+ * Compute extended benchmark metrics beyond pass/fail scoring.
+ * All five Phase 0 indicators:
+ *   - avgToolTurns          : average agentic loop turns across successful cases
+ *   - budgetExhaustionRate  : fraction of cases where stoppedByBudget === true
+ *   - noToolExitRate        : fraction of cases where the model answered with 0 tool calls
+ *   - avgGroundedEvidence   : average count of grounded evidence items per case
+ *   - deepBudgetAvgTotalTokens : average total tokens for deep-budget cases (null if none)
+ */
+function computeExtendedMetrics(caseResults) {
+  const successCases = caseResults.filter(cr => cr.result !== null);
+  const count = successCases.length;
+  if (count === 0) return null;
+
+  const avgToolTurns =
+    successCases.reduce((sum, cr) => sum + (cr.result.stats?.turns ?? 0), 0) / count;
+
+  const budgetExhaustionRate =
+    successCases.filter(cr => cr.result.stats?.stoppedByBudget).length / count;
+
+  const noToolExitRate =
+    successCases.filter(cr => (cr.result.stats?.toolCalls ?? 0) === 0).length / count;
+
+  const avgGroundedEvidence =
+    successCases.reduce((sum, cr) => {
+      const grounded = (cr.result.evidence ?? []).filter(
+        e => e.groundingStatus === 'exact' || e.groundingStatus === 'partial',
+      ).length;
+      return sum + grounded;
+    }, 0) / count;
+
+  const deepCases = successCases.filter(cr => cr.result.stats?.budget === 'deep');
+  const deepBudgetAvgTotalTokens = deepCases.length > 0
+    ? deepCases.reduce((sum, cr) => sum + (cr.result.stats?.totalTokens ?? 0), 0) / deepCases.length
+    : null;
+
+  return {
+    avgToolTurns: Math.round(avgToolTurns * 10) / 10,
+    budgetExhaustionRate: Math.round(budgetExhaustionRate * 1000) / 1000,
+    noToolExitRate: Math.round(noToolExitRate * 1000) / 1000,
+    avgGroundedEvidence: Math.round(avgGroundedEvidence * 10) / 10,
+    deepBudgetAvgTotalTokens: deepBudgetAvgTotalTokens !== null
+      ? Math.round(deepBudgetAvgTotalTokens)
+      : null,
+  };
+}
+
 function printCaseResult(caseResult, verbose) {
   const { caseDefinition, evaluation, elapsedMs, result } = caseResult;
   const status = evaluation.passed ? 'PASS' : 'FAIL';
@@ -178,10 +225,20 @@ async function main() {
   }
 
   const summary = summarizeBenchmarkSuite(caseResults);
+  const metrics = computeExtendedMetrics(caseResults);
   console.log('');
   console.log(
     `Summary: ${summary.passedCount}/${summary.caseCount} passed, average score ${formatPercent(summary.averageScore)}`,
   );
+  if (metrics) {
+    console.log(`  avg tool turns     : ${metrics.avgToolTurns}`);
+    console.log(`  budget exhaustion  : ${formatPercent(metrics.budgetExhaustionRate)}`);
+    console.log(`  no-tool exit rate  : ${formatPercent(metrics.noToolExitRate)}`);
+    console.log(`  avg grounded evid. : ${metrics.avgGroundedEvidence}`);
+    if (metrics.deepBudgetAvgTotalTokens !== null) {
+      console.log(`  deep budget tokens : ${metrics.deepBudgetAvgTotalTokens} avg total`);
+    }
+  }
 
   if (options.output) {
     const outputPath = path.resolve(options.output);
@@ -196,6 +253,7 @@ async function main() {
             repoRoot,
           },
           summary,
+          metrics,
           cases: caseResults,
           generatedAt: new Date().toISOString(),
         },
