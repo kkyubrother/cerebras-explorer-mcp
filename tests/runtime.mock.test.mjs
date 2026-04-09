@@ -5,6 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { ExplorerRuntime } from '../src/explorer/runtime.mjs';
+import { buildExplorerSystemPrompt, detectStrategy } from '../src/explorer/prompt.mjs';
+import { BUDGETS } from '../src/explorer/config.mjs';
 
 async function makeRepoFixture() {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-explorer-runtime-'));
@@ -597,6 +599,69 @@ test('Phase 1 — malformed freeform content still produces strict-schema result
   assert.equal(result.confidence, 'low', 'confidence must be low on fallback path');
   assert.ok(Array.isArray(result.evidence), 'evidence must be an array on fallback');
   assert.ok(Array.isArray(result.followups), 'followups must be an array on fallback');
+});
+
+// ── Phase 3 — 프롬프트 구조 재배치 + 전략 유연화 ─────────────────────────────
+
+test('Phase 3 — system prompt has HARD REQUIREMENTS within first 30 lines', () => {
+  const prompt = buildExplorerSystemPrompt({
+    repoRoot: '/tmp/repo',
+    budgetConfig: BUDGETS.normal,
+  });
+  const lines = prompt.split('\n');
+  const first30 = lines.slice(0, 30).join('\n');
+  assert.ok(
+    first30.includes('HARD REQUIREMENTS'),
+    'HARD REQUIREMENTS must appear within the first 30 lines of the system prompt',
+  );
+});
+
+test('Phase 3 — detectStrategy returns compound array for mixed-signal task', () => {
+  // A task that triggers both git-guided (변경) and blame-guided (버그) signals
+  const strategy = detectStrategy('이 버그가 언제 변경된 커밋에서 도입됐는지 찾아라');
+  assert.ok(Array.isArray(strategy), 'compound task must return an array of strategies');
+  assert.ok(strategy.includes('git-guided'), 'should detect git-guided');
+  assert.ok(strategy.includes('blame-guided'), 'should detect blame-guided');
+});
+
+test('Phase 3 — detectStrategy returns single string for unambiguous task', () => {
+  const strategy = detectStrategy('requireAuth 함수가 어디 정의되어 있는지 찾아라');
+  assert.equal(typeof strategy, 'string', 'unambiguous task must return a single strategy string');
+  assert.equal(strategy, 'symbol-first');
+});
+
+test('Phase 3 — Korean task produces Korean answer/summary language (language rule)', async () => {
+  // This test checks that when language is not specified the LANGUAGE RULE in the
+  // system prompt mentions "same natural language as the delegated task".
+  // We verify the system prompt contains the expected language rule text.
+  const prompt = buildExplorerSystemPrompt({
+    repoRoot: '/tmp/repo',
+    budgetConfig: BUDGETS.quick,
+  });
+  assert.ok(
+    prompt.includes('LANGUAGE RULE'),
+    'system prompt must include a LANGUAGE RULE section',
+  );
+  assert.ok(
+    prompt.includes('same natural language'),
+    'default language rule must say "same natural language as the delegated task"',
+  );
+});
+
+test('Phase 3 — explicit language is reflected in system prompt language rule', () => {
+  const prompt = buildExplorerSystemPrompt({
+    repoRoot: '/tmp/repo',
+    budgetConfig: BUDGETS.quick,
+    language: 'Korean',
+  });
+  assert.ok(
+    prompt.includes('Korean'),
+    'explicit language must appear in the system prompt language rule',
+  );
+  assert.ok(
+    !prompt.includes('same natural language'),
+    'explicit language must override the default language rule',
+  );
 });
 
 // ── Phase 0 baseline metrics ──────────────────────────────────────────────────

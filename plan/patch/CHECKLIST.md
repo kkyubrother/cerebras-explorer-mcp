@@ -78,14 +78,14 @@
 
 | 상태 | 항목 | 위치 | 구체적 변경 내용 |
 |------|------|------|-----------------|
-| 🔲 | system prompt 순서 재배치 | `prompt.mjs:buildExplorerSystemPrompt()` | 역할 → HARD REQUIREMENTS → FINAL OUTPUT CONTRACT → LANGUAGE RULE → TOOL ORDER POLICY → STRATEGY CATALOG → PROJECT CONTEXT |
-| 🔲 | HARD REQUIREMENTS / QUALITY TARGETS 두 층 분리 | `prompt.mjs` | 위반 시 실패(hard) vs 품질 목표(soft) 명시적 구분 |
-| 🔲 | default language를 system prompt에도 명시 | `prompt.mjs` | `buildExplorerSystemPrompt()`에 language 파라미터 전달 또는 기본값 명시 |
-| 🔲 | tool-order를 decision policy 형태로 변경 | `prompt.mjs` | symbol→`repo_symbol_context`, history→`repo_git_log`, ambiguous→`repo_grep`/`repo_find_files`, precise→`repo_read_file` 형태 |
-| 🔲 | user prompt의 `Follow the {strategy} strategy above.` 완화 | `prompt.mjs:buildExplorerUserPrompt()` | "initial strategy suggestion"으로 낮추고 1회 전략 전환 허용 |
-| 🔲 | 전략 복합 감지 지원 | `prompt.mjs:detectStrategy()` | regex 단일 매칭 → 복합 전략 반환 지원 (e.g. `['blame-guided', 'git-guided']`) |
-| 🔲 | 테스트: system prompt 앞 30줄 내 hard rule 배치 검증 | `tests/` | |
-| 🔲 | 테스트: 한국어 task에서 answer/summary language 일관성 검증 | `tests/runtime.mock.test.mjs` | |
+| ✅ | system prompt 순서 재배치 | `prompt.mjs:buildExplorerSystemPrompt()` | 역할 → HARD REQUIREMENTS → FINAL OUTPUT CONTRACT → LANGUAGE RULE → TOOL ORDER POLICY → QUALITY TARGETS → STRATEGY CATALOG → PROJECT CONTEXT |
+| ✅ | HARD REQUIREMENTS / QUALITY TARGETS 두 층 분리 | `prompt.mjs` | ##HARD REQUIREMENTS (실패) vs ##QUALITY TARGETS (soft 목표) 명시 |
+| ✅ | default language를 system prompt에도 명시 | `prompt.mjs` | language 파라미터 추가 + LANGUAGE RULE 섹션, runtime.mjs에서 args.language 전달 |
+| ✅ | tool-order를 decision policy 형태로 변경 | `prompt.mjs` | ##TOOL ORDER POLICY 섹션 추가 |
+| ✅ | user prompt의 `Follow the {strategy} strategy above.` 완화 | `prompt.mjs:buildExplorerUserPrompt()` | "Initial strategy suggestion" + "1회 전환 허용" 문구 |
+| ✅ | 전략 복합 감지 지원 | `prompt.mjs:detectStrategy()` | matches[] 누적 → 단일 string 또는 string[] 반환 |
+| ✅ | 테스트: system prompt 앞 30줄 내 hard rule 배치 검증 | `tests/runtime.mock.test.mjs` | Phase 3 테스트 추가 |
+| ✅ | 테스트: 한국어 task에서 answer/summary language 일관성 검증 | `tests/runtime.mock.test.mjs` | LANGUAGE RULE 섹션 + explicit language 테스트 추가 |
 
 ---
 

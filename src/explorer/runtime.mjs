@@ -329,6 +329,7 @@ export class ExplorerRuntime {
         content: buildExplorerSystemPrompt({
           repoRoot,
           budgetConfig,
+          language: args.language,
           projectContext,
           keyFiles,
           previousSummaries: sessionData?.summaries ?? [],
