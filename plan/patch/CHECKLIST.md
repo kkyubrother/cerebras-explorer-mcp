@@ -76,43 +76,43 @@
 ## Phase 2. Git confidence false-low fast-path stabilization
 
 **목표**: git 기반 질문에서 구조적 false-low 현상 줄이기
-**상태**: 미구현
+**상태**: ✅ 구현 완료
 **난이도**: 중간 | **가치**: 매우 높음
 
 ### 현재 상태 확인
 
 - [x] `computeConfidenceScore()` 존재 (`src/explorer/schemas.mjs:204-273`)
 - [x] `observedRanges` 수집 구조 존재 (`runtime.mjs:79-86`)
-- [ ] `observedRanges`는 `repo_read_file`과 `repo_grep`에서만 기록됨 — git 도구 결과 미반영
-- [ ] `parseDiffOutput()` (`repo-tools.mjs:301-322`) — hunk line range 추출 없음 (additions/deletions 카운트만)
-- [ ] blame line 관측 추적 없음 — `_parseBlamePorcelain()` 존재하지만 `observedRanges`에 미반영
-- [ ] git-only evidence에 대한 confidence floor 조정 없음
+- [x] `observedRanges`에 git blame, diff, show 결과 반영됨
+- [x] `parseDiffOutput()`에서 hunk line range 추출 (`hunks[]` 필드)
+- [x] blame line 관측 추적 — `observedRanges`에 반영됨
+- [x] git-only evidence에 대한 confidence floor 0.4 적용
 
 ### 구현 항목
 
 #### 2-1. blame line 관측 추가
 
-- [ ] `repo_git_blame` 결과의 line 정보를 `observedRanges`에 반영
+- [x] `repo_git_blame` 결과의 line 정보를 `observedRanges`에 반영
   - 파일: `src/explorer/runtime.mjs`
   - `_parseBlamePorcelain()` 결과에서 path + line 추출 → `recordObservedRange()` 호출
 
 #### 2-2. diff/show hunk 파싱 추가
 
-- [ ] `parseDiffOutput()`에 hunk line range 추출 기능 추가
+- [x] `parseDiffOutput()`에 hunk line range 추출 기능 추가
   - 파일: `src/explorer/repo-tools.mjs`
   - `@@` 헤더 파싱으로 new-file 기준 start/end range 추출
   - 최소: new-file range만 — old/new 양쪽은 Phase 3에서
 
 #### 2-3. `repo_git_log` 전용 질문 confidence 완화
 
-- [ ] `computeConfidenceScore()`에서 git-only evidence floor 조정
+- [x] `computeConfidenceScore()`에서 git-only evidence floor 조정
   - 파일: `src/explorer/schemas.mjs`
-  - 조건: `gitLogCalls > 0` + `recentActivity` 존재 + malformed 없음 + budget stop 아님
-  - floor를 `0.1`에서 적정 수준으로 상향
+  - 조건: git tools 사용 + grounded evidence 존재 + budget stop 아님 + score < 0.4
+  - floor를 `0.4`로 상향
 
 #### 2-4. confidence factors에 git activity 힌트 추가
 
-- [ ] `confidenceFactors`에 `gitLogCalls`, `gitDiffCalls`, `gitBlameCalls`, `gitGroundingHint` 추가
+- [x] `confidenceFactors`에 `gitLogCalls`, `gitDiffCalls`, `gitBlameCalls`, `gitGroundingHint` 추가
 
 ### 수정 대상 파일 (REAL_PLAN 기재 vs 실제)
 

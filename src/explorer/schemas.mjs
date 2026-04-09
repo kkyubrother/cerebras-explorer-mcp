@@ -203,6 +203,9 @@ export function validateExploreRepoArgs(args) {
  */
 export function computeConfidenceScore(groundedEvidence, totalEvidenceBefore, stats) {
   let score = 0.5;
+  const gitLogCalls = stats.gitLogCalls ?? 0;
+  const gitDiffCalls = stats.gitDiffCalls ?? 0;
+  const gitBlameCalls = stats.gitBlameCalls ?? 0;
   const factors = {
     evidenceCount: groundedEvidence.length,
     evidenceGrounded: groundedEvidence.length,
@@ -210,6 +213,10 @@ export function computeConfidenceScore(groundedEvidence, totalEvidenceBefore, st
     crossVerified: false,
     symbolSearchUsed: (stats.grepCalls ?? 0) > 0,
     stoppedByBudget: stats.stoppedByBudget ?? false,
+    gitLogCalls,
+    gitDiffCalls,
+    gitBlameCalls,
+    gitGroundingHint: (gitLogCalls + gitDiffCalls + gitBlameCalls) > 0 ? 'git_tools_used' : 'none',
     adjustments: [],
   };
 
@@ -252,6 +259,15 @@ export function computeConfidenceScore(groundedEvidence, totalEvidenceBefore, st
   if (groundedEvidence.length === 0) {
     score = 0.1;
     factors.adjustments = ['score=0.10 (no grounded evidence)'];
+  }
+
+  // Phase 2: git-only evidence floor — if git tools were used meaningfully
+  // and we have some evidence but it scored low, raise the floor.
+  // This compensates for git evidence that cannot be grounded via file-read ranges.
+  const gitToolsUsed = gitLogCalls + gitDiffCalls + gitBlameCalls;
+  if (gitToolsUsed > 0 && groundedEvidence.length > 0 && !factors.stoppedByBudget && score < 0.4) {
+    score = 0.4;
+    factors.adjustments.push('floor=0.40 (git-grounded evidence present)');
   }
 
   score = Math.max(0, Math.min(1, score));

@@ -305,8 +305,16 @@ function parseDiffOutput(diffText) {
     if (line.startsWith('diff --git ')) {
       if (current) files.push(current);
       const match = line.match(/diff --git a\/(.*) b\/(.*)/);
-      current = { path: match?.[2] ?? '', additions: 0, deletions: 0, patch: '' };
+      current = { path: match?.[2] ?? '', additions: 0, deletions: 0, hunks: [], patch: '' };
     } else if (current) {
+      // Phase 2: extract hunk headers for new-file line ranges
+      const hunkMatch = line.match(/^@@\s+-(\d+)(?:,(\d+))?\s+\+(\d+)(?:,(\d+))?\s+@@/);
+      if (hunkMatch) {
+        current.hunks.push({
+          newStart: parseInt(hunkMatch[3], 10),
+          newLines: parseInt(hunkMatch[4] ?? '1', 10),
+        });
+      }
       if (line.startsWith('+') && !line.startsWith('+++')) current.additions++;
       else if (line.startsWith('-') && !line.startsWith('---')) current.deletions++;
       current.patch += line + '\n';

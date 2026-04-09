@@ -542,6 +542,30 @@ export class ExplorerRuntime {
           }
         }
 
+        // Phase 2: record blame lines as observed ranges
+        if (toolName === 'repo_git_blame' && !toolResult?.error && Array.isArray(toolResult?.lines)) {
+          const blamePath = toolArgs.path ?? null;
+          if (blamePath) {
+            for (const entry of toolResult.lines) {
+              if (typeof entry.line === 'number') {
+                recordObservedRange(observedRanges, blamePath, entry.line, entry.line);
+              }
+            }
+          }
+        }
+
+        // Phase 2: record diff/show hunk ranges as observed ranges
+        if ((toolName === 'repo_git_diff' || toolName === 'repo_git_show') && !toolResult?.error) {
+          const diffFiles = toolResult?.files ?? [];
+          for (const file of diffFiles) {
+            if (file.path && Array.isArray(file.hunks)) {
+              for (const hunk of file.hunks) {
+                recordObservedRange(observedRanges, file.path, hunk.newStart, hunk.newStart + hunk.newLines - 1);
+              }
+            }
+          }
+        }
+
         if (toolName === 'repo_git_log' && !toolResult?.error) {
           capturedGitLogs.push({ ...toolResult, path: toolArgs.path ?? null });
         }
