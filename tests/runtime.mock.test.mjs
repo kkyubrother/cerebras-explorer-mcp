@@ -476,3 +476,71 @@ test('ExplorerRuntime injects previous session context into next call', async ()
     'Second call must reference previous session summary in system prompt',
   );
 });
+
+test('ExplorerRuntime forwards assistant reasoning into the next turn when available', async () => {
+  class ReasoningClient {
+    constructor() {
+      this.model = 'zai-glm-4.7';
+      this.calls = 0;
+    }
+
+    async createChatCompletion({ messages, reasoningEffort, temperature, topP }) {
+      this.calls += 1;
+
+      if (this.calls === 1) {
+        assert.equal(reasoningEffort, 'none');
+        assert.equal(temperature, 1);
+        assert.equal(topP, 0.95);
+        return {
+          usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+          message: {
+            content: '',
+            reasoning: 'Search for requireAuth before reading files.',
+            toolCalls: [
+              {
+                id: 'call-r-1',
+                function: {
+                  name: 'repo_grep',
+                  arguments: JSON.stringify({ pattern: 'requireAuth', scope: ['src/**'] }),
+                },
+              },
+            ],
+          },
+        };
+      }
+
+      const assistantMessages = messages.filter(message => message.role === 'assistant');
+      assert.ok(
+        assistantMessages.some(message => message.reasoning === 'Search for requireAuth before reading files.'),
+        'previous assistant reasoning must be sent back on the next turn',
+      );
+
+      return {
+        usage: { prompt_tokens: 30, completion_tokens: 20, total_tokens: 50 },
+        message: {
+          content: JSON.stringify({
+            answer: 'ok',
+            summary: 'reasoning forwarded',
+            confidence: 'low',
+            evidence: [],
+            candidatePaths: [],
+            followups: [],
+          }),
+          reasoning: '',
+          toolCalls: [],
+        },
+      };
+    }
+  }
+
+  const root = await makeRepoFixture();
+  const runtime = new ExplorerRuntime({ chatClient: new ReasoningClient() });
+  const result = await runtime.explore({
+    task: '인증 함수 위치를 빠르게 찾아라.',
+    repo_root: root,
+    scope: ['src/**'],
+    budget: 'quick',
+  });
+
+  assert.equal(result.summary, 'reasoning forwarded');
+});

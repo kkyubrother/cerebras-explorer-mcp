@@ -50,6 +50,8 @@ Parent model (Claude Code / Codex)
 - **전략 기반 탐색**: symbol-first, reference-chase, git-guided 등 질문 유형별 전략 유도
 - **세션/진행 상황 지원**: 세션 ID 기반 후속 탐색과 MCP progress notification 지원
 - **프로젝트별 설정 파일 지원**: `.cerebras-explorer.json`으로 기본 scope, key files, context 지정 가능
+- **GLM 4.7 reasoning 정렬**: quick budget은 `reasoning_effort="none"`으로 reasoning을 끄고, normal/deep은 기본 reasoning을 유지하며 `clear_thinking=false`로 이전 turn의 reasoning을 보존
+- **샘플링 기본값 정렬**: Cerebras 권장값에 맞춰 `temperature=1`, `top_p=0.95`를 기본으로 사용
 - **근거 강제**: 최종 evidence는 실제로 읽거나 grep으로 확인한 라인 범위에만 남김
 - **MCP 친화적 반환**: `answer`, `summary`, `confidence`, `evidence`, `candidatePaths`, `followups`, `stats`에 더해 `confidenceScore`, `confidenceFactors`, `codeMap`, `diagram`, `recentActivity` 지원
 
@@ -190,7 +192,12 @@ export CEREBRAS_API_KEY="..."
 ```bash
 export CEREBRAS_API_BASE_URL="https://api.cerebras.ai/v1"
 export CEREBRAS_EXPLORER_MODEL="zai-glm-4.7"
+export CEREBRAS_EXPLORER_CLEAR_THINKING="false"   # 기본값: false (agentic loop용)
+export CEREBRAS_EXPLORER_TEMPERATURE="1"
+export CEREBRAS_EXPLORER_TOP_P="0.95"
 ```
+
+`temperature`와 `top_p`는 Cerebras/Z.ai의 GLM 4.7 권장 기본값에 맞춰져 있습니다. 더 결정적인 출력을 원하면 둘 다 동시에 만지기보다 하나만 조정하는 편이 안전합니다.
 
 ### 2) 서버 실행
 

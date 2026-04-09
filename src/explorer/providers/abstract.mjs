@@ -18,8 +18,11 @@ export class AbstractChatClient {
    * @param {Array}  opts.messages             - Chat history (role/content pairs)
    * @param {Array}  [opts.tools]              - Tool definitions (OpenAI function-call format)
    * @param {object} [opts.responseFormat]     - Structured-output schema
-   * @param {string} [opts.reasoningEffort]    - "none"|"low"|"medium" (provider may ignore)
+   * @param {string} [opts.reasoningEffort]    - Provider-specific reasoning control
+   * @param {string} [opts.reasoningFormat]    - parsed|raw|hidden when supported
+   * @param {boolean}[opts.clearThinking]      - Preserve prior reasoning when supported
    * @param {number} [opts.temperature]        - Sampling temperature
+   * @param {number} [opts.topP]               - Nucleus sampling parameter
    * @param {number} [opts.maxCompletionTokens]
    * @param {boolean}[opts.parallelToolCalls]  - Allow simultaneous tool calls
    *
@@ -31,6 +34,8 @@ export class AbstractChatClient {
    *     role: string,
    *     content: string,
    *     rawContent: any,
+   *     reasoning?: string,
+   *     rawReasoning?: any,
    *     toolCalls: Array<{id, type, function: {name, arguments}}>
    *   }
    * }>}

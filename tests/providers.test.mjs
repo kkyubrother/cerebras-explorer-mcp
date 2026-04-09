@@ -6,7 +6,7 @@ import { OllamaChatClient } from '../src/explorer/providers/ollama.mjs';
 import { FailoverChatClient } from '../src/explorer/providers/failover.mjs';
 import { createChatClient } from '../src/explorer/providers/index.mjs';
 import { CerebrasChatClient } from '../src/explorer/cerebras-client.mjs';
-import { classifyTaskComplexity, getModelForBudget } from '../src/explorer/config.mjs';
+import { classifyTaskComplexity, getModelForBudget, getReasoningEffortForBudget } from '../src/explorer/config.mjs';
 
 // ─── Shared mock fetch helpers ───────────────────────────────────────────────
 
@@ -359,4 +359,33 @@ test('getModelForBudget: falls back to global model when budget env var not set'
     if (prevGlobal === undefined) delete process.env.CEREBRAS_EXPLORER_MODEL;
     else process.env.CEREBRAS_EXPLORER_MODEL = prevGlobal;
   }
+});
+
+test('OpenAICompatChatClient: strips assistant reasoning from outgoing messages', async () => {
+  let capturedPayload = null;
+  const client = new OpenAICompatChatClient({
+    apiKey: 'test-key',
+    model: 'gpt-4o-mini',
+    fetchImpl: async (_url, init) => {
+      capturedPayload = JSON.parse(init.body);
+      return {
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        text: async () => JSON.stringify(VALID_COMPLETION_RESPONSE),
+      };
+    },
+  });
+
+  await client.createChatCompletion({
+    messages: [{ role: 'assistant', content: 'hello', reasoning: 'private plan' }],
+  });
+
+  assert.equal(capturedPayload.messages[0].reasoning, undefined);
+});
+
+test('getReasoningEffortForBudget: gpt-oss uses low/medium/high ladder', () => {
+  assert.equal(getReasoningEffortForBudget('gpt-oss-120b', 'quick'), 'low');
+  assert.equal(getReasoningEffortForBudget('gpt-oss-120b', 'normal'), 'medium');
+  assert.equal(getReasoningEffortForBudget('gpt-oss-120b', 'deep'), 'high');
 });

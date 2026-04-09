@@ -2,6 +2,30 @@ import path from 'node:path';
 import fs from 'node:fs/promises';
 
 export const DEFAULT_EXPLORER_MODEL = 'zai-glm-4.7';
+export const DEFAULT_PROTOCOL_VERSION = '2025-06-18';
+export const DEFAULT_EXPLORER_TEMPERATURE = 1;
+export const DEFAULT_EXPLORER_TOP_P = 0.95;
+
+function parseEnvNumber(name) {
+  const raw = process.env[name];
+  if (raw === undefined || raw === null || String(raw).trim() === '') {
+    return null;
+  }
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+export function normalizeModelId(model) {
+  return String(model ?? '').trim().toLowerCase();
+}
+
+export function isGlm47Model(model) {
+  return normalizeModelId(model).startsWith('zai-glm-4.7');
+}
+
+export function isGptOssModel(model) {
+  return normalizeModelId(model).startsWith('gpt-oss');
+}
 
 export function getExplorerModel() {
   return (
@@ -10,7 +34,30 @@ export function getExplorerModel() {
     DEFAULT_EXPLORER_MODEL
   );
 }
-export const DEFAULT_PROTOCOL_VERSION = '2025-06-18';
+
+export function getExplorerTemperature() {
+  return parseEnvNumber('CEREBRAS_EXPLORER_TEMPERATURE') ?? DEFAULT_EXPLORER_TEMPERATURE;
+}
+
+export function getExplorerTopP() {
+  return parseEnvNumber('CEREBRAS_EXPLORER_TOP_P') ?? DEFAULT_EXPLORER_TOP_P;
+}
+
+export function getExplorerReasoningFormat(model = getExplorerModel()) {
+  const override = process.env.CEREBRAS_EXPLORER_REASONING_FORMAT?.trim();
+  if (override) {
+    return override;
+  }
+  return isGlm47Model(model) || isGptOssModel(model) ? 'parsed' : undefined;
+}
+
+export function getExplorerClearThinking(model = getExplorerModel()) {
+  const raw = process.env.CEREBRAS_EXPLORER_CLEAR_THINKING;
+  if (raw !== undefined && raw !== null) {
+    return isTruthyEnv(raw);
+  }
+  return isGlm47Model(model) ? false : undefined;
+}
 
 export const DEFAULT_IGNORE_DIRS = new Set([
   '.git',
@@ -81,7 +128,6 @@ export const BUDGETS = {
     maxReadLines: 140,
     maxDirectoryEntries: 120,
     maxWalkFiles: 1500,
-    reasoningEffort: 'none',
     maxCompletionTokens: 4000,
   },
   normal: {
@@ -91,7 +137,6 @@ export const BUDGETS = {
     maxReadLines: 220,
     maxDirectoryEntries: 200,
     maxWalkFiles: 3000,
-    reasoningEffort: 'low',
     maxCompletionTokens: 6000,
   },
   deep: {
@@ -101,7 +146,6 @@ export const BUDGETS = {
     maxReadLines: 320,
     maxDirectoryEntries: 300,
     maxWalkFiles: 6000,
-    reasoningEffort: 'medium',
     maxCompletionTokens: 8000,
   },
 };
@@ -118,7 +162,8 @@ export function getRepoRoot(inputRepoRoot) {
 }
 
 export function isTruthyEnv(value) {
-  return value === '1' || value === 'true' || value === 'yes';
+  const normalized = String(value ?? '').trim().toLowerCase();
+  return normalized === '1' || normalized === 'true' || normalized === 'yes';
 }
 
 /**
@@ -138,6 +183,31 @@ export function getModelForBudget(budget) {
     return process.env.CEREBRAS_EXPLORER_MODEL_DEEP?.trim() || getExplorerModel();
   }
   return process.env.CEREBRAS_EXPLORER_MODEL_NORMAL?.trim() || getExplorerModel();
+}
+
+/**
+ * Resolve reasoning settings for the selected model and exploration budget.
+ *
+ * GLM 4.7 only supports `reasoning_effort="none"` to disable reasoning.
+ * Normal and deep budgets therefore leave the parameter unset, which keeps
+ * reasoning enabled with the model default behavior.
+ *
+ * GPT-OSS supports the classic low/medium/high ladder.
+ */
+export function getReasoningEffortForBudget(model, budget) {
+  const label = BUDGETS[budget] ? budget : 'normal';
+
+  if (isGlm47Model(model)) {
+    return label === 'quick' ? 'none' : undefined;
+  }
+
+  if (isGptOssModel(model)) {
+    if (label === 'quick') return 'low';
+    if (label === 'deep') return 'high';
+    return 'medium';
+  }
+
+  return undefined;
 }
 
 /**

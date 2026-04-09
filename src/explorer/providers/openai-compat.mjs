@@ -1,5 +1,21 @@
 import { AbstractChatClient } from './abstract.mjs';
 
+function stripUnsupportedMessageFields(messages) {
+  if (!Array.isArray(messages)) {
+    return messages;
+  }
+
+  return messages.map(message => {
+    if (!message || typeof message !== 'object' || Array.isArray(message)) {
+      return message;
+    }
+
+    const normalized = { ...message };
+    delete normalized.reasoning;
+    return normalized;
+  });
+}
+
 /**
  * OpenAI-compatible chat client.
  *
@@ -7,6 +23,8 @@ import { AbstractChatClient } from './abstract.mjs';
  * `/v1/chat/completions` endpoint — Groq, Together, Fireworks, etc.
  *
  * Cerebras-specific fields (reasoning_effort, clear_thinking) are NOT sent.
+ * Assistant-message `reasoning` fields are stripped because they are not part
+ * of the standard OpenAI-compatible request schema.
  *
  * Environment variables (when using createChatClient()):
  *   EXPLORER_OPENAI_API_KEY   — required
@@ -56,7 +74,8 @@ export class OpenAICompatChatClient extends AbstractChatClient {
     messages,
     tools,
     responseFormat,
-    temperature = 0.1,
+    temperature = 1,
+    topP = 0.95,
     maxCompletionTokens = 4000,
     parallelToolCalls = true,
     // reasoningEffort is intentionally ignored — not supported by standard OpenAI API
@@ -65,13 +84,16 @@ export class OpenAICompatChatClient extends AbstractChatClient {
 
     const payload = {
       model: this._model,
-      messages,
+      messages: stripUnsupportedMessageFields(messages),
       temperature,
       max_completion_tokens: maxCompletionTokens,
       parallel_tool_calls: parallelToolCalls,
       stream: false,
     };
 
+    if (typeof topP === 'number') {
+      payload.top_p = topP;
+    }
     if (Array.isArray(tools) && tools.length > 0) {
       payload.tools = tools;
     }
@@ -115,6 +137,8 @@ export class OpenAICompatChatClient extends AbstractChatClient {
         role: message.role || 'assistant',
         content: this._extractMessageText(message.content),
         rawContent: message.content,
+        reasoning: typeof message.reasoning === 'string' ? message.reasoning : '',
+        rawReasoning: message.reasoning ?? null,
         toolCalls: Array.isArray(message.tool_calls)
           ? message.tool_calls.map(call => ({
               id: call.id,

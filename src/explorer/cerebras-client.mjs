@@ -1,4 +1,12 @@
-import { getExplorerModel } from './config.mjs';
+import {
+  getExplorerClearThinking,
+  getExplorerModel,
+  getExplorerReasoningFormat,
+  getExplorerTemperature,
+  getExplorerTopP,
+  isGlm47Model,
+  isGptOssModel,
+} from './config.mjs';
 
 function extractMessageText(content) {
   if (typeof content === 'string') {
@@ -14,6 +22,10 @@ function extractMessageText(content) {
       .join('');
   }
   return '';
+}
+
+function supportsReasoningOptions(model) {
+  return isGlm47Model(model) || isGptOssModel(model);
 }
 
 export function extractFirstJsonObject(input) {
@@ -87,12 +99,20 @@ export class CerebrasChatClient {
     apiKey = process.env.CEREBRAS_API_KEY,
     apiBaseUrl = process.env.CEREBRAS_API_BASE_URL || 'https://api.cerebras.ai/v1',
     model = getExplorerModel(),
+    clearThinking = getExplorerClearThinking(model),
+    reasoningFormat = getExplorerReasoningFormat(model),
+    temperature = getExplorerTemperature(),
+    topP = getExplorerTopP(),
     fetchImpl = globalThis.fetch,
     logger = () => {},
   } = {}) {
     this.apiKey = apiKey;
     this.apiBaseUrl = apiBaseUrl.replace(/\/$/, '');
     this.model = model;
+    this.clearThinking = clearThinking;
+    this.reasoningFormat = reasoningFormat;
+    this.defaultTemperature = temperature;
+    this.defaultTopP = topP;
     this.fetchImpl = fetchImpl;
     this.logger = logger;
   }
@@ -111,7 +131,10 @@ export class CerebrasChatClient {
     tools,
     responseFormat,
     reasoningEffort,
-    temperature = 0.1,
+    reasoningFormat = this.reasoningFormat,
+    clearThinking = this.clearThinking,
+    temperature = this.defaultTemperature,
+    topP = this.defaultTopP,
     maxCompletionTokens = 4000,
     parallelToolCalls = true,
   }) {
@@ -120,12 +143,26 @@ export class CerebrasChatClient {
     const payload = {
       model: this.model,
       messages,
-      temperature,
       max_completion_tokens: maxCompletionTokens,
-      reasoning_effort: reasoningEffort,
       parallel_tool_calls: parallelToolCalls,
       stream: false,
     };
+
+    if (typeof temperature === 'number') {
+      payload.temperature = temperature;
+    }
+    if (typeof topP === 'number') {
+      payload.top_p = topP;
+    }
+    if (supportsReasoningOptions(this.model) && reasoningEffort !== undefined && reasoningEffort !== null && reasoningEffort !== '') {
+      payload.reasoning_effort = reasoningEffort;
+    }
+    if (supportsReasoningOptions(this.model) && reasoningFormat) {
+      payload.reasoning_format = reasoningFormat;
+    }
+    if (isGlm47Model(this.model) && typeof clearThinking === 'boolean') {
+      payload.clear_thinking = clearThinking;
+    }
 
     if (Array.isArray(tools) && tools.length > 0) {
       payload.tools = tools;
@@ -170,6 +207,8 @@ export class CerebrasChatClient {
         role: message.role || 'assistant',
         content: extractMessageText(message.content),
         rawContent: message.content,
+        reasoning: typeof message.reasoning === 'string' ? message.reasoning : '',
+        rawReasoning: message.reasoning ?? null,
         toolCalls: Array.isArray(message.tool_calls)
           ? message.tool_calls.map(call => ({
               id: call.id,

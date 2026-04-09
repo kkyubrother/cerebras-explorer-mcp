@@ -1,6 +1,9 @@
 import { CerebrasChatClient, extractFirstJsonObject } from './cerebras-client.mjs';
 import {
   getBudgetConfig,
+  getExplorerTemperature,
+  getExplorerTopP,
+  getReasoningEffortForBudget,
   getRepoRoot,
   getModelForBudget,
   classifyTaskComplexity,
@@ -344,6 +347,10 @@ export class ExplorerRuntime {
       },
     ];
 
+    const reasoningEffort = getReasoningEffortForBudget(chatClient.model, budgetConfig.label);
+    const temperature = getExplorerTemperature();
+    const topP = getExplorerTopP();
+
     const stats = {
       model: chatClient.model,
       budget: budgetConfig.label,
@@ -388,8 +395,9 @@ export class ExplorerRuntime {
       const completion = await chatClient.createChatCompletion({
         messages,
         tools,
-        reasoningEffort: budgetConfig.reasoningEffort,
-        temperature: 0.1,
+        reasoningEffort,
+        temperature,
+        topP,
         maxCompletionTokens: budgetConfig.maxCompletionTokens,
         parallelToolCalls: true,
       });
@@ -401,6 +409,10 @@ export class ExplorerRuntime {
         role: 'assistant',
         content: completion.message.content || null,
       };
+
+      if (completion.message.reasoning) {
+        assistantMessage.reasoning = completion.message.reasoning;
+      }
 
       if (completion.message.toolCalls.length > 0) {
         assistantMessage.tool_calls = completion.message.toolCalls.map(call => ({
@@ -487,7 +499,9 @@ export class ExplorerRuntime {
       const finalized = await this.finalizeAfterToolLoop({
         chatClient,
         messages,
-        reasoningEffort: budgetConfig.reasoningEffort,
+        reasoningEffort,
+        temperature,
+        topP,
       });
       finalObject = finalized.result;
       Object.assign(stats, summarizeUsage(stats, finalized.usage));
@@ -561,7 +575,7 @@ export class ExplorerRuntime {
     return normalized;
   }
 
-  async finalizeAfterToolLoop({ chatClient, messages, reasoningEffort }) {
+  async finalizeAfterToolLoop({ chatClient, messages, reasoningEffort, temperature, topP }) {
     const completion = await chatClient.createChatCompletion({
       messages: [
         ...messages,
@@ -572,7 +586,8 @@ export class ExplorerRuntime {
         json_schema: EXPLORE_RESULT_JSON_SCHEMA,
       },
       reasoningEffort,
-      temperature: 0.1,
+      temperature,
+      topP,
       maxCompletionTokens: 2500,
       parallelToolCalls: false,
     });

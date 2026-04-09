@@ -53,7 +53,7 @@
 버릴 점:
 
 - 쓰기 중심 설계
-- `zai-glm-4.6` 기본값
+- `zai-glm-4.7` 기본값
 - 코드 생성/수정 도구 중심 UX
 
 결론적으로 이번 설계는 기존 `write` MCP를 `explore_repo`로 치환한 읽기 전용 구조다.
@@ -163,11 +163,19 @@ Cerebras는 OpenAI 호환 API를 제공하지만, 일부 OpenAI 전용 파라미
 | 파라미터 | OpenAI | Cerebras | 비고 |
 |---------|--------|----------|------|
 | `tools[].function.strict` | ✅ | ❌ | tool argument 스키마 강제 검증 (OpenAI 전용) |
-| `clear_thinking` | ❌ | ❌ | 존재하지 않는 파라미터 |
+| `clear_thinking` | ❌ | ✅ (GLM 4.7 전용) | multi-turn agent loop에서 이전 reasoning 보존 |
 | `response_format.json_schema.strict` | ✅ | ✅ | structured output 스키마 강제 (지원됨) |
-| `reasoning_effort` | ✅ | ✅ | `"none"` \| `"low"` \| `"medium"` \| `"high"` |
+| `reasoning_effort` | ✅ | ✅ | GLM 4.7에서는 `"none"`만 사용해 reasoning을 끄고, 기본 reasoning은 파라미터를 생략해 유지 |
+| assistant `reasoning` field | ❌ | ✅ | reasoning이 있는 assistant 메시지를 다음 turn에 다시 넘겨 preserved thinking을 유지 |
 
 `tools[].function.strict`와 `response_format.json_schema.strict`는 이름이 같지만 위치와 역할이 다르다. 전자는 tool 인자 검증(OpenAI 전용), 후자는 응답 JSON 스키마 강제(Cerebras 지원)이다.
+
+GLM 4.7 마이그레이션 기준으로 explorer runtime은 다음 원칙을 따른다.
+
+- quick budget: `reasoning_effort="none"`
+- normal/deep budget: reasoning 파라미터를 생략해 기본 reasoning 유지
+- multi-turn tool loop: `clear_thinking=false` + assistant `reasoning` 재주입으로 preserved thinking 유지
+- 샘플링 기본값: `temperature=1`, `top_p=0.95`
 
 #### `ExplorerRuntime`
 
