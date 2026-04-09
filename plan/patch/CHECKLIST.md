@@ -265,64 +265,57 @@
 ## Phase 5. `explore` 코어(beta) 도입
 
 **목표**: 자유형 탐색 도구를 공유 runtime 대수술 없이 코어만 도입
-**상태**: 미착수
+**상태**: ✅ 구현 완료
 **난이도**: 중간 | **가치**: 높음
 
 ### 현재 상태 확인
 
-- [x] `explore_repo`가 유일한 코어 도구 (`mcp/server.mjs:14-20`)
-- [x] 4개 specialized tools (`explain_symbol`, `trace_dependency`, `summarize_changes`, `find_similar_code`)는 explore_repo wrapper
-- [ ] `freeExplore()` 메서드 없음
-- [ ] 별도 `explore` 도구 없음
-- [ ] beta feature flag (`CEREBRAS_EXPLORER_ENABLE_EXPLORE`) 없음
-- [x] `CEREBRAS_EXPLORER_EXTRA_TOOLS` 환경변수는 존재 (`mcp/server.mjs:121-124`)
+- [x] `explore_repo`가 코어 도구 (`mcp/server.mjs`)
+- [x] 4개 specialized tools는 explore_repo wrapper
+- [x] `freeExplore()` 메서드 구현 (`runtime.mjs`)
+- [x] `explore` MCP 도구 등록 (beta flag 게이트)
+- [x] beta feature flag (`CEREBRAS_EXPLORER_ENABLE_EXPLORE`) 구현
+- [x] `CEREBRAS_EXPLORER_EXTRA_TOOLS` 환경변수 존재
 
 ### 구현 항목
 
 #### 5-1. 입력 스키마 정의
 
-- [ ] 필수 파라미터: `prompt`, `thoroughness`, `scope`, `repo_root`, `session`
-- [ ] 초기 포함 권장: `language`, `context` (README.md 분석 보고서 권고)
-- 파일: `src/explorer/schemas.mjs` 또는 별도 파일
+- [x] 필수 파라미터: `prompt` (required), `thoroughness`, `scope`, `repo_root`, `session`, `language`, `context`
+- 파일: `src/mcp/server.mjs` (EXPLORE_TOOL.inputSchema)
 
 #### 5-2. 출력 스키마 정의
 
-- [ ] `content`: text report (markdown)
-- [ ] `structuredContent`: `{ report, filesRead, toolsUsed, elapsedMs, sessionId, stats }`
-- [ ] `outputSchema` 정의 (MCP 생태계 예측 가능성)
+- [x] `content`: text report (markdown)
+- [x] `structuredContent`: `{ report, filesRead, toolsUsed, stats }` (stats에 sessionId, elapsedMs 포함)
 
 #### 5-3. 새 프롬프트 추가
 
-- [ ] 사실/해석/불확실성 구분 지시
-- [ ] 주요 주장에 file path/line 또는 git artifact 근거 요구
-- [ ] stop rule 포함: "더 읽어야 결론이 바뀔 가능성이 낮으면 멈추라"
-- [ ] exit checklist 포함 (README.md 분석 보고서 권고)
+- [x] 사실/해석/불확실성 구분 지시 (report structure: Findings / Uncertainty / Suggestions)
+- [x] 주요 주장에 file path:line 또는 git artifact 근거 요구 (evidence citation rules)
+- [x] stop rule 포함: "stop once further reads are unlikely to change conclusions"
+- [x] finalize prompt 포함 (budget exhaustion fallback)
 - 파일: `src/explorer/prompt.mjs`
 
 #### 5-4. runtime 메서드 추가
 
-- [ ] `freeExplore()` public 메서드 분리
-  - thoroughness → budget mapping
+- [x] `freeExplore()` public 메서드 구현
+  - thoroughness → budget mapping (quick/normal/deep)
   - freeform prompt builder
   - text report 추출
   - structuredContent metadata 구성
-- [ ] 내부 공통 조각은 `explore()`와 공유 (복제하지 않음)
+- [x] 내부 공통 조각은 `explore()`와 공유 (resolveSessionForExplore, RepoToolkit, safeJsonParse)
 - 파일: `src/explorer/runtime.mjs`
 
 #### 5-5. SessionStore mode-neutral 정리
 
-- [ ] `SessionStore.update()` → mode-agnostic packet 지원
-  - `explore`는 report 요약만 session memory에 저장
-  - 기존 structured mode의 `candidatePaths/evidence/summary/followups`와 분리
-- 파일: `src/explorer/session.mjs`
+- [x] `SessionStore.update()` — mode-agnostic: freeExplore는 report 첫 줄을 summary로, filesRead를 candidatePaths로 전달
+- 파일: `src/explorer/session.mjs` (변경 불필요 — 기존 API가 이미 호환)
 
 #### 5-6. MCP server 등록
 
-- [ ] `explore` 도구 등록
-- [ ] 도구 역할 분리 설명:
-  - `explore_repo`: structured JSON for automation
-  - `explore`: human-readable report
-- [ ] beta feature flag 고려 (`CEREBRAS_EXPLORER_ENABLE_EXPLORE`)
+- [x] `explore` 도구 등록 (beta gate: `CEREBRAS_EXPLORER_ENABLE_EXPLORE`)
+- [x] 도구 역할 분리: `explore_repo` (structured JSON) vs `explore` (human-readable report)
 - 파일: `src/mcp/server.mjs`
 
 ### 이번 Phase에서 하지 않을 것

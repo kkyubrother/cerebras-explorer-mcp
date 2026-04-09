@@ -21,6 +21,9 @@ import {
   buildExplorerSystemPrompt,
   buildExplorerUserPrompt,
   buildFinalizePrompt,
+  buildFreeExploreSystemPrompt,
+  buildFreeExploreUserPrompt,
+  buildFreeExploreFinalizePrompt,
 } from './prompt.mjs';
 import {
   EXPLORE_RESULT_JSON_SCHEMA,
@@ -712,6 +715,203 @@ export class ExplorerRuntime {
     return normalized;
   }
 
+  /**
+   * Phase 5: Free-form exploration — produces a human-readable Markdown report.
+   *
+   * @param {object} args - { prompt, thoroughness?, scope?, repo_root?, session?, language?, context? }
+   * @param {object} [callOpts]
+   * @param {Function} [callOpts.onProgress]
+   * @param {object}   [callOpts.sessionStore]
+   */
+  async freeExplore(args, { onProgress = null, sessionStore = null } = {}) {
+    if (!args || typeof args.prompt !== 'string' || !args.prompt.trim()) {
+      const err = new Error('prompt is required and must be a non-empty string.');
+      err.code = -32602;
+      throw err;
+    }
+
+    const thoroughnessMap = { quick: 'quick', normal: 'normal', deep: 'deep' };
+    const budgetLabel = thoroughnessMap[args.thoroughness] ?? 'normal';
+    const budgetConfig = getBudgetConfig(budgetLabel);
+    const repoRoot = getRepoRoot(args.repo_root);
+
+    const rawProjectConfig = await loadProjectConfig(repoRoot);
+    const projectConfig = normalizeProjectConfig(rawProjectConfig);
+    const effectiveScope = args.scope ?? projectConfig.defaultScope ?? [];
+    const projectContext = projectConfig.projectContext ?? null;
+    const keyFiles = projectConfig.keyFiles ?? [];
+    const extraIgnoreDirs = projectConfig.extraIgnoreDirs ?? [];
+
+    const modelBudget = resolveModelBudget(args.prompt, budgetLabel);
+    const chatClient = this._explicitChatClient ?? createChatClient({ budget: modelBudget });
+
+    // Session integration (shared with explore)
+    const sessionResolution = resolveSessionForExplore(sessionStore, args.session, repoRoot);
+    if (!sessionResolution.ok) {
+      const err = new Error(`Invalid session: ${sessionResolution.reason}`);
+      err.code = -32602;
+      err.sessionError = sessionResolution.reason;
+      throw err;
+    }
+    const { sessionId, sessionData, sessionStatus, remainingCalls } = sessionResolution;
+
+    const repoToolkit = new RepoToolkit({
+      repoRoot,
+      budgetConfig,
+      logger: this.logger,
+      cache: globalRepoCache,
+      extraIgnoreDirs,
+    });
+    await repoToolkit.initialize(effectiveScope);
+
+    const startedAt = nowMs();
+    const tools = repoToolkit.buildToolDefinitions();
+
+    const messages = [
+      {
+        role: 'system',
+        content: buildFreeExploreSystemPrompt({
+          repoRoot,
+          budgetConfig,
+          language: args.language,
+          projectContext,
+          keyFiles,
+          previousSummaries: sessionData?.summaries ?? [],
+        }),
+      },
+      {
+        role: 'user',
+        content: buildFreeExploreUserPrompt({
+          prompt: args.prompt,
+          scope: effectiveScope,
+          budget: budgetConfig.label,
+          context: args.context,
+        }),
+      },
+    ];
+
+    const reasoningEffort = getReasoningEffortForBudget(chatClient.model, budgetConfig.label);
+    const temperature = budgetConfig.temperature ?? getExplorerTemperature();
+    const topP = budgetConfig.topP ?? getExplorerTopP();
+
+    const stats = {
+      model: chatClient.model,
+      budget: budgetConfig.label,
+      turns: 0,
+      toolCalls: 0,
+      filesRead: 0,
+      elapsedMs: 0,
+      stoppedByBudget: false,
+      repoRoot,
+      sessionId,
+      sessionStatus,
+      remainingCalls,
+    };
+
+    const filesRead = new Set();
+    const toolsUsed = new Set();
+    let report = '';
+
+    for (let turnIndex = 0; turnIndex < budgetConfig.maxTurns; turnIndex += 1) {
+      stats.turns += 1;
+
+      if (onProgress) {
+        onProgress({ progress: turnIndex, total: budgetConfig.maxTurns, message: `Turn ${turnIndex + 1}/${budgetConfig.maxTurns}` });
+      }
+
+      const completion = await chatClient.createChatCompletion({
+        messages,
+        tools,
+        reasoningEffort,
+        temperature,
+        topP,
+        maxCompletionTokens: budgetConfig.maxCompletionTokens,
+        parallelToolCalls: false,
+      });
+
+      Object.assign(stats, summarizeUsage(stats, completion.usage));
+
+      if (completion.message.content) {
+        report = completion.message.content;
+        messages.push({ role: 'assistant', content: completion.message.content });
+      }
+
+      if (!completion.message.toolCalls || completion.message.toolCalls.length === 0) {
+        break;
+      }
+
+      if (completion.message.content) {
+        messages[messages.length - 1].toolCalls = completion.message.toolCalls;
+      } else {
+        messages.push({ role: 'assistant', content: '', toolCalls: completion.message.toolCalls });
+      }
+
+      for (const toolCall of completion.message.toolCalls) {
+        const toolName = toolCall.function.name;
+        const toolArgs = safeJsonParse(toolCall.function.arguments || '{}');
+        stats.toolCalls += 1;
+        toolsUsed.add(toolName);
+
+        let toolResult;
+        try {
+          toolResult = await repoToolkit.callTool(toolName, toolArgs);
+        } catch (error) {
+          toolResult = { error: true, message: error.message, tool: toolName };
+        }
+
+        if (toolName === 'repo_read_file' && !toolResult?.error) {
+          filesRead.add(toolResult.path);
+          stats.filesRead += 1;
+        }
+
+        messages.push({
+          role: 'tool',
+          tool_call_id: toolCall.id,
+          content: JSON.stringify(toolResult),
+        });
+      }
+    }
+
+    // If budget exhausted without a final report, ask for one
+    if (!report || (stats.turns >= budgetConfig.maxTurns && report === '')) {
+      stats.stoppedByBudget = true;
+      const finalized = await chatClient.createChatCompletion({
+        messages: [
+          ...messages,
+          { role: 'user', content: buildFreeExploreFinalizePrompt() },
+        ],
+        reasoningEffort,
+        temperature,
+        topP,
+        maxCompletionTokens: budgetConfig.finalizeMaxCompletionTokens ?? 2000,
+        parallelToolCalls: false,
+      });
+      Object.assign(stats, summarizeUsage(stats, finalized.usage));
+      report = finalized.message.content || 'Explorer could not produce a report.';
+    }
+
+    stats.elapsedMs = nowMs() - startedAt;
+    Object.assign(stats, globalRepoCache.stats());
+
+    // Update session with report summary (mode-neutral)
+    if (sessionStore && sessionId) {
+      const summaryLine = report.split('\n').find(l => l.trim())?.slice(0, 400) ?? '';
+      sessionStore.update(sessionId, {
+        candidatePaths: [...filesRead],
+        evidence: [],
+        summary: summaryLine,
+        followups: [],
+      });
+    }
+
+    return {
+      report,
+      filesRead: [...filesRead],
+      toolsUsed: [...toolsUsed],
+      stats,
+    };
+  }
+
   async finalizeAfterToolLoop({ chatClient, messages, reasoningEffort, temperature, topP, budgetConfig }) {
     const maxCompletionTokens = budgetConfig?.finalizeMaxCompletionTokens ?? 2000;
     const completion = await chatClient.createChatCompletion({
@@ -755,4 +955,10 @@ export async function exploreRepository(args, options = {}) {
   const { onProgress, sessionStore, ...runtimeOptions } = options;
   const runtime = new ExplorerRuntime(runtimeOptions);
   return runtime.explore(args, { onProgress, sessionStore });
+}
+
+export async function freeExploreRepository(args, options = {}) {
+  const { onProgress, sessionStore, ...runtimeOptions } = options;
+  const runtime = new ExplorerRuntime(runtimeOptions);
+  return runtime.freeExplore(args, { onProgress, sessionStore });
 }

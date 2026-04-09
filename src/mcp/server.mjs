@@ -1,5 +1,5 @@
 import { DEFAULT_PROTOCOL_VERSION, getExplorerModel, isTruthyEnv } from '../explorer/config.mjs';
-import { exploreRepository } from '../explorer/runtime.mjs';
+import { exploreRepository, freeExploreRepository } from '../explorer/runtime.mjs';
 import { EXPLORE_REPO_INPUT_SCHEMA, validateExploreRepoArgs } from '../explorer/schemas.mjs';
 import { globalSessionStore } from '../explorer/session.mjs';
 import { StdioJsonRpcServer } from './jsonrpc-stdio.mjs';
@@ -115,6 +115,33 @@ const FIND_SIMILAR_CODE_TOOL = {
   },
 };
 
+// ─── Phase 5: Free-form explore tool (beta) ───────────────────────────────
+
+const EXPLORE_TOOL = {
+  name: 'explore',
+  title: 'Free-form repository exploration (beta)',
+  description:
+    'Produces a human-readable Markdown report about a codebase question. Unlike explore_repo (structured JSON for automation), this tool returns a narrative report with inline file:line citations. Best for broad questions, architecture overviews, and human consumption.',
+  inputSchema: {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      prompt: { type: 'string', description: 'What to explore — a natural-language question or task.' },
+      thoroughness: { type: 'string', enum: ['quick', 'normal', 'deep'], description: 'How deep to explore (default: normal).' },
+      scope: { type: 'array', items: { type: 'string' }, description: 'Optional path prefixes to focus on.' },
+      repo_root: { type: 'string', description: 'Repository root path.' },
+      session: { type: 'string', description: 'Session ID from a previous call.' },
+      language: { type: 'string', description: 'BCP-47 language tag for the report (e.g. "ko", "en").' },
+      context: { type: 'string', description: 'Optional additional context from the parent agent.' },
+    },
+    required: ['prompt'],
+  },
+};
+
+function exploreToolEnabled() {
+  return isTruthyEnv(process.env.CEREBRAS_EXPLORER_ENABLE_EXPLORE ?? '');
+}
+
 // ─── Tool registry ─────────────────────────────────────────────────────────
 
 function extraToolsEnabled() {
@@ -127,6 +154,9 @@ function buildToolList() {
   const tools = [EXPLORE_REPO_TOOL];
   if (extraToolsEnabled()) {
     tools.push(EXPLAIN_SYMBOL_TOOL, TRACE_DEPENDENCY_TOOL, SUMMARIZE_CHANGES_TOOL, FIND_SIMILAR_CODE_TOOL);
+  }
+  if (exploreToolEnabled()) {
+    tools.push(EXPLORE_TOOL);
   }
   return tools;
 }
@@ -229,6 +259,19 @@ export function createMcpRequestHandler({
     };
   }
 
+  async function callFreeExploreTool(exploreArgs, progressToken) {
+    const result = await freeExploreRepository(exploreArgs, {
+      logger,
+      ...runtimeOptions,
+      onProgress: makeProgressCallback(progressToken),
+      sessionStore,
+    });
+    return {
+      content: [{ type: 'text', text: result.report }],
+      structuredContent: result,
+    };
+  }
+
   async function handleRequest(message) {
     switch (message.method) {
       case 'initialize': {
@@ -273,6 +316,9 @@ export function createMcpRequestHandler({
           }
           if (name === 'find_similar_code') {
             return await callTool(buildFindSimilarCodeArgs(args), progressToken);
+          }
+          if (name === 'explore') {
+            return await callFreeExploreTool(args, progressToken);
           }
 
           const error = new Error(`Unknown tool: ${name}`);

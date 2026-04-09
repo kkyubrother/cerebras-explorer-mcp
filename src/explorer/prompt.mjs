@@ -240,3 +240,91 @@ export function buildFinalizePrompt() {
     '  • Use an empty array [] for followups if no further investigation is needed.',
   ].join('\n');
 }
+
+// ── Phase 5: Free Explore prompts ──────────────────────────────────────────
+
+/**
+ * Build system prompt for freeExplore() — human-readable markdown report mode.
+ */
+export function buildFreeExploreSystemPrompt({ repoRoot, budgetConfig, language, projectContext, previousSummaries, keyFiles }) {
+  const parts = [
+    'You are Cerebras Explorer, an autonomous READ-ONLY repository exploration agent.',
+    'Your output is a **human-readable Markdown report** — not JSON.',
+    '',
+    '## HARD REQUIREMENTS',
+    '1. READ-ONLY: Never write files, run mutating commands, or suggest direct edits.',
+    '2. FINAL ANSWER FORMAT: Output a Markdown report. No JSON, no code fences wrapping the entire output.',
+    '3. GROUNDED CLAIMS: Every major claim must cite a file path and line range or git artifact you actually inspected.',
+    '4. NO FABRICATION: Never invent or assume facts not confirmed by tool results.',
+    '',
+    '## REPORT STRUCTURE',
+    'Your final report must follow this structure:',
+    '1. **Summary** — 2-3 sentence overview of findings.',
+    '2. **Findings** — detailed analysis with file path:line citations.',
+    '3. **Uncertainty** — clearly flag anything you are unsure about.',
+    '4. **Suggestions** — optional next steps or areas to investigate further.',
+    '',
+    '## EVIDENCE CITATION',
+    'Cite evidence inline using `path/to/file:L10-L20` notation.',
+    'For git evidence, use `commit:abc1234` or `blame:path:L5` notation.',
+    'Distinguish facts (confirmed by tool output) from interpretation.',
+    '',
+    '## STOP RULE',
+    'Stop exploring once further reads are unlikely to change your conclusions.',
+    '',
+    `Repository root: ${repoRoot}`,
+    `Turn budget: ${budgetConfig.maxTurns} turns.`,
+  ];
+
+  // Language rule
+  if (typeof language === 'string' && language.trim()) {
+    parts.push('', `Write the report in ${language.trim()} (explicitly requested).`);
+  } else {
+    parts.push('', 'Write the report in the same natural language as the user prompt.');
+  }
+
+  if (projectContext) {
+    parts.push('', '## PROJECT CONTEXT', projectContext);
+  }
+
+  if (keyFiles && keyFiles.length > 0) {
+    parts.push('', `Key files to prioritise: ${keyFiles.join(', ')}`);
+  }
+
+  if (previousSummaries && previousSummaries.length > 0) {
+    parts.push('', '## PRIOR SESSION CONTEXT');
+    previousSummaries.forEach((s, i) => parts.push(`[Call ${i + 1}] ${s}`));
+  }
+
+  return parts.join('\n');
+}
+
+/**
+ * Build user prompt for freeExplore().
+ */
+export function buildFreeExploreUserPrompt({ prompt, scope, budget, context }) {
+  const parts = [`Explore this repository and produce a report:\n${prompt}`];
+
+  if (scope && scope.length > 0) {
+    parts.push(`\nScope: focus on ${scope.join(', ')}`);
+  }
+
+  parts.push(`\nBudget: ${budget}. Use your turns wisely — stop when you have enough evidence.`);
+
+  if (context) {
+    parts.push(`\nAdditional context from the parent agent:\n${context}`);
+  }
+
+  return parts.join('\n');
+}
+
+/**
+ * Build finalize prompt for freeExplore() — used when budget is exhausted before the model stops.
+ */
+export function buildFreeExploreFinalizePrompt() {
+  return [
+    'Budget exhausted. Produce your final Markdown report now based on what you have gathered so far.',
+    'Do not call any more tools. Write the report directly.',
+    'Structure: Summary → Findings (with citations) → Uncertainty → Suggestions.',
+  ].join('\n');
+}
