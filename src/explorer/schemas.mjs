@@ -114,13 +114,18 @@ export const EXPLORE_RESULT_JSON_SCHEMA = {
             startLine: { type: 'integer' },
             endLine: { type: 'integer' },
             why: { type: 'string' },
-            // Optional extended evidence fields for git/blame context (Phase 5)
+            // Evidence kind — determines grounding strategy
             evidenceType: {
               type: 'string',
-              enum: ['file_range', 'git_commit', 'git_blame'],
+              enum: ['file_range', 'git_commit', 'git_blame', 'git_diff_hunk'],
             },
-            sha: { type: 'string' },    // for git_commit / git_blame
-            author: { type: 'string' }, // for git_blame
+            sha: { type: 'string' },          // git_commit / git_blame / git_diff_hunk
+            author: { type: 'string' },        // git_blame
+            commit: { type: 'string' },        // alias for sha (git_commit)
+            oldPath: { type: 'string' },       // git_diff_hunk (rename)
+            newPath: { type: 'string' },       // git_diff_hunk (rename)
+            newStartLine: { type: 'integer' }, // git_diff_hunk
+            newEndLine: { type: 'integer' },   // git_diff_hunk
           },
           required: ['path', 'startLine', 'endLine', 'why'],
         },
@@ -337,19 +342,37 @@ export function normalizeExploreResult(raw, stats) {
       ? safe.evidence
           .filter(item => item && typeof item === 'object')
           .map(item => {
+            // Determine evidence kind — default to file_range for legacy items
+            const EVIDENCE_TYPES = ['file_range', 'git_commit', 'git_blame', 'git_diff_hunk'];
+            const kind = typeof item.evidenceType === 'string' && EVIDENCE_TYPES.includes(item.evidenceType)
+              ? item.evidenceType
+              : 'file_range';
+
             const base = {
               path: typeof item.path === 'string' ? item.path : '',
               startLine: Number.isInteger(item.startLine) ? item.startLine : 1,
               endLine: Number.isInteger(item.endLine) ? item.endLine : 1,
               why: typeof item.why === 'string' ? item.why : '',
+              evidenceType: kind,
             };
-            // Preserve optional extended evidence fields (Phase 5)
-            const EVIDENCE_TYPES = ['file_range', 'git_commit', 'git_blame'];
-            if (typeof item.evidenceType === 'string' && EVIDENCE_TYPES.includes(item.evidenceType)) {
-              base.evidenceType = item.evidenceType;
+
+            // Kind-specific optional fields
+            if (kind === 'git_commit') {
+              const sha = typeof item.sha === 'string' ? item.sha : (typeof item.commit === 'string' ? item.commit : '');
+              if (sha) base.sha = sha;
+              if (typeof item.author === 'string' && item.author) base.author = item.author;
+            } else if (kind === 'git_blame') {
+              if (typeof item.sha === 'string' && item.sha) base.sha = item.sha;
+              if (typeof item.author === 'string' && item.author) base.author = item.author;
+            } else if (kind === 'git_diff_hunk') {
+              const sha = typeof item.sha === 'string' ? item.sha : (typeof item.commit === 'string' ? item.commit : '');
+              if (sha) base.sha = sha;
+              if (typeof item.oldPath === 'string' && item.oldPath) base.oldPath = item.oldPath;
+              if (typeof item.newPath === 'string' && item.newPath) base.newPath = item.newPath;
+              if (Number.isInteger(item.newStartLine)) base.newStartLine = item.newStartLine;
+              if (Number.isInteger(item.newEndLine)) base.newEndLine = item.newEndLine;
             }
-            if (typeof item.sha === 'string' && item.sha) base.sha = item.sha;
-            if (typeof item.author === 'string' && item.author) base.author = item.author;
+            // file_range: no extra fields needed beyond base
             return base;
           })
           .filter(item => item.path && item.why)

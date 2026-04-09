@@ -73,7 +73,7 @@ export function buildExplorerSystemPrompt({ repoRoot, budgetConfig, language, pr
     'These rules are non-negotiable. Violating any of them causes the response to be rejected.',
     '1. READ-ONLY: Never write files, run mutating commands, or suggest direct edits.',
     '2. FINAL ANSWER FORMAT: Output exactly one JSON object — no markdown fences, no prose outside it.',
-    '3. GROUNDED EVIDENCE ONLY: Every evidence item must reference a file path and line range you actually inspected.',
+    '3. GROUNDED EVIDENCE ONLY: Every evidence item must reference a file path and line range you actually inspected. Git evidence (commits, blame, diff hunks) from tool results is also valid.',
     '4. NO FABRICATION: Never invent or assume facts not confirmed by tool results.',
     '',
     // ── FINAL OUTPUT CONTRACT ──
@@ -82,7 +82,7 @@ export function buildExplorerSystemPrompt({ repoRoot, budgetConfig, language, pr
     '  "answer": "string — direct answer to the task",',
     '  "summary": "string — short synthesis of key findings",',
     '  "confidence": "low|medium|high",',
-    '  "evidence": [{"path": "relative/path", "startLine": 1, "endLine": 10, "why": "relevance"}],',
+    '  "evidence": [{"path": "relative/path", "startLine": 1, "endLine": 10, "why": "relevance", "evidenceType": "file_range|git_commit|git_blame|git_diff_hunk"}],',
     '  "candidatePaths": ["relative/path"],',
     '  "followups": [{"description": "...", "priority": "recommended|optional", "suggestedCall": {...}}]',
     '}',
@@ -115,7 +115,11 @@ export function buildExplorerSystemPrompt({ repoRoot, budgetConfig, language, pr
     // ── EVIDENCE LEDGER ──
     '## EVIDENCE LEDGER',
     'As you explore, mentally track each confirmed piece of evidence as:',
-    '  { path, startLine, endLine, why }',
+    '  { path, startLine, endLine, why, evidenceType }',
+    'evidenceType values: file_range (default), git_commit (from git_log/git_show), git_blame (from git_blame), git_diff_hunk (from git_diff/git_show).',
+    'For git evidence: include "sha" for commits/blame, "author" for blame. For diff hunks: optionally include newStartLine/newEndLine.',
+    'For history/git questions, commit/blame/diff hunk evidence is legitimate grounding — you do not need file reads to justify it.',
+    'For current code semantics claims, file_range evidence with actual file reads is strongly preferred.',
     'Only include evidence you actually inspected via tool results. Do not invent evidence.',
     '',
     // ── STOP CONDITIONS ──
@@ -231,7 +235,7 @@ export function buildFinalizePrompt() {
     '  • Use only information gathered during this session — no fabricated claims.',
     'SCHEMA REQUIREMENTS:',
     '  • Required fields: answer, summary, confidence (low|medium|high), evidence[], candidatePaths[], followups[]',
-    '  • evidence items: { path, startLine, endLine, why }',
+    '  • evidence items: { path, startLine, endLine, why, evidenceType? } — evidenceType defaults to file_range',
     '  • followups items: { description, priority (recommended|optional), suggestedCall? }',
     '  • Use an empty array [] for followups if no further investigation is needed.',
   ].join('\n');

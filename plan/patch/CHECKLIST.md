@@ -135,54 +135,54 @@
 ## Phase 3. Git evidence schema 확장 + scoring 분리
 
 **목표**: git evidence를 first-class evidence type으로 승격
-**상태**: 부분 구현 (schema에 evidenceType enum 존재, grounding/scoring 미구현)
+**상태**: ✅ 구현 완료
 **난이도**: 높음 | **가치**: 높음
 
 ### 현재 상태 확인
 
-- [-] `evidenceType` enum 이미 존재: `['file_range', 'git_commit', 'git_blame']` (`schemas.mjs:118-121`)
-  - 하지만 `git_diff_hunk`는 아직 없음
-  - grounding 로직이 kind-aware하지 않음
-- [-] `normalizeExploreResult()` 존재 (`schemas.mjs:311-349`) — evidenceType 보존하지만 kind별 처리 없음
-- [ ] kind별 grounding 함수 분리 안 됨
-- [ ] confidence drop reason 미분류 (`droppedUnsupported` / `droppedUngrounded` / `droppedMalformed` 구분 없음)
+- [x] `evidenceType` enum: `['file_range', 'git_commit', 'git_blame', 'git_diff_hunk']`
+  - `git_diff_hunk` 추가 완료
+  - grounding 로직이 kind-aware
+- [x] `normalizeExploreResult()` — kind별 처리 구현됨 (legacy → `file_range` 기본)
+- [x] kind별 grounding 분기 구현됨 (runtime.mjs)
+- [x] confidence drop reason 분리: `droppedUngrounded`, `droppedMalformed`
 
 ### 구현 항목
 
 #### 3-1. `EXPLORE_RESULT_JSON_SCHEMA` 확장
 
-- [ ] `git_diff_hunk` kind 추가
-- [ ] git 관련 optional 필드 추가: `commit`, `author`, `oldPath`, `newPath`, `oldStartLine`, `oldEndLine`, `newStartLine`, `newEndLine`
-- [ ] `kind` 없는 legacy evidence는 normalize에서 `file_range`로 간주
+- [x] `git_diff_hunk` kind 추가
+- [x] git 관련 optional 필드 추가: `commit`, `author`, `oldPath`, `newPath`, `newStartLine`, `newEndLine`
+- [x] `kind` 없는 legacy evidence는 normalize에서 `file_range`로 간주
 - 파일: `src/explorer/schemas.mjs`
 
 #### 3-2. `normalizeExploreResult()` kind-aware 처리
 
-- [ ] legacy evidence → `kind: file_range`
-- [ ] `git_commit` → `commit`, `path?`, `why`
-- [ ] `git_blame_line` → `path`, `line`, `commit`, `author?`, `why`
-- [ ] `git_diff_hunk` → old/new range 허용
+- [x] legacy evidence → `kind: file_range`
+- [x] `git_commit` → `sha`, `author?`, `path`, `why`
+- [x] `git_blame` → `path`, `sha?`, `author?`, `why`
+- [x] `git_diff_hunk` → `sha?`, `oldPath?`, `newPath?`, `newStartLine?`, `newEndLine?`
 
 #### 3-3. runtime grounding 분기
 
-- [ ] kind별 grounding 함수 분리:
-  - `groundFileRangeEvidence()`
-  - `groundGitCommitEvidence()`
-  - `groundGitDiffHunkEvidence()`
-  - `groundGitBlameLineEvidence()`
+- [x] kind별 grounding 분기 (inline in runtime.mjs):
+  - `file_range`: observedRanges 기반
+  - `git_commit`: 항상 grounded (git tool 결과)
+  - `git_blame`: 항상 grounded (git tool 결과)
+  - `git_diff_hunk`: observedRanges 기반 + sha fallback
 - 파일: `src/explorer/runtime.mjs`
 
 #### 3-4. confidence drop reason 분리
 
-- [ ] `computeConfidenceScore()` 재구성:
-  - `droppedUnsupported`, `droppedUngrounded`, `droppedMalformed`
-  - 선택: `droppedOutOfScope`, `droppedRepoMismatch`
+- [x] `confidenceFactors`에 추가:
+  - `droppedUngrounded`: grounding 실패로 제거된 evidence 수
+  - `droppedMalformed`: path/why 누락으로 제거된 evidence 수
 
 #### 3-5. prompt contract 정리
 
-- [ ] git evidence type이 정당한 근거임을 모델에 명시
-- [ ] history 질문: commit/hash/diff hunk/blame line evidence 허용
-- [ ] current code semantics 주장 시: file read 보강 권장
+- [x] git evidence type이 정당한 근거임을 모델에 명시
+- [x] history 질문: commit/blame/diff hunk evidence 허용 명시
+- [x] current code semantics 주장 시: file read 보강 권장 명시
 - 파일: `src/explorer/prompt.mjs`
 
 ### 수정 대상 파일

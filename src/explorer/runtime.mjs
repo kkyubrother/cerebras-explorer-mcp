@@ -605,27 +605,56 @@ export class ExplorerRuntime {
     const normalized = normalizeExploreResult(finalObject, stats);
     normalized.candidatePaths = mergeCandidatePaths(normalized.candidatePaths, candidatePaths).slice(0, 80);
 
-    // Ground evidence
-    const GIT_EVIDENCE_TYPES = new Set(['git_commit', 'git_blame']);
+    // Ground evidence — kind-aware grounding (Phase 3)
     const totalEvidenceBefore = normalized.evidence.length;
+    let droppedUngrounded = 0;
+    let droppedMalformed = 0;
     normalized.evidence = normalized.evidence
       .map(item => ({ ...item, path: item.path.replace(/^\.\//, '') }))
-      .filter(item => item.path && item.why)
+      .filter(item => {
+        if (!item.path || !item.why) {
+          droppedMalformed++;
+          return false;
+        }
+        return true;
+      })
       .map(item => {
-        // Git-type evidence (commit sha / blame line) is inherently grounded via
-        // git_log/git_blame tool results — skip file range observation check.
-        if (GIT_EVIDENCE_TYPES.has(item.evidenceType)) {
+        const kind = item.evidenceType ?? 'file_range';
+
+        // git_commit: inherently grounded by git_log/git_show tool use
+        if (kind === 'git_commit') {
           return { ...item, groundingStatus: 'exact' };
         }
+        // git_blame: inherently grounded by git_blame tool use
+        if (kind === 'git_blame') {
+          return { ...item, groundingStatus: 'exact' };
+        }
+        // git_diff_hunk: grounded via diff/show hunk observation
+        if (kind === 'git_diff_hunk') {
+          const { overlaps, partial } = checkEvidenceGrounding(observedRanges, item);
+          if (!overlaps) {
+            // Still keep if sha present — git tool produced it
+            if (item.sha) return { ...item, groundingStatus: 'partial' };
+            droppedUngrounded++;
+            return null;
+          }
+          return { ...item, groundingStatus: partial ? 'partial' : 'exact' };
+        }
+        // file_range (default): must match observed read ranges
         const { overlaps, partial } = checkEvidenceGrounding(observedRanges, item);
-        if (!overlaps) return null;
+        if (!overlaps) {
+          droppedUngrounded++;
+          return null;
+        }
         return { ...item, groundingStatus: partial ? 'partial' : 'exact' };
       })
       .filter(Boolean);
 
-    // Confidence scoring
+    // Confidence scoring (Phase 3: pass drop reasons)
     const { score: confidenceScore, level: confidenceLevel, factors: confidenceFactors } =
       computeConfidenceScore(normalized.evidence, totalEvidenceBefore, stats);
+    confidenceFactors.droppedUngrounded = droppedUngrounded;
+    confidenceFactors.droppedMalformed = droppedMalformed;
     normalized.confidenceScore = confidenceScore;
     normalized.confidenceLevel = confidenceLevel;
     normalized.confidenceFactors = confidenceFactors;
