@@ -958,6 +958,23 @@ test('Phase 3 — explicit language is reflected in system prompt language rule'
   );
 });
 
+test('Phase 3 — system prompt does not expose the absolute repo root path', () => {
+  const repoRoot = path.resolve('fixtures', 'demo-repo');
+  const prompt = buildExplorerSystemPrompt({
+    repoRoot,
+    budgetConfig: BUDGETS.quick,
+  });
+
+  assert.ok(
+    !prompt.includes(repoRoot),
+    'system prompt must not embed the absolute repository root path',
+  );
+  assert.ok(
+    prompt.includes('tool paths are relative to the repo root'),
+    'system prompt should still explain path semantics',
+  );
+});
+
 // ── Phase 0 baseline metrics ──────────────────────────────────────────────────
 
 /**

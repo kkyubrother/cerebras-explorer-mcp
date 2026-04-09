@@ -4,6 +4,7 @@ import path from 'node:path';
 
 import { createMcpRequestHandler } from '../src/mcp/server.mjs';
 import { evaluateBenchmarkCase, summarizeBenchmarkSuite } from '../src/benchmark/evaluator.mjs';
+import { sanitizeBenchmarkReport, sanitizePathForReport } from '../src/benchmark/report.mjs';
 
 function parseArgs(argv) {
   const options = {
@@ -184,10 +185,12 @@ async function main() {
 
   const handleRequest = await createHandler(() => {});
   const caseResults = [];
+  const displayRepoRoot = sanitizePathForReport(repoRoot, { repoRoot });
+  const displaySuitePath = sanitizePathForReport(suitePath, { repoRoot });
 
   console.log(`Suite: ${suite.name}`);
-  console.log(`Repo : ${repoRoot}`);
-  console.log(`File : ${suitePath}`);
+  console.log(`Repo : ${displayRepoRoot}`);
+  console.log(`File : ${displaySuitePath}`);
   console.log('');
 
   for (const suiteCase of selectedCases) {
@@ -242,27 +245,27 @@ async function main() {
 
   if (options.output) {
     const outputPath = path.resolve(options.output);
+    const sanitizedReport = sanitizeBenchmarkReport(
+      {
+        suite: {
+          name: suite.name,
+          description: suite.description ?? '',
+          path: suitePath,
+          repoRoot,
+        },
+        summary,
+        metrics,
+        cases: caseResults,
+        generatedAt: new Date().toISOString(),
+      },
+      { repoRoot, cwd: process.cwd() },
+    );
     await fs.writeFile(
       outputPath,
-      JSON.stringify(
-        {
-          suite: {
-            name: suite.name,
-            description: suite.description ?? '',
-            path: suitePath,
-            repoRoot,
-          },
-          summary,
-          metrics,
-          cases: caseResults,
-          generatedAt: new Date().toISOString(),
-        },
-        null,
-        2,
-      ),
+      JSON.stringify(sanitizedReport, null, 2),
       'utf8',
     );
-    console.log(`Saved JSON report to ${outputPath}`);
+    console.log(`Saved JSON report to ${sanitizePathForReport(outputPath, { repoRoot })}`);
   }
 
   if (summary.failedCount > 0) {

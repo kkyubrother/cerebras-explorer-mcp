@@ -1,3 +1,5 @@
+import path from 'node:path';
+
 const STRATEGY_DESCRIPTIONS = {
   'symbol-first':    'Find where a symbol is defined. Start with repo_symbol_context(symbol); fall back to repo_grep → repo_read_file.',
   'reference-chase': 'Find all callers/usages. Start with repo_symbol_context(symbol); fall back to repo_references(symbol) → read each caller.',
@@ -51,6 +53,13 @@ function formatScope(scope = []) {
     return 'entire repository';
   }
   return scope.join(', ');
+}
+
+function formatRepoLabel(repoRoot) {
+  if (typeof repoRoot !== 'string' || repoRoot.trim() === '') {
+    return 'repository';
+  }
+  return path.basename(path.resolve(repoRoot)) || 'repository';
 }
 
 /**
@@ -159,7 +168,7 @@ export function buildExplorerSystemPrompt({ repoRoot, budgetConfig, language, pr
 
   parts.push(
     '',
-    `Repository root: ${repoRoot}`,
+    `Repository: ${formatRepoLabel(repoRoot)} (tool paths are relative to the repo root).`,
     `Exploration budget: ${budgetConfig.label} (maxTurns=${budgetConfig.maxTurns}, maxReadLinesPerCall=${budgetConfig.maxReadLines}, maxSearchResults=${budgetConfig.maxSearchResults}).`,
   );
 
@@ -272,7 +281,7 @@ export function buildFreeExploreSystemPrompt({ repoRoot, budgetConfig, language,
     '## STOP RULE',
     'Stop exploring once further reads are unlikely to change your conclusions.',
     '',
-    `Repository root: ${repoRoot}`,
+    `Repository: ${formatRepoLabel(repoRoot)} (tool paths are relative to the repo root).`,
     `Turn budget: ${budgetConfig.maxTurns} turns.`,
   ];
 
