@@ -189,7 +189,7 @@ export class CerebrasChatClient {
     }
 
     if (!response.ok) {
-      const errorMessage = parsed?.error?.message || `${response.status} ${response.statusText}`;
+      const errorMessage = parsed?.error?.message || `${response.status} ${response.statusText}: ${responseText}`;
       throw new Error(`Cerebras API error: ${errorMessage}`);
     }
 

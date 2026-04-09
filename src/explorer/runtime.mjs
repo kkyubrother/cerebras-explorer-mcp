@@ -797,7 +797,7 @@ export class ExplorerRuntime {
     const {
       budgetConfig, repoRoot, effectiveScope, projectContext, keyFiles,
       chatClient, sessionId, sessionData, sessionStatus, remainingCalls,
-      tools, reasoningEffort, temperature, topP,
+      tools, reasoningEffort, temperature, topP, repoToolkit,
     } = await this._initExploreContext({
       budgetLabel,
       repoRootArg: args.repo_root,
@@ -869,20 +869,26 @@ export class ExplorerRuntime {
 
       Object.assign(stats, summarizeUsage(stats, completion.usage));
 
-      if (completion.message.content) {
-        report = completion.message.content;
-        messages.push({ role: 'assistant', content: completion.message.content });
-      }
-
       if (!completion.message.toolCalls || completion.message.toolCalls.length === 0) {
+        if (completion.message.content) {
+          report = completion.message.content;
+        }
         break;
       }
 
+      const assistantMessage = {
+        role: 'assistant',
+        content: completion.message.content || null,
+        tool_calls: completion.message.toolCalls.map(call => ({
+          id: call.id,
+          type: 'function',
+          function: { name: call.function.name, arguments: call.function.arguments },
+        })),
+      };
       if (completion.message.content) {
-        messages[messages.length - 1].toolCalls = completion.message.toolCalls;
-      } else {
-        messages.push({ role: 'assistant', content: '', toolCalls: completion.message.toolCalls });
+        report = completion.message.content;
       }
+      messages.push(assistantMessage);
 
       for (const toolCall of completion.message.toolCalls) {
         const toolName = toolCall.function.name;
@@ -911,7 +917,9 @@ export class ExplorerRuntime {
     }
 
     // If budget exhausted without a final report, ask for one
-    if (!report || (stats.turns >= budgetConfig.maxTurns && report === '')) {
+    // Also treat bare "None" as an empty report (zai-glm-4.7 quirk)
+    const reportIsEmpty = !report || report.trim() === '' || report.trim().toLowerCase() === 'none';
+    if (reportIsEmpty || (stats.turns >= budgetConfig.maxTurns && report === '')) {
       stats.stoppedByBudget = true;
       const finalized = await chatClient.createChatCompletion({
         messages: [

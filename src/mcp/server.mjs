@@ -139,7 +139,9 @@ const EXPLORE_TOOL = {
 };
 
 function exploreToolEnabled() {
-  return isTruthyEnv(process.env.CEREBRAS_EXPLORER_ENABLE_EXPLORE ?? '');
+  const v = process.env.CEREBRAS_EXPLORER_ENABLE_EXPLORE;
+  if (v === undefined || v === null) return true;
+  return isTruthyEnv(v);
 }
 
 // ─── Tool registry ─────────────────────────────────────────────────────────

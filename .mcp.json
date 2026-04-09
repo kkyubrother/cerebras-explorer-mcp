@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "cerebras-docs": {
+      "type": "http",
+      "url": "https://inference-docs.cerebras.ai/mcp"
+    }
+  }
+}
