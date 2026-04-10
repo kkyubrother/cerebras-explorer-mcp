@@ -389,3 +389,80 @@ test('getReasoningEffortForBudget: gpt-oss uses low/medium/high ladder', () => {
   assert.equal(getReasoningEffortForBudget('gpt-oss-120b', 'normal'), 'medium');
   assert.equal(getReasoningEffortForBudget('gpt-oss-120b', 'deep'), 'high');
 });
+
+// --- Phase 9: Provider Timeout / Abort / Retry ---
+
+test('OpenAICompatChatClient aborts timed-out requests', async () => {
+  const previousTimeout = process.env.CEREBRAS_EXPLORER_HTTP_TIMEOUT_MS;
+  process.env.CEREBRAS_EXPLORER_HTTP_TIMEOUT_MS = '50';
+
+  const hangingFetch = async (_url, { signal }) => {
+    return new Promise((_resolve, reject) => {
+      signal.addEventListener('abort', () => reject(Object.assign(new Error('The operation was aborted.'), { name: 'AbortError' })));
+    });
+  };
+
+  const client = new OpenAICompatChatClient({ apiKey: 'test-key', fetchImpl: hangingFetch });
+  try {
+    await assert.rejects(
+      client.createChatCompletion({ messages: [{ role: 'user', content: 'hi' }] }),
+      /timed out/,
+    );
+  } finally {
+    if (previousTimeout === undefined) {
+      delete process.env.CEREBRAS_EXPLORER_HTTP_TIMEOUT_MS;
+    } else {
+      process.env.CEREBRAS_EXPLORER_HTTP_TIMEOUT_MS = previousTimeout;
+    }
+  }
+});
+
+test('OpenAICompatChatClient retries on 429 and succeeds', async () => {
+  let callCount = 0;
+  const retryFetch = async (_url, _init) => {
+    callCount += 1;
+    if (callCount === 1) {
+      return {
+        ok: false,
+        status: 429,
+        statusText: 'Too Many Requests',
+        text: async () => JSON.stringify({ error: { message: 'rate limited' } }),
+      };
+    }
+    return {
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      text: async () => JSON.stringify({
+        id: 'test',
+        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+        choices: [{ finish_reason: 'stop', message: { role: 'assistant', content: 'ok', tool_calls: [] } }],
+      }),
+    };
+  };
+
+  const client = new OpenAICompatChatClient({ apiKey: 'test-key', fetchImpl: retryFetch });
+  const result = await client.createChatCompletion({ messages: [{ role: 'user', content: 'hi' }] });
+  assert.ok(result, 'succeeded after retry');
+  assert.equal(callCount, 2, 'fetch called twice');
+});
+
+test('Non-retryable 400 errors are not retried', async () => {
+  let callCount = 0;
+  const badFetch = async () => {
+    callCount += 1;
+    return {
+      ok: false,
+      status: 400,
+      statusText: 'Bad Request',
+      text: async () => JSON.stringify({ error: { message: 'bad request' } }),
+    };
+  };
+
+  const client = new OpenAICompatChatClient({ apiKey: 'test-key', fetchImpl: badFetch });
+  await assert.rejects(
+    client.createChatCompletion({ messages: [{ role: 'user', content: 'hi' }] }),
+    /bad request/,
+  );
+  assert.equal(callCount, 1, '400 not retried');
+});

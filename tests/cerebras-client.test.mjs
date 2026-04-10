@@ -246,3 +246,82 @@ test('Phase 2 — normal and deep budgets include clear_thinking: false for GLM 
       `${budget} budget must NOT include reasoning_effort`);
   }
 });
+
+// --- Phase 9: Timeout / Abort / Retry Tests ---
+
+test('CerebrasChatClient aborts timed-out requests', async () => {
+  const previousTimeout = process.env.CEREBRAS_EXPLORER_HTTP_TIMEOUT_MS;
+  process.env.CEREBRAS_EXPLORER_HTTP_TIMEOUT_MS = '50'; // 50ms timeout
+
+  const hangingFetch = async (_url, { signal }) => {
+    return new Promise((_resolve, reject) => {
+      signal.addEventListener('abort', () => reject(Object.assign(new Error('The operation was aborted.'), { name: 'AbortError' })));
+    });
+  };
+
+  const client = new CerebrasChatClient({ apiKey: 'test-key', model: 'zai-glm-4.7', fetchImpl: hangingFetch });
+  try {
+    await assert.rejects(
+      client.createChatCompletion({ messages: [{ role: 'user', content: 'hi' }] }),
+      /timed out/,
+      'hanging request should throw timeout error',
+    );
+  } finally {
+    if (previousTimeout === undefined) {
+      delete process.env.CEREBRAS_EXPLORER_HTTP_TIMEOUT_MS;
+    } else {
+      process.env.CEREBRAS_EXPLORER_HTTP_TIMEOUT_MS = previousTimeout;
+    }
+  }
+});
+
+test('CerebrasChatClient retries on 429 and then succeeds', async () => {
+  let callCount = 0;
+  const retryFetch = async (_url, _init) => {
+    callCount += 1;
+    if (callCount === 1) {
+      return {
+        ok: false,
+        status: 429,
+        statusText: 'Too Many Requests',
+        text: async () => JSON.stringify({ error: { message: 'rate limited' } }),
+      };
+    }
+    return {
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      text: async () => JSON.stringify({
+        id: 'test',
+        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+        choices: [{ finish_reason: 'stop', message: { role: 'assistant', content: 'ok', tool_calls: [] } }],
+      }),
+    };
+  };
+
+  const client = new CerebrasChatClient({ apiKey: 'test-key', model: 'zai-glm-4.7', fetchImpl: retryFetch });
+  const result = await client.createChatCompletion({ messages: [{ role: 'user', content: 'hi' }] });
+  assert.ok(result, 'got result after retry');
+  assert.equal(callCount, 2, 'fetch was called twice (once for 429, once for success)');
+});
+
+test('CerebrasChatClient does not retry non-retryable 400 errors', async () => {
+  let callCount = 0;
+  const badRequestFetch = async (_url, _init) => {
+    callCount += 1;
+    return {
+      ok: false,
+      status: 400,
+      statusText: 'Bad Request',
+      text: async () => JSON.stringify({ error: { message: 'invalid model' } }),
+    };
+  };
+
+  const client = new CerebrasChatClient({ apiKey: 'test-key', model: 'zai-glm-4.7', fetchImpl: badRequestFetch });
+  await assert.rejects(
+    client.createChatCompletion({ messages: [{ role: 'user', content: 'hi' }] }),
+    /invalid model/,
+    '400 errors should throw immediately without retry',
+  );
+  assert.equal(callCount, 1, '400 error was not retried');
+});

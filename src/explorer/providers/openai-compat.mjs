@@ -1,5 +1,55 @@
 import { AbstractChatClient } from './abstract.mjs';
 
+const RETRYABLE_STATUSES = new Set([429, 500, 502, 503, 504]);
+const DEFAULT_HTTP_TIMEOUT_MS = 60000;
+
+async function fetchWithTimeoutAndRetry(fetchImpl, url, init, { errorPrefix = 'API', maxRetries = 2, timeoutMs } = {}) {
+  const effectiveTimeout = timeoutMs ?? Number(process.env.CEREBRAS_EXPLORER_HTTP_TIMEOUT_MS ?? DEFAULT_HTTP_TIMEOUT_MS);
+
+  let lastError;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), effectiveTimeout);
+
+    let response;
+    try {
+      response = await fetchImpl(url, { ...init, signal: controller.signal });
+    } catch (error) {
+      clearTimeout(timer);
+      if (error.name === 'AbortError') {
+        throw new Error(`${errorPrefix} timed out after ${effectiveTimeout}ms`);
+      }
+      throw error;
+    }
+    clearTimeout(timer);
+
+    const responseText = await response.text();
+    let parsed;
+    try {
+      parsed = responseText ? JSON.parse(responseText) : {};
+    } catch (err) {
+      throw new Error(`Failed to parse ${errorPrefix} response: ${err.message}`);
+    }
+
+    if (response.ok) {
+      return parsed;
+    }
+
+    const errorMessage = parsed?.error?.message || `${response.status} ${response.statusText}`;
+    if (!RETRYABLE_STATUSES.has(response.status)) {
+      throw new Error(`${errorPrefix} error: ${errorMessage}`);
+    }
+
+    lastError = new Error(`${errorPrefix} error: ${errorMessage}`);
+    if (attempt < maxRetries) {
+      const retryDelayMs = response.status === 429 ? 2000 : 1000;
+      await new Promise(resolve => setTimeout(resolve, retryDelayMs));
+    }
+  }
+
+  throw lastError ?? new Error(`${errorPrefix} request failed after retries`);
+}
+
 function stripUnsupportedMessageFields(messages) {
   if (!Array.isArray(messages)) {
     return messages;
@@ -101,27 +151,14 @@ export class OpenAICompatChatClient extends AbstractChatClient {
       payload.response_format = responseFormat;
     }
 
-    const response = await this._fetchImpl(`${this._baseUrl}/chat/completions`, {
+    const parsed = await fetchWithTimeoutAndRetry(this._fetchImpl, `${this._baseUrl}/chat/completions`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
         authorization: `Bearer ${this._apiKey}`,
       },
       body: JSON.stringify(payload),
-    });
-
-    const responseText = await response.text();
-    let parsed;
-    try {
-      parsed = responseText ? JSON.parse(responseText) : {};
-    } catch (error) {
-      throw new Error(`Failed to parse provider response: ${error.message}`);
-    }
-
-    if (!response.ok) {
-      const errorMessage = parsed?.error?.message || `${response.status} ${response.statusText}`;
-      throw new Error(`Provider API error: ${errorMessage}`);
-    }
+    }, { errorPrefix: 'Provider API' });
 
     const choice = parsed?.choices?.[0];
     const message = choice?.message;
