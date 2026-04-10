@@ -347,3 +347,93 @@ test('cache isolates repo_symbols results by repo root', async () => {
   assert.ok(symB.symbols.some(s => s.name === 'fromRepoB'), 'repo B has fromRepoB symbol (not polluted by A)');
   assert.ok(!symB.symbols.some(s => s.name === 'fromRepoA'), 'repo B does not have fromRepoA from wrong cache');
 });
+
+// --- Phase 2: Scope Hard Boundary Tests ---
+
+test('RepoToolkit grep with ripgrep respects initialize base scope', { skip: !hasRipgrep() }, async () => {
+  const repoRoot = await makeRepoFixture();
+  const toolkit = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig('normal') });
+  await toolkit.initialize(['src/**']);
+
+  assert.equal(toolkit._hasRipgrep, true, 'ripgrep is available');
+  // Even with rg, base scope must be honored
+  const result = await toolkit.grep({ pattern: 'Auth' });
+  assert.ok(!result.matches.some(m => m.path === 'docs/auth.md'), 'rg does not return docs/auth.md when scope=src/**');
+  assert.ok(result.matches.some(m => m.path.startsWith('src/')), 'rg returns src/ matches');
+});
+
+test('RepoToolkit grep with ripgrep respects extraIgnoreDirs', { skip: !hasRipgrep() }, async () => {
+  const repoRoot = await makeRepoFixture();
+  // Create a custom dir that should be ignored
+  await fs.mkdir(path.join(repoRoot, 'vendor'), { recursive: true });
+  await fs.writeFile(path.join(repoRoot, 'vendor', 'lib.js'), 'function requireAuth() {} // vendor copy\n');
+
+  const toolkit = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig('normal'), extraIgnoreDirs: ['vendor'] });
+  await toolkit.initialize([]);
+
+  assert.equal(toolkit._hasRipgrep, true, 'ripgrep is available');
+  const result = await toolkit.grep({ pattern: 'requireAuth' });
+  assert.ok(!result.matches.some(m => m.path.startsWith('vendor/')), 'rg does not return vendor/ results when extraIgnoreDirs=[vendor]');
+});
+
+test('RepoToolkit symbols rejects out-of-scope paths', async () => {
+  const repoRoot = await makeRepoFixture();
+  const toolkit = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig('normal') });
+  await toolkit.initialize(['src/**']);
+
+  await assert.rejects(
+    toolkit.symbols({ path: 'docs/auth.md' }),
+    /outside current scope/,
+  );
+});
+
+test('RepoToolkit gitLog rejects out-of-scope path', { skip: !hasGit() }, async () => {
+  const root = await makeGitRepoFixture();
+  // Add a docs dir
+  await fs.mkdir(path.join(root, 'docs'), { recursive: true });
+  await fs.writeFile(path.join(root, 'docs', 'README.md'), '# Docs\n');
+  const git = (args) => execFileSync('git', args, { cwd: root, stdio: 'pipe', encoding: 'utf8' });
+  git(['add', '.']);
+  git(['commit', '-m', 'add docs']);
+
+  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig('normal') });
+  await toolkit.initialize(['docs/**']);
+
+  await assert.rejects(
+    toolkit.gitLog({ path: 'hello.js' }),
+    /outside current scope/,
+  );
+});
+
+test('RepoToolkit gitBlame rejects out-of-scope path', { skip: !hasGit() }, async () => {
+  const root = await makeGitRepoFixture();
+  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig('normal') });
+  await toolkit.initialize(['docs/**']);
+
+  await assert.rejects(
+    toolkit.gitBlame({ path: 'hello.js' }),
+    /outside current scope/,
+  );
+});
+
+test('RepoToolkit gitShow filters changed files to current scope', { skip: !hasGit() }, async () => {
+  const root = await makeGitRepoFixture();
+  // Add a docs dir with a file in a separate commit
+  await fs.mkdir(path.join(root, 'docs'), { recursive: true });
+  await fs.writeFile(path.join(root, 'docs', 'README.md'), '# Docs\n');
+  const git = (args) => execFileSync('git', args, { cwd: root, stdio: 'pipe', encoding: 'utf8' });
+  git(['add', '.']);
+  git(['commit', '-m', 'add docs']);
+  // Another commit that touches both hello.js and docs
+  await fs.writeFile(path.join(root, 'hello.js'), 'console.log("v3");\n');
+  await fs.writeFile(path.join(root, 'docs', 'README.md'), '# Docs v2\n');
+  git(['add', '.']);
+  git(['commit', '-m', 'touch both']);
+
+  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig('normal') });
+  await toolkit.initialize(['docs/**']);
+
+  const show = await toolkit.gitShow({ ref: 'HEAD' });
+  assert.ok(!show.files.some(f => f.path === 'hello.js'), 'hello.js is filtered out — outside docs/** scope');
+  assert.ok(show.files.some(f => f.path.startsWith('docs/')), 'docs/ files are included');
+});

@@ -25,21 +25,21 @@
 - cache clear/reset API 추가 (테스트 편의)
 
 ### 체크리스트
-- [ ] `scopeFingerprint()` / `ignoreFingerprint()` 헬퍼 함수 추가 (`cache.mjs` 또는 `repo-tools.mjs`)
-- [ ] `RepoToolkit._scopedCacheKey(kind, parts)` 메서드 추가
-- [ ] `cacheKeyGrep` → `_scopedCacheKey('grep', { pattern, caseSensitive, scope, maxResults })`로 교체
-- [ ] `cacheKeyFindFiles` → `_scopedCacheKey('find_files', { pattern, scope, maxResults })`로 교체
-- [ ] `read_file` cache key에 `repoRoot`, `baseScope` 포함
-- [ ] `symbols` cache key에 `repoRoot`, `baseScope` 포함
-- [ ] `git_*` cache key에 `repoRoot` 포함
-- [ ] cache `clear()` / `reset()` 메서드 추가 (테스트용)
+- [x] `scopeFingerprint()` / `ignoreFingerprint()` 헬퍼 함수 추가 (`repo-tools.mjs` 내 `_baseScopeFingerprint`, `_ignoreDirsFingerprint`)
+- [x] `RepoToolkit._scopedCacheKey(kind, parts)` 메서드 추가
+- [x] `cacheKeyGrep` → `_scopedCacheKey('grep', { pattern, caseSensitive, scope, maxResults })`로 교체
+- [x] `cacheKeyFindFiles` → `_scopedCacheKey('find_files', { pattern, scope, maxResults })`로 교체
+- [x] `read_file` cache key에 `repoRoot`, `baseScope` 포함
+- [x] `symbols` cache key에 `repoRoot`, `baseScope` 포함
+- [x] `git_*` cache key에 `repoRoot` 포함
+- [x] cache `clear()` 메서드 추가 (테스트용)
 
 ### 추가 테스트 (`tests/repo-tools.test.mjs`)
-- [ ] `cache isolates read_file results by repo root`
-- [ ] `cache does not reuse read_file across different base scopes`
-- [ ] `cacheKeyGrep includes maxResults`
-- [ ] `cacheKeyFindFiles includes maxResults`
-- [ ] `cache isolates repo_symbols results by repo root`
+- [x] `cache isolates read_file results by repo root`
+- [x] `cache does not reuse read_file across different base scopes`
+- [x] `cacheKeyGrep includes maxResults`
+- [x] `cacheKeyFindFiles includes maxResults`
+- [x] `cache isolates repo_symbols results by repo root`
 
 ### 검증 포인트
 - repo A에서 `src/a.js` 읽은 뒤 repo B 같은 경로 읽어도 A 결과 재사용 안 됨

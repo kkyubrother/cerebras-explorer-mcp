@@ -380,6 +380,8 @@ export class RepoToolkit {
     this.gitignoreMatcher = null;
     this._hasRipgrep = null;
     this._hasGit = null;
+    // Store extra dirs separately for passing to rg (project-specific ignores beyond defaults)
+    this.extraIgnoreDirs = new Set(extraIgnoreDirs);
     // Combined ignore set: built-ins + project-specific extras
     this.ignoreDirs = extraIgnoreDirs.length > 0
       ? new Set([...DEFAULT_IGNORE_DIRS, ...extraIgnoreDirs])
@@ -533,6 +535,11 @@ export class RepoToolkit {
       '--max-filesize', '256K',
       '--glob', '!.git',
     ];
+    // Apply project-specific extra ignore dirs so rg respects the same boundaries as walkFiles
+    for (const dir of this.extraIgnoreDirs) {
+      rgArgs.push('--glob', `!${dir}`);
+      rgArgs.push('--glob', `!${dir}/**`);
+    }
     if (!caseSensitive) rgArgs.push('--ignore-case');
     const perFileMax = Math.min(maxResults, 50);
     rgArgs.push('--max-count', String(perFileMax));
@@ -1021,7 +1028,12 @@ export class RepoToolkit {
 
     const patchArgs = ['show', '--format=', '--unified=3', ref];
     const patchOutput = await this._runGit(patchArgs);
-    const files = parseDiffOutput(patchOutput);
+    let files = parseDiffOutput(patchOutput);
+
+    // Filter changed files to those within the current base scope
+    if (this.baseScopeRules.patterns?.length > 0) {
+      files = files.filter(f => this.baseScopeRules.matches(f.path));
+    }
 
     return { hash, author, date, message, files };
   }
