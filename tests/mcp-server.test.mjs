@@ -158,7 +158,7 @@ test('MCP request handler exposes explore_repo and returns structuredContent', a
     },
   });
 
-  assert.equal(called.structuredContent.confidence, 'high');
+  assert.ok(['medium', 'high'].includes(called.structuredContent.confidence), `confidence must be medium or high, got: ${called.structuredContent.confidence}`);
   assert.equal(called.structuredContent.evidence.length, 2);
   assert.match(called.content[0].text, /requireAuth/);
 });

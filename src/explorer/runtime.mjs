@@ -28,6 +28,7 @@ import {
 import {
   EXPLORE_RESULT_JSON_SCHEMA,
   computeConfidenceScore,
+  reconcileConfidence,
   normalizeExploreResult,
   validateExploreRepoArgs,
 } from './schemas.mjs';
@@ -176,12 +177,23 @@ function checkEvidenceGrounding(observedRanges, evidenceItem) {
     return { overlaps: false, partial: false };
   }
   for (const range of ranges) {
-    if (evidenceItem.startLine <= range.endLine && evidenceItem.endLine >= range.startLine) {
+    const exactOverlap =
+      evidenceItem.startLine <= range.endLine && evidenceItem.endLine >= range.startLine;
+    if (exactOverlap) {
       return { overlaps: true, partial: false };
     }
-    const toleratedStart = evidenceItem.startLine - EVIDENCE_LINE_TOLERANCE;
-    const toleratedEnd = evidenceItem.endLine + EVIDENCE_LINE_TOLERANCE;
-    if (toleratedStart <= range.endLine && toleratedEnd >= range.startLine) {
+    // Partial matching: allow evidence items that are adjacent to (but not overlapping)
+    // the read range, PROVIDED the evidence range itself is short. This prevents long
+    // ranges (e.g. 50-99) from sneaking through when only one endpoint is near the
+    // read range (e.g. 100-110). Short ranges (e.g. 5-6 adjacent to 1-4) are still
+    // accepted as plausible off-by-one / line-count mismatches.
+    const evidenceLength = evidenceItem.endLine - evidenceItem.startLine + 1;
+    const distanceToRange = Math.max(
+      range.startLine - evidenceItem.endLine,   // evidence is before the range
+      evidenceItem.startLine - range.endLine,   // evidence is after the range
+      0,
+    );
+    if (distanceToRange <= EVIDENCE_LINE_TOLERANCE && evidenceLength <= 10) {
       return { overlaps: true, partial: true };
     }
   }
@@ -357,13 +369,13 @@ export class ExplorerRuntime {
    * session data, repoToolkit, chatClient, tools, and timing helpers.
    */
   async _initExploreContext({ budgetLabel, repoRootArg, scope, session, taskText, sessionStore }) {
-    const budgetConfig = getBudgetConfig(budgetLabel);
     const repoRoot = getRepoRoot(repoRootArg);
 
     const rawProjectConfig = await loadProjectConfig(repoRoot);
     const projectConfig = normalizeProjectConfig(rawProjectConfig);
 
     const effectiveBudgetLabel = budgetLabel ?? projectConfig.defaultBudget ?? 'normal';
+    const budgetConfig = getBudgetConfig(effectiveBudgetLabel);
     const effectiveScope = scope ?? projectConfig.defaultScope ?? [];
     const projectContext = projectConfig.projectContext ?? null;
     const keyFiles = projectConfig.keyFiles ?? [];
@@ -762,9 +774,13 @@ export class ExplorerRuntime {
       })
       .filter(Boolean);
 
-    // Confidence scoring (Phase 3: pass drop reasons)
+    // Derive task kind from strategy hint for task-aware confidence scoring
+    const strategyHint = args.hints?.strategy ?? null;
+    const taskKind = (strategyHint === 'symbol-first') ? 'locate' : (strategyHint ?? 'default');
+
+    // Confidence scoring (task-aware)
     const { score: confidenceScore, level: confidenceLevel, factors: confidenceFactors } =
-      computeConfidenceScore(normalized.evidence, totalEvidenceBefore, stats);
+      computeConfidenceScore(normalized.evidence, totalEvidenceBefore, stats, taskKind);
     confidenceFactors.droppedUngrounded = droppedUngrounded;
     confidenceFactors.droppedMalformed = droppedMalformed;
     normalized.confidenceScore = confidenceScore;
@@ -772,7 +788,6 @@ export class ExplorerRuntime {
     normalized.confidenceFactors = confidenceFactors;
 
     if (totalEvidenceBefore > normalized.evidence.length) {
-      normalized.confidence = 'low';
       normalized.followups = mergeCandidatePaths(normalized.followups, [{
         description: 'Some evidence items were dropped because they were not grounded in inspected line ranges.',
         priority: 'optional',
@@ -780,18 +795,17 @@ export class ExplorerRuntime {
       }]);
     }
 
-    const LEVEL_ORDER = { low: 0, medium: 1, high: 2 };
-    if (LEVEL_ORDER[normalized.confidence] > LEVEL_ORDER[confidenceLevel]) {
-      normalized.confidence = confidenceLevel;
-    }
-
-    // Critic-lite verify pass: downgrade over-confident claims.
-    // If the model asserts confidence=high but has fewer than 2 grounded evidence
-    // items, lower confidence to medium. This catches too-early synthesis.
-    if (normalized.confidence === 'high' && normalized.evidence.length < 2) {
-      normalized.confidence = 'medium';
-      normalized.confidenceLevel = 'medium';
-    }
+    // Reconcile model-reported confidence with computed level
+    const exactEvidence = normalized.evidence.filter(e => e.groundingStatus === 'exact').length;
+    normalized.confidence = reconcileConfidence({
+      modelConfidence: normalized.confidence,
+      computedLevel: confidenceLevel,
+      taskKind,
+      exactEvidence,
+      droppedEvidence: droppedUngrounded + droppedMalformed,
+      stoppedByBudget: stats.stoppedByBudget ?? false,
+    });
+    normalized.confidenceLevel = normalized.confidence;
 
     if (!normalized.summary) normalized.summary = normalized.answer;
     if (!normalized.answer) {
@@ -1034,7 +1048,27 @@ export class ExplorerRuntime {
       return { result: structured, usage: completion.usage ?? null };
     }
 
-    // fallback: unstructured content that could not be parsed as JSON
+    // repair pass: ask the model to convert its broken output into the exact schema
+    try {
+      const repair = await chatClient.createChatCompletion({
+        messages: [
+          { role: 'system', content: 'Repair the following into the exact explore_repo_result JSON schema. Do not add new facts.' },
+          { role: 'user', content: completion.message.content || '' },
+        ],
+        responseFormat: { type: 'json_schema', json_schema: EXPLORE_RESULT_JSON_SCHEMA },
+        reasoningEffort: 'none',
+        temperature: 0,
+        topP: 1,
+        maxCompletionTokens: Math.min(1000, maxCompletionTokens),
+        parallelToolCalls: false,
+      });
+      const repaired = extractFirstJsonObject(repair.message.content);
+      if (repaired) {
+        return { result: repaired, usage: repair.usage ?? completion.usage ?? null };
+      }
+    } catch { /* repair failed, fall through to local fallback */ }
+
+    // local fallback: unstructured content that could not be parsed as JSON
     return {
       result: {
         answer: completion.message.content || 'Explorer could not synthesize a final answer.',

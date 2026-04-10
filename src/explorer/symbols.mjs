@@ -48,8 +48,10 @@ const JS_PATTERNS = [
   { re: /^(?:export\s+(?:default\s+)?)?class\s+(\w+)(?:\s|{|<)/, kind: 'class' },
   // export? const/let/var name = async? function
   { re: /^(?:export\s+)?(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?function/, kind: 'function' },
-  // export? const/let/var name = async? (...)  =>   (arrow function)
+  // export? const/let/var name = async? (...)  =>   (arrow with parens)
   { re: /^(?:export\s+)?(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?\(/, kind: 'function' },
+  // export? const/let/var name = async? ident =>   (arrow without parens)
+  { re: /^(?:export\s+)?(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?[A-Za-z_$][\w$]*\s*=>/, kind: 'function' },
   // export? const/let/var name = value  (non-function — checked after function patterns)
   { re: /^(?:export\s+)?(?:const|let|var)\s+(\w+)\s*=/, kind: 'variable' },
   // class method (2+ spaces indent): async? get? set? name(
@@ -67,6 +69,8 @@ const TS_PATTERNS = [
 ];
 
 const PY_PATTERNS = [
+  // async def name(  (any indent level)
+  { re: /^(\s*)async\s+def\s+(\w+)\s*\(/, kind: 'function', nameGroup: 2 },
   // def name(  (any indent level)
   { re: /^(\s*)def\s+(\w+)\s*\(/, kind: 'function', nameGroup: 2 },
   // class Name
@@ -102,6 +106,8 @@ const RUST_PATTERNS = [
 const JAVA_PATTERNS = [
   // public|private|protected? static? returnType methodName(
   { re: /^\s+(?:(?:public|private|protected|static|final|abstract|synchronized|native)\s+)*(?:\w+(?:<[^>]+>)?(?:\[\])*\s+)(\w+)\s*\(/, kind: 'function' },
+  // constructor: public/private/protected ClassName(  (no return type)
+  { re: /^\s+(?:(?:public|private|protected)\s+)?([A-Z]\w+)\s*\(/, kind: 'function' },
   // class/interface/enum Name
   { re: /^(?:(?:public|private|protected|abstract|final)\s+)*(?:class|interface|enum)\s+(\w+)/, kind: 'class' },
   // record Name

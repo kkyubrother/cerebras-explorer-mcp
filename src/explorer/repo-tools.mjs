@@ -602,6 +602,7 @@ export class RepoToolkit {
     const regex = tryBuildRegex(pattern, caseSensitive);
     const { files, truncated: walkTruncated } = await this.walkFiles({ scope });
     const matches = [];
+    const skipped = { largeFiles: 0, binaryFiles: 0, walkLimitReached: walkTruncated };
 
     for (const relPath of files) {
       if (matches.length >= maxResults) {
@@ -616,6 +617,7 @@ export class RepoToolkit {
       }
 
       if (safePath.stat.size > DEFAULT_GREP_FILE_MAX_BYTES) {
+        skipped.largeFiles++;
         continue;
       }
 
@@ -626,6 +628,7 @@ export class RepoToolkit {
         continue;
       }
       if (!isProbablyText(buffer)) {
+        skipped.binaryFiles++;
         continue;
       }
 
@@ -648,6 +651,7 @@ export class RepoToolkit {
       caseSensitive,
       matches,
       truncated: walkTruncated || matches.length >= maxResults,
+      skipped,
     };
   }
 
@@ -656,11 +660,7 @@ export class RepoToolkit {
       throw new Error('path is required');
     }
 
-    const relativePath = sanitizeRelativePath(requestedPath);
-    if (!this.baseScopeRules.matches(relativePath)) {
-      throw new Error(`Path is outside current scope: ${relativePath}`);
-    }
-
+    const relativePath = this._enforceScopedPath(requestedPath);
     const safePath = await resolveSafePath(this.repoRootReal, relativePath, { kind: 'file' });
     if (safePath.stat.size > DEFAULT_TEXT_FILE_MAX_BYTES) {
       throw new Error(`File is too large to read safely: ${relativePath}`);
@@ -694,7 +694,7 @@ export class RepoToolkit {
     if (typeof requestedPath !== 'string' || !requestedPath.trim()) {
       throw new Error('path is required');
     }
-    const relativePath = sanitizeRelativePath(requestedPath);
+    const relativePath = this._enforceScopedPath(requestedPath);
     const safePath = await resolveSafePath(this.repoRootReal, relativePath, { kind: 'file' });
 
     if (safePath.stat.size > DEFAULT_TEXT_FILE_MAX_BYTES) {
@@ -722,13 +722,13 @@ export class RepoToolkit {
       throw new Error('symbol is required');
     }
     const sym = symbol.trim();
-    // Use word-boundary grep; fall back to literal if that fails
-    const pattern = `\\b${sym}\\b`;
+    // Escape special regex chars so symbols like $store, fn.call, etc. work correctly
+    const pattern = `\\b${escapeRegex(sym)}\\b`;
     let grepResult;
     try {
       grepResult = await this.grep({ pattern, scope, caseSensitive: true, maxResults: 60 });
     } catch {
-      grepResult = await this.grep({ pattern: sym, scope, caseSensitive: true, maxResults: 60 });
+      grepResult = await this.grep({ pattern: escapeRegex(sym), scope, caseSensitive: true, maxResults: 60 });
     }
 
     let definition = null;
@@ -763,8 +763,8 @@ export class RepoToolkit {
     const effectiveDepth = 1;
     const sym = symbol.trim();
 
-    // Step 1: grep for all occurrences
-    const grepResult = await this.grep({ pattern: `\\b${sym}\\b`, scope, caseSensitive: true, maxResults: 40 });
+    // Step 1: grep for all occurrences (escape special regex chars in symbol name)
+    const grepResult = await this.grep({ pattern: `\\b${escapeRegex(sym)}\\b`, scope, caseSensitive: true, maxResults: 40 });
 
     let definition = null;
     const callers = [];
@@ -882,11 +882,18 @@ export class RepoToolkit {
     }
   }
 
-  _validateGitPath(filePath) {
-    if (!filePath) return null;
+  _enforceScopedPath(filePath) {
     const rel = sanitizeRelativePath(filePath);
     ensureWithinRoot(this.repoRootReal, path.resolve(this.repoRootReal, rel));
+    if (this.baseScopeRules.patterns?.length > 0 && !this.baseScopeRules.matches(rel)) {
+      throw new Error(`Path is outside current scope: ${rel}`);
+    }
     return rel;
+  }
+
+  _validateGitPath(filePath) {
+    if (!filePath) return null;
+    return this._enforceScopedPath(filePath);
   }
 
   async gitLog({ path: filePath, maxCount = 20, since, author, grep: grepFilter } = {}) {

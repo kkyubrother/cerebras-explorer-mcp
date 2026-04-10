@@ -197,6 +197,17 @@ export function validateExploreRepoArgs(args) {
   }
 }
 
+function scoreToLevel(score) {
+  if (score >= 0.7) return 'high';
+  if (score >= 0.4) return 'medium';
+  return 'low';
+}
+
+function lowerLevel(a, b) {
+  const order = { high: 2, medium: 1, low: 0 };
+  return order[a] <= order[b] ? a : b;
+}
+
 /**
  * Compute a continuous confidence score (0.0–1.0) and breakdown factors
  * based on evidence grounding and exploration stats.
@@ -204,60 +215,67 @@ export function validateExploreRepoArgs(args) {
  * @param {object[]} groundedEvidence - evidence items after grounding filter
  * @param {number} totalEvidenceBefore - count before grounding filter
  * @param {object} stats - runtime stats (stoppedByBudget, grepCalls, etc.)
+ * @param {string} [taskKind] - 'locate', 'causal', or undefined for default
  * @returns {{ score: number, level: string, factors: object }}
  */
-export function computeConfidenceScore(groundedEvidence, totalEvidenceBefore, stats) {
-  let score = 0.5;
+export function computeConfidenceScore(groundedEvidence, totalEvidenceBefore, stats, taskKind) {
   const gitLogCalls = stats.gitLogCalls ?? 0;
   const gitDiffCalls = stats.gitDiffCalls ?? 0;
   const gitBlameCalls = stats.gitBlameCalls ?? 0;
+  const exactCount = groundedEvidence.filter(e => e.groundingStatus === 'exact').length;
+  const distinctFiles = new Set(groundedEvidence.map(e => e.path)).size;
+  const usedSearch = ((stats.grepCalls ?? 0) + (stats.symbolCalls ?? 0)) > 0;
+  const evidenceDropped = totalEvidenceBefore - groundedEvidence.length;
+
   const factors = {
     evidenceCount: groundedEvidence.length,
     evidenceGrounded: groundedEvidence.length,
-    evidenceDropped: totalEvidenceBefore - groundedEvidence.length,
-    crossVerified: false,
-    symbolSearchUsed: (stats.grepCalls ?? 0) > 0,
+    evidenceDropped,
+    exactCount,
+    crossVerified: distinctFiles >= 2,
+    symbolSearchUsed: usedSearch,
     stoppedByBudget: stats.stoppedByBudget ?? false,
     gitLogCalls,
     gitDiffCalls,
     gitBlameCalls,
     gitGroundingHint: (gitLogCalls + gitDiffCalls + gitBlameCalls) > 0 ? 'git_tools_used' : 'none',
+    taskKind: taskKind ?? 'default',
     adjustments: [],
   };
 
-  // All evidence grounded (none dropped)
-  if (factors.evidenceDropped === 0 && groundedEvidence.length > 0) {
-    score += 0.2;
-    factors.adjustments.push('+0.20 (all evidence grounded)');
-  } else if (factors.evidenceDropped > 0) {
-    score -= 0.3;
-    factors.adjustments.push('-0.30 (some evidence not grounded in inspected ranges)');
+  // Task-aware base score
+  let score = taskKind === 'locate' ? 0.35 : 0.15;
+  factors.adjustments.push(`base=${score.toFixed(2)} (taskKind=${factors.taskKind})`);
+
+  // Exact evidence (up to 3 count for full bonus)
+  if (exactCount > 0) {
+    const bonus = Math.min(exactCount, 3) * 0.18;
+    score += bonus;
+    factors.adjustments.push(`+${bonus.toFixed(2)} (${exactCount} exact evidence item(s))`);
   }
 
-  // Cross-verified: evidence from 2+ distinct files
-  const uniqueFiles = new Set(groundedEvidence.map(e => e.path));
-  factors.crossVerified = uniqueFiles.size >= 2;
-  if (factors.crossVerified) {
-    score += 0.15;
-    factors.adjustments.push('+0.15 (cross-verified across multiple files)');
+  // Cross-file verification
+  if (distinctFiles >= 2) {
+    score += 0.12;
+    factors.adjustments.push('+0.12 (cross-verified across multiple files)');
   }
 
   // Symbol/grep search was used
-  if (factors.symbolSearchUsed) {
+  if (usedSearch) {
     score += 0.05;
-    factors.adjustments.push('+0.05 (symbol search used)');
+    factors.adjustments.push('+0.05 (symbol/grep search used)');
   }
 
   // Stopped by budget
   if (factors.stoppedByBudget) {
-    score -= 0.2;
-    factors.adjustments.push('-0.20 (stopped by budget before completion)');
+    score -= 0.15;
+    factors.adjustments.push('-0.15 (stopped by budget before completion)');
   }
 
-  // Only a single evidence item
-  if (groundedEvidence.length === 1) {
-    score -= 0.1;
-    factors.adjustments.push('-0.10 (single evidence point)');
+  // Evidence was dropped (hallucination risk)
+  if (evidenceDropped > 0) {
+    score -= 0.25;
+    factors.adjustments.push(`-0.25 (${evidenceDropped} evidence item(s) dropped as ungrounded)`);
   }
 
   // No evidence at all
@@ -266,31 +284,32 @@ export function computeConfidenceScore(groundedEvidence, totalEvidenceBefore, st
     factors.adjustments = ['score=0.10 (no grounded evidence)'];
   }
 
-  // Phase 2: git-only evidence floor — if git tools were used meaningfully
-  // and we have some evidence but it scored low, raise the floor.
-  // This compensates for git evidence that cannot be grounded via file-read ranges.
-  const gitToolsUsed = gitLogCalls + gitDiffCalls + gitBlameCalls;
-  if (gitToolsUsed > 0 && groundedEvidence.length > 0 && !factors.stoppedByBudget && score < 0.4) {
-    score = 0.4;
-    factors.adjustments.push('floor=0.40 (git-grounded evidence present)');
-  }
-
   score = Math.max(0, Math.min(1, score));
-
-  let level;
-  if (score >= 0.7) {
-    level = 'high';
-  } else if (score >= 0.4) {
-    level = 'medium';
-  } else {
-    level = 'low';
-  }
 
   return {
     score: Math.round(score * 100) / 100,
-    level,
+    level: scoreToLevel(score),
     factors,
   };
+}
+
+/**
+ * Reconcile the model-reported confidence level with the computed level.
+ * For locate tasks with at least one exact evidence item and no dropped evidence,
+ * trust the model's confidence. Otherwise take the lower of the two.
+ *
+ * @param {string} modelConfidence - 'high' | 'medium' | 'low' from model output
+ * @param {string} computedLevel - level from computeConfidenceScore
+ * @param {string} [taskKind] - 'locate', 'causal', etc.
+ * @param {number} exactEvidence - count of exact-grounded evidence items
+ * @param {number} droppedEvidence - count of dropped evidence items
+ * @param {boolean} stoppedByBudget
+ * @returns {string}
+ */
+export function reconcileConfidence({ modelConfidence, computedLevel, taskKind, exactEvidence, droppedEvidence, stoppedByBudget }) {
+  if (droppedEvidence > 0 || stoppedByBudget) return computedLevel;
+  if (taskKind === 'locate' && exactEvidence >= 1) return modelConfidence;
+  return lowerLevel(modelConfidence, computedLevel);
 }
 
 /**
