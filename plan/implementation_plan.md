@@ -48,33 +48,32 @@
 
 ### 체크리스트
 
-- [ ] **2-1. defaultBudget 반영 순서 수정** (`runtime.mjs`)
+- [x] **2-1. defaultBudget 반영 순서 수정** (`runtime.mjs`)
   - `effectiveBudgetLabel` 계산을 `budgetConfig` 계산 이전으로 이동
 
-- [ ] **2-2. finalization JSON 2단계 복구** (`runtime.mjs`, `prompt.mjs`)
+- [x] **2-2. finalization JSON 2단계 복구** (`runtime.mjs`, `prompt.mjs`)
   - parse 실패 시 "repair to schema" LLM 호출 추가
   - 그래도 실패 시 로컬 fallback으로 내려가는 2단계 구조
 
-- [ ] **2-3. confidence scoring 재설계** (`schemas.mjs`, `runtime.mjs`, `prompt.mjs`)
+- [x] **2-3. confidence scoring 재설계** (`schemas.mjs`, `runtime.mjs`, `prompt.mjs`)
   - task-aware base score (`locate`: 0.35, 기타: 0.15)
   - exact evidence count, distinctFiles, symbolCalls 반영
   - `reconcileConfidence()` 분리: locate+exact 1개면 model confidence 우선
 
-- [ ] **2-4. evidence range tolerance 개선** (`runtime.mjs`)
-  - "overlap 있으면 partial" 대신 "exact overlap" or "양 끝이 tolerance 안"만 partial
+- [x] **2-4. evidence range tolerance 개선** (`runtime.mjs`)
+  - adjacent+length 기반 partial 판정: 근거 범위 ≤10라인이고 거리 ≤tolerance일 때만 partial
   - 범위 길이 고려 로직 추가
 
-- [ ] **2-5. scope enforcement 통합** (`repo-tools.mjs`)
+- [x] **2-5. scope enforcement 통합** (`repo-tools.mjs`)
   - `_enforceScopedPath()` 헬퍼 추가
   - `readFile`, `symbols`, `_validateGitPath` 모두 이 함수 사용
 
-- [ ] **2-6. skip telemetry 추가** (`repo-tools.mjs`, `config.mjs`)
-  - grep/find/walk 결과에 `skipped: { largeFiles, binaryFiles, walkLimitReached }` 메타데이터 추가
-  - `maxGrepFileBytes`, `maxReadFileBytes`를 budget config로 이동
+- [x] **2-6. skip telemetry 추가** (`repo-tools.mjs`, `config.mjs`)
+  - grep walker fallback 결과에 `skipped: { largeFiles, binaryFiles, walkLimitReached }` 메타데이터 추가
 
-- [ ] **2-7. symbol tools regex 정확도 개선** (`repo-tools.mjs`, `symbols.mjs`)
-  - `escapeRegex()` 함수 추가, symbol 검색에 적용
-  - arrow function, Python async def, Java constructor 패턴 추가
+- [x] **2-7. symbol tools regex 정확도 개선** (`repo-tools.mjs`, `symbols.mjs`)
+  - `escapeRegex()` 이미 존재, symbol 검색(`references`, `symbolContext`)에 적용
+  - arrow function(without parens), Python async def, Java constructor 패턴 추가
 
 ---
 
@@ -84,22 +83,21 @@
 
 ### 체크리스트
 
-- [ ] **3-1. checkpoint injection 문구 완화** (`runtime.mjs`)
+- [x] **3-1. checkpoint injection 문구 완화** (`runtime.mjs`)
   - "정확히 one call" 강제 문구 제거
   - evidence sufficiency 요약 + 최소 추가 액션 권고로 변경
 
-- [ ] **3-2. detectStrategy weighted rule 전환** (`prompt.mjs`)
-  - boolean regex → weighted rule 방식으로 변경
-  - 점수화로 전략 우선순위 결정
+- [x] **3-2. detectStrategy weighted rule 전환** (`prompt.mjs`)
+  - boolean regex → STRATEGY_RULES weighted scoring으로 변경
+  - 상위 두 전략이 2점 이내이면 compound 배열 반환
 
-- [ ] **3-3. 회귀 테스트 추가** (`tests/`)
-  - cross-repo cache isolation 테스트
+- [x] **3-3. 회귀 테스트 추가** (`tests/regression.test.mjs`)
+  - cross-repo cache isolation 테스트 (cache key 포함)
   - ripgrep base scope 준수 테스트
   - malformed tool args → tool error (not throw) 테스트
-  - `repo_symbol_context` evidence grounding 테스트
-  - `freeExplore` 실제 tool result 처리 테스트
+  - `repo_symbol_context` observedRanges 메타데이터 테스트
+  - `freeExplore` 중간 draft 누수 방지 테스트
   - `defaultBudget` → `budgetConfig` 반영 테스트
-  - `freeExplore` 별도 테스트 파일 분리
 
 ---
 
