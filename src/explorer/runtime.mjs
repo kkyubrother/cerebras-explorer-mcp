@@ -56,8 +56,15 @@ async function runWithConcurrency(items, limit, fn) {
 
   async function worker() {
     while (queue.length > 0) {
-      const { item, i } = queue.shift();
-      results[i] = await fn(item, i);
+      const next = queue.shift();
+      if (!next) break;
+      const { item, i } = next;
+      try {
+        results[i] = await fn(item, i);
+      } catch (error) {
+        // Isolate individual worker failures so one bad item can't abort the batch
+        results[i] = { error: true, stage: 'worker', message: error.message };
+      }
     }
   }
 
@@ -591,15 +598,16 @@ export class ExplorerRuntime {
         completion.message.toolCalls,
         TOOL_CONCURRENCY,
         async (toolCall) => {
-          const toolName = toolCall.function.name;
+          let toolName = toolCall.function?.name ?? '(unknown)';
           let toolArgs = {};
           let toolResult;
           try {
-            toolArgs = safeJsonParse(toolCall.function.arguments ?? '{}');
+            toolArgs = safeJsonParse(toolCall.function?.arguments ?? '{}');
             toolResult = await repoToolkit.callTool(toolName, toolArgs);
           } catch (error) {
             toolResult = {
               error: true,
+              stage: 'parse_or_exec',
               type: error.message.startsWith('Failed to parse tool arguments')
                 ? 'invalid_tool_arguments'
                 : 'tool_execution_error',

@@ -1142,3 +1142,106 @@ test('ExplorerRuntime forwards assistant reasoning into the next turn when avail
 
   assert.equal(result.summary, 'reasoning forwarded');
 });
+
+// --- Phase 3: Malformed Tool Args / Parallel Tool Failure Isolation ---
+
+test('ExplorerRuntime continues when one tool call has invalid JSON arguments', async () => {
+  class MalformedArgsClient {
+    constructor() { this.model = 'test'; this.calls = 0; }
+    async createChatCompletion({ messages }) {
+      this.calls += 1;
+      if (this.calls === 1) {
+        return {
+          usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+          message: {
+            content: '',
+            toolCalls: [
+              {
+                id: 'bad-1',
+                function: { name: 'repo_grep', arguments: 'NOT VALID JSON {{{' },
+              },
+              {
+                id: 'good-1',
+                function: { name: 'repo_grep', arguments: JSON.stringify({ pattern: 'requireAuth' }) },
+              },
+            ],
+          },
+        };
+      }
+      // Finalize
+      return {
+        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+        message: {
+          content: JSON.stringify({
+            answer: 'found',
+            summary: 'malformed args handled',
+            confidence: 'low',
+            evidence: [],
+            candidatePaths: [],
+            followups: [],
+          }),
+          toolCalls: [],
+        },
+      };
+    }
+  }
+
+  const root = await makeRepoFixture();
+  const runtime = new ExplorerRuntime({ chatClient: new MalformedArgsClient() });
+  // Must not throw — the bad tool call is isolated as an error, good one proceeds
+  const result = await runtime.explore({ task: 'find auth', repo_root: root, budget: 'quick' });
+  assert.ok(result, 'explore() did not throw despite malformed tool args');
+  assert.equal(result.summary, 'malformed args handled');
+});
+
+test('ExplorerRuntime preserves successful tool results even when one sibling tool fails', async () => {
+  let capturedMessages = null;
+  class OneFailClient {
+    constructor() { this.model = 'test'; this.calls = 0; }
+    async createChatCompletion({ messages }) {
+      this.calls += 1;
+      if (this.calls === 1) {
+        return {
+          usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+          message: {
+            content: '',
+            toolCalls: [
+              {
+                id: 'fail-1',
+                function: { name: 'repo_read_file', arguments: JSON.stringify({ path: 'does/not/exist.js' }) },
+              },
+              {
+                id: 'ok-1',
+                function: { name: 'repo_grep', arguments: JSON.stringify({ pattern: 'requireAuth' }) },
+              },
+            ],
+          },
+        };
+      }
+      capturedMessages = messages;
+      return {
+        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+        message: {
+          content: JSON.stringify({
+            answer: 'checked',
+            summary: 'sibling results preserved',
+            confidence: 'low',
+            evidence: [],
+            candidatePaths: [],
+            followups: [],
+          }),
+          toolCalls: [],
+        },
+      };
+    }
+  }
+
+  const root = await makeRepoFixture();
+  const runtime = new ExplorerRuntime({ chatClient: new OneFailClient() });
+  const result = await runtime.explore({ task: 'find auth', repo_root: root, budget: 'quick' });
+  assert.ok(result, 'explore() succeeded');
+  // The successful grep result must appear in the message history
+  const toolMessages = capturedMessages?.filter(m => m.role === 'tool') ?? [];
+  assert.ok(toolMessages.some(m => m.content && m.content.includes('requireAuth')),
+    'grep tool result (requireAuth) is in context even though sibling tool failed');
+});
