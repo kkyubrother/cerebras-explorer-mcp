@@ -7,6 +7,7 @@ import { execFileSync } from 'node:child_process';
 
 import { getBudgetConfig } from '../src/explorer/config.mjs';
 import { RepoToolkit, collectCandidatePathsFromToolResult } from '../src/explorer/repo-tools.mjs';
+import { globalRepoCache } from '../src/explorer/cache.mjs';
 
 function hasGit() {
   try { execFileSync('git', ['--version'], { stdio: 'pipe' }); return true; } catch { return false; }
@@ -252,4 +253,97 @@ test('RepoToolkit grep uses ripgrep when available', { skip: !hasRipgrep() }, as
   assert.ok(result.matches.length >= 2, 'ripgrep finds matches');
   assert.ok(result.matches.some(m => m.path === 'src/auth.js'), 'finds in auth.js');
   assert.ok(result.matches.some(m => m.path === 'src/routes/user.js'), 'finds in user.js');
+});
+
+// --- Phase 1: Cache Isolation Tests ---
+
+test('cache isolates read_file results by repo root', async () => {
+  globalRepoCache.clear();
+  const repoA = await makeRepoFixture();
+  const repoB = await makeRepoFixture();
+
+  // Write different content to the same relative path in each repo
+  await fs.writeFile(path.join(repoA, 'src', 'auth.js'), 'export const REPO = "A";\n');
+  await fs.writeFile(path.join(repoB, 'src', 'auth.js'), 'export const REPO = "B";\n');
+
+  const toolkitA = new RepoToolkit({ repoRoot: repoA, budgetConfig: getBudgetConfig('normal'), cache: globalRepoCache });
+  await toolkitA.initialize(['src/**']);
+  const toolkitB = new RepoToolkit({ repoRoot: repoB, budgetConfig: getBudgetConfig('normal'), cache: globalRepoCache });
+  await toolkitB.initialize(['src/**']);
+
+  const resultA = await toolkitA.callTool('repo_read_file', { path: 'src/auth.js' });
+  const resultB = await toolkitB.callTool('repo_read_file', { path: 'src/auth.js' });
+
+  assert.ok(resultA.content.includes('"A"'), 'repo A content is correct');
+  assert.ok(resultB.content.includes('"B"'), 'repo B content is not polluted by repo A cache');
+});
+
+test('cache does not reuse read_file across different base scopes', async () => {
+  globalRepoCache.clear();
+  const repoRoot = await makeRepoFixture();
+
+  // Toolkit with no scope restriction reads docs/auth.md
+  const toolkitFull = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig('normal'), cache: globalRepoCache });
+  await toolkitFull.initialize([]);
+
+  const fullResult = await toolkitFull.callTool('repo_read_file', { path: 'docs/auth.md' });
+  assert.ok(fullResult.content.includes('Auth'), 'full toolkit reads docs/auth.md');
+
+  // Toolkit with src/** scope should reject docs/auth.md even if it was cached
+  const toolkitSrc = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig('normal'), cache: globalRepoCache });
+  await toolkitSrc.initialize(['src/**']);
+
+  await assert.rejects(
+    toolkitSrc.callTool('repo_read_file', { path: 'docs/auth.md' }),
+    /outside current scope/,
+    'scoped toolkit rejects out-of-scope file even after cache was populated by full toolkit',
+  );
+});
+
+test('grep cache key includes maxResults — different maxResults get different cache entries', async () => {
+  globalRepoCache.clear();
+  const repoRoot = await makeRepoFixture();
+  const toolkit = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig('normal'), cache: globalRepoCache });
+  await toolkit.initialize(['src/**', 'docs/**']);
+
+  const result1 = await toolkit.callTool('repo_grep', { pattern: 'requireAuth', maxResults: 1 });
+  assert.equal(result1.matches.length, 1, 'maxResults:1 returns 1 match');
+
+  const result10 = await toolkit.callTool('repo_grep', { pattern: 'requireAuth', maxResults: 10 });
+  assert.ok(result10.matches.length > 1, 'maxResults:10 returns more matches (not polluted by maxResults:1 cache)');
+});
+
+test('find_files cache key includes maxResults', async () => {
+  globalRepoCache.clear();
+  const repoRoot = await makeRepoFixture();
+  const toolkit = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig('normal'), cache: globalRepoCache });
+  await toolkit.initialize(['src/**']);
+
+  const result1 = await toolkit.callTool('repo_find_files', { pattern: 'src/**/*.js', maxResults: 1 });
+  assert.equal(result1.matches.length, 1, 'maxResults:1 returns 1 file');
+
+  const result10 = await toolkit.callTool('repo_find_files', { pattern: 'src/**/*.js', maxResults: 10 });
+  assert.ok(result10.matches.length > 1, 'maxResults:10 is not polluted by maxResults:1 cache');
+});
+
+test('cache isolates repo_symbols results by repo root', async () => {
+  globalRepoCache.clear();
+  const repoA = await makeRepoFixture();
+  const repoB = await makeRepoFixture();
+
+  // Write different symbols to the same path in each repo
+  await fs.writeFile(path.join(repoA, 'src', 'auth.js'), 'export function fromRepoA() {}\n');
+  await fs.writeFile(path.join(repoB, 'src', 'auth.js'), 'export function fromRepoB() {}\n');
+
+  const toolkitA = new RepoToolkit({ repoRoot: repoA, budgetConfig: getBudgetConfig('normal'), cache: globalRepoCache });
+  await toolkitA.initialize(['src/**']);
+  const toolkitB = new RepoToolkit({ repoRoot: repoB, budgetConfig: getBudgetConfig('normal'), cache: globalRepoCache });
+  await toolkitB.initialize(['src/**']);
+
+  const symA = await toolkitA.callTool('repo_symbols', { path: 'src/auth.js' });
+  const symB = await toolkitB.callTool('repo_symbols', { path: 'src/auth.js' });
+
+  assert.ok(symA.symbols.some(s => s.name === 'fromRepoA'), 'repo A has fromRepoA symbol');
+  assert.ok(symB.symbols.some(s => s.name === 'fromRepoB'), 'repo B has fromRepoB symbol (not polluted by A)');
+  assert.ok(!symB.symbols.some(s => s.name === 'fromRepoA'), 'repo B does not have fromRepoA from wrong cache');
 });

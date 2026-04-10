@@ -56,6 +56,13 @@ class LruCache {
     }
   }
 
+  clear() {
+    this._map.clear();
+    this._totalBytes = 0;
+    this.hits = 0;
+    this.misses = 0;
+  }
+
   stats() {
     const total = this.hits + this.misses;
     return {
