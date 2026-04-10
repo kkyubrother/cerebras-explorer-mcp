@@ -1055,18 +1055,19 @@ export class ExplorerRuntime {
       messages.push(assistantMessage);
 
       for (const toolCall of completion.message.toolCalls) {
-        const toolName = toolCall.function.name;
+        const toolName = toolCall.function?.name ?? '(unknown)';
         stats.toolCalls += 1;
         toolsUsed.add(toolName);
 
         let toolArgs = {};
         let toolResult;
         try {
-          toolArgs = safeJsonParse(toolCall.function.arguments ?? '{}');
+          toolArgs = safeJsonParse(toolCall.function?.arguments ?? '{}');
           toolResult = await repoToolkit.callTool(toolName, toolArgs);
         } catch (error) {
           toolResult = {
             error: true,
+            stage: 'parse_or_exec',
             type: error.message.startsWith('Failed to parse tool arguments')
               ? 'invalid_tool_arguments'
               : 'tool_execution_error',
@@ -1088,11 +1089,11 @@ export class ExplorerRuntime {
       }
     }
 
-    // If budget exhausted without a final report, ask for one
-    // Also treat bare "None" as an empty report (zai-glm-4.7 quirk)
+    // Finalize when: budget exhausted (regardless of interim report), report empty, or "None" quirk
+    const budgetExhausted = stats.turns >= budgetConfig.maxTurns;
     const reportIsEmpty = !report || report.trim() === '' || report.trim().toLowerCase() === 'none';
-    if (reportIsEmpty || (stats.turns >= budgetConfig.maxTurns && report === '')) {
-      stats.stoppedByBudget = true;
+    if (budgetExhausted || reportIsEmpty) {
+      stats.stoppedByBudget = budgetExhausted;
       const finalized = await chatClient.createChatCompletion({
         messages: [
           ...messages,
