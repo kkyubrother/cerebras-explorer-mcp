@@ -286,9 +286,17 @@ export function computeConfidenceScore(groundedEvidence, totalEvidenceBefore, st
 
   score = Math.max(0, Math.min(1, score));
 
+  // Hard gate for 'high': requires at least 2 exact evidence items from 2+ distinct files.
+  // This prevents single-file or single-item exact evidence from reaching high confidence.
+  let level = scoreToLevel(score);
+  if (level === 'high' && (exactCount < 2 || distinctFiles < 2)) {
+    level = 'medium';
+    factors.adjustments.push('→ capped at medium (high requires exactCount≥2 and distinctFiles≥2)');
+  }
+
   return {
     score: Math.round(score * 100) / 100,
-    level: scoreToLevel(score),
+    level,
     factors,
   };
 }

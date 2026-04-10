@@ -309,25 +309,24 @@
 - model confidence는 참고용, 최종 label은 rule-based score 우선
 
 ### 체크리스트
-- [ ] base score 변경: `0.5` → `0.2`
-- [ ] `exactCount * 0.18 + partialCount * 0.05` 방식으로 점수 계산
-- [ ] `distinctFiles >= 2` 보너스 추가 (`+0.12`)
-- [ ] `filesRead > 0` 보너스 (`+0.08`)
-- [ ] `grepCalls > 0 || symbolCalls > 0` 보너스 (`+0.05`)
-- [ ] `stoppedByBudget` 패널티 추가
-- [ ] `dropped evidence` 패널티 추가
-- [ ] `high` 조건: exact evidence >= 2 AND distinctFiles >= 2
-- [ ] `symbolSearchUsed` 체크 로직: `grepCalls`뿐 아니라 `symbolCalls`도 포함
-- [ ] model confidence를 최종 label에 직접 섞는 코드 제거/분리
+- [x] base score 변경: `0.5` → task-aware base (`0.35` for locate, `0.15` for default)
+- [x] `exactCount * 0.18 + partialCount * 0.05` 방식으로 점수 계산
+- [x] `distinctFiles >= 2` 보너스 추가 (`+0.12`)
+- [x] `grepCalls > 0 || symbolCalls > 0` 보너스 (`+0.05`)
+- [x] `stoppedByBudget` 패널티 추가 (`-0.15`)
+- [x] `dropped evidence` 패널티 추가 (`-0.25`)
+- [x] `high` 조건: exact evidence >= 2 AND distinctFiles >= 2 (hard gate 적용)
+- [x] `symbolSearchUsed` 체크 로직: `grepCalls`뿐 아니라 `symbolCalls`도 포함
+- [x] model confidence를 최종 label에 직접 섞는 코드 제거/분리 (`reconcileConfidence` 함수로 분리)
 
 ### 추가 테스트
 - (신규 `tests/schemas.test.mjs`)
-  - [ ] `computeConfidenceScore requires at least two exact evidence items for high`
-  - [ ] `partial-only evidence cannot become high`
-  - [ ] `single exact evidence caps at medium`
-  - [ ] `stoppedByBudget lowers confidence`
+  - [x] `computeConfidenceScore requires at least two exact evidence items for high`
+  - [x] `partial-only evidence cannot become high`
+  - [x] `single exact evidence caps at medium`
+  - [x] `stoppedByBudget lowers confidence`
 - (`tests/runtime.mock.test.mjs`)
-  - [ ] `runtime downgrades model high confidence to computed medium when evidence is weak`
+  - [x] `runtime downgrades model high confidence to computed medium when evidence is weak`
 
 ### 검증 포인트
 - 점수 로직 테스트와 runtime 최종 confidence 테스트를 분리

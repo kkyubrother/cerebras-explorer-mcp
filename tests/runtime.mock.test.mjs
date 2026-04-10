@@ -1578,3 +1578,62 @@ test('finalizeAfterToolLoop repairs malformed JSON with a no-tool repair pass', 
   assert.equal(repairCallCount, 1, 'repair pass was called exactly once');
   assert.equal(result.summary, 'repaired after malformed JSON', 'repaired result is used');
 });
+
+// ── Phase 10 — Confidence Recalibration ──────────────────────────────────────
+
+test('Phase 10 — runtime downgrades model high confidence to computed medium when evidence is weak', async () => {
+  // The model claims "high" confidence but only provides a single piece of evidence
+  // from one file with no search calls. The runtime should downgrade to medium or low.
+  let callCount = 0;
+  class WeakEvidenceClient {
+    get model() { return 'zai-glm-4.7'; }
+    async createChatCompletion({ messages }) {
+      callCount += 1;
+      const last = messages[messages.length - 1];
+      const isSystem = last?.role === 'system';
+      // Initial plan turn: emit a single read tool call
+      if (callCount === 1) {
+        return {
+          usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+          message: {
+            content: '',
+            toolCalls: [{
+              id: 'call-read-1',
+              type: 'function',
+              function: { name: 'read_file', arguments: JSON.stringify({ path: 'src/auth.js', start_line: 1, end_line: 3 }) },
+            }],
+          },
+        };
+      }
+      // Finalize turn: claim high confidence with only one evidence item from one file
+      return {
+        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+        message: {
+          content: JSON.stringify({
+            answer: 'requireAuth is defined in src/auth.js',
+            summary: 'Found in one file',
+            confidence: 'high',
+            evidence: [{
+              path: 'src/auth.js',
+              startLine: 1,
+              endLine: 3,
+              why: 'definition found here',
+              evidenceType: 'file_range',
+            }],
+            candidatePaths: ['src/auth.js'],
+            followups: [],
+          }),
+          toolCalls: [],
+        },
+      };
+    }
+  }
+
+  const root = await makeRepoFixture();
+  const runtime = new ExplorerRuntime({ chatClient: new WeakEvidenceClient() });
+  const result = await runtime.explore({ task: 'find requireAuth', repo_root: root, budget: 'quick' });
+  assert.ok(result, 'explore returned a result');
+  // The model claimed "high" but with only 1 exact item from 1 file, it must not be "high"
+  assert.notEqual(result.confidence, 'high',
+    'runtime must downgrade model-claimed high to medium/low when evidence is weak (single file, no search)');
+});
