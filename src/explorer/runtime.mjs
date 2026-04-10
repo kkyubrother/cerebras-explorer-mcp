@@ -505,7 +505,7 @@ export class ExplorerRuntime {
       if (checkpointEnabled && turnIndex > 0 && turnIndex % CHECKPOINT_INTERVAL === 0) {
         messages.push({
           role: 'user',
-          content: 'Checkpoint: Based on the evidence gathered so far, can you answer the task with sufficient confidence? If yes, synthesize the final answer now. If not, select exactly one more tool call to gather the missing evidence.',
+          content: 'Checkpoint: briefly reassess what is already proven, what is still missing, and whether another tool call is necessary. Prefer the smallest next step; use multiple calls only if they are clearly independent.',
         });
       }
 

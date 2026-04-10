@@ -9,26 +9,64 @@ const STRATEGY_DESCRIPTIONS = {
   'pattern-scan':    'Analyze a pattern across the codebase. Start with repo_grep → read multiple files.',
 };
 
+// Weighted strategy rules — each rule has patterns and a weight.
+// Higher weight = stronger signal. Patterns are tested against the full task string.
+const STRATEGY_RULES = [
+  {
+    label: 'git-guided',
+    patterns: [/\b(commit|changed?|history|since|recent)\b/i, /누가|언제|변경|커밋|이력|수정/],
+    weight: 2,
+  },
+  {
+    label: 'symbol-first',
+    patterns: [/\b(where|defined?|definition|located?)\b/i, /정의|어디|위치|선언|구현/],
+    weight: 2,
+  },
+  {
+    label: 'reference-chase',
+    patterns: [/\b(called|used\s+by|references?|callers?|import)\b/i, /호출|사용|참조/],
+    weight: 2,
+  },
+  {
+    label: 'breadth-first',
+    patterns: [/\b(structure|architecture|overview|layout)\b/i, /구조|아키텍처|개요|전체|레이아웃/],
+    weight: 2,
+  },
+  {
+    label: 'blame-guided',
+    patterns: [/\b(bug|cause|blame|why)\b/i, /버그|원인|왜\s|문제/],
+    weight: 2,
+  },
+  {
+    label: 'pattern-scan',
+    patterns: [/\b(pattern|all\s|every|similar)\b/i, /패턴|모든|전부|비교/],
+    weight: 2,
+  },
+];
+
 /**
- * Detect one or more relevant exploration strategies from the task string.
+ * Detect one or more relevant exploration strategies from the task string
+ * using weighted scoring.
  *
  * Returns:
  *   null         — no dominant pattern detected
- *   string       — single matching strategy label
- *   string[]     — compound strategy (multiple labels matched)
+ *   string       — single dominant strategy label
+ *   string[]     — compound strategy (top two strategies tied or close)
  */
 export function detectStrategy(task) {
-  const t = task.toLowerCase();
-  const matches = [];
-  if (/누가|언제|변경|커밋|commit|changed|who\s|when\s|recent|이력|history|수정/.test(t)) matches.push('git-guided');
-  if (/정의|어디|위치|defined|where\s|definition|located|선언|구현/.test(t)) matches.push('symbol-first');
-  if (/호출|사용|참조|called|used by|references|callers|import/.test(t)) matches.push('reference-chase');
-  if (/구조|아키텍처|개요|structure|architecture|overview|전체|레이아웃/.test(t)) matches.push('breadth-first');
-  if (/버그|원인|왜\s|bug|cause|why\s|blame|문제/.test(t)) matches.push('blame-guided');
-  if (/패턴|모든|전부|pattern|all\s|every\s|similar|비교/.test(t)) matches.push('pattern-scan');
-  if (matches.length === 0) return null;
-  if (matches.length === 1) return matches[0];
-  return matches;
+  const hits = STRATEGY_RULES
+    .map(rule => ({
+      label: rule.label,
+      score: rule.patterns.reduce((n, re) => n + (re.test(task) ? rule.weight : 0), 0),
+    }))
+    .filter(hit => hit.score > 0)
+    .sort((a, b) => b.score - a.score);
+
+  if (hits.length === 0) return null;
+  if (hits.length === 1) return hits[0].label;
+  // If top two strategies are within 1 point of each other, return both
+  if (hits[0].score >= (hits[1]?.score ?? 0) + 2) return hits[0].label;
+  return hits.slice(0, 2).map(hit => hit.label);
 }
 
 function formatHintBlock(hints = {}) {
