@@ -62,7 +62,6 @@ const TRACE_DEPENDENCY_TOOL = {
         enum: ['downstream', 'upstream', 'both'],
         description: 'downstream = what this file imports; upstream = what imports this file; both = full graph.',
       },
-      maxDepth: { type: 'number' },
       repo_root: { type: 'string' },
       session: { type: 'string' },
       language: { type: 'string', description: 'BCP-47 language tag for the response (e.g. "ko", "en"). Defaults to auto-detect.' },
@@ -180,12 +179,11 @@ function buildExplainSymbolArgs(args) {
 }
 
 function buildTraceDependencyArgs(args) {
-  const { entryPoint, direction = 'both', maxDepth = 3, repo_root, session, language, context } = args;
+  const { entryPoint, direction = 'both', repo_root, session, language, context } = args;
   if (!entryPoint || typeof entryPoint !== 'string' || !entryPoint.trim()) {
     throw Object.assign(new Error('trace_dependency requires a non-empty "entryPoint" argument.'), { code: -32602 });
   }
-  const depthNote = Number.isFinite(maxDepth) ? ` Follow at most ${maxDepth} levels deep.` : '';
-  let task = `Trace the import/dependency chain of "${entryPoint.trim()}". Direction: ${direction}.${depthNote} List which modules are imported and which modules import this file.`;
+  let task = `Trace the import/dependency chain of "${entryPoint.trim()}". Direction: ${direction}. List which modules are imported and which modules import this file.`;
   if (context) task += `\n\nAdditional context: ${context}`;
   return {
     task, repo_root, session, language,
