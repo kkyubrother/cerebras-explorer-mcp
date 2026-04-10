@@ -1301,3 +1301,108 @@ test('ExplorerRuntime records observations from macro tools (repo_symbol_context
   const authEvidence = result.evidence?.filter(e => e.path === 'src/auth.js') ?? [];
   assert.ok(authEvidence.length > 0, 'evidence for src/auth.js is retained via symbol_context observations');
 });
+
+// --- Phase 5: Source-aware Grounding + Git Evidence Validation Tests ---
+
+test('grep-only observation does not exact-ground a wide file range', async () => {
+  // Build a runtime result directly by checking the grounding function behavior
+  // We do this through an explore() call with mock data
+  class GrepOnlyClient {
+    constructor() { this.model = 'test'; this.calls = 0; }
+    async createChatCompletion({ messages }) {
+      this.calls += 1;
+      if (this.calls === 1) {
+        return {
+          usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+          message: {
+            content: '',
+            toolCalls: [
+              {
+                id: 'grep-1',
+                function: { name: 'repo_grep', arguments: JSON.stringify({ pattern: 'requireAuth' }) },
+              },
+            ],
+          },
+        };
+      }
+      // Model reports wide range evidence based only on grep
+      return {
+        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+        message: {
+          content: JSON.stringify({
+            answer: 'found',
+            summary: 'grep observation grounding test',
+            confidence: 'medium',
+            evidence: [
+              // Wide range — grep only saw line 1, so L1-L200 should be partial not exact
+              { kind: 'file_range', path: 'src/auth.js', startLine: 1, endLine: 200, why: 'requireAuth module', evidenceType: 'file_range' },
+            ],
+            candidatePaths: [],
+            followups: [],
+          }),
+          toolCalls: [],
+        },
+      };
+    }
+  }
+
+  const root = await makeRepoFixture();
+  const runtime = new ExplorerRuntime({ chatClient: new GrepOnlyClient() });
+  const result = await runtime.explore({ task: 'find requireAuth', repo_root: root, budget: 'quick' });
+  assert.ok(result, 'explore succeeded');
+  const wideEvidence = result.evidence?.find(e => e.path === 'src/auth.js' && e.startLine === 1 && e.endLine === 200);
+  if (wideEvidence) {
+    assert.equal(wideEvidence.groundingStatus, 'partial', 'wide range grounded from grep-only must be partial, not exact');
+  }
+  // Either dropped OR partial — never exact
+  const exactWide = result.evidence?.find(e => e.path === 'src/auth.js' && e.startLine === 1 && e.endLine === 200 && e.groundingStatus === 'exact');
+  assert.ok(!exactWide, 'wide range evidence based solely on grep observation must not be exact');
+});
+
+test('hallucinated git_commit evidence is dropped (no matching observed hash)', async () => {
+  class HallucinatedGitClient {
+    constructor() { this.model = 'test'; this.calls = 0; }
+    async createChatCompletion({ messages }) {
+      this.calls += 1;
+      if (this.calls === 1) {
+        return {
+          usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+          message: {
+            content: '',
+            toolCalls: [
+              {
+                id: 'grep-1',
+                function: { name: 'repo_grep', arguments: JSON.stringify({ pattern: 'requireAuth' }) },
+              },
+            ],
+          },
+        };
+      }
+      // Model hallucinates a git_commit evidence without ever calling git tools
+      return {
+        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+        message: {
+          content: JSON.stringify({
+            answer: 'found',
+            summary: 'git evidence hallucination test',
+            confidence: 'medium',
+            evidence: [
+              { evidenceType: 'git_commit', path: 'src/auth.js', sha: 'abc12345', why: 'commit that added requireAuth', startLine: 1, endLine: 4 },
+            ],
+            candidatePaths: [],
+            followups: [],
+          }),
+          toolCalls: [],
+        },
+      };
+    }
+  }
+
+  const root = await makeRepoFixture();
+  const runtime = new ExplorerRuntime({ chatClient: new HallucinatedGitClient() });
+  const result = await runtime.explore({ task: 'git history of auth', repo_root: root, budget: 'quick' });
+  assert.ok(result, 'explore succeeded');
+  // Hallucinated commit should be dropped — git tools were never called so hash not in observedGit
+  const gitCommitEvidence = result.evidence?.find(e => e.evidenceType === 'git_commit');
+  assert.ok(!gitCommitEvidence, 'hallucinated git_commit evidence is dropped when no git tool was called');
+});

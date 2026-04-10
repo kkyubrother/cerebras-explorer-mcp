@@ -173,38 +173,61 @@ function recordObservedRange(observedRanges, targetPath, startLine, endLine, sou
 }
 
 /**
- * Check whether an evidence item's line range overlaps with any observed read
- * range for that file. Returns an object with:
- *   - overlaps: boolean — true if within EVIDENCE_LINE_TOLERANCE
- *   - partial: boolean — true when overlap is only within tolerance (not exact)
+ * Check whether an evidence item's line range overlaps with any observed range
+ * for that file. Source-aware: grep-only observations can only produce partial
+ * grounding for wide evidence ranges; read/symbol_context_definition produce exact.
+ *
+ * Returns { overlaps: boolean, partial: boolean }
  */
 function checkEvidenceGrounding(observedRanges, evidenceItem) {
   const ranges = observedRanges.get(evidenceItem.path);
   if (!ranges || ranges.length === 0) {
     return { overlaps: false, partial: false };
   }
+
+  const evidenceStart = evidenceItem.startLine;
+  const evidenceEnd = evidenceItem.endLine;
+  const evidenceLength = evidenceEnd - evidenceStart + 1;
+  let bestResult = { overlaps: false, partial: false };
+
   for (const range of ranges) {
-    const exactOverlap =
-      evidenceItem.startLine <= range.endLine && evidenceItem.endLine >= range.startLine;
-    if (exactOverlap) {
-      return { overlaps: true, partial: false };
+    const rangeStart = range.startLine;
+    const rangeEnd = range.endLine;
+    const source = range.source ?? 'read';
+
+    const overlaps = evidenceStart <= rangeEnd && evidenceEnd >= rangeStart;
+    if (!overlaps) {
+      // Adjacent-within-tolerance: short evidence ranges near a read range count as partial
+      const distance = Math.max(rangeStart - evidenceEnd, evidenceStart - rangeEnd, 0);
+      if (distance <= EVIDENCE_LINE_TOLERANCE && evidenceLength <= 10) {
+        bestResult = { overlaps: true, partial: true };
+      }
+      continue;
     }
-    // Partial matching: allow evidence items that are adjacent to (but not overlapping)
-    // the read range, PROVIDED the evidence range itself is short. This prevents long
-    // ranges (e.g. 50-99) from sneaking through when only one endpoint is near the
-    // read range (e.g. 100-110). Short ranges (e.g. 5-6 adjacent to 1-4) are still
-    // accepted as plausible off-by-one / line-count mismatches.
-    const evidenceLength = evidenceItem.endLine - evidenceItem.startLine + 1;
-    const distanceToRange = Math.max(
-      range.startLine - evidenceItem.endLine,   // evidence is before the range
-      evidenceItem.startLine - range.endLine,   // evidence is after the range
-      0,
-    );
-    if (distanceToRange <= EVIDENCE_LINE_TOLERANCE && evidenceLength <= 10) {
-      return { overlaps: true, partial: true };
+
+    // Determine whether the overlap counts as exact or partial, based on source
+    let isExact;
+    if (source === 'read') {
+      // Exact only when the evidence is fully contained within the read window
+      isExact = evidenceStart >= rangeStart && evidenceEnd <= rangeEnd;
+    } else if (source === 'symbol_context_definition') {
+      // Symbol context reads the definition body — treat any overlap as exact
+      isExact = true;
+    } else if (source === 'grep') {
+      // grep only shows a single line; a wide evidence range built from grep is partial
+      isExact = evidenceLength <= 3;
+    } else {
+      // blame, diff_hunk, macro_tool, symbol_context_usage — all count as partial
+      isExact = false;
     }
+
+    if (isExact) {
+      return { overlaps: true, partial: false }; // exact — best possible result
+    }
+    bestResult = { overlaps: true, partial: true };
   }
-  return { overlaps: false, partial: false };
+
+  return bestResult;
 }
 
 function buildCodeMap(observedRanges, configEntryPoints = []) {
@@ -671,16 +694,20 @@ export class ExplorerRuntime {
 
         if (toolName === 'repo_git_log' && !toolResult?.error) {
           capturedGitLogs.push({ ...toolResult, path: toolArgs.path ?? null });
-          // Record observed commit SHAs for git evidence validation
+          // Record observed commit hashes for git evidence validation
+          // gitLog() returns commits with 'hash' field (not 'sha')
           if (Array.isArray(toolResult.commits)) {
             for (const commit of toolResult.commits) {
-              if (commit.sha) observedGit.commits.add(commit.sha);
+              const h = commit.hash ?? commit.sha;
+              if (h) observedGit.commits.add(h);
             }
           }
         }
 
         if (toolName === 'repo_git_show' && !toolResult?.error) {
-          if (toolResult.sha) observedGit.commits.add(toolResult.sha);
+          // gitShow() returns 'hash' field (not 'sha')
+          const h = toolResult.hash ?? toolResult.sha;
+          if (h) observedGit.commits.add(h);
         }
 
         if (toolName === 'repo_git_blame' && !toolResult?.error && Array.isArray(toolResult.lines)) {
@@ -743,10 +770,17 @@ export class ExplorerRuntime {
       .map(item => {
         const kind = item.evidenceType ?? 'file_range';
 
-        // git_commit: validate against observed commit SHAs
+        // git_commit: validate against observed commit hashes
         if (kind === 'git_commit') {
           const sha = item.sha ?? item.commit ?? '';
-          if (!sha || !observedGit.commits.has(sha)) {
+          if (!sha) {
+            droppedUngrounded++;
+            return null;
+          }
+          // Support both full and short (prefix) hashes
+          const matched = observedGit.commits.has(sha) ||
+            [...observedGit.commits].some(h => h.startsWith(sha) || sha.startsWith(h));
+          if (!matched) {
             droppedUngrounded++;
             return null;
           }
