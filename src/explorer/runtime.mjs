@@ -530,12 +530,17 @@ export class ExplorerRuntime {
     const CHECKPOINT_INTERVAL = 4;
     const checkpointEnabled = budgetConfig.maxTurns > 6;
 
+    // Stagnation tracking: detect repeated identical tool plans
+    let lastFingerprint = null;
+    let repeatedTurns = 0;
+    let consecutiveAllErrorTurns = 0;
+
     for (let turnIndex = 0; turnIndex < budgetConfig.maxTurns; turnIndex += 1) {
       // Checkpoint: every CHECKPOINT_INTERVAL turns, ask the model to self-assess.
       if (checkpointEnabled && turnIndex > 0 && turnIndex % CHECKPOINT_INTERVAL === 0) {
         messages.push({
           role: 'user',
-          content: 'Checkpoint: briefly reassess what is already proven, what is still missing, and whether another tool call is necessary. Prefer the smallest next step; use multiple calls only if they are clearly independent.',
+          content: 'Checkpoint: If evidence is sufficient, finalize now. Otherwise choose the smallest next step (1–2 tool calls max) that closes a specific missing fact.',
         });
       }
 
@@ -606,6 +611,21 @@ export class ExplorerRuntime {
         break;
       }
 
+      // Stagnation detection: fingerprint the tool plan for this turn
+      {
+        const fingerprint = JSON.stringify(
+          completion.message.toolCalls
+            .map(c => [c.function?.name ?? '', c.function?.arguments ?? ''])
+            .sort(),
+        );
+        if (fingerprint === lastFingerprint) {
+          repeatedTurns += 1;
+        } else {
+          repeatedTurns = 0;
+          lastFingerprint = fingerprint;
+        }
+      }
+
       // Progress: describe which tools are about to run
       if (onProgress) {
         const toolDesc = describePendingTools(completion.message.toolCalls);
@@ -616,7 +636,7 @@ export class ExplorerRuntime {
         });
       }
 
-      // Phase 6-B: execute up to TOOL_CONCURRENCY tool calls in parallel
+      // Execute up to TOOL_CONCURRENCY tool calls in parallel
       const toolCallResults = await runWithConcurrency(
         completion.message.toolCalls,
         TOOL_CONCURRENCY,
@@ -724,6 +744,25 @@ export class ExplorerRuntime {
           tool_call_id: toolCall.id,
           content: JSON.stringify(toolResult),
         });
+      }
+
+      // Check all-error turn
+      const allErrors = toolCallResults.every(r => r.toolResult?.error);
+      if (allErrors) {
+        consecutiveAllErrorTurns += 1;
+      } else {
+        consecutiveAllErrorTurns = 0;
+      }
+
+      // Inject recovery guidance when stagnating (same plan repeated or all tools failing)
+      if (repeatedTurns >= 2 || consecutiveAllErrorTurns >= 2) {
+        messages.push({
+          role: 'user',
+          content: 'You are repeating the same failing or unproductive tool calls. Either finalize with your current findings (even if incomplete), or choose a completely different tool or path that addresses a specific gap you have not explored yet.',
+        });
+        // Reset counters after injecting guidance
+        repeatedTurns = 0;
+        consecutiveAllErrorTurns = 0;
       }
     }
 

@@ -1406,3 +1406,84 @@ test('hallucinated git_commit evidence is dropped (no matching observed hash)', 
   const gitCommitEvidence = result.evidence?.find(e => e.evidenceType === 'git_commit');
   assert.ok(!gitCommitEvidence, 'hallucinated git_commit evidence is dropped when no git tool was called');
 });
+
+// --- Phase 6: Loop Stagnation + Checkpoint Softening Tests ---
+
+test('ExplorerRuntime injects recovery guidance after repeated identical tool plans', async () => {
+  const injectedMessages = [];
+  class RepeatingClient {
+    constructor() { this.model = 'test'; this.calls = 0; }
+    async createChatCompletion({ messages }) {
+      this.calls += 1;
+      // Capture user messages that are not the initial task (recovery messages)
+      const lastUser = [...messages].reverse().find(m => m.role === 'user');
+      if (lastUser && lastUser.content && lastUser.content.includes('unproductive')) {
+        injectedMessages.push(lastUser.content);
+      }
+      // Always return same tool call (stagnation)
+      if (this.calls <= 5) {
+        return {
+          usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+          message: {
+            content: '',
+            toolCalls: [{ id: `c-${this.calls}`, function: { name: 'repo_grep', arguments: JSON.stringify({ pattern: 'auth' }) } }],
+          },
+        };
+      }
+      // Finalize
+      return {
+        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+        message: {
+          content: JSON.stringify({ answer: 'done', summary: 'stagnation recovery', confidence: 'low', evidence: [], candidatePaths: [], followups: [] }),
+          toolCalls: [],
+        },
+      };
+    }
+  }
+
+  const root = await makeRepoFixture();
+  const runtime = new ExplorerRuntime({ chatClient: new RepeatingClient() });
+  await runtime.explore({ task: 'find auth', repo_root: root, budget: 'normal' });
+  assert.ok(injectedMessages.length > 0, 'recovery guidance was injected after repeated identical tool plans');
+});
+
+test('Checkpoint prompt does not force exactly one more tool call', async () => {
+  // The checkpoint message should not contain "exactly one more tool call"
+  let checkpointContent = null;
+  class CheckpointCaptureClient {
+    constructor() { this.model = 'test'; this.calls = 0; }
+    async createChatCompletion({ messages }) {
+      this.calls += 1;
+      // Look for checkpoint message in user messages
+      const checkpointMsg = messages.find(m => m.role === 'user' && m.content?.includes('Checkpoint:'));
+      if (checkpointMsg && !checkpointContent) {
+        checkpointContent = checkpointMsg.content;
+      }
+      if (this.calls <= 4) {
+        return {
+          usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+          message: {
+            content: '',
+            toolCalls: [{ id: `c-${this.calls}`, function: { name: 'repo_grep', arguments: JSON.stringify({ pattern: `term${this.calls}` }) } }],
+          },
+        };
+      }
+      return {
+        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+        message: {
+          content: JSON.stringify({ answer: 'done', summary: 'checkpoint test', confidence: 'low', evidence: [], candidatePaths: [], followups: [] }),
+          toolCalls: [],
+        },
+      };
+    }
+  }
+
+  const root = await makeRepoFixture();
+  const runtime = new ExplorerRuntime({ chatClient: new CheckpointCaptureClient() });
+  await runtime.explore({ task: 'find something', repo_root: root, budget: 'normal' });
+
+  if (checkpointContent) {
+    assert.ok(!checkpointContent.includes('exactly one more tool call'), 'checkpoint must not force exactly one more tool call');
+    assert.ok(checkpointContent.includes('1–2 tool calls') || checkpointContent.includes('smallest next step'), 'checkpoint uses softened language');
+  }
+});
