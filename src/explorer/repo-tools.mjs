@@ -519,6 +519,14 @@ export class RepoToolkit {
   }
 
   async _grepWithRipgrep({ pattern, scope = [], caseSensitive = false, maxResults }) {
+    const effectiveScope = this.buildEffectiveScopeRules(scope);
+    const normalizedScope = normalizeScope(scope);
+
+    // If base scope is active, skip ripgrep to guarantee scope enforcement
+    if (this.baseScopeRules.patterns?.length > 0) {
+      return null;
+    }
+
     const rgArgs = [
       '--json',
       '--no-binary',
@@ -530,10 +538,10 @@ export class RepoToolkit {
     rgArgs.push('--max-count', String(perFileMax));
     rgArgs.push('--', pattern);
 
-    const normalizedScope = normalizeScope(scope);
     if (normalizedScope.length > 0) {
       for (const s of normalizedScope) {
-        rgArgs.push(path.join(this.repoRootReal, s));
+        const prefix = scopePatternPrefix(s);
+        rgArgs.push(path.join(this.repoRootReal, prefix || '.'));
       }
     } else {
       rgArgs.push(this.repoRootReal);
@@ -567,6 +575,8 @@ export class RepoToolkit {
       const text = obj.data?.lines?.text ?? '';
       if (!filePath || !lineNum) continue;
       const relPath = toPosix(path.relative(this.repoRootReal, filePath));
+      // Post-filter: enforce effectiveScope to catch glob patterns ripgrep may over-include
+      if (!effectiveScope.matches(relPath)) continue;
       matches.push({ path: relPath, line: lineNum, text: text.slice(0, 300).replace(/\n$/, '') });
       if (matches.length >= maxResults) break;
     }
@@ -790,6 +800,26 @@ export class RepoToolkit {
       } catch { /* skip body read */ }
     }
 
+    const observedRanges = [];
+
+    if (definition?.path && Number.isInteger(definition.line)) {
+      observedRanges.push({
+        path: definition.path,
+        startLine: definition.line,
+        endLine: definition.endLine ?? definition.line,
+      });
+    }
+
+    for (const caller of callers.slice(0, 20)) {
+      if (caller.path && Number.isInteger(caller.line)) {
+        observedRanges.push({
+          path: caller.path,
+          startLine: caller.line,
+          endLine: caller.line,
+        });
+      }
+    }
+
     return {
       symbol: sym,
       definition,
@@ -797,6 +827,7 @@ export class RepoToolkit {
       callerCount: callers.length,
       truncated: grepResult.truncated,
       effectiveDepth,
+      observedRanges,
     };
   }
 
@@ -1214,7 +1245,7 @@ export class RepoToolkit {
 
     switch (name) {
       case 'repo_list_dir': {
-        cacheKey = cacheKeyListDir(args?.dirPath ?? '.', args?.depth ?? 2, args?.maxEntries ?? this.budgetConfig.maxDirectoryEntries);
+        cacheKey = cacheKeyListDir(this.repoRootReal, args?.dirPath ?? '.', args?.depth ?? 2, args?.maxEntries ?? this.budgetConfig.maxDirectoryEntries);
         const cached = this._cacheGet(cacheKey);
         if (cached !== undefined) return cached;
         const result = await this.listDirectory({ dirPath: args?.dirPath, depth: args?.depth, maxEntries: args?.maxEntries });
@@ -1222,7 +1253,7 @@ export class RepoToolkit {
         return result;
       }
       case 'repo_find_files': {
-        cacheKey = cacheKeyFindFiles(args?.pattern, args?.scope);
+        cacheKey = cacheKeyFindFiles(this.repoRootReal, args?.pattern, args?.scope, args?.maxResults ?? this.budgetConfig.maxSearchResults);
         const cached = this._cacheGet(cacheKey);
         if (cached !== undefined) return cached;
         const result = await this.findFiles({ pattern: args?.pattern, scope: args?.scope, maxResults: args?.maxResults });
@@ -1231,7 +1262,7 @@ export class RepoToolkit {
       }
       case 'repo_grep': {
         const ctxLines = typeof args?.contextLines === 'number' ? Math.min(Math.max(0, args.contextLines), 5) : 0;
-        cacheKey = cacheKeyGrep(args?.pattern, args?.caseSensitive ?? false, args?.scope);
+        cacheKey = cacheKeyGrep(this.repoRootReal, args?.pattern, args?.caseSensitive ?? false, args?.scope, args?.maxResults ?? this.budgetConfig.maxSearchResults, ctxLines);
         const cached = this._cacheGet(cacheKey);
         let result = cached !== undefined
           ? cached
@@ -1243,7 +1274,7 @@ export class RepoToolkit {
         return result;
       }
       case 'repo_read_file': {
-        cacheKey = cacheKeyReadFile(args?.path, args?.startLine ?? 1, args?.endLine ?? this.budgetConfig.maxReadLines);
+        cacheKey = cacheKeyReadFile(this.repoRootReal, args?.path, args?.startLine ?? 1, args?.endLine ?? this.budgetConfig.maxReadLines);
         const cached = this._cacheGet(cacheKey);
         if (cached !== undefined) return cached;
         const result = await this.readFile({ path: args?.path, startLine: args?.startLine, endLine: args?.endLine });
@@ -1252,7 +1283,7 @@ export class RepoToolkit {
       }
       case 'repo_git_log': {
         ttlMs = GIT_TOOL_TTL_MS;
-        cacheKey = cacheKeyGitLog(args?.path, args?.maxCount ?? 20, args?.since, args?.author, args?.grep);
+        cacheKey = cacheKeyGitLog(this.repoRootReal, args?.path, args?.maxCount ?? 20, args?.since, args?.author, args?.grep);
         const cached = this._cacheGet(cacheKey);
         if (cached !== undefined) return cached;
         const result = await this.gitLog({ path: args?.path, maxCount: args?.maxCount, since: args?.since, author: args?.author, grep: args?.grep });
@@ -1261,7 +1292,7 @@ export class RepoToolkit {
       }
       case 'repo_git_blame': {
         ttlMs = GIT_TOOL_TTL_MS;
-        cacheKey = cacheKeyGitBlame(args?.path, args?.startLine, args?.endLine);
+        cacheKey = cacheKeyGitBlame(this.repoRootReal, args?.path, args?.startLine, args?.endLine);
         const cached = this._cacheGet(cacheKey);
         if (cached !== undefined) return cached;
         const result = await this.gitBlame({ path: args?.path, startLine: args?.startLine, endLine: args?.endLine });
@@ -1270,7 +1301,7 @@ export class RepoToolkit {
       }
       case 'repo_git_diff': {
         ttlMs = GIT_TOOL_TTL_MS;
-        cacheKey = cacheKeyGitDiff(args?.from ?? 'HEAD~1', args?.to ?? 'HEAD', args?.path, args?.stat ?? false);
+        cacheKey = cacheKeyGitDiff(this.repoRootReal, args?.from ?? 'HEAD~1', args?.to ?? 'HEAD', args?.path, args?.stat ?? false);
         const cached = this._cacheGet(cacheKey);
         if (cached !== undefined) return cached;
         const result = await this.gitDiff({ from: args?.from, to: args?.to, path: args?.path, stat: args?.stat });
@@ -1279,7 +1310,7 @@ export class RepoToolkit {
       }
       case 'repo_git_show': {
         ttlMs = GIT_TOOL_TTL_MS;
-        cacheKey = cacheKeyGitShow(args?.ref);
+        cacheKey = cacheKeyGitShow(this.repoRootReal, args?.ref);
         const cached = this._cacheGet(cacheKey);
         if (cached !== undefined) return cached;
         const result = await this.gitShow({ ref: args?.ref });
@@ -1287,7 +1318,7 @@ export class RepoToolkit {
         return result;
       }
       case 'repo_symbols': {
-        cacheKey = cacheKeySymbols(args?.path, args?.kind ?? 'all');
+        cacheKey = cacheKeySymbols(this.repoRootReal, args?.path, args?.kind ?? 'all');
         const cached = this._cacheGet(cacheKey);
         if (cached !== undefined) return cached;
         const result = await this.symbols({ path: args?.path, kind: args?.kind });

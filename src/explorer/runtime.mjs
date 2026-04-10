@@ -481,6 +481,7 @@ export class ExplorerRuntime {
     let lastAssistantContent = '';
     const observedRanges = new Map();
     const capturedGitLogs = [];
+    const observedGit = { commits: new Set(), blame: new Set() };
 
     // Checkpoint interval: inject a self-assessment message every N turns.
     // Only active for budgets with enough turns to benefit (>6).
@@ -579,12 +580,20 @@ export class ExplorerRuntime {
         TOOL_CONCURRENCY,
         async (toolCall) => {
           const toolName = toolCall.function.name;
-          const toolArgs = safeJsonParse(toolCall.function.arguments || '{}');
+          let toolArgs = {};
           let toolResult;
           try {
+            toolArgs = safeJsonParse(toolCall.function.arguments ?? '{}');
             toolResult = await repoToolkit.callTool(toolName, toolArgs);
           } catch (error) {
-            toolResult = { error: true, message: error.message, tool: toolName };
+            toolResult = {
+              error: true,
+              type: error.message.startsWith('Failed to parse tool arguments')
+                ? 'invalid_tool_arguments'
+                : 'tool_execution_error',
+              message: error.message,
+              tool: toolName,
+            };
           }
           return { toolCall, toolName, toolArgs, toolResult };
         },
@@ -632,8 +641,34 @@ export class ExplorerRuntime {
           }
         }
 
+        // Record observedRanges from macro tools (e.g. repo_symbol_context)
+        if (Array.isArray(toolResult?.observedRanges)) {
+          for (const observed of toolResult.observedRanges) {
+            recordObservedRange(observedRanges, observed.path, observed.startLine, observed.endLine);
+          }
+        }
+
         if (toolName === 'repo_git_log' && !toolResult?.error) {
           capturedGitLogs.push({ ...toolResult, path: toolArgs.path ?? null });
+          // Record observed commit SHAs for git evidence validation
+          if (Array.isArray(toolResult.commits)) {
+            for (const commit of toolResult.commits) {
+              if (commit.sha) observedGit.commits.add(commit.sha);
+            }
+          }
+        }
+
+        if (toolName === 'repo_git_show' && !toolResult?.error) {
+          if (toolResult.sha) observedGit.commits.add(toolResult.sha);
+        }
+
+        if (toolName === 'repo_git_blame' && !toolResult?.error && Array.isArray(toolResult.lines)) {
+          const blamePath = toolArgs.path ?? null;
+          for (const entry of toolResult.lines) {
+            if (blamePath && typeof entry.line === 'number' && entry.sha) {
+              observedGit.blame.add(`${blamePath}:${entry.line}:${entry.sha}`);
+            }
+          }
         }
 
         messages.push({
@@ -687,12 +722,23 @@ export class ExplorerRuntime {
       .map(item => {
         const kind = item.evidenceType ?? 'file_range';
 
-        // git_commit: inherently grounded by git_log/git_show tool use
+        // git_commit: validate against observed commit SHAs
         if (kind === 'git_commit') {
+          const sha = item.sha ?? item.commit ?? '';
+          if (!sha || !observedGit.commits.has(sha)) {
+            droppedUngrounded++;
+            return null;
+          }
           return { ...item, groundingStatus: 'exact' };
         }
-        // git_blame: inherently grounded by git_blame tool use
+        // git_blame: validate against observed blame entries
         if (kind === 'git_blame') {
+          const blameKey = `${item.path}:${item.startLine}:${item.sha ?? ''}`;
+          const endKey = `${item.path}:${item.endLine}:${item.sha ?? ''}`;
+          if (!observedGit.blame.has(blameKey) && !observedGit.blame.has(endKey)) {
+            droppedUngrounded++;
+            return null;
+          }
           return { ...item, groundingStatus: 'exact' };
         }
         // git_diff_hunk: grounded via diff/show hunk observation
@@ -885,22 +931,28 @@ export class ExplorerRuntime {
           function: { name: call.function.name, arguments: call.function.arguments },
         })),
       };
-      if (completion.message.content) {
-        report = completion.message.content;
-      }
+      // Do NOT set report here — only set it when there are no tool calls (final answer)
       messages.push(assistantMessage);
 
       for (const toolCall of completion.message.toolCalls) {
         const toolName = toolCall.function.name;
-        const toolArgs = safeJsonParse(toolCall.function.arguments || '{}');
         stats.toolCalls += 1;
         toolsUsed.add(toolName);
 
+        let toolArgs = {};
         let toolResult;
         try {
+          toolArgs = safeJsonParse(toolCall.function.arguments ?? '{}');
           toolResult = await repoToolkit.callTool(toolName, toolArgs);
         } catch (error) {
-          toolResult = { error: true, message: error.message, tool: toolName };
+          toolResult = {
+            error: true,
+            type: error.message.startsWith('Failed to parse tool arguments')
+              ? 'invalid_tool_arguments'
+              : 'tool_execution_error',
+            message: error.message,
+            tool: toolName,
+          };
         }
 
         if (toolName === 'repo_read_file' && !toolResult?.error) {

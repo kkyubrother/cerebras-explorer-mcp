@@ -603,9 +603,10 @@ test('Phase 1 — malformed freeform content still produces strict-schema result
 
 // ── Phase 5 — evidence/schema/context 고도화 ──────────────────────────────────
 
-test('Phase 5 — evidence with git_commit type is preserved through normalization', async () => {
-  // Verifies that the extended evidence schema fields (evidenceType, sha, author)
-  // are preserved by normalizeExploreResult and pass through to the final result.
+test('Phase 5 — git_commit evidence without verified SHA is dropped (strict validation)', async () => {
+  // Verifies that git_commit evidence with a SHA that was not actually returned by
+  // a git tool call is dropped. The fixture has no git repo, so repo_git_log returns
+  // an error and observedGit.commits stays empty. Evidence citing 'abc1234' is unverified.
   class GitEvidenceClient {
     constructor() { this.model = 'zai-glm-4.7'; this.calls = 0; }
     async createChatCompletion() {
@@ -658,12 +659,8 @@ test('Phase 5 — evidence with git_commit type is preserved through normalizati
     hints: { strategy: 'git-guided' },
   });
 
-  // The extended evidence fields must be preserved after normalization
-  assert.ok(result.evidence.length >= 1, 'at least one evidence item must be present');
-  const ev = result.evidence[0];
-  assert.equal(ev.evidenceType, 'git_commit', 'evidenceType must be preserved');
-  assert.equal(ev.sha, 'abc1234', 'sha must be preserved');
-  assert.equal(ev.author, 'dev@example.com', 'author must be preserved');
+  // git_commit evidence with unverified SHA must be dropped (fabrication prevention)
+  assert.equal(result.evidence.length, 0, 'unverified git_commit evidence must be dropped');
 });
 
 test('Phase 5 — session reuse stores candidatePathsWithContext as {path, why} objects', async () => {

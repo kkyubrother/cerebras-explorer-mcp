@@ -73,42 +73,44 @@ export const globalRepoCache = new LruCache();
 
 // --- Cache key builders ---
 
-export function cacheKeyListDir(dirPath, depth, maxEntries) {
-  return `list_dir:${dirPath}:${depth}:${maxEntries}`;
+function scopeToken(scope) {
+  return Array.isArray(scope) ? [...scope].sort().join(',') : '';
 }
 
-export function cacheKeyFindFiles(pattern, scope) {
-  const scopeStr = Array.isArray(scope) ? [...scope].sort().join(',') : '';
-  return `find_files:${pattern}:${scopeStr}`;
+export function cacheKeyListDir(repoRootReal, dirPath, depth, maxEntries) {
+  return `list_dir:${repoRootReal}:${dirPath}:${depth}:${maxEntries}`;
 }
 
-export function cacheKeyGrep(pattern, caseSensitive, scope) {
-  const scopeStr = Array.isArray(scope) ? [...scope].sort().join(',') : '';
-  return `grep:${pattern}:${caseSensitive}:${scopeStr}`;
+export function cacheKeyFindFiles(repoRootReal, pattern, scope, maxResults) {
+  return `find_files:${repoRootReal}:${pattern}:${scopeToken(scope)}:${maxResults}`;
 }
 
-export function cacheKeyReadFile(filePath, startLine, endLine) {
-  return `read_file:${filePath}:${startLine}:${endLine}`;
+export function cacheKeyGrep(repoRootReal, pattern, caseSensitive, scope, maxResults, contextLines = 0) {
+  return `grep:${repoRootReal}:${pattern}:${caseSensitive}:${scopeToken(scope)}:${maxResults}:${contextLines}`;
 }
 
-export function cacheKeyGitLog(filePath, maxCount, since, author, grep) {
-  return `git_log:${filePath ?? ''}:${maxCount}:${since ?? ''}:${author ?? ''}:${grep ?? ''}`;
+export function cacheKeyReadFile(repoRootReal, filePath, startLine, endLine) {
+  return `read_file:${repoRootReal}:${filePath}:${startLine}:${endLine}`;
 }
 
-export function cacheKeyGitBlame(filePath, startLine, endLine) {
-  return `git_blame:${filePath}:${startLine ?? ''}:${endLine ?? ''}`;
+export function cacheKeyGitLog(repoRootReal, filePath, maxCount, since, author, grep) {
+  return `git_log:${repoRootReal}:${filePath ?? ''}:${maxCount}:${since ?? ''}:${author ?? ''}:${grep ?? ''}`;
 }
 
-export function cacheKeyGitDiff(from, to, filePath, stat) {
-  return `git_diff:${from}:${to}:${filePath ?? ''}:${stat}`;
+export function cacheKeyGitBlame(repoRootReal, filePath, startLine, endLine) {
+  return `git_blame:${repoRootReal}:${filePath}:${startLine ?? ''}:${endLine ?? ''}`;
 }
 
-export function cacheKeyGitShow(ref) {
-  return `git_show:${ref}`;
+export function cacheKeyGitDiff(repoRootReal, from, to, filePath, stat) {
+  return `git_diff:${repoRootReal}:${from}:${to}:${filePath ?? ''}:${stat}`;
 }
 
-export function cacheKeySymbols(filePath, kind) {
-  return `symbols:${filePath}:${kind ?? 'all'}`;
+export function cacheKeyGitShow(repoRootReal, ref) {
+  return `git_show:${repoRootReal}:${ref}`;
+}
+
+export function cacheKeySymbols(repoRootReal, filePath, kind) {
+  return `symbols:${repoRootReal}:${filePath}:${kind ?? 'all'}`;
 }
 
 export { GIT_TOOL_TTL_MS };
