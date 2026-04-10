@@ -1245,3 +1245,59 @@ test('ExplorerRuntime preserves successful tool results even when one sibling to
   assert.ok(toolMessages.some(m => m.content && m.content.includes('requireAuth')),
     'grep tool result (requireAuth) is in context even though sibling tool failed');
 });
+
+// --- Phase 4: Observation Ledger Tests ---
+
+test('ExplorerRuntime records observations from macro tools (repo_symbol_context)', async () => {
+  let capturedMessages = null;
+  class SymbolContextClient {
+    constructor() { this.model = 'test'; this.calls = 0; }
+    async createChatCompletion({ messages }) {
+      this.calls += 1;
+      if (this.calls === 1) {
+        return {
+          usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+          message: {
+            content: '',
+            toolCalls: [
+              {
+                id: 'sc-1',
+                function: {
+                  name: 'repo_symbol_context',
+                  arguments: JSON.stringify({ symbol: 'requireAuth' }),
+                },
+              },
+            ],
+          },
+        };
+      }
+      capturedMessages = messages;
+      return {
+        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+        message: {
+          content: JSON.stringify({
+            answer: 'found requireAuth definition',
+            summary: 'symbol context observations recorded',
+            confidence: 'medium',
+            evidence: [
+              { kind: 'file_range', path: 'src/auth.js', startLine: 1, endLine: 4, quote: 'export function requireAuth', why: 'definition of requireAuth', groundingStatus: 'exact' },
+            ],
+            candidatePaths: [{ path: 'src/auth.js', why: 'definition' }],
+            followups: [],
+          }),
+          toolCalls: [],
+        },
+      };
+    }
+  }
+
+  const root = await makeRepoFixture();
+  const runtime = new ExplorerRuntime({ chatClient: new SymbolContextClient() });
+  const result = await runtime.explore({ task: 'where is requireAuth defined', repo_root: root, budget: 'quick' });
+
+  // The symbol_context observation for src/auth.js should allow evidence grounding
+  assert.ok(result, 'explore succeeded');
+  // Evidence for src/auth.js should be retained (grounded via symbol_context observations)
+  const authEvidence = result.evidence?.filter(e => e.path === 'src/auth.js') ?? [];
+  assert.ok(authEvidence.length > 0, 'evidence for src/auth.js is retained via symbol_context observations');
+});

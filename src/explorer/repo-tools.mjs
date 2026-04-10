@@ -814,6 +814,7 @@ export class RepoToolkit {
         path: definition.path,
         startLine: definition.line,
         endLine: definition.endLine ?? definition.line,
+        source: 'symbol_context_definition',
       });
     }
 
@@ -823,6 +824,7 @@ export class RepoToolkit {
           path: caller.path,
           startLine: caller.line,
           endLine: caller.line,
+          source: 'symbol_context_usage',
         });
       }
     }

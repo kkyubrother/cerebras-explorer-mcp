@@ -348,6 +348,43 @@ test('cache isolates repo_symbols results by repo root', async () => {
   assert.ok(!symB.symbols.some(s => s.name === 'fromRepoA'), 'repo B does not have fromRepoA from wrong cache');
 });
 
+// --- Phase 4: Observation Ledger Tests ---
+
+test('repo_symbol_context returns observations with source for definition and callers', async () => {
+  const repoRoot = await makeRepoFixture();
+  const toolkit = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig('normal') });
+  await toolkit.initialize(['src/**', 'docs/**']);
+
+  const result = await toolkit.symbolContext({ symbol: 'requireAuth' });
+
+  assert.ok(Array.isArray(result.observedRanges), 'observedRanges is an array');
+  assert.ok(result.observedRanges.length > 0, 'at least one observation');
+
+  const defObs = result.observedRanges.find(o => o.source === 'symbol_context_definition');
+  assert.ok(defObs, 'definition observation has source=symbol_context_definition');
+  assert.ok(defObs.path, 'definition observation has path');
+  assert.ok(typeof defObs.startLine === 'number', 'definition observation has startLine');
+
+  const usageObs = result.observedRanges.filter(o => o.source === 'symbol_context_usage');
+  assert.ok(usageObs.length > 0, 'caller observations have source=symbol_context_usage');
+});
+
+test('repo_grep returns line-level observations via runtime integration', async () => {
+  const repoRoot = await makeRepoFixture();
+  const toolkit = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig('normal') });
+  await toolkit.initialize(['src/**', 'docs/**']);
+
+  const result = await toolkit.grep({ pattern: 'requireAuth', maxResults: 10 });
+
+  // Verify grep returns line-level match info (runtime records these as 'grep' source observations)
+  assert.ok(Array.isArray(result.matches), 'matches is an array');
+  assert.ok(result.matches.length > 0, 'grep found matches');
+  for (const match of result.matches) {
+    assert.ok(typeof match.line === 'number', 'each match has a line number');
+    assert.ok(match.path, 'each match has a path');
+  }
+});
+
 // --- Phase 2: Scope Hard Boundary Tests ---
 
 test('RepoToolkit grep with ripgrep respects initialize base scope', { skip: !hasRipgrep() }, async () => {

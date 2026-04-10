@@ -163,12 +163,12 @@ function resolveSessionForExplore(sessionStore, requestedSessionId, repoRoot) {
   };
 }
 
-function recordObservedRange(observedRanges, targetPath, startLine, endLine) {
+function recordObservedRange(observedRanges, targetPath, startLine, endLine, source = 'read') {
   if (!targetPath) {
     return;
   }
   const current = observedRanges.get(targetPath) ?? [];
-  current.push({ startLine, endLine });
+  current.push({ startLine, endLine, source });
   observedRanges.set(targetPath, current);
 }
 
@@ -628,43 +628,44 @@ export class ExplorerRuntime {
         );
 
         if (toolName === 'repo_read_file' && !toolResult?.error) {
-          recordObservedRange(observedRanges, toolResult.path, toolResult.startLine, toolResult.endLine);
+          recordObservedRange(observedRanges, toolResult.path, toolResult.startLine, toolResult.endLine, 'read');
         }
 
         if (toolName === 'repo_grep' && Array.isArray(toolResult?.matches)) {
           for (const match of toolResult.matches) {
-            recordObservedRange(observedRanges, match.path, match.line, match.line);
+            recordObservedRange(observedRanges, match.path, match.line, match.line, 'grep');
           }
         }
 
-        // Phase 2: record blame lines as observed ranges
+        // Record blame lines as observed ranges
         if (toolName === 'repo_git_blame' && !toolResult?.error && Array.isArray(toolResult?.lines)) {
           const blamePath = toolArgs.path ?? null;
           if (blamePath) {
             for (const entry of toolResult.lines) {
               if (typeof entry.line === 'number') {
-                recordObservedRange(observedRanges, blamePath, entry.line, entry.line);
+                recordObservedRange(observedRanges, blamePath, entry.line, entry.line, 'blame');
               }
             }
           }
         }
 
-        // Phase 2: record diff/show hunk ranges as observed ranges
+        // Record diff/show hunk ranges as observed ranges
         if ((toolName === 'repo_git_diff' || toolName === 'repo_git_show') && !toolResult?.error) {
           const diffFiles = toolResult?.files ?? [];
           for (const file of diffFiles) {
             if (file.path && Array.isArray(file.hunks)) {
               for (const hunk of file.hunks) {
-                recordObservedRange(observedRanges, file.path, hunk.newStart, hunk.newStart + hunk.newLines - 1);
+                recordObservedRange(observedRanges, file.path, hunk.newStart, hunk.newStart + hunk.newLines - 1, 'diff_hunk');
               }
             }
           }
         }
 
         // Record observedRanges from macro tools (e.g. repo_symbol_context)
+        // Each observation carries its own source field ('symbol_context_definition', 'symbol_context_usage', etc.)
         if (Array.isArray(toolResult?.observedRanges)) {
           for (const observed of toolResult.observedRanges) {
-            recordObservedRange(observedRanges, observed.path, observed.startLine, observed.endLine);
+            recordObservedRange(observedRanges, observed.path, observed.startLine, observed.endLine, observed.source ?? 'macro_tool');
           }
         }
 
