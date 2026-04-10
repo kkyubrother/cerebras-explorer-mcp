@@ -94,6 +94,30 @@ function safeJsonParse(input) {
   }
 }
 
+/**
+ * Attempt to extract a JSON object from prose-wrapped content.
+ * Handles common patterns like ```json\n{...}\n``` or plain text with a JSON block.
+ * Returns the parsed object or null if no valid JSON object is found.
+ */
+function tryLooseRepair(content) {
+  if (!content || typeof content !== 'string') return null;
+
+  // Try code fence patterns: ```json ... ``` or ``` ... ```
+  const fenceMatch = content.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
+  if (fenceMatch) {
+    try { return JSON.parse(fenceMatch[1]); } catch { /* continue */ }
+  }
+
+  // Try finding the first { ... } block that spans multiple lines
+  const braceStart = content.indexOf('{');
+  const braceEnd = content.lastIndexOf('}');
+  if (braceStart !== -1 && braceEnd > braceStart) {
+    try { return JSON.parse(content.slice(braceStart, braceEnd + 1)); } catch { /* continue */ }
+  }
+
+  return null;
+}
+
 function summarizeUsage(existing, usage) {
   if (!usage) {
     return existing;
@@ -1124,33 +1148,42 @@ export class ExplorerRuntime {
       parallelToolCalls: false,
     });
 
-    // structured output path — primary
+    // 1) Primary: clean JSON parse
     const structured = extractFirstJsonObject(completion.message.content);
     if (structured) {
       return { result: structured, usage: completion.usage ?? null };
     }
 
-    // repair pass: ask the model to convert its broken output into the exact schema
+    // 2) Local salvage: extract JSON wrapped in prose (e.g., ```json ... ```)
+    const loose = tryLooseRepair(completion.message.content);
+    if (loose) {
+      return { result: loose, usage: completion.usage ?? null };
+    }
+
+    // 3) No-tools repair pass: ask model to produce clean JSON within conversation context
     try {
+      const repairMessages = [
+        ...messages,
+        { role: 'assistant', content: completion.message.content || '' },
+        { role: 'user', content: 'Repair your previous response into exactly one JSON object matching the schema. Do not add new facts. Do not call tools.' },
+      ];
       const repair = await chatClient.createChatCompletion({
-        messages: [
-          { role: 'system', content: 'Repair the following into the exact explore_repo_result JSON schema. Do not add new facts.' },
-          { role: 'user', content: completion.message.content || '' },
-        ],
+        messages: repairMessages,
         responseFormat: { type: 'json_schema', json_schema: EXPLORE_RESULT_JSON_SCHEMA },
         reasoningEffort: 'none',
         temperature: 0,
         topP: 1,
         maxCompletionTokens: Math.min(1000, maxCompletionTokens),
         parallelToolCalls: false,
+        // Explicitly omit tools to prevent the model from requesting more tool calls
       });
-      const repaired = extractFirstJsonObject(repair.message.content);
+      const repaired = extractFirstJsonObject(repair.message.content) ?? tryLooseRepair(repair.message.content);
       if (repaired) {
         return { result: repaired, usage: repair.usage ?? completion.usage ?? null };
       }
     } catch { /* repair failed, fall through to local fallback */ }
 
-    // local fallback: unstructured content that could not be parsed as JSON
+    // 4) Last resort: raw text as low-confidence answer
     return {
       result: {
         answer: completion.message.content || 'Explorer could not synthesize a final answer.',

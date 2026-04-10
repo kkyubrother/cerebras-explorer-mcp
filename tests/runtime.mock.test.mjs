@@ -1487,3 +1487,94 @@ test('Checkpoint prompt does not force exactly one more tool call', async () => 
     assert.ok(checkpointContent.includes('1–2 tool calls') || checkpointContent.includes('smallest next step'), 'checkpoint uses softened language');
   }
 });
+
+// --- Phase 7: Finalize Hardening Tests ---
+
+test('finalizeAfterToolLoop salvages prose-wrapped JSON locally', async () => {
+  class ProseWrappedClient {
+    constructor() { this.model = 'test'; this.calls = 0; }
+    async createChatCompletion({ messages }) {
+      this.calls += 1;
+      if (this.calls === 1) {
+        return {
+          usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+          message: {
+            content: '',
+            toolCalls: [{ id: 'g1', function: { name: 'repo_grep', arguments: JSON.stringify({ pattern: 'requireAuth' }) } }],
+          },
+        };
+      }
+      // Finalize response wraps JSON in prose
+      return {
+        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+        message: {
+          content: 'Here is my findings:\n\n```json\n' + JSON.stringify({
+            answer: 'found in prose',
+            summary: 'prose wrapped JSON salvaged',
+            confidence: 'medium',
+            evidence: [],
+            candidatePaths: [{ path: 'src/auth.js', why: 'contains requireAuth' }],
+            followups: [],
+          }) + '\n```\n\nThat is all I found.',
+          toolCalls: [],
+        },
+      };
+    }
+  }
+
+  const root = await makeRepoFixture();
+  const runtime = new ExplorerRuntime({ chatClient: new ProseWrappedClient() });
+  const result = await runtime.explore({ task: 'find auth', repo_root: root, budget: 'quick' });
+  assert.ok(result, 'explore succeeded');
+  assert.equal(result.summary, 'prose wrapped JSON salvaged', 'prose-wrapped JSON is salvaged locally');
+});
+
+test('finalizeAfterToolLoop repairs malformed JSON with a no-tool repair pass', async () => {
+  let repairCallCount = 0;
+  class MalformedFinalizeClient {
+    constructor() { this.model = 'test'; this.calls = 0; }
+    async createChatCompletion({ messages }) {
+      this.calls += 1;
+      // First call: tool use
+      if (this.calls === 1) {
+        return {
+          usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+          message: {
+            content: '',
+            toolCalls: [{ id: 'g1', function: { name: 'repo_grep', arguments: JSON.stringify({ pattern: 'requireAuth' }) } }],
+          },
+        };
+      }
+      // Finalize: return truly malformed JSON (not salvageable by prose extraction)
+      if (this.calls === 2) {
+        return {
+          usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+          message: { content: 'I found auth: {broken json here...', toolCalls: [] },
+        };
+      }
+      // Repair pass
+      repairCallCount += 1;
+      return {
+        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+        message: {
+          content: JSON.stringify({
+            answer: 'repaired answer',
+            summary: 'repaired after malformed JSON',
+            confidence: 'low',
+            evidence: [],
+            candidatePaths: [],
+            followups: [],
+          }),
+          toolCalls: [],
+        },
+      };
+    }
+  }
+
+  const root = await makeRepoFixture();
+  const runtime = new ExplorerRuntime({ chatClient: new MalformedFinalizeClient() });
+  const result = await runtime.explore({ task: 'find auth', repo_root: root, budget: 'quick' });
+  assert.ok(result, 'explore succeeded despite malformed finalize JSON');
+  assert.equal(repairCallCount, 1, 'repair pass was called exactly once');
+  assert.equal(result.summary, 'repaired after malformed JSON', 'repaired result is used');
+});
