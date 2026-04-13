@@ -37,6 +37,7 @@ import {
   validateExploreRepoArgs,
 } from './schemas.mjs';
 import { createChatClient } from './providers/index.mjs';
+import { createTranscriptRecorder } from './transcript.mjs';
 
 // Evidence items whose line range is within this many lines of an observed
 // range are kept as "partial" matches rather than being dropped entirely.
@@ -1420,6 +1421,14 @@ export class ExplorerRuntime {
 
     const startedAt = nowMs();
 
+    // Transcript recording (opt-in via CEREBRAS_EXPLORER_TRANSCRIPT=true)
+    const transcript = createTranscriptRecorder({
+      repoRoot,
+      tool: 'explore_v2',
+      task: args.prompt,
+      logger: this.logger,
+    });
+
     let messages = [
       {
         role: 'system',
@@ -1558,6 +1567,11 @@ export class ExplorerRuntime {
         })),
       };
       messages.push(assistantMessage);
+      transcript.record('assistant', {
+        content: assistantMessage.content,
+        toolCalls: completion.message.toolCalls.map(c => c.function?.name),
+        turn: turnIndex,
+      });
 
       // Stagnation detection
       {
@@ -1627,6 +1641,12 @@ export class ExplorerRuntime {
           role: 'tool',
           tool_call_id: toolCall.id,
           content: serialized,
+        });
+        transcript.record('tool', {
+          tool: toolName,
+          error: toolResult?.error ?? false,
+          resultChars: serialized.length,
+          turn: turnIndex,
         });
       }
 
@@ -1747,6 +1767,9 @@ export class ExplorerRuntime {
     stats.elapsedMs = nowMs() - startedAt;
     Object.assign(stats, globalRepoCache.stats());
 
+    // Finalize transcript
+    await transcript.finalize(stats);
+
     // Update session
     if (sessionStore && sessionId) {
       const summaryLine = report.split('\n').find(l => l.trim())?.slice(0, 400) ?? '';
@@ -1763,6 +1786,7 @@ export class ExplorerRuntime {
       filesRead: [...filesRead],
       toolsUsed: [...toolsUsed],
       stats,
+      transcriptPath: transcript.filePath,
     };
   }
 
