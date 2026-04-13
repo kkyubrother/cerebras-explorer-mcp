@@ -39,7 +39,55 @@ import { createChatClient } from './providers/index.mjs';
 const EVIDENCE_LINE_TOLERANCE = 2;
 
 // Maximum number of tool calls to execute in parallel within a single turn.
-const TOOL_CONCURRENCY = 4;
+const TOOL_CONCURRENCY = 8;
+
+/**
+ * Estimate token count for a message array.
+ * Uses a conservative 1 token ≈ 4 chars heuristic.
+ */
+function estimateTokens(messages) {
+  let total = 0;
+  for (const msg of messages) {
+    const content = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content ?? '');
+    total += Math.ceil(content.length / 4);
+    if (msg.tool_calls) total += Math.ceil(JSON.stringify(msg.tool_calls).length / 4);
+    if (msg.reasoning) total += Math.ceil(msg.reasoning.length / 4);
+  }
+  return total;
+}
+
+/**
+ * Compact old tool results when conversation approaches context window limit.
+ * Preserves the most recent N messages (3 turns = ~6 messages) intact.
+ * Older tool results are truncated to a short prefix + length note.
+ *
+ * @param {object[]} messages - The conversation messages array
+ * @param {number} threshold - Token threshold to trigger compaction
+ * @returns {object[]} Potentially compacted messages array
+ */
+function compactOldToolResults(messages, threshold) {
+  if (!threshold || threshold <= 0) return messages;
+  const estimated = estimateTokens(messages);
+  if (estimated < threshold) return messages;
+
+  // Preserve the last 8 messages (roughly 3-4 recent turns) untouched
+  const preserveCount = 8;
+  const compacted = [...messages];
+  const compactUpTo = Math.max(0, compacted.length - preserveCount);
+
+  for (let i = 0; i < compactUpTo; i++) {
+    if (compacted[i].role === 'tool') {
+      const content = compacted[i].content;
+      if (typeof content === 'string' && content.length > 400) {
+        compacted[i] = {
+          ...compacted[i],
+          content: content.slice(0, 300) + `\n... [truncated from ${content.length} chars to save context]`,
+        };
+      }
+    }
+  }
+  return compacted;
+}
 
 /**
  * Run async tasks from an array in parallel, capped at `limit` concurrent.
@@ -78,6 +126,38 @@ async function runWithConcurrency(items, limit, fn) {
 
 // Common entry-point filename patterns (used to identify codeMap.entryPoints)
 const ENTRY_POINT_PATTERNS = /^(index|main|app|server|cli|start|entry)\.(m?[jt]s|py|go|rb|rs)$/i;
+
+/**
+ * Build a natural-language trust summary for the parent model.
+ * This replaces opaque confidence numbers with a human-readable verification statement.
+ */
+function buildTrustSummary(result, stats) {
+  const evidenceCount = result.evidence?.length ?? 0;
+  const exactCount = result.evidence?.filter(e => e.groundingStatus === 'exact').length ?? 0;
+  const distinctFiles = new Set((result.evidence ?? []).map(e => e.path)).size;
+  const parts = [];
+
+  parts.push(`Verified: ${stats.filesRead ?? 0} files read`);
+  if ((stats.grepCalls ?? 0) > 0) parts.push(`${stats.grepCalls} grep searches`);
+  if ((stats.symbolCalls ?? 0) > 0) parts.push(`${stats.symbolCalls} symbol lookups`);
+  if (evidenceCount > 0) {
+    parts.push(`${exactCount}/${evidenceCount} evidence items grounded`);
+  }
+  if (distinctFiles >= 2) {
+    parts.push(`cross-verified across ${distinctFiles} files`);
+  }
+
+  let suffix = '';
+  if (result.confidence === 'high') {
+    suffix = 'All evidence grounded in inspected code.';
+  } else if (result.confidence === 'medium') {
+    suffix = 'Evidence partially verified — results are reliable for most uses.';
+  } else {
+    suffix = 'Limited evidence found — consider follow-up exploration.';
+  }
+
+  return parts.join(', ') + '. ' + suffix;
+}
 
 function nowMs() {
   return Date.now();
@@ -471,10 +551,11 @@ export class ExplorerRuntime {
   /**
    * @param {object} args - explore_repo arguments (validated by validateExploreRepoArgs)
    * @param {object} [callOpts]
-   * @param {Function} [callOpts.onProgress]    - Called with {progress, total, message}
-   * @param {object}   [callOpts.sessionStore]  - SessionStore instance for session management
+   * @param {Function}      [callOpts.onProgress]    - Called with {progress, total, message}
+   * @param {object}        [callOpts.sessionStore]  - SessionStore instance for session management
+   * @param {AbortSignal}   [callOpts.abortSignal]   - Signal to abort exploration gracefully
    */
-  async explore(args, { onProgress = null, sessionStore = null } = {}) {
+  async explore(args, { onProgress = null, sessionStore = null, abortSignal = null } = {}) {
     validateExploreRepoArgs(args);
 
     const {
@@ -492,7 +573,7 @@ export class ExplorerRuntime {
 
     const startedAt = nowMs();
 
-    const messages = [
+    let messages = [
       {
         role: 'system',
         content: buildExplorerSystemPrompt({
@@ -560,6 +641,15 @@ export class ExplorerRuntime {
     let consecutiveAllErrorTurns = 0;
 
     for (let turnIndex = 0; turnIndex < budgetConfig.maxTurns; turnIndex += 1) {
+      // Abort check: gracefully stop if signal was triggered
+      if (abortSignal?.aborted) {
+        stats.stoppedByAbort = true;
+        break;
+      }
+
+      // Context window management: compact old tool results when approaching limit
+      messages = compactOldToolResults(messages, budgetConfig.maxContextTokens);
+
       // Checkpoint: every CHECKPOINT_INTERVAL turns, ask the model to self-assess.
       if (checkpointEnabled && turnIndex > 0 && turnIndex % CHECKPOINT_INTERVAL === 0) {
         messages.push({
@@ -919,6 +1009,9 @@ export class ExplorerRuntime {
       normalized.confidence = 'low';
     }
 
+    // Trust summary — a natural-language sentence the parent model can rely on
+    normalized.trustSummary = buildTrustSummary(normalized, stats);
+
     // codeMap + Mermaid diagram
     const codeMap = buildCodeMap(observedRanges, projectConfig.entryPoints ?? []);
     if (codeMap) {
@@ -947,10 +1040,11 @@ export class ExplorerRuntime {
    *
    * @param {object} args - { prompt, thoroughness?, scope?, repo_root?, session?, language?, context? }
    * @param {object} [callOpts]
-   * @param {Function} [callOpts.onProgress]
-   * @param {object}   [callOpts.sessionStore]
+   * @param {Function}      [callOpts.onProgress]
+   * @param {object}        [callOpts.sessionStore]
+   * @param {AbortSignal}   [callOpts.abortSignal]
    */
-  async freeExplore(args, { onProgress = null, sessionStore = null } = {}) {
+  async freeExplore(args, { onProgress = null, sessionStore = null, abortSignal = null } = {}) {
     if (!args || typeof args.prompt !== 'string' || !args.prompt.trim()) {
       const err = new Error('prompt is required and must be a non-empty string.');
       err.code = -32602;
@@ -975,7 +1069,7 @@ export class ExplorerRuntime {
 
     const startedAt = nowMs();
 
-    const messages = [
+    let messages = [
       {
         role: 'system',
         content: buildFreeExploreSystemPrompt({
@@ -1017,6 +1111,15 @@ export class ExplorerRuntime {
     let report = '';
 
     for (let turnIndex = 0; turnIndex < budgetConfig.maxTurns; turnIndex += 1) {
+      // Abort check
+      if (abortSignal?.aborted) {
+        stats.stoppedByAbort = true;
+        break;
+      }
+
+      // Context window management: compact old tool results when approaching limit
+      messages = compactOldToolResults(messages, budgetConfig.maxContextTokens);
+
       stats.turns += 1;
 
       if (onProgress) {
@@ -1030,7 +1133,7 @@ export class ExplorerRuntime {
         temperature,
         topP,
         maxCompletionTokens: budgetConfig.maxCompletionTokens,
-        parallelToolCalls: false,
+        parallelToolCalls: true,
       });
 
       Object.assign(stats, summarizeUsage(stats, completion.usage));
@@ -1054,27 +1157,35 @@ export class ExplorerRuntime {
       // Do NOT set report here — only set it when there are no tool calls (final answer)
       messages.push(assistantMessage);
 
-      for (const toolCall of completion.message.toolCalls) {
-        const toolName = toolCall.function?.name ?? '(unknown)';
+      // Execute tool calls in parallel (same concurrency as explore)
+      const toolCallResults = await runWithConcurrency(
+        completion.message.toolCalls,
+        TOOL_CONCURRENCY,
+        async (toolCall) => {
+          const toolName = toolCall.function?.name ?? '(unknown)';
+          let toolArgs = {};
+          let toolResult;
+          try {
+            toolArgs = safeJsonParse(toolCall.function?.arguments ?? '{}');
+            toolResult = await repoToolkit.callTool(toolName, toolArgs);
+          } catch (error) {
+            toolResult = {
+              error: true,
+              stage: 'parse_or_exec',
+              type: error.message.startsWith('Failed to parse tool arguments')
+                ? 'invalid_tool_arguments'
+                : 'tool_execution_error',
+              message: error.message,
+              tool: toolName,
+            };
+          }
+          return { toolCall, toolName, toolResult };
+        },
+      );
+
+      for (const { toolCall, toolName, toolResult } of toolCallResults) {
         stats.toolCalls += 1;
         toolsUsed.add(toolName);
-
-        let toolArgs = {};
-        let toolResult;
-        try {
-          toolArgs = safeJsonParse(toolCall.function?.arguments ?? '{}');
-          toolResult = await repoToolkit.callTool(toolName, toolArgs);
-        } catch (error) {
-          toolResult = {
-            error: true,
-            stage: 'parse_or_exec',
-            type: error.message.startsWith('Failed to parse tool arguments')
-              ? 'invalid_tool_arguments'
-              : 'tool_execution_error',
-            message: error.message,
-            tool: toolName,
-          };
-        }
 
         if (toolName === 'repo_read_file' && !toolResult?.error) {
           filesRead.add(toolResult.path);
@@ -1200,13 +1311,13 @@ export class ExplorerRuntime {
 }
 
 export async function exploreRepository(args, options = {}) {
-  const { onProgress, sessionStore, ...runtimeOptions } = options;
+  const { onProgress, sessionStore, abortSignal, ...runtimeOptions } = options;
   const runtime = new ExplorerRuntime(runtimeOptions);
-  return runtime.explore(args, { onProgress, sessionStore });
+  return runtime.explore(args, { onProgress, sessionStore, abortSignal });
 }
 
 export async function freeExploreRepository(args, options = {}) {
-  const { onProgress, sessionStore, ...runtimeOptions } = options;
+  const { onProgress, sessionStore, abortSignal, ...runtimeOptions } = options;
   const runtime = new ExplorerRuntime(runtimeOptions);
-  return runtime.freeExplore(args, { onProgress, sessionStore });
+  return runtime.freeExplore(args, { onProgress, sessionStore, abortSignal });
 }

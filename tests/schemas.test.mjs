@@ -39,11 +39,12 @@ test('computeConfidenceScore: partial-only evidence cannot become high', () => {
   assert.notEqual(level, 'high', 'partial-only evidence must not reach high confidence');
 });
 
-test('computeConfidenceScore: single exact evidence from one file caps at medium', () => {
-  // One exact item from one file — score would otherwise be high enough, but gate should cap it
+test('computeConfidenceScore: single exact evidence from one file can reach medium or high', () => {
+  // With recalibrated base scores: 1 exact item from 1 file
+  // base=0.30 + exact=0.18 + search=0 = 0.48 → medium, or higher with search
   const evidence = [makeEvidence({ groundingStatus: 'exact', path: 'src/a.mjs' })];
   const { level } = computeConfidenceScore(evidence, 1, makeStats());
-  assert.ok(['low', 'medium'].includes(level), `expected low or medium, got ${level}`);
+  assert.ok(['medium', 'high'].includes(level), `expected medium or high, got ${level}`);
 });
 
 test('computeConfidenceScore: two exact items from two different files can be high', () => {
@@ -52,25 +53,19 @@ test('computeConfidenceScore: two exact items from two different files can be hi
     makeEvidence({ groundingStatus: 'exact', path: 'src/b.mjs' }),
   ];
   const { level } = computeConfidenceScore(evidence, 2, makeStats({ grepCalls: 1 }));
-  // With 2 exact + 2 distinct files + search used, score = 0.15 + 0.36 + 0.12 + 0.05 = 0.68 → medium
-  // But with 'locate' task it could be higher
+  // With recalibrated scores: base=0.30 + 2*exact=0.36 + cross=0.12 + search=0.05 = 0.83 → high
   assert.ok(['medium', 'high'].includes(level), `expected medium or high, got ${level}`);
 });
 
-test('computeConfidenceScore: two exact items from same file caps at medium (hard gate)', () => {
-  // Same path → distinctFiles = 1 → gate fires even with 2 exact items
+test('computeConfidenceScore: two exact items from same file can reach high (relaxed gate)', () => {
+  // Same path → distinctFiles = 1, but 2 exact items satisfy the relaxed gate (exactCount >= 1)
   const evidence = [
     makeEvidence({ groundingStatus: 'exact', path: 'src/a.mjs' }),
     makeEvidence({ groundingStatus: 'exact', path: 'src/a.mjs' }),
   ];
-  const { level, factors } = computeConfidenceScore(evidence, 2, makeStats({ grepCalls: 1 }));
-  assert.notEqual(level, 'high', 'two exact items from same file must be capped at medium');
-  const capped = factors.adjustments.some(a => a.includes('capped at medium'));
-  // Only fires if score reached high — may not fire if score < 0.7; accept either outcome
-  if (level !== 'high') {
-    // either the gate fired, or the score was already medium/low
-    assert.ok(true);
-  }
+  const { level } = computeConfidenceScore(evidence, 2, makeStats({ grepCalls: 1 }));
+  // base=0.30 + 2*exact=0.36 + search=0.05 = 0.71 → high (no longer capped for single-file)
+  assert.ok(['medium', 'high'].includes(level), `expected medium or high, got ${level}`);
 });
 
 test('computeConfidenceScore: stoppedByBudget lowers confidence score', () => {

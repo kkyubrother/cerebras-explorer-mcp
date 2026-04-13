@@ -175,6 +175,14 @@ export function buildExplorerSystemPrompt({ repoRoot, budgetConfig, language, pr
     '- "locate / define" tasks: 1 confirmed evidence item is sufficient to stop.',
     '- If you have enough evidence, stop immediately — do not make unnecessary additional tool calls.',
     '',
+    // ── EFFICIENCY RULES ──
+    '## EFFICIENCY RULES',
+    '- Wherever possible, request multiple tool calls in a single turn (parallel execution saves turns).',
+    '- Use repo_symbol_context to get definition + callers in one call instead of separate grep + read sequences.',
+    '- Do not re-read files you have already inspected unless you need a different line range.',
+    '- If the first search strategy yields sufficient results, do not redundantly try alternatives.',
+    '- Be smart about search: a targeted repo_grep is better than browsing directories.',
+    '',
     // ── STRATEGY CATALOG ──
     '## STRATEGY CATALOG',
     'Use the strategy that best fits the task (you may switch once if evidence warrants it):',
@@ -263,9 +271,20 @@ export function buildExplorerUserPrompt({ task, scope, budget, hints, sessionCan
 
   if (strategy) {
     const label = Array.isArray(strategy) ? strategy.join('+') : strategy;
+    const approaches = {
+      'symbol-first': 'Start with repo_symbol_context(symbol). If no result, fall back to repo_grep(symbol) → repo_read_file for top matches.',
+      'reference-chase': 'Start with repo_symbol_context(symbol) or repo_references(symbol) to find all call sites. Then read key callers.',
+      'git-guided': 'Start with repo_git_log to find relevant commits. Then repo_git_diff or repo_git_show to understand changes. Read affected files for context.',
+      'breadth-first': 'Start with repo_list_dir(depth:3) to understand project structure. Then read key files (entry points, config, README).',
+      'blame-guided': 'Start with repo_grep to find the relevant code. Then repo_git_blame to identify who changed it and when. Use repo_git_show to understand the commit.',
+      'pattern-scan': 'Start with repo_grep to find all occurrences. Then read representative files to understand the pattern. Compare similarities and differences.',
+    };
+    const singleStrategy = Array.isArray(strategy) ? strategy[0] : strategy;
+    const approach = approaches[singleStrategy] ?? '';
     lines.push(
       '',
-      `Initial strategy suggestion: ${label}. You may switch to a complementary strategy once if the evidence requires it. Stop as soon as evidence is sufficient.`,
+      `Initial strategy: ${label}. ${approach}`,
+      'You may switch to a complementary strategy once if the evidence requires it. Stop as soon as evidence is sufficient.',
     );
   }
 
@@ -316,8 +335,12 @@ export function buildFreeExploreSystemPrompt({ repoRoot, budgetConfig, language,
     'For git evidence, use `commit:abc1234` or `blame:path:L5` notation.',
     'Distinguish facts (confirmed by tool output) from interpretation.',
     '',
-    '## STOP RULE',
-    'Stop exploring once further reads are unlikely to change your conclusions.',
+    '## EXECUTION PRINCIPLES',
+    '- You are an expert codebase analyst. Produce thorough but focused reports.',
+    '- Make efficient use of tools: spawn multiple parallel tool calls when searching across files.',
+    '- Read the smallest relevant line ranges — do not dump entire files into the report.',
+    '- Cross-reference findings: cite at least 2 independent sources for major claims.',
+    '- Stop exploring once further reads are unlikely to change your conclusions.',
     '',
     `Repository: ${formatRepoLabel(repoRoot)} (tool paths are relative to the repo root).`,
     `Turn budget: ${budgetConfig.maxTurns} turns.`,

@@ -5,39 +5,43 @@ export const EXPLORE_REPO_INPUT_SCHEMA = {
     task: {
       type: 'string',
       description:
-        'Natural-language exploration request from the parent model. Example: "Trace how auth middleware is applied to API routes".',
+        'Natural-language exploration request. Be specific for best results: ' +
+        '"How does the auth middleware validate JWT tokens and where is it applied?" ' +
+        'is better than "explain auth".',
     },
     repo_root: {
       type: 'string',
       description:
-        'Optional repository root. Defaults to the current working directory of the MCP server process.',
+        'Repository root path. Defaults to the current working directory of the MCP server process.',
     },
     scope: {
       type: 'array',
       description:
-        'Optional list of path prefixes or glob-like patterns to constrain exploration. Example: ["src/api/**", "docs/auth/**"].',
+        'Path prefixes or glob patterns to focus exploration. Example: ["src/api/**", "lib/auth/"]. Omit to search the entire repo.',
       items: { type: 'string' },
     },
     budget: {
       type: 'string',
       enum: ['quick', 'normal', 'deep'],
       description:
-        'Exploration depth. quick minimizes cost, normal is default, deep allows longer autonomous search.',
+        'Exploration depth. "quick": fast lookup (3-10 turns), "normal": multi-file analysis (up to 20 turns, default), "deep": comprehensive investigation (up to 30 turns).',
     },
     hints: {
       type: 'object',
       additionalProperties: false,
       description:
-        'Optional starting hints from the parent model. These help the explorer narrow the search earlier.',
+        'Starting hints to accelerate exploration. Provide known symbols, file paths, or regex patterns so the explorer skips broad scanning.',
       properties: {
-        symbols: { type: 'array', items: { type: 'string' } },
-        files: { type: 'array', items: { type: 'string' } },
-        regex: { type: 'array', items: { type: 'string' } },
+        symbols: { type: 'array', items: { type: 'string' }, description: 'Known symbol names to start with (e.g. ["handleAuth", "JwtValidator"]).' },
+        files: { type: 'array', items: { type: 'string' }, description: 'Known file paths to examine first (e.g. ["src/middleware/auth.ts"]).' },
+        regex: { type: 'array', items: { type: 'string' }, description: 'Regex patterns to search for (e.g. ["TODO.*security", "deprecated"]).' },
         strategy: {
           type: 'string',
           enum: ['symbol-first', 'reference-chase', 'git-guided', 'breadth-first', 'blame-guided', 'pattern-scan'],
           description:
-            'Exploration strategy hint. If omitted, the strategy is auto-detected from the task text.',
+            'Exploration strategy. symbol-first: find definitions. reference-chase: find callers/usages. ' +
+            'git-guided: analyze recent changes. breadth-first: understand project structure. ' +
+            'blame-guided: trace bug origins. pattern-scan: find similar code patterns. Auto-detected if omitted.',
         },
       },
     },
@@ -243,8 +247,8 @@ export function computeConfidenceScore(groundedEvidence, totalEvidenceBefore, st
     adjustments: [],
   };
 
-  // Task-aware base score
-  let score = taskKind === 'locate' ? 0.35 : 0.15;
+  // Task-aware base score (calibrated so typical explorations reach medium/high)
+  let score = taskKind === 'locate' ? 0.45 : 0.30;
   factors.adjustments.push(`base=${score.toFixed(2)} (taskKind=${factors.taskKind})`);
 
   // Exact evidence (up to 3 count for full bonus)
@@ -266,16 +270,17 @@ export function computeConfidenceScore(groundedEvidence, totalEvidenceBefore, st
     factors.adjustments.push('+0.05 (symbol/grep search used)');
   }
 
-  // Stopped by budget
+  // Stopped by budget (mild penalty — partial results are still useful)
   if (factors.stoppedByBudget) {
-    score -= 0.15;
-    factors.adjustments.push('-0.15 (stopped by budget before completion)');
+    score -= 0.10;
+    factors.adjustments.push('-0.10 (stopped by budget before completion)');
   }
 
-  // Evidence was dropped (hallucination risk)
+  // Evidence was dropped (hallucination risk — proportional penalty)
   if (evidenceDropped > 0) {
-    score -= 0.25;
-    factors.adjustments.push(`-0.25 (${evidenceDropped} evidence item(s) dropped as ungrounded)`);
+    const dropPenalty = Math.min(evidenceDropped * 0.08, 0.20);
+    score -= dropPenalty;
+    factors.adjustments.push(`-${dropPenalty.toFixed(2)} (${evidenceDropped} evidence item(s) dropped as ungrounded)`);
   }
 
   // No evidence at all
@@ -286,12 +291,12 @@ export function computeConfidenceScore(groundedEvidence, totalEvidenceBefore, st
 
   score = Math.max(0, Math.min(1, score));
 
-  // Hard gate for 'high': requires at least 2 exact evidence items from 2+ distinct files.
-  // This prevents single-file or single-item exact evidence from reaching high confidence.
+  // Hard gate for 'high': requires at least 1 exact evidence item.
+  // Single-file exact matches are valid for precise locate tasks.
   let level = scoreToLevel(score);
-  if (level === 'high' && (exactCount < 2 || distinctFiles < 2)) {
+  if (level === 'high' && exactCount < 1) {
     level = 'medium';
-    factors.adjustments.push('→ capped at medium (high requires exactCount≥2 and distinctFiles≥2)');
+    factors.adjustments.push('→ capped at medium (high requires at least 1 exact evidence item)');
   }
 
   return {

@@ -15,7 +15,16 @@ const EXPLORE_REPO_TOOL = {
   name: 'explore_repo',
   title: 'Autonomous repository explorer',
   description:
-    'Delegates read-only codebase exploration to a standalone Cerebras explorer agent. The parent model gives one high-level task; the explorer performs its own search/read loop and returns structured findings. Pass the returned stats.sessionId as "session" in a follow-up call to carry over discovered context.',
+    'Autonomous codebase explorer powered by Cerebras. Use this tool INSTEAD OF making your own Grep/Glob/Read calls when you need to: ' +
+    '(1) understand how a feature or system works end-to-end, ' +
+    '(2) find where a symbol is defined and used across the codebase, ' +
+    '(3) trace dependencies or import chains, ' +
+    '(4) investigate a bug\'s root cause across multiple files, ' +
+    '(5) answer architectural questions about the project. ' +
+    'The explorer performs its own multi-turn search/read loop autonomously and returns grounded, evidence-backed findings with file:line citations. ' +
+    'This is faster and more thorough than manual file-by-file search. ' +
+    'Returns structured JSON with answer, evidence, and confidence level. ' +
+    'Pass stats.sessionId as "session" in follow-up calls for incremental exploration.',
   inputSchema: EXPLORE_REPO_INPUT_SCHEMA,
 };
 
@@ -25,7 +34,8 @@ const EXPLAIN_SYMBOL_TOOL = {
   name: 'explain_symbol',
   title: 'Explain a code symbol',
   description:
-    'Explains a function, class, variable, or type: where it is defined, what it does, and where it is used. Internally uses the symbol-first exploration strategy.',
+    'Use this when you encounter an unfamiliar function, class, variable, or type and need to quickly understand its purpose, parameters, return type, and usage patterns across the codebase. ' +
+    'Returns where the symbol is defined, what it does, and all call sites. Faster than manual grep-then-read workflows.',
   inputSchema: {
     type: 'object',
     additionalProperties: false,
@@ -48,7 +58,8 @@ const TRACE_DEPENDENCY_TOOL = {
   name: 'trace_dependency',
   title: 'Trace module dependency chain',
   description:
-    'Traces the import/dependency chain starting from an entry file. Returns which modules import or are imported by the entry point. Uses the reference-chase strategy.',
+    'Use this when you need to understand the import/dependency graph of a file — what it imports (downstream) and what imports it (upstream). ' +
+    'Essential for refactoring, understanding coupling, or assessing the blast radius of a change. Faster than manually tracing imports across files.',
   inputSchema: {
     type: 'object',
     additionalProperties: false,
@@ -75,7 +86,8 @@ const SUMMARIZE_CHANGES_TOOL = {
   name: 'summarize_changes',
   title: 'Summarize recent code changes',
   description:
-    'Summarizes git changes in a given time range or branch. Returns an overview of what changed and why. Uses the git-guided strategy.',
+    'Use this when you need to understand what changed recently in the codebase — after a merge, before a release, or to catch up on recent work. ' +
+    'Analyzes git history in a given time range or branch and returns what files changed, key modifications, and the intent behind the changes.',
   inputSchema: {
     type: 'object',
     additionalProperties: false,
@@ -96,7 +108,8 @@ const FIND_SIMILAR_CODE_TOOL = {
   name: 'find_similar_code',
   title: 'Find similar code patterns',
   description:
-    'Finds code that uses patterns similar to a reference file, path, or snippet via natural-language reasoning (no numeric similarity score). Useful for discovering duplicates, repeated logic, or convention violations. Uses the pattern-scan strategy.',
+    'Use this when you suspect duplicated logic, want to find all places that follow (or violate) a pattern, or need to locate code similar to a reference snippet or file. ' +
+    'Scans the codebase using natural-language reasoning to find structural similarities — more flexible than regex search.',
   inputSchema: {
     type: 'object',
     additionalProperties: false,
@@ -118,9 +131,13 @@ const FIND_SIMILAR_CODE_TOOL = {
 
 const EXPLORE_TOOL = {
   name: 'explore',
-  title: 'Free-form repository exploration (beta)',
+  title: 'Free-form repository exploration',
   description:
-    'Produces a human-readable Markdown report about a codebase question. Unlike explore_repo (structured JSON for automation), this tool returns a narrative report with inline file:line citations. Best for broad questions, architecture overviews, and human consumption.',
+    'Use this when you need a comprehensive, human-readable Markdown report about the codebase. ' +
+    'Ideal for: architecture overviews, explaining how complex systems work, code review analysis, or answering broad "how does X work?" questions. ' +
+    'The report includes inline file:line citations and is ready to present directly to the user without further processing. ' +
+    'More thorough than manual search — the explorer reads multiple files and cross-references findings autonomously. ' +
+    'For structured JSON output (programmatic use), use explore_repo instead.',
   inputSchema: {
     type: 'object',
     additionalProperties: false,
@@ -231,6 +248,9 @@ export function createMcpRequestHandler({
 } = {}) {
   let negotiatedProtocolVersion = DEFAULT_PROTOCOL_VERSION;
 
+  // Track active explorations for abort support
+  const activeAbortControllers = new Map(); // requestId → AbortController
+
   /**
    * Build an onProgress callback that fires MCP notifications/progress when
    * `progressToken` is present and `sendNotification` is wired up.
@@ -246,30 +266,95 @@ export function createMcpRequestHandler({
     };
   }
 
-  async function callTool(exploreArgs, progressToken) {
-    const result = await exploreRepository(exploreArgs, {
-      logger,
-      ...runtimeOptions,
-      onProgress: makeProgressCallback(progressToken),
-      sessionStore,
-    });
-    return {
-      content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
-      structuredContent: result,
-    };
+  /**
+   * Format explore_repo result as readable text for the parent model.
+   * Provides a scannable summary at the top with full JSON in a collapsible block.
+   */
+  function formatExploreResult(result) {
+    const lines = [];
+
+    // Trust summary first — this is what the parent model reads to decide trust
+    if (result.trustSummary) {
+      lines.push(result.trustSummary);
+      lines.push('');
+    }
+
+    lines.push(`## Answer`);
+    lines.push(result.answer || '(no answer)');
+
+    if (result.evidence?.length > 0) {
+      lines.push('');
+      lines.push(`## Evidence (${result.evidence.length} items, confidence: ${result.confidence})`);
+      for (const e of result.evidence.slice(0, 10)) {
+        const grounding = e.groundingStatus === 'exact' ? '' : ' [partial]';
+        lines.push(`- \`${e.path}:${e.startLine}-${e.endLine}\`${grounding} — ${e.why}`);
+      }
+      if (result.evidence.length > 10) {
+        lines.push(`- ... and ${result.evidence.length - 10} more evidence items`);
+      }
+    }
+
+    if (result.followups?.length > 0) {
+      lines.push('');
+      lines.push(`## Suggested Follow-ups`);
+      for (const f of result.followups) {
+        lines.push(`- [${f.priority}] ${f.description}`);
+      }
+    }
+
+    const statsLine = [
+      `${result.stats?.turns ?? '?'} turns`,
+      `${result.stats?.filesRead ?? '?'} files read`,
+      `${result.stats?.elapsedMs ?? '?'}ms`,
+    ].join(', ');
+    lines.push('');
+    lines.push(`## Stats: ${statsLine}`);
+
+    if (result.stats?.sessionId) {
+      lines.push(`Session ID: ${result.stats.sessionId} (pass as "session" for follow-up calls)`);
+    }
+
+    return lines.join('\n');
   }
 
-  async function callFreeExploreTool(exploreArgs, progressToken) {
-    const result = await freeExploreRepository(exploreArgs, {
-      logger,
-      ...runtimeOptions,
-      onProgress: makeProgressCallback(progressToken),
-      sessionStore,
-    });
-    return {
-      content: [{ type: 'text', text: result.report }],
-      structuredContent: result,
-    };
+  async function callTool(exploreArgs, progressToken, requestId) {
+    const abortController = new AbortController();
+    if (requestId) activeAbortControllers.set(requestId, abortController);
+    try {
+      const result = await exploreRepository(exploreArgs, {
+        logger,
+        ...runtimeOptions,
+        onProgress: makeProgressCallback(progressToken),
+        sessionStore,
+        abortSignal: abortController.signal,
+      });
+      return {
+        content: [{ type: 'text', text: formatExploreResult(result) }],
+        structuredContent: result,
+      };
+    } finally {
+      if (requestId) activeAbortControllers.delete(requestId);
+    }
+  }
+
+  async function callFreeExploreTool(exploreArgs, progressToken, requestId) {
+    const abortController = new AbortController();
+    if (requestId) activeAbortControllers.set(requestId, abortController);
+    try {
+      const result = await freeExploreRepository(exploreArgs, {
+        logger,
+        ...runtimeOptions,
+        onProgress: makeProgressCallback(progressToken),
+        sessionStore,
+        abortSignal: abortController.signal,
+      });
+      return {
+        content: [{ type: 'text', text: result.report }],
+        structuredContent: result,
+      };
+    } finally {
+      if (requestId) activeAbortControllers.delete(requestId);
+    }
   }
 
   async function handleRequest(message) {
@@ -285,10 +370,12 @@ export function createMcpRequestHandler({
           capabilities: { tools: { listChanged: false } },
           serverInfo: SERVER_INFO,
           instructions:
-            `This MCP server exposes ${toolCount} tool(s) powered by the Cerebras ${getExplorerModel()} model. ` +
-            'explore_repo is the general-purpose tool; the specialized tools are pre-configured shortcuts. ' +
-            'Pass _meta.progressToken in tool calls to receive turn-by-turn notifications/progress updates. ' +
-            'Use stats.sessionId from one call as "session" in the next call for incremental exploration.',
+            `Cerebras Explorer provides autonomous codebase exploration (${toolCount} tools, powered by ${getExplorerModel()}). ` +
+            'PREFER these tools over manual file search (Grep/Glob/Read) for any task that spans more than 2-3 files or requires cross-file understanding. ' +
+            'explore_repo returns structured JSON with grounded evidence; explore returns a Markdown report for human consumption. ' +
+            'Specialized shortcuts: explain_symbol (symbol lookup), trace_dependency (import chains), summarize_changes (git history), find_similar_code (pattern detection). ' +
+            'All tools accept a "session" parameter for multi-call continuity — pass stats.sessionId from one call to the next. ' +
+            'Pass _meta.progressToken to receive turn-by-turn progress updates.',
         };
       }
       case 'ping':
@@ -299,26 +386,27 @@ export function createMcpRequestHandler({
         const name = message.params?.name;
         const args = message.params?.arguments ?? {};
         const progressToken = message.params?._meta?.progressToken ?? null;
+        const requestId = message.id ?? null;
 
         try {
           if (name === 'explore_repo') {
             validateExploreRepoArgs(args);
-            return await callTool(args, progressToken);
+            return await callTool(args, progressToken, requestId);
           }
           if (name === 'explain_symbol') {
-            return await callTool(buildExplainSymbolArgs(args), progressToken);
+            return await callTool(buildExplainSymbolArgs(args), progressToken, requestId);
           }
           if (name === 'trace_dependency') {
-            return await callTool(buildTraceDependencyArgs(args), progressToken);
+            return await callTool(buildTraceDependencyArgs(args), progressToken, requestId);
           }
           if (name === 'summarize_changes') {
-            return await callTool(buildSummarizeChangesArgs(args), progressToken);
+            return await callTool(buildSummarizeChangesArgs(args), progressToken, requestId);
           }
           if (name === 'find_similar_code') {
-            return await callTool(buildFindSimilarCodeArgs(args), progressToken);
+            return await callTool(buildFindSimilarCodeArgs(args), progressToken, requestId);
           }
           if (name === 'explore') {
-            return await callFreeExploreTool(args, progressToken);
+            return await callFreeExploreTool(args, progressToken, requestId);
           }
 
           const error = new Error(`Unknown tool: ${name}`);
@@ -349,10 +437,18 @@ export function createMcpRequestHandler({
   }
 
   async function handleNotification(message) {
-    if (
-      message.method === 'notifications/initialized' ||
-      message.method === 'notifications/cancelled'
-    ) {
+    if (message.method === 'notifications/initialized') {
+      return;
+    }
+    if (message.method === 'notifications/cancelled') {
+      const requestId = message.params?.requestId;
+      if (requestId) {
+        const controller = activeAbortControllers.get(requestId);
+        if (controller) {
+          controller.abort();
+          logger(`Cancelled exploration for request ${requestId}`);
+        }
+      }
       return;
     }
     logger(`Ignoring notification: ${message.method}`);

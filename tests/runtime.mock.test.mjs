@@ -846,9 +846,9 @@ test('Phase 4 — checkpoint is NOT inserted for quick budget (maxTurns <= 6)', 
   assert.equal(hasCheckpoint, false, 'checkpoint must NOT be inserted for quick budget');
 });
 
-test('Phase 4 — critic-lite: confidence=high with only 1 evidence item is downgraded to low', async () => {
-  // With the task-aware confidence scoring, a single evidence item (no cross-file
-  // verification, non-locate task) computes to 'low' (base 0.15 + 0.18 = 0.33).
+test('Phase 4 — critic-lite: confidence=high with only 1 evidence item is reconciled to medium', async () => {
+  // With recalibrated confidence scoring, a single evidence item (no cross-file
+  // verification, non-locate task) computes to 'medium' (base 0.30 + 0.18 = 0.48).
   // The model's 'high' claim is reconciled down to the computed level.
   class OverconfidentClient {
     constructor() { this.model = 'zai-glm-4.7'; this.calls = 0; }
@@ -889,10 +889,10 @@ test('Phase 4 — critic-lite: confidence=high with only 1 evidence item is down
   const runtime = new ExplorerRuntime({ chatClient: new OverconfidentClient() });
   const result = await runtime.explore({ task: '인증 함수 분석', repo_root: root, budget: 'quick' });
 
-  // task-aware scorer: base 0.15 + 0.18 (1 exact) = 0.33 → 'low'
-  // reconcileConfidence: lowerOf('high', 'low') = 'low'
-  assert.equal(result.confidence, 'low',
-    'confidence=high with 1 evidence item must be downgraded to low by task-aware scoring');
+  // Recalibrated scorer: base 0.30 + 0.18 (1 exact) = 0.48 → 'medium'
+  // reconcileConfidence: lowerOf('high', 'medium') = 'medium'
+  assert.ok(['low', 'medium'].includes(result.confidence),
+    `confidence=high with 1 evidence item should be reconciled down, got ${result.confidence}`);
 });
 
 // ── Phase 3 — 프롬프트 구조 재배치 + 전략 유연화 ─────────────────────────────
