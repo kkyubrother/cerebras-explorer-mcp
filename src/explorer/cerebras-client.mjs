@@ -1,3 +1,4 @@
+import { gzipSync } from 'node:zlib';
 import {
   getExplorerClearThinking,
   getExplorerModel,
@@ -7,6 +8,11 @@ import {
   isGlm47Model,
   isGptOssModel,
 } from './config.mjs';
+
+/** Threshold in bytes above which request payloads are gzip-compressed.
+ *  Cerebras docs: gzip compression reduces 50K-token payloads by up to ~98%.
+ *  Below this threshold, compression overhead outweighs the savings. */
+const GZIP_THRESHOLD_BYTES = 4096;
 
 const RETRYABLE_STATUSES = new Set([429, 500, 502, 503, 504]);
 const DEFAULT_HTTP_TIMEOUT_MS = 60000;
@@ -278,13 +284,23 @@ export class CerebrasChatClient {
       payload.response_format = responseFormat;
     }
 
+    // Compress payload with gzip when it exceeds threshold (saves up to ~98% on large payloads)
+    const jsonBody = JSON.stringify(payload);
+    const jsonBytes = Buffer.from(jsonBody, 'utf-8');
+    const useGzip = jsonBytes.length >= GZIP_THRESHOLD_BYTES;
+    const requestBody = useGzip ? gzipSync(jsonBytes, { level: 5 }) : jsonBody;
+    const headers = {
+      'content-type': 'application/json',
+      authorization: `Bearer ${this.apiKey}`,
+    };
+    if (useGzip) {
+      headers['content-encoding'] = 'gzip';
+    }
+
     const parsed = await fetchWithTimeoutAndRetry(this.fetchImpl, `${this.apiBaseUrl}/chat/completions`, {
       method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        authorization: `Bearer ${this.apiKey}`,
-      },
-      body: JSON.stringify(payload),
+      headers,
+      body: requestBody,
     }, { errorPrefix: 'Cerebras API' });
 
     const choice = parsed?.choices?.[0];
