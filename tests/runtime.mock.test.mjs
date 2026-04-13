@@ -483,6 +483,87 @@ test('ExplorerRuntime injects previous session context into next call', async ()
   );
 });
 
+test('ExplorerRuntime falls back to a new session when exhausted_session', async () => {
+  class SimpleClient {
+    constructor() { this.model = 'mock'; }
+    async createChatCompletion() {
+      return {
+        usage: { prompt_tokens: 30, completion_tokens: 10, total_tokens: 40 },
+        message: {
+          content: JSON.stringify({
+            answer: 'ok', summary: '요약', confidence: 'low',
+            evidence: [], candidatePaths: [], followups: [],
+          }),
+          toolCalls: [],
+        },
+      };
+    }
+  }
+
+  const root = await makeRepoFixture();
+  const { SessionStore } = await import('../src/explorer/session.mjs');
+  // maxCalls=1 so the session is exhausted after the first call
+  const sessionStore = new SessionStore({ maxCalls: 1 });
+  const runtime = new ExplorerRuntime({ chatClient: new SimpleClient() });
+
+  // First call — creates session, exhausts it (calls reaches maxCalls=1)
+  const first = await runtime.explore({ task: '첫 번째', repo_root: root }, { sessionStore });
+  const exhaustedId = first.stats.sessionId;
+
+  // Second call — passes the exhausted session ID
+  const second = await runtime.explore(
+    { task: '두 번째', repo_root: root, session: exhaustedId },
+    { sessionStore },
+  );
+
+  // Must succeed and silently use a new session
+  assert.ok(second.stats.sessionId, 'sessionId must exist in fallback result');
+  assert.notEqual(second.stats.sessionId, exhaustedId, 'fallback must create a new session ID');
+  assert.equal(second.stats.sessionStatus, 'fallback', 'sessionStatus must be "fallback"');
+});
+
+test('ExplorerRuntime falls back to a new session when expired_session', async () => {
+  class SimpleClient {
+    constructor() { this.model = 'mock'; }
+    async createChatCompletion() {
+      return {
+        usage: { prompt_tokens: 30, completion_tokens: 10, total_tokens: 40 },
+        message: {
+          content: JSON.stringify({
+            answer: 'ok', summary: '요약', confidence: 'low',
+            evidence: [], candidatePaths: [], followups: [],
+          }),
+          toolCalls: [],
+        },
+      };
+    }
+  }
+
+  const root = await makeRepoFixture();
+  const { SessionStore } = await import('../src/explorer/session.mjs');
+  const sessionStore = new SessionStore();
+  const runtime = new ExplorerRuntime({ chatClient: new SimpleClient() });
+
+  // First call — creates session
+  const first = await runtime.explore({ task: '첫 번째', repo_root: root }, { sessionStore });
+  const sessionId = first.stats.sessionId;
+
+  // Backdate lastUsedAt to simulate TTL expiry without relying on wall-clock timing
+  const raw = sessionStore._sessions.get(sessionId);
+  raw.lastUsedAt = Date.now() - sessionStore._ttlMs - 1000;
+
+  // Second call — passes the now-expired session ID
+  const second = await runtime.explore(
+    { task: '두 번째', repo_root: root, session: sessionId },
+    { sessionStore },
+  );
+
+  // Must succeed and silently use a new session
+  assert.ok(second.stats.sessionId, 'sessionId must exist in fallback result');
+  assert.notEqual(second.stats.sessionId, sessionId, 'fallback must create a new session ID');
+  assert.equal(second.stats.sessionStatus, 'fallback', 'sessionStatus must be "fallback"');
+});
+
 // ── Phase 1 — 최종 출력 경로 단일화 ──────────────────────────────────────────
 
 test('Phase 1 — no-tool exit always routes through finalize (strict schema)', async () => {

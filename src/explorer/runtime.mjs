@@ -355,8 +355,9 @@ function incrementToolStats(stats, toolName) {
  * or { ok: false, reason } when an explicitly requested session is invalid.
  *
  * When no session is requested (or sessionStore is null), a new session is created.
- * When a session is explicitly requested but fails validation, we reject rather
- * than silently creating a new one.
+ * Recoverable failures (exhausted_session, expired_session) silently fall back to
+ * a new session — sessionStatus will be 'fallback' to signal this in stats.
+ * Non-recoverable failures (invalid_session, repo_mismatch) still reject with an error.
  */
 function resolveSessionForExplore(sessionStore, requestedSessionId, repoRoot) {
   if (!sessionStore) {
@@ -368,9 +369,22 @@ function resolveSessionForExplore(sessionStore, requestedSessionId, repoRoot) {
     : '';
 
   if (trimmedId) {
-    // Explicit session requested — validate it strictly
+    // Explicit session requested — validate it
     const validation = sessionStore.validateForReuse(trimmedId, repoRoot);
     if (!validation.ok) {
+      // Recoverable: session ran out of calls or expired — silently start a fresh one
+      if (validation.reason === 'exhausted_session' || validation.reason === 'expired_session') {
+        const newId = sessionStore.create(repoRoot);
+        const newData = sessionStore.get(newId);
+        return {
+          ok: true,
+          sessionId: newId,
+          sessionData: newData,
+          sessionStatus: 'fallback',
+          remainingCalls: sessionStore._maxCalls,
+        };
+      }
+      // Non-recoverable (invalid_session, repo_mismatch): propagate error
       return { ok: false, reason: validation.reason };
     }
     return {
