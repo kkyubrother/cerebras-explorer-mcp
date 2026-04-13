@@ -1332,10 +1332,19 @@ export class RepoToolkit {
         return result;
       }
       case 'repo_read_file': {
+        // Include file mtime in cache key to detect changes during exploration
+        let mtimeMs = 0;
+        try {
+          const requestedPath = args?.path ?? '';
+          const relativePath = this._enforceScopedPath(requestedPath);
+          const safePath = await resolveSafePath(this.repoRootReal, relativePath, { kind: 'file' });
+          mtimeMs = safePath.stat.mtimeMs ?? 0;
+        } catch { /* ignore — readFile will produce proper error */ }
         cacheKey = this._scopedCacheKey('read_file', {
           path: args?.path ?? '',
           startLine: args?.startLine ?? 1,
           endLine: args?.endLine ?? this.budgetConfig.maxReadLines,
+          mtime: Math.floor(mtimeMs),
         });
         const cached = this._cacheGet(cacheKey);
         if (cached !== undefined) return cached;
@@ -1395,9 +1404,17 @@ export class RepoToolkit {
         return result;
       }
       case 'repo_symbols': {
+        // Include file mtime in cache key to detect changes
+        let symMtimeMs = 0;
+        try {
+          const relPath = this._enforceScopedPath(args?.path ?? '');
+          const sp = await resolveSafePath(this.repoRootReal, relPath, { kind: 'file' });
+          symMtimeMs = sp.stat.mtimeMs ?? 0;
+        } catch { /* ignore */ }
         cacheKey = this._scopedCacheKey('symbols', {
           path: args?.path ?? '',
           kind: args?.kind ?? 'all',
+          mtime: Math.floor(symMtimeMs),
         });
         const cached = this._cacheGet(cacheKey);
         if (cached !== undefined) return cached;
