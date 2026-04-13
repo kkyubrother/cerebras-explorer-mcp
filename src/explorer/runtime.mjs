@@ -1363,7 +1363,7 @@ export class ExplorerRuntime {
     const budgetLabel = thoroughnessMap[args.thoroughness] ?? 'normal';
 
     const {
-      budgetConfig, repoRoot, effectiveScope, projectContext, keyFiles,
+      budgetConfig: baseBudgetConfig, repoRoot, effectiveScope, projectContext, keyFiles,
       chatClient, sessionId, sessionData, sessionStatus, remainingCalls,
       tools, reasoningEffort, temperature, topP, repoToolkit,
     } = await this._initExploreContext({
@@ -1374,6 +1374,9 @@ export class ExplorerRuntime {
       taskText: args.prompt,
       sessionStore,
     });
+
+    // V2: double the max turns for deeper exploration
+    const budgetConfig = { ...baseBudgetConfig, maxTurns: baseBudgetConfig.maxTurns * 2 };
 
     const startedAt = nowMs();
 
