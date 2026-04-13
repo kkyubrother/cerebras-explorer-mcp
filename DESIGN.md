@@ -504,12 +504,61 @@ Codex도 동일하다.
 - `repo_symbol_context.depth > 1` 확장
 - `repo_grep.includeSymbol`
 
-### Phase 3
+### Phase 3 — LSP 통합 및 정밀 심볼 분석
 
-- tree-sitter 기반 구조 인덱스
-- import graph / call graph
-- 정량화된 유사도 점수 (`find_similar_code.similarity`)
-- repo fingerprint 기반 warm-start
+현재 `symbols.mjs`는 regex 기반 추출로, computed properties, decorators, 복잡한
+제네릭 타입, Python 혼합 들여쓰기 등에서 오차가 발생한다.
+
+Claude Code 소스 분석 결과, tree-sitter 대신 **LSP(Language Server Protocol)**가
+더 적합한 해결책임을 확인했다 (`src/tools/LSPTool/LSPTool.ts`).
+
+**구현 계획:**
+
+1. **LSP 클라이언트 모듈 (`src/explorer/lsp-client.mjs`)**
+   - 외부 LSP 서버(tsserver, Pylance, rust-analyzer 등)와 JSON-RPC 통신
+   - `goToDefinition`, `findReferences`, `documentSymbol`, `hover` 지원
+   - LSP 서버 라이프사이클 관리 (시작, 종료, 재시작)
+
+2. **도구 통합**
+   - `repo_symbols` → LSP `documentSymbol` 위임 (regex 폴백 유지)
+   - `repo_references` → LSP `findReferences` 위임
+   - `repo_symbol_context` → LSP `goToDefinition` + `findReferences` 조합
+
+3. **배포 고려사항**
+   - LSP 서버는 선택적 외부 의존성 (없으면 regex 폴백)
+   - `.cerebras-explorer.json`에 `lspServers` 설정 추가
+   - 프로젝트별 LSP 서버 자동 감지 (package.json → tsserver, pyproject.toml → pylance)
+
+4. **기존 Phase 3 항목 유지:**
+   - import graph / call graph (LSP `incomingCalls`/`outgoingCalls`로 구현 가능)
+   - 정량화된 유사도 점수 (`find_similar_code.similarity`)
+   - repo fingerprint 기반 warm-start
+
+### Phase 4 — 런타임 고도화
+
+Claude Code 소스 분석에서 도출된 아키텍처 개선 항목들.
+
+**API 스트리밍 (#16)**
+- 현재: `stream: false`로 전체 응답 버퍼링 후 반환
+- 목표: SSE 기반 스트리밍으로 토큰 단위 수신
+- Claude Code 참조: `StreamingToolExecutor.ts` — 스트리밍 중 도구 실행 시작
+- 효과: 메모리 스파이크 감소, TTFT 개선, 장문 응답 안정성
+
+**대규모 레포 최적화 (#6)**
+- 현재: `walkFiles()`가 순차 디렉토리 탐색, 100K+ 파일에서 느림
+- 목표: ripgrep(`rg --files`) 기반 파일 목록 수집으로 대체
+- Claude Code 참조: `Glob` 도구가 ripgrep 기반
+- 효과: 파일 탐색 10-100x 속도 향상 (이미 grep에서는 rg 사용 중)
+
+**텔레메트리/관측성 (#18)**
+- 현재: `stats` 객체만 반환, 도구별 시간 소비 추적 없음
+- 목표: 구조화된 이벤트 로깅 시스템
+- Claude Code 참조: `analytics/index.ts`의 `logEvent` 패턴
+- 구현:
+  - 도구별 호출 횟수 + 소요 시간 추적
+  - API retry 이벤트 기록
+  - 캐시 히트율 per-exploration 기록
+  - 선택적 파일 출력 (`CEREBRAS_EXPLORER_TELEMETRY=true`)
 
 ---
 
