@@ -498,6 +498,7 @@ export function createMcpRequestHandler({
         const controller = activeAbortControllers.get(requestId);
         if (controller) {
           controller.abort();
+          activeAbortControllers.delete(requestId);
           logger(`Cancelled exploration for request ${requestId}`);
         }
       }

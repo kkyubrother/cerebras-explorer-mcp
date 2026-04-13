@@ -18,6 +18,8 @@ export class StdioJsonRpcServer {
     this.handleNotification = handleNotification;
     this.buffer = Buffer.alloc(0);
     this.useNdjson = false; // set to true when client uses NDJSON format
+    // Promise chain used to serialize stdout writes across concurrent dispatches.
+    this._sendQueue = Promise.resolve();
   }
 
   start() {
@@ -56,7 +58,11 @@ export class StdioJsonRpcServer {
           this.logger(`Ignoring malformed NDJSON payload: ${error.message}`);
           continue;
         }
-        await this.dispatchMessage(message);
+        // Fire-and-forget: allow concurrent processing of multiple requests.
+        // stdout ordering is preserved by the _sendQueue in send().
+        this.dispatchMessage(message).catch(error => {
+          this.logger(`Unhandled dispatch error: ${error.stack || error.message}`);
+        });
       } else {
         // Content-Length framing (legacy)
         const crlfHeaderEnd = this.buffer.indexOf('\r\n\r\n');
@@ -91,7 +97,11 @@ export class StdioJsonRpcServer {
           continue;
         }
 
-        await this.dispatchMessage(message);
+        // Fire-and-forget: allow concurrent processing of multiple requests.
+        // stdout ordering is preserved by the _sendQueue in send().
+        this.dispatchMessage(message).catch(error => {
+          this.logger(`Unhandled dispatch error: ${error.stack || error.message}`);
+        });
       }
     }
   }
@@ -133,12 +143,23 @@ export class StdioJsonRpcServer {
 
   send(payload) {
     const json = JSON.stringify(payload);
-    if (this.useNdjson) {
-      process.stdout.write(json + '\n');
-    } else {
-      const message = `Content-Length: ${Buffer.byteLength(json, 'utf8')}\r\nContent-Type: application/json\r\n\r\n${json}`;
-      process.stdout.write(message);
-    }
+    const chunk = this.useNdjson
+      ? json + '\n'
+      : `Content-Length: ${Buffer.byteLength(json, 'utf8')}\r\nContent-Type: application/json\r\n\r\n${json}`;
+
+    // Serialize all stdout writes through a promise chain so that concurrent
+    // dispatches never interleave their output, which would corrupt the stream.
+    this._sendQueue = this._sendQueue
+      .then(
+        () =>
+          new Promise((resolve, reject) => {
+            process.stdout.write(chunk, err => (err ? reject(err) : resolve()));
+          }),
+      )
+      .catch(err => {
+        // Recover the chain so subsequent sends are not permanently blocked.
+        this.logger(`stdout write error: ${err.message}`);
+      });
   }
 
   /**
