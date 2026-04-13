@@ -538,11 +538,16 @@ Claude Code 소스 분석 결과, tree-sitter 대신 **LSP(Language Server Proto
 
 Claude Code 소스 분석에서 도출된 아키텍처 개선 항목들.
 
-**API 스트리밍 (#16)**
-- 현재: `stream: false`로 전체 응답 버퍼링 후 반환
-- 목표: SSE 기반 스트리밍으로 토큰 단위 수신
-- Claude Code 참조: `StreamingToolExecutor.ts` — 스트리밍 중 도구 실행 시작
-- 효과: 메모리 스파이크 감소, TTFT 개선, 장문 응답 안정성
+**API 스트리밍 (#16) — 우선순위 낮음**
+- Cerebras API는 `stream: true`를 완전히 지원 (SSE, `for await (const chunk of stream)`)
+- 그러나 현재 우선순위가 낮은 이유:
+  1. Cerebras 추론 속도가 이미 매우 빠름 (TTFT 체감 이득 적음)
+  2. Explorer는 완성된 `tool_calls` 배열이 필요 — 청크 누적 후 실행이므로 스트리밍 이점 감소
+  3. 구현 복잡도: SSE 파싱, 도구 호출 인자 청크 누적, 인터페이스 변경 필요
+- 대신 적용 완료된 대안:
+  - **gzip 압축**: 4KB 이상 페이로드 자동 압축 (최대 ~98% 크기 감소, `cerebras-client.mjs`)
+  - **프롬프트 캐시 최적화**: static→dynamic 순서 재배치로 캐시 히트율 극대화 (`prompt.mjs`)
+- Cerebras 참고 문서: `/capabilities/streaming`, `/capabilities/payload-optimization`
 
 **대규모 레포 최적화 (#6)**
 - 현재: `walkFiles()`가 순차 디렉토리 탐색, 100K+ 파일에서 느림
