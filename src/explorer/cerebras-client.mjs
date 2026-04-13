@@ -17,7 +17,9 @@ import {
  *  when the payload is large enough to clearly benefit. */
 const GZIP_THRESHOLD_BYTES = 32_768;
 
-const RETRYABLE_STATUSES = new Set([429, 500, 502, 503, 504]);
+// Cerebras docs: 408, 429, >=500 are retried by default.
+// See: https://inference-docs.cerebras.ai/api-reference/error-codes
+const RETRYABLE_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
 const DEFAULT_HTTP_TIMEOUT_MS = 60000;
 const BASE_RETRY_DELAY_MS = 500;
 const MAX_RETRY_DELAY_MS = 32000;
