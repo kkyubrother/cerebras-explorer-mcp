@@ -11,8 +11,11 @@ import {
 
 /** Threshold in bytes above which request payloads are gzip-compressed.
  *  Cerebras docs: gzip compression reduces 50K-token payloads by up to ~98%.
- *  Below this threshold, compression overhead outweighs the savings. */
-const GZIP_THRESHOLD_BYTES = 4096;
+ *  At Cerebras speeds, compression CPU time can exceed network savings for small
+ *  payloads (see "Designing for Cerebras" — infrastructure overhead matters more
+ *  when inference is fast). Set conservatively high so compression only kicks in
+ *  when the payload is large enough to clearly benefit. */
+const GZIP_THRESHOLD_BYTES = 32_768;
 
 const RETRYABLE_STATUSES = new Set([429, 500, 502, 503, 504]);
 const DEFAULT_HTTP_TIMEOUT_MS = 60000;
