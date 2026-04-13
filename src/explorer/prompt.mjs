@@ -398,3 +398,110 @@ export function buildFreeExploreFinalizePrompt() {
     'Structure: Summary → Findings (with citations) → Uncertainty → Suggestions.',
   ].join('\n');
 }
+
+// ── freeExploreV2 prompts ─────────────────────────────────────────────────────
+
+/**
+ * Build system prompt for freeExploreV2() — enhanced with context-aware exploration.
+ *
+ * Key differences from V1:
+ * - Explicit awareness of context window management (tool results may be truncated)
+ * - Stronger emphasis on incremental synthesis (build understanding progressively)
+ * - Guidance for working with mid-exploration summaries
+ */
+export function buildFreeExploreV2SystemPrompt({ repoRoot, budgetConfig, language, projectContext, previousSummaries, keyFiles }) {
+  const parts = [
+    'You are Cerebras Explorer V2, an advanced autonomous READ-ONLY repository exploration agent.',
+    'Your output is a **comprehensive, well-structured Markdown report**.',
+    '',
+    '## HARD REQUIREMENTS',
+    '1. READ-ONLY: Never write files, run mutating commands, or suggest direct edits.',
+    '2. FINAL ANSWER: Output a Markdown report. No JSON, no code fences wrapping the entire output.',
+    '3. GROUNDED CLAIMS: Every claim must cite `path/to/file:L10-L20` or git artifacts you actually inspected.',
+    '4. NO FABRICATION: Never invent facts not confirmed by tool results.',
+    '',
+    '## REPORT STRUCTURE',
+    'Your final report MUST follow this structure:',
+    '1. **Summary** — 2-3 sentence overview answering the core question.',
+    '2. **Findings** — detailed analysis organized by topic, with `file:line` citations.',
+    '3. **Key Code Paths** — trace the most important execution flows if applicable.',
+    '4. **Uncertainty** — clearly flag anything you are unsure about.',
+    '5. **Suggestions** — concrete next steps for further investigation.',
+    '',
+    '## EXPLORATION STRATEGY',
+    '- **Phase 1 (Orientation):** Start with broad searches (repo_list_dir, repo_grep, repo_find_files) to map the landscape.',
+    '- **Phase 2 (Deep Dive):** Read key files and trace specific code paths with repo_read_file and repo_symbol_context.',
+    '- **Phase 3 (Synthesis):** Stop calling tools and write your report once evidence is sufficient.',
+    '- Use repo_symbol_context for efficient symbol lookups (definition + callers in one call).',
+    '- Request multiple parallel tool calls per turn to maximize information per turn.',
+    '',
+    '## CONTEXT MANAGEMENT',
+    '- Tool results may be summarized or truncated to fit within the context window.',
+    '- If you see "[summarized]" or "[truncated]" markers, the key information is preserved — work with what is available.',
+    '- If a previous exploration summary is injected, build on it rather than re-exploring the same files.',
+    '- Prefer targeted reads (specific line ranges) over full-file reads to conserve context.',
+    '',
+    '## EVIDENCE CITATION',
+    'Cite inline: `src/auth/middleware.ts:L15-L40` for file evidence, `commit:abc1234` for git evidence.',
+    'Distinguish confirmed facts from your interpretation.',
+    '',
+    `Repository: ${formatRepoLabel(repoRoot)} (tool paths are relative to the repo root).`,
+    `Turn budget: ${budgetConfig.maxTurns} turns. Use them wisely.`,
+  ];
+
+  if (typeof language === 'string' && language.trim()) {
+    parts.push('', `Write the report in ${language.trim()} (explicitly requested).`);
+  } else {
+    parts.push('', 'Write the report in the same natural language as the user prompt.');
+  }
+
+  if (projectContext) {
+    parts.push('', '## PROJECT CONTEXT', projectContext);
+  }
+
+  if (keyFiles && keyFiles.length > 0) {
+    parts.push('', `Key files to prioritise: ${keyFiles.join(', ')}`);
+  }
+
+  if (previousSummaries && previousSummaries.length > 0) {
+    parts.push('', '## PRIOR SESSION CONTEXT');
+    previousSummaries.forEach((s, i) => parts.push(`[Call ${i + 1}] ${s}`));
+  }
+
+  return parts.join('\n');
+}
+
+/**
+ * Build the compaction summary prompt — asks the LLM to summarize exploration so far.
+ */
+export function buildCompactionSummaryPrompt() {
+  return [
+    'Context window is getting large. Summarize your exploration findings so far in a concise format.',
+    'Include:',
+    '- Key files and line ranges you have inspected',
+    '- Important discoveries (functions, classes, patterns found)',
+    '- What questions remain unanswered',
+    'Be concise (under 500 words). Use `file:line` citations. Do not call any tools.',
+  ].join('\n');
+}
+
+/**
+ * Build the output continuation prompt — used when the model hits output token limits.
+ */
+export function buildOutputContinuationPrompt() {
+  return 'Your output was cut short due to length limits. Continue your report from exactly where you left off. Do not repeat content you already wrote. Do not call any tools.';
+}
+
+/**
+ * Build finalize prompt for freeExploreV2().
+ */
+export function buildFreeExploreV2FinalizePrompt() {
+  return [
+    'Budget exhausted. Produce your final Markdown report now.',
+    'REQUIREMENTS:',
+    '- Use ONLY information gathered during this session.',
+    '- Structure: Summary → Findings (with file:line citations) → Key Code Paths → Uncertainty → Suggestions.',
+    '- Be comprehensive but concise. Prioritize the most important findings.',
+    '- Do not call any more tools.',
+  ].join('\n');
+}

@@ -24,6 +24,10 @@ import {
   buildFreeExploreSystemPrompt,
   buildFreeExploreUserPrompt,
   buildFreeExploreFinalizePrompt,
+  buildFreeExploreV2SystemPrompt,
+  buildCompactionSummaryPrompt,
+  buildOutputContinuationPrompt,
+  buildFreeExploreV2FinalizePrompt,
 } from './prompt.mjs';
 import {
   EXPLORE_RESULT_JSON_SCHEMA,
@@ -88,6 +92,101 @@ function compactOldToolResults(messages, threshold) {
   }
   return compacted;
 }
+
+// ── freeExploreV2 utilities ───────────────────────────────────────────────────
+
+/**
+ * Per-tool result character budgets for V2.
+ * Larger results are truncated with a preview to save context window.
+ */
+const TOOL_RESULT_CHAR_BUDGETS = {
+  repo_read_file: 8000,
+  repo_grep: 6000,
+  repo_list_dir: 4000,
+  repo_find_files: 4000,
+  repo_git_log: 5000,
+  repo_git_diff: 6000,
+  repo_git_blame: 5000,
+  repo_git_show: 6000,
+  repo_symbols: 4000,
+  repo_references: 5000,
+  repo_symbol_context: 8000,
+  _default: 6000,
+};
+
+/**
+ * Apply per-tool character budget to a tool result.
+ * If the serialized result exceeds the budget, returns a truncated preview.
+ */
+function applyToolResultCharBudget(toolName, toolResult) {
+  const serialized = JSON.stringify(toolResult);
+  const budget = TOOL_RESULT_CHAR_BUDGETS[toolName] ?? TOOL_RESULT_CHAR_BUDGETS._default;
+  if (serialized.length <= budget) return serialized;
+
+  const preview = serialized.slice(0, budget - 120);
+  return preview + `\n... [truncated: ${serialized.length} → ${budget} chars. Full data was inspected; key content preserved above.]`;
+}
+
+/**
+ * LLM-based conversation compaction for V2.
+ * Instead of simple truncation, asks the LLM to summarize findings so far,
+ * then replaces old messages with the summary to free context window.
+ *
+ * @param {object} chatClient - The chat client instance
+ * @param {object[]} messages - Current conversation messages
+ * @param {number} threshold - Token threshold to trigger compaction
+ * @param {object} opts - reasoningEffort, temperature, topP
+ * @returns {Promise<{messages: object[], didCompact: boolean, summaryTokens: number}>}
+ */
+async function compactWithLlmSummary(chatClient, messages, threshold, opts) {
+  const estimated = estimateTokens(messages);
+  if (estimated < threshold) {
+    return { messages, didCompact: false, summaryTokens: 0 };
+  }
+
+  // Ask the LLM to summarize exploration findings so far
+  const summaryCompletion = await chatClient.createChatCompletion({
+    messages: [
+      ...messages,
+      { role: 'user', content: buildCompactionSummaryPrompt() },
+    ],
+    reasoningEffort: opts.reasoningEffort ?? undefined,
+    temperature: 0.3,
+    topP: 1,
+    maxCompletionTokens: 1000,
+    parallelToolCalls: false,
+  });
+
+  const summaryText = summaryCompletion.message.content || 'No summary available.';
+  const summaryTokens = summaryCompletion.usage?.total_tokens ?? 0;
+
+  // Reconstruct: system prompt + summary as context + recent messages
+  const systemMsg = messages[0];
+  const preserveCount = 6; // Keep last ~3 turns intact
+  const recentMessages = messages.slice(-preserveCount);
+
+  const compactedMessages = [
+    systemMsg,
+    {
+      role: 'user',
+      content: `[Context recovered from previous exploration turns — original tool results have been summarized to save context window]\n\n${summaryText}\n\nContinue exploring based on these findings. Do not re-read files already covered unless you need different line ranges.`,
+    },
+    {
+      role: 'assistant',
+      content: 'Understood. I will build on the previous findings and continue exploring.',
+    },
+    ...recentMessages,
+  ];
+
+  return { messages: compactedMessages, didCompact: true, summaryTokens };
+}
+
+/**
+ * Max output token recovery for V2.
+ * When the model's output is cut short (finish_reason === 'length'),
+ * asks it to continue from where it left off, up to MAX_RECOVERY_ATTEMPTS.
+ */
+const MAX_OUTPUT_RECOVERY_ATTEMPTS = 3;
 
 /**
  * Run async tasks from an array in parallel, capped at `limit` concurrent.
@@ -1242,6 +1341,375 @@ export class ExplorerRuntime {
     };
   }
 
+  // ── freeExploreV2 ───────────────────────────────────────────────────────────
+
+  /**
+   * V2 free-form exploration with three advanced techniques:
+   * 1. Tool Result Budgeting — per-tool character limits to conserve context
+   * 2. LLM-based Conversation Compaction — intelligent summarization instead of truncation
+   * 3. Max Output Recovery — multi-attempt continuation when output is cut short
+   *
+   * @param {object} args - { prompt, thoroughness?, scope?, repo_root?, session?, language?, context? }
+   * @param {object} [callOpts]
+   */
+  async freeExploreV2(args, { onProgress = null, sessionStore = null, abortSignal = null } = {}) {
+    if (!args || typeof args.prompt !== 'string' || !args.prompt.trim()) {
+      const err = new Error('prompt is required and must be a non-empty string.');
+      err.code = -32602;
+      throw err;
+    }
+
+    const thoroughnessMap = { quick: 'quick', normal: 'normal', deep: 'deep' };
+    const budgetLabel = thoroughnessMap[args.thoroughness] ?? 'normal';
+
+    const {
+      budgetConfig, repoRoot, effectiveScope, projectContext, keyFiles,
+      chatClient, sessionId, sessionData, sessionStatus, remainingCalls,
+      tools, reasoningEffort, temperature, topP, repoToolkit,
+    } = await this._initExploreContext({
+      budgetLabel,
+      repoRootArg: args.repo_root,
+      scope: args.scope,
+      session: args.session,
+      taskText: args.prompt,
+      sessionStore,
+    });
+
+    const startedAt = nowMs();
+
+    let messages = [
+      {
+        role: 'system',
+        content: buildFreeExploreV2SystemPrompt({
+          repoRoot,
+          budgetConfig,
+          language: args.language,
+          projectContext,
+          keyFiles,
+          previousSummaries: sessionData?.summaries ?? [],
+        }),
+      },
+      {
+        role: 'user',
+        content: buildFreeExploreUserPrompt({
+          prompt: args.prompt,
+          scope: effectiveScope,
+          budget: budgetConfig.label,
+          context: args.context,
+        }),
+      },
+    ];
+
+    const stats = {
+      model: chatClient.model,
+      budget: budgetConfig.label,
+      turns: 0,
+      toolCalls: 0,
+      filesRead: 0,
+      elapsedMs: 0,
+      stoppedByBudget: false,
+      llmCompactions: 0,
+      toolResultsTruncated: 0,
+      outputRecoveries: 0,
+      repoRoot,
+      sessionId,
+      sessionStatus,
+      remainingCalls,
+    };
+
+    const filesRead = new Set();
+    const toolsUsed = new Set();
+    let report = '';
+
+    // Stagnation tracking
+    let lastFingerprint = null;
+    let repeatedTurns = 0;
+    let consecutiveAllErrorTurns = 0;
+
+    // Checkpoint interval (same as explore)
+    const CHECKPOINT_INTERVAL = 4;
+    const checkpointEnabled = budgetConfig.maxTurns > 6;
+
+    // Compaction threshold: trigger LLM summary at 70% of context window
+    const compactionThreshold = Math.floor((budgetConfig.maxContextTokens ?? 100_000) * 0.70);
+
+    for (let turnIndex = 0; turnIndex < budgetConfig.maxTurns; turnIndex += 1) {
+      // Abort check
+      if (abortSignal?.aborted) {
+        stats.stoppedByAbort = true;
+        break;
+      }
+
+      // ── Technique 2: LLM-based conversation compaction ──
+      const estimated = estimateTokens(messages);
+      if (estimated >= compactionThreshold && messages.length > 6) {
+        if (onProgress) {
+          onProgress({
+            progress: turnIndex,
+            total: budgetConfig.maxTurns,
+            message: `Compacting context (${Math.round(estimated / 1000)}K tokens)...`,
+          });
+        }
+        try {
+          const compactResult = await compactWithLlmSummary(
+            chatClient, messages, compactionThreshold, { reasoningEffort },
+          );
+          if (compactResult.didCompact) {
+            messages = compactResult.messages;
+            stats.llmCompactions += 1;
+            Object.assign(stats, summarizeUsage(stats, { total_tokens: compactResult.summaryTokens }));
+          }
+        } catch {
+          // Compaction failed — fall back to simple truncation
+          messages = compactOldToolResults(messages, budgetConfig.maxContextTokens);
+        }
+      }
+
+      // Checkpoint: self-assess every N turns
+      if (checkpointEnabled && turnIndex > 0 && turnIndex % CHECKPOINT_INTERVAL === 0) {
+        messages.push({
+          role: 'user',
+          content: 'Checkpoint: If you have gathered enough evidence, stop calling tools and write your final report now. Otherwise, choose the most impactful next step.',
+        });
+      }
+
+      stats.turns += 1;
+
+      if (onProgress) {
+        onProgress({
+          progress: turnIndex,
+          total: budgetConfig.maxTurns,
+          message: turnIndex === 0
+            ? 'Starting V2 exploration...'
+            : `Turn ${turnIndex + 1}/${budgetConfig.maxTurns}: exploring...`,
+        });
+      }
+
+      const completion = await chatClient.createChatCompletion({
+        messages,
+        tools,
+        reasoningEffort,
+        temperature,
+        topP,
+        maxCompletionTokens: budgetConfig.maxCompletionTokens,
+        parallelToolCalls: true,
+      });
+
+      Object.assign(stats, summarizeUsage(stats, completion.usage));
+
+      // No tool calls — model wants to produce its report
+      if (!completion.message.toolCalls || completion.message.toolCalls.length === 0) {
+        if (completion.message.content) {
+          report = completion.message.content;
+        }
+        break;
+      }
+
+      const assistantMessage = {
+        role: 'assistant',
+        content: completion.message.content || null,
+        tool_calls: completion.message.toolCalls.map(call => ({
+          id: call.id,
+          type: 'function',
+          function: { name: call.function.name, arguments: call.function.arguments },
+        })),
+      };
+      messages.push(assistantMessage);
+
+      // Stagnation detection
+      {
+        const fingerprint = JSON.stringify(
+          completion.message.toolCalls
+            .map(c => [c.function?.name ?? '', c.function?.arguments ?? ''])
+            .sort(),
+        );
+        if (fingerprint === lastFingerprint) {
+          repeatedTurns += 1;
+        } else {
+          repeatedTurns = 0;
+          lastFingerprint = fingerprint;
+        }
+      }
+
+      // Execute tool calls in parallel
+      const toolCallResults = await runWithConcurrency(
+        completion.message.toolCalls,
+        TOOL_CONCURRENCY,
+        async (toolCall) => {
+          const toolName = toolCall.function?.name ?? '(unknown)';
+          let toolResult;
+          try {
+            const toolArgs = safeJsonParse(toolCall.function?.arguments ?? '{}');
+            toolResult = await repoToolkit.callTool(toolName, toolArgs);
+          } catch (error) {
+            toolResult = {
+              error: true,
+              stage: 'parse_or_exec',
+              type: error.message.startsWith('Failed to parse tool arguments')
+                ? 'invalid_tool_arguments'
+                : 'tool_execution_error',
+              message: error.message,
+              tool: toolName,
+            };
+          }
+          return { toolCall, toolName, toolResult };
+        },
+      );
+
+      let allErrors = true;
+      for (const { toolCall, toolName, toolResult } of toolCallResults) {
+        stats.toolCalls += 1;
+        toolsUsed.add(toolName);
+
+        if (toolName === 'repo_read_file' && !toolResult?.error) {
+          filesRead.add(toolResult.path);
+          stats.filesRead += 1;
+        }
+        if (!toolResult?.error) allErrors = false;
+
+        // ── Technique 1: Tool Result Budgeting ──
+        const serialized = applyToolResultCharBudget(toolName, toolResult);
+        if (serialized.includes('[truncated:')) {
+          stats.toolResultsTruncated += 1;
+        }
+
+        messages.push({
+          role: 'tool',
+          tool_call_id: toolCall.id,
+          content: serialized,
+        });
+      }
+
+      // Consecutive error tracking
+      if (allErrors) {
+        consecutiveAllErrorTurns += 1;
+      } else {
+        consecutiveAllErrorTurns = 0;
+      }
+
+      // Stagnation recovery
+      if (repeatedTurns >= 2 || consecutiveAllErrorTurns >= 2) {
+        messages.push({
+          role: 'user',
+          content: 'You are repeating the same failing or unproductive tool calls. Either write your report now with current findings, or try a completely different search approach.',
+        });
+        repeatedTurns = 0;
+        consecutiveAllErrorTurns = 0;
+      }
+    }
+
+    // ── Finalization with Technique 3: Max Output Recovery ──
+    const budgetExhausted = stats.turns >= budgetConfig.maxTurns;
+    const reportIsEmpty = !report || report.trim() === '' || report.trim().toLowerCase() === 'none';
+
+    if (budgetExhausted || reportIsEmpty) {
+      stats.stoppedByBudget = budgetExhausted;
+
+      if (onProgress) {
+        onProgress({
+          progress: budgetConfig.maxTurns - 1,
+          total: budgetConfig.maxTurns,
+          message: 'Synthesizing final report...',
+        });
+      }
+
+      // Initial finalization
+      const finalizeMessages = [
+        ...messages,
+        { role: 'user', content: buildFreeExploreV2FinalizePrompt() },
+      ];
+
+      const finalized = await chatClient.createChatCompletion({
+        messages: finalizeMessages,
+        reasoningEffort,
+        temperature,
+        topP,
+        maxCompletionTokens: budgetConfig.finalizeMaxCompletionTokens ?? 3000,
+        parallelToolCalls: false,
+      });
+      Object.assign(stats, summarizeUsage(stats, finalized.usage));
+      report = finalized.message.content || '';
+
+      // Max output recovery: if output was cut short, ask to continue
+      if (finalized.finishReason === 'length' && report.length > 0) {
+        let recoveryMessages = [
+          ...finalizeMessages,
+          { role: 'assistant', content: report },
+        ];
+        let recoveryCount = 0;
+
+        while (recoveryCount < MAX_OUTPUT_RECOVERY_ATTEMPTS) {
+          recoveryCount += 1;
+          stats.outputRecoveries += 1;
+
+          if (onProgress) {
+            onProgress({
+              progress: budgetConfig.maxTurns,
+              total: budgetConfig.maxTurns,
+              message: `Output recovery attempt ${recoveryCount}/${MAX_OUTPUT_RECOVERY_ATTEMPTS}...`,
+            });
+          }
+
+          recoveryMessages.push({
+            role: 'user',
+            content: buildOutputContinuationPrompt(),
+          });
+
+          const continuation = await chatClient.createChatCompletion({
+            messages: recoveryMessages,
+            reasoningEffort,
+            temperature,
+            topP,
+            maxCompletionTokens: budgetConfig.finalizeMaxCompletionTokens ?? 3000,
+            parallelToolCalls: false,
+          });
+          Object.assign(stats, summarizeUsage(stats, continuation.usage));
+
+          const continuedText = continuation.message.content || '';
+          if (continuedText) {
+            report += '\n' + continuedText;
+            recoveryMessages.push({ role: 'assistant', content: continuedText });
+          }
+
+          // If the model finished normally this time, stop recovery
+          if (continuation.finishReason !== 'length' || !continuedText) {
+            break;
+          }
+        }
+      }
+    } else if (report) {
+      // Report from the main loop — also check for cut-off recovery
+      // (when model stops calling tools and writes report directly)
+      // Check by looking at whether the report ends mid-sentence
+      // For now, trust the model's natural stop — recovery only during finalize
+    }
+
+    if (!report || report.trim() === '') {
+      report = 'Explorer V2 could not produce a report.';
+    }
+
+    stats.elapsedMs = nowMs() - startedAt;
+    Object.assign(stats, globalRepoCache.stats());
+
+    // Update session
+    if (sessionStore && sessionId) {
+      const summaryLine = report.split('\n').find(l => l.trim())?.slice(0, 400) ?? '';
+      sessionStore.update(sessionId, {
+        candidatePaths: [...filesRead],
+        evidence: [],
+        summary: summaryLine,
+        followups: [],
+      });
+    }
+
+    return {
+      report,
+      filesRead: [...filesRead],
+      toolsUsed: [...toolsUsed],
+      stats,
+    };
+  }
+
   async finalizeAfterToolLoop({ chatClient, messages, reasoningEffort, temperature, topP, budgetConfig }) {
     const maxCompletionTokens = budgetConfig?.finalizeMaxCompletionTokens ?? 2000;
     const completion = await chatClient.createChatCompletion({
@@ -1320,4 +1788,10 @@ export async function freeExploreRepository(args, options = {}) {
   const { onProgress, sessionStore, abortSignal, ...runtimeOptions } = options;
   const runtime = new ExplorerRuntime(runtimeOptions);
   return runtime.freeExplore(args, { onProgress, sessionStore, abortSignal });
+}
+
+export async function freeExploreRepositoryV2(args, options = {}) {
+  const { onProgress, sessionStore, abortSignal, ...runtimeOptions } = options;
+  const runtime = new ExplorerRuntime(runtimeOptions);
+  return runtime.freeExploreV2(args, { onProgress, sessionStore, abortSignal });
 }

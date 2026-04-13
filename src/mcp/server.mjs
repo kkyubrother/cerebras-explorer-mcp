@@ -1,5 +1,5 @@
 import { DEFAULT_PROTOCOL_VERSION, getExplorerModel, isTruthyEnv } from '../explorer/config.mjs';
-import { exploreRepository, freeExploreRepository } from '../explorer/runtime.mjs';
+import { exploreRepository, freeExploreRepository, freeExploreRepositoryV2 } from '../explorer/runtime.mjs';
 import { EXPLORE_REPO_INPUT_SCHEMA, validateExploreRepoArgs } from '../explorer/schemas.mjs';
 import { globalSessionStore } from '../explorer/session.mjs';
 import { StdioJsonRpcServer } from './jsonrpc-stdio.mjs';
@@ -154,6 +154,35 @@ const EXPLORE_TOOL = {
   },
 };
 
+// ─── V2 enhanced explore tool ────────────────────────────────────────────────
+
+const EXPLORE_V2_TOOL = {
+  name: 'explore_v2',
+  title: 'Advanced repository exploration (V2)',
+  description:
+    'Enhanced version of explore with three advanced techniques: ' +
+    '(1) LLM-based conversation compaction — intelligently summarizes earlier findings to maximize useful context, ' +
+    '(2) tool result budgeting — caps individual tool outputs to prevent context overflow, ' +
+    '(3) max output recovery — automatically continues the report if it gets cut short. ' +
+    'Use this for deep, complex explorations that span many files or require comprehensive reports. ' +
+    'Produces a thorough Markdown report with file:line citations. ' +
+    'Best for: architecture deep-dives, root cause analysis, understanding complex systems end-to-end.',
+  inputSchema: {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      prompt: { type: 'string', description: 'What to explore — a natural-language question or task. Be specific for best results.' },
+      thoroughness: { type: 'string', enum: ['quick', 'normal', 'deep'], description: '"quick": fast scan, "normal": balanced (default), "deep": comprehensive investigation.' },
+      scope: { type: 'array', items: { type: 'string' }, description: 'Path prefixes to focus on (e.g. ["src/api/", "lib/auth/"]).' },
+      repo_root: { type: 'string', description: 'Repository root path.' },
+      session: { type: 'string', description: 'Session ID from a previous call for continuity.' },
+      language: { type: 'string', description: 'BCP-47 language tag for the report (e.g. "ko", "en").' },
+      context: { type: 'string', description: 'Additional context from the parent agent to guide exploration.' },
+    },
+    required: ['prompt'],
+  },
+};
+
 function exploreToolEnabled() {
   const v = process.env.CEREBRAS_EXPLORER_ENABLE_EXPLORE;
   if (v === undefined || v === null) return true;
@@ -174,7 +203,7 @@ function buildToolList() {
     tools.push(EXPLAIN_SYMBOL_TOOL, TRACE_DEPENDENCY_TOOL, SUMMARIZE_CHANGES_TOOL, FIND_SIMILAR_CODE_TOOL);
   }
   if (exploreToolEnabled()) {
-    tools.push(EXPLORE_TOOL);
+    tools.push(EXPLORE_TOOL, EXPLORE_V2_TOOL);
   }
   return tools;
 }
@@ -357,6 +386,26 @@ export function createMcpRequestHandler({
     }
   }
 
+  async function callFreeExploreV2Tool(exploreArgs, progressToken, requestId) {
+    const abortController = new AbortController();
+    if (requestId) activeAbortControllers.set(requestId, abortController);
+    try {
+      const result = await freeExploreRepositoryV2(exploreArgs, {
+        logger,
+        ...runtimeOptions,
+        onProgress: makeProgressCallback(progressToken),
+        sessionStore,
+        abortSignal: abortController.signal,
+      });
+      return {
+        content: [{ type: 'text', text: result.report }],
+        structuredContent: result,
+      };
+    } finally {
+      if (requestId) activeAbortControllers.delete(requestId);
+    }
+  }
+
   async function handleRequest(message) {
     switch (message.method) {
       case 'initialize': {
@@ -407,6 +456,9 @@ export function createMcpRequestHandler({
           }
           if (name === 'explore') {
             return await callFreeExploreTool(args, progressToken, requestId);
+          }
+          if (name === 'explore_v2') {
+            return await callFreeExploreV2Tool(args, progressToken, requestId);
           }
 
           const error = new Error(`Unknown tool: ${name}`);
