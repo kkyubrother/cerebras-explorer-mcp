@@ -297,6 +297,33 @@ function tryLooseRepair(content) {
   return null;
 }
 
+/**
+ * Known repo_* tool names. Used to detect hallucinated tool calls.
+ */
+const KNOWN_TOOL_NAMES = new Set([
+  'repo_read_file', 'repo_grep', 'repo_list_dir', 'repo_find_files',
+  'repo_git_log', 'repo_git_blame', 'repo_git_diff', 'repo_git_show',
+  'repo_symbols', 'repo_references', 'repo_symbol_context',
+]);
+
+/**
+ * Validate a tool call name. If the model hallucinated a non-existent tool,
+ * return an error result with clear feedback so the model switches strategy.
+ */
+function validateToolName(toolName) {
+  if (KNOWN_TOOL_NAMES.has(toolName)) return null; // valid
+  return {
+    error: true,
+    stage: 'validation',
+    type: 'unknown_tool',
+    message: `Tool "${toolName}" does not exist. Available tools: ${[...KNOWN_TOOL_NAMES].join(', ')}. Choose one of these.`,
+    tool: toolName,
+  };
+}
+
+/** Max consecutive all-error turns before forcing early exit. */
+const MAX_CONSECUTIVE_ERROR_TURNS = 3;
+
 function summarizeUsage(existing, usage) {
   if (!usage) {
     return existing;
@@ -857,6 +884,13 @@ export class ExplorerRuntime {
           let toolName = toolCall.function?.name ?? '(unknown)';
           let toolArgs = {};
           let toolResult;
+
+          // Validate tool name first — catch hallucinated tools early
+          const validationError = validateToolName(toolName);
+          if (validationError) {
+            return { toolCall, toolName, toolArgs, toolResult: validationError };
+          }
+
           try {
             toolArgs = safeJsonParse(toolCall.function?.arguments ?? '{}');
             toolResult = await repoToolkit.callTool(toolName, toolArgs);
@@ -965,6 +999,12 @@ export class ExplorerRuntime {
         consecutiveAllErrorTurns += 1;
       } else {
         consecutiveAllErrorTurns = 0;
+      }
+
+      // Circuit breaker: force exit after too many consecutive all-error turns
+      if (consecutiveAllErrorTurns >= MAX_CONSECUTIVE_ERROR_TURNS) {
+        stats.stoppedByErrors = true;
+        break;
       }
 
       // Inject recovery guidance when stagnating (same plan repeated or all tools failing)
@@ -1541,6 +1581,13 @@ export class ExplorerRuntime {
         async (toolCall) => {
           const toolName = toolCall.function?.name ?? '(unknown)';
           let toolResult;
+
+          // Validate tool name — catch hallucinated tools early
+          const validationError = validateToolName(toolName);
+          if (validationError) {
+            return { toolCall, toolName, toolResult: validationError };
+          }
+
           try {
             const toolArgs = safeJsonParse(toolCall.function?.arguments ?? '{}');
             toolResult = await repoToolkit.callTool(toolName, toolArgs);
@@ -1588,6 +1635,12 @@ export class ExplorerRuntime {
         consecutiveAllErrorTurns += 1;
       } else {
         consecutiveAllErrorTurns = 0;
+      }
+
+      // Circuit breaker: force exit after too many consecutive all-error turns
+      if (consecutiveAllErrorTurns >= MAX_CONSECUTIVE_ERROR_TURNS) {
+        stats.stoppedByErrors = true;
+        break;
       }
 
       // Stagnation recovery
