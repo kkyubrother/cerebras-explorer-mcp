@@ -175,7 +175,7 @@ GLM 4.7 마이그레이션 기준으로 explorer runtime은 다음 원칙을 따
 - quick budget: `reasoning_effort="none"`
 - normal/deep budget: reasoning 파라미터를 생략해 기본 reasoning 유지
 - multi-turn tool loop: `clear_thinking=false` + assistant `reasoning` 재주입으로 preserved thinking 유지
-- 샘플링 기본값: `temperature=1`, `top_p=0.95`
+- 샘플링 기본값: budget별 temperature (`quick`: 0.3, `normal`: 0.8, `deep`: 1.0), `top_p=0.95`
 
 #### `ExplorerRuntime`
 
@@ -189,14 +189,18 @@ GLM 4.7 마이그레이션 기준으로 explorer runtime은 다음 원칙을 따
 
 #### `MCP Server`
 
-기본적으로 상위 모델에게 5개의 도구를 노출한다: `explore_repo`, `explain_symbol`, `trace_dependency`, `summarize_changes`, `find_similar_code`. `CEREBRAS_EXPLORER_EXTRA_TOOLS=false`로 설정하면 `explore_repo` 하나만 노출된다.
+기본적으로 상위 모델에게 7개의 도구를 노출한다: `explore_repo`, `explain_symbol`, `trace_dependency`, `summarize_changes`, `find_similar_code`, `explore`, `explore_v2`.
 
-`CEREBRAS_EXPLORER_ENABLE_EXPLORE=true`로 설정하면 추가로 `explore` 도구가 노출된다 (beta).
+- `CEREBRAS_EXPLORER_EXTRA_TOOLS=false`로 설정하면 특화 도구 4개(`explain_symbol`, `trace_dependency`, `summarize_changes`, `find_similar_code`)가 비활성화된다.
+- `CEREBRAS_EXPLORER_ENABLE_EXPLORE=false`로 설정하면 `explore`와 `explore_v2`가 비활성화된다.
 
-- `explore_repo`: 구조화된 JSON 반환 — 자동화, 파이프라인, 후처리에 적합
-- `explore`: 사람이 읽을 수 있는 Markdown 보고서 반환 — 아키텍처 개요, 광범위한 질문에 적합
+| 도구 | 반환 형식 | 적합한 상황 |
+|------|----------|-----------|
+| `explore_repo` | 구조화된 JSON | 자동화, 파이프라인, 후처리 |
+| `explore` | Markdown 보고서 | 아키텍처 개요, 광범위한 질문 |
+| `explore_v2` | Markdown 보고서 (강화) | 넓은 탐색 범위, 컨텍스트 오버플로 위험이 있는 deep 탐색 |
 
-두 도구는 같은 `_initExploreContext()` 인프라를 공유하며, 세션도 호환된다.
+`explore`와 `explore_v2`는 같은 `_initExploreContext()` 인프라를 공유하며, 세션도 호환된다. `explore_v2`는 LLM 기반 대화 요약, 도구 결과 예산 관리, 최대 출력 복구 기능을 추가로 제공한다.
 
 #### 세션 계약
 

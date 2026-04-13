@@ -2,7 +2,7 @@
 
 환경 변수로 선택한 Cerebras 모델을 사용하는, 읽기 전용 자율 코드 탐색 MCP 서버입니다.
 
-핵심 목적은 **Claude Code / Codex 같은 메인 모델이 직접 `Read`/`Grep`/`Glob`를 여러 번 돌리지 않게 하고**, 상위 모델은 `explore_repo(...)` 또는 `explore(...)` 한 번만 위임한 뒤 구조화된 결과나 사람이 읽기 좋은 보고서만 받도록 만드는 것입니다.
+핵심 목적은 **Claude Code / Codex 같은 메인 모델이 직접 `Read`/`Grep`/`Glob`를 여러 번 돌리지 않게 하고**, 상위 모델은 `explore_repo(...)`, `explore(...)`, 또는 `explore_v2(...)` 한 번만 위임한 뒤 구조화된 결과나 사람이 읽기 좋은 보고서만 받도록 만드는 것입니다.
 
 ## 왜 이렇게 설계했나
 
@@ -26,6 +26,7 @@
 Parent model (Claude Code / Codex)
   -> MCP tool: explore_repo(task, scope, budget, hints)
      or MCP tool: explore(prompt, scope, thoroughness)
+     or MCP tool: explore_v2(prompt, scope, thoroughness)
     -> cerebras-explorer-mcp
       -> internal repo tools
          - repo_list_dir
@@ -38,7 +39,7 @@ Parent model (Claude Code / Codex)
 
 중요한 점은 상위 모델에 low-level 파일 도구를 노출하지 않는다는 점입니다.
 
-- 상위 모델은 필요에 따라 `explore_repo` 또는 `explore`를 호출합니다.
+- 상위 모델은 필요에 따라 `explore_repo`, `explore`, 또는 `explore_v2`를 호출합니다.
 - 실제 파일 탐색 루프는 MCP 서버 안에서 선택된 Cerebras 모델이 자체적으로 수행합니다.
 - 따라서 “메인은 위임 1회, explorer가 자율 탐색”이라는 목표를 만족합니다.
 
@@ -52,7 +53,7 @@ Parent model (Claude Code / Codex)
 - **세션/진행 상황 지원**: 세션 ID 기반 후속 탐색과 MCP progress notification 지원
 - **프로젝트별 설정 파일 지원**: `.cerebras-explorer.json`으로 기본 scope, key files, context 지정 가능
 - **GLM 4.7 reasoning 정렬**: quick budget은 `reasoning_effort="none"`으로 reasoning을 끄고, normal/deep은 기본 reasoning을 유지하며 `clear_thinking=false`로 이전 turn의 reasoning을 보존
-- **샘플링 기본값 정렬**: Cerebras 권장값에 맞춰 `temperature=1`, `top_p=0.95`를 기본으로 사용
+- **샘플링 기본값 정렬**: budget별 최적 temperature 사용 (`quick`: 0.3, `normal`: 0.8, `deep`: 1.0); `top_p`는 Cerebras 권장값 0.95 고정. 환경 변수로 전역 기본값을 override 가능
 - **근거 강제**: 최종 evidence는 실제로 읽거나 grep으로 확인한 라인 범위에만 남김
 - **MCP 친화적 반환**: `answer`, `summary`, `confidence`, `evidence`, `candidatePaths`, `followups`, `stats`에 더해 `confidenceScore`, `confidenceFactors`, `codeMap`, `diagram`, `recentActivity` 지원
 
@@ -143,8 +144,9 @@ Parent model (Claude Code / Codex)
 
 - `explore_repo`: 후속 자동화, 추가 도구 호출, 편집 전 검증처럼 **구조화된 JSON 필드**가 필요한 경우
 - `explore`: 아키텍처 설명, 온보딩 요약, 사용자에게 바로 보여줄 답변처럼 **사람이 읽는 Markdown 보고서**가 필요한 경우
+- `explore_v2`: `explore`와 동일한 상황이지만, 탐색 범위가 넓거나 컨텍스트 오버플로 위험이 있을 때
 
-### `explore` (beta)
+### `explore`
 
 입력 스키마:
 
@@ -168,6 +170,32 @@ Parent model (Claude Code / Codex)
 - 본문 안에 inline file:line citation이 들어갑니다.
 - 사용자 설명, 아키텍처 브리핑, 조사 결과 공유에 적합합니다.
 - 후속 자동화나 정형 후처리가 중요하면 `explore_repo`를 우선 사용하세요.
+
+### `explore_v2`
+
+`explore`의 강화 버전으로, 세 가지 고급 기법을 추가합니다.
+
+1. **LLM 기반 대화 요약**: 탐색이 진행되면서 이전 발견 내용을 지능적으로 요약해 유용한 컨텍스트를 최대화합니다.
+2. **도구 결과 예산 관리**: 개별 도구 출력에 상한을 두어 컨텍스트 오버플로를 방지합니다.
+3. **최대 출력 복구**: 보고서가 출력 토큰 한도로 잘렸을 때 자동으로 이어서 생성합니다.
+
+입력 스키마는 `explore`와 동일합니다:
+
+```json
+{
+  "prompt": "인증 서브시스템의 구조를 end-to-end로 설명해라",
+  "repo_root": "/absolute/or/relative/path",
+  "scope": ["src/auth/**", "src/routes/**"],
+  "thoroughness": "deep",
+  "language": "ko"
+}
+```
+
+권장 사용 경우:
+
+- 다수의 파일에 걸친 깊고 광범위한 탐색
+- 컨텍스트 초과가 우려되는 long-running 탐색
+- 대규모 아키텍처 분석, 복잡한 버그 원인 분석 (end-to-end)
 
 ### 특화 도구 (Specialized Tools)
 
@@ -220,17 +248,42 @@ cerebras-explorer-mcp/
 export CEREBRAS_API_KEY="..."
 ```
 
-선택:
+선택 (모델 / API):
 
 ```bash
 export CEREBRAS_API_BASE_URL="https://api.cerebras.ai/v1"
-export CEREBRAS_EXPLORER_MODEL="zai-glm-4.7"
-export CEREBRAS_EXPLORER_CLEAR_THINKING="false"   # 기본값: false (agentic loop용)
-export CEREBRAS_EXPLORER_TEMPERATURE="1"
-export CEREBRAS_EXPLORER_TOP_P="0.95"
+export CEREBRAS_EXPLORER_MODEL="zai-glm-4.7"           # 전역 모델. 기본값: zai-glm-4.7
+export CEREBRAS_EXPLORER_MODEL_QUICK="zai-glm-4.7"     # quick budget 전용 모델 override
+export CEREBRAS_EXPLORER_MODEL_NORMAL="zai-glm-4.7"    # normal budget 전용 모델 override
+export CEREBRAS_EXPLORER_MODEL_DEEP="zai-glm-4.7"      # deep budget 전용 모델 override
+export CEREBRAS_EXPLORER_HTTP_TIMEOUT_MS="60000"        # HTTP 요청 timeout (ms). 기본값: 60000
 ```
 
-`temperature`와 `top_p`는 Cerebras/Z.ai의 GLM 4.7 권장 기본값에 맞춰져 있습니다. 더 결정적인 출력을 원하면 둘 다 동시에 만지기보다 하나만 조정하는 편이 안전합니다.
+선택 (샘플링 / reasoning):
+
+```bash
+export CEREBRAS_EXPLORER_CLEAR_THINKING="false"         # 기본값: false (agentic loop용)
+export CEREBRAS_EXPLORER_TEMPERATURE="1"                # 전역 temperature 기본값 override
+export CEREBRAS_EXPLORER_TOP_P="0.95"                   # top_p 기본값 override
+export CEREBRAS_EXPLORER_REASONING_FORMAT="parsed"      # reasoning 출력 형식 override
+```
+
+> **temperature 동작**: budget별로 기본값이 다릅니다 (`quick`: 0.3, `normal`: 0.8, `deep`: 1.0). `CEREBRAS_EXPLORER_TEMPERATURE`는 budget별 기본값이 없을 때의 전역 fallback이며, budget-specific 값이 우선합니다.
+
+선택 (도구 노출):
+
+```bash
+export CEREBRAS_EXPLORER_EXTRA_TOOLS="true"             # false로 설정하면 특화 도구 4개 비활성화. 기본값: true
+export CEREBRAS_EXPLORER_ENABLE_EXPLORE="true"          # false로 설정하면 explore/explore_v2 비활성화. 기본값: true
+export CEREBRAS_EXPLORER_AUTO_ROUTE="false"             # true이면 task 복잡도에 따라 budget별 모델 자동 선택
+```
+
+선택 (디버깅 / 관측):
+
+```bash
+export CEREBRAS_EXPLORER_TRANSCRIPT="true"              # true이면 탐색 내역을 JSONL 파일로 기록
+export CEREBRAS_EXPLORER_TRANSCRIPT_DIR="./transcripts" # transcript 저장 디렉터리. 기본값: 현재 작업 디렉터리
+```
 
 ### 2) 서버 실행
 
@@ -270,7 +323,7 @@ claude mcp add cerebras-explorer \
 `/mcp` 패널에서 `cerebras-explorer`가 `failed` 상태로 표시되면:
 
 1. **이 저장소를 최신 버전으로 업데이트합니다.**
-   - Claude Code v2.1.94+(프로토콜 `2025-11-25`)부터 MCP stdio 전송 방식이 변경됐습니다.
+   - Claude Code v2.1.94+(프로토콜 `2025-06-18`)부터 MCP stdio 전송 방식이 변경됐습니다.
    - 구형 stdio 파서는 `Content-Length: N\r\n\r\n{...}` 헤더 방식만 처리했지만, 신형 Claude Code는 NDJSON 방식(`{...}\n`)으로 보냅니다.
    - 파서가 헤더를 찾지 못해 응답 없이 대기 → Claude Code 타임아웃 → "Failed to connect"가 됩니다.
    - 현재 버전은 두 방식을 자동 감지하므로 업데이트 후 재등록하면 해결됩니다.
@@ -428,7 +481,8 @@ node ./scripts/run-benchmark.mjs \
 - 대용량 바이너리 / 압축 파일은 탐색 대상에서 제외합니다.
 - 최종 품질은 저장소 구조와 질문 품질에 영향을 받습니다.
 - 심볼 인덱싱은 regex 기반이며, LSP/tree-sitter 수준의 정밀한 semantic 분석은 아직 없습니다.
-- `repo_symbol_context.depth > 1`, `repo_grep.includeSymbol`, `find_similar_code.similarity` 같은 일부 정밀 기능은 아직 미구현입니다.
+- `repo_symbol_context.depth > 1`은 현재 `effectiveDepth = 1`로 고정됩니다 (직접 호출자만 반환). 의도적 설계 결정이며, 반환값에 `effectiveDepth: 1` 필드가 포함되어 실제 동작을 명시합니다. 더 깊은 호출 체인이 필요하면 `explore_repo`의 `reference-chase` 전략을 사용하세요.
+- `repo_grep.includeSymbol`, `find_similar_code.similarity` 같은 정밀 기능은 Phase 2/3에서 구현 예정입니다.
 
 참고:
 - 코드베이스 안에는 provider abstraction 관련 구현이 일부 존재하지만, 이 프로젝트의 문서화된 목표와 공개 인터페이스는 Cerebras 기반 explorer에 맞춰져 있습니다.
