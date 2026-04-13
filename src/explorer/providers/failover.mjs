@@ -33,18 +33,20 @@ export class FailoverChatClient extends AbstractChatClient {
   async createChatCompletion(opts) {
     let lastError;
     for (const provider of this._providers) {
+      // Create a per-provider AbortController so we can actually cancel the
+      // underlying HTTP request when the timeout fires, instead of just racing
+      // a promise and leaving a ghost request running in the background.
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), this._timeoutMs);
       try {
-        const result = await Promise.race([
-          provider.createChatCompletion(opts),
-          new Promise((_, reject) =>
-            setTimeout(
-              () => reject(new Error(`Provider "${provider.model}" timed out after ${this._timeoutMs}ms`)),
-              this._timeoutMs,
-            ),
-          ),
-        ]);
+        const result = await provider.createChatCompletion({
+          ...opts,
+          signal: controller.signal,
+        });
+        clearTimeout(timer);
         return result;
       } catch (error) {
+        clearTimeout(timer);
         lastError = error;
       }
     }

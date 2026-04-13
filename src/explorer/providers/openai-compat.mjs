@@ -3,25 +3,45 @@ import { AbstractChatClient } from './abstract.mjs';
 const RETRYABLE_STATUSES = new Set([429, 500, 502, 503, 504]);
 const DEFAULT_HTTP_TIMEOUT_MS = 60000;
 
-async function fetchWithTimeoutAndRetry(fetchImpl, url, init, { errorPrefix = 'API', maxRetries = 2, timeoutMs } = {}) {
+async function fetchWithTimeoutAndRetry(fetchImpl, url, init, { errorPrefix = 'API', maxRetries = 2, timeoutMs, externalSignal } = {}) {
   const effectiveTimeout = timeoutMs ?? Number(process.env.CEREBRAS_EXPLORER_HTTP_TIMEOUT_MS ?? DEFAULT_HTTP_TIMEOUT_MS);
 
   let lastError;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    // Bail immediately if the caller has already cancelled.
+    if (externalSignal?.aborted) {
+      const err = new Error(`${errorPrefix} request cancelled`);
+      err.name = 'AbortError';
+      throw err;
+    }
+
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), effectiveTimeout);
+
+    // Forward external cancellation to the internal controller so the
+    // underlying fetch is actually aborted rather than left as a ghost request.
+    let externalListener;
+    if (externalSignal) {
+      externalListener = () => controller.abort();
+      externalSignal.addEventListener('abort', externalListener, { once: true });
+    }
 
     let response;
     try {
       response = await fetchImpl(url, { ...init, signal: controller.signal });
     } catch (error) {
       clearTimeout(timer);
+      if (externalListener) externalSignal.removeEventListener('abort', externalListener);
       if (error.name === 'AbortError') {
+        // External signal fired → propagate so the caller can distinguish
+        // cancellation from an internal timeout.
+        if (externalSignal?.aborted) throw error;
         throw new Error(`${errorPrefix} timed out after ${effectiveTimeout}ms`);
       }
       throw error;
     }
     clearTimeout(timer);
+    if (externalListener) externalSignal.removeEventListener('abort', externalListener);
 
     const responseText = await response.text();
     let parsed;
@@ -128,6 +148,7 @@ export class OpenAICompatChatClient extends AbstractChatClient {
     topP = 0.95,
     maxCompletionTokens = 4000,
     parallelToolCalls = true,
+    signal,
     // reasoningEffort is intentionally ignored — not supported by standard OpenAI API
   }) {
     this._ensureConfigured();
@@ -158,7 +179,7 @@ export class OpenAICompatChatClient extends AbstractChatClient {
         authorization: `Bearer ${this._apiKey}`,
       },
       body: JSON.stringify(payload),
-    }, { errorPrefix: 'Provider API' });
+    }, { errorPrefix: 'Provider API', externalSignal: signal });
 
     const choice = parsed?.choices?.[0];
     const message = choice?.message;

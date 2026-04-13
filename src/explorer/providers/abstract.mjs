@@ -25,6 +25,7 @@ export class AbstractChatClient {
    * @param {number} [opts.topP]               - Nucleus sampling parameter
    * @param {number} [opts.maxCompletionTokens]
    * @param {boolean}[opts.parallelToolCalls]  - Allow simultaneous tool calls
+   * @param {AbortSignal} [opts.signal]        - Cancellation signal; aborts the underlying HTTP request
    *
    * @returns {Promise<{
    *   id: string,

@@ -71,19 +71,35 @@ function getRetryDelay(attempt, response) {
  * Retries on: 429/5xx HTTP errors, network errors (ECONNRESET, etc.), and timeouts.
  * Non-retryable errors (400, 401, 403, 404, etc.) are thrown immediately.
  */
-async function fetchWithTimeoutAndRetry(fetchImpl, url, init, { errorPrefix = 'API', maxRetries = 2, timeoutMs } = {}) {
+async function fetchWithTimeoutAndRetry(fetchImpl, url, init, { errorPrefix = 'API', maxRetries = 2, timeoutMs, externalSignal } = {}) {
   const effectiveTimeout = timeoutMs ?? Number(process.env.CEREBRAS_EXPLORER_HTTP_TIMEOUT_MS ?? DEFAULT_HTTP_TIMEOUT_MS);
 
   let lastError;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    // Bail immediately if the caller has already cancelled.
+    if (externalSignal?.aborted) {
+      const err = new Error(`${errorPrefix} request cancelled`);
+      err.name = 'AbortError';
+      throw err;
+    }
+
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), effectiveTimeout);
+
+    // Forward external cancellation to the internal controller so the
+    // underlying fetch is actually aborted rather than left as a ghost request.
+    let externalListener;
+    if (externalSignal) {
+      externalListener = () => controller.abort();
+      externalSignal.addEventListener('abort', externalListener, { once: true });
+    }
 
     let response;
     try {
       response = await fetchImpl(url, { ...init, signal: controller.signal });
     } catch (error) {
       clearTimeout(timer);
+      if (externalListener) externalSignal.removeEventListener('abort', externalListener);
       // Network errors and timeouts are retryable
       if (isRetryableNetworkError(error) && attempt < maxRetries) {
         lastError = new Error(`${errorPrefix} network error: ${error.message}`);
@@ -92,11 +108,15 @@ async function fetchWithTimeoutAndRetry(fetchImpl, url, init, { errorPrefix = 'A
         continue;
       }
       if (error.name === 'AbortError') {
+        // External signal fired → propagate so the caller can distinguish
+        // cancellation from an internal timeout.
+        if (externalSignal?.aborted) throw error;
         throw new Error(`${errorPrefix} timed out after ${effectiveTimeout}ms (${attempt + 1} attempt(s))`);
       }
       throw error;
     }
     clearTimeout(timer);
+    if (externalListener) externalSignal.removeEventListener('abort', externalListener);
 
     const responseText = await response.text();
     let parsed;
@@ -255,6 +275,7 @@ export class CerebrasChatClient {
     topP = this.defaultTopP,
     maxCompletionTokens = 4000,
     parallelToolCalls = true,
+    signal,
   }) {
     this.ensureConfigured();
 
@@ -306,7 +327,7 @@ export class CerebrasChatClient {
       method: 'POST',
       headers,
       body: requestBody,
-    }, { errorPrefix: 'Cerebras API' });
+    }, { errorPrefix: 'Cerebras API', externalSignal: signal });
 
     const choice = parsed?.choices?.[0];
     const message = choice?.message;
