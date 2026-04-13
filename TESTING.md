@@ -6,7 +6,7 @@
 npm test
 ```
 
-181개 테스트, 180 pass, 1 skip (symlink — 플랫폼 의존).
+184개 테스트, 183 pass, 1 skip (symlink — 플랫폼 의존).
 
 ## 통합 테스트 (실제 Cerebras API)
 
@@ -47,6 +47,7 @@ CEREBRAS_API_KEY=<key> node scripts/integration-test.mjs
 | **API retry (네트워크 에러)** | ECONNRESET, ETIMEDOUT 등 발생 | 네트워크 불안정 환경 또는 mock |
 | **캐시 mtime 감지** | 탐색 중 파일이 수정됨 | 탐색 도중 파일 수정 후 재읽기 확인 |
 | **Transcript 기록** | CEREBRAS_EXPLORER_TRANSCRIPT=true 설정 | 환경변수 설정 후 JSONL 파일 생성 확인 |
+| **동시 도구 호출** (실제 API) | Claude Code에서 explore + explore_repo 동시 호출 | MCP 연결 후 병렬 호출 후 두 응답 모두 수신 확인 |
 
 ## Cerebras API 에러 코드 참조
 

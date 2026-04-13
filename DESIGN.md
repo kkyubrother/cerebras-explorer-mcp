@@ -194,6 +194,16 @@ GLM 4.7 마이그레이션 기준으로 explorer runtime은 다음 원칙을 따
 - `CEREBRAS_EXPLORER_EXTRA_TOOLS=false`로 설정하면 특화 도구 4개(`explain_symbol`, `trace_dependency`, `summarize_changes`, `find_similar_code`)가 비활성화된다.
 - `CEREBRAS_EXPLORER_ENABLE_EXPLORE=false`로 설정하면 `explore`와 `explore_v2`가 비활성화된다.
 
+#### 동시 요청 처리
+
+`StdioJsonRpcServer`(`src/mcp/jsonrpc-stdio.mjs`)는 요청을 **병렬**로 처리한다.
+
+- `processBuffer()`는 버퍼에서 메시지를 파싱한 즉시 `dispatchMessage()`를 fire-and-forget으로 실행한다. 탐색 한 건(15~30초)이 진행 중이어도 다음 요청이 즉시 시작된다.
+- `send()` 메서드 내부에 `_sendQueue` promise chain을 두어 stdout 쓰기를 직렬화한다. 동시에 응답이 완료되어도 JSON 메시지가 뒤섞여 스트림이 오염되지 않는다.
+- `notifications/cancelled`를 수신하면 `AbortController.abort()` 직후 Map에서도 즉시 제거하여 완료된 요청의 컨트롤러가 잔류하지 않는다.
+
+> **설계 이유**: 탐색 요청은 외부 Cerebras API를 반복 호출하는 비동기 작업이다. 직렬 처리는 한 요청이 수십 초를 점유하는 동안 나머지 모든 요청을 큐에 묶어두므로, 상위 모델이 두 도구를 동시에 호출하는 일반적인 사용 패턴에서 두 번째 요청이 hang처럼 보였다.
+
 | 도구 | 반환 형식 | 적합한 상황 |
 |------|----------|-----------|
 | `explore_repo` | 구조화된 JSON | 자동화, 파이프라인, 후처리 |
