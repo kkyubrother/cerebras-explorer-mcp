@@ -249,17 +249,17 @@
 - `stoppedByBudget`와 최종 finalize 경로를 일관되게 맞춤
 
 ### 체크리스트
-- [ ] `_initExploreContext()` 반환값에 `repoToolkit` 포함 확인
-- [ ] `freeExplore()` destructuring에 `repoToolkit` 추가
-- [ ] `freeExplore()` tool call에 Phase 3의 malformed args 격리 적용
-- [ ] `freeExplore()` finalize 조건: `report === ''` → `exhausted || lastAssistantHadToolCalls || looksInterim(report)`
-- [ ] `stoppedByBudget` 플래그 일관성 확보
+- [x] `_initExploreContext()` 반환값에 `repoToolkit` 포함 확인
+- [x] `freeExplore()` destructuring에 `repoToolkit` 추가
+- [x] `freeExplore()` tool call에 Phase 3의 malformed args 격리 적용
+- [x] `freeExplore()` finalize 조건: `budgetExhausted || reportIsEmpty` (interim text 있어도 budget 소진 시 finalize)
+- [x] `stoppedByBudget` 플래그 일관성 확보
 
 ### 추가 테스트 (신규 `tests/free-explore.test.mjs`)
-- [ ] `freeExplore executes tool calls without repoToolkit ReferenceError`
-- [ ] `freeExplore continues after malformed tool arguments`
-- [ ] `freeExplore finalizes when budget is exhausted even if interim report exists`
-- [ ] `freeExplore sets stoppedByBudget when forced to finalize`
+- [x] `freeExplore executes tool calls without repoToolkit ReferenceError`
+- [x] `freeExplore continues after malformed tool arguments`
+- [x] `freeExplore finalizes when budget exhausted even if interim text exists`
+- [x] `freeExplore sets stoppedByBudget when budget is exhausted`
 
 ### 검증 포인트
 - "조용히 tool error로 먹히는 ReferenceError"가 테스트로 고정됨
@@ -277,20 +277,20 @@
 - failover에서 timeout된 provider 뒤로 정상 진행
 
 ### 체크리스트
-- [ ] `cerebras-client.mjs`: `AbortController` + `CEREBRAS_EXPLORER_HTTP_TIMEOUT_MS` 환경변수 지원
-- [ ] `cerebras-client.mjs`: 429/5xx retry 로직 추가 (횟수 제한)
-- [ ] `openai-compat.mjs`: 동일하게 `AbortController` + retry 적용
-- [ ] `failover.mjs`: timeout된 provider를 catch하고 다음 provider로 넘어가는 로직 수정
-- [ ] non-retryable 에러 (400 등) 구분
+- [x] `cerebras-client.mjs`: `AbortController` + `CEREBRAS_EXPLORER_HTTP_TIMEOUT_MS` 환경변수 지원
+- [x] `cerebras-client.mjs`: 429/5xx retry 로직 추가 (횟수 제한)
+- [x] `openai-compat.mjs`: 동일하게 `AbortController` + retry 적용
+- [x] `failover.mjs`: timeout된 provider를 catch하고 다음 provider로 넘어가는 로직 수정
+- [x] non-retryable 에러 (400 등) 구분
 
 ### 추가 테스트
 - (`tests/cerebras-client.test.mjs`)
-  - [ ] `CerebrasChatClient aborts timed-out requests`
-  - [ ] `CerebrasChatClient retries on 429 and then succeeds`
+  - [x] `CerebrasChatClient aborts timed-out requests`
+  - [x] `CerebrasChatClient retries on 429 and then succeeds`
 - (`tests/providers.test.mjs`)
-  - [ ] `OpenAICompatChatClient aborts timed-out requests`
-  - [ ] `FailoverChatClient falls back after provider timeout`
-  - [ ] `Non-retryable 400 errors are not retried`
+  - [x] `OpenAICompatChatClient aborts timed-out requests`
+  - [x] `FailoverChatClient falls back after provider timeout`
+  - [x] `Non-retryable 400 errors are not retried`
 
 ### 검증 포인트
 - mock fetch가 영원히 resolve되지 않을 때 timeout error 발생

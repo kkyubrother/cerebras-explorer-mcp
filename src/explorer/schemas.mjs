@@ -270,17 +270,33 @@ export function computeConfidenceScore(groundedEvidence, totalEvidenceBefore, st
     factors.adjustments.push('+0.05 (symbol/grep search used)');
   }
 
+  // Git tools bonus: when blame/diff/show were used, git-derived evidence is
+  // likely schema-grounded (not hallucinated), so add a small quality bonus.
+  const gitActionCalls = gitDiffCalls + gitBlameCalls + (stats.gitShowCalls ?? 0);
+  if (gitActionCalls > 0) {
+    score += 0.05;
+    factors.adjustments.push('+0.05 (git blame/diff/show used — git evidence quality)');
+  }
+
   // Stopped by budget (mild penalty — partial results are still useful)
   if (factors.stoppedByBudget) {
     score -= 0.10;
     factors.adjustments.push('-0.10 (stopped by budget before completion)');
   }
 
-  // Evidence was dropped (hallucination risk — proportional penalty)
+  // Evidence was dropped (hallucination risk — proportional penalty).
+  // Exception: when only git-log was used (no blame/diff/show), drops are more likely
+  // to be schema limitations than hallucinations — apply a reduced penalty.
   if (evidenceDropped > 0) {
-    const dropPenalty = Math.min(evidenceDropped * 0.08, 0.20);
+    const isGitLogOnly = gitLogCalls > 0 && gitActionCalls === 0;
+    const dropRate = isGitLogOnly ? 0.04 : 0.08;
+    const dropPenalty = Math.min(evidenceDropped * dropRate, 0.20);
     score -= dropPenalty;
-    factors.adjustments.push(`-${dropPenalty.toFixed(2)} (${evidenceDropped} evidence item(s) dropped as ungrounded)`);
+    if (isGitLogOnly) {
+      factors.adjustments.push(`-${dropPenalty.toFixed(2)} (${evidenceDropped} evidence item(s) dropped as ungrounded — git-log-only, reduced penalty)`);
+    } else {
+      factors.adjustments.push(`-${dropPenalty.toFixed(2)} (${evidenceDropped} evidence item(s) dropped as ungrounded)`);
+    }
   }
 
   // No evidence at all

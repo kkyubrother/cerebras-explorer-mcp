@@ -461,8 +461,14 @@ function checkEvidenceGrounding(observedRanges, evidenceItem) {
     } else if (source === 'grep') {
       // grep only shows a single line; a wide evidence range built from grep is partial
       isExact = evidenceLength <= 3;
+    } else if (source === 'diff_hunk') {
+      // diff_hunk: exact when evidence is fully contained within the observed hunk range
+      isExact = evidenceStart >= rangeStart && evidenceEnd <= rangeEnd;
+    } else if (source === 'blame') {
+      // blame: single-line observations — exact for short evidence ranges (≤ 3 lines)
+      isExact = evidenceLength <= 3;
     } else {
-      // blame, diff_hunk, macro_tool, symbol_context_usage — all count as partial
+      // macro_tool, symbol_context_usage — partial
       isExact = false;
     }
 
