@@ -10,9 +10,54 @@ import {
 
 const RETRYABLE_STATUSES = new Set([429, 500, 502, 503, 504]);
 const DEFAULT_HTTP_TIMEOUT_MS = 60000;
+const BASE_RETRY_DELAY_MS = 500;
+const MAX_RETRY_DELAY_MS = 32000;
 
 /**
- * Fetch with AbortController-based timeout and automatic retry for 429/5xx.
+ * Network-level errors that are safe to retry (transient connection failures).
+ */
+const RETRYABLE_NETWORK_ERRORS = new Set([
+  'ECONNRESET', 'ECONNREFUSED', 'ENOTFOUND', 'ETIMEDOUT',
+  'EPIPE', 'EAI_AGAIN', 'EHOSTUNREACH', 'ENETUNREACH',
+  'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_SOCKET',
+]);
+
+function isRetryableNetworkError(error) {
+  if (error.name === 'AbortError') return true; // timeout — safe to retry
+  const code = error.code || error.cause?.code || '';
+  return RETRYABLE_NETWORK_ERRORS.has(code);
+}
+
+/**
+ * Compute retry delay with exponential backoff and jitter.
+ * Honors Retry-After header when available.
+ *
+ * @param {number} attempt - Current attempt (0-based)
+ * @param {Response} [response] - HTTP response (may contain Retry-After)
+ * @returns {number} Delay in milliseconds
+ */
+function getRetryDelay(attempt, response) {
+  // Honor Retry-After header if present
+  if (response?.headers) {
+    const retryAfter = response.headers.get('retry-after');
+    if (retryAfter) {
+      const seconds = Number(retryAfter);
+      if (Number.isFinite(seconds) && seconds > 0 && seconds <= 120) {
+        return seconds * 1000;
+      }
+    }
+  }
+
+  // Exponential backoff: 500ms, 1s, 2s, 4s, ... capped at 32s
+  const baseDelay = Math.min(BASE_RETRY_DELAY_MS * Math.pow(2, attempt), MAX_RETRY_DELAY_MS);
+  // Add 0-25% jitter to prevent thundering herd
+  const jitter = baseDelay * Math.random() * 0.25;
+  return Math.round(baseDelay + jitter);
+}
+
+/**
+ * Fetch with AbortController-based timeout and automatic retry.
+ * Retries on: 429/5xx HTTP errors, network errors (ECONNRESET, etc.), and timeouts.
  * Non-retryable errors (400, 401, 403, 404, etc.) are thrown immediately.
  */
 async function fetchWithTimeoutAndRetry(fetchImpl, url, init, { errorPrefix = 'API', maxRetries = 2, timeoutMs } = {}) {
@@ -28,8 +73,15 @@ async function fetchWithTimeoutAndRetry(fetchImpl, url, init, { errorPrefix = 'A
       response = await fetchImpl(url, { ...init, signal: controller.signal });
     } catch (error) {
       clearTimeout(timer);
+      // Network errors and timeouts are retryable
+      if (isRetryableNetworkError(error) && attempt < maxRetries) {
+        lastError = new Error(`${errorPrefix} network error: ${error.message}`);
+        const delay = getRetryDelay(attempt);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
+      }
       if (error.name === 'AbortError') {
-        throw new Error(`${errorPrefix} timed out after ${effectiveTimeout}ms`);
+        throw new Error(`${errorPrefix} timed out after ${effectiveTimeout}ms (${attempt + 1} attempt(s))`);
       }
       throw error;
     }
@@ -55,8 +107,8 @@ async function fetchWithTimeoutAndRetry(fetchImpl, url, init, { errorPrefix = 'A
 
     lastError = new Error(`${errorPrefix} error: ${errorMessage}`);
     if (attempt < maxRetries) {
-      const retryDelayMs = response.status === 429 ? 2000 : 1000;
-      await new Promise(resolve => setTimeout(resolve, retryDelayMs));
+      const delay = getRetryDelay(attempt, response);
+      await new Promise(resolve => setTimeout(resolve, delay));
     }
   }
 
