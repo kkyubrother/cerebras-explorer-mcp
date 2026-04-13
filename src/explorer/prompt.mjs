@@ -136,11 +136,9 @@ export function buildExplorerSystemPrompt({ repoRoot, budgetConfig, language, pr
     '- followups: use "recommended" when follow-up is essential; "optional" for non-critical next steps.',
     '- Use [] for followups when no further investigation is needed.',
     '',
-    // ── LANGUAGE RULE ──
-    '## LANGUAGE RULE',
-    typeof language === 'string' && language.trim()
-      ? `Answer in ${language.trim()} (explicitly requested). This applies to answer, summary, and followup descriptions.`
-      : 'Answer in the same natural language as the delegated task. This applies to answer, summary, and followup descriptions.',
+    // NOTE: Language rule moved to dynamic section (after strategy catalog) to maximize
+    // Cerebras prompt cache prefix length. Static content must come first — any dynamic
+    // content (like language param) in the middle breaks the 128-token block cache chain.
     '',
     // ── TOOL ORDER POLICY ──
     '## TOOL ORDER POLICY',
@@ -202,6 +200,15 @@ export function buildExplorerSystemPrompt({ repoRoot, budgetConfig, language, pr
     '- blame-guided:    "why does this bug exist?" → repo_grep → repo_git_blame → repo_git_show',
     '- pattern-scan:    "how is X done across codebase?" → repo_grep → read multiple files',
   ];
+
+  // ── Dynamic section (changes per call — placed after static prefix for cache optimization) ──
+
+  // Language rule
+  if (typeof language === 'string' && language.trim()) {
+    parts.push('', `## LANGUAGE RULE`, `Answer in ${language.trim()} (explicitly requested). This applies to answer, summary, and followup descriptions.`);
+  } else {
+    parts.push('', `## LANGUAGE RULE`, 'Answer in the same natural language as the delegated task. This applies to answer, summary, and followup descriptions.');
+  }
 
   // Project context from .cerebras-explorer.json
   if (typeof projectContext === 'string' && projectContext.trim()) {
