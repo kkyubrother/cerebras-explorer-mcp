@@ -56,11 +56,25 @@ function dedupeContextPaths(existing, incoming, limit) {
  *
  * Sessions expire after `ttlMs` of inactivity or after `maxCalls` explore calls.
  */
+/** Interval for automatic session pruning: 5 minutes. */
+const AUTO_PRUNE_INTERVAL_MS = 5 * 60 * 1000;
+
 export class SessionStore {
   constructor({ ttlMs = DEFAULT_TTL_MS, maxCalls = DEFAULT_MAX_CALLS } = {}) {
     this._sessions = new Map();
     this._ttlMs = ttlMs;
     this._maxCalls = maxCalls;
+    // Auto-prune expired sessions periodically to prevent memory leaks
+    this._pruneTimer = setInterval(() => this.prune(), AUTO_PRUNE_INTERVAL_MS);
+    if (this._pruneTimer.unref) this._pruneTimer.unref(); // Don't keep process alive just for pruning
+  }
+
+  /** Stop the auto-prune timer. Call during graceful shutdown. */
+  destroy() {
+    if (this._pruneTimer) {
+      clearInterval(this._pruneTimer);
+      this._pruneTimer = null;
+    }
   }
 
   /**
