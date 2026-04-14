@@ -78,6 +78,7 @@ Parent model (Claude Code / Codex)
 }
 ```
 
+- `repo_root` (선택): 절대경로나 상대경로. Windows에서는 `C:\repo`, `C:/repo`뿐 아니라 Git Bash/MSYS 스타일 `/c/repo`도 받아 실제 filesystem 경로로 canonicalize한 뒤 세션과 도구 실행에 사용합니다.
 - `language` (선택): BCP-47 언어 태그(예: `"ko"`, `"en"`, `"ja"`). 생략 시 task 텍스트에서 자동 추론합니다.
 - `session` (선택): 이전 탐색의 `stats.sessionId`를 넘기면 candidate paths와 요약을 다음 탐색에 재사용합니다.
 

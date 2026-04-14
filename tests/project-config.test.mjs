@@ -4,7 +4,12 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { loadProjectConfig, normalizeProjectConfig } from '../src/explorer/config.mjs';
+import {
+  getRepoRoot,
+  loadProjectConfig,
+  normalizeProjectConfig,
+  resolveRepoRoot,
+} from '../src/explorer/config.mjs';
 
 async function makeTempDir() {
   return fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-explorer-config-'));
@@ -90,6 +95,50 @@ test('normalizeProjectConfig: unknown fields are ignored', () => {
   const config = normalizeProjectConfig({ unknownKey: 'value', defaultBudget: 'normal' });
   assert.equal(config.defaultBudget, 'normal');
   assert.equal(config.unknownKey, undefined);
+});
+
+test('getRepoRoot normalizes Git Bash-style Windows repo roots', () => {
+  const repoRoot = getRepoRoot('/c/Users/daeryun/project-name', {
+    cwd: 'C:\\workspace\\cerebras-explorer-mcp',
+    platform: 'win32',
+  });
+  assert.equal(repoRoot, 'C:\\Users\\daeryun\\project-name');
+});
+
+test('resolveRepoRoot canonicalizes Git Bash-style Windows repo roots before session binding', async () => {
+  let realpathArg = null;
+  const repoRoot = await resolveRepoRoot('/c/Users/daeryun/project-name', {
+    cwd: 'C:\\workspace\\cerebras-explorer-mcp',
+    platform: 'win32',
+    realpathImpl: async input => {
+      realpathArg = input;
+      return input;
+    },
+  });
+  assert.equal(repoRoot, 'C:\\Users\\daeryun\\project-name');
+  assert.equal(realpathArg, 'C:\\Users\\daeryun\\project-name');
+});
+
+test('resolveRepoRoot wraps unresolved repo_root errors with repo_root context', async () => {
+  await assert.rejects(
+    () => resolveRepoRoot('/c/Users/daeryun/missing-project', {
+      cwd: 'C:\\workspace\\cerebras-explorer-mcp',
+      platform: 'win32',
+      realpathImpl: async input => {
+        const error = new Error(`ENOENT: no such file or directory, realpath '${input}'`);
+        error.code = 'ENOENT';
+        throw error;
+      },
+    }),
+    error => {
+      assert.equal(error.code, -32602);
+      assert.equal(error.repoRootError, 'unresolvable');
+      assert.equal(error.repoRootResolved, 'C:\\Users\\daeryun\\missing-project');
+      assert.match(error.message, /repo_root could not be resolved/);
+      assert.match(error.message, /C:\\Users\\daeryun\\missing-project/);
+      return true;
+    },
+  );
 });
 
 // ─── Integration: projectConfig applied in runtime ───────────────────────────

@@ -465,6 +465,12 @@ export function createMcpRequestHandler({
           error.code = -32601;
           throw error;
         } catch (error) {
+          if (error.repoRootError) {
+            return {
+              isError: true,
+              content: [{ type: 'text', text: `Unable to resolve repo_root for ${name}: ${error.message}` }],
+            };
+          }
           if (error.code === -32602) {
             return {
               isError: true,

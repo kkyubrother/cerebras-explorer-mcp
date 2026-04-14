@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { createMcpRequestHandler } from '../src/mcp/server.mjs';
+import { getRepoRoot } from '../src/explorer/config.mjs';
 
 async function makeRepoFixture() {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-explorer-mcp-server-'));
@@ -161,4 +162,35 @@ test('MCP request handler exposes explore_repo and returns structuredContent', a
   assert.ok(['medium', 'high'].includes(called.structuredContent.confidence), `confidence must be medium or high, got: ${called.structuredContent.confidence}`);
   assert.equal(called.structuredContent.evidence.length, 2);
   assert.match(called.content[0].text, /requireAuth/);
+});
+
+test('MCP request handler returns repo_root resolution errors without mislabeling them as generic argument errors', async () => {
+  const { handleRequest } = createMcpRequestHandler({
+    runtimeOptions: {
+      chatClient: new MockChatClient(),
+    },
+  });
+
+  const rawRepoRoot = process.platform === 'win32'
+    ? '/c/Users/daeryun/definitely-missing-cerebras-explorer-repo'
+    : '/definitely/missing/cerebras-explorer-repo';
+  const normalizedRepoRoot = getRepoRoot(rawRepoRoot);
+
+  const called = await handleRequest({
+    jsonrpc: '2.0',
+    id: 4,
+    method: 'tools/call',
+    params: {
+      name: 'explore_repo',
+      arguments: {
+        task: '없는 저장소 경로를 진단해라.',
+        repo_root: rawRepoRoot,
+      },
+    },
+  });
+
+  assert.equal(called.isError, true);
+  assert.match(called.content[0].text, /Unable to resolve repo_root for explore_repo/);
+  assert.match(called.content[0].text, new RegExp(normalizedRepoRoot.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  assert.doesNotMatch(called.content[0].text, /Invalid explore_repo arguments/);
 });

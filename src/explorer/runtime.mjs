@@ -4,12 +4,12 @@ import {
   getExplorerTemperature,
   getExplorerTopP,
   getReasoningEffortForBudget,
-  getRepoRoot,
   getModelForBudget,
   classifyTaskComplexity,
   isTruthyEnv,
   loadProjectConfig,
   normalizeProjectConfig,
+  resolveRepoRoot,
 } from './config.mjs';
 import {
   collectCandidatePathsFromToolResult,
@@ -650,7 +650,7 @@ export class ExplorerRuntime {
    * session data, repoToolkit, chatClient, tools, and timing helpers.
    */
   async _initExploreContext({ budgetLabel, repoRootArg, scope, session, taskText, sessionStore }) {
-    const repoRoot = getRepoRoot(repoRootArg);
+    const repoRoot = await resolveRepoRoot(repoRootArg);
 
     const rawProjectConfig = await loadProjectConfig(repoRoot);
     const projectConfig = normalizeProjectConfig(rawProjectConfig);

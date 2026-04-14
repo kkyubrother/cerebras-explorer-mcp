@@ -564,6 +564,39 @@ test('ExplorerRuntime falls back to a new session when expired_session', async (
   assert.equal(second.stats.sessionStatus, 'fallback', 'sessionStatus must be "fallback"');
 });
 
+test('ExplorerRuntime reuses the same session when the same Windows repo is passed as a Git Bash path', { skip: process.platform !== 'win32' }, async () => {
+  class SimpleClient {
+    constructor() { this.model = 'mock'; }
+    async createChatCompletion() {
+      return {
+        usage: { prompt_tokens: 30, completion_tokens: 10, total_tokens: 40 },
+        message: {
+          content: JSON.stringify({
+            answer: 'ok', summary: '요약', confidence: 'low',
+            evidence: [], candidatePaths: [], followups: [],
+          }),
+          toolCalls: [],
+        },
+      };
+    }
+  }
+
+  const root = await makeRepoFixture();
+  const bashStyleRoot = root.replace(/\\/g, '/').replace(/^([A-Za-z]):\//, (_, drive) => `/${drive.toLowerCase()}/`);
+  const { SessionStore } = await import('../src/explorer/session.mjs');
+  const sessionStore = new SessionStore();
+  const runtime = new ExplorerRuntime({ chatClient: new SimpleClient() });
+
+  const first = await runtime.explore({ task: '첫 번째', repo_root: root }, { sessionStore });
+  const second = await runtime.explore(
+    { task: '두 번째', repo_root: bashStyleRoot, session: first.stats.sessionId },
+    { sessionStore },
+  );
+
+  assert.equal(second.stats.sessionStatus, 'reused');
+  assert.equal(second.stats.sessionId, first.stats.sessionId);
+});
+
 // ── Phase 1 — 최종 출력 경로 단일화 ──────────────────────────────────────────
 
 test('Phase 1 — no-tool exit always routes through finalize (strict schema)', async () => {

@@ -166,11 +166,76 @@ export function getBudgetConfig(label) {
   return BUDGETS[label] ?? BUDGETS.normal;
 }
 
-export function getRepoRoot(inputRepoRoot) {
-  if (!inputRepoRoot || typeof inputRepoRoot !== 'string') {
-    return process.cwd();
+function getPathModule(platform = process.platform) {
+  return platform === 'win32' ? path.win32 : path.posix;
+}
+
+function toWindowsDrivePath(driveLetter, rest = '') {
+  const normalizedRest = rest.replace(/\//g, '\\').replace(/^\\+/, '');
+  return normalizedRest ? `${driveLetter.toUpperCase()}:\\${normalizedRest}` : `${driveLetter.toUpperCase()}:\\`;
+}
+
+function normalizeWindowsRepoRootInput(inputRepoRoot) {
+  const trimmed = String(inputRepoRoot ?? '').trim();
+  if (!trimmed) {
+    return trimmed;
   }
-  return path.resolve(process.cwd(), inputRepoRoot);
+
+  let match = trimmed.match(/^\/([a-zA-Z])(?:\/(.*))?$/);
+  if (match) {
+    return toWindowsDrivePath(match[1], match[2] ?? '');
+  }
+
+  match = trimmed.match(/^\/cygdrive\/([a-zA-Z])(?:\/(.*))?$/);
+  if (match) {
+    return toWindowsDrivePath(match[1], match[2] ?? '');
+  }
+
+  match = trimmed.match(/^\/mnt\/([a-zA-Z])(?:\/(.*))?$/);
+  if (match) {
+    return toWindowsDrivePath(match[1], match[2] ?? '');
+  }
+
+  return trimmed;
+}
+
+export function getRepoRoot(
+  inputRepoRoot,
+  { cwd = process.cwd(), platform = process.platform } = {},
+) {
+  const effectiveCwd = typeof cwd === 'string' && cwd.trim() ? cwd : process.cwd();
+  if (!inputRepoRoot || typeof inputRepoRoot !== 'string' || !inputRepoRoot.trim()) {
+    return effectiveCwd;
+  }
+
+  const pathModule = getPathModule(platform);
+  const normalizedInput = platform === 'win32'
+    ? normalizeWindowsRepoRootInput(inputRepoRoot)
+    : inputRepoRoot.trim();
+
+  return pathModule.resolve(effectiveCwd, normalizedInput);
+}
+
+export async function resolveRepoRoot(
+  inputRepoRoot,
+  { cwd = process.cwd(), platform = process.platform, realpathImpl = fs.realpath } = {},
+) {
+  const repoRoot = getRepoRoot(inputRepoRoot, { cwd, platform });
+  const rawInput = typeof inputRepoRoot === 'string' ? inputRepoRoot.trim() : '';
+
+  try {
+    return await realpathImpl(repoRoot);
+  } catch (error) {
+    const detail = rawInput && rawInput !== repoRoot
+      ? `${rawInput} -> ${repoRoot}`
+      : repoRoot;
+    const wrapped = new Error(`repo_root could not be resolved: ${detail}. ${error.message}`);
+    wrapped.code = -32602;
+    wrapped.repoRootError = 'unresolvable';
+    wrapped.repoRootInput = rawInput || null;
+    wrapped.repoRootResolved = repoRoot;
+    throw wrapped;
+  }
 }
 
 export function isTruthyEnv(value) {
