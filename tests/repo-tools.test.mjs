@@ -7,7 +7,7 @@ import { execFileSync } from 'node:child_process';
 
 import { getBudgetConfig } from '../src/explorer/config.mjs';
 import { RepoToolkit, collectCandidatePathsFromToolResult } from '../src/explorer/repo-tools.mjs';
-import { globalRepoCache } from '../src/explorer/cache.mjs';
+import { LruCache, globalRepoCache } from '../src/explorer/cache.mjs';
 
 function hasGit() {
   try { execFileSync('git', ['--version'], { stdio: 'pipe' }); return true; } catch { return false; }
@@ -346,6 +346,17 @@ test('cache isolates repo_symbols results by repo root', async () => {
   assert.ok(symA.symbols.some(s => s.name === 'fromRepoA'), 'repo A has fromRepoA symbol');
   assert.ok(symB.symbols.some(s => s.name === 'fromRepoB'), 'repo B has fromRepoB symbol (not polluted by A)');
   assert.ok(!symB.symbols.some(s => s.name === 'fromRepoA'), 'repo B does not have fromRepoA from wrong cache');
+});
+
+test('LruCache accepts precomputed serializedLength without breaking eviction', () => {
+  const cache = new LruCache({ maxBytes: 60 });
+
+  cache.set('a', { id: 'a' }, null, { serializedLength: 20 });
+  cache.set('b', { id: 'b' }, null, { serializedLength: 20 });
+
+  assert.equal(cache.get('a'), undefined, 'oldest entry is evicted using the precomputed size');
+  assert.deepEqual(cache.get('b'), { id: 'b' }, 'newer entry remains accessible');
+  assert.equal(cache.stats().cacheEntries, 1, 'only one entry remains after eviction');
 });
 
 // --- Phase 4: Observation Ledger Tests ---

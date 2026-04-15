@@ -5,6 +5,9 @@ import os from 'node:os';
 import path from 'node:path';
 
 import {
+  getExploreV2MaxCompactions,
+  getExploreV2MaxExtraTurns,
+  getExploreV2TurnMultiplier,
   getRepoRoot,
   loadProjectConfig,
   normalizeProjectConfig,
@@ -13,6 +16,30 @@ import {
 
 async function makeTempDir() {
   return fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-explorer-config-'));
+}
+
+async function withEnv(overrides, fn) {
+  const previous = new Map();
+  for (const [key, value] of Object.entries(overrides)) {
+    previous.set(key, process.env[key]);
+    if (value === undefined || value === null) {
+      delete process.env[key];
+    } else {
+      process.env[key] = String(value);
+    }
+  }
+
+  try {
+    await fn();
+  } finally {
+    for (const [key, value] of previous.entries()) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
 }
 
 // ─── loadProjectConfig ────────────────────────────────────────────────────────
@@ -139,6 +166,44 @@ test('resolveRepoRoot wraps unresolved repo_root errors with repo_root context',
       return true;
     },
   );
+});
+
+test('getExploreV2TurnMultiplier uses defaults and env overrides with clamping', async () => {
+  await withEnv({
+    CEREBRAS_EXPLORER_V2_TURN_MULTIPLIER: undefined,
+  }, async () => {
+    assert.equal(getExploreV2TurnMultiplier(), 2);
+  });
+
+  await withEnv({
+    CEREBRAS_EXPLORER_V2_TURN_MULTIPLIER: '1',
+  }, async () => {
+    assert.equal(getExploreV2TurnMultiplier(), 1);
+  });
+
+  await withEnv({
+    CEREBRAS_EXPLORER_V2_TURN_MULTIPLIER: '99',
+  }, async () => {
+    assert.equal(getExploreV2TurnMultiplier(), 4);
+  });
+});
+
+test('getExploreV2 caps extra turns and compactions from env', async () => {
+  await withEnv({
+    CEREBRAS_EXPLORER_V2_MAX_EXTRA_TURNS: undefined,
+    CEREBRAS_EXPLORER_V2_MAX_COMPACTIONS: undefined,
+  }, async () => {
+    assert.equal(getExploreV2MaxExtraTurns(), 30);
+    assert.equal(getExploreV2MaxCompactions(), 3);
+  });
+
+  await withEnv({
+    CEREBRAS_EXPLORER_V2_MAX_EXTRA_TURNS: '-5',
+    CEREBRAS_EXPLORER_V2_MAX_COMPACTIONS: '20',
+  }, async () => {
+    assert.equal(getExploreV2MaxExtraTurns(), 0);
+    assert.equal(getExploreV2MaxCompactions(), 10);
+  });
 });
 
 // ─── Integration: projectConfig applied in runtime ───────────────────────────

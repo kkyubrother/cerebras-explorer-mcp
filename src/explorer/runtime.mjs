@@ -3,6 +3,9 @@ import {
   getBudgetConfig,
   getExplorerTemperature,
   getExplorerTopP,
+  getExploreV2MaxCompactions,
+  getExploreV2MaxExtraTurns,
+  getExploreV2TurnMultiplier,
   getReasoningEffortForBudget,
   getModelForBudget,
   classifyTaskComplexity,
@@ -1474,8 +1477,16 @@ export class ExplorerRuntime {
       sessionStore,
     });
 
-    // V2: double the max turns for deeper exploration
-    const budgetConfig = { ...baseBudgetConfig, maxTurns: baseBudgetConfig.maxTurns * 2 };
+    // V2: extend the turn budget, but keep it bounded by configurable caps.
+    const requestedV2Turns = Math.max(
+      baseBudgetConfig.maxTurns,
+      Math.round(baseBudgetConfig.maxTurns * getExploreV2TurnMultiplier()),
+    );
+    const maxAllowedV2Turns = baseBudgetConfig.maxTurns + getExploreV2MaxExtraTurns();
+    const budgetConfig = {
+      ...baseBudgetConfig,
+      maxTurns: Math.min(requestedV2Turns, maxAllowedV2Turns),
+    };
 
     const startedAt = nowMs();
 
@@ -1542,6 +1553,7 @@ export class ExplorerRuntime {
 
     // Compaction threshold: trigger LLM summary at 70% of context window
     const compactionThreshold = Math.floor((budgetConfig.maxContextTokens ?? 100_000) * 0.70);
+    const maxLlmCompactions = getExploreV2MaxCompactions();
 
     for (let turnIndex = 0; turnIndex < budgetConfig.maxTurns; turnIndex += 1) {
       // Abort check
@@ -1560,18 +1572,22 @@ export class ExplorerRuntime {
             message: `Compacting context (${Math.round(estimated / 1000)}K tokens)...`,
           });
         }
-        try {
-          const compactResult = await compactWithLlmSummary(
-            chatClient, messages, compactionThreshold, { reasoningEffort },
-          );
-          if (compactResult.didCompact) {
-            messages = compactResult.messages;
-            stats.llmCompactions += 1;
-            Object.assign(stats, summarizeUsage(stats, { total_tokens: compactResult.summaryTokens }));
-          }
-        } catch {
-          // Compaction failed — fall back to simple truncation
+        if (stats.llmCompactions >= maxLlmCompactions) {
           messages = compactOldToolResults(messages, budgetConfig.maxContextTokens);
+        } else {
+          try {
+            const compactResult = await compactWithLlmSummary(
+              chatClient, messages, compactionThreshold, { reasoningEffort },
+            );
+            if (compactResult.didCompact) {
+              messages = compactResult.messages;
+              stats.llmCompactions += 1;
+              Object.assign(stats, summarizeUsage(stats, { total_tokens: compactResult.summaryTokens }));
+            }
+          } catch {
+            // Compaction failed — fall back to simple truncation
+            messages = compactOldToolResults(messages, budgetConfig.maxContextTokens);
+          }
         }
       }
 

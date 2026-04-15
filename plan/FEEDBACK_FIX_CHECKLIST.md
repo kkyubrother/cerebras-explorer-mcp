@@ -98,16 +98,16 @@
 
 ### 체크리스트
 
-- [ ] `LruCache.set()`에 `sizeBytes`를 외부에서 전달할 수 있는 경로를 추가하거나 동등한 최적화를 넣는다.
-- [ ] 이미 직렬화 길이를 알고 있는 호출자가 있으면 그 값을 재사용할 수 있게 한다.
-- [ ] cache size 추정 방식과 정확도 한계를 코드 주석 또는 문서에 명시한다.
-- [ ] `freeExploreV2()`의 `maxTurns * 2`를 config/env 기반 multiplier 또는 명시적 상한으로 치환한다.
-- [ ] compaction 횟수 또는 추가 turn 소모에 대한 상한 정책을 정한다.
+- [x] `LruCache.set()`에 `sizeBytes`를 외부에서 전달할 수 있는 경로를 추가하거나 동등한 최적화를 넣는다.
+- [x] 이미 직렬화 길이를 알고 있는 호출자가 있으면 그 값을 재사용할 수 있게 한다.
+- [x] cache size 추정 방식과 정확도 한계를 코드 주석 또는 문서에 명시한다.
+- [x] `freeExploreV2()`의 `maxTurns * 2`를 config/env 기반 multiplier 또는 명시적 상한으로 치환한다.
+- [x] compaction 횟수 또는 추가 turn 소모에 대한 상한 정책을 정한다.
 
 ### 추가 테스트
 
-- [ ] cache size precompute 경로가 기존 eviction 동작을 깨지 않는다.
-- [ ] V2 turn multiplier 기본값과 override가 의도대로 동작한다.
+- [x] cache size precompute 경로가 기존 eviction 동작을 깨지 않는다.
+- [x] V2 turn multiplier 기본값과 override가 의도대로 동작한다.
 
 ---
 

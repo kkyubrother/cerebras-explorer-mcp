@@ -1,7 +1,14 @@
 const GIT_TOOL_TTL_MS = 60_000;
 const MAX_CACHE_BYTES = 50 * 1024 * 1024; // 50 MB
 
-class LruCache {
+export function estimateCacheValueSizeBytes(value, { serializedLength = null } = {}) {
+  if (Number.isFinite(serializedLength) && serializedLength >= 0) {
+    return Math.ceil(serializedLength) * 2;
+  }
+  return JSON.stringify(value).length * 2;
+}
+
+export class LruCache {
   constructor({ maxBytes = MAX_CACHE_BYTES } = {}) {
     this._map = new Map(); // key -> { value, sizeBytes, expiresAt }
     this._totalBytes = 0;
@@ -29,9 +36,12 @@ class LruCache {
     return entry.value;
   }
 
-  set(key, value, ttlMs = null) {
-    // Rough UTF-16 byte estimate
-    const sizeBytes = JSON.stringify(value).length * 2;
+  set(key, value, ttlMs = null, { sizeBytes = null, serializedLength = null } = {}) {
+    // Rough UTF-16 estimate of the serialized JSON payload. This is intentionally
+    // approximate and is only used to keep LRU eviction proportional.
+    const resolvedSizeBytes = Number.isFinite(sizeBytes) && sizeBytes >= 0
+      ? Math.ceil(sizeBytes)
+      : estimateCacheValueSizeBytes(value, { serializedLength });
 
     // Replace existing entry
     if (this._map.has(key)) {
@@ -40,19 +50,19 @@ class LruCache {
     }
 
     // Evict oldest entries until there is room
-    while (this._totalBytes + sizeBytes > this._maxBytes && this._map.size > 0) {
+    while (this._totalBytes + resolvedSizeBytes > this._maxBytes && this._map.size > 0) {
       const oldestKey = this._map.keys().next().value;
       this._totalBytes -= this._map.get(oldestKey).sizeBytes;
       this._map.delete(oldestKey);
     }
 
-    if (sizeBytes <= this._maxBytes) {
+    if (resolvedSizeBytes <= this._maxBytes) {
       this._map.set(key, {
         value,
-        sizeBytes,
+        sizeBytes: resolvedSizeBytes,
         expiresAt: ttlMs !== null ? Date.now() + ttlMs : null,
       });
-      this._totalBytes += sizeBytes;
+      this._totalBytes += resolvedSizeBytes;
     }
   }
 

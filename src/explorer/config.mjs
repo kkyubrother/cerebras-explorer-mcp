@@ -5,6 +5,9 @@ export const DEFAULT_EXPLORER_MODEL = 'zai-glm-4.7';
 export const DEFAULT_PROTOCOL_VERSION = '2025-06-18';
 export const DEFAULT_EXPLORER_TEMPERATURE = 1;
 export const DEFAULT_EXPLORER_TOP_P = 0.95;
+export const DEFAULT_EXPLORE_V2_TURN_MULTIPLIER = 2;
+export const DEFAULT_EXPLORE_V2_MAX_EXTRA_TURNS = 30;
+export const DEFAULT_EXPLORE_V2_MAX_COMPACTIONS = 3;
 
 function parseEnvNumber(name) {
   const raw = process.env[name];
@@ -13,6 +16,10 @@ function parseEnvNumber(name) {
   }
   const parsed = Number(raw);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function clampNumber(value, min, max) {
+  return Math.min(max, Math.max(min, value));
 }
 
 export function normalizeModelId(model) {
@@ -41,6 +48,30 @@ export function getExplorerTemperature() {
 
 export function getExplorerTopP() {
   return parseEnvNumber('CEREBRAS_EXPLORER_TOP_P') ?? DEFAULT_EXPLORER_TOP_P;
+}
+
+export function getExploreV2TurnMultiplier() {
+  const parsed = parseEnvNumber('CEREBRAS_EXPLORER_V2_TURN_MULTIPLIER');
+  if (parsed === null) {
+    return DEFAULT_EXPLORE_V2_TURN_MULTIPLIER;
+  }
+  return clampNumber(Math.round(parsed), 1, 4);
+}
+
+export function getExploreV2MaxExtraTurns() {
+  const parsed = parseEnvNumber('CEREBRAS_EXPLORER_V2_MAX_EXTRA_TURNS');
+  if (parsed === null) {
+    return DEFAULT_EXPLORE_V2_MAX_EXTRA_TURNS;
+  }
+  return clampNumber(Math.round(parsed), 0, 200);
+}
+
+export function getExploreV2MaxCompactions() {
+  const parsed = parseEnvNumber('CEREBRAS_EXPLORER_V2_MAX_COMPACTIONS');
+  if (parsed === null) {
+    return DEFAULT_EXPLORE_V2_MAX_COMPACTIONS;
+  }
+  return clampNumber(Math.round(parsed), 0, 10);
 }
 
 export function getExplorerReasoningFormat(model = getExplorerModel()) {

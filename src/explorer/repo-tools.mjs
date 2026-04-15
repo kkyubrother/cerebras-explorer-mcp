@@ -1256,8 +1256,8 @@ export class RepoToolkit {
     return this.cache ? this.cache.get(key) : undefined;
   }
 
-  _cacheSet(key, value, ttlMs = null) {
-    if (this.cache) this.cache.set(key, value, ttlMs);
+  _cacheSet(key, value, ttlMs = null, cacheMeta = undefined) {
+    if (this.cache) this.cache.set(key, value, ttlMs, cacheMeta);
   }
 
   _baseScopeFingerprint() {

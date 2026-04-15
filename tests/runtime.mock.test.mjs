@@ -151,6 +151,30 @@ function cloneMessages(messages) {
   return JSON.parse(JSON.stringify(messages));
 }
 
+async function withEnv(overrides, fn) {
+  const previous = new Map();
+  for (const [key, value] of Object.entries(overrides)) {
+    previous.set(key, process.env[key]);
+    if (value === undefined || value === null) {
+      delete process.env[key];
+    } else {
+      process.env[key] = String(value);
+    }
+  }
+
+  try {
+    await fn();
+  } finally {
+    for (const [key, value] of previous.entries()) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
+}
+
 function assertNoOrphanedToolMessages(messages) {
   let pendingToolCallIds = null;
 
@@ -1251,6 +1275,63 @@ test('Phase 4 — critic-lite: confidence=high with only 1 evidence item is reco
   // reconcileConfidence: lowerOf('high', 'medium') = 'medium'
   assert.ok(['low', 'medium'].includes(result.confidence),
     `confidence=high with 1 evidence item should be reconciled down, got ${result.confidence}`);
+});
+
+test('Phase 4 — freeExploreV2 respects turn multiplier override', async () => {
+  class TurnBudgetClient {
+    constructor() {
+      this.model = 'zai-glm-4.7';
+      this.calls = 0;
+    }
+
+    async createChatCompletion() {
+      this.calls += 1;
+
+      if (this.calls <= BUDGETS.quick.maxTurns) {
+        return {
+          usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+          message: {
+            content: '',
+            toolCalls: [{
+              id: `budget-${this.calls}`,
+              function: {
+                name: 'repo_grep',
+                arguments: JSON.stringify({ pattern: 'requireAuth', maxResults: 1 }),
+              },
+            }],
+          },
+        };
+      }
+
+      return {
+        usage: { prompt_tokens: 30, completion_tokens: 20, total_tokens: 50 },
+        finishReason: 'stop',
+        message: {
+          content: '# Final report\n\nBudget override respected.',
+          toolCalls: [],
+        },
+      };
+    }
+  }
+
+  const root = await makeRepoFixture();
+
+  await withEnv({
+    CEREBRAS_EXPLORER_V2_TURN_MULTIPLIER: '1',
+    CEREBRAS_EXPLORER_V2_MAX_EXTRA_TURNS: '0',
+  }, async () => {
+    const client = new TurnBudgetClient();
+    const runtime = new ExplorerRuntime({ chatClient: client });
+    const result = await runtime.freeExploreV2({
+      prompt: 'turn override test',
+      repo_root: root,
+      thoroughness: 'quick',
+    });
+
+    assert.equal(result.stats.turns, BUDGETS.quick.maxTurns, 'V2 turn multiplier override must keep the base quick budget');
+    assert.equal(result.stats.stoppedByBudget, true, 'result must stop by budget when the override removes extra turns');
+    assert.equal(client.calls, BUDGETS.quick.maxTurns + 1, 'one finalization call should follow the bounded tool loop');
+  });
 });
 
 // ── Phase 3 — 프롬프트 구조 재배치 + 전략 유연화 ─────────────────────────────
