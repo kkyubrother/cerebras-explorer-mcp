@@ -194,3 +194,42 @@ test('MCP request handler returns repo_root resolution errors without mislabelin
   assert.match(called.content[0].text, new RegExp(normalizedRepoRoot.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   assert.doesNotMatch(called.content[0].text, /Invalid explore_repo arguments/);
 });
+
+test('MCP request handler returns execution failures for explore_repo without mislabeling them as argument errors', async () => {
+  class ThrowingChatClient {
+    constructor() {
+      this.model = 'zai-glm-4.7';
+    }
+
+    async createChatCompletion() {
+      throw new Error('provider exploded');
+    }
+  }
+
+  const repoRoot = await makeRepoFixture();
+  const { handleRequest } = createMcpRequestHandler({
+    runtimeOptions: {
+      chatClient: new ThrowingChatClient(),
+    },
+  });
+
+  const called = await handleRequest({
+    jsonrpc: '2.0',
+    id: 5,
+    method: 'tools/call',
+    params: {
+      name: 'explore_repo',
+      arguments: {
+        task: '런타임 실패를 재현해라.',
+        repo_root: repoRoot,
+        budget: 'quick',
+      },
+    },
+  });
+
+  assert.equal(called.isError, true);
+  assert.match(called.content[0].text, /explore_repo execution failed/i);
+  assert.match(called.content[0].text, /provider exploded/);
+  assert.doesNotMatch(called.content[0].text, /Invalid explore_repo arguments/);
+  assert.doesNotMatch(called.content[0].text, /Invalid arguments for explore_repo/);
+});

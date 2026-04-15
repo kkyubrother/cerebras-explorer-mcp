@@ -75,15 +75,15 @@
 
 ### 체크리스트
 
-- [ ] `error.code === -32602`는 argument validation 에러에만 사용되도록 정리한다.
-- [ ] `name === 'explore_repo'` fallback catch를 제거하거나 범위를 좁힌다.
-- [ ] runtime/provider 실패는 `Invalid arguments`가 아닌 실행 실패로 응답하게 한다.
-- [ ] 사용자-facing 에러 문구가 실제 실패 원인과 맞는지 정리한다.
+- [x] `error.code === -32602`는 argument validation 에러에만 사용되도록 정리한다.
+- [x] `name === 'explore_repo'` fallback catch를 제거하거나 범위를 좁힌다.
+- [x] runtime/provider 실패는 `Invalid arguments`가 아닌 실행 실패로 응답하게 한다.
+- [x] 사용자-facing 에러 문구가 실제 실패 원인과 맞는지 정리한다.
 
 ### 추가 테스트
 
-- [ ] `explore_repo` validation failure는 invalid arguments로 반환된다.
-- [ ] `explore_repo` runtime failure는 invalid arguments로 오분류되지 않는다.
+- [x] `explore_repo` validation failure는 invalid arguments로 반환된다.
+- [x] `explore_repo` runtime failure는 invalid arguments로 오분류되지 않는다.
 
 ---
 

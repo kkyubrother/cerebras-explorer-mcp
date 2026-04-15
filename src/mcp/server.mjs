@@ -480,7 +480,7 @@ export function createMcpRequestHandler({
           if (name === 'explore_repo') {
             return {
               isError: true,
-              content: [{ type: 'text', text: `Invalid explore_repo arguments: ${error.message}` }],
+              content: [{ type: 'text', text: `explore_repo execution failed: ${error.message}` }],
             };
           }
           throw error;
