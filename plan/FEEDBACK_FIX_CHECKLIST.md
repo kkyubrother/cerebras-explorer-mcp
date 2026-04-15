@@ -52,15 +52,15 @@
 
 ### 체크리스트
 
-- [ ] `buildMermaidDiagram()`에서 entry -> all modules fanout 생성을 제거한다.
-- [ ] 실제 edge 정보를 만들 수 있는 근거가 있을 때만 dependency edge를 출력한다.
-- [ ] edge 근거가 없으면 nodes-only 다이어그램 또는 `null` 반환 중 하나로 정책을 고정한다.
-- [ ] entry point 강조와 dependency edge 의미를 분리해서 코드와 주석에 반영한다.
+- [x] `buildMermaidDiagram()`에서 entry -> all modules fanout 생성을 제거한다.
+- [x] 실제 edge 정보를 만들 수 있는 근거가 있을 때만 dependency edge를 출력한다.
+- [x] edge 근거가 없으면 nodes-only 다이어그램 또는 `null` 반환 중 하나로 정책을 고정한다.
+- [x] entry point 강조와 dependency edge 의미를 분리해서 코드와 주석에 반영한다.
 
 ### 추가 테스트
 
-- [ ] 근거 없는 synthetic fanout edge가 생성되지 않는다.
-- [ ] edge 데이터가 없을 때 선택한 fallback 정책이 유지된다.
+- [x] 근거 없는 synthetic fanout edge가 생성되지 않는다.
+- [x] edge 데이터가 없을 때 선택한 fallback 정책이 유지된다.
 
 ---
 

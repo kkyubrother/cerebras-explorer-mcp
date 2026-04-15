@@ -223,6 +223,24 @@ test('ExplorerRuntime performs an autonomous tool loop and returns structured fi
   assert.ok(result.codeMap.keyModules.length >= 2, 'codeMap must include at least the two read files');
 });
 
+test('Phase 2 — Mermaid diagram does not invent dependency edges without observed relationships', async () => {
+  const repoRoot = await makeRepoFixture();
+  const runtime = new ExplorerRuntime({ chatClient: new MockChatClient() });
+
+  const result = await runtime.explore({
+    task: '읽은 주요 모듈 구조를 요약해라.',
+    repo_root: repoRoot,
+    scope: ['src/**'],
+    budget: 'quick',
+  });
+
+  assert.ok(result.diagram, 'diagram should be present for a small code map');
+  assert.match(result.diagram, /^graph TD/m);
+  assert.match(result.diagram, /auth\.js/);
+  assert.match(result.diagram, /user\.js/);
+  assert.ok(!result.diagram.includes('-->'), 'diagram must not synthesize dependency edges without evidence');
+});
+
 test('Phase 1 — explore circuit breaker trips after three all-error turns', async () => {
   class AllErrorExploreClient {
     constructor() {

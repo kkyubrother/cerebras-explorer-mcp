@@ -567,7 +567,9 @@ function buildMermaidDiagram(codeMap) {
   });
 
   const lines = ['graph TD'];
+  const pathToId = new Map();
   for (const node of nodes) {
+    pathToId.set(node.path, node.id);
     if (node.isEntry) {
       lines.push(`  ${node.id}[["${node.label}"]];`);
     } else {
@@ -575,12 +577,15 @@ function buildMermaidDiagram(codeMap) {
     }
   }
 
-  const entries = nodes.filter(n => n.isEntry);
-  const nonEntries = nodes.filter(n => !n.isEntry);
-  for (const entry of entries) {
-    for (const mod of nonEntries) {
-      lines.push(`  ${entry.id} --> ${mod.id};`);
+  // Only render dependency edges when they are backed by observed relationship data.
+  const observedEdges = Array.isArray(codeMap.edges) ? codeMap.edges : [];
+  for (const edge of observedEdges) {
+    const fromId = pathToId.get(edge?.from);
+    const toId = pathToId.get(edge?.to);
+    if (!fromId || !toId || fromId === toId) {
+      continue;
     }
+    lines.push(`  ${fromId} --> ${toId};`);
   }
 
   return lines.join('\n');
