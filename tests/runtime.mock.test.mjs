@@ -147,6 +147,33 @@ class MockChatClient {
   }
 }
 
+function cloneMessages(messages) {
+  return JSON.parse(JSON.stringify(messages));
+}
+
+function assertNoOrphanedToolMessages(messages) {
+  let pendingToolCallIds = null;
+
+  for (const message of messages) {
+    if (message.role === 'assistant' && Array.isArray(message.tool_calls) && message.tool_calls.length > 0) {
+      pendingToolCallIds = new Set(message.tool_calls.map(call => call.id));
+      continue;
+    }
+
+    if (message.role === 'tool') {
+      assert.ok(pendingToolCallIds, 'tool message must follow an assistant tool_calls message');
+      assert.ok(
+        pendingToolCallIds.has(message.tool_call_id),
+        `tool message ${message.tool_call_id} must match a preceding assistant tool_call`,
+      );
+      pendingToolCallIds.delete(message.tool_call_id);
+      continue;
+    }
+
+    pendingToolCallIds = null;
+  }
+}
+
 test('ExplorerRuntime performs an autonomous tool loop and returns structured findings', async () => {
   const repoRoot = await makeRepoFixture();
   const runtime = new ExplorerRuntime({ chatClient: new MockChatClient() });
@@ -194,6 +221,205 @@ test('ExplorerRuntime performs an autonomous tool loop and returns structured fi
   assert.ok(Array.isArray(result.codeMap.entryPoints), 'codeMap.entryPoints must be an array');
   assert.ok(Array.isArray(result.codeMap.keyModules), 'codeMap.keyModules must be an array');
   assert.ok(result.codeMap.keyModules.length >= 2, 'codeMap must include at least the two read files');
+});
+
+test('Phase 1 — explore circuit breaker trips after three all-error turns', async () => {
+  class AllErrorExploreClient {
+    constructor() {
+      this.model = 'zai-glm-4.7';
+      this.calls = 0;
+      this.snapshots = [];
+    }
+
+    async createChatCompletion({ messages }) {
+      this.calls += 1;
+      this.snapshots.push(cloneMessages(messages));
+
+      if (this.calls <= 3) {
+        return {
+          usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+          message: {
+            content: '',
+            toolCalls: [{
+              id: `invalid-${this.calls}`,
+              function: { name: 'repo_missing_tool', arguments: '{}' },
+            }],
+          },
+        };
+      }
+
+      return {
+        usage: { prompt_tokens: 30, completion_tokens: 20, total_tokens: 50 },
+        message: {
+          content: JSON.stringify({
+            answer: '부분 답변',
+            summary: '에러 이후 부분 요약',
+            confidence: 'low',
+            evidence: [],
+            candidatePaths: [],
+            followups: [],
+          }),
+          toolCalls: [],
+        },
+      };
+    }
+  }
+
+  const repoRoot = await makeRepoFixture();
+  const client = new AllErrorExploreClient();
+  const runtime = new ExplorerRuntime({ chatClient: client });
+
+  const result = await runtime.explore({
+    task: '실패하는 도구 호출을 반복해도 서킷 브레이커가 동작해야 한다.',
+    repo_root: repoRoot,
+    budget: 'quick',
+  });
+
+  assert.equal(result.stats.turns, 3, 'tool loop must stop after the third all-error turn');
+  assert.equal(result.stats.stoppedByErrors, true, 'circuit breaker must mark stoppedByErrors');
+  assert.equal(result.stats.stoppedByBudget, false, 'error stop must not be mislabeled as budget stop');
+  assert.equal(client.calls, 4, 'three tool-loop calls plus one finalization call');
+
+  const thirdTurnMessages = client.snapshots[2];
+  assert.ok(
+    thirdTurnMessages.some(m => m.role === 'user' && m.content?.includes('repeating the same failing')),
+    'recovery guidance must be present before the third failing turn',
+  );
+});
+
+test('Phase 1 — freeExploreV2 circuit breaker trips after three all-error turns', async () => {
+  class AllErrorFreeExploreV2Client {
+    constructor() {
+      this.model = 'zai-glm-4.7';
+      this.calls = 0;
+      this.snapshots = [];
+    }
+
+    async createChatCompletion({ messages }) {
+      this.calls += 1;
+      this.snapshots.push(cloneMessages(messages));
+
+      if (this.calls <= 3) {
+        return {
+          usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+          message: {
+            content: '',
+            toolCalls: [{
+              id: `invalid-v2-${this.calls}`,
+              function: { name: 'repo_missing_tool', arguments: '{}' },
+            }],
+          },
+        };
+      }
+
+      return {
+        usage: { prompt_tokens: 30, completion_tokens: 20, total_tokens: 50 },
+        finishReason: 'stop',
+        message: {
+          content: '# Partial report\n\nToo many tool errors.',
+          toolCalls: [],
+        },
+      };
+    }
+  }
+
+  const repoRoot = await makeRepoFixture();
+  const client = new AllErrorFreeExploreV2Client();
+  const runtime = new ExplorerRuntime({ chatClient: client });
+
+  const result = await runtime.freeExploreV2({
+    prompt: '반복적인 도구 실패 이후 보고서를 작성해라.',
+    repo_root: repoRoot,
+    thoroughness: 'quick',
+  });
+
+  assert.equal(result.stats.turns, 3, 'V2 tool loop must stop after the third all-error turn');
+  assert.equal(result.stats.stoppedByErrors, true, 'V2 circuit breaker must mark stoppedByErrors');
+  assert.equal(result.stats.stoppedByBudget, false, 'error stop must not be mislabeled as budget stop');
+  assert.equal(client.calls, 4, 'three tool-loop calls plus one finalization call');
+
+  const thirdTurnMessages = client.snapshots[2];
+  assert.ok(
+    thirdTurnMessages.some(m => m.role === 'user' && m.content?.includes('repeating the same failing')),
+    'V2 recovery guidance must be present before the third failing turn',
+  );
+});
+
+test('Phase 1 — freeExploreV2 compaction preserves complete turns and valid tool sequencing', async () => {
+  class CompactionSequenceClient {
+    constructor() {
+      this.model = 'zai-glm-4.7';
+      this.calls = 0;
+      this.snapshots = [];
+    }
+
+    async createChatCompletion({ messages }) {
+      this.calls += 1;
+      this.snapshots.push(cloneMessages(messages));
+
+      if (this.calls <= 3) {
+        return {
+          usage: { prompt_tokens: 40, completion_tokens: 10, total_tokens: 50 },
+          message: {
+            content: '',
+            toolCalls: [{
+              id: `read-large-${this.calls}`,
+              function: {
+                name: 'repo_read_file',
+                arguments: JSON.stringify({ path: 'src/large.js', startLine: 1, endLine: 220 }),
+              },
+            }],
+          },
+        };
+      }
+
+      if (this.calls === 4) {
+        return {
+          usage: { prompt_tokens: 45, completion_tokens: 20, total_tokens: 65 },
+          finishReason: 'stop',
+          message: {
+            content: 'Compaction summary',
+            toolCalls: [],
+          },
+        };
+      }
+
+      if (this.calls === 5) {
+        const compactedMessages = this.snapshots[4];
+        assert.equal(compactedMessages[0].role, 'system');
+        assert.equal(compactedMessages[1].role, 'user');
+        assert.equal(compactedMessages[2].role, 'assistant');
+        assert.notEqual(compactedMessages[3]?.role, 'tool', 'compaction must preserve complete turns, not start with a tool');
+        assertNoOrphanedToolMessages(compactedMessages);
+      }
+
+      return {
+        usage: { prompt_tokens: 50, completion_tokens: 30, total_tokens: 80 },
+        finishReason: 'stop',
+        message: {
+          content: '# Final report\n\nCompaction kept valid turn boundaries.',
+          toolCalls: [],
+        },
+      };
+    }
+  }
+
+  const repoRoot = await makeRepoFixture();
+  const largeLines = Array.from({ length: 260 }, (_, index) => `export const line${index} = "${'x'.repeat(700)}";`);
+  await fs.writeFile(path.join(repoRoot, 'src', 'large.js'), largeLines.join('\n'));
+
+  const client = new CompactionSequenceClient();
+  const runtime = new ExplorerRuntime({ chatClient: client });
+
+  const result = await runtime.freeExploreV2({
+    prompt: '큰 파일을 반복적으로 읽으며 컨텍스트 컴팩션을 강제로 발생시켜라.',
+    context: 'context '.repeat(40000),
+    repo_root: repoRoot,
+    thoroughness: 'normal',
+  });
+
+  assert.match(result.report, /Compaction kept valid turn boundaries/);
+  assert.ok(result.stats.llmCompactions >= 1, 'LLM compaction must have occurred');
 });
 
 test('ExplorerRuntime accepts legacy string followups and normalizes them', async () => {

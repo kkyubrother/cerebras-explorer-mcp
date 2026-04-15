@@ -94,6 +94,36 @@ function compactOldToolResults(messages, threshold) {
   return compacted;
 }
 
+/**
+ * Preserve complete recent turns by slicing from the earliest of the last N
+ * user messages. A turn is a user message and everything that follows it until
+ * the next user message.
+ */
+function sliceRecentTurns(messages, keepLastUserTurns = 3) {
+  if (!Array.isArray(messages) || messages.length <= 1) {
+    return [];
+  }
+
+  if (!Number.isFinite(keepLastUserTurns) || keepLastUserTurns <= 0) {
+    return messages.slice(1);
+  }
+
+  let userTurnsSeen = 0;
+  let startIndex = 1;
+
+  for (let i = messages.length - 1; i >= 1; i -= 1) {
+    if (messages[i]?.role === 'user') {
+      userTurnsSeen += 1;
+      startIndex = i;
+      if (userTurnsSeen >= keepLastUserTurns) {
+        break;
+      }
+    }
+  }
+
+  return messages.slice(startIndex);
+}
+
 // ── freeExploreV2 utilities ───────────────────────────────────────────────────
 
 /**
@@ -161,10 +191,9 @@ async function compactWithLlmSummary(chatClient, messages, threshold, opts) {
   const summaryText = summaryCompletion.message.content || 'No summary available.';
   const summaryTokens = summaryCompletion.usage?.total_tokens ?? 0;
 
-  // Reconstruct: system prompt + summary as context + recent messages
+  // Reconstruct: system prompt + summary as context + complete recent turns
   const systemMsg = messages[0];
-  const preserveCount = 6; // Keep last ~3 turns intact
-  const recentMessages = messages.slice(-preserveCount);
+  const recentMessages = sliceRecentTurns(messages, 3);
 
   const compactedMessages = [
     systemMsg,
@@ -324,6 +353,7 @@ function validateToolName(toolName) {
 
 /** Max consecutive all-error turns before forcing early exit. */
 const MAX_CONSECUTIVE_ERROR_TURNS = 3;
+const ERROR_RECOVERY_GUIDANCE_TURNS = Math.max(1, MAX_CONSECUTIVE_ERROR_TURNS - 1);
 
 function summarizeUsage(existing, usage) {
   if (!usage) {
@@ -1029,19 +1059,22 @@ export class ExplorerRuntime {
       }
 
       // Inject recovery guidance when stagnating (same plan repeated or all tools failing)
-      if (repeatedTurns >= 2 || consecutiveAllErrorTurns >= 2) {
+      const shouldInjectErrorRecovery =
+        consecutiveAllErrorTurns >= ERROR_RECOVERY_GUIDANCE_TURNS
+        && consecutiveAllErrorTurns < MAX_CONSECUTIVE_ERROR_TURNS;
+      if (repeatedTurns >= 2 || shouldInjectErrorRecovery) {
         messages.push({
           role: 'user',
           content: 'You are repeating the same failing or unproductive tool calls. Either finalize with your current findings (even if incomplete), or choose a completely different tool or path that addresses a specific gap you have not explored yet.',
         });
-        // Reset counters after injecting guidance
+        // Reset the repeated-plan counter after injecting guidance. Keep the
+        // consecutive error counter intact so the circuit breaker remains reachable.
         repeatedTurns = 0;
-        consecutiveAllErrorTurns = 0;
       }
     }
 
     if (!finalObject) {
-      stats.stoppedByBudget = true;
+      stats.stoppedByBudget = !stats.stoppedByErrors && !stats.stoppedByAbort;
       if (onProgress) {
         onProgress({
           progress: budgetConfig.maxTurns,
@@ -1684,13 +1717,15 @@ export class ExplorerRuntime {
       }
 
       // Stagnation recovery
-      if (repeatedTurns >= 2 || consecutiveAllErrorTurns >= 2) {
+      const shouldInjectErrorRecovery =
+        consecutiveAllErrorTurns >= ERROR_RECOVERY_GUIDANCE_TURNS
+        && consecutiveAllErrorTurns < MAX_CONSECUTIVE_ERROR_TURNS;
+      if (repeatedTurns >= 2 || shouldInjectErrorRecovery) {
         messages.push({
           role: 'user',
           content: 'You are repeating the same failing or unproductive tool calls. Either write your report now with current findings, or try a completely different search approach.',
         });
         repeatedTurns = 0;
-        consecutiveAllErrorTurns = 0;
       }
     }
 
