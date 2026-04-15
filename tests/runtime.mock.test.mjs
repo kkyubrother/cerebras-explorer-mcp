@@ -7,6 +7,7 @@ import path from 'node:path';
 import { ExplorerRuntime } from '../src/explorer/runtime.mjs';
 import { buildExplorerSystemPrompt, detectStrategy } from '../src/explorer/prompt.mjs';
 import { BUDGETS } from '../src/explorer/config.mjs';
+import { RepoToolkit } from '../src/explorer/repo-tools.mjs';
 
 async function makeRepoFixture() {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-explorer-runtime-'));
@@ -1137,6 +1138,71 @@ test('Phase 5 — session reuse stores candidatePathsWithContext as {path, why} 
   const paths = session.candidatePathsWithContext.map(e => e.path);
   assert.ok(paths.includes('src/auth.js'), 'must include src/auth.js from evidence');
   assert.ok(paths.includes('src/routes/user.js'), 'must include src/routes/user.js from evidence');
+});
+
+test('Phase 5 — unknown tool validation stays in sync with current tool definitions', async () => {
+  class UnknownToolClient {
+    constructor() {
+      this.model = 'zai-glm-4.7';
+      this.calls = 0;
+      this.snapshots = [];
+    }
+
+    async createChatCompletion({ messages }) {
+      this.calls += 1;
+      this.snapshots.push(cloneMessages(messages));
+
+      if (this.calls === 1) {
+        return {
+          usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+          message: {
+            content: '',
+            toolCalls: [{
+              id: 'unknown-tool',
+              function: { name: 'repo_totally_new_tool', arguments: '{}' },
+            }],
+          },
+        };
+      }
+
+      return {
+        usage: { prompt_tokens: 30, completion_tokens: 20, total_tokens: 50 },
+        message: {
+          content: JSON.stringify({
+            answer: 'done',
+            summary: 'done',
+            confidence: 'low',
+            evidence: [],
+            candidatePaths: [],
+            followups: [],
+          }),
+          toolCalls: [],
+        },
+      };
+    }
+  }
+
+  const root = await makeRepoFixture();
+  const client = new UnknownToolClient();
+  const runtime = new ExplorerRuntime({ chatClient: client });
+  await runtime.explore({ task: 'unknown tool sync test', repo_root: root, budget: 'quick' });
+
+  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: BUDGETS.quick });
+  await toolkit.initialize();
+  const definedNames = toolkit.buildToolDefinitions().map(tool => tool.function.name).sort();
+
+  const secondTurnMessages = client.snapshots[1];
+  const validationToolMessage = secondTurnMessages[secondTurnMessages.length - 1];
+  assert.equal(validationToolMessage.role, 'tool');
+
+  const validationPayload = JSON.parse(validationToolMessage.content);
+  const listedTools = validationPayload.message
+    .split('Available tools: ')[1]
+    .replace('. Choose one of these.', '')
+    .split(', ')
+    .sort();
+
+  assert.deepEqual(listedTools, definedNames, 'validation error must derive its available tool list from current tool definitions');
 });
 
 // ── Phase 4 — 멀티턴 안정화 장치 ─────────────────────────────────────────────

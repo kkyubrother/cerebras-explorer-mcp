@@ -331,25 +331,16 @@ function tryLooseRepair(content) {
 }
 
 /**
- * Known repo_* tool names. Used to detect hallucinated tool calls.
- */
-const KNOWN_TOOL_NAMES = new Set([
-  'repo_read_file', 'repo_grep', 'repo_list_dir', 'repo_find_files',
-  'repo_git_log', 'repo_git_blame', 'repo_git_diff', 'repo_git_show',
-  'repo_symbols', 'repo_references', 'repo_symbol_context',
-]);
-
-/**
  * Validate a tool call name. If the model hallucinated a non-existent tool,
  * return an error result with clear feedback so the model switches strategy.
  */
-function validateToolName(toolName) {
-  if (KNOWN_TOOL_NAMES.has(toolName)) return null; // valid
+function validateToolName(toolName, knownToolNames) {
+  if (knownToolNames.has(toolName)) return null; // valid
   return {
     error: true,
     stage: 'validation',
     type: 'unknown_tool',
-    message: `Tool "${toolName}" does not exist. Available tools: ${[...KNOWN_TOOL_NAMES].join(', ')}. Choose one of these.`,
+    message: `Tool "${toolName}" does not exist. Available tools: ${[...knownToolNames].join(', ')}. Choose one of these.`,
     tool: toolName,
   };
 }
@@ -357,6 +348,20 @@ function validateToolName(toolName) {
 /** Max consecutive all-error turns before forcing early exit. */
 const MAX_CONSECUTIVE_ERROR_TURNS = 3;
 const ERROR_RECOVERY_GUIDANCE_TURNS = Math.max(1, MAX_CONSECUTIVE_ERROR_TURNS - 1);
+
+const TOOL_STAT_FIELD_MAP = Object.freeze({
+  repo_read_file: 'filesRead',
+  repo_grep: 'grepCalls',
+  repo_find_files: 'findFileCalls',
+  repo_list_dir: 'listDirCalls',
+  repo_git_log: 'gitLogCalls',
+  repo_git_blame: 'gitBlameCalls',
+  repo_git_diff: 'gitDiffCalls',
+  repo_git_show: 'gitShowCalls',
+  repo_symbols: 'symbolCalls',
+  repo_references: 'symbolCalls',
+  repo_symbol_context: 'symbolCalls',
+});
 
 function summarizeUsage(existing, usage) {
   if (!usage) {
@@ -371,15 +376,39 @@ function summarizeUsage(existing, usage) {
 
 function incrementToolStats(stats, toolName) {
   stats.toolCalls += 1;
-  if (toolName === 'repo_read_file') stats.filesRead += 1;
-  if (toolName === 'repo_grep') stats.grepCalls += 1;
-  if (toolName === 'repo_find_files') stats.findFileCalls += 1;
-  if (toolName === 'repo_list_dir') stats.listDirCalls += 1;
-  if (toolName === 'repo_git_log') stats.gitLogCalls += 1;
-  if (toolName === 'repo_git_blame') stats.gitBlameCalls += 1;
-  if (toolName === 'repo_git_diff') stats.gitDiffCalls += 1;
-  if (toolName === 'repo_git_show') stats.gitShowCalls += 1;
-  if (toolName === 'repo_symbols' || toolName === 'repo_references' || toolName === 'repo_symbol_context') stats.symbolCalls += 1;
+  const statField = TOOL_STAT_FIELD_MAP[toolName];
+  if (statField) {
+    stats[statField] += 1;
+  }
+}
+
+function buildAssistantMessage(completionMessage) {
+  const assistantMessage = {
+    role: 'assistant',
+    content: completionMessage.content || null,
+  };
+
+  if (completionMessage.reasoning) {
+    assistantMessage.reasoning = completionMessage.reasoning;
+  }
+
+  if (completionMessage.toolCalls?.length > 0) {
+    assistantMessage.tool_calls = completionMessage.toolCalls.map(call => ({
+      id: call.id,
+      type: 'function',
+      function: { name: call.function.name, arguments: call.function.arguments },
+    }));
+  }
+
+  return assistantMessage;
+}
+
+function fingerprintToolCalls(toolCalls) {
+  return JSON.stringify(
+    toolCalls
+      .map(call => [call.function?.name ?? '', call.function?.arguments ?? ''])
+      .sort(),
+  );
 }
 
 /**
@@ -757,6 +786,7 @@ export class ExplorerRuntime {
     });
 
     const startedAt = nowMs();
+    const knownToolNames = new Set(tools.map(tool => tool.function?.name).filter(Boolean));
 
     let messages = [
       {
@@ -867,23 +897,7 @@ export class ExplorerRuntime {
       stats.turns += 1;
       Object.assign(stats, summarizeUsage(stats, completion.usage));
 
-      const assistantMessage = {
-        role: 'assistant',
-        content: completion.message.content || null,
-      };
-
-      if (completion.message.reasoning) {
-        assistantMessage.reasoning = completion.message.reasoning;
-      }
-
-      if (completion.message.toolCalls.length > 0) {
-        assistantMessage.tool_calls = completion.message.toolCalls.map(call => ({
-          id: call.id,
-          type: 'function',
-          function: { name: call.function.name, arguments: call.function.arguments },
-        }));
-      }
-
+      const assistantMessage = buildAssistantMessage(completion.message);
       messages.push(assistantMessage);
 
       if (completion.message.toolCalls.length === 0) {
@@ -912,11 +926,7 @@ export class ExplorerRuntime {
 
       // Stagnation detection: fingerprint the tool plan for this turn
       {
-        const fingerprint = JSON.stringify(
-          completion.message.toolCalls
-            .map(c => [c.function?.name ?? '', c.function?.arguments ?? ''])
-            .sort(),
-        );
+        const fingerprint = fingerprintToolCalls(completion.message.toolCalls);
         if (fingerprint === lastFingerprint) {
           repeatedTurns += 1;
         } else {
@@ -945,7 +955,7 @@ export class ExplorerRuntime {
           let toolResult;
 
           // Validate tool name first — catch hallucinated tools early
-          const validationError = validateToolName(toolName);
+          const validationError = validateToolName(toolName, knownToolNames);
           if (validationError) {
             return { toolCall, toolName, toolArgs, toolResult: validationError };
           }
@@ -1346,15 +1356,7 @@ export class ExplorerRuntime {
         break;
       }
 
-      const assistantMessage = {
-        role: 'assistant',
-        content: completion.message.content || null,
-        tool_calls: completion.message.toolCalls.map(call => ({
-          id: call.id,
-          type: 'function',
-          function: { name: call.function.name, arguments: call.function.arguments },
-        })),
-      };
+      const assistantMessage = buildAssistantMessage(completion.message);
       // Do NOT set report here — only set it when there are no tool calls (final answer)
       messages.push(assistantMessage);
 
@@ -1489,6 +1491,7 @@ export class ExplorerRuntime {
     };
 
     const startedAt = nowMs();
+    const knownToolNames = new Set(tools.map(tool => tool.function?.name).filter(Boolean));
 
     // Transcript recording (opt-in via CEREBRAS_EXPLORER_TRANSCRIPT=true)
     const transcript = createTranscriptRecorder({
@@ -1631,15 +1634,7 @@ export class ExplorerRuntime {
         break;
       }
 
-      const assistantMessage = {
-        role: 'assistant',
-        content: completion.message.content || null,
-        tool_calls: completion.message.toolCalls.map(call => ({
-          id: call.id,
-          type: 'function',
-          function: { name: call.function.name, arguments: call.function.arguments },
-        })),
-      };
+      const assistantMessage = buildAssistantMessage(completion.message);
       messages.push(assistantMessage);
       transcript.record('assistant', {
         content: assistantMessage.content,
@@ -1649,11 +1644,7 @@ export class ExplorerRuntime {
 
       // Stagnation detection
       {
-        const fingerprint = JSON.stringify(
-          completion.message.toolCalls
-            .map(c => [c.function?.name ?? '', c.function?.arguments ?? ''])
-            .sort(),
-        );
+        const fingerprint = fingerprintToolCalls(completion.message.toolCalls);
         if (fingerprint === lastFingerprint) {
           repeatedTurns += 1;
         } else {
@@ -1671,7 +1662,7 @@ export class ExplorerRuntime {
           let toolResult;
 
           // Validate tool name — catch hallucinated tools early
-          const validationError = validateToolName(toolName);
+          const validationError = validateToolName(toolName, knownToolNames);
           if (validationError) {
             return { toolCall, toolName, toolResult: validationError };
           }

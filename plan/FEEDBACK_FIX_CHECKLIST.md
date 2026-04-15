@@ -113,7 +113,7 @@
 
 ## Phase 5 — P2: Maintainability Cleanup
 
-**수정 파일:** `src/explorer/runtime.mjs`, `src/explorer/repo-tools.mjs`
+**수정 파일:** `src/explorer/runtime.mjs`, `tests/runtime.mock.test.mjs`
 
 ### 목표
 
@@ -122,20 +122,20 @@
 
 ### 체크리스트
 
-- [ ] tool name의 권위 있는 소스를 하나로 통합한다.
-- [ ] `KNOWN_TOOL_NAMES`를 별도 literal set으로 유지하지 않도록 정리한다.
-- [ ] `incrementToolStats()`의 if-chain을 lookup table 기반으로 바꾼다.
-- [ ] `explore()`, `freeExplore()`, `freeExploreV2()`에서 정말로 공통인 블록만 helper로 추출한다.
-- [ ] finalization/compaction/reporting처럼 모드별 차이가 큰 부분은 억지로 합치지 않는다.
+- [x] tool name의 권위 있는 소스를 하나로 통합한다.
+- [x] `KNOWN_TOOL_NAMES`를 별도 literal set으로 유지하지 않도록 정리한다.
+- [x] `incrementToolStats()`의 if-chain을 lookup table 기반으로 바꾼다.
+- [x] `explore()`, `freeExplore()`, `freeExploreV2()`에서 정말로 공통인 블록만 helper로 추출한다.
+- [x] finalization/compaction/reporting처럼 모드별 차이가 큰 부분은 억지로 합치지 않는다.
 
 ### 추가 테스트
 
-- [ ] 새 tool 추가 시 validation 목록과 정의 목록이 자동으로 함께 갱신된다.
+- [x] 새 tool 추가 시 validation 목록과 정의 목록이 자동으로 함께 갱신된다.
 
 ---
 
 ## Done 기준
 
-- [ ] P0 항목이 모두 완료되고 회귀 테스트가 추가된다.
-- [ ] P1 항목이 완료되고 에러 문구 및 예산 정책이 문서화된다.
-- [ ] P2 리팩토링은 동작 변경 없이 머지 가능한 크기로 분리된다.
+- [x] P0 항목이 모두 완료되고 회귀 테스트가 추가된다.
+- [x] P1 항목이 완료되고 에러 문구 및 예산 정책이 문서화된다.
+- [x] P2 리팩토링은 동작 변경 없이 머지 가능한 크기로 분리된다.
