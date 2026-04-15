@@ -1,74 +1,5 @@
 import { AbstractChatClient } from './abstract.mjs';
-
-const RETRYABLE_STATUSES = new Set([429, 500, 502, 503, 504]);
-const DEFAULT_HTTP_TIMEOUT_MS = 60000;
-
-async function fetchWithTimeoutAndRetry(fetchImpl, url, init, { errorPrefix = 'API', maxRetries = 2, timeoutMs, externalSignal } = {}) {
-  const effectiveTimeout = timeoutMs ?? Number(process.env.CEREBRAS_EXPLORER_HTTP_TIMEOUT_MS ?? DEFAULT_HTTP_TIMEOUT_MS);
-
-  let lastError;
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    // Bail immediately if the caller has already cancelled.
-    if (externalSignal?.aborted) {
-      const err = new Error(`${errorPrefix} request cancelled`);
-      err.name = 'AbortError';
-      throw err;
-    }
-
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), effectiveTimeout);
-
-    // Forward external cancellation to the internal controller so the
-    // underlying fetch is actually aborted rather than left as a ghost request.
-    let externalListener;
-    if (externalSignal) {
-      externalListener = () => controller.abort();
-      externalSignal.addEventListener('abort', externalListener, { once: true });
-    }
-
-    let response;
-    try {
-      response = await fetchImpl(url, { ...init, signal: controller.signal });
-    } catch (error) {
-      clearTimeout(timer);
-      if (externalListener) externalSignal.removeEventListener('abort', externalListener);
-      if (error.name === 'AbortError') {
-        // External signal fired → propagate so the caller can distinguish
-        // cancellation from an internal timeout.
-        if (externalSignal?.aborted) throw error;
-        throw new Error(`${errorPrefix} timed out after ${effectiveTimeout}ms`);
-      }
-      throw error;
-    }
-    clearTimeout(timer);
-    if (externalListener) externalSignal.removeEventListener('abort', externalListener);
-
-    const responseText = await response.text();
-    let parsed;
-    try {
-      parsed = responseText ? JSON.parse(responseText) : {};
-    } catch (err) {
-      throw new Error(`Failed to parse ${errorPrefix} response: ${err.message}`);
-    }
-
-    if (response.ok) {
-      return parsed;
-    }
-
-    const errorMessage = parsed?.error?.message || `${response.status} ${response.statusText}`;
-    if (!RETRYABLE_STATUSES.has(response.status)) {
-      throw new Error(`${errorPrefix} error: ${errorMessage}`);
-    }
-
-    lastError = new Error(`${errorPrefix} error: ${errorMessage}`);
-    if (attempt < maxRetries) {
-      const retryDelayMs = response.status === 429 ? 2000 : 1000;
-      await new Promise(resolve => setTimeout(resolve, retryDelayMs));
-    }
-  }
-
-  throw lastError ?? new Error(`${errorPrefix} request failed after retries`);
-}
+import { fetchWithTimeoutAndRetry, extractMessageText } from '../utils/http-client.mjs';
 
 function stripUnsupportedMessageFields(messages) {
   if (!Array.isArray(messages)) {
@@ -130,16 +61,6 @@ export class OpenAICompatChatClient extends AbstractChatClient {
     }
   }
 
-  _extractMessageText(content) {
-    if (typeof content === 'string') return content;
-    if (Array.isArray(content)) {
-      return content
-        .map(item => (item?.type === 'text' && typeof item.text === 'string' ? item.text : ''))
-        .join('');
-    }
-    return '';
-  }
-
   async createChatCompletion({
     messages,
     tools,
@@ -193,7 +114,7 @@ export class OpenAICompatChatClient extends AbstractChatClient {
       finishReason: choice.finish_reason ?? null,
       message: {
         role: message.role || 'assistant',
-        content: this._extractMessageText(message.content),
+        content: extractMessageText(message.content),
         rawContent: message.content,
         reasoning: typeof message.reasoning === 'string' ? message.reasoning : '',
         rawReasoning: message.reasoning ?? null,
