@@ -1,12 +1,23 @@
 # 테스트 현황
 
+## 최근 확인 환경
+
+- 실행 일시: 2026-04-16
+- Node.js: v24.14.1
+- npm: 11.11.0
+- OS/셸: Linux / bash
+- 통합 테스트: `CEREBRAS_API_KEY`가 설정된 상태에서 실행
+
 ## 단위 테스트
 
 ```bash
 npm test
 ```
 
-184개 테스트, 183 pass, 1 skip (symlink — 플랫폼 의존).
+현재 환경에서는 `225 tests`, `224 pass`, `1 skip`, `0 fail`.
+
+- 현재 skip 1건은 Windows 전용 경로 정규화/세션 재사용 테스트입니다.
+- `git` 또는 `rg`가 없는 환경, 또는 Windows에서는 추가 skip이 생길 수 있습니다.
 
 ## 통합 테스트 (실제 Cerebras API)
 
@@ -14,25 +25,35 @@ npm test
 CEREBRAS_API_KEY=<key> node scripts/integration-test.mjs
 ```
 
-### 결과 (2026-04-13, zai-glm-4.7)
+### 최근 실행 결과 (2026-04-16, `zai-glm-4.7`)
 
 | 테스트 | 소요 시간 | 턴 | 도구 호출 | 결과 |
 |--------|----------|-----|----------|------|
-| explore_repo (quick) | ~7초 | 5 | 7 | confidence=high (0.86), trustSummary 정상 |
-| explore_repo (normal) | ~14초 | 7 | 12 | V2 흐름 정확 추적, filesRead=7 |
-| freeExplore (quick) | ~4초 | 3 | 6 | 프로바이더 시스템 Markdown 리포트 |
-| freeExploreV2 (normal) | ~17초 | 7 | 21 | 한국어 아키텍처 보고서 11,299자, toolResultsTruncated=8 |
-| tool validation | ~5초 | 3 | 3 | index.mjs 정확 분석 |
+| explore_repo (quick) | ~5.3초 | 4 | 3 | `confidence=high`, `evidence=4`, `filesRead=2` |
+| explore_repo (normal) | ~17.2초 | 14 | 16 | `freeExploreV2` 호출 흐름 정확 추적, `filesRead=9` |
+| freeExplore (quick) | ~8.8초 | 10 | 17 | provider 시스템 Markdown 리포트, `filesRead=10` |
+| freeExploreV2 (normal) | ~13.1초 | 7 | 19 | 한국어 아키텍처 보고서 15,774자, `toolResultsTruncated=6` |
+| tool validation | 별도 계측 없음 | 3 | 2 | `src/index.mjs` 진입점 분석 완료 |
 
 ### 검증된 기능
 
-- confidence 보정: base score 상향으로 high (0.86) 정상 달성
+- `explore_repo` quick/normal 경로 모두 정상 동작
+- `explore`, `explore_v2` Markdown 보고서 생성 정상 동작
+- confidence 계산과 `trustSummary` 출력 정상 동작
 - trustSummary: 모든 결과에 자연어 검증 문구 포함
 - 결과 포맷: formatExploreResult로 스캔 가능한 텍스트 생성
-- tool result budgeting: V2에서 8건 truncation 정상 동작
-- 병렬 도구 실행: freeExploreV2에서 턴당 평균 3회 병렬 호출
+- tool result budgeting: V2에서 truncation 카운트 정상 기록 (`toolResultsTruncated=6`)
+- V2 통계 필드: `llmCompactions`, `toolResultsTruncated`, `outputRecoveries` 모두 정상 노출
 - 한국어 출력: language 파라미터 정상 동작
 - ERROR RECOVERY 프롬프트: 모델이 에러 시 전략 전환 관찰됨
+
+## 수동 stdio smoke 확인
+
+`src/index.mjs`를 stdio MCP 서버로 직접 기동한 뒤 다음 왕복을 확인했습니다.
+
+- `initialize` 응답 정상
+- `tools/list`에서 기본 공개 도구 7개 확인
+- `tools/call -> explore_repo` 정상 응답 (`confidence=high`, `sessionId` 반환)
 
 ### 미검증 항목 (추가 테스트 필요)
 
