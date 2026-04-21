@@ -285,7 +285,7 @@ export function createMcpRequestHandler({
    * `progressToken` is present and `sendNotification` is wired up.
    */
   function makeProgressCallback(progressToken) {
-    if (!progressToken || !sendNotification) return null;
+    if ((progressToken === null || progressToken === undefined) || !sendNotification) return null;
     return ({ progress, total, message }) => {
       try {
         sendNotification('notifications/progress', { progressToken, progress, total, message });

@@ -2187,3 +2187,50 @@ test('Phase 10 — runtime downgrades model high confidence to computed medium w
   assert.notEqual(result.confidence, 'high',
     'runtime must downgrade model-claimed high to medium/low when evidence is weak (single file, no search)');
 });
+
+test('ExplorerRuntime forwards abortSignal into chat client requests', async () => {
+  const seenSignals = [];
+
+  class SignalCaptureClient {
+    constructor() {
+      this.model = 'zai-glm-4.7';
+      this.calls = 0;
+    }
+
+    async createChatCompletion(request) {
+      this.calls += 1;
+      seenSignals.push(request.signal);
+      return {
+        usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+        message: {
+          content: JSON.stringify({
+            answer: 'ok',
+            summary: 'signal forwarded',
+            confidence: 'low',
+            evidence: [],
+            candidatePaths: [],
+            followups: [],
+          }),
+          toolCalls: [],
+        },
+      };
+    }
+  }
+
+  const repoRoot = await makeRepoFixture();
+  const controller = new AbortController();
+  const runtime = new ExplorerRuntime({ chatClient: new SignalCaptureClient() });
+
+  const result = await runtime.explore(
+    {
+      task: '인증 구조를 요약해라.',
+      repo_root: repoRoot,
+      budget: 'quick',
+    },
+    { abortSignal: controller.signal },
+  );
+
+  assert.equal(result.summary, 'signal forwarded');
+  assert.ok(seenSignals.length >= 2, 'explore + finalize calls should both receive the signal');
+  assert.ok(seenSignals.every(signal => signal === controller.signal), 'abortSignal must be forwarded unchanged');
+});

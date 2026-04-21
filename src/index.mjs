@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import { startMcpServer } from './mcp/server.mjs';
 import { globalSessionStore } from './explorer/session.mjs';
 
@@ -6,51 +9,75 @@ function log(message) {
   process.stderr.write(`[cerebras-explorer-mcp] ${message}\n`);
 }
 
-function main() {
-  const transport = startMcpServer({ logger: log });
-  log('stdio MCP server started');
-
-  // Graceful shutdown: clean up resources on termination signals
+export function createShutdownHandler({
+  transport,
+  sessionStore = globalSessionStore,
+  logger = log,
+  processRef = process,
+  scheduleTimeout = setTimeout,
+} = {}) {
   let shuttingDown = false;
 
-  function shutdown(signal) {
+  return function shutdown(signal, { exitCode = 0 } = {}) {
     if (shuttingDown) return;
     shuttingDown = true;
-    log(`Received ${signal}, shutting down gracefully...`);
+    logger(`Received ${signal}, shutting down gracefully...`);
 
     // 1. Stop accepting new requests
-    try { transport.stop?.(); } catch { /* ignore */ }
+    try { transport?.stop?.(); } catch { /* ignore */ }
 
     // 2. Clean up sessions
-    try { globalSessionStore.destroy(); } catch { /* ignore */ }
+    try { sessionStore?.destroy?.(); } catch { /* ignore */ }
 
-    // 3. Flush stderr and exit
-    log('Shutdown complete.');
+    // 3. Allow the process to exit naturally; keep a failsafe for stuck handles
+    logger('Shutdown complete.');
+    processRef.exitCode = exitCode;
 
-    // Failsafe: force exit after 5 seconds if cleanup hangs
-    const failsafe = setTimeout(() => process.exit(1), 5000);
-    if (failsafe.unref) failsafe.unref();
+    const failsafe = scheduleTimeout(() => processRef.exit(exitCode || 1), 5000);
+    if (failsafe?.unref) failsafe.unref();
 
-    process.exit(0);
-  }
+    try { processRef.stdin?.pause?.(); } catch { /* ignore */ }
+  };
+}
 
-  process.on('SIGINT', () => shutdown('SIGINT'));
-  process.on('SIGTERM', () => shutdown('SIGTERM'));
+export function main({
+  startServer = startMcpServer,
+  sessionStore = globalSessionStore,
+  logger = log,
+  processRef = process,
+} = {}) {
+  const transport = startServer({ logger });
+  logger('stdio MCP server started');
+
+  const shutdown = createShutdownHandler({
+    transport,
+    sessionStore,
+    logger,
+    processRef,
+  });
+
+  processRef.on('SIGINT', () => shutdown('SIGINT'));
+  processRef.on('SIGTERM', () => shutdown('SIGTERM'));
   // SIGHUP not available on Windows, but safe to register
-  if (process.platform !== 'win32') {
-    process.on('SIGHUP', () => shutdown('SIGHUP'));
+  if (processRef.platform !== 'win32') {
+    processRef.on('SIGHUP', () => shutdown('SIGHUP'));
   }
 
   // Catch uncaught exceptions to prevent silent crashes
-  process.on('uncaughtException', (error) => {
-    log(`Uncaught exception: ${error.message}`);
-    shutdown('uncaughtException');
+  processRef.on('uncaughtException', (error) => {
+    logger(`Uncaught exception: ${error.message}`);
+    shutdown('uncaughtException', { exitCode: 1 });
   });
 
-  process.on('unhandledRejection', (reason) => {
-    log(`Unhandled rejection: ${reason}`);
+  processRef.on('unhandledRejection', (reason) => {
+    logger(`Unhandled rejection: ${reason}`);
     // Don't shutdown — log and continue (some rejections are non-fatal)
   });
+
+  return { transport, shutdown };
 }
 
-main();
+const entryPath = process.argv[1] ? path.resolve(process.argv[1]) : null;
+if (entryPath && fileURLToPath(import.meta.url) === entryPath) {
+  main();
+}

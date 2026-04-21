@@ -20,19 +20,38 @@ export class StdioJsonRpcServer {
     this.useNdjson = false; // set to true when client uses NDJSON format
     // Promise chain used to serialize stdout writes across concurrent dispatches.
     this._sendQueue = Promise.resolve();
+    this._onData = null;
+    this._onEnd = null;
   }
 
   start() {
-    process.stdin.on('data', chunk => {
+    this._onData = chunk => {
       this.buffer = Buffer.concat([this.buffer, chunk]);
       this.processBuffer().catch(error => {
         this.logger(`Failed to process MCP input: ${error.stack || error.message}`);
       });
-    });
+    };
 
-    process.stdin.on('end', () => {
+    this._onEnd = () => {
       process.exit(0);
-    });
+    };
+
+    process.stdin.on('data', this._onData);
+    process.stdin.on('end', this._onEnd);
+  }
+
+  stop() {
+    if (this._onData) {
+      process.stdin.off('data', this._onData);
+      this._onData = null;
+    }
+    if (this._onEnd) {
+      process.stdin.off('end', this._onEnd);
+      this._onEnd = null;
+    }
+    if (process.stdin.pause) {
+      process.stdin.pause();
+    }
   }
 
   async processBuffer() {

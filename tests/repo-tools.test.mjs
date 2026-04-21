@@ -424,6 +424,25 @@ test('RepoToolkit grep with ripgrep respects extraIgnoreDirs', { skip: !hasRipgr
   assert.ok(!result.matches.some(m => m.path.startsWith('vendor/')), 'rg does not return vendor/ results when extraIgnoreDirs=[vendor]');
 });
 
+test('RepoToolkit grep with ripgrep respects built-in ignore dirs', { skip: !hasRipgrep() }, async () => {
+  const repoRoot = await makeRepoFixture();
+  await fs.mkdir(path.join(repoRoot, 'node_modules', 'demo-lib'), { recursive: true });
+  await fs.writeFile(
+    path.join(repoRoot, 'node_modules', 'demo-lib', 'index.js'),
+    'function requireAuth() {} // dependency copy\n',
+  );
+
+  const toolkit = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig('normal') });
+  await toolkit.initialize([]);
+
+  assert.equal(toolkit._hasRipgrep, true, 'ripgrep is available');
+  const result = await toolkit.grep({ pattern: 'requireAuth' });
+  assert.ok(
+    !result.matches.some(m => m.path.startsWith('node_modules/')),
+    'rg does not return node_modules/ results from built-in ignore dirs',
+  );
+});
+
 test('RepoToolkit symbols rejects out-of-scope paths', async () => {
   const repoRoot = await makeRepoFixture();
   const toolkit = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig('normal') });

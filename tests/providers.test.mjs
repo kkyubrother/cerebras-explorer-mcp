@@ -218,6 +218,42 @@ test('FailoverChatClient: throws when all providers fail', async () => {
   await assert.rejects(() => client.createChatCompletion({ messages: [] }), /All down/);
 });
 
+test('FailoverChatClient: propagates caller abort and does not advance to fallback', async () => {
+  let fallbackCalls = 0;
+  const primary = {
+    model: 'primary-model',
+    async createChatCompletion({ signal }) {
+      return new Promise((_resolve, reject) => {
+        signal.addEventListener('abort', () => {
+          reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+        }, { once: true });
+      });
+    },
+  };
+  const fallback = {
+    model: 'fallback-model',
+    async createChatCompletion() {
+      fallbackCalls += 1;
+      return {
+        id: 'fallback-id',
+        usage: null,
+        finishReason: 'stop',
+        message: { role: 'assistant', content: 'fallback', rawContent: 'fallback', reasoning: '', rawReasoning: null, toolCalls: [] },
+      };
+    },
+  };
+
+  const client = new FailoverChatClient({ providers: [primary, fallback], timeoutMs: 200 });
+  const controller = new AbortController();
+  setTimeout(() => controller.abort(), 10);
+
+  await assert.rejects(
+    () => client.createChatCompletion({ messages: [], signal: controller.signal }),
+    { name: 'AbortError' },
+  );
+  assert.equal(fallbackCalls, 0, 'fallback provider must not run after caller abort');
+});
+
 test('FailoverChatClient: throws when constructed with empty providers array', () => {
   assert.throws(() => new FailoverChatClient({ providers: [] }), /at least one provider/);
 });

@@ -189,6 +189,7 @@ async function compactWithLlmSummary(chatClient, messages, threshold, opts) {
     topP: 1,
     maxCompletionTokens: 1000,
     parallelToolCalls: false,
+    signal: opts.abortSignal,
   });
 
   const summaryText = summaryCompletion.message.content || 'No summary available.';
@@ -304,6 +305,31 @@ function safeJsonParse(input) {
   } catch (error) {
     throw new Error(`Failed to parse tool arguments: ${error.message}`);
   }
+}
+
+function isAbortError(error) {
+  return error?.name === 'AbortError';
+}
+
+function buildCancelledExploreObject(lastAssistantContent = '') {
+  const message = typeof lastAssistantContent === 'string' && lastAssistantContent.trim()
+    ? lastAssistantContent.trim()
+    : 'Exploration was cancelled before a final answer was produced.';
+  return {
+    answer: message,
+    summary: message,
+    confidence: 'low',
+    evidence: [],
+    candidatePaths: [],
+    followups: [],
+  };
+}
+
+function buildCancelledReport(report = '') {
+  if (typeof report === 'string' && report.trim()) {
+    return report;
+  }
+  return 'Exploration was cancelled before a final report was produced.';
 }
 
 /**
@@ -895,15 +921,25 @@ export class ExplorerRuntime {
         });
       }
 
-      const completion = await chatClient.createChatCompletion({
-        messages,
-        tools,
-        reasoningEffort,
-        temperature,
-        topP,
-        maxCompletionTokens: budgetConfig.maxCompletionTokens,
-        parallelToolCalls: true,
-      });
+      let completion;
+      try {
+        completion = await chatClient.createChatCompletion({
+          messages,
+          tools,
+          reasoningEffort,
+          temperature,
+          topP,
+          maxCompletionTokens: budgetConfig.maxCompletionTokens,
+          parallelToolCalls: true,
+          signal: abortSignal,
+        });
+      } catch (error) {
+        if (abortSignal?.aborted && isAbortError(error)) {
+          stats.stoppedByAbort = true;
+          break;
+        }
+        throw error;
+      }
 
       stats.turns += 1;
       Object.assign(stats, summarizeUsage(stats, completion.usage));
@@ -922,14 +958,24 @@ export class ExplorerRuntime {
           });
         }
         lastAssistantContent = completion.message.content || '';
-        const finalized = await this.finalizeAfterToolLoop({
-          chatClient,
-          messages,
-          reasoningEffort,
-          temperature,
-          topP,
-          budgetConfig,
-        });
+        let finalized;
+        try {
+          finalized = await this.finalizeAfterToolLoop({
+            chatClient,
+            messages,
+            reasoningEffort,
+            temperature,
+            topP,
+            budgetConfig,
+            abortSignal,
+          });
+        } catch (error) {
+          if (abortSignal?.aborted && isAbortError(error)) {
+            stats.stoppedByAbort = true;
+            break;
+          }
+          throw error;
+        }
         finalObject = finalized.result;
         Object.assign(stats, summarizeUsage(stats, finalized.usage));
         break;
@@ -1102,7 +1148,9 @@ export class ExplorerRuntime {
       }
     }
 
-    if (!finalObject) {
+    if (!finalObject && stats.stoppedByAbort) {
+      finalObject = buildCancelledExploreObject(lastAssistantContent);
+    } else if (!finalObject) {
       stats.stoppedByBudget = !stats.stoppedByErrors && !stats.stoppedByAbort;
       if (onProgress) {
         onProgress({
@@ -1118,6 +1166,7 @@ export class ExplorerRuntime {
         temperature,
         topP,
         budgetConfig,
+        abortSignal,
       });
       finalObject = finalized.result;
       Object.assign(stats, summarizeUsage(stats, finalized.usage));
@@ -1349,15 +1398,25 @@ export class ExplorerRuntime {
         onProgress({ progress: turnIndex, total: budgetConfig.maxTurns, message: `Turn ${turnIndex + 1}/${budgetConfig.maxTurns}` });
       }
 
-      const completion = await chatClient.createChatCompletion({
-        messages,
-        tools,
-        reasoningEffort,
-        temperature,
-        topP,
-        maxCompletionTokens: budgetConfig.maxCompletionTokens,
-        parallelToolCalls: true,
-      });
+      let completion;
+      try {
+        completion = await chatClient.createChatCompletion({
+          messages,
+          tools,
+          reasoningEffort,
+          temperature,
+          topP,
+          maxCompletionTokens: budgetConfig.maxCompletionTokens,
+          parallelToolCalls: true,
+          signal: abortSignal,
+        });
+      } catch (error) {
+        if (abortSignal?.aborted && isAbortError(error)) {
+          stats.stoppedByAbort = true;
+          break;
+        }
+        throw error;
+      }
 
       Object.assign(stats, summarizeUsage(stats, completion.usage));
 
@@ -1418,21 +1477,33 @@ export class ExplorerRuntime {
     // Finalize when: budget exhausted (regardless of interim report), report empty, or "None" quirk
     const budgetExhausted = stats.turns >= budgetConfig.maxTurns;
     const reportIsEmpty = !report || report.trim() === '' || report.trim().toLowerCase() === 'none';
-    if (budgetExhausted || reportIsEmpty) {
+    if (stats.stoppedByAbort) {
+      report = buildCancelledReport(report);
+    } else if (budgetExhausted || reportIsEmpty) {
       stats.stoppedByBudget = budgetExhausted;
-      const finalized = await chatClient.createChatCompletion({
-        messages: [
-          ...messages,
-          { role: 'user', content: buildFreeExploreFinalizePrompt() },
-        ],
-        reasoningEffort,
-        temperature,
-        topP,
-        maxCompletionTokens: budgetConfig.finalizeMaxCompletionTokens ?? 2000,
-        parallelToolCalls: false,
-      });
-      Object.assign(stats, summarizeUsage(stats, finalized.usage));
-      report = finalized.message.content || 'Explorer could not produce a report.';
+      try {
+        const finalized = await chatClient.createChatCompletion({
+          messages: [
+            ...messages,
+            { role: 'user', content: buildFreeExploreFinalizePrompt() },
+          ],
+          reasoningEffort,
+          temperature,
+          topP,
+          maxCompletionTokens: budgetConfig.finalizeMaxCompletionTokens ?? 2000,
+          parallelToolCalls: false,
+          signal: abortSignal,
+        });
+        Object.assign(stats, summarizeUsage(stats, finalized.usage));
+        report = finalized.message.content || 'Explorer could not produce a report.';
+      } catch (error) {
+        if (abortSignal?.aborted && isAbortError(error)) {
+          stats.stoppedByAbort = true;
+          report = buildCancelledReport(report);
+        } else {
+          throw error;
+        }
+      }
     }
 
     stats.elapsedMs = nowMs() - startedAt;
@@ -1593,14 +1664,21 @@ export class ExplorerRuntime {
         } else {
           try {
             const compactResult = await compactWithLlmSummary(
-              chatClient, messages, compactionThreshold, { reasoningEffort },
+              chatClient,
+              messages,
+              compactionThreshold,
+              { reasoningEffort, abortSignal },
             );
             if (compactResult.didCompact) {
               messages = compactResult.messages;
               stats.llmCompactions += 1;
               Object.assign(stats, summarizeUsage(stats, compactResult.usage));
             }
-          } catch {
+          } catch (error) {
+            if (abortSignal?.aborted && isAbortError(error)) {
+              stats.stoppedByAbort = true;
+              break;
+            }
             // Compaction failed — fall back to simple truncation
             messages = compactOldToolResults(messages, budgetConfig.maxContextTokens);
           }
@@ -1627,15 +1705,25 @@ export class ExplorerRuntime {
         });
       }
 
-      const completion = await chatClient.createChatCompletion({
-        messages,
-        tools,
-        reasoningEffort,
-        temperature,
-        topP,
-        maxCompletionTokens: budgetConfig.maxCompletionTokens,
-        parallelToolCalls: true,
-      });
+      let completion;
+      try {
+        completion = await chatClient.createChatCompletion({
+          messages,
+          tools,
+          reasoningEffort,
+          temperature,
+          topP,
+          maxCompletionTokens: budgetConfig.maxCompletionTokens,
+          parallelToolCalls: true,
+          signal: abortSignal,
+        });
+      } catch (error) {
+        if (abortSignal?.aborted && isAbortError(error)) {
+          stats.stoppedByAbort = true;
+          break;
+        }
+        throw error;
+      }
 
       Object.assign(stats, summarizeUsage(stats, completion.usage));
 
@@ -1758,7 +1846,9 @@ export class ExplorerRuntime {
     const budgetExhausted = stats.turns >= budgetConfig.maxTurns;
     const reportIsEmpty = !report || report.trim() === '' || report.trim().toLowerCase() === 'none';
 
-    if (budgetExhausted || reportIsEmpty) {
+    if (stats.stoppedByAbort) {
+      report = buildCancelledReport(report);
+    } else if (budgetExhausted || reportIsEmpty) {
       stats.stoppedByBudget = budgetExhausted;
 
       if (onProgress) {
@@ -1775,19 +1865,33 @@ export class ExplorerRuntime {
         { role: 'user', content: buildFreeExploreV2FinalizePrompt() },
       ];
 
-      const finalized = await chatClient.createChatCompletion({
-        messages: finalizeMessages,
-        reasoningEffort,
-        temperature,
-        topP,
-        maxCompletionTokens: budgetConfig.finalizeMaxCompletionTokens ?? 3000,
-        parallelToolCalls: false,
-      });
-      Object.assign(stats, summarizeUsage(stats, finalized.usage));
-      report = finalized.message.content || '';
+      let finalized;
+      try {
+        finalized = await chatClient.createChatCompletion({
+          messages: finalizeMessages,
+          reasoningEffort,
+          temperature,
+          topP,
+          maxCompletionTokens: budgetConfig.finalizeMaxCompletionTokens ?? 3000,
+          parallelToolCalls: false,
+          signal: abortSignal,
+        });
+      } catch (error) {
+        if (abortSignal?.aborted && isAbortError(error)) {
+          stats.stoppedByAbort = true;
+          report = buildCancelledReport(report);
+          finalized = null;
+        } else {
+          throw error;
+        }
+      }
+      if (finalized) {
+        Object.assign(stats, summarizeUsage(stats, finalized.usage));
+        report = finalized.message.content || '';
+      }
 
       // Max output recovery: if output was cut short, ask to continue
-      if (finalized.finishReason === 'length' && report.length > 0) {
+      if (finalized?.finishReason === 'length' && report.length > 0) {
         let recoveryMessages = [
           ...finalizeMessages,
           { role: 'assistant', content: report },
@@ -1811,14 +1915,25 @@ export class ExplorerRuntime {
             content: buildOutputContinuationPrompt(),
           });
 
-          const continuation = await chatClient.createChatCompletion({
-            messages: recoveryMessages,
-            reasoningEffort,
-            temperature,
-            topP,
-            maxCompletionTokens: budgetConfig.finalizeMaxCompletionTokens ?? 3000,
-            parallelToolCalls: false,
-          });
+          let continuation;
+          try {
+            continuation = await chatClient.createChatCompletion({
+              messages: recoveryMessages,
+              reasoningEffort,
+              temperature,
+              topP,
+              maxCompletionTokens: budgetConfig.finalizeMaxCompletionTokens ?? 3000,
+              parallelToolCalls: false,
+              signal: abortSignal,
+            });
+          } catch (error) {
+            if (abortSignal?.aborted && isAbortError(error)) {
+              stats.stoppedByAbort = true;
+              report = buildCancelledReport(report);
+              break;
+            }
+            throw error;
+          }
           Object.assign(stats, summarizeUsage(stats, continuation.usage));
 
           const continuedText = continuation.message.content || '';
@@ -1871,7 +1986,7 @@ export class ExplorerRuntime {
     };
   }
 
-  async finalizeAfterToolLoop({ chatClient, messages, reasoningEffort, temperature, topP, budgetConfig }) {
+  async finalizeAfterToolLoop({ chatClient, messages, reasoningEffort, temperature, topP, budgetConfig, abortSignal = null }) {
     const maxCompletionTokens = budgetConfig?.finalizeMaxCompletionTokens ?? 2000;
     const completion = await chatClient.createChatCompletion({
       messages: [
@@ -1887,6 +2002,7 @@ export class ExplorerRuntime {
       topP,
       maxCompletionTokens,
       parallelToolCalls: false,
+      signal: abortSignal,
     });
 
     // 1) Primary: clean JSON parse
@@ -1916,6 +2032,7 @@ export class ExplorerRuntime {
         topP: 1,
         maxCompletionTokens: Math.min(1000, maxCompletionTokens),
         parallelToolCalls: false,
+        signal: abortSignal,
         // Explicitly omit tools to prevent the model from requesting more tool calls
       });
       const repaired = extractFirstJsonObject(repair.message.content) ?? tryLooseRepair(repair.message.content);

@@ -281,3 +281,44 @@ test('MCP request handler returns execution failures for other exposed tools as 
     assert.doesNotMatch(called.content[0].text, /Invalid arguments for/);
   }
 });
+
+test('MCP request handler sends progress notifications when progressToken is 0', async () => {
+  const repoRoot = await makeRepoFixture();
+  const notifications = [];
+  const { handleRequest } = createMcpRequestHandler({
+    runtimeOptions: {
+      chatClient: new MockChatClient(),
+    },
+    sendNotification: (method, params) => {
+      notifications.push({ method, params });
+    },
+  });
+
+  await handleRequest({
+    jsonrpc: '2.0',
+    id: 200,
+    method: 'tools/call',
+    params: {
+      name: 'explore_repo',
+      arguments: {
+        task: 'users/me 라우트에 인증 미들웨어가 어떻게 붙는지 추적해라.',
+        repo_root: repoRoot,
+        scope: ['src/**'],
+        budget: 'quick',
+      },
+      _meta: {
+        progressToken: 0,
+      },
+    },
+  });
+
+  assert.ok(notifications.length > 0, 'progress notifications must be emitted for progressToken=0');
+  assert.ok(
+    notifications.every(notification => notification.method === 'notifications/progress'),
+    'all emitted notifications must be progress notifications',
+  );
+  assert.ok(
+    notifications.every(notification => notification.params.progressToken === 0),
+    'progressToken=0 must be preserved in emitted notifications',
+  );
+});

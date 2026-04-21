@@ -533,12 +533,13 @@ export class RepoToolkit {
       '--json',
       '--no-binary',
       '--max-filesize', '256K',
-      '--glob', '!.git',
     ];
-    // Apply project-specific extra ignore dirs so rg respects the same boundaries as walkFiles
-    for (const dir of this.extraIgnoreDirs) {
-      rgArgs.push('--glob', `!${dir}`);
-      rgArgs.push('--glob', `!${dir}/**`);
+    // Keep the ripgrep fast path aligned with walkFiles() default directory ignores.
+    for (const dir of this.ignoreDirs) {
+      const normalizedDir = toPosix(String(dir || ''));
+      if (!normalizedDir) continue;
+      rgArgs.push('--glob', `!${normalizedDir}`);
+      rgArgs.push('--glob', `!${normalizedDir}/**`);
     }
     if (!caseSensitive) rgArgs.push('--ignore-case');
     const perFileMax = Math.min(maxResults, 50);
