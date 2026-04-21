@@ -170,12 +170,12 @@ function applyToolResultCharBudget(toolName, toolResult) {
  * @param {object[]} messages - Current conversation messages
  * @param {number} threshold - Token threshold to trigger compaction
  * @param {object} opts - reasoningEffort, temperature, topP
- * @returns {Promise<{messages: object[], didCompact: boolean, summaryTokens: number}>}
+ * @returns {Promise<{messages: object[], didCompact: boolean, usage: object|null}>}
  */
 async function compactWithLlmSummary(chatClient, messages, threshold, opts) {
   const estimated = estimateTokens(messages);
   if (estimated < threshold) {
-    return { messages, didCompact: false, summaryTokens: 0 };
+    return { messages, didCompact: false, usage: null };
   }
 
   // Ask the LLM to summarize exploration findings so far
@@ -192,7 +192,7 @@ async function compactWithLlmSummary(chatClient, messages, threshold, opts) {
   });
 
   const summaryText = summaryCompletion.message.content || 'No summary available.';
-  const summaryTokens = summaryCompletion.usage?.total_tokens ?? 0;
+  const summaryUsage = summaryCompletion.usage ?? null;
 
   // Reconstruct: system prompt + summary as context + complete recent turns
   const systemMsg = messages[0];
@@ -211,7 +211,7 @@ async function compactWithLlmSummary(chatClient, messages, threshold, opts) {
     ...recentMessages,
   ];
 
-  return { messages: compactedMessages, didCompact: true, summaryTokens };
+  return { messages: compactedMessages, didCompact: true, usage: summaryUsage };
 }
 
 /**
@@ -443,7 +443,7 @@ function resolveSessionForExplore(sessionStore, requestedSessionId, repoRoot) {
           sessionId: newId,
           sessionData: newData,
           sessionStatus: 'fallback',
-          remainingCalls: sessionStore._maxCalls,
+          remainingCalls: sessionStore.getRemainingCalls(newId),
         };
       }
       // Non-recoverable (invalid_session, repo_mismatch): propagate error
@@ -466,8 +466,19 @@ function resolveSessionForExplore(sessionStore, requestedSessionId, repoRoot) {
     sessionId: newId,
     sessionData: newData,
     sessionStatus: 'created',
-    remainingCalls: sessionStore._maxCalls,
+    remainingCalls: sessionStore.getRemainingCalls(newId),
   };
+}
+
+function syncRemainingCallsStat(stats, sessionStore, sessionId) {
+  if (!stats || !sessionStore || !sessionId || typeof sessionStore.getRemainingCalls !== 'function') {
+    return;
+  }
+
+  const remainingCalls = sessionStore.getRemainingCalls(sessionId);
+  if (Number.isFinite(remainingCalls)) {
+    stats.remainingCalls = remainingCalls;
+  }
 }
 
 function recordObservedRange(observedRanges, targetPath, startLine, endLine, source = 'read') {
@@ -1241,6 +1252,7 @@ export class ExplorerRuntime {
     // Update session with this call's result
     if (sessionStore && sessionId) {
       sessionStore.update(sessionId, normalized);
+      syncRemainingCallsStat(stats, sessionStore, sessionId);
     }
 
     return normalized;
@@ -1435,6 +1447,7 @@ export class ExplorerRuntime {
         summary: summaryLine,
         followups: [],
       });
+      syncRemainingCallsStat(stats, sessionStore, sessionId);
     }
 
     return {
@@ -1585,7 +1598,7 @@ export class ExplorerRuntime {
             if (compactResult.didCompact) {
               messages = compactResult.messages;
               stats.llmCompactions += 1;
-              Object.assign(stats, summarizeUsage(stats, { total_tokens: compactResult.summaryTokens }));
+              Object.assign(stats, summarizeUsage(stats, compactResult.usage));
             }
           } catch {
             // Compaction failed — fall back to simple truncation
@@ -1846,6 +1859,7 @@ export class ExplorerRuntime {
         summary: summaryLine,
         followups: [],
       });
+      syncRemainingCallsStat(stats, sessionStore, sessionId);
     }
 
     return {

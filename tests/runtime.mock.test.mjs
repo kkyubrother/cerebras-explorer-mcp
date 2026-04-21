@@ -463,6 +463,14 @@ test('Phase 1 — freeExploreV2 compaction preserves complete turns and valid to
 
   assert.match(result.report, /Compaction kept valid turn boundaries/);
   assert.ok(result.stats.llmCompactions >= 1, 'LLM compaction must have occurred');
+  assert.equal(result.stats.inputTokens, 215, 'compaction usage must retain prompt token accounting');
+  assert.equal(result.stats.outputTokens, 80, 'compaction usage must retain completion token accounting');
+  assert.equal(result.stats.totalTokens, 295, 'compaction usage must retain total token accounting');
+  assert.equal(
+    result.stats.inputTokens + result.stats.outputTokens,
+    result.stats.totalTokens,
+    'inputTokens + outputTokens must equal totalTokens when compaction usage is counted normally',
+  );
 });
 
 test('ExplorerRuntime accepts legacy string followups and normalizes them', async () => {
@@ -703,6 +711,43 @@ test('ExplorerRuntime returns sessionId in stats when sessionStore is provided',
   const session = sessionStore.get(result.stats.sessionId);
   assert.ok(session, 'session must exist in the store');
   assert.ok(session.candidatePaths.includes('src/auth.js'), 'candidatePaths must be accumulated');
+});
+
+test('ExplorerRuntime reports remainingCalls after the current session call is consumed', async () => {
+  class SimpleClient {
+    constructor() { this.model = 'mock'; }
+    async createChatCompletion() {
+      return {
+        usage: { prompt_tokens: 30, completion_tokens: 10, total_tokens: 40 },
+        message: {
+          content: JSON.stringify({
+            answer: '세션 테스트', summary: '요약', confidence: 'low',
+            evidence: [], candidatePaths: ['src/auth.js'], followups: [],
+          }),
+          toolCalls: [],
+        },
+      };
+    }
+  }
+
+  const root = await makeRepoFixture();
+  const { SessionStore } = await import('../src/explorer/session.mjs');
+  const sessionStore = new SessionStore({ maxCalls: 5 });
+  const runtime = new ExplorerRuntime({ chatClient: new SimpleClient() });
+
+  const first = await runtime.explore(
+    { task: '첫 번째 세션 호출', repo_root: root },
+    { sessionStore },
+  );
+  assert.equal(first.stats.remainingCalls, 4, 'new session stats must report remaining calls after this call completes');
+  assert.equal(sessionStore.getRemainingCalls(first.stats.sessionId), 4, 'session store and runtime stats must agree after first call');
+
+  const second = await runtime.explore(
+    { task: '두 번째 세션 호출', repo_root: root, session: first.stats.sessionId },
+    { sessionStore },
+  );
+  assert.equal(second.stats.remainingCalls, 3, 'reused session stats must decrement after the current call completes');
+  assert.equal(sessionStore.getRemainingCalls(second.stats.sessionId), 3, 'session store and runtime stats must agree after second call');
 });
 
 test('ExplorerRuntime injects previous session context into next call', async () => {

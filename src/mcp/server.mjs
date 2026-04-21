@@ -436,6 +436,7 @@ export function createMcpRequestHandler({
         const args = message.params?.arguments ?? {};
         const progressToken = message.params?._meta?.progressToken ?? null;
         const requestId = message.id ?? null;
+        const exposedToolNames = new Set(buildToolList().map(tool => tool.name));
 
         try {
           if (name === 'explore_repo') {
@@ -477,10 +478,10 @@ export function createMcpRequestHandler({
               content: [{ type: 'text', text: `Invalid arguments for ${name}: ${error.message}` }],
             };
           }
-          if (name === 'explore_repo') {
+          if (exposedToolNames.has(name)) {
             return {
               isError: true,
-              content: [{ type: 'text', text: `explore_repo execution failed: ${error.message}` }],
+              content: [{ type: 'text', text: `${name} execution failed: ${error.message}` }],
             };
           }
           throw error;
