@@ -798,7 +798,7 @@ export class RepoToolkit {
 
       // Step 3: read definition body
       try {
-        const endLine = definition.endLine ?? Math.min(definition.line + 60, definition.line + 60);
+        const endLine = definition.endLine ?? definition.line + 60;
         const readResult = await this.readFile({
           path: definition.path,
           startLine: definition.line,
