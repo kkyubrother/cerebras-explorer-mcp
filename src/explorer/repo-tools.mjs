@@ -11,18 +11,7 @@ import {
   DEFAULT_TEXT_FILE_MAX_BYTES,
   DEFAULT_WALK_FILE_LIMIT,
 } from './config.mjs';
-import {
-  GIT_TOOL_TTL_MS,
-  cacheKeyListDir,
-  cacheKeyFindFiles,
-  cacheKeyGrep,
-  cacheKeyReadFile,
-  cacheKeyGitLog,
-  cacheKeyGitBlame,
-  cacheKeyGitDiff,
-  cacheKeyGitShow,
-  cacheKeySymbols,
-} from './cache.mjs';
+import { GIT_TOOL_TTL_MS } from './cache.mjs';
 import { extractSymbols, categorizeReference } from './symbols.mjs';
 
 function toPosix(input) {
