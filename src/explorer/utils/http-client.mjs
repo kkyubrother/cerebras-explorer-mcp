@@ -107,6 +107,8 @@ export async function fetchWithTimeoutAndRetry(fetchImpl, url, init, {
     } catch (error) {
       clearTimeout(timer);
       if (externalListener) externalSignal.removeEventListener('abort', externalListener);
+      // External cancellation takes priority — never retry on caller abort.
+      if (error.name === 'AbortError' && externalSignal?.aborted) throw error;
       // Network errors and timeouts are retryable
       if (retryNetworkErrors && isRetryableNetworkError(error) && attempt < maxRetries) {
         lastError = new Error(`${errorPrefix} network error: ${error.message}`);
@@ -115,9 +117,7 @@ export async function fetchWithTimeoutAndRetry(fetchImpl, url, init, {
         continue;
       }
       if (error.name === 'AbortError') {
-        // External signal fired → propagate so the caller can distinguish
-        // cancellation from an internal timeout.
-        if (externalSignal?.aborted) throw error;
+        // Internal timeout (externalSignal not aborted).
         throw new Error(`${errorPrefix} timed out after ${effectiveTimeout}ms (${attempt + 1} attempt(s))`);
       }
       throw error;

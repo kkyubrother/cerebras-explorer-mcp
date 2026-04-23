@@ -1071,6 +1071,10 @@ export class ExplorerRuntime {
           for (const file of diffFiles) {
             if (file.path && Array.isArray(file.hunks)) {
               for (const hunk of file.hunks) {
+                // Skip deletion-only hunks (newLines === 0): they add no lines to the
+                // new file, so recording [newStart, newStart-1] would create an inverted
+                // range that can never match any evidence item.
+                if (hunk.newLines === 0) continue;
                 recordObservedRange(observedRanges, file.path, hunk.newStart, hunk.newStart + hunk.newLines - 1, 'diff_hunk');
               }
             }
