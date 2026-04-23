@@ -439,6 +439,12 @@ export function createMcpRequestHandler({
         const exposedToolNames = new Set(buildToolList().map(tool => tool.name));
 
         try {
+          if (!exposedToolNames.has(name)) {
+            const error = new Error(`Unknown tool: ${name}`);
+            error.code = -32601;
+            throw error;
+          }
+
           if (name === 'explore_repo') {
             validateExploreRepoArgs(args);
             return await callTool(args, progressToken, requestId);
@@ -462,8 +468,11 @@ export function createMcpRequestHandler({
             return await callFreeExploreV2Tool(args, progressToken, requestId);
           }
 
-          const error = new Error(`Unknown tool: ${name}`);
-          error.code = -32601;
+          // Unreachable: all exposed tool names are handled above.
+          // If a new tool is added to buildToolList() but not dispatched here,
+          // this safeguard surfaces the oversight as an error.
+          const error = new Error(`Tool "${name}" is listed but has no handler.`);
+          error.code = -32603;
           throw error;
         } catch (error) {
           if (error.repoRootError) {
