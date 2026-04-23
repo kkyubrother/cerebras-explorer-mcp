@@ -1106,8 +1106,8 @@ export class ExplorerRuntime {
         if (toolName === 'repo_git_blame' && !toolResult?.error && Array.isArray(toolResult.lines)) {
           const blamePath = toolArgs.path ?? null;
           for (const entry of toolResult.lines) {
-            if (blamePath && typeof entry.line === 'number' && entry.sha) {
-              observedGit.blame.add(`${blamePath}:${entry.line}:${entry.sha}`);
+            if (blamePath && typeof entry.line === 'number' && entry.hash) {
+              observedGit.blame.add(`${blamePath}:${entry.line}:${entry.hash}`);
             }
           }
         }
