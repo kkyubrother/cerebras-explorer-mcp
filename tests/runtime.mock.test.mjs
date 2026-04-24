@@ -1386,6 +1386,9 @@ test('Phase 4 — critic-lite: confidence=high with only 1 evidence item is reco
   // reconcileConfidence: lowerOf('high', 'medium') = 'medium'
   assert.ok(['low', 'medium'].includes(result.confidence),
     `confidence=high with 1 evidence item should be reconciled down, got ${result.confidence}`);
+  assert.equal(result.critic.status, 'caution');
+  assert.ok(result.critic.warnings.some(w => w.type === 'confidence_downgraded'));
+  assert.ok(result.critic.warnings.every(w => w.message && w.action));
 });
 
 test('Phase 4 — freeExploreV2 respects turn multiplier override', async () => {

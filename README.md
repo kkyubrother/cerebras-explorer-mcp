@@ -57,7 +57,7 @@ Parent model (Claude Code / Codex)
 - **GLM 4.7 reasoning 정렬**: quick budget은 `reasoning_effort="none"`으로 reasoning을 끄고, normal/deep은 기본 reasoning을 유지하며 `clear_thinking=false`로 이전 turn의 reasoning을 보존
 - **샘플링 기본값 정렬**: budget별 최적 temperature 사용 (`quick`: 0.3, `normal`: 0.8, `deep`: 1.0); `top_p`는 Cerebras 권장값 0.95 고정. 환경 변수로 전역 기본값을 override 가능
 - **근거 강제**: 최종 evidence는 실제로 읽거나 grep으로 확인한 라인 범위에만 남김
-- **MCP 친화적 반환**: `answer`, `summary`, `confidence`, `evidence`, `candidatePaths`, `followups`, `stats`에 더해 `confidenceScore`, `confidenceFactors`, `codeMap`, `diagram`, `recentActivity` 지원
+- **MCP 친화적 반환**: `answer`, `summary`, `confidence`, `evidence`, `candidatePaths`, `followups`, `stats`에 더해 `confidenceScore`, `confidenceFactors`, `critic`, `codeMap`, `diagram`, `recentActivity` 지원
 
 ## 공개 MCP 도구
 

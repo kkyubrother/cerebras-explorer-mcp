@@ -29,7 +29,7 @@ test('freeExplore executes tool calls without repoToolkit ReferenceError', async
           message: {
             content: null,
             toolCalls: [
-              { id: 't1', function: { name: 'repo_grep', arguments: JSON.stringify({ pattern: 'requireAuth' }) } },
+              { id: 't1', function: { name: 'repo_read_file', arguments: JSON.stringify({ path: 'src/auth.js', startLine: 1, endLine: 4 }) } },
             ],
           },
         };
@@ -59,6 +59,8 @@ test('freeExplore executes tool calls without repoToolkit ReferenceError', async
   assert.ok(!error, `freeExplore should not throw (got: ${error?.message})`);
   assert.ok(result, 'freeExplore returned a result');
   assert.ok(result.report, 'result has a report');
+  assert.equal(result.critic.status, 'caution');
+  assert.ok(result.critic.warnings.some(w => w.type === 'citation_gap'));
 });
 
 test('freeExplore continues after malformed tool arguments', async () => {

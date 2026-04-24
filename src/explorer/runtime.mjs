@@ -34,17 +34,16 @@ import {
 } from './prompt.mjs';
 import {
   EXPLORE_RESULT_JSON_SCHEMA,
-  computeConfidenceScore,
-  reconcileConfidence,
   normalizeExploreResult,
   validateExploreRepoArgs,
 } from './schemas.mjs';
+import {
+  buildReportCritic,
+  deriveTaskKindFromHints,
+  runDeterministicCriticPass,
+} from './critic.mjs';
 import { createChatClient } from './providers/index.mjs';
 import { createTranscriptRecorder } from './transcript.mjs';
-
-// Evidence items whose line range is within this many lines of an observed
-// range are kept as "partial" matches rather than being dropped entirely.
-const EVIDENCE_LINE_TOLERANCE = 2;
 
 // Maximum number of tool calls to execute in parallel within a single turn.
 const TOOL_CONCURRENCY = 8;
@@ -514,70 +513,6 @@ function recordObservedRange(observedRanges, targetPath, startLine, endLine, sou
   const current = observedRanges.get(targetPath) ?? [];
   current.push({ startLine, endLine, source });
   observedRanges.set(targetPath, current);
-}
-
-/**
- * Check whether an evidence item's line range overlaps with any observed range
- * for that file. Source-aware: grep-only observations can only produce partial
- * grounding for wide evidence ranges; read/symbol_context_definition produce exact.
- *
- * Returns { overlaps: boolean, partial: boolean }
- */
-function checkEvidenceGrounding(observedRanges, evidenceItem) {
-  const ranges = observedRanges.get(evidenceItem.path);
-  if (!ranges || ranges.length === 0) {
-    return { overlaps: false, partial: false };
-  }
-
-  const evidenceStart = evidenceItem.startLine;
-  const evidenceEnd = evidenceItem.endLine;
-  const evidenceLength = evidenceEnd - evidenceStart + 1;
-  let bestResult = { overlaps: false, partial: false };
-
-  for (const range of ranges) {
-    const rangeStart = range.startLine;
-    const rangeEnd = range.endLine;
-    const source = range.source ?? 'read';
-
-    const overlaps = evidenceStart <= rangeEnd && evidenceEnd >= rangeStart;
-    if (!overlaps) {
-      // Adjacent-within-tolerance: short evidence ranges near a read range count as partial
-      const distance = Math.max(rangeStart - evidenceEnd, evidenceStart - rangeEnd, 0);
-      if (distance <= EVIDENCE_LINE_TOLERANCE && evidenceLength <= 10) {
-        bestResult = { overlaps: true, partial: true };
-      }
-      continue;
-    }
-
-    // Determine whether the overlap counts as exact or partial, based on source
-    let isExact;
-    if (source === 'read') {
-      // Exact only when the evidence is fully contained within the read window
-      isExact = evidenceStart >= rangeStart && evidenceEnd <= rangeEnd;
-    } else if (source === 'symbol_context_definition') {
-      // Symbol context reads the definition body — treat any overlap as exact
-      isExact = true;
-    } else if (source === 'grep') {
-      // grep only shows a single line; a wide evidence range built from grep is partial
-      isExact = evidenceLength <= 3;
-    } else if (source === 'diff_hunk') {
-      // diff_hunk: exact when evidence is fully contained within the observed hunk range
-      isExact = evidenceStart >= rangeStart && evidenceEnd <= rangeEnd;
-    } else if (source === 'blame') {
-      // blame: single-line observations — exact for short evidence ranges (≤ 3 lines)
-      isExact = evidenceLength <= 3;
-    } else {
-      // macro_tool, symbol_context_usage — partial
-      isExact = false;
-    }
-
-    if (isExact) {
-      return { overlaps: true, partial: false }; // exact — best possible result
-    }
-    bestResult = { overlaps: true, partial: true };
-  }
-
-  return bestResult;
 }
 
 function buildCodeMap(observedRanges, configEntryPoints = []) {
@@ -1179,86 +1114,20 @@ export class ExplorerRuntime {
     stats.elapsedMs = nowMs() - startedAt;
     Object.assign(stats, globalRepoCache.stats());
 
-    const normalized = normalizeExploreResult(finalObject, stats);
+    let normalized = normalizeExploreResult(finalObject, stats);
     normalized.candidatePaths = mergeCandidatePaths(normalized.candidatePaths, candidatePaths).slice(0, 80);
 
-    // Ground evidence — kind-aware grounding (Phase 3)
-    const totalEvidenceBefore = normalized.evidence.length;
-    let droppedUngrounded = 0;
-    let droppedMalformed = 0;
-    normalized.evidence = normalized.evidence
-      .map(item => ({ ...item, path: item.path.replace(/^\.\//, '') }))
-      .filter(item => {
-        if (!item.path || !item.why) {
-          droppedMalformed++;
-          return false;
-        }
-        return true;
-      })
-      .map(item => {
-        const kind = item.evidenceType ?? 'file_range';
+    const taskKind = deriveTaskKindFromHints(args.hints);
+    const criticPass = runDeterministicCriticPass({
+      normalized,
+      observedRanges,
+      observedGit,
+      stats,
+      taskKind,
+    });
+    normalized = criticPass.result;
 
-        // git_commit: validate against observed commit hashes
-        if (kind === 'git_commit') {
-          const sha = item.sha ?? item.commit ?? '';
-          if (!sha) {
-            droppedUngrounded++;
-            return null;
-          }
-          // Support both full and short (prefix) hashes
-          const matched = observedGit.commits.has(sha) ||
-            [...observedGit.commits].some(h => h.startsWith(sha) || sha.startsWith(h));
-          if (!matched) {
-            droppedUngrounded++;
-            return null;
-          }
-          return { ...item, groundingStatus: 'exact' };
-        }
-        // git_blame: validate against observed blame entries
-        if (kind === 'git_blame') {
-          const blameKey = `${item.path}:${item.startLine}:${item.sha ?? ''}`;
-          const endKey = `${item.path}:${item.endLine}:${item.sha ?? ''}`;
-          if (!observedGit.blame.has(blameKey) && !observedGit.blame.has(endKey)) {
-            droppedUngrounded++;
-            return null;
-          }
-          return { ...item, groundingStatus: 'exact' };
-        }
-        // git_diff_hunk: grounded via diff/show hunk observation
-        if (kind === 'git_diff_hunk') {
-          const { overlaps, partial } = checkEvidenceGrounding(observedRanges, item);
-          if (!overlaps) {
-            // Still keep if sha present — git tool produced it
-            if (item.sha) return { ...item, groundingStatus: 'partial' };
-            droppedUngrounded++;
-            return null;
-          }
-          return { ...item, groundingStatus: partial ? 'partial' : 'exact' };
-        }
-        // file_range (default): must match observed read ranges
-        const { overlaps, partial } = checkEvidenceGrounding(observedRanges, item);
-        if (!overlaps) {
-          droppedUngrounded++;
-          return null;
-        }
-        return { ...item, groundingStatus: partial ? 'partial' : 'exact' };
-      })
-      .filter(Boolean);
-
-    // Derive task kind from strategy hint for task-aware confidence scoring
-    const strategyHint = args.hints?.strategy ?? null;
-    const taskKind = (strategyHint === 'symbol-first') ? 'locate' : (strategyHint ?? 'default');
-
-    // Confidence scoring (task-aware)
-    const { score: confidenceScore, level: confidenceLevel, factors: confidenceFactors } =
-      computeConfidenceScore(normalized.evidence, totalEvidenceBefore, stats, taskKind);
-    confidenceFactors.droppedUngrounded = droppedUngrounded;
-    confidenceFactors.droppedMalformed = droppedMalformed;
-    normalized.confidenceScore = confidenceScore;
-    normalized.confidenceLevel = confidenceLevel;
-    normalized.confidenceFactors = confidenceFactors;
-
-    if (totalEvidenceBefore > normalized.evidence.length) {
+    if (criticPass.grounding.droppedUngrounded + criticPass.grounding.droppedMalformed > 0) {
       normalized.followups = mergeCandidatePaths(normalized.followups, [{
         description: 'Some evidence items were dropped because they were not grounded in inspected line ranges.',
         priority: 'optional',
@@ -1266,22 +1135,11 @@ export class ExplorerRuntime {
       }]);
     }
 
-    // Reconcile model-reported confidence with computed level
-    const exactEvidence = normalized.evidence.filter(e => e.groundingStatus === 'exact').length;
-    normalized.confidence = reconcileConfidence({
-      modelConfidence: normalized.confidence,
-      computedLevel: confidenceLevel,
-      taskKind,
-      exactEvidence,
-      droppedEvidence: droppedUngrounded + droppedMalformed,
-      stoppedByBudget: stats.stoppedByBudget ?? false,
-    });
-    normalized.confidenceLevel = normalized.confidence;
-
     if (!normalized.summary) normalized.summary = normalized.answer;
     if (!normalized.answer) {
       normalized.answer = lastAssistantContent || 'Explorer did not return a final answer.';
       normalized.confidence = 'low';
+      normalized.confidenceLevel = 'low';
     }
 
     // Trust summary — a natural-language sentence the parent model can rely on
@@ -1512,6 +1370,8 @@ export class ExplorerRuntime {
 
     stats.elapsedMs = nowMs() - startedAt;
     Object.assign(stats, globalRepoCache.stats());
+    const reportFilesRead = [...filesRead];
+    const critic = buildReportCritic({ report, filesRead: reportFilesRead, stats });
 
     // Update session with report summary (mode-neutral)
     if (sessionStore && sessionId) {
@@ -1527,9 +1387,10 @@ export class ExplorerRuntime {
 
     return {
       report,
-      filesRead: [...filesRead],
+      filesRead: reportFilesRead,
       toolsUsed: [...toolsUsed],
       stats,
+      critic,
     };
   }
 
@@ -1965,6 +1826,8 @@ export class ExplorerRuntime {
 
     stats.elapsedMs = nowMs() - startedAt;
     Object.assign(stats, globalRepoCache.stats());
+    const reportFilesRead = [...filesRead];
+    const critic = buildReportCritic({ report, filesRead: reportFilesRead, stats });
 
     // Finalize transcript
     await transcript.finalize(stats);
@@ -1983,9 +1846,10 @@ export class ExplorerRuntime {
 
     return {
       report,
-      filesRead: [...filesRead],
+      filesRead: reportFilesRead,
       toolsUsed: [...toolsUsed],
       stats,
+      critic,
       transcriptPath: transcript.filePath,
     };
   }
