@@ -15,6 +15,15 @@
 
 ---
 
+## 1.1 설계 제약
+
+- zero dependencies 원칙을 유지한다. Node 표준 라이브러리를 우선하고, 새 패키지는 명확한 필요가 있을 때만 별도 결정한다.
+- Node.js 22 이상을 기준 런타임으로 유지한다.
+- read-only 원칙을 유지한다. explorer와 내부 repo tools는 저장소 파일을 수정하지 않는다.
+- `explore_repo` 입출력 스키마는 기존 클라이언트를 깨지 않는 additive change 중심으로 확장한다.
+
+---
+
 ## 2. 입력 근거
 
 ### 2.1 Claude Code 소스에서 가져온 방향
@@ -215,8 +224,9 @@ GLM 4.7 마이그레이션 기준으로 explorer runtime은 다음 원칙을 따
 #### 세션 계약
 
 - 세션은 `stats.sessionId`로 반환되며, 다음 호출에서 `session` 파라미터로 전달하면 재사용된다.
-- 명시적으로 요청된 세션이 invalid/expired/exhausted/repo_mismatch인 경우, silent fallback 없이 에러를 반환한다.
-- `stats.sessionStatus`가 `created` 또는 `reused`를 표시하고, `stats.remainingCalls`가 남은 호출 수를 표시한다.
+- 명시적으로 요청된 세션이 invalid 또는 repo_mismatch인 경우 에러를 반환한다.
+- 명시적으로 요청된 세션이 expired 또는 exhausted인 경우 새 세션으로 fallback하고, `stats.sessionStatus`에 `fallback`을 표시한다.
+- `stats.sessionStatus`가 `created`, `reused`, `fallback` 중 하나를 표시하고, `stats.remainingCalls`가 남은 호출 수를 표시한다.
 - `find_similar_code`는 수치형 similarity score를 제공하지 않는다 — 자연어 추론 기반이다.
 
 ---
@@ -395,7 +405,7 @@ GLM 4.7 마이그레이션 기준으로 explorer runtime은 다음 원칙을 따
     "turns": 0,
     "toolCalls": 0,
     "sessionId": "sess_...",
-    "sessionStatus": "created|reused",
+    "sessionStatus": "created|reused|fallback",
     "remainingCalls": 5
   }
 }

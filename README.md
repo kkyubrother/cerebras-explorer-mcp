@@ -245,6 +245,12 @@ cerebras-explorer-mcp/
 
 **요구사항**: Node.js 22 이상
 
+프로젝트 제약:
+
+- zero dependencies 원칙을 유지합니다. 현재 npm runtime/dev dependencies 없이 Node 표준 라이브러리만 사용합니다.
+- read-only 원칙을 유지합니다. 저장소 탐색 도구는 파일을 수정하지 않습니다.
+- `explore_repo` 입출력 스키마는 기존 클라이언트를 깨지 않는 additive change 중심으로 확장합니다.
+
 ### 1) 환경 변수
 
 ```bash
@@ -485,7 +491,7 @@ node ./scripts/run-benchmark.mjs \
 - 최종 품질은 저장소 구조와 질문 품질에 영향을 받습니다.
 - 심볼 인덱싱은 regex 기반이며, LSP/tree-sitter 수준의 정밀한 semantic 분석은 아직 없습니다.
 - `repo_symbol_context.depth > 1`은 현재 `effectiveDepth = 1`로 고정됩니다 (직접 호출자만 반환). 의도적 설계 결정이며, 반환값에 `effectiveDepth: 1` 필드가 포함되어 실제 동작을 명시합니다. 더 깊은 호출 체인이 필요하면 `explore_repo`의 `reference-chase` 전략을 사용하세요.
-- `repo_grep.includeSymbol`, `find_similar_code.similarity` 같은 정밀 기능은 Phase 2/3에서 구현 예정입니다.
+- `find_similar_code`는 수치형 similarity score를 제공하지 않습니다. 자연어 추론 기반으로 유사 패턴과 근거를 설명합니다.
 
 참고:
 - 코드베이스 안에는 provider abstraction 관련 구현이 일부 존재하지만, 이 프로젝트의 문서화된 목표와 공개 인터페이스는 Cerebras 기반 explorer에 맞춰져 있습니다.
@@ -496,6 +502,6 @@ node ./scripts/run-benchmark.mjs \
 - `find_entrypoints`
 - repo-specific ignore 정책
 - tree-sitter 기반 심볼 정밀도 향상
-- `find_similar_code` 구조화 유사도 점수
+- `find_similar_code`의 deterministic similarity score RFC
 
 상세 설계 근거는 [DESIGN.md](./DESIGN.md)에 정리해 두었습니다.
