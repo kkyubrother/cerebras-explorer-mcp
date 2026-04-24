@@ -22,7 +22,8 @@ function evidenceTarget(item) {
 /**
  * Check whether an evidence item's line range overlaps with any observed range
  * for that file. Source-aware: grep-only observations can only produce partial
- * grounding for wide evidence ranges; read/symbol_context_definition produce exact.
+ * grounding for wide evidence ranges; exact grounding requires source-specific
+ * range containment or a narrow observation.
  */
 export function checkEvidenceGrounding(observedRanges, evidenceItem) {
   const ranges = observedRanges.get(evidenceItem.path);
@@ -53,7 +54,7 @@ export function checkEvidenceGrounding(observedRanges, evidenceItem) {
     if (source === 'read') {
       isExact = evidenceStart >= rangeStart && evidenceEnd <= rangeEnd;
     } else if (source === 'symbol_context_definition') {
-      isExact = true;
+      isExact = evidenceStart >= rangeStart && evidenceEnd <= rangeEnd;
     } else if (source === 'grep') {
       isExact = evidenceLength <= 3;
     } else if (source === 'diff_hunk') {
@@ -73,15 +74,18 @@ export function checkEvidenceGrounding(observedRanges, evidenceItem) {
   return bestResult;
 }
 
+function isObservedCommit(sha, observedGit) {
+  if (!sha || !observedGit?.commits) return false;
+  return observedGit.commits.has(sha) ||
+    [...observedGit.commits].some(h => h.startsWith(sha) || sha.startsWith(h));
+}
+
 export function groundEvidenceItem(item, { observedRanges, observedGit }) {
   const kind = item.evidenceType ?? 'file_range';
 
   if (kind === 'git_commit') {
     const sha = item.sha ?? item.commit ?? '';
-    if (!sha) return null;
-    const matched = observedGit.commits.has(sha) ||
-      [...observedGit.commits].some(h => h.startsWith(sha) || sha.startsWith(h));
-    return matched ? { ...item, groundingStatus: 'exact' } : null;
+    return isObservedCommit(sha, observedGit) ? { ...item, groundingStatus: 'exact' } : null;
   }
 
   if (kind === 'git_blame') {
@@ -95,7 +99,8 @@ export function groundEvidenceItem(item, { observedRanges, observedGit }) {
   if (kind === 'git_diff_hunk') {
     const { overlaps, partial } = checkEvidenceGrounding(observedRanges, item);
     if (!overlaps) {
-      return item.sha ? { ...item, groundingStatus: 'partial' } : null;
+      const sha = item.sha ?? item.commit ?? '';
+      return isObservedCommit(sha, observedGit) ? { ...item, groundingStatus: 'partial' } : null;
     }
     return { ...item, groundingStatus: partial ? 'partial' : 'exact' };
   }
@@ -162,7 +167,7 @@ export function computeConfidenceScore(groundedEvidence, totalEvidenceBefore, st
   const evidenceDropped = totalEvidenceBefore - groundedEvidence.length;
 
   const factors = {
-    evidenceCount: groundedEvidence.length,
+    evidenceCount: totalEvidenceBefore,
     evidenceGrounded: groundedEvidence.length,
     evidenceDropped,
     exactCount,
@@ -242,9 +247,8 @@ export function computeConfidenceScore(groundedEvidence, totalEvidenceBefore, st
 /**
  * Reconcile the model-reported confidence level with the computed level.
  */
-export function reconcileConfidence({ modelConfidence, computedLevel, taskKind, exactEvidence, droppedEvidence, stoppedByBudget }) {
+export function reconcileConfidence({ modelConfidence, computedLevel, droppedEvidence, stoppedByBudget }) {
   if (droppedEvidence > 0 || stoppedByBudget) return computedLevel;
-  if (taskKind === 'locate' && exactEvidence >= 1) return modelConfidence;
   return lowerLevel(modelConfidence, computedLevel);
 }
 
@@ -257,12 +261,9 @@ export function evaluateConfidence({
   droppedEvidence,
 }) {
   const { score, level, factors } = computeConfidenceScore(evidence, totalEvidenceBefore, stats, taskKind);
-  const exactEvidence = evidence.filter(item => item.groundingStatus === 'exact').length;
   const finalConfidence = reconcileConfidence({
     modelConfidence,
     computedLevel: level,
-    taskKind,
-    exactEvidence,
     droppedEvidence,
     stoppedByBudget: stats.stoppedByBudget ?? false,
   });
@@ -273,7 +274,7 @@ export function evaluateConfidence({
     finalConfidence,
     factors,
     modelConfidence,
-    downgraded: lowerLevel(modelConfidence, finalConfidence) === finalConfidence && modelConfidence !== finalConfidence,
+    downgraded: modelConfidence != null && lowerLevel(modelConfidence, finalConfidence) === finalConfidence && modelConfidence !== finalConfidence,
   };
 }
 
@@ -413,7 +414,7 @@ export function runDeterministicCriticPass({
 export function extractReportCitations(report) {
   if (typeof report !== 'string' || !report.trim()) return [];
   const citations = [];
-  const regex = /`?([A-Za-z0-9_./\\-]+\.[A-Za-z0-9]+):L?(\d+)(?:-L?(\d+))?`?/g;
+  const regex = /`?([A-Za-z0-9_][A-Za-z0-9_./\\-]*\/[A-Za-z0-9_./\\-]+\.[A-Za-z0-9]+):L?(\d+)(?:-L?(\d+))?`?/g;
   let match;
   while ((match = regex.exec(report)) !== null) {
     citations.push({
@@ -426,6 +427,33 @@ export function extractReportCitations(report) {
   return citations;
 }
 
+export function extractGitCitations(report) {
+  if (typeof report !== 'string' || !report.trim()) return [];
+  const citations = [];
+  const commitRegex = /\b(?:commit|sha):([0-9a-f]{7,40})\b/gi;
+  const blameRegex = /\bblame:([A-Za-z0-9_./\\-]+):L?(\d+)\b/g;
+  let match;
+
+  while ((match = commitRegex.exec(report)) !== null) {
+    citations.push({
+      type: 'git_commit',
+      sha: match[1],
+      raw: match[0],
+    });
+  }
+
+  while ((match = blameRegex.exec(report)) !== null) {
+    citations.push({
+      type: 'git_blame',
+      path: match[1].replace(/\\/g, '/').replace(/^\.\//, ''),
+      line: Number(match[2]),
+      raw: match[0],
+    });
+  }
+
+  return citations;
+}
+
 export function buildReportCritic({
   report,
   filesRead = [],
@@ -434,6 +462,8 @@ export function buildReportCritic({
 }) {
   const warnings = [];
   const citations = extractReportCitations(report);
+  const gitCitations = extractGitCitations(report);
+  const totalCitations = citations.length + gitCitations.length;
   const filesReadSet = new Set(filesRead.map(path => String(path).replace(/\\/g, '/').replace(/^\.\//, '')));
 
   if (typeof report !== 'string' || !report.trim()) {
@@ -443,7 +473,14 @@ export function buildReportCritic({
       message: 'The report is empty.',
       action: 'Treat this result as failed and rerun with a narrower task.',
     });
-  } else if (filesRead.length > 0 && citations.length === 0) {
+  } else if (totalCitations === 0 && filesRead.length === 0) {
+    warnings.push({
+      type: 'no_files_read',
+      severity: 'high',
+      message: 'The report contains no inline citations and no files were recorded as read.',
+      action: 'Treat this result as ungrounded unless the parent agent verifies the claim separately.',
+    });
+  } else if (totalCitations === 0) {
     warnings.push({
       type: 'citation_gap',
       severity: 'medium',
@@ -452,13 +489,14 @@ export function buildReportCritic({
     });
   }
 
-  const unknownCitation = citations.find(citation => !filesReadSet.has(citation.path));
-  if (unknownCitation) {
+  const unknownCitations = citations.filter(citation => !filesReadSet.has(citation.path));
+  if (unknownCitations.length > 0) {
+    const sample = unknownCitations[0];
     warnings.push({
       type: 'citation_gap',
       severity: 'medium',
-      message: `The report cites ${unknownCitation.raw}, but that path was not recorded as read.`,
-      target: unknownCitation.raw,
+      message: `${unknownCitations.length} citation(s) reference paths that were not recorded as read.`,
+      target: sample.raw,
       action: 'Verify that citation before relying on the related claim.',
     });
   }

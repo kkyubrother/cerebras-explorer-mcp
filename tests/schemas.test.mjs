@@ -110,8 +110,6 @@ test('reconcileConfidence: always returns computedLevel when evidence was droppe
   const result = reconcileConfidence({
     modelConfidence: 'high',
     computedLevel: 'low',
-    taskKind: 'locate',
-    exactEvidence: 2,
     droppedEvidence: 1,
     stoppedByBudget: false,
   });
@@ -122,32 +120,26 @@ test('reconcileConfidence: always returns computedLevel when stoppedByBudget', (
   const result = reconcileConfidence({
     modelConfidence: 'high',
     computedLevel: 'medium',
-    taskKind: 'locate',
-    exactEvidence: 1,
     droppedEvidence: 0,
     stoppedByBudget: true,
   });
   assert.equal(result, 'medium', 'stoppedByBudget must force computed level');
 });
 
-test('reconcileConfidence: locate with exactEvidence >= 1 trusts model confidence', () => {
+test('reconcileConfidence: locate still takes the lower of model and computed confidence', () => {
   const result = reconcileConfidence({
     modelConfidence: 'high',
     computedLevel: 'medium',
-    taskKind: 'locate',
-    exactEvidence: 1,
     droppedEvidence: 0,
     stoppedByBudget: false,
   });
-  assert.equal(result, 'high', 'locate + exact evidence allows model confidence to stand');
+  assert.equal(result, 'medium', 'locate must not bypass computed confidence');
 });
 
 test('reconcileConfidence: non-locate takes the lower of model and computed', () => {
   const result = reconcileConfidence({
     modelConfidence: 'high',
     computedLevel: 'medium',
-    taskKind: 'causal',
-    exactEvidence: 2,
     droppedEvidence: 0,
     stoppedByBudget: false,
   });
@@ -158,8 +150,6 @@ test('reconcileConfidence: model low is preserved even when computed is high', (
   const result = reconcileConfidence({
     modelConfidence: 'low',
     computedLevel: 'high',
-    taskKind: 'causal',
-    exactEvidence: 2,
     droppedEvidence: 0,
     stoppedByBudget: false,
   });
