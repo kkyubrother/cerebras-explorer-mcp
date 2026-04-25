@@ -62,7 +62,18 @@ npx -y github:kkyubrother/cerebras-explorer-mcp#main
 npx -y github:kkyubrother/cerebras-explorer-mcp#<commit-sha>
 ```
 
-소스 체크아웃에서 직접 실행하거나 다른 클라이언트에 연결하려면 아래 [빠른 실행](#빠른-실행)·[Claude Code 연결 예시](#claude-code-연결-예시)·[Codex 연결 예시](#codex-연결-예시) 섹션을 참고하세요.
+### 다른 클라이언트
+
+각 클라이언트별 설정 파일 형식과 등록 위치는 `integrations/` 폴더의 README와 `*.example` 파일을 그대로 복사해서 사용할 수 있습니다.
+
+- [Claude Code](./integrations/claude/) — `.mcp.json` 또는 `claude mcp add`
+- [Claude Desktop](./integrations/claude-desktop/) — `claude_desktop_config.json`
+- [Codex CLI](./integrations/codex/) — `~/.codex/config.toml`
+- [OpenCode](./integrations/opencode/) — `opencode.json`
+- [Cursor](./integrations/cursor/) — `~/.cursor/mcp.json` 또는 `.cursor/mcp.json`
+- [Continue.dev](./integrations/continue/) — `~/.continue/config.yaml`
+
+소스 체크아웃에서 직접 실행하거나 더 자세한 옵션은 아래 [빠른 실행](#빠른-실행)·[Claude Code 연결 예시](#claude-code-연결-예시)·[Codex 연결 예시](#codex-연결-예시) 섹션을 참고하세요.
 
 ## 왜 이렇게 설계했나
 
@@ -286,9 +297,21 @@ cerebras-explorer-mcp/
   integrations/
     claude/
       .mcp.json.example
+    claude-desktop/
+      claude_desktop_config.json.example
+      README.md
     codex/
       AGENTS.md.example
       config.toml.example
+    continue/
+      config.yaml.example
+      README.md
+    cursor/
+      mcp.json.example
+      README.md
+    opencode/
+      opencode.json.example
+      README.md
   scripts/
   src/
     benchmark/

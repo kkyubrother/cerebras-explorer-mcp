@@ -1,0 +1,9 @@
+mcpServers:
+  - name: cerebras-explorer
+    type: stdio
+    command: npx
+    args:
+      - "-y"
+      - "github:kkyubrother/cerebras-explorer-mcp"
+    env:
+      CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
