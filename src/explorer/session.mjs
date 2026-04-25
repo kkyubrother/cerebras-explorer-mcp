@@ -170,6 +170,16 @@ export class SessionStore {
   }
 
   /**
+   * Returns the number of remaining explore calls for a live session.
+   * Returns null when the session is missing or expired.
+   */
+  getRemainingCalls(id) {
+    const session = this.get(id);
+    if (!session) return null;
+    return Math.max(0, this._maxCalls - session.calls);
+  }
+
+  /**
    * Validate a session for reuse. Returns an object describing the outcome.
    * @param {string} id - Session ID to validate.
    * @param {string} repoRoot - Expected repo root.

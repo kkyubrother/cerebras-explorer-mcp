@@ -34,17 +34,16 @@ import {
 } from './prompt.mjs';
 import {
   EXPLORE_RESULT_JSON_SCHEMA,
-  computeConfidenceScore,
-  reconcileConfidence,
   normalizeExploreResult,
   validateExploreRepoArgs,
 } from './schemas.mjs';
+import {
+  buildReportCritic,
+  deriveTaskKindFromHints,
+  runDeterministicCriticPass,
+} from './critic.mjs';
 import { createChatClient } from './providers/index.mjs';
 import { createTranscriptRecorder } from './transcript.mjs';
-
-// Evidence items whose line range is within this many lines of an observed
-// range are kept as "partial" matches rather than being dropped entirely.
-const EVIDENCE_LINE_TOLERANCE = 2;
 
 // Maximum number of tool calls to execute in parallel within a single turn.
 const TOOL_CONCURRENCY = 8;
@@ -170,12 +169,12 @@ function applyToolResultCharBudget(toolName, toolResult) {
  * @param {object[]} messages - Current conversation messages
  * @param {number} threshold - Token threshold to trigger compaction
  * @param {object} opts - reasoningEffort, temperature, topP
- * @returns {Promise<{messages: object[], didCompact: boolean, summaryTokens: number}>}
+ * @returns {Promise<{messages: object[], didCompact: boolean, usage: object|null}>}
  */
 async function compactWithLlmSummary(chatClient, messages, threshold, opts) {
   const estimated = estimateTokens(messages);
   if (estimated < threshold) {
-    return { messages, didCompact: false, summaryTokens: 0 };
+    return { messages, didCompact: false, usage: null };
   }
 
   // Ask the LLM to summarize exploration findings so far
@@ -189,10 +188,11 @@ async function compactWithLlmSummary(chatClient, messages, threshold, opts) {
     topP: 1,
     maxCompletionTokens: 1000,
     parallelToolCalls: false,
+    signal: opts.abortSignal,
   });
 
   const summaryText = summaryCompletion.message.content || 'No summary available.';
-  const summaryTokens = summaryCompletion.usage?.total_tokens ?? 0;
+  const summaryUsage = summaryCompletion.usage ?? null;
 
   // Reconstruct: system prompt + summary as context + complete recent turns
   const systemMsg = messages[0];
@@ -211,7 +211,7 @@ async function compactWithLlmSummary(chatClient, messages, threshold, opts) {
     ...recentMessages,
   ];
 
-  return { messages: compactedMessages, didCompact: true, summaryTokens };
+  return { messages: compactedMessages, didCompact: true, usage: summaryUsage };
 }
 
 /**
@@ -304,6 +304,31 @@ function safeJsonParse(input) {
   } catch (error) {
     throw new Error(`Failed to parse tool arguments: ${error.message}`);
   }
+}
+
+function isAbortError(error) {
+  return error?.name === 'AbortError';
+}
+
+function buildCancelledExploreObject(lastAssistantContent = '') {
+  const message = typeof lastAssistantContent === 'string' && lastAssistantContent.trim()
+    ? lastAssistantContent.trim()
+    : 'Exploration was cancelled before a final answer was produced.';
+  return {
+    answer: message,
+    summary: message,
+    confidence: 'low',
+    evidence: [],
+    candidatePaths: [],
+    followups: [],
+  };
+}
+
+function buildCancelledReport(report = '') {
+  if (typeof report === 'string' && report.trim()) {
+    return report;
+  }
+  return 'Exploration was cancelled before a final report was produced.';
 }
 
 /**
@@ -443,7 +468,7 @@ function resolveSessionForExplore(sessionStore, requestedSessionId, repoRoot) {
           sessionId: newId,
           sessionData: newData,
           sessionStatus: 'fallback',
-          remainingCalls: sessionStore._maxCalls,
+          remainingCalls: sessionStore.getRemainingCalls(newId),
         };
       }
       // Non-recoverable (invalid_session, repo_mismatch): propagate error
@@ -466,8 +491,19 @@ function resolveSessionForExplore(sessionStore, requestedSessionId, repoRoot) {
     sessionId: newId,
     sessionData: newData,
     sessionStatus: 'created',
-    remainingCalls: sessionStore._maxCalls,
+    remainingCalls: sessionStore.getRemainingCalls(newId),
   };
+}
+
+function syncRemainingCallsStat(stats, sessionStore, sessionId) {
+  if (!stats || !sessionStore || !sessionId || typeof sessionStore.getRemainingCalls !== 'function') {
+    return;
+  }
+
+  const remainingCalls = sessionStore.getRemainingCalls(sessionId);
+  if (Number.isFinite(remainingCalls)) {
+    stats.remainingCalls = remainingCalls;
+  }
 }
 
 function recordObservedRange(observedRanges, targetPath, startLine, endLine, source = 'read') {
@@ -477,70 +513,6 @@ function recordObservedRange(observedRanges, targetPath, startLine, endLine, sou
   const current = observedRanges.get(targetPath) ?? [];
   current.push({ startLine, endLine, source });
   observedRanges.set(targetPath, current);
-}
-
-/**
- * Check whether an evidence item's line range overlaps with any observed range
- * for that file. Source-aware: grep-only observations can only produce partial
- * grounding for wide evidence ranges; read/symbol_context_definition produce exact.
- *
- * Returns { overlaps: boolean, partial: boolean }
- */
-function checkEvidenceGrounding(observedRanges, evidenceItem) {
-  const ranges = observedRanges.get(evidenceItem.path);
-  if (!ranges || ranges.length === 0) {
-    return { overlaps: false, partial: false };
-  }
-
-  const evidenceStart = evidenceItem.startLine;
-  const evidenceEnd = evidenceItem.endLine;
-  const evidenceLength = evidenceEnd - evidenceStart + 1;
-  let bestResult = { overlaps: false, partial: false };
-
-  for (const range of ranges) {
-    const rangeStart = range.startLine;
-    const rangeEnd = range.endLine;
-    const source = range.source ?? 'read';
-
-    const overlaps = evidenceStart <= rangeEnd && evidenceEnd >= rangeStart;
-    if (!overlaps) {
-      // Adjacent-within-tolerance: short evidence ranges near a read range count as partial
-      const distance = Math.max(rangeStart - evidenceEnd, evidenceStart - rangeEnd, 0);
-      if (distance <= EVIDENCE_LINE_TOLERANCE && evidenceLength <= 10) {
-        bestResult = { overlaps: true, partial: true };
-      }
-      continue;
-    }
-
-    // Determine whether the overlap counts as exact or partial, based on source
-    let isExact;
-    if (source === 'read') {
-      // Exact only when the evidence is fully contained within the read window
-      isExact = evidenceStart >= rangeStart && evidenceEnd <= rangeEnd;
-    } else if (source === 'symbol_context_definition') {
-      // Symbol context reads the definition body — treat any overlap as exact
-      isExact = true;
-    } else if (source === 'grep') {
-      // grep only shows a single line; a wide evidence range built from grep is partial
-      isExact = evidenceLength <= 3;
-    } else if (source === 'diff_hunk') {
-      // diff_hunk: exact when evidence is fully contained within the observed hunk range
-      isExact = evidenceStart >= rangeStart && evidenceEnd <= rangeEnd;
-    } else if (source === 'blame') {
-      // blame: single-line observations — exact for short evidence ranges (≤ 3 lines)
-      isExact = evidenceLength <= 3;
-    } else {
-      // macro_tool, symbol_context_usage — partial
-      isExact = false;
-    }
-
-    if (isExact) {
-      return { overlaps: true, partial: false }; // exact — best possible result
-    }
-    bestResult = { overlaps: true, partial: true };
-  }
-
-  return bestResult;
 }
 
 function buildCodeMap(observedRanges, configEntryPoints = []) {
@@ -884,15 +856,25 @@ export class ExplorerRuntime {
         });
       }
 
-      const completion = await chatClient.createChatCompletion({
-        messages,
-        tools,
-        reasoningEffort,
-        temperature,
-        topP,
-        maxCompletionTokens: budgetConfig.maxCompletionTokens,
-        parallelToolCalls: true,
-      });
+      let completion;
+      try {
+        completion = await chatClient.createChatCompletion({
+          messages,
+          tools,
+          reasoningEffort,
+          temperature,
+          topP,
+          maxCompletionTokens: budgetConfig.maxCompletionTokens,
+          parallelToolCalls: true,
+          signal: abortSignal,
+        });
+      } catch (error) {
+        if (abortSignal?.aborted && isAbortError(error)) {
+          stats.stoppedByAbort = true;
+          break;
+        }
+        throw error;
+      }
 
       stats.turns += 1;
       Object.assign(stats, summarizeUsage(stats, completion.usage));
@@ -911,14 +893,24 @@ export class ExplorerRuntime {
           });
         }
         lastAssistantContent = completion.message.content || '';
-        const finalized = await this.finalizeAfterToolLoop({
-          chatClient,
-          messages,
-          reasoningEffort,
-          temperature,
-          topP,
-          budgetConfig,
-        });
+        let finalized;
+        try {
+          finalized = await this.finalizeAfterToolLoop({
+            chatClient,
+            messages,
+            reasoningEffort,
+            temperature,
+            topP,
+            budgetConfig,
+            abortSignal,
+          });
+        } catch (error) {
+          if (abortSignal?.aborted && isAbortError(error)) {
+            stats.stoppedByAbort = true;
+            break;
+          }
+          throw error;
+        }
         finalObject = finalized.result;
         Object.assign(stats, summarizeUsage(stats, finalized.usage));
         break;
@@ -1014,6 +1006,10 @@ export class ExplorerRuntime {
           for (const file of diffFiles) {
             if (file.path && Array.isArray(file.hunks)) {
               for (const hunk of file.hunks) {
+                // Skip deletion-only hunks (newLines === 0): they add no lines to the
+                // new file, so recording [newStart, newStart-1] would create an inverted
+                // range that can never match any evidence item.
+                if (hunk.newLines === 0) continue;
                 recordObservedRange(observedRanges, file.path, hunk.newStart, hunk.newStart + hunk.newLines - 1, 'diff_hunk');
               }
             }
@@ -1049,8 +1045,8 @@ export class ExplorerRuntime {
         if (toolName === 'repo_git_blame' && !toolResult?.error && Array.isArray(toolResult.lines)) {
           const blamePath = toolArgs.path ?? null;
           for (const entry of toolResult.lines) {
-            if (blamePath && typeof entry.line === 'number' && entry.sha) {
-              observedGit.blame.add(`${blamePath}:${entry.line}:${entry.sha}`);
+            if (blamePath && typeof entry.line === 'number' && entry.hash) {
+              observedGit.blame.add(`${blamePath}:${entry.line}:${entry.hash}`);
             }
           }
         }
@@ -1091,7 +1087,9 @@ export class ExplorerRuntime {
       }
     }
 
-    if (!finalObject) {
+    if (!finalObject && stats.stoppedByAbort) {
+      finalObject = buildCancelledExploreObject(lastAssistantContent);
+    } else if (!finalObject) {
       stats.stoppedByBudget = !stats.stoppedByErrors && !stats.stoppedByAbort;
       if (onProgress) {
         onProgress({
@@ -1107,6 +1105,7 @@ export class ExplorerRuntime {
         temperature,
         topP,
         budgetConfig,
+        abortSignal,
       });
       finalObject = finalized.result;
       Object.assign(stats, summarizeUsage(stats, finalized.usage));
@@ -1115,86 +1114,20 @@ export class ExplorerRuntime {
     stats.elapsedMs = nowMs() - startedAt;
     Object.assign(stats, globalRepoCache.stats());
 
-    const normalized = normalizeExploreResult(finalObject, stats);
+    let normalized = normalizeExploreResult(finalObject, stats);
     normalized.candidatePaths = mergeCandidatePaths(normalized.candidatePaths, candidatePaths).slice(0, 80);
 
-    // Ground evidence — kind-aware grounding (Phase 3)
-    const totalEvidenceBefore = normalized.evidence.length;
-    let droppedUngrounded = 0;
-    let droppedMalformed = 0;
-    normalized.evidence = normalized.evidence
-      .map(item => ({ ...item, path: item.path.replace(/^\.\//, '') }))
-      .filter(item => {
-        if (!item.path || !item.why) {
-          droppedMalformed++;
-          return false;
-        }
-        return true;
-      })
-      .map(item => {
-        const kind = item.evidenceType ?? 'file_range';
+    const taskKind = deriveTaskKindFromHints(args.hints);
+    const criticPass = runDeterministicCriticPass({
+      normalized,
+      observedRanges,
+      observedGit,
+      stats,
+      taskKind,
+    });
+    normalized = criticPass.result;
 
-        // git_commit: validate against observed commit hashes
-        if (kind === 'git_commit') {
-          const sha = item.sha ?? item.commit ?? '';
-          if (!sha) {
-            droppedUngrounded++;
-            return null;
-          }
-          // Support both full and short (prefix) hashes
-          const matched = observedGit.commits.has(sha) ||
-            [...observedGit.commits].some(h => h.startsWith(sha) || sha.startsWith(h));
-          if (!matched) {
-            droppedUngrounded++;
-            return null;
-          }
-          return { ...item, groundingStatus: 'exact' };
-        }
-        // git_blame: validate against observed blame entries
-        if (kind === 'git_blame') {
-          const blameKey = `${item.path}:${item.startLine}:${item.sha ?? ''}`;
-          const endKey = `${item.path}:${item.endLine}:${item.sha ?? ''}`;
-          if (!observedGit.blame.has(blameKey) && !observedGit.blame.has(endKey)) {
-            droppedUngrounded++;
-            return null;
-          }
-          return { ...item, groundingStatus: 'exact' };
-        }
-        // git_diff_hunk: grounded via diff/show hunk observation
-        if (kind === 'git_diff_hunk') {
-          const { overlaps, partial } = checkEvidenceGrounding(observedRanges, item);
-          if (!overlaps) {
-            // Still keep if sha present — git tool produced it
-            if (item.sha) return { ...item, groundingStatus: 'partial' };
-            droppedUngrounded++;
-            return null;
-          }
-          return { ...item, groundingStatus: partial ? 'partial' : 'exact' };
-        }
-        // file_range (default): must match observed read ranges
-        const { overlaps, partial } = checkEvidenceGrounding(observedRanges, item);
-        if (!overlaps) {
-          droppedUngrounded++;
-          return null;
-        }
-        return { ...item, groundingStatus: partial ? 'partial' : 'exact' };
-      })
-      .filter(Boolean);
-
-    // Derive task kind from strategy hint for task-aware confidence scoring
-    const strategyHint = args.hints?.strategy ?? null;
-    const taskKind = (strategyHint === 'symbol-first') ? 'locate' : (strategyHint ?? 'default');
-
-    // Confidence scoring (task-aware)
-    const { score: confidenceScore, level: confidenceLevel, factors: confidenceFactors } =
-      computeConfidenceScore(normalized.evidence, totalEvidenceBefore, stats, taskKind);
-    confidenceFactors.droppedUngrounded = droppedUngrounded;
-    confidenceFactors.droppedMalformed = droppedMalformed;
-    normalized.confidenceScore = confidenceScore;
-    normalized.confidenceLevel = confidenceLevel;
-    normalized.confidenceFactors = confidenceFactors;
-
-    if (totalEvidenceBefore > normalized.evidence.length) {
+    if (criticPass.grounding.droppedUngrounded + criticPass.grounding.droppedMalformed > 0) {
       normalized.followups = mergeCandidatePaths(normalized.followups, [{
         description: 'Some evidence items were dropped because they were not grounded in inspected line ranges.',
         priority: 'optional',
@@ -1202,22 +1135,11 @@ export class ExplorerRuntime {
       }]);
     }
 
-    // Reconcile model-reported confidence with computed level
-    const exactEvidence = normalized.evidence.filter(e => e.groundingStatus === 'exact').length;
-    normalized.confidence = reconcileConfidence({
-      modelConfidence: normalized.confidence,
-      computedLevel: confidenceLevel,
-      taskKind,
-      exactEvidence,
-      droppedEvidence: droppedUngrounded + droppedMalformed,
-      stoppedByBudget: stats.stoppedByBudget ?? false,
-    });
-    normalized.confidenceLevel = normalized.confidence;
-
     if (!normalized.summary) normalized.summary = normalized.answer;
     if (!normalized.answer) {
       normalized.answer = lastAssistantContent || 'Explorer did not return a final answer.';
       normalized.confidence = 'low';
+      normalized.confidenceLevel = 'low';
     }
 
     // Trust summary — a natural-language sentence the parent model can rely on
@@ -1241,6 +1163,7 @@ export class ExplorerRuntime {
     // Update session with this call's result
     if (sessionStore && sessionId) {
       sessionStore.update(sessionId, normalized);
+      syncRemainingCallsStat(stats, sessionStore, sessionId);
     }
 
     return normalized;
@@ -1337,15 +1260,25 @@ export class ExplorerRuntime {
         onProgress({ progress: turnIndex, total: budgetConfig.maxTurns, message: `Turn ${turnIndex + 1}/${budgetConfig.maxTurns}` });
       }
 
-      const completion = await chatClient.createChatCompletion({
-        messages,
-        tools,
-        reasoningEffort,
-        temperature,
-        topP,
-        maxCompletionTokens: budgetConfig.maxCompletionTokens,
-        parallelToolCalls: true,
-      });
+      let completion;
+      try {
+        completion = await chatClient.createChatCompletion({
+          messages,
+          tools,
+          reasoningEffort,
+          temperature,
+          topP,
+          maxCompletionTokens: budgetConfig.maxCompletionTokens,
+          parallelToolCalls: true,
+          signal: abortSignal,
+        });
+      } catch (error) {
+        if (abortSignal?.aborted && isAbortError(error)) {
+          stats.stoppedByAbort = true;
+          break;
+        }
+        throw error;
+      }
 
       Object.assign(stats, summarizeUsage(stats, completion.usage));
 
@@ -1406,25 +1339,39 @@ export class ExplorerRuntime {
     // Finalize when: budget exhausted (regardless of interim report), report empty, or "None" quirk
     const budgetExhausted = stats.turns >= budgetConfig.maxTurns;
     const reportIsEmpty = !report || report.trim() === '' || report.trim().toLowerCase() === 'none';
-    if (budgetExhausted || reportIsEmpty) {
+    if (stats.stoppedByAbort) {
+      report = buildCancelledReport(report);
+    } else if (budgetExhausted || reportIsEmpty) {
       stats.stoppedByBudget = budgetExhausted;
-      const finalized = await chatClient.createChatCompletion({
-        messages: [
-          ...messages,
-          { role: 'user', content: buildFreeExploreFinalizePrompt() },
-        ],
-        reasoningEffort,
-        temperature,
-        topP,
-        maxCompletionTokens: budgetConfig.finalizeMaxCompletionTokens ?? 2000,
-        parallelToolCalls: false,
-      });
-      Object.assign(stats, summarizeUsage(stats, finalized.usage));
-      report = finalized.message.content || 'Explorer could not produce a report.';
+      try {
+        const finalized = await chatClient.createChatCompletion({
+          messages: [
+            ...messages,
+            { role: 'user', content: buildFreeExploreFinalizePrompt() },
+          ],
+          reasoningEffort,
+          temperature,
+          topP,
+          maxCompletionTokens: budgetConfig.finalizeMaxCompletionTokens ?? 2000,
+          parallelToolCalls: false,
+          signal: abortSignal,
+        });
+        Object.assign(stats, summarizeUsage(stats, finalized.usage));
+        report = finalized.message.content || 'Explorer could not produce a report.';
+      } catch (error) {
+        if (abortSignal?.aborted && isAbortError(error)) {
+          stats.stoppedByAbort = true;
+          report = buildCancelledReport(report);
+        } else {
+          throw error;
+        }
+      }
     }
 
     stats.elapsedMs = nowMs() - startedAt;
     Object.assign(stats, globalRepoCache.stats());
+    const reportFilesRead = [...filesRead];
+    const critic = buildReportCritic({ report, filesRead: reportFilesRead, stats });
 
     // Update session with report summary (mode-neutral)
     if (sessionStore && sessionId) {
@@ -1435,13 +1382,15 @@ export class ExplorerRuntime {
         summary: summaryLine,
         followups: [],
       });
+      syncRemainingCallsStat(stats, sessionStore, sessionId);
     }
 
     return {
       report,
-      filesRead: [...filesRead],
+      filesRead: reportFilesRead,
       toolsUsed: [...toolsUsed],
       stats,
+      critic,
     };
   }
 
@@ -1580,14 +1529,21 @@ export class ExplorerRuntime {
         } else {
           try {
             const compactResult = await compactWithLlmSummary(
-              chatClient, messages, compactionThreshold, { reasoningEffort },
+              chatClient,
+              messages,
+              compactionThreshold,
+              { reasoningEffort, abortSignal },
             );
             if (compactResult.didCompact) {
               messages = compactResult.messages;
               stats.llmCompactions += 1;
-              Object.assign(stats, summarizeUsage(stats, { total_tokens: compactResult.summaryTokens }));
+              Object.assign(stats, summarizeUsage(stats, compactResult.usage));
             }
-          } catch {
+          } catch (error) {
+            if (abortSignal?.aborted && isAbortError(error)) {
+              stats.stoppedByAbort = true;
+              break;
+            }
             // Compaction failed — fall back to simple truncation
             messages = compactOldToolResults(messages, budgetConfig.maxContextTokens);
           }
@@ -1614,15 +1570,25 @@ export class ExplorerRuntime {
         });
       }
 
-      const completion = await chatClient.createChatCompletion({
-        messages,
-        tools,
-        reasoningEffort,
-        temperature,
-        topP,
-        maxCompletionTokens: budgetConfig.maxCompletionTokens,
-        parallelToolCalls: true,
-      });
+      let completion;
+      try {
+        completion = await chatClient.createChatCompletion({
+          messages,
+          tools,
+          reasoningEffort,
+          temperature,
+          topP,
+          maxCompletionTokens: budgetConfig.maxCompletionTokens,
+          parallelToolCalls: true,
+          signal: abortSignal,
+        });
+      } catch (error) {
+        if (abortSignal?.aborted && isAbortError(error)) {
+          stats.stoppedByAbort = true;
+          break;
+        }
+        throw error;
+      }
 
       Object.assign(stats, summarizeUsage(stats, completion.usage));
 
@@ -1745,7 +1711,9 @@ export class ExplorerRuntime {
     const budgetExhausted = stats.turns >= budgetConfig.maxTurns;
     const reportIsEmpty = !report || report.trim() === '' || report.trim().toLowerCase() === 'none';
 
-    if (budgetExhausted || reportIsEmpty) {
+    if (stats.stoppedByAbort) {
+      report = buildCancelledReport(report);
+    } else if (budgetExhausted || reportIsEmpty) {
       stats.stoppedByBudget = budgetExhausted;
 
       if (onProgress) {
@@ -1762,19 +1730,33 @@ export class ExplorerRuntime {
         { role: 'user', content: buildFreeExploreV2FinalizePrompt() },
       ];
 
-      const finalized = await chatClient.createChatCompletion({
-        messages: finalizeMessages,
-        reasoningEffort,
-        temperature,
-        topP,
-        maxCompletionTokens: budgetConfig.finalizeMaxCompletionTokens ?? 3000,
-        parallelToolCalls: false,
-      });
-      Object.assign(stats, summarizeUsage(stats, finalized.usage));
-      report = finalized.message.content || '';
+      let finalized;
+      try {
+        finalized = await chatClient.createChatCompletion({
+          messages: finalizeMessages,
+          reasoningEffort,
+          temperature,
+          topP,
+          maxCompletionTokens: budgetConfig.finalizeMaxCompletionTokens ?? 3000,
+          parallelToolCalls: false,
+          signal: abortSignal,
+        });
+      } catch (error) {
+        if (abortSignal?.aborted && isAbortError(error)) {
+          stats.stoppedByAbort = true;
+          report = buildCancelledReport(report);
+          finalized = null;
+        } else {
+          throw error;
+        }
+      }
+      if (finalized) {
+        Object.assign(stats, summarizeUsage(stats, finalized.usage));
+        report = finalized.message.content || '';
+      }
 
       // Max output recovery: if output was cut short, ask to continue
-      if (finalized.finishReason === 'length' && report.length > 0) {
+      if (finalized?.finishReason === 'length' && report.length > 0) {
         let recoveryMessages = [
           ...finalizeMessages,
           { role: 'assistant', content: report },
@@ -1798,14 +1780,25 @@ export class ExplorerRuntime {
             content: buildOutputContinuationPrompt(),
           });
 
-          const continuation = await chatClient.createChatCompletion({
-            messages: recoveryMessages,
-            reasoningEffort,
-            temperature,
-            topP,
-            maxCompletionTokens: budgetConfig.finalizeMaxCompletionTokens ?? 3000,
-            parallelToolCalls: false,
-          });
+          let continuation;
+          try {
+            continuation = await chatClient.createChatCompletion({
+              messages: recoveryMessages,
+              reasoningEffort,
+              temperature,
+              topP,
+              maxCompletionTokens: budgetConfig.finalizeMaxCompletionTokens ?? 3000,
+              parallelToolCalls: false,
+              signal: abortSignal,
+            });
+          } catch (error) {
+            if (abortSignal?.aborted && isAbortError(error)) {
+              stats.stoppedByAbort = true;
+              report = buildCancelledReport(report);
+              break;
+            }
+            throw error;
+          }
           Object.assign(stats, summarizeUsage(stats, continuation.usage));
 
           const continuedText = continuation.message.content || '';
@@ -1833,6 +1826,8 @@ export class ExplorerRuntime {
 
     stats.elapsedMs = nowMs() - startedAt;
     Object.assign(stats, globalRepoCache.stats());
+    const reportFilesRead = [...filesRead];
+    const critic = buildReportCritic({ report, filesRead: reportFilesRead, stats });
 
     // Finalize transcript
     await transcript.finalize(stats);
@@ -1846,18 +1841,20 @@ export class ExplorerRuntime {
         summary: summaryLine,
         followups: [],
       });
+      syncRemainingCallsStat(stats, sessionStore, sessionId);
     }
 
     return {
       report,
-      filesRead: [...filesRead],
+      filesRead: reportFilesRead,
       toolsUsed: [...toolsUsed],
       stats,
+      critic,
       transcriptPath: transcript.filePath,
     };
   }
 
-  async finalizeAfterToolLoop({ chatClient, messages, reasoningEffort, temperature, topP, budgetConfig }) {
+  async finalizeAfterToolLoop({ chatClient, messages, reasoningEffort, temperature, topP, budgetConfig, abortSignal = null }) {
     const maxCompletionTokens = budgetConfig?.finalizeMaxCompletionTokens ?? 2000;
     const completion = await chatClient.createChatCompletion({
       messages: [
@@ -1873,6 +1870,7 @@ export class ExplorerRuntime {
       topP,
       maxCompletionTokens,
       parallelToolCalls: false,
+      signal: abortSignal,
     });
 
     // 1) Primary: clean JSON parse
@@ -1902,6 +1900,7 @@ export class ExplorerRuntime {
         topP: 1,
         maxCompletionTokens: Math.min(1000, maxCompletionTokens),
         parallelToolCalls: false,
+        signal: abortSignal,
         // Explicitly omit tools to prevent the model from requesting more tool calls
       });
       const repaired = extractFirstJsonObject(repair.message.content) ?? tryLooseRepair(repair.message.content);

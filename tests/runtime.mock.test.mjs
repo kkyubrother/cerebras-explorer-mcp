@@ -463,6 +463,14 @@ test('Phase 1 — freeExploreV2 compaction preserves complete turns and valid to
 
   assert.match(result.report, /Compaction kept valid turn boundaries/);
   assert.ok(result.stats.llmCompactions >= 1, 'LLM compaction must have occurred');
+  assert.equal(result.stats.inputTokens, 215, 'compaction usage must retain prompt token accounting');
+  assert.equal(result.stats.outputTokens, 80, 'compaction usage must retain completion token accounting');
+  assert.equal(result.stats.totalTokens, 295, 'compaction usage must retain total token accounting');
+  assert.equal(
+    result.stats.inputTokens + result.stats.outputTokens,
+    result.stats.totalTokens,
+    'inputTokens + outputTokens must equal totalTokens when compaction usage is counted normally',
+  );
 });
 
 test('ExplorerRuntime accepts legacy string followups and normalizes them', async () => {
@@ -703,6 +711,43 @@ test('ExplorerRuntime returns sessionId in stats when sessionStore is provided',
   const session = sessionStore.get(result.stats.sessionId);
   assert.ok(session, 'session must exist in the store');
   assert.ok(session.candidatePaths.includes('src/auth.js'), 'candidatePaths must be accumulated');
+});
+
+test('ExplorerRuntime reports remainingCalls after the current session call is consumed', async () => {
+  class SimpleClient {
+    constructor() { this.model = 'mock'; }
+    async createChatCompletion() {
+      return {
+        usage: { prompt_tokens: 30, completion_tokens: 10, total_tokens: 40 },
+        message: {
+          content: JSON.stringify({
+            answer: '세션 테스트', summary: '요약', confidence: 'low',
+            evidence: [], candidatePaths: ['src/auth.js'], followups: [],
+          }),
+          toolCalls: [],
+        },
+      };
+    }
+  }
+
+  const root = await makeRepoFixture();
+  const { SessionStore } = await import('../src/explorer/session.mjs');
+  const sessionStore = new SessionStore({ maxCalls: 5 });
+  const runtime = new ExplorerRuntime({ chatClient: new SimpleClient() });
+
+  const first = await runtime.explore(
+    { task: '첫 번째 세션 호출', repo_root: root },
+    { sessionStore },
+  );
+  assert.equal(first.stats.remainingCalls, 4, 'new session stats must report remaining calls after this call completes');
+  assert.equal(sessionStore.getRemainingCalls(first.stats.sessionId), 4, 'session store and runtime stats must agree after first call');
+
+  const second = await runtime.explore(
+    { task: '두 번째 세션 호출', repo_root: root, session: first.stats.sessionId },
+    { sessionStore },
+  );
+  assert.equal(second.stats.remainingCalls, 3, 'reused session stats must decrement after the current call completes');
+  assert.equal(sessionStore.getRemainingCalls(second.stats.sessionId), 3, 'session store and runtime stats must agree after second call');
 });
 
 test('ExplorerRuntime injects previous session context into next call', async () => {
@@ -1341,6 +1386,9 @@ test('Phase 4 — critic-lite: confidence=high with only 1 evidence item is reco
   // reconcileConfidence: lowerOf('high', 'medium') = 'medium'
   assert.ok(['low', 'medium'].includes(result.confidence),
     `confidence=high with 1 evidence item should be reconciled down, got ${result.confidence}`);
+  assert.equal(result.critic.status, 'caution');
+  assert.ok(result.critic.warnings.some(w => w.type === 'confidence_downgraded'));
+  assert.ok(result.critic.warnings.every(w => w.message && w.action));
 });
 
 test('Phase 4 — freeExploreV2 respects turn multiplier override', async () => {
@@ -2141,4 +2189,51 @@ test('Phase 10 — runtime downgrades model high confidence to computed medium w
   // The model claimed "high" but with only 1 exact item from 1 file, it must not be "high"
   assert.notEqual(result.confidence, 'high',
     'runtime must downgrade model-claimed high to medium/low when evidence is weak (single file, no search)');
+});
+
+test('ExplorerRuntime forwards abortSignal into chat client requests', async () => {
+  const seenSignals = [];
+
+  class SignalCaptureClient {
+    constructor() {
+      this.model = 'zai-glm-4.7';
+      this.calls = 0;
+    }
+
+    async createChatCompletion(request) {
+      this.calls += 1;
+      seenSignals.push(request.signal);
+      return {
+        usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+        message: {
+          content: JSON.stringify({
+            answer: 'ok',
+            summary: 'signal forwarded',
+            confidence: 'low',
+            evidence: [],
+            candidatePaths: [],
+            followups: [],
+          }),
+          toolCalls: [],
+        },
+      };
+    }
+  }
+
+  const repoRoot = await makeRepoFixture();
+  const controller = new AbortController();
+  const runtime = new ExplorerRuntime({ chatClient: new SignalCaptureClient() });
+
+  const result = await runtime.explore(
+    {
+      task: '인증 구조를 요약해라.',
+      repo_root: repoRoot,
+      budget: 'quick',
+    },
+    { abortSignal: controller.signal },
+  );
+
+  assert.equal(result.summary, 'signal forwarded');
+  assert.ok(seenSignals.length >= 2, 'explore + finalize calls should both receive the signal');
+  assert.ok(seenSignals.every(signal => signal === controller.signal), 'abortSignal must be forwarded unchanged');
 });

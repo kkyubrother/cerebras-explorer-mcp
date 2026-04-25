@@ -41,6 +41,10 @@
     }
   ],
   "candidatePaths": ["src/routes/user.js", "src/auth.js", "docs/auth.md"],
+  "critic": {
+    "status": "pass",
+    "warnings": []
+  },
   "followups": [
     {
       "description": "role-based access control 레이어 추가 분석",

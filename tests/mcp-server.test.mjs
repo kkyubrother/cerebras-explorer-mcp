@@ -233,3 +233,92 @@ test('MCP request handler returns execution failures for explore_repo without mi
   assert.doesNotMatch(called.content[0].text, /Invalid explore_repo arguments/);
   assert.doesNotMatch(called.content[0].text, /Invalid arguments for explore_repo/);
 });
+
+test('MCP request handler returns execution failures for other exposed tools as MCP errors', async () => {
+  class ThrowingChatClient {
+    constructor() {
+      this.model = 'zai-glm-4.7';
+    }
+
+    async createChatCompletion() {
+      throw new Error('provider exploded');
+    }
+  }
+
+  const repoRoot = await makeRepoFixture();
+  const { handleRequest } = createMcpRequestHandler({
+    runtimeOptions: {
+      chatClient: new ThrowingChatClient(),
+    },
+  });
+
+  const cases = [
+    {
+      name: 'explore',
+      arguments: { prompt: '런타임 실패를 재현해라.', repo_root: repoRoot, thoroughness: 'quick' },
+    },
+    {
+      name: 'explore_v2',
+      arguments: { prompt: 'V2 런타임 실패를 재현해라.', repo_root: repoRoot, thoroughness: 'quick' },
+    },
+    {
+      name: 'explain_symbol',
+      arguments: { symbol: 'requireAuth', repo_root: repoRoot },
+    },
+  ];
+
+  for (const [index, testCase] of cases.entries()) {
+    const called = await handleRequest({
+      jsonrpc: '2.0',
+      id: 100 + index,
+      method: 'tools/call',
+      params: testCase,
+    });
+
+    assert.equal(called.isError, true, `${testCase.name} must return an MCP tool error`);
+    assert.match(called.content[0].text, new RegExp(`${testCase.name} execution failed`, 'i'));
+    assert.match(called.content[0].text, /provider exploded/);
+    assert.doesNotMatch(called.content[0].text, /Invalid arguments for/);
+  }
+});
+
+test('MCP request handler sends progress notifications when progressToken is 0', async () => {
+  const repoRoot = await makeRepoFixture();
+  const notifications = [];
+  const { handleRequest } = createMcpRequestHandler({
+    runtimeOptions: {
+      chatClient: new MockChatClient(),
+    },
+    sendNotification: (method, params) => {
+      notifications.push({ method, params });
+    },
+  });
+
+  await handleRequest({
+    jsonrpc: '2.0',
+    id: 200,
+    method: 'tools/call',
+    params: {
+      name: 'explore_repo',
+      arguments: {
+        task: 'users/me 라우트에 인증 미들웨어가 어떻게 붙는지 추적해라.',
+        repo_root: repoRoot,
+        scope: ['src/**'],
+        budget: 'quick',
+      },
+      _meta: {
+        progressToken: 0,
+      },
+    },
+  });
+
+  assert.ok(notifications.length > 0, 'progress notifications must be emitted for progressToken=0');
+  assert.ok(
+    notifications.every(notification => notification.method === 'notifications/progress'),
+    'all emitted notifications must be progress notifications',
+  );
+  assert.ok(
+    notifications.every(notification => notification.params.progressToken === 0),
+    'progressToken=0 must be preserved in emitted notifications',
+  );
+});

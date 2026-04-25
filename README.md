@@ -4,7 +4,9 @@
 
 환경 변수로 선택한 Cerebras 모델을 사용하는, 읽기 전용 자율 코드 탐색 MCP 서버입니다.
 
-핵심 목적은 **Claude Code / Codex 같은 메인 모델이 직접 `Read`/`Grep`/`Glob`를 여러 번 돌리지 않게 하고**, 상위 모델은 `explore_repo(...)`, `explore(...)`, 또는 `explore_v2(...)` 한 번만 위임한 뒤 구조화된 결과나 사람이 읽기 좋은 보고서만 받도록 만드는 것입니다.
+Cerebras Explorer는 상위 AI가 정확한 판단을 내릴 수 있도록, 필요한 코드 근거를 빠르게 수집하고 압축해 전달하는 경량 MCP 탐색기입니다. 저장소를 직접 탐색해 파일·라인 근거를 확보하고, 상위 AI가 적은 컨텍스트로 코드 구조와 변경 영향을 이해할 수 있는 형태로 결과를 반환합니다.
+
+핵심 목적은 **Claude Code / Codex 같은 상위 AI가 반복적인 파일 탐색에 컨텍스트를 쓰지 않고**, `explore_repo(...)`, `explore(...)`, 또는 `explore_v2(...)` 호출로 검증된 코드 근거와 요약 결과를 받도록 만드는 것입니다.
 
 ## 설치 한 줄 (GitHub)
 
@@ -115,7 +117,7 @@ Parent model (Claude Code / Codex)
 - **GLM 4.7 reasoning 정렬**: quick budget은 `reasoning_effort="none"`으로 reasoning을 끄고, normal/deep은 기본 reasoning을 유지하며 `clear_thinking=false`로 이전 turn의 reasoning을 보존
 - **샘플링 기본값 정렬**: budget별 temperature(`quick`: 0.3, `normal`: 0.8, `deep`: 1.0)와 `top_p=0.95`를 사용하며, direct client 경로에는 fallback 환경 변수도 지원
 - **근거 강제**: 최종 evidence는 실제로 읽거나 grep으로 확인한 라인 범위에만 남김
-- **MCP 친화적 반환**: `answer`, `summary`, `confidence`, `evidence`, `candidatePaths`, `followups`, `stats`에 더해 `confidenceScore`, `confidenceFactors`, `codeMap`, `diagram`, `recentActivity` 지원
+- **MCP 친화적 반환**: `answer`, `summary`, `confidence`, `evidence`, `candidatePaths`, `followups`, `stats`에 더해 `confidenceScore`, `confidenceFactors`, `critic`, `codeMap`, `diagram`, `recentActivity` 지원
 
 ## 공개 MCP 도구
 
@@ -324,6 +326,12 @@ cerebras-explorer-mcp/
 ## 빠른 실행
 
 **요구사항**: Node.js 22 이상
+
+프로젝트 제약:
+
+- zero dependencies 원칙을 유지합니다. 현재 npm runtime/dev dependencies 없이 Node 표준 라이브러리만 사용합니다.
+- read-only 원칙을 유지합니다. 저장소 탐색 도구는 파일을 수정하지 않습니다.
+- `explore_repo` 입출력 스키마는 기존 클라이언트를 깨지 않는 additive change 중심으로 확장합니다.
 
 ### 1) 환경 변수
 
@@ -577,7 +585,7 @@ node ./scripts/run-benchmark.mjs \
 - 최종 품질은 저장소 구조와 질문 품질에 영향을 받습니다.
 - 심볼 인덱싱은 regex 기반이며, LSP/tree-sitter 수준의 정밀한 semantic 분석은 아직 없습니다.
 - `repo_symbol_context.depth > 1`은 현재 `effectiveDepth = 1`로 고정됩니다 (직접 호출자만 반환). 의도적 설계 결정이며, 반환값에 `effectiveDepth: 1` 필드가 포함되어 실제 동작을 명시합니다. 더 깊은 호출 체인이 필요하면 `explore_repo`의 `reference-chase` 전략을 사용하세요.
-- `repo_grep.includeSymbol`, `find_similar_code.similarity` 같은 정밀 기능은 Phase 2/3에서 구현 예정입니다.
+- `find_similar_code`는 수치형 similarity score를 제공하지 않습니다. 자연어 추론 기반으로 유사 패턴과 근거를 설명합니다.
 
 참고:
 - 코드베이스 안에는 provider abstraction 관련 구현이 일부 존재하지만, 이 프로젝트의 문서화된 목표와 공개 인터페이스는 Cerebras 기반 explorer에 맞춰져 있습니다.
@@ -588,6 +596,6 @@ node ./scripts/run-benchmark.mjs \
 - `find_entrypoints`
 - repo-specific ignore 정책
 - tree-sitter 기반 심볼 정밀도 향상
-- `find_similar_code` 구조화 유사도 점수
+- `find_similar_code`의 deterministic similarity score RFC
 
 상세 설계 근거는 [DESIGN.md](./DESIGN.md)에 정리해 두었습니다.

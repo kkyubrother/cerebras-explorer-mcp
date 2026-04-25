@@ -285,7 +285,7 @@ export function createMcpRequestHandler({
    * `progressToken` is present and `sendNotification` is wired up.
    */
   function makeProgressCallback(progressToken) {
-    if (!progressToken || !sendNotification) return null;
+    if ((progressToken === null || progressToken === undefined) || !sendNotification) return null;
     return ({ progress, total, message }) => {
       try {
         sendNotification('notifications/progress', { progressToken, progress, total, message });
@@ -436,8 +436,15 @@ export function createMcpRequestHandler({
         const args = message.params?.arguments ?? {};
         const progressToken = message.params?._meta?.progressToken ?? null;
         const requestId = message.id ?? null;
+        const exposedToolNames = new Set(buildToolList().map(tool => tool.name));
 
         try {
+          if (!exposedToolNames.has(name)) {
+            const error = new Error(`Unknown tool: ${name}`);
+            error.code = -32601;
+            throw error;
+          }
+
           if (name === 'explore_repo') {
             validateExploreRepoArgs(args);
             return await callTool(args, progressToken, requestId);
@@ -461,8 +468,11 @@ export function createMcpRequestHandler({
             return await callFreeExploreV2Tool(args, progressToken, requestId);
           }
 
-          const error = new Error(`Unknown tool: ${name}`);
-          error.code = -32601;
+          // Unreachable: all exposed tool names are handled above.
+          // If a new tool is added to buildToolList() but not dispatched here,
+          // this safeguard surfaces the oversight as an error.
+          const error = new Error(`Tool "${name}" is listed but has no handler.`);
+          error.code = -32603;
           throw error;
         } catch (error) {
           if (error.repoRootError) {
@@ -477,10 +487,10 @@ export function createMcpRequestHandler({
               content: [{ type: 'text', text: `Invalid arguments for ${name}: ${error.message}` }],
             };
           }
-          if (name === 'explore_repo') {
+          if (exposedToolNames.has(name)) {
             return {
               isError: true,
-              content: [{ type: 'text', text: `explore_repo execution failed: ${error.message}` }],
+              content: [{ type: 'text', text: `${name} execution failed: ${error.message}` }],
             };
           }
           throw error;

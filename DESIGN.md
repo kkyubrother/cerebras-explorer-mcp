@@ -15,6 +15,15 @@
 
 ---
 
+## 1.1 설계 제약
+
+- zero dependencies 원칙을 유지한다. Node 표준 라이브러리를 우선하고, 새 패키지는 명확한 필요가 있을 때만 별도 결정한다.
+- Node.js 22 이상을 기준 런타임으로 유지한다.
+- read-only 원칙을 유지한다. explorer와 내부 repo tools는 저장소 파일을 수정하지 않는다.
+- `explore_repo` 입출력 스키마는 기존 클라이언트를 깨지 않는 additive change 중심으로 확장한다.
+
+---
+
 ## 2. 입력 근거
 
 ### 2.1 Claude Code 소스에서 가져온 방향
@@ -215,8 +224,9 @@ GLM 4.7 마이그레이션 기준으로 explorer runtime은 다음 원칙을 따
 #### 세션 계약
 
 - 세션은 `stats.sessionId`로 반환되며, 다음 호출에서 `session` 파라미터로 전달하면 재사용된다.
-- 명시적으로 요청된 세션이 invalid/expired/exhausted/repo_mismatch인 경우, silent fallback 없이 에러를 반환한다.
-- `stats.sessionStatus`가 `created` 또는 `reused`를 표시하고, `stats.remainingCalls`가 남은 호출 수를 표시한다.
+- 명시적으로 요청된 세션이 invalid 또는 repo_mismatch인 경우 에러를 반환한다.
+- 명시적으로 요청된 세션이 expired 또는 exhausted인 경우 새 세션으로 fallback하고, `stats.sessionStatus`에 `fallback`을 표시한다.
+- `stats.sessionStatus`가 `created`, `reused`, `fallback` 중 하나를 표시하고, `stats.remainingCalls`가 남은 호출 수를 표시한다.
 - `find_similar_code`는 수치형 similarity score를 제공하지 않는다 — 자연어 추론 기반이다.
 
 ---
@@ -343,6 +353,18 @@ GLM 4.7 마이그레이션 기준으로 explorer runtime은 다음 원칙을 따
     }
   ],
   "candidatePaths": ["relative/path"],
+  "critic": {
+    "status": "pass|caution|fail",
+    "warnings": [
+      {
+        "type": "dropped_evidence|partial_evidence|confidence_downgraded|budget_exhausted|tool_errors",
+        "severity": "low|medium|high",
+        "message": "short reason",
+        "target": "optional file/range or field",
+        "action": "how the parent AI should treat this result"
+      }
+    ]
+  },
   "followups": [
     {
       "description": "optional next check",
@@ -383,7 +405,7 @@ GLM 4.7 마이그레이션 기준으로 explorer runtime은 다음 원칙을 따
     "turns": 0,
     "toolCalls": 0,
     "sessionId": "sess_...",
-    "sessionStatus": "created|reused",
+    "sessionStatus": "created|reused|fallback",
     "remainingCalls": 5
   }
 }
@@ -418,7 +440,65 @@ GLM 4.7 마이그레이션 기준으로 explorer runtime은 다음 원칙을 따
 
 ---
 
-## 11. 경계 강화 정책
+## 11. deterministic critic pass
+
+Cerebras Explorer의 제품 목표는 상위 AI가 정확한 판단을 내릴 수 있도록 필요한 코드 근거를 빠르게 수집하고, 적은 컨텍스트로 전달하는 것이다. 따라서 최종 답변을 그대로 통과시키는 것보다, 런타임이 이미 관측한 근거와 통계로 한 번 더 판정해 상위 AI가 어떤 부분을 신뢰하거나 조심해야 하는지 알려주는 critic pass가 필요하다.
+
+### 11.1 왜 필요한가
+
+- 모델이 `confidence: high`를 반환해도 실제 근거가 하나뿐이거나 일부 근거가 관측 범위 밖이면 상위 AI는 그 차이를 알아야 한다.
+- 단순히 warning 개수만 반환하면 상위 AI가 답변 전체를 불신하고 다시 파일을 읽을 가능성이 커진다.
+- warning에는 사유와 행동 지침이 있어야 한다. 예를 들어 “grep-only partial evidence이므로 해당 range는 약한 근거로 취급”처럼 범위를 좁혀 알려주면 추가 탐색을 줄일 수 있다.
+- LLM critic을 기본값으로 두면 추가 모델 호출, 편향, false positive 위험이 생긴다. 첫 구현은 런타임 관측값을 사용하는 deterministic critic으로 둔다.
+
+### 11.2 현재 형태로 좁혀진 과정
+
+초기 아이디어는 별도 critic 모델이 최종 답변을 다시 검토하는 방식이었다. 그러나 이 프로젝트의 철학은 빠른 탐색과 낮은 컨텍스트 비용이므로, 기본 critic이 다시 전체 transcript를 읽거나 두 번째 보고서를 작성하는 방식은 맞지 않는다.
+
+현재 런타임에는 이미 다음 재료가 있다.
+
+- 실제 읽거나 grep/git 도구로 관측한 라인 범위
+- git log/blame/show에서 관측한 commit hash
+- grounded evidence 필터링 결과
+- confidence score와 confidence reconciliation
+- budget/error stop 여부
+
+따라서 critic pass는 이 재료를 순수 함수로 평가하는 post-processing layer로 구현한다. `EXPLORE_RESULT_JSON_SCHEMA`는 모델이 생성해야 하는 최소 출력 계약으로 유지하고, critic은 런타임 enrichment로 추가한다.
+
+### 11.3 최종 형태
+
+기본 반환은 compact해야 한다.
+
+```json
+{
+  "critic": {
+    "status": "pass|caution|fail",
+    "warnings": [
+      {
+        "type": "partial_evidence",
+        "severity": "low",
+        "message": "1 evidence item is grounded only by grep or nearby line observations.",
+        "target": "src/auth.js:12-18",
+        "action": "Treat this specific evidence item as weaker than an exact file read."
+      }
+    ]
+  }
+}
+```
+
+규칙:
+
+- 정상 결과는 `status: "pass", warnings: []`로 작게 유지한다.
+- warning은 기본 최대 3개만 반환한다.
+- 각 warning은 `type`, `severity`, 짧은 `message`, 선택적 `target`, `action`을 포함한다.
+- critic은 answer를 재작성하지 않는다. 대신 `confidence`, `trustSummary`, `critic.warnings`로 상위 AI의 판단을 돕는다.
+- 상세 진단과 전체 evidence manifest는 기본 반환하지 않는다.
+
+`explore_repo`는 구조화 evidence가 있으므로 strongest critic을 적용한다. `explore`와 `explore_v2`는 Markdown report이므로 citation 존재 여부, cited path와 `filesRead`의 관계, budget/truncation/output recovery 같은 가벼운 report critic을 별도로 적용한다.
+
+---
+
+## 12. 경계 강화 정책
 
 초기 `scope`는 advisory가 아니라 **hard boundary**로 취급한다.
 
@@ -432,7 +512,7 @@ GLM 4.7 마이그레이션 기준으로 explorer runtime은 다음 원칙을 따
 
 ---
 
-## 11. budget 정책
+## 13. budget 정책
 
 ### `quick`
 
@@ -453,7 +533,7 @@ GLM 4.7 마이그레이션 기준으로 explorer runtime은 다음 원칙을 따
 
 ---
 
-## 12. Claude Code 통합 방식
+## 14. Claude Code 통합 방식
 
 Claude Code에서는 두 층으로 붙인다.
 
@@ -470,7 +550,7 @@ Claude는 `explore_repo`를 하나의 외부 고수준 도구로 본다.
 
 ---
 
-## 13. Codex 통합 방식
+## 15. Codex 통합 방식
 
 Codex도 동일하다.
 
@@ -482,7 +562,7 @@ Codex도 동일하다.
 
 ---
 
-## 14. 구현 범위
+## 16. 구현 범위
 
 ### 포함
 
@@ -507,7 +587,7 @@ Codex도 동일하다.
 
 ---
 
-## 15. 추후 확장
+## 17. 추후 확장
 
 ### Phase 2
 
@@ -581,7 +661,7 @@ Claude Code 소스 분석에서 도출된 아키텍처 개선 항목들.
 
 ---
 
-## 16. 한 줄 결론
+## 18. 한 줄 결론
 
 이 설계의 핵심은 다음 문장으로 요약된다.
 
