@@ -1,8 +1,66 @@
 # cerebras-explorer-mcp
 
+> **Unofficial.** Cerebras Systems, Inc.와 무관한 커뮤니티 프로젝트입니다. "Cerebras"는 이 서버가 Cerebras Inference API를 호출한다는 사실을 표기할 목적으로만 사용됩니다.
+
 환경 변수로 선택한 Cerebras 모델을 사용하는, 읽기 전용 자율 코드 탐색 MCP 서버입니다.
 
 핵심 목적은 **Claude Code / Codex 같은 메인 모델이 직접 `Read`/`Grep`/`Glob`를 여러 번 돌리지 않게 하고**, 상위 모델은 `explore_repo(...)`, `explore(...)`, 또는 `explore_v2(...)` 한 번만 위임한 뒤 구조화된 결과나 사람이 읽기 좋은 보고서만 받도록 만드는 것입니다.
+
+## 설치 한 줄 (GitHub)
+
+GitHub 저장소에서 바로 가져오는 방식이라 npm publish 없이도 어떤 PC에서든 절대경로 없이 등록할 수 있습니다. `npx`가 GitHub tarball을 받아 캐시한 뒤 패키지의 `bin`을 실행하므로, **공통 명령은 `npx -y github:kkyubrother/cerebras-explorer-mcp`** 한 줄입니다.
+
+### Claude Code
+
+```bash
+# 전역 등록 (모든 프로젝트)
+claude mcp add -s user cerebras-explorer \
+  -e CEREBRAS_API_KEY="$CEREBRAS_API_KEY" \
+  -- npx -y github:kkyubrother/cerebras-explorer-mcp
+
+# 현재 프로젝트만
+claude mcp add cerebras-explorer \
+  -e CEREBRAS_API_KEY="$CEREBRAS_API_KEY" \
+  -- npx -y github:kkyubrother/cerebras-explorer-mcp
+```
+
+### Codex CLI (`~/.codex/config.toml`)
+
+```toml
+[mcp_servers.cerebras-explorer]
+command = "npx"
+args = ["-y", "github:kkyubrother/cerebras-explorer-mcp"]
+
+[mcp_servers.cerebras-explorer.env]
+CEREBRAS_API_KEY = "${CEREBRAS_API_KEY}"
+```
+
+### OpenCode (`opencode.json`)
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "cerebras-explorer": {
+      "type": "local",
+      "command": ["npx", "-y", "github:kkyubrother/cerebras-explorer-mcp"],
+      "environment": { "CEREBRAS_API_KEY": "${CEREBRAS_API_KEY}" }
+    }
+  }
+}
+```
+
+### 버전 고정
+
+기본 브랜치 대신 tag/branch/commit으로 핀하면 다른 PC에서도 동일 버전을 보장할 수 있습니다.
+
+```bash
+npx -y github:kkyubrother/cerebras-explorer-mcp#v0.1.0
+npx -y github:kkyubrother/cerebras-explorer-mcp#main
+npx -y github:kkyubrother/cerebras-explorer-mcp#<commit-sha>
+```
+
+소스 체크아웃에서 직접 실행하거나 다른 클라이언트에 연결하려면 아래 [빠른 실행](#빠른-실행)·[Claude Code 연결 예시](#claude-code-연결-예시)·[Codex 연결 예시](#codex-연결-예시) 섹션을 참고하세요.
 
 ## 왜 이렇게 설계했나
 

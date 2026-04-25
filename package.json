@@ -1,16 +1,43 @@
 {
-  "name": "cerebras-explorer-mcp",
+  "name": "@kkyubrother/cerebras-explorer-mcp",
   "version": "0.1.0",
-  "private": true,
-  "type": "module",
   "description": "Read-only autonomous repository explorer MCP server backed by a configurable Cerebras model.",
-  "bin": {
-    "cerebras-explorer-mcp": "./src/index.mjs"
+  "type": "module",
+  "license": "MIT",
+  "author": "kkyubrother <kkyubrother@naver.com>",
+  "homepage": "https://github.com/kkyubrother/cerebras-explorer-mcp#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kkyubrother/cerebras-explorer-mcp.git"
   },
+  "bugs": {
+    "url": "https://github.com/kkyubrother/cerebras-explorer-mcp/issues"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "cerebras",
+    "code-exploration",
+    "repository-explorer",
+    "claude-code",
+    "codex",
+    "opencode",
+    "ai-tools"
+  ],
+  "bin": {
+    "cerebras-explorer-mcp": "src/index.mjs"
+  },
+  "files": [
+    "src/",
+    "README.md",
+    "LICENSE",
+    "DESIGN.md"
+  ],
   "scripts": {
     "start": "node ./src/index.mjs",
     "test": "node --test ./tests/*.test.mjs",
-    "benchmark": "node ./scripts/run-benchmark.mjs --suite ./benchmarks/core.json"
+    "benchmark": "node ./scripts/run-benchmark.mjs --suite ./benchmarks/core.json",
+    "prepublishOnly": "npm test"
   },
   "engines": {
     "node": ">=22.0.0"
