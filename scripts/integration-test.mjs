@@ -235,7 +235,7 @@ async function main() {
 
   console.log('Cerebras Explorer MCP — Integration Test');
   console.log(`Repo root: ${REPO_ROOT}`);
-  console.log(`API Key: ${process.env.CEREBRAS_API_KEY.slice(0, 8)}...`);
+  console.log('API Key: [present]');
   console.log(`Timestamp: ${new Date().toISOString()}`);
 
   const results = [];
