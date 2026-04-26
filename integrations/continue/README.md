@@ -20,7 +20,7 @@ mcpServers:
     command: npx
     args:
       - "-y"
-      - "github:kkyubrother/cerebras-explorer-mcp"
+      - "github:kkyubrother/cerebras-explorer-mcp#v0.1.0"
     env:
       CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
 ```

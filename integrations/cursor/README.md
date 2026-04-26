@@ -18,7 +18,7 @@
   "mcpServers": {
     "cerebras-explorer": {
       "command": "npx",
-      "args": ["-y", "github:kkyubrother/cerebras-explorer-mcp"],
+      "args": ["-y", "github:kkyubrother/cerebras-explorer-mcp#v0.1.0"],
       "env": {
         "CEREBRAS_API_KEY": "${CEREBRAS_API_KEY}"
       }

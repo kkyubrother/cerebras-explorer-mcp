@@ -3,7 +3,7 @@
   "mcp": {
     "cerebras-explorer": {
       "type": "local",
-      "command": ["npx", "-y", "github:kkyubrother/cerebras-explorer-mcp"],
+      "command": ["npx", "-y", "github:kkyubrother/cerebras-explorer-mcp#v0.1.0"],
       "enabled": true,
       "environment": {
         "CEREBRAS_API_KEY": "${CEREBRAS_API_KEY}"
