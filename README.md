@@ -603,6 +603,34 @@ node ./scripts/run-benchmark.mjs \
 
 즉, 모델이 문장을 조금 다르게 생성해도 핵심 사실과 근거가 맞으면 안정적으로 점수가 나옵니다.
 
+## 새 버전 릴리즈
+
+새 release를 끊을 때의 표준 절차입니다. tag 운영을 README와 `integrations/` 예시에 일관되게 반영해야, 다른 PC의 사용자가 자기 등록 spec의 tag 부분만 바꿔도 자동으로 새 버전이 받아집니다 (이유는 [설치 한 줄 (GitHub)](#설치-한-줄-github) 섹션의 인용 박스를 참고).
+
+1. 의미 있는 단위로 commit + push가 끝난 상태에서 시작합니다.
+2. 새 tag를 끊고 push:
+   ```bash
+   git tag v0.2.0
+   git push origin v0.2.0
+   ```
+3. 모든 클라이언트 설치 예시에 박혀 있는 이전 tag를 한 번에 치환:
+   ```bash
+   OLD=v0.1.0 NEW=v0.2.0
+   grep -rl "github:kkyubrother/cerebras-explorer-mcp#${OLD}" README.md integrations/ \
+     | xargs sed -i "s|cerebras-explorer-mcp#${OLD}|cerebras-explorer-mcp#${NEW}|g"
+   ```
+4. 변경 commit + push:
+   ```bash
+   git add README.md integrations/
+   git commit -m "docs: bump install spec to v0.2.0"
+   git push origin master
+   ```
+5. (선택) GitHub Releases에 release notes 작성 — `git log v0.1.0..v0.2.0 --oneline` 출력을 기반으로 사용자 영향이 있는 변경 위주로 정리.
+
+> **tag만 push하고 README/`integrations/` 안 바꾸면**, 새 사용자가 README를 보고 따라 등록할 때 여전히 이전 tag를 받게 됩니다. tag와 문서는 항상 같이 갱신해주세요. 위 sed 한 줄이 그 일을 자동화합니다.
+
+> **이미 등록된 사용자에게 새 버전을 알리는 방법**: 자동 알림 로직(예: `stats.updateAvailable`)은 아직 구현되지 않았습니다. 당분간은 release notes나 README 안내로 사용자가 자기 등록 spec의 tag 부분(`#v0.1.0` → `#v0.2.0`)을 직접 바꾸도록 유도하세요. ref가 바뀌면 npx가 자동으로 새 캐시 키를 만들어 받아옵니다.
+
 ## 현재 제한 사항
 
 - `.gitignore`는 루트 파일만 단순 반영합니다.
