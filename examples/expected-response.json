@@ -48,16 +48,7 @@
   "followups": [
     {
       "description": "role-based access control 레이어 추가 분석",
-      "priority": "optional",
-      "suggestedCall": {
-        "task": "RBAC 미들웨어가 있는지 조사해라",
-        "scope": ["src/**"],
-        "budget": "normal",
-        "hints": {
-          "symbols": ["requireAuth", "requireRole"],
-          "strategy": "reference-chase"
-        }
-      }
+      "priority": "optional"
     }
   ],
   "codeMap": {

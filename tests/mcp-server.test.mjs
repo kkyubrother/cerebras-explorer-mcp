@@ -143,6 +143,9 @@ test('MCP request handler exposes explore_repo and returns structuredContent', a
   assert.ok(toolNames.includes('trace_dependency'), 'trace_dependency must be in tool list');
   assert.ok(toolNames.includes('summarize_changes'), 'summarize_changes must be in tool list');
   assert.ok(toolNames.includes('find_similar_code'), 'find_similar_code must be in tool list');
+  const exploreRepoTool = listed.tools.find(t => t.name === 'explore_repo');
+  assert.match(exploreRepoTool.description, /Use FIRST/);
+  assert.match(exploreRepoTool.inputSchema.properties.budget.description, /Advanced\/legacy only/);
 
   const called = await handleRequest({
     jsonrpc: '2.0',
@@ -162,6 +165,8 @@ test('MCP request handler exposes explore_repo and returns structuredContent', a
   assert.ok(['medium', 'high'].includes(called.structuredContent.confidence), `confidence must be medium or high, got: ${called.structuredContent.confidence}`);
   assert.equal(called.structuredContent.evidence.length, 2);
   assert.match(called.content[0].text, /requireAuth/);
+  assert.match(called.content[0].text, /## Candidate Paths/);
+  assert.doesNotMatch(called.content[0].text, /## Stats/);
 });
 
 test('MCP request handler returns repo_root resolution errors without mislabeling them as generic argument errors', async () => {

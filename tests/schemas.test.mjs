@@ -1,7 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { computeConfidenceScore, reconcileConfidence } from '../src/explorer/schemas.mjs';
+import {
+  EXPLORE_REPO_INPUT_SCHEMA,
+  EXPLORE_RESULT_JSON_SCHEMA,
+  computeConfidenceScore,
+  normalizeExploreResult,
+  reconcileConfidence,
+} from '../src/explorer/schemas.mjs';
 
 // Helper: build a grounded evidence item with a given groundingStatus and optional path
 function makeEvidence({ groundingStatus = 'exact', path = 'src/foo.mjs' } = {}) {
@@ -154,4 +160,36 @@ test('reconcileConfidence: model low is preserved even when computed is high', (
     stoppedByBudget: false,
   });
   assert.equal(result, 'low', 'lower of model/computed wins; here model=low');
+});
+
+test('agent-facing budget and strategy fields are marked advanced/legacy', () => {
+  assert.match(
+    EXPLORE_REPO_INPUT_SCHEMA.properties.budget.description,
+    /Advanced\/legacy only/,
+  );
+  assert.match(
+    EXPLORE_REPO_INPUT_SCHEMA.properties.hints.properties.strategy.description,
+    /Advanced\/legacy only/,
+  );
+});
+
+test('followup suggestedCall is optional in schema and normalization', () => {
+  const followupSchema = EXPLORE_RESULT_JSON_SCHEMA.schema.properties.followups.items;
+  assert.deepEqual(followupSchema.required, ['description', 'priority']);
+  assert.deepEqual(followupSchema.properties.suggestedCall.required, ['task']);
+
+  const result = normalizeExploreResult({
+    answer: 'answer',
+    summary: 'summary',
+    confidence: 'medium',
+    evidence: [],
+    candidatePaths: [],
+    followups: [
+      { description: 'check related routes', priority: 'recommended' },
+    ],
+  }, makeStats());
+
+  assert.equal(result.followups.length, 1);
+  assert.equal(result.followups[0].description, 'check related routes');
+  assert.equal(result.followups[0].suggestedCall, null);
 });

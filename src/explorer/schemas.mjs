@@ -24,7 +24,7 @@ export const EXPLORE_REPO_INPUT_SCHEMA = {
       type: 'string',
       enum: ['quick', 'normal', 'deep'],
       description:
-        'Exploration depth. "quick": fast lookup (3-10 turns), "normal": multi-file analysis (up to 20 turns, default), "deep": comprehensive investigation (up to 30 turns).',
+        'Advanced/legacy only. Omit for normal agent use; the server chooses the default exploration depth. Use only when a workflow explicitly needs quick, normal, or deep.',
     },
     hints: {
       type: 'object',
@@ -39,9 +39,7 @@ export const EXPLORE_REPO_INPUT_SCHEMA = {
           type: 'string',
           enum: ['symbol-first', 'reference-chase', 'git-guided', 'breadth-first', 'blame-guided', 'pattern-scan'],
           description:
-            'Exploration strategy. symbol-first: find definitions. reference-chase: find callers/usages. ' +
-            'git-guided: analyze recent changes. breadth-first: understand project structure. ' +
-            'blame-guided: trace bug origins. pattern-scan: find similar code patterns. Auto-detected if omitted.',
+            'Advanced/legacy only. Omit for normal agent use; strategy is auto-detected from the task and known anchors.',
         },
       },
     },
@@ -80,13 +78,12 @@ const FOLLOWUP_ITEM_SCHEMA = {
             symbols: { type: 'array', items: { type: 'string' } },
             strategy: { type: 'string' },
           },
-          required: ['symbols', 'strategy'],
         },
       },
-      required: ['task', 'scope', 'budget', 'hints'],
+      required: ['task'],
     },
   },
-  required: ['description', 'priority', 'suggestedCall'],
+  required: ['description', 'priority'],
 };
 
 export const EXPLORE_RESULT_JSON_SCHEMA = {

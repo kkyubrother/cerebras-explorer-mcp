@@ -131,9 +131,10 @@ export function buildExplorerSystemPrompt({ repoRoot, budgetConfig, language, pr
     '  "confidence": "low|medium|high",',
     '  "evidence": [{"path": "relative/path", "startLine": 1, "endLine": 10, "why": "relevance", "evidenceType": "file_range|git_commit|git_blame|git_diff_hunk"}],',
     '  "candidatePaths": ["relative/path"],',
-    '  "followups": [{"description": "...", "priority": "recommended|optional", "suggestedCall": {...}}]',
+    '  "followups": [{"description": "...", "priority": "recommended|optional"}]',
     '}',
     '- followups: use "recommended" when follow-up is essential; "optional" for non-critical next steps.',
+    '- Omit suggestedCall unless a concrete follow-up query is essential. If you include it, prefer task only; do not include budget or hints unless explicitly necessary.',
     '- Use [] for followups when no further investigation is needed.',
     '',
     // NOTE: Language rule moved to dynamic section (after strategy catalog) to maximize
@@ -319,6 +320,7 @@ export function buildFinalizePrompt() {
     '  • Required fields: answer, summary, confidence (low|medium|high), evidence[], candidatePaths[], followups[]',
     '  • evidence items: { path, startLine, endLine, why, evidenceType? } — evidenceType defaults to file_range',
     '  • followups items: { description, priority (recommended|optional), suggestedCall? }',
+    '  • Omit suggestedCall unless a concrete follow-up query is essential; prefer task only.',
     '  • Use an empty array [] for followups if no further investigation is needed.',
   ].join('\n');
 }

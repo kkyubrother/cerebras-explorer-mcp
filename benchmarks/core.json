@@ -67,7 +67,6 @@
       "args": {
         "entryPoint": "src/index.mjs",
         "direction": "downstream",
-        "maxDepth": 3,
         "language": "ko"
       },
       "expectations": [

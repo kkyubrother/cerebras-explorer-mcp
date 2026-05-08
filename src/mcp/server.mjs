@@ -15,16 +15,12 @@ const EXPLORE_REPO_TOOL = {
   name: 'explore_repo',
   title: 'Autonomous repository explorer',
   description:
-    'Autonomous codebase explorer powered by Cerebras. Use this tool INSTEAD OF making your own Grep/Glob/Read calls when you need to: ' +
-    '(1) understand how a feature or system works end-to-end, ' +
-    '(2) find where a symbol is defined and used across the codebase, ' +
-    '(3) trace dependencies or import chains, ' +
-    '(4) investigate a bug\'s root cause across multiple files, ' +
-    '(5) answer architectural questions about the project. ' +
-    'The explorer performs its own multi-turn search/read loop autonomously and returns grounded, evidence-backed findings with file:line citations. ' +
-    'This is faster and more thorough than manual file-by-file search. ' +
-    'Returns structured JSON with answer, evidence, and confidence level. ' +
-    'Pass stats.sessionId as "session" in follow-up calls for incremental exploration.',
+    'Use FIRST for read-only code discovery when the exact files are unknown, the task may span 3+ files, or you need cross-file evidence: ' +
+    'architecture, symbol usage, dependency/call tracing, bug root cause, change impact, config origin, or evidence collection. ' +
+    'Do NOT use for a single known file/range or when immediate editing is cheaper. ' +
+    'Returns structured JSON with answer, grounded file:line evidence, candidate paths, confidence/critic warnings, stats, and follow-up suggestions. ' +
+    'After this tool, avoid broad grep/read; only read cited targets needed for verification or edits. ' +
+    'Omit budget and hints.strategy unless required by a legacy workflow. Pass stats.sessionId as "session" for follow-up calls.',
   inputSchema: EXPLORE_REPO_INPUT_SCHEMA,
 };
 
@@ -133,17 +129,16 @@ const EXPLORE_TOOL = {
   name: 'explore',
   title: 'Free-form repository exploration',
   description:
-    'Use this when you need a comprehensive, human-readable Markdown report about the codebase. ' +
-    'Ideal for: architecture overviews, explaining how complex systems work, code review analysis, or answering broad "how does X work?" questions. ' +
-    'The report includes inline file:line citations and is ready to present directly to the user without further processing. ' +
-    'More thorough than manual search — the explorer reads multiple files and cross-references findings autonomously. ' +
-    'For structured JSON output (programmatic use), use explore_repo instead.',
+    'Use for a user-facing Markdown investigation report with inline file:line citations. ' +
+    'Best for architecture walkthroughs, onboarding explanations, code review context, or broad "how does X work?" answers. ' +
+    'Do NOT use when the parent agent needs structured edit planning or programmatic next steps; use explore_repo instead. ' +
+    'Omit thoroughness in normal agent use unless a legacy workflow explicitly requires quick, normal, or deep.',
   inputSchema: {
     type: 'object',
     additionalProperties: false,
     properties: {
       prompt: { type: 'string', description: 'What to explore — a natural-language question or task.' },
-      thoroughness: { type: 'string', enum: ['quick', 'normal', 'deep'], description: 'How deep to explore (default: normal).' },
+      thoroughness: { type: 'string', enum: ['quick', 'normal', 'deep'], description: 'Advanced/legacy only. Omit for normal agent use; defaults to normal report depth.' },
       scope: { type: 'array', items: { type: 'string' }, description: 'Optional path prefixes to focus on.' },
       repo_root: { type: 'string', description: 'Repository root path.' },
       session: { type: 'string', description: 'Session ID from a previous call.' },
@@ -160,19 +155,15 @@ const EXPLORE_V2_TOOL = {
   name: 'explore_v2',
   title: 'Advanced repository exploration (V2)',
   description:
-    'Enhanced version of explore with three advanced techniques: ' +
-    '(1) LLM-based conversation compaction — intelligently summarizes earlier findings to maximize useful context, ' +
-    '(2) tool result budgeting — caps individual tool outputs to prevent context overflow, ' +
-    '(3) max output recovery — automatically continues the report if it gets cut short. ' +
-    'Use this for deep, complex explorations that span many files or require comprehensive reports. ' +
-    'Produces a thorough Markdown report with file:line citations. ' +
-    'Best for: architecture deep-dives, root cause analysis, understanding complex systems end-to-end.',
+    'Advanced/legacy report tool. Use only for wide or deep Markdown reports that may exceed normal context or output limits. ' +
+    'Best for large architecture deep-dives, end-to-end root-cause reports, or broad subsystem maps. ' +
+    'Do NOT use just because the file path is unknown; prefer explore_repo when structured evidence, likely edit files, or next read targets are needed.',
   inputSchema: {
     type: 'object',
     additionalProperties: false,
     properties: {
       prompt: { type: 'string', description: 'What to explore — a natural-language question or task. Be specific for best results.' },
-      thoroughness: { type: 'string', enum: ['quick', 'normal', 'deep'], description: '"quick": fast scan, "normal": balanced (default), "deep": comprehensive investigation.' },
+      thoroughness: { type: 'string', enum: ['quick', 'normal', 'deep'], description: 'Advanced/legacy only. Omit for normal agent use; defaults to normal report depth.' },
       scope: { type: 'array', items: { type: 'string' }, description: 'Path prefixes to focus on (e.g. ["src/api/", "lib/auth/"]).' },
       repo_root: { type: 'string', description: 'Repository root path.' },
       session: { type: 'string', description: 'Session ID from a previous call for continuity.' },
@@ -302,14 +293,24 @@ export function createMcpRequestHandler({
   function formatExploreResult(result) {
     const lines = [];
 
-    // Trust summary first — this is what the parent model reads to decide trust
-    if (result.trustSummary) {
-      lines.push(result.trustSummary);
-      lines.push('');
-    }
+    lines.push(`## Result`);
+    lines.push(`Confidence: ${result.confidence ?? 'unknown'}`);
+    if (result.trustSummary) lines.push(`Verification: ${result.trustSummary}`);
+    lines.push('');
 
     lines.push(`## Answer`);
     lines.push(result.answer || '(no answer)');
+
+    if (result.candidatePaths?.length > 0) {
+      lines.push('');
+      lines.push(`## Candidate Paths`);
+      for (const path of result.candidatePaths.slice(0, 10)) {
+        lines.push(`- \`${path}\``);
+      }
+      if (result.candidatePaths.length > 10) {
+        lines.push(`- ... and ${result.candidatePaths.length - 10} more paths`);
+      }
+    }
 
     if (result.evidence?.length > 0) {
       lines.push('');
@@ -331,16 +332,9 @@ export function createMcpRequestHandler({
       }
     }
 
-    const statsLine = [
-      `${result.stats?.turns ?? '?'} turns`,
-      `${result.stats?.filesRead ?? '?'} files read`,
-      `${result.stats?.elapsedMs ?? '?'}ms`,
-    ].join(', ');
-    lines.push('');
-    lines.push(`## Stats: ${statsLine}`);
-
     if (result.stats?.sessionId) {
-      lines.push(`Session ID: ${result.stats.sessionId} (pass as "session" for follow-up calls)`);
+      lines.push('');
+      lines.push(`Session: ${result.stats.sessionId} (pass as "session" for follow-up calls)`);
     }
 
     return lines.join('\n');

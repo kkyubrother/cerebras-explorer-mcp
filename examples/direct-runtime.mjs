@@ -4,7 +4,6 @@ const result = await exploreRepository({
   task: 'users/me 라우트에 인증 미들웨어가 어떻게 붙는지 추적해라.',
   repo_root: './fixtures/demo-repo',
   scope: ['src/**', 'docs/**'],
-  budget: 'quick',
   hints: {
     symbols: ['requireAuth'],
     regex: ['/users/me'],
