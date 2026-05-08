@@ -1,4 +1,48 @@
 {
+  "directAnswer": "registerUserRoutes는 /users/me 라우트에 requireAuth 미들웨어를 직접 연결한다.",
+  "status": {
+    "confidence": "high",
+    "verification": "targeted_read_needed",
+    "complete": true,
+    "warnings": []
+  },
+  "targets": [
+    {
+      "path": "src/routes/user.js",
+      "startLine": 1,
+      "endLine": 5,
+      "role": "read",
+      "reason": "라우트가 requireAuth를 import하고 /users/me에 연결한다.",
+      "evidenceRefs": ["E1"]
+    },
+    {
+      "path": "src/auth.js",
+      "startLine": 1,
+      "endLine": 6,
+      "role": "read",
+      "reason": "requireAuth의 실제 구현이 여기 있다.",
+      "evidenceRefs": ["E2"]
+    },
+    {
+      "path": "docs/auth.md",
+      "role": "reference",
+      "reason": "Discovered candidate path; read only if the cited evidence does not answer the edit or verification need.",
+      "evidenceRefs": []
+    }
+  ],
+  "nextAction": {
+    "type": "read_target",
+    "reason": "Read src/routes/user.js:1-5 before editing or final verification.",
+    "target": {
+      "path": "src/routes/user.js",
+      "startLine": 1,
+      "endLine": 5,
+      "role": "read",
+      "reason": "라우트가 requireAuth를 import하고 /users/me에 연결한다.",
+      "evidenceRefs": ["E1"]
+    }
+  },
+  "uncertainties": [],
   "answer": "registerUserRoutes는 /users/me 라우트에 requireAuth 미들웨어를 직접 연결한다.",
   "summary": "auth.js에서 requireAuth를 정의하고, user.js에서 이를 import해 /users/me에 적용한다.",
   "confidence": "high",
@@ -24,20 +68,24 @@
   },
   "evidence": [
     {
+      "id": "E1",
       "path": "src/routes/user.js",
       "startLine": 1,
       "endLine": 5,
       "why": "라우트가 requireAuth를 import하고 /users/me에 연결한다.",
       "evidenceType": "file_range",
-      "groundingStatus": "exact"
+      "groundingStatus": "exact",
+      "snippet": "1: import { requireAuth } from \"../auth.js\";\n2: \n3: export function registerUserRoutes(app) {\n4:   app.get(\"/users/me\", requireAuth, (req, res) => {\n5:     res.json({ id: req.user.id });"
     },
     {
+      "id": "E2",
       "path": "src/auth.js",
       "startLine": 1,
       "endLine": 6,
       "why": "requireAuth의 실제 구현이 여기 있다.",
       "evidenceType": "file_range",
-      "groundingStatus": "exact"
+      "groundingStatus": "exact",
+      "snippet": "1: export function requireAuth(req, res, next) {\n2:   if (!req.user) throw new Error(\"unauthorized\");\n3:   next();\n4: }"
     }
   ],
   "candidatePaths": ["src/routes/user.js", "src/auth.js", "docs/auth.md"],
@@ -51,22 +99,22 @@
       "priority": "optional"
     }
   ],
-  "codeMap": {
-    "entryPoints": [],
-    "keyModules": [
-      {
-        "path": "src/routes/user.js",
-        "role": "route/controller",
-        "linesRead": 5
-      },
-      {
-        "path": "src/auth.js",
-        "role": "middleware",
-        "linesRead": 6
-      }
-    ]
+  "_debug": {
+    "confidenceScore": 0.9,
+    "confidenceFactors": {
+      "evidenceCount": 2,
+      "evidenceGrounded": 2
+    },
+    "stats": {
+      "model": "zai-glm-4.7",
+      "budget": "quick",
+      "turns": 3,
+      "toolCalls": 4,
+      "sessionId": "sess_example",
+      "sessionStatus": "created",
+      "remainingCalls": 4
+    }
   },
-  "diagram": "graph TD\n  src_routes_user_js[\"user.js\"];\n  src_auth_js[\"auth.js\"];",
   "stats": {
     "model": "zai-glm-4.7",
     "budget": "quick",

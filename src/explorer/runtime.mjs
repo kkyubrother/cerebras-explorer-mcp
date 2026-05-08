@@ -1,5 +1,9 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
+
 import { CerebrasChatClient, extractFirstJsonObject } from './cerebras-client.mjs';
 import {
+  chooseAutoBudget,
   getBudgetConfig,
   getExplorerTemperature,
   getExplorerTopP,
@@ -289,6 +293,187 @@ function buildTrustSummary(result, stats) {
   }
 
   return parts.join(', ') + '. ' + suffix;
+}
+
+function isOutsideRoot(root, targetPath) {
+  const relative = path.relative(root, targetPath);
+  return relative.startsWith('..') || path.isAbsolute(relative);
+}
+
+async function readEvidenceSnippet(repoRoot, evidenceItem, { maxLines = 12, maxChars = 1200 } = {}) {
+  if (!repoRoot || !evidenceItem?.path) return '';
+  if (!Number.isInteger(evidenceItem.startLine) || !Number.isInteger(evidenceItem.endLine)) return '';
+  if ((evidenceItem.evidenceType ?? 'file_range') !== 'file_range') return '';
+
+  const absolutePath = path.resolve(repoRoot, evidenceItem.path);
+  if (isOutsideRoot(repoRoot, absolutePath)) return '';
+
+  try {
+    const stat = await fs.lstat(absolutePath);
+    if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 512 * 1024) return '';
+
+    const realRoot = await fs.realpath(repoRoot);
+    const realPath = await fs.realpath(absolutePath);
+    if (isOutsideRoot(realRoot, realPath)) return '';
+
+    const lines = (await fs.readFile(realPath, 'utf8')).split('\n');
+    const startLine = Math.max(1, evidenceItem.startLine);
+    const requestedEnd = Math.max(startLine, evidenceItem.endLine);
+    const endLine = Math.min(requestedEnd, startLine + maxLines - 1, lines.length);
+    const snippet = [];
+    for (let lineNo = startLine; lineNo <= endLine; lineNo += 1) {
+      snippet.push(`${lineNo}: ${lines[lineNo - 1] ?? ''}`);
+    }
+    if (requestedEnd > endLine) snippet.push('... [snippet truncated]');
+    return snippet.join('\n').slice(0, maxChars);
+  } catch {
+    return '';
+  }
+}
+
+async function attachEvidenceMetadata({ evidence, repoRoot }) {
+  const result = [];
+  for (const [index, item] of (evidence ?? []).entries()) {
+    const id = typeof item.id === 'string' && item.id ? item.id : `E${index + 1}`;
+    const snippet = item.snippet || await readEvidenceSnippet(repoRoot, item);
+    result.push({
+      ...item,
+      id,
+      ...(snippet ? { snippet } : {}),
+    });
+  }
+  return result;
+}
+
+function hasEditIntent(task) {
+  return /fix|change|update|modify|implement|add|remove|refactor|migrate|patch|수정|변경|구현|추가|삭제|리팩터|마이그레이션/.test(
+    String(task ?? '').toLowerCase(),
+  );
+}
+
+function buildTargets({ evidence = [], candidatePaths = [], task = '' } = {}) {
+  const targets = [];
+  const byKey = new Map();
+  const editIntent = hasEditIntent(task);
+
+  function addTarget(target) {
+    if (!target?.path) return;
+    const key = `${target.path}:${target.startLine ?? ''}:${target.endLine ?? ''}:${target.role}`;
+    const existing = byKey.get(key);
+    if (existing) {
+      existing.evidenceRefs = [...new Set([...(existing.evidenceRefs ?? []), ...(target.evidenceRefs ?? [])])];
+      return;
+    }
+    byKey.set(key, target);
+    targets.push(target);
+  }
+
+  for (const item of evidence) {
+    if (!item.path) continue;
+    const hasRange = Number.isInteger(item.startLine) && Number.isInteger(item.endLine);
+    addTarget({
+      path: item.path,
+      ...(hasRange ? { startLine: item.startLine, endLine: item.endLine } : {}),
+      role: editIntent ? 'edit' : 'read',
+      reason: item.why || 'Grounded evidence target.',
+      evidenceRefs: item.id ? [item.id] : [],
+    });
+  }
+
+  const evidencePaths = new Set(evidence.map(item => item.path).filter(Boolean));
+  for (const candidatePath of candidatePaths) {
+    if (!candidatePath || evidencePaths.has(candidatePath)) continue;
+    addTarget({
+      path: candidatePath,
+      role: 'reference',
+      reason: 'Discovered candidate path; read only if the cited evidence does not answer the edit or verification need.',
+      evidenceRefs: [],
+    });
+  }
+
+  return targets.slice(0, 20);
+}
+
+function buildUncertainties(result, stats) {
+  const warnings = (result.critic?.warnings ?? []).map(warning => warning.message).filter(Boolean);
+  const followups = (result.followups ?? [])
+    .filter(item => item.priority === 'recommended')
+    .map(item => item.description)
+    .filter(Boolean);
+  const uncertainties = [...warnings, ...followups];
+  if ((result.evidence?.length ?? 0) === 0) {
+    uncertainties.push('No grounded evidence was retained.');
+  }
+  if (stats.stoppedByBudget) {
+    uncertainties.push('Exploration stopped at the turn budget before all possible follow-up checks were exhausted.');
+  }
+  if (stats.stoppedByErrors) {
+    uncertainties.push('Exploration stopped after repeated tool errors.');
+  }
+  if (stats.stoppedByAbort) {
+    uncertainties.push('Exploration was cancelled before completion.');
+  }
+  return [...new Set(uncertainties)];
+}
+
+function buildResultStatus(result, stats) {
+  const criticStatus = result.critic?.status ?? 'caution';
+  const warnings = (result.critic?.warnings ?? []).map(warning => warning.message).filter(Boolean);
+  const hasEvidence = (result.evidence?.length ?? 0) > 0;
+  let verification = 'verified';
+
+  if (!hasEvidence || criticStatus === 'fail' || stats.stoppedByErrors || stats.stoppedByAbort) {
+    verification = 'broad_search_needed';
+  } else if (criticStatus === 'caution' || result.confidence === 'low' || stats.stoppedByBudget) {
+    verification = 'follow_up_needed';
+  } else if ((result.targets ?? []).some(target => target.role === 'read' || target.role === 'edit')) {
+    verification = 'targeted_read_needed';
+  }
+
+  return {
+    confidence: result.confidence ?? 'low',
+    verification,
+    complete: verification === 'verified' || verification === 'targeted_read_needed',
+    warnings,
+  };
+}
+
+function buildNextAction(result) {
+  const verification = result.status?.verification;
+  if (verification === 'targeted_read_needed') {
+    const target = (result.targets ?? []).find(item => item.role === 'edit' || item.role === 'read') ?? result.targets?.[0];
+    return {
+      type: 'read_target',
+      reason: target ? `Read ${target.path}${target.startLine ? `:${target.startLine}-${target.endLine}` : ''} before editing or final verification.` : 'Read the cited target before editing.',
+      ...(target ? { target } : {}),
+    };
+  }
+  if (verification === 'follow_up_needed' || verification === 'broad_search_needed') {
+    const followup = (result.followups ?? []).find(item => item.priority === 'recommended') ?? result.followups?.[0];
+    return {
+      type: followup ? 'explore_followup' : 'ask_user',
+      reason: followup?.description ?? 'The retained evidence is not sufficient for a complete answer.',
+      ...(followup?.suggestedCall?.task
+        ? { query: followup.suggestedCall.task }
+        : followup?.description
+          ? { query: followup.description }
+          : {}),
+    };
+  }
+  return { type: 'stop', reason: 'Explorer result is complete for the requested read-only investigation.' };
+}
+
+function attachDebug(result, { stats, codeMap, diagram, recentActivity }) {
+  result._debug = {
+    ...(result._debug ?? {}),
+    confidenceScore: result.confidenceScore,
+    confidenceFactors: result.confidenceFactors,
+    stats,
+    ...(codeMap ? { codeMap } : {}),
+    ...(diagram ? { diagram } : {}),
+    ...(recentActivity ? { recentActivity } : {}),
+  };
+  return result;
 }
 
 function nowMs() {
@@ -688,13 +873,18 @@ export class ExplorerRuntime {
    * Returns all the common infrastructure: budgetConfig, repoRoot, projectConfig,
    * session data, repoToolkit, chatClient, tools, and timing helpers.
    */
-  async _initExploreContext({ budgetLabel, repoRootArg, scope, session, taskText, sessionStore }) {
+  async _initExploreContext({ budgetLabel, repoRootArg, scope, hints, session, taskText, sessionStore }) {
     const repoRoot = await resolveRepoRoot(repoRootArg);
 
     const rawProjectConfig = await loadProjectConfig(repoRoot);
     const projectConfig = normalizeProjectConfig(rawProjectConfig);
 
-    const effectiveBudgetLabel = budgetLabel ?? projectConfig.defaultBudget ?? 'normal';
+    const budgetSource = budgetLabel
+      ? 'argument'
+      : projectConfig.defaultBudget
+        ? 'project_config'
+        : 'auto';
+    const effectiveBudgetLabel = budgetLabel ?? projectConfig.defaultBudget ?? chooseAutoBudget({ task: taskText, scope, hints });
     const budgetConfig = getBudgetConfig(effectiveBudgetLabel);
     const effectiveScope = scope ?? projectConfig.defaultScope ?? [];
     const projectContext = projectConfig.projectContext ?? null;
@@ -729,6 +919,7 @@ export class ExplorerRuntime {
 
     return {
       budgetConfig, repoRoot, projectConfig, effectiveScope, projectContext, keyFiles,
+      budgetSource,
       chatClient, sessionId, sessionData, sessionStatus, remainingCalls,
       repoToolkit, tools, reasoningEffort, temperature, topP,
     };
@@ -746,12 +937,14 @@ export class ExplorerRuntime {
 
     const {
       budgetConfig, repoRoot, projectConfig, effectiveScope, projectContext, keyFiles,
+      budgetSource,
       chatClient, sessionId, sessionData, sessionStatus, remainingCalls,
       repoToolkit, tools, reasoningEffort, temperature, topP,
     } = await this._initExploreContext({
       budgetLabel: args.budget,
       repoRootArg: args.repo_root,
       scope: args.scope,
+      hints: args.hints,
       session: args.session,
       taskText: args.task,
       sessionStore,
@@ -788,6 +981,7 @@ export class ExplorerRuntime {
     const stats = {
       model: chatClient.model,
       budget: budgetConfig.label,
+      budgetSource,
       turns: 0,
       toolCalls: 0,
       listDirCalls: 0,
@@ -1126,6 +1320,10 @@ export class ExplorerRuntime {
       taskKind,
     });
     normalized = criticPass.result;
+    normalized.evidence = await attachEvidenceMetadata({
+      evidence: normalized.evidence,
+      repoRoot,
+    });
 
     if (criticPass.grounding.droppedUngrounded + criticPass.grounding.droppedMalformed > 0) {
       normalized.followups = mergeCandidatePaths(normalized.followups, [{
@@ -1141,17 +1339,27 @@ export class ExplorerRuntime {
       normalized.confidence = 'low';
       normalized.confidenceLevel = 'low';
     }
+    normalized.directAnswer = normalized.directAnswer || normalized.answer;
+    normalized.targets = buildTargets({
+      evidence: normalized.evidence,
+      candidatePaths: normalized.candidatePaths,
+      task: args.task,
+    });
+    normalized.uncertainties = buildUncertainties(normalized, stats);
+    normalized.status = buildResultStatus(normalized, stats);
+    normalized.nextAction = buildNextAction(normalized);
 
     // Trust summary — a natural-language sentence the parent model can rely on
     normalized.trustSummary = buildTrustSummary(normalized, stats);
 
     // codeMap + Mermaid diagram
     const codeMap = buildCodeMap(observedRanges, projectConfig.entryPoints ?? []);
+    let diagram = null;
     if (codeMap) {
       normalized.codeMap = codeMap;
       const strategy = args.hints?.strategy ?? null;
       if (!strategy || strategy === 'breadth-first') {
-        const diagram = buildMermaidDiagram(codeMap);
+        diagram = buildMermaidDiagram(codeMap);
         if (diagram) normalized.diagram = diagram;
       }
     }
@@ -1159,6 +1367,7 @@ export class ExplorerRuntime {
     // recentActivity from git_log
     const recentActivity = buildRecentActivity(capturedGitLogs);
     if (recentActivity) normalized.recentActivity = recentActivity;
+    attachDebug(normalized, { stats, codeMap, diagram, recentActivity });
 
     // Update session with this call's result
     if (sessionStore && sessionId) {
@@ -1186,7 +1395,7 @@ export class ExplorerRuntime {
     }
 
     const thoroughnessMap = { quick: 'quick', normal: 'normal', deep: 'deep' };
-    const budgetLabel = thoroughnessMap[args.thoroughness] ?? 'normal';
+    const budgetLabel = args.thoroughness ? thoroughnessMap[args.thoroughness] : undefined;
 
     const {
       budgetConfig, repoRoot, effectiveScope, projectContext, keyFiles,
@@ -1413,7 +1622,7 @@ export class ExplorerRuntime {
     }
 
     const thoroughnessMap = { quick: 'quick', normal: 'normal', deep: 'deep' };
-    const budgetLabel = thoroughnessMap[args.thoroughness] ?? 'normal';
+    const budgetLabel = args.thoroughness ? thoroughnessMap[args.thoroughness] : undefined;
 
     const {
       budgetConfig: baseBudgetConfig, repoRoot, effectiveScope, projectContext, keyFiles,

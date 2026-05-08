@@ -86,6 +86,92 @@ const FOLLOWUP_ITEM_SCHEMA = {
   required: ['description', 'priority'],
 };
 
+const STATUS_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    confidence: { type: 'string', enum: ['low', 'medium', 'high'] },
+    verification: {
+      type: 'string',
+      enum: ['verified', 'targeted_read_needed', 'follow_up_needed', 'broad_search_needed'],
+    },
+    complete: { type: 'boolean' },
+    warnings: { type: 'array', items: { type: 'string' } },
+  },
+  required: ['confidence', 'verification', 'complete', 'warnings'],
+};
+
+const TARGET_ITEM_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    path: { type: 'string' },
+    startLine: { type: 'integer' },
+    endLine: { type: 'integer' },
+    role: { type: 'string', enum: ['edit', 'read', 'reference'] },
+    reason: { type: 'string' },
+    evidenceRefs: { type: 'array', items: { type: 'string' } },
+  },
+  required: ['path', 'role', 'reason', 'evidenceRefs'],
+};
+
+const NEXT_ACTION_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    type: { type: 'string', enum: ['stop', 'read_target', 'explore_followup', 'ask_user'] },
+    reason: { type: 'string' },
+    query: { type: 'string' },
+    target: TARGET_ITEM_SCHEMA,
+  },
+  required: ['type', 'reason'],
+};
+
+const EVIDENCE_ITEM_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    id: { type: 'string' },
+    path: { type: 'string' },
+    startLine: { type: 'integer' },
+    endLine: { type: 'integer' },
+    why: { type: 'string' },
+    snippet: { type: 'string' },
+    groundingStatus: { type: 'string', enum: ['exact', 'partial'] },
+    evidenceType: {
+      type: 'string',
+      enum: ['file_range', 'git_commit', 'git_blame', 'git_diff_hunk'],
+    },
+    sha: { type: 'string' },
+    author: { type: 'string' },
+    commit: { type: 'string' },
+    oldPath: { type: 'string' },
+    newPath: { type: 'string' },
+    newStartLine: { type: 'integer' },
+    newEndLine: { type: 'integer' },
+  },
+  required: ['path', 'startLine', 'endLine', 'why'],
+};
+
+export const EXPLORE_REPO_OUTPUT_SCHEMA = {
+  type: 'object',
+  additionalProperties: true,
+  properties: {
+    directAnswer: { type: 'string' },
+    status: STATUS_SCHEMA,
+    targets: { type: 'array', items: TARGET_ITEM_SCHEMA },
+    evidence: { type: 'array', items: EVIDENCE_ITEM_SCHEMA },
+    uncertainties: { type: 'array', items: { type: 'string' } },
+    nextAction: NEXT_ACTION_SCHEMA,
+    answer: { type: 'string' },
+    summary: { type: 'string' },
+    confidence: { type: 'string', enum: ['low', 'medium', 'high'] },
+    candidatePaths: { type: 'array', items: { type: 'string' } },
+    followups: { type: 'array', items: FOLLOWUP_ITEM_SCHEMA },
+    _debug: { type: 'object', additionalProperties: true },
+  },
+};
+
 export const EXPLORE_RESULT_JSON_SCHEMA = {
   name: 'explore_repo_result',
   strict: true,
@@ -93,6 +179,20 @@ export const EXPLORE_RESULT_JSON_SCHEMA = {
     type: 'object',
     additionalProperties: false,
     properties: {
+      directAnswer: {
+        type: 'string',
+        description: 'Short direct answer. Optional for the model; the runtime aliases answer when omitted.',
+      },
+      status: STATUS_SCHEMA,
+      targets: {
+        type: 'array',
+        items: TARGET_ITEM_SCHEMA,
+      },
+      nextAction: NEXT_ACTION_SCHEMA,
+      uncertainties: {
+        type: 'array',
+        items: { type: 'string' },
+      },
       answer: {
         type: 'string',
         description: 'Direct answer to the delegated exploration task.',
@@ -107,29 +207,7 @@ export const EXPLORE_RESULT_JSON_SCHEMA = {
       },
       evidence: {
         type: 'array',
-        items: {
-          type: 'object',
-          additionalProperties: false,
-          properties: {
-            path: { type: 'string' },
-            startLine: { type: 'integer' },
-            endLine: { type: 'integer' },
-            why: { type: 'string' },
-            // Evidence kind — determines grounding strategy
-            evidenceType: {
-              type: 'string',
-              enum: ['file_range', 'git_commit', 'git_blame', 'git_diff_hunk'],
-            },
-            sha: { type: 'string' },          // git_commit / git_blame / git_diff_hunk
-            author: { type: 'string' },        // git_blame
-            commit: { type: 'string' },        // alias for sha (git_commit)
-            oldPath: { type: 'string' },       // git_diff_hunk (rename)
-            newPath: { type: 'string' },       // git_diff_hunk (rename)
-            newStartLine: { type: 'integer' }, // git_diff_hunk
-            newEndLine: { type: 'integer' },   // git_diff_hunk
-          },
-          required: ['path', 'startLine', 'endLine', 'why'],
-        },
+        items: EVIDENCE_ITEM_SCHEMA,
       },
       candidatePaths: {
         type: 'array',
@@ -236,15 +314,79 @@ function normalizeFollowupItem(item) {
   return { description, priority, suggestedCall };
 }
 
+function normalizeCandidatePath(item) {
+  if (typeof item === 'string') return item;
+  if (item && typeof item === 'object' && typeof item.path === 'string') return item.path;
+  return null;
+}
+
+function normalizeTargetItem(item) {
+  if (!item || typeof item !== 'object' || typeof item.path !== 'string' || !item.path) {
+    return null;
+  }
+  const role = ['edit', 'read', 'reference'].includes(item.role) ? item.role : 'read';
+  const target = {
+    path: item.path,
+    role,
+    reason: typeof item.reason === 'string' ? item.reason : '',
+    evidenceRefs: Array.isArray(item.evidenceRefs)
+      ? item.evidenceRefs.filter(ref => typeof ref === 'string')
+      : [],
+  };
+  if (Number.isInteger(item.startLine)) target.startLine = item.startLine;
+  if (Number.isInteger(item.endLine)) target.endLine = item.endLine;
+  return target;
+}
+
+function normalizeStatus(status, confidence) {
+  if (!status || typeof status !== 'object') {
+    return {
+      confidence,
+      verification: 'broad_search_needed',
+      complete: false,
+      warnings: [],
+    };
+  }
+  const verification = ['verified', 'targeted_read_needed', 'follow_up_needed', 'broad_search_needed'].includes(status.verification)
+    ? status.verification
+    : 'broad_search_needed';
+  return {
+    confidence: ['low', 'medium', 'high'].includes(status.confidence) ? status.confidence : confidence,
+    verification,
+    complete: Boolean(status.complete),
+    warnings: Array.isArray(status.warnings) ? status.warnings.filter(item => typeof item === 'string') : [],
+  };
+}
+
 export function normalizeExploreResult(raw, stats) {
   const safe = raw && typeof raw === 'object' ? raw : {};
+  const confidence =
+    safe.confidence === 'low' || safe.confidence === 'medium' || safe.confidence === 'high'
+      ? safe.confidence
+      : 'low';
+  const answer = typeof safe.answer === 'string' ? safe.answer : '';
   return {
-    answer: typeof safe.answer === 'string' ? safe.answer : '',
+    directAnswer: typeof safe.directAnswer === 'string' ? safe.directAnswer : answer,
+    answer,
     summary: typeof safe.summary === 'string' ? safe.summary : '',
-    confidence:
-      safe.confidence === 'low' || safe.confidence === 'medium' || safe.confidence === 'high'
-        ? safe.confidence
-        : 'low',
+    confidence,
+    status: normalizeStatus(safe.status, confidence),
+    targets: Array.isArray(safe.targets)
+      ? safe.targets.map(normalizeTargetItem).filter(Boolean)
+      : [],
+    nextAction: safe.nextAction && typeof safe.nextAction === 'object'
+      ? {
+          type: ['stop', 'read_target', 'explore_followup', 'ask_user'].includes(safe.nextAction.type)
+            ? safe.nextAction.type
+            : 'stop',
+          reason: typeof safe.nextAction.reason === 'string' ? safe.nextAction.reason : '',
+          ...(typeof safe.nextAction.query === 'string' ? { query: safe.nextAction.query } : {}),
+          ...(safe.nextAction.target ? { target: normalizeTargetItem(safe.nextAction.target) } : {}),
+        }
+      : { type: 'stop', reason: '' },
+    uncertainties: Array.isArray(safe.uncertainties)
+      ? safe.uncertainties.filter(item => typeof item === 'string')
+      : [],
     evidence: Array.isArray(safe.evidence)
       ? safe.evidence
           .filter(item => item && typeof item === 'object')
@@ -256,12 +398,17 @@ export function normalizeExploreResult(raw, stats) {
               : 'file_range';
 
             const base = {
+              ...(typeof item.id === 'string' && item.id ? { id: item.id } : {}),
               path: typeof item.path === 'string' ? item.path : '',
               startLine: Number.isInteger(item.startLine) ? item.startLine : 1,
               endLine: Number.isInteger(item.endLine) ? item.endLine : 1,
               why: typeof item.why === 'string' ? item.why : '',
               evidenceType: kind,
             };
+            if (typeof item.snippet === 'string' && item.snippet) base.snippet = item.snippet;
+            if (item.groundingStatus === 'exact' || item.groundingStatus === 'partial') {
+              base.groundingStatus = item.groundingStatus;
+            }
 
             // Kind-specific optional fields
             if (kind === 'git_commit') {
@@ -285,11 +432,12 @@ export function normalizeExploreResult(raw, stats) {
           .filter(item => item.path && item.why)
       : [],
     candidatePaths: Array.isArray(safe.candidatePaths)
-      ? safe.candidatePaths.filter(item => typeof item === 'string')
+      ? safe.candidatePaths.map(normalizeCandidatePath).filter(Boolean)
       : [],
     followups: Array.isArray(safe.followups)
       ? safe.followups.map(normalizeFollowupItem).filter(Boolean)
       : [],
     stats,
+    _debug: safe._debug && typeof safe._debug === 'object' ? safe._debug : {},
   };
 }

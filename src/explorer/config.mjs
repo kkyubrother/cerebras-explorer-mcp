@@ -341,6 +341,32 @@ export function classifyTaskComplexity(task) {
   return 'moderate';
 }
 
+export function chooseAutoBudget({ task = '', scope = [], hints = {} } = {}) {
+  const text = String(task ?? '').toLowerCase();
+  const hasAnchors =
+    (Array.isArray(hints?.symbols) && hints.symbols.length > 0) ||
+    (Array.isArray(hints?.files) && hints.files.length > 0) ||
+    (Array.isArray(hints?.regex) && hints.regex.length > 0);
+
+  if (hasAnchors) return 'quick';
+
+  if (/어디\s|찾아|위치|선언|정의\s|defined|where\s|find\s|locate|definition/.test(text)) {
+    return 'quick';
+  }
+
+  if (
+    /architecture|overview|impact|root cause|bug|security|performance|아키텍처|개요|영향|원인|버그|보안|성능/.test(text)
+  ) {
+    return 'normal';
+  }
+
+  if (Array.isArray(scope) && scope.length === 1 && typeof scope[0] === 'string' && scope[0].trim()) {
+    return 'quick';
+  }
+
+  return 'normal';
+}
+
 /**
  * Load the project-level configuration file from the repository root.
  *

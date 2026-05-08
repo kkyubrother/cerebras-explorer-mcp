@@ -214,7 +214,13 @@ test('ExplorerRuntime performs an autonomous tool loop and returns structured fi
   // a non-locate task yields 'medium' with the task-aware scoring (base 0.15).
   assert.ok(['medium', 'high'].includes(result.confidence), `confidence must be medium or high, got: ${result.confidence}`);
   assert.match(result.answer, /requireAuth/);
+  assert.equal(result.directAnswer, result.answer);
+  assert.equal(result.status.verification, 'targeted_read_needed');
+  assert.ok(Array.isArray(result.targets), 'targets must be an array');
+  assert.ok(result.targets.some(target => target.path === 'src/routes/user.js'), 'targets include route file');
   assert.equal(result.evidence.length, 2);
+  assert.ok(result.evidence.every(item => item.id && item.snippet), 'evidence has ids and snippets');
+  assert.ok(result._debug?.stats, '_debug.stats is present');
   assert.equal(result.stats.toolCalls, 3);
   assert.equal(result.stats.grepCalls, 1);
   assert.equal(result.stats.filesRead, 2);

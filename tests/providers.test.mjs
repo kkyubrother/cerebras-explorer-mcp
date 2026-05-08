@@ -6,7 +6,12 @@ import { OllamaChatClient } from '../src/explorer/providers/ollama.mjs';
 import { FailoverChatClient } from '../src/explorer/providers/failover.mjs';
 import { createChatClient } from '../src/explorer/providers/index.mjs';
 import { CerebrasChatClient } from '../src/explorer/cerebras-client.mjs';
-import { classifyTaskComplexity, getModelForBudget, getReasoningEffortForBudget } from '../src/explorer/config.mjs';
+import {
+  chooseAutoBudget,
+  classifyTaskComplexity,
+  getModelForBudget,
+  getReasoningEffortForBudget,
+} from '../src/explorer/config.mjs';
 
 // ─── Shared mock fetch helpers ───────────────────────────────────────────────
 
@@ -357,6 +362,12 @@ test('classifyTaskComplexity: moderate queries (default)', () => {
   assert.equal(classifyTaskComplexity('인증 미들웨어의 전체 구조를 설명해줘'), 'moderate');
   assert.equal(classifyTaskComplexity('How does the cache layer work?'), 'moderate');
   assert.equal(classifyTaskComplexity('What changed in the last release?'), 'moderate');
+});
+
+test('chooseAutoBudget: uses quick for anchored or locate tasks and normal for impact tasks', () => {
+  assert.equal(chooseAutoBudget({ task: 'requireAuth가 어디 정의돼 있어?' }), 'quick');
+  assert.equal(chooseAutoBudget({ task: 'explain auth flow', hints: { files: ['src/auth.js'] } }), 'quick');
+  assert.equal(chooseAutoBudget({ task: 'map change impact for auth middleware' }), 'normal');
 });
 
 // ─── getModelForBudget ───────────────────────────────────────────────────────

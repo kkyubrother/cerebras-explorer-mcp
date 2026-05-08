@@ -3,11 +3,11 @@ architecture lookup, symbol tracing, dependency or route/middleware tracing, con
 impact mapping before edits, change summary, or similar-pattern hunting.
 
 Preferred flow:
-1. Use the narrowest `cerebras-explorer` tool that fits the question: `explain_symbol`, `trace_dependency`, `summarize_changes`, `find_similar_code`, `explore_repo`, or `explore`.
+1. Use the narrowest `cerebras-explorer` tool that fits the question: `find_relevant_code`, `trace_symbol`, `map_change_impact`, `explain_code_path`, `collect_evidence`, `review_change_context`, `explore_repo`, or `explore`.
 2. Prefer `explore_repo` when you want structured JSON findings for follow-up analysis or edits.
 3. Prefer `explore` when you want a cited Markdown report or architecture explanation to hand back to the user.
 4. Do not set `budget`, `thoroughness`, `hints.strategy`, or `language` unless a legacy workflow explicitly requires it.
 5. Add `scope` and known anchors only when they are already implied by the task.
 6. Reuse `stats.sessionId` as `session` for follow-up exploration.
-7. Read only the cited files you need to verify or edit.
+7. After a passing result, read only returned `targets` with role `read` or `edit`.
 8. Keep native wide search as a fallback, not the default.

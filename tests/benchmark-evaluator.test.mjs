@@ -63,3 +63,44 @@ test('summarizeBenchmarkSuite aggregates pass and average score', () => {
     averageScore: 0.6,
   });
 });
+
+test('evaluateBenchmarkCase scores adoption fields', () => {
+  const caseDefinition = {
+    id: 'adoption',
+    passScore: 0.7,
+    expectations: [
+      {
+        label: 'Direct answer',
+        source: 'direct_answer',
+        groups: [['requireauth']],
+        weight: 0.25,
+      },
+      {
+        label: 'Targets',
+        source: 'target_paths',
+        groups: [['src/auth.js']],
+        weight: 0.25,
+      },
+      {
+        label: 'Snippets',
+        source: 'evidence_snippets',
+        groups: [['export function']],
+        weight: 0.25,
+      },
+    ],
+    checks: [
+      { label: 'Has direct answer', type: 'has_direct_answer', value: true, weight: 0.1 },
+      { label: 'Has targets', type: 'min_target_count', value: 1, weight: 0.1 },
+      { label: 'Has snippets', type: 'min_evidence_snippet_count', value: 1, weight: 0.05 },
+    ],
+  };
+
+  const result = {
+    directAnswer: 'requireAuth is defined in auth.js',
+    targets: [{ path: 'src/auth.js', role: 'read', reason: 'definition', evidenceRefs: ['E1'] }],
+    evidence: [{ path: 'src/auth.js', snippet: '1: export function requireAuth() {}' }],
+  };
+
+  const evaluation = evaluateBenchmarkCase(caseDefinition, result);
+  assert.equal(evaluation.passed, true);
+});

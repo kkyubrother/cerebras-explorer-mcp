@@ -1,0 +1,240 @@
+{
+  "name": "agent-adoption-readonly-exploration",
+  "description": "Benchmarks focused on whether explorer output lets parent coding agents avoid broad native re-search: direct answer, targets, snippets, status, and next action quality.",
+  "defaultPassScore": 0.72,
+  "cases": [
+    {
+      "id": "locate-relevant-code",
+      "description": "Find relevant implementation files when the exact location is unknown.",
+      "tool": "find_relevant_code",
+      "args": {
+        "query": "Where is MCP tools/list assembled and which files should be read before changing tool metadata?",
+        "scope": ["src/**", "tests/**"],
+        "language": "ko"
+      },
+      "expectations": [
+        {
+          "label": "Direct answer identifies server tool registry",
+          "source": "direct_answer",
+          "groups": [["src/mcp/server.mjs"], ["tools/list", "buildToolList"]],
+          "weight": 0.35
+        },
+        {
+          "label": "Targets include implementation and tests",
+          "source": "target_paths",
+          "groups": [["src/mcp/server.mjs"], ["tests/mcp-server.test.mjs"]],
+          "weight": 0.3
+        }
+      ],
+      "checks": [
+        { "label": "Has direct answer", "type": "has_direct_answer", "value": true, "weight": 0.1 },
+        { "label": "Returns targets", "type": "min_target_count", "value": 2, "weight": 0.15 },
+        { "label": "Evidence includes snippets", "type": "min_evidence_snippet_count", "value": 1, "weight": 0.1 }
+      ]
+    },
+    {
+      "id": "trace-symbol",
+      "description": "Trace a known symbol without manual grep/read.",
+      "tool": "trace_symbol",
+      "args": {
+        "symbol": "normalizeExploreResult",
+        "scope": ["src/**", "tests/**"],
+        "language": "ko"
+      },
+      "expectations": [
+        {
+          "label": "Answer explains schema normalization",
+          "source": "combined_text",
+          "groups": [["normalizeExploreResult"], ["schemas.mjs"], ["evidence", "candidatePaths"]],
+          "weight": 0.45
+        },
+        {
+          "label": "Targets point to schema code",
+          "source": "target_paths",
+          "groups": [["src/explorer/schemas.mjs"]],
+          "weight": 0.25
+        }
+      ],
+      "checks": [
+        { "label": "Grounded evidence", "type": "min_grounded_evidence_count", "value": 2, "weight": 0.2 },
+        { "label": "Snippet present", "type": "min_evidence_snippet_count", "value": 1, "weight": 0.1 }
+      ]
+    },
+    {
+      "id": "map-change-impact",
+      "description": "Map likely blast radius before an edit.",
+      "tool": "map_change_impact",
+      "args": {
+        "change": "Add a new top-level field to explore_repo structured output",
+        "scope": ["src/**", "tests/**"],
+        "language": "ko"
+      },
+      "expectations": [
+        {
+          "label": "Answer covers runtime, schema, server, tests",
+          "source": "combined_text",
+          "groups": [["schemas.mjs"], ["runtime.mjs"], ["server.mjs"], ["tests"]],
+          "weight": 0.45
+        },
+        {
+          "label": "Targets describe actionability",
+          "source": "target_reasons",
+          "groups": [["output", "schema"], ["runtime", "normaliz"], ["test", "검증"]],
+          "weight": 0.25
+        }
+      ],
+      "checks": [
+        { "label": "Returns at least three targets", "type": "min_target_count", "value": 3, "weight": 0.2 },
+        { "label": "Has session id", "type": "has_session_id", "value": true, "weight": 0.1 }
+      ]
+    },
+    {
+      "id": "explain-code-path",
+      "description": "Explain request flow through MCP handler.",
+      "tool": "explain_code_path",
+      "args": {
+        "pathQuery": "MCP tools/call request flow from JSON-RPC handler to exploreRepository",
+        "knownFiles": ["src/mcp/server.mjs"],
+        "scope": ["src/**"],
+        "language": "ko"
+      },
+      "expectations": [
+        {
+          "label": "Flow mentions handler and runtime",
+          "source": "combined_text",
+          "groups": [["tools/call"], ["handleRequest"], ["exploreRepository"]],
+          "weight": 0.5
+        },
+        {
+          "label": "Targets include server and runtime",
+          "source": "target_paths",
+          "groups": [["src/mcp/server.mjs"], ["src/explorer/runtime.mjs"]],
+          "weight": 0.25
+        }
+      ],
+      "checks": [
+        { "label": "Grounded evidence", "type": "min_grounded_evidence_count", "value": 2, "weight": 0.15 },
+        { "label": "Snippet present", "type": "min_evidence_snippet_count", "value": 1, "weight": 0.1 }
+      ]
+    },
+    {
+      "id": "collect-evidence",
+      "description": "Collect evidence for a specific claim.",
+      "tool": "collect_evidence",
+      "args": {
+        "claim": "explore_repo validates evidence against observed file ranges before returning structuredContent",
+        "scope": ["src/**", "tests/**"],
+        "language": "ko"
+      },
+      "expectations": [
+        {
+          "label": "Answer names grounding and critic flow",
+          "source": "combined_text",
+          "groups": [["runDeterministicCriticPass"], ["groundEvidence", "grounding"], ["observedRanges"]],
+          "weight": 0.5
+        },
+        {
+          "label": "Evidence snippets show code",
+          "source": "evidence_snippets",
+          "groups": [["runDeterministicCriticPass"], ["observedRanges"]],
+          "weight": 0.2
+        }
+      ],
+      "checks": [
+        { "label": "Has direct answer", "type": "has_direct_answer", "value": true, "weight": 0.1 },
+        { "label": "Grounded evidence", "type": "min_grounded_evidence_count", "value": 2, "weight": 0.1 },
+        { "label": "Snippet present", "type": "min_evidence_snippet_count", "value": 1, "weight": 0.1 }
+      ]
+    },
+    {
+      "id": "review-change-context",
+      "description": "Review recent changes with git-guided context.",
+      "tool": "review_change_context",
+      "args": {
+        "reviewGoal": "What changed recently around MCP tool metadata and what should be reviewed?",
+        "since": "2 weeks ago",
+        "scope": ["src/**", "tests/**"],
+        "language": "ko"
+      },
+      "expectations": [
+        {
+          "label": "Answer discusses change context",
+          "source": "combined_text",
+          "groups": [["tool", "metadata"], ["server.mjs"], ["test", "검토"]],
+          "weight": 0.45
+        },
+        {
+          "label": "Recent activity or hot files are surfaced",
+          "source": "hot_files",
+          "groups": [["src/", "tests/"]],
+          "weight": 0.15,
+          "minCoverage": 0.5
+        }
+      ],
+      "checks": [
+        { "label": "Has recent activity", "type": "has_recent_activity", "value": true, "weight": 0.2 },
+        { "label": "Targets present", "type": "min_target_count", "value": 1, "weight": 0.2 }
+      ]
+    },
+    {
+      "id": "structured-output-contract",
+      "description": "Verify structured output contract fields for parent agent handoff.",
+      "tool": "find_relevant_code",
+      "args": {
+        "query": "Which code controls explore_repo output formatting and structuredContent fields?",
+        "knownSymbols": ["formatExploreResult", "normalizeExploreResult"],
+        "scope": ["src/**", "tests/**"],
+        "language": "ko"
+      },
+      "expectations": [
+        {
+          "label": "Answer mentions formatting and normalization",
+          "source": "combined_text",
+          "groups": [["formatExploreResult"], ["normalizeExploreResult"], ["structuredContent"]],
+          "weight": 0.45
+        },
+        {
+          "label": "Status narrows verification",
+          "source": "status_verification",
+          "groups": [["targeted_read_needed", "verified", "follow_up_needed"]],
+          "weight": 0.15
+        }
+      ],
+      "checks": [
+        { "label": "Has direct answer", "type": "has_direct_answer", "value": true, "weight": 0.1 },
+        { "label": "Targets present", "type": "min_target_count", "value": 2, "weight": 0.2 },
+        { "label": "Snippet present", "type": "min_evidence_snippet_count", "value": 1, "weight": 0.1 }
+      ]
+    },
+    {
+      "id": "direct-vs-explorer-boundary",
+      "description": "Boundary case checks that explorer gives narrow targets instead of encouraging broad native re-search.",
+      "tool": "find_relevant_code",
+      "args": {
+        "query": "I need to update README examples for explore_repo return fields. What exact targets should I read?",
+        "knownFiles": ["README.md"],
+        "language": "ko"
+      },
+      "expectations": [
+        {
+          "label": "Answer stays narrow",
+          "source": "combined_text",
+          "groups": [["README.md"], ["explore_repo"], ["return", "반환"]],
+          "weight": 0.45
+        },
+        {
+          "label": "Next action is targeted",
+          "source": "next_action",
+          "groups": [["read_target", "stop"], ["README.md"]],
+          "weight": 0.2,
+          "minCoverage": 0.5
+        }
+      ],
+      "checks": [
+        { "label": "Has direct answer", "type": "has_direct_answer", "value": true, "weight": 0.1 },
+        { "label": "Targets present", "type": "min_target_count", "value": 1, "weight": 0.15 },
+        { "label": "Snippet present", "type": "min_evidence_snippet_count", "value": 1, "weight": 0.1 }
+      ]
+    }
+  ]
+}

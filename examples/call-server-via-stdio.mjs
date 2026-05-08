@@ -30,9 +30,9 @@ child.stdin.write(
     id: 2,
     method: 'tools/call',
     params: {
-      name: 'explore_repo',
+      name: 'find_relevant_code',
       arguments: {
-        task: 'users/me 라우트에 인증 미들웨어가 어떻게 붙는지 추적해라.',
+        query: 'users/me 라우트에 인증 미들웨어가 어떻게 붙는지 추적해라.',
         repo_root: './fixtures/demo-repo',
         scope: ['src/**', 'docs/**']
       }

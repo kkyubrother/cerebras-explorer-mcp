@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   EXPLORE_REPO_INPUT_SCHEMA,
+  EXPLORE_REPO_OUTPUT_SCHEMA,
   EXPLORE_RESULT_JSON_SCHEMA,
   computeConfidenceScore,
   normalizeExploreResult,
@@ -192,4 +193,55 @@ test('followup suggestedCall is optional in schema and normalization', () => {
   assert.equal(result.followups.length, 1);
   assert.equal(result.followups[0].description, 'check related routes');
   assert.equal(result.followups[0].suggestedCall, null);
+});
+
+test('agent-facing output schema exposes directAnswer, status, targets, snippets, and debug', () => {
+  assert.ok(EXPLORE_REPO_OUTPUT_SCHEMA.properties.directAnswer);
+  assert.ok(EXPLORE_REPO_OUTPUT_SCHEMA.properties.status);
+  assert.ok(EXPLORE_REPO_OUTPUT_SCHEMA.properties.targets);
+  assert.ok(EXPLORE_REPO_OUTPUT_SCHEMA.properties.evidence.items.properties.snippet);
+  assert.ok(EXPLORE_REPO_OUTPUT_SCHEMA.properties._debug);
+});
+
+test('normalizeExploreResult accepts legacy object candidatePaths and v3 fields', () => {
+  const result = normalizeExploreResult({
+    directAnswer: 'direct',
+    answer: 'answer',
+    summary: 'summary',
+    confidence: 'high',
+    status: {
+      confidence: 'high',
+      verification: 'targeted_read_needed',
+      complete: true,
+      warnings: [],
+    },
+    targets: [
+      {
+        path: 'src/auth.js',
+        startLine: 1,
+        endLine: 4,
+        role: 'read',
+        reason: 'definition',
+        evidenceRefs: ['E1'],
+      },
+    ],
+    evidence: [
+      {
+        id: 'E1',
+        path: 'src/auth.js',
+        startLine: 1,
+        endLine: 4,
+        why: 'definition',
+        snippet: '1: export function requireAuth() {}',
+      },
+    ],
+    candidatePaths: [{ path: 'src/auth.js', why: 'definition' }],
+    followups: [],
+  }, makeStats());
+
+  assert.equal(result.directAnswer, 'direct');
+  assert.equal(result.status.verification, 'targeted_read_needed');
+  assert.equal(result.targets[0].evidenceRefs[0], 'E1');
+  assert.equal(result.evidence[0].snippet, '1: export function requireAuth() {}');
+  assert.deepEqual(result.candidatePaths, ['src/auth.js']);
 });

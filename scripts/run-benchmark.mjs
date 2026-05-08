@@ -109,6 +109,9 @@ function formatPercent(score) {
  *   - noToolExitRate        : fraction of cases where the model answered with 0 tool calls
  *   - avgGroundedEvidence   : average count of grounded evidence items per case
  *   - deepBudgetAvgTotalTokens : average total tokens for deep-budget cases (null if none)
+ *   - avgTargets            : average number of action targets in structured output
+ *   - evidenceSnippetRate   : fraction of evidence items that include snippets
+ *   - targetedVerificationRate : fraction of cases that narrow the next step to returned targets
  */
 function computeExtendedMetrics(caseResults) {
   const successCases = caseResults.filter(cr => cr.result !== null);
@@ -137,6 +140,17 @@ function computeExtendedMetrics(caseResults) {
     ? deepCases.reduce((sum, cr) => sum + (cr.result.stats?.totalTokens ?? 0), 0) / deepCases.length
     : null;
 
+  const evidenceCount = successCases.reduce((sum, cr) => sum + (cr.result.evidence?.length ?? 0), 0);
+  const snippetCount = successCases.reduce((sum, cr) => {
+    return sum + (cr.result.evidence ?? []).filter(item => typeof item.snippet === 'string' && item.snippet.trim()).length;
+  }, 0);
+
+  const avgTargets =
+    successCases.reduce((sum, cr) => sum + (cr.result.targets?.length ?? 0), 0) / count;
+
+  const targetedVerificationRate =
+    successCases.filter(cr => cr.result.status?.verification === 'targeted_read_needed').length / count;
+
   return {
     avgToolTurns: Math.round(avgToolTurns * 10) / 10,
     budgetExhaustionRate: Math.round(budgetExhaustionRate * 1000) / 1000,
@@ -145,6 +159,11 @@ function computeExtendedMetrics(caseResults) {
     deepBudgetAvgTotalTokens: deepBudgetAvgTotalTokens !== null
       ? Math.round(deepBudgetAvgTotalTokens)
       : null,
+    avgTargets: Math.round(avgTargets * 10) / 10,
+    evidenceSnippetRate: evidenceCount > 0
+      ? Math.round((snippetCount / evidenceCount) * 1000) / 1000
+      : 0,
+    targetedVerificationRate: Math.round(targetedVerificationRate * 1000) / 1000,
   };
 }
 
@@ -238,6 +257,9 @@ async function main() {
     console.log(`  budget exhaustion  : ${formatPercent(metrics.budgetExhaustionRate)}`);
     console.log(`  no-tool exit rate  : ${formatPercent(metrics.noToolExitRate)}`);
     console.log(`  avg grounded evid. : ${metrics.avgGroundedEvidence}`);
+    console.log(`  avg targets        : ${metrics.avgTargets}`);
+    console.log(`  evidence snippets  : ${formatPercent(metrics.evidenceSnippetRate)}`);
+    console.log(`  targeted verify    : ${formatPercent(metrics.targetedVerificationRate)}`);
     if (metrics.deepBudgetAvgTotalTokens !== null) {
       console.log(`  deep budget tokens : ${metrics.deepBudgetAvgTotalTokens} avg total`);
     }

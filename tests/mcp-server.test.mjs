@@ -139,13 +139,21 @@ test('MCP request handler exposes explore_repo and returns structuredContent', a
   const toolNames = listed.tools.map(t => t.name);
   assert.ok(toolNames.includes('explore_repo'), 'explore_repo must be in tool list');
   // Extra tools are on by default
+  assert.ok(toolNames.includes('find_relevant_code'), 'find_relevant_code must be in tool list');
+  assert.ok(toolNames.includes('trace_symbol'), 'trace_symbol must be in tool list');
+  assert.ok(toolNames.includes('map_change_impact'), 'map_change_impact must be in tool list');
+  assert.ok(toolNames.includes('explain_code_path'), 'explain_code_path must be in tool list');
+  assert.ok(toolNames.includes('collect_evidence'), 'collect_evidence must be in tool list');
+  assert.ok(toolNames.includes('review_change_context'), 'review_change_context must be in tool list');
   assert.ok(toolNames.includes('explain_symbol'), 'explain_symbol must be in tool list');
   assert.ok(toolNames.includes('trace_dependency'), 'trace_dependency must be in tool list');
   assert.ok(toolNames.includes('summarize_changes'), 'summarize_changes must be in tool list');
   assert.ok(toolNames.includes('find_similar_code'), 'find_similar_code must be in tool list');
+  assert.ok(!toolNames.includes('explore_v2'), 'explore_v2 must be opt-in');
   const exploreRepoTool = listed.tools.find(t => t.name === 'explore_repo');
   assert.match(exploreRepoTool.description, /Use FIRST/);
   assert.match(exploreRepoTool.inputSchema.properties.budget.description, /Advanced\/legacy only/);
+  assert.ok(exploreRepoTool.outputSchema.properties.targets, 'explore_repo must expose outputSchema targets');
 
   const called = await handleRequest({
     jsonrpc: '2.0',
@@ -163,9 +171,15 @@ test('MCP request handler exposes explore_repo and returns structuredContent', a
   });
 
   assert.ok(['medium', 'high'].includes(called.structuredContent.confidence), `confidence must be medium or high, got: ${called.structuredContent.confidence}`);
+  assert.equal(called.structuredContent.directAnswer, called.structuredContent.answer);
+  assert.equal(called.structuredContent.status.verification, 'targeted_read_needed');
+  assert.equal(called.structuredContent.targets.length, 2);
   assert.equal(called.structuredContent.evidence.length, 2);
+  assert.ok(called.structuredContent.evidence.every(item => item.id && item.snippet), 'evidence must include ids and snippets');
+  assert.ok(called.structuredContent._debug.stats, '_debug.stats must be populated');
   assert.match(called.content[0].text, /requireAuth/);
-  assert.match(called.content[0].text, /## Candidate Paths/);
+  assert.match(called.content[0].text, /## Targets/);
+  assert.match(called.content[0].text, /snippet:/);
   assert.doesNotMatch(called.content[0].text, /## Stats/);
 });
 
@@ -263,10 +277,6 @@ test('MCP request handler returns execution failures for other exposed tools as 
       arguments: { prompt: '런타임 실패를 재현해라.', repo_root: repoRoot, thoroughness: 'quick' },
     },
     {
-      name: 'explore_v2',
-      arguments: { prompt: 'V2 런타임 실패를 재현해라.', repo_root: repoRoot, thoroughness: 'quick' },
-    },
-    {
       name: 'explain_symbol',
       arguments: { symbol: 'requireAuth', repo_root: repoRoot },
     },
@@ -284,6 +294,34 @@ test('MCP request handler returns execution failures for other exposed tools as 
     assert.match(called.content[0].text, new RegExp(`${testCase.name} execution failed`, 'i'));
     assert.match(called.content[0].text, /provider exploded/);
     assert.doesNotMatch(called.content[0].text, /Invalid arguments for/);
+  }
+});
+
+test('MCP request handler exposes explore_v2 only when explicitly enabled', async () => {
+  const previous = process.env.CEREBRAS_EXPLORER_ENABLE_EXPLORE_V2;
+  try {
+    delete process.env.CEREBRAS_EXPLORER_ENABLE_EXPLORE_V2;
+    let handler = createMcpRequestHandler().handleRequest;
+    let listed = await handler({
+      jsonrpc: '2.0',
+      id: 20,
+      method: 'tools/list',
+      params: {},
+    });
+    assert.ok(!listed.tools.map(tool => tool.name).includes('explore_v2'));
+
+    process.env.CEREBRAS_EXPLORER_ENABLE_EXPLORE_V2 = 'true';
+    handler = createMcpRequestHandler().handleRequest;
+    listed = await handler({
+      jsonrpc: '2.0',
+      id: 21,
+      method: 'tools/list',
+      params: {},
+    });
+    assert.ok(listed.tools.map(tool => tool.name).includes('explore_v2'));
+  } finally {
+    if (previous === undefined) delete process.env.CEREBRAS_EXPLORER_ENABLE_EXPLORE_V2;
+    else process.env.CEREBRAS_EXPLORER_ENABLE_EXPLORE_V2 = previous;
   }
 });
 

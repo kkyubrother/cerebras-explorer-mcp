@@ -11,6 +11,8 @@ function joinLines(values) {
 
 function getSourceText(result, source) {
   switch (source) {
+    case 'direct_answer':
+      return result.directAnswer ?? result.answer ?? '';
     case 'answer':
       return result.answer ?? '';
     case 'summary':
@@ -27,8 +29,18 @@ function getSourceText(result, source) {
       return joinLines((result.evidence ?? []).map(item => item.why));
     case 'candidate_paths':
       return joinLines(result.candidatePaths ?? []);
+    case 'target_paths':
+      return joinLines((result.targets ?? []).map(item => item.path));
+    case 'target_reasons':
+      return joinLines((result.targets ?? []).map(item => item.reason));
+    case 'evidence_snippets':
+      return joinLines((result.evidence ?? []).map(item => item.snippet));
     case 'followup_descriptions':
       return joinLines((result.followups ?? []).map(item => item.description));
+    case 'status_verification':
+      return result.status?.verification ?? '';
+    case 'next_action':
+      return joinLines([result.nextAction?.type, result.nextAction?.reason, result.nextAction?.query]);
     case 'recent_commit_messages':
       return joinLines((result.recentActivity?.recentCommits ?? []).map(item => item.message));
     case 'hot_files':
@@ -82,6 +94,22 @@ function evaluateCheck(result, check) {
     case 'min_candidate_path_count':
       actual = (result.candidatePaths ?? []).length;
       passed = actual >= Number(check.value ?? 0);
+      break;
+    case 'min_target_count':
+      actual = (result.targets ?? []).length;
+      passed = actual >= Number(check.value ?? 0);
+      break;
+    case 'min_evidence_snippet_count':
+      actual = (result.evidence ?? []).filter(item => typeof item.snippet === 'string' && item.snippet.trim()).length;
+      passed = actual >= Number(check.value ?? 0);
+      break;
+    case 'has_direct_answer':
+      actual = typeof result.directAnswer === 'string' && result.directAnswer.trim().length > 0;
+      passed = actual === Boolean(check.value);
+      break;
+    case 'status_verification_equals':
+      actual = result.status?.verification ?? null;
+      passed = actual === check.value;
       break;
     case 'has_recent_activity':
       actual = Boolean(result.recentActivity);
