@@ -47,7 +47,7 @@ import {
   runDeterministicCriticPass,
 } from './critic.mjs';
 import { createChatClient } from './providers/index.mjs';
-import { createTranscriptRecorder } from './transcript.mjs';
+import { createCompactToolTrace, createTranscriptRecorder } from './transcript.mjs';
 
 // Maximum number of tool calls to execute in parallel within a single turn.
 const TOOL_CONCURRENCY = 8;
@@ -463,12 +463,13 @@ function buildNextAction(result) {
   return { type: 'stop', reason: 'Explorer result is complete for the requested read-only investigation.' };
 }
 
-function attachDebug(result, { stats, codeMap, diagram, recentActivity }) {
+function attachDebug(result, { stats, codeMap, diagram, recentActivity, toolTrace }) {
   result._debug = {
     ...(result._debug ?? {}),
     confidenceScore: result.confidenceScore,
     confidenceFactors: result.confidenceFactors,
     stats,
+    ...(toolTrace ? { toolTrace } : {}),
     ...(codeMap ? { codeMap } : {}),
     ...(diagram ? { diagram } : {}),
     ...(recentActivity ? { recentActivity } : {}),
@@ -1010,6 +1011,7 @@ export class ExplorerRuntime {
     const observedRanges = new Map();
     const capturedGitLogs = [];
     const observedGit = { commits: new Set(), blame: new Set() };
+    const toolTrace = createCompactToolTrace();
 
     // Checkpoint interval: inject a self-assessment message every N turns.
     // Only active for budgets with enough turns to benefit (>6).
@@ -1166,6 +1168,12 @@ export class ExplorerRuntime {
 
       for (const { toolCall, toolName, toolArgs, toolResult } of toolCallResults) {
         incrementToolStats(stats, toolName);
+        toolTrace.record({
+          turn: turnIndex + 1,
+          tool: toolName,
+          args: toolArgs,
+          result: toolResult,
+        });
 
         candidatePaths = mergeCandidatePaths(
           candidatePaths,
@@ -1367,7 +1375,7 @@ export class ExplorerRuntime {
     // recentActivity from git_log
     const recentActivity = buildRecentActivity(capturedGitLogs);
     if (recentActivity) normalized.recentActivity = recentActivity;
-    attachDebug(normalized, { stats, codeMap, diagram, recentActivity });
+    attachDebug(normalized, { stats, codeMap, diagram, recentActivity, toolTrace: toolTrace.toJSON() });
 
     // Update session with this call's result
     if (sessionStore && sessionId) {
@@ -1451,6 +1459,7 @@ export class ExplorerRuntime {
 
     const filesRead = new Set();
     const toolsUsed = new Set();
+    const toolTrace = createCompactToolTrace();
     let report = '';
 
     for (let turnIndex = 0; turnIndex < budgetConfig.maxTurns; turnIndex += 1) {
@@ -1524,13 +1533,19 @@ export class ExplorerRuntime {
               tool: toolName,
             };
           }
-          return { toolCall, toolName, toolResult };
+          return { toolCall, toolName, toolArgs, toolResult };
         },
       );
 
-      for (const { toolCall, toolName, toolResult } of toolCallResults) {
+      for (const { toolCall, toolName, toolArgs, toolResult } of toolCallResults) {
         stats.toolCalls += 1;
         toolsUsed.add(toolName);
+        toolTrace.record({
+          turn: turnIndex + 1,
+          tool: toolName,
+          args: toolArgs,
+          result: toolResult,
+        });
 
         if (toolName === 'repo_read_file' && !toolResult?.error) {
           filesRead.add(toolResult.path);
@@ -1600,6 +1615,7 @@ export class ExplorerRuntime {
       toolsUsed: [...toolsUsed],
       stats,
       critic,
+      toolTrace: toolTrace.toJSON(),
     };
   }
 
@@ -1658,6 +1674,7 @@ export class ExplorerRuntime {
       task: args.prompt,
       logger: this.logger,
     });
+    const toolTrace = createCompactToolTrace();
 
     let messages = [
       {
@@ -1834,16 +1851,17 @@ export class ExplorerRuntime {
         TOOL_CONCURRENCY,
         async (toolCall) => {
           const toolName = toolCall.function?.name ?? '(unknown)';
+          let toolArgs = {};
           let toolResult;
 
           // Validate tool name — catch hallucinated tools early
           const validationError = validateToolName(toolName, knownToolNames);
           if (validationError) {
-            return { toolCall, toolName, toolResult: validationError };
+            return { toolCall, toolName, toolArgs, toolResult: validationError };
           }
 
           try {
-            const toolArgs = safeJsonParse(toolCall.function?.arguments ?? '{}');
+            toolArgs = safeJsonParse(toolCall.function?.arguments ?? '{}');
             toolResult = await repoToolkit.callTool(toolName, toolArgs);
           } catch (error) {
             toolResult = {
@@ -1856,14 +1874,20 @@ export class ExplorerRuntime {
               tool: toolName,
             };
           }
-          return { toolCall, toolName, toolResult };
+          return { toolCall, toolName, toolArgs, toolResult };
         },
       );
 
       let allErrors = true;
-      for (const { toolCall, toolName, toolResult } of toolCallResults) {
+      for (const { toolCall, toolName, toolArgs, toolResult } of toolCallResults) {
         stats.toolCalls += 1;
         toolsUsed.add(toolName);
+        toolTrace.record({
+          turn: turnIndex + 1,
+          tool: toolName,
+          args: toolArgs,
+          result: toolResult,
+        });
 
         if (toolName === 'repo_read_file' && !toolResult?.error) {
           filesRead.add(toolResult.path);
@@ -2060,6 +2084,7 @@ export class ExplorerRuntime {
       stats,
       critic,
       transcriptPath: transcript.filePath,
+      toolTrace: toolTrace.toJSON(),
     };
   }
 

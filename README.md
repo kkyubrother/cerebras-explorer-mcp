@@ -129,7 +129,7 @@ Parent model (Claude Code / Codex)
 - **GLM 4.7 reasoning 정렬**: quick budget은 `reasoning_effort="none"`으로 reasoning을 끄고, normal/deep은 기본 reasoning을 유지하며 `clear_thinking=false`로 이전 turn의 reasoning을 보존
 - **샘플링 기본값 정렬**: budget별 temperature(`quick`: 0.3, `normal`: 0.8, `deep`: 1.0)와 `top_p=0.95`를 사용하며, direct client 경로에는 fallback 환경 변수도 지원
 - **근거 강제**: 최종 evidence는 실제로 읽거나 grep으로 확인한 라인 범위에만 남김
-- **MCP 친화적 반환**: `directAnswer`, `status`, `targets`, snippet 포함 `evidence`, `followups`를 상단에 두고, 호환용 `answer`, `summary`, `candidatePaths`, `stats`, `_debug`도 함께 반환
+- **MCP 친화적 반환**: `directAnswer`, `status`, `targets`, snippet 포함 `evidence`, `followups`를 상단에 두고, 호환용 `answer`, `summary`, `candidatePaths`, `stats`, `_debug`도 함께 반환. `_debug.toolTrace`에는 raw content 없는 compact tool-call trace가 포함됩니다.
 
 ## 공개 MCP 도구
 
@@ -209,6 +209,18 @@ Parent model (Claude Code / Codex)
   ],
   "_debug": {
     "confidenceScore": 0.91,
+    "toolTrace": {
+      "entries": [
+        {
+          "turn": 1,
+          "tool": "repo_grep",
+          "args": { "pattern": "requireAuth", "scope": ["src/**"] },
+          "result": { "matches": 3, "paths": ["src/auth.js", "src/routes/user.js"], "truncated": false }
+        }
+      ],
+      "totalCalls": 3,
+      "truncated": false
+    },
     "stats": {
       "model": "${CEREBRAS_EXPLORER_MODEL:-zai-glm-4.7}",
       "budget": "quick",

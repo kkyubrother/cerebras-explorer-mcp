@@ -221,6 +221,17 @@ test('ExplorerRuntime performs an autonomous tool loop and returns structured fi
   assert.equal(result.evidence.length, 2);
   assert.ok(result.evidence.every(item => item.id && item.snippet), 'evidence has ids and snippets');
   assert.ok(result._debug?.stats, '_debug.stats is present');
+  assert.ok(result._debug?.toolTrace, '_debug.toolTrace is present');
+  assert.equal(result._debug.toolTrace.totalCalls, 3);
+  assert.equal(result._debug.toolTrace.truncated, false);
+  assert.deepEqual(
+    result._debug.toolTrace.entries.map(entry => entry.tool),
+    ['repo_grep', 'repo_read_file', 'repo_read_file'],
+  );
+  assert.deepEqual(result._debug.toolTrace.entries[0].args, { pattern: 'requireAuth', scope: ['src/**'] });
+  assert.ok(result._debug.toolTrace.entries[0].result.matches >= 2);
+  assert.equal(result._debug.toolTrace.entries[1].result.path, 'src/routes/user.js');
+  assert.equal(JSON.stringify(result._debug.toolTrace).includes('/users/me'), false, 'trace excludes raw file content');
   assert.equal(result.stats.toolCalls, 3);
   assert.equal(result.stats.grepCalls, 1);
   assert.equal(result.stats.filesRead, 2);
