@@ -120,7 +120,10 @@ function evaluateCheck(result, check) {
       passed = actual === Boolean(check.value);
       break;
     case 'has_session_id':
-      actual = typeof result.stats?.sessionId === 'string' && result.stats.sessionId.startsWith('sess_');
+      {
+        const sessionId = result.sessionId ?? result.stats?.sessionId;
+        actual = typeof sessionId === 'string' && sessionId.startsWith('sess_');
+      }
       passed = actual === Boolean(check.value);
       break;
     default:

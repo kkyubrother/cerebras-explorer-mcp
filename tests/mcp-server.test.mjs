@@ -145,15 +145,20 @@ test('MCP request handler exposes explore_repo and returns structuredContent', a
   assert.ok(toolNames.includes('explain_code_path'), 'explain_code_path must be in tool list');
   assert.ok(toolNames.includes('collect_evidence'), 'collect_evidence must be in tool list');
   assert.ok(toolNames.includes('review_change_context'), 'review_change_context must be in tool list');
-  assert.ok(toolNames.includes('explain_symbol'), 'explain_symbol must be in tool list');
-  assert.ok(toolNames.includes('trace_dependency'), 'trace_dependency must be in tool list');
-  assert.ok(toolNames.includes('summarize_changes'), 'summarize_changes must be in tool list');
-  assert.ok(toolNames.includes('find_similar_code'), 'find_similar_code must be in tool list');
+  if (!['1', 'true', 'yes'].includes(String(process.env.CEREBRAS_EXPLORER_LEGACY_TOOLS ?? '').toLowerCase())) {
+    assert.ok(!toolNames.includes('explain_symbol'), 'legacy explain_symbol must be opt-in');
+    assert.ok(!toolNames.includes('trace_dependency'), 'legacy trace_dependency must be opt-in');
+    assert.ok(!toolNames.includes('summarize_changes'), 'legacy summarize_changes must be opt-in');
+    assert.ok(!toolNames.includes('find_similar_code'), 'legacy find_similar_code must be opt-in');
+  }
   assert.ok(!toolNames.includes('explore_v2'), 'explore_v2 must be opt-in');
   const exploreRepoTool = listed.tools.find(t => t.name === 'explore_repo');
   assert.match(exploreRepoTool.description, /Use FIRST/);
+  assert.match(exploreRepoTool.description, /Pass sessionId as "session"/);
   assert.match(exploreRepoTool.inputSchema.properties.budget.description, /Advanced\/legacy only/);
   assert.ok(exploreRepoTool.outputSchema.properties.targets, 'explore_repo must expose outputSchema targets');
+  assert.equal(exploreRepoTool.outputSchema.additionalProperties, false);
+  assert.equal(exploreRepoTool.outputSchema.properties.answer, undefined);
 
   const called = await handleRequest({
     jsonrpc: '2.0',
@@ -170,17 +175,23 @@ test('MCP request handler exposes explore_repo and returns structuredContent', a
     },
   });
 
-  assert.ok(['medium', 'high'].includes(called.structuredContent.confidence), `confidence must be medium or high, got: ${called.structuredContent.confidence}`);
-  assert.equal(called.structuredContent.directAnswer, called.structuredContent.answer);
-  assert.equal(called.structuredContent.status.verification, 'targeted_read_needed');
+  assert.ok(['medium', 'high'].includes(called.structuredContent.status.confidence), `confidence must be medium or high, got: ${called.structuredContent.status.confidence}`);
+  assert.match(called.structuredContent.directAnswer, /requireAuth/);
+  assert.equal(called.structuredContent.answer, undefined);
+  assert.equal(called.structuredContent.candidatePaths, undefined);
+  assert.equal(called.structuredContent.stats, undefined);
+  assert.equal(called.structuredContent.status.verification, 'verified');
   assert.equal(called.structuredContent.targets.length, 2);
   assert.equal(called.structuredContent.evidence.length, 2);
   assert.ok(called.structuredContent.evidence.every(item => item.id && item.snippet), 'evidence must include ids and snippets');
+  assert.ok(called.structuredContent.sessionId.startsWith('sess_'), 'sessionId must be top-level');
   assert.ok(called.structuredContent._debug.stats, '_debug.stats must be populated');
+  assert.ok(called.structuredContent._debug.legacy.answer, '_debug.legacy must contain compatibility fields');
   assert.match(called.content[0].text, /requireAuth/);
   assert.match(called.content[0].text, /## Targets/);
   assert.match(called.content[0].text, /snippet:/);
   assert.doesNotMatch(called.content[0].text, /## Stats/);
+  assert.doesNotMatch(called.content[0].text, /stats\.sessionId/);
 });
 
 test('MCP request handler returns repo_root resolution errors without mislabeling them as generic argument errors', async () => {
@@ -277,7 +288,7 @@ test('MCP request handler returns execution failures for other exposed tools as 
       arguments: { prompt: '런타임 실패를 재현해라.', repo_root: repoRoot, thoroughness: 'quick' },
     },
     {
-      name: 'explain_symbol',
+      name: 'trace_symbol',
       arguments: { symbol: 'requireAuth', repo_root: repoRoot },
     },
   ];

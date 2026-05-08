@@ -8,6 +8,6 @@ Preferred flow:
 3. Prefer `explore` when you want a cited Markdown report or architecture explanation to hand back to the user.
 4. Do not set `budget`, `thoroughness`, `hints.strategy`, or `language` unless a legacy workflow explicitly requires it.
 5. Add `scope` and known anchors only when they are already implied by the task.
-6. Reuse `stats.sessionId` as `session` for follow-up exploration.
+6. Reuse `sessionId` as `session` for follow-up exploration.
 7. After a passing result, read only returned `targets` with role `read` or `edit`.
 8. Keep native wide search as a fallback, not the default.

@@ -2,7 +2,7 @@
   "directAnswer": "registerUserRoutes는 /users/me 라우트에 requireAuth 미들웨어를 직접 연결한다.",
   "status": {
     "confidence": "high",
-    "verification": "targeted_read_needed",
+    "verification": "verified",
     "complete": true,
     "warnings": []
   },
@@ -30,42 +30,6 @@
       "evidenceRefs": []
     }
   ],
-  "nextAction": {
-    "type": "read_target",
-    "reason": "Read src/routes/user.js:1-5 before editing or final verification.",
-    "target": {
-      "path": "src/routes/user.js",
-      "startLine": 1,
-      "endLine": 5,
-      "role": "read",
-      "reason": "라우트가 requireAuth를 import하고 /users/me에 연결한다.",
-      "evidenceRefs": ["E1"]
-    }
-  },
-  "uncertainties": [],
-  "answer": "registerUserRoutes는 /users/me 라우트에 requireAuth 미들웨어를 직접 연결한다.",
-  "summary": "auth.js에서 requireAuth를 정의하고, user.js에서 이를 import해 /users/me에 적용한다.",
-  "confidence": "high",
-  "confidenceScore": 0.9,
-  "confidenceLevel": "high",
-  "confidenceFactors": {
-    "evidenceCount": 2,
-    "evidenceGrounded": 2,
-    "evidenceDropped": 0,
-    "droppedUngrounded": 0,
-    "droppedMalformed": 0,
-    "crossVerified": true,
-    "symbolSearchUsed": false,
-    "stoppedByBudget": false,
-    "gitLogCalls": 0,
-    "gitDiffCalls": 0,
-    "gitBlameCalls": 0,
-    "gitGroundingHint": "none",
-    "adjustments": [
-      "+0.20 (all evidence grounded)",
-      "+0.15 (cross-verified across multiple files)"
-    ]
-  },
   "evidence": [
     {
       "id": "E1",
@@ -88,17 +52,12 @@
       "snippet": "1: export function requireAuth(req, res, next) {\n2:   if (!req.user) throw new Error(\"unauthorized\");\n3:   next();\n4: }"
     }
   ],
-  "candidatePaths": ["src/routes/user.js", "src/auth.js", "docs/auth.md"],
-  "critic": {
-    "status": "pass",
-    "warnings": []
+  "uncertainties": [],
+  "nextAction": {
+    "type": "stop",
+    "reason": "Explorer result is complete for the requested read-only investigation."
   },
-  "followups": [
-    {
-      "description": "role-based access control 레이어 추가 분석",
-      "priority": "optional"
-    }
-  ],
+  "sessionId": "sess_example",
   "_debug": {
     "confidenceScore": 0.9,
     "confidenceFactors": {
@@ -113,15 +72,17 @@
       "sessionId": "sess_example",
       "sessionStatus": "created",
       "remainingCalls": 4
+    },
+    "legacy": {
+      "answer": "registerUserRoutes는 /users/me 라우트에 requireAuth 미들웨어를 직접 연결한다.",
+      "summary": "auth.js에서 requireAuth를 정의하고, user.js에서 이를 import해 /users/me에 적용한다.",
+      "candidatePaths": ["src/routes/user.js", "src/auth.js", "docs/auth.md"],
+      "followups": [
+        {
+          "description": "role-based access control 레이어 추가 분석",
+          "priority": "optional"
+        }
+      ]
     }
-  },
-  "stats": {
-    "model": "zai-glm-4.7",
-    "budget": "quick",
-    "turns": 3,
-    "toolCalls": 4,
-    "sessionId": "sess_example",
-    "sessionStatus": "created",
-    "remainingCalls": 4
   }
 }

@@ -22,9 +22,9 @@ const EXPLORE_REPO_TOOL = {
     'Use FIRST for read-only code discovery when the exact files are unknown, the task may span 3+ files, or you need cross-file evidence: ' +
     'architecture, symbol usage, dependency/call tracing, bug root cause, change impact, config origin, or evidence collection. ' +
     'Do NOT use for a single known file/range or when immediate editing is cheaper. ' +
-    'Returns structured JSON with directAnswer, status, targets, grounded file:line evidence with snippets, and follow-up suggestions. ' +
+    'Returns structured JSON with directAnswer, status, targets, grounded file:line evidence with snippets, and nextAction. ' +
     'After this tool, avoid broad grep/read; only read cited targets needed for verification or edits. ' +
-    'Omit budget and hints.strategy unless required by a legacy workflow. Pass stats.sessionId as "session" for follow-up calls.',
+    'Omit budget and hints.strategy unless required by a legacy workflow. Pass sessionId as "session" for follow-up calls.',
   inputSchema: EXPLORE_REPO_INPUT_SCHEMA,
   outputSchema: EXPLORE_REPO_OUTPUT_SCHEMA,
 };
@@ -344,8 +344,12 @@ function extraToolsEnabled() {
   return isTruthyEnv(v);
 }
 
+function legacyToolsEnabled() {
+  return isTruthyEnv(process.env.CEREBRAS_EXPLORER_LEGACY_TOOLS);
+}
+
 function buildToolList() {
-  const tools = [EXPLORE_REPO_TOOL];
+  const tools = [];
   if (extraToolsEnabled()) {
     tools.push(
       FIND_RELEVANT_CODE_TOOL,
@@ -354,6 +358,11 @@ function buildToolList() {
       EXPLAIN_CODE_PATH_TOOL,
       COLLECT_EVIDENCE_TOOL,
       REVIEW_CHANGE_CONTEXT_TOOL,
+    );
+  }
+  tools.push(EXPLORE_REPO_TOOL);
+  if (legacyToolsEnabled()) {
+    tools.push(
       EXPLAIN_SYMBOL_TOOL,
       TRACE_DEPENDENCY_TOOL,
       SUMMARIZE_CHANGES_TOOL,
@@ -375,11 +384,15 @@ function cleanStringArray(value) {
   return Array.isArray(value) ? value.filter(item => typeof item === 'string' && item.trim()).map(item => item.trim()) : [];
 }
 
+function escapeRegexLiteral(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 function buildAnchorHints({ knownFiles, knownSymbols, knownText, strategy } = {}) {
   const hints = {};
   const files = cleanStringArray(knownFiles);
   const symbols = cleanStringArray(knownSymbols);
-  const regex = cleanStringArray(knownText);
+  const regex = cleanStringArray(knownText).map(escapeRegexLiteral);
   if (files.length > 0) hints.files = files;
   if (symbols.length > 0) hints.symbols = symbols;
   if (regex.length > 0) hints.regex = regex;
@@ -595,7 +608,7 @@ export function createMcpRequestHandler({
 
     if (result.evidence?.length > 0) {
       lines.push('');
-      lines.push(`## Evidence (${result.evidence.length} items, confidence: ${result.confidence})`);
+      lines.push(`## Evidence (${result.evidence.length} items, confidence: ${result.status?.confidence ?? 'unknown'})`);
       for (const e of result.evidence.slice(0, 10)) {
         const grounding = e.groundingStatus === 'exact' ? '' : ' [partial]';
         const id = e.id ? `${e.id} ` : '';
@@ -617,20 +630,51 @@ export function createMcpRequestHandler({
       }
     }
 
-    if (result.followups?.length > 0) {
+    if (result.sessionId) {
       lines.push('');
-      lines.push(`## Suggested Follow-ups`);
-      for (const f of result.followups) {
-        lines.push(`- [${f.priority}] ${f.description}`);
-      }
-    }
-
-    if (result.stats?.sessionId) {
-      lines.push('');
-      lines.push(`Session: ${result.stats.sessionId} (pass as "session" for follow-up calls)`);
+      lines.push(`Session: ${result.sessionId} (pass as "session" for follow-up calls)`);
     }
 
     return lines.join('\n');
+  }
+
+  function toAgentFacingResult(result) {
+    const sessionId = result.sessionId ?? result.stats?.sessionId ?? result._debug?.stats?.sessionId ?? null;
+    const legacy = {
+      answer: result.answer,
+      summary: result.summary,
+      candidatePaths: result.candidatePaths,
+      followups: result.followups,
+      confidence: result.confidence,
+      confidenceLevel: result.confidenceLevel,
+      critic: result.critic,
+      trustSummary: result.trustSummary,
+      codeMap: result.codeMap,
+      diagram: result.diagram,
+      recentActivity: result.recentActivity,
+    };
+    for (const key of Object.keys(legacy)) {
+      if (legacy[key] === undefined) delete legacy[key];
+    }
+
+    return {
+      directAnswer: result.directAnswer || result.answer || '',
+      status: result.status ?? {
+        confidence: result.confidence ?? 'low',
+        verification: 'broad_search_needed',
+        complete: false,
+        warnings: [],
+      },
+      targets: Array.isArray(result.targets) ? result.targets : [],
+      evidence: Array.isArray(result.evidence) ? result.evidence : [],
+      uncertainties: Array.isArray(result.uncertainties) ? result.uncertainties : [],
+      nextAction: result.nextAction ?? { type: 'stop', reason: '' },
+      ...(sessionId ? { sessionId } : {}),
+      _debug: {
+        ...(result._debug ?? {}),
+        ...(Object.keys(legacy).length > 0 ? { legacy } : {}),
+      },
+    };
   }
 
   async function callTool(exploreArgs, progressToken, requestId) {
@@ -644,9 +688,10 @@ export function createMcpRequestHandler({
         sessionStore,
         abortSignal: abortController.signal,
       });
+      const agentResult = toAgentFacingResult(result);
       return {
-        content: [{ type: 'text', text: formatExploreResult(result) }],
-        structuredContent: result,
+        content: [{ type: 'text', text: formatExploreResult(agentResult) }],
+        structuredContent: agentResult,
       };
     } finally {
       if (requestId) activeAbortControllers.delete(requestId);
@@ -704,6 +749,9 @@ export function createMcpRequestHandler({
           negotiatedProtocolVersion = requestedVersion;
         }
         const toolCount = buildToolList().length;
+        const legacySentence = legacyToolsEnabled()
+          ? 'Legacy shortcuts enabled: explain_symbol, trace_dependency, summarize_changes, find_similar_code. '
+          : 'Legacy shortcuts are hidden by default; use purpose shortcuts instead. ';
         return {
           protocolVersion: negotiatedProtocolVersion,
           capabilities: { tools: { listChanged: false } },
@@ -713,8 +761,8 @@ export function createMcpRequestHandler({
             'PREFER these tools over manual file search (Grep/Glob/Read) for any task that spans more than 2-3 files or requires cross-file understanding. ' +
             'explore_repo returns structured JSON with directAnswer, status, targets, and grounded evidence snippets; explore returns a Markdown report for human consumption. ' +
             'Purpose shortcuts: find_relevant_code, trace_symbol, map_change_impact, explain_code_path, collect_evidence, review_change_context. ' +
-            'Legacy shortcuts remain available: explain_symbol, trace_dependency, summarize_changes, find_similar_code. ' +
-            'All tools accept a "session" parameter for multi-call continuity — pass stats.sessionId from one call to the next. ' +
+            legacySentence +
+            'All tools accept a "session" parameter for multi-call continuity — pass sessionId from one call to the next. ' +
             'Pass _meta.progressToken to receive turn-by-turn progress updates.',
         };
       }

@@ -215,9 +215,10 @@ test('ExplorerRuntime performs an autonomous tool loop and returns structured fi
   assert.ok(['medium', 'high'].includes(result.confidence), `confidence must be medium or high, got: ${result.confidence}`);
   assert.match(result.answer, /requireAuth/);
   assert.equal(result.directAnswer, result.answer);
-  assert.equal(result.status.verification, 'targeted_read_needed');
+  assert.equal(result.status.verification, 'verified');
   assert.ok(Array.isArray(result.targets), 'targets must be an array');
   assert.ok(result.targets.some(target => target.path === 'src/routes/user.js'), 'targets include route file');
+  assert.ok(result.targets.every(target => target.role !== 'edit'), 'read-only tracing must not mark all evidence targets as edit');
   assert.equal(result.evidence.length, 2);
   assert.ok(result.evidence.every(item => item.id && item.snippet), 'evidence has ids and snippets');
   assert.ok(result._debug?.stats, '_debug.stats is present');
@@ -263,6 +264,91 @@ test('ExplorerRuntime performs an autonomous tool loop and returns structured fi
   assert.ok(Array.isArray(result.codeMap.entryPoints), 'codeMap.entryPoints must be an array');
   assert.ok(Array.isArray(result.codeMap.keyModules), 'codeMap.keyModules must be an array');
   assert.ok(result.codeMap.keyModules.length >= 2, 'codeMap must include at least the two read files');
+});
+
+test('ExplorerRuntime preserves model-provided edit targets when deriving evidence targets', async () => {
+  class EditTargetClient {
+    constructor() {
+      this.model = 'mock';
+      this.calls = 0;
+    }
+    async createChatCompletion() {
+      this.calls += 1;
+      if (this.calls === 1) {
+        return {
+          usage: { prompt_tokens: 30, completion_tokens: 10, total_tokens: 40 },
+          message: {
+            content: '',
+            toolCalls: [
+              {
+                id: 'call-1',
+                function: {
+                  name: 'repo_read_file',
+                  arguments: JSON.stringify({ path: 'src/auth.js', startLine: 1, endLine: 4 }),
+                },
+              },
+              {
+                id: 'call-2',
+                function: {
+                  name: 'repo_read_file',
+                  arguments: JSON.stringify({ path: 'src/routes/user.js', startLine: 1, endLine: 5 }),
+                },
+              },
+            ],
+          },
+        };
+      }
+      return {
+        usage: { prompt_tokens: 30, completion_tokens: 20, total_tokens: 50 },
+        message: {
+          content: JSON.stringify({
+            answer: 'requireAuth를 수정해야 합니다.',
+            summary: 'auth.js가 수정 후보입니다.',
+            confidence: 'high',
+            evidence: [
+              {
+                path: 'src/auth.js',
+                startLine: 1,
+                endLine: 4,
+                why: 'requireAuth 구현 위치입니다.',
+              },
+              {
+                path: 'src/routes/user.js',
+                startLine: 1,
+                endLine: 5,
+                why: 'requireAuth 호출 위치입니다.',
+              },
+            ],
+            targets: [
+              {
+                path: 'src/auth.js',
+                startLine: 1,
+                endLine: 4,
+                role: 'edit',
+                reason: '수정이 필요한 구현 위치입니다.',
+                evidenceRefs: ['E1'],
+              },
+            ],
+            candidatePaths: ['src/auth.js'],
+            followups: [],
+          }),
+          toolCalls: [],
+        },
+      };
+    }
+  }
+
+  const repoRoot = await makeRepoFixture();
+  const runtime = new ExplorerRuntime({ chatClient: new EditTargetClient() });
+  const result = await runtime.explore({
+    task: 'requireAuth 동작을 설명해라.',
+    repo_root: repoRoot,
+  });
+
+  const target = result.targets.find(item => item.path === 'src/auth.js');
+  assert.equal(target?.role, 'edit', 'model-provided edit role must not be overwritten by derived read targets');
+  assert.equal(result.status.verification, 'targeted_read_needed');
+  assert.equal(result.nextAction.target.role, 'edit');
 });
 
 test('Phase 2 — Mermaid diagram does not invent dependency edges without observed relationships', async () => {
@@ -723,6 +809,7 @@ test('ExplorerRuntime returns sessionId in stats when sessionStore is provided',
 
   assert.ok(typeof result.stats.sessionId === 'string', 'stats.sessionId must be a string');
   assert.ok(result.stats.sessionId.startsWith('sess_'), 'sessionId must start with sess_');
+  assert.equal(result.sessionId, result.stats.sessionId, 'sessionId must also be top-level');
 
   // Session should store candidatePaths from this call
   const session = sessionStore.get(result.stats.sessionId);

@@ -351,10 +351,9 @@ function hasEditIntent(task) {
   );
 }
 
-function buildTargets({ evidence = [], candidatePaths = [], task = '' } = {}) {
+function buildTargets({ evidence = [], candidatePaths = [] } = {}) {
   const targets = [];
   const byKey = new Map();
-  const editIntent = hasEditIntent(task);
 
   function addTarget(target) {
     if (!target?.path) return;
@@ -374,7 +373,7 @@ function buildTargets({ evidence = [], candidatePaths = [], task = '' } = {}) {
     addTarget({
       path: item.path,
       ...(hasRange ? { startLine: item.startLine, endLine: item.endLine } : {}),
-      role: editIntent ? 'edit' : 'read',
+      role: 'read',
       reason: item.why || 'Grounded evidence target.',
       evidenceRefs: item.id ? [item.id] : [],
     });
@@ -391,6 +390,57 @@ function buildTargets({ evidence = [], candidatePaths = [], task = '' } = {}) {
     });
   }
 
+  return targets.slice(0, 20);
+}
+
+function targetKey(target) {
+  return `${target.path}:${target.startLine ?? ''}:${target.endLine ?? ''}`;
+}
+
+function targetRolePriority(role) {
+  return {
+    edit: 60,
+    test: 50,
+    config: 45,
+    context: 40,
+    read: 30,
+    reference: 10,
+  }[role] ?? 0;
+}
+
+function mergeTargets(...targetGroups) {
+  const targets = [];
+  const byKey = new Map();
+
+  function addTarget(target) {
+    if (!target?.path) return;
+    const key = targetKey(target);
+    const existing = byKey.get(key);
+    if (!existing) {
+      const next = {
+        ...target,
+        role: target.role ?? 'read',
+        reason: target.reason ?? '',
+        evidenceRefs: Array.isArray(target.evidenceRefs) ? [...target.evidenceRefs] : [],
+      };
+      byKey.set(key, next);
+      targets.push(next);
+      return;
+    }
+
+    existing.evidenceRefs = [...new Set([
+      ...(existing.evidenceRefs ?? []),
+      ...(target.evidenceRefs ?? []),
+    ])];
+    if (!existing.reason && target.reason) existing.reason = target.reason;
+    if (targetRolePriority(target.role) > targetRolePriority(existing.role)) {
+      existing.role = target.role;
+    }
+  }
+
+  for (const group of targetGroups) {
+    for (const target of group ?? []) addTarget(target);
+  }
   return targets.slice(0, 20);
 }
 
@@ -416,17 +466,19 @@ function buildUncertainties(result, stats) {
   return [...new Set(uncertainties)];
 }
 
-function buildResultStatus(result, stats) {
+function buildResultStatus(result, stats, { task } = {}) {
   const criticStatus = result.critic?.status ?? 'caution';
   const warnings = (result.critic?.warnings ?? []).map(warning => warning.message).filter(Boolean);
   const hasEvidence = (result.evidence?.length ?? 0) > 0;
+  const hasEditTarget = (result.targets ?? []).some(target => target.role === 'edit');
+  const editPlanning = hasEditIntent(task);
   let verification = 'verified';
 
   if (!hasEvidence || criticStatus === 'fail' || stats.stoppedByErrors || stats.stoppedByAbort) {
     verification = 'broad_search_needed';
   } else if (criticStatus === 'caution' || result.confidence === 'low' || stats.stoppedByBudget) {
     verification = 'follow_up_needed';
-  } else if ((result.targets ?? []).some(target => target.role === 'read' || target.role === 'edit')) {
+  } else if (hasEditTarget || editPlanning) {
     verification = 'targeted_read_needed';
   }
 
@@ -441,10 +493,13 @@ function buildResultStatus(result, stats) {
 function buildNextAction(result) {
   const verification = result.status?.verification;
   if (verification === 'targeted_read_needed') {
-    const target = (result.targets ?? []).find(item => item.role === 'edit' || item.role === 'read') ?? result.targets?.[0];
+    const target = (result.targets ?? []).find(item => item.role === 'edit') ??
+      (result.targets ?? []).find(item => item.role === 'read') ??
+      result.targets?.[0];
+    const targetReason = target?.role === 'edit' ? 'before editing' : 'before final verification';
     return {
       type: 'read_target',
-      reason: target ? `Read ${target.path}${target.startLine ? `:${target.startLine}-${target.endLine}` : ''} before editing or final verification.` : 'Read the cited target before editing.',
+      reason: target ? `Read ${target.path}${target.startLine ? `:${target.startLine}-${target.endLine}` : ''} ${targetReason}.` : 'Read the cited target before editing.',
       ...(target ? { target } : {}),
     };
   }
@@ -453,8 +508,8 @@ function buildNextAction(result) {
     return {
       type: followup ? 'explore_followup' : 'ask_user',
       reason: followup?.description ?? 'The retained evidence is not sufficient for a complete answer.',
-      ...(followup?.suggestedCall?.task
-        ? { query: followup.suggestedCall.task }
+      ...(followup?.query
+        ? { query: followup.query }
         : followup?.description
           ? { query: followup.description }
           : {}),
@@ -1337,7 +1392,6 @@ export class ExplorerRuntime {
       normalized.followups = mergeCandidatePaths(normalized.followups, [{
         description: 'Some evidence items were dropped because they were not grounded in inspected line ranges.',
         priority: 'optional',
-        suggestedCall: null,
       }]);
     }
 
@@ -1348,14 +1402,17 @@ export class ExplorerRuntime {
       normalized.confidenceLevel = 'low';
     }
     normalized.directAnswer = normalized.directAnswer || normalized.answer;
-    normalized.targets = buildTargets({
-      evidence: normalized.evidence,
-      candidatePaths: normalized.candidatePaths,
-      task: args.task,
-    });
+    normalized.targets = mergeTargets(
+      normalized.targets,
+      buildTargets({
+        evidence: normalized.evidence,
+        candidatePaths: normalized.candidatePaths,
+      }),
+    );
     normalized.uncertainties = buildUncertainties(normalized, stats);
-    normalized.status = buildResultStatus(normalized, stats);
+    normalized.status = buildResultStatus(normalized, stats, { task: args.task });
     normalized.nextAction = buildNextAction(normalized);
+    if (stats.sessionId) normalized.sessionId = stats.sessionId;
 
     // Trust summary — a natural-language sentence the parent model can rely on
     normalized.trustSummary = buildTrustSummary(normalized, stats);

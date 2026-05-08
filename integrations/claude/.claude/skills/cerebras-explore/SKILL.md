@@ -9,19 +9,15 @@ Delegate broad discovery to the `cerebras-explorer` agent.
 Keep the parent agent focused on verification, synthesis, and any later edits.
 
 Choose between the two open-ended entry points deliberately:
-- Use `explore_repo` when the parent will inspect structured JSON fields such as `evidence`, `candidatePaths`, `followups`, or session-linked results before editing.
+- Use `explore_repo` when the parent will inspect compact structured JSON fields such as `directAnswer`, `status`, `targets`, `evidence`, `nextAction`, or `sessionId` before editing.
 - Use `explore` when the parent mainly wants a cited Markdown report, architecture walkthrough, or user-facing explanation.
 
 Send one well-shaped exploration request instead of a stream of micro-prompts.
 - Keep the main question close to the user's wording.
 - Mention the subsystem or directory when the scope is obvious.
-- Mention any known anchor symbol, file path, or regex.
-- For `explore_repo`, use `deep` for the first broad pass across an unfamiliar area.
-- For `explore_repo`, use `normal` for follow-up exploration after the search space is narrowed.
-- For `explore_repo`, use `quick` for file-level or otherwise narrow fact lookup.
-- For `explore`, use `prompt` plus `thoroughness`, not `task` plus `budget`.
-- For `explore`, use `deep` for a first broad overview, `normal` for scoped follow-up reporting, and `quick` for a short cited explanation of a narrow area.
-- Remember that specialized tools currently behave like an internal `normal` pass.
+- Mention any known anchor symbol, file path, or literal text.
+- Do not choose `budget` or `thoroughness`; the server chooses exploration depth automatically.
+- Use `sessionId` as `session` for follow-up calls.
 
 Prefer delegation for:
 - architecture and ownership questions

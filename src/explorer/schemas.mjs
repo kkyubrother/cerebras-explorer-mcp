@@ -64,24 +64,7 @@ const FOLLOWUP_ITEM_SCHEMA = {
   properties: {
     description: { type: 'string' },
     priority: { type: 'string', enum: ['recommended', 'optional'] },
-    suggestedCall: {
-      type: 'object',
-      additionalProperties: false,
-      properties: {
-        task: { type: 'string' },
-        scope: { type: 'array', items: { type: 'string' } },
-        budget: { type: 'string', enum: ['quick', 'normal', 'deep'] },
-        hints: {
-          type: 'object',
-          additionalProperties: false,
-          properties: {
-            symbols: { type: 'array', items: { type: 'string' } },
-            strategy: { type: 'string' },
-          },
-        },
-      },
-      required: ['task'],
-    },
+    query: { type: 'string' },
   },
   required: ['description', 'priority'],
 };
@@ -108,7 +91,7 @@ const TARGET_ITEM_SCHEMA = {
     path: { type: 'string' },
     startLine: { type: 'integer' },
     endLine: { type: 'integer' },
-    role: { type: 'string', enum: ['edit', 'read', 'reference'] },
+    role: { type: 'string', enum: ['edit', 'read', 'test', 'config', 'context', 'reference'] },
     reason: { type: 'string' },
     evidenceRefs: { type: 'array', items: { type: 'string' } },
   },
@@ -155,7 +138,15 @@ const EVIDENCE_ITEM_SCHEMA = {
 
 export const EXPLORE_REPO_OUTPUT_SCHEMA = {
   type: 'object',
-  additionalProperties: true,
+  additionalProperties: false,
+  required: [
+    'directAnswer',
+    'status',
+    'targets',
+    'evidence',
+    'uncertainties',
+    'nextAction',
+  ],
   properties: {
     directAnswer: { type: 'string' },
     status: STATUS_SCHEMA,
@@ -163,11 +154,7 @@ export const EXPLORE_REPO_OUTPUT_SCHEMA = {
     evidence: { type: 'array', items: EVIDENCE_ITEM_SCHEMA },
     uncertainties: { type: 'array', items: { type: 'string' } },
     nextAction: NEXT_ACTION_SCHEMA,
-    answer: { type: 'string' },
-    summary: { type: 'string' },
-    confidence: { type: 'string', enum: ['low', 'medium', 'high'] },
-    candidatePaths: { type: 'array', items: { type: 'string' } },
-    followups: { type: 'array', items: FOLLOWUP_ITEM_SCHEMA },
+    sessionId: { type: 'string' },
     _debug: { type: 'object', additionalProperties: true },
   },
 };
@@ -220,11 +207,9 @@ export const EXPLORE_RESULT_JSON_SCHEMA = {
     },
     required: [
       'answer',
-      'summary',
       'confidence',
       'evidence',
       'candidatePaths',
-      'followups',
     ],
   },
 };
@@ -288,7 +273,6 @@ function normalizeFollowupItem(item) {
     return {
       description: item,
       priority: 'optional',
-      suggestedCall: null,
     };
   }
   if (!item || typeof item !== 'object') {
@@ -299,19 +283,17 @@ function normalizeFollowupItem(item) {
     return null;
   }
   const priority = item.priority === 'recommended' ? 'recommended' : 'optional';
-  let suggestedCall = null;
+  let query = typeof item.query === 'string' && item.query.trim() ? item.query.trim() : null;
   if (item.suggestedCall && typeof item.suggestedCall === 'object') {
-    suggestedCall = {
-      task: typeof item.suggestedCall.task === 'string' ? item.suggestedCall.task : description,
-      scope: Array.isArray(item.suggestedCall.scope) ? item.suggestedCall.scope.filter(s => typeof s === 'string') : [],
-      budget: ['quick', 'normal', 'deep'].includes(item.suggestedCall.budget) ? item.suggestedCall.budget : 'normal',
-      hints: {
-        symbols: Array.isArray(item.suggestedCall.hints?.symbols) ? item.suggestedCall.hints.symbols.filter(s => typeof s === 'string') : [],
-        strategy: typeof item.suggestedCall.hints?.strategy === 'string' ? item.suggestedCall.hints.strategy : null,
-      },
-    };
+    query = typeof item.suggestedCall.task === 'string' && item.suggestedCall.task.trim()
+      ? item.suggestedCall.task.trim()
+      : query;
   }
-  return { description, priority, suggestedCall };
+  return {
+    description,
+    priority,
+    ...(query ? { query } : {}),
+  };
 }
 
 function normalizeCandidatePath(item) {
@@ -324,7 +306,7 @@ function normalizeTargetItem(item) {
   if (!item || typeof item !== 'object' || typeof item.path !== 'string' || !item.path) {
     return null;
   }
-  const role = ['edit', 'read', 'reference'].includes(item.role) ? item.role : 'read';
+  const role = ['edit', 'read', 'test', 'config', 'context', 'reference'].includes(item.role) ? item.role : 'read';
   const target = {
     path: item.path,
     role,
@@ -437,6 +419,8 @@ export function normalizeExploreResult(raw, stats) {
     followups: Array.isArray(safe.followups)
       ? safe.followups.map(normalizeFollowupItem).filter(Boolean)
       : [],
+    ...(typeof safe.sessionId === 'string' && safe.sessionId ? { sessionId: safe.sessionId } : {}),
+    ...(typeof stats?.sessionId === 'string' && stats.sessionId ? { sessionId: stats.sessionId } : {}),
     stats,
     _debug: safe._debug && typeof safe._debug === 'object' ? safe._debug : {},
   };

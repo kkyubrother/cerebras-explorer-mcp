@@ -174,10 +174,11 @@ test('agent-facing budget and strategy fields are marked advanced/legacy', () =>
   );
 });
 
-test('followup suggestedCall is optional in schema and normalization', () => {
+test('followup query is optional in schema and legacy suggestedCall normalizes to query', () => {
   const followupSchema = EXPLORE_RESULT_JSON_SCHEMA.schema.properties.followups.items;
   assert.deepEqual(followupSchema.required, ['description', 'priority']);
-  assert.deepEqual(followupSchema.properties.suggestedCall.required, ['task']);
+  assert.ok(followupSchema.properties.query);
+  assert.equal(followupSchema.properties.suggestedCall, undefined);
 
   const result = normalizeExploreResult({
     answer: 'answer',
@@ -186,21 +187,39 @@ test('followup suggestedCall is optional in schema and normalization', () => {
     evidence: [],
     candidatePaths: [],
     followups: [
-      { description: 'check related routes', priority: 'recommended' },
+      {
+        description: 'check related routes',
+        priority: 'recommended',
+        suggestedCall: { task: 'trace related routes', budget: 'deep' },
+      },
     ],
   }, makeStats());
 
   assert.equal(result.followups.length, 1);
   assert.equal(result.followups[0].description, 'check related routes');
-  assert.equal(result.followups[0].suggestedCall, null);
+  assert.equal(result.followups[0].query, 'trace related routes');
+  assert.equal(result.followups[0].suggestedCall, undefined);
 });
 
-test('agent-facing output schema exposes directAnswer, status, targets, snippets, and debug', () => {
+test('agent-facing output schema is compact and exposes directAnswer, status, targets, snippets, sessionId, and debug', () => {
+  assert.equal(EXPLORE_REPO_OUTPUT_SCHEMA.additionalProperties, false);
+  assert.deepEqual(EXPLORE_REPO_OUTPUT_SCHEMA.required, [
+    'directAnswer',
+    'status',
+    'targets',
+    'evidence',
+    'uncertainties',
+    'nextAction',
+  ]);
   assert.ok(EXPLORE_REPO_OUTPUT_SCHEMA.properties.directAnswer);
   assert.ok(EXPLORE_REPO_OUTPUT_SCHEMA.properties.status);
   assert.ok(EXPLORE_REPO_OUTPUT_SCHEMA.properties.targets);
   assert.ok(EXPLORE_REPO_OUTPUT_SCHEMA.properties.evidence.items.properties.snippet);
+  assert.ok(EXPLORE_REPO_OUTPUT_SCHEMA.properties.sessionId);
   assert.ok(EXPLORE_REPO_OUTPUT_SCHEMA.properties._debug);
+  assert.equal(EXPLORE_REPO_OUTPUT_SCHEMA.properties.answer, undefined);
+  assert.equal(EXPLORE_REPO_OUTPUT_SCHEMA.properties.candidatePaths, undefined);
+  assert.equal(EXPLORE_REPO_OUTPUT_SCHEMA.properties.followups, undefined);
 });
 
 test('normalizeExploreResult accepts legacy object candidatePaths and v3 fields', () => {

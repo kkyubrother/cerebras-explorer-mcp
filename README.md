@@ -129,7 +129,7 @@ Parent model (Claude Code / Codex)
 - **GLM 4.7 reasoning 정렬**: quick budget은 `reasoning_effort="none"`으로 reasoning을 끄고, normal/deep은 기본 reasoning을 유지하며 `clear_thinking=false`로 이전 turn의 reasoning을 보존
 - **샘플링 기본값 정렬**: budget별 temperature(`quick`: 0.3, `normal`: 0.8, `deep`: 1.0)와 `top_p=0.95`를 사용하며, direct client 경로에는 fallback 환경 변수도 지원
 - **근거 강제**: 최종 evidence는 실제로 읽거나 grep으로 확인한 라인 범위에만 남김
-- **MCP 친화적 반환**: `directAnswer`, `status`, `targets`, snippet 포함 `evidence`, `followups`를 상단에 두고, 호환용 `answer`, `summary`, `candidatePaths`, `stats`, `_debug`도 함께 반환. `_debug.toolTrace`에는 raw content 없는 compact tool-call trace가 포함됩니다.
+- **MCP 친화적 반환**: MCP `structuredContent`는 `directAnswer`, `status`, `targets`, snippet 포함 `evidence`, `uncertainties`, `nextAction`, `sessionId` 중심의 compact 계약만 노출합니다. 호환용 `answer`, `summary`, `candidatePaths`, `followups`, `stats` 등은 `_debug.legacy` 또는 `_debug.stats`로 내려갑니다.
 
 ## 공개 MCP 도구
 
@@ -153,7 +153,7 @@ Parent model (Claude Code / Codex)
 
 - `repo_root` (선택): 절대경로나 상대경로. Windows에서는 `C:\repo`, `C:/repo`뿐 아니라 Git Bash/MSYS 스타일 `/c/repo`도 받아 실제 filesystem 경로로 canonicalize한 뒤 세션과 도구 실행에 사용합니다.
 - `language` (선택): BCP-47 언어 태그(예: `"ko"`, `"en"`, `"ja"`). 생략 시 task 텍스트에서 자동 추론합니다.
-- `session` (선택): 이전 탐색의 `stats.sessionId`를 넘기면 candidate paths와 요약을 다음 탐색에 재사용합니다.
+- `session` (선택): 이전 탐색의 `sessionId`를 넘기면 candidate paths와 요약을 다음 탐색에 재사용합니다.
 - `budget`, `hints.strategy` (advanced/legacy): 일반 agent 사용에서는 생략하세요. 서버 기본값과 자동 strategy 감지가 우선입니다.
 
 반환 예시:
@@ -163,7 +163,7 @@ Parent model (Claude Code / Codex)
   "directAnswer": "registerUserRoutes는 /users/me 라우트에 requireAuth 미들웨어를 직접 연결한다.",
   "status": {
     "confidence": "high",
-    "verification": "targeted_read_needed",
+    "verification": "verified",
     "complete": true,
     "warnings": []
   },
@@ -177,9 +177,6 @@ Parent model (Claude Code / Codex)
       "evidenceRefs": ["E1"]
     }
   ],
-  "answer": "registerUserRoutes는 /users/me 라우트에 requireAuth 미들웨어를 직접 연결한다.",
-  "summary": "auth.js에서 requireAuth를 정의하고, user.js에서 이를 import해 /users/me에 적용한다.",
-  "confidence": "high",
   "evidence": [
     {
       "id": "E1",
@@ -200,15 +197,20 @@ Parent model (Claude Code / Codex)
       "snippet": "1: export function requireAuth(req, res, next) {\n2:   if (!req.user) throw new Error(\"unauthorized\");\n3:   next();\n4: }"
     }
   ],
-  "candidatePaths": ["src/routes/user.js", "src/auth.js"],
-  "followups": [
-    {
-      "description": "인증 미들웨어의 다른 사용처를 추적",
-      "priority": "recommended"
-    }
-  ],
+  "uncertainties": [],
+  "nextAction": {
+    "type": "stop",
+    "reason": "Explorer result is complete for the requested read-only investigation."
+  },
+  "sessionId": "sess_abc123",
   "_debug": {
     "confidenceScore": 0.91,
+    "legacy": {
+      "answer": "registerUserRoutes는 /users/me 라우트에 requireAuth 미들웨어를 직접 연결한다.",
+      "summary": "auth.js에서 requireAuth를 정의하고, user.js에서 이를 import해 /users/me에 적용한다.",
+      "candidatePaths": ["src/routes/user.js", "src/auth.js"],
+      "followups": []
+    },
     "toolTrace": {
       "entries": [
         {
@@ -230,13 +232,13 @@ Parent model (Claude Code / Codex)
 }
 ```
 
-`repo_git_log`를 활용한 탐색에서는 `recentActivity`가 함께 반환될 수 있습니다.
+`repo_git_log`를 활용한 탐색의 세부 recent activity는 `_debug.legacy.recentActivity`에서 확인할 수 있습니다.
 
 권장 사용처:
 
 - `explore_repo`: 후속 자동화, 추가 도구 호출, 편집 전 검증처럼 **구조화된 JSON 필드**가 필요한 경우
 - `explore`: 아키텍처 설명, 온보딩 요약, 사용자에게 바로 보여줄 답변처럼 **사람이 읽는 Markdown 보고서**가 필요한 경우
-- `targets`: `candidatePaths`보다 먼저 읽어야 하는 action field입니다. `role=read|edit` 대상만 편집 전 확인하고, `reference`는 필요할 때만 읽습니다.
+- `targets`: `candidatePaths`보다 먼저 읽어야 하는 action field입니다. `role=read|edit|test|config|context` 대상만 목적에 맞게 확인하고, `reference`는 필요할 때만 읽습니다.
 
 ### `explore`
 
@@ -253,7 +255,7 @@ Parent model (Claude Code / Codex)
 
 - `prompt`: 사람이 읽을 수 있는 설명형 보고서를 만들 질문 또는 요청
 - `thoroughness` (advanced/legacy): 일반 agent 사용에서는 생략하세요. 서버가 질문과 scope를 보고 깊이를 고릅니다.
-- `session`: 이전 탐색의 `stats.sessionId`를 넘기면 후속 보고서에도 후보 경로와 요약을 재사용합니다.
+- `session`: 이전 탐색의 `sessionId`를 넘기면 후속 보고서에도 후보 경로와 요약을 재사용합니다.
 
 반환 특성:
 
