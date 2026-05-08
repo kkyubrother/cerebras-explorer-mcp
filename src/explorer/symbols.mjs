@@ -19,6 +19,9 @@ const CONTROL_FLOW_KW = new Set([
   'from', 'as', 'default', 'static', 'super', 'this', 'void',
 ]);
 
+const JS_IDENTIFIER = '[A-Za-z_$][\\w$]*';
+const JS_MEMBER_IDENTIFIER = `#?${JS_IDENTIFIER}|constructor`;
+
 // ─── Language detection ──────────────────────────────────────────────────────
 
 const EXT_LANG_MAP = {
@@ -42,20 +45,26 @@ export function detectLanguage(filePath) {
 // The FIRST capturing group must be the symbol name.
 
 const JS_PATTERNS = [
-  // export (default)? async? function* name(
-  { re: /^(?:export\s+(?:default\s+)?)?(?:async\s+)?function\s*\*?\s*(\w+)\s*\(/, kind: 'function' },
+  // export (default)? declare? async? function* name<T>(
+  { re: new RegExp(`^(?:export\\s+(?:default\\s+)?)?(?:declare\\s+)?(?:async\\s+)?function\\s*\\*?\\s*(${JS_IDENTIFIER})\\s*(?:<[^>{}();=]*>)?\\s*\\(`), kind: 'function' },
   // export (default)? class Name
-  { re: /^(?:export\s+(?:default\s+)?)?class\s+(\w+)(?:\s|{|<)/, kind: 'class' },
+  { re: new RegExp(`^(?:export\\s+(?:default\\s+)?)?(?:declare\\s+)?(?:abstract\\s+)?class\\s+(${JS_IDENTIFIER})(?:\\s|\\{|<)`), kind: 'class', containerKind: 'class' },
   // export? const/let/var name = async? function
-  { re: /^(?:export\s+)?(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?function/, kind: 'function' },
-  // export? const/let/var name = async? (...)  =>   (arrow with parens)
-  { re: /^(?:export\s+)?(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?\(/, kind: 'function' },
+  { re: new RegExp(`^(?:export\\s+)?(?:const|let|var)\\s+(${JS_IDENTIFIER})\\s*(?::[^=]+)?=\\s*(?:async\\s+)?function`), kind: 'function' },
+  // export? const/let/var name: Type = async? (...) =>   (arrow with parens)
+  { re: new RegExp(`^(?:export\\s+)?(?:const|let|var)\\s+(${JS_IDENTIFIER})\\s*(?::[^=]+)?=\\s*(?:async\\s+)?\\([^)]*\\)\\s*=>`), kind: 'function' },
+  // export? const/let/var name = async? <T>(...) =>   (generic arrow)
+  { re: new RegExp(`^(?:export\\s+)?(?:const|let|var)\\s+(${JS_IDENTIFIER})\\s*(?::[^=]+)?=\\s*(?:async\\s+)?<[^>]+>\\s*\\([^)]*\\)\\s*=>`), kind: 'function' },
   // export? const/let/var name = async? ident =>   (arrow without parens)
-  { re: /^(?:export\s+)?(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?[A-Za-z_$][\w$]*\s*=>/, kind: 'function' },
+  { re: new RegExp(`^(?:export\\s+)?(?:const|let|var)\\s+(${JS_IDENTIFIER})\\s*(?::[^=]+)?=\\s*(?:async\\s+)?${JS_IDENTIFIER}\\s*=>`), kind: 'function' },
   // export? const/let/var name = value  (non-function — checked after function patterns)
-  { re: /^(?:export\s+)?(?:const|let|var)\s+(\w+)\s*=/, kind: 'variable' },
-  // class method (2+ spaces indent): async? get? set? name(
-  { re: /^\s{2,}(?:async\s+)?(?:static\s+)?(?:get\s+|set\s+)?(\w+)\s*\(/, kind: 'function' },
+  { re: new RegExp(`^(?:export\\s+)?(?:const|let|var)\\s+(${JS_IDENTIFIER})\\s*(?::[^=]+)?=`), kind: 'variable' },
+  // class method (2+ spaces indent): modifiers? get? set? name<T>(...) {
+  {
+    re: new RegExp(`^\\s{2,}(?:(?:public|private|protected|readonly|override|abstract|static|async)\\s+)*(?:get\\s+|set\\s+)?(${JS_MEMBER_IDENTIFIER})\\s*(?:<[^>{}();=]*>)?\\s*\\([^)]*\\)\\s*(?::\\s*[^;{]+)?\\s*(?:\\{|$)`),
+    kind: 'function',
+    requiresContainer: ['class'],
+  },
 ];
 
 const TS_PATTERNS = [
@@ -147,6 +156,57 @@ const LANG_PATTERNS = {
   generic: GENERIC_PATTERNS,
 };
 
+function escapeRegex(input) {
+  return input.replace(/[|\\{}()[\]^$+?.]/g, '\\$&');
+}
+
+function compactSignature(line) {
+  return line
+    .trim()
+    .replace(/\s*\{\s*$/, '')
+    .replace(/\s+/g, ' ');
+}
+
+function createSymbolRecord({ name, kind, line, endLine, exported, lang, rawLine, container }) {
+  const symbol = {
+    name,
+    kind,
+    line,
+    endLine,
+    exported,
+    signature: compactSignature(rawLine),
+    language: lang,
+  };
+
+  if (container) {
+    symbol.containerName = container.name;
+    symbol.containerKind = container.kind;
+    symbol.qualifiedName = `${container.name}.${name}`;
+  }
+
+  return symbol;
+}
+
+function matchesRequiredContainer(pattern, activeContainer) {
+  if (!pattern.requiresContainer) return true;
+  if (!activeContainer) return false;
+  return pattern.requiresContainer.includes(activeContainer.kind);
+}
+
+function trimExpiredContainers(activeContainers, lineNum) {
+  while (activeContainers.length > 0 && activeContainers.at(-1).endLine < lineNum) {
+    activeContainers.pop();
+  }
+}
+
+function shouldTrackContainer(lang, pattern, rawLine) {
+  if (pattern.containerKind === 'class') return true;
+  if ((lang === 'javascript' || lang === 'typescript') && pattern.kind === 'variable') {
+    return /=\s*\{/.test(rawLine);
+  }
+  return false;
+}
+
 // ─── endLine estimation ──────────────────────────────────────────────────────
 
 /**
@@ -221,13 +281,19 @@ export function extractSymbols(content, filePath, kind = 'all') {
   const lines = content.split('\n');
   const results = [];
   const seen = new Set(); // deduplicate name+line combos
+  const activeContainers = [];
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    if (!line.trim() || line.trim().startsWith('//') || line.trim().startsWith('#')) continue;
+    const trimmed = line.trim();
+    const hashComment = !['javascript', 'typescript'].includes(lang) && trimmed.startsWith('#');
+    if (!trimmed || trimmed.startsWith('//') || hashComment) continue;
+    const lineNum = i + 1; // 1-based
+    trimExpiredContainers(activeContainers, lineNum);
+    const activeContainer = activeContainers.at(-1) ?? null;
 
     for (const pat of patterns) {
-      if (kind !== 'all' && kind !== pat.kind) continue;
+      if (!matchesRequiredContainer(pat, activeContainer)) continue;
 
       const match = line.match(pat.re);
       if (!match) continue;
@@ -236,11 +302,6 @@ export function extractSymbols(content, filePath, kind = 'all') {
       const nameGroup = pat.nameGroup ?? 1;
       const name = match[nameGroup];
       if (!name || CONTROL_FLOW_KW.has(name)) continue;
-
-      const lineNum = i + 1; // 1-based
-      const key = `${name}:${lineNum}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
 
       const exported = /^(?:export)\s/.test(line.trim());
 
@@ -251,12 +312,131 @@ export function extractSymbols(content, filePath, kind = 'all') {
         endLine = estimateEndLineBraces(lines, i);
       }
 
-      results.push({ name, kind: pat.kind, line: lineNum, endLine, exported });
+      if (kind === 'all' || kind === pat.kind) {
+        const key = `${name}:${lineNum}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          const container = pat.requiresContainer ? activeContainer : null;
+          results.push(createSymbolRecord({
+            name,
+            kind: pat.kind,
+            line: lineNum,
+            endLine,
+            exported,
+            lang,
+            rawLine: line,
+            container,
+          }));
+        }
+      }
+
+      if (shouldTrackContainer(lang, pat, line) && endLine >= lineNum) {
+        activeContainers.push({
+          name,
+          kind: pat.containerKind ?? 'object',
+          line: lineNum,
+          endLine,
+        });
+      }
+
       break; // one symbol match per line
     }
   }
 
   return results;
+}
+
+function isImportLine(trimmed, lang) {
+  return (
+    /^import\s/.test(trimmed) ||
+    /require\s*\(/.test(trimmed) ||
+    (lang === 'python' && /^from\s|^import\s/.test(trimmed)) ||
+    (lang === 'go' && /^import\s/.test(trimmed))
+  );
+}
+
+function isDefinitionLine(line, symbol, lang) {
+  const patterns = LANG_PATTERNS[lang] ?? GENERIC_PATTERNS;
+  for (const pat of patterns) {
+    const m = line.match(pat.re);
+    if (m) {
+      const nameGroup = pat.nameGroup ?? 1;
+      if (m[nameGroup] === symbol) return true;
+    }
+  }
+  return false;
+}
+
+function symbolBoundaryRegex(symbol) {
+  const escaped = escapeRegex(symbol);
+  return new RegExp(`(^|[^\\w$#])${escaped}(?=[^\\w$#]|$)`);
+}
+
+function hasSymbol(line, symbol) {
+  return symbolBoundaryRegex(symbol).test(line);
+}
+
+function relationForUsage(trimmed, symbol, lang) {
+  const escaped = escapeRegex(symbol);
+
+  if ((lang === 'javascript' || lang === 'typescript') && /^export\s/.test(trimmed)) {
+    return 'export';
+  }
+
+  if (
+    lang === 'typescript' &&
+    new RegExp(`(?:[:<|&,]|\\b(?:as|satisfies|implements|extends)\\s+)\\s*[^=;(){}]*\\b${escaped}\\b`).test(trimmed)
+  ) {
+    return 'type_reference';
+  }
+
+  if (new RegExp(`\\bnew\\s+${escaped}\\s*(?:<[^>]+>)?\\s*\\(`).test(trimmed)) {
+    return 'constructor';
+  }
+
+  if (new RegExp(`(?:^|[^.\\w$#])${escaped}\\s*(?:<[^>]+>)?\\s*\\(`).test(trimmed)) {
+    return 'call';
+  }
+
+  if (new RegExp(`\\.${escaped}\\s*\\(`).test(trimmed)) {
+    return 'member_call';
+  }
+
+  if (new RegExp(`\\b${escaped}\\s*:`).test(trimmed)) {
+    return 'property';
+  }
+
+  return 'reference';
+}
+
+/**
+ * Classify a reference line while preserving the legacy type contract.
+ *
+ * `type` remains one of 'import', 'definition', or 'usage'. `relation`
+ * gives callers a lower-noise hint such as 'export', 'call', or
+ * 'type_reference' without requiring an external parser.
+ *
+ * @param {string} line     - The source line
+ * @param {string} symbol   - The symbol being searched
+ * @param {string} filePath - Used for language detection
+ */
+export function classifyReference(line, symbol, filePath) {
+  const lang = detectLanguage(filePath);
+  const trimmed = line.trim();
+
+  if (isImportLine(trimmed, lang)) {
+    return { type: 'import', relation: /^import\s+type\b/.test(trimmed) ? 'type_import' : 'import' };
+  }
+
+  if (isDefinitionLine(line, symbol, lang)) {
+    return { type: 'definition', relation: 'definition' };
+  }
+
+  const relation = hasSymbol(line, symbol)
+    ? relationForUsage(trimmed, symbol, lang)
+    : 'reference';
+
+  return { type: 'usage', relation };
 }
 
 /**
@@ -267,28 +447,5 @@ export function extractSymbols(content, filePath, kind = 'all') {
  * @param {string} filePath - Used for language detection
  */
 export function categorizeReference(line, symbol, filePath) {
-  const lang = detectLanguage(filePath);
-  const trimmed = line.trim();
-
-  // Import patterns
-  if (
-    /^import\s/.test(trimmed) ||
-    /require\s*\(/.test(trimmed) ||
-    (lang === 'python' && /^from\s|^import\s/.test(trimmed)) ||
-    (lang === 'go' && /^import\s/.test(trimmed))
-  ) {
-    return 'import';
-  }
-
-  // Definition patterns (simplified — check if this line IS a definition)
-  const patterns = LANG_PATTERNS[lang] ?? GENERIC_PATTERNS;
-  for (const pat of patterns) {
-    const m = line.match(pat.re);
-    if (m) {
-      const nameGroup = pat.nameGroup ?? 1;
-      if (m[nameGroup] === symbol) return 'definition';
-    }
-  }
-
-  return 'usage';
+  return classifyReference(line, symbol, filePath).type;
 }

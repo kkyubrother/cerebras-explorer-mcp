@@ -12,7 +12,7 @@ import {
   DEFAULT_WALK_FILE_LIMIT,
 } from './config.mjs';
 import { GIT_TOOL_TTL_MS } from './cache.mjs';
-import { extractSymbols, categorizeReference } from './symbols.mjs';
+import { extractSymbols, classifyReference } from './symbols.mjs';
 
 function toPosix(input) {
   return input.split(path.sep).join('/');
@@ -24,6 +24,15 @@ function hasGlobSyntax(value) {
 
 function escapeRegex(input) {
   return input.replace(/[|\\{}()[\]^$+?.]/g, '\\$&');
+}
+
+function isCallableUsage(reference) {
+  if (reference.type !== 'usage') return false;
+  return !['export', 'type_reference', 'property'].includes(reference.relation);
+}
+
+function symbolSearchPattern(symbol) {
+  return `(^|[^\\w$#])${escapeRegex(symbol)}([^\\w$#]|$)`;
 }
 
 export function globToRegExp(glob) {
@@ -719,8 +728,7 @@ export class RepoToolkit {
       throw new Error('symbol is required');
     }
     const sym = symbol.trim();
-    // Escape special regex chars so symbols like $store, fn.call, etc. work correctly
-    const pattern = `\\b${escapeRegex(sym)}\\b`;
+    const pattern = symbolSearchPattern(sym);
     let grepResult;
     try {
       grepResult = await this.grep({ pattern, scope, caseSensitive: true, maxResults: 60 });
@@ -732,11 +740,21 @@ export class RepoToolkit {
     const references = [];
 
     for (const match of grepResult.matches) {
-      const type = categorizeReference(match.text ?? '', sym, match.path);
-      if (type === 'definition' && definition === null) {
-        definition = { path: match.path, line: match.line, context: (match.text ?? '').trim(), type };
+      const reference = classifyReference(match.text ?? '', sym, match.path);
+      if (reference.type === 'definition' && definition === null) {
+        definition = {
+          path: match.path,
+          line: match.line,
+          context: (match.text ?? '').trim(),
+          ...reference,
+        };
       } else {
-        references.push({ path: match.path, line: match.line, context: (match.text ?? '').trim(), type });
+        references.push({
+          path: match.path,
+          line: match.line,
+          context: (match.text ?? '').trim(),
+          ...reference,
+        });
       }
     }
 
@@ -761,17 +779,22 @@ export class RepoToolkit {
     const sym = symbol.trim();
 
     // Step 1: grep for all occurrences (escape special regex chars in symbol name)
-    const grepResult = await this.grep({ pattern: `\\b${escapeRegex(sym)}\\b`, scope, caseSensitive: true, maxResults: 40 });
+    const grepResult = await this.grep({ pattern: symbolSearchPattern(sym), scope, caseSensitive: true, maxResults: 40 });
 
     let definition = null;
     const callers = [];
 
     for (const match of grepResult.matches) {
-      const type = categorizeReference(match.text ?? '', sym, match.path);
-      if (type === 'definition' && definition === null) {
+      const reference = classifyReference(match.text ?? '', sym, match.path);
+      if (reference.type === 'definition' && definition === null) {
         definition = { path: match.path, line: match.line, kind: 'unknown', endLine: null };
-      } else if (type === 'usage') {
-        callers.push({ path: match.path, line: match.line, context: (match.text ?? '').trim() });
+      } else if (isCallableUsage(reference)) {
+        callers.push({
+          path: match.path,
+          line: match.line,
+          context: (match.text ?? '').trim(),
+          relation: reference.relation,
+        });
       }
     }
 
@@ -781,7 +804,17 @@ export class RepoToolkit {
         const symResult = await this.symbols({ path: definition.path });
         const found = symResult.symbols.find(s => s.name === sym);
         if (found) {
-          definition = { ...definition, line: found.line, endLine: found.endLine, kind: found.kind, exported: found.exported };
+          definition = {
+            ...definition,
+            line: found.line,
+            endLine: found.endLine,
+            kind: found.kind,
+            exported: found.exported,
+            signature: found.signature,
+            containerName: found.containerName,
+            containerKind: found.containerKind,
+            qualifiedName: found.qualifiedName,
+          };
         }
       } catch { /* keep grep-based definition */ }
 

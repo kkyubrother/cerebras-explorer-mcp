@@ -598,33 +598,33 @@ Codex도 동일하다.
 - `repo_symbol_context.depth > 1` 확장
 - `repo_grep.includeSymbol`
 
-### Phase 3 — LSP 통합 및 정밀 심볼 분석
+### Phase 3 — 의존성 최소화 심볼 엔진 정밀도 향상
 
-현재 `symbols.mjs`는 regex 기반 추출로, computed properties, decorators, 복잡한
-제네릭 타입, Python 혼합 들여쓰기 등에서 오차가 발생한다.
-
-Claude Code 소스 분석 결과, tree-sitter 대신 **LSP(Language Server Protocol)**가
-더 적합한 해결책임을 확인했다 (`src/tools/LSPTool/LSPTool.ts`).
+현재 `symbols.mjs`는 외부 parser나 language server 없이 regex/syntax-lite 방식으로
+심볼을 추출한다. 이 방향을 기본 설계로 유지한다. LSP/tree-sitter는 언어별 설치,
+서버 lifecycle, native dependency, 프로젝트별 설정 비용이 있어 agent adoption
+관점에서 기본 경로에 넣지 않는다.
 
 **구현 계획:**
 
-1. **LSP 클라이언트 모듈 (`src/explorer/lsp-client.mjs`)**
-   - 외부 LSP 서버(tsserver, Pylance, rust-analyzer 등)와 JSON-RPC 통신
-   - `goToDefinition`, `findReferences`, `documentSymbol`, `hover` 지원
-   - LSP 서버 라이프사이클 관리 (시작, 종료, 재시작)
+1. **내장 symbol provider 경계 정리**
+   - `src/explorer/symbols.mjs`의 built-in extractor를 기본 provider로 유지
+   - symbol record에 `signature`, `language`, `containerName`, `qualifiedName` 같은
+     parser-free metadata를 보강
+   - 기존 `name/kind/line/endLine/exported` 계약은 유지
 
-2. **도구 통합**
-   - `repo_symbols` → LSP `documentSymbol` 위임 (regex 폴백 유지)
-   - `repo_references` → LSP `findReferences` 위임
-   - `repo_symbol_context` → LSP `goToDefinition` + `findReferences` 조합
+2. **언어별 fixture 기반 정확도 개선**
+   - JS/TS: generic function, typed arrow, class method/private method, re-export 분류
+   - Python/Go/Rust/Java: fixture를 늘려 false positive를 줄이는 방식으로 개선
+   - 새 npm dependency나 외부 binary는 추가하지 않음
 
-3. **배포 고려사항**
-   - LSP 서버는 선택적 외부 의존성 (없으면 regex 폴백)
-   - `.cerebras-explorer.json`에 `lspServers` 설정 추가
-   - 프로젝트별 LSP 서버 자동 감지 (package.json → tsserver, pyproject.toml → pylance)
+3. **참조 분류 신뢰도 개선**
+   - `repo_references`는 legacy `type: import|definition|usage`를 유지
+   - 추가 relation(`call`, `constructor`, `export`, `type_reference`)으로 caller 잡음 감소
+   - `repo_symbol_context`는 re-export/type-only reference를 caller에서 제외
 
 4. **기존 Phase 3 항목 유지:**
-   - import graph / call graph (LSP `incomingCalls`/`outgoingCalls`로 구현 가능)
+   - import graph / call graph는 관측된 grep/symbol/read 결과로만 edge 기록
    - 정량화된 유사도 점수 (`find_similar_code.similarity`)
    - repo fingerprint 기반 warm-start
 

@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { extractSymbols, detectLanguage, categorizeReference } from '../src/explorer/symbols.mjs';
+import { extractSymbols, detectLanguage, categorizeReference, classifyReference } from '../src/explorer/symbols.mjs';
 import { RepoToolkit } from '../src/explorer/repo-tools.mjs';
 import { BUDGETS } from '../src/explorer/config.mjs';
 
@@ -46,6 +46,14 @@ export class UserRouter {
   async getUser(id) {
     return this.app.db.findUser(id);
   }
+
+  #refreshCache() {
+    return true;
+  }
+
+  static create(app) {
+    return new UserRouter(app);
+  }
 }
 
 export const DEFAULT_TIMEOUT = 30000;
@@ -82,6 +90,20 @@ test('extractSymbols finds class methods', () => {
   assert.equal(method.kind, 'function');
 });
 
+test('extractSymbols annotates class methods and ignores indented calls', () => {
+  const symbols = extractSymbols(JS_SOURCE, 'auth.js');
+  assert.equal(symbols.some(s => s.name === 'next'), false, 'indented calls are not definitions');
+
+  const method = symbols.find(s => s.name === 'getUser');
+  assert.equal(method.containerName, 'UserRouter');
+  assert.equal(method.containerKind, 'class');
+  assert.equal(method.qualifiedName, 'UserRouter.getUser');
+  assert.match(method.signature, /async getUser/);
+
+  const privateMethod = symbols.find(s => s.name === '#refreshCache');
+  assert.equal(privateMethod.qualifiedName, 'UserRouter.#refreshCache');
+});
+
 test('extractSymbols finds exported constants as variables', () => {
   const symbols = extractSymbols(JS_SOURCE, 'auth.js');
   const constant = symbols.find(s => s.name === 'DEFAULT_TIMEOUT');
@@ -112,6 +134,18 @@ export enum Role {
   User = 'user',
 }
 
+export abstract class UserRepository<T> {
+  protected async load<TOut>(id: UserId): Promise<TOut> {
+    return null as TOut;
+  }
+}
+
+export declare function resolveUser<T extends UserConfig>(config: T): UserId;
+
+export const parseUser: Parser<UserConfig> = (input) => input as UserConfig;
+
+const identity = <T>(value: T) => value;
+
 export async function createUser(config: UserConfig): Promise<void> {
   // implementation
 }
@@ -123,6 +157,19 @@ test('extractSymbols finds TypeScript interface, type alias, and enum', () => {
   assert.ok(names.includes('UserConfig'), 'interface UserConfig');
   assert.ok(names.includes('UserId'), 'type UserId');
   assert.ok(names.includes('Role'), 'enum Role');
+});
+
+test('extractSymbols handles TypeScript generics, typed arrows, and method containers', () => {
+  const symbols = extractSymbols(TS_SOURCE, 'user.ts');
+  const names = symbols.map(s => s.name);
+  assert.ok(names.includes('UserRepository'), 'abstract generic class');
+  assert.ok(names.includes('resolveUser'), 'declare generic function');
+  assert.ok(names.includes('parseUser'), 'typed arrow function');
+  assert.ok(names.includes('identity'), 'generic arrow function');
+
+  const load = symbols.find(s => s.name === 'load');
+  assert.equal(load.containerName, 'UserRepository');
+  assert.equal(load.qualifiedName, 'UserRepository.load');
 });
 
 // ─── extractSymbols — Python ─────────────────────────────────────────────────
@@ -167,6 +214,25 @@ test('categorizeReference identifies usage lines', () => {
   assert.equal(categorizeReference('  const router = new UserRouter(app);', 'UserRouter', 'main.js'), 'usage');
 });
 
+test('classifyReference adds relation details without changing legacy type', () => {
+  assert.deepEqual(
+    classifyReference('export { requireAuth, manager };', 'requireAuth', 'index.js'),
+    { type: 'usage', relation: 'export' },
+  );
+  assert.deepEqual(
+    classifyReference('  const router = new UserRouter(app);', 'UserRouter', 'main.ts'),
+    { type: 'usage', relation: 'constructor' },
+  );
+  assert.deepEqual(
+    classifyReference('  requireAuth(req, res, next);', 'requireAuth', 'routes.js'),
+    { type: 'usage', relation: 'call' },
+  );
+  assert.deepEqual(
+    classifyReference('const selected: UserConfig = input as UserConfig;', 'UserConfig', 'user.ts'),
+    { type: 'usage', relation: 'type_reference' },
+  );
+});
+
 // ─── RepoToolkit: repo_symbols tool ──────────────────────────────────────────
 
 async function makeJsFixture() {
@@ -182,7 +248,8 @@ async function makeJsFixture() {
       '',
       'export class SessionManager {',
       '  constructor() { this.sessions = new Map(); }',
-      '  create(userId) { return this.sessions.set(userId, Date.now()); }',
+      '  #touch() { return Date.now(); }',
+      '  create(userId) { this.#touch(); return this.sessions.set(userId, Date.now()); }',
       '}',
     ].join('\n'),
   );
@@ -236,6 +303,18 @@ test('repo_references finds symbol definition and usages across files', async ()
   ].filter(Boolean);
   assert.ok(allPaths.some(p => p.includes('auth')), 'definition must be in auth.js');
   assert.ok(allPaths.some(p => p.includes('index')), 'usage must be in index.js');
+  const reexport = result.references.find(ref => ref.context.startsWith('export {'));
+  assert.equal(reexport.relation, 'export');
+});
+
+test('repo_references handles JavaScript private symbol names', async () => {
+  const root = await makeJsFixture();
+  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: BUDGETS.normal });
+  await toolkit.initialize([]);
+
+  const result = await toolkit.callTool('repo_references', { symbol: '#touch' });
+  assert.equal(result.definition?.context, '#touch() { return Date.now(); }');
+  assert.ok(result.references.some(ref => ref.relation === 'member_call'));
 });
 
 test('repo_symbol_context returns definition body and callers', async () => {
@@ -249,6 +328,11 @@ test('repo_symbol_context returns definition body and callers', async () => {
   assert.ok(result.definition.path.includes('auth'), 'definition must be in auth.js');
   assert.ok(typeof result.definition.line === 'number', 'definition must have a line number');
   assert.ok(Array.isArray(result.callers), 'callers must be an array');
+  assert.equal(
+    result.callers.some(caller => caller.context.startsWith('export {')),
+    false,
+    're-export lines are not callers',
+  );
 });
 
 test('repo_grep with contextLines includes surrounding lines', async () => {

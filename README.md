@@ -648,7 +648,7 @@ node ./scripts/run-benchmark.mjs \
 - `.gitignore`는 루트 파일만 단순 반영합니다.
 - 대용량 바이너리 / 압축 파일은 탐색 대상에서 제외합니다.
 - 최종 품질은 저장소 구조와 질문 품질에 영향을 받습니다.
-- 심볼 인덱싱은 regex 기반이며, LSP/tree-sitter 수준의 정밀한 semantic 분석은 아직 없습니다.
+- 심볼 인덱싱은 외부 파서 없는 regex/syntax-lite 기반입니다. 언어 서버 수준의 semantic 분석은 제공하지 않지만, 설치 의존성을 늘리지 않는 방향을 우선합니다.
 - `repo_symbol_context.depth > 1`은 현재 `effectiveDepth = 1`로 고정됩니다 (직접 호출자만 반환). 의도적 설계 결정이며, 반환값에 `effectiveDepth: 1` 필드가 포함되어 실제 동작을 명시합니다. 더 깊은 호출 체인이 필요하면 `explore_repo`의 `reference-chase` 전략을 사용하세요.
 - `find_similar_code`는 수치형 similarity score를 제공하지 않습니다. 자연어 추론 기반으로 유사 패턴과 근거를 설명합니다.
 
@@ -660,7 +660,7 @@ node ./scripts/run-benchmark.mjs \
 - `map_impact`
 - `find_entrypoints`
 - repo-specific ignore 정책
-- tree-sitter 기반 심볼 정밀도 향상
+- 외부 파서 없는 symbol engine fixture 확대와 정밀도 향상
 - `find_similar_code`의 deterministic similarity score RFC
 
 상세 설계 근거는 [DESIGN.md](./DESIGN.md)에 정리해 두었습니다.
