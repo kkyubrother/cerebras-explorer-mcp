@@ -351,6 +351,36 @@ test('ExplorerRuntime preserves model-provided edit targets when deriving eviden
   assert.equal(result.nextAction.target.role, 'edit');
 });
 
+test('ExplorerRuntime does not treat review-change context as edit planning', async () => {
+  const repoRoot = await makeRepoFixture();
+  const runtime = new ExplorerRuntime({ chatClient: new MockChatClient() });
+
+  const result = await runtime.explore({
+    task: 'Review change context: What changed recently around auth routing? Summarize what changed and return grounded read targets.',
+    repo_root: repoRoot,
+    scope: ['src/**'],
+    budget: 'quick',
+  });
+
+  assert.equal(result.status.verification, 'verified');
+  assert.equal(result.nextAction.type, 'stop');
+});
+
+test('ExplorerRuntime still treats code changes as edit planning', async () => {
+  const repoRoot = await makeRepoFixture();
+  const runtime = new ExplorerRuntime({ chatClient: new MockChatClient() });
+
+  const result = await runtime.explore({
+    task: 'Change auth middleware behavior to add a new response field.',
+    repo_root: repoRoot,
+    scope: ['src/**'],
+    budget: 'quick',
+  });
+
+  assert.equal(result.status.verification, 'targeted_read_needed');
+  assert.equal(result.nextAction.type, 'read_target');
+});
+
 test('Phase 2 — Mermaid diagram does not invent dependency edges without observed relationships', async () => {
   const repoRoot = await makeRepoFixture();
   const runtime = new ExplorerRuntime({ chatClient: new MockChatClient() });

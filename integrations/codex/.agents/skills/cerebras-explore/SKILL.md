@@ -28,7 +28,7 @@ Default call shape:
 - Add `scope` only when the subsystem or directory is already obvious.
 - Do not set `budget`, `thoroughness`, `hints.strategy`, or `language` unless explicitly required by a legacy workflow.
 - For `explore`, use `prompt` instead of `task`.
-- Reuse `stats.sessionId` as `session` when continuing the same investigation.
+- Reuse `sessionId` as `session` when continuing the same investigation.
 
 Do not delegate by default when one or two direct native reads are cheaper, when the task is primarily to edit code, or when the user explicitly wants raw local verification first.
 

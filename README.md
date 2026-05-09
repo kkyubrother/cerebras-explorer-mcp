@@ -146,13 +146,12 @@ Parent model (Claude Code / Codex)
     "symbols": ["requireAuth"],
     "files": ["src/routes/user.js"],
     "regex": ["/users/me"]
-  },
-  "language": "ko"
+  }
 }
 ```
 
 - `repo_root` (선택): 절대경로나 상대경로. Windows에서는 `C:\repo`, `C:/repo`뿐 아니라 Git Bash/MSYS 스타일 `/c/repo`도 받아 실제 filesystem 경로로 canonicalize한 뒤 세션과 도구 실행에 사용합니다.
-- `language` (선택): BCP-47 언어 태그(예: `"ko"`, `"en"`, `"ja"`). 생략 시 task 텍스트에서 자동 추론합니다.
+- `language` (advanced/optional): 응답 언어를 명시적으로 고정해야 할 때만 사용합니다. 보통은 task 텍스트에서 자동 추론되므로 생략하세요.
 - `session` (선택): 이전 탐색의 `sessionId`를 넘기면 candidate paths와 요약을 다음 탐색에 재사용합니다.
 - `budget`, `hints.strategy` (advanced/legacy): 일반 agent 사용에서는 생략하세요. 서버 기본값과 자동 strategy 감지가 우선입니다.
 
@@ -248,8 +247,7 @@ Parent model (Claude Code / Codex)
 {
   "prompt": "인증 서브시스템의 구조를 파일:라인 인용과 함께 설명해라",
   "repo_root": "/absolute/or/relative/path",
-  "scope": ["src/auth/**", "src/routes/**"],
-  "language": "ko"
+  "scope": ["src/auth/**", "src/routes/**"]
 }
 ```
 
@@ -281,8 +279,7 @@ V2 런타임은 세 가지 고급 기법을 추가합니다.
   "prompt": "인증 서브시스템의 구조를 end-to-end로 설명해라",
   "repo_root": "/absolute/or/relative/path",
   "scope": ["src/auth/**", "src/routes/**"],
-  "thoroughness": "deep",
-  "language": "ko"
+  "thoroughness": "deep"
 }
 ```
 
@@ -304,15 +301,10 @@ V2 런타임은 세 가지 고급 기법을 추가합니다.
 | `explain_code_path` | route/middleware/request/event/CLI 흐름을 파일 간 추적 | reference-chase |
 | `collect_evidence` | claim/review point에 대한 citation bundle 수집 | auto |
 | `review_change_context` | PR/recent-change review context 수집 | git-guided |
-| `explain_symbol` | 심볼의 정의 위치, 역할, 사용처를 설명 | symbol-first |
-| `trace_dependency` | 파일의 import/dependency 체인을 추적 | reference-chase |
-| `summarize_changes` | 기간/경로별 git 변경 사항을 요약 | git-guided |
-| `find_similar_code` | 참조 파일/코드와 유사한 패턴을 탐색 | pattern-scan |
 
-모든 특화 도구는 다음 공통 선택 파라미터를 지원합니다:
+legacy shortcut(`explain_symbol`, `trace_dependency`, `summarize_changes`, `find_similar_code`)은 기본 tool list에 노출되지 않으며, `CEREBRAS_EXPLORER_LEGACY_TOOLS=true`일 때만 공개됩니다.
 
-- `language`: BCP-47 언어 태그 — 응답 언어를 명시적으로 지정
-- `context`: 상위 에이전트가 탐색 의도를 전달하는 추가 컨텍스트
+목적형 wrapper는 공통적으로 `repo_root`, `scope`, `session`과 이미 알고 있는 file/symbol/text anchor만 노출합니다. 응답 언어를 명시해야 하는 드문 경우에는 `explore_repo` 또는 `explore`의 `language`를 사용하세요.
 
 ## 프로젝트 구조
 
@@ -353,7 +345,6 @@ cerebras-explorer-mcp/
         abstract.mjs
         failover.mjs
         index.mjs
-        ollama.mjs
         openai-compat.mjs
       repo-tools.mjs
       runtime.mjs
@@ -399,6 +390,16 @@ export CEREBRAS_EXPLORER_MODEL_QUICK="zai-glm-4.7"     # quick budget 전용 모
 export CEREBRAS_EXPLORER_MODEL_NORMAL="zai-glm-4.7"    # normal budget 전용 모델 override
 export CEREBRAS_EXPLORER_MODEL_DEEP="zai-glm-4.7"      # deep budget 전용 모델 override
 export CEREBRAS_EXPLORER_HTTP_TIMEOUT_MS="60000"        # HTTP 요청 timeout (ms). 기본값: 60000
+```
+
+선택 (provider override):
+
+```bash
+# 기본 provider는 cerebras입니다. OpenAI-compatible endpoint를 쓰려면:
+export EXPLORER_PROVIDER="openai-compat"
+export EXPLORER_OPENAI_API_KEY="..."
+export EXPLORER_OPENAI_BASE_URL="https://api.openai.com/v1"
+export EXPLORER_OPENAI_MODEL="gpt-4o-mini"
 ```
 
 선택 (샘플링 / reasoning):
@@ -507,16 +508,19 @@ sandbox_mode = "read-only"
 developer_instructions = """
 Use the `cerebras-explorer` MCP tools as the default first move for broad read-only discovery.
 Prefer the narrowest exposed explorer tool that matches the request:
-- `explain_symbol` for known symbols
-- `trace_dependency` for known entry files
-- `summarize_changes` for git-history questions
-- `find_similar_code` for pattern or duplication hunting
-- `explore_repo` for open-ended questions when structured JSON findings are useful
-- `explore` for open-ended questions when a cited Markdown report is the better final artifact
+- `find_relevant_code` for locating files and line targets before reads or edits
+- `trace_symbol` for known symbols
+- `map_change_impact` before edits when blast radius is unknown
+- `explain_code_path` for route, middleware, request, event, or CLI flows
+- `collect_evidence` for claim or review-point verification
+- `review_change_context` for PR or recent-change review context
+- `explore_repo` for open-ended structured JSON findings
+- `explore` for cited Markdown reports
 Pass the parent request almost verbatim; add `scope`, known anchors, or `session` only when justified by the task or prior results.
 Do not set `budget`, `thoroughness`, `hints.strategy`, or `language` unless a legacy workflow explicitly requires it.
 Use known symbols, files, text, or regex only when already known.
-Treat `explore_repo` evidence or `explore` citations as the primary map, then do only targeted native reads to verify or prepare edits.
+Reuse `sessionId` as `session` for follow-up calls.
+Treat returned `targets` or `explore` citations as the primary map, then do only targeted native reads to verify or prepare edits.
 Do not modify files.
 """
 ```
@@ -667,7 +671,7 @@ node ./scripts/run-benchmark.mjs \
 - `find_similar_code`는 수치형 similarity score를 제공하지 않습니다. 자연어 추론 기반으로 유사 패턴과 근거를 설명합니다.
 
 참고:
-- 코드베이스 안에는 provider abstraction 관련 구현이 일부 존재하지만, 이 프로젝트의 문서화된 목표와 공개 인터페이스는 Cerebras 기반 explorer에 맞춰져 있습니다.
+- 코드베이스 안에는 provider abstraction 관련 구현이 일부 존재하지만, 이 프로젝트의 문서화된 주요 공개 인터페이스는 Cerebras 기반 explorer에 맞춰져 있습니다. Provider override가 필요하면 `EXPLORER_PROVIDER`와 provider별 환경 변수를 사용하세요.
 
 ## 다음 확장 포인트
 

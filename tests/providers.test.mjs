@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { OpenAICompatChatClient } from '../src/explorer/providers/openai-compat.mjs';
-import { OllamaChatClient } from '../src/explorer/providers/ollama.mjs';
 import { FailoverChatClient } from '../src/explorer/providers/failover.mjs';
 import { createChatClient } from '../src/explorer/providers/index.mjs';
 import { CerebrasChatClient } from '../src/explorer/cerebras-client.mjs';
@@ -126,54 +125,6 @@ test('OpenAICompatChatClient: normalises tool_calls array in response', async ()
   assert.equal(result.message.toolCalls[0].function.name, 'repo_grep');
 });
 
-// ─── OllamaChatClient ────────────────────────────────────────────────────────
-
-test('OllamaChatClient: uses Ollama base URL and model defaults', () => {
-  const prevUrl = process.env.EXPLORER_OLLAMA_BASE_URL;
-  const prevModel = process.env.EXPLORER_OLLAMA_MODEL;
-  delete process.env.EXPLORER_OLLAMA_BASE_URL;
-  delete process.env.EXPLORER_OLLAMA_MODEL;
-
-  try {
-    const client = new OllamaChatClient({
-      fetchImpl: makeMockFetch(VALID_COMPLETION_RESPONSE),
-    });
-    assert.equal(client.model, 'llama3');
-  } finally {
-    if (prevUrl !== undefined) process.env.EXPLORER_OLLAMA_BASE_URL = prevUrl;
-    if (prevModel !== undefined) process.env.EXPLORER_OLLAMA_MODEL = prevModel;
-  }
-});
-
-test('OllamaChatClient: respects EXPLORER_OLLAMA_MODEL env var', () => {
-  const prev = process.env.EXPLORER_OLLAMA_MODEL;
-  process.env.EXPLORER_OLLAMA_MODEL = 'qwen2.5-coder:32b';
-
-  try {
-    const client = new OllamaChatClient({
-      fetchImpl: makeMockFetch(VALID_COMPLETION_RESPONSE),
-    });
-    assert.equal(client.model, 'qwen2.5-coder:32b');
-  } finally {
-    if (prev === undefined) delete process.env.EXPLORER_OLLAMA_MODEL;
-    else process.env.EXPLORER_OLLAMA_MODEL = prev;
-  }
-});
-
-test('OllamaChatClient: returns normalised message from Ollama-compatible response', async () => {
-  const client = new OllamaChatClient({
-    model: 'llama3',
-    fetchImpl: makeMockFetch(VALID_COMPLETION_RESPONSE),
-  });
-
-  const result = await client.createChatCompletion({
-    messages: [{ role: 'user', content: 'Hello' }],
-  });
-
-  assert.equal(result.message.content, 'Test response');
-  assert.deepEqual(result.message.toolCalls, []);
-});
-
 // ─── FailoverChatClient ──────────────────────────────────────────────────────
 
 test('FailoverChatClient: uses first provider when it succeeds', async () => {
@@ -289,22 +240,6 @@ test('createChatClient: returns OpenAICompatChatClient when EXPLORER_PROVIDER=op
   try {
     const client = createChatClient();
     assert.ok(client instanceof OpenAICompatChatClient);
-  } finally {
-    if (prev === undefined) delete process.env.EXPLORER_PROVIDER;
-    else process.env.EXPLORER_PROVIDER = prev;
-    if (prevFailover !== undefined) process.env.EXPLORER_FAILOVER = prevFailover;
-  }
-});
-
-test('createChatClient: returns OllamaChatClient when EXPLORER_PROVIDER=ollama', () => {
-  const prev = process.env.EXPLORER_PROVIDER;
-  const prevFailover = process.env.EXPLORER_FAILOVER;
-  process.env.EXPLORER_PROVIDER = 'ollama';
-  delete process.env.EXPLORER_FAILOVER;
-
-  try {
-    const client = createChatClient();
-    assert.ok(client instanceof OllamaChatClient);
   } finally {
     if (prev === undefined) delete process.env.EXPLORER_PROVIDER;
     else process.env.EXPLORER_PROVIDER = prev;

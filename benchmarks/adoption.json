@@ -9,8 +9,7 @@
       "tool": "find_relevant_code",
       "args": {
         "query": "Where is MCP tools/list assembled and which files should be read before changing tool metadata?",
-        "scope": ["src/**", "tests/**"],
-        "language": "ko"
+        "scope": ["src/**", "tests/**"]
       },
       "expectations": [
         {
@@ -38,8 +37,7 @@
       "tool": "trace_symbol",
       "args": {
         "symbol": "normalizeExploreResult",
-        "scope": ["src/**", "tests/**"],
-        "language": "ko"
+        "scope": ["src/**", "tests/**"]
       },
       "expectations": [
         {
@@ -66,8 +64,7 @@
       "tool": "map_change_impact",
       "args": {
         "change": "Add a new top-level field to explore_repo structured output",
-        "scope": ["src/**", "tests/**"],
-        "language": "ko"
+        "scope": ["src/**", "tests/**"]
       },
       "expectations": [
         {
@@ -95,8 +92,7 @@
       "args": {
         "pathQuery": "MCP tools/call request flow from JSON-RPC handler to exploreRepository",
         "knownFiles": ["src/mcp/server.mjs"],
-        "scope": ["src/**"],
-        "language": "ko"
+        "scope": ["src/**"]
       },
       "expectations": [
         {
@@ -123,8 +119,7 @@
       "tool": "collect_evidence",
       "args": {
         "claim": "explore_repo validates evidence against observed file ranges before returning structuredContent",
-        "scope": ["src/**", "tests/**"],
-        "language": "ko"
+        "scope": ["src/**", "tests/**"]
       },
       "expectations": [
         {
@@ -153,8 +148,7 @@
       "args": {
         "reviewGoal": "What changed recently around MCP tool metadata and what should be reviewed?",
         "since": "2 weeks ago",
-        "scope": ["src/**", "tests/**"],
-        "language": "ko"
+        "scope": ["src/**", "tests/**"]
       },
       "expectations": [
         {
@@ -183,8 +177,7 @@
       "args": {
         "query": "Which code controls explore_repo output formatting and structuredContent fields?",
         "knownSymbols": ["formatExploreResult", "normalizeExploreResult"],
-        "scope": ["src/**", "tests/**"],
-        "language": "ko"
+        "scope": ["src/**", "tests/**"]
       },
       "expectations": [
         {
@@ -212,8 +205,7 @@
       "tool": "find_relevant_code",
       "args": {
         "query": "I need to update README examples for explore_repo return fields. What exact targets should I read?",
-        "knownFiles": ["README.md"],
-        "language": "ko"
+        "knownFiles": ["README.md"]
       },
       "expectations": [
         {

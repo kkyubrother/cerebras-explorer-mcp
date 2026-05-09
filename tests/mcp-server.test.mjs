@@ -159,6 +159,18 @@ test('MCP request handler exposes explore_repo and returns structuredContent', a
   assert.ok(exploreRepoTool.outputSchema.properties.targets, 'explore_repo must expose outputSchema targets');
   assert.equal(exploreRepoTool.outputSchema.additionalProperties, false);
   assert.equal(exploreRepoTool.outputSchema.properties.answer, undefined);
+  for (const toolName of [
+    'find_relevant_code',
+    'trace_symbol',
+    'map_change_impact',
+    'explain_code_path',
+    'collect_evidence',
+    'review_change_context',
+  ]) {
+    const tool = listed.tools.find(t => t.name === toolName);
+    assert.equal(tool.inputSchema.properties.language, undefined, `${toolName} must not expose language`);
+    assert.equal(tool.inputSchema.properties.context, undefined, `${toolName} must not expose context`);
+  }
 
   const called = await handleRequest({
     jsonrpc: '2.0',

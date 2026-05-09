@@ -20,7 +20,7 @@ Rules:
 4. Do not set `budget`, `thoroughness`, `hints.strategy`, or `language` unless a legacy workflow explicitly requires it.
 5. Prefer wrapper inputs like `query`, `change`, `claim`, `knownFiles`, and `knownSymbols` over raw budget/strategy tuning.
 6. Treat `explore_v2` as advanced/legacy opt-in; normal agents should use `explore`.
-7. Reuse `stats.sessionId` for follow-up calls when continuing the same investigation.
+7. Reuse `sessionId` for follow-up calls when continuing the same investigation.
 8. Treat returned `targets` with role `read` or `edit` as the primary handoff. Do only targeted native reads to verify those ranges, prepare edits, or resolve ambiguity.
 9. Skip broad delegation if one or two direct reads answer the question faster.
 10. Do not modify files.

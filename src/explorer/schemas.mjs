@@ -51,7 +51,7 @@ export const EXPLORE_REPO_INPUT_SCHEMA = {
     language: {
       type: 'string',
       description:
-        'Optional BCP-47 language tag (e.g. "ko", "en", "ja") for the response language. When omitted, the explorer infers the language from the task text.',
+        'Advanced/optional. Omit for normal agent use; the explorer infers response language from the task text. Use only when a workflow must force a BCP-47 language tag such as "ko", "en", or "ja".',
     },
   },
   required: ['task'],

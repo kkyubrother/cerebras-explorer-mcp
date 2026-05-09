@@ -346,9 +346,14 @@ async function attachEvidenceMetadata({ evidence, repoRoot }) {
 }
 
 function hasEditIntent(task) {
-  return /fix|change|update|modify|implement|add|remove|refactor|migrate|patch|수정|변경|구현|추가|삭제|리팩터|마이그레이션/.test(
-    String(task ?? '').toLowerCase(),
-  );
+  const text = String(task ?? '').toLowerCase();
+  if (/\b(review change context|what changed|summarize changes|recent changes)\b/.test(text) ||
+      /변경\s*(사항|내역|요약)|최근\s*변경|무엇이\s*변경/.test(text)) {
+    return false;
+  }
+  return /\b(fix|modify|implement|refactor|migrate|patch|edit|editing)\b/.test(text) ||
+    /\b(add|remove|update|change)\b.*\b(code|field|schema|behavior|implementation|tool|api|contract|output|input|config|metadata|dependency|dependencies|file|files|test|tests|doc|docs|readme)\b/.test(text) ||
+    /수정|구현|추가|삭제|리팩터|마이그레이션|변경(해|하|되|해야|필요)/.test(text);
 }
 
 function buildTargets({ evidence = [], candidatePaths = [] } = {}) {

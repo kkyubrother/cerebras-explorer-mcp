@@ -196,7 +196,6 @@
           "groups": [
             ["abstract.mjs"],
             ["openai-compat.mjs"],
-            ["ollama.mjs"],
             ["failover.mjs"]
           ],
           "weight": 0.45
@@ -217,7 +216,6 @@
           "groups": [
             ["src/explorer/providers/abstract.mjs"],
             ["src/explorer/providers/openai-compat.mjs"],
-            ["src/explorer/providers/ollama.mjs"],
             ["src/explorer/providers/failover.mjs"]
           ],
           "weight": 0.3,
@@ -226,9 +224,9 @@
       ],
       "checks": [
         {
-          "label": "Returns at least four grounded evidence items",
+          "label": "Returns at least three grounded evidence items",
           "type": "min_grounded_evidence_count",
-          "value": 4,
+          "value": 3,
           "weight": 0.1
         }
       ]

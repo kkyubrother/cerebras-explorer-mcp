@@ -101,6 +101,18 @@ function formatPercent(score) {
   return `${Math.round(score * 100)}%`;
 }
 
+function getStats(result) {
+  return result?._debug?.stats ?? result?.stats ?? {};
+}
+
+function getConfidence(result) {
+  return result?.status?.confidence ?? result?._debug?.legacy?.confidence ?? result?.confidence ?? 'n/a';
+}
+
+function getConfidenceScore(result) {
+  return result?._debug?.confidenceScore ?? result?.confidenceScore ?? 'n/a';
+}
+
 /**
  * Compute extended benchmark metrics beyond pass/fail scoring.
  * All five Phase 0 indicators:
@@ -119,13 +131,13 @@ function computeExtendedMetrics(caseResults) {
   if (count === 0) return null;
 
   const avgToolTurns =
-    successCases.reduce((sum, cr) => sum + (cr.result.stats?.turns ?? 0), 0) / count;
+    successCases.reduce((sum, cr) => sum + (getStats(cr.result).turns ?? 0), 0) / count;
 
   const budgetExhaustionRate =
-    successCases.filter(cr => cr.result.stats?.stoppedByBudget).length / count;
+    successCases.filter(cr => getStats(cr.result).stoppedByBudget).length / count;
 
   const noToolExitRate =
-    successCases.filter(cr => (cr.result.stats?.toolCalls ?? 0) === 0).length / count;
+    successCases.filter(cr => (getStats(cr.result).toolCalls ?? 0) === 0).length / count;
 
   const avgGroundedEvidence =
     successCases.reduce((sum, cr) => {
@@ -135,9 +147,9 @@ function computeExtendedMetrics(caseResults) {
       return sum + grounded;
     }, 0) / count;
 
-  const deepCases = successCases.filter(cr => cr.result.stats?.budget === 'deep');
+  const deepCases = successCases.filter(cr => getStats(cr.result).budget === 'deep');
   const deepBudgetAvgTotalTokens = deepCases.length > 0
-    ? deepCases.reduce((sum, cr) => sum + (cr.result.stats?.totalTokens ?? 0), 0) / deepCases.length
+    ? deepCases.reduce((sum, cr) => sum + (getStats(cr.result).totalTokens ?? 0), 0) / deepCases.length
     : null;
 
   const evidenceCount = successCases.reduce((sum, cr) => sum + (cr.result.evidence?.length ?? 0), 0);
@@ -172,7 +184,7 @@ function printCaseResult(caseResult, verbose) {
   const status = evaluation.passed ? 'PASS' : 'FAIL';
   console.log(`${status} ${caseDefinition.id}  score=${formatPercent(evaluation.score)}  elapsed=${elapsedMs}ms`);
   console.log(`  ${caseDefinition.description}`);
-  console.log(`  confidence=${result.confidence} confidenceScore=${result.confidenceScore ?? 'n/a'} evidence=${result.evidence?.length ?? 0}`);
+  console.log(`  confidence=${getConfidence(result)} confidenceScore=${getConfidenceScore(result)} evidence=${result.evidence?.length ?? 0}`);
 
   if (!verbose) return;
 

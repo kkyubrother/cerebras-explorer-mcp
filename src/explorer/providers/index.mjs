@@ -1,13 +1,12 @@
 import { CerebrasChatClient } from '../cerebras-client.mjs';
 import { getModelForBudget, isTruthyEnv } from '../config.mjs';
 import { OpenAICompatChatClient } from './openai-compat.mjs';
-import { OllamaChatClient } from './ollama.mjs';
 import { FailoverChatClient } from './failover.mjs';
 
 /**
  * Create a single provider instance by name.
  *
- * @param {string} name - Provider name: "cerebras", "openai-compat", "ollama"
+ * @param {string} name - Provider name: "cerebras", "openai-compat"
  * @param {object} opts
  * @param {string} [opts.budget]     - Budget label for budget-based model routing
  * @param {Function} [opts.fetchImpl]
@@ -23,10 +22,8 @@ function createProviderByName(name, { budget, fetchImpl, logger } = {}) {
       });
     case 'openai-compat':
       return new OpenAICompatChatClient({ fetchImpl, logger });
-    case 'ollama':
-      return new OllamaChatClient({ fetchImpl, logger });
     default:
-      throw new Error(`Unknown provider: "${name}". Valid providers: cerebras, openai-compat, ollama`);
+      throw new Error(`Unknown provider: "${name}". Valid providers: cerebras, openai-compat`);
   }
 }
 
@@ -64,4 +61,4 @@ export function createChatClient({ budget, fetchImpl, logger } = {}) {
   return createProviderByName(providerName, { budget, fetchImpl, logger });
 }
 
-export { CerebrasChatClient, OpenAICompatChatClient, OllamaChatClient, FailoverChatClient };
+export { CerebrasChatClient, OpenAICompatChatClient, FailoverChatClient };

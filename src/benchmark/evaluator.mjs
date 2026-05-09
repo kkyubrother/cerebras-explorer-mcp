@@ -9,26 +9,55 @@ function joinLines(values) {
   return values.filter(Boolean).join('\n');
 }
 
+function getLegacy(result) {
+  return result?._debug?.legacy ?? {};
+}
+
+function getStats(result) {
+  return result?._debug?.stats ?? result?.stats ?? {};
+}
+
+function getRecentActivity(result) {
+  return result?.recentActivity ?? result?._debug?.legacy?.recentActivity ?? result?._debug?.recentActivity ?? null;
+}
+
+function getCandidatePaths(result) {
+  return result?.candidatePaths ?? getLegacy(result).candidatePaths ?? [];
+}
+
+function getFollowups(result) {
+  return result?.followups ?? getLegacy(result).followups ?? [];
+}
+
 function getSourceText(result, source) {
+  const legacy = getLegacy(result);
+  const recentActivity = getRecentActivity(result);
   switch (source) {
     case 'direct_answer':
-      return result.directAnswer ?? result.answer ?? '';
+      return result.directAnswer ?? result.answer ?? legacy.answer ?? '';
     case 'answer':
-      return result.answer ?? '';
+      return result.answer ?? legacy.answer ?? result.directAnswer ?? '';
     case 'summary':
-      return result.summary ?? '';
+      return result.summary ?? legacy.summary ?? '';
     case 'combined_text':
       return joinLines([
+        result.directAnswer,
+        result.status?.verification,
+        result.nextAction?.reason,
+        ...(result.targets ?? []).map(item => item.reason),
+        ...(result.evidence ?? []).map(item => item.why),
         result.answer,
         result.summary,
-        ...(result.followups ?? []).map(item => item.description),
+        legacy.answer,
+        legacy.summary,
+        ...getFollowups(result).map(item => item.description),
       ]);
     case 'evidence_paths':
       return joinLines((result.evidence ?? []).map(item => item.path));
     case 'evidence_why':
       return joinLines((result.evidence ?? []).map(item => item.why));
     case 'candidate_paths':
-      return joinLines(result.candidatePaths ?? []);
+      return joinLines(getCandidatePaths(result));
     case 'target_paths':
       return joinLines((result.targets ?? []).map(item => item.path));
     case 'target_reasons':
@@ -36,19 +65,19 @@ function getSourceText(result, source) {
     case 'evidence_snippets':
       return joinLines((result.evidence ?? []).map(item => item.snippet));
     case 'followup_descriptions':
-      return joinLines((result.followups ?? []).map(item => item.description));
+      return joinLines(getFollowups(result).map(item => item.description));
     case 'status_verification':
       return result.status?.verification ?? '';
     case 'next_action':
       return joinLines([result.nextAction?.type, result.nextAction?.reason, result.nextAction?.query]);
     case 'recent_commit_messages':
-      return joinLines((result.recentActivity?.recentCommits ?? []).map(item => item.message));
+      return joinLines((recentActivity?.recentCommits ?? []).map(item => item.message));
     case 'hot_files':
-      return joinLines(result.recentActivity?.hotFiles ?? []);
+      return joinLines(recentActivity?.hotFiles ?? []);
     case 'confidence':
-      return result.confidence ?? '';
+      return result.status?.confidence ?? result.confidence ?? legacy.confidence ?? '';
     case 'confidence_level':
-      return result.confidenceLevel ?? result.confidence ?? '';
+      return result.status?.confidence ?? result.confidenceLevel ?? legacy.confidenceLevel ?? result.confidence ?? legacy.confidence ?? '';
     default:
       throw new Error(`Unknown benchmark source: ${source}`);
   }
@@ -92,7 +121,7 @@ function evaluateCheck(result, check) {
       passed = actual >= Number(check.value ?? 0);
       break;
     case 'min_candidate_path_count':
-      actual = (result.candidatePaths ?? []).length;
+      actual = getCandidatePaths(result).length;
       passed = actual >= Number(check.value ?? 0);
       break;
     case 'min_target_count':
@@ -112,16 +141,16 @@ function evaluateCheck(result, check) {
       passed = actual === check.value;
       break;
     case 'has_recent_activity':
-      actual = Boolean(result.recentActivity);
+      actual = Boolean(getRecentActivity(result));
       passed = actual === Boolean(check.value);
       break;
     case 'stopped_by_budget_equals':
-      actual = Boolean(result.stats?.stoppedByBudget);
+      actual = Boolean(getStats(result).stoppedByBudget);
       passed = actual === Boolean(check.value);
       break;
     case 'has_session_id':
       {
-        const sessionId = result.sessionId ?? result.stats?.sessionId;
+        const sessionId = result.sessionId ?? getStats(result).sessionId;
         actual = typeof sessionId === 'string' && sessionId.startsWith('sess_');
       }
       passed = actual === Boolean(check.value);

@@ -122,7 +122,7 @@ async function testFreeExplore() {
   const runtime = new ExplorerRuntime({ chatClient: client, logger: console.error });
 
   const result = await runtime.freeExplore({
-    prompt: 'Explain the provider system in this project: how CerebrasChatClient, OpenAICompatChatClient, OllamaChatClient, and FailoverChatClient work together.',
+    prompt: 'Explain the provider system in this project: how CerebrasChatClient, OpenAICompatChatClient, and FailoverChatClient work together.',
     repo_root: REPO_ROOT,
     thoroughness: 'quick',
   }, {

@@ -198,10 +198,12 @@ GLM 4.7 마이그레이션 기준으로 explorer runtime은 다음 원칙을 따
 
 #### `MCP Server`
 
-기본적으로 상위 모델에게 7개의 도구를 노출한다: `explore_repo`, `explain_symbol`, `trace_dependency`, `summarize_changes`, `find_similar_code`, `explore`, `explore_v2`.
+기본적으로 상위 모델에게 8개의 도구를 노출한다: `find_relevant_code`, `trace_symbol`, `map_change_impact`, `explain_code_path`, `collect_evidence`, `review_change_context`, `explore_repo`, `explore`.
 
-- `CEREBRAS_EXPLORER_EXTRA_TOOLS=false`로 설정하면 특화 도구 4개(`explain_symbol`, `trace_dependency`, `summarize_changes`, `find_similar_code`)가 비활성화된다.
-- `CEREBRAS_EXPLORER_ENABLE_EXPLORE=false`로 설정하면 `explore`와 `explore_v2`가 비활성화된다.
+- `CEREBRAS_EXPLORER_EXTRA_TOOLS=false`로 설정하면 목적형 wrapper 6개가 비활성화된다.
+- legacy shortcut(`explain_symbol`, `trace_dependency`, `summarize_changes`, `find_similar_code`)은 `CEREBRAS_EXPLORER_LEGACY_TOOLS=true`일 때만 노출된다.
+- `explore_v2`는 advanced/legacy 도구이며 `CEREBRAS_EXPLORER_ENABLE_EXPLORE_V2=true`일 때만 노출된다.
+- `CEREBRAS_EXPLORER_ENABLE_EXPLORE=false`로 설정하면 `explore`가 비활성화된다.
 
 #### 동시 요청 처리
 
@@ -223,7 +225,8 @@ GLM 4.7 마이그레이션 기준으로 explorer runtime은 다음 원칙을 따
 
 #### 세션 계약
 
-- 세션은 `stats.sessionId`로 반환되며, 다음 호출에서 `session` 파라미터로 전달하면 재사용된다.
+- MCP `structuredContent`에서는 세션이 top-level `sessionId`로 반환되며, 다음 호출에서 `session` 파라미터로 전달하면 재사용된다.
+- runtime raw result에는 backward compatibility를 위해 `stats.sessionId`도 남긴다.
 - 명시적으로 요청된 세션이 invalid 또는 repo_mismatch인 경우 에러를 반환한다.
 - 명시적으로 요청된 세션이 expired 또는 exhausted인 경우 새 세션으로 fallback하고, `stats.sessionStatus`에 `fallback`을 표시한다.
 - `stats.sessionStatus`가 `created`, `reused`, `fallback` 중 하나를 표시하고, `stats.remainingCalls`가 남은 호출 수를 표시한다.
@@ -320,93 +323,60 @@ GLM 4.7 마이그레이션 기준으로 explorer runtime은 다음 원칙을 따
 
 ## 9. 반환 스키마
 
+runtime raw result는 legacy/debug 호환성을 위해 풍부한 필드를 유지한다. MCP `structuredContent`는 상위 agent가 바로 읽는 compact contract로 변환한다.
+
+MCP agent-facing contract:
+
 ```json
 {
-  "answer": "string",
-  "summary": "string",
-  "confidence": "low|medium|high",
-  "confidenceScore": 0.0,
-  "confidenceFactors": {
-    "evidenceCount": 0,
-    "evidenceDropped": 0,
-    "droppedUngrounded": 0,
-    "droppedMalformed": 0,
-    "crossVerified": false,
-    "symbolSearchUsed": false,
-    "stoppedByBudget": false,
-    "gitLogCalls": 0,
-    "gitDiffCalls": 0,
-    "gitBlameCalls": 0,
-    "gitGroundingHint": "none|git_tools_used",
-    "adjustments": []
+  "directAnswer": "string",
+  "status": {
+    "confidence": "low|medium|high",
+    "verification": "verified|targeted_read_needed|follow_up_needed|broad_search_needed",
+    "complete": true,
+    "warnings": []
   },
-  "evidence": [
+  "targets": [
     {
       "path": "relative/path",
       "startLine": 1,
       "endLine": 10,
+      "role": "edit|read|test|config|context|reference",
+      "reason": "why this target matters",
+      "evidenceRefs": ["E1"]
+    }
+  ],
+  "evidence": [
+    {
+      "id": "E1",
+      "path": "relative/path",
+      "startLine": 1,
+      "endLine": 10,
       "why": "why it matters",
+      "snippet": "1: cited source line",
       "evidenceType": "file_range|git_commit|git_blame|git_diff_hunk",
       "groundingStatus": "exact|partial",
       "sha": "optional — commit hash for git evidence",
       "author": "optional — for git_blame/git_commit"
     }
   ],
-  "candidatePaths": ["relative/path"],
-  "critic": {
-    "status": "pass|caution|fail",
-    "warnings": [
-      {
-        "type": "dropped_evidence|partial_evidence|confidence_downgraded|budget_exhausted|tool_errors",
-        "severity": "low|medium|high",
-        "message": "short reason",
-        "target": "optional file/range or field",
-        "action": "how the parent AI should treat this result"
-      }
-    ]
+  "uncertainties": [],
+  "nextAction": {
+    "type": "stop|read_target|explore_followup|ask_user",
+    "reason": "what the parent should do next"
   },
-  "followups": [
-    {
-      "description": "optional next check",
-      "priority": "recommended|optional",
-      "suggestedCall": {
-        "task": "string",
-        "scope": ["relative/path/or/glob"],
-        "budget": "quick|normal|deep",
-        "hints": {
-          "symbols": ["string"],
-          "strategy": "symbol-first|reference-chase|git-guided|breadth-first|blame-guided|pattern-scan"
-        }
-      }
+  "sessionId": "sess_...",
+  "_debug": {
+    "stats": {},
+    "confidenceScore": 0.0,
+    "confidenceFactors": {},
+    "legacy": {
+      "answer": "string",
+      "summary": "string",
+      "candidatePaths": ["relative/path"],
+      "followups": [],
+      "critic": {}
     }
-  ],
-  "codeMap": {
-    "entryPoints": ["relative/path"],
-    "keyModules": [
-      {
-        "path": "relative/path",
-        "role": "string",
-        "linesRead": 0
-      }
-    ]
-  },
-  "diagram": "optional mermaid flowchart",
-  "recentActivity": {
-    "hotFiles": ["relative/path (N commits / range)"],
-    "recentAuthors": ["name"],
-    "lastModified": "YYYY-MM-DD",
-    "recentCommits": [
-      {"hash": "abc123", "message": "string", "date": "ISO"}
-    ]
-  },
-  "stats": {
-    "model": "${CEREBRAS_EXPLORER_MODEL:-zai-glm-4.7}",
-    "budget": "quick|normal|deep",
-    "turns": 0,
-    "toolCalls": 0,
-    "sessionId": "sess_...",
-    "sessionStatus": "created|reused|fallback",
-    "remainingCalls": 5
   }
 }
 ```

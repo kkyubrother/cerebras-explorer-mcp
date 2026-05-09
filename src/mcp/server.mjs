@@ -149,8 +149,6 @@ const FIND_RELEVANT_CODE_TOOL = {
       knownSymbols: { type: 'array', items: { type: 'string' } },
       knownText: { type: 'array', items: { type: 'string' } },
       session: { type: 'string' },
-      language: { type: 'string' },
-      context: { type: 'string' },
     },
     required: ['query'],
   },
@@ -163,7 +161,20 @@ const TRACE_SYMBOL_TOOL = {
   description:
     'Use when a known function, class, variable, or type needs definition plus usage/callsite context. ' +
     'Purpose-oriented alias for explain_symbol; returns grounded targets and evidence.',
-  inputSchema: EXPLAIN_SYMBOL_TOOL.inputSchema,
+  inputSchema: {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      symbol: {
+        type: 'string',
+        description: 'The symbol name to explain (function, class, variable, type, etc.).',
+      },
+      repo_root: { type: 'string' },
+      scope: { type: 'array', items: { type: 'string' } },
+      session: { type: 'string', description: 'Optional session ID for continuity.' },
+    },
+    required: ['symbol'],
+  },
   outputSchema: EXPLORE_REPO_OUTPUT_SCHEMA,
 };
 
@@ -183,8 +194,6 @@ const MAP_CHANGE_IMPACT_TOOL = {
       knownFiles: { type: 'array', items: { type: 'string' } },
       knownSymbols: { type: 'array', items: { type: 'string' } },
       session: { type: 'string' },
-      language: { type: 'string' },
-      context: { type: 'string' },
     },
     required: ['change'],
   },
@@ -208,8 +217,6 @@ const EXPLAIN_CODE_PATH_TOOL = {
       knownFiles: { type: 'array', items: { type: 'string' } },
       knownSymbols: { type: 'array', items: { type: 'string' } },
       session: { type: 'string' },
-      language: { type: 'string' },
-      context: { type: 'string' },
     },
     required: ['pathQuery'],
   },
@@ -233,8 +240,6 @@ const COLLECT_EVIDENCE_TOOL = {
       knownSymbols: { type: 'array', items: { type: 'string' } },
       knownText: { type: 'array', items: { type: 'string' } },
       session: { type: 'string' },
-      language: { type: 'string' },
-      context: { type: 'string' },
     },
     required: ['claim'],
   },
@@ -258,8 +263,6 @@ const REVIEW_CHANGE_CONTEXT_TOOL = {
       repo_root: { type: 'string' },
       scope: { type: 'array', items: { type: 'string' } },
       session: { type: 'string' },
-      language: { type: 'string' },
-      context: { type: 'string' },
     },
     required: ['reviewGoal'],
   },
