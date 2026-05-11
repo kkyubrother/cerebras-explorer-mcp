@@ -1,9 +1,31 @@
 #!/usr/bin/env node
 import path from 'node:path';
+import util from 'node:util';
 import { fileURLToPath } from 'node:url';
 
 import { startMcpServer } from './mcp/server.mjs';
 import { globalSessionStore } from './explorer/session.mjs';
+
+export function installStdioGuard({
+  consoleRef = console,
+  stderr = process.stderr,
+  env = process.env,
+} = {}) {
+  if (env.MCP_STDIO_GUARD === '0') {
+    return false;
+  }
+
+  const toStderr = (...args) => {
+    stderr.write(`${util.format(...args)}\n`);
+  };
+  consoleRef.log = toStderr;
+  consoleRef.info = toStderr;
+  consoleRef.debug = toStderr;
+  consoleRef.warn = toStderr;
+  return true;
+}
+
+installStdioGuard();
 
 function log(message) {
   process.stderr.write(`[cerebras-explorer-mcp] ${message}\n`);

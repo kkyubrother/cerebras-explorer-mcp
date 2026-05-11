@@ -212,6 +212,7 @@ GLM 4.7 마이그레이션 기준으로 explorer runtime은 다음 원칙을 따
 
 - `processBuffer()`는 버퍼에서 메시지를 파싱한 즉시 `dispatchMessage()`를 fire-and-forget으로 실행한다. 탐색 한 건(15~30초)이 진행 중이어도 다음 요청이 즉시 시작된다.
 - `send()` 메서드 내부에 `_sendQueue` promise chain을 두어 stdout 쓰기를 직렬화한다. 동시에 응답이 완료되어도 JSON 메시지가 뒤섞여 스트림이 오염되지 않는다.
+- stdio 모드에서 console 출력은 stderr로 라우팅한다. stdout에는 NDJSON 또는 Content-Length JSON-RPC frame만 기록되어야 한다.
 - `notifications/cancelled`를 수신하면 `AbortController.abort()` 직후 Map에서도 즉시 제거하여 완료된 요청의 컨트롤러가 잔류하지 않는다.
 
 > **설계 이유**: 탐색 요청은 외부 Cerebras API를 반복 호출하는 비동기 작업이다. 직렬 처리는 한 요청이 수십 초를 점유하는 동안 나머지 모든 요청을 큐에 묶어두므로, 상위 모델이 두 도구를 동시에 호출하는 일반적인 사용 패턴에서 두 번째 요청이 hang처럼 보였다.

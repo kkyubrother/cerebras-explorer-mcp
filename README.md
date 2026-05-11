@@ -467,6 +467,7 @@ claude mcp add cerebras-explorer \
    - 구형 stdio 파서는 `Content-Length: N\r\n\r\n{...}` 헤더 방식만 처리했지만, 신형 Claude Code는 NDJSON 방식(`{...}\n`)으로 보냅니다.
    - 파서가 헤더를 찾지 못해 응답 없이 대기 → Claude Code 타임아웃 → "Failed to connect"가 됩니다.
    - 현재 버전은 두 방식을 자동 감지하므로 업데이트 후 재등록하면 해결됩니다.
+   - stdio JSON-RPC 채널 보호를 위해 일반 console 출력은 stderr로 보냅니다. 로컬 디버깅에서만 `MCP_STDIO_GUARD=0`으로 우회할 수 있습니다.
 2. **등록 명령을 확인합니다.**
    - `node` 명령이 PATH에 있는지, 경로가 절대 경로인지 확인합니다.
    - `claude mcp list`로 등록된 command/args를 재확인합니다.

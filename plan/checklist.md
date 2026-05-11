@@ -57,13 +57,21 @@ Phase 1 evidence:
 
 ## Phase 2: Stdio Purity
 
-- [ ] `src/index.mjs`에 stdio guard를 추가해 console 출력이 stderr로 향하게 한다.
-- [ ] NDJSON handshake 중 stdout이 JSON-RPC frame만 포함하는지 검증하는 테스트를 추가한다.
-- [ ] Content-Length handshake 중 stdout이 JSON-RPC frame만 포함하는지 검증하는 테스트를 추가한다.
-- [ ] `MCP_STDIO_GUARD=0` opt-out 동작을 문서화하거나 테스트한다.
-- [ ] 관련 테스트를 실행하고 실패를 수정한다.
-- [ ] README/DESIGN의 stdio framing 설명이 구현과 맞는지 갱신한다.
-- [ ] 체크 표시 후 Phase 2 결과를 커밋한다.
+- [x] `src/index.mjs`에 stdio guard를 추가해 console 출력이 stderr로 향하게 한다.
+- [x] NDJSON handshake 중 stdout이 JSON-RPC frame만 포함하는지 검증하는 테스트를 추가한다.
+- [x] Content-Length handshake 중 stdout이 JSON-RPC frame만 포함하는지 검증하는 테스트를 추가한다.
+- [x] `MCP_STDIO_GUARD=0` opt-out 동작을 문서화하거나 테스트한다.
+- [x] 관련 테스트를 실행하고 실패를 수정한다.
+- [x] README/DESIGN의 stdio framing 설명이 구현과 맞는지 갱신한다.
+- [x] 체크 표시 후 Phase 2 결과를 커밋한다.
+
+Phase 2 evidence:
+
+- `src/index.mjs` installs a stdio guard for `console.log`, `console.info`, `console.debug`, and `console.warn`, with `MCP_STDIO_GUARD=0` opt-out.
+- `tests/integration/stdio-purity.test.mjs` verifies NDJSON and Content-Length handshakes.
+- Initial Content-Length test failure exposed a byte-length parsing bug in the test; parser now uses `Buffer` offsets.
+- `node --test tests/integration/stdio-purity.test.mjs`: 2 tests / 2 pass.
+- `npm test`: 262 tests / 261 pass / 0 fail / 1 skip.
 
 ## Phase 3: Secret Deny-list
 
