@@ -357,6 +357,7 @@ cerebras-explorer-mcp/
 
 - zero dependencies 원칙을 유지합니다. 현재 npm runtime/dev dependencies 없이 Node 표준 라이브러리만 사용합니다.
 - read-only 원칙을 유지합니다. 저장소 탐색 도구는 파일을 수정하지 않습니다.
+- secret deny-list는 `.env*`, `.ssh/**`, `.aws/credentials`, `.npmrc`, `*.pem`, `secrets/**`, `credentials.json` 같은 민감 파일을 traversal/read/grep/symbol/snippet 경로에서 기본 차단합니다. 로컬 디버깅에서만 `CEREBRAS_EXPLORER_DISABLE_SECRET_DENY_LIST=1`로 우회하세요.
 - `explore_repo` 입출력 스키마는 기존 클라이언트를 깨지 않는 additive change 중심으로 확장합니다.
 
 ### 1) 환경 변수

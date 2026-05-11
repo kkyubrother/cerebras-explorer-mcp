@@ -13,6 +13,11 @@ import {
 } from './config.mjs';
 import { GIT_TOOL_TTL_MS } from './cache.mjs';
 import { extractSymbols, classifyReference } from './symbols.mjs';
+import {
+  DEFAULT_SECRET_DENY_PATTERNS,
+  isSecretPath,
+  secretDeniedResult,
+} from './security.mjs';
 
 function toPosix(input) {
   return input.split(path.sep).join('/');
@@ -264,6 +269,10 @@ function buildGitignoreMatcher(rules) {
 
 function shouldIgnorePath(relPath, dirent, gitignoreMatcher, ignoreDirs = DEFAULT_IGNORE_DIRS) {
   if (dirent?.isSymbolicLink?.()) {
+    return true;
+  }
+
+  if (isSecretPath(relPath).matched) {
     return true;
   }
 
@@ -539,6 +548,9 @@ export class RepoToolkit {
       rgArgs.push('--glob', `!${normalizedDir}`);
       rgArgs.push('--glob', `!${normalizedDir}/**`);
     }
+    for (const pattern of DEFAULT_SECRET_DENY_PATTERNS) {
+      rgArgs.push('--glob', `!${pattern}`);
+    }
     if (!caseSensitive) rgArgs.push('--ignore-case');
     const perFileMax = Math.min(maxResults, 50);
     rgArgs.push('--max-count', String(perFileMax));
@@ -583,6 +595,7 @@ export class RepoToolkit {
       const relPath = toPosix(path.relative(this.repoRootReal, filePath));
       // Post-filter: enforce effectiveScope to catch glob patterns ripgrep may over-include
       if (!effectiveScope.matches(relPath)) continue;
+      if (isSecretPath(relPath).matched) continue;
       matches.push({ path: relPath, line: lineNum, text: text.slice(0, 300).replace(/\n$/, '') });
       if (matches.length >= maxResults) break;
     }
@@ -613,6 +626,10 @@ export class RepoToolkit {
     for (const relPath of files) {
       if (matches.length >= maxResults) {
         break;
+      }
+
+      if (isSecretPath(relPath).matched) {
+        continue;
       }
 
       let safePath;
@@ -667,6 +684,10 @@ export class RepoToolkit {
     }
 
     const relativePath = this._enforceScopedPath(requestedPath);
+    const secretMatch = isSecretPath(relativePath);
+    if (secretMatch.matched) {
+      return secretDeniedResult(relativePath, secretMatch);
+    }
     const safePath = await resolveSafePath(this.repoRootReal, relativePath, { kind: 'file' });
     if (safePath.stat.size > DEFAULT_TEXT_FILE_MAX_BYTES) {
       throw new Error(`File is too large to read safely: ${relativePath}`);
@@ -701,6 +722,10 @@ export class RepoToolkit {
       throw new Error('path is required');
     }
     const relativePath = this._enforceScopedPath(requestedPath);
+    const secretMatch = isSecretPath(relativePath);
+    if (secretMatch.matched) {
+      return secretDeniedResult(relativePath, secretMatch);
+    }
     const safePath = await resolveSafePath(this.repoRootReal, relativePath, { kind: 'file' });
 
     if (safePath.stat.size > DEFAULT_TEXT_FILE_MAX_BYTES) {
@@ -876,6 +901,9 @@ export class RepoToolkit {
 
     const fileLines = new Map();
     for (const filePath of fileMatches.keys()) {
+      if (isSecretPath(filePath).matched) {
+        continue;
+      }
       try {
         const safePath = await resolveSafePath(this.repoRootReal, filePath, { kind: 'file' });
         const buf = await fs.readFile(safePath.absolute);
@@ -925,7 +953,12 @@ export class RepoToolkit {
 
   _validateGitPath(filePath) {
     if (!filePath) return null;
-    return this._enforceScopedPath(filePath);
+    const rel = this._enforceScopedPath(filePath);
+    const secretMatch = isSecretPath(rel);
+    if (secretMatch.matched) {
+      throw new Error(`Path is denied by secret policy: ${rel}`);
+    }
+    return rel;
   }
 
   async gitLog({ path: filePath, maxCount = 20, since, author, grep: grepFilter } = {}) {

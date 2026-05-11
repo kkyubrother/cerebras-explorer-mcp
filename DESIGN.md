@@ -20,6 +20,7 @@
 - zero dependencies 원칙을 유지한다. Node 표준 라이브러리를 우선하고, 새 패키지는 명확한 필요가 있을 때만 별도 결정한다.
 - Node.js 22 이상을 기준 런타임으로 유지한다.
 - read-only 원칙을 유지한다. explorer와 내부 repo tools는 저장소 파일을 수정하지 않는다.
+- secret deny-list는 민감 파일을 traversal/read/grep/symbol/snippet 및 provider-facing tool message 경로에서 기본 차단한다. 비활성화 옵션은 로컬 디버깅 용도로만 둔다.
 - `explore_repo` 입출력 스키마는 기존 클라이언트를 깨지 않는 additive change 중심으로 확장한다.
 
 ---

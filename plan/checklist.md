@@ -75,23 +75,32 @@ Phase 2 evidence:
 
 ## Phase 3: Secret Deny-list
 
-- [ ] 새 runtime dependency 없이 secret path matcher를 구현한다.
-- [ ] 기본 deny-list에 `.env`, `.env.local`, `.env.*`, `.envrc`를 포함한다.
-- [ ] 기본 deny-list에 `.npmrc`, `.netrc`, `.pypirc`를 포함한다.
-- [ ] 기본 deny-list에 `.ssh/**`, `id_rsa`, `id_ed25519`, `.gnupg/**`를 포함한다.
-- [ ] 기본 deny-list에 `.aws/credentials`, `.aws/config`, `.azure/**`, cloud credential 패턴을 포함한다.
-- [ ] 기본 deny-list에 `*.pem`, `*.key`, `*.p12`, `*.pfx`, `secrets/**`, `**/credentials.json`을 포함한다.
-- [ ] deny-list를 `walkFiles`와 `listDirectory`에 적용한다.
-- [ ] deny-list를 ripgrep fast path의 `--glob` exclude에 적용한다.
-- [ ] deny-list를 fallback grep에 적용한다.
-- [ ] deny-list를 `RepoToolkit.readFile`에 적용한다.
-- [ ] deny-list를 `symbols`, `references`, `symbolContext`, context enrichment 경로에 적용한다.
-- [ ] deny-list를 `runtime.mjs`의 `readEvidenceSnippet()`에 적용한다.
-- [ ] provider-facing tool message에 deny-listed 파일 원문이 들어가지 않는지 mock provider 테스트를 추가한다.
-- [ ] `CEREBRAS_EXPLORER_DISABLE_SECRET_DENY_LIST=1`을 제공한다면 위험 경고와 함께 문서화한다.
-- [ ] 관련 테스트를 실행하고 실패를 수정한다.
-- [ ] README/DESIGN Security model을 갱신한다.
-- [ ] 체크 표시 후 Phase 3 결과를 커밋한다.
+- [x] 새 runtime dependency 없이 secret path matcher를 구현한다.
+- [x] 기본 deny-list에 `.env`, `.env.local`, `.env.*`, `.envrc`를 포함한다.
+- [x] 기본 deny-list에 `.npmrc`, `.netrc`, `.pypirc`를 포함한다.
+- [x] 기본 deny-list에 `.ssh/**`, `id_rsa`, `id_ed25519`, `.gnupg/**`를 포함한다.
+- [x] 기본 deny-list에 `.aws/credentials`, `.aws/config`, `.azure/**`, cloud credential 패턴을 포함한다.
+- [x] 기본 deny-list에 `*.pem`, `*.key`, `*.p12`, `*.pfx`, `secrets/**`, `**/credentials.json`을 포함한다.
+- [x] deny-list를 `walkFiles`와 `listDirectory`에 적용한다.
+- [x] deny-list를 ripgrep fast path의 `--glob` exclude에 적용한다.
+- [x] deny-list를 fallback grep에 적용한다.
+- [x] deny-list를 `RepoToolkit.readFile`에 적용한다.
+- [x] deny-list를 `symbols`, `references`, `symbolContext`, context enrichment 경로에 적용한다.
+- [x] deny-list를 `runtime.mjs`의 `readEvidenceSnippet()`에 적용한다.
+- [x] provider-facing tool message에 deny-listed 파일 원문이 들어가지 않는지 mock provider 테스트를 추가한다.
+- [x] `CEREBRAS_EXPLORER_DISABLE_SECRET_DENY_LIST=1`을 제공한다면 위험 경고와 함께 문서화한다.
+- [x] 관련 테스트를 실행하고 실패를 수정한다.
+- [x] README/DESIGN Security model을 갱신한다.
+- [x] 체크 표시 후 Phase 3 결과를 커밋한다.
+
+Phase 3 evidence:
+
+- `src/explorer/security.mjs` implements default secret deny patterns and matcher without new dependencies.
+- `RepoToolkit` applies deny-list policy to traversal, directory listing, ripgrep excludes, fallback grep, read, symbols, git path validation, and context enrichment.
+- `runtime.mjs` blocks deny-listed evidence snippet reads.
+- `tests/security/secret-deny-list.test.mjs` covers `.env`, `.env.local`, `.npmrc`, `.ssh/id_rsa`, `.aws/credentials`, `secrets/app.pem`, `src/credentials.json`, disable env, and provider-facing tool messages.
+- `node --test tests/security/secret-deny-list.test.mjs`: 4 tests / 4 pass.
+- `npm test`: 266 tests / 265 pass / 0 fail / 1 skip.
 
 ## Phase 4: Secret Redaction
 

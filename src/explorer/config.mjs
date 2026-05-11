@@ -1,5 +1,6 @@
 import path from 'node:path';
 import fs from 'node:fs/promises';
+export { DEFAULT_SECRET_DENY_PATTERNS, isSecretPath, secretDenyListDisabled } from './security.mjs';
 
 export const DEFAULT_EXPLORER_MODEL = 'zai-glm-4.7';
 export const DEFAULT_PROTOCOL_VERSION = '2025-06-18';

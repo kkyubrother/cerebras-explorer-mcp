@@ -13,6 +13,7 @@ import {
   getReasoningEffortForBudget,
   getModelForBudget,
   classifyTaskComplexity,
+  isSecretPath,
   isTruthyEnv,
   loadProjectConfig,
   normalizeProjectConfig,
@@ -304,6 +305,7 @@ async function readEvidenceSnippet(repoRoot, evidenceItem, { maxLines = 12, maxC
   if (!repoRoot || !evidenceItem?.path) return '';
   if (!Number.isInteger(evidenceItem.startLine) || !Number.isInteger(evidenceItem.endLine)) return '';
   if ((evidenceItem.evidenceType ?? 'file_range') !== 'file_range') return '';
+  if (isSecretPath(evidenceItem.path).matched) return '';
 
   const absolutePath = path.resolve(repoRoot, evidenceItem.path);
   if (isOutsideRoot(repoRoot, absolutePath)) return '';
