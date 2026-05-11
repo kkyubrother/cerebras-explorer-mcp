@@ -15,10 +15,6 @@ Prefer the narrowest explorer entry point that matches the request:
 - `explain_code_path` for route, middleware, request, event, job, or CLI flow tracing
 - `collect_evidence` for verifying a claim or review point with grounded snippets
 - `review_change_context` for PR/recent-change review context
-- `explain_symbol` for definition, purpose, and callsite questions about a known symbol
-- `trace_dependency` for upstream/downstream import tracing from a known file
-- `summarize_changes` for "what changed and why" across a branch, commit, or time range
-- `find_similar_code` for duplication, convention hunting, or "where else do we do this?"
 - `explore_repo` for structured JSON output you want to inspect, chain into follow-up calls, or use before editing
 - `explore` for a human-readable Markdown report with inline citations when you want an architecture overview, narrative explanation, or user-facing summary
 
@@ -29,6 +25,8 @@ Default call shape:
 - Do not set `budget`, `thoroughness`, `hints.strategy`, or `language` unless explicitly required by a legacy workflow.
 - For `explore`, use `prompt` instead of `task`.
 - Reuse `sessionId` as `session` when continuing the same investigation.
+
+Legacy shortcuts (`explain_symbol`, `trace_dependency`, `summarize_changes`, `find_similar_code`) are opt-in compatibility tools and should not be selected during normal use. Prefer the wrapper tools above unless a legacy workflow explicitly exposes and requires them.
 
 Do not delegate by default when one or two direct native reads are cheaper, when the task is primarily to edit code, or when the user explicitly wants raw local verification first.
 

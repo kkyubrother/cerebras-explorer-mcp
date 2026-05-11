@@ -35,6 +35,6 @@
 
 ## 검증
 
-Cursor의 **Settings → MCP** 화면에서 `cerebras-explorer` 항목이 활성(녹색) 상태로 표시되고 도구 목록(`explore_repo`, `explore`, `explain_symbol` 등)이 노출되는지 확인합니다. 항목이 빨간색이면 환경 변수(`CEREBRAS_API_KEY`)나 `npx` 경로 문제일 가능성이 높습니다.
+Cursor의 **Settings → MCP** 화면에서 `cerebras-explorer` 항목이 활성(녹색) 상태로 표시되고 기본 도구 목록(`find_relevant_code`, `trace_symbol`, `map_change_impact`, `explain_code_path`, `collect_evidence`, `review_change_context`, `explore_repo`, `explore`)이 노출되는지 확인합니다. 항목이 빨간색이면 환경 변수(`CEREBRAS_API_KEY`)나 `npx` 경로 문제일 가능성이 높습니다.
 
 최신 Cursor MCP 설정 형식은 공식 문서를 확인하세요: <https://cursor.com/docs>

@@ -160,7 +160,7 @@ const TRACE_SYMBOL_TOOL = {
   title: 'Trace a symbol',
   description:
     'Use when a known function, class, variable, or type needs definition plus usage/callsite context. ' +
-    'Purpose-oriented alias for explain_symbol; returns grounded targets and evidence.',
+    'Returns grounded targets and evidence without requiring a manual grep-then-read loop.',
   inputSchema: {
     type: 'object',
     additionalProperties: false,

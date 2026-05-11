@@ -37,6 +37,6 @@ args:
 
 ## 검증
 
-Continue를 재시작 후 Agent 모드로 전환하고, 도구 목록(`explore_repo`, `explore`, `explain_symbol` 등)이 보이는지 확인합니다.
+Continue를 재시작 후 Agent 모드로 전환하고, 기본 도구 목록(`find_relevant_code`, `trace_symbol`, `map_change_impact`, `explain_code_path`, `collect_evidence`, `review_change_context`, `explore_repo`, `explore`)이 보이는지 확인합니다.
 
 공식 문서: <https://docs.continue.dev/customize/deep-dives/mcp>
