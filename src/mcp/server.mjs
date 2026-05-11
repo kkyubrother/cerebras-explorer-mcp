@@ -6,6 +6,7 @@ import {
   validateExploreRepoArgs,
 } from '../explorer/schemas.mjs';
 import { globalSessionStore } from '../explorer/session.mjs';
+import { redactExploreResult, redactValue } from '../explorer/redact.mjs';
 import { StdioJsonRpcServer } from './jsonrpc-stdio.mjs';
 
 const SERVER_INFO = {
@@ -533,7 +534,7 @@ export function createMcpRequestHandler({
         sessionStore,
         abortSignal: abortController.signal,
       });
-      const agentResult = toAgentFacingResult(result);
+      const agentResult = redactExploreResult(toAgentFacingResult(result)).value;
       return {
         content: [{ type: 'text', text: formatExploreResult(agentResult) }],
         structuredContent: agentResult,
@@ -557,9 +558,10 @@ export function createMcpRequestHandler({
         sessionStore,
         abortSignal: abortController.signal,
       });
+      const safeResult = redactValue(result).value;
       return {
-        content: [{ type: 'text', text: result.report }],
-        structuredContent: result,
+        content: [{ type: 'text', text: safeResult.report }],
+        structuredContent: safeResult,
       };
     } finally {
       if (requestId) activeAbortControllers.delete(requestId);
@@ -577,9 +579,10 @@ export function createMcpRequestHandler({
         sessionStore,
         abortSignal: abortController.signal,
       });
+      const safeResult = redactValue(result).value;
       return {
-        content: [{ type: 'text', text: result.report }],
-        structuredContent: result,
+        content: [{ type: 'text', text: safeResult.report }],
+        structuredContent: safeResult,
       };
     } finally {
       if (requestId) activeAbortControllers.delete(requestId);

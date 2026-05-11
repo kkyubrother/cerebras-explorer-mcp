@@ -24,6 +24,7 @@ import {
   mergeCandidatePaths,
   RepoToolkit,
 } from './repo-tools.mjs';
+import { redactText, redactValue } from './redact.mjs';
 import { globalRepoCache } from './cache.mjs';
 import {
   buildExplorerSystemPrompt,
@@ -157,12 +158,16 @@ const TOOL_RESULT_CHAR_BUDGETS = {
  * If the serialized result exceeds the budget, returns a truncated preview.
  */
 function applyToolResultCharBudget(toolName, toolResult) {
-  const serialized = JSON.stringify(toolResult);
+  const serialized = JSON.stringify(redactValue(toolResult).value);
   const budget = TOOL_RESULT_CHAR_BUDGETS[toolName] ?? TOOL_RESULT_CHAR_BUDGETS._default;
   if (serialized.length <= budget) return serialized;
 
   const preview = serialized.slice(0, budget - 120);
   return preview + `\n... [truncated: ${serialized.length} → ${budget} chars. Full data was inspected; key content preserved above.]`;
+}
+
+function redactToolResult(toolResult) {
+  return redactValue(toolResult).value;
 }
 
 /**
@@ -656,20 +661,24 @@ function incrementToolStats(stats, toolName) {
 }
 
 function buildAssistantMessage(completionMessage) {
+  const content = redactText(completionMessage.content || '').text;
   const assistantMessage = {
     role: 'assistant',
-    content: completionMessage.content || null,
+    content: content || null,
   };
 
   if (completionMessage.reasoning) {
-    assistantMessage.reasoning = completionMessage.reasoning;
+    assistantMessage.reasoning = redactText(completionMessage.reasoning).text;
   }
 
   if (completionMessage.toolCalls?.length > 0) {
     assistantMessage.tool_calls = completionMessage.toolCalls.map(call => ({
       id: call.id,
       type: 'function',
-      function: { name: call.function.name, arguments: call.function.arguments },
+      function: {
+        name: call.function.name,
+        arguments: redactText(call.function.arguments ?? '').text,
+      },
     }));
   }
 
@@ -1229,34 +1238,35 @@ export class ExplorerRuntime {
       );
 
       for (const { toolCall, toolName, toolArgs, toolResult } of toolCallResults) {
+        const safeToolResult = redactToolResult(toolResult);
         incrementToolStats(stats, toolName);
         toolTrace.record({
           turn: turnIndex + 1,
           tool: toolName,
           args: toolArgs,
-          result: toolResult,
+          result: safeToolResult,
         });
 
         candidatePaths = mergeCandidatePaths(
           candidatePaths,
-          collectCandidatePathsFromToolResult(toolName, toolResult),
+          collectCandidatePathsFromToolResult(toolName, safeToolResult),
         );
 
-        if (toolName === 'repo_read_file' && !toolResult?.error) {
-          recordObservedRange(observedRanges, toolResult.path, toolResult.startLine, toolResult.endLine, 'read');
+        if (toolName === 'repo_read_file' && !safeToolResult?.error) {
+          recordObservedRange(observedRanges, safeToolResult.path, safeToolResult.startLine, safeToolResult.endLine, 'read');
         }
 
-        if (toolName === 'repo_grep' && Array.isArray(toolResult?.matches)) {
-          for (const match of toolResult.matches) {
+        if (toolName === 'repo_grep' && Array.isArray(safeToolResult?.matches)) {
+          for (const match of safeToolResult.matches) {
             recordObservedRange(observedRanges, match.path, match.line, match.line, 'grep');
           }
         }
 
         // Record blame lines as observed ranges
-        if (toolName === 'repo_git_blame' && !toolResult?.error && Array.isArray(toolResult?.lines)) {
+        if (toolName === 'repo_git_blame' && !safeToolResult?.error && Array.isArray(safeToolResult?.lines)) {
           const blamePath = toolArgs.path ?? null;
           if (blamePath) {
-            for (const entry of toolResult.lines) {
+            for (const entry of safeToolResult.lines) {
               if (typeof entry.line === 'number') {
                 recordObservedRange(observedRanges, blamePath, entry.line, entry.line, 'blame');
               }
@@ -1265,8 +1275,8 @@ export class ExplorerRuntime {
         }
 
         // Record diff/show hunk ranges as observed ranges
-        if ((toolName === 'repo_git_diff' || toolName === 'repo_git_show') && !toolResult?.error) {
-          const diffFiles = toolResult?.files ?? [];
+        if ((toolName === 'repo_git_diff' || toolName === 'repo_git_show') && !safeToolResult?.error) {
+          const diffFiles = safeToolResult?.files ?? [];
           for (const file of diffFiles) {
             if (file.path && Array.isArray(file.hunks)) {
               for (const hunk of file.hunks) {
@@ -1282,33 +1292,33 @@ export class ExplorerRuntime {
 
         // Record observedRanges from macro tools (e.g. repo_symbol_context)
         // Each observation carries its own source field ('symbol_context_definition', 'symbol_context_usage', etc.)
-        if (Array.isArray(toolResult?.observedRanges)) {
-          for (const observed of toolResult.observedRanges) {
+        if (Array.isArray(safeToolResult?.observedRanges)) {
+          for (const observed of safeToolResult.observedRanges) {
             recordObservedRange(observedRanges, observed.path, observed.startLine, observed.endLine, observed.source ?? 'macro_tool');
           }
         }
 
-        if (toolName === 'repo_git_log' && !toolResult?.error) {
-          capturedGitLogs.push({ ...toolResult, path: toolArgs.path ?? null });
+        if (toolName === 'repo_git_log' && !safeToolResult?.error) {
+          capturedGitLogs.push({ ...safeToolResult, path: toolArgs.path ?? null });
           // Record observed commit hashes for git evidence validation
           // gitLog() returns commits with 'hash' field (not 'sha')
-          if (Array.isArray(toolResult.commits)) {
-            for (const commit of toolResult.commits) {
+          if (Array.isArray(safeToolResult.commits)) {
+            for (const commit of safeToolResult.commits) {
               const h = commit.hash ?? commit.sha;
               if (h) observedGit.commits.add(h);
             }
           }
         }
 
-        if (toolName === 'repo_git_show' && !toolResult?.error) {
+        if (toolName === 'repo_git_show' && !safeToolResult?.error) {
           // gitShow() returns 'hash' field (not 'sha')
-          const h = toolResult.hash ?? toolResult.sha;
+          const h = safeToolResult.hash ?? safeToolResult.sha;
           if (h) observedGit.commits.add(h);
         }
 
-        if (toolName === 'repo_git_blame' && !toolResult?.error && Array.isArray(toolResult.lines)) {
+        if (toolName === 'repo_git_blame' && !safeToolResult?.error && Array.isArray(safeToolResult.lines)) {
           const blamePath = toolArgs.path ?? null;
-          for (const entry of toolResult.lines) {
+          for (const entry of safeToolResult.lines) {
             if (blamePath && typeof entry.line === 'number' && entry.hash) {
               observedGit.blame.add(`${blamePath}:${entry.line}:${entry.hash}`);
             }
@@ -1318,7 +1328,7 @@ export class ExplorerRuntime {
         messages.push({
           role: 'tool',
           tool_call_id: toolCall.id,
-          content: JSON.stringify(toolResult),
+          content: JSON.stringify(safeToolResult),
         });
       }
 
@@ -1602,24 +1612,25 @@ export class ExplorerRuntime {
       );
 
       for (const { toolCall, toolName, toolArgs, toolResult } of toolCallResults) {
+        const safeToolResult = redactToolResult(toolResult);
         stats.toolCalls += 1;
         toolsUsed.add(toolName);
         toolTrace.record({
           turn: turnIndex + 1,
           tool: toolName,
           args: toolArgs,
-          result: toolResult,
+          result: safeToolResult,
         });
 
-        if (toolName === 'repo_read_file' && !toolResult?.error) {
-          filesRead.add(toolResult.path);
+        if (toolName === 'repo_read_file' && !safeToolResult?.error) {
+          filesRead.add(safeToolResult.path);
           stats.filesRead += 1;
         }
 
         messages.push({
           role: 'tool',
           tool_call_id: toolCall.id,
-          content: JSON.stringify(toolResult),
+          content: JSON.stringify(safeToolResult),
         });
       }
     }
@@ -1944,23 +1955,24 @@ export class ExplorerRuntime {
 
       let allErrors = true;
       for (const { toolCall, toolName, toolArgs, toolResult } of toolCallResults) {
+        const safeToolResult = redactToolResult(toolResult);
         stats.toolCalls += 1;
         toolsUsed.add(toolName);
         toolTrace.record({
           turn: turnIndex + 1,
           tool: toolName,
           args: toolArgs,
-          result: toolResult,
+          result: safeToolResult,
         });
 
-        if (toolName === 'repo_read_file' && !toolResult?.error) {
-          filesRead.add(toolResult.path);
+        if (toolName === 'repo_read_file' && !safeToolResult?.error) {
+          filesRead.add(safeToolResult.path);
           stats.filesRead += 1;
         }
-        if (!toolResult?.error) allErrors = false;
+        if (!safeToolResult?.error) allErrors = false;
 
         // ── Technique 1: Tool Result Budgeting ──
-        const serialized = applyToolResultCharBudget(toolName, toolResult);
+        const serialized = applyToolResultCharBudget(toolName, safeToolResult);
         if (serialized.includes('[truncated:')) {
           stats.toolResultsTruncated += 1;
         }
@@ -2187,7 +2199,7 @@ export class ExplorerRuntime {
     try {
       const repairMessages = [
         ...messages,
-        { role: 'assistant', content: completion.message.content || '' },
+        { role: 'assistant', content: redactText(completion.message.content || '').text },
         { role: 'user', content: 'Repair your previous response into exactly one JSON object matching the schema. Do not add new facts. Do not call tools.' },
       ];
       const repair = await chatClient.createChatCompletion({

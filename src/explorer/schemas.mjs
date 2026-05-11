@@ -125,6 +125,8 @@ const EVIDENCE_ITEM_SCHEMA = {
     endLine: { type: 'integer' },
     why: { type: 'string' },
     snippet: { type: 'string' },
+    redacted: { type: 'boolean' },
+    redactions: { type: 'array', items: { type: 'string' } },
     groundingStatus: { type: 'string', enum: ['exact', 'partial'] },
     evidenceType: {
       type: 'string',

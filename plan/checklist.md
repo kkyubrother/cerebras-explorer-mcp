@@ -104,22 +104,33 @@ Phase 3 evidence:
 
 ## Phase 4: Secret Redaction
 
-- [ ] 새 runtime dependency 없이 redaction 모듈을 구현한다.
-- [ ] AWS access key, GitHub PAT, OpenAI key, GCP API key, Slack token, Anthropic key, Stripe live secret, JWT, private key block 패턴을 포함한다.
-- [ ] generic 32+ hex redaction은 false positive 위험 때문에 기본 off 또는 별도 옵션으로 둔다.
-- [ ] redaction 치환 문자열은 ASCII `[REDACTED:<rule>]` 형태를 사용한다.
-- [ ] line reference는 유지하고 민감 문자열만 치환한다.
-- [ ] `structuredContent.evidence`에 additive `redacted`/`redactions` metadata를 보존한다.
-- [ ] `content[0].text`와 `structuredContent`에 redaction을 적용한다.
-- [ ] `explore` Markdown과 `explore_v2` Markdown에 redaction을 적용한다.
-- [ ] evidence snippet에 redaction을 적용한다.
-- [ ] git diff/show patch에 redaction을 적용한다.
-- [ ] `_debug` 문자열 필드에 redaction을 적용한다.
-- [ ] provider-facing tool message에 redaction을 적용한다.
-- [ ] redaction fixture 테스트를 추가한다.
-- [ ] 관련 테스트를 실행하고 실패를 수정한다.
-- [ ] README/DESIGN의 반환 스키마와 evidence 예시를 갱신한다.
-- [ ] 체크 표시 후 Phase 4 결과를 커밋한다.
+- [x] 새 runtime dependency 없이 redaction 모듈을 구현한다.
+- [x] AWS access key, GitHub PAT, OpenAI key, GCP API key, Slack token, Anthropic key, Stripe live secret, JWT, private key block 패턴을 포함한다.
+- [x] generic 32+ hex redaction은 false positive 위험 때문에 기본 off 또는 별도 옵션으로 둔다.
+- [x] redaction 치환 문자열은 ASCII `[REDACTED:<rule>]` 형태를 사용한다.
+- [x] line reference는 유지하고 민감 문자열만 치환한다.
+- [x] `structuredContent.evidence`에 additive `redacted`/`redactions` metadata를 보존한다.
+- [x] `content[0].text`와 `structuredContent`에 redaction을 적용한다.
+- [x] `explore` Markdown과 `explore_v2` Markdown에 redaction을 적용한다.
+- [x] evidence snippet에 redaction을 적용한다.
+- [x] git diff/show patch에 redaction을 적용한다.
+- [x] `_debug` 문자열 필드에 redaction을 적용한다.
+- [x] provider-facing tool message에 redaction을 적용한다.
+- [x] redaction fixture 테스트를 추가한다.
+- [x] 관련 테스트를 실행하고 실패를 수정한다.
+- [x] README/DESIGN의 반환 스키마와 evidence 예시를 갱신한다.
+- [x] 체크 표시 후 Phase 4 결과를 커밋한다.
+
+Phase 4 evidence:
+
+- `src/explorer/redact.mjs` implements recursive redaction without new dependencies.
+- Runtime redacts provider-facing tool messages and assistant messages before any repair/follow-up provider call.
+- MCP server redacts `content[0].text`, `structuredContent`, `explore`, and `explore_v2` outputs.
+- `RepoToolkit` redacts git diff/show patch and commit message surfaces.
+- `EXPLORE_REPO_OUTPUT_SCHEMA` allows additive `redacted` and `redactions` evidence metadata.
+- `tests/security/redact.test.mjs` covers secret patterns, recursive object redaction, provider-facing messages, MCP content/structured output, Markdown tools, evidence metadata, and git patch redaction.
+- `node --test tests/security/redact.test.mjs`: 5 tests / 5 pass.
+- `npm test`: 271 tests / 270 pass / 0 fail / 1 skip.
 
 ## Phase 5: Integrations And README/DESIGN Sync
 

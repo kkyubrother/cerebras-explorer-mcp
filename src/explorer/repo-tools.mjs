@@ -18,6 +18,7 @@ import {
   isSecretPath,
   secretDeniedResult,
 } from './security.mjs';
+import { redactText } from './redact.mjs';
 
 function toPosix(input) {
   return input.split(path.sep).join('/');
@@ -334,6 +335,12 @@ function parseDiffOutput(diffText) {
   for (const f of files) {
     if (f.patch.length > 8000) {
       f.patch = f.patch.slice(0, 8000) + '\n... (truncated)';
+    }
+    const redactedPatch = redactText(f.patch);
+    if (redactedPatch.redacted) {
+      f.patch = redactedPatch.text;
+      f.redacted = true;
+      f.redactions = redactedPatch.redactions;
     }
   }
   return files;
@@ -1056,7 +1063,13 @@ export class RepoToolkit {
     const output = await this._runGit(args);
 
     if (stat) {
-      return { from, to, stat: output.trim() };
+      const redactedStat = redactText(output.trim());
+      return {
+        from,
+        to,
+        stat: redactedStat.text,
+        ...(redactedStat.redacted ? { redacted: true, redactions: redactedStat.redactions } : {}),
+      };
     }
 
     const files = parseDiffOutput(output);
@@ -1082,7 +1095,8 @@ export class RepoToolkit {
     const date = headerLine.slice(p2 + 1, p3);
     const bodyFromHeader = headerLine.slice(p3 + 1);
     const bodyRest = firstNl === -1 ? '' : metaStr.slice(firstNl + 1).trim();
-    const message = bodyRest ? `${bodyFromHeader}\n${bodyRest}`.trim() : bodyFromHeader.trim();
+    const rawMessage = bodyRest ? `${bodyFromHeader}\n${bodyRest}`.trim() : bodyFromHeader.trim();
+    const redactedMessage = redactText(rawMessage);
 
     const patchArgs = ['show', '--format=', '--unified=3', ref];
     const patchOutput = await this._runGit(patchArgs);
@@ -1093,7 +1107,14 @@ export class RepoToolkit {
       files = files.filter(f => this.baseScopeRules.matches(f.path));
     }
 
-    return { hash, author, date, message, files };
+    return {
+      hash,
+      author,
+      date,
+      message: redactedMessage.text,
+      files,
+      ...(redactedMessage.redacted ? { redacted: true, redactions: redactedMessage.redactions } : {}),
+    };
   }
 
   buildToolDefinitions() {
