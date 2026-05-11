@@ -174,11 +174,10 @@ test('agent-facing budget and strategy fields are marked advanced only', () => {
   );
 });
 
-test('followup query is optional in schema and legacy suggestedCall normalizes to query', () => {
+test('followup query is optional in schema and explicit query is preserved', () => {
   const followupSchema = EXPLORE_RESULT_JSON_SCHEMA.schema.properties.followups.items;
   assert.deepEqual(followupSchema.required, ['description', 'priority']);
   assert.ok(followupSchema.properties.query);
-  assert.equal(followupSchema.properties.suggestedCall, undefined);
 
   const result = normalizeExploreResult({
     answer: 'answer',
@@ -190,7 +189,7 @@ test('followup query is optional in schema and legacy suggestedCall normalizes t
       {
         description: 'check related routes',
         priority: 'recommended',
-        suggestedCall: { task: 'trace related routes', budget: 'deep' },
+        query: 'trace related routes',
       },
     ],
   }, makeStats());
@@ -198,7 +197,6 @@ test('followup query is optional in schema and legacy suggestedCall normalizes t
   assert.equal(result.followups.length, 1);
   assert.equal(result.followups[0].description, 'check related routes');
   assert.equal(result.followups[0].query, 'trace related routes');
-  assert.equal(result.followups[0].suggestedCall, undefined);
 });
 
 test('agent-facing output schema is compact and exposes directAnswer, status, targets, snippets, sessionId, and debug', () => {

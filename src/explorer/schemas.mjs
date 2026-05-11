@@ -283,12 +283,7 @@ function normalizeFollowupItem(item) {
     return null;
   }
   const priority = item.priority === 'recommended' ? 'recommended' : 'optional';
-  let query = typeof item.query === 'string' && item.query.trim() ? item.query.trim() : null;
-  if (item.suggestedCall && typeof item.suggestedCall === 'object') {
-    query = typeof item.suggestedCall.task === 'string' && item.suggestedCall.task.trim()
-      ? item.suggestedCall.task.trim()
-      : query;
-  }
+  const query = typeof item.query === 'string' && item.query.trim() ? item.query.trim() : null;
   return {
     description,
     priority,

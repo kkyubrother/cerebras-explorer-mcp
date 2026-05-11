@@ -133,12 +133,7 @@ class MockChatClient {
             {
               description: '미들웨어 에러 핸들링 패턴 추가 분석',
               priority: 'optional',
-              suggestedCall: {
-                task: 'Analyze error handling in auth middleware',
-                scope: ['src/**'],
-                budget: 'quick',
-                hints: { symbols: ['handleAuthError'], strategy: 'symbol-first' },
-              },
+              query: 'Analyze error handling in auth middleware',
             },
           ],
         }),
