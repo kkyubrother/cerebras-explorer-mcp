@@ -165,13 +165,23 @@ Phase 5 evidence:
 
 ## Phase 6: Release Verification
 
-- [ ] `npm test`를 실행하고 신규 annotations/stdio/security/redaction 테스트가 포함됐는지 확인한다.
-- [ ] `npm ls --depth=0 --json`으로 신규 runtime dependency가 없는지 확인한다.
-- [ ] `tools/list` env 조합 1/2/8/9개를 수동 또는 테스트로 재확인한다.
-- [ ] NDJSON handshake smoke를 실행한다.
-- [ ] Content-Length handshake smoke를 실행한다.
-- [ ] `rg '#main' README.md integrations`가 의도한 결과만 반환하는지 확인한다.
-- [ ] README, DESIGN, plan, checklist의 release gate가 서로 모순되지 않는지 확인한다.
-- [ ] `git status --short`가 release verification 변경만 보여주는지 확인한다.
-- [ ] 실패 또는 불일치가 있으면 수정하고 관련 테스트를 다시 실행한다.
-- [ ] 체크 표시 후 Phase 6 결과를 커밋한다.
+- [x] `npm test`를 실행하고 신규 annotations/stdio/security/redaction 테스트가 포함됐는지 확인한다.
+- [x] `npm ls --depth=0 --json`으로 신규 runtime dependency가 없는지 확인한다.
+- [x] `tools/list` env 조합 1/2/8/9개를 수동 또는 테스트로 재확인한다.
+- [x] NDJSON handshake smoke를 실행한다.
+- [x] Content-Length handshake smoke를 실행한다.
+- [x] `rg '#main' README.md integrations`가 의도한 결과만 반환하는지 확인한다.
+- [x] README, DESIGN, plan, checklist의 release gate가 서로 모순되지 않는지 확인한다.
+- [x] `git status --short`가 release verification 변경만 보여주는지 확인한다.
+- [x] 실패 또는 불일치가 있으면 수정하고 관련 테스트를 다시 실행한다.
+- [x] 체크 표시 후 Phase 6 결과를 커밋한다.
+
+Phase 6 evidence:
+
+- `npm test`: 276 tests / 275 pass / 0 fail / 1 skip; output includes annotations, stdio purity, integration examples, secret deny-list, and redaction tests.
+- `npm ls --depth=0 --json`: package name/version only, no dependency tree entries.
+- Manual `tools/list`: default 8, V2 enabled 9, extras disabled 2, extras disabled plus explore disabled 1.
+- `node --test tests/integration/stdio-purity.test.mjs`: NDJSON and Content-Length handshake tests both pass.
+- `rg '#main' README.md integrations`: no matches.
+- README/DESIGN/plan/checklist all keep `roots/list`, `resource_link`, provider alias/model fallback, `--doctor`, protocol whitelist, and `_debug.usage` out of the v0.2.0 release gate.
+- `git status --short` before this checklist update was clean.
