@@ -6,7 +6,6 @@ const result = await exploreRepository({
   scope: ['src/**', 'docs/**'],
   hints: {
     symbols: ['requireAuth'],
-    regex: ['/users/me'],
   },
 });
 

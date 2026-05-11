@@ -144,8 +144,7 @@ Parent model (Claude Code / Codex)
   "scope": ["src/**", "docs/**"],
   "hints": {
     "symbols": ["requireAuth"],
-    "files": ["src/routes/user.js"],
-    "regex": ["/users/me"]
+    "files": ["src/routes/user.js"]
   }
 }
 ```
@@ -518,7 +517,8 @@ Prefer the narrowest exposed explorer tool that matches the request:
 - `explore` for cited Markdown reports
 Pass the parent request almost verbatim; add `scope`, known anchors, or `session` only when justified by the task or prior results.
 Do not set `budget`, `thoroughness`, `hints.strategy`, or `language` unless a legacy workflow explicitly requires it.
-Use known symbols, files, text, or regex only when already known.
+Use known symbols, files, or literal text anchors only when already known.
+Use regex only in advanced/legacy `explore_repo.hints.regex` workflows.
 Reuse `sessionId` as `session` for follow-up calls.
 Treat returned `targets` or `explore` citations as the primary map, then do only targeted native reads to verify or prepare edits.
 Do not modify files.
@@ -595,8 +595,8 @@ MCP client for `cerebras-explorer` timed out after 30 seconds.
 
 반복 가능한 품질 측정을 위해 선언형 질의 세트와 점수 계산기를 포함합니다.
 
-- 기본 벤치마크 파일: `benchmarks/core.json`
-- adoption 중심 벤치마크 파일: `benchmarks/adoption.json`
+- 기본/adoption 벤치마크 파일: `benchmarks/adoption.json`
+- legacy shortcut 회귀 벤치마크 파일: `benchmarks/core.json`
 - 실행 스크립트: `scripts/run-benchmark.mjs`
 - npm 스크립트: `npm run benchmark`
 
@@ -606,13 +606,19 @@ MCP client for `cerebras-explorer` timed out after 30 seconds.
 npm run benchmark
 ```
 
+`npm run benchmark`는 기본 tool list와 같은 wrapper-first `benchmarks/adoption.json`을 실행합니다. legacy shortcut 회귀 suite가 필요하면 opt-in으로 실행합니다.
+
+```bash
+npm run benchmark:legacy
+```
+
 특정 저장소 루트나 케이스만 실행하려면:
 
 ```bash
 node ./scripts/run-benchmark.mjs \
-  --suite ./benchmarks/core.json \
+  --suite ./benchmarks/adoption.json \
   --repo-root /absolute/path/to/repo \
-  --case explain-request-handler \
+  --case locate-relevant-code \
   --verbose
 ```
 
@@ -620,7 +626,7 @@ JSON 리포트 저장:
 
 ```bash
 node ./scripts/run-benchmark.mjs \
-  --suite ./benchmarks/core.json \
+  --suite ./benchmarks/adoption.json \
   --output ./benchmark-report.json
 ```
 

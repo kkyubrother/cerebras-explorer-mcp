@@ -1,6 +1,6 @@
 {
   "name": "core-readonly-exploration",
-  "description": "Representative benchmark queries for cerebras-explorer on its own codebase.",
+  "description": "Legacy shortcut regression benchmark queries for cerebras-explorer on its own codebase. Run with --legacy-tools.",
   "defaultPassScore": 0.72,
   "cases": [
     {
