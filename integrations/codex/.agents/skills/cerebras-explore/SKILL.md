@@ -20,9 +20,10 @@ Prefer the narrowest explorer entry point that matches the request:
 
 Default call shape:
 - Keep the query or task close to the user's wording.
-- Add known files, symbols, text, or regex only when already known.
+- Add known files, symbols, or literal text anchors only when already known.
+- Use regex only in advanced `explore_repo.hints.regex` workflows.
 - Add `scope` only when the subsystem or directory is already obvious.
-- Do not set `budget`, `thoroughness`, `hints.strategy`, or `language` unless explicitly required by a legacy workflow.
+- Do not set `budget`, `thoroughness`, `hints.strategy`, or `language` unless an advanced workflow explicitly requires it.
 - For `explore`, use `prompt` instead of `task`.
 - Reuse `sessionId` as `session` when continuing the same investigation.
 

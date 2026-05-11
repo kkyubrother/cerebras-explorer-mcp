@@ -553,6 +553,8 @@ MCP client for `cerebras-explorer` timed out after 30 seconds.
 
 ## 예산 정책
 
+아래 budget은 runtime 내부 제어값입니다. 일반 Codex/Claude Code 사용자는 직접 고르지 말고 wrapper query와 known anchors만 전달하세요.
+
 - `quick`
   - 얕은 탐색
   - turn 수 제한이 작음
