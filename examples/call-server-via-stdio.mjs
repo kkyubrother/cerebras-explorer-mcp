@@ -1,12 +1,16 @@
 import { spawn } from 'node:child_process';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 function encodeMessage(payload) {
   const json = JSON.stringify(payload);
   return `Content-Length: ${Buffer.byteLength(json, 'utf8')}\r\nContent-Type: application/json\r\n\r\n${json}`;
 }
 
-const child = spawn(process.execPath, ['../src/index.mjs'], {
-  cwd: new URL('.', import.meta.url).pathname,
+const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+
+const child = spawn(process.execPath, ['src/index.mjs'], {
+  cwd: repoRoot,
   stdio: ['pipe', 'pipe', 'inherit'],
   env: process.env,
 });

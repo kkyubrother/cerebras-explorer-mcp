@@ -2,11 +2,11 @@
 
 ## 최근 확인 환경
 
-- 실행 일시: 2026-04-16
-- Node.js: v24.14.1
-- npm: 11.11.0
-- OS/셸: Linux / bash
-- 통합 테스트: `CEREBRAS_API_KEY`가 설정된 상태에서 실행
+- 단위 테스트 실행 일시: 2026-05-11
+- Node.js: v24.14.0
+- npm: 11.0.0
+- OS/셸: Windows / PowerShell
+- 통합 테스트: 아래 2026-04-16 기록은 `CEREBRAS_API_KEY`가 설정된 상태에서 실행
 
 ## 단위 테스트
 
@@ -14,7 +14,7 @@
 npm test
 ```
 
-현재 환경에서는 `225 tests`, `224 pass`, `1 skip`, `0 fail`.
+현재 환경에서는 `259 tests`, `258 pass`, `1 skip`, `0 fail`.
 
 - 현재 skip 1건은 Windows 전용 경로 정규화/세션 재사용 테스트입니다.
 - `git` 또는 `rg`가 없는 환경, 또는 Windows에서는 추가 skip이 생길 수 있습니다.
@@ -52,7 +52,7 @@ CEREBRAS_API_KEY=<key> node scripts/integration-test.mjs
 `src/index.mjs`를 stdio MCP 서버로 직접 기동한 뒤 다음 왕복을 확인했습니다.
 
 - `initialize` 응답 정상
-- `tools/list`에서 기본 공개 도구 7개 확인
+- `tools/list`에서 기본 공개 도구 8개 확인
 - `tools/call -> explore_repo` 정상 응답 (`confidence=high`, `sessionId` 반환)
 
 ### 미검증 항목 (추가 테스트 필요)

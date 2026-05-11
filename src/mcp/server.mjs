@@ -291,104 +291,93 @@ function buildAnchorHints({ knownFiles, knownSymbols, knownText, strategy } = {}
 }
 
 function buildTraceSymbolArgs(args) {
-  const { symbol, repo_root, scope, session, language, context } = args;
+  const { symbol, repo_root, scope, session } = args;
   if (!symbol || typeof symbol !== 'string' || !symbol.trim()) {
     throw Object.assign(new Error('trace_symbol requires a non-empty "symbol" argument.'), { code: -32602 });
   }
-  let task = `Explain the symbol "${symbol.trim()}": where it is defined, what it does, its parameters/return type if applicable, and where it is called or used in the codebase.`;
-  if (context) task += `\n\nAdditional context: ${context}`;
+  const task = `Explain the symbol "${symbol.trim()}": where it is defined, what it does, its parameters/return type if applicable, and where it is called or used in the codebase.`;
   return {
-    task, repo_root, scope, session, language,
+    task, repo_root, scope, session,
     hints: { symbols: [symbol.trim()], strategy: 'symbol-first' },
   };
 }
 
 function buildFindRelevantCodeArgs(args) {
-  const { query, repo_root, scope, knownFiles, knownSymbols, knownText, session, language, context } = args;
+  const { query, repo_root, scope, knownFiles, knownSymbols, knownText, session } = args;
   if (!query || typeof query !== 'string' || !query.trim()) {
     throw Object.assign(new Error('find_relevant_code requires a non-empty "query" argument.'), { code: -32602 });
   }
-  let task = `Find the code most relevant to this task and return the smallest useful read/edit targets: ${query.trim()}.`;
-  if (context) task += `\n\nAdditional context: ${context}`;
+  const task = `Find the code most relevant to this task and return the smallest useful read/edit targets: ${query.trim()}.`;
   return {
     task,
     repo_root,
     scope,
     session,
-    language,
     hints: buildAnchorHints({ knownFiles, knownSymbols, knownText }),
   };
 }
 
 function buildMapChangeImpactArgs(args) {
-  const { change, repo_root, scope, knownFiles, knownSymbols, session, language, context } = args;
+  const { change, repo_root, scope, knownFiles, knownSymbols, session } = args;
   if (!change || typeof change !== 'string' || !change.trim()) {
     throw Object.assign(new Error('map_change_impact requires a non-empty "change" argument.'), { code: -32602 });
   }
-  let task = `Map the likely impact of this intended change before editing: ${change.trim()}. Identify likely edit targets, read targets, callers, tests, configuration, and risky dependent paths.`;
-  if (context) task += `\n\nAdditional context: ${context}`;
+  const task = `Map the likely impact of this intended change before editing: ${change.trim()}. Identify likely edit targets, read targets, callers, tests, configuration, and risky dependent paths.`;
   return {
     task,
     repo_root,
     scope,
     session,
-    language,
     hints: buildAnchorHints({ knownFiles, knownSymbols, strategy: 'reference-chase' }),
   };
 }
 
 function buildExplainCodePathArgs(args) {
-  const { pathQuery, repo_root, scope, entryPoint, knownFiles, knownSymbols, session, language, context } = args;
+  const { pathQuery, repo_root, scope, entryPoint, knownFiles, knownSymbols, session } = args;
   if (!pathQuery || typeof pathQuery !== 'string' || !pathQuery.trim()) {
     throw Object.assign(new Error('explain_code_path requires a non-empty "pathQuery" argument.'), { code: -32602 });
   }
   const files = [...cleanStringArray(knownFiles)];
   if (typeof entryPoint === 'string' && entryPoint.trim()) files.unshift(entryPoint.trim());
-  let task = `Explain this code path across files with grounded citations: ${pathQuery.trim()}. Include the entry point, handoff points, and next read targets.`;
-  if (context) task += `\n\nAdditional context: ${context}`;
+  const task = `Explain this code path across files with grounded citations: ${pathQuery.trim()}. Include the entry point, handoff points, and next read targets.`;
   return {
     task,
     repo_root,
     scope,
     session,
-    language,
     hints: buildAnchorHints({ knownFiles: files, knownSymbols, strategy: 'reference-chase' }),
   };
 }
 
 function buildCollectEvidenceArgs(args) {
-  const { claim, repo_root, scope, knownFiles, knownSymbols, knownText, session, language, context } = args;
+  const { claim, repo_root, scope, knownFiles, knownSymbols, knownText, session } = args;
   if (!claim || typeof claim !== 'string' || !claim.trim()) {
     throw Object.assign(new Error('collect_evidence requires a non-empty "claim" argument.'), { code: -32602 });
   }
-  let task = `Verify this claim and collect a compact evidence bundle with snippets: ${claim.trim()}. Mark uncertainties and avoid unsupported facts.`;
-  if (context) task += `\n\nAdditional context: ${context}`;
+  const task = `Verify this claim and collect a compact evidence bundle with snippets: ${claim.trim()}. Mark uncertainties and avoid unsupported facts.`;
   return {
     task,
     repo_root,
     scope,
     session,
-    language,
     hints: buildAnchorHints({ knownFiles, knownSymbols, knownText }),
   };
 }
 
 function buildReviewChangeContextArgs(args) {
-  const { reviewGoal, since, until, path: filePath, repo_root, scope, session, language, context } = args;
+  const { reviewGoal, since, until, path: filePath, repo_root, scope, session } = args;
   if (!reviewGoal || typeof reviewGoal !== 'string' || !reviewGoal.trim()) {
     throw Object.assign(new Error('review_change_context requires a non-empty "reviewGoal" argument.'), { code: -32602 });
   }
   const sincePart = since ? ` since "${since}"` : '';
   const untilPart = until ? ` until "${until}"` : '';
   const pathPart = filePath ? ` for path "${filePath}"` : '';
-  let task = `Review change context${sincePart}${untilPart}${pathPart}: ${reviewGoal.trim()}. Summarize what changed, why it matters, likely review risks, and grounded read targets.`;
-  if (context) task += `\n\nAdditional context: ${context}`;
+  const task = `Review change context${sincePart}${untilPart}${pathPart}: ${reviewGoal.trim()}. Summarize what changed, why it matters, likely review risks, and grounded read targets.`;
   return {
     task,
     repo_root,
     scope,
     session,
-    language,
     hints: buildAnchorHints({ knownFiles: filePath ? [filePath] : [], strategy: 'git-guided' }),
   };
 }

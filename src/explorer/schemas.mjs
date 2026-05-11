@@ -34,7 +34,12 @@ export const EXPLORE_REPO_INPUT_SCHEMA = {
       properties: {
         symbols: { type: 'array', items: { type: 'string' }, description: 'Known symbol names to start with (e.g. ["handleAuth", "JwtValidator"]).' },
         files: { type: 'array', items: { type: 'string' }, description: 'Known file paths to examine first (e.g. ["src/middleware/auth.ts"]).' },
-        regex: { type: 'array', items: { type: 'string' }, description: 'Regex patterns to search for (e.g. ["TODO.*security", "deprecated"]).' },
+        regex: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'Advanced only. Prefer wrapper knownText for literal anchors; use regex only when the caller already knows an exact pattern.',
+        },
         strategy: {
           type: 'string',
           enum: ['symbol-first', 'reference-chase', 'git-guided', 'breadth-first', 'blame-guided', 'pattern-scan'],

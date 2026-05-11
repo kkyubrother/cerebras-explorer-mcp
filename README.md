@@ -113,7 +113,7 @@ Parent model (Claude Code / Codex)
 
 중요한 점은 상위 모델에 low-level 파일 도구를 노출하지 않는다는 점입니다.
 
-- 상위 모델은 목적형 wrapper, `explore_repo`, 또는 `explore`를 호출합니다. `explore_v2`는 고급/legacy opt-in 도구입니다.
+- 상위 모델은 목적형 wrapper, `explore_repo`, 또는 `explore`를 호출합니다. `explore_v2`는 고급 opt-in 도구입니다.
 - 실제 파일 탐색 루프는 MCP 서버 안에서 선택된 Cerebras 모델이 자체적으로 수행합니다.
 - 따라서 “메인은 위임 1회, explorer가 자율 탐색”이라는 목표를 만족합니다.
 
@@ -122,7 +122,7 @@ Parent model (Claude Code / Codex)
 - **모델 선택 가능**: 기본값은 `zai-glm-4.7`, 필요하면 `CEREBRAS_EXPLORER_MODEL`로 override
 - **읽기 전용**: 파일 수정, bash 실행, 네트워크 탐색 없음
 - **자율 탐색 루프**: 모델이 내부 도구를 직접 호출하며 파일을 찾고 읽음
-- **예산 기반 동작**: 기본값은 서버가 정하고, legacy/advanced workflow에서만 `quick | normal | deep`을 직접 지정
+- **예산 기반 동작**: 기본값은 서버가 정하고, advanced workflow에서만 `quick | normal | deep`을 직접 지정
 - **전략 기반 탐색**: symbol-first, reference-chase, git-guided 등은 질문과 anchor에서 자동 유도
 - **세션/진행 상황 지원**: 세션 ID 기반 후속 탐색과 MCP progress notification 지원
 - **프로젝트별 설정 파일 지원**: `.cerebras-explorer.json`으로 `defaultBudget`, `defaultScope`, `entryPoints`, `keyFiles`, `extraIgnoreDirs`, `projectContext` 지정 가능
@@ -200,31 +200,24 @@ Parent model (Claude Code / Codex)
     "type": "stop",
     "reason": "Explorer result is complete for the requested read-only investigation."
   },
-  "sessionId": "sess_abc123",
+  "sessionId": "sess_abc123"
+}
+```
+
+운영 디버그 정보는 실제 응답의 `_debug` 객체에 별도로 포함됩니다. 일반 agent handoff에서는 위의 top-level 계약을 먼저 읽고, explorer 동작 자체를 디버깅할 때만 `_debug.stats`, `_debug.toolTrace`, `_debug.recentActivity`를 확인하세요.
+
+```json
+{
   "_debug": {
     "confidenceScore": 0.91,
-    "toolTrace": {
-      "entries": [
-        {
-          "turn": 1,
-          "tool": "repo_grep",
-          "args": { "pattern": "requireAuth", "scope": ["src/**"] },
-          "result": { "matches": 3, "paths": ["src/auth.js", "src/routes/user.js"], "truncated": false }
-        }
-      ],
-      "totalCalls": 3,
-      "truncated": false
-    },
+    "toolTrace": { "totalCalls": 3, "truncated": false },
     "stats": {
       "model": "${CEREBRAS_EXPLORER_MODEL:-zai-glm-4.7}",
-      "budget": "quick",
       "sessionId": "sess_abc123"
     }
   }
 }
 ```
-
-`repo_git_log`를 활용한 탐색의 세부 recent activity는 `_debug.recentActivity`에서 확인할 수 있습니다.
 
 권장 사용처:
 
