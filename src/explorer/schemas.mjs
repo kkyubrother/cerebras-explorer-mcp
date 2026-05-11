@@ -265,16 +265,8 @@ export { computeConfidenceScore, reconcileConfidence } from './critic.mjs';
 
 /**
  * Normalize a structured followup item from the AI model output.
- * Accepts both legacy string format and new structured object format.
  */
 function normalizeFollowupItem(item) {
-  if (typeof item === 'string') {
-    // Legacy string followup — wrap in minimal structured format
-    return {
-      description: item,
-      priority: 'optional',
-    };
-  }
   if (!item || typeof item !== 'object') {
     return null;
   }

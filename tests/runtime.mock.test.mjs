@@ -601,8 +601,8 @@ test('Phase 1 — freeExploreV2 compaction preserves complete turns and valid to
   );
 });
 
-test('ExplorerRuntime accepts legacy string followups and normalizes them', async () => {
-  class LegacyFollowupClient {
+test('ExplorerRuntime drops non-object followups', async () => {
+  class StringFollowupClient {
     constructor() {
       this.model = 'zai-glm-4.7';
     }
@@ -624,17 +624,14 @@ test('ExplorerRuntime accepts legacy string followups and normalizes them', asyn
     }
   }
 
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-explorer-legacy-'));
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-explorer-string-followup-'));
   await fs.writeFile(path.join(root, 'index.js'), 'console.log("hello");');
 
-  const runtime = new ExplorerRuntime({ chatClient: new LegacyFollowupClient() });
+  const runtime = new ExplorerRuntime({ chatClient: new StringFollowupClient() });
   const result = await runtime.explore({ task: '테스트', repo_root: root });
 
   assert.ok(Array.isArray(result.followups));
-  if (result.followups.length > 0) {
-    assert.ok(typeof result.followups[0].description === 'string', 'legacy string followup must be normalized to object');
-    assert.ok(result.followups[0].priority === 'optional');
-  }
+  assert.equal(result.followups.length, 0);
 });
 
 test('ExplorerRuntime builds recentActivity when git_log tool is called', async () => {
