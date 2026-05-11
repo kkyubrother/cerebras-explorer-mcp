@@ -11,3 +11,8 @@ Preferred flow:
 6. Reuse `sessionId` as `session` for follow-up exploration.
 7. After a passing result, read only returned `targets` with role `read` or `edit`.
 8. Keep native wide search as a fallback, not the default.
+
+Tool exposure is configured in `~/.codex/config.toml`.
+Use `enabled_tools` to keep the server surface narrow for normal coding sessions.
+Use `disabled_tools` when you want to remove only a specific tool; if both are set,
+Codex applies the allowlist first and then removes disabled tools.

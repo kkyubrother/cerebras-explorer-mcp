@@ -33,7 +33,7 @@
 
 ```json
 "command": ["npx", "-y", "github:kkyubrother/cerebras-explorer-mcp#v0.1.0"]
-"command": ["npx", "-y", "github:kkyubrother/cerebras-explorer-mcp#main"]
+"command": ["npx", "-y", "github:kkyubrother/cerebras-explorer-mcp#master"]
 "command": ["npx", "-y", "github:kkyubrother/cerebras-explorer-mcp#<commit-sha>"]
 ```
 

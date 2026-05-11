@@ -1,8 +1,21 @@
 [mcp_servers.cerebras-explorer]
-command = "/absolute/path/to/node"
-args = ["/absolute/path/to/cerebras-explorer-mcp/src/index.mjs"]
-# Optional fallback if your environment is slow to spawn subprocesses.
-# startup_timeout_sec = 60
+command = "npx"
+args = ["-y", "github:kkyubrother/cerebras-explorer-mcp#v0.1.0"]
+enabled = true
+startup_timeout_sec = 60
+tool_timeout_sec = 60
+
+# 노출 도구를 좁히려면 enabled_tools allowlist를 사용합니다.
+enabled_tools = [
+  "explore_repo",
+  "find_relevant_code",
+  "trace_symbol",
+  "map_change_impact",
+]
+
+# 특정 도구만 막으려면 disabled_tools denylist를 사용합니다.
+# enabled_tools가 있으면 그 결과에서 disabled_tools가 한 번 더 제외됩니다.
+# disabled_tools = ["explore_v2"]
 
 [mcp_servers.cerebras-explorer.env]
 CEREBRAS_API_KEY = "${CEREBRAS_API_KEY}"

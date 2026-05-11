@@ -358,6 +358,8 @@ MCP agent-facing contract:
       "snippet": "1: cited source line",
       "evidenceType": "file_range|git_commit|git_blame|git_diff_hunk",
       "groundingStatus": "exact|partial",
+      "redacted": "optional — true when secret redaction touched this evidence",
+      "redactions": "optional — redaction rule ids applied to this evidence",
       "sha": "optional — commit hash for git evidence",
       "author": "optional — for git_blame/git_commit"
     }
@@ -377,6 +379,8 @@ MCP agent-facing contract:
 ```
 
 반환을 자연어가 아니라 JSON으로 고정한 이유:
+
+- evidence grounding contract는 additive하게 확장한다. redaction이 적용되어도 `path`, `startLine`, `endLine`, `why`, `evidenceType`, `groundingStatus`는 유지하고, `redacted`/`redactions` metadata만 추가한다.
 
 - Claude Code / Codex가 후처리하기 쉽다.
 - UI / 로그 / 캐싱이 쉬워진다.

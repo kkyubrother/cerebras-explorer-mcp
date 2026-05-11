@@ -134,22 +134,34 @@ Phase 4 evidence:
 
 ## Phase 5: Integrations And README/DESIGN Sync
 
-- [ ] `integrations/gemini/settings.json.example`을 추가한다.
-- [ ] `integrations/gemini/README.md`를 추가한다.
-- [ ] Gemini CLI env sanitization을 문서화하고 `CEREBRAS_API_KEY`가 config `env`에 들어가도록 예시를 둔다.
-- [ ] Gemini CLI command와 settings JSON 예시를 함께 제공한다.
-- [ ] Codex example을 npx-based로 갱신한다.
-- [ ] Codex `enabled_tools`/`disabled_tools` 예시를 추가한다.
-- [ ] README 첫 화면을 슬림화한다.
-- [ ] README에 기본 8개, 최대 9개, 최소 1개 tool 노출 구성을 명시한다.
-- [ ] README에 Security model을 추가한다: read-only, allowed root, realpath, symlink 거부, secret deny-list/redaction, provider API egress 제한.
-- [ ] README에 annotations는 UX hint이며 보안 경계가 아님을 명시한다.
-- [ ] README와 integrations에서 `#main` 불일치를 제거한다.
-- [ ] DESIGN에 secret deny-list, redaction metadata, evidence grounding 유지 정책을 additive contract로 반영한다.
-- [ ] CHANGELOG를 작성한다.
-- [ ] example JSON/TOML/YAML 파일을 파싱 또는 문법 검토한다.
-- [ ] 관련 테스트를 실행하고 실패를 수정한다.
-- [ ] 체크 표시 후 Phase 5 결과를 커밋한다.
+- [x] `integrations/gemini/settings.json.example`을 추가한다.
+- [x] `integrations/gemini/README.md`를 추가한다.
+- [x] Gemini CLI env sanitization을 문서화하고 `CEREBRAS_API_KEY`가 config `env`에 들어가도록 예시를 둔다.
+- [x] Gemini CLI command와 settings JSON 예시를 함께 제공한다.
+- [x] Codex example을 npx-based로 갱신한다.
+- [x] Codex `enabled_tools`/`disabled_tools` 예시를 추가한다.
+- [x] README 첫 화면을 슬림화한다.
+- [x] README에 기본 8개, 최대 9개, 최소 1개 tool 노출 구성을 명시한다.
+- [x] README에 Security model을 추가한다: read-only, allowed root, realpath, symlink 거부, secret deny-list/redaction, provider API egress 제한.
+- [x] README에 annotations는 UX hint이며 보안 경계가 아님을 명시한다.
+- [x] README와 integrations에서 `#main` 불일치를 제거한다.
+- [x] DESIGN에 secret deny-list, redaction metadata, evidence grounding 유지 정책을 additive contract로 반영한다.
+- [x] CHANGELOG를 작성한다.
+- [x] example JSON/TOML/YAML 파일을 파싱 또는 문법 검토한다.
+- [x] 관련 테스트를 실행하고 실패를 수정한다.
+- [x] 체크 표시 후 Phase 5 결과를 커밋한다.
+
+Phase 5 evidence:
+
+- `integrations/gemini/settings.json.example` adds `cerebras-explorer` with `npx`, pinned `#v0.1.0`, `CEREBRAS_API_KEY` in `env`, and a narrow `includeTools` allowlist.
+- `integrations/gemini/README.md` documents global/project settings paths, env sanitization, alias naming, `includeTools`/`excludeTools`, CLI registration, and `gemini mcp list` verification.
+- `integrations/codex/config.toml.example` now uses `npx`, startup/tool timeouts, `enabled_tools`, optional `disabled_tools`, and env config.
+- README first screen now contains quickstart, seven-client matrix, default/min/max tool exposure, annotations hint warning, and Security Model.
+- DESIGN records redaction metadata as an additive evidence grounding contract.
+- `CHANGELOG.md` records v0.2.0 unreleased additions/security/docs.
+- `tests/integrations.test.mjs` parses JSON examples and reviews Codex TOML, Continue YAML, Gemini docs, and stale `#main` refs.
+- `node --test tests/integrations.test.mjs`: 5 tests / 5 pass.
+- `npm test`: 276 tests / 275 pass / 0 fail / 1 skip.
 
 ## Phase 6: Release Verification
 
