@@ -35,17 +35,25 @@ Phase 0 evidence:
 
 ## Phase 1: Test Runner And Tool Annotations
 
-- [ ] `npm test`가 nested tests까지 실행하도록 test runner를 보정하거나 신규 테스트를 `tests/*.test.mjs` 최상위에 둔다.
-- [ ] 모든 exposed tool에 `annotations`를 추가한다.
-- [ ] annotations가 보안 경계가 아니라 클라이언트 UX hint임을 문서에 명시한다.
-- [ ] `tools/list` 테스트를 추가한다: 기본 8개.
-- [ ] `tools/list` 테스트를 추가한다: V2 활성화 시 9개.
-- [ ] `tools/list` 테스트를 추가한다: `CEREBRAS_EXPLORER_EXTRA_TOOLS=false` 시 2개.
-- [ ] `tools/list` 테스트를 추가한다: `CEREBRAS_EXPLORER_EXTRA_TOOLS=false`와 `CEREBRAS_EXPLORER_ENABLE_EXPLORE=false` 시 1개.
-- [ ] 각 조합의 모든 tool이 `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: true`를 갖는지 검증한다.
-- [ ] 관련 테스트를 실행하고 실패를 수정한다.
-- [ ] README/DESIGN의 공개 도구 설명과 annotations 설명을 갱신한다.
-- [ ] 체크 표시 후 Phase 1 결과를 커밋한다.
+- [x] `npm test`가 nested tests까지 실행하도록 test runner를 보정하거나 신규 테스트를 `tests/*.test.mjs` 최상위에 둔다.
+- [x] 모든 exposed tool에 `annotations`를 추가한다.
+- [x] annotations가 보안 경계가 아니라 클라이언트 UX hint임을 문서에 명시한다.
+- [x] `tools/list` 테스트를 추가한다: 기본 8개.
+- [x] `tools/list` 테스트를 추가한다: V2 활성화 시 9개.
+- [x] `tools/list` 테스트를 추가한다: `CEREBRAS_EXPLORER_EXTRA_TOOLS=false` 시 2개.
+- [x] `tools/list` 테스트를 추가한다: `CEREBRAS_EXPLORER_EXTRA_TOOLS=false`와 `CEREBRAS_EXPLORER_ENABLE_EXPLORE=false` 시 1개.
+- [x] 각 조합의 모든 tool이 `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: true`를 갖는지 검증한다.
+- [x] 관련 테스트를 실행하고 실패를 수정한다.
+- [x] README/DESIGN의 공개 도구 설명과 annotations 설명을 갱신한다.
+- [x] 체크 표시 후 Phase 1 결과를 커밋한다.
+
+Phase 1 evidence:
+
+- `package.json` test script now runs `node --test "tests/**/*.test.mjs"`.
+- `src/mcp/server.mjs` adds read-only annotations to all default, extra, `explore`, and `explore_v2` tools.
+- `tests/mcp-server.test.mjs` verifies 1/2/8/9 exposed tool shapes and annotations.
+- `node --test tests/mcp-server.test.mjs`: 7 tests / 7 pass.
+- `npm test`: 260 tests / 259 pass / 0 fail / 1 skip.
 
 ## Phase 2: Stdio Purity
 

@@ -113,6 +113,46 @@ class MockChatClient {
   }
 }
 
+function applyEnvPatch(patch) {
+  const previous = new Map();
+  for (const [key, value] of Object.entries(patch)) {
+    previous.set(key, process.env[key]);
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+  return () => {
+    for (const [key, value] of previous.entries()) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  };
+}
+
+async function listToolsWithEnv(envPatch) {
+  const restore = applyEnvPatch(envPatch);
+  try {
+    const { handleRequest } = createMcpRequestHandler();
+    const listed = await handleRequest({
+      jsonrpc: '2.0',
+      id: 99,
+      method: 'tools/list',
+      params: {},
+    });
+    return listed.tools;
+  } finally {
+    restore();
+  }
+}
+
+function assertReadOnlyAnnotations(tool) {
+  assert.ok(tool.annotations, `${tool.name} must declare annotations`);
+  assert.equal(tool.annotations.title, tool.title, `${tool.name} annotation title must match tool title`);
+  assert.equal(tool.annotations.readOnlyHint, true, `${tool.name} must be read-only`);
+  assert.equal(tool.annotations.destructiveHint, false, `${tool.name} must not be destructive`);
+  assert.equal(tool.annotations.idempotentHint, true, `${tool.name} must be idempotent`);
+  assert.equal(tool.annotations.openWorldHint, true, `${tool.name} must disclose provider API egress`);
+}
+
 test('MCP request handler exposes explore_repo and returns structuredContent', async () => {
   const repoRoot = await makeRepoFixture();
   const { handleRequest } = createMcpRequestHandler({
@@ -202,6 +242,76 @@ test('MCP request handler exposes explore_repo and returns structuredContent', a
   assert.match(called.content[0].text, /snippet:/);
   assert.doesNotMatch(called.content[0].text, /## Stats/);
   assert.doesNotMatch(called.content[0].text, /stats\.sessionId/);
+});
+
+test('MCP request handler declares read-only annotations for every exposed tool shape', async () => {
+  const cases = [
+    {
+      name: 'default',
+      env: {
+        CEREBRAS_EXPLORER_EXTRA_TOOLS: undefined,
+        CEREBRAS_EXPLORER_ENABLE_EXPLORE: undefined,
+        CEREBRAS_EXPLORER_ENABLE_EXPLORE_V2: undefined,
+      },
+      expectedNames: [
+        'find_relevant_code',
+        'trace_symbol',
+        'map_change_impact',
+        'explain_code_path',
+        'collect_evidence',
+        'review_change_context',
+        'explore_repo',
+        'explore',
+      ],
+    },
+    {
+      name: 'v2 enabled',
+      env: {
+        CEREBRAS_EXPLORER_EXTRA_TOOLS: undefined,
+        CEREBRAS_EXPLORER_ENABLE_EXPLORE: undefined,
+        CEREBRAS_EXPLORER_ENABLE_EXPLORE_V2: 'true',
+      },
+      expectedNames: [
+        'find_relevant_code',
+        'trace_symbol',
+        'map_change_impact',
+        'explain_code_path',
+        'collect_evidence',
+        'review_change_context',
+        'explore_repo',
+        'explore',
+        'explore_v2',
+      ],
+    },
+    {
+      name: 'extra tools disabled',
+      env: {
+        CEREBRAS_EXPLORER_EXTRA_TOOLS: 'false',
+        CEREBRAS_EXPLORER_ENABLE_EXPLORE: undefined,
+        CEREBRAS_EXPLORER_ENABLE_EXPLORE_V2: undefined,
+      },
+      expectedNames: ['explore_repo', 'explore'],
+    },
+    {
+      name: 'minimum tool surface',
+      env: {
+        CEREBRAS_EXPLORER_EXTRA_TOOLS: 'false',
+        CEREBRAS_EXPLORER_ENABLE_EXPLORE: 'false',
+        CEREBRAS_EXPLORER_ENABLE_EXPLORE_V2: undefined,
+      },
+      expectedNames: ['explore_repo'],
+    },
+  ];
+
+  for (const testCase of cases) {
+    const tools = await listToolsWithEnv(testCase.env);
+    assert.deepEqual(
+      tools.map(tool => tool.name),
+      testCase.expectedNames,
+      `${testCase.name} tool names must match expected exposed surface`,
+    );
+    for (const tool of tools) assertReadOnlyAnnotations(tool);
+  }
 });
 
 test('MCP request handler returns repo_root resolution errors without mislabeling them as generic argument errors', async () => {

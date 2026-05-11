@@ -204,6 +204,8 @@ GLM 4.7 마이그레이션 기준으로 explorer runtime은 다음 원칙을 따
 - `explore_v2`는 advanced 도구이며 `CEREBRAS_EXPLORER_ENABLE_EXPLORE_V2=true`일 때만 노출된다.
 - `CEREBRAS_EXPLORER_ENABLE_EXPLORE=false`로 설정하면 `explore`가 비활성화된다.
 
+모든 공개 MCP 도구는 `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: true` annotations를 선언한다. 이 annotations는 클라이언트 UX와 승인 정책을 돕는 hint이며, 실제 보안 경계는 read-only repo toolkit, path 검증, secret policy에서 제공한다.
+
 #### 동시 요청 처리
 
 `StdioJsonRpcServer`(`src/mcp/jsonrpc-stdio.mjs`)는 요청을 **병렬**로 처리한다.

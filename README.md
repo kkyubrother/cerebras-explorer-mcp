@@ -129,6 +129,7 @@ Parent model (Claude Code / Codex)
 - **GLM 4.7 reasoning 정렬**: quick budget은 `reasoning_effort="none"`으로 reasoning을 끄고, normal/deep은 기본 reasoning을 유지하며 `clear_thinking=false`로 이전 turn의 reasoning을 보존
 - **샘플링 기본값 정렬**: budget별 temperature(`quick`: 0.3, `normal`: 0.8, `deep`: 1.0)와 `top_p=0.95`를 사용하며, direct client 경로에는 fallback 환경 변수도 지원
 - **근거 강제**: 최종 evidence는 실제로 읽거나 grep으로 확인한 라인 범위에만 남김
+- **Read-only tool annotations**: 모든 공개 MCP 도구는 `readOnlyHint: true`를 선언합니다. 이는 클라이언트 UX hint이며 보안 경계는 아닙니다.
 - **MCP 친화적 반환**: MCP `structuredContent`는 `directAnswer`, `status`, `targets`, snippet 포함 `evidence`, `uncertainties`, `nextAction`, `sessionId` 중심의 compact 계약만 노출합니다. runtime raw 필드인 `answer`, `summary`, `candidatePaths`, `followups`는 MCP 응답에 노출하지 않으며, 운영 디버그 정보만 `_debug.stats`, `_debug.toolTrace`, `_debug.recentActivity`에 남깁니다.
 
 ## 공개 MCP 도구

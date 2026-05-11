@@ -13,6 +13,20 @@ const SERVER_INFO = {
   version: '0.1.0',
 };
 
+const READ_ONLY_TOOL_ANNOTATIONS = Object.freeze({
+  readOnlyHint: true,
+  destructiveHint: false,
+  idempotentHint: true,
+  openWorldHint: true,
+});
+
+function readOnlyToolAnnotations(title) {
+  return {
+    title,
+    ...READ_ONLY_TOOL_ANNOTATIONS,
+  };
+}
+
 // ─── Core tool ────────────────────────────────────────────────────────────────
 
 const EXPLORE_REPO_TOOL = {
@@ -27,6 +41,7 @@ const EXPLORE_REPO_TOOL = {
     'Omit budget and hints.strategy unless required by an advanced workflow. Pass sessionId as "session" for follow-up calls.',
   inputSchema: EXPLORE_REPO_INPUT_SCHEMA,
   outputSchema: EXPLORE_REPO_OUTPUT_SCHEMA,
+  annotations: readOnlyToolAnnotations('Autonomous repository explorer'),
 };
 
 // ─── Specialized tools (exposed when CEREBRAS_EXPLORER_EXTRA_TOOLS != false) ─
@@ -52,6 +67,7 @@ const FIND_RELEVANT_CODE_TOOL = {
     required: ['query'],
   },
   outputSchema: EXPLORE_REPO_OUTPUT_SCHEMA,
+  annotations: readOnlyToolAnnotations('Find relevant code targets'),
 };
 
 const TRACE_SYMBOL_TOOL = {
@@ -75,6 +91,7 @@ const TRACE_SYMBOL_TOOL = {
     required: ['symbol'],
   },
   outputSchema: EXPLORE_REPO_OUTPUT_SCHEMA,
+  annotations: readOnlyToolAnnotations('Trace a symbol'),
 };
 
 const MAP_CHANGE_IMPACT_TOOL = {
@@ -97,6 +114,7 @@ const MAP_CHANGE_IMPACT_TOOL = {
     required: ['change'],
   },
   outputSchema: EXPLORE_REPO_OUTPUT_SCHEMA,
+  annotations: readOnlyToolAnnotations('Map change impact'),
 };
 
 const EXPLAIN_CODE_PATH_TOOL = {
@@ -120,6 +138,7 @@ const EXPLAIN_CODE_PATH_TOOL = {
     required: ['pathQuery'],
   },
   outputSchema: EXPLORE_REPO_OUTPUT_SCHEMA,
+  annotations: readOnlyToolAnnotations('Explain a code path'),
 };
 
 const COLLECT_EVIDENCE_TOOL = {
@@ -143,6 +162,7 @@ const COLLECT_EVIDENCE_TOOL = {
     required: ['claim'],
   },
   outputSchema: EXPLORE_REPO_OUTPUT_SCHEMA,
+  annotations: readOnlyToolAnnotations('Collect cited evidence'),
 };
 
 const REVIEW_CHANGE_CONTEXT_TOOL = {
@@ -166,6 +186,7 @@ const REVIEW_CHANGE_CONTEXT_TOOL = {
     required: ['reviewGoal'],
   },
   outputSchema: EXPLORE_REPO_OUTPUT_SCHEMA,
+  annotations: readOnlyToolAnnotations('Review change context'),
 };
 
 // ─── Phase 5: Free-form explore tool (beta) ───────────────────────────────
@@ -192,6 +213,7 @@ const EXPLORE_TOOL = {
     },
     required: ['prompt'],
   },
+  annotations: readOnlyToolAnnotations('Free-form repository exploration'),
 };
 
 // ─── V2 enhanced explore tool ────────────────────────────────────────────────
@@ -217,6 +239,7 @@ const EXPLORE_V2_TOOL = {
     },
     required: ['prompt'],
   },
+  annotations: readOnlyToolAnnotations('Advanced repository exploration (V2)'),
 };
 
 function exploreToolEnabled() {
