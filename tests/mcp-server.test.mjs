@@ -145,12 +145,10 @@ test('MCP request handler exposes explore_repo and returns structuredContent', a
   assert.ok(toolNames.includes('explain_code_path'), 'explain_code_path must be in tool list');
   assert.ok(toolNames.includes('collect_evidence'), 'collect_evidence must be in tool list');
   assert.ok(toolNames.includes('review_change_context'), 'review_change_context must be in tool list');
-  if (!['1', 'true', 'yes'].includes(String(process.env.CEREBRAS_EXPLORER_LEGACY_TOOLS ?? '').toLowerCase())) {
-    assert.ok(!toolNames.includes('explain_symbol'), 'legacy explain_symbol must be opt-in');
-    assert.ok(!toolNames.includes('trace_dependency'), 'legacy trace_dependency must be opt-in');
-    assert.ok(!toolNames.includes('summarize_changes'), 'legacy summarize_changes must be opt-in');
-    assert.ok(!toolNames.includes('find_similar_code'), 'legacy find_similar_code must be opt-in');
-  }
+  assert.ok(!toolNames.includes('explain_symbol'), 'removed shortcut explain_symbol must not be exposed');
+  assert.ok(!toolNames.includes('trace_dependency'), 'removed shortcut trace_dependency must not be exposed');
+  assert.ok(!toolNames.includes('summarize_changes'), 'removed shortcut summarize_changes must not be exposed');
+  assert.ok(!toolNames.includes('find_similar_code'), 'removed shortcut find_similar_code must not be exposed');
   assert.ok(!toolNames.includes('explore_v2'), 'explore_v2 must be opt-in');
   const exploreRepoTool = listed.tools.find(t => t.name === 'explore_repo');
   assert.match(exploreRepoTool.description, /Use FIRST/);

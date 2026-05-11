@@ -301,8 +301,6 @@ V2 런타임은 세 가지 고급 기법을 추가합니다.
 | `collect_evidence` | claim/review point에 대한 citation bundle 수집 | auto |
 | `review_change_context` | PR/recent-change review context 수집 | git-guided |
 
-legacy shortcut(`explain_symbol`, `trace_dependency`, `summarize_changes`, `find_similar_code`)은 기본 tool list에 노출되지 않으며, `CEREBRAS_EXPLORER_LEGACY_TOOLS=true`일 때만 공개됩니다.
-
 목적형 wrapper는 공통적으로 `repo_root`, `scope`, `session`과 이미 알고 있는 file/symbol/text anchor만 노출합니다. 응답 언어를 명시해야 하는 드문 경우에는 `explore_repo` 또는 `explore`의 `language`를 사용하세요.
 
 ## 프로젝트 구조
@@ -596,7 +594,6 @@ MCP client for `cerebras-explorer` timed out after 30 seconds.
 반복 가능한 품질 측정을 위해 선언형 질의 세트와 점수 계산기를 포함합니다.
 
 - 기본/adoption 벤치마크 파일: `benchmarks/adoption.json`
-- legacy shortcut 회귀 벤치마크 파일: `benchmarks/core.json`
 - 실행 스크립트: `scripts/run-benchmark.mjs`
 - npm 스크립트: `npm run benchmark`
 
@@ -606,11 +603,7 @@ MCP client for `cerebras-explorer` timed out after 30 seconds.
 npm run benchmark
 ```
 
-`npm run benchmark`는 기본 tool list와 같은 wrapper-first `benchmarks/adoption.json`을 실행합니다. legacy shortcut 회귀 suite가 필요하면 opt-in으로 실행합니다.
-
-```bash
-npm run benchmark:legacy
-```
+`npm run benchmark`는 기본 tool list와 같은 wrapper-first `benchmarks/adoption.json`을 실행합니다.
 
 특정 저장소 루트나 케이스만 실행하려면:
 
@@ -633,7 +626,7 @@ node ./scripts/run-benchmark.mjs \
 벤치마크는 exact-string 정답 대신 다음 요소를 가중치로 평가합니다.
 
 - 답변/요약 키워드 그룹 일치율
-- evidence / targets / legacy candidatePaths에 기대 파일이 포함되는지
+- evidence / targets에 기대 파일이 포함되는지
 - grounded evidence 개수
 - evidence snippet, directAnswer, status, nextAction, sessionId, recentActivity, budget stop 여부 같은 구조적 체크
 
@@ -674,8 +667,6 @@ node ./scripts/run-benchmark.mjs \
 - 최종 품질은 저장소 구조와 질문 품질에 영향을 받습니다.
 - 심볼 인덱싱은 외부 파서 없는 regex/syntax-lite 기반입니다. 언어 서버 수준의 semantic 분석은 제공하지 않지만, 설치 의존성을 늘리지 않는 방향을 우선합니다.
 - `repo_symbol_context.depth > 1`은 현재 `effectiveDepth = 1`로 고정됩니다 (직접 호출자만 반환). 의도적 설계 결정이며, 반환값에 `effectiveDepth: 1` 필드가 포함되어 실제 동작을 명시합니다. 더 깊은 호출 체인이 필요하면 `explore_repo`의 `reference-chase` 전략을 사용하세요.
-- `find_similar_code`는 수치형 similarity score를 제공하지 않습니다. 자연어 추론 기반으로 유사 패턴과 근거를 설명합니다.
-
 참고:
 - 코드베이스 안에는 provider abstraction 관련 구현이 일부 존재하지만, 이 프로젝트의 문서화된 주요 공개 인터페이스는 Cerebras 기반 explorer에 맞춰져 있습니다. Provider override가 필요하면 `EXPLORER_PROVIDER`와 provider별 환경 변수를 사용하세요.
 
@@ -685,6 +676,5 @@ node ./scripts/run-benchmark.mjs \
 - `find_entrypoints`
 - repo-specific ignore 정책
 - 외부 파서 없는 symbol engine fixture 확대와 정밀도 향상
-- `find_similar_code`의 deterministic similarity score RFC
 
 상세 설계 근거는 [DESIGN.md](./DESIGN.md)에 정리해 두었습니다.

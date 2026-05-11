@@ -37,7 +37,6 @@
     "start": "node ./src/index.mjs",
     "test": "node --test ./tests/*.test.mjs",
     "benchmark": "node ./scripts/run-benchmark.mjs --suite ./benchmarks/adoption.json",
-    "benchmark:legacy": "node ./scripts/run-benchmark.mjs --suite ./benchmarks/core.json --legacy-tools",
     "prepublishOnly": "npm test"
   },
   "engines": {

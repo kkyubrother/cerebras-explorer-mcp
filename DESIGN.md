@@ -201,7 +201,6 @@ GLM 4.7 마이그레이션 기준으로 explorer runtime은 다음 원칙을 따
 기본적으로 상위 모델에게 8개의 도구를 노출한다: `find_relevant_code`, `trace_symbol`, `map_change_impact`, `explain_code_path`, `collect_evidence`, `review_change_context`, `explore_repo`, `explore`.
 
 - `CEREBRAS_EXPLORER_EXTRA_TOOLS=false`로 설정하면 목적형 wrapper 6개가 비활성화된다.
-- legacy shortcut(`explain_symbol`, `trace_dependency`, `summarize_changes`, `find_similar_code`)은 `CEREBRAS_EXPLORER_LEGACY_TOOLS=true`일 때만 노출된다.
 - `explore_v2`는 advanced/legacy 도구이며 `CEREBRAS_EXPLORER_ENABLE_EXPLORE_V2=true`일 때만 노출된다.
 - `CEREBRAS_EXPLORER_ENABLE_EXPLORE=false`로 설정하면 `explore`가 비활성화된다.
 
@@ -230,8 +229,6 @@ GLM 4.7 마이그레이션 기준으로 explorer runtime은 다음 원칙을 따
 - 명시적으로 요청된 세션이 invalid 또는 repo_mismatch인 경우 에러를 반환한다.
 - 명시적으로 요청된 세션이 expired 또는 exhausted인 경우 새 세션으로 fallback하고, `stats.sessionStatus`에 `fallback`을 표시한다.
 - `stats.sessionStatus`가 `created`, `reused`, `fallback` 중 하나를 표시하고, `stats.remainingCalls`가 남은 호출 수를 표시한다.
-- `find_similar_code`는 수치형 similarity score를 제공하지 않는다 — 자연어 추론 기반이다.
-
 ---
 
 ## 6. 독립성 정의
@@ -597,7 +594,6 @@ Codex도 동일하다.
 
 4. **기존 Phase 3 항목 유지:**
    - import graph / call graph는 관측된 grep/symbol/read 결과로만 edge 기록
-   - 정량화된 유사도 점수 (`find_similar_code.similarity`)
    - repo fingerprint 기반 warm-start
 
 ### Phase 4 — 런타임 고도화

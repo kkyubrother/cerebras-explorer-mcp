@@ -6,17 +6,6 @@ import { createMcpRequestHandler } from '../src/mcp/server.mjs';
 import { evaluateBenchmarkCase, summarizeBenchmarkSuite } from '../src/benchmark/evaluator.mjs';
 import { sanitizeBenchmarkReport, sanitizePathForReport } from '../src/benchmark/report.mjs';
 
-const LEGACY_BENCHMARK_TOOLS = new Set([
-  'explain_symbol',
-  'trace_dependency',
-  'summarize_changes',
-  'find_similar_code',
-]);
-
-function isTruthyEnv(value) {
-  return ['1', 'true', 'yes', 'on'].includes(String(value ?? '').toLowerCase());
-}
-
 function parseArgs(argv) {
   const options = {
     suite: 'benchmarks/adoption.json',
@@ -24,7 +13,6 @@ function parseArgs(argv) {
     output: null,
     caseId: null,
     verbose: false,
-    legacyTools: false,
     help: false,
   };
 
@@ -35,7 +23,6 @@ function parseArgs(argv) {
     else if (arg === '--output') options.output = argv[++index];
     else if (arg === '--case') options.caseId = argv[++index];
     else if (arg === '--verbose') options.verbose = true;
-    else if (arg === '--legacy-tools') options.legacyTools = true;
     else if (arg === '--help' || arg === '-h') options.help = true;
     else throw new Error(`Unknown argument: ${arg}`);
   }
@@ -53,7 +40,6 @@ function printHelp() {
       '  --repo-root <path>  Repository root to benchmark. Default: current working directory',
       '  --case <id>         Run only one benchmark case',
       '  --output <path>     Write full JSON results to a file',
-      '  --legacy-tools      Expose opt-in legacy shortcuts for legacy benchmark suites',
       '  --verbose           Print per-expectation details',
       '  --help              Show this help text',
     ].join('\n'),
@@ -68,14 +54,6 @@ async function loadSuite(suitePath) {
     throw new Error(`Benchmark suite has no cases: ${resolvedPath}`);
   }
   return { path: resolvedPath, suite: parsed };
-}
-
-function getLegacyToolsUsedBySuite(suite) {
-  return [...new Set(
-    suite.cases
-      .map(item => item.tool)
-      .filter(tool => LEGACY_BENCHMARK_TOOLS.has(tool)),
-  )];
 }
 
 async function createHandler(logger) {
@@ -226,21 +204,7 @@ async function main() {
     return;
   }
 
-  const legacyToolsRequested =
-    options.legacyTools || isTruthyEnv(process.env.CEREBRAS_EXPLORER_LEGACY_TOOLS);
-  if (options.legacyTools) {
-    process.env.CEREBRAS_EXPLORER_LEGACY_TOOLS = 'true';
-  }
-
   const { path: suitePath, suite } = await loadSuite(options.suite);
-  const legacyToolsUsed = getLegacyToolsUsedBySuite(suite);
-  if (legacyToolsUsed.length > 0 && !legacyToolsRequested) {
-    throw new Error(
-      `Benchmark suite uses opt-in legacy tools (${legacyToolsUsed.join(', ')}). ` +
-        'Pass --legacy-tools or run npm run benchmark:legacy.',
-    );
-  }
-
   const repoRoot = path.resolve(options.repoRoot);
   const selectedCases = options.caseId
     ? suite.cases.filter(item => item.id === options.caseId)

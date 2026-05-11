@@ -10,10 +10,10 @@ import {
 
 test('sanitizePathForReport converts repo-root absolute paths to portable relative paths', () => {
   const repoRoot = path.resolve('tmp', 'private-repo');
-  const target = path.join(repoRoot, 'benchmarks', 'core.json');
+  const target = path.join(repoRoot, 'benchmarks', 'adoption.json');
 
   assert.equal(sanitizePathForReport(repoRoot, { repoRoot }), '.');
-  assert.equal(sanitizePathForReport(target, { repoRoot }), 'benchmarks/core.json');
+  assert.equal(sanitizePathForReport(target, { repoRoot }), 'benchmarks/adoption.json');
 });
 
 test('sanitizePathForReport collapses external absolute paths to basename', () => {
@@ -27,7 +27,7 @@ test('sanitizeBenchmarkReport redacts absolute repo-root paths from nested repor
   const repoRoot = path.resolve('tmp', 'private-repo');
   const report = {
     suite: {
-      path: path.join(repoRoot, 'benchmarks', 'core.json'),
+      path: path.join(repoRoot, 'benchmarks', 'adoption.json'),
       repoRoot,
     },
     cases: [
@@ -50,7 +50,7 @@ test('sanitizeBenchmarkReport redacts absolute repo-root paths from nested repor
 
   const sanitized = sanitizeBenchmarkReport(report, { repoRoot });
 
-  assert.equal(sanitized.suite.path, 'benchmarks/core.json');
+  assert.equal(sanitized.suite.path, 'benchmarks/adoption.json');
   assert.equal(sanitized.suite.repoRoot, '.');
   assert.equal(sanitized.cases[0].result.answer, 'Repo path is src/index.mjs');
   assert.equal(sanitized.cases[0].result.evidence[0].path, 'src/index.mjs');

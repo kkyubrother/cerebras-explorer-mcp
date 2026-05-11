@@ -26,8 +26,6 @@ Default call shape:
 - For `explore`, use `prompt` instead of `task`.
 - Reuse `sessionId` as `session` when continuing the same investigation.
 
-Legacy shortcuts (`explain_symbol`, `trace_dependency`, `summarize_changes`, `find_similar_code`) are opt-in compatibility tools and should not be selected during normal use. Prefer the wrapper tools above unless a legacy workflow explicitly exposes and requires them.
-
 Do not delegate by default when one or two direct native reads are cheaper, when the task is primarily to edit code, or when the user explicitly wants raw local verification first.
 
 For `explore_repo` and wrapper tools, treat returned `targets` as the working map.

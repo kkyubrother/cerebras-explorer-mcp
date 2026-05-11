@@ -31,107 +31,6 @@ const EXPLORE_REPO_TOOL = {
 
 // ─── Specialized tools (exposed when CEREBRAS_EXPLORER_EXTRA_TOOLS != false) ─
 
-const EXPLAIN_SYMBOL_TOOL = {
-  name: 'explain_symbol',
-  title: 'Explain a code symbol',
-  description:
-    'Use this when you encounter an unfamiliar function, class, variable, or type and need to quickly understand its purpose, parameters, return type, and usage patterns across the codebase. ' +
-    'Returns where the symbol is defined, what it does, and all call sites. Faster than manual grep-then-read workflows.',
-  inputSchema: {
-    type: 'object',
-    additionalProperties: false,
-    properties: {
-      symbol: {
-        type: 'string',
-        description: 'The symbol name to explain (function, class, variable, type, etc.).',
-      },
-      repo_root: { type: 'string' },
-      scope: { type: 'array', items: { type: 'string' } },
-      session: { type: 'string', description: 'Optional session ID for continuity.' },
-      language: { type: 'string', description: 'BCP-47 language tag for the response (e.g. "ko", "en"). Defaults to auto-detect.' },
-      context: { type: 'string', description: 'Optional additional context from the parent agent to guide exploration.' },
-    },
-    required: ['symbol'],
-  },
-  outputSchema: EXPLORE_REPO_OUTPUT_SCHEMA,
-};
-
-const TRACE_DEPENDENCY_TOOL = {
-  name: 'trace_dependency',
-  title: 'Trace module dependency chain',
-  description:
-    'Use this when you need to understand the import/dependency graph of a file — what it imports (downstream) and what imports it (upstream). ' +
-    'Essential for refactoring, understanding coupling, or assessing the blast radius of a change. Faster than manually tracing imports across files.',
-  inputSchema: {
-    type: 'object',
-    additionalProperties: false,
-    properties: {
-      entryPoint: {
-        type: 'string',
-        description: 'Path to the starting file (relative to repo root).',
-      },
-      direction: {
-        type: 'string',
-        enum: ['downstream', 'upstream', 'both'],
-        description: 'downstream = what this file imports; upstream = what imports this file; both = full graph.',
-      },
-      repo_root: { type: 'string' },
-      session: { type: 'string' },
-      language: { type: 'string', description: 'BCP-47 language tag for the response (e.g. "ko", "en"). Defaults to auto-detect.' },
-      context: { type: 'string', description: 'Optional additional context from the parent agent to guide exploration.' },
-    },
-    required: ['entryPoint'],
-  },
-  outputSchema: EXPLORE_REPO_OUTPUT_SCHEMA,
-};
-
-const SUMMARIZE_CHANGES_TOOL = {
-  name: 'summarize_changes',
-  title: 'Summarize recent code changes',
-  description:
-    'Use this when you need to understand what changed recently in the codebase — after a merge, before a release, or to catch up on recent work. ' +
-    'Analyzes git history in a given time range or branch and returns what files changed, key modifications, and the intent behind the changes.',
-  inputSchema: {
-    type: 'object',
-    additionalProperties: false,
-    properties: {
-      since: { type: 'string', description: "Time reference: '1 week ago', a commit hash, or a branch name." },
-      until: { type: 'string' },
-      path: { type: 'string' },
-      repo_root: { type: 'string' },
-      session: { type: 'string' },
-      language: { type: 'string', description: 'BCP-47 language tag for the response (e.g. "ko", "en"). Defaults to auto-detect.' },
-      context: { type: 'string', description: 'Optional additional context from the parent agent to guide exploration.' },
-    },
-    required: [],
-  },
-  outputSchema: EXPLORE_REPO_OUTPUT_SCHEMA,
-};
-
-const FIND_SIMILAR_CODE_TOOL = {
-  name: 'find_similar_code',
-  title: 'Find similar code patterns',
-  description:
-    'Use this when you suspect duplicated logic, want to find all places that follow (or violate) a pattern, or need to locate code similar to a reference snippet or file. ' +
-    'Scans the codebase using natural-language reasoning to find structural similarities — more flexible than regex search.',
-  inputSchema: {
-    type: 'object',
-    additionalProperties: false,
-    properties: {
-      reference: { type: 'string', description: 'A file path or short code snippet to use as the reference.' },
-      startLine: { type: 'number' },
-      endLine: { type: 'number' },
-      scope: { type: 'array', items: { type: 'string' } },
-      repo_root: { type: 'string' },
-      session: { type: 'string' },
-      language: { type: 'string', description: 'BCP-47 language tag for the response (e.g. "ko", "en"). Defaults to auto-detect.' },
-      context: { type: 'string', description: 'Optional additional context from the parent agent to guide exploration.' },
-    },
-    required: ['reference'],
-  },
-  outputSchema: EXPLORE_REPO_OUTPUT_SCHEMA,
-};
-
 const FIND_RELEVANT_CODE_TOOL = {
   name: 'find_relevant_code',
   title: 'Find relevant code targets',
@@ -347,10 +246,6 @@ function extraToolsEnabled() {
   return isTruthyEnv(v);
 }
 
-function legacyToolsEnabled() {
-  return isTruthyEnv(process.env.CEREBRAS_EXPLORER_LEGACY_TOOLS);
-}
-
 function buildToolList() {
   const tools = [];
   if (extraToolsEnabled()) {
@@ -364,14 +259,6 @@ function buildToolList() {
     );
   }
   tools.push(EXPLORE_REPO_TOOL);
-  if (legacyToolsEnabled()) {
-    tools.push(
-      EXPLAIN_SYMBOL_TOOL,
-      TRACE_DEPENDENCY_TOOL,
-      SUMMARIZE_CHANGES_TOOL,
-      FIND_SIMILAR_CODE_TOOL,
-    );
-  }
   if (exploreToolEnabled()) {
     tools.push(EXPLORE_TOOL);
   }
@@ -403,56 +290,16 @@ function buildAnchorHints({ knownFiles, knownSymbols, knownText, strategy } = {}
   return Object.keys(hints).length > 0 ? hints : undefined;
 }
 
-function buildExplainSymbolArgs(args) {
+function buildTraceSymbolArgs(args) {
   const { symbol, repo_root, scope, session, language, context } = args;
   if (!symbol || typeof symbol !== 'string' || !symbol.trim()) {
-    throw Object.assign(new Error('explain_symbol requires a non-empty "symbol" argument.'), { code: -32602 });
+    throw Object.assign(new Error('trace_symbol requires a non-empty "symbol" argument.'), { code: -32602 });
   }
   let task = `Explain the symbol "${symbol.trim()}": where it is defined, what it does, its parameters/return type if applicable, and where it is called or used in the codebase.`;
   if (context) task += `\n\nAdditional context: ${context}`;
   return {
     task, repo_root, scope, session, language,
     hints: { symbols: [symbol.trim()], strategy: 'symbol-first' },
-  };
-}
-
-function buildTraceDependencyArgs(args) {
-  const { entryPoint, direction = 'both', repo_root, session, language, context } = args;
-  if (!entryPoint || typeof entryPoint !== 'string' || !entryPoint.trim()) {
-    throw Object.assign(new Error('trace_dependency requires a non-empty "entryPoint" argument.'), { code: -32602 });
-  }
-  let task = `Trace the import/dependency chain of "${entryPoint.trim()}". Direction: ${direction}. List which modules are imported and which modules import this file.`;
-  if (context) task += `\n\nAdditional context: ${context}`;
-  return {
-    task, repo_root, session, language,
-    hints: { files: [entryPoint.trim()], strategy: 'reference-chase' },
-  };
-}
-
-function buildSummarizeChangesArgs(args) {
-  const { since, until, path: filePath, repo_root, session, language, context } = args;
-  const sincePart = since ? `since "${since}"` : 'in recent history';
-  const untilPart = until ? ` until "${until}"` : '';
-  const pathPart = filePath ? ` for path: ${filePath}` : '';
-  let task = `Summarize the code changes ${sincePart}${untilPart}${pathPart}. Describe what files changed, the key modifications, and the overall intent of the changes.`;
-  if (context) task += `\n\nAdditional context: ${context}`;
-  return {
-    task, repo_root, session, language,
-    hints: { strategy: 'git-guided' },
-  };
-}
-
-function buildFindSimilarCodeArgs(args) {
-  const { reference, startLine, endLine, scope, repo_root, session, language, context } = args;
-  if (!reference || typeof reference !== 'string' || !reference.trim()) {
-    throw Object.assign(new Error('find_similar_code requires a non-empty "reference" argument.'), { code: -32602 });
-  }
-  const lineNote = startLine && endLine ? ` (lines ${startLine}–${endLine})` : '';
-  let task = `Find code patterns similar to "${reference.trim()}"${lineNote} across the codebase.`;
-  if (context) task += `\n\nAdditional context: ${context}`;
-  return {
-    task, repo_root, scope, session, language,
-    hints: { files: [reference.trim()], strategy: 'pattern-scan' },
   };
 }
 
@@ -752,9 +599,6 @@ export function createMcpRequestHandler({
           negotiatedProtocolVersion = requestedVersion;
         }
         const toolCount = buildToolList().length;
-        const legacySentence = legacyToolsEnabled()
-          ? 'Legacy shortcuts enabled: explain_symbol, trace_dependency, summarize_changes, find_similar_code. '
-          : 'Legacy shortcuts are hidden by default; use purpose shortcuts instead. ';
         return {
           protocolVersion: negotiatedProtocolVersion,
           capabilities: { tools: { listChanged: false } },
@@ -764,7 +608,6 @@ export function createMcpRequestHandler({
             'PREFER these tools over manual file search (Grep/Glob/Read) for any task that spans more than 2-3 files or requires cross-file understanding. ' +
             'explore_repo returns structured JSON with directAnswer, status, targets, and grounded evidence snippets; explore returns a Markdown report for human consumption. ' +
             'Purpose shortcuts: find_relevant_code, trace_symbol, map_change_impact, explain_code_path, collect_evidence, review_change_context. ' +
-            legacySentence +
             'All tools accept a "session" parameter for multi-call continuity — pass sessionId from one call to the next. ' +
             'Pass _meta.progressToken to receive turn-by-turn progress updates.',
         };
@@ -795,7 +638,7 @@ export function createMcpRequestHandler({
             return await callTool(buildFindRelevantCodeArgs(args), progressToken, requestId);
           }
           if (name === 'trace_symbol') {
-            return await callTool(buildExplainSymbolArgs(args), progressToken, requestId);
+            return await callTool(buildTraceSymbolArgs(args), progressToken, requestId);
           }
           if (name === 'map_change_impact') {
             return await callTool(buildMapChangeImpactArgs(args), progressToken, requestId);
@@ -808,18 +651,6 @@ export function createMcpRequestHandler({
           }
           if (name === 'review_change_context') {
             return await callTool(buildReviewChangeContextArgs(args), progressToken, requestId);
-          }
-          if (name === 'explain_symbol') {
-            return await callTool(buildExplainSymbolArgs(args), progressToken, requestId);
-          }
-          if (name === 'trace_dependency') {
-            return await callTool(buildTraceDependencyArgs(args), progressToken, requestId);
-          }
-          if (name === 'summarize_changes') {
-            return await callTool(buildSummarizeChangesArgs(args), progressToken, requestId);
-          }
-          if (name === 'find_similar_code') {
-            return await callTool(buildFindSimilarCodeArgs(args), progressToken, requestId);
           }
           if (name === 'explore') {
             return await callFreeExploreTool(args, progressToken, requestId);
