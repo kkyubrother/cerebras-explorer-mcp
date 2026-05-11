@@ -490,22 +490,8 @@ export function createMcpRequestHandler({
 
   function toAgentFacingResult(result) {
     const sessionId = result.sessionId ?? result.stats?.sessionId ?? result._debug?.stats?.sessionId ?? null;
-    const legacy = {
-      answer: result.answer,
-      summary: result.summary,
-      candidatePaths: result.candidatePaths,
-      followups: result.followups,
-      confidence: result.confidence,
-      confidenceLevel: result.confidenceLevel,
-      critic: result.critic,
-      trustSummary: result.trustSummary,
-      codeMap: result.codeMap,
-      diagram: result.diagram,
-      recentActivity: result.recentActivity,
-    };
-    for (const key of Object.keys(legacy)) {
-      if (legacy[key] === undefined) delete legacy[key];
-    }
+    const debug = { ...(result._debug ?? {}) };
+    delete debug.legacy;
 
     return {
       directAnswer: result.directAnswer || result.answer || '',
@@ -520,10 +506,7 @@ export function createMcpRequestHandler({
       uncertainties: Array.isArray(result.uncertainties) ? result.uncertainties : [],
       nextAction: result.nextAction ?? { type: 'stop', reason: '' },
       ...(sessionId ? { sessionId } : {}),
-      _debug: {
-        ...(result._debug ?? {}),
-        ...(Object.keys(legacy).length > 0 ? { legacy } : {}),
-      },
+      _debug: debug,
     };
   }
 

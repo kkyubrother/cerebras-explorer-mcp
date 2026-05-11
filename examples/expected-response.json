@@ -72,17 +72,6 @@
       "sessionId": "sess_example",
       "sessionStatus": "created",
       "remainingCalls": 4
-    },
-    "legacy": {
-      "answer": "registerUserRoutes는 /users/me 라우트에 requireAuth 미들웨어를 직접 연결한다.",
-      "summary": "auth.js에서 requireAuth를 정의하고, user.js에서 이를 import해 /users/me에 적용한다.",
-      "candidatePaths": ["src/routes/user.js", "src/auth.js", "docs/auth.md"],
-      "followups": [
-        {
-          "description": "role-based access control 레이어 추가 분석",
-          "priority": "optional"
-        }
-      ]
     }
   }
 }

@@ -106,7 +106,7 @@ function getStats(result) {
 }
 
 function getConfidence(result) {
-  return result?.status?.confidence ?? result?._debug?.legacy?.confidence ?? result?.confidence ?? 'n/a';
+  return result?.status?.confidence ?? result?.confidence ?? 'n/a';
 }
 
 function getConfidenceScore(result) {

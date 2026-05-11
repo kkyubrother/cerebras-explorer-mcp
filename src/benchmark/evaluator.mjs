@@ -9,36 +9,31 @@ function joinLines(values) {
   return values.filter(Boolean).join('\n');
 }
 
-function getLegacy(result) {
-  return result?._debug?.legacy ?? {};
-}
-
 function getStats(result) {
   return result?._debug?.stats ?? result?.stats ?? {};
 }
 
 function getRecentActivity(result) {
-  return result?.recentActivity ?? result?._debug?.legacy?.recentActivity ?? result?._debug?.recentActivity ?? null;
+  return result?.recentActivity ?? result?._debug?.recentActivity ?? null;
 }
 
 function getCandidatePaths(result) {
-  return result?.candidatePaths ?? getLegacy(result).candidatePaths ?? [];
+  return result?.candidatePaths ?? [];
 }
 
 function getFollowups(result) {
-  return result?.followups ?? getLegacy(result).followups ?? [];
+  return result?.followups ?? [];
 }
 
 function getSourceText(result, source) {
-  const legacy = getLegacy(result);
   const recentActivity = getRecentActivity(result);
   switch (source) {
     case 'direct_answer':
-      return result.directAnswer ?? result.answer ?? legacy.answer ?? '';
+      return result.directAnswer ?? result.answer ?? '';
     case 'answer':
-      return result.answer ?? legacy.answer ?? result.directAnswer ?? '';
+      return result.answer ?? result.directAnswer ?? '';
     case 'summary':
-      return result.summary ?? legacy.summary ?? '';
+      return result.summary ?? '';
     case 'combined_text':
       return joinLines([
         result.directAnswer,
@@ -48,8 +43,6 @@ function getSourceText(result, source) {
         ...(result.evidence ?? []).map(item => item.why),
         result.answer,
         result.summary,
-        legacy.answer,
-        legacy.summary,
         ...getFollowups(result).map(item => item.description),
       ]);
     case 'evidence_paths':
@@ -75,9 +68,9 @@ function getSourceText(result, source) {
     case 'hot_files':
       return joinLines(recentActivity?.hotFiles ?? []);
     case 'confidence':
-      return result.status?.confidence ?? result.confidence ?? legacy.confidence ?? '';
+      return result.status?.confidence ?? result.confidence ?? '';
     case 'confidence_level':
-      return result.status?.confidence ?? result.confidenceLevel ?? legacy.confidenceLevel ?? result.confidence ?? legacy.confidence ?? '';
+      return result.status?.confidence ?? result.confidenceLevel ?? result.confidence ?? '';
     default:
       throw new Error(`Unknown benchmark source: ${source}`);
   }

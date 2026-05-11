@@ -320,7 +320,7 @@ GLM 4.7 마이그레이션 기준으로 explorer runtime은 다음 원칙을 따
 
 ## 9. 반환 스키마
 
-runtime raw result는 legacy/debug 호환성을 위해 풍부한 필드를 유지한다. MCP `structuredContent`는 상위 agent가 바로 읽는 compact contract로 변환한다.
+runtime raw result는 내부 실행과 디버깅을 위해 풍부한 필드를 유지한다. MCP `structuredContent`는 상위 agent가 바로 읽는 compact contract로 변환한다.
 
 MCP agent-facing contract:
 
@@ -366,14 +366,7 @@ MCP agent-facing contract:
   "_debug": {
     "stats": {},
     "confidenceScore": 0.0,
-    "confidenceFactors": {},
-    "legacy": {
-      "answer": "string",
-      "summary": "string",
-      "candidatePaths": ["relative/path"],
-      "followups": [],
-      "critic": {}
-    }
+    "confidenceFactors": {}
   }
 }
 ```
