@@ -24,7 +24,7 @@ const EXPLORE_REPO_TOOL = {
     'Do NOT use for a single known file/range or when immediate editing is cheaper. ' +
     'Returns structured JSON with directAnswer, status, targets, grounded file:line evidence with snippets, and nextAction. ' +
     'After this tool, avoid broad grep/read; only read cited targets needed for verification or edits. ' +
-    'Omit budget and hints.strategy unless required by a legacy workflow. Pass sessionId as "session" for follow-up calls.',
+    'Omit budget and hints.strategy unless required by an advanced workflow. Pass sessionId as "session" for follow-up calls.',
   inputSchema: EXPLORE_REPO_INPUT_SCHEMA,
   outputSchema: EXPLORE_REPO_OUTPUT_SCHEMA,
 };
@@ -177,13 +177,13 @@ const EXPLORE_TOOL = {
     'Use for a user-facing Markdown investigation report with inline file:line citations. ' +
     'Best for architecture walkthroughs, onboarding explanations, code review context, or broad "how does X work?" answers. ' +
     'Do NOT use when the parent agent needs structured edit planning or programmatic next steps; use explore_repo instead. ' +
-    'Omit thoroughness in normal agent use unless a legacy workflow explicitly requires quick, normal, or deep.',
+    'Omit thoroughness in normal agent use unless an advanced workflow explicitly requires quick, normal, or deep.',
   inputSchema: {
     type: 'object',
     additionalProperties: false,
     properties: {
       prompt: { type: 'string', description: 'What to explore — a natural-language question or task.' },
-      thoroughness: { type: 'string', enum: ['quick', 'normal', 'deep'], description: 'Advanced/legacy only. Omit for normal agent use; defaults to normal report depth.' },
+      thoroughness: { type: 'string', enum: ['quick', 'normal', 'deep'], description: 'Advanced only. Omit for normal agent use; defaults to normal report depth.' },
       scope: { type: 'array', items: { type: 'string' }, description: 'Optional path prefixes to focus on.' },
       repo_root: { type: 'string', description: 'Repository root path.' },
       session: { type: 'string', description: 'Session ID from a previous call.' },
@@ -200,7 +200,7 @@ const EXPLORE_V2_TOOL = {
   name: 'explore_v2',
   title: 'Advanced repository exploration (V2)',
   description:
-    'Advanced/legacy report tool. Use only for wide or deep Markdown reports that may exceed normal context or output limits. ' +
+    'Advanced report tool. Use only for wide or deep Markdown reports that may exceed normal context or output limits. ' +
     'Best for large architecture deep-dives, end-to-end root-cause reports, or broad subsystem maps. ' +
     'Do NOT use just because the file path is unknown; prefer explore_repo when structured evidence, likely edit files, or next read targets are needed.',
   inputSchema: {
@@ -208,7 +208,7 @@ const EXPLORE_V2_TOOL = {
     additionalProperties: false,
     properties: {
       prompt: { type: 'string', description: 'What to explore — a natural-language question or task. Be specific for best results.' },
-      thoroughness: { type: 'string', enum: ['quick', 'normal', 'deep'], description: 'Advanced/legacy only. Omit for normal agent use; defaults to normal report depth.' },
+      thoroughness: { type: 'string', enum: ['quick', 'normal', 'deep'], description: 'Advanced only. Omit for normal agent use; defaults to normal report depth.' },
       scope: { type: 'array', items: { type: 'string' }, description: 'Path prefixes to focus on (e.g. ["src/api/", "lib/auth/"]).' },
       repo_root: { type: 'string', description: 'Repository root path.' },
       session: { type: 'string', description: 'Session ID from a previous call for continuity.' },

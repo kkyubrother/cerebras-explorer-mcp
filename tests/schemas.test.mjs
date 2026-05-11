@@ -163,14 +163,14 @@ test('reconcileConfidence: model low is preserved even when computed is high', (
   assert.equal(result, 'low', 'lower of model/computed wins; here model=low');
 });
 
-test('agent-facing budget and strategy fields are marked advanced/legacy', () => {
+test('agent-facing budget and strategy fields are marked advanced only', () => {
   assert.match(
     EXPLORE_REPO_INPUT_SCHEMA.properties.budget.description,
-    /Advanced\/legacy only/,
+    /Advanced only/,
   );
   assert.match(
     EXPLORE_REPO_INPUT_SCHEMA.properties.hints.properties.strategy.description,
-    /Advanced\/legacy only/,
+    /Advanced only/,
   );
 });
 

@@ -153,7 +153,7 @@ test('MCP request handler exposes explore_repo and returns structuredContent', a
   const exploreRepoTool = listed.tools.find(t => t.name === 'explore_repo');
   assert.match(exploreRepoTool.description, /Use FIRST/);
   assert.match(exploreRepoTool.description, /Pass sessionId as "session"/);
-  assert.match(exploreRepoTool.inputSchema.properties.budget.description, /Advanced\/legacy only/);
+  assert.match(exploreRepoTool.inputSchema.properties.budget.description, /Advanced only/);
   assert.ok(exploreRepoTool.outputSchema.properties.targets, 'explore_repo must expose outputSchema targets');
   assert.equal(exploreRepoTool.outputSchema.additionalProperties, false);
   assert.equal(exploreRepoTool.outputSchema.properties.answer, undefined);

@@ -24,7 +24,7 @@ export const EXPLORE_REPO_INPUT_SCHEMA = {
       type: 'string',
       enum: ['quick', 'normal', 'deep'],
       description:
-        'Advanced/legacy only. Omit for normal agent use; the server chooses the default exploration depth. Use only when a workflow explicitly needs quick, normal, or deep.',
+        'Advanced only. Omit for normal agent use; the server chooses the default exploration depth. Use only when a workflow explicitly needs quick, normal, or deep.',
     },
     hints: {
       type: 'object',
@@ -39,7 +39,7 @@ export const EXPLORE_REPO_INPUT_SCHEMA = {
           type: 'string',
           enum: ['symbol-first', 'reference-chase', 'git-guided', 'breadth-first', 'blame-guided', 'pattern-scan'],
           description:
-            'Advanced/legacy only. Omit for normal agent use; strategy is auto-detected from the task and known anchors.',
+            'Advanced only. Omit for normal agent use; strategy is auto-detected from the task and known anchors.',
         },
       },
     },
