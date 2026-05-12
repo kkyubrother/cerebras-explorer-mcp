@@ -3,13 +3,25 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { execFile, execFileSync } from 'node:child_process';
+import { promisify } from 'node:util';
 
 import { getBudgetConfig, isSecretPath } from '../../src/explorer/config.mjs';
 import { RepoToolkit } from '../../src/explorer/repo-tools.mjs';
 import { exploreRepository } from '../../src/explorer/runtime.mjs';
 
+const execFileAsync = promisify(execFile);
 const joinSecretParts = (...parts) => parts.join('');
 const SECRET = joinSecretParts('sk', '-proj-', 'secret-deny-list-fixture');
+
+function hasGit() {
+  try {
+    execFileSync('git', ['--version'], { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 async function makeSecretFixture() {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-secret-deny-'));
@@ -160,4 +172,46 @@ test('deny-listed file content is blocked before provider-facing tool messages',
   assert.ok(chatClient.calls >= 2);
   assert.ok(!chatClient.providerMessages.includes(SECRET));
   assert.ok(!JSON.stringify(result).includes(SECRET));
+});
+
+test('git diff/show omit deny-listed files from broad patch results', { skip: !hasGit() }, async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-secret-deny-git-'));
+  await execFileAsync('git', ['init'], { cwd: root });
+  await execFileAsync('git', ['config', 'user.email', 'test@example.com'], { cwd: root });
+  await execFileAsync('git', ['config', 'user.name', 'Test User'], { cwd: root });
+
+  await fs.writeFile(path.join(root, 'src.js'), 'export const visible = "base";\n');
+  await execFileAsync('git', ['add', 'src.js'], { cwd: root });
+  await execFileAsync('git', ['commit', '-m', 'base'], { cwd: root });
+
+  await fs.writeFile(path.join(root, '.env'), `CEREBRAS_SECRET=${SECRET}\n`);
+  await fs.writeFile(path.join(root, 'src.js'), 'export const visible = "changed";\n');
+  await execFileAsync('git', ['add', '.env', 'src.js'], { cwd: root });
+  await execFileAsync('git', ['commit', '-m', 'add env and source'], { cwd: root });
+
+  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig('quick') });
+  await toolkit.initialize(['**']);
+
+  const directRead = await toolkit.readFile({ path: '.env' });
+  assert.equal(directRead.error, 'redacted_by_policy');
+  await assert.rejects(
+    toolkit.gitDiff({ from: 'HEAD~1', to: 'HEAD', path: '.env' }),
+    /Path is denied by secret policy: \.env/,
+  );
+
+  const diff = await toolkit.gitDiff({ from: 'HEAD~1', to: 'HEAD' });
+  assert.deepEqual(diff.files.map(file => file.path), ['src.js']);
+  assert.ok(!JSON.stringify(diff).includes('.env'));
+  assert.ok(!JSON.stringify(diff).includes(SECRET));
+
+  const stat = await toolkit.gitDiff({ from: 'HEAD~1', to: 'HEAD', stat: true });
+  assert.match(stat.stat, /src\.js/);
+  assert.ok(!stat.stat.includes('.env'));
+  assert.equal(stat.omittedSecretPaths, 1);
+  assert.ok(!JSON.stringify(stat).includes(SECRET));
+
+  const shown = await toolkit.gitShow({ ref: 'HEAD' });
+  assert.deepEqual(shown.files.map(file => file.path), ['src.js']);
+  assert.ok(!JSON.stringify(shown).includes('.env'));
+  assert.ok(!JSON.stringify(shown).includes(SECRET));
 });

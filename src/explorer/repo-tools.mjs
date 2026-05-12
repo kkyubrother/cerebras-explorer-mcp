@@ -309,6 +309,48 @@ function isProbablyText(buffer) {
   return suspicious / sample.length < 0.15;
 }
 
+
+function diffFilePaths(file) {
+  return [file?.path, file?.oldPath]
+    .filter(Boolean)
+    .map(toPosix);
+}
+
+function isSecretDiffFile(file) {
+  return diffFilePaths(file).some(relPath => isSecretPath(relPath).matched);
+}
+
+function statPathDenied(rawPath) {
+  const pathText = String(rawPath ?? '').trim();
+  if (isSecretPath(pathText).matched) return true;
+  const expanded = pathText.replace(/[{}]/g, '');
+  return expanded
+    .split(/\s+=>\s+/)
+    .some(part => isSecretPath(part.trim()).matched || isSecretPath(path.basename(part.trim())).matched);
+}
+
+function filterGitStatOutput(statText) {
+  const kept = [];
+  let omittedSecretPaths = 0;
+  for (const line of String(statText ?? '').split('\n')) {
+    if (!line.trim()) continue;
+    if (/^\s*\d+\s+files? changed(?:,|$)/.test(line)) {
+      if (omittedSecretPaths === 0) kept.push(line);
+      continue;
+    }
+    const match = line.match(/^\s*(.+?)\s+\|/);
+    if (match && statPathDenied(match[1])) {
+      omittedSecretPaths += 1;
+      continue;
+    }
+    kept.push(line);
+  }
+  return {
+    text: kept.join('\n'),
+    omittedSecretPaths,
+  };
+}
+
 function parseDiffOutput(diffText) {
   const files = [];
   let current = null;
@@ -316,7 +358,14 @@ function parseDiffOutput(diffText) {
     if (line.startsWith('diff --git ')) {
       if (current) files.push(current);
       const match = line.match(/diff --git a\/(.*) b\/(.*)/);
-      current = { path: match?.[2] ?? '', additions: 0, deletions: 0, hunks: [], patch: '' };
+      current = {
+        path: match?.[2] ?? '',
+        oldPath: match?.[1] ?? match?.[2] ?? '',
+        additions: 0,
+        deletions: 0,
+        hunks: [],
+        patch: '',
+      };
     } else if (current) {
       // Phase 2: extract hunk headers for new-file line ranges
       const hunkMatch = line.match(/^@@\s+-(\d+)(?:,(\d+))?\s+\+(\d+)(?:,(\d+))?\s+@@/);
@@ -968,6 +1017,18 @@ export class RepoToolkit {
     return rel;
   }
 
+  _filterGitDiffFiles(files, { enforceScope = false } = {}) {
+    return files
+      .filter(file => {
+        if (isSecretDiffFile(file)) return false;
+        if (enforceScope && this.baseScopeRules.patterns?.length > 0) {
+          return this.baseScopeRules.matches(file.path);
+        }
+        return true;
+      })
+      .map(({ oldPath, ...file }) => file);
+  }
+
   async gitLog({ path: filePath, maxCount = 20, since, author, grep: grepFilter } = {}) {
     const count = Math.min(Number(maxCount) || 20, 100);
     const args = ['log', `--format=%H|%an|%ai|%s`, `-n`, String(count)];
@@ -1063,16 +1124,18 @@ export class RepoToolkit {
     const output = await this._runGit(args);
 
     if (stat) {
-      const redactedStat = redactText(output.trim());
+      const filteredStat = filterGitStatOutput(output.trim());
+      const redactedStat = redactText(filteredStat.text);
       return {
         from,
         to,
         stat: redactedStat.text,
+        ...(filteredStat.omittedSecretPaths > 0 ? { omittedSecretPaths: filteredStat.omittedSecretPaths } : {}),
         ...(redactedStat.redacted ? { redacted: true, redactions: redactedStat.redactions } : {}),
       };
     }
 
-    const files = parseDiffOutput(output);
+    const files = this._filterGitDiffFiles(parseDiffOutput(output));
     return { from, to, files };
   }
 
@@ -1100,12 +1163,7 @@ export class RepoToolkit {
 
     const patchArgs = ['show', '--format=', '--unified=3', ref];
     const patchOutput = await this._runGit(patchArgs);
-    let files = parseDiffOutput(patchOutput);
-
-    // Filter changed files to those within the current base scope
-    if (this.baseScopeRules.patterns?.length > 0) {
-      files = files.filter(f => this.baseScopeRules.matches(f.path));
-    }
+    const files = this._filterGitDiffFiles(parseDiffOutput(patchOutput), { enforceScope: true });
 
     return {
       hash,
