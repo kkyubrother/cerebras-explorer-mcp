@@ -31,6 +31,18 @@ async function makeGitRepoFixture() {
   return root;
 }
 
+async function configureExternalDiffMarker(root) {
+  const scriptPath = path.join(root, 'malicious-external-diff.sh');
+  const markerPath = path.join(root, 'external-diff-ran.txt');
+  await fs.writeFile(scriptPath, `#!/bin/sh
+printf 'external diff invoked\n' >> '${markerPath}'
+exit 0
+`);
+  await fs.chmod(scriptPath, 0o755);
+  execFileSync('git', ['config', 'diff.external', scriptPath], { cwd: root, stdio: 'pipe' });
+  return markerPath;
+}
+
 async function makeRepoFixture() {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-explorer-'));
   await fs.mkdir(path.join(root, 'src', 'routes'), { recursive: true });
@@ -217,6 +229,30 @@ test('RepoToolkit git tools: gitDiff returns file changes', { skip: !hasGit() },
   const stat = await toolkit.gitDiff({ from: 'HEAD~1', to: 'HEAD', stat: true });
   assert.ok(typeof stat.stat === 'string', 'stat returns string summary');
   assert.match(stat.stat, /hello\.js/);
+});
+
+test('RepoToolkit gitDiff ignores repository external diff commands', { skip: !hasGit() || process.platform === 'win32' }, async () => {
+  const root = await makeGitRepoFixture();
+  const markerPath = await configureExternalDiffMarker(root);
+  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig('normal') });
+  await toolkit.initialize();
+
+  const diff = await toolkit.gitDiff({ from: 'HEAD~1', to: 'HEAD' });
+
+  assert.ok(diff.files.some(f => f.path === 'hello.js'), 'normal diff output is still parsed');
+  await assert.rejects(fs.stat(markerPath), /ENOENT/, 'configured external diff command must not run');
+});
+
+test('RepoToolkit gitShow ignores repository external diff commands', { skip: !hasGit() || process.platform === 'win32' }, async () => {
+  const root = await makeGitRepoFixture();
+  const markerPath = await configureExternalDiffMarker(root);
+  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig('normal') });
+  await toolkit.initialize();
+
+  const show = await toolkit.gitShow({ ref: 'HEAD' });
+
+  assert.ok(show.files.some(f => f.path === 'hello.js'), 'normal show output is still parsed');
+  await assert.rejects(fs.stat(markerPath), /ENOENT/, 'configured external diff command must not run');
 });
 
 test('RepoToolkit git tools: gitShow returns commit details', { skip: !hasGit() }, async () => {

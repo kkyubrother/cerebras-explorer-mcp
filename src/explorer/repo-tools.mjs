@@ -3,7 +3,6 @@ import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
-const execFileAsync = promisify(execFile);
 import {
   DEFAULT_GREP_FILE_MAX_BYTES,
   DEFAULT_IGNORE_DIRS,
@@ -19,6 +18,20 @@ import {
   secretDeniedResult,
 } from './security.mjs';
 import { redactText } from './redact.mjs';
+
+const execFileAsync = promisify(execFile);
+
+const SAFE_GIT_DIFF_ENV_UNSET = Object.freeze([
+  'GIT_EXTERNAL_DIFF',
+]);
+
+function withUnsetEnv(names) {
+  const env = { ...process.env };
+  for (const name of names) {
+    delete env[name];
+  }
+  return env;
+}
 
 function toPosix(input) {
   return input.split(path.sep).join('/');
@@ -934,13 +947,14 @@ export class RepoToolkit {
     return { ...grepResult, matches: enriched };
   }
 
-  async _runGit(args) {
+  async _runGit(args, { env } = {}) {
     if (!this._hasGit) throw new Error('git is not available');
     try {
       const { stdout } = await execFileAsync('git', args, {
         encoding: 'utf8',
         maxBuffer: DEFAULT_GIT_OUTPUT_MAX_BYTES,
         cwd: this.repoRootReal,
+        ...(env ? { env } : {}),
       });
       return stdout;
     } catch (err) {
@@ -1050,7 +1064,7 @@ export class RepoToolkit {
   }
 
   async gitDiff({ from = 'HEAD~1', to = 'HEAD', path: filePath, stat = false } = {}) {
-    const args = ['diff'];
+    const args = ['-c', 'diff.external=', 'diff', '--no-ext-diff', '--no-textconv'];
     if (stat) {
       args.push('--stat');
     } else {
@@ -1060,7 +1074,7 @@ export class RepoToolkit {
     const rel = this._validateGitPath(filePath);
     if (rel) args.push('--', rel);
 
-    const output = await this._runGit(args);
+    const output = await this._runGit(args, { env: withUnsetEnv(SAFE_GIT_DIFF_ENV_UNSET) });
 
     if (stat) {
       const redactedStat = redactText(output.trim());
@@ -1098,8 +1112,11 @@ export class RepoToolkit {
     const rawMessage = bodyRest ? `${bodyFromHeader}\n${bodyRest}`.trim() : bodyFromHeader.trim();
     const redactedMessage = redactText(rawMessage);
 
-    const patchArgs = ['show', '--format=', '--unified=3', ref];
-    const patchOutput = await this._runGit(patchArgs);
+    const patchArgs = [
+      '-c', 'diff.external=',
+      'show', '--no-ext-diff', '--no-textconv', '--format=', '--unified=3', ref,
+    ];
+    const patchOutput = await this._runGit(patchArgs, { env: withUnsetEnv(SAFE_GIT_DIFF_ENV_UNSET) });
     let files = parseDiffOutput(patchOutput);
 
     // Filter changed files to those within the current base scope
