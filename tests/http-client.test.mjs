@@ -185,6 +185,24 @@ test('fetchWithTimeoutAndRetry: timed out error includes attempt count', async (
   }
 });
 
+test('fetchWithTimeoutAndRetry: hard timeout covers stalled response body', async () => {
+  const stalledBodyFetch = async (_url, { signal }) => ({
+    ok: true,
+    status: 200,
+    statusText: 'OK',
+    headers: { get: () => null },
+    text: async () => {
+      signal.addEventListener('abort', () => {}, { once: true });
+      return new Promise(() => {});
+    },
+  });
+
+  await assert.rejects(
+    () => fetchWithTimeoutAndRetry(stalledBodyFetch, 'http://x', {}, { maxRetries: 0, timeoutMs: 20, errorPrefix: 'Test' }),
+    /Test timed out after 20ms/,
+  );
+});
+
 // ── externalSignal ────────────────────────────────────────────────────────────
 
 test('fetchWithTimeoutAndRetry: throws AbortError immediately if signal already aborted', async () => {

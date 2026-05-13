@@ -91,41 +91,65 @@ export async function fetchWithTimeoutAndRetry(fetchImpl, url, init, {
     }
 
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), effectiveTimeout);
+    let timedOut = false;
+    let timeoutId;
+    const timeoutPromise = new Promise((_resolve, reject) => {
+      timeoutId = setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+        const error = new Error(`${errorPrefix} timed out after ${effectiveTimeout}ms (${attempt + 1} attempt(s))`);
+        error.name = 'AbortError';
+        reject(error);
+      }, effectiveTimeout);
+    });
 
     // Forward external cancellation to the internal controller so the
     // underlying fetch is actually aborted rather than left as a ghost request.
     let externalListener;
+    let externalAbortPromise;
     if (externalSignal) {
-      externalListener = () => controller.abort();
-      externalSignal.addEventListener('abort', externalListener, { once: true });
+      externalAbortPromise = new Promise((_resolve, reject) => {
+        externalListener = () => {
+          controller.abort();
+          const error = new Error(`${errorPrefix} request cancelled`);
+          error.name = 'AbortError';
+          reject(error);
+        };
+        externalSignal.addEventListener('abort', externalListener, { once: true });
+      });
     }
 
     let response;
+    let responseText;
     try {
-      response = await fetchImpl(url, { ...init, signal: controller.signal });
+      const fetchAndReadBody = (async () => {
+        const fetched = await fetchImpl(url, { ...init, signal: controller.signal });
+        return { response: fetched, responseText: await fetched.text() };
+      })();
+      const raced = externalAbortPromise
+        ? await Promise.race([fetchAndReadBody, timeoutPromise, externalAbortPromise])
+        : await Promise.race([fetchAndReadBody, timeoutPromise]);
+      response = raced.response;
+      responseText = raced.responseText;
     } catch (error) {
-      clearTimeout(timer);
-      if (externalListener) externalSignal.removeEventListener('abort', externalListener);
       // External cancellation takes priority — never retry on caller abort.
       if (error.name === 'AbortError' && externalSignal?.aborted) throw error;
       // Network errors and timeouts are retryable
-      if (retryNetworkErrors && isRetryableNetworkError(error) && attempt < maxRetries) {
+      if (retryNetworkErrors && (timedOut || isRetryableNetworkError(error)) && attempt < maxRetries) {
         lastError = new Error(`${errorPrefix} network error: ${error.message}`);
         const delay = getRetryDelay(attempt);
         await new Promise(resolve => setTimeout(resolve, delay));
         continue;
       }
-      if (error.name === 'AbortError') {
+      if (error.name === 'AbortError' || timedOut) {
         // Internal timeout (externalSignal not aborted).
         throw new Error(`${errorPrefix} timed out after ${effectiveTimeout}ms (${attempt + 1} attempt(s))`);
       }
       throw error;
+    } finally {
+      clearTimeout(timeoutId);
+      if (externalListener) externalSignal.removeEventListener('abort', externalListener);
     }
-    clearTimeout(timer);
-    if (externalListener) externalSignal.removeEventListener('abort', externalListener);
-
-    const responseText = await response.text();
     let parsed;
     try {
       parsed = responseText ? JSON.parse(responseText) : {};
