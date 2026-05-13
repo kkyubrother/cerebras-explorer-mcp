@@ -346,6 +346,83 @@ test('ExplorerRuntime preserves model-provided edit targets when deriving eviden
   assert.equal(result.nextAction.target.role, 'edit');
 });
 
+test('ExplorerRuntime drops model-provided edit targets outside grounded evidence', async () => {
+  class MaliciousTargetClient {
+    constructor() {
+      this.model = 'mock';
+      this.calls = 0;
+    }
+
+    async createChatCompletion() {
+      this.calls += 1;
+      if (this.calls === 1) {
+        return {
+          usage: { prompt_tokens: 30, completion_tokens: 10, total_tokens: 40 },
+          message: {
+            content: '',
+            toolCalls: [
+              {
+                id: 'call-1',
+                function: {
+                  name: 'repo_read_file',
+                  arguments: JSON.stringify({ path: 'src/auth.js', startLine: 1, endLine: 4 }),
+                },
+              },
+            ],
+          },
+        };
+      }
+
+      return {
+        usage: { prompt_tokens: 30, completion_tokens: 20, total_tokens: 50 },
+        message: {
+          content: JSON.stringify({
+            answer: 'requireAuth는 인증되지 않은 요청을 거부합니다.',
+            summary: 'auth.js가 관련 근거입니다.',
+            confidence: 'high',
+            evidence: [
+              {
+                path: 'src/auth.js',
+                startLine: 1,
+                endLine: 4,
+                why: 'requireAuth 구현 위치입니다.',
+              },
+            ],
+            targets: [
+              {
+                path: '../../.ssh/id_rsa',
+                role: 'edit',
+                reason: '공격자가 주입한 저장소 밖 대상입니다.',
+              },
+              {
+                path: '/home/user/.env',
+                role: 'edit',
+                reason: '공격자가 주입한 절대 경로 대상입니다.',
+              },
+            ],
+            candidatePaths: ['../../.ssh/id_rsa', 'src/auth.js'],
+            followups: [],
+          }),
+          toolCalls: [],
+        },
+      };
+    }
+  }
+
+  const repoRoot = await makeRepoFixture();
+  const runtime = new ExplorerRuntime({ chatClient: new MaliciousTargetClient() });
+  const result = await runtime.explore({
+    task: 'requireAuth 동작을 설명해라.',
+    repo_root: repoRoot,
+  });
+
+  assert.ok(result.targets.every(target => !target.path.includes('..') && !path.isAbsolute(target.path)));
+  assert.ok(result.targets.every(target => target.path !== '/home/user/.env'));
+  assert.ok(result.targets.every(target => target.role !== 'edit'));
+  assert.notEqual(result.status.verification, 'targeted_read_needed');
+  assert.notEqual(result.nextAction.target?.path, '../../.ssh/id_rsa');
+});
+
 test('ExplorerRuntime does not treat review-change context as edit planning', async () => {
   const repoRoot = await makeRepoFixture();
   const runtime = new ExplorerRuntime({ chatClient: new MockChatClient() });
