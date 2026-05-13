@@ -452,6 +452,23 @@ function dedupeArray(values) {
   return [...new Set(values)];
 }
 
+function isSafeGitRef(ref) {
+  const value = String(ref || '');
+  return (
+    value.length > 0 &&
+    /^[0-9a-zA-Z_./:^~\-]+$/.test(value) &&
+    !value.startsWith('-') &&
+    !value.includes('..')
+  );
+}
+
+function safeGitRef(ref, label = 'ref') {
+  if (!isSafeGitRef(ref)) {
+    throw new Error(`Invalid ${label}: ${ref}`);
+  }
+  return String(ref);
+}
+
 const DEFAULT_GIT_OUTPUT_MAX_BYTES = 100 * 1024;
 
 export class RepoToolkit {
@@ -643,8 +660,10 @@ export class RepoToolkit {
     if (normalizedScope.length > 0) {
       for (const s of normalizedScope) {
         const prefix = scopePatternPrefix(s);
-        const searchRoot = path.resolve(this.repoRootReal, prefix || '.');
-        if (isOutsideRoot(this.repoRootReal, searchRoot)) {
+        let searchRoot;
+        try {
+          searchRoot = ensureWithinRoot(this.repoRootReal, prefix || '.');
+        } catch {
           return null;
         }
         rgArgs.push(searchRoot);
@@ -680,8 +699,9 @@ export class RepoToolkit {
       const lineNum = obj.data?.line_number;
       const text = obj.data?.lines?.text ?? '';
       if (!filePath || !lineNum) continue;
-      if (isOutsideRoot(this.repoRootReal, filePath)) continue;
-      const relPath = toPosix(path.relative(this.repoRootReal, filePath));
+      const absoluteFilePath = path.resolve(this.repoRootReal, filePath);
+      if (isOutsideRoot(this.repoRootReal, absoluteFilePath)) continue;
+      const relPath = toPosix(path.relative(this.repoRootReal, absoluteFilePath));
       // Post-filter: enforce effectiveScope to catch glob patterns ripgrep may over-include
       if (!effectiveScope.matches(relPath)) continue;
       if (isSecretPath(relPath).matched) continue;
@@ -1145,13 +1165,15 @@ export class RepoToolkit {
   }
 
   async gitDiff({ from = 'HEAD~1', to = 'HEAD', path: filePath, stat = false } = {}) {
+    const safeFrom = safeGitRef(from, 'from ref');
+    const safeTo = safeGitRef(to, 'to ref');
     const args = ['-c', 'diff.external=', 'diff', '--no-ext-diff', '--no-textconv'];
     if (stat) {
       args.push('--stat');
     } else {
       args.push('--unified=3');
     }
-    args.push(`${from}..${to}`);
+    args.push(`${safeFrom}..${safeTo}`);
     const rel = this._validateGitPath(filePath);
     if (rel) args.push('--', rel);
 
@@ -1161,8 +1183,8 @@ export class RepoToolkit {
       const filteredStat = filterGitStatOutput(output.trim());
       const redactedStat = redactText(filteredStat.text);
       return {
-        from,
-        to,
+        from: safeFrom,
+        to: safeTo,
         stat: redactedStat.text,
         ...(filteredStat.omittedSecretPaths > 0 ? { omittedSecretPaths: filteredStat.omittedSecretPaths } : {}),
         ...(redactedStat.redacted ? { redacted: true, redactions: redactedStat.redactions } : {}),
@@ -1170,17 +1192,14 @@ export class RepoToolkit {
     }
 
     const files = this._filterGitDiffFiles(parseDiffOutput(output));
-    return { from, to, files };
+    return { from: safeFrom, to: safeTo, files };
   }
 
   async gitShow({ ref } = {}) {
     if (!ref) throw new Error('ref is required');
-    // Validate ref: only allow safe characters
-    if (!/^[0-9a-zA-Z_./:^~\-]+$/.test(ref)) {
-      throw new Error(`Invalid ref: ${ref}`);
-    }
+    const safeRef = safeGitRef(ref);
     // Get metadata (hash, author, date, message) separately from file list
-    const metaOutput = await this._runGit(['log', '-1', '--format=%H|%an|%ai|%B', ref]);
+    const metaOutput = await this._runGit(['log', '-1', '--format=%H|%an|%ai|%B', safeRef]);
     const metaStr = metaOutput.trim();
     const firstNl = metaStr.indexOf('\n');
     const headerLine = firstNl === -1 ? metaStr : metaStr.slice(0, firstNl);
@@ -1197,7 +1216,7 @@ export class RepoToolkit {
 
     const patchArgs = [
       '-c', 'diff.external=',
-      'show', '--no-ext-diff', '--no-textconv', '--format=', '--unified=3', ref,
+      'show', '--no-ext-diff', '--no-textconv', '--format=', '--unified=3', safeRef,
     ];
     const patchOutput = await this._runGit(patchArgs, { env: withUnsetEnv(SAFE_GIT_DIFF_ENV_UNSET) });
     const files = this._filterGitDiffFiles(parseDiffOutput(patchOutput), { enforceScope: true });
