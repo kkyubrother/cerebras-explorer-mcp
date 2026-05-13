@@ -1479,6 +1479,7 @@ export class ExplorerRuntime {
     });
 
     const startedAt = nowMs();
+    const knownToolNames = new Set(tools.map(tool => tool.function?.name).filter(Boolean));
 
     let messages = [
       {
@@ -1521,6 +1522,7 @@ export class ExplorerRuntime {
     const toolsUsed = new Set();
     const toolTrace = createCompactToolTrace();
     let report = '';
+    let consecutiveAllErrorTurns = 0;
 
     for (let turnIndex = 0; turnIndex < budgetConfig.maxTurns; turnIndex += 1) {
       // Abort check
@@ -1579,6 +1581,13 @@ export class ExplorerRuntime {
           const toolName = toolCall.function?.name ?? '(unknown)';
           let toolArgs = {};
           let toolResult;
+
+          // Validate tool name first — catch hallucinated tools early
+          const validationError = validateToolName(toolName, knownToolNames);
+          if (validationError) {
+            return { toolCall, toolName, toolArgs, toolResult: validationError };
+          }
+
           try {
             toolArgs = safeJsonParse(toolCall.function?.arguments ?? '{}');
             toolResult = await repoToolkit.callTool(toolName, toolArgs);
@@ -1618,6 +1627,19 @@ export class ExplorerRuntime {
           tool_call_id: toolCall.id,
           content: JSON.stringify(safeToolResult),
         });
+      }
+
+      // Circuit breaker: stop after too many consecutive all-error turns.
+      const allErrors = toolCallResults.every(r => r.toolResult?.error);
+      if (allErrors) {
+        consecutiveAllErrorTurns += 1;
+      } else {
+        consecutiveAllErrorTurns = 0;
+      }
+
+      if (consecutiveAllErrorTurns >= MAX_CONSECUTIVE_ERROR_TURNS) {
+        stats.stoppedByErrors = true;
+        break;
       }
     }
 
