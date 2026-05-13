@@ -130,6 +130,51 @@ test('CerebrasChatClient omits GLM-only fields for models that do not support th
   assert.equal('reasoning_format' in capturedPayload, false);
 });
 
+test('CerebrasChatClient forwards structured response_format without OpenAI strict conversion', async () => {
+  let capturedPayload = null;
+  const client = new CerebrasChatClient({
+    apiKey: 'test-key',
+    model: 'zai-glm-4.7',
+    fetchImpl: async (_url, init) => {
+      capturedPayload = JSON.parse(init.body);
+      return {
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        text: async () => JSON.stringify({
+          id: 'chatcmpl-test',
+          choices: [{ finish_reason: 'stop', message: { role: 'assistant', content: '{"a":"ok"}', tool_calls: null } }],
+          usage: { prompt_tokens: 5, completion_tokens: 5, total_tokens: 10 },
+        }),
+      };
+    },
+  });
+
+  await client.createChatCompletion({
+    messages: [{ role: 'user', content: 'test' }],
+    responseFormat: {
+      type: 'json_schema',
+      json_schema: {
+        name: 'cerebras_optional_probe',
+        strict: true,
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            a: { type: 'string' },
+            b: { type: 'string' },
+          },
+          required: ['a'],
+        },
+      },
+    },
+  });
+
+  const schema = capturedPayload.response_format.json_schema.schema;
+  assert.deepEqual(schema.required, ['a']);
+  assert.equal(schema.properties.b.type, 'string');
+});
+
 test('getReasoningEffortForBudget maps GLM 4.7 budgets to supported values', () => {
   assert.equal(getReasoningEffortForBudget('zai-glm-4.7', 'quick'), 'none');
   assert.equal(getReasoningEffortForBudget('zai-glm-4.7', 'normal'), undefined);

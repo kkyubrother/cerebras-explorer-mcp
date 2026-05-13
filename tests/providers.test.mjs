@@ -1,10 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { OpenAICompatChatClient } from '../src/explorer/providers/openai-compat.mjs';
+import {
+  OpenAICompatChatClient,
+  makeOpenAIStrictCompatibleResponseFormat,
+} from '../src/explorer/providers/openai-compat.mjs';
 import { FailoverChatClient } from '../src/explorer/providers/failover.mjs';
 import { createChatClient } from '../src/explorer/providers/index.mjs';
 import { CerebrasChatClient } from '../src/explorer/cerebras-client.mjs';
+import { EXPLORE_RESULT_JSON_SCHEMA } from '../src/explorer/schemas.mjs';
 import {
   chooseAutoBudget,
   classifyTaskComplexity,
@@ -37,6 +41,40 @@ const VALID_COMPLETION_RESPONSE = {
   ],
   usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
 };
+
+function collectOptionalObjectProperties(schema, path = 'schema', findings = []) {
+  if (!schema || typeof schema !== 'object') {
+    return findings;
+  }
+
+  if (Array.isArray(schema.anyOf)) {
+    schema.anyOf.forEach((item, index) => {
+      collectOptionalObjectProperties(item, `${path}.anyOf[${index}]`, findings);
+    });
+  }
+
+  if (schema.properties && typeof schema.properties === 'object') {
+    const required = new Set(Array.isArray(schema.required) ? schema.required : []);
+    for (const key of Object.keys(schema.properties)) {
+      if (!required.has(key)) {
+        findings.push(`${path}.${key}`);
+      }
+      collectOptionalObjectProperties(schema.properties[key], `${path}.${key}`, findings);
+    }
+  }
+
+  if (schema.items) {
+    collectOptionalObjectProperties(schema.items, `${path}[]`, findings);
+  }
+
+  if (schema.$defs && typeof schema.$defs === 'object') {
+    for (const [key, value] of Object.entries(schema.$defs)) {
+      collectOptionalObjectProperties(value, `${path}.$defs.${key}`, findings);
+    }
+  }
+
+  return findings;
+}
 
 // ─── OpenAICompatChatClient ──────────────────────────────────────────────────
 
@@ -429,6 +467,103 @@ test('OpenAICompatChatClient: strips assistant reasoning from outgoing messages'
   });
 
   assert.equal(capturedPayload.messages[0].reasoning, undefined);
+});
+
+test('OpenAICompatChatClient: converts strict response_format optional fields to nullable required fields', async () => {
+  let capturedPayload = null;
+  const client = new OpenAICompatChatClient({
+    apiKey: 'test-key',
+    model: 'gpt-4o-mini',
+    fetchImpl: async (_url, init) => {
+      capturedPayload = JSON.parse(init.body);
+      return {
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        text: async () => JSON.stringify(VALID_COMPLETION_RESPONSE),
+      };
+    },
+  });
+
+  const responseFormat = {
+    type: 'json_schema',
+    json_schema: {
+      name: 'strict_probe',
+      strict: true,
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          requiredText: { type: 'string' },
+          optionalText: { type: 'string' },
+          nested: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              must: { type: 'string' },
+              maybe: { type: 'string', enum: ['x', 'y'] },
+            },
+            required: ['must'],
+          },
+          list: {
+            type: 'array',
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                a: { type: 'string' },
+                b: { type: 'integer' },
+              },
+              required: ['a'],
+            },
+          },
+        },
+        required: ['requiredText', 'list'],
+      },
+    },
+  };
+
+  await client.createChatCompletion({
+    messages: [{ role: 'user', content: 'hi' }],
+    responseFormat,
+  });
+
+  const schema = capturedPayload.response_format.json_schema.schema;
+  assert.deepEqual(schema.required, ['requiredText', 'optionalText', 'nested', 'list']);
+  assert.deepEqual(schema.properties.optionalText.type, ['string', 'null']);
+  assert.deepEqual(schema.properties.nested.type, ['object', 'null']);
+  assert.deepEqual(schema.properties.nested.required, ['must', 'maybe']);
+  assert.deepEqual(schema.properties.nested.properties.maybe.type, ['string', 'null']);
+  assert.deepEqual(schema.properties.nested.properties.maybe.enum, ['x', 'y', null]);
+  assert.deepEqual(schema.properties.list.items.required, ['a', 'b']);
+  assert.deepEqual(schema.properties.list.items.properties.b.type, ['integer', 'null']);
+
+  assert.deepEqual(responseFormat.json_schema.schema.required, ['requiredText', 'list']);
+  assert.equal(responseFormat.json_schema.schema.properties.optionalText.type, 'string');
+});
+
+test('makeOpenAIStrictCompatibleResponseFormat converts explore result schema for OpenAI strict validation', () => {
+  const responseFormat = {
+    type: 'json_schema',
+    json_schema: EXPLORE_RESULT_JSON_SCHEMA,
+  };
+
+  const converted = makeOpenAIStrictCompatibleResponseFormat(responseFormat);
+  const schema = converted.json_schema.schema;
+
+  assert.equal(collectOptionalObjectProperties(schema).length, 0);
+  assert.ok(schema.required.includes('followups'));
+  assert.ok(schema.required.includes('status'));
+  assert.deepEqual(schema.properties.followups.type, ['array', 'null']);
+  assert.deepEqual(schema.properties.followups.items.required, ['description', 'priority', 'query']);
+  assert.deepEqual(schema.properties.followups.items.properties.query.type, ['string', 'null']);
+
+  assert.deepEqual(EXPLORE_RESULT_JSON_SCHEMA.schema.required, [
+    'answer',
+    'confidence',
+    'evidence',
+    'candidatePaths',
+  ]);
 });
 
 test('getReasoningEffortForBudget: gpt-oss uses low/medium/high ladder', () => {

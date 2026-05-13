@@ -17,6 +17,110 @@ function stripUnsupportedMessageFields(messages) {
   });
 }
 
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function acceptsNull(schema) {
+  if (!isPlainObject(schema)) return false;
+  if (schema.type === 'null') return true;
+  if (Array.isArray(schema.type) && schema.type.includes('null')) return true;
+  if (Array.isArray(schema.anyOf) && schema.anyOf.some(acceptsNull)) return true;
+  return false;
+}
+
+function makeNullable(schema) {
+  if (!isPlainObject(schema) || acceptsNull(schema)) {
+    return schema;
+  }
+
+  if (schema.type !== undefined) {
+    const next = { ...schema };
+    next.type = Array.isArray(schema.type)
+      ? [...new Set([...schema.type, 'null'])]
+      : [schema.type, 'null'];
+    if (Array.isArray(schema.enum) && !schema.enum.includes(null)) {
+      next.enum = [...schema.enum, null];
+    }
+    return next;
+  }
+
+  return {
+    anyOf: [schema, { type: 'null' }],
+  };
+}
+
+function convertSchemaForOpenAIStrict(schema, { nullable = false } = {}) {
+  if (Array.isArray(schema)) {
+    return schema.map(item => convertSchemaForOpenAIStrict(item));
+  }
+  if (!isPlainObject(schema)) {
+    return schema;
+  }
+
+  const next = {};
+  for (const [key, value] of Object.entries(schema)) {
+    if (key === 'properties' || key === 'required' || key === 'items' || key === 'prefixItems' || key === '$defs' || key === 'definitions' || key === 'anyOf') {
+      continue;
+    }
+    next[key] = convertSchemaForOpenAIStrict(value);
+  }
+
+  if (isPlainObject(schema.$defs)) {
+    next.$defs = Object.fromEntries(
+      Object.entries(schema.$defs).map(([key, value]) => [key, convertSchemaForOpenAIStrict(value)]),
+    );
+  }
+  if (isPlainObject(schema.definitions)) {
+    next.definitions = Object.fromEntries(
+      Object.entries(schema.definitions).map(([key, value]) => [key, convertSchemaForOpenAIStrict(value)]),
+    );
+  }
+  if (Array.isArray(schema.anyOf)) {
+    next.anyOf = schema.anyOf.map(item => convertSchemaForOpenAIStrict(item));
+  }
+  if (isPlainObject(schema.items) || Array.isArray(schema.items)) {
+    next.items = convertSchemaForOpenAIStrict(schema.items);
+  }
+  if (Array.isArray(schema.prefixItems)) {
+    next.prefixItems = schema.prefixItems.map(item => convertSchemaForOpenAIStrict(item));
+  }
+
+  if (isPlainObject(schema.properties)) {
+    const originallyRequired = new Set(Array.isArray(schema.required) ? schema.required : []);
+    next.properties = Object.fromEntries(
+      Object.entries(schema.properties).map(([key, value]) => [
+        key,
+        convertSchemaForOpenAIStrict(value, { nullable: !originallyRequired.has(key) }),
+      ]),
+    );
+    next.required = Object.keys(schema.properties);
+    next.additionalProperties = false;
+  }
+
+  return nullable ? makeNullable(next) : next;
+}
+
+export function makeOpenAIStrictCompatibleResponseFormat(responseFormat) {
+  if (
+    !isPlainObject(responseFormat) ||
+    responseFormat.type !== 'json_schema' ||
+    !isPlainObject(responseFormat.json_schema) ||
+    !isPlainObject(responseFormat.json_schema.schema) ||
+    responseFormat.json_schema.strict !== true
+  ) {
+    return responseFormat;
+  }
+
+  return {
+    ...responseFormat,
+    json_schema: {
+      ...responseFormat.json_schema,
+      schema: convertSchemaForOpenAIStrict(responseFormat.json_schema.schema),
+    },
+  };
+}
+
 /**
  * OpenAI-compatible chat client.
  *
@@ -90,7 +194,7 @@ export class OpenAICompatChatClient extends AbstractChatClient {
       payload.tools = tools;
     }
     if (responseFormat) {
-      payload.response_format = responseFormat;
+      payload.response_format = makeOpenAIStrictCompatibleResponseFormat(responseFormat);
     }
 
     const parsed = await fetchWithTimeoutAndRetry(this._fetchImpl, `${this._baseUrl}/chat/completions`, {
