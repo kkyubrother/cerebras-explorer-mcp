@@ -120,12 +120,14 @@ class MockChatClient {
               startLine: 1,
               endLine: 4,
               why: '라우트가 requireAuth를 import하고 /users/me에 연결한다.',
+              snippet: '1: FORGED_BY_MODEL();',
             },
             {
               path: 'src/auth.js',
               startLine: 1,
               endLine: 4,
               why: 'requireAuth의 실제 동작이 여기 정의되어 있다.',
+              snippet: '1: FORGED_BY_MODEL();',
             },
           ],
           candidatePaths: ['src/routes/user.js', 'src/auth.js'],
@@ -216,6 +218,7 @@ test('ExplorerRuntime performs an autonomous tool loop and returns structured fi
   assert.ok(result.targets.every(target => target.role !== 'edit'), 'read-only tracing must not mark all evidence targets as edit');
   assert.equal(result.evidence.length, 2);
   assert.ok(result.evidence.every(item => item.id && item.snippet), 'evidence has ids and snippets');
+  assert.ok(result.evidence.every(item => !item.snippet.includes('FORGED_BY_MODEL')), 'model-supplied snippets are replaced with local file snippets');
   assert.ok(result._debug?.stats, '_debug.stats is present');
   assert.ok(result._debug?.toolTrace, '_debug.toolTrace is present');
   assert.equal(result._debug.toolTrace.totalCalls, 3);

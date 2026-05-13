@@ -381,7 +381,6 @@ export function normalizeExploreResult(raw, stats) {
               why: typeof item.why === 'string' ? item.why : '',
               evidenceType: kind,
             };
-            if (typeof item.snippet === 'string' && item.snippet) base.snippet = item.snippet;
             if (item.groundingStatus === 'exact' || item.groundingStatus === 'partial') {
               base.groundingStatus = item.groundingStatus;
             }
