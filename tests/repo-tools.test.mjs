@@ -16,6 +16,15 @@ function hasRipgrep() {
   try { execFileSync('rg', ['--version'], { stdio: 'pipe' }); return true; } catch { return false; }
 }
 
+async function fileExists(target) {
+  try {
+    await fs.access(target);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function makeGitRepoFixture() {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-git-'));
   const git = (args) => execFileSync('git', args, { cwd: root, stdio: 'pipe', encoding: 'utf8' });
@@ -253,6 +262,75 @@ test('RepoToolkit grep uses ripgrep when available', { skip: !hasRipgrep() }, as
   assert.ok(result.matches.length >= 2, 'ripgrep finds matches');
   assert.ok(result.matches.some(m => m.path === 'src/auth.js'), 'finds in auth.js');
   assert.ok(result.matches.some(m => m.path === 'src/routes/user.js'), 'finds in user.js');
+});
+
+test('RepoToolkit ripgrep rejects scope paths that escape the repo root', { skip: !hasRipgrep() }, async () => {
+  const parent = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-rg-scope-'));
+  const repoRoot = path.join(parent, 'repo');
+  const outsideRoot = path.join(parent, 'outside');
+  await fs.mkdir(repoRoot);
+  await fs.mkdir(outsideRoot);
+  await fs.writeFile(path.join(repoRoot, 'inside.txt'), 'inside content\n');
+  await fs.writeFile(path.join(outsideRoot, 'secret.txt'), 'SECRET_TOKEN=outside-root-leak\n');
+
+  const toolkit = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig('normal') });
+  await toolkit.initialize([]);
+  assert.equal(toolkit._hasRipgrep, true, 'ripgrep detected');
+
+  const result = await toolkit.grep({ pattern: 'SECRET_TOKEN', scope: ['../outside'] });
+  assert.deepEqual(result.matches, []);
+});
+
+test('RepoToolkit gitDiff validates refs and disables external diff helpers', { skip: !hasGit() }, async () => {
+  const root = await makeGitRepoFixture();
+  const marker = path.join(root, 'diff-external-ran');
+  const helper = path.join(root, 'diff-external.sh');
+  await fs.writeFile(helper, `#!/bin/sh\necho ran > ${JSON.stringify(marker)}\nexit 0\n`);
+  await fs.chmod(helper, 0o755);
+  execFileSync('git', ['config', 'diff.external', helper], { cwd: root, stdio: 'pipe' });
+
+  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig('normal') });
+  await toolkit.initialize();
+
+  const diff = await toolkit.gitDiff({ from: 'HEAD~1', to: 'HEAD' });
+  assert.ok(diff.files.some(f => f.path === 'hello.js'), 'diff still returns file changes');
+  await assert.rejects(
+    toolkit.gitDiff({ from: '--ext-diff', to: 'HEAD' }),
+    /Invalid from ref/,
+  );
+  await assert.rejects(
+    toolkit.gitDiff({ from: 'HEAD..HEAD', to: 'HEAD' }),
+    /Invalid from ref/,
+  );
+  assert.equal(await fileExists(marker), false, 'diff.external helper was not executed');
+});
+
+test('RepoToolkit gitShow disables textconv helpers', { skip: !hasGit() }, async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-git-textconv-'));
+  const git = (args) => execFileSync('git', args, { cwd: root, stdio: 'pipe', encoding: 'utf8' });
+  git(['init', '-b', 'main']);
+  git(['config', 'user.email', 'test@example.com']);
+  git(['config', 'user.name', 'Test User']);
+  await fs.writeFile(path.join(root, '.gitattributes'), '*.evil diff=evil\n');
+  await fs.writeFile(path.join(root, 'payload.evil'), 'first\n');
+  git(['add', '.']);
+  git(['commit', '-m', 'initial evil file']);
+  await fs.writeFile(path.join(root, 'payload.evil'), 'second\n');
+  git(['add', '.']);
+  git(['commit', '-m', 'update evil file']);
+
+  const marker = path.join(root, 'textconv-ran');
+  const helper = path.join(root, 'textconv.sh');
+  await fs.writeFile(helper, `#!/bin/sh\necho ran > ${JSON.stringify(marker)}\ncat "$1"\n`);
+  await fs.chmod(helper, 0o755);
+  git(['config', 'diff.evil.textconv', helper]);
+
+  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig('normal') });
+  await toolkit.initialize();
+
+  const show = await toolkit.gitShow({ ref: 'HEAD' });
+  assert.ok(show.files.some(f => f.path === 'payload.evil'), 'show still returns changed file');
+  assert.equal(await fileExists(marker), false, 'textconv helper was not executed');
 });
 
 // --- Phase 1: Cache Isolation Tests ---

@@ -359,6 +359,23 @@ function dedupeArray(values) {
   return [...new Set(values)];
 }
 
+function isSafeGitRef(ref) {
+  const value = String(ref || '');
+  return (
+    value.length > 0 &&
+    /^[0-9a-zA-Z_./:^~\-]+$/.test(value) &&
+    !value.startsWith('-') &&
+    !value.includes('..')
+  );
+}
+
+function safeGitRef(ref, label = 'ref') {
+  if (!isSafeGitRef(ref)) {
+    throw new Error(`Invalid ${label}: ${ref}`);
+  }
+  return String(ref);
+}
+
 const DEFAULT_GIT_OUTPUT_MAX_BYTES = 100 * 1024;
 
 export class RepoToolkit {
@@ -547,7 +564,13 @@ export class RepoToolkit {
     if (normalizedScope.length > 0) {
       for (const s of normalizedScope) {
         const prefix = scopePatternPrefix(s);
-        rgArgs.push(path.join(this.repoRootReal, prefix || '.'));
+        let searchRoot;
+        try {
+          searchRoot = ensureWithinRoot(this.repoRootReal, prefix || '.');
+        } catch {
+          return null;
+        }
+        rgArgs.push(searchRoot);
       }
     } else {
       rgArgs.push(this.repoRootReal);
@@ -580,7 +603,9 @@ export class RepoToolkit {
       const lineNum = obj.data?.line_number;
       const text = obj.data?.lines?.text ?? '';
       if (!filePath || !lineNum) continue;
-      const relPath = toPosix(path.relative(this.repoRootReal, filePath));
+      const absoluteFilePath = path.resolve(this.repoRootReal, filePath);
+      if (isOutsideRoot(this.repoRootReal, absoluteFilePath)) continue;
+      const relPath = toPosix(path.relative(this.repoRootReal, absoluteFilePath));
       // Post-filter: enforce effectiveScope to catch glob patterns ripgrep may over-include
       if (!effectiveScope.matches(relPath)) continue;
       matches.push({ path: relPath, line: lineNum, text: text.slice(0, 300).replace(/\n$/, '') });
@@ -1010,34 +1035,33 @@ export class RepoToolkit {
   }
 
   async gitDiff({ from = 'HEAD~1', to = 'HEAD', path: filePath, stat = false } = {}) {
-    const args = ['diff'];
+    const safeFrom = safeGitRef(from, 'from ref');
+    const safeTo = safeGitRef(to, 'to ref');
+    const args = ['diff', '--no-ext-diff', '--no-textconv'];
     if (stat) {
       args.push('--stat');
     } else {
       args.push('--unified=3');
     }
-    args.push(`${from}..${to}`);
+    args.push(`${safeFrom}..${safeTo}`);
     const rel = this._validateGitPath(filePath);
     if (rel) args.push('--', rel);
 
     const output = await this._runGit(args);
 
     if (stat) {
-      return { from, to, stat: output.trim() };
+      return { from: safeFrom, to: safeTo, stat: output.trim() };
     }
 
     const files = parseDiffOutput(output);
-    return { from, to, files };
+    return { from: safeFrom, to: safeTo, files };
   }
 
   async gitShow({ ref } = {}) {
     if (!ref) throw new Error('ref is required');
-    // Validate ref: only allow safe characters
-    if (!/^[0-9a-zA-Z_./:^~\-]+$/.test(ref)) {
-      throw new Error(`Invalid ref: ${ref}`);
-    }
+    const safeRef = safeGitRef(ref);
     // Get metadata (hash, author, date, message) separately from file list
-    const metaOutput = await this._runGit(['log', '-1', '--format=%H|%an|%ai|%B', ref]);
+    const metaOutput = await this._runGit(['log', '-1', '--format=%H|%an|%ai|%B', safeRef]);
     const metaStr = metaOutput.trim();
     const firstNl = metaStr.indexOf('\n');
     const headerLine = firstNl === -1 ? metaStr : metaStr.slice(0, firstNl);
@@ -1051,7 +1075,7 @@ export class RepoToolkit {
     const bodyRest = firstNl === -1 ? '' : metaStr.slice(firstNl + 1).trim();
     const message = bodyRest ? `${bodyFromHeader}\n${bodyRest}`.trim() : bodyFromHeader.trim();
 
-    const patchArgs = ['show', '--format=', '--unified=3', ref];
+    const patchArgs = ['show', '--no-ext-diff', '--no-textconv', '--format=', '--unified=3', safeRef];
     const patchOutput = await this._runGit(patchArgs);
     let files = parseDiffOutput(patchOutput);
 
