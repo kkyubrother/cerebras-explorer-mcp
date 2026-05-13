@@ -21,6 +21,14 @@ const PRIVATE_KEY = [
   'MIIEvAIBADANBgkqhkiG9w0BAQEFAASC',
   joinSecretParts('-----END ', 'PRIVATE KEY-----'),
 ].join('\n');
+const PRIVATE_KEY_LABELS = [
+  'PRIVATE KEY',
+  'RSA PRIVATE KEY',
+  'OPENSSH PRIVATE KEY',
+  'EC PRIVATE KEY',
+  'DSA PRIVATE KEY',
+  'ENCRYPTED PRIVATE KEY',
+];
 
 function hasGit() {
   try {
@@ -70,6 +78,21 @@ test('redactText covers core secret patterns and leaves generic hex off by defau
     assert.match(result.text, new RegExp(`\\[REDACTED:${rule}\\]`));
   }
   assert.match(result.text, new RegExp(genericHex), 'generic hex must not be redacted by default');
+});
+
+test('redactText covers common PEM private key block labels', () => {
+  for (const label of PRIVATE_KEY_LABELS) {
+    const block = [
+      `-----BEGIN ${label}-----`,
+      'MIIEvAIBADANBgkqhkiG9w0BAQEFAASC',
+      `-----END ${label}-----`,
+    ].join('\n');
+
+    const result = redactText(block);
+    assert.ok(result.redacted, `${label} block must be redacted`);
+    assert.deepEqual(result.redactions, ['private-key-block']);
+    assert.equal(result.text, '[REDACTED:private-key-block]');
+  }
 });
 
 test('redactValue recursively redacts nested string fields', () => {
