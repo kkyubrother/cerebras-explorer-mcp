@@ -125,6 +125,19 @@ test('RepoToolkit enforces the initial scope as a hard boundary', async () => {
     toolkit.listDirectory({ dirPath: 'docs', depth: 1 }),
     /Directory is outside current scope: docs/,
   );
+
+  await fs.writeFile(path.join(repoRoot, '.env'), 'CEREBRAS_API_KEY=super_secret_scope_escape');
+
+  await assert.rejects(
+    toolkit.readFile({ path: 'src/../.env', startLine: 1, endLine: 1 }),
+    /Path is outside current scope: \.env/,
+  );
+
+  const normalizedListing = await toolkit.listDirectory({ dirPath: 'src/..', depth: 2 });
+  assert.equal(normalizedListing.dirPath, '.');
+  assert.equal(normalizedListing.entries.some(entry => entry.path === '.env'), false);
+  assert.equal(normalizedListing.entries.some(entry => entry.path === 'docs'), false);
+  assert.equal(normalizedListing.entries.some(entry => entry.path === 'src/auth.js'), true);
 });
 
 test('RepoToolkit blocks symlink reads and skips symlink entries during traversal', { skip: process.platform === 'win32' }, async () => {
