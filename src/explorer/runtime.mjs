@@ -356,20 +356,46 @@ function hasEditIntent(task) {
     /수정|구현|추가|삭제|리팩터|마이그레이션|변경(해|하|되|해야|필요)/.test(text);
 }
 
+function normalizeTargetPath(targetPath) {
+  if (typeof targetPath !== 'string') return null;
+  const trimmed = targetPath.trim();
+  if (!trimmed || trimmed.includes('\0')) return null;
+  if (path.isAbsolute(trimmed) || path.win32.isAbsolute(trimmed)) return null;
+
+  const normalized = path.posix.normalize(trimmed.replace(/\\/g, '/')).replace(/^\.\//, '');
+  if (!normalized || normalized === '.' || normalized === '..' || normalized.startsWith('../')) return null;
+  return normalized;
+}
+
+function filterGroundedModelTargets(targets = [], evidence = []) {
+  const groundedPaths = new Set(
+    evidence
+      .map(item => normalizeTargetPath(item?.path))
+      .filter(Boolean),
+  );
+
+  return (targets ?? []).filter(target => {
+    const normalizedPath = normalizeTargetPath(target?.path);
+    return normalizedPath && groundedPaths.has(normalizedPath);
+  });
+}
+
 function buildTargets({ evidence = [], candidatePaths = [] } = {}) {
   const targets = [];
   const byKey = new Map();
 
   function addTarget(target) {
-    if (!target?.path) return;
-    const key = `${target.path}:${target.startLine ?? ''}:${target.endLine ?? ''}:${target.role}`;
+    const normalizedPath = normalizeTargetPath(target?.path);
+    if (!normalizedPath) return;
+    const normalizedTarget = { ...target, path: normalizedPath };
+    const key = `${normalizedTarget.path}:${normalizedTarget.startLine ?? ''}:${normalizedTarget.endLine ?? ''}:${normalizedTarget.role}`;
     const existing = byKey.get(key);
     if (existing) {
-      existing.evidenceRefs = [...new Set([...(existing.evidenceRefs ?? []), ...(target.evidenceRefs ?? [])])];
+      existing.evidenceRefs = [...new Set([...(existing.evidenceRefs ?? []), ...(normalizedTarget.evidenceRefs ?? [])])];
       return;
     }
-    byKey.set(key, target);
-    targets.push(target);
+    byKey.set(key, normalizedTarget);
+    targets.push(normalizedTarget);
   }
 
   for (const item of evidence) {
@@ -384,9 +410,10 @@ function buildTargets({ evidence = [], candidatePaths = [] } = {}) {
     });
   }
 
-  const evidencePaths = new Set(evidence.map(item => item.path).filter(Boolean));
+  const evidencePaths = new Set(evidence.map(item => normalizeTargetPath(item.path)).filter(Boolean));
   for (const candidatePath of candidatePaths) {
-    if (!candidatePath || evidencePaths.has(candidatePath)) continue;
+    const normalizedCandidatePath = normalizeTargetPath(candidatePath);
+    if (!normalizedCandidatePath || evidencePaths.has(normalizedCandidatePath)) continue;
     addTarget({
       path: candidatePath,
       role: 'reference',
@@ -1407,8 +1434,9 @@ export class ExplorerRuntime {
       normalized.confidenceLevel = 'low';
     }
     normalized.directAnswer = normalized.directAnswer || normalized.answer;
+    const groundedModelTargets = filterGroundedModelTargets(normalized.targets, normalized.evidence);
     normalized.targets = mergeTargets(
-      normalized.targets,
+      groundedModelTargets,
       buildTargets({
         evidence: normalized.evidence,
         candidatePaths: normalized.candidatePaths,
