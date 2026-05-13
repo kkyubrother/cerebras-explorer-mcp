@@ -1,7 +1,24 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
-import { createShutdownHandler } from '../src/index.mjs';
+import { createShutdownHandler, isCliEntrypoint } from '../src/index.mjs';
+
+test('isCliEntrypoint treats symlinked package-manager bin paths as the module entrypoint', () => {
+  const binPath = path.resolve('node_modules', '.bin', 'cerebras-explorer-mcp');
+  const targetPath = path.resolve('node_modules', '@kkyubrother', 'cerebras-explorer-mcp', 'src', 'index.mjs');
+  const realpath = (inputPath) => (inputPath === binPath ? targetPath : inputPath);
+
+  assert.equal(
+    isCliEntrypoint({
+      argvPath: binPath,
+      moduleUrl: pathToFileURL(targetPath).href,
+      realpath,
+    }),
+    true,
+  );
+});
 
 test('createShutdownHandler marks uncaught exceptions as non-zero and leaves failsafe reachable', () => {
   const logs = [];
