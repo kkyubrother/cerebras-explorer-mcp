@@ -1,28 +1,23 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { createShutdownHandler, isCliEntrypoint } from '../src/index.mjs';
 
 test('isCliEntrypoint treats symlinked package-manager bin paths as the module entrypoint', () => {
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cerebras-entrypoint-'));
-  const targetPath = path.join(tempDir, 'index.mjs');
-  const symlinkPath = path.join(tempDir, 'cerebras-explorer-mcp');
+  const binPath = path.resolve('node_modules', '.bin', 'cerebras-explorer-mcp');
+  const targetPath = path.resolve('node_modules', '@kkyubrother', 'cerebras-explorer-mcp', 'src', 'index.mjs');
+  const realpath = (inputPath) => (inputPath === binPath ? targetPath : inputPath);
 
-  try {
-    fs.writeFileSync(targetPath, '');
-    fs.symlinkSync(targetPath, symlinkPath);
-
-    assert.equal(
-      isCliEntrypoint({ argvPath: symlinkPath, moduleUrl: pathToFileURL(targetPath).href }),
-      true,
-    );
-  } finally {
-    fs.rmSync(tempDir, { recursive: true, force: true });
-  }
+  assert.equal(
+    isCliEntrypoint({
+      argvPath: binPath,
+      moduleUrl: pathToFileURL(targetPath).href,
+      realpath,
+    }),
+    true,
+  );
 });
 
 test('createShutdownHandler marks uncaught exceptions as non-zero and leaves failsafe reachable', () => {

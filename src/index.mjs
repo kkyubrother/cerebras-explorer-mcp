@@ -63,20 +63,24 @@ export function createShutdownHandler({
   };
 }
 
-function resolveEntrypointPath(argvPath) {
+function resolveEntrypointPath(argvPath, { realpath = fs.realpathSync.native } = {}) {
   if (!argvPath) return null;
   const absolutePath = path.resolve(argvPath);
   try {
-    return fs.realpathSync.native(absolutePath);
+    return realpath(absolutePath);
   } catch {
     return absolutePath;
   }
 }
 
-export function isCliEntrypoint({ argvPath = process.argv[1], moduleUrl = import.meta.url } = {}) {
-  const entryPath = resolveEntrypointPath(argvPath);
+export function isCliEntrypoint({
+  argvPath = process.argv[1],
+  moduleUrl = import.meta.url,
+  realpath = fs.realpathSync.native,
+} = {}) {
+  const entryPath = resolveEntrypointPath(argvPath, { realpath });
   if (!entryPath) return false;
-  const modulePath = resolveEntrypointPath(fileURLToPath(moduleUrl));
+  const modulePath = resolveEntrypointPath(fileURLToPath(moduleUrl), { realpath });
   return modulePath === entryPath;
 }
 
