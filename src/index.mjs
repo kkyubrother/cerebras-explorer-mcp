@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import fs from 'node:fs';
 import path from 'node:path';
 import util from 'node:util';
 import { fileURLToPath } from 'node:url';
@@ -62,6 +63,23 @@ export function createShutdownHandler({
   };
 }
 
+function resolveEntrypointPath(argvPath) {
+  if (!argvPath) return null;
+  const absolutePath = path.resolve(argvPath);
+  try {
+    return fs.realpathSync.native(absolutePath);
+  } catch {
+    return absolutePath;
+  }
+}
+
+export function isCliEntrypoint({ argvPath = process.argv[1], moduleUrl = import.meta.url } = {}) {
+  const entryPath = resolveEntrypointPath(argvPath);
+  if (!entryPath) return false;
+  const modulePath = resolveEntrypointPath(fileURLToPath(moduleUrl));
+  return modulePath === entryPath;
+}
+
 export function main({
   startServer = startMcpServer,
   sessionStore = globalSessionStore,
@@ -99,7 +117,6 @@ export function main({
   return { transport, shutdown };
 }
 
-const entryPath = process.argv[1] ? path.resolve(process.argv[1]) : null;
-if (entryPath && fileURLToPath(import.meta.url) === entryPath) {
+if (isCliEntrypoint()) {
   main();
 }
