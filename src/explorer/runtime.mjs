@@ -559,7 +559,7 @@ function buildNextAction(result) {
   return { type: 'stop', reason: 'Explorer result is complete for the requested read-only investigation.' };
 }
 
-function attachDebug(result, { stats, codeMap, diagram, recentActivity, toolTrace }) {
+function attachDebug(result, { stats, codeMap, recentActivity, toolTrace }) {
   result._debug = {
     ...(result._debug ?? {}),
     confidenceScore: result.confidenceScore,
@@ -567,7 +567,6 @@ function attachDebug(result, { stats, codeMap, diagram, recentActivity, toolTrac
     stats,
     ...(toolTrace ? { toolTrace } : {}),
     ...(codeMap ? { codeMap } : {}),
-    ...(diagram ? { diagram } : {}),
     ...(recentActivity ? { recentActivity } : {}),
   };
   return result;
@@ -842,43 +841,6 @@ function guessModuleRole(filePath) {
   if (/session/.test(lower)) return 'session';
   if (/provider/.test(lower)) return 'provider';
   return 'module';
-}
-
-function buildMermaidDiagram(codeMap) {
-  if (!codeMap || codeMap.keyModules.length < 2 || codeMap.keyModules.length > 12) {
-    return null;
-  }
-
-  const entrySet = new Set(codeMap.entryPoints);
-  const nodes = codeMap.keyModules.map(m => {
-    const id = m.path.replace(/[^a-zA-Z0-9]/g, '_');
-    const label = m.path.split('/').pop() ?? m.path;
-    return { id, label, path: m.path, isEntry: entrySet.has(m.path) };
-  });
-
-  const lines = ['graph TD'];
-  const pathToId = new Map();
-  for (const node of nodes) {
-    pathToId.set(node.path, node.id);
-    if (node.isEntry) {
-      lines.push(`  ${node.id}[["${node.label}"]];`);
-    } else {
-      lines.push(`  ${node.id}["${node.label}"];`);
-    }
-  }
-
-  // Only render dependency edges when they are backed by observed relationship data.
-  const observedEdges = Array.isArray(codeMap.edges) ? codeMap.edges : [];
-  for (const edge of observedEdges) {
-    const fromId = pathToId.get(edge?.from);
-    const toId = pathToId.get(edge?.to);
-    if (!fromId || !toId || fromId === toId) {
-      continue;
-    }
-    lines.push(`  ${fromId} --> ${toId};`);
-  }
-
-  return lines.join('\n');
 }
 
 function buildRecentActivity(capturedGitLogs) {
@@ -1464,22 +1426,16 @@ export class ExplorerRuntime {
     // Trust summary — a natural-language sentence the parent model can rely on
     normalized.trustSummary = buildTrustSummary(normalized, stats);
 
-    // codeMap + Mermaid diagram
+    // codeMap
     const codeMap = buildCodeMap(observedRanges, projectConfig.entryPoints ?? []);
-    let diagram = null;
     if (codeMap) {
       normalized.codeMap = codeMap;
-      const strategy = args.hints?.strategy ?? null;
-      if (!strategy || strategy === 'breadth-first') {
-        diagram = buildMermaidDiagram(codeMap);
-        if (diagram) normalized.diagram = diagram;
-      }
     }
 
     // recentActivity from git_log
     const recentActivity = buildRecentActivity(capturedGitLogs);
     if (recentActivity) normalized.recentActivity = recentActivity;
-    attachDebug(normalized, { stats, codeMap, diagram, recentActivity, toolTrace: toolTrace.toJSON() });
+    attachDebug(normalized, { stats, codeMap, recentActivity, toolTrace: toolTrace.toJSON() });
 
     // Update session with this call's result
     if (sessionStore && sessionId) {

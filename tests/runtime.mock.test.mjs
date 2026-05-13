@@ -456,7 +456,7 @@ test('ExplorerRuntime still treats code changes as edit planning', async () => {
   assert.equal(result.nextAction.type, 'read_target');
 });
 
-test('Phase 2 — Mermaid diagram does not invent dependency edges without observed relationships', async () => {
+test('Phase 2 — codeMap remains available without generating Mermaid diagram output', async () => {
   const repoRoot = await makeRepoFixture();
   const runtime = new ExplorerRuntime({ chatClient: new MockChatClient() });
 
@@ -467,11 +467,12 @@ test('Phase 2 — Mermaid diagram does not invent dependency edges without obser
     budget: 'quick',
   });
 
-  assert.ok(result.diagram, 'diagram should be present for a small code map');
-  assert.match(result.diagram, /^graph TD/m);
-  assert.match(result.diagram, /auth\.js/);
-  assert.match(result.diagram, /user\.js/);
-  assert.ok(!result.diagram.includes('-->'), 'diagram must not synthesize dependency edges without evidence');
+  assert.equal(result.diagram, undefined, 'runtime should not emit Mermaid diagram output');
+  assert.equal(result._debug.diagram, undefined, 'debug payload should not emit Mermaid diagram output');
+  assert.ok(result.codeMap, 'codeMap should remain available as structured data');
+  assert.ok(result._debug.codeMap, 'debug payload should retain structured codeMap');
+  assert.ok(result.codeMap.keyModules.some(item => item.path === 'src/auth.js'));
+  assert.ok(result.codeMap.keyModules.some(item => item.path === 'src/routes/user.js'));
 });
 
 test('Phase 1 — explore circuit breaker trips after three all-error turns', async () => {
