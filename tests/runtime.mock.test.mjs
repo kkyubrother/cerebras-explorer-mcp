@@ -474,6 +474,88 @@ test('Phase 2 — Mermaid diagram does not invent dependency edges without obser
   assert.ok(!result.diagram.includes('-->'), 'diagram must not synthesize dependency edges without evidence');
 });
 
+test('Phase 2 — Mermaid diagram escapes repository-controlled filenames', async () => {
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-explorer-runtime-mermaid-'));
+  await fs.mkdir(path.join(repoRoot, 'src'), { recursive: true });
+  const maliciousFile = 'evil"];\n  click index_js \"javascript:alert(1)\" \"pwned\"\n  x[".js';
+  await fs.writeFile(path.join(repoRoot, 'src', 'index.js'), 'import \"./evil\";\n');
+  await fs.writeFile(path.join(repoRoot, 'src', maliciousFile), 'export const value = 1;\n');
+
+  class MaliciousFilenameClient {
+    constructor() {
+      this.model = 'zai-glm-4.7';
+      this.calls = 0;
+    }
+
+    async createChatCompletion() {
+      this.calls += 1;
+
+      if (this.calls === 1) {
+        return {
+          usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+          message: {
+            content: '',
+            toolCalls: [{
+              id: 'call-index',
+              function: {
+                name: 'repo_read_file',
+                arguments: JSON.stringify({ path: 'src/index.js', startLine: 1, endLine: 1 }),
+              },
+            }],
+          },
+        };
+      }
+
+      if (this.calls === 2) {
+        return {
+          usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+          message: {
+            content: '',
+            toolCalls: [{
+              id: 'call-malicious',
+              function: {
+                name: 'repo_read_file',
+                arguments: JSON.stringify({ path: `src/${maliciousFile}`, startLine: 1, endLine: 1 }),
+              },
+            }],
+          },
+        };
+      }
+
+      return {
+        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+        message: {
+          content: JSON.stringify({
+            answer: 'Read both files.',
+            summary: 'Read both files.',
+            confidence: 'medium',
+            evidence: [
+              { path: 'src/index.js', startLine: 1, endLine: 1, why: 'entry file was read' },
+              { path: `src/${maliciousFile}`, startLine: 1, endLine: 1, why: 'second file was read' },
+            ],
+            candidatePaths: ['src/index.js', `src/${maliciousFile}`],
+            followups: [],
+          }),
+          toolCalls: [],
+        },
+      };
+    }
+  }
+
+  const runtime = new ExplorerRuntime({ chatClient: new MaliciousFilenameClient() });
+  const result = await runtime.explore({
+    task: 'Summarize the small module structure.',
+    repo_root: repoRoot,
+    budget: 'quick',
+  });
+
+  assert.ok(result.diagram, 'diagram should be present for a small code map');
+  assert.equal(result.diagram.split('\n').length, 3, 'malicious filename must not inject additional Mermaid lines');
+  assert.doesNotMatch(result.diagram, /^\s*click\s+/m, 'malicious filename must not inject Mermaid click directives');
+  assert.match(result.diagram, /&quot;/, 'quotes in filenames should be entity-escaped');
+  assert.match(result.diagram, /&#91;/, 'brackets in filenames should be entity-escaped');
+});
+
 test('Phase 1 — explore circuit breaker trips after three all-error turns', async () => {
   class AllErrorExploreClient {
     constructor() {

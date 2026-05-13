@@ -844,6 +844,19 @@ function guessModuleRole(filePath) {
   return 'module';
 }
 
+function escapeMermaidLabel(label) {
+  return String(label ?? '')
+    .replace(/[\r\n\t]+/g, ' ')
+    .replace(/[\u0000-\u001F\u007F]/g, ' ')
+    .replace(/&/g, '&amp;')
+    .replace(/\\/g, '&#92;')
+    .replace(/"/g, '&quot;')
+    .replace(/\[/g, '&#91;')
+    .replace(/\]/g, '&#93;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
 function buildMermaidDiagram(codeMap) {
   if (!codeMap || codeMap.keyModules.length < 2 || codeMap.keyModules.length > 12) {
     return null;
@@ -852,7 +865,7 @@ function buildMermaidDiagram(codeMap) {
   const entrySet = new Set(codeMap.entryPoints);
   const nodes = codeMap.keyModules.map(m => {
     const id = m.path.replace(/[^a-zA-Z0-9]/g, '_');
-    const label = m.path.split('/').pop() ?? m.path;
+    const label = escapeMermaidLabel(m.path.split('/').pop() ?? m.path);
     return { id, label, path: m.path, isEntry: entrySet.has(m.path) };
   });
 
