@@ -78,3 +78,25 @@ test('compact tool trace records short error summaries', () => {
   assert.equal(result.entries[0].result.type, 'tool_execution_error');
   assert.match(result.entries[0].result.message, /missing/);
 });
+
+test('compact tool trace bounds nested argument depth', () => {
+  const trace = createCompactToolTrace();
+  let nested = 'leaf';
+  for (let i = 0; i < 10000; i += 1) {
+    nested = { child: nested };
+  }
+
+  assert.doesNotThrow(() => {
+    trace.record({
+      turn: 1,
+      tool: 'repo_list_dir',
+      args: { dirPath: '.', scope: nested },
+      result: { entries: [] },
+    });
+  });
+
+  const result = trace.toJSON();
+  assert.equal(result.totalCalls, 1);
+  assert.equal(result.entries.length, 1);
+  assert.equal(JSON.stringify(result.entries[0].args).includes('[MaxDepth]'), true);
+});

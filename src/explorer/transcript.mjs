@@ -20,6 +20,8 @@ const DEFAULT_TRANSCRIPT_DIR = '.cerebras-explorer/transcripts';
 const DEFAULT_COMPACT_TRACE_LIMIT = 20;
 const MAX_TRACE_STRING_CHARS = 180;
 const MAX_TRACE_ITEMS = 6;
+const MAX_TRACE_DEPTH = 8;
+const MAX_TRACE_DEPTH_PLACEHOLDER = '[MaxDepth]';
 
 const TRACE_ARG_KEYS = new Set([
   'path',
@@ -61,16 +63,17 @@ function truncateString(value, maxChars = MAX_TRACE_STRING_CHARS) {
   return `${value.slice(0, maxChars)}...`;
 }
 
-function compactValue(value) {
+function compactValue(value, depth = 0) {
   if (typeof value === 'string') return truncateString(value);
   if (typeof value === 'number' || typeof value === 'boolean' || value === null) return value;
+  if (depth >= MAX_TRACE_DEPTH) return MAX_TRACE_DEPTH_PLACEHOLDER;
   if (Array.isArray(value)) {
-    return value.slice(0, MAX_TRACE_ITEMS).map(item => compactValue(item));
+    return value.slice(0, MAX_TRACE_ITEMS).map(item => compactValue(item, depth + 1));
   }
   if (value && typeof value === 'object') {
     const output = {};
     for (const [key, nestedValue] of Object.entries(value).slice(0, MAX_TRACE_ITEMS)) {
-      output[key] = compactValue(nestedValue);
+      output[key] = compactValue(nestedValue, depth + 1);
     }
     return output;
   }
