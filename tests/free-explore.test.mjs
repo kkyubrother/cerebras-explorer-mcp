@@ -165,3 +165,40 @@ test('freeExplore finalizes when budget exhausted even if interim text exists', 
   assert.ok(finalizeCallCount >= 1, 'finalize was called when budget was exhausted');
   assert.equal(result.stats.stoppedByBudget, true, 'stoppedByBudget is true');
 });
+
+test('freeExplore stops after repeated unknown tool errors', async () => {
+  class UnknownToolClient {
+    constructor() { this.model = 'test'; this.calls = 0; }
+    async createChatCompletion({ messages }) {
+      this.calls += 1;
+      const lastUser = [...messages].reverse().find(m => m.role === 'user');
+      if (lastUser?.content?.includes('Budget exhausted') || lastUser?.content?.includes('final Markdown report')) {
+        return {
+          usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+          message: { content: 'Final report after repeated tool errors', toolCalls: [] },
+        };
+      }
+      return {
+        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+        message: {
+          content: null,
+          toolCalls: [
+            { id: `bad${this.calls}`, function: { name: 'repo_search', arguments: JSON.stringify({ pattern: 'auth' }) } },
+          ],
+        },
+      };
+    }
+  }
+
+  const root = await makeRepoFixture();
+  const client = new UnknownToolClient();
+  const runtime = new ExplorerRuntime({ chatClient: client });
+  const result = await runtime.freeExplore({ prompt: 'find auth', repo_root: root, thoroughness: 'quick' });
+
+  assert.ok(result, 'freeExplore completed');
+  assert.equal(result.stats.stoppedByErrors, true, 'stoppedByErrors is true after repeated all-error turns');
+  assert.equal(result.stats.stoppedByBudget, false, 'circuit breaker stops before budget exhaustion');
+  assert.equal(result.stats.turns, 3, 'circuit breaker fires at the configured threshold');
+  assert.equal(result.stats.toolCalls, 3, 'unknown tool calls are counted and returned as validation errors');
+  assert.equal(client.calls, 4, 'three tool-loop calls plus one finalization call');
+});
