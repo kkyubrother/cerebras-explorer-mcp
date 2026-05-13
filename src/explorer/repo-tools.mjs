@@ -34,7 +34,7 @@ function withUnsetEnv(names) {
 }
 
 function toPosix(input) {
-  return input.split(path.sep).join('/');
+  return input.split(path.sep).join('/').replace(/\\/g, '/');
 }
 
 function hasGlobSyntax(value) {
@@ -96,7 +96,7 @@ function normalizeScope(scope = []) {
   return Array.isArray(scope)
     ? scope
         .filter(Boolean)
-        .map(item => toPosix(String(item).trim().replace(/^\.\//, '').replace(/^\//, '')))
+        .map(item => sanitizeRelativePath(String(item).trim()))
         .map(item => item.replace(/\/+$/, ''))
         .filter(Boolean)
     : [];
@@ -188,8 +188,14 @@ function combineScopeRules(...rules) {
 }
 
 function sanitizeRelativePath(inputPath) {
-  const normalized = toPosix(String(inputPath || '.')).replace(/^\.\//, '').replace(/^\//, '');
-  return normalized || '.';
+  const raw = toPosix(String(inputPath || '.'))
+    .replace(/^\/+/, '')
+    .replace(/^\.\//, '');
+  const normalized = path.posix.normalize(raw || '.');
+  if (normalized === '..' || normalized.startsWith('../')) {
+    throw new Error(`Path escapes repo root: ${inputPath}`);
+  }
+  return normalized === '' ? '.' : normalized;
 }
 
 function isOutsideRoot(root, targetPath) {
