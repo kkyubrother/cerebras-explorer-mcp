@@ -335,9 +335,11 @@ async function attachEvidenceMetadata({ evidence, repoRoot }) {
   const result = [];
   for (const [index, item] of (evidence ?? []).entries()) {
     const id = typeof item.id === 'string' && item.id ? item.id : `E${index + 1}`;
-    const snippet = item.snippet || await readEvidenceSnippet(repoRoot, item);
+    const trustedItem = { ...item };
+    delete trustedItem.snippet;
+    const snippet = await readEvidenceSnippet(repoRoot, item);
     result.push({
-      ...item,
+      ...trustedItem,
       id,
       ...(snippet ? { snippet } : {}),
     });

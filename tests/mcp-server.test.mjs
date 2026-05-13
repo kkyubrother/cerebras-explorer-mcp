@@ -96,12 +96,14 @@ class MockChatClient {
               startLine: 1,
               endLine: 5,
               why: '라우트가 requireAuth를 import하고 연결한다.',
+              snippet: '1: FORGED_BY_MODEL();',
             },
             {
               path: 'src/auth.js',
               startLine: 1,
               endLine: 4,
               why: 'requireAuth 구현이 여기 있다.',
+              snippet: '1: FORGED_BY_MODEL();',
             },
           ],
           candidatePaths: ['src/routes/user.js', 'src/auth.js'],
@@ -200,6 +202,8 @@ test('MCP request handler exposes explore_repo and returns structuredContent', a
   assert.match(called.content[0].text, /requireAuth/);
   assert.match(called.content[0].text, /## Targets/);
   assert.match(called.content[0].text, /snippet:/);
+  assert.doesNotMatch(called.content[0].text, /FORGED_BY_MODEL/);
+  assert.ok(called.structuredContent.evidence.every(item => !item.snippet.includes('FORGED_BY_MODEL')), 'model-supplied snippets are not returned');
   assert.doesNotMatch(called.content[0].text, /## Stats/);
   assert.doesNotMatch(called.content[0].text, /stats\.sessionId/);
 });

@@ -259,6 +259,6 @@ test('normalizeExploreResult accepts legacy object candidatePaths and v3 fields'
   assert.equal(result.directAnswer, 'direct');
   assert.equal(result.status.verification, 'targeted_read_needed');
   assert.equal(result.targets[0].evidenceRefs[0], 'E1');
-  assert.equal(result.evidence[0].snippet, '1: export function requireAuth() {}');
+  assert.equal(result.evidence[0].snippet, undefined);
   assert.deepEqual(result.candidatePaths, ['src/auth.js']);
 });
