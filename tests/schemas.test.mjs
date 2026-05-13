@@ -174,10 +174,10 @@ test('agent-facing budget and strategy fields are marked advanced only', () => {
   );
 });
 
-test('followup query is optional in schema and explicit query is preserved', () => {
+test('strict result schema represents followup query as nullable and explicit query is preserved', () => {
   const followupSchema = EXPLORE_RESULT_JSON_SCHEMA.schema.properties.followups.items;
-  assert.deepEqual(followupSchema.required, ['description', 'priority']);
-  assert.ok(followupSchema.properties.query);
+  assert.deepEqual(followupSchema.required, ['description', 'priority', 'query']);
+  assert.deepEqual(followupSchema.properties.query.type, ['string', 'null']);
 
   const result = normalizeExploreResult({
     answer: 'answer',
@@ -197,6 +197,27 @@ test('followup query is optional in schema and explicit query is preserved', () 
   assert.equal(result.followups.length, 1);
   assert.equal(result.followups[0].description, 'check related routes');
   assert.equal(result.followups[0].query, 'trace related routes');
+});
+
+function collectStrictOptionalProperties(schema, path = 'schema') {
+  const failures = [];
+  if (!schema || typeof schema !== 'object') return failures;
+
+  const types = Array.isArray(schema.type) ? schema.type : [schema.type];
+  if (types.includes('object') && schema.properties) {
+    const required = new Set(schema.required ?? []);
+    for (const key of Object.keys(schema.properties)) {
+      if (!required.has(key)) failures.push(`${path}.${key}`);
+      failures.push(...collectStrictOptionalProperties(schema.properties[key], `${path}.${key}`));
+    }
+  }
+  if (schema.items) failures.push(...collectStrictOptionalProperties(schema.items, `${path}[]`));
+  return failures;
+}
+
+test('strict result schema requires every declared object property', () => {
+  assert.equal(EXPLORE_RESULT_JSON_SCHEMA.strict, true);
+  assert.deepEqual(collectStrictOptionalProperties(EXPLORE_RESULT_JSON_SCHEMA.schema), []);
 });
 
 test('agent-facing output schema is compact and exposes directAnswer, status, targets, snippets, sessionId, and debug', () => {

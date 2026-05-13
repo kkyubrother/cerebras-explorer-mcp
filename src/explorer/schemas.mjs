@@ -69,9 +69,9 @@ const FOLLOWUP_ITEM_SCHEMA = {
   properties: {
     description: { type: 'string' },
     priority: { type: 'string', enum: ['recommended', 'optional'] },
-    query: { type: 'string' },
+    query: { type: ['string', 'null'] },
   },
-  required: ['description', 'priority'],
+  required: ['description', 'priority', 'query'],
 };
 
 const STATUS_SCHEMA = {
@@ -103,6 +103,20 @@ const TARGET_ITEM_SCHEMA = {
   required: ['path', 'role', 'reason', 'evidenceRefs'],
 };
 
+const STRICT_TARGET_ITEM_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    path: { type: 'string' },
+    startLine: { type: ['integer', 'null'] },
+    endLine: { type: ['integer', 'null'] },
+    role: { type: 'string', enum: ['edit', 'read', 'test', 'config', 'context', 'reference'] },
+    reason: { type: 'string' },
+    evidenceRefs: { type: 'array', items: { type: 'string' } },
+  },
+  required: ['path', 'startLine', 'endLine', 'role', 'reason', 'evidenceRefs'],
+};
+
 const NEXT_ACTION_SCHEMA = {
   type: 'object',
   additionalProperties: false,
@@ -113,6 +127,18 @@ const NEXT_ACTION_SCHEMA = {
     target: TARGET_ITEM_SCHEMA,
   },
   required: ['type', 'reason'],
+};
+
+const STRICT_NEXT_ACTION_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    type: { type: 'string', enum: ['stop', 'read_target', 'explore_followup', 'ask_user'] },
+    reason: { type: 'string' },
+    query: { type: ['string', 'null'] },
+    target: { ...STRICT_TARGET_ITEM_SCHEMA, type: ['object', 'null'] },
+  },
+  required: ['type', 'reason', 'query', 'target'],
 };
 
 const EVIDENCE_ITEM_SCHEMA = {
@@ -141,6 +167,52 @@ const EVIDENCE_ITEM_SCHEMA = {
     newEndLine: { type: 'integer' },
   },
   required: ['path', 'startLine', 'endLine', 'why'],
+};
+
+const STRICT_EVIDENCE_ITEM_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    id: { type: ['string', 'null'] },
+    path: { type: 'string' },
+    startLine: { type: 'integer' },
+    endLine: { type: 'integer' },
+    why: { type: 'string' },
+    snippet: { type: ['string', 'null'] },
+    redacted: { type: ['boolean', 'null'] },
+    redactions: { type: ['array', 'null'], items: { type: 'string' } },
+    groundingStatus: { type: ['string', 'null'], enum: ['exact', 'partial', null] },
+    evidenceType: {
+      type: ['string', 'null'],
+      enum: ['file_range', 'git_commit', 'git_blame', 'git_diff_hunk', null],
+    },
+    sha: { type: ['string', 'null'] },
+    author: { type: ['string', 'null'] },
+    commit: { type: ['string', 'null'] },
+    oldPath: { type: ['string', 'null'] },
+    newPath: { type: ['string', 'null'] },
+    newStartLine: { type: ['integer', 'null'] },
+    newEndLine: { type: ['integer', 'null'] },
+  },
+  required: [
+    'id',
+    'path',
+    'startLine',
+    'endLine',
+    'why',
+    'snippet',
+    'redacted',
+    'redactions',
+    'groundingStatus',
+    'evidenceType',
+    'sha',
+    'author',
+    'commit',
+    'oldPath',
+    'newPath',
+    'newStartLine',
+    'newEndLine',
+  ],
 };
 
 export const EXPLORE_REPO_OUTPUT_SCHEMA = {
@@ -174,17 +246,17 @@ export const EXPLORE_RESULT_JSON_SCHEMA = {
     additionalProperties: false,
     properties: {
       directAnswer: {
-        type: 'string',
-        description: 'Short direct answer. Optional for the model; the runtime aliases answer when omitted.',
+        type: ['string', 'null'],
+        description: 'Short direct answer. Use null when omitted; the runtime aliases answer when absent.',
       },
-      status: STATUS_SCHEMA,
+      status: { ...STATUS_SCHEMA, type: ['object', 'null'] },
       targets: {
-        type: 'array',
-        items: TARGET_ITEM_SCHEMA,
+        type: ['array', 'null'],
+        items: STRICT_TARGET_ITEM_SCHEMA,
       },
-      nextAction: NEXT_ACTION_SCHEMA,
+      nextAction: { ...STRICT_NEXT_ACTION_SCHEMA, type: ['object', 'null'] },
       uncertainties: {
-        type: 'array',
+        type: ['array', 'null'],
         items: { type: 'string' },
       },
       answer: {
@@ -192,8 +264,8 @@ export const EXPLORE_RESULT_JSON_SCHEMA = {
         description: 'Direct answer to the delegated exploration task.',
       },
       summary: {
-        type: 'string',
-        description: 'A short synthesis of the important findings.',
+        type: ['string', 'null'],
+        description: 'A short synthesis of the important findings. Use null when omitted.',
       },
       confidence: {
         type: 'string',
@@ -201,22 +273,29 @@ export const EXPLORE_RESULT_JSON_SCHEMA = {
       },
       evidence: {
         type: 'array',
-        items: EVIDENCE_ITEM_SCHEMA,
+        items: STRICT_EVIDENCE_ITEM_SCHEMA,
       },
       candidatePaths: {
         type: 'array',
         items: { type: 'string' },
       },
       followups: {
-        type: 'array',
+        type: ['array', 'null'],
         items: FOLLOWUP_ITEM_SCHEMA,
       },
     },
     required: [
+      'directAnswer',
+      'status',
+      'targets',
+      'nextAction',
+      'uncertainties',
       'answer',
+      'summary',
       'confidence',
       'evidence',
       'candidatePaths',
+      'followups',
     ],
   },
 };
