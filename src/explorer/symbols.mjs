@@ -61,7 +61,7 @@ const JS_PATTERNS = [
   { re: new RegExp(`^(?:export\\s+)?(?:const|let|var)\\s+(${JS_IDENTIFIER})\\s*(?::[^=]+)?=`), kind: 'variable' },
   // class method (2+ spaces indent): modifiers? get? set? name<T>(...) {
   {
-    re: new RegExp(`^\\s{2,}(?:(?:public|private|protected|readonly|override|abstract|static|async)\\s+)*(?:get\\s+|set\\s+)?(${JS_MEMBER_IDENTIFIER})\\s*(?:<[^>{}();=]*>)?\\s*\\([^)]*\\)\\s*(?::\\s*[^;{]+)?\\s*(?:\\{|$)`),
+    re: new RegExp(`^\\s{2,}(?:(?:public|private|protected|readonly|override|abstract|static|async)\\s+)*(?:get\\s+|set\\s+)?(${JS_MEMBER_IDENTIFIER})\\s*(?:<[^>{}();=]*>)?\\s*\\([^)]*\\)(?:[ \t]*:[ \t]*[^\\s;]+(?:[ \t]+[^\\s;]+)*)?[ \t]*(?:\\{|$)`),
     kind: 'function',
     requiresContainer: ['class'],
   },

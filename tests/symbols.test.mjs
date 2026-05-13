@@ -172,6 +172,29 @@ test('extractSymbols handles TypeScript generics, typed arrows, and method conta
   assert.equal(load.qualifiedName, 'UserRepository.load');
 });
 
+test('extractSymbols rejects malformed TypeScript class return types without regex backtracking', { timeout: 1000 }, () => {
+  const source = `class C {
+  foo() : ${' '.repeat(3000)}x;
+}
+`;
+  const symbols = extractSymbols(source, 'redos.ts');
+  assert.equal(symbols.some(s => s.name === 'foo'), false);
+});
+
+test('extractSymbols keeps TypeScript class methods with object return types', () => {
+  const source = `class C {
+  foo(): { value: string } {
+    return { value: 'x' };
+  }
+}
+`;
+  const symbols = extractSymbols(source, 'object-return.ts');
+  const foo = symbols.find(s => s.name === 'foo');
+  assert.ok(foo, 'object return type method');
+  assert.equal(foo.containerName, 'C');
+  assert.equal(foo.qualifiedName, 'C.foo');
+});
+
 // ─── extractSymbols — Python ─────────────────────────────────────────────────
 
 const PY_SOURCE = `
