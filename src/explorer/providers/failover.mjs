@@ -48,27 +48,44 @@ export class FailoverChatClient extends AbstractChatClient {
       // underlying HTTP request when the timeout fires, instead of just racing
       // a promise and leaving a ghost request running in the background.
       const controller = new AbortController();
-      let callerAbortListener = null;
-      if (callerSignal) {
-        callerAbortListener = () => controller.abort();
-        callerSignal.addEventListener('abort', callerAbortListener, { once: true });
-      }
-      const timer = setTimeout(() => controller.abort(), this._timeoutMs);
+      let timeoutId;
+      let rejectCallerAbort;
+
+      const timeoutPromise = new Promise((_resolve, reject) => {
+        timeoutId = setTimeout(() => {
+          controller.abort();
+          reject(new Error(`Provider timed out after ${this._timeoutMs}ms`));
+        }, this._timeoutMs);
+      });
+
+      const callerAbortPromise = callerSignal
+        ? new Promise((_resolve, reject) => {
+            rejectCallerAbort = () => {
+              controller.abort();
+              reject(createAbortError());
+            };
+            callerSignal.addEventListener('abort', rejectCallerAbort, { once: true });
+          })
+        : null;
+
       try {
-        const result = await provider.createChatCompletion({
+        const providerPromise = provider.createChatCompletion({
           ...opts,
           signal: controller.signal,
         });
-        return result;
+        const races = callerAbortPromise
+          ? [providerPromise, timeoutPromise, callerAbortPromise]
+          : [providerPromise, timeoutPromise];
+        return await Promise.race(races);
       } catch (error) {
         if (callerSignal?.aborted) {
           throw (error?.name === 'AbortError' ? error : createAbortError());
         }
         lastError = error;
       } finally {
-        clearTimeout(timer);
-        if (callerSignal && callerAbortListener) {
-          callerSignal.removeEventListener('abort', callerAbortListener);
+        clearTimeout(timeoutId);
+        if (callerSignal && rejectCallerAbort) {
+          callerSignal.removeEventListener('abort', rejectCallerAbort);
         }
       }
     }

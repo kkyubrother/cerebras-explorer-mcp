@@ -210,6 +210,71 @@ test('FailoverChatClient: propagates caller abort and does not advance to fallba
   assert.equal(fallbackCalls, 0, 'fallback provider must not run after caller abort');
 });
 
+test('FailoverChatClient: caller abort interrupts provider that ignores abort signal', async () => {
+  let fallbackCalls = 0;
+  const primary = {
+    model: 'primary-model',
+    async createChatCompletion() {
+      return new Promise(() => {});
+    },
+  };
+  const fallback = {
+    model: 'fallback-model',
+    async createChatCompletion() {
+      fallbackCalls += 1;
+      return {
+        id: 'fallback-id',
+        usage: null,
+        finishReason: 'stop',
+        message: { role: 'assistant', content: 'fallback', rawContent: 'fallback', reasoning: '', rawReasoning: null, toolCalls: [] },
+      };
+    },
+  };
+
+  const client = new FailoverChatClient({ providers: [primary, fallback], timeoutMs: 1000 });
+  const controller = new AbortController();
+  setTimeout(() => controller.abort(), 10);
+
+  await assert.rejects(
+    () => client.createChatCompletion({ messages: [], signal: controller.signal }),
+    { name: 'AbortError' },
+  );
+  assert.equal(fallbackCalls, 0, 'fallback provider must not run after caller abort');
+});
+
+test('FailoverChatClient: hard timeout advances when provider ignores abort signal', async () => {
+  let fallbackCalls = 0;
+  let primarySignalAborted = false;
+  const primary = {
+    model: 'primary-model',
+    async createChatCompletion({ signal }) {
+      signal.addEventListener('abort', () => {
+        primarySignalAborted = true;
+      }, { once: true });
+      return new Promise(() => {});
+    },
+  };
+  const fallback = {
+    model: 'fallback-model',
+    async createChatCompletion() {
+      fallbackCalls += 1;
+      return {
+        id: 'fallback-id',
+        usage: null,
+        finishReason: 'stop',
+        message: { role: 'assistant', content: 'fallback', rawContent: 'fallback', reasoning: '', rawReasoning: null, toolCalls: [] },
+      };
+    },
+  };
+
+  const client = new FailoverChatClient({ providers: [primary, fallback], timeoutMs: 20 });
+  const result = await client.createChatCompletion({ messages: [] });
+
+  assert.equal(result.id, 'fallback-id');
+  assert.equal(primarySignalAborted, true, 'primary provider should still be signalled to abort');
+  assert.equal(fallbackCalls, 1, 'fallback provider should run after timeout');
+});
+
 test('FailoverChatClient: throws when constructed with empty providers array', () => {
   assert.throws(() => new FailoverChatClient({ providers: [] }), /at least one provider/);
 });
