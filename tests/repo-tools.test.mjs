@@ -255,6 +255,28 @@ test('RepoToolkit grep uses ripgrep when available', { skip: !hasRipgrep() }, as
   assert.ok(result.matches.some(m => m.path === 'src/routes/user.js'), 'finds in user.js');
 });
 
+
+test('RepoToolkit rejects traversal scopes before grep can escape the repo root', { skip: !hasRipgrep() }, async () => {
+  const parent = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-scope-escape-'));
+  const repoRoot = path.join(parent, 'repo');
+  const outsideDir = path.join(parent, 'outside');
+  await fs.mkdir(repoRoot, { recursive: true });
+  await fs.mkdir(outsideDir, { recursive: true });
+  await fs.writeFile(path.join(repoRoot, 'inside.txt'), 'inside content\n');
+  await fs.writeFile(path.join(outsideDir, 'secret.txt'), 'LEAK_MARKER outside repo secret\n');
+
+  const toolkit = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig('normal') });
+  await toolkit.initialize();
+
+  await assert.rejects(
+    toolkit.grep({ pattern: 'LEAK_MARKER', scope: ['../outside/**'] }),
+    /Scope must stay within repo root/,
+  );
+
+  const control = await toolkit.grep({ pattern: 'LEAK_MARKER', scope: ['.'] });
+  assert.deepEqual(control.matches, []);
+});
+
 // --- Phase 1: Cache Isolation Tests ---
 
 test('cache isolates read_file results by repo root', async () => {

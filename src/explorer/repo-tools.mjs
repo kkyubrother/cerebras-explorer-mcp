@@ -73,14 +73,27 @@ export function globToRegExp(glob) {
   return new RegExp(`^${pattern}$`);
 }
 
+function assertSafeRelativePattern(pattern, { label = 'path' } = {}) {
+  const parts = toPosix(String(pattern || '')).split('/').filter(Boolean);
+  if (parts.includes('..')) {
+    throw new Error(`${label} must stay within repo root: ${pattern}`);
+  }
+}
+
 function normalizeScope(scope = []) {
-  return Array.isArray(scope)
-    ? scope
-        .filter(Boolean)
-        .map(item => toPosix(String(item).trim().replace(/^\.\//, '').replace(/^\//, '')))
-        .map(item => item.replace(/\/+$/, ''))
-        .filter(Boolean)
-    : [];
+  if (!Array.isArray(scope)) {
+    return [];
+  }
+
+  return scope
+    .filter(Boolean)
+    .map(item => toPosix(String(item).trim().replace(/^\.\//, '').replace(/^\//, '')))
+    .map(item => item.replace(/\/+$/, ''))
+    .filter(Boolean)
+    .map(item => {
+      assertSafeRelativePattern(item, { label: 'Scope' });
+      return item;
+    });
 }
 
 function scopePatternPrefix(pattern) {
@@ -547,7 +560,11 @@ export class RepoToolkit {
     if (normalizedScope.length > 0) {
       for (const s of normalizedScope) {
         const prefix = scopePatternPrefix(s);
-        rgArgs.push(path.join(this.repoRootReal, prefix || '.'));
+        const searchRoot = path.resolve(this.repoRootReal, prefix || '.');
+        if (isOutsideRoot(this.repoRootReal, searchRoot)) {
+          return null;
+        }
+        rgArgs.push(searchRoot);
       }
     } else {
       rgArgs.push(this.repoRootReal);
@@ -580,6 +597,7 @@ export class RepoToolkit {
       const lineNum = obj.data?.line_number;
       const text = obj.data?.lines?.text ?? '';
       if (!filePath || !lineNum) continue;
+      if (isOutsideRoot(this.repoRootReal, filePath)) continue;
       const relPath = toPosix(path.relative(this.repoRootReal, filePath));
       // Post-filter: enforce effectiveScope to catch glob patterns ripgrep may over-include
       if (!effectiveScope.matches(relPath)) continue;
