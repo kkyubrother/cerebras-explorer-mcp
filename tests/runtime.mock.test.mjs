@@ -258,6 +258,13 @@ test('ExplorerRuntime performs an autonomous tool loop and returns structured fi
   assert.equal(result.evidenceQuality.fileCount, 2);
   assert.ok(Array.isArray(result.evidenceQuality.warnings));
   assert.match(result.evidenceQuality.summary, /evidence items grounded|Verified:/);
+  assert.deepEqual(result.searchCoverage.scope, ['src/**']);
+  assert.equal(result.searchCoverage.scopeLimited, true);
+  assert.equal(result.searchCoverage.filesRead, result.stats.filesRead);
+  assert.equal(result.searchCoverage.grepCalls, result.stats.grepCalls);
+  assert.equal(result.searchCoverage.stoppedByBudget, false);
+  assert.ok(Array.isArray(result.searchCoverage.warnings));
+  assert.match(result.searchCoverage.summary, /scope-limited|repo-wide/);
   assert.equal(result.evidence.length, 2);
   assert.ok(result.evidence.every(item => item.id && item.snippet), 'evidence has ids and snippets');
   assert.ok(result.evidence.every(item => !item.snippet.includes('FORGED_BY_MODEL')), 'model-supplied snippets are replaced with local file snippets');
@@ -1792,6 +1799,8 @@ test('Phase 4 — freeExploreV2 respects turn multiplier override', async () => 
 
     assert.equal(result.stats.turns, BUDGETS.quick.maxTurns, 'V2 turn multiplier override must keep the base quick budget');
     assert.equal(result.stats.stoppedByBudget, true, 'result must stop by budget when the override removes extra turns');
+    assert.equal(result.searchCoverage.stoppedByBudget, true);
+    assert.ok(result.searchCoverage.warnings.some(warning => /budget/i.test(warning)));
     assert.equal(client.calls, BUDGETS.quick.maxTurns + 1, 'one finalization call should follow the bounded tool loop');
   });
 });

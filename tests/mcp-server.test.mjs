@@ -240,6 +240,8 @@ test('MCP request handler exposes explore_repo and returns structuredContent', a
   assert.equal(called.structuredContent.evidenceQuality.level, called.structuredContent.status.confidence);
   assert.equal(called.structuredContent.evidenceQuality.exactCount, 2);
   assert.equal(called.structuredContent.evidenceQuality.fileCount, 2);
+  assert.deepEqual(called.structuredContent.searchCoverage.scope, ['src/**']);
+  assert.equal(called.structuredContent.searchCoverage.scopeLimited, true);
   assert.ok(called.structuredContent.evidence.every(item => item.id && item.snippet), 'evidence must include ids and snippets');
   assert.ok(called.structuredContent.sessionId.startsWith('sess_'), 'sessionId must be top-level');
   assert.deepEqual(called.structuredContent.session, {
@@ -251,6 +253,7 @@ test('MCP request handler exposes explore_repo and returns structuredContent', a
   assert.equal(Object.hasOwn(called.structuredContent._debug, 'legacy'), false);
   assert.match(called.content[0].text, /requireAuth/);
   assert.match(called.content[0].text, /Evidence Quality/);
+  assert.match(called.content[0].text, /Search Coverage/);
   assert.match(called.content[0].text, /## Targets/);
   assert.match(called.content[0].text, /snippet:/);
   assert.doesNotMatch(called.content[0].text, /FORGED_BY_MODEL/);

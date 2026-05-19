@@ -232,6 +232,19 @@ test('agent-facing output schema is compact and exposes directAnswer, status, ta
     'status',
     'remainingCalls',
   ]);
+  assert.ok(EXPLORE_REPO_OUTPUT_SCHEMA.properties.searchCoverage);
+  assert.deepEqual(EXPLORE_REPO_OUTPUT_SCHEMA.properties.searchCoverage.required, [
+    'scope',
+    'scopeLimited',
+    'filesRead',
+    'grepCalls',
+    'listDirCalls',
+    'symbolCalls',
+    'toolResultsTruncated',
+    'stoppedByBudget',
+    'warnings',
+    'summary',
+  ]);
   assert.ok(EXPLORE_REPO_OUTPUT_SCHEMA.properties._debug);
   assert.equal(EXPLORE_REPO_OUTPUT_SCHEMA.properties.answer, undefined);
   assert.equal(EXPLORE_REPO_OUTPUT_SCHEMA.properties.candidatePaths, undefined);
@@ -239,6 +252,7 @@ test('agent-facing output schema is compact and exposes directAnswer, status, ta
   assert.equal(EXPLORE_RESULT_JSON_SCHEMA.schema.properties.schemaVersion, undefined);
   assert.equal(EXPLORE_RESULT_JSON_SCHEMA.schema.properties.evidenceQuality, undefined);
   assert.equal(EXPLORE_RESULT_JSON_SCHEMA.schema.properties.failure, undefined);
+  assert.equal(EXPLORE_RESULT_JSON_SCHEMA.schema.properties.searchCoverage, undefined);
 });
 
 test('normalizeExploreResult accepts compact result fields without legacy aliases', () => {

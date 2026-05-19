@@ -209,6 +209,35 @@ const SESSION_SCHEMA = {
   required: ['id', 'status', 'remainingCalls'],
 };
 
+const SEARCH_COVERAGE_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    scope: { type: 'array', items: { type: 'string' } },
+    scopeLimited: { type: 'boolean' },
+    filesRead: { type: 'integer', minimum: 0 },
+    grepCalls: { type: 'integer', minimum: 0 },
+    listDirCalls: { type: 'integer', minimum: 0 },
+    symbolCalls: { type: 'integer', minimum: 0 },
+    toolResultsTruncated: { type: 'integer', minimum: 0 },
+    stoppedByBudget: { type: 'boolean' },
+    warnings: { type: 'array', items: { type: 'string' } },
+    summary: { type: 'string' },
+  },
+  required: [
+    'scope',
+    'scopeLimited',
+    'filesRead',
+    'grepCalls',
+    'listDirCalls',
+    'symbolCalls',
+    'toolResultsTruncated',
+    'stoppedByBudget',
+    'warnings',
+    'summary',
+  ],
+};
+
 const EVIDENCE_ITEM_SCHEMA = {
   type: 'object',
   additionalProperties: false,
@@ -263,6 +292,7 @@ export const EXPLORE_REPO_OUTPUT_SCHEMA = {
     failure: { anyOf: [{ type: 'null' }, FAILURE_SCHEMA] },
     sessionId: { type: 'string' },
     session: SESSION_SCHEMA,
+    searchCoverage: SEARCH_COVERAGE_SCHEMA,
     _debug: { type: 'object', additionalProperties: true },
   },
 };

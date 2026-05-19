@@ -414,6 +414,11 @@ Retry recipe safety:
 - Retry list fields are bounded.
 - Unknown keys are dropped before the object reaches MCP `structuredContent`.
 
+`searchCoverage` is runtime-owned metadata derived from stats. It reports scope,
+basic read/search counts, budget stop, and tool-result truncation. It deliberately
+does not expose raw `_debug.toolTrace` and does not claim LSP-level semantic
+coverage.
+
 반환을 자연어가 아니라 JSON으로 고정한 이유:
 
 - evidence grounding contract는 additive하게 확장한다. redaction이 적용되어도 `path`, `startLine`, `endLine`, `why`, `evidenceType`, `groundingStatus`는 유지하고, `redacted`/`redactions` metadata만 추가한다.

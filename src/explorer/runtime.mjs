@@ -439,6 +439,33 @@ function buildEvidenceQuality(result, stats, grounding = {}) {
   };
 }
 
+function buildSearchCoverage(stats = {}) {
+  const scope = Array.isArray(stats.scope)
+    ? stats.scope.filter(item => typeof item === 'string')
+    : [];
+  const warnings = [];
+  if (scope.length > 0) warnings.push(`Result is limited to scope: ${scope.join(', ')}`);
+  if (stats.stoppedByBudget) warnings.push('Exploration stopped by budget before all follow-up checks were exhausted.');
+  if ((stats.toolResultsTruncated ?? 0) > 0) warnings.push(`${stats.toolResultsTruncated} tool result(s) were truncated before final synthesis.`);
+
+  const summary = scope.length > 0
+    ? `scope-limited search across ${scope.join(', ')}; ${stats.filesRead ?? 0} file read(s), ${stats.grepCalls ?? 0} grep search(es).`
+    : `repo-wide search; ${stats.filesRead ?? 0} file read(s), ${stats.grepCalls ?? 0} grep search(es).`;
+
+  return {
+    scope,
+    scopeLimited: scope.length > 0,
+    filesRead: stats.filesRead ?? 0,
+    grepCalls: stats.grepCalls ?? 0,
+    listDirCalls: stats.listDirCalls ?? 0,
+    symbolCalls: stats.symbolCalls ?? 0,
+    toolResultsTruncated: stats.toolResultsTruncated ?? 0,
+    stoppedByBudget: Boolean(stats.stoppedByBudget),
+    warnings,
+    summary,
+  };
+}
+
 function buildFailure(result, stats) {
   const existing = normalizeFailure(result.failure);
   if (existing) return existing;
@@ -485,6 +512,7 @@ function attachAgentFacingContract(result, stats, grounding = {}) {
   result.schemaVersion = AGENT_FACING_SCHEMA_VERSION;
   result.failure = buildFailure(result, stats);
   result.evidenceQuality = buildEvidenceQuality(result, stats, grounding);
+  result.searchCoverage = buildSearchCoverage(stats);
   return result;
 }
 
@@ -1925,6 +1953,7 @@ export class ExplorerRuntime {
       toolsUsed: [...toolsUsed],
       stats,
       critic,
+      searchCoverage: buildSearchCoverage(stats),
       toolTrace: toolTrace.toJSON(),
     };
   }
@@ -2399,6 +2428,7 @@ export class ExplorerRuntime {
       toolsUsed: [...toolsUsed],
       stats,
       critic,
+      searchCoverage: buildSearchCoverage(stats),
       transcriptPath: transcript.filePath,
       toolTrace: toolTrace.toJSON(),
     };

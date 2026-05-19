@@ -453,6 +453,9 @@ export function createMcpRequestHandler({
     if (result.evidenceQuality) {
       lines.push(`Evidence Quality: ${result.evidenceQuality.level} (${result.evidenceQuality.exactCount} exact, ${result.evidenceQuality.partialCount} partial, ${result.evidenceQuality.droppedCount} dropped)`);
     }
+    if (result.searchCoverage) {
+      lines.push(`Search Coverage: ${result.searchCoverage.summary}`);
+    }
     if (result.trustSummary) lines.push(`Grounding: ${result.trustSummary}`);
     lines.push('');
 
@@ -522,6 +525,21 @@ export function createMcpRequestHandler({
     };
   }
 
+  function defaultSearchCoverage(summary = 'No search coverage was recorded.') {
+    return {
+      scope: [],
+      scopeLimited: false,
+      filesRead: 0,
+      grepCalls: 0,
+      listDirCalls: 0,
+      symbolCalls: 0,
+      toolResultsTruncated: 0,
+      stoppedByBudget: false,
+      warnings: [],
+      summary,
+    };
+  }
+
   function buildAgentSession(result) {
     const stats = result.stats ?? result._debug?.stats ?? {};
     const id = result.session?.id ?? result.sessionId ?? stats.sessionId ?? null;
@@ -556,6 +574,7 @@ export function createMcpRequestHandler({
       uncertainties: [message],
       nextAction: { type: 'ask_user', reason: message },
       evidenceQuality: defaultEvidenceQuality(message, [message]),
+      searchCoverage: defaultSearchCoverage(message),
       failure: {
         category,
         reason,
@@ -591,6 +610,7 @@ export function createMcpRequestHandler({
       uncertainties: Array.isArray(result.uncertainties) ? result.uncertainties : [],
       nextAction: result.nextAction ?? { type: 'stop', reason: '' },
       evidenceQuality: result.evidenceQuality ?? defaultEvidenceQuality(result.trustSummary),
+      searchCoverage: result.searchCoverage ?? defaultSearchCoverage(),
       failure: result.failure ?? null,
       ...(sessionId ? { sessionId } : {}),
       ...(session ? { session } : {}),
