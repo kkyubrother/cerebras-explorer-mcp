@@ -516,6 +516,17 @@ export function createMcpRequestHandler({
     };
   }
 
+  function buildAgentSession(result) {
+    const stats = result.stats ?? result._debug?.stats ?? {};
+    const id = result.session?.id ?? result.sessionId ?? stats.sessionId ?? null;
+    const status = result.session?.status ?? stats.sessionStatus ?? null;
+    const remainingCalls = result.session?.remainingCalls ?? stats.remainingCalls;
+    if (!id || !['created', 'reused', 'fallback'].includes(status) || !Number.isInteger(remainingCalls) || remainingCalls < 0) {
+      return null;
+    }
+    return { id, status, remainingCalls };
+  }
+
   function buildHandledFailure({ category, reason, message, retryTool = 'explore_repo', hints = [] }) {
     return {
       schemaVersion: 1,
@@ -543,6 +554,7 @@ export function createMcpRequestHandler({
 
   function toAgentFacingResult(result) {
     const sessionId = result.sessionId ?? result.stats?.sessionId ?? result._debug?.stats?.sessionId ?? null;
+    const session = buildAgentSession(result);
     const debug = { ...(result._debug ?? {}) };
     delete debug.legacy;
 
@@ -562,6 +574,7 @@ export function createMcpRequestHandler({
       evidenceQuality: result.evidenceQuality ?? defaultEvidenceQuality(result.trustSummary),
       failure: result.failure ?? null,
       ...(sessionId ? { sessionId } : {}),
+      ...(session ? { session } : {}),
       _debug: debug,
     };
   }

@@ -242,6 +242,11 @@ test('MCP request handler exposes explore_repo and returns structuredContent', a
   assert.equal(called.structuredContent.evidenceQuality.fileCount, 2);
   assert.ok(called.structuredContent.evidence.every(item => item.id && item.snippet), 'evidence must include ids and snippets');
   assert.ok(called.structuredContent.sessionId.startsWith('sess_'), 'sessionId must be top-level');
+  assert.deepEqual(called.structuredContent.session, {
+    id: called.structuredContent.sessionId,
+    status: 'created',
+    remainingCalls: 4,
+  });
   assert.ok(called.structuredContent._debug.stats, '_debug.stats must be populated');
   assert.equal(Object.hasOwn(called.structuredContent._debug, 'legacy'), false);
   assert.match(called.content[0].text, /requireAuth/);
