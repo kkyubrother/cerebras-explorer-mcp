@@ -480,6 +480,14 @@ test('MCP request handler returns execution failures for explore_repo without mi
   assert.equal(called.structuredContent.failure.category, 'provider');
   assert.equal(called.structuredContent.failure.reason, 'provider_error');
   assert.equal(called.structuredContent.failure.retry.tool, 'explore_repo');
+  assert.deepEqual(called.structuredContent.failure.retry.args, {
+    task: 'Retry after the provider recovers, or narrow the task and scope.',
+    scope: [],
+  });
+  assert.equal(
+    called.structuredContent.failure.retry.expectedImprovement,
+    'A provider recovery or narrower scope should reduce failure risk.',
+  );
   assert.equal(called.structuredContent.evidenceQuality.level, 'low');
 });
 

@@ -256,6 +256,11 @@ Parent model (Claude Code / Codex)
 
 `failure`는 실행/input/provider/internal failure event에만 사용합니다. 낮은 confidence는 failure가 아니라 `evidenceQuality`와 `status`의 품질 신호입니다. `failure`가 있으면 `failure.retry`를 `nextAction`보다 먼저 보고, `failure`가 `null`이면 기존처럼 `nextAction`을 따르세요.
 
+`failure.retry.args` is a sanitized retry recipe, not a reflection of the
+original tool input. It contains only bounded text fields, bounded string
+arrays, and known hint keys that the runtime considers safe to hand back to an
+upper agent.
+
 `session`은 후속 호출을 위한 control-plane 필드입니다. `session.id`는 `sessionId`와 같은 값이며 다음 호출의 `session` 입력으로 넘기면 됩니다. `session.status`가 `fallback`이면 넘긴 세션이 expired/exhausted 상태라 새 세션으로 교체된 것이므로, 이후에는 반환된 `session.id`를 사용하세요.
 
 운영 디버그 정보는 실제 응답의 `_debug` 객체에 별도로 포함됩니다. 일반 agent handoff에서는 위의 top-level 계약을 먼저 읽고, explorer 동작 자체를 디버깅할 때만 `_debug.stats`, `_debug.toolTrace`, `_debug.recentActivity`를 확인하세요.

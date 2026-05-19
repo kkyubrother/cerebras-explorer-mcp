@@ -527,7 +527,15 @@ export function createMcpRequestHandler({
     return { id, status, remainingCalls };
   }
 
-  function buildHandledFailure({ category, reason, message, retryTool = 'explore_repo', hints = [] }) {
+  function buildHandledFailure({
+    category,
+    reason,
+    message,
+    retryTool = 'explore_repo',
+    hints = [],
+    retryArgs = null,
+    expectedImprovement = '',
+  }) {
     return {
       schemaVersion: 1,
       directAnswer: '',
@@ -546,7 +554,12 @@ export function createMcpRequestHandler({
         category,
         reason,
         message,
-        retry: retryTool ? { tool: retryTool, hints } : null,
+        retry: retryTool ? {
+          tool: retryTool,
+          hints,
+          ...(retryArgs ? { args: retryArgs } : {}),
+          ...(expectedImprovement ? { expectedImprovement } : {}),
+        } : null,
       },
       _debug: {},
     };
@@ -756,6 +769,9 @@ export function createMcpRequestHandler({
           }
           if (exposedToolNames.has(name)) {
             const message = `${name} execution failed: ${error.message}`;
+            const retryScope = Array.isArray(args?.scope)
+              ? args.scope.filter(item => typeof item === 'string').slice(0, 8)
+              : [];
             return {
               isError: true,
               content: [{ type: 'text', text: message }],
@@ -765,6 +781,11 @@ export function createMcpRequestHandler({
                 message,
                 retryTool: name === 'explore' ? 'explore' : 'explore_repo',
                 hints: ['Retry after the provider recovers, or narrow the task and scope.'],
+                retryArgs: {
+                  task: 'Retry after the provider recovers, or narrow the task and scope.',
+                  scope: retryScope,
+                },
+                expectedImprovement: 'A provider recovery or narrower scope should reduce failure risk.',
               }),
             };
           }

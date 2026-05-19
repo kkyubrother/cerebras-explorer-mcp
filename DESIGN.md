@@ -402,6 +402,13 @@ Agent control precedence:
 4. `session` is the ordinary control-plane field for session reuse and fallback awareness.
 5. `_debug` remains diagnostic and should not drive ordinary agent behavior.
 
+Retry recipe safety:
+
+- Runtime builds `failure.retry.args`; it does not echo arbitrary caller input.
+- Retry text fields are bounded.
+- Retry list fields are bounded.
+- Unknown keys are dropped before the object reaches MCP `structuredContent`.
+
 반환을 자연어가 아니라 JSON으로 고정한 이유:
 
 - evidence grounding contract는 additive하게 확장한다. redaction이 적용되어도 `path`, `startLine`, `endLine`, `why`, `evidenceType`, `groundingStatus`는 유지하고, `redacted`/`redactions` metadata만 추가한다.

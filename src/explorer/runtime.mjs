@@ -326,15 +326,77 @@ const RETRY_TOOLS = [
   'explore',
 ];
 
+const RETRY_TEXT_MAX = 500;
+const RETRY_LIST_MAX = 8;
+
+function sanitizeRetryText(value) {
+  if (typeof value !== 'string') return undefined;
+  const text = value.trim();
+  if (!text) return undefined;
+  return text.slice(0, RETRY_TEXT_MAX);
+}
+
+function sanitizeRetryList(value) {
+  if (!Array.isArray(value)) return undefined;
+  const items = value
+    .filter(item => typeof item === 'string')
+    .map(item => item.trim())
+    .filter(Boolean)
+    .slice(0, RETRY_LIST_MAX);
+  return items.length > 0 ? items : [];
+}
+
+function sanitizeRetryHints(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const hints = {};
+  const symbols = sanitizeRetryList(value.symbols);
+  const files = sanitizeRetryList(value.files);
+  const regex = sanitizeRetryList(value.regex);
+  if (symbols) hints.symbols = symbols;
+  if (files) hints.files = files;
+  if (regex) hints.regex = regex;
+  if (
+    typeof value.strategy === 'string' &&
+    ['symbol-first', 'reference-chase', 'git-guided', 'breadth-first', 'blame-guided', 'pattern-scan'].includes(value.strategy)
+  ) {
+    hints.strategy = value.strategy;
+  }
+  return Object.keys(hints).length > 0 ? hints : undefined;
+}
+
+function sanitizeRetryArgs(args = {}) {
+  const safe = {};
+  for (const key of ['task', 'query', 'symbol', 'change', 'pathQuery', 'claim', 'reviewGoal', 'prompt']) {
+    const text = sanitizeRetryText(args[key]);
+    if (text) safe[key] = text;
+  }
+  for (const key of ['scope', 'knownFiles', 'knownSymbols', 'knownText']) {
+    const items = sanitizeRetryList(args[key]);
+    if (items) safe[key] = items;
+  }
+  const hints = sanitizeRetryHints(args.hints);
+  if (hints) safe.hints = hints;
+  return safe;
+}
+
+function buildRetryRecipe({ tool = 'explore_repo', args = {}, hints = [], expectedImprovement = '' } = {}) {
+  const retryTool = RETRY_TOOLS.includes(tool) ? tool : 'explore_repo';
+  const safeArgs = sanitizeRetryArgs(args);
+  const safeExpectedImprovement = sanitizeRetryText(expectedImprovement);
+  return {
+    tool: retryTool,
+    hints: Array.isArray(hints) ? hints.filter(item => typeof item === 'string') : [],
+    ...(Object.keys(safeArgs).length > 0 ? { args: safeArgs } : {}),
+    ...(safeExpectedImprovement ? { expectedImprovement: safeExpectedImprovement } : {}),
+  };
+}
+
 function makeFailure(category, reason, message, retry = null) {
-  const retryTool = retry && RETRY_TOOLS.includes(retry.tool) ? retry.tool : null;
   return {
     category,
     reason,
     message,
-    retry: retryTool && Array.isArray(retry.hints)
-      ? { tool: retryTool, hints: retry.hints.filter(item => typeof item === 'string') }
-      : null,
+    retry: retry ? buildRetryRecipe(retry) : null,
   };
 }
 
@@ -351,6 +413,8 @@ function normalizeFailure(failure) {
         hints: Array.isArray(failure.retry.hints)
           ? failure.retry.hints.filter(item => typeof item === 'string')
           : [],
+        args: sanitizeRetryArgs(failure.retry.args),
+        expectedImprovement: sanitizeRetryText(failure.retry.expectedImprovement),
       }
     : null;
   return makeFailure(category, reason, message, retry);
@@ -382,6 +446,11 @@ function buildFailure(result, stats) {
     return makeFailure('internal', 'invalid_final_response', 'The explorer could not synthesize a valid compact JSON answer.', {
       tool: 'explore_repo',
       hints: ['Retry with a more specific task, symbol, file, or scope.'],
+      args: {
+        task: 'Retry with a more specific task, symbol, file, or scope.',
+        scope: Array.isArray(stats.scope) ? stats.scope : [],
+      },
+      expectedImprovement: 'A more specific prompt should improve compact JSON synthesis.',
     });
   }
   if (stats.stoppedByAbort) {
@@ -391,12 +460,22 @@ function buildFailure(result, stats) {
     return makeFailure('execution', 'tool_errors', 'Exploration stopped after repeated tool errors.', {
       tool: 'explore_repo',
       hints: ['Retry with a narrower scope or a more specific symbol/file anchor.'],
+      args: {
+        task: 'Retry with a narrower scope or a more specific symbol/file anchor.',
+        scope: Array.isArray(stats.scope) ? stats.scope : [],
+      },
+      expectedImprovement: 'A narrower task should reduce repeated tool errors and improve grounding.',
     });
   }
   if (stats.stoppedByBudget) {
     return makeFailure('execution', 'budget_exhausted', 'Exploration stopped at the turn budget before all follow-up checks were exhausted.', {
       tool: 'explore_repo',
       hints: ['Retry with a narrower scope or a more specific task.', 'Use deep budget only when repo-wide context is required.'],
+      args: {
+        task: 'Retry with a narrower scope or a more specific task.',
+        scope: Array.isArray(stats.scope) ? stats.scope : [],
+      },
+      expectedImprovement: 'A narrower task should reduce budget pressure and improve evidence quality.',
     });
   }
   return null;
@@ -1169,6 +1248,7 @@ export class ExplorerRuntime {
       totalTokens: 0,
       elapsedMs: 0,
       stoppedByBudget: false,
+      scope: Array.isArray(effectiveScope) ? effectiveScope : [],
       repoRoot,
       sessionId,
       sessionStatus,
@@ -1623,6 +1703,7 @@ export class ExplorerRuntime {
       filesRead: 0,
       elapsedMs: 0,
       stoppedByBudget: false,
+      scope: Array.isArray(effectiveScope) ? effectiveScope : [],
       repoRoot,
       sessionId,
       sessionStatus,
@@ -1908,6 +1989,7 @@ export class ExplorerRuntime {
       llmCompactions: 0,
       toolResultsTruncated: 0,
       outputRecoveries: 0,
+      scope: Array.isArray(effectiveScope) ? effectiveScope : [],
       repoRoot,
       sessionId,
       sessionStatus,

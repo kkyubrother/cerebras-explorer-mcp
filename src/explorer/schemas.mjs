@@ -103,6 +103,38 @@ const NEXT_ACTION_SCHEMA = {
   required: ['type', 'reason'],
 };
 
+const RETRY_ARGS_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    task: { type: 'string' },
+    query: { type: 'string' },
+    symbol: { type: 'string' },
+    change: { type: 'string' },
+    pathQuery: { type: 'string' },
+    claim: { type: 'string' },
+    reviewGoal: { type: 'string' },
+    prompt: { type: 'string' },
+    scope: { type: 'array', items: { type: 'string' } },
+    knownFiles: { type: 'array', items: { type: 'string' } },
+    knownSymbols: { type: 'array', items: { type: 'string' } },
+    knownText: { type: 'array', items: { type: 'string' } },
+    hints: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        symbols: { type: 'array', items: { type: 'string' } },
+        files: { type: 'array', items: { type: 'string' } },
+        regex: { type: 'array', items: { type: 'string' } },
+        strategy: {
+          type: 'string',
+          enum: ['symbol-first', 'reference-chase', 'git-guided', 'breadth-first', 'blame-guided', 'pattern-scan'],
+        },
+      },
+    },
+  },
+};
+
 const RETRY_SCHEMA = {
   type: 'object',
   additionalProperties: false,
@@ -120,6 +152,8 @@ const RETRY_SCHEMA = {
       ],
     },
     hints: { type: 'array', items: { type: 'string' } },
+    args: RETRY_ARGS_SCHEMA,
+    expectedImprovement: { type: 'string' },
   },
   required: ['tool', 'hints'],
 };

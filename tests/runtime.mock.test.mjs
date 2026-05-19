@@ -564,6 +564,9 @@ test('Phase 1 — explore circuit breaker trips after three all-error turns', as
   assert.equal(result.failure.reason, 'tool_errors');
   assert.equal(result.failure.retry.tool, 'explore_repo');
   assert.ok(result.failure.retry.hints.some(hint => /narrower scope|specific/i.test(hint)));
+  assert.equal(result.failure.retry.args.task, 'Retry with a narrower scope or a more specific symbol/file anchor.');
+  assert.deepEqual(Object.keys(result.failure.retry.args).sort(), ['scope', 'task']);
+  assert.equal(result.failure.retry.expectedImprovement, 'A narrower task should reduce repeated tool errors and improve grounding.');
   assert.equal(result.evidenceQuality.level, result.status.confidence);
 
   const thirdTurnMessages = client.snapshots[2];
@@ -1269,6 +1272,9 @@ test('Phase 1 — malformed freeform content still produces strict-schema result
   assert.equal(result.failure.reason, 'invalid_final_response');
   assert.equal(result.failure.retry.tool, 'explore_repo');
   assert.ok(result.failure.retry.hints.some(hint => /specific/i.test(hint)));
+  assert.equal(result.failure.retry.args.task, 'Retry with a more specific task, symbol, file, or scope.');
+  assert.deepEqual(Object.keys(result.failure.retry.args).sort(), ['scope', 'task']);
+  assert.equal(result.failure.retry.expectedImprovement, 'A more specific prompt should improve compact JSON synthesis.');
   assert.equal(result.evidenceQuality.level, 'low');
 });
 
