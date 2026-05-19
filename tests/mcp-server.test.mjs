@@ -259,6 +259,56 @@ test('MCP request handler exposes explore_repo and returns structuredContent', a
   assert.doesNotMatch(called.content[0].text, /stats\.sessionId/);
 });
 
+test('MCP request handler exposes fallback session when supplied session is exhausted', async () => {
+  const repoRoot = await makeRepoFixture();
+  const { SessionStore } = await import('../src/explorer/session.mjs');
+  const sessionStore = new SessionStore({ maxCalls: 1 });
+  const { handleRequest } = createMcpRequestHandler({
+    sessionStore,
+    runtimeOptions: {
+      chatClient: new MockChatClient(),
+    },
+  });
+
+  const first = await handleRequest({
+    jsonrpc: '2.0',
+    id: 1,
+    method: 'tools/call',
+    params: {
+      name: 'explore_repo',
+      arguments: {
+        task: '첫 번째 호출',
+        repo_root: repoRoot,
+        scope: ['src/**'],
+        budget: 'quick',
+      },
+    },
+  });
+
+  const exhaustedId = first.structuredContent.session.id;
+
+  const second = await handleRequest({
+    jsonrpc: '2.0',
+    id: 2,
+    method: 'tools/call',
+    params: {
+      name: 'explore_repo',
+      arguments: {
+        task: '두 번째 호출',
+        repo_root: repoRoot,
+        scope: ['src/**'],
+        budget: 'quick',
+        session: exhaustedId,
+      },
+    },
+  });
+
+  assert.equal(second.structuredContent.session.status, 'fallback');
+  assert.notEqual(second.structuredContent.session.id, exhaustedId);
+  assert.equal(second.structuredContent.session.id, second.structuredContent.sessionId);
+  assert.equal(second.structuredContent.session.remainingCalls, 0);
+});
+
 test('MCP request handler declares read-only annotations for every exposed tool shape', async () => {
   const cases = [
     {
