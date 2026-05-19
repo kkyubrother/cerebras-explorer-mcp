@@ -103,6 +103,66 @@ const NEXT_ACTION_SCHEMA = {
   required: ['type', 'reason'],
 };
 
+const RETRY_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    tool: {
+      type: 'string',
+      enum: [
+        'explore_repo',
+        'find_relevant_code',
+        'collect_evidence',
+        'trace_symbol',
+        'map_change_impact',
+        'review_change_context',
+        'explore',
+      ],
+    },
+    hints: { type: 'array', items: { type: 'string' } },
+  },
+  required: ['tool', 'hints'],
+};
+
+const FAILURE_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    category: { type: 'string', enum: ['execution', 'input', 'provider', 'internal'] },
+    reason: {
+      type: 'string',
+      enum: [
+        'budget_exhausted',
+        'tool_errors',
+        'aborted',
+        'invalid_session',
+        'repo_mismatch',
+        'provider_error',
+        'access_denied',
+        'invalid_final_response',
+      ],
+    },
+    message: { type: 'string' },
+    retry: { anyOf: [{ type: 'null' }, RETRY_SCHEMA] },
+  },
+  required: ['category', 'reason', 'message', 'retry'],
+};
+
+const EVIDENCE_QUALITY_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    level: { type: 'string', enum: ['low', 'medium', 'high'] },
+    exactCount: { type: 'integer' },
+    partialCount: { type: 'integer' },
+    droppedCount: { type: 'integer' },
+    fileCount: { type: 'integer' },
+    warnings: { type: 'array', items: { type: 'string' } },
+    summary: { type: 'string' },
+  },
+  required: ['level', 'exactCount', 'partialCount', 'droppedCount', 'fileCount', 'warnings', 'summary'],
+};
+
 const EVIDENCE_ITEM_SCHEMA = {
   type: 'object',
   additionalProperties: false,
@@ -135,20 +195,26 @@ export const EXPLORE_REPO_OUTPUT_SCHEMA = {
   type: 'object',
   additionalProperties: false,
   required: [
+    'schemaVersion',
     'directAnswer',
     'status',
     'targets',
     'evidence',
     'uncertainties',
     'nextAction',
+    'evidenceQuality',
+    'failure',
   ],
   properties: {
+    schemaVersion: { type: 'integer', const: 1 },
     directAnswer: { type: 'string' },
     status: STATUS_SCHEMA,
     targets: { type: 'array', items: TARGET_ITEM_SCHEMA },
     evidence: { type: 'array', items: EVIDENCE_ITEM_SCHEMA },
     uncertainties: { type: 'array', items: { type: 'string' } },
     nextAction: NEXT_ACTION_SCHEMA,
+    evidenceQuality: EVIDENCE_QUALITY_SCHEMA,
+    failure: { anyOf: [{ type: 'null' }, FAILURE_SCHEMA] },
     sessionId: { type: 'string' },
     _debug: { type: 'object', additionalProperties: true },
   },

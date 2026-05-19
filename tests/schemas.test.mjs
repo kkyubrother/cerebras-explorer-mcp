@@ -199,22 +199,31 @@ test('internal model result schema uses the compact explore contract', () => {
 test('agent-facing output schema is compact and exposes directAnswer, status, targets, snippets, sessionId, and debug', () => {
   assert.equal(EXPLORE_REPO_OUTPUT_SCHEMA.additionalProperties, false);
   assert.deepEqual(EXPLORE_REPO_OUTPUT_SCHEMA.required, [
+    'schemaVersion',
     'directAnswer',
     'status',
     'targets',
     'evidence',
     'uncertainties',
     'nextAction',
+    'evidenceQuality',
+    'failure',
   ]);
+  assert.equal(EXPLORE_REPO_OUTPUT_SCHEMA.properties.schemaVersion.const, 1);
   assert.ok(EXPLORE_REPO_OUTPUT_SCHEMA.properties.directAnswer);
   assert.ok(EXPLORE_REPO_OUTPUT_SCHEMA.properties.status);
   assert.ok(EXPLORE_REPO_OUTPUT_SCHEMA.properties.targets);
   assert.ok(EXPLORE_REPO_OUTPUT_SCHEMA.properties.evidence.items.properties.snippet);
+  assert.ok(EXPLORE_REPO_OUTPUT_SCHEMA.properties.evidenceQuality);
+  assert.ok(EXPLORE_REPO_OUTPUT_SCHEMA.properties.failure);
   assert.ok(EXPLORE_REPO_OUTPUT_SCHEMA.properties.sessionId);
   assert.ok(EXPLORE_REPO_OUTPUT_SCHEMA.properties._debug);
   assert.equal(EXPLORE_REPO_OUTPUT_SCHEMA.properties.answer, undefined);
   assert.equal(EXPLORE_REPO_OUTPUT_SCHEMA.properties.candidatePaths, undefined);
   assert.equal(EXPLORE_REPO_OUTPUT_SCHEMA.properties.followups, undefined);
+  assert.equal(EXPLORE_RESULT_JSON_SCHEMA.schema.properties.schemaVersion, undefined);
+  assert.equal(EXPLORE_RESULT_JSON_SCHEMA.schema.properties.evidenceQuality, undefined);
+  assert.equal(EXPLORE_RESULT_JSON_SCHEMA.schema.properties.failure, undefined);
 });
 
 test('normalizeExploreResult accepts compact result fields without legacy aliases', () => {
