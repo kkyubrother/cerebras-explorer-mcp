@@ -95,6 +95,43 @@ test('freeExplore continues after malformed tool arguments', async () => {
   assert.ok(result.report, 'result has report');
 });
 
+test('freeExplore searchCoverage counts non-read tool calls', async () => {
+  class CoverageClient {
+    constructor() { this.model = 'test'; this.calls = 0; }
+    async createChatCompletion() {
+      this.calls += 1;
+      if (this.calls === 1) {
+        return {
+          usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+          message: {
+            content: null,
+            toolCalls: [
+              { id: 'list', function: { name: 'repo_list_dir', arguments: JSON.stringify({ dirPath: 'src', depth: 1 }) } },
+              { id: 'symbols', function: { name: 'repo_symbols', arguments: JSON.stringify({ path: 'src/auth.js' }) } },
+              { id: 'grep', function: { name: 'repo_grep', arguments: JSON.stringify({ pattern: 'requireAuth', scope: ['src/**'] }) } },
+            ],
+          },
+        };
+      }
+      return {
+        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+        message: { content: 'Coverage report', toolCalls: [] },
+      };
+    }
+  }
+
+  const root = await makeRepoFixture();
+  const runtime = new ExplorerRuntime({ chatClient: new CoverageClient() });
+  const result = await runtime.freeExplore({ prompt: 'map auth surface', repo_root: root });
+
+  assert.equal(result.stats.listDirCalls, 1);
+  assert.equal(result.stats.symbolCalls, 1);
+  assert.equal(result.stats.grepCalls, 1);
+  assert.equal(result.searchCoverage.listDirCalls, 1);
+  assert.equal(result.searchCoverage.symbolCalls, 1);
+  assert.equal(result.searchCoverage.grepCalls, 1);
+});
+
 test('freeExplore sets stoppedByBudget when budget is exhausted', async () => {
   // Always return tool calls to exhaust the budget
   class BudgetExhaustClient {

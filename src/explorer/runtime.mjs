@@ -500,7 +500,6 @@ function buildFailure(result, stats) {
       hints: ['Retry with a narrower scope or a more specific task.', 'Use deep budget only when repo-wide context is required.'],
       args: {
         task: 'Retry with a narrower scope or a more specific task.',
-        scope: Array.isArray(stats.scope) ? stats.scope : [],
       },
       expectedImprovement: 'A narrower task should reduce budget pressure and improve evidence quality.',
     });
@@ -923,9 +922,10 @@ function summarizeUsage(existing, usage) {
   };
 }
 
-function incrementToolStats(stats, toolName) {
+function incrementToolStats(stats, toolName, { countReadFiles = true } = {}) {
   stats.toolCalls += 1;
   const statField = TOOL_STAT_FIELD_MAP[toolName];
+  if (statField === 'filesRead' && !countReadFiles) return;
   if (statField) {
     stats[statField] += 1;
   }
@@ -1759,7 +1759,15 @@ export class ExplorerRuntime {
       budget: budgetConfig.label,
       turns: 0,
       toolCalls: 0,
+      listDirCalls: 0,
+      findFileCalls: 0,
+      grepCalls: 0,
       filesRead: 0,
+      gitLogCalls: 0,
+      gitBlameCalls: 0,
+      gitDiffCalls: 0,
+      gitShowCalls: 0,
+      symbolCalls: 0,
       elapsedMs: 0,
       stoppedByBudget: false,
       scope: Array.isArray(effectiveScope) ? effectiveScope : [],
@@ -1859,7 +1867,7 @@ export class ExplorerRuntime {
 
       for (const { toolCall, toolName, toolArgs, toolResult } of toolCallResults) {
         const safeToolResult = redactToolResult(toolResult);
-        stats.toolCalls += 1;
+        incrementToolStats(stats, toolName, { countReadFiles: false });
         toolsUsed.add(toolName);
         toolTrace.record({
           turn: turnIndex + 1,
@@ -2043,7 +2051,15 @@ export class ExplorerRuntime {
       budget: budgetConfig.label,
       turns: 0,
       toolCalls: 0,
+      listDirCalls: 0,
+      findFileCalls: 0,
+      grepCalls: 0,
       filesRead: 0,
+      gitLogCalls: 0,
+      gitBlameCalls: 0,
+      gitDiffCalls: 0,
+      gitShowCalls: 0,
+      symbolCalls: 0,
       elapsedMs: 0,
       stoppedByBudget: false,
       llmCompactions: 0,
@@ -2221,7 +2237,7 @@ export class ExplorerRuntime {
       let allErrors = true;
       for (const { toolCall, toolName, toolArgs, toolResult } of toolCallResults) {
         const safeToolResult = redactToolResult(toolResult);
-        stats.toolCalls += 1;
+        incrementToolStats(stats, toolName, { countReadFiles: false });
         toolsUsed.add(toolName);
         toolTrace.record({
           turn: turnIndex + 1,

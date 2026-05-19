@@ -259,7 +259,8 @@ Parent model (Claude Code / Codex)
 `failure.retry.args` is a sanitized retry recipe, not a reflection of the
 original tool input. It contains only bounded text fields, bounded string
 arrays, and known hint keys that the runtime considers safe to hand back to an
-upper agent.
+upper agent. Budget-exhausted retries intentionally avoid echoing the unchanged
+scope so an upper agent does not blindly replay the same bounded search.
 
 `session`은 후속 호출을 위한 control-plane 필드입니다. `session.id`는 `sessionId`와 같은 값이며 다음 호출의 `session` 입력으로 넘기면 됩니다. `session.status`가 `fallback`이면 넘긴 세션이 expired/exhausted 상태라 새 세션으로 교체된 것이므로, 이후에는 반환된 `session.id`를 사용하세요.
 

@@ -412,6 +412,8 @@ Retry recipe safety:
 - Runtime builds `failure.retry.args`; it does not echo arbitrary caller input.
 - Retry text fields are bounded.
 - Retry list fields are bounded.
+- `budget_exhausted` retry recipes omit the unchanged input scope to avoid
+  encouraging a blind replay of the same exhausted search.
 - Unknown keys are dropped before the object reaches MCP `structuredContent`.
 
 `searchCoverage` is runtime-owned metadata derived from stats. It reports scope,

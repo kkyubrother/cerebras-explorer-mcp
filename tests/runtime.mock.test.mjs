@@ -753,6 +753,75 @@ test('Phase 1 — freeExploreV2 circuit breaker trips after three all-error turn
   );
 });
 
+test('freeExploreV2 searchCoverage counts non-read tool calls', async () => {
+  class CoverageFreeExploreV2Client {
+    constructor() {
+      this.model = 'zai-glm-4.7';
+      this.calls = 0;
+    }
+
+    async createChatCompletion() {
+      this.calls += 1;
+      if (this.calls === 1) {
+        return {
+          usage: { prompt_tokens: 30, completion_tokens: 10, total_tokens: 40 },
+          message: {
+            content: '',
+            toolCalls: [
+              {
+                id: 'list-src',
+                function: {
+                  name: 'repo_list_dir',
+                  arguments: JSON.stringify({ dirPath: 'src', depth: 1 }),
+                },
+              },
+              {
+                id: 'symbols-auth',
+                function: {
+                  name: 'repo_symbols',
+                  arguments: JSON.stringify({ path: 'src/auth.js' }),
+                },
+              },
+              {
+                id: 'grep-auth',
+                function: {
+                  name: 'repo_grep',
+                  arguments: JSON.stringify({ pattern: 'requireAuth', scope: ['src/**'] }),
+                },
+              },
+            ],
+          },
+        };
+      }
+
+      return {
+        usage: { prompt_tokens: 30, completion_tokens: 10, total_tokens: 40 },
+        finishReason: 'stop',
+        message: {
+          content: '# Coverage report\n\nUsed list, symbol, and grep tools.',
+          toolCalls: [],
+        },
+      };
+    }
+  }
+
+  const repoRoot = await makeRepoFixture();
+  const runtime = new ExplorerRuntime({ chatClient: new CoverageFreeExploreV2Client() });
+
+  const result = await runtime.freeExploreV2({
+    prompt: 'auth surface coverage',
+    repo_root: repoRoot,
+    thoroughness: 'quick',
+  });
+
+  assert.equal(result.stats.listDirCalls, 1);
+  assert.equal(result.stats.symbolCalls, 1);
+  assert.equal(result.stats.grepCalls, 1);
+  assert.equal(result.searchCoverage.listDirCalls, 1);
+  assert.equal(result.searchCoverage.symbolCalls, 1);
+  assert.equal(result.searchCoverage.grepCalls, 1);
+});
+
 test('Phase 1 — freeExploreV2 compaction preserves complete turns and valid tool sequencing', async () => {
   class CompactionSequenceClient {
     constructor() {
@@ -1395,6 +1464,64 @@ test('Phase 1 — malformed freeform content still produces strict-schema result
   assert.deepEqual(Object.keys(result.failure.retry.args).sort(), ['scope', 'task']);
   assert.equal(result.failure.retry.expectedImprovement, 'A more specific prompt should improve compact JSON synthesis.');
   assert.equal(result.evidenceQuality.level, 'low');
+});
+
+test('ExplorerRuntime budget retry args do not echo unchanged scope', async () => {
+  class BudgetRetryScopeClient {
+    constructor() {
+      this.model = 'zai-glm-4.7';
+      this.calls = 0;
+    }
+
+    async createChatCompletion({ responseFormat }) {
+      this.calls += 1;
+      if (responseFormat) {
+        return {
+          usage: { prompt_tokens: 50, completion_tokens: 20, total_tokens: 70 },
+          message: {
+            content: JSON.stringify(compactResult({
+              directAnswer: 'Budget exhausted before enough evidence was gathered.',
+              statusConfidence: 'low',
+              verification: 'follow_up_needed',
+              complete: false,
+              uncertainties: ['Budget exhausted before full follow-up.'],
+              nextAction: { type: 'continue', reason: 'Retry with a narrower task.' },
+            })),
+            toolCalls: [],
+          },
+        };
+      }
+
+      return {
+        usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+        message: {
+          content: '',
+          toolCalls: [{
+            id: `grep-${this.calls}`,
+            function: {
+              name: 'repo_grep',
+              arguments: JSON.stringify({ pattern: `unlikely-${this.calls}`, scope: ['src/**'] }),
+            },
+          }],
+        },
+      };
+    }
+  }
+
+  const root = await makeRepoFixture();
+  const runtime = new ExplorerRuntime({ chatClient: new BudgetRetryScopeClient() });
+  const result = await runtime.explore({
+    task: 'Map auth behavior broadly enough to exhaust the quick budget.',
+    repo_root: root,
+    scope: ['src/**', 'tests/**'],
+    budget: 'quick',
+  });
+
+  assert.equal(result.stats.stoppedByBudget, true);
+  assert.equal(result.failure.reason, 'budget_exhausted');
+  assert.equal(result.failure.retry.args.task, 'Retry with a narrower scope or a more specific task.');
+  assert.equal(result.failure.retry.args.scope, undefined);
+  assert.deepEqual(Object.keys(result.failure.retry.args).sort(), ['task']);
 });
 
 // ── Phase 5 — evidence/schema/context 고도화 ──────────────────────────────────

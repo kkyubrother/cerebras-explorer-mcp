@@ -62,6 +62,10 @@ export const EXPLORE_REPO_INPUT_SCHEMA = {
   required: ['task'],
 };
 
+// Wrapper tools pass trusted internal taskMode directly to ExplorerRuntime.
+// It is intentionally absent from this public schema; direct explore_repo
+// input rejects unknown fields via additionalProperties: false.
+
 const STATUS_SCHEMA = {
   type: 'object',
   additionalProperties: false,

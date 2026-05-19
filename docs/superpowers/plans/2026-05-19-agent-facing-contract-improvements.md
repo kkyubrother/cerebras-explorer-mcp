@@ -44,6 +44,11 @@
 - `searchCoverage` is optional top-level agent-facing metadata. It is not model-generated and is not added to `EXPLORE_RESULT_JSON_SCHEMA`.
 - `searchCoverage` summarizes coverage and truncation signals. It does not claim complete semantic coverage.
 
+## Follow-up Tracking
+
+- [ ] Evaluate removing `hasEditIntent(task)` fallback once all non-wrapper entry points
+      either provide an explicit mode or intentionally keep text-based intent detection.
+
 ---
 
 ## Task 1: Align Integration Allowlist Documentation
