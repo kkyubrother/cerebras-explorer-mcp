@@ -14,17 +14,17 @@ Cerebras Explorer는 상위 AI가 정확한 판단을 내릴 수 있도록, 필�
 
 ```bash
 export CEREBRAS_API_KEY="..."
-npx -y github:kkyubrother/cerebras-explorer-mcp#v0.1.0
+npx -y github:kkyubrother/cerebras-explorer-mcp#v0.2.0
 ```
 
-`npx`는 spec(URL + ref)을 캐시 키로 사용하므로 `#v0.1.0` 같은 tag를 권장합니다. 개발 브랜치를 추적해야 하면 `#master`, 특정 상태가 필요하면 `#<commit-sha>`를 명시하세요.
+`npx`는 spec(URL + ref)을 캐시 키로 사용하므로 `#v0.2.0` 같은 tag를 권장합니다. 개발 브랜치를 추적해야 하면 `#master`, 특정 상태가 필요하면 `#<commit-sha>`를 명시하세요.
 
 ### Claude Code
 
 ```bash
 claude mcp add -s user cerebras-explorer \
   -e CEREBRAS_API_KEY="$CEREBRAS_API_KEY" \
-  -- npx -y github:kkyubrother/cerebras-explorer-mcp#v0.1.0
+  -- npx -y github:kkyubrother/cerebras-explorer-mcp#v0.2.0
 ```
 
 ### Codex CLI
@@ -32,7 +32,7 @@ claude mcp add -s user cerebras-explorer \
 ```toml
 [mcp_servers.cerebras-explorer]
 command = "npx"
-args = ["-y", "github:kkyubrother/cerebras-explorer-mcp#v0.1.0"]
+args = ["-y", "github:kkyubrother/cerebras-explorer-mcp#v0.2.0"]
 enabled = true
 startup_timeout_sec = 60
 tool_timeout_sec = 60
@@ -65,7 +65,7 @@ purpose-built evidence, path, review, and Markdown-report entry points.
   "mcp": {
     "cerebras-explorer": {
       "type": "local",
-      "command": ["npx", "-y", "github:kkyubrother/cerebras-explorer-mcp#v0.1.0"],
+      "command": ["npx", "-y", "github:kkyubrother/cerebras-explorer-mcp#v0.2.0"],
       "environment": { "CEREBRAS_API_KEY": "${CEREBRAS_API_KEY}" }
     }
   }
@@ -77,7 +77,7 @@ purpose-built evidence, path, review, and Markdown-report entry points.
 ```bash
 gemini mcp add -e CEREBRAS_API_KEY="$CEREBRAS_API_KEY" \
   cerebras-explorer npx -- \
-  -y github:kkyubrother/cerebras-explorer-mcp#v0.1.0
+  -y github:kkyubrother/cerebras-explorer-mcp#v0.2.0
 ```
 
 Gemini CLI는 `*KEY*`, `*SECRET*`, `*TOKEN*`, `*PASSWORD*`, `*AUTH*`, `*CREDENTIAL*` 패턴의 환경변수를 기본 차단합니다. `CEREBRAS_API_KEY`는 서버 설정의 `env` 블록 또는 위 `-e` 옵션으로 명시해야 전달됩니다.
@@ -698,14 +698,16 @@ node ./scripts/run-benchmark.mjs \
 1. 의미 있는 단위로 commit + push가 끝난 상태에서 시작합니다.
 2. 새 tag를 끊고 push:
    ```bash
-   git tag v0.2.0
-   git push origin v0.2.0
+   NEW_TAG=v0.2.0
+   git tag "$NEW_TAG"
+   git push origin "$NEW_TAG"
    ```
 3. 모든 클라이언트 설치 예시에 박혀 있는 이전 tag를 한 번에 치환:
    ```bash
-   OLD=v0.1.0 NEW=v0.2.0
-   grep -rl "github:kkyubrother/cerebras-explorer-mcp#${OLD}" README.md integrations/ \
-     | xargs sed -i "s|cerebras-explorer-mcp#${OLD}|cerebras-explorer-mcp#${NEW}|g"
+   OLD_TAG=v0.1.0
+   NEW_TAG=v0.2.0
+   grep -rl "github:kkyubrother/cerebras-explorer-mcp#${OLD_TAG}" README.md integrations/ \
+     | xargs sed -i "s|cerebras-explorer-mcp#${OLD_TAG}|cerebras-explorer-mcp#${NEW_TAG}|g"
    ```
 4. 변경 commit + push:
    ```bash
@@ -713,11 +715,11 @@ node ./scripts/run-benchmark.mjs \
    git commit -m "docs: bump install spec to v0.2.0"
    git push origin master
    ```
-5. (선택) GitHub Releases에 release notes 작성 — `git log v0.1.0..v0.2.0 --oneline` 출력을 기반으로 사용자 영향이 있는 변경 위주로 정리.
+5. (선택) GitHub Releases에 release notes 작성 — `git log "$OLD_TAG..$NEW_TAG" --oneline` 출력을 기반으로 사용자 영향이 있는 변경 위주로 정리.
 
 > **tag만 push하고 README/`integrations/` 안 바꾸면**, 새 사용자가 README를 보고 따라 등록할 때 여전히 이전 tag를 받게 됩니다. tag와 문서는 항상 같이 갱신해주세요. 위 sed 한 줄이 그 일을 자동화합니다.
 
-> **이미 등록된 사용자에게 새 버전을 알리는 방법**: 자동 알림 로직(예: `stats.updateAvailable`)은 아직 구현되지 않았습니다. 당분간은 release notes나 README 안내로 사용자가 자기 등록 spec의 tag 부분(`#v0.1.0` → `#v0.2.0`)을 직접 바꾸도록 유도하세요. ref가 바뀌면 npx가 자동으로 새 캐시 키를 만들어 받아옵니다.
+> **이미 등록된 사용자에게 새 버전을 알리는 방법**: 자동 알림 로직(예: `stats.updateAvailable`)은 아직 구현되지 않았습니다. 당분간은 release notes나 README 안내로 사용자가 자기 등록 spec의 tag 부분을 새 tag로 직접 바꾸도록 유도하세요. ref가 바뀌면 npx가 자동으로 새 캐시 키를 만들어 받아옵니다.
 
 ## 현재 제한 사항
 

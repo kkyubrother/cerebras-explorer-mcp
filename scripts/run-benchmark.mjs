@@ -65,7 +65,7 @@ async function createHandler(logger) {
     params: {
       protocolVersion: '2025-06-18',
       capabilities: {},
-      clientInfo: { name: 'benchmark-runner', version: '0.1.0' },
+      clientInfo: { name: 'benchmark-runner', version: '0.2.0' },
     },
   });
   return handleRequest;

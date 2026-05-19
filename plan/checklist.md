@@ -153,7 +153,7 @@ Phase 4 evidence:
 
 Phase 5 evidence:
 
-- `integrations/gemini/settings.json.example` adds `cerebras-explorer` with `npx`, pinned `#v0.1.0`, `CEREBRAS_API_KEY` in `env`, and a narrow `includeTools` allowlist.
+- `integrations/gemini/settings.json.example` adds `cerebras-explorer` with `npx`, pinned `#v0.2.0`, `CEREBRAS_API_KEY` in `env`, and a narrow `includeTools` allowlist.
 - `integrations/gemini/README.md` documents global/project settings paths, env sanitization, alias naming, `includeTools`/`excludeTools`, CLI registration, and `gemini mcp list` verification.
 - `integrations/codex/config.toml.example` now uses `npx`, startup/tool timeouts, `enabled_tools`, optional `disabled_tools`, and env config.
 - README first screen now contains quickstart, seven-client matrix, default/min/max tool exposure, annotations hint warning, and Security Model.
@@ -185,3 +185,22 @@ Phase 6 evidence:
 - `rg '#main' README.md integrations`: no matches.
 - README/DESIGN/plan/checklist all keep `roots/list`, `resource_link`, provider alias/model fallback, `--doctor`, protocol whitelist, and `_debug.usage` out of the v0.2.0 release gate.
 - `git status --short` before this checklist update was clean.
+
+## Phase 7: Release Finalization
+
+- [x] Create a lightweight spec for the v0.2.0 finalization work.
+- [x] Bump package and MCP server metadata to `0.2.0`.
+- [x] Replace documented install refs with `#v0.2.0`.
+- [x] Date the v0.2.0 changelog entry.
+- [x] Run release verification after metadata changes.
+- [x] Record verification evidence.
+
+Phase 7 evidence:
+
+- Added `specs/v0.2.0-release-finalization/` with spec, plan, and task files.
+- `package.json` and MCP `serverInfo.version` now report `0.2.0`.
+- README and integration examples now use `github:kkyubrother/cerebras-explorer-mcp#v0.2.0`.
+- `CHANGELOG.md` records `v0.2.0 - 2026-05-19`.
+- `npm test`: 295 tests / 294 pass / 0 fail / 1 skip.
+- `npm ls --depth=0 --json`: package name/version only, no runtime dependencies.
+- Stale active install refs and unreleased metadata check returned no matches.

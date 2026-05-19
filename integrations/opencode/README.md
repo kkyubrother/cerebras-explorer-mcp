@@ -17,7 +17,7 @@
   "mcp": {
     "cerebras-explorer": {
       "type": "local",
-      "command": ["npx", "-y", "github:kkyubrother/cerebras-explorer-mcp#v0.1.0"],
+      "command": ["npx", "-y", "github:kkyubrother/cerebras-explorer-mcp#v0.2.0"],
       "enabled": true,
       "environment": {
         "CEREBRAS_API_KEY": "${CEREBRAS_API_KEY}"
@@ -32,7 +32,7 @@
 기본 브랜치 대신 tag/branch/commit으로 고정하려면 `command` 마지막 인자를 다음 중 하나로 교체합니다.
 
 ```json
-"command": ["npx", "-y", "github:kkyubrother/cerebras-explorer-mcp#v0.1.0"]
+"command": ["npx", "-y", "github:kkyubrother/cerebras-explorer-mcp#v0.2.0"]
 "command": ["npx", "-y", "github:kkyubrother/cerebras-explorer-mcp#master"]
 "command": ["npx", "-y", "github:kkyubrother/cerebras-explorer-mcp#<commit-sha>"]
 ```
