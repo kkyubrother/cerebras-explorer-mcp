@@ -249,6 +249,15 @@ test('ExplorerRuntime performs an autonomous tool loop and returns structured fi
   assert.ok(Array.isArray(result.targets), 'targets must be an array');
   assert.ok(result.targets.some(target => target.path === 'src/routes/user.js'), 'targets include route file');
   assert.ok(result.targets.every(target => target.role !== 'edit'), 'read-only tracing must not mark all evidence targets as edit');
+  assert.equal(result.schemaVersion, 1);
+  assert.equal(result.failure, null);
+  assert.equal(result.evidenceQuality.level, result.status.confidence);
+  assert.equal(result.evidenceQuality.exactCount, 2);
+  assert.equal(result.evidenceQuality.partialCount, 0);
+  assert.equal(result.evidenceQuality.droppedCount, 0);
+  assert.equal(result.evidenceQuality.fileCount, 2);
+  assert.ok(Array.isArray(result.evidenceQuality.warnings));
+  assert.match(result.evidenceQuality.summary, /evidence items grounded|Verified:/);
   assert.equal(result.evidence.length, 2);
   assert.ok(result.evidence.every(item => item.id && item.snippet), 'evidence has ids and snippets');
   assert.ok(result.evidence.every(item => !item.snippet.includes('FORGED_BY_MODEL')), 'model-supplied snippets are replaced with local file snippets');
@@ -550,6 +559,12 @@ test('Phase 1 — explore circuit breaker trips after three all-error turns', as
   assert.equal(result.stats.stoppedByErrors, true, 'circuit breaker must mark stoppedByErrors');
   assert.equal(result.stats.stoppedByBudget, false, 'error stop must not be mislabeled as budget stop');
   assert.equal(client.calls, 4, 'three tool-loop calls plus one finalization call');
+  assert.equal(result.schemaVersion, 1);
+  assert.equal(result.failure.category, 'execution');
+  assert.equal(result.failure.reason, 'tool_errors');
+  assert.equal(result.failure.retry.tool, 'explore_repo');
+  assert.ok(result.failure.retry.hints.some(hint => /narrower scope|specific/i.test(hint)));
+  assert.equal(result.evidenceQuality.level, result.status.confidence);
 
   const thirdTurnMessages = client.snapshots[2];
   assert.ok(
@@ -1249,6 +1264,12 @@ test('Phase 1 — malformed freeform content still produces strict-schema result
   assert.ok(Array.isArray(result.evidence), 'evidence must be an array on fallback');
   assert.ok(Array.isArray(result.uncertainties), 'uncertainties must be an array on fallback');
   assert.equal(result.followups, undefined);
+  assert.equal(result.schemaVersion, 1);
+  assert.equal(result.failure.category, 'internal');
+  assert.equal(result.failure.reason, 'invalid_final_response');
+  assert.equal(result.failure.retry.tool, 'explore_repo');
+  assert.ok(result.failure.retry.hints.some(hint => /specific/i.test(hint)));
+  assert.equal(result.evidenceQuality.level, 'low');
 });
 
 // ── Phase 5 — evidence/schema/context 고도화 ──────────────────────────────────

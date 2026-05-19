@@ -302,6 +302,111 @@ function buildTrustSummary(result, stats) {
   return parts.join(', ') + '. ' + suffix;
 }
 
+const AGENT_FACING_SCHEMA_VERSION = 1;
+
+const FAILURE_CATEGORIES = ['execution', 'input', 'provider', 'internal'];
+const FAILURE_REASONS = [
+  'budget_exhausted',
+  'tool_errors',
+  'aborted',
+  'invalid_session',
+  'repo_mismatch',
+  'provider_error',
+  'access_denied',
+  'invalid_final_response',
+];
+const RETRY_TOOLS = [
+  'explore_repo',
+  'find_relevant_code',
+  'collect_evidence',
+  'trace_symbol',
+  'map_change_impact',
+  'review_change_context',
+  'explore',
+];
+
+function makeFailure(category, reason, message, retry = null) {
+  return {
+    category,
+    reason,
+    message,
+    retry: retry && retry.tool && Array.isArray(retry.hints)
+      ? { tool: retry.tool, hints: retry.hints.filter(item => typeof item === 'string') }
+      : null,
+  };
+}
+
+function normalizeFailure(failure) {
+  if (!failure || typeof failure !== 'object') return null;
+  const category = FAILURE_CATEGORIES.includes(failure.category) ? failure.category : 'internal';
+  const reason = FAILURE_REASONS.includes(failure.reason) ? failure.reason : 'provider_error';
+  const message = typeof failure.message === 'string' && failure.message.trim()
+    ? failure.message.trim()
+    : 'Explorer could not complete normally.';
+  const retry = failure.retry && typeof failure.retry === 'object'
+    ? {
+        tool: RETRY_TOOLS.includes(failure.retry.tool) ? failure.retry.tool : 'explore_repo',
+        hints: Array.isArray(failure.retry.hints)
+          ? failure.retry.hints.filter(item => typeof item === 'string')
+          : [],
+      }
+    : null;
+  return makeFailure(category, reason, message, retry);
+}
+
+function buildEvidenceQuality(result, stats, grounding = {}) {
+  const evidence = Array.isArray(result.evidence) ? result.evidence : [];
+  const exactCount = evidence.filter(item => item.groundingStatus === 'exact').length;
+  const partialCount = evidence.filter(item => item.groundingStatus === 'partial').length;
+  const droppedCount = (grounding.droppedUngrounded ?? 0) + (grounding.droppedMalformed ?? 0);
+  const fileCount = new Set(evidence.map(item => item.path).filter(Boolean)).size;
+  const warnings = Array.isArray(result.status?.warnings) ? result.status.warnings.slice(0, 5) : [];
+  const summary = result.trustSummary || buildTrustSummary(result, stats);
+  return {
+    level: result.status?.confidence ?? 'low',
+    exactCount,
+    partialCount,
+    droppedCount,
+    fileCount,
+    warnings,
+    summary,
+  };
+}
+
+function buildFailure(result, stats) {
+  const existing = normalizeFailure(result.failure);
+  if (existing) return existing;
+  if (stats.invalidFinalResponse) {
+    return makeFailure('internal', 'invalid_final_response', 'The explorer could not synthesize a valid compact JSON answer.', {
+      tool: 'explore_repo',
+      hints: ['Retry with a more specific task, symbol, file, or scope.'],
+    });
+  }
+  if (stats.stoppedByAbort) {
+    return makeFailure('execution', 'aborted', 'Exploration was cancelled before completion.', null);
+  }
+  if (stats.stoppedByErrors) {
+    return makeFailure('execution', 'tool_errors', 'Exploration stopped after repeated tool errors.', {
+      tool: 'explore_repo',
+      hints: ['Retry with a narrower scope or a more specific symbol/file anchor.'],
+    });
+  }
+  if (stats.stoppedByBudget) {
+    return makeFailure('execution', 'budget_exhausted', 'Exploration stopped at the turn budget before all follow-up checks were exhausted.', {
+      tool: 'explore_repo',
+      hints: ['Retry with a narrower scope or a more specific task.', 'Use deep budget only when repo-wide context is required.'],
+    });
+  }
+  return null;
+}
+
+function attachAgentFacingContract(result, stats, grounding = {}) {
+  result.schemaVersion = AGENT_FACING_SCHEMA_VERSION;
+  result.failure = buildFailure(result, stats);
+  result.evidenceQuality = buildEvidenceQuality(result, stats, grounding);
+  return result;
+}
+
 function isOutsideRoot(root, targetPath) {
   const relative = path.relative(root, targetPath);
   return relative.startsWith('..') || path.isAbsolute(relative);
@@ -1171,6 +1276,7 @@ export class ExplorerRuntime {
           throw error;
         }
         finalObject = finalized.result;
+        if (finalized.invalidFinalResponse) stats.invalidFinalResponse = true;
         Object.assign(stats, summarizeUsage(stats, finalized.usage));
         break;
       }
@@ -1374,6 +1480,7 @@ export class ExplorerRuntime {
         abortSignal,
       });
       finalObject = finalized.result;
+      if (finalized.invalidFinalResponse) stats.invalidFinalResponse = true;
       Object.assign(stats, summarizeUsage(stats, finalized.usage));
     }
 
@@ -1426,6 +1533,7 @@ export class ExplorerRuntime {
 
     // Trust summary — a natural-language sentence the parent model can rely on
     normalized.trustSummary = buildTrustSummary(normalized, stats);
+    attachAgentFacingContract(normalized, stats, criticPass.grounding);
 
     // codeMap
     const codeMap = buildCodeMap(observedRanges, projectConfig.entryPoints ?? []);
@@ -2250,8 +2358,18 @@ export class ExplorerRuntime {
         evidence: [],
         uncertainties: ['Final response could not be repaired into compact JSON.'],
         nextAction: { type: 'ask_user', reason: 'The explorer could not synthesize a valid compact JSON answer.' },
+        failure: {
+          category: 'internal',
+          reason: 'invalid_final_response',
+          message: 'The explorer could not synthesize a valid compact JSON answer.',
+          retry: {
+            tool: 'explore_repo',
+            hints: ['Retry with a more specific task, symbol, file, or scope.'],
+          },
+        },
       },
       usage: completion.usage ?? null,
+      invalidFinalResponse: true,
     };
   }
 }
