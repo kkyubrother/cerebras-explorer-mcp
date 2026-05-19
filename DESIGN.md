@@ -229,11 +229,11 @@ GLM 4.7 마이그레이션 기준으로 explorer runtime은 다음 원칙을 따
 
 #### 세션 계약
 
-- MCP `structuredContent`에서는 세션이 top-level `sessionId`로 반환되며, 다음 호출에서 `session` 파라미터로 전달하면 재사용된다.
-- runtime raw result에는 backward compatibility를 위해 `stats.sessionId`도 남긴다.
+- MCP `structuredContent`에서는 세션이 top-level `session` 객체와 호환용 `sessionId`로 반환된다. 다음 호출에는 `session.id` 또는 `sessionId`를 `session` 파라미터로 전달하면 된다.
+- runtime raw result에는 backward compatibility를 위해 `stats.sessionId`, `stats.sessionStatus`, `stats.remainingCalls`도 남긴다.
 - 명시적으로 요청된 세션이 invalid 또는 repo_mismatch인 경우 에러를 반환한다.
-- 명시적으로 요청된 세션이 expired 또는 exhausted인 경우 새 세션으로 fallback하고, `stats.sessionStatus`에 `fallback`을 표시한다.
-- `stats.sessionStatus`가 `created`, `reused`, `fallback` 중 하나를 표시하고, `stats.remainingCalls`가 남은 호출 수를 표시한다.
+- 명시적으로 요청된 세션이 expired 또는 exhausted인 경우 새 세션으로 fallback하고, top-level `session.status`와 `stats.sessionStatus`에 `fallback`을 표시한다.
+- `session.status`가 `created`, `reused`, `fallback` 중 하나를 표시하고, `session.remainingCalls`가 현재 호출 반영 후 남은 호출 수를 표시한다.
 ---
 
 ## 6. 독립성 정의
@@ -325,7 +325,7 @@ GLM 4.7 마이그레이션 기준으로 explorer runtime은 다음 원칙을 따
 
 ## 9. 반환 스키마
 
-Explorer의 내부 모델 출력은 compact finding contract만 생성한다. 런타임은 검증된 관측값으로 snippet, critic 결과, `schemaVersion`, `evidenceQuality`, nullable `failure`, `_debug` 운영 정보를 덧붙여 MCP `structuredContent`를 만든다.
+Explorer의 내부 모델 출력은 compact finding contract만 생성한다. 런타임은 검증된 관측값으로 snippet, critic 결과, `schemaVersion`, `evidenceQuality`, nullable `failure`, `session`, `_debug` 운영 정보를 덧붙여 MCP `structuredContent`를 만든다.
 
 MCP agent-facing contract:
 
@@ -381,6 +381,11 @@ MCP agent-facing contract:
   },
   "failure": null,
   "sessionId": "sess_...",
+  "session": {
+    "id": "sess_...",
+    "status": "created|reused|fallback",
+    "remainingCalls": 4
+  },
   "_debug": {
     "stats": {},
     "confidenceScore": 0.0,
@@ -394,7 +399,8 @@ Agent control precedence:
 1. `failure.retry` wins when `failure` is present.
 2. `nextAction` wins when `failure` is null.
 3. `evidenceQuality.level` gates whether the agent should re-open cited targets or trust the answer.
-4. `_debug` remains diagnostic and should not drive ordinary agent behavior.
+4. `session` is the ordinary control-plane field for session reuse and fallback awareness.
+5. `_debug` remains diagnostic and should not drive ordinary agent behavior.
 
 반환을 자연어가 아니라 JSON으로 고정한 이유:
 

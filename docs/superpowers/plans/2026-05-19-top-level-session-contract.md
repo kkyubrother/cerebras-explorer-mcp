@@ -21,7 +21,6 @@
 In `tests/schemas.test.mjs`, update `agent-facing output schema is compact and exposes directAnswer, status, targets, snippets, sessionId, and debug`:
 
 ```js
-  assert.ok(EXPLORE_REPO_OUTPUT_SCHEMA.required.includes('session'));
   assert.ok(EXPLORE_REPO_OUTPUT_SCHEMA.properties.session);
   assert.deepEqual(
     EXPLORE_REPO_OUTPUT_SCHEMA.properties.session.properties.status.enum,
@@ -42,9 +41,9 @@ Run:
 node --test tests/schemas.test.mjs
 ```
 
-Expected: FAIL because `EXPLORE_REPO_OUTPUT_SCHEMA.required` does not include `session`.
+Expected: FAIL because `EXPLORE_REPO_OUTPUT_SCHEMA.properties.session` is missing.
 
-- [ ] **Step 3: Add `SESSION_SCHEMA` and require it in output schema**
+- [ ] **Step 3: Add `SESSION_SCHEMA` to output schema**
 
 In `src/explorer/schemas.mjs`, after `EVIDENCE_QUALITY_SCHEMA`, add:
 
@@ -61,13 +60,11 @@ const SESSION_SCHEMA = {
 };
 ```
 
-Then add `'session'` to `EXPLORE_REPO_OUTPUT_SCHEMA.required` after `'failure'`, and add:
+Do not add top-level `session` to `EXPLORE_REPO_OUTPUT_SCHEMA.required`, because handled errors before session creation may omit it. Add this property near `sessionId`:
 
 ```js
     session: SESSION_SCHEMA,
 ```
-
-near `sessionId`.
 
 - [ ] **Step 4: Run schema test and verify green**
 

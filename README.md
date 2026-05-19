@@ -154,7 +154,7 @@ Parent model (Claude Code / Codex)
 - **샘플링 기본값 정렬**: budget별 temperature(`quick`: 0.3, `normal`: 0.8, `deep`: 1.0)와 `top_p=0.95`를 사용하며, direct client 경로에는 fallback 환경 변수도 지원
 - **근거 강제**: 최종 evidence는 실제로 읽거나 grep으로 확인한 라인 범위에만 남김
 - **Read-only tool annotations**: 모든 공개 MCP 도구는 `readOnlyHint: true`를 선언합니다. 이는 클라이언트 UX hint이며 보안 경계는 아닙니다.
-- **Compact 반환 계약**: MCP `structuredContent`는 `schemaVersion`, `directAnswer`, `status`, `targets`, snippet 포함 `evidence`, `uncertainties`, `nextAction`, `evidenceQuality`, nullable `failure`, `sessionId` 중심의 compact 계약을 사용합니다. 운영 디버그 정보만 `_debug.stats`, `_debug.toolTrace`, `_debug.recentActivity`에 남깁니다.
+- **Compact 반환 계약**: MCP `structuredContent`는 `schemaVersion`, `directAnswer`, `status`, `targets`, snippet 포함 `evidence`, `uncertainties`, `nextAction`, `evidenceQuality`, nullable `failure`, `session`, `sessionId` 중심의 compact 계약을 사용합니다. 운영 디버그 정보만 `_debug.stats`, `_debug.toolTrace`, `_debug.recentActivity`에 남깁니다.
 
 ## 공개 MCP 도구
 
@@ -236,11 +236,18 @@ Parent model (Claude Code / Codex)
     "summary": "Verified: 2 files read, 1 grep searches, 2/2 evidence items grounded, cross-verified across 2 files. All evidence grounded in inspected code."
   },
   "failure": null,
-  "sessionId": "sess_abc123"
+  "sessionId": "sess_abc123",
+  "session": {
+    "id": "sess_abc123",
+    "status": "created",
+    "remainingCalls": 4
+  }
 }
 ```
 
 `failure`는 실행/input/provider/internal failure event에만 사용합니다. 낮은 confidence는 failure가 아니라 `evidenceQuality`와 `status`의 품질 신호입니다. `failure`가 있으면 `failure.retry`를 `nextAction`보다 먼저 보고, `failure`가 `null`이면 기존처럼 `nextAction`을 따르세요.
+
+`session`은 후속 호출을 위한 control-plane 필드입니다. `session.id`는 `sessionId`와 같은 값이며 다음 호출의 `session` 입력으로 넘기면 됩니다. `session.status`가 `fallback`이면 넘긴 세션이 expired/exhausted 상태라 새 세션으로 교체된 것이므로, 이후에는 반환된 `session.id`를 사용하세요.
 
 운영 디버그 정보는 실제 응답의 `_debug` 객체에 별도로 포함됩니다. 일반 agent handoff에서는 위의 top-level 계약을 먼저 읽고, explorer 동작 자체를 디버깅할 때만 `_debug.stats`, `_debug.toolTrace`, `_debug.recentActivity`를 확인하세요.
 
@@ -251,7 +258,9 @@ Parent model (Claude Code / Codex)
     "toolTrace": { "totalCalls": 3, "truncated": false },
     "stats": {
       "model": "${CEREBRAS_EXPLORER_MODEL:-zai-glm-4.7}",
-      "sessionId": "sess_abc123"
+      "sessionId": "sess_abc123",
+      "sessionStatus": "created",
+      "remainingCalls": 4
     }
   }
 }
