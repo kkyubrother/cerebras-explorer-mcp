@@ -12,6 +12,12 @@ Preferred flow:
 7. After a passing result, read only returned `targets` with role `read` or `edit`.
 8. Keep native wide search as a fallback, not the default.
 
+Recommended full wrapper exposure is `explore_repo`, `find_relevant_code`,
+`trace_symbol`, `map_change_impact`, `explain_code_path`, `collect_evidence`,
+`review_change_context`, and `explore`. Use the minimal 4-tool allowlist only
+when the session needs a deliberately narrower trust boundary; it removes
+purpose-built evidence, path, review, and Markdown-report entry points.
+
 Tool exposure is configured in `~/.codex/config.toml`.
 Use `enabled_tools` to keep the server surface narrow for normal coding sessions.
 Use `disabled_tools` when you want to remove only a specific tool; if both are set,

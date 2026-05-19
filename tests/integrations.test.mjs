@@ -25,7 +25,7 @@ test('JSON integration examples are parseable', async () => {
   }
 });
 
-test('Gemini example documents required env and a narrow tool allowlist', async () => {
+test('Gemini example documents required env and recommended full wrapper allowlist', async () => {
   const settings = JSON.parse(await read('integrations/gemini/settings.json.example'));
   const server = settings.mcpServers?.['cerebras-explorer'];
   assert.ok(server, 'Gemini server alias should be cerebras-explorer');
@@ -37,9 +37,15 @@ test('Gemini example documents required env and a narrow tool allowlist', async 
     'find_relevant_code',
     'trace_symbol',
     'map_change_impact',
+    'explain_code_path',
+    'collect_evidence',
+    'review_change_context',
+    'explore',
   ]);
 
   const readme = await read('integrations/gemini/README.md');
+  assert.match(readme, /recommended full wrapper/i);
+  assert.match(readme, /minimal 4-tool/i);
   assert.match(readme, /\*KEY\*/);
   assert.match(readme, /CEREBRAS_API_KEY/);
   assert.match(readme, /excludeTools/);
@@ -55,6 +61,11 @@ test('Codex example uses npx and tool allowlist controls', async () => {
   assert.match(toml, /startup_timeout_sec = 60/);
   assert.match(toml, /tool_timeout_sec = 60/);
   assert.match(toml, /enabled_tools = \[/);
+  assert.match(toml, /"explain_code_path"/);
+  assert.match(toml, /"collect_evidence"/);
+  assert.match(toml, /"review_change_context"/);
+  assert.match(toml, /"explore"/);
+  assert.match(toml, /minimal 4-tool/i);
   assert.match(toml, /disabled_tools = \["explore_v2"\]/);
   assert.match(toml, /CEREBRAS_API_KEY = "\$\{CEREBRAS_API_KEY\}"/);
   assert.doesNotMatch(toml, /absolute\/path/);
@@ -62,6 +73,8 @@ test('Codex example uses npx and tool allowlist controls', async () => {
   const agents = await read('integrations/codex/AGENTS.md.example');
   assert.match(agents, /enabled_tools/);
   assert.match(agents, /disabled_tools/);
+  assert.match(agents, /recommended full wrapper/i);
+  assert.match(agents, /minimal 4-tool/i);
 });
 
 test('documented install refs do not point at missing main branch', async () => {

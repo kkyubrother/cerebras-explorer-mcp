@@ -42,11 +42,20 @@ enabled_tools = [
   "find_relevant_code",
   "trace_symbol",
   "map_change_impact",
+  "explain_code_path",
+  "collect_evidence",
+  "review_change_context",
+  "explore",
 ]
 
 [mcp_servers.cerebras-explorer.env]
 CEREBRAS_API_KEY = "${CEREBRAS_API_KEY}"
 ```
+
+The 8-tool allowlist is the recommended full wrapper setup. For a stricter
+minimal trust boundary, expose only `explore_repo`, `find_relevant_code`,
+`trace_symbol`, and `map_change_impact`; that subset intentionally drops the
+purpose-built evidence, path, review, and Markdown-report entry points.
 
 ### OpenCode (`opencode.json`)
 

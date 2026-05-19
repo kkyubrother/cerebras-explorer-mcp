@@ -5,13 +5,27 @@ enabled = true
 startup_timeout_sec = 60
 tool_timeout_sec = 60
 
-# 노출 도구를 좁히려면 enabled_tools allowlist를 사용합니다.
+# Recommended full wrapper allowlist for normal coding sessions.
+# This keeps low-level repo tools hidden while exposing the purpose-built
+# explorer entry points that reduce parent-agent search/read loops.
 enabled_tools = [
   "explore_repo",
   "find_relevant_code",
   "trace_symbol",
   "map_change_impact",
+  "explain_code_path",
+  "collect_evidence",
+  "review_change_context",
+  "explore",
 ]
+
+# Minimal 4-tool allowlist for stricter trust boundaries:
+# enabled_tools = [
+#   "explore_repo",
+#   "find_relevant_code",
+#   "trace_symbol",
+#   "map_change_impact",
+# ]
 
 # 특정 도구만 막으려면 disabled_tools denylist를 사용합니다.
 # enabled_tools가 있으면 그 결과에서 disabled_tools가 한 번 더 제외됩니다.
