@@ -357,6 +357,32 @@ test('MCP request handler returns repo_root resolution errors without mislabelin
   assert.equal(called.structuredContent.failure.reason, 'repo_mismatch');
 });
 
+test('MCP request handler classifies generic invalid params separately from session errors', async () => {
+  const { handleRequest } = createMcpRequestHandler({
+    runtimeOptions: {
+      chatClient: new MockChatClient(),
+    },
+  });
+
+  const called = await handleRequest({
+    jsonrpc: '2.0',
+    id: 44,
+    method: 'tools/call',
+    params: {
+      name: 'trace_symbol',
+      arguments: {},
+    },
+  });
+
+  assert.equal(called.isError, true);
+  assert.match(called.content[0].text, /Invalid arguments for trace_symbol/);
+  assert.equal(called.structuredContent.schemaVersion, 1);
+  assert.equal(called.structuredContent.failure.category, 'input');
+  assert.equal(called.structuredContent.failure.reason, 'invalid_arguments');
+  assert.equal(called.structuredContent.failure.retry, null);
+  assert.equal(called.structuredContent.evidenceQuality.level, 'low');
+});
+
 test('MCP request handler returns execution failures for explore_repo without mislabeling them as argument errors', async () => {
   class ThrowingChatClient {
     constructor() {

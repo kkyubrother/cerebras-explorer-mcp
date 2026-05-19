@@ -504,14 +504,14 @@ export function createMcpRequestHandler({
     return lines.join('\n');
   }
 
-  function defaultEvidenceQuality(summary = 'No grounded evidence was retained.') {
+  function defaultEvidenceQuality(summary = 'No grounded evidence was retained.', warnings = []) {
     return {
       level: 'low',
       exactCount: 0,
       partialCount: 0,
       droppedCount: 0,
       fileCount: 0,
-      warnings: [],
+      warnings: warnings.filter(item => typeof item === 'string').slice(0, 5),
       summary,
     };
   }
@@ -530,7 +530,7 @@ export function createMcpRequestHandler({
       evidence: [],
       uncertainties: [message],
       nextAction: { type: 'ask_user', reason: message },
-      evidenceQuality: defaultEvidenceQuality(message),
+      evidenceQuality: defaultEvidenceQuality(message, [message]),
       failure: {
         category,
         reason,
@@ -559,7 +559,7 @@ export function createMcpRequestHandler({
       evidence: Array.isArray(result.evidence) ? result.evidence : [],
       uncertainties: Array.isArray(result.uncertainties) ? result.uncertainties : [],
       nextAction: result.nextAction ?? { type: 'stop', reason: '' },
-      evidenceQuality: result.evidenceQuality ?? defaultEvidenceQuality(result.trustSummary ?? undefined),
+      evidenceQuality: result.evidenceQuality ?? defaultEvidenceQuality(result.trustSummary),
       failure: result.failure ?? null,
       ...(sessionId ? { sessionId } : {}),
       _debug: debug,
@@ -722,7 +722,11 @@ export function createMcpRequestHandler({
           }
           if (error.code === -32602) {
             const message = `Invalid arguments for ${name}: ${error.message}`;
-            const reason = error.sessionError === 'repo_mismatch' ? 'repo_mismatch' : 'invalid_session';
+            const reason = error.sessionError === 'repo_mismatch'
+              ? 'repo_mismatch'
+              : error.sessionError === 'invalid_session'
+                ? 'invalid_session'
+                : 'invalid_arguments';
             return {
               isError: true,
               content: [{ type: 'text', text: message }],

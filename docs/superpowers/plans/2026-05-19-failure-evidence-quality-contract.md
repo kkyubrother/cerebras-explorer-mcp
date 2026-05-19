@@ -61,6 +61,7 @@ const FAILURE_SCHEMA = {
         'aborted',
         'invalid_session',
         'repo_mismatch',
+        'invalid_arguments',
         'provider_error',
         'access_denied',
         'invalid_final_response',
@@ -222,6 +223,7 @@ const FAILURE_SCHEMA = {
         'aborted',
         'invalid_session',
         'repo_mismatch',
+        'invalid_arguments',
         'provider_error',
         'access_denied',
         'invalid_final_response',
@@ -382,6 +384,7 @@ function normalizeFailure(failure) {
     'aborted',
     'invalid_session',
     'repo_mismatch',
+    'invalid_arguments',
     'provider_error',
     'access_denied',
     'invalid_final_response',
@@ -538,7 +541,7 @@ In the repo root resolution error test, add:
   assert.equal(called.structuredContent.failure.reason, 'repo_mismatch');
 ```
 
-If the current test uses an unresolvable path rather than a true session mismatch, use `invalid_session` only for session errors and `provider_error` for generic execution failures. The test name and expected reason must match the actual catch path.
+If the current test uses an unresolvable path rather than a true session mismatch, use `invalid_session` only for session errors and `invalid_arguments` for generic invalid params. The test name and expected reason must match the actual catch path.
 
 - [ ] **Step 3: Run MCP tests and verify red**
 
@@ -581,7 +584,7 @@ function buildHandledFailure({ category, reason, message, retryTool = 'explore_r
     evidence: [],
     uncertainties: [message],
     nextAction: { type: 'ask_user', reason: message },
-    evidenceQuality: defaultEvidenceQuality(message),
+      evidenceQuality: defaultEvidenceQuality(message, [message]),
     failure: {
       category,
       reason,
@@ -608,7 +611,7 @@ Update `toAgentFacingResult(result)` to return defaults:
       evidence: Array.isArray(result.evidence) ? result.evidence : [],
       uncertainties: Array.isArray(result.uncertainties) ? result.uncertainties : [],
       nextAction: result.nextAction ?? { type: 'stop', reason: '' },
-      evidenceQuality: result.evidenceQuality ?? defaultEvidenceQuality(result.trustSummary ?? ''),
+      evidenceQuality: result.evidenceQuality ?? defaultEvidenceQuality(result.trustSummary),
       failure: result.failure ?? null,
       ...(sessionId ? { sessionId } : {}),
       _debug: debug,
@@ -632,7 +635,11 @@ Update the handled catch paths:
           }
           if (error.code === -32602) {
             const message = `Invalid arguments for ${name}: ${error.message}`;
-            const reason = error.sessionError === 'repo_mismatch' ? 'repo_mismatch' : 'invalid_session';
+            const reason = error.sessionError === 'repo_mismatch'
+              ? 'repo_mismatch'
+              : error.sessionError === 'invalid_session'
+                ? 'invalid_session'
+                : 'invalid_arguments';
             return {
               isError: true,
               content: [{ type: 'text', text: message }],
@@ -661,7 +668,7 @@ Update the handled catch paths:
           }
 ```
 
-Adjust repo-root expected reason if the implementation chooses `provider_error` for filesystem resolution errors. Keep input-session errors as `invalid_session` or `repo_mismatch`.
+Adjust repo-root expected reason if the implementation chooses `provider_error` for filesystem resolution errors. Keep input-session errors as `invalid_session` or `repo_mismatch`; generic invalid params should use `invalid_arguments`.
 
 - [ ] **Step 5: Add text summary section**
 

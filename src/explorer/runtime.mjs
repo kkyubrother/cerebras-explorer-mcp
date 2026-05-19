@@ -311,6 +311,7 @@ const FAILURE_REASONS = [
   'aborted',
   'invalid_session',
   'repo_mismatch',
+  'invalid_arguments',
   'provider_error',
   'access_denied',
   'invalid_final_response',
@@ -326,12 +327,13 @@ const RETRY_TOOLS = [
 ];
 
 function makeFailure(category, reason, message, retry = null) {
+  const retryTool = retry && RETRY_TOOLS.includes(retry.tool) ? retry.tool : null;
   return {
     category,
     reason,
     message,
-    retry: retry && retry.tool && Array.isArray(retry.hints)
-      ? { tool: retry.tool, hints: retry.hints.filter(item => typeof item === 'string') }
+    retry: retryTool && Array.isArray(retry.hints)
+      ? { tool: retryTool, hints: retry.hints.filter(item => typeof item === 'string') }
       : null,
   };
 }
@@ -2358,15 +2360,6 @@ export class ExplorerRuntime {
         evidence: [],
         uncertainties: ['Final response could not be repaired into compact JSON.'],
         nextAction: { type: 'ask_user', reason: 'The explorer could not synthesize a valid compact JSON answer.' },
-        failure: {
-          category: 'internal',
-          reason: 'invalid_final_response',
-          message: 'The explorer could not synthesize a valid compact JSON answer.',
-          retry: {
-            tool: 'explore_repo',
-            hints: ['Retry with a more specific task, symbol, file, or scope.'],
-          },
-        },
       },
       usage: completion.usage ?? null,
       invalidFinalResponse: true,

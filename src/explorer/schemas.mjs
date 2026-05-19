@@ -137,6 +137,7 @@ const FAILURE_SCHEMA = {
         'aborted',
         'invalid_session',
         'repo_mismatch',
+        'invalid_arguments',
         'provider_error',
         'access_denied',
         'invalid_final_response',

@@ -216,6 +216,7 @@ test('agent-facing output schema is compact and exposes directAnswer, status, ta
   assert.ok(EXPLORE_REPO_OUTPUT_SCHEMA.properties.evidence.items.properties.snippet);
   assert.ok(EXPLORE_REPO_OUTPUT_SCHEMA.properties.evidenceQuality);
   assert.ok(EXPLORE_REPO_OUTPUT_SCHEMA.properties.failure);
+  assert.ok(EXPLORE_REPO_OUTPUT_SCHEMA.properties.failure.anyOf[1].properties.reason.enum.includes('invalid_arguments'));
   assert.ok(EXPLORE_REPO_OUTPUT_SCHEMA.properties.sessionId);
   assert.ok(EXPLORE_REPO_OUTPUT_SCHEMA.properties._debug);
   assert.equal(EXPLORE_REPO_OUTPUT_SCHEMA.properties.answer, undefined);

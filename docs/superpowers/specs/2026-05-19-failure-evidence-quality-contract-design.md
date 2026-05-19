@@ -93,6 +93,7 @@ Allowed reasons:
 - `aborted`: caller cancelled the exploration.
 - `invalid_session`: requested session id was invalid.
 - `repo_mismatch`: requested session belongs to another repo root.
+- `invalid_arguments`: tool arguments failed validation before exploration started.
 - `provider_error`: provider call failed before a compact result could be produced.
 - `access_denied`: the useful evidence was denied by path or secret policy.
 - `invalid_final_response`: provider final output could not be repaired into a compact result.
@@ -100,7 +101,7 @@ Allowed reasons:
 Reason categories:
 
 - `execution`: `budget_exhausted`, `tool_errors`, `aborted`
-- `input`: `invalid_session`, `repo_mismatch`
+- `input`: `invalid_session`, `repo_mismatch`, `invalid_arguments`
 - `provider`: `provider_error`
 - `internal`: `access_denied`, `invalid_final_response`
 
