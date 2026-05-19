@@ -464,6 +464,44 @@ test('MCP request handler classifies generic invalid params separately from sess
   assert.equal(called.structuredContent.evidenceQuality.level, 'low');
 });
 
+test('MCP request handler rejects unknown wrapper arguments before runtime execution', async () => {
+  class ShouldNotRunChatClient {
+    constructor() {
+      this.model = 'zai-glm-4.7';
+    }
+
+    async createChatCompletion() {
+      throw new Error('runtime should not be invoked for invalid wrapper arguments');
+    }
+  }
+
+  const { handleRequest } = createMcpRequestHandler({
+    runtimeOptions: {
+      chatClient: new ShouldNotRunChatClient(),
+    },
+  });
+
+  const called = await handleRequest({
+    jsonrpc: '2.0',
+    id: 45,
+    method: 'tools/call',
+    params: {
+      name: 'trace_symbol',
+      arguments: {
+        symbol: 'requireAuth',
+        context: 'this field is not in the public schema',
+      },
+    },
+  });
+
+  assert.equal(called.isError, true);
+  assert.match(called.content[0].text, /Invalid arguments for trace_symbol/);
+  assert.match(called.content[0].text, /Unknown trace_symbol argument: context/);
+  assert.doesNotMatch(called.content[0].text, /runtime should not be invoked/);
+  assert.equal(called.structuredContent.failure.category, 'input');
+  assert.equal(called.structuredContent.failure.reason, 'invalid_arguments');
+});
+
 test('MCP request handler returns execution failures for explore_repo without mislabeling them as argument errors', async () => {
   class ThrowingChatClient {
     constructor() {

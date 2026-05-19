@@ -17,6 +17,15 @@ function getRecentActivity(result) {
   return result?.recentActivity ?? result?._debug?.recentActivity ?? null;
 }
 
+function getCandidatePaths(result) {
+  if (Array.isArray(result?.candidatePaths)) {
+    return result.candidatePaths.filter(item => typeof item === 'string' && item.trim());
+  }
+  return (result?.targets ?? [])
+    .map(item => item?.path)
+    .filter(item => typeof item === 'string' && item.trim());
+}
+
 function getSourceText(result, source) {
   const recentActivity = getRecentActivity(result);
   switch (source) {

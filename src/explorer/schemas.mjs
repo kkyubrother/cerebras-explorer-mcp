@@ -130,10 +130,6 @@ const RETRY_ARGS_SCHEMA = {
         symbols: { type: 'array', items: { type: 'string' } },
         files: { type: 'array', items: { type: 'string' } },
         regex: { type: 'array', items: { type: 'string' } },
-        strategy: {
-          type: 'string',
-          enum: ['symbol-first', 'reference-chase', 'git-guided', 'breadth-first', 'blame-guided', 'pattern-scan'],
-        },
       },
     },
   },
@@ -338,9 +334,16 @@ export const EXPLORE_RESULT_JSON_SCHEMA = {
   },
 };
 
-export function validateExploreRepoArgs(args) {
+export function validateExploreRepoArgs(args, { allowInternal = false } = {}) {
   if (!args || typeof args !== 'object') {
     throw new Error('Arguments must be an object.');
+  }
+  const allowedKeys = new Set(Object.keys(EXPLORE_REPO_INPUT_SCHEMA.properties));
+  if (allowInternal) allowedKeys.add('taskMode');
+  for (const key of Object.keys(args)) {
+    if (!allowedKeys.has(key)) {
+      throw new Error(`Unknown explore_repo argument: ${key}`);
+    }
   }
   if (typeof args.task !== 'string' || !args.task.trim()) {
     throw new Error('task is required and must be a non-empty string.');
@@ -369,6 +372,12 @@ export function validateExploreRepoArgs(args) {
   if (args.hints !== undefined) {
     if (!args.hints || typeof args.hints !== 'object' || Array.isArray(args.hints)) {
       throw new Error('hints must be an object when provided.');
+    }
+    const allowedHintKeys = new Set(Object.keys(EXPLORE_REPO_INPUT_SCHEMA.properties.hints.properties));
+    for (const key of Object.keys(args.hints)) {
+      if (!allowedHintKeys.has(key)) {
+        throw new Error(`Unknown explore_repo hints argument: ${key}`);
+      }
     }
     for (const key of ['symbols', 'files', 'regex']) {
       const value = args.hints[key];

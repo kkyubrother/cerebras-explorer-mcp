@@ -2,7 +2,7 @@
 
 ## 최근 확인 환경
 
-- 단위 테스트 실행 일시: 2026-05-11
+- 단위 테스트 실행 일시: 2026-05-19
 - Node.js: v24.14.0
 - npm: 11.0.0
 - OS/셸: Windows / PowerShell
@@ -14,10 +14,11 @@
 npm test
 ```
 
-현재 환경에서는 `259 tests`, `258 pass`, `1 skip`, `0 fail`.
+현재 환경에서는 `307 tests`, `304 pass`, `3 skipped`, `0 fail`.
 
-- 현재 skip 1건은 Windows 전용 경로 정규화/세션 재사용 테스트입니다.
+- 현재 skip 3건은 Windows/환경 의존 git 경로 안전성 테스트입니다.
 - `git` 또는 `rg`가 없는 환경, 또는 Windows에서는 추가 skip이 생길 수 있습니다.
+- 이 문서의 숫자는 마지막 관측값입니다. 실제 기준은 항상 위 `npm test` 실행 결과입니다.
 
 ## 통합 테스트 (실제 Cerebras API)
 

@@ -298,6 +298,38 @@ function cleanStringArray(value) {
   return Array.isArray(value) ? value.filter(item => typeof item === 'string' && item.trim()).map(item => item.trim()) : [];
 }
 
+function makeInvalidArgsError(message) {
+  return Object.assign(new Error(message), { code: -32602 });
+}
+
+function validatePublicToolArgs(tool, args) {
+  if (!args || typeof args !== 'object' || Array.isArray(args)) {
+    throw makeInvalidArgsError(`${tool.name} arguments must be an object.`);
+  }
+  const properties = tool.inputSchema?.properties ?? {};
+  const allowedKeys = new Set(Object.keys(properties));
+  for (const key of Object.keys(args)) {
+    if (!allowedKeys.has(key)) {
+      throw makeInvalidArgsError(`Unknown ${tool.name} argument: ${key}`);
+    }
+  }
+  for (const [key, schema] of Object.entries(properties)) {
+    const value = args[key];
+    if (value === undefined) continue;
+    if (schema.type === 'string' && typeof value !== 'string') {
+      throw makeInvalidArgsError(`${tool.name}.${key} must be a string when provided.`);
+    }
+    if (schema.type === 'array') {
+      if (!Array.isArray(value) || value.some(item => typeof item !== 'string')) {
+        throw makeInvalidArgsError(`${tool.name}.${key} must be an array of strings when provided.`);
+      }
+    }
+    if (schema.enum && !schema.enum.includes(value)) {
+      throw makeInvalidArgsError(`${tool.name}.${key} must be one of: ${schema.enum.join(', ')}.`);
+    }
+  }
+}
+
 function escapeRegexLiteral(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -317,7 +349,7 @@ function buildAnchorHints({ knownFiles, knownSymbols, knownText, strategy } = {}
 function buildTraceSymbolArgs(args) {
   const { symbol, repo_root, scope, session } = args;
   if (!symbol || typeof symbol !== 'string' || !symbol.trim()) {
-    throw Object.assign(new Error('trace_symbol requires a non-empty "symbol" argument.'), { code: -32602 });
+    throw makeInvalidArgsError('trace_symbol requires a non-empty "symbol" argument.');
   }
   const task = `Explain the symbol "${symbol.trim()}": where it is defined, what it does, its parameters/return type if applicable, and where it is called or used in the codebase.`;
   return {
@@ -330,7 +362,7 @@ function buildTraceSymbolArgs(args) {
 function buildFindRelevantCodeArgs(args) {
   const { query, repo_root, scope, knownFiles, knownSymbols, knownText, session } = args;
   if (!query || typeof query !== 'string' || !query.trim()) {
-    throw Object.assign(new Error('find_relevant_code requires a non-empty "query" argument.'), { code: -32602 });
+    throw makeInvalidArgsError('find_relevant_code requires a non-empty "query" argument.');
   }
   const task = `Find the code most relevant to this task and return the smallest useful read/edit targets: ${query.trim()}.`;
   return {
@@ -346,7 +378,7 @@ function buildFindRelevantCodeArgs(args) {
 function buildMapChangeImpactArgs(args) {
   const { change, repo_root, scope, knownFiles, knownSymbols, session } = args;
   if (!change || typeof change !== 'string' || !change.trim()) {
-    throw Object.assign(new Error('map_change_impact requires a non-empty "change" argument.'), { code: -32602 });
+    throw makeInvalidArgsError('map_change_impact requires a non-empty "change" argument.');
   }
   const task = `Map the likely impact of this intended change before editing: ${change.trim()}. Identify likely edit targets, read targets, callers, tests, configuration, and risky dependent paths.`;
   return {
@@ -362,7 +394,7 @@ function buildMapChangeImpactArgs(args) {
 function buildExplainCodePathArgs(args) {
   const { pathQuery, repo_root, scope, entryPoint, knownFiles, knownSymbols, session } = args;
   if (!pathQuery || typeof pathQuery !== 'string' || !pathQuery.trim()) {
-    throw Object.assign(new Error('explain_code_path requires a non-empty "pathQuery" argument.'), { code: -32602 });
+    throw makeInvalidArgsError('explain_code_path requires a non-empty "pathQuery" argument.');
   }
   const files = [...cleanStringArray(knownFiles)];
   if (typeof entryPoint === 'string' && entryPoint.trim()) files.unshift(entryPoint.trim());
@@ -380,7 +412,7 @@ function buildExplainCodePathArgs(args) {
 function buildCollectEvidenceArgs(args) {
   const { claim, repo_root, scope, knownFiles, knownSymbols, knownText, session } = args;
   if (!claim || typeof claim !== 'string' || !claim.trim()) {
-    throw Object.assign(new Error('collect_evidence requires a non-empty "claim" argument.'), { code: -32602 });
+    throw makeInvalidArgsError('collect_evidence requires a non-empty "claim" argument.');
   }
   const task = `Verify this claim and collect a compact evidence bundle with snippets: ${claim.trim()}. Mark uncertainties and avoid unsupported facts.`;
   return {
@@ -396,7 +428,7 @@ function buildCollectEvidenceArgs(args) {
 function buildReviewChangeContextArgs(args) {
   const { reviewGoal, since, until, path: filePath, repo_root, scope, session } = args;
   if (!reviewGoal || typeof reviewGoal !== 'string' || !reviewGoal.trim()) {
-    throw Object.assign(new Error('review_change_context requires a non-empty "reviewGoal" argument.'), { code: -32602 });
+    throw makeInvalidArgsError('review_change_context requires a non-empty "reviewGoal" argument.');
   }
   const sincePart = since ? ` since "${since}"` : '';
   const untilPart = until ? ` until "${until}"` : '';
@@ -728,27 +760,35 @@ export function createMcpRequestHandler({
             return await callTool(args, progressToken, requestId);
           }
           if (name === 'find_relevant_code') {
+            validatePublicToolArgs(FIND_RELEVANT_CODE_TOOL, args);
             return await callTool(buildFindRelevantCodeArgs(args), progressToken, requestId);
           }
           if (name === 'trace_symbol') {
+            validatePublicToolArgs(TRACE_SYMBOL_TOOL, args);
             return await callTool(buildTraceSymbolArgs(args), progressToken, requestId);
           }
           if (name === 'map_change_impact') {
+            validatePublicToolArgs(MAP_CHANGE_IMPACT_TOOL, args);
             return await callTool(buildMapChangeImpactArgs(args), progressToken, requestId);
           }
           if (name === 'explain_code_path') {
+            validatePublicToolArgs(EXPLAIN_CODE_PATH_TOOL, args);
             return await callTool(buildExplainCodePathArgs(args), progressToken, requestId);
           }
           if (name === 'collect_evidence') {
+            validatePublicToolArgs(COLLECT_EVIDENCE_TOOL, args);
             return await callTool(buildCollectEvidenceArgs(args), progressToken, requestId);
           }
           if (name === 'review_change_context') {
+            validatePublicToolArgs(REVIEW_CHANGE_CONTEXT_TOOL, args);
             return await callTool(buildReviewChangeContextArgs(args), progressToken, requestId);
           }
           if (name === 'explore') {
+            validatePublicToolArgs(EXPLORE_TOOL, args);
             return await callFreeExploreTool(args, progressToken, requestId);
           }
           if (name === 'explore_v2') {
+            validatePublicToolArgs(EXPLORE_V2_TOOL, args);
             return await callFreeExploreV2Tool(args, progressToken, requestId);
           }
 

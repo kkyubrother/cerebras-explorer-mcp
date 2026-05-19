@@ -1522,6 +1522,10 @@ test('ExplorerRuntime budget retry args do not echo unchanged scope', async () =
   assert.equal(result.failure.retry.args.task, 'Retry with a narrower scope or a more specific task.');
   assert.equal(result.failure.retry.args.scope, undefined);
   assert.deepEqual(Object.keys(result.failure.retry.args).sort(), ['task']);
+  assert.ok(
+    result.failure.retry.hints.every(hint => !/deep budget/i.test(hint)),
+    'budget exhaustion retry hints must not ask parent agents to select deep budget',
+  );
 });
 
 // ── Phase 5 — evidence/schema/context 고도화 ──────────────────────────────────

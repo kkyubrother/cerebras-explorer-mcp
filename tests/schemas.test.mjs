@@ -8,6 +8,7 @@ import {
   computeConfidenceScore,
   normalizeExploreResult,
   reconcileConfidence,
+  validateExploreRepoArgs,
 } from '../src/explorer/schemas.mjs';
 
 // Helper: build a grounded evidence item with a given groundingStatus and optional path
@@ -196,6 +197,23 @@ test('internal model result schema uses the compact explore contract', () => {
   assert.equal(EXPLORE_RESULT_JSON_SCHEMA.schema.properties.followups, undefined);
 });
 
+test('validateExploreRepoArgs rejects unknown public keys', () => {
+  assert.throws(
+    () => validateExploreRepoArgs({ task: 'find auth code', context: 'ignore this' }),
+    /Unknown explore_repo argument: context/,
+  );
+});
+
+test('validateExploreRepoArgs rejects unknown hint keys', () => {
+  assert.throws(
+    () => validateExploreRepoArgs({
+      task: 'find auth code',
+      hints: { files: ['src/auth.js'], taskMode: 'locate' },
+    }),
+    /Unknown explore_repo hints argument: taskMode/,
+  );
+});
+
 test('agent-facing output schema is compact and exposes directAnswer, status, targets, snippets, sessionId, and debug', () => {
   assert.equal(EXPLORE_REPO_OUTPUT_SCHEMA.additionalProperties, false);
   assert.deepEqual(EXPLORE_REPO_OUTPUT_SCHEMA.required, [
@@ -221,6 +239,11 @@ test('agent-facing output schema is compact and exposes directAnswer, status, ta
   assert.ok(retrySchema.properties.args);
   assert.ok(retrySchema.properties.expectedImprovement);
   assert.equal(retrySchema.properties.args.additionalProperties, false);
+  assert.equal(
+    retrySchema.properties.args.properties.hints.properties.strategy,
+    undefined,
+    'failure.retry.args must not expose advanced hints.strategy',
+  );
   assert.ok(EXPLORE_REPO_OUTPUT_SCHEMA.properties.sessionId);
   assert.ok(EXPLORE_REPO_OUTPUT_SCHEMA.properties.session);
   assert.deepEqual(

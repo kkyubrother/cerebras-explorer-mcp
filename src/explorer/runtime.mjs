@@ -355,12 +355,6 @@ function sanitizeRetryHints(value) {
   if (symbols) hints.symbols = symbols;
   if (files) hints.files = files;
   if (regex) hints.regex = regex;
-  if (
-    typeof value.strategy === 'string' &&
-    ['symbol-first', 'reference-chase', 'git-guided', 'breadth-first', 'blame-guided', 'pattern-scan'].includes(value.strategy)
-  ) {
-    hints.strategy = value.strategy;
-  }
   return Object.keys(hints).length > 0 ? hints : undefined;
 }
 
@@ -497,7 +491,7 @@ function buildFailure(result, stats) {
   if (stats.stoppedByBudget) {
     return makeFailure('execution', 'budget_exhausted', 'Exploration stopped at the turn budget before all follow-up checks were exhausted.', {
       tool: 'explore_repo',
-      hints: ['Retry with a narrower scope or a more specific task.', 'Use deep budget only when repo-wide context is required.'],
+      hints: ['Retry with a narrower scope or a more specific task.', 'Add concrete file, symbol, or text anchors when available.'],
       args: {
         task: 'Retry with a narrower scope or a more specific task.',
       },
@@ -1239,7 +1233,7 @@ export class ExplorerRuntime {
    * @param {AbortSignal}   [callOpts.abortSignal]   - Signal to abort exploration gracefully
    */
   async explore(args, { onProgress = null, sessionStore = null, abortSignal = null } = {}) {
-    validateExploreRepoArgs(args);
+    validateExploreRepoArgs(args, { allowInternal: true });
 
     const {
       budgetConfig, repoRoot, projectConfig, effectiveScope, projectContext, keyFiles,

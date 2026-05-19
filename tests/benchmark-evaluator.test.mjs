@@ -107,6 +107,31 @@ test('evaluateBenchmarkCase scores adoption fields', () => {
   assert.equal(evaluation.passed, true);
 });
 
+test('evaluateBenchmarkCase supports legacy candidate path count checks from compact targets', () => {
+  const caseDefinition = {
+    id: 'legacy-candidate-paths',
+    checks: [
+      {
+        label: 'Candidate paths from targets',
+        type: 'min_candidate_path_count',
+        value: 2,
+        weight: 1,
+      },
+    ],
+  };
+
+  const result = {
+    targets: [
+      { path: 'src/auth.js', role: 'read', reason: 'auth definition', evidenceRefs: [] },
+      { path: 'src/routes/user.js', role: 'read', reason: 'route usage', evidenceRefs: [] },
+    ],
+  };
+
+  const evaluation = evaluateBenchmarkCase(caseDefinition, result);
+  assert.equal(evaluation.checks[0].actual, 2);
+  assert.equal(evaluation.checks[0].passed, true);
+});
+
 test('evaluateBenchmarkCase reads compact MCP results with debug stats and recent activity', () => {
   const caseDefinition = {
     id: 'compact',
