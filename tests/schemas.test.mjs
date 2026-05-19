@@ -218,6 +218,16 @@ test('agent-facing output schema is compact and exposes directAnswer, status, ta
   assert.ok(EXPLORE_REPO_OUTPUT_SCHEMA.properties.failure);
   assert.ok(EXPLORE_REPO_OUTPUT_SCHEMA.properties.failure.anyOf[1].properties.reason.enum.includes('invalid_arguments'));
   assert.ok(EXPLORE_REPO_OUTPUT_SCHEMA.properties.sessionId);
+  assert.ok(EXPLORE_REPO_OUTPUT_SCHEMA.properties.session);
+  assert.deepEqual(
+    EXPLORE_REPO_OUTPUT_SCHEMA.properties.session.properties.status.enum,
+    ['created', 'reused', 'fallback'],
+  );
+  assert.deepEqual(EXPLORE_REPO_OUTPUT_SCHEMA.properties.session.required, [
+    'id',
+    'status',
+    'remainingCalls',
+  ]);
   assert.ok(EXPLORE_REPO_OUTPUT_SCHEMA.properties._debug);
   assert.equal(EXPLORE_REPO_OUTPUT_SCHEMA.properties.answer, undefined);
   assert.equal(EXPLORE_REPO_OUTPUT_SCHEMA.properties.candidatePaths, undefined);

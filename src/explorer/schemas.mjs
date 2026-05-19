@@ -164,6 +164,17 @@ const EVIDENCE_QUALITY_SCHEMA = {
   required: ['level', 'exactCount', 'partialCount', 'droppedCount', 'fileCount', 'warnings', 'summary'],
 };
 
+const SESSION_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    id: { type: 'string' },
+    status: { type: 'string', enum: ['created', 'reused', 'fallback'] },
+    remainingCalls: { type: 'integer', minimum: 0 },
+  },
+  required: ['id', 'status', 'remainingCalls'],
+};
+
 const EVIDENCE_ITEM_SCHEMA = {
   type: 'object',
   additionalProperties: false,
@@ -217,6 +228,7 @@ export const EXPLORE_REPO_OUTPUT_SCHEMA = {
     evidenceQuality: EVIDENCE_QUALITY_SCHEMA,
     failure: { anyOf: [{ type: 'null' }, FAILURE_SCHEMA] },
     sessionId: { type: 'string' },
+    session: SESSION_SCHEMA,
     _debug: { type: 'object', additionalProperties: true },
   },
 };
