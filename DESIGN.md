@@ -325,12 +325,13 @@ GLM 4.7 마이그레이션 기준으로 explorer runtime은 다음 원칙을 따
 
 ## 9. 반환 스키마
 
-Explorer의 내부 모델 출력과 MCP `structuredContent`는 같은 compact contract를 공유한다. 런타임은 이 계약 위에 snippet, critic 결과, `_debug` 운영 정보를 덧붙인다.
+Explorer의 내부 모델 출력은 compact finding contract만 생성한다. 런타임은 검증된 관측값으로 snippet, critic 결과, `schemaVersion`, `evidenceQuality`, nullable `failure`, `_debug` 운영 정보를 덧붙여 MCP `structuredContent`를 만든다.
 
 MCP agent-facing contract:
 
 ```json
 {
+  "schemaVersion": 1,
   "directAnswer": "string",
   "status": {
     "confidence": "low|medium|high",
@@ -369,6 +370,16 @@ MCP agent-facing contract:
     "type": "stop|read_target|explore_followup|ask_user",
     "reason": "what the parent should do next"
   },
+  "evidenceQuality": {
+    "level": "low|medium|high",
+    "exactCount": 0,
+    "partialCount": 0,
+    "droppedCount": 0,
+    "fileCount": 0,
+    "warnings": [],
+    "summary": "string"
+  },
+  "failure": null,
   "sessionId": "sess_...",
   "_debug": {
     "stats": {},
@@ -377,6 +388,13 @@ MCP agent-facing contract:
   }
 }
 ```
+
+Agent control precedence:
+
+1. `failure.retry` wins when `failure` is present.
+2. `nextAction` wins when `failure` is null.
+3. `evidenceQuality.level` gates whether the agent should re-open cited targets or trust the answer.
+4. `_debug` remains diagnostic and should not drive ordinary agent behavior.
 
 반환을 자연어가 아니라 JSON으로 고정한 이유:
 
