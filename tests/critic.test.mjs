@@ -126,15 +126,15 @@ test('buildCriticWarnings explains warning reasons and actions', () => {
 
 test('runDeterministicCriticPass returns compact critic warnings and capped confidence', () => {
   const normalized = {
-    answer: 'answer',
-    summary: 'summary',
-    confidence: 'high',
+    directAnswer: 'answer',
+    status: { confidence: 'high', verification: 'verified', complete: true, warnings: [] },
+    targets: [],
     evidence: [
       { path: 'src/auth.js', startLine: 1, endLine: 4, why: 'only observed range' },
       { path: 'src/other.js', startLine: 1, endLine: 2, why: 'not observed' },
     ],
-    candidatePaths: [],
-    followups: [],
+    uncertainties: [],
+    nextAction: { type: 'stop', reason: 'Complete.' },
     stats: makeStats(),
   };
   const observedRanges = new Map([
@@ -149,7 +149,7 @@ test('runDeterministicCriticPass returns compact critic warnings and capped conf
     taskKind: 'default',
   });
 
-  assert.notEqual(result.confidence, 'high');
+  assert.notEqual(result.status.confidence, 'high');
   assert.equal(result.critic.status, 'caution');
   assert.ok(result.critic.warnings.some(w => w.type === 'dropped_evidence'));
   assert.ok(result.critic.warnings.every(w => !('citations' in w)));
@@ -159,14 +159,14 @@ test('runDeterministicCriticPass returns compact critic warnings and capped conf
 
 test('runDeterministicCriticPass still caps overconfident locate tasks', () => {
   const normalized = {
-    answer: 'answer',
-    summary: 'summary',
-    confidence: 'high',
+    directAnswer: 'answer',
+    status: { confidence: 'high', verification: 'verified', complete: true, warnings: [] },
+    targets: [],
     evidence: [
       { path: 'src/auth.js', startLine: 1, endLine: 4, why: 'single exact locate evidence' },
     ],
-    candidatePaths: [],
-    followups: [],
+    uncertainties: [],
+    nextAction: { type: 'stop', reason: 'Complete.' },
     stats: makeStats(),
   };
   const observedRanges = new Map([
@@ -181,7 +181,7 @@ test('runDeterministicCriticPass still caps overconfident locate tasks', () => {
     taskKind: 'locate',
   });
 
-  assert.equal(result.confidence, 'medium');
+  assert.equal(result.status.confidence, 'medium');
   assert.equal(result.critic.status, 'caution');
   assert.ok(result.critic.warnings.some(w => w.type === 'confidence_downgraded'));
 });

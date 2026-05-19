@@ -1627,7 +1627,7 @@ export class RepoToolkit {
   }
 }
 
-export function collectCandidatePathsFromToolResult(toolName, result) {
+export function collectTargetPathsFromToolResult(toolName, result) {
   if (!result || typeof result !== 'object') {
     return [];
   }
@@ -1675,6 +1675,6 @@ export function collectCandidatePathsFromToolResult(toolName, result) {
   }
 }
 
-export function mergeCandidatePaths(existing, nextValues) {
+export function mergeTargetPaths(existing, nextValues) {
   return dedupeArray([...(existing || []), ...(nextValues || [])]);
 }

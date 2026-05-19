@@ -17,7 +17,7 @@ test('SessionStore.get returns the session immediately after creation', () => {
   assert.ok(session !== null);
   assert.equal(session.id, id);
   assert.equal(session.calls, 0);
-  assert.deepEqual(session.candidatePaths, []);
+  assert.deepEqual(session.targetPaths, []);
   assert.deepEqual(session.summaries, []);
 });
 
@@ -41,31 +41,44 @@ test('SessionStore.get returns null for an expired session', () => {
 test('SessionStore.update increments call count', () => {
   const store = new SessionStore();
   const id = store.create('/repo');
-  store.update(id, { candidatePaths: [], evidence: [], summary: 'first call', followups: [] });
+  store.update(id, { targets: [], evidence: [], directAnswer: 'first call' });
   const session = store.get(id);
   assert.equal(session.calls, 1);
 });
 
-test('SessionStore.update accumulates candidatePaths without duplicates', () => {
+test('SessionStore.update accumulates targetPaths without duplicates', () => {
   const store = new SessionStore();
   const id = store.create('/repo');
-  store.update(id, { candidatePaths: ['src/a.js', 'src/b.js'], evidence: [], summary: '', followups: [] });
-  store.update(id, { candidatePaths: ['src/b.js', 'src/c.js'], evidence: [], summary: '', followups: [] });
+  store.update(id, {
+    targets: [
+      { path: 'src/a.js', role: 'read', reason: 'first' },
+      { path: 'src/b.js', role: 'read', reason: 'second' },
+    ],
+    evidence: [],
+    directAnswer: '',
+  });
+  store.update(id, {
+    targets: [
+      { path: 'src/b.js', role: 'read', reason: 'second updated' },
+      { path: 'src/c.js', role: 'read', reason: 'third' },
+    ],
+    evidence: [],
+    directAnswer: '',
+  });
   const session = store.get(id);
-  assert.deepEqual(session.candidatePaths, ['src/a.js', 'src/b.js', 'src/c.js']);
+  assert.deepEqual(session.targetPaths, ['src/a.js', 'src/b.js', 'src/c.js']);
 });
 
 test('SessionStore.update accumulates evidencePaths from evidence array', () => {
   const store = new SessionStore();
   const id = store.create('/repo');
   store.update(id, {
-    candidatePaths: [],
+    targets: [],
     evidence: [
       { path: 'src/auth.js', startLine: 1, endLine: 5, why: 'test' },
       { path: 'src/routes.js', startLine: 1, endLine: 3, why: 'test' },
     ],
-    summary: 'found auth',
-    followups: [],
+    directAnswer: 'found auth',
   });
   const session = store.get(id);
   assert.ok(session.evidencePaths.includes('src/auth.js'));
@@ -76,7 +89,7 @@ test('SessionStore.update keeps only the last 3 summaries', () => {
   const store = new SessionStore();
   const id = store.create('/repo');
   for (let i = 1; i <= 5; i++) {
-    store.update(id, { candidatePaths: [], evidence: [], summary: `summary ${i}`, followups: [] });
+    store.update(id, { targets: [], evidence: [], directAnswer: `summary ${i}` });
   }
   const session = store.get(id);
   assert.equal(session.summaries.length, 3);
@@ -87,9 +100,9 @@ test('SessionStore.isExhausted returns true when maxCalls is reached', () => {
   const store = new SessionStore({ maxCalls: 2 });
   const id = store.create('/repo');
   assert.equal(store.isExhausted(id), false);
-  store.update(id, { candidatePaths: [], evidence: [], summary: '', followups: [] });
+  store.update(id, { targets: [], evidence: [], directAnswer: '' });
   assert.equal(store.isExhausted(id), false);
-  store.update(id, { candidatePaths: [], evidence: [], summary: '', followups: [] });
+  store.update(id, { targets: [], evidence: [], directAnswer: '' });
   assert.equal(store.isExhausted(id), true);
 });
 
@@ -157,8 +170,8 @@ test('validateForReuse rejects with expired_session for TTL-expired session', ()
 test('validateForReuse rejects with exhausted_session when maxCalls reached', () => {
   const store = new SessionStore({ maxCalls: 2 });
   const id = store.create('/repo');
-  store.update(id, { candidatePaths: [], evidence: [], summary: '', followups: [] });
-  store.update(id, { candidatePaths: [], evidence: [], summary: '', followups: [] });
+  store.update(id, { targets: [], evidence: [], directAnswer: '' });
+  store.update(id, { targets: [], evidence: [], directAnswer: '' });
   const result = store.validateForReuse(id, '/repo');
   assert.equal(result.ok, false);
   assert.equal(result.reason, 'exhausted_session');
@@ -175,7 +188,7 @@ test('validateForReuse rejects with repo_mismatch when repoRoot differs', () => 
 test('validateForReuse tracks remainingCalls correctly after updates', () => {
   const store = new SessionStore({ maxCalls: 3 });
   const id = store.create('/repo');
-  store.update(id, { candidatePaths: [], evidence: [], summary: '', followups: [] });
+  store.update(id, { targets: [], evidence: [], directAnswer: '' });
   const result = store.validateForReuse(id, '/repo');
   assert.equal(result.ok, true);
   assert.equal(result.remainingCalls, 2);

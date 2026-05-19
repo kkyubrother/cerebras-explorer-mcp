@@ -154,7 +154,7 @@ Parent model (Claude Code / Codex)
 - **샘플링 기본값 정렬**: budget별 temperature(`quick`: 0.3, `normal`: 0.8, `deep`: 1.0)와 `top_p=0.95`를 사용하며, direct client 경로에는 fallback 환경 변수도 지원
 - **근거 강제**: 최종 evidence는 실제로 읽거나 grep으로 확인한 라인 범위에만 남김
 - **Read-only tool annotations**: 모든 공개 MCP 도구는 `readOnlyHint: true`를 선언합니다. 이는 클라이언트 UX hint이며 보안 경계는 아닙니다.
-- **MCP 친화적 반환**: MCP `structuredContent`는 `directAnswer`, `status`, `targets`, snippet 포함 `evidence`, `uncertainties`, `nextAction`, `sessionId` 중심의 compact 계약만 노출합니다. runtime raw 필드인 `answer`, `summary`, `candidatePaths`, `followups`는 MCP 응답에 노출하지 않으며, 운영 디버그 정보만 `_debug.stats`, `_debug.toolTrace`, `_debug.recentActivity`에 남깁니다.
+- **Compact 반환 계약**: 내부 모델 출력과 MCP `structuredContent` 모두 `directAnswer`, `status`, `targets`, snippet 포함 `evidence`, `uncertainties`, `nextAction`, `sessionId` 중심의 compact 계약을 사용합니다. 운영 디버그 정보만 `_debug.stats`, `_debug.toolTrace`, `_debug.recentActivity`에 남깁니다.
 
 ## 공개 MCP 도구
 
@@ -248,7 +248,7 @@ Parent model (Claude Code / Codex)
 
 - `explore_repo`: 후속 자동화, 추가 도구 호출, 편집 전 검증처럼 **구조화된 JSON 필드**가 필요한 경우
 - `explore`: 아키텍처 설명, 온보딩 요약, 사용자에게 바로 보여줄 답변처럼 **사람이 읽는 Markdown 보고서**가 필요한 경우
-- `targets`: `candidatePaths`보다 먼저 읽어야 하는 action field입니다. `role=read|edit|test|config|context` 대상만 목적에 맞게 확인하고, `reference`는 필요할 때만 읽습니다.
+- `targets`: 상위 agent가 다음에 읽거나 검증할 action field입니다. `role=read|edit|test|config|context` 대상만 목적에 맞게 확인하고, `reference`는 필요할 때만 읽습니다.
 
 ### `explore`
 

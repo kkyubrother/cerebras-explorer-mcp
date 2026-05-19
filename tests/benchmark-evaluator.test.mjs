@@ -11,7 +11,7 @@ test('evaluateBenchmarkCase scores keyword expectations and checks', () => {
       {
         label: 'Answer groups',
         source: 'answer',
-        groups: [['sessionstore'], ['candidatepaths'], ['missing-token']],
+        groups: [['sessionstore'], ['target paths'], ['missing-token']],
         weight: 0.6,
       },
       {
@@ -32,14 +32,16 @@ test('evaluateBenchmarkCase scores keyword expectations and checks', () => {
   };
 
   const result = {
-    answer: 'SessionStore updates candidatePaths after each call.',
+    directAnswer: 'SessionStore updates target paths after each call.',
     evidence: [
       {
         path: 'src/explorer/runtime.mjs',
         groundingStatus: 'exact',
       },
     ],
-    candidatePaths: ['src/explorer/session.mjs'],
+    targets: [
+      { path: 'src/explorer/session.mjs', role: 'read', reason: 'session target storage', evidenceRefs: [] },
+    ],
   };
 
   const evaluation = evaluateBenchmarkCase(caseDefinition, result);

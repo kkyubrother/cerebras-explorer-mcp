@@ -43,7 +43,7 @@
         {
           "label": "Answer explains schema normalization",
           "source": "combined_text",
-          "groups": [["normalizeExploreResult"], ["schemas.mjs"], ["evidence", "candidatePaths"]],
+          "groups": [["normalizeExploreResult"], ["schemas.mjs"], ["evidence", "targets"]],
           "weight": 0.45
         },
         {

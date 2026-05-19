@@ -141,9 +141,11 @@ test('MCP explore_repo redacts provider-facing messages, content text, structure
       return {
         message: {
           content: JSON.stringify({
-            answer: `The key is ${OPENAI_KEY}`,
-            summary: `Config contains ${OPENAI_KEY}`,
-            confidence: 'high',
+            directAnswer: `The key is ${OPENAI_KEY}`,
+            status: { confidence: 'high', verification: 'verified', complete: true, warnings: [] },
+            targets: [
+              { path: 'src/config.js', role: 'read', reason: `Line contains ${OPENAI_KEY}`, evidenceRefs: [] },
+            ],
             evidence: [
               {
                 path: 'src/config.js',
@@ -152,8 +154,8 @@ test('MCP explore_repo redacts provider-facing messages, content text, structure
                 why: `Line contains ${OPENAI_KEY}`,
               },
             ],
-            candidatePaths: ['src/config.js'],
-            followups: [],
+            uncertainties: [],
+            nextAction: { type: 'stop', reason: 'Complete.' },
           }),
           toolCalls: [],
         },

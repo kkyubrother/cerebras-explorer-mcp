@@ -17,40 +17,31 @@ function getRecentActivity(result) {
   return result?.recentActivity ?? result?._debug?.recentActivity ?? null;
 }
 
-function getCandidatePaths(result) {
-  return result?.candidatePaths ?? [];
-}
-
-function getFollowups(result) {
-  return result?.followups ?? [];
-}
-
 function getSourceText(result, source) {
   const recentActivity = getRecentActivity(result);
   switch (source) {
     case 'direct_answer':
-      return result.directAnswer ?? result.answer ?? '';
+      return result.directAnswer ?? '';
     case 'answer':
-      return result.answer ?? result.directAnswer ?? '';
+      return result.directAnswer ?? '';
     case 'summary':
-      return result.summary ?? '';
+      return result.directAnswer ?? '';
     case 'combined_text':
       return joinLines([
         result.directAnswer,
         result.status?.verification,
         result.nextAction?.reason,
+        result.nextAction?.query,
         ...(result.targets ?? []).map(item => item.reason),
         ...(result.evidence ?? []).map(item => item.why),
-        result.answer,
-        result.summary,
-        ...getFollowups(result).map(item => item.description),
+        ...(result.uncertainties ?? []),
       ]);
     case 'evidence_paths':
       return joinLines((result.evidence ?? []).map(item => item.path));
     case 'evidence_why':
       return joinLines((result.evidence ?? []).map(item => item.why));
     case 'candidate_paths':
-      return joinLines(getCandidatePaths(result));
+      return joinLines((result.targets ?? []).map(item => item.path));
     case 'target_paths':
       return joinLines((result.targets ?? []).map(item => item.path));
     case 'target_reasons':
@@ -58,7 +49,7 @@ function getSourceText(result, source) {
     case 'evidence_snippets':
       return joinLines((result.evidence ?? []).map(item => item.snippet));
     case 'followup_descriptions':
-      return joinLines(getFollowups(result).map(item => item.description));
+      return joinLines([result.nextAction?.reason, result.nextAction?.query]);
     case 'status_verification':
       return result.status?.verification ?? '';
     case 'next_action':
@@ -68,9 +59,9 @@ function getSourceText(result, source) {
     case 'hot_files':
       return joinLines(recentActivity?.hotFiles ?? []);
     case 'confidence':
-      return result.status?.confidence ?? result.confidence ?? '';
+      return result.status?.confidence ?? '';
     case 'confidence_level':
-      return result.status?.confidence ?? result.confidenceLevel ?? result.confidence ?? '';
+      return result.status?.confidence ?? '';
     default:
       throw new Error(`Unknown benchmark source: ${source}`);
   }

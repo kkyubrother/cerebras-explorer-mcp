@@ -174,29 +174,26 @@ test('agent-facing budget and strategy fields are marked advanced only', () => {
   );
 });
 
-test('followup query is optional in schema and explicit query is preserved', () => {
-  const followupSchema = EXPLORE_RESULT_JSON_SCHEMA.schema.properties.followups.items;
-  assert.deepEqual(followupSchema.required, ['description', 'priority']);
-  assert.ok(followupSchema.properties.query);
-
-  const result = normalizeExploreResult({
-    answer: 'answer',
-    summary: 'summary',
-    confidence: 'medium',
-    evidence: [],
-    candidatePaths: [],
-    followups: [
-      {
-        description: 'check related routes',
-        priority: 'recommended',
-        query: 'trace related routes',
-      },
-    ],
-  }, makeStats());
-
-  assert.equal(result.followups.length, 1);
-  assert.equal(result.followups[0].description, 'check related routes');
-  assert.equal(result.followups[0].query, 'trace related routes');
+test('internal model result schema uses the compact explore contract', () => {
+  assert.deepEqual(EXPLORE_RESULT_JSON_SCHEMA.schema.required, [
+    'directAnswer',
+    'status',
+    'targets',
+    'evidence',
+    'uncertainties',
+    'nextAction',
+  ]);
+  assert.ok(EXPLORE_RESULT_JSON_SCHEMA.schema.properties.directAnswer);
+  assert.ok(EXPLORE_RESULT_JSON_SCHEMA.schema.properties.status);
+  assert.ok(EXPLORE_RESULT_JSON_SCHEMA.schema.properties.targets);
+  assert.ok(EXPLORE_RESULT_JSON_SCHEMA.schema.properties.evidence);
+  assert.ok(EXPLORE_RESULT_JSON_SCHEMA.schema.properties.uncertainties);
+  assert.ok(EXPLORE_RESULT_JSON_SCHEMA.schema.properties.nextAction);
+  assert.equal(EXPLORE_RESULT_JSON_SCHEMA.schema.properties.answer, undefined);
+  assert.equal(EXPLORE_RESULT_JSON_SCHEMA.schema.properties.summary, undefined);
+  assert.equal(EXPLORE_RESULT_JSON_SCHEMA.schema.properties.confidence, undefined);
+  assert.equal(EXPLORE_RESULT_JSON_SCHEMA.schema.properties.candidatePaths, undefined);
+  assert.equal(EXPLORE_RESULT_JSON_SCHEMA.schema.properties.followups, undefined);
 });
 
 test('agent-facing output schema is compact and exposes directAnswer, status, targets, snippets, sessionId, and debug', () => {
@@ -220,12 +217,9 @@ test('agent-facing output schema is compact and exposes directAnswer, status, ta
   assert.equal(EXPLORE_REPO_OUTPUT_SCHEMA.properties.followups, undefined);
 });
 
-test('normalizeExploreResult accepts legacy object candidatePaths and v3 fields', () => {
+test('normalizeExploreResult accepts compact result fields without legacy aliases', () => {
   const result = normalizeExploreResult({
     directAnswer: 'direct',
-    answer: 'answer',
-    summary: 'summary',
-    confidence: 'high',
     status: {
       confidence: 'high',
       verification: 'targeted_read_needed',
@@ -252,13 +246,20 @@ test('normalizeExploreResult accepts legacy object candidatePaths and v3 fields'
         snippet: '1: export function requireAuth() {}',
       },
     ],
-    candidatePaths: [{ path: 'src/auth.js', why: 'definition' }],
-    followups: [],
+    uncertainties: ['read auth before editing'],
+    nextAction: {
+      type: 'read_target',
+      reason: 'Read src/auth.js before editing.',
+    },
   }, makeStats());
 
   assert.equal(result.directAnswer, 'direct');
   assert.equal(result.status.verification, 'targeted_read_needed');
   assert.equal(result.targets[0].evidenceRefs[0], 'E1');
   assert.equal(result.evidence[0].snippet, undefined);
-  assert.deepEqual(result.candidatePaths, ['src/auth.js']);
+  assert.deepEqual(result.uncertainties, ['read auth before editing']);
+  assert.equal(result.nextAction.type, 'read_target');
+  assert.equal(result.answer, undefined);
+  assert.equal(result.candidatePaths, undefined);
+  assert.equal(result.followups, undefined);
 });

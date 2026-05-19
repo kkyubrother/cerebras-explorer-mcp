@@ -442,13 +442,13 @@ export function createMcpRequestHandler({
     const lines = [];
 
     lines.push(`## Result`);
-    lines.push(`Confidence: ${result.status?.confidence ?? result.confidence ?? 'unknown'}`);
+    lines.push(`Confidence: ${result.status?.confidence ?? 'unknown'}`);
     if (result.status?.verification) lines.push(`Verification: ${result.status.verification}`);
     if (result.trustSummary) lines.push(`Grounding: ${result.trustSummary}`);
     lines.push('');
 
     lines.push(`## Answer`);
-    lines.push(result.directAnswer || result.answer || '(no answer)');
+    lines.push(result.directAnswer || '(no answer)');
 
     if (result.nextAction?.type && result.nextAction.type !== 'stop') {
       lines.push('');
@@ -507,9 +507,9 @@ export function createMcpRequestHandler({
     delete debug.legacy;
 
     return {
-      directAnswer: result.directAnswer || result.answer || '',
+      directAnswer: result.directAnswer || '',
       status: result.status ?? {
-        confidence: result.confidence ?? 'low',
+        confidence: 'low',
         verification: 'broad_search_needed',
         complete: false,
         warnings: [],

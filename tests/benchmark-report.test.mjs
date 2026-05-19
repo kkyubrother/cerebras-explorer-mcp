@@ -33,11 +33,13 @@ test('sanitizeBenchmarkReport redacts absolute repo-root paths from nested repor
     cases: [
       {
         result: {
-          answer: `Repo path is ${path.join(repoRoot, 'src', 'index.mjs')}`,
+          directAnswer: `Repo path is ${path.join(repoRoot, 'src', 'index.mjs')}`,
           evidence: [
             { path: path.join(repoRoot, 'src', 'index.mjs') },
           ],
-          candidatePaths: [path.join(repoRoot, 'src', 'mcp', 'server.mjs')],
+          targets: [
+            { path: path.join(repoRoot, 'src', 'mcp', 'server.mjs') },
+          ],
           stats: { repoRoot },
           codeMap: {
             entryPoints: [path.join(repoRoot, 'src', 'index.mjs')],
@@ -52,9 +54,9 @@ test('sanitizeBenchmarkReport redacts absolute repo-root paths from nested repor
 
   assert.equal(sanitized.suite.path, 'benchmarks/adoption.json');
   assert.equal(sanitized.suite.repoRoot, '.');
-  assert.equal(sanitized.cases[0].result.answer, 'Repo path is src/index.mjs');
+  assert.equal(sanitized.cases[0].result.directAnswer, 'Repo path is src/index.mjs');
   assert.equal(sanitized.cases[0].result.evidence[0].path, 'src/index.mjs');
-  assert.equal(sanitized.cases[0].result.candidatePaths[0], 'src/mcp/server.mjs');
+  assert.equal(sanitized.cases[0].result.targets[0].path, 'src/mcp/server.mjs');
   assert.equal(sanitized.cases[0].result.stats.repoRoot, '.');
   assert.equal(sanitized.cases[0].result.codeMap.entryPoints[0], 'src/index.mjs');
   assert.equal(sanitized.cases[0].result.codeMap.keyModules[0].path, 'src/mcp/server.mjs');

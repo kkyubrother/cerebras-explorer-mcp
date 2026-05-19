@@ -126,19 +126,16 @@ export function buildExplorerSystemPrompt({ repoRoot, budgetConfig, language, pr
     // ── FINAL OUTPUT CONTRACT ──
     '## FINAL OUTPUT CONTRACT',
     '{',
-    '  "directAnswer": "string — optional short answer; runtime fills from answer if omitted",',
-    '  "answer": "string — direct answer to the task",',
-    '  "summary": "string — short synthesis of key findings",',
-    '  "confidence": "low|medium|high",',
-    '  "evidence": [{"path": "relative/path", "startLine": 1, "endLine": 10, "why": "relevance", "evidenceType": "file_range|git_commit|git_blame|git_diff_hunk"}],',
-    '  "candidatePaths": ["relative/path"],',
+    '  "directAnswer": "string — direct answer to the delegated task",',
+    '  "status": {"confidence": "low|medium|high", "verification": "verified|targeted_read_needed|follow_up_needed|broad_search_needed", "complete": true, "warnings": []},',
     '  "targets": [{"path": "relative/path", "startLine": 1, "endLine": 10, "role": "read|edit|test|config|context|reference", "reason": "...", "evidenceRefs": []}],',
-    '  "followups": [{"description": "...", "priority": "recommended|optional", "query": "optional follow-up query"}]',
+    '  "evidence": [{"path": "relative/path", "startLine": 1, "endLine": 10, "why": "relevance", "evidenceType": "file_range|git_commit|git_blame|git_diff_hunk"}],',
+    '  "uncertainties": ["string"],',
+    '  "nextAction": {"type": "stop|read_target|explore_followup|ask_user", "reason": "string", "query": "optional follow-up query"}',
     '}',
-    '- directAnswer, targets, status, snippets, and evidence ids are also normalized by the runtime; do not spend extra turns inventing them.',
-    '- followups: use "recommended" when follow-up is essential; "optional" for non-critical next steps.',
-    '- If a concrete follow-up query is essential, use followups[].query only. Do not include budget, hints, or strategy.',
-    '- Use [] for followups when no further investigation is needed.',
+    '- Do not output legacy aliases such as answer, summary, confidence, candidatePaths, or followups.',
+    '- Put follow-up guidance in nextAction. Use uncertainties for residual risks or missing evidence.',
+    '- Runtime will add evidence ids/snippets and may refine status/targets; do not invent uninspected facts.',
     '',
     // NOTE: Language rule moved to dynamic section (after strategy catalog) to maximize
     // Cerebras prompt cache prefix length. Static content must come first — any dynamic
@@ -209,9 +206,9 @@ export function buildExplorerSystemPrompt({ repoRoot, budgetConfig, language, pr
 
   // Language rule
   if (typeof language === 'string' && language.trim()) {
-    parts.push('', `## LANGUAGE RULE`, `Answer in ${language.trim()} (explicitly requested). This applies to answer, summary, and followup descriptions.`);
+    parts.push('', `## LANGUAGE RULE`, `Answer in ${language.trim()} (explicitly requested). This applies to directAnswer, target reasons, evidence why fields, uncertainties, and nextAction.`);
   } else {
-    parts.push('', `## LANGUAGE RULE`, 'Answer in the same natural language as the delegated task. This applies to answer, summary, and followup descriptions.');
+    parts.push('', `## LANGUAGE RULE`, 'Answer in the same natural language as the delegated task. This applies to directAnswer, target reasons, evidence why fields, uncertainties, and nextAction.');
   }
 
   // Project context from .cerebras-explorer.json
@@ -253,7 +250,7 @@ function formatStrategyLine(strategy) {
   return `Strategy: ${strategy} — ${STRATEGY_DESCRIPTIONS[strategy] ?? strategy}`;
 }
 
-export function buildExplorerUserPrompt({ task, scope, budget, hints, sessionCandidatePaths, language }) {
+export function buildExplorerUserPrompt({ task, scope, budget, hints, sessionTargetPaths, language }) {
   const strategy = hints?.strategy ?? detectStrategy(task);
 
   const lines = [
@@ -271,20 +268,18 @@ export function buildExplorerUserPrompt({ task, scope, budget, hints, sessionCan
     lines.push(`Response language: ${language.trim()}`);
   }
 
-  // Inject paths from a previous session call as context.
-  // Accepts both string[] (legacy) and { path, why }[] (Phase 5 enriched format).
-  if (Array.isArray(sessionCandidatePaths) && sessionCandidatePaths.length > 0) {
-    const isEnriched = typeof sessionCandidatePaths[0] === 'object' && sessionCandidatePaths[0] !== null;
-    const sample = sessionCandidatePaths.slice(0, 15);
+  if (Array.isArray(sessionTargetPaths) && sessionTargetPaths.length > 0) {
+    const isEnriched = typeof sessionTargetPaths[0] === 'object' && sessionTargetPaths[0] !== null;
+    const sample = sessionTargetPaths.slice(0, 15);
     if (isEnriched) {
       const formatted = sample
         .map(e => `${e.path}${e.why ? ` (${e.why})` : ''}`)
         .join('; ');
-      lines.push('', `Files from prior session with context (check these early):\n  ${formatted}`);
+      lines.push('', `Targets from prior session with context (check these early):\n  ${formatted}`);
     } else {
       lines.push(
         '',
-        `Files found in prior session calls (likely relevant — check these early): ${sample.join(', ')}`,
+        `Targets from prior session calls (likely relevant — check these early): ${sample.join(', ')}`,
       );
     }
   }
@@ -320,12 +315,11 @@ export function buildFinalizePrompt() {
     '  • Every evidence item must be grounded in a file path and line range already inspected.',
     '  • Use only information gathered during this session — no fabricated claims.',
     'SCHEMA REQUIREMENTS:',
-    '  • Required fields: answer, confidence (low|medium|high), evidence[], candidatePaths[]',
-    '  • Optional fields: summary, followups[], directAnswer, targets[], uncertainties[], nextAction, status',
+    '  • Required fields: directAnswer, status, targets[], evidence[], uncertainties[], nextAction',
+    '  • status: { confidence: low|medium|high, verification: verified|targeted_read_needed|follow_up_needed|broad_search_needed, complete: boolean, warnings: string[] }',
+    '  • targets items: { path, role, reason, evidenceRefs, startLine?, endLine? }',
     '  • evidence items: { path, startLine, endLine, why, evidenceType? } — evidenceType defaults to file_range',
-    '  • followups items: { description, priority (recommended|optional), query? }',
-    '  • Do not include budget, hints, or strategy in followups.',
-    '  • Use an empty array [] for followups if no further investigation is needed.',
+    '  • Put follow-up guidance in nextAction. Do not output answer, summary, confidence, candidatePaths, or followups.',
   ].join('\n');
 }
 

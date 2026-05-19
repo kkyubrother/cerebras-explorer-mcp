@@ -149,12 +149,12 @@ test('deny-listed file content is blocked before provider-facing tool messages',
       return {
         message: {
           content: JSON.stringify({
-            answer: 'The secret file was denied by policy.',
-            summary: 'Secret file content was not exposed.',
-            confidence: 'low',
+            directAnswer: 'The secret file was denied by policy.',
+            status: { confidence: 'low', verification: 'broad_search_needed', complete: false, warnings: [] },
+            targets: [],
             evidence: [],
-            candidatePaths: [],
-            followups: [],
+            uncertainties: ['Secret file content was not exposed.'],
+            nextAction: { type: 'ask_user', reason: 'Secret file access was denied by policy.' },
           }),
           toolCalls: [],
         },

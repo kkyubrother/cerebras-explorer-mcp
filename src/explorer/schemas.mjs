@@ -62,18 +62,6 @@ export const EXPLORE_REPO_INPUT_SCHEMA = {
   required: ['task'],
 };
 
-// Schema for structured followup items — used in AI model output
-const FOLLOWUP_ITEM_SCHEMA = {
-  type: 'object',
-  additionalProperties: false,
-  properties: {
-    description: { type: 'string' },
-    priority: { type: 'string', enum: ['recommended', 'optional'] },
-    query: { type: 'string' },
-  },
-  required: ['description', 'priority'],
-};
-
 const STATUS_SCHEMA = {
   type: 'object',
   additionalProperties: false,
@@ -175,7 +163,7 @@ export const EXPLORE_RESULT_JSON_SCHEMA = {
     properties: {
       directAnswer: {
         type: 'string',
-        description: 'Short direct answer. Optional for the model; the runtime aliases answer when omitted.',
+        description: 'Short direct answer to the delegated exploration task.',
       },
       status: STATUS_SCHEMA,
       targets: {
@@ -187,36 +175,18 @@ export const EXPLORE_RESULT_JSON_SCHEMA = {
         type: 'array',
         items: { type: 'string' },
       },
-      answer: {
-        type: 'string',
-        description: 'Direct answer to the delegated exploration task.',
-      },
-      summary: {
-        type: 'string',
-        description: 'A short synthesis of the important findings.',
-      },
-      confidence: {
-        type: 'string',
-        enum: ['low', 'medium', 'high'],
-      },
       evidence: {
         type: 'array',
         items: EVIDENCE_ITEM_SCHEMA,
       },
-      candidatePaths: {
-        type: 'array',
-        items: { type: 'string' },
-      },
-      followups: {
-        type: 'array',
-        items: FOLLOWUP_ITEM_SCHEMA,
-      },
     },
     required: [
-      'answer',
-      'confidence',
+      'directAnswer',
+      'status',
+      'targets',
       'evidence',
-      'candidatePaths',
+      'uncertainties',
+      'nextAction',
     ],
   },
 };
@@ -270,32 +240,6 @@ export function validateExploreRepoArgs(args) {
 
 export { computeConfidenceScore, reconcileConfidence } from './critic.mjs';
 
-/**
- * Normalize a structured followup item from the AI model output.
- */
-function normalizeFollowupItem(item) {
-  if (!item || typeof item !== 'object') {
-    return null;
-  }
-  const description = typeof item.description === 'string' ? item.description : '';
-  if (!description) {
-    return null;
-  }
-  const priority = item.priority === 'recommended' ? 'recommended' : 'optional';
-  const query = typeof item.query === 'string' && item.query.trim() ? item.query.trim() : null;
-  return {
-    description,
-    priority,
-    ...(query ? { query } : {}),
-  };
-}
-
-function normalizeCandidatePath(item) {
-  if (typeof item === 'string') return item;
-  if (item && typeof item === 'object' && typeof item.path === 'string') return item.path;
-  return null;
-}
-
 function normalizeTargetItem(item) {
   if (!item || typeof item !== 'object' || typeof item.path !== 'string' || !item.path) {
     return null;
@@ -334,32 +278,36 @@ function normalizeStatus(status, confidence) {
   };
 }
 
+function normalizeNextAction(item) {
+  if (!item || typeof item !== 'object') {
+    return { type: 'stop', reason: '' };
+  }
+  const type = ['stop', 'read_target', 'explore_followup', 'ask_user'].includes(item.type)
+    ? item.type
+    : 'stop';
+  const target = item.target ? normalizeTargetItem(item.target) : null;
+  return {
+    type,
+    reason: typeof item.reason === 'string' ? item.reason : '',
+    ...(typeof item.query === 'string' && item.query.trim() ? { query: item.query.trim() } : {}),
+    ...(target ? { target } : {}),
+  };
+}
+
 export function normalizeExploreResult(raw, stats) {
   const safe = raw && typeof raw === 'object' ? raw : {};
-  const confidence =
-    safe.confidence === 'low' || safe.confidence === 'medium' || safe.confidence === 'high'
-      ? safe.confidence
-      : 'low';
-  const answer = typeof safe.answer === 'string' ? safe.answer : '';
+  const confidence = safe.status?.confidence === 'low' ||
+    safe.status?.confidence === 'medium' ||
+    safe.status?.confidence === 'high'
+    ? safe.status.confidence
+    : 'low';
   return {
-    directAnswer: typeof safe.directAnswer === 'string' ? safe.directAnswer : answer,
-    answer,
-    summary: typeof safe.summary === 'string' ? safe.summary : '',
-    confidence,
+    directAnswer: typeof safe.directAnswer === 'string' ? safe.directAnswer : '',
     status: normalizeStatus(safe.status, confidence),
     targets: Array.isArray(safe.targets)
       ? safe.targets.map(normalizeTargetItem).filter(Boolean)
       : [],
-    nextAction: safe.nextAction && typeof safe.nextAction === 'object'
-      ? {
-          type: ['stop', 'read_target', 'explore_followup', 'ask_user'].includes(safe.nextAction.type)
-            ? safe.nextAction.type
-            : 'stop',
-          reason: typeof safe.nextAction.reason === 'string' ? safe.nextAction.reason : '',
-          ...(typeof safe.nextAction.query === 'string' ? { query: safe.nextAction.query } : {}),
-          ...(safe.nextAction.target ? { target: normalizeTargetItem(safe.nextAction.target) } : {}),
-        }
-      : { type: 'stop', reason: '' },
+    nextAction: normalizeNextAction(safe.nextAction),
     uncertainties: Array.isArray(safe.uncertainties)
       ? safe.uncertainties.filter(item => typeof item === 'string')
       : [],
@@ -367,7 +315,7 @@ export function normalizeExploreResult(raw, stats) {
       ? safe.evidence
           .filter(item => item && typeof item === 'object')
           .map(item => {
-            // Determine evidence kind — default to file_range for legacy items
+            // Determine evidence kind — default to file_range when omitted.
             const EVIDENCE_TYPES = ['file_range', 'git_commit', 'git_blame', 'git_diff_hunk'];
             const kind = typeof item.evidenceType === 'string' && EVIDENCE_TYPES.includes(item.evidenceType)
               ? item.evidenceType
@@ -405,12 +353,6 @@ export function normalizeExploreResult(raw, stats) {
             return base;
           })
           .filter(item => item.path && item.why)
-      : [],
-    candidatePaths: Array.isArray(safe.candidatePaths)
-      ? safe.candidatePaths.map(normalizeCandidatePath).filter(Boolean)
-      : [],
-    followups: Array.isArray(safe.followups)
-      ? safe.followups.map(normalizeFollowupItem).filter(Boolean)
       : [],
     ...(typeof safe.sessionId === 'string' && safe.sessionId ? { sessionId: safe.sessionId } : {}),
     ...(typeof stats?.sessionId === 'string' && stats.sessionId ? { sessionId: stats.sessionId } : {}),

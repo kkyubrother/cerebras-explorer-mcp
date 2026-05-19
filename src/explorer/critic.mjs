@@ -384,7 +384,7 @@ export function runDeterministicCriticPass({
     totalEvidenceBefore,
     stats,
     taskKind,
-    modelConfidence: normalized.confidence,
+    modelConfidence: normalized.status?.confidence,
     droppedEvidence: grounding.droppedUngrounded + grounding.droppedMalformed,
   });
 
@@ -400,7 +400,10 @@ export function runDeterministicCriticPass({
       confidenceScore: confidence.score,
       confidenceLevel: confidence.finalConfidence,
       confidenceFactors: confidence.factors,
-      confidence: confidence.finalConfidence,
+      status: {
+        ...(normalized.status ?? {}),
+        confidence: confidence.finalConfidence,
+      },
       critic: {
         status: buildCriticStatus(warnings),
         warnings,

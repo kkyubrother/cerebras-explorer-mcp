@@ -36,6 +36,32 @@ async function makeRepoFixture() {
   return root;
 }
 
+function compactResult({
+  directAnswer = 'analysis complete',
+  statusConfidence = 'low',
+  verification = 'verified',
+  complete = true,
+  warnings = [],
+  targets = [],
+  evidence = [],
+  uncertainties = [],
+  nextAction = { type: 'stop', reason: 'Complete.' },
+} = {}) {
+  return {
+    directAnswer,
+    status: {
+      confidence: statusConfidence,
+      verification,
+      complete,
+      warnings,
+    },
+    targets,
+    evidence,
+    uncertainties,
+    nextAction,
+  };
+}
+
 class MockChatClient {
   constructor() {
     this.model = 'zai-glm-4.7';
@@ -108,12 +134,9 @@ class MockChatClient {
     return {
       usage: { prompt_tokens: 130, completion_tokens: 40, total_tokens: 170 },
       message: {
-        content: JSON.stringify({
-          answer:
-            'registerUserRoutes는 /users/me 라우트에 requireAuth 미들웨어를 직접 연결한다.',
-          summary:
-            'auth.js에서 requireAuth를 정의하고, user.js에서 이를 import해 /users/me에 적용한다.',
-          confidence: 'high',
+        content: JSON.stringify(compactResult({
+          directAnswer: 'registerUserRoutes는 /users/me 라우트에 requireAuth 미들웨어를 직접 연결한다.',
+          statusConfidence: 'high',
           evidence: [
             {
               path: 'src/routes/user.js',
@@ -130,15 +153,26 @@ class MockChatClient {
               snippet: '1: FORGED_BY_MODEL();',
             },
           ],
-          candidatePaths: ['src/routes/user.js', 'src/auth.js'],
-          followups: [
+          targets: [
             {
-              description: '미들웨어 에러 핸들링 패턴 추가 분석',
-              priority: 'optional',
-              query: 'Analyze error handling in auth middleware',
+              path: 'src/routes/user.js',
+              startLine: 1,
+              endLine: 4,
+              role: 'read',
+              reason: '라우트가 requireAuth를 import하고 /users/me에 연결한다.',
+              evidenceRefs: [],
+            },
+            {
+              path: 'src/auth.js',
+              startLine: 1,
+              endLine: 4,
+              role: 'read',
+              reason: 'requireAuth의 실제 동작이 여기 정의되어 있다.',
+              evidenceRefs: [],
             },
           ],
-        }),
+          uncertainties: ['미들웨어 에러 핸들링 패턴은 별도 분석이 필요할 수 있다.'],
+        })),
         toolCalls: [],
       },
     };
@@ -209,9 +243,8 @@ test('ExplorerRuntime performs an autonomous tool loop and returns structured fi
 
   // Core fields — confidence calibration: 2 exact cross-verified evidence items with
   // a non-locate task yields 'medium' with the task-aware scoring (base 0.15).
-  assert.ok(['medium', 'high'].includes(result.confidence), `confidence must be medium or high, got: ${result.confidence}`);
-  assert.match(result.answer, /requireAuth/);
-  assert.equal(result.directAnswer, result.answer);
+  assert.ok(['medium', 'high'].includes(result.status.confidence), `confidence must be medium or high, got: ${result.status.confidence}`);
+  assert.match(result.directAnswer, /requireAuth/);
   assert.equal(result.status.verification, 'verified');
   assert.ok(Array.isArray(result.targets), 'targets must be an array');
   assert.ok(result.targets.some(target => target.path === 'src/routes/user.js'), 'targets include route file');
@@ -234,12 +267,12 @@ test('ExplorerRuntime performs an autonomous tool loop and returns structured fi
   assert.equal(result.stats.toolCalls, 3);
   assert.equal(result.stats.grepCalls, 1);
   assert.equal(result.stats.filesRead, 2);
-  assert.equal(result.candidatePaths.includes('src/routes/user.js'), true);
+  assert.equal(result.targets.some(target => target.path === 'src/routes/user.js'), true);
 
   // Phase 3: continuous confidence score
   assert.ok(typeof result.confidenceScore === 'number', 'confidenceScore must be a number');
   assert.ok(result.confidenceScore >= 0 && result.confidenceScore <= 1, 'confidenceScore must be in [0, 1]');
-  assert.ok(['low', 'medium', 'high'].includes(result.confidenceLevel), 'confidenceLevel must be low|medium|high');
+  assert.ok(['low', 'medium', 'high'].includes(result.status.confidence), 'confidenceLevel must be low|medium|high');
   assert.ok(result.confidenceFactors && typeof result.confidenceFactors === 'object', 'confidenceFactors must be an object');
   assert.ok(typeof result.confidenceFactors.evidenceCount === 'number', 'confidenceFactors.evidenceCount must be a number');
   assert.ok(typeof result.confidenceFactors.crossVerified === 'boolean', 'confidenceFactors.crossVerified must be a boolean');
@@ -249,13 +282,8 @@ test('ExplorerRuntime performs an autonomous tool loop and returns structured fi
     assert.ok(ev.groundingStatus === 'exact' || ev.groundingStatus === 'partial', 'each evidence item must have groundingStatus');
   }
 
-  // Phase 3: structured followups
-  assert.ok(Array.isArray(result.followups), 'followups must be an array');
-  if (result.followups.length > 0) {
-    const followup = result.followups[0];
-    assert.ok(typeof followup.description === 'string', 'followup.description must be a string');
-    assert.ok(followup.priority === 'recommended' || followup.priority === 'optional', 'followup.priority must be recommended|optional');
-  }
+  assert.ok(Array.isArray(result.uncertainties), 'uncertainties must be an array');
+  assert.equal(result.followups, undefined, 'legacy followups are no longer part of the runtime result');
 
   // Phase 3: codeMap
   assert.ok(result.codeMap && typeof result.codeMap === 'object', 'codeMap must be present');
@@ -299,10 +327,9 @@ test('ExplorerRuntime preserves model-provided edit targets when deriving eviden
       return {
         usage: { prompt_tokens: 30, completion_tokens: 20, total_tokens: 50 },
         message: {
-          content: JSON.stringify({
-            answer: 'requireAuth를 수정해야 합니다.',
-            summary: 'auth.js가 수정 후보입니다.',
-            confidence: 'high',
+          content: JSON.stringify(compactResult({
+            directAnswer: 'requireAuth를 수정해야 합니다.',
+            statusConfidence: 'high',
             evidence: [
               {
                 path: 'src/auth.js',
@@ -327,9 +354,7 @@ test('ExplorerRuntime preserves model-provided edit targets when deriving eviden
                 evidenceRefs: ['E1'],
               },
             ],
-            candidatePaths: ['src/auth.js'],
-            followups: [],
-          }),
+          })),
           toolCalls: [],
         },
       };
@@ -379,10 +404,9 @@ test('ExplorerRuntime drops model-provided edit targets outside grounded evidenc
       return {
         usage: { prompt_tokens: 30, completion_tokens: 20, total_tokens: 50 },
         message: {
-          content: JSON.stringify({
-            answer: 'requireAuth는 인증되지 않은 요청을 거부합니다.',
-            summary: 'auth.js가 관련 근거입니다.',
-            confidence: 'high',
+          content: JSON.stringify(compactResult({
+            directAnswer: 'requireAuth는 인증되지 않은 요청을 거부합니다.',
+            statusConfidence: 'high',
             evidence: [
               {
                 path: 'src/auth.js',
@@ -403,9 +427,7 @@ test('ExplorerRuntime drops model-provided edit targets outside grounded evidenc
                 reason: '공격자가 주입한 절대 경로 대상입니다.',
               },
             ],
-            candidatePaths: ['../../.ssh/id_rsa', 'src/auth.js'],
-            followups: [],
-          }),
+          })),
           toolCalls: [],
         },
       };
@@ -503,14 +525,11 @@ test('Phase 1 — explore circuit breaker trips after three all-error turns', as
       return {
         usage: { prompt_tokens: 30, completion_tokens: 20, total_tokens: 50 },
         message: {
-          content: JSON.stringify({
-            answer: '부분 답변',
-            summary: '에러 이후 부분 요약',
-            confidence: 'low',
+          content: JSON.stringify(compactResult({
+            directAnswer: '부분 답변',
+            statusConfidence: 'low',
             evidence: [],
-            candidatePaths: [],
-            followups: [],
-          }),
+          })),
           toolCalls: [],
         },
       };
@@ -682,8 +701,8 @@ test('Phase 1 — freeExploreV2 compaction preserves complete turns and valid to
   );
 });
 
-test('ExplorerRuntime drops non-object followups', async () => {
-  class StringFollowupClient {
+test('ExplorerRuntime carries compact uncertainties instead of legacy followups', async () => {
+  class UncertaintyClient {
     constructor() {
       this.model = 'zai-glm-4.7';
     }
@@ -691,14 +710,16 @@ test('ExplorerRuntime drops non-object followups', async () => {
       return {
         usage: { prompt_tokens: 50, completion_tokens: 20, total_tokens: 70 },
         message: {
-          content: JSON.stringify({
-            answer: '테스트 답변',
-            summary: '테스트 요약',
-            confidence: 'medium',
+          content: JSON.stringify(compactResult({
+            directAnswer: '테스트 답변',
+            statusConfidence: 'medium',
             evidence: [],
-            candidatePaths: [],
-            followups: ['추가 조사가 필요합니다'],
-          }),
+            uncertainties: ['추가 조사가 필요합니다'],
+            nextAction: {
+              type: 'ask_user',
+              reason: '추가 조사가 필요합니다',
+            },
+          })),
           toolCalls: [],
         },
       };
@@ -708,11 +729,12 @@ test('ExplorerRuntime drops non-object followups', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-explorer-string-followup-'));
   await fs.writeFile(path.join(root, 'index.js'), 'console.log("hello");');
 
-  const runtime = new ExplorerRuntime({ chatClient: new StringFollowupClient() });
+  const runtime = new ExplorerRuntime({ chatClient: new UncertaintyClient() });
   const result = await runtime.explore({ task: '테스트', repo_root: root });
 
-  assert.ok(Array.isArray(result.followups));
-  assert.equal(result.followups.length, 0);
+  assert.ok(Array.isArray(result.uncertainties));
+  assert.ok(result.uncertainties.includes('추가 조사가 필요합니다'));
+  assert.equal(result.followups, undefined);
 });
 
 test('ExplorerRuntime builds recentActivity when git_log tool is called', async () => {
@@ -743,14 +765,11 @@ test('ExplorerRuntime builds recentActivity when git_log tool is called', async 
       return {
         usage: { prompt_tokens: 80, completion_tokens: 30, total_tokens: 110 },
         message: {
-          content: JSON.stringify({
-            answer: '최근 커밋 이력을 확인했습니다.',
-            summary: '최근 변경 사항 요약',
-            confidence: 'medium',
+          content: JSON.stringify(compactResult({
+            directAnswer: '최근 커밋 이력을 확인했습니다.',
+            statusConfidence: 'medium',
             evidence: [],
-            candidatePaths: [],
-            followups: [],
-          }),
+          })),
           toolCalls: [],
         },
       };
@@ -803,16 +822,13 @@ test('ExplorerRuntime partial match evidence: evidence within tolerance lines is
       return {
         usage: { prompt_tokens: 80, completion_tokens: 20, total_tokens: 100 },
         message: {
-          content: JSON.stringify({
-            answer: '인증 함수가 확인됩니다.',
-            summary: '요약',
-            confidence: 'medium',
+          content: JSON.stringify(compactResult({
+            directAnswer: '인증 함수가 확인됩니다.',
+            statusConfidence: 'medium',
             evidence: [
               { path: 'src/auth.js', startLine: 5, endLine: 6, why: '함수 본문' },
             ],
-            candidatePaths: ['src/auth.js'],
-            followups: [],
-          }),
+          })),
           toolCalls: [],
         },
       };
@@ -855,10 +871,10 @@ test('ExplorerRuntime calls onProgress callback on each turn', async () => {
       return {
         usage: { prompt_tokens: 60, completion_tokens: 20, total_tokens: 80 },
         message: {
-          content: JSON.stringify({
-            answer: '답변', summary: '요약', confidence: 'low',
-            evidence: [], candidatePaths: [], followups: [],
-          }),
+          content: JSON.stringify(compactResult({
+            directAnswer: '답변', statusConfidence: 'low',
+            evidence: [],
+          })),
           toolCalls: [],
         },
       };
@@ -880,7 +896,7 @@ test('ExplorerRuntime calls onProgress callback on each turn', async () => {
     assert.ok(typeof evt.total === 'number', 'total must be a number');
     assert.ok(typeof evt.message === 'string', 'message must be a string');
   }
-  assert.ok(result.answer);
+  assert.ok(result.directAnswer);
 });
 
 test('ExplorerRuntime returns sessionId in stats when sessionStore is provided', async () => {
@@ -890,10 +906,13 @@ test('ExplorerRuntime returns sessionId in stats when sessionStore is provided',
       return {
         usage: { prompt_tokens: 30, completion_tokens: 10, total_tokens: 40 },
         message: {
-          content: JSON.stringify({
-            answer: '세션 테스트', summary: '요약', confidence: 'low',
-            evidence: [], candidatePaths: ['src/auth.js'], followups: [],
-          }),
+          content: JSON.stringify(compactResult({
+            directAnswer: '세션 테스트', statusConfidence: 'low',
+            targets: [
+              { path: 'src/auth.js', role: 'read', reason: 'session target', evidenceRefs: [] },
+            ],
+            evidence: [],
+          })),
           toolCalls: [],
         },
       };
@@ -914,10 +933,10 @@ test('ExplorerRuntime returns sessionId in stats when sessionStore is provided',
   assert.ok(result.stats.sessionId.startsWith('sess_'), 'sessionId must start with sess_');
   assert.equal(result.sessionId, result.stats.sessionId, 'sessionId must also be top-level');
 
-  // Session should store candidatePaths from this call
+  // Session should store compact target paths from this call
   const session = sessionStore.get(result.stats.sessionId);
   assert.ok(session, 'session must exist in the store');
-  assert.ok(session.candidatePaths.includes('src/auth.js'), 'candidatePaths must be accumulated');
+  assert.ok(session.targetPaths.includes('src/auth.js'), 'targetPaths must be accumulated');
 });
 
 test('ExplorerRuntime reports remainingCalls after the current session call is consumed', async () => {
@@ -927,10 +946,10 @@ test('ExplorerRuntime reports remainingCalls after the current session call is c
       return {
         usage: { prompt_tokens: 30, completion_tokens: 10, total_tokens: 40 },
         message: {
-          content: JSON.stringify({
-            answer: '세션 테스트', summary: '요약', confidence: 'low',
-            evidence: [], candidatePaths: ['src/auth.js'], followups: [],
-          }),
+          content: JSON.stringify(compactResult({
+            directAnswer: '세션 테스트', statusConfidence: 'low',
+            evidence: [],
+          })),
           toolCalls: [],
         },
       };
@@ -967,10 +986,10 @@ test('ExplorerRuntime injects previous session context into next call', async ()
       return {
         usage: { prompt_tokens: 30, completion_tokens: 10, total_tokens: 40 },
         message: {
-          content: JSON.stringify({
-            answer: 'ok', summary: 'previous context test', confidence: 'low',
-            evidence: [], candidatePaths: [], followups: [],
-          }),
+          content: JSON.stringify(compactResult({
+            directAnswer: 'ok', statusConfidence: 'low',
+            evidence: [],
+          })),
           toolCalls: [],
         },
       };
@@ -1011,10 +1030,10 @@ test('ExplorerRuntime falls back to a new session when exhausted_session', async
       return {
         usage: { prompt_tokens: 30, completion_tokens: 10, total_tokens: 40 },
         message: {
-          content: JSON.stringify({
-            answer: 'ok', summary: '요약', confidence: 'low',
-            evidence: [], candidatePaths: [], followups: [],
-          }),
+          content: JSON.stringify(compactResult({
+            directAnswer: 'ok', statusConfidence: 'low',
+            evidence: [],
+          })),
           toolCalls: [],
         },
       };
@@ -1050,10 +1069,10 @@ test('ExplorerRuntime falls back to a new session when expired_session', async (
       return {
         usage: { prompt_tokens: 30, completion_tokens: 10, total_tokens: 40 },
         message: {
-          content: JSON.stringify({
-            answer: 'ok', summary: '요약', confidence: 'low',
-            evidence: [], candidatePaths: [], followups: [],
-          }),
+          content: JSON.stringify(compactResult({
+            directAnswer: 'ok', statusConfidence: 'low',
+            evidence: [],
+          })),
           toolCalls: [],
         },
       };
@@ -1092,10 +1111,10 @@ test('ExplorerRuntime reuses the same session when the same Windows repo is pass
       return {
         usage: { prompt_tokens: 30, completion_tokens: 10, total_tokens: 40 },
         message: {
-          content: JSON.stringify({
-            answer: 'ok', summary: '요약', confidence: 'low',
-            evidence: [], candidatePaths: [], followups: [],
-          }),
+          content: JSON.stringify(compactResult({
+            directAnswer: 'ok', statusConfidence: 'low',
+            evidence: [],
+          })),
           toolCalls: [],
         },
       };
@@ -1134,14 +1153,11 @@ test('Phase 1 — no-tool exit always routes through finalize (strict schema)', 
       return {
         usage: { prompt_tokens: 30, completion_tokens: 20, total_tokens: 50 },
         message: {
-          content: JSON.stringify({
-            answer: '즉시 답변합니다.',
-            summary: '도구 없이 바로 답변했습니다.',
-            confidence: 'medium',
+          content: JSON.stringify(compactResult({
+            directAnswer: '즉시 답변합니다.',
+            statusConfidence: 'medium',
             evidence: [],
-            candidatePaths: [],
-            followups: [],
-          }),
+          })),
           toolCalls: [],
         },
       };
@@ -1171,14 +1187,11 @@ test('Phase 1 — finalize prompt triggers no additional tool calls', async () =
       return {
         usage: { prompt_tokens: 30, completion_tokens: 15, total_tokens: 45 },
         message: {
-          content: JSON.stringify({
-            answer: '분석 완료',
-            summary: '요약',
-            confidence: 'low',
+          content: JSON.stringify(compactResult({
+            directAnswer: '분석 완료',
+            statusConfidence: 'low',
             evidence: [],
-            candidatePaths: [],
-            followups: [],
-          }),
+          })),
           toolCalls: [],
         },
       };
@@ -1230,11 +1243,12 @@ test('Phase 1 — malformed freeform content still produces strict-schema result
   const result = await runtime.explore({ task: '인증 위치 찾기', repo_root: root, budget: 'quick' });
 
   // Fallback path must still produce schema-compliant structure
-  assert.equal(typeof result.answer, 'string', 'answer must be a string even on malformed content');
-  assert.ok(result.answer.length > 0, 'answer must not be empty');
-  assert.equal(result.confidence, 'low', 'confidence must be low on fallback path');
+  assert.equal(typeof result.directAnswer, 'string', 'answer must be a string even on malformed content');
+  assert.ok(result.directAnswer.length > 0, 'answer must not be empty');
+  assert.equal(result.status.confidence, 'low', 'confidence must be low on fallback path');
   assert.ok(Array.isArray(result.evidence), 'evidence must be an array on fallback');
-  assert.ok(Array.isArray(result.followups), 'followups must be an array on fallback');
+  assert.ok(Array.isArray(result.uncertainties), 'uncertainties must be an array on fallback');
+  assert.equal(result.followups, undefined);
 });
 
 // ── Phase 5 — evidence/schema/context 고도화 ──────────────────────────────────
@@ -1262,10 +1276,9 @@ test('Phase 5 — git_commit evidence without verified SHA is dropped (strict va
       return {
         usage: { prompt_tokens: 30, completion_tokens: 20, total_tokens: 50 },
         message: {
-          content: JSON.stringify({
-            answer: '버그는 abc1234 커밋에서 도입됐습니다.',
-            summary: '커밋 이력 분석 완료',
-            confidence: 'medium',
+          content: JSON.stringify(compactResult({
+            directAnswer: '버그는 abc1234 커밋에서 도입됐습니다.',
+            statusConfidence: 'medium',
             evidence: [
               {
                 path: 'src/auth.js',
@@ -1277,9 +1290,7 @@ test('Phase 5 — git_commit evidence without verified SHA is dropped (strict va
                 author: 'dev@example.com',
               },
             ],
-            candidatePaths: ['src/auth.js'],
-            followups: [],
-          }),
+          })),
           toolCalls: [],
         },
       };
@@ -1299,9 +1310,9 @@ test('Phase 5 — git_commit evidence without verified SHA is dropped (strict va
   assert.equal(result.evidence.length, 0, 'unverified git_commit evidence must be dropped');
 });
 
-test('Phase 5 — session reuse stores candidatePathsWithContext as {path, why} objects', async () => {
+test('Phase 5 — session reuse stores targetPathsWithContext as {path, why} objects', async () => {
   // Verifies that after an explore() call with evidence, the session stores
-  // candidatePathsWithContext as { path, why }[] objects (not plain strings).
+  // targetPathsWithContext as { path, why }[] objects (not plain strings).
   // The mock must call repo_read_file first so the evidence passes grounding.
   class SimpleClient {
     constructor() { this.model = 'zai-glm-4.7'; this.calls = 0; }
@@ -1348,17 +1359,14 @@ test('Phase 5 — session reuse stores candidatePathsWithContext as {path, why} 
       return {
         usage: { prompt_tokens: 30, completion_tokens: 15, total_tokens: 45 },
         message: {
-          content: JSON.stringify({
-            answer: '분석 완료',
-            summary: '요약',
-            confidence: 'medium',
+          content: JSON.stringify(compactResult({
+            directAnswer: '분석 완료',
+            statusConfidence: 'medium',
             evidence: [
               { path: 'src/auth.js', startLine: 1, endLine: 4, why: '인증 함수 정의 위치' },
               { path: 'src/routes/user.js', startLine: 1, endLine: 6, why: '라우트 등록 위치' },
             ],
-            candidatePaths: ['src/auth.js', 'src/routes/user.js'],
-            followups: [],
-          }),
+          })),
           toolCalls: [],
         },
       };
@@ -1374,20 +1382,20 @@ test('Phase 5 — session reuse stores candidatePathsWithContext as {path, why} 
   const session = sessionStore.get(result.stats.sessionId);
 
   assert.ok(session, 'session must exist');
-  assert.ok(Array.isArray(session.candidatePathsWithContext),
-    'candidatePathsWithContext must be an array');
-  assert.ok(session.candidatePathsWithContext.length >= 2,
+  assert.ok(Array.isArray(session.targetPathsWithContext),
+    'targetPathsWithContext must be an array');
+  assert.ok(session.targetPathsWithContext.length >= 2,
     'must have at least 2 enriched paths from evidence items');
 
   // Verify each entry is a { path, why } object
-  for (const entry of session.candidatePathsWithContext) {
+  for (const entry of session.targetPathsWithContext) {
     assert.equal(typeof entry.path, 'string', 'each entry must have a path string');
     assert.equal(typeof entry.why, 'string', 'each entry must have a why string');
     assert.ok(entry.why.length > 0, 'why must not be empty (should come from evidence.why)');
   }
 
   // Verify the paths are from the evidence items
-  const paths = session.candidatePathsWithContext.map(e => e.path);
+  const paths = session.targetPathsWithContext.map(e => e.path);
   assert.ok(paths.includes('src/auth.js'), 'must include src/auth.js from evidence');
   assert.ok(paths.includes('src/routes/user.js'), 'must include src/routes/user.js from evidence');
 });
@@ -1420,14 +1428,11 @@ test('Phase 5 — unknown tool validation stays in sync with current tool defini
       return {
         usage: { prompt_tokens: 30, completion_tokens: 20, total_tokens: 50 },
         message: {
-          content: JSON.stringify({
-            answer: 'done',
-            summary: 'done',
-            confidence: 'low',
+          content: JSON.stringify(compactResult({
+            directAnswer: 'done',
+            statusConfidence: 'low',
             evidence: [],
-            candidatePaths: [],
-            followups: [],
-          }),
+          })),
           toolCalls: [],
         },
       };
@@ -1487,10 +1492,10 @@ test('Phase 4 — checkpoint message is inserted for normal/deep budget after ev
       return {
         usage: { prompt_tokens: 30, completion_tokens: 20, total_tokens: 50 },
         message: {
-          content: JSON.stringify({
-            answer: '분석 완료', summary: '요약', confidence: 'low',
-            evidence: [], candidatePaths: [], followups: [],
-          }),
+          content: JSON.stringify(compactResult({
+            directAnswer: '분석 완료', statusConfidence: 'low',
+            evidence: [],
+          })),
           toolCalls: [],
         },
       };
@@ -1524,10 +1529,10 @@ test('Phase 4 — checkpoint is NOT inserted for quick budget (maxTurns <= 6)', 
       return {
         usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
         message: {
-          content: JSON.stringify({
-            answer: '빠른 답변', summary: '요약', confidence: 'low',
-            evidence: [], candidatePaths: [], followups: [],
-          }),
+          content: JSON.stringify(compactResult({
+            directAnswer: '빠른 답변', statusConfidence: 'low',
+            evidence: [],
+          })),
           toolCalls: [],
         },
       };
@@ -1571,14 +1576,11 @@ test('Phase 4 — critic-lite: confidence=high with only 1 evidence item is reco
       return {
         usage: { prompt_tokens: 30, completion_tokens: 20, total_tokens: 50 },
         message: {
-          content: JSON.stringify({
-            answer: '자신있게 단정합니다.',
-            summary: '요약',
-            confidence: 'high',
+          content: JSON.stringify(compactResult({
+            directAnswer: '자신있게 단정합니다.',
+            statusConfidence: 'high',
             evidence: [{ path: 'src/auth.js', startLine: 1, endLine: 4, why: '유일한 근거' }],
-            candidatePaths: ['src/auth.js'],
-            followups: [],
-          }),
+          })),
           toolCalls: [],
         },
       };
@@ -1591,8 +1593,8 @@ test('Phase 4 — critic-lite: confidence=high with only 1 evidence item is reco
 
   // Recalibrated scorer: base 0.30 + 0.18 (1 exact) = 0.48 → 'medium'
   // reconcileConfidence: lowerOf('high', 'medium') = 'medium'
-  assert.ok(['low', 'medium'].includes(result.confidence),
-    `confidence=high with 1 evidence item should be reconciled down, got ${result.confidence}`);
+  assert.ok(['low', 'medium'].includes(result.status.confidence),
+    `confidence=high with 1 evidence item should be reconciled down, got ${result.status.confidence}`);
   assert.equal(result.critic.status, 'caution');
   assert.ok(result.critic.warnings.some(w => w.type === 'confidence_downgraded'));
   assert.ok(result.critic.warnings.every(w => w.message && w.action));
@@ -1742,18 +1744,22 @@ test('Phase 3 — system prompt does not expose the absolute repo root path', ()
  * Re-use this helper in every test that produces a result to track schema compliance rate.
  */
 function assertStrictSchema(result) {
-  assert.ok(typeof result.answer === 'string' && result.answer.length > 0,
+  assert.ok(typeof result.directAnswer === 'string' && result.directAnswer.length > 0,
     'strict schema: answer must be a non-empty string');
-  assert.ok(typeof result.summary === 'string',
+  assert.ok(typeof result.directAnswer === 'string',
     'strict schema: summary must be a string');
-  assert.ok(['low', 'medium', 'high'].includes(result.confidence),
+  assert.ok(['low', 'medium', 'high'].includes(result.status.confidence),
     'strict schema: confidence must be low|medium|high');
+  assert.ok(Array.isArray(result.targets),
+    'strict schema: targets must be an array');
   assert.ok(Array.isArray(result.evidence),
     'strict schema: evidence must be an array');
-  assert.ok(Array.isArray(result.candidatePaths),
-    'strict schema: candidatePaths must be an array');
-  assert.ok(Array.isArray(result.followups),
-    'strict schema: followups must be an array');
+  assert.ok(Array.isArray(result.uncertainties),
+    'strict schema: uncertainties must be an array');
+  assert.equal(result.candidatePaths, undefined,
+    'strict schema: candidatePaths must not be exposed');
+  assert.equal(result.followups, undefined,
+    'strict schema: followups must not be exposed');
   assert.ok(result.stats && typeof result.stats === 'object',
     'strict schema: stats must be an object');
   assert.ok(typeof result.stats.turns === 'number',
@@ -1769,14 +1775,11 @@ test('Phase 0 metric — JSON parse success: model content parsed into correct f
       return {
         usage: { prompt_tokens: 40, completion_tokens: 20, total_tokens: 60 },
         message: {
-          content: JSON.stringify({
-            answer: '인증 함수 위치를 확인했습니다.',
-            summary: 'requireAuth는 auth.js에 정의됩니다.',
-            confidence: 'high',
+          content: JSON.stringify(compactResult({
+            directAnswer: '인증 함수 위치를 확인했습니다.',
+            statusConfidence: 'high',
             evidence: [{ path: 'src/auth.js', startLine: 1, endLine: 4, why: '함수 정의' }],
-            candidatePaths: ['src/auth.js'],
-            followups: [],
-          }),
+          })),
           toolCalls: [],
         },
       };
@@ -1788,12 +1791,14 @@ test('Phase 0 metric — JSON parse success: model content parsed into correct f
   const result = await runtime.explore({ task: '인증 함수 찾기', repo_root: root });
 
   // JSON parse success: each field has the correct runtime type
-  assert.equal(typeof result.answer, 'string', 'answer must parse to string');
-  assert.equal(typeof result.summary, 'string', 'summary must parse to string');
-  assert.ok(['low', 'medium', 'high'].includes(result.confidence), 'confidence must parse to valid label');
+  assert.equal(typeof result.directAnswer, 'string', 'answer must parse to string');
+  assert.equal(typeof result.directAnswer, 'string', 'summary must parse to string');
+  assert.ok(['low', 'medium', 'high'].includes(result.status.confidence), 'confidence must parse to valid label');
+  assert.ok(Array.isArray(result.targets), 'targets must parse to array');
   assert.ok(Array.isArray(result.evidence), 'evidence must parse to array');
-  assert.ok(Array.isArray(result.candidatePaths), 'candidatePaths must parse to array');
-  assert.ok(Array.isArray(result.followups), 'followups must parse to array');
+  assert.ok(Array.isArray(result.uncertainties), 'uncertainties must parse to array');
+  assert.equal(result.candidatePaths, undefined);
+  assert.equal(result.followups, undefined);
   assert.equal(typeof result.confidenceScore, 'number', 'confidenceScore must be a number after parse');
   assertStrictSchema(result);
 });
@@ -1807,14 +1812,11 @@ test('Phase 0 metric — strict schema compliance: all required fields present a
       return {
         usage: { prompt_tokens: 30, completion_tokens: 15, total_tokens: 45 },
         message: {
-          content: JSON.stringify({
-            answer: '테스트 답변',
-            summary: '테스트 요약',
-            confidence: 'medium',
+          content: JSON.stringify(compactResult({
+            directAnswer: '테스트 답변',
+            statusConfidence: 'medium',
             evidence: [],
-            candidatePaths: [],
-            followups: [],
-          }),
+          })),
           toolCalls: [],
         },
       };
@@ -1876,14 +1878,11 @@ test('ExplorerRuntime forwards assistant reasoning into the next turn when avail
       return {
         usage: { prompt_tokens: 30, completion_tokens: 20, total_tokens: 50 },
         message: {
-          content: JSON.stringify({
-            answer: 'ok',
-            summary: 'reasoning forwarded',
-            confidence: 'low',
+          content: JSON.stringify(compactResult({
+            directAnswer: 'reasoning forwarded',
+            statusConfidence: 'low',
             evidence: [],
-            candidatePaths: [],
-            followups: [],
-          }),
+          })),
           reasoning: '',
           toolCalls: [],
         },
@@ -1900,7 +1899,7 @@ test('ExplorerRuntime forwards assistant reasoning into the next turn when avail
     budget: 'quick',
   });
 
-  assert.equal(result.summary, 'reasoning forwarded');
+  assert.equal(result.directAnswer, 'reasoning forwarded');
 });
 
 // --- Phase 3: Malformed Tool Args / Parallel Tool Failure Isolation ---
@@ -1932,14 +1931,11 @@ test('ExplorerRuntime continues when one tool call has invalid JSON arguments', 
       return {
         usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
         message: {
-          content: JSON.stringify({
-            answer: 'found',
-            summary: 'malformed args handled',
-            confidence: 'low',
+          content: JSON.stringify(compactResult({
+            directAnswer: 'malformed args handled',
+            statusConfidence: 'low',
             evidence: [],
-            candidatePaths: [],
-            followups: [],
-          }),
+          })),
           toolCalls: [],
         },
       };
@@ -1951,7 +1947,7 @@ test('ExplorerRuntime continues when one tool call has invalid JSON arguments', 
   // Must not throw — the bad tool call is isolated as an error, good one proceeds
   const result = await runtime.explore({ task: 'find auth', repo_root: root, budget: 'quick' });
   assert.ok(result, 'explore() did not throw despite malformed tool args');
-  assert.equal(result.summary, 'malformed args handled');
+  assert.equal(result.directAnswer, 'malformed args handled');
 });
 
 test('ExplorerRuntime preserves successful tool results even when one sibling tool fails', async () => {
@@ -1982,14 +1978,11 @@ test('ExplorerRuntime preserves successful tool results even when one sibling to
       return {
         usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
         message: {
-          content: JSON.stringify({
-            answer: 'checked',
-            summary: 'sibling results preserved',
-            confidence: 'low',
+          content: JSON.stringify(compactResult({
+            directAnswer: 'checked',
+            statusConfidence: 'low',
             evidence: [],
-            candidatePaths: [],
-            followups: [],
-          }),
+          })),
           toolCalls: [],
         },
       };
@@ -2035,16 +2028,13 @@ test('ExplorerRuntime records observations from macro tools (repo_symbol_context
       return {
         usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
         message: {
-          content: JSON.stringify({
-            answer: 'found requireAuth definition',
-            summary: 'symbol context observations recorded',
-            confidence: 'medium',
+          content: JSON.stringify(compactResult({
+            directAnswer: 'found requireAuth definition',
+            statusConfidence: 'medium',
             evidence: [
               { kind: 'file_range', path: 'src/auth.js', startLine: 1, endLine: 4, quote: 'export function requireAuth', why: 'definition of requireAuth', groundingStatus: 'exact' },
             ],
-            candidatePaths: [{ path: 'src/auth.js', why: 'definition' }],
-            followups: [],
-          }),
+          })),
           toolCalls: [],
         },
       };
@@ -2089,17 +2079,14 @@ test('grep-only observation does not exact-ground a wide file range', async () =
       return {
         usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
         message: {
-          content: JSON.stringify({
-            answer: 'found',
-            summary: 'grep observation grounding test',
-            confidence: 'medium',
+          content: JSON.stringify(compactResult({
+            directAnswer: 'found',
+            statusConfidence: 'medium',
             evidence: [
               // Wide range — grep only saw line 1, so L1-L200 should be partial not exact
               { kind: 'file_range', path: 'src/auth.js', startLine: 1, endLine: 200, why: 'requireAuth module', evidenceType: 'file_range' },
             ],
-            candidatePaths: [],
-            followups: [],
-          }),
+          })),
           toolCalls: [],
         },
       };
@@ -2142,16 +2129,13 @@ test('hallucinated git_commit evidence is dropped (no matching observed hash)', 
       return {
         usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
         message: {
-          content: JSON.stringify({
-            answer: 'found',
-            summary: 'git evidence hallucination test',
-            confidence: 'medium',
+          content: JSON.stringify(compactResult({
+            directAnswer: 'found',
+            statusConfidence: 'medium',
             evidence: [
               { evidenceType: 'git_commit', path: 'src/auth.js', sha: 'abc12345', why: 'commit that added requireAuth', startLine: 1, endLine: 4 },
             ],
-            candidatePaths: [],
-            followups: [],
-          }),
+          })),
           toolCalls: [],
         },
       };
@@ -2194,7 +2178,7 @@ test('ExplorerRuntime injects recovery guidance after repeated identical tool pl
       return {
         usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
         message: {
-          content: JSON.stringify({ answer: 'done', summary: 'stagnation recovery', confidence: 'low', evidence: [], candidatePaths: [], followups: [] }),
+          content: JSON.stringify(compactResult({ directAnswer: 'done', statusConfidence: 'low', evidence: [] })),
           toolCalls: [],
         },
       };
@@ -2231,7 +2215,7 @@ test('Checkpoint prompt does not force exactly one more tool call', async () => 
       return {
         usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
         message: {
-          content: JSON.stringify({ answer: 'done', summary: 'checkpoint test', confidence: 'low', evidence: [], candidatePaths: [], followups: [] }),
+          content: JSON.stringify(compactResult({ directAnswer: 'done', statusConfidence: 'low', evidence: [] })),
           toolCalls: [],
         },
       };
@@ -2268,14 +2252,11 @@ test('finalizeAfterToolLoop salvages prose-wrapped JSON locally', async () => {
       return {
         usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
         message: {
-          content: 'Here is my findings:\n\n```json\n' + JSON.stringify({
-            answer: 'found in prose',
-            summary: 'prose wrapped JSON salvaged',
-            confidence: 'medium',
+          content: 'Here is my findings:\n\n```json\n' + JSON.stringify(compactResult({
+            directAnswer: 'prose wrapped JSON salvaged',
+            statusConfidence: 'medium',
             evidence: [],
-            candidatePaths: [{ path: 'src/auth.js', why: 'contains requireAuth' }],
-            followups: [],
-          }) + '\n```\n\nThat is all I found.',
+          })) + '\n```\n\nThat is all I found.',
           toolCalls: [],
         },
       };
@@ -2286,7 +2267,7 @@ test('finalizeAfterToolLoop salvages prose-wrapped JSON locally', async () => {
   const runtime = new ExplorerRuntime({ chatClient: new ProseWrappedClient() });
   const result = await runtime.explore({ task: 'find auth', repo_root: root, budget: 'quick' });
   assert.ok(result, 'explore succeeded');
-  assert.equal(result.summary, 'prose wrapped JSON salvaged', 'prose-wrapped JSON is salvaged locally');
+  assert.equal(result.directAnswer, 'prose wrapped JSON salvaged', 'prose-wrapped JSON is salvaged locally');
 });
 
 test('finalizeAfterToolLoop repairs malformed JSON with a no-tool repair pass', async () => {
@@ -2317,14 +2298,11 @@ test('finalizeAfterToolLoop repairs malformed JSON with a no-tool repair pass', 
       return {
         usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
         message: {
-          content: JSON.stringify({
-            answer: 'repaired answer',
-            summary: 'repaired after malformed JSON',
-            confidence: 'low',
+          content: JSON.stringify(compactResult({
+            directAnswer: 'repaired after malformed JSON',
+            statusConfidence: 'low',
             evidence: [],
-            candidatePaths: [],
-            followups: [],
-          }),
+          })),
           toolCalls: [],
         },
       };
@@ -2336,7 +2314,7 @@ test('finalizeAfterToolLoop repairs malformed JSON with a no-tool repair pass', 
   const result = await runtime.explore({ task: 'find auth', repo_root: root, budget: 'quick' });
   assert.ok(result, 'explore succeeded despite malformed finalize JSON');
   assert.equal(repairCallCount, 1, 'repair pass was called exactly once');
-  assert.equal(result.summary, 'repaired after malformed JSON', 'repaired result is used');
+  assert.equal(result.directAnswer, 'repaired after malformed JSON', 'repaired result is used');
 });
 
 // ── Phase 10 — Confidence Recalibration ──────────────────────────────────────
@@ -2369,10 +2347,9 @@ test('Phase 10 — runtime downgrades model high confidence to computed medium w
       return {
         usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
         message: {
-          content: JSON.stringify({
-            answer: 'requireAuth is defined in src/auth.js',
-            summary: 'Found in one file',
-            confidence: 'high',
+          content: JSON.stringify(compactResult({
+            directAnswer: 'requireAuth is defined in src/auth.js',
+            statusConfidence: 'high',
             evidence: [{
               path: 'src/auth.js',
               startLine: 1,
@@ -2380,9 +2357,7 @@ test('Phase 10 — runtime downgrades model high confidence to computed medium w
               why: 'definition found here',
               evidenceType: 'file_range',
             }],
-            candidatePaths: ['src/auth.js'],
-            followups: [],
-          }),
+          })),
           toolCalls: [],
         },
       };
@@ -2394,7 +2369,7 @@ test('Phase 10 — runtime downgrades model high confidence to computed medium w
   const result = await runtime.explore({ task: 'find requireAuth', repo_root: root, budget: 'quick' });
   assert.ok(result, 'explore returned a result');
   // The model claimed "high" but with only 1 exact item from 1 file, it must not be "high"
-  assert.notEqual(result.confidence, 'high',
+  assert.notEqual(result.status.confidence, 'high',
     'runtime must downgrade model-claimed high to medium/low when evidence is weak (single file, no search)');
 });
 
@@ -2413,14 +2388,11 @@ test('ExplorerRuntime forwards abortSignal into chat client requests', async () 
       return {
         usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
         message: {
-          content: JSON.stringify({
-            answer: 'ok',
-            summary: 'signal forwarded',
-            confidence: 'low',
+          content: JSON.stringify(compactResult({
+            directAnswer: 'signal forwarded',
+            statusConfidence: 'low',
             evidence: [],
-            candidatePaths: [],
-            followups: [],
-          }),
+          })),
           toolCalls: [],
         },
       };
@@ -2440,7 +2412,7 @@ test('ExplorerRuntime forwards abortSignal into chat client requests', async () 
     { abortSignal: controller.signal },
   );
 
-  assert.equal(result.summary, 'signal forwarded');
+  assert.equal(result.directAnswer, 'signal forwarded');
   assert.ok(seenSignals.length >= 2, 'explore + finalize calls should both receive the signal');
   assert.ok(seenSignals.every(signal => signal === controller.signal), 'abortSignal must be forwarded unchanged');
 });

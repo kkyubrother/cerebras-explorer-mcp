@@ -552,17 +552,23 @@ test('makeOpenAIStrictCompatibleResponseFormat converts explore result schema fo
   const schema = converted.json_schema.schema;
 
   assert.equal(collectOptionalObjectProperties(schema).length, 0);
-  assert.ok(schema.required.includes('followups'));
+  assert.ok(schema.required.includes('directAnswer'));
   assert.ok(schema.required.includes('status'));
-  assert.deepEqual(schema.properties.followups.type, ['array', 'null']);
-  assert.deepEqual(schema.properties.followups.items.required, ['description', 'priority', 'query']);
-  assert.deepEqual(schema.properties.followups.items.properties.query.type, ['string', 'null']);
+  assert.ok(schema.required.includes('targets'));
+  assert.ok(schema.required.includes('uncertainties'));
+  assert.ok(schema.required.includes('nextAction'));
+  assert.equal(schema.properties.answer, undefined);
+  assert.equal(schema.properties.confidence, undefined);
+  assert.equal(schema.properties.candidatePaths, undefined);
+  assert.equal(schema.properties.followups, undefined);
 
   assert.deepEqual(EXPLORE_RESULT_JSON_SCHEMA.schema.required, [
-    'answer',
-    'confidence',
+    'directAnswer',
+    'status',
+    'targets',
     'evidence',
-    'candidatePaths',
+    'uncertainties',
+    'nextAction',
   ]);
 });
 

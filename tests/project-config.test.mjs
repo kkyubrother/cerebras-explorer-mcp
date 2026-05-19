@@ -233,12 +233,12 @@ test('loadProjectConfig is applied in ExplorerRuntime via defaultScope', async (
         usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
         message: {
           content: JSON.stringify({
-            answer: 'Test answer',
-            summary: 'Test summary',
-            confidence: 'low',
+            directAnswer: 'Test answer',
+            status: { confidence: 'low', verification: 'broad_search_needed', complete: false, warnings: [] },
+            targets: [],
             evidence: [],
-            candidatePaths: [],
-            followups: [],
+            uncertainties: [],
+            nextAction: { type: 'ask_user', reason: 'No evidence found.' },
           }),
           toolCalls: [],
         },
@@ -249,6 +249,6 @@ test('loadProjectConfig is applied in ExplorerRuntime via defaultScope', async (
   const runtime = new ExplorerRuntime({ chatClient: new MockClient() });
   // No scope in args — should fall back to defaultScope from config file
   const result = await runtime.explore({ task: 'What is this project?', repo_root: root });
-  assert.ok(typeof result.answer === 'string');
+  assert.ok(typeof result.directAnswer === 'string');
   assert.ok(result.stats.repoRoot === root);
 });

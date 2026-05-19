@@ -9,8 +9,8 @@ const DEFAULT_MAX_CALLS = 5;
 /** Maximum number of summary entries stored per session (keep most recent). */
 const MAX_SUMMARIES = 3;
 
-/** Maximum candidate paths retained per session. */
-const MAX_CANDIDATE_PATHS = 50;
+/** Maximum target paths retained per session. */
+const MAX_TARGET_PATHS = 50;
 
 /** Maximum evidence file paths retained per session. */
 const MAX_EVIDENCE_PATHS = 30;
@@ -49,10 +49,9 @@ function dedupeContextPaths(existing, incoming, limit) {
  * In-memory session store for stateful, multi-call exploration.
  *
  * Each session accumulates:
- *   - `candidatePaths`:  files discovered across calls (auto-injected as hints)
+ *   - `targetPaths`:    files selected from compact targets across calls
  *   - `evidencePaths`:   files cited in evidence (used for context)
  *   - `summaries`:       short summaries from each call (injected into system prompt)
- *   - `followups`:       structured followups from the most recent call
  *
  * Sessions expire after `ttlMs` of inactivity or after `maxCalls` explore calls.
  */
@@ -89,11 +88,10 @@ export class SessionStore {
       calls: 0,
       createdAt: Date.now(),
       lastUsedAt: Date.now(),
-      candidatePaths: [],
+      targetPaths: [],
       evidencePaths: [],
-      candidatePathsWithContext: [], // Phase 5: structured { path, why }[] from evidence
+      targetPathsWithContext: [],
       summaries: [],
-      followups: [],
     });
     return id;
   }
@@ -123,11 +121,22 @@ export class SessionStore {
     session.calls += 1;
     session.lastUsedAt = Date.now();
 
-    if (Array.isArray(result.candidatePaths)) {
-      session.candidatePaths = dedupeAppend(
-        session.candidatePaths,
-        result.candidatePaths,
-        MAX_CANDIDATE_PATHS,
+    if (Array.isArray(result.targets)) {
+      const newTargetPaths = result.targets
+        .map(target => (typeof target.path === 'string' ? target.path : null))
+        .filter(Boolean);
+      session.targetPaths = dedupeAppend(
+        session.targetPaths,
+        newTargetPaths,
+        MAX_TARGET_PATHS,
+      );
+      const targetPathsWithContext = result.targets
+        .filter(target => typeof target.path === 'string' && target.path)
+        .map(target => ({ path: target.path, why: typeof target.reason === 'string' ? target.reason : '' }));
+      session.targetPathsWithContext = dedupeContextPaths(
+        session.targetPathsWithContext,
+        targetPathsWithContext,
+        MAX_TARGET_PATHS,
       );
     }
 
@@ -140,24 +149,22 @@ export class SessionStore {
         newPaths,
         MAX_EVIDENCE_PATHS,
       );
-      // Phase 5: accumulate structured { path, why } from evidence items
       const newPathsWithContext = result.evidence
         .filter(e => typeof e.path === 'string' && e.path)
         .map(e => ({ path: e.path, why: typeof e.why === 'string' ? e.why : '' }));
-      session.candidatePathsWithContext = dedupeContextPaths(
-        session.candidatePathsWithContext,
+      session.targetPathsWithContext = dedupeContextPaths(
+        session.targetPathsWithContext,
         newPathsWithContext,
         MAX_EVIDENCE_PATHS,
       );
     }
 
-    if (typeof result.summary === 'string' && result.summary.trim()) {
-      session.summaries.push(result.summary.slice(0, 400));
+    const summary = typeof result.directAnswer === 'string' && result.directAnswer.trim()
+      ? result.directAnswer.trim()
+      : '';
+    if (summary) {
+      session.summaries.push(summary.slice(0, 400));
       session.summaries = session.summaries.slice(-MAX_SUMMARIES);
-    }
-
-    if (Array.isArray(result.followups)) {
-      session.followups = result.followups;
     }
   }
 

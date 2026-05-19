@@ -325,7 +325,7 @@ GLM 4.7 마이그레이션 기준으로 explorer runtime은 다음 원칙을 따
 
 ## 9. 반환 스키마
 
-runtime raw result는 내부 실행과 디버깅을 위해 풍부한 필드를 유지한다. MCP `structuredContent`는 상위 agent가 바로 읽는 compact contract로 변환한다.
+Explorer의 내부 모델 출력과 MCP `structuredContent`는 같은 compact contract를 공유한다. 런타임은 이 계약 위에 snippet, critic 결과, `_debug` 운영 정보를 덧붙인다.
 
 MCP agent-facing contract:
 

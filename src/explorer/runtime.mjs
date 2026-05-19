@@ -20,8 +20,8 @@ import {
   resolveRepoRoot,
 } from './config.mjs';
 import {
-  collectCandidatePathsFromToolResult,
-  mergeCandidatePaths,
+  collectTargetPathsFromToolResult,
+  mergeTargetPaths,
   RepoToolkit,
 } from './repo-tools.mjs';
 import { redactText, redactValue } from './redact.mjs';
@@ -289,10 +289,11 @@ function buildTrustSummary(result, stats) {
     parts.push(`cross-verified across ${distinctFiles} files`);
   }
 
+  const confidence = result.status?.confidence ?? 'low';
   let suffix = '';
-  if (result.confidence === 'high') {
+  if (confidence === 'high') {
     suffix = 'All evidence grounded in inspected code.';
-  } else if (result.confidence === 'medium') {
+  } else if (confidence === 'medium') {
     suffix = 'Evidence partially verified — results are reliable for most uses.';
   } else {
     suffix = 'Limited evidence found — consider follow-up exploration.';
@@ -389,7 +390,7 @@ function filterGroundedModelTargets(targets = [], evidence = []) {
   });
 }
 
-function buildTargets({ evidence = [], candidatePaths = [] } = {}) {
+function buildTargets({ evidence = [], discoveredPaths = [] } = {}) {
   const targets = [];
   const byKey = new Map();
 
@@ -420,13 +421,13 @@ function buildTargets({ evidence = [], candidatePaths = [] } = {}) {
   }
 
   const evidencePaths = new Set(evidence.map(item => normalizeTargetPath(item.path)).filter(Boolean));
-  for (const candidatePath of candidatePaths) {
-    const normalizedCandidatePath = normalizeTargetPath(candidatePath);
-    if (!normalizedCandidatePath || evidencePaths.has(normalizedCandidatePath)) continue;
+  for (const discoveredPath of discoveredPaths) {
+    const normalizedDiscoveredPath = normalizeTargetPath(discoveredPath);
+    if (!normalizedDiscoveredPath || evidencePaths.has(normalizedDiscoveredPath)) continue;
     addTarget({
-      path: candidatePath,
+      path: discoveredPath,
       role: 'reference',
-      reason: 'Discovered candidate path; read only if the cited evidence does not answer the edit or verification need.',
+      reason: 'Discovered path; read only if the cited evidence does not answer the edit or verification need.',
       evidenceRefs: [],
     });
   }
@@ -487,11 +488,8 @@ function mergeTargets(...targetGroups) {
 
 function buildUncertainties(result, stats) {
   const warnings = (result.critic?.warnings ?? []).map(warning => warning.message).filter(Boolean);
-  const followups = (result.followups ?? [])
-    .filter(item => item.priority === 'recommended')
-    .map(item => item.description)
-    .filter(Boolean);
-  const uncertainties = [...warnings, ...followups];
+  const modelUncertainties = Array.isArray(result.uncertainties) ? result.uncertainties : [];
+  const uncertainties = [...warnings, ...modelUncertainties];
   if ((result.evidence?.length ?? 0) === 0) {
     uncertainties.push('No grounded evidence was retained.');
   }
@@ -517,14 +515,14 @@ function buildResultStatus(result, stats, { task } = {}) {
 
   if (!hasEvidence || criticStatus === 'fail' || stats.stoppedByErrors || stats.stoppedByAbort) {
     verification = 'broad_search_needed';
-  } else if (criticStatus === 'caution' || result.confidence === 'low' || stats.stoppedByBudget) {
+  } else if (criticStatus === 'caution' || result.status?.confidence === 'low' || stats.stoppedByBudget) {
     verification = 'follow_up_needed';
   } else if (hasEditTarget || editPlanning) {
     verification = 'targeted_read_needed';
   }
 
   return {
-    confidence: result.confidence ?? 'low',
+    confidence: result.status?.confidence ?? 'low',
     verification,
     complete: verification === 'verified' || verification === 'targeted_read_needed',
     warnings,
@@ -545,15 +543,13 @@ function buildNextAction(result) {
     };
   }
   if (verification === 'follow_up_needed' || verification === 'broad_search_needed') {
-    const followup = (result.followups ?? []).find(item => item.priority === 'recommended') ?? result.followups?.[0];
+    const modelNextAction = result.nextAction?.type === 'explore_followup' || result.nextAction?.type === 'ask_user'
+      ? result.nextAction
+      : null;
     return {
-      type: followup ? 'explore_followup' : 'ask_user',
-      reason: followup?.description ?? 'The retained evidence is not sufficient for a complete answer.',
-      ...(followup?.query
-        ? { query: followup.query }
-        : followup?.description
-          ? { query: followup.description }
-          : {}),
+      type: modelNextAction?.type ?? 'ask_user',
+      reason: modelNextAction?.reason || 'The retained evidence is not sufficient for a complete answer.',
+      ...(modelNextAction?.query ? { query: modelNextAction.query } : {}),
     };
   }
   return { type: 'stop', reason: 'Explorer result is complete for the requested read-only investigation.' };
@@ -596,12 +592,17 @@ function buildCancelledExploreObject(lastAssistantContent = '') {
     ? lastAssistantContent.trim()
     : 'Exploration was cancelled before a final answer was produced.';
   return {
-    answer: message,
-    summary: message,
-    confidence: 'low',
+    directAnswer: message,
+    status: {
+      confidence: 'low',
+      verification: 'broad_search_needed',
+      complete: false,
+      warnings: ['Exploration was cancelled before a final answer was produced.'],
+    },
+    targets: [],
     evidence: [],
-    candidatePaths: [],
-    followups: [],
+    uncertainties: ['Exploration was cancelled before completion.'],
+    nextAction: { type: 'ask_user', reason: 'The exploration was cancelled before completion.' },
   };
 }
 
@@ -1035,7 +1036,7 @@ export class ExplorerRuntime {
           scope: effectiveScope,
           budget: budgetConfig.label,
           hints: args.hints,
-          sessionCandidatePaths: sessionData?.candidatePathsWithContext ?? sessionData?.candidatePaths ?? [],
+          sessionTargetPaths: sessionData?.targetPathsWithContext ?? sessionData?.targetPaths ?? [],
           language: args.language,
         }),
       },
@@ -1067,7 +1068,7 @@ export class ExplorerRuntime {
       remainingCalls,
     };
 
-    let candidatePaths = [];
+    let discoveredPaths = [];
     let finalObject = null;
     let lastAssistantContent = '';
     const observedRanges = new Map();
@@ -1238,9 +1239,9 @@ export class ExplorerRuntime {
           result: safeToolResult,
         });
 
-        candidatePaths = mergeCandidatePaths(
-          candidatePaths,
-          collectCandidatePathsFromToolResult(toolName, safeToolResult),
+        discoveredPaths = mergeTargetPaths(
+          discoveredPaths,
+          collectTargetPathsFromToolResult(toolName, safeToolResult),
         );
 
         if (toolName === 'repo_read_file' && !safeToolResult?.error) {
@@ -1380,7 +1381,7 @@ export class ExplorerRuntime {
     Object.assign(stats, globalRepoCache.stats());
 
     let normalized = normalizeExploreResult(finalObject, stats);
-    normalized.candidatePaths = mergeCandidatePaths(normalized.candidatePaths, candidatePaths).slice(0, 80);
+    discoveredPaths = mergeTargetPaths(discoveredPaths, normalized.targets.map(target => target.path)).slice(0, 80);
 
     const taskKind = deriveTaskKindFromHints(args.hints);
     const criticPass = runDeterministicCriticPass({
@@ -1397,25 +1398,25 @@ export class ExplorerRuntime {
     });
 
     if (criticPass.grounding.droppedUngrounded + criticPass.grounding.droppedMalformed > 0) {
-      normalized.followups = mergeCandidatePaths(normalized.followups, [{
-        description: 'Some evidence items were dropped because they were not grounded in inspected line ranges.',
-        priority: 'optional',
-      }]);
+      normalized.uncertainties = [
+        ...normalized.uncertainties,
+        'Some evidence items were dropped because they were not grounded in inspected line ranges.',
+      ];
     }
 
-    if (!normalized.summary) normalized.summary = normalized.answer;
-    if (!normalized.answer) {
-      normalized.answer = lastAssistantContent || 'Explorer did not return a final answer.';
-      normalized.confidence = 'low';
-      normalized.confidenceLevel = 'low';
+    if (!normalized.directAnswer) {
+      normalized.directAnswer = lastAssistantContent || 'Explorer did not return a final answer.';
+      normalized.status = {
+        ...normalized.status,
+        confidence: 'low',
+      };
     }
-    normalized.directAnswer = normalized.directAnswer || normalized.answer;
     const groundedModelTargets = filterGroundedModelTargets(normalized.targets, normalized.evidence);
     normalized.targets = mergeTargets(
       groundedModelTargets,
       buildTargets({
         evidence: normalized.evidence,
-        candidatePaths: normalized.candidatePaths,
+        discoveredPaths,
       }),
     );
     normalized.uncertainties = buildUncertainties(normalized, stats);
@@ -1684,10 +1685,14 @@ export class ExplorerRuntime {
     if (sessionStore && sessionId) {
       const summaryLine = report.split('\n').find(l => l.trim())?.slice(0, 400) ?? '';
       sessionStore.update(sessionId, {
-        candidatePaths: [...filesRead],
+        targets: [...filesRead].map(filePath => ({
+          path: filePath,
+          role: 'read',
+          reason: 'Read during report exploration.',
+          evidenceRefs: [],
+        })),
         evidence: [],
-        summary: summaryLine,
-        followups: [],
+        directAnswer: summaryLine,
       });
       syncRemainingCallsStat(stats, sessionStore, sessionId);
     }
@@ -2153,10 +2158,14 @@ export class ExplorerRuntime {
     if (sessionStore && sessionId) {
       const summaryLine = report.split('\n').find(l => l.trim())?.slice(0, 400) ?? '';
       sessionStore.update(sessionId, {
-        candidatePaths: [...filesRead],
+        targets: [...filesRead].map(filePath => ({
+          path: filePath,
+          role: 'read',
+          reason: 'Read during report exploration.',
+          evidenceRefs: [],
+        })),
         evidence: [],
-        summary: summaryLine,
-        followups: [],
+        directAnswer: summaryLine,
       });
       syncRemainingCallsStat(stats, sessionStore, sessionId);
     }
@@ -2230,12 +2239,17 @@ export class ExplorerRuntime {
     // 4) Last resort: raw text as low-confidence answer
     return {
       result: {
-        answer: completion.message.content || 'Explorer could not synthesize a final answer.',
-        summary: completion.message.content || '',
-        confidence: 'low',
+        directAnswer: completion.message.content || 'Explorer could not synthesize a final answer.',
+        status: {
+          confidence: 'low',
+          verification: 'broad_search_needed',
+          complete: false,
+          warnings: ['Final response could not be repaired into compact JSON.'],
+        },
+        targets: [],
         evidence: [],
-        candidatePaths: [],
-        followups: [],
+        uncertainties: ['Final response could not be repaired into compact JSON.'],
+        nextAction: { type: 'ask_user', reason: 'The explorer could not synthesize a valid compact JSON answer.' },
       },
       usage: completion.usage ?? null,
     };

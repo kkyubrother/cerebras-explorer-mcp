@@ -87,9 +87,9 @@ class MockChatClient {
       usage: { prompt_tokens: 100, completion_tokens: 40, total_tokens: 140 },
       message: {
         content: JSON.stringify({
-          answer: 'users/me 라우트는 requireAuth를 거친 뒤 처리된다.',
-          summary: 'user.js가 auth.js의 requireAuth를 연결한다.',
-          confidence: 'high',
+          directAnswer: 'users/me 라우트는 requireAuth를 거친 뒤 처리된다.',
+          status: { confidence: 'high', verification: 'verified', complete: true, warnings: [] },
+          targets: [],
           evidence: [
             {
               path: 'src/routes/user.js',
@@ -106,8 +106,8 @@ class MockChatClient {
               snippet: '1: FORGED_BY_MODEL();',
             },
           ],
-          candidatePaths: ['src/routes/user.js', 'src/auth.js'],
-          followups: [],
+          uncertainties: [],
+          nextAction: { type: 'stop', reason: 'Complete.' },
         }),
         toolCalls: [],
       },

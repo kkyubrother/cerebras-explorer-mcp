@@ -6,7 +6,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 
 import { getBudgetConfig } from '../src/explorer/config.mjs';
-import { RepoToolkit, collectCandidatePathsFromToolResult } from '../src/explorer/repo-tools.mjs';
+import { RepoToolkit, collectTargetPathsFromToolResult } from '../src/explorer/repo-tools.mjs';
 import { LruCache, globalRepoCache } from '../src/explorer/cache.mjs';
 
 function hasGit() {
@@ -191,15 +191,15 @@ test('RepoToolkit blocks symlink reads and skips symlink entries during traversa
   );
 });
 
-test('collectCandidatePathsFromToolResult handles git diff and show results', () => {
+test('collectTargetPathsFromToolResult handles git diff and show results', () => {
   const diffResult = { from: 'HEAD~1', to: 'HEAD', files: [{ path: 'src/foo.js', additions: 2, deletions: 1, patch: '' }] };
-  assert.deepEqual(collectCandidatePathsFromToolResult('repo_git_diff', diffResult), ['src/foo.js']);
+  assert.deepEqual(collectTargetPathsFromToolResult('repo_git_diff', diffResult), ['src/foo.js']);
 
   const showResult = { hash: 'abc', author: 'a', date: 'd', message: 'm', files: [{ path: 'src/bar.js', additions: 1, deletions: 0, patch: '' }] };
-  assert.deepEqual(collectCandidatePathsFromToolResult('repo_git_show', showResult), ['src/bar.js']);
+  assert.deepEqual(collectTargetPathsFromToolResult('repo_git_show', showResult), ['src/bar.js']);
 
-  assert.deepEqual(collectCandidatePathsFromToolResult('repo_git_log', { commits: [] }), []);
-  assert.deepEqual(collectCandidatePathsFromToolResult('repo_git_blame', { lines: [] }), []);
+  assert.deepEqual(collectTargetPathsFromToolResult('repo_git_log', { commits: [] }), []);
+  assert.deepEqual(collectTargetPathsFromToolResult('repo_git_blame', { lines: [] }), []);
 });
 
 test('RepoToolkit git tools: gitLog returns commits', { skip: !hasGit() }, async () => {

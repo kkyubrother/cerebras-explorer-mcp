@@ -119,12 +119,12 @@ test('P0: malformed tool arguments produce error result instead of crashing expl
         usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
         message: {
           content: JSON.stringify({
-            answer: '파싱 오류가 발생했지만 탐색은 계속됐습니다.',
-            summary: '요약',
-            confidence: 'low',
+            directAnswer: '파싱 오류가 발생했지만 탐색은 계속됐습니다.',
+            status: { confidence: 'low', verification: 'broad_search_needed', complete: false, warnings: [] },
+            targets: [],
             evidence: [],
-            candidatePaths: [],
-            followups: [],
+            uncertainties: [],
+            nextAction: { type: 'ask_user', reason: 'Tool arguments were malformed.' },
           }),
           toolCalls: [],
         },
@@ -146,7 +146,7 @@ test('P0: malformed tool arguments produce error result instead of crashing expl
   }, 'explore() must not throw when a tool call has malformed JSON arguments');
 
   assert.ok(result, 'result must be returned even after malformed tool args');
-  assert.ok(typeof result.answer === 'string', 'result must have an answer field');
+  assert.ok(typeof result.directAnswer === 'string', 'result must have a directAnswer field');
 });
 
 // ─── P0-4: macro tool grounding (repo_symbol_context) ────────────────────────
@@ -234,8 +234,12 @@ test('P1: defaultBudget from project config is applied before budgetConfig is co
         usage: { prompt_tokens: 5, completion_tokens: 5, total_tokens: 10 },
         message: {
           content: JSON.stringify({
-            answer: 'done', summary: 'done', confidence: 'low',
-            evidence: [], candidatePaths: [], followups: [],
+            directAnswer: 'done',
+            status: { confidence: 'low', verification: 'broad_search_needed', complete: false, warnings: [] },
+            targets: [],
+            evidence: [],
+            uncertainties: [],
+            nextAction: { type: 'ask_user', reason: 'No evidence found.' },
           }),
           toolCalls: [],
         },
