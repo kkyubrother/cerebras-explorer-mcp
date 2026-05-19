@@ -552,6 +552,34 @@ function hasEditIntent(task) {
     /수정|구현|추가|삭제|리팩터|마이그레이션|변경(해|하|되|해야|필요)/.test(text);
 }
 
+const TASK_MODES = new Set([
+  'locate',
+  'symbol_trace',
+  'edit_planning',
+  'path_explanation',
+  'evidence_verification',
+  'change_review',
+]);
+
+function normalizeTaskMode(taskMode) {
+  return TASK_MODES.has(taskMode) ? taskMode : null;
+}
+
+function isEditPlanningMode({ taskMode, task }) {
+  const mode = normalizeTaskMode(taskMode);
+  if (mode === 'edit_planning') return true;
+  if (
+    mode === 'evidence_verification' ||
+    mode === 'change_review' ||
+    mode === 'path_explanation' ||
+    mode === 'symbol_trace' ||
+    mode === 'locate'
+  ) {
+    return false;
+  }
+  return hasEditIntent(task);
+}
+
 function normalizeTargetPath(targetPath) {
   if (typeof targetPath !== 'string') return null;
   const trimmed = targetPath.trim();
@@ -691,12 +719,12 @@ function buildUncertainties(result, stats) {
   return [...new Set(uncertainties)];
 }
 
-function buildResultStatus(result, stats, { task } = {}) {
+function buildResultStatus(result, stats, { task, taskMode } = {}) {
   const criticStatus = result.critic?.status ?? 'caution';
   const warnings = (result.critic?.warnings ?? []).map(warning => warning.message).filter(Boolean);
   const hasEvidence = (result.evidence?.length ?? 0) > 0;
   const hasEditTarget = (result.targets ?? []).some(target => target.role === 'edit');
-  const editPlanning = hasEditIntent(task);
+  const editPlanning = isEditPlanningMode({ taskMode, task });
   let verification = 'verified';
 
   if (!hasEvidence || criticStatus === 'fail' || stats.stoppedByErrors || stats.stoppedByAbort) {
@@ -1609,7 +1637,10 @@ export class ExplorerRuntime {
       }),
     );
     normalized.uncertainties = buildUncertainties(normalized, stats);
-    normalized.status = buildResultStatus(normalized, stats, { task: args.task });
+    normalized.status = buildResultStatus(normalized, stats, {
+      task: args.task,
+      taskMode: args.taskMode,
+    });
     normalized.nextAction = buildNextAction(normalized);
     if (stats.sessionId) normalized.sessionId = stats.sessionId;
 

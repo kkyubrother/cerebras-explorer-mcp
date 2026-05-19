@@ -487,6 +487,118 @@ test('ExplorerRuntime still treats code changes as edit planning', async () => {
   assert.equal(result.nextAction.type, 'read_target');
 });
 
+test('ExplorerRuntime uses internal taskMode before regex edit intent fallback', async () => {
+  class EvidenceClient {
+    constructor() { this.model = 'zai-glm-4.7'; this.calls = 0; }
+    async createChatCompletion() {
+      this.calls += 1;
+      if (this.calls === 1) {
+        return {
+          usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 },
+          message: {
+            content: '',
+            toolCalls: [{
+              id: 'call-read-1',
+              function: {
+                name: 'repo_read_file',
+                arguments: JSON.stringify({ path: 'src/auth.js', startLine: 1, endLine: 8 }),
+              },
+            }, {
+              id: 'call-read-2',
+              function: {
+                name: 'repo_read_file',
+                arguments: JSON.stringify({ path: 'src/routes/user.js', startLine: 1, endLine: 8 }),
+              },
+            }],
+          },
+        };
+      }
+      return {
+        usage: { prompt_tokens: 30, completion_tokens: 20, total_tokens: 50 },
+        message: {
+          content: JSON.stringify(compactResult({
+            directAnswer: '근거가 충분합니다.',
+            statusConfidence: 'high',
+            evidence: [
+              { path: 'src/auth.js', startLine: 1, endLine: 4, why: '검증 근거' },
+              { path: 'src/routes/user.js', startLine: 1, endLine: 5, why: '호출 근거' },
+            ],
+          })),
+          toolCalls: [],
+        },
+      };
+    }
+  }
+
+  const root = await makeRepoFixture();
+  const runtime = new ExplorerRuntime({ chatClient: new EvidenceClient() });
+  const result = await runtime.explore({
+    task: 'update code evidence for review',
+    repo_root: root,
+    scope: ['src/**'],
+    budget: 'quick',
+    taskMode: 'evidence_verification',
+  });
+
+  assert.equal(result.status.verification, 'verified');
+});
+
+test('ExplorerRuntime taskMode marks edit planning as targeted read needed', async () => {
+  class EditPlanningClient {
+    constructor() { this.model = 'zai-glm-4.7'; this.calls = 0; }
+    async createChatCompletion() {
+      this.calls += 1;
+      if (this.calls === 1) {
+        return {
+          usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 },
+          message: {
+            content: '',
+            toolCalls: [{
+              id: 'call-read-1',
+              function: {
+                name: 'repo_read_file',
+                arguments: JSON.stringify({ path: 'src/auth.js', startLine: 1, endLine: 8 }),
+              },
+            }, {
+              id: 'call-read-2',
+              function: {
+                name: 'repo_read_file',
+                arguments: JSON.stringify({ path: 'src/routes/user.js', startLine: 1, endLine: 8 }),
+              },
+            }],
+          },
+        };
+      }
+      return {
+        usage: { prompt_tokens: 30, completion_tokens: 20, total_tokens: 50 },
+        message: {
+          content: JSON.stringify(compactResult({
+            directAnswer: '변경 영향입니다.',
+            statusConfidence: 'high',
+            evidence: [
+              { path: 'src/auth.js', startLine: 1, endLine: 4, why: '변경 영향 근거' },
+              { path: 'src/routes/user.js', startLine: 1, endLine: 5, why: '호출 영향 근거' },
+            ],
+          })),
+          toolCalls: [],
+        },
+      };
+    }
+  }
+
+  const root = await makeRepoFixture();
+  const runtime = new ExplorerRuntime({ chatClient: new EditPlanningClient() });
+  const result = await runtime.explore({
+    task: 'Assess auth behavior',
+    repo_root: root,
+    scope: ['src/**'],
+    budget: 'quick',
+    taskMode: 'edit_planning',
+  });
+
+  assert.equal(result.status.verification, 'targeted_read_needed');
+});
+
 test('Phase 2 — codeMap remains available without generating Mermaid diagram output', async () => {
   const repoRoot = await makeRepoFixture();
   const runtime = new ExplorerRuntime({ chatClient: new MockChatClient() });

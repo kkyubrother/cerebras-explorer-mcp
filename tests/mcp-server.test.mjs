@@ -309,6 +309,29 @@ test('MCP request handler exposes fallback session when supplied session is exha
   assert.equal(second.structuredContent.session.remainingCalls, 0);
 });
 
+test('collect_evidence wrapper uses evidence verification mode instead of edit regex fallback', async () => {
+  const repoRoot = await makeRepoFixture();
+  const { handleRequest } = createMcpRequestHandler({
+    runtimeOptions: { chatClient: new MockChatClient() },
+  });
+
+  const called = await handleRequest({
+    jsonrpc: '2.0',
+    id: 88,
+    method: 'tools/call',
+    params: {
+      name: 'collect_evidence',
+      arguments: {
+        claim: 'update code behavior is already documented',
+        repo_root: repoRoot,
+        scope: ['src/**'],
+      },
+    },
+  });
+
+  assert.equal(called.structuredContent.status.verification, 'verified');
+});
+
 test('MCP request handler declares read-only annotations for every exposed tool shape', async () => {
   const cases = [
     {

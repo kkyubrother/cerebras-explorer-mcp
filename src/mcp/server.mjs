@@ -322,6 +322,7 @@ function buildTraceSymbolArgs(args) {
   const task = `Explain the symbol "${symbol.trim()}": where it is defined, what it does, its parameters/return type if applicable, and where it is called or used in the codebase.`;
   return {
     task, repo_root, scope, session,
+    taskMode: 'symbol_trace',
     hints: { symbols: [symbol.trim()], strategy: 'symbol-first' },
   };
 }
@@ -337,6 +338,7 @@ function buildFindRelevantCodeArgs(args) {
     repo_root,
     scope,
     session,
+    taskMode: 'locate',
     hints: buildAnchorHints({ knownFiles, knownSymbols, knownText }),
   };
 }
@@ -352,6 +354,7 @@ function buildMapChangeImpactArgs(args) {
     repo_root,
     scope,
     session,
+    taskMode: 'edit_planning',
     hints: buildAnchorHints({ knownFiles, knownSymbols, strategy: 'reference-chase' }),
   };
 }
@@ -369,6 +372,7 @@ function buildExplainCodePathArgs(args) {
     repo_root,
     scope,
     session,
+    taskMode: 'path_explanation',
     hints: buildAnchorHints({ knownFiles: files, knownSymbols, strategy: 'reference-chase' }),
   };
 }
@@ -384,6 +388,7 @@ function buildCollectEvidenceArgs(args) {
     repo_root,
     scope,
     session,
+    taskMode: 'evidence_verification',
     hints: buildAnchorHints({ knownFiles, knownSymbols, knownText }),
   };
 }
@@ -402,6 +407,7 @@ function buildReviewChangeContextArgs(args) {
     repo_root,
     scope,
     session,
+    taskMode: 'change_review',
     hints: buildAnchorHints({ knownFiles: filePath ? [filePath] : [], strategy: 'git-guided' }),
   };
 }
