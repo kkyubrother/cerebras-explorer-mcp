@@ -176,7 +176,7 @@ Parent model (Claude Code / Codex)
 
 - `repo_root` (선택): 절대경로나 상대경로. Windows에서는 `C:\repo`, `C:/repo`뿐 아니라 Git Bash/MSYS 스타일 `/c/repo`도 받아 실제 filesystem 경로로 canonicalize한 뒤 세션과 도구 실행에 사용합니다.
 - `language` (advanced/optional): 응답 언어를 명시적으로 고정해야 할 때만 사용합니다. 보통은 task 텍스트에서 자동 추론되므로 생략하세요.
-- `session` (선택): 이전 탐색의 `sessionId`를 넘기면 candidate paths와 요약을 다음 탐색에 재사용합니다.
+- `session` (선택): 이전 탐색의 `sessionId`를 넘기면 target/evidence 경로와 요약을 다음 탐색에 재사용합니다.
 - `budget`, `hints.strategy` (advanced): 일반 agent 사용에서는 생략하세요. 서버 기본값과 자동 strategy 감지가 우선입니다.
 
 반환 예시:
@@ -264,7 +264,7 @@ Parent model (Claude Code / Codex)
 
 - `prompt`: 사람이 읽을 수 있는 설명형 보고서를 만들 질문 또는 요청
 - `thoroughness` (advanced): 일반 agent 사용에서는 생략하세요. 서버가 질문과 scope를 보고 깊이를 고릅니다.
-- `session`: 이전 탐색의 `sessionId`를 넘기면 후속 보고서에도 후보 경로와 요약을 재사용합니다.
+- `session`: 이전 탐색의 `sessionId`를 넘기면 후속 보고서에도 target/evidence 경로와 요약을 재사용합니다.
 
 반환 특성:
 
