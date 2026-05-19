@@ -235,11 +235,17 @@ test('MCP request handler exposes explore_repo and returns structuredContent', a
   assert.equal(called.structuredContent.status.verification, 'verified');
   assert.equal(called.structuredContent.targets.length, 2);
   assert.equal(called.structuredContent.evidence.length, 2);
+  assert.equal(called.structuredContent.schemaVersion, 1);
+  assert.equal(called.structuredContent.failure, null);
+  assert.equal(called.structuredContent.evidenceQuality.level, called.structuredContent.status.confidence);
+  assert.equal(called.structuredContent.evidenceQuality.exactCount, 2);
+  assert.equal(called.structuredContent.evidenceQuality.fileCount, 2);
   assert.ok(called.structuredContent.evidence.every(item => item.id && item.snippet), 'evidence must include ids and snippets');
   assert.ok(called.structuredContent.sessionId.startsWith('sess_'), 'sessionId must be top-level');
   assert.ok(called.structuredContent._debug.stats, '_debug.stats must be populated');
   assert.equal(Object.hasOwn(called.structuredContent._debug, 'legacy'), false);
   assert.match(called.content[0].text, /requireAuth/);
+  assert.match(called.content[0].text, /Evidence Quality/);
   assert.match(called.content[0].text, /## Targets/);
   assert.match(called.content[0].text, /snippet:/);
   assert.doesNotMatch(called.content[0].text, /FORGED_BY_MODEL/);
@@ -347,6 +353,8 @@ test('MCP request handler returns repo_root resolution errors without mislabelin
   assert.match(called.content[0].text, /Unable to resolve repo_root for explore_repo/);
   assert.match(called.content[0].text, new RegExp(normalizedRepoRoot.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   assert.doesNotMatch(called.content[0].text, /Invalid explore_repo arguments/);
+  assert.equal(called.structuredContent.failure.category, 'input');
+  assert.equal(called.structuredContent.failure.reason, 'repo_mismatch');
 });
 
 test('MCP request handler returns execution failures for explore_repo without mislabeling them as argument errors', async () => {
@@ -386,6 +394,12 @@ test('MCP request handler returns execution failures for explore_repo without mi
   assert.match(called.content[0].text, /provider exploded/);
   assert.doesNotMatch(called.content[0].text, /Invalid explore_repo arguments/);
   assert.doesNotMatch(called.content[0].text, /Invalid arguments for explore_repo/);
+  assert.equal(called.structuredContent.schemaVersion, 1);
+  assert.equal(called.structuredContent.status.verification, 'broad_search_needed');
+  assert.equal(called.structuredContent.failure.category, 'provider');
+  assert.equal(called.structuredContent.failure.reason, 'provider_error');
+  assert.equal(called.structuredContent.failure.retry.tool, 'explore_repo');
+  assert.equal(called.structuredContent.evidenceQuality.level, 'low');
 });
 
 test('MCP request handler returns execution failures for other exposed tools as MCP errors', async () => {

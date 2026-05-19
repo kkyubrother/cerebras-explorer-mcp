@@ -444,6 +444,9 @@ export function createMcpRequestHandler({
     lines.push(`## Result`);
     lines.push(`Confidence: ${result.status?.confidence ?? 'unknown'}`);
     if (result.status?.verification) lines.push(`Verification: ${result.status.verification}`);
+    if (result.evidenceQuality) {
+      lines.push(`Evidence Quality: ${result.evidenceQuality.level} (${result.evidenceQuality.exactCount} exact, ${result.evidenceQuality.partialCount} partial, ${result.evidenceQuality.droppedCount} dropped)`);
+    }
     if (result.trustSummary) lines.push(`Grounding: ${result.trustSummary}`);
     lines.push('');
 
@@ -501,12 +504,50 @@ export function createMcpRequestHandler({
     return lines.join('\n');
   }
 
+  function defaultEvidenceQuality(summary = 'No grounded evidence was retained.') {
+    return {
+      level: 'low',
+      exactCount: 0,
+      partialCount: 0,
+      droppedCount: 0,
+      fileCount: 0,
+      warnings: [],
+      summary,
+    };
+  }
+
+  function buildHandledFailure({ category, reason, message, retryTool = 'explore_repo', hints = [] }) {
+    return {
+      schemaVersion: 1,
+      directAnswer: '',
+      status: {
+        confidence: 'low',
+        verification: 'broad_search_needed',
+        complete: false,
+        warnings: [message],
+      },
+      targets: [],
+      evidence: [],
+      uncertainties: [message],
+      nextAction: { type: 'ask_user', reason: message },
+      evidenceQuality: defaultEvidenceQuality(message),
+      failure: {
+        category,
+        reason,
+        message,
+        retry: retryTool ? { tool: retryTool, hints } : null,
+      },
+      _debug: {},
+    };
+  }
+
   function toAgentFacingResult(result) {
     const sessionId = result.sessionId ?? result.stats?.sessionId ?? result._debug?.stats?.sessionId ?? null;
     const debug = { ...(result._debug ?? {}) };
     delete debug.legacy;
 
     return {
+      schemaVersion: result.schemaVersion ?? 1,
       directAnswer: result.directAnswer || '',
       status: result.status ?? {
         confidence: 'low',
@@ -518,6 +559,8 @@ export function createMcpRequestHandler({
       evidence: Array.isArray(result.evidence) ? result.evidence : [],
       uncertainties: Array.isArray(result.uncertainties) ? result.uncertainties : [],
       nextAction: result.nextAction ?? { type: 'stop', reason: '' },
+      evidenceQuality: result.evidenceQuality ?? defaultEvidenceQuality(result.trustSummary ?? undefined),
+      failure: result.failure ?? null,
       ...(sessionId ? { sessionId } : {}),
       _debug: debug,
     };
@@ -665,21 +708,47 @@ export function createMcpRequestHandler({
           throw error;
         } catch (error) {
           if (error.repoRootError) {
+            const message = `Unable to resolve repo_root for ${name}: ${error.message}`;
             return {
               isError: true,
-              content: [{ type: 'text', text: `Unable to resolve repo_root for ${name}: ${error.message}` }],
+              content: [{ type: 'text', text: message }],
+              structuredContent: buildHandledFailure({
+                category: 'input',
+                reason: 'repo_mismatch',
+                message,
+                retryTool: null,
+              }),
             };
           }
           if (error.code === -32602) {
+            const message = `Invalid arguments for ${name}: ${error.message}`;
+            const reason = error.sessionError === 'repo_mismatch' ? 'repo_mismatch' : 'invalid_session';
             return {
               isError: true,
-              content: [{ type: 'text', text: `Invalid arguments for ${name}: ${error.message}` }],
+              content: [{ type: 'text', text: message }],
+              structuredContent: buildHandledFailure({
+                category: 'input',
+                reason,
+                message,
+                retryTool: reason === 'invalid_session' ? 'explore_repo' : null,
+                hints: reason === 'invalid_session'
+                  ? ['Drop the stale session id and retry with the current repo root.']
+                  : [],
+              }),
             };
           }
           if (exposedToolNames.has(name)) {
+            const message = `${name} execution failed: ${error.message}`;
             return {
               isError: true,
-              content: [{ type: 'text', text: `${name} execution failed: ${error.message}` }],
+              content: [{ type: 'text', text: message }],
+              structuredContent: buildHandledFailure({
+                category: 'provider',
+                reason: 'provider_error',
+                message,
+                retryTool: name === 'explore' ? 'explore' : 'explore_repo',
+                hints: ['Retry after the provider recovers, or narrow the task and scope.'],
+              }),
             };
           }
           throw error;
