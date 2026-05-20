@@ -1,5 +1,7 @@
 # First Pass Feedback Fixes Implementation Plan
 
+> Status note: completed historical implementation plan. Embedded expected test totals were observed during this plan and are not current verification evidence. Use `TESTING.md` for the latest test status.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Apply the first three validated feedback fixes: strict public tool arguments, simpler failure retry handoff, and current test/benchmark metadata.

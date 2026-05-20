@@ -1,5 +1,7 @@
 # v0.2.0 Release Finalization Tasks
 
+> 상태: 과거 release-finalization 작업 기록입니다. 아래 Verification 수치는 2026-05-19 당시 완료 증거이며 현재 테스트 현황은 `TESTING.md`를 기준으로 확인합니다.
+
 - [x] Audit version, changelog, and install-ref state.
 - [x] Add release-finalization spec, plan, and task files.
 - [x] Bump `package.json` version to `0.2.0`.

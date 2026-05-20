@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { ExplorerRuntime } from '../src/explorer/runtime.mjs';
-import { buildExplorerSystemPrompt, detectStrategy } from '../src/explorer/prompt.mjs';
+import { buildExplorerSystemPrompt, buildFinalizePrompt, detectStrategy } from '../src/explorer/prompt.mjs';
 import { BUDGETS } from '../src/explorer/config.mjs';
 import { RepoToolkit } from '../src/explorer/repo-tools.mjs';
 
@@ -2608,6 +2608,72 @@ test('finalizeAfterToolLoop repairs malformed JSON with a no-tool repair pass', 
   assert.ok(result, 'explore succeeded despite malformed finalize JSON');
   assert.equal(repairCallCount, 1, 'repair pass was called exactly once');
   assert.equal(result.directAnswer, 'repaired after malformed JSON', 'repaired result is used');
+});
+
+test('finalize prompt bounds output size for compact JSON synthesis', () => {
+  const prompt = buildFinalizePrompt();
+
+  assert.match(prompt, /directAnswer.*1200/i);
+  assert.match(prompt, /at most 8 targets/i);
+  assert.match(prompt, /at most 8 evidence/i);
+});
+
+test('finalizeAfterToolLoop gives repair pass the full finalize token budget', async () => {
+  const seenFinalizeBudgets = [];
+  class TokenBudgetRepairClient {
+    constructor() { this.model = 'test'; this.calls = 0; }
+    async createChatCompletion({ messages, maxCompletionTokens }) {
+      this.calls += 1;
+      if (this.calls === 1) {
+        return {
+          usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+          message: {
+            content: '',
+            toolCalls: [{ id: 'g1', function: { name: 'repo_grep', arguments: JSON.stringify({ pattern: 'requireAuth' }) } }],
+          },
+        };
+      }
+      const lastMessage = messages[messages.length - 1]?.content ?? '';
+      if (!lastMessage.includes('Produce the final exploration result now.')
+        && !lastMessage.includes('Repair your previous response')) {
+        return {
+          usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+          message: { content: '', toolCalls: [] },
+        };
+      }
+      seenFinalizeBudgets.push(maxCompletionTokens);
+      if (lastMessage.includes('Produce the final exploration result now.')) {
+        return {
+          usage: { prompt_tokens: 10, completion_tokens: maxCompletionTokens, total_tokens: 10 + maxCompletionTokens },
+          message: {
+            content: '{"directAnswer":"truncated","targets":[{"path":"src/auth.js","startLine":',
+            toolCalls: [],
+          },
+        };
+      }
+      return {
+        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+        message: {
+          content: JSON.stringify(compactResult({
+            directAnswer: 'repaired with full budget',
+            statusConfidence: 'low',
+            evidence: [],
+          })),
+          toolCalls: [],
+        },
+      };
+    }
+  }
+
+  const root = await makeRepoFixture();
+  const runtime = new ExplorerRuntime({ chatClient: new TokenBudgetRepairClient() });
+  const result = await runtime.explore({ task: 'find auth', repo_root: root, budget: 'quick' });
+
+  assert.deepEqual(seenFinalizeBudgets, [
+    BUDGETS.quick.finalizeMaxCompletionTokens,
+    BUDGETS.quick.finalizeMaxCompletionTokens,
+  ]);
+  assert.equal(result.directAnswer, 'repaired with full budget');
 });
 
 // ── Phase 10 — Confidence Recalibration ──────────────────────────────────────

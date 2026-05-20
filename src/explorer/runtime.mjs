@@ -2417,7 +2417,7 @@ export class ExplorerRuntime {
       const repairMessages = [
         ...messages,
         { role: 'assistant', content: redactText(completion.message.content || '').text },
-        { role: 'user', content: 'Repair your previous response into exactly one JSON object matching the schema. Do not add new facts. Do not call tools.' },
+        { role: 'user', content: 'Repair your previous response into exactly one compact JSON object matching the schema. Do not add new facts. Do not call tools. Keep directAnswer at most 1200 characters, include at most 8 targets and at most 8 evidence items, and keep reason/why strings brief.' },
       ];
       const repair = await chatClient.createChatCompletion({
         messages: repairMessages,
@@ -2425,7 +2425,7 @@ export class ExplorerRuntime {
         reasoningEffort: 'none',
         temperature: 0,
         topP: 1,
-        maxCompletionTokens: Math.min(1000, maxCompletionTokens),
+        maxCompletionTokens,
         parallelToolCalls: false,
         signal: abortSignal,
         // Explicitly omit tools to prevent the model from requesting more tool calls

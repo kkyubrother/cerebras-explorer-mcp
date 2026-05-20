@@ -320,6 +320,10 @@ export function buildFinalizePrompt() {
     '  • targets items: { path, role, reason, evidenceRefs, startLine?, endLine? }',
     '  • evidence items: { path, startLine, endLine, why, evidenceType? } — evidenceType defaults to file_range',
     '  • Put follow-up guidance in nextAction. Do not output answer, summary, confidence, candidatePaths, or followups.',
+    'OUTPUT SIZE LIMITS:',
+    '  • Keep directAnswer concise: at most 1200 characters. Summarize; do not write a full report.',
+    '  • Include at most 8 targets and at most 8 evidence items; choose the strongest grounded items.',
+    '  • Keep each target reason and evidence why under 180 characters.',
   ].join('\n');
 }
 

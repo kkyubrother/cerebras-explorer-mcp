@@ -1,5 +1,7 @@
 # v0.2.0 Implementation Checklist
 
+> 상태: 과거 v0.2.0 릴리스 체크리스트입니다. 각 phase의 테스트 수치는 당시 완료 증거이며 현재 테스트 현황이 아닙니다. 최신 검증 결과는 `TESTING.md`를 기준으로 확인합니다.
+
 기준 문서: `plan/v0.2.0-release-plan.md`
 작성일: 2026-05-12 KST
 

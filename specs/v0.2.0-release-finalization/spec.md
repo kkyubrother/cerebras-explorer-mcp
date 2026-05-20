@@ -1,5 +1,7 @@
 # v0.2.0 Release Finalization Spec
 
+> 상태: 과거 release-finalization 작업 스펙입니다. 요구사항과 acceptance criteria는 v0.2.0 마감 시점의 기준이며 현재 테스트 수치는 `TESTING.md`를 기준으로 확인합니다.
+
 Created: 2026-05-19 KST
 
 ## Goal

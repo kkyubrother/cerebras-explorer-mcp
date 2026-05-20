@@ -1,5 +1,7 @@
 # Tool Quality Improvements Implementation Plan
 
+> Status note: proposed implementation plan, not current repository status. Re-check `TESTING.md`, `src/`, and `tests/` before executing tasks because verification counts and some current-state notes can drift as fixes land.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. This repo's AGENTS guidance says subagents should be used only when needed, so inline execution is the default path unless a task owner deliberately splits off an independent benchmark or docs task.
 
 **Goal:** Convert the tool-quality review into concrete, testable changes that improve V2 evidence reliability, report-mode handoff quality, router decisions, and adoption measurement without expanding the read-only trust boundary.
@@ -13,7 +15,7 @@
 ## Current-State Reconciliation
 
 - P0 truncation wording is still valid: `src/explorer/runtime.mjs` currently says "Full data was inspected; key content preserved above" after a prefix slice.
-- P0 `TESTING.md` drift is partly resolved in the current checkout: it now reports `307 tests`, `304 pass`, `3 skipped`, `0 fail`, but the plan removes fixed totals as a release contract.
+- P0 `TESTING.md` drift has moved again since this plan was written; current verification lives in `TESTING.md`, and this plan's direction is to avoid treating fixed totals as a release contract.
 - P1 wrapper unknown-key rejection is already implemented in `validatePublicToolArgs()` and covered for `trace_symbol`; this plan expands it into a full wrapper matrix.
 - `searchCoverage.warnings` already reports truncation, but the wording should explicitly say truncation happened before synthesis and missing expected evidence requires a narrower rerun or targeted read.
 - `explore_v2` stays opt-in as a public tool. Router improvements happen only inside the normal `explore` handler.

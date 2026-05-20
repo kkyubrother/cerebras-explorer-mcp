@@ -2,11 +2,11 @@
 
 ## 최근 확인 환경
 
-- 단위 테스트 실행 일시: 2026-05-19
-- Node.js: v24.14.0
-- npm: 11.0.0
-- OS/셸: Windows / PowerShell
-- 통합 테스트: 아래 2026-04-16 기록은 `CEREBRAS_API_KEY`가 설정된 상태에서 실행
+- 확인 일시: 2026-05-21 01:44 KST
+- Node.js: v24.14.1
+- npm: 11.11.0
+- OS/셸: Linux 6.17.0-23-generic / bash
+- 통합 테스트: `CEREBRAS_API_KEY`가 설정된 상태에서 실행
 
 ## 단위 테스트
 
@@ -14,10 +14,10 @@
 npm test
 ```
 
-현재 환경에서는 `307 tests`, `304 pass`, `3 skipped`, `0 fail`.
+최근 관측 결과(2026-05-21): `318 tests`, `317 pass`, `1 skipped`, `0 fail`.
 
-- 현재 skip 3건은 Windows/환경 의존 git 경로 안전성 테스트입니다.
-- `git` 또는 `rg`가 없는 환경, 또는 Windows에서는 추가 skip이 생길 수 있습니다.
+- 현재 skip 1건은 Windows 전용 경로 재사용 테스트가 Linux 환경에서 제외된 결과입니다.
+- `git` 또는 `rg`가 없는 환경, 또는 Windows에서는 skip 수가 달라질 수 있습니다.
 - 이 문서의 숫자는 마지막 관측값입니다. 실제 기준은 항상 위 `npm test` 실행 결과입니다.
 
 ## 통합 테스트 (실제 Cerebras API)
@@ -26,24 +26,26 @@ npm test
 CEREBRAS_API_KEY=<key> node scripts/integration-test.mjs
 ```
 
-### 최근 실행 결과 (2026-04-16, `zai-glm-4.7`)
+### 최근 실행 결과 (2026-05-21, `zai-glm-4.7`)
 
-| 테스트 | 소요 시간 | 턴 | 도구 호출 | 결과 |
-|--------|----------|-----|----------|------|
-| explore_repo (quick) | ~5.3초 | 4 | 3 | `confidence=high`, `evidence=4`, `filesRead=2` |
-| explore_repo (normal) | ~17.2초 | 14 | 16 | `freeExploreV2` 호출 흐름 정확 추적, `filesRead=9` |
-| freeExplore (quick) | ~8.8초 | 10 | 17 | provider 시스템 Markdown 리포트, `filesRead=10` |
-| freeExploreV2 (normal) | ~13.1초 | 7 | 19 | 한국어 아키텍처 보고서 15,774자, `toolResultsTruncated=6` |
-| tool validation | 별도 계측 없음 | 3 | 2 | `src/index.mjs` 진입점 분석 완료 |
+| 테스트 | 결과 |
+|--------|------|
+| explore_repo (quick) | 통과 |
+| explore_repo (normal) | 통과 |
+| freeExplore (quick) | 통과 |
+| freeExploreV2 (normal) | 통과 |
+| tool validation | 통과 |
+
+전체 결과: `5/5` 통과.
 
 ### 검증된 기능
 
 - `explore_repo` quick/normal 경로 모두 정상 동작
 - `explore`, `explore_v2` Markdown 보고서 생성 정상 동작
-- confidence 계산과 `trustSummary` 출력 정상 동작
-- trustSummary: 모든 결과에 자연어 검증 문구 포함
+- compact JSON finalization과 repair 경로 정상 동작
+- confidence, evidence quality, target/evidence 기반 compact contract 정상 동작
 - 결과 포맷: formatExploreResult로 스캔 가능한 텍스트 생성
-- tool result budgeting: V2에서 truncation 카운트 정상 기록 (`toolResultsTruncated=6`)
+- tool result budgeting: V2에서 truncation 카운트 정상 기록
 - V2 통계 필드: `llmCompactions`, `toolResultsTruncated`, `outputRecoveries` 모두 정상 노출
 - 한국어 출력: language 파라미터 정상 동작
 - ERROR RECOVERY 프롬프트: 모델이 에러 시 전략 전환 관찰됨

@@ -1,5 +1,7 @@
 # v0.2.0 Release Finalization Plan
 
+> 상태: 과거 release-finalization 작업 계획입니다. 현재 backlog나 최신 검증 결과를 의미하지 않습니다.
+
 ## Scope
 
 This is a release hygiene pass, not a feature implementation. It does not add protocol behavior or change the v0.2.x backlog.
