@@ -200,6 +200,29 @@ test('package manifest includes README-linked support files', async () => {
   }
 });
 
+test('CHANGELOG records the version declared in package.json', async () => {
+  const packageJson = JSON.parse(await read('package.json'));
+  const changelog = await read('CHANGELOG.md');
+  const escapedVersion = packageJson.version.replace(/\./g, '\\.');
+
+  const versionHeading = new RegExp(`^##\\s+v${escapedVersion}\\b`, 'm');
+  assert.match(
+    changelog,
+    versionHeading,
+    `CHANGELOG.md should contain a heading for v${packageJson.version}`,
+  );
+
+  const unreleasedForCurrent = new RegExp(
+    `^##\\s+v${escapedVersion}\\s*-\\s*Unreleased\\b`,
+    'mi',
+  );
+  assert.doesNotMatch(
+    changelog,
+    unreleasedForCurrent,
+    `CHANGELOG.md heading for v${packageJson.version} should not say "Unreleased" once that version is declared in package.json`,
+  );
+});
+
 test('Continue YAML example keeps the expected MCP shape', async () => {
   const yaml = await read('integrations/continue/config.yaml.example');
   assert.match(yaml, /^mcpServers:/m);
