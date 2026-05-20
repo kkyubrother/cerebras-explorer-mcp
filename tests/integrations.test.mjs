@@ -233,3 +233,82 @@ test('Continue YAML example keeps the expected MCP shape', async () => {
   assert.match(yaml, /github:kkyubrother\/cerebras-explorer-mcp#v0\.2\.0/);
   assert.match(yaml, /CEREBRAS_API_KEY/);
 });
+
+const LLM_PROSE_FILES = [
+  'integrations/claude/.claude/agents/cerebras-explorer.md',
+  'integrations/claude/.claude/skills/cerebras-explore/SKILL.md',
+  'integrations/codex/.agents/skills/cerebras-explore/SKILL.md',
+  'integrations/codex/.codex/agents/cerebras_explorer.toml',
+  'integrations/codex/AGENTS.md.example',
+];
+
+test('Gemini client timeout matches Codex tool_timeout_sec budget', async () => {
+  const gemini = JSON.parse(await read('integrations/gemini/settings.json.example'));
+  const codex = await read('integrations/codex/config.toml.example');
+  const codexMatch = codex.match(/tool_timeout_sec\s*=\s*(\d+)/);
+  assert.ok(codexMatch, 'Codex tool_timeout_sec must be set');
+  const codexSeconds = Number(codexMatch[1]);
+  const geminiMs = gemini.mcpServers['cerebras-explorer'].timeout;
+  assert.equal(
+    geminiMs,
+    codexSeconds * 1000,
+    `Gemini timeout(${geminiMs}ms) should match Codex tool_timeout_sec(${codexSeconds}s)`,
+  );
+});
+
+test('LLM prose files mention current compact contract fields', async () => {
+  for (const relPath of LLM_PROSE_FILES) {
+    const text = await read(relPath);
+    assert.match(
+      text,
+      /failure|evidenceQuality|searchCoverage/,
+      `${relPath} should mention at least one of failure/evidenceQuality/searchCoverage`,
+    );
+  }
+});
+
+test('Codex agent role TOML lists every public wrapper tool', async () => {
+  const toml = await read('integrations/codex/.codex/agents/cerebras_explorer.toml');
+  const expected = [
+    'find_relevant_code',
+    'trace_symbol',
+    'map_change_impact',
+    'explain_code_path',
+    'collect_evidence',
+    'review_change_context',
+    'explore_repo',
+    'explore',
+  ];
+  for (const name of expected) {
+    assert.match(toml, new RegExp(`\\b${name}\\b`), `${name} should appear in Codex agent role TOML`);
+  }
+});
+
+test('LLM prose files do not use stale "Discovered candidate path" phrasing', async () => {
+  for (const relPath of LLM_PROSE_FILES) {
+    assert.doesNotMatch(await read(relPath), /Discovered candidate path/, relPath);
+  }
+});
+
+test('LLM prose files do not advertise removed top-level fields', async () => {
+  const banned = /\b(candidatePaths|recentActivity|hot_files|has_recent_activity|confidenceLevel)\b/;
+  for (const relPath of LLM_PROSE_FILES) {
+    assert.doesNotMatch(await read(relPath), banned, relPath);
+  }
+});
+
+test('Codex AGENTS.md.example and agent TOML introduce find_relevant_code before explore_repo', async () => {
+  const sources = [
+    await read('integrations/codex/AGENTS.md.example'),
+    await read('integrations/codex/.codex/agents/cerebras_explorer.toml'),
+  ];
+  for (const text of sources) {
+    const idxFind = text.indexOf('find_relevant_code');
+    const idxRepo = text.indexOf('explore_repo');
+    assert.ok(idxFind > 0 && idxRepo > 0, 'both tools should appear');
+    assert.ok(
+      idxFind < idxRepo,
+      'find_relevant_code should appear before explore_repo in user-facing tool guidance',
+    );
+  }
+});
