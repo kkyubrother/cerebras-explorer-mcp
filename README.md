@@ -163,7 +163,7 @@ Parent model (Claude Code / Codex)
 - **샘플링 기본값 정렬**: budget별 temperature(`quick`: 0.3, `normal`: 0.8, `deep`: 1.0)와 `top_p=0.95`를 사용하며, direct client 경로에는 fallback 환경 변수도 지원
 - **근거 강제**: 최종 evidence는 실제로 읽거나 grep으로 확인한 라인 범위에만 남김
 - **Read-only tool annotations**: 모든 공개 MCP 도구는 `readOnlyHint: true`를 선언합니다. 이는 클라이언트 UX hint이며 보안 경계는 아닙니다.
-- **Compact 반환 계약**: MCP `structuredContent`는 `schemaVersion`, `directAnswer`, `status`, `targets`, snippet 포함 `evidence`, `uncertainties`, `nextAction`, `evidenceQuality`, nullable `failure`, `session`, `sessionId` 중심의 compact 계약을 사용합니다. 운영 디버그 정보만 `_debug.stats`, `_debug.toolTrace`, `_debug.recentActivity`에 남깁니다.
+- **Compact 반환 계약**: MCP `structuredContent`는 `schemaVersion`, `directAnswer`, `status`, `targets`, snippet 포함 `evidence`, `uncertainties`, `nextAction`, `evidenceQuality`, nullable `failure`, `session`, `sessionId` 중심의 compact 계약을 사용합니다. 운영 디버그 정보는 `_debug.stats`, `_debug.toolTrace`에만 남깁니다.
 
 ## 공개 MCP 도구
 
@@ -269,7 +269,7 @@ a quality signal, not a proof of complete semantic coverage. When
 `scopeLimited` is true, absence of evidence means "not found inside this scope,"
 not "not present in the repository."
 
-운영 디버그 정보는 실제 응답의 `_debug` 객체에 별도로 포함됩니다. 일반 agent handoff에서는 위의 top-level 계약을 먼저 읽고, explorer 동작 자체를 디버깅할 때만 `_debug.stats`, `_debug.toolTrace`, `_debug.recentActivity`를 확인하세요.
+운영 디버그 정보는 실제 응답의 `_debug` 객체에 별도로 포함됩니다. 일반 agent handoff에서는 위의 top-level 계약을 먼저 읽고, explorer 동작 자체를 디버깅할 때만 `_debug.stats`, `_debug.toolTrace`를 확인하세요.
 
 ```json
 {
@@ -687,7 +687,7 @@ node ./scripts/run-benchmark.mjs \
 - 답변/요약 키워드 그룹 일치율
 - evidence / targets에 기대 파일이 포함되는지
 - grounded evidence 개수
-- evidence snippet, directAnswer, status, nextAction, sessionId, recentActivity, budget stop 여부 같은 구조적 체크
+- evidence snippet, directAnswer, status, nextAction, sessionId, budget stop 여부 같은 구조적 체크
 
 즉, 모델이 문장을 조금 다르게 생성해도 핵심 사실과 근거가 맞으면 안정적으로 점수가 나옵니다.
 

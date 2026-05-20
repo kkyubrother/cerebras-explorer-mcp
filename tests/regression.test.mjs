@@ -1,5 +1,5 @@
 /**
- * Regression tests for P0/P1 issues from feedback_1.md
+ * Regression tests for prior P0/P1 fixes.
  *
  * Each test targets a specific bug that was fixed. These ensure we don't
  * regress as the codebase evolves.

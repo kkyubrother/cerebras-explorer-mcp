@@ -790,7 +790,7 @@ function buildNextAction(result) {
   return { type: 'stop', reason: 'Explorer result is complete for the requested read-only investigation.' };
 }
 
-function attachDebug(result, { stats, codeMap, recentActivity, toolTrace }) {
+function attachDebug(result, { stats, codeMap, toolTrace }) {
   result._debug = {
     ...(result._debug ?? {}),
     confidenceScore: result.confidenceScore,
@@ -798,7 +798,6 @@ function attachDebug(result, { stats, codeMap, recentActivity, toolTrace }) {
     stats,
     ...(toolTrace ? { toolTrace } : {}),
     ...(codeMap ? { codeMap } : {}),
-    ...(recentActivity ? { recentActivity } : {}),
   };
   return result;
 }
@@ -1080,63 +1079,6 @@ function guessModuleRole(filePath) {
   return 'module';
 }
 
-function buildRecentActivity(capturedGitLogs) {
-  if (capturedGitLogs.length === 0) {
-    return null;
-  }
-
-  const allCommits = [];
-  const fileCommitCounts = new Map();
-  const authorSet = new Set();
-
-  for (const logResult of capturedGitLogs) {
-    if (!logResult || !Array.isArray(logResult.commits)) {
-      continue;
-    }
-    for (const commit of logResult.commits) {
-      allCommits.push(commit);
-      if (typeof commit.author === 'string') {
-        authorSet.add(commit.author);
-      }
-    }
-    if (typeof logResult.path === 'string' && logResult.path && Array.isArray(logResult.commits)) {
-      fileCommitCounts.set(logResult.path, (fileCommitCounts.get(logResult.path) ?? 0) + logResult.commits.length);
-    }
-  }
-
-  if (allCommits.length === 0) {
-    return null;
-  }
-
-  const seen = new Set();
-  const uniqueCommits = [];
-  for (const commit of allCommits) {
-    if (commit.hash && !seen.has(commit.hash)) {
-      seen.add(commit.hash);
-      uniqueCommits.push(commit);
-    }
-  }
-
-  const hotFiles = [...fileCommitCounts.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 5)
-    .map(([file, count]) => `${file} (${count} commits)`);
-
-  const recentCommits = uniqueCommits.slice(0, 5).map(c => ({
-    hash: c.hash ?? '',
-    message: c.subject ?? c.message ?? '',
-    author: c.author ?? '',
-    date: c.date ?? '',
-  }));
-
-  return {
-    hotFiles,
-    recentAuthors: [...authorSet].slice(0, 10),
-    lastModified: recentCommits.length > 0 ? recentCommits[0].date : '',
-    recentCommits,
-  };
-}
-
 function resolveModelBudget(task, budgetLabel) {
   if (!isTruthyEnv(process.env.CEREBRAS_EXPLORER_AUTO_ROUTE)) {
     return budgetLabel;
@@ -1309,7 +1251,6 @@ export class ExplorerRuntime {
     let finalObject = null;
     let lastAssistantContent = '';
     const observedRanges = new Map();
-    const capturedGitLogs = [];
     const observedGit = { commits: new Set(), blame: new Set() };
     const toolTrace = createCompactToolTrace();
 
@@ -1529,7 +1470,6 @@ export class ExplorerRuntime {
         }
 
         if (toolName === 'repo_git_log' && !safeToolResult?.error) {
-          capturedGitLogs.push({ ...safeToolResult, path: toolArgs.path ?? null });
           // Record observed commit hashes for git evidence validation
           // gitLog() returns commits with 'hash' field (not 'sha')
           if (Array.isArray(safeToolResult.commits)) {
@@ -1676,10 +1616,7 @@ export class ExplorerRuntime {
       normalized.codeMap = codeMap;
     }
 
-    // recentActivity from git_log
-    const recentActivity = buildRecentActivity(capturedGitLogs);
-    if (recentActivity) normalized.recentActivity = recentActivity;
-    attachDebug(normalized, { stats, codeMap, recentActivity, toolTrace: toolTrace.toJSON() });
+    attachDebug(normalized, { stats, codeMap, toolTrace: toolTrace.toJSON() });
 
     // Update session with this call's result
     if (sessionStore && sessionId) {

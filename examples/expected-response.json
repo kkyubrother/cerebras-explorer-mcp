@@ -1,4 +1,5 @@
 {
+  "schemaVersion": 1,
   "directAnswer": "registerUserRoutes는 /users/me 라우트에 requireAuth 미들웨어를 직접 연결한다.",
   "status": {
     "confidence": "high",
@@ -26,7 +27,7 @@
     {
       "path": "docs/auth.md",
       "role": "reference",
-      "reason": "Discovered candidate path; read only if the cited evidence does not answer the edit or verification need.",
+      "reason": "Discovered path; read only if the cited evidence does not answer the edit or verification need.",
       "evidenceRefs": []
     }
   ],
@@ -57,7 +58,34 @@
     "type": "stop",
     "reason": "Explorer result is complete for the requested read-only investigation."
   },
+  "evidenceQuality": {
+    "level": "high",
+    "exactCount": 2,
+    "partialCount": 0,
+    "droppedCount": 0,
+    "fileCount": 2,
+    "warnings": [],
+    "summary": "Verified: 2 evidence items grounded across 2 files."
+  },
+  "failure": null,
   "sessionId": "sess_example",
+  "session": {
+    "id": "sess_example",
+    "status": "created",
+    "remainingCalls": 4
+  },
+  "searchCoverage": {
+    "scope": ["src/**", "docs/**"],
+    "scopeLimited": true,
+    "filesRead": 2,
+    "grepCalls": 1,
+    "listDirCalls": 0,
+    "symbolCalls": 1,
+    "toolResultsTruncated": 0,
+    "stoppedByBudget": false,
+    "warnings": ["Result is limited to scope: src/**, docs/**"],
+    "summary": "scope-limited search across src/**, docs/**; 2 file read(s), 1 grep search(es)."
+  },
   "_debug": {
     "confidenceScore": 0.9,
     "confidenceFactors": {

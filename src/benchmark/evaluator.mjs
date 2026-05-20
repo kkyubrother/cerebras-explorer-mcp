@@ -13,10 +13,8 @@ function getStats(result) {
   return result?._debug?.stats ?? result?.stats ?? {};
 }
 
-function getRecentActivity(result) {
-  return result?.recentActivity ?? result?._debug?.recentActivity ?? null;
-}
-
+// Benchmark-only compatibility for archived result JSON. Public explorer output
+// stays compact and uses targets[], not candidatePaths.
 function getCandidatePaths(result) {
   if (Array.isArray(result?.candidatePaths)) {
     return result.candidatePaths.filter(item => typeof item === 'string' && item.trim());
@@ -27,7 +25,6 @@ function getCandidatePaths(result) {
 }
 
 function getSourceText(result, source) {
-  const recentActivity = getRecentActivity(result);
   switch (source) {
     case 'direct_answer':
       return result.directAnswer ?? '';
@@ -50,7 +47,7 @@ function getSourceText(result, source) {
     case 'evidence_why':
       return joinLines((result.evidence ?? []).map(item => item.why));
     case 'candidate_paths':
-      return joinLines((result.targets ?? []).map(item => item.path));
+      return joinLines(getCandidatePaths(result));
     case 'target_paths':
       return joinLines((result.targets ?? []).map(item => item.path));
     case 'target_reasons':
@@ -63,10 +60,6 @@ function getSourceText(result, source) {
       return result.status?.verification ?? '';
     case 'next_action':
       return joinLines([result.nextAction?.type, result.nextAction?.reason, result.nextAction?.query]);
-    case 'recent_commit_messages':
-      return joinLines((recentActivity?.recentCommits ?? []).map(item => item.message));
-    case 'hot_files':
-      return joinLines(recentActivity?.hotFiles ?? []);
     case 'confidence':
       return result.status?.confidence ?? '';
     case 'confidence_level':
@@ -132,10 +125,6 @@ function evaluateCheck(result, check) {
     case 'status_verification_equals':
       actual = result.status?.verification ?? null;
       passed = actual === check.value;
-      break;
-    case 'has_recent_activity':
-      actual = Boolean(getRecentActivity(result));
-      passed = actual === Boolean(check.value);
       break;
     case 'stopped_by_budget_equals':
       actual = Boolean(getStats(result).stoppedByBudget);
