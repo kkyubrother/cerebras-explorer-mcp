@@ -30,3 +30,8 @@ Response shape:
 - key targets and evidence paths/lines
 - follow-up suggestions only when necessary
 - explicit uncertainty when evidence is thin or conflicting
+
+Read these compact contract fields when interpreting results:
+- `evidenceQuality.level` rates how grounded the result is
+- `failure` is non-null when the explorer could not answer; use `failure.retry.tool` and `failure.retry.args` for the guided retry
+- `searchCoverage` indicates whether scope or budget limits were hit

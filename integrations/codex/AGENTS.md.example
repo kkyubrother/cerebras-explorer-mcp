@@ -21,6 +21,11 @@ Recommended full wrapper exposure is `explore_repo`, `find_relevant_code`,
 when the session needs a deliberately narrower trust boundary; it removes
 purpose-built evidence, path, review, and Markdown-report entry points.
 
+Read the compact response contract: `evidenceQuality.level` rates groundedness,
+`failure` is non-null with `failure.retry.tool`/`failure.retry.args` when the
+explorer cannot answer, and `searchCoverage` flags scope-limited or
+budget-capped searches.
+
 Tool exposure is configured in `~/.codex/config.toml`.
 Use `enabled_tools` to keep the server surface narrow for normal coding sessions.
 Use `disabled_tools` when you want to remove only a specific tool; if both are set,

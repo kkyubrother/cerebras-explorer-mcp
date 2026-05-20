@@ -9,7 +9,7 @@ Delegate broad discovery to the `cerebras-explorer` agent.
 Keep the parent agent focused on verification, synthesis, and any later edits.
 
 Choose between the two open-ended entry points deliberately:
-- Use `explore_repo` when the parent will inspect compact structured JSON fields such as `directAnswer`, `status`, `targets`, `evidence`, `nextAction`, or `sessionId` before editing.
+- Use `explore_repo` when the parent will inspect compact structured JSON fields such as `directAnswer`, `status`, `targets`, `evidence`, `evidenceQuality`, `searchCoverage`, `failure`, `nextAction`, or `sessionId` before editing.
 - Use `explore` when the parent mainly wants a cited Markdown report, architecture walkthrough, or user-facing explanation.
 
 Send one well-shaped exploration request instead of a stream of micro-prompts.
@@ -32,3 +32,8 @@ Do not delegate by default when the relevant file is already known and one or tw
 Use `explore_repo` evidence or `explore` citations to choose what the parent agent should inspect next.
 Prefer targeted verification of cited paths or line ranges over fresh wide search.
 Fall back to native wide search only if the delegated report is thin, contradictory, or clearly insufficient.
+
+Compact contract signals:
+- `evidenceQuality.level` indicates how grounded the result is.
+- `failure` is non-null when the explorer could not answer; use `failure.retry.tool`/`failure.retry.args` for the guided retry.
+- `searchCoverage` shows whether scope or budget limits were hit.

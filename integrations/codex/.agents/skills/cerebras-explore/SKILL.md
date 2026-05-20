@@ -37,6 +37,11 @@ When local shell search is available, use one or two targeted `rg` checks agains
 If MCP findings and local evidence disagree, report the conflict instead of smoothing it over.
 Escalate to native wide search only when the explorer result is thin, conflicting, or insufficient.
 
+Compact contract signals:
+- `evidenceQuality.level` indicates how grounded the result is.
+- `failure` non-null with `failure.retry.tool`/`failure.retry.args` describes one safe guided retry.
+- `searchCoverage` reports scope or budget limits hit during the search.
+
 Example calls:
 - `find_relevant_code({ query: "Where is auth middleware applied to API routes?", knownSymbols: ["requireAuth"] })`
 - `map_change_impact({ change: "Change auth middleware behavior for API routes", knownSymbols: ["requireAuth"] })`
