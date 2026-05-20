@@ -31,7 +31,7 @@
         "review_change_context",
         "explore"
       ],
-      "timeout": 60000
+      "timeout": 180000
     }
   }
 }
