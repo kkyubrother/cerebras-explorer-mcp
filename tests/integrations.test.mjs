@@ -149,21 +149,54 @@ test('Codex example uses npx and tool allowlist controls', async () => {
   assert.match(agents, /minimal 4-tool/i);
 });
 
-test('documented active install refs avoid stale branch and release refs', async () => {
+test('documented active install refs track package version', async () => {
+  const packageJson = JSON.parse(await read('package.json'));
+  const expectedRef = `v${packageJson.version}`;
+  const expectedSpec = `github:kkyubrother/cerebras-explorer-mcp#${expectedRef}`;
+  const concreteSpecPattern = /github:kkyubrother\/cerebras-explorer-mcp#v\d+\.\d+\.\d+\b/g;
+  const oldTagAssignmentPattern = /\bOLD_TAG\s*=\s*["']?v\d+\.\d+\.\d+["']?/;
   const docs = [
     'README.md',
+    'integrations/claude/.mcp.json.example',
     'integrations/claude-desktop/README.md',
+    'integrations/claude-desktop/claude_desktop_config.json.example',
+    'integrations/codex/config.toml.example',
     'integrations/continue/README.md',
+    'integrations/continue/config.yaml.example',
     'integrations/cursor/README.md',
+    'integrations/cursor/mcp.json.example',
     'integrations/gemini/README.md',
+    'integrations/gemini/settings.json.example',
     'integrations/opencode/README.md',
+    'integrations/opencode/opencode.json.example',
   ];
 
   for (const relPath of docs) {
     const source = await read(relPath);
     assert.doesNotMatch(source, /github:kkyubrother\/cerebras-explorer-mcp#main\b/, relPath);
-    assert.doesNotMatch(source, /github:kkyubrother\/cerebras-explorer-mcp#v0\.1\.0\b/, relPath);
-    assert.doesNotMatch(source, /\bOLD_TAG=v0\.1\.0\b/, relPath);
+    assert.doesNotMatch(source, oldTagAssignmentPattern, relPath);
+    for (const match of source.matchAll(concreteSpecPattern)) {
+      assert.equal(match[0], expectedSpec, `${relPath} install ref should use ${expectedRef}`);
+    }
+  }
+});
+
+test('package manifest includes README-linked support files', async () => {
+  const packageJson = JSON.parse(await read('package.json'));
+  const files = new Set(packageJson.files);
+
+  for (const relPath of [
+    'benchmarks/',
+    'examples/',
+    'fixtures/',
+    'integrations/',
+    'scripts/',
+    'tests/',
+    'CHANGELOG.md',
+    'DESIGN.md',
+    'TESTING.md',
+  ]) {
+    assert.ok(files.has(relPath), `package files should include ${relPath}`);
   }
 });
 

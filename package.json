@@ -29,9 +29,17 @@
   },
   "files": [
     "src/",
+    "benchmarks/",
+    "examples/",
+    "fixtures/",
+    "integrations/",
+    "scripts/",
+    "tests/",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE",
-    "DESIGN.md"
+    "DESIGN.md",
+    "TESTING.md"
   ],
   "scripts": {
     "start": "node ./src/index.mjs",

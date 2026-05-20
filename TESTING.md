@@ -2,7 +2,7 @@
 
 ## 최근 확인 환경
 
-- 확인 일시: 2026-05-21 01:44 KST
+- 확인 일시: 2026-05-21 02:00 KST
 - Node.js: v24.14.1
 - npm: 11.11.0
 - OS/셸: Linux 6.17.0-23-generic / bash
@@ -14,7 +14,7 @@
 npm test
 ```
 
-최근 관측 결과(2026-05-21): `318 tests`, `317 pass`, `1 skipped`, `0 fail`.
+최근 관측 결과(2026-05-21): `319 tests`, `318 pass`, `1 skipped`, `0 fail`.
 
 - 현재 skip 1건은 Windows 전용 경로 재사용 테스트가 Linux 환경에서 제외된 결과입니다.
 - `git` 또는 `rg`가 없는 환경, 또는 Windows에서는 skip 수가 달라질 수 있습니다.

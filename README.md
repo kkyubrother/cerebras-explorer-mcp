@@ -379,6 +379,9 @@ cerebras-explorer-mcp/
     cursor/
       mcp.json.example
       README.md
+    gemini/
+      settings.json.example
+      README.md
     opencode/
       opencode.json.example
       README.md
@@ -651,6 +654,7 @@ MCP client for `cerebras-explorer` timed out after 30 seconds.
 ## 벤치마크
 
 반복 가능한 품질 측정을 위해 선언형 질의 세트와 점수 계산기를 포함합니다.
+실제 MCP 탐색을 실행하므로 `CEREBRAS_API_KEY`가 설정되어 있어야 합니다.
 
 - 기본/adoption 벤치마크 파일: `benchmarks/adoption.json`
 - 실행 스크립트: `scripts/run-benchmark.mjs`
@@ -693,29 +697,39 @@ node ./scripts/run-benchmark.mjs \
 
 ## 새 버전 릴리즈
 
-새 release를 끊을 때의 표준 절차입니다. tag 운영을 README와 `integrations/` 예시에 일관되게 반영해야, 다른 PC의 사용자가 자기 등록 spec의 tag 부분만 바꿔도 자동으로 새 버전이 받아집니다 (이유는 [설치 한 줄 (GitHub)](#설치-한-줄-github) 섹션의 인용 박스를 참고).
+새 release를 끊을 때의 표준 절차입니다. tag 운영을 README와 `integrations/` 예시에 일관되게 반영해야, 다른 PC의 사용자가 자기 등록 spec의 tag 부분만 바꿔도 자동으로 새 버전이 받아집니다. `npx`가 URL + ref를 캐시 키로 쓰는 이유는 [60초 Quickstart](#60초-quickstart)의 tag 안내를 참고하세요.
 
-1. 의미 있는 단위로 commit + push가 끝난 상태에서 시작합니다.
-2. 새 tag를 끊고 push:
-   ```bash
-   NEW_TAG="v<new-version>"
-   git tag "$NEW_TAG"
-   git push origin "$NEW_TAG"
-   ```
-3. 모든 클라이언트 설치 예시에 박혀 있는 이전 tag를 한 번에 치환:
+1. 의미 있는 단위로 commit이 끝난 깨끗한 작업 트리에서 시작합니다.
+2. 버전 값을 정하고 package/server/changelog를 함께 갱신합니다.
    ```bash
    OLD_TAG="v<previous-version>"
    NEW_TAG="v<new-version>"
+
+   npm version "${NEW_TAG#v}" --no-git-tag-version
+   # src/mcp/server.mjs SERVER_INFO.version도 같은 값으로 갱신
+   # CHANGELOG.md에 새 release 날짜와 사용자 영향 항목 기록
+   ```
+3. 모든 클라이언트 설치 예시에 박혀 있는 이전 tag를 한 번에 치환합니다.
+   ```bash
    grep -rl "github:kkyubrother/cerebras-explorer-mcp#${OLD_TAG}" README.md integrations/ \
      | xargs sed -i "s|cerebras-explorer-mcp#${OLD_TAG}|cerebras-explorer-mcp#${NEW_TAG}|g"
    ```
-4. 변경 commit + push:
+4. 검증을 실행합니다.
    ```bash
-   git add README.md integrations/
-   git commit -m "docs: bump install spec to v0.2.0"
-   git push origin master
+   npm test
+   npm pack --dry-run --json
+   CEREBRAS_API_KEY="$CEREBRAS_API_KEY" node ./scripts/integration-test.mjs
+   # 필요하면 CEREBRAS_API_KEY 설정 후 npm run benchmark
    ```
-5. (선택) GitHub Releases에 release notes 작성 — `git log "$OLD_TAG..$NEW_TAG" --oneline` 출력을 기반으로 사용자 영향이 있는 변경 위주로 정리.
+5. 변경 commit, tag, push:
+   ```bash
+   git add package.json src/mcp/server.mjs CHANGELOG.md README.md integrations/
+   git commit -m "chore: release ${NEW_TAG}"
+   git tag "$NEW_TAG"
+   git push origin master
+   git push origin "$NEW_TAG"
+   ```
+6. (선택) GitHub Releases에 release notes 작성 — `git log "$OLD_TAG..$NEW_TAG" --oneline` 출력을 기반으로 사용자 영향이 있는 변경 위주로 정리.
 
 > **tag만 push하고 README/`integrations/` 안 바꾸면**, 새 사용자가 README를 보고 따라 등록할 때 여전히 이전 tag를 받게 됩니다. tag와 문서는 항상 같이 갱신해주세요. 위 sed 한 줄이 그 일을 자동화합니다.
 
