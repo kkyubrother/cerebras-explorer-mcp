@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Runs npm test before each commit to catch doc-code drift.
+# Install via: bash scripts/install-hooks.sh
+# Bypass once (not recommended): git commit --no-verify
+
+set -e
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+
+echo "[pre-commit] npm test"
+npm test
