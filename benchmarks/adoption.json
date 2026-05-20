@@ -155,19 +155,11 @@
           "label": "Answer discusses change context",
           "source": "combined_text",
           "groups": [["tool", "metadata"], ["server.mjs"], ["test", "검토"]],
-          "weight": 0.45
-        },
-        {
-          "label": "Recent activity or hot files are surfaced",
-          "source": "hot_files",
-          "groups": [["src/", "tests/"]],
-          "weight": 0.15,
-          "minCoverage": 0.5
+          "weight": 0.7
         }
       ],
       "checks": [
-        { "label": "Has recent activity", "type": "has_recent_activity", "value": true, "weight": 0.2 },
-        { "label": "Targets present", "type": "min_target_count", "value": 1, "weight": 0.2 }
+        { "label": "Targets present", "type": "min_target_count", "value": 1, "weight": 0.3 }
       ]
     },
     {

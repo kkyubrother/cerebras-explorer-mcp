@@ -1,5 +1,7 @@
 import { exploreRepository } from '../src/explorer/runtime.mjs';
 
+// This example prints the raw runtime result, not MCP structuredContent.
+// Raw output can include runtime/debug fields that MCP clients do not receive.
 const result = await exploreRepository({
   task: 'users/me 라우트에 인증 미들웨어가 어떻게 붙는지 추적해라.',
   repo_root: './fixtures/demo-repo',

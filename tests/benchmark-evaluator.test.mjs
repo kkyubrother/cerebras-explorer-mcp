@@ -132,7 +132,29 @@ test('evaluateBenchmarkCase supports legacy candidate path count checks from com
   assert.equal(evaluation.checks[0].passed, true);
 });
 
-test('evaluateBenchmarkCase reads compact MCP results with debug stats and recent activity', () => {
+test('evaluateBenchmarkCase reads legacy candidate path expectations from archived result JSON', () => {
+  const caseDefinition = {
+    id: 'legacy-candidate-path-source',
+    expectations: [
+      {
+        label: 'Candidate path source',
+        source: 'candidate_paths',
+        groups: [['src/legacy-auth.js']],
+        weight: 1,
+      },
+    ],
+  };
+
+  const result = {
+    candidatePaths: ['src/legacy-auth.js'],
+  };
+
+  const evaluation = evaluateBenchmarkCase(caseDefinition, result);
+  assert.equal(evaluation.expectations[0].matchedCount, 1);
+  assert.equal(evaluation.passed, true);
+});
+
+test('evaluateBenchmarkCase reads compact MCP results with debug stats', () => {
   const caseDefinition = {
     id: 'compact',
     passScore: 0.9,
@@ -150,9 +172,9 @@ test('evaluateBenchmarkCase reads compact MCP results with debug stats and recen
         weight: 0.15,
       },
       {
-        label: 'Recent activity comes from debug',
-        source: 'hot_files',
-        groups: [['src/mcp/server.mjs']],
+        label: 'Next action',
+        source: 'next_action',
+        groups: [['explore_followup']],
         weight: 0.15,
       },
       {
@@ -164,7 +186,6 @@ test('evaluateBenchmarkCase reads compact MCP results with debug stats and recen
     ],
     checks: [
       { label: 'Compact targets', type: 'min_target_count', value: 1, weight: 0.1 },
-      { label: 'Recent activity', type: 'has_recent_activity', value: true, weight: 0.1 },
       { label: 'Budget stop', type: 'stopped_by_budget_equals', value: true, weight: 0.05 },
       { label: 'Session id', type: 'has_session_id', value: true, weight: 0.05 },
     ],
@@ -186,10 +207,35 @@ test('evaluateBenchmarkCase reads compact MCP results with debug stats and recen
     sessionId: 'sess_compact',
     _debug: {
       stats: { stoppedByBudget: true },
-      recentActivity: { hotFiles: ['src/mcp/server.mjs (2 commits)'] },
     },
   };
 
   const evaluation = evaluateBenchmarkCase(caseDefinition, result);
   assert.equal(evaluation.passed, true);
+});
+
+test('evaluateBenchmarkCase rejects removed recentActivity benchmark sources and checks', () => {
+  assert.throws(
+    () => evaluateBenchmarkCase({
+      id: 'removed-recent-activity-source',
+      expectations: [
+        {
+          label: 'Hot files',
+          source: 'hot_files',
+          groups: [['src/mcp/server.mjs']],
+        },
+      ],
+    }, { _debug: { recentActivity: { hotFiles: ['src/mcp/server.mjs'] } } }),
+    /Unknown benchmark source: hot_files/,
+  );
+
+  assert.throws(
+    () => evaluateBenchmarkCase({
+      id: 'removed-recent-activity-check',
+      checks: [
+        { label: 'Has recent activity', type: 'has_recent_activity', value: true },
+      ],
+    }, { _debug: { recentActivity: { hotFiles: ['src/mcp/server.mjs'] } } }),
+    /Unknown benchmark check type: has_recent_activity/,
+  );
 });

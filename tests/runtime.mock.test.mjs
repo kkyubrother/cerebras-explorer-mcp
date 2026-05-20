@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -8,6 +9,15 @@ import { ExplorerRuntime } from '../src/explorer/runtime.mjs';
 import { buildExplorerSystemPrompt, detectStrategy } from '../src/explorer/prompt.mjs';
 import { BUDGETS } from '../src/explorer/config.mjs';
 import { RepoToolkit } from '../src/explorer/repo-tools.mjs';
+
+function hasGit() {
+  try {
+    execFileSync('git', ['--version'], { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 async function makeRepoFixture() {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-explorer-runtime-'));
@@ -943,7 +953,7 @@ test('ExplorerRuntime carries compact uncertainties instead of legacy followups'
   assert.equal(result.followups, undefined);
 });
 
-test('ExplorerRuntime builds recentActivity when git_log tool is called', async () => {
+test('ExplorerRuntime does not expose recentActivity when git_log tool is called', { skip: !hasGit() }, async () => {
   class GitLogClient {
     constructor() {
       this.model = 'zai-glm-4.7';
@@ -984,6 +994,11 @@ test('ExplorerRuntime builds recentActivity when git_log tool is called', async 
 
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-explorer-git-'));
   await fs.writeFile(path.join(root, 'index.js'), 'console.log("hello");');
+  execFileSync('git', ['init'], { cwd: root, stdio: 'ignore' });
+  execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: root, stdio: 'ignore' });
+  execFileSync('git', ['config', 'user.name', 'Test User'], { cwd: root, stdio: 'ignore' });
+  execFileSync('git', ['add', 'index.js'], { cwd: root, stdio: 'ignore' });
+  execFileSync('git', ['commit', '-m', 'add index'], { cwd: root, stdio: 'ignore' });
 
   const runtime = new ExplorerRuntime({ chatClient: new GitLogClient() });
   const result = await runtime.explore({
@@ -992,9 +1007,8 @@ test('ExplorerRuntime builds recentActivity when git_log tool is called', async 
     hints: { strategy: 'git-guided' },
   });
 
-  // recentActivity may be null if git_log returned no commits (non-git dir)
-  // The important thing is the field is present or absent — no crash
-  assert.ok('recentActivity' in result || result.recentActivity === undefined);
+  assert.equal(result.recentActivity, undefined);
+  assert.equal(result._debug?.recentActivity, undefined);
   assert.equal(result.stats.gitLogCalls, 1);
 });
 

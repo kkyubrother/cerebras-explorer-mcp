@@ -25,6 +25,78 @@ test('JSON integration examples are parseable', async () => {
   }
 });
 
+test('expected response example matches compact explore_repo contract', async () => {
+  const raw = await read('examples/expected-response.json');
+  const example = JSON.parse(raw);
+
+  assert.equal(example.schemaVersion, 1);
+  assert.equal(typeof example.directAnswer, 'string');
+  assert.ok(example.status);
+  assert.ok(Array.isArray(example.targets));
+  assert.ok(Array.isArray(example.evidence));
+  assert.ok(example.evidenceQuality);
+  assert.equal(example.failure, null);
+  assert.ok(example.sessionId);
+  assert.deepEqual(example.session, {
+    id: example.sessionId,
+    status: 'created',
+    remainingCalls: 4,
+  });
+  assert.ok(example.searchCoverage);
+  assert.ok(example.nextAction?.type);
+  assert.doesNotMatch(raw, /Discovered candidate path/);
+});
+
+test('stdio example documents NDJSON and Content-Length framing modes', async () => {
+  const source = await read('examples/call-server-via-stdio.mjs');
+
+  assert.match(source, /encodeNdjsonMessage/);
+  assert.match(source, /encodeContentLengthMessage/);
+  assert.match(source, /--framing=content-length/);
+  assert.match(source, /framing = 'ndjson'/);
+});
+
+test('direct runtime example warns that output is raw runtime, not MCP structuredContent', async () => {
+  const source = await read('examples/direct-runtime.mjs');
+
+  assert.match(source, /raw runtime result/i);
+  assert.match(source, /MCP structuredContent/i);
+});
+
+test('completed superpowers implementation plans are not left as unchecked active backlog', async () => {
+  const completedPlanPaths = [
+    'docs/superpowers/plans/2026-05-19-agent-facing-contract-improvements.md',
+    'docs/superpowers/plans/2026-05-19-top-level-session-contract.md',
+    'docs/superpowers/plans/2026-05-19-failure-evidence-quality-contract.md',
+  ];
+
+  for (const relPath of completedPlanPaths) {
+    await assert.rejects(
+      fs.access(path.join(ROOT, relPath)),
+      { code: 'ENOENT' },
+      `${relPath} should not remain as active unchecked backlog`,
+    );
+  }
+});
+
+test('regression tests do not reference removed feedback document', async () => {
+  const source = await read('tests/regression.test.mjs');
+
+  assert.doesNotMatch(source, /feedback_1\.md/);
+  assert.match(source, /prior P0\/P1 fixes/);
+});
+
+test('docs and benchmark fixtures do not advertise recentActivity as an output contract', async () => {
+  const docs = [
+    'README.md',
+    'benchmarks/adoption.json',
+  ];
+
+  for (const relPath of docs) {
+    assert.doesNotMatch(await read(relPath), /recentActivity|hot_files|has_recent_activity/);
+  }
+});
+
 test('Gemini example documents required env and recommended full wrapper allowlist', async () => {
   const settings = JSON.parse(await read('integrations/gemini/settings.json.example'));
   const server = settings.mcpServers?.['cerebras-explorer'];

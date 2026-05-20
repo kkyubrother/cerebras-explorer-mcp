@@ -6,9 +6,12 @@
 
 import { ExplorerRuntime } from '../src/explorer/runtime.mjs';
 import { createChatClient } from '../src/explorer/providers/index.mjs';
+import { SessionStore } from '../src/explorer/session.mjs';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..');
+const CONFIDENCE_LEVELS = ['low', 'medium', 'high'];
 
 function log(label, data) {
   console.log(`\n${'═'.repeat(70)}`);
@@ -27,11 +30,79 @@ function logSection(title) {
   console.log('█'.repeat(70));
 }
 
+function getDirectAnswer(result) {
+  return typeof result?.directAnswer === 'string' ? result.directAnswer : '';
+}
+
+function getStatusConfidence(result) {
+  return result?.status?.confidence;
+}
+
+function getSessionId(result) {
+  return result?.session?.id ?? result?.sessionId ?? result?.stats?.sessionId ?? '';
+}
+
+function getSessionSummary(result) {
+  const sessionId = getSessionId(result);
+  if (!sessionId) return null;
+  return {
+    id: sessionId,
+    status: result?.session?.status ?? result?.stats?.sessionStatus,
+    remainingCalls: result?.session?.remainingCalls ?? result?.stats?.remainingCalls,
+  };
+}
+
+export function buildExploreRepoChecks(result, {
+  answerLabel = 'directAnswer',
+  minAnswerLength = 10,
+  minFilesRead = 0,
+  answerIncludes = null,
+} = {}) {
+  const answer = getDirectAnswer(result);
+  const confidence = getStatusConfidence(result);
+  const sessionId = getSessionId(result);
+  const checks = [];
+
+  checks.push([`${answerLabel} is non-empty`, answer.length > minAnswerLength]);
+  checks.push(['status.confidence is valid', CONFIDENCE_LEVELS.includes(confidence)]);
+  checks.push(['evidence array exists', Array.isArray(result?.evidence)]);
+  checks.push(['targets array exists', Array.isArray(result?.targets)]);
+  checks.push([
+    'targets have path strings',
+    Array.isArray(result?.targets) && result.targets.every(item => typeof item?.path === 'string' && item.path.trim()),
+  ]);
+  checks.push([
+    'evidenceQuality.level is valid',
+    CONFIDENCE_LEVELS.includes(result?.evidenceQuality?.level),
+  ]);
+  checks.push([
+    'searchCoverage summary exists',
+    typeof result?.searchCoverage?.summary === 'string' && result.searchCoverage.summary.length > 0,
+  ]);
+  checks.push(['failure is null', result?.failure === null]);
+  checks.push(['session id exists', typeof sessionId === 'string' && sessionId.startsWith('sess_')]);
+  checks.push(['stats.turns > 0', result?.stats?.turns > 0]);
+  checks.push(['stats.elapsedMs > 0', result?.stats?.elapsedMs > 0]);
+  if (minFilesRead > 0) {
+    checks.push([`stats.filesRead >= ${minFilesRead}`, (result?.stats?.filesRead ?? 0) >= minFilesRead]);
+  }
+  if (answerIncludes instanceof RegExp) {
+    checks.push([`${answerLabel} matches expected topic`, answerIncludes.test(answer)]);
+  }
+
+  return checks;
+}
+
+function formatChecks(checks) {
+  return checks.map(([name, ok]) => `${ok ? 'PASS' : 'FAIL'} — ${name}`).join('\n');
+}
+
 async function testExploreRepo() {
-  logSection('1. explore_repo (quick) — 기본 동작, trustSummary, confidence');
+  logSection('1. explore_repo (quick) — 기본 동작, compact contract');
 
   const client = createChatClient({ budget: 'quick' });
   const runtime = new ExplorerRuntime({ chatClient: client, logger: console.error });
+  const sessionStore = new SessionStore();
 
   const result = await runtime.explore({
     task: 'How does the session management work in this project? Find the SessionStore class and explain its key methods.',
@@ -42,15 +113,20 @@ async function testExploreRepo() {
     onProgress: ({ progress, total, message }) => {
       process.stderr.write(`  [explore_repo] ${message} (${progress}/${total})\n`);
     },
+    sessionStore,
   });
 
-  log('Answer', result.answer);
-  log('Confidence', `${result.confidence} (score: ${result.confidenceScore}, level: ${result.confidenceLevel})`);
-  log('Trust Summary', result.trustSummary);
+  log('Direct Answer', getDirectAnswer(result));
+  log('Status Confidence', `${getStatusConfidence(result)} (evidenceQuality: ${result.evidenceQuality?.level})`);
+  log('Evidence Quality', result.evidenceQuality);
+  log('Search Coverage', result.searchCoverage);
+  log('Failure', result.failure);
+  log('Session', getSessionSummary(result));
   log('Evidence count', `${result.evidence?.length ?? 0} items`);
   if (result.evidence?.length > 0) {
     log('Evidence sample', result.evidence.slice(0, 3));
   }
+  log('Targets', result.targets?.slice(0, 5) ?? []);
   log('Stats', {
     model: result.stats?.model,
     turns: result.stats?.turns,
@@ -61,17 +137,13 @@ async function testExploreRepo() {
     cacheMisses: result.stats?.cacheMisses,
   });
 
-  // Assertions
-  const checks = [];
-  checks.push(['answer is non-empty', !!result.answer && result.answer.length > 10]);
-  checks.push(['confidence is valid', ['low', 'medium', 'high'].includes(result.confidence)]);
-  checks.push(['trustSummary exists', !!result.trustSummary]);
-  checks.push(['evidence array exists', Array.isArray(result.evidence)]);
-  checks.push(['stats.turns > 0', result.stats?.turns > 0]);
-  checks.push(['stats.elapsedMs > 0', result.stats?.elapsedMs > 0]);
-  checks.push(['candidatePaths is array', Array.isArray(result.candidatePaths)]);
+  const checks = buildExploreRepoChecks(result, {
+    answerLabel: 'directAnswer',
+    minFilesRead: 1,
+    answerIncludes: /sessionstore|session/i,
+  });
 
-  log('Checks', checks.map(([name, ok]) => `${ok ? 'PASS' : 'FAIL'} — ${name}`).join('\n'));
+  log('Checks', formatChecks(checks));
   return checks.every(([, ok]) => ok);
 }
 
@@ -80,6 +152,7 @@ async function testExploreRepoNormal() {
 
   const client = createChatClient({ budget: 'normal' });
   const runtime = new ExplorerRuntime({ chatClient: client, logger: console.error });
+  const sessionStore = new SessionStore();
 
   const result = await runtime.explore({
     task: 'Trace the full execution flow when explore_v2 tool is called from the MCP server. Start from server.mjs request handler, through runtime.mjs freeExploreV2(), and explain each advanced technique (LLM compaction, tool result budgeting, max output recovery).',
@@ -90,11 +163,15 @@ async function testExploreRepoNormal() {
     onProgress: ({ progress, total, message }) => {
       process.stderr.write(`  [explore_repo normal] ${message} (${progress}/${total})\n`);
     },
+    sessionStore,
   });
 
-  log('Answer (first 500 chars)', result.answer?.slice(0, 500));
-  log('Confidence', `${result.confidence} (score: ${result.confidenceScore})`);
-  log('Trust Summary', result.trustSummary);
+  log('Direct Answer (first 500 chars)', getDirectAnswer(result).slice(0, 500));
+  log('Status Confidence', `${getStatusConfidence(result)} (evidenceQuality: ${result.evidenceQuality?.level})`);
+  log('Evidence Quality', result.evidenceQuality);
+  log('Search Coverage', result.searchCoverage);
+  log('Failure', result.failure);
+  log('Session', getSessionSummary(result));
   log('Evidence count', `${result.evidence?.length ?? 0} items`);
   log('Stats', {
     turns: result.stats?.turns,
@@ -105,13 +182,13 @@ async function testExploreRepoNormal() {
     grepCalls: result.stats?.grepCalls,
   });
 
-  const checks = [];
-  checks.push(['answer mentions freeExploreV2 or v2 or explore_v2', result.answer?.toLowerCase().includes('v2') || result.answer?.toLowerCase().includes('explore')]);
-  checks.push(['confidence is valid level', ['low', 'medium', 'high'].includes(result.confidence)]);
-  checks.push(['trustSummary exists', !!result.trustSummary]);
-  checks.push(['stats.filesRead >= 3', (result.stats?.filesRead ?? 0) >= 3]);
+  const checks = buildExploreRepoChecks(result, {
+    answerLabel: 'directAnswer',
+    minFilesRead: 3,
+    answerIncludes: /v2|explore/i,
+  });
 
-  log('Checks', checks.map(([name, ok]) => `${ok ? 'PASS' : 'FAIL'} — ${name}`).join('\n'));
+  log('Checks', formatChecks(checks));
   return checks.every(([, ok]) => ok);
 }
 
@@ -200,6 +277,7 @@ async function testToolValidation() {
 
   const client = createChatClient({ budget: 'quick' });
   const runtime = new ExplorerRuntime({ chatClient: client, logger: console.error });
+  const sessionStore = new SessionStore();
 
   // This test verifies that the system handles tool validation properly.
   // We can't force the model to hallucinate, but we can verify the runtime starts and completes.
@@ -212,16 +290,24 @@ async function testToolValidation() {
     onProgress: ({ progress, total, message }) => {
       process.stderr.write(`  [tool-validation] ${message} (${progress}/${total})\n`);
     },
+    sessionStore,
   });
 
-  log('Answer (first 300 chars)', result.answer?.slice(0, 300));
+  log('Direct Answer (first 300 chars)', getDirectAnswer(result).slice(0, 300));
+  log('Status Confidence', getStatusConfidence(result));
+  log('Evidence Quality', result.evidenceQuality);
+  log('Search Coverage', result.searchCoverage);
+  log('Failure', result.failure);
+  log('Session', getSessionSummary(result));
   log('Stats', { turns: result.stats?.turns, toolCalls: result.stats?.toolCalls });
 
-  const checks = [];
-  checks.push(['completed without crash', !!result.answer]);
-  checks.push(['mentions index or entry', result.answer?.toLowerCase().includes('index') || result.answer?.toLowerCase().includes('entry')]);
+  const checks = buildExploreRepoChecks(result, {
+    answerLabel: 'directAnswer',
+    minFilesRead: 1,
+    answerIncludes: /index|entry/i,
+  });
 
-  log('Checks', checks.map(([name, ok]) => `${ok ? 'PASS' : 'FAIL'} — ${name}`).join('\n'));
+  log('Checks', formatChecks(checks));
   return checks.every(([, ok]) => ok);
 }
 
@@ -290,7 +376,13 @@ async function main() {
   }
 }
 
-main().catch(err => {
-  console.error('Fatal error:', err);
-  process.exit(1);
-});
+function isMainModule() {
+  return Boolean(process.argv[1]) && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
+}
+
+if (isMainModule()) {
+  main().catch(err => {
+    console.error('Fatal error:', err);
+    process.exit(1);
+  });
+}

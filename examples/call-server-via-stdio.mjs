@@ -2,12 +2,21 @@ import { spawn } from 'node:child_process';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-function encodeMessage(payload) {
+function encodeContentLengthMessage(payload) {
   const json = JSON.stringify(payload);
   return `Content-Length: ${Buffer.byteLength(json, 'utf8')}\r\nContent-Type: application/json\r\n\r\n${json}`;
 }
 
+function encodeNdjsonMessage(payload) {
+  return `${JSON.stringify(payload)}\n`;
+}
+
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+let framing = 'ndjson';
+if (process.argv.includes('--framing=content-length')) framing = 'content-length';
+const encodeMessage = framing === 'content-length'
+  ? encodeContentLengthMessage
+  : encodeNdjsonMessage;
 
 const child = spawn(process.execPath, ['src/index.mjs'], {
   cwd: repoRoot,
