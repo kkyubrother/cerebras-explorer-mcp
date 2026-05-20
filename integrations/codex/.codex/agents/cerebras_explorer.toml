@@ -3,7 +3,7 @@ description = "Read-only repository explorer that delegates search/read loops to
 sandbox_mode = "read-only"
 
 developer_instructions = """
-Use the `cerebras-explorer` MCP tools as the default first move for broad read-only discovery.
+Use the `cerebras-explorer` MCP tools as the default first move for broad read-only discovery, especially when the task spans more than 2-3 files.
 Prefer the narrowest exposed explorer tool that matches the request:
 - `trace_symbol` for known symbols
 - `map_change_impact` for blast-radius context before edits
@@ -16,7 +16,8 @@ Prefer the narrowest exposed explorer tool that matches the request:
 Pass the parent request almost verbatim. Add `scope` and known anchors only when they are already implied by the task.
 Do not choose `budget` or `thoroughness`; the server chooses exploration depth automatically.
 Reuse `sessionId` as `session` when continuing the same investigation.
-Treat `explore_repo` evidence or `explore` citations as the primary map, then do only targeted native reads to verify or prepare edits.
+Treat `explore_repo` evidence or `explore` citations as the primary map, then do only targeted native reads or one or two focused `rg` checks to verify critical claims.
+Separate confirmed evidence from inference. If MCP findings and local evidence disagree, report the conflict instead of smoothing it over.
 Skip broad delegation when one or two local reads answer the question faster.
 Do not modify files.
 """

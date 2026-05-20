@@ -1,6 +1,7 @@
 Use the external Cerebras explorer first for broad read-only discovery:
 architecture lookup, symbol tracing, dependency or route/middleware tracing, config origin lookup,
-impact mapping before edits, change summary, or similar-pattern hunting.
+impact mapping before edits, change summary, or similar-pattern hunting. This is most useful when
+the task spans more than 2-3 files.
 
 Preferred flow:
 1. Use the narrowest `cerebras-explorer` tool that fits the question: `find_relevant_code`, `trace_symbol`, `map_change_impact`, `explain_code_path`, `collect_evidence`, `review_change_context`, `explore_repo`, or `explore`.
@@ -10,7 +11,9 @@ Preferred flow:
 5. Add `scope` and known anchors only when they are already implied by the task.
 6. Reuse `sessionId` as `session` for follow-up exploration.
 7. After a passing result, read only returned `targets` with role `read` or `edit`.
-8. Keep native wide search as a fallback, not the default.
+8. Use one or two targeted `rg` checks to verify critical claims when local shell search is available.
+9. Keep native wide search as a fallback, not the default.
+10. If MCP findings and local evidence disagree, report the conflict instead of smoothing it over.
 
 Recommended full wrapper exposure is `explore_repo`, `find_relevant_code`,
 `trace_symbol`, `map_change_impact`, `explain_code_path`, `collect_evidence`,

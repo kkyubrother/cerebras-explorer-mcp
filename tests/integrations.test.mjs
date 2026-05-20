@@ -131,7 +131,9 @@ test('Codex example uses npx and tool allowlist controls', async () => {
   assert.match(toml, /command = "npx"/);
   assert.match(toml, /github:kkyubrother\/cerebras-explorer-mcp#v0\.2\.0/);
   assert.match(toml, /startup_timeout_sec = 60/);
-  assert.match(toml, /tool_timeout_sec = 60/);
+  assert.match(toml, /tool_timeout_sec = 180/);
+  assert.match(toml, /default_tools_approval_mode = "approve"/);
+  assert.doesNotMatch(toml, /^required\s*=/m);
   assert.match(toml, /enabled_tools = \[/);
   assert.match(toml, /"explain_code_path"/);
   assert.match(toml, /"collect_evidence"/);

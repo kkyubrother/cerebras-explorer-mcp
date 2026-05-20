@@ -35,7 +35,8 @@ command = "npx"
 args = ["-y", "github:kkyubrother/cerebras-explorer-mcp#v0.2.0"]
 enabled = true
 startup_timeout_sec = 60
-tool_timeout_sec = 60
+tool_timeout_sec = 180
+default_tools_approval_mode = "approve"
 
 enabled_tools = [
   "explore_repo",
@@ -578,7 +579,8 @@ Do not set `budget`, `thoroughness`, `hints.strategy`, or `language` unless an a
 Use known symbols, files, or literal text anchors only when already known.
 Use regex only in advanced `explore_repo.hints.regex` workflows.
 Reuse `sessionId` as `session` for follow-up calls.
-Treat returned `targets` or `explore` citations as the primary map, then do only targeted native reads to verify or prepare edits.
+Treat returned `targets` or `explore` citations as the primary map, then do only targeted native reads or one or two focused `rg` checks to verify critical claims.
+If MCP findings and local evidence disagree, report the conflict instead of smoothing it over.
 Do not modify files.
 """
 ```

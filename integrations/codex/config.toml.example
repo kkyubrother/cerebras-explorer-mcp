@@ -3,7 +3,8 @@ command = "npx"
 args = ["-y", "github:kkyubrother/cerebras-explorer-mcp#v0.2.0"]
 enabled = true
 startup_timeout_sec = 60
-tool_timeout_sec = 60
+tool_timeout_sec = 180
+default_tools_approval_mode = "approve"
 
 # Recommended full wrapper allowlist for normal coding sessions.
 # This keeps low-level repo tools hidden while exposing the purpose-built

@@ -4,6 +4,7 @@ description: Use first for broad read-only code discovery when exact files are u
 ---
 
 Use this skill to offload the wide search/read loop, not the final engineering judgment.
+It is most useful when the task spans more than 2-3 files.
 
 If the `cerebras_explorer` role is installed, use it for read-only discovery.
 If the role is not installed, call the `cerebras-explorer` MCP tools directly.
@@ -32,6 +33,8 @@ Do not delegate by default when one or two direct native reads are cheaper, when
 For `explore_repo` and wrapper tools, treat returned `targets` as the working map.
 For `explore`, treat the cited paths and narrative structure as the orientation map.
 Read only `targets` with role `read` or `edit` to verify, resolve ambiguity, or prepare edits.
+When local shell search is available, use one or two targeted `rg` checks against the most important symbols, routes, config keys, or filenames from the MCP result.
+If MCP findings and local evidence disagree, report the conflict instead of smoothing it over.
 Escalate to native wide search only when the explorer result is thin, conflicting, or insufficient.
 
 Example calls:
