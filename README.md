@@ -698,14 +698,14 @@ node ./scripts/run-benchmark.mjs \
 1. 의미 있는 단위로 commit + push가 끝난 상태에서 시작합니다.
 2. 새 tag를 끊고 push:
    ```bash
-   NEW_TAG=v0.2.0
+   NEW_TAG="v<new-version>"
    git tag "$NEW_TAG"
    git push origin "$NEW_TAG"
    ```
 3. 모든 클라이언트 설치 예시에 박혀 있는 이전 tag를 한 번에 치환:
    ```bash
-   OLD_TAG=v0.1.0
-   NEW_TAG=v0.2.0
+   OLD_TAG="v<previous-version>"
+   NEW_TAG="v<new-version>"
    grep -rl "github:kkyubrother/cerebras-explorer-mcp#${OLD_TAG}" README.md integrations/ \
      | xargs sed -i "s|cerebras-explorer-mcp#${OLD_TAG}|cerebras-explorer-mcp#${NEW_TAG}|g"
    ```

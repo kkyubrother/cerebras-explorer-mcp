@@ -149,7 +149,7 @@ test('Codex example uses npx and tool allowlist controls', async () => {
   assert.match(agents, /minimal 4-tool/i);
 });
 
-test('documented install refs do not point at missing main branch', async () => {
+test('documented active install refs avoid stale branch and release refs', async () => {
   const docs = [
     'README.md',
     'integrations/claude-desktop/README.md',
@@ -160,7 +160,10 @@ test('documented install refs do not point at missing main branch', async () => 
   ];
 
   for (const relPath of docs) {
-    assert.doesNotMatch(await read(relPath), /github:kkyubrother\/cerebras-explorer-mcp#main\b/, relPath);
+    const source = await read(relPath);
+    assert.doesNotMatch(source, /github:kkyubrother\/cerebras-explorer-mcp#main\b/, relPath);
+    assert.doesNotMatch(source, /github:kkyubrother\/cerebras-explorer-mcp#v0\.1\.0\b/, relPath);
+    assert.doesNotMatch(source, /\bOLD_TAG=v0\.1\.0\b/, relPath);
   }
 });
 
