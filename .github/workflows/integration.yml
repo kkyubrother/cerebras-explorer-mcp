@@ -1,0 +1,27 @@
+name: integration-test
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Run integration test (skips when CEREBRAS_API_KEY secret is absent)
+        env:
+          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+        run: |
+          if [ -z "$CEREBRAS_API_KEY" ]; then
+            echo "::warning::CEREBRAS_API_KEY repo secret is not configured; skipping integration test."
+            echo "To enable, add CEREBRAS_API_KEY under Settings → Secrets and variables → Actions."
+            exit 0
+          fi
+          node scripts/integration-test.mjs
