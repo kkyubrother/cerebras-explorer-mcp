@@ -619,7 +619,7 @@ test('MCP request handler classifies generic invalid params separately from sess
   assert.equal(called.structuredContent.evidenceQuality.level, 'low');
 });
 
-test('MCP request handler rejects unknown wrapper arguments before runtime execution', async () => {
+test('MCP request handler rejects unknown wrapper arguments before runtime execution', async (t) => {
   class ShouldNotRunChatClient {
     constructor() {
       this.model = 'zai-glm-4.7';
@@ -630,31 +630,69 @@ test('MCP request handler rejects unknown wrapper arguments before runtime execu
     }
   }
 
-  const { handleRequest } = createMcpRequestHandler({
-    runtimeOptions: {
-      chatClient: new ShouldNotRunChatClient(),
+  const WRAPPER_MATRIX = [
+    {
+      tool: 'find_relevant_code',
+      args: { query: 'where is auth applied' },
+      unknownKey: 'extraneousField',
     },
-  });
-
-  const called = await handleRequest({
-    jsonrpc: '2.0',
-    id: 45,
-    method: 'tools/call',
-    params: {
-      name: 'trace_symbol',
-      arguments: {
-        symbol: 'requireAuth',
-        context: 'this field is not in the public schema',
-      },
+    {
+      tool: 'trace_symbol',
+      args: { symbol: 'requireAuth' },
+      unknownKey: 'context',
     },
-  });
+    {
+      tool: 'map_change_impact',
+      args: { change: 'rename requireAuth' },
+      unknownKey: 'unexpected',
+    },
+    {
+      tool: 'explain_code_path',
+      args: { pathQuery: 'login request flow' },
+      unknownKey: 'flowType',
+    },
+    {
+      tool: 'collect_evidence',
+      args: { claim: 'tokens are revoked on logout' },
+      unknownKey: 'priority',
+    },
+    {
+      tool: 'review_change_context',
+      args: { reviewGoal: 'audit auth refactor' },
+      unknownKey: 'severity',
+    },
+  ];
 
-  assert.equal(called.isError, true);
-  assert.match(called.content[0].text, /Invalid arguments for trace_symbol/);
-  assert.match(called.content[0].text, /Unknown trace_symbol argument: context/);
-  assert.doesNotMatch(called.content[0].text, /runtime should not be invoked/);
-  assert.equal(called.structuredContent.failure.category, 'input');
-  assert.equal(called.structuredContent.failure.reason, 'invalid_arguments');
+  for (const [index, { tool, args, unknownKey }] of WRAPPER_MATRIX.entries()) {
+    await t.test(`rejects unknown ${tool} argument: ${unknownKey}`, async () => {
+      const { handleRequest } = createMcpRequestHandler({
+        runtimeOptions: {
+          chatClient: new ShouldNotRunChatClient(),
+        },
+      });
+
+      const called = await handleRequest({
+        jsonrpc: '2.0',
+        id: 100 + index,
+        method: 'tools/call',
+        params: {
+          name: tool,
+          arguments: {
+            ...args,
+            [unknownKey]: 'rejected-by-validator',
+          },
+        },
+      });
+
+      assert.equal(called.isError, true);
+      // Keep names ASCII so RegExp escape is unnecessary.
+      assert.match(called.content[0].text, new RegExp(`Invalid arguments for ${tool}`));
+      assert.match(called.content[0].text, new RegExp(`Unknown ${tool} argument: ${unknownKey}`));
+      assert.doesNotMatch(called.content[0].text, /runtime should not be invoked/);
+      assert.equal(called.structuredContent.failure.category, 'input');
+      assert.equal(called.structuredContent.failure.reason, 'invalid_arguments');
+    });
+  }
 });
 
 test('MCP request handler returns execution failures for explore_repo without mislabeling them as argument errors', async () => {
