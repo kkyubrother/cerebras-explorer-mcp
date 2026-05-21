@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { createMcpRequestHandler } from '../src/mcp/server.mjs';
+import { createMcpRequestHandler, shouldUseV2ForExplore } from '../src/mcp/server.mjs';
 import { getRepoRoot } from '../src/explorer/config.mjs';
 
 async function makeRepoFixture() {
@@ -172,6 +172,68 @@ function assertReadOnlyAnnotations(tool) {
   assert.equal(tool.annotations.idempotentHint, true, `${tool.name} must be idempotent`);
   assert.equal(tool.annotations.openWorldHint, true, `${tool.name} must disclose provider API egress`);
 }
+
+test('shouldUseV2ForExplore uses V2 for long prompt and deep thoroughness signals', () => {
+  assert.equal(shouldUseV2ForExplore({ prompt: 'a'.repeat(1200), context: '', scope: ['src/foo'], thoroughness: 'normal' }), true);
+  assert.equal(shouldUseV2ForExplore({ prompt: 'a'.repeat(1199), context: '', scope: ['src/foo'], thoroughness: 'normal' }), false);
+  assert.equal(shouldUseV2ForExplore({ prompt: 'a'.repeat(600), context: 'b'.repeat(600), scope: ['src/foo'], thoroughness: 'normal' }), true);
+  assert.equal(shouldUseV2ForExplore({ prompt: 'a'.repeat(1201), context: '', scope: ['src/foo'], thoroughness: 'normal' }), true);
+  assert.equal(shouldUseV2ForExplore({ prompt: '', context: 'b'.repeat(1200), scope: ['src/foo'], thoroughness: 'normal' }), true);
+  assert.equal(shouldUseV2ForExplore({ prompt: 'short', thoroughness: 'deep' }), true);
+});
+
+test('shouldUseV2ForExplore uses V2 for broad scope signals', () => {
+  assert.equal(shouldUseV2ForExplore({ prompt: 'x', scope: ['a', 'b', 'c', 'd', 'e', 'f'] }), true);
+  assert.equal(shouldUseV2ForExplore({ prompt: 'x', scope: ['a', 'b', 'c', 'd', 'e'] }), false);
+
+  for (const scopeEntry of ['.', './', 'src/**', '**/*.ts', '*/**']) {
+    assert.equal(
+      shouldUseV2ForExplore({ prompt: 'x', scope: [scopeEntry] }),
+      true,
+      `${scopeEntry} should route to V2`,
+    );
+  }
+
+  assert.equal(shouldUseV2ForExplore({ prompt: 'x', scope: 'src/**' }), false);
+  assert.equal(shouldUseV2ForExplore({ prompt: 'x', scope: null }), false);
+  assert.equal(shouldUseV2ForExplore({ prompt: 'x' }), false);
+});
+
+test('shouldUseV2ForExplore uses V2 for report intent keywords', () => {
+  for (const keyword of [
+    'deep dive',
+    'comprehensive',
+    'entire codebase',
+    'large architecture',
+    'end-to-end',
+    'architecture review',
+    'subsystem review',
+    'Architecture Review',
+  ]) {
+    assert.equal(
+      shouldUseV2ForExplore({ prompt: `please do a ${keyword} of explore`, scope: ['src/foo'] }),
+      true,
+      `${keyword} should route to V2`,
+    );
+  }
+
+  for (const keyword of ['전체', '대규모', '심층', '종합', '아키텍처', '흐름']) {
+    assert.equal(
+      shouldUseV2ForExplore({ prompt: `이 코드의 ${keyword} 분석`, scope: ['src/foo'] }),
+      true,
+      `${keyword} should route to V2`,
+    );
+  }
+
+  assert.equal(shouldUseV2ForExplore({ prompt: 'explain auth briefly', scope: ['src/foo'] }), false);
+});
+
+test('shouldUseV2ForExplore safely keeps short quick inputs on V1', () => {
+  assert.equal(shouldUseV2ForExplore(undefined), false);
+  assert.equal(shouldUseV2ForExplore({}), false);
+  assert.equal(shouldUseV2ForExplore({ prompt: 123, context: null, scope: 'src/**' }), false);
+  assert.equal(shouldUseV2ForExplore({ prompt: 'explain auth briefly', thoroughness: 'quick' }), false);
+});
 
 test('MCP request handler exposes explore_repo and returns structuredContent', async () => {
   const repoRoot = await makeRepoFixture();

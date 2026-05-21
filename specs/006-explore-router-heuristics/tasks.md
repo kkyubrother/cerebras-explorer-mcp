@@ -34,9 +34,9 @@ description: "Task list for feature 006-explore-router-heuristics"
 
 **Purpose**: 작업에 필요한 컨텍스트 정렬 및 변경 지점 확정. 신규 의존성·디렉터리 추가는 없다.
 
-- [ ] T001 `specs/006-explore-router-heuristics/spec.md`와 `specs/006-explore-router-heuristics/plan.md`를 다시 읽고 신호 정의(길이 1200자 임계, scope 길이 6, broad pattern 5종, 영문 7 + 한글 6 키워드)를 메모로 정리한다.
-- [ ] T002 [P] `src/mcp/server.mjs`의 기존 `shouldUseV2ForExplore` 함수(L259-263 부근) 및 `callFreeExploreTool` 분기(L678 부근) 위치를 식별하고, 변경 영역을 plan §Implementation Outline (b)에 맞춰 좁힌다.
-- [ ] T003 [P] `tests/mcp-server.test.mjs`의 기존 `tools/list` opt-in 분기 테스트(L346-L394 부근)와 명명 컨벤션(`node:test` + `node:assert/strict`)을 확인하여 신규 테스트 5종이 같은 스타일로 들어갈 위치를 정한다.
+- [x] T001 `specs/006-explore-router-heuristics/spec.md`와 `specs/006-explore-router-heuristics/plan.md`를 다시 읽고 신호 정의(길이 1200자 임계, scope 길이 6, broad pattern 5종, 영문 7 + 한글 6 키워드)를 메모로 정리한다.
+- [x] T002 [P] `src/mcp/server.mjs`의 기존 `shouldUseV2ForExplore` 함수(L259-263 부근) 및 `callFreeExploreTool` 분기(L678 부근) 위치를 식별하고, 변경 영역을 plan §Implementation Outline (b)에 맞춰 좁힌다.
+- [x] T003 [P] `tests/mcp-server.test.mjs`의 기존 `tools/list` opt-in 분기 테스트(L346-L394 부근)와 명명 컨벤션(`node:test` + `node:assert/strict`)을 확인하여 신규 테스트 5종이 같은 스타일로 들어갈 위치를 정한다.
 
 **Checkpoint**: 변경 대상 두 파일과 정확한 변경 라인 범위, 테스트 추가 위치가 확정된다.
 
@@ -48,7 +48,7 @@ description: "Task list for feature 006-explore-router-heuristics"
 
 **경고**: 본 phase의 헬퍼가 완성되기 전에는 User Story 1/2 구현을 시작하지 않는다.
 
-- [ ] T004 [P] `src/mcp/server.mjs`의 `shouldUseV2ForExplore` 바로 위에 `hasBroadExploreScope(scope)` 헬퍼를 추가한다. 동작:
+- [x] T004 [P] `src/mcp/server.mjs`의 `shouldUseV2ForExplore` 바로 위에 `hasBroadExploreScope(scope)` 헬퍼를 추가한다. 동작:
   - `Array.isArray(scope) === false`면 즉시 `false`.
   - 배열 길이 `>= 6`이면 `true`.
   - 원소 중 `typeof === 'string'`인 항목에 한해 다음 패턴 중 하나라도 매치되면 `true`:
@@ -57,8 +57,8 @@ description: "Task list for feature 006-explore-router-heuristics"
     - 부분 문자열 `**/*` 포함
     - `/`로 구분된 마지막 세그먼트가 `**`로 끝남(예: `src/**`, `*/**`)
   - 모두 좁은 글롭이면 `false`.
-- [ ] T005 `src/mcp/server.mjs` 상단(또는 `shouldUseV2ForExplore` 바로 위)에 prompt+context 길이 합 계산 패턴을 정리한다. 구체적으로 `String(args?.prompt ?? '')`, `String(args?.context ?? '')`로 강제 변환한 뒤 `.length`를 합산하는 인라인 표현(또는 헬퍼 `computeExplorePromptLoad(args)`)을 마련한다. 1200 임계는 상수 `EXPLORE_V2_LENGTH_THRESHOLD = 1200`로 모듈 상단 또는 함수 인접 위치에 분리한다.
-- [ ] T006 `src/mcp/server.mjs`에서 `shouldUseV2ForExplore`를 named export로 노출한다(`export function shouldUseV2ForExplore(...)` 또는 별도 `export { shouldUseV2ForExplore }`). 본 export는 JS 모듈 표면이며 MCP `tools/list` wire surface와 무관하므로 spec FR-007/SC-004에 영향 없음을 task 코멘트에 명시.
+- [x] T005 `src/mcp/server.mjs` 상단(또는 `shouldUseV2ForExplore` 바로 위)에 prompt+context 길이 합 계산 패턴을 정리한다. 구체적으로 `String(args?.prompt ?? '')`, `String(args?.context ?? '')`로 강제 변환한 뒤 `.length`를 합산하는 인라인 표현(또는 헬퍼 `computeExplorePromptLoad(args)`)을 마련한다. 1200 임계는 상수 `EXPLORE_V2_LENGTH_THRESHOLD = 1200`로 모듈 상단 또는 함수 인접 위치에 분리한다.
+- [x] T006 `src/mcp/server.mjs`에서 `shouldUseV2ForExplore`를 named export로 노출한다(`export function shouldUseV2ForExplore(...)` 또는 별도 `export { shouldUseV2ForExplore }`). 본 export는 JS 모듈 표면이며 MCP `tools/list` wire surface와 무관하므로 spec FR-007/SC-004에 영향 없음을 task 코멘트에 명시.
 
 **Checkpoint**: `hasBroadExploreScope`·길이 합 헬퍼·`EXPLORE_V2_LENGTH_THRESHOLD` 상수·named export가 준비되어, User Story 1/2 신호 추가를 동시에 진행할 수 있다.
 
@@ -74,7 +74,7 @@ description: "Task list for feature 006-explore-router-heuristics"
 
 > **NOTE: 다음 단위 테스트는 구현 전에 작성하고 FAIL을 확인한 뒤 구현으로 진행한다.**
 
-- [ ] T007 [P] [US1] `tests/mcp-server.test.mjs`에 길이 신호 단독 테스트를 추가한다. 케이스:
+- [x] T007 [P] [US1] `tests/mcp-server.test.mjs`에 길이 신호 단독 테스트를 추가한다. 케이스:
   - `prompt='a'.repeat(1200), context=''` → `true` (정확히 1200 경계, `>= 1200` 검증)
   - `prompt='a'.repeat(1199), context=''` → `false` (경계 직하)
   - `prompt='a'.repeat(600), context='b'.repeat(600)` → `true` (합계 1200)
@@ -82,8 +82,8 @@ description: "Task list for feature 006-explore-router-heuristics"
 
 ### Implementation for User Story 1
 
-- [ ] T008 [US1] `src/mcp/server.mjs`의 `shouldUseV2ForExplore` 본체에 길이 신호 분기를 추가한다. 동작: `String(args?.prompt ?? '').length + String(args?.context ?? '').length >= EXPLORE_V2_LENGTH_THRESHOLD`이면 `true` 반환. 기존 `args?.thoroughness === 'deep'` 분기는 OR 조합의 최상위에 유지한다(deep은 항상 V2 트리거).
-- [ ] T009 [US1] 길이 신호와 deep 분기를 추가한 직후 T007의 4개 단위 테스트가 PASS함을 확인한다. 실패 시 임계 비교 연산자(`>=` vs `>`)와 입력 정제(`String(... ?? '')`)를 재점검한다.
+- [x] T008 [US1] `src/mcp/server.mjs`의 `shouldUseV2ForExplore` 본체에 길이 신호 분기를 추가한다. 동작: `String(args?.prompt ?? '').length + String(args?.context ?? '').length >= EXPLORE_V2_LENGTH_THRESHOLD`이면 `true` 반환. 기존 `args?.thoroughness === 'deep'` 분기는 OR 조합의 최상위에 유지한다(deep은 항상 V2 트리거).
+- [x] T009 [US1] 길이 신호와 deep 분기를 추가한 직후 T007의 4개 단위 테스트가 PASS함을 확인한다. 실패 시 임계 비교 연산자(`>=` vs `>`)와 입력 정제(`String(... ?? '')`)를 재점검한다.
 
 **Checkpoint**: User Story 1이 단독 PASS. 짧은 quick 입력 회귀는 Phase 6에서 다시 확인.
 
@@ -103,23 +103,23 @@ description: "Task list for feature 006-explore-router-heuristics"
 
 > **NOTE: 다음 단위 테스트는 구현 전에 작성하고 FAIL을 확인한 뒤 구현으로 진행한다.**
 
-- [ ] T010 [P] [US2] `tests/mcp-server.test.mjs`에 scope 길이/broad pattern 신호 테스트를 추가한다. 케이스:
+- [x] T010 [P] [US2] `tests/mcp-server.test.mjs`에 scope 길이/broad pattern 신호 테스트를 추가한다. 케이스:
   - scope 길이 6 → `true`, 길이 5 → `false`
   - scope 단일 원소가 `.`, `./`, `src/**`, `**/*.ts`, `*/**` 각각인 5개 서브케이스 → 모두 `true`
   - scope가 배열이 아닌 경우(`'src/**'` 문자열, `null`, `undefined`) → 모두 `false`
-- [ ] T011 [P] [US2] `tests/mcp-server.test.mjs`에 확장 키워드 신호 테스트를 추가한다. 케이스:
+- [x] T011 [P] [US2] `tests/mcp-server.test.mjs`에 확장 키워드 신호 테스트를 추가한다. 케이스:
   - 영문 7종 각각(`deep dive`, `comprehensive`, `entire codebase`, `large architecture`, `end-to-end`, `architecture review`, `subsystem review`)을 짧은 prompt에 포함 + 대소문자 혼합(`Architecture Review`) 한 케이스 → 모두 `true`
   - 한글 6종 각각(`전체`, `대규모`, `심층`, `종합`, `아키텍처`, `흐름`)을 prompt에 포함 → 모두 `true`
   - 영문 키워드와 한글 키워드를 모두 포함하지 않는 짧은 prompt(`explain auth briefly`) → `false`
 
 ### Implementation for User Story 2
 
-- [ ] T012 [US2] `src/mcp/server.mjs`의 `shouldUseV2ForExplore`에 `hasBroadExploreScope(args?.scope)` 분기를 추가한다(OR 조합). T004의 헬퍼를 그대로 호출한다.
-- [ ] T013 [US2] `src/mcp/server.mjs`의 `shouldUseV2ForExplore`에 확장 키워드 정규식 두 개를 추가한다:
+- [x] T012 [US2] `src/mcp/server.mjs`의 `shouldUseV2ForExplore`에 `hasBroadExploreScope(args?.scope)` 분기를 추가한다(OR 조합). T004의 헬퍼를 그대로 호출한다.
+- [x] T013 [US2] `src/mcp/server.mjs`의 `shouldUseV2ForExplore`에 확장 키워드 정규식 두 개를 추가한다:
   - 영문(소문자 변환 후 매칭): `deep dive|comprehensive|entire codebase|large architecture|end-to-end|architecture review|subsystem review`
   - 한글(원본 prompt에 대해 매칭): `전체|대규모|심층|종합|아키텍처|흐름`
   - 두 정규식 중 하나라도 매치되면 `true`. 가독성을 위해 정규식은 모듈 상단의 상수(`EXPLORE_V2_KEYWORDS_EN`, `EXPLORE_V2_KEYWORDS_KO`)로 분리.
-- [ ] T014 [US2] T010, T011이 모두 PASS함을 확인한다. 실패 시 (a) `Array.isArray` 가드, (b) `prompt.toLowerCase()` 누락, (c) 한글 정규식이 원본 prompt(소문자 변환 전) 대상인지 점검.
+- [x] T014 [US2] T010, T011이 모두 PASS함을 확인한다. 실패 시 (a) `Array.isArray` 가드, (b) `prompt.toLowerCase()` 누락, (c) 한글 정규식이 원본 prompt(소문자 변환 전) 대상인지 점검.
 
 **Checkpoint**: User Story 2가 단독 PASS. 두 키워드 정규식과 broad scope 헬퍼가 OR로 결합되어 동작.
 
@@ -133,13 +133,13 @@ description: "Task list for feature 006-explore-router-heuristics"
 
 ### Tests for User Story 3 (Required by 기존 테스트로 커버)
 
-- [ ] T015 [US3] `tests/mcp-server.test.mjs`의 기존 `tools/list` opt-in 분기 테스트(L346-L394 부근)를 실행해 PASS함을 확인한다. 신규 테스트 추가는 하지 않는다(spec Assumptions에 따라 기존 contract 테스트가 회귀를 커버).
-- [ ] T016 [US3] `npm test` 전체를 실행해 `tools/list` 스냅샷·contract 테스트가 변경 없이 통과하는지 확인한다(spec SC-003·SC-004 충족).
+- [x] T015 [US3] `tests/mcp-server.test.mjs`의 기존 `tools/list` opt-in 분기 테스트(L346-L394 부근)를 실행해 PASS함을 확인한다. 신규 테스트 추가는 하지 않는다(spec Assumptions에 따라 기존 contract 테스트가 회귀를 커버).
+- [x] T016 [US3] `npm test` 전체를 실행해 `tools/list` 스냅샷·contract 테스트가 변경 없이 통과하는지 확인한다(spec SC-003·SC-004 충족).
 
 ### Implementation for User Story 3
 
-- [ ] T017 [US3] `src/mcp/server.mjs`에서 본 작업으로 인해 변경된 코드가 `EXPLORE_TOOL.inputSchema`, `EXPLORE_V2_TOOL`, `exploreV2ToolEnabled()`, `buildToolList()` 어느 곳도 건드리지 않았음을 diff로 점검한다. 헬퍼·라우터·상수·named export만 변경되었는지 라인 단위로 확인한다.
-- [ ] T018 [US3] README L319-321 및 DESIGN L206 문구를 변경하지 않았음을 확인한다(plan 명시: 두 문서는 본 작업에서 수정 금지).
+- [x] T017 [US3] `src/mcp/server.mjs`에서 본 작업으로 인해 변경된 코드가 `EXPLORE_TOOL.inputSchema`, `EXPLORE_V2_TOOL`, `exploreV2ToolEnabled()`, `buildToolList()` 어느 곳도 건드리지 않았음을 diff로 점검한다. 헬퍼·라우터·상수·named export만 변경되었는지 라인 단위로 확인한다.
+- [x] T018 [US3] README L319-321 및 DESIGN L206 문구를 변경하지 않았음을 확인한다(plan 명시: 두 문서는 본 작업에서 수정 금지).
 
 **Checkpoint**: 외부 MCP wire surface 회귀 0건. `explore_v2`는 여전히 환경 변수 기반 opt-in.
 
@@ -149,15 +149,15 @@ description: "Task list for feature 006-explore-router-heuristics"
 
 **Purpose**: 안전성·경계·전 신호 회귀를 확정한다. 여기에서 예외 없음 보장(FR-009)과 1200자 경계(FR-002)를 한 번 더 검증한다.
 
-- [ ] T019 [P] `tests/mcp-server.test.mjs`에 안전성·짧은 quick 회귀 테스트를 추가한다. 케이스:
+- [x] T019 [P] `tests/mcp-server.test.mjs`에 안전성·짧은 quick 회귀 테스트를 추가한다. 케이스:
   - `shouldUseV2ForExplore(undefined)` → `false`, throw 없음
   - `shouldUseV2ForExplore({})` → `false`
   - `{ prompt: 123, context: null, scope: 'src/**' }` → `false` (비기대 타입; broad pattern은 배열 아님)
   - `{ prompt: 'explain auth briefly', thoroughness: 'quick' }` → `false`
-- [ ] T020 [P] `tests/mcp-server.test.mjs`의 1200자 경계 테스트(T007에 포함)가 정확히 `>=` 비교를 검증하는지 재점검한다. 필요 시 `prompt='a'.repeat(1201)` → `true`, `'a'.repeat(0), context='b'.repeat(1200)` → `true` 두 케이스를 추가해 boundary 매트릭스를 보강한다.
-- [ ] T021 `src/mcp/server.mjs`의 `shouldUseV2ForExplore`가 어떤 입력에도 throw하지 않음을 코드 리뷰로 재확인한다. 점검 포인트: `args?.` optional chaining, `String(... ?? '')`, `Array.isArray` 가드, 정규식 매칭 전 `typeof === 'string'` 검증.
-- [ ] T022 `node --test tests/mcp-server.test.mjs --test-name-pattern "shouldUseV2ForExplore"` 또는 동등한 명령으로 신규 라우터 테스트만 빠르게 회귀 실행한 뒤, 마지막에 `npm test` 전체를 실행해 SC-001~SC-005 모두 PASS임을 확인한다.
-- [ ] T023 [P] 변경 라인 수(`src/mcp/server.mjs` 약 10~25라인, `tests/mcp-server.test.mjs` 약 60~100라인) 범위를 초과하지 않았는지 `git diff --stat`으로 확인하고, 초과 시 plan §Project Structure에 맞춰 스코프를 좁힌다.
+- [x] T020 [P] `tests/mcp-server.test.mjs`의 1200자 경계 테스트(T007에 포함)가 정확히 `>=` 비교를 검증하는지 재점검한다. 필요 시 `prompt='a'.repeat(1201)` → `true`, `'a'.repeat(0), context='b'.repeat(1200)` → `true` 두 케이스를 추가해 boundary 매트릭스를 보강한다.
+- [x] T021 `src/mcp/server.mjs`의 `shouldUseV2ForExplore`가 어떤 입력에도 throw하지 않음을 코드 리뷰로 재확인한다. 점검 포인트: `args?.` optional chaining, `String(... ?? '')`, `Array.isArray` 가드, 정규식 매칭 전 `typeof === 'string'` 검증.
+- [x] T022 `node --test tests/mcp-server.test.mjs --test-name-pattern "shouldUseV2ForExplore"` 또는 동등한 명령으로 신규 라우터 테스트만 빠르게 회귀 실행한 뒤, 마지막에 `npm test` 전체를 실행해 SC-001~SC-005 모두 PASS임을 확인한다.
+- [x] T023 [P] 변경 라인 수(`src/mcp/server.mjs` 약 10~25라인, `tests/mcp-server.test.mjs` 약 60~100라인) 범위를 초과하지 않았는지 `git diff --stat`으로 확인하고, 초과 시 plan §Project Structure에 맞춰 스코프를 좁힌다.
 
 ---
 

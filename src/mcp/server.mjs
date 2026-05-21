@@ -256,10 +256,35 @@ function exploreV2ToolEnabled() {
   return isTruthyEnv(v);
 }
 
-function shouldUseV2ForExplore(args) {
-  const prompt = String(args?.prompt ?? '').toLowerCase();
+const EXPLORE_V2_LENGTH_THRESHOLD = 1200;
+const EXPLORE_V2_KEYWORDS_EN = /deep dive|comprehensive|entire codebase|large architecture|end-to-end|architecture review|subsystem review/;
+const EXPLORE_V2_KEYWORDS_KO = /전체|대규모|심층|종합|아키텍처|흐름/;
+
+function hasBroadExploreScope(scope) {
+  if (!Array.isArray(scope)) return false;
+  if (scope.length >= 6) return true;
+
+  return scope.some(item => {
+    if (typeof item !== 'string') return false;
+    const value = item.trim();
+    if (value === '.' || value === './') return true;
+    if (value.includes('**/*')) return true;
+    if (value.includes('**')) return true;
+    return value.split('/').at(-1) === '**';
+  });
+}
+
+export function shouldUseV2ForExplore(args) {
+  const prompt = String(args?.prompt ?? '');
+  const context = String(args?.context ?? '');
+  const promptLower = prompt.toLowerCase();
+  const promptLoad = prompt.length + context.length;
+
   return args?.thoroughness === 'deep' ||
-    /deep dive|comprehensive|entire codebase|large architecture|end-to-end|전체|대규모|심층/.test(prompt);
+    promptLoad >= EXPLORE_V2_LENGTH_THRESHOLD ||
+    hasBroadExploreScope(args?.scope) ||
+    EXPLORE_V2_KEYWORDS_EN.test(promptLower) ||
+    EXPLORE_V2_KEYWORDS_KO.test(prompt);
 }
 
 // ─── Tool registry ─────────────────────────────────────────────────────────
