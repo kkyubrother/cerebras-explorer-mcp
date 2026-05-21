@@ -34,9 +34,9 @@ description: "Tasks for Task 4 — TESTING.md 고정 테스트 수치 제거 및
 
 **Purpose**: 본 작업 시작 전 저장소 상태 확인 및 작업 범위 고정
 
-- [ ] T001 현재 체크아웃이 `004-testing-md-drift-guard` 브랜치이며 `git status`가 깨끗한지 확인
-- [ ] T002 [P] `TESTING.md` 현재 본문에서 단위 섹션 17행("320 tests"), 통합 섹션 39행("5/5 통과"), stdio smoke 섹션 58행("도구 8개") 위치를 직접 열어 줄 번호 일치 확인 (편집 좌표 고정)
-- [ ] T003 [P] `tests/integrations.test.mjs` 말미 위치와 기존 doc-snapshot 가드 패턴(`fs.readFile` + `assert.doesNotMatch`/`assert.match`) 확인 (신규 블록 append 위치 고정)
+- [x] T001 현재 체크아웃이 `004-testing-md-drift-guard` 브랜치이며 `git status`가 깨끗한지 확인
+- [x] T002 [P] `TESTING.md` 현재 본문에서 단위 섹션 17행("320 tests"), 통합 섹션 39행("5/5 통과"), stdio smoke 섹션 58행("도구 8개") 위치를 직접 열어 줄 번호 일치 확인 (편집 좌표 고정)
+- [x] T003 [P] `tests/integrations.test.mjs` 말미 위치와 기존 doc-snapshot 가드 패턴(`fs.readFile` + `assert.doesNotMatch`/`assert.match`) 확인 (신규 블록 append 위치 고정)
 
 ---
 
@@ -46,9 +46,9 @@ description: "Tasks for Task 4 — TESTING.md 고정 테스트 수치 제거 및
 
 **⚠️ CRITICAL**: 이 Phase가 끝나야 US1/US2 작업 진입 가능
 
-- [ ] T004 `TESTING.md`의 디스클레이머 문장 — "이 문서의 숫자는 마지막 관측값이며 실제 기준은 항상 현재 checkout에서의 `npm test` 결과" 취지의 문장 — 이 단위/통합/smoke 세 섹션 중 최소 한 곳에 살아 있는지 확인하고, 현재 위치(단위 섹션 21행 부근)를 보존 대상으로 명시 (FR-004)
-- [ ] T005 `TESTING.md`의 "최근 확인 환경" 메타데이터 블록(3~9행 부근)의 날짜/Node/npm/OS 값과 "Cerebras API 에러 코드 참조" 표(80~94행 부근)의 HTTP 코드(400, 401, 408, 429, 500, 502, 503, 504)는 가드 대상 외이며 편집·삭제 금지임을 명시
-- [ ] T006 가드 정규식 5종이 모두 "테스트 결과 단어(`tests`, `pass`, `skipped`, `통과`, `도구`)가 숫자 뒤에 결합된 형태"만 매칭하도록 설계됨을 확인 (단독 숫자 400/429 등은 어떤 정규식과도 매칭되지 않아야 함, spec Edge Cases 마지막 항목)
+- [x] T004 `TESTING.md`의 디스클레이머 문장 — "이 문서의 숫자는 마지막 관측값이며 실제 기준은 항상 현재 checkout에서의 `npm test` 결과" 취지의 문장 — 이 단위/통합/smoke 세 섹션 중 최소 한 곳에 살아 있는지 확인하고, 현재 위치(단위 섹션 21행 부근)를 보존 대상으로 명시 (FR-004)
+- [x] T005 `TESTING.md`의 "최근 확인 환경" 메타데이터 블록(3~9행 부근)의 날짜/Node/npm/OS 값과 "Cerebras API 에러 코드 참조" 표(80~94행 부근)의 HTTP 코드(400, 401, 408, 429, 500, 502, 503, 504)는 가드 대상 외이며 편집·삭제 금지임을 명시
+- [x] T006 가드 정규식 5종이 모두 "테스트 결과 단어(`tests`, `pass`, `skipped`, `통과`, `도구`)가 숫자 뒤에 결합된 형태"만 매칭하도록 설계됨을 확인 (단독 숫자 400/429 등은 어떤 정규식과도 매칭되지 않아야 함, spec Edge Cases 마지막 항목)
 
 **Checkpoint**: 디스클레이머 유지 위치와 가드 비대상 영역이 확정됨 → US1/US2 진입 가능
 
@@ -62,12 +62,12 @@ description: "Tasks for Task 4 — TESTING.md 고정 테스트 수치 제거 및
 
 ### Implementation for User Story 1
 
-- [ ] T007 [US1] `TESTING.md` 단위 테스트 섹션 17행 부근 "최근 관측 결과(2026-05-21): `320 tests`, `319 pass`, `1 skipped`, `0 fail`." 문장에서 `320 tests`, `319 pass`, `1 skipped` 세 절대 수치 제거. 대체 문장은 "성공 기준 = `npm test`가 `0 fail`로 종료" 형태로 재서술하되, `npm test`와 `0 fail` 토큰은 본문에 반드시 유지 (FR-001, FR-006 양성 어서션 대상)
-- [ ] T008 [US1] `TESTING.md` 단위 테스트 섹션 21행 부근 디스클레이머 문장 — "이 문서의 숫자는 마지막 관측값입니다. 실제 기준은 항상 위 `npm test` 실행 결과입니다." — 가 그대로 살아 있는지 확인 (FR-004, T004와 연동)
-- [ ] T009 [US1] `TESTING.md` 통합 테스트 섹션 39행 부근 "전체 결과: `5/5` 통과." 문장을 삭제하고 "스크립트가 보고하는 모든 케이스가 통과(스크립트가 `0 fail`로 종료)" 형태의 행위 기준 문장으로 대체. 케이스별 결과 표(31~37행 부근)의 "통과/실패" 마커는 운영 정보로 유지 (FR-002, spec Assumptions 일치)
-- [ ] T010 [US1] `TESTING.md` stdio smoke 섹션 58행 부근 "`tools/list`에서 기본 공개 도구 8개 확인" 문장에서 `8개`를 제거하고 "`tools/list` 응답에서 공개 도구 목록이 누락 없이 반환되는 것을 확인" 형태로 재서술. 같은 섹션 내 다른 줄에 잔존하는 `도구 N개`/`N개 공개 도구`/`N개 도구` 형태가 있는지 확인하고 발견 시 동일 방식으로 제거 (FR-003)
-- [ ] T011 [US1] 편집 후 `TESTING.md` 본문에 대해 spec FR-005 다섯 정규식의 매칭 건수가 0임을 수동 확인(예: 에디터 검색 또는 grep): `\b\d+\s+tests\b`, `\b\d+\s+pass\b`, `\b\d+\s+skipped\b`, `\b\d+\s*/\s*\d+\s*통과\b`, `\b\d+\s*개\s*(공개\s*)?도구\b` (SC-002)
-- [ ] T012 [US1] 편집 후 `TESTING.md` 본문에 `npm test` 표기와 `0 fail`(또는 `0 failures`) 문구가 각각 최소 1회 이상 등장하는지 수동 확인 (SC-003)
+- [x] T007 [US1] `TESTING.md` 단위 테스트 섹션 17행 부근 "최근 관측 결과(2026-05-21): `320 tests`, `319 pass`, `1 skipped`, `0 fail`." 문장에서 `320 tests`, `319 pass`, `1 skipped` 세 절대 수치 제거. 대체 문장은 "성공 기준 = `npm test`가 `0 fail`로 종료" 형태로 재서술하되, `npm test`와 `0 fail` 토큰은 본문에 반드시 유지 (FR-001, FR-006 양성 어서션 대상)
+- [x] T008 [US1] `TESTING.md` 단위 테스트 섹션 21행 부근 디스클레이머 문장 — "이 문서의 숫자는 마지막 관측값입니다. 실제 기준은 항상 위 `npm test` 실행 결과입니다." — 가 그대로 살아 있는지 확인 (FR-004, T004와 연동)
+- [x] T009 [US1] `TESTING.md` 통합 테스트 섹션 39행 부근 "전체 결과: `5/5` 통과." 문장을 삭제하고 "스크립트가 보고하는 모든 케이스가 통과(스크립트가 `0 fail`로 종료)" 형태의 행위 기준 문장으로 대체. 케이스별 결과 표(31~37행 부근)의 "통과/실패" 마커는 운영 정보로 유지 (FR-002, spec Assumptions 일치)
+- [x] T010 [US1] `TESTING.md` stdio smoke 섹션 58행 부근 "`tools/list`에서 기본 공개 도구 8개 확인" 문장에서 `8개`를 제거하고 "`tools/list` 응답에서 공개 도구 목록이 누락 없이 반환되는 것을 확인" 형태로 재서술. 같은 섹션 내 다른 줄에 잔존하는 `도구 N개`/`N개 공개 도구`/`N개 도구` 형태가 있는지 확인하고 발견 시 동일 방식으로 제거 (FR-003)
+- [x] T011 [US1] 편집 후 `TESTING.md` 본문에 대해 spec FR-005 다섯 정규식의 매칭 건수가 0임을 수동 확인(예: 에디터 검색 또는 grep): `\b\d+\s+tests\b`, `\b\d+\s+pass\b`, `\b\d+\s+skipped\b`, `\b\d+\s*/\s*\d+\s*통과\b`, `\b\d+\s*개\s*(공개\s*)?도구\b` (SC-002)
+- [x] T012 [US1] 편집 후 `TESTING.md` 본문에 `npm test` 표기와 `0 fail`(또는 `0 failures`) 문구가 각각 최소 1회 이상 등장하는지 수동 확인 (SC-003)
 
 **Checkpoint**: User Story 1만 단독으로 완료해도 릴리스 검증자가 `TESTING.md`에서 절대 수치에 오도되지 않는 MVP 상태가 된다. US2 없이도 1회성 청소 가치는 살아 있다.
 
@@ -83,18 +83,18 @@ description: "Tasks for Task 4 — TESTING.md 고정 테스트 수치 제거 및
 
 > **NOTE**: 본 작업에서 추가하는 가드 자체가 테스트이므로, "테스트를 먼저 작성해 실패시킨다"는 일반적 TDD 흐름 대신 "US1 완료(=금지 패턴 0건) 상태에서 가드를 추가해 통과시킨다 → 의도적 위반 inject로 가드가 실제로 떨어지는지 검증한다" 순서를 따른다.
 
-- [ ] T013 [US2] `tests/integrations.test.mjs` 말미에 신규 `test(...)` 블록 append. 블록 이름은 `TESTING.md`라는 식별 키워드를 포함하여 `--test-name-pattern "TESTING.md"`로 단독 실행 가능해야 함 (예: `test('TESTING.md does not pin absolute test totals or fixed tool counts', ...)`). SC-001 호환
-- [ ] T014 [US2] 같은 블록 본문에서 `await read('TESTING.md')`(또는 동등한 기존 헬퍼)로 `TESTING.md` 본문을 메모리에 1회 적재. 신규 import는 추가하지 않고 파일 상단 기존 import(`node:test`, `node:assert/strict`, `node:fs/promises` 등)만 사용
-- [ ] T015 [US2] 같은 블록에 금지 패턴 어서션 5건(`assert.doesNotMatch`) 추가 (FR-005):
+- [x] T013 [US2] `tests/integrations.test.mjs` 말미에 신규 `test(...)` 블록 append. 블록 이름은 `TESTING.md`라는 식별 키워드를 포함하여 `--test-name-pattern "TESTING.md"`로 단독 실행 가능해야 함 (예: `test('TESTING.md does not pin absolute test totals or fixed tool counts', ...)`). SC-001 호환
+- [x] T014 [US2] 같은 블록 본문에서 `await read('TESTING.md')`(또는 동등한 기존 헬퍼)로 `TESTING.md` 본문을 메모리에 1회 적재. 신규 import는 추가하지 않고 파일 상단 기존 import(`node:test`, `node:assert/strict`, `node:fs/promises` 등)만 사용
+- [x] T015 [US2] 같은 블록에 금지 패턴 어서션 5건(`assert.doesNotMatch`) 추가 (FR-005):
   - `/\b\d+\s+tests\b/` — 단위 테스트 총수
   - `/\b\d+\s+pass\b/` — 단위 테스트 통과수 (단어 경계로 `bypass`/`passport`/`passing` 등 무관 단어 배제)
   - `/\b\d+\s+skipped\b/` — skip 수
   - `/\b\d+\s*\/\s*\d+\s*통과\b/` — 통합 테스트 고정 분수(공백 변형 허용)
   - `/\b\d+\s*개\s*(공개\s*)?도구\b/` — stdio smoke 도구 개수
-- [ ] T016 [US2] 같은 블록에 양성 어서션 2건(`assert.match`) 추가 (FR-006):
+- [x] T016 [US2] 같은 블록에 양성 어서션 2건(`assert.match`) 추가 (FR-006):
   - `/\bnpm test\b/` — 합격 기준 명령이 본문에 살아 있는지
   - `/\b0\s+(fail|failures)\b/` — `0 fail`(또는 `0 failures`) 표기가 본문에 살아 있는지
-- [ ] T017 [US2] 7개 어서션 각각의 세 번째 인자(메시지)에 어떤 정규식이 어떤 의도를 검사했는지 표시(예: `'TESTING.md must not pin absolute unit test count (\\d+ tests)'`). `node:test` 실패 시 이 문자열로 위반 패턴 식별 가능해야 함 (FR-007)
+- [x] T017 [US2] 7개 어서션 각각의 세 번째 인자(메시지)에 어떤 정규식이 어떤 의도를 검사했는지 표시(예: `'TESTING.md must not pin absolute unit test count (\\d+ tests)'`). `node:test` 실패 시 이 문자열로 위반 패턴 식별 가능해야 함 (FR-007)
 
 **Checkpoint**: User Story 2가 추가되면 US1의 1회성 청소 효과가 자동 가드로 영속화된다. US1 단독 완료 상태와 비교해 회귀 방지 보장이 추가된다.
 
@@ -104,11 +104,11 @@ description: "Tasks for Task 4 — TESTING.md 고정 테스트 수치 제거 및
 
 **Purpose**: 가드 단독 통과와 의도적 위반 시 실패를 모두 실증하여 작업이 닫힘을 확인
 
-- [ ] T018 가드 테스트 단독 실행: `node --test tests/integrations.test.mjs --test-name-pattern "TESTING.md"`가 0 fail로 통과하는지 확인 (SC-001)
-- [ ] T019 의도적 위반 inject 검증(SC-004): `TESTING.md` 사본에 `320 tests`를 임시 삽입하고 T018 명령 재실행 → 실패 + 위반 패턴 메시지(T017에서 지정한 정규식/의도 문자열) 출력 확인 후 사본 폐기. 동일 절차를 `5/5 통과`, `공개 도구 8개`에 대해 각각 1회씩 반복하여 3개 위반 패턴이 모두 실제로 가드를 트리거함을 확인. inject 흔적은 커밋에 포함하지 않음
-- [ ] T020 양성 어서션 자기 검증: `TESTING.md` 사본에서 `0 fail` 토큰을 임시 제거하고 T018 명령 재실행 → `/\b0\s+(fail|failures)\b/` 양성 어서션 실패 확인 후 사본 폐기 (FR-006이 실제 작동함을 입증)
-- [ ] T021 전체 회귀: `npm test`가 0 fail로 종료하는지 확인. 기존 doc-snapshot 가드 군과의 충돌 부재 확인
-- [ ] T022 PR diff 최종 점검: 변경 파일이 `TESTING.md`와 `tests/integrations.test.mjs` 두 개뿐이며 `src/**`, `scripts/**`, `package.json`이 비어 있는지 확인
+- [x] T018 가드 테스트 단독 실행: `node --test tests/integrations.test.mjs --test-name-pattern "TESTING.md"`가 0 fail로 통과하는지 확인 (SC-001)
+- [x] T019 의도적 위반 inject 검증(SC-004): `TESTING.md` 사본에 `320 tests`를 임시 삽입하고 T018 명령 재실행 → 실패 + 위반 패턴 메시지(T017에서 지정한 정규식/의도 문자열) 출력 확인 후 사본 폐기. 동일 절차를 `5/5 통과`, `공개 도구 8개`에 대해 각각 1회씩 반복하여 3개 위반 패턴이 모두 실제로 가드를 트리거함을 확인. inject 흔적은 커밋에 포함하지 않음
+- [x] T020 양성 어서션 자기 검증: `TESTING.md` 사본에서 `0 fail` 토큰을 임시 제거하고 T018 명령 재실행 → `/\b0\s+(fail|failures)\b/` 양성 어서션 실패 확인 후 사본 폐기 (FR-006이 실제 작동함을 입증)
+- [x] T021 전체 회귀: `npm test`가 0 fail로 종료하는지 확인. 기존 doc-snapshot 가드 군과의 충돌 부재 확인
+- [x] T022 PR diff 최종 점검: 변경 파일이 `TESTING.md`와 `tests/integrations.test.mjs` 두 개뿐이며 `src/**`, `scripts/**`, `package.json`이 비어 있는지 확인
 
 ---
 

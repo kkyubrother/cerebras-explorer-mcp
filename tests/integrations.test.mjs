@@ -312,3 +312,43 @@ test('Codex AGENTS.md.example and agent TOML introduce find_relevant_code before
     );
   }
 });
+
+test('TESTING.md does not pin absolute test totals or fixed tool counts', async () => {
+  const testingMd = await read('TESTING.md');
+
+  assert.doesNotMatch(
+    testingMd,
+    /\b\d+\s+tests\b/,
+    'TESTING.md must not pin absolute unit test count (\\d+ tests)',
+  );
+  assert.doesNotMatch(
+    testingMd,
+    /\b\d+\s+pass\b/,
+    'TESTING.md must not pin absolute unit pass count (\\d+ pass)',
+  );
+  assert.doesNotMatch(
+    testingMd,
+    /\b\d+\s+skipped\b/,
+    'TESTING.md must not pin absolute unit skip count (\\d+ skipped)',
+  );
+  assert.doesNotMatch(
+    testingMd,
+    /\b\d+\s*\/\s*\d+\s*통과(?=\s|[.)\]}]|$)/u,
+    'TESTING.md must not pin fixed integration pass fractions (\\d+/\\d+ 통과)',
+  );
+  assert.doesNotMatch(
+    testingMd,
+    /(?:\b\d+\s*개\s*(?:공개\s*)?도구|도구\s*\d+\s*개)(?=\s|[.)\]}]|$)/u,
+    'TESTING.md must not pin fixed public tool counts (\\d+개 도구 or 도구 \\d+개)',
+  );
+  assert.match(
+    testingMd,
+    /\bnpm test\b/,
+    'TESTING.md must keep npm test as the unit-test acceptance command',
+  );
+  assert.match(
+    testingMd,
+    /\b0\s+(fail|failures)\b/,
+    'TESTING.md must keep 0 fail/0 failures as the acceptance signal',
+  );
+});
