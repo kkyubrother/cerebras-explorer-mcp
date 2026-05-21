@@ -71,18 +71,19 @@
           "label": "Answer covers runtime, schema, server, tests",
           "source": "combined_text",
           "groups": [["schemas.mjs"], ["runtime.mjs"], ["server.mjs"], ["tests"]],
-          "weight": 0.45
+          "weight": 0.4
         },
         {
           "label": "Targets describe actionability",
           "source": "target_reasons",
           "groups": [["output", "schema"], ["runtime", "normaliz"], ["test", "검증"]],
-          "weight": 0.25
+          "weight": 0.2
         }
       ],
       "checks": [
         { "label": "Returns at least three targets", "type": "min_target_count", "value": 3, "weight": 0.2 },
-        { "label": "Has session id", "type": "has_session_id", "value": true, "weight": 0.1 }
+        { "label": "Has session id", "type": "has_session_id", "value": true, "weight": 0.1 },
+        { "label": "Citations or evidence snippets present", "type": "min_evidence_snippet_count", "value": 1, "weight": 0.1 }
       ]
     },
     {
@@ -155,11 +156,12 @@
           "label": "Answer discusses change context",
           "source": "combined_text",
           "groups": [["tool", "metadata"], ["server.mjs"], ["test", "검토"]],
-          "weight": 0.7
+          "weight": 0.6
         }
       ],
       "checks": [
-        { "label": "Targets present", "type": "min_target_count", "value": 1, "weight": 0.3 }
+        { "label": "Targets present", "type": "min_target_count", "value": 1, "weight": 0.3 },
+        { "label": "Citations or evidence snippets present", "type": "min_evidence_snippet_count", "value": 1, "weight": 0.1 }
       ]
     },
     {

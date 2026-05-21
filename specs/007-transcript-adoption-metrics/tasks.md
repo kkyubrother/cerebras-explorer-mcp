@@ -31,9 +31,9 @@ description: "Task list draft for Task 7 — Transcript-Based Adoption Metrics"
 
 **Purpose**: 신규 모듈과 테스트 파일을 둘 위치를 확정하고, plan.md가 가리키는 실제 코드 위치(특히 `computeExtendedMetrics`가 `scripts/run-benchmark.mjs` 안에 있다는 사실)를 사전 확인한다. 코드 변경은 없다.
 
-- [ ] T001 [P] `specs/007-transcript-adoption-metrics/plan.md`의 Implementation Outline (a)~(g)를 읽고 영향 파일 4개(`src/benchmark/transcript-metrics.mjs` 신규, `tests/benchmark-transcript-metrics.test.mjs` 신규, `scripts/run-benchmark.mjs` 수정, `benchmarks/adoption.json` 수정)를 작업 체크리스트로 확정한다.
-- [ ] T002 [P] `scripts/run-benchmark.mjs`에서 `computeExtendedMetrics` 정의 라인과 케이스 루프의 `caseResult` 조립 라인을 식별해 본 phase의 작업 노트에 기록한다(plan.md 235라인/267~278라인 근처 가이드 반영). 파일 수정은 하지 않는다.
-- [ ] T003 [P] `src/explorer/transcript.mjs`의 `createTranscriptRecorder`가 작성하는 JSONL 엔트리 스키마(`type: 'assistant' | 'tool' | 'meta'`, `turn`, `tool`, `toolCalls`, `error`, `stats`)를 점검하고 본 작업에서 사용할 키 집합을 확정한다(읽기만).
+- [x] T001 [P] `specs/007-transcript-adoption-metrics/plan.md`의 Implementation Outline (a)~(g)를 읽고 영향 파일 4개(`src/benchmark/transcript-metrics.mjs` 신규, `tests/benchmark-transcript-metrics.test.mjs` 신규, `scripts/run-benchmark.mjs` 수정, `benchmarks/adoption.json` 수정)를 작업 체크리스트로 확정한다.
+- [x] T002 [P] `scripts/run-benchmark.mjs`에서 `computeExtendedMetrics` 정의 라인과 케이스 루프의 `caseResult` 조립 라인을 식별해 본 phase의 작업 노트에 기록한다(plan.md 235라인/267~278라인 근처 가이드 반영). 파일 수정은 하지 않는다.
+- [x] T003 [P] `src/explorer/transcript.mjs`의 `createTranscriptRecorder`가 작성하는 JSONL 엔트리 스키마(`type: 'assistant' | 'tool' | 'meta'`, `turn`, `tool`, `toolCalls`, `error`, `stats`)를 점검하고 본 작업에서 사용할 키 집합을 확정한다(읽기만).
 
 ---
 
@@ -43,9 +43,9 @@ description: "Task list draft for Task 7 — Transcript-Based Adoption Metrics"
 
 CRITICAL: 모든 사용자 스토리는 이 phase의 도구 분류 상수가 확정된 다음에야 시작할 수 있다.
 
-- [ ] T004 [Foundation] `src/benchmark/transcript-metrics.mjs` 상단에 `BROAD_SEARCH_TOOLS = new Set(['repo_grep', 'repo_find_files', 'repo_list_dir'])` 상수를 정의한다(spec FR-003, plan Implementation Outline (c)).
-- [ ] T005 [Foundation] 같은 파일에 `READ_TOOLS = new Set(['repo_read_file', 'repo_symbol_context', 'repo_symbols', 'repo_references'])` 상수를 정의한다(spec FR-003).
-- [ ] T006 [Foundation] 두 상수의 출처가 README / DESIGN 도구 표에서 옴을 짧은 주석으로 명시해 R5(stale tool list) 위험을 완화한다.
+- [x] T004 [Foundation] `src/benchmark/transcript-metrics.mjs` 상단에 `BROAD_SEARCH_TOOLS = new Set(['repo_grep', 'repo_find_files', 'repo_list_dir'])` 상수를 정의한다(spec FR-003, plan Implementation Outline (c)).
+- [x] T005 [Foundation] 같은 파일에 `READ_TOOLS = new Set(['repo_read_file', 'repo_symbol_context', 'repo_symbols', 'repo_references'])` 상수를 정의한다(spec FR-003).
+- [x] T006 [Foundation] 두 상수의 출처가 README / DESIGN 도구 표에서 옴을 짧은 주석으로 명시해 R5(stale tool list) 위험을 완화한다.
 
 Checkpoint: 도구 카테고리 상수가 모듈 상단에 고정 — US1·US2·US3 구현 시작 가능.
 
@@ -61,18 +61,18 @@ Checkpoint: 도구 카테고리 상수가 모듈 상단에 고정 — US1·US2·
 
 NOTE: Tests를 먼저 작성하고 실행하면 FAIL해야 한다. 그 다음 구현으로 GREEN을 만든다.
 
-- [ ] T007 [P] [US1] `tests/benchmark-transcript-metrics.test.mjs`를 신규로 만들고 "요약 시나리오" 테스트를 추가한다: 두 assistant 턴 + broad search 1회 + read 2회 + 마지막 `meta` 엔트리 `stats.stoppedByBudget: false`. 기대값은 `{ assistantTurns: 2, toolCalls: 합산값, broadSearchCalls: 1, readCalls: 2, toolErrorCalls: 0, repeatedToolPlanTurns: 0, stoppedByBudget: false }`로 7개 필드를 deep-equal 비교(spec Acceptance US1.1, US1.3, SC-002).
-- [ ] T008 [P] [US1] 같은 테스트 파일에 "반복 계획 + tool error" 테스트를 추가한다: 두 assistant 턴이 동일한 `toolCalls: [{ name: 'repo_grep' }]` 계획을 사용하고 한 `tool` 엔트리가 `error: true`를 갖는 입력에 대해 `repeatedToolPlanTurns === 1`, `toolErrorCalls === 1`을 검증한다(spec Acceptance US1.2).
-- [ ] T009 [P] [US1] 같은 테스트 파일에 `analyzeTranscriptFile(null)`가 `null`을 돌려주는지 검증하는 보강 테스트를 추가한다(spec FR-006 + Edge Case).
+- [x] T007 [P] [US1] `tests/benchmark-transcript-metrics.test.mjs`를 신규로 만들고 "요약 시나리오" 테스트를 추가한다: 두 assistant 턴 + broad search 1회 + read 2회 + 마지막 `meta` 엔트리 `stats.stoppedByBudget: false`. 기대값은 `{ assistantTurns: 2, toolCalls: 합산값, broadSearchCalls: 1, readCalls: 2, toolErrorCalls: 0, repeatedToolPlanTurns: 0, stoppedByBudget: false }`로 7개 필드를 deep-equal 비교(spec Acceptance US1.1, US1.3, SC-002).
+- [x] T008 [P] [US1] 같은 테스트 파일에 "반복 계획 + tool error" 테스트를 추가한다: 두 assistant 턴이 동일한 `toolCalls: [{ name: 'repo_grep' }]` 계획을 사용하고 한 `tool` 엔트리가 `error: true`를 갖는 입력에 대해 `repeatedToolPlanTurns === 1`, `toolErrorCalls === 1`을 검증한다(spec Acceptance US1.2).
+- [x] T009 [P] [US1] 같은 테스트 파일에 `analyzeTranscriptFile(null)`가 `null`을 돌려주는지 검증하는 보강 테스트를 추가한다(spec FR-006 + Edge Case).
 
 ### Implementation for User Story 1
 
-- [ ] T010 [US1] `src/benchmark/transcript-metrics.mjs`에 `analyzeTranscriptEntries(entries)`를 구현한다. 빈 배열 입력에 대해 7개 필드를 모두 0/false로 채워 반환한다(Edge Case + SC-002).
-- [ ] T011 [US1] 같은 함수에서 `entries`를 한 번 순회하며 `assistant` 엔트리는 `assistantTurns`를 증가시키고 그 `toolCalls`(배열일 때만)를 모아 누적, `tool` 엔트리는 `toolCalls`를 증가시키고 `BROAD_SEARCH_TOOLS`/`READ_TOOLS` 멤버십에 따라 `broadSearchCalls`/`readCalls`를 증가, `error === true`이면 `toolErrorCalls`를 증가시키는 로직을 작성한다(spec FR-002, FR-003).
-- [ ] T012 [US1] 같은 함수에서 `repeatedToolPlanTurns` 계산을 추가한다. 각 `assistant` 엔트리의 `toolCalls`에서 도구 이름만 뽑아 `Array.from(...).filter(Boolean).sort().join('|')`로 정규화하고, 빈 문자열은 비교 대상에서 제외하며, 직전 turn의 정규화 결과와 동일하면 +1 한다(spec FR-004, plan Implementation Outline (b)).
-- [ ] T013 [US1] 같은 함수에서 `stoppedByBudget`을 가장 마지막에 등장한 `meta` 엔트리의 `stats.stoppedByBudget`로 결정한다. `entries.slice().reverse().find(e => e?.type === 'meta' && e.stats)` 형태로 마지막 우선 보장, 값은 boolean 캐스팅(spec FR-005, Edge Case "멀티 meta 마지막 우선").
-- [ ] T014 [US1] 같은 파일에 `analyzeTranscriptFile(filePath)`를 export한다. `filePath`가 falsy면 즉시 `null` 반환, 아니면 `node:fs/promises`의 `readFile`로 읽어 `\n` 분리 → 빈 줄 무시 → `JSON.parse` → `analyzeTranscriptEntries`에 위임한다(spec FR-006, plan Implementation Outline (a)).
-- [ ] T015 [US1] 두 함수를 `export` 한 뒤 T007~T009 테스트를 `node --test tests/benchmark-transcript-metrics.test.mjs`로 실행해 0 failures를 확인한다(spec SC-001).
+- [x] T010 [US1] `src/benchmark/transcript-metrics.mjs`에 `analyzeTranscriptEntries(entries)`를 구현한다. 빈 배열 입력에 대해 7개 필드를 모두 0/false로 채워 반환한다(Edge Case + SC-002).
+- [x] T011 [US1] 같은 함수에서 `entries`를 한 번 순회하며 `assistant` 엔트리는 `assistantTurns`를 증가시키고 그 `toolCalls`(배열일 때만)를 모아 누적, `tool` 엔트리는 `toolCalls`를 증가시키고 `BROAD_SEARCH_TOOLS`/`READ_TOOLS` 멤버십에 따라 `broadSearchCalls`/`readCalls`를 증가, `error === true`이면 `toolErrorCalls`를 증가시키는 로직을 작성한다(spec FR-002, FR-003).
+- [x] T012 [US1] 같은 함수에서 `repeatedToolPlanTurns` 계산을 추가한다. 각 `assistant` 엔트리의 `toolCalls`에서 도구 이름만 뽑아 `Array.from(...).filter(Boolean).sort().join('|')`로 정규화하고, 빈 문자열은 비교 대상에서 제외하며, 직전 turn의 정규화 결과와 동일하면 +1 한다(spec FR-004, plan Implementation Outline (b)).
+- [x] T013 [US1] 같은 함수에서 `stoppedByBudget`을 가장 마지막에 등장한 `meta` 엔트리의 `stats.stoppedByBudget`로 결정한다. `entries.slice().reverse().find(e => e?.type === 'meta' && e.stats)` 형태로 마지막 우선 보장, 값은 boolean 캐스팅(spec FR-005, Edge Case "멀티 meta 마지막 우선").
+- [x] T014 [US1] 같은 파일에 `analyzeTranscriptFile(filePath)`를 export한다. `filePath`가 falsy면 즉시 `null` 반환, 아니면 `node:fs/promises`의 `readFile`로 읽어 `\n` 분리 → 빈 줄 무시 → `JSON.parse` → `analyzeTranscriptEntries`에 위임한다(spec FR-006, plan Implementation Outline (a)).
+- [x] T015 [US1] 두 함수를 `export` 한 뒤 T007~T009 테스트를 `node --test tests/benchmark-transcript-metrics.test.mjs`로 실행해 0 failures를 확인한다(spec SC-001).
 
 Checkpoint: US1 단독으로 transcript 메트릭 모듈과 단위 테스트가 GREEN. 다른 스토리 없이도 운영자가 한 transcript 파일에 대한 요약을 받을 수 있다(spec SC-004).
 
@@ -86,11 +86,11 @@ Checkpoint: US1 단독으로 transcript 메트릭 모듈과 단위 테스트가 
 
 ### Implementation for User Story 2
 
-- [ ] T016 [US2] `scripts/run-benchmark.mjs` 상단의 import 블록에 `import { analyzeTranscriptFile } from '../src/benchmark/transcript-metrics.mjs';`를 추가한다(plan Implementation Outline (d)).
-- [ ] T017 [US2] 같은 파일의 케이스 루프(`const caseResult = { caseDefinition, evaluation, result, elapsedMs };` 직전)에서 `const transcriptMetrics = result.transcriptPath ? await analyzeTranscriptFile(result.transcriptPath).catch(() => null) : null;`을 추가하고, 이어지는 `caseResult` 객체에 `transcriptMetrics` 필드를 포함시킨다(spec FR-007, Acceptance US2.3, plan R2).
-- [ ] T018 [US2] 같은 파일의 `computeExtendedMetrics(caseResults)` 함수에 transcript 메트릭 가진 케이스만 필터링하는 라인을 추가한다 (`const transcriptCases = caseResults.filter(c => c.transcriptMetrics);`).
-- [ ] T019 [US2] 같은 함수에서 `transcriptCases`의 `broadSearchCalls` 합과 `repeatedToolPlanTurns` 합을 구해 평균을 계산하고, 반환 객체에 다음 두 필드를 추가한다: `avgBroadSearchCalls`, `avgRepeatedToolPlanTurns`. 케이스 수가 1 이상이면 `Math.round((sum / n) * 10) / 10` 로 소수 첫째 자리 반올림, 0이면 `null`을 반환한다(spec FR-008, Acceptance US2.1·US2.2).
-- [ ] T020 [US2] 같은 파일의 콘솔 요약 블록(현재 267~278라인 근처 `if (metrics) { ... }`)에 `avgBroadSearchCalls`와 `avgRepeatedToolPlanTurns` 두 줄을 추가해 운영자가 즉시 비교 가능하도록 표시한다(spec SC-005, plan Implementation Outline (e)).
+- [x] T016 [US2] `scripts/run-benchmark.mjs` 상단의 import 블록에 `import { analyzeTranscriptFile } from '../src/benchmark/transcript-metrics.mjs';`를 추가한다(plan Implementation Outline (d)).
+- [x] T017 [US2] 같은 파일의 케이스 루프(`const caseResult = { caseDefinition, evaluation, result, elapsedMs };` 직전)에서 `const transcriptMetrics = result.transcriptPath ? await analyzeTranscriptFile(result.transcriptPath).catch(() => null) : null;`을 추가하고, 이어지는 `caseResult` 객체에 `transcriptMetrics` 필드를 포함시킨다(spec FR-007, Acceptance US2.3, plan R2).
+- [x] T018 [US2] 같은 파일의 `computeExtendedMetrics(caseResults)` 함수에 transcript 메트릭 가진 케이스만 필터링하는 라인을 추가한다 (`const transcriptCases = caseResults.filter(c => c.transcriptMetrics);`).
+- [x] T019 [US2] 같은 함수에서 `transcriptCases`의 `broadSearchCalls` 합과 `repeatedToolPlanTurns` 합을 구해 평균을 계산하고, 반환 객체에 다음 두 필드를 추가한다: `avgBroadSearchCalls`, `avgRepeatedToolPlanTurns`. 케이스 수가 1 이상이면 `Math.round((sum / n) * 10) / 10` 로 소수 첫째 자리 반올림, 0이면 `null`을 반환한다(spec FR-008, Acceptance US2.1·US2.2).
+- [x] T020 [US2] 같은 파일의 콘솔 요약 블록(현재 267~278라인 근처 `if (metrics) { ... }`)에 `avgBroadSearchCalls`와 `avgRepeatedToolPlanTurns` 두 줄을 추가해 운영자가 즉시 비교 가능하도록 표시한다(spec SC-005, plan Implementation Outline (e)).
 
 Checkpoint: transcript가 활성화된 환경에서는 보고서 JSON과 콘솔 요약에 두 평균이 노출되고, 비활성 환경에서는 두 값이 자동으로 `null`로 떨어진다(spec SC-003).
 
@@ -104,10 +104,10 @@ Checkpoint: transcript가 활성화된 환경에서는 보고서 JSON과 콘솔 
 
 ### Implementation for User Story 3
 
-- [ ] T021 [US3] `benchmarks/adoption.json`에서 evidence가 의미 있게 반환되는 워크플로 케이스(`map-change-impact`, `review-change-context` 등 plan Implementation Outline (f)가 언급하는 케이스 군)를 식별한다.
-- [ ] T022 [US3] 식별된 각 케이스의 `checks` 배열에 `{ "label": "Citations or evidence snippets present", "type": "min_evidence_snippet_count", "value": 1, "weight": 0.1 }` 항목을 추가한다(spec FR-009).
-- [ ] T023 [US3] 같은 케이스의 기존 체크 weight 합이 1을 넘지 않도록 주변 weight를 최소 변경(가장 큰 weight를 0.05 씩 감액)으로 재조정한다(plan Implementation Outline (f)).
-- [ ] T024 [US3] `min_citation_count` 류 체크는 본 작업에서 추가하지 않는다는 사실을 PR 설명/커밋 메시지에 명시하기 위한 짧은 메모를 남긴다(Task 3와의 경계 보존, spec FR-009 후단).
+- [x] T021 [US3] `benchmarks/adoption.json`에서 evidence가 의미 있게 반환되는 워크플로 케이스(`map-change-impact`, `review-change-context` 등 plan Implementation Outline (f)가 언급하는 케이스 군)를 식별한다.
+- [x] T022 [US3] 식별된 각 케이스의 `checks` 배열에 `{ "label": "Citations or evidence snippets present", "type": "min_evidence_snippet_count", "value": 1, "weight": 0.1 }` 항목을 추가한다(spec FR-009).
+- [x] T023 [US3] 같은 케이스의 기존 체크 weight 합이 1을 넘지 않도록 주변 weight를 최소 변경(가장 큰 weight를 0.05 씩 감액)으로 재조정한다(plan Implementation Outline (f)).
+- [x] T024 [US3] `min_citation_count` 류 체크는 본 작업에서 추가하지 않는다는 사실을 PR 설명/커밋 메시지에 명시하기 위한 짧은 메모를 남긴다(Task 3와의 경계 보존, spec FR-009 후단).
 
 Checkpoint: 어돕션 점수 산출에 evidence 신호가 반영되고 transcript 신호와 함께 V2 채택 판단 근거가 강화된다.
 
@@ -117,10 +117,10 @@ Checkpoint: 어돕션 점수 산출에 evidence 신호가 반영되고 transcrip
 
 **Purpose**: spec의 Edge Case 목록을 본문 모듈/스크립트의 가드 코드와 테스트로 마무리 점검한다.
 
-- [ ] T025 [P] `src/benchmark/transcript-metrics.mjs`의 `analyzeTranscriptEntries`에 `toolCalls`가 누락되거나 배열이 아닌 assistant 엔트리를 빈 plan으로 취급해 반복 카운트에 영향이 없도록 `Array.isArray` 가드를 점검한다(spec Edge Case + FR-004, plan R4).
-- [ ] T026 [P] 같은 파일의 `analyzeTranscriptFile`이 JSONL 줄 중 하나라도 `JSON.parse`에 실패하면 케이스 단위로 격리되도록 try/catch를 점검한다 — 파일 전체를 throw 하지 않고 호출부의 `.catch(() => null)`와 함께 케이스 단위 `null` 처리를 보장(spec Edge Case + Acceptance US2.3, plan R2).
-- [ ] T027 [P] `analyzeTranscriptEntries`가 여러 `meta` 엔트리 입력에서 마지막 `meta`의 `stats.stoppedByBudget`을 사용하는지 단위 테스트로 한 줄 추가 검증한다(spec Edge Case "멀티 meta 마지막 우선", plan R3).
-- [ ] T028 `npm test`를 실행해 다른 벤치마크/MCP 테스트가 transcript 인프라/보고서 변경으로 회귀하지 않았는지 확인한다(plan Test Strategy).
+- [x] T025 [P] `src/benchmark/transcript-metrics.mjs`의 `analyzeTranscriptEntries`에 `toolCalls`가 누락되거나 배열이 아닌 assistant 엔트리를 빈 plan으로 취급해 반복 카운트에 영향이 없도록 `Array.isArray` 가드를 점검한다(spec Edge Case + FR-004, plan R4).
+- [x] T026 [P] 같은 파일의 `analyzeTranscriptFile`이 JSONL 줄 중 하나라도 `JSON.parse`에 실패하면 케이스 단위로 격리되도록 try/catch를 점검한다 — 파일 전체를 throw 하지 않고 호출부의 `.catch(() => null)`와 함께 케이스 단위 `null` 처리를 보장(spec Edge Case + Acceptance US2.3, plan R2).
+- [x] T027 [P] `analyzeTranscriptEntries`가 여러 `meta` 엔트리 입력에서 마지막 `meta`의 `stats.stoppedByBudget`을 사용하는지 단위 테스트로 한 줄 추가 검증한다(spec Edge Case "멀티 meta 마지막 우선", plan R3).
+- [x] T028 `npm test`를 실행해 다른 벤치마크/MCP 테스트가 transcript 인프라/보고서 변경으로 회귀하지 않았는지 확인한다(plan Test Strategy).
 - [ ] T029 (옵션) `npm run benchmark`을 provider 키가 있는 환경에서 한 번 실행해 결과 JSON에 `avgBroadSearchCalls`/`avgRepeatedToolPlanTurns` 두 필드가 등장하고 transcript 비활성 환경에서는 두 값이 `null`인지 시각 점검한다(spec SC-003).
 
 ---

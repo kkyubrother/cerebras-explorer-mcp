@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import { createMcpRequestHandler } from '../src/mcp/server.mjs';
 import { evaluateBenchmarkCase, summarizeBenchmarkSuite } from '../src/benchmark/evaluator.mjs';
 import { sanitizeBenchmarkReport, sanitizePathForReport } from '../src/benchmark/report.mjs';
+import { analyzeTranscriptFile } from '../src/benchmark/transcript-metrics.mjs';
 
 function parseArgs(argv) {
   const options = {
@@ -124,8 +126,10 @@ function getConfidenceScore(result) {
  *   - avgTargets            : average number of action targets in structured output
  *   - evidenceSnippetRate   : fraction of evidence items that include snippets
  *   - targetedVerificationRate : fraction of cases that narrow the next step to returned targets
+ *   - avgBroadSearchCalls   : average transcript broad-search tool calls (null without transcripts)
+ *   - avgRepeatedToolPlanTurns : average repeated transcript tool-plan turns (null without transcripts)
  */
-function computeExtendedMetrics(caseResults) {
+export function computeExtendedMetrics(caseResults) {
   const successCases = caseResults.filter(cr => cr.result !== null);
   const count = successCases.length;
   if (count === 0) return null;
@@ -163,6 +167,14 @@ function computeExtendedMetrics(caseResults) {
   const targetedVerificationRate =
     successCases.filter(cr => cr.result.status?.verification === 'targeted_read_needed').length / count;
 
+  const transcriptCases = successCases.filter(cr => cr.transcriptMetrics);
+  const avgBroadSearchCalls = transcriptCases.length > 0
+    ? transcriptCases.reduce((sum, cr) => sum + Number(cr.transcriptMetrics.broadSearchCalls ?? 0), 0) / transcriptCases.length
+    : null;
+  const avgRepeatedToolPlanTurns = transcriptCases.length > 0
+    ? transcriptCases.reduce((sum, cr) => sum + Number(cr.transcriptMetrics.repeatedToolPlanTurns ?? 0), 0) / transcriptCases.length
+    : null;
+
   return {
     avgToolTurns: Math.round(avgToolTurns * 10) / 10,
     budgetExhaustionRate: Math.round(budgetExhaustionRate * 1000) / 1000,
@@ -176,6 +188,12 @@ function computeExtendedMetrics(caseResults) {
       ? Math.round((snippetCount / evidenceCount) * 1000) / 1000
       : 0,
     targetedVerificationRate: Math.round(targetedVerificationRate * 1000) / 1000,
+    avgBroadSearchCalls: avgBroadSearchCalls !== null
+      ? Math.round(avgBroadSearchCalls * 10) / 10
+      : null,
+    avgRepeatedToolPlanTurns: avgRepeatedToolPlanTurns !== null
+      ? Math.round(avgRepeatedToolPlanTurns * 10) / 10
+      : null,
   };
 }
 
@@ -231,8 +249,11 @@ async function main() {
     };
     try {
       const { result, elapsedMs } = await runCase(handleRequest, caseDefinition, repoRoot);
+      const transcriptMetrics = result?.transcriptPath
+        ? await analyzeTranscriptFile(result.transcriptPath).catch(() => null)
+        : null;
       const evaluation = evaluateBenchmarkCase(caseDefinition, result);
-      const caseResult = { caseDefinition, evaluation, result, elapsedMs };
+      const caseResult = { caseDefinition, evaluation, result, elapsedMs, transcriptMetrics };
       caseResults.push(caseResult);
       printCaseResult(caseResult, options.verbose);
     } catch (error) {
@@ -249,6 +270,7 @@ async function main() {
           expectations: [],
           checks: [],
         },
+        transcriptMetrics: null,
         error: error.message,
       };
       caseResults.push(failed);
@@ -272,6 +294,8 @@ async function main() {
     console.log(`  avg targets        : ${metrics.avgTargets}`);
     console.log(`  evidence snippets  : ${formatPercent(metrics.evidenceSnippetRate)}`);
     console.log(`  targeted verify    : ${formatPercent(metrics.targetedVerificationRate)}`);
+    console.log(`  avg broad searches : ${metrics.avgBroadSearchCalls ?? 'n/a'}`);
+    console.log(`  avg repeated plans : ${metrics.avgRepeatedToolPlanTurns ?? 'n/a'}`);
     if (metrics.deepBudgetAvgTotalTokens !== null) {
       console.log(`  deep budget tokens : ${metrics.deepBudgetAvgTotalTokens} avg total`);
     }
@@ -307,7 +331,13 @@ async function main() {
   }
 }
 
-main().catch(error => {
-  console.error(error.stack || error.message);
-  process.exitCode = 1;
-});
+function isDirectRun() {
+  return process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+}
+
+if (isDirectRun()) {
+  main().catch(error => {
+    console.error(error.stack || error.message);
+    process.exitCode = 1;
+  });
+}
