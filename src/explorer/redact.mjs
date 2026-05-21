@@ -1,3 +1,5 @@
+import { isSecretPath } from './security.mjs';
+
 const REDACTION_RULES = Object.freeze([
   { id: 'aws-access-key', regex: /\bAKIA[0-9A-Z]{16}\b/g },
   { id: 'github-token', regex: /\bgh[pousr]_[A-Za-z0-9_]{36,}\b/g },
@@ -17,6 +19,8 @@ const GENERIC_HEX_RULE = Object.freeze({
   id: 'generic-hex-32',
   regex: /\b[0-9a-fA-F]{32,}\b/g,
 });
+
+const SECRET_PATH_MENTION_REGEX = /`?([A-Za-z0-9_.-][A-Za-z0-9_./\\-]*\/[A-Za-z0-9_./\\-]+|\.env(?:\.[A-Za-z0-9_.-]+)?|\.envrc|\.npmrc|\.netrc|id_rsa(?:\.pub)?|id_ed25519(?:\.pub)?)(?::L?\d+(?:-L?\d+)?)?`?/g;
 
 function shouldRedactGenericHex(env = process.env) {
   return env.CEREBRAS_EXPLORER_REDACT_GENERIC_HEX === '1';
@@ -43,6 +47,14 @@ export function redactText(value, { includeGenericHex = shouldRedactGenericHex()
     });
     if (matched) redactions.push(rule.id);
   }
+
+  let secretPathMatched = false;
+  text = text.replace(SECRET_PATH_MENTION_REGEX, (raw, relPath) => {
+    if (!isSecretPath(relPath).matched) return raw;
+    secretPathMatched = true;
+    return '[REDACTED:secret-path]';
+  });
+  if (secretPathMatched) redactions.push('secret-path');
 
   return {
     text,

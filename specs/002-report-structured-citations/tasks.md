@@ -36,8 +36,8 @@
 
 **중요**: 본 phase가 끝나기 전까지 US1·US2 구현 task는 시작할 수 없다.
 
-- [ ] T001 [Foundation] `src/explorer/runtime.mjs` 안에 `buildReportCitations(report)` 헬퍼를 모듈-로컬로 추가한다. 내부에서 `src/explorer/critic.mjs`의 `extractReportCitations`와 `extractGitCitations`를 호출하고, 각 원소를 다음 정규화된 shape으로 매핑한다: file 인용은 `{ type: 'file_range', path, startLine, endLine, raw }`, git 인용은 `{ type: item.type ?? 'git_commit', path?, startLine?, endLine?, sha?, raw }`(path·line 키는 존재할 때만 포함). 결과는 file-range → git 순서로 concat하며 빈 입력에서도 반드시 배열을 반환한다. 추출기 자체는 절대 수정하지 않는다 (FR-007). 헬퍼는 export하지 않고 파일 내부에서만 사용한다.
-- [ ] T002 [Foundation] `src/explorer/runtime.mjs` 안에 `buildReportCitationTargets(citations)` 헬퍼를 추가한다. 입력 citation 배열을 순회하며 `(path, startLine, endLine)` 세 키 조합으로 dedupe하고, 각 entry를 `{ path, startLine?, endLine?, role: 'reference', reason: 'Markdown report citation', evidenceRefs: [] }` 형태로 변환한다. `path`가 없는 git citation(예: pure commit sha)은 target으로 승격하지 않는다. 빈 입력에서도 반드시 배열을 반환한다.
+- [x] T001 [Foundation] `src/explorer/runtime.mjs` 안에 `buildReportCitations(report)` 헬퍼를 모듈-로컬로 추가한다. 내부에서 `src/explorer/critic.mjs`의 `extractReportCitations`와 `extractGitCitations`를 호출하고, 각 원소를 다음 정규화된 shape으로 매핑한다: file 인용은 `{ type: 'file_range', path, startLine, endLine, raw }`, git 인용은 `{ type: item.type ?? 'git_commit', path?, startLine?, endLine?, sha?, raw }`(path·line 키는 존재할 때만 포함). 결과는 file-range → git 순서로 concat하며 빈 입력에서도 반드시 배열을 반환한다. 추출기 자체는 절대 수정하지 않는다 (FR-007). 헬퍼는 export하지 않고 파일 내부에서만 사용한다.
+- [x] T002 [Foundation] `src/explorer/runtime.mjs` 안에 `buildReportCitationTargets(citations)` 헬퍼를 추가한다. 입력 citation 배열을 순회하며 `(path, startLine, endLine)` 세 키 조합으로 dedupe하고, 각 entry를 `{ path, startLine?, endLine?, role: 'reference', reason: 'Markdown report citation', evidenceRefs: [] }` 형태로 변환한다. `path`가 없는 git citation(예: pure commit sha)은 target으로 승격하지 않는다. 빈 입력에서도 반드시 배열을 반환한다.
 
 **Checkpoint**: 두 헬퍼가 module-local로 정의되어 있고 syntax error 없이 `runtime.mjs`가 로드되면, US1·US2 구현을 병렬로 시작할 수 있다.
 
@@ -53,15 +53,15 @@
 
 > **NOTE: 테스트는 구현보다 먼저 작성하고, 구현 전에 fail하는 것을 확인한 뒤 구현으로 진행한다.**
 
-- [ ] T003 [P] [US1] `tests/free-explore.test.mjs`에 `freeExplore exposes report citations and citation targets` 테스트를 추가한다. mock client가 file 인용 두 건이 포함된 Markdown report를 반환하도록 설정하고, 반환 객체의 `citations[]`가 `{type:'file_range', path, startLine, endLine}` 항목 두 개를 (raw 제외 deep-equal로) 포함하며, `targets[]`가 동일 path/line 정보를 `role: 'reference'`와 함께 두 항목으로 노출하는지 검증한다.
-- [ ] T004 [P] [US1] `tests/free-explore.test.mjs`에 `freeExplore returns empty citations and targets when report has no citations` 테스트를 추가한다. mock report가 file:line 인용을 전혀 포함하지 않을 때 `citations`와 `targets` 모두 `[]`로 노출되며 키 자체가 존재함을 검증한다 (FR-005, SC-003 의 빈 인용 case).
-- [ ] T005 [P] [US1] `tests/free-explore.test.mjs`에 `freeExploreV2 exposes the same citation shape with transcriptPath preserved` 테스트를 추가한다. V2 경로에서도 동일 fixture로 `citations[]` / `targets[]`가 노출되며 기존 `transcriptPath`가 여전히 string으로 살아 있는지 함께 검증한다 (V2 contract regression 가드).
-- [ ] T006 [P] [US1] `tests/free-explore.test.mjs`에 `freeExplore deduplicates citation-derived targets by (path, startLine, endLine)` 테스트를 추가한다. mock report가 동일 file:line range를 두 번 언급할 때, `citations[]`는 두 항목을 유지하지만 `targets[]`는 한 항목으로 dedupe됨을 검증한다 (Edge case "report mentions a path multiple times").
+- [x] T003 [P] [US1] `tests/free-explore.test.mjs`에 `freeExplore exposes report citations and citation targets` 테스트를 추가한다. mock client가 file 인용 두 건이 포함된 Markdown report를 반환하도록 설정하고, 반환 객체의 `citations[]`가 `{type:'file_range', path, startLine, endLine}` 항목 두 개를 (raw 제외 deep-equal로) 포함하며, `targets[]`가 동일 path/line 정보를 `role: 'reference'`와 함께 두 항목으로 노출하는지 검증한다.
+- [x] T004 [P] [US1] `tests/free-explore.test.mjs`에 `freeExplore returns empty citations and targets when report has no citations` 테스트를 추가한다. mock report가 file:line 인용을 전혀 포함하지 않을 때 `citations`와 `targets` 모두 `[]`로 노출되며 키 자체가 존재함을 검증한다 (FR-005, SC-003 의 빈 인용 case).
+- [x] T005 [P] [US1] `tests/free-explore.test.mjs`에 `freeExploreV2 exposes the same citation shape with transcriptPath preserved` 테스트를 추가한다. V2 경로에서도 동일 fixture로 `citations[]` / `targets[]`가 노출되며 기존 `transcriptPath`가 여전히 string으로 살아 있는지 함께 검증한다 (V2 contract regression 가드).
+- [x] T006 [P] [US1] `tests/free-explore.test.mjs`에 `freeExplore deduplicates citation-derived targets by (path, startLine, endLine)` 테스트를 추가한다. mock report가 동일 file:line range를 두 번 언급할 때, `citations[]`는 두 항목을 유지하지만 `targets[]`는 한 항목으로 dedupe됨을 검증한다 (Edge case "report mentions a path multiple times").
 
 ### Implementation for User Story 1
 
-- [ ] T007 [US1] `src/explorer/runtime.mjs`의 `freeExplore` 종료부(critic 빌드 직후, return문 직전 — plan 기준 line 1889 근처)에서 `const citations = buildReportCitations(report);`, `const targets = buildReportCitationTargets(citations);`를 계산해 반환 객체에 추가한다. 반환 객체의 기존 필드(`report`, `filesRead`, `toolsUsed`, `stats`, `critic`, `searchCoverage`, `toolTrace`)는 이름·순서·타입 모두 그대로 유지하고, `report` 문자열은 어떤 경우에도 재가공하지 않는다 (SC-004).
-- [ ] T008 [US1] `src/explorer/runtime.mjs`의 `freeExploreV2` 종료부(plan 기준 line 2372 근처, max-output-recovery 분기를 모두 거쳐 `report`가 최종 확정된 직후)에서 동일하게 `buildReportCitations` / `buildReportCitationTargets`를 한 번만 호출해 반환 객체에 `citations`, `targets`를 추가한다. 중간 단계 report에서는 절대 계산하지 않는다 (V2 max-output-recovery 중 stale citation 방지 — plan Risks 표 참조). 기존 `transcriptPath` 필드는 그대로 보존한다.
+- [x] T007 [US1] `src/explorer/runtime.mjs`의 `freeExplore` 종료부(critic 빌드 직후, return문 직전 — plan 기준 line 1889 근처)에서 `const citations = buildReportCitations(report);`, `const targets = buildReportCitationTargets(citations);`를 계산해 반환 객체에 추가한다. 반환 객체의 기존 필드(`report`, `filesRead`, `toolsUsed`, `stats`, `critic`, `searchCoverage`, `toolTrace`)는 이름·순서·타입 모두 그대로 유지하고, `report` 문자열은 어떤 경우에도 재가공하지 않는다 (SC-004).
+- [x] T008 [US1] `src/explorer/runtime.mjs`의 `freeExploreV2` 종료부(plan 기준 line 2372 근처, max-output-recovery 분기를 모두 거쳐 `report`가 최종 확정된 직후)에서 동일하게 `buildReportCitations` / `buildReportCitationTargets`를 한 번만 호출해 반환 객체에 `citations`, `targets`를 추가한다. 중간 단계 report에서는 절대 계산하지 않는다 (V2 max-output-recovery 중 stale citation 방지 — plan Risks 표 참조). 기존 `transcriptPath` 필드는 그대로 보존한다.
 
 **Checkpoint**: 이 시점에서 US1 단위 테스트(T003–T006)가 모두 통과하면 in-process 호출자에 한해 report-mode 도구가 구조화된 인용을 노출한다. MCP 표면은 아직 검증되지 않았다.
 
@@ -77,15 +77,15 @@
 
 > **NOTE: 테스트는 구현보다 먼저 작성하고, 구현 전에 fail하는 것을 확인한 뒤 구현으로 진행한다.**
 
-- [ ] T009 [P] [US2] `tests/mcp-server.test.mjs`에 `explore returns Markdown text plus structured citations` 테스트를 추가한다. mock client가 file:line 인용 두 건을 포함하는 Markdown을 반환할 때, MCP envelope의 `content[0].text`가 mock Markdown과 byte-identical이며 `structuredContent.citations[]`가 file_range entry를, `structuredContent.targets[0].role === 'reference'`임을 동시에 검증한다 (SC-004 + FR-004).
-- [ ] T010 [P] [US2] `tests/mcp-server.test.mjs`에 `explore_v2 also exposes structured citations through structuredContent` 테스트를 추가한다. `name: 'explore_v2'` 요청에 대해서도 동일 shape이 노출됨을 검증한다.
-- [ ] T011 [P] [US2] `tests/mcp-server.test.mjs`에 `explore redacts deny-listed paths consistently in both surfaces` 테스트를 추가한다. mock client가 deny-listed 토큰(예: `.env.production`)을 포함하는 인용을 가진 Markdown을 반환할 때, `content[0].text`와 `structuredContent.citations[0].path`가 같은 redacted 문자열로 마스킹되는지 검증한다 (FR-006, Edge case "deny-listed citation path"). 동시에 plain path를 가진 다른 인용은 변경 없이 통과해야 한다.
-- [ ] T012 [P] [US2] `tests/mcp-server.test.mjs`에 `explore with empty-citation report exposes citations: [] in structuredContent` 테스트를 추가한다. citation을 전혀 포함하지 않는 Markdown fixture에서 `structuredContent.citations === []`와 `Array.isArray(structuredContent.targets) === true`가 동시에 성립함을 검증한다 (SC-003).
+- [x] T009 [P] [US2] `tests/mcp-server.test.mjs`에 `explore returns Markdown text plus structured citations` 테스트를 추가한다. mock client가 file:line 인용 두 건을 포함하는 Markdown을 반환할 때, MCP envelope의 `content[0].text`가 mock Markdown과 byte-identical이며 `structuredContent.citations[]`가 file_range entry를, `structuredContent.targets[0].role === 'reference'`임을 동시에 검증한다 (SC-004 + FR-004).
+- [x] T010 [P] [US2] `tests/mcp-server.test.mjs`에 `explore_v2 also exposes structured citations through structuredContent` 테스트를 추가한다. `name: 'explore_v2'` 요청에 대해서도 동일 shape이 노출됨을 검증한다.
+- [x] T011 [P] [US2] `tests/mcp-server.test.mjs`에 `explore redacts deny-listed paths consistently in both surfaces` 테스트를 추가한다. mock client가 deny-listed 토큰(예: `.env.production`)을 포함하는 인용을 가진 Markdown을 반환할 때, `content[0].text`와 `structuredContent.citations[0].path`가 같은 redacted 문자열로 마스킹되는지 검증한다 (FR-006, Edge case "deny-listed citation path"). 동시에 plain path를 가진 다른 인용은 변경 없이 통과해야 한다.
+- [x] T012 [P] [US2] `tests/mcp-server.test.mjs`에 `explore with empty-citation report exposes citations: [] in structuredContent` 테스트를 추가한다. citation을 전혀 포함하지 않는 Markdown fixture에서 `structuredContent.citations === []`와 `Array.isArray(structuredContent.targets) === true`가 동시에 성립함을 검증한다 (SC-003).
 
 ### Implementation for User Story 2
 
-- [ ] T013 [US2] `src/mcp/server.mjs`의 `callFreeExploreTool` / `callFreeExploreV2Tool`이 이미 `redactValue(result).value` 전체를 `structuredContent`로 반환하는지 확인한다 (plan 기준 line 674–696, 698–717). runtime이 US1에서 `citations` / `targets`를 새 키로 추가했으므로 별도 코드 수정 없이 자동 전파된다. 본 task는 두 핸들러의 현재 코드를 읽어 (i) `content[0].text`가 여전히 `safeResult.report`로 채워지는지, (ii) `structuredContent` 직렬화 경로에 새 필드가 손실되거나 필터링되지 않는지, (iii) `redactValue` 호출이 반환 직전에 1회만 일어나는지를 확인하는 검증 단계이다. 코드 변경이 필요한 경우에만 최소한의 패치(예: structuredContent 화이트리스트가 있다면 `citations` / `targets` 추가)를 가한다.
-- [ ] T014 [US2] `src/mcp/server.mjs`의 `explore` 라우터(plan에서 언급된 `shouldUseV2ForExplore` 분기)가 V1/V2 어느 쪽으로 가도 동일 envelope shape이 유지됨을 확인한다. 분기 코드의 시그니처와 envelope 직렬화 경로를 수정하지 않고, V1 결과·V2 결과가 모두 동일한 `citations[]` / `targets[]` 키를 갖는지 점검만 수행한다. 라우터 자체는 본 feature의 변경 범위 밖이다.
+- [x] T013 [US2] `src/mcp/server.mjs`의 `callFreeExploreTool` / `callFreeExploreV2Tool`이 이미 `redactValue(result).value` 전체를 `structuredContent`로 반환하는지 확인한다 (plan 기준 line 674–696, 698–717). runtime이 US1에서 `citations` / `targets`를 새 키로 추가했으므로 별도 코드 수정 없이 자동 전파된다. 본 task는 두 핸들러의 현재 코드를 읽어 (i) `content[0].text`가 여전히 `safeResult.report`로 채워지는지, (ii) `structuredContent` 직렬화 경로에 새 필드가 손실되거나 필터링되지 않는지, (iii) `redactValue` 호출이 반환 직전에 1회만 일어나는지를 확인하는 검증 단계이다. 코드 변경이 필요한 경우에만 최소한의 패치(예: structuredContent 화이트리스트가 있다면 `citations` / `targets` 추가)를 가한다.
+- [x] T014 [US2] `src/mcp/server.mjs`의 `explore` 라우터(plan에서 언급된 `shouldUseV2ForExplore` 분기)가 V1/V2 어느 쪽으로 가도 동일 envelope shape이 유지됨을 확인한다. 분기 코드의 시그니처와 envelope 직렬화 경로를 수정하지 않고, V1 결과·V2 결과가 모두 동일한 `citations[]` / `targets[]` 키를 갖는지 점검만 수행한다. 라우터 자체는 본 feature의 변경 범위 밖이다.
 
 **Checkpoint**: 이 시점에서 US1·US2 전용 테스트(T003–T012)가 모두 통과하면, in-process와 MCP 양쪽 표면 모두에서 구조화된 인용이 노출되고 redaction 정책이 일관되게 적용된다. MVP 완료.
 
@@ -95,9 +95,9 @@
 
 **Purpose**: 두 user story가 완성된 뒤, 전체 회귀와 edge case 통합 검증을 수행한다. 본 plan의 Constitution Check가 PASS이므로 README/DESIGN 같은 산문 동기화는 본 task 범위 밖(Task 9)이다.
 
-- [ ] T015 저장소 루트에서 `npm test`를 한 번 실행해 전체 스위트가 0 failure로 종료되는지 확인한다 (AGENTS.md 테스트 가드). 신규 추가된 T003–T012가 모두 green이며, 기존 `tests/integrations.test.mjs` snapshot이나 `tests/mcp-server.test.mjs`의 기존 단정이 회귀 없이 통과하는지 검증한다.
-- [ ] T016 `explore_repo` compact 응답이 본 feature의 변경으로 의도치 않게 `citations` / `targets`를 노출하지 않는지 회귀 검사한다. `tests/mcp-server.test.mjs`의 기존 compact response 단정(또는 필요 시 새 한 줄 단정)으로, `name: 'explore_repo'` 호출의 `structuredContent`에 `citations` 키가 등장하지 않음을 확인한다 (plan Risks 표 "Compact `explore_repo` 응답에 누수" 가드).
-- [ ] T017 SC-004(Markdown byte-identical) 보강 확인: 동일 mock report fixture에 대해 본 변경 전·후 `content[0].text`가 동일한지 확인할 수 있도록, T009의 단정이 mock Markdown 원본과 byte-identical 비교(예: `assert.strictEqual`)를 사용하는지 점검한다. 필요 시 단정을 강화한다.
+- [x] T015 저장소 루트에서 `npm test`를 한 번 실행해 전체 스위트가 0 failure로 종료되는지 확인한다 (AGENTS.md 테스트 가드). 신규 추가된 T003–T012가 모두 green이며, 기존 `tests/integrations.test.mjs` snapshot이나 `tests/mcp-server.test.mjs`의 기존 단정이 회귀 없이 통과하는지 검증한다.
+- [x] T016 `explore_repo` compact 응답이 본 feature의 변경으로 의도치 않게 `citations` / `targets`를 노출하지 않는지 회귀 검사한다. `tests/mcp-server.test.mjs`의 기존 compact response 단정(또는 필요 시 새 한 줄 단정)으로, `name: 'explore_repo'` 호출의 `structuredContent`에 `citations` 키가 등장하지 않음을 확인한다 (plan Risks 표 "Compact `explore_repo` 응답에 누수" 가드).
+- [x] T017 SC-004(Markdown byte-identical) 보강 확인: 동일 mock report fixture에 대해 본 변경 전·후 `content[0].text`가 동일한지 확인할 수 있도록, T009의 단정이 mock Markdown 원본과 byte-identical 비교(예: `assert.strictEqual`)를 사용하는지 점검한다. 필요 시 단정을 강화한다.
 
 ---
 

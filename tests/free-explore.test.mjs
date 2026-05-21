@@ -8,12 +8,34 @@ import { ExplorerRuntime } from '../src/explorer/runtime.mjs';
 
 async function makeRepoFixture() {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-freeexplore-'));
-  await fs.mkdir(path.join(root, 'src'), { recursive: true });
+  await fs.mkdir(path.join(root, 'src', 'routes'), { recursive: true });
   await fs.writeFile(
     path.join(root, 'src', 'auth.js'),
     'export function requireAuth(req, res, next) {\n  if (!req.user) throw new Error("unauthorized");\n  next();\n}\n',
   );
+  await fs.writeFile(
+    path.join(root, 'src', 'routes', 'user.js'),
+    'import { requireAuth } from "../auth.js";\nexport function registerUserRoutes(app) {\n  app.get("/users/me", requireAuth);\n}\n',
+  );
   return root;
+}
+
+function withEnvPatch(patch, fn) {
+  const previous = new Map();
+  for (const [key, value] of Object.entries(patch)) {
+    previous.set(key, process.env[key]);
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+
+  return Promise.resolve()
+    .then(fn)
+    .finally(() => {
+      for (const [key, value] of previous.entries()) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    });
 }
 
 // --- Phase 8: freeExplore Stabilization Tests ---
@@ -238,4 +260,155 @@ test('freeExplore stops after repeated unknown tool errors', async () => {
   assert.equal(result.stats.turns, 3, 'circuit breaker fires at the configured threshold');
   assert.equal(result.stats.toolCalls, 3, 'unknown tool calls are counted and returned as validation errors');
   assert.equal(client.calls, 4, 'three tool-loop calls plus one finalization call');
+});
+
+test('freeExplore exposes report citations and citation targets', async () => {
+  class CitationReportClient {
+    constructor() { this.model = 'test'; }
+    async createChatCompletion() {
+      return {
+        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+        message: {
+          content: 'Summary cites `src/auth.js:L1-L3` and `src/routes/user.js:L2`.',
+          toolCalls: [],
+        },
+      };
+    }
+  }
+
+  const root = await makeRepoFixture();
+  const runtime = new ExplorerRuntime({ chatClient: new CitationReportClient() });
+  const result = await runtime.freeExplore({
+    prompt: 'explain auth flow with citations',
+    repo_root: root,
+    thoroughness: 'quick',
+  });
+
+  assert.deepEqual(result.citations.map(item => ({
+    type: item.type,
+    path: item.path,
+    startLine: item.startLine,
+    endLine: item.endLine,
+  })), [
+    { type: 'file_range', path: 'src/auth.js', startLine: 1, endLine: 3 },
+    { type: 'file_range', path: 'src/routes/user.js', startLine: 2, endLine: 2 },
+  ]);
+  assert.deepEqual(result.targets.map(item => ({
+    path: item.path,
+    startLine: item.startLine,
+    endLine: item.endLine,
+    role: item.role,
+  })), [
+    { path: 'src/auth.js', startLine: 1, endLine: 3, role: 'reference' },
+    { path: 'src/routes/user.js', startLine: 2, endLine: 2, role: 'reference' },
+  ]);
+});
+
+test('freeExplore returns empty citations and targets when report has no citations', async () => {
+  class PlainReportClient {
+    constructor() { this.model = 'test'; }
+    async createChatCompletion() {
+      return {
+        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+        message: {
+          content: 'No file references here.',
+          toolCalls: [],
+        },
+      };
+    }
+  }
+
+  const root = await makeRepoFixture();
+  const runtime = new ExplorerRuntime({ chatClient: new PlainReportClient() });
+  const result = await runtime.freeExplore({
+    prompt: 'write a report without citations',
+    repo_root: root,
+    thoroughness: 'quick',
+  });
+
+  assert.deepEqual(result.citations, []);
+  assert.deepEqual(result.targets, []);
+});
+
+test('freeExploreV2 exposes the same citation shape with transcriptPath preserved', async () => {
+  class CitationReportClient {
+    constructor() { this.model = 'test'; }
+    async createChatCompletion() {
+      return {
+        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+        finishReason: 'stop',
+        message: {
+          content: 'Summary cites `src/auth.js:L1-L3` and `src/routes/user.js:L2`.',
+          toolCalls: [],
+        },
+      };
+    }
+  }
+
+  const root = await makeRepoFixture();
+  const transcriptDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-freeexplore-transcripts-'));
+  await withEnvPatch({
+    CEREBRAS_EXPLORER_TRANSCRIPT: 'true',
+    CEREBRAS_EXPLORER_TRANSCRIPT_DIR: transcriptDir,
+  }, async () => {
+    const runtime = new ExplorerRuntime({ chatClient: new CitationReportClient() });
+    const result = await runtime.freeExploreV2({
+      prompt: 'explain auth flow with citations',
+      repo_root: root,
+      thoroughness: 'quick',
+    });
+
+    assert.deepEqual(result.citations.map(item => ({
+      type: item.type,
+      path: item.path,
+      startLine: item.startLine,
+      endLine: item.endLine,
+    })), [
+      { type: 'file_range', path: 'src/auth.js', startLine: 1, endLine: 3 },
+      { type: 'file_range', path: 'src/routes/user.js', startLine: 2, endLine: 2 },
+    ]);
+    assert.deepEqual(result.targets.map(item => ({
+      path: item.path,
+      startLine: item.startLine,
+      endLine: item.endLine,
+      role: item.role,
+    })), [
+      { path: 'src/auth.js', startLine: 1, endLine: 3, role: 'reference' },
+      { path: 'src/routes/user.js', startLine: 2, endLine: 2, role: 'reference' },
+    ]);
+    assert.equal(typeof result.transcriptPath, 'string');
+  });
+});
+
+test('freeExplore deduplicates citation-derived targets by (path, startLine, endLine)', async () => {
+  class DuplicateCitationClient {
+    constructor() { this.model = 'test'; }
+    async createChatCompletion() {
+      return {
+        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+        message: {
+          content: 'First `src/auth.js:L1-L3`, then repeated `src/auth.js:L1-L3`.',
+          toolCalls: [],
+        },
+      };
+    }
+  }
+
+  const root = await makeRepoFixture();
+  const runtime = new ExplorerRuntime({ chatClient: new DuplicateCitationClient() });
+  const result = await runtime.freeExplore({
+    prompt: 'explain auth flow with repeated citations',
+    repo_root: root,
+    thoroughness: 'quick',
+  });
+
+  assert.equal(result.citations.length, 2);
+  assert.deepEqual(result.targets.map(item => ({
+    path: item.path,
+    startLine: item.startLine,
+    endLine: item.endLine,
+    role: item.role,
+  })), [
+    { path: 'src/auth.js', startLine: 1, endLine: 3, role: 'reference' },
+  ]);
 });

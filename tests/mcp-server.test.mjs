@@ -115,6 +115,24 @@ class MockChatClient {
   }
 }
 
+class MarkdownReportClient {
+  constructor(report) {
+    this.model = 'mock';
+    this.report = report;
+  }
+
+  async createChatCompletion() {
+    return {
+      usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+      finishReason: 'stop',
+      message: {
+        content: this.report,
+        toolCalls: [],
+      },
+    };
+  }
+}
+
 function applyEnvPatch(patch) {
   const previous = new Map();
   for (const [key, value] of Object.entries(patch)) {
@@ -232,6 +250,7 @@ test('MCP request handler exposes explore_repo and returns structuredContent', a
   assert.match(called.structuredContent.directAnswer, /requireAuth/);
   assert.equal(called.structuredContent.answer, undefined);
   assert.equal(called.structuredContent.candidatePaths, undefined);
+  assert.equal(called.structuredContent.citations, undefined);
   assert.equal(called.structuredContent.stats, undefined);
   assert.equal(called.structuredContent.status.verification, 'verified');
   assert.equal(called.structuredContent.targets.length, 2);
@@ -311,6 +330,141 @@ test('MCP request handler exposes fallback session when supplied session is exha
   assert.notEqual(second.structuredContent.session.id, exhaustedId);
   assert.equal(second.structuredContent.session.id, second.structuredContent.sessionId);
   assert.equal(second.structuredContent.session.remainingCalls, 0);
+});
+
+test('explore returns Markdown text plus structured citations', async () => {
+  const repoRoot = await makeRepoFixture();
+  const report = 'Summary cites `src/auth.js:L1-L3` and `src/routes/user.js:L2`.';
+  const { handleRequest } = createMcpRequestHandler({
+    runtimeOptions: {
+      chatClient: new MarkdownReportClient(report),
+    },
+  });
+
+  const called = await handleRequest({
+    jsonrpc: '2.0',
+    id: 30,
+    method: 'tools/call',
+    params: {
+      name: 'explore',
+      arguments: {
+        prompt: 'explain auth flow with citations',
+        repo_root: repoRoot,
+        thoroughness: 'quick',
+      },
+    },
+  });
+
+  assert.equal(called.content[0].text, report);
+  assert.deepEqual(called.structuredContent.citations.map(item => ({
+    type: item.type,
+    path: item.path,
+    startLine: item.startLine,
+    endLine: item.endLine,
+  })), [
+    { type: 'file_range', path: 'src/auth.js', startLine: 1, endLine: 3 },
+    { type: 'file_range', path: 'src/routes/user.js', startLine: 2, endLine: 2 },
+  ]);
+  assert.equal(called.structuredContent.targets[0].role, 'reference');
+});
+
+test('explore_v2 also exposes structured citations through structuredContent', async () => {
+  const repoRoot = await makeRepoFixture();
+  const report = 'Summary cites `src/auth.js:L1-L3` and `src/routes/user.js:L2`.';
+  const restore = applyEnvPatch({ CEREBRAS_EXPLORER_ENABLE_EXPLORE_V2: 'true' });
+  try {
+    const { handleRequest } = createMcpRequestHandler({
+      runtimeOptions: {
+        chatClient: new MarkdownReportClient(report),
+      },
+    });
+
+    const called = await handleRequest({
+      jsonrpc: '2.0',
+      id: 31,
+      method: 'tools/call',
+      params: {
+        name: 'explore_v2',
+        arguments: {
+          prompt: 'explain auth flow with citations',
+          repo_root: repoRoot,
+          thoroughness: 'quick',
+        },
+      },
+    });
+
+    assert.equal(called.content[0].text, report);
+    assert.deepEqual(called.structuredContent.citations.map(item => ({
+      type: item.type,
+      path: item.path,
+      startLine: item.startLine,
+      endLine: item.endLine,
+    })), [
+      { type: 'file_range', path: 'src/auth.js', startLine: 1, endLine: 3 },
+      { type: 'file_range', path: 'src/routes/user.js', startLine: 2, endLine: 2 },
+    ]);
+    assert.equal(called.structuredContent.targets[0].role, 'reference');
+  } finally {
+    restore();
+  }
+});
+
+test('explore redacts deny-listed paths consistently in both surfaces', async () => {
+  const repoRoot = await makeRepoFixture();
+  const report = 'Secret `secrets/.env.production:L1` and public `src/auth.js:L1`.';
+  const { handleRequest } = createMcpRequestHandler({
+    runtimeOptions: {
+      chatClient: new MarkdownReportClient(report),
+    },
+  });
+
+  const called = await handleRequest({
+    jsonrpc: '2.0',
+    id: 32,
+    method: 'tools/call',
+    params: {
+      name: 'explore',
+      arguments: {
+        prompt: 'explain auth flow with secret citation',
+        repo_root: repoRoot,
+        thoroughness: 'quick',
+      },
+    },
+  });
+
+  assert.doesNotMatch(called.content[0].text, /secrets\/\.env\.production/);
+  assert.match(called.content[0].text, /\[REDACTED:secret-path\]/);
+  assert.equal(called.structuredContent.citations[0].path, '[REDACTED:secret-path]');
+  assert.equal(called.structuredContent.citations[1].path, 'src/auth.js');
+});
+
+test('explore with empty-citation report exposes citations: [] in structuredContent', async () => {
+  const repoRoot = await makeRepoFixture();
+  const report = 'No file references here.';
+  const { handleRequest } = createMcpRequestHandler({
+    runtimeOptions: {
+      chatClient: new MarkdownReportClient(report),
+    },
+  });
+
+  const called = await handleRequest({
+    jsonrpc: '2.0',
+    id: 33,
+    method: 'tools/call',
+    params: {
+      name: 'explore',
+      arguments: {
+        prompt: 'write a report without citations',
+        repo_root: repoRoot,
+        thoroughness: 'quick',
+      },
+    },
+  });
+
+  assert.equal(called.content[0].text, report);
+  assert.deepEqual(called.structuredContent.citations, []);
+  assert.equal(Array.isArray(called.structuredContent.targets), true);
+  assert.deepEqual(called.structuredContent.targets, []);
 });
 
 test('collect_evidence wrapper uses evidence verification mode instead of edit regex fallback', async () => {

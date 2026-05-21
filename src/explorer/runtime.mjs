@@ -46,6 +46,8 @@ import {
 import {
   buildReportCritic,
   deriveTaskKindFromHints,
+  extractGitCitations,
+  extractReportCitations,
   runDeterministicCriticPass,
 } from './critic.mjs';
 import { createChatClient } from './providers/index.mjs';
@@ -467,6 +469,58 @@ function buildSearchCoverage(stats = {}) {
     warnings,
     summary,
   };
+}
+
+function buildReportCitations(report) {
+  const fileCitations = extractReportCitations(report).map(item => ({
+    type: 'file_range',
+    path: item.path,
+    startLine: item.startLine,
+    endLine: item.endLine,
+    raw: item.raw,
+  }));
+
+  const gitCitations = extractGitCitations(report).map(item => {
+    const citation = {
+      type: item.type ?? 'git_commit',
+      raw: item.raw,
+    };
+    if (item.path) citation.path = item.path;
+    if (Number.isInteger(item.startLine)) citation.startLine = item.startLine;
+    if (Number.isInteger(item.endLine)) citation.endLine = item.endLine;
+    if (Number.isInteger(item.line)) {
+      citation.startLine = item.line;
+      citation.endLine = item.line;
+    }
+    if (item.sha) citation.sha = item.sha;
+    return citation;
+  });
+
+  return [...fileCitations, ...gitCitations];
+}
+
+function buildReportCitationTargets(citations = []) {
+  const targets = [];
+  const seen = new Set();
+
+  for (const citation of citations) {
+    if (!citation?.path) continue;
+    const key = `${citation.path}:${citation.startLine ?? ''}:${citation.endLine ?? ''}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    const target = {
+      path: citation.path,
+      role: 'reference',
+      reason: 'Markdown report citation',
+      evidenceRefs: [],
+    };
+    if (Number.isInteger(citation.startLine)) target.startLine = citation.startLine;
+    if (Number.isInteger(citation.endLine)) target.endLine = citation.endLine;
+    targets.push(target);
+  }
+
+  return targets;
 }
 
 function buildFailure(result, stats) {
@@ -1878,6 +1932,8 @@ export class ExplorerRuntime {
     Object.assign(stats, globalRepoCache.stats());
     const reportFilesRead = [...filesRead];
     const critic = buildReportCritic({ report, filesRead: reportFilesRead, stats });
+    const citations = buildReportCitations(report);
+    const targets = buildReportCitationTargets(citations);
 
     // Update session with report summary (mode-neutral)
     if (sessionStore && sessionId) {
@@ -1897,6 +1953,8 @@ export class ExplorerRuntime {
 
     return {
       report,
+      citations,
+      targets,
       filesRead: reportFilesRead,
       toolsUsed: [...toolsUsed],
       stats,
@@ -2358,6 +2416,8 @@ export class ExplorerRuntime {
     Object.assign(stats, globalRepoCache.stats());
     const reportFilesRead = [...filesRead];
     const critic = buildReportCritic({ report, filesRead: reportFilesRead, stats });
+    const citations = buildReportCitations(report);
+    const targets = buildReportCitationTargets(citations);
 
     // Finalize transcript
     await transcript.finalize(stats);
@@ -2380,6 +2440,8 @@ export class ExplorerRuntime {
 
     return {
       report,
+      citations,
+      targets,
       filesRead: reportFilesRead,
       toolsUsed: [...toolsUsed],
       stats,
