@@ -763,6 +763,131 @@ test('Phase 1 — freeExploreV2 circuit breaker trips after three all-error turn
   );
 });
 
+test('freeExploreV2 labels truncated tool results as incomplete before synthesis', async () => {
+  class TruncationClient {
+    constructor() {
+      this.model = 'zai-glm-4.7';
+      this.calls = 0;
+      this.snapshots = [];
+    }
+
+    async createChatCompletion({ messages }) {
+      this.calls += 1;
+      this.snapshots.push(cloneMessages(messages));
+
+      if (this.calls === 1) {
+        return {
+          usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+          message: {
+            content: null,
+            toolCalls: [
+              {
+                id: 'read-large',
+                function: {
+                  name: 'repo_read_file',
+                  arguments: JSON.stringify({ path: 'src/large.js', startLine: 1, endLine: 700 }),
+                },
+              },
+            ],
+          },
+        };
+      }
+
+      return {
+        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+        finishReason: 'stop',
+        message: {
+          content: 'Large report cites `src/large.js:L1-L2`.',
+          toolCalls: [],
+        },
+      };
+    }
+  }
+
+  class CompleteResultClient {
+    constructor() {
+      this.model = 'zai-glm-4.7';
+      this.calls = 0;
+    }
+
+    async createChatCompletion() {
+      this.calls += 1;
+
+      if (this.calls === 1) {
+        return {
+          usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+          message: {
+            content: null,
+            toolCalls: [
+              {
+                id: 'read-small',
+                function: {
+                  name: 'repo_read_file',
+                  arguments: JSON.stringify({ path: 'src/auth.js', startLine: 1, endLine: 4 }),
+                },
+              },
+            ],
+          },
+        };
+      }
+
+      return {
+        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+        finishReason: 'stop',
+        message: {
+          content: 'Small report cites `src/auth.js:L1-L2`.',
+          toolCalls: [],
+        },
+      };
+    }
+  }
+
+  const root = await makeRepoFixture();
+  const largeSource = Array.from(
+    { length: 700 },
+    (_, index) => `export const value${index} = '${'x'.repeat(60)}';`,
+  ).join('\n');
+  await fs.writeFile(path.join(root, 'src', 'large.js'), largeSource);
+
+  const client = new TruncationClient();
+  const runtime = new ExplorerRuntime({ chatClient: client });
+  const result = await runtime.freeExploreV2({
+    prompt: 'inspect a large file and produce a cited report',
+    repo_root: root,
+    thoroughness: 'quick',
+  });
+
+  const secondTurnMessages = client.snapshots[1] ?? [];
+  const toolMessage = secondTurnMessages.find(message => message.role === 'tool');
+  assert.ok(toolMessage, 'second model call must include the truncated tool result');
+  assert.match(toolMessage.content, /Result was truncated before model synthesis/);
+  const legacyFullInspectionPattern = new RegExp(['Full data', 'was inspected'].join(' '));
+  assert.doesNotMatch(toolMessage.content, legacyFullInspectionPattern);
+  assert.equal(result.searchCoverage.toolResultsTruncated, 1);
+  assert.ok(
+    result.searchCoverage.warnings.some(warning => /expected evidence is missing/i.test(warning)),
+    'searchCoverage warning must tell the parent agent how to recover missing evidence',
+  );
+  const criticTruncationWarning = result.critic.warnings.find(
+    warning => warning.type === 'truncated_tool_results',
+  );
+  assert.ok(criticTruncationWarning, 'critic must report truncated tool results');
+  assert.match(criticTruncationWarning.message, /expected evidence is missing/i);
+
+  const completeRuntime = new ExplorerRuntime({ chatClient: new CompleteResultClient() });
+  const completeResult = await completeRuntime.freeExploreV2({
+    prompt: 'inspect a small file and produce a cited report',
+    repo_root: root,
+    thoroughness: 'quick',
+  });
+  assert.equal(completeResult.searchCoverage.toolResultsTruncated, 0);
+  assert.equal(
+    completeResult.searchCoverage.warnings.some(warning => /expected evidence is missing/i.test(warning)),
+    false,
+    'complete tool results must not emit truncation recovery warnings',
+  );
+});
+
 test('freeExploreV2 searchCoverage counts non-read tool calls', async () => {
   class CoverageFreeExploreV2Client {
     constructor() {

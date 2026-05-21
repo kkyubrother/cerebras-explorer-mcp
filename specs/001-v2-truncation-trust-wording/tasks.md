@@ -36,7 +36,7 @@ _Phase 1 skipped — no new setup required._
 
 **Purpose**: US1과 US2가 모두 의존하는 단일 진실 공급원(canonical truncation marker)을 먼저 도입한다. 이 마커가 없으면 envelope 문구·V2 카운터·searchCoverage 경고가 일관된 기준으로 매칭될 수 없으므로 양쪽 user story의 prerequisite다.
 
-- [ ] T001 [P] `src/explorer/runtime.mjs`의 `applyToolResultCharBudget()` 함수 바로 위(module 내부 스코프)에 `const TRUNCATED_TOOL_RESULT_MARKER = '[truncated-tool-result-before-synthesis]';` 상수를 추가한다. 공개 export 없이 동일 파일 내 호출자만 사용 가능하도록 module-local로 유지한다 (plan.md Implementation Outline 1, Risks "마커 기반 카운터 false-negative" 항목 참조).
+- [x] T001 [P] `src/explorer/runtime.mjs`의 `applyToolResultCharBudget()` 함수 바로 위(module 내부 스코프)에 `const TRUNCATED_TOOL_RESULT_MARKER = '[truncated-tool-result-before-synthesis]';` 상수를 추가한다. 공개 export 없이 동일 파일 내 호출자만 사용 가능하도록 module-local로 유지한다 (plan.md Implementation Outline 1, Risks "마커 기반 카운터 false-negative" 항목 참조).
 
 **Checkpoint**: Foundation 준비 완료 — US1, US2 작업을 (이론적으로) 병렬 진행 가능. 단, 동일 파일(`src/explorer/runtime.mjs`)을 모두 건드리므로 실무상 순차 진행 권장.
 
@@ -52,13 +52,13 @@ _Phase 1 skipped — no new setup required._
 
 > 본 feature는 spec FR-007이 회귀 테스트를 명시적으로 요구하므로 테스트를 먼저 작성하고 실패시킨 뒤 구현에 진입한다.
 
-- [ ] T002 [US1] `tests/runtime.mock.test.mjs`에 회귀 테스트 케이스 `freeExploreV2 labels truncated tool results as incomplete before synthesis`를 추가한다. fixture는 약 700행 분량의 대용량 텍스트 파일을 임시로 생성해 단일 tool call로 읽게 만들어 per-tool 문자 예산을 강제로 초과시키고, 다음을 한 블록에서 단언한다: (a) 두 번째 턴 tool 메시지에 정규식 `/Result was truncated before model synthesis/`가 매칭됨, (b) 동일 메시지에 `"Full data was inspected"` 부분 문자열이 포함되지 **않음**, (c) `searchCoverage.toolResultsTruncated === 1` (spec SC-003). 이 시점에서 테스트는 RED여야 한다 (plan.md Test Strategy "신규 단위 테스트 (1건)" 참조). US2의 추가 단언(T005)은 같은 테스트에 이어 붙이므로 본 task에서는 envelope·카운터까지만 검증한다.
+- [x] T002 [US1] `tests/runtime.mock.test.mjs`에 회귀 테스트 케이스 `freeExploreV2 labels truncated tool results as incomplete before synthesis`를 추가한다. fixture는 약 700행 분량의 대용량 텍스트 파일을 임시로 생성해 단일 tool call로 읽게 만들어 per-tool 문자 예산을 강제로 초과시키고, 다음을 한 블록에서 단언한다: (a) 두 번째 턴 tool 메시지에 정규식 `/Result was truncated before model synthesis/`가 매칭됨, (b) 동일 메시지에 `"Full data was inspected"` 부분 문자열이 포함되지 **않음**, (c) `searchCoverage.toolResultsTruncated === 1` (spec SC-003). 이 시점에서 테스트는 RED여야 한다 (plan.md Test Strategy "신규 단위 테스트 (1건)" 참조). US2의 추가 단언(T005)은 같은 테스트에 이어 붙이므로 본 task에서는 envelope·카운터까지만 검증한다.
 
 ### Implementation for User Story 1
 
-- [ ] T003 [US1] `src/explorer/runtime.mjs::applyToolResultCharBudget()`의 반환 문자열 분기를 교체한다. 기존의 "...Full data was inspected; key content preserved above" 문구를 제거하고, T001에서 도입한 `TRUNCATED_TOOL_RESULT_MARKER`와 함께 정확히 `Result was truncated before model synthesis; re-run with a narrower query or read specific ranges if expected evidence is missing.` 문장이 envelope에 포함되도록 한다. preview slice 길이는 새 마커 + 메시지 길이를 감안해 `budget - 180` 부근으로 조정한다 (plan.md Implementation Outline 2). redaction → JSON.stringify → 절단 순서는 보존한다 (plan.md Risks "redaction 순서 회귀").
+- [x] T003 [US1] `src/explorer/runtime.mjs::applyToolResultCharBudget()`의 반환 문자열 분기를 교체한다. 기존의 "...Full data was inspected; key content preserved above" 문구를 제거하고, T001에서 도입한 `TRUNCATED_TOOL_RESULT_MARKER`와 함께 정확히 `Result was truncated before model synthesis; re-run with a narrower query or read specific ranges if expected evidence is missing.` 문장이 envelope에 포함되도록 한다. preview slice 길이는 새 마커 + 메시지 길이를 감안해 `budget - 180` 부근으로 조정한다 (plan.md Implementation Outline 2). redaction → JSON.stringify → 절단 순서는 보존한다 (plan.md Risks "redaction 순서 회귀").
 
-- [ ] T004 [US1] `src/explorer/runtime.mjs`의 `freeExploreV2` 루프(plan.md에 따르면 2188행 인근)에서 truncation 카운터를 계산하는 `serialized.includes('[truncated:')` 휴리스틱을 `serialized.includes(TRUNCATED_TOOL_RESULT_MARKER)` 호출로 교체한다. V1(`freeExplore`) 경로가 동일 카운터를 별도로 읽는다면 동일하게 마커 기반으로 통일한다. FR-006(카운터 불변)을 깨지 않도록 1 envelope당 1 증가 의미를 유지한다.
+- [x] T004 [US1] `src/explorer/runtime.mjs`의 `freeExploreV2` 루프(plan.md에 따르면 2188행 인근)에서 truncation 카운터를 계산하는 `serialized.includes('[truncated:')` 휴리스틱을 `serialized.includes(TRUNCATED_TOOL_RESULT_MARKER)` 호출로 교체한다. V1(`freeExplore`) 경로가 동일 카운터를 별도로 읽는다면 동일하게 마커 기반으로 통일한다. FR-006(카운터 불변)을 깨지 않도록 1 envelope당 1 증가 의미를 유지한다.
 
 **Checkpoint**: US1 단독 검증 — T002 테스트가 GREEN이 되고, `npm test`에서 `runtime.mock.test.mjs`만 단독 실행해도 통과해야 한다. envelope 문구·V2 카운터 측면에서 US1이 독립적으로 배포 가능한 상태.
 
@@ -72,11 +72,11 @@ _Phase 1 skipped — no new setup required._
 
 ### Tests for User Story 2 (RED first)
 
-- [ ] T005 [US2] `tests/runtime.mock.test.mjs`의 T002 테스트 블록에 단언 두 가지를 추가한다: (a) `searchCoverage.warnings` 중 적어도 하나가 정규식 `/expected evidence is missing/i`에 매칭됨 (spec Acceptance Scenario 1 of US2, SC-002), (b) 절단이 발생하지 않는 보조 fixture(또는 동일 fixture의 비절단 경로)에서 같은 정규식에 매칭되는 warning이 **존재하지 않음** (spec Acceptance Scenario 2 of US2, FR-005). 본 단언은 T002에 이어 붙이므로 별도 테스트 함수를 만들 필요는 없으나, 비절단 케이스가 같은 파일에 부재하다면 동일 케이스 내에서 절단 전/후를 분리해 검증한다. 이 시점에서 단언은 RED여야 한다.
+- [x] T005 [US2] `tests/runtime.mock.test.mjs`의 T002 테스트 블록에 단언 두 가지를 추가한다: (a) `searchCoverage.warnings` 중 적어도 하나가 정규식 `/expected evidence is missing/i`에 매칭됨 (spec Acceptance Scenario 1 of US2, SC-002), (b) 절단이 발생하지 않는 보조 fixture(또는 동일 fixture의 비절단 경로)에서 같은 정규식에 매칭되는 warning이 **존재하지 않음** (spec Acceptance Scenario 2 of US2, FR-005). 본 단언은 T002에 이어 붙이므로 별도 테스트 함수를 만들 필요는 없으나, 비절단 케이스가 같은 파일에 부재하다면 동일 케이스 내에서 절단 전/후를 분리해 검증한다. 이 시점에서 단언은 RED여야 한다.
 
 ### Implementation for User Story 2
 
-- [ ] T006 [US2] `src/explorer/runtime.mjs::buildSearchCoverage()`(plan.md에 따르면 443행 인근)의 truncation warning 문자열을 교체한다. 기존 `"N tool result(s) were truncated before final synthesis."`(또는 그에 준하는 문구)를 `"N tool result(s) were truncated before model synthesis; re-run with a narrower query or read specific ranges if expected evidence is missing."`로 교체해 envelope 메시지(T003)와 동일한 복구 지침을 노출한다. 절단 카운트가 0일 때 warning을 emit하지 않는 기존 분기는 그대로 유지한다 (FR-005). pluralization 규칙도 기존 동작을 보존한다 (spec Edge Cases 두 번째 항목).
+- [x] T006 [US2] `src/explorer/runtime.mjs::buildSearchCoverage()`(plan.md에 따르면 443행 인근)의 truncation warning 문자열을 교체한다. 기존 `"N tool result(s) were truncated before final synthesis."`(또는 그에 준하는 문구)를 `"N tool result(s) were truncated before model synthesis; re-run with a narrower query or read specific ranges if expected evidence is missing."`로 교체해 envelope 메시지(T003)와 동일한 복구 지침을 노출한다. 절단 카운트가 0일 때 warning을 emit하지 않는 기존 분기는 그대로 유지한다 (FR-005). pluralization 규칙도 기존 동작을 보존한다 (spec Edge Cases 두 번째 항목).
 
 **Checkpoint**: US2 단독 검증 — T005의 추가 단언이 GREEN이 되고 envelope 메시지(T003)와 warning 텍스트(T006) 양쪽에서 동일한 복구 지침을 한 fixture로 한 번에 확인 가능. US1·US2 모두 독립 동작.
 
@@ -86,13 +86,13 @@ _Phase 1 skipped — no new setup required._
 
 **Purpose**: 옛 문구의 잔존 0건 확인, 기존 스냅샷·prose-drift 가드와의 충돌 점검, 전체 테스트 회귀 검증.
 
-- [ ] T007 [P] 저장소 루트에서 `git grep "Full data was inspected"` 및 `git grep "key content preserved above"`를 실행해 매칭 0건임을 확인한다 (spec SC-001 "0% contain the legacy wording", plan.md Risks "캐시 / transcript 재생과 옛 문구의 잔존" 항목). 매칭이 남아 있으면 동일 PR에서 제거한다.
+- [x] T007 [P] 저장소 루트에서 `git grep "Full data was inspected"` 및 `git grep "key content preserved above"`를 실행해 매칭 0건임을 확인한다 (spec SC-001 "0% contain the legacy wording", plan.md Risks "캐시 / transcript 재생과 옛 문구의 잔존" 항목). 매칭이 남아 있으면 동일 PR에서 제거한다.
 
-- [ ] T008 [P] 저장소 루트에서 `git grep "before final synthesis"`로 `buildSearchCoverage()` 외에 옛 warning 문구가 잔존하지 않는지 확인한다 (FR-004 정렬). 매칭이 남아 있으면 본 task 내에서 제거한다.
+- [x] T008 [P] 저장소 루트에서 `git grep "before final synthesis"`로 `buildSearchCoverage()` 외에 옛 warning 문구가 잔존하지 않는지 확인한다 (FR-004 정렬). 매칭이 남아 있으면 본 task 내에서 제거한다.
 
-- [ ] T009 저장소 루트에서 `npm test`를 전수 실행해 다음을 검증한다: (a) `tests/runtime.mock.test.mjs`의 신규 회귀(T002+T005) GREEN, (b) `tests/integration-script.test.mjs`의 `toolResultsTruncated: 0` 기대값과 `tests/schemas.test.mjs`의 필드 존재성 검증이 회귀 없이 통과 (plan.md Test Strategy "기존 truncation 관련 테스트 영향"), (c) `tests/integrations.test.mjs` prose-drift 스냅샷이 새 문구와 충돌하지 않음. 충돌 시 동일 PR에서 스냅샷만 갱신하고 의미 변경은 가하지 않는다.
+- [x] T009 저장소 루트에서 `npm test`를 전수 실행해 다음을 검증한다: (a) `tests/runtime.mock.test.mjs`의 신규 회귀(T002+T005) GREEN, (b) `tests/integration-script.test.mjs`의 `toolResultsTruncated: 0` 기대값과 `tests/schemas.test.mjs`의 필드 존재성 검증이 회귀 없이 통과 (plan.md Test Strategy "기존 truncation 관련 테스트 영향"), (c) `tests/integrations.test.mjs` prose-drift 스냅샷이 새 문구와 충돌하지 않음. 충돌 시 동일 PR에서 스냅샷만 갱신하고 의미 변경은 가하지 않는다.
 
-- [ ] T010 (선택) `CEREBRAS_API_KEY` 보유 환경에 한해 `node scripts/integration-test.mjs`를 1회 실행해 실제 모델 추론 경로에서도 새 envelope 텍스트로 회귀 없음을 확인한다 (plan.md Test Strategy "수동 검증", 비용 발생하므로 필수 아님).
+- [x] T010 (선택) `CEREBRAS_API_KEY` 보유 환경에 한해 `node scripts/integration-test.mjs`를 1회 실행해 실제 모델 추론 경로에서도 새 envelope 텍스트로 회귀 없음을 확인한다 (plan.md Test Strategy "수동 검증", 비용 발생하므로 필수 아님).
 
 ---
 

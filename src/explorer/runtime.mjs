@@ -153,6 +153,8 @@ const TOOL_RESULT_CHAR_BUDGETS = {
   _default: 6000,
 };
 
+const TRUNCATED_TOOL_RESULT_MARKER = '[truncated-tool-result-before-synthesis]';
+
 /**
  * Apply per-tool character budget to a tool result.
  * If the serialized result exceeds the budget, returns a truncated preview.
@@ -162,8 +164,10 @@ function applyToolResultCharBudget(toolName, toolResult) {
   const budget = TOOL_RESULT_CHAR_BUDGETS[toolName] ?? TOOL_RESULT_CHAR_BUDGETS._default;
   if (serialized.length <= budget) return serialized;
 
-  const preview = serialized.slice(0, budget - 120);
-  return preview + `\n... [truncated: ${serialized.length} → ${budget} chars. Full data was inspected; key content preserved above.]`;
+  const preview = serialized.slice(0, budget - 180);
+  return preview +
+    `\n... ${TRUNCATED_TOOL_RESULT_MARKER} [truncated: ${serialized.length} -> ${budget} chars. ` +
+    'Result was truncated before model synthesis; re-run with a narrower query or read specific ranges if expected evidence is missing.]';
 }
 
 function redactToolResult(toolResult) {
@@ -440,7 +444,12 @@ function buildSearchCoverage(stats = {}) {
   const warnings = [];
   if (scope.length > 0) warnings.push(`Result is limited to scope: ${scope.join(', ')}`);
   if (stats.stoppedByBudget) warnings.push('Exploration stopped by budget before all follow-up checks were exhausted.');
-  if ((stats.toolResultsTruncated ?? 0) > 0) warnings.push(`${stats.toolResultsTruncated} tool result(s) were truncated before final synthesis.`);
+  if ((stats.toolResultsTruncated ?? 0) > 0) {
+    warnings.push(
+      `${stats.toolResultsTruncated} tool result(s) were truncated before model synthesis; ` +
+      're-run with a narrower query or read specific ranges if expected evidence is missing.',
+    );
+  }
 
   const summary = scope.length > 0
     ? `scope-limited search across ${scope.join(', ')}; ${stats.filesRead ?? 0} file read(s), ${stats.grepCalls ?? 0} grep search(es).`
@@ -2185,7 +2194,7 @@ export class ExplorerRuntime {
 
         // ── Technique 1: Tool Result Budgeting ──
         const serialized = applyToolResultCharBudget(toolName, safeToolResult);
-        if (serialized.includes('[truncated:')) {
+        if (serialized.includes(TRUNCATED_TOOL_RESULT_MARKER)) {
           stats.toolResultsTruncated += 1;
         }
 

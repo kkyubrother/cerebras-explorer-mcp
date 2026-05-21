@@ -526,8 +526,8 @@ export function buildReportCritic({
     warnings.push({
       type: 'truncated_tool_results',
       severity: 'low',
-      message: `${stats.toolResultsTruncated} tool result(s) were truncated before final synthesis.`,
-      action: 'Treat detailed claims about truncated files as weaker than directly cited ranges.',
+      message: `${stats.toolResultsTruncated} tool result(s) were truncated before model synthesis; re-run with a narrower query or read specific ranges if expected evidence is missing.`,
+      action: 'Use a narrower follow-up query or read specific ranges before relying on missing evidence.',
     });
   }
 
