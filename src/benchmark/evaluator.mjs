@@ -13,6 +13,29 @@ function getStats(result) {
   return result?._debug?.stats ?? result?.stats ?? {};
 }
 
+function getCitations(result) {
+  return Array.isArray(result?.citations) ? result.citations : [];
+}
+
+function countCitationFiles(result) {
+  return new Set(
+    getCitations(result)
+      .map(item => item?.path)
+      .filter(Boolean),
+  ).size;
+}
+
+function hasCitationGapWarning(result) {
+  const warnings = result?.critic?.warnings;
+  return Array.isArray(warnings) && warnings.some(warning => warning?.type === 'citation_gap');
+}
+
+function toolResultsWereTruncated(result) {
+  const coverageCount = Number(result?.searchCoverage?.toolResultsTruncated ?? 0);
+  const statsCount = Number(getStats(result).toolResultsTruncated ?? 0);
+  return coverageCount > 0 || statsCount > 0;
+}
+
 // Benchmark-only compatibility for archived result JSON. Public explorer output
 // stays compact and uses targets[], not candidatePaths.
 function getCandidatePaths(result) {
@@ -117,6 +140,22 @@ function evaluateCheck(result, check) {
     case 'min_evidence_snippet_count':
       actual = (result.evidence ?? []).filter(item => typeof item.snippet === 'string' && item.snippet.trim()).length;
       passed = actual >= Number(check.value ?? 0);
+      break;
+    case 'min_citation_count':
+      actual = getCitations(result).length;
+      passed = actual >= Number(check.value ?? 0);
+      break;
+    case 'min_citation_file_count':
+      actual = countCitationFiles(result);
+      passed = actual >= Number(check.value ?? 0);
+      break;
+    case 'tool_results_truncated_equals':
+      actual = toolResultsWereTruncated(result);
+      passed = actual === Boolean(check.value);
+      break;
+    case 'citation_gap_warning_equals':
+      actual = hasCitationGapWarning(result);
+      passed = actual === Boolean(check.value);
       break;
     case 'has_direct_answer':
       actual = typeof result.directAnswer === 'string' && result.directAnswer.trim().length > 0;

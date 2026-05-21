@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
 
 import { evaluateBenchmarkCase, summarizeBenchmarkSuite } from '../src/benchmark/evaluator.mjs';
 
@@ -105,6 +106,143 @@ test('evaluateBenchmarkCase scores adoption fields', () => {
 
   const evaluation = evaluateBenchmarkCase(caseDefinition, result);
   assert.equal(evaluation.passed, true);
+});
+
+test('evaluateBenchmarkCase checks minimum citation count', () => {
+  const caseDefinition = {
+    id: 'citation-count',
+    checks: [
+      { label: 'Citation count', type: 'min_citation_count', value: 2, weight: 1 },
+    ],
+  };
+
+  const passing = evaluateBenchmarkCase(caseDefinition, {
+    citations: [
+      { path: 'src/explorer/runtime.mjs' },
+      { path: 'src/mcp/server.mjs' },
+    ],
+  });
+  assert.equal(passing.checks[0].actual, 2);
+  assert.equal(passing.checks[0].passed, true);
+
+  const failing = evaluateBenchmarkCase(caseDefinition, {
+    citations: [
+      { path: 'src/explorer/runtime.mjs' },
+    ],
+  });
+  assert.equal(failing.checks[0].actual, 1);
+  assert.equal(failing.checks[0].passed, false);
+
+  const nullCitations = evaluateBenchmarkCase(caseDefinition, { citations: null });
+  assert.equal(nullCitations.checks[0].actual, 0);
+  assert.equal(nullCitations.checks[0].passed, false);
+
+  const nonArrayCitations = evaluateBenchmarkCase(caseDefinition, { citations: 'src/explorer/runtime.mjs' });
+  assert.equal(nonArrayCitations.checks[0].actual, 0);
+  assert.equal(nonArrayCitations.checks[0].passed, false);
+});
+
+test('evaluateBenchmarkCase checks minimum unique citation file count', () => {
+  const caseDefinition = {
+    id: 'citation-file-count',
+    checks: [
+      { label: 'Citation files', type: 'min_citation_file_count', value: 2, weight: 1 },
+    ],
+  };
+
+  const passing = evaluateBenchmarkCase(caseDefinition, {
+    citations: [
+      { path: 'src/explorer/runtime.mjs' },
+      { path: 'src/mcp/server.mjs' },
+    ],
+  });
+  assert.equal(passing.checks[0].actual, 2);
+  assert.equal(passing.checks[0].passed, true);
+
+  const duplicatePath = evaluateBenchmarkCase(caseDefinition, {
+    citations: [
+      { path: 'src/explorer/runtime.mjs' },
+      { path: 'src/explorer/runtime.mjs' },
+      { path: '' },
+      {},
+    ],
+  });
+  assert.equal(duplicatePath.checks[0].actual, 1);
+  assert.equal(duplicatePath.checks[0].passed, false);
+});
+
+test('evaluateBenchmarkCase checks tool result truncation equality', () => {
+  const expectedTruncated = {
+    id: 'tool-truncated-true',
+    checks: [
+      { label: 'Tool results truncated', type: 'tool_results_truncated_equals', value: true, weight: 1 },
+    ],
+  };
+  const expectedNotTruncated = {
+    id: 'tool-truncated-false',
+    checks: [
+      { label: 'Tool results truncated', type: 'tool_results_truncated_equals', value: false, weight: 1 },
+    ],
+  };
+
+  const fromCoverage = evaluateBenchmarkCase(expectedTruncated, {
+    searchCoverage: { toolResultsTruncated: 1 },
+  });
+  assert.equal(fromCoverage.checks[0].actual, true);
+  assert.equal(fromCoverage.checks[0].passed, true);
+
+  const fromStats = evaluateBenchmarkCase(expectedTruncated, {
+    stats: { toolResultsTruncated: 1 },
+  });
+  assert.equal(fromStats.checks[0].actual, true);
+  assert.equal(fromStats.checks[0].passed, true);
+
+  const missingSignals = evaluateBenchmarkCase(expectedNotTruncated, {});
+  assert.equal(missingSignals.checks[0].actual, false);
+  assert.equal(missingSignals.checks[0].passed, true);
+
+  const unexpectedTruncation = evaluateBenchmarkCase(expectedNotTruncated, {
+    searchCoverage: { toolResultsTruncated: 2 },
+  });
+  assert.equal(unexpectedTruncation.checks[0].actual, true);
+  assert.equal(unexpectedTruncation.checks[0].passed, false);
+});
+
+test('evaluateBenchmarkCase checks citation gap warning equality', () => {
+  const expectedGap = {
+    id: 'citation-gap-true',
+    checks: [
+      { label: 'Citation gap warning', type: 'citation_gap_warning_equals', value: true, weight: 1 },
+    ],
+  };
+  const expectedNoGap = {
+    id: 'citation-gap-false',
+    checks: [
+      { label: 'Citation gap warning', type: 'citation_gap_warning_equals', value: false, weight: 1 },
+    ],
+  };
+
+  const gapWarning = evaluateBenchmarkCase(expectedGap, {
+    critic: { warnings: [{ type: 'citation_gap' }] },
+  });
+  assert.equal(gapWarning.checks[0].actual, true);
+  assert.equal(gapWarning.checks[0].passed, true);
+
+  const otherWarning = evaluateBenchmarkCase(expectedNoGap, {
+    critic: { warnings: [{ type: 'truncation' }] },
+  });
+  assert.equal(otherWarning.checks[0].actual, false);
+  assert.equal(otherWarning.checks[0].passed, true);
+
+  const missingWarnings = evaluateBenchmarkCase(expectedNoGap, {});
+  assert.equal(missingWarnings.checks[0].actual, false);
+  assert.equal(missingWarnings.checks[0].passed, true);
+
+  const unexpectedGap = evaluateBenchmarkCase(expectedNoGap, {
+    critic: { warnings: [{ type: 'citation_gap' }] },
+  });
+  assert.equal(unexpectedGap.checks[0].actual, true);
+  assert.equal(unexpectedGap.checks[0].passed, false);
 });
 
 test('evaluateBenchmarkCase supports legacy candidate path count checks from compact targets', () => {
@@ -238,4 +376,47 @@ test('evaluateBenchmarkCase rejects removed recentActivity benchmark sources and
     }, { _debug: { recentActivity: { hotFiles: ['src/mcp/server.mjs'] } } }),
     /Unknown benchmark check type: has_recent_activity/,
   );
+});
+
+test('evidence preservation benchmark suite is parseable and non-empty', async () => {
+  const suiteUrl = new URL('../benchmarks/evidence-preservation.json', import.meta.url);
+  const raw = await fs.readFile(suiteUrl, 'utf8');
+  const suite = JSON.parse(raw);
+
+  assert.equal(typeof suite.name, 'string');
+  assert.ok(Array.isArray(suite.cases));
+  assert.ok(suite.cases.length >= 1);
+});
+
+test('evaluateBenchmarkCase defaults missing evidence preservation signals safely', () => {
+  const caseDefinition = {
+    id: 'missing-evidence-preservation-signals',
+    checks: [
+      { label: 'Citation count', type: 'min_citation_count', value: 1, weight: 0.25 },
+      { label: 'Citation files', type: 'min_citation_file_count', value: 1, weight: 0.25 },
+      { label: 'Tool results truncated', type: 'tool_results_truncated_equals', value: false, weight: 0.25 },
+      { label: 'Citation gap warning', type: 'citation_gap_warning_equals', value: false, weight: 0.25 },
+    ],
+  };
+
+  const nullCitations = evaluateBenchmarkCase(caseDefinition, {
+    citations: null,
+  });
+  assert.equal(nullCitations.checks[0].actual, 0);
+  assert.equal(nullCitations.checks[0].passed, false);
+  assert.equal(nullCitations.checks[1].actual, 0);
+  assert.equal(nullCitations.checks[1].passed, false);
+  assert.equal(nullCitations.checks[2].actual, false);
+  assert.equal(nullCitations.checks[2].passed, true);
+  assert.equal(nullCitations.checks[3].actual, false);
+  assert.equal(nullCitations.checks[3].passed, true);
+
+  const nonArrayCitations = evaluateBenchmarkCase(caseDefinition, {
+    citations: { path: 'src/explorer/runtime.mjs' },
+    critic: {},
+  });
+  assert.equal(nonArrayCitations.checks[0].actual, 0);
+  assert.equal(nonArrayCitations.checks[1].actual, 0);
+  assert.equal(nonArrayCitations.checks[2].actual, false);
+  assert.equal(nonArrayCitations.checks[3].actual, false);
 });

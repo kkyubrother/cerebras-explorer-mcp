@@ -31,8 +31,8 @@ description: "Task 3 (Evidence Preservation Benchmark Coverage)의 atomic 작업
 
 **Purpose**: 본 작업의 강한 선행 의존성을 명시적으로 확인하고, 작업 시작 조건을 충족시킨다.
 
-- [ ] T001 Task 2(공통 `citations[]` 배열 도입)의 머지 상태를 확인한다. `./src/`의 report-mode 도구(`explore`, `explore_v2` 등) 결과 객체가 구조화된 `citations[]` 필드를 노출하는지 manual smoke로 점검하고, 미머지일 경우 본 feature 구현을 중단한다(plan Dependency Note, spec Assumptions).
-- [ ] T002 `./benchmarks/adoption.json`, `./scripts/run-benchmark.mjs`, `./package.json`의 `scripts.benchmark` 항목이 현재 상태에서 변경 없이 유지될 베이스라인임을 git diff 기준으로 기록한다. 본 feature의 어떤 단계에서도 이 세 항목을 수정하지 않음을 명문화한다(spec FR-008, SC-003).
+- [x] T001 Task 2(공통 `citations[]` 배열 도입)의 머지 상태를 확인한다. `./src/`의 report-mode 도구(`explore`, `explore_v2` 등) 결과 객체가 구조화된 `citations[]` 필드를 노출하는지 manual smoke로 점검하고, 미머지일 경우 본 feature 구현을 중단한다(plan Dependency Note, spec Assumptions).
+- [x] T002 `./benchmarks/adoption.json`, `./scripts/run-benchmark.mjs`, `./package.json`의 `scripts.benchmark` 항목이 현재 상태에서 변경 없이 유지될 베이스라인임을 git diff 기준으로 기록한다. 본 feature의 어떤 단계에서도 이 세 항목을 수정하지 않음을 명문화한다(spec FR-008, SC-003).
 
 **Checkpoint**: Task 2 머지 확인 + 기존 회귀 금지 표면 식별 완료. 이후 단계로 진행 가능.
 
@@ -44,10 +44,10 @@ description: "Task 3 (Evidence Preservation Benchmark Coverage)의 atomic 작업
 
 **⚠️ CRITICAL**: 아래 헬퍼가 자리잡기 전에는 US1의 evaluator 분기 추가가 시작될 수 없다.
 
-- [ ] T003 [P] `./src/benchmark/evaluator.mjs`에 `getCitations(result)` 헬퍼를 추가한다. `result.citations`가 배열일 때 그대로 반환하고, 그렇지 않으면 빈 배열을 반환한다(spec Edge Cases: "citation 배열이 `null` 또는 비배열인 경우 0으로 처리").
-- [ ] T004 [P] `./src/benchmark/evaluator.mjs`에 `countCitationFiles(result)` 헬퍼를 추가한다. `getCitations(result)`의 항목 중 `path`가 truthy인 값만 모아 `Set`으로 중복 제거 후 크기를 반환한다(spec Edge Cases: "동일 파일을 가리키는 citation이 여러 개일 때 중복 제거").
-- [ ] T005 [P] `./src/benchmark/evaluator.mjs`에 `hasCitationGapWarning(result)` 헬퍼를 추가한다. `result.critic?.warnings`가 배열이 아닐 때 `false`로 환원하고, 배열일 때만 `warning.type === 'citation_gap'`을 검색한다(spec Edge Cases: "critic warning 구조가 누락된 경우 false").
-- [ ] T006 [P] `./src/benchmark/evaluator.mjs`에 `toolResultsWereTruncated(result)` 헬퍼를 추가한다. `result.searchCoverage?.toolResultsTruncated`와 기존 `getStats(result).toolResultsTruncated`를 각각 숫자로 강제 환원해 어느 하나라도 양수면 `true`, 둘 다 0이거나 누락이면 `false`를 반환한다(spec Edge Cases: "검색 coverage 메트릭이 없거나 critic warning 구조가 누락된 경우 안전하게 해석").
+- [x] T003 [P] `./src/benchmark/evaluator.mjs`에 `getCitations(result)` 헬퍼를 추가한다. `result.citations`가 배열일 때 그대로 반환하고, 그렇지 않으면 빈 배열을 반환한다(spec Edge Cases: "citation 배열이 `null` 또는 비배열인 경우 0으로 처리").
+- [x] T004 [P] `./src/benchmark/evaluator.mjs`에 `countCitationFiles(result)` 헬퍼를 추가한다. `getCitations(result)`의 항목 중 `path`가 truthy인 값만 모아 `Set`으로 중복 제거 후 크기를 반환한다(spec Edge Cases: "동일 파일을 가리키는 citation이 여러 개일 때 중복 제거").
+- [x] T005 [P] `./src/benchmark/evaluator.mjs`에 `hasCitationGapWarning(result)` 헬퍼를 추가한다. `result.critic?.warnings`가 배열이 아닐 때 `false`로 환원하고, 배열일 때만 `warning.type === 'citation_gap'`을 검색한다(spec Edge Cases: "critic warning 구조가 누락된 경우 false").
+- [x] T006 [P] `./src/benchmark/evaluator.mjs`에 `toolResultsWereTruncated(result)` 헬퍼를 추가한다. `result.searchCoverage?.toolResultsTruncated`와 기존 `getStats(result).toolResultsTruncated`를 각각 숫자로 강제 환원해 어느 하나라도 양수면 `true`, 둘 다 0이거나 누락이면 `false`를 반환한다(spec Edge Cases: "검색 coverage 메트릭이 없거나 critic warning 구조가 누락된 경우 안전하게 해석").
 
 **Checkpoint**: 4종 헬퍼 도입 완료. `evaluateCheck()`의 신규 case가 의존할 수 있는 안전 환원 표면 확보.
 
@@ -63,23 +63,23 @@ description: "Task 3 (Evidence Preservation Benchmark Coverage)의 atomic 작업
 
 > **NOTE: 평가기 분기 추가 전에 실패하는 테스트를 먼저 작성하고, 구현 후 통과로 전환한다(plan Constitution Check: 테스트 우선 원칙).**
 
-- [ ] T007 [P] [US1] `./tests/benchmark-evaluator.test.mjs`에 `min_citation_count` 체크의 통과/실패 시나리오 2개를 추가한다. `citations` 길이 2이고 임계 2일 때 통과, 길이 1이고 임계 2일 때 실패. `citations`가 `null`/비배열일 때도 0으로 환원되어 실패하는 보조 단언을 동일 테스트에 포함한다(spec SC-001, Edge Cases).
-- [ ] T008 [P] [US1] `./tests/benchmark-evaluator.test.mjs`에 `min_citation_file_count` 체크의 통과/실패 시나리오 2개를 추가한다. 동일 `path` 두 개일 때 고유 1로 환원되어 임계 2에서 실패, 서로 다른 `path` 두 개일 때 통과(spec SC-001, Edge Cases).
-- [ ] T009 [P] [US1] `./tests/benchmark-evaluator.test.mjs`에 `tool_results_truncated_equals` 체크의 통과/실패 시나리오 2개를 추가한다. `searchCoverage.toolResultsTruncated > 0` 또는 `stats.toolResultsTruncated > 0`일 때 `actual === true`, 둘 다 0이거나 누락일 때 `actual === false`임을 양방향 단언한다(spec SC-001, User Story 1 Acceptance Scenario 3).
-- [ ] T010 [P] [US1] `./tests/benchmark-evaluator.test.mjs`에 `citation_gap_warning_equals` 체크의 통과/실패 시나리오 2개를 추가한다. `critic.warnings`에 `type: 'citation_gap'` 항목이 있을 때 `true`, 누락이거나 다른 `type`만 있을 때 `false`임을 양방향 단언한다(spec SC-001, User Story 1 Acceptance Scenario 3).
+- [x] T007 [P] [US1] `./tests/benchmark-evaluator.test.mjs`에 `min_citation_count` 체크의 통과/실패 시나리오 2개를 추가한다. `citations` 길이 2이고 임계 2일 때 통과, 길이 1이고 임계 2일 때 실패. `citations`가 `null`/비배열일 때도 0으로 환원되어 실패하는 보조 단언을 동일 테스트에 포함한다(spec SC-001, Edge Cases).
+- [x] T008 [P] [US1] `./tests/benchmark-evaluator.test.mjs`에 `min_citation_file_count` 체크의 통과/실패 시나리오 2개를 추가한다. 동일 `path` 두 개일 때 고유 1로 환원되어 임계 2에서 실패, 서로 다른 `path` 두 개일 때 통과(spec SC-001, Edge Cases).
+- [x] T009 [P] [US1] `./tests/benchmark-evaluator.test.mjs`에 `tool_results_truncated_equals` 체크의 통과/실패 시나리오 2개를 추가한다. `searchCoverage.toolResultsTruncated > 0` 또는 `stats.toolResultsTruncated > 0`일 때 `actual === true`, 둘 다 0이거나 누락일 때 `actual === false`임을 양방향 단언한다(spec SC-001, User Story 1 Acceptance Scenario 3).
+- [x] T010 [P] [US1] `./tests/benchmark-evaluator.test.mjs`에 `citation_gap_warning_equals` 체크의 통과/실패 시나리오 2개를 추가한다. `critic.warnings`에 `type: 'citation_gap'` 항목이 있을 때 `true`, 누락이거나 다른 `type`만 있을 때 `false`임을 양방향 단언한다(spec SC-001, User Story 1 Acceptance Scenario 3).
 
 **Checkpoint (Tests)**: T007~T010 단언은 총 8개 시나리오를 구성하며 현재 시점에는 모두 실패해야 한다. 실패 확인 후에만 다음 구현 작업으로 진행한다.
 
 ### Implementation for User Story 1
 
-- [ ] T011 [US1] `./src/benchmark/evaluator.mjs`의 `evaluateCheck()` 스위치에 `min_citation_count` case를 추가한다. `actual = getCitations(result).length`, `passed = actual >= Number(check.value ?? 0)`. 반환 객체 형태(`label`, `type`, `expected`, `actual`, `passed`, `weight`, `pointsEarned`)는 기존 분기와 동일하게 유지한다(plan Implementation Outline (a)).
-- [ ] T012 [US1] `./src/benchmark/evaluator.mjs`의 `evaluateCheck()` 스위치에 `min_citation_file_count` case를 추가한다. `actual = countCitationFiles(result)`, `passed = actual >= Number(check.value ?? 0)`.
-- [ ] T013 [US1] `./src/benchmark/evaluator.mjs`의 `evaluateCheck()` 스위치에 `tool_results_truncated_equals` case를 추가한다. `actual = toolResultsWereTruncated(result)`(boolean), `passed = actual === Boolean(check.value)`. 엄격 비교(`===`)와 명시적 boolean 환원을 사용한다(plan Risks & Mitigations 마지막 항목).
-- [ ] T014 [US1] `./src/benchmark/evaluator.mjs`의 `evaluateCheck()` 스위치에 `citation_gap_warning_equals` case를 추가한다. `actual = hasCitationGapWarning(result)`(boolean), `passed = actual === Boolean(check.value)`.
-- [ ] T015 [US1] T007~T010 단위 테스트가 모두 통과하도록 T011~T014 구현을 보정한다. 실패가 남아 있으면 헬퍼/스위치 분기를 재검토하고, 기존 evaluator 테스트가 회귀되지 않았는지 `npm test` 출력으로 동시 확인한다(spec SC-004).
-- [ ] T016 [P] [US1] `./benchmarks/evidence-preservation.json`을 신설한다. 최상위 필드는 `name`, `description`, `defaultPassScore`, `cases` 네 가지로 구성하고, `cases`는 비어 있지 않은 배열이어야 한다(spec SC-002).
-- [ ] T017 [US1] `./benchmarks/evidence-preservation.json`의 첫 케이스를 작성한다. 필드 골격: `id`, `description`, `tool`(예: `"explore"`), `args`(`prompt`/`thoroughness`/`scope` 등 report-mode 도구 인자), `expectations`(기존 keyword 그룹 방식 재사용), `checks`. `checks` 배열에는 신규 4종 체크가 각각 최소 1회 등장해야 하며 `tool_results_truncated_equals.value`와 `citation_gap_warning_equals.value`는 모두 `false`로 설정한다(spec FR-006, plan Implementation Outline (b)).
-- [ ] T018 [US1] `./benchmarks/evidence-preservation.json`의 `checks` 가중치 합이 1.0 이하가 되도록 분배하고, JSON이 표준 `JSON.parse`로 무손실 파싱되는지 manual 확인한다.
+- [x] T011 [US1] `./src/benchmark/evaluator.mjs`의 `evaluateCheck()` 스위치에 `min_citation_count` case를 추가한다. `actual = getCitations(result).length`, `passed = actual >= Number(check.value ?? 0)`. 반환 객체 형태(`label`, `type`, `expected`, `actual`, `passed`, `weight`, `pointsEarned`)는 기존 분기와 동일하게 유지한다(plan Implementation Outline (a)).
+- [x] T012 [US1] `./src/benchmark/evaluator.mjs`의 `evaluateCheck()` 스위치에 `min_citation_file_count` case를 추가한다. `actual = countCitationFiles(result)`, `passed = actual >= Number(check.value ?? 0)`.
+- [x] T013 [US1] `./src/benchmark/evaluator.mjs`의 `evaluateCheck()` 스위치에 `tool_results_truncated_equals` case를 추가한다. `actual = toolResultsWereTruncated(result)`(boolean), `passed = actual === Boolean(check.value)`. 엄격 비교(`===`)와 명시적 boolean 환원을 사용한다(plan Risks & Mitigations 마지막 항목).
+- [x] T014 [US1] `./src/benchmark/evaluator.mjs`의 `evaluateCheck()` 스위치에 `citation_gap_warning_equals` case를 추가한다. `actual = hasCitationGapWarning(result)`(boolean), `passed = actual === Boolean(check.value)`.
+- [x] T015 [US1] T007~T010 단위 테스트가 모두 통과하도록 T011~T014 구현을 보정한다. 실패가 남아 있으면 헬퍼/스위치 분기를 재검토하고, 기존 evaluator 테스트가 회귀되지 않았는지 `npm test` 출력으로 동시 확인한다(spec SC-004).
+- [x] T016 [P] [US1] `./benchmarks/evidence-preservation.json`을 신설한다. 최상위 필드는 `name`, `description`, `defaultPassScore`, `cases` 네 가지로 구성하고, `cases`는 비어 있지 않은 배열이어야 한다(spec SC-002).
+- [x] T017 [US1] `./benchmarks/evidence-preservation.json`의 첫 케이스를 작성한다. 필드 골격: `id`, `description`, `tool`(예: `"explore"`), `args`(`prompt`/`thoroughness`/`scope` 등 report-mode 도구 인자), `expectations`(기존 keyword 그룹 방식 재사용), `checks`. `checks` 배열에는 신규 4종 체크가 각각 최소 1회 등장해야 하며 `tool_results_truncated_equals.value`와 `citation_gap_warning_equals.value`는 모두 `false`로 설정한다(spec FR-006, plan Implementation Outline (b)).
+- [x] T018 [US1] `./benchmarks/evidence-preservation.json`의 `checks` 가중치 합이 1.0 이하가 되도록 분배하고, JSON이 표준 `JSON.parse`로 무손실 파싱되는지 manual 확인한다.
 
 **Checkpoint**: US1 완료 — 신규 체크 4종이 evaluator에서 동작하고, suite 파일에서 모두 사용되며, 통과/실패 양방향 단위 테스트 8 시나리오가 모두 통과한다.
 
@@ -93,9 +93,9 @@ description: "Task 3 (Evidence Preservation Benchmark Coverage)의 atomic 작업
 
 ### Implementation for User Story 2
 
-- [ ] T019 [US2] `./package.json`의 `scripts` 블록에 `"benchmark:evidence": "node ./scripts/run-benchmark.mjs --suite ./benchmarks/evidence-preservation.json"`을 추가한다. 기존 `start`, `test`, `benchmark`, `prepublishOnly` 키는 변경하지 않는다(plan Implementation Outline (c)).
-- [ ] T020 [US2] `./scripts/run-benchmark.mjs`가 `--suite ./benchmarks/evidence-preservation.json` 인자로 호출되었을 때 신규 suite 파일을 정상 로드·파싱하는지 manual smoke로 확인한다. 스크립트 자체는 수정하지 않는다(plan Project Structure, FR-007).
-- [ ] T021 [US2] 기존 `npm run benchmark` 호출 시 기본 `--suite` 경로가 여전히 `./benchmarks/adoption.json`이고 출력 포맷이 그대로인지 코드 리뷰 단계에서 diff로 확인한다. 변경이 발견되면 본 작업 범위 밖이므로 즉시 되돌린다(spec FR-008, SC-003).
+- [x] T019 [US2] `./package.json`의 `scripts` 블록에 `"benchmark:evidence": "node ./scripts/run-benchmark.mjs --suite ./benchmarks/evidence-preservation.json"`을 추가한다. 기존 `start`, `test`, `benchmark`, `prepublishOnly` 키는 변경하지 않는다(plan Implementation Outline (c)).
+- [x] T020 [US2] `./scripts/run-benchmark.mjs`가 `--suite ./benchmarks/evidence-preservation.json` 인자로 호출되었을 때 신규 suite 파일을 정상 로드·파싱하는지 manual smoke로 확인한다. 스크립트 자체는 수정하지 않는다(plan Project Structure, FR-007).
+- [x] T021 [US2] 기존 `npm run benchmark` 호출 시 기본 `--suite` 경로가 여전히 `./benchmarks/adoption.json`이고 출력 포맷이 그대로인지 코드 리뷰 단계에서 diff로 확인한다. 변경이 발견되면 본 작업 범위 밖이므로 즉시 되돌린다(spec FR-008, SC-003).
 
 **Checkpoint**: US2 완료 — 단독 진입점 노출, 기존 진입점 회귀 없음.
 
@@ -105,10 +105,10 @@ description: "Task 3 (Evidence Preservation Benchmark Coverage)의 atomic 작업
 
 **Purpose**: 전체 회귀 확인과 suite JSON 파싱 가드 안착.
 
-- [ ] T022 [P] `./tests/benchmark-evaluator.test.mjs`에 suite JSON 파싱 가드를 추가한다. `node:fs/promises`로 `./benchmarks/evidence-preservation.json`을 읽어 `JSON.parse` 후 `Array.isArray(suite.cases) && suite.cases.length >= 1`을 단언한다(spec SC-002, plan Test Strategy "Suite JSON 파싱 가드").
-- [ ] T023 [P] `./tests/benchmark-evaluator.test.mjs`에 edge case 가드 테스트 1개를 추가한다. `citations` `null`/비배열, `critic.warnings` 누락, `searchCoverage` 누락 입력을 한 테스트에 묶어 신규 체크들이 예외 없이 0/false로 환원되는지 단언한다(spec Edge Cases 네 항목).
-- [ ] T024 `npm test`를 전체 실행해 evidence preservation 관련 신규 테스트 포함 후에도 0 failure로 종료되는지 확인한다(spec SC-004).
-- [ ] T025 `npm run benchmark`(기존)와 `npm run benchmark:evidence`(신규)를 순서대로 실행해, 전자의 출력 포맷이 변하지 않았고 후자가 신규 suite를 로드해 신규 체크를 수행하는지 manual smoke로 확인한다(spec FR-008, SC-003).
+- [x] T022 [P] `./tests/benchmark-evaluator.test.mjs`에 suite JSON 파싱 가드를 추가한다. `node:fs/promises`로 `./benchmarks/evidence-preservation.json`을 읽어 `JSON.parse` 후 `Array.isArray(suite.cases) && suite.cases.length >= 1`을 단언한다(spec SC-002, plan Test Strategy "Suite JSON 파싱 가드").
+- [x] T023 [P] `./tests/benchmark-evaluator.test.mjs`에 edge case 가드 테스트 1개를 추가한다. `citations` `null`/비배열, `critic.warnings` 누락, `searchCoverage` 누락 입력을 한 테스트에 묶어 신규 체크들이 예외 없이 0/false로 환원되는지 단언한다(spec Edge Cases 네 항목).
+- [x] T024 `npm test`를 전체 실행해 evidence preservation 관련 신규 테스트 포함 후에도 0 failure로 종료되는지 확인한다(spec SC-004).
+- [x] T025 `npm run benchmark`(기존)와 `npm run benchmark:evidence`(신규)를 순서대로 실행해, 전자의 출력 포맷이 변하지 않았고 후자가 신규 suite를 로드해 신규 체크를 수행하는지 manual smoke로 확인한다(spec FR-008, SC-003).
 
 ---
 
