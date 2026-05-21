@@ -2,6 +2,16 @@
 
 ## v0.2.0 - 2026-05-19
 
+### Tool Quality Follow-up (2026-05-21)
+
+Docs-only bundle for `docs/superpowers/plans/2026-05-19-tool-quality-improvements.md`.
+
+- **Changed**: Clarified V2 tool-result truncation wording so callers understand truncation happens before model synthesis and must be treated as an evidence-limit signal.
+- **Changed**: Expanded the `explore` router heuristics for broad/deep report prompts while keeping `explore_v2` as an opt-in tool surface.
+- **Added**: Exposed report-mode `citations[]` and citation-derived `targets[]` in `structuredContent` for `explore`/`explore_v2`.
+- **Added**: Added the `benchmark:evidence` suite for citation/evidence preservation checks.
+- **Added**: Added transcript-based adoption metrics for broad-search and repeated-plan signals, plus adoption-suite evidence snippet checks.
+
 ### Added
 
 - Declared read-only MCP tool annotations for every exposed tool.

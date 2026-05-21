@@ -168,6 +168,15 @@ Parent model (Claude Code / Codex)
 
 ## 공개 MCP 도구
 
+도구 역할은 한 곳에서 다음처럼 나뉩니다.
+
+- `explore_repo`: parent agent handoff의 정상 구조화 표면입니다. `directAnswer`, `status`, `targets`, `evidence`, `searchCoverage` 같은 JSON 필드를 후속 자동화와 편집 전 검증에 사용합니다.
+- 목적형 wrapper 6개(`find_relevant_code`, `trace_symbol`, `map_change_impact`, `explain_code_path`, `collect_evidence`, `review_change_context`): 모두 내부적으로 `explore_repo`에 위임하며, 특정 작업 의도를 더 좁은 입력 스키마로 표현하는 표면입니다.
+- `explore`: 사람에게 바로 보여줄 Markdown 보고 도구입니다. broad/deep 보고 프롬프트에서는 parent agent가 직접 선택하는 것이 아니라 서버 라우터가 런타임 판단으로 내부 V2 백엔드를 사용할 수 있습니다.
+- `explore_v2`: `CEREBRAS_EXPLORER_ENABLE_EXPLORE_V2=true`일 때만 노출되는 advanced opt-in 보고 도구입니다.
+
+Report 도구(`explore`, `explore_v2`)는 Markdown 본문을 `text`로 반환하면서, 같은 MCP 응답의 `structuredContent`에 본문에서 파생한 `citations[]`와 인용 기반 `targets[]`도 포함합니다. parent agent는 file:line 인용을 Markdown에서 regex로 다시 긁기보다 이 구조화 필드를 다음 읽기/검증 대상으로 사용해야 합니다.
+
 ### `explore_repo`
 
 입력 스키마:
@@ -313,6 +322,7 @@ not "not present in the repository."
 
 - JSON 필드 묶음 대신 **Markdown 보고서 본문**이 중심입니다.
 - 본문 안에 inline file:line citation이 들어갑니다.
+- `structuredContent`에는 본문에서 파생한 `citations[]`와 인용 기반 `targets[]`가 함께 들어갑니다.
 - 사용자 설명, 아키텍처 브리핑, 조사 결과 공유에 적합합니다.
 - 후속 자동화나 정형 후처리가 중요하면 `explore_repo`를 우선 사용하세요.
 
