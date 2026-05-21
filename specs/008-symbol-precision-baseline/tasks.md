@@ -99,10 +99,12 @@ description: "Task list for Task 8 — Symbol Precision Baseline Coverage"
 
 ### Implementation for User Story 3
 
-- [ ] T013 [US3] (조건부) T007/T008 의 FAIL 출력에서 어떤 입력 라인이 어떤 `relation` 으로 잘못 분류되었는지 식별한다. 4 케이스 중 어떤 케이스가 깨졌는지에 따라 보정 범위를 결정한다.
-- [ ] T014 [US3] (조건부) `src/explorer/symbols.mjs` 의 `relationForUsage()` ordered checks 만을 spec.md FR-005 (`constructor` → `member_call` → `call` 의 동치 표현) 가 유지되도록 보정한다. `type_reference` 분기는 별도 검사로 남긴다. `categorizeReference()` 의 legacy 반환값 (`definition|import|usage`) 계약과 분류 카테고리 집합은 절대 변경하지 않는다 (spec.md FR-003, FR-004).
-- [ ] T015 [US3] (조건부) `node --test tests/symbols.test.mjs --test-name-pattern "classifyReference distinguishes"` 단독 PASS 와, 전체 `node --test tests/symbols.test.mjs` PASS 를 모두 다시 확인한다. 기존 `classifyReference adds relation details without changing legacy type` 테스트의 결과가 변하지 않았는지 확인한다.
-- [ ] T016 [US3] (조건부) 보정으로 신규 분류 카테고리나 신규 키가 추가되지 않았는지, 그리고 `repo_references` 통합 테스트 (라인 315-341 부근) 의 기대값이 그대로 유지되는지 사람 리뷰로 확인한다.
+- [x] T013 [US3] (조건부) T007/T008 의 FAIL 출력에서 어떤 입력 라인이 어떤 `relation` 으로 잘못 분류되었는지 식별한다. 4 케이스 중 어떤 케이스가 깨졌는지에 따라 보정 범위를 결정한다.
+- [x] T014 [US3] (조건부) `src/explorer/symbols.mjs` 의 `relationForUsage()` ordered checks 만을 spec.md FR-005 (`constructor` → `member_call` → `call` 의 동치 표현) 가 유지되도록 보정한다. `type_reference` 분기는 별도 검사로 남긴다. `categorizeReference()` 의 legacy 반환값 (`definition|import|usage`) 계약과 분류 카테고리 집합은 절대 변경하지 않는다 (spec.md FR-003, FR-004).
+- [x] T015 [US3] (조건부) `node --test tests/symbols.test.mjs --test-name-pattern "classifyReference distinguishes"` 단독 PASS 와, 전체 `node --test tests/symbols.test.mjs` PASS 를 모두 다시 확인한다. 기존 `classifyReference adds relation details without changing legacy type` 테스트의 결과가 변하지 않았는지 확인한다.
+- [x] T016 [US3] (조건부) 보정으로 신규 분류 카테고리나 신규 키가 추가되지 않았는지, 그리고 `repo_references` 통합 테스트 (라인 315-341 부근) 의 기대값이 그대로 유지되는지 사람 리뷰로 확인한다.
+
+Result (2026-05-21): T007/T008 baseline passed, so the conditional classifier patch path did not trigger. Verification re-run: `node --test --test-name-pattern "classifyReference distinguishes" tests/symbols.test.mjs` passed 1/1 and `node --test tests/symbols.test.mjs` passed 25/25; no `src/explorer/symbols.mjs` changes were needed.
 
 **Checkpoint**: 조건부 Phase. 발동 시 SC-001, SC-004 가 다시 만족됨을 확인한다.
 

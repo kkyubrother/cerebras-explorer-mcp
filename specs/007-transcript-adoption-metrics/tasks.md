@@ -121,7 +121,8 @@ Checkpoint: 어돕션 점수 산출에 evidence 신호가 반영되고 transcrip
 - [x] T026 [P] 같은 파일의 `analyzeTranscriptFile`이 JSONL 줄 중 하나라도 `JSON.parse`에 실패하면 케이스 단위로 격리되도록 try/catch를 점검한다 — 파일 전체를 throw 하지 않고 호출부의 `.catch(() => null)`와 함께 케이스 단위 `null` 처리를 보장(spec Edge Case + Acceptance US2.3, plan R2).
 - [x] T027 [P] `analyzeTranscriptEntries`가 여러 `meta` 엔트리 입력에서 마지막 `meta`의 `stats.stoppedByBudget`을 사용하는지 단위 테스트로 한 줄 추가 검증한다(spec Edge Case "멀티 meta 마지막 우선", plan R3).
 - [x] T028 `npm test`를 실행해 다른 벤치마크/MCP 테스트가 transcript 인프라/보고서 변경으로 회귀하지 않았는지 확인한다(plan Test Strategy).
-- [ ] T029 (옵션) `npm run benchmark`을 provider 키가 있는 환경에서 한 번 실행해 결과 JSON에 `avgBroadSearchCalls`/`avgRepeatedToolPlanTurns` 두 필드가 등장하고 transcript 비활성 환경에서는 두 값이 `null`인지 시각 점검한다(spec SC-003).
+- [x] T029 (옵션) `npm run benchmark`을 provider 키가 있는 환경에서 한 번 실행해 결과 JSON에 `avgBroadSearchCalls`/`avgRepeatedToolPlanTurns` 두 필드가 등장하고 transcript 비활성 환경에서는 두 값이 `null`인지 시각 점검한다(spec SC-003).
+  - Result (2026-05-21): `npm run benchmark -- --output $env:TEMP/cerebras-adoption-benchmark-007.json` produced a JSON report where both fields were present as `null`. Provider run was record-only: 7/8 cases passed, average score 92%.
 
 ---
 
