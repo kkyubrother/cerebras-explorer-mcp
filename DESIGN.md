@@ -641,6 +641,11 @@ Codex도 동일하다.
    - import graph / call graph는 관측된 grep/symbol/read 결과로만 edge 기록
    - repo fingerprint 기반 warm-start
 
+5. **Parser-free 분류기 경계:**
+   - `repo_references`와 `repo_symbol_context`의 `relation`은 현재 `call`, `member_call`, `constructor`, `type_reference`, `import`, `export` 카테고리를 안정적인 타겟 맵 신호로 제공한다.
+   - 이 분류는 regex/syntax-lite 기반이며 LSP/tree-sitter 수준의 완전한 스코프 분석, 타입 해석, JSX, 데코레이터, 동적 import 전개를 주장하지 않는다.
+   - 신뢰가 중요한 편집 직전에는 분류 결과만으로 수정하지 말고 `repo_read_file` 등으로 실제 라인 범위를 별도 검증해야 한다. 본 작업은 카테고리 집합을 확장하지 않는다.
+
 ### Phase 4 — 런타임 고도화
 
 Claude Code 소스 분석에서 도출된 아키텍처 개선 항목들.

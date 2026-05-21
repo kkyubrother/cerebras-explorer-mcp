@@ -30,8 +30,8 @@ description: "Task list for Task 8 — Symbol Precision Baseline Coverage"
 
 **Purpose**: 본 feature의 변경 면적 확인과 작업 브랜치 정렬
 
-- [ ] T001 작업 브랜치 `008-symbol-precision-baseline` 으로 체크아웃되어 있고, `tests/symbols.test.mjs`, `src/explorer/symbols.mjs`, `DESIGN.md` 의 작업 트리가 깨끗한지 확인한다 (`git status` 가 clean).
-- [ ] T002 [P] `specs/008-symbol-precision-baseline/spec.md` 의 User Story 1 Acceptance Scenarios 4건과 `specs/008-symbol-precision-baseline/plan.md` Implementation Outline Step (b) 의 입력/기대값이 정확히 일치하는지 본 tasks.md 작성자가 1회 교차 확인한다 (코드 변경 없음, 사람 리뷰만).
+- [x] T001 작업 브랜치 `008-symbol-precision-baseline` 으로 체크아웃되어 있고, `tests/symbols.test.mjs`, `src/explorer/symbols.mjs`, `DESIGN.md` 의 작업 트리가 깨끗한지 확인한다 (`git status` 가 clean).
+- [x] T002 [P] `specs/008-symbol-precision-baseline/spec.md` 의 User Story 1 Acceptance Scenarios 4건과 `specs/008-symbol-precision-baseline/plan.md` Implementation Outline Step (b) 의 입력/기대값이 정확히 일치하는지 본 tasks.md 작성자가 1회 교차 확인한다 (코드 변경 없음, 사람 리뷰만).
 
 ---
 
@@ -41,8 +41,8 @@ description: "Task list for Task 8 — Symbol Precision Baseline Coverage"
 
 **중요**: 본 단계가 끝나기 전까지 어떤 User Story 작업도 시작하지 않는다.
 
-- [ ] T003 `node --test tests/symbols.test.mjs` 를 변경 없이 실행해 0 failures 로 PASS 하는지 확인한다. 만약 사전 단계에서 이미 FAIL 한다면 본 작업과 무관한 회귀이므로 즉시 보고하고 본 feature 진행을 중단한다.
-- [ ] T004 [P] `src/explorer/symbols.mjs` 의 `relationForUsage()` (라인 379-410 부근) 와 `classifyReference()` 가 plan.md Implementation Outline Step (c) 에 기술된 ordered checks (export → type_reference → constructor → call(왼쪽 경계 negative class) → member_call → property → reference) 를 그대로 가지고 있는지 사람 리뷰로 확인한다. 차이가 있으면 spec.md FR-005 와 plan.md 의 "동치 표현" 해석을 다시 검토한다.
+- [x] T003 `node --test tests/symbols.test.mjs` 를 변경 없이 실행해 0 failures 로 PASS 하는지 확인한다. 만약 사전 단계에서 이미 FAIL 한다면 본 작업과 무관한 회귀이므로 즉시 보고하고 본 feature 진행을 중단한다.
+- [x] T004 [P] `src/explorer/symbols.mjs` 의 `relationForUsage()` (라인 379-410 부근) 와 `classifyReference()` 가 plan.md Implementation Outline Step (c) 에 기술된 ordered checks (export → type_reference → constructor → call(왼쪽 경계 negative class) → member_call → property → reference) 를 그대로 가지고 있는지 사람 리뷰로 확인한다. 차이가 있으면 spec.md FR-005 와 plan.md 의 "동치 표현" 해석을 다시 검토한다.
 
 **Checkpoint**: 기존 분류기 동작이 4 케이스를 이미 만족함을 확인 → User Story 작업 가능.
 
@@ -56,14 +56,14 @@ description: "Task list for Task 8 — Symbol Precision Baseline Coverage"
 
 ### Implementation for User Story 1
 
-- [ ] T005 [US1] `tests/symbols.test.mjs` 의 기존 `test('classifyReference adds relation details without changing legacy type', ...)` (라인 240 부근) 바로 다음 위치에, 신규 테스트 `test('classifyReference distinguishes member, call, constructor, and type relations', ...)` 를 추가한다. 단일 `test(...)` 블록 안에 네 개의 `assert.deepEqual` 호출만 둔다.
-- [ ] T006 [US1] T005 의 테스트 블록 안에 다음 4 assertion 을 plan.md Implementation Outline Step (b) 와 spec.md User Story 1 Acceptance Scenarios 와 동일한 입력/기대값으로 추가한다:
+- [x] T005 [US1] `tests/symbols.test.mjs` 의 기존 `test('classifyReference adds relation details without changing legacy type', ...)` (라인 240 부근) 바로 다음 위치에, 신규 테스트 `test('classifyReference distinguishes member, call, constructor, and type relations', ...)` 를 추가한다. 단일 `test(...)` 블록 안에 네 개의 `assert.deepEqual` 호출만 둔다.
+- [x] T006 [US1] T005 의 테스트 블록 안에 다음 4 assertion 을 plan.md Implementation Outline Step (b) 와 spec.md User Story 1 Acceptance Scenarios 와 동일한 입력/기대값으로 추가한다:
   - `assert.deepEqual(classifyReference('session.touch();', 'touch', 'session.ts'), { type: 'usage', relation: 'member_call' })`
   - `assert.deepEqual(classifyReference('const manager = new SessionManager();', 'SessionManager', 'session.ts'), { type: 'usage', relation: 'constructor' })`
   - `assert.deepEqual(classifyReference('type Handler = (req: Request) => Response;', 'Request', 'types.ts'), { type: 'usage', relation: 'type_reference' })`
   - `assert.deepEqual(classifyReference('return requireAuth(req, res, next);', 'requireAuth', 'routes.js'), { type: 'usage', relation: 'call' })`
-- [ ] T007 [US1] `node --test tests/symbols.test.mjs --test-name-pattern "classifyReference distinguishes"` 를 실행해 신규 테스트가 단독으로 PASS 하는지 확인한다. 사전 검증 결과 분류기는 이미 4 케이스를 모두 분류하므로 정상 흐름에서는 PASS 가 예상된다.
-- [ ] T008 [US1] `node --test tests/symbols.test.mjs` 전체 실행으로 기존 테스트들 (`classifyReference adds relation details without changing legacy type`, `repo_references finds symbol definition and usages across files`, `repo_references handles JavaScript private symbol names` 등) 이 모두 PASS 함을 확인한다. 회귀가 발견되면 Phase 5(US3) 를 발동한다.
+- [x] T007 [US1] `node --test tests/symbols.test.mjs --test-name-pattern "classifyReference distinguishes"` 를 실행해 신규 테스트가 단독으로 PASS 하는지 확인한다. 사전 검증 결과 분류기는 이미 4 케이스를 모두 분류하므로 정상 흐름에서는 PASS 가 예상된다.
+- [x] T008 [US1] `node --test tests/symbols.test.mjs` 전체 실행으로 기존 테스트들 (`classifyReference adds relation details without changing legacy type`, `repo_references finds symbol definition and usages across files`, `repo_references handles JavaScript private symbol names` 등) 이 모두 PASS 함을 확인한다. 회귀가 발견되면 Phase 5(US3) 를 발동한다.
 
 **Checkpoint**: User Story 1 단독으로 검증 가능. SC-002, SC-004 충족.
 
@@ -77,13 +77,13 @@ description: "Task list for Task 8 — Symbol Precision Baseline Coverage"
 
 ### Implementation for User Story 2
 
-- [ ] T009 [P] [US2] `DESIGN.md` 의 `## 17. 추후 확장` 안 `### Phase 3 — 의존성 최소화 심볼 엔진 정밀도 향상` 섹션(라인 615-643 부근) 끝, `### Phase 4 — 런타임 고도화` 직전 위치를 식별한다. 기존 본문 1~4 항목을 삭제하거나 의미를 바꾸지 않는다.
-- [ ] T010 [US2] T009 에서 식별한 위치에 `Parser-free 분류기 경계` 단락(또는 Phase 3 의 새 하위 항목 `5.`)을 추가한다. 단락은 다음 세 요소를 모두 포함해야 한다 (spec.md FR-006):
+- [x] T009 [P] [US2] `DESIGN.md` 의 `## 17. 추후 확장` 안 `### Phase 3 — 의존성 최소화 심볼 엔진 정밀도 향상` 섹션(라인 615-643 부근) 끝, `### Phase 4 — 런타임 고도화` 직전 위치를 식별한다. 기존 본문 1~4 항목을 삭제하거나 의미를 바꾸지 않는다.
+- [x] T010 [US2] T009 에서 식별한 위치에 `Parser-free 분류기 경계` 단락(또는 Phase 3 의 새 하위 항목 `5.`)을 추가한다. 단락은 다음 세 요소를 모두 포함해야 한다 (spec.md FR-006):
   - (a) `repo_references` 와 `repo_symbol_context` 가 돌려주는 `relation` 카테고리 목록 6개: `call`, `member_call`, `constructor`, `type_reference`, `import`, `export`.
   - (b) 이 분류는 정규식 기반 syntax-lite 추론이며 LSP/tree-sitter 수준의 완전성(스코프 분석, 타입 해석, JSX, 데코레이터, 동적 import 전개) 을 주장하지 않는다는 단서.
   - (c) 신뢰가 중요한 편집 직전에는 `repo_read` 등으로 라인 범위를 별도 검증하라는 권고. 분류 결과는 "타겟 맵" 용도로만 사용한다고 명시.
-- [ ] T011 [US2] T010 의 단락이 Phase 3 본문의 기존 1~4 항목과 모순되지 않는지, 그리고 본 작업이 카테고리 집합을 확장하지 않음을 함께 명시했는지 사람 리뷰로 확인한다 (spec.md FR-004 의 "신규 분류 카테고리 추가 금지" 와 일관).
-- [ ] T012 [US2] `Grep` 으로 `DESIGN.md` 안에서 6개 카테고리 토큰 (`call`, `member_call`, `constructor`, `type_reference`, `import`, `export`), `LSP`, `라인 범위` 키워드가 새 단락 안에 모두 등장하는지 단순 검증한다.
+- [x] T011 [US2] T010 의 단락이 Phase 3 본문의 기존 1~4 항목과 모순되지 않는지, 그리고 본 작업이 카테고리 집합을 확장하지 않음을 함께 명시했는지 사람 리뷰로 확인한다 (spec.md FR-004 의 "신규 분류 카테고리 추가 금지" 와 일관).
+- [x] T012 [US2] `Grep` 으로 `DESIGN.md` 안에서 6개 카테고리 토큰 (`call`, `member_call`, `constructor`, `type_reference`, `import`, `export`), `LSP`, `라인 범위` 키워드가 새 단락 안에 모두 등장하는지 단순 검증한다.
 
 **Checkpoint**: User Story 2 단독으로 검증 가능. SC-003 충족. US1 과 다른 파일을 만지므로 US1 과 병렬 가능.
 
@@ -112,10 +112,10 @@ description: "Task list for Task 8 — Symbol Precision Baseline Coverage"
 
 **Purpose**: 본 작업의 최종 게이트 확인. spec.md Success Criteria 와 plan.md Test Strategy 의 게이트를 한 번에 점검한다.
 
-- [ ] T017 `node --test tests/symbols.test.mjs` 전체 실행이 0 failures 로 종료하는지 확인한다 (spec.md FR-008, SC-001).
-- [ ] T018 [P] `tests/symbols.test.mjs` 의 라인 240-360 범위에서 기존 테스트들 (`classifyReference adds relation details without changing legacy type`, `repo_references finds symbol definition and usages across files`, `repo_references handles JavaScript private symbol names`) 의 본문과 기대값이 본 작업으로 인해 변경되지 않았는지 `git diff` 로 확인한다 (spec.md Assumptions: 기존 테스트 의미 불변).
-- [ ] T019 [P] `git diff --stat` 으로 본 작업의 커밋 범위가 `tests/symbols.test.mjs`, `DESIGN.md`, 그리고 (US3 발동 시에 한해) `src/explorer/symbols.mjs` 로만 한정되어 있는지 확인한다 (spec.md FR-009).
-- [ ] T020 spec.md Success Criteria SC-001 ~ SC-005 를 한 줄씩 체크하고, 충족되지 않은 항목이 있으면 해당 Phase 로 돌아간다. 본 task 가 통과해야 작업 종료.
+- [x] T017 `node --test tests/symbols.test.mjs` 전체 실행이 0 failures 로 종료하는지 확인한다 (spec.md FR-008, SC-001).
+- [x] T018 [P] `tests/symbols.test.mjs` 의 라인 240-360 범위에서 기존 테스트들 (`classifyReference adds relation details without changing legacy type`, `repo_references finds symbol definition and usages across files`, `repo_references handles JavaScript private symbol names`) 의 본문과 기대값이 본 작업으로 인해 변경되지 않았는지 `git diff` 로 확인한다 (spec.md Assumptions: 기존 테스트 의미 불변).
+- [x] T019 [P] `git diff --stat` 으로 본 작업의 커밋 범위가 `tests/symbols.test.mjs`, `DESIGN.md`, 그리고 (US3 발동 시에 한해) `src/explorer/symbols.mjs` 로만 한정되어 있는지 확인한다 (spec.md FR-009).
+- [x] T020 spec.md Success Criteria SC-001 ~ SC-005 를 한 줄씩 체크하고, 충족되지 않은 항목이 있으면 해당 Phase 로 돌아간다. 본 task 가 통과해야 작업 종료.
 
 ---
 

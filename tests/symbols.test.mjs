@@ -256,6 +256,25 @@ test('classifyReference adds relation details without changing legacy type', () 
   );
 });
 
+test('classifyReference distinguishes member, call, constructor, and type relations', () => {
+  assert.deepEqual(
+    classifyReference('session.touch();', 'touch', 'session.ts'),
+    { type: 'usage', relation: 'member_call' },
+  );
+  assert.deepEqual(
+    classifyReference('const manager = new SessionManager();', 'SessionManager', 'session.ts'),
+    { type: 'usage', relation: 'constructor' },
+  );
+  assert.deepEqual(
+    classifyReference('type Handler = (req: Request) => Response;', 'Request', 'types.ts'),
+    { type: 'usage', relation: 'type_reference' },
+  );
+  assert.deepEqual(
+    classifyReference('return requireAuth(req, res, next);', 'requireAuth', 'routes.js'),
+    { type: 'usage', relation: 'call' },
+  );
+});
+
 // ─── RepoToolkit: repo_symbols tool ──────────────────────────────────────────
 
 async function makeJsFixture() {
