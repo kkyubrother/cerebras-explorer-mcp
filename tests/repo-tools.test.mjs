@@ -640,3 +640,80 @@ test('RepoToolkit gitShow filters changed files to current scope', { skip: !hasG
   assert.ok(!show.files.some(f => f.path === 'hello.js'), 'hello.js is filtered out — outside docs/** scope');
   assert.ok(show.files.some(f => f.path.startsWith('docs/')), 'docs/ files are included');
 });
+
+// ── 010 — Spec-4: gitDiff scope hard boundary ─────────────────────────────
+
+test('010 US4#1 — RepoToolkit gitDiff filters changed files to current scope', { skip: !hasGit() }, async () => {
+  const root = await makeGitRepoFixture();
+  await fs.mkdir(path.join(root, 'docs'), { recursive: true });
+  await fs.writeFile(path.join(root, 'docs', 'README.md'), '# Docs\n');
+  const git = (args) => execFileSync('git', args, { cwd: root, stdio: 'pipe', encoding: 'utf8' });
+  git(['add', '.']);
+  git(['commit', '-m', 'add docs']);
+  await fs.writeFile(path.join(root, 'hello.js'), 'console.log("v3");\n');
+  await fs.writeFile(path.join(root, 'docs', 'README.md'), '# Docs v2\n');
+  git(['add', '.']);
+  git(['commit', '-m', 'touch both']);
+
+  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig('normal') });
+  await toolkit.initialize(['docs/**']);
+
+  const diff = await toolkit.gitDiff({ from: 'HEAD~1', to: 'HEAD' });
+  assert.ok(
+    !diff.files.some(f => f.path === 'hello.js'),
+    'hello.js must be filtered out — outside docs/** scope',
+  );
+  assert.ok(
+    diff.files.some(f => f.path.startsWith('docs/')),
+    'docs/ files must remain in the result',
+  );
+  assert.ok(diff.omittedOutOfScopeFiles > 0, 'omittedOutOfScopeFiles must be reported when filtering');
+});
+
+test('010 US4#2 — RepoToolkit gitDiff stat mode filters out-of-scope lines', { skip: !hasGit() }, async () => {
+  const root = await makeGitRepoFixture();
+  await fs.mkdir(path.join(root, 'docs'), { recursive: true });
+  await fs.writeFile(path.join(root, 'docs', 'README.md'), '# Docs\n');
+  const git = (args) => execFileSync('git', args, { cwd: root, stdio: 'pipe', encoding: 'utf8' });
+  git(['add', '.']);
+  git(['commit', '-m', 'add docs']);
+  await fs.writeFile(path.join(root, 'hello.js'), 'console.log("v3");\n');
+  await fs.writeFile(path.join(root, 'docs', 'README.md'), '# Docs v2\n');
+  git(['add', '.']);
+  git(['commit', '-m', 'touch both']);
+
+  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig('normal') });
+  await toolkit.initialize(['docs/**']);
+
+  const diff = await toolkit.gitDiff({ from: 'HEAD~1', to: 'HEAD', stat: true });
+  assert.ok(!/^\s*hello\.js\s+\|/m.test(diff.stat), `stat text should not include hello.js line, got:\n${diff.stat}`);
+  assert.ok(/docs\/README\.md\s+\|/m.test(diff.stat), 'stat text should include docs/README.md line');
+  assert.ok(diff.omittedOutOfScopeFiles > 0, 'omittedOutOfScopeFiles must be reported when stat filtering');
+});
+
+test('010 US4#4 — collectDiscoveredPathsFromToolResult only sees in-scope files', { skip: !hasGit() }, async () => {
+  const { collectDiscoveredPathsFromToolResult } = await import('../src/explorer/repo-tools.mjs');
+  const root = await makeGitRepoFixture();
+  await fs.mkdir(path.join(root, 'docs'), { recursive: true });
+  await fs.writeFile(path.join(root, 'docs', 'README.md'), '# Docs\n');
+  const git = (args) => execFileSync('git', args, { cwd: root, stdio: 'pipe', encoding: 'utf8' });
+  git(['add', '.']);
+  git(['commit', '-m', 'add docs']);
+  await fs.writeFile(path.join(root, 'hello.js'), 'console.log("v3");\n');
+  await fs.writeFile(path.join(root, 'docs', 'README.md'), '# Docs v2\n');
+  git(['add', '.']);
+  git(['commit', '-m', 'touch both']);
+
+  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig('normal') });
+  await toolkit.initialize(['docs/**']);
+  const diff = await toolkit.gitDiff({ from: 'HEAD~1', to: 'HEAD' });
+  const discovered = collectDiscoveredPathsFromToolResult('repo_git_diff', diff);
+  assert.ok(
+    !discovered.some(entry => entry.path === 'hello.js'),
+    'discoveredPaths must not include scope-filtered files',
+  );
+  assert.ok(
+    discovered.some(entry => entry.path && entry.path.startsWith('docs/')),
+    'discoveredPaths must include in-scope changed files',
+  );
+});
