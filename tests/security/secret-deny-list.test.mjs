@@ -166,7 +166,6 @@ test('deny-listed file content is blocked before provider-facing tool messages',
   const result = await exploreRepository({
     task: 'Check whether secret files can be read.',
     repo_root: root,
-    budget: 'quick',
   }, { chatClient });
 
   assert.ok(chatClient.calls >= 2);

@@ -3,8 +3,6 @@ import path from 'node:path';
 
 import { CerebrasChatClient, extractFirstJsonObject } from './cerebras-client.mjs';
 import {
-  autoSessionByRepoEnabled,
-  chooseAutoBudget,
   getBudgetConfig,
   getExplorerTemperature,
   getExplorerTopP,
@@ -12,11 +10,8 @@ import {
   getExploreV2MaxExtraTurns,
   getExploreV2TurnMultiplier,
   getReasoningEffortForBudget,
-  getModelForBudget,
-  classifyTaskComplexity,
   isSecretPath,
   isTruthyEnv,
-  legacyDiscoveredTargetsEnabled,
   loadProjectConfig,
   normalizeProjectConfig,
   resolveRepoRoot,
@@ -31,9 +26,7 @@ import {
   buildExplorerSystemPrompt,
   buildExplorerUserPrompt,
   buildFinalizePrompt,
-  buildFreeExploreSystemPrompt,
   buildFreeExploreUserPrompt,
-  buildFreeExploreFinalizePrompt,
   buildFreeExploreV2SystemPrompt,
   buildCompactionSummaryPrompt,
   buildOutputContinuationPrompt,
@@ -702,7 +695,9 @@ function filterGroundedModelTargets(targets = [], evidence = []) {
   });
 }
 
-function buildTargets({ evidence = [], discoveredPaths = [], includeLegacyReferences = false } = {}) {
+function buildTargets({ evidence = [] } = {}) {
+  // spec 011: discovered paths are no longer promoted into `targets[]`.
+  // Callers must surface them via the dedicated top-level `discoveredPaths[]`.
   const targets = [];
   const byKey = new Map();
 
@@ -730,22 +725,6 @@ function buildTargets({ evidence = [], discoveredPaths = [], includeLegacyRefere
       reason: item.why || 'Grounded evidence target.',
       evidenceRefs: item.id ? [item.id] : [],
     });
-  }
-
-  if (includeLegacyReferences) {
-    const evidencePaths = new Set(evidence.map(item => normalizeTargetPath(item.path)).filter(Boolean));
-    for (const discovered of discoveredPaths) {
-      const candidatePath = typeof discovered === 'string' ? discovered : discovered?.path;
-      if (!candidatePath) continue;
-      const normalizedDiscoveredPath = normalizeTargetPath(candidatePath);
-      if (!normalizedDiscoveredPath || evidencePaths.has(normalizedDiscoveredPath)) continue;
-      addTarget({
-        path: candidatePath,
-        role: 'reference',
-        reason: 'Discovered path; read only if the cited evidence does not answer the edit or verification need.',
-        evidenceRefs: [],
-      });
-    }
   }
 
   return targets.slice(0, 20);
@@ -1199,21 +1178,9 @@ function resolveSessionForExplore(sessionStore, requestedSessionId, repoRoot) {
     };
   }
 
-  // No explicit session — optionally auto-reuse the most recent reusable
-  // session for the same repoRoot (opt-in via CEREBRAS_EXPLORER_AUTO_SESSION_BY_REPO=1).
-  if (autoSessionByRepoEnabled() && typeof sessionStore.findReusableForRepo === 'function') {
-    const reusable = sessionStore.findReusableForRepo(repoRoot);
-    if (reusable?.ok && reusable.session) {
-      return {
-        ok: true,
-        sessionId: reusable.session.id,
-        sessionData: reusable.session,
-        sessionStatus: 'reused',
-        sessionSource: 'auto_repo',
-        remainingCalls: reusable.remainingCalls,
-      };
-    }
-  }
+  // spec 011: auto repo-keyed session reuse (010 opt-in
+  // CEREBRAS_EXPLORER_AUTO_SESSION_BY_REPO) was removed. Multi-call
+  // continuity now requires an explicit `session` argument.
 
   // No session requested — create a new one
   const newId = sessionStore.create(repoRoot);
@@ -1291,14 +1258,11 @@ function guessModuleRole(filePath) {
   return 'module';
 }
 
-function resolveModelBudget(task, budgetLabel) {
-  if (!isTruthyEnv(process.env.CEREBRAS_EXPLORER_AUTO_ROUTE)) {
-    return budgetLabel;
-  }
-  const complexity = classifyTaskComplexity(task);
-  if (complexity === 'simple') return 'quick';
-  if (complexity === 'complex') return 'deep';
-  return budgetLabel;
+// spec 011: budget input and AUTO_ROUTE were removed. Every call runs against
+// the single deep runtime config; this stub stays for callers that still pass
+// a label through.
+function resolveModelBudget() {
+  return 'deep';
 }
 
 /**
@@ -1327,26 +1291,22 @@ export class ExplorerRuntime {
    * Returns all the common infrastructure: budgetConfig, repoRoot, projectConfig,
    * session data, repoToolkit, chatClient, tools, and timing helpers.
    */
-  async _initExploreContext({ budgetLabel, repoRootArg, scope, hints, session, taskText, sessionStore }) {
+  async _initExploreContext({ repoRootArg, scope, session, taskText, sessionStore }) {
     const repoRoot = await resolveRepoRoot(repoRootArg);
 
     const rawProjectConfig = await loadProjectConfig(repoRoot);
     const projectConfig = normalizeProjectConfig(rawProjectConfig);
 
-    const budgetSource = budgetLabel
-      ? 'argument'
-      : projectConfig.defaultBudget
-        ? 'project_config'
-        : 'auto';
-    const effectiveBudgetLabel = budgetLabel ?? projectConfig.defaultBudget ?? chooseAutoBudget({ task: taskText, scope, hints });
-    const budgetConfig = getBudgetConfig(effectiveBudgetLabel);
+    // spec 011: single runtime config — no user-facing budget knob.
+    const budgetConfig = getBudgetConfig();
+    const budgetSource = 'auto';
+    const effectiveBudgetLabel = 'deep';
     const effectiveScope = scope ?? projectConfig.defaultScope ?? [];
     const projectContext = projectConfig.projectContext ?? null;
     const keyFiles = projectConfig.keyFiles ?? [];
     const extraIgnoreDirs = projectConfig.extraIgnoreDirs ?? [];
 
-    const modelBudget = resolveModelBudget(taskText, effectiveBudgetLabel);
-    const chatClient = this._explicitChatClient ?? createChatClient({ budget: modelBudget });
+    const chatClient = this._explicitChatClient ?? createChatClient({ budget: resolveModelBudget() });
 
     const sessionResolution = resolveSessionForExplore(sessionStore, session, repoRoot);
     if (!sessionResolution.ok) {
@@ -1395,10 +1355,8 @@ export class ExplorerRuntime {
       chatClient, sessionId, sessionData, sessionStatus, sessionSource, remainingCalls,
       repoToolkit, tools, reasoningEffort, temperature, topP,
     } = await this._initExploreContext({
-      budgetLabel: args.budget,
       repoRootArg: args.repo_root,
       scope: args.scope,
-      hints: args.hints,
       session: args.session,
       taskText: args.task,
       sessionStore,
@@ -1813,15 +1771,13 @@ export class ExplorerRuntime {
         confidence: 'low',
       };
     }
+    // spec 011: discovered paths are surfaced only via the top-level
+    // discoveredPaths[]; the 010 opt-in to promote them into targets[]
+    // was removed.
     const groundedModelTargets = filterGroundedModelTargets(normalized.targets, normalized.evidence);
-    const useLegacyDiscoveredTargets = legacyDiscoveredTargetsEnabled();
     normalized.targets = mergeTargets(
       groundedModelTargets,
-      buildTargets({
-        evidence: normalized.evidence,
-        discoveredPaths: useLegacyDiscoveredTargets ? discoveredPaths : [],
-        includeLegacyReferences: useLegacyDiscoveredTargets,
-      }),
+      buildTargets({ evidence: normalized.evidence }),
     );
     normalized.discoveredPaths = discoveredPaths;
     normalized.uncertainties = buildUncertainties(normalized, stats);
@@ -1864,277 +1820,11 @@ export class ExplorerRuntime {
 
   /**
    * Phase 5: Free-form exploration — produces a human-readable Markdown report.
-   *
-   * @param {object} args - { prompt, thoroughness?, scope?, repo_root?, session?, language?, context? }
-   * @param {object} [callOpts]
-   * @param {Function}      [callOpts.onProgress]
-   * @param {object}        [callOpts.sessionStore]
-   * @param {AbortSignal}   [callOpts.abortSignal]
+   * As of spec 011 this method delegates to freeExploreV2, which is the single
+   * supported backend for explore. The V1 implementation was removed.
    */
-  async freeExplore(args, { onProgress = null, sessionStore = null, abortSignal = null } = {}) {
-    if (!args || typeof args.prompt !== 'string' || !args.prompt.trim()) {
-      const err = new Error('prompt is required and must be a non-empty string.');
-      err.code = -32602;
-      throw err;
-    }
-
-    const thoroughnessMap = { quick: 'quick', normal: 'normal', deep: 'deep' };
-    const budgetLabel = args.thoroughness ? thoroughnessMap[args.thoroughness] : undefined;
-
-    const {
-      budgetConfig, repoRoot, effectiveScope, projectContext, keyFiles,
-      chatClient, sessionId, sessionData, sessionStatus, sessionSource, remainingCalls,
-      tools, reasoningEffort, temperature, topP, repoToolkit,
-    } = await this._initExploreContext({
-      budgetLabel,
-      repoRootArg: args.repo_root,
-      scope: args.scope,
-      session: args.session,
-      taskText: args.prompt,
-      sessionStore,
-    });
-
-    const startedAt = nowMs();
-    const knownToolNames = new Set(tools.map(tool => tool.function?.name).filter(Boolean));
-
-    let messages = [
-      {
-        role: 'system',
-        content: buildFreeExploreSystemPrompt({
-          repoRoot,
-          budgetConfig,
-          language: args.language,
-          projectContext,
-          keyFiles,
-          previousSummaries: sessionData?.summaries ?? [],
-        }),
-      },
-      {
-        role: 'user',
-        content: buildFreeExploreUserPrompt({
-          prompt: args.prompt,
-          scope: effectiveScope,
-          budget: budgetConfig.label,
-          context: args.context,
-        }),
-      },
-    ];
-
-    const stats = {
-      model: chatClient.model,
-      budget: budgetConfig.label,
-      turns: 0,
-      toolCalls: 0,
-      listDirCalls: 0,
-      findFileCalls: 0,
-      grepCalls: 0,
-      filesRead: 0,
-      gitLogCalls: 0,
-      gitBlameCalls: 0,
-      gitDiffCalls: 0,
-      gitShowCalls: 0,
-      symbolCalls: 0,
-      elapsedMs: 0,
-      stoppedByBudget: false,
-      scope: Array.isArray(effectiveScope) ? effectiveScope : [],
-      repoRoot,
-      sessionId,
-      sessionStatus,
-      sessionSource,
-      remainingCalls,
-    };
-
-    const filesRead = new Set();
-    const toolsUsed = new Set();
-    const toolTrace = createCompactToolTrace();
-    let report = '';
-    let consecutiveAllErrorTurns = 0;
-
-    for (let turnIndex = 0; turnIndex < budgetConfig.maxTurns; turnIndex += 1) {
-      // Abort check
-      if (abortSignal?.aborted) {
-        stats.stoppedByAbort = true;
-        break;
-      }
-
-      // Context window management: compact old tool results when approaching limit
-      messages = compactOldToolResults(messages, budgetConfig.maxContextTokens);
-
-      stats.turns += 1;
-
-      if (onProgress) {
-        onProgress({ progress: turnIndex, total: budgetConfig.maxTurns, message: `Turn ${turnIndex + 1}/${budgetConfig.maxTurns}` });
-      }
-
-      let completion;
-      try {
-        completion = await chatClient.createChatCompletion({
-          messages,
-          tools,
-          reasoningEffort,
-          temperature,
-          topP,
-          maxCompletionTokens: budgetConfig.maxCompletionTokens,
-          parallelToolCalls: true,
-          signal: abortSignal,
-        });
-      } catch (error) {
-        if (abortSignal?.aborted && isAbortError(error)) {
-          stats.stoppedByAbort = true;
-          break;
-        }
-        throw error;
-      }
-
-      Object.assign(stats, summarizeUsage(stats, completion.usage));
-
-      if (!completion.message.toolCalls || completion.message.toolCalls.length === 0) {
-        if (completion.message.content) {
-          report = completion.message.content;
-        }
-        break;
-      }
-
-      const assistantMessage = buildAssistantMessage(completion.message);
-      // Do NOT set report here — only set it when there are no tool calls (final answer)
-      messages.push(assistantMessage);
-
-      // Execute tool calls in parallel (same concurrency as explore)
-      const toolCallResults = await runWithConcurrency(
-        completion.message.toolCalls,
-        TOOL_CONCURRENCY,
-        async (toolCall) => {
-          const toolName = toolCall.function?.name ?? '(unknown)';
-          let toolArgs = {};
-          let toolResult;
-
-          // Validate tool name first — catch hallucinated tools early
-          const validationError = validateToolName(toolName, knownToolNames);
-          if (validationError) {
-            return { toolCall, toolName, toolArgs, toolResult: validationError };
-          }
-
-          try {
-            toolArgs = safeJsonParse(toolCall.function?.arguments ?? '{}');
-            toolResult = await repoToolkit.callTool(toolName, toolArgs);
-          } catch (error) {
-            toolResult = {
-              error: true,
-              stage: 'parse_or_exec',
-              type: error.message.startsWith('Failed to parse tool arguments')
-                ? 'invalid_tool_arguments'
-                : 'tool_execution_error',
-              message: error.message,
-              tool: toolName,
-            };
-          }
-          return { toolCall, toolName, toolArgs, toolResult };
-        },
-      );
-
-      for (const { toolCall, toolName, toolArgs, toolResult } of toolCallResults) {
-        const safeToolResult = redactToolResult(toolResult);
-        incrementToolStats(stats, toolName, { countReadFiles: false });
-        toolsUsed.add(toolName);
-        toolTrace.record({
-          turn: turnIndex + 1,
-          tool: toolName,
-          args: toolArgs,
-          result: safeToolResult,
-        });
-
-        if (toolName === 'repo_read_file' && !safeToolResult?.error) {
-          filesRead.add(safeToolResult.path);
-          stats.filesRead += 1;
-        }
-
-        messages.push({
-          role: 'tool',
-          tool_call_id: toolCall.id,
-          content: JSON.stringify(safeToolResult),
-        });
-      }
-
-      // Circuit breaker: stop after too many consecutive all-error turns.
-      const allErrors = toolCallResults.every(r => r.toolResult?.error);
-      if (allErrors) {
-        consecutiveAllErrorTurns += 1;
-      } else {
-        consecutiveAllErrorTurns = 0;
-      }
-
-      if (consecutiveAllErrorTurns >= MAX_CONSECUTIVE_ERROR_TURNS) {
-        stats.stoppedByErrors = true;
-        break;
-      }
-    }
-
-    // Finalize when: budget exhausted (regardless of interim report), report empty, or "None" quirk
-    const budgetExhausted = stats.turns >= budgetConfig.maxTurns;
-    const reportIsEmpty = !report || report.trim() === '' || report.trim().toLowerCase() === 'none';
-    if (stats.stoppedByAbort) {
-      report = buildCancelledReport(report);
-    } else if (budgetExhausted || reportIsEmpty) {
-      stats.stoppedByBudget = budgetExhausted;
-      try {
-        const finalized = await chatClient.createChatCompletion({
-          messages: [
-            ...messages,
-            { role: 'user', content: buildFreeExploreFinalizePrompt() },
-          ],
-          reasoningEffort,
-          temperature,
-          topP,
-          maxCompletionTokens: budgetConfig.finalizeMaxCompletionTokens ?? 2000,
-          parallelToolCalls: false,
-          signal: abortSignal,
-        });
-        Object.assign(stats, summarizeUsage(stats, finalized.usage));
-        report = finalized.message.content || 'Explorer could not produce a report.';
-      } catch (error) {
-        if (abortSignal?.aborted && isAbortError(error)) {
-          stats.stoppedByAbort = true;
-          report = buildCancelledReport(report);
-        } else {
-          throw error;
-        }
-      }
-    }
-
-    stats.elapsedMs = nowMs() - startedAt;
-    Object.assign(stats, globalRepoCache.stats());
-    const reportFilesRead = [...filesRead];
-    const critic = buildReportCritic({ report, filesRead: reportFilesRead, stats });
-    const citations = buildReportCitations(report);
-    const targets = buildReportCitationTargets(citations);
-
-    // Update session with report summary (mode-neutral)
-    if (sessionStore && sessionId) {
-      const summaryLine = report.split('\n').find(l => l.trim())?.slice(0, 400) ?? '';
-      sessionStore.update(sessionId, {
-        targets: [...filesRead].map(filePath => ({
-          path: filePath,
-          role: 'read',
-          reason: 'Read during report exploration.',
-          evidenceRefs: [],
-        })),
-        evidence: [],
-        directAnswer: summaryLine,
-      });
-      syncRemainingCallsStat(stats, sessionStore, sessionId);
-    }
-
-    return {
-      report,
-      citations,
-      targets,
-      filesRead: reportFilesRead,
-      toolsUsed: [...toolsUsed],
-      stats,
-      critic,
-      searchCoverage: buildSearchCoverage(stats),
-      toolTrace: toolTrace.toJSON(),
-    };
+  async freeExplore(args, callOpts = {}) {
+    return this.freeExploreV2(args, callOpts);
   }
 
   // ── freeExploreV2 ───────────────────────────────────────────────────────────
@@ -2155,15 +1845,13 @@ export class ExplorerRuntime {
       throw err;
     }
 
-    const thoroughnessMap = { quick: 'quick', normal: 'normal', deep: 'deep' };
-    const budgetLabel = args.thoroughness ? thoroughnessMap[args.thoroughness] : undefined;
-
+    // spec 011: `thoroughness` is accepted for back-compat but ignored — every
+    // explore call runs against the single deep runtime config.
     const {
       budgetConfig: baseBudgetConfig, repoRoot, effectiveScope, projectContext, keyFiles,
       chatClient, sessionId, sessionData, sessionStatus, sessionSource, remainingCalls,
       tools, reasoningEffort, temperature, topP, repoToolkit,
     } = await this._initExploreContext({
-      budgetLabel,
       repoRootArg: args.repo_root,
       scope: args.scope,
       session: args.session,

@@ -141,7 +141,6 @@ test('P0: malformed tool arguments produce error result instead of crashing expl
     result = await runtime.explore({
       task: '인증 함수 분석',
       repo_root: root,
-      budget: 'quick',
     });
   }, 'explore() must not throw when a tool call has malformed JSON arguments');
 
@@ -206,56 +205,11 @@ test('P0: freeExplore does not use intermediate tool-call content as final repor
   const result = await runtime.freeExplore({
     prompt: '저장소 구조를 설명해라',
     repo_root: root,
-    budget: 'quick',
   });
 
   assert.ok(!result.report.includes('DRAFT'), `report must NOT contain intermediate draft content, got: ${result.report}`);
   assert.ok(result.report.includes('FINAL_REPORT'), `report must contain the final response content, got: ${result.report}`);
 });
 
-// ─── P1-1: defaultBudget reflection ──────────────────────────────────────────
-
-test('P1: defaultBudget from project config is applied before budgetConfig is computed', async () => {
-  const root = await makeRepoFixture('budget-');
-  // Write a project config with defaultBudget: 'quick'
-  await fs.writeFile(
-    path.join(root, '.cerebras-explorer.json'),
-    JSON.stringify({ defaultBudget: 'quick' }),
-  );
-
-  class BudgetCheckClient {
-    constructor() {
-      this.model = 'zai-glm-4.7';
-      this.capturedMaxTurns = null;
-    }
-    async createChatCompletion({ maxCompletionTokens }) {
-      // Return immediately with a final answer so we can check the budget
-      return {
-        usage: { prompt_tokens: 5, completion_tokens: 5, total_tokens: 10 },
-        message: {
-          content: JSON.stringify({
-            directAnswer: 'done',
-            status: { confidence: 'low', verification: 'broad_search_needed', complete: false, warnings: [] },
-            targets: [],
-            evidence: [],
-            uncertainties: [],
-            nextAction: { type: 'ask_user', reason: 'No evidence found.' },
-          }),
-          toolCalls: [],
-        },
-      };
-    }
-  }
-
-  const runtime = new ExplorerRuntime({ chatClient: new BudgetCheckClient() });
-  const result = await runtime.explore({
-    task: '테스트',
-    repo_root: root,
-    // No explicit budget — should fall back to project config's 'quick'
-  });
-
-  // 'quick' budget has maxTurns = 4, 'normal' has 8.
-  // If defaultBudget is correctly applied, stats.budget should be 'quick'.
-  assert.equal(result.stats.budget, 'quick',
-    `stats.budget must reflect defaultBudget from project config, got: ${result.stats.budget}`);
-});
+// spec 011: project config defaultBudget and the `budget` input were both
+// removed. Every call now runs against the single deep runtime config.

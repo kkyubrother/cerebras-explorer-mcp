@@ -36,11 +36,8 @@ export function isGptOssModel(model) {
 }
 
 export function getExplorerModel() {
-  return (
-    process.env.CEREBRAS_EXPLORER_MODEL?.trim() ||
-    process.env.CEREBRAS_MODEL?.trim() ||
-    DEFAULT_EXPLORER_MODEL
-  );
+  // spec 011: the `CEREBRAS_MODEL` alias was removed. Use `CEREBRAS_EXPLORER_MODEL` only.
+  return process.env.CEREBRAS_EXPLORER_MODEL?.trim() || DEFAULT_EXPLORER_MODEL;
 }
 
 export function getExplorerTemperature() {
@@ -152,50 +149,32 @@ export const DEFAULT_TEXT_FILE_MAX_BYTES = 512 * 1024;
 export const DEFAULT_GREP_FILE_MAX_BYTES = 256 * 1024;
 export const DEFAULT_WALK_FILE_LIMIT = 5000;
 
-export const BUDGETS = {
-  quick: {
-    label: 'quick',
-    maxTurns: 10,
-    maxSearchResults: 20,
-    maxReadLines: 140,
-    maxDirectoryEntries: 120,
-    maxWalkFiles: 1500,
-    maxCompletionTokens: 8000,
-    finalizeMaxCompletionTokens: 1500,
-    maxContextTokens: 80_000,
-    temperature: 0.3,
-    topP: 0.95,
-  },
-  normal: {
-    label: 'normal',
-    maxTurns: 20,
-    maxSearchResults: 40,
-    maxReadLines: 220,
-    maxDirectoryEntries: 200,
-    maxWalkFiles: 3000,
-    maxCompletionTokens: 16000,
-    finalizeMaxCompletionTokens: 2000,
-    maxContextTokens: 100_000,
-    temperature: 0.8,
-    topP: 0.95,
-  },
-  deep: {
-    label: 'deep',
-    maxTurns: 30,
-    maxSearchResults: 80,
-    maxReadLines: 320,
-    maxDirectoryEntries: 300,
-    maxWalkFiles: 6000,
-    maxCompletionTokens: 32000,
-    finalizeMaxCompletionTokens: 3000,
-    maxContextTokens: 110_000,
-    temperature: 1.0,
-    topP: 0.95,
-  },
+// spec 011: BUDGETS is now a single deep config. The quick/normal labels
+// were removed along with the `budget` input parameter, and every call
+// runs against these limits regardless of label.
+const DEEP_BUDGET = {
+  label: 'deep',
+  maxTurns: 30,
+  maxSearchResults: 80,
+  maxReadLines: 320,
+  maxDirectoryEntries: 300,
+  maxWalkFiles: 6000,
+  maxCompletionTokens: 32000,
+  finalizeMaxCompletionTokens: 3000,
+  maxContextTokens: 110_000,
+  temperature: 1.0,
+  topP: 0.95,
 };
 
-export function getBudgetConfig(label) {
-  return BUDGETS[label] ?? BUDGETS.normal;
+export const BUDGETS = {
+  deep: DEEP_BUDGET,
+  // Back-compat aliases so any lingering import keeps working until removed.
+  quick: DEEP_BUDGET,
+  normal: DEEP_BUDGET,
+};
+
+export function getBudgetConfig() {
+  return DEEP_BUDGET;
 }
 
 function getPathModule(platform = process.platform) {
@@ -276,17 +255,6 @@ export function isTruthyEnv(value) {
 }
 
 /**
- * When set to a truthy value, the runtime keeps the legacy behavior of
- * promoting discovered paths (from list_dir / find_files / git diff / git show)
- * into the public `targets[]` with role:'reference' and evidenceRefs:[].
- * Default off — the modern behavior surfaces discoveries via the separate
- * top-level `discoveredPaths[]` field instead.
- */
-export function legacyDiscoveredTargetsEnabled(env = process.env) {
-  return isTruthyEnv(env.CEREBRAS_EXPLORER_LEGACY_DISCOVERED_TARGETS);
-}
-
-/**
  * When set to a truthy value, the redaction layer masks environment-variable
  * identifiers (e.g. `process.env.X`, `import.meta.env.Y`) in snippet/report
  * text in addition to secret values and secret paths. Default off — the
@@ -297,57 +265,22 @@ export function redactEnvVarNamesEnabled(env = process.env) {
   return isTruthyEnv(env.CEREBRAS_EXPLORER_REDACT_ENV_VAR_NAMES);
 }
 
-/**
- * When set to a truthy value, the runtime auto-reuses the most recent
- * reusable session for the same repoRoot when no explicit `session` argument
- * is supplied. Default off — multi-client environments should keep explicit
- * session passing to maintain conversation isolation.
- */
-export function autoSessionByRepoEnabled(env = process.env) {
-  return isTruthyEnv(env.CEREBRAS_EXPLORER_AUTO_SESSION_BY_REPO);
+// spec 011: budget-specific model env vars were removed. Every call uses the
+// single CEREBRAS_EXPLORER_MODEL. This helper survives as a thin alias to keep
+// provider entry points stable.
+export function getModelForBudget() {
+  return getExplorerModel();
 }
 
 /**
- * Return the model to use for a given budget label.
- * Reads budget-specific env vars first, then falls back to the global model.
- *
- * Env vars:
- *   CEREBRAS_EXPLORER_MODEL_QUICK   — model for quick budget
- *   CEREBRAS_EXPLORER_MODEL_NORMAL  — model for normal budget
- *   CEREBRAS_EXPLORER_MODEL_DEEP    — model for deep budget
+ * Resolve the reasoning effort hint for the selected model under the single
+ * deep runtime config (spec 011). GLM 4.7 leaves the parameter unset (model
+ * default behavior). GPT-OSS uses the deep tier ("high"). Other models
+ * leave the parameter unset.
  */
-export function getModelForBudget(budget) {
-  if (budget === 'quick') {
-    return process.env.CEREBRAS_EXPLORER_MODEL_QUICK?.trim() || getExplorerModel();
-  }
-  if (budget === 'deep') {
-    return process.env.CEREBRAS_EXPLORER_MODEL_DEEP?.trim() || getExplorerModel();
-  }
-  return process.env.CEREBRAS_EXPLORER_MODEL_NORMAL?.trim() || getExplorerModel();
-}
-
-/**
- * Resolve reasoning settings for the selected model and exploration budget.
- *
- * GLM 4.7 only supports `reasoning_effort="none"` to disable reasoning.
- * Normal and deep budgets therefore leave the parameter unset, which keeps
- * reasoning enabled with the model default behavior.
- *
- * GPT-OSS supports the classic low/medium/high ladder.
- */
-export function getReasoningEffortForBudget(model, budget) {
-  const label = BUDGETS[budget] ? budget : 'normal';
-
-  if (isGlm47Model(model)) {
-    return label === 'quick' ? 'none' : undefined;
-  }
-
-  if (isGptOssModel(model)) {
-    if (label === 'quick') return 'low';
-    if (label === 'deep') return 'high';
-    return 'medium';
-  }
-
+export function getReasoningEffortForBudget(model) {
+  if (isGlm47Model(model)) return undefined;
+  if (isGptOssModel(model)) return 'high';
   return undefined;
 }
 
@@ -374,30 +307,12 @@ export function classifyTaskComplexity(task) {
   return 'moderate';
 }
 
-export function chooseAutoBudget({ task = '', scope = [], hints = {} } = {}) {
-  const text = String(task ?? '').toLowerCase();
-  const hasAnchors =
-    (Array.isArray(hints?.symbols) && hints.symbols.length > 0) ||
-    (Array.isArray(hints?.files) && hints.files.length > 0) ||
-    (Array.isArray(hints?.regex) && hints.regex.length > 0);
-
-  if (hasAnchors) return 'quick';
-
-  if (/어디\s|찾아|위치|선언|정의\s|defined|where\s|find\s|locate|definition/.test(text)) {
-    return 'quick';
-  }
-
-  if (
-    /architecture|overview|impact|root cause|bug|security|performance|아키텍처|개요|영향|원인|버그|보안|성능/.test(text)
-  ) {
-    return 'normal';
-  }
-
-  if (Array.isArray(scope) && scope.length === 1 && typeof scope[0] === 'string' && scope[0].trim()) {
-    return 'quick';
-  }
-
-  return 'normal';
+// spec 011: every explore call uses the single deep runtime config. The
+// auto-budget heuristic was removed along with the `budget` input parameter
+// and the `CEREBRAS_EXPLORER_AUTO_ROUTE` env var, so this helper is now a
+// constant-returning stub kept for back-compat with internal callers.
+export function chooseAutoBudget() {
+  return 'deep';
 }
 
 /**

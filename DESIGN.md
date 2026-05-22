@@ -200,11 +200,7 @@ GLM 4.7 마이그레이션 기준으로 explorer runtime은 다음 원칙을 따
 
 #### `MCP Server`
 
-기본적으로 상위 모델에게 8개의 도구를 노출한다: `find_relevant_code`, `trace_symbol`, `map_change_impact`, `explain_code_path`, `collect_evidence`, `review_change_context`, `explore_repo`, `explore`.
-
-- `CEREBRAS_EXPLORER_EXTRA_TOOLS=false`로 설정하면 목적형 wrapper 6개가 비활성화된다.
-- `explore_v2`는 advanced 도구이며 `CEREBRAS_EXPLORER_ENABLE_EXPLORE_V2=true`일 때만 노출된다.
-- `CEREBRAS_EXPLORER_ENABLE_EXPLORE=false`로 설정하면 `explore`가 비활성화된다.
+spec 011 이후 상위 모델에게 노출되는 도구는 환경변수와 무관하게 **항상 8개로 고정**된다: `find_relevant_code`, `trace_symbol`, `map_change_impact`, `explain_code_path`, `collect_evidence`, `review_change_context`, `explore_repo`, `explore`. `explore_v2` 도구 이름은 제거되었고, V2 구현은 단일 `explore` backend로 승격되었다. 이전 surface 토글 envvar(`CEREBRAS_EXPLORER_EXTRA_TOOLS`, `CEREBRAS_EXPLORER_ENABLE_EXPLORE`, `CEREBRAS_EXPLORER_ENABLE_EXPLORE_V2`)는 모두 인식되지 않는다.
 
 Wrapper tools pass an internal `taskMode` to runtime. Runtime uses this mode
 before text-based edit-intent detection when deciding `status.verification` and
@@ -227,10 +223,9 @@ they have no wrapper-owned intent.
 | 도구 | 반환 형식 | 적합한 상황 |
 |------|----------|-----------|
 | `explore_repo` | 구조화된 JSON | 자동화, 파이프라인, 후처리 |
-| `explore` | Markdown 보고서 | 아키텍처 개요, 광범위한 질문 |
-| `explore_v2` | Markdown 보고서 (강화) | 넓은 탐색 범위, 컨텍스트 오버플로 위험이 있는 deep 탐색 |
+| `explore` | Markdown 보고서 | 아키텍처 개요, 광범위한 질문, deep 보고서 |
 
-`explore`와 `explore_v2`는 같은 `_initExploreContext()` 인프라를 공유하며, 세션도 호환된다. `explore_v2`는 LLM 기반 대화 요약, 도구 결과 예산 관리, 최대 출력 복구 기능을 추가로 제공한다.
+spec 011 이후 `explore`는 단일 V2 backend 구현으로 실행된다. 모든 explore 호출에서 LLM 기반 대화 요약, 도구 결과 예산 관리, 최대 출력 복구 기능이 항상 적용된다.
 
 #### 세션 계약
 
@@ -531,7 +526,7 @@ V2가 report-mode의 단독 백엔드로 승격되려면 evidence-preservation b
 
 ### 11.5 Targets vs discoveredPaths (010)
 
-`targets[]`는 grounded evidence와 직접 연결된 actionable 항목만 담는다. `repo_list_dir`/`repo_find_files`/`repo_git_diff`/`repo_git_show`로 발견만 된 path는 별도 top-level `discoveredPaths[]`에 `{ path, kind, sourceTool, reason }` 형태로 노출한다. report 도구(`explore`/`explore_v2`)의 citation target은 file path 기준으로 병합되어 `startLine`은 최소·`endLine`은 최대로 묶이며, 두 citation 이상이 합쳐진 경우 `reason`에 merge count가 명시된다. 기존(reference 자동 승격) 동작이 필요한 consumer는 1 릴리스 동안 `CEREBRAS_EXPLORER_LEGACY_DISCOVERED_TARGETS=1`로 호환할 수 있다.
+`targets[]`는 grounded evidence와 직접 연결된 actionable 항목만 담는다. `repo_list_dir`/`repo_find_files`/`repo_git_diff`/`repo_git_show`로 발견만 된 path는 별도 top-level `discoveredPaths[]`에 `{ path, kind, sourceTool, reason }` 형태로 노출한다. report 도구 `explore`의 citation target은 file path 기준으로 병합되어 `startLine`은 최소·`endLine`은 최대로 묶이며, 두 citation 이상이 합쳐진 경우 `reason`에 merge count가 명시된다. spec 011에서 `CEREBRAS_EXPLORER_LEGACY_DISCOVERED_TARGETS` 옵트인은 영구 제거되었고, 신 동작만 적용된다.
 
 ### 11.6 Scope hard boundary for git tools (010)
 
@@ -539,7 +534,7 @@ V2가 report-mode의 단독 백엔드로 승격되려면 evidence-preservation b
 
 ### 11.7 Session/progress operational contract (010)
 
-`SessionStore`는 옵트인 `CEREBRAS_EXPLORER_AUTO_SESSION_BY_REPO=1` 환경에서 `findReusableForRepo(repoRoot)`로 같은 repoRoot의 최신 reusable 세션을 자동 재사용한다. `session.status` enum(`created`/`reused`/`fallback`)은 변경하지 않고, 자동 reuse는 `_debug.stats.sessionSource='auto_repo'`에서만 구분한다. multi-client 환경에서는 conversation 격리 보장을 위해 explicit `session` 입력을 권장한다.
+spec 011에서 `CEREBRAS_EXPLORER_AUTO_SESSION_BY_REPO` 옵트인과 `SessionStore.findReusableForRepo()` 메서드는 모두 영구 제거되었다. multi-call 세션 연결은 explicit `session` 인자로만 지원된다. `session.status` enum은 그대로 `created`/`reused`/`fallback`이며, `_debug.stats.sessionSource`는 `explicit`/`created`/`reused` 중 하나(010 시점의 `auto_repo` 값은 발생하지 않는다).
 
 heavy 호출(보고서/path/impact)에서는 parent agent가 `_meta.progressToken`을 전달해 turn-by-turn 진행률을 받아야 하고, 결과를 sub-agent에 인계할 때는 control-plane 필드(`status.verification`, `status.complete`, `evidenceQuality`, `searchCoverage`, `failure`, `session/sessionId`, `critic.warnings`)를 반드시 보존해야 한다.
 
@@ -559,26 +554,24 @@ heavy 호출(보고서/path/impact)에서는 parent agent가 `_meta.progressToke
 
 ---
 
-## 13. budget 정책
+## 13. Runtime config (spec 011 이후 단일화)
 
-### `quick`
+spec 011 이후 사용자가 선택할 수 있는 budget label은 없다. 모든 explore 호출은 단일 deep runtime config로 실행된다.
 
-- 빠른 1차 탐색
-- 얕은 검색
-- 토큰 절감 우선
+| 항목 | 값 |
+| --- | --- |
+| `maxTurns` | 30 |
+| `maxSearchResults` | 80 |
+| `maxReadLines` | 320 |
+| `maxDirectoryEntries` | 300 |
+| `maxWalkFiles` | 6000 |
+| `maxCompletionTokens` | 32000 |
+| `finalizeMaxCompletionTokens` | 3000 |
+| `maxContextTokens` | 110000 |
+| `temperature` | 1.0 |
+| `top_p` | 0.95 |
 
-### `normal`
-
-- 대부분의 기본 동작
-
-### `deep`
-
-- 더 많은 반복 탐색 허용
-- 넓은 후보군 탐색 가능
-
-이 budget은 runtime 내부 제어값이다. 상위 agent-facing workflow에서는 기본적으로 노출하지 않으며, `budget`은 advanced workflow에서만 명시적으로 사용한다.
-
-일반 Codex/Claude Code 사용에서는 wrapper query와 known anchors만 전달하고 서버가 task, scope, hints를 바탕으로 depth를 선택한다.
+`EXPLORE_REPO_INPUT_SCHEMA`에서 `budget` 키는 제거되었고, 모든 호출은 위 값으로 실행된다. `chooseAutoBudget()`/`getBudgetConfig()`는 단일 'deep' label을 반환하는 호환 stub으로 남아 있다.
 
 ---
 

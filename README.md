@@ -97,13 +97,15 @@ Gemini CLI는 `*KEY*`, `*SECRET*`, `*TOKEN*`, `*PASSWORD*`, `*AUTH*`, `*CREDENTI
 
 ## 노출 도구 구성
 
-| 구성 | 조건 | 노출 도구 수 |
-| --- | --- | --- |
-| 기본값 | `explore_repo` + extras 6개 + `explore` | 8 |
-| 최소 | `CEREBRAS_EXPLORER_EXTRA_TOOLS=false`와 `CEREBRAS_EXPLORER_ENABLE_EXPLORE=false` | 1 |
-| 최대 | 기본값 + `CEREBRAS_EXPLORER_ENABLE_EXPLORE_V2=true` | 9 |
+spec 011 이후 도구 surface는 환경변수와 무관하게 **항상 8개로 고정**입니다.
 
-기본 도구는 `explore_repo`, `find_relevant_code`, `trace_symbol`, `map_change_impact`, `explain_code_path`, `collect_evidence`, `review_change_context`, `explore`입니다. `explore_v2`는 LLM compaction 경로를 쓰는 opt-in 도구입니다.
+| 도구 | 역할 |
+| --- | --- |
+| `explore_repo` | 구조화 JSON handoff. 자동화/편집 계획/follow-up 검증의 기본 표면. |
+| `find_relevant_code` / `trace_symbol` / `map_change_impact` / `explain_code_path` / `collect_evidence` / `review_change_context` | 목적형 wrapper 6개. 내부적으로 `explore_repo`에 위임. |
+| `explore` | 사람용 Markdown 보고 도구. 단일 V2 backend 구현(spec 011). |
+
+`explore_v2`라는 별도 도구 이름은 spec 011에서 제거되었으며, `CEREBRAS_EXPLORER_ENABLE_EXPLORE_V2` / `CEREBRAS_EXPLORER_EXTRA_TOOLS` / `CEREBRAS_EXPLORER_ENABLE_EXPLORE` 환경변수도 모두 더 이상 인식되지 않습니다.
 
 모든 공개 MCP 도구는 `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: true` annotations를 선언합니다. 이는 클라이언트 승인 UI와 위험도 표시를 돕는 hint이며, 보안 경계는 아래 read-only repo toolkit과 secret policy입니다.
 
@@ -147,7 +149,7 @@ Parent model (Claude Code / Codex)
 
 중요한 점은 상위 모델에 low-level 파일 도구를 노출하지 않는다는 점입니다.
 
-- 상위 모델은 목적형 wrapper, `explore_repo`, 또는 `explore`를 호출합니다. `explore_v2`는 고급 opt-in 도구입니다.
+- 상위 모델은 목적형 wrapper, `explore_repo`, 또는 `explore`를 호출합니다. 도구 surface는 항상 8개로 고정입니다.
 - 실제 파일 탐색 루프는 MCP 서버 안에서 선택된 Cerebras 모델이 자체적으로 수행합니다.
 - 따라서 “메인은 위임 1회, explorer가 자율 탐색”이라는 목표를 만족합니다.
 
@@ -156,35 +158,35 @@ Parent model (Claude Code / Codex)
 - **모델 선택 가능**: 기본값은 `zai-glm-4.7`, 필요하면 `CEREBRAS_EXPLORER_MODEL`로 override
 - **읽기 전용**: 파일 수정, bash 실행, 네트워크 탐색 없음
 - **자율 탐색 루프**: 모델이 내부 도구를 직접 호출하며 파일을 찾고 읽음
-- **예산 기반 동작**: 기본값은 서버가 정하고, advanced workflow에서만 `quick | normal | deep`을 직접 지정
+- **단일 runtime config**: 모든 호출이 deep 한도(turn 30, 검색 80, 읽기 320 lines 등)로 실행됩니다. 사용자가 budget을 고를 필요가 없습니다.
 - **전략 기반 탐색**: symbol-first, reference-chase, git-guided 등은 질문과 anchor에서 자동 유도
 - **세션/진행 상황 지원**: 세션 ID 기반 후속 탐색과 MCP progress notification 지원
 - **프로젝트별 설정 파일 지원**: `.cerebras-explorer.json`으로 `defaultBudget`, `defaultScope`, `entryPoints`, `keyFiles`, `extraIgnoreDirs`, `projectContext` 지정 가능
-- **GLM 4.7 reasoning 정렬**: quick budget은 `reasoning_effort="none"`으로 reasoning을 끄고, normal/deep은 기본 reasoning을 유지하며 `clear_thinking=false`로 이전 turn의 reasoning을 보존
-- **샘플링 기본값 정렬**: budget별 temperature(`quick`: 0.3, `normal`: 0.8, `deep`: 1.0)와 `top_p=0.95`를 사용하며, direct client 경로에는 fallback 환경 변수도 지원
+- **GLM 4.7 reasoning 정렬**: spec 011 단일 deep config에서는 `reasoning_effort`를 설정하지 않고 기본 reasoning을 유지하며 `clear_thinking=false`로 이전 turn의 reasoning을 보존
+- **샘플링 기본값**: `temperature=1.0`, `top_p=0.95` (단일 deep config). direct client 경로에는 envvar fallback 지원
 - **근거 강제**: 최종 evidence는 실제로 읽거나 grep으로 확인한 라인 범위에만 남김
 - **Read-only tool annotations**: 모든 공개 MCP 도구는 `readOnlyHint: true`를 선언합니다. 이는 클라이언트 UX hint이며 보안 경계는 아닙니다.
 - **Compact 반환 계약**: MCP `structuredContent`는 `schemaVersion`, `directAnswer`, `status`, `targets`, snippet 포함 `evidence`, `uncertainties`, `nextAction`, `evidenceQuality`, nullable `failure`, `session`, `sessionId` 중심의 compact 계약을 사용합니다. 운영 디버그 정보는 `_debug.stats`, `_debug.toolTrace`에만 남깁니다.
 
 ## 공개 MCP 도구
 
-도구 역할은 한 곳에서 다음처럼 나뉩니다.
+도구 surface는 항상 정확히 **8개**(spec 011 이후 환경변수와 무관하게 고정).
 
 - `explore_repo`: parent agent handoff의 정상 구조화 표면입니다. `directAnswer`, `status`, `targets`, `discoveredPaths`, `evidence`, `searchCoverage` 같은 JSON 필드를 후속 자동화와 편집 전 검증에 사용합니다.
 - 목적형 wrapper 6개(`find_relevant_code`, `trace_symbol`, `map_change_impact`, `explain_code_path`, `collect_evidence`, `review_change_context`): 모두 내부적으로 `explore_repo`에 위임하며, 특정 작업 의도를 더 좁은 입력 스키마로 표현하는 표면입니다.
-- `explore`: 사람에게 바로 보여줄 Markdown 보고 도구입니다. broad/deep 보고 프롬프트에서는 parent agent가 직접 선택하는 것이 아니라 서버 라우터가 런타임 판단으로 내부 V2 백엔드를 사용할 수 있습니다.
-- `explore_v2`: `CEREBRAS_EXPLORER_ENABLE_EXPLORE_V2=true`일 때만 노출되는 advanced opt-in 보고 도구입니다.
+- `explore`: 사람에게 바로 보여줄 Markdown 보고 도구. spec 011에서 V2 backend가 단일 구현으로 승격되어 모든 프롬프트에서 동일한 신뢰 가이드라인(structuredContent.citations[]/targets[], critic.warnings, searchCoverage.warnings, tool-result truncation 라벨)을 적용합니다.
 
 **Decision rule for parent agents:**
 
 - 자동화 / 편집 계획 / follow-up 검증 → `explore_repo` (구조화 JSON)
 - known symbol / 특정 경로 / 단일 변경 리뷰 → 6 wrapper 중 의도에 맞는 것
 - 사람에게 보여줄 narrative → `explore` (Markdown)
-- broad report에 V2 backend가 명시적으로 필요한 advanced 사용 → opt-in `explore_v2`
 
-Report 도구(`explore`, `explore_v2`)는 Markdown 본문을 `text`로 반환하면서, 같은 MCP 응답의 `structuredContent`에 본문에서 파생한 `citations[]`와 인용 기반 `targets[]`도 포함합니다. parent agent는 file:line 인용을 Markdown에서 regex로 다시 긁기보다 이 구조화 필드를 다음 읽기/검증 대상으로 사용해야 합니다.
+Report 도구 `explore`는 Markdown 본문을 `text`로 반환하면서, 같은 MCP 응답의 `structuredContent`에 본문에서 파생한 `citations[]`와 인용 기반 `targets[]`도 포함합니다. parent agent는 file:line 인용을 Markdown에서 regex로 다시 긁기보다 이 구조화 필드를 다음 읽기/검증 대상으로 사용해야 합니다.
 
-`targets[]` vs `discoveredPaths[]` — `targets[]`에는 grounded evidence와 연결된 actionable 항목만 들어가며, `repo_list_dir`/`repo_find_files`/`repo_git_diff` 등으로 발견만 된 path는 별도 top-level `discoveredPaths[]`에 `{ path, kind, sourceTool, reason }` 형태로 노출됩니다. 자동화는 `targets[]`를 다음 읽기/편집 대상으로 신뢰하고, 필요할 때만 `discoveredPaths[]`를 follow-up 후보로 참고하세요. 기존 동작(reference target 자동 승격)이 필요한 consumer는 1 릴리스 동안 `CEREBRAS_EXPLORER_LEGACY_DISCOVERED_TARGETS=1`로 호환할 수 있습니다.
+`targets[]` vs `discoveredPaths[]` — `targets[]`에는 grounded evidence와 연결된 actionable 항목만 들어가며, `repo_list_dir`/`repo_find_files`/`repo_git_diff` 등으로 발견만 된 path는 별도 top-level `discoveredPaths[]`에 `{ path, kind, sourceTool, reason }` 형태로 노출됩니다. 자동화는 `targets[]`를 다음 읽기/편집 대상으로 신뢰하고, 필요할 때만 `discoveredPaths[]`를 follow-up 후보로 참고하세요. (spec 011 이후 reference target 자동 승격 옵트인은 영구 종료.)
+
+`explore_repo`는 더 이상 `budget` 입력을 받지 않습니다. 모든 호출은 단일 deep runtime config(turn limit 30, search/read 한도 등)로 실행되며, 사용자가 quick/normal/deep을 선택할 필요가 없습니다.
 
 `status.complete`는 "충분한 grounded evidence가 모였는가"를 의미합니다. budget이 소진됐어도 evidence sufficiency가 충족되면 `complete:true`/`failure:null`로 반환되며 budget 사실은 `searchCoverage.stoppedByBudget=true`에 그대로 남습니다.
 
@@ -209,7 +211,7 @@ Heavy 호출이나 sub-agent 핸드오프에서는 `_meta.progressToken`을 함�
 - `repo_root` (선택): 절대경로나 상대경로. Windows에서는 `C:\repo`, `C:/repo`뿐 아니라 Git Bash/MSYS 스타일 `/c/repo`도 받아 실제 filesystem 경로로 canonicalize한 뒤 세션과 도구 실행에 사용합니다.
 - `language` (advanced/optional): 응답 언어를 명시적으로 고정해야 할 때만 사용합니다. 보통은 task 텍스트에서 자동 추론되므로 생략하세요.
 - `session` (선택): 이전 탐색의 `sessionId`를 넘기면 target/evidence 경로와 요약을 다음 탐색에 재사용합니다.
-- `budget`, `hints.strategy` (advanced): 일반 agent 사용에서는 생략하세요. 서버 기본값과 자동 strategy 감지가 우선입니다.
+- `hints.strategy` (advanced): 일반 agent 사용에서는 생략하세요. 자동 strategy 감지가 우선입니다. (spec 011 이후 `budget` 입력은 제거되었습니다 — 단일 deep runtime config가 적용됩니다.)
 
 반환 예시:
 
@@ -339,36 +341,17 @@ not "not present in the repository."
 - 사용자 설명, 아키텍처 브리핑, 조사 결과 공유에 적합합니다.
 - 후속 자동화나 정형 후처리가 중요하면 `explore_repo`를 우선 사용하세요.
 
-### `explore_v2` (advanced opt-in)
+### `explore` 단일 백엔드 (spec 011)
 
-`explore_v2`는 기본 tool list에 노출되지 않습니다. `CEREBRAS_EXPLORER_ENABLE_EXPLORE_V2=true`일 때만 공개되며, 일반 agent는 `explore`만 고르면 됩니다. 서버는 `explore` 요청이 deep/large report로 보이면 내부적으로 V2 런타임을 사용할 수 있습니다.
-
-V2 런타임은 세 가지 고급 기법을 추가합니다.
+이전 `explore_v2` 도구 이름과 분기 라우터는 spec 011에서 모두 제거되었습니다. 모든 `explore` 호출은 단일 V2 backend 구현으로 실행되며 세 가지 고급 기법이 항상 적용됩니다.
 
 1. **LLM 기반 대화 요약**: 탐색이 진행되면서 이전 발견 내용을 지능적으로 요약해 유용한 컨텍스트를 최대화합니다.
 2. **도구 결과 예산 관리**: 개별 도구 출력에 상한을 두어 컨텍스트 오버플로를 방지합니다.
 3. **최대 출력 복구**: 보고서가 출력 토큰 한도로 잘렸을 때 자동으로 이어서 생성합니다.
 
-공개했을 때 입력 스키마는 `explore`와 동일합니다:
-
-```json
-{
-  "prompt": "인증 서브시스템의 구조를 end-to-end로 설명해라",
-  "repo_root": "/absolute/or/relative/path",
-  "scope": ["src/auth/**", "src/routes/**"],
-  "thoroughness": "deep"
-}
-```
-
-권장 사용 경우:
-
-- 다수의 파일에 걸친 깊고 광범위한 탐색
-- 컨텍스트 초과가 우려되는 long-running 탐색
-- 대규모 아키텍처 분석, 복잡한 버그 원인 분석 (end-to-end)
-
 ### 특화 도구 (Specialized Tools)
 
-`CEREBRAS_EXPLORER_EXTRA_TOOLS=false`로 비활성화하지 않는 한, 목적형 wrapper 도구가 함께 노출됩니다. 모두 내부적으로 `explore_repo`에 위임하고 같은 `directAnswer/status/targets/evidence` 구조를 반환합니다.
+목적형 wrapper 도구는 spec 011 이후 항상 노출됩니다. 모두 내부적으로 `explore_repo`에 위임하고 같은 `directAnswer/status/targets/discoveredPaths/evidence` 구조를 반환합니다.
 
 | 도구 | 설명 | 전략 |
 |------|------|------|
@@ -465,12 +448,10 @@ export CEREBRAS_API_KEY="..."
 ```bash
 export CEREBRAS_API_BASE_URL="https://api.cerebras.ai/v1"
 export CEREBRAS_EXPLORER_MODEL="zai-glm-4.7"           # 전역 모델. 기본값: zai-glm-4.7
-export CEREBRAS_MODEL="zai-glm-4.7"                    # 호환용 alias. EXPLORER_MODEL이 없을 때 fallback
-export CEREBRAS_EXPLORER_MODEL_QUICK="zai-glm-4.7"     # quick budget 전용 모델 override
-export CEREBRAS_EXPLORER_MODEL_NORMAL="zai-glm-4.7"    # normal budget 전용 모델 override
-export CEREBRAS_EXPLORER_MODEL_DEEP="zai-glm-4.7"      # deep budget 전용 모델 override
 export CEREBRAS_EXPLORER_HTTP_TIMEOUT_MS="60000"        # HTTP 요청 timeout (ms). 기본값: 60000
 ```
+
+> spec 011 이후 `CEREBRAS_MODEL` alias와 `CEREBRAS_EXPLORER_MODEL_QUICK` / `_NORMAL` / `_DEEP` budget별 모델 override는 모두 제거되었습니다. 모델은 항상 `CEREBRAS_EXPLORER_MODEL` 하나로만 결정됩니다. budget별 비용 분리가 필요하면 서버 인스턴스를 두 개 띄워 각각 다른 모델을 지정하세요.
 
 선택 (provider override):
 
@@ -486,39 +467,24 @@ export EXPLORER_OPENAI_MODEL="gpt-4o-mini"
 
 ```bash
 export CEREBRAS_EXPLORER_CLEAR_THINKING="false"         # 기본값: false (agentic loop용)
-export CEREBRAS_EXPLORER_TEMPERATURE="1"                # direct client / budget override 없는 경로의 fallback
-export CEREBRAS_EXPLORER_TOP_P="0.95"                   # direct client / budget override 없는 경로의 fallback
+export CEREBRAS_EXPLORER_TEMPERATURE="1"                # direct client 호출 시 fallback
+export CEREBRAS_EXPLORER_TOP_P="0.95"                   # direct client 호출 시 fallback
 export CEREBRAS_EXPLORER_REASONING_FORMAT="parsed"      # reasoning 출력 형식 override
 ```
 
-> **sampling 동작**: `explore_repo`/`explore`와 내부 V2 런타임은 현재 budget별 내장값(`quick`: 0.3, `normal`: 0.8, `deep`: 1.0, `top_p`: 0.95)을 사용합니다. `CEREBRAS_EXPLORER_TEMPERATURE`와 `CEREBRAS_EXPLORER_TOP_P`는 direct client 사용이나 budget override가 없는 경로에서만 fallback으로 쓰입니다.
+> **sampling 동작 (spec 011)**: 모든 explore 호출이 단일 deep runtime config(`temperature=1.0`, `top_p=0.95`)로 실행됩니다. 별도 envvar fallback은 direct client 사용 경로에서만 의미가 있습니다.
 
-선택 (도구 노출):
-
-```bash
-export CEREBRAS_EXPLORER_EXTRA_TOOLS="true"             # false로 설정하면 목적형/특화 wrapper 비활성화. 기본값: true
-export CEREBRAS_EXPLORER_ENABLE_EXPLORE="true"          # false로 설정하면 explore 비활성화. 기본값: true
-export CEREBRAS_EXPLORER_ENABLE_EXPLORE_V2="false"      # true로 설정하면 advanced explore_v2 공개. 기본값: false
-export CEREBRAS_EXPLORER_AUTO_ROUTE="false"             # true이면 task 복잡도에 따라 budget별 모델 자동 선택
-```
-
-선택 (010 호환/보안 옵션, 기본 모두 off):
+선택 (보안 옵션):
 
 ```bash
-# 1 릴리스 동안 기존 동작(reference target 자동 승격)을 유지하고 싶을 때.
-# 모던 동작에서는 discovery-only path가 별도 top-level discoveredPaths[]에 노출됩니다.
-export CEREBRAS_EXPLORER_LEGACY_DISCOVERED_TARGETS="1"
-
 # snippet 텍스트의 process.env.X / import.meta.env.X / Deno.env.get("X") 식별자까지
 # [REDACTED:env-var-name]로 마스킹합니다. 기본은 식별자 보존(코드 인터페이스).
 export CEREBRAS_EXPLORER_REDACT_ENV_VAR_NAMES="1"
-
-# explicit `session` 입력이 없을 때 같은 repoRoot의 최신 reusable 세션을 자동 재사용합니다.
-# multi-client 환경에서는 conversation 격리를 위해 explicit session 전달을 권장합니다.
-export CEREBRAS_EXPLORER_AUTO_SESSION_BY_REPO="1"
 ```
 
-선택 (V2 튜닝):
+> spec 011에서 제거된 envvar: `CEREBRAS_MODEL`, `CEREBRAS_EXPLORER_MODEL_QUICK|NORMAL|DEEP`, `CEREBRAS_EXPLORER_EXTRA_TOOLS`, `CEREBRAS_EXPLORER_ENABLE_EXPLORE`, `CEREBRAS_EXPLORER_ENABLE_EXPLORE_V2`, `CEREBRAS_EXPLORER_AUTO_ROUTE`, `CEREBRAS_EXPLORER_AUTO_SESSION_BY_REPO`, `CEREBRAS_EXPLORER_LEGACY_DISCOVERED_TARGETS`. 이전에 이들을 사용하던 운영 환경은 단일 모델 + 8-tool 고정 surface로 자동 전환됩니다. 도구 surface 축소가 필요하면 MCP gateway에서 도구 화이트리스트를 적용하세요. multi-call 세션 연결은 explicit `session` 인자로만 지원됩니다.
+
+선택 (explore 튜닝):
 
 ```bash
 export CEREBRAS_EXPLORER_V2_TURN_MULTIPLIER="2"         # 기본값: 2, 1~4로 clamp
@@ -614,7 +580,7 @@ Prefer the narrowest exposed explorer tool that matches the request:
 - `explore_repo` for open-ended structured JSON findings
 - `explore` for cited Markdown reports
 Pass the parent request almost verbatim; add `scope`, known anchors, or `session` only when justified by the task or prior results.
-Do not set `budget`, `thoroughness`, `hints.strategy`, or `language` unless an advanced workflow explicitly requires it.
+Do not set `thoroughness`, `hints.strategy`, or `language` unless an advanced workflow explicitly requires it. (The `budget` input was removed in spec 011 — every call uses the single deep runtime config.)
 Use known symbols, files, or literal text anchors only when already known.
 Use regex only in advanced `explore_repo.hints.regex` workflows.
 Reuse `sessionId` as `session` for follow-up calls.
@@ -665,19 +631,22 @@ MCP client for `cerebras-explorer` timed out after 30 seconds.
 4. 충분한 근거가 모이면 최종 JSON 또는 Markdown 보고서를 생성합니다.
 5. MCP 서버는 그 결과만 부모 모델에 반환합니다.
 
-## 예산 정책
+## Runtime 한도 (spec 011)
 
-아래 budget은 runtime 내부 제어값입니다. 일반 Codex/Claude Code 사용자는 직접 고르지 말고 wrapper query와 known anchors만 전달하세요.
+spec 011 이후 모든 explore 호출은 단일 deep runtime config로 실행됩니다. 사용자가 budget 라벨을 고를 필요가 없고, `budget` 입력 자체가 schema에서 제거되었습니다.
 
-- `quick`
-  - 얕은 탐색
-  - turn 수 제한이 작음
-  - 가장 싼 비용
-- `normal`
-  - 일반적인 기본값
-- `deep`
-  - 더 넓게 탐색
-  - 더 많은 turn / 파일 범위를 허용
+| 항목 | 값 |
+| --- | --- |
+| `maxTurns` | 30 |
+| `maxSearchResults` | 80 |
+| `maxReadLines` | 320 |
+| `maxDirectoryEntries` | 300 |
+| `maxWalkFiles` | 6000 |
+| `maxCompletionTokens` | 32000 |
+| `finalizeMaxCompletionTokens` | 3000 |
+| `maxContextTokens` | 110000 |
+| `temperature` | 1.0 |
+| `top_p` | 0.95 |
 
 ## 안전 경계
 

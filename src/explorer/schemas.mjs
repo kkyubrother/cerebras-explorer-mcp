@@ -20,12 +20,6 @@ export const EXPLORE_REPO_INPUT_SCHEMA = {
         'Path prefixes or glob patterns to focus exploration. Example: ["src/api/**", "lib/auth/"]. Omit to search the entire repo.',
       items: { type: 'string' },
     },
-    budget: {
-      type: 'string',
-      enum: ['quick', 'normal', 'deep'],
-      description:
-        'Advanced only. Omit for normal agent use; the server chooses the default exploration depth. Use only when a workflow explicitly needs quick, normal, or deep.',
-    },
     hints: {
       type: 'object',
       additionalProperties: false,
@@ -366,12 +360,6 @@ export function validateExploreRepoArgs(args, { allowInternal = false } = {}) {
     (!Array.isArray(args.scope) || args.scope.some(item => typeof item !== 'string'))
   ) {
     throw new Error('scope must be an array of strings when provided.');
-  }
-  if (
-    args.budget !== undefined &&
-    !['quick', 'normal', 'deep'].includes(args.budget)
-  ) {
-    throw new Error('budget must be one of quick, normal, or deep.');
   }
   if (args.repo_root !== undefined && typeof args.repo_root !== 'string') {
     throw new Error('repo_root must be a string when provided.');

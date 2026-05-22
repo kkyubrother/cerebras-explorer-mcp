@@ -248,7 +248,6 @@ test('ExplorerRuntime performs an autonomous tool loop and returns structured fi
     task: 'users/me 라우트에 인증 미들웨어가 어떻게 붙는지 추적해라.',
     repo_root: repoRoot,
     scope: ['src/**'],
-    budget: 'quick',
   });
 
   // Core fields — confidence calibration: 2 exact cross-verified evidence items with
@@ -482,7 +481,6 @@ test('ExplorerRuntime does not treat review-change context as edit planning', as
     task: 'Review change context: What changed recently around auth routing? Summarize what changed and return grounded read targets.',
     repo_root: repoRoot,
     scope: ['src/**'],
-    budget: 'quick',
   });
 
   assert.equal(result.status.verification, 'verified');
@@ -497,7 +495,6 @@ test('ExplorerRuntime still treats code changes as edit planning', async () => {
     task: 'Change auth middleware behavior to add a new response field.',
     repo_root: repoRoot,
     scope: ['src/**'],
-    budget: 'quick',
   });
 
   assert.equal(result.status.verification, 'targeted_read_needed');
@@ -553,7 +550,6 @@ test('ExplorerRuntime uses internal taskMode before regex edit intent fallback',
     task: 'update code evidence for review',
     repo_root: root,
     scope: ['src/**'],
-    budget: 'quick',
     taskMode: 'evidence_verification',
   });
 
@@ -609,7 +605,6 @@ test('ExplorerRuntime taskMode marks edit planning as targeted read needed', asy
     task: 'Assess auth behavior',
     repo_root: root,
     scope: ['src/**'],
-    budget: 'quick',
     taskMode: 'edit_planning',
   });
 
@@ -624,7 +619,6 @@ test('Phase 2 — codeMap remains available without generating Mermaid diagram o
     task: '읽은 주요 모듈 구조를 요약해라.',
     repo_root: repoRoot,
     scope: ['src/**'],
-    budget: 'quick',
   });
 
   assert.equal(result.diagram, undefined, 'runtime should not emit Mermaid diagram output');
@@ -681,7 +675,6 @@ test('Phase 1 — explore circuit breaker trips after three all-error turns', as
   const result = await runtime.explore({
     task: '실패하는 도구 호출을 반복해도 서킷 브레이커가 동작해야 한다.',
     repo_root: repoRoot,
-    budget: 'quick',
   });
 
   assert.equal(result.stats.turns, 3, 'tool loop must stop after the third all-error turn');
@@ -1186,7 +1179,6 @@ test('ExplorerRuntime partial match evidence: evidence within tolerance lines is
     task: '인증 함수 확인',
     repo_root: root,
     scope: ['src/**'],
-    budget: 'quick',
   });
 
   // The evidence item at lines 5-6 should be kept as a partial match (read range was 1-4,
@@ -1231,7 +1223,7 @@ test('ExplorerRuntime calls onProgress callback on each turn', async () => {
   const progressEvents = [];
 
   const result = await runtime.explore(
-    { task: '인증 함수 찾기', repo_root: root, scope: ['src/**'], budget: 'quick' },
+    { task: '인증 함수 찾기', repo_root: root, scope: ['src/**'] },
     { onProgress: (evt) => progressEvents.push(evt) },
   );
 
@@ -1512,7 +1504,7 @@ test('Phase 1 — no-tool exit always routes through finalize (strict schema)', 
   const root = await makeRepoFixture();
   const client = new ImmediateAnswerClient();
   const runtime = new ExplorerRuntime({ chatClient: client });
-  const result = await runtime.explore({ task: '단순 질문', repo_root: root, budget: 'quick' });
+  const result = await runtime.explore({ task: '단순 질문', repo_root: root });
 
   assertStrictSchema(result);
   // finalize was called: total calls = 1 (agentic loop no-tool) + 1 (finalize) = 2
@@ -1546,7 +1538,7 @@ test('Phase 1 — finalize prompt triggers no additional tool calls', async () =
   const root = await makeRepoFixture();
   const client = new TrackingClient();
   const runtime = new ExplorerRuntime({ chatClient: client });
-  await runtime.explore({ task: '테스트', repo_root: root, budget: 'quick' });
+  await runtime.explore({ task: '테스트', repo_root: root });
 
   // The finalize request (last call) must have parallelToolCalls:false
   const finalizeReq = capturedRequests[capturedRequests.length - 1];
@@ -1585,7 +1577,7 @@ test('Phase 1 — malformed freeform content still produces strict-schema result
 
   const root = await makeRepoFixture();
   const runtime = new ExplorerRuntime({ chatClient: new MalformedFinalizeClient() });
-  const result = await runtime.explore({ task: '인증 위치 찾기', repo_root: root, budget: 'quick' });
+  const result = await runtime.explore({ task: '인증 위치 찾기', repo_root: root });
 
   // Fallback path must still produce schema-compliant structure
   assert.equal(typeof result.directAnswer, 'string', 'answer must be a string even on malformed content');
@@ -1653,7 +1645,6 @@ test('ExplorerRuntime budget retry args do not echo unchanged scope', async () =
     task: 'Map auth behavior broadly enough to exhaust the quick budget.',
     repo_root: root,
     scope: ['src/**', 'tests/**'],
-    budget: 'quick',
   });
 
   assert.equal(result.stats.stoppedByBudget, true);
@@ -1718,7 +1709,6 @@ test('Phase 5 — git_commit evidence without verified SHA is dropped (strict va
   const result = await runtime.explore({
     task: '이 버그가 언제 도입됐나요?',
     repo_root: root,
-    budget: 'quick',
     hints: { strategy: 'git-guided' },
   });
 
@@ -1794,7 +1784,7 @@ test('Phase 5 — session reuse stores targetPathsWithContext as {path, why} obj
   const sessionStore = new SessionStore();
   const runtime = new ExplorerRuntime({ chatClient: new FinalizeClient() });
 
-  const result = await runtime.explore({ task: '인증 분석', repo_root: root, budget: 'quick' }, { sessionStore });
+  const result = await runtime.explore({ task: '인증 분석', repo_root: root }, { sessionStore });
   const session = sessionStore.get(result.stats.sessionId);
 
   assert.ok(session, 'session must exist');
@@ -1858,7 +1848,7 @@ test('Phase 5 — unknown tool validation stays in sync with current tool defini
   const root = await makeRepoFixture();
   const client = new UnknownToolClient();
   const runtime = new ExplorerRuntime({ chatClient: client });
-  await runtime.explore({ task: 'unknown tool sync test', repo_root: root, budget: 'quick' });
+  await runtime.explore({ task: 'unknown tool sync test', repo_root: root });
 
   const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: BUDGETS.quick });
   await toolkit.initialize();
@@ -1922,7 +1912,7 @@ test('Phase 4 — checkpoint message is inserted for normal/deep budget after ev
   const client = new CheckpointObserverClient();
   const runtime = new ExplorerRuntime({ chatClient: client });
   // Use 'normal' budget (maxTurns=10 > 6 → checkpoint enabled)
-  await runtime.explore({ task: '인증 분석', repo_root: root, budget: 'normal' });
+  await runtime.explore({ task: '인증 분석', repo_root: root });
 
   // The 5th call to createChatCompletion (turnIndex=4) should have a checkpoint
   // user message injected before it. That means capturedMessages[4] should contain
@@ -1958,7 +1948,7 @@ test('Phase 4 — checkpoint is NOT inserted for quick budget (maxTurns <= 6)', 
   const root = await makeRepoFixture();
   const runtime = new ExplorerRuntime({ chatClient: new NoCheckpointClient() });
   // Use 'quick' budget (maxTurns=6 → checkpoint disabled)
-  await runtime.explore({ task: '테스트', repo_root: root, budget: 'quick' });
+  await runtime.explore({ task: '테스트', repo_root: root });
 
   // No message should contain "Checkpoint"
   const hasCheckpoint = capturedMessages.some(msgs =>
@@ -2005,7 +1995,7 @@ test('Phase 4 — critic-lite: confidence=high with only 1 evidence item is reco
 
   const root = await makeRepoFixture();
   const runtime = new ExplorerRuntime({ chatClient: new OverconfidentClient() });
-  const result = await runtime.explore({ task: '인증 함수 분석', repo_root: root, budget: 'quick' });
+  const result = await runtime.explore({ task: '인증 함수 분석', repo_root: root });
 
   // Recalibrated scorer: base 0.30 + 0.18 (1 exact) = 0.48 → 'medium'
   // reconcileConfidence: lowerOf('high', 'medium') = 'medium'
@@ -2221,9 +2211,9 @@ test('Phase 0 metric — JSON parse success: model content parsed into correct f
   assertStrictSchema(result);
 });
 
-test('Phase 0 metric — strict schema compliance: all required fields present across budgets', async () => {
-  // Verifies that every supported budget label produces a result conforming to strict schema.
-  // This is the "strict schema 적합률" baseline.
+test('Phase 0 metric — strict schema compliance: required fields present under the single runtime config', async () => {
+  // spec 011: every call runs against the single deep runtime config. The
+  // previous matrix across budget labels collapses to a single scenario.
   class MinimalClient {
     constructor() { this.model = 'zai-glm-4.7'; }
     async createChatCompletion() {
@@ -2242,14 +2232,26 @@ test('Phase 0 metric — strict schema compliance: all required fields present a
   }
 
   const root = await makeRepoFixture();
+  const runtime = new ExplorerRuntime({ chatClient: new MinimalClient() });
+  const result = await runtime.explore({ task: '테스트', repo_root: root });
+  assertStrictSchema(result);
+  assert.equal(result.stats.budget, 'deep',
+    'stats.budget should report the single deep runtime config');
+});
 
-  for (const budget of ['quick', 'normal', 'deep']) {
-    const runtime = new ExplorerRuntime({ chatClient: new MinimalClient() });
-    const result = await runtime.explore({ task: '테스트', repo_root: root, budget });
-    assertStrictSchema(result);
-    assert.equal(result.stats.budget, budget,
-      `budget label must be '${budget}' in stats`);
+test('011 US2 — explore_repo rejects budget input as unknown property', async () => {
+  class StubClient {
+    constructor() { this.model = 'zai-glm-4.7'; }
+    async createChatCompletion() {
+      return { usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }, message: { content: '', toolCalls: [] } };
+    }
   }
+  const root = await makeRepoFixture();
+  const runtime = new ExplorerRuntime({ chatClient: new StubClient() });
+  await assert.rejects(
+    runtime.explore({ task: '테스트', repo_root: root, budget: 'quick' }),
+    /Unknown explore_repo argument: budget/,
+  );
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2265,9 +2267,10 @@ test('ExplorerRuntime forwards assistant reasoning into the next turn when avail
       this.calls += 1;
 
       if (this.calls === 1) {
-        assert.equal(reasoningEffort, 'none');
-        // quick budget now has temperature: 0.3 (Phase 2 budget-specific temperature)
-        assert.equal(temperature, 0.3);
+        // spec 011: single deep runtime config. For glm-4.7, deep label leaves
+        // reasoningEffort undefined and uses temperature: 1.0, topP: 0.95.
+        assert.equal(reasoningEffort, undefined);
+        assert.equal(temperature, 1.0);
         assert.equal(topP, 0.95);
         return {
           usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
@@ -2314,7 +2317,6 @@ test('ExplorerRuntime forwards assistant reasoning into the next turn when avail
     task: '인증 함수 위치를 빠르게 찾아라.',
     repo_root: root,
     scope: ['src/**'],
-    budget: 'quick',
   });
 
   assert.equal(result.directAnswer, 'reasoning forwarded');
@@ -2363,7 +2365,7 @@ test('ExplorerRuntime continues when one tool call has invalid JSON arguments', 
   const root = await makeRepoFixture();
   const runtime = new ExplorerRuntime({ chatClient: new MalformedArgsClient() });
   // Must not throw — the bad tool call is isolated as an error, good one proceeds
-  const result = await runtime.explore({ task: 'find auth', repo_root: root, budget: 'quick' });
+  const result = await runtime.explore({ task: 'find auth', repo_root: root });
   assert.ok(result, 'explore() did not throw despite malformed tool args');
   assert.equal(result.directAnswer, 'malformed args handled');
 });
@@ -2409,7 +2411,7 @@ test('ExplorerRuntime preserves successful tool results even when one sibling to
 
   const root = await makeRepoFixture();
   const runtime = new ExplorerRuntime({ chatClient: new OneFailClient() });
-  const result = await runtime.explore({ task: 'find auth', repo_root: root, budget: 'quick' });
+  const result = await runtime.explore({ task: 'find auth', repo_root: root });
   assert.ok(result, 'explore() succeeded');
   // The successful grep result must appear in the message history
   const toolMessages = capturedMessages?.filter(m => m.role === 'tool') ?? [];
@@ -2461,7 +2463,7 @@ test('ExplorerRuntime records observations from macro tools (repo_symbol_context
 
   const root = await makeRepoFixture();
   const runtime = new ExplorerRuntime({ chatClient: new SymbolContextClient() });
-  const result = await runtime.explore({ task: 'where is requireAuth defined', repo_root: root, budget: 'quick' });
+  const result = await runtime.explore({ task: 'where is requireAuth defined', repo_root: root });
 
   // The symbol_context observation for src/auth.js should allow evidence grounding
   assert.ok(result, 'explore succeeded');
@@ -2513,7 +2515,7 @@ test('grep-only observation does not exact-ground a wide file range', async () =
 
   const root = await makeRepoFixture();
   const runtime = new ExplorerRuntime({ chatClient: new GrepOnlyClient() });
-  const result = await runtime.explore({ task: 'find requireAuth', repo_root: root, budget: 'quick' });
+  const result = await runtime.explore({ task: 'find requireAuth', repo_root: root });
   assert.ok(result, 'explore succeeded');
   const wideEvidence = result.evidence?.find(e => e.path === 'src/auth.js' && e.startLine === 1 && e.endLine === 200);
   if (wideEvidence) {
@@ -2562,7 +2564,7 @@ test('hallucinated git_commit evidence is dropped (no matching observed hash)', 
 
   const root = await makeRepoFixture();
   const runtime = new ExplorerRuntime({ chatClient: new HallucinatedGitClient() });
-  const result = await runtime.explore({ task: 'git history of auth', repo_root: root, budget: 'quick' });
+  const result = await runtime.explore({ task: 'git history of auth', repo_root: root });
   assert.ok(result, 'explore succeeded');
   // Hallucinated commit should be dropped — git tools were never called so hash not in observedGit
   const gitCommitEvidence = result.evidence?.find(e => e.evidenceType === 'git_commit');
@@ -2605,7 +2607,7 @@ test('ExplorerRuntime injects recovery guidance after repeated identical tool pl
 
   const root = await makeRepoFixture();
   const runtime = new ExplorerRuntime({ chatClient: new RepeatingClient() });
-  await runtime.explore({ task: 'find auth', repo_root: root, budget: 'normal' });
+  await runtime.explore({ task: 'find auth', repo_root: root });
   assert.ok(injectedMessages.length > 0, 'recovery guidance was injected after repeated identical tool plans');
 });
 
@@ -2642,7 +2644,7 @@ test('Checkpoint prompt does not force exactly one more tool call', async () => 
 
   const root = await makeRepoFixture();
   const runtime = new ExplorerRuntime({ chatClient: new CheckpointCaptureClient() });
-  await runtime.explore({ task: 'find something', repo_root: root, budget: 'normal' });
+  await runtime.explore({ task: 'find something', repo_root: root });
 
   if (checkpointContent) {
     assert.ok(!checkpointContent.includes('exactly one more tool call'), 'checkpoint must not force exactly one more tool call');
@@ -2683,7 +2685,7 @@ test('finalizeAfterToolLoop salvages prose-wrapped JSON locally', async () => {
 
   const root = await makeRepoFixture();
   const runtime = new ExplorerRuntime({ chatClient: new ProseWrappedClient() });
-  const result = await runtime.explore({ task: 'find auth', repo_root: root, budget: 'quick' });
+  const result = await runtime.explore({ task: 'find auth', repo_root: root });
   assert.ok(result, 'explore succeeded');
   assert.equal(result.directAnswer, 'prose wrapped JSON salvaged', 'prose-wrapped JSON is salvaged locally');
 });
@@ -2729,7 +2731,7 @@ test('finalizeAfterToolLoop repairs malformed JSON with a no-tool repair pass', 
 
   const root = await makeRepoFixture();
   const runtime = new ExplorerRuntime({ chatClient: new MalformedFinalizeClient() });
-  const result = await runtime.explore({ task: 'find auth', repo_root: root, budget: 'quick' });
+  const result = await runtime.explore({ task: 'find auth', repo_root: root });
   assert.ok(result, 'explore succeeded despite malformed finalize JSON');
   assert.equal(repairCallCount, 1, 'repair pass was called exactly once');
   assert.equal(result.directAnswer, 'repaired after malformed JSON', 'repaired result is used');
@@ -2792,7 +2794,7 @@ test('finalizeAfterToolLoop gives repair pass the full finalize token budget', a
 
   const root = await makeRepoFixture();
   const runtime = new ExplorerRuntime({ chatClient: new TokenBudgetRepairClient() });
-  const result = await runtime.explore({ task: 'find auth', repo_root: root, budget: 'quick' });
+  const result = await runtime.explore({ task: 'find auth', repo_root: root });
 
   assert.deepEqual(seenFinalizeBudgets, [
     BUDGETS.quick.finalizeMaxCompletionTokens,
@@ -2850,7 +2852,7 @@ test('Phase 10 — runtime downgrades model high confidence to computed medium w
 
   const root = await makeRepoFixture();
   const runtime = new ExplorerRuntime({ chatClient: new WeakEvidenceClient() });
-  const result = await runtime.explore({ task: 'find requireAuth', repo_root: root, budget: 'quick' });
+  const result = await runtime.explore({ task: 'find requireAuth', repo_root: root });
   assert.ok(result, 'explore returned a result');
   // The model claimed "high" but with only 1 exact item from 1 file, it must not be "high"
   assert.notEqual(result.status.confidence, 'high',
@@ -2891,7 +2893,6 @@ test('ExplorerRuntime forwards abortSignal into chat client requests', async () 
     {
       task: '인증 구조를 요약해라.',
       repo_root: repoRoot,
-      budget: 'quick',
     },
     { abortSignal: controller.signal },
   );
@@ -2970,7 +2971,6 @@ test('010 US1#1 — locate task with exact evidence stays complete even when bud
     task: 'find where requireAuth is defined',
     taskMode: 'symbol_trace',
     repo_root: root,
-    budget: 'quick',
   });
 
   assert.equal(result.stats.stoppedByBudget, true, 'fixture must exhaust the quick budget');
@@ -3053,7 +3053,6 @@ test('010 US1#2 — path_explanation with one evidence still incomplete after bu
     task: 'Trace request flow from requireAuth to response',
     taskMode: 'path_explanation',
     repo_root: root,
-    budget: 'quick',
   });
 
   assert.equal(result.stats.stoppedByBudget, true);
@@ -3135,7 +3134,6 @@ test('010 US1#3 — buildNextAction prefers explore_followup with a cited target
     task: 'Trace the request flow end-to-end',
     taskMode: 'path_explanation',
     repo_root: root,
-    budget: 'quick',
   });
 
   if (result.status.verification === 'follow_up_needed' || result.status.verification === 'broad_search_needed') {
@@ -3144,9 +3142,13 @@ test('010 US1#3 — buildNextAction prefers explore_followup with a cited target
   }
 });
 
-// ── 010 — Spec-5: auto session reuse by repoRoot ────────────────────────────
+// spec 011: CEREBRAS_EXPLORER_AUTO_SESSION_BY_REPO was removed. The
+// repeated-call scenario below keeps a regression check for the default
+// "always create a new session" behavior; the opt-in test is gone.
 
-test('010 US5 — CEREBRAS_EXPLORER_AUTO_SESSION_BY_REPO=1 reuses a reusable session for the same repoRoot', async () => {
+test('spec 011 — repeated calls without an explicit session always create a new session', async () => {
+  // The envvar is ignored after spec 011, but we set it to prove that.
+  const previous = process.env.CEREBRAS_EXPLORER_AUTO_SESSION_BY_REPO;
   process.env.CEREBRAS_EXPLORER_AUTO_SESSION_BY_REPO = '1';
   try {
     class SimpleClient {
@@ -3169,53 +3171,20 @@ test('010 US5 — CEREBRAS_EXPLORER_AUTO_SESSION_BY_REPO=1 reuses a reusable ses
     const runtime = new ExplorerRuntime({ chatClient: new SimpleClient() });
 
     const root = await makeRepoFixture();
-    const first = await runtime.explore(
-      { task: '인증 흐름 파악', repo_root: root },
-      { sessionStore },
-    );
-    const firstSessionId = first.sessionId;
-    assert.ok(firstSessionId);
+    const first = await runtime.explore({ task: '인증', repo_root: root }, { sessionStore });
+    const second = await runtime.explore({ task: '라우터', repo_root: root }, { sessionStore });
 
-    const second = await runtime.explore(
-      { task: '인증 흐름 follow-up', repo_root: root },
-      { sessionStore },
+    assert.notEqual(
+      first.sessionId,
+      second.sessionId,
+      'spec 011: even with the legacy envvar set, repeated implicit-session calls must create new sessions',
     );
-
-    assert.equal(second.sessionId, firstSessionId, 'auto reuse must return the same session for the same repoRoot');
-    assert.equal(second._debug?.stats?.sessionSource, 'auto_repo', 'sessionSource diagnostic must mark auto_repo');
-    assert.equal(second._debug?.stats?.sessionStatus, 'reused', 'sessionStatus enum stays at reused');
+    assert.notEqual(second._debug?.stats?.sessionSource, 'auto_repo',
+      'sessionSource=auto_repo no longer exists');
   } finally {
-    delete process.env.CEREBRAS_EXPLORER_AUTO_SESSION_BY_REPO;
+    if (previous === undefined) delete process.env.CEREBRAS_EXPLORER_AUTO_SESSION_BY_REPO;
+    else process.env.CEREBRAS_EXPLORER_AUTO_SESSION_BY_REPO = previous;
   }
-});
-
-test('010 US5 — without the opt-in envvar, repeated calls always create a new session', async () => {
-  delete process.env.CEREBRAS_EXPLORER_AUTO_SESSION_BY_REPO;
-
-  class SimpleClient {
-    constructor() { this.model = 'zai-glm-4.7'; }
-    async createChatCompletion() {
-      return {
-        usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
-        message: {
-          content: JSON.stringify(compactResult({
-            directAnswer: 'noop', statusConfidence: 'low', evidence: [],
-          })),
-          toolCalls: [],
-        },
-      };
-    }
-  }
-
-  const { SessionStore } = await import('../src/explorer/session.mjs');
-  const sessionStore = new SessionStore({ maxCalls: 5 });
-  const runtime = new ExplorerRuntime({ chatClient: new SimpleClient() });
-
-  const root = await makeRepoFixture();
-  const first = await runtime.explore({ task: '인증', repo_root: root }, { sessionStore });
-  const second = await runtime.explore({ task: '라우터', repo_root: root }, { sessionStore });
-
-  assert.notEqual(first.sessionId, second.sessionId, 'default behavior must create a new session each call');
 });
 
 // ── 010 — Spec-2: targets[] / discoveredPaths[] separation ──────────────────
@@ -3290,7 +3259,6 @@ test('010 US2#1 — listDir entries land in discoveredPaths[], not targets[]', a
     task: 'find where requireAuth is defined',
     taskMode: 'symbol_trace',
     repo_root: root,
-    budget: 'quick',
   });
 
   assert.ok(Array.isArray(result.discoveredPaths), 'discoveredPaths[] must be present');
@@ -3307,78 +3275,9 @@ test('010 US2#1 — listDir entries land in discoveredPaths[], not targets[]', a
   assert.ok(!targetPaths.includes('.github'), `targets[] should not include .github, got ${targetPaths.join(',')}`);
 });
 
-test('010 US2#3 — CEREBRAS_EXPLORER_LEGACY_DISCOVERED_TARGETS=1 restores reference target promotion', async () => {
-  process.env.CEREBRAS_EXPLORER_LEGACY_DISCOVERED_TARGETS = '1';
-  try {
-    class ListDirLegacyClient {
-      constructor() { this.model = 'zai-glm-4.7'; this.calls = 0; }
-      async createChatCompletion({ responseFormat }) {
-        this.calls += 1;
-        if (responseFormat) {
-          return {
-            usage: { prompt_tokens: 30, completion_tokens: 10, total_tokens: 40 },
-            message: {
-              content: JSON.stringify(compactResult({
-                directAnswer: 'requireAuth is defined in src/auth.js:1-4.',
-                statusConfidence: 'high',
-                evidence: [{
-                  path: 'src/auth.js',
-                  startLine: 1,
-                  endLine: 4,
-                  why: 'def',
-                  evidenceType: 'file_range',
-                  groundingStatus: 'exact',
-                }],
-              })),
-              toolCalls: [],
-            },
-          };
-        }
-        if (this.calls === 1) {
-          return {
-            usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
-            message: {
-              content: '',
-              toolCalls: [{ id: 'l1', function: { name: 'repo_list_dir', arguments: JSON.stringify({ path: '.' }) } }],
-            },
-          };
-        }
-        if (this.calls === 2) {
-          return {
-            usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
-            message: {
-              content: '',
-              toolCalls: [{ id: 'r1', function: { name: 'repo_read_file', arguments: JSON.stringify({ path: 'src/auth.js', startLine: 1, endLine: 4 }) } }],
-            },
-          };
-        }
-        return {
-          usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
-          message: { content: '', toolCalls: [] },
-        };
-      }
-    }
-
-    const root = await makeRepoFixture();
-    await fs.writeFile(path.join(root, 'README.md'), '# repo');
-
-    const runtime = new ExplorerRuntime({ chatClient: new ListDirLegacyClient() });
-    const result = await runtime.explore({
-      task: 'find requireAuth',
-      taskMode: 'symbol_trace',
-      repo_root: root,
-      budget: 'quick',
-    });
-
-    const referenceTargets = (result.targets ?? []).filter(t => t.role === 'reference');
-    assert.ok(
-      referenceTargets.length > 0,
-      'legacy envvar must re-enable reference target promotion in targets[]',
-    );
-  } finally {
-    delete process.env.CEREBRAS_EXPLORER_LEGACY_DISCOVERED_TARGETS;
-  }
-});
+// spec 011: CEREBRAS_EXPLORER_LEGACY_DISCOVERED_TARGETS was removed. The
+// modern targets vs discoveredPaths split is permanent, so the opt-in
+// regression test from 010 is gone.
 
 test('010 US2#2 — buildReportCitationTargets merges same-file citations at file level', async () => {
   const { buildReportCitationTargets } = await import('../src/explorer/runtime.mjs').then(async m => {
@@ -3479,7 +3378,6 @@ test('010 US1#4 — critic fail forces broad_search_needed regardless of evidenc
     task: 'symbol trace requireAuth',
     taskMode: 'symbol_trace',
     repo_root: root,
-    budget: 'quick',
   });
 
   // Either runtime critic forces fail directly, or our injected critic survives normalization.
