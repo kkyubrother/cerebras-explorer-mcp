@@ -163,7 +163,7 @@ Claude Code / Codex
 Cerebras chat completion API에 직접 연결한다.
 
 - 모델 기본값: `zai-glm-4.7`
-- override: `CEREBRAS_EXPLORER_MODEL` 또는 `CEREBRAS_MODEL`
+- override: `CEREBRAS_EXPLORER_MODEL` (spec 011 이후 `CEREBRAS_MODEL` alias는 제거됨)
 - tool calling 지원
 - structured final JSON 유도
 

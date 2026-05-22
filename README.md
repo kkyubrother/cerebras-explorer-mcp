@@ -496,7 +496,7 @@ export CEREBRAS_EXPLORER_V2_MAX_COMPACTIONS="3"         # 기본값: 3, 0~10으�
 
 ```bash
 export CEREBRAS_EXPLORER_TRANSCRIPT="true"              # true이면 탐색 내역을 JSONL 파일로 기록
-export CEREBRAS_EXPLORER_TRANSCRIPT_DIR="./transcripts" # transcript 저장 디렉터리. 기본값: 현재 작업 디렉터리
+export CEREBRAS_EXPLORER_TRANSCRIPT_DIR="./transcripts" # transcript 저장 디렉터리. 기본값: <repoRoot>/.cerebras-explorer/transcripts (repoRoot 없으면 cwd 기준)
 ```
 
 ### 2) 서버 실행
