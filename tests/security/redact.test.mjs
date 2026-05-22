@@ -256,3 +256,54 @@ test('git diff and show patches are redacted', { skip: !hasGit() }, async () => 
   assert.ok(!JSON.stringify(shown).includes(OPENAI_KEY));
   assert.match(JSON.stringify(shown), /\[REDACTED:openai-api-key\]/);
 });
+
+// ── 010 — Spec-3: redaction preserves env var identifiers ─────────────────
+
+test('010 US3#1 — redactText preserves process.env identifiers in code snippets', () => {
+  const input = 'const key = process.env.CEREBRAS_API_KEY;';
+  const result = redactText(input);
+  assert.equal(result.text, input, 'process.env identifier must not be masked');
+  assert.equal(result.redacted, false, 'no redactions should be reported');
+});
+
+test('010 US3#1b — redactText preserves import.meta.env and Deno.env.get identifiers', () => {
+  for (const sample of [
+    'const url = import.meta.env.VITE_API_URL;',
+    'const tok = Deno.env.get("TOKEN");',
+  ]) {
+    const result = redactText(sample);
+    assert.equal(result.text, sample, `identifier must be preserved: ${sample}`);
+    assert.equal(result.redacted, false);
+  }
+});
+
+test('010 US3#2 — redactText still redacts standalone secret env file paths', () => {
+  const result = redactText('Read `.env.production:L1-L3` before debugging.');
+  assert.match(result.text, /\[REDACTED:secret-path\]/);
+  assert.equal(result.redacted, true);
+});
+
+test('010 US3#3 — redactText redacts secret values but not env var identifiers', () => {
+  const value = `${joinSecretParts('sk', '-proj-', 'a'.repeat(40))}`;
+  const result = redactText(`process.env.OPENAI_API_KEY = "${value}";`);
+  assert.match(result.text, /process\.env\.OPENAI_API_KEY/, 'identifier must remain');
+  assert.match(result.text, /\[REDACTED:openai-api-key\]/, 'value must be masked');
+  assert.ok(!result.text.includes(value), 'raw secret value must not survive');
+});
+
+test('010 US3#4 — opt-in CEREBRAS_EXPLORER_REDACT_ENV_VAR_NAMES masks identifiers', () => {
+  const result = redactText('const key = process.env.CEREBRAS_API_KEY;', { includeEnvVarNames: true });
+  assert.match(result.text, /process\.env\.\[REDACTED:env-var-name\]/);
+  assert.ok(result.redactions.includes('env-var-name'));
+});
+
+test('010 US3 — backtick and punctuation boundaries leave identifiers intact', () => {
+  for (const sample of [
+    'use `process.env.A_KEY` for that flag.',
+    'config: import.meta.env.VITE_X, import.meta.env.VITE_Y;',
+    'fn(Deno.env.get("X"))',
+  ]) {
+    const result = redactText(sample);
+    assert.equal(result.text, sample, `boundary regression: ${sample}`);
+  }
+});

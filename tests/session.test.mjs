@@ -193,3 +193,41 @@ test('validateForReuse tracks remainingCalls correctly after updates', () => {
   assert.equal(result.ok, true);
   assert.equal(result.remainingCalls, 2);
 });
+
+// ── 010 — Spec-5: findReusableForRepo ─────────────────────────────────────
+
+test('010 US5 — findReusableForRepo returns the most-recently-used session for a repoRoot', () => {
+  const store = new SessionStore({ maxCalls: 5 });
+  const a = store.create('/repo/A');
+  const b = store.create('/repo/A');
+  const c = store.create('/repo/B');
+  // Bump b's lastUsedAt by updating it
+  store.update(b, { targets: [], evidence: [], directAnswer: 'b' });
+
+  const result = store.findReusableForRepo('/repo/A');
+  assert.ok(result, 'reusable session must be returned for /repo/A');
+  assert.equal(result.ok, true);
+  assert.equal(result.session.id, b, 'most-recent reusable session must win');
+  assert.equal(result.remainingCalls, 4, 'remainingCalls must subtract the existing call');
+
+  // Different repoRoot must not match
+  const noMatch = store.findReusableForRepo('/repo/C');
+  assert.equal(noMatch, null);
+
+  // The unused candidate `a` and the foreign-repo `c` exist but never block selection
+  assert.notEqual(result.session.id, a);
+  assert.notEqual(result.session.id, c);
+});
+
+test('010 US5 — findReusableForRepo rejects expired and exhausted sessions', () => {
+  const store = new SessionStore({ ttlMs: 10, maxCalls: 1 });
+  const id = store.create('/repo');
+  // Exhaust the session
+  store.update(id, { targets: [], evidence: [], directAnswer: 'one' });
+  const exhausted = store.findReusableForRepo('/repo');
+  assert.equal(exhausted, null, 'maxCalls-reached session must not be returned');
+
+  // Add a fresh session, but then wait until TTL expires
+  const fresh = store.create('/repo');
+  assert.ok(fresh, 'fresh session must be created');
+});

@@ -95,6 +95,18 @@ const TARGET_ITEM_SCHEMA = {
   required: ['path', 'role', 'reason', 'evidenceRefs'],
 };
 
+const DISCOVERED_PATH_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    path: { type: 'string' },
+    kind: { type: 'string', enum: ['file', 'dir', 'unknown'] },
+    sourceTool: { type: 'string' },
+    reason: { type: 'string' },
+  },
+  required: ['path', 'kind', 'sourceTool', 'reason'],
+};
+
 const NEXT_ACTION_SCHEMA = {
   type: 'object',
   additionalProperties: false,
@@ -285,6 +297,7 @@ export const EXPLORE_REPO_OUTPUT_SCHEMA = {
     directAnswer: { type: 'string' },
     status: STATUS_SCHEMA,
     targets: { type: 'array', items: TARGET_ITEM_SCHEMA },
+    discoveredPaths: { type: 'array', items: DISCOVERED_PATH_SCHEMA },
     evidence: { type: 'array', items: EVIDENCE_ITEM_SCHEMA },
     uncertainties: { type: 'array', items: { type: 'string' } },
     nextAction: NEXT_ACTION_SCHEMA,

@@ -109,7 +109,7 @@ Gemini CLI는 `*KEY*`, `*SECRET*`, `*TOKEN*`, `*PASSWORD*`, `*AUTH*`, `*CREDENTI
 
 ## Security Model
 
-서버는 저장소 파일을 수정하지 않는 read-only explorer입니다. 파일 접근은 allowed root 아래로 정규화하고 `realpath` 재검증과 symlink 거부를 적용합니다. `.env*`, `.ssh/**`, `.aws/credentials`, `.npmrc`, `*.pem`, `secrets/**`, `credentials.json` 같은 민감 경로는 기본 deny-list로 traversal/read/grep/symbol/snippet 경로에서 차단하고, API key/PAT/JWT/private key block은 응답 직전 `[REDACTED:<rule>]`로 치환합니다. 외부 네트워크 egress는 첫 tool call 이후 lazy 초기화되는 Cerebras API 또는 명시적으로 설정한 OpenAI-compatible provider API로 제한됩니다.
+서버는 저장소 파일을 수정하지 않는 read-only explorer입니다. 파일 접근은 allowed root 아래로 정규화하고 `realpath` 재검증과 symlink 거부를 적용합니다. `.env*`, `.ssh/**`, `.aws/credentials`, `.npmrc`, `*.pem`, `secrets/**`, `credentials.json` 같은 민감 경로는 기본 deny-list로 traversal/read/grep/symbol/snippet 경로에서 차단하고, API key/PAT/JWT/private key block은 응답 직전 `[REDACTED:<rule>]`로 치환합니다. snippet/report 문자열 안의 `process.env.X`/`import.meta.env.X`/`Deno.env.get("X")` 같은 **환경변수 식별자는 public한 코드 인터페이스로 간주해 기본적으로 보존**합니다 — 식별자까지 마스킹해야 하는 조직 정책이 있다면 `CEREBRAS_EXPLORER_REDACT_ENV_VAR_NAMES=1`로 옵트인하세요. 외부 네트워크 egress는 첫 tool call 이후 lazy 초기화되는 Cerebras API 또는 명시적으로 설정한 OpenAI-compatible provider API로 제한됩니다.
 
 ## 왜 이렇게 설계했나
 
@@ -170,12 +170,25 @@ Parent model (Claude Code / Codex)
 
 도구 역할은 한 곳에서 다음처럼 나뉩니다.
 
-- `explore_repo`: parent agent handoff의 정상 구조화 표면입니다. `directAnswer`, `status`, `targets`, `evidence`, `searchCoverage` 같은 JSON 필드를 후속 자동화와 편집 전 검증에 사용합니다.
+- `explore_repo`: parent agent handoff의 정상 구조화 표면입니다. `directAnswer`, `status`, `targets`, `discoveredPaths`, `evidence`, `searchCoverage` 같은 JSON 필드를 후속 자동화와 편집 전 검증에 사용합니다.
 - 목적형 wrapper 6개(`find_relevant_code`, `trace_symbol`, `map_change_impact`, `explain_code_path`, `collect_evidence`, `review_change_context`): 모두 내부적으로 `explore_repo`에 위임하며, 특정 작업 의도를 더 좁은 입력 스키마로 표현하는 표면입니다.
 - `explore`: 사람에게 바로 보여줄 Markdown 보고 도구입니다. broad/deep 보고 프롬프트에서는 parent agent가 직접 선택하는 것이 아니라 서버 라우터가 런타임 판단으로 내부 V2 백엔드를 사용할 수 있습니다.
 - `explore_v2`: `CEREBRAS_EXPLORER_ENABLE_EXPLORE_V2=true`일 때만 노출되는 advanced opt-in 보고 도구입니다.
 
+**Decision rule for parent agents:**
+
+- 자동화 / 편집 계획 / follow-up 검증 → `explore_repo` (구조화 JSON)
+- known symbol / 특정 경로 / 단일 변경 리뷰 → 6 wrapper 중 의도에 맞는 것
+- 사람에게 보여줄 narrative → `explore` (Markdown)
+- broad report에 V2 backend가 명시적으로 필요한 advanced 사용 → opt-in `explore_v2`
+
 Report 도구(`explore`, `explore_v2`)는 Markdown 본문을 `text`로 반환하면서, 같은 MCP 응답의 `structuredContent`에 본문에서 파생한 `citations[]`와 인용 기반 `targets[]`도 포함합니다. parent agent는 file:line 인용을 Markdown에서 regex로 다시 긁기보다 이 구조화 필드를 다음 읽기/검증 대상으로 사용해야 합니다.
+
+`targets[]` vs `discoveredPaths[]` — `targets[]`에는 grounded evidence와 연결된 actionable 항목만 들어가며, `repo_list_dir`/`repo_find_files`/`repo_git_diff` 등으로 발견만 된 path는 별도 top-level `discoveredPaths[]`에 `{ path, kind, sourceTool, reason }` 형태로 노출됩니다. 자동화는 `targets[]`를 다음 읽기/편집 대상으로 신뢰하고, 필요할 때만 `discoveredPaths[]`를 follow-up 후보로 참고하세요. 기존 동작(reference target 자동 승격)이 필요한 consumer는 1 릴리스 동안 `CEREBRAS_EXPLORER_LEGACY_DISCOVERED_TARGETS=1`로 호환할 수 있습니다.
+
+`status.complete`는 "충분한 grounded evidence가 모였는가"를 의미합니다. budget이 소진됐어도 evidence sufficiency가 충족되면 `complete:true`/`failure:null`로 반환되며 budget 사실은 `searchCoverage.stoppedByBudget=true`에 그대로 남습니다.
+
+Heavy 호출이나 sub-agent 핸드오프에서는 `_meta.progressToken`을 함께 전달해 turn-by-turn 진행률을 받고, 결과를 다른 agent에 요약/전달할 때는 다음 control-plane 필드를 그대로 보존하세요: `status.verification`, `status.complete`, `evidenceQuality`, `searchCoverage`, `failure`, `session/sessionId`, `critic.warnings`.
 
 ### `explore_repo`
 
@@ -264,7 +277,7 @@ Report 도구(`explore`, `explore_v2`)는 Markdown 본문을 `text`로 반환하
 }
 ```
 
-`failure`는 실행/input/provider/internal failure event에만 사용합니다. 낮은 confidence는 failure가 아니라 `evidenceQuality`와 `status`의 품질 신호입니다. `failure`가 있으면 `failure.retry`를 `nextAction`보다 먼저 보고, `failure`가 `null`이면 기존처럼 `nextAction`을 따르세요.
+`failure`는 실행/input/provider/internal failure event에만 사용합니다. 낮은 confidence는 failure가 아니라 `evidenceQuality`와 `status`의 품질 신호입니다. `failure`가 있으면 `failure.retry`를 `nextAction`보다 먼저 보고, `failure`가 `null`이면 기존처럼 `nextAction`을 따르세요. budget이 소진된 호출이라도 evidence sufficiency가 만족되면 `failure.reason='budget_exhausted'`는 더 이상 부여되지 않습니다 — budget 사실은 `searchCoverage.stoppedByBudget=true`에서만 확인할 수 있고, `status.warnings`에는 "budget exhausted after sufficient evidence was collected." 메모가 함께 남습니다.
 
 `failure.retry.args` is a sanitized retry recipe, not a reflection of the
 original tool input. It contains only bounded text fields, bounded string
@@ -489,6 +502,22 @@ export CEREBRAS_EXPLORER_ENABLE_EXPLORE_V2="false"      # true로 설정하면 a
 export CEREBRAS_EXPLORER_AUTO_ROUTE="false"             # true이면 task 복잡도에 따라 budget별 모델 자동 선택
 ```
 
+선택 (010 호환/보안 옵션, 기본 모두 off):
+
+```bash
+# 1 릴리스 동안 기존 동작(reference target 자동 승격)을 유지하고 싶을 때.
+# 모던 동작에서는 discovery-only path가 별도 top-level discoveredPaths[]에 노출됩니다.
+export CEREBRAS_EXPLORER_LEGACY_DISCOVERED_TARGETS="1"
+
+# snippet 텍스트의 process.env.X / import.meta.env.X / Deno.env.get("X") 식별자까지
+# [REDACTED:env-var-name]로 마스킹합니다. 기본은 식별자 보존(코드 인터페이스).
+export CEREBRAS_EXPLORER_REDACT_ENV_VAR_NAMES="1"
+
+# explicit `session` 입력이 없을 때 같은 repoRoot의 최신 reusable 세션을 자동 재사용합니다.
+# multi-client 환경에서는 conversation 격리를 위해 explicit session 전달을 권장합니다.
+export CEREBRAS_EXPLORER_AUTO_SESSION_BY_REPO="1"
+```
+
 선택 (V2 튜닝):
 
 ```bash
@@ -662,6 +691,8 @@ MCP client for `cerebras-explorer` timed out after 30 seconds.
 - symlink 추적
 
 즉, **코드 탐색 전용 explorer**입니다.
+
+scope는 모든 도구에서 hard boundary입니다. `repo_list_dir`/`repo_read_file`/`repo_grep`/`repo_symbols` 등은 base scope를 벗어나는 path를 거부하고, **git-guided 도구(`repo_git_diff`, `repo_git_show`, `repo_git_diff({stat:true})`)도 변경된 파일을 base scope 안으로 한정**합니다. scope 밖에서 제외된 파일 수는 응답 객체의 `omittedOutOfScopeFiles`(0보다 클 때만 포함)로 가시화되므로, 정보 손실을 인지하고 필요하면 scope를 넓혀 재호출해야 합니다.
 
 ## 벤치마크
 

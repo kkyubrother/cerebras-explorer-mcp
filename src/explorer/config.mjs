@@ -276,6 +276,38 @@ export function isTruthyEnv(value) {
 }
 
 /**
+ * When set to a truthy value, the runtime keeps the legacy behavior of
+ * promoting discovered paths (from list_dir / find_files / git diff / git show)
+ * into the public `targets[]` with role:'reference' and evidenceRefs:[].
+ * Default off — the modern behavior surfaces discoveries via the separate
+ * top-level `discoveredPaths[]` field instead.
+ */
+export function legacyDiscoveredTargetsEnabled(env = process.env) {
+  return isTruthyEnv(env.CEREBRAS_EXPLORER_LEGACY_DISCOVERED_TARGETS);
+}
+
+/**
+ * When set to a truthy value, the redaction layer masks environment-variable
+ * identifiers (e.g. `process.env.X`, `import.meta.env.Y`) in snippet/report
+ * text in addition to secret values and secret paths. Default off — the
+ * modern behavior preserves identifier names because they describe a public
+ * code interface, not a secret value.
+ */
+export function redactEnvVarNamesEnabled(env = process.env) {
+  return isTruthyEnv(env.CEREBRAS_EXPLORER_REDACT_ENV_VAR_NAMES);
+}
+
+/**
+ * When set to a truthy value, the runtime auto-reuses the most recent
+ * reusable session for the same repoRoot when no explicit `session` argument
+ * is supplied. Default off — multi-client environments should keep explicit
+ * session passing to maintain conversation isolation.
+ */
+export function autoSessionByRepoEnabled(env = process.env) {
+  return isTruthyEnv(env.CEREBRAS_EXPLORER_AUTO_SESSION_BY_REPO);
+}
+
+/**
  * Return the model to use for a given budget label.
  * Reads budget-specific env vars first, then falls back to the global model.
  *

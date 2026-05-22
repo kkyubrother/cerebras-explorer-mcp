@@ -97,6 +97,31 @@ export class SessionStore {
   }
 
   /**
+   * Find the most-recently-used reusable session for a given repoRoot,
+   * subject to TTL and maxCalls constraints. Returns `{ ok, session,
+   * remainingCalls }` when a candidate exists, otherwise `null`. Used by
+   * the runtime to opt into repo-keyed auto session reuse via
+   * `CEREBRAS_EXPLORER_AUTO_SESSION_BY_REPO=1`.
+   */
+  findReusableForRepo(repoRoot = '') {
+    if (!repoRoot || typeof repoRoot !== 'string') return null;
+    const now = Date.now();
+    let best = null;
+    for (const session of this._sessions.values()) {
+      if (session.repoRoot !== repoRoot) continue;
+      if (now - session.lastUsedAt > this._ttlMs) continue;
+      if (session.calls >= this._maxCalls) continue;
+      if (!best || session.lastUsedAt >= best.lastUsedAt) best = session;
+    }
+    if (!best) return null;
+    return {
+      ok: true,
+      session: best,
+      remainingCalls: this._maxCalls - best.calls,
+    };
+  }
+
+  /**
    * Retrieve a session by ID. Returns null if not found or expired.
    */
   get(id) {
@@ -121,18 +146,26 @@ export class SessionStore {
     session.calls += 1;
     session.lastUsedAt = Date.now();
 
-    if (Array.isArray(result.targets)) {
-      const newTargetPaths = result.targets
-        .map(target => (typeof target.path === 'string' ? target.path : null))
-        .filter(Boolean);
+    if (Array.isArray(result.targets) || Array.isArray(result.discoveredPaths)) {
+      const targetEntries = Array.isArray(result.targets) ? result.targets : [];
+      const discoveredEntries = Array.isArray(result.discoveredPaths) ? result.discoveredPaths : [];
+      const newTargetPaths = [
+        ...targetEntries.map(target => (typeof target?.path === 'string' ? target.path : null)),
+        ...discoveredEntries.map(entry => (typeof entry?.path === 'string' ? entry.path : null)),
+      ].filter(Boolean);
       session.targetPaths = dedupeAppend(
         session.targetPaths,
         newTargetPaths,
         MAX_TARGET_PATHS,
       );
-      const targetPathsWithContext = result.targets
-        .filter(target => typeof target.path === 'string' && target.path)
-        .map(target => ({ path: target.path, why: typeof target.reason === 'string' ? target.reason : '' }));
+      const targetPathsWithContext = [
+        ...targetEntries
+          .filter(target => typeof target?.path === 'string' && target.path)
+          .map(target => ({ path: target.path, why: typeof target.reason === 'string' ? target.reason : '' })),
+        ...discoveredEntries
+          .filter(entry => typeof entry?.path === 'string' && entry.path)
+          .map(entry => ({ path: entry.path, why: typeof entry.reason === 'string' ? entry.reason : '' })),
+      ];
       session.targetPathsWithContext = dedupeContextPaths(
         session.targetPathsWithContext,
         targetPathsWithContext,

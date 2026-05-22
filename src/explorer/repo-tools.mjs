@@ -379,6 +379,54 @@ function filterGitStatOutput(statText) {
   };
 }
 
+function filterGitStatByScope(statText, scopeRules) {
+  if (!scopeRules || !Array.isArray(scopeRules.patterns) || scopeRules.patterns.length === 0) {
+    return { text: String(statText ?? ''), omittedOutOfScopeFiles: 0 };
+  }
+
+  const kept = [];
+  let omittedOutOfScopeFiles = 0;
+
+  for (const line of String(statText ?? '').split('\n')) {
+    if (!line.trim()) {
+      kept.push(line);
+      continue;
+    }
+    if (/^\s*\d+\s+files? changed(?:,|$)/.test(line)) {
+      // Summary line — keep as-is even if filtering changes counts.
+      kept.push(line);
+      continue;
+    }
+    const match = line.match(/^\s*(.+?)\s+\|/);
+    if (!match) {
+      kept.push(line);
+      continue;
+    }
+    const rawPath = match[1].trim();
+    // git --stat may write rename/copy as `old => new` or `dir/{old => new}` —
+    // extract every candidate segment and require at least one of them to be
+    // inside scope. If we can't reliably parse the rename form, keep the line
+    // so we never silently drop a summary the operator might need.
+    const candidates = rawPath
+      .replace(/\{([^{}]*)\}/g, ' $1 ')
+      .split(/\s*=>\s*|\s+/)
+      .map(part => part.trim())
+      .filter(Boolean);
+    if (candidates.length === 0) {
+      kept.push(line);
+      continue;
+    }
+    const anyInScope = candidates.some(candidate => scopeRules.matches(candidate));
+    if (anyInScope) {
+      kept.push(line);
+    } else {
+      omittedOutOfScopeFiles += 1;
+    }
+  }
+
+  return { text: kept.join('\n'), omittedOutOfScopeFiles };
+}
+
 function parseDiffOutput(diffText) {
   const files = [];
   let current = null;
@@ -1071,16 +1119,26 @@ export class RepoToolkit {
     return rel;
   }
 
-  _filterGitDiffFiles(files, { enforceScope = false } = {}) {
-    return files
+  _filterGitDiffFiles(files, { enforceScope = true } = {}) {
+    let omittedOutOfScopeFiles = 0;
+    let omittedSecretPaths = 0;
+    const scopeActive = enforceScope && (this.baseScopeRules.patterns?.length ?? 0) > 0;
+
+    const filtered = files
       .filter(file => {
-        if (isSecretDiffFile(file)) return false;
-        if (enforceScope && this.baseScopeRules.patterns?.length > 0) {
-          return this.baseScopeRules.matches(file.path);
+        if (isSecretDiffFile(file)) {
+          omittedSecretPaths += 1;
+          return false;
+        }
+        if (scopeActive && !this.baseScopeRules.matches(file.path)) {
+          omittedOutOfScopeFiles += 1;
+          return false;
         }
         return true;
       })
       .map(({ oldPath, ...file }) => file);
+
+    return { files: filtered, omittedOutOfScopeFiles, omittedSecretPaths };
   }
 
   async gitLog({ path: filePath, maxCount = 20, since, author, grep: grepFilter } = {}) {
@@ -1181,18 +1239,26 @@ export class RepoToolkit {
 
     if (stat) {
       const filteredStat = filterGitStatOutput(output.trim());
-      const redactedStat = redactText(filteredStat.text);
+      const scopedStat = filterGitStatByScope(filteredStat.text, this.baseScopeRules);
+      const redactedStat = redactText(scopedStat.text);
       return {
         from: safeFrom,
         to: safeTo,
         stat: redactedStat.text,
         ...(filteredStat.omittedSecretPaths > 0 ? { omittedSecretPaths: filteredStat.omittedSecretPaths } : {}),
+        ...(scopedStat.omittedOutOfScopeFiles > 0 ? { omittedOutOfScopeFiles: scopedStat.omittedOutOfScopeFiles } : {}),
         ...(redactedStat.redacted ? { redacted: true, redactions: redactedStat.redactions } : {}),
       };
     }
 
-    const files = this._filterGitDiffFiles(parseDiffOutput(output));
-    return { from: safeFrom, to: safeTo, files };
+    const filtered = this._filterGitDiffFiles(parseDiffOutput(output), { enforceScope: true });
+    return {
+      from: safeFrom,
+      to: safeTo,
+      files: filtered.files,
+      ...(filtered.omittedOutOfScopeFiles > 0 ? { omittedOutOfScopeFiles: filtered.omittedOutOfScopeFiles } : {}),
+      ...(filtered.omittedSecretPaths > 0 ? { omittedSecretPaths: filtered.omittedSecretPaths } : {}),
+    };
   }
 
   async gitShow({ ref } = {}) {
@@ -1219,14 +1285,16 @@ export class RepoToolkit {
       'show', '--no-ext-diff', '--no-textconv', '--format=', '--unified=3', safeRef,
     ];
     const patchOutput = await this._runGit(patchArgs, { env: withUnsetEnv(SAFE_GIT_DIFF_ENV_UNSET) });
-    const files = this._filterGitDiffFiles(parseDiffOutput(patchOutput), { enforceScope: true });
+    const filtered = this._filterGitDiffFiles(parseDiffOutput(patchOutput), { enforceScope: true });
 
     return {
       hash,
       author,
       date,
       message: redactedMessage.text,
-      files,
+      files: filtered.files,
+      ...(filtered.omittedOutOfScopeFiles > 0 ? { omittedOutOfScopeFiles: filtered.omittedOutOfScopeFiles } : {}),
+      ...(filtered.omittedSecretPaths > 0 ? { omittedSecretPaths: filtered.omittedSecretPaths } : {}),
       ...(redactedMessage.redacted ? { redacted: true, redactions: redactedMessage.redactions } : {}),
     };
   }
@@ -1677,4 +1745,67 @@ export function collectTargetPathsFromToolResult(toolName, result) {
 
 export function mergeTargetPaths(existing, nextValues) {
   return dedupeArray([...(existing || []), ...(nextValues || [])]);
+}
+
+function discoveredEntry({ path, kind, sourceTool, reason }) {
+  if (typeof path !== 'string' || !path) return null;
+  return {
+    path,
+    kind: kind === 'dir' || kind === 'file' ? kind : 'unknown',
+    sourceTool,
+    reason,
+  };
+}
+
+export function collectDiscoveredPathsFromToolResult(toolName, result) {
+  if (!result || typeof result !== 'object') return [];
+
+  switch (toolName) {
+    case 'repo_list_dir':
+      return Array.isArray(result.entries)
+        ? result.entries
+            .map(entry => discoveredEntry({
+              path: entry.path,
+              kind: entry.kind === 'dir' ? 'dir' : entry.kind === 'file' ? 'file' : 'unknown',
+              sourceTool: toolName,
+              reason: 'Listed during repository discovery.',
+            }))
+            .filter(Boolean)
+        : [];
+
+    case 'repo_find_files':
+      return Array.isArray(result.matches)
+        ? result.matches
+            .map(matchPath => discoveredEntry({
+              path: matchPath,
+              kind: 'file',
+              sourceTool: toolName,
+              reason: 'Matched file discovery query.',
+            }))
+            .filter(Boolean)
+        : [];
+
+    case 'repo_git_diff':
+    case 'repo_git_show':
+      return Array.isArray(result.files)
+        ? result.files
+            .map(file => discoveredEntry({
+              path: file?.path,
+              kind: 'file',
+              sourceTool: toolName,
+              reason: 'Changed file discovered from git metadata.',
+            }))
+            .filter(Boolean)
+        : [];
+
+    default: {
+      const fallbackPaths = collectTargetPathsFromToolResult(toolName, result);
+      return fallbackPaths.map(filePath => discoveredEntry({
+        path: filePath,
+        kind: 'unknown',
+        sourceTool: toolName,
+        reason: 'Discovered from tool result.',
+      })).filter(Boolean);
+    }
+  }
 }
