@@ -96,30 +96,9 @@ export class SessionStore {
     return id;
   }
 
-  /**
-   * Find the most-recently-used reusable session for a given repoRoot,
-   * subject to TTL and maxCalls constraints. Returns `{ ok, session,
-   * remainingCalls }` when a candidate exists, otherwise `null`. Used by
-   * the runtime to opt into repo-keyed auto session reuse via
-   * `CEREBRAS_EXPLORER_AUTO_SESSION_BY_REPO=1`.
-   */
-  findReusableForRepo(repoRoot = '') {
-    if (!repoRoot || typeof repoRoot !== 'string') return null;
-    const now = Date.now();
-    let best = null;
-    for (const session of this._sessions.values()) {
-      if (session.repoRoot !== repoRoot) continue;
-      if (now - session.lastUsedAt > this._ttlMs) continue;
-      if (session.calls >= this._maxCalls) continue;
-      if (!best || session.lastUsedAt >= best.lastUsedAt) best = session;
-    }
-    if (!best) return null;
-    return {
-      ok: true,
-      session: best,
-      remainingCalls: this._maxCalls - best.calls,
-    };
-  }
+  // spec 011: SessionStore.findReusableForRepo was removed alongside
+  // CEREBRAS_EXPLORER_AUTO_SESSION_BY_REPO. Multi-call continuity now
+  // requires an explicit `session` argument.
 
   /**
    * Retrieve a session by ID. Returns null if not found or expired.

@@ -12,16 +12,21 @@ test('CerebrasChatClient uses CEREBRAS_EXPLORER_MODEL when explicit model is not
   const previousExplorerModel = process.env.CEREBRAS_EXPLORER_MODEL;
   const previousCerebrasModel = process.env.CEREBRAS_MODEL;
 
+  // spec 011: CEREBRAS_MODEL alias was removed; only CEREBRAS_EXPLORER_MODEL is read.
   process.env.CEREBRAS_EXPLORER_MODEL = 'zai-glm-4.8-preview';
-  process.env.CEREBRAS_MODEL = 'ignored-fallback';
+  process.env.CEREBRAS_MODEL = 'must-be-ignored';
 
   try {
     const client = new CerebrasChatClient({ apiKey: 'test-key', fetchImpl: async () => null });
     assert.equal(client.model, 'zai-glm-4.8-preview');
 
     delete process.env.CEREBRAS_EXPLORER_MODEL;
-    const fallbackClient = new CerebrasChatClient({ apiKey: 'test-key', fetchImpl: async () => null });
-    assert.equal(fallbackClient.model, 'ignored-fallback');
+    const noFallbackClient = new CerebrasChatClient({ apiKey: 'test-key', fetchImpl: async () => null });
+    assert.equal(
+      noFallbackClient.model,
+      DEFAULT_EXPLORER_MODEL,
+      'CEREBRAS_MODEL must NOT act as a fallback after spec 011',
+    );
 
     delete process.env.CEREBRAS_MODEL;
     const defaultClient = new CerebrasChatClient({ apiKey: 'test-key', fetchImpl: async () => null });
@@ -175,10 +180,12 @@ test('CerebrasChatClient forwards structured response_format without OpenAI stri
   assert.equal(schema.properties.b.type, 'string');
 });
 
-test('getReasoningEffortForBudget maps GLM 4.7 budgets to supported values', () => {
-  assert.equal(getReasoningEffortForBudget('zai-glm-4.7', 'quick'), 'none');
-  assert.equal(getReasoningEffortForBudget('zai-glm-4.7', 'normal'), undefined);
-  assert.equal(getReasoningEffortForBudget('zai-glm-4.7', 'deep'), undefined);
+test('spec 011 — getReasoningEffortForBudget returns the single-config hint per model', () => {
+  // After spec 011 the budget label argument is unused.
+  assert.equal(getReasoningEffortForBudget('zai-glm-4.7'), undefined,
+    'GLM 4.7 leaves reasoning_effort unset under the deep config');
+  assert.equal(getReasoningEffortForBudget('zai-glm-4.7', 'quick'), undefined,
+    'budget label argument is ignored after spec 011');
 });
 
 // ── Phase 2 — budget-specific parameter alignment ─────────────────────────────
@@ -230,7 +237,7 @@ test('Phase 2 — budget-specific temperatures are correctly reflected in payloa
   }
 });
 
-test('Phase 2 — quick budget payload includes reasoning_effort: none for GLM 4.7', async () => {
+test('spec 011 — GLM 4.7 payload omits reasoning_effort under the single deep config', async () => {
   let capturedPayload = null;
   const client = new CerebrasChatClient({
     apiKey: 'test-key',
@@ -250,12 +257,12 @@ test('Phase 2 — quick budget payload includes reasoning_effort: none for GLM 4
 
   await client.createChatCompletion({
     messages: [{ role: 'user', content: 'test' }],
-    reasoningEffort: getReasoningEffortForBudget('zai-glm-4.7', 'quick'), // 'none'
-    temperature: BUDGETS.quick.temperature,
+    reasoningEffort: getReasoningEffortForBudget('zai-glm-4.7'),
+    temperature: BUDGETS.deep.temperature,
   });
 
-  assert.equal(capturedPayload.reasoning_effort, 'none',
-    'quick budget must include reasoning_effort: none');
+  assert.equal('reasoning_effort' in capturedPayload, false,
+    'GLM 4.7 under the single deep config must NOT include reasoning_effort');
   assert.equal(capturedPayload.clear_thinking, false,
     'GLM 4.7 must always include clear_thinking: false');
 });

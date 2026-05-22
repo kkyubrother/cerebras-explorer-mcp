@@ -408,39 +408,26 @@ test('spec 011 — chooseAutoBudget always returns deep (single runtime config)'
   assert.equal(chooseAutoBudget({ task: 'map change impact for auth middleware' }), 'deep');
 });
 
-// ─── getModelForBudget ───────────────────────────────────────────────────────
+// ─── getModelForBudget (spec 011) ────────────────────────────────────────────
 
-test('getModelForBudget: returns quick model env var', () => {
-  const prev = process.env.CEREBRAS_EXPLORER_MODEL_QUICK;
-  process.env.CEREBRAS_EXPLORER_MODEL_QUICK = 'fast-model';
-  try {
-    assert.equal(getModelForBudget('quick'), 'fast-model');
-  } finally {
-    if (prev === undefined) delete process.env.CEREBRAS_EXPLORER_MODEL_QUICK;
-    else process.env.CEREBRAS_EXPLORER_MODEL_QUICK = prev;
-  }
-});
-
-test('getModelForBudget: returns deep model env var', () => {
-  const prev = process.env.CEREBRAS_EXPLORER_MODEL_DEEP;
-  process.env.CEREBRAS_EXPLORER_MODEL_DEEP = 'reasoning-model';
-  try {
-    assert.equal(getModelForBudget('deep'), 'reasoning-model');
-  } finally {
-    if (prev === undefined) delete process.env.CEREBRAS_EXPLORER_MODEL_DEEP;
-    else process.env.CEREBRAS_EXPLORER_MODEL_DEEP = prev;
-  }
-});
-
-test('getModelForBudget: falls back to global model when budget env var not set', () => {
+test('spec 011 — getModelForBudget always returns the single CEREBRAS_EXPLORER_MODEL', () => {
   const prevQuick = process.env.CEREBRAS_EXPLORER_MODEL_QUICK;
+  const prevDeep = process.env.CEREBRAS_EXPLORER_MODEL_DEEP;
   const prevGlobal = process.env.CEREBRAS_EXPLORER_MODEL;
-  delete process.env.CEREBRAS_EXPLORER_MODEL_QUICK;
+  process.env.CEREBRAS_EXPLORER_MODEL_QUICK = 'must-be-ignored-quick';
+  process.env.CEREBRAS_EXPLORER_MODEL_DEEP = 'must-be-ignored-deep';
   process.env.CEREBRAS_EXPLORER_MODEL = 'global-model';
   try {
+    // Budget-specific env vars were removed; getModelForBudget ignores its
+    // argument and reads only CEREBRAS_EXPLORER_MODEL.
     assert.equal(getModelForBudget('quick'), 'global-model');
+    assert.equal(getModelForBudget('deep'), 'global-model');
+    assert.equal(getModelForBudget(), 'global-model');
   } finally {
-    if (prevQuick !== undefined) process.env.CEREBRAS_EXPLORER_MODEL_QUICK = prevQuick;
+    if (prevQuick === undefined) delete process.env.CEREBRAS_EXPLORER_MODEL_QUICK;
+    else process.env.CEREBRAS_EXPLORER_MODEL_QUICK = prevQuick;
+    if (prevDeep === undefined) delete process.env.CEREBRAS_EXPLORER_MODEL_DEEP;
+    else process.env.CEREBRAS_EXPLORER_MODEL_DEEP = prevDeep;
     if (prevGlobal === undefined) delete process.env.CEREBRAS_EXPLORER_MODEL;
     else process.env.CEREBRAS_EXPLORER_MODEL = prevGlobal;
   }
@@ -572,10 +559,10 @@ test('makeOpenAIStrictCompatibleResponseFormat converts explore result schema fo
   ]);
 });
 
-test('getReasoningEffortForBudget: gpt-oss uses low/medium/high ladder', () => {
-  assert.equal(getReasoningEffortForBudget('gpt-oss-120b', 'quick'), 'low');
-  assert.equal(getReasoningEffortForBudget('gpt-oss-120b', 'normal'), 'medium');
-  assert.equal(getReasoningEffortForBudget('gpt-oss-120b', 'deep'), 'high');
+test('spec 011 — getReasoningEffortForBudget returns high for gpt-oss under the single deep config', () => {
+  assert.equal(getReasoningEffortForBudget('gpt-oss-120b'), 'high');
+  // The budget label argument is ignored.
+  assert.equal(getReasoningEffortForBudget('gpt-oss-120b', 'quick'), 'high');
 });
 
 // --- Phase 9: Provider Timeout / Abort / Retry ---

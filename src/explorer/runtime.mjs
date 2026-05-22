@@ -3,8 +3,6 @@ import path from 'node:path';
 
 import { CerebrasChatClient, extractFirstJsonObject } from './cerebras-client.mjs';
 import {
-  autoSessionByRepoEnabled,
-  chooseAutoBudget,
   getBudgetConfig,
   getExplorerTemperature,
   getExplorerTopP,
@@ -12,11 +10,8 @@ import {
   getExploreV2MaxExtraTurns,
   getExploreV2TurnMultiplier,
   getReasoningEffortForBudget,
-  getModelForBudget,
-  classifyTaskComplexity,
   isSecretPath,
   isTruthyEnv,
-  legacyDiscoveredTargetsEnabled,
   loadProjectConfig,
   normalizeProjectConfig,
   resolveRepoRoot,
@@ -700,7 +695,9 @@ function filterGroundedModelTargets(targets = [], evidence = []) {
   });
 }
 
-function buildTargets({ evidence = [], discoveredPaths = [], includeLegacyReferences = false } = {}) {
+function buildTargets({ evidence = [] } = {}) {
+  // spec 011: discovered paths are no longer promoted into `targets[]`.
+  // Callers must surface them via the dedicated top-level `discoveredPaths[]`.
   const targets = [];
   const byKey = new Map();
 
@@ -728,22 +725,6 @@ function buildTargets({ evidence = [], discoveredPaths = [], includeLegacyRefere
       reason: item.why || 'Grounded evidence target.',
       evidenceRefs: item.id ? [item.id] : [],
     });
-  }
-
-  if (includeLegacyReferences) {
-    const evidencePaths = new Set(evidence.map(item => normalizeTargetPath(item.path)).filter(Boolean));
-    for (const discovered of discoveredPaths) {
-      const candidatePath = typeof discovered === 'string' ? discovered : discovered?.path;
-      if (!candidatePath) continue;
-      const normalizedDiscoveredPath = normalizeTargetPath(candidatePath);
-      if (!normalizedDiscoveredPath || evidencePaths.has(normalizedDiscoveredPath)) continue;
-      addTarget({
-        path: candidatePath,
-        role: 'reference',
-        reason: 'Discovered path; read only if the cited evidence does not answer the edit or verification need.',
-        evidenceRefs: [],
-      });
-    }
   }
 
   return targets.slice(0, 20);
@@ -1197,21 +1178,9 @@ function resolveSessionForExplore(sessionStore, requestedSessionId, repoRoot) {
     };
   }
 
-  // No explicit session — optionally auto-reuse the most recent reusable
-  // session for the same repoRoot (opt-in via CEREBRAS_EXPLORER_AUTO_SESSION_BY_REPO=1).
-  if (autoSessionByRepoEnabled() && typeof sessionStore.findReusableForRepo === 'function') {
-    const reusable = sessionStore.findReusableForRepo(repoRoot);
-    if (reusable?.ok && reusable.session) {
-      return {
-        ok: true,
-        sessionId: reusable.session.id,
-        sessionData: reusable.session,
-        sessionStatus: 'reused',
-        sessionSource: 'auto_repo',
-        remainingCalls: reusable.remainingCalls,
-      };
-    }
-  }
+  // spec 011: auto repo-keyed session reuse (010 opt-in
+  // CEREBRAS_EXPLORER_AUTO_SESSION_BY_REPO) was removed. Multi-call
+  // continuity now requires an explicit `session` argument.
 
   // No session requested — create a new one
   const newId = sessionStore.create(repoRoot);
@@ -1802,15 +1771,13 @@ export class ExplorerRuntime {
         confidence: 'low',
       };
     }
+    // spec 011: discovered paths are surfaced only via the top-level
+    // discoveredPaths[]; the 010 opt-in to promote them into targets[]
+    // was removed.
     const groundedModelTargets = filterGroundedModelTargets(normalized.targets, normalized.evidence);
-    const useLegacyDiscoveredTargets = legacyDiscoveredTargetsEnabled();
     normalized.targets = mergeTargets(
       groundedModelTargets,
-      buildTargets({
-        evidence: normalized.evidence,
-        discoveredPaths: useLegacyDiscoveredTargets ? discoveredPaths : [],
-        includeLegacyReferences: useLegacyDiscoveredTargets,
-      }),
+      buildTargets({ evidence: normalized.evidence }),
     );
     normalized.discoveredPaths = discoveredPaths;
     normalized.uncertainties = buildUncertainties(normalized, stats);

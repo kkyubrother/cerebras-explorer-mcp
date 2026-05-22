@@ -3142,9 +3142,13 @@ test('010 US1#3 — buildNextAction prefers explore_followup with a cited target
   }
 });
 
-// ── 010 — Spec-5: auto session reuse by repoRoot ────────────────────────────
+// spec 011: CEREBRAS_EXPLORER_AUTO_SESSION_BY_REPO was removed. The
+// repeated-call scenario below keeps a regression check for the default
+// "always create a new session" behavior; the opt-in test is gone.
 
-test('010 US5 — CEREBRAS_EXPLORER_AUTO_SESSION_BY_REPO=1 reuses a reusable session for the same repoRoot', async () => {
+test('spec 011 — repeated calls without an explicit session always create a new session', async () => {
+  // The envvar is ignored after spec 011, but we set it to prove that.
+  const previous = process.env.CEREBRAS_EXPLORER_AUTO_SESSION_BY_REPO;
   process.env.CEREBRAS_EXPLORER_AUTO_SESSION_BY_REPO = '1';
   try {
     class SimpleClient {
@@ -3167,53 +3171,20 @@ test('010 US5 — CEREBRAS_EXPLORER_AUTO_SESSION_BY_REPO=1 reuses a reusable ses
     const runtime = new ExplorerRuntime({ chatClient: new SimpleClient() });
 
     const root = await makeRepoFixture();
-    const first = await runtime.explore(
-      { task: '인증 흐름 파악', repo_root: root },
-      { sessionStore },
-    );
-    const firstSessionId = first.sessionId;
-    assert.ok(firstSessionId);
+    const first = await runtime.explore({ task: '인증', repo_root: root }, { sessionStore });
+    const second = await runtime.explore({ task: '라우터', repo_root: root }, { sessionStore });
 
-    const second = await runtime.explore(
-      { task: '인증 흐름 follow-up', repo_root: root },
-      { sessionStore },
+    assert.notEqual(
+      first.sessionId,
+      second.sessionId,
+      'spec 011: even with the legacy envvar set, repeated implicit-session calls must create new sessions',
     );
-
-    assert.equal(second.sessionId, firstSessionId, 'auto reuse must return the same session for the same repoRoot');
-    assert.equal(second._debug?.stats?.sessionSource, 'auto_repo', 'sessionSource diagnostic must mark auto_repo');
-    assert.equal(second._debug?.stats?.sessionStatus, 'reused', 'sessionStatus enum stays at reused');
+    assert.notEqual(second._debug?.stats?.sessionSource, 'auto_repo',
+      'sessionSource=auto_repo no longer exists');
   } finally {
-    delete process.env.CEREBRAS_EXPLORER_AUTO_SESSION_BY_REPO;
+    if (previous === undefined) delete process.env.CEREBRAS_EXPLORER_AUTO_SESSION_BY_REPO;
+    else process.env.CEREBRAS_EXPLORER_AUTO_SESSION_BY_REPO = previous;
   }
-});
-
-test('010 US5 — without the opt-in envvar, repeated calls always create a new session', async () => {
-  delete process.env.CEREBRAS_EXPLORER_AUTO_SESSION_BY_REPO;
-
-  class SimpleClient {
-    constructor() { this.model = 'zai-glm-4.7'; }
-    async createChatCompletion() {
-      return {
-        usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
-        message: {
-          content: JSON.stringify(compactResult({
-            directAnswer: 'noop', statusConfidence: 'low', evidence: [],
-          })),
-          toolCalls: [],
-        },
-      };
-    }
-  }
-
-  const { SessionStore } = await import('../src/explorer/session.mjs');
-  const sessionStore = new SessionStore({ maxCalls: 5 });
-  const runtime = new ExplorerRuntime({ chatClient: new SimpleClient() });
-
-  const root = await makeRepoFixture();
-  const first = await runtime.explore({ task: '인증', repo_root: root }, { sessionStore });
-  const second = await runtime.explore({ task: '라우터', repo_root: root }, { sessionStore });
-
-  assert.notEqual(first.sessionId, second.sessionId, 'default behavior must create a new session each call');
 });
 
 // ── 010 — Spec-2: targets[] / discoveredPaths[] separation ──────────────────
@@ -3304,77 +3275,9 @@ test('010 US2#1 — listDir entries land in discoveredPaths[], not targets[]', a
   assert.ok(!targetPaths.includes('.github'), `targets[] should not include .github, got ${targetPaths.join(',')}`);
 });
 
-test('010 US2#3 — CEREBRAS_EXPLORER_LEGACY_DISCOVERED_TARGETS=1 restores reference target promotion', async () => {
-  process.env.CEREBRAS_EXPLORER_LEGACY_DISCOVERED_TARGETS = '1';
-  try {
-    class ListDirLegacyClient {
-      constructor() { this.model = 'zai-glm-4.7'; this.calls = 0; }
-      async createChatCompletion({ responseFormat }) {
-        this.calls += 1;
-        if (responseFormat) {
-          return {
-            usage: { prompt_tokens: 30, completion_tokens: 10, total_tokens: 40 },
-            message: {
-              content: JSON.stringify(compactResult({
-                directAnswer: 'requireAuth is defined in src/auth.js:1-4.',
-                statusConfidence: 'high',
-                evidence: [{
-                  path: 'src/auth.js',
-                  startLine: 1,
-                  endLine: 4,
-                  why: 'def',
-                  evidenceType: 'file_range',
-                  groundingStatus: 'exact',
-                }],
-              })),
-              toolCalls: [],
-            },
-          };
-        }
-        if (this.calls === 1) {
-          return {
-            usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
-            message: {
-              content: '',
-              toolCalls: [{ id: 'l1', function: { name: 'repo_list_dir', arguments: JSON.stringify({ path: '.' }) } }],
-            },
-          };
-        }
-        if (this.calls === 2) {
-          return {
-            usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
-            message: {
-              content: '',
-              toolCalls: [{ id: 'r1', function: { name: 'repo_read_file', arguments: JSON.stringify({ path: 'src/auth.js', startLine: 1, endLine: 4 }) } }],
-            },
-          };
-        }
-        return {
-          usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
-          message: { content: '', toolCalls: [] },
-        };
-      }
-    }
-
-    const root = await makeRepoFixture();
-    await fs.writeFile(path.join(root, 'README.md'), '# repo');
-
-    const runtime = new ExplorerRuntime({ chatClient: new ListDirLegacyClient() });
-    const result = await runtime.explore({
-      task: 'find requireAuth',
-      taskMode: 'symbol_trace',
-      repo_root: root,
-    });
-
-    const referenceTargets = (result.targets ?? []).filter(t => t.role === 'reference');
-    assert.ok(
-      referenceTargets.length > 0,
-      'legacy envvar must re-enable reference target promotion in targets[]',
-    );
-  } finally {
-    delete process.env.CEREBRAS_EXPLORER_LEGACY_DISCOVERED_TARGETS;
-  }
-});
+// spec 011: CEREBRAS_EXPLORER_LEGACY_DISCOVERED_TARGETS was removed. The
+// modern targets vs discoveredPaths split is permanent, so the opt-in
+// regression test from 010 is gone.
 
 test('010 US2#2 — buildReportCitationTargets merges same-file citations at file level', async () => {
   const { buildReportCitationTargets } = await import('../src/explorer/runtime.mjs').then(async m => {

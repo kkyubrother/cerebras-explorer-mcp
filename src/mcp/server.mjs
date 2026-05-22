@@ -45,7 +45,7 @@ const EXPLORE_REPO_TOOL = {
   annotations: readOnlyToolAnnotations('Autonomous repository explorer'),
 };
 
-// ─── Specialized tools (exposed when CEREBRAS_EXPLORER_EXTRA_TOOLS != false) ─
+// ─── Specialized tools (always exposed since spec 011) ─────────────────────
 
 const FIND_RELEVANT_CODE_TOOL = {
   name: 'find_relevant_code',
