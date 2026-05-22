@@ -3144,6 +3144,80 @@ test('010 US1#3 — buildNextAction prefers explore_followup with a cited target
   }
 });
 
+// ── 010 — Spec-5: auto session reuse by repoRoot ────────────────────────────
+
+test('010 US5 — CEREBRAS_EXPLORER_AUTO_SESSION_BY_REPO=1 reuses a reusable session for the same repoRoot', async () => {
+  process.env.CEREBRAS_EXPLORER_AUTO_SESSION_BY_REPO = '1';
+  try {
+    class SimpleClient {
+      constructor() { this.model = 'zai-glm-4.7'; }
+      async createChatCompletion() {
+        return {
+          usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+          message: {
+            content: JSON.stringify(compactResult({
+              directAnswer: 'noop', statusConfidence: 'low', evidence: [],
+            })),
+            toolCalls: [],
+          },
+        };
+      }
+    }
+
+    const { SessionStore } = await import('../src/explorer/session.mjs');
+    const sessionStore = new SessionStore({ maxCalls: 5 });
+    const runtime = new ExplorerRuntime({ chatClient: new SimpleClient() });
+
+    const root = await makeRepoFixture();
+    const first = await runtime.explore(
+      { task: '인증 흐름 파악', repo_root: root },
+      { sessionStore },
+    );
+    const firstSessionId = first.sessionId;
+    assert.ok(firstSessionId);
+
+    const second = await runtime.explore(
+      { task: '인증 흐름 follow-up', repo_root: root },
+      { sessionStore },
+    );
+
+    assert.equal(second.sessionId, firstSessionId, 'auto reuse must return the same session for the same repoRoot');
+    assert.equal(second._debug?.stats?.sessionSource, 'auto_repo', 'sessionSource diagnostic must mark auto_repo');
+    assert.equal(second._debug?.stats?.sessionStatus, 'reused', 'sessionStatus enum stays at reused');
+  } finally {
+    delete process.env.CEREBRAS_EXPLORER_AUTO_SESSION_BY_REPO;
+  }
+});
+
+test('010 US5 — without the opt-in envvar, repeated calls always create a new session', async () => {
+  delete process.env.CEREBRAS_EXPLORER_AUTO_SESSION_BY_REPO;
+
+  class SimpleClient {
+    constructor() { this.model = 'zai-glm-4.7'; }
+    async createChatCompletion() {
+      return {
+        usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+        message: {
+          content: JSON.stringify(compactResult({
+            directAnswer: 'noop', statusConfidence: 'low', evidence: [],
+          })),
+          toolCalls: [],
+        },
+      };
+    }
+  }
+
+  const { SessionStore } = await import('../src/explorer/session.mjs');
+  const sessionStore = new SessionStore({ maxCalls: 5 });
+  const runtime = new ExplorerRuntime({ chatClient: new SimpleClient() });
+
+  const root = await makeRepoFixture();
+  const first = await runtime.explore({ task: '인증', repo_root: root }, { sessionStore });
+  const second = await runtime.explore({ task: '라우터', repo_root: root }, { sessionStore });
+
+  assert.notEqual(first.sessionId, second.sessionId, 'default behavior must create a new session each call');
+});
+
 // ── 010 — Spec-2: targets[] / discoveredPaths[] separation ──────────────────
 
 test('010 US2#1 — listDir entries land in discoveredPaths[], not targets[]', async () => {

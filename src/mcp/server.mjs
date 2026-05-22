@@ -757,10 +757,12 @@ export function createMcpRequestHandler({
           instructions:
             `Cerebras Explorer provides autonomous codebase exploration (${toolCount} tools, powered by ${getExplorerModel()}). ` +
             'PREFER these tools over manual file search (Grep/Glob/Read) for any task that spans more than 2-3 files or requires cross-file understanding. ' +
-            'explore_repo returns structured JSON with directAnswer, status, targets, and grounded evidence snippets; explore returns a Markdown report for human consumption. ' +
+            'explore_repo returns structured JSON with directAnswer, status, targets, discoveredPaths, and grounded evidence snippets; explore returns a Markdown report for human consumption. ' +
             'Purpose shortcuts: find_relevant_code, trace_symbol, map_change_impact, explain_code_path, collect_evidence, review_change_context. ' +
             'All tools accept a "session" parameter for multi-call continuity — pass sessionId from one call to the next. ' +
-            'Pass _meta.progressToken to receive turn-by-turn progress updates.',
+            'Pass _meta.progressToken for heavy calls (broad reports / path / impact) to receive turn-by-turn progress updates. ' +
+            'When summarizing or handing off a result to another agent, preserve these control-plane fields verbatim: ' +
+            'status.verification, status.complete, evidenceQuality, searchCoverage, failure, session/sessionId, and any critic.warnings.',
         };
       }
       case 'ping':

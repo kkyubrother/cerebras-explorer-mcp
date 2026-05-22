@@ -1155,7 +1155,14 @@ function fingerprintToolCalls(toolCalls) {
  */
 function resolveSessionForExplore(sessionStore, requestedSessionId, repoRoot) {
   if (!sessionStore) {
-    return { ok: true, sessionId: null, sessionData: null, sessionStatus: null, remainingCalls: null };
+    return {
+      ok: true,
+      sessionId: null,
+      sessionData: null,
+      sessionStatus: null,
+      sessionSource: null,
+      remainingCalls: null,
+    };
   }
 
   const trimmedId = requestedSessionId && typeof requestedSessionId === 'string'
@@ -1175,6 +1182,7 @@ function resolveSessionForExplore(sessionStore, requestedSessionId, repoRoot) {
           sessionId: newId,
           sessionData: newData,
           sessionStatus: 'fallback',
+          sessionSource: 'created',
           remainingCalls: sessionStore.getRemainingCalls(newId),
         };
       }
@@ -1186,8 +1194,25 @@ function resolveSessionForExplore(sessionStore, requestedSessionId, repoRoot) {
       sessionId: trimmedId,
       sessionData: validation.session,
       sessionStatus: 'reused',
+      sessionSource: 'explicit',
       remainingCalls: validation.remainingCalls,
     };
+  }
+
+  // No explicit session — optionally auto-reuse the most recent reusable
+  // session for the same repoRoot (opt-in via CEREBRAS_EXPLORER_AUTO_SESSION_BY_REPO=1).
+  if (autoSessionByRepoEnabled() && typeof sessionStore.findReusableForRepo === 'function') {
+    const reusable = sessionStore.findReusableForRepo(repoRoot);
+    if (reusable?.ok && reusable.session) {
+      return {
+        ok: true,
+        sessionId: reusable.session.id,
+        sessionData: reusable.session,
+        sessionStatus: 'reused',
+        sessionSource: 'auto_repo',
+        remainingCalls: reusable.remainingCalls,
+      };
+    }
   }
 
   // No session requested — create a new one
@@ -1198,6 +1223,7 @@ function resolveSessionForExplore(sessionStore, requestedSessionId, repoRoot) {
     sessionId: newId,
     sessionData: newData,
     sessionStatus: 'created',
+    sessionSource: 'created',
     remainingCalls: sessionStore.getRemainingCalls(newId),
   };
 }
@@ -1329,7 +1355,7 @@ export class ExplorerRuntime {
       err.sessionError = sessionResolution.reason;
       throw err;
     }
-    const { sessionId, sessionData, sessionStatus, remainingCalls } = sessionResolution;
+    const { sessionId, sessionData, sessionStatus, sessionSource, remainingCalls } = sessionResolution;
 
     const repoToolkit = new RepoToolkit({
       repoRoot,
@@ -1348,7 +1374,7 @@ export class ExplorerRuntime {
     return {
       budgetConfig, repoRoot, projectConfig, effectiveScope, projectContext, keyFiles,
       budgetSource,
-      chatClient, sessionId, sessionData, sessionStatus, remainingCalls,
+      chatClient, sessionId, sessionData, sessionStatus, sessionSource, remainingCalls,
       repoToolkit, tools, reasoningEffort, temperature, topP,
     };
   }
@@ -1366,7 +1392,7 @@ export class ExplorerRuntime {
     const {
       budgetConfig, repoRoot, projectConfig, effectiveScope, projectContext, keyFiles,
       budgetSource,
-      chatClient, sessionId, sessionData, sessionStatus, remainingCalls,
+      chatClient, sessionId, sessionData, sessionStatus, sessionSource, remainingCalls,
       repoToolkit, tools, reasoningEffort, temperature, topP,
     } = await this._initExploreContext({
       budgetLabel: args.budget,
@@ -1430,6 +1456,7 @@ export class ExplorerRuntime {
       repoRoot,
       sessionId,
       sessionStatus,
+      sessionSource,
       remainingCalls,
     };
 
@@ -1856,7 +1883,7 @@ export class ExplorerRuntime {
 
     const {
       budgetConfig, repoRoot, effectiveScope, projectContext, keyFiles,
-      chatClient, sessionId, sessionData, sessionStatus, remainingCalls,
+      chatClient, sessionId, sessionData, sessionStatus, sessionSource, remainingCalls,
       tools, reasoningEffort, temperature, topP, repoToolkit,
     } = await this._initExploreContext({
       budgetLabel,
@@ -1913,6 +1940,7 @@ export class ExplorerRuntime {
       repoRoot,
       sessionId,
       sessionStatus,
+      sessionSource,
       remainingCalls,
     };
 
@@ -2132,7 +2160,7 @@ export class ExplorerRuntime {
 
     const {
       budgetConfig: baseBudgetConfig, repoRoot, effectiveScope, projectContext, keyFiles,
-      chatClient, sessionId, sessionData, sessionStatus, remainingCalls,
+      chatClient, sessionId, sessionData, sessionStatus, sessionSource, remainingCalls,
       tools, reasoningEffort, temperature, topP, repoToolkit,
     } = await this._initExploreContext({
       budgetLabel,
@@ -2212,6 +2240,7 @@ export class ExplorerRuntime {
       repoRoot,
       sessionId,
       sessionStatus,
+      sessionSource,
       remainingCalls,
     };
 
