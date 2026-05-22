@@ -140,7 +140,9 @@ test('Codex example uses npx and tool allowlist controls', async () => {
   assert.match(toml, /"review_change_context"/);
   assert.match(toml, /"explore"/);
   assert.match(toml, /minimal 4-tool/i);
-  assert.match(toml, /disabled_tools = \["explore_v2"\]/);
+  // spec 011: explore_v2 tool name is gone; the disabled_tools example just
+  // demonstrates the syntax with any retained tool name.
+  assert.match(toml, /disabled_tools = \["/);
   assert.match(toml, /CEREBRAS_API_KEY = "\$\{CEREBRAS_API_KEY\}"/);
   assert.doesNotMatch(toml, /absolute\/path/);
 

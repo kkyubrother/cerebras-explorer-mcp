@@ -2,6 +2,49 @@
 
 ## v0.2.0 - 2026-05-19
 
+### Surface Consolidation (2026-05-22)
+
+010 follow-up cleanup bundle for `specs/011-consolidate-surface/`. Removes the
+budget input knob and the `explore_v2` tool name, fixes the public tool
+surface at 8, and drops ten low-use environment variables. Two intentional
+breaking changes are bundled into this next minor.
+
+- **Breaking — Removed**: `explore_repo` no longer accepts a `budget` key.
+  Every call runs against the single deep runtime config (maxTurns 30,
+  maxSearchResults 80, maxReadLines 320, temperature 1.0, top_p 0.95).
+- **Breaking — Removed**: the `explore_v2` tool name is gone. Its V2
+  backend implementation is now the only `explore` implementation, so
+  every prompt receives the same truncation labels, structured citations,
+  critic warnings, and tool-result truncation handling.
+- **Removed**: environment variables `CEREBRAS_MODEL`,
+  `CEREBRAS_EXPLORER_MODEL_QUICK|NORMAL|DEEP`,
+  `CEREBRAS_EXPLORER_EXTRA_TOOLS`,
+  `CEREBRAS_EXPLORER_ENABLE_EXPLORE`,
+  `CEREBRAS_EXPLORER_ENABLE_EXPLORE_V2`,
+  `CEREBRAS_EXPLORER_AUTO_ROUTE`,
+  `CEREBRAS_EXPLORER_AUTO_SESSION_BY_REPO`,
+  `CEREBRAS_EXPLORER_LEGACY_DISCOVERED_TARGETS`. None of them are
+  honored anymore — the runtime ignores them entirely.
+- **Removed**: the 010 opt-in branches behind those last two envvars.
+  Auto repo-keyed session reuse is gone (`SessionStore.findReusableForRepo`
+  was deleted; `_debug.stats.sessionSource='auto_repo'` no longer
+  appears). The 010 migration window for legacy reference-target
+  promotion is closed; discoveries surface only via top-level
+  `discoveredPaths[]`.
+- **Changed**: tool surface is now fixed at 8 regardless of any
+  environment variable: `explore_repo`, the six wrappers, and `explore`.
+- **Changed**: `CEREBRAS_EXPLORER_MODEL` is the single source of truth
+  for model selection. Operators who previously used budget-specific
+  model overrides should run a second server instance with a different
+  `CEREBRAS_EXPLORER_MODEL` if they need that cost split.
+- **Migration**:
+  - Drop the `budget` key from every `explore_repo` / wrapper invocation.
+  - Replace `explore_v2` tool-name calls with `explore`.
+  - Stop relying on the removed env vars; the runtime ignores them.
+  - Use explicit `session` arguments instead of
+    `CEREBRAS_EXPLORER_AUTO_SESSION_BY_REPO`.
+  - If you need a minimal tool surface, filter at the MCP gateway.
+
 ### Feedback Verification Fixes (2026-05-22)
 
 Docs + runtime bundle for `specs/010-feedback-verification-fixes/`. Externally

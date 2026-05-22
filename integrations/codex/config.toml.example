@@ -30,7 +30,7 @@ enabled_tools = [
 
 # 특정 도구만 막으려면 disabled_tools denylist를 사용합니다.
 # enabled_tools가 있으면 그 결과에서 disabled_tools가 한 번 더 제외됩니다.
-# disabled_tools = ["explore_v2"]
+# disabled_tools = ["collect_evidence"]
 
 [mcp_servers.cerebras-explorer.env]
 CEREBRAS_API_KEY = "${CEREBRAS_API_KEY}"
