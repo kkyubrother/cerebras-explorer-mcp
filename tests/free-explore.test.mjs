@@ -189,25 +189,34 @@ test('freeExplore sets stoppedByBudget when budget is exhausted', async () => {
   assert.ok(result.report, 'report is set even when budget is exhausted');
 });
 
-test('freeExplore finalizes when budget exhausted even if interim text exists', async () => {
+test('freeExplore finalizes and returns a non-empty report when the tool loop terminates', async () => {
+  // spec 011: freeExplore now delegates to the (formerly V2) backend, which has
+  // periodic checkpoint nudges asking the model to wrap up. The contract this
+  // test protects is "the loop reliably produces a report even when the model
+  // never stops calling tools on its own".
   let finalizeCallCount = 0;
   class InterimReportClient {
     constructor() { this.model = 'test'; this.calls = 0; }
     async createChatCompletion({ messages }) {
       this.calls += 1;
       const lastUser = [...messages].reverse().find(m => m.role === 'user');
-      if (lastUser?.content?.includes('final') || lastUser?.content?.includes('wrap')) {
+      const lastUserText = String(lastUser?.content ?? '');
+      if (
+        lastUserText.includes('final')
+        || lastUserText.includes('wrap')
+        || lastUserText.includes('Budget exhausted')
+        || lastUserText.includes('Checkpoint')
+      ) {
         finalizeCallCount += 1;
         return {
           usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
-          message: { content: 'Finalized report after budget exhaustion', toolCalls: [] },
+          message: { content: 'Finalized report after loop termination', toolCalls: [] },
         };
       }
-      // Always keep calling tools (never produce final report naturally)
       return {
         usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
         message: {
-          content: 'I found some things...',  // interim content with tool calls
+          content: 'I found some things...',
           toolCalls: [
             { id: `t${this.calls}`, function: { name: 'repo_grep', arguments: JSON.stringify({ pattern: `auth${this.calls}` }) } },
           ],
@@ -221,8 +230,11 @@ test('freeExplore finalizes when budget exhausted even if interim text exists', 
   const result = await runtime.freeExplore({ prompt: 'deep dive into auth', repo_root: root, thoroughness: 'quick' });
 
   assert.ok(result, 'freeExplore completed');
-  assert.ok(finalizeCallCount >= 1, 'finalize was called when budget was exhausted');
-  assert.equal(result.stats.stoppedByBudget, true, 'stoppedByBudget is true');
+  assert.ok(finalizeCallCount >= 1, 'finalize-style turn must fire at least once');
+  assert.ok(
+    typeof result.report === 'string' && result.report.trim().length > 0,
+    'report must be a non-empty string after the loop terminates',
+  );
 });
 
 test('freeExplore stops after repeated unknown tool errors', async () => {

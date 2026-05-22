@@ -187,7 +187,7 @@ test('MCP explore_repo redacts provider-facing messages, content text, structure
   assert.deepEqual(called.structuredContent.evidence[0].redactions, ['openai-api-key']);
 });
 
-test('MCP explore and explore_v2 Markdown reports are redacted', async () => {
+test('MCP explore Markdown reports are redacted', async () => {
   class MarkdownClient {
     constructor() {
       this.model = 'mock';
@@ -204,31 +204,23 @@ test('MCP explore and explore_v2 Markdown reports are redacted', async () => {
   }
 
   const repoRoot = await makeRepoFixture();
-  const previous = process.env.CEREBRAS_EXPLORER_ENABLE_EXPLORE_V2;
-  process.env.CEREBRAS_EXPLORER_ENABLE_EXPLORE_V2 = 'true';
-  try {
-    const { handleRequest } = createMcpRequestHandler({ runtimeOptions: { chatClient: new MarkdownClient() } });
-    for (const name of ['explore', 'explore_v2']) {
-      const called = await handleRequest({
-        jsonrpc: '2.0',
-        id: name,
-        method: 'tools/call',
-        params: {
-          name,
-          arguments: {
-            prompt: 'Produce a report.',
-            repo_root: repoRoot,
-            thoroughness: 'quick',
-          },
-        },
-      });
-      assert.ok(!JSON.stringify(called).includes(OPENAI_KEY), `${name} must redact Markdown output`);
-      assert.match(JSON.stringify(called), /\[REDACTED:openai-api-key\]/);
-    }
-  } finally {
-    if (previous === undefined) delete process.env.CEREBRAS_EXPLORER_ENABLE_EXPLORE_V2;
-    else process.env.CEREBRAS_EXPLORER_ENABLE_EXPLORE_V2 = previous;
-  }
+  // spec 011: explore_v2 tool name was removed; only `explore` is exercised here.
+  const { handleRequest } = createMcpRequestHandler({ runtimeOptions: { chatClient: new MarkdownClient() } });
+  const called = await handleRequest({
+    jsonrpc: '2.0',
+    id: 'explore',
+    method: 'tools/call',
+    params: {
+      name: 'explore',
+      arguments: {
+        prompt: 'Produce a report.',
+        repo_root: repoRoot,
+        thoroughness: 'quick',
+      },
+    },
+  });
+  assert.ok(!JSON.stringify(called).includes(OPENAI_KEY), 'explore must redact Markdown output');
+  assert.match(JSON.stringify(called), /\[REDACTED:openai-api-key\]/);
 });
 
 test('git diff and show patches are redacted', { skip: !hasGit() }, async () => {

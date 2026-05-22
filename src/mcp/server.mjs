@@ -1,5 +1,5 @@
-import { DEFAULT_PROTOCOL_VERSION, getExplorerModel, isTruthyEnv } from '../explorer/config.mjs';
-import { exploreRepository, freeExploreRepository, freeExploreRepositoryV2 } from '../explorer/runtime.mjs';
+import { DEFAULT_PROTOCOL_VERSION, getExplorerModel } from '../explorer/config.mjs';
+import { exploreRepository, freeExploreRepository } from '../explorer/runtime.mjs';
 import {
   EXPLORE_REPO_INPUT_SCHEMA,
   EXPLORE_REPO_OUTPUT_SCHEMA,
@@ -217,104 +217,19 @@ const EXPLORE_TOOL = {
   annotations: readOnlyToolAnnotations('Free-form repository exploration'),
 };
 
-// ─── V2 enhanced explore tool ────────────────────────────────────────────────
-
-const EXPLORE_V2_TOOL = {
-  name: 'explore_v2',
-  title: 'Advanced repository exploration (V2)',
-  description:
-    'Advanced report tool. Use only for wide or deep Markdown reports that may exceed normal context or output limits. ' +
-    'Best for large architecture deep-dives, end-to-end root-cause reports, or broad subsystem maps. ' +
-    'Do NOT use just because the file path is unknown; prefer explore_repo when structured evidence, likely edit files, or next read targets are needed.',
-  inputSchema: {
-    type: 'object',
-    additionalProperties: false,
-    properties: {
-      prompt: { type: 'string', description: 'What to explore — a natural-language question or task. Be specific for best results.' },
-      thoroughness: { type: 'string', enum: ['quick', 'normal', 'deep'], description: 'Advanced only. Omit for normal agent use; defaults to normal report depth.' },
-      scope: { type: 'array', items: { type: 'string' }, description: 'Path prefixes to focus on (e.g. ["src/api/", "lib/auth/"]).' },
-      repo_root: { type: 'string', description: 'Repository root path.' },
-      session: { type: 'string', description: 'Session ID from a previous call for continuity.' },
-      language: { type: 'string', description: 'BCP-47 language tag for the report (e.g. "ko", "en").' },
-      context: { type: 'string', description: 'Additional context from the parent agent to guide exploration.' },
-    },
-    required: ['prompt'],
-  },
-  annotations: readOnlyToolAnnotations('Advanced repository exploration (V2)'),
-};
-
-function exploreToolEnabled() {
-  const v = process.env.CEREBRAS_EXPLORER_ENABLE_EXPLORE;
-  if (v === undefined || v === null) return true;
-  return isTruthyEnv(v);
-}
-
-function exploreV2ToolEnabled() {
-  if (!exploreToolEnabled()) return false;
-  const v = process.env.CEREBRAS_EXPLORER_ENABLE_EXPLORE_V2;
-  if (v === undefined || v === null) return false;
-  return isTruthyEnv(v);
-}
-
-const EXPLORE_V2_LENGTH_THRESHOLD = 1200;
-const EXPLORE_V2_KEYWORDS_EN = /deep dive|comprehensive|entire codebase|large architecture|end-to-end|architecture review|subsystem review/;
-const EXPLORE_V2_KEYWORDS_KO = /전체|대규모|심층|종합|아키텍처|흐름/;
-
-function hasBroadExploreScope(scope) {
-  if (!Array.isArray(scope)) return false;
-  if (scope.length >= 6) return true;
-
-  return scope.some(item => {
-    if (typeof item !== 'string') return false;
-    const value = item.trim();
-    if (value === '.' || value === './') return true;
-    if (value.includes('**/*')) return true;
-    if (value.includes('**')) return true;
-    return value.split('/').at(-1) === '**';
-  });
-}
-
-export function shouldUseV2ForExplore(args) {
-  const prompt = String(args?.prompt ?? '');
-  const context = String(args?.context ?? '');
-  const promptLower = prompt.toLowerCase();
-  const promptLoad = prompt.length + context.length;
-
-  return args?.thoroughness === 'deep' ||
-    promptLoad >= EXPLORE_V2_LENGTH_THRESHOLD ||
-    hasBroadExploreScope(args?.scope) ||
-    EXPLORE_V2_KEYWORDS_EN.test(promptLower) ||
-    EXPLORE_V2_KEYWORDS_KO.test(prompt);
-}
-
 // ─── Tool registry ─────────────────────────────────────────────────────────
 
-function extraToolsEnabled() {
-  const v = process.env.CEREBRAS_EXPLORER_EXTRA_TOOLS;
-  if (v === undefined || v === null) return true;
-  return isTruthyEnv(v);
-}
-
 function buildToolList() {
-  const tools = [];
-  if (extraToolsEnabled()) {
-    tools.push(
-      FIND_RELEVANT_CODE_TOOL,
-      TRACE_SYMBOL_TOOL,
-      MAP_CHANGE_IMPACT_TOOL,
-      EXPLAIN_CODE_PATH_TOOL,
-      COLLECT_EVIDENCE_TOOL,
-      REVIEW_CHANGE_CONTEXT_TOOL,
-    );
-  }
-  tools.push(EXPLORE_REPO_TOOL);
-  if (exploreToolEnabled()) {
-    tools.push(EXPLORE_TOOL);
-  }
-  if (exploreV2ToolEnabled()) {
-    tools.push(EXPLORE_V2_TOOL);
-  }
-  return tools;
+  return [
+    FIND_RELEVANT_CODE_TOOL,
+    TRACE_SYMBOL_TOOL,
+    MAP_CHANGE_IMPACT_TOOL,
+    EXPLAIN_CODE_PATH_TOOL,
+    COLLECT_EVIDENCE_TOOL,
+    REVIEW_CHANGE_CONTEXT_TOOL,
+    EXPLORE_REPO_TOOL,
+    EXPLORE_TOOL,
+  ];
 }
 
 // ─── Specialized tool task builders ────────────────────────────────────────
@@ -701,31 +616,7 @@ export function createMcpRequestHandler({
     const abortController = new AbortController();
     if (requestId) activeAbortControllers.set(requestId, abortController);
     try {
-      const runner = shouldUseV2ForExplore(exploreArgs)
-        ? freeExploreRepositoryV2
-        : freeExploreRepository;
-      const result = await runner(exploreArgs, {
-        logger,
-        ...runtimeOptions,
-        onProgress: makeProgressCallback(progressToken),
-        sessionStore,
-        abortSignal: abortController.signal,
-      });
-      const safeResult = redactValue(result).value;
-      return {
-        content: [{ type: 'text', text: safeResult.report }],
-        structuredContent: safeResult,
-      };
-    } finally {
-      if (requestId) activeAbortControllers.delete(requestId);
-    }
-  }
-
-  async function callFreeExploreV2Tool(exploreArgs, progressToken, requestId) {
-    const abortController = new AbortController();
-    if (requestId) activeAbortControllers.set(requestId, abortController);
-    try {
-      const result = await freeExploreRepositoryV2(exploreArgs, {
+      const result = await freeExploreRepository(exploreArgs, {
         logger,
         ...runtimeOptions,
         onProgress: makeProgressCallback(progressToken),
@@ -814,10 +705,6 @@ export function createMcpRequestHandler({
           if (name === 'explore') {
             validatePublicToolArgs(EXPLORE_TOOL, args);
             return await callFreeExploreTool(args, progressToken, requestId);
-          }
-          if (name === 'explore_v2') {
-            validatePublicToolArgs(EXPLORE_V2_TOOL, args);
-            return await callFreeExploreV2Tool(args, progressToken, requestId);
           }
 
           // Unreachable: all exposed tool names are handled above.

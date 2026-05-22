@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { createMcpRequestHandler, shouldUseV2ForExplore } from '../src/mcp/server.mjs';
+import { createMcpRequestHandler } from '../src/mcp/server.mjs';
 import { getRepoRoot } from '../src/explorer/config.mjs';
 
 async function makeRepoFixture() {
@@ -173,67 +173,9 @@ function assertReadOnlyAnnotations(tool) {
   assert.equal(tool.annotations.openWorldHint, true, `${tool.name} must disclose provider API egress`);
 }
 
-test('shouldUseV2ForExplore uses V2 for long prompt and deep thoroughness signals', () => {
-  assert.equal(shouldUseV2ForExplore({ prompt: 'a'.repeat(1200), context: '', scope: ['src/foo'], thoroughness: 'normal' }), true);
-  assert.equal(shouldUseV2ForExplore({ prompt: 'a'.repeat(1199), context: '', scope: ['src/foo'], thoroughness: 'normal' }), false);
-  assert.equal(shouldUseV2ForExplore({ prompt: 'a'.repeat(600), context: 'b'.repeat(600), scope: ['src/foo'], thoroughness: 'normal' }), true);
-  assert.equal(shouldUseV2ForExplore({ prompt: 'a'.repeat(1201), context: '', scope: ['src/foo'], thoroughness: 'normal' }), true);
-  assert.equal(shouldUseV2ForExplore({ prompt: '', context: 'b'.repeat(1200), scope: ['src/foo'], thoroughness: 'normal' }), true);
-  assert.equal(shouldUseV2ForExplore({ prompt: 'short', thoroughness: 'deep' }), true);
-});
-
-test('shouldUseV2ForExplore uses V2 for broad scope signals', () => {
-  assert.equal(shouldUseV2ForExplore({ prompt: 'x', scope: ['a', 'b', 'c', 'd', 'e', 'f'] }), true);
-  assert.equal(shouldUseV2ForExplore({ prompt: 'x', scope: ['a', 'b', 'c', 'd', 'e'] }), false);
-
-  for (const scopeEntry of ['.', './', 'src/**', '**/*.ts', '*/**']) {
-    assert.equal(
-      shouldUseV2ForExplore({ prompt: 'x', scope: [scopeEntry] }),
-      true,
-      `${scopeEntry} should route to V2`,
-    );
-  }
-
-  assert.equal(shouldUseV2ForExplore({ prompt: 'x', scope: 'src/**' }), false);
-  assert.equal(shouldUseV2ForExplore({ prompt: 'x', scope: null }), false);
-  assert.equal(shouldUseV2ForExplore({ prompt: 'x' }), false);
-});
-
-test('shouldUseV2ForExplore uses V2 for report intent keywords', () => {
-  for (const keyword of [
-    'deep dive',
-    'comprehensive',
-    'entire codebase',
-    'large architecture',
-    'end-to-end',
-    'architecture review',
-    'subsystem review',
-    'Architecture Review',
-  ]) {
-    assert.equal(
-      shouldUseV2ForExplore({ prompt: `please do a ${keyword} of explore`, scope: ['src/foo'] }),
-      true,
-      `${keyword} should route to V2`,
-    );
-  }
-
-  for (const keyword of ['전체', '대규모', '심층', '종합', '아키텍처', '흐름']) {
-    assert.equal(
-      shouldUseV2ForExplore({ prompt: `이 코드의 ${keyword} 분석`, scope: ['src/foo'] }),
-      true,
-      `${keyword} should route to V2`,
-    );
-  }
-
-  assert.equal(shouldUseV2ForExplore({ prompt: 'explain auth briefly', scope: ['src/foo'] }), false);
-});
-
-test('shouldUseV2ForExplore safely keeps short quick inputs on V1', () => {
-  assert.equal(shouldUseV2ForExplore(undefined), false);
-  assert.equal(shouldUseV2ForExplore({}), false);
-  assert.equal(shouldUseV2ForExplore({ prompt: 123, context: null, scope: 'src/**' }), false);
-  assert.equal(shouldUseV2ForExplore({ prompt: 'explain auth briefly', thoroughness: 'quick' }), false);
-});
+// spec 011: shouldUseV2ForExplore router was removed. All explore calls route
+// to the (formerly V2) backend unconditionally, so the previous routing tests
+// are no longer applicable.
 
 test('MCP request handler exposes explore_repo and returns structuredContent', async () => {
   const repoRoot = await makeRepoFixture();
@@ -272,7 +214,7 @@ test('MCP request handler exposes explore_repo and returns structuredContent', a
   assert.ok(!toolNames.includes('trace_dependency'), 'removed shortcut trace_dependency must not be exposed');
   assert.ok(!toolNames.includes('summarize_changes'), 'removed shortcut summarize_changes must not be exposed');
   assert.ok(!toolNames.includes('find_similar_code'), 'removed shortcut find_similar_code must not be exposed');
-  assert.ok(!toolNames.includes('explore_v2'), 'explore_v2 must be opt-in');
+  assert.ok(!toolNames.includes('explore_v2'), 'explore_v2 tool name was removed in spec 011');
   const exploreRepoTool = listed.tools.find(t => t.name === 'explore_repo');
   assert.match(exploreRepoTool.description, /Use FIRST/);
   assert.match(exploreRepoTool.description, /Pass sessionId as "session"/);
@@ -430,42 +372,28 @@ test('explore returns Markdown text plus structured citations', async () => {
   assert.equal(called.structuredContent.targets[0].role, 'reference');
 });
 
-test('explore_v2 also exposes structured citations through structuredContent', async () => {
+test('011 US1 — explore tool name explore_v2 is not exposed under any env', async () => {
   const repoRoot = await makeRepoFixture();
-  const report = 'Summary cites `src/auth.js:L1-L3` and `src/routes/user.js:L2`.';
+  const report = 'Summary cites `src/auth.js:L1-L3`.';
+  // Even with the legacy opt-in envvar set, the explore_v2 tool name must not appear.
   const restore = applyEnvPatch({ CEREBRAS_EXPLORER_ENABLE_EXPLORE_V2: 'true' });
   try {
     const { handleRequest } = createMcpRequestHandler({
-      runtimeOptions: {
-        chatClient: new MarkdownReportClient(report),
-      },
+      runtimeOptions: { chatClient: new MarkdownReportClient(report) },
     });
-
-    const called = await handleRequest({
-      jsonrpc: '2.0',
-      id: 31,
-      method: 'tools/call',
-      params: {
-        name: 'explore_v2',
-        arguments: {
-          prompt: 'explain auth flow with citations',
-          repo_root: repoRoot,
-          thoroughness: 'quick',
-        },
-      },
-    });
-
-    assert.equal(called.content[0].text, report);
-    assert.deepEqual(called.structuredContent.citations.map(item => ({
-      type: item.type,
-      path: item.path,
-      startLine: item.startLine,
-      endLine: item.endLine,
-    })), [
-      { type: 'file_range', path: 'src/auth.js', startLine: 1, endLine: 3 },
-      { type: 'file_range', path: 'src/routes/user.js', startLine: 2, endLine: 2 },
-    ]);
-    assert.equal(called.structuredContent.targets[0].role, 'reference');
+    const listed = await handleRequest({ jsonrpc: '2.0', id: 1, method: 'tools/list' });
+    const toolNames = listed.tools.map(t => t.name);
+    assert.ok(!toolNames.includes('explore_v2'), `explore_v2 must not be exposed (got ${toolNames.join(',')})`);
+    // Calling it by name must be rejected as an unknown tool.
+    await assert.rejects(
+      handleRequest({
+        jsonrpc: '2.0',
+        id: 2,
+        method: 'tools/call',
+        params: { name: 'explore_v2', arguments: { prompt: 'noop', repo_root: repoRoot } },
+      }),
+      /Unknown tool: explore_v2/,
+    );
   } finally {
     restore();
   }
@@ -552,71 +480,37 @@ test('collect_evidence wrapper uses evidence verification mode instead of edit r
   assert.equal(called.structuredContent.status.verification, 'verified');
 });
 
-test('MCP request handler declares read-only annotations for every exposed tool shape', async () => {
-  const cases = [
+test('MCP request handler declares read-only annotations for the fixed 8-tool surface', async () => {
+  // spec 011: tool surface is fixed at 8 regardless of legacy envvars.
+  const expectedNames = [
+    'find_relevant_code',
+    'trace_symbol',
+    'map_change_impact',
+    'explain_code_path',
+    'collect_evidence',
+    'review_change_context',
+    'explore_repo',
+    'explore',
+  ];
+
+  const envScenarios = [
+    { name: 'default', env: {} },
     {
-      name: 'default',
-      env: {
-        CEREBRAS_EXPLORER_EXTRA_TOOLS: undefined,
-        CEREBRAS_EXPLORER_ENABLE_EXPLORE: undefined,
-        CEREBRAS_EXPLORER_ENABLE_EXPLORE_V2: undefined,
-      },
-      expectedNames: [
-        'find_relevant_code',
-        'trace_symbol',
-        'map_change_impact',
-        'explain_code_path',
-        'collect_evidence',
-        'review_change_context',
-        'explore_repo',
-        'explore',
-      ],
-    },
-    {
-      name: 'v2 enabled',
-      env: {
-        CEREBRAS_EXPLORER_EXTRA_TOOLS: undefined,
-        CEREBRAS_EXPLORER_ENABLE_EXPLORE: undefined,
-        CEREBRAS_EXPLORER_ENABLE_EXPLORE_V2: 'true',
-      },
-      expectedNames: [
-        'find_relevant_code',
-        'trace_symbol',
-        'map_change_impact',
-        'explain_code_path',
-        'collect_evidence',
-        'review_change_context',
-        'explore_repo',
-        'explore',
-        'explore_v2',
-      ],
-    },
-    {
-      name: 'extra tools disabled',
-      env: {
-        CEREBRAS_EXPLORER_EXTRA_TOOLS: 'false',
-        CEREBRAS_EXPLORER_ENABLE_EXPLORE: undefined,
-        CEREBRAS_EXPLORER_ENABLE_EXPLORE_V2: undefined,
-      },
-      expectedNames: ['explore_repo', 'explore'],
-    },
-    {
-      name: 'minimum tool surface',
+      name: 'legacy envvars are ignored',
       env: {
         CEREBRAS_EXPLORER_EXTRA_TOOLS: 'false',
         CEREBRAS_EXPLORER_ENABLE_EXPLORE: 'false',
-        CEREBRAS_EXPLORER_ENABLE_EXPLORE_V2: undefined,
+        CEREBRAS_EXPLORER_ENABLE_EXPLORE_V2: 'true',
       },
-      expectedNames: ['explore_repo'],
     },
   ];
 
-  for (const testCase of cases) {
-    const tools = await listToolsWithEnv(testCase.env);
+  for (const scenario of envScenarios) {
+    const tools = await listToolsWithEnv(scenario.env);
     assert.deepEqual(
       tools.map(tool => tool.name),
-      testCase.expectedNames,
-      `${testCase.name} tool names must match expected exposed surface`,
+      expectedNames,
+      `${scenario.name}: tool surface is fixed at 8 regardless of legacy envvars`,
     );
     for (const tool of tools) assertReadOnlyAnnotations(tool);
   }
@@ -854,7 +748,7 @@ test('MCP request handler returns execution failures for other exposed tools as 
   }
 });
 
-test('MCP request handler exposes explore_v2 only when explicitly enabled', async () => {
+test('011 — explore_v2 tool name is gone regardless of envvar', async () => {
   const previous = process.env.CEREBRAS_EXPLORER_ENABLE_EXPLORE_V2;
   try {
     delete process.env.CEREBRAS_EXPLORER_ENABLE_EXPLORE_V2;
@@ -867,6 +761,7 @@ test('MCP request handler exposes explore_v2 only when explicitly enabled', asyn
     });
     assert.ok(!listed.tools.map(tool => tool.name).includes('explore_v2'));
 
+    // spec 011: envvar is ignored, explore_v2 still must not appear.
     process.env.CEREBRAS_EXPLORER_ENABLE_EXPLORE_V2 = 'true';
     handler = createMcpRequestHandler().handleRequest;
     listed = await handler({
@@ -875,7 +770,7 @@ test('MCP request handler exposes explore_v2 only when explicitly enabled', asyn
       method: 'tools/list',
       params: {},
     });
-    assert.ok(listed.tools.map(tool => tool.name).includes('explore_v2'));
+    assert.ok(!listed.tools.map(tool => tool.name).includes('explore_v2'));
   } finally {
     if (previous === undefined) delete process.env.CEREBRAS_EXPLORER_ENABLE_EXPLORE_V2;
     else process.env.CEREBRAS_EXPLORER_ENABLE_EXPLORE_V2 = previous;
