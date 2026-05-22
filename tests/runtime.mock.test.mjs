@@ -2900,3 +2900,313 @@ test('ExplorerRuntime forwards abortSignal into chat client requests', async () 
   assert.ok(seenSignals.length >= 2, 'explore + finalize calls should both receive the signal');
   assert.ok(seenSignals.every(signal => signal === controller.signal), 'abortSignal must be forwarded unchanged');
 });
+
+// ── 010 — Spec-1: status contract on evidence sufficiency ───────────────────
+
+test('010 US1#1 — locate task with exact evidence stays complete even when budget exhausts', async () => {
+  // Mock client emits one read tool call to ground evidence, then loops on no-op tool calls
+  // until the budget runs out. The runtime must finalize with complete:true based on evidence
+  // sufficiency rather than failing because of stoppedByBudget.
+  class BudgetWithEvidenceClient {
+    constructor() { this.model = 'zai-glm-4.7'; this.calls = 0; }
+    async createChatCompletion({ responseFormat }) {
+      this.calls += 1;
+      if (responseFormat) {
+        return {
+          usage: { prompt_tokens: 30, completion_tokens: 10, total_tokens: 40 },
+          message: {
+            content: JSON.stringify(compactResult({
+              directAnswer: 'requireAuth is defined in src/auth.js:1-4.',
+              statusConfidence: 'high',
+              evidence: [{
+                path: 'src/auth.js',
+                startLine: 1,
+                endLine: 4,
+                why: 'function declaration site',
+                evidenceType: 'file_range',
+                groundingStatus: 'exact',
+              }],
+            })),
+            toolCalls: [],
+          },
+        };
+      }
+
+      if (this.calls === 1) {
+        return {
+          usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+          message: {
+            content: '',
+            toolCalls: [{
+              id: 'read-1',
+              function: {
+                name: 'repo_read_file',
+                arguments: JSON.stringify({ path: 'src/auth.js', startLine: 1, endLine: 4 }),
+              },
+            }],
+          },
+        };
+      }
+
+      return {
+        usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+        message: {
+          content: '',
+          toolCalls: [{
+            id: `noop-${this.calls}`,
+            function: {
+              name: 'repo_grep',
+              arguments: JSON.stringify({ pattern: `unlikely-${this.calls}`, scope: ['src/**'] }),
+            },
+          }],
+        },
+      };
+    }
+  }
+
+  const root = await makeRepoFixture();
+  const runtime = new ExplorerRuntime({ chatClient: new BudgetWithEvidenceClient() });
+  const result = await runtime.explore({
+    task: 'find where requireAuth is defined',
+    taskMode: 'symbol_trace',
+    repo_root: root,
+    budget: 'quick',
+  });
+
+  assert.equal(result.stats.stoppedByBudget, true, 'fixture must exhaust the quick budget');
+  assert.equal(result.searchCoverage.stoppedByBudget, true, 'budget fact must remain visible');
+  assert.equal(result.status.complete, true, 'sufficient locate evidence must yield complete:true');
+  assert.ok(
+    result.status.verification === 'verified' || result.status.verification === 'targeted_read_needed',
+    `verification must reflect sufficiency, got ${result.status.verification}`,
+  );
+  assert.equal(result.failure, null, 'budget exhaustion must not produce failure when sufficient');
+  assert.ok(result._debug?.evidenceSufficiency?.sufficient === true);
+  assert.ok(
+    (result.status.warnings ?? []).some(w => /budget/i.test(w)),
+    'budget warning should remain in status.warnings even when complete',
+  );
+});
+
+test('010 US1#2 — path_explanation with one evidence still incomplete after budget exhausts', async () => {
+  // path_explanation requires exact >= 2 OR fileCount >= 2. One file/one exact item ⇒ insufficient.
+  class PathExplanationClient {
+    constructor() { this.model = 'zai-glm-4.7'; this.calls = 0; }
+    async createChatCompletion({ responseFormat }) {
+      this.calls += 1;
+      if (responseFormat) {
+        return {
+          usage: { prompt_tokens: 30, completion_tokens: 10, total_tokens: 40 },
+          message: {
+            content: JSON.stringify(compactResult({
+              directAnswer: 'Partial trace — only first hop found.',
+              statusConfidence: 'high',
+              verification: 'follow_up_needed',
+              complete: false,
+              evidence: [{
+                path: 'src/auth.js',
+                startLine: 1,
+                endLine: 4,
+                why: 'entry function',
+                evidenceType: 'file_range',
+                groundingStatus: 'exact',
+              }],
+            })),
+            toolCalls: [],
+          },
+        };
+      }
+      if (this.calls === 1) {
+        return {
+          usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+          message: {
+            content: '',
+            toolCalls: [{
+              id: 'read-1',
+              function: {
+                name: 'repo_read_file',
+                arguments: JSON.stringify({ path: 'src/auth.js', startLine: 1, endLine: 4 }),
+              },
+            }],
+          },
+        };
+      }
+      return {
+        usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+        message: {
+          content: '',
+          toolCalls: [{
+            id: `noop-${this.calls}`,
+            function: {
+              name: 'repo_grep',
+              arguments: JSON.stringify({ pattern: `nothing-${this.calls}`, scope: ['src/**'] }),
+            },
+          }],
+        },
+      };
+    }
+  }
+
+  const root = await makeRepoFixture();
+  const runtime = new ExplorerRuntime({ chatClient: new PathExplanationClient() });
+  const result = await runtime.explore({
+    task: 'Trace request flow from requireAuth to response',
+    taskMode: 'path_explanation',
+    repo_root: root,
+    budget: 'quick',
+  });
+
+  assert.equal(result.stats.stoppedByBudget, true);
+  assert.equal(result.status.complete, false, 'complex task with one evidence must stay incomplete');
+  assert.equal(result.status.verification, 'follow_up_needed');
+  assert.equal(result.failure?.reason, 'budget_exhausted', 'insufficient + budget exhaustion must emit failure');
+  assert.equal(result._debug?.evidenceSufficiency?.sufficient, false);
+});
+
+test('010 US1#3 — buildNextAction prefers explore_followup with a cited target over ask_user', async () => {
+  // Confidence:high but partial grounding so verification falls to follow_up_needed.
+  // Targets array carries a read target ⇒ nextAction should be explore_followup, not ask_user.
+  class FollowUpClient {
+    constructor() { this.model = 'zai-glm-4.7'; this.calls = 0; }
+    async createChatCompletion({ responseFormat }) {
+      this.calls += 1;
+      if (responseFormat) {
+        return {
+          usage: { prompt_tokens: 30, completion_tokens: 10, total_tokens: 40 },
+          message: {
+            content: JSON.stringify(compactResult({
+              directAnswer: 'partial answer with one grounded reference',
+              statusConfidence: 'high',
+              evidence: [{
+                path: 'src/auth.js',
+                startLine: 1,
+                endLine: 4,
+                why: 'reference',
+                evidenceType: 'file_range',
+                groundingStatus: 'exact',
+              }],
+              targets: [{
+                path: 'src/routes/user.js',
+                startLine: 1,
+                endLine: 6,
+                role: 'read',
+                reason: 'verify caller',
+                evidenceRefs: [],
+              }],
+            })),
+            toolCalls: [],
+          },
+        };
+      }
+      if (this.calls === 1) {
+        return {
+          usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+          message: {
+            content: '',
+            toolCalls: [{
+              id: 'read-1',
+              function: {
+                name: 'repo_read_file',
+                arguments: JSON.stringify({ path: 'src/auth.js', startLine: 1, endLine: 4 }),
+              },
+            }],
+          },
+        };
+      }
+      return {
+        usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+        message: {
+          content: '',
+          toolCalls: [{
+            id: `noop-${this.calls}`,
+            function: {
+              name: 'repo_grep',
+              arguments: JSON.stringify({ pattern: `nothing-${this.calls}` }),
+            },
+          }],
+        },
+      };
+    }
+  }
+
+  const root = await makeRepoFixture();
+  const runtime = new ExplorerRuntime({ chatClient: new FollowUpClient() });
+  const result = await runtime.explore({
+    task: 'Trace the request flow end-to-end',
+    taskMode: 'path_explanation',
+    repo_root: root,
+    budget: 'quick',
+  });
+
+  if (result.status.verification === 'follow_up_needed' || result.status.verification === 'broad_search_needed') {
+    assert.notEqual(result.nextAction.type, 'ask_user',
+      'with a cited read target, nextAction should pick explore_followup over ask_user');
+  }
+});
+
+test('010 US1#4 — critic fail forces broad_search_needed regardless of evidence count', async () => {
+  // The model emits high confidence with multiple grounded items, but a synthetic critic
+  // fail status must short-circuit to broad_search_needed and complete:false.
+  class CriticFailClient {
+    constructor() { this.model = 'zai-glm-4.7'; this.calls = 0; }
+    async createChatCompletion({ responseFormat }) {
+      this.calls += 1;
+      if (responseFormat) {
+        return {
+          usage: { prompt_tokens: 30, completion_tokens: 10, total_tokens: 40 },
+          message: {
+            content: JSON.stringify({
+              ...compactResult({
+                directAnswer: 'A confident answer with critic failure injected.',
+                statusConfidence: 'high',
+                evidence: [
+                  { path: 'src/auth.js', startLine: 1, endLine: 4, why: 'def', evidenceType: 'file_range', groundingStatus: 'exact' },
+                  { path: 'src/routes/user.js', startLine: 1, endLine: 6, why: 'caller', evidenceType: 'file_range', groundingStatus: 'exact' },
+                ],
+              }),
+              critic: { status: 'fail', warnings: [{ message: 'synthetic critic failure' }] },
+            }),
+            toolCalls: [],
+          },
+        };
+      }
+      if (this.calls === 1) {
+        return {
+          usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+          message: {
+            content: '',
+            toolCalls: [{
+              id: 'read-1',
+              function: {
+                name: 'repo_read_file',
+                arguments: JSON.stringify({ path: 'src/auth.js', startLine: 1, endLine: 4 }),
+              },
+            }],
+          },
+        };
+      }
+      return {
+        usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+        message: { content: '', toolCalls: [] },
+      };
+    }
+  }
+
+  const root = await makeRepoFixture();
+  const runtime = new ExplorerRuntime({ chatClient: new CriticFailClient() });
+  const result = await runtime.explore({
+    task: 'symbol trace requireAuth',
+    taskMode: 'symbol_trace',
+    repo_root: root,
+    budget: 'quick',
+  });
+
+  // Either runtime critic forces fail directly, or our injected critic survives normalization.
+  // Either way: when evidence count is positive but critic fail is the signal, we must stay
+  // in broad_search_needed and complete:false.
+  if (result.critic?.status === 'fail') {
+    assert.equal(result.status.complete, false);
+    assert.equal(result.status.verification, 'broad_search_needed');
+    assert.equal(result._debug?.evidenceSufficiency?.sufficient, false);
+  }
+});

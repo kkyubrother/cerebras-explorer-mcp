@@ -551,7 +551,7 @@ function buildFailure(result, stats) {
       expectedImprovement: 'A narrower task should reduce repeated tool errors and improve grounding.',
     });
   }
-  if (stats.stoppedByBudget) {
+  if (stats.stoppedByBudget && result.status?.complete !== true) {
     return makeFailure('execution', 'budget_exhausted', 'Exploration stopped at the turn budget before all follow-up checks were exhausted.', {
       tool: 'explore_repo',
       hints: ['Retry with a narrower scope or a more specific task.', 'Add concrete file, symbol, or text anchors when available.'],
@@ -803,31 +803,101 @@ function buildUncertainties(result, stats) {
   return [...new Set(uncertainties)];
 }
 
-function buildResultStatus(result, stats, { task, taskMode } = {}) {
+function getGroundingCounts(result) {
+  const evidence = Array.isArray(result.evidence) ? result.evidence : [];
+  const exactCount = evidence.filter(item => item.groundingStatus === 'exact').length;
+  const partialCount = evidence.filter(item => item.groundingStatus === 'partial').length;
+  const fileCount = new Set(evidence.map(item => item.path).filter(Boolean)).size;
+  return { exactCount, partialCount, fileCount };
+}
+
+function isSimpleCompletionMode({ taskMode, task } = {}) {
+  const mode = normalizeTaskMode(taskMode);
+  if (mode === 'locate' || mode === 'symbol_trace') return true;
+  const text = String(task ?? '').toLowerCase();
+  return /어디\s|찾아|위치|선언|정의\s|defined|where\s|find\s|locate|definition/.test(text);
+}
+
+function evaluateEvidenceSufficiency(result, stats, { task, taskMode } = {}) {
+  const criticStatus = result.critic?.status ?? 'caution';
+  if (criticStatus === 'fail' || stats.stoppedByErrors || stats.stoppedByAbort) {
+    return { sufficient: false, reason: 'critic_or_execution_failure' };
+  }
+
+  const { exactCount, partialCount, fileCount } = getGroundingCounts(result);
+  const hasDirectAnswer = typeof result.directAnswer === 'string' && result.directAnswer.trim().length > 0;
+  const hasEvidence = exactCount + partialCount > 0;
+  if (!hasDirectAnswer || !hasEvidence) {
+    return { sufficient: false, reason: 'missing_answer_or_evidence' };
+  }
+
+  const mode = normalizeTaskMode(taskMode);
+
+  if (isSimpleCompletionMode({ taskMode, task })) {
+    return exactCount >= 1
+      ? { sufficient: true, reason: 'simple_task_exact_evidence' }
+      : { sufficient: false, reason: 'simple_task_needs_exact_evidence' };
+  }
+
+  if (mode === 'evidence_verification') {
+    return exactCount >= 1
+      ? { sufficient: true, reason: 'claim_has_grounded_evidence' }
+      : { sufficient: false, reason: 'claim_needs_exact_evidence' };
+  }
+
+  if (mode === 'path_explanation') {
+    return exactCount >= 2 || fileCount >= 2
+      ? { sufficient: true, reason: 'path_has_multi_step_evidence' }
+      : { sufficient: false, reason: 'path_needs_more_steps' };
+  }
+
+  if (mode === 'edit_planning' || isEditPlanningMode({ taskMode, task })) {
+    const hasActionableTarget = (result.targets ?? []).some(target =>
+      ['edit', 'read', 'test', 'config'].includes(target.role)
+    );
+    return hasActionableTarget && exactCount >= 1
+      ? { sufficient: true, reason: 'edit_plan_has_actionable_target' }
+      : { sufficient: false, reason: 'edit_plan_needs_actionable_target' };
+  }
+
+  return exactCount >= 2 || fileCount >= 2
+    ? { sufficient: true, reason: 'general_multi_evidence' }
+    : { sufficient: false, reason: 'general_needs_more_evidence' };
+}
+
+function buildResultStatus(result, stats, { task, taskMode, sufficiency = null } = {}) {
   const criticStatus = result.critic?.status ?? 'caution';
   const warnings = (result.critic?.warnings ?? []).map(warning => warning.message).filter(Boolean);
   const hasEvidence = (result.evidence?.length ?? 0) > 0;
   const hasEditTarget = (result.targets ?? []).some(target => target.role === 'edit');
   const editPlanning = isEditPlanningMode({ taskMode, task });
+  const evidenceSufficiency = sufficiency ?? evaluateEvidenceSufficiency(result, stats, { task, taskMode });
   let verification = 'verified';
 
   if (!hasEvidence || criticStatus === 'fail' || stats.stoppedByErrors || stats.stoppedByAbort) {
     verification = 'broad_search_needed';
-  } else if (criticStatus === 'caution' || result.status?.confidence === 'low' || stats.stoppedByBudget) {
+  } else if (result.status?.confidence === 'low') {
     verification = 'follow_up_needed';
   } else if (hasEditTarget || editPlanning) {
-    verification = 'targeted_read_needed';
+    verification = evidenceSufficiency.sufficient ? 'targeted_read_needed' : 'follow_up_needed';
+  } else if (criticStatus === 'caution' || stats.stoppedByBudget) {
+    verification = evidenceSufficiency.sufficient ? 'verified' : 'follow_up_needed';
+  }
+
+  const complete = verification === 'verified' || verification === 'targeted_read_needed';
+  if (complete && stats.stoppedByBudget) {
+    warnings.push('Budget exhausted after sufficient evidence was collected.');
   }
 
   return {
     confidence: result.status?.confidence ?? 'low',
     verification,
-    complete: verification === 'verified' || verification === 'targeted_read_needed',
+    complete,
     warnings,
   };
 }
 
-function buildNextAction(result) {
+function buildNextAction(result, { sufficiency = null } = {}) {
   const verification = result.status?.verification;
   if (verification === 'targeted_read_needed') {
     const target = (result.targets ?? []).find(item => item.role === 'edit') ??
@@ -844,10 +914,29 @@ function buildNextAction(result) {
     const modelNextAction = result.nextAction?.type === 'explore_followup' || result.nextAction?.type === 'ask_user'
       ? result.nextAction
       : null;
+    if (modelNextAction) {
+      return {
+        type: modelNextAction.type,
+        reason: modelNextAction.reason || 'The retained evidence is not sufficient for a complete answer.',
+        ...(modelNextAction.query ? { query: modelNextAction.query } : {}),
+      };
+    }
+
+    const firstTarget = (result.targets ?? []).find(item => item.role === 'read' || item.role === 'reference');
+    if (firstTarget) {
+      const range = firstTarget.startLine
+        ? `${firstTarget.path}:${firstTarget.startLine}-${firstTarget.endLine ?? firstTarget.startLine}`
+        : firstTarget.path;
+      return {
+        type: 'explore_followup',
+        reason: 'Run a narrower follow-up around the cited target before asking the user.',
+        query: range,
+      };
+    }
+
     return {
-      type: modelNextAction?.type ?? 'ask_user',
-      reason: modelNextAction?.reason || 'The retained evidence is not sufficient for a complete answer.',
-      ...(modelNextAction?.query ? { query: modelNextAction.query } : {}),
+      type: 'ask_user',
+      reason: 'The explorer lacks enough concrete evidence and no narrower follow-up target is available.',
     };
   }
   return { type: 'stop', reason: 'Explorer result is complete for the requested read-only investigation.' };
@@ -1662,11 +1751,20 @@ export class ExplorerRuntime {
       }),
     );
     normalized.uncertainties = buildUncertainties(normalized, stats);
-    normalized.status = buildResultStatus(normalized, stats, {
+    const evidenceSufficiency = evaluateEvidenceSufficiency(normalized, stats, {
       task: args.task,
       taskMode: args.taskMode,
     });
-    normalized.nextAction = buildNextAction(normalized);
+    normalized._debug = {
+      ...(normalized._debug ?? {}),
+      evidenceSufficiency,
+    };
+    normalized.status = buildResultStatus(normalized, stats, {
+      task: args.task,
+      taskMode: args.taskMode,
+      sufficiency: evidenceSufficiency,
+    });
+    normalized.nextAction = buildNextAction(normalized, { sufficiency: evidenceSufficiency });
     if (stats.sessionId) normalized.sessionId = stats.sessionId;
 
     // Trust summary — a natural-language sentence the parent model can rely on
