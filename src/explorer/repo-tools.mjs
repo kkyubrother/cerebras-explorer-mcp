@@ -1678,3 +1678,66 @@ export function collectTargetPathsFromToolResult(toolName, result) {
 export function mergeTargetPaths(existing, nextValues) {
   return dedupeArray([...(existing || []), ...(nextValues || [])]);
 }
+
+function discoveredEntry({ path, kind, sourceTool, reason }) {
+  if (typeof path !== 'string' || !path) return null;
+  return {
+    path,
+    kind: kind === 'dir' || kind === 'file' ? kind : 'unknown',
+    sourceTool,
+    reason,
+  };
+}
+
+export function collectDiscoveredPathsFromToolResult(toolName, result) {
+  if (!result || typeof result !== 'object') return [];
+
+  switch (toolName) {
+    case 'repo_list_dir':
+      return Array.isArray(result.entries)
+        ? result.entries
+            .map(entry => discoveredEntry({
+              path: entry.path,
+              kind: entry.kind === 'dir' ? 'dir' : entry.kind === 'file' ? 'file' : 'unknown',
+              sourceTool: toolName,
+              reason: 'Listed during repository discovery.',
+            }))
+            .filter(Boolean)
+        : [];
+
+    case 'repo_find_files':
+      return Array.isArray(result.matches)
+        ? result.matches
+            .map(matchPath => discoveredEntry({
+              path: matchPath,
+              kind: 'file',
+              sourceTool: toolName,
+              reason: 'Matched file discovery query.',
+            }))
+            .filter(Boolean)
+        : [];
+
+    case 'repo_git_diff':
+    case 'repo_git_show':
+      return Array.isArray(result.files)
+        ? result.files
+            .map(file => discoveredEntry({
+              path: file?.path,
+              kind: 'file',
+              sourceTool: toolName,
+              reason: 'Changed file discovered from git metadata.',
+            }))
+            .filter(Boolean)
+        : [];
+
+    default: {
+      const fallbackPaths = collectTargetPathsFromToolResult(toolName, result);
+      return fallbackPaths.map(filePath => discoveredEntry({
+        path: filePath,
+        kind: 'unknown',
+        sourceTool: toolName,
+        reason: 'Discovered from tool result.',
+      })).filter(Boolean);
+    }
+  }
+}

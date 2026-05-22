@@ -663,6 +663,7 @@ export function createMcpRequestHandler({
         warnings: [],
       },
       targets: Array.isArray(result.targets) ? result.targets : [],
+      discoveredPaths: Array.isArray(result.discoveredPaths) ? result.discoveredPaths : [],
       evidence: Array.isArray(result.evidence) ? result.evidence : [],
       uncertainties: Array.isArray(result.uncertainties) ? result.uncertainties : [],
       nextAction: result.nextAction ?? { type: 'stop', reason: '' },

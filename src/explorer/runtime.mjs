@@ -3,6 +3,7 @@ import path from 'node:path';
 
 import { CerebrasChatClient, extractFirstJsonObject } from './cerebras-client.mjs';
 import {
+  autoSessionByRepoEnabled,
   chooseAutoBudget,
   getBudgetConfig,
   getExplorerTemperature,
@@ -15,13 +16,13 @@ import {
   classifyTaskComplexity,
   isSecretPath,
   isTruthyEnv,
+  legacyDiscoveredTargetsEnabled,
   loadProjectConfig,
   normalizeProjectConfig,
   resolveRepoRoot,
 } from './config.mjs';
 import {
-  collectTargetPathsFromToolResult,
-  mergeTargetPaths,
+  collectDiscoveredPathsFromToolResult,
   RepoToolkit,
 } from './repo-tools.mjs';
 import { redactText, redactValue } from './redact.mjs';
@@ -500,27 +501,40 @@ function buildReportCitations(report) {
 }
 
 function buildReportCitationTargets(citations = []) {
-  const targets = [];
-  const seen = new Set();
+  const byPath = new Map();
 
   for (const citation of citations) {
     if (!citation?.path) continue;
-    const key = `${citation.path}:${citation.startLine ?? ''}:${citation.endLine ?? ''}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
 
-    const target = {
+    const existing = byPath.get(citation.path) ?? {
       path: citation.path,
       role: 'reference',
       reason: 'Markdown report citation',
       evidenceRefs: [],
+      citationCount: 0,
     };
-    if (Number.isInteger(citation.startLine)) target.startLine = citation.startLine;
-    if (Number.isInteger(citation.endLine)) target.endLine = citation.endLine;
-    targets.push(target);
+
+    if (Number.isInteger(citation.startLine)) {
+      existing.startLine = Number.isInteger(existing.startLine)
+        ? Math.min(existing.startLine, citation.startLine)
+        : citation.startLine;
+    }
+    if (Number.isInteger(citation.endLine)) {
+      existing.endLine = Number.isInteger(existing.endLine)
+        ? Math.max(existing.endLine, citation.endLine)
+        : citation.endLine;
+    }
+
+    existing.citationCount += 1;
+    byPath.set(citation.path, existing);
   }
 
-  return targets;
+  return [...byPath.values()].map(({ citationCount, ...target }) => ({
+    ...target,
+    reason: citationCount > 1
+      ? `Markdown report citations merged from ${citationCount} ranges.`
+      : target.reason,
+  }));
 }
 
 function buildFailure(result, stats) {
@@ -688,7 +702,7 @@ function filterGroundedModelTargets(targets = [], evidence = []) {
   });
 }
 
-function buildTargets({ evidence = [], discoveredPaths = [] } = {}) {
+function buildTargets({ evidence = [], discoveredPaths = [], includeLegacyReferences = false } = {}) {
   const targets = [];
   const byKey = new Map();
 
@@ -718,19 +732,39 @@ function buildTargets({ evidence = [], discoveredPaths = [] } = {}) {
     });
   }
 
-  const evidencePaths = new Set(evidence.map(item => normalizeTargetPath(item.path)).filter(Boolean));
-  for (const discoveredPath of discoveredPaths) {
-    const normalizedDiscoveredPath = normalizeTargetPath(discoveredPath);
-    if (!normalizedDiscoveredPath || evidencePaths.has(normalizedDiscoveredPath)) continue;
-    addTarget({
-      path: discoveredPath,
-      role: 'reference',
-      reason: 'Discovered path; read only if the cited evidence does not answer the edit or verification need.',
-      evidenceRefs: [],
-    });
+  if (includeLegacyReferences) {
+    const evidencePaths = new Set(evidence.map(item => normalizeTargetPath(item.path)).filter(Boolean));
+    for (const discovered of discoveredPaths) {
+      const candidatePath = typeof discovered === 'string' ? discovered : discovered?.path;
+      if (!candidatePath) continue;
+      const normalizedDiscoveredPath = normalizeTargetPath(candidatePath);
+      if (!normalizedDiscoveredPath || evidencePaths.has(normalizedDiscoveredPath)) continue;
+      addTarget({
+        path: candidatePath,
+        role: 'reference',
+        reason: 'Discovered path; read only if the cited evidence does not answer the edit or verification need.',
+        evidenceRefs: [],
+      });
+    }
   }
 
   return targets.slice(0, 20);
+}
+
+function mergeDiscoveredPaths(existing = [], next = []) {
+  const byPath = new Map();
+  for (const item of [...(existing || []), ...(next || [])]) {
+    if (!item || typeof item !== 'object') continue;
+    const normalizedPath = normalizeTargetPath(item.path);
+    if (!normalizedPath) continue;
+    const current = byPath.get(normalizedPath);
+    if (!current) {
+      byPath.set(normalizedPath, { ...item, path: normalizedPath });
+    } else if (current.kind === 'unknown' && item.kind && item.kind !== 'unknown') {
+      byPath.set(normalizedPath, { ...current, ...item, path: normalizedPath });
+    }
+  }
+  return [...byPath.values()].slice(0, 100);
 }
 
 function targetKey(target) {
@@ -1570,9 +1604,9 @@ export class ExplorerRuntime {
           result: safeToolResult,
         });
 
-        discoveredPaths = mergeTargetPaths(
+        discoveredPaths = mergeDiscoveredPaths(
           discoveredPaths,
-          collectTargetPathsFromToolResult(toolName, safeToolResult),
+          collectDiscoveredPathsFromToolResult(toolName, safeToolResult),
         );
 
         if (toolName === 'repo_read_file' && !safeToolResult?.error) {
@@ -1712,7 +1746,17 @@ export class ExplorerRuntime {
     Object.assign(stats, globalRepoCache.stats());
 
     let normalized = normalizeExploreResult(finalObject, stats);
-    discoveredPaths = mergeTargetPaths(discoveredPaths, normalized.targets.map(target => target.path)).slice(0, 80);
+    discoveredPaths = mergeDiscoveredPaths(
+      discoveredPaths,
+      normalized.targets
+        .filter(target => typeof target?.path === 'string' && target.path)
+        .map(target => ({
+          path: target.path,
+          kind: 'unknown',
+          sourceTool: 'model_target',
+          reason: 'Surfaced by model-proposed target.',
+        })),
+    );
 
     const taskKind = deriveTaskKindFromHints(args.hints);
     const criticPass = runDeterministicCriticPass({
@@ -1743,13 +1787,16 @@ export class ExplorerRuntime {
       };
     }
     const groundedModelTargets = filterGroundedModelTargets(normalized.targets, normalized.evidence);
+    const useLegacyDiscoveredTargets = legacyDiscoveredTargetsEnabled();
     normalized.targets = mergeTargets(
       groundedModelTargets,
       buildTargets({
         evidence: normalized.evidence,
-        discoveredPaths,
+        discoveredPaths: useLegacyDiscoveredTargets ? discoveredPaths : [],
+        includeLegacyReferences: useLegacyDiscoveredTargets,
       }),
     );
+    normalized.discoveredPaths = discoveredPaths;
     normalized.uncertainties = buildUncertainties(normalized, stats);
     const evidenceSufficiency = evaluateEvidenceSufficiency(normalized, stats, {
       task: args.task,

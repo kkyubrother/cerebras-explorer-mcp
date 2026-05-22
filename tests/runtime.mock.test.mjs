@@ -3144,6 +3144,213 @@ test('010 US1#3 — buildNextAction prefers explore_followup with a cited target
   }
 });
 
+// ── 010 — Spec-2: targets[] / discoveredPaths[] separation ──────────────────
+
+test('010 US2#1 — listDir entries land in discoveredPaths[], not targets[]', async () => {
+  class ListDirClient {
+    constructor() { this.model = 'zai-glm-4.7'; this.calls = 0; }
+    async createChatCompletion({ responseFormat }) {
+      this.calls += 1;
+      if (responseFormat) {
+        return {
+          usage: { prompt_tokens: 30, completion_tokens: 10, total_tokens: 40 },
+          message: {
+            content: JSON.stringify(compactResult({
+              directAnswer: 'requireAuth is defined in src/auth.js:1-4.',
+              statusConfidence: 'high',
+              evidence: [{
+                path: 'src/auth.js',
+                startLine: 1,
+                endLine: 4,
+                why: 'function declaration site',
+                evidenceType: 'file_range',
+                groundingStatus: 'exact',
+              }],
+            })),
+            toolCalls: [],
+          },
+        };
+      }
+      if (this.calls === 1) {
+        return {
+          usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+          message: {
+            content: '',
+            toolCalls: [{
+              id: 'list-1',
+              function: { name: 'repo_list_dir', arguments: JSON.stringify({ path: '.' }) },
+            }],
+          },
+        };
+      }
+      if (this.calls === 2) {
+        return {
+          usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+          message: {
+            content: '',
+            toolCalls: [{
+              id: 'read-1',
+              function: {
+                name: 'repo_read_file',
+                arguments: JSON.stringify({ path: 'src/auth.js', startLine: 1, endLine: 4 }),
+              },
+            }],
+          },
+        };
+      }
+      return {
+        usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+        message: { content: '', toolCalls: [] },
+      };
+    }
+  }
+
+  // Inject a fake .github directory and docs file so list_dir picks them up
+  const root = await makeRepoFixture();
+  await fs.mkdir(path.join(root, '.github'), { recursive: true });
+  await fs.writeFile(path.join(root, '.github', 'workflows.yml'), 'name: ci');
+  await fs.writeFile(path.join(root, 'README.md'), '# repo');
+
+  const runtime = new ExplorerRuntime({ chatClient: new ListDirClient() });
+  const result = await runtime.explore({
+    task: 'find where requireAuth is defined',
+    taskMode: 'symbol_trace',
+    repo_root: root,
+    budget: 'quick',
+  });
+
+  assert.ok(Array.isArray(result.discoveredPaths), 'discoveredPaths[] must be present');
+  assert.ok(result.discoveredPaths.length > 0, 'list_dir entries must surface in discoveredPaths[]');
+  assert.ok(
+    result.discoveredPaths.some(d => d.sourceTool === 'repo_list_dir'),
+    'discoveredPaths must record sourceTool=repo_list_dir for listDir entries',
+  );
+
+  const targetPaths = (result.targets ?? []).map(t => t.path);
+  // src/auth.js (the grounded evidence target) is allowed, but README.md / .github
+  // must not appear in targets[].
+  assert.ok(!targetPaths.includes('README.md'), `targets[] should not include README.md, got ${targetPaths.join(',')}`);
+  assert.ok(!targetPaths.includes('.github'), `targets[] should not include .github, got ${targetPaths.join(',')}`);
+});
+
+test('010 US2#3 — CEREBRAS_EXPLORER_LEGACY_DISCOVERED_TARGETS=1 restores reference target promotion', async () => {
+  process.env.CEREBRAS_EXPLORER_LEGACY_DISCOVERED_TARGETS = '1';
+  try {
+    class ListDirLegacyClient {
+      constructor() { this.model = 'zai-glm-4.7'; this.calls = 0; }
+      async createChatCompletion({ responseFormat }) {
+        this.calls += 1;
+        if (responseFormat) {
+          return {
+            usage: { prompt_tokens: 30, completion_tokens: 10, total_tokens: 40 },
+            message: {
+              content: JSON.stringify(compactResult({
+                directAnswer: 'requireAuth is defined in src/auth.js:1-4.',
+                statusConfidence: 'high',
+                evidence: [{
+                  path: 'src/auth.js',
+                  startLine: 1,
+                  endLine: 4,
+                  why: 'def',
+                  evidenceType: 'file_range',
+                  groundingStatus: 'exact',
+                }],
+              })),
+              toolCalls: [],
+            },
+          };
+        }
+        if (this.calls === 1) {
+          return {
+            usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+            message: {
+              content: '',
+              toolCalls: [{ id: 'l1', function: { name: 'repo_list_dir', arguments: JSON.stringify({ path: '.' }) } }],
+            },
+          };
+        }
+        if (this.calls === 2) {
+          return {
+            usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+            message: {
+              content: '',
+              toolCalls: [{ id: 'r1', function: { name: 'repo_read_file', arguments: JSON.stringify({ path: 'src/auth.js', startLine: 1, endLine: 4 }) } }],
+            },
+          };
+        }
+        return {
+          usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+          message: { content: '', toolCalls: [] },
+        };
+      }
+    }
+
+    const root = await makeRepoFixture();
+    await fs.writeFile(path.join(root, 'README.md'), '# repo');
+
+    const runtime = new ExplorerRuntime({ chatClient: new ListDirLegacyClient() });
+    const result = await runtime.explore({
+      task: 'find requireAuth',
+      taskMode: 'symbol_trace',
+      repo_root: root,
+      budget: 'quick',
+    });
+
+    const referenceTargets = (result.targets ?? []).filter(t => t.role === 'reference');
+    assert.ok(
+      referenceTargets.length > 0,
+      'legacy envvar must re-enable reference target promotion in targets[]',
+    );
+  } finally {
+    delete process.env.CEREBRAS_EXPLORER_LEGACY_DISCOVERED_TARGETS;
+  }
+});
+
+test('010 US2#2 — buildReportCitationTargets merges same-file citations at file level', async () => {
+  const { buildReportCitationTargets } = await import('../src/explorer/runtime.mjs').then(async m => {
+    // The helper is not exported. Build a structurally equivalent test via the public route.
+    return { buildReportCitationTargets: null };
+  }).catch(() => ({ buildReportCitationTargets: null }));
+
+  // The helper is module-private. Validate via the runtime freeExplore path: emit a
+  // report with two citations of the same file and one citation of another file, and
+  // assert the resulting targets[] is file-merged.
+  class ReportCitationClient {
+    constructor() { this.model = 'zai-glm-4.7'; this.calls = 0; }
+    async createChatCompletion() {
+      this.calls += 1;
+      // Provide a finalized Markdown report directly.
+      return {
+        usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+        message: {
+          content: [
+            '## Findings',
+            'See `src/auth.js:L1-L3` and `src/auth.js:L5-L8` and `src/routes/user.js:L2`.',
+          ].join('\n'),
+          toolCalls: [],
+        },
+      };
+    }
+  }
+
+  const root = await makeRepoFixture();
+  const runtime = new ExplorerRuntime({ chatClient: new ReportCitationClient() });
+  const reportResult = await runtime.freeExplore({
+    prompt: 'Summarize the auth wiring',
+    thoroughness: 'quick',
+    repo_root: root,
+  });
+
+  const targets = reportResult.targets ?? [];
+  const authTargets = targets.filter(t => t.path === 'src/auth.js');
+  assert.equal(authTargets.length, 1, `src/auth.js should be merged into a single target, got ${authTargets.length}`);
+  if (authTargets[0]) {
+    assert.equal(authTargets[0].startLine, 1, 'merged startLine must be the min');
+    assert.equal(authTargets[0].endLine, 8, 'merged endLine must be the max');
+    assert.match(authTargets[0].reason, /merged from 2 ranges/i, 'reason should record merge count');
+  }
+});
+
 test('010 US1#4 — critic fail forces broad_search_needed regardless of evidence count', async () => {
   // The model emits high confidence with multiple grounded items, but a synthetic critic
   // fail status must short-circuit to broad_search_needed and complete:false.

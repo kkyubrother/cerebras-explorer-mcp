@@ -121,18 +121,26 @@ export class SessionStore {
     session.calls += 1;
     session.lastUsedAt = Date.now();
 
-    if (Array.isArray(result.targets)) {
-      const newTargetPaths = result.targets
-        .map(target => (typeof target.path === 'string' ? target.path : null))
-        .filter(Boolean);
+    if (Array.isArray(result.targets) || Array.isArray(result.discoveredPaths)) {
+      const targetEntries = Array.isArray(result.targets) ? result.targets : [];
+      const discoveredEntries = Array.isArray(result.discoveredPaths) ? result.discoveredPaths : [];
+      const newTargetPaths = [
+        ...targetEntries.map(target => (typeof target?.path === 'string' ? target.path : null)),
+        ...discoveredEntries.map(entry => (typeof entry?.path === 'string' ? entry.path : null)),
+      ].filter(Boolean);
       session.targetPaths = dedupeAppend(
         session.targetPaths,
         newTargetPaths,
         MAX_TARGET_PATHS,
       );
-      const targetPathsWithContext = result.targets
-        .filter(target => typeof target.path === 'string' && target.path)
-        .map(target => ({ path: target.path, why: typeof target.reason === 'string' ? target.reason : '' }));
+      const targetPathsWithContext = [
+        ...targetEntries
+          .filter(target => typeof target?.path === 'string' && target.path)
+          .map(target => ({ path: target.path, why: typeof target.reason === 'string' ? target.reason : '' })),
+        ...discoveredEntries
+          .filter(entry => typeof entry?.path === 'string' && entry.path)
+          .map(entry => ({ path: entry.path, why: typeof entry.reason === 'string' ? entry.reason : '' })),
+      ];
       session.targetPathsWithContext = dedupeContextPaths(
         session.targetPathsWithContext,
         targetPathsWithContext,
