@@ -402,10 +402,10 @@ test('classifyTaskComplexity: moderate queries (default)', () => {
   assert.equal(classifyTaskComplexity('What changed in the last release?'), 'moderate');
 });
 
-test('chooseAutoBudget: uses quick for anchored or locate tasks and normal for impact tasks', () => {
-  assert.equal(chooseAutoBudget({ task: 'requireAuth가 어디 정의돼 있어?' }), 'quick');
-  assert.equal(chooseAutoBudget({ task: 'explain auth flow', hints: { files: ['src/auth.js'] } }), 'quick');
-  assert.equal(chooseAutoBudget({ task: 'map change impact for auth middleware' }), 'normal');
+test('spec 011 — chooseAutoBudget always returns deep (single runtime config)', () => {
+  assert.equal(chooseAutoBudget({ task: 'requireAuth가 어디 정의돼 있어?' }), 'deep');
+  assert.equal(chooseAutoBudget({ task: 'explain auth flow', hints: { files: ['src/auth.js'] } }), 'deep');
+  assert.equal(chooseAutoBudget({ task: 'map change impact for auth middleware' }), 'deep');
 });
 
 // ─── getModelForBudget ───────────────────────────────────────────────────────

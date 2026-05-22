@@ -218,7 +218,8 @@ test('MCP request handler exposes explore_repo and returns structuredContent', a
   const exploreRepoTool = listed.tools.find(t => t.name === 'explore_repo');
   assert.match(exploreRepoTool.description, /Use FIRST/);
   assert.match(exploreRepoTool.description, /Pass sessionId as "session"/);
-  assert.match(exploreRepoTool.inputSchema.properties.budget.description, /Advanced only/);
+  // spec 011: budget input was removed; every call runs against the single deep runtime config.
+  assert.equal(exploreRepoTool.inputSchema.properties.budget, undefined, 'budget input was removed in spec 011');
   assert.ok(exploreRepoTool.outputSchema.properties.targets, 'explore_repo must expose outputSchema targets');
   assert.equal(exploreRepoTool.outputSchema.additionalProperties, false);
   assert.equal(exploreRepoTool.outputSchema.properties.answer, undefined);
@@ -245,7 +246,6 @@ test('MCP request handler exposes explore_repo and returns structuredContent', a
         task: 'users/me 라우트에 인증 미들웨어가 어떻게 붙는지 추적해라.',
         repo_root: repoRoot,
         scope: ['src/**'],
-        budget: 'quick',
       },
     },
   });
@@ -307,7 +307,6 @@ test('MCP request handler exposes fallback session when supplied session is exha
         task: '첫 번째 호출',
         repo_root: repoRoot,
         scope: ['src/**'],
-        budget: 'quick',
       },
     },
   });
@@ -324,7 +323,6 @@ test('MCP request handler exposes fallback session when supplied session is exha
         task: '두 번째 호출',
         repo_root: repoRoot,
         scope: ['src/**'],
-        budget: 'quick',
         session: exhaustedId,
       },
     },
@@ -678,7 +676,6 @@ test('MCP request handler returns execution failures for explore_repo without mi
       arguments: {
         task: '런타임 실패를 재현해라.',
         repo_root: repoRoot,
-        budget: 'quick',
       },
     },
   });
@@ -799,7 +796,6 @@ test('MCP request handler sends progress notifications when progressToken is 0',
         task: 'users/me 라우트에 인증 미들웨어가 어떻게 붙는지 추적해라.',
         repo_root: repoRoot,
         scope: ['src/**'],
-        budget: 'quick',
       },
       _meta: {
         progressToken: 0,

@@ -175,7 +175,6 @@ test('MCP explore_repo redacts provider-facing messages, content text, structure
         task: 'Inspect config key redaction.',
         repo_root: repoRoot,
         scope: ['src/**'],
-        budget: 'quick',
       },
     },
   });
