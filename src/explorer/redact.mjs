@@ -1,3 +1,4 @@
+import { redactEnvVarNamesEnabled } from './config.mjs';
 import { isSecretPath } from './security.mjs';
 
 const REDACTION_RULES = Object.freeze([
@@ -20,7 +21,34 @@ const GENERIC_HEX_RULE = Object.freeze({
   regex: /\b[0-9a-fA-F]{32,}\b/g,
 });
 
-const SECRET_PATH_MENTION_REGEX = /`?([A-Za-z0-9_.-][A-Za-z0-9_./\\-]*\/[A-Za-z0-9_./\\-]+|\.env(?:\.[A-Za-z0-9_.-]+)?|\.envrc|\.npmrc|\.netrc|id_rsa(?:\.pub)?|id_ed25519(?:\.pub)?)(?::L?\d+(?:-L?\d+)?)?`?/g;
+// Token-bounded secret-path matcher. Requires a non-identifier character
+// (or start of input) immediately before the path so that identifier
+// expressions like `process.env.X` or `import.meta.env.X` are not redacted
+// as if they were secret file paths. The bounded form preserves the
+// surrounding context character in the replacement.
+const SECRET_PATH_TOKEN_SOURCE =
+  '([A-Za-z0-9_.-][A-Za-z0-9_./\\\\-]*\\/[A-Za-z0-9_./\\\\-]+|\\.env(?:\\.[A-Za-z0-9_.-]+)?|\\.envrc|\\.npmrc|\\.netrc|id_rsa(?:\\.pub)?|id_ed25519(?:\\.pub)?)';
+
+const SECRET_PATH_MENTION_REGEX = new RegExp(
+  `(^|[\\s"'\\[\\({,;])\`?${SECRET_PATH_TOKEN_SOURCE}(?::L?\\d+(?:-L?\\d+)?)?\`?(?=$|[\\s"'\\])},.:;])`,
+  'g',
+);
+
+// Optional env-var identifier redaction (opt-in via
+// CEREBRAS_EXPLORER_REDACT_ENV_VAR_NAMES=1). Default behavior preserves
+// env var names because they describe a public code interface.
+const ENV_VAR_NAME_PATTERNS = Object.freeze([
+  {
+    id: 'env-var-name',
+    regex: /\b(process|import\.meta)\.env\.([A-Z_][A-Z0-9_]*)\b/g,
+    replace: (_raw, prefix) => `${prefix}.env.[REDACTED:env-var-name]`,
+  },
+  {
+    id: 'env-var-name',
+    regex: /\bDeno\.env\.get\(\s*['"]([A-Z_][A-Z0-9_]*)['"]\s*\)/g,
+    replace: () => 'Deno.env.get("[REDACTED:env-var-name]")',
+  },
+]);
 
 function shouldRedactGenericHex(env = process.env) {
   return env.CEREBRAS_EXPLORER_REDACT_GENERIC_HEX === '1';
@@ -30,7 +58,10 @@ function unique(values) {
   return [...new Set(values)];
 }
 
-export function redactText(value, { includeGenericHex = shouldRedactGenericHex() } = {}) {
+export function redactText(value, {
+  includeGenericHex = shouldRedactGenericHex(),
+  includeEnvVarNames = redactEnvVarNamesEnabled(),
+} = {}) {
   if (typeof value !== 'string' || value.length === 0) {
     return { text: value, redacted: false, redactions: [] };
   }
@@ -49,12 +80,23 @@ export function redactText(value, { includeGenericHex = shouldRedactGenericHex()
   }
 
   let secretPathMatched = false;
-  text = text.replace(SECRET_PATH_MENTION_REGEX, (raw, relPath) => {
+  text = text.replace(SECRET_PATH_MENTION_REGEX, (raw, prefix, relPath) => {
     if (!isSecretPath(relPath).matched) return raw;
     secretPathMatched = true;
-    return '[REDACTED:secret-path]';
+    return `${prefix}[REDACTED:secret-path]`;
   });
   if (secretPathMatched) redactions.push('secret-path');
+
+  if (includeEnvVarNames) {
+    let envVarMatched = false;
+    for (const rule of ENV_VAR_NAME_PATTERNS) {
+      text = text.replace(rule.regex, (...args) => {
+        envVarMatched = true;
+        return rule.replace(...args);
+      });
+    }
+    if (envVarMatched) redactions.push('env-var-name');
+  }
 
   return {
     text,
