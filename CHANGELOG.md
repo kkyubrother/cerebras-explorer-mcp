@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.2.0 - 2026-05-19
+## v0.3.0 - 2026-05-23
 
 ### Surface Consolidation (2026-05-22)
 
@@ -45,6 +45,8 @@ breaking changes are bundled into this next minor.
     `CEREBRAS_EXPLORER_AUTO_SESSION_BY_REPO`.
   - If you need a minimal tool surface, filter at the MCP gateway.
 
+## v0.2.1 - 2026-05-22
+
 ### Feedback Verification Fixes (2026-05-22)
 
 Docs + runtime bundle for `specs/010-feedback-verification-fixes/`. Externally
@@ -79,6 +81,8 @@ var so existing consumers can opt into the prior behavior for one release.
   rule, `_meta.progressToken` recommendation for heavy calls, the
   control-plane fields agents must preserve when handing off a result, and the
   three new opt-in env vars.
+
+## v0.2.0 - 2026-05-19
 
 ### Tool Quality Follow-up (2026-05-21)
 
