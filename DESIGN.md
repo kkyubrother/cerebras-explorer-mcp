@@ -86,7 +86,7 @@
 - 테스트 실행
 - 셸 명령 자동 실행
 
-> **참고:** 런타임 모델 자동 라우팅(`CEREBRAS_EXPLORER_AUTO_ROUTE`)과 failover provider(`EXPLORER_FAILOVER`) 기능이 내부 구현으로 존재하지만, 공개 계약(제품 목표)은 **Cerebras 기반 explorer**에 한정한다. 해당 기능은 내부 구현 메모 수준이며, 지원을 약속하는 공개 기능이 아니다.
+> **참고:** failover provider(`EXPLORER_FAILOVER`) 기능이 내부 구현으로 존재하지만, 공개 계약(제품 목표)은 **Cerebras 기반 explorer**에 한정한다. 해당 기능은 내부 구현 메모 수준이며, 지원을 약속하는 공개 기능이 아니다. (spec 011에서 런타임 모델 자동 라우팅 `CEREBRAS_EXPLORER_AUTO_ROUTE`는 영구 제거됨.)
 
 ---
 
@@ -252,8 +252,9 @@ spec 011 이후 `explore`는 단일 V2 backend 구현으로 실행된다. 모든
 ## 7. 모델 정책
 
 - 기본 모델: `zai-glm-4.7`
-- override: `CEREBRAS_EXPLORER_MODEL` 또는 `CEREBRAS_MODEL`
-- budget별 모델 지정: `CEREBRAS_EXPLORER_MODEL_QUICK`, `CEREBRAS_EXPLORER_MODEL_NORMAL`, `CEREBRAS_EXPLORER_MODEL_DEEP`
+- override: `CEREBRAS_EXPLORER_MODEL` (단일 source of truth)
+
+spec 011에서 `CEREBRAS_MODEL` alias와 budget별 모델 지정(`CEREBRAS_EXPLORER_MODEL_QUICK`/`_NORMAL`/`_DEEP`)은 영구 제거되었다. 모든 explore 호출이 동일한 단일 deep runtime config로 실행되므로 budget별 모델 분리가 필요하면 server 인스턴스를 두 개 띄워 각각 다른 `CEREBRAS_EXPLORER_MODEL`을 지정하는 방식으로 우회한다.
 
 이 프로젝트의 문서화된 계약은 Cerebras provider 기준이다. 모델 이름은 바꿀 수 있지만, 부모 모델이 아닌 explorer 내부 모델만 교체한다.
 
