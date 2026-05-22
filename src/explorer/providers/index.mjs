@@ -29,18 +29,20 @@ function createProviderByName(name, { budget, fetchImpl, logger } = {}) {
 
 /**
  * Factory function — creates the appropriate chat client based on environment
- * variables and the optional budget hint.
+ * variables.
  *
  * Provider selection:
  *   1. If EXPLORER_FAILOVER is set, builds a FailoverChatClient from the chain.
  *   2. Otherwise reads EXPLORER_PROVIDER (default: "cerebras").
  *
- * Budget-based model routing (Cerebras only):
- *   Reads CEREBRAS_EXPLORER_MODEL_QUICK / _NORMAL / _DEEP according to `budget`.
- *   Requires CEREBRAS_EXPLORER_AUTO_ROUTE=true or explicit budget env vars to differ.
+ * The `budget` option is accepted for back-compat with internal callers but
+ * is a no-op since spec 011: every explore call uses the single
+ * CEREBRAS_EXPLORER_MODEL under the deep runtime config. Budget-specific
+ * model env vars (_QUICK/_NORMAL/_DEEP) and CEREBRAS_EXPLORER_AUTO_ROUTE
+ * were permanently removed.
  *
  * @param {object} [opts]
- * @param {string} [opts.budget]     - "quick"|"normal"|"deep" for model routing
+ * @param {string} [opts.budget]     - accepted but ignored (spec 011)
  * @param {Function} [opts.fetchImpl]
  * @param {Function} [opts.logger]
  * @returns {import('./abstract.mjs').AbstractChatClient}

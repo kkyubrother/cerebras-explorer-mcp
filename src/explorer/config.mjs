@@ -286,11 +286,14 @@ export function getReasoningEffortForBudget(model) {
 
 /**
  * Classify the complexity of a task string as 'simple', 'moderate', or 'complex'.
- * Used for automatic model routing when CEREBRAS_EXPLORER_AUTO_ROUTE=true.
  *
- * - simple:   "where is X defined?" type questions → cheapest/fastest model
- * - complex:  performance/security/bug-cause analysis → most capable model
- * - moderate: everything else → normal model
+ * spec 011: automatic model routing (`CEREBRAS_EXPLORER_AUTO_ROUTE`) and the
+ * budget input were removed, so this helper is no longer consumed by the
+ * runtime. Kept exported for test coverage of the heuristic regex.
+ *
+ * - simple:   "where is X defined?" type questions
+ * - complex:  performance/security/bug-cause analysis
+ * - moderate: everything else
  */
 export function classifyTaskComplexity(task) {
   const t = task.toLowerCase();
