@@ -518,6 +518,31 @@ Report-mode 도구인 `explore`와 `explore_v2`는 Markdown 본문과 함께 MCP
 
 V2가 report-mode의 단독 백엔드로 승격되려면 evidence-preservation benchmark가 안정적인 citation 보존을 보여야 하고, 같은 벤치마크에서 미해명 citation gap 경고(`critic.warnings` 또는 동등 신호)가 없어야 한다. 이 조건 전까지 V2는 `explore_v2` opt-in 또는 `explore`의 내부 라우터 선택 경로로만 사용한다.
 
+### 11.4 Evidence sufficiency gate (010)
+
+010 feedback-verification-fixes 이후 `status.complete`/`verification`/`failure.reason`은 budget 소진 여부가 아니라 **task별 evidence sufficiency**가 1차 결정 신호다. 런타임은 다음 순서로 판정한다.
+
+1. critic이 `fail`이거나 `stoppedByErrors`/`stoppedByAbort`이면 evidence 수와 무관하게 `verification='broad_search_needed'`, `complete=false`.
+2. `confidence='low'`이면 `follow_up_needed`.
+3. edit/edit_planning 경로에서는 actionable target과 exact evidence가 함께 있어야 `targeted_read_needed`로 본다.
+4. critic이 `caution`이거나 `stoppedByBudget`이면 task 임계(simple=exact 1, evidence_verification=exact 1, path_explanation=exact 2 또는 distinct file 2, edit_planning=actionable target + exact 1, 일반=exact 2 또는 distinct file 2)를 만족할 때 `verified`로 본다.
+
+`stoppedByBudget`이 true여도 sufficiency가 충족되면 `failure`는 null로 두고 `searchCoverage.stoppedByBudget=true`에 사실만 남긴다. `status.warnings`에는 "budget exhausted after sufficient evidence was collected." 메모가 함께 들어가서 호출자가 budget 사실을 잃지 않는다. sufficiency가 부족하면 기존처럼 `failure.reason='budget_exhausted'`가 부여된다. `nextAction`은 (1) `failure.retry`, (2) sufficient+no edit → `stop`, (3) sufficient+edit/read → `read_target`, (4) insufficient+cited target → `explore_followup`, (5) 그 외 → `ask_user` 순으로 선택된다.
+
+### 11.5 Targets vs discoveredPaths (010)
+
+`targets[]`는 grounded evidence와 직접 연결된 actionable 항목만 담는다. `repo_list_dir`/`repo_find_files`/`repo_git_diff`/`repo_git_show`로 발견만 된 path는 별도 top-level `discoveredPaths[]`에 `{ path, kind, sourceTool, reason }` 형태로 노출한다. report 도구(`explore`/`explore_v2`)의 citation target은 file path 기준으로 병합되어 `startLine`은 최소·`endLine`은 최대로 묶이며, 두 citation 이상이 합쳐진 경우 `reason`에 merge count가 명시된다. 기존(reference 자동 승격) 동작이 필요한 consumer는 1 릴리스 동안 `CEREBRAS_EXPLORER_LEGACY_DISCOVERED_TARGETS=1`로 호환할 수 있다.
+
+### 11.6 Scope hard boundary for git tools (010)
+
+`repo_git_diff`(file/stat 모드)와 `repo_git_show` 모두 base scope를 hard boundary로 적용한다. scope 밖에서 제외된 파일 수는 응답의 optional `omittedOutOfScopeFiles`로만 표면화되며 `targets[]`/`discoveredPaths[]` 어느 쪽에도 노출되지 않는다.
+
+### 11.7 Session/progress operational contract (010)
+
+`SessionStore`는 옵트인 `CEREBRAS_EXPLORER_AUTO_SESSION_BY_REPO=1` 환경에서 `findReusableForRepo(repoRoot)`로 같은 repoRoot의 최신 reusable 세션을 자동 재사용한다. `session.status` enum(`created`/`reused`/`fallback`)은 변경하지 않고, 자동 reuse는 `_debug.stats.sessionSource='auto_repo'`에서만 구분한다. multi-client 환경에서는 conversation 격리 보장을 위해 explicit `session` 입력을 권장한다.
+
+heavy 호출(보고서/path/impact)에서는 parent agent가 `_meta.progressToken`을 전달해 turn-by-turn 진행률을 받아야 하고, 결과를 sub-agent에 인계할 때는 control-plane 필드(`status.verification`, `status.complete`, `evidenceQuality`, `searchCoverage`, `failure`, `session/sessionId`, `critic.warnings`)를 반드시 보존해야 한다.
+
 ---
 
 ## 12. 경계 강화 정책
