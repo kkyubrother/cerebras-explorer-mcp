@@ -12,8 +12,8 @@
         "thoroughness": "quick",
         "scope": [
           "src/explorer/runtime.mjs",
+          "src/explorer/critic.mjs",
           "src/explorer/redact.mjs",
-          "tests/free-explore.test.mjs",
           "tests/mcp-server.test.mjs"
         ]
       },
@@ -22,11 +22,11 @@
           "label": "Citation targets include implementation or tests",
           "source": "target_paths",
           "groups": [
-            ["src/explorer/runtime.mjs"],
-            ["tests/free-explore.test.mjs", "tests/mcp-server.test.mjs"]
+            ["src/explorer/runtime.mjs", "src/explorer/critic.mjs"],
+            ["tests/mcp-server.test.mjs"]
           ],
           "minCoverage": 0.5,
-          "weight": 0.2
+          "weight": 0.25
         }
       ],
       "checks": [
@@ -34,25 +34,25 @@
           "label": "Preserves at least two citations",
           "type": "min_citation_count",
           "value": 2,
-          "weight": 0.2
+          "weight": 0.25
         },
         {
           "label": "Preserves at least two cited files",
           "type": "min_citation_file_count",
           "value": 2,
-          "weight": 0.2
+          "weight": 0.25
         },
         {
           "label": "Tool results are not truncated",
           "type": "tool_results_truncated_equals",
           "value": false,
-          "weight": 0.2
+          "weight": 0.1
         },
         {
           "label": "No citation gap warning",
           "type": "citation_gap_warning_equals",
           "value": false,
-          "weight": 0.2
+          "weight": 0.15
         }
       ]
     }
