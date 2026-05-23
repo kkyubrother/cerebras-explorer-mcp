@@ -1,0 +1,1047 @@
+{
+  "tool": "collect_evidence",
+  "repo": "DeepResearch",
+  "args": {
+    "repo_root": "/home/kyubr/IdeaProjects/DeepResearch",
+    "scope": [
+      "app/**",
+      "main.py",
+      "migrations/**"
+    ],
+    "claim": "create_app is the main FastAPI application factory and wires API routers or middleware",
+    "knownFiles": [
+      "app/main.py"
+    ],
+    "knownSymbols": [
+      "create_app"
+    ]
+  },
+  "elapsedMs": 5896,
+  "error": null,
+  "isError": false,
+  "summary": {
+    "directAnswer": "Claim VERIFIED: create_app in app/main.py is the FastAPI factory, includes 4 routers (tasks, plans, claims, sources), and wires middleware via instrument_fastapi_app.",
+    "status": {
+      "confidence": "high",
+      "verification": "verified",
+      "complete": true,
+      "warnings": []
+    },
+    "evidenceQuality": {
+      "level": "high",
+      "exactCount": 3,
+      "partialCount": 0,
+      "droppedCount": 0,
+      "fileCount": 3,
+      "warnings": [],
+      "summary": "Verified: 4 files read, 1 grep searches, 1 symbol lookups, 3/3 evidence items grounded, cross-verified across 3 files. All evidence grounded in inspected code."
+    },
+    "failure": null,
+    "nextAction": {
+      "type": "stop",
+      "reason": "Explorer result is complete for the requested read-only investigation."
+    },
+    "searchCoverage": {
+      "scope": [
+        "app/**",
+        "main.py",
+        "migrations/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 4,
+      "grepCalls": 1,
+      "listDirCalls": 1,
+      "symbolCalls": 1,
+      "toolResultsTruncated": 0,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: app/**, main.py, migrations/**"
+      ],
+      "summary": "scope-limited search across app/**, main.py, migrations/**; 4 file read(s), 1 grep search(es)."
+    },
+    "critic": null,
+    "sessionId": "sess_6d1fcef993fbc335",
+    "session": {
+      "id": "sess_6d1fcef993fbc335",
+      "status": "created",
+      "remainingCalls": 4
+    },
+    "targets": [
+      {
+        "path": "app/main.py",
+        "role": "read",
+        "reason": "Full create_app factory showing FastAPI instantiation, router wiring, and middleware setup",
+        "evidenceRefs": [
+          "E1"
+        ],
+        "startLine": 12,
+        "endLine": 24
+      },
+      {
+        "path": "app/core/telemetry.py",
+        "role": "read",
+        "reason": "Shows instrument_fastpi_app adds OpenTelemetry instrumentation middleware",
+        "evidenceRefs": [
+          "E2"
+        ],
+        "startLine": 15,
+        "endLine": 16
+      },
+      {
+        "path": "app/api/errors.py",
+        "role": "read",
+        "reason": "Shows register_error_handlers adds exception handlers, not middleware",
+        "evidenceRefs": [
+          "E3"
+        ],
+        "startLine": 28,
+        "endLine": 38
+      }
+    ],
+    "discoveredPathsCount": 96,
+    "evidence": [
+      {
+        "id": "E1",
+        "path": "app/main.py",
+        "startLine": 12,
+        "endLine": 24,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Proves create_app creates FastAPI app, wires 4 routers via include_router, and calls instrumentation middleware",
+        "snippet": "12: def create_app() -> FastAPI:\n13:     settings = get_settings()\n14:     configure_logging(settings.log_level)\n15:     configure_telemetry(settings.otel_service_name)\n16: \n17:     app = FastAPI(title=\"DeepResearch Demo Alpha API\", version=\"0.1.0\")\n18:     register_error_handlers(app)\n19:     app.include_router(tasks.router)\n20:     app.include_router(plans.router)\n21:     app.include_router(claims.router)\n22:     app.include_router(sources.router)\n23:     instrument_fastapi_app(app)\n... [snippet truncated]"
+      },
+      {
+        "id": "E2",
+        "path": "app/core/telemetry.py",
+        "startLine": 15,
+        "endLine": 16,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Shows instrument_fastapi_app uses FastAPIInstrumentor which adds ASGI middleware for tracing",
+        "snippet": "15: def instrument_fastapi_app(app: object) -> None:\n16:     FastAPIInstrumentor.instrument_app(app)"
+      },
+      {
+        "id": "E3",
+        "path": "app/api/errors.py",
+        "startLine": 28,
+        "endLine": 38,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Shows register_error_handlers uses @app.exception_handler decorator, not middleware",
+        "snippet": "28: def register_error_handlers(app: FastAPI) -> None:\n29:     @app.exception_handler(ApiError)\n30:     async def handle_api_error(_request: Request, exc: ApiError) -> JSONResponse:\n31:         return JSONResponse(\n32:             status_code=exc.status_code,\n33:             content=ErrorResponse(\n34:                 code=exc.code,\n35:                 message=exc.message,\n36:                 details=exc.details,\n37:             ).model_dump(),\n38:         )"
+      }
+    ],
+    "uncertainties": [],
+    "stats": {
+      "turns": 5,
+      "toolCalls": 7,
+      "filesRead": 4,
+      "grepCalls": 1,
+      "symbolCalls": 1,
+      "stoppedByBudget": false,
+      "elapsedMs": 5886,
+      "totalTokens": 36485
+    }
+  },
+  "structuredContent": {
+    "schemaVersion": 1,
+    "directAnswer": "Claim VERIFIED: create_app in app/main.py is the FastAPI factory, includes 4 routers (tasks, plans, claims, sources), and wires middleware via instrument_fastapi_app.",
+    "status": {
+      "confidence": "high",
+      "verification": "verified",
+      "complete": true,
+      "warnings": []
+    },
+    "targets": [
+      {
+        "path": "app/main.py",
+        "role": "read",
+        "reason": "Full create_app factory showing FastAPI instantiation, router wiring, and middleware setup",
+        "evidenceRefs": [
+          "E1"
+        ],
+        "startLine": 12,
+        "endLine": 24
+      },
+      {
+        "path": "app/core/telemetry.py",
+        "role": "read",
+        "reason": "Shows instrument_fastpi_app adds OpenTelemetry instrumentation middleware",
+        "evidenceRefs": [
+          "E2"
+        ],
+        "startLine": 15,
+        "endLine": 16
+      },
+      {
+        "path": "app/api/errors.py",
+        "role": "read",
+        "reason": "Shows register_error_handlers adds exception handlers, not middleware",
+        "evidenceRefs": [
+          "E3"
+        ],
+        "startLine": 28,
+        "endLine": 38
+      }
+    ],
+    "discoveredPaths": [
+      {
+        "path": "app/main.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/api",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/api/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/api/claims.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/api/errors.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/api/plans.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/api/sources.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/api/tasks.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/citation",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/citation/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/citation/entailment.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/citation/fuzzy.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/citation/hashing.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/core",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/core/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/core/config.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/core/logging.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/core/telemetry.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/db",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/db/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/db/session.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/domain",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/domain/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/domain/enums.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/domain/models.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/eval",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/eval/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/eval/golden_questions.jsonl",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/eval/seed_provider_config.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/eval/smoke_runner.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/models",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/models/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/models/base.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/models/claim.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/models/evidence.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/models/log.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/models/policy.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/models/provider.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/models/report.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/models/research.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/models/search.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/models/source.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/orchestrator",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/orchestrator/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/orchestrator/graph.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/orchestrator/nodes",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/orchestrator/state.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/policy",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/policy/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/policy/budget.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/policy/prompt_injection.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/policy/robots.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/providers",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/providers/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/providers/anthropic.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/providers/base.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/providers/firecrawl.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/providers/tavily.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/reporting",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/reporting/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/reporting/markdown_writer.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/repositories",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/repositories/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/repositories/base.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/repositories/claim_repository.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/repositories/evidence_repository.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/repositories/log_repository.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/repositories/plan_repository.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/repositories/report_repository.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/repositories/search_repository.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/repositories/source_repository.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/repositories/task_repository.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/services",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/services/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/services/claim_service.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/services/cost_service.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/services/plan_service.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/services/report_service.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/services/source_registry.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/services/task_service.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/storage",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/storage/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/storage/s3.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/workers",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/workers/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/workers/celery_app.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/workers/tasks.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "main.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "migrations",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "migrations/env.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "migrations/script.py.mako",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "migrations/versions",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "migrations/versions/.gitkeep",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "migrations/versions/202605210001_initial_domain_schema.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      }
+    ],
+    "evidence": [
+      {
+        "path": "app/main.py",
+        "startLine": 12,
+        "endLine": 24,
+        "why": "Proves create_app creates FastAPI app, wires 4 routers via include_router, and calls instrumentation middleware",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E1",
+        "snippet": "12: def create_app() -> FastAPI:\n13:     settings = get_settings()\n14:     configure_logging(settings.log_level)\n15:     configure_telemetry(settings.otel_service_name)\n16: \n17:     app = FastAPI(title=\"DeepResearch Demo Alpha API\", version=\"0.1.0\")\n18:     register_error_handlers(app)\n19:     app.include_router(tasks.router)\n20:     app.include_router(plans.router)\n21:     app.include_router(claims.router)\n22:     app.include_router(sources.router)\n23:     instrument_fastapi_app(app)\n... [snippet truncated]"
+      },
+      {
+        "path": "app/core/telemetry.py",
+        "startLine": 15,
+        "endLine": 16,
+        "why": "Shows instrument_fastapi_app uses FastAPIInstrumentor which adds ASGI middleware for tracing",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E2",
+        "snippet": "15: def instrument_fastapi_app(app: object) -> None:\n16:     FastAPIInstrumentor.instrument_app(app)"
+      },
+      {
+        "path": "app/api/errors.py",
+        "startLine": 28,
+        "endLine": 38,
+        "why": "Shows register_error_handlers uses @app.exception_handler decorator, not middleware",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E3",
+        "snippet": "28: def register_error_handlers(app: FastAPI) -> None:\n29:     @app.exception_handler(ApiError)\n30:     async def handle_api_error(_request: Request, exc: ApiError) -> JSONResponse:\n31:         return JSONResponse(\n32:             status_code=exc.status_code,\n33:             content=ErrorResponse(\n34:                 code=exc.code,\n35:                 message=exc.message,\n36:                 details=exc.details,\n37:             ).model_dump(),\n38:         )"
+      }
+    ],
+    "uncertainties": [],
+    "nextAction": {
+      "type": "stop",
+      "reason": "Explorer result is complete for the requested read-only investigation."
+    },
+    "evidenceQuality": {
+      "level": "high",
+      "exactCount": 3,
+      "partialCount": 0,
+      "droppedCount": 0,
+      "fileCount": 3,
+      "warnings": [],
+      "summary": "Verified: 4 files read, 1 grep searches, 1 symbol lookups, 3/3 evidence items grounded, cross-verified across 3 files. All evidence grounded in inspected code."
+    },
+    "searchCoverage": {
+      "scope": [
+        "app/**",
+        "main.py",
+        "migrations/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 4,
+      "grepCalls": 1,
+      "listDirCalls": 1,
+      "symbolCalls": 1,
+      "toolResultsTruncated": 0,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: app/**, main.py, migrations/**"
+      ],
+      "summary": "scope-limited search across app/**, main.py, migrations/**; 4 file read(s), 1 grep search(es)."
+    },
+    "failure": null,
+    "sessionId": "sess_6d1fcef993fbc335",
+    "session": {
+      "id": "sess_6d1fcef993fbc335",
+      "status": "created",
+      "remainingCalls": 4
+    },
+    "_debug": {
+      "evidenceSufficiency": {
+        "sufficient": true,
+        "reason": "claim_has_grounded_evidence"
+      },
+      "confidenceScore": 1,
+      "confidenceFactors": {
+        "evidenceCount": 3,
+        "evidenceGrounded": 3,
+        "evidenceDropped": 0,
+        "exactCount": 3,
+        "crossVerified": true,
+        "symbolSearchUsed": true,
+        "stoppedByBudget": false,
+        "gitLogCalls": 0,
+        "gitDiffCalls": 0,
+        "gitBlameCalls": 0,
+        "gitGroundingHint": "none",
+        "taskKind": "default",
+        "adjustments": [
+          "base=0.30 (taskKind=default)",
+          "+0.54 (3 exact evidence item(s))",
+          "+0.12 (cross-verified across multiple files)",
+          "+0.05 (symbol/grep search used)"
+        ],
+        "droppedUngrounded": 0,
+        "droppedMalformed": 0
+      },
+      "stats": {
+        "model": "zai-glm-4.7",
+        "budget": "deep",
+        "budgetSource": "auto",
+        "turns": 5,
+        "toolCalls": 7,
+        "listDirCalls": 1,
+        "findFileCalls": 0,
+        "grepCalls": 1,
+        "filesRead": 4,
+        "gitLogCalls": 0,
+        "gitBlameCalls": 0,
+        "gitDiffCalls": 0,
+        "gitShowCalls": 0,
+        "symbolCalls": 1,
+        "inputTokens": 33841,
+        "outputTokens": 2644,
+        "totalTokens": 36485,
+        "elapsedMs": 5886,
+        "stoppedByBudget": false,
+        "scope": [
+          "app/**",
+          "main.py",
+          "migrations/**"
+        ],
+        "repoRoot": "/home/kyubr/IdeaProjects/DeepResearch",
+        "sessionId": "sess_6d1fcef993fbc335",
+        "sessionStatus": "created",
+        "sessionSource": "created",
+        "remainingCalls": 4,
+        "cacheHits": 87,
+        "cacheMisses": 446,
+        "cacheHitRate": 0.163,
+        "cacheEntries": 441,
+        "cacheSizeBytes": 2631586
+      },
+      "toolTrace": {
+        "entries": [
+          {
+            "turn": 1,
+            "tool": "repo_symbol_context",
+            "args": {
+              "symbol": "create_app"
+            },
+            "result": {
+              "symbol": "create_app",
+              "definition": {
+                "path": "app/main.py",
+                "line": 12,
+                "endLine": 26,
+                "kind": "function"
+              },
+              "callers": 1,
+              "observedRanges": 2,
+              "truncated": false
+            }
+          },
+          {
+            "turn": 1,
+            "tool": "repo_list_dir",
+            "args": {},
+            "result": {
+              "entries": 96,
+              "paths": [
+                "app",
+                "app/__init__.py",
+                "app/api",
+                "app/api/__init__.py",
+                "app/api/claims.py",
+                "app/api/errors.py"
+              ]
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "app/main.py",
+              "startLine": 1,
+              "endLine": 30
+            },
+            "result": {
+              "path": "app/main.py",
+              "startLine": 1,
+              "endLine": 28,
+              "totalLines": 28,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_grep",
+            "args": {
+              "pattern": "add_middleware|middleware",
+              "scope": [
+                "app/main.py"
+              ],
+              "contextLines": 2
+            },
+            "result": {
+              "matches": 0,
+              "paths": [],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "app/api/errors.py"
+            },
+            "result": {
+              "path": "app/api/errors.py",
+              "startLine": 1,
+              "endLine": 39,
+              "totalLines": 39,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "app/core/telemetry.py"
+            },
+            "result": {
+              "path": "app/core/telemetry.py",
+              "startLine": 1,
+              "endLine": 21,
+              "totalLines": 21,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "main.py"
+            },
+            "result": {
+              "path": "main.py",
+              "startLine": 1,
+              "endLine": 14,
+              "totalLines": 14,
+              "truncated": true
+            }
+          }
+        ],
+        "totalCalls": 7,
+        "truncated": false,
+        "maxEntries": 20
+      },
+      "codeMap": {
+        "entryPoints": [
+          "app/main.py",
+          "main.py"
+        ],
+        "keyModules": [
+          {
+            "path": "app/main.py",
+            "role": "entry point",
+            "linesRead": 44
+          },
+          {
+            "path": "app/api/errors.py",
+            "role": "entry point",
+            "linesRead": 39
+          },
+          {
+            "path": "app/core/telemetry.py",
+            "role": "entry point",
+            "linesRead": 21
+          },
+          {
+            "path": "main.py",
+            "role": "entry point",
+            "linesRead": 14
+          }
+        ]
+      }
+    }
+  },
+  "contentText": "## Result\nConfidence: high\nVerification: verified\nEvidence Quality: high (3 exact, 0 partial, 0 dropped)\nSearch Coverage: scope-limited search across app/**, main.py, migrations/**; 4 file read(s), 1 grep search(es).\n\n## Answer\nClaim VERIFIED: create_app in app/main.py is the FastAPI factory, includes 4 routers (tasks, plans, claims, sources), and wires middleware via instrument_fastapi_app.\n\n## Targets\n- [read] `app/main.py:12-24` (E1) - Full create_app factory showing FastAPI instantiation, router wiring, and middleware setup\n- [read] `app/core/telemetry.py:15-16` (E2) - Shows instrument_fastpi_app adds OpenTelemetry instrumentation middleware\n- [read] `app/api/errors.py:28-38` (E3) - Shows register_error_handlers adds exception handlers, not middleware\n\n## Evidence (3 items, confidence: high)\n- E1 `app/main.py:12-24` - Proves create_app creates FastAPI app, wires 4 routers via include_router, and calls instrumentation middleware\n  snippet: 12: def create_app() -> FastAPI:\n  13:     settings = get_settings()\n  14:     configure_logging(settings.log_level)\n  15:     configure_telemetry(settings.otel_service_name)\n  16: \n  17:     app = FastAPI(title=\"DeepResearch Demo Alpha API\", version=\"0.1.0\")\n  18:     register_error_handlers(app)\n  19:     app.include_router(tasks.router)\n  20:     app.include_router(plans.router)\n  21:     app.include_router(claims.router)\n  22:     app.include_router(sources.router)\n  23:     instrument_fastapi_app(app)\n  ... [snippet truncated]\n- E2 `app/core/telemetry.py:15-16` - Shows instrument_fastapi_app uses FastAPIInstrumentor which adds ASGI middleware for tracing\n  snippet: 15: def instrument_fastapi_app(app: object) -> None:\n  16:     FastAPIInstrumentor.instrument_app(app)\n- E3 `app/api/errors.py:28-38` - Shows register_error_handlers uses @app.exception_handler decorator, not middleware\n  snippet: 28: def register_error_handlers(app: FastAPI) -> None:\n  29:     @app.exception_handler(ApiError)\n  30:     async def handle_api_error(_request: Request, exc: ApiError) -> JSONResponse:\n  31:         return JSONResponse(\n  32:             status_code=exc.status_code,\n  33:             content=ErrorResponse(\n  34:                 code=exc.code,\n  35:                 message=exc.message,\n  36:                 details=exc.details,\n  37:             ).model_dump(),\n  38:         )\n\nSession: sess_6d1fcef993fbc335 (pass as \"session\" for follow-up calls)"
+}

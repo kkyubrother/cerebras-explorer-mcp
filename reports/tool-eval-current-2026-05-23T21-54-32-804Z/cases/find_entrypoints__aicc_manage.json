@@ -1,0 +1,1096 @@
+{
+  "tool": "find_entrypoints",
+  "repo": "aicc_manage",
+  "args": {
+    "repo_root": "/home/kyubr/IdeaProjects/aicc_manage",
+    "scope": [
+      "src/**",
+      "websocket-server/src/**",
+      "lambda/**",
+      "prisma/**",
+      "scripts/**"
+    ],
+    "entryKind": "event"
+  },
+  "elapsedMs": 12931,
+  "error": null,
+  "isError": false,
+  "summary": {
+    "directAnswer": "Found 58 event handler entry points across 14 files. Entry kinds:\n\n**Socket.io Listeners (.on)** - 26 entries in websocket-server/src (connection, disconnect, SIGINT/SIGTERM) and src/lib/hooks (connect, new-message, user-joined, etc.)\n\n**DOM Listeners (addEventListener)** - 14 entries: window (resize, scroll, keydown, storage), document (visibilitychange, keydown, mousedown), service worker messages, media query changes\n\n**Node.js Listeners** - 6 entries: child process exit, HTTP request stream (data/end/error), net server one-time listeners\n\n**Event Emitters (.emit)** - 32 entries on both client and server sides\n\n⚠️ CAVEAT: Regex-based detection. Verify each line before acting; patterns can appear in strings/comments.",
+    "status": {
+      "confidence": "high",
+      "verification": "verified",
+      "complete": true,
+      "warnings": [
+        "1 evidence item(s) are grounded only by grep, blame, or nearby line observations."
+      ]
+    },
+    "evidenceQuality": {
+      "level": "high",
+      "exactCount": 7,
+      "partialCount": 1,
+      "droppedCount": 0,
+      "fileCount": 7,
+      "warnings": [
+        "1 evidence item(s) are grounded only by grep, blame, or nearby line observations."
+      ],
+      "summary": "Verified: 3 files read, 8 grep searches, 7/8 evidence items grounded, cross-verified across 7 files. All evidence grounded in inspected code."
+    },
+    "failure": null,
+    "nextAction": {
+      "type": "stop",
+      "reason": "Explorer result is complete for the requested read-only investigation."
+    },
+    "searchCoverage": {
+      "scope": [
+        "src/**",
+        "websocket-server/src/**",
+        "lambda/**",
+        "prisma/**",
+        "scripts/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 3,
+      "grepCalls": 8,
+      "listDirCalls": 1,
+      "symbolCalls": 0,
+      "toolResultsTruncated": 0,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: src/**, websocket-server/src/**, lambda/**, prisma/**, scripts/**"
+      ],
+      "summary": "scope-limited search across src/**, websocket-server/src/**, lambda/**, prisma/**, scripts/**; 3 file read(s), 8 grep search(es)."
+    },
+    "critic": null,
+    "sessionId": "sess_6f260e52cae5b6b1",
+    "session": {
+      "id": "sess_6f260e52cae5b6b1",
+      "status": "created",
+      "remainingCalls": 4
+    },
+    "targets": [
+      {
+        "path": "websocket-server/src/index.ts",
+        "role": "context",
+        "reason": "Main Socket.io connection handler entry point",
+        "evidenceRefs": [],
+        "startLine": 149,
+        "endLine": 149
+      },
+      {
+        "path": "websocket-server/src/index.ts",
+        "role": "context",
+        "reason": "Process SIGINT handler for graceful shutdown",
+        "evidenceRefs": [],
+        "startLine": 250,
+        "endLine": 250
+      },
+      {
+        "path": "src/lib/hooks/use-chat-socket.ts",
+        "role": "context",
+        "reason": "New message event handler on client",
+        "evidenceRefs": [],
+        "startLine": 124,
+        "endLine": 124
+      },
+      {
+        "path": "src/components/layout/dashboard-layout.tsx",
+        "role": "context",
+        "reason": "Window storage event listener",
+        "evidenceRefs": [],
+        "startLine": 61,
+        "endLine": 61
+      },
+      {
+        "path": "websocket-server/src/socket-handlers/chat.ts",
+        "role": "context",
+        "reason": "Join session socket event handler",
+        "evidenceRefs": [],
+        "startLine": 49,
+        "endLine": 49
+      },
+      {
+        "path": "scripts/dev-safe.mjs",
+        "role": "context",
+        "reason": "Child process exit event handler",
+        "evidenceRefs": [
+          "E4"
+        ],
+        "startLine": 61,
+        "endLine": 61
+      },
+      {
+        "path": "websocket-server/src/index.ts",
+        "startLine": 148,
+        "endLine": 151,
+        "role": "read",
+        "reason": "Verified Socket.io io.on('connection') handler",
+        "evidenceRefs": [
+          "E1"
+        ]
+      },
+      {
+        "path": "src/lib/hooks/use-chat-socket.ts",
+        "startLine": 103,
+        "endLine": 106,
+        "role": "read",
+        "reason": "Verified client socket.on('connect') handler",
+        "evidenceRefs": [
+          "E2"
+        ]
+      }
+    ],
+    "discoveredPathsCount": 24,
+    "evidence": [
+      {
+        "id": "E1",
+        "path": "websocket-server/src/index.ts",
+        "startLine": 148,
+        "endLine": 151,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Verified Socket.io io.on('connection') handler",
+        "snippet": "148: // 연결 처리\n149: io.on('connection', (socket) => {\n150:   console.log(`[${new Date().toISOString()}] Client connected: ${socket.id}`)\n151:   console.log(`  User: ${socket.data.userId}, Company: ${socket.data.companyId}`)"
+      },
+      {
+        "id": "E2",
+        "path": "src/lib/hooks/use-chat-socket.ts",
+        "startLine": 103,
+        "endLine": 106,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Verified client socket.on('connect') handler",
+        "snippet": "103:       socketRef.current.on('connect', () => {\n104:         console.log('[WebSocket] Connected:', socketRef.current?.id)\n105:         setIsConnected(true)\n106:         setConnectionError(null)"
+      },
+      {
+        "id": "E3",
+        "path": "src/components/layout/dashboard-layout.tsx",
+        "startLine": 60,
+        "endLine": 63,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Verified window.addEventListener('storage')",
+        "snippet": "60: function subscribe(callback: () => void) {\n61:   window.addEventListener('storage', callback)\n62:   return () => window.removeEventListener('storage', callback)\n63: }"
+      },
+      {
+        "id": "E4",
+        "path": "scripts/dev-safe.mjs",
+        "startLine": 61,
+        "endLine": 61,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": ".on('exit') child process handler from grep",
+        "snippet": "61: child.on('exit', (code, signal) => {"
+      },
+      {
+        "id": "E5",
+        "path": "websocket-server/src/middleware/security.ts",
+        "startLine": 165,
+        "endLine": 176,
+        "groundingStatus": "partial",
+        "evidenceType": "file_range",
+        "why": "req.on('data','end','error') stream handlers",
+        "snippet": "165:     req.on('data', (chunk: Buffer) => {\n166:       size += chunk.length\n167:       if (size > MAX_HTTP_BODY_SIZE) {\n168:         req.destroy()\n169:         reject(new Error('Request body too large'))\n170:         return\n171:       }\n172:       body += chunk\n173:     })\n174: \n175:     req.on('end', () => resolve(body))\n176:     req.on('error', reject)"
+      },
+      {
+        "id": "E6",
+        "path": "websocket-server/src/socket-handlers/chat.ts",
+        "startLine": 97,
+        "endLine": 97,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": ".on('send-message') from grep results",
+        "snippet": "97:   socket.on('send-message', async (data: MessageData) => {"
+      },
+      {
+        "id": "E7",
+        "path": "src/lib/hooks/use-idle-timer.ts",
+        "startLine": 127,
+        "endLine": 129,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Multiple window activity listeners from grep",
+        "snippet": "127:       window.addEventListener(event, handleActivity, { passive: true })\n128:     })\n129:     document.addEventListener('visibilitychange', handleVisibilityChange)"
+      },
+      {
+        "id": "E8",
+        "path": "websocket-server/src/index.ts",
+        "startLine": 178,
+        "endLine": 178,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": ".emit('user-online') from grep results",
+        "snippet": "178:   socket.to(`company:${socket.data.companyId}`).emit('user-online', {"
+      }
+    ],
+    "uncertainties": [
+      "1 evidence item(s) are grounded only by grep, blame, or nearby line observations.",
+      "Regex patterns may match event handlers in strings/comments - manual verification required",
+      "Dynamic event listeners in forEach loops need runtime verification",
+      "No EventEmitter class usage found in scoped directories"
+    ],
+    "stats": {
+      "turns": 6,
+      "toolCalls": 12,
+      "filesRead": 3,
+      "grepCalls": 8,
+      "symbolCalls": 0,
+      "stoppedByBudget": false,
+      "elapsedMs": 12920,
+      "totalTokens": 130061
+    }
+  },
+  "structuredContent": {
+    "schemaVersion": 1,
+    "directAnswer": "Found 58 event handler entry points across 14 files. Entry kinds:\n\n**Socket.io Listeners (.on)** - 26 entries in websocket-server/src (connection, disconnect, SIGINT/SIGTERM) and src/lib/hooks (connect, new-message, user-joined, etc.)\n\n**DOM Listeners (addEventListener)** - 14 entries: window (resize, scroll, keydown, storage), document (visibilitychange, keydown, mousedown), service worker messages, media query changes\n\n**Node.js Listeners** - 6 entries: child process exit, HTTP request stream (data/end/error), net server one-time listeners\n\n**Event Emitters (.emit)** - 32 entries on both client and server sides\n\n⚠️ CAVEAT: Regex-based detection. Verify each line before acting; patterns can appear in strings/comments.",
+    "status": {
+      "confidence": "high",
+      "verification": "verified",
+      "complete": true,
+      "warnings": [
+        "1 evidence item(s) are grounded only by grep, blame, or nearby line observations."
+      ]
+    },
+    "targets": [
+      {
+        "path": "websocket-server/src/index.ts",
+        "role": "context",
+        "reason": "Main Socket.io connection handler entry point",
+        "evidenceRefs": [],
+        "startLine": 149,
+        "endLine": 149
+      },
+      {
+        "path": "websocket-server/src/index.ts",
+        "role": "context",
+        "reason": "Process SIGINT handler for graceful shutdown",
+        "evidenceRefs": [],
+        "startLine": 250,
+        "endLine": 250
+      },
+      {
+        "path": "src/lib/hooks/use-chat-socket.ts",
+        "role": "context",
+        "reason": "New message event handler on client",
+        "evidenceRefs": [],
+        "startLine": 124,
+        "endLine": 124
+      },
+      {
+        "path": "src/components/layout/dashboard-layout.tsx",
+        "role": "context",
+        "reason": "Window storage event listener",
+        "evidenceRefs": [],
+        "startLine": 61,
+        "endLine": 61
+      },
+      {
+        "path": "websocket-server/src/socket-handlers/chat.ts",
+        "role": "context",
+        "reason": "Join session socket event handler",
+        "evidenceRefs": [],
+        "startLine": 49,
+        "endLine": 49
+      },
+      {
+        "path": "scripts/dev-safe.mjs",
+        "role": "context",
+        "reason": "Child process exit event handler",
+        "evidenceRefs": [
+          "E4"
+        ],
+        "startLine": 61,
+        "endLine": 61
+      },
+      {
+        "path": "websocket-server/src/index.ts",
+        "startLine": 148,
+        "endLine": 151,
+        "role": "read",
+        "reason": "Verified Socket.io io.on('connection') handler",
+        "evidenceRefs": [
+          "E1"
+        ]
+      },
+      {
+        "path": "src/lib/hooks/use-chat-socket.ts",
+        "startLine": 103,
+        "endLine": 106,
+        "role": "read",
+        "reason": "Verified client socket.on('connect') handler",
+        "evidenceRefs": [
+          "E2"
+        ]
+      },
+      {
+        "path": "src/components/layout/dashboard-layout.tsx",
+        "startLine": 60,
+        "endLine": 63,
+        "role": "read",
+        "reason": "Verified window.addEventListener('storage')",
+        "evidenceRefs": [
+          "E3"
+        ]
+      },
+      {
+        "path": "websocket-server/src/middleware/security.ts",
+        "startLine": 165,
+        "endLine": 176,
+        "role": "read",
+        "reason": "req.on('data','end','error') stream handlers",
+        "evidenceRefs": [
+          "E5"
+        ]
+      },
+      {
+        "path": "websocket-server/src/socket-handlers/chat.ts",
+        "startLine": 97,
+        "endLine": 97,
+        "role": "read",
+        "reason": ".on('send-message') from grep results",
+        "evidenceRefs": [
+          "E6"
+        ]
+      },
+      {
+        "path": "src/lib/hooks/use-idle-timer.ts",
+        "startLine": 127,
+        "endLine": 129,
+        "role": "read",
+        "reason": "Multiple window activity listeners from grep",
+        "evidenceRefs": [
+          "E7"
+        ]
+      },
+      {
+        "path": "websocket-server/src/index.ts",
+        "startLine": 178,
+        "endLine": 178,
+        "role": "read",
+        "reason": ".emit('user-online') from grep results",
+        "evidenceRefs": [
+          "E8"
+        ]
+      }
+    ],
+    "discoveredPaths": [
+      {
+        "path": "scripts/dev-safe.mjs",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "websocket-server/src/index.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/lib/hooks/use-chat-socket.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/lib/hooks/use-notification-socket.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "websocket-server/src/middleware/security.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "websocket-server/src/socket-handlers/chat.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "websocket-server/src/socket-handlers/notification.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/components/layout/dashboard-layout.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/components/providers/language-provider.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/components/providers/notification-provider.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/components/providers/theme-provider.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/components/ui/date-range-picker.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/components/ui/dialog.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/components/ui/search-select.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/lib/hooks/use-idle-timer.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/app/select-plan/_components/select-plan-client.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/app/(dashboard)/settings/widget/api-docs/_components/api-docs-client.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "prisma/encrypt-existing-data.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "prisma/schema.prisma",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "lambda",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "prisma",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "websocket-server",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      }
+    ],
+    "evidence": [
+      {
+        "path": "websocket-server/src/index.ts",
+        "startLine": 148,
+        "endLine": 151,
+        "why": "Verified Socket.io io.on('connection') handler",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E1",
+        "snippet": "148: // 연결 처리\n149: io.on('connection', (socket) => {\n150:   console.log(`[${new Date().toISOString()}] Client connected: ${socket.id}`)\n151:   console.log(`  User: ${socket.data.userId}, Company: ${socket.data.companyId}`)"
+      },
+      {
+        "path": "src/lib/hooks/use-chat-socket.ts",
+        "startLine": 103,
+        "endLine": 106,
+        "why": "Verified client socket.on('connect') handler",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E2",
+        "snippet": "103:       socketRef.current.on('connect', () => {\n104:         console.log('[WebSocket] Connected:', socketRef.current?.id)\n105:         setIsConnected(true)\n106:         setConnectionError(null)"
+      },
+      {
+        "path": "src/components/layout/dashboard-layout.tsx",
+        "startLine": 60,
+        "endLine": 63,
+        "why": "Verified window.addEventListener('storage')",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E3",
+        "snippet": "60: function subscribe(callback: () => void) {\n61:   window.addEventListener('storage', callback)\n62:   return () => window.removeEventListener('storage', callback)\n63: }"
+      },
+      {
+        "path": "scripts/dev-safe.mjs",
+        "startLine": 61,
+        "endLine": 61,
+        "why": ".on('exit') child process handler from grep",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E4",
+        "snippet": "61: child.on('exit', (code, signal) => {"
+      },
+      {
+        "path": "websocket-server/src/middleware/security.ts",
+        "startLine": 165,
+        "endLine": 176,
+        "why": "req.on('data','end','error') stream handlers",
+        "evidenceType": "file_range",
+        "groundingStatus": "partial",
+        "id": "E5",
+        "snippet": "165:     req.on('data', (chunk: Buffer) => {\n166:       size += chunk.length\n167:       if (size > MAX_HTTP_BODY_SIZE) {\n168:         req.destroy()\n169:         reject(new Error('Request body too large'))\n170:         return\n171:       }\n172:       body += chunk\n173:     })\n174: \n175:     req.on('end', () => resolve(body))\n176:     req.on('error', reject)"
+      },
+      {
+        "path": "websocket-server/src/socket-handlers/chat.ts",
+        "startLine": 97,
+        "endLine": 97,
+        "why": ".on('send-message') from grep results",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E6",
+        "snippet": "97:   socket.on('send-message', async (data: MessageData) => {"
+      },
+      {
+        "path": "src/lib/hooks/use-idle-timer.ts",
+        "startLine": 127,
+        "endLine": 129,
+        "why": "Multiple window activity listeners from grep",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E7",
+        "snippet": "127:       window.addEventListener(event, handleActivity, { passive: true })\n128:     })\n129:     document.addEventListener('visibilitychange', handleVisibilityChange)"
+      },
+      {
+        "path": "websocket-server/src/index.ts",
+        "startLine": 178,
+        "endLine": 178,
+        "why": ".emit('user-online') from grep results",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E8",
+        "snippet": "178:   socket.to(`company:${socket.data.companyId}`).emit('user-online', {"
+      }
+    ],
+    "uncertainties": [
+      "1 evidence item(s) are grounded only by grep, blame, or nearby line observations.",
+      "Regex patterns may match event handlers in strings/comments - manual verification required",
+      "Dynamic event listeners in forEach loops need runtime verification",
+      "No EventEmitter class usage found in scoped directories"
+    ],
+    "nextAction": {
+      "type": "stop",
+      "reason": "Explorer result is complete for the requested read-only investigation."
+    },
+    "evidenceQuality": {
+      "level": "high",
+      "exactCount": 7,
+      "partialCount": 1,
+      "droppedCount": 0,
+      "fileCount": 7,
+      "warnings": [
+        "1 evidence item(s) are grounded only by grep, blame, or nearby line observations."
+      ],
+      "summary": "Verified: 3 files read, 8 grep searches, 7/8 evidence items grounded, cross-verified across 7 files. All evidence grounded in inspected code."
+    },
+    "searchCoverage": {
+      "scope": [
+        "src/**",
+        "websocket-server/src/**",
+        "lambda/**",
+        "prisma/**",
+        "scripts/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 3,
+      "grepCalls": 8,
+      "listDirCalls": 1,
+      "symbolCalls": 0,
+      "toolResultsTruncated": 0,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: src/**, websocket-server/src/**, lambda/**, prisma/**, scripts/**"
+      ],
+      "summary": "scope-limited search across src/**, websocket-server/src/**, lambda/**, prisma/**, scripts/**; 3 file read(s), 8 grep search(es)."
+    },
+    "failure": null,
+    "sessionId": "sess_6f260e52cae5b6b1",
+    "session": {
+      "id": "sess_6f260e52cae5b6b1",
+      "status": "created",
+      "remainingCalls": 4
+    },
+    "_debug": {
+      "evidenceSufficiency": {
+        "sufficient": true,
+        "reason": "simple_task_exact_evidence"
+      },
+      "confidenceScore": 1,
+      "confidenceFactors": {
+        "evidenceCount": 8,
+        "evidenceGrounded": 8,
+        "evidenceDropped": 0,
+        "exactCount": 7,
+        "crossVerified": true,
+        "symbolSearchUsed": true,
+        "stoppedByBudget": false,
+        "gitLogCalls": 0,
+        "gitDiffCalls": 0,
+        "gitBlameCalls": 0,
+        "gitGroundingHint": "none",
+        "taskKind": "default",
+        "adjustments": [
+          "base=0.30 (taskKind=default)",
+          "+0.54 (7 exact evidence item(s))",
+          "+0.12 (cross-verified across multiple files)",
+          "+0.05 (symbol/grep search used)"
+        ],
+        "droppedUngrounded": 0,
+        "droppedMalformed": 0
+      },
+      "stats": {
+        "model": "zai-glm-4.7",
+        "budget": "deep",
+        "budgetSource": "auto",
+        "turns": 6,
+        "toolCalls": 12,
+        "listDirCalls": 1,
+        "findFileCalls": 0,
+        "grepCalls": 8,
+        "filesRead": 3,
+        "gitLogCalls": 0,
+        "gitBlameCalls": 0,
+        "gitDiffCalls": 0,
+        "gitShowCalls": 0,
+        "symbolCalls": 0,
+        "inputTokens": 122327,
+        "outputTokens": 7734,
+        "totalTokens": 130061,
+        "elapsedMs": 12920,
+        "stoppedByBudget": false,
+        "scope": [
+          "src/**",
+          "websocket-server/src/**",
+          "lambda/**",
+          "prisma/**",
+          "scripts/**"
+        ],
+        "repoRoot": "/home/kyubr/IdeaProjects/aicc_manage",
+        "sessionId": "sess_6f260e52cae5b6b1",
+        "sessionStatus": "created",
+        "sessionSource": "created",
+        "remainingCalls": 4,
+        "cacheHits": 116,
+        "cacheMisses": 545,
+        "cacheHitRate": 0.175,
+        "cacheEntries": 535,
+        "cacheSizeBytes": 3270556
+      },
+      "toolTrace": {
+        "entries": [
+          {
+            "turn": 1,
+            "tool": "repo_grep",
+            "args": {
+              "pattern": "\\.on\\(['\"]",
+              "scope": [
+                "src/**",
+                "websocket-server/src/**",
+                "lambda/**",
+                "prisma/**",
+                "scripts/**"
+              ],
+              "maxResults": 80,
+              "contextLines": 2
+            },
+            "result": {
+              "matches": 35,
+              "paths": [
+                "scripts/dev-safe.mjs",
+                "websocket-server/src/index.ts",
+                "src/lib/hooks/use-chat-socket.ts",
+                "src/lib/hooks/use-notification-socket.ts",
+                "websocket-server/src/middleware/security.ts",
+                "websocket-server/src/socket-handlers/chat.ts"
+              ],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 1,
+            "tool": "repo_grep",
+            "args": {
+              "pattern": "addEventListener\\s*\\(",
+              "scope": [
+                "src/**",
+                "websocket-server/src/**",
+                "lambda/**",
+                "prisma/**",
+                "scripts/**"
+              ],
+              "maxResults": 80,
+              "contextLines": 2
+            },
+            "result": {
+              "matches": 14,
+              "paths": [
+                "src/components/layout/dashboard-layout.tsx",
+                "src/components/providers/language-provider.tsx",
+                "src/components/providers/notification-provider.tsx",
+                "src/components/providers/theme-provider.tsx",
+                "src/components/ui/date-range-picker.tsx",
+                "src/components/ui/dialog.tsx"
+              ],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 1,
+            "tool": "repo_grep",
+            "args": {
+              "pattern": "EventEmitter",
+              "scope": [
+                "src/**",
+                "websocket-server/src/**",
+                "lambda/**",
+                "prisma/**",
+                "scripts/**"
+              ],
+              "maxResults": 80,
+              "contextLines": 2
+            },
+            "result": {
+              "matches": 0,
+              "paths": [],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 1,
+            "tool": "repo_grep",
+            "args": {
+              "pattern": "\\.emit\\(['\"]",
+              "scope": [
+                "src/**",
+                "websocket-server/src/**",
+                "lambda/**",
+                "prisma/**",
+                "scripts/**"
+              ],
+              "maxResults": 80,
+              "contextLines": 2
+            },
+            "result": {
+              "matches": 34,
+              "paths": [
+                "websocket-server/src/index.ts",
+                "src/lib/hooks/use-chat-socket.ts",
+                "src/lib/hooks/use-notification-socket.ts",
+                "websocket-server/src/middleware/security.ts",
+                "websocket-server/src/socket-handlers/chat.ts",
+                "websocket-server/src/socket-handlers/notification.ts"
+              ],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_grep",
+            "args": {
+              "contextLines": 2,
+              "maxResults": 80,
+              "pattern": "once\\(['\"]",
+              "scope": [
+                "src/**",
+                "websocket-server/src/**",
+                "lambda/**",
+                "prisma/**",
+                "scripts/**"
+              ]
+            },
+            "result": {
+              "matches": 2,
+              "paths": [
+                "scripts/dev-safe.mjs"
+              ],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_grep",
+            "args": {
+              "contextLines": 2,
+              "maxResults": 80,
+              "pattern": "removeEventListener",
+              "scope": [
+                "src/**",
+                "websocket-server/src/**",
+                "lambda/**",
+                "prisma/**",
+                "scripts/**"
+              ]
+            },
+            "result": {
+              "matches": 14,
+              "paths": [
+                "src/components/layout/dashboard-layout.tsx",
+                "src/components/providers/language-provider.tsx",
+                "src/components/providers/notification-provider.tsx",
+                "src/components/providers/theme-provider.tsx",
+                "src/components/ui/date-range-picker.tsx",
+                "src/components/ui/dialog.tsx"
+              ],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_grep",
+            "args": {
+              "contextLines": 2,
+              "maxResults": 80,
+              "pattern": "\\.off\\(['\"]",
+              "scope": [
+                "src/**",
+                "websocket-server/src/**",
+                "lambda/**",
+                "prisma/**",
+                "scripts/**"
+              ]
+            },
+            "result": {
+              "matches": 0,
+              "paths": [],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_grep",
+            "args": {
+              "contextLines": 2,
+              "maxResults": 80,
+              "pattern": "on[A-Z]",
+              "scope": [
+                "src/**",
+                "websocket-server/src/**",
+                "lambda/**",
+                "prisma/**",
+                "scripts/**"
+              ]
+            },
+            "result": {
+              "matches": 80,
+              "paths": [
+                "prisma/encrypt-existing-data.ts",
+                "prisma/schema.prisma"
+              ],
+              "truncated": true
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_list_dir",
+            "args": {
+              "dirPath": "."
+            },
+            "result": {
+              "entries": 5,
+              "paths": [
+                "lambda",
+                "prisma",
+                "scripts",
+                "src",
+                "websocket-server"
+              ]
+            }
+          },
+          {
+            "turn": 5,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "websocket-server/src/index.ts",
+              "startLine": 148,
+              "endLine": 151
+            },
+            "result": {
+              "path": "websocket-server/src/index.ts",
+              "startLine": 148,
+              "endLine": 151,
+              "totalLines": 267,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 5,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/lib/hooks/use-chat-socket.ts",
+              "startLine": 103,
+              "endLine": 106
+            },
+            "result": {
+              "path": "src/lib/hooks/use-chat-socket.ts",
+              "startLine": 103,
+              "endLine": 106,
+              "totalLines": 296,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 5,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/components/layout/dashboard-layout.tsx",
+              "startLine": 60,
+              "endLine": 63
+            },
+            "result": {
+              "path": "src/components/layout/dashboard-layout.tsx",
+              "startLine": 60,
+              "endLine": 63,
+              "totalLines": 228,
+              "truncated": true
+            }
+          }
+        ],
+        "totalCalls": 12,
+        "truncated": false,
+        "maxEntries": 20
+      },
+      "codeMap": {
+        "entryPoints": [
+          "websocket-server/src/index.ts"
+        ],
+        "keyModules": [
+          {
+            "path": "scripts/dev-safe.mjs",
+            "role": "module",
+            "linesRead": 3
+          },
+          {
+            "path": "websocket-server/src/index.ts",
+            "role": "entry point",
+            "linesRead": 11
+          },
+          {
+            "path": "src/lib/hooks/use-chat-socket.ts",
+            "role": "module",
+            "linesRead": 24
+          },
+          {
+            "path": "src/lib/hooks/use-notification-socket.ts",
+            "role": "module",
+            "linesRead": 6
+          },
+          {
+            "path": "websocket-server/src/middleware/security.ts",
+            "role": "middleware",
+            "linesRead": 5
+          },
+          {
+            "path": "websocket-server/src/socket-handlers/chat.ts",
+            "role": "service",
+            "linesRead": 27
+          },
+          {
+            "path": "websocket-server/src/socket-handlers/notification.ts",
+            "role": "service",
+            "linesRead": 3
+          },
+          {
+            "path": "src/components/layout/dashboard-layout.tsx",
+            "role": "module",
+            "linesRead": 8
+          },
+          {
+            "path": "src/components/providers/language-provider.tsx",
+            "role": "provider",
+            "linesRead": 2
+          },
+          {
+            "path": "src/components/providers/notification-provider.tsx",
+            "role": "provider",
+            "linesRead": 4
+          },
+          {
+            "path": "src/components/providers/theme-provider.tsx",
+            "role": "provider",
+            "linesRead": 4
+          },
+          {
+            "path": "src/components/ui/date-range-picker.tsx",
+            "role": "module",
+            "linesRead": 2
+          },
+          {
+            "path": "src/components/ui/dialog.tsx",
+            "role": "module",
+            "linesRead": 2
+          },
+          {
+            "path": "src/components/ui/search-select.tsx",
+            "role": "module",
+            "linesRead": 2
+          },
+          {
+            "path": "src/lib/hooks/use-idle-timer.ts",
+            "role": "module",
+            "linesRead": 4
+          },
+          {
+            "path": "src/app/select-plan/_components/select-plan-client.tsx",
+            "role": "entry point",
+            "linesRead": 2
+          },
+          {
+            "path": "src/app/(dashboard)/settings/widget/api-docs/_components/api-docs-client.tsx",
+            "role": "configuration",
+            "linesRead": 2
+          },
+          {
+            "path": "prisma/encrypt-existing-data.ts",
+            "role": "module",
+            "linesRead": 42
+          },
+          {
+            "path": "prisma/schema.prisma",
+            "role": "data model",
+            "linesRead": 38
+          }
+        ]
+      }
+    }
+  },
+  "contentText": "## Result\nConfidence: high\nVerification: verified\nEvidence Quality: high (7 exact, 1 partial, 0 dropped)\nSearch Coverage: scope-limited search across src/**, websocket-server/src/**, lambda/**, prisma/**, scripts/**; 3 file read(s), 8 grep search(es).\n\n## Answer\nFound 58 event handler entry points across 14 files. Entry kinds:\n\n**Socket.io Listeners (.on)** - 26 entries in websocket-server/src (connection, disconnect, SIGINT/SIGTERM) and src/lib/hooks (connect, new-message, user-joined, etc.)\n\n**DOM Listeners (addEventListener)** - 14 entries: window (resize, scroll, keydown, storage), document (visibilitychange, keydown, mousedown), service worker messages, media query changes\n\n**Node.js Listeners** - 6 entries: child process exit, HTTP request stream (data/end/error), net server one-time listeners\n\n**Event Emitters (.emit)** - 32 entries on both client and server sides\n\n⚠️ CAVEAT: Regex-based detection. Verify each line before acting; patterns can appear in strings/comments.\n\n## Targets\n- [context] `websocket-server/src/index.ts:149-149` - Main Socket.io connection handler entry point\n- [context] `websocket-server/src/index.ts:250-250` - Process SIGINT handler for graceful shutdown\n- [context] `src/lib/hooks/use-chat-socket.ts:124-124` - New message event handler on client\n- [context] `src/components/layout/dashboard-layout.tsx:61-61` - Window storage event listener\n- [context] `websocket-server/src/socket-handlers/chat.ts:49-49` - Join session socket event handler\n- [context] `scripts/dev-safe.mjs:61-61` (E4) - Child process exit event handler\n- [read] `websocket-server/src/index.ts:148-151` (E1) - Verified Socket.io io.on('connection') handler\n- [read] `src/lib/hooks/use-chat-socket.ts:103-106` (E2) - Verified client socket.on('connect') handler\n- [read] `src/components/layout/dashboard-layout.tsx:60-63` (E3) - Verified window.addEventListener('storage')\n- [read] `websocket-server/src/middleware/security.ts:165-176` (E5) - req.on('data','end','error') stream handlers\n- [read] `websocket-server/src/socket-handlers/chat.ts:97-97` (E6) - .on('send-message') from grep results\n- [read] `src/lib/hooks/use-idle-timer.ts:127-129` (E7) - Multiple window activity listeners from grep\n- ... and 1 more targets\n\n## Evidence (8 items, confidence: high)\n- E1 `websocket-server/src/index.ts:148-151` - Verified Socket.io io.on('connection') handler\n  snippet: 148: // 연결 처리\n  149: io.on('connection', (socket) => {\n  150:   console.log(`[${new Date().toISOString()}] Client connected: ${socket.id}`)\n  151:   console.log(`  User: ${socket.data.userId}, Company: ${socket.data.companyId}`)\n- E2 `src/lib/hooks/use-chat-socket.ts:103-106` - Verified client socket.on('connect') handler\n  snippet: 103:       socketRef.current.on('connect', () => {\n  104:         console.log('[WebSocket] Connected:', socketRef.current?.id)\n  105:         setIsConnected(true)\n  106:         setConnectionError(null)\n- E3 `src/components/layout/dashboard-layout.tsx:60-63` - Verified window.addEventListener('storage')\n  snippet: 60: function subscribe(callback: () => void) {\n  61:   window.addEventListener('storage', callback)\n  62:   return () => window.removeEventListener('storage', callback)\n  63: }\n- E4 `scripts/dev-safe.mjs:61-61` - .on('exit') child process handler from grep\n  snippet: 61: child.on('exit', (code, signal) => {\n- E5 `websocket-server/src/middleware/security.ts:165-176` [partial] - req.on('data','end','error') stream handlers\n  snippet: 165:     req.on('data', (chunk: Buffer) => {\n  166:       size += chunk.length\n  167:       if (size > MAX_HTTP_BODY_SIZE) {\n  168:         req.destroy()\n  169:         reject(new Error('Request body too large'))\n  170:         return\n  171:       }\n  172:       body += chunk\n  173:     })\n  174: \n  175:     req.on('end', () => resolve(body))\n  176:     req.on('error', reject)\n- E6 `websocket-server/src/socket-handlers/chat.ts:97-97` - .on('send-message') from grep results\n  snippet: 97:   socket.on('send-message', async (data: MessageData) => {\n- E7 `src/lib/hooks/use-idle-timer.ts:127-129` - Multiple window activity listeners from grep\n  snippet: 127:       window.addEventListener(event, handleActivity, { passive: true })\n  128:     })\n  129:     document.addEventListener('visibilitychange', handleVisibilityChange)\n- E8 `websocket-server/src/index.ts:178-178` - .emit('user-online') from grep results\n  snippet: 178:   socket.to(`company:${socket.data.companyId}`).emit('user-online', {\n\n## Uncertainty\n- 1 evidence item(s) are grounded only by grep, blame, or nearby line observations.\n- Regex patterns may match event handlers in strings/comments - manual verification required\n- Dynamic event listeners in forEach loops need runtime verification\n- No EventEmitter class usage found in scoped directories\n\nSession: sess_6f260e52cae5b6b1 (pass as \"session\" for follow-up calls)"
+}

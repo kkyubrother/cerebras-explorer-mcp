@@ -1,0 +1,1317 @@
+{
+  "tool": "map_impact",
+  "repo": "DeepResearch",
+  "args": {
+    "repo_root": "/home/kyubr/IdeaProjects/DeepResearch",
+    "scope": [
+      "app/**",
+      "main.py",
+      "migrations/**"
+    ],
+    "anchor": "app/main.py",
+    "changeType": "refactor",
+    "knownSymbols": [
+      "create_app"
+    ]
+  },
+  "elapsedMs": 8268,
+  "error": null,
+  "isError": false,
+  "summary": {
+    "directAnswer": "anchor \"app/main.py\" has no direct callers, imports, tests, or configuration references within the codebase. The create_app() function is only called internally (line 27). It likely serves as an external ASGI/WSGI entry point (e.g., uvicorn app.main:app) rather than being imported by other modules.",
+    "status": {
+      "confidence": "high",
+      "verification": "targeted_read_needed",
+      "complete": true,
+      "warnings": []
+    },
+    "evidenceQuality": {
+      "level": "high",
+      "exactCount": 8,
+      "partialCount": 0,
+      "droppedCount": 0,
+      "fileCount": 5,
+      "warnings": [],
+      "summary": "Verified: 2 files read, 6 grep searches, 2 symbol lookups, 8/8 evidence items grounded, cross-verified across 5 files. All evidence grounded in inspected code."
+    },
+    "failure": null,
+    "nextAction": {
+      "type": "read_target",
+      "reason": "Read app/main.py:1-28 before final verification.",
+      "target": {
+        "path": "app/main.py",
+        "role": "read",
+        "reason": "Anchor file containing create_app() factory and FastAPI app instance",
+        "evidenceRefs": [
+          "app/main.py:1-28",
+          "app/main.py:12-24",
+          "app/main.py:27",
+          "E1"
+        ],
+        "startLine": 1,
+        "endLine": 28
+      }
+    },
+    "searchCoverage": {
+      "scope": [
+        "app/**",
+        "main.py",
+        "migrations/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 2,
+      "grepCalls": 6,
+      "listDirCalls": 2,
+      "symbolCalls": 2,
+      "toolResultsTruncated": 0,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: app/**, main.py, migrations/**"
+      ],
+      "summary": "scope-limited search across app/**, main.py, migrations/**; 2 file read(s), 6 grep search(es)."
+    },
+    "critic": null,
+    "sessionId": "sess_2fb8d94cbab3effb",
+    "session": {
+      "id": "sess_2fb8d94cbab3effb",
+      "status": "created",
+      "remainingCalls": 4
+    },
+    "targets": [
+      {
+        "path": "app/main.py",
+        "role": "read",
+        "reason": "Anchor file containing create_app() factory and FastAPI app instance",
+        "evidenceRefs": [
+          "app/main.py:1-28",
+          "app/main.py:12-24",
+          "app/main.py:27",
+          "E1"
+        ],
+        "startLine": 1,
+        "endLine": 28
+      },
+      {
+        "path": "app/api/claims.py",
+        "role": "read",
+        "reason": "Dependency of app/main.py - claims router imported",
+        "evidenceRefs": [
+          "app/main.py:5",
+          "E5"
+        ],
+        "startLine": 7,
+        "endLine": 8
+      },
+      {
+        "path": "app/api/plans.py",
+        "role": "read",
+        "reason": "Dependency of app/main.py - plans router imported",
+        "evidenceRefs": [
+          "app/main.py:5",
+          "E6"
+        ],
+        "startLine": 7,
+        "endLine": 8
+      },
+      {
+        "path": "app/api/sources.py",
+        "role": "read",
+        "reason": "Dependency of app/main.py - sources router imported",
+        "evidenceRefs": [
+          "app/main.py:5",
+          "E7"
+        ],
+        "startLine": 8,
+        "endLine": 9
+      },
+      {
+        "path": "app/api/tasks.py",
+        "role": "read",
+        "reason": "Dependency of app/main.py - tasks router imported",
+        "evidenceRefs": [
+          "app/main.py:5",
+          "E8"
+        ],
+        "startLine": 12,
+        "endLine": 14
+      },
+      {
+        "path": "app/main.py",
+        "startLine": 12,
+        "endLine": 24,
+        "role": "read",
+        "reason": "create_app() definition - the main factory function that configures and returns FastAPI app",
+        "evidenceRefs": [
+          "E2"
+        ]
+      },
+      {
+        "path": "app/main.py",
+        "startLine": 27,
+        "endLine": 27,
+        "role": "read",
+        "reason": "Only call site of create_app() within the codebase - module-level instantiation",
+        "evidenceRefs": [
+          "E3"
+        ]
+      },
+      {
+        "path": "app/main.py",
+        "startLine": 5,
+        "endLine": 9,
+        "role": "read",
+        "reason": "Outgoing dependencies from app/main.py to routers and core modules",
+        "evidenceRefs": [
+          "E4"
+        ]
+      }
+    ],
+    "discoveredPathsCount": 51,
+    "evidence": [
+      {
+        "id": "E1",
+        "path": "app/main.py",
+        "startLine": 1,
+        "endLine": 28,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Anchor file containing create_app() factory function (lines 12-24) and app instantiation (line 27). Imports 4 routers and 3 core modules.",
+        "snippet": "1: from __future__ import annotations\n2: \n3: from fastapi import FastAPI\n4: \n5: from app.api import claims, plans, sources, tasks\n6: from app.api.errors import register_error_handlers\n7: from app.core.config import get_settings\n8: from app.core.logging import configure_logging\n9: from app.core.telemetry import configure_telemetry, instrument_fastapi_app\n10: \n11: \n12: def create_app() -> FastAPI:\n... [snippet truncated]"
+      },
+      {
+        "id": "E2",
+        "path": "app/main.py",
+        "startLine": 12,
+        "endLine": 24,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "create_app() definition - the main factory function that configures and returns FastAPI app",
+        "snippet": "12: def create_app() -> FastAPI:\n13:     settings = get_settings()\n14:     configure_logging(settings.log_level)\n15:     configure_telemetry(settings.otel_service_name)\n16: \n17:     app = FastAPI(title=\"DeepResearch Demo Alpha API\", version=\"0.1.0\")\n18:     register_error_handlers(app)\n19:     app.include_router(tasks.router)\n20:     app.include_router(plans.router)\n21:     app.include_router(claims.router)\n22:     app.include_router(sources.router)\n23:     instrument_fastapi_app(app)\n... [snippet truncated]"
+      },
+      {
+        "id": "E3",
+        "path": "app/main.py",
+        "startLine": 27,
+        "endLine": 27,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Only call site of create_app() within the codebase - module-level instantiation",
+        "snippet": "27: app = create_app()"
+      },
+      {
+        "id": "E4",
+        "path": "app/main.py",
+        "startLine": 5,
+        "endLine": 9,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Outgoing dependencies from app/main.py to routers and core modules",
+        "snippet": "5: from app.api import claims, plans, sources, tasks\n6: from app.api.errors import register_error_handlers\n7: from app.core.config import get_settings\n8: from app.core.logging import configure_logging\n9: from app.core.telemetry import configure_telemetry, instrument_fastapi_app"
+      },
+      {
+        "id": "E5",
+        "path": "app/api/claims.py",
+        "startLine": 7,
+        "endLine": 8,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Claims router - one of 4 routers imported by app/main.py",
+        "snippet": "7: from app.api.errors import ApiError\n8: from app.services.claim_service import get_claim_evidence"
+      },
+      {
+        "id": "E6",
+        "path": "app/api/plans.py",
+        "startLine": 7,
+        "endLine": 8,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Plans router - one of 4 routers imported by app/main.py",
+        "snippet": "7: from app.api.errors import ApiError\n8: from app.services.task_service import approve_task_plan, serialize_task"
+      },
+      {
+        "id": "E7",
+        "path": "app/api/sources.py",
+        "startLine": 8,
+        "endLine": 9,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Sources router - one of 4 routers imported by app/main.py",
+        "snippet": "8: from app.api.errors import ApiError\n9: from app.services.source_registry import ("
+      },
+      {
+        "id": "E8",
+        "path": "app/api/tasks.py",
+        "startLine": 12,
+        "endLine": 14,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Tasks router - one of 4 routers imported by app/main.py",
+        "snippet": "12: from app.api.errors import ApiError\n13: from app.services.cost_service import aggregate_task_cost\n14: from app.services.task_service import ("
+      }
+    ],
+    "uncertainties": [],
+    "stats": {
+      "turns": 7,
+      "toolCalls": 22,
+      "filesRead": 2,
+      "grepCalls": 6,
+      "symbolCalls": 2,
+      "stoppedByBudget": false,
+      "elapsedMs": 8256,
+      "totalTokens": 54668
+    }
+  },
+  "structuredContent": {
+    "schemaVersion": 1,
+    "directAnswer": "anchor \"app/main.py\" has no direct callers, imports, tests, or configuration references within the codebase. The create_app() function is only called internally (line 27). It likely serves as an external ASGI/WSGI entry point (e.g., uvicorn app.main:app) rather than being imported by other modules.",
+    "status": {
+      "confidence": "high",
+      "verification": "targeted_read_needed",
+      "complete": true,
+      "warnings": []
+    },
+    "targets": [
+      {
+        "path": "app/main.py",
+        "role": "read",
+        "reason": "Anchor file containing create_app() factory and FastAPI app instance",
+        "evidenceRefs": [
+          "app/main.py:1-28",
+          "app/main.py:12-24",
+          "app/main.py:27",
+          "E1"
+        ],
+        "startLine": 1,
+        "endLine": 28
+      },
+      {
+        "path": "app/api/claims.py",
+        "role": "read",
+        "reason": "Dependency of app/main.py - claims router imported",
+        "evidenceRefs": [
+          "app/main.py:5",
+          "E5"
+        ],
+        "startLine": 7,
+        "endLine": 8
+      },
+      {
+        "path": "app/api/plans.py",
+        "role": "read",
+        "reason": "Dependency of app/main.py - plans router imported",
+        "evidenceRefs": [
+          "app/main.py:5",
+          "E6"
+        ],
+        "startLine": 7,
+        "endLine": 8
+      },
+      {
+        "path": "app/api/sources.py",
+        "role": "read",
+        "reason": "Dependency of app/main.py - sources router imported",
+        "evidenceRefs": [
+          "app/main.py:5",
+          "E7"
+        ],
+        "startLine": 8,
+        "endLine": 9
+      },
+      {
+        "path": "app/api/tasks.py",
+        "role": "read",
+        "reason": "Dependency of app/main.py - tasks router imported",
+        "evidenceRefs": [
+          "app/main.py:5",
+          "E8"
+        ],
+        "startLine": 12,
+        "endLine": 14
+      },
+      {
+        "path": "app/main.py",
+        "startLine": 12,
+        "endLine": 24,
+        "role": "read",
+        "reason": "create_app() definition - the main factory function that configures and returns FastAPI app",
+        "evidenceRefs": [
+          "E2"
+        ]
+      },
+      {
+        "path": "app/main.py",
+        "startLine": 27,
+        "endLine": 27,
+        "role": "read",
+        "reason": "Only call site of create_app() within the codebase - module-level instantiation",
+        "evidenceRefs": [
+          "E3"
+        ]
+      },
+      {
+        "path": "app/main.py",
+        "startLine": 5,
+        "endLine": 9,
+        "role": "read",
+        "reason": "Outgoing dependencies from app/main.py to routers and core modules",
+        "evidenceRefs": [
+          "E4"
+        ]
+      }
+    ],
+    "discoveredPaths": [
+      {
+        "path": "app/main.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/eval/seed_provider_config.py",
+        "kind": "unknown",
+        "sourceTool": "repo_references",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "app/eval/smoke_runner.py",
+        "kind": "unknown",
+        "sourceTool": "repo_references",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "app",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/api",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/citation",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/core",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/db",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/domain",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/eval",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/models",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/orchestrator",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/policy",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/providers",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/reporting",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/repositories",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/services",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/storage",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/workers",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "main.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "migrations",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "migrations/env.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "migrations/script.py.mako",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "migrations/versions",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/api/claims.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "app/api/plans.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "app/api/sources.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "app/api/tasks.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "app/citation/entailment.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "app/citation/fuzzy.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "app/db/session.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "app/domain/models.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "app/models/__init__.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "app/models/claim.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "app/models/evidence.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "app/models/log.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "app/models/policy.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "app/models/provider.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "app/models/report.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "app/models/research.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "app/models/search.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "app/models/source.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "app/orchestrator/graph.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "app/policy/budget.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "app/providers/anthropic.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "app/providers/base.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "app/providers/firecrawl.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "app/api/errors.py",
+        "kind": "unknown",
+        "sourceTool": "model_target",
+        "reason": "Surfaced by model-proposed target."
+      },
+      {
+        "path": "app/core/config.py",
+        "kind": "unknown",
+        "sourceTool": "model_target",
+        "reason": "Surfaced by model-proposed target."
+      },
+      {
+        "path": "app/core/telemetry.py",
+        "kind": "unknown",
+        "sourceTool": "model_target",
+        "reason": "Surfaced by model-proposed target."
+      }
+    ],
+    "evidence": [
+      {
+        "path": "app/main.py",
+        "startLine": 1,
+        "endLine": 28,
+        "why": "Anchor file containing create_app() factory function (lines 12-24) and app instantiation (line 27). Imports 4 routers and 3 core modules.",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E1",
+        "snippet": "1: from __future__ import annotations\n2: \n3: from fastapi import FastAPI\n4: \n5: from app.api import claims, plans, sources, tasks\n6: from app.api.errors import register_error_handlers\n7: from app.core.config import get_settings\n8: from app.core.logging import configure_logging\n9: from app.core.telemetry import configure_telemetry, instrument_fastapi_app\n10: \n11: \n12: def create_app() -> FastAPI:\n... [snippet truncated]"
+      },
+      {
+        "path": "app/main.py",
+        "startLine": 12,
+        "endLine": 24,
+        "why": "create_app() definition - the main factory function that configures and returns FastAPI app",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E2",
+        "snippet": "12: def create_app() -> FastAPI:\n13:     settings = get_settings()\n14:     configure_logging(settings.log_level)\n15:     configure_telemetry(settings.otel_service_name)\n16: \n17:     app = FastAPI(title=\"DeepResearch Demo Alpha API\", version=\"0.1.0\")\n18:     register_error_handlers(app)\n19:     app.include_router(tasks.router)\n20:     app.include_router(plans.router)\n21:     app.include_router(claims.router)\n22:     app.include_router(sources.router)\n23:     instrument_fastapi_app(app)\n... [snippet truncated]"
+      },
+      {
+        "path": "app/main.py",
+        "startLine": 27,
+        "endLine": 27,
+        "why": "Only call site of create_app() within the codebase - module-level instantiation",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E3",
+        "snippet": "27: app = create_app()"
+      },
+      {
+        "path": "app/main.py",
+        "startLine": 5,
+        "endLine": 9,
+        "why": "Outgoing dependencies from app/main.py to routers and core modules",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E4",
+        "snippet": "5: from app.api import claims, plans, sources, tasks\n6: from app.api.errors import register_error_handlers\n7: from app.core.config import get_settings\n8: from app.core.logging import configure_logging\n9: from app.core.telemetry import configure_telemetry, instrument_fastapi_app"
+      },
+      {
+        "path": "app/api/claims.py",
+        "startLine": 7,
+        "endLine": 8,
+        "why": "Claims router - one of 4 routers imported by app/main.py",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E5",
+        "snippet": "7: from app.api.errors import ApiError\n8: from app.services.claim_service import get_claim_evidence"
+      },
+      {
+        "path": "app/api/plans.py",
+        "startLine": 7,
+        "endLine": 8,
+        "why": "Plans router - one of 4 routers imported by app/main.py",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E6",
+        "snippet": "7: from app.api.errors import ApiError\n8: from app.services.task_service import approve_task_plan, serialize_task"
+      },
+      {
+        "path": "app/api/sources.py",
+        "startLine": 8,
+        "endLine": 9,
+        "why": "Sources router - one of 4 routers imported by app/main.py",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E7",
+        "snippet": "8: from app.api.errors import ApiError\n9: from app.services.source_registry import ("
+      },
+      {
+        "path": "app/api/tasks.py",
+        "startLine": 12,
+        "endLine": 14,
+        "why": "Tasks router - one of 4 routers imported by app/main.py",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E8",
+        "snippet": "12: from app.api.errors import ApiError\n13: from app.services.cost_service import aggregate_task_cost\n14: from app.services.task_service import ("
+      }
+    ],
+    "uncertainties": [],
+    "nextAction": {
+      "type": "read_target",
+      "reason": "Read app/main.py:1-28 before final verification.",
+      "target": {
+        "path": "app/main.py",
+        "role": "read",
+        "reason": "Anchor file containing create_app() factory and FastAPI app instance",
+        "evidenceRefs": [
+          "app/main.py:1-28",
+          "app/main.py:12-24",
+          "app/main.py:27",
+          "E1"
+        ],
+        "startLine": 1,
+        "endLine": 28
+      }
+    },
+    "evidenceQuality": {
+      "level": "high",
+      "exactCount": 8,
+      "partialCount": 0,
+      "droppedCount": 0,
+      "fileCount": 5,
+      "warnings": [],
+      "summary": "Verified: 2 files read, 6 grep searches, 2 symbol lookups, 8/8 evidence items grounded, cross-verified across 5 files. All evidence grounded in inspected code."
+    },
+    "searchCoverage": {
+      "scope": [
+        "app/**",
+        "main.py",
+        "migrations/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 2,
+      "grepCalls": 6,
+      "listDirCalls": 2,
+      "symbolCalls": 2,
+      "toolResultsTruncated": 0,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: app/**, main.py, migrations/**"
+      ],
+      "summary": "scope-limited search across app/**, main.py, migrations/**; 2 file read(s), 6 grep search(es)."
+    },
+    "failure": null,
+    "sessionId": "sess_2fb8d94cbab3effb",
+    "session": {
+      "id": "sess_2fb8d94cbab3effb",
+      "status": "created",
+      "remainingCalls": 4
+    },
+    "_debug": {
+      "evidenceSufficiency": {
+        "sufficient": true,
+        "reason": "edit_plan_has_actionable_target"
+      },
+      "confidenceScore": 1,
+      "confidenceFactors": {
+        "evidenceCount": 8,
+        "evidenceGrounded": 8,
+        "evidenceDropped": 0,
+        "exactCount": 8,
+        "crossVerified": true,
+        "symbolSearchUsed": true,
+        "stoppedByBudget": false,
+        "gitLogCalls": 0,
+        "gitDiffCalls": 0,
+        "gitBlameCalls": 0,
+        "gitGroundingHint": "none",
+        "taskKind": "reference-chase",
+        "adjustments": [
+          "base=0.30 (taskKind=reference-chase)",
+          "+0.54 (8 exact evidence item(s))",
+          "+0.12 (cross-verified across multiple files)",
+          "+0.05 (symbol/grep search used)"
+        ],
+        "droppedUngrounded": 0,
+        "droppedMalformed": 0
+      },
+      "stats": {
+        "model": "zai-glm-4.7",
+        "budget": "deep",
+        "budgetSource": "auto",
+        "turns": 7,
+        "toolCalls": 22,
+        "listDirCalls": 2,
+        "findFileCalls": 10,
+        "grepCalls": 6,
+        "filesRead": 2,
+        "gitLogCalls": 0,
+        "gitBlameCalls": 0,
+        "gitDiffCalls": 0,
+        "gitShowCalls": 0,
+        "symbolCalls": 2,
+        "inputTokens": 49873,
+        "outputTokens": 4795,
+        "totalTokens": 54668,
+        "elapsedMs": 8256,
+        "stoppedByBudget": false,
+        "scope": [
+          "app/**",
+          "main.py",
+          "migrations/**"
+        ],
+        "repoRoot": "/home/kyubr/IdeaProjects/DeepResearch",
+        "sessionId": "sess_2fb8d94cbab3effb",
+        "sessionStatus": "created",
+        "sessionSource": "created",
+        "remainingCalls": 4,
+        "cacheHits": 57,
+        "cacheMisses": 341,
+        "cacheHitRate": 0.143,
+        "cacheEntries": 337,
+        "cacheSizeBytes": 2231936
+      },
+      "toolTrace": {
+        "entries": [
+          {
+            "turn": 1,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "app/main.py"
+            },
+            "result": {
+              "path": "app/main.py",
+              "startLine": 1,
+              "endLine": 28,
+              "totalLines": 28,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 1,
+            "tool": "repo_symbol_context",
+            "args": {
+              "symbol": "create_app"
+            },
+            "result": {
+              "symbol": "create_app",
+              "definition": {
+                "path": "app/main.py",
+                "line": 12,
+                "endLine": 26,
+                "kind": "function"
+              },
+              "callers": 1,
+              "observedRanges": 2,
+              "truncated": false
+            }
+          },
+          {
+            "turn": 1,
+            "tool": "repo_references",
+            "args": {
+              "symbol": "main",
+              "scope": [
+                "app",
+                "migrations",
+                "."
+              ]
+            },
+            "result": {
+              "symbol": "main",
+              "definition": {
+                "path": "app/eval/seed_provider_config.py",
+                "line": 46
+              },
+              "references": 3,
+              "truncated": false
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_grep",
+            "args": {
+              "pattern": "from app\\.main import|import app\\.main",
+              "scope": [
+                ".",
+                "app",
+                "migrations"
+              ]
+            },
+            "result": {
+              "matches": 0,
+              "paths": [],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_grep",
+            "args": {
+              "pattern": "create_app",
+              "scope": [
+                ".",
+                "app",
+                "migrations"
+              ]
+            },
+            "result": {
+              "matches": 2,
+              "paths": [
+                "app/main.py"
+              ],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_find_files",
+            "args": {
+              "pattern": "**/test*.py"
+            },
+            "result": {
+              "matches": 0,
+              "paths": [],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_list_dir",
+            "args": {},
+            "result": {
+              "entries": 23,
+              "paths": [
+                "app",
+                "app/__init__.py",
+                "app/api",
+                "app/citation",
+                "app/core",
+                "app/db"
+              ]
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_grep",
+            "args": {
+              "pattern": "app\\.main|main\\.py",
+              "scope": [
+                "."
+              ]
+            },
+            "result": {
+              "matches": 0,
+              "paths": [],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_grep",
+            "args": {
+              "pattern": "from app import main",
+              "scope": [
+                ".",
+                "app",
+                "migrations"
+              ]
+            },
+            "result": {
+              "matches": 0,
+              "paths": [],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_find_files",
+            "args": {
+              "pattern": "**/pytest.ini"
+            },
+            "result": {
+              "matches": 0,
+              "paths": [],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_find_files",
+            "args": {
+              "pattern": "**/pyproject.toml"
+            },
+            "result": {
+              "matches": 0,
+              "paths": [],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "main.py"
+            },
+            "result": {
+              "path": "main.py",
+              "startLine": 1,
+              "endLine": 14,
+              "totalLines": 14,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_find_files",
+            "args": {
+              "pattern": "Dockerfile*"
+            },
+            "result": {
+              "matches": 0,
+              "paths": [],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_find_files",
+            "args": {
+              "pattern": "docker-compose*"
+            },
+            "result": {
+              "matches": 0,
+              "paths": [],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_find_files",
+            "args": {
+              "pattern": "*.toml"
+            },
+            "result": {
+              "matches": 0,
+              "paths": [],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_find_files",
+            "args": {
+              "pattern": "*.yaml"
+            },
+            "result": {
+              "matches": 0,
+              "paths": [],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_find_files",
+            "args": {
+              "pattern": "*.yml"
+            },
+            "result": {
+              "matches": 0,
+              "paths": [],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 5,
+            "tool": "repo_list_dir",
+            "args": {},
+            "result": {
+              "entries": 3,
+              "paths": [
+                "app",
+                "main.py",
+                "migrations"
+              ]
+            }
+          },
+          {
+            "turn": 5,
+            "tool": "repo_grep",
+            "args": {
+              "scope": [
+                "app"
+              ],
+              "pattern": "from app\\.|import app\\."
+            },
+            "result": {
+              "matches": 80,
+              "paths": [
+                "app/main.py",
+                "app/api/claims.py",
+                "app/api/plans.py",
+                "app/api/sources.py",
+                "app/api/tasks.py",
+                "app/citation/entailment.py"
+              ],
+              "truncated": true
+            }
+          },
+          {
+            "turn": 6,
+            "tool": "repo_grep",
+            "args": {
+              "pattern": "app\\.main|create_app",
+              "scope": [
+                "app",
+                "migrations"
+              ]
+            },
+            "result": {
+              "matches": 2,
+              "paths": [
+                "app/main.py"
+              ],
+              "truncated": false
+            }
+          }
+        ],
+        "totalCalls": 22,
+        "truncated": true,
+        "maxEntries": 20
+      },
+      "codeMap": {
+        "entryPoints": [
+          "app/main.py",
+          "main.py"
+        ],
+        "keyModules": [
+          {
+            "path": "app/main.py",
+            "role": "entry point",
+            "linesRead": 53
+          },
+          {
+            "path": "main.py",
+            "role": "entry point",
+            "linesRead": 14
+          },
+          {
+            "path": "app/api/claims.py",
+            "role": "entry point",
+            "linesRead": 2
+          },
+          {
+            "path": "app/api/plans.py",
+            "role": "entry point",
+            "linesRead": 2
+          },
+          {
+            "path": "app/api/sources.py",
+            "role": "entry point",
+            "linesRead": 2
+          },
+          {
+            "path": "app/api/tasks.py",
+            "role": "entry point",
+            "linesRead": 3
+          },
+          {
+            "path": "app/citation/entailment.py",
+            "role": "entry point",
+            "linesRead": 3
+          },
+          {
+            "path": "app/citation/fuzzy.py",
+            "role": "entry point",
+            "linesRead": 2
+          },
+          {
+            "path": "app/db/session.py",
+            "role": "entry point",
+            "linesRead": 1
+          },
+          {
+            "path": "app/domain/models.py",
+            "role": "data model",
+            "linesRead": 1
+          },
+          {
+            "path": "app/eval/seed_provider_config.py",
+            "role": "configuration",
+            "linesRead": 5
+          },
+          {
+            "path": "app/models/__init__.py",
+            "role": "data model",
+            "linesRead": 9
+          },
+          {
+            "path": "app/models/claim.py",
+            "role": "data model",
+            "linesRead": 4
+          },
+          {
+            "path": "app/models/evidence.py",
+            "role": "data model",
+            "linesRead": 5
+          },
+          {
+            "path": "app/models/log.py",
+            "role": "data model",
+            "linesRead": 2
+          },
+          {
+            "path": "app/models/policy.py",
+            "role": "data model",
+            "linesRead": 2
+          },
+          {
+            "path": "app/models/provider.py",
+            "role": "data model",
+            "linesRead": 2
+          },
+          {
+            "path": "app/models/report.py",
+            "role": "data model",
+            "linesRead": 1
+          },
+          {
+            "path": "app/models/research.py",
+            "role": "data model",
+            "linesRead": 5
+          },
+          {
+            "path": "app/models/search.py",
+            "role": "data model",
+            "linesRead": 2
+          },
+          {
+            "path": "app/models/source.py",
+            "role": "data model",
+            "linesRead": 3
+          },
+          {
+            "path": "app/orchestrator/graph.py",
+            "role": "entry point",
+            "linesRead": 7
+          },
+          {
+            "path": "app/policy/budget.py",
+            "role": "entry point",
+            "linesRead": 1
+          },
+          {
+            "path": "app/providers/anthropic.py",
+            "role": "entry point",
+            "linesRead": 4
+          },
+          {
+            "path": "app/providers/base.py",
+            "role": "entry point",
+            "linesRead": 2
+          },
+          {
+            "path": "app/providers/firecrawl.py",
+            "role": "entry point",
+            "linesRead": 5
+          }
+        ]
+      }
+    }
+  },
+  "contentText": "## Result\nConfidence: high\nVerification: targeted_read_needed\nEvidence Quality: high (8 exact, 0 partial, 0 dropped)\nSearch Coverage: scope-limited search across app/**, main.py, migrations/**; 2 file read(s), 6 grep search(es).\n\n## Answer\nanchor \"app/main.py\" has no direct callers, imports, tests, or configuration references within the codebase. The create_app() function is only called internally (line 27). It likely serves as an external ASGI/WSGI entry point (e.g., uvicorn app.main:app) rather than being imported by other modules.\n\n## Next Action\nread_target: Read app/main.py:1-28 before final verification.\n\n## Targets\n- [read] `app/main.py:1-28` (app/main.py:1-28, app/main.py:12-24, app/main.py:27, E1) - Anchor file containing create_app() factory and FastAPI app instance\n- [read] `app/api/claims.py:7-8` (app/main.py:5, E5) - Dependency of app/main.py - claims router imported\n- [read] `app/api/plans.py:7-8` (app/main.py:5, E6) - Dependency of app/main.py - plans router imported\n- [read] `app/api/sources.py:8-9` (app/main.py:5, E7) - Dependency of app/main.py - sources router imported\n- [read] `app/api/tasks.py:12-14` (app/main.py:5, E8) - Dependency of app/main.py - tasks router imported\n- [read] `app/main.py:12-24` (E2) - create_app() definition - the main factory function that configures and returns FastAPI app\n- [read] `app/main.py:27-27` (E3) - Only call site of create_app() within the codebase - module-level instantiation\n- [read] `app/main.py:5-9` (E4) - Outgoing dependencies from app/main.py to routers and core modules\n\n## Evidence (8 items, confidence: high)\n- E1 `app/main.py:1-28` - Anchor file containing create_app() factory function (lines 12-24) and app instantiation (line 27). Imports 4 routers and 3 core modules.\n  snippet: 1: from __future__ import annotations\n  2: \n  3: from fastapi import FastAPI\n  4: \n  5: from app.api import claims, plans, sources, tasks\n  6: from app.api.errors import register_error_handlers\n  7: from app.core.config import get_settings\n  8: from app.core.logging import configure_logging\n  9: from app.core.telemetry import configure_telemetry, instrument_fastapi_app\n  10: \n  11: \n  12: def create_app() -> FastAPI:\n  ... [snippet truncated]\n- E2 `app/main.py:12-24` - create_app() definition - the main factory function that configures and returns FastAPI app\n  snippet: 12: def create_app() -> FastAPI:\n  13:     settings = get_settings()\n  14:     configure_logging(settings.log_level)\n  15:     configure_telemetry(settings.otel_service_name)\n  16: \n  17:     app = FastAPI(title=\"DeepResearch Demo Alpha API\", version=\"0.1.0\")\n  18:     register_error_handlers(app)\n  19:     app.include_router(tasks.router)\n  20:     app.include_router(plans.router)\n  21:     app.include_router(claims.router)\n  22:     app.include_router(sources.router)\n  23:     instrument_fastapi_app(app)\n  ... [snippet truncated]\n- E3 `app/main.py:27-27` - Only call site of create_app() within the codebase - module-level instantiation\n  snippet: 27: app = create_app()\n- E4 `app/main.py:5-9` - Outgoing dependencies from app/main.py to routers and core modules\n  snippet: 5: from app.api import claims, plans, sources, tasks\n  6: from app.api.errors import register_error_handlers\n  7: from app.core.config import get_settings\n  8: from app.core.logging import configure_logging\n  9: from app.core.telemetry import configure_telemetry, instrument_fastapi_app\n- E5 `app/api/claims.py:7-8` - Claims router - one of 4 routers imported by app/main.py\n  snippet: 7: from app.api.errors import ApiError\n  8: from app.services.claim_service import get_claim_evidence\n- E6 `app/api/plans.py:7-8` - Plans router - one of 4 routers imported by app/main.py\n  snippet: 7: from app.api.errors import ApiError\n  8: from app.services.task_service import approve_task_plan, serialize_task\n- E7 `app/api/sources.py:8-9` - Sources router - one of 4 routers imported by app/main.py\n  snippet: 8: from app.api.errors import ApiError\n  9: from app.services.source_registry import (\n- E8 `app/api/tasks.py:12-14` - Tasks router - one of 4 routers imported by app/main.py\n  snippet: 12: from app.api.errors import ApiError\n  13: from app.services.cost_service import aggregate_task_cost\n  14: from app.services.task_service import (\n\nSession: sess_2fb8d94cbab3effb (pass as \"session\" for follow-up calls)"
+}

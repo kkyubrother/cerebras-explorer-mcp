@@ -1,0 +1,659 @@
+{
+  "tool": "explain_code_path",
+  "repo": "cerebras-explorer-mcp",
+  "args": {
+    "repo_root": "/home/kyubr/IdeaProjects/cerebras-explorer-mcp",
+    "scope": [
+      "src/**",
+      "tests/**",
+      "examples/**"
+    ],
+    "pathQuery": "tools/call request dispatch from createMcpRequestHandler into wrapper task builders and runtime callTool",
+    "entryPoint": "src/mcp/server.mjs",
+    "knownFiles": [
+      "src/mcp/server.mjs"
+    ],
+    "knownSymbols": [
+      "createMcpRequestHandler"
+    ]
+  },
+  "elapsedMs": 6869,
+  "error": null,
+  "isError": false,
+  "summary": {
+    "directAnswer": "tools/call path: createMcpRequestHandler returns handleRequest (src/mcp/server.mjs:1009). handleRequest switches on message.method; for tools/call (line 861), it validates args via builders like buildFindRelevantCodeArgs (line 359), then calls callTool (line 881). callTool (line 792) invokes exploreRepository (line 796), imported from src/explorer/runtime.mjs (line 2).",
+    "status": {
+      "confidence": "high",
+      "verification": "verified",
+      "complete": true,
+      "warnings": [
+        "2 evidence item(s) are grounded only by grep, blame, or nearby line observations."
+      ]
+    },
+    "evidenceQuality": {
+      "level": "high",
+      "exactCount": 5,
+      "partialCount": 2,
+      "droppedCount": 0,
+      "fileCount": 1,
+      "warnings": [
+        "2 evidence item(s) are grounded only by grep, blame, or nearby line observations."
+      ],
+      "summary": "Verified: 3 files read, 2 grep searches, 1 symbol lookups, 5/7 evidence items grounded. All evidence grounded in inspected code."
+    },
+    "failure": null,
+    "nextAction": {
+      "type": "stop",
+      "reason": "Explorer result is complete for the requested read-only investigation."
+    },
+    "searchCoverage": {
+      "scope": [
+        "src/**",
+        "tests/**",
+        "examples/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 3,
+      "grepCalls": 2,
+      "listDirCalls": 0,
+      "symbolCalls": 1,
+      "toolResultsTruncated": 0,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: src/**, tests/**, examples/**"
+      ],
+      "summary": "scope-limited search across src/**, tests/**, examples/**; 3 file read(s), 2 grep search(es)."
+    },
+    "critic": null,
+    "sessionId": "sess_aca37b59effd6d89",
+    "session": {
+      "id": "sess_aca37b59effd6d89",
+      "status": "created",
+      "remainingCalls": 4
+    },
+    "targets": [
+      {
+        "path": "src/mcp/server.mjs",
+        "role": "context",
+        "reason": "Factory definition: createMcpRequestHandler entry point",
+        "evidenceRefs": [
+          "E1"
+        ],
+        "startLine": 587,
+        "endLine": 592
+      },
+      {
+        "path": "src/mcp/server.mjs",
+        "role": "context",
+        "reason": "Factory returns handleRequest/handleNotification",
+        "evidenceRefs": [
+          "E2"
+        ],
+        "startLine": 1009,
+        "endLine": 1009
+      },
+      {
+        "path": "src/mcp/server.mjs",
+        "role": "context",
+        "reason": "tools/call dispatch: validation, builder, callTool",
+        "evidenceRefs": [
+          "E3"
+        ],
+        "startLine": 861,
+        "endLine": 881
+      },
+      {
+        "path": "src/mcp/server.mjs",
+        "role": "context",
+        "reason": "callTool wrapper: AbortController, exploreRepository call",
+        "evidenceRefs": [],
+        "startLine": 792,
+        "endLine": 811
+      },
+      {
+        "path": "src/mcp/server.mjs",
+        "role": "context",
+        "reason": "Import of exploreRepository from runtime",
+        "evidenceRefs": [
+          "E5"
+        ],
+        "startLine": 2,
+        "endLine": 2
+      },
+      {
+        "path": "src/mcp/server.mjs",
+        "role": "read",
+        "reason": "Example builder: buildFindRelevantCodeArgs converts args",
+        "evidenceRefs": [
+          "E6"
+        ],
+        "startLine": 359,
+        "endLine": 373
+      },
+      {
+        "path": "src/mcp/server.mjs",
+        "startLine": 792,
+        "endLine": 800,
+        "role": "read",
+        "reason": "callTool invokes exploreRepository with built args",
+        "evidenceRefs": [
+          "E4"
+        ]
+      },
+      {
+        "path": "src/mcp/server.mjs",
+        "startLine": 346,
+        "endLine": 357,
+        "role": "read",
+        "reason": "Example builder: buildTraceSymbolArgs",
+        "evidenceRefs": [
+          "E7"
+        ]
+      }
+    ],
+    "discoveredPathsCount": 3,
+    "evidence": [
+      {
+        "id": "E1",
+        "path": "src/mcp/server.mjs",
+        "startLine": 587,
+        "endLine": 592,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Factory definition and entry point",
+        "snippet": "587: export function createMcpRequestHandler({\n588:   logger = () => {},\n589:   runtimeOptions = {},\n590:   sendNotification = null,\n591:   sessionStore = globalSessionStore,\n592: } = {}) {"
+      },
+      {
+        "id": "E2",
+        "path": "src/mcp/server.mjs",
+        "startLine": 1009,
+        "endLine": 1009,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Factory returns handleRequest/handleNotification",
+        "snippet": "1009:   return { handleRequest, handleNotification };"
+      },
+      {
+        "id": "E3",
+        "path": "src/mcp/server.mjs",
+        "startLine": 861,
+        "endLine": 881,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "tools/call dispatch: validation, builder, callTool",
+        "snippet": "861:       case 'tools/call': {\n862:         const name = message.params?.name;\n863:         const args = message.params?.arguments ?? {};\n864:         const progressToken = message.params?._meta?.progressToken ?? null;\n865:         const requestId = message.id ?? null;\n866:         const exposedToolNames = new Set(buildToolList().map(tool => tool.name));\n867: \n868:         try {\n869:           if (!exposedToolNames.has(name)) {\n870:             const error = new Error(`Unknown tool: ${name}`);\n871:             error.code = -32601;\n872:             throw error;\n... [snippet truncated]"
+      },
+      {
+        "id": "E4",
+        "path": "src/mcp/server.mjs",
+        "startLine": 792,
+        "endLine": 800,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "callTool invokes exploreRepository with built args",
+        "snippet": "792:   async function callTool(exploreArgs, progressToken, requestId) {\n793:     const abortController = new AbortController();\n794:     if (requestId) activeAbortControllers.set(requestId, abortController);\n795:     try {\n796:       const result = await exploreRepository(exploreArgs, {\n797:         logger,\n798:         ...runtimeOptions,\n799:         onProgress: makeProgressCallback(progressToken),\n800:         sessionStore,"
+      },
+      {
+        "id": "E5",
+        "path": "src/mcp/server.mjs",
+        "startLine": 2,
+        "endLine": 2,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Import of exploreRepository from runtime",
+        "snippet": "2: import { exploreRepository, freeExploreRepository } from '../explorer/runtime.mjs';"
+      },
+      {
+        "id": "E6",
+        "path": "src/mcp/server.mjs",
+        "startLine": 359,
+        "endLine": 373,
+        "groundingStatus": "partial",
+        "evidenceType": "file_range",
+        "why": "Example builder: buildFindRelevantCodeArgs",
+        "snippet": "359: function buildFindRelevantCodeArgs(args) {\n360:   const { query, repo_root, scope, knownFiles, knownSymbols, knownText, session } = args;\n361:   if (!query || typeof query !== 'string' || !query.trim()) {\n362:     throw makeInvalidArgsError('find_relevant_code requires a non-empty \"query\" argument.');\n363:   }\n364:   const task = `Find the code most relevant to this task and return the smallest useful read/edit targets: ${query.trim()}.`;\n365:   return {\n366:     task,\n367:     repo_root,\n368:     scope,\n369:     session,\n370:     taskMode: 'locate',\n... [snippet truncated]"
+      },
+      {
+        "id": "E7",
+        "path": "src/mcp/server.mjs",
+        "startLine": 346,
+        "endLine": 357,
+        "groundingStatus": "partial",
+        "evidenceType": "file_range",
+        "why": "Example builder: buildTraceSymbolArgs",
+        "snippet": "346: function buildTraceSymbolArgs(args) {\n347:   const { symbol, repo_root, scope, session } = args;\n348:   if (!symbol || typeof symbol !== 'string' || !symbol.trim()) {\n349:     throw makeInvalidArgsError('trace_symbol requires a non-empty \"symbol\" argument.');\n350:   }\n351:   const task = `Explain the symbol \"${symbol.trim()}\": where it is defined, what it does, its parameters/return type if applicable, and where it is called or used in the codebase.`;\n352:   return {\n353:     task, repo_root, scope, session,\n354:     taskMode: 'symbol_trace',\n355:     hints: { symbols: [symbol.trim()], strategy: 'symbol-first' },\n356:   };\n357: }"
+      }
+    ],
+    "uncertainties": [
+      "2 evidence item(s) are grounded only by grep, blame, or nearby line observations."
+    ],
+    "stats": {
+      "turns": 6,
+      "toolCalls": 6,
+      "filesRead": 3,
+      "grepCalls": 2,
+      "symbolCalls": 1,
+      "stoppedByBudget": false,
+      "elapsedMs": 6857,
+      "totalTokens": 67102
+    }
+  },
+  "structuredContent": {
+    "schemaVersion": 1,
+    "directAnswer": "tools/call path: createMcpRequestHandler returns handleRequest (src/mcp/server.mjs:1009). handleRequest switches on message.method; for tools/call (line 861), it validates args via builders like buildFindRelevantCodeArgs (line 359), then calls callTool (line 881). callTool (line 792) invokes exploreRepository (line 796), imported from src/explorer/runtime.mjs (line 2).",
+    "status": {
+      "confidence": "high",
+      "verification": "verified",
+      "complete": true,
+      "warnings": [
+        "2 evidence item(s) are grounded only by grep, blame, or nearby line observations."
+      ]
+    },
+    "targets": [
+      {
+        "path": "src/mcp/server.mjs",
+        "role": "context",
+        "reason": "Factory definition: createMcpRequestHandler entry point",
+        "evidenceRefs": [
+          "E1"
+        ],
+        "startLine": 587,
+        "endLine": 592
+      },
+      {
+        "path": "src/mcp/server.mjs",
+        "role": "context",
+        "reason": "Factory returns handleRequest/handleNotification",
+        "evidenceRefs": [
+          "E2"
+        ],
+        "startLine": 1009,
+        "endLine": 1009
+      },
+      {
+        "path": "src/mcp/server.mjs",
+        "role": "context",
+        "reason": "tools/call dispatch: validation, builder, callTool",
+        "evidenceRefs": [
+          "E3"
+        ],
+        "startLine": 861,
+        "endLine": 881
+      },
+      {
+        "path": "src/mcp/server.mjs",
+        "role": "context",
+        "reason": "callTool wrapper: AbortController, exploreRepository call",
+        "evidenceRefs": [],
+        "startLine": 792,
+        "endLine": 811
+      },
+      {
+        "path": "src/mcp/server.mjs",
+        "role": "context",
+        "reason": "Import of exploreRepository from runtime",
+        "evidenceRefs": [
+          "E5"
+        ],
+        "startLine": 2,
+        "endLine": 2
+      },
+      {
+        "path": "src/mcp/server.mjs",
+        "role": "read",
+        "reason": "Example builder: buildFindRelevantCodeArgs converts args",
+        "evidenceRefs": [
+          "E6"
+        ],
+        "startLine": 359,
+        "endLine": 373
+      },
+      {
+        "path": "src/mcp/server.mjs",
+        "startLine": 792,
+        "endLine": 800,
+        "role": "read",
+        "reason": "callTool invokes exploreRepository with built args",
+        "evidenceRefs": [
+          "E4"
+        ]
+      },
+      {
+        "path": "src/mcp/server.mjs",
+        "startLine": 346,
+        "endLine": 357,
+        "role": "read",
+        "reason": "Example builder: buildTraceSymbolArgs",
+        "evidenceRefs": [
+          "E7"
+        ]
+      }
+    ],
+    "discoveredPaths": [
+      {
+        "path": "src/mcp/server.mjs",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "tests/mcp-server.test.mjs",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/explorer/runtime.mjs",
+        "kind": "unknown",
+        "sourceTool": "model_target",
+        "reason": "Surfaced by model-proposed target."
+      }
+    ],
+    "evidence": [
+      {
+        "path": "src/mcp/server.mjs",
+        "startLine": 587,
+        "endLine": 592,
+        "why": "Factory definition and entry point",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E1",
+        "snippet": "587: export function createMcpRequestHandler({\n588:   logger = () => {},\n589:   runtimeOptions = {},\n590:   sendNotification = null,\n591:   sessionStore = globalSessionStore,\n592: } = {}) {"
+      },
+      {
+        "path": "src/mcp/server.mjs",
+        "startLine": 1009,
+        "endLine": 1009,
+        "why": "Factory returns handleRequest/handleNotification",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E2",
+        "snippet": "1009:   return { handleRequest, handleNotification };"
+      },
+      {
+        "path": "src/mcp/server.mjs",
+        "startLine": 861,
+        "endLine": 881,
+        "why": "tools/call dispatch: validation, builder, callTool",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E3",
+        "snippet": "861:       case 'tools/call': {\n862:         const name = message.params?.name;\n863:         const args = message.params?.arguments ?? {};\n864:         const progressToken = message.params?._meta?.progressToken ?? null;\n865:         const requestId = message.id ?? null;\n866:         const exposedToolNames = new Set(buildToolList().map(tool => tool.name));\n867: \n868:         try {\n869:           if (!exposedToolNames.has(name)) {\n870:             const error = new Error(`Unknown tool: ${name}`);\n871:             error.code = -32601;\n872:             throw error;\n... [snippet truncated]"
+      },
+      {
+        "path": "src/mcp/server.mjs",
+        "startLine": 792,
+        "endLine": 800,
+        "why": "callTool invokes exploreRepository with built args",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E4",
+        "snippet": "792:   async function callTool(exploreArgs, progressToken, requestId) {\n793:     const abortController = new AbortController();\n794:     if (requestId) activeAbortControllers.set(requestId, abortController);\n795:     try {\n796:       const result = await exploreRepository(exploreArgs, {\n797:         logger,\n798:         ...runtimeOptions,\n799:         onProgress: makeProgressCallback(progressToken),\n800:         sessionStore,"
+      },
+      {
+        "path": "src/mcp/server.mjs",
+        "startLine": 2,
+        "endLine": 2,
+        "why": "Import of exploreRepository from runtime",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E5",
+        "snippet": "2: import { exploreRepository, freeExploreRepository } from '../explorer/runtime.mjs';"
+      },
+      {
+        "path": "src/mcp/server.mjs",
+        "startLine": 359,
+        "endLine": 373,
+        "why": "Example builder: buildFindRelevantCodeArgs",
+        "evidenceType": "file_range",
+        "groundingStatus": "partial",
+        "id": "E6",
+        "snippet": "359: function buildFindRelevantCodeArgs(args) {\n360:   const { query, repo_root, scope, knownFiles, knownSymbols, knownText, session } = args;\n361:   if (!query || typeof query !== 'string' || !query.trim()) {\n362:     throw makeInvalidArgsError('find_relevant_code requires a non-empty \"query\" argument.');\n363:   }\n364:   const task = `Find the code most relevant to this task and return the smallest useful read/edit targets: ${query.trim()}.`;\n365:   return {\n366:     task,\n367:     repo_root,\n368:     scope,\n369:     session,\n370:     taskMode: 'locate',\n... [snippet truncated]"
+      },
+      {
+        "path": "src/mcp/server.mjs",
+        "startLine": 346,
+        "endLine": 357,
+        "why": "Example builder: buildTraceSymbolArgs",
+        "evidenceType": "file_range",
+        "groundingStatus": "partial",
+        "id": "E7",
+        "snippet": "346: function buildTraceSymbolArgs(args) {\n347:   const { symbol, repo_root, scope, session } = args;\n348:   if (!symbol || typeof symbol !== 'string' || !symbol.trim()) {\n349:     throw makeInvalidArgsError('trace_symbol requires a non-empty \"symbol\" argument.');\n350:   }\n351:   const task = `Explain the symbol \"${symbol.trim()}\": where it is defined, what it does, its parameters/return type if applicable, and where it is called or used in the codebase.`;\n352:   return {\n353:     task, repo_root, scope, session,\n354:     taskMode: 'symbol_trace',\n355:     hints: { symbols: [symbol.trim()], strategy: 'symbol-first' },\n356:   };\n357: }"
+      }
+    ],
+    "uncertainties": [
+      "2 evidence item(s) are grounded only by grep, blame, or nearby line observations."
+    ],
+    "nextAction": {
+      "type": "stop",
+      "reason": "Explorer result is complete for the requested read-only investigation."
+    },
+    "evidenceQuality": {
+      "level": "high",
+      "exactCount": 5,
+      "partialCount": 2,
+      "droppedCount": 0,
+      "fileCount": 1,
+      "warnings": [
+        "2 evidence item(s) are grounded only by grep, blame, or nearby line observations."
+      ],
+      "summary": "Verified: 3 files read, 2 grep searches, 1 symbol lookups, 5/7 evidence items grounded. All evidence grounded in inspected code."
+    },
+    "searchCoverage": {
+      "scope": [
+        "src/**",
+        "tests/**",
+        "examples/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 3,
+      "grepCalls": 2,
+      "listDirCalls": 0,
+      "symbolCalls": 1,
+      "toolResultsTruncated": 0,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: src/**, tests/**, examples/**"
+      ],
+      "summary": "scope-limited search across src/**, tests/**, examples/**; 3 file read(s), 2 grep search(es)."
+    },
+    "failure": null,
+    "sessionId": "sess_aca37b59effd6d89",
+    "session": {
+      "id": "sess_aca37b59effd6d89",
+      "status": "created",
+      "remainingCalls": 4
+    },
+    "_debug": {
+      "evidenceSufficiency": {
+        "sufficient": true,
+        "reason": "path_has_multi_step_evidence"
+      },
+      "confidenceScore": 0.89,
+      "confidenceFactors": {
+        "evidenceCount": 7,
+        "evidenceGrounded": 7,
+        "evidenceDropped": 0,
+        "exactCount": 5,
+        "crossVerified": false,
+        "symbolSearchUsed": true,
+        "stoppedByBudget": false,
+        "gitLogCalls": 0,
+        "gitDiffCalls": 0,
+        "gitBlameCalls": 0,
+        "gitGroundingHint": "none",
+        "taskKind": "reference-chase",
+        "adjustments": [
+          "base=0.30 (taskKind=reference-chase)",
+          "+0.54 (5 exact evidence item(s))",
+          "+0.05 (symbol/grep search used)"
+        ],
+        "droppedUngrounded": 0,
+        "droppedMalformed": 0
+      },
+      "stats": {
+        "model": "zai-glm-4.7",
+        "budget": "deep",
+        "budgetSource": "auto",
+        "turns": 6,
+        "toolCalls": 6,
+        "listDirCalls": 0,
+        "findFileCalls": 0,
+        "grepCalls": 2,
+        "filesRead": 3,
+        "gitLogCalls": 0,
+        "gitBlameCalls": 0,
+        "gitDiffCalls": 0,
+        "gitShowCalls": 0,
+        "symbolCalls": 1,
+        "inputTokens": 63534,
+        "outputTokens": 3568,
+        "totalTokens": 67102,
+        "elapsedMs": 6857,
+        "stoppedByBudget": false,
+        "scope": [
+          "src/**",
+          "tests/**",
+          "examples/**"
+        ],
+        "repoRoot": "/home/kyubr/IdeaProjects/cerebras-explorer-mcp",
+        "sessionId": "sess_aca37b59effd6d89",
+        "sessionStatus": "created",
+        "sessionSource": "created",
+        "remainingCalls": 4,
+        "cacheHits": 62,
+        "cacheMisses": 399,
+        "cacheHitRate": 0.134,
+        "cacheEntries": 394,
+        "cacheSizeBytes": 2417976
+      },
+      "toolTrace": {
+        "entries": [
+          {
+            "turn": 1,
+            "tool": "repo_symbol_context",
+            "args": {
+              "symbol": "createMcpRequestHandler"
+            },
+            "result": {
+              "symbol": "createMcpRequestHandler",
+              "definition": {
+                "path": "src/mcp/server.mjs",
+                "line": 587,
+                "endLine": 592,
+                "kind": "function"
+              },
+              "callers": 22,
+              "observedRanges": 21,
+              "truncated": false
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/mcp/server.mjs",
+              "startLine": 587,
+              "endLine": 750
+            },
+            "result": {
+              "path": "src/mcp/server.mjs",
+              "startLine": 587,
+              "endLine": 750,
+              "totalLines": 1027,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/mcp/server.mjs",
+              "startLine": 750,
+              "endLine": 950
+            },
+            "result": {
+              "path": "src/mcp/server.mjs",
+              "startLine": 750,
+              "endLine": 950,
+              "totalLines": 1027,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_grep",
+            "args": {
+              "pattern": "function build(FindRelevantCode|TraceSymbol|MapChangeImpact|MapImpact|ExplainCodePath|CollectEvidence|ReviewChangeContext|FindEntrypoints)Args",
+              "scope": [
+                "src/mcp/server.mjs"
+              ],
+              "contextLines": 5
+            },
+            "result": {
+              "matches": 8,
+              "paths": [
+                "src/mcp/server.mjs"
+              ],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 5,
+            "tool": "repo_grep",
+            "args": {
+              "scope": [
+                "src/mcp/server.mjs"
+              ],
+              "pattern": "^import.*exploreRepository|^from.*exploreRepository"
+            },
+            "result": {
+              "matches": 1,
+              "paths": [
+                "src/mcp/server.mjs"
+              ],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 5,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/mcp/server.mjs",
+              "startLine": 950,
+              "endLine": 1010
+            },
+            "result": {
+              "path": "src/mcp/server.mjs",
+              "startLine": 950,
+              "endLine": 1010,
+              "totalLines": 1027,
+              "truncated": true
+            }
+          }
+        ],
+        "totalCalls": 6,
+        "truncated": false,
+        "maxEntries": 20
+      },
+      "codeMap": {
+        "entryPoints": [
+          "src/mcp/server.mjs"
+        ],
+        "keyModules": [
+          {
+            "path": "src/mcp/server.mjs",
+            "role": "entry point",
+            "linesRead": 442
+          },
+          {
+            "path": "tests/mcp-server.test.mjs",
+            "role": "test",
+            "linesRead": 19
+          }
+        ]
+      }
+    }
+  },
+  "contentText": "## Result\nConfidence: high\nVerification: verified\nEvidence Quality: high (5 exact, 2 partial, 0 dropped)\nSearch Coverage: scope-limited search across src/**, tests/**, examples/**; 3 file read(s), 2 grep search(es).\n\n## Answer\ntools/call path: createMcpRequestHandler returns handleRequest (src/mcp/server.mjs:1009). handleRequest switches on message.method; for tools/call (line 861), it validates args via builders like buildFindRelevantCodeArgs (line 359), then calls callTool (line 881). callTool (line 792) invokes exploreRepository (line 796), imported from src/explorer/runtime.mjs (line 2).\n\n## Targets\n- [context] `src/mcp/server.mjs:587-592` (E1) - Factory definition: createMcpRequestHandler entry point\n- [context] `src/mcp/server.mjs:1009-1009` (E2) - Factory returns handleRequest/handleNotification\n- [context] `src/mcp/server.mjs:861-881` (E3) - tools/call dispatch: validation, builder, callTool\n- [context] `src/mcp/server.mjs:792-811` - callTool wrapper: AbortController, exploreRepository call\n- [context] `src/mcp/server.mjs:2-2` (E5) - Import of exploreRepository from runtime\n- [read] `src/mcp/server.mjs:359-373` (E6) - Example builder: buildFindRelevantCodeArgs converts args\n- [read] `src/mcp/server.mjs:792-800` (E4) - callTool invokes exploreRepository with built args\n- [read] `src/mcp/server.mjs:346-357` (E7) - Example builder: buildTraceSymbolArgs\n\n## Evidence (7 items, confidence: high)\n- E1 `src/mcp/server.mjs:587-592` - Factory definition and entry point\n  snippet: 587: export function createMcpRequestHandler({\n  588:   logger = () => {},\n  589:   runtimeOptions = {},\n  590:   sendNotification = null,\n  591:   sessionStore = globalSessionStore,\n  592: } = {}) {\n- E2 `src/mcp/server.mjs:1009-1009` - Factory returns handleRequest/handleNotification\n  snippet: 1009:   return { handleRequest, handleNotification };\n- E3 `src/mcp/server.mjs:861-881` - tools/call dispatch: validation, builder, callTool\n  snippet: 861:       case 'tools/call': {\n  862:         const name = message.params?.name;\n  863:         const args = message.params?.arguments ?? {};\n  864:         const progressToken = message.params?._meta?.progressToken ?? null;\n  865:         const requestId = message.id ?? null;\n  866:         const exposedToolNames = new Set(buildToolList().map(tool => tool.name));\n  867: \n  868:         try {\n  869:           if (!exposedToolNames.has(name)) {\n  870:             const error = new Error(`Unknown tool: ${name}`);\n  871:             error.code = -32601;\n  872:             throw error;\n  ... [snippet truncated]\n- E4 `src/mcp/server.mjs:792-800` - callTool invokes exploreRepository with built args\n  snippet: 792:   async function callTool(exploreArgs, progressToken, requestId) {\n  793:     const abortController = new AbortController();\n  794:     if (requestId) activeAbortControllers.set(requestId, abortController);\n  795:     try {\n  796:       const result = await exploreRepository(exploreArgs, {\n  797:         logger,\n  798:         ...runtimeOptions,\n  799:         onProgress: makeProgressCallback(progressToken),\n  800:         sessionStore,\n- E5 `src/mcp/server.mjs:2-2` - Import of exploreRepository from runtime\n  snippet: 2: import { exploreRepository, freeExploreRepository } from '../explorer/runtime.mjs';\n- E6 `src/mcp/server.mjs:359-373` [partial] - Example builder: buildFindRelevantCodeArgs\n  snippet: 359: function buildFindRelevantCodeArgs(args) {\n  360:   const { query, repo_root, scope, knownFiles, knownSymbols, knownText, session } = args;\n  361:   if (!query || typeof query !== 'string' || !query.trim()) {\n  362:     throw makeInvalidArgsError('find_relevant_code requires a non-empty \"query\" argument.');\n  363:   }\n  364:   const task = `Find the code most relevant to this task and return the smallest useful read/edit targets: ${query.trim()}.`;\n  365:   return {\n  366:     task,\n  367:     repo_root,\n  368:     scope,\n  369:     session,\n  370:     taskMode: 'locate',\n  ... [snippet truncated]\n- E7 `src/mcp/server.mjs:346-357` [partial] - Example builder: buildTraceSymbolArgs\n  snippet: 346: function buildTraceSymbolArgs(args) {\n  347:   const { symbol, repo_root, scope, session } = args;\n  348:   if (!symbol || typeof symbol !== 'string' || !symbol.trim()) {\n  349:     throw makeInvalidArgsError('trace_symbol requires a non-empty \"symbol\" argument.');\n  350:   }\n  351:   const task = `Explain the symbol \"${symbol.trim()}\": where it is defined, what it does, its parameters/return type if applicable, and where it is called or used in the codebase.`;\n  352:   return {\n  353:     task, repo_root, scope, session,\n  354:     taskMode: 'symbol_trace',\n  355:     hints: { symbols: [symbol.trim()], strategy: 'symbol-first' },\n  356:   };\n  357: }\n\n## Uncertainty\n- 2 evidence item(s) are grounded only by grep, blame, or nearby line observations.\n\nSession: sess_aca37b59effd6d89 (pass as \"session\" for follow-up calls)"
+}

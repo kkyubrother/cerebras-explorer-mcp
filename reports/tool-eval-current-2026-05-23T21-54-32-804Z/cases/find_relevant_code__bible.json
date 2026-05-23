@@ -1,0 +1,1463 @@
+{
+  "tool": "find_relevant_code",
+  "repo": "bible",
+  "args": {
+    "repo_root": "/home/kyubr/IdeaProjects/bible",
+    "scope": [
+      "src/**",
+      "functions/**",
+      "scripts/**",
+      "migrations/**"
+    ],
+    "query": "Find the smallest useful files and line ranges for understanding React reader state, Cloudflare Pages Functions auth, bookmarks, and exam APIs.",
+    "knownFiles": [
+      "src/store.tsx"
+    ]
+  },
+  "elapsedMs": 9392,
+  "error": null,
+  "isError": false,
+  "summary": {
+    "directAnswer": "Found smallest useful files and line ranges: React reader state uses Zustand (src/store/slices/currents.ts). Cloudflare Pages Functions auth uses Telegram login with HMAC-SHA256 session tokens (functions/api/_lib/session.ts, telegram.ts). Bookmarks support delta sync via client_id (list.ts, sync.ts). Exam APIs track results/stats/history for authenticated users (submit.ts, stats.ts, history.ts). Security middleware protects mutating API requests.",
+    "status": {
+      "confidence": "high",
+      "verification": "verified",
+      "complete": true,
+      "warnings": []
+    },
+    "evidenceQuality": {
+      "level": "high",
+      "exactCount": 8,
+      "partialCount": 0,
+      "droppedCount": 0,
+      "fileCount": 6,
+      "warnings": [],
+      "summary": "Verified: 14 files read, 8/8 evidence items grounded, cross-verified across 6 files. All evidence grounded in inspected code."
+    },
+    "failure": null,
+    "nextAction": {
+      "type": "stop",
+      "reason": "Explorer result is complete for the requested read-only investigation."
+    },
+    "searchCoverage": {
+      "scope": [
+        "src/**",
+        "functions/**",
+        "scripts/**",
+        "migrations/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 14,
+      "grepCalls": 0,
+      "listDirCalls": 6,
+      "symbolCalls": 0,
+      "toolResultsTruncated": 0,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: src/**, functions/**, scripts/**, migrations/**"
+      ],
+      "summary": "scope-limited search across src/**, functions/**, scripts/**, migrations/**; 14 file read(s), 0 grep search(es)."
+    },
+    "critic": null,
+    "sessionId": "sess_62c1b0b262e05fb5",
+    "session": {
+      "id": "sess_62c1b0b262e05fb5",
+      "status": "created",
+      "remainingCalls": 4
+    },
+    "targets": [
+      {
+        "path": "src/store/slices/currents.ts",
+        "role": "read",
+        "reason": "Reader state actions: setCurrentPassage, updateBookId, updateChapter, updateMode",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 81
+      },
+      {
+        "path": "functions/api/_lib/session.ts",
+        "role": "read",
+        "reason": "Session creation and authentication with HMAC-SHA256 token hashing",
+        "evidenceRefs": [],
+        "startLine": 57,
+        "endLine": 111
+      },
+      {
+        "path": "functions/api/auth/telegram.ts",
+        "role": "read",
+        "reason": "Telegram auth verification using HMAC-SHA256 and user upsert logic",
+        "evidenceRefs": [],
+        "startLine": 65,
+        "endLine": 146
+      },
+      {
+        "path": "functions/api/auth/telegram.ts",
+        "role": "read",
+        "reason": "Telegram auth handler: validation, verification, session cookie setting",
+        "evidenceRefs": [
+          "E5"
+        ],
+        "startLine": 148,
+        "endLine": 232
+      },
+      {
+        "path": "functions/api/auth/me.ts",
+        "role": "read",
+        "reason": "Session inspection endpoint to restore authenticated user from cookie",
+        "evidenceRefs": [],
+        "startLine": 38,
+        "endLine": 84
+      },
+      {
+        "path": "functions/api/bookmarks/sync.ts",
+        "role": "read",
+        "reason": "Bookmark sync: upsert by client_id with conflict resolution, soft-delete",
+        "evidenceRefs": [],
+        "startLine": 176,
+        "endLine": 269
+      },
+      {
+        "path": "functions/api/exam/submit.ts",
+        "role": "read",
+        "reason": "Exam submit: validates fields, inserts result with authenticated user_id",
+        "evidenceRefs": [],
+        "startLine": 27,
+        "endLine": 116
+      },
+      {
+        "path": "src/store/slices/currents.ts",
+        "startLine": 16,
+        "endLine": 80,
+        "role": "read",
+        "reason": "Reader state actions for book/chapter/mode selection",
+        "evidenceRefs": [
+          "E1"
+        ]
+      }
+    ],
+    "discoveredPathsCount": 88,
+    "evidence": [
+      {
+        "id": "E1",
+        "path": "src/store/slices/currents.ts",
+        "startLine": 16,
+        "endLine": 80,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Reader state actions for book/chapter/mode selection",
+        "snippet": "16: export const createCurrentsSlice: AppStoreSlice<CurrentsActions> = (set) => ({\n17:   setCurrentPassage: (bookId, chapter) =>\n18:     set((state) => ({\n19:       currents: {\n20:         ...state.currents,\n21:         currentBookId: bookId,\n22:         currentChapter: chapter,\n23:       },\n24:     })),\n25:   updateBookId: (bookId) =>\n26:     set((state) => ({\n27:       currents: {\n... [snippet truncated]"
+      },
+      {
+        "id": "E2",
+        "path": "functions/api/_lib/session.ts",
+        "startLine": 57,
+        "endLine": 78,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Session creation with token hashing",
+        "snippet": "57: export const createSession = async (\n58:   db: D1Database,\n59:   userId: number,\n60:   authSecret: string\n61: ): Promise<string> => {\n62:   const now = Math.floor(Date.now() / 1000);\n63:   const expiresAt = now + SESSION_MAX_AGE_SECONDS;\n64:   const sessionId = crypto.randomUUID();\n65:   const rawToken = createRawSessionToken();\n66:   const tokenHash = await hashSessionToken(rawToken, authSecret);\n67: \n68:   await db\n... [snippet truncated]"
+      },
+      {
+        "id": "E3",
+        "path": "functions/api/_lib/session.ts",
+        "startLine": 80,
+        "endLine": 111,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Session authentication logic",
+        "snippet": "80: export const authenticateSession = async (\n81:   request: Request,\n82:   db: D1Database,\n83:   authSecret: string\n84: ): Promise<{ sessionId: string; userId: number } | null> => {\n85:   const sessionToken = parseCookies(request)[SESSION_COOKIE_NAME];\n86:   if (!sessionToken) return null;\n87: \n88:   const tokenHash = await hashSessionToken(sessionToken, authSecret);\n89:   const now = Math.floor(Date.now() / 1000);\n90: \n91:   const session = await db\n... [snippet truncated]"
+      },
+      {
+        "id": "E4",
+        "path": "functions/api/auth/telegram.ts",
+        "startLine": 65,
+        "endLine": 104,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Telegram auth verification using HMAC-SHA256",
+        "snippet": "65: async function verifyTelegramAuth(\n66:   data: TelegramUser,\n67:   botToken: string\n68: ): Promise<boolean> {\n69:   const { hash, ...userData } = data;\n70: \n71:   // Create data-check-string: sorted key=value pairs joined with \\n\n72:   const dataCheckString = Object.keys(userData)\n73:     .sort()\n74:     .map((key) => `${key}=${userData[key as keyof typeof userData]}`)\n75:     .join('\\n');\n76: \n... [snippet truncated]"
+      },
+      {
+        "id": "E5",
+        "path": "functions/api/auth/telegram.ts",
+        "startLine": 148,
+        "endLine": 232,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Telegram auth handler with session creation",
+        "snippet": "148: export const onRequestPost: PagesFunction<Env> = async (context) => {\n149:   const { request, env } = context;\n150: \n151:   // CORS headers\n152:   const corsHeaders = {\n153:     'Access-Control-Allow-Origin': '*',\n154:     'Access-Control-Allow-Methods': 'POST, OPTIONS',\n155:     'Access-Control-Allow-Headers': 'Content-Type',\n156:   };\n157: \n158:   // Handle OPTIONS request for CORS preflight\n159:   if (request.method === 'OPTIONS') {\n... [snippet truncated]"
+      },
+      {
+        "id": "E6",
+        "path": "functions/api/auth/me.ts",
+        "startLine": 48,
+        "endLine": 84,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Session inspection endpoint",
+        "snippet": "48:     const session = await authenticateSession(\n49:       context.request,\n50:       context.env.DB,\n51:       context.env.AUTH_SECRET\n52:     );\n53: \n54:     if (!session) {\n55:       return json({\n56:         success: true,\n57:         authenticated: false,\n58:         user: null,\n59:       });\n... [snippet truncated]"
+      },
+      {
+        "id": "E7",
+        "path": "functions/api/bookmarks/sync.ts",
+        "startLine": 116,
+        "endLine": 174,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Bookmark upsert with conflict resolution",
+        "snippet": "116: const upsertBookmark = async (\n117:   db: D1Database,\n118:   userId: number,\n119:   bookmark: NormalizedBookmark,\n120:   syncedAt: number\n121: ): Promise<number | null> => {\n122:   const existing = await db\n123:     .prepare(\n124:       `SELECT id, updated_at FROM bookmarks\n125:        WHERE user_id = ? AND client_id = ? LIMIT 1`\n126:     )\n127:     .bind(userId, bookmark.clientId)\n... [snippet truncated]"
+      },
+      {
+        "id": "E8",
+        "path": "functions/api/exam/submit.ts",
+        "startLine": 49,
+        "endLine": 99,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Exam result insertion with user_id",
+        "snippet": "49:     const session = await authenticateSession(request, env.DB, env.AUTH_SECRET);\n50:     if (!session) {\n51:       return new Response(\n52:         JSON.stringify({ error: 'Unauthorized' }),\n53:         { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }\n54:       );\n55:     }\n56: \n57:     const body = await request.json<ExamResult>();\n58: \n59:     // Validate required fields\n60:     if (\n... [snippet truncated]"
+      }
+    ],
+    "uncertainties": [],
+    "stats": {
+      "turns": 6,
+      "toolCalls": 20,
+      "filesRead": 14,
+      "grepCalls": 0,
+      "symbolCalls": 0,
+      "stoppedByBudget": false,
+      "elapsedMs": 9379,
+      "totalTokens": 102282
+    }
+  },
+  "structuredContent": {
+    "schemaVersion": 1,
+    "directAnswer": "Found smallest useful files and line ranges: React reader state uses Zustand (src/store/slices/currents.ts). Cloudflare Pages Functions auth uses Telegram login with HMAC-SHA256 session tokens (functions/api/_lib/session.ts, telegram.ts). Bookmarks support delta sync via client_id (list.ts, sync.ts). Exam APIs track results/stats/history for authenticated users (submit.ts, stats.ts, history.ts). Security middleware protects mutating API requests.",
+    "status": {
+      "confidence": "high",
+      "verification": "verified",
+      "complete": true,
+      "warnings": []
+    },
+    "targets": [
+      {
+        "path": "src/store/slices/currents.ts",
+        "role": "read",
+        "reason": "Reader state actions: setCurrentPassage, updateBookId, updateChapter, updateMode",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 81
+      },
+      {
+        "path": "functions/api/_lib/session.ts",
+        "role": "read",
+        "reason": "Session creation and authentication with HMAC-SHA256 token hashing",
+        "evidenceRefs": [],
+        "startLine": 57,
+        "endLine": 111
+      },
+      {
+        "path": "functions/api/auth/telegram.ts",
+        "role": "read",
+        "reason": "Telegram auth verification using HMAC-SHA256 and user upsert logic",
+        "evidenceRefs": [],
+        "startLine": 65,
+        "endLine": 146
+      },
+      {
+        "path": "functions/api/auth/telegram.ts",
+        "role": "read",
+        "reason": "Telegram auth handler: validation, verification, session cookie setting",
+        "evidenceRefs": [
+          "E5"
+        ],
+        "startLine": 148,
+        "endLine": 232
+      },
+      {
+        "path": "functions/api/auth/me.ts",
+        "role": "read",
+        "reason": "Session inspection endpoint to restore authenticated user from cookie",
+        "evidenceRefs": [],
+        "startLine": 38,
+        "endLine": 84
+      },
+      {
+        "path": "functions/api/bookmarks/sync.ts",
+        "role": "read",
+        "reason": "Bookmark sync: upsert by client_id with conflict resolution, soft-delete",
+        "evidenceRefs": [],
+        "startLine": 176,
+        "endLine": 269
+      },
+      {
+        "path": "functions/api/exam/submit.ts",
+        "role": "read",
+        "reason": "Exam submit: validates fields, inserts result with authenticated user_id",
+        "evidenceRefs": [],
+        "startLine": 27,
+        "endLine": 116
+      },
+      {
+        "path": "src/store/slices/currents.ts",
+        "startLine": 16,
+        "endLine": 80,
+        "role": "read",
+        "reason": "Reader state actions for book/chapter/mode selection",
+        "evidenceRefs": [
+          "E1"
+        ]
+      },
+      {
+        "path": "functions/api/_lib/session.ts",
+        "startLine": 57,
+        "endLine": 78,
+        "role": "read",
+        "reason": "Session creation with token hashing",
+        "evidenceRefs": [
+          "E2"
+        ]
+      },
+      {
+        "path": "functions/api/_lib/session.ts",
+        "startLine": 80,
+        "endLine": 111,
+        "role": "read",
+        "reason": "Session authentication logic",
+        "evidenceRefs": [
+          "E3"
+        ]
+      },
+      {
+        "path": "functions/api/auth/telegram.ts",
+        "startLine": 65,
+        "endLine": 104,
+        "role": "read",
+        "reason": "Telegram auth verification using HMAC-SHA256",
+        "evidenceRefs": [
+          "E4"
+        ]
+      },
+      {
+        "path": "functions/api/auth/me.ts",
+        "startLine": 48,
+        "endLine": 84,
+        "role": "read",
+        "reason": "Session inspection endpoint",
+        "evidenceRefs": [
+          "E6"
+        ]
+      },
+      {
+        "path": "functions/api/bookmarks/sync.ts",
+        "startLine": 116,
+        "endLine": 174,
+        "role": "read",
+        "reason": "Bookmark upsert with conflict resolution",
+        "evidenceRefs": [
+          "E7"
+        ]
+      },
+      {
+        "path": "functions/api/exam/submit.ts",
+        "startLine": 49,
+        "endLine": 99,
+        "role": "read",
+        "reason": "Exam result insertion with user_id",
+        "evidenceRefs": [
+          "E8"
+        ]
+      }
+    ],
+    "discoveredPaths": [
+      {
+        "path": "functions",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "functions/_middleware.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "functions/api",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "functions/api/_lib",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "functions/api/auth",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "functions/api/bookmarks",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "functions/api/exam",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "migrations",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "migrations/0001_initial.sql",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "migrations/0002_auth_sessions.sql",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "migrations/0003_exam_local_sync.sql",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "migrations/0004_bookmarks.sql",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts/build-worker-functions.sh",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts/check-no-legacy-i18n.sh",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts/check-style-imports.sh",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts/e2e-bookmark-playwright.sh",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts/e2e-reader-search-ux-playwright.sh",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts/e2e-regression-playwright.sh",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts/playwright_cli.sh",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts/revelation_corpus",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts/revelation_corpus/README.md",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts/revelation_corpus/build_corpus.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts/revelation_corpus/proper_nouns.tsv",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts/revelation_corpus/pyproject.toml",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts/revelation_corpus/sanity_score.mjs",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/api",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/api/auth.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/api/bible.tsx",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/api/bookmark.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/api/exam.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/api/load_from_server.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/data",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/data/NOTICE.md",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/features",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/features/bookmark",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/features/exam",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/features/reader",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/features/search",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/features/settings",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/i18n",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/i18n/index.tsx",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/i18n/locale.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/i18n/locales",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/index.tsx",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/pages",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/pages/EmbedPage.tsx",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/pages/LoadingPage.tsx",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/pages/NoticePage.tsx",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/reportWebVitals.tsx",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/routes.tsx",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/shared",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/shared/components",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/shared/constants",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/shared/hooks",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/shared/styles",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/shared/types",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/shared/utils",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/store",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/store/createActions.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/store/initialState.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/store/slices",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/store/types.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/store.selectors.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/store.tsx",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/styles",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/styles/css",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/styles/scss",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/utils",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/utils/database.tsx",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/vite-env.d.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/store/slices/auth.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/store/slices/currents.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/store/slices/globals.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/store/slices/search.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/store/slices/settings.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/store/slices/ui.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "functions/api/auth/logout.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "functions/api/auth/me.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "functions/api/auth/telegram.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "functions/api/bookmarks/list.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "functions/api/bookmarks/sync.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "functions/api/exam/history.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "functions/api/exam/local-sync.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "functions/api/exam/stats.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "functions/api/exam/submit.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "functions/api/_lib/session.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      }
+    ],
+    "evidence": [
+      {
+        "path": "src/store/slices/currents.ts",
+        "startLine": 16,
+        "endLine": 80,
+        "why": "Reader state actions for book/chapter/mode selection",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E1",
+        "snippet": "16: export const createCurrentsSlice: AppStoreSlice<CurrentsActions> = (set) => ({\n17:   setCurrentPassage: (bookId, chapter) =>\n18:     set((state) => ({\n19:       currents: {\n20:         ...state.currents,\n21:         currentBookId: bookId,\n22:         currentChapter: chapter,\n23:       },\n24:     })),\n25:   updateBookId: (bookId) =>\n26:     set((state) => ({\n27:       currents: {\n... [snippet truncated]"
+      },
+      {
+        "path": "functions/api/_lib/session.ts",
+        "startLine": 57,
+        "endLine": 78,
+        "why": "Session creation with token hashing",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E2",
+        "snippet": "57: export const createSession = async (\n58:   db: D1Database,\n59:   userId: number,\n60:   authSecret: string\n61: ): Promise<string> => {\n62:   const now = Math.floor(Date.now() / 1000);\n63:   const expiresAt = now + SESSION_MAX_AGE_SECONDS;\n64:   const sessionId = crypto.randomUUID();\n65:   const rawToken = createRawSessionToken();\n66:   const tokenHash = await hashSessionToken(rawToken, authSecret);\n67: \n68:   await db\n... [snippet truncated]"
+      },
+      {
+        "path": "functions/api/_lib/session.ts",
+        "startLine": 80,
+        "endLine": 111,
+        "why": "Session authentication logic",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E3",
+        "snippet": "80: export const authenticateSession = async (\n81:   request: Request,\n82:   db: D1Database,\n83:   authSecret: string\n84: ): Promise<{ sessionId: string; userId: number } | null> => {\n85:   const sessionToken = parseCookies(request)[SESSION_COOKIE_NAME];\n86:   if (!sessionToken) return null;\n87: \n88:   const tokenHash = await hashSessionToken(sessionToken, authSecret);\n89:   const now = Math.floor(Date.now() / 1000);\n90: \n91:   const session = await db\n... [snippet truncated]"
+      },
+      {
+        "path": "functions/api/auth/telegram.ts",
+        "startLine": 65,
+        "endLine": 104,
+        "why": "Telegram auth verification using HMAC-SHA256",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E4",
+        "snippet": "65: async function verifyTelegramAuth(\n66:   data: TelegramUser,\n67:   botToken: string\n68: ): Promise<boolean> {\n69:   const { hash, ...userData } = data;\n70: \n71:   // Create data-check-string: sorted key=value pairs joined with \\n\n72:   const dataCheckString = Object.keys(userData)\n73:     .sort()\n74:     .map((key) => `${key}=${userData[key as keyof typeof userData]}`)\n75:     .join('\\n');\n76: \n... [snippet truncated]"
+      },
+      {
+        "path": "functions/api/auth/telegram.ts",
+        "startLine": 148,
+        "endLine": 232,
+        "why": "Telegram auth handler with session creation",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E5",
+        "snippet": "148: export const onRequestPost: PagesFunction<Env> = async (context) => {\n149:   const { request, env } = context;\n150: \n151:   // CORS headers\n152:   const corsHeaders = {\n153:     'Access-Control-Allow-Origin': '*',\n154:     'Access-Control-Allow-Methods': 'POST, OPTIONS',\n155:     'Access-Control-Allow-Headers': 'Content-Type',\n156:   };\n157: \n158:   // Handle OPTIONS request for CORS preflight\n159:   if (request.method === 'OPTIONS') {\n... [snippet truncated]"
+      },
+      {
+        "path": "functions/api/auth/me.ts",
+        "startLine": 48,
+        "endLine": 84,
+        "why": "Session inspection endpoint",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E6",
+        "snippet": "48:     const session = await authenticateSession(\n49:       context.request,\n50:       context.env.DB,\n51:       context.env.AUTH_SECRET\n52:     );\n53: \n54:     if (!session) {\n55:       return json({\n56:         success: true,\n57:         authenticated: false,\n58:         user: null,\n59:       });\n... [snippet truncated]"
+      },
+      {
+        "path": "functions/api/bookmarks/sync.ts",
+        "startLine": 116,
+        "endLine": 174,
+        "why": "Bookmark upsert with conflict resolution",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E7",
+        "snippet": "116: const upsertBookmark = async (\n117:   db: D1Database,\n118:   userId: number,\n119:   bookmark: NormalizedBookmark,\n120:   syncedAt: number\n121: ): Promise<number | null> => {\n122:   const existing = await db\n123:     .prepare(\n124:       `SELECT id, updated_at FROM bookmarks\n125:        WHERE user_id = ? AND client_id = ? LIMIT 1`\n126:     )\n127:     .bind(userId, bookmark.clientId)\n... [snippet truncated]"
+      },
+      {
+        "path": "functions/api/exam/submit.ts",
+        "startLine": 49,
+        "endLine": 99,
+        "why": "Exam result insertion with user_id",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E8",
+        "snippet": "49:     const session = await authenticateSession(request, env.DB, env.AUTH_SECRET);\n50:     if (!session) {\n51:       return new Response(\n52:         JSON.stringify({ error: 'Unauthorized' }),\n53:         { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }\n54:       );\n55:     }\n56: \n57:     const body = await request.json<ExamResult>();\n58: \n59:     // Validate required fields\n60:     if (\n... [snippet truncated]"
+      }
+    ],
+    "uncertainties": [],
+    "nextAction": {
+      "type": "stop",
+      "reason": "Explorer result is complete for the requested read-only investigation."
+    },
+    "evidenceQuality": {
+      "level": "high",
+      "exactCount": 8,
+      "partialCount": 0,
+      "droppedCount": 0,
+      "fileCount": 6,
+      "warnings": [],
+      "summary": "Verified: 14 files read, 8/8 evidence items grounded, cross-verified across 6 files. All evidence grounded in inspected code."
+    },
+    "searchCoverage": {
+      "scope": [
+        "src/**",
+        "functions/**",
+        "scripts/**",
+        "migrations/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 14,
+      "grepCalls": 0,
+      "listDirCalls": 6,
+      "symbolCalls": 0,
+      "toolResultsTruncated": 0,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: src/**, functions/**, scripts/**, migrations/**"
+      ],
+      "summary": "scope-limited search across src/**, functions/**, scripts/**, migrations/**; 14 file read(s), 0 grep search(es)."
+    },
+    "failure": null,
+    "sessionId": "sess_62c1b0b262e05fb5",
+    "session": {
+      "id": "sess_62c1b0b262e05fb5",
+      "status": "created",
+      "remainingCalls": 4
+    },
+    "_debug": {
+      "evidenceSufficiency": {
+        "sufficient": true,
+        "reason": "simple_task_exact_evidence"
+      },
+      "confidenceScore": 0.96,
+      "confidenceFactors": {
+        "evidenceCount": 8,
+        "evidenceGrounded": 8,
+        "evidenceDropped": 0,
+        "exactCount": 8,
+        "crossVerified": true,
+        "symbolSearchUsed": false,
+        "stoppedByBudget": false,
+        "gitLogCalls": 0,
+        "gitDiffCalls": 0,
+        "gitBlameCalls": 0,
+        "gitGroundingHint": "none",
+        "taskKind": "default",
+        "adjustments": [
+          "base=0.30 (taskKind=default)",
+          "+0.54 (8 exact evidence item(s))",
+          "+0.12 (cross-verified across multiple files)"
+        ],
+        "droppedUngrounded": 0,
+        "droppedMalformed": 0
+      },
+      "stats": {
+        "model": "zai-glm-4.7",
+        "budget": "deep",
+        "budgetSource": "auto",
+        "turns": 6,
+        "toolCalls": 20,
+        "listDirCalls": 6,
+        "findFileCalls": 0,
+        "grepCalls": 0,
+        "filesRead": 14,
+        "gitLogCalls": 0,
+        "gitBlameCalls": 0,
+        "gitDiffCalls": 0,
+        "gitShowCalls": 0,
+        "symbolCalls": 0,
+        "inputTokens": 97448,
+        "outputTokens": 4834,
+        "totalTokens": 102282,
+        "elapsedMs": 9379,
+        "stoppedByBudget": false,
+        "scope": [
+          "src/**",
+          "functions/**",
+          "scripts/**",
+          "migrations/**"
+        ],
+        "repoRoot": "/home/kyubr/IdeaProjects/bible",
+        "sessionId": "sess_62c1b0b262e05fb5",
+        "sessionStatus": "created",
+        "sessionSource": "created",
+        "remainingCalls": 4,
+        "cacheHits": 22,
+        "cacheMisses": 189,
+        "cacheHitRate": 0.104,
+        "cacheEntries": 185,
+        "cacheSizeBytes": 1399108
+      },
+      "toolTrace": {
+        "entries": [
+          {
+            "turn": 1,
+            "tool": "repo_list_dir",
+            "args": {
+              "dirPath": "."
+            },
+            "result": {
+              "entries": 72,
+              "paths": [
+                "functions",
+                "functions/_middleware.ts",
+                "functions/api",
+                "functions/api/_lib",
+                "functions/api/auth",
+                "functions/api/bookmarks"
+              ]
+            }
+          },
+          {
+            "turn": 1,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/store.tsx"
+            },
+            "result": {
+              "path": "src/store.tsx",
+              "startLine": 1,
+              "endLine": 59,
+              "totalLines": 59,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_list_dir",
+            "args": {
+              "dirPath": "src/store/slices"
+            },
+            "result": {
+              "entries": 6,
+              "paths": [
+                "src/store/slices/auth.ts",
+                "src/store/slices/currents.ts",
+                "src/store/slices/globals.ts",
+                "src/store/slices/search.ts",
+                "src/store/slices/settings.ts",
+                "src/store/slices/ui.ts"
+              ]
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/store/types.ts"
+            },
+            "result": {
+              "path": "src/store/types.ts",
+              "startLine": 1,
+              "endLine": 119,
+              "totalLines": 119,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/store/initialState.ts"
+            },
+            "result": {
+              "path": "src/store/initialState.ts",
+              "startLine": 1,
+              "endLine": 64,
+              "totalLines": 64,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_list_dir",
+            "args": {
+              "dirPath": "functions/api/auth"
+            },
+            "result": {
+              "entries": 3,
+              "paths": [
+                "functions/api/auth/logout.ts",
+                "functions/api/auth/me.ts",
+                "functions/api/auth/telegram.ts"
+              ]
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_list_dir",
+            "args": {
+              "dirPath": "functions/api/bookmarks"
+            },
+            "result": {
+              "entries": 2,
+              "paths": [
+                "functions/api/bookmarks/list.ts",
+                "functions/api/bookmarks/sync.ts"
+              ]
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_list_dir",
+            "args": {
+              "dirPath": "functions/api/exam"
+            },
+            "result": {
+              "entries": 4,
+              "paths": [
+                "functions/api/exam/history.ts",
+                "functions/api/exam/local-sync.ts",
+                "functions/api/exam/stats.ts",
+                "functions/api/exam/submit.ts"
+              ]
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/store/slices/currents.ts"
+            },
+            "result": {
+              "path": "src/store/slices/currents.ts",
+              "startLine": 1,
+              "endLine": 81,
+              "totalLines": 81,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "functions/api/auth/telegram.ts"
+            },
+            "result": {
+              "path": "functions/api/auth/telegram.ts",
+              "startLine": 1,
+              "endLine": 241,
+              "totalLines": 241,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "functions/api/auth/me.ts"
+            },
+            "result": {
+              "path": "functions/api/auth/me.ts",
+              "startLine": 1,
+              "endLine": 96,
+              "totalLines": 96,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "functions/_middleware.ts"
+            },
+            "result": {
+              "path": "functions/_middleware.ts",
+              "startLine": 1,
+              "endLine": 54,
+              "totalLines": 54,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "functions/api/bookmarks/list.ts"
+            },
+            "result": {
+              "path": "functions/api/bookmarks/list.ts",
+              "startLine": 1,
+              "endLine": 126,
+              "totalLines": 126,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "functions/api/bookmarks/sync.ts"
+            },
+            "result": {
+              "path": "functions/api/bookmarks/sync.ts",
+              "startLine": 1,
+              "endLine": 270,
+              "totalLines": 270,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "functions/api/exam/submit.ts"
+            },
+            "result": {
+              "path": "functions/api/exam/submit.ts",
+              "startLine": 1,
+              "endLine": 117,
+              "totalLines": 117,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "functions/api/exam/stats.ts"
+            },
+            "result": {
+              "path": "functions/api/exam/stats.ts",
+              "startLine": 1,
+              "endLine": 135,
+              "totalLines": 135,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "functions/api/exam/history.ts"
+            },
+            "result": {
+              "path": "functions/api/exam/history.ts",
+              "startLine": 1,
+              "endLine": 93,
+              "totalLines": 93,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_list_dir",
+            "args": {
+              "dirPath": "functions/api/_lib"
+            },
+            "result": {
+              "entries": 1,
+              "paths": [
+                "functions/api/_lib/session.ts"
+              ]
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/store/slices/auth.ts"
+            },
+            "result": {
+              "path": "src/store/slices/auth.ts",
+              "startLine": 1,
+              "endLine": 21,
+              "totalLines": 21,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 5,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "functions/api/_lib/session.ts"
+            },
+            "result": {
+              "path": "functions/api/_lib/session.ts",
+              "startLine": 1,
+              "endLine": 134,
+              "totalLines": 134,
+              "truncated": true
+            }
+          }
+        ],
+        "totalCalls": 20,
+        "truncated": false,
+        "maxEntries": 20
+      },
+      "codeMap": {
+        "entryPoints": [],
+        "keyModules": [
+          {
+            "path": "src/store.tsx",
+            "role": "module",
+            "linesRead": 59
+          },
+          {
+            "path": "src/store/types.ts",
+            "role": "module",
+            "linesRead": 119
+          },
+          {
+            "path": "src/store/initialState.ts",
+            "role": "module",
+            "linesRead": 64
+          },
+          {
+            "path": "src/store/slices/currents.ts",
+            "role": "module",
+            "linesRead": 81
+          },
+          {
+            "path": "functions/api/auth/telegram.ts",
+            "role": "middleware",
+            "linesRead": 241
+          },
+          {
+            "path": "functions/api/auth/me.ts",
+            "role": "middleware",
+            "linesRead": 96
+          },
+          {
+            "path": "functions/_middleware.ts",
+            "role": "middleware",
+            "linesRead": 54
+          },
+          {
+            "path": "functions/api/bookmarks/list.ts",
+            "role": "API client",
+            "linesRead": 126
+          },
+          {
+            "path": "functions/api/bookmarks/sync.ts",
+            "role": "API client",
+            "linesRead": 270
+          },
+          {
+            "path": "functions/api/exam/submit.ts",
+            "role": "API client",
+            "linesRead": 117
+          },
+          {
+            "path": "functions/api/exam/stats.ts",
+            "role": "API client",
+            "linesRead": 135
+          },
+          {
+            "path": "functions/api/exam/history.ts",
+            "role": "API client",
+            "linesRead": 93
+          },
+          {
+            "path": "src/store/slices/auth.ts",
+            "role": "middleware",
+            "linesRead": 21
+          },
+          {
+            "path": "functions/api/_lib/session.ts",
+            "role": "API client",
+            "linesRead": 134
+          }
+        ]
+      }
+    }
+  },
+  "contentText": "## Result\nConfidence: high\nVerification: verified\nEvidence Quality: high (8 exact, 0 partial, 0 dropped)\nSearch Coverage: scope-limited search across src/**, functions/**, scripts/**, migrations/**; 14 file read(s), 0 grep search(es).\n\n## Answer\nFound smallest useful files and line ranges: React reader state uses Zustand (src/store/slices/currents.ts). Cloudflare Pages Functions auth uses Telegram login with HMAC-SHA256 session tokens (functions/api/_lib/session.ts, telegram.ts). Bookmarks support delta sync via client_id (list.ts, sync.ts). Exam APIs track results/stats/history for authenticated users (submit.ts, stats.ts, history.ts). Security middleware protects mutating API requests.\n\n## Targets\n- [read] `src/store/slices/currents.ts:1-81` - Reader state actions: setCurrentPassage, updateBookId, updateChapter, updateMode\n- [read] `functions/api/_lib/session.ts:57-111` - Session creation and authentication with HMAC-SHA256 token hashing\n- [read] `functions/api/auth/telegram.ts:65-146` - Telegram auth verification using HMAC-SHA256 and user upsert logic\n- [read] `functions/api/auth/telegram.ts:148-232` (E5) - Telegram auth handler: validation, verification, session cookie setting\n- [read] `functions/api/auth/me.ts:38-84` - Session inspection endpoint to restore authenticated user from cookie\n- [read] `functions/api/bookmarks/sync.ts:176-269` - Bookmark sync: upsert by client_id with conflict resolution, soft-delete\n- [read] `functions/api/exam/submit.ts:27-116` - Exam submit: validates fields, inserts result with authenticated user_id\n- [read] `src/store/slices/currents.ts:16-80` (E1) - Reader state actions for book/chapter/mode selection\n- [read] `functions/api/_lib/session.ts:57-78` (E2) - Session creation with token hashing\n- [read] `functions/api/_lib/session.ts:80-111` (E3) - Session authentication logic\n- [read] `functions/api/auth/telegram.ts:65-104` (E4) - Telegram auth verification using HMAC-SHA256\n- [read] `functions/api/auth/me.ts:48-84` (E6) - Session inspection endpoint\n- ... and 2 more targets\n\n## Evidence (8 items, confidence: high)\n- E1 `src/store/slices/currents.ts:16-80` - Reader state actions for book/chapter/mode selection\n  snippet: 16: export const createCurrentsSlice: AppStoreSlice<CurrentsActions> = (set) => ({\n  17:   setCurrentPassage: (bookId, chapter) =>\n  18:     set((state) => ({\n  19:       currents: {\n  20:         ...state.currents,\n  21:         currentBookId: bookId,\n  22:         currentChapter: chapter,\n  23:       },\n  24:     })),\n  25:   updateBookId: (bookId) =>\n  26:     set((state) => ({\n  27:       currents: {\n  ... [snippet truncated]\n- E2 `functions/api/_lib/session.ts:57-78` - Session creation with token hashing\n  snippet: 57: export const createSession = async (\n  58:   db: D1Database,\n  59:   userId: number,\n  60:   authSecret: string\n  61: ): Promise<string> => {\n  62:   const now = Math.floor(Date.now() / 1000);\n  63:   const expiresAt = now + SESSION_MAX_AGE_SECONDS;\n  64:   const sessionId = crypto.randomUUID();\n  65:   const rawToken = createRawSessionToken();\n  66:   const tokenHash = await hashSessionToken(rawToken, authSecret);\n  67: \n  68:   await db\n  ... [snippet truncated]\n- E3 `functions/api/_lib/session.ts:80-111` - Session authentication logic\n  snippet: 80: export const authenticateSession = async (\n  81:   request: Request,\n  82:   db: D1Database,\n  83:   authSecret: string\n  84: ): Promise<{ sessionId: string; userId: number } | null> => {\n  85:   const sessionToken = parseCookies(request)[SESSION_COOKIE_NAME];\n  86:   if (!sessionToken) return null;\n  87: \n  88:   const tokenHash = await hashSessionToken(sessionToken, authSecret);\n  89:   const now = Math.floor(Date.now() / 1000);\n  90: \n  91:   const session = await db\n  ... [snippet truncated]\n- E4 `functions/api/auth/telegram.ts:65-104` - Telegram auth verification using HMAC-SHA256\n  snippet: 65: async function verifyTelegramAuth(\n  66:   data: TelegramUser,\n  67:   botToken: string\n  68: ): Promise<boolean> {\n  69:   const { hash, ...userData } = data;\n  70: \n  71:   // Create data-check-string: sorted key=value pairs joined with \\n\n  72:   const dataCheckString = Object.keys(userData)\n  73:     .sort()\n  74:     .map((key) => `${key}=${userData[key as keyof typeof userData]}`)\n  75:     .join('\\n');\n  76: \n  ... [snippet truncated]\n- E5 `functions/api/auth/telegram.ts:148-232` - Telegram auth handler with session creation\n  snippet: 148: export const onRequestPost: PagesFunction<Env> = async (context) => {\n  149:   const { request, env } = context;\n  150: \n  151:   // CORS headers\n  152:   const corsHeaders = {\n  153:     'Access-Control-Allow-Origin': '*',\n  154:     'Access-Control-Allow-Methods': 'POST, OPTIONS',\n  155:     'Access-Control-Allow-Headers': 'Content-Type',\n  156:   };\n  157: \n  158:   // Handle OPTIONS request for CORS preflight\n  159:   if (request.method === 'OPTIONS') {\n  ... [snippet truncated]\n- E6 `functions/api/auth/me.ts:48-84` - Session inspection endpoint\n  snippet: 48:     const session = await authenticateSession(\n  49:       context.request,\n  50:       context.env.DB,\n  51:       context.env.AUTH_SECRET\n  52:     );\n  53: \n  54:     if (!session) {\n  55:       return json({\n  56:         success: true,\n  57:         authenticated: false,\n  58:         user: null,\n  59:       });\n  ... [snippet truncated]\n- E7 `functions/api/bookmarks/sync.ts:116-174` - Bookmark upsert with conflict resolution\n  snippet: 116: const upsertBookmark = async (\n  117:   db: D1Database,\n  118:   userId: number,\n  119:   bookmark: NormalizedBookmark,\n  120:   syncedAt: number\n  121: ): Promise<number | null> => {\n  122:   const existing = await db\n  123:     .prepare(\n  124:       `SELECT id, updated_at FROM bookmarks\n  125:        WHERE user_id = ? AND client_id = ? LIMIT 1`\n  126:     )\n  127:     .bind(userId, bookmark.clientId)\n  ... [snippet truncated]\n- E8 `functions/api/exam/submit.ts:49-99` - Exam result insertion with user_id\n  snippet: 49:     const session = await authenticateSession(request, env.DB, env.AUTH_SECRET);\n  50:     if (!session) {\n  51:       return new Response(\n  52:         JSON.stringify({ error: 'Unauthorized' }),\n  53:         { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }\n  54:       );\n  55:     }\n  56: \n  57:     const body = await request.json<ExamResult>();\n  58: \n  59:     // Validate required fields\n  60:     if (\n  ... [snippet truncated]\n\nSession: sess_62c1b0b262e05fb5 (pass as \"session\" for follow-up calls)"
+}

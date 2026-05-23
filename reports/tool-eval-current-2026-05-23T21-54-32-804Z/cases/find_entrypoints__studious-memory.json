@@ -1,0 +1,1150 @@
+{
+  "tool": "find_entrypoints",
+  "repo": "studious-memory",
+  "args": {
+    "repo_root": "/home/kyubr/IdeaProjects/studious-memory",
+    "scope": [
+      "backend/**",
+      "frontend/src/**",
+      "extensions/firefox-inbox/src/**",
+      "scripts/**",
+      "android/**"
+    ],
+    "entryKind": "mcp"
+  },
+  "elapsedMs": 14844,
+  "error": null,
+  "isError": false,
+  "summary": {
+    "directAnswer": "All MCP tool registrations centralized in backend/app/mcp/server.py. 42 tools via @scoped_tool() wrapper calling @mcp.tool() at line 81, 7 resources via @scoped_resource() wrapper calling @mcp.resource() at line 112. No registrations in frontend, extensions, scripts, or android. ⚠️ Regex-based detection: verify cited lines before acting.",
+    "status": {
+      "confidence": "high",
+      "verification": "verified",
+      "complete": true,
+      "warnings": []
+    },
+    "evidenceQuality": {
+      "level": "high",
+      "exactCount": 8,
+      "partialCount": 0,
+      "droppedCount": 0,
+      "fileCount": 1,
+      "warnings": [],
+      "summary": "Verified: 5 files read, 9 grep searches, 8/8 evidence items grounded. All evidence grounded in inspected code."
+    },
+    "failure": null,
+    "nextAction": {
+      "type": "stop",
+      "reason": "Explorer result is complete for the requested read-only investigation."
+    },
+    "searchCoverage": {
+      "scope": [
+        "backend/**",
+        "frontend/src/**",
+        "extensions/firefox-inbox/src/**",
+        "scripts/**",
+        "android/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 5,
+      "grepCalls": 9,
+      "listDirCalls": 1,
+      "symbolCalls": 0,
+      "toolResultsTruncated": 0,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: backend/**, frontend/src/**, extensions/firefox-inbox/src/**, scripts/**, android/**"
+      ],
+      "summary": "scope-limited search across backend/**, frontend/src/**, extensions/firefox-inbox/src/**, scripts/**, android/**; 5 file read(s), 9 grep search(es)."
+    },
+    "critic": null,
+    "sessionId": "sess_4cbc9182a4cbae1d",
+    "session": {
+      "id": "sess_4cbc9182a4cbae1d",
+      "status": "created",
+      "remainingCalls": 4
+    },
+    "targets": [
+      {
+        "path": "backend/app/mcp/server.py",
+        "role": "context",
+        "reason": "FastMCP server instance creation",
+        "evidenceRefs": [
+          "E1"
+        ],
+        "startLine": 76,
+        "endLine": 76
+      },
+      {
+        "path": "backend/app/mcp/server.py",
+        "role": "context",
+        "reason": "scoped_tool decorator wrapper definition",
+        "evidenceRefs": [
+          "E2"
+        ],
+        "startLine": 79,
+        "endLine": 89
+      },
+      {
+        "path": "backend/app/mcp/server.py",
+        "role": "read",
+        "reason": "Core @mcp.tool() registration call",
+        "evidenceRefs": [
+          "E3"
+        ],
+        "startLine": 81,
+        "endLine": 81
+      },
+      {
+        "path": "backend/app/mcp/server.py",
+        "role": "context",
+        "reason": "Custom list_tools method override",
+        "evidenceRefs": [
+          "E4"
+        ],
+        "startLine": 107,
+        "endLine": 107
+      },
+      {
+        "path": "backend/app/mcp/server.py",
+        "role": "context",
+        "reason": "scoped_resource decorator wrapper definition",
+        "evidenceRefs": [
+          "E5"
+        ],
+        "startLine": 110,
+        "endLine": 120
+      },
+      {
+        "path": "backend/app/mcp/server.py",
+        "role": "read",
+        "reason": "Core @mcp.resource() registration call",
+        "evidenceRefs": [
+          "E6"
+        ],
+        "startLine": 112,
+        "endLine": 112
+      },
+      {
+        "path": "backend/app/mcp/server.py",
+        "role": "read",
+        "reason": "Example: process_input tool registration",
+        "evidenceRefs": [
+          "E7"
+        ],
+        "startLine": 123,
+        "endLine": 143
+      },
+      {
+        "path": "backend/app/mcp/server.py",
+        "role": "read",
+        "reason": "Example: master-profile resource registration",
+        "evidenceRefs": [
+          "E8"
+        ],
+        "startLine": 842,
+        "endLine": 847
+      }
+    ],
+    "discoveredPathsCount": 36,
+    "evidence": [
+      {
+        "id": "E1",
+        "path": "backend/app/mcp/server.py",
+        "startLine": 76,
+        "endLine": 76,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "MCP server instance creation with FastMCP",
+        "snippet": "76: mcp = FastMCP(\"MaidBot\")"
+      },
+      {
+        "id": "E2",
+        "path": "backend/app/mcp/server.py",
+        "startLine": 79,
+        "endLine": 89,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Decorator wrapper calling @mcp.tool() internally",
+        "snippet": "79: def scoped_tool(*required_scopes: str):\n80:     def _decorator(func: Callable[..., Any]):\n81:         @mcp.tool(meta={\"required_scopes\": list(required_scopes)})\n82:         @wraps(func)\n83:         async def _wrapped(*args: Any, **kwargs: Any):\n84:             require_mcp_scopes(*required_scopes)\n85:             return await func(*args, **kwargs)\n86: \n87:         return _wrapped\n88: \n89:     return _decorator"
+      },
+      {
+        "id": "E3",
+        "path": "backend/app/mcp/server.py",
+        "startLine": 81,
+        "endLine": 81,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Actual @mcp.tool() registration call",
+        "snippet": "81:         @mcp.tool(meta={\"required_scopes\": list(required_scopes)})"
+      },
+      {
+        "id": "E4",
+        "path": "backend/app/mcp/server.py",
+        "startLine": 107,
+        "endLine": 107,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Custom list_tools override for scope filtering",
+        "snippet": "107: mcp.list_tools = _list_tools_for_current_scope  # type: ignore[method-assign]"
+      },
+      {
+        "id": "E5",
+        "path": "backend/app/mcp/server.py",
+        "startLine": 110,
+        "endLine": 120,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Decorator wrapper calling @mcp.resource() internally",
+        "snippet": "110: def scoped_resource(uri: str, *required_scopes: str):\n111:     def _decorator(func: Callable[..., Any]):\n112:         @mcp.resource(uri)\n113:         @wraps(func)\n114:         async def _wrapped(*args: Any, **kwargs: Any):\n115:             require_mcp_scopes(*required_scopes)\n116:             return await func(*args, **kwargs)\n117: \n118:         return _wrapped\n119: \n120:     return _decorator"
+      },
+      {
+        "id": "E6",
+        "path": "backend/app/mcp/server.py",
+        "startLine": 112,
+        "endLine": 112,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Actual @mcp.resource() registration call",
+        "snippet": "112:         @mcp.resource(uri)"
+      },
+      {
+        "id": "E7",
+        "path": "backend/app/mcp/server.py",
+        "startLine": 123,
+        "endLine": 143,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Tool registration: process_input via @scoped_tool()",
+        "snippet": "123: @scoped_tool(MCP_SCOPE_MEMORY_WRITE)\n124: async def process_input(\n125:     text: str | None = None,\n126:     image_base64: str | None = None,\n127:     image_mime: str | None = None,\n128:     context_enrichment: bool = False,\n129: ) -> dict:\n130:     \"\"\"주인님의 텍스트·이미지를 접수하여 AI 분석 후 지식·할일·일정으로 정리합니다.\n131: \n132:     Args:\n133:         text: 정리할 텍스트 또는 대화 기록\n134:         image_base64: Base64 인코딩된 이미지 데이터\n... [snippet truncated]"
+      },
+      {
+        "id": "E8",
+        "path": "backend/app/mcp/server.py",
+        "startLine": 842,
+        "endLine": 847,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Resource registration via @scoped_resource()",
+        "snippet": "842: @scoped_resource(\"resource://master-profile/current\", MCP_SCOPE_MEMORY_READ)\n843: async def resource_master_profile_current() -> str:\n844:     \"\"\"현재 Master Profile 컨텍스트 (JSON).\"\"\"\n845:     import json\n846:     result = await tool_get_master_context()\n847:     return json.dumps(result, ensure_ascii=False, indent=2)"
+      }
+    ],
+    "uncertainties": [],
+    "stats": {
+      "turns": 11,
+      "toolCalls": 15,
+      "filesRead": 5,
+      "grepCalls": 9,
+      "symbolCalls": 0,
+      "stoppedByBudget": false,
+      "elapsedMs": 14831,
+      "totalTokens": 276718
+    }
+  },
+  "structuredContent": {
+    "schemaVersion": 1,
+    "directAnswer": "All MCP tool registrations centralized in backend/app/mcp/server.py. 42 tools via @scoped_tool() wrapper calling @mcp.tool() at line 81, 7 resources via @scoped_resource() wrapper calling @mcp.resource() at line 112. No registrations in frontend, extensions, scripts, or android. ⚠️ Regex-based detection: verify cited lines before acting.",
+    "status": {
+      "confidence": "high",
+      "verification": "verified",
+      "complete": true,
+      "warnings": []
+    },
+    "targets": [
+      {
+        "path": "backend/app/mcp/server.py",
+        "role": "context",
+        "reason": "FastMCP server instance creation",
+        "evidenceRefs": [
+          "E1"
+        ],
+        "startLine": 76,
+        "endLine": 76
+      },
+      {
+        "path": "backend/app/mcp/server.py",
+        "role": "context",
+        "reason": "scoped_tool decorator wrapper definition",
+        "evidenceRefs": [
+          "E2"
+        ],
+        "startLine": 79,
+        "endLine": 89
+      },
+      {
+        "path": "backend/app/mcp/server.py",
+        "role": "read",
+        "reason": "Core @mcp.tool() registration call",
+        "evidenceRefs": [
+          "E3"
+        ],
+        "startLine": 81,
+        "endLine": 81
+      },
+      {
+        "path": "backend/app/mcp/server.py",
+        "role": "context",
+        "reason": "Custom list_tools method override",
+        "evidenceRefs": [
+          "E4"
+        ],
+        "startLine": 107,
+        "endLine": 107
+      },
+      {
+        "path": "backend/app/mcp/server.py",
+        "role": "context",
+        "reason": "scoped_resource decorator wrapper definition",
+        "evidenceRefs": [
+          "E5"
+        ],
+        "startLine": 110,
+        "endLine": 120
+      },
+      {
+        "path": "backend/app/mcp/server.py",
+        "role": "read",
+        "reason": "Core @mcp.resource() registration call",
+        "evidenceRefs": [
+          "E6"
+        ],
+        "startLine": 112,
+        "endLine": 112
+      },
+      {
+        "path": "backend/app/mcp/server.py",
+        "role": "read",
+        "reason": "Example: process_input tool registration",
+        "evidenceRefs": [
+          "E7"
+        ],
+        "startLine": 123,
+        "endLine": 143
+      },
+      {
+        "path": "backend/app/mcp/server.py",
+        "role": "read",
+        "reason": "Example: master-profile resource registration",
+        "evidenceRefs": [
+          "E8"
+        ],
+        "startLine": 842,
+        "endLine": 847
+      }
+    ],
+    "discoveredPaths": [
+      {
+        "path": "backend/app/mcp/server.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/main.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/mcp_server.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/pyproject.toml",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "scripts/generate_architecture_explorer.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "scripts/generate_contract_snapshot.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/app/config.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/app/dependencies.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/tests/test_input_tools_contract.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/tests/test_mcp_middleware.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/tests/test_naver_openapi_agent.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/tests/test_orchestrator_insights_budget_gate.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/tests/test_real_web_search_providers.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/tests/test_web_search_storage.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "scripts/ci/backend-domain-smoke.sh",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/app/agents/registry.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/app/capabilities/_helpers.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/app/capabilities/metadata.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/app/capabilities/naver_openapi_handlers.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/app/capabilities/registry.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/app/capabilities/result.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/app/capabilities/web_search_handlers.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/app/mcp/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/app/mcp/authz.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/app/mcp/context.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/app/mcp/tools",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/app/mcp/tools/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/app/mcp/tools/agent_tools.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/app/mcp/tools/approval_tools.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/app/mcp/tools/digest_tools.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/app/mcp/tools/inbox_tools.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/app/mcp/tools/input_tools.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/app/mcp/tools/memory_tools.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/app/mcp/tools/proactive_tools.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/app/mcp/tools/query_tools.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/app/mcp/tools/write_tools.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      }
+    ],
+    "evidence": [
+      {
+        "path": "backend/app/mcp/server.py",
+        "startLine": 76,
+        "endLine": 76,
+        "why": "MCP server instance creation with FastMCP",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E1",
+        "snippet": "76: mcp = FastMCP(\"MaidBot\")"
+      },
+      {
+        "path": "backend/app/mcp/server.py",
+        "startLine": 79,
+        "endLine": 89,
+        "why": "Decorator wrapper calling @mcp.tool() internally",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E2",
+        "snippet": "79: def scoped_tool(*required_scopes: str):\n80:     def _decorator(func: Callable[..., Any]):\n81:         @mcp.tool(meta={\"required_scopes\": list(required_scopes)})\n82:         @wraps(func)\n83:         async def _wrapped(*args: Any, **kwargs: Any):\n84:             require_mcp_scopes(*required_scopes)\n85:             return await func(*args, **kwargs)\n86: \n87:         return _wrapped\n88: \n89:     return _decorator"
+      },
+      {
+        "path": "backend/app/mcp/server.py",
+        "startLine": 81,
+        "endLine": 81,
+        "why": "Actual @mcp.tool() registration call",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E3",
+        "snippet": "81:         @mcp.tool(meta={\"required_scopes\": list(required_scopes)})"
+      },
+      {
+        "path": "backend/app/mcp/server.py",
+        "startLine": 107,
+        "endLine": 107,
+        "why": "Custom list_tools override for scope filtering",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E4",
+        "snippet": "107: mcp.list_tools = _list_tools_for_current_scope  # type: ignore[method-assign]"
+      },
+      {
+        "path": "backend/app/mcp/server.py",
+        "startLine": 110,
+        "endLine": 120,
+        "why": "Decorator wrapper calling @mcp.resource() internally",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E5",
+        "snippet": "110: def scoped_resource(uri: str, *required_scopes: str):\n111:     def _decorator(func: Callable[..., Any]):\n112:         @mcp.resource(uri)\n113:         @wraps(func)\n114:         async def _wrapped(*args: Any, **kwargs: Any):\n115:             require_mcp_scopes(*required_scopes)\n116:             return await func(*args, **kwargs)\n117: \n118:         return _wrapped\n119: \n120:     return _decorator"
+      },
+      {
+        "path": "backend/app/mcp/server.py",
+        "startLine": 112,
+        "endLine": 112,
+        "why": "Actual @mcp.resource() registration call",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E6",
+        "snippet": "112:         @mcp.resource(uri)"
+      },
+      {
+        "path": "backend/app/mcp/server.py",
+        "startLine": 123,
+        "endLine": 143,
+        "why": "Tool registration: process_input via @scoped_tool()",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E7",
+        "snippet": "123: @scoped_tool(MCP_SCOPE_MEMORY_WRITE)\n124: async def process_input(\n125:     text: str | None = None,\n126:     image_base64: str | None = None,\n127:     image_mime: str | None = None,\n128:     context_enrichment: bool = False,\n129: ) -> dict:\n130:     \"\"\"주인님의 텍스트·이미지를 접수하여 AI 분석 후 지식·할일·일정으로 정리합니다.\n131: \n132:     Args:\n133:         text: 정리할 텍스트 또는 대화 기록\n134:         image_base64: Base64 인코딩된 이미지 데이터\n... [snippet truncated]"
+      },
+      {
+        "path": "backend/app/mcp/server.py",
+        "startLine": 842,
+        "endLine": 847,
+        "why": "Resource registration via @scoped_resource()",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E8",
+        "snippet": "842: @scoped_resource(\"resource://master-profile/current\", MCP_SCOPE_MEMORY_READ)\n843: async def resource_master_profile_current() -> str:\n844:     \"\"\"현재 Master Profile 컨텍스트 (JSON).\"\"\"\n845:     import json\n846:     result = await tool_get_master_context()\n847:     return json.dumps(result, ensure_ascii=False, indent=2)"
+      }
+    ],
+    "uncertainties": [],
+    "nextAction": {
+      "type": "stop",
+      "reason": "Explorer result is complete for the requested read-only investigation."
+    },
+    "evidenceQuality": {
+      "level": "high",
+      "exactCount": 8,
+      "partialCount": 0,
+      "droppedCount": 0,
+      "fileCount": 1,
+      "warnings": [],
+      "summary": "Verified: 5 files read, 9 grep searches, 8/8 evidence items grounded. All evidence grounded in inspected code."
+    },
+    "searchCoverage": {
+      "scope": [
+        "backend/**",
+        "frontend/src/**",
+        "extensions/firefox-inbox/src/**",
+        "scripts/**",
+        "android/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 5,
+      "grepCalls": 9,
+      "listDirCalls": 1,
+      "symbolCalls": 0,
+      "toolResultsTruncated": 0,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: backend/**, frontend/src/**, extensions/firefox-inbox/src/**, scripts/**, android/**"
+      ],
+      "summary": "scope-limited search across backend/**, frontend/src/**, extensions/firefox-inbox/src/**, scripts/**, android/**; 5 file read(s), 9 grep search(es)."
+    },
+    "failure": null,
+    "sessionId": "sess_4cbc9182a4cbae1d",
+    "session": {
+      "id": "sess_4cbc9182a4cbae1d",
+      "status": "created",
+      "remainingCalls": 4
+    },
+    "_debug": {
+      "evidenceSufficiency": {
+        "sufficient": true,
+        "reason": "simple_task_exact_evidence"
+      },
+      "confidenceScore": 0.89,
+      "confidenceFactors": {
+        "evidenceCount": 8,
+        "evidenceGrounded": 8,
+        "evidenceDropped": 0,
+        "exactCount": 8,
+        "crossVerified": false,
+        "symbolSearchUsed": true,
+        "stoppedByBudget": false,
+        "gitLogCalls": 0,
+        "gitDiffCalls": 0,
+        "gitBlameCalls": 0,
+        "gitGroundingHint": "none",
+        "taskKind": "default",
+        "adjustments": [
+          "base=0.30 (taskKind=default)",
+          "+0.54 (8 exact evidence item(s))",
+          "+0.05 (symbol/grep search used)"
+        ],
+        "droppedUngrounded": 0,
+        "droppedMalformed": 0
+      },
+      "stats": {
+        "model": "zai-glm-4.7",
+        "budget": "deep",
+        "budgetSource": "auto",
+        "turns": 11,
+        "toolCalls": 15,
+        "listDirCalls": 1,
+        "findFileCalls": 0,
+        "grepCalls": 9,
+        "filesRead": 5,
+        "gitLogCalls": 0,
+        "gitBlameCalls": 0,
+        "gitDiffCalls": 0,
+        "gitShowCalls": 0,
+        "symbolCalls": 0,
+        "inputTokens": 271008,
+        "outputTokens": 5710,
+        "totalTokens": 276718,
+        "elapsedMs": 14831,
+        "stoppedByBudget": false,
+        "scope": [
+          "backend/**",
+          "frontend/src/**",
+          "extensions/firefox-inbox/src/**",
+          "scripts/**",
+          "android/**"
+        ],
+        "repoRoot": "/home/kyubr/IdeaProjects/studious-memory",
+        "sessionId": "sess_4cbc9182a4cbae1d",
+        "sessionStatus": "created",
+        "sessionSource": "created",
+        "remainingCalls": 4,
+        "cacheHits": 120,
+        "cacheMisses": 581,
+        "cacheHitRate": 0.171,
+        "cacheEntries": 571,
+        "cacheSizeBytes": 3379676
+      },
+      "toolTrace": {
+        "entries": [
+          {
+            "turn": 1,
+            "tool": "repo_grep",
+            "args": {
+              "pattern": "\\btools/list\\b",
+              "scope": [
+                "backend",
+                "frontend/src",
+                "extensions/firefox-inbox/src",
+                "scripts",
+                "android"
+              ],
+              "contextLines": 2
+            },
+            "result": {
+              "matches": 0,
+              "paths": [],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 1,
+            "tool": "repo_grep",
+            "args": {
+              "pattern": "\\bmcpServer\\.tool\\s*\\(",
+              "scope": [
+                "backend",
+                "frontend/src",
+                "extensions/firefox-inbox/src",
+                "scripts",
+                "android"
+              ],
+              "contextLines": 2
+            },
+            "result": {
+              "matches": 0,
+              "paths": [],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 1,
+            "tool": "repo_grep",
+            "args": {
+              "pattern": "\\bregisterTool\\s*\\(",
+              "scope": [
+                "backend",
+                "frontend/src",
+                "extensions/firefox-inbox/src",
+                "scripts",
+                "android"
+              ],
+              "contextLines": 2
+            },
+            "result": {
+              "matches": 0,
+              "paths": [],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_grep",
+            "args": {
+              "contextLines": 2,
+              "scope": [
+                "backend",
+                "frontend/src",
+                "extensions/firefox-inbox/src",
+                "scripts",
+                "android"
+              ],
+              "pattern": "\\.tool\\s*\\("
+            },
+            "result": {
+              "matches": 1,
+              "paths": [
+                "backend/app/mcp/server.py"
+              ],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_grep",
+            "args": {
+              "contextLines": 2,
+              "scope": [
+                "backend",
+                "frontend/src",
+                "extensions/firefox-inbox/src",
+                "scripts",
+                "android"
+              ],
+              "pattern": "\\bMCP\\b"
+            },
+            "result": {
+              "matches": 80,
+              "paths": [
+                "backend/main.py",
+                "backend/mcp_server.py",
+                "backend/pyproject.toml",
+                "scripts/generate_architecture_explorer.py",
+                "scripts/generate_contract_snapshot.py",
+                "backend/app/config.py"
+              ],
+              "truncated": true
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_grep",
+            "args": {
+              "contextLines": 2,
+              "scope": [
+                "backend",
+                "frontend/src",
+                "extensions/firefox-inbox/src",
+                "scripts",
+                "android"
+              ],
+              "pattern": "\\bmcpServer\\b"
+            },
+            "result": {
+              "matches": 0,
+              "paths": [],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "backend/app/mcp/server.py"
+            },
+            "result": {
+              "path": "backend/app/mcp/server.py",
+              "startLine": 1,
+              "endLine": 320,
+              "totalLines": 947,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_list_dir",
+            "args": {
+              "dirPath": "backend/app/mcp"
+            },
+            "result": {
+              "entries": 15,
+              "paths": [
+                "backend/app/mcp/__init__.py",
+                "backend/app/mcp/authz.py",
+                "backend/app/mcp/context.py",
+                "backend/app/mcp/server.py",
+                "backend/app/mcp/tools",
+                "backend/app/mcp/tools/__init__.py"
+              ]
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "backend/app/mcp/server.py",
+              "startLine": 320,
+              "endLine": 600
+            },
+            "result": {
+              "path": "backend/app/mcp/server.py",
+              "startLine": 320,
+              "endLine": 600,
+              "totalLines": 947,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 5,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "backend/app/mcp/server.py",
+              "startLine": 600,
+              "endLine": 947
+            },
+            "result": {
+              "path": "backend/app/mcp/server.py",
+              "startLine": 600,
+              "endLine": 919,
+              "totalLines": 947,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 6,
+            "tool": "repo_grep",
+            "args": {
+              "contextLines": 2,
+              "scope": [
+                "backend",
+                "frontend/src",
+                "extensions/firefox-inbox/src",
+                "scripts",
+                "android"
+              ],
+              "pattern": "@mcp\\."
+            },
+            "result": {
+              "matches": 2,
+              "paths": [
+                "backend/app/mcp/server.py"
+              ],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 7,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "backend/mcp_server.py"
+            },
+            "result": {
+              "path": "backend/mcp_server.py",
+              "startLine": 1,
+              "endLine": 41,
+              "totalLines": 41,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 8,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "backend/app/mcp/server.py",
+              "startLine": 919,
+              "endLine": 947
+            },
+            "result": {
+              "path": "backend/app/mcp/server.py",
+              "startLine": 919,
+              "endLine": 947,
+              "totalLines": 947,
+              "truncated": false
+            }
+          },
+          {
+            "turn": 9,
+            "tool": "repo_grep",
+            "args": {
+              "contextLines": 1,
+              "scope": [
+                "backend/app/mcp/server.py"
+              ],
+              "pattern": "^@scoped_tool\\("
+            },
+            "result": {
+              "matches": 51,
+              "paths": [
+                "backend/app/mcp/server.py"
+              ],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 10,
+            "tool": "repo_grep",
+            "args": {
+              "contextLines": 1,
+              "scope": [
+                "backend/app/mcp/server.py"
+              ],
+              "pattern": "^@scoped_resource\\("
+            },
+            "result": {
+              "matches": 7,
+              "paths": [
+                "backend/app/mcp/server.py"
+              ],
+              "truncated": false
+            }
+          }
+        ],
+        "totalCalls": 15,
+        "truncated": false,
+        "maxEntries": 20
+      },
+      "codeMap": {
+        "entryPoints": [
+          "backend/app/mcp/server.py",
+          "backend/main.py"
+        ],
+        "keyModules": [
+          {
+            "path": "backend/app/mcp/server.py",
+            "role": "entry point",
+            "linesRead": 1011
+          },
+          {
+            "path": "backend/main.py",
+            "role": "entry point",
+            "linesRead": 8
+          },
+          {
+            "path": "backend/mcp_server.py",
+            "role": "entry point",
+            "linesRead": 46
+          },
+          {
+            "path": "backend/pyproject.toml",
+            "role": "module",
+            "linesRead": 3
+          },
+          {
+            "path": "scripts/generate_architecture_explorer.py",
+            "role": "module",
+            "linesRead": 26
+          },
+          {
+            "path": "scripts/generate_contract_snapshot.py",
+            "role": "module",
+            "linesRead": 6
+          },
+          {
+            "path": "backend/app/config.py",
+            "role": "configuration",
+            "linesRead": 2
+          },
+          {
+            "path": "backend/app/dependencies.py",
+            "role": "entry point",
+            "linesRead": 1
+          },
+          {
+            "path": "backend/tests/test_input_tools_contract.py",
+            "role": "test",
+            "linesRead": 3
+          },
+          {
+            "path": "backend/tests/test_mcp_middleware.py",
+            "role": "test",
+            "linesRead": 7
+          },
+          {
+            "path": "backend/tests/test_naver_openapi_agent.py",
+            "role": "test",
+            "linesRead": 3
+          },
+          {
+            "path": "backend/tests/test_orchestrator_insights_budget_gate.py",
+            "role": "test",
+            "linesRead": 1
+          },
+          {
+            "path": "backend/tests/test_real_web_search_providers.py",
+            "role": "test",
+            "linesRead": 1
+          },
+          {
+            "path": "backend/tests/test_web_search_storage.py",
+            "role": "test",
+            "linesRead": 1
+          },
+          {
+            "path": "scripts/ci/backend-domain-smoke.sh",
+            "role": "entry point",
+            "linesRead": 1
+          },
+          {
+            "path": "backend/app/agents/registry.py",
+            "role": "entry point",
+            "linesRead": 1
+          },
+          {
+            "path": "backend/app/capabilities/_helpers.py",
+            "role": "utility",
+            "linesRead": 1
+          },
+          {
+            "path": "backend/app/capabilities/metadata.py",
+            "role": "entry point",
+            "linesRead": 2
+          },
+          {
+            "path": "backend/app/capabilities/naver_openapi_handlers.py",
+            "role": "service",
+            "linesRead": 1
+          },
+          {
+            "path": "backend/app/capabilities/registry.py",
+            "role": "entry point",
+            "linesRead": 3
+          },
+          {
+            "path": "backend/app/capabilities/result.py",
+            "role": "entry point",
+            "linesRead": 3
+          },
+          {
+            "path": "backend/app/capabilities/web_search_handlers.py",
+            "role": "service",
+            "linesRead": 1
+          }
+        ]
+      }
+    }
+  },
+  "contentText": "## Result\nConfidence: high\nVerification: verified\nEvidence Quality: high (8 exact, 0 partial, 0 dropped)\nSearch Coverage: scope-limited search across backend/**, frontend/src/**, extensions/firefox-inbox/src/**, scripts/**, android/**; 5 file read(s), 9 grep search(es).\n\n## Answer\nAll MCP tool registrations centralized in backend/app/mcp/server.py. 42 tools via @scoped_tool() wrapper calling @mcp.tool() at line 81, 7 resources via @scoped_resource() wrapper calling @mcp.resource() at line 112. No registrations in frontend, extensions, scripts, or android. ⚠️ Regex-based detection: verify cited lines before acting.\n\n## Targets\n- [context] `backend/app/mcp/server.py:76-76` (E1) - FastMCP server instance creation\n- [context] `backend/app/mcp/server.py:79-89` (E2) - scoped_tool decorator wrapper definition\n- [read] `backend/app/mcp/server.py:81-81` (E3) - Core @mcp.tool() registration call\n- [context] `backend/app/mcp/server.py:107-107` (E4) - Custom list_tools method override\n- [context] `backend/app/mcp/server.py:110-120` (E5) - scoped_resource decorator wrapper definition\n- [read] `backend/app/mcp/server.py:112-112` (E6) - Core @mcp.resource() registration call\n- [read] `backend/app/mcp/server.py:123-143` (E7) - Example: process_input tool registration\n- [read] `backend/app/mcp/server.py:842-847` (E8) - Example: master-profile resource registration\n\n## Evidence (8 items, confidence: high)\n- E1 `backend/app/mcp/server.py:76-76` - MCP server instance creation with FastMCP\n  snippet: 76: mcp = FastMCP(\"MaidBot\")\n- E2 `backend/app/mcp/server.py:79-89` - Decorator wrapper calling @mcp.tool() internally\n  snippet: 79: def scoped_tool(*required_scopes: str):\n  80:     def _decorator(func: Callable[..., Any]):\n  81:         @mcp.tool(meta={\"required_scopes\": list(required_scopes)})\n  82:         @wraps(func)\n  83:         async def _wrapped(*args: Any, **kwargs: Any):\n  84:             require_mcp_scopes(*required_scopes)\n  85:             return await func(*args, **kwargs)\n  86: \n  87:         return _wrapped\n  88: \n  89:     return _decorator\n- E3 `backend/app/mcp/server.py:81-81` - Actual @mcp.tool() registration call\n  snippet: 81:         @mcp.tool(meta={\"required_scopes\": list(required_scopes)})\n- E4 `backend/app/mcp/server.py:107-107` - Custom list_tools override for scope filtering\n  snippet: 107: mcp.list_tools = _list_tools_for_current_scope  # type: ignore[method-assign]\n- E5 `backend/app/mcp/server.py:110-120` - Decorator wrapper calling @mcp.resource() internally\n  snippet: 110: def scoped_resource(uri: str, *required_scopes: str):\n  111:     def _decorator(func: Callable[..., Any]):\n  112:         @mcp.resource(uri)\n  113:         @wraps(func)\n  114:         async def _wrapped(*args: Any, **kwargs: Any):\n  115:             require_mcp_scopes(*required_scopes)\n  116:             return await func(*args, **kwargs)\n  117: \n  118:         return _wrapped\n  119: \n  120:     return _decorator\n- E6 `backend/app/mcp/server.py:112-112` - Actual @mcp.resource() registration call\n  snippet: 112:         @mcp.resource(uri)\n- E7 `backend/app/mcp/server.py:123-143` - Tool registration: process_input via @scoped_tool()\n  snippet: 123: @scoped_tool(MCP_SCOPE_MEMORY_WRITE)\n  124: async def process_input(\n  125:     text: str | None = None,\n  126:     image_base64: str | None = None,\n  127:     image_mime: str | None = None,\n  128:     context_enrichment: bool = False,\n  129: ) -> dict:\n  130:     \"\"\"주인님의 텍스트·이미지를 접수하여 AI 분석 후 지식·할일·일정으로 정리합니다.\n  131: \n  132:     Args:\n  133:         text: 정리할 텍스트 또는 대화 기록\n  134:         image_base64: Base64 인코딩된 이미지 데이터\n  ... [snippet truncated]\n- E8 `backend/app/mcp/server.py:842-847` - Resource registration via @scoped_resource()\n  snippet: 842: @scoped_resource(\"resource://master-profile/current\", MCP_SCOPE_MEMORY_READ)\n  843: async def resource_master_profile_current() -> str:\n  844:     \"\"\"현재 Master Profile 컨텍스트 (JSON).\"\"\"\n  845:     import json\n  846:     result = await tool_get_master_context()\n  847:     return json.dumps(result, ensure_ascii=False, indent=2)\n\nSession: sess_4cbc9182a4cbae1d (pass as \"session\" for follow-up calls)"
+}

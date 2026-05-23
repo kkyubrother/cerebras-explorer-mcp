@@ -1,0 +1,1267 @@
+{
+  "tool": "find_entrypoints",
+  "repo": "bible",
+  "args": {
+    "repo_root": "/home/kyubr/IdeaProjects/bible",
+    "scope": [
+      "src/**",
+      "functions/**",
+      "scripts/**",
+      "migrations/**"
+    ],
+    "entryKind": "http"
+  },
+  "elapsedMs": 12376,
+  "error": null,
+  "isError": false,
+  "summary": {
+    "directAnswer": "Found 13 HTTP route entries across 8 API endpoints using Cloudflare Pages Functions export pattern (onRequest{Method}). File paths map to URL paths under /api/.\n\n**POST (5):** /api/auth/logout, /api/auth/telegram, /api/bookmarks/sync, /api/exam/local-sync, /api/exam/submit\n**GET (5):** /api/auth/me, /api/bookmarks/list, /api/exam/history, /api/exam/local-sync, /api/exam/stats\n**OPTIONS (3 CORS):** /api/auth/me, /api/bookmarks/list, /api/bookmarks/sync\n**Middleware (1):** Catch-all for all routes\n\nRegex detection caveat: verify each cited line before acting.",
+    "status": {
+      "confidence": "high",
+      "verification": "verified",
+      "complete": true,
+      "warnings": []
+    },
+    "evidenceQuality": {
+      "level": "high",
+      "exactCount": 8,
+      "partialCount": 0,
+      "droppedCount": 0,
+      "fileCount": 8,
+      "warnings": [],
+      "summary": "Verified: 4 files read, 17 grep searches, 1 symbol lookups, 8/8 evidence items grounded, cross-verified across 8 files. All evidence grounded in inspected code."
+    },
+    "failure": null,
+    "nextAction": {
+      "type": "stop",
+      "reason": "Explorer result is complete for the requested read-only investigation."
+    },
+    "searchCoverage": {
+      "scope": [
+        "src/**",
+        "functions/**",
+        "scripts/**",
+        "migrations/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 4,
+      "grepCalls": 17,
+      "listDirCalls": 3,
+      "symbolCalls": 1,
+      "toolResultsTruncated": 0,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: src/**, functions/**, scripts/**, migrations/**"
+      ],
+      "summary": "scope-limited search across src/**, functions/**, scripts/**, migrations/**; 4 file read(s), 17 grep search(es)."
+    },
+    "critic": null,
+    "sessionId": "sess_f591e5096914a2d3",
+    "session": {
+      "id": "sess_f591e5096914a2d3",
+      "status": "created",
+      "remainingCalls": 4
+    },
+    "targets": [
+      {
+        "path": "functions/_middleware.ts",
+        "role": "context",
+        "reason": "Catch-all middleware for all routes",
+        "evidenceRefs": [
+          "E1"
+        ],
+        "startLine": 31,
+        "endLine": 31
+      },
+      {
+        "path": "functions/api/auth/logout.ts",
+        "role": "read",
+        "reason": "POST /api/auth/logout handler export",
+        "evidenceRefs": [
+          "E2"
+        ],
+        "startLine": 13,
+        "endLine": 13
+      },
+      {
+        "path": "functions/api/auth/me.ts",
+        "role": "read",
+        "reason": "GET /api/auth/me handler export",
+        "evidenceRefs": [
+          "E3"
+        ],
+        "startLine": 38,
+        "endLine": 38
+      },
+      {
+        "path": "functions/api/auth/telegram.ts",
+        "role": "read",
+        "reason": "POST /api/auth/telegram handler export",
+        "evidenceRefs": [
+          "E4"
+        ],
+        "startLine": 148,
+        "endLine": 148
+      },
+      {
+        "path": "functions/api/bookmarks/list.ts",
+        "role": "read",
+        "reason": "GET /api/bookmarks/list handler export",
+        "evidenceRefs": [
+          "E5"
+        ],
+        "startLine": 43,
+        "endLine": 43
+      },
+      {
+        "path": "functions/api/bookmarks/sync.ts",
+        "role": "read",
+        "reason": "POST /api/bookmarks/sync handler export",
+        "evidenceRefs": [
+          "E6"
+        ],
+        "startLine": 176,
+        "endLine": 176
+      },
+      {
+        "path": "functions/api/exam/submit.ts",
+        "role": "read",
+        "reason": "POST /api/exam/submit handler export",
+        "evidenceRefs": [
+          "E7"
+        ],
+        "startLine": 27,
+        "endLine": 27
+      },
+      {
+        "path": "functions/api/exam/stats.ts",
+        "role": "read",
+        "reason": "GET /api/exam/stats handler export",
+        "evidenceRefs": [
+          "E8"
+        ],
+        "startLine": 13,
+        "endLine": 13
+      }
+    ],
+    "discoveredPathsCount": 52,
+    "evidence": [
+      {
+        "id": "E1",
+        "path": "functions/_middleware.ts",
+        "startLine": 31,
+        "endLine": 31,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Middleware export intercepts all requests",
+        "snippet": "31: export const onRequest: PagesFunction = async (context) => {"
+      },
+      {
+        "id": "E2",
+        "path": "functions/api/auth/logout.ts",
+        "startLine": 13,
+        "endLine": 13,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "POST /api/auth/logout handler export",
+        "snippet": "13: export const onRequestPost: PagesFunction<Env> = async (context) => {"
+      },
+      {
+        "id": "E3",
+        "path": "functions/api/auth/me.ts",
+        "startLine": 38,
+        "endLine": 38,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "GET /api/auth/me handler export",
+        "snippet": "38: export const onRequestGet: PagesFunction<Env> = async (context) => {"
+      },
+      {
+        "id": "E4",
+        "path": "functions/api/auth/telegram.ts",
+        "startLine": 148,
+        "endLine": 148,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "POST /api/auth/telegram handler export",
+        "snippet": "148: export const onRequestPost: PagesFunction<Env> = async (context) => {"
+      },
+      {
+        "id": "E5",
+        "path": "functions/api/bookmarks/list.ts",
+        "startLine": 43,
+        "endLine": 43,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "GET /api/bookmarks/list handler export",
+        "snippet": "43: export const onRequestGet: PagesFunction<Env> = async (context) => {"
+      },
+      {
+        "id": "E6",
+        "path": "functions/api/bookmarks/sync.ts",
+        "startLine": 176,
+        "endLine": 176,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "POST /api/bookmarks/sync handler export",
+        "snippet": "176: export const onRequestPost: PagesFunction<Env> = async (context) => {"
+      },
+      {
+        "id": "E7",
+        "path": "functions/api/exam/submit.ts",
+        "startLine": 27,
+        "endLine": 27,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "POST /api/exam/submit handler export",
+        "snippet": "27: export const onRequestPost: PagesFunction<Env> = async (context) => {"
+      },
+      {
+        "id": "E8",
+        "path": "functions/api/exam/stats.ts",
+        "startLine": 13,
+        "endLine": 13,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "GET /api/exam/stats handler export",
+        "snippet": "13: export const onRequestGet: PagesFunction<Env> = async (context) => {"
+      }
+    ],
+    "uncertainties": [],
+    "stats": {
+      "turns": 10,
+      "toolCalls": 26,
+      "filesRead": 4,
+      "grepCalls": 17,
+      "symbolCalls": 1,
+      "stoppedByBudget": false,
+      "elapsedMs": 12365,
+      "totalTokens": 89709
+    }
+  },
+  "structuredContent": {
+    "schemaVersion": 1,
+    "directAnswer": "Found 13 HTTP route entries across 8 API endpoints using Cloudflare Pages Functions export pattern (onRequest{Method}). File paths map to URL paths under /api/.\n\n**POST (5):** /api/auth/logout, /api/auth/telegram, /api/bookmarks/sync, /api/exam/local-sync, /api/exam/submit\n**GET (5):** /api/auth/me, /api/bookmarks/list, /api/exam/history, /api/exam/local-sync, /api/exam/stats\n**OPTIONS (3 CORS):** /api/auth/me, /api/bookmarks/list, /api/bookmarks/sync\n**Middleware (1):** Catch-all for all routes\n\nRegex detection caveat: verify each cited line before acting.",
+    "status": {
+      "confidence": "high",
+      "verification": "verified",
+      "complete": true,
+      "warnings": []
+    },
+    "targets": [
+      {
+        "path": "functions/_middleware.ts",
+        "role": "context",
+        "reason": "Catch-all middleware for all routes",
+        "evidenceRefs": [
+          "E1"
+        ],
+        "startLine": 31,
+        "endLine": 31
+      },
+      {
+        "path": "functions/api/auth/logout.ts",
+        "role": "read",
+        "reason": "POST /api/auth/logout handler export",
+        "evidenceRefs": [
+          "E2"
+        ],
+        "startLine": 13,
+        "endLine": 13
+      },
+      {
+        "path": "functions/api/auth/me.ts",
+        "role": "read",
+        "reason": "GET /api/auth/me handler export",
+        "evidenceRefs": [
+          "E3"
+        ],
+        "startLine": 38,
+        "endLine": 38
+      },
+      {
+        "path": "functions/api/auth/telegram.ts",
+        "role": "read",
+        "reason": "POST /api/auth/telegram handler export",
+        "evidenceRefs": [
+          "E4"
+        ],
+        "startLine": 148,
+        "endLine": 148
+      },
+      {
+        "path": "functions/api/bookmarks/list.ts",
+        "role": "read",
+        "reason": "GET /api/bookmarks/list handler export",
+        "evidenceRefs": [
+          "E5"
+        ],
+        "startLine": 43,
+        "endLine": 43
+      },
+      {
+        "path": "functions/api/bookmarks/sync.ts",
+        "role": "read",
+        "reason": "POST /api/bookmarks/sync handler export",
+        "evidenceRefs": [
+          "E6"
+        ],
+        "startLine": 176,
+        "endLine": 176
+      },
+      {
+        "path": "functions/api/exam/submit.ts",
+        "role": "read",
+        "reason": "POST /api/exam/submit handler export",
+        "evidenceRefs": [
+          "E7"
+        ],
+        "startLine": 27,
+        "endLine": 27
+      },
+      {
+        "path": "functions/api/exam/stats.ts",
+        "role": "read",
+        "reason": "GET /api/exam/stats handler export",
+        "evidenceRefs": [
+          "E8"
+        ],
+        "startLine": 13,
+        "endLine": 13
+      }
+    ],
+    "discoveredPaths": [
+      {
+        "path": "functions",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "functions/_middleware.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "functions/api",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "migrations",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "migrations/0001_initial.sql",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "migrations/0002_auth_sessions.sql",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "migrations/0003_exam_local_sync.sql",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "migrations/0004_bookmarks.sql",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts/build-worker-functions.sh",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts/check-no-legacy-i18n.sh",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts/check-style-imports.sh",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts/e2e-bookmark-playwright.sh",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts/e2e-reader-search-ux-playwright.sh",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts/e2e-regression-playwright.sh",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts/playwright_cli.sh",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts/revelation_corpus",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/api",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/data",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/features",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/i18n",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/index.tsx",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/pages",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/reportWebVitals.tsx",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/routes.tsx",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/shared",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/store",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/store.selectors.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/store.tsx",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/styles",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/utils",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/vite-env.d.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "functions/api/_lib",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "functions/api/_lib/session.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "functions/api/auth",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "functions/api/auth/logout.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "functions/api/auth/me.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "functions/api/auth/telegram.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "functions/api/bookmarks",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "functions/api/bookmarks/list.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "functions/api/bookmarks/sync.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "functions/api/exam",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "functions/api/exam/history.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "functions/api/exam/local-sync.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "functions/api/exam/stats.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "functions/api/exam/submit.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/api/auth.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/api/bible.tsx",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/api/bookmark.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/api/exam.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/api/load_from_server.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      }
+    ],
+    "evidence": [
+      {
+        "path": "functions/_middleware.ts",
+        "startLine": 31,
+        "endLine": 31,
+        "why": "Middleware export intercepts all requests",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E1",
+        "snippet": "31: export const onRequest: PagesFunction = async (context) => {"
+      },
+      {
+        "path": "functions/api/auth/logout.ts",
+        "startLine": 13,
+        "endLine": 13,
+        "why": "POST /api/auth/logout handler export",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E2",
+        "snippet": "13: export const onRequestPost: PagesFunction<Env> = async (context) => {"
+      },
+      {
+        "path": "functions/api/auth/me.ts",
+        "startLine": 38,
+        "endLine": 38,
+        "why": "GET /api/auth/me handler export",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E3",
+        "snippet": "38: export const onRequestGet: PagesFunction<Env> = async (context) => {"
+      },
+      {
+        "path": "functions/api/auth/telegram.ts",
+        "startLine": 148,
+        "endLine": 148,
+        "why": "POST /api/auth/telegram handler export",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E4",
+        "snippet": "148: export const onRequestPost: PagesFunction<Env> = async (context) => {"
+      },
+      {
+        "path": "functions/api/bookmarks/list.ts",
+        "startLine": 43,
+        "endLine": 43,
+        "why": "GET /api/bookmarks/list handler export",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E5",
+        "snippet": "43: export const onRequestGet: PagesFunction<Env> = async (context) => {"
+      },
+      {
+        "path": "functions/api/bookmarks/sync.ts",
+        "startLine": 176,
+        "endLine": 176,
+        "why": "POST /api/bookmarks/sync handler export",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E6",
+        "snippet": "176: export const onRequestPost: PagesFunction<Env> = async (context) => {"
+      },
+      {
+        "path": "functions/api/exam/submit.ts",
+        "startLine": 27,
+        "endLine": 27,
+        "why": "POST /api/exam/submit handler export",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E7",
+        "snippet": "27: export const onRequestPost: PagesFunction<Env> = async (context) => {"
+      },
+      {
+        "path": "functions/api/exam/stats.ts",
+        "startLine": 13,
+        "endLine": 13,
+        "why": "GET /api/exam/stats handler export",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E8",
+        "snippet": "13: export const onRequestGet: PagesFunction<Env> = async (context) => {"
+      }
+    ],
+    "uncertainties": [],
+    "nextAction": {
+      "type": "stop",
+      "reason": "Explorer result is complete for the requested read-only investigation."
+    },
+    "evidenceQuality": {
+      "level": "high",
+      "exactCount": 8,
+      "partialCount": 0,
+      "droppedCount": 0,
+      "fileCount": 8,
+      "warnings": [],
+      "summary": "Verified: 4 files read, 17 grep searches, 1 symbol lookups, 8/8 evidence items grounded, cross-verified across 8 files. All evidence grounded in inspected code."
+    },
+    "searchCoverage": {
+      "scope": [
+        "src/**",
+        "functions/**",
+        "scripts/**",
+        "migrations/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 4,
+      "grepCalls": 17,
+      "listDirCalls": 3,
+      "symbolCalls": 1,
+      "toolResultsTruncated": 0,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: src/**, functions/**, scripts/**, migrations/**"
+      ],
+      "summary": "scope-limited search across src/**, functions/**, scripts/**, migrations/**; 4 file read(s), 17 grep search(es)."
+    },
+    "failure": null,
+    "sessionId": "sess_f591e5096914a2d3",
+    "session": {
+      "id": "sess_f591e5096914a2d3",
+      "status": "created",
+      "remainingCalls": 4
+    },
+    "_debug": {
+      "evidenceSufficiency": {
+        "sufficient": true,
+        "reason": "simple_task_exact_evidence"
+      },
+      "confidenceScore": 1,
+      "confidenceFactors": {
+        "evidenceCount": 8,
+        "evidenceGrounded": 8,
+        "evidenceDropped": 0,
+        "exactCount": 8,
+        "crossVerified": true,
+        "symbolSearchUsed": true,
+        "stoppedByBudget": false,
+        "gitLogCalls": 0,
+        "gitDiffCalls": 0,
+        "gitBlameCalls": 0,
+        "gitGroundingHint": "none",
+        "taskKind": "default",
+        "adjustments": [
+          "base=0.30 (taskKind=default)",
+          "+0.54 (8 exact evidence item(s))",
+          "+0.12 (cross-verified across multiple files)",
+          "+0.05 (symbol/grep search used)"
+        ],
+        "droppedUngrounded": 0,
+        "droppedMalformed": 0
+      },
+      "stats": {
+        "model": "zai-glm-4.7",
+        "budget": "deep",
+        "budgetSource": "auto",
+        "turns": 10,
+        "toolCalls": 26,
+        "listDirCalls": 3,
+        "findFileCalls": 1,
+        "grepCalls": 17,
+        "filesRead": 4,
+        "gitLogCalls": 0,
+        "gitBlameCalls": 0,
+        "gitDiffCalls": 0,
+        "gitShowCalls": 0,
+        "symbolCalls": 1,
+        "inputTokens": 83240,
+        "outputTokens": 6469,
+        "totalTokens": 89709,
+        "elapsedMs": 12365,
+        "stoppedByBudget": false,
+        "scope": [
+          "src/**",
+          "functions/**",
+          "scripts/**",
+          "migrations/**"
+        ],
+        "repoRoot": "/home/kyubr/IdeaProjects/bible",
+        "sessionId": "sess_f591e5096914a2d3",
+        "sessionStatus": "created",
+        "sessionSource": "created",
+        "remainingCalls": 4,
+        "cacheHits": 118,
+        "cacheMisses": 568,
+        "cacheHitRate": 0.172,
+        "cacheEntries": 558,
+        "cacheSizeBytes": 3294094
+      },
+      "toolTrace": {
+        "entries": [
+          {
+            "turn": 1,
+            "tool": "repo_grep",
+            "args": {
+              "pattern": "\\bapp\\.(get|post|put|delete|patch)\\s*\\(",
+              "scope": [
+                "src",
+                "functions",
+                "scripts",
+                "migrations"
+              ],
+              "maxResults": 80
+            },
+            "result": {
+              "matches": 0,
+              "paths": [],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 1,
+            "tool": "repo_grep",
+            "args": {
+              "pattern": "\\brouter\\.(get|post|put|delete|patch)\\s*\\(",
+              "scope": [
+                "src",
+                "functions",
+                "scripts",
+                "migrations"
+              ],
+              "maxResults": 80
+            },
+            "result": {
+              "matches": 0,
+              "paths": [],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 1,
+            "tool": "repo_grep",
+            "args": {
+              "pattern": "@app\\.route\\s*\\(",
+              "scope": [
+                "src",
+                "functions",
+                "scripts",
+                "migrations"
+              ],
+              "maxResults": 80
+            },
+            "result": {
+              "matches": 0,
+              "paths": [],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 1,
+            "tool": "repo_grep",
+            "args": {
+              "pattern": "@(Get|Post|Put|Delete|Patch)\\s*\\(",
+              "scope": [
+                "src",
+                "functions",
+                "scripts",
+                "migrations"
+              ],
+              "maxResults": 80
+            },
+            "result": {
+              "matches": 0,
+              "paths": [],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 1,
+            "tool": "repo_grep",
+            "args": {
+              "pattern": "\\bhttp\\.HandleFunc\\s*\\(",
+              "scope": [
+                "src",
+                "functions",
+                "scripts",
+                "migrations"
+              ],
+              "maxResults": 80
+            },
+            "result": {
+              "matches": 0,
+              "paths": [],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_grep",
+            "args": {
+              "maxResults": 80,
+              "pattern": "\\b(?:r|mux|chi)\\.(Get|Post|Put|Delete|Patch)\\s*\\(",
+              "scope": [
+                "src",
+                "functions",
+                "scripts",
+                "migrations"
+              ]
+            },
+            "result": {
+              "matches": 0,
+              "paths": [],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_grep",
+            "args": {
+              "maxResults": 80,
+              "pattern": "@\\w+\\.(get|post|put|delete|patch)\\s*\\(",
+              "scope": [
+                "src",
+                "functions",
+                "scripts",
+                "migrations"
+              ]
+            },
+            "result": {
+              "matches": 0,
+              "paths": [],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_grep",
+            "args": {
+              "maxResults": 80,
+              "pattern": "\\bRails\\.application\\.routes\\.draw\\b",
+              "scope": [
+                "src",
+                "functions",
+                "scripts",
+                "migrations"
+              ]
+            },
+            "result": {
+              "matches": 0,
+              "paths": [],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_grep",
+            "args": {
+              "maxResults": 80,
+              "pattern": "\\bresources\\s+:[a-z_]+",
+              "scope": [
+                "src",
+                "functions",
+                "scripts",
+                "migrations"
+              ]
+            },
+            "result": {
+              "matches": 0,
+              "paths": [],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_grep",
+            "args": {
+              "maxResults": 80,
+              "pattern": "\\bRoute::(get|post|put|delete|patch|any|match|resource)\\s*\\(",
+              "scope": [
+                "src",
+                "functions",
+                "scripts",
+                "migrations"
+              ]
+            },
+            "result": {
+              "matches": 0,
+              "paths": [],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_grep",
+            "args": {
+              "maxResults": 80,
+              "pattern": "#\\[Route\\s*\\(",
+              "scope": [
+                "src",
+                "functions",
+                "scripts",
+                "migrations"
+              ]
+            },
+            "result": {
+              "matches": 0,
+              "paths": [],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_grep",
+            "args": {
+              "maxResults": 80,
+              "pattern": "@(Get|Post|Put|Delete|Patch|Request)Mapping\\b",
+              "scope": [
+                "src",
+                "functions",
+                "scripts",
+                "migrations"
+              ]
+            },
+            "result": {
+              "matches": 0,
+              "paths": [],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_grep",
+            "args": {
+              "maxResults": 80,
+              "pattern": "@(Rest)?Controller\\b",
+              "scope": [
+                "src",
+                "functions",
+                "scripts",
+                "migrations"
+              ]
+            },
+            "result": {
+              "matches": 0,
+              "paths": [],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_grep",
+            "args": {
+              "maxResults": 80,
+              "pattern": "#\\[(get|post|put|delete|patch)\\s*\\(",
+              "scope": [
+                "src",
+                "functions",
+                "scripts",
+                "migrations"
+              ]
+            },
+            "result": {
+              "matches": 0,
+              "paths": [],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_grep",
+            "args": {
+              "maxResults": 80,
+              "pattern": "\\b(get|post|put|patch|delete)\\s+['\"]/",
+              "scope": [
+                "src",
+                "functions",
+                "scripts",
+                "migrations"
+              ]
+            },
+            "result": {
+              "matches": 0,
+              "paths": [],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_list_dir",
+            "args": {
+              "dirPath": "."
+            },
+            "result": {
+              "entries": 33,
+              "paths": [
+                "functions",
+                "functions/_middleware.ts",
+                "functions/api",
+                "migrations",
+                "migrations/0001_initial.sql",
+                "migrations/0002_auth_sessions.sql"
+              ]
+            }
+          },
+          {
+            "turn": 5,
+            "tool": "repo_list_dir",
+            "args": {
+              "dirPath": "functions"
+            },
+            "result": {
+              "entries": 16,
+              "paths": [
+                "functions/_middleware.ts",
+                "functions/api",
+                "functions/api/_lib",
+                "functions/api/_lib/session.ts",
+                "functions/api/auth",
+                "functions/api/auth/logout.ts"
+              ]
+            }
+          },
+          {
+            "turn": 5,
+            "tool": "repo_list_dir",
+            "args": {
+              "dirPath": "src/api"
+            },
+            "result": {
+              "entries": 5,
+              "paths": [
+                "src/api/auth.ts",
+                "src/api/bible.tsx",
+                "src/api/bookmark.ts",
+                "src/api/exam.ts",
+                "src/api/load_from_server.ts"
+              ]
+            }
+          },
+          {
+            "turn": 6,
+            "tool": "repo_read_file",
+            "args": {
+              "endLine": 50,
+              "path": "functions/api/auth/logout.ts"
+            },
+            "result": {
+              "path": "functions/api/auth/logout.ts",
+              "startLine": 1,
+              "endLine": 50,
+              "totalLines": 64,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 6,
+            "tool": "repo_read_file",
+            "args": {
+              "endLine": 50,
+              "path": "functions/api/auth/me.ts"
+            },
+            "result": {
+              "path": "functions/api/auth/me.ts",
+              "startLine": 1,
+              "endLine": 50,
+              "totalLines": 96,
+              "truncated": true
+            }
+          }
+        ],
+        "totalCalls": 26,
+        "truncated": true,
+        "maxEntries": 20
+      },
+      "codeMap": {
+        "entryPoints": [],
+        "keyModules": [
+          {
+            "path": "functions/api/auth/logout.ts",
+            "role": "middleware",
+            "linesRead": 102
+          },
+          {
+            "path": "functions/api/auth/me.ts",
+            "role": "middleware",
+            "linesRead": 52
+          },
+          {
+            "path": "functions/api/bookmarks/list.ts",
+            "role": "API client",
+            "linesRead": 52
+          },
+          {
+            "path": "functions/api/exam/submit.ts",
+            "role": "API client",
+            "linesRead": 51
+          },
+          {
+            "path": "functions/api/auth/telegram.ts",
+            "role": "middleware",
+            "linesRead": 1
+          },
+          {
+            "path": "functions/api/bookmarks/sync.ts",
+            "role": "API client",
+            "linesRead": 2
+          },
+          {
+            "path": "functions/api/exam/history.ts",
+            "role": "API client",
+            "linesRead": 1
+          },
+          {
+            "path": "functions/api/exam/local-sync.ts",
+            "role": "API client",
+            "linesRead": 2
+          },
+          {
+            "path": "functions/api/exam/stats.ts",
+            "role": "API client",
+            "linesRead": 1
+          },
+          {
+            "path": "functions/_middleware.ts",
+            "role": "middleware",
+            "linesRead": 1
+          }
+        ]
+      }
+    }
+  },
+  "contentText": "## Result\nConfidence: high\nVerification: verified\nEvidence Quality: high (8 exact, 0 partial, 0 dropped)\nSearch Coverage: scope-limited search across src/**, functions/**, scripts/**, migrations/**; 4 file read(s), 17 grep search(es).\n\n## Answer\nFound 13 HTTP route entries across 8 API endpoints using Cloudflare Pages Functions export pattern (onRequest{Method}). File paths map to URL paths under /api/.\n\n**POST (5):** /api/auth/logout, /api/auth/telegram, /api/bookmarks/sync, /api/exam/local-sync, /api/exam/submit\n**GET (5):** /api/auth/me, /api/bookmarks/list, /api/exam/history, /api/exam/local-sync, /api/exam/stats\n**OPTIONS (3 CORS):** /api/auth/me, /api/bookmarks/list, /api/bookmarks/sync\n**Middleware (1):** Catch-all for all routes\n\nRegex detection caveat: verify each cited line before acting.\n\n## Targets\n- [context] `functions/_middleware.ts:31-31` (E1) - Catch-all middleware for all routes\n- [read] `functions/api/auth/logout.ts:13-13` (E2) - POST /api/auth/logout handler export\n- [read] `functions/api/auth/me.ts:38-38` (E3) - GET /api/auth/me handler export\n- [read] `functions/api/auth/telegram.ts:148-148` (E4) - POST /api/auth/telegram handler export\n- [read] `functions/api/bookmarks/list.ts:43-43` (E5) - GET /api/bookmarks/list handler export\n- [read] `functions/api/bookmarks/sync.ts:176-176` (E6) - POST /api/bookmarks/sync handler export\n- [read] `functions/api/exam/submit.ts:27-27` (E7) - POST /api/exam/submit handler export\n- [read] `functions/api/exam/stats.ts:13-13` (E8) - GET /api/exam/stats handler export\n\n## Evidence (8 items, confidence: high)\n- E1 `functions/_middleware.ts:31-31` - Middleware export intercepts all requests\n  snippet: 31: export const onRequest: PagesFunction = async (context) => {\n- E2 `functions/api/auth/logout.ts:13-13` - POST /api/auth/logout handler export\n  snippet: 13: export const onRequestPost: PagesFunction<Env> = async (context) => {\n- E3 `functions/api/auth/me.ts:38-38` - GET /api/auth/me handler export\n  snippet: 38: export const onRequestGet: PagesFunction<Env> = async (context) => {\n- E4 `functions/api/auth/telegram.ts:148-148` - POST /api/auth/telegram handler export\n  snippet: 148: export const onRequestPost: PagesFunction<Env> = async (context) => {\n- E5 `functions/api/bookmarks/list.ts:43-43` - GET /api/bookmarks/list handler export\n  snippet: 43: export const onRequestGet: PagesFunction<Env> = async (context) => {\n- E6 `functions/api/bookmarks/sync.ts:176-176` - POST /api/bookmarks/sync handler export\n  snippet: 176: export const onRequestPost: PagesFunction<Env> = async (context) => {\n- E7 `functions/api/exam/submit.ts:27-27` - POST /api/exam/submit handler export\n  snippet: 27: export const onRequestPost: PagesFunction<Env> = async (context) => {\n- E8 `functions/api/exam/stats.ts:13-13` - GET /api/exam/stats handler export\n  snippet: 13: export const onRequestGet: PagesFunction<Env> = async (context) => {\n\nSession: sess_f591e5096914a2d3 (pass as \"session\" for follow-up calls)"
+}

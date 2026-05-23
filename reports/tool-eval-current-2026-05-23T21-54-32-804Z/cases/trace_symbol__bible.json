@@ -1,0 +1,663 @@
+{
+  "tool": "trace_symbol",
+  "repo": "bible",
+  "args": {
+    "repo_root": "/home/kyubr/IdeaProjects/bible",
+    "scope": [
+      "src/**",
+      "functions/**",
+      "scripts/**",
+      "migrations/**"
+    ],
+    "symbol": "useStore"
+  },
+  "elapsedMs": 5161,
+  "error": null,
+  "isError": false,
+  "summary": {
+    "directAnswer": "useStore is a Zustand state management hook defined at src/store.tsx:30. It creates a global persisted store using Zustand's create() with persist middleware. The store manages app state across 6 slices: settings, currents, globals, search, ui, and auth. Exported as a const with no runtime parameters; returns a hook that accepts selector functions to access specific store parts. Persists only the settings slice to localStorage under key \"bible-app-storage\" and handles font-size rehydration on load.",
+    "status": {
+      "confidence": "high",
+      "verification": "verified",
+      "complete": true,
+      "warnings": []
+    },
+    "evidenceQuality": {
+      "level": "high",
+      "exactCount": 3,
+      "partialCount": 0,
+      "droppedCount": 0,
+      "fileCount": 3,
+      "warnings": [],
+      "summary": "Verified: 3 files read, 1 symbol lookups, 3/3 evidence items grounded, cross-verified across 3 files. All evidence grounded in inspected code."
+    },
+    "failure": null,
+    "nextAction": {
+      "type": "stop",
+      "reason": "Explorer result is complete for the requested read-only investigation."
+    },
+    "searchCoverage": {
+      "scope": [
+        "src/**",
+        "functions/**",
+        "scripts/**",
+        "migrations/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 3,
+      "grepCalls": 0,
+      "listDirCalls": 0,
+      "symbolCalls": 1,
+      "toolResultsTruncated": 0,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: src/**, functions/**, scripts/**, migrations/**"
+      ],
+      "summary": "scope-limited search across src/**, functions/**, scripts/**, migrations/**; 3 file read(s), 0 grep search(es)."
+    },
+    "critic": null,
+    "sessionId": "sess_7e27e143cd5e4ff8",
+    "session": {
+      "id": "sess_7e27e143cd5e4ff8",
+      "status": "created",
+      "remainingCalls": 4
+    },
+    "targets": [
+      {
+        "path": "src/store.tsx",
+        "role": "read",
+        "reason": "Main definition of useStore with persistence configuration",
+        "evidenceRefs": [
+          "e0",
+          "E1"
+        ],
+        "startLine": 30,
+        "endLine": 58
+      },
+      {
+        "path": "src/store/types.ts",
+        "role": "read",
+        "reason": "AppStore type definition showing StoreState & StoreActions",
+        "evidenceRefs": [
+          "e1",
+          "E2"
+        ],
+        "startLine": 106,
+        "endLine": 119
+      },
+      {
+        "path": "src/store/createActions.ts",
+        "role": "read",
+        "reason": "Shows how store actions are composed from slices",
+        "evidenceRefs": [
+          "e2",
+          "E3"
+        ],
+        "startLine": 10,
+        "endLine": 21
+      }
+    ],
+    "discoveredPathsCount": 23,
+    "evidence": [
+      {
+        "id": "E1",
+        "path": "src/store.tsx",
+        "startLine": 30,
+        "endLine": 58,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Definition of useStore showing Zustand store with persist middleware, initial state slices, localStorage configuration",
+        "snippet": "30: export const useStore = create<AppStore>()(\n31:   persist(\n32:     (set, get, api) => ({\n33:       settings: INITIAL_SETTINGS,\n34:       currents: INITIAL_CURRENTS,\n35:       globals: INITIAL_GLOBALS,\n36:       search: INITIAL_SEARCH,\n37:       ui: INITIAL_UI,\n38:       auth: INITIAL_AUTH,\n39:       ...createStoreActions(set, get, api),\n40:     }),\n41:     {\n... [snippet truncated]"
+      },
+      {
+        "id": "E2",
+        "path": "src/store/types.ts",
+        "startLine": 106,
+        "endLine": 119,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Type definitions showing StoreState contains 6 slices and StoreActions contains mutation methods",
+        "snippet": "106: export interface StoreState {\n107:   settings: SettingsState;\n108:   currents: CurrentsState;\n109:   globals: {\n110:     books: BibleBook[];\n111:   };\n112:   search: SearchState;\n113:   ui: UiState;\n114:   auth: AuthState;\n115: }\n116: \n117: export type AppStore = StoreState & StoreActions;\n... [snippet truncated]"
+      },
+      {
+        "id": "E3",
+        "path": "src/store/createActions.ts",
+        "startLine": 10,
+        "endLine": 21,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Shows store actions composed from 6 slice creators (settings, currents, globals, search, ui, auth)",
+        "snippet": "10: export const createStoreActions: AppStoreSlice<StoreActions> = (\n11:   set,\n12:   get,\n13:   api\n14: ) => ({\n15:   ...createSettingsSlice(set, get, api),\n16:   ...createCurrentsSlice(set, get, api),\n17:   ...createGlobalsSlice(set, get, api),\n18:   ...createSearchSlice(set, get, api),\n19:   ...createUiSlice(set, get, api),\n20:   ...createAuthSlice(set, get, api),\n21: });"
+      }
+    ],
+    "uncertainties": [],
+    "stats": {
+      "turns": 5,
+      "toolCalls": 4,
+      "filesRead": 3,
+      "grepCalls": 0,
+      "symbolCalls": 1,
+      "stoppedByBudget": false,
+      "elapsedMs": 5150,
+      "totalTokens": 38164
+    }
+  },
+  "structuredContent": {
+    "schemaVersion": 1,
+    "directAnswer": "useStore is a Zustand state management hook defined at src/store.tsx:30. It creates a global persisted store using Zustand's create() with persist middleware. The store manages app state across 6 slices: settings, currents, globals, search, ui, and auth. Exported as a const with no runtime parameters; returns a hook that accepts selector functions to access specific store parts. Persists only the settings slice to localStorage under key \"bible-app-storage\" and handles font-size rehydration on load.",
+    "status": {
+      "confidence": "high",
+      "verification": "verified",
+      "complete": true,
+      "warnings": []
+    },
+    "targets": [
+      {
+        "path": "src/store.tsx",
+        "role": "read",
+        "reason": "Main definition of useStore with persistence configuration",
+        "evidenceRefs": [
+          "e0",
+          "E1"
+        ],
+        "startLine": 30,
+        "endLine": 58
+      },
+      {
+        "path": "src/store/types.ts",
+        "role": "read",
+        "reason": "AppStore type definition showing StoreState & StoreActions",
+        "evidenceRefs": [
+          "e1",
+          "E2"
+        ],
+        "startLine": 106,
+        "endLine": 119
+      },
+      {
+        "path": "src/store/createActions.ts",
+        "role": "read",
+        "reason": "Shows how store actions are composed from slices",
+        "evidenceRefs": [
+          "e2",
+          "E3"
+        ],
+        "startLine": 10,
+        "endLine": 21
+      }
+    ],
+    "discoveredPaths": [
+      {
+        "path": "src/store.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/shared/components/AGENTS.md",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/shared/components/MainTopBar.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/shared/components/TelegramLoginButton.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/shared/hooks/useAuthSessionBootstrap.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/shared/hooks/useCopyActions.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/bookmark/hooks/useBookmarkSync.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/bookmark/pages/BookmarkDetailPage.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/bookmark/pages/BookmarkEditorPage.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/bookmark/pages/BookmarksPage.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/exam/components/ExamNav.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/exam/components/ExperimentalFeatureGate.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/exam/hooks/useExamDataWithSync.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/exam/hooks/useExamHomeSummary.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/exam/hooks/useExamPageState.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/exam/hooks/useSimpleRevelationExamState.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/exam/pages/ExamHomePage.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/exam/pages/ExamPracticePage.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/exam/pages/ExamStatsPage.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/reader/components/WordContainer.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/reader/hooks/useReaderController.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/store/types.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_read_file",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/store/createActions.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_read_file",
+        "reason": "Discovered from tool result."
+      }
+    ],
+    "evidence": [
+      {
+        "path": "src/store.tsx",
+        "startLine": 30,
+        "endLine": 58,
+        "why": "Definition of useStore showing Zustand store with persist middleware, initial state slices, localStorage configuration",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E1",
+        "snippet": "30: export const useStore = create<AppStore>()(\n31:   persist(\n32:     (set, get, api) => ({\n33:       settings: INITIAL_SETTINGS,\n34:       currents: INITIAL_CURRENTS,\n35:       globals: INITIAL_GLOBALS,\n36:       search: INITIAL_SEARCH,\n37:       ui: INITIAL_UI,\n38:       auth: INITIAL_AUTH,\n39:       ...createStoreActions(set, get, api),\n40:     }),\n41:     {\n... [snippet truncated]"
+      },
+      {
+        "path": "src/store/types.ts",
+        "startLine": 106,
+        "endLine": 119,
+        "why": "Type definitions showing StoreState contains 6 slices and StoreActions contains mutation methods",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E2",
+        "snippet": "106: export interface StoreState {\n107:   settings: SettingsState;\n108:   currents: CurrentsState;\n109:   globals: {\n110:     books: BibleBook[];\n111:   };\n112:   search: SearchState;\n113:   ui: UiState;\n114:   auth: AuthState;\n115: }\n116: \n117: export type AppStore = StoreState & StoreActions;\n... [snippet truncated]"
+      },
+      {
+        "path": "src/store/createActions.ts",
+        "startLine": 10,
+        "endLine": 21,
+        "why": "Shows store actions composed from 6 slice creators (settings, currents, globals, search, ui, auth)",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E3",
+        "snippet": "10: export const createStoreActions: AppStoreSlice<StoreActions> = (\n11:   set,\n12:   get,\n13:   api\n14: ) => ({\n15:   ...createSettingsSlice(set, get, api),\n16:   ...createCurrentsSlice(set, get, api),\n17:   ...createGlobalsSlice(set, get, api),\n18:   ...createSearchSlice(set, get, api),\n19:   ...createUiSlice(set, get, api),\n20:   ...createAuthSlice(set, get, api),\n21: });"
+      }
+    ],
+    "uncertainties": [],
+    "nextAction": {
+      "type": "stop",
+      "reason": "Explorer result is complete for the requested read-only investigation."
+    },
+    "evidenceQuality": {
+      "level": "high",
+      "exactCount": 3,
+      "partialCount": 0,
+      "droppedCount": 0,
+      "fileCount": 3,
+      "warnings": [],
+      "summary": "Verified: 3 files read, 1 symbol lookups, 3/3 evidence items grounded, cross-verified across 3 files. All evidence grounded in inspected code."
+    },
+    "searchCoverage": {
+      "scope": [
+        "src/**",
+        "functions/**",
+        "scripts/**",
+        "migrations/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 3,
+      "grepCalls": 0,
+      "listDirCalls": 0,
+      "symbolCalls": 1,
+      "toolResultsTruncated": 0,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: src/**, functions/**, scripts/**, migrations/**"
+      ],
+      "summary": "scope-limited search across src/**, functions/**, scripts/**, migrations/**; 3 file read(s), 0 grep search(es)."
+    },
+    "failure": null,
+    "sessionId": "sess_7e27e143cd5e4ff8",
+    "session": {
+      "id": "sess_7e27e143cd5e4ff8",
+      "status": "created",
+      "remainingCalls": 4
+    },
+    "_debug": {
+      "evidenceSufficiency": {
+        "sufficient": true,
+        "reason": "simple_task_exact_evidence"
+      },
+      "confidenceScore": 1,
+      "confidenceFactors": {
+        "evidenceCount": 3,
+        "evidenceGrounded": 3,
+        "evidenceDropped": 0,
+        "exactCount": 3,
+        "crossVerified": true,
+        "symbolSearchUsed": true,
+        "stoppedByBudget": false,
+        "gitLogCalls": 0,
+        "gitDiffCalls": 0,
+        "gitBlameCalls": 0,
+        "gitGroundingHint": "none",
+        "taskKind": "locate",
+        "adjustments": [
+          "base=0.45 (taskKind=locate)",
+          "+0.54 (3 exact evidence item(s))",
+          "+0.12 (cross-verified across multiple files)",
+          "+0.05 (symbol/grep search used)"
+        ],
+        "droppedUngrounded": 0,
+        "droppedMalformed": 0
+      },
+      "stats": {
+        "model": "zai-glm-4.7",
+        "budget": "deep",
+        "budgetSource": "auto",
+        "turns": 5,
+        "toolCalls": 4,
+        "listDirCalls": 0,
+        "findFileCalls": 0,
+        "grepCalls": 0,
+        "filesRead": 3,
+        "gitLogCalls": 0,
+        "gitBlameCalls": 0,
+        "gitDiffCalls": 0,
+        "gitShowCalls": 0,
+        "symbolCalls": 1,
+        "inputTokens": 35632,
+        "outputTokens": 2532,
+        "totalTokens": 38164,
+        "elapsedMs": 5150,
+        "stoppedByBudget": false,
+        "scope": [
+          "src/**",
+          "functions/**",
+          "scripts/**",
+          "migrations/**"
+        ],
+        "repoRoot": "/home/kyubr/IdeaProjects/bible",
+        "sessionId": "sess_7e27e143cd5e4ff8",
+        "sessionStatus": "created",
+        "sessionSource": "created",
+        "remainingCalls": 4,
+        "cacheHits": 30,
+        "cacheMisses": 214,
+        "cacheHitRate": 0.123,
+        "cacheEntries": 210,
+        "cacheSizeBytes": 1607346
+      },
+      "toolTrace": {
+        "entries": [
+          {
+            "turn": 1,
+            "tool": "repo_symbol_context",
+            "args": {
+              "symbol": "useStore",
+              "scope": [
+                "src/**",
+                "functions/**",
+                "scripts/**",
+                "migrations/**"
+              ]
+            },
+            "result": {
+              "symbol": "useStore",
+              "definition": {
+                "path": "src/store.tsx",
+                "line": 30,
+                "endLine": 40,
+                "kind": "variable"
+              },
+              "callers": 20,
+              "observedRanges": 21,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/store.tsx"
+            },
+            "result": {
+              "path": "src/store.tsx",
+              "startLine": 1,
+              "endLine": 59,
+              "totalLines": 59,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/store/types.ts"
+            },
+            "result": {
+              "path": "src/store/types.ts",
+              "startLine": 1,
+              "endLine": 119,
+              "totalLines": 119,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/store/createActions.ts"
+            },
+            "result": {
+              "path": "src/store/createActions.ts",
+              "startLine": 1,
+              "endLine": 22,
+              "totalLines": 22,
+              "truncated": true
+            }
+          }
+        ],
+        "totalCalls": 4,
+        "truncated": false,
+        "maxEntries": 20
+      },
+      "codeMap": {
+        "entryPoints": [],
+        "keyModules": [
+          {
+            "path": "src/store.tsx",
+            "role": "module",
+            "linesRead": 70
+          },
+          {
+            "path": "src/shared/components/AGENTS.md",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "src/shared/components/MainTopBar.tsx",
+            "role": "entry point",
+            "linesRead": 1
+          },
+          {
+            "path": "src/shared/components/TelegramLoginButton.tsx",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "src/shared/hooks/useAuthSessionBootstrap.ts",
+            "role": "middleware",
+            "linesRead": 1
+          },
+          {
+            "path": "src/shared/hooks/useCopyActions.tsx",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "src/features/bookmark/hooks/useBookmarkSync.ts",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "src/features/bookmark/pages/BookmarkDetailPage.tsx",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "src/features/bookmark/pages/BookmarkEditorPage.tsx",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "src/features/bookmark/pages/BookmarksPage.tsx",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "src/features/exam/components/ExamNav.tsx",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "src/features/exam/components/ExperimentalFeatureGate.tsx",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "src/features/exam/hooks/useExamDataWithSync.ts",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "src/features/exam/hooks/useExamHomeSummary.ts",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "src/features/exam/hooks/useExamPageState.ts",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "src/features/exam/hooks/useSimpleRevelationExamState.ts",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "src/features/exam/pages/ExamHomePage.tsx",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "src/features/exam/pages/ExamPracticePage.tsx",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "src/features/exam/pages/ExamStatsPage.tsx",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "src/features/reader/components/WordContainer.tsx",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "src/features/reader/hooks/useReaderController.ts",
+            "role": "route/controller",
+            "linesRead": 1
+          },
+          {
+            "path": "src/store/types.ts",
+            "role": "module",
+            "linesRead": 119
+          },
+          {
+            "path": "src/store/createActions.ts",
+            "role": "module",
+            "linesRead": 22
+          }
+        ]
+      }
+    }
+  },
+  "contentText": "## Result\nConfidence: high\nVerification: verified\nEvidence Quality: high (3 exact, 0 partial, 0 dropped)\nSearch Coverage: scope-limited search across src/**, functions/**, scripts/**, migrations/**; 3 file read(s), 0 grep search(es).\n\n## Answer\nuseStore is a Zustand state management hook defined at src/store.tsx:30. It creates a global persisted store using Zustand's create() with persist middleware. The store manages app state across 6 slices: settings, currents, globals, search, ui, and auth. Exported as a const with no runtime parameters; returns a hook that accepts selector functions to access specific store parts. Persists only the settings slice to localStorage under key \"bible-app-storage\" and handles font-size rehydration on load.\n\n## Targets\n- [read] `src/store.tsx:30-58` (e0, E1) - Main definition of useStore with persistence configuration\n- [read] `src/store/types.ts:106-119` (e1, E2) - AppStore type definition showing StoreState & StoreActions\n- [read] `src/store/createActions.ts:10-21` (e2, E3) - Shows how store actions are composed from slices\n\n## Evidence (3 items, confidence: high)\n- E1 `src/store.tsx:30-58` - Definition of useStore showing Zustand store with persist middleware, initial state slices, localStorage configuration\n  snippet: 30: export const useStore = create<AppStore>()(\n  31:   persist(\n  32:     (set, get, api) => ({\n  33:       settings: INITIAL_SETTINGS,\n  34:       currents: INITIAL_CURRENTS,\n  35:       globals: INITIAL_GLOBALS,\n  36:       search: INITIAL_SEARCH,\n  37:       ui: INITIAL_UI,\n  38:       auth: INITIAL_AUTH,\n  39:       ...createStoreActions(set, get, api),\n  40:     }),\n  41:     {\n  ... [snippet truncated]\n- E2 `src/store/types.ts:106-119` - Type definitions showing StoreState contains 6 slices and StoreActions contains mutation methods\n  snippet: 106: export interface StoreState {\n  107:   settings: SettingsState;\n  108:   currents: CurrentsState;\n  109:   globals: {\n  110:     books: BibleBook[];\n  111:   };\n  112:   search: SearchState;\n  113:   ui: UiState;\n  114:   auth: AuthState;\n  115: }\n  116: \n  117: export type AppStore = StoreState & StoreActions;\n  ... [snippet truncated]\n- E3 `src/store/createActions.ts:10-21` - Shows store actions composed from 6 slice creators (settings, currents, globals, search, ui, auth)\n  snippet: 10: export const createStoreActions: AppStoreSlice<StoreActions> = (\n  11:   set,\n  12:   get,\n  13:   api\n  14: ) => ({\n  15:   ...createSettingsSlice(set, get, api),\n  16:   ...createCurrentsSlice(set, get, api),\n  17:   ...createGlobalsSlice(set, get, api),\n  18:   ...createSearchSlice(set, get, api),\n  19:   ...createUiSlice(set, get, api),\n  20:   ...createAuthSlice(set, get, api),\n  21: });\n\nSession: sess_7e27e143cd5e4ff8 (pass as \"session\" for follow-up calls)"
+}

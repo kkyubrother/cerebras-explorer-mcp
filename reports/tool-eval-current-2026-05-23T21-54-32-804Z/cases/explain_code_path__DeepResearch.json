@@ -1,0 +1,972 @@
+{
+  "tool": "explain_code_path",
+  "repo": "DeepResearch",
+  "args": {
+    "repo_root": "/home/kyubr/IdeaProjects/DeepResearch",
+    "scope": [
+      "app/**",
+      "main.py",
+      "migrations/**"
+    ],
+    "pathQuery": "FastAPI app startup and API route registration through create_app",
+    "entryPoint": "app/main.py",
+    "knownFiles": [
+      "app/main.py"
+    ],
+    "knownSymbols": [
+      "create_app"
+    ]
+  },
+  "elapsedMs": 8881,
+  "error": null,
+  "isError": false,
+  "summary": {
+    "directAnswer": "FastAPI app startup begins with module-level execution: `app = create_app()` at line 27 in `app/main.py`. The `create_app()` factory (lines 12-24) orchestrates initialization by loading settings, configuring logging/telemetry, creating the FastAPI instance, registering error handlers, attaching four API routers via `include_router()`, and instrumenting the app. Each router imports a module-level `APIRouter` instance defined in `app/api/` modules with a URL prefix and tags, then registers endpoints using `@router.{method}()` decorators.",
+    "status": {
+      "confidence": "high",
+      "verification": "verified",
+      "complete": true,
+      "warnings": []
+    },
+    "evidenceQuality": {
+      "level": "high",
+      "exactCount": 8,
+      "partialCount": 0,
+      "droppedCount": 0,
+      "fileCount": 5,
+      "warnings": [],
+      "summary": "Verified: 6 files read, 1 grep searches, 1 symbol lookups, 8/8 evidence items grounded, cross-verified across 5 files. All evidence grounded in inspected code."
+    },
+    "failure": null,
+    "nextAction": {
+      "type": "stop",
+      "reason": "Explorer result is complete for the requested read-only investigation."
+    },
+    "searchCoverage": {
+      "scope": [
+        "app/**",
+        "main.py",
+        "migrations/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 6,
+      "grepCalls": 1,
+      "listDirCalls": 2,
+      "symbolCalls": 1,
+      "toolResultsTruncated": 0,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: app/**, main.py, migrations/**"
+      ],
+      "summary": "scope-limited search across app/**, main.py, migrations/**; 6 file read(s), 1 grep search(es)."
+    },
+    "critic": null,
+    "sessionId": "sess_877a0b1d5cbd7723",
+    "session": {
+      "id": "sess_877a0b1d5cbd7723",
+      "status": "created",
+      "remainingCalls": 4
+    },
+    "targets": [
+      {
+        "path": "app/main.py",
+        "role": "read",
+        "reason": "Entry point: module-level create_app() call",
+        "evidenceRefs": [
+          "app/main.py:12-24",
+          "E1"
+        ],
+        "startLine": 27,
+        "endLine": 27
+      },
+      {
+        "path": "app/main.py",
+        "role": "read",
+        "reason": "create_app factory: app initialization and router registration",
+        "evidenceRefs": [
+          "app/main.py:27",
+          "E2"
+        ],
+        "startLine": 12,
+        "endLine": 24
+      },
+      {
+        "path": "app/main.py",
+        "role": "read",
+        "reason": "Handoff points: app.include_router() calls",
+        "evidenceRefs": [
+          "app/main.py:12-24",
+          "E3"
+        ],
+        "startLine": 19,
+        "endLine": 22
+      },
+      {
+        "path": "app/api/tasks.py",
+        "role": "read",
+        "reason": "Router definition: APIRouter with prefix/tags",
+        "evidenceRefs": [
+          "app/main.py:19",
+          "E4"
+        ],
+        "startLine": 26,
+        "endLine": 26
+      },
+      {
+        "path": "app/api/plans.py",
+        "role": "read",
+        "reason": "Router definition confirmation (plans)",
+        "evidenceRefs": [
+          "app/main.py:20",
+          "E5"
+        ],
+        "startLine": 10,
+        "endLine": 10
+      },
+      {
+        "path": "app/api/claims.py",
+        "role": "read",
+        "reason": "Router definition confirmation (claims)",
+        "evidenceRefs": [
+          "app/main.py:21",
+          "E6"
+        ],
+        "startLine": 10,
+        "endLine": 10
+      },
+      {
+        "path": "app/api/sources.py",
+        "role": "read",
+        "reason": "Router definition confirmation (sources)",
+        "evidenceRefs": [
+          "app/main.py:22",
+          "E7"
+        ],
+        "startLine": 17,
+        "endLine": 17
+      },
+      {
+        "path": "app/api/tasks.py",
+        "role": "context",
+        "reason": "Example endpoint using @router.post decorator",
+        "evidenceRefs": [
+          "app/api/tasks.py:26",
+          "E8"
+        ],
+        "startLine": 39,
+        "endLine": 50
+      }
+    ],
+    "discoveredPathsCount": 29,
+    "evidence": [
+      {
+        "id": "E1",
+        "path": "app/main.py",
+        "startLine": 27,
+        "endLine": 27,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Entry point: module-level create_app() invocation when imported",
+        "snippet": "27: app = create_app()"
+      },
+      {
+        "id": "E2",
+        "path": "app/main.py",
+        "startLine": 12,
+        "endLine": 24,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "create_app factory: initialization sequence and router registration",
+        "snippet": "12: def create_app() -> FastAPI:\n13:     settings = get_settings()\n14:     configure_logging(settings.log_level)\n15:     configure_telemetry(settings.otel_service_name)\n16: \n17:     app = FastAPI(title=\"DeepResearch Demo Alpha API\", version=\"0.1.0\")\n18:     register_error_handlers(app)\n19:     app.include_router(tasks.router)\n20:     app.include_router(plans.router)\n21:     app.include_router(claims.router)\n22:     app.include_router(sources.router)\n23:     instrument_fastapi_app(app)\n... [snippet truncated]"
+      },
+      {
+        "id": "E3",
+        "path": "app/main.py",
+        "startLine": 19,
+        "endLine": 22,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Handoff points: include_router() calls attaching each router",
+        "snippet": "19:     app.include_router(tasks.router)\n20:     app.include_router(plans.router)\n21:     app.include_router(claims.router)\n22:     app.include_router(sources.router)"
+      },
+      {
+        "id": "E4",
+        "path": "app/api/tasks.py",
+        "startLine": 26,
+        "endLine": 26,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Router instance: APIRouter with /tasks prefix and tags",
+        "snippet": "26: router = APIRouter(prefix=\"/tasks\", tags=[\"tasks\"])"
+      },
+      {
+        "id": "E5",
+        "path": "app/api/plans.py",
+        "startLine": 10,
+        "endLine": 10,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Router instance: APIRouter with /tasks prefix and tags",
+        "snippet": "10: router = APIRouter(prefix=\"/tasks\", tags=[\"plans\"])"
+      },
+      {
+        "id": "E6",
+        "path": "app/api/claims.py",
+        "startLine": 10,
+        "endLine": 10,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Router instance: APIRouter with /claims prefix and tags",
+        "snippet": "10: router = APIRouter(prefix=\"/claims\", tags=[\"claims\"])"
+      },
+      {
+        "id": "E7",
+        "path": "app/api/sources.py",
+        "startLine": 17,
+        "endLine": 17,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Router instance: APIRouter with /sources prefix and tags",
+        "snippet": "17: router = APIRouter(prefix=\"/sources\", tags=[\"sources\"])"
+      },
+      {
+        "id": "E8",
+        "path": "app/api/tasks.py",
+        "startLine": 39,
+        "endLine": 50,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Example endpoint: @router.post decorator pattern",
+        "snippet": "39: @router.post(\"\", status_code=202)\n40: async def create_task_endpoint(request: CreateTaskRequest) -> dict:\n41:     record = create_task(\n42:         question=request.question,\n43:         language=request.language,\n44:         max_queries=request.max_queries,\n45:         max_sources=request.max_sources,\n46:         cost_budget_usd=request.cost_budget_usd,\n47:         timeout_seconds=request.timeout_seconds,\n48:         plan_wait_timeout_s=request.plan_wait_timeout_s,\n49:     )\n50:     return {\"task_id\": str(record.task_id), \"status\": \"queued\"}"
+      }
+    ],
+    "uncertainties": [],
+    "stats": {
+      "turns": 10,
+      "toolCalls": 14,
+      "filesRead": 6,
+      "grepCalls": 1,
+      "symbolCalls": 1,
+      "stoppedByBudget": false,
+      "elapsedMs": 8870,
+      "totalTokens": 74795
+    }
+  },
+  "structuredContent": {
+    "schemaVersion": 1,
+    "directAnswer": "FastAPI app startup begins with module-level execution: `app = create_app()` at line 27 in `app/main.py`. The `create_app()` factory (lines 12-24) orchestrates initialization by loading settings, configuring logging/telemetry, creating the FastAPI instance, registering error handlers, attaching four API routers via `include_router()`, and instrumenting the app. Each router imports a module-level `APIRouter` instance defined in `app/api/` modules with a URL prefix and tags, then registers endpoints using `@router.{method}()` decorators.",
+    "status": {
+      "confidence": "high",
+      "verification": "verified",
+      "complete": true,
+      "warnings": []
+    },
+    "targets": [
+      {
+        "path": "app/main.py",
+        "role": "read",
+        "reason": "Entry point: module-level create_app() call",
+        "evidenceRefs": [
+          "app/main.py:12-24",
+          "E1"
+        ],
+        "startLine": 27,
+        "endLine": 27
+      },
+      {
+        "path": "app/main.py",
+        "role": "read",
+        "reason": "create_app factory: app initialization and router registration",
+        "evidenceRefs": [
+          "app/main.py:27",
+          "E2"
+        ],
+        "startLine": 12,
+        "endLine": 24
+      },
+      {
+        "path": "app/main.py",
+        "role": "read",
+        "reason": "Handoff points: app.include_router() calls",
+        "evidenceRefs": [
+          "app/main.py:12-24",
+          "E3"
+        ],
+        "startLine": 19,
+        "endLine": 22
+      },
+      {
+        "path": "app/api/tasks.py",
+        "role": "read",
+        "reason": "Router definition: APIRouter with prefix/tags",
+        "evidenceRefs": [
+          "app/main.py:19",
+          "E4"
+        ],
+        "startLine": 26,
+        "endLine": 26
+      },
+      {
+        "path": "app/api/plans.py",
+        "role": "read",
+        "reason": "Router definition confirmation (plans)",
+        "evidenceRefs": [
+          "app/main.py:20",
+          "E5"
+        ],
+        "startLine": 10,
+        "endLine": 10
+      },
+      {
+        "path": "app/api/claims.py",
+        "role": "read",
+        "reason": "Router definition confirmation (claims)",
+        "evidenceRefs": [
+          "app/main.py:21",
+          "E6"
+        ],
+        "startLine": 10,
+        "endLine": 10
+      },
+      {
+        "path": "app/api/sources.py",
+        "role": "read",
+        "reason": "Router definition confirmation (sources)",
+        "evidenceRefs": [
+          "app/main.py:22",
+          "E7"
+        ],
+        "startLine": 17,
+        "endLine": 17
+      },
+      {
+        "path": "app/api/tasks.py",
+        "role": "context",
+        "reason": "Example endpoint using @router.post decorator",
+        "evidenceRefs": [
+          "app/api/tasks.py:26",
+          "E8"
+        ],
+        "startLine": 39,
+        "endLine": 50
+      }
+    ],
+    "discoveredPaths": [
+      {
+        "path": "app/main.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/api/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/api/claims.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/api/errors.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/api/plans.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/api/sources.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/api/tasks.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/api",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/citation",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/core",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/db",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/domain",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/eval",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/models",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/orchestrator",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/policy",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/providers",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/reporting",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/repositories",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/services",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/storage",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/workers",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "main.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "migrations",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "migrations/env.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "migrations/script.py.mako",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "migrations/versions",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      }
+    ],
+    "evidence": [
+      {
+        "path": "app/main.py",
+        "startLine": 27,
+        "endLine": 27,
+        "why": "Entry point: module-level create_app() invocation when imported",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E1",
+        "snippet": "27: app = create_app()"
+      },
+      {
+        "path": "app/main.py",
+        "startLine": 12,
+        "endLine": 24,
+        "why": "create_app factory: initialization sequence and router registration",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E2",
+        "snippet": "12: def create_app() -> FastAPI:\n13:     settings = get_settings()\n14:     configure_logging(settings.log_level)\n15:     configure_telemetry(settings.otel_service_name)\n16: \n17:     app = FastAPI(title=\"DeepResearch Demo Alpha API\", version=\"0.1.0\")\n18:     register_error_handlers(app)\n19:     app.include_router(tasks.router)\n20:     app.include_router(plans.router)\n21:     app.include_router(claims.router)\n22:     app.include_router(sources.router)\n23:     instrument_fastapi_app(app)\n... [snippet truncated]"
+      },
+      {
+        "path": "app/main.py",
+        "startLine": 19,
+        "endLine": 22,
+        "why": "Handoff points: include_router() calls attaching each router",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E3",
+        "snippet": "19:     app.include_router(tasks.router)\n20:     app.include_router(plans.router)\n21:     app.include_router(claims.router)\n22:     app.include_router(sources.router)"
+      },
+      {
+        "path": "app/api/tasks.py",
+        "startLine": 26,
+        "endLine": 26,
+        "why": "Router instance: APIRouter with /tasks prefix and tags",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E4",
+        "snippet": "26: router = APIRouter(prefix=\"/tasks\", tags=[\"tasks\"])"
+      },
+      {
+        "path": "app/api/plans.py",
+        "startLine": 10,
+        "endLine": 10,
+        "why": "Router instance: APIRouter with /tasks prefix and tags",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E5",
+        "snippet": "10: router = APIRouter(prefix=\"/tasks\", tags=[\"plans\"])"
+      },
+      {
+        "path": "app/api/claims.py",
+        "startLine": 10,
+        "endLine": 10,
+        "why": "Router instance: APIRouter with /claims prefix and tags",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E6",
+        "snippet": "10: router = APIRouter(prefix=\"/claims\", tags=[\"claims\"])"
+      },
+      {
+        "path": "app/api/sources.py",
+        "startLine": 17,
+        "endLine": 17,
+        "why": "Router instance: APIRouter with /sources prefix and tags",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E7",
+        "snippet": "17: router = APIRouter(prefix=\"/sources\", tags=[\"sources\"])"
+      },
+      {
+        "path": "app/api/tasks.py",
+        "startLine": 39,
+        "endLine": 50,
+        "why": "Example endpoint: @router.post decorator pattern",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E8",
+        "snippet": "39: @router.post(\"\", status_code=202)\n40: async def create_task_endpoint(request: CreateTaskRequest) -> dict:\n41:     record = create_task(\n42:         question=request.question,\n43:         language=request.language,\n44:         max_queries=request.max_queries,\n45:         max_sources=request.max_sources,\n46:         cost_budget_usd=request.cost_budget_usd,\n47:         timeout_seconds=request.timeout_seconds,\n48:         plan_wait_timeout_s=request.plan_wait_timeout_s,\n49:     )\n50:     return {\"task_id\": str(record.task_id), \"status\": \"queued\"}"
+      }
+    ],
+    "uncertainties": [],
+    "nextAction": {
+      "type": "stop",
+      "reason": "Explorer result is complete for the requested read-only investigation."
+    },
+    "evidenceQuality": {
+      "level": "high",
+      "exactCount": 8,
+      "partialCount": 0,
+      "droppedCount": 0,
+      "fileCount": 5,
+      "warnings": [],
+      "summary": "Verified: 6 files read, 1 grep searches, 1 symbol lookups, 8/8 evidence items grounded, cross-verified across 5 files. All evidence grounded in inspected code."
+    },
+    "searchCoverage": {
+      "scope": [
+        "app/**",
+        "main.py",
+        "migrations/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 6,
+      "grepCalls": 1,
+      "listDirCalls": 2,
+      "symbolCalls": 1,
+      "toolResultsTruncated": 0,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: app/**, main.py, migrations/**"
+      ],
+      "summary": "scope-limited search across app/**, main.py, migrations/**; 6 file read(s), 1 grep search(es)."
+    },
+    "failure": null,
+    "sessionId": "sess_877a0b1d5cbd7723",
+    "session": {
+      "id": "sess_877a0b1d5cbd7723",
+      "status": "created",
+      "remainingCalls": 4
+    },
+    "_debug": {
+      "evidenceSufficiency": {
+        "sufficient": true,
+        "reason": "path_has_multi_step_evidence"
+      },
+      "confidenceScore": 1,
+      "confidenceFactors": {
+        "evidenceCount": 8,
+        "evidenceGrounded": 8,
+        "evidenceDropped": 0,
+        "exactCount": 8,
+        "crossVerified": true,
+        "symbolSearchUsed": true,
+        "stoppedByBudget": false,
+        "gitLogCalls": 0,
+        "gitDiffCalls": 0,
+        "gitBlameCalls": 0,
+        "gitGroundingHint": "none",
+        "taskKind": "reference-chase",
+        "adjustments": [
+          "base=0.30 (taskKind=reference-chase)",
+          "+0.54 (8 exact evidence item(s))",
+          "+0.12 (cross-verified across multiple files)",
+          "+0.05 (symbol/grep search used)"
+        ],
+        "droppedUngrounded": 0,
+        "droppedMalformed": 0
+      },
+      "stats": {
+        "model": "zai-glm-4.7",
+        "budget": "deep",
+        "budgetSource": "auto",
+        "turns": 10,
+        "toolCalls": 14,
+        "listDirCalls": 2,
+        "findFileCalls": 4,
+        "grepCalls": 1,
+        "filesRead": 6,
+        "gitLogCalls": 0,
+        "gitBlameCalls": 0,
+        "gitDiffCalls": 0,
+        "gitShowCalls": 0,
+        "symbolCalls": 1,
+        "inputTokens": 70709,
+        "outputTokens": 4086,
+        "totalTokens": 74795,
+        "elapsedMs": 8870,
+        "stoppedByBudget": false,
+        "scope": [
+          "app/**",
+          "main.py",
+          "migrations/**"
+        ],
+        "repoRoot": "/home/kyubr/IdeaProjects/DeepResearch",
+        "sessionId": "sess_877a0b1d5cbd7723",
+        "sessionStatus": "created",
+        "sessionSource": "created",
+        "remainingCalls": 4,
+        "cacheHits": 68,
+        "cacheMisses": 406,
+        "cacheHitRate": 0.143,
+        "cacheEntries": 401,
+        "cacheSizeBytes": 2424284
+      },
+      "toolTrace": {
+        "entries": [
+          {
+            "turn": 1,
+            "tool": "repo_symbol_context",
+            "args": {
+              "symbol": "create_app",
+              "scope": [
+                "app",
+                "main.py"
+              ]
+            },
+            "result": {
+              "symbol": "create_app",
+              "definition": {
+                "path": "app/main.py",
+                "line": 12,
+                "endLine": 26,
+                "kind": "function"
+              },
+              "callers": 1,
+              "observedRanges": 2,
+              "truncated": false
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "app/main.py"
+            },
+            "result": {
+              "path": "app/main.py",
+              "startLine": 1,
+              "endLine": 28,
+              "totalLines": 28,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_list_dir",
+            "args": {
+              "dirPath": "app/api"
+            },
+            "result": {
+              "entries": 6,
+              "paths": [
+                "app/api/__init__.py",
+                "app/api/claims.py",
+                "app/api/errors.py",
+                "app/api/plans.py",
+                "app/api/sources.py",
+                "app/api/tasks.py"
+              ]
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "app/api/tasks.py"
+            },
+            "result": {
+              "path": "app/api/tasks.py",
+              "startLine": 1,
+              "endLine": 190,
+              "totalLines": 190,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 5,
+            "tool": "repo_list_dir",
+            "args": {
+              "dirPath": "."
+            },
+            "result": {
+              "entries": 23,
+              "paths": [
+                "app",
+                "app/__init__.py",
+                "app/api",
+                "app/citation",
+                "app/core",
+                "app/db"
+              ]
+            }
+          },
+          {
+            "turn": 5,
+            "tool": "repo_grep",
+            "args": {
+              "pattern": "uvicorn|gunicorn|main:app"
+            },
+            "result": {
+              "matches": 0,
+              "paths": [],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 6,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "main.py"
+            },
+            "result": {
+              "path": "main.py",
+              "startLine": 1,
+              "endLine": 14,
+              "totalLines": 14,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 7,
+            "tool": "repo_find_files",
+            "args": {
+              "pattern": "Dockerfile*"
+            },
+            "result": {
+              "matches": 0,
+              "paths": [],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 7,
+            "tool": "repo_find_files",
+            "args": {
+              "pattern": "docker-compose*"
+            },
+            "result": {
+              "matches": 0,
+              "paths": [],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 7,
+            "tool": "repo_find_files",
+            "args": {
+              "pattern": "pyproject.toml"
+            },
+            "result": {
+              "matches": 0,
+              "paths": [],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 8,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "app/api/plans.py",
+              "startLine": 1,
+              "endLine": 30
+            },
+            "result": {
+              "path": "app/api/plans.py",
+              "startLine": 1,
+              "endLine": 19,
+              "totalLines": 19,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 8,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "app/api/claims.py",
+              "startLine": 1,
+              "endLine": 30
+            },
+            "result": {
+              "path": "app/api/claims.py",
+              "startLine": 1,
+              "endLine": 19,
+              "totalLines": 19,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 8,
+            "tool": "repo_find_files",
+            "args": {
+              "pattern": "README*"
+            },
+            "result": {
+              "matches": 0,
+              "paths": [],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 9,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "app/api/sources.py",
+              "startLine": 1,
+              "endLine": 30
+            },
+            "result": {
+              "path": "app/api/sources.py",
+              "startLine": 1,
+              "endLine": 30,
+              "totalLines": 47,
+              "truncated": true
+            }
+          }
+        ],
+        "totalCalls": 14,
+        "truncated": false,
+        "maxEntries": 20
+      },
+      "codeMap": {
+        "entryPoints": [
+          "app/main.py",
+          "main.py"
+        ],
+        "keyModules": [
+          {
+            "path": "app/main.py",
+            "role": "entry point",
+            "linesRead": 44
+          },
+          {
+            "path": "app/api/tasks.py",
+            "role": "entry point",
+            "linesRead": 190
+          },
+          {
+            "path": "main.py",
+            "role": "entry point",
+            "linesRead": 14
+          },
+          {
+            "path": "app/api/plans.py",
+            "role": "entry point",
+            "linesRead": 19
+          },
+          {
+            "path": "app/api/claims.py",
+            "role": "entry point",
+            "linesRead": 19
+          },
+          {
+            "path": "app/api/sources.py",
+            "role": "entry point",
+            "linesRead": 30
+          }
+        ]
+      }
+    }
+  },
+  "contentText": "## Result\nConfidence: high\nVerification: verified\nEvidence Quality: high (8 exact, 0 partial, 0 dropped)\nSearch Coverage: scope-limited search across app/**, main.py, migrations/**; 6 file read(s), 1 grep search(es).\n\n## Answer\nFastAPI app startup begins with module-level execution: `app = create_app()` at line 27 in `app/main.py`. The `create_app()` factory (lines 12-24) orchestrates initialization by loading settings, configuring logging/telemetry, creating the FastAPI instance, registering error handlers, attaching four API routers via `include_router()`, and instrumenting the app. Each router imports a module-level `APIRouter` instance defined in `app/api/` modules with a URL prefix and tags, then registers endpoints using `@router.{method}()` decorators.\n\n## Targets\n- [read] `app/main.py:27-27` (app/main.py:12-24, E1) - Entry point: module-level create_app() call\n- [read] `app/main.py:12-24` (app/main.py:27, E2) - create_app factory: app initialization and router registration\n- [read] `app/main.py:19-22` (app/main.py:12-24, E3) - Handoff points: app.include_router() calls\n- [read] `app/api/tasks.py:26-26` (app/main.py:19, E4) - Router definition: APIRouter with prefix/tags\n- [read] `app/api/plans.py:10-10` (app/main.py:20, E5) - Router definition confirmation (plans)\n- [read] `app/api/claims.py:10-10` (app/main.py:21, E6) - Router definition confirmation (claims)\n- [read] `app/api/sources.py:17-17` (app/main.py:22, E7) - Router definition confirmation (sources)\n- [context] `app/api/tasks.py:39-50` (app/api/tasks.py:26, E8) - Example endpoint using @router.post decorator\n\n## Evidence (8 items, confidence: high)\n- E1 `app/main.py:27-27` - Entry point: module-level create_app() invocation when imported\n  snippet: 27: app = create_app()\n- E2 `app/main.py:12-24` - create_app factory: initialization sequence and router registration\n  snippet: 12: def create_app() -> FastAPI:\n  13:     settings = get_settings()\n  14:     configure_logging(settings.log_level)\n  15:     configure_telemetry(settings.otel_service_name)\n  16: \n  17:     app = FastAPI(title=\"DeepResearch Demo Alpha API\", version=\"0.1.0\")\n  18:     register_error_handlers(app)\n  19:     app.include_router(tasks.router)\n  20:     app.include_router(plans.router)\n  21:     app.include_router(claims.router)\n  22:     app.include_router(sources.router)\n  23:     instrument_fastapi_app(app)\n  ... [snippet truncated]\n- E3 `app/main.py:19-22` - Handoff points: include_router() calls attaching each router\n  snippet: 19:     app.include_router(tasks.router)\n  20:     app.include_router(plans.router)\n  21:     app.include_router(claims.router)\n  22:     app.include_router(sources.router)\n- E4 `app/api/tasks.py:26-26` - Router instance: APIRouter with /tasks prefix and tags\n  snippet: 26: router = APIRouter(prefix=\"/tasks\", tags=[\"tasks\"])\n- E5 `app/api/plans.py:10-10` - Router instance: APIRouter with /tasks prefix and tags\n  snippet: 10: router = APIRouter(prefix=\"/tasks\", tags=[\"plans\"])\n- E6 `app/api/claims.py:10-10` - Router instance: APIRouter with /claims prefix and tags\n  snippet: 10: router = APIRouter(prefix=\"/claims\", tags=[\"claims\"])\n- E7 `app/api/sources.py:17-17` - Router instance: APIRouter with /sources prefix and tags\n  snippet: 17: router = APIRouter(prefix=\"/sources\", tags=[\"sources\"])\n- E8 `app/api/tasks.py:39-50` - Example endpoint: @router.post decorator pattern\n  snippet: 39: @router.post(\"\", status_code=202)\n  40: async def create_task_endpoint(request: CreateTaskRequest) -> dict:\n  41:     record = create_task(\n  42:         question=request.question,\n  43:         language=request.language,\n  44:         max_queries=request.max_queries,\n  45:         max_sources=request.max_sources,\n  46:         cost_budget_usd=request.cost_budget_usd,\n  47:         timeout_seconds=request.timeout_seconds,\n  48:         plan_wait_timeout_s=request.plan_wait_timeout_s,\n  49:     )\n  50:     return {\"task_id\": str(record.task_id), \"status\": \"queued\"}\n\nSession: sess_877a0b1d5cbd7723 (pass as \"session\" for follow-up calls)"
+}

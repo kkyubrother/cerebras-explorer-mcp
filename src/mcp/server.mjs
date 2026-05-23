@@ -570,7 +570,7 @@ function buildFindEntrypointsArgs(args) {
   const kindDescription = kindDescriptionByKind[entryKind] ?? kindDescriptionByKind.all;
   const task = `Find ${kindDescription} in this repository. Report grounded file:line evidence for each entry point and group targets by entry kind in the directAnswer. Entry-point detection is regex-based, so flag each cited line as something the parent agent should verify before acting (mention this caveat in the report once).`;
   const regex = buildEntryPointRegexBundle(entryKind);
-  const hints = { strategy: 'auto' };
+  const hints = {};
   if (regex.length > 0) hints.regex = regex;
   return {
     task,

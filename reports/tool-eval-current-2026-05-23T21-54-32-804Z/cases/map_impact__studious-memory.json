@@ -1,0 +1,1224 @@
+{
+  "tool": "map_impact",
+  "repo": "studious-memory",
+  "args": {
+    "repo_root": "/home/kyubr/IdeaProjects/studious-memory",
+    "scope": [
+      "backend/**",
+      "frontend/src/**",
+      "extensions/firefox-inbox/src/**",
+      "scripts/**",
+      "android/**"
+    ],
+    "anchor": "backend/mcp_server.py",
+    "changeType": "refactor",
+    "knownSymbols": [
+      "scoped_tool"
+    ]
+  },
+  "elapsedMs": 10802,
+  "error": null,
+  "isError": false,
+  "summary": {
+    "directAnswer": "Traced dependency chain for backend/mcp_server.py. Anchor resolves to two files: entry point (backend/mcp_server.py, 41 lines) and implementation (backend/app/mcp/server.py, 947 lines). Found 4 direct importers, 14 test files, configuration with 25+ MCP settings, and 2 script dependencies.",
+    "status": {
+      "confidence": "high",
+      "verification": "targeted_read_needed",
+      "complete": true,
+      "warnings": [
+        "1 evidence item(s) are grounded only by grep, blame, or nearby line observations."
+      ]
+    },
+    "evidenceQuality": {
+      "level": "high",
+      "exactCount": 7,
+      "partialCount": 1,
+      "droppedCount": 0,
+      "fileCount": 7,
+      "warnings": [
+        "1 evidence item(s) are grounded only by grep, blame, or nearby line observations."
+      ],
+      "summary": "Verified: 10 files read, 6 grep searches, 3 symbol lookups, 7/8 evidence items grounded, cross-verified across 7 files. All evidence grounded in inspected code."
+    },
+    "failure": null,
+    "nextAction": {
+      "type": "read_target",
+      "reason": "Read backend/mcp_server.py:1-41 before final verification.",
+      "target": {
+        "path": "backend/mcp_server.py",
+        "role": "read",
+        "reason": "Stdio transport entry point that imports and runs mcp with stdio transport",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 41
+      }
+    },
+    "searchCoverage": {
+      "scope": [
+        "backend/**",
+        "frontend/src/**",
+        "extensions/firefox-inbox/src/**",
+        "scripts/**",
+        "android/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 10,
+      "grepCalls": 6,
+      "listDirCalls": 0,
+      "symbolCalls": 3,
+      "toolResultsTruncated": 0,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: backend/**, frontend/src/**, extensions/firefox-inbox/src/**, scripts/**, android/**"
+      ],
+      "summary": "scope-limited search across backend/**, frontend/src/**, extensions/firefox-inbox/src/**, scripts/**, android/**; 10 file read(s), 6 grep search(es)."
+    },
+    "critic": null,
+    "sessionId": "sess_cbf020d1de6951a7",
+    "session": {
+      "id": "sess_cbf020d1de6951a7",
+      "status": "created",
+      "remainingCalls": 4
+    },
+    "targets": [
+      {
+        "path": "backend/mcp_server.py",
+        "role": "read",
+        "reason": "Stdio transport entry point that imports and runs mcp with stdio transport",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 41
+      },
+      {
+        "path": "backend/main.py",
+        "role": "read",
+        "reason": "FastAPI main app imports mcp from app.mcp.server",
+        "evidenceRefs": [
+          "E2"
+        ],
+        "startLine": 42,
+        "endLine": 42
+      },
+      {
+        "path": "backend/tests/auth/test_mcp_scope_enforcement.py",
+        "role": "test",
+        "reason": "Primary test file imports server and tests orchestrate_input, tool functions",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 213
+      },
+      {
+        "path": "backend/tests/mcp/test_mcp_stdio_smoke.py",
+        "role": "test",
+        "reason": "Stdio lifecycle test runs mcp_server.py as subprocess",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 88
+      },
+      {
+        "path": "backend/app/config.py",
+        "role": "config",
+        "reason": "Defines 25+ MCP_* settings for auth modes, OAuth, and connection limits",
+        "evidenceRefs": [],
+        "startLine": 231,
+        "endLine": 434
+      },
+      {
+        "path": "scripts/generate_contract_snapshot.py",
+        "role": "read",
+        "reason": "Script references scoped_tool decorator for AST analysis",
+        "evidenceRefs": [],
+        "startLine": 160,
+        "endLine": 175
+      },
+      {
+        "path": "scripts/idea_run_mcp.sh",
+        "role": "read",
+        "reason": "Shell script executes mcp_server.py entry point",
+        "evidenceRefs": [
+          "E8"
+        ],
+        "startLine": 18,
+        "endLine": 18
+      },
+      {
+        "path": "backend/mcp_server.py",
+        "startLine": 32,
+        "endLine": 40,
+        "role": "read",
+        "reason": "Entry point imports mcp from app.mcp.server and runs with stdio transport",
+        "evidenceRefs": [
+          "E1"
+        ]
+      }
+    ],
+    "discoveredPathsCount": 35,
+    "evidence": [
+      {
+        "id": "E1",
+        "path": "backend/mcp_server.py",
+        "startLine": 32,
+        "endLine": 40,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Entry point imports mcp from app.mcp.server and runs with stdio transport",
+        "snippet": "32:     from app.mcp.server import mcp\n33: \n34:     set_mcp_owner_id(settings.DEFAULT_OWNER_ID)\n35:     set_mcp_auth_context(\n36:         auth_type=\"stdio\",\n37:         scopes=list(SUPPORTED_MCP_OAUTH_SCOPES),\n38:         subject=\"local-stdio\",\n39:     )\n40:     mcp.run(transport=\"stdio\")"
+      },
+      {
+        "id": "E2",
+        "path": "backend/main.py",
+        "startLine": 42,
+        "endLine": 42,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "FastAPI main app imports mcp from app.mcp.server",
+        "snippet": "42: from app.mcp.server import mcp"
+      },
+      {
+        "id": "E3",
+        "path": "backend/tests/auth/test_mcp_scope_enforcement.py",
+        "startLine": 8,
+        "endLine": 8,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Test file imports server as mcp_server",
+        "snippet": "8: from app.mcp import server as mcp_server"
+      },
+      {
+        "id": "E4",
+        "path": "backend/tests/auth/test_mcp_scope_enforcement.py",
+        "startLine": 84,
+        "endLine": 84,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Test calls mcp_server.orchestrate_input()",
+        "snippet": "84:         asyncio.run(mcp_server.orchestrate_input(text=\"내일 오전 9시에 약 복용 알려줘\", execute=True))"
+      },
+      {
+        "id": "E5",
+        "path": "backend/tests/mcp/test_mcp_stdio_smoke.py",
+        "startLine": 32,
+        "endLine": 32,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Test runs mcp_server.py as subprocess",
+        "snippet": "32:         args=[\"mcp_server.py\"],"
+      },
+      {
+        "id": "E6",
+        "path": "backend/app/config.py",
+        "startLine": 231,
+        "endLine": 293,
+        "groundingStatus": "partial",
+        "evidenceType": "file_range",
+        "why": "Config defines MCP_ALLOW_QUERY_KEY, MCP_PUBLIC_AUTH_MODE, MCP_OAUTH_*, MCP_MAX_*",
+        "snippet": "231:     MCP_ALLOW_QUERY_KEY: bool = False  # allow ?studious-api-key= on MCP paths (dev only)\n232:     MCP_ALLOW_QUERY_KEY_UNSAFE_OVERRIDE: bool = False\n233:     MCP_PUBLIC_AUTH_MODE: str = \"api_key\"  # api_key, oauth, or dual\n234:     MCP_ALLOW_API_KEY_AUTH: bool = True\n235:     MCP_OAUTH_RESOURCE: str = \"\"\n236:     MCP_OAUTH_AUTHORIZATION_SERVERS: str = \"\"\n237:     MCP_OAUTH_ISSUER: str = \"\"\n238:     MCP_OAUTH_AUDIENCE: str = \"\"\n239:     MCP_OAUTH_JWKS_URL: str = \"\"\n240:     MCP_OAUTH_ALLOWED_SUBJECTS: str = \"\"\n241:     MCP_OAUTH_OWNER_ID: str = \"\"\n242:     MCP_OAUTH_ACCESS_PROFILE: str = \"\"\n... [snippet truncated]"
+      },
+      {
+        "id": "E7",
+        "path": "scripts/generate_contract_snapshot.py",
+        "startLine": 166,
+        "endLine": 166,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Script references scoped_tool decorator for AST analysis",
+        "snippet": "166:             if isinstance(func, ast.Name) and func.id == \"scoped_tool\":"
+      },
+      {
+        "id": "E8",
+        "path": "scripts/idea_run_mcp.sh",
+        "startLine": 18,
+        "endLine": 18,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Shell script executes mcp_server.py entry point",
+        "snippet": "18: exec uv run --frozen python mcp_server.py"
+      }
+    ],
+    "uncertainties": [
+      "1 evidence item(s) are grounded only by grep, blame, or nearby line observations."
+    ],
+    "stats": {
+      "turns": 6,
+      "toolCalls": 21,
+      "filesRead": 10,
+      "grepCalls": 6,
+      "symbolCalls": 3,
+      "stoppedByBudget": false,
+      "elapsedMs": 10791,
+      "totalTokens": 108617
+    }
+  },
+  "structuredContent": {
+    "schemaVersion": 1,
+    "directAnswer": "Traced dependency chain for backend/mcp_server.py. Anchor resolves to two files: entry point (backend/mcp_server.py, 41 lines) and implementation (backend/app/mcp/server.py, 947 lines). Found 4 direct importers, 14 test files, configuration with 25+ MCP settings, and 2 script dependencies.",
+    "status": {
+      "confidence": "high",
+      "verification": "targeted_read_needed",
+      "complete": true,
+      "warnings": [
+        "1 evidence item(s) are grounded only by grep, blame, or nearby line observations."
+      ]
+    },
+    "targets": [
+      {
+        "path": "backend/mcp_server.py",
+        "role": "read",
+        "reason": "Stdio transport entry point that imports and runs mcp with stdio transport",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 41
+      },
+      {
+        "path": "backend/main.py",
+        "role": "read",
+        "reason": "FastAPI main app imports mcp from app.mcp.server",
+        "evidenceRefs": [
+          "E2"
+        ],
+        "startLine": 42,
+        "endLine": 42
+      },
+      {
+        "path": "backend/tests/auth/test_mcp_scope_enforcement.py",
+        "role": "test",
+        "reason": "Primary test file imports server and tests orchestrate_input, tool functions",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 213
+      },
+      {
+        "path": "backend/tests/mcp/test_mcp_stdio_smoke.py",
+        "role": "test",
+        "reason": "Stdio lifecycle test runs mcp_server.py as subprocess",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 88
+      },
+      {
+        "path": "backend/app/config.py",
+        "role": "config",
+        "reason": "Defines 25+ MCP_* settings for auth modes, OAuth, and connection limits",
+        "evidenceRefs": [],
+        "startLine": 231,
+        "endLine": 434
+      },
+      {
+        "path": "scripts/generate_contract_snapshot.py",
+        "role": "read",
+        "reason": "Script references scoped_tool decorator for AST analysis",
+        "evidenceRefs": [],
+        "startLine": 160,
+        "endLine": 175
+      },
+      {
+        "path": "scripts/idea_run_mcp.sh",
+        "role": "read",
+        "reason": "Shell script executes mcp_server.py entry point",
+        "evidenceRefs": [
+          "E8"
+        ],
+        "startLine": 18,
+        "endLine": 18
+      },
+      {
+        "path": "backend/mcp_server.py",
+        "startLine": 32,
+        "endLine": 40,
+        "role": "read",
+        "reason": "Entry point imports mcp from app.mcp.server and runs with stdio transport",
+        "evidenceRefs": [
+          "E1"
+        ]
+      },
+      {
+        "path": "backend/tests/auth/test_mcp_scope_enforcement.py",
+        "startLine": 8,
+        "endLine": 8,
+        "role": "read",
+        "reason": "Test file imports server as mcp_server",
+        "evidenceRefs": [
+          "E3"
+        ]
+      },
+      {
+        "path": "backend/tests/auth/test_mcp_scope_enforcement.py",
+        "startLine": 84,
+        "endLine": 84,
+        "role": "read",
+        "reason": "Test calls mcp_server.orchestrate_input()",
+        "evidenceRefs": [
+          "E4"
+        ]
+      },
+      {
+        "path": "backend/tests/mcp/test_mcp_stdio_smoke.py",
+        "startLine": 32,
+        "endLine": 32,
+        "role": "read",
+        "reason": "Test runs mcp_server.py as subprocess",
+        "evidenceRefs": [
+          "E5"
+        ]
+      },
+      {
+        "path": "backend/app/config.py",
+        "startLine": 231,
+        "endLine": 293,
+        "role": "read",
+        "reason": "Config defines MCP_ALLOW_QUERY_KEY, MCP_PUBLIC_AUTH_MODE, MCP_OAUTH_*, MCP_MAX_*",
+        "evidenceRefs": [
+          "E6"
+        ]
+      },
+      {
+        "path": "scripts/generate_contract_snapshot.py",
+        "startLine": 166,
+        "endLine": 166,
+        "role": "read",
+        "reason": "Script references scoped_tool decorator for AST analysis",
+        "evidenceRefs": [
+          "E7"
+        ]
+      }
+    ],
+    "discoveredPaths": [
+      {
+        "path": "backend/app/mcp/server.py",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "scripts/generate_contract_snapshot.py",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "scripts/generate_architecture_explorer.py",
+        "kind": "unknown",
+        "sourceTool": "repo_references",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "scripts/idea_run_mcp.sh",
+        "kind": "unknown",
+        "sourceTool": "repo_references",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/tests/auth/test_mcp_scope_enforcement.py",
+        "kind": "file",
+        "sourceTool": "repo_find_files",
+        "reason": "Matched file discovery query."
+      },
+      {
+        "path": "backend/tests/mcp/test_mcp_stdio_smoke.py",
+        "kind": "file",
+        "sourceTool": "repo_find_files",
+        "reason": "Matched file discovery query."
+      },
+      {
+        "path": "backend/tests/mcp/test_review_inbox_automation_tools.py",
+        "kind": "unknown",
+        "sourceTool": "repo_references",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/tests/test_mcp_middleware.py",
+        "kind": "file",
+        "sourceTool": "repo_find_files",
+        "reason": "Matched file discovery query."
+      },
+      {
+        "path": "backend/tests/auth/test_api_regression_after_mcp_auth.py",
+        "kind": "file",
+        "sourceTool": "repo_find_files",
+        "reason": "Matched file discovery query."
+      },
+      {
+        "path": "backend/tests/auth/test_mcp_auth_enforcement.py",
+        "kind": "file",
+        "sourceTool": "repo_find_files",
+        "reason": "Matched file discovery query."
+      },
+      {
+        "path": "backend/tests/auth/test_mcp_auth_matrix.py",
+        "kind": "file",
+        "sourceTool": "repo_find_files",
+        "reason": "Matched file discovery query."
+      },
+      {
+        "path": "backend/tests/auth/test_mcp_credential_precedence.py",
+        "kind": "file",
+        "sourceTool": "repo_find_files",
+        "reason": "Matched file discovery query."
+      },
+      {
+        "path": "backend/tests/auth/test_mcp_oauth_token.py",
+        "kind": "file",
+        "sourceTool": "repo_find_files",
+        "reason": "Matched file discovery query."
+      },
+      {
+        "path": "backend/tests/auth/test_mcp_path_classification.py",
+        "kind": "file",
+        "sourceTool": "repo_find_files",
+        "reason": "Matched file discovery query."
+      },
+      {
+        "path": "backend/tests/auth/test_mcp_verify_touch.py",
+        "kind": "file",
+        "sourceTool": "repo_find_files",
+        "reason": "Matched file discovery query."
+      },
+      {
+        "path": "backend/tests/mcp/test_mcp_access_profile_scope.py",
+        "kind": "file",
+        "sourceTool": "repo_find_files",
+        "reason": "Matched file discovery query."
+      },
+      {
+        "path": "backend/tests/mcp/test_mcp_client.py",
+        "kind": "file",
+        "sourceTool": "repo_find_files",
+        "reason": "Matched file discovery query."
+      },
+      {
+        "path": "backend/tests/mcp/test_mcp_client_query_key.py",
+        "kind": "file",
+        "sourceTool": "repo_find_files",
+        "reason": "Matched file discovery query."
+      },
+      {
+        "path": "backend/tests/mcp/test_mcp_http_lifecycle.py",
+        "kind": "file",
+        "sourceTool": "repo_find_files",
+        "reason": "Matched file discovery query."
+      },
+      {
+        "path": "backend/tests/mcp/test_naver_openapi_agent_mcp.py",
+        "kind": "file",
+        "sourceTool": "repo_find_files",
+        "reason": "Matched file discovery query."
+      },
+      {
+        "path": "backend/app/config.py",
+        "kind": "file",
+        "sourceTool": "repo_find_files",
+        "reason": "Matched file discovery query."
+      },
+      {
+        "path": "backend/tests/test_ai_config_seed.py",
+        "kind": "file",
+        "sourceTool": "repo_find_files",
+        "reason": "Matched file discovery query."
+      },
+      {
+        "path": "backend/tests/test_config.py",
+        "kind": "file",
+        "sourceTool": "repo_find_files",
+        "reason": "Matched file discovery query."
+      },
+      {
+        "path": "backend/tests/test_config_security.py",
+        "kind": "file",
+        "sourceTool": "repo_find_files",
+        "reason": "Matched file discovery query."
+      },
+      {
+        "path": "backend/tests/test_openai_adapter_config.py",
+        "kind": "file",
+        "sourceTool": "repo_find_files",
+        "reason": "Matched file discovery query."
+      },
+      {
+        "path": "backend/app/schemas/ai_config.py",
+        "kind": "file",
+        "sourceTool": "repo_find_files",
+        "reason": "Matched file discovery query."
+      },
+      {
+        "path": "backend/app/services/ai_config_seed.py",
+        "kind": "file",
+        "sourceTool": "repo_find_files",
+        "reason": "Matched file discovery query."
+      },
+      {
+        "path": "backend/tests/api/test_ai_config.py",
+        "kind": "file",
+        "sourceTool": "repo_find_files",
+        "reason": "Matched file discovery query."
+      },
+      {
+        "path": "backend/app/api/v1/ai_config.py",
+        "kind": "file",
+        "sourceTool": "repo_find_files",
+        "reason": "Matched file discovery query."
+      },
+      {
+        "path": "backend/app/api/v1/config.py",
+        "kind": "file",
+        "sourceTool": "repo_find_files",
+        "reason": "Matched file discovery query."
+      },
+      {
+        "path": "backend/tests/test_entity_owner_audit.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/tests/mcp/test_agent_capability_map.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/app/api/v1/agent.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/main.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/mcp_server.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      }
+    ],
+    "evidence": [
+      {
+        "path": "backend/mcp_server.py",
+        "startLine": 32,
+        "endLine": 40,
+        "why": "Entry point imports mcp from app.mcp.server and runs with stdio transport",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E1",
+        "snippet": "32:     from app.mcp.server import mcp\n33: \n34:     set_mcp_owner_id(settings.DEFAULT_OWNER_ID)\n35:     set_mcp_auth_context(\n36:         auth_type=\"stdio\",\n37:         scopes=list(SUPPORTED_MCP_OAUTH_SCOPES),\n38:         subject=\"local-stdio\",\n39:     )\n40:     mcp.run(transport=\"stdio\")"
+      },
+      {
+        "path": "backend/main.py",
+        "startLine": 42,
+        "endLine": 42,
+        "why": "FastAPI main app imports mcp from app.mcp.server",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E2",
+        "snippet": "42: from app.mcp.server import mcp"
+      },
+      {
+        "path": "backend/tests/auth/test_mcp_scope_enforcement.py",
+        "startLine": 8,
+        "endLine": 8,
+        "why": "Test file imports server as mcp_server",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E3",
+        "snippet": "8: from app.mcp import server as mcp_server"
+      },
+      {
+        "path": "backend/tests/auth/test_mcp_scope_enforcement.py",
+        "startLine": 84,
+        "endLine": 84,
+        "why": "Test calls mcp_server.orchestrate_input()",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E4",
+        "snippet": "84:         asyncio.run(mcp_server.orchestrate_input(text=\"내일 오전 9시에 약 복용 알려줘\", execute=True))"
+      },
+      {
+        "path": "backend/tests/mcp/test_mcp_stdio_smoke.py",
+        "startLine": 32,
+        "endLine": 32,
+        "why": "Test runs mcp_server.py as subprocess",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E5",
+        "snippet": "32:         args=[\"mcp_server.py\"],"
+      },
+      {
+        "path": "backend/app/config.py",
+        "startLine": 231,
+        "endLine": 293,
+        "why": "Config defines MCP_ALLOW_QUERY_KEY, MCP_PUBLIC_AUTH_MODE, MCP_OAUTH_*, MCP_MAX_*",
+        "evidenceType": "file_range",
+        "groundingStatus": "partial",
+        "id": "E6",
+        "snippet": "231:     MCP_ALLOW_QUERY_KEY: bool = False  # allow ?studious-api-key= on MCP paths (dev only)\n232:     MCP_ALLOW_QUERY_KEY_UNSAFE_OVERRIDE: bool = False\n233:     MCP_PUBLIC_AUTH_MODE: str = \"api_key\"  # api_key, oauth, or dual\n234:     MCP_ALLOW_API_KEY_AUTH: bool = True\n235:     MCP_OAUTH_RESOURCE: str = \"\"\n236:     MCP_OAUTH_AUTHORIZATION_SERVERS: str = \"\"\n237:     MCP_OAUTH_ISSUER: str = \"\"\n238:     MCP_OAUTH_AUDIENCE: str = \"\"\n239:     MCP_OAUTH_JWKS_URL: str = \"\"\n240:     MCP_OAUTH_ALLOWED_SUBJECTS: str = \"\"\n241:     MCP_OAUTH_OWNER_ID: str = \"\"\n242:     MCP_OAUTH_ACCESS_PROFILE: str = \"\"\n... [snippet truncated]"
+      },
+      {
+        "path": "scripts/generate_contract_snapshot.py",
+        "startLine": 166,
+        "endLine": 166,
+        "why": "Script references scoped_tool decorator for AST analysis",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E7",
+        "snippet": "166:             if isinstance(func, ast.Name) and func.id == \"scoped_tool\":"
+      },
+      {
+        "path": "scripts/idea_run_mcp.sh",
+        "startLine": 18,
+        "endLine": 18,
+        "why": "Shell script executes mcp_server.py entry point",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E8",
+        "snippet": "18: exec uv run --frozen python mcp_server.py"
+      }
+    ],
+    "uncertainties": [
+      "1 evidence item(s) are grounded only by grep, blame, or nearby line observations."
+    ],
+    "nextAction": {
+      "type": "read_target",
+      "reason": "Read backend/mcp_server.py:1-41 before final verification.",
+      "target": {
+        "path": "backend/mcp_server.py",
+        "role": "read",
+        "reason": "Stdio transport entry point that imports and runs mcp with stdio transport",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 41
+      }
+    },
+    "evidenceQuality": {
+      "level": "high",
+      "exactCount": 7,
+      "partialCount": 1,
+      "droppedCount": 0,
+      "fileCount": 7,
+      "warnings": [
+        "1 evidence item(s) are grounded only by grep, blame, or nearby line observations."
+      ],
+      "summary": "Verified: 10 files read, 6 grep searches, 3 symbol lookups, 7/8 evidence items grounded, cross-verified across 7 files. All evidence grounded in inspected code."
+    },
+    "searchCoverage": {
+      "scope": [
+        "backend/**",
+        "frontend/src/**",
+        "extensions/firefox-inbox/src/**",
+        "scripts/**",
+        "android/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 10,
+      "grepCalls": 6,
+      "listDirCalls": 0,
+      "symbolCalls": 3,
+      "toolResultsTruncated": 0,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: backend/**, frontend/src/**, extensions/firefox-inbox/src/**, scripts/**, android/**"
+      ],
+      "summary": "scope-limited search across backend/**, frontend/src/**, extensions/firefox-inbox/src/**, scripts/**, android/**; 10 file read(s), 6 grep search(es)."
+    },
+    "failure": null,
+    "sessionId": "sess_cbf020d1de6951a7",
+    "session": {
+      "id": "sess_cbf020d1de6951a7",
+      "status": "created",
+      "remainingCalls": 4
+    },
+    "_debug": {
+      "evidenceSufficiency": {
+        "sufficient": true,
+        "reason": "edit_plan_has_actionable_target"
+      },
+      "confidenceScore": 1,
+      "confidenceFactors": {
+        "evidenceCount": 8,
+        "evidenceGrounded": 8,
+        "evidenceDropped": 0,
+        "exactCount": 7,
+        "crossVerified": true,
+        "symbolSearchUsed": true,
+        "stoppedByBudget": false,
+        "gitLogCalls": 0,
+        "gitDiffCalls": 0,
+        "gitBlameCalls": 0,
+        "gitGroundingHint": "none",
+        "taskKind": "reference-chase",
+        "adjustments": [
+          "base=0.30 (taskKind=reference-chase)",
+          "+0.54 (7 exact evidence item(s))",
+          "+0.12 (cross-verified across multiple files)",
+          "+0.05 (symbol/grep search used)"
+        ],
+        "droppedUngrounded": 0,
+        "droppedMalformed": 0
+      },
+      "stats": {
+        "model": "zai-glm-4.7",
+        "budget": "deep",
+        "budgetSource": "auto",
+        "turns": 6,
+        "toolCalls": 21,
+        "listDirCalls": 0,
+        "findFileCalls": 2,
+        "grepCalls": 6,
+        "filesRead": 10,
+        "gitLogCalls": 0,
+        "gitBlameCalls": 0,
+        "gitDiffCalls": 0,
+        "gitShowCalls": 0,
+        "symbolCalls": 3,
+        "inputTokens": 103175,
+        "outputTokens": 5442,
+        "totalTokens": 108617,
+        "elapsedMs": 10791,
+        "stoppedByBudget": false,
+        "scope": [
+          "backend/**",
+          "frontend/src/**",
+          "extensions/firefox-inbox/src/**",
+          "scripts/**",
+          "android/**"
+        ],
+        "repoRoot": "/home/kyubr/IdeaProjects/studious-memory",
+        "sessionId": "sess_cbf020d1de6951a7",
+        "sessionStatus": "created",
+        "sessionSource": "created",
+        "remainingCalls": 4,
+        "cacheHits": 62,
+        "cacheMisses": 394,
+        "cacheHitRate": 0.136,
+        "cacheEntries": 389,
+        "cacheSizeBytes": 2375028
+      },
+      "toolTrace": {
+        "entries": [
+          {
+            "turn": 1,
+            "tool": "repo_symbol_context",
+            "args": {
+              "symbol": "scoped_tool"
+            },
+            "result": {
+              "symbol": "scoped_tool",
+              "definition": {
+                "path": "backend/app/mcp/server.py",
+                "line": 79,
+                "endLine": 91,
+                "kind": "function"
+              },
+              "callers": 39,
+              "observedRanges": 21,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 1,
+            "tool": "repo_references",
+            "args": {
+              "symbol": "mcp_server"
+            },
+            "result": {
+              "symbol": "mcp_server",
+              "definition": null,
+              "references": 14,
+              "truncated": false
+            }
+          },
+          {
+            "turn": 1,
+            "tool": "repo_grep",
+            "args": {
+              "pattern": "from.*mcp_server|import.*mcp_server",
+              "maxResults": 50
+            },
+            "result": {
+              "matches": 2,
+              "paths": [
+                "backend/tests/auth/test_mcp_scope_enforcement.py",
+                "backend/tests/mcp/test_review_inbox_automation_tools.py"
+              ],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 1,
+            "tool": "repo_find_files",
+            "args": {
+              "pattern": "**/test*mcp*.py"
+            },
+            "result": {
+              "matches": 15,
+              "paths": [
+                "backend/tests/test_mcp_middleware.py",
+                "backend/tests/auth/test_api_regression_after_mcp_auth.py",
+                "backend/tests/auth/test_mcp_auth_enforcement.py",
+                "backend/tests/auth/test_mcp_auth_matrix.py",
+                "backend/tests/auth/test_mcp_credential_precedence.py",
+                "backend/tests/auth/test_mcp_oauth_token.py"
+              ],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 1,
+            "tool": "repo_find_files",
+            "args": {
+              "pattern": "**/*config*.py"
+            },
+            "result": {
+              "matches": 10,
+              "paths": [
+                "backend/app/config.py",
+                "backend/tests/test_ai_config_seed.py",
+                "backend/tests/test_config.py",
+                "backend/tests/test_config_security.py",
+                "backend/tests/test_openai_adapter_config.py",
+                "backend/app/schemas/ai_config.py"
+              ],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "backend/app/mcp/server.py",
+              "startLine": 1,
+              "endLine": 100
+            },
+            "result": {
+              "path": "backend/app/mcp/server.py",
+              "startLine": 1,
+              "endLine": 100,
+              "totalLines": 947,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "backend/tests/auth/test_mcp_scope_enforcement.py",
+              "startLine": 1,
+              "endLine": 50
+            },
+            "result": {
+              "path": "backend/tests/auth/test_mcp_scope_enforcement.py",
+              "startLine": 1,
+              "endLine": 50,
+              "totalLines": 213,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "backend/tests/mcp/test_review_inbox_automation_tools.py",
+              "startLine": 1,
+              "endLine": 60
+            },
+            "result": {
+              "path": "backend/tests/mcp/test_review_inbox_automation_tools.py",
+              "startLine": 1,
+              "endLine": 60,
+              "totalLines": 173,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "scripts/generate_contract_snapshot.py",
+              "startLine": 160,
+              "endLine": 175
+            },
+            "result": {
+              "path": "scripts/generate_contract_snapshot.py",
+              "startLine": 160,
+              "endLine": 175,
+              "totalLines": 282,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "scripts/idea_run_mcp.sh"
+            },
+            "result": {
+              "path": "scripts/idea_run_mcp.sh",
+              "startLine": 1,
+              "endLine": 19,
+              "totalLines": 19,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "backend/app/mcp/server.py",
+              "startLine": 900,
+              "endLine": 947
+            },
+            "result": {
+              "path": "backend/app/mcp/server.py",
+              "startLine": 900,
+              "endLine": 947,
+              "totalLines": 947,
+              "truncated": false
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "backend/tests/mcp/test_mcp_stdio_smoke.py",
+              "startLine": 1,
+              "endLine": 85
+            },
+            "result": {
+              "path": "backend/tests/mcp/test_mcp_stdio_smoke.py",
+              "startLine": 1,
+              "endLine": 85,
+              "totalLines": 88,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_grep",
+            "args": {
+              "pattern": "resource_|orchestrate_input|mcp\\.list_tools",
+              "scope": [
+                "backend/tests"
+              ],
+              "maxResults": 30
+            },
+            "result": {
+              "matches": 21,
+              "paths": [
+                "backend/tests/test_entity_owner_audit.py",
+                "backend/tests/auth/test_mcp_auth_matrix.py",
+                "backend/tests/auth/test_mcp_oauth_token.py",
+                "backend/tests/auth/test_mcp_scope_enforcement.py",
+                "backend/tests/mcp/test_agent_capability_map.py",
+                "backend/tests/mcp/test_review_inbox_automation_tools.py"
+              ],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_grep",
+            "args": {
+              "pattern": "mcp|mcp_server",
+              "scope": [
+                "backend/app/config.py"
+              ],
+              "contextLines": 2
+            },
+            "result": {
+              "matches": 45,
+              "paths": [
+                "backend/app/config.py"
+              ],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_grep",
+            "args": {
+              "pattern": "mcp_server|mcp",
+              "scope": [
+                "backend/app/api/v1"
+              ],
+              "maxResults": 30
+            },
+            "result": {
+              "matches": 1,
+              "paths": [
+                "backend/app/api/v1/agent.py"
+              ],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "backend/app/mcp/server.py",
+              "startLine": 425,
+              "endLine": 475
+            },
+            "result": {
+              "path": "backend/app/mcp/server.py",
+              "startLine": 425,
+              "endLine": 475,
+              "totalLines": 947,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_grep",
+            "args": {
+              "pattern": "^if __name__|^async def main|^def main",
+              "scope": [
+                "backend/app/mcp/server.py"
+              ]
+            },
+            "result": {
+              "matches": 0,
+              "paths": [],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_symbols",
+            "args": {
+              "path": "backend/app/mcp/server.py",
+              "kind": "function"
+            },
+            "result": {
+              "path": "backend/app/mcp/server.py",
+              "symbols": 65,
+              "names": [
+                "scoped_tool",
+                "_decorator",
+                "_wrapped",
+                "_list_tools_for_current_scope",
+                "scoped_resource",
+                "process_input"
+              ]
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_grep",
+            "args": {
+              "pattern": "from app\\.mcp import server|from app.mcp.server import",
+              "maxResults": 20
+            },
+            "result": {
+              "matches": 4,
+              "paths": [
+                "backend/main.py",
+                "backend/mcp_server.py",
+                "backend/tests/auth/test_mcp_scope_enforcement.py",
+                "backend/tests/mcp/test_review_inbox_automation_tools.py"
+              ],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 5,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "backend/mcp_server.py"
+            },
+            "result": {
+              "path": "backend/mcp_server.py",
+              "startLine": 1,
+              "endLine": 41,
+              "totalLines": 41,
+              "truncated": true
+            }
+          }
+        ],
+        "totalCalls": 21,
+        "truncated": true,
+        "maxEntries": 20
+      },
+      "codeMap": {
+        "entryPoints": [
+          "backend/app/mcp/server.py",
+          "backend/main.py"
+        ],
+        "keyModules": [
+          {
+            "path": "backend/app/mcp/server.py",
+            "role": "entry point",
+            "linesRead": 231
+          },
+          {
+            "path": "scripts/generate_contract_snapshot.py",
+            "role": "module",
+            "linesRead": 17
+          },
+          {
+            "path": "backend/tests/auth/test_mcp_scope_enforcement.py",
+            "role": "test",
+            "linesRead": 64
+          },
+          {
+            "path": "backend/tests/mcp/test_review_inbox_automation_tools.py",
+            "role": "test",
+            "linesRead": 64
+          },
+          {
+            "path": "scripts/idea_run_mcp.sh",
+            "role": "module",
+            "linesRead": 19
+          },
+          {
+            "path": "backend/tests/mcp/test_mcp_stdio_smoke.py",
+            "role": "test",
+            "linesRead": 85
+          },
+          {
+            "path": "backend/tests/test_entity_owner_audit.py",
+            "role": "test",
+            "linesRead": 1
+          },
+          {
+            "path": "backend/tests/auth/test_mcp_auth_matrix.py",
+            "role": "test",
+            "linesRead": 1
+          },
+          {
+            "path": "backend/tests/auth/test_mcp_oauth_token.py",
+            "role": "test",
+            "linesRead": 4
+          },
+          {
+            "path": "backend/tests/mcp/test_agent_capability_map.py",
+            "role": "test",
+            "linesRead": 1
+          },
+          {
+            "path": "backend/app/config.py",
+            "role": "configuration",
+            "linesRead": 45
+          },
+          {
+            "path": "backend/app/api/v1/agent.py",
+            "role": "entry point",
+            "linesRead": 1
+          },
+          {
+            "path": "backend/main.py",
+            "role": "entry point",
+            "linesRead": 22
+          },
+          {
+            "path": "backend/mcp_server.py",
+            "role": "entry point",
+            "linesRead": 42
+          }
+        ]
+      }
+    }
+  },
+  "contentText": "## Result\nConfidence: high\nVerification: targeted_read_needed\nEvidence Quality: high (7 exact, 1 partial, 0 dropped)\nSearch Coverage: scope-limited search across backend/**, frontend/src/**, extensions/firefox-inbox/src/**, scripts/**, android/**; 10 file read(s), 6 grep search(es).\n\n## Answer\nTraced dependency chain for backend/mcp_server.py. Anchor resolves to two files: entry point (backend/mcp_server.py, 41 lines) and implementation (backend/app/mcp/server.py, 947 lines). Found 4 direct importers, 14 test files, configuration with 25+ MCP settings, and 2 script dependencies.\n\n## Next Action\nread_target: Read backend/mcp_server.py:1-41 before final verification.\n\n## Targets\n- [read] `backend/mcp_server.py:1-41` - Stdio transport entry point that imports and runs mcp with stdio transport\n- [read] `backend/main.py:42-42` (E2) - FastAPI main app imports mcp from app.mcp.server\n- [test] `backend/tests/auth/test_mcp_scope_enforcement.py:1-213` - Primary test file imports server and tests orchestrate_input, tool functions\n- [test] `backend/tests/mcp/test_mcp_stdio_smoke.py:1-88` - Stdio lifecycle test runs mcp_server.py as subprocess\n- [config] `backend/app/config.py:231-434` - Defines 25+ MCP_* settings for auth modes, OAuth, and connection limits\n- [read] `scripts/generate_contract_snapshot.py:160-175` - Script references scoped_tool decorator for AST analysis\n- [read] `scripts/idea_run_mcp.sh:18-18` (E8) - Shell script executes mcp_server.py entry point\n- [read] `backend/mcp_server.py:32-40` (E1) - Entry point imports mcp from app.mcp.server and runs with stdio transport\n- [read] `backend/tests/auth/test_mcp_scope_enforcement.py:8-8` (E3) - Test file imports server as mcp_server\n- [read] `backend/tests/auth/test_mcp_scope_enforcement.py:84-84` (E4) - Test calls mcp_server.orchestrate_input()\n- [read] `backend/tests/mcp/test_mcp_stdio_smoke.py:32-32` (E5) - Test runs mcp_server.py as subprocess\n- [read] `backend/app/config.py:231-293` (E6) - Config defines MCP_ALLOW_QUERY_KEY, MCP_PUBLIC_AUTH_MODE, MCP_OAUTH_*, MCP_MAX_*\n- ... and 1 more targets\n\n## Evidence (8 items, confidence: high)\n- E1 `backend/mcp_server.py:32-40` - Entry point imports mcp from app.mcp.server and runs with stdio transport\n  snippet: 32:     from app.mcp.server import mcp\n  33: \n  34:     set_mcp_owner_id(settings.DEFAULT_OWNER_ID)\n  35:     set_mcp_auth_context(\n  36:         auth_type=\"stdio\",\n  37:         scopes=list(SUPPORTED_MCP_OAUTH_SCOPES),\n  38:         subject=\"local-stdio\",\n  39:     )\n  40:     mcp.run(transport=\"stdio\")\n- E2 `backend/main.py:42-42` - FastAPI main app imports mcp from app.mcp.server\n  snippet: 42: from app.mcp.server import mcp\n- E3 `backend/tests/auth/test_mcp_scope_enforcement.py:8-8` - Test file imports server as mcp_server\n  snippet: 8: from app.mcp import server as mcp_server\n- E4 `backend/tests/auth/test_mcp_scope_enforcement.py:84-84` - Test calls mcp_server.orchestrate_input()\n  snippet: 84:         asyncio.run(mcp_server.orchestrate_input(text=\"내일 오전 9시에 약 복용 알려줘\", execute=True))\n- E5 `backend/tests/mcp/test_mcp_stdio_smoke.py:32-32` - Test runs mcp_server.py as subprocess\n  snippet: 32:         args=[\"mcp_server.py\"],\n- E6 `backend/app/config.py:231-293` [partial] - Config defines MCP_ALLOW_QUERY_KEY, MCP_PUBLIC_AUTH_MODE, MCP_OAUTH_*, MCP_MAX_*\n  snippet: 231:     MCP_ALLOW_QUERY_KEY: bool = False  # allow ?studious-api-key= on MCP paths (dev only)\n  232:     MCP_ALLOW_QUERY_KEY_UNSAFE_OVERRIDE: bool = False\n  233:     MCP_PUBLIC_AUTH_MODE: str = \"api_key\"  # api_key, oauth, or dual\n  234:     MCP_ALLOW_API_KEY_AUTH: bool = True\n  235:     MCP_OAUTH_RESOURCE: str = \"\"\n  236:     MCP_OAUTH_AUTHORIZATION_SERVERS: str = \"\"\n  237:     MCP_OAUTH_ISSUER: str = \"\"\n  238:     MCP_OAUTH_AUDIENCE: str = \"\"\n  239:     MCP_OAUTH_JWKS_URL: str = \"\"\n  240:     MCP_OAUTH_ALLOWED_SUBJECTS: str = \"\"\n  241:     MCP_OAUTH_OWNER_ID: str = \"\"\n  242:     MCP_OAUTH_ACCESS_PROFILE: str = \"\"\n  ... [snippet truncated]\n- E7 `scripts/generate_contract_snapshot.py:166-166` - Script references scoped_tool decorator for AST analysis\n  snippet: 166:             if isinstance(func, ast.Name) and func.id == \"scoped_tool\":\n- E8 `scripts/idea_run_mcp.sh:18-18` - Shell script executes mcp_server.py entry point\n  snippet: 18: exec uv run --frozen python mcp_server.py\n\n## Uncertainty\n- 1 evidence item(s) are grounded only by grep, blame, or nearby line observations.\n\nSession: sess_cbf020d1de6951a7 (pass as \"session\" for follow-up calls)"
+}

@@ -1,0 +1,600 @@
+{
+  "tool": "trace_symbol",
+  "repo": "cerebras-explorer-mcp",
+  "args": {
+    "repo_root": "/home/kyubr/IdeaProjects/cerebras-explorer-mcp",
+    "scope": [
+      "src/**",
+      "tests/**",
+      "examples/**"
+    ],
+    "symbol": "createMcpRequestHandler"
+  },
+  "elapsedMs": 7827,
+  "error": null,
+  "isError": false,
+  "summary": {
+    "directAnswer": "createMcpRequestHandler is an exported function in src/mcp/server.mjs (lines 587-1010) that creates a Model Context Protocol (MCP) request handler. It returns { handleRequest, handleNotification } - two async functions that handle JSON-RPC requests and notifications for repository exploration tools. Parameters: logger (function), runtimeOptions (object), sendNotification (callback), sessionStore (defaults to globalSessionStore). Used 22 times: 21 in tests, once in src/mcp/server.mjs:1017.",
+    "status": {
+      "confidence": "high",
+      "verification": "verified",
+      "complete": true,
+      "warnings": [
+        "1 evidence item(s) are grounded only by grep, blame, or nearby line observations."
+      ]
+    },
+    "evidenceQuality": {
+      "level": "high",
+      "exactCount": 4,
+      "partialCount": 1,
+      "droppedCount": 0,
+      "fileCount": 1,
+      "warnings": [
+        "1 evidence item(s) are grounded only by grep, blame, or nearby line observations."
+      ],
+      "summary": "Verified: 6 files read, 1 symbol lookups, 4/5 evidence items grounded. All evidence grounded in inspected code."
+    },
+    "failure": null,
+    "nextAction": {
+      "type": "stop",
+      "reason": "Explorer result is complete for the requested read-only investigation."
+    },
+    "searchCoverage": {
+      "scope": [
+        "src/**",
+        "tests/**",
+        "examples/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 6,
+      "grepCalls": 0,
+      "listDirCalls": 0,
+      "symbolCalls": 1,
+      "toolResultsTruncated": 0,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: src/**, tests/**, examples/**"
+      ],
+      "summary": "scope-limited search across src/**, tests/**, examples/**; 6 file read(s), 0 grep search(es)."
+    },
+    "critic": null,
+    "sessionId": "sess_f6a51473a852d59b",
+    "session": {
+      "id": "sess_f6a51473a852d59b",
+      "status": "created",
+      "remainingCalls": 4
+    },
+    "targets": [
+      {
+        "path": "src/mcp/server.mjs",
+        "role": "read",
+        "reason": "Complete function definition with parameters, helpers, and return statement",
+        "evidenceRefs": [],
+        "startLine": 587,
+        "endLine": 1010
+      },
+      {
+        "path": "src/mcp/server.mjs",
+        "role": "context",
+        "reason": "Return statement showing exported handlers",
+        "evidenceRefs": [],
+        "startLine": 1009,
+        "endLine": 1009
+      },
+      {
+        "path": "src/mcp/server.mjs",
+        "role": "read",
+        "reason": "Production usage creating handlers with options",
+        "evidenceRefs": [
+          "E5"
+        ],
+        "startLine": 1017,
+        "endLine": 1020
+      },
+      {
+        "path": "src/mcp/server.mjs",
+        "startLine": 587,
+        "endLine": 592,
+        "role": "read",
+        "reason": "Function signature with all parameters and default values",
+        "evidenceRefs": [
+          "E1"
+        ]
+      },
+      {
+        "path": "src/mcp/server.mjs",
+        "startLine": 834,
+        "endLine": 860,
+        "role": "read",
+        "reason": "handleRequest routing initialize, ping, tools/list, tools/call",
+        "evidenceRefs": [
+          "E2"
+        ]
+      },
+      {
+        "path": "src/mcp/server.mjs",
+        "startLine": 990,
+        "endLine": 1007,
+        "role": "read",
+        "reason": "handleNotification processing initialized/cancelled notifications",
+        "evidenceRefs": [
+          "E3"
+        ]
+      },
+      {
+        "path": "src/mcp/server.mjs",
+        "startLine": 1009,
+        "endLine": 1010,
+        "role": "read",
+        "reason": "Return statement exporting handleRequest and handleNotification",
+        "evidenceRefs": [
+          "E4"
+        ]
+      }
+    ],
+    "discoveredPathsCount": 2,
+    "evidence": [
+      {
+        "id": "E1",
+        "path": "src/mcp/server.mjs",
+        "startLine": 587,
+        "endLine": 592,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Function signature with all parameters and default values",
+        "snippet": "587: export function createMcpRequestHandler({\n588:   logger = () => {},\n589:   runtimeOptions = {},\n590:   sendNotification = null,\n591:   sessionStore = globalSessionStore,\n592: } = {}) {"
+      },
+      {
+        "id": "E2",
+        "path": "src/mcp/server.mjs",
+        "startLine": 834,
+        "endLine": 860,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "handleRequest routing initialize, ping, tools/list, tools/call",
+        "snippet": "834:   async function handleRequest(message) {\n835:     switch (message.method) {\n836:       case 'initialize': {\n837:         const requestedVersion = message.params?.protocolVersion;\n838:         if (typeof requestedVersion === 'string' && requestedVersion.trim()) {\n839:           negotiatedProtocolVersion = requestedVersion;\n840:         }\n841:         const toolCount = buildToolList().length;\n842:         return {\n843:           protocolVersion: negotiatedProtocolVersion,\n844:           capabilities: { tools: { listChanged: false } },\n845:           serverInfo: SERVER_INFO,\n... [snippet truncated]"
+      },
+      {
+        "id": "E3",
+        "path": "src/mcp/server.mjs",
+        "startLine": 990,
+        "endLine": 1007,
+        "groundingStatus": "partial",
+        "evidenceType": "file_range",
+        "why": "handleNotification processing initialized/cancelled notifications",
+        "snippet": "990:   async function handleNotification(message) {\n991:     if (message.method === 'notifications/initialized') {\n992:       return;\n993:     }\n994:     if (message.method === 'notifications/cancelled') {\n995:       const requestId = message.params?.requestId;\n996:       if (requestId) {\n997:         const controller = activeAbortControllers.get(requestId);\n998:         if (controller) {\n999:           controller.abort();\n1000:           activeAbortControllers.delete(requestId);\n1001:           logger(`Cancelled exploration for request ${requestId}`);\n... [snippet truncated]"
+      },
+      {
+        "id": "E4",
+        "path": "src/mcp/server.mjs",
+        "startLine": 1009,
+        "endLine": 1010,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Return statement exporting handleRequest and handleNotification",
+        "snippet": "1009:   return { handleRequest, handleNotification };\n1010: }"
+      },
+      {
+        "id": "E5",
+        "path": "src/mcp/server.mjs",
+        "startLine": 1017,
+        "endLine": 1020,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Production call passing logger, runtimeOptions, sendNotification",
+        "snippet": "1017:   const { handleRequest, handleNotification } = createMcpRequestHandler({\n1018:     logger,\n1019:     runtimeOptions,\n1020:     sendNotification: (method, params) => transport?.sendNotification(method, params),"
+      }
+    ],
+    "uncertainties": [
+      "1 evidence item(s) are grounded only by grep, blame, or nearby line observations."
+    ],
+    "stats": {
+      "turns": 8,
+      "toolCalls": 7,
+      "filesRead": 6,
+      "grepCalls": 0,
+      "symbolCalls": 1,
+      "stoppedByBudget": false,
+      "elapsedMs": 7816,
+      "totalTokens": 80652
+    }
+  },
+  "structuredContent": {
+    "schemaVersion": 1,
+    "directAnswer": "createMcpRequestHandler is an exported function in src/mcp/server.mjs (lines 587-1010) that creates a Model Context Protocol (MCP) request handler. It returns { handleRequest, handleNotification } - two async functions that handle JSON-RPC requests and notifications for repository exploration tools. Parameters: logger (function), runtimeOptions (object), sendNotification (callback), sessionStore (defaults to globalSessionStore). Used 22 times: 21 in tests, once in src/mcp/server.mjs:1017.",
+    "status": {
+      "confidence": "high",
+      "verification": "verified",
+      "complete": true,
+      "warnings": [
+        "1 evidence item(s) are grounded only by grep, blame, or nearby line observations."
+      ]
+    },
+    "targets": [
+      {
+        "path": "src/mcp/server.mjs",
+        "role": "read",
+        "reason": "Complete function definition with parameters, helpers, and return statement",
+        "evidenceRefs": [],
+        "startLine": 587,
+        "endLine": 1010
+      },
+      {
+        "path": "src/mcp/server.mjs",
+        "role": "context",
+        "reason": "Return statement showing exported handlers",
+        "evidenceRefs": [],
+        "startLine": 1009,
+        "endLine": 1009
+      },
+      {
+        "path": "src/mcp/server.mjs",
+        "role": "read",
+        "reason": "Production usage creating handlers with options",
+        "evidenceRefs": [
+          "E5"
+        ],
+        "startLine": 1017,
+        "endLine": 1020
+      },
+      {
+        "path": "src/mcp/server.mjs",
+        "startLine": 587,
+        "endLine": 592,
+        "role": "read",
+        "reason": "Function signature with all parameters and default values",
+        "evidenceRefs": [
+          "E1"
+        ]
+      },
+      {
+        "path": "src/mcp/server.mjs",
+        "startLine": 834,
+        "endLine": 860,
+        "role": "read",
+        "reason": "handleRequest routing initialize, ping, tools/list, tools/call",
+        "evidenceRefs": [
+          "E2"
+        ]
+      },
+      {
+        "path": "src/mcp/server.mjs",
+        "startLine": 990,
+        "endLine": 1007,
+        "role": "read",
+        "reason": "handleNotification processing initialized/cancelled notifications",
+        "evidenceRefs": [
+          "E3"
+        ]
+      },
+      {
+        "path": "src/mcp/server.mjs",
+        "startLine": 1009,
+        "endLine": 1010,
+        "role": "read",
+        "reason": "Return statement exporting handleRequest and handleNotification",
+        "evidenceRefs": [
+          "E4"
+        ]
+      }
+    ],
+    "discoveredPaths": [
+      {
+        "path": "src/mcp/server.mjs",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "tests/mcp-server.test.mjs",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      }
+    ],
+    "evidence": [
+      {
+        "path": "src/mcp/server.mjs",
+        "startLine": 587,
+        "endLine": 592,
+        "why": "Function signature with all parameters and default values",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E1",
+        "snippet": "587: export function createMcpRequestHandler({\n588:   logger = () => {},\n589:   runtimeOptions = {},\n590:   sendNotification = null,\n591:   sessionStore = globalSessionStore,\n592: } = {}) {"
+      },
+      {
+        "path": "src/mcp/server.mjs",
+        "startLine": 834,
+        "endLine": 860,
+        "why": "handleRequest routing initialize, ping, tools/list, tools/call",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E2",
+        "snippet": "834:   async function handleRequest(message) {\n835:     switch (message.method) {\n836:       case 'initialize': {\n837:         const requestedVersion = message.params?.protocolVersion;\n838:         if (typeof requestedVersion === 'string' && requestedVersion.trim()) {\n839:           negotiatedProtocolVersion = requestedVersion;\n840:         }\n841:         const toolCount = buildToolList().length;\n842:         return {\n843:           protocolVersion: negotiatedProtocolVersion,\n844:           capabilities: { tools: { listChanged: false } },\n845:           serverInfo: SERVER_INFO,\n... [snippet truncated]"
+      },
+      {
+        "path": "src/mcp/server.mjs",
+        "startLine": 990,
+        "endLine": 1007,
+        "why": "handleNotification processing initialized/cancelled notifications",
+        "evidenceType": "file_range",
+        "groundingStatus": "partial",
+        "id": "E3",
+        "snippet": "990:   async function handleNotification(message) {\n991:     if (message.method === 'notifications/initialized') {\n992:       return;\n993:     }\n994:     if (message.method === 'notifications/cancelled') {\n995:       const requestId = message.params?.requestId;\n996:       if (requestId) {\n997:         const controller = activeAbortControllers.get(requestId);\n998:         if (controller) {\n999:           controller.abort();\n1000:           activeAbortControllers.delete(requestId);\n1001:           logger(`Cancelled exploration for request ${requestId}`);\n... [snippet truncated]"
+      },
+      {
+        "path": "src/mcp/server.mjs",
+        "startLine": 1009,
+        "endLine": 1010,
+        "why": "Return statement exporting handleRequest and handleNotification",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E4",
+        "snippet": "1009:   return { handleRequest, handleNotification };\n1010: }"
+      },
+      {
+        "path": "src/mcp/server.mjs",
+        "startLine": 1017,
+        "endLine": 1020,
+        "why": "Production call passing logger, runtimeOptions, sendNotification",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E5",
+        "snippet": "1017:   const { handleRequest, handleNotification } = createMcpRequestHandler({\n1018:     logger,\n1019:     runtimeOptions,\n1020:     sendNotification: (method, params) => transport?.sendNotification(method, params),"
+      }
+    ],
+    "uncertainties": [
+      "1 evidence item(s) are grounded only by grep, blame, or nearby line observations."
+    ],
+    "nextAction": {
+      "type": "stop",
+      "reason": "Explorer result is complete for the requested read-only investigation."
+    },
+    "evidenceQuality": {
+      "level": "high",
+      "exactCount": 4,
+      "partialCount": 1,
+      "droppedCount": 0,
+      "fileCount": 1,
+      "warnings": [
+        "1 evidence item(s) are grounded only by grep, blame, or nearby line observations."
+      ],
+      "summary": "Verified: 6 files read, 1 symbol lookups, 4/5 evidence items grounded. All evidence grounded in inspected code."
+    },
+    "searchCoverage": {
+      "scope": [
+        "src/**",
+        "tests/**",
+        "examples/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 6,
+      "grepCalls": 0,
+      "listDirCalls": 0,
+      "symbolCalls": 1,
+      "toolResultsTruncated": 0,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: src/**, tests/**, examples/**"
+      ],
+      "summary": "scope-limited search across src/**, tests/**, examples/**; 6 file read(s), 0 grep search(es)."
+    },
+    "failure": null,
+    "sessionId": "sess_f6a51473a852d59b",
+    "session": {
+      "id": "sess_f6a51473a852d59b",
+      "status": "created",
+      "remainingCalls": 4
+    },
+    "_debug": {
+      "evidenceSufficiency": {
+        "sufficient": true,
+        "reason": "simple_task_exact_evidence"
+      },
+      "confidenceScore": 1,
+      "confidenceFactors": {
+        "evidenceCount": 5,
+        "evidenceGrounded": 5,
+        "evidenceDropped": 0,
+        "exactCount": 4,
+        "crossVerified": false,
+        "symbolSearchUsed": true,
+        "stoppedByBudget": false,
+        "gitLogCalls": 0,
+        "gitDiffCalls": 0,
+        "gitBlameCalls": 0,
+        "gitGroundingHint": "none",
+        "taskKind": "locate",
+        "adjustments": [
+          "base=0.45 (taskKind=locate)",
+          "+0.54 (4 exact evidence item(s))",
+          "+0.05 (symbol/grep search used)"
+        ],
+        "droppedUngrounded": 0,
+        "droppedMalformed": 0
+      },
+      "stats": {
+        "model": "zai-glm-4.7",
+        "budget": "deep",
+        "budgetSource": "auto",
+        "turns": 8,
+        "toolCalls": 7,
+        "listDirCalls": 0,
+        "findFileCalls": 0,
+        "grepCalls": 0,
+        "filesRead": 6,
+        "gitLogCalls": 0,
+        "gitBlameCalls": 0,
+        "gitDiffCalls": 0,
+        "gitShowCalls": 0,
+        "symbolCalls": 1,
+        "inputTokens": 77345,
+        "outputTokens": 3307,
+        "totalTokens": 80652,
+        "elapsedMs": 7816,
+        "stoppedByBudget": false,
+        "scope": [
+          "src/**",
+          "tests/**",
+          "examples/**"
+        ],
+        "repoRoot": "/home/kyubr/IdeaProjects/cerebras-explorer-mcp",
+        "sessionId": "sess_f6a51473a852d59b",
+        "sessionStatus": "created",
+        "sessionSource": "created",
+        "remainingCalls": 4,
+        "cacheHits": 25,
+        "cacheMisses": 210,
+        "cacheHitRate": 0.106,
+        "cacheEntries": 206,
+        "cacheSizeBytes": 1602630
+      },
+      "toolTrace": {
+        "entries": [
+          {
+            "turn": 1,
+            "tool": "repo_symbol_context",
+            "args": {
+              "symbol": "createMcpRequestHandler",
+              "scope": [
+                "src",
+                "tests",
+                "examples"
+              ]
+            },
+            "result": {
+              "symbol": "createMcpRequestHandler",
+              "definition": {
+                "path": "src/mcp/server.mjs",
+                "line": 587,
+                "endLine": 592,
+                "kind": "function"
+              },
+              "callers": 22,
+              "observedRanges": 21,
+              "truncated": false
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/mcp/server.mjs",
+              "startLine": 587,
+              "endLine": 650
+            },
+            "result": {
+              "path": "src/mcp/server.mjs",
+              "startLine": 587,
+              "endLine": 650,
+              "totalLines": 1027,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/mcp/server.mjs",
+              "startLine": 650,
+              "endLine": 750
+            },
+            "result": {
+              "path": "src/mcp/server.mjs",
+              "startLine": 650,
+              "endLine": 750,
+              "totalLines": 1027,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_read_file",
+            "args": {
+              "endLine": 900,
+              "path": "src/mcp/server.mjs",
+              "startLine": 750
+            },
+            "result": {
+              "path": "src/mcp/server.mjs",
+              "startLine": 750,
+              "endLine": 900,
+              "totalLines": 1027,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 5,
+            "tool": "repo_read_file",
+            "args": {
+              "endLine": 1000,
+              "path": "src/mcp/server.mjs",
+              "startLine": 900
+            },
+            "result": {
+              "path": "src/mcp/server.mjs",
+              "startLine": 900,
+              "endLine": 1000,
+              "totalLines": 1027,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 6,
+            "tool": "repo_read_file",
+            "args": {
+              "endLine": 1010,
+              "path": "src/mcp/server.mjs",
+              "startLine": 1000
+            },
+            "result": {
+              "path": "src/mcp/server.mjs",
+              "startLine": 1000,
+              "endLine": 1010,
+              "totalLines": 1027,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 7,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/mcp/server.mjs",
+              "startLine": 1015,
+              "endLine": 1020
+            },
+            "result": {
+              "path": "src/mcp/server.mjs",
+              "startLine": 1015,
+              "endLine": 1020,
+              "totalLines": 1027,
+              "truncated": true
+            }
+          }
+        ],
+        "totalCalls": 7,
+        "truncated": false,
+        "maxEntries": 20
+      },
+      "codeMap": {
+        "entryPoints": [
+          "src/mcp/server.mjs"
+        ],
+        "keyModules": [
+          {
+            "path": "src/mcp/server.mjs",
+            "role": "entry point",
+            "linesRead": 441
+          },
+          {
+            "path": "tests/mcp-server.test.mjs",
+            "role": "test",
+            "linesRead": 19
+          }
+        ]
+      }
+    }
+  },
+  "contentText": "## Result\nConfidence: high\nVerification: verified\nEvidence Quality: high (4 exact, 1 partial, 0 dropped)\nSearch Coverage: scope-limited search across src/**, tests/**, examples/**; 6 file read(s), 0 grep search(es).\n\n## Answer\ncreateMcpRequestHandler is an exported function in src/mcp/server.mjs (lines 587-1010) that creates a Model Context Protocol (MCP) request handler. It returns { handleRequest, handleNotification } - two async functions that handle JSON-RPC requests and notifications for repository exploration tools. Parameters: logger (function), runtimeOptions (object), sendNotification (callback), sessionStore (defaults to globalSessionStore). Used 22 times: 21 in tests, once in src/mcp/server.mjs:1017.\n\n## Targets\n- [read] `src/mcp/server.mjs:587-1010` - Complete function definition with parameters, helpers, and return statement\n- [context] `src/mcp/server.mjs:1009-1009` - Return statement showing exported handlers\n- [read] `src/mcp/server.mjs:1017-1020` (E5) - Production usage creating handlers with options\n- [read] `src/mcp/server.mjs:587-592` (E1) - Function signature with all parameters and default values\n- [read] `src/mcp/server.mjs:834-860` (E2) - handleRequest routing initialize, ping, tools/list, tools/call\n- [read] `src/mcp/server.mjs:990-1007` (E3) - handleNotification processing initialized/cancelled notifications\n- [read] `src/mcp/server.mjs:1009-1010` (E4) - Return statement exporting handleRequest and handleNotification\n\n## Evidence (5 items, confidence: high)\n- E1 `src/mcp/server.mjs:587-592` - Function signature with all parameters and default values\n  snippet: 587: export function createMcpRequestHandler({\n  588:   logger = () => {},\n  589:   runtimeOptions = {},\n  590:   sendNotification = null,\n  591:   sessionStore = globalSessionStore,\n  592: } = {}) {\n- E2 `src/mcp/server.mjs:834-860` - handleRequest routing initialize, ping, tools/list, tools/call\n  snippet: 834:   async function handleRequest(message) {\n  835:     switch (message.method) {\n  836:       case 'initialize': {\n  837:         const requestedVersion = message.params?.protocolVersion;\n  838:         if (typeof requestedVersion === 'string' && requestedVersion.trim()) {\n  839:           negotiatedProtocolVersion = requestedVersion;\n  840:         }\n  841:         const toolCount = buildToolList().length;\n  842:         return {\n  843:           protocolVersion: negotiatedProtocolVersion,\n  844:           capabilities: { tools: { listChanged: false } },\n  845:           serverInfo: SERVER_INFO,\n  ... [snippet truncated]\n- E3 `src/mcp/server.mjs:990-1007` [partial] - handleNotification processing initialized/cancelled notifications\n  snippet: 990:   async function handleNotification(message) {\n  991:     if (message.method === 'notifications/initialized') {\n  992:       return;\n  993:     }\n  994:     if (message.method === 'notifications/cancelled') {\n  995:       const requestId = message.params?.requestId;\n  996:       if (requestId) {\n  997:         const controller = activeAbortControllers.get(requestId);\n  998:         if (controller) {\n  999:           controller.abort();\n  1000:           activeAbortControllers.delete(requestId);\n  1001:           logger(`Cancelled exploration for request ${requestId}`);\n  ... [snippet truncated]\n- E4 `src/mcp/server.mjs:1009-1010` - Return statement exporting handleRequest and handleNotification\n  snippet: 1009:   return { handleRequest, handleNotification };\n  1010: }\n- E5 `src/mcp/server.mjs:1017-1020` - Production call passing logger, runtimeOptions, sendNotification\n  snippet: 1017:   const { handleRequest, handleNotification } = createMcpRequestHandler({\n  1018:     logger,\n  1019:     runtimeOptions,\n  1020:     sendNotification: (method, params) => transport?.sendNotification(method, params),\n\n## Uncertainty\n- 1 evidence item(s) are grounded only by grep, blame, or nearby line observations.\n\nSession: sess_f6a51473a852d59b (pass as \"session\" for follow-up calls)"
+}

@@ -1,0 +1,908 @@
+{
+  "tool": "collect_evidence",
+  "repo": "aicc_manage",
+  "args": {
+    "repo_root": "/home/kyubr/IdeaProjects/aicc_manage",
+    "scope": [
+      "src/**",
+      "websocket-server/src/**",
+      "lambda/**",
+      "prisma/**",
+      "scripts/**"
+    ],
+    "claim": "websocket-server authenticates Socket.IO connections with authMiddleware before registering chat or notification handlers",
+    "knownFiles": [
+      "websocket-server/src/middleware/auth.ts"
+    ],
+    "knownSymbols": [
+      "authMiddleware"
+    ]
+  },
+  "elapsedMs": 7275,
+  "error": null,
+  "isError": false,
+  "summary": {
+    "directAnswer": "Verified: websocket-server applies authMiddleware via io.use(authMiddleware) at line 146, then executes the connection handler at line 149, and finally registers chat/notification handlers at lines 201 and 204—ensuring authentication occurs before handler registration. Both handler functions depend on socket.data populated by authMiddleware.",
+    "status": {
+      "confidence": "high",
+      "verification": "verified",
+      "complete": true,
+      "warnings": []
+    },
+    "evidenceQuality": {
+      "level": "high",
+      "exactCount": 5,
+      "partialCount": 0,
+      "droppedCount": 0,
+      "fileCount": 4,
+      "warnings": [],
+      "summary": "Verified: 5 files read, 1 grep searches, 3 symbol lookups, 5/5 evidence items grounded, cross-verified across 4 files. All evidence grounded in inspected code."
+    },
+    "failure": null,
+    "nextAction": {
+      "type": "stop",
+      "reason": "Explorer result is complete for the requested read-only investigation."
+    },
+    "searchCoverage": {
+      "scope": [
+        "src/**",
+        "websocket-server/src/**",
+        "lambda/**",
+        "prisma/**",
+        "scripts/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 5,
+      "grepCalls": 1,
+      "listDirCalls": 2,
+      "symbolCalls": 3,
+      "toolResultsTruncated": 0,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: src/**, websocket-server/src/**, lambda/**, prisma/**, scripts/**"
+      ],
+      "summary": "scope-limited search across src/**, websocket-server/src/**, lambda/**, prisma/**, scripts/**; 5 file read(s), 1 grep search(es)."
+    },
+    "critic": null,
+    "sessionId": "sess_baf9d0b55dc6b255",
+    "session": {
+      "id": "sess_baf9d0b55dc6b255",
+      "status": "created",
+      "remainingCalls": 4
+    },
+    "targets": [
+      {
+        "path": "websocket-server/src/index.ts",
+        "role": "context",
+        "reason": "Shows authMiddleware applied at line 146, connection handler at line 149, and handler registrations at lines 201 and 204",
+        "evidenceRefs": [],
+        "startLine": 145,
+        "endLine": 204
+      },
+      {
+        "path": "websocket-server/src/middleware/auth.ts",
+        "role": "context",
+        "reason": "Defines authMiddleware that validates JWT tokens and populates socket.data with user info",
+        "evidenceRefs": [
+          "E3"
+        ],
+        "startLine": 51,
+        "endLine": 105
+      },
+      {
+        "path": "websocket-server/src/socket-handlers/chat.ts",
+        "role": "context",
+        "reason": "registerChatHandlers destructures socket.data which is set by authMiddleware",
+        "evidenceRefs": [
+          "E4"
+        ],
+        "startLine": 45,
+        "endLine": 46
+      },
+      {
+        "path": "websocket-server/src/socket-handlers/notification.ts",
+        "role": "context",
+        "reason": "registerNotificationHandlers accesses socket.data.userId which is set by authMiddleware",
+        "evidenceRefs": [
+          "E5"
+        ],
+        "startLine": 18,
+        "endLine": 27
+      },
+      {
+        "path": "websocket-server/src/index.ts",
+        "startLine": 145,
+        "endLine": 146,
+        "role": "read",
+        "reason": "Shows authMiddleware applied globally with io.use(authMiddleware) before connection handler",
+        "evidenceRefs": [
+          "E1"
+        ]
+      },
+      {
+        "path": "websocket-server/src/index.ts",
+        "startLine": 149,
+        "endLine": 204,
+        "role": "read",
+        "reason": "Connection handler executes after middleware; chat/notification handlers registered at lines 201 and 204 inside handler",
+        "evidenceRefs": [
+          "E2"
+        ]
+      }
+    ],
+    "discoveredPathsCount": 43,
+    "evidence": [
+      {
+        "id": "E1",
+        "path": "websocket-server/src/index.ts",
+        "startLine": 145,
+        "endLine": 146,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Shows authMiddleware applied globally with io.use(authMiddleware) before connection handler",
+        "snippet": "145: // 인증 미들웨어 적용\n146: io.use(authMiddleware)"
+      },
+      {
+        "id": "E2",
+        "path": "websocket-server/src/index.ts",
+        "startLine": 149,
+        "endLine": 204,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Connection handler executes after middleware; chat/notification handlers registered at lines 201 and 204 inside handler",
+        "snippet": "149: io.on('connection', (socket) => {\n150:   console.log(`[${new Date().toISOString()}] Client connected: ${socket.id}`)\n151:   console.log(`  User: ${socket.data.userId}, Company: ${socket.data.companyId}`)\n152: \n153:   // 동시 연결 수 제한 확인\n154:   if (!checkConnectionLimit(io, socket)) return\n155: \n156:   // 접속자 추적에 추가\n157:   onlineUsers.set(socket.id, {\n158:     userId: socket.data.userId,\n159:     companyId: socket.data.companyId,\n160:     name: socket.data.name,\n... [snippet truncated]"
+      },
+      {
+        "id": "E3",
+        "path": "websocket-server/src/middleware/auth.ts",
+        "startLine": 51,
+        "endLine": 105,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "authMiddleware validates JWT token and populates socket.data; calls next() on success",
+        "snippet": "51: export function authMiddleware(socket: Socket, next: (err?: Error) => void) {\n52:   const ip = getSocketIp(socket)\n53: \n54:   // 무차별 대입 공격 차단\n55:   const failure = authFailures.get(ip)\n56:   if (failure && failure.count >= AUTH_BLOCK_THRESHOLD) {\n57:     const elapsed = Date.now() - failure.lastAttempt\n58:     if (elapsed < AUTH_BLOCK_DURATION) {\n59:       logger.warn('Auth', 'Blocked - too many failed attempts', { ip, failCount: failure.count })\n60:       return next(new Error('너무 많은 인증 시도입니다. 잠시 후 다시 시도해주세요.'))\n61:     }\n62:     // 차단 시간 경과 → 초기화\n... [snippet truncated]"
+      },
+      {
+        "id": "E4",
+        "path": "websocket-server/src/socket-handlers/chat.ts",
+        "startLine": 45,
+        "endLine": 46,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "registerChatHandlers destructures socket.data which is set by authMiddleware",
+        "snippet": "45: export function registerChatHandlers(io: Server, socket: Socket) {\n46:   const { userId, companyId, name, role } = socket.data"
+      },
+      {
+        "id": "E5",
+        "path": "websocket-server/src/socket-handlers/notification.ts",
+        "startLine": 18,
+        "endLine": 27,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "registerNotificationHandlers accesses socket.data.userId which is set by authMiddleware",
+        "snippet": "18: export function registerNotificationHandlers(io: Server, socket: Socket) {\n19:   // 클라이언트가 알림 읽음 처리 시 뱃지 갱신용\n20:   socket.on('notification-read', (data: { notificationId: string }) => {\n21:     console.log(`[Notification] Read: ${data.notificationId} by ${socket.data.userId}`)\n22:   })\n23: \n24:   // 모든 알림 읽음\n25:   socket.on('notifications-read-all', () => {\n26:     console.log(`[Notification] All read by ${socket.data.userId}`)\n27:   })"
+      }
+    ],
+    "uncertainties": [],
+    "stats": {
+      "turns": 6,
+      "toolCalls": 11,
+      "filesRead": 5,
+      "grepCalls": 1,
+      "symbolCalls": 3,
+      "stoppedByBudget": false,
+      "elapsedMs": 7264,
+      "totalTokens": 65477
+    }
+  },
+  "structuredContent": {
+    "schemaVersion": 1,
+    "directAnswer": "Verified: websocket-server applies authMiddleware via io.use(authMiddleware) at line 146, then executes the connection handler at line 149, and finally registers chat/notification handlers at lines 201 and 204—ensuring authentication occurs before handler registration. Both handler functions depend on socket.data populated by authMiddleware.",
+    "status": {
+      "confidence": "high",
+      "verification": "verified",
+      "complete": true,
+      "warnings": []
+    },
+    "targets": [
+      {
+        "path": "websocket-server/src/index.ts",
+        "role": "context",
+        "reason": "Shows authMiddleware applied at line 146, connection handler at line 149, and handler registrations at lines 201 and 204",
+        "evidenceRefs": [],
+        "startLine": 145,
+        "endLine": 204
+      },
+      {
+        "path": "websocket-server/src/middleware/auth.ts",
+        "role": "context",
+        "reason": "Defines authMiddleware that validates JWT tokens and populates socket.data with user info",
+        "evidenceRefs": [
+          "E3"
+        ],
+        "startLine": 51,
+        "endLine": 105
+      },
+      {
+        "path": "websocket-server/src/socket-handlers/chat.ts",
+        "role": "context",
+        "reason": "registerChatHandlers destructures socket.data which is set by authMiddleware",
+        "evidenceRefs": [
+          "E4"
+        ],
+        "startLine": 45,
+        "endLine": 46
+      },
+      {
+        "path": "websocket-server/src/socket-handlers/notification.ts",
+        "role": "context",
+        "reason": "registerNotificationHandlers accesses socket.data.userId which is set by authMiddleware",
+        "evidenceRefs": [
+          "E5"
+        ],
+        "startLine": 18,
+        "endLine": 27
+      },
+      {
+        "path": "websocket-server/src/index.ts",
+        "startLine": 145,
+        "endLine": 146,
+        "role": "read",
+        "reason": "Shows authMiddleware applied globally with io.use(authMiddleware) before connection handler",
+        "evidenceRefs": [
+          "E1"
+        ]
+      },
+      {
+        "path": "websocket-server/src/index.ts",
+        "startLine": 149,
+        "endLine": 204,
+        "role": "read",
+        "reason": "Connection handler executes after middleware; chat/notification handlers registered at lines 201 and 204 inside handler",
+        "evidenceRefs": [
+          "E2"
+        ]
+      }
+    ],
+    "discoveredPaths": [
+      {
+        "path": "lambda",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "lambda/aws-usage-recorder",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "lambda/bedrock-proxy",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "lambda/newsletter-scheduler",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "lambda/rds-metrics",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "lambda/skyzcc-bedrock-usage-processor",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "prisma",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "prisma/encrypt-existing-data.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "prisma/migrations",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "prisma/schema.prisma",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "prisma/seed-billing-menu.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "prisma/seed-bulk.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "prisma/seed-newsletter-recipients.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "prisma/seed-newsletter-template.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "prisma/seed-skyz.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "prisma/seed-subscriptions.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "prisma/seed.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "prisma/update-billing-prices.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts/cleanup-company.mjs",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts/debug-totp.js",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts/dev-safe.mjs",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts/generate-docx.mjs",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts/migrate-notification-metadata.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts/test-choice-marker.mjs",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/app",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/components",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/lib",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/middleware.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/types",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "websocket-server",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "websocket-server/src",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "websocket-server/src/middleware/auth.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "websocket-server/src/index.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "websocket-server/src/lib",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "websocket-server/src/lib/db.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "websocket-server/src/lib/logger.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "websocket-server/src/middleware",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "websocket-server/src/middleware/security.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "websocket-server/src/socket-handlers",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "websocket-server/src/socket-handlers/chat.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "websocket-server/src/socket-handlers/notification.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      }
+    ],
+    "evidence": [
+      {
+        "path": "websocket-server/src/index.ts",
+        "startLine": 145,
+        "endLine": 146,
+        "why": "Shows authMiddleware applied globally with io.use(authMiddleware) before connection handler",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E1",
+        "snippet": "145: // 인증 미들웨어 적용\n146: io.use(authMiddleware)"
+      },
+      {
+        "path": "websocket-server/src/index.ts",
+        "startLine": 149,
+        "endLine": 204,
+        "why": "Connection handler executes after middleware; chat/notification handlers registered at lines 201 and 204 inside handler",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E2",
+        "snippet": "149: io.on('connection', (socket) => {\n150:   console.log(`[${new Date().toISOString()}] Client connected: ${socket.id}`)\n151:   console.log(`  User: ${socket.data.userId}, Company: ${socket.data.companyId}`)\n152: \n153:   // 동시 연결 수 제한 확인\n154:   if (!checkConnectionLimit(io, socket)) return\n155: \n156:   // 접속자 추적에 추가\n157:   onlineUsers.set(socket.id, {\n158:     userId: socket.data.userId,\n159:     companyId: socket.data.companyId,\n160:     name: socket.data.name,\n... [snippet truncated]"
+      },
+      {
+        "path": "websocket-server/src/middleware/auth.ts",
+        "startLine": 51,
+        "endLine": 105,
+        "why": "authMiddleware validates JWT token and populates socket.data; calls next() on success",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E3",
+        "snippet": "51: export function authMiddleware(socket: Socket, next: (err?: Error) => void) {\n52:   const ip = getSocketIp(socket)\n53: \n54:   // 무차별 대입 공격 차단\n55:   const failure = authFailures.get(ip)\n56:   if (failure && failure.count >= AUTH_BLOCK_THRESHOLD) {\n57:     const elapsed = Date.now() - failure.lastAttempt\n58:     if (elapsed < AUTH_BLOCK_DURATION) {\n59:       logger.warn('Auth', 'Blocked - too many failed attempts', { ip, failCount: failure.count })\n60:       return next(new Error('너무 많은 인증 시도입니다. 잠시 후 다시 시도해주세요.'))\n61:     }\n62:     // 차단 시간 경과 → 초기화\n... [snippet truncated]"
+      },
+      {
+        "path": "websocket-server/src/socket-handlers/chat.ts",
+        "startLine": 45,
+        "endLine": 46,
+        "why": "registerChatHandlers destructures socket.data which is set by authMiddleware",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E4",
+        "snippet": "45: export function registerChatHandlers(io: Server, socket: Socket) {\n46:   const { userId, companyId, name, role } = socket.data"
+      },
+      {
+        "path": "websocket-server/src/socket-handlers/notification.ts",
+        "startLine": 18,
+        "endLine": 27,
+        "why": "registerNotificationHandlers accesses socket.data.userId which is set by authMiddleware",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E5",
+        "snippet": "18: export function registerNotificationHandlers(io: Server, socket: Socket) {\n19:   // 클라이언트가 알림 읽음 처리 시 뱃지 갱신용\n20:   socket.on('notification-read', (data: { notificationId: string }) => {\n21:     console.log(`[Notification] Read: ${data.notificationId} by ${socket.data.userId}`)\n22:   })\n23: \n24:   // 모든 알림 읽음\n25:   socket.on('notifications-read-all', () => {\n26:     console.log(`[Notification] All read by ${socket.data.userId}`)\n27:   })"
+      }
+    ],
+    "uncertainties": [],
+    "nextAction": {
+      "type": "stop",
+      "reason": "Explorer result is complete for the requested read-only investigation."
+    },
+    "evidenceQuality": {
+      "level": "high",
+      "exactCount": 5,
+      "partialCount": 0,
+      "droppedCount": 0,
+      "fileCount": 4,
+      "warnings": [],
+      "summary": "Verified: 5 files read, 1 grep searches, 3 symbol lookups, 5/5 evidence items grounded, cross-verified across 4 files. All evidence grounded in inspected code."
+    },
+    "searchCoverage": {
+      "scope": [
+        "src/**",
+        "websocket-server/src/**",
+        "lambda/**",
+        "prisma/**",
+        "scripts/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 5,
+      "grepCalls": 1,
+      "listDirCalls": 2,
+      "symbolCalls": 3,
+      "toolResultsTruncated": 0,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: src/**, websocket-server/src/**, lambda/**, prisma/**, scripts/**"
+      ],
+      "summary": "scope-limited search across src/**, websocket-server/src/**, lambda/**, prisma/**, scripts/**; 5 file read(s), 1 grep search(es)."
+    },
+    "failure": null,
+    "sessionId": "sess_baf9d0b55dc6b255",
+    "session": {
+      "id": "sess_baf9d0b55dc6b255",
+      "status": "created",
+      "remainingCalls": 4
+    },
+    "_debug": {
+      "evidenceSufficiency": {
+        "sufficient": true,
+        "reason": "claim_has_grounded_evidence"
+      },
+      "confidenceScore": 1,
+      "confidenceFactors": {
+        "evidenceCount": 5,
+        "evidenceGrounded": 5,
+        "evidenceDropped": 0,
+        "exactCount": 5,
+        "crossVerified": true,
+        "symbolSearchUsed": true,
+        "stoppedByBudget": false,
+        "gitLogCalls": 0,
+        "gitDiffCalls": 0,
+        "gitBlameCalls": 0,
+        "gitGroundingHint": "none",
+        "taskKind": "default",
+        "adjustments": [
+          "base=0.30 (taskKind=default)",
+          "+0.54 (5 exact evidence item(s))",
+          "+0.12 (cross-verified across multiple files)",
+          "+0.05 (symbol/grep search used)"
+        ],
+        "droppedUngrounded": 0,
+        "droppedMalformed": 0
+      },
+      "stats": {
+        "model": "zai-glm-4.7",
+        "budget": "deep",
+        "budgetSource": "auto",
+        "turns": 6,
+        "toolCalls": 11,
+        "listDirCalls": 2,
+        "findFileCalls": 0,
+        "grepCalls": 1,
+        "filesRead": 5,
+        "gitLogCalls": 0,
+        "gitBlameCalls": 0,
+        "gitDiffCalls": 0,
+        "gitShowCalls": 0,
+        "symbolCalls": 3,
+        "inputTokens": 61877,
+        "outputTokens": 3600,
+        "totalTokens": 65477,
+        "elapsedMs": 7264,
+        "stoppedByBudget": false,
+        "scope": [
+          "src/**",
+          "websocket-server/src/**",
+          "lambda/**",
+          "prisma/**",
+          "scripts/**"
+        ],
+        "repoRoot": "/home/kyubr/IdeaProjects/aicc_manage",
+        "sessionId": "sess_baf9d0b55dc6b255",
+        "sessionStatus": "created",
+        "sessionSource": "created",
+        "remainingCalls": 4,
+        "cacheHits": 90,
+        "cacheMisses": 454,
+        "cacheHitRate": 0.165,
+        "cacheEntries": 449,
+        "cacheSizeBytes": 2649122
+      },
+      "toolTrace": {
+        "entries": [
+          {
+            "turn": 1,
+            "tool": "repo_list_dir",
+            "args": {
+              "dirPath": "."
+            },
+            "result": {
+              "entries": 33,
+              "paths": [
+                "lambda",
+                "lambda/aws-usage-recorder",
+                "lambda/bedrock-proxy",
+                "lambda/newsletter-scheduler",
+                "lambda/rds-metrics",
+                "lambda/skyzcc-bedrock-usage-processor"
+              ]
+            }
+          },
+          {
+            "turn": 1,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "websocket-server/src/middleware/auth.ts"
+            },
+            "result": {
+              "path": "websocket-server/src/middleware/auth.ts",
+              "startLine": 1,
+              "endLine": 132,
+              "totalLines": 132,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 1,
+            "tool": "repo_symbols",
+            "args": {
+              "path": "websocket-server/src/middleware/auth.ts"
+            },
+            "result": {
+              "path": "websocket-server/src/middleware/auth.ts",
+              "symbols": 8,
+              "names": [
+                "TokenPayload",
+                "JWT_SECRET",
+                "authFailures",
+                "AUTH_BLOCK_THRESHOLD",
+                "AUTH_BLOCK_DURATION",
+                "getSocketIp"
+              ]
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_list_dir",
+            "args": {
+              "dirPath": "websocket-server/src"
+            },
+            "result": {
+              "entries": 10,
+              "paths": [
+                "websocket-server/src/index.ts",
+                "websocket-server/src/lib",
+                "websocket-server/src/lib/db.ts",
+                "websocket-server/src/lib/logger.ts",
+                "websocket-server/src/middleware",
+                "websocket-server/src/middleware/auth.ts"
+              ]
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_grep",
+            "args": {
+              "pattern": "authMiddleware",
+              "scope": [
+                "websocket-server/src"
+              ],
+              "contextLines": 3
+            },
+            "result": {
+              "matches": 3,
+              "paths": [
+                "websocket-server/src/index.ts",
+                "websocket-server/src/middleware/auth.ts"
+              ],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "websocket-server/src/index.ts"
+            },
+            "result": {
+              "path": "websocket-server/src/index.ts",
+              "startLine": 1,
+              "endLine": 267,
+              "totalLines": 267,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_symbols",
+            "args": {
+              "path": "websocket-server/src/socket-handlers/chat.ts"
+            },
+            "result": {
+              "path": "websocket-server/src/socket-handlers/chat.ts",
+              "symbols": 8,
+              "names": [
+                "MAX_MESSAGE_LENGTH",
+                "MAX_SESSION_ID_LENGTH",
+                "AGENT_ROLES",
+                "MessageData",
+                "JoinSessionData",
+                "sanitizeHtml"
+              ]
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_symbols",
+            "args": {
+              "path": "websocket-server/src/socket-handlers/notification.ts"
+            },
+            "result": {
+              "path": "websocket-server/src/socket-handlers/notification.ts",
+              "symbols": 3,
+              "names": [
+                "NotificationData",
+                "registerNotificationHandlers",
+                "pushNotificationToUser"
+              ]
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "websocket-server/src/socket-handlers/chat.ts",
+              "startLine": 45,
+              "endLine": 80
+            },
+            "result": {
+              "path": "websocket-server/src/socket-handlers/chat.ts",
+              "startLine": 45,
+              "endLine": 80,
+              "totalLines": 265,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "websocket-server/src/socket-handlers/notification.ts",
+              "startLine": 18,
+              "endLine": 28
+            },
+            "result": {
+              "path": "websocket-server/src/socket-handlers/notification.ts",
+              "startLine": 18,
+              "endLine": 28,
+              "totalLines": 38,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 5,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "websocket-server/src/index.ts",
+              "startLine": 145,
+              "endLine": 205
+            },
+            "result": {
+              "path": "websocket-server/src/index.ts",
+              "startLine": 145,
+              "endLine": 205,
+              "totalLines": 267,
+              "truncated": true
+            }
+          }
+        ],
+        "totalCalls": 11,
+        "truncated": false,
+        "maxEntries": 20
+      },
+      "codeMap": {
+        "entryPoints": [
+          "websocket-server/src/index.ts"
+        ],
+        "keyModules": [
+          {
+            "path": "websocket-server/src/middleware/auth.ts",
+            "role": "middleware",
+            "linesRead": 133
+          },
+          {
+            "path": "websocket-server/src/index.ts",
+            "role": "entry point",
+            "linesRead": 330
+          },
+          {
+            "path": "websocket-server/src/socket-handlers/chat.ts",
+            "role": "service",
+            "linesRead": 36
+          },
+          {
+            "path": "websocket-server/src/socket-handlers/notification.ts",
+            "role": "service",
+            "linesRead": 11
+          }
+        ]
+      }
+    }
+  },
+  "contentText": "## Result\nConfidence: high\nVerification: verified\nEvidence Quality: high (5 exact, 0 partial, 0 dropped)\nSearch Coverage: scope-limited search across src/**, websocket-server/src/**, lambda/**, prisma/**, scripts/**; 5 file read(s), 1 grep search(es).\n\n## Answer\nVerified: websocket-server applies authMiddleware via io.use(authMiddleware) at line 146, then executes the connection handler at line 149, and finally registers chat/notification handlers at lines 201 and 204—ensuring authentication occurs before handler registration. Both handler functions depend on socket.data populated by authMiddleware.\n\n## Targets\n- [context] `websocket-server/src/index.ts:145-204` - Shows authMiddleware applied at line 146, connection handler at line 149, and handler registrations at lines 201 and 204\n- [context] `websocket-server/src/middleware/auth.ts:51-105` (E3) - Defines authMiddleware that validates JWT tokens and populates socket.data with user info\n- [context] `websocket-server/src/socket-handlers/chat.ts:45-46` (E4) - registerChatHandlers destructures socket.data which is set by authMiddleware\n- [context] `websocket-server/src/socket-handlers/notification.ts:18-27` (E5) - registerNotificationHandlers accesses socket.data.userId which is set by authMiddleware\n- [read] `websocket-server/src/index.ts:145-146` (E1) - Shows authMiddleware applied globally with io.use(authMiddleware) before connection handler\n- [read] `websocket-server/src/index.ts:149-204` (E2) - Connection handler executes after middleware; chat/notification handlers registered at lines 201 and 204 inside handler\n\n## Evidence (5 items, confidence: high)\n- E1 `websocket-server/src/index.ts:145-146` - Shows authMiddleware applied globally with io.use(authMiddleware) before connection handler\n  snippet: 145: // 인증 미들웨어 적용\n  146: io.use(authMiddleware)\n- E2 `websocket-server/src/index.ts:149-204` - Connection handler executes after middleware; chat/notification handlers registered at lines 201 and 204 inside handler\n  snippet: 149: io.on('connection', (socket) => {\n  150:   console.log(`[${new Date().toISOString()}] Client connected: ${socket.id}`)\n  151:   console.log(`  User: ${socket.data.userId}, Company: ${socket.data.companyId}`)\n  152: \n  153:   // 동시 연결 수 제한 확인\n  154:   if (!checkConnectionLimit(io, socket)) return\n  155: \n  156:   // 접속자 추적에 추가\n  157:   onlineUsers.set(socket.id, {\n  158:     userId: socket.data.userId,\n  159:     companyId: socket.data.companyId,\n  160:     name: socket.data.name,\n  ... [snippet truncated]\n- E3 `websocket-server/src/middleware/auth.ts:51-105` - authMiddleware validates JWT token and populates socket.data; calls next() on success\n  snippet: 51: export function authMiddleware(socket: Socket, next: (err?: Error) => void) {\n  52:   const ip = getSocketIp(socket)\n  53: \n  54:   // 무차별 대입 공격 차단\n  55:   const failure = authFailures.get(ip)\n  56:   if (failure && failure.count >= AUTH_BLOCK_THRESHOLD) {\n  57:     const elapsed = Date.now() - failure.lastAttempt\n  58:     if (elapsed < AUTH_BLOCK_DURATION) {\n  59:       logger.warn('Auth', 'Blocked - too many failed attempts', { ip, failCount: failure.count })\n  60:       return next(new Error('너무 많은 인증 시도입니다. 잠시 후 다시 시도해주세요.'))\n  61:     }\n  62:     // 차단 시간 경과 → 초기화\n  ... [snippet truncated]\n- E4 `websocket-server/src/socket-handlers/chat.ts:45-46` - registerChatHandlers destructures socket.data which is set by authMiddleware\n  snippet: 45: export function registerChatHandlers(io: Server, socket: Socket) {\n  46:   const { userId, companyId, name, role } = socket.data\n- E5 `websocket-server/src/socket-handlers/notification.ts:18-27` - registerNotificationHandlers accesses socket.data.userId which is set by authMiddleware\n  snippet: 18: export function registerNotificationHandlers(io: Server, socket: Socket) {\n  19:   // 클라이언트가 알림 읽음 처리 시 뱃지 갱신용\n  20:   socket.on('notification-read', (data: { notificationId: string }) => {\n  21:     console.log(`[Notification] Read: ${data.notificationId} by ${socket.data.userId}`)\n  22:   })\n  23: \n  24:   // 모든 알림 읽음\n  25:   socket.on('notifications-read-all', () => {\n  26:     console.log(`[Notification] All read by ${socket.data.userId}`)\n  27:   })\n\nSession: sess_baf9d0b55dc6b255 (pass as \"session\" for follow-up calls)"
+}

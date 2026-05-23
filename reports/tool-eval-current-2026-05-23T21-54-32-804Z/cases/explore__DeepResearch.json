@@ -1,0 +1,1088 @@
+{
+  "tool": "explore",
+  "repo": "DeepResearch",
+  "args": {
+    "repo_root": "/home/kyubr/IdeaProjects/DeepResearch",
+    "scope": [
+      "app/**",
+      "main.py",
+      "migrations/**"
+    ],
+    "prompt": "Give a concise architecture report for FastAPI app, orchestration, provider, and repository wiring. Include inline file:line citations and flag uncertainty.",
+    "language": "en"
+  },
+  "elapsedMs": 18345,
+  "error": null,
+  "isError": false,
+  "summary": {
+    "reportPreview": "# DeepResearch Architecture Report\n\n## Summary\n\nDeepResearch is a FastAPI-based research orchestration system that uses **LangGraph** for workflow orchestration, **Celery** for background task execution, and **async SQLAlchemy** for data persistence. The app follows a layered architecture with **protocol-based provider abstractions**, an **in-memory demo store** for tasks, and **budget gates** between orchestrator nodes to enforce limits. Key external integrations include Anthropic (LLM), Tavily (search), and Firecrawl (web scraping) with comprehensive audit logging via a **ProviderLogSink** protocol.\n\n---\n\n## Findings\n\n### 1. FastAPI Application Structure\n\n**App Factory Pattern** (`app/main.py:L12-L27`):\n```python\ndef create_app() -> FastAPI:\n    settings = get_settings()\n    configure_logging(settings.log_level)\n    configure_telemetry(settings.otel_service_name)\n    app = FastAPI(title=\"DeepResearch Demo Alpha API\", version=\"0.1.0\")\n    register_error_handlers(app)\n    app.include_router(tasks.router)  # /tasks/*\n    app.include_router(plans.router)  # /tasks/{id}/plan/approve\n    app.include_router(claims.router)\n    app.include_router(sources.router)\n    instrument_fastapi_app(app)\n    return app\n```\n\nThe app is modular with four routers registered at startup. **Error handlers** and **OpenTelemetry instrumentation** are applied globally.\n\n**Configuration** (`app/core/config.py:L10-L33`):\n- Uses `pydantic_settings.BaseSettings` with environment file\n- Configures PostgreSQL (`database_url`), Redis (`redis_url`), S3, and provider API keys\n- Default model: `anthropic_model: claude-sonnet-4-6`\n- Budget defaults: `task_default_budget_usd: 2.0`, `task_default_timeout_s: 1500`\n\n---\n\n### 2. Database & Migrations\n\n**Async Session Setup** (`app/db/session.py:L11-L17`):\n```python\nengine = create_async_engine(settings.database_url, pool_pre_ping=True)\nAsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False)\n\nasync def get_session() -> AsyncIterator[AsyncSession]:\n    async with AsyncSessionLocal() as session:\n        yield session\n```\n\n**Models** (`app/models/base.py`, `app/models/research.py`):\n- `Base` extends `DeclarativeBase` with JSONB mapping for dicts\n- Mixins: `IdMixin` (UUID PK), `TimestampMixin` (created/updated), `TableNameMixin` (auto snake_case table names)\n- Core models: `ResearchTask`, `ResearchPlan`, `SubQuestion` with relationships\n\n**Migration** (`migrations/versions/202605210001_initial_domain_schema.py:L23-L24`):\n```python\ndef upgrade() -> None:\n    Base.metadata.create_all(bind=op.get_bind())\n```\nSingle migration creates all ta\n... [truncated 14745 chars]",
+    "citations": [
+      {
+        "type": "file_range",
+        "path": "app/main.py",
+        "startLine": 12,
+        "endLine": 27,
+        "raw": "`app/main.py:L12-L27`"
+      },
+      {
+        "type": "file_range",
+        "path": "app/core/config.py",
+        "startLine": 10,
+        "endLine": 33,
+        "raw": "`app/core/config.py:L10-L33`"
+      },
+      {
+        "type": "file_range",
+        "path": "app/db/session.py",
+        "startLine": 11,
+        "endLine": 17,
+        "raw": "`app/db/session.py:L11-L17`"
+      },
+      {
+        "type": "file_range",
+        "path": "migrations/versions/202605210001_initial_domain_schema.py",
+        "startLine": 23,
+        "endLine": 24,
+        "raw": "`migrations/versions/202605210001_initial_domain_schema.py:L23-L24`"
+      },
+      {
+        "type": "file_range",
+        "path": "app/repositories/base.py",
+        "startLine": 12,
+        "endLine": 32,
+        "raw": "`app/repositories/base.py:L12-L32`"
+      },
+      {
+        "type": "file_range",
+        "path": "app/repositories/base.py",
+        "startLine": 34,
+        "endLine": 42,
+        "raw": "`app/repositories/base.py:L34-L42`"
+      },
+      {
+        "type": "file_range",
+        "path": "app/repositories/task_repository.py",
+        "startLine": 9,
+        "endLine": 11,
+        "raw": "`app/repositories/task_repository.py:L9-L11`"
+      },
+      {
+        "type": "file_range",
+        "path": "app/providers/base.py",
+        "startLine": 57,
+        "endLine": 63,
+        "raw": "`app/providers/base.py:L57-L63`"
+      },
+      {
+        "type": "file_range",
+        "path": "app/providers/anthropic.py",
+        "startLine": 37,
+        "endLine": 52,
+        "raw": "`app/providers/anthropic.py:L37-L52`"
+      },
+      {
+        "type": "file_range",
+        "path": "app/providers/tavily.py",
+        "startLine": 44,
+        "endLine": 55,
+        "raw": "`app/providers/tavily.py:L44-L55`"
+      },
+      {
+        "type": "file_range",
+        "path": "app/providers/firecrawl.py",
+        "startLine": 37,
+        "endLine": 50,
+        "raw": "`app/providers/firecrawl.py:L37-L50`"
+      },
+      {
+        "type": "file_range",
+        "path": "app/orchestrator/state.py",
+        "startLine": 92,
+        "endLine": 110,
+        "raw": "`app/orchestrator/state.py:L92-L110`"
+      }
+    ],
+    "targets": [
+      {
+        "path": "app/main.py",
+        "role": "reference",
+        "reason": "Markdown report citation",
+        "evidenceRefs": [],
+        "startLine": 12,
+        "endLine": 27
+      },
+      {
+        "path": "app/core/config.py",
+        "role": "reference",
+        "reason": "Markdown report citation",
+        "evidenceRefs": [],
+        "startLine": 10,
+        "endLine": 33
+      },
+      {
+        "path": "app/db/session.py",
+        "role": "reference",
+        "reason": "Markdown report citation",
+        "evidenceRefs": [],
+        "startLine": 11,
+        "endLine": 17
+      },
+      {
+        "path": "migrations/versions/202605210001_initial_domain_schema.py",
+        "role": "reference",
+        "reason": "Markdown report citation",
+        "evidenceRefs": [],
+        "startLine": 23,
+        "endLine": 24
+      },
+      {
+        "path": "app/repositories/base.py",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 2 ranges.",
+        "evidenceRefs": [],
+        "startLine": 12,
+        "endLine": 42
+      },
+      {
+        "path": "app/repositories/task_repository.py",
+        "role": "reference",
+        "reason": "Markdown report citation",
+        "evidenceRefs": [],
+        "startLine": 9,
+        "endLine": 11
+      },
+      {
+        "path": "app/providers/base.py",
+        "role": "reference",
+        "reason": "Markdown report citation",
+        "evidenceRefs": [],
+        "startLine": 57,
+        "endLine": 63
+      },
+      {
+        "path": "app/providers/anthropic.py",
+        "role": "reference",
+        "reason": "Markdown report citation",
+        "evidenceRefs": [],
+        "startLine": 37,
+        "endLine": 52
+      }
+    ],
+    "filesRead": [
+      "main.py",
+      "app/main.py",
+      "app/core/config.py",
+      "app/db/session.py",
+      "app/api/tasks.py",
+      "app/api/plans.py",
+      "app/providers/base.py",
+      "app/repositories/base.py",
+      "app/providers/anthropic.py",
+      "app/providers/tavily.py",
+      "app/orchestrator/graph.py",
+      "app/orchestrator/state.py",
+      "app/repositories/task_repository.py",
+      "app/services/task_service.py",
+      "migrations/versions/202605210001_initial_domain_schema.py",
+      "app/workers/celery_app.py",
+      "app/workers/tasks.py",
+      "app/models/research.py",
+      "app/orchestrator/nodes/search.py",
+      "app/orchestrator/nodes/planner.py",
+      "app/models/base.py",
+      "app/services/cost_service.py",
+      "app/providers/firecrawl.py",
+      "app/storage/s3.py",
+      "app/domain/enums.py",
+      "app/orchestrator/nodes/fetcher.py",
+      "app/orchestrator/nodes/parser.py"
+    ],
+    "toolsUsed": [
+      "repo_list_dir",
+      "repo_read_file",
+      "repo_grep"
+    ],
+    "critic": {
+      "status": "caution",
+      "warnings": [
+        {
+          "type": "truncated_tool_results",
+          "severity": "low",
+          "message": "7 tool result(s) were truncated before model synthesis; re-run with a narrower query or read specific ranges if expected evidence is missing.",
+          "action": "Use a narrower follow-up query or read specific ranges before relying on missing evidence."
+        }
+      ]
+    },
+    "searchCoverage": {
+      "scope": [
+        "app/**",
+        "main.py",
+        "migrations/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 27,
+      "grepCalls": 5,
+      "listDirCalls": 4,
+      "symbolCalls": 0,
+      "toolResultsTruncated": 7,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: app/**, main.py, migrations/**",
+        "7 tool result(s) were truncated before model synthesis; re-run with a narrower query or read specific ranges if expected evidence is missing."
+      ],
+      "summary": "scope-limited search across app/**, main.py, migrations/**; 27 file read(s), 5 grep search(es)."
+    },
+    "stats": {
+      "turns": 14,
+      "toolCalls": 36,
+      "filesRead": 27,
+      "grepCalls": 5,
+      "symbolCalls": 0,
+      "stoppedByBudget": false,
+      "elapsedMs": 18334,
+      "totalTokens": 303044
+    }
+  },
+  "structuredContent": {
+    "report": "# DeepResearch Architecture Report\n\n## Summary\n\nDeepResearch is a FastAPI-based research orchestration system that uses **LangGraph** for workflow orchestration, **Celery** for background task execution, and **async SQLAlchemy** for data persistence. The app follows a layered architecture with **protocol-based provider abstractions**, an **in-memory demo store** for tasks, and **budget gates** between orchestrator nodes to enforce limits. Key external integrations include Anthropic (LLM), Tavily (search), and Firecrawl (web scraping) with comprehensive audit logging via a **ProviderLogSink** protocol.\n\n---\n\n## Findings\n\n### 1. FastAPI Application Structure\n\n**App Factory Pattern** (`app/main.py:L12-L27`):\n```python\ndef create_app() -> FastAPI:\n    settings = get_settings()\n    configure_logging(settings.log_level)\n    configure_telemetry(settings.otel_service_name)\n    app = FastAPI(title=\"DeepResearch Demo Alpha API\", version=\"0.1.0\")\n    register_error_handlers(app)\n    app.include_router(tasks.router)  # /tasks/*\n    app.include_router(plans.router)  # /tasks/{id}/plan/approve\n    app.include_router(claims.router)\n    app.include_router(sources.router)\n    instrument_fastapi_app(app)\n    return app\n```\n\nThe app is modular with four routers registered at startup. **Error handlers** and **OpenTelemetry instrumentation** are applied globally.\n\n**Configuration** (`app/core/config.py:L10-L33`):\n- Uses `pydantic_settings.BaseSettings` with environment file\n- Configures PostgreSQL (`database_url`), Redis (`redis_url`), S3, and provider API keys\n- Default model: `anthropic_model: claude-sonnet-4-6`\n- Budget defaults: `task_default_budget_usd: 2.0`, `task_default_timeout_s: 1500`\n\n---\n\n### 2. Database & Migrations\n\n**Async Session Setup** (`app/db/session.py:L11-L17`):\n```python\nengine = create_async_engine(settings.database_url, pool_pre_ping=True)\nAsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False)\n\nasync def get_session() -> AsyncIterator[AsyncSession]:\n    async with AsyncSessionLocal() as session:\n        yield session\n```\n\n**Models** (`app/models/base.py`, `app/models/research.py`):\n- `Base` extends `DeclarativeBase` with JSONB mapping for dicts\n- Mixins: `IdMixin` (UUID PK), `TimestampMixin` (created/updated), `TableNameMixin` (auto snake_case table names)\n- Core models: `ResearchTask`, `ResearchPlan`, `SubQuestion` with relationships\n\n**Migration** (`migrations/versions/202605210001_initial_domain_schema.py:L23-L24`):\n```python\ndef upgrade() -> None:\n    Base.metadata.create_all(bind=op.get_bind())\n```\nSingle migration creates all tables from SQLAlchemy metadata.\n\n---\n\n### 3. Repository Layer\n\n**Generic Repository Pattern** (`app/repositories/base.py:L12-L32`):\n```python\nclass Repository[ModelT: Base]:\n    def __init__(self, session: AsyncSession, model: type[ModelT]) -> None:\n        self.session = session\n        self.model = model\n    \n    async def get(self, item_id: UUID) -> ModelT | None: ...\n    async def list(self, limit: int = 100, offset: int = 0) -> Sequence[ModelT]: ...\n    async def add(self, entity: ModelT) -> ModelT: ...\n    async def delete(self, entity: ModelT) -> None: ...\n```\n\n**UnitOfWork** (`app/repositories/base.py:L34-L42`):\n```python\nclass UnitOfWork:\n    def __init__(self, session: AsyncSession) -> None:\n        self.session = session\n    async def commit(self) -> None: ...\n    async def rollback(self) -> None: ...\n```\n\n**Concrete Repositories** (simple wrappers):\n- `TaskRepository[ResearchTask]` (`app/repositories/task_repository.py:L9-L11`)\n- Also: `ClaimRepository`, `EvidenceRepository`, `SearchQueryRepository`, `SourceRepository`, `LogRepository`, `PlanRepository`, `ReportRepository`\n\n**⚠️ Uncertainty**: Repositories are defined but **not used** in the current implementation. The app relies on `InMemoryTaskStore` in `app/services/task_service.py` instead.\n\n---\n\n### 4. Provider Layer (External Integrations)\n\n**ProviderLogSink Protocol** (`app/providers/base.py:L57-L63`):\n```python\nclass ProviderLogSink(Protocol):\n    async def record_tool_call(self, record: ToolCallAudit) -> None: ...\n    async def record_cost(self, record: CostAudit) -> None: ...\n    async def record_provider_config(self, record: ProviderConfigSnapshotAudit) -> None: ...\n```\n\nAll providers receive a `log_sink` for unified audit logging.\n\n**Anthropic (LLM)** (`app/providers/anthropic.py:L37-L52`):\n```python\nclass AnthropicProvider:\n    def __init__(\n        self,\n        api_key: str,\n        model: str,\n        temperature: float,\n        http_client: httpx.AsyncClient | None = None,\n        log_sink: ProviderLogSink | None = None,\n        base_url: str = \"https://api.anthropic.com\",\n    ) -> None:\n        self.api_key = api_key\n        self.model = model\n        self.temperature = temperature\n        self._client = http_client or httpx.AsyncClient(base_url=base_url, timeout=120.0)\n        self.log_sink = log_sink or get_provider_log_sink()\n```\n- `complete_with_tool()` method for tool-calling LLM\n- Records input/output hashes, latency, costs (`input_tokens`, `output_tokens`)\n- Raises `ProviderRequestError` with HTTP status and error codes\n\n**Tavily (Search)** (`app/providers/tavily.py:L44-L55`):\n```python\nclass TavilySearchProvider:\n    async def search(\n        self,\n        task_id: UUID,\n        query: str,\n        max_results: int = 5,\n        search_depth: str = \"basic\",\n        step_id: str | None = None,\n    ) -> TavilySearchResponse: ...\n```\n- Records `search_queries: 1` in `CostAudit`\n- Returns parsed results with scores, publication dates, and hashes\n\n**Firecrawl (Web Scraping)** (`app/providers/firecrawl.py:L37-L50`):\n```python\nclass FirecrawlProvider:\n    def __init__(\n        self,\n        api_key: str,\n        http_client: httpx.AsyncClient | None = None,\n        storage: S3Storage | None = None,\n        log_sink: ProviderLogSink | None = None,\n        base_url: str = \"https://api.firecrawl.dev\",\n    ) -> None:\n        self.storage = storage  # Optional S3 integration\n        self.log_sink = log_sink or get_provider_log_sink()\n```\n- `scrape()` returns `FirecrawlSnapshot` (markdown, raw HTML, final URL)\n- If `S3Storage` is provided, stores content as `source-snapshots/{task_id}/{hash}.md`\n- Records `crawl_credits: 1` in `CostAudit`\n\n---\n\n### 5. Orchestration Layer (LangGraph)\n\n**ResearchState** (`app/orchestrator/state.py:L92-L110`):\n- TypedDict with all intermediate data: `search_queries`, `search_results`, `allowed_search_results`, `policy_decisions`, `source_snapshots`, `source_evaluations`, `evidence_spans`, `claims`, `citation_validations`, `plan`, `status`, `plan_approved`, `error`\n- All drafts use `*Draft` suffix (e.g., `SearchResultDraft`, `SourceSnapshotDraft`)\n\n**Graph Structure** (`app/orchestrator/graph.py:L39-L92`):\n- Uses `StateGraph(ResearchState)` from LangGraph\n- **Linear flow with budget gates**:\n  ```\n  START → query_understanding → planner → plan_approval_gate \n  → search → budget_gate → policy_guard → budget_gate → fetcher → budget_gate \n  → parser → budget_gate → evidence_extractor → budget_gate → synthesizer \n  → budget_gate → citation_validator → budget_gate → finalize → END\n  ```\n\n**Plan Approval Gate** (`app/orchestrator/graph.py:L95-L122`):\n```python\nasync def plan_approval_gate(state: ResearchState) -> ResearchState:\n    if state.get(\"plan_approved\") is True:\n        return state\n    resume_value = interrupt({\n        \"task_id\": str(state[\"task_id\"]),\n        \"status\": ResearchStatus.WAITING_FOR_USER.value,\n        \"plan\": state.get(\"plan\"),\n    })\n    approved = _resume_approved(resume_value)\n    if not approved:\n        return {**state, \"plan_approved\": False, \"status\": ResearchStatus.CANCELLED.value}\n```\nUses LangGraph's `interrupt()` for human-in-the-loop approval.\n\n**Budget Gate** (`app/orchestrator/graph.py:L129-L157`):\n```python\nasync def budget_gate_node(state: ResearchState) -> ResearchState:\n    record = get_task(state[\"task_id\"])\n    usage = task_budget_usage(record.task_id)\n    decision = BudgetGate(BudgetLimits(...)).check(BudgetUsage(...))\n    if not decision.allowed:\n        return {**state, \"status\": decision.terminal_status.value, \"error\": decision.reason}\n    return state\n```\nChecks `search_queries`, `sources`, and `cost_usd` against task limits at each stage.\n\n---\n\n### 6. Orchestrator Nodes (Protocol-Based Factories)\n\nEach node is created via a `make_*_node()` factory that accepts protocol-based providers:\n\n**Search Node** (`app/orchestrator/nodes/search.py:L25-L38`):\n```python\ndef make_search_node(provider: SearchProvider, max_results: int = 10) -> SearchNode:\n    async def search_node(state: ResearchState) -> ResearchState:\n        queries = state.get(\"search_queries\", [])\n        search_results: list[SearchResultDraft] = []\n        for query in queries:\n            response = await provider.search(...)\n            for index, item in enumerate(response.results, start=1):\n                search_results.append({...})\n        return {**state, \"status\": ResearchStatus.SEARCHING.value, \"search_results\": search_results}\n    return search_node\n```\n\n**Fetcher Node** (`app/orchestrator/nodes/fetcher.py:L33-L56`):\n```python\ndef make_fetcher_node(\n    provider: FetchProvider,\n    snapshot_store: SourceSnapshotStore | None = None,\n) -> FetcherNode:\n    async def fetcher_node(state: ResearchState) -> ResearchState:\n        for result in results:\n            snapshot = await provider.scrape(task_id=state[\"task_id\"], url=result[\"url\"])\n            persisted = await snapshot_store.persist_source_snapshot(...) if snapshot_store else {}\n            snapshots.append({...})\n        return {**state, \"status\": ResearchStatus.FETCHING.value, \"source_snapshots\": snapshots}\n    return fetcher_node\n```\n\n**Parser Node** (`app/orchestrator/nodes/parser.py:L25-L55`):\n```python\ndef make_parser_node(evaluation_store: SourceEvaluationStore | None = None) -> ParserNode:\n    async def parser_node(state: ResearchState) -> ResearchState:\n        for snapshot in snapshots:\n            evaluation = _evaluate_snapshot(snapshot)  # Heuristic source grading\n            persisted = await evaluation_store.persist_source_evaluation(...) if evaluation_store else {}\n            evaluations.append({...})\n        return {**state, \"status\": ResearchStatus.EXTRACTING_EVIDENCE.value, \"source_evaluations\": evaluations}\n    return parser_node\n```\n\n**Source Grading Heuristics** (`app/orchestrator/nodes/parser.py:L72-L80`):\n- `docs.*` or `/docs` → `official_docs`, Grade A\n- `github.com` → `github`, Grade A\n- Default → `web`, UNRATED\n\n**⚠️ Uncertainty**: Default `ResearchGraphNodes` in `app/orchestrator/graph.py:L26-L36` uses `_unconfigured_node()` placeholders for search, policy_guard, fetcher, parser, evidence_extractor, synthesizer, citation_validator. The worker in `app/workers/tasks.py:L30` calls `build_graph()` without custom nodes, so the pipeline is **not fully wired** in production.\n\n---\n\n### 7. Service Layer\n\n**In-Memory Task Store** (`app/services/task_service.py:L85-L171`):\n```python\nclass InMemoryTaskStore:\n    def __init__(self) -> None:\n        self._records: dict[UUID, TaskRecord] = {}\n    \n    def create(self, question: str, language: str, ...) -> TaskRecord:\n        record = TaskRecord(\n            task_id=uuid4(),\n            status=ResearchStatus.WAITING_FOR_USER,\n            plan=build_demo_plan(question),\n            ...\n        )\n        self._records[record.task_id] = record\n        return record\n```\n**⚠️ Uncertainty**: The entire task management is **in-memory**, not using the database repositories defined elsewhere.\n\n**Cost Service** (`app/services/cost_service.py:L41-L93`):\n```python\n_cost_items: dict[UUID, list[CostItem]] = {}\n\ndef record_cost_item(...) -> CostItem: ...\ndef aggregate_task_cost(task_id: UUID | str) -> dict[str, Any] | None: ...\ndef task_budget_usage(task_id: UUID | str) -> dict[str, Any]: ...\n```\n- Also in-memory\n- Used by `ProviderAuditLogSink` (`app/services/cost_service.py:L96-L120`) to implement `ProviderLogSink` protocol\n- Sink is accessed via `get_provider_log_sink()` singleton\n\n---\n\n### 8. Background Workers (Celery)\n\n**Celery Configuration** (`app/workers/celery_app.py:L9-L20`):\n```python\ncelery_app = Celery(\n    \"deepresearch\",\n    broker=settings.redis_url,\n    backend=settings.redis_url,\n    include=[\"app.workers.tasks\"],\n)\ncelery_app.conf.update(\n    task_track_started=True,\n    worker_prefetch_multiplier=1,\n    task_acks_late=True,\n)\n```\n\n**Research Task Runner** (`app/workers/tasks.py:L15-L45`):\n```python\n@celery_app.task(name=\"app.workers.tasks.run_research_task\")\ndef run_research_task(task_id: str) -> dict[str, Any]:\n    return asyncio.run(run_research_task_async(task_id))\n\nasync def run_research_task_async(task_id: str) -> dict[str, Any]:\n    record = get_task(task_uuid)\n    graph = build_graph(checkpointer=InMemorySaver())\n    result = await graph.ainvoke(\n        {\"task_id\": task_uuid, \"question\": record.question, \"language\": record.language},\n        config={\"configurable\": {\"thread_id\": str(task_uuid)}},\n    )\n    return _task_result(task_id=task_uuid, status=result.get(\"status\"), ...)\n```\nUses `InMemorySaver` checkpointer for LangGraph state persistence (in-memory, not database).\n\n---\n\n### 9. Storage Layer\n\n**S3 Storage** (`app/storage/s3.py:L16-L38`):\n```python\nclass S3Storage:\n    def __init__(self, settings: Settings | None = None) -> None:\n        self.settings = settings or get_settings()\n        self.client = boto3.client(\n            \"s3\",\n            endpoint_url=str(self.settings.s3_endpoint_url),\n            aws_access_key_id=self.settings.s3_access_key,\n            aws_secret_access_key=self.settings.s3_secret_key.get_secret_value(),\n        )\n    \n    def put_text(self, key: str, body: str, content_type: str) -> StoredObject: ...\n    def get_text(self, key: str) -> str: ...\n    def presigned_get_url(self, key: str, expires_in: int = 900) -> str: ...\n```\nUsed by `FirecrawlProvider` to store source snapshots (markdown and raw HTML).\n\n---\n\n## Key Code Paths\n\n### Task Creation Flow\n1. **API**: `POST /tasks` → `create_task_endpoint()` (`app/api/tasks.py:L39-L50`)\n2. **Service**: `create_task()` → `InMemoryTaskStore.create()` (`app/services/task_service.py:L89-L115`)\n3. **Return**: Task record with `status=ResearchStatus.WAITING_FOR_USER` and demo plan\n\n### Research Execution Flow\n1. **Worker Trigger**: `run_research_task()` called via Celery (`app/workers/tasks.py:L15-L17`)\n2. **Graph Invocation**: `graph.ainvoke()` with `thread_id` for checkpointing (`app/workers/tasks.py:L31-L38`)\n3. **Plan Approval**: `plan_approval_gate` → `interrupt()` → human resumes via `POST /tasks/{id}/plan/approve` (`app/api/plans.py:L13-L18`)\n4. **Budget Enforcement**: `budget_gate_node` checks limits after each stage (`app/orchestrator/graph.py:L129-L157`)\n5. **Node Execution**: Each node updates `ResearchState` and passes to next\n\n### Provider Call Flow (Example: Search)\n1. **Node**: `search_node` calls `provider.search(task_id, query)` (`app/orchestrator/nodes/search.py:L33-L38`)\n2. **Provider**: `TavilySearchProvider.search()` records hash, latency, cost (`app/providers/tavily.py:L61-L142`)\n3. **Audit**: `log_sink.record_tool_call()` → `ProviderAuditLogSink` (`app/services/cost_service.py:L101-L102`)\n4. **Cost**: `log_sink.record_cost()` → `record_cost_item()` (`app/providers/tavily.py:L139-L141`)\n\n---\n\n## Uncertainty\n\n1. **Database Repositories Not Used**: Full repository layer (TaskRepository, ClaimRepository, etc.) is defined but the app uses `InMemoryTaskStore` instead. No evidence of database persistence being wired in.\n   \n2. **Graph Node Wiring Incomplete**: The default `ResearchGraphNodes` in `app/orchestrator/graph.py` uses `_unconfigured_node()` for most nodes. The worker calls `build_graph()` without custom nodes, so the full research pipeline is not functional.\n\n3. **No Dependency Injection Container**: Dependencies (providers, stores) are passed via factory functions (`make_search_node(provider, ...)`), but there's no DI container or central wiring point. Not clear where providers are instantiated.\n\n4. **Celery Invocation Timing**: Unclear when `run_research_task` is triggered after task creation. Not visible in API routes.\n\n5. **Checkpointer Persistence**: Using `InMemorySaver` for LangGraph checkpoints, which loses state on worker restart. No evidence of PostgreSQL checkpointer being configured.\n\n6. **Error Handling in Graph**: Budget gates return error status but unclear how errors propagate to API response.\n\n---\n\n## Suggestions\n\n1. **Wire Database Persistence**: Replace `InMemoryTaskStore` with `TaskRepository` and `UnitOfWork`. Use `get_session()` dependency in services.\n\n2. **Complete Graph Wiring**: Create a production `build_graph()` call that passes fully configured nodes (e.g., `make_search_node(tavily_provider)`).\n\n3. **Add DI Container**: Consider a lightweight DI system (e.g., `dependency_injector` or manual factory) to centralize provider instantiation.\n\n4. **Celery Trigger**: Add immediate task dispatch in `create_task_endpoint()` or configure Celery beat for polling.\n\n5. **Persistent Checkpointer**: Replace `InMemorySaver` with PostgreSQL-backed checkpointer for LangGraph state persistence.\n\n6. **Add Integration Tests**: Test the full flow from API → Celery → Graph → Providers → Database to validate wiring.",
+    "citations": [
+      {
+        "type": "file_range",
+        "path": "app/main.py",
+        "startLine": 12,
+        "endLine": 27,
+        "raw": "`app/main.py:L12-L27`"
+      },
+      {
+        "type": "file_range",
+        "path": "app/core/config.py",
+        "startLine": 10,
+        "endLine": 33,
+        "raw": "`app/core/config.py:L10-L33`"
+      },
+      {
+        "type": "file_range",
+        "path": "app/db/session.py",
+        "startLine": 11,
+        "endLine": 17,
+        "raw": "`app/db/session.py:L11-L17`"
+      },
+      {
+        "type": "file_range",
+        "path": "migrations/versions/202605210001_initial_domain_schema.py",
+        "startLine": 23,
+        "endLine": 24,
+        "raw": "`migrations/versions/202605210001_initial_domain_schema.py:L23-L24`"
+      },
+      {
+        "type": "file_range",
+        "path": "app/repositories/base.py",
+        "startLine": 12,
+        "endLine": 32,
+        "raw": "`app/repositories/base.py:L12-L32`"
+      },
+      {
+        "type": "file_range",
+        "path": "app/repositories/base.py",
+        "startLine": 34,
+        "endLine": 42,
+        "raw": "`app/repositories/base.py:L34-L42`"
+      },
+      {
+        "type": "file_range",
+        "path": "app/repositories/task_repository.py",
+        "startLine": 9,
+        "endLine": 11,
+        "raw": "`app/repositories/task_repository.py:L9-L11`"
+      },
+      {
+        "type": "file_range",
+        "path": "app/providers/base.py",
+        "startLine": 57,
+        "endLine": 63,
+        "raw": "`app/providers/base.py:L57-L63`"
+      },
+      {
+        "type": "file_range",
+        "path": "app/providers/anthropic.py",
+        "startLine": 37,
+        "endLine": 52,
+        "raw": "`app/providers/anthropic.py:L37-L52`"
+      },
+      {
+        "type": "file_range",
+        "path": "app/providers/tavily.py",
+        "startLine": 44,
+        "endLine": 55,
+        "raw": "`app/providers/tavily.py:L44-L55`"
+      },
+      {
+        "type": "file_range",
+        "path": "app/providers/firecrawl.py",
+        "startLine": 37,
+        "endLine": 50,
+        "raw": "`app/providers/firecrawl.py:L37-L50`"
+      },
+      {
+        "type": "file_range",
+        "path": "app/orchestrator/state.py",
+        "startLine": 92,
+        "endLine": 110,
+        "raw": "`app/orchestrator/state.py:L92-L110`"
+      },
+      {
+        "type": "file_range",
+        "path": "app/orchestrator/graph.py",
+        "startLine": 39,
+        "endLine": 92,
+        "raw": "`app/orchestrator/graph.py:L39-L92`"
+      },
+      {
+        "type": "file_range",
+        "path": "app/orchestrator/graph.py",
+        "startLine": 95,
+        "endLine": 122,
+        "raw": "`app/orchestrator/graph.py:L95-L122`"
+      },
+      {
+        "type": "file_range",
+        "path": "app/orchestrator/graph.py",
+        "startLine": 129,
+        "endLine": 157,
+        "raw": "`app/orchestrator/graph.py:L129-L157`"
+      },
+      {
+        "type": "file_range",
+        "path": "app/orchestrator/nodes/search.py",
+        "startLine": 25,
+        "endLine": 38,
+        "raw": "`app/orchestrator/nodes/search.py:L25-L38`"
+      },
+      {
+        "type": "file_range",
+        "path": "app/orchestrator/nodes/fetcher.py",
+        "startLine": 33,
+        "endLine": 56,
+        "raw": "`app/orchestrator/nodes/fetcher.py:L33-L56`"
+      },
+      {
+        "type": "file_range",
+        "path": "app/orchestrator/nodes/parser.py",
+        "startLine": 25,
+        "endLine": 55,
+        "raw": "`app/orchestrator/nodes/parser.py:L25-L55`"
+      },
+      {
+        "type": "file_range",
+        "path": "app/orchestrator/nodes/parser.py",
+        "startLine": 72,
+        "endLine": 80,
+        "raw": "`app/orchestrator/nodes/parser.py:L72-L80`"
+      },
+      {
+        "type": "file_range",
+        "path": "app/orchestrator/graph.py",
+        "startLine": 26,
+        "endLine": 36,
+        "raw": "`app/orchestrator/graph.py:L26-L36`"
+      },
+      {
+        "type": "file_range",
+        "path": "app/workers/tasks.py",
+        "startLine": 30,
+        "endLine": 30,
+        "raw": "`app/workers/tasks.py:L30`"
+      },
+      {
+        "type": "file_range",
+        "path": "app/services/task_service.py",
+        "startLine": 85,
+        "endLine": 171,
+        "raw": "`app/services/task_service.py:L85-L171`"
+      },
+      {
+        "type": "file_range",
+        "path": "app/services/cost_service.py",
+        "startLine": 41,
+        "endLine": 93,
+        "raw": "`app/services/cost_service.py:L41-L93`"
+      },
+      {
+        "type": "file_range",
+        "path": "app/services/cost_service.py",
+        "startLine": 96,
+        "endLine": 120,
+        "raw": "`app/services/cost_service.py:L96-L120`"
+      },
+      {
+        "type": "file_range",
+        "path": "app/workers/celery_app.py",
+        "startLine": 9,
+        "endLine": 20,
+        "raw": "`app/workers/celery_app.py:L9-L20`"
+      },
+      {
+        "type": "file_range",
+        "path": "app/workers/tasks.py",
+        "startLine": 15,
+        "endLine": 45,
+        "raw": "`app/workers/tasks.py:L15-L45`"
+      },
+      {
+        "type": "file_range",
+        "path": "app/storage/s3.py",
+        "startLine": 16,
+        "endLine": 38,
+        "raw": "`app/storage/s3.py:L16-L38`"
+      },
+      {
+        "type": "file_range",
+        "path": "app/api/tasks.py",
+        "startLine": 39,
+        "endLine": 50,
+        "raw": "`app/api/tasks.py:L39-L50`"
+      },
+      {
+        "type": "file_range",
+        "path": "app/services/task_service.py",
+        "startLine": 89,
+        "endLine": 115,
+        "raw": "`app/services/task_service.py:L89-L115`"
+      },
+      {
+        "type": "file_range",
+        "path": "app/workers/tasks.py",
+        "startLine": 15,
+        "endLine": 17,
+        "raw": "`app/workers/tasks.py:L15-L17`"
+      },
+      {
+        "type": "file_range",
+        "path": "app/workers/tasks.py",
+        "startLine": 31,
+        "endLine": 38,
+        "raw": "`app/workers/tasks.py:L31-L38`"
+      },
+      {
+        "type": "file_range",
+        "path": "app/api/plans.py",
+        "startLine": 13,
+        "endLine": 18,
+        "raw": "`app/api/plans.py:L13-L18`"
+      },
+      {
+        "type": "file_range",
+        "path": "app/orchestrator/graph.py",
+        "startLine": 129,
+        "endLine": 157,
+        "raw": "`app/orchestrator/graph.py:L129-L157`"
+      },
+      {
+        "type": "file_range",
+        "path": "app/orchestrator/nodes/search.py",
+        "startLine": 33,
+        "endLine": 38,
+        "raw": "`app/orchestrator/nodes/search.py:L33-L38`"
+      },
+      {
+        "type": "file_range",
+        "path": "app/providers/tavily.py",
+        "startLine": 61,
+        "endLine": 142,
+        "raw": "`app/providers/tavily.py:L61-L142`"
+      },
+      {
+        "type": "file_range",
+        "path": "app/services/cost_service.py",
+        "startLine": 101,
+        "endLine": 102,
+        "raw": "`app/services/cost_service.py:L101-L102`"
+      },
+      {
+        "type": "file_range",
+        "path": "app/providers/tavily.py",
+        "startLine": 139,
+        "endLine": 141,
+        "raw": "`app/providers/tavily.py:L139-L141`"
+      }
+    ],
+    "targets": [
+      {
+        "path": "app/main.py",
+        "role": "reference",
+        "reason": "Markdown report citation",
+        "evidenceRefs": [],
+        "startLine": 12,
+        "endLine": 27
+      },
+      {
+        "path": "app/core/config.py",
+        "role": "reference",
+        "reason": "Markdown report citation",
+        "evidenceRefs": [],
+        "startLine": 10,
+        "endLine": 33
+      },
+      {
+        "path": "app/db/session.py",
+        "role": "reference",
+        "reason": "Markdown report citation",
+        "evidenceRefs": [],
+        "startLine": 11,
+        "endLine": 17
+      },
+      {
+        "path": "migrations/versions/202605210001_initial_domain_schema.py",
+        "role": "reference",
+        "reason": "Markdown report citation",
+        "evidenceRefs": [],
+        "startLine": 23,
+        "endLine": 24
+      },
+      {
+        "path": "app/repositories/base.py",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 2 ranges.",
+        "evidenceRefs": [],
+        "startLine": 12,
+        "endLine": 42
+      },
+      {
+        "path": "app/repositories/task_repository.py",
+        "role": "reference",
+        "reason": "Markdown report citation",
+        "evidenceRefs": [],
+        "startLine": 9,
+        "endLine": 11
+      },
+      {
+        "path": "app/providers/base.py",
+        "role": "reference",
+        "reason": "Markdown report citation",
+        "evidenceRefs": [],
+        "startLine": 57,
+        "endLine": 63
+      },
+      {
+        "path": "app/providers/anthropic.py",
+        "role": "reference",
+        "reason": "Markdown report citation",
+        "evidenceRefs": [],
+        "startLine": 37,
+        "endLine": 52
+      },
+      {
+        "path": "app/providers/tavily.py",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 3 ranges.",
+        "evidenceRefs": [],
+        "startLine": 44,
+        "endLine": 142
+      },
+      {
+        "path": "app/providers/firecrawl.py",
+        "role": "reference",
+        "reason": "Markdown report citation",
+        "evidenceRefs": [],
+        "startLine": 37,
+        "endLine": 50
+      },
+      {
+        "path": "app/orchestrator/state.py",
+        "role": "reference",
+        "reason": "Markdown report citation",
+        "evidenceRefs": [],
+        "startLine": 92,
+        "endLine": 110
+      },
+      {
+        "path": "app/orchestrator/graph.py",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 5 ranges.",
+        "evidenceRefs": [],
+        "startLine": 26,
+        "endLine": 157
+      },
+      {
+        "path": "app/orchestrator/nodes/search.py",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 2 ranges.",
+        "evidenceRefs": [],
+        "startLine": 25,
+        "endLine": 38
+      },
+      {
+        "path": "app/orchestrator/nodes/fetcher.py",
+        "role": "reference",
+        "reason": "Markdown report citation",
+        "evidenceRefs": [],
+        "startLine": 33,
+        "endLine": 56
+      },
+      {
+        "path": "app/orchestrator/nodes/parser.py",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 2 ranges.",
+        "evidenceRefs": [],
+        "startLine": 25,
+        "endLine": 80
+      },
+      {
+        "path": "app/workers/tasks.py",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 4 ranges.",
+        "evidenceRefs": [],
+        "startLine": 15,
+        "endLine": 45
+      },
+      {
+        "path": "app/services/task_service.py",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 2 ranges.",
+        "evidenceRefs": [],
+        "startLine": 85,
+        "endLine": 171
+      },
+      {
+        "path": "app/services/cost_service.py",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 3 ranges.",
+        "evidenceRefs": [],
+        "startLine": 41,
+        "endLine": 120
+      },
+      {
+        "path": "app/workers/celery_app.py",
+        "role": "reference",
+        "reason": "Markdown report citation",
+        "evidenceRefs": [],
+        "startLine": 9,
+        "endLine": 20
+      },
+      {
+        "path": "app/storage/s3.py",
+        "role": "reference",
+        "reason": "Markdown report citation",
+        "evidenceRefs": [],
+        "startLine": 16,
+        "endLine": 38
+      },
+      {
+        "path": "app/api/tasks.py",
+        "role": "reference",
+        "reason": "Markdown report citation",
+        "evidenceRefs": [],
+        "startLine": 39,
+        "endLine": 50
+      },
+      {
+        "path": "app/api/plans.py",
+        "role": "reference",
+        "reason": "Markdown report citation",
+        "evidenceRefs": [],
+        "startLine": 13,
+        "endLine": 18
+      }
+    ],
+    "filesRead": [
+      "main.py",
+      "app/main.py",
+      "app/core/config.py",
+      "app/db/session.py",
+      "app/api/tasks.py",
+      "app/api/plans.py",
+      "app/providers/base.py",
+      "app/repositories/base.py",
+      "app/providers/anthropic.py",
+      "app/providers/tavily.py",
+      "app/orchestrator/graph.py",
+      "app/orchestrator/state.py",
+      "app/repositories/task_repository.py",
+      "app/services/task_service.py",
+      "migrations/versions/202605210001_initial_domain_schema.py",
+      "app/workers/celery_app.py",
+      "app/workers/tasks.py",
+      "app/models/research.py",
+      "app/orchestrator/nodes/search.py",
+      "app/orchestrator/nodes/planner.py",
+      "app/models/base.py",
+      "app/services/cost_service.py",
+      "app/providers/firecrawl.py",
+      "app/storage/s3.py",
+      "app/domain/enums.py",
+      "app/orchestrator/nodes/fetcher.py",
+      "app/orchestrator/nodes/parser.py"
+    ],
+    "toolsUsed": [
+      "repo_list_dir",
+      "repo_read_file",
+      "repo_grep"
+    ],
+    "stats": {
+      "model": "zai-glm-4.7",
+      "budget": "deep",
+      "turns": 14,
+      "toolCalls": 36,
+      "listDirCalls": 4,
+      "findFileCalls": 0,
+      "grepCalls": 5,
+      "filesRead": 27,
+      "gitLogCalls": 0,
+      "gitBlameCalls": 0,
+      "gitDiffCalls": 0,
+      "gitShowCalls": 0,
+      "symbolCalls": 0,
+      "elapsedMs": 18334,
+      "stoppedByBudget": false,
+      "llmCompactions": 0,
+      "toolResultsTruncated": 7,
+      "outputRecoveries": 0,
+      "scope": [
+        "app/**",
+        "main.py",
+        "migrations/**"
+      ],
+      "repoRoot": "/home/kyubr/IdeaProjects/DeepResearch",
+      "sessionId": "sess_5954dc18315a3027",
+      "sessionStatus": "created",
+      "sessionSource": "created",
+      "remainingCalls": 4,
+      "inputTokens": 295377,
+      "outputTokens": 7667,
+      "totalTokens": 303044,
+      "cacheHits": 146,
+      "cacheMisses": 621,
+      "cacheHitRate": 0.19,
+      "cacheEntries": 610,
+      "cacheSizeBytes": 3610558
+    },
+    "critic": {
+      "status": "caution",
+      "warnings": [
+        {
+          "type": "truncated_tool_results",
+          "severity": "low",
+          "message": "7 tool result(s) were truncated before model synthesis; re-run with a narrower query or read specific ranges if expected evidence is missing.",
+          "action": "Use a narrower follow-up query or read specific ranges before relying on missing evidence."
+        }
+      ]
+    },
+    "searchCoverage": {
+      "scope": [
+        "app/**",
+        "main.py",
+        "migrations/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 27,
+      "grepCalls": 5,
+      "listDirCalls": 4,
+      "symbolCalls": 0,
+      "toolResultsTruncated": 7,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: app/**, main.py, migrations/**",
+        "7 tool result(s) were truncated before model synthesis; re-run with a narrower query or read specific ranges if expected evidence is missing."
+      ],
+      "summary": "scope-limited search across app/**, main.py, migrations/**; 27 file read(s), 5 grep search(es)."
+    },
+    "transcriptPath": null,
+    "toolTrace": {
+      "entries": [
+        {
+          "turn": 1,
+          "tool": "repo_list_dir",
+          "args": {
+            "dirPath": "."
+          },
+          "result": {
+            "entries": 23,
+            "paths": [
+              "app",
+              "app/__init__.py",
+              "app/api",
+              "app/citation",
+              "app/core",
+              "app/db"
+            ]
+          }
+        },
+        {
+          "turn": 1,
+          "tool": "repo_list_dir",
+          "args": {
+            "dirPath": "app"
+          },
+          "result": {
+            "entries": 98,
+            "paths": [
+              "app/__init__.py",
+              "app/api",
+              "app/api/__init__.py",
+              "app/api/claims.py",
+              "app/api/errors.py",
+              "app/api/plans.py"
+            ]
+          }
+        },
+        {
+          "turn": 1,
+          "tool": "repo_read_file",
+          "args": {
+            "path": "main.py"
+          },
+          "result": {
+            "path": "main.py",
+            "startLine": 1,
+            "endLine": 14,
+            "totalLines": 14,
+            "truncated": true
+          }
+        },
+        {
+          "turn": 2,
+          "tool": "repo_read_file",
+          "args": {
+            "path": "app/main.py"
+          },
+          "result": {
+            "path": "app/main.py",
+            "startLine": 1,
+            "endLine": 28,
+            "totalLines": 28,
+            "truncated": true
+          }
+        },
+        {
+          "turn": 2,
+          "tool": "repo_read_file",
+          "args": {
+            "path": "app/core/config.py"
+          },
+          "result": {
+            "path": "app/core/config.py",
+            "startLine": 1,
+            "endLine": 39,
+            "totalLines": 39,
+            "truncated": true
+          }
+        },
+        {
+          "turn": 2,
+          "tool": "repo_read_file",
+          "args": {
+            "path": "app/db/session.py"
+          },
+          "result": {
+            "path": "app/db/session.py",
+            "startLine": 1,
+            "endLine": 18,
+            "totalLines": 18,
+            "truncated": true
+          }
+        },
+        {
+          "turn": 2,
+          "tool": "repo_list_dir",
+          "args": {
+            "dirPath": "migrations/versions"
+          },
+          "result": {
+            "entries": 2,
+            "paths": [
+              "migrations/versions/.gitkeep",
+              "migrations/versions/202605210001_initial_domain_schema.py"
+            ]
+          }
+        },
+        {
+          "turn": 3,
+          "tool": "repo_read_file",
+          "args": {
+            "path": "app/api/tasks.py"
+          },
+          "result": {
+            "path": "app/api/tasks.py",
+            "startLine": 1,
+            "endLine": 190,
+            "totalLines": 190,
+            "truncated": true
+          }
+        },
+        {
+          "turn": 3,
+          "tool": "repo_read_file",
+          "args": {
+            "path": "app/api/plans.py"
+          },
+          "result": {
+            "path": "app/api/plans.py",
+            "startLine": 1,
+            "endLine": 19,
+            "totalLines": 19,
+            "truncated": true
+          }
+        },
+        {
+          "turn": 3,
+          "tool": "repo_read_file",
+          "args": {
+            "path": "app/providers/base.py"
+          },
+          "result": {
+            "path": "app/providers/base.py",
+            "startLine": 1,
+            "endLine": 108,
+            "totalLines": 108,
+            "truncated": true
+          }
+        },
+        {
+          "turn": 3,
+          "tool": "repo_read_file",
+          "args": {
+            "path": "app/repositories/base.py"
+          },
+          "result": {
+            "path": "app/repositories/base.py",
+            "startLine": 1,
+            "endLine": 43,
+            "totalLines": 43,
+            "truncated": true
+          }
+        },
+        {
+          "turn": 4,
+          "tool": "repo_read_file",
+          "args": {
+            "path": "app/providers/anthropic.py"
+          },
+          "result": {
+            "path": "app/providers/anthropic.py",
+            "startLine": 1,
+            "endLine": 262,
+            "totalLines": 262,
+            "truncated": true
+          }
+        },
+        {
+          "turn": 4,
+          "tool": "repo_read_file",
+          "args": {
+            "path": "app/providers/tavily.py"
+          },
+          "result": {
+            "path": "app/providers/tavily.py",
+            "startLine": 1,
+            "endLine": 227,
+            "totalLines": 227,
+            "truncated": true
+          }
+        },
+        {
+          "turn": 4,
+          "tool": "repo_read_file",
+          "args": {
+            "path": "app/orchestrator/graph.py"
+          },
+          "result": {
+            "path": "app/orchestrator/graph.py",
+            "startLine": 1,
+            "endLine": 223,
+            "totalLines": 223,
+            "truncated": true
+          }
+        },
+        {
+          "turn": 4,
+          "tool": "repo_read_file",
+          "args": {
+            "path": "app/orchestrator/state.py"
+          },
+          "result": {
+            "path": "app/orchestrator/state.py",
+            "startLine": 1,
+            "endLine": 110,
+            "totalLines": 110,
+            "truncated": true
+          }
+        },
+        {
+          "turn": 5,
+          "tool": "repo_read_file",
+          "args": {
+            "path": "app/repositories/task_repository.py"
+          },
+          "result": {
+            "path": "app/repositories/task_repository.py",
+            "startLine": 1,
+            "endLine": 12,
+            "totalLines": 12,
+            "truncated": true
+          }
+        },
+        {
+          "turn": 5,
+          "tool": "repo_read_file",
+          "args": {
+            "path": "app/services/task_service.py"
+          },
+          "result": {
+            "path": "app/services/task_service.py",
+            "startLine": 1,
+            "endLine": 320,
+            "totalLines": 395,
+            "truncated": true
+          }
+        },
+        {
+          "turn": 5,
+          "tool": "repo_list_dir",
+          "args": {
+            "dirPath": "app/workers"
+          },
+          "result": {
+            "entries": 3,
+            "paths": [
+              "app/workers/__init__.py",
+              "app/workers/celery_app.py",
+              "app/workers/tasks.py"
+            ]
+          }
+        },
+        {
+          "turn": 5,
+          "tool": "repo_read_file",
+          "args": {
+            "path": "migrations/versions/202605210001_initial_domain_schema.py"
+          },
+          "result": {
+            "path": "migrations/versions/202605210001_initial_domain_schema.py",
+            "startLine": 1,
+            "endLine": 29,
+            "totalLines": 29,
+            "truncated": true
+          }
+        },
+        {
+          "turn": 6,
+          "tool": "repo_read_file",
+          "args": {
+            "path": "app/workers/celery_app.py"
+          },
+          "result": {
+            "path": "app/workers/celery_app.py",
+            "startLine": 1,
+            "endLine": 21,
+            "totalLines": 21,
+            "truncated": true
+          }
+        }
+      ],
+      "totalCalls": 36,
+      "truncated": true,
+      "maxEntries": 20
+    }
+  },
+  "contentText": "# DeepResearch Architecture Report\n\n## Summary\n\nDeepResearch is a FastAPI-based research orchestration system that uses **LangGraph** for workflow orchestration, **Celery** for background task execution, and **async SQLAlchemy** for data persistence. The app follows a layered architecture with **protocol-based provider abstractions**, an **in-memory demo store** for tasks, and **budget gates** between orchestrator nodes to enforce limits. Key external integrations include Anthropic (LLM), Tavily (search), and Firecrawl (web scraping) with comprehensive audit logging via a **ProviderLogSink** protocol.\n\n---\n\n## Findings\n\n### 1. FastAPI Application Structure\n\n**App Factory Pattern** (`app/main.py:L12-L27`):\n```python\ndef create_app() -> FastAPI:\n    settings = get_settings()\n    configure_logging(settings.log_level)\n    configure_telemetry(settings.otel_service_name)\n    app = FastAPI(title=\"DeepResearch Demo Alpha API\", version=\"0.1.0\")\n    register_error_handlers(app)\n    app.include_router(tasks.router)  # /tasks/*\n    app.include_router(plans.router)  # /tasks/{id}/plan/approve\n    app.include_router(claims.router)\n    app.include_router(sources.router)\n    instrument_fastapi_app(app)\n    return app\n```\n\nThe app is modular with four routers registered at startup. **Error handlers** and **OpenTelemetry instrumentation** are applied globally.\n\n**Configuration** (`app/core/config.py:L10-L33`):\n- Uses `pydantic_settings.BaseSettings` with environment file\n- Configures PostgreSQL (`database_url`), Redis (`redis_url`), S3, and provider API keys\n- Default model: `anthropic_model: claude-sonnet-4-6`\n- Budget defaults: `task_default_budget_usd: 2.0`, `task_default_timeout_s: 1500`\n\n---\n\n### 2. Database & Migrations\n\n**Async Session Setup** (`app/db/session.py:L11-L17`):\n```python\nengine = create_async_engine(settings.database_url, pool_pre_ping=True)\nAsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False)\n\nasync def get_session() -> AsyncIterator[AsyncSession]:\n    async with AsyncSessionLocal() as session:\n        yield session\n```\n\n**Models** (`app/models/base.py`, `app/models/research.py`):\n- `Base` extends `DeclarativeBase` with JSONB mapping for dicts\n- Mixins: `IdMixin` (UUID PK), `TimestampMixin` (created/updated), `TableNameMixin` (auto snake_case table names)\n- Core models: `ResearchTask`, `ResearchPlan`, `SubQuestion` with relationships\n\n**Migration** (`migrations/versions/202605210001_initial_domain_schema.py:L23-L24`):\n```python\ndef upgrade() -> None:\n    Base.metadata.create_all(bind=op.get_bind())\n```\nSingle migration creates all tables from SQLAlchemy metadata.\n\n---\n\n### 3. Repository Layer\n\n**Generic Repository Pattern** (`app/repositories/base.py:L12-L32`):\n```python\nclass Repository[ModelT: Base]:\n    def __init__(self, session: AsyncSession, model: type[ModelT]) -> None:\n        self.session = session\n        self.model = model\n    \n    async def get(self, item_id: UUID) -> ModelT | None: ...\n    async def list(self, limit: int = 100, offset: int = 0) -> Sequence[ModelT]: ...\n    async def add(self, entity: ModelT) -> ModelT: ...\n    async def delete(self, entity: ModelT) -> None: ...\n```\n\n**UnitOfWork** (`app/repositories/base.py:L34-L42`):\n```python\nclass UnitOfWork:\n    def __init__(self, session: AsyncSession) -> None:\n        self.session = session\n    async def commit(self) -> None: ...\n    async def rollback(self) -> None: ...\n```\n\n**Concrete Repositories** (simple wrappers):\n- `TaskRepository[ResearchTask]` (`app/repositories/task_repository.py:L9-L11`)\n- Also: `ClaimRepository`, `EvidenceRepository`, `SearchQueryRepository`, `SourceRepository`, `LogRepository`, `PlanRepository`, `ReportRepository`\n\n**⚠️ Uncertainty**: Repositories are defined but **not used** in the current implementation. The app relies on `InMemoryTaskStore` in `app/services/task_service.py` instead.\n\n---\n\n### 4. Provider Layer (External Integrations)\n\n**ProviderLogSink Protocol** (`app/providers/base.py:L57-L63`):\n```python\nclass ProviderLogSink(Protocol):\n    async def record_tool_call(self, record: ToolCallAudit) -> None: ...\n    async def record_cost(self, record: CostAudit) -> None: ...\n    async def record_provider_config(self, record: ProviderConfigSnapshotAudit) -> None: ...\n```\n\nAll providers receive a `log_sink` for unified audit logging.\n\n**Anthropic (LLM)** (`app/providers/anthropic.py:L37-L52`):\n```python\nclass AnthropicProvider:\n    def __init__(\n        self,\n        api_key: str,\n        model: str,\n        temperature: float,\n        http_client: httpx.AsyncClient | None = None,\n        log_sink: ProviderLogSink | None = None,\n        base_url: str = \"https://api.anthropic.com\",\n    ) -> None:\n        self.api_key = api_key\n        self.model = model\n        self.temperature = temperature\n        self._client = http_client or httpx.AsyncClient(base_url=base_url, timeout=120.0)\n        self.log_sink = log_sink or get_provider_log_sink()\n```\n- `complete_with_tool()` method for tool-calling LLM\n- Records input/output hashes, latency, costs (`input_tokens`, `output_tokens`)\n- Raises `ProviderRequestError` with HTTP status and error codes\n\n**Tavily (Search)** (`app/providers/tavily.py:L44-L55`):\n```python\nclass TavilySearchProvider:\n    async def search(\n        self,\n        task_id: UUID,\n        query: str,\n        max_results: int = 5,\n        search_depth: str = \"basic\",\n        step_id: str | None = None,\n    ) -> TavilySearchResponse: ...\n```\n- Records `search_queries: 1` in `CostAudit`\n- Returns parsed results with scores, publication dates, and hashes\n\n**Firecrawl (Web Scraping)** (`app/providers/firecrawl.py:L37-L50`):\n```python\nclass FirecrawlProvider:\n    def __init__(\n        self,\n        api_key: str,\n        http_client: httpx.AsyncClient | None = None,\n        storage: S3Storage | None = None,\n        log_sink: ProviderLogSink | None = None,\n        base_url: str = \"https://api.firecrawl.dev\",\n    ) -> None:\n        self.storage = storage  # Optional S3 integration\n        self.log_sink = log_sink or get_provider_log_sink()\n```\n- `scrape()` returns `FirecrawlSnapshot` (markdown, raw HTML, final URL)\n- If `S3Storage` is provided, stores content as `source-snapshots/{task_id}/{hash}.md`\n- Records `crawl_credits: 1` in `CostAudit`\n\n---\n\n### 5. Orchestration Layer (LangGraph)\n\n**ResearchState** (`app/orchestrator/state.py:L92-L110`):\n- TypedDict with all intermediate data: `search_queries`, `search_results`, `allowed_search_results`, `policy_decisions`, `source_snapshots`, `source_evaluations`, `evidence_spans`, `claims`, `citation_validations`, `plan`, `status`, `plan_approved`, `error`\n- All drafts use `*Draft` suffix (e.g., `SearchResultDraft`, `SourceSnapshotDraft`)\n\n**Graph Structure** (`app/orchestrator/graph.py:L39-L92`):\n- Uses `StateGraph(ResearchState)` from LangGraph\n- **Linear flow with budget gates**:\n  ```\n  START → query_understanding → planner → plan_approval_gate \n  → search → budget_gate → policy_guard → budget_gate → fetcher → budget_gate \n  → parser → budget_gate → evidence_extractor → budget_gate → synthesizer \n  → budget_gate → citation_validator → budget_gate → finalize → END\n  ```\n\n**Plan Approval Gate** (`app/orchestrator/graph.py:L95-L122`):\n```python\nasync def plan_approval_gate(state: ResearchState) -> ResearchState:\n    if state.get(\"plan_approved\") is True:\n        return state\n    resume_value = interrupt({\n        \"task_id\": str(state[\"task_id\"]),\n        \"status\": ResearchStatus.WAITING_FOR_USER.value,\n        \"plan\": state.get(\"plan\"),\n    })\n    approved = _resume_approved(resume_value)\n    if not approved:\n        return {**state, \"plan_approved\": False, \"status\": ResearchStatus.CANCELLED.value}\n```\nUses LangGraph's `interrupt()` for human-in-the-loop approval.\n\n**Budget Gate** (`app/orchestrator/graph.py:L129-L157`):\n```python\nasync def budget_gate_node(state: ResearchState) -> ResearchState:\n    record = get_task(state[\"task_id\"])\n    usage = task_budget_usage(record.task_id)\n    de\n... [truncated 9345 chars]"
+}

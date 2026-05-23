@@ -1,0 +1,1747 @@
+{
+  "tool": "map_change_impact",
+  "repo": "DeepResearch",
+  "args": {
+    "repo_root": "/home/kyubr/IdeaProjects/DeepResearch",
+    "scope": [
+      "app/**",
+      "main.py",
+      "migrations/**"
+    ],
+    "change": "add request telemetry across FastAPI routes and provider calls",
+    "knownFiles": [
+      "app/main.py"
+    ],
+    "knownSymbols": [
+      "create_app"
+    ]
+  },
+  "elapsedMs": 84491,
+  "error": null,
+  "isError": false,
+  "summary": {
+    "directAnswer": "I've mapped the impact of adding request telemetry across FastAPI routes and provider calls. The app already has OpenTelemetry infrastructure (app/main.py:12-24) with configure_telemetry() and instrument_fastapi_app(). Provider HTTP calls (anthropic, firecrawl, tavily) lack detailed telemetry. Edit targets: telemetry.py (add httpx instrumentation), 3 provider files (lines 101-109, 73-78, 93-98), and orchestrator nodes (search, fetcher). No test files found - high risk. Existing ProviderLogSink protocol ensures audit logging compatibility.",
+    "status": {
+      "confidence": "high",
+      "verification": "targeted_read_needed",
+      "complete": true,
+      "warnings": []
+    },
+    "evidenceQuality": {
+      "level": "high",
+      "exactCount": 8,
+      "partialCount": 0,
+      "droppedCount": 0,
+      "fileCount": 8,
+      "warnings": [],
+      "summary": "Verified: 25 files read, 10 grep searches, 2 symbol lookups, 8/8 evidence items grounded, cross-verified across 8 files. All evidence grounded in inspected code."
+    },
+    "failure": null,
+    "nextAction": {
+      "type": "read_target",
+      "reason": "Read app/core/telemetry.py:1-21 before editing.",
+      "target": {
+        "path": "app/core/telemetry.py",
+        "role": "edit",
+        "reason": "Add httpx.AsyncClient instrumentation helper for provider HTTP calls",
+        "evidenceRefs": [
+          "E2"
+        ],
+        "startLine": 1,
+        "endLine": 21
+      }
+    },
+    "searchCoverage": {
+      "scope": [
+        "app/**",
+        "main.py",
+        "migrations/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 25,
+      "grepCalls": 10,
+      "listDirCalls": 7,
+      "symbolCalls": 2,
+      "toolResultsTruncated": 0,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: app/**, main.py, migrations/**"
+      ],
+      "summary": "scope-limited search across app/**, main.py, migrations/**; 25 file read(s), 10 grep search(es)."
+    },
+    "critic": null,
+    "sessionId": "sess_abc55ca6dd9b2d2a",
+    "session": {
+      "id": "sess_abc55ca6dd9b2d2a",
+      "status": "created",
+      "remainingCalls": 4
+    },
+    "targets": [
+      {
+        "path": "app/core/telemetry.py",
+        "role": "edit",
+        "reason": "Add httpx.AsyncClient instrumentation helper for provider HTTP calls",
+        "evidenceRefs": [
+          "E2"
+        ],
+        "startLine": 1,
+        "endLine": 21
+      },
+      {
+        "path": "app/providers/anthropic.py",
+        "role": "edit",
+        "reason": "Add telemetry to anthropic HTTP POST call",
+        "evidenceRefs": [
+          "E3"
+        ],
+        "startLine": 101,
+        "endLine": 109
+      },
+      {
+        "path": "app/providers/firecrawl.py",
+        "role": "edit",
+        "reason": "Add telemetry to firecrawl HTTP POST call",
+        "evidenceRefs": [
+          "E4"
+        ],
+        "startLine": 73,
+        "endLine": 78
+      },
+      {
+        "path": "app/providers/tavily.py",
+        "role": "edit",
+        "reason": "Add telemetry to tavily HTTP POST call",
+        "evidenceRefs": [
+          "E5"
+        ],
+        "startLine": 93,
+        "endLine": 98
+      },
+      {
+        "path": "app/orchestrator/nodes/search.py",
+        "role": "edit",
+        "reason": "Add telemetry to search node execution",
+        "evidenceRefs": [
+          "E7"
+        ],
+        "startLine": 25,
+        "endLine": 58
+      },
+      {
+        "path": "app/orchestrator/nodes/fetcher.py",
+        "role": "edit",
+        "reason": "Add telemetry to fetcher node execution",
+        "evidenceRefs": [
+          "E8"
+        ],
+        "startLine": 33,
+        "endLine": 79
+      },
+      {
+        "path": "app/main.py",
+        "role": "read",
+        "reason": "Understand existing telemetry setup and FastAPI initialization",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 28
+      },
+      {
+        "path": "app/providers/base.py",
+        "role": "read",
+        "reason": "Understand existing ProviderLogSink protocol for compatibility",
+        "evidenceRefs": [
+          "E6"
+        ],
+        "startLine": 57,
+        "endLine": 73
+      }
+    ],
+    "discoveredPathsCount": 100,
+    "evidence": [
+      {
+        "id": "E1",
+        "path": "app/main.py",
+        "startLine": 12,
+        "endLine": 24,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Shows existing telemetry setup with configure_telemetry() and instrument_fastapi_app()",
+        "snippet": "12: def create_app() -> FastAPI:\n13:     settings = get_settings()\n14:     configure_logging(settings.log_level)\n15:     configure_telemetry(settings.otel_service_name)\n16: \n17:     app = FastAPI(title=\"DeepResearch Demo Alpha API\", version=\"0.1.0\")\n18:     register_error_handlers(app)\n19:     app.include_router(tasks.router)\n20:     app.include_router(plans.router)\n21:     app.include_router(claims.router)\n22:     app.include_router(sources.router)\n23:     instrument_fastapi_app(app)\n... [snippet truncated]"
+      },
+      {
+        "id": "E2",
+        "path": "app/core/telemetry.py",
+        "startLine": 1,
+        "endLine": 21,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Current OpenTelemetry infrastructure using FastAPIInstrumentor",
+        "snippet": "1: from __future__ import annotations\n2: \n3: from opentelemetry import trace\n4: from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor\n5: from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor\n6: from opentelemetry.sdk.resources import Resource\n7: from opentelemetry.sdk.trace import TracerProvider\n8: \n9: \n10: def configure_telemetry(service_name: str) -> None:\n11:     provider = TracerProvider(resource=Resource.create({\"service.name\": service_name}))\n12:     trace.set_tracer_provider(provider)\n... [snippet truncated]"
+      },
+      {
+        "id": "E3",
+        "path": "app/providers/anthropic.py",
+        "startLine": 101,
+        "endLine": 109,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Provider HTTP call pattern - httpx.AsyncClient.post() that needs telemetry",
+        "snippet": "101:             response = await self._client.post(\n102:                 \"/v1/messages\",\n103:                 json=payload,\n104:                 headers={\n105:                     \"x-api-key\": self.api_key,\n106:                     \"anthropic-version\": ANTHROPIC_VERSION,\n107:                     \"content-type\": \"application/json\",\n108:                 },\n109:             )"
+      },
+      {
+        "id": "E4",
+        "path": "app/providers/firecrawl.py",
+        "startLine": 73,
+        "endLine": 78,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Provider HTTP call pattern - httpx.AsyncClient.post() that needs telemetry",
+        "snippet": "73:             response = await self._client.post(\n74:                 \"/v2/scrape\",\n75:                 json=payload,\n76:                 headers={\"Authorization\": f\"Bearer {self.api_key}\"},\n77:             )\n78:             response_body = response.json()"
+      },
+      {
+        "id": "E5",
+        "path": "app/providers/tavily.py",
+        "startLine": 93,
+        "endLine": 98,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Provider HTTP call pattern - httpx.AsyncClient.post() that needs telemetry",
+        "snippet": "93:             response = await self._client.post(\n94:                 \"/search\",\n95:                 json=payload,\n96:                 headers={\"Authorization\": f\"Bearer {self.api_key}\"},\n97:             )\n98:             response_body = response.json()"
+      },
+      {
+        "id": "E6",
+        "path": "app/providers/base.py",
+        "startLine": 57,
+        "endLine": 73,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Existing ProviderLogSink protocol with audit logging - ensure compatibility",
+        "snippet": "57: class ProviderLogSink(Protocol):\n58:     async def record_tool_call(self, record: ToolCallAudit) -> None: ...\n59: \n60:     async def record_cost(self, record: CostAudit) -> None: ...\n61: \n62:     async def record_provider_config(self, record: ProviderConfigSnapshotAudit) -> None: ...\n63: \n64: \n65: class NullProviderLogSink:\n66:     async def record_tool_call(self, record: ToolCallAudit) -> None:\n67:         return None\n68: \n... [snippet truncated]"
+      },
+      {
+        "id": "E7",
+        "path": "app/orchestrator/nodes/search.py",
+        "startLine": 25,
+        "endLine": 58,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Search node that calls provider - needs step-level telemetry",
+        "snippet": "25: def make_search_node(provider: SearchProvider, max_results: int = 10) -> SearchNode:\n26:     async def search_node(state: ResearchState) -> ResearchState:\n27:         queries = state.get(\"search_queries\", [])\n28:         if not queries:\n29:             return {**state, \"error\": \"missing_search_queries\"}\n30: \n31:         search_results: list[SearchResultDraft] = []\n32:         for query in queries:\n33:             response = await provider.search(\n34:                 task_id=state[\"task_id\"],\n35:                 query=query[\"query\"],\n36:                 max_results=max_results,\n... [snippet truncated]"
+      },
+      {
+        "id": "E8",
+        "path": "app/orchestrator/nodes/fetcher.py",
+        "startLine": 33,
+        "endLine": 79,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Fetcher node that calls provider - needs step-level telemetry",
+        "snippet": "33: def make_fetcher_node(\n34:     provider: FetchProvider,\n35:     snapshot_store: SourceSnapshotStore | None = None,\n36: ) -> FetcherNode:\n37:     async def fetcher_node(state: ResearchState) -> ResearchState:\n38:         results = state.get(\"allowed_search_results\", [])\n39:         if not results:\n40:             return {**state, \"error\": \"missing_allowed_search_results\"}\n41: \n42:         snapshots: list[SourceSnapshotDraft] = []\n43:         for result in results:\n44:             snapshot = await provider.scrape(\n... [snippet truncated]"
+      }
+    ],
+    "uncertainties": [
+      "Provider instantiation locations not found - may use Protocol-based dependency injection at runtime",
+      "Actual implementations of EvidenceExtractor and ClaimSynthesizer protocols not located"
+    ],
+    "stats": {
+      "turns": 18,
+      "toolCalls": 45,
+      "filesRead": 25,
+      "grepCalls": 10,
+      "symbolCalls": 2,
+      "stoppedByBudget": false,
+      "elapsedMs": 84477,
+      "totalTokens": 487813
+    }
+  },
+  "structuredContent": {
+    "schemaVersion": 1,
+    "directAnswer": "I've mapped the impact of adding request telemetry across FastAPI routes and provider calls. The app already has OpenTelemetry infrastructure (app/main.py:12-24) with configure_telemetry() and instrument_fastapi_app(). Provider HTTP calls (anthropic, firecrawl, tavily) lack detailed telemetry. Edit targets: telemetry.py (add httpx instrumentation), 3 provider files (lines 101-109, 73-78, 93-98), and orchestrator nodes (search, fetcher). No test files found - high risk. Existing ProviderLogSink protocol ensures audit logging compatibility.",
+    "status": {
+      "confidence": "high",
+      "verification": "targeted_read_needed",
+      "complete": true,
+      "warnings": []
+    },
+    "targets": [
+      {
+        "path": "app/core/telemetry.py",
+        "role": "edit",
+        "reason": "Add httpx.AsyncClient instrumentation helper for provider HTTP calls",
+        "evidenceRefs": [
+          "E2"
+        ],
+        "startLine": 1,
+        "endLine": 21
+      },
+      {
+        "path": "app/providers/anthropic.py",
+        "role": "edit",
+        "reason": "Add telemetry to anthropic HTTP POST call",
+        "evidenceRefs": [
+          "E3"
+        ],
+        "startLine": 101,
+        "endLine": 109
+      },
+      {
+        "path": "app/providers/firecrawl.py",
+        "role": "edit",
+        "reason": "Add telemetry to firecrawl HTTP POST call",
+        "evidenceRefs": [
+          "E4"
+        ],
+        "startLine": 73,
+        "endLine": 78
+      },
+      {
+        "path": "app/providers/tavily.py",
+        "role": "edit",
+        "reason": "Add telemetry to tavily HTTP POST call",
+        "evidenceRefs": [
+          "E5"
+        ],
+        "startLine": 93,
+        "endLine": 98
+      },
+      {
+        "path": "app/orchestrator/nodes/search.py",
+        "role": "edit",
+        "reason": "Add telemetry to search node execution",
+        "evidenceRefs": [
+          "E7"
+        ],
+        "startLine": 25,
+        "endLine": 58
+      },
+      {
+        "path": "app/orchestrator/nodes/fetcher.py",
+        "role": "edit",
+        "reason": "Add telemetry to fetcher node execution",
+        "evidenceRefs": [
+          "E8"
+        ],
+        "startLine": 33,
+        "endLine": 79
+      },
+      {
+        "path": "app/main.py",
+        "role": "read",
+        "reason": "Understand existing telemetry setup and FastAPI initialization",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 28
+      },
+      {
+        "path": "app/providers/base.py",
+        "role": "read",
+        "reason": "Understand existing ProviderLogSink protocol for compatibility",
+        "evidenceRefs": [
+          "E6"
+        ],
+        "startLine": 57,
+        "endLine": 73
+      },
+      {
+        "path": "app/main.py",
+        "startLine": 12,
+        "endLine": 24,
+        "role": "read",
+        "reason": "Shows existing telemetry setup with configure_telemetry() and instrument_fastapi_app()",
+        "evidenceRefs": [
+          "E1"
+        ]
+      }
+    ],
+    "discoveredPaths": [
+      {
+        "path": "app/main.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/core/telemetry.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/api/tasks.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/api/plans.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/api/claims.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/api/sources.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/services/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/services/claim_service.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/services/cost_service.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/services/plan_service.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/services/report_service.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/services/source_registry.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/services/task_service.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/core/config.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/domain/enums.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/eval/golden_questions.jsonl",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/eval/seed_provider_config.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/models/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/models/log.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/models/provider.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/models/search.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/orchestrator/state.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/policy/robots.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/providers/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/providers/anthropic.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/providers/base.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/providers/firecrawl.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/providers/tavily.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/orchestrator/nodes/fetcher.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/orchestrator/nodes/search.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/orchestrator/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/orchestrator/graph.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/orchestrator/nodes",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/orchestrator/nodes/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/orchestrator/nodes/citation_validator.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/orchestrator/nodes/evidence_extractor.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/orchestrator/nodes/parser.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/orchestrator/nodes/planner.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/orchestrator/nodes/policy_guard.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/orchestrator/nodes/query_understanding.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/orchestrator/nodes/synthesizer.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/workers/tasks.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "migrations/env.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "migrations/script.py.mako",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "migrations/versions",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "migrations/versions/.gitkeep",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "migrations/versions/202605210001_initial_domain_schema.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/api",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/api/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/api/errors.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/citation",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/citation/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/citation/entailment.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/citation/fuzzy.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/citation/hashing.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/core",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/core/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/core/logging.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/db",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/db/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/db/session.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/domain",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/domain/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/domain/models.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/eval",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/eval/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/eval/smoke_runner.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/models",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/models/base.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/models/claim.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/models/evidence.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/models/policy.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/models/report.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/models/research.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/models/source.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/orchestrator",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/policy",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/policy/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/policy/budget.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/policy/prompt_injection.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/providers",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/reporting",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/reporting/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/reporting/markdown_writer.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/repositories",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/repositories/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/repositories/base.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/repositories/claim_repository.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/repositories/evidence_repository.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/repositories/log_repository.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/repositories/plan_repository.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/repositories/report_repository.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/repositories/search_repository.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/repositories/source_repository.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/repositories/task_repository.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/services",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/storage",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/storage/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/storage/s3.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      }
+    ],
+    "evidence": [
+      {
+        "path": "app/main.py",
+        "startLine": 12,
+        "endLine": 24,
+        "why": "Shows existing telemetry setup with configure_telemetry() and instrument_fastapi_app()",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E1",
+        "snippet": "12: def create_app() -> FastAPI:\n13:     settings = get_settings()\n14:     configure_logging(settings.log_level)\n15:     configure_telemetry(settings.otel_service_name)\n16: \n17:     app = FastAPI(title=\"DeepResearch Demo Alpha API\", version=\"0.1.0\")\n18:     register_error_handlers(app)\n19:     app.include_router(tasks.router)\n20:     app.include_router(plans.router)\n21:     app.include_router(claims.router)\n22:     app.include_router(sources.router)\n23:     instrument_fastapi_app(app)\n... [snippet truncated]"
+      },
+      {
+        "path": "app/core/telemetry.py",
+        "startLine": 1,
+        "endLine": 21,
+        "why": "Current OpenTelemetry infrastructure using FastAPIInstrumentor",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E2",
+        "snippet": "1: from __future__ import annotations\n2: \n3: from opentelemetry import trace\n4: from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor\n5: from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor\n6: from opentelemetry.sdk.resources import Resource\n7: from opentelemetry.sdk.trace import TracerProvider\n8: \n9: \n10: def configure_telemetry(service_name: str) -> None:\n11:     provider = TracerProvider(resource=Resource.create({\"service.name\": service_name}))\n12:     trace.set_tracer_provider(provider)\n... [snippet truncated]"
+      },
+      {
+        "path": "app/providers/anthropic.py",
+        "startLine": 101,
+        "endLine": 109,
+        "why": "Provider HTTP call pattern - httpx.AsyncClient.post() that needs telemetry",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E3",
+        "snippet": "101:             response = await self._client.post(\n102:                 \"/v1/messages\",\n103:                 json=payload,\n104:                 headers={\n105:                     \"x-api-key\": self.api_key,\n106:                     \"anthropic-version\": ANTHROPIC_VERSION,\n107:                     \"content-type\": \"application/json\",\n108:                 },\n109:             )"
+      },
+      {
+        "path": "app/providers/firecrawl.py",
+        "startLine": 73,
+        "endLine": 78,
+        "why": "Provider HTTP call pattern - httpx.AsyncClient.post() that needs telemetry",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E4",
+        "snippet": "73:             response = await self._client.post(\n74:                 \"/v2/scrape\",\n75:                 json=payload,\n76:                 headers={\"Authorization\": f\"Bearer {self.api_key}\"},\n77:             )\n78:             response_body = response.json()"
+      },
+      {
+        "path": "app/providers/tavily.py",
+        "startLine": 93,
+        "endLine": 98,
+        "why": "Provider HTTP call pattern - httpx.AsyncClient.post() that needs telemetry",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E5",
+        "snippet": "93:             response = await self._client.post(\n94:                 \"/search\",\n95:                 json=payload,\n96:                 headers={\"Authorization\": f\"Bearer {self.api_key}\"},\n97:             )\n98:             response_body = response.json()"
+      },
+      {
+        "path": "app/providers/base.py",
+        "startLine": 57,
+        "endLine": 73,
+        "why": "Existing ProviderLogSink protocol with audit logging - ensure compatibility",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E6",
+        "snippet": "57: class ProviderLogSink(Protocol):\n58:     async def record_tool_call(self, record: ToolCallAudit) -> None: ...\n59: \n60:     async def record_cost(self, record: CostAudit) -> None: ...\n61: \n62:     async def record_provider_config(self, record: ProviderConfigSnapshotAudit) -> None: ...\n63: \n64: \n65: class NullProviderLogSink:\n66:     async def record_tool_call(self, record: ToolCallAudit) -> None:\n67:         return None\n68: \n... [snippet truncated]"
+      },
+      {
+        "path": "app/orchestrator/nodes/search.py",
+        "startLine": 25,
+        "endLine": 58,
+        "why": "Search node that calls provider - needs step-level telemetry",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E7",
+        "snippet": "25: def make_search_node(provider: SearchProvider, max_results: int = 10) -> SearchNode:\n26:     async def search_node(state: ResearchState) -> ResearchState:\n27:         queries = state.get(\"search_queries\", [])\n28:         if not queries:\n29:             return {**state, \"error\": \"missing_search_queries\"}\n30: \n31:         search_results: list[SearchResultDraft] = []\n32:         for query in queries:\n33:             response = await provider.search(\n34:                 task_id=state[\"task_id\"],\n35:                 query=query[\"query\"],\n36:                 max_results=max_results,\n... [snippet truncated]"
+      },
+      {
+        "path": "app/orchestrator/nodes/fetcher.py",
+        "startLine": 33,
+        "endLine": 79,
+        "why": "Fetcher node that calls provider - needs step-level telemetry",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E8",
+        "snippet": "33: def make_fetcher_node(\n34:     provider: FetchProvider,\n35:     snapshot_store: SourceSnapshotStore | None = None,\n36: ) -> FetcherNode:\n37:     async def fetcher_node(state: ResearchState) -> ResearchState:\n38:         results = state.get(\"allowed_search_results\", [])\n39:         if not results:\n40:             return {**state, \"error\": \"missing_allowed_search_results\"}\n41: \n42:         snapshots: list[SourceSnapshotDraft] = []\n43:         for result in results:\n44:             snapshot = await provider.scrape(\n... [snippet truncated]"
+      }
+    ],
+    "uncertainties": [
+      "Provider instantiation locations not found - may use Protocol-based dependency injection at runtime",
+      "Actual implementations of EvidenceExtractor and ClaimSynthesizer protocols not located"
+    ],
+    "nextAction": {
+      "type": "read_target",
+      "reason": "Read app/core/telemetry.py:1-21 before editing.",
+      "target": {
+        "path": "app/core/telemetry.py",
+        "role": "edit",
+        "reason": "Add httpx.AsyncClient instrumentation helper for provider HTTP calls",
+        "evidenceRefs": [
+          "E2"
+        ],
+        "startLine": 1,
+        "endLine": 21
+      }
+    },
+    "evidenceQuality": {
+      "level": "high",
+      "exactCount": 8,
+      "partialCount": 0,
+      "droppedCount": 0,
+      "fileCount": 8,
+      "warnings": [],
+      "summary": "Verified: 25 files read, 10 grep searches, 2 symbol lookups, 8/8 evidence items grounded, cross-verified across 8 files. All evidence grounded in inspected code."
+    },
+    "searchCoverage": {
+      "scope": [
+        "app/**",
+        "main.py",
+        "migrations/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 25,
+      "grepCalls": 10,
+      "listDirCalls": 7,
+      "symbolCalls": 2,
+      "toolResultsTruncated": 0,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: app/**, main.py, migrations/**"
+      ],
+      "summary": "scope-limited search across app/**, main.py, migrations/**; 25 file read(s), 10 grep search(es)."
+    },
+    "failure": null,
+    "sessionId": "sess_abc55ca6dd9b2d2a",
+    "session": {
+      "id": "sess_abc55ca6dd9b2d2a",
+      "status": "created",
+      "remainingCalls": 4
+    },
+    "_debug": {
+      "evidenceSufficiency": {
+        "sufficient": true,
+        "reason": "edit_plan_has_actionable_target"
+      },
+      "confidenceScore": 1,
+      "confidenceFactors": {
+        "evidenceCount": 8,
+        "evidenceGrounded": 8,
+        "evidenceDropped": 0,
+        "exactCount": 8,
+        "crossVerified": true,
+        "symbolSearchUsed": true,
+        "stoppedByBudget": false,
+        "gitLogCalls": 0,
+        "gitDiffCalls": 0,
+        "gitBlameCalls": 0,
+        "gitGroundingHint": "none",
+        "taskKind": "reference-chase",
+        "adjustments": [
+          "base=0.30 (taskKind=reference-chase)",
+          "+0.54 (8 exact evidence item(s))",
+          "+0.12 (cross-verified across multiple files)",
+          "+0.05 (symbol/grep search used)"
+        ],
+        "droppedUngrounded": 0,
+        "droppedMalformed": 0
+      },
+      "stats": {
+        "model": "zai-glm-4.7",
+        "budget": "deep",
+        "budgetSource": "auto",
+        "turns": 18,
+        "toolCalls": 45,
+        "listDirCalls": 7,
+        "findFileCalls": 1,
+        "grepCalls": 10,
+        "filesRead": 25,
+        "gitLogCalls": 0,
+        "gitBlameCalls": 0,
+        "gitDiffCalls": 0,
+        "gitShowCalls": 0,
+        "symbolCalls": 2,
+        "inputTokens": 478922,
+        "outputTokens": 8891,
+        "totalTokens": 487813,
+        "elapsedMs": 84477,
+        "stoppedByBudget": false,
+        "scope": [
+          "app/**",
+          "main.py",
+          "migrations/**"
+        ],
+        "repoRoot": "/home/kyubr/IdeaProjects/DeepResearch",
+        "sessionId": "sess_abc55ca6dd9b2d2a",
+        "sessionStatus": "created",
+        "sessionSource": "created",
+        "remainingCalls": 4,
+        "cacheHits": 39,
+        "cacheMisses": 271,
+        "cacheHitRate": 0.126,
+        "cacheEntries": 267,
+        "cacheSizeBytes": 1866748
+      },
+      "toolTrace": {
+        "entries": [
+          {
+            "turn": 1,
+            "tool": "repo_symbol_context",
+            "args": {
+              "symbol": "create_app"
+            },
+            "result": {
+              "symbol": "create_app",
+              "definition": {
+                "path": "app/main.py",
+                "line": 12,
+                "endLine": 26,
+                "kind": "function"
+              },
+              "callers": 1,
+              "observedRanges": 2,
+              "truncated": false
+            }
+          },
+          {
+            "turn": 1,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "app/main.py"
+            },
+            "result": {
+              "path": "app/main.py",
+              "startLine": 1,
+              "endLine": 28,
+              "totalLines": 28,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "app/core/telemetry.py"
+            },
+            "result": {
+              "path": "app/core/telemetry.py",
+              "startLine": 1,
+              "endLine": 21,
+              "totalLines": 21,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "app/api/tasks.py"
+            },
+            "result": {
+              "path": "app/api/tasks.py",
+              "startLine": 1,
+              "endLine": 190,
+              "totalLines": 190,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "app/api/plans.py"
+            },
+            "result": {
+              "path": "app/api/plans.py",
+              "startLine": 1,
+              "endLine": 19,
+              "totalLines": 19,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "app/api/claims.py"
+            },
+            "result": {
+              "path": "app/api/claims.py",
+              "startLine": 1,
+              "endLine": 19,
+              "totalLines": 19,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "app/api/sources.py"
+            },
+            "result": {
+              "path": "app/api/sources.py",
+              "startLine": 1,
+              "endLine": 47,
+              "totalLines": 47,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_list_dir",
+            "args": {
+              "dirPath": "app/services"
+            },
+            "result": {
+              "entries": 7,
+              "paths": [
+                "app/services/__init__.py",
+                "app/services/claim_service.py",
+                "app/services/cost_service.py",
+                "app/services/plan_service.py",
+                "app/services/report_service.py",
+                "app/services/source_registry.py"
+              ]
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_find_files",
+            "args": {
+              "pattern": "**/test*.py",
+              "scope": [
+                "."
+              ]
+            },
+            "result": {
+              "matches": 0,
+              "paths": [],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_grep",
+            "args": {
+              "pattern": "provider|client|httpx|openai|anthropic",
+              "scope": [
+                "app"
+              ]
+            },
+            "result": {
+              "matches": 80,
+              "paths": [
+                "app/core/config.py",
+                "app/core/telemetry.py",
+                "app/domain/enums.py",
+                "app/eval/golden_questions.jsonl",
+                "app/eval/seed_provider_config.py",
+                "app/models/__init__.py"
+              ],
+              "truncated": true
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "app/providers/base.py"
+            },
+            "result": {
+              "path": "app/providers/base.py",
+              "startLine": 1,
+              "endLine": 108,
+              "totalLines": 108,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "app/providers/anthropic.py"
+            },
+            "result": {
+              "path": "app/providers/anthropic.py",
+              "startLine": 1,
+              "endLine": 262,
+              "totalLines": 262,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "app/core/config.py"
+            },
+            "result": {
+              "path": "app/core/config.py",
+              "startLine": 1,
+              "endLine": 39,
+              "totalLines": 39,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 5,
+            "tool": "repo_list_dir",
+            "args": {
+              "dirPath": "app/providers"
+            },
+            "result": {
+              "entries": 5,
+              "paths": [
+                "app/providers/__init__.py",
+                "app/providers/anthropic.py",
+                "app/providers/base.py",
+                "app/providers/firecrawl.py",
+                "app/providers/tavily.py"
+              ]
+            }
+          },
+          {
+            "turn": 5,
+            "tool": "repo_references",
+            "args": {
+              "symbol": "AnthropicProvider",
+              "scope": [
+                "app"
+              ]
+            },
+            "result": {
+              "symbol": "AnthropicProvider",
+              "definition": {
+                "path": "app/providers/anthropic.py",
+                "line": 37
+              },
+              "references": 0,
+              "truncated": false
+            }
+          },
+          {
+            "turn": 5,
+            "tool": "repo_grep",
+            "args": {
+              "pattern": "Provider\\(|\\.complete_with_tool\\(|\\.post\\(",
+              "scope": [
+                "app"
+              ]
+            },
+            "result": {
+              "matches": 12,
+              "paths": [
+                "app/api/plans.py",
+                "app/api/tasks.py",
+                "app/core/telemetry.py",
+                "app/providers/anthropic.py",
+                "app/providers/firecrawl.py",
+                "app/providers/tavily.py"
+              ],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 6,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "app/providers/firecrawl.py"
+            },
+            "result": {
+              "path": "app/providers/firecrawl.py",
+              "startLine": 1,
+              "endLine": 206,
+              "totalLines": 206,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 6,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "app/providers/tavily.py"
+            },
+            "result": {
+              "path": "app/providers/tavily.py",
+              "startLine": 1,
+              "endLine": 227,
+              "totalLines": 227,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 6,
+            "tool": "repo_grep",
+            "args": {
+              "scope": [
+                "app/orchestrator",
+                "app/services"
+              ],
+              "pattern": "AnthropicProvider|FirecrawlProvider|TavilyProvider|get_provider"
+            },
+            "result": {
+              "matches": 1,
+              "paths": [
+                "app/services/cost_service.py"
+              ],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 7,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "app/orchestrator/nodes/search.py"
+            },
+            "result": {
+              "path": "app/orchestrator/nodes/search.py",
+              "startLine": 1,
+              "endLine": 59,
+              "totalLines": 59,
+              "truncated": true
+            }
+          }
+        ],
+        "totalCalls": 45,
+        "truncated": true,
+        "maxEntries": 20
+      },
+      "codeMap": {
+        "entryPoints": [
+          "app/main.py",
+          "main.py"
+        ],
+        "keyModules": [
+          {
+            "path": "app/main.py",
+            "role": "entry point",
+            "linesRead": 48
+          },
+          {
+            "path": "app/core/telemetry.py",
+            "role": "entry point",
+            "linesRead": 27
+          },
+          {
+            "path": "app/api/tasks.py",
+            "role": "entry point",
+            "linesRead": 194
+          },
+          {
+            "path": "app/api/plans.py",
+            "role": "entry point",
+            "linesRead": 20
+          },
+          {
+            "path": "app/api/claims.py",
+            "role": "entry point",
+            "linesRead": 19
+          },
+          {
+            "path": "app/api/sources.py",
+            "role": "entry point",
+            "linesRead": 47
+          },
+          {
+            "path": "app/core/config.py",
+            "role": "configuration",
+            "linesRead": 41
+          },
+          {
+            "path": "app/domain/enums.py",
+            "role": "entry point",
+            "linesRead": 2
+          },
+          {
+            "path": "app/eval/golden_questions.jsonl",
+            "role": "entry point",
+            "linesRead": 1
+          },
+          {
+            "path": "app/eval/seed_provider_config.py",
+            "role": "configuration",
+            "linesRead": 15
+          },
+          {
+            "path": "app/models/__init__.py",
+            "role": "data model",
+            "linesRead": 2
+          },
+          {
+            "path": "app/models/log.py",
+            "role": "data model",
+            "linesRead": 3
+          },
+          {
+            "path": "app/models/provider.py",
+            "role": "data model",
+            "linesRead": 5
+          },
+          {
+            "path": "app/models/search.py",
+            "role": "data model",
+            "linesRead": 1
+          },
+          {
+            "path": "app/orchestrator/state.py",
+            "role": "entry point",
+            "linesRead": 1
+          },
+          {
+            "path": "app/policy/robots.py",
+            "role": "entry point",
+            "linesRead": 15
+          },
+          {
+            "path": "app/providers/__init__.py",
+            "role": "entry point",
+            "linesRead": 1
+          },
+          {
+            "path": "app/providers/anthropic.py",
+            "role": "entry point",
+            "linesRead": 305
+          },
+          {
+            "path": "app/providers/base.py",
+            "role": "entry point",
+            "linesRead": 111
+          },
+          {
+            "path": "app/providers/firecrawl.py",
+            "role": "entry point",
+            "linesRead": 208
+          },
+          {
+            "path": "app/providers/tavily.py",
+            "role": "entry point",
+            "linesRead": 235
+          },
+          {
+            "path": "app/orchestrator/nodes/fetcher.py",
+            "role": "entry point",
+            "linesRead": 83
+          },
+          {
+            "path": "app/orchestrator/nodes/search.py",
+            "role": "entry point",
+            "linesRead": 62
+          },
+          {
+            "path": "app/services/cost_service.py",
+            "role": "service",
+            "linesRead": 52
+          },
+          {
+            "path": "app/orchestrator/nodes/planner.py",
+            "role": "entry point",
+            "linesRead": 19
+          },
+          {
+            "path": "app/orchestrator/nodes/synthesizer.py",
+            "role": "entry point",
+            "linesRead": 104
+          },
+          {
+            "path": "app/orchestrator/graph.py",
+            "role": "entry point",
+            "linesRead": 245
+          },
+          {
+            "path": "app/workers/tasks.py",
+            "role": "entry point",
+            "linesRead": 61
+          },
+          {
+            "path": "app/orchestrator/nodes/query_understanding.py",
+            "role": "entry point",
+            "linesRead": 28
+          },
+          {
+            "path": "app/orchestrator/nodes/evidence_extractor.py",
+            "role": "entry point",
+            "linesRead": 116
+          },
+          {
+            "path": "app/orchestrator/nodes/parser.py",
+            "role": "entry point",
+            "linesRead": 90
+          },
+          {
+            "path": "app/orchestrator/nodes/citation_validator.py",
+            "role": "entry point",
+            "linesRead": 148
+          },
+          {
+            "path": "app/orchestrator/nodes/policy_guard.py",
+            "role": "entry point",
+            "linesRead": 62
+          },
+          {
+            "path": "app/eval/smoke_runner.py",
+            "role": "entry point",
+            "linesRead": 179
+          },
+          {
+            "path": "app/api/errors.py",
+            "role": "entry point",
+            "linesRead": 1
+          },
+          {
+            "path": "app/citation/entailment.py",
+            "role": "entry point",
+            "linesRead": 3
+          },
+          {
+            "path": "app/core/logging.py",
+            "role": "entry point",
+            "linesRead": 1
+          },
+          {
+            "path": "app/policy/budget.py",
+            "role": "entry point",
+            "linesRead": 1
+          },
+          {
+            "path": "app/policy/prompt_injection.py",
+            "role": "entry point",
+            "linesRead": 1
+          },
+          {
+            "path": "app/repositories/base.py",
+            "role": "entry point",
+            "linesRead": 2
+          },
+          {
+            "path": "app/repositories/claim_repository.py",
+            "role": "entry point",
+            "linesRead": 6
+          },
+          {
+            "path": "app/repositories/evidence_repository.py",
+            "role": "entry point",
+            "linesRead": 2
+          },
+          {
+            "path": "app/repositories/log_repository.py",
+            "role": "entry point",
+            "linesRead": 4
+          },
+          {
+            "path": "app/repositories/plan_repository.py",
+            "role": "entry point",
+            "linesRead": 4
+          },
+          {
+            "path": "app/repositories/report_repository.py",
+            "role": "entry point",
+            "linesRead": 2
+          },
+          {
+            "path": "app/repositories/search_repository.py",
+            "role": "entry point",
+            "linesRead": 4
+          },
+          {
+            "path": "app/repositories/source_repository.py",
+            "role": "entry point",
+            "linesRead": 6
+          },
+          {
+            "path": "app/repositories/task_repository.py",
+            "role": "entry point",
+            "linesRead": 2
+          },
+          {
+            "path": "app/services/task_service.py",
+            "role": "service",
+            "linesRead": 1
+          },
+          {
+            "path": "app/storage/s3.py",
+            "role": "entry point",
+            "linesRead": 1
+          },
+          {
+            "path": "main.py",
+            "role": "entry point",
+            "linesRead": 14
+          }
+        ]
+      }
+    }
+  },
+  "contentText": "## Result\nConfidence: high\nVerification: targeted_read_needed\nEvidence Quality: high (8 exact, 0 partial, 0 dropped)\nSearch Coverage: scope-limited search across app/**, main.py, migrations/**; 25 file read(s), 10 grep search(es).\n\n## Answer\nI've mapped the impact of adding request telemetry across FastAPI routes and provider calls. The app already has OpenTelemetry infrastructure (app/main.py:12-24) with configure_telemetry() and instrument_fastapi_app(). Provider HTTP calls (anthropic, firecrawl, tavily) lack detailed telemetry. Edit targets: telemetry.py (add httpx instrumentation), 3 provider files (lines 101-109, 73-78, 93-98), and orchestrator nodes (search, fetcher). No test files found - high risk. Existing ProviderLogSink protocol ensures audit logging compatibility.\n\n## Next Action\nread_target: Read app/core/telemetry.py:1-21 before editing.\n\n## Targets\n- [edit] `app/core/telemetry.py:1-21` (E2) - Add httpx.AsyncClient instrumentation helper for provider HTTP calls\n- [edit] `app/providers/anthropic.py:101-109` (E3) - Add telemetry to anthropic HTTP POST call\n- [edit] `app/providers/firecrawl.py:73-78` (E4) - Add telemetry to firecrawl HTTP POST call\n- [edit] `app/providers/tavily.py:93-98` (E5) - Add telemetry to tavily HTTP POST call\n- [edit] `app/orchestrator/nodes/search.py:25-58` (E7) - Add telemetry to search node execution\n- [edit] `app/orchestrator/nodes/fetcher.py:33-79` (E8) - Add telemetry to fetcher node execution\n- [read] `app/main.py:1-28` - Understand existing telemetry setup and FastAPI initialization\n- [read] `app/providers/base.py:57-73` (E6) - Understand existing ProviderLogSink protocol for compatibility\n- [read] `app/main.py:12-24` (E1) - Shows existing telemetry setup with configure_telemetry() and instrument_fastapi_app()\n\n## Evidence (8 items, confidence: high)\n- E1 `app/main.py:12-24` - Shows existing telemetry setup with configure_telemetry() and instrument_fastapi_app()\n  snippet: 12: def create_app() -> FastAPI:\n  13:     settings = get_settings()\n  14:     configure_logging(settings.log_level)\n  15:     configure_telemetry(settings.otel_service_name)\n  16: \n  17:     app = FastAPI(title=\"DeepResearch Demo Alpha API\", version=\"0.1.0\")\n  18:     register_error_handlers(app)\n  19:     app.include_router(tasks.router)\n  20:     app.include_router(plans.router)\n  21:     app.include_router(claims.router)\n  22:     app.include_router(sources.router)\n  23:     instrument_fastapi_app(app)\n  ... [snippet truncated]\n- E2 `app/core/telemetry.py:1-21` - Current OpenTelemetry infrastructure using FastAPIInstrumentor\n  snippet: 1: from __future__ import annotations\n  2: \n  3: from opentelemetry import trace\n  4: from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor\n  5: from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor\n  6: from opentelemetry.sdk.resources import Resource\n  7: from opentelemetry.sdk.trace import TracerProvider\n  8: \n  9: \n  10: def configure_telemetry(service_name: str) -> None:\n  11:     provider = TracerProvider(resource=Resource.create({\"service.name\": service_name}))\n  12:     trace.set_tracer_provider(provider)\n  ... [snippet truncated]\n- E3 `app/providers/anthropic.py:101-109` - Provider HTTP call pattern - httpx.AsyncClient.post() that needs telemetry\n  snippet: 101:             response = await self._client.post(\n  102:                 \"/v1/messages\",\n  103:                 json=payload,\n  104:                 headers={\n  105:                     \"x-api-key\": self.api_key,\n  106:                     \"anthropic-version\": ANTHROPIC_VERSION,\n  107:                     \"content-type\": \"application/json\",\n  108:                 },\n  109:             )\n- E4 `app/providers/firecrawl.py:73-78` - Provider HTTP call pattern - httpx.AsyncClient.post() that needs telemetry\n  snippet: 73:             response = await self._client.post(\n  74:                 \"/v2/scrape\",\n  75:                 json=payload,\n  76:                 headers={\"Authorization\": f\"Bearer {self.api_key}\"},\n  77:             )\n  78:             response_body = response.json()\n- E5 `app/providers/tavily.py:93-98` - Provider HTTP call pattern - httpx.AsyncClient.post() that needs telemetry\n  snippet: 93:             response = await self._client.post(\n  94:                 \"/search\",\n  95:                 json=payload,\n  96:                 headers={\"Authorization\": f\"Bearer {self.api_key}\"},\n  97:             )\n  98:             response_body = response.json()\n- E6 `app/providers/base.py:57-73` - Existing ProviderLogSink protocol with audit logging - ensure compatibility\n  snippet: 57: class ProviderLogSink(Protocol):\n  58:     async def record_tool_call(self, record: ToolCallAudit) -> None: ...\n  59: \n  60:     async def record_cost(self, record: CostAudit) -> None: ...\n  61: \n  62:     async def record_provider_config(self, record: ProviderConfigSnapshotAudit) -> None: ...\n  63: \n  64: \n  65: class NullProviderLogSink:\n  66:     async def record_tool_call(self, record: ToolCallAudit) -> None:\n  67:         return None\n  68: \n  ... [snippet truncated]\n- E7 `app/orchestrator/nodes/search.py:25-58` - Search node that calls provider - needs step-level telemetry\n  snippet: 25: def make_search_node(provider: SearchProvider, max_results: int = 10) -> SearchNode:\n  26:     async def search_node(state: ResearchState) -> ResearchState:\n  27:         queries = state.get(\"search_queries\", [])\n  28:         if not queries:\n  29:             return {**state, \"error\": \"missing_search_queries\"}\n  30: \n  31:         search_results: list[SearchResultDraft] = []\n  32:         for query in queries:\n  33:             response = await provider.search(\n  34:                 task_id=state[\"task_id\"],\n  35:                 query=query[\"query\"],\n  36:                 max_results=max_results,\n  ... [snippet truncated]\n- E8 `app/orchestrator/nodes/fetcher.py:33-79` - Fetcher node that calls provider - needs step-level telemetry\n  snippet: 33: def make_fetcher_node(\n  34:     provider: FetchProvider,\n  35:     snapshot_store: SourceSnapshotStore | None = None,\n  36: ) -> FetcherNode:\n  37:     async def fetcher_node(state: ResearchState) -> ResearchState:\n  38:         results = state.get(\"allowed_search_results\", [])\n  39:         if not results:\n  40:             return {**state, \"error\": \"missing_allowed_search_results\"}\n  41: \n  42:         snapshots: list[SourceSnapshotDraft] = []\n  43:         for result in results:\n  44:             snapshot = await provider.scrape(\n  ... [snippet truncated]\n\n## Uncertainty\n- Provider instantiation locations not found - may use Protocol-based dependency injection at runtime\n- Actual implementations of EvidenceExtractor and ClaimSynthesizer protocols not located\n\nSession: sess_abc55ca6dd9b2d2a (pass as \"session\" for follow-up calls)"
+}

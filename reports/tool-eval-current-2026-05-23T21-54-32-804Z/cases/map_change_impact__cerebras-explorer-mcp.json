@@ -1,0 +1,992 @@
+{
+  "tool": "map_change_impact",
+  "repo": "cerebras-explorer-mcp",
+  "args": {
+    "repo_root": "/home/kyubr/IdeaProjects/cerebras-explorer-mcp",
+    "scope": [
+      "src/**",
+      "tests/**",
+      "examples/**"
+    ],
+    "change": "rename or refactor the public tool output contract fields around evidenceQuality and searchCoverage",
+    "knownFiles": [
+      "src/mcp/server.mjs"
+    ],
+    "knownSymbols": [
+      "createMcpRequestHandler"
+    ]
+  },
+  "elapsedMs": 9073,
+  "error": null,
+  "isError": false,
+  "summary": {
+    "directAnswer": "Renaming evidenceQuality and searchCoverage impacts 3 core files (schemas.mjs, runtime.mjs, server.mjs) and 6 test suites. Centralized at schema definitions and builder functions. Requires updating 60+ assertions across tests and public example documentation.",
+    "status": {
+      "confidence": "high",
+      "verification": "targeted_read_needed",
+      "complete": true,
+      "warnings": []
+    },
+    "evidenceQuality": {
+      "level": "high",
+      "exactCount": 8,
+      "partialCount": 0,
+      "droppedCount": 0,
+      "fileCount": 4,
+      "warnings": [],
+      "summary": "Verified: 12 files read, 3 grep searches, 1 symbol lookups, 8/8 evidence items grounded, cross-verified across 4 files. All evidence grounded in inspected code."
+    },
+    "failure": null,
+    "nextAction": {
+      "type": "read_target",
+      "reason": "Read src/explorer/runtime.mjs:417-434 before editing.",
+      "target": {
+        "path": "src/explorer/runtime.mjs",
+        "role": "edit",
+        "reason": "buildEvidenceQuality constructs evidenceQuality object",
+        "evidenceRefs": [
+          "line:417-434",
+          "E3"
+        ],
+        "startLine": 417,
+        "endLine": 434
+      }
+    },
+    "searchCoverage": {
+      "scope": [
+        "src/**",
+        "tests/**",
+        "examples/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 12,
+      "grepCalls": 3,
+      "listDirCalls": 0,
+      "symbolCalls": 1,
+      "toolResultsTruncated": 0,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: src/**, tests/**, examples/**"
+      ],
+      "summary": "scope-limited search across src/**, tests/**, examples/**; 12 file read(s), 3 grep search(es)."
+    },
+    "critic": null,
+    "sessionId": "sess_f4cf93bd51a42b1d",
+    "session": {
+      "id": "sess_f4cf93bd51a42b1d",
+      "status": "created",
+      "remainingCalls": 4
+    },
+    "targets": [
+      {
+        "path": "src/explorer/schemas.mjs",
+        "role": "config",
+        "reason": "EVIDENCE_QUALITY_SCHEMA defines all subfield names",
+        "evidenceRefs": [
+          "line:192-205",
+          "E1"
+        ],
+        "startLine": 192,
+        "endLine": 205
+      },
+      {
+        "path": "src/explorer/schemas.mjs",
+        "role": "config",
+        "reason": "SEARCH_COVERAGE_SCHEMA defines all subfield names",
+        "evidenceRefs": [
+          "line:218-245",
+          "E2"
+        ],
+        "startLine": 218,
+        "endLine": 245
+      },
+      {
+        "path": "src/explorer/runtime.mjs",
+        "role": "edit",
+        "reason": "buildEvidenceQuality constructs evidenceQuality object",
+        "evidenceRefs": [
+          "line:417-434",
+          "E3"
+        ],
+        "startLine": 417,
+        "endLine": 434
+      },
+      {
+        "path": "src/explorer/runtime.mjs",
+        "role": "edit",
+        "reason": "attachAgentFacingContract assigns both fields",
+        "evidenceRefs": [
+          "line:577-578",
+          "E4"
+        ],
+        "startLine": 574,
+        "endLine": 580
+      },
+      {
+        "path": "src/mcp/server.mjs",
+        "role": "edit",
+        "reason": "Default functions construct fallback objects",
+        "evidenceRefs": [
+          "line:686-711",
+          "E5"
+        ],
+        "startLine": 686,
+        "endLine": 711
+      },
+      {
+        "path": "src/mcp/server.mjs",
+        "role": "edit",
+        "reason": "toAgentFacingResult assigns fields with fallback",
+        "evidenceRefs": [
+          "line:783-784"
+        ],
+        "startLine": 763,
+        "endLine": 790
+      },
+      {
+        "path": "tests/mcp-server.test.mjs",
+        "role": "test",
+        "reason": "Assertions on both field properties",
+        "evidenceRefs": [
+          "line:266-270",
+          "E8"
+        ],
+        "startLine": 266,
+        "endLine": 270
+      },
+      {
+        "path": "src/mcp/server.mjs",
+        "startLine": 623,
+        "endLine": 628,
+        "role": "read",
+        "reason": "formatExploreResult reads both fields for display",
+        "evidenceRefs": [
+          "E6"
+        ]
+      }
+    ],
+    "discoveredPathsCount": 12,
+    "evidence": [
+      {
+        "id": "E1",
+        "path": "src/explorer/schemas.mjs",
+        "startLine": 192,
+        "endLine": 205,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "EVIDENCE_QUALITY_SCHEMA defines all evidenceQuality subfields",
+        "snippet": "192: const EVIDENCE_QUALITY_SCHEMA = {\n193:   type: 'object',\n194:   additionalProperties: false,\n195:   properties: {\n196:     level: { type: 'string', enum: ['low', 'medium', 'high'] },\n197:     exactCount: { type: 'integer' },\n198:     partialCount: { type: 'integer' },\n199:     droppedCount: { type: 'integer' },\n200:     fileCount: { type: 'integer' },\n201:     warnings: { type: 'array', items: { type: 'string' } },\n202:     summary: { type: 'string' },\n203:   },\n... [snippet truncated]"
+      },
+      {
+        "id": "E2",
+        "path": "src/explorer/schemas.mjs",
+        "startLine": 218,
+        "endLine": 245,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "SEARCH_COVERAGE_SCHEMA defines all searchCoverage subfields",
+        "snippet": "218: const SEARCH_COVERAGE_SCHEMA = {\n219:   type: 'object',\n220:   additionalProperties: false,\n221:   properties: {\n222:     scope: { type: 'array', items: { type: 'string' } },\n223:     scopeLimited: { type: 'boolean' },\n224:     filesRead: { type: 'integer', minimum: 0 },\n225:     grepCalls: { type: 'integer', minimum: 0 },\n226:     listDirCalls: { type: 'integer', minimum: 0 },\n227:     symbolCalls: { type: 'integer', minimum: 0 },\n228:     toolResultsTruncated: { type: 'integer', minimum: 0 },\n229:     stoppedByBudget: { type: 'boolean' },\n... [snippet truncated]"
+      },
+      {
+        "id": "E3",
+        "path": "src/explorer/runtime.mjs",
+        "startLine": 417,
+        "endLine": 434,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "buildEvidenceQuality constructs evidenceQuality object",
+        "snippet": "417: function buildEvidenceQuality(result, stats, grounding = {}) {\n418:   const evidence = Array.isArray(result.evidence) ? result.evidence : [];\n419:   const exactCount = evidence.filter(item => item.groundingStatus === 'exact').length;\n420:   const partialCount = evidence.filter(item => item.groundingStatus === 'partial').length;\n421:   const droppedCount = (grounding.droppedUngrounded ?? 0) + (grounding.droppedMalformed ?? 0);\n422:   const fileCount = new Set(evidence.map(item => item.path).filter(Boolean)).size;\n423:   const warnings = Array.isArray(result.status?.warnings) ? result.status.warnings.slice(0, 5) : [];\n424:   const summary = result.trustSummary || buildTrustSummary(result, stats);\n425:   return {\n426:     level: result.status?.confidence ?? 'low',\n427:     exactCount,\n428:     partialCount,\n... [snippet truncated]"
+      },
+      {
+        "id": "E4",
+        "path": "src/explorer/runtime.mjs",
+        "startLine": 574,
+        "endLine": 580,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "attachAgentFacingContract assigns both fields to result",
+        "snippet": "574: function attachAgentFacingContract(result, stats, grounding = {}) {\n575:   result.schemaVersion = AGENT_FACING_SCHEMA_VERSION;\n576:   result.failure = buildFailure(result, stats);\n577:   result.evidenceQuality = buildEvidenceQuality(result, stats, grounding);\n578:   result.searchCoverage = buildSearchCoverage(stats);\n579:   return result;\n580: }"
+      },
+      {
+        "id": "E5",
+        "path": "src/mcp/server.mjs",
+        "startLine": 686,
+        "endLine": 711,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Default functions construct fallback objects for both fields",
+        "snippet": "686:   function defaultEvidenceQuality(summary = 'No grounded evidence was retained.', warnings = []) {\n687:     return {\n688:       level: 'low',\n689:       exactCount: 0,\n690:       partialCount: 0,\n691:       droppedCount: 0,\n692:       fileCount: 0,\n693:       warnings: warnings.filter(item => typeof item === 'string').slice(0, 5),\n694:       summary,\n695:     };\n696:   }\n697: \n... [snippet truncated]"
+      },
+      {
+        "id": "E6",
+        "path": "src/mcp/server.mjs",
+        "startLine": 623,
+        "endLine": 628,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "formatExploreResult reads both fields for display",
+        "snippet": "623:     if (result.evidenceQuality) {\n624:       lines.push(`Evidence Quality: ${result.evidenceQuality.level} (${result.evidenceQuality.exactCount} exact, ${result.evidenceQuality.partialCount} partial, ${result.evidenceQuality.droppedCount} dropped)`);\n625:     }\n626:     if (result.searchCoverage) {\n627:       lines.push(`Search Coverage: ${result.searchCoverage.summary}`);\n628:     }"
+      },
+      {
+        "id": "E7",
+        "path": "src/mcp/server.mjs",
+        "startLine": 783,
+        "endLine": 784,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "toAgentFacingResult assigns both fields with defaults",
+        "snippet": "783:       evidenceQuality: result.evidenceQuality ?? defaultEvidenceQuality(result.trustSummary),\n784:       searchCoverage: result.searchCoverage ?? defaultSearchCoverage(),"
+      },
+      {
+        "id": "E8",
+        "path": "tests/mcp-server.test.mjs",
+        "startLine": 266,
+        "endLine": 270,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Test assertions check multiple properties of both fields",
+        "snippet": "266:   assert.equal(called.structuredContent.evidenceQuality.level, called.structuredContent.status.confidence);\n267:   assert.equal(called.structuredContent.evidenceQuality.exactCount, 2);\n268:   assert.equal(called.structuredContent.evidenceQuality.fileCount, 2);\n269:   assert.deepEqual(called.structuredContent.searchCoverage.scope, ['src/**']);\n270:   assert.equal(called.structuredContent.searchCoverage.scopeLimited, true);"
+      }
+    ],
+    "uncertainties": [],
+    "stats": {
+      "turns": 6,
+      "toolCalls": 16,
+      "filesRead": 12,
+      "grepCalls": 3,
+      "symbolCalls": 1,
+      "stoppedByBudget": false,
+      "elapsedMs": 9062,
+      "totalTokens": 118249
+    }
+  },
+  "structuredContent": {
+    "schemaVersion": 1,
+    "directAnswer": "Renaming evidenceQuality and searchCoverage impacts 3 core files (schemas.mjs, runtime.mjs, server.mjs) and 6 test suites. Centralized at schema definitions and builder functions. Requires updating 60+ assertions across tests and public example documentation.",
+    "status": {
+      "confidence": "high",
+      "verification": "targeted_read_needed",
+      "complete": true,
+      "warnings": []
+    },
+    "targets": [
+      {
+        "path": "src/explorer/schemas.mjs",
+        "role": "config",
+        "reason": "EVIDENCE_QUALITY_SCHEMA defines all subfield names",
+        "evidenceRefs": [
+          "line:192-205",
+          "E1"
+        ],
+        "startLine": 192,
+        "endLine": 205
+      },
+      {
+        "path": "src/explorer/schemas.mjs",
+        "role": "config",
+        "reason": "SEARCH_COVERAGE_SCHEMA defines all subfield names",
+        "evidenceRefs": [
+          "line:218-245",
+          "E2"
+        ],
+        "startLine": 218,
+        "endLine": 245
+      },
+      {
+        "path": "src/explorer/runtime.mjs",
+        "role": "edit",
+        "reason": "buildEvidenceQuality constructs evidenceQuality object",
+        "evidenceRefs": [
+          "line:417-434",
+          "E3"
+        ],
+        "startLine": 417,
+        "endLine": 434
+      },
+      {
+        "path": "src/explorer/runtime.mjs",
+        "role": "edit",
+        "reason": "attachAgentFacingContract assigns both fields",
+        "evidenceRefs": [
+          "line:577-578",
+          "E4"
+        ],
+        "startLine": 574,
+        "endLine": 580
+      },
+      {
+        "path": "src/mcp/server.mjs",
+        "role": "edit",
+        "reason": "Default functions construct fallback objects",
+        "evidenceRefs": [
+          "line:686-711",
+          "E5"
+        ],
+        "startLine": 686,
+        "endLine": 711
+      },
+      {
+        "path": "src/mcp/server.mjs",
+        "role": "edit",
+        "reason": "toAgentFacingResult assigns fields with fallback",
+        "evidenceRefs": [
+          "line:783-784"
+        ],
+        "startLine": 763,
+        "endLine": 790
+      },
+      {
+        "path": "tests/mcp-server.test.mjs",
+        "role": "test",
+        "reason": "Assertions on both field properties",
+        "evidenceRefs": [
+          "line:266-270",
+          "E8"
+        ],
+        "startLine": 266,
+        "endLine": 270
+      },
+      {
+        "path": "src/mcp/server.mjs",
+        "startLine": 623,
+        "endLine": 628,
+        "role": "read",
+        "reason": "formatExploreResult reads both fields for display",
+        "evidenceRefs": [
+          "E6"
+        ]
+      },
+      {
+        "path": "src/mcp/server.mjs",
+        "startLine": 783,
+        "endLine": 784,
+        "role": "read",
+        "reason": "toAgentFacingResult assigns both fields with defaults",
+        "evidenceRefs": [
+          "E7"
+        ]
+      }
+    ],
+    "discoveredPaths": [
+      {
+        "path": "src/mcp/server.mjs",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "tests/mcp-server.test.mjs",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "examples/expected-response.json",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "tests/integration-script.test.mjs",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "tests/integrations.test.mjs",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "tests/runtime.mock.test.mjs",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "tests/schemas.test.mjs",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/explorer/runtime.mjs",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/explorer/schemas.mjs",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "tests/benchmark-evaluator.test.mjs",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "tests/free-explore.test.mjs",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/benchmark/evaluator.mjs",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      }
+    ],
+    "evidence": [
+      {
+        "path": "src/explorer/schemas.mjs",
+        "startLine": 192,
+        "endLine": 205,
+        "why": "EVIDENCE_QUALITY_SCHEMA defines all evidenceQuality subfields",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E1",
+        "snippet": "192: const EVIDENCE_QUALITY_SCHEMA = {\n193:   type: 'object',\n194:   additionalProperties: false,\n195:   properties: {\n196:     level: { type: 'string', enum: ['low', 'medium', 'high'] },\n197:     exactCount: { type: 'integer' },\n198:     partialCount: { type: 'integer' },\n199:     droppedCount: { type: 'integer' },\n200:     fileCount: { type: 'integer' },\n201:     warnings: { type: 'array', items: { type: 'string' } },\n202:     summary: { type: 'string' },\n203:   },\n... [snippet truncated]"
+      },
+      {
+        "path": "src/explorer/schemas.mjs",
+        "startLine": 218,
+        "endLine": 245,
+        "why": "SEARCH_COVERAGE_SCHEMA defines all searchCoverage subfields",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E2",
+        "snippet": "218: const SEARCH_COVERAGE_SCHEMA = {\n219:   type: 'object',\n220:   additionalProperties: false,\n221:   properties: {\n222:     scope: { type: 'array', items: { type: 'string' } },\n223:     scopeLimited: { type: 'boolean' },\n224:     filesRead: { type: 'integer', minimum: 0 },\n225:     grepCalls: { type: 'integer', minimum: 0 },\n226:     listDirCalls: { type: 'integer', minimum: 0 },\n227:     symbolCalls: { type: 'integer', minimum: 0 },\n228:     toolResultsTruncated: { type: 'integer', minimum: 0 },\n229:     stoppedByBudget: { type: 'boolean' },\n... [snippet truncated]"
+      },
+      {
+        "path": "src/explorer/runtime.mjs",
+        "startLine": 417,
+        "endLine": 434,
+        "why": "buildEvidenceQuality constructs evidenceQuality object",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E3",
+        "snippet": "417: function buildEvidenceQuality(result, stats, grounding = {}) {\n418:   const evidence = Array.isArray(result.evidence) ? result.evidence : [];\n419:   const exactCount = evidence.filter(item => item.groundingStatus === 'exact').length;\n420:   const partialCount = evidence.filter(item => item.groundingStatus === 'partial').length;\n421:   const droppedCount = (grounding.droppedUngrounded ?? 0) + (grounding.droppedMalformed ?? 0);\n422:   const fileCount = new Set(evidence.map(item => item.path).filter(Boolean)).size;\n423:   const warnings = Array.isArray(result.status?.warnings) ? result.status.warnings.slice(0, 5) : [];\n424:   const summary = result.trustSummary || buildTrustSummary(result, stats);\n425:   return {\n426:     level: result.status?.confidence ?? 'low',\n427:     exactCount,\n428:     partialCount,\n... [snippet truncated]"
+      },
+      {
+        "path": "src/explorer/runtime.mjs",
+        "startLine": 574,
+        "endLine": 580,
+        "why": "attachAgentFacingContract assigns both fields to result",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E4",
+        "snippet": "574: function attachAgentFacingContract(result, stats, grounding = {}) {\n575:   result.schemaVersion = AGENT_FACING_SCHEMA_VERSION;\n576:   result.failure = buildFailure(result, stats);\n577:   result.evidenceQuality = buildEvidenceQuality(result, stats, grounding);\n578:   result.searchCoverage = buildSearchCoverage(stats);\n579:   return result;\n580: }"
+      },
+      {
+        "path": "src/mcp/server.mjs",
+        "startLine": 686,
+        "endLine": 711,
+        "why": "Default functions construct fallback objects for both fields",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E5",
+        "snippet": "686:   function defaultEvidenceQuality(summary = 'No grounded evidence was retained.', warnings = []) {\n687:     return {\n688:       level: 'low',\n689:       exactCount: 0,\n690:       partialCount: 0,\n691:       droppedCount: 0,\n692:       fileCount: 0,\n693:       warnings: warnings.filter(item => typeof item === 'string').slice(0, 5),\n694:       summary,\n695:     };\n696:   }\n697: \n... [snippet truncated]"
+      },
+      {
+        "path": "src/mcp/server.mjs",
+        "startLine": 623,
+        "endLine": 628,
+        "why": "formatExploreResult reads both fields for display",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E6",
+        "snippet": "623:     if (result.evidenceQuality) {\n624:       lines.push(`Evidence Quality: ${result.evidenceQuality.level} (${result.evidenceQuality.exactCount} exact, ${result.evidenceQuality.partialCount} partial, ${result.evidenceQuality.droppedCount} dropped)`);\n625:     }\n626:     if (result.searchCoverage) {\n627:       lines.push(`Search Coverage: ${result.searchCoverage.summary}`);\n628:     }"
+      },
+      {
+        "path": "src/mcp/server.mjs",
+        "startLine": 783,
+        "endLine": 784,
+        "why": "toAgentFacingResult assigns both fields with defaults",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E7",
+        "snippet": "783:       evidenceQuality: result.evidenceQuality ?? defaultEvidenceQuality(result.trustSummary),\n784:       searchCoverage: result.searchCoverage ?? defaultSearchCoverage(),"
+      },
+      {
+        "path": "tests/mcp-server.test.mjs",
+        "startLine": 266,
+        "endLine": 270,
+        "why": "Test assertions check multiple properties of both fields",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E8",
+        "snippet": "266:   assert.equal(called.structuredContent.evidenceQuality.level, called.structuredContent.status.confidence);\n267:   assert.equal(called.structuredContent.evidenceQuality.exactCount, 2);\n268:   assert.equal(called.structuredContent.evidenceQuality.fileCount, 2);\n269:   assert.deepEqual(called.structuredContent.searchCoverage.scope, ['src/**']);\n270:   assert.equal(called.structuredContent.searchCoverage.scopeLimited, true);"
+      }
+    ],
+    "uncertainties": [],
+    "nextAction": {
+      "type": "read_target",
+      "reason": "Read src/explorer/runtime.mjs:417-434 before editing.",
+      "target": {
+        "path": "src/explorer/runtime.mjs",
+        "role": "edit",
+        "reason": "buildEvidenceQuality constructs evidenceQuality object",
+        "evidenceRefs": [
+          "line:417-434",
+          "E3"
+        ],
+        "startLine": 417,
+        "endLine": 434
+      }
+    },
+    "evidenceQuality": {
+      "level": "high",
+      "exactCount": 8,
+      "partialCount": 0,
+      "droppedCount": 0,
+      "fileCount": 4,
+      "warnings": [],
+      "summary": "Verified: 12 files read, 3 grep searches, 1 symbol lookups, 8/8 evidence items grounded, cross-verified across 4 files. All evidence grounded in inspected code."
+    },
+    "searchCoverage": {
+      "scope": [
+        "src/**",
+        "tests/**",
+        "examples/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 12,
+      "grepCalls": 3,
+      "listDirCalls": 0,
+      "symbolCalls": 1,
+      "toolResultsTruncated": 0,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: src/**, tests/**, examples/**"
+      ],
+      "summary": "scope-limited search across src/**, tests/**, examples/**; 12 file read(s), 3 grep search(es)."
+    },
+    "failure": null,
+    "sessionId": "sess_f4cf93bd51a42b1d",
+    "session": {
+      "id": "sess_f4cf93bd51a42b1d",
+      "status": "created",
+      "remainingCalls": 4
+    },
+    "_debug": {
+      "evidenceSufficiency": {
+        "sufficient": true,
+        "reason": "edit_plan_has_actionable_target"
+      },
+      "confidenceScore": 1,
+      "confidenceFactors": {
+        "evidenceCount": 8,
+        "evidenceGrounded": 8,
+        "evidenceDropped": 0,
+        "exactCount": 8,
+        "crossVerified": true,
+        "symbolSearchUsed": true,
+        "stoppedByBudget": false,
+        "gitLogCalls": 0,
+        "gitDiffCalls": 0,
+        "gitBlameCalls": 0,
+        "gitGroundingHint": "none",
+        "taskKind": "reference-chase",
+        "adjustments": [
+          "base=0.30 (taskKind=reference-chase)",
+          "+0.54 (8 exact evidence item(s))",
+          "+0.12 (cross-verified across multiple files)",
+          "+0.05 (symbol/grep search used)"
+        ],
+        "droppedUngrounded": 0,
+        "droppedMalformed": 0
+      },
+      "stats": {
+        "model": "zai-glm-4.7",
+        "budget": "deep",
+        "budgetSource": "auto",
+        "turns": 6,
+        "toolCalls": 16,
+        "listDirCalls": 0,
+        "findFileCalls": 0,
+        "grepCalls": 3,
+        "filesRead": 12,
+        "gitLogCalls": 0,
+        "gitBlameCalls": 0,
+        "gitDiffCalls": 0,
+        "gitShowCalls": 0,
+        "symbolCalls": 1,
+        "inputTokens": 112640,
+        "outputTokens": 5609,
+        "totalTokens": 118249,
+        "elapsedMs": 9062,
+        "stoppedByBudget": false,
+        "scope": [
+          "src/**",
+          "tests/**",
+          "examples/**"
+        ],
+        "repoRoot": "/home/kyubr/IdeaProjects/cerebras-explorer-mcp",
+        "sessionId": "sess_f4cf93bd51a42b1d",
+        "sessionStatus": "created",
+        "sessionSource": "created",
+        "remainingCalls": 4,
+        "cacheHits": 32,
+        "cacheMisses": 235,
+        "cacheHitRate": 0.12,
+        "cacheEntries": 231,
+        "cacheSizeBytes": 1680794
+      },
+      "toolTrace": {
+        "entries": [
+          {
+            "turn": 1,
+            "tool": "repo_symbol_context",
+            "args": {
+              "symbol": "createMcpRequestHandler"
+            },
+            "result": {
+              "symbol": "createMcpRequestHandler",
+              "definition": {
+                "path": "src/mcp/server.mjs",
+                "line": 587,
+                "endLine": 592,
+                "kind": "function"
+              },
+              "callers": 22,
+              "observedRanges": 21,
+              "truncated": false
+            }
+          },
+          {
+            "turn": 1,
+            "tool": "repo_grep",
+            "args": {
+              "pattern": "evidenceQuality",
+              "scope": [
+                "src",
+                "tests",
+                "examples"
+              ]
+            },
+            "result": {
+              "matches": 32,
+              "paths": [
+                "examples/expected-response.json",
+                "tests/integration-script.test.mjs",
+                "tests/integrations.test.mjs",
+                "tests/mcp-server.test.mjs",
+                "tests/runtime.mock.test.mjs",
+                "tests/schemas.test.mjs"
+              ],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 1,
+            "tool": "repo_grep",
+            "args": {
+              "pattern": "searchCoverage",
+              "scope": [
+                "src",
+                "tests",
+                "examples"
+              ]
+            },
+            "result": {
+              "matches": 46,
+              "paths": [
+                "examples/expected-response.json",
+                "tests/benchmark-evaluator.test.mjs",
+                "tests/free-explore.test.mjs",
+                "tests/integration-script.test.mjs",
+                "tests/integrations.test.mjs",
+                "tests/mcp-server.test.mjs"
+              ],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 1,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/mcp/server.mjs"
+            },
+            "result": {
+              "path": "src/mcp/server.mjs",
+              "startLine": 1,
+              "endLine": 320,
+              "totalLines": 1027,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/mcp/server.mjs",
+              "startLine": 587,
+              "endLine": 650
+            },
+            "result": {
+              "path": "src/mcp/server.mjs",
+              "startLine": 587,
+              "endLine": 650,
+              "totalLines": 1027,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/mcp/server.mjs",
+              "startLine": 680,
+              "endLine": 790
+            },
+            "result": {
+              "path": "src/mcp/server.mjs",
+              "startLine": 680,
+              "endLine": 790,
+              "totalLines": 1027,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/explorer/schemas.mjs",
+              "startLine": 270,
+              "endLine": 310
+            },
+            "result": {
+              "path": "src/explorer/schemas.mjs",
+              "startLine": 270,
+              "endLine": 310,
+              "totalLines": 520,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/explorer/runtime.mjs",
+              "startLine": 410,
+              "endLine": 460
+            },
+            "result": {
+              "path": "src/explorer/runtime.mjs",
+              "startLine": 410,
+              "endLine": 460,
+              "totalLines": 2412,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/explorer/runtime.mjs",
+              "startLine": 570,
+              "endLine": 585
+            },
+            "result": {
+              "path": "src/explorer/runtime.mjs",
+              "startLine": 570,
+              "endLine": 585,
+              "totalLines": 2412,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/explorer/schemas.mjs",
+              "startLine": 50,
+              "endLine": 120
+            },
+            "result": {
+              "path": "src/explorer/schemas.mjs",
+              "startLine": 50,
+              "endLine": 120,
+              "totalLines": 520,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "tests/mcp-server.test.mjs",
+              "startLine": 260,
+              "endLine": 280
+            },
+            "result": {
+              "path": "tests/mcp-server.test.mjs",
+              "startLine": 260,
+              "endLine": 280,
+              "totalLines": 979,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "tests/runtime.mock.test.mjs",
+              "startLine": 260,
+              "endLine": 280
+            },
+            "result": {
+              "path": "tests/runtime.mock.test.mjs",
+              "startLine": 260,
+              "endLine": 280,
+              "totalLines": 3469,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_grep",
+            "args": {
+              "pattern": "EVIDENCE_QUALITY_SCHEMA|SEARCH_COVERAGE_SCHEMA",
+              "scope": [
+                "src"
+              ],
+              "contextLines": 15
+            },
+            "result": {
+              "matches": 4,
+              "paths": [
+                "src/explorer/schemas.mjs"
+              ],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "examples/expected-response.json",
+              "startLine": 55,
+              "endLine": 85
+            },
+            "result": {
+              "path": "examples/expected-response.json",
+              "startLine": 55,
+              "endLine": 85,
+              "totalLines": 106,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "tests/integration-script.test.mjs",
+              "startLine": 18,
+              "endLine": 45
+            },
+            "result": {
+              "path": "tests/integration-script.test.mjs",
+              "startLine": 18,
+              "endLine": 45,
+              "totalLines": 78,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 5,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/explorer/schemas.mjs",
+              "startLine": 192,
+              "endLine": 245
+            },
+            "result": {
+              "path": "src/explorer/schemas.mjs",
+              "startLine": 192,
+              "endLine": 245,
+              "totalLines": 520,
+              "truncated": true
+            }
+          }
+        ],
+        "totalCalls": 16,
+        "truncated": false,
+        "maxEntries": 20
+      },
+      "codeMap": {
+        "entryPoints": [
+          "src/mcp/server.mjs"
+        ],
+        "keyModules": [
+          {
+            "path": "src/mcp/server.mjs",
+            "role": "entry point",
+            "linesRead": 514
+          },
+          {
+            "path": "tests/mcp-server.test.mjs",
+            "role": "test",
+            "linesRead": 47
+          },
+          {
+            "path": "examples/expected-response.json",
+            "role": "module",
+            "linesRead": 33
+          },
+          {
+            "path": "tests/integration-script.test.mjs",
+            "role": "test",
+            "linesRead": 30
+          },
+          {
+            "path": "tests/integrations.test.mjs",
+            "role": "test",
+            "linesRead": 6
+          },
+          {
+            "path": "tests/runtime.mock.test.mjs",
+            "role": "test",
+            "linesRead": 49
+          },
+          {
+            "path": "tests/schemas.test.mjs",
+            "role": "test",
+            "linesRead": 6
+          },
+          {
+            "path": "src/explorer/runtime.mjs",
+            "role": "module",
+            "linesRead": 72
+          },
+          {
+            "path": "src/explorer/schemas.mjs",
+            "role": "data model",
+            "linesRead": 173
+          },
+          {
+            "path": "tests/benchmark-evaluator.test.mjs",
+            "role": "test",
+            "linesRead": 2
+          },
+          {
+            "path": "tests/free-explore.test.mjs",
+            "role": "test",
+            "linesRead": 4
+          },
+          {
+            "path": "src/benchmark/evaluator.mjs",
+            "role": "module",
+            "linesRead": 1
+          }
+        ]
+      }
+    }
+  },
+  "contentText": "## Result\nConfidence: high\nVerification: targeted_read_needed\nEvidence Quality: high (8 exact, 0 partial, 0 dropped)\nSearch Coverage: scope-limited search across src/**, tests/**, examples/**; 12 file read(s), 3 grep search(es).\n\n## Answer\nRenaming evidenceQuality and searchCoverage impacts 3 core files (schemas.mjs, runtime.mjs, server.mjs) and 6 test suites. Centralized at schema definitions and builder functions. Requires updating 60+ assertions across tests and public example documentation.\n\n## Next Action\nread_target: Read src/explorer/runtime.mjs:417-434 before editing.\n\n## Targets\n- [config] `src/explorer/schemas.mjs:192-205` (line:192-205, E1) - EVIDENCE_QUALITY_SCHEMA defines all subfield names\n- [config] `src/explorer/schemas.mjs:218-245` (line:218-245, E2) - SEARCH_COVERAGE_SCHEMA defines all subfield names\n- [edit] `src/explorer/runtime.mjs:417-434` (line:417-434, E3) - buildEvidenceQuality constructs evidenceQuality object\n- [edit] `src/explorer/runtime.mjs:574-580` (line:577-578, E4) - attachAgentFacingContract assigns both fields\n- [edit] `src/mcp/server.mjs:686-711` (line:686-711, E5) - Default functions construct fallback objects\n- [edit] `src/mcp/server.mjs:763-790` (line:783-784) - toAgentFacingResult assigns fields with fallback\n- [test] `tests/mcp-server.test.mjs:266-270` (line:266-270, E8) - Assertions on both field properties\n- [read] `src/mcp/server.mjs:623-628` (E6) - formatExploreResult reads both fields for display\n- [read] `src/mcp/server.mjs:783-784` (E7) - toAgentFacingResult assigns both fields with defaults\n\n## Evidence (8 items, confidence: high)\n- E1 `src/explorer/schemas.mjs:192-205` - EVIDENCE_QUALITY_SCHEMA defines all evidenceQuality subfields\n  snippet: 192: const EVIDENCE_QUALITY_SCHEMA = {\n  193:   type: 'object',\n  194:   additionalProperties: false,\n  195:   properties: {\n  196:     level: { type: 'string', enum: ['low', 'medium', 'high'] },\n  197:     exactCount: { type: 'integer' },\n  198:     partialCount: { type: 'integer' },\n  199:     droppedCount: { type: 'integer' },\n  200:     fileCount: { type: 'integer' },\n  201:     warnings: { type: 'array', items: { type: 'string' } },\n  202:     summary: { type: 'string' },\n  203:   },\n  ... [snippet truncated]\n- E2 `src/explorer/schemas.mjs:218-245` - SEARCH_COVERAGE_SCHEMA defines all searchCoverage subfields\n  snippet: 218: const SEARCH_COVERAGE_SCHEMA = {\n  219:   type: 'object',\n  220:   additionalProperties: false,\n  221:   properties: {\n  222:     scope: { type: 'array', items: { type: 'string' } },\n  223:     scopeLimited: { type: 'boolean' },\n  224:     filesRead: { type: 'integer', minimum: 0 },\n  225:     grepCalls: { type: 'integer', minimum: 0 },\n  226:     listDirCalls: { type: 'integer', minimum: 0 },\n  227:     symbolCalls: { type: 'integer', minimum: 0 },\n  228:     toolResultsTruncated: { type: 'integer', minimum: 0 },\n  229:     stoppedByBudget: { type: 'boolean' },\n  ... [snippet truncated]\n- E3 `src/explorer/runtime.mjs:417-434` - buildEvidenceQuality constructs evidenceQuality object\n  snippet: 417: function buildEvidenceQuality(result, stats, grounding = {}) {\n  418:   const evidence = Array.isArray(result.evidence) ? result.evidence : [];\n  419:   const exactCount = evidence.filter(item => item.groundingStatus === 'exact').length;\n  420:   const partialCount = evidence.filter(item => item.groundingStatus === 'partial').length;\n  421:   const droppedCount = (grounding.droppedUngrounded ?? 0) + (grounding.droppedMalformed ?? 0);\n  422:   const fileCount = new Set(evidence.map(item => item.path).filter(Boolean)).size;\n  423:   const warnings = Array.isArray(result.status?.warnings) ? result.status.warnings.slice(0, 5) : [];\n  424:   const summary = result.trustSummary || buildTrustSummary(result, stats);\n  425:   return {\n  426:     level: result.status?.confidence ?? 'low',\n  427:     exactCount,\n  428:     partialCount,\n  ... [snippet truncated]\n- E4 `src/explorer/runtime.mjs:574-580` - attachAgentFacingContract assigns both fields to result\n  snippet: 574: function attachAgentFacingContract(result, stats, grounding = {}) {\n  575:   result.schemaVersion = AGENT_FACING_SCHEMA_VERSION;\n  576:   result.failure = buildFailure(result, stats);\n  577:   result.evidenceQuality = buildEvidenceQuality(result, stats, grounding);\n  578:   result.searchCoverage = buildSearchCoverage(stats);\n  579:   return result;\n  580: }\n- E5 `src/mcp/server.mjs:686-711` - Default functions construct fallback objects for both fields\n  snippet: 686:   function defaultEvidenceQuality(summary = 'No grounded evidence was retained.', warnings = []) {\n  687:     return {\n  688:       level: 'low',\n  689:       exactCount: 0,\n  690:       partialCount: 0,\n  691:       droppedCount: 0,\n  692:       fileCount: 0,\n  693:       warnings: warnings.filter(item => typeof item === 'string').slice(0, 5),\n  694:       summary,\n  695:     };\n  696:   }\n  697: \n  ... [snippet truncated]\n- E6 `src/mcp/server.mjs:623-628` - formatExploreResult reads both fields for display\n  snippet: 623:     if (result.evidenceQuality) {\n  624:       lines.push(`Evidence Quality: ${result.evidenceQuality.level} (${result.evidenceQuality.exactCount} exact, ${result.evidenceQuality.partialCount} partial, ${result.evidenceQuality.droppedCount} dropped)`);\n  625:     }\n  626:     if (result.searchCoverage) {\n  627:       lines.push(`Search Coverage: ${result.searchCoverage.summary}`);\n  628:     }\n- E7 `src/mcp/server.mjs:783-784` - toAgentFacingResult assigns both fields with defaults\n  snippet: 783:       evidenceQuality: result.evidenceQuality ?? defaultEvidenceQuality(result.trustSummary),\n  784:       searchCoverage: result.searchCoverage ?? defaultSearchCoverage(),\n- E8 `tests/mcp-server.test.mjs:266-270` - Test assertions check multiple properties of both fields\n  snippet: 266:   assert.equal(called.structuredContent.evidenceQuality.level, called.structuredContent.status.confidence);\n  267:   assert.equal(called.structuredContent.evidenceQuality.exactCount, 2);\n  268:   assert.equal(called.structuredContent.evidenceQuality.fileCount, 2);\n  269:   assert.deepEqual(called.structuredContent.searchCoverage.scope, ['src/**']);\n  270:   assert.equal(called.structuredContent.searchCoverage.scopeLimited, true);\n\nSession: sess_f4cf93bd51a42b1d (pass as \"session\" for follow-up calls)"
+}

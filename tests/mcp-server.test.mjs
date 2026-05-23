@@ -715,6 +715,34 @@ test('find_entrypoints rejects unknown entryKind via enum schema before runtime 
   assert.equal(called.structuredContent.failure.reason, 'invalid_arguments');
 });
 
+test('find_entrypoints dispatches with explore_repo-compatible hints', async () => {
+  const repoRoot = await makeRepoFixture();
+  const { handleRequest } = createMcpRequestHandler({
+    runtimeOptions: {
+      chatClient: new MockChatClient(),
+    },
+  });
+
+  const called = await handleRequest({
+    jsonrpc: '2.0',
+    id: 231,
+    method: 'tools/call',
+    params: {
+      name: 'find_entrypoints',
+      arguments: {
+        entryKind: 'http',
+        repo_root: repoRoot,
+        scope: ['src/**'],
+      },
+    },
+  });
+
+  assert.notEqual(called.isError, true, called.content?.[0]?.text);
+  assert.equal(called.structuredContent.failure, null);
+  assert.equal(called.structuredContent.status.verification, 'verified');
+  assert.match(called.content[0].text, /requireAuth/);
+});
+
 // ─── Spec 015: find_entrypoints regex bundle language expansion ─────────────
 
 function hasFragment(patterns, fragment) {

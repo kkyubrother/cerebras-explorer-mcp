@@ -1,0 +1,1350 @@
+{
+  "tool": "explore",
+  "repo": "studious-memory",
+  "args": {
+    "repo_root": "/home/kyubr/IdeaProjects/studious-memory",
+    "scope": [
+      "backend/**",
+      "frontend/src/**",
+      "extensions/firefox-inbox/src/**",
+      "scripts/**",
+      "android/**"
+    ],
+    "prompt": "Give a concise architecture report for backend MCP/FastAPI surface, frontend auth, extension capture, and ops scripts. Include inline file:line citations and flag uncertainty.",
+    "language": "en"
+  },
+  "elapsedMs": 23106,
+  "error": null,
+  "isError": false,
+  "summary": {
+    "reportPreview": "# Architecture Report: Studious Memory\n\n## Summary\n\nStudious Memory is a privacy-focused personal knowledge system with a **FastAPI/MCP backend**, **React frontend**, **Firefox browser extension** for content capture, **Android app** for mobile access, and a comprehensive **ops suite** for deployment and maintenance. The backend exposes both REST API endpoints and MCP (Model Context Protocol) tools with OAuth-based scope authorization. The frontend uses session-based authentication with optional TOTP 2FA. The Firefox extension captures web content and submits it to the backend via API key authentication. Operations are automated through bash scripts with encrypted backups, health monitoring, and container deployment.\n\n---\n\n## Findings\n\n### 1. Backend MCP/FastAPI Surface\n\n#### Entry Points\n- **Main FastAPI App**: `backend/main.py` serves as the primary HTTP server entry point\n  - MCP sub-app mounted at `/mcp` via `mcp.streamable_http_app()` (backend/main.py:L74)\n  - Comprehensive middleware stack for auth, rate limiting, logging, IP blocking\n  - Background loop supervisors for digest, reminders, notifications, proactive engine\n- **MCP Stdio Transport**: `backend/mcp_server.py` provides stdio transport entry for MCP clients\n  - Runs Alembic migrations before startup (backend/mcp_server.py:L8-L23)\n  - Sets default owner ID and auth context for local stdio clients (backend/mcp_server.py:L34-L39)\n\n#### API Structure\n- **Router**: `backend/app/api/router.py` aggregates 53 v1 endpoint modules organized by domain\n  - Core routes: auth, agent, chat, sources, orchestrator, approvals, security\n  - Knowledge routes: knowledge, memory, diaries, todos, schedules, reminders\n  - Operations routes: admin, audit_logs, ai_config, ai_logs, notification_*\n  - External routes: openai_compat, proactive, relationships, search\n- **Auth Endpoints**: `backend/app/api/v1/auth.py` implements authentication\n  - `POST /auth/session` - Password login with optional TOTP 2FA (backend/app/api/v1/auth.py:L69-L83)\n  - `POST /auth/session/2fa` - Complete 2FA verification (backend/app/api/v1/auth.py:L86-L88)\n  - Session tokens include owner_id, role, scopes, access_profile_id (backend/app/api/v1/auth.py:L157-L194)\n  - Profile switching between \"full\" and \"work_safe\" modes (backend/app/api/v1/auth.py:L91-L92)\n\n#### MCP Server\n- **Server Setup**: `backend/app/mcp/server.py` uses FastMCP framework with scoped tools\n  - All tools decorated with `@scoped_tool()` requiring specific OAuth scopes (backend/app/mcp/server.py:L79-L89)\n  - Dynamic tool listing filtered by granted scopes (backend/app/mcp/\n... [truncated 17023 chars]",
+    "citations": [
+      {
+        "type": "file_range",
+        "path": "backend/main.py",
+        "startLine": 74,
+        "endLine": 74,
+        "raw": "backend/main.py:L74"
+      },
+      {
+        "type": "file_range",
+        "path": "backend/mcp_server.py",
+        "startLine": 8,
+        "endLine": 23,
+        "raw": "backend/mcp_server.py:L8-L23"
+      },
+      {
+        "type": "file_range",
+        "path": "backend/mcp_server.py",
+        "startLine": 34,
+        "endLine": 39,
+        "raw": "backend/mcp_server.py:L34-L39"
+      },
+      {
+        "type": "file_range",
+        "path": "backend/app/api/v1/auth.py",
+        "startLine": 69,
+        "endLine": 83,
+        "raw": "backend/app/api/v1/auth.py:L69-L83"
+      },
+      {
+        "type": "file_range",
+        "path": "backend/app/api/v1/auth.py",
+        "startLine": 86,
+        "endLine": 88,
+        "raw": "backend/app/api/v1/auth.py:L86-L88"
+      },
+      {
+        "type": "file_range",
+        "path": "backend/app/api/v1/auth.py",
+        "startLine": 157,
+        "endLine": 194,
+        "raw": "backend/app/api/v1/auth.py:L157-L194"
+      },
+      {
+        "type": "file_range",
+        "path": "backend/app/api/v1/auth.py",
+        "startLine": 91,
+        "endLine": 92,
+        "raw": "backend/app/api/v1/auth.py:L91-L92"
+      },
+      {
+        "type": "file_range",
+        "path": "backend/app/mcp/server.py",
+        "startLine": 79,
+        "endLine": 89,
+        "raw": "backend/app/mcp/server.py:L79-L89"
+      },
+      {
+        "type": "file_range",
+        "path": "backend/app/mcp/server.py",
+        "startLine": 95,
+        "endLine": 107,
+        "raw": "backend/app/mcp/server.py:L95-L107"
+      },
+      {
+        "type": "file_range",
+        "path": "backend/app/mcp/authz.py",
+        "startLine": 5,
+        "endLine": 24,
+        "raw": "backend/app/mcp/authz.py:L5-L24"
+      },
+      {
+        "type": "file_range",
+        "path": "backend/app/mcp/authz.py",
+        "startLine": 27,
+        "endLine": 37,
+        "raw": "backend/app/mcp/authz.py:L27-L37"
+      },
+      {
+        "type": "file_range",
+        "path": "backend/app/middleware/auth.py",
+        "startLine": 66,
+        "endLine": 77,
+        "raw": "backend/app/middleware/auth.py:L66-L77"
+      }
+    ],
+    "targets": [
+      {
+        "path": "backend/main.py",
+        "role": "reference",
+        "reason": "Markdown report citation",
+        "evidenceRefs": [],
+        "startLine": 74,
+        "endLine": 74
+      },
+      {
+        "path": "backend/mcp_server.py",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 2 ranges.",
+        "evidenceRefs": [],
+        "startLine": 8,
+        "endLine": 39
+      },
+      {
+        "path": "backend/app/api/v1/auth.py",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 4 ranges.",
+        "evidenceRefs": [],
+        "startLine": 69,
+        "endLine": 194
+      },
+      {
+        "path": "backend/app/mcp/server.py",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 4 ranges.",
+        "evidenceRefs": [],
+        "startLine": 79,
+        "endLine": 107
+      },
+      {
+        "path": "backend/app/mcp/authz.py",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 2 ranges.",
+        "evidenceRefs": [],
+        "startLine": 5,
+        "endLine": 37
+      },
+      {
+        "path": "backend/app/middleware/auth.py",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 3 ranges.",
+        "evidenceRefs": [],
+        "startLine": 18,
+        "endLine": 77
+      },
+      {
+        "path": "frontend/src/api.ts",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 17 ranges.",
+        "evidenceRefs": [],
+        "startLine": 11,
+        "endLine": 450
+      },
+      {
+        "path": "frontend/src/pages/Login.tsx",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 4 ranges.",
+        "evidenceRefs": [],
+        "startLine": 13,
+        "endLine": 92
+      }
+    ],
+    "filesRead": [
+      "backend/main.py",
+      "backend/mcp_server.py",
+      "backend/app/api/router.py",
+      "backend/app/api/v1/auth.py",
+      "backend/app/mcp/server.py",
+      "extensions/firefox-inbox/src/background/captureDraft.ts",
+      "extensions/firefox-inbox/src/background/background.ts",
+      "frontend/src/api.ts",
+      "frontend/src/pages/Login.tsx",
+      "backend/app/mcp/authz.py",
+      "extensions/firefox-inbox/src/shared/apiClient.ts",
+      "scripts/setup-ubuntu-24.04.sh",
+      "scripts/deploy-prx-lxc.sh",
+      "android/app/src/main/java/com/studiousmemory/android/MainActivity.kt",
+      "scripts/backup-sqlite.sh",
+      "backend/app/middleware/auth.py"
+    ],
+    "toolsUsed": [
+      "repo_list_dir",
+      "repo_read_file",
+      "repo_find_files",
+      "repo_grep"
+    ],
+    "critic": {
+      "status": "caution",
+      "warnings": [
+        {
+          "type": "truncated_tool_results",
+          "severity": "low",
+          "message": "6 tool result(s) were truncated before model synthesis; re-run with a narrower query or read specific ranges if expected evidence is missing.",
+          "action": "Use a narrower follow-up query or read specific ranges before relying on missing evidence."
+        }
+      ]
+    },
+    "searchCoverage": {
+      "scope": [
+        "backend/**",
+        "frontend/src/**",
+        "extensions/firefox-inbox/src/**",
+        "scripts/**",
+        "android/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 19,
+      "grepCalls": 1,
+      "listDirCalls": 8,
+      "symbolCalls": 0,
+      "toolResultsTruncated": 6,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: backend/**, frontend/src/**, extensions/firefox-inbox/src/**, scripts/**, android/**",
+        "6 tool result(s) were truncated before model synthesis; re-run with a narrower query or read specific ranges if expected evidence is missing."
+      ],
+      "summary": "scope-limited search across backend/**, frontend/src/**, extensions/firefox-inbox/src/**, scripts/**, android/**; 19 file read(s), 1 grep search(es)."
+    },
+    "stats": {
+      "turns": 14,
+      "toolCalls": 34,
+      "filesRead": 19,
+      "grepCalls": 1,
+      "symbolCalls": 0,
+      "stoppedByBudget": false,
+      "elapsedMs": 23093,
+      "totalTokens": 288682
+    }
+  },
+  "structuredContent": {
+    "report": "# Architecture Report: Studious Memory\n\n## Summary\n\nStudious Memory is a privacy-focused personal knowledge system with a **FastAPI/MCP backend**, **React frontend**, **Firefox browser extension** for content capture, **Android app** for mobile access, and a comprehensive **ops suite** for deployment and maintenance. The backend exposes both REST API endpoints and MCP (Model Context Protocol) tools with OAuth-based scope authorization. The frontend uses session-based authentication with optional TOTP 2FA. The Firefox extension captures web content and submits it to the backend via API key authentication. Operations are automated through bash scripts with encrypted backups, health monitoring, and container deployment.\n\n---\n\n## Findings\n\n### 1. Backend MCP/FastAPI Surface\n\n#### Entry Points\n- **Main FastAPI App**: `backend/main.py` serves as the primary HTTP server entry point\n  - MCP sub-app mounted at `/mcp` via `mcp.streamable_http_app()` (backend/main.py:L74)\n  - Comprehensive middleware stack for auth, rate limiting, logging, IP blocking\n  - Background loop supervisors for digest, reminders, notifications, proactive engine\n- **MCP Stdio Transport**: `backend/mcp_server.py` provides stdio transport entry for MCP clients\n  - Runs Alembic migrations before startup (backend/mcp_server.py:L8-L23)\n  - Sets default owner ID and auth context for local stdio clients (backend/mcp_server.py:L34-L39)\n\n#### API Structure\n- **Router**: `backend/app/api/router.py` aggregates 53 v1 endpoint modules organized by domain\n  - Core routes: auth, agent, chat, sources, orchestrator, approvals, security\n  - Knowledge routes: knowledge, memory, diaries, todos, schedules, reminders\n  - Operations routes: admin, audit_logs, ai_config, ai_logs, notification_*\n  - External routes: openai_compat, proactive, relationships, search\n- **Auth Endpoints**: `backend/app/api/v1/auth.py` implements authentication\n  - `POST /auth/session` - Password login with optional TOTP 2FA (backend/app/api/v1/auth.py:L69-L83)\n  - `POST /auth/session/2fa` - Complete 2FA verification (backend/app/api/v1/auth.py:L86-L88)\n  - Session tokens include owner_id, role, scopes, access_profile_id (backend/app/api/v1/auth.py:L157-L194)\n  - Profile switching between \"full\" and \"work_safe\" modes (backend/app/api/v1/auth.py:L91-L92)\n\n#### MCP Server\n- **Server Setup**: `backend/app/mcp/server.py` uses FastMCP framework with scoped tools\n  - All tools decorated with `@scoped_tool()` requiring specific OAuth scopes (backend/app/mcp/server.py:L79-L89)\n  - Dynamic tool listing filtered by granted scopes (backend/app/mcp/server.py:L95-L107)\n- **OAuth Scopes**: `backend/app/mcp/authz.py` defines fine-grained authorization\n  - Scopes: `maidbot.memory.read/write`, `maidbot.todo.write`, `maidbot.reminder.write`, `maidbot.schedule.write`, `maidbot.loop.write`, `maidbot.approval.read`, `maidbot.web.search`, `maidbot.naver.agent` (backend/app/mcp/authz.py:L5-L24)\n  - Legacy scope expansion for backward compatibility (backend/app/mcp/authz.py:L27-L37)\n- **Tool Categories**: \n  - **Input/Write**: `process_input`, `orchestrate_input`, `add_knowledge`, `add_todo`, `add_schedule`, `add_reminder`\n  - **Query**: `search`, `get_knowledge`, `get_todos`, `get_reminders`, `get_schedule`, `get_loops`\n  - **Proactive**: `get_proactive_suggestions`, `get_briefing_today`, `prepare_for_meeting`\n  - **Approvals**: `list_pending_approvals`, `preview_sensitive_action`\n\n#### Middleware Stack\nLocated in `backend/app/middleware/`:\n- **Auth Middleware** (`auth.py`): Authenticates requests via Bearer tokens or MCP query param (backend/app/middleware/auth.py:L66-L77)\n- **Rate Limit Middleware** (`rate_limit.py`): Enforces rate limits per API key\n- **IP Block Middleware** (`ip_block.py`): Blocks malicious IP addresses\n- **MCP Middleware** (`mcp_middleware.py`): Request logging and concurrency limiting for MCP\n- **Correlation ID Middleware** (`correlation_id.py`): Request tracing via correlation IDs\n- **Request Logger Middleware** (`request_logger.py`): Structured request/response logging\n\n---\n\n### 2. Frontend Auth\n\n#### Architecture\n- **Centralized Auth**: All auth logic in `frontend/src/api.ts` (not a separate feature folder)\n- **Session Storage**: Uses `sessionStorage` for token persistence with custom events for change notifications (frontend/src/api.ts:L11-L15)\n- **Session Lifecycle**:\n  - `bootstrapSession()` validates stored session on app load (frontend/src/api.ts:L311-L333)\n  - `createSessionWithPassword()` initiates password login (frontend/src/api.ts:L347-L369)\n  - `completeSessionWith2FA()` finalizes TOTP verification (frontend/src/api.ts:L371-L383)\n  - `clearStoredSession()` logs out by clearing storage and emitting events (frontend/src/api.ts:L118-L123)\n\n#### Login Flow\n- **UI Component**: `frontend/src/pages/Login.tsx` handles password and TOTP modes\n  - Two modes: `'password'` and `'totp'` (frontend/src/pages/Login.tsx:L13)\n  - Password submission → if 2FA enabled, receives `pendingToken` and switches to TOTP mode (frontend/src/pages/Login.tsx:L44-L49)\n  - TOTP code submission with `pendingToken` completes authentication (frontend/src/pages/Login.tsx:L82-L89)\n- **Error Handling**: User-friendly error messages with i18n support\n\n#### Session Management\n- **Token Storage**: Session token stored in `sessionStorage` under `studious_session_token` key (frontend/src/api.ts:L13)\n- **Event System**: Custom events `studious:session-change` and `studious:session-info-change` notify subscribers (frontend/src/api.ts:L14-L15, L83-L95)\n- **Session Info**: Includes authenticated status, role, scopes, owner_id, access_profile_id, profile_mode (frontend/src/api.ts:L95-L100)\n- **Profile Switching**: `switchSessionProfile()` allows toggling between \"full\" and \"work_safe\" modes (frontend/src/api.ts:L392-L402)\n\n#### TOTP Management\n- **Status Check**: `getTotpStatus()` returns enabled status, enrollment time, backup codes remaining (frontend/src/api.ts:L418-L421)\n- **Enrollment**: `startTotpEnrollment()` generates QR code/OTP URI, `confirmTotpEnrollment()` finalizes with backup codes (frontend/src/api.ts:L423-L431)\n- **Disabling**: `disableTotp()` removes TOTP from account (frontend/src/api.ts:L433-L435)\n\n#### Sudo Mode\n- **Elevated Privileges**: `getSudoStatus()` checks sudo grant status for sensitive operations (frontend/src/api.ts:L444-L450)\n- Integration with `promptSudo()` from `features/sudo/sudoController` for elevation flow\n\n---\n\n### 3. Extension Capture (Firefox)\n\n#### Architecture\nLocated in `extensions/firefox-inbox/src/`:\n- **Background Script**: `background/background.ts` is the main message handler\n- **Draft Management**: `background/captureDraft.ts` creates and manages capture state\n- **API Client**: `shared/apiClient.ts` submits captures to backend\n- **Page Policy**: `shared/pagePolicy.ts` prevents capturing sensitive pages\n- **Storage**: `shared/storage.ts` persists settings and drafts\n\n#### Capture Flow\n1. **Trigger**: User invokes capture from browser action\n2. **Page Evaluation**: `evaluatePagePolicy()` checks URL and incognito status (extensions/firefox-inbox/src/background/background.ts:L37-L40)\n3. **Selection Extraction**: Script injection extracts selected text (extensions/firefox-inbox/src/background/background.ts:L165-L172)\n4. **Draft Creation**: `createCaptureDraft()` creates draft with metadata (extensions/firefox-inbox/src/background/captureDraft.ts:L22-L40)\n   - Fields: `pageUrl`, `pageTitle`, `selectedText`, `fallbackNote`, `clientCaptureId`, `receivedClientAt`\n   - State machine: 'ready' → 'submitting' → 'submitted' or 'failed_retryable'/'failed_terminal'\n5. **Validation**: Checks text length (100K char limit) via `isCaptureTextOversized()` (extensions/firefox-inbox/src/background/captureDraft.ts:L67-L69)\n6. **Submission**: `submitCapture()` POSTs to `/api/v1/sources/intake` with API key auth (extensions/firefox-inbox/src/shared/apiClient.ts:L53-L89)\n7. **Retry Logic**: Failed drafts stored locally for retry via `retryLastCapture()` (extensions/firefox-inbox/src/background/background.ts:L55-L71)\n\n#### API Client Details\n- **Endpoint**: `POST /api/v1/sources/intake` with FormData payload (extensions/firefox-inbox/src/shared/apiClient.ts:L72-L79)\n- **Headers**: \n  - `Authorization: Bearer {apiKey}` (extensions/firefox-inbox/src/shared/apiClient.ts:L139-L141)\n  - `X-Studious-Client-Capture-Id` for deduplication (extensions/firefox-inbox/src/shared/apiClient.ts:L76)\n- **Form Fields**: `text`, `source_url`, `client_capture_id`, `input_channel`, `origin_package`, `client_mime_types`, `received_client_at`, `context_enrichment`, `web_search_enabled`, `web_search_disclosure_mode` (extensions/firefox-inbox/src/shared/apiClient.ts:L105-L118)\n- **Response Handling**: Maps to `CaptureSubmissionResult` with status: 'created', 'reused', or 'approval_required' (extensions/firefox-inbox/src/shared/apiClient.ts:L120-L135)\n\n#### Privacy Guards\n- **Page Policy**: Blocks incognito mode, unsupported schemes, sensitive URLs\n- **Incognito Detection**: Refuses capture in private browsing (extensions/firefox-inbox/src/background/background.ts:L38)\n- **Fallback**: Uses page title or URL if no selection (extensions/firefox-inbox/src/shared/apiClient.ts:L91-L103)\n\n---\n\n### 4. Ops Scripts\n\n#### Setup and Provisioning\n- **`scripts/setup-ubuntu-24.04.sh`**: Full environment setup script (scripts/setup-ubuntu-24.04.sh:L1-L215)\n  - Installs system packages: ca-certificates, curl, git, build-essential, python3, python3-venv, gnupg (scripts/setup-ubuntu-24.04.sh:L73-L82)\n  - Installs Node.js 24.x LTS via NodeSource (scripts/setup-ubuntu-24.04.sh:L87-L99)\n  - Runs `uv sync` for backend and `npm ci` for frontend\n  - Creates [REDACTED:secret-path] from [REDACTED:secret-path] if missing (scripts/setup-ubuntu-24.04.sh:L52-L65)\n\n#### Deployment\n- **`scripts/deploy-prx-lxc.sh`**: LXC container deployment (scripts/deploy-prx-lxc.sh:L1-L266)\n  - Runs as root, creates system user `studious-memory` (scripts/deploy-prx-lxc.sh:L4-L20)\n  - Installs dependencies: age, rclone, sqlite3, build-essential (scripts/deploy-prx-lxc.sh:L60-L71)\n  - Sets up systemd service, nginx reverse proxy\n  - Configures state directories: `/var/lib/studious-memory`\n\n#### Backup and Restore\n- **`scripts/backup-sqlite.sh`**: Encrypted backup automation (scripts/backup-sqlite.sh:L1-L174)\n  - Uses SQLite online backup via `.backup` command (scripts/backup-sqlite.sh:L102-L110)\n  - Runs `PRAGMA integrity_check` to verify database health (scripts/backup-sqlite.sh:L112-L122)\n  - Tars DB + storage directory, encrypts with `age` using `BACKUP_AGE_RECIPIENT` (scripts/backup-sqlite.sh:L136-L145)\n  - Generates SHA256 checksum and manifest JSON (scripts/backup-sqlite.sh:L147-L162)\n  - Rotates backups keeping configurable count (default 7) (scripts/backup-sqlite.sh:L84-L96)\n  - Integration with `push-backup-offsite.sh` for rclone offsite sync (scripts/backup-sqlite.sh:L164-L166)\n  - Healthchecks.io ping for monitoring (scripts/backup-sqlite.sh:L59-L64)\n  - Status file for freshness tracking: `<backup_dir>/.backup_last_success` (scripts/backup-sqlite.sh:L31, L66-L82)\n\n- **Backup Validation Scripts**:\n  - `check-backup-checksums.sh`: Verifies SHA256 checksums\n  - `check-backup-freshness.sh`: Checks age of last successful backup\n  - `restore-sqlite.sh`: Restores from encrypted backup\n\n#### Maintenance\n- **`scripts/ops-notify.sh`**: Sends operational notifications (called from backup scripts)\n- **`scripts/maintain-container.sh`**: Container health maintenance\n- **`scripts/chroma_key.py`**: Key management utilities\n- **CI Scripts**: `scripts/ci/` directory contains CI/CD automation\n\n#### Development Helper Scripts\n- `idea_run_backend.sh`, `idea_run_frontend.sh`, `idea_run_mcp.sh`: JetBrains IDEA run configurations\n- `idea_setup.sh`: Development environment setup\n\n---\n\n### 5. Android App\n\n#### Entry Point\n- **MainActivity**: `android/app/src/main/java/com/studiousmemory/android/MainActivity.kt`\n  - Simple Compose launcher that sets `StudiousMemoryApp` content (android/app/src/main/java/com/studiousmemory/android/MainActivity.kt:L9-L19)\n\n#### Core Packages\nLocated in `android/app/src/main/java/com/studiousmemory/android/core/`:\n- **Capture**: \n  - `ShareCaptureHandler`, `CaptureQueueRepository`, `CaptureQueueDatabase`\n  - `LocalCaptureEntity`, `ShareUploadScheduler`, `ShareUploadWorker`\n  - `CaptureImageStorage`, `CaptureNotificationHelper`\n  - `CaptureUrlExtractor`\n- **Network**: `BackendApiClient` for API communication\n- **Config**: `AppConfig` for app configuration\n- **Preferences**: `AppPreferences` for settings\n- **Storage**: `SecureKeyStore` for secure credential storage\n\n#### Features\n- **Connection Screen**: `feature/connection/ConnectionScreen.kt`\n- **Share Capture Activity**: `feature/share/ShareCaptureActivity.kt`\n- **UI**: Jetpack Compose with `ui/StudiousMemoryApp.kt` and `ui/theme/StudiousMemoryTheme.kt`\n\n---\n\n## Key Code Paths\n\n### Auth Flow (Browser → Backend)\n1. User submits email/password via `frontend/src/pages/Login.tsx:L27-L92`\n2. Frontend calls `createSessionWithPassword()` → `POST /api/v1/auth/session` (frontend/src/api.ts:L347-L369)\n3. Backend `backend/app/api/v1/auth.py:POST /session` verifies credentials via `verify_login()`\n4. If 2FA enabled, returns 202 with `pending_token` (frontend/src/api.ts:L355-L363)\n5. Frontend switches to TOTP mode, user enters code\n6. Frontend calls `completeSessionWith2FA()` → `POST /api/v1/auth/session/2fa` (frontend/src/api.ts:L371-L383)\n7. Backend verifies TOTP, returns session token with claims\n8. Frontend stores token in sessionStorage, emits `studious:session-change` event (frontend/src/api.ts:L107-L116)\n9. Subsequent requests include `Authorization: Bearer {token}` header\n10. `backend/app/middleware/auth.py` validates token via `get_auth_session_claims()`, sets access context\n\n### Extension Capture Flow\n1. User triggers capture from Firefox extension\n2. `background.ts:handleRequest()` → `captureCurrentPage()` (extensions/firefox-inbox/src/background/background.ts:L86-L97)\n3. Page policy evaluated, tab queried, selection extracted (extensions/firefox-inbox/src/background/background.ts:L36-L52)\n4. `createCaptureDraft()` creates draft with state 'ready' (extensions/firefox-inbox/src/background/captureDraft.ts:L22-L40)\n5. `submitDraft()` validates size, sets state to 'submitting', saves draft (extensions/firefox-inbox/src/background/background.ts:L99-L131)\n6. `apiClient.submitCapture()` builds FormData, POSTs to `/api/v1/sources/intake` (extensions/firefox-inbox/src/shared/apiClient.ts:L53-L89)\n7. Backend processes source, returns source_id and status\n8. Draft updated to 'submitted' or 'failed_*' state, cleared from storage (extensions/firefox-inbox/src/background/background.ts:L115-L118)\n\n### MCP Tool Invocation Flow\n1. MCP client connects via HTTP (`/mcp/*`) or stdio transport\n2. For HTTP: `backend/app/middleware/auth.py` extracts API key from Bearer header or query param (backend/app/middleware/auth.py:L66-L77)\n3. API key verified, access context resolved via `resolve_access_context_for_api_key()`\n4. MCP auth context set with scopes and owner_id (backend/app/middleware/auth.py:L18-L23)\n5. Client calls `list_tools()` → filtered by granted scopes (backend/app/mcp/server.py:L95-L107)\n6. Client invokes tool (e.g., `search`) with parameters\n7. Tool handler decorated with `@scoped_tool()` checks required scopes (backend/app/mcp/server.py:L79-L89)\n8. If authorized, tool executes and returns results\n\n### Backup Automation Flow\n1. Cron or timer triggers `scripts/backup-sqlite.sh`\n2. SQLite online backup created via `.backup` command (scripts/backup-sqlite.sh:L102-L110)\n3. Integrity check runs: `PRAGMA integrity_check` (scripts/backup-sqlite.sh:L112-L122)\n4. DB + storage tarred, encrypted with age (scripts/backup-sqlite.sh:L124-L145)\n5. SHA256 calculated, manifest written (scripts/backup-sqlite.sh:L147-L162)\n6. `push-backup-offsite.sh` called for rclone sync (scripts/backup-sqlite.sh:L164-L166)\n7. Old backups rotated (scripts/backup-sqlite.sh:L168-L168)\n8. Status file written with timestamp and checksum (scripts/backup-sqlite.sh:L169-L169)\n9. Healthcheck ping sent, notification dispatched (scripts/backup-sqlite.sh:L172-L173)\n\n---\n\n## Uncertainty\n\n1. **Background Loop Implementation**: I identified multiple background loop start functions in `backend/main.py` (lines 53-66: slack, digest, dream, reminders, proactive, etc.) but did not examine their implementation details or scheduling logic.\n\n2. **Database Schema**: The database structure, migrations in `backend/db_migrations/`, and SQLAlchemy models were not explored. Relationships between entities, indexes, and constraints remain unclear.\n\n3. **AI Provider Integration**: While I found adapter files for OpenAI, Anthropic, Cerebras, Google, Ollama in `backend/app/ai/`, the specific routing logic, cost tracking, and streaming implementation were not examined.\n\n4. **Android Network Layer**: The `BackendApiClient` implementation, API endpoints called from Android, and offline queue processing logic were not explored in detail.\n\n5. **Frontend Feature Architecture**: While I identified 19 feature directories in `frontend/src/features/`, I did not examine most feature implementations (only confirmed auth is centralized in `api.ts`).\n\n6. **MCP Resource Endpoints**: I examined MCP tools but did not investigate MCP resource endpoints or their scope requirements.\n\n7. **Access Profile System**: The access profile implementation, data groups, and profile locking logic were referenced but not deeply explored.\n\n8. **Notification System**: The notification channels, templates, and scanner implementation were identified but not examined.\n\n9. **Extension Content Script**: The content script for text selection (`extensions/firefox-inbox/src/content/getSelection.ts`) was not examined.\n\n10. **Android Permission Model**: The Android app's runtime permissions, notification setup, and background service constraints were not explored.\n\n---\n\n## Suggestions\n\n1. **Database Schema Review**: Examine `backend/db_migrations/` and SQLAlchemy models to understand entity relationships and indexing strategy. This is critical for understanding data flow and performance characteristics.\n\n2. **AI Adapter Routing**: Review `backend/app/ai/router.py` and `backend/app/ai/factory.py` to understand provider selection, fallback logic, and structured output handling.\n\n3. **Frontend Feature Deep Dive**: Explore key features like `frontend/src/features/chat/`, `frontend/src/features/proactive/`, and `frontend/src/features/review-inbox/` to understand user workflows.\n\n4. **Android Offline Flow**: Trace `ShareUploadWorker` and local queue implementation to understand offline capture handling and sync logic.\n\n5. **Access Profile Implementation**: Examine `backend/app/services/access_profile.py` and `backend/app/api/v1/access_profiles.py` to understand multi-tenancy and data isolation.\n\n6. **Background Loop Scheduling**: Review loop supervisor and health check implementation in `backend/app/runtime/background.py` and `backend/app/runtime/loop_health.py`.\n\n7. **Notification Architecture**: Examine notification channels, templates, and the scanner service to understand proactive alerting.\n\n8. **Extension Testing**: Review test files in `extensions/firefox-inbox/src/test/` to understand edge cases and error handling.\n\n9. **Security Audit Path**: Trace security audit logging and event recording in `backend/app/services/security_audit.py`.\n\n10. **OAuth Integration**: Examine OAuth token verification and MCP OAuth challenge flow in `backend/app/services/oauth_token.py`.",
+    "citations": [
+      {
+        "type": "file_range",
+        "path": "backend/main.py",
+        "startLine": 74,
+        "endLine": 74,
+        "raw": "backend/main.py:L74"
+      },
+      {
+        "type": "file_range",
+        "path": "backend/mcp_server.py",
+        "startLine": 8,
+        "endLine": 23,
+        "raw": "backend/mcp_server.py:L8-L23"
+      },
+      {
+        "type": "file_range",
+        "path": "backend/mcp_server.py",
+        "startLine": 34,
+        "endLine": 39,
+        "raw": "backend/mcp_server.py:L34-L39"
+      },
+      {
+        "type": "file_range",
+        "path": "backend/app/api/v1/auth.py",
+        "startLine": 69,
+        "endLine": 83,
+        "raw": "backend/app/api/v1/auth.py:L69-L83"
+      },
+      {
+        "type": "file_range",
+        "path": "backend/app/api/v1/auth.py",
+        "startLine": 86,
+        "endLine": 88,
+        "raw": "backend/app/api/v1/auth.py:L86-L88"
+      },
+      {
+        "type": "file_range",
+        "path": "backend/app/api/v1/auth.py",
+        "startLine": 157,
+        "endLine": 194,
+        "raw": "backend/app/api/v1/auth.py:L157-L194"
+      },
+      {
+        "type": "file_range",
+        "path": "backend/app/api/v1/auth.py",
+        "startLine": 91,
+        "endLine": 92,
+        "raw": "backend/app/api/v1/auth.py:L91-L92"
+      },
+      {
+        "type": "file_range",
+        "path": "backend/app/mcp/server.py",
+        "startLine": 79,
+        "endLine": 89,
+        "raw": "backend/app/mcp/server.py:L79-L89"
+      },
+      {
+        "type": "file_range",
+        "path": "backend/app/mcp/server.py",
+        "startLine": 95,
+        "endLine": 107,
+        "raw": "backend/app/mcp/server.py:L95-L107"
+      },
+      {
+        "type": "file_range",
+        "path": "backend/app/mcp/authz.py",
+        "startLine": 5,
+        "endLine": 24,
+        "raw": "backend/app/mcp/authz.py:L5-L24"
+      },
+      {
+        "type": "file_range",
+        "path": "backend/app/mcp/authz.py",
+        "startLine": 27,
+        "endLine": 37,
+        "raw": "backend/app/mcp/authz.py:L27-L37"
+      },
+      {
+        "type": "file_range",
+        "path": "backend/app/middleware/auth.py",
+        "startLine": 66,
+        "endLine": 77,
+        "raw": "backend/app/middleware/auth.py:L66-L77"
+      },
+      {
+        "type": "file_range",
+        "path": "frontend/src/api.ts",
+        "startLine": 11,
+        "endLine": 15,
+        "raw": "frontend/src/api.ts:L11-L15"
+      },
+      {
+        "type": "file_range",
+        "path": "frontend/src/api.ts",
+        "startLine": 311,
+        "endLine": 333,
+        "raw": "frontend/src/api.ts:L311-L333"
+      },
+      {
+        "type": "file_range",
+        "path": "frontend/src/api.ts",
+        "startLine": 347,
+        "endLine": 369,
+        "raw": "frontend/src/api.ts:L347-L369"
+      },
+      {
+        "type": "file_range",
+        "path": "frontend/src/api.ts",
+        "startLine": 371,
+        "endLine": 383,
+        "raw": "frontend/src/api.ts:L371-L383"
+      },
+      {
+        "type": "file_range",
+        "path": "frontend/src/api.ts",
+        "startLine": 118,
+        "endLine": 123,
+        "raw": "frontend/src/api.ts:L118-L123"
+      },
+      {
+        "type": "file_range",
+        "path": "frontend/src/pages/Login.tsx",
+        "startLine": 13,
+        "endLine": 13,
+        "raw": "frontend/src/pages/Login.tsx:L13"
+      },
+      {
+        "type": "file_range",
+        "path": "frontend/src/pages/Login.tsx",
+        "startLine": 44,
+        "endLine": 49,
+        "raw": "frontend/src/pages/Login.tsx:L44-L49"
+      },
+      {
+        "type": "file_range",
+        "path": "frontend/src/pages/Login.tsx",
+        "startLine": 82,
+        "endLine": 89,
+        "raw": "frontend/src/pages/Login.tsx:L82-L89"
+      },
+      {
+        "type": "file_range",
+        "path": "frontend/src/api.ts",
+        "startLine": 13,
+        "endLine": 13,
+        "raw": "frontend/src/api.ts:L13"
+      },
+      {
+        "type": "file_range",
+        "path": "frontend/src/api.ts",
+        "startLine": 14,
+        "endLine": 15,
+        "raw": "frontend/src/api.ts:L14-L15"
+      },
+      {
+        "type": "file_range",
+        "path": "frontend/src/api.ts",
+        "startLine": 95,
+        "endLine": 100,
+        "raw": "frontend/src/api.ts:L95-L100"
+      },
+      {
+        "type": "file_range",
+        "path": "frontend/src/api.ts",
+        "startLine": 392,
+        "endLine": 402,
+        "raw": "frontend/src/api.ts:L392-L402"
+      },
+      {
+        "type": "file_range",
+        "path": "frontend/src/api.ts",
+        "startLine": 418,
+        "endLine": 421,
+        "raw": "frontend/src/api.ts:L418-L421"
+      },
+      {
+        "type": "file_range",
+        "path": "frontend/src/api.ts",
+        "startLine": 423,
+        "endLine": 431,
+        "raw": "frontend/src/api.ts:L423-L431"
+      },
+      {
+        "type": "file_range",
+        "path": "frontend/src/api.ts",
+        "startLine": 433,
+        "endLine": 435,
+        "raw": "frontend/src/api.ts:L433-L435"
+      },
+      {
+        "type": "file_range",
+        "path": "frontend/src/api.ts",
+        "startLine": 444,
+        "endLine": 450,
+        "raw": "frontend/src/api.ts:L444-L450"
+      },
+      {
+        "type": "file_range",
+        "path": "extensions/firefox-inbox/src/background/background.ts",
+        "startLine": 37,
+        "endLine": 40,
+        "raw": "extensions/firefox-inbox/src/background/background.ts:L37-L40"
+      },
+      {
+        "type": "file_range",
+        "path": "extensions/firefox-inbox/src/background/background.ts",
+        "startLine": 165,
+        "endLine": 172,
+        "raw": "extensions/firefox-inbox/src/background/background.ts:L165-L172"
+      },
+      {
+        "type": "file_range",
+        "path": "extensions/firefox-inbox/src/background/captureDraft.ts",
+        "startLine": 22,
+        "endLine": 40,
+        "raw": "extensions/firefox-inbox/src/background/captureDraft.ts:L22-L40"
+      },
+      {
+        "type": "file_range",
+        "path": "extensions/firefox-inbox/src/background/captureDraft.ts",
+        "startLine": 67,
+        "endLine": 69,
+        "raw": "extensions/firefox-inbox/src/background/captureDraft.ts:L67-L69"
+      },
+      {
+        "type": "file_range",
+        "path": "extensions/firefox-inbox/src/shared/apiClient.ts",
+        "startLine": 53,
+        "endLine": 89,
+        "raw": "extensions/firefox-inbox/src/shared/apiClient.ts:L53-L89"
+      },
+      {
+        "type": "file_range",
+        "path": "extensions/firefox-inbox/src/background/background.ts",
+        "startLine": 55,
+        "endLine": 71,
+        "raw": "extensions/firefox-inbox/src/background/background.ts:L55-L71"
+      },
+      {
+        "type": "file_range",
+        "path": "extensions/firefox-inbox/src/shared/apiClient.ts",
+        "startLine": 72,
+        "endLine": 79,
+        "raw": "extensions/firefox-inbox/src/shared/apiClient.ts:L72-L79"
+      },
+      {
+        "type": "file_range",
+        "path": "extensions/firefox-inbox/src/shared/apiClient.ts",
+        "startLine": 139,
+        "endLine": 141,
+        "raw": "extensions/firefox-inbox/src/shared/apiClient.ts:L139-L141"
+      },
+      {
+        "type": "file_range",
+        "path": "extensions/firefox-inbox/src/shared/apiClient.ts",
+        "startLine": 76,
+        "endLine": 76,
+        "raw": "extensions/firefox-inbox/src/shared/apiClient.ts:L76"
+      },
+      {
+        "type": "file_range",
+        "path": "extensions/firefox-inbox/src/shared/apiClient.ts",
+        "startLine": 105,
+        "endLine": 118,
+        "raw": "extensions/firefox-inbox/src/shared/apiClient.ts:L105-L118"
+      },
+      {
+        "type": "file_range",
+        "path": "extensions/firefox-inbox/src/shared/apiClient.ts",
+        "startLine": 120,
+        "endLine": 135,
+        "raw": "extensions/firefox-inbox/src/shared/apiClient.ts:L120-L135"
+      },
+      {
+        "type": "file_range",
+        "path": "extensions/firefox-inbox/src/background/background.ts",
+        "startLine": 38,
+        "endLine": 38,
+        "raw": "extensions/firefox-inbox/src/background/background.ts:L38"
+      },
+      {
+        "type": "file_range",
+        "path": "extensions/firefox-inbox/src/shared/apiClient.ts",
+        "startLine": 91,
+        "endLine": 103,
+        "raw": "extensions/firefox-inbox/src/shared/apiClient.ts:L91-L103"
+      },
+      {
+        "type": "file_range",
+        "path": "scripts/setup-ubuntu-24.04.sh",
+        "startLine": 1,
+        "endLine": 215,
+        "raw": "scripts/setup-ubuntu-24.04.sh:L1-L215"
+      },
+      {
+        "type": "file_range",
+        "path": "scripts/setup-ubuntu-24.04.sh",
+        "startLine": 73,
+        "endLine": 82,
+        "raw": "scripts/setup-ubuntu-24.04.sh:L73-L82"
+      },
+      {
+        "type": "file_range",
+        "path": "scripts/setup-ubuntu-24.04.sh",
+        "startLine": 87,
+        "endLine": 99,
+        "raw": "scripts/setup-ubuntu-24.04.sh:L87-L99"
+      },
+      {
+        "type": "file_range",
+        "path": "scripts/setup-ubuntu-24.04.sh",
+        "startLine": 52,
+        "endLine": 65,
+        "raw": "scripts/setup-ubuntu-24.04.sh:L52-L65"
+      },
+      {
+        "type": "file_range",
+        "path": "scripts/deploy-prx-lxc.sh",
+        "startLine": 1,
+        "endLine": 266,
+        "raw": "scripts/deploy-prx-lxc.sh:L1-L266"
+      },
+      {
+        "type": "file_range",
+        "path": "scripts/deploy-prx-lxc.sh",
+        "startLine": 4,
+        "endLine": 20,
+        "raw": "scripts/deploy-prx-lxc.sh:L4-L20"
+      },
+      {
+        "type": "file_range",
+        "path": "scripts/deploy-prx-lxc.sh",
+        "startLine": 60,
+        "endLine": 71,
+        "raw": "scripts/deploy-prx-lxc.sh:L60-L71"
+      },
+      {
+        "type": "file_range",
+        "path": "scripts/backup-sqlite.sh",
+        "startLine": 1,
+        "endLine": 174,
+        "raw": "scripts/backup-sqlite.sh:L1-L174"
+      },
+      {
+        "type": "file_range",
+        "path": "scripts/backup-sqlite.sh",
+        "startLine": 102,
+        "endLine": 110,
+        "raw": "scripts/backup-sqlite.sh:L102-L110"
+      },
+      {
+        "type": "file_range",
+        "path": "scripts/backup-sqlite.sh",
+        "startLine": 112,
+        "endLine": 122,
+        "raw": "scripts/backup-sqlite.sh:L112-L122"
+      },
+      {
+        "type": "file_range",
+        "path": "scripts/backup-sqlite.sh",
+        "startLine": 136,
+        "endLine": 145,
+        "raw": "scripts/backup-sqlite.sh:L136-L145"
+      },
+      {
+        "type": "file_range",
+        "path": "scripts/backup-sqlite.sh",
+        "startLine": 147,
+        "endLine": 162,
+        "raw": "scripts/backup-sqlite.sh:L147-L162"
+      },
+      {
+        "type": "file_range",
+        "path": "scripts/backup-sqlite.sh",
+        "startLine": 84,
+        "endLine": 96,
+        "raw": "scripts/backup-sqlite.sh:L84-L96"
+      },
+      {
+        "type": "file_range",
+        "path": "scripts/backup-sqlite.sh",
+        "startLine": 164,
+        "endLine": 166,
+        "raw": "scripts/backup-sqlite.sh:L164-L166"
+      },
+      {
+        "type": "file_range",
+        "path": "scripts/backup-sqlite.sh",
+        "startLine": 59,
+        "endLine": 64,
+        "raw": "scripts/backup-sqlite.sh:L59-L64"
+      },
+      {
+        "type": "file_range",
+        "path": "scripts/backup-sqlite.sh",
+        "startLine": 31,
+        "endLine": 31,
+        "raw": "scripts/backup-sqlite.sh:L31"
+      },
+      {
+        "type": "file_range",
+        "path": "android/app/src/main/java/com/studiousmemory/android/MainActivity.kt",
+        "startLine": 9,
+        "endLine": 19,
+        "raw": "android/app/src/main/java/com/studiousmemory/android/MainActivity.kt:L9-L19"
+      },
+      {
+        "type": "file_range",
+        "path": "frontend/src/pages/Login.tsx",
+        "startLine": 27,
+        "endLine": 92,
+        "raw": "`frontend/src/pages/Login.tsx:L27-L92`"
+      },
+      {
+        "type": "file_range",
+        "path": "frontend/src/api.ts",
+        "startLine": 347,
+        "endLine": 369,
+        "raw": "frontend/src/api.ts:L347-L369"
+      },
+      {
+        "type": "file_range",
+        "path": "frontend/src/api.ts",
+        "startLine": 355,
+        "endLine": 363,
+        "raw": "frontend/src/api.ts:L355-L363"
+      },
+      {
+        "type": "file_range",
+        "path": "frontend/src/api.ts",
+        "startLine": 371,
+        "endLine": 383,
+        "raw": "frontend/src/api.ts:L371-L383"
+      },
+      {
+        "type": "file_range",
+        "path": "frontend/src/api.ts",
+        "startLine": 107,
+        "endLine": 116,
+        "raw": "frontend/src/api.ts:L107-L116"
+      },
+      {
+        "type": "file_range",
+        "path": "extensions/firefox-inbox/src/background/background.ts",
+        "startLine": 86,
+        "endLine": 97,
+        "raw": "extensions/firefox-inbox/src/background/background.ts:L86-L97"
+      },
+      {
+        "type": "file_range",
+        "path": "extensions/firefox-inbox/src/background/background.ts",
+        "startLine": 36,
+        "endLine": 52,
+        "raw": "extensions/firefox-inbox/src/background/background.ts:L36-L52"
+      },
+      {
+        "type": "file_range",
+        "path": "extensions/firefox-inbox/src/background/captureDraft.ts",
+        "startLine": 22,
+        "endLine": 40,
+        "raw": "extensions/firefox-inbox/src/background/captureDraft.ts:L22-L40"
+      },
+      {
+        "type": "file_range",
+        "path": "extensions/firefox-inbox/src/background/background.ts",
+        "startLine": 99,
+        "endLine": 131,
+        "raw": "extensions/firefox-inbox/src/background/background.ts:L99-L131"
+      },
+      {
+        "type": "file_range",
+        "path": "extensions/firefox-inbox/src/shared/apiClient.ts",
+        "startLine": 53,
+        "endLine": 89,
+        "raw": "extensions/firefox-inbox/src/shared/apiClient.ts:L53-L89"
+      },
+      {
+        "type": "file_range",
+        "path": "extensions/firefox-inbox/src/background/background.ts",
+        "startLine": 115,
+        "endLine": 118,
+        "raw": "extensions/firefox-inbox/src/background/background.ts:L115-L118"
+      },
+      {
+        "type": "file_range",
+        "path": "backend/app/middleware/auth.py",
+        "startLine": 66,
+        "endLine": 77,
+        "raw": "backend/app/middleware/auth.py:L66-L77"
+      },
+      {
+        "type": "file_range",
+        "path": "backend/app/middleware/auth.py",
+        "startLine": 18,
+        "endLine": 23,
+        "raw": "backend/app/middleware/auth.py:L18-L23"
+      },
+      {
+        "type": "file_range",
+        "path": "backend/app/mcp/server.py",
+        "startLine": 95,
+        "endLine": 107,
+        "raw": "backend/app/mcp/server.py:L95-L107"
+      },
+      {
+        "type": "file_range",
+        "path": "backend/app/mcp/server.py",
+        "startLine": 79,
+        "endLine": 89,
+        "raw": "backend/app/mcp/server.py:L79-L89"
+      },
+      {
+        "type": "file_range",
+        "path": "scripts/backup-sqlite.sh",
+        "startLine": 102,
+        "endLine": 110,
+        "raw": "scripts/backup-sqlite.sh:L102-L110"
+      },
+      {
+        "type": "file_range",
+        "path": "scripts/backup-sqlite.sh",
+        "startLine": 112,
+        "endLine": 122,
+        "raw": "scripts/backup-sqlite.sh:L112-L122"
+      },
+      {
+        "type": "file_range",
+        "path": "scripts/backup-sqlite.sh",
+        "startLine": 124,
+        "endLine": 145,
+        "raw": "scripts/backup-sqlite.sh:L124-L145"
+      },
+      {
+        "type": "file_range",
+        "path": "scripts/backup-sqlite.sh",
+        "startLine": 147,
+        "endLine": 162,
+        "raw": "scripts/backup-sqlite.sh:L147-L162"
+      },
+      {
+        "type": "file_range",
+        "path": "scripts/backup-sqlite.sh",
+        "startLine": 164,
+        "endLine": 166,
+        "raw": "scripts/backup-sqlite.sh:L164-L166"
+      },
+      {
+        "type": "file_range",
+        "path": "scripts/backup-sqlite.sh",
+        "startLine": 168,
+        "endLine": 168,
+        "raw": "scripts/backup-sqlite.sh:L168-L168"
+      },
+      {
+        "type": "file_range",
+        "path": "scripts/backup-sqlite.sh",
+        "startLine": 169,
+        "endLine": 169,
+        "raw": "scripts/backup-sqlite.sh:L169-L169"
+      },
+      {
+        "type": "file_range",
+        "path": "scripts/backup-sqlite.sh",
+        "startLine": 172,
+        "endLine": 173,
+        "raw": "scripts/backup-sqlite.sh:L172-L173"
+      }
+    ],
+    "targets": [
+      {
+        "path": "backend/main.py",
+        "role": "reference",
+        "reason": "Markdown report citation",
+        "evidenceRefs": [],
+        "startLine": 74,
+        "endLine": 74
+      },
+      {
+        "path": "backend/mcp_server.py",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 2 ranges.",
+        "evidenceRefs": [],
+        "startLine": 8,
+        "endLine": 39
+      },
+      {
+        "path": "backend/app/api/v1/auth.py",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 4 ranges.",
+        "evidenceRefs": [],
+        "startLine": 69,
+        "endLine": 194
+      },
+      {
+        "path": "backend/app/mcp/server.py",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 4 ranges.",
+        "evidenceRefs": [],
+        "startLine": 79,
+        "endLine": 107
+      },
+      {
+        "path": "backend/app/mcp/authz.py",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 2 ranges.",
+        "evidenceRefs": [],
+        "startLine": 5,
+        "endLine": 37
+      },
+      {
+        "path": "backend/app/middleware/auth.py",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 3 ranges.",
+        "evidenceRefs": [],
+        "startLine": 18,
+        "endLine": 77
+      },
+      {
+        "path": "frontend/src/api.ts",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 17 ranges.",
+        "evidenceRefs": [],
+        "startLine": 11,
+        "endLine": 450
+      },
+      {
+        "path": "frontend/src/pages/Login.tsx",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 4 ranges.",
+        "evidenceRefs": [],
+        "startLine": 13,
+        "endLine": 92
+      },
+      {
+        "path": "extensions/firefox-inbox/src/background/background.ts",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 8 ranges.",
+        "evidenceRefs": [],
+        "startLine": 36,
+        "endLine": 172
+      },
+      {
+        "path": "extensions/firefox-inbox/src/background/captureDraft.ts",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 3 ranges.",
+        "evidenceRefs": [],
+        "startLine": 22,
+        "endLine": 69
+      },
+      {
+        "path": "extensions/firefox-inbox/src/shared/apiClient.ts",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 8 ranges.",
+        "evidenceRefs": [],
+        "startLine": 53,
+        "endLine": 141
+      },
+      {
+        "path": "scripts/setup-ubuntu-24.04.sh",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 4 ranges.",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 215
+      },
+      {
+        "path": "scripts/deploy-prx-lxc.sh",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 3 ranges.",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 266
+      },
+      {
+        "path": "scripts/backup-sqlite.sh",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 17 ranges.",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 174
+      },
+      {
+        "path": "android/app/src/main/java/com/studiousmemory/android/MainActivity.kt",
+        "role": "reference",
+        "reason": "Markdown report citation",
+        "evidenceRefs": [],
+        "startLine": 9,
+        "endLine": 19
+      }
+    ],
+    "filesRead": [
+      "backend/main.py",
+      "backend/mcp_server.py",
+      "backend/app/api/router.py",
+      "backend/app/api/v1/auth.py",
+      "backend/app/mcp/server.py",
+      "extensions/firefox-inbox/src/background/captureDraft.ts",
+      "extensions/firefox-inbox/src/background/background.ts",
+      "frontend/src/api.ts",
+      "frontend/src/pages/Login.tsx",
+      "backend/app/mcp/authz.py",
+      "extensions/firefox-inbox/src/shared/apiClient.ts",
+      "scripts/setup-ubuntu-24.04.sh",
+      "scripts/deploy-prx-lxc.sh",
+      "android/app/src/main/java/com/studiousmemory/android/MainActivity.kt",
+      "scripts/backup-sqlite.sh",
+      "backend/app/middleware/auth.py"
+    ],
+    "toolsUsed": [
+      "repo_list_dir",
+      "repo_read_file",
+      "repo_find_files",
+      "repo_grep"
+    ],
+    "stats": {
+      "model": "zai-glm-4.7",
+      "budget": "deep",
+      "turns": 14,
+      "toolCalls": 34,
+      "listDirCalls": 8,
+      "findFileCalls": 6,
+      "grepCalls": 1,
+      "filesRead": 19,
+      "gitLogCalls": 0,
+      "gitBlameCalls": 0,
+      "gitDiffCalls": 0,
+      "gitShowCalls": 0,
+      "symbolCalls": 0,
+      "elapsedMs": 23093,
+      "stoppedByBudget": false,
+      "llmCompactions": 0,
+      "toolResultsTruncated": 6,
+      "outputRecoveries": 0,
+      "scope": [
+        "backend/**",
+        "frontend/src/**",
+        "extensions/firefox-inbox/src/**",
+        "scripts/**",
+        "android/**"
+      ],
+      "repoRoot": "/home/kyubr/IdeaProjects/studious-memory",
+      "sessionId": "sess_d0f3554a2bfa715e",
+      "sessionStatus": "created",
+      "sessionSource": "created",
+      "remainingCalls": 4,
+      "inputTokens": 280959,
+      "outputTokens": 7723,
+      "totalTokens": 288682,
+      "cacheHits": 197,
+      "cacheMisses": 667,
+      "cacheHitRate": 0.228,
+      "cacheEntries": 656,
+      "cacheSizeBytes": 3948398
+    },
+    "critic": {
+      "status": "caution",
+      "warnings": [
+        {
+          "type": "truncated_tool_results",
+          "severity": "low",
+          "message": "6 tool result(s) were truncated before model synthesis; re-run with a narrower query or read specific ranges if expected evidence is missing.",
+          "action": "Use a narrower follow-up query or read specific ranges before relying on missing evidence."
+        }
+      ]
+    },
+    "searchCoverage": {
+      "scope": [
+        "backend/**",
+        "frontend/src/**",
+        "extensions/firefox-inbox/src/**",
+        "scripts/**",
+        "android/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 19,
+      "grepCalls": 1,
+      "listDirCalls": 8,
+      "symbolCalls": 0,
+      "toolResultsTruncated": 6,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: backend/**, frontend/src/**, extensions/firefox-inbox/src/**, scripts/**, android/**",
+        "6 tool result(s) were truncated before model synthesis; re-run with a narrower query or read specific ranges if expected evidence is missing."
+      ],
+      "summary": "scope-limited search across backend/**, frontend/src/**, extensions/firefox-inbox/src/**, scripts/**, android/**; 19 file read(s), 1 grep search(es)."
+    },
+    "transcriptPath": null,
+    "toolTrace": {
+      "entries": [
+        {
+          "turn": 1,
+          "tool": "repo_list_dir",
+          "args": {
+            "dirPath": "."
+          },
+          "result": {
+            "entries": 55,
+            "paths": [
+              "android",
+              "android/.gradle",
+              "android/.kotlin",
+              "android/README.md",
+              "android/app",
+              "android/build.gradle.kts"
+            ]
+          }
+        },
+        {
+          "turn": 2,
+          "tool": "repo_list_dir",
+          "args": {
+            "dirPath": "backend"
+          },
+          "result": {
+            "entries": 80,
+            "paths": [
+              "backend/.local",
+              "backend/.pytest_cache",
+              "backend/.python-version",
+              "backend/.tmp",
+              "backend/alembic.ini",
+              "backend/app"
+            ]
+          }
+        },
+        {
+          "turn": 2,
+          "tool": "repo_list_dir",
+          "args": {
+            "dirPath": "frontend/src"
+          },
+          "result": {
+            "entries": 80,
+            "paths": [
+              "frontend/src/App.tsx",
+              "frontend/src/ErrorBoundary.tsx",
+              "frontend/src/api.ts",
+              "frontend/src/assets",
+              "frontend/src/assets/maid.ts",
+              "frontend/src/components"
+            ]
+          }
+        },
+        {
+          "turn": 2,
+          "tool": "repo_list_dir",
+          "args": {
+            "dirPath": "extensions/firefox-inbox/src"
+          },
+          "result": {
+            "entries": 32,
+            "paths": [
+              "extensions/firefox-inbox/src/background",
+              "extensions/firefox-inbox/src/background/background.ts",
+              "extensions/firefox-inbox/src/background/captureDraft.ts",
+              "extensions/firefox-inbox/src/content",
+              "extensions/firefox-inbox/src/content/getSelection.ts",
+              "extensions/firefox-inbox/src/options"
+            ]
+          }
+        },
+        {
+          "turn": 3,
+          "tool": "repo_read_file",
+          "args": {
+            "path": "backend/main.py"
+          },
+          "result": {
+            "path": "backend/main.py",
+            "startLine": 1,
+            "endLine": 320,
+            "totalLines": 783,
+            "truncated": true
+          }
+        },
+        {
+          "turn": 3,
+          "tool": "repo_read_file",
+          "args": {
+            "path": "backend/mcp_server.py"
+          },
+          "result": {
+            "path": "backend/mcp_server.py",
+            "startLine": 1,
+            "endLine": 41,
+            "totalLines": 41,
+            "truncated": true
+          }
+        },
+        {
+          "turn": 3,
+          "tool": "repo_list_dir",
+          "args": {
+            "dirPath": "backend/app/api/v1"
+          },
+          "result": {
+            "entries": 49,
+            "paths": [
+              "backend/app/api/v1/__init__.py",
+              "backend/app/api/v1/access_profiles.py",
+              "backend/app/api/v1/actions.py",
+              "backend/app/api/v1/activity.py",
+              "backend/app/api/v1/admin.py",
+              "backend/app/api/v1/agent.py"
+            ]
+          }
+        },
+        {
+          "turn": 4,
+          "tool": "repo_read_file",
+          "args": {
+            "path": "backend/app/api/router.py"
+          },
+          "result": {
+            "path": "backend/app/api/router.py",
+            "startLine": 1,
+            "endLine": 55,
+            "totalLines": 55,
+            "truncated": true
+          }
+        },
+        {
+          "turn": 4,
+          "tool": "repo_read_file",
+          "args": {
+            "path": "backend/app/api/v1/auth.py",
+            "startLine": 1,
+            "endLine": 100
+          },
+          "result": {
+            "path": "backend/app/api/v1/auth.py",
+            "startLine": 1,
+            "endLine": 100,
+            "totalLines": 616,
+            "truncated": true
+          }
+        },
+        {
+          "turn": 4,
+          "tool": "repo_find_files",
+          "args": {
+            "pattern": "backend/app/mcp/**/*.py"
+          },
+          "result": {
+            "matches": 14,
+            "paths": [
+              "backend/app/mcp/__init__.py",
+              "backend/app/mcp/authz.py",
+              "backend/app/mcp/context.py",
+              "backend/app/mcp/server.py",
+              "backend/app/mcp/tools/__init__.py",
+              "backend/app/mcp/tools/agent_tools.py"
+            ],
+            "truncated": false
+          }
+        },
+        {
+          "turn": 5,
+          "tool": "repo_read_file",
+          "args": {
+            "path": "backend/app/mcp/server.py"
+          },
+          "result": {
+            "path": "backend/app/mcp/server.py",
+            "startLine": 1,
+            "endLine": 320,
+            "totalLines": 947,
+            "truncated": true
+          }
+        },
+        {
+          "turn": 5,
+          "tool": "repo_read_file",
+          "args": {
+            "path": "extensions/firefox-inbox/src/background/captureDraft.ts"
+          },
+          "result": {
+            "path": "extensions/firefox-inbox/src/background/captureDraft.ts",
+            "startLine": 1,
+            "endLine": 82,
+            "totalLines": 82,
+            "truncated": true
+          }
+        },
+        {
+          "turn": 5,
+          "tool": "repo_find_files",
+          "args": {
+            "pattern": "frontend/src/**/auth*.ts"
+          },
+          "result": {
+            "matches": 0,
+            "paths": [],
+            "truncated": false
+          }
+        },
+        {
+          "turn": 5,
+          "tool": "repo_find_files",
+          "args": {
+            "pattern": "frontend/src/**/Auth*.tsx"
+          },
+          "result": {
+            "matches": 1,
+            "paths": [
+              "frontend/src/components/AuthArtworkPanel.tsx"
+            ],
+            "truncated": false
+          }
+        },
+        {
+          "turn": 6,
+          "tool": "repo_read_file",
+          "args": {
+            "path": "extensions/firefox-inbox/src/background/background.ts"
+          },
+          "result": {
+            "path": "extensions/firefox-inbox/src/background/background.ts",
+            "startLine": 1,
+            "endLine": 191,
+            "totalLines": 191,
+            "truncated": true
+          }
+        },
+        {
+          "turn": 6,
+          "tool": "repo_find_files",
+          "args": {
+            "pattern": "frontend/src/features/**/auth*"
+          },
+          "result": {
+            "matches": 0,
+            "paths": [],
+            "truncated": false
+          }
+        },
+        {
+          "turn": 6,
+          "tool": "repo_find_files",
+          "args": {
+            "pattern": "frontend/src/features/**/login*"
+          },
+          "result": {
+            "matches": 0,
+            "paths": [],
+            "truncated": false
+          }
+        },
+        {
+          "turn": 6,
+          "tool": "repo_list_dir",
+          "args": {
+            "dirPath": "android/app/src/main"
+          },
+          "result": {
+            "entries": 8,
+            "paths": [
+              "android/app/src/main/AndroidManifest.xml",
+              "android/app/src/main/java",
+              "android/app/src/main/java/com",
+              "android/app/src/main/res",
+              "android/app/src/main/res/drawable",
+              "android/app/src/main/res/mipmap-anydpi"
+            ]
+          }
+        },
+        {
+          "turn": 7,
+          "tool": "repo_read_file",
+          "args": {
+            "path": "frontend/src/api.ts",
+            "startLine": 1,
+            "endLine": 150
+          },
+          "result": {
+            "path": "frontend/src/api.ts",
+            "startLine": 1,
+            "endLine": 150,
+            "totalLines": 781,
+            "truncated": true
+          }
+        },
+        {
+          "turn": 7,
+          "tool": "repo_list_dir",
+          "args": {
+            "dirPath": "frontend/src/features"
+          },
+          "result": {
+            "entries": 22,
+            "paths": [
+              "frontend/src/features/agent-runs",
+              "frontend/src/features/ai-config",
+              "frontend/src/features/ai-logs",
+              "frontend/src/features/briefing",
+              "frontend/src/features/calendar",
+              "frontend/src/features/chat"
+            ]
+          }
+        }
+      ],
+      "totalCalls": 34,
+      "truncated": true,
+      "maxEntries": 20
+    }
+  },
+  "contentText": "# Architecture Report: Studious Memory\n\n## Summary\n\nStudious Memory is a privacy-focused personal knowledge system with a **FastAPI/MCP backend**, **React frontend**, **Firefox browser extension** for content capture, **Android app** for mobile access, and a comprehensive **ops suite** for deployment and maintenance. The backend exposes both REST API endpoints and MCP (Model Context Protocol) tools with OAuth-based scope authorization. The frontend uses session-based authentication with optional TOTP 2FA. The Firefox extension captures web content and submits it to the backend via API key authentication. Operations are automated through bash scripts with encrypted backups, health monitoring, and container deployment.\n\n---\n\n## Findings\n\n### 1. Backend MCP/FastAPI Surface\n\n#### Entry Points\n- **Main FastAPI App**: `backend/main.py` serves as the primary HTTP server entry point\n  - MCP sub-app mounted at `/mcp` via `mcp.streamable_http_app()` (backend/main.py:L74)\n  - Comprehensive middleware stack for auth, rate limiting, logging, IP blocking\n  - Background loop supervisors for digest, reminders, notifications, proactive engine\n- **MCP Stdio Transport**: `backend/mcp_server.py` provides stdio transport entry for MCP clients\n  - Runs Alembic migrations before startup (backend/mcp_server.py:L8-L23)\n  - Sets default owner ID and auth context for local stdio clients (backend/mcp_server.py:L34-L39)\n\n#### API Structure\n- **Router**: `backend/app/api/router.py` aggregates 53 v1 endpoint modules organized by domain\n  - Core routes: auth, agent, chat, sources, orchestrator, approvals, security\n  - Knowledge routes: knowledge, memory, diaries, todos, schedules, reminders\n  - Operations routes: admin, audit_logs, ai_config, ai_logs, notification_*\n  - External routes: openai_compat, proactive, relationships, search\n- **Auth Endpoints**: `backend/app/api/v1/auth.py` implements authentication\n  - `POST /auth/session` - Password login with optional TOTP 2FA (backend/app/api/v1/auth.py:L69-L83)\n  - `POST /auth/session/2fa` - Complete 2FA verification (backend/app/api/v1/auth.py:L86-L88)\n  - Session tokens include owner_id, role, scopes, access_profile_id (backend/app/api/v1/auth.py:L157-L194)\n  - Profile switching between \"full\" and \"work_safe\" modes (backend/app/api/v1/auth.py:L91-L92)\n\n#### MCP Server\n- **Server Setup**: `backend/app/mcp/server.py` uses FastMCP framework with scoped tools\n  - All tools decorated with `@scoped_tool()` requiring specific OAuth scopes (backend/app/mcp/server.py:L79-L89)\n  - Dynamic tool listing filtered by granted scopes (backend/app/mcp/server.py:L95-L107)\n- **OAuth Scopes**: `backend/app/mcp/authz.py` defines fine-grained authorization\n  - Scopes: `maidbot.memory.read/write`, `maidbot.todo.write`, `maidbot.reminder.write`, `maidbot.schedule.write`, `maidbot.loop.write`, `maidbot.approval.read`, `maidbot.web.search`, `maidbot.naver.agent` (backend/app/mcp/authz.py:L5-L24)\n  - Legacy scope expansion for backward compatibility (backend/app/mcp/authz.py:L27-L37)\n- **Tool Categories**: \n  - **Input/Write**: `process_input`, `orchestrate_input`, `add_knowledge`, `add_todo`, `add_schedule`, `add_reminder`\n  - **Query**: `search`, `get_knowledge`, `get_todos`, `get_reminders`, `get_schedule`, `get_loops`\n  - **Proactive**: `get_proactive_suggestions`, `get_briefing_today`, `prepare_for_meeting`\n  - **Approvals**: `list_pending_approvals`, `preview_sensitive_action`\n\n#### Middleware Stack\nLocated in `backend/app/middleware/`:\n- **Auth Middleware** (`auth.py`): Authenticates requests via Bearer tokens or MCP query param (backend/app/middleware/auth.py:L66-L77)\n- **Rate Limit Middleware** (`rate_limit.py`): Enforces rate limits per API key\n- **IP Block Middleware** (`ip_block.py`): Blocks malicious IP addresses\n- **MCP Middleware** (`mcp_middleware.py`): Request logging and concurrency limiting for MCP\n- **Correlation ID Middleware** (`correlation_id.py`): Request tracing via correlation IDs\n- **Request Logger Middleware** (`request_logger.py`): Structured request/response logging\n\n---\n\n### 2. Frontend Auth\n\n#### Architecture\n- **Centralized Auth**: All auth logic in `frontend/src/api.ts` (not a separate feature folder)\n- **Session Storage**: Uses `sessionStorage` for token persistence with custom events for change notifications (frontend/src/api.ts:L11-L15)\n- **Session Lifecycle**:\n  - `bootstrapSession()` validates stored session on app load (frontend/src/api.ts:L311-L333)\n  - `createSessionWithPassword()` initiates password login (frontend/src/api.ts:L347-L369)\n  - `completeSessionWith2FA()` finalizes TOTP verification (frontend/src/api.ts:L371-L383)\n  - `clearStoredSession()` logs out by clearing storage and emitting events (frontend/src/api.ts:L118-L123)\n\n#### Login Flow\n- **UI Component**: `frontend/src/pages/Login.tsx` handles password and TOTP modes\n  - Two modes: `'password'` and `'totp'` (frontend/src/pages/Login.tsx:L13)\n  - Password submission → if 2FA enabled, receives `pendingToken` and switches to TOTP mode (frontend/src/pages/Login.tsx:L44-L49)\n  - TOTP code submission with `pendingToken` completes authentication (frontend/src/pages/Login.tsx:L82-L89)\n- **Error Handling**: User-friendly error messages with i18n support\n\n#### Session Management\n- **Token Storage**: Session token stored in `sessionStorage` under `studious_session_token` key (frontend/src/api.ts:L13)\n- **Event System**: Custom events `studious:session-change` and `studious:session-info-change` notify subscribers (frontend/src/api.ts:L14-L15, L83-L95)\n- **Session Info**: Includes authenticated status, role, scopes, owner_id, access_profile_id, profile_mode (frontend/src/api.ts:L95-L100)\n- **Profile Switching**: `switchSessionProfile()` allows toggling between \"full\" and \"work_safe\" modes (frontend/src/api.ts:L392-L402)\n\n#### TOTP Management\n- **Status Check**: `getTotpStatus()` returns enabled status, enrollment time, backup codes remaining (frontend/src/api.ts:L418-L421)\n- **Enrollment**: `startTotpEnrollment()` generates QR code/OTP URI, `confirmTotpEnrollment()` finalizes with backup codes (frontend/src/api.ts:L423-L431)\n- **Disabling**: `disableTotp()` removes TOTP from account (frontend/src/api.ts:L433-L435)\n\n#### Sudo Mode\n- **Elevated Privileges**: `getSudoStatus()` checks sudo grant status for sensitive operations (frontend/src/api.ts:L444-L450)\n- Integration with `promptSudo()` from `features/sudo/sudoController` for elevation flow\n\n---\n\n### 3. Extension Capture (Firefox)\n\n#### Architecture\nLocated in `extensions/firefox-inbox/src/`:\n- **Background Script**: `background/background.ts` is the main message handler\n- **Draft Management**: `background/captureDraft.ts` creates and manages capture state\n- **API Client**: `shared/apiClient.ts` submits captures to backend\n- **Page Policy**: `shared/pagePolicy.ts` prevents capturing sensitive pages\n- **Storage**: `shared/storage.ts` persists settings and drafts\n\n#### Capture Flow\n1. **Trigger**: User invokes capture from browser action\n2. **Page Evaluation**: `evaluatePagePolicy()` checks URL and incognito status (extensions/firefox-inbox/src/background/background.ts:L37-L40)\n3. **Selection Extraction**: Script injection extracts selected text (extensions/firefox-inbox/src/background/background.ts:L165-L172)\n4. **Draft Creation**: `createCaptureDraft()` creates draft with metadata (extensions/firefox-inbox/src/background/captureDraft.ts:L22-L40)\n   - Fields: `pageUrl`, `pageTitle`, `selectedText`, `fallbackNote`, `clientCaptureId`, `receivedClientAt`\n   - State machine: 'ready' → 'submitting' → 'submitted' or 'failed_retryable'/'failed_terminal'\n5. **Validation**: Checks text length (100K char limit) via `isCaptureTextOversized()` (extensions/firefox-inbox/src/background/captureDraft.ts:L67-L69)\n6. **Submission**: `submitCapture()` POSTs to `/api/v1/sources/intake` with API key auth (extensions/firefox-inbox/src/shared/apiClient.ts:L53-L89)\n7. **Retry Logic**: Failed drafts stored locally for retry via `retryLast\n... [truncated 11623 chars]"
+}

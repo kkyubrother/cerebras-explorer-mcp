@@ -1,0 +1,1283 @@
+{
+  "tool": "map_change_impact",
+  "repo": "aicc_manage",
+  "args": {
+    "repo_root": "/home/kyubr/IdeaProjects/aicc_manage",
+    "scope": [
+      "src/**",
+      "websocket-server/src/**",
+      "lambda/**",
+      "prisma/**",
+      "scripts/**"
+    ],
+    "change": "tighten websocket authentication and internal secret validation without breaking notification pushes",
+    "knownFiles": [
+      "websocket-server/src/middleware/auth.ts"
+    ],
+    "knownSymbols": [
+      "authMiddleware"
+    ]
+  },
+  "elapsedMs": 13338,
+  "error": null,
+  "isError": false,
+  "summary": {
+    "directAnswer": "Impact mapping complete. Primary edit targets: websocket-server/src/middleware/auth.ts (JWT_SECRET validation at lines 24-28, authMiddleware at 51-121) and websocket-server/src/middleware/security.ts (validateInternalSecret at 138-153, weak secrets at 142-145). Critical path: /api/notify endpoint (index.ts 65-89) protected by validateInternalSecret, used by notification creation (src/lib/notifications/create.ts 105-126). Client connections via use-notification-socket.ts and use-chat-socket.ts use JWT tokens. No websocket-specific tests found - testing gap.",
+    "status": {
+      "confidence": "high",
+      "verification": "targeted_read_needed",
+      "complete": true,
+      "warnings": []
+    },
+    "evidenceQuality": {
+      "level": "high",
+      "exactCount": 8,
+      "partialCount": 0,
+      "droppedCount": 0,
+      "fileCount": 6,
+      "warnings": [],
+      "summary": "Verified: 7 files read, 7 grep searches, 3 symbol lookups, 8/8 evidence items grounded, cross-verified across 6 files. All evidence grounded in inspected code."
+    },
+    "failure": null,
+    "nextAction": {
+      "type": "read_target",
+      "reason": "Read websocket-server/src/middleware/auth.ts:24-28 before editing.",
+      "target": {
+        "path": "websocket-server/src/middleware/auth.ts",
+        "role": "edit",
+        "reason": "JWT_SECRET config lacks weak secret validation",
+        "evidenceRefs": [
+          "E1"
+        ],
+        "startLine": 24,
+        "endLine": 28
+      }
+    },
+    "searchCoverage": {
+      "scope": [
+        "src/**",
+        "websocket-server/src/**",
+        "lambda/**",
+        "prisma/**",
+        "scripts/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 7,
+      "grepCalls": 7,
+      "listDirCalls": 0,
+      "symbolCalls": 3,
+      "toolResultsTruncated": 0,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: src/**, websocket-server/src/**, lambda/**, prisma/**, scripts/**"
+      ],
+      "summary": "scope-limited search across src/**, websocket-server/src/**, lambda/**, prisma/**, scripts/**; 7 file read(s), 7 grep search(es)."
+    },
+    "critic": null,
+    "sessionId": "sess_62fc8f75f36dd93b",
+    "session": {
+      "id": "sess_62fc8f75f36dd93b",
+      "status": "created",
+      "remainingCalls": 4
+    },
+    "targets": [
+      {
+        "path": "websocket-server/src/middleware/auth.ts",
+        "role": "edit",
+        "reason": "JWT_SECRET config lacks weak secret validation",
+        "evidenceRefs": [
+          "E1"
+        ],
+        "startLine": 24,
+        "endLine": 28
+      },
+      {
+        "path": "websocket-server/src/middleware/auth.ts",
+        "role": "edit",
+        "reason": "authMiddleware may need stricter payload validation",
+        "evidenceRefs": [
+          "E2"
+        ],
+        "startLine": 51,
+        "endLine": 121
+      },
+      {
+        "path": "websocket-server/src/middleware/security.ts",
+        "role": "edit",
+        "reason": "validateInternalSecret has basic weak secret blocklist",
+        "evidenceRefs": [
+          "E3"
+        ],
+        "startLine": 138,
+        "endLine": 153
+      },
+      {
+        "path": "websocket-server/src/middleware/security.ts",
+        "role": "edit",
+        "reason": "Weak secrets list may need expansion",
+        "evidenceRefs": [],
+        "startLine": 142,
+        "endLine": 145
+      },
+      {
+        "path": "websocket-server/src/index.ts",
+        "role": "context",
+        "reason": "Single caller: io.use(authMiddleware) for all sockets",
+        "evidenceRefs": [
+          "E4"
+        ],
+        "startLine": 146,
+        "endLine": 146
+      },
+      {
+        "path": "websocket-server/src/index.ts",
+        "role": "context",
+        "reason": "/api/notify endpoint - critical notification push path",
+        "evidenceRefs": [
+          "E5"
+        ],
+        "startLine": 65,
+        "endLine": 89
+      },
+      {
+        "path": "src/lib/notifications/create.ts",
+        "role": "read",
+        "reason": "Notification push sends INTERNAL_API_SECRET header",
+        "evidenceRefs": [
+          "E6"
+        ],
+        "startLine": 105,
+        "endLine": 126
+      },
+      {
+        "path": "src/lib/auth/jwt.ts",
+        "role": "read",
+        "reason": "Token creation uses HS256 with 24h expiration",
+        "evidenceRefs": [
+          "E7"
+        ],
+        "startLine": 29,
+        "endLine": 45
+      }
+    ],
+    "discoveredPathsCount": 30,
+    "evidence": [
+      {
+        "id": "E1",
+        "path": "websocket-server/src/middleware/auth.ts",
+        "startLine": 24,
+        "endLine": 28,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "JWT_SECRET config: direct env read without weak check",
+        "snippet": "24: const JWT_SECRET: string = (() => {\n25:   const secret = process.env.JWT_SECRET\n26:   if (!secret) throw new Error('JWT_SECRET must be set')\n27:   return secret\n28: })()"
+      },
+      {
+        "id": "E2",
+        "path": "websocket-server/src/middleware/auth.ts",
+        "startLine": 51,
+        "endLine": 121,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "authMiddleware function: JWT validation logic",
+        "snippet": "51: export function authMiddleware(socket: Socket, next: (err?: Error) => void) {\n52:   const ip = getSocketIp(socket)\n53: \n54:   // 무차별 대입 공격 차단\n55:   const failure = authFailures.get(ip)\n56:   if (failure && failure.count >= AUTH_BLOCK_THRESHOLD) {\n57:     const elapsed = Date.now() - failure.lastAttempt\n58:     if (elapsed < AUTH_BLOCK_DURATION) {\n59:       logger.warn('Auth', 'Blocked - too many failed attempts', { ip, failCount: failure.count })\n60:       return next(new Error('너무 많은 인증 시도입니다. 잠시 후 다시 시도해주세요.'))\n61:     }\n62:     // 차단 시간 경과 → 초기화\n... [snippet truncated]"
+      },
+      {
+        "id": "E3",
+        "path": "websocket-server/src/middleware/security.ts",
+        "startLine": 138,
+        "endLine": 153,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "validateInternalSecret: weak secret blocklist",
+        "snippet": "138: export function validateInternalSecret(secret: string | undefined): boolean {\n139:   const INTERNAL_API_SECRET = process.env.INTERNAL_API_SECRET\n140: \n141:   // 기본값이거나 너무 짧은 시크릿 차단\n142:   const WEAK_SECRETS = ['aicc-internal-secret', 'secret', 'test', '']\n143:   if (!INTERNAL_API_SECRET || WEAK_SECRETS.includes(INTERNAL_API_SECRET)) {\n144:     console.error('[Security] INTERNAL_API_SECRET is weak or not set. Set a strong secret in [REDACTED:secret-path]')\n145:     return false\n146:   }\n147: \n148:   if (!secret || secret !== INTERNAL_API_SECRET) {\n149:     return false\n... [snippet truncated]"
+      },
+      {
+        "id": "E4",
+        "path": "websocket-server/src/index.ts",
+        "startLine": 146,
+        "endLine": 146,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "authMiddleware usage: single caller for all sockets",
+        "snippet": "146: io.use(authMiddleware)"
+      },
+      {
+        "id": "E5",
+        "path": "websocket-server/src/index.ts",
+        "startLine": 65,
+        "endLine": 89,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "/api/notify endpoint: protected by validateInternalSecret",
+        "snippet": "65:   // 내부 알림 푸시 API\n66:   if (req.method === 'POST' && req.url === '/api/notify') {\n67:     const secret = req.headers['x-internal-secret'] as string | undefined\n68:     if (!validateInternalSecret(secret)) {\n69:       res.writeHead(401, { 'Content-Type': 'application/json' })\n70:       res.end(JSON.stringify({ error: 'Unauthorized' }))\n71:       return\n72:     }\n73: \n74:     try {\n75:       const body = await collectBody(req)\n76:       const data = JSON.parse(body)\n... [snippet truncated]"
+      },
+      {
+        "id": "E6",
+        "path": "src/lib/notifications/create.ts",
+        "startLine": 105,
+        "endLine": 126,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Notification creation: sends INTERNAL_API_SECRET header",
+        "snippet": "105:       fetch(`${wsUrl}/api/notify`, {\n106:         method: 'POST',\n107:         headers: {\n108:           'Content-Type': 'application/json',\n109:           'X-Internal-Secret': process.env.INTERNAL_API_SECRET || '',\n110:         },\n111:         body: JSON.stringify({\n112:           userId: params.userId,\n113:           notification: {\n114:             id: notification.id,\n115:             type: notification.type,\n116:             title: notification.title,\n... [snippet truncated]"
+      },
+      {
+        "id": "E7",
+        "path": "src/lib/auth/jwt.ts",
+        "startLine": 29,
+        "endLine": 45,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "createToken function: HS256, 24h expiration",
+        "snippet": "29: export async function createToken(\n30:   payload: Omit<JWTTokenPayload, 'iat' | 'exp'>,\n31:   sessionTimeoutMinutes?: number\n32: ): Promise<string> {\n33:   const secret = getJwtSecret()\n34:   const expiration = sessionTimeoutMinutes\n35:     ? `${sessionTimeoutMinutes}m`\n36:     : '24h'\n37: \n38:   const token = await new SignJWT(payload)\n39:     .setProtectedHeader({ alg: 'HS256' })\n40:     .setIssuedAt()\n... [snippet truncated]"
+      },
+      {
+        "id": "E8",
+        "path": "src/lib/hooks/use-notification-socket.ts",
+        "startLine": 52,
+        "endLine": 63,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Client connection: sends token via auth field",
+        "snippet": "52:   const connect = useCallback(() => {\n53:     if (!token || socketRef.current?.connected) return\n54: \n55:     socketRef.current = io(url, {\n56:       auth: { token },\n57:       transports: ['websocket', 'polling'],\n58:       reconnection: true,\n59:       reconnectionAttempts: 5,\n60:       reconnectionDelay: 3000,\n61:       reconnectionDelayMax: 15000,\n62:       timeout: 10000,\n63:     })"
+      }
+    ],
+    "uncertainties": [
+      "No websocket-specific unit tests found - testing gap",
+      "Environment config files not found in search scope",
+      "Token refresh flow impact not fully traced"
+    ],
+    "stats": {
+      "turns": 8,
+      "toolCalls": 20,
+      "filesRead": 7,
+      "grepCalls": 7,
+      "symbolCalls": 3,
+      "stoppedByBudget": false,
+      "elapsedMs": 13327,
+      "totalTokens": 197533
+    }
+  },
+  "structuredContent": {
+    "schemaVersion": 1,
+    "directAnswer": "Impact mapping complete. Primary edit targets: websocket-server/src/middleware/auth.ts (JWT_SECRET validation at lines 24-28, authMiddleware at 51-121) and websocket-server/src/middleware/security.ts (validateInternalSecret at 138-153, weak secrets at 142-145). Critical path: /api/notify endpoint (index.ts 65-89) protected by validateInternalSecret, used by notification creation (src/lib/notifications/create.ts 105-126). Client connections via use-notification-socket.ts and use-chat-socket.ts use JWT tokens. No websocket-specific tests found - testing gap.",
+    "status": {
+      "confidence": "high",
+      "verification": "targeted_read_needed",
+      "complete": true,
+      "warnings": []
+    },
+    "targets": [
+      {
+        "path": "websocket-server/src/middleware/auth.ts",
+        "role": "edit",
+        "reason": "JWT_SECRET config lacks weak secret validation",
+        "evidenceRefs": [
+          "E1"
+        ],
+        "startLine": 24,
+        "endLine": 28
+      },
+      {
+        "path": "websocket-server/src/middleware/auth.ts",
+        "role": "edit",
+        "reason": "authMiddleware may need stricter payload validation",
+        "evidenceRefs": [
+          "E2"
+        ],
+        "startLine": 51,
+        "endLine": 121
+      },
+      {
+        "path": "websocket-server/src/middleware/security.ts",
+        "role": "edit",
+        "reason": "validateInternalSecret has basic weak secret blocklist",
+        "evidenceRefs": [
+          "E3"
+        ],
+        "startLine": 138,
+        "endLine": 153
+      },
+      {
+        "path": "websocket-server/src/middleware/security.ts",
+        "role": "edit",
+        "reason": "Weak secrets list may need expansion",
+        "evidenceRefs": [],
+        "startLine": 142,
+        "endLine": 145
+      },
+      {
+        "path": "websocket-server/src/index.ts",
+        "role": "context",
+        "reason": "Single caller: io.use(authMiddleware) for all sockets",
+        "evidenceRefs": [
+          "E4"
+        ],
+        "startLine": 146,
+        "endLine": 146
+      },
+      {
+        "path": "websocket-server/src/index.ts",
+        "role": "context",
+        "reason": "/api/notify endpoint - critical notification push path",
+        "evidenceRefs": [
+          "E5"
+        ],
+        "startLine": 65,
+        "endLine": 89
+      },
+      {
+        "path": "src/lib/notifications/create.ts",
+        "role": "read",
+        "reason": "Notification push sends INTERNAL_API_SECRET header",
+        "evidenceRefs": [
+          "E6"
+        ],
+        "startLine": 105,
+        "endLine": 126
+      },
+      {
+        "path": "src/lib/auth/jwt.ts",
+        "role": "read",
+        "reason": "Token creation uses HS256 with 24h expiration",
+        "evidenceRefs": [
+          "E7"
+        ],
+        "startLine": 29,
+        "endLine": 45
+      },
+      {
+        "path": "src/lib/hooks/use-notification-socket.ts",
+        "startLine": 52,
+        "endLine": 63,
+        "role": "read",
+        "reason": "Client connection: sends token via auth field",
+        "evidenceRefs": [
+          "E8"
+        ]
+      }
+    ],
+    "discoveredPaths": [
+      {
+        "path": "websocket-server/src/middleware/auth.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "websocket-server/src/index.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/middleware.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/lib/auth/api-route-access.test.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/lib/auth/jwt.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/lib/external-api/auth.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/lib/auth/api-route-access.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/lib/notifications/create.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "websocket-server/src/middleware/security.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/app/api/online-users/route.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/app/api/admin/dashboard/route.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/app/api/admin/online-agents/route.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/app/api/cron/subscription-renewal/route.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/app/api/usage/track/route.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "websocket-server/src/socket-handlers/notification.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_read_file",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/lib/api/index.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/lib/hooks/use-chat-socket.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/lib/hooks/use-notification-socket.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/lib/i18n/translations/en.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/lib/i18n/translations/ja.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/lib/i18n/translations/ko.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/lib/i18n/translations/zh.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/app/api/admin/system-health/route.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/app/api/auth/session/route.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/app/(admin)/admin/system-health/_components/system-health-client.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/app/api/chat-sessions/[id]/transfer/route.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/lib/auth/index.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/app/api/auth/login/route.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/app/api/auth/refresh/route.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/app/api/auth/two-factor/verify/route.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      }
+    ],
+    "evidence": [
+      {
+        "path": "websocket-server/src/middleware/auth.ts",
+        "startLine": 24,
+        "endLine": 28,
+        "why": "JWT_SECRET config: direct env read without weak check",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E1",
+        "snippet": "24: const JWT_SECRET: string = (() => {\n25:   const secret = process.env.JWT_SECRET\n26:   if (!secret) throw new Error('JWT_SECRET must be set')\n27:   return secret\n28: })()"
+      },
+      {
+        "path": "websocket-server/src/middleware/auth.ts",
+        "startLine": 51,
+        "endLine": 121,
+        "why": "authMiddleware function: JWT validation logic",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E2",
+        "snippet": "51: export function authMiddleware(socket: Socket, next: (err?: Error) => void) {\n52:   const ip = getSocketIp(socket)\n53: \n54:   // 무차별 대입 공격 차단\n55:   const failure = authFailures.get(ip)\n56:   if (failure && failure.count >= AUTH_BLOCK_THRESHOLD) {\n57:     const elapsed = Date.now() - failure.lastAttempt\n58:     if (elapsed < AUTH_BLOCK_DURATION) {\n59:       logger.warn('Auth', 'Blocked - too many failed attempts', { ip, failCount: failure.count })\n60:       return next(new Error('너무 많은 인증 시도입니다. 잠시 후 다시 시도해주세요.'))\n61:     }\n62:     // 차단 시간 경과 → 초기화\n... [snippet truncated]"
+      },
+      {
+        "path": "websocket-server/src/middleware/security.ts",
+        "startLine": 138,
+        "endLine": 153,
+        "why": "validateInternalSecret: weak secret blocklist",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E3",
+        "snippet": "138: export function validateInternalSecret(secret: string | undefined): boolean {\n139:   const INTERNAL_API_SECRET = process.env.INTERNAL_API_SECRET\n140: \n141:   // 기본값이거나 너무 짧은 시크릿 차단\n142:   const WEAK_SECRETS = ['aicc-internal-secret', 'secret', 'test', '']\n143:   if (!INTERNAL_API_SECRET || WEAK_SECRETS.includes(INTERNAL_API_SECRET)) {\n144:     console.error('[Security] INTERNAL_API_SECRET is weak or not set. Set a strong secret in [REDACTED:secret-path]')\n145:     return false\n146:   }\n147: \n148:   if (!secret || secret !== INTERNAL_API_SECRET) {\n149:     return false\n... [snippet truncated]",
+        "redacted": true,
+        "redactions": [
+          "secret-path"
+        ]
+      },
+      {
+        "path": "websocket-server/src/index.ts",
+        "startLine": 146,
+        "endLine": 146,
+        "why": "authMiddleware usage: single caller for all sockets",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E4",
+        "snippet": "146: io.use(authMiddleware)"
+      },
+      {
+        "path": "websocket-server/src/index.ts",
+        "startLine": 65,
+        "endLine": 89,
+        "why": "/api/notify endpoint: protected by validateInternalSecret",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E5",
+        "snippet": "65:   // 내부 알림 푸시 API\n66:   if (req.method === 'POST' && req.url === '/api/notify') {\n67:     const secret = req.headers['x-internal-secret'] as string | undefined\n68:     if (!validateInternalSecret(secret)) {\n69:       res.writeHead(401, { 'Content-Type': 'application/json' })\n70:       res.end(JSON.stringify({ error: 'Unauthorized' }))\n71:       return\n72:     }\n73: \n74:     try {\n75:       const body = await collectBody(req)\n76:       const data = JSON.parse(body)\n... [snippet truncated]"
+      },
+      {
+        "path": "src/lib/notifications/create.ts",
+        "startLine": 105,
+        "endLine": 126,
+        "why": "Notification creation: sends INTERNAL_API_SECRET header",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E6",
+        "snippet": "105:       fetch(`${wsUrl}/api/notify`, {\n106:         method: 'POST',\n107:         headers: {\n108:           'Content-Type': 'application/json',\n109:           'X-Internal-Secret': process.env.INTERNAL_API_SECRET || '',\n110:         },\n111:         body: JSON.stringify({\n112:           userId: params.userId,\n113:           notification: {\n114:             id: notification.id,\n115:             type: notification.type,\n116:             title: notification.title,\n... [snippet truncated]"
+      },
+      {
+        "path": "src/lib/auth/jwt.ts",
+        "startLine": 29,
+        "endLine": 45,
+        "why": "createToken function: HS256, 24h expiration",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E7",
+        "snippet": "29: export async function createToken(\n30:   payload: Omit<JWTTokenPayload, 'iat' | 'exp'>,\n31:   sessionTimeoutMinutes?: number\n32: ): Promise<string> {\n33:   const secret = getJwtSecret()\n34:   const expiration = sessionTimeoutMinutes\n35:     ? `${sessionTimeoutMinutes}m`\n36:     : '24h'\n37: \n38:   const token = await new SignJWT(payload)\n39:     .setProtectedHeader({ alg: 'HS256' })\n40:     .setIssuedAt()\n... [snippet truncated]"
+      },
+      {
+        "path": "src/lib/hooks/use-notification-socket.ts",
+        "startLine": 52,
+        "endLine": 63,
+        "why": "Client connection: sends token via auth field",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E8",
+        "snippet": "52:   const connect = useCallback(() => {\n53:     if (!token || socketRef.current?.connected) return\n54: \n55:     socketRef.current = io(url, {\n56:       auth: { token },\n57:       transports: ['websocket', 'polling'],\n58:       reconnection: true,\n59:       reconnectionAttempts: 5,\n60:       reconnectionDelay: 3000,\n61:       reconnectionDelayMax: 15000,\n62:       timeout: 10000,\n63:     })"
+      }
+    ],
+    "uncertainties": [
+      "No websocket-specific unit tests found - testing gap",
+      "Environment config files not found in search scope",
+      "Token refresh flow impact not fully traced"
+    ],
+    "nextAction": {
+      "type": "read_target",
+      "reason": "Read websocket-server/src/middleware/auth.ts:24-28 before editing.",
+      "target": {
+        "path": "websocket-server/src/middleware/auth.ts",
+        "role": "edit",
+        "reason": "JWT_SECRET config lacks weak secret validation",
+        "evidenceRefs": [
+          "E1"
+        ],
+        "startLine": 24,
+        "endLine": 28
+      }
+    },
+    "evidenceQuality": {
+      "level": "high",
+      "exactCount": 8,
+      "partialCount": 0,
+      "droppedCount": 0,
+      "fileCount": 6,
+      "warnings": [],
+      "summary": "Verified: 7 files read, 7 grep searches, 3 symbol lookups, 8/8 evidence items grounded, cross-verified across 6 files. All evidence grounded in inspected code."
+    },
+    "searchCoverage": {
+      "scope": [
+        "src/**",
+        "websocket-server/src/**",
+        "lambda/**",
+        "prisma/**",
+        "scripts/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 7,
+      "grepCalls": 7,
+      "listDirCalls": 0,
+      "symbolCalls": 3,
+      "toolResultsTruncated": 0,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: src/**, websocket-server/src/**, lambda/**, prisma/**, scripts/**"
+      ],
+      "summary": "scope-limited search across src/**, websocket-server/src/**, lambda/**, prisma/**, scripts/**; 7 file read(s), 7 grep search(es)."
+    },
+    "failure": null,
+    "sessionId": "sess_62fc8f75f36dd93b",
+    "session": {
+      "id": "sess_62fc8f75f36dd93b",
+      "status": "created",
+      "remainingCalls": 4
+    },
+    "_debug": {
+      "evidenceSufficiency": {
+        "sufficient": true,
+        "reason": "edit_plan_has_actionable_target"
+      },
+      "confidenceScore": 1,
+      "confidenceFactors": {
+        "evidenceCount": 8,
+        "evidenceGrounded": 8,
+        "evidenceDropped": 0,
+        "exactCount": 8,
+        "crossVerified": true,
+        "symbolSearchUsed": true,
+        "stoppedByBudget": false,
+        "gitLogCalls": 0,
+        "gitDiffCalls": 0,
+        "gitBlameCalls": 0,
+        "gitGroundingHint": "none",
+        "taskKind": "reference-chase",
+        "adjustments": [
+          "base=0.30 (taskKind=reference-chase)",
+          "+0.54 (8 exact evidence item(s))",
+          "+0.12 (cross-verified across multiple files)",
+          "+0.05 (symbol/grep search used)"
+        ],
+        "droppedUngrounded": 0,
+        "droppedMalformed": 0
+      },
+      "stats": {
+        "model": "zai-glm-4.7",
+        "budget": "deep",
+        "budgetSource": "auto",
+        "turns": 8,
+        "toolCalls": 20,
+        "listDirCalls": 0,
+        "findFileCalls": 3,
+        "grepCalls": 7,
+        "filesRead": 7,
+        "gitLogCalls": 0,
+        "gitBlameCalls": 0,
+        "gitDiffCalls": 0,
+        "gitShowCalls": 0,
+        "symbolCalls": 3,
+        "inputTokens": 191269,
+        "outputTokens": 6264,
+        "totalTokens": 197533,
+        "elapsedMs": 13327,
+        "stoppedByBudget": false,
+        "scope": [
+          "src/**",
+          "websocket-server/src/**",
+          "lambda/**",
+          "prisma/**",
+          "scripts/**"
+        ],
+        "repoRoot": "/home/kyubr/IdeaProjects/aicc_manage",
+        "sessionId": "sess_62fc8f75f36dd93b",
+        "sessionStatus": "created",
+        "sessionSource": "created",
+        "remainingCalls": 4,
+        "cacheHits": 42,
+        "cacheMisses": 285,
+        "cacheHitRate": 0.128,
+        "cacheEntries": 281,
+        "cacheSizeBytes": 1939064
+      },
+      "toolTrace": {
+        "entries": [
+          {
+            "turn": 1,
+            "tool": "repo_symbol_context",
+            "args": {
+              "symbol": "authMiddleware"
+            },
+            "result": {
+              "symbol": "authMiddleware",
+              "definition": {
+                "path": "websocket-server/src/middleware/auth.ts",
+                "line": 51,
+                "endLine": 121,
+                "kind": "function"
+              },
+              "callers": 1,
+              "observedRanges": 2,
+              "truncated": false
+            }
+          },
+          {
+            "turn": 1,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "websocket-server/src/middleware/auth.ts"
+            },
+            "result": {
+              "path": "websocket-server/src/middleware/auth.ts",
+              "startLine": 1,
+              "endLine": 132,
+              "totalLines": 132,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 1,
+            "tool": "repo_find_files",
+            "args": {
+              "pattern": "**/*auth*.{ts,js}",
+              "scope": [
+                "src",
+                "websocket-server/src",
+                "lambda",
+                "prisma",
+                "scripts"
+              ]
+            },
+            "result": {
+              "matches": 0,
+              "paths": [],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "websocket-server/src/index.ts"
+            },
+            "result": {
+              "path": "websocket-server/src/index.ts",
+              "startLine": 1,
+              "endLine": 267,
+              "totalLines": 267,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_grep",
+            "args": {
+              "pattern": "JWT_SECRET",
+              "scope": [
+                "src",
+                "websocket-server/src",
+                "lambda",
+                "prisma",
+                "scripts"
+              ],
+              "contextLines": 3
+            },
+            "result": {
+              "matches": 14,
+              "paths": [
+                "src/middleware.ts",
+                "src/lib/auth/api-route-access.test.ts",
+                "src/lib/auth/jwt.ts",
+                "src/lib/external-api/auth.ts",
+                "websocket-server/src/middleware/auth.ts"
+              ],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_grep",
+            "args": {
+              "pattern": "internal.*secret|INTERNAL_SECRET",
+              "scope": [
+                "src",
+                "websocket-server/src",
+                "lambda",
+                "prisma",
+                "scripts"
+              ],
+              "contextLines": 3
+            },
+            "result": {
+              "matches": 24,
+              "paths": [
+                "websocket-server/src/index.ts",
+                "src/lib/auth/api-route-access.test.ts",
+                "src/lib/auth/api-route-access.ts",
+                "src/lib/notifications/create.ts",
+                "websocket-server/src/middleware/security.ts",
+                "src/app/api/online-users/route.ts"
+              ],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_find_files",
+            "args": {
+              "pattern": "**/*test*.{ts,js}",
+              "scope": [
+                "websocket-server/src",
+                "src"
+              ]
+            },
+            "result": {
+              "matches": 0,
+              "paths": [],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "websocket-server/src/middleware/security.ts"
+            },
+            "result": {
+              "path": "websocket-server/src/middleware/security.ts",
+              "startLine": 1,
+              "endLine": 179,
+              "totalLines": 179,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "websocket-server/src/socket-handlers/notification.ts"
+            },
+            "result": {
+              "path": "websocket-server/src/socket-handlers/notification.ts",
+              "startLine": 1,
+              "endLine": 38,
+              "totalLines": 38,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_grep",
+            "args": {
+              "contextLines": 3,
+              "pattern": "jwt\\.sign|jsonwebtoken\\.sign",
+              "scope": [
+                "src",
+                "lambda",
+                "prisma",
+                "scripts"
+              ]
+            },
+            "result": {
+              "matches": 0,
+              "paths": [],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_find_files",
+            "args": {
+              "pattern": "**/.env*"
+            },
+            "result": {
+              "matches": 0,
+              "paths": [],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_grep",
+            "args": {
+              "contextLines": 3,
+              "pattern": "SignJWT|new SignJWT",
+              "scope": [
+                "src",
+                "lambda",
+                "prisma",
+                "scripts"
+              ]
+            },
+            "result": {
+              "matches": 6,
+              "paths": [
+                "src/lib/auth/api-route-access.test.ts",
+                "src/lib/auth/jwt.ts",
+                "src/lib/external-api/auth.ts"
+              ],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/lib/notifications/create.ts"
+            },
+            "result": {
+              "path": "src/lib/notifications/create.ts",
+              "startLine": 1,
+              "endLine": 237,
+              "totalLines": 237,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_symbol_context",
+            "args": {
+              "symbol": "pushNotificationToUser"
+            },
+            "result": {
+              "symbol": "pushNotificationToUser",
+              "definition": {
+                "path": "websocket-server/src/index.ts",
+                "line": 77,
+                "endLine": null,
+                "kind": "unknown"
+              },
+              "callers": 0,
+              "observedRanges": 1,
+              "truncated": false
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_grep",
+            "args": {
+              "contextLines": 3,
+              "pattern": "INTERNAL_API_SECRET",
+              "scope": [
+                "src",
+                "websocket-server/src",
+                "lambda"
+              ]
+            },
+            "result": {
+              "matches": 10,
+              "paths": [
+                "src/lib/notifications/create.ts",
+                "websocket-server/src/middleware/security.ts",
+                "src/app/api/online-users/route.ts",
+                "src/app/api/admin/dashboard/route.ts",
+                "src/app/api/admin/online-agents/route.ts",
+                "src/app/api/cron/subscription-renewal/route.ts"
+              ],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 5,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/lib/auth/jwt.ts"
+            },
+            "result": {
+              "path": "src/lib/auth/jwt.ts",
+              "startLine": 1,
+              "endLine": 77,
+              "totalLines": 77,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 5,
+            "tool": "repo_grep",
+            "args": {
+              "contextLines": 3,
+              "pattern": "io\\(|socket\\.io|new.*Socket|WebSocket",
+              "scope": [
+                "src"
+              ]
+            },
+            "result": {
+              "matches": 59,
+              "paths": [
+                "src/lib/api/index.ts",
+                "src/lib/hooks/use-chat-socket.ts",
+                "src/lib/hooks/use-notification-socket.ts",
+                "src/lib/notifications/create.ts",
+                "src/app/api/online-users/route.ts",
+                "src/lib/i18n/translations/en.ts"
+              ],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 6,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/lib/hooks/use-notification-socket.ts"
+            },
+            "result": {
+              "path": "src/lib/hooks/use-notification-socket.ts",
+              "startLine": 1,
+              "endLine": 128,
+              "totalLines": 128,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 6,
+            "tool": "repo_grep",
+            "args": {
+              "contextLines": 2,
+              "pattern": "createToken|generateToken",
+              "scope": [
+                "src"
+              ]
+            },
+            "result": {
+              "matches": 9,
+              "paths": [
+                "src/lib/auth/index.ts",
+                "src/lib/auth/jwt.ts",
+                "src/app/api/auth/login/route.ts",
+                "src/app/api/auth/refresh/route.ts",
+                "src/app/api/auth/two-factor/verify/route.ts"
+              ],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 7,
+            "tool": "repo_references",
+            "args": {
+              "symbol": "validateInternalSecret"
+            },
+            "result": {
+              "symbol": "validateInternalSecret",
+              "definition": {
+                "path": "websocket-server/src/middleware/security.ts",
+                "line": 138
+              },
+              "references": 3,
+              "truncated": false
+            }
+          }
+        ],
+        "totalCalls": 20,
+        "truncated": false,
+        "maxEntries": 20
+      },
+      "codeMap": {
+        "entryPoints": [
+          "websocket-server/src/index.ts",
+          "src/lib/api/index.ts",
+          "src/lib/auth/index.ts"
+        ],
+        "keyModules": [
+          {
+            "path": "websocket-server/src/middleware/auth.ts",
+            "role": "middleware",
+            "linesRead": 207
+          },
+          {
+            "path": "websocket-server/src/index.ts",
+            "role": "entry point",
+            "linesRead": 275
+          },
+          {
+            "path": "src/middleware.ts",
+            "role": "middleware",
+            "linesRead": 2
+          },
+          {
+            "path": "src/lib/auth/api-route-access.test.ts",
+            "role": "test",
+            "linesRead": 7
+          },
+          {
+            "path": "src/lib/auth/jwt.ts",
+            "role": "middleware",
+            "linesRead": 82
+          },
+          {
+            "path": "src/lib/external-api/auth.ts",
+            "role": "middleware",
+            "linesRead": 4
+          },
+          {
+            "path": "src/lib/auth/api-route-access.ts",
+            "role": "route/controller",
+            "linesRead": 1
+          },
+          {
+            "path": "src/lib/notifications/create.ts",
+            "role": "module",
+            "linesRead": 244
+          },
+          {
+            "path": "websocket-server/src/middleware/security.ts",
+            "role": "middleware",
+            "linesRead": 189
+          },
+          {
+            "path": "src/app/api/online-users/route.ts",
+            "role": "route/controller",
+            "linesRead": 5
+          },
+          {
+            "path": "src/app/api/admin/dashboard/route.ts",
+            "role": "route/controller",
+            "linesRead": 6
+          },
+          {
+            "path": "src/app/api/admin/online-agents/route.ts",
+            "role": "route/controller",
+            "linesRead": 7
+          },
+          {
+            "path": "src/app/api/cron/subscription-renewal/route.ts",
+            "role": "route/controller",
+            "linesRead": 6
+          },
+          {
+            "path": "src/app/api/usage/track/route.ts",
+            "role": "route/controller",
+            "linesRead": 6
+          },
+          {
+            "path": "websocket-server/src/socket-handlers/notification.ts",
+            "role": "service",
+            "linesRead": 38
+          },
+          {
+            "path": "src/lib/api/index.ts",
+            "role": "entry point",
+            "linesRead": 1
+          },
+          {
+            "path": "src/lib/hooks/use-chat-socket.ts",
+            "role": "module",
+            "linesRead": 18
+          },
+          {
+            "path": "src/lib/hooks/use-notification-socket.ts",
+            "role": "module",
+            "linesRead": 133
+          },
+          {
+            "path": "src/lib/i18n/translations/en.ts",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "src/lib/i18n/translations/ja.ts",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "src/lib/i18n/translations/ko.ts",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "src/lib/i18n/translations/zh.ts",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "src/app/api/admin/system-health/route.ts",
+            "role": "route/controller",
+            "linesRead": 4
+          },
+          {
+            "path": "src/app/api/auth/session/route.ts",
+            "role": "route/controller",
+            "linesRead": 1
+          },
+          {
+            "path": "src/app/(admin)/admin/system-health/_components/system-health-client.tsx",
+            "role": "entry point",
+            "linesRead": 4
+          },
+          {
+            "path": "src/app/api/chat-sessions/[id]/transfer/route.ts",
+            "role": "route/controller",
+            "linesRead": 1
+          },
+          {
+            "path": "src/lib/auth/index.ts",
+            "role": "middleware",
+            "linesRead": 1
+          },
+          {
+            "path": "src/app/api/auth/login/route.ts",
+            "role": "route/controller",
+            "linesRead": 3
+          },
+          {
+            "path": "src/app/api/auth/refresh/route.ts",
+            "role": "route/controller",
+            "linesRead": 2
+          },
+          {
+            "path": "src/app/api/auth/two-factor/verify/route.ts",
+            "role": "route/controller",
+            "linesRead": 2
+          }
+        ]
+      }
+    }
+  },
+  "contentText": "## Result\nConfidence: high\nVerification: targeted_read_needed\nEvidence Quality: high (8 exact, 0 partial, 0 dropped)\nSearch Coverage: scope-limited search across src/**, websocket-server/src/**, lambda/**, prisma/**, scripts/**; 7 file read(s), 7 grep search(es).\n\n## Answer\nImpact mapping complete. Primary edit targets: websocket-server/src/middleware/auth.ts (JWT_SECRET validation at lines 24-28, authMiddleware at 51-121) and websocket-server/src/middleware/security.ts (validateInternalSecret at 138-153, weak secrets at 142-145). Critical path: /api/notify endpoint (index.ts 65-89) protected by validateInternalSecret, used by notification creation (src/lib/notifications/create.ts 105-126). Client connections via use-notification-socket.ts and use-chat-socket.ts use JWT tokens. No websocket-specific tests found - testing gap.\n\n## Next Action\nread_target: Read websocket-server/src/middleware/auth.ts:24-28 before editing.\n\n## Targets\n- [edit] `websocket-server/src/middleware/auth.ts:24-28` (E1) - JWT_SECRET config lacks weak secret validation\n- [edit] `websocket-server/src/middleware/auth.ts:51-121` (E2) - authMiddleware may need stricter payload validation\n- [edit] `websocket-server/src/middleware/security.ts:138-153` (E3) - validateInternalSecret has basic weak secret blocklist\n- [edit] `websocket-server/src/middleware/security.ts:142-145` - Weak secrets list may need expansion\n- [context] `websocket-server/src/index.ts:146-146` (E4) - Single caller: io.use(authMiddleware) for all sockets\n- [context] `websocket-server/src/index.ts:65-89` (E5) - /api/notify endpoint - critical notification push path\n- [read] `src/lib/notifications/create.ts:105-126` (E6) - Notification push sends INTERNAL_API_SECRET header\n- [read] `src/lib/auth/jwt.ts:29-45` (E7) - Token creation uses HS256 with 24h expiration\n- [read] `src/lib/hooks/use-notification-socket.ts:52-63` (E8) - Client connection: sends token via auth field\n\n## Evidence (8 items, confidence: high)\n- E1 `websocket-server/src/middleware/auth.ts:24-28` - JWT_SECRET config: direct env read without weak check\n  snippet: 24: const JWT_SECRET: string = (() => {\n  25:   const secret = process.env.JWT_SECRET\n  26:   if (!secret) throw new Error('JWT_SECRET must be set')\n  27:   return secret\n  28: })()\n- E2 `websocket-server/src/middleware/auth.ts:51-121` - authMiddleware function: JWT validation logic\n  snippet: 51: export function authMiddleware(socket: Socket, next: (err?: Error) => void) {\n  52:   const ip = getSocketIp(socket)\n  53: \n  54:   // 무차별 대입 공격 차단\n  55:   const failure = authFailures.get(ip)\n  56:   if (failure && failure.count >= AUTH_BLOCK_THRESHOLD) {\n  57:     const elapsed = Date.now() - failure.lastAttempt\n  58:     if (elapsed < AUTH_BLOCK_DURATION) {\n  59:       logger.warn('Auth', 'Blocked - too many failed attempts', { ip, failCount: failure.count })\n  60:       return next(new Error('너무 많은 인증 시도입니다. 잠시 후 다시 시도해주세요.'))\n  61:     }\n  62:     // 차단 시간 경과 → 초기화\n  ... [snippet truncated]\n- E3 `websocket-server/src/middleware/security.ts:138-153` - validateInternalSecret: weak secret blocklist\n  snippet: 138: export function validateInternalSecret(secret: string | undefined): boolean {\n  139:   const INTERNAL_API_SECRET = process.env.INTERNAL_API_SECRET\n  140: \n  141:   // 기본값이거나 너무 짧은 시크릿 차단\n  142:   const WEAK_SECRETS = ['aicc-internal-secret', 'secret', 'test', '']\n  143:   if (!INTERNAL_API_SECRET || WEAK_SECRETS.includes(INTERNAL_API_SECRET)) {\n  144:     console.error('[Security] INTERNAL_API_SECRET is weak or not set. Set a strong secret in [REDACTED:secret-path]')\n  145:     return false\n  146:   }\n  147: \n  148:   if (!secret || secret !== INTERNAL_API_SECRET) {\n  149:     return false\n  ... [snippet truncated]\n- E4 `websocket-server/src/index.ts:146-146` - authMiddleware usage: single caller for all sockets\n  snippet: 146: io.use(authMiddleware)\n- E5 `websocket-server/src/index.ts:65-89` - /api/notify endpoint: protected by validateInternalSecret\n  snippet: 65:   // 내부 알림 푸시 API\n  66:   if (req.method === 'POST' && req.url === '/api/notify') {\n  67:     const secret = req.headers['x-internal-secret'] as string | undefined\n  68:     if (!validateInternalSecret(secret)) {\n  69:       res.writeHead(401, { 'Content-Type': 'application/json' })\n  70:       res.end(JSON.stringify({ error: 'Unauthorized' }))\n  71:       return\n  72:     }\n  73: \n  74:     try {\n  75:       const body = await collectBody(req)\n  76:       const data = JSON.parse(body)\n  ... [snippet truncated]\n- E6 `src/lib/notifications/create.ts:105-126` - Notification creation: sends INTERNAL_API_SECRET header\n  snippet: 105:       fetch(`${wsUrl}/api/notify`, {\n  106:         method: 'POST',\n  107:         headers: {\n  108:           'Content-Type': 'application/json',\n  109:           'X-Internal-Secret': process.env.INTERNAL_API_SECRET || '',\n  110:         },\n  111:         body: JSON.stringify({\n  112:           userId: params.userId,\n  113:           notification: {\n  114:             id: notification.id,\n  115:             type: notification.type,\n  116:             title: notification.title,\n  ... [snippet truncated]\n- E7 `src/lib/auth/jwt.ts:29-45` - createToken function: HS256, 24h expiration\n  snippet: 29: export async function createToken(\n  30:   payload: Omit<JWTTokenPayload, 'iat' | 'exp'>,\n  31:   sessionTimeoutMinutes?: number\n  32: ): Promise<string> {\n  33:   const secret = getJwtSecret()\n  34:   const expiration = sessionTimeoutMinutes\n  35:     ? `${sessionTimeoutMinutes}m`\n  36:     : '24h'\n  37: \n  38:   const token = await new SignJWT(payload)\n  39:     .setProtectedHeader({ alg: 'HS256' })\n  40:     .setIssuedAt()\n  ... [snippet truncated]\n- E8 `src/lib/hooks/use-notification-socket.ts:52-63` - Client connection: sends token via auth field\n  snippet: 52:   const connect = useCallback(() => {\n  53:     if (!token || socketRef.current?.connected) return\n  54: \n  55:     socketRef.current = io(url, {\n  56:       auth: { token },\n  57:       transports: ['websocket', 'polling'],\n  58:       reconnection: true,\n  59:       reconnectionAttempts: 5,\n  60:       reconnectionDelay: 3000,\n  61:       reconnectionDelayMax: 15000,\n  62:       timeout: 10000,\n  63:     })\n\n## Uncertainty\n- No websocket-specific unit tests found - testing gap\n- Environment config files not found in search scope\n- Token refresh flow impact not fully traced\n\nSession: sess_62fc8f75f36dd93b (pass as \"session\" for follow-up calls)"
+}

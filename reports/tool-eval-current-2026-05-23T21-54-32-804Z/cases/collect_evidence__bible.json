@@ -1,0 +1,1133 @@
+{
+  "tool": "collect_evidence",
+  "repo": "bible",
+  "args": {
+    "repo_root": "/home/kyubr/IdeaProjects/bible",
+    "scope": [
+      "src/**",
+      "functions/**",
+      "scripts/**",
+      "migrations/**"
+    ],
+    "claim": "Telegram authentication uses a Cloudflare Pages Function and session helper rather than only client-side state",
+    "knownFiles": [
+      "src/store.tsx"
+    ],
+    "knownSymbols": [
+      "useStore"
+    ]
+  },
+  "elapsedMs": 7424,
+  "error": null,
+  "isError": false,
+  "summary": {
+    "directAnswer": "VERIFIED: Telegram authentication uses a Cloudflare Pages Function (functions/api/auth/telegram.ts) and session helper (functions/api/_lib/session.ts), NOT just client-side state. Server validates Telegram auth, creates database-backed sessions with HttpOnly cookies, and client-side store only caches user info after server verification.",
+    "status": {
+      "confidence": "high",
+      "verification": "verified",
+      "complete": true,
+      "warnings": []
+    },
+    "evidenceQuality": {
+      "level": "high",
+      "exactCount": 8,
+      "partialCount": 0,
+      "droppedCount": 0,
+      "fileCount": 4,
+      "warnings": [],
+      "summary": "Verified: 9 files read, 2 grep searches, 8/8 evidence items grounded, cross-verified across 4 files. All evidence grounded in inspected code."
+    },
+    "failure": null,
+    "nextAction": {
+      "type": "stop",
+      "reason": "Explorer result is complete for the requested read-only investigation."
+    },
+    "searchCoverage": {
+      "scope": [
+        "src/**",
+        "functions/**",
+        "scripts/**",
+        "migrations/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 9,
+      "grepCalls": 2,
+      "listDirCalls": 2,
+      "symbolCalls": 0,
+      "toolResultsTruncated": 0,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: src/**, functions/**, scripts/**, migrations/**"
+      ],
+      "summary": "scope-limited search across src/**, functions/**, scripts/**, migrations/**; 9 file read(s), 2 grep search(es)."
+    },
+    "critic": null,
+    "sessionId": "sess_61d0b976194fa26f",
+    "session": {
+      "id": "sess_61d0b976194fa26f",
+      "status": "created",
+      "remainingCalls": 4
+    },
+    "targets": [
+      {
+        "path": "functions/api/auth/telegram.ts",
+        "role": "context",
+        "reason": "Cloudflare Pages Function validating Telegram auth and creating server sessions",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 241
+      },
+      {
+        "path": "functions/api/_lib/session.ts",
+        "role": "context",
+        "reason": "Session helper library with createSession, authenticateSession, cookie utilities",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 134
+      },
+      {
+        "path": "src/shared/components/TelegramLoginButton.tsx",
+        "role": "context",
+        "reason": "Client sends auth data to server endpoint, stores user after server success",
+        "evidenceRefs": [],
+        "startLine": 38,
+        "endLine": 70
+      },
+      {
+        "path": "migrations/0002_auth_sessions.sql",
+        "role": "context",
+        "reason": "Database schema for server-side session storage with token_hash",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 18
+      },
+      {
+        "path": "functions/api/auth/telegram.ts",
+        "startLine": 148,
+        "endLine": 240,
+        "role": "read",
+        "reason": "Cloudflare Pages Function handler validates auth, upserts user, creates session, sets HttpOnly cookie",
+        "evidenceRefs": [
+          "E1"
+        ]
+      },
+      {
+        "path": "functions/api/auth/telegram.ts",
+        "startLine": 65,
+        "endLine": 104,
+        "role": "read",
+        "reason": "Server-side verification of Telegram auth using HMAC-SHA256 (not client-side only)",
+        "evidenceRefs": [
+          "E2"
+        ]
+      },
+      {
+        "path": "functions/api/_lib/session.ts",
+        "startLine": 1,
+        "endLine": 6,
+        "role": "read",
+        "reason": "Session helper utilities specifically for Cloudflare Pages Functions",
+        "evidenceRefs": [
+          "E3"
+        ]
+      },
+      {
+        "path": "functions/api/_lib/session.ts",
+        "startLine": 51,
+        "endLine": 55,
+        "role": "read",
+        "reason": "Session cookie builder creates HttpOnly, Secure, SameSite=Lax cookie (not accessible to client JS)",
+        "evidenceRefs": [
+          "E4"
+        ]
+      }
+    ],
+    "discoveredPathsCount": 51,
+    "evidence": [
+      {
+        "id": "E1",
+        "path": "functions/api/auth/telegram.ts",
+        "startLine": 148,
+        "endLine": 240,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Cloudflare Pages Function handler validates auth, upserts user, creates session, sets HttpOnly cookie",
+        "snippet": "148: export const onRequestPost: PagesFunction<Env> = async (context) => {\n149:   const { request, env } = context;\n150: \n151:   // CORS headers\n152:   const corsHeaders = {\n153:     'Access-Control-Allow-Origin': '*',\n154:     'Access-Control-Allow-Methods': 'POST, OPTIONS',\n155:     'Access-Control-Allow-Headers': 'Content-Type',\n156:   };\n157: \n158:   // Handle OPTIONS request for CORS preflight\n159:   if (request.method === 'OPTIONS') {\n... [snippet truncated]"
+      },
+      {
+        "id": "E2",
+        "path": "functions/api/auth/telegram.ts",
+        "startLine": 65,
+        "endLine": 104,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Server-side verification of Telegram auth using HMAC-SHA256 (not client-side only)",
+        "snippet": "65: async function verifyTelegramAuth(\n66:   data: TelegramUser,\n67:   botToken: string\n68: ): Promise<boolean> {\n69:   const { hash, ...userData } = data;\n70: \n71:   // Create data-check-string: sorted key=value pairs joined with \\n\n72:   const dataCheckString = Object.keys(userData)\n73:     .sort()\n74:     .map((key) => `${key}=${userData[key as keyof typeof userData]}`)\n75:     .join('\\n');\n76: \n... [snippet truncated]"
+      },
+      {
+        "id": "E3",
+        "path": "functions/api/_lib/session.ts",
+        "startLine": 1,
+        "endLine": 6,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Session helper utilities specifically for Cloudflare Pages Functions",
+        "snippet": "1: /**\n2:  * Session authentication utilities for Cloudflare Pages Functions.\n3:  */\n4: \n5: const SESSION_COOKIE_NAME = \"bible_session\";\n6: const SESSION_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;"
+      },
+      {
+        "id": "E4",
+        "path": "functions/api/_lib/session.ts",
+        "startLine": 51,
+        "endLine": 55,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Session cookie builder creates HttpOnly, Secure, SameSite=Lax cookie (not accessible to client JS)",
+        "snippet": "51: export const buildSessionCookie = (token: string): string =>\n52:   `${SESSION_COOKIE_NAME}=${encodeURIComponent(token)}; Path=/; Max-Age=${SESSION_MAX_AGE_SECONDS}; HttpOnly; Secure; SameSite=Lax`;\n53: \n54: export const buildClearSessionCookie = (): string =>\n55:   `${SESSION_COOKIE_NAME}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax`;"
+      },
+      {
+        "id": "E5",
+        "path": "functions/api/_lib/session.ts",
+        "startLine": 57,
+        "endLine": 78,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "createSession function stores session in database with HMAC-SHA256 token hash",
+        "snippet": "57: export const createSession = async (\n58:   db: D1Database,\n59:   userId: number,\n60:   authSecret: string\n61: ): Promise<string> => {\n62:   const now = Math.floor(Date.now() / 1000);\n63:   const expiresAt = now + SESSION_MAX_AGE_SECONDS;\n64:   const sessionId = crypto.randomUUID();\n65:   const rawToken = createRawSessionToken();\n66:   const tokenHash = await hashSessionToken(rawToken, authSecret);\n67: \n68:   await db\n... [snippet truncated]"
+      },
+      {
+        "id": "E6",
+        "path": "functions/api/_lib/session.ts",
+        "startLine": 80,
+        "endLine": 111,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "authenticateSession function validates session from cookie against database",
+        "snippet": "80: export const authenticateSession = async (\n81:   request: Request,\n82:   db: D1Database,\n83:   authSecret: string\n84: ): Promise<{ sessionId: string; userId: number } | null> => {\n85:   const sessionToken = parseCookies(request)[SESSION_COOKIE_NAME];\n86:   if (!sessionToken) return null;\n87: \n88:   const tokenHash = await hashSessionToken(sessionToken, authSecret);\n89:   const now = Math.floor(Date.now() / 1000);\n90: \n91:   const session = await db\n... [snippet truncated]"
+      },
+      {
+        "id": "E7",
+        "path": "migrations/0002_auth_sessions.sql",
+        "startLine": 4,
+        "endLine": 13,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Database table schema for server-side session storage with token_hash, expires_at, revoked_at",
+        "snippet": "4: CREATE TABLE IF NOT EXISTS auth_sessions (\n5:   id TEXT PRIMARY KEY,\n6:   user_id INTEGER NOT NULL,\n7:   token_hash TEXT NOT NULL UNIQUE,\n8:   expires_at INTEGER NOT NULL,\n9:   created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),\n10:   revoked_at INTEGER,\n11:   last_seen_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),\n12:   FOREIGN KEY (user_id) REFERENCES users(id)\n13: );"
+      },
+      {
+        "id": "E8",
+        "path": "src/shared/components/TelegramLoginButton.tsx",
+        "startLine": 38,
+        "endLine": 56,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Client sends auth data to /api/auth/telegram endpoint, stores user in Zustand only after server success",
+        "snippet": "38:     const handleTelegramAuth = async (user: any) => {\n39:       console.log(\"Telegram auth received:\", user);\n40: \n41:       try {\n42:         // Send authentication data to backend for verification\n43:         const response = await fetch(\"/api/auth/telegram\", {\n44:           method: \"POST\",\n45:           headers: {\n46:             \"Content-Type\": \"application/json\",\n47:           },\n48:           body: JSON.stringify(user),\n49:         });\n... [snippet truncated]"
+      }
+    ],
+    "uncertainties": [],
+    "stats": {
+      "turns": 6,
+      "toolCalls": 13,
+      "filesRead": 9,
+      "grepCalls": 2,
+      "symbolCalls": 0,
+      "stoppedByBudget": false,
+      "elapsedMs": 7412,
+      "totalTokens": 78027
+    }
+  },
+  "structuredContent": {
+    "schemaVersion": 1,
+    "directAnswer": "VERIFIED: Telegram authentication uses a Cloudflare Pages Function (functions/api/auth/telegram.ts) and session helper (functions/api/_lib/session.ts), NOT just client-side state. Server validates Telegram auth, creates database-backed sessions with HttpOnly cookies, and client-side store only caches user info after server verification.",
+    "status": {
+      "confidence": "high",
+      "verification": "verified",
+      "complete": true,
+      "warnings": []
+    },
+    "targets": [
+      {
+        "path": "functions/api/auth/telegram.ts",
+        "role": "context",
+        "reason": "Cloudflare Pages Function validating Telegram auth and creating server sessions",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 241
+      },
+      {
+        "path": "functions/api/_lib/session.ts",
+        "role": "context",
+        "reason": "Session helper library with createSession, authenticateSession, cookie utilities",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 134
+      },
+      {
+        "path": "src/shared/components/TelegramLoginButton.tsx",
+        "role": "context",
+        "reason": "Client sends auth data to server endpoint, stores user after server success",
+        "evidenceRefs": [],
+        "startLine": 38,
+        "endLine": 70
+      },
+      {
+        "path": "migrations/0002_auth_sessions.sql",
+        "role": "context",
+        "reason": "Database schema for server-side session storage with token_hash",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 18
+      },
+      {
+        "path": "functions/api/auth/telegram.ts",
+        "startLine": 148,
+        "endLine": 240,
+        "role": "read",
+        "reason": "Cloudflare Pages Function handler validates auth, upserts user, creates session, sets HttpOnly cookie",
+        "evidenceRefs": [
+          "E1"
+        ]
+      },
+      {
+        "path": "functions/api/auth/telegram.ts",
+        "startLine": 65,
+        "endLine": 104,
+        "role": "read",
+        "reason": "Server-side verification of Telegram auth using HMAC-SHA256 (not client-side only)",
+        "evidenceRefs": [
+          "E2"
+        ]
+      },
+      {
+        "path": "functions/api/_lib/session.ts",
+        "startLine": 1,
+        "endLine": 6,
+        "role": "read",
+        "reason": "Session helper utilities specifically for Cloudflare Pages Functions",
+        "evidenceRefs": [
+          "E3"
+        ]
+      },
+      {
+        "path": "functions/api/_lib/session.ts",
+        "startLine": 51,
+        "endLine": 55,
+        "role": "read",
+        "reason": "Session cookie builder creates HttpOnly, Secure, SameSite=Lax cookie (not accessible to client JS)",
+        "evidenceRefs": [
+          "E4"
+        ]
+      },
+      {
+        "path": "functions/api/_lib/session.ts",
+        "startLine": 57,
+        "endLine": 78,
+        "role": "read",
+        "reason": "createSession function stores session in database with HMAC-SHA256 token hash",
+        "evidenceRefs": [
+          "E5"
+        ]
+      },
+      {
+        "path": "functions/api/_lib/session.ts",
+        "startLine": 80,
+        "endLine": 111,
+        "role": "read",
+        "reason": "authenticateSession function validates session from cookie against database",
+        "evidenceRefs": [
+          "E6"
+        ]
+      },
+      {
+        "path": "migrations/0002_auth_sessions.sql",
+        "startLine": 4,
+        "endLine": 13,
+        "role": "read",
+        "reason": "Database table schema for server-side session storage with token_hash, expires_at, revoked_at",
+        "evidenceRefs": [
+          "E7"
+        ]
+      },
+      {
+        "path": "src/shared/components/TelegramLoginButton.tsx",
+        "startLine": 38,
+        "endLine": 56,
+        "role": "read",
+        "reason": "Client sends auth data to /api/auth/telegram endpoint, stores user in Zustand only after server success",
+        "evidenceRefs": [
+          "E8"
+        ]
+      }
+    ],
+    "discoveredPaths": [
+      {
+        "path": "functions",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "functions/_middleware.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "functions/api",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "migrations",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "migrations/0001_initial.sql",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "migrations/0002_auth_sessions.sql",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "migrations/0003_exam_local_sync.sql",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "migrations/0004_bookmarks.sql",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts/build-worker-functions.sh",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts/check-no-legacy-i18n.sh",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts/check-style-imports.sh",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts/e2e-bookmark-playwright.sh",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts/e2e-reader-search-ux-playwright.sh",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts/e2e-regression-playwright.sh",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts/playwright_cli.sh",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts/revelation_corpus",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/api",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/data",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/features",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/i18n",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/index.tsx",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/pages",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/reportWebVitals.tsx",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/routes.tsx",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/shared",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/store",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/store.selectors.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/store.tsx",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/styles",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/utils",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/vite-env.d.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/api/auth.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/store/types.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "functions/api/auth/telegram.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/shared/components/AGENTS.md",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/shared/components/TelegramLoginButton.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "functions/api/_lib",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "functions/api/_lib/session.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "functions/api/auth",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "functions/api/auth/logout.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "functions/api/auth/me.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "functions/api/bookmarks",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "functions/api/bookmarks/list.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "functions/api/bookmarks/sync.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "functions/api/exam",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "functions/api/exam/history.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "functions/api/exam/local-sync.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "functions/api/exam/stats.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "functions/api/exam/submit.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      }
+    ],
+    "evidence": [
+      {
+        "path": "functions/api/auth/telegram.ts",
+        "startLine": 148,
+        "endLine": 240,
+        "why": "Cloudflare Pages Function handler validates auth, upserts user, creates session, sets HttpOnly cookie",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E1",
+        "snippet": "148: export const onRequestPost: PagesFunction<Env> = async (context) => {\n149:   const { request, env } = context;\n150: \n151:   // CORS headers\n152:   const corsHeaders = {\n153:     'Access-Control-Allow-Origin': '*',\n154:     'Access-Control-Allow-Methods': 'POST, OPTIONS',\n155:     'Access-Control-Allow-Headers': 'Content-Type',\n156:   };\n157: \n158:   // Handle OPTIONS request for CORS preflight\n159:   if (request.method === 'OPTIONS') {\n... [snippet truncated]"
+      },
+      {
+        "path": "functions/api/auth/telegram.ts",
+        "startLine": 65,
+        "endLine": 104,
+        "why": "Server-side verification of Telegram auth using HMAC-SHA256 (not client-side only)",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E2",
+        "snippet": "65: async function verifyTelegramAuth(\n66:   data: TelegramUser,\n67:   botToken: string\n68: ): Promise<boolean> {\n69:   const { hash, ...userData } = data;\n70: \n71:   // Create data-check-string: sorted key=value pairs joined with \\n\n72:   const dataCheckString = Object.keys(userData)\n73:     .sort()\n74:     .map((key) => `${key}=${userData[key as keyof typeof userData]}`)\n75:     .join('\\n');\n76: \n... [snippet truncated]"
+      },
+      {
+        "path": "functions/api/_lib/session.ts",
+        "startLine": 1,
+        "endLine": 6,
+        "why": "Session helper utilities specifically for Cloudflare Pages Functions",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E3",
+        "snippet": "1: /**\n2:  * Session authentication utilities for Cloudflare Pages Functions.\n3:  */\n4: \n5: const SESSION_COOKIE_NAME = \"bible_session\";\n6: const SESSION_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;"
+      },
+      {
+        "path": "functions/api/_lib/session.ts",
+        "startLine": 51,
+        "endLine": 55,
+        "why": "Session cookie builder creates HttpOnly, Secure, SameSite=Lax cookie (not accessible to client JS)",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E4",
+        "snippet": "51: export const buildSessionCookie = (token: string): string =>\n52:   `${SESSION_COOKIE_NAME}=${encodeURIComponent(token)}; Path=/; Max-Age=${SESSION_MAX_AGE_SECONDS}; HttpOnly; Secure; SameSite=Lax`;\n53: \n54: export const buildClearSessionCookie = (): string =>\n55:   `${SESSION_COOKIE_NAME}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax`;"
+      },
+      {
+        "path": "functions/api/_lib/session.ts",
+        "startLine": 57,
+        "endLine": 78,
+        "why": "createSession function stores session in database with HMAC-SHA256 token hash",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E5",
+        "snippet": "57: export const createSession = async (\n58:   db: D1Database,\n59:   userId: number,\n60:   authSecret: string\n61: ): Promise<string> => {\n62:   const now = Math.floor(Date.now() / 1000);\n63:   const expiresAt = now + SESSION_MAX_AGE_SECONDS;\n64:   const sessionId = crypto.randomUUID();\n65:   const rawToken = createRawSessionToken();\n66:   const tokenHash = await hashSessionToken(rawToken, authSecret);\n67: \n68:   await db\n... [snippet truncated]"
+      },
+      {
+        "path": "functions/api/_lib/session.ts",
+        "startLine": 80,
+        "endLine": 111,
+        "why": "authenticateSession function validates session from cookie against database",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E6",
+        "snippet": "80: export const authenticateSession = async (\n81:   request: Request,\n82:   db: D1Database,\n83:   authSecret: string\n84: ): Promise<{ sessionId: string; userId: number } | null> => {\n85:   const sessionToken = parseCookies(request)[SESSION_COOKIE_NAME];\n86:   if (!sessionToken) return null;\n87: \n88:   const tokenHash = await hashSessionToken(sessionToken, authSecret);\n89:   const now = Math.floor(Date.now() / 1000);\n90: \n91:   const session = await db\n... [snippet truncated]"
+      },
+      {
+        "path": "migrations/0002_auth_sessions.sql",
+        "startLine": 4,
+        "endLine": 13,
+        "why": "Database table schema for server-side session storage with token_hash, expires_at, revoked_at",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E7",
+        "snippet": "4: CREATE TABLE IF NOT EXISTS auth_sessions (\n5:   id TEXT PRIMARY KEY,\n6:   user_id INTEGER NOT NULL,\n7:   token_hash TEXT NOT NULL UNIQUE,\n8:   expires_at INTEGER NOT NULL,\n9:   created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),\n10:   revoked_at INTEGER,\n11:   last_seen_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),\n12:   FOREIGN KEY (user_id) REFERENCES users(id)\n13: );"
+      },
+      {
+        "path": "src/shared/components/TelegramLoginButton.tsx",
+        "startLine": 38,
+        "endLine": 56,
+        "why": "Client sends auth data to /api/auth/telegram endpoint, stores user in Zustand only after server success",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E8",
+        "snippet": "38:     const handleTelegramAuth = async (user: any) => {\n39:       console.log(\"Telegram auth received:\", user);\n40: \n41:       try {\n42:         // Send authentication data to backend for verification\n43:         const response = await fetch(\"/api/auth/telegram\", {\n44:           method: \"POST\",\n45:           headers: {\n46:             \"Content-Type\": \"application/json\",\n47:           },\n48:           body: JSON.stringify(user),\n49:         });\n... [snippet truncated]"
+      }
+    ],
+    "uncertainties": [],
+    "nextAction": {
+      "type": "stop",
+      "reason": "Explorer result is complete for the requested read-only investigation."
+    },
+    "evidenceQuality": {
+      "level": "high",
+      "exactCount": 8,
+      "partialCount": 0,
+      "droppedCount": 0,
+      "fileCount": 4,
+      "warnings": [],
+      "summary": "Verified: 9 files read, 2 grep searches, 8/8 evidence items grounded, cross-verified across 4 files. All evidence grounded in inspected code."
+    },
+    "searchCoverage": {
+      "scope": [
+        "src/**",
+        "functions/**",
+        "scripts/**",
+        "migrations/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 9,
+      "grepCalls": 2,
+      "listDirCalls": 2,
+      "symbolCalls": 0,
+      "toolResultsTruncated": 0,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: src/**, functions/**, scripts/**, migrations/**"
+      ],
+      "summary": "scope-limited search across src/**, functions/**, scripts/**, migrations/**; 9 file read(s), 2 grep search(es)."
+    },
+    "failure": null,
+    "sessionId": "sess_61d0b976194fa26f",
+    "session": {
+      "id": "sess_61d0b976194fa26f",
+      "status": "created",
+      "remainingCalls": 4
+    },
+    "_debug": {
+      "evidenceSufficiency": {
+        "sufficient": true,
+        "reason": "claim_has_grounded_evidence"
+      },
+      "confidenceScore": 1,
+      "confidenceFactors": {
+        "evidenceCount": 8,
+        "evidenceGrounded": 8,
+        "evidenceDropped": 0,
+        "exactCount": 8,
+        "crossVerified": true,
+        "symbolSearchUsed": true,
+        "stoppedByBudget": false,
+        "gitLogCalls": 0,
+        "gitDiffCalls": 0,
+        "gitBlameCalls": 0,
+        "gitGroundingHint": "none",
+        "taskKind": "default",
+        "adjustments": [
+          "base=0.30 (taskKind=default)",
+          "+0.54 (8 exact evidence item(s))",
+          "+0.12 (cross-verified across multiple files)",
+          "+0.05 (symbol/grep search used)"
+        ],
+        "droppedUngrounded": 0,
+        "droppedMalformed": 0
+      },
+      "stats": {
+        "model": "zai-glm-4.7",
+        "budget": "deep",
+        "budgetSource": "auto",
+        "turns": 6,
+        "toolCalls": 13,
+        "listDirCalls": 2,
+        "findFileCalls": 0,
+        "grepCalls": 2,
+        "filesRead": 9,
+        "gitLogCalls": 0,
+        "gitBlameCalls": 0,
+        "gitDiffCalls": 0,
+        "gitShowCalls": 0,
+        "symbolCalls": 0,
+        "inputTokens": 74162,
+        "outputTokens": 3865,
+        "totalTokens": 78027,
+        "elapsedMs": 7412,
+        "stoppedByBudget": false,
+        "scope": [
+          "src/**",
+          "functions/**",
+          "scripts/**",
+          "migrations/**"
+        ],
+        "repoRoot": "/home/kyubr/IdeaProjects/bible",
+        "sessionId": "sess_61d0b976194fa26f",
+        "sessionStatus": "created",
+        "sessionSource": "created",
+        "remainingCalls": 4,
+        "cacheHits": 97,
+        "cacheMisses": 460,
+        "cacheHitRate": 0.174,
+        "cacheEntries": 455,
+        "cacheSizeBytes": 2671544
+      },
+      "toolTrace": {
+        "entries": [
+          {
+            "turn": 1,
+            "tool": "repo_list_dir",
+            "args": {},
+            "result": {
+              "entries": 33,
+              "paths": [
+                "functions",
+                "functions/_middleware.ts",
+                "functions/api",
+                "migrations",
+                "migrations/0001_initial.sql",
+                "migrations/0002_auth_sessions.sql"
+              ]
+            }
+          },
+          {
+            "turn": 1,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/store.tsx"
+            },
+            "result": {
+              "path": "src/store.tsx",
+              "startLine": 1,
+              "endLine": 59,
+              "totalLines": 59,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 1,
+            "tool": "repo_grep",
+            "args": {
+              "pattern": "telegram|Telegram",
+              "scope": [
+                "src",
+                "functions",
+                "scripts"
+              ],
+              "maxResults": 30
+            },
+            "result": {
+              "matches": 30,
+              "paths": [
+                "src/store.tsx",
+                "src/vite-env.d.ts",
+                "src/api/auth.ts",
+                "src/store/types.ts",
+                "functions/api/auth/telegram.ts",
+                "src/shared/components/AGENTS.md"
+              ],
+              "truncated": true
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "functions/api/auth/telegram.ts"
+            },
+            "result": {
+              "path": "functions/api/auth/telegram.ts",
+              "startLine": 1,
+              "endLine": 241,
+              "totalLines": 241,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/api/auth.ts"
+            },
+            "result": {
+              "path": "src/api/auth.ts",
+              "startLine": 1,
+              "endLine": 56,
+              "totalLines": 56,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/shared/components/TelegramLoginButton.tsx"
+            },
+            "result": {
+              "path": "src/shared/components/TelegramLoginButton.tsx",
+              "startLine": 1,
+              "endLine": 122,
+              "totalLines": 122,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "migrations/0002_auth_sessions.sql"
+            },
+            "result": {
+              "path": "migrations/0002_auth_sessions.sql",
+              "startLine": 1,
+              "endLine": 18,
+              "totalLines": 18,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_list_dir",
+            "args": {
+              "dirPath": "functions"
+            },
+            "result": {
+              "entries": 16,
+              "paths": [
+                "functions/_middleware.ts",
+                "functions/api",
+                "functions/api/_lib",
+                "functions/api/_lib/session.ts",
+                "functions/api/auth",
+                "functions/api/auth/logout.ts"
+              ]
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_grep",
+            "args": {
+              "pattern": "session|Session",
+              "scope": [
+                "functions"
+              ],
+              "maxResults": 30
+            },
+            "result": {
+              "matches": 30,
+              "paths": [
+                "functions/api/_lib/session.ts"
+              ],
+              "truncated": true
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "functions/api/_lib/session.ts"
+            },
+            "result": {
+              "path": "functions/api/_lib/session.ts",
+              "startLine": 1,
+              "endLine": 134,
+              "totalLines": 134,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "functions/api/auth/me.ts"
+            },
+            "result": {
+              "path": "functions/api/auth/me.ts",
+              "startLine": 1,
+              "endLine": 96,
+              "totalLines": 96,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "functions/api/auth/logout.ts"
+            },
+            "result": {
+              "path": "functions/api/auth/logout.ts",
+              "startLine": 1,
+              "endLine": 64,
+              "totalLines": 64,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 5,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/store/types.ts",
+              "startLine": 56,
+              "endLine": 70
+            },
+            "result": {
+              "path": "src/store/types.ts",
+              "startLine": 56,
+              "endLine": 70,
+              "totalLines": 119,
+              "truncated": true
+            }
+          }
+        ],
+        "totalCalls": 13,
+        "truncated": false,
+        "maxEntries": 20
+      },
+      "codeMap": {
+        "entryPoints": [],
+        "keyModules": [
+          {
+            "path": "src/store.tsx",
+            "role": "module",
+            "linesRead": 60
+          },
+          {
+            "path": "src/vite-env.d.ts",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "src/api/auth.ts",
+            "role": "middleware",
+            "linesRead": 58
+          },
+          {
+            "path": "src/store/types.ts",
+            "role": "module",
+            "linesRead": 18
+          },
+          {
+            "path": "functions/api/auth/telegram.ts",
+            "role": "middleware",
+            "linesRead": 256
+          },
+          {
+            "path": "src/shared/components/AGENTS.md",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "src/shared/components/TelegramLoginButton.tsx",
+            "role": "module",
+            "linesRead": 129
+          },
+          {
+            "path": "migrations/0002_auth_sessions.sql",
+            "role": "middleware",
+            "linesRead": 18
+          },
+          {
+            "path": "functions/api/_lib/session.ts",
+            "role": "API client",
+            "linesRead": 164
+          },
+          {
+            "path": "functions/api/auth/me.ts",
+            "role": "middleware",
+            "linesRead": 96
+          },
+          {
+            "path": "functions/api/auth/logout.ts",
+            "role": "middleware",
+            "linesRead": 64
+          }
+        ]
+      }
+    }
+  },
+  "contentText": "## Result\nConfidence: high\nVerification: verified\nEvidence Quality: high (8 exact, 0 partial, 0 dropped)\nSearch Coverage: scope-limited search across src/**, functions/**, scripts/**, migrations/**; 9 file read(s), 2 grep search(es).\n\n## Answer\nVERIFIED: Telegram authentication uses a Cloudflare Pages Function (functions/api/auth/telegram.ts) and session helper (functions/api/_lib/session.ts), NOT just client-side state. Server validates Telegram auth, creates database-backed sessions with HttpOnly cookies, and client-side store only caches user info after server verification.\n\n## Targets\n- [context] `functions/api/auth/telegram.ts:1-241` - Cloudflare Pages Function validating Telegram auth and creating server sessions\n- [context] `functions/api/_lib/session.ts:1-134` - Session helper library with createSession, authenticateSession, cookie utilities\n- [context] `src/shared/components/TelegramLoginButton.tsx:38-70` - Client sends auth data to server endpoint, stores user after server success\n- [context] `migrations/0002_auth_sessions.sql:1-18` - Database schema for server-side session storage with token_hash\n- [read] `functions/api/auth/telegram.ts:148-240` (E1) - Cloudflare Pages Function handler validates auth, upserts user, creates session, sets HttpOnly cookie\n- [read] `functions/api/auth/telegram.ts:65-104` (E2) - Server-side verification of Telegram auth using HMAC-SHA256 (not client-side only)\n- [read] `functions/api/_lib/session.ts:1-6` (E3) - Session helper utilities specifically for Cloudflare Pages Functions\n- [read] `functions/api/_lib/session.ts:51-55` (E4) - Session cookie builder creates HttpOnly, Secure, SameSite=Lax cookie (not accessible to client JS)\n- [read] `functions/api/_lib/session.ts:57-78` (E5) - createSession function stores session in database with HMAC-SHA256 token hash\n- [read] `functions/api/_lib/session.ts:80-111` (E6) - authenticateSession function validates session from cookie against database\n- [read] `migrations/0002_auth_sessions.sql:4-13` (E7) - Database table schema for server-side session storage with token_hash, expires_at, revoked_at\n- [read] `src/shared/components/TelegramLoginButton.tsx:38-56` (E8) - Client sends auth data to /api/auth/telegram endpoint, stores user in Zustand only after server success\n\n## Evidence (8 items, confidence: high)\n- E1 `functions/api/auth/telegram.ts:148-240` - Cloudflare Pages Function handler validates auth, upserts user, creates session, sets HttpOnly cookie\n  snippet: 148: export const onRequestPost: PagesFunction<Env> = async (context) => {\n  149:   const { request, env } = context;\n  150: \n  151:   // CORS headers\n  152:   const corsHeaders = {\n  153:     'Access-Control-Allow-Origin': '*',\n  154:     'Access-Control-Allow-Methods': 'POST, OPTIONS',\n  155:     'Access-Control-Allow-Headers': 'Content-Type',\n  156:   };\n  157: \n  158:   // Handle OPTIONS request for CORS preflight\n  159:   if (request.method === 'OPTIONS') {\n  ... [snippet truncated]\n- E2 `functions/api/auth/telegram.ts:65-104` - Server-side verification of Telegram auth using HMAC-SHA256 (not client-side only)\n  snippet: 65: async function verifyTelegramAuth(\n  66:   data: TelegramUser,\n  67:   botToken: string\n  68: ): Promise<boolean> {\n  69:   const { hash, ...userData } = data;\n  70: \n  71:   // Create data-check-string: sorted key=value pairs joined with \\n\n  72:   const dataCheckString = Object.keys(userData)\n  73:     .sort()\n  74:     .map((key) => `${key}=${userData[key as keyof typeof userData]}`)\n  75:     .join('\\n');\n  76: \n  ... [snippet truncated]\n- E3 `functions/api/_lib/session.ts:1-6` - Session helper utilities specifically for Cloudflare Pages Functions\n  snippet: 1: /**\n  2:  * Session authentication utilities for Cloudflare Pages Functions.\n  3:  */\n  4: \n  5: const SESSION_COOKIE_NAME = \"bible_session\";\n  6: const SESSION_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;\n- E4 `functions/api/_lib/session.ts:51-55` - Session cookie builder creates HttpOnly, Secure, SameSite=Lax cookie (not accessible to client JS)\n  snippet: 51: export const buildSessionCookie = (token: string): string =>\n  52:   `${SESSION_COOKIE_NAME}=${encodeURIComponent(token)}; Path=/; Max-Age=${SESSION_MAX_AGE_SECONDS}; HttpOnly; Secure; SameSite=Lax`;\n  53: \n  54: export const buildClearSessionCookie = (): string =>\n  55:   `${SESSION_COOKIE_NAME}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax`;\n- E5 `functions/api/_lib/session.ts:57-78` - createSession function stores session in database with HMAC-SHA256 token hash\n  snippet: 57: export const createSession = async (\n  58:   db: D1Database,\n  59:   userId: number,\n  60:   authSecret: string\n  61: ): Promise<string> => {\n  62:   const now = Math.floor(Date.now() / 1000);\n  63:   const expiresAt = now + SESSION_MAX_AGE_SECONDS;\n  64:   const sessionId = crypto.randomUUID();\n  65:   const rawToken = createRawSessionToken();\n  66:   const tokenHash = await hashSessionToken(rawToken, authSecret);\n  67: \n  68:   await db\n  ... [snippet truncated]\n- E6 `functions/api/_lib/session.ts:80-111` - authenticateSession function validates session from cookie against database\n  snippet: 80: export const authenticateSession = async (\n  81:   request: Request,\n  82:   db: D1Database,\n  83:   authSecret: string\n  84: ): Promise<{ sessionId: string; userId: number } | null> => {\n  85:   const sessionToken = parseCookies(request)[SESSION_COOKIE_NAME];\n  86:   if (!sessionToken) return null;\n  87: \n  88:   const tokenHash = await hashSessionToken(sessionToken, authSecret);\n  89:   const now = Math.floor(Date.now() / 1000);\n  90: \n  91:   const session = await db\n  ... [snippet truncated]\n- E7 `migrations/0002_auth_sessions.sql:4-13` - Database table schema for server-side session storage with token_hash, expires_at, revoked_at\n  snippet: 4: CREATE TABLE IF NOT EXISTS auth_sessions (\n  5:   id TEXT PRIMARY KEY,\n  6:   user_id INTEGER NOT NULL,\n  7:   token_hash TEXT NOT NULL UNIQUE,\n  8:   expires_at INTEGER NOT NULL,\n  9:   created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),\n  10:   revoked_at INTEGER,\n  11:   last_seen_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),\n  12:   FOREIGN KEY (user_id) REFERENCES users(id)\n  13: );\n- E8 `src/shared/components/TelegramLoginButton.tsx:38-56` - Client sends auth data to /api/auth/telegram endpoint, stores user in Zustand only after server success\n  snippet: 38:     const handleTelegramAuth = async (user: any) => {\n  39:       console.log(\"Telegram auth received:\", user);\n  40: \n  41:       try {\n  42:         // Send authentication data to backend for verification\n  43:         const response = await fetch(\"/api/auth/telegram\", {\n  44:           method: \"POST\",\n  45:           headers: {\n  46:             \"Content-Type\": \"application/json\",\n  47:           },\n  48:           body: JSON.stringify(user),\n  49:         });\n  ... [snippet truncated]\n\nSession: sess_61d0b976194fa26f (pass as \"session\" for follow-up calls)"
+}

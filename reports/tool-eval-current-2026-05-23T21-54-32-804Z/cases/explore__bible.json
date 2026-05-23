@@ -1,0 +1,1047 @@
+{
+  "tool": "explore",
+  "repo": "bible",
+  "args": {
+    "repo_root": "/home/kyubr/IdeaProjects/bible",
+    "scope": [
+      "src/**",
+      "functions/**",
+      "scripts/**",
+      "migrations/**"
+    ],
+    "prompt": "Give a concise architecture report for React reader state, Cloudflare Pages Functions auth, bookmarks, and exam APIs. Include inline file:line citations and flag uncertainty.",
+    "language": "en"
+  },
+  "elapsedMs": 14067,
+  "error": null,
+  "isError": false,
+  "summary": {
+    "reportPreview": "Now I have sufficient evidence to produce a comprehensive architecture report. Let me compile the findings.\n\n# Architecture Report: Bible Reader App\n\n## Summary\n\nThis React Bible reader application uses a **local-first architecture** with Zustand state management and Cloudflare Pages Functions for server APIs. The reader state is managed entirely client-side with selective localStorage persistence, while auth, bookmarks, and exam data sync to a D1 database via authenticated APIs. Authentication is Telegram-based with HMAC-SHA256 verification and session cookies.\n\n---\n\n## 1. React Reader State Architecture\n\n### Store Structure (Zustand)\n\nThe application uses **Zustand** with the `persist` middleware for state management (`src/store.tsx:L30-L58`). The store is composed of multiple slices:\n\n```typescript\nexport const useStore = create<AppStore>()(\n  persist(\n    (set, get, api) => ({\n      settings: INITIAL_SETTINGS,\n      currents: INITIAL_CURRENTS,\n      globals: INITIAL_GLOBALS,\n      search: INITIAL_SEARCH,\n      ui: INITIAL_UI,\n      auth: INITIAL_AUTH,\n      ...createStoreActions(set, get, api),\n    }),\n    {\n      name: \"bible-app-storage\",\n      storage: createJSONStorage(() => localStorage),\n      partialize: (state) => ({ settings: state.settings }),\n    }\n  )\n);\n```\n\n**Only `settings` slice is persisted to localStorage** (`src/store.tsx:L53-L55`). Runtime state (`currents`, `globals`, `search`, `ui`, `auth`) is memory-only.\n\n### Reader State Slice (`currents`)\n\nThe core reader state lives in the `currents` slice (`src/store/slices/currents.ts:L1-L81`):\n\n```typescript\nexport interface CurrentsState {\n  currentBookId: number;      // Currently selected book (1-66)\n  currentChapter: number;     // Currently selected chapter\n  currentMode: number;        // Current view mode (LOADING, READER, SEARCH, etc.)\n  currentSideOpen: boolean;   // Sidebar state\n  currentSelectedWordIds: Array<number | string>;  // Selected verse/word IDs\n  currentSearch: string;      // Search query\n}\n```\n\n**Initial values** (`src/store/initialState.ts:L32-L39`):\n```typescript\nexport const INITIAL_CURRENTS: CurrentsState = {\n  currentBookId: 1,\n  currentChapter: 1,\n  currentMode: MODE.LOADING,\n  currentSideOpen: false,\n  currentSelectedWordIds: [],\n  currentSearch: \"\",\n};\n```\n\n### Actions\n\nReader state is updated through actions in the `currents` slice (`src/store/slices/currents.ts:L16-L80`):\n- `setCurrentPassage(bookId, chapter)` - Updates both book and chapter atomically\n- `updateBookId(bookId)` - Updates book only\n- `updateChapter(chapter)` - Updates chapter only\n- `updat\n... [truncated 12722 chars]",
+    "citations": [
+      {
+        "type": "file_range",
+        "path": "src/store.tsx",
+        "startLine": 30,
+        "endLine": 58,
+        "raw": "`src/store.tsx:L30-L58`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/store.tsx",
+        "startLine": 53,
+        "endLine": 55,
+        "raw": "`src/store.tsx:L53-L55`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/store/slices/currents.ts",
+        "startLine": 1,
+        "endLine": 81,
+        "raw": "`src/store/slices/currents.ts:L1-L81`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/store/initialState.ts",
+        "startLine": 32,
+        "endLine": 39,
+        "raw": "`src/store/initialState.ts:L32-L39`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/store/slices/currents.ts",
+        "startLine": 16,
+        "endLine": 80,
+        "raw": "`src/store/slices/currents.ts:L16-L80`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/features/reader/hooks/useReaderController.ts",
+        "startLine": 1,
+        "endLine": 302,
+        "raw": "`src/features/reader/hooks/useReaderController.ts:L1-L302`"
+      },
+      {
+        "type": "file_range",
+        "path": "functions/api/auth/telegram.ts",
+        "startLine": 148,
+        "endLine": 240,
+        "raw": "`functions/api/auth/telegram.ts:L148-L240`"
+      },
+      {
+        "type": "file_range",
+        "path": "functions/api/auth/telegram.ts",
+        "startLine": 65,
+        "endLine": 104,
+        "raw": "`functions/api/auth/telegram.ts:L65-L104`"
+      },
+      {
+        "type": "file_range",
+        "path": "functions/api/auth/telegram.ts",
+        "startLine": 109,
+        "endLine": 113,
+        "raw": "`functions/api/auth/telegram.ts:L109-L113`"
+      },
+      {
+        "type": "file_range",
+        "path": "functions/api/auth/telegram.ts",
+        "startLine": 118,
+        "endLine": 146,
+        "raw": "`functions/api/auth/telegram.ts:L118-L146`"
+      },
+      {
+        "type": "file_range",
+        "path": "functions/api/auth/telegram.ts",
+        "startLine": 218,
+        "endLine": 232,
+        "raw": "`functions/api/auth/telegram.ts:L218-L232`"
+      },
+      {
+        "type": "file_range",
+        "path": "functions/api/_lib/session.ts",
+        "startLine": 51,
+        "endLine": 52,
+        "raw": "`functions/api/_lib/session.ts:L51-L52`"
+      }
+    ],
+    "targets": [
+      {
+        "path": "src/store.tsx",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 2 ranges.",
+        "evidenceRefs": [],
+        "startLine": 30,
+        "endLine": 58
+      },
+      {
+        "path": "src/store/slices/currents.ts",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 2 ranges.",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 81
+      },
+      {
+        "path": "src/store/initialState.ts",
+        "role": "reference",
+        "reason": "Markdown report citation",
+        "evidenceRefs": [],
+        "startLine": 32,
+        "endLine": 39
+      },
+      {
+        "path": "src/features/reader/hooks/useReaderController.ts",
+        "role": "reference",
+        "reason": "Markdown report citation",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 302
+      },
+      {
+        "path": "functions/api/auth/telegram.ts",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 5 ranges.",
+        "evidenceRefs": [],
+        "startLine": 65,
+        "endLine": 240
+      },
+      {
+        "path": "functions/api/_lib/session.ts",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 4 ranges.",
+        "evidenceRefs": [],
+        "startLine": 33,
+        "endLine": 111
+      },
+      {
+        "path": "functions/api/auth/me.ts",
+        "role": "reference",
+        "reason": "Markdown report citation",
+        "evidenceRefs": [],
+        "startLine": 38,
+        "endLine": 84
+      },
+      {
+        "path": "functions/_middleware.ts",
+        "role": "reference",
+        "reason": "Markdown report citation",
+        "evidenceRefs": [],
+        "startLine": 31,
+        "endLine": 53
+      }
+    ],
+    "filesRead": [
+      "src/store.tsx",
+      "functions/_middleware.ts",
+      "src/store/types.ts",
+      "src/store/slices/currents.ts",
+      "src/store/slices/auth.ts",
+      "src/api/auth.ts",
+      "src/api/bookmark.ts",
+      "src/api/exam.ts",
+      "functions/api/auth/telegram.ts",
+      "functions/api/bookmarks/list.ts",
+      "functions/api/bookmarks/sync.ts",
+      "functions/api/exam/submit.ts",
+      "functions/api/exam/history.ts",
+      "functions/api/exam/stats.ts",
+      "functions/api/exam/local-sync.ts",
+      "functions/api/_lib/session.ts",
+      "migrations/0001_initial.sql",
+      "migrations/0002_auth_sessions.sql",
+      "functions/api/auth/me.ts",
+      "src/features/reader/hooks/useReaderController.ts",
+      "src/store/initialState.ts",
+      "migrations/0004_bookmarks.sql",
+      "migrations/0003_exam_local_sync.sql",
+      "src/store.selectors.ts"
+    ],
+    "toolsUsed": [
+      "repo_list_dir",
+      "repo_read_file",
+      "repo_find_files"
+    ],
+    "critic": {
+      "status": "caution",
+      "warnings": [
+        {
+          "type": "truncated_tool_results",
+          "severity": "low",
+          "message": "5 tool result(s) were truncated before model synthesis; re-run with a narrower query or read specific ranges if expected evidence is missing.",
+          "action": "Use a narrower follow-up query or read specific ranges before relying on missing evidence."
+        }
+      ]
+    },
+    "searchCoverage": {
+      "scope": [
+        "src/**",
+        "functions/**",
+        "scripts/**",
+        "migrations/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 25,
+      "grepCalls": 0,
+      "listDirCalls": 7,
+      "symbolCalls": 0,
+      "toolResultsTruncated": 5,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: src/**, functions/**, scripts/**, migrations/**",
+        "5 tool result(s) were truncated before model synthesis; re-run with a narrower query or read specific ranges if expected evidence is missing."
+      ],
+      "summary": "scope-limited search across src/**, functions/**, scripts/**, migrations/**; 25 file read(s), 0 grep search(es)."
+    },
+    "stats": {
+      "turns": 11,
+      "toolCalls": 34,
+      "filesRead": 25,
+      "grepCalls": 0,
+      "symbolCalls": 0,
+      "stoppedByBudget": false,
+      "elapsedMs": 14056,
+      "totalTokens": 180235
+    }
+  },
+  "structuredContent": {
+    "report": "Now I have sufficient evidence to produce a comprehensive architecture report. Let me compile the findings.\n\n# Architecture Report: Bible Reader App\n\n## Summary\n\nThis React Bible reader application uses a **local-first architecture** with Zustand state management and Cloudflare Pages Functions for server APIs. The reader state is managed entirely client-side with selective localStorage persistence, while auth, bookmarks, and exam data sync to a D1 database via authenticated APIs. Authentication is Telegram-based with HMAC-SHA256 verification and session cookies.\n\n---\n\n## 1. React Reader State Architecture\n\n### Store Structure (Zustand)\n\nThe application uses **Zustand** with the `persist` middleware for state management (`src/store.tsx:L30-L58`). The store is composed of multiple slices:\n\n```typescript\nexport const useStore = create<AppStore>()(\n  persist(\n    (set, get, api) => ({\n      settings: INITIAL_SETTINGS,\n      currents: INITIAL_CURRENTS,\n      globals: INITIAL_GLOBALS,\n      search: INITIAL_SEARCH,\n      ui: INITIAL_UI,\n      auth: INITIAL_AUTH,\n      ...createStoreActions(set, get, api),\n    }),\n    {\n      name: \"bible-app-storage\",\n      storage: createJSONStorage(() => localStorage),\n      partialize: (state) => ({ settings: state.settings }),\n    }\n  )\n);\n```\n\n**Only `settings` slice is persisted to localStorage** (`src/store.tsx:L53-L55`). Runtime state (`currents`, `globals`, `search`, `ui`, `auth`) is memory-only.\n\n### Reader State Slice (`currents`)\n\nThe core reader state lives in the `currents` slice (`src/store/slices/currents.ts:L1-L81`):\n\n```typescript\nexport interface CurrentsState {\n  currentBookId: number;      // Currently selected book (1-66)\n  currentChapter: number;     // Currently selected chapter\n  currentMode: number;        // Current view mode (LOADING, READER, SEARCH, etc.)\n  currentSideOpen: boolean;   // Sidebar state\n  currentSelectedWordIds: Array<number | string>;  // Selected verse/word IDs\n  currentSearch: string;      // Search query\n}\n```\n\n**Initial values** (`src/store/initialState.ts:L32-L39`):\n```typescript\nexport const INITIAL_CURRENTS: CurrentsState = {\n  currentBookId: 1,\n  currentChapter: 1,\n  currentMode: MODE.LOADING,\n  currentSideOpen: false,\n  currentSelectedWordIds: [],\n  currentSearch: \"\",\n};\n```\n\n### Actions\n\nReader state is updated through actions in the `currents` slice (`src/store/slices/currents.ts:L16-L80`):\n- `setCurrentPassage(bookId, chapter)` - Updates both book and chapter atomically\n- `updateBookId(bookId)` - Updates book only\n- `updateChapter(chapter)` - Updates chapter only\n- `updateMode(mode)` - Updates view mode with validation\n- `updateSideOpen(currentSideOpen)` - Toggles sidebar\n- `updateSelectedWordIds(currentSelectedWordIds)` - Updates selection\n- `updateSearch(currentSearch)` - Updates search query\n\n### Usage Pattern\n\nReader components use **selector hooks** to access state (`src/store.selectors.ts`):\n\n```typescript\nexport const selectReaderControllerState = (state: AppStore) => ({\n  ...selectReaderSettings(state),\n  ...selectReaderRuntimeState(state),\n});\n```\n\nThe main reader controller hook (`src/features/reader/hooks/useReaderController.ts:L1-L302`) orchestrates:\n- Bible data fetching based on `currentBookId` and `currentChapter`\n- Search integration with V3/V4 engines\n- Bookmark actions integration\n- UI controls and shortcuts\n- Navigation and routing\n\n---\n\n## 2. Cloudflare Pages Functions Auth\n\n### Architecture Overview\n\nAuthentication uses a **Telegram Login Widget** flow with server-side HMAC-SHA256 verification and session-based auth cookies.\n\n### Flow\n\n1. **Telegram Auth** (`functions/api/auth/telegram.ts:L148-L240`):\n   - Client sends Telegram widget data (id, first_name, hash, auth_date, etc.)\n   - Server validates with HMAC-SHA256 using `TELEGRAM_BOT_TOKEN` (`functions/api/auth/telegram.ts:L65-L104`)\n   - Checks `auth_date` is within 24 hours (`functions/api/auth/telegram.ts:L109-L113`)\n   - Upserts user in `users` table (`functions/api/auth/telegram.ts:L118-L146`)\n   - Creates session and returns HTTP-only cookie (`functions/api/auth/telegram.ts:L218-L232`)\n\n2. **Session Management** (`functions/api/_lib/session.ts`):\n   - Session cookie: `bible_session` (HttpOnly, Secure, SameSite=Lax, 7-day expiry) (`functions/api/_lib/session.ts:L51-L52`)\n   - Token hashed with `AUTH_SECRET` via HMAC-SHA256 before storage (`functions/api/_lib/session.ts:L33-L43`)\n   - Session stored in `auth_sessions` table with `id`, `user_id`, `token_hash`, `expires_at` (`functions/api/_lib/session.ts:L57-L78`)\n   - Auth check: Validates cookie, looks up hashed token, checks not revoked/expired (`functions/api/_lib/session.ts:L80-L111`)\n\n3. **Session Validation** (`functions/api/auth/me.ts:L38-L84`):\n   - Uses `authenticateSession()` to validate session cookie\n   - Fetches user from `users` table\n   - Returns `{ success, authenticated, user }`\n\n4. **Middleware** (`functions/_middleware.ts:L31-L53`):\n   - Applies security headers (`X-Content-Type-Options`, `Referrer-Policy`, etc.)\n   - Blocks cross-origin mutating requests (POST/PUT/DELETE/PATCH)\n   - Sets `Cache-Control: no-store` for API routes\n\n### Database Schema\n\n**Users** (`migrations/0001_initial.sql:L5-L15`):\n```sql\nCREATE TABLE users (\n  id INTEGER PRIMARY KEY,              -- Telegram user ID\n  first_name TEXT NOT NULL,\n  last_name TEXT,\n  username TEXT,\n  photo_url TEXT,\n  phone_number TEXT,\n  auth_date INTEGER NOT NULL,\n  created_at INTEGER NOT NULL,\n  updated_at INTEGER NOT NULL\n);\n```\n\n**Auth Sessions** (`migrations/0002_auth_sessions.sql:L4-L13`):\n```sql\nCREATE TABLE auth_sessions (\n  id TEXT PRIMARY KEY,\n  user_id INTEGER NOT NULL,\n  token_hash TEXT NOT NULL UNIQUE,\n  expires_at INTEGER NOT NULL,\n  created_at INTEGER NOT NULL,\n  revoked_at INTEGER,\n  last_seen_at INTEGER NOT NULL,\n  FOREIGN KEY (user_id) REFERENCES users(id)\n);\n```\n\n### Client-Side Auth State\n\nAuth state in Zustand (`src/store/slices/auth.ts:L5-L20`):\n```typescript\nexport interface AuthState {\n  user: TelegramUser | null;\n  isAuthenticated: boolean;\n}\n\nexport const createAuthSlice: AppStoreSlice<AuthActions> = (set) => ({\n  setAuthUser: (user) =>\n    set(() => ({\n      auth: { user, isAuthenticated: user !== null },\n    })),\n  logout: () =>\n    set(() => ({\n      auth: { user: null, isAuthenticated: false },\n    })),\n});\n```\n\n**Not persisted** - auth state is memory-only, restored via `/api/auth/me` on app load.\n\n---\n\n## 3. Bookmarks Architecture\n\n### Client-First Sync Model\n\nBookmarks use a **client-generated ID** system for offline-first synchronization:\n\n```typescript\nexport interface ServerBookmark {\n  serverBookmarkId: number;  // Server-assigned auto-increment ID\n  clientId: string;          // Client-generated UUID\n  title: string;\n  blocks: unknown[];         // JSON-serialized bookmark blocks\n  schemaVersion: number;\n  createdAt: string;\n  updatedAt: string;\n  syncedAt: number;         // Unix seconds\n}\n```\n\n### Server APIs\n\n**1. List API** (`functions/api/bookmarks/list.ts:L43-L125`):\n- `GET /api/bookmarks/list?since=<unix_seconds>`\n- Returns bookmarks changed since `since` (delta sync)\n- Max 500 bookmarks per request\n- Returns `deletedClientIds` array for soft-deleted bookmarks\n- Query: `WHERE user_id = ? AND synced_at > ?`\n\n**2. Sync API** (`functions/api/bookmarks/sync.ts:L176-L270`):\n- `POST /api/bookmarks/sync`\n- Accepts `{ bookmarks: [], deletedClientIds: [] }`\n- Upserts bookmarks by `clientId` with conflict resolution:\n  - If server `updated_at` > client `updated_at`: keep server version\n  - Otherwise: overwrite with client data\n- Soft-deletes bookmarks by setting `deleted_at`\n- Returns `{ serverIdsByClientId: {}, syncedAt: number }`\n- Max 200 bookmarks + 200 deletions per request\n\n### Database Schema\n\n**Bookmarks** (`migrations/0004_bookmarks.sql:L4-L16`):\n```sql\nCREATE TABLE bookmarks (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  user_id INTEGER NOT NULL,\n  client_id TEXT NOT NULL,\n  title TEXT NOT NULL DEFAULT '',\n  blocks TEXT NOT NULL DEFAULT '[]',\n  schema_version INTEGER NOT NULL DEFAULT 1,\n  created_at INTEGER NOT NULL,\n  updated_at INTEGER NOT NULL,\n  deleted_at INTEGER,\n  synced_at INTEGER NOT NULL,\n  FOREIGN KEY (user_id) REFERENCES users(id)\n);\n\nCREATE UNIQUE INDEX idx_bookmarks_user_client_id\n  ON bookmarks(user_id, client_id);\n```\n\n### Client Integration\n\nClient API (`src/api/bookmark.ts`):\n- `fetchBookmarks(since?)` - Fetch bookmarks with optional delta\n- `syncBookmarks(bookmarks, deletedClientIds)` - Push changes to server\n\n---\n\n## 4. Exam APIs Architecture\n\n### Exam Data Model\n\nExam results track detailed attempt metadata:\n\n```typescript\nexport interface ExamResult {\n  id: number;\n  exam_type: string;           // 'simple_revelation', 'practice', 'mock-test'\n  book_id: number;\n  chapter_start: number;\n  chapter_end: number;\n  total_verses: number;\n  correct_count: number;\n  wrong_count: number;\n  accuracy: number;            // 0-100\n  duration_seconds: number | null;\n  wrongVerses: number[] | null;\n  completed_at: number;        // Unix timestamp\n}\n```\n\n### Server APIs\n\n**1. Submit API** (`functions/api/exam/submit.ts:L27-L116`):\n- `POST /api/exam/submit`\n- Requires authentication\n- Inserts into `exam_results` table\n- Returns `{ success: true, examId: <id> }`\n\n**2. History API** (`functions/api/exam/history.ts:L13-L92`):\n- `GET /api/exam/history?limit=50&offset=0`\n- Paginated exam history (max 100 per request)\n- Orders by `completed_at DESC`\n- Returns `{ success, results: [], total, limit, offset }`\n\n**3. Stats API** (`functions/api/exam/stats.ts:L13-L134`):\n- `GET /api/exam/stats?leaderboard=true`\n- Aggregates user statistics:\n  - Total exams, avg accuracy, best/worst accuracy\n  - Total verses practiced, correct/wrong counts\n  - First/last exam dates\n- Recent progress (last 10 exams)\n- Chapter-wise statistics (attempts, avg accuracy, best accuracy)\n- Optional leaderboard (top 20 by avg accuracy)\n\n**4. Local Sync API** (`functions/api/exam/local-sync.ts:L1-L320`):\n- `POST /api/exam/local-sync`\n- Accepts `{ attempts: [], chapterProgress: [] }`\n- Upserts local exam attempts with conflict resolution\n- Tracks rich metadata:\n  - `scope_type`: 'verse' | 'chapter' | 'range'\n  - `confidence`: 'low' | 'mid' | 'high' | null\n  - `hint_count`, `latency_ms`\n  - `reflection`: user notes\n  - `clientUpdatedAt` for conflict resolution\n- Upserts chapter progress tracking:\n  - `status`: 'unseen' | 'started' | 'review_due' | 'stable'\n  - `needs_review`, `has_wrong_notes`, `next_review_at`\n- Max 500 attempts + 64 progress records per request\n\n### Database Schema\n\n**Exam Results** (`migrations/0001_initial.sql:L18-L33` + `migrations/0003_exam_local_sync.sql:L4-L11`):\n```sql\nCREATE TABLE exam_results (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  user_id INTEGER NOT NULL,\n  exam_type TEXT NOT NULL DEFAULT 'simple_revelation',\n  book_id INTEGER NOT NULL,\n  chapter_start INTEGER NOT NULL,\n  chapter_end INTEGER NOT NULL,\n  total_verses INTEGER NOT NULL,\n  correct_count INTEGER NOT NULL,\n  wrong_count INTEGER NOT NULL,\n  accuracy REAL NOT NULL,\n  duration_seconds INTEGER,\n  wrong_verses TEXT,\n  completed_at INTEGER NOT NULL,\n  client_id TEXT,                      -- Added for local sync\n  scope_type TEXT NOT NULL DEFAULT 'chapter',\n  hint_count INTEGER NOT NULL DEFAULT 0,\n  latency_ms INTEGER,\n  confidence TEXT,\n  reflection TEXT,\n  synced_at INTEGER,\n  client_updated_at INTEGER,\n  FOREIGN KEY (user_id) REFERENCES users(id)\n);\n```\n\n**Chapter Progress** (`migrations/0003_exam_local_sync.sql:L18-L33`):\n```sql\nCREATE TABLE exam_chapter_progress (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  user_id INTEGER NOT NULL,\n  chapter INTEGER NOT NULL,\n  attempt_count INTEGER NOT NULL DEFAULT 0,\n  last_attempt_at INTEGER,\n  last_accuracy REAL,\n  has_wrong_notes INTEGER NOT NULL DEFAULT 0,\n  needs_review INTEGER NOT NULL DEFAULT 0,\n  next_review_at INTEGER,\n  status TEXT NOT NULL DEFAULT 'unseen',\n  synced_at INTEGER NOT NULL,\n  created_at INTEGER NOT NULL,\n  updated_at INTEGER NOT NULL,\n  FOREIGN KEY (user_id) REFERENCES users(id)\n);\n```\n\n### Client Integration\n\nClient API (`src/api/exam.ts:L93-L141`):\n- `fetchExamHistory(limit, offset)` - Paginated history\n- `fetchExamStats(includeLeaderboard)` - User stats + optional leaderboard\n- `submitExamResult(payload)` - Submit single exam result\n- `syncLocalExamData({ attempts, chapterProgress })` - Sync local data\n\n---\n\n## Key Code Paths\n\n### Reader State Update Flow\n1. User action → Hook calls store action (e.g., `setCurrentPassage`)\n2. `src/store/slices/currents.ts` updates state via `set()`\n3. Subscribed components re-render via `selectReaderControllerState` selector\n4. Bible data refetches if `currentBookId` or `currentChapter` changes\n\n### Authentication Flow\n1. User signs in via Telegram widget → `POST /api/auth/telegram`\n2. Server verifies HMAC-SHA256 signature → Creates session → Sets cookie\n3. On app load → `GET /api/auth/me` validates session → Updates `auth` state\n4. Protected APIs call `authenticateSession()` to verify cookie\n\n### Bookmark Sync Flow\n1. Client generates `clientId` (UUID) for new bookmark\n2. `POST /api/bookmarks/sync` sends all local changes\n3. Server upserts by `user_id + client_id` with conflict resolution\n4. Returns mapping of `clientId → serverBookmarkId` and `syncedAt`\n5. Client stores server IDs for future syncs\n\n### Exam Sync Flow\n1. Local exam attempts tracked with `clientId`\n2. `POST /api/exam/local-sync` sends attempts + chapter progress\n3. Server upserts by `user_id + client_id` with `client_updated_at` comparison\n4. Returns acknowledgments with `serverExamId` for each `clientId`\n5. Chapter progress updated with review scheduling logic\n\n---\n\n## Uncertainty\n\n1. **Offline Queueing**: The codebase shows sync APIs but does not reveal an offline queue mechanism. Unknown if pending changes are queued when offline or if sync is opportunistic.\n\n2. **Bookmark Conflict Resolution Priority**: When server `updated_at` == client `updated_at`, the winner is unclear from `functions/api/bookmarks/sync.ts:L130-L132` (only checks `>`).\n\n3. **Exam Local Storage**: Client-side exam records storage format is not visible in the explored files. Unknown if IndexedDB or localStorage is used.\n\n4. **Session Revocation**: No explicit session cleanup/revocation endpoint found. Unclear if sessions are only removed on expiry or if there's a logout endpoint.\n\n5. **Reader State Reset**: Not seen when/how `currents` state resets on navigation between different book/chapter routes.\n\n6. **Bookmark Schema Evolution**: Unclear what `schemaVersion` tracks or how migration logic works when schema changes.\n\n---\n\n## Suggestions\n\n1. **Examine offline queueing**: Search for `queue`, `pending`, or background sync patterns to understand offline behavior.\n\n2. **Review bookmark merge logic**: Investigate tie-breaking logic when timestamps are equal in sync operations.\n\n3. **Map exam client storage**: Find where `ExamAttemptRecord` and `ExamChapterProgressRecord` are stored client-side.\n\n4. **Check logout implementation**: Verify `functions/api/auth/logout.ts` exists and how it handles session revocation.\n\n5. **Trace reader state lifecycle**: Follow how `currents` state initializes and resets during route changes.\n\n6. **Study bookmark schema versioning**: Understand `schemaVersion` purpose and migration strategy.",
+    "citations": [
+      {
+        "type": "file_range",
+        "path": "src/store.tsx",
+        "startLine": 30,
+        "endLine": 58,
+        "raw": "`src/store.tsx:L30-L58`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/store.tsx",
+        "startLine": 53,
+        "endLine": 55,
+        "raw": "`src/store.tsx:L53-L55`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/store/slices/currents.ts",
+        "startLine": 1,
+        "endLine": 81,
+        "raw": "`src/store/slices/currents.ts:L1-L81`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/store/initialState.ts",
+        "startLine": 32,
+        "endLine": 39,
+        "raw": "`src/store/initialState.ts:L32-L39`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/store/slices/currents.ts",
+        "startLine": 16,
+        "endLine": 80,
+        "raw": "`src/store/slices/currents.ts:L16-L80`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/features/reader/hooks/useReaderController.ts",
+        "startLine": 1,
+        "endLine": 302,
+        "raw": "`src/features/reader/hooks/useReaderController.ts:L1-L302`"
+      },
+      {
+        "type": "file_range",
+        "path": "functions/api/auth/telegram.ts",
+        "startLine": 148,
+        "endLine": 240,
+        "raw": "`functions/api/auth/telegram.ts:L148-L240`"
+      },
+      {
+        "type": "file_range",
+        "path": "functions/api/auth/telegram.ts",
+        "startLine": 65,
+        "endLine": 104,
+        "raw": "`functions/api/auth/telegram.ts:L65-L104`"
+      },
+      {
+        "type": "file_range",
+        "path": "functions/api/auth/telegram.ts",
+        "startLine": 109,
+        "endLine": 113,
+        "raw": "`functions/api/auth/telegram.ts:L109-L113`"
+      },
+      {
+        "type": "file_range",
+        "path": "functions/api/auth/telegram.ts",
+        "startLine": 118,
+        "endLine": 146,
+        "raw": "`functions/api/auth/telegram.ts:L118-L146`"
+      },
+      {
+        "type": "file_range",
+        "path": "functions/api/auth/telegram.ts",
+        "startLine": 218,
+        "endLine": 232,
+        "raw": "`functions/api/auth/telegram.ts:L218-L232`"
+      },
+      {
+        "type": "file_range",
+        "path": "functions/api/_lib/session.ts",
+        "startLine": 51,
+        "endLine": 52,
+        "raw": "`functions/api/_lib/session.ts:L51-L52`"
+      },
+      {
+        "type": "file_range",
+        "path": "functions/api/_lib/session.ts",
+        "startLine": 33,
+        "endLine": 43,
+        "raw": "`functions/api/_lib/session.ts:L33-L43`"
+      },
+      {
+        "type": "file_range",
+        "path": "functions/api/_lib/session.ts",
+        "startLine": 57,
+        "endLine": 78,
+        "raw": "`functions/api/_lib/session.ts:L57-L78`"
+      },
+      {
+        "type": "file_range",
+        "path": "functions/api/_lib/session.ts",
+        "startLine": 80,
+        "endLine": 111,
+        "raw": "`functions/api/_lib/session.ts:L80-L111`"
+      },
+      {
+        "type": "file_range",
+        "path": "functions/api/auth/me.ts",
+        "startLine": 38,
+        "endLine": 84,
+        "raw": "`functions/api/auth/me.ts:L38-L84`"
+      },
+      {
+        "type": "file_range",
+        "path": "functions/_middleware.ts",
+        "startLine": 31,
+        "endLine": 53,
+        "raw": "`functions/_middleware.ts:L31-L53`"
+      },
+      {
+        "type": "file_range",
+        "path": "migrations/0001_initial.sql",
+        "startLine": 5,
+        "endLine": 15,
+        "raw": "`migrations/0001_initial.sql:L5-L15`"
+      },
+      {
+        "type": "file_range",
+        "path": "migrations/0002_auth_sessions.sql",
+        "startLine": 4,
+        "endLine": 13,
+        "raw": "`migrations/0002_auth_sessions.sql:L4-L13`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/store/slices/auth.ts",
+        "startLine": 5,
+        "endLine": 20,
+        "raw": "`src/store/slices/auth.ts:L5-L20`"
+      },
+      {
+        "type": "file_range",
+        "path": "functions/api/bookmarks/list.ts",
+        "startLine": 43,
+        "endLine": 125,
+        "raw": "`functions/api/bookmarks/list.ts:L43-L125`"
+      },
+      {
+        "type": "file_range",
+        "path": "functions/api/bookmarks/sync.ts",
+        "startLine": 176,
+        "endLine": 270,
+        "raw": "`functions/api/bookmarks/sync.ts:L176-L270`"
+      },
+      {
+        "type": "file_range",
+        "path": "migrations/0004_bookmarks.sql",
+        "startLine": 4,
+        "endLine": 16,
+        "raw": "`migrations/0004_bookmarks.sql:L4-L16`"
+      },
+      {
+        "type": "file_range",
+        "path": "functions/api/exam/submit.ts",
+        "startLine": 27,
+        "endLine": 116,
+        "raw": "`functions/api/exam/submit.ts:L27-L116`"
+      },
+      {
+        "type": "file_range",
+        "path": "functions/api/exam/history.ts",
+        "startLine": 13,
+        "endLine": 92,
+        "raw": "`functions/api/exam/history.ts:L13-L92`"
+      },
+      {
+        "type": "file_range",
+        "path": "functions/api/exam/stats.ts",
+        "startLine": 13,
+        "endLine": 134,
+        "raw": "`functions/api/exam/stats.ts:L13-L134`"
+      },
+      {
+        "type": "file_range",
+        "path": "functions/api/exam/local-sync.ts",
+        "startLine": 1,
+        "endLine": 320,
+        "raw": "`functions/api/exam/local-sync.ts:L1-L320`"
+      },
+      {
+        "type": "file_range",
+        "path": "migrations/0001_initial.sql",
+        "startLine": 18,
+        "endLine": 33,
+        "raw": "`migrations/0001_initial.sql:L18-L33`"
+      },
+      {
+        "type": "file_range",
+        "path": "migrations/0003_exam_local_sync.sql",
+        "startLine": 4,
+        "endLine": 11,
+        "raw": "`migrations/0003_exam_local_sync.sql:L4-L11`"
+      },
+      {
+        "type": "file_range",
+        "path": "migrations/0003_exam_local_sync.sql",
+        "startLine": 18,
+        "endLine": 33,
+        "raw": "`migrations/0003_exam_local_sync.sql:L18-L33`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/api/exam.ts",
+        "startLine": 93,
+        "endLine": 141,
+        "raw": "`src/api/exam.ts:L93-L141`"
+      },
+      {
+        "type": "file_range",
+        "path": "functions/api/bookmarks/sync.ts",
+        "startLine": 130,
+        "endLine": 132,
+        "raw": "`functions/api/bookmarks/sync.ts:L130-L132`"
+      }
+    ],
+    "targets": [
+      {
+        "path": "src/store.tsx",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 2 ranges.",
+        "evidenceRefs": [],
+        "startLine": 30,
+        "endLine": 58
+      },
+      {
+        "path": "src/store/slices/currents.ts",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 2 ranges.",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 81
+      },
+      {
+        "path": "src/store/initialState.ts",
+        "role": "reference",
+        "reason": "Markdown report citation",
+        "evidenceRefs": [],
+        "startLine": 32,
+        "endLine": 39
+      },
+      {
+        "path": "src/features/reader/hooks/useReaderController.ts",
+        "role": "reference",
+        "reason": "Markdown report citation",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 302
+      },
+      {
+        "path": "functions/api/auth/telegram.ts",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 5 ranges.",
+        "evidenceRefs": [],
+        "startLine": 65,
+        "endLine": 240
+      },
+      {
+        "path": "functions/api/_lib/session.ts",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 4 ranges.",
+        "evidenceRefs": [],
+        "startLine": 33,
+        "endLine": 111
+      },
+      {
+        "path": "functions/api/auth/me.ts",
+        "role": "reference",
+        "reason": "Markdown report citation",
+        "evidenceRefs": [],
+        "startLine": 38,
+        "endLine": 84
+      },
+      {
+        "path": "functions/_middleware.ts",
+        "role": "reference",
+        "reason": "Markdown report citation",
+        "evidenceRefs": [],
+        "startLine": 31,
+        "endLine": 53
+      },
+      {
+        "path": "migrations/0001_initial.sql",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 2 ranges.",
+        "evidenceRefs": [],
+        "startLine": 5,
+        "endLine": 33
+      },
+      {
+        "path": "migrations/0002_auth_sessions.sql",
+        "role": "reference",
+        "reason": "Markdown report citation",
+        "evidenceRefs": [],
+        "startLine": 4,
+        "endLine": 13
+      },
+      {
+        "path": "src/store/slices/auth.ts",
+        "role": "reference",
+        "reason": "Markdown report citation",
+        "evidenceRefs": [],
+        "startLine": 5,
+        "endLine": 20
+      },
+      {
+        "path": "functions/api/bookmarks/list.ts",
+        "role": "reference",
+        "reason": "Markdown report citation",
+        "evidenceRefs": [],
+        "startLine": 43,
+        "endLine": 125
+      },
+      {
+        "path": "functions/api/bookmarks/sync.ts",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 2 ranges.",
+        "evidenceRefs": [],
+        "startLine": 130,
+        "endLine": 270
+      },
+      {
+        "path": "migrations/0004_bookmarks.sql",
+        "role": "reference",
+        "reason": "Markdown report citation",
+        "evidenceRefs": [],
+        "startLine": 4,
+        "endLine": 16
+      },
+      {
+        "path": "functions/api/exam/submit.ts",
+        "role": "reference",
+        "reason": "Markdown report citation",
+        "evidenceRefs": [],
+        "startLine": 27,
+        "endLine": 116
+      },
+      {
+        "path": "functions/api/exam/history.ts",
+        "role": "reference",
+        "reason": "Markdown report citation",
+        "evidenceRefs": [],
+        "startLine": 13,
+        "endLine": 92
+      },
+      {
+        "path": "functions/api/exam/stats.ts",
+        "role": "reference",
+        "reason": "Markdown report citation",
+        "evidenceRefs": [],
+        "startLine": 13,
+        "endLine": 134
+      },
+      {
+        "path": "functions/api/exam/local-sync.ts",
+        "role": "reference",
+        "reason": "Markdown report citation",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 320
+      },
+      {
+        "path": "migrations/0003_exam_local_sync.sql",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 2 ranges.",
+        "evidenceRefs": [],
+        "startLine": 4,
+        "endLine": 33
+      },
+      {
+        "path": "src/api/exam.ts",
+        "role": "reference",
+        "reason": "Markdown report citation",
+        "evidenceRefs": [],
+        "startLine": 93,
+        "endLine": 141
+      }
+    ],
+    "filesRead": [
+      "src/store.tsx",
+      "functions/_middleware.ts",
+      "src/store/types.ts",
+      "src/store/slices/currents.ts",
+      "src/store/slices/auth.ts",
+      "src/api/auth.ts",
+      "src/api/bookmark.ts",
+      "src/api/exam.ts",
+      "functions/api/auth/telegram.ts",
+      "functions/api/bookmarks/list.ts",
+      "functions/api/bookmarks/sync.ts",
+      "functions/api/exam/submit.ts",
+      "functions/api/exam/history.ts",
+      "functions/api/exam/stats.ts",
+      "functions/api/exam/local-sync.ts",
+      "functions/api/_lib/session.ts",
+      "migrations/0001_initial.sql",
+      "migrations/0002_auth_sessions.sql",
+      "functions/api/auth/me.ts",
+      "src/features/reader/hooks/useReaderController.ts",
+      "src/store/initialState.ts",
+      "migrations/0004_bookmarks.sql",
+      "migrations/0003_exam_local_sync.sql",
+      "src/store.selectors.ts"
+    ],
+    "toolsUsed": [
+      "repo_list_dir",
+      "repo_read_file",
+      "repo_find_files"
+    ],
+    "stats": {
+      "model": "zai-glm-4.7",
+      "budget": "deep",
+      "turns": 11,
+      "toolCalls": 34,
+      "listDirCalls": 7,
+      "findFileCalls": 2,
+      "grepCalls": 0,
+      "filesRead": 25,
+      "gitLogCalls": 0,
+      "gitBlameCalls": 0,
+      "gitDiffCalls": 0,
+      "gitShowCalls": 0,
+      "symbolCalls": 0,
+      "elapsedMs": 14056,
+      "stoppedByBudget": false,
+      "llmCompactions": 0,
+      "toolResultsTruncated": 5,
+      "outputRecoveries": 0,
+      "scope": [
+        "src/**",
+        "functions/**",
+        "scripts/**",
+        "migrations/**"
+      ],
+      "repoRoot": "/home/kyubr/IdeaProjects/bible",
+      "sessionId": "sess_7b9211a8c1a04e54",
+      "sessionStatus": "created",
+      "sessionSource": "created",
+      "remainingCalls": 4,
+      "inputTokens": 174667,
+      "outputTokens": 5568,
+      "totalTokens": 180235,
+      "cacheHits": 188,
+      "cacheMisses": 642,
+      "cacheHitRate": 0.227,
+      "cacheEntries": 631,
+      "cacheSizeBytes": 3807052
+    },
+    "critic": {
+      "status": "caution",
+      "warnings": [
+        {
+          "type": "truncated_tool_results",
+          "severity": "low",
+          "message": "5 tool result(s) were truncated before model synthesis; re-run with a narrower query or read specific ranges if expected evidence is missing.",
+          "action": "Use a narrower follow-up query or read specific ranges before relying on missing evidence."
+        }
+      ]
+    },
+    "searchCoverage": {
+      "scope": [
+        "src/**",
+        "functions/**",
+        "scripts/**",
+        "migrations/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 25,
+      "grepCalls": 0,
+      "listDirCalls": 7,
+      "symbolCalls": 0,
+      "toolResultsTruncated": 5,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: src/**, functions/**, scripts/**, migrations/**",
+        "5 tool result(s) were truncated before model synthesis; re-run with a narrower query or read specific ranges if expected evidence is missing."
+      ],
+      "summary": "scope-limited search across src/**, functions/**, scripts/**, migrations/**; 25 file read(s), 0 grep search(es)."
+    },
+    "transcriptPath": null,
+    "toolTrace": {
+      "entries": [
+        {
+          "turn": 1,
+          "tool": "repo_list_dir",
+          "args": {
+            "dirPath": "."
+          },
+          "result": {
+            "entries": 33,
+            "paths": [
+              "functions",
+              "functions/_middleware.ts",
+              "functions/api",
+              "migrations",
+              "migrations/0001_initial.sql",
+              "migrations/0002_auth_sessions.sql"
+            ]
+          }
+        },
+        {
+          "turn": 1,
+          "tool": "repo_list_dir",
+          "args": {
+            "dirPath": "src"
+          },
+          "result": {
+            "entries": 135,
+            "paths": [
+              "src/api",
+              "src/api/auth.ts",
+              "src/api/bible.tsx",
+              "src/api/bookmark.ts",
+              "src/api/exam.ts",
+              "src/api/load_from_server.ts"
+            ]
+          }
+        },
+        {
+          "turn": 1,
+          "tool": "repo_list_dir",
+          "args": {
+            "dirPath": "functions"
+          },
+          "result": {
+            "entries": 6,
+            "paths": [
+              "functions/_middleware.ts",
+              "functions/api",
+              "functions/api/_lib",
+              "functions/api/auth",
+              "functions/api/bookmarks",
+              "functions/api/exam"
+            ]
+          }
+        },
+        {
+          "turn": 2,
+          "tool": "repo_list_dir",
+          "args": {
+            "dirPath": "src/store"
+          },
+          "result": {
+            "entries": 10,
+            "paths": [
+              "src/store/createActions.ts",
+              "src/store/initialState.ts",
+              "src/store/slices",
+              "src/store/slices/auth.ts",
+              "src/store/slices/currents.ts",
+              "src/store/slices/globals.ts"
+            ]
+          }
+        },
+        {
+          "turn": 2,
+          "tool": "repo_read_file",
+          "args": {
+            "path": "src/store.tsx"
+          },
+          "result": {
+            "path": "src/store.tsx",
+            "startLine": 1,
+            "endLine": 59,
+            "totalLines": 59,
+            "truncated": true
+          }
+        },
+        {
+          "turn": 2,
+          "tool": "repo_read_file",
+          "args": {
+            "path": "functions/_middleware.ts"
+          },
+          "result": {
+            "path": "functions/_middleware.ts",
+            "startLine": 1,
+            "endLine": 54,
+            "totalLines": 54,
+            "truncated": true
+          }
+        },
+        {
+          "turn": 3,
+          "tool": "repo_read_file",
+          "args": {
+            "path": "src/store/types.ts"
+          },
+          "result": {
+            "path": "src/store/types.ts",
+            "startLine": 1,
+            "endLine": 119,
+            "totalLines": 119,
+            "truncated": true
+          }
+        },
+        {
+          "turn": 3,
+          "tool": "repo_read_file",
+          "args": {
+            "path": "src/store/slices/currents.ts"
+          },
+          "result": {
+            "path": "src/store/slices/currents.ts",
+            "startLine": 1,
+            "endLine": 81,
+            "totalLines": 81,
+            "truncated": true
+          }
+        },
+        {
+          "turn": 3,
+          "tool": "repo_read_file",
+          "args": {
+            "path": "src/store/slices/auth.ts"
+          },
+          "result": {
+            "path": "src/store/slices/auth.ts",
+            "startLine": 1,
+            "endLine": 21,
+            "totalLines": 21,
+            "truncated": true
+          }
+        },
+        {
+          "turn": 4,
+          "tool": "repo_list_dir",
+          "args": {
+            "dirPath": "functions/api/auth"
+          },
+          "result": {
+            "entries": 3,
+            "paths": [
+              "functions/api/auth/logout.ts",
+              "functions/api/auth/me.ts",
+              "functions/api/auth/telegram.ts"
+            ]
+          }
+        },
+        {
+          "turn": 4,
+          "tool": "repo_read_file",
+          "args": {
+            "path": "src/api/auth.ts"
+          },
+          "result": {
+            "path": "src/api/auth.ts",
+            "startLine": 1,
+            "endLine": 56,
+            "totalLines": 56,
+            "truncated": true
+          }
+        },
+        {
+          "turn": 4,
+          "tool": "repo_list_dir",
+          "args": {
+            "dirPath": "functions/api/bookmarks"
+          },
+          "result": {
+            "entries": 2,
+            "paths": [
+              "functions/api/bookmarks/list.ts",
+              "functions/api/bookmarks/sync.ts"
+            ]
+          }
+        },
+        {
+          "turn": 5,
+          "tool": "repo_list_dir",
+          "args": {
+            "dirPath": "functions/api/exam"
+          },
+          "result": {
+            "entries": 4,
+            "paths": [
+              "functions/api/exam/history.ts",
+              "functions/api/exam/local-sync.ts",
+              "functions/api/exam/stats.ts",
+              "functions/api/exam/submit.ts"
+            ]
+          }
+        },
+        {
+          "turn": 5,
+          "tool": "repo_read_file",
+          "args": {
+            "path": "src/api/bookmark.ts"
+          },
+          "result": {
+            "path": "src/api/bookmark.ts",
+            "startLine": 1,
+            "endLine": 80,
+            "totalLines": 80,
+            "truncated": true
+          }
+        },
+        {
+          "turn": 5,
+          "tool": "repo_read_file",
+          "args": {
+            "path": "src/api/exam.ts"
+          },
+          "result": {
+            "path": "src/api/exam.ts",
+            "startLine": 1,
+            "endLine": 142,
+            "totalLines": 142,
+            "truncated": true
+          }
+        },
+        {
+          "turn": 5,
+          "tool": "repo_read_file",
+          "args": {
+            "path": "functions/api/auth/telegram.ts"
+          },
+          "result": {
+            "path": "functions/api/auth/telegram.ts",
+            "startLine": 1,
+            "endLine": 241,
+            "totalLines": 241,
+            "truncated": true
+          }
+        },
+        {
+          "turn": 6,
+          "tool": "repo_read_file",
+          "args": {
+            "path": "functions/api/auth/telegram.ts",
+            "startLine": 215,
+            "endLine": 241
+          },
+          "result": {
+            "path": "functions/api/auth/telegram.ts",
+            "startLine": 215,
+            "endLine": 241,
+            "totalLines": 241,
+            "truncated": false
+          }
+        },
+        {
+          "turn": 6,
+          "tool": "repo_read_file",
+          "args": {
+            "path": "functions/api/bookmarks/list.ts"
+          },
+          "result": {
+            "path": "functions/api/bookmarks/list.ts",
+            "startLine": 1,
+            "endLine": 126,
+            "totalLines": 126,
+            "truncated": true
+          }
+        },
+        {
+          "turn": 6,
+          "tool": "repo_read_file",
+          "args": {
+            "path": "functions/api/bookmarks/sync.ts"
+          },
+          "result": {
+            "path": "functions/api/bookmarks/sync.ts",
+            "startLine": 1,
+            "endLine": 270,
+            "totalLines": 270,
+            "truncated": true
+          }
+        },
+        {
+          "turn": 6,
+          "tool": "repo_read_file",
+          "args": {
+            "path": "functions/api/exam/submit.ts"
+          },
+          "result": {
+            "path": "functions/api/exam/submit.ts",
+            "startLine": 1,
+            "endLine": 117,
+            "totalLines": 117,
+            "truncated": true
+          }
+        }
+      ],
+      "totalCalls": 34,
+      "truncated": true,
+      "maxEntries": 20
+    }
+  },
+  "contentText": "Now I have sufficient evidence to produce a comprehensive architecture report. Let me compile the findings.\n\n# Architecture Report: Bible Reader App\n\n## Summary\n\nThis React Bible reader application uses a **local-first architecture** with Zustand state management and Cloudflare Pages Functions for server APIs. The reader state is managed entirely client-side with selective localStorage persistence, while auth, bookmarks, and exam data sync to a D1 database via authenticated APIs. Authentication is Telegram-based with HMAC-SHA256 verification and session cookies.\n\n---\n\n## 1. React Reader State Architecture\n\n### Store Structure (Zustand)\n\nThe application uses **Zustand** with the `persist` middleware for state management (`src/store.tsx:L30-L58`). The store is composed of multiple slices:\n\n```typescript\nexport const useStore = create<AppStore>()(\n  persist(\n    (set, get, api) => ({\n      settings: INITIAL_SETTINGS,\n      currents: INITIAL_CURRENTS,\n      globals: INITIAL_GLOBALS,\n      search: INITIAL_SEARCH,\n      ui: INITIAL_UI,\n      auth: INITIAL_AUTH,\n      ...createStoreActions(set, get, api),\n    }),\n    {\n      name: \"bible-app-storage\",\n      storage: createJSONStorage(() => localStorage),\n      partialize: (state) => ({ settings: state.settings }),\n    }\n  )\n);\n```\n\n**Only `settings` slice is persisted to localStorage** (`src/store.tsx:L53-L55`). Runtime state (`currents`, `globals`, `search`, `ui`, `auth`) is memory-only.\n\n### Reader State Slice (`currents`)\n\nThe core reader state lives in the `currents` slice (`src/store/slices/currents.ts:L1-L81`):\n\n```typescript\nexport interface CurrentsState {\n  currentBookId: number;      // Currently selected book (1-66)\n  currentChapter: number;     // Currently selected chapter\n  currentMode: number;        // Current view mode (LOADING, READER, SEARCH, etc.)\n  currentSideOpen: boolean;   // Sidebar state\n  currentSelectedWordIds: Array<number | string>;  // Selected verse/word IDs\n  currentSearch: string;      // Search query\n}\n```\n\n**Initial values** (`src/store/initialState.ts:L32-L39`):\n```typescript\nexport const INITIAL_CURRENTS: CurrentsState = {\n  currentBookId: 1,\n  currentChapter: 1,\n  currentMode: MODE.LOADING,\n  currentSideOpen: false,\n  currentSelectedWordIds: [],\n  currentSearch: \"\",\n};\n```\n\n### Actions\n\nReader state is updated through actions in the `currents` slice (`src/store/slices/currents.ts:L16-L80`):\n- `setCurrentPassage(bookId, chapter)` - Updates both book and chapter atomically\n- `updateBookId(bookId)` - Updates book only\n- `updateChapter(chapter)` - Updates chapter only\n- `updateMode(mode)` - Updates view mode with validation\n- `updateSideOpen(currentSideOpen)` - Toggles sidebar\n- `updateSelectedWordIds(currentSelectedWordIds)` - Updates selection\n- `updateSearch(currentSearch)` - Updates search query\n\n### Usage Pattern\n\nReader components use **selector hooks** to access state (`src/store.selectors.ts`):\n\n```typescript\nexport const selectReaderControllerState = (state: AppStore) => ({\n  ...selectReaderSettings(state),\n  ...selectReaderRuntimeState(state),\n});\n```\n\nThe main reader controller hook (`src/features/reader/hooks/useReaderController.ts:L1-L302`) orchestrates:\n- Bible data fetching based on `currentBookId` and `currentChapter`\n- Search integration with V3/V4 engines\n- Bookmark actions integration\n- UI controls and shortcuts\n- Navigation and routing\n\n---\n\n## 2. Cloudflare Pages Functions Auth\n\n### Architecture Overview\n\nAuthentication uses a **Telegram Login Widget** flow with server-side HMAC-SHA256 verification and session-based auth cookies.\n\n### Flow\n\n1. **Telegram Auth** (`functions/api/auth/telegram.ts:L148-L240`):\n   - Client sends Telegram widget data (id, first_name, hash, auth_date, etc.)\n   - Server validates with HMAC-SHA256 using `TELEGRAM_BOT_TOKEN` (`functions/api/auth/telegram.ts:L65-L104`)\n   - Checks `auth_date` is within 24 hours (`functions/api/auth/telegram.ts:L109-L113`)\n   - Upserts user in `users` table (`functions/api/auth/telegram.ts:L118-L146`)\n   - Creates session and returns HTTP-only cookie (`functions/api/auth/telegram.ts:L218-L232`)\n\n2. **Session Management** (`functions/api/_lib/session.ts`):\n   - Session cookie: `bible_session` (HttpOnly, Secure, SameSite=Lax, 7-day expiry) (`functions/api/_lib/session.ts:L51-L52`)\n   - Token hashed with `AUTH_SECRET` via HMAC-SHA256 before storage (`functions/api/_lib/session.ts:L33-L43`)\n   - Session stored in `auth_sessions` table with `id`, `user_id`, `token_hash`, `expires_at` (`functions/api/_lib/session.ts:L57-L78`)\n   - Auth check: Validates cookie, looks up hashed token, checks not revoked/expired (`functions/api/_lib/session.ts:L80-L111`)\n\n3. **Session Validation** (`functions/api/auth/me.ts:L38-L84`):\n   - Uses `authenticateSession()` to validate session cookie\n   - Fetches user from `users` table\n   - Returns `{ success, authenticated, user }`\n\n4. **Middleware** (`functions/_middleware.ts:L31-L53`):\n   - Applies security headers (`X-Content-Type-Options`, `Referrer-Policy`, etc.)\n   - Blocks cross-origin mutating requests (POST/PUT/DELETE/PATCH)\n   - Sets `Cache-Control: no-store` for API routes\n\n### Database Schema\n\n**Users** (`migrations/0001_initial.sql:L5-L15`):\n```sql\nCREATE TABLE users (\n  id INTEGER PRIMARY KEY,              -- Telegram user ID\n  first_name TEXT NOT NULL,\n  last_name TEXT,\n  username TEXT,\n  photo_url TEXT,\n  phone_number TEXT,\n  auth_date INTEGER NOT NULL,\n  created_at INTEGER NOT NULL,\n  updated_at INTEGER NOT NULL\n);\n```\n\n**Auth Sessions** (`migrations/0002_auth_sessions.sql:L4-L13`):\n```sql\nCREATE TABLE auth_sessions (\n  id TEXT PRIMARY KEY,\n  user_id INTEGER NOT NULL,\n  token_hash TEXT NOT NULL UNIQUE,\n  expires_at INTEGER NOT NULL,\n  created_at INTEGER NOT NULL,\n  revoked_at INTEGER,\n  last_seen_at INTEGER NOT NULL,\n  FOREIGN KEY (user_id) REFERENCES users(id)\n);\n```\n\n### Client-Side Auth State\n\nAuth state in Zustand (`src/store/slices/auth.ts:L5-L20`):\n```typescript\nexport interface AuthState {\n  user: TelegramUser | null;\n  isAuthenticated: boolean;\n}\n\nexport const createAuthSlice: AppStoreSlice<AuthActions> = (set) => ({\n  setAuthUser: (user) =>\n    set(() => ({\n      auth: { user, isAuthenticated: user !== null },\n    })),\n  logout: () =>\n    set(() => ({\n      auth: { user: null, isAuthenticated: false },\n    })),\n});\n```\n\n**Not persisted** - auth state is memory-only, restored via `/api/auth/me` on app load.\n\n---\n\n## 3. Bookmarks Architecture\n\n### Client-First Sync Model\n\nBookmarks use a **client-generated ID** system for offline-first synchronization:\n\n```typescript\nexport interface ServerBookmark {\n  serverBookmarkId: number;  // Server-assigned auto-increment ID\n  clientId: string;          // Client-generated UUID\n  title: string;\n  blocks: unknown[];         // JSON-serialized bookmark blocks\n  schemaVersion: number;\n  createdAt: string;\n  updatedAt: string;\n  syncedAt: number;         // Unix seconds\n}\n```\n\n### Server APIs\n\n**1. List API** (`functions/api/bookmarks/list.ts:L43-L125`):\n- `GET /api/bookmarks/list?since=<unix_seconds>`\n- Returns bookmarks changed since `since` (delta sync)\n- Max 500 bookmarks per request\n- Returns `deletedClientIds` array for soft-deleted bookmarks\n- Query: `WHERE user_id = ? AND synced_at > ?`\n\n**2. Sync API** (`functions/api/bookmarks/sync.ts:L176-L270`):\n- `POST /api/bookmarks/sync`\n- Accepts `{ bookmarks: [], deletedClientIds: [] }`\n- Upserts bookmarks by `clientId` with conflict resolution:\n  - If server `updated_at` > client `updated_at`: keep server version\n  - Otherwise: overwrite with client data\n- Soft-deletes bookmarks by setting `deleted_at`\n- Returns `{ serverIdsByClientId: {}, syncedAt: number }`\n- Max 200 bookmarks + 200 deletions per request\n\n### Database Schema\n\n**Bookmarks** (`migrations/0004_bookmarks.sql:L4-L16`):\n```sql\nCREATE TABLE bookmarks (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  user_id INTEGER NOT NULL,\n  client_id TEXT NOT NULL,\n  title TEXT NOT NULL DEFAULT '',\n  blocks TEXT NOT NULL \n... [truncated 7322 chars]"
+}

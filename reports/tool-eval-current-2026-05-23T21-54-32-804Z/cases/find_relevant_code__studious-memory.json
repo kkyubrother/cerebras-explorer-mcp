@@ -1,0 +1,1472 @@
+{
+  "tool": "find_relevant_code",
+  "repo": "studious-memory",
+  "args": {
+    "repo_root": "/home/kyubr/IdeaProjects/studious-memory",
+    "scope": [
+      "backend/**",
+      "frontend/src/**",
+      "extensions/firefox-inbox/src/**",
+      "scripts/**",
+      "android/**"
+    ],
+    "query": "Find the smallest useful files and line ranges for understanding backend MCP/FastAPI surface, frontend auth, extension capture, and ops scripts.",
+    "knownFiles": [
+      "backend/mcp_server.py"
+    ]
+  },
+  "elapsedMs": 10971,
+  "error": null,
+  "isError": false,
+  "summary": {
+    "directAnswer": "Identified key files: backend MCP surface (mcp_server.py, main.py, app/mcp/server.py), frontend auth (api.ts), extension capture (captureDraft.ts), and ops scripts (backup-sqlite.sh, setup-ubuntu-24.04.sh). Selected smallest useful line ranges showing initialization, routing, session management, capture logic, and backup/setup workflows.",
+    "status": {
+      "confidence": "high",
+      "verification": "verified",
+      "complete": true,
+      "warnings": []
+    },
+    "evidenceQuality": {
+      "level": "high",
+      "exactCount": 8,
+      "partialCount": 0,
+      "droppedCount": 0,
+      "fileCount": 7,
+      "warnings": [],
+      "summary": "Verified: 10 files read, 8/8 evidence items grounded, cross-verified across 7 files. All evidence grounded in inspected code."
+    },
+    "failure": null,
+    "nextAction": {
+      "type": "stop",
+      "reason": "Explorer result is complete for the requested read-only investigation."
+    },
+    "searchCoverage": {
+      "scope": [
+        "backend/**",
+        "frontend/src/**",
+        "extensions/firefox-inbox/src/**",
+        "scripts/**",
+        "android/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 10,
+      "grepCalls": 0,
+      "listDirCalls": 8,
+      "symbolCalls": 0,
+      "toolResultsTruncated": 0,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: backend/**, frontend/src/**, extensions/firefox-inbox/src/**, scripts/**, android/**"
+      ],
+      "summary": "scope-limited search across backend/**, frontend/src/**, extensions/firefox-inbox/src/**, scripts/**, android/**; 10 file read(s), 0 grep search(es)."
+    },
+    "critic": null,
+    "sessionId": "sess_9eaf60837d960830",
+    "session": {
+      "id": "sess_9eaf60837d960830",
+      "status": "created",
+      "remainingCalls": 4
+    },
+    "targets": [
+      {
+        "path": "backend/mcp_server.py",
+        "role": "read",
+        "reason": "Stdio transport entry point: runs migrations, sets MCP auth context, starts server",
+        "evidenceRefs": [
+          "E1"
+        ],
+        "startLine": 1,
+        "endLine": 41
+      },
+      {
+        "path": "backend/main.py",
+        "role": "read",
+        "reason": "FastAPI app creation with middleware stack: auth, correlation, IP block, rate limit",
+        "evidenceRefs": [
+          "E2"
+        ],
+        "startLine": 1,
+        "endLine": 85
+      },
+      {
+        "path": "backend/main.py",
+        "role": "read",
+        "reason": "MCP HTTP sub-app mounting with concurrency limiter and request logger",
+        "evidenceRefs": [
+          "E3"
+        ],
+        "startLine": 757,
+        "endLine": 783
+      },
+      {
+        "path": "backend/app/mcp/server.py",
+        "role": "read",
+        "reason": "FastMCP server initialization, scoped_tool decorator, scope-based filtering",
+        "evidenceRefs": [
+          "E4"
+        ],
+        "startLine": 1,
+        "endLine": 120
+      },
+      {
+        "path": "backend/app/api/router.py",
+        "role": "read",
+        "reason": "API router composition showing all v1 endpoints included",
+        "evidenceRefs": [
+          "E5"
+        ],
+        "startLine": 1,
+        "endLine": 55
+      },
+      {
+        "path": "frontend/src/api.ts",
+        "role": "read",
+        "reason": "Session token storage, change events, and bootstrapSession validation",
+        "evidenceRefs": [
+          "E6"
+        ],
+        "startLine": 11,
+        "endLine": 172
+      },
+      {
+        "path": "extensions/firefox-inbox/src/background/captureDraft.ts",
+        "role": "read",
+        "reason": "Draft capture creation, state management, and text length validation",
+        "evidenceRefs": [
+          "E7"
+        ],
+        "startLine": 22,
+        "endLine": 82
+      },
+      {
+        "path": "scripts/backup-sqlite.sh",
+        "role": "read",
+        "reason": "SQLite backup: integrity check, tar creation, age encryption, cleanup",
+        "evidenceRefs": [
+          "E8"
+        ],
+        "startLine": 98,
+        "endLine": 174
+      }
+    ],
+    "discoveredPathsCount": 100,
+    "evidence": [
+      {
+        "id": "E1",
+        "path": "backend/mcp_server.py",
+        "startLine": 1,
+        "endLine": 41,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Shows stdio MCP server entry point with migration runner and auth context setup",
+        "snippet": "1: \"\"\"Stdio transport entry point for MCP clients that don't support HTTP.\"\"\"\n2: \n3: import os\n4: import subprocess\n5: import sys\n6: \n7: \n8: def _run_migrations() -> None:\n9:     \"\"\"Run Alembic migrations before starting the stdio server.\"\"\"\n10:     from app.config import ensure_runtime_directories\n11: \n12:     ensure_runtime_directories()\n... [snippet truncated]"
+      },
+      {
+        "id": "E2",
+        "path": "backend/main.py",
+        "startLine": 1,
+        "endLine": 85,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Shows FastAPI app with AuthMiddleware, CorrelationIdMiddleware, IPBlockMiddleware, RateLimitMiddleware",
+        "snippet": "1: import asyncio\n2: from contextlib import asynccontextmanager\n3: from datetime import datetime\n4: import json\n5: import logging\n6: import os\n7: from pathlib import Path\n8: import subprocess\n9: import sys\n10: import time\n11: \n12: import uvicorn\n... [snippet truncated]"
+      },
+      {
+        "id": "E3",
+        "path": "backend/main.py",
+        "startLine": 757,
+        "endLine": 783,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Shows MCP HTTP sub-app mounting with McpRequestLogger and McpConcurrencyLimiter",
+        "snippet": "757: # MCP server: streamable_http_app() uses internal path /mcp.\n758: # Mounted last at \"/\" so all /mcp requests reach the MCP sub-app.\n759: # Starlette evaluates routes in order; explicit routes above match first.\n760: # Wrapped with concurrency limiter (separate from chat streams) and access logger.\n761: _mcp_rpc_semaphore = asyncio.Semaphore(settings.MCP_MAX_RPC_CONNECTIONS)\n762: _mcp_sse_semaphore = asyncio.Semaphore(settings.MCP_MAX_SSE_CONNECTIONS)\n763: app.mount(\n764:     \"/\",\n765:     McpRequestLogger(\n766:         McpConcurrencyLimiter(\n767:             _mcp_http_app,\n768:             rpc_semaphore=_mcp_rpc_semaphore,\n... [snippet truncated]"
+      },
+      {
+        "id": "E4",
+        "path": "backend/app/mcp/server.py",
+        "startLine": 1,
+        "endLine": 120,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Shows FastMCP server initialization, scoped_tool decorator, and tool filtering",
+        "snippet": "1: from collections.abc import Callable\n2: from functools import wraps\n3: from typing import Any\n4: \n5: from mcp.server.fastmcp import FastMCP\n6: \n7: from app.mcp.authz import (\n8:     MCP_SCOPE_APPROVAL_READ,\n9:     MCP_SCOPE_LOOP_WRITE,\n10:     MCP_SCOPE_MEMORY_READ,\n11:     MCP_SCOPE_MEMORY_WRITE,\n12:     MCP_SCOPE_NAVER_AGENT,\n... [snippet truncated]"
+      },
+      {
+        "id": "E5",
+        "path": "backend/app/api/router.py",
+        "startLine": 1,
+        "endLine": 55,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Shows all v1 API routers included in main API router",
+        "snippet": "1: from fastapi import APIRouter\n2: \n3: from app.api.v1 import access_profiles, actions, activity, admin, agent, ai_config, ai_logs, api_keys, approvals, assistant, audit_logs, auth, chat, config, data_groups, diaries, diary_templates, digest, entities, feedback_events, home, identity, insights, knowledge, loops, master_profile, memory, notification_channels, notification_logs, notification_settings, notification_templates, openai_compat, orchestrator, people, proactive, refinement, relationships, reminders, review_inbox, routine_candidates, runs, schedules, scheduling, search, security, sources, todos\n4: \n5: api_router = APIRouter()\n6: \n7: api_router.include_router(auth.router)\n8: api_router.include_router(agent.router)\n9: api_router.include_router(actions.router)\n10: api_router.include_router(chat.router)\n11: api_router.include_router(config.router)\n12: api_router.include_router(home.r\n... [truncated 30 chars]"
+      },
+      {
+        "id": "E6",
+        "path": "frontend/src/api.ts",
+        "startLine": 11,
+        "endLine": 172,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Shows session token storage, events, and bootstrapSession validation",
+        "snippet": "11: const LEGACY_API_KEY_STORAGE = 'studious_api_key'\n12: const LEGACY_SESSION_MARKER_STORAGE = 'studious_session_active'\n13: const SESSION_TOKEN_STORAGE = 'studious_session_token'\n14: const SESSION_CHANGE_EVENT = 'studious:session-change'\n15: const SESSION_INFO_CHANGE_EVENT = 'studious:session-info-change'\n16: const DEFAULT_API_BASE_URL = '/api/v1'\n17: const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? DEFAULT_API_BASE_URL\n18: \n19: type QueryParams = Record<string, string | number | boolean | null | undefined>\n20: export type SessionBootstrapState = 'authenticated' | 'unauthenticated' | 'unknown'\n21: export type SessionBootstrapReason = 'rate_limited' | 'unknown'\n22: type SessionChangeDetail = { active: boolean; session?: AuthSessionInfo | null }\n... [snippet truncated]"
+      },
+      {
+        "id": "E7",
+        "path": "extensions/firefox-inbox/src/background/captureDraft.ts",
+        "startLine": 22,
+        "endLine": 82,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Shows createCaptureDraft function with state and length validation",
+        "snippet": "22: export function createCaptureDraft(input: DraftInput): BrowserCapture {\n23:   const selectedText = (input.selectedText ?? '').trim()\n24:   const fallbackNote = (input.fallbackNote ?? '').trim()\n25:   const receivedClientAt = (input.now ?? new Date()).toISOString()\n26:   return {\n27:     clientCaptureId: input.clientCaptureId ?? createClientCaptureId(input.randomId),\n28:     pageUrl: input.pageUrl,\n29:     pageTitle: input.pageTitle?.trim() || null,\n30:     selectedText,\n31:     fallbackNote,\n32:     inputChannel: INPUT_CHANNEL,\n33:     originPackage: ORIGIN_PACKAGE,\n... [snippet truncated]"
+      },
+      {
+        "id": "E8",
+        "path": "scripts/backup-sqlite.sh",
+        "startLine": 98,
+        "endLine": 174,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Shows SQLite integrity check, tar creation, age encryption, manifest, cleanup",
+        "snippet": "98: mkdir -p \"${BACKUP_DIR}\" \"${STORAGE_ROOT}\"\n99: \n100: echo \"[backup] ${TIMESTAMP} - 백업 시작\"\n101: \n102: if ! sqlite3 \"${DB_PATH}\" \".backup '${BACKUP_DB}'\"; then\n103:     healthcheck_ping \"/fail\"\n104:     notify \"$(printf '%s\\n%s\\n%s' \\\n105:         '[backup] FAIL: SQLite .backup failed' \\\n106:         \"조사: sqlite3 ${DB_PATH} 'PRAGMA integrity_check;'\" \\\n107:         '문서: docs/ops/incident-playbook.md (DB 연결 실패)')\"\n108:     exit 1\n109: fi\n... [snippet truncated]"
+      }
+    ],
+    "uncertainties": [],
+    "stats": {
+      "turns": 7,
+      "toolCalls": 18,
+      "filesRead": 10,
+      "grepCalls": 0,
+      "symbolCalls": 0,
+      "stoppedByBudget": false,
+      "elapsedMs": 10956,
+      "totalTokens": 149809
+    }
+  },
+  "structuredContent": {
+    "schemaVersion": 1,
+    "directAnswer": "Identified key files: backend MCP surface (mcp_server.py, main.py, app/mcp/server.py), frontend auth (api.ts), extension capture (captureDraft.ts), and ops scripts (backup-sqlite.sh, setup-ubuntu-24.04.sh). Selected smallest useful line ranges showing initialization, routing, session management, capture logic, and backup/setup workflows.",
+    "status": {
+      "confidence": "high",
+      "verification": "verified",
+      "complete": true,
+      "warnings": []
+    },
+    "targets": [
+      {
+        "path": "backend/mcp_server.py",
+        "role": "read",
+        "reason": "Stdio transport entry point: runs migrations, sets MCP auth context, starts server",
+        "evidenceRefs": [
+          "E1"
+        ],
+        "startLine": 1,
+        "endLine": 41
+      },
+      {
+        "path": "backend/main.py",
+        "role": "read",
+        "reason": "FastAPI app creation with middleware stack: auth, correlation, IP block, rate limit",
+        "evidenceRefs": [
+          "E2"
+        ],
+        "startLine": 1,
+        "endLine": 85
+      },
+      {
+        "path": "backend/main.py",
+        "role": "read",
+        "reason": "MCP HTTP sub-app mounting with concurrency limiter and request logger",
+        "evidenceRefs": [
+          "E3"
+        ],
+        "startLine": 757,
+        "endLine": 783
+      },
+      {
+        "path": "backend/app/mcp/server.py",
+        "role": "read",
+        "reason": "FastMCP server initialization, scoped_tool decorator, scope-based filtering",
+        "evidenceRefs": [
+          "E4"
+        ],
+        "startLine": 1,
+        "endLine": 120
+      },
+      {
+        "path": "backend/app/api/router.py",
+        "role": "read",
+        "reason": "API router composition showing all v1 endpoints included",
+        "evidenceRefs": [
+          "E5"
+        ],
+        "startLine": 1,
+        "endLine": 55
+      },
+      {
+        "path": "frontend/src/api.ts",
+        "role": "read",
+        "reason": "Session token storage, change events, and bootstrapSession validation",
+        "evidenceRefs": [
+          "E6"
+        ],
+        "startLine": 11,
+        "endLine": 172
+      },
+      {
+        "path": "extensions/firefox-inbox/src/background/captureDraft.ts",
+        "role": "read",
+        "reason": "Draft capture creation, state management, and text length validation",
+        "evidenceRefs": [
+          "E7"
+        ],
+        "startLine": 22,
+        "endLine": 82
+      },
+      {
+        "path": "scripts/backup-sqlite.sh",
+        "role": "read",
+        "reason": "SQLite backup: integrity check, tar creation, age encryption, cleanup",
+        "evidenceRefs": [
+          "E8"
+        ],
+        "startLine": 98,
+        "endLine": 174
+      }
+    ],
+    "discoveredPaths": [
+      {
+        "path": "android",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "android/.gradle",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "android/.kotlin",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "android/README.md",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "android/app",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "android/app/build.gradle.kts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "android/app/src",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "android/build.gradle.kts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "android/gradle",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "android/gradle/libs.versions.toml",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "android/gradle/wrapper",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "android/gradle.properties",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "android/gradlew",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "android/gradlew.bat",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "android/settings.gradle.kts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/.local",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/.pytest_cache",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/.python-version",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/.tmp",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/alembic.ini",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/app",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/app/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/app/access_context.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/app/admin",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/app/agents",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/app/ai",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/app/api",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/app/capabilities",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/app/config.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/app/database.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/app/dependencies.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/app/domains",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/app/exception_handlers.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/app/http_paths.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/app/logging_setup.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/app/mcp",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/app/middleware",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/app/models",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/app/policy.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/app/repositories",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/app/runtime",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/app/schemas",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/app/services",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/app/shared",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/conftest.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/db_migrations",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/db_migrations/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/db_migrations/env.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/db_migrations/script.py.mako",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/db_migrations/versions",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/main.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/mcp_server.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/pyproject.toml",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/storage",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/tests",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/tests/admin",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/tests/api",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/tests/auth",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/tests/fixtures",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/tests/helpers",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/tests/mcp",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/tests/test_action_policy.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/tests/test_activity_service.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/tests/test_agent_action_model.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/tests/test_agent_run_multiplexer.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/tests/test_agent_runs_budget_gate.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/tests/test_ai_adapter_outputs.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/tests/test_ai_budget_threshold_alerts.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/tests/test_ai_budget_usage.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/tests/test_ai_config_seed.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/tests/test_ai_factory.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/tests/test_ai_parsing.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/tests/test_ai_prompts.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/tests/test_ai_provider_plaintext_removal_migration.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/tests/test_ai_reasoning_summary.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/tests/test_ai_retry.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/tests/test_ai_router.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/tests/test_ai_router_cache.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/tests/test_ai_stage_adapter.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/tests/test_ai_structured_call.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/tests/test_ai_tool_call.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/tests/test_analysis_failure_semantics.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/tests/test_analysis_image_guards.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/tests/test_analysis_job.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/tests/test_analysis_pipeline.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/tests/test_archive_frontmatter.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/tests/test_audit_actor_tracking.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/tests/test_auxiliary_query_hardening.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/tests/test_background_runtime.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/tests/test_capability_metadata.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/tests/test_cerebras_text_only.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/tests/test_chat_budget_gate.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/tests/test_chat_compaction.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/tests/test_chat_context.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/tests/test_chat_context_work_safe.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/tests/test_chat_error_mapping.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/tests/test_chat_service.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/tests/test_chat_streaming.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "backend/tests/test_commitment_extraction.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      }
+    ],
+    "evidence": [
+      {
+        "path": "backend/mcp_server.py",
+        "startLine": 1,
+        "endLine": 41,
+        "why": "Shows stdio MCP server entry point with migration runner and auth context setup",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E1",
+        "snippet": "1: \"\"\"Stdio transport entry point for MCP clients that don't support HTTP.\"\"\"\n2: \n3: import os\n4: import subprocess\n5: import sys\n6: \n7: \n8: def _run_migrations() -> None:\n9:     \"\"\"Run Alembic migrations before starting the stdio server.\"\"\"\n10:     from app.config import ensure_runtime_directories\n11: \n12:     ensure_runtime_directories()\n... [snippet truncated]"
+      },
+      {
+        "path": "backend/main.py",
+        "startLine": 1,
+        "endLine": 85,
+        "why": "Shows FastAPI app with AuthMiddleware, CorrelationIdMiddleware, IPBlockMiddleware, RateLimitMiddleware",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E2",
+        "snippet": "1: import asyncio\n2: from contextlib import asynccontextmanager\n3: from datetime import datetime\n4: import json\n5: import logging\n6: import os\n7: from pathlib import Path\n8: import subprocess\n9: import sys\n10: import time\n11: \n12: import uvicorn\n... [snippet truncated]"
+      },
+      {
+        "path": "backend/main.py",
+        "startLine": 757,
+        "endLine": 783,
+        "why": "Shows MCP HTTP sub-app mounting with McpRequestLogger and McpConcurrencyLimiter",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E3",
+        "snippet": "757: # MCP server: streamable_http_app() uses internal path /mcp.\n758: # Mounted last at \"/\" so all /mcp requests reach the MCP sub-app.\n759: # Starlette evaluates routes in order; explicit routes above match first.\n760: # Wrapped with concurrency limiter (separate from chat streams) and access logger.\n761: _mcp_rpc_semaphore = asyncio.Semaphore(settings.MCP_MAX_RPC_CONNECTIONS)\n762: _mcp_sse_semaphore = asyncio.Semaphore(settings.MCP_MAX_SSE_CONNECTIONS)\n763: app.mount(\n764:     \"/\",\n765:     McpRequestLogger(\n766:         McpConcurrencyLimiter(\n767:             _mcp_http_app,\n768:             rpc_semaphore=_mcp_rpc_semaphore,\n... [snippet truncated]"
+      },
+      {
+        "path": "backend/app/mcp/server.py",
+        "startLine": 1,
+        "endLine": 120,
+        "why": "Shows FastMCP server initialization, scoped_tool decorator, and tool filtering",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E4",
+        "snippet": "1: from collections.abc import Callable\n2: from functools import wraps\n3: from typing import Any\n4: \n5: from mcp.server.fastmcp import FastMCP\n6: \n7: from app.mcp.authz import (\n8:     MCP_SCOPE_APPROVAL_READ,\n9:     MCP_SCOPE_LOOP_WRITE,\n10:     MCP_SCOPE_MEMORY_READ,\n11:     MCP_SCOPE_MEMORY_WRITE,\n12:     MCP_SCOPE_NAVER_AGENT,\n... [snippet truncated]"
+      },
+      {
+        "path": "backend/app/api/router.py",
+        "startLine": 1,
+        "endLine": 55,
+        "why": "Shows all v1 API routers included in main API router",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E5",
+        "snippet": "1: from fastapi import APIRouter\n2: \n3: from app.api.v1 import access_profiles, actions, activity, admin, agent, ai_config, ai_logs, api_keys, approvals, assistant, audit_logs, auth, chat, config, data_groups, diaries, diary_templates, digest, entities, feedback_events, home, identity, insights, knowledge, loops, master_profile, memory, notification_channels, notification_logs, notification_settings, notification_templates, openai_compat, orchestrator, people, proactive, refinement, relationships, reminders, review_inbox, routine_candidates, runs, schedules, scheduling, search, security, sources, todos\n4: \n5: api_router = APIRouter()\n6: \n7: api_router.include_router(auth.router)\n8: api_router.include_router(agent.router)\n9: api_router.include_router(actions.router)\n10: api_router.include_router(chat.router)\n11: api_router.include_router(config.router)\n12: api_router.include_router(home.router)\n... [snippet truncated]"
+      },
+      {
+        "path": "frontend/src/api.ts",
+        "startLine": 11,
+        "endLine": 172,
+        "why": "Shows session token storage, events, and bootstrapSession validation",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E6",
+        "snippet": "11: const LEGACY_API_KEY_STORAGE = 'studious_api_key'\n12: const LEGACY_SESSION_MARKER_STORAGE = 'studious_session_active'\n13: const SESSION_TOKEN_STORAGE = 'studious_session_token'\n14: const SESSION_CHANGE_EVENT = 'studious:session-change'\n15: const SESSION_INFO_CHANGE_EVENT = 'studious:session-info-change'\n16: const DEFAULT_API_BASE_URL = '/api/v1'\n17: const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? DEFAULT_API_BASE_URL\n18: \n19: type QueryParams = Record<string, string | number | boolean | null | undefined>\n20: export type SessionBootstrapState = 'authenticated' | 'unauthenticated' | 'unknown'\n21: export type SessionBootstrapReason = 'rate_limited' | 'unknown'\n22: type SessionChangeDetail = { active: boolean; session?: AuthSessionInfo | null }\n... [snippet truncated]"
+      },
+      {
+        "path": "extensions/firefox-inbox/src/background/captureDraft.ts",
+        "startLine": 22,
+        "endLine": 82,
+        "why": "Shows createCaptureDraft function with state and length validation",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E7",
+        "snippet": "22: export function createCaptureDraft(input: DraftInput): BrowserCapture {\n23:   const selectedText = (input.selectedText ?? '').trim()\n24:   const fallbackNote = (input.fallbackNote ?? '').trim()\n25:   const receivedClientAt = (input.now ?? new Date()).toISOString()\n26:   return {\n27:     clientCaptureId: input.clientCaptureId ?? createClientCaptureId(input.randomId),\n28:     pageUrl: input.pageUrl,\n29:     pageTitle: input.pageTitle?.trim() || null,\n30:     selectedText,\n31:     fallbackNote,\n32:     inputChannel: INPUT_CHANNEL,\n33:     originPackage: ORIGIN_PACKAGE,\n... [snippet truncated]"
+      },
+      {
+        "path": "scripts/backup-sqlite.sh",
+        "startLine": 98,
+        "endLine": 174,
+        "why": "Shows SQLite integrity check, tar creation, age encryption, manifest, cleanup",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E8",
+        "snippet": "98: mkdir -p \"${BACKUP_DIR}\" \"${STORAGE_ROOT}\"\n99: \n100: echo \"[backup] ${TIMESTAMP} - 백업 시작\"\n101: \n102: if ! sqlite3 \"${DB_PATH}\" \".backup '${BACKUP_DB}'\"; then\n103:     healthcheck_ping \"/fail\"\n104:     notify \"$(printf '%s\\n%s\\n%s' \\\n105:         '[backup] FAIL: SQLite .backup failed' \\\n106:         \"조사: sqlite3 ${DB_PATH} 'PRAGMA integrity_check;'\" \\\n107:         '문서: docs/ops/incident-playbook.md (DB 연결 실패)')\"\n108:     exit 1\n109: fi\n... [snippet truncated]"
+      }
+    ],
+    "uncertainties": [],
+    "nextAction": {
+      "type": "stop",
+      "reason": "Explorer result is complete for the requested read-only investigation."
+    },
+    "evidenceQuality": {
+      "level": "high",
+      "exactCount": 8,
+      "partialCount": 0,
+      "droppedCount": 0,
+      "fileCount": 7,
+      "warnings": [],
+      "summary": "Verified: 10 files read, 8/8 evidence items grounded, cross-verified across 7 files. All evidence grounded in inspected code."
+    },
+    "searchCoverage": {
+      "scope": [
+        "backend/**",
+        "frontend/src/**",
+        "extensions/firefox-inbox/src/**",
+        "scripts/**",
+        "android/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 10,
+      "grepCalls": 0,
+      "listDirCalls": 8,
+      "symbolCalls": 0,
+      "toolResultsTruncated": 0,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: backend/**, frontend/src/**, extensions/firefox-inbox/src/**, scripts/**, android/**"
+      ],
+      "summary": "scope-limited search across backend/**, frontend/src/**, extensions/firefox-inbox/src/**, scripts/**, android/**; 10 file read(s), 0 grep search(es)."
+    },
+    "failure": null,
+    "sessionId": "sess_9eaf60837d960830",
+    "session": {
+      "id": "sess_9eaf60837d960830",
+      "status": "created",
+      "remainingCalls": 4
+    },
+    "_debug": {
+      "evidenceSufficiency": {
+        "sufficient": true,
+        "reason": "simple_task_exact_evidence"
+      },
+      "confidenceScore": 0.96,
+      "confidenceFactors": {
+        "evidenceCount": 8,
+        "evidenceGrounded": 8,
+        "evidenceDropped": 0,
+        "exactCount": 8,
+        "crossVerified": true,
+        "symbolSearchUsed": false,
+        "stoppedByBudget": false,
+        "gitLogCalls": 0,
+        "gitDiffCalls": 0,
+        "gitBlameCalls": 0,
+        "gitGroundingHint": "none",
+        "taskKind": "default",
+        "adjustments": [
+          "base=0.30 (taskKind=default)",
+          "+0.54 (8 exact evidence item(s))",
+          "+0.12 (cross-verified across multiple files)"
+        ],
+        "droppedUngrounded": 0,
+        "droppedMalformed": 0
+      },
+      "stats": {
+        "model": "zai-glm-4.7",
+        "budget": "deep",
+        "budgetSource": "auto",
+        "turns": 7,
+        "toolCalls": 18,
+        "listDirCalls": 8,
+        "findFileCalls": 0,
+        "grepCalls": 0,
+        "filesRead": 10,
+        "gitLogCalls": 0,
+        "gitBlameCalls": 0,
+        "gitDiffCalls": 0,
+        "gitShowCalls": 0,
+        "symbolCalls": 0,
+        "inputTokens": 144732,
+        "outputTokens": 5077,
+        "totalTokens": 149809,
+        "elapsedMs": 10956,
+        "stoppedByBudget": false,
+        "scope": [
+          "backend/**",
+          "frontend/src/**",
+          "extensions/firefox-inbox/src/**",
+          "scripts/**",
+          "android/**"
+        ],
+        "repoRoot": "/home/kyubr/IdeaProjects/studious-memory",
+        "sessionId": "sess_9eaf60837d960830",
+        "sessionStatus": "created",
+        "sessionSource": "created",
+        "remainingCalls": 4,
+        "cacheHits": 25,
+        "cacheMisses": 204,
+        "cacheHitRate": 0.109,
+        "cacheEntries": 200,
+        "cacheSizeBytes": 1560920
+      },
+      "toolTrace": {
+        "entries": [
+          {
+            "turn": 1,
+            "tool": "repo_list_dir",
+            "args": {
+              "dirPath": "."
+            },
+            "result": {
+              "entries": 200,
+              "paths": [
+                "android",
+                "android/.gradle",
+                "android/.kotlin",
+                "android/README.md",
+                "android/app",
+                "android/app/build.gradle.kts"
+              ]
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_list_dir",
+            "args": {
+              "dirPath": "frontend/src"
+            },
+            "result": {
+              "entries": 100,
+              "paths": [
+                "frontend/src/App.tsx",
+                "frontend/src/ErrorBoundary.tsx",
+                "frontend/src/api.ts",
+                "frontend/src/assets",
+                "frontend/src/assets/maid.ts",
+                "frontend/src/components"
+              ]
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_list_dir",
+            "args": {
+              "dirPath": "extensions/firefox-inbox/src"
+            },
+            "result": {
+              "entries": 32,
+              "paths": [
+                "extensions/firefox-inbox/src/background",
+                "extensions/firefox-inbox/src/background/background.ts",
+                "extensions/firefox-inbox/src/background/captureDraft.ts",
+                "extensions/firefox-inbox/src/content",
+                "extensions/firefox-inbox/src/content/getSelection.ts",
+                "extensions/firefox-inbox/src/options"
+              ]
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_list_dir",
+            "args": {
+              "dirPath": "scripts"
+            },
+            "result": {
+              "entries": 33,
+              "paths": [
+                "scripts/audit_doc_lifecycle.py",
+                "scripts/backup-sqlite.sh",
+                "scripts/benchmark_db_hardening.py",
+                "scripts/bump-version.sh",
+                "scripts/check-backup-checksums.sh",
+                "scripts/check-backup-freshness.sh"
+              ]
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_list_dir",
+            "args": {
+              "dirPath": "backend/app/api"
+            },
+            "result": {
+              "entries": 5,
+              "paths": [
+                "backend/app/api/__init__.py",
+                "backend/app/api/helpers.py",
+                "backend/app/api/router.py",
+                "backend/app/api/scope_policy.py",
+                "backend/app/api/v1"
+              ]
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_list_dir",
+            "args": {
+              "dirPath": "backend/app/mcp"
+            },
+            "result": {
+              "entries": 5,
+              "paths": [
+                "backend/app/mcp/__init__.py",
+                "backend/app/mcp/authz.py",
+                "backend/app/mcp/context.py",
+                "backend/app/mcp/server.py",
+                "backend/app/mcp/tools"
+              ]
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_list_dir",
+            "args": {
+              "dirPath": "backend/app/api/v1"
+            },
+            "result": {
+              "entries": 49,
+              "paths": [
+                "backend/app/api/v1/__init__.py",
+                "backend/app/api/v1/access_profiles.py",
+                "backend/app/api/v1/actions.py",
+                "backend/app/api/v1/activity.py",
+                "backend/app/api/v1/admin.py",
+                "backend/app/api/v1/agent.py"
+              ]
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_list_dir",
+            "args": {
+              "dirPath": "frontend/src/shared/api"
+            },
+            "result": {
+              "entries": 3,
+              "paths": [
+                "frontend/src/shared/api/contractError.ts",
+                "frontend/src/shared/api/contracts.ts",
+                "frontend/src/shared/api/schemas"
+              ]
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "backend/mcp_server.py"
+            },
+            "result": {
+              "path": "backend/mcp_server.py",
+              "startLine": 1,
+              "endLine": 41,
+              "totalLines": 41,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "backend/main.py"
+            },
+            "result": {
+              "path": "backend/main.py",
+              "startLine": 1,
+              "endLine": 320,
+              "totalLines": 783,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "backend/app/mcp/server.py"
+            },
+            "result": {
+              "path": "backend/app/mcp/server.py",
+              "startLine": 1,
+              "endLine": 320,
+              "totalLines": 947,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "backend/app/api/router.py"
+            },
+            "result": {
+              "path": "backend/app/api/router.py",
+              "startLine": 1,
+              "endLine": 55,
+              "totalLines": 55,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 5,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "backend/app/api/v1/auth.py"
+            },
+            "result": {
+              "path": "backend/app/api/v1/auth.py",
+              "startLine": 1,
+              "endLine": 320,
+              "totalLines": 616,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 5,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "frontend/src/api.ts"
+            },
+            "result": {
+              "path": "frontend/src/api.ts",
+              "startLine": 1,
+              "endLine": 320,
+              "totalLines": 781,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 5,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "extensions/firefox-inbox/src/background/captureDraft.ts"
+            },
+            "result": {
+              "path": "extensions/firefox-inbox/src/background/captureDraft.ts",
+              "startLine": 1,
+              "endLine": 82,
+              "totalLines": 82,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 6,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "backend/main.py",
+              "startLine": 700,
+              "endLine": 783
+            },
+            "result": {
+              "path": "backend/main.py",
+              "startLine": 700,
+              "endLine": 783,
+              "totalLines": 783,
+              "truncated": false
+            }
+          },
+          {
+            "turn": 6,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "scripts/backup-sqlite.sh"
+            },
+            "result": {
+              "path": "scripts/backup-sqlite.sh",
+              "startLine": 1,
+              "endLine": 174,
+              "totalLines": 174,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 6,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "scripts/setup-ubuntu-24.04.sh"
+            },
+            "result": {
+              "path": "scripts/setup-ubuntu-24.04.sh",
+              "startLine": 1,
+              "endLine": 215,
+              "totalLines": 215,
+              "truncated": true
+            }
+          }
+        ],
+        "totalCalls": 18,
+        "truncated": false,
+        "maxEntries": 20
+      },
+      "codeMap": {
+        "entryPoints": [
+          "backend/main.py",
+          "backend/app/mcp/server.py"
+        ],
+        "keyModules": [
+          {
+            "path": "backend/mcp_server.py",
+            "role": "entry point",
+            "linesRead": 41
+          },
+          {
+            "path": "backend/main.py",
+            "role": "entry point",
+            "linesRead": 404
+          },
+          {
+            "path": "backend/app/mcp/server.py",
+            "role": "entry point",
+            "linesRead": 320
+          },
+          {
+            "path": "backend/app/api/router.py",
+            "role": "route/controller",
+            "linesRead": 55
+          },
+          {
+            "path": "backend/app/api/v1/auth.py",
+            "role": "middleware",
+            "linesRead": 320
+          },
+          {
+            "path": "frontend/src/api.ts",
+            "role": "API client",
+            "linesRead": 320
+          },
+          {
+            "path": "extensions/firefox-inbox/src/background/captureDraft.ts",
+            "role": "module",
+            "linesRead": 82
+          },
+          {
+            "path": "scripts/backup-sqlite.sh",
+            "role": "module",
+            "linesRead": 174
+          },
+          {
+            "path": "scripts/setup-ubuntu-24.04.sh",
+            "role": "module",
+            "linesRead": 215
+          }
+        ]
+      }
+    }
+  },
+  "contentText": "## Result\nConfidence: high\nVerification: verified\nEvidence Quality: high (8 exact, 0 partial, 0 dropped)\nSearch Coverage: scope-limited search across backend/**, frontend/src/**, extensions/firefox-inbox/src/**, scripts/**, android/**; 10 file read(s), 0 grep search(es).\n\n## Answer\nIdentified key files: backend MCP surface (mcp_server.py, main.py, app/mcp/server.py), frontend auth (api.ts), extension capture (captureDraft.ts), and ops scripts (backup-sqlite.sh, setup-ubuntu-24.04.sh). Selected smallest useful line ranges showing initialization, routing, session management, capture logic, and backup/setup workflows.\n\n## Targets\n- [read] `backend/mcp_server.py:1-41` (E1) - Stdio transport entry point: runs migrations, sets MCP auth context, starts server\n- [read] `backend/main.py:1-85` (E2) - FastAPI app creation with middleware stack: auth, correlation, IP block, rate limit\n- [read] `backend/main.py:757-783` (E3) - MCP HTTP sub-app mounting with concurrency limiter and request logger\n- [read] `backend/app/mcp/server.py:1-120` (E4) - FastMCP server initialization, scoped_tool decorator, scope-based filtering\n- [read] `backend/app/api/router.py:1-55` (E5) - API router composition showing all v1 endpoints included\n- [read] `frontend/src/api.ts:11-172` (E6) - Session token storage, change events, and bootstrapSession validation\n- [read] `extensions/firefox-inbox/src/background/captureDraft.ts:22-82` (E7) - Draft capture creation, state management, and text length validation\n- [read] `scripts/backup-sqlite.sh:98-174` (E8) - SQLite backup: integrity check, tar creation, age encryption, cleanup\n\n## Evidence (8 items, confidence: high)\n- E1 `backend/mcp_server.py:1-41` - Shows stdio MCP server entry point with migration runner and auth context setup\n  snippet: 1: \"\"\"Stdio transport entry point for MCP clients that don't support HTTP.\"\"\"\n  2: \n  3: import os\n  4: import subprocess\n  5: import sys\n  6: \n  7: \n  8: def _run_migrations() -> None:\n  9:     \"\"\"Run Alembic migrations before starting the stdio server.\"\"\"\n  10:     from app.config import ensure_runtime_directories\n  11: \n  12:     ensure_runtime_directories()\n  ... [snippet truncated]\n- E2 `backend/main.py:1-85` - Shows FastAPI app with AuthMiddleware, CorrelationIdMiddleware, IPBlockMiddleware, RateLimitMiddleware\n  snippet: 1: import asyncio\n  2: from contextlib import asynccontextmanager\n  3: from datetime import datetime\n  4: import json\n  5: import logging\n  6: import os\n  7: from pathlib import Path\n  8: import subprocess\n  9: import sys\n  10: import time\n  11: \n  12: import uvicorn\n  ... [snippet truncated]\n- E3 `backend/main.py:757-783` - Shows MCP HTTP sub-app mounting with McpRequestLogger and McpConcurrencyLimiter\n  snippet: 757: # MCP server: streamable_http_app() uses internal path /mcp.\n  758: # Mounted last at \"/\" so all /mcp requests reach the MCP sub-app.\n  759: # Starlette evaluates routes in order; explicit routes above match first.\n  760: # Wrapped with concurrency limiter (separate from chat streams) and access logger.\n  761: _mcp_rpc_semaphore = asyncio.Semaphore(settings.MCP_MAX_RPC_CONNECTIONS)\n  762: _mcp_sse_semaphore = asyncio.Semaphore(settings.MCP_MAX_SSE_CONNECTIONS)\n  763: app.mount(\n  764:     \"/\",\n  765:     McpRequestLogger(\n  766:         McpConcurrencyLimiter(\n  767:             _mcp_http_app,\n  768:             rpc_semaphore=_mcp_rpc_semaphore,\n  ... [snippet truncated]\n- E4 `backend/app/mcp/server.py:1-120` - Shows FastMCP server initialization, scoped_tool decorator, and tool filtering\n  snippet: 1: from collections.abc import Callable\n  2: from functools import wraps\n  3: from typing import Any\n  4: \n  5: from mcp.server.fastmcp import FastMCP\n  6: \n  7: from app.mcp.authz import (\n  8:     MCP_SCOPE_APPROVAL_READ,\n  9:     MCP_SCOPE_LOOP_WRITE,\n  10:     MCP_SCOPE_MEMORY_READ,\n  11:     MCP_SCOPE_MEMORY_WRITE,\n  12:     MCP_SCOPE_NAVER_AGENT,\n  ... [snippet truncated]\n- E5 `backend/app/api/router.py:1-55` - Shows all v1 API routers included in main API router\n  snippet: 1: from fastapi import APIRouter\n  2: \n  3: from app.api.v1 import access_profiles, actions, activity, admin, agent, ai_config, ai_logs, api_keys, approvals, assistant, audit_logs, auth, chat, config, data_groups, diaries, diary_templates, digest, entities, feedback_events, home, identity, insights, knowledge, loops, master_profile, memory, notification_channels, notification_logs, notification_settings, notification_templates, openai_compat, orchestrator, people, proactive, refinement, relationships, reminders, review_inbox, routine_candidates, runs, schedules, scheduling, search, security, sources, todos\n  4: \n  5: api_router = APIRouter()\n  6: \n  7: api_router.include_router(auth.router)\n  8: api_router.include_router(agent.router)\n  9: api_router.include_router(actions.router)\n  10: api_router.include_router(chat.router)\n  11: api_router.include_router(config.router)\n  12: api_router.include_router(home.router)\n  ... [snippet truncated]\n- E6 `frontend/src/api.ts:11-172` - Shows session token storage, events, and bootstrapSession validation\n  snippet: 11: const LEGACY_API_KEY_STORAGE = 'studious_api_key'\n  12: const LEGACY_SESSION_MARKER_STORAGE = 'studious_session_active'\n  13: const SESSION_TOKEN_STORAGE = 'studious_session_token'\n  14: const SESSION_CHANGE_EVENT = 'studious:session-change'\n  15: const SESSION_INFO_CHANGE_EVENT = 'studious:session-info-change'\n  16: const DEFAULT_API_BASE_URL = '/api/v1'\n  17: const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? DEFAULT_API_BASE_URL\n  18: \n  19: type QueryParams = Record<string, string | number | boolean | null | undefined>\n  20: export type SessionBootstrapState = 'authenticated' | 'unauthenticated' | 'unknown'\n  21: export type SessionBootstrapReason = 'rate_limited' | 'unknown'\n  22: type SessionChangeDetail = { active: boolean; session?: AuthSessionInfo | null }\n  ... [snippet truncated]\n- E7 `extensions/firefox-inbox/src/background/captureDraft.ts:22-82` - Shows createCaptureDraft function with state and length validation\n  snippet: 22: export function createCaptureDraft(input: DraftInput): BrowserCapture {\n  23:   const selectedText = (input.selectedText ?? '').trim()\n  24:   const fallbackNote = (input.fallbackNote ?? '').trim()\n  25:   const receivedClientAt = (input.now ?? new Date()).toISOString()\n  26:   return {\n  27:     clientCaptureId: input.clientCaptureId ?? createClientCaptureId(input.randomId),\n  28:     pageUrl: input.pageUrl,\n  29:     pageTitle: input.pageTitle?.trim() || null,\n  30:     selectedText,\n  31:     fallbackNote,\n  32:     inputChannel: INPUT_CHANNEL,\n  33:     originPackage: ORIGIN_PACKAGE,\n  ... [snippet truncated]\n- E8 `scripts/backup-sqlite.sh:98-174` - Shows SQLite integrity check, tar creation, age encryption, manifest, cleanup\n  snippet: 98: mkdir -p \"${BACKUP_DIR}\" \"${STORAGE_ROOT}\"\n  99: \n  100: echo \"[backup] ${TIMESTAMP} - 백업 시작\"\n  101: \n  102: if ! sqlite3 \"${DB_PATH}\" \".backup '${BACKUP_DB}'\"; then\n  103:     healthcheck_ping \"/fail\"\n  104:     notify \"$(printf '%s\\n%s\\n%s' \\\n  105:         '[backup] FAIL: SQLite .backup failed' \\\n  106:         \"조사: sqlite3 ${DB_PATH} 'PRAGMA integrity_check;'\" \\\n  107:         '문서: docs/ops/incident-playbook.md (DB 연결 실패)')\"\n  108:     exit 1\n  109: fi\n  ... [snippet truncated]\n\nSession: sess_9eaf60837d960830 (pass as \"session\" for follow-up calls)"
+}

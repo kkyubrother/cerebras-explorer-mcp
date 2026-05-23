@@ -1,0 +1,539 @@
+{
+  "tool": "trace_symbol",
+  "repo": "aicc_manage",
+  "args": {
+    "repo_root": "/home/kyubr/IdeaProjects/aicc_manage",
+    "scope": [
+      "src/**",
+      "websocket-server/src/**",
+      "lambda/**",
+      "prisma/**",
+      "scripts/**"
+    ],
+    "symbol": "authMiddleware"
+  },
+  "elapsedMs": 6461,
+  "error": null,
+  "isError": false,
+  "summary": {
+    "directAnswer": "authMiddleware is a Socket.IO authentication middleware defined in websocket-server/src/middleware/auth.ts (lines 51-121). It validates JWT tokens and implements brute-force protection by blocking IPs after 10 failed attempts for 5 minutes. Extracts token from socket.handshake.auth.token or Authorization header, verifies with JWT_SECRET, validates payload contains userId and companyId, attaches user info to socket.data. Parameters: socket: Socket, next: (err?: Error) => void. Returns void. Used in websocket-server/src/index.ts line 146 as io.use(authMiddleware).",
+    "status": {
+      "confidence": "high",
+      "verification": "verified",
+      "complete": true,
+      "warnings": []
+    },
+    "evidenceQuality": {
+      "level": "high",
+      "exactCount": 5,
+      "partialCount": 0,
+      "droppedCount": 0,
+      "fileCount": 2,
+      "warnings": [],
+      "summary": "Verified: 2 files read, 1 grep searches, 1 symbol lookups, 5/5 evidence items grounded, cross-verified across 2 files. All evidence grounded in inspected code."
+    },
+    "failure": null,
+    "nextAction": {
+      "type": "stop",
+      "reason": "Explorer result is complete for the requested read-only investigation."
+    },
+    "searchCoverage": {
+      "scope": [
+        "src/**",
+        "websocket-server/src/**",
+        "lambda/**",
+        "prisma/**",
+        "scripts/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 2,
+      "grepCalls": 1,
+      "listDirCalls": 0,
+      "symbolCalls": 1,
+      "toolResultsTruncated": 0,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: src/**, websocket-server/src/**, lambda/**, prisma/**, scripts/**"
+      ],
+      "summary": "scope-limited search across src/**, websocket-server/src/**, lambda/**, prisma/**, scripts/**; 2 file read(s), 1 grep search(es)."
+    },
+    "critic": null,
+    "sessionId": "sess_fa5e12b403baa5ae",
+    "session": {
+      "id": "sess_fa5e12b403baa5ae",
+      "status": "created",
+      "remainingCalls": 4
+    },
+    "targets": [
+      {
+        "path": "websocket-server/src/middleware/auth.ts",
+        "role": "read",
+        "reason": "Definition of authMiddleware function with implementation",
+        "evidenceRefs": [
+          "E1"
+        ],
+        "startLine": 51,
+        "endLine": 121
+      },
+      {
+        "path": "websocket-server/src/middleware/auth.ts",
+        "role": "context",
+        "reason": "Imports, TokenPayload interface, JWT_SECRET, and constants",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 33
+      },
+      {
+        "path": "websocket-server/src/middleware/auth.ts",
+        "role": "context",
+        "reason": "Helper function recordFailure for tracking auth failures",
+        "evidenceRefs": [
+          "E4"
+        ],
+        "startLine": 123,
+        "endLine": 131
+      },
+      {
+        "path": "websocket-server/src/index.ts",
+        "role": "context",
+        "reason": "Where authMiddleware is applied as Socket.IO middleware",
+        "evidenceRefs": [
+          "E5"
+        ],
+        "startLine": 146,
+        "endLine": 146
+      },
+      {
+        "path": "websocket-server/src/middleware/auth.ts",
+        "startLine": 1,
+        "endLine": 12,
+        "role": "read",
+        "reason": "Imports and TokenPayload interface used by authMiddleware",
+        "evidenceRefs": [
+          "E2"
+        ]
+      },
+      {
+        "path": "websocket-server/src/middleware/auth.ts",
+        "startLine": 24,
+        "endLine": 33,
+        "role": "read",
+        "reason": "JWT_SECRET retrieval and brute force protection constants",
+        "evidenceRefs": [
+          "E3"
+        ]
+      }
+    ],
+    "discoveredPathsCount": 2,
+    "evidence": [
+      {
+        "id": "E1",
+        "path": "websocket-server/src/middleware/auth.ts",
+        "startLine": 51,
+        "endLine": 121,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Complete authMiddleware implementation with brute force protection",
+        "snippet": "51: export function authMiddleware(socket: Socket, next: (err?: Error) => void) {\n52:   const ip = getSocketIp(socket)\n53: \n54:   // 무차별 대입 공격 차단\n55:   const failure = authFailures.get(ip)\n56:   if (failure && failure.count >= AUTH_BLOCK_THRESHOLD) {\n57:     const elapsed = Date.now() - failure.lastAttempt\n58:     if (elapsed < AUTH_BLOCK_DURATION) {\n59:       logger.warn('Auth', 'Blocked - too many failed attempts', { ip, failCount: failure.count })\n60:       return next(new Error('너무 많은 인증 시도입니다. 잠시 후 다시 시도해주세요.'))\n61:     }\n62:     // 차단 시간 경과 → 초기화\n... [snippet truncated]"
+      },
+      {
+        "id": "E2",
+        "path": "websocket-server/src/middleware/auth.ts",
+        "startLine": 1,
+        "endLine": 12,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Imports and TokenPayload interface used by authMiddleware",
+        "snippet": "1: import { Socket } from 'socket.io'\n2: import jwt from 'jsonwebtoken'\n3: import { logger } from '../lib/logger'\n4: \n5: interface TokenPayload {\n6:   userId: string\n7:   companyId: string\n8:   role: string\n9:   name: string\n10:   iat?: number\n11:   exp?: number\n12: }"
+      },
+      {
+        "id": "E3",
+        "path": "websocket-server/src/middleware/auth.ts",
+        "startLine": 24,
+        "endLine": 33,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "JWT_SECRET retrieval and brute force protection constants",
+        "snippet": "24: const JWT_SECRET: string = (() => {\n25:   const secret = process.env.JWT_SECRET\n26:   if (!secret) throw new Error('JWT_SECRET must be set')\n27:   return secret\n28: })()\n29: \n30: // 인증 실패 추적 (IP별 실패 횟수)\n31: const authFailures = new Map<string, { count: number; lastAttempt: number }>()\n32: const AUTH_BLOCK_THRESHOLD = 10 // 10회 실패 시 차단\n33: const AUTH_BLOCK_DURATION = 5 * 60_000 // 5분"
+      },
+      {
+        "id": "E4",
+        "path": "websocket-server/src/middleware/auth.ts",
+        "startLine": 123,
+        "endLine": 131,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "recordFailure helper function for tracking auth failures per IP",
+        "snippet": "123: function recordFailure(ip: string) {\n124:   const existing = authFailures.get(ip)\n125:   if (existing) {\n126:     existing.count++\n127:     existing.lastAttempt = Date.now()\n128:   } else {\n129:     authFailures.set(ip, { count: 1, lastAttempt: Date.now() })\n130:   }\n131: }"
+      },
+      {
+        "id": "E5",
+        "path": "websocket-server/src/index.ts",
+        "startLine": 146,
+        "endLine": 146,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Where authMiddleware is applied as middleware to Socket.IO server",
+        "snippet": "146: io.use(authMiddleware)"
+      }
+    ],
+    "uncertainties": [],
+    "stats": {
+      "turns": 5,
+      "toolCalls": 4,
+      "filesRead": 2,
+      "grepCalls": 1,
+      "symbolCalls": 1,
+      "stoppedByBudget": false,
+      "elapsedMs": 6451,
+      "totalTokens": 38688
+    }
+  },
+  "structuredContent": {
+    "schemaVersion": 1,
+    "directAnswer": "authMiddleware is a Socket.IO authentication middleware defined in websocket-server/src/middleware/auth.ts (lines 51-121). It validates JWT tokens and implements brute-force protection by blocking IPs after 10 failed attempts for 5 minutes. Extracts token from socket.handshake.auth.token or Authorization header, verifies with JWT_SECRET, validates payload contains userId and companyId, attaches user info to socket.data. Parameters: socket: Socket, next: (err?: Error) => void. Returns void. Used in websocket-server/src/index.ts line 146 as io.use(authMiddleware).",
+    "status": {
+      "confidence": "high",
+      "verification": "verified",
+      "complete": true,
+      "warnings": []
+    },
+    "targets": [
+      {
+        "path": "websocket-server/src/middleware/auth.ts",
+        "role": "read",
+        "reason": "Definition of authMiddleware function with implementation",
+        "evidenceRefs": [
+          "E1"
+        ],
+        "startLine": 51,
+        "endLine": 121
+      },
+      {
+        "path": "websocket-server/src/middleware/auth.ts",
+        "role": "context",
+        "reason": "Imports, TokenPayload interface, JWT_SECRET, and constants",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 33
+      },
+      {
+        "path": "websocket-server/src/middleware/auth.ts",
+        "role": "context",
+        "reason": "Helper function recordFailure for tracking auth failures",
+        "evidenceRefs": [
+          "E4"
+        ],
+        "startLine": 123,
+        "endLine": 131
+      },
+      {
+        "path": "websocket-server/src/index.ts",
+        "role": "context",
+        "reason": "Where authMiddleware is applied as Socket.IO middleware",
+        "evidenceRefs": [
+          "E5"
+        ],
+        "startLine": 146,
+        "endLine": 146
+      },
+      {
+        "path": "websocket-server/src/middleware/auth.ts",
+        "startLine": 1,
+        "endLine": 12,
+        "role": "read",
+        "reason": "Imports and TokenPayload interface used by authMiddleware",
+        "evidenceRefs": [
+          "E2"
+        ]
+      },
+      {
+        "path": "websocket-server/src/middleware/auth.ts",
+        "startLine": 24,
+        "endLine": 33,
+        "role": "read",
+        "reason": "JWT_SECRET retrieval and brute force protection constants",
+        "evidenceRefs": [
+          "E3"
+        ]
+      }
+    ],
+    "discoveredPaths": [
+      {
+        "path": "websocket-server/src/middleware/auth.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "websocket-server/src/index.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      }
+    ],
+    "evidence": [
+      {
+        "path": "websocket-server/src/middleware/auth.ts",
+        "startLine": 51,
+        "endLine": 121,
+        "why": "Complete authMiddleware implementation with brute force protection",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E1",
+        "snippet": "51: export function authMiddleware(socket: Socket, next: (err?: Error) => void) {\n52:   const ip = getSocketIp(socket)\n53: \n54:   // 무차별 대입 공격 차단\n55:   const failure = authFailures.get(ip)\n56:   if (failure && failure.count >= AUTH_BLOCK_THRESHOLD) {\n57:     const elapsed = Date.now() - failure.lastAttempt\n58:     if (elapsed < AUTH_BLOCK_DURATION) {\n59:       logger.warn('Auth', 'Blocked - too many failed attempts', { ip, failCount: failure.count })\n60:       return next(new Error('너무 많은 인증 시도입니다. 잠시 후 다시 시도해주세요.'))\n61:     }\n62:     // 차단 시간 경과 → 초기화\n... [snippet truncated]"
+      },
+      {
+        "path": "websocket-server/src/middleware/auth.ts",
+        "startLine": 1,
+        "endLine": 12,
+        "why": "Imports and TokenPayload interface used by authMiddleware",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E2",
+        "snippet": "1: import { Socket } from 'socket.io'\n2: import jwt from 'jsonwebtoken'\n3: import { logger } from '../lib/logger'\n4: \n5: interface TokenPayload {\n6:   userId: string\n7:   companyId: string\n8:   role: string\n9:   name: string\n10:   iat?: number\n11:   exp?: number\n12: }"
+      },
+      {
+        "path": "websocket-server/src/middleware/auth.ts",
+        "startLine": 24,
+        "endLine": 33,
+        "why": "JWT_SECRET retrieval and brute force protection constants",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E3",
+        "snippet": "24: const JWT_SECRET: string = (() => {\n25:   const secret = process.env.JWT_SECRET\n26:   if (!secret) throw new Error('JWT_SECRET must be set')\n27:   return secret\n28: })()\n29: \n30: // 인증 실패 추적 (IP별 실패 횟수)\n31: const authFailures = new Map<string, { count: number; lastAttempt: number }>()\n32: const AUTH_BLOCK_THRESHOLD = 10 // 10회 실패 시 차단\n33: const AUTH_BLOCK_DURATION = 5 * 60_000 // 5분"
+      },
+      {
+        "path": "websocket-server/src/middleware/auth.ts",
+        "startLine": 123,
+        "endLine": 131,
+        "why": "recordFailure helper function for tracking auth failures per IP",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E4",
+        "snippet": "123: function recordFailure(ip: string) {\n124:   const existing = authFailures.get(ip)\n125:   if (existing) {\n126:     existing.count++\n127:     existing.lastAttempt = Date.now()\n128:   } else {\n129:     authFailures.set(ip, { count: 1, lastAttempt: Date.now() })\n130:   }\n131: }"
+      },
+      {
+        "path": "websocket-server/src/index.ts",
+        "startLine": 146,
+        "endLine": 146,
+        "why": "Where authMiddleware is applied as middleware to Socket.IO server",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E5",
+        "snippet": "146: io.use(authMiddleware)"
+      }
+    ],
+    "uncertainties": [],
+    "nextAction": {
+      "type": "stop",
+      "reason": "Explorer result is complete for the requested read-only investigation."
+    },
+    "evidenceQuality": {
+      "level": "high",
+      "exactCount": 5,
+      "partialCount": 0,
+      "droppedCount": 0,
+      "fileCount": 2,
+      "warnings": [],
+      "summary": "Verified: 2 files read, 1 grep searches, 1 symbol lookups, 5/5 evidence items grounded, cross-verified across 2 files. All evidence grounded in inspected code."
+    },
+    "searchCoverage": {
+      "scope": [
+        "src/**",
+        "websocket-server/src/**",
+        "lambda/**",
+        "prisma/**",
+        "scripts/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 2,
+      "grepCalls": 1,
+      "listDirCalls": 0,
+      "symbolCalls": 1,
+      "toolResultsTruncated": 0,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: src/**, websocket-server/src/**, lambda/**, prisma/**, scripts/**"
+      ],
+      "summary": "scope-limited search across src/**, websocket-server/src/**, lambda/**, prisma/**, scripts/**; 2 file read(s), 1 grep search(es)."
+    },
+    "failure": null,
+    "sessionId": "sess_fa5e12b403baa5ae",
+    "session": {
+      "id": "sess_fa5e12b403baa5ae",
+      "status": "created",
+      "remainingCalls": 4
+    },
+    "_debug": {
+      "evidenceSufficiency": {
+        "sufficient": true,
+        "reason": "simple_task_exact_evidence"
+      },
+      "confidenceScore": 1,
+      "confidenceFactors": {
+        "evidenceCount": 5,
+        "evidenceGrounded": 5,
+        "evidenceDropped": 0,
+        "exactCount": 5,
+        "crossVerified": true,
+        "symbolSearchUsed": true,
+        "stoppedByBudget": false,
+        "gitLogCalls": 0,
+        "gitDiffCalls": 0,
+        "gitBlameCalls": 0,
+        "gitGroundingHint": "none",
+        "taskKind": "locate",
+        "adjustments": [
+          "base=0.45 (taskKind=locate)",
+          "+0.54 (5 exact evidence item(s))",
+          "+0.12 (cross-verified across multiple files)",
+          "+0.05 (symbol/grep search used)"
+        ],
+        "droppedUngrounded": 0,
+        "droppedMalformed": 0
+      },
+      "stats": {
+        "model": "zai-glm-4.7",
+        "budget": "deep",
+        "budgetSource": "auto",
+        "turns": 5,
+        "toolCalls": 4,
+        "listDirCalls": 0,
+        "findFileCalls": 0,
+        "grepCalls": 1,
+        "filesRead": 2,
+        "gitLogCalls": 0,
+        "gitBlameCalls": 0,
+        "gitDiffCalls": 0,
+        "gitShowCalls": 0,
+        "symbolCalls": 1,
+        "inputTokens": 35405,
+        "outputTokens": 3283,
+        "totalTokens": 38688,
+        "elapsedMs": 6451,
+        "stoppedByBudget": false,
+        "scope": [
+          "src/**",
+          "websocket-server/src/**",
+          "lambda/**",
+          "prisma/**",
+          "scripts/**"
+        ],
+        "repoRoot": "/home/kyubr/IdeaProjects/aicc_manage",
+        "sessionId": "sess_fa5e12b403baa5ae",
+        "sessionStatus": "created",
+        "sessionSource": "created",
+        "remainingCalls": 4,
+        "cacheHits": 28,
+        "cacheMisses": 213,
+        "cacheHitRate": 0.116,
+        "cacheEntries": 209,
+        "cacheSizeBytes": 1605438
+      },
+      "toolTrace": {
+        "entries": [
+          {
+            "turn": 1,
+            "tool": "repo_symbol_context",
+            "args": {
+              "symbol": "authMiddleware",
+              "scope": [
+                "src",
+                "websocket-server/src",
+                "lambda",
+                "prisma",
+                "scripts"
+              ]
+            },
+            "result": {
+              "symbol": "authMiddleware",
+              "definition": {
+                "path": "websocket-server/src/middleware/auth.ts",
+                "line": 51,
+                "endLine": 121,
+                "kind": "function"
+              },
+              "callers": 1,
+              "observedRanges": 2,
+              "truncated": false
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "websocket-server/src/middleware/auth.ts"
+            },
+            "result": {
+              "path": "websocket-server/src/middleware/auth.ts",
+              "startLine": 1,
+              "endLine": 132,
+              "totalLines": 132,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "websocket-server/src/index.ts",
+              "startLine": 140,
+              "endLine": 155
+            },
+            "result": {
+              "path": "websocket-server/src/index.ts",
+              "startLine": 140,
+              "endLine": 155,
+              "totalLines": 267,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_grep",
+            "args": {
+              "pattern": "authMiddleware",
+              "scope": [
+                "src",
+                "websocket-server/src",
+                "lambda",
+                "prisma",
+                "scripts"
+              ]
+            },
+            "result": {
+              "matches": 3,
+              "paths": [
+                "websocket-server/src/index.ts",
+                "websocket-server/src/middleware/auth.ts"
+              ],
+              "truncated": false
+            }
+          }
+        ],
+        "totalCalls": 4,
+        "truncated": false,
+        "maxEntries": 20
+      },
+      "codeMap": {
+        "entryPoints": [
+          "websocket-server/src/index.ts"
+        ],
+        "keyModules": [
+          {
+            "path": "websocket-server/src/middleware/auth.ts",
+            "role": "middleware",
+            "linesRead": 204
+          },
+          {
+            "path": "websocket-server/src/index.ts",
+            "role": "entry point",
+            "linesRead": 19
+          }
+        ]
+      }
+    }
+  },
+  "contentText": "## Result\nConfidence: high\nVerification: verified\nEvidence Quality: high (5 exact, 0 partial, 0 dropped)\nSearch Coverage: scope-limited search across src/**, websocket-server/src/**, lambda/**, prisma/**, scripts/**; 2 file read(s), 1 grep search(es).\n\n## Answer\nauthMiddleware is a Socket.IO authentication middleware defined in websocket-server/src/middleware/auth.ts (lines 51-121). It validates JWT tokens and implements brute-force protection by blocking IPs after 10 failed attempts for 5 minutes. Extracts token from socket.handshake.auth.token or Authorization header, verifies with JWT_SECRET, validates payload contains userId and companyId, attaches user info to socket.data. Parameters: socket: Socket, next: (err?: Error) => void. Returns void. Used in websocket-server/src/index.ts line 146 as io.use(authMiddleware).\n\n## Targets\n- [read] `websocket-server/src/middleware/auth.ts:51-121` (E1) - Definition of authMiddleware function with implementation\n- [context] `websocket-server/src/middleware/auth.ts:1-33` - Imports, TokenPayload interface, JWT_SECRET, and constants\n- [context] `websocket-server/src/middleware/auth.ts:123-131` (E4) - Helper function recordFailure for tracking auth failures\n- [context] `websocket-server/src/index.ts:146-146` (E5) - Where authMiddleware is applied as Socket.IO middleware\n- [read] `websocket-server/src/middleware/auth.ts:1-12` (E2) - Imports and TokenPayload interface used by authMiddleware\n- [read] `websocket-server/src/middleware/auth.ts:24-33` (E3) - JWT_SECRET retrieval and brute force protection constants\n\n## Evidence (5 items, confidence: high)\n- E1 `websocket-server/src/middleware/auth.ts:51-121` - Complete authMiddleware implementation with brute force protection\n  snippet: 51: export function authMiddleware(socket: Socket, next: (err?: Error) => void) {\n  52:   const ip = getSocketIp(socket)\n  53: \n  54:   // 무차별 대입 공격 차단\n  55:   const failure = authFailures.get(ip)\n  56:   if (failure && failure.count >= AUTH_BLOCK_THRESHOLD) {\n  57:     const elapsed = Date.now() - failure.lastAttempt\n  58:     if (elapsed < AUTH_BLOCK_DURATION) {\n  59:       logger.warn('Auth', 'Blocked - too many failed attempts', { ip, failCount: failure.count })\n  60:       return next(new Error('너무 많은 인증 시도입니다. 잠시 후 다시 시도해주세요.'))\n  61:     }\n  62:     // 차단 시간 경과 → 초기화\n  ... [snippet truncated]\n- E2 `websocket-server/src/middleware/auth.ts:1-12` - Imports and TokenPayload interface used by authMiddleware\n  snippet: 1: import { Socket } from 'socket.io'\n  2: import jwt from 'jsonwebtoken'\n  3: import { logger } from '../lib/logger'\n  4: \n  5: interface TokenPayload {\n  6:   userId: string\n  7:   companyId: string\n  8:   role: string\n  9:   name: string\n  10:   iat?: number\n  11:   exp?: number\n  12: }\n- E3 `websocket-server/src/middleware/auth.ts:24-33` - JWT_SECRET retrieval and brute force protection constants\n  snippet: 24: const JWT_SECRET: string = (() => {\n  25:   const secret = process.env.JWT_SECRET\n  26:   if (!secret) throw new Error('JWT_SECRET must be set')\n  27:   return secret\n  28: })()\n  29: \n  30: // 인증 실패 추적 (IP별 실패 횟수)\n  31: const authFailures = new Map<string, { count: number; lastAttempt: number }>()\n  32: const AUTH_BLOCK_THRESHOLD = 10 // 10회 실패 시 차단\n  33: const AUTH_BLOCK_DURATION = 5 * 60_000 // 5분\n- E4 `websocket-server/src/middleware/auth.ts:123-131` - recordFailure helper function for tracking auth failures per IP\n  snippet: 123: function recordFailure(ip: string) {\n  124:   const existing = authFailures.get(ip)\n  125:   if (existing) {\n  126:     existing.count++\n  127:     existing.lastAttempt = Date.now()\n  128:   } else {\n  129:     authFailures.set(ip, { count: 1, lastAttempt: Date.now() })\n  130:   }\n  131: }\n- E5 `websocket-server/src/index.ts:146-146` - Where authMiddleware is applied as middleware to Socket.IO server\n  snippet: 146: io.use(authMiddleware)\n\nSession: sess_fa5e12b403baa5ae (pass as \"session\" for follow-up calls)"
+}

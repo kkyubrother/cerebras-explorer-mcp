@@ -1,0 +1,1041 @@
+{
+  "tool": "find_entrypoints",
+  "repo": "DeepResearch",
+  "args": {
+    "repo_root": "/home/kyubr/IdeaProjects/DeepResearch",
+    "scope": [
+      "app/**",
+      "main.py",
+      "migrations/**"
+    ],
+    "entryKind": "http"
+  },
+  "elapsedMs": 7571,
+  "error": null,
+  "isError": false,
+  "summary": {
+    "directAnswer": "Found 13 HTTP routes in this FastAPI application using decorator patterns (@app.get|post, @router.get|post). **CAVEAT**: Entry-point detection is regex-based — verify each cited line is an actual route before acting.\n\n**By Entry Kind:**\n\n1. Root Application Routes (main.py): GET / (line 6), GET /hello/{name} (line 11)\n\n2. API Router Routes (app/api/):\n   - Claims (prefix=/claims): GET /claims/{claim_id}/evidence (line 13)\n   - Plans (prefix=/tasks): POST /tasks/{task_id}/plan/approve (line 13)\n   - Sources (prefix=/sources): GET /sources (line 20), GET /sources/{source_id} (line 41)\n   - Tasks (prefix=/tasks): POST /tasks (line 39), GET /tasks/{task_id} (line 53), GET /tasks/{task_id}/events (line 61), POST /tasks/{task_id}/pause (line 77), POST /tasks/{task_id}/retry (line 89), POST /tasks/{task_id}/cancel (line 101), GET /tasks/{task_id}/report (line 113), GET /tasks/{task_id}/cost (line 125)",
+    "status": {
+      "confidence": "high",
+      "verification": "verified",
+      "complete": true,
+      "warnings": []
+    },
+    "evidenceQuality": {
+      "level": "high",
+      "exactCount": 8,
+      "partialCount": 0,
+      "droppedCount": 0,
+      "fileCount": 5,
+      "warnings": [],
+      "summary": "Verified: 6 files read, 7 grep searches, 8/8 evidence items grounded, cross-verified across 5 files. All evidence grounded in inspected code."
+    },
+    "failure": null,
+    "nextAction": {
+      "type": "stop",
+      "reason": "Explorer result is complete for the requested read-only investigation."
+    },
+    "searchCoverage": {
+      "scope": [
+        "app/**",
+        "main.py",
+        "migrations/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 6,
+      "grepCalls": 7,
+      "listDirCalls": 2,
+      "symbolCalls": 0,
+      "toolResultsTruncated": 0,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: app/**, main.py, migrations/**"
+      ],
+      "summary": "scope-limited search across app/**, main.py, migrations/**; 6 file read(s), 7 grep search(es)."
+    },
+    "critic": null,
+    "sessionId": "sess_4794439a0572191f",
+    "session": {
+      "id": "sess_4794439a0572191f",
+      "status": "created",
+      "remainingCalls": 4
+    },
+    "targets": [
+      {
+        "path": "main.py",
+        "role": "read",
+        "reason": "Root application GET routes",
+        "evidenceRefs": [],
+        "startLine": 6,
+        "endLine": 13
+      },
+      {
+        "path": "app/api/claims.py",
+        "role": "read",
+        "reason": "Claims router with GET route",
+        "evidenceRefs": [],
+        "startLine": 10,
+        "endLine": 18
+      },
+      {
+        "path": "app/api/plans.py",
+        "role": "read",
+        "reason": "Plans router with POST route",
+        "evidenceRefs": [],
+        "startLine": 10,
+        "endLine": 18
+      },
+      {
+        "path": "app/api/sources.py",
+        "role": "read",
+        "reason": "Sources router with 2 GET routes",
+        "evidenceRefs": [],
+        "startLine": 17,
+        "endLine": 46
+      },
+      {
+        "path": "app/api/tasks.py",
+        "role": "read",
+        "reason": "Tasks router with 7 routes",
+        "evidenceRefs": [],
+        "startLine": 26,
+        "endLine": 135
+      },
+      {
+        "path": "main.py",
+        "startLine": 6,
+        "endLine": 6,
+        "role": "read",
+        "reason": "Root GET / route decorator",
+        "evidenceRefs": [
+          "E1"
+        ]
+      },
+      {
+        "path": "main.py",
+        "startLine": 11,
+        "endLine": 11,
+        "role": "read",
+        "reason": "GET /hello/{name} route decorator",
+        "evidenceRefs": [
+          "E2"
+        ]
+      },
+      {
+        "path": "app/api/claims.py",
+        "startLine": 10,
+        "endLine": 13,
+        "role": "read",
+        "reason": "Claims router prefix and GET route",
+        "evidenceRefs": [
+          "E3"
+        ]
+      }
+    ],
+    "discoveredPathsCount": 29,
+    "evidence": [
+      {
+        "id": "E1",
+        "path": "main.py",
+        "startLine": 6,
+        "endLine": 6,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Root GET / route decorator",
+        "snippet": "6: @app.get(\"/\")"
+      },
+      {
+        "id": "E2",
+        "path": "main.py",
+        "startLine": 11,
+        "endLine": 11,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "GET /hello/{name} route decorator",
+        "snippet": "11: @app.get(\"/hello/{name}\")"
+      },
+      {
+        "id": "E3",
+        "path": "app/api/claims.py",
+        "startLine": 10,
+        "endLine": 13,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Claims router prefix and GET route",
+        "snippet": "10: router = APIRouter(prefix=\"/claims\", tags=[\"claims\"])\n11: \n12: \n13: @router.get(\"/{claim_id}/evidence\")"
+      },
+      {
+        "id": "E4",
+        "path": "app/api/plans.py",
+        "startLine": 10,
+        "endLine": 13,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Plans router prefix and POST route",
+        "snippet": "10: router = APIRouter(prefix=\"/tasks\", tags=[\"plans\"])\n11: \n12: \n13: @router.post(\"/{task_id}/plan/approve\")"
+      },
+      {
+        "id": "E5",
+        "path": "app/api/sources.py",
+        "startLine": 17,
+        "endLine": 20,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Sources router prefix and GET list route",
+        "snippet": "17: router = APIRouter(prefix=\"/sources\", tags=[\"sources\"])\n18: \n19: \n20: @router.get(\"\")"
+      },
+      {
+        "id": "E6",
+        "path": "app/api/sources.py",
+        "startLine": 41,
+        "endLine": 41,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Sources GET detail route decorator",
+        "snippet": "41: @router.get(\"/{source_id}\")"
+      },
+      {
+        "id": "E7",
+        "path": "app/api/tasks.py",
+        "startLine": 26,
+        "endLine": 39,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Tasks router prefix and POST route",
+        "snippet": "26: router = APIRouter(prefix=\"/tasks\", tags=[\"tasks\"])\n27: \n28: \n29: class CreateTaskRequest(BaseModel):\n30:     question: str = Field(min_length=5, max_length=2000)\n31:     language: str = Field(min_length=2, max_length=5)\n32:     max_queries: int = Field(default=8, ge=1, le=30)\n33:     max_sources: int = Field(default=10, ge=1, le=30)\n34:     cost_budget_usd: float = Field(default=2.0, ge=0.1, le=20.0)\n35:     timeout_seconds: int = Field(default=1500, ge=60, le=3600)\n36:     plan_wait_timeout_s: int = Field(default=1800, ge=60, le=3600)\n37: \n... [snippet truncated]"
+      },
+      {
+        "id": "E8",
+        "path": "app/api/tasks.py",
+        "startLine": 53,
+        "endLine": 61,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Tasks GET routes for task and events",
+        "snippet": "53: @router.get(\"/{task_id}\")\n54: async def get_task_endpoint(task_id: UUID) -> dict:\n55:     record = get_task(task_id)\n56:     if record is None:\n57:         raise ApiError(\"not_found\", \"Task not found\", status_code=404)\n58:     return serialize_task(record)\n59: \n60: \n61: @router.get(\"/{task_id}/events\")"
+      }
+    ],
+    "uncertainties": [],
+    "stats": {
+      "turns": 6,
+      "toolCalls": 16,
+      "filesRead": 6,
+      "grepCalls": 7,
+      "symbolCalls": 0,
+      "stoppedByBudget": false,
+      "elapsedMs": 7560,
+      "totalTokens": 56698
+    }
+  },
+  "structuredContent": {
+    "schemaVersion": 1,
+    "directAnswer": "Found 13 HTTP routes in this FastAPI application using decorator patterns (@app.get|post, @router.get|post). **CAVEAT**: Entry-point detection is regex-based — verify each cited line is an actual route before acting.\n\n**By Entry Kind:**\n\n1. Root Application Routes (main.py): GET / (line 6), GET /hello/{name} (line 11)\n\n2. API Router Routes (app/api/):\n   - Claims (prefix=/claims): GET /claims/{claim_id}/evidence (line 13)\n   - Plans (prefix=/tasks): POST /tasks/{task_id}/plan/approve (line 13)\n   - Sources (prefix=/sources): GET /sources (line 20), GET /sources/{source_id} (line 41)\n   - Tasks (prefix=/tasks): POST /tasks (line 39), GET /tasks/{task_id} (line 53), GET /tasks/{task_id}/events (line 61), POST /tasks/{task_id}/pause (line 77), POST /tasks/{task_id}/retry (line 89), POST /tasks/{task_id}/cancel (line 101), GET /tasks/{task_id}/report (line 113), GET /tasks/{task_id}/cost (line 125)",
+    "status": {
+      "confidence": "high",
+      "verification": "verified",
+      "complete": true,
+      "warnings": []
+    },
+    "targets": [
+      {
+        "path": "main.py",
+        "role": "read",
+        "reason": "Root application GET routes",
+        "evidenceRefs": [],
+        "startLine": 6,
+        "endLine": 13
+      },
+      {
+        "path": "app/api/claims.py",
+        "role": "read",
+        "reason": "Claims router with GET route",
+        "evidenceRefs": [],
+        "startLine": 10,
+        "endLine": 18
+      },
+      {
+        "path": "app/api/plans.py",
+        "role": "read",
+        "reason": "Plans router with POST route",
+        "evidenceRefs": [],
+        "startLine": 10,
+        "endLine": 18
+      },
+      {
+        "path": "app/api/sources.py",
+        "role": "read",
+        "reason": "Sources router with 2 GET routes",
+        "evidenceRefs": [],
+        "startLine": 17,
+        "endLine": 46
+      },
+      {
+        "path": "app/api/tasks.py",
+        "role": "read",
+        "reason": "Tasks router with 7 routes",
+        "evidenceRefs": [],
+        "startLine": 26,
+        "endLine": 135
+      },
+      {
+        "path": "main.py",
+        "startLine": 6,
+        "endLine": 6,
+        "role": "read",
+        "reason": "Root GET / route decorator",
+        "evidenceRefs": [
+          "E1"
+        ]
+      },
+      {
+        "path": "main.py",
+        "startLine": 11,
+        "endLine": 11,
+        "role": "read",
+        "reason": "GET /hello/{name} route decorator",
+        "evidenceRefs": [
+          "E2"
+        ]
+      },
+      {
+        "path": "app/api/claims.py",
+        "startLine": 10,
+        "endLine": 13,
+        "role": "read",
+        "reason": "Claims router prefix and GET route",
+        "evidenceRefs": [
+          "E3"
+        ]
+      },
+      {
+        "path": "app/api/plans.py",
+        "startLine": 10,
+        "endLine": 13,
+        "role": "read",
+        "reason": "Plans router prefix and POST route",
+        "evidenceRefs": [
+          "E4"
+        ]
+      },
+      {
+        "path": "app/api/sources.py",
+        "startLine": 17,
+        "endLine": 20,
+        "role": "read",
+        "reason": "Sources router prefix and GET list route",
+        "evidenceRefs": [
+          "E5"
+        ]
+      },
+      {
+        "path": "app/api/sources.py",
+        "startLine": 41,
+        "endLine": 41,
+        "role": "read",
+        "reason": "Sources GET detail route decorator",
+        "evidenceRefs": [
+          "E6"
+        ]
+      },
+      {
+        "path": "app/api/tasks.py",
+        "startLine": 26,
+        "endLine": 39,
+        "role": "read",
+        "reason": "Tasks router prefix and POST route",
+        "evidenceRefs": [
+          "E7"
+        ]
+      },
+      {
+        "path": "app/api/tasks.py",
+        "startLine": 53,
+        "endLine": 61,
+        "role": "read",
+        "reason": "Tasks GET routes for task and events",
+        "evidenceRefs": [
+          "E8"
+        ]
+      }
+    ],
+    "discoveredPaths": [
+      {
+        "path": "app",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/api",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/citation",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/core",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/db",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/domain",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/eval",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/main.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/models",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/orchestrator",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/policy",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/providers",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/reporting",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/repositories",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/services",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/storage",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/workers",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "main.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "migrations",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "migrations/env.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "migrations/script.py.mako",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "migrations/versions",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/api/claims.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/api/plans.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/api/sources.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/api/tasks.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/api/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/api/errors.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      }
+    ],
+    "evidence": [
+      {
+        "path": "main.py",
+        "startLine": 6,
+        "endLine": 6,
+        "why": "Root GET / route decorator",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E1",
+        "snippet": "6: @app.get(\"/\")"
+      },
+      {
+        "path": "main.py",
+        "startLine": 11,
+        "endLine": 11,
+        "why": "GET /hello/{name} route decorator",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E2",
+        "snippet": "11: @app.get(\"/hello/{name}\")"
+      },
+      {
+        "path": "app/api/claims.py",
+        "startLine": 10,
+        "endLine": 13,
+        "why": "Claims router prefix and GET route",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E3",
+        "snippet": "10: router = APIRouter(prefix=\"/claims\", tags=[\"claims\"])\n11: \n12: \n13: @router.get(\"/{claim_id}/evidence\")"
+      },
+      {
+        "path": "app/api/plans.py",
+        "startLine": 10,
+        "endLine": 13,
+        "why": "Plans router prefix and POST route",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E4",
+        "snippet": "10: router = APIRouter(prefix=\"/tasks\", tags=[\"plans\"])\n11: \n12: \n13: @router.post(\"/{task_id}/plan/approve\")"
+      },
+      {
+        "path": "app/api/sources.py",
+        "startLine": 17,
+        "endLine": 20,
+        "why": "Sources router prefix and GET list route",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E5",
+        "snippet": "17: router = APIRouter(prefix=\"/sources\", tags=[\"sources\"])\n18: \n19: \n20: @router.get(\"\")"
+      },
+      {
+        "path": "app/api/sources.py",
+        "startLine": 41,
+        "endLine": 41,
+        "why": "Sources GET detail route decorator",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E6",
+        "snippet": "41: @router.get(\"/{source_id}\")"
+      },
+      {
+        "path": "app/api/tasks.py",
+        "startLine": 26,
+        "endLine": 39,
+        "why": "Tasks router prefix and POST route",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E7",
+        "snippet": "26: router = APIRouter(prefix=\"/tasks\", tags=[\"tasks\"])\n27: \n28: \n29: class CreateTaskRequest(BaseModel):\n30:     question: str = Field(min_length=5, max_length=2000)\n31:     language: str = Field(min_length=2, max_length=5)\n32:     max_queries: int = Field(default=8, ge=1, le=30)\n33:     max_sources: int = Field(default=10, ge=1, le=30)\n34:     cost_budget_usd: float = Field(default=2.0, ge=0.1, le=20.0)\n35:     timeout_seconds: int = Field(default=1500, ge=60, le=3600)\n36:     plan_wait_timeout_s: int = Field(default=1800, ge=60, le=3600)\n37: \n... [snippet truncated]"
+      },
+      {
+        "path": "app/api/tasks.py",
+        "startLine": 53,
+        "endLine": 61,
+        "why": "Tasks GET routes for task and events",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E8",
+        "snippet": "53: @router.get(\"/{task_id}\")\n54: async def get_task_endpoint(task_id: UUID) -> dict:\n55:     record = get_task(task_id)\n56:     if record is None:\n57:         raise ApiError(\"not_found\", \"Task not found\", status_code=404)\n58:     return serialize_task(record)\n59: \n60: \n61: @router.get(\"/{task_id}/events\")"
+      }
+    ],
+    "uncertainties": [],
+    "nextAction": {
+      "type": "stop",
+      "reason": "Explorer result is complete for the requested read-only investigation."
+    },
+    "evidenceQuality": {
+      "level": "high",
+      "exactCount": 8,
+      "partialCount": 0,
+      "droppedCount": 0,
+      "fileCount": 5,
+      "warnings": [],
+      "summary": "Verified: 6 files read, 7 grep searches, 8/8 evidence items grounded, cross-verified across 5 files. All evidence grounded in inspected code."
+    },
+    "searchCoverage": {
+      "scope": [
+        "app/**",
+        "main.py",
+        "migrations/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 6,
+      "grepCalls": 7,
+      "listDirCalls": 2,
+      "symbolCalls": 0,
+      "toolResultsTruncated": 0,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: app/**, main.py, migrations/**"
+      ],
+      "summary": "scope-limited search across app/**, main.py, migrations/**; 6 file read(s), 7 grep search(es)."
+    },
+    "failure": null,
+    "sessionId": "sess_4794439a0572191f",
+    "session": {
+      "id": "sess_4794439a0572191f",
+      "status": "created",
+      "remainingCalls": 4
+    },
+    "_debug": {
+      "evidenceSufficiency": {
+        "sufficient": true,
+        "reason": "simple_task_exact_evidence"
+      },
+      "confidenceScore": 1,
+      "confidenceFactors": {
+        "evidenceCount": 8,
+        "evidenceGrounded": 8,
+        "evidenceDropped": 0,
+        "exactCount": 8,
+        "crossVerified": true,
+        "symbolSearchUsed": true,
+        "stoppedByBudget": false,
+        "gitLogCalls": 0,
+        "gitDiffCalls": 0,
+        "gitBlameCalls": 0,
+        "gitGroundingHint": "none",
+        "taskKind": "default",
+        "adjustments": [
+          "base=0.30 (taskKind=default)",
+          "+0.54 (8 exact evidence item(s))",
+          "+0.12 (cross-verified across multiple files)",
+          "+0.05 (symbol/grep search used)"
+        ],
+        "droppedUngrounded": 0,
+        "droppedMalformed": 0
+      },
+      "stats": {
+        "model": "zai-glm-4.7",
+        "budget": "deep",
+        "budgetSource": "auto",
+        "turns": 6,
+        "toolCalls": 16,
+        "listDirCalls": 2,
+        "findFileCalls": 1,
+        "grepCalls": 7,
+        "filesRead": 6,
+        "gitLogCalls": 0,
+        "gitBlameCalls": 0,
+        "gitDiffCalls": 0,
+        "gitShowCalls": 0,
+        "symbolCalls": 0,
+        "inputTokens": 51431,
+        "outputTokens": 5267,
+        "totalTokens": 56698,
+        "elapsedMs": 7560,
+        "stoppedByBudget": false,
+        "scope": [
+          "app/**",
+          "main.py",
+          "migrations/**"
+        ],
+        "repoRoot": "/home/kyubr/IdeaProjects/DeepResearch",
+        "sessionId": "sess_4794439a0572191f",
+        "sessionStatus": "created",
+        "sessionSource": "created",
+        "remainingCalls": 4,
+        "cacheHits": 116,
+        "cacheMisses": 533,
+        "cacheHitRate": 0.179,
+        "cacheEntries": 523,
+        "cacheSizeBytes": 3221132
+      },
+      "toolTrace": {
+        "entries": [
+          {
+            "turn": 1,
+            "tool": "repo_list_dir",
+            "args": {},
+            "result": {
+              "entries": 23,
+              "paths": [
+                "app",
+                "app/__init__.py",
+                "app/api",
+                "app/citation",
+                "app/core",
+                "app/db"
+              ]
+            }
+          },
+          {
+            "turn": 1,
+            "tool": "repo_grep",
+            "args": {
+              "pattern": "\\bapp\\.(get|post|put|delete|patch)\\s*\\(",
+              "scope": [
+                "app/**",
+                "main.py"
+              ],
+              "maxResults": 100
+            },
+            "result": {
+              "matches": 2,
+              "paths": [
+                "main.py"
+              ],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 1,
+            "tool": "repo_grep",
+            "args": {
+              "pattern": "\\brouter\\.(get|post|put|delete|patch)\\s*\\(",
+              "scope": [
+                "app/**",
+                "main.py"
+              ],
+              "maxResults": 100
+            },
+            "result": {
+              "matches": 12,
+              "paths": [
+                "app/api/claims.py",
+                "app/api/plans.py",
+                "app/api/sources.py",
+                "app/api/tasks.py"
+              ],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 1,
+            "tool": "repo_grep",
+            "args": {
+              "pattern": "@app\\.route\\s*\\(",
+              "scope": [
+                "app/**",
+                "main.py"
+              ],
+              "maxResults": 100
+            },
+            "result": {
+              "matches": 0,
+              "paths": [],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_grep",
+            "args": {
+              "pattern": "@(Get|Post|Put|Delete|Patch)\\s*\\(",
+              "scope": [
+                "app/**",
+                "main.py"
+              ],
+              "maxResults": 100
+            },
+            "result": {
+              "matches": 0,
+              "paths": [],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_grep",
+            "args": {
+              "pattern": "@\\w+\\.(get|post|put|delete|patch)\\s*\\(",
+              "scope": [
+                "app/**",
+                "main.py"
+              ],
+              "maxResults": 100
+            },
+            "result": {
+              "matches": 14,
+              "paths": [
+                "main.py",
+                "app/api/claims.py",
+                "app/api/plans.py",
+                "app/api/sources.py",
+                "app/api/tasks.py"
+              ],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_grep",
+            "args": {
+              "pattern": "#\\[Route\\s*\\(",
+              "scope": [
+                "app/**",
+                "main.py"
+              ],
+              "maxResults": 100
+            },
+            "result": {
+              "matches": 0,
+              "paths": [],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_grep",
+            "args": {
+              "pattern": "Route::(get|post|put|delete|patch|any|match|resource)\\s*\\(",
+              "scope": [
+                "app/**",
+                "main.py"
+              ],
+              "maxResults": 100
+            },
+            "result": {
+              "matches": 0,
+              "paths": [],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "main.py"
+            },
+            "result": {
+              "path": "main.py",
+              "startLine": 1,
+              "endLine": 14,
+              "totalLines": 14,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "app/api/claims.py"
+            },
+            "result": {
+              "path": "app/api/claims.py",
+              "startLine": 1,
+              "endLine": 19,
+              "totalLines": 19,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "app/api/plans.py"
+            },
+            "result": {
+              "path": "app/api/plans.py",
+              "startLine": 1,
+              "endLine": 19,
+              "totalLines": 19,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "app/api/sources.py"
+            },
+            "result": {
+              "path": "app/api/sources.py",
+              "startLine": 1,
+              "endLine": 47,
+              "totalLines": 47,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "app/api/tasks.py"
+            },
+            "result": {
+              "path": "app/api/tasks.py",
+              "startLine": 1,
+              "endLine": 190,
+              "totalLines": 190,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_list_dir",
+            "args": {
+              "dirPath": "app/api"
+            },
+            "result": {
+              "entries": 6,
+              "paths": [
+                "app/api/__init__.py",
+                "app/api/claims.py",
+                "app/api/errors.py",
+                "app/api/plans.py",
+                "app/api/sources.py",
+                "app/api/tasks.py"
+              ]
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_find_files",
+            "args": {
+              "pattern": "**/*.py",
+              "scope": [
+                "app/api"
+              ]
+            },
+            "result": {
+              "matches": 6,
+              "paths": [
+                "app/api/__init__.py",
+                "app/api/claims.py",
+                "app/api/errors.py",
+                "app/api/plans.py",
+                "app/api/sources.py",
+                "app/api/tasks.py"
+              ],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 5,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "app/api/__init__.py"
+            },
+            "result": {
+              "path": "app/api/__init__.py",
+              "startLine": 1,
+              "endLine": 2,
+              "totalLines": 2,
+              "truncated": true
+            }
+          }
+        ],
+        "totalCalls": 16,
+        "truncated": false,
+        "maxEntries": 20
+      },
+      "codeMap": {
+        "entryPoints": [
+          "main.py"
+        ],
+        "keyModules": [
+          {
+            "path": "main.py",
+            "role": "entry point",
+            "linesRead": 18
+          },
+          {
+            "path": "app/api/claims.py",
+            "role": "entry point",
+            "linesRead": 21
+          },
+          {
+            "path": "app/api/plans.py",
+            "role": "entry point",
+            "linesRead": 21
+          },
+          {
+            "path": "app/api/sources.py",
+            "role": "entry point",
+            "linesRead": 51
+          },
+          {
+            "path": "app/api/tasks.py",
+            "role": "entry point",
+            "linesRead": 206
+          },
+          {
+            "path": "app/api/__init__.py",
+            "role": "entry point",
+            "linesRead": 2
+          }
+        ]
+      }
+    }
+  },
+  "contentText": "## Result\nConfidence: high\nVerification: verified\nEvidence Quality: high (8 exact, 0 partial, 0 dropped)\nSearch Coverage: scope-limited search across app/**, main.py, migrations/**; 6 file read(s), 7 grep search(es).\n\n## Answer\nFound 13 HTTP routes in this FastAPI application using decorator patterns (@app.get|post, @router.get|post). **CAVEAT**: Entry-point detection is regex-based — verify each cited line is an actual route before acting.\n\n**By Entry Kind:**\n\n1. Root Application Routes (main.py): GET / (line 6), GET /hello/{name} (line 11)\n\n2. API Router Routes (app/api/):\n   - Claims (prefix=/claims): GET /claims/{claim_id}/evidence (line 13)\n   - Plans (prefix=/tasks): POST /tasks/{task_id}/plan/approve (line 13)\n   - Sources (prefix=/sources): GET /sources (line 20), GET /sources/{source_id} (line 41)\n   - Tasks (prefix=/tasks): POST /tasks (line 39), GET /tasks/{task_id} (line 53), GET /tasks/{task_id}/events (line 61), POST /tasks/{task_id}/pause (line 77), POST /tasks/{task_id}/retry (line 89), POST /tasks/{task_id}/cancel (line 101), GET /tasks/{task_id}/report (line 113), GET /tasks/{task_id}/cost (line 125)\n\n## Targets\n- [read] `main.py:6-13` - Root application GET routes\n- [read] `app/api/claims.py:10-18` - Claims router with GET route\n- [read] `app/api/plans.py:10-18` - Plans router with POST route\n- [read] `app/api/sources.py:17-46` - Sources router with 2 GET routes\n- [read] `app/api/tasks.py:26-135` - Tasks router with 7 routes\n- [read] `main.py:6-6` (E1) - Root GET / route decorator\n- [read] `main.py:11-11` (E2) - GET /hello/{name} route decorator\n- [read] `app/api/claims.py:10-13` (E3) - Claims router prefix and GET route\n- [read] `app/api/plans.py:10-13` (E4) - Plans router prefix and POST route\n- [read] `app/api/sources.py:17-20` (E5) - Sources router prefix and GET list route\n- [read] `app/api/sources.py:41-41` (E6) - Sources GET detail route decorator\n- [read] `app/api/tasks.py:26-39` (E7) - Tasks router prefix and POST route\n- ... and 1 more targets\n\n## Evidence (8 items, confidence: high)\n- E1 `main.py:6-6` - Root GET / route decorator\n  snippet: 6: @app.get(\"/\")\n- E2 `main.py:11-11` - GET /hello/{name} route decorator\n  snippet: 11: @app.get(\"/hello/{name}\")\n- E3 `app/api/claims.py:10-13` - Claims router prefix and GET route\n  snippet: 10: router = APIRouter(prefix=\"/claims\", tags=[\"claims\"])\n  11: \n  12: \n  13: @router.get(\"/{claim_id}/evidence\")\n- E4 `app/api/plans.py:10-13` - Plans router prefix and POST route\n  snippet: 10: router = APIRouter(prefix=\"/tasks\", tags=[\"plans\"])\n  11: \n  12: \n  13: @router.post(\"/{task_id}/plan/approve\")\n- E5 `app/api/sources.py:17-20` - Sources router prefix and GET list route\n  snippet: 17: router = APIRouter(prefix=\"/sources\", tags=[\"sources\"])\n  18: \n  19: \n  20: @router.get(\"\")\n- E6 `app/api/sources.py:41-41` - Sources GET detail route decorator\n  snippet: 41: @router.get(\"/{source_id}\")\n- E7 `app/api/tasks.py:26-39` - Tasks router prefix and POST route\n  snippet: 26: router = APIRouter(prefix=\"/tasks\", tags=[\"tasks\"])\n  27: \n  28: \n  29: class CreateTaskRequest(BaseModel):\n  30:     question: str = Field(min_length=5, max_length=2000)\n  31:     language: str = Field(min_length=2, max_length=5)\n  32:     max_queries: int = Field(default=8, ge=1, le=30)\n  33:     max_sources: int = Field(default=10, ge=1, le=30)\n  34:     cost_budget_usd: float = Field(default=2.0, ge=0.1, le=20.0)\n  35:     timeout_seconds: int = Field(default=1500, ge=60, le=3600)\n  36:     plan_wait_timeout_s: int = Field(default=1800, ge=60, le=3600)\n  37: \n  ... [snippet truncated]\n- E8 `app/api/tasks.py:53-61` - Tasks GET routes for task and events\n  snippet: 53: @router.get(\"/{task_id}\")\n  54: async def get_task_endpoint(task_id: UUID) -> dict:\n  55:     record = get_task(task_id)\n  56:     if record is None:\n  57:         raise ApiError(\"not_found\", \"Task not found\", status_code=404)\n  58:     return serialize_task(record)\n  59: \n  60: \n  61: @router.get(\"/{task_id}/events\")\n\nSession: sess_4794439a0572191f (pass as \"session\" for follow-up calls)"
+}

@@ -1,0 +1,1325 @@
+{
+  "tool": "explain_code_path",
+  "repo": "studious-memory",
+  "args": {
+    "repo_root": "/home/kyubr/IdeaProjects/studious-memory",
+    "scope": [
+      "backend/**",
+      "frontend/src/**",
+      "extensions/firefox-inbox/src/**",
+      "scripts/**",
+      "android/**"
+    ],
+    "pathQuery": "Firefox extension capture submission from apiClient through backend source intake or MCP surface",
+    "entryPoint": "backend/mcp_server.py",
+    "knownFiles": [
+      "backend/mcp_server.py"
+    ],
+    "knownSymbols": [
+      "scoped_tool"
+    ]
+  },
+  "elapsedMs": 18375,
+  "error": null,
+  "isError": false,
+  "summary": {
+    "directAnswer": "Firefox extension captures flow: message listener (background.ts:184-188) → submitCapture → HTTP POST /api/v1/sources → FastAPI create_source (sources.py:345-416) → process_source domain command. MCP surface flows: stdio entry (mcp_server.py:40) → process_input tool (server.py:123-143) → tool_process_input → same process_source command. Both paths converge on backend/app/domains/source/commands.py::process_source.",
+    "status": {
+      "confidence": "high",
+      "verification": "verified",
+      "complete": true,
+      "warnings": []
+    },
+    "evidenceQuality": {
+      "level": "high",
+      "exactCount": 9,
+      "partialCount": 0,
+      "droppedCount": 0,
+      "fileCount": 8,
+      "warnings": [],
+      "summary": "Verified: 12 files read, 5 grep searches, 4 symbol lookups, 9/9 evidence items grounded, cross-verified across 8 files. All evidence grounded in inspected code."
+    },
+    "failure": null,
+    "nextAction": {
+      "type": "stop",
+      "reason": "Explorer result is complete for the requested read-only investigation."
+    },
+    "searchCoverage": {
+      "scope": [
+        "backend/**",
+        "frontend/src/**",
+        "extensions/firefox-inbox/src/**",
+        "scripts/**",
+        "android/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 12,
+      "grepCalls": 5,
+      "listDirCalls": 0,
+      "symbolCalls": 4,
+      "toolResultsTruncated": 0,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: backend/**, frontend/src/**, extensions/firefox-inbox/src/**, scripts/**, android/**"
+      ],
+      "summary": "scope-limited search across backend/**, frontend/src/**, extensions/firefox-inbox/src/**, scripts/**, android/**; 12 file read(s), 5 grep search(es)."
+    },
+    "critic": null,
+    "sessionId": "sess_c1a56cffea6d47ff",
+    "session": {
+      "id": "sess_c1a56cffea6d47ff",
+      "status": "created",
+      "remainingCalls": 4
+    },
+    "targets": [
+      {
+        "path": "extensions/firefox-inbox/src/background/background.ts",
+        "role": "read",
+        "reason": "Firefox extension message listener entry point",
+        "evidenceRefs": [
+          "E1"
+        ],
+        "startLine": 184,
+        "endLine": 188
+      },
+      {
+        "path": "extensions/firefox-inbox/src/background/background.ts",
+        "role": "read",
+        "reason": "submitDraft calls dependencies.submit at line 114",
+        "evidenceRefs": [],
+        "startLine": 99,
+        "endLine": 131
+      },
+      {
+        "path": "extensions/firefox-inbox/src/shared/apiClient.ts",
+        "role": "read",
+        "reason": "submitCapture POSTs FormData to sourceApiUrl",
+        "evidenceRefs": [],
+        "startLine": 53,
+        "endLine": 89
+      },
+      {
+        "path": "extensions/firefox-inbox/src/shared/serviceUrl.ts",
+        "role": "read",
+        "reason": "sourceApiUrl constructs /api/v1/sources endpoint",
+        "evidenceRefs": [
+          "E4"
+        ],
+        "startLine": 42,
+        "endLine": 44
+      },
+      {
+        "path": "backend/app/api/v1/sources.py",
+        "role": "read",
+        "reason": "create_source POST endpoint calls process_source",
+        "evidenceRefs": [],
+        "startLine": 345,
+        "endLine": 416
+      },
+      {
+        "path": "backend/mcp_server.py",
+        "role": "read",
+        "reason": "MCP stdio transport entry point",
+        "evidenceRefs": [
+          "E6"
+        ],
+        "startLine": 40,
+        "endLine": 40
+      },
+      {
+        "path": "backend/app/mcp/server.py",
+        "role": "read",
+        "reason": "process_input tool calls tool_process_input",
+        "evidenceRefs": [
+          "E7"
+        ],
+        "startLine": 123,
+        "endLine": 143
+      },
+      {
+        "path": "backend/app/mcp/tools/input_tools.py",
+        "role": "read",
+        "reason": "tool_process_input calls process_source command",
+        "evidenceRefs": [
+          "E8"
+        ],
+        "startLine": 45,
+        "endLine": 53
+      }
+    ],
+    "discoveredPathsCount": 38,
+    "evidence": [
+      {
+        "id": "E1",
+        "path": "extensions/firefox-inbox/src/background/background.ts",
+        "startLine": 184,
+        "endLine": 188,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Firefox extension message listener entry point",
+        "snippet": "184:   browser.runtime.onMessage.addListener((message: unknown) => {\n185:     if (!isExtensionRequest(message)) {\n186:       return false\n187:     }\n188:     return handleRequest(message)"
+      },
+      {
+        "id": "E2",
+        "path": "extensions/firefox-inbox/src/background/background.ts",
+        "startLine": 114,
+        "endLine": 114,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "submitDraft calls dependencies.submit (submitCapture)",
+        "snippet": "114:     const result = await dependencies.submit(settings, submittingDraft)"
+      },
+      {
+        "id": "E3",
+        "path": "extensions/firefox-inbox/src/shared/apiClient.ts",
+        "startLine": 72,
+        "endLine": 79,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "POST request to sourceApiUrl with headers/body",
+        "snippet": "72:     response = await fetchImpl(sourceApiUrl(settings.serviceBaseUrl), {\n73:       method: 'POST',\n74:       headers: {\n75:         ...bearerHeaders(settings.apiKey),\n76:         'X-Studious-Client-Capture-Id': capture.clientCaptureId,\n77:       },\n78:       body: form,\n79:     })"
+      },
+      {
+        "id": "E4",
+        "path": "extensions/firefox-inbox/src/shared/serviceUrl.ts",
+        "startLine": 42,
+        "endLine": 44,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "sourceApiUrl returns /api/v1/sources endpoint",
+        "snippet": "42: export function sourceApiUrl(serviceBaseUrl: string): string {\n43:   return `${normalizeServiceBaseUrl(serviceBaseUrl)}/api/v1/sources`\n44: }"
+      },
+      {
+        "id": "E5",
+        "path": "backend/app/api/v1/sources.py",
+        "startLine": 401,
+        "endLine": 416,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "create_source calls process_source domain command",
+        "snippet": "401:         result = await process_source(\n402:             session=session,\n403:             raw_text=text,\n404:             images=validated_images,\n405:             source_url=source_url,\n406:             context_enrichment=context_enrichment,\n407:             web_search_enabled=web_search_enabled,\n408:             web_search_reason=web_search_reason,\n409:             web_search_disclosure_mode=web_search_disclosure_mode,\n410:             agent_thread_mode=agent_thread_mode,\n411:             agent_thread_id=agent_thread_id,\n412:             owner_id=owner_id,\n... [snippet truncated]"
+      },
+      {
+        "id": "E6",
+        "path": "backend/mcp_server.py",
+        "startLine": 40,
+        "endLine": 40,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "MCP stdio transport entry point",
+        "snippet": "40:     mcp.run(transport=\"stdio\")"
+      },
+      {
+        "id": "E7",
+        "path": "backend/app/mcp/server.py",
+        "startLine": 123,
+        "endLine": 143,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "process_input tool with MEMORY_WRITE scope",
+        "snippet": "123: @scoped_tool(MCP_SCOPE_MEMORY_WRITE)\n124: async def process_input(\n125:     text: str | None = None,\n126:     image_base64: str | None = None,\n127:     image_mime: str | None = None,\n128:     context_enrichment: bool = False,\n129: ) -> dict:\n130:     \"\"\"주인님의 텍스트·이미지를 접수하여 AI 분석 후 지식·할일·일정으로 정리합니다.\n131: \n132:     Args:\n133:         text: 정리할 텍스트 또는 대화 기록\n134:         image_base64: Base64 인코딩된 이미지 데이터\n... [snippet truncated]"
+      },
+      {
+        "id": "E8",
+        "path": "backend/app/mcp/tools/input_tools.py",
+        "startLine": 45,
+        "endLine": 53,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "tool_process_input calls process_source domain command",
+        "snippet": "45:         result = await process_source(\n46:             session=session,\n47:             raw_text=text,\n48:             images=incoming_images,\n49:             context_enrichment=context_enrichment,\n50:             owner_id=owner_id,\n51:             data_group_id=data_group_id,\n52:             access_context=access_context,\n53:         )"
+      }
+    ],
+    "uncertainties": [],
+    "stats": {
+      "turns": 14,
+      "toolCalls": 21,
+      "filesRead": 12,
+      "grepCalls": 5,
+      "symbolCalls": 4,
+      "stoppedByBudget": false,
+      "elapsedMs": 18360,
+      "totalTokens": 259963
+    }
+  },
+  "structuredContent": {
+    "schemaVersion": 1,
+    "directAnswer": "Firefox extension captures flow: message listener (background.ts:184-188) → submitCapture → HTTP POST /api/v1/sources → FastAPI create_source (sources.py:345-416) → process_source domain command. MCP surface flows: stdio entry (mcp_server.py:40) → process_input tool (server.py:123-143) → tool_process_input → same process_source command. Both paths converge on backend/app/domains/source/commands.py::process_source.",
+    "status": {
+      "confidence": "high",
+      "verification": "verified",
+      "complete": true,
+      "warnings": []
+    },
+    "targets": [
+      {
+        "path": "extensions/firefox-inbox/src/background/background.ts",
+        "role": "read",
+        "reason": "Firefox extension message listener entry point",
+        "evidenceRefs": [
+          "E1"
+        ],
+        "startLine": 184,
+        "endLine": 188
+      },
+      {
+        "path": "extensions/firefox-inbox/src/background/background.ts",
+        "role": "read",
+        "reason": "submitDraft calls dependencies.submit at line 114",
+        "evidenceRefs": [],
+        "startLine": 99,
+        "endLine": 131
+      },
+      {
+        "path": "extensions/firefox-inbox/src/shared/apiClient.ts",
+        "role": "read",
+        "reason": "submitCapture POSTs FormData to sourceApiUrl",
+        "evidenceRefs": [],
+        "startLine": 53,
+        "endLine": 89
+      },
+      {
+        "path": "extensions/firefox-inbox/src/shared/serviceUrl.ts",
+        "role": "read",
+        "reason": "sourceApiUrl constructs /api/v1/sources endpoint",
+        "evidenceRefs": [
+          "E4"
+        ],
+        "startLine": 42,
+        "endLine": 44
+      },
+      {
+        "path": "backend/app/api/v1/sources.py",
+        "role": "read",
+        "reason": "create_source POST endpoint calls process_source",
+        "evidenceRefs": [],
+        "startLine": 345,
+        "endLine": 416
+      },
+      {
+        "path": "backend/mcp_server.py",
+        "role": "read",
+        "reason": "MCP stdio transport entry point",
+        "evidenceRefs": [
+          "E6"
+        ],
+        "startLine": 40,
+        "endLine": 40
+      },
+      {
+        "path": "backend/app/mcp/server.py",
+        "role": "read",
+        "reason": "process_input tool calls tool_process_input",
+        "evidenceRefs": [
+          "E7"
+        ],
+        "startLine": 123,
+        "endLine": 143
+      },
+      {
+        "path": "backend/app/mcp/tools/input_tools.py",
+        "role": "read",
+        "reason": "tool_process_input calls process_source command",
+        "evidenceRefs": [
+          "E8"
+        ],
+        "startLine": 45,
+        "endLine": 53
+      },
+      {
+        "path": "backend/app/domains/source/commands.py",
+        "role": "read",
+        "reason": "process_source domain command convergence point",
+        "evidenceRefs": [
+          "E9"
+        ],
+        "startLine": 81,
+        "endLine": 87
+      },
+      {
+        "path": "extensions/firefox-inbox/src/background/background.ts",
+        "startLine": 114,
+        "endLine": 114,
+        "role": "read",
+        "reason": "submitDraft calls dependencies.submit (submitCapture)",
+        "evidenceRefs": [
+          "E2"
+        ]
+      },
+      {
+        "path": "extensions/firefox-inbox/src/shared/apiClient.ts",
+        "startLine": 72,
+        "endLine": 79,
+        "role": "read",
+        "reason": "POST request to sourceApiUrl with headers/body",
+        "evidenceRefs": [
+          "E3"
+        ]
+      },
+      {
+        "path": "backend/app/api/v1/sources.py",
+        "startLine": 401,
+        "endLine": 416,
+        "role": "read",
+        "reason": "create_source calls process_source domain command",
+        "evidenceRefs": [
+          "E5"
+        ]
+      }
+    ],
+    "discoveredPaths": [
+      {
+        "path": "backend/app/mcp/server.py",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "scripts/generate_contract_snapshot.py",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/mcp_server.py",
+        "kind": "unknown",
+        "sourceTool": "repo_read_file",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "extensions/firefox-inbox/src/background/background.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_references",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "extensions/firefox-inbox/src/options/connectionCheck.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_references",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "extensions/firefox-inbox/src/test/apiClient.test.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_references",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "extensions/firefox-inbox/src/test/captureFlow.test.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_references",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "extensions/firefox-inbox/src/test/connectionSettings.test.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_references",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "extensions/firefox-inbox/src/test/privacyFailures.test.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_references",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "frontend/src/features/ai-config/api.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_references",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "frontend/src/features/ai-logs/api.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_references",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "extensions/firefox-inbox/src/shared/apiClient.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "extensions/firefox-inbox/src/shared/messages.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "extensions/firefox-inbox/src/shared/types.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "extensions/firefox-inbox/src/test/privacyGuards.test.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/tests/test_request_logger_sanitization.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/app/middleware/rate_limit.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/tests/api/test_orchestrator_http.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/app/api/v1/orchestrator.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/app/domains/source/__init__.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "extensions/firefox-inbox/src/shared/serviceUrl.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_read_file",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/tests/test_exception_handlers.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/app/api/router.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/app/middleware/request_logger.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/tests/api/test_refinement_api.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/tests/api/test_sources_claims_api.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/tests/api/test_sources_list_api.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/tests/api/test_sources_routes_api.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/app/api/v1/sources.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/tests/test_analysis_failure_semantics.py",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/tests/test_analysis_pipeline.py",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/tests/test_commitment_loops.py",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/tests/test_input_tools_contract.py",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/tests/test_orchestrator.py",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/tests/test_review_inbox.py",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/app/domains/source/commands.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/app/domains/source/application/capture.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/app/mcp/tools/input_tools.py",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      }
+    ],
+    "evidence": [
+      {
+        "path": "extensions/firefox-inbox/src/background/background.ts",
+        "startLine": 184,
+        "endLine": 188,
+        "why": "Firefox extension message listener entry point",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E1",
+        "snippet": "184:   browser.runtime.onMessage.addListener((message: unknown) => {\n185:     if (!isExtensionRequest(message)) {\n186:       return false\n187:     }\n188:     return handleRequest(message)"
+      },
+      {
+        "path": "extensions/firefox-inbox/src/background/background.ts",
+        "startLine": 114,
+        "endLine": 114,
+        "why": "submitDraft calls dependencies.submit (submitCapture)",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E2",
+        "snippet": "114:     const result = await dependencies.submit(settings, submittingDraft)"
+      },
+      {
+        "path": "extensions/firefox-inbox/src/shared/apiClient.ts",
+        "startLine": 72,
+        "endLine": 79,
+        "why": "POST request to sourceApiUrl with headers/body",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E3",
+        "snippet": "72:     response = await fetchImpl(sourceApiUrl(settings.serviceBaseUrl), {\n73:       method: 'POST',\n74:       headers: {\n75:         ...bearerHeaders(settings.apiKey),\n76:         'X-Studious-Client-Capture-Id': capture.clientCaptureId,\n77:       },\n78:       body: form,\n79:     })"
+      },
+      {
+        "path": "extensions/firefox-inbox/src/shared/serviceUrl.ts",
+        "startLine": 42,
+        "endLine": 44,
+        "why": "sourceApiUrl returns /api/v1/sources endpoint",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E4",
+        "snippet": "42: export function sourceApiUrl(serviceBaseUrl: string): string {\n43:   return `${normalizeServiceBaseUrl(serviceBaseUrl)}/api/v1/sources`\n44: }"
+      },
+      {
+        "path": "backend/app/api/v1/sources.py",
+        "startLine": 401,
+        "endLine": 416,
+        "why": "create_source calls process_source domain command",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E5",
+        "snippet": "401:         result = await process_source(\n402:             session=session,\n403:             raw_text=text,\n404:             images=validated_images,\n405:             source_url=source_url,\n406:             context_enrichment=context_enrichment,\n407:             web_search_enabled=web_search_enabled,\n408:             web_search_reason=web_search_reason,\n409:             web_search_disclosure_mode=web_search_disclosure_mode,\n410:             agent_thread_mode=agent_thread_mode,\n411:             agent_thread_id=agent_thread_id,\n412:             owner_id=owner_id,\n... [snippet truncated]"
+      },
+      {
+        "path": "backend/mcp_server.py",
+        "startLine": 40,
+        "endLine": 40,
+        "why": "MCP stdio transport entry point",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E6",
+        "snippet": "40:     mcp.run(transport=\"stdio\")"
+      },
+      {
+        "path": "backend/app/mcp/server.py",
+        "startLine": 123,
+        "endLine": 143,
+        "why": "process_input tool with MEMORY_WRITE scope",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E7",
+        "snippet": "123: @scoped_tool(MCP_SCOPE_MEMORY_WRITE)\n124: async def process_input(\n125:     text: str | None = None,\n126:     image_base64: str | None = None,\n127:     image_mime: str | None = None,\n128:     context_enrichment: bool = False,\n129: ) -> dict:\n130:     \"\"\"주인님의 텍스트·이미지를 접수하여 AI 분석 후 지식·할일·일정으로 정리합니다.\n131: \n132:     Args:\n133:         text: 정리할 텍스트 또는 대화 기록\n134:         image_base64: Base64 인코딩된 이미지 데이터\n... [snippet truncated]"
+      },
+      {
+        "path": "backend/app/mcp/tools/input_tools.py",
+        "startLine": 45,
+        "endLine": 53,
+        "why": "tool_process_input calls process_source domain command",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E8",
+        "snippet": "45:         result = await process_source(\n46:             session=session,\n47:             raw_text=text,\n48:             images=incoming_images,\n49:             context_enrichment=context_enrichment,\n50:             owner_id=owner_id,\n51:             data_group_id=data_group_id,\n52:             access_context=access_context,\n53:         )"
+      },
+      {
+        "path": "backend/app/domains/source/commands.py",
+        "startLine": 81,
+        "endLine": 87,
+        "why": "process_source domain command convergence point",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E9",
+        "snippet": "81: async def process_source(*args, **kwargs):\n82:     return await _process_source(\n83:         *args,\n84:         **kwargs,\n85:         ai_adapter_factory=get_ai_adapter,\n86:         process_source_fn=_domain_process_source,\n87:     )"
+      }
+    ],
+    "uncertainties": [],
+    "nextAction": {
+      "type": "stop",
+      "reason": "Explorer result is complete for the requested read-only investigation."
+    },
+    "evidenceQuality": {
+      "level": "high",
+      "exactCount": 9,
+      "partialCount": 0,
+      "droppedCount": 0,
+      "fileCount": 8,
+      "warnings": [],
+      "summary": "Verified: 12 files read, 5 grep searches, 4 symbol lookups, 9/9 evidence items grounded, cross-verified across 8 files. All evidence grounded in inspected code."
+    },
+    "searchCoverage": {
+      "scope": [
+        "backend/**",
+        "frontend/src/**",
+        "extensions/firefox-inbox/src/**",
+        "scripts/**",
+        "android/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 12,
+      "grepCalls": 5,
+      "listDirCalls": 0,
+      "symbolCalls": 4,
+      "toolResultsTruncated": 0,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: backend/**, frontend/src/**, extensions/firefox-inbox/src/**, scripts/**, android/**"
+      ],
+      "summary": "scope-limited search across backend/**, frontend/src/**, extensions/firefox-inbox/src/**, scripts/**, android/**; 12 file read(s), 5 grep search(es)."
+    },
+    "failure": null,
+    "sessionId": "sess_c1a56cffea6d47ff",
+    "session": {
+      "id": "sess_c1a56cffea6d47ff",
+      "status": "created",
+      "remainingCalls": 4
+    },
+    "_debug": {
+      "evidenceSufficiency": {
+        "sufficient": true,
+        "reason": "path_has_multi_step_evidence"
+      },
+      "confidenceScore": 1,
+      "confidenceFactors": {
+        "evidenceCount": 9,
+        "evidenceGrounded": 9,
+        "evidenceDropped": 0,
+        "exactCount": 9,
+        "crossVerified": true,
+        "symbolSearchUsed": true,
+        "stoppedByBudget": false,
+        "gitLogCalls": 0,
+        "gitDiffCalls": 0,
+        "gitBlameCalls": 0,
+        "gitGroundingHint": "none",
+        "taskKind": "reference-chase",
+        "adjustments": [
+          "base=0.30 (taskKind=reference-chase)",
+          "+0.54 (9 exact evidence item(s))",
+          "+0.12 (cross-verified across multiple files)",
+          "+0.05 (symbol/grep search used)"
+        ],
+        "droppedUngrounded": 0,
+        "droppedMalformed": 0
+      },
+      "stats": {
+        "model": "zai-glm-4.7",
+        "budget": "deep",
+        "budgetSource": "auto",
+        "turns": 14,
+        "toolCalls": 21,
+        "listDirCalls": 0,
+        "findFileCalls": 0,
+        "grepCalls": 5,
+        "filesRead": 12,
+        "gitLogCalls": 0,
+        "gitBlameCalls": 0,
+        "gitDiffCalls": 0,
+        "gitShowCalls": 0,
+        "symbolCalls": 4,
+        "inputTokens": 252003,
+        "outputTokens": 7960,
+        "totalTokens": 259963,
+        "elapsedMs": 18360,
+        "stoppedByBudget": false,
+        "scope": [
+          "backend/**",
+          "frontend/src/**",
+          "extensions/firefox-inbox/src/**",
+          "scripts/**",
+          "android/**"
+        ],
+        "repoRoot": "/home/kyubr/IdeaProjects/studious-memory",
+        "sessionId": "sess_c1a56cffea6d47ff",
+        "sessionStatus": "created",
+        "sessionSource": "created",
+        "remainingCalls": 4,
+        "cacheHits": 83,
+        "cacheMisses": 431,
+        "cacheHitRate": 0.161,
+        "cacheEntries": 426,
+        "cacheSizeBytes": 2530590
+      },
+      "toolTrace": {
+        "entries": [
+          {
+            "turn": 1,
+            "tool": "repo_symbol_context",
+            "args": {
+              "symbol": "scoped_tool"
+            },
+            "result": {
+              "symbol": "scoped_tool",
+              "definition": {
+                "path": "backend/app/mcp/server.py",
+                "line": 79,
+                "endLine": 91,
+                "kind": "function"
+              },
+              "callers": 39,
+              "observedRanges": 21,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 1,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "backend/mcp_server.py"
+            },
+            "result": {
+              "path": "backend/mcp_server.py",
+              "startLine": 1,
+              "endLine": 41,
+              "totalLines": 41,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_references",
+            "args": {
+              "symbol": "apiClient",
+              "scope": [
+                "extensions/firefox-inbox/src",
+                "frontend/src"
+              ]
+            },
+            "result": {
+              "symbol": "apiClient",
+              "definition": null,
+              "references": 27,
+              "truncated": false
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_grep",
+            "args": {
+              "pattern": "capture.*submission|submit.*capture",
+              "scope": [
+                "extensions/firefox-inbox/src"
+              ]
+            },
+            "result": {
+              "matches": 37,
+              "paths": [
+                "extensions/firefox-inbox/src/background/background.ts",
+                "extensions/firefox-inbox/src/shared/apiClient.ts",
+                "extensions/firefox-inbox/src/shared/messages.ts",
+                "extensions/firefox-inbox/src/shared/types.ts",
+                "extensions/firefox-inbox/src/test/apiClient.test.ts",
+                "extensions/firefox-inbox/src/test/captureFlow.test.ts"
+              ],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "extensions/firefox-inbox/src/shared/apiClient.ts"
+            },
+            "result": {
+              "path": "extensions/firefox-inbox/src/shared/apiClient.ts",
+              "startLine": 1,
+              "endLine": 170,
+              "totalLines": 170,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "extensions/firefox-inbox/src/background/background.ts"
+            },
+            "result": {
+              "path": "extensions/firefox-inbox/src/background/background.ts",
+              "startLine": 1,
+              "endLine": 191,
+              "totalLines": 191,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_grep",
+            "args": {
+              "pattern": "source.*intake|/intake|SourceIntake",
+              "scope": [
+                "backend"
+              ]
+            },
+            "result": {
+              "matches": 6,
+              "paths": [
+                "backend/tests/test_request_logger_sanitization.py",
+                "backend/app/middleware/rate_limit.py",
+                "backend/tests/api/test_orchestrator_http.py",
+                "backend/app/api/v1/orchestrator.py",
+                "backend/app/domains/source/__init__.py"
+              ],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "extensions/firefox-inbox/src/shared/serviceUrl.ts"
+            },
+            "result": {
+              "path": "extensions/firefox-inbox/src/shared/serviceUrl.ts",
+              "startLine": 1,
+              "endLine": 49,
+              "totalLines": 49,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 5,
+            "tool": "repo_grep",
+            "args": {
+              "scope": [
+                "backend"
+              ],
+              "pattern": "/api/v1/sources|router.*sources|POST.*sources"
+            },
+            "result": {
+              "matches": 20,
+              "paths": [
+                "backend/tests/test_exception_handlers.py",
+                "backend/tests/test_request_logger_sanitization.py",
+                "backend/app/api/router.py",
+                "backend/app/middleware/rate_limit.py",
+                "backend/app/middleware/request_logger.py",
+                "backend/tests/api/test_refinement_api.py"
+              ],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 5,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "backend/app/mcp/server.py",
+              "startLine": 120,
+              "endLine": 150
+            },
+            "result": {
+              "path": "backend/app/mcp/server.py",
+              "startLine": 120,
+              "endLine": 150,
+              "totalLines": 947,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 6,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "backend/app/api/v1/sources.py",
+              "startLine": 1,
+              "endLine": 150
+            },
+            "result": {
+              "path": "backend/app/api/v1/sources.py",
+              "startLine": 1,
+              "endLine": 150,
+              "totalLines": 422,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 7,
+            "tool": "repo_grep",
+            "args": {
+              "scope": [
+                "backend/app/api/v1/sources.py"
+              ],
+              "pattern": "@router\\.post"
+            },
+            "result": {
+              "matches": 4,
+              "paths": [
+                "backend/app/api/v1/sources.py"
+              ],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 8,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "backend/app/api/v1/sources.py",
+              "startLine": 345,
+              "endLine": 395
+            },
+            "result": {
+              "path": "backend/app/api/v1/sources.py",
+              "startLine": 345,
+              "endLine": 395,
+              "totalLines": 422,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 9,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "backend/app/api/v1/sources.py",
+              "endLine": 420,
+              "startLine": 395
+            },
+            "result": {
+              "path": "backend/app/api/v1/sources.py",
+              "startLine": 395,
+              "endLine": 420,
+              "totalLines": 422,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 9,
+            "tool": "repo_symbol_context",
+            "args": {
+              "symbol": "process_source",
+              "scope": [
+                "backend"
+              ]
+            },
+            "result": {
+              "symbol": "process_source",
+              "definition": null,
+              "callers": 31,
+              "observedRanges": 20,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 10,
+            "tool": "repo_grep",
+            "args": {
+              "scope": [
+                "backend/app/domains/source"
+              ],
+              "pattern": "^async def process_source|^def process_source"
+            },
+            "result": {
+              "matches": 2,
+              "paths": [
+                "backend/app/domains/source/commands.py",
+                "backend/app/domains/source/application/capture.py"
+              ],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 10,
+            "tool": "repo_symbol_context",
+            "args": {
+              "scope": [
+                "backend"
+              ],
+              "symbol": "tool_process_input"
+            },
+            "result": {
+              "symbol": "tool_process_input",
+              "definition": {
+                "path": "backend/app/mcp/tools/input_tools.py",
+                "line": 13,
+                "endLine": 17,
+                "kind": "function"
+              },
+              "callers": 3,
+              "observedRanges": 4,
+              "truncated": false
+            }
+          },
+          {
+            "turn": 11,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "backend/app/mcp/tools/input_tools.py"
+            },
+            "result": {
+              "path": "backend/app/mcp/tools/input_tools.py",
+              "startLine": 1,
+              "endLine": 139,
+              "totalLines": 139,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 11,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "backend/app/domains/source/commands.py",
+              "startLine": 75,
+              "endLine": 120
+            },
+            "result": {
+              "path": "backend/app/domains/source/commands.py",
+              "startLine": 75,
+              "endLine": 120,
+              "totalLines": 293,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 12,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "backend/app/api/router.py"
+            },
+            "result": {
+              "path": "backend/app/api/router.py",
+              "startLine": 1,
+              "endLine": 55,
+              "totalLines": 55,
+              "truncated": true
+            }
+          }
+        ],
+        "totalCalls": 21,
+        "truncated": true,
+        "maxEntries": 20
+      },
+      "codeMap": {
+        "entryPoints": [
+          "backend/app/mcp/server.py"
+        ],
+        "keyModules": [
+          {
+            "path": "backend/app/mcp/server.py",
+            "role": "entry point",
+            "linesRead": 99
+          },
+          {
+            "path": "scripts/generate_contract_snapshot.py",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "backend/mcp_server.py",
+            "role": "entry point",
+            "linesRead": 41
+          },
+          {
+            "path": "extensions/firefox-inbox/src/background/background.ts",
+            "role": "module",
+            "linesRead": 197
+          },
+          {
+            "path": "extensions/firefox-inbox/src/shared/apiClient.ts",
+            "role": "API client",
+            "linesRead": 175
+          },
+          {
+            "path": "extensions/firefox-inbox/src/shared/messages.ts",
+            "role": "module",
+            "linesRead": 2
+          },
+          {
+            "path": "extensions/firefox-inbox/src/shared/types.ts",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "extensions/firefox-inbox/src/test/apiClient.test.ts",
+            "role": "test",
+            "linesRead": 6
+          },
+          {
+            "path": "extensions/firefox-inbox/src/test/captureFlow.test.ts",
+            "role": "test",
+            "linesRead": 12
+          },
+          {
+            "path": "extensions/firefox-inbox/src/test/privacyFailures.test.ts",
+            "role": "test",
+            "linesRead": 2
+          },
+          {
+            "path": "extensions/firefox-inbox/src/test/privacyGuards.test.ts",
+            "role": "test",
+            "linesRead": 3
+          },
+          {
+            "path": "backend/tests/test_request_logger_sanitization.py",
+            "role": "test",
+            "linesRead": 2
+          },
+          {
+            "path": "backend/app/middleware/rate_limit.py",
+            "role": "middleware",
+            "linesRead": 2
+          },
+          {
+            "path": "backend/tests/api/test_orchestrator_http.py",
+            "role": "test",
+            "linesRead": 2
+          },
+          {
+            "path": "backend/app/api/v1/orchestrator.py",
+            "role": "entry point",
+            "linesRead": 1
+          },
+          {
+            "path": "backend/app/domains/source/__init__.py",
+            "role": "entry point",
+            "linesRead": 1
+          },
+          {
+            "path": "extensions/firefox-inbox/src/shared/serviceUrl.ts",
+            "role": "service",
+            "linesRead": 49
+          },
+          {
+            "path": "backend/tests/test_exception_handlers.py",
+            "role": "test",
+            "linesRead": 2
+          },
+          {
+            "path": "backend/app/api/router.py",
+            "role": "route/controller",
+            "linesRead": 56
+          },
+          {
+            "path": "backend/app/middleware/request_logger.py",
+            "role": "middleware",
+            "linesRead": 1
+          },
+          {
+            "path": "backend/tests/api/test_refinement_api.py",
+            "role": "test",
+            "linesRead": 2
+          },
+          {
+            "path": "backend/tests/api/test_sources_claims_api.py",
+            "role": "test",
+            "linesRead": 3
+          },
+          {
+            "path": "backend/tests/api/test_sources_list_api.py",
+            "role": "test",
+            "linesRead": 2
+          },
+          {
+            "path": "backend/tests/api/test_sources_routes_api.py",
+            "role": "test",
+            "linesRead": 6
+          },
+          {
+            "path": "backend/app/api/v1/sources.py",
+            "role": "entry point",
+            "linesRead": 232
+          },
+          {
+            "path": "backend/tests/test_analysis_failure_semantics.py",
+            "role": "test",
+            "linesRead": 1
+          },
+          {
+            "path": "backend/tests/test_analysis_pipeline.py",
+            "role": "test",
+            "linesRead": 9
+          },
+          {
+            "path": "backend/tests/test_commitment_loops.py",
+            "role": "test",
+            "linesRead": 4
+          },
+          {
+            "path": "backend/tests/test_input_tools_contract.py",
+            "role": "test",
+            "linesRead": 3
+          },
+          {
+            "path": "backend/tests/test_orchestrator.py",
+            "role": "test",
+            "linesRead": 4
+          },
+          {
+            "path": "backend/tests/test_review_inbox.py",
+            "role": "test",
+            "linesRead": 1
+          },
+          {
+            "path": "backend/app/domains/source/commands.py",
+            "role": "entry point",
+            "linesRead": 47
+          },
+          {
+            "path": "backend/app/domains/source/application/capture.py",
+            "role": "entry point",
+            "linesRead": 1
+          },
+          {
+            "path": "backend/app/mcp/tools/input_tools.py",
+            "role": "entry point",
+            "linesRead": 144
+          }
+        ]
+      }
+    }
+  },
+  "contentText": "## Result\nConfidence: high\nVerification: verified\nEvidence Quality: high (9 exact, 0 partial, 0 dropped)\nSearch Coverage: scope-limited search across backend/**, frontend/src/**, extensions/firefox-inbox/src/**, scripts/**, android/**; 12 file read(s), 5 grep search(es).\n\n## Answer\nFirefox extension captures flow: message listener (background.ts:184-188) → submitCapture → HTTP POST /api/v1/sources → FastAPI create_source (sources.py:345-416) → process_source domain command. MCP surface flows: stdio entry (mcp_server.py:40) → process_input tool (server.py:123-143) → tool_process_input → same process_source command. Both paths converge on backend/app/domains/source/commands.py::process_source.\n\n## Targets\n- [read] `extensions/firefox-inbox/src/background/background.ts:184-188` (E1) - Firefox extension message listener entry point\n- [read] `extensions/firefox-inbox/src/background/background.ts:99-131` - submitDraft calls dependencies.submit at line 114\n- [read] `extensions/firefox-inbox/src/shared/apiClient.ts:53-89` - submitCapture POSTs FormData to sourceApiUrl\n- [read] `extensions/firefox-inbox/src/shared/serviceUrl.ts:42-44` (E4) - sourceApiUrl constructs /api/v1/sources endpoint\n- [read] `backend/app/api/v1/sources.py:345-416` - create_source POST endpoint calls process_source\n- [read] `backend/mcp_server.py:40-40` (E6) - MCP stdio transport entry point\n- [read] `backend/app/mcp/server.py:123-143` (E7) - process_input tool calls tool_process_input\n- [read] `backend/app/mcp/tools/input_tools.py:45-53` (E8) - tool_process_input calls process_source command\n- [read] `backend/app/domains/source/commands.py:81-87` (E9) - process_source domain command convergence point\n- [read] `extensions/firefox-inbox/src/background/background.ts:114-114` (E2) - submitDraft calls dependencies.submit (submitCapture)\n- [read] `extensions/firefox-inbox/src/shared/apiClient.ts:72-79` (E3) - POST request to sourceApiUrl with headers/body\n- [read] `backend/app/api/v1/sources.py:401-416` (E5) - create_source calls process_source domain command\n\n## Evidence (9 items, confidence: high)\n- E1 `extensions/firefox-inbox/src/background/background.ts:184-188` - Firefox extension message listener entry point\n  snippet: 184:   browser.runtime.onMessage.addListener((message: unknown) => {\n  185:     if (!isExtensionRequest(message)) {\n  186:       return false\n  187:     }\n  188:     return handleRequest(message)\n- E2 `extensions/firefox-inbox/src/background/background.ts:114-114` - submitDraft calls dependencies.submit (submitCapture)\n  snippet: 114:     const result = await dependencies.submit(settings, submittingDraft)\n- E3 `extensions/firefox-inbox/src/shared/apiClient.ts:72-79` - POST request to sourceApiUrl with headers/body\n  snippet: 72:     response = await fetchImpl(sourceApiUrl(settings.serviceBaseUrl), {\n  73:       method: 'POST',\n  74:       headers: {\n  75:         ...bearerHeaders(settings.apiKey),\n  76:         'X-Studious-Client-Capture-Id': capture.clientCaptureId,\n  77:       },\n  78:       body: form,\n  79:     })\n- E4 `extensions/firefox-inbox/src/shared/serviceUrl.ts:42-44` - sourceApiUrl returns /api/v1/sources endpoint\n  snippet: 42: export function sourceApiUrl(serviceBaseUrl: string): string {\n  43:   return `${normalizeServiceBaseUrl(serviceBaseUrl)}/api/v1/sources`\n  44: }\n- E5 `backend/app/api/v1/sources.py:401-416` - create_source calls process_source domain command\n  snippet: 401:         result = await process_source(\n  402:             session=session,\n  403:             raw_text=text,\n  404:             images=validated_images,\n  405:             source_url=source_url,\n  406:             context_enrichment=context_enrichment,\n  407:             web_search_enabled=web_search_enabled,\n  408:             web_search_reason=web_search_reason,\n  409:             web_search_disclosure_mode=web_search_disclosure_mode,\n  410:             agent_thread_mode=agent_thread_mode,\n  411:             agent_thread_id=agent_thread_id,\n  412:             owner_id=owner_id,\n  ... [snippet truncated]\n- E6 `backend/mcp_server.py:40-40` - MCP stdio transport entry point\n  snippet: 40:     mcp.run(transport=\"stdio\")\n- E7 `backend/app/mcp/server.py:123-143` - process_input tool with MEMORY_WRITE scope\n  snippet: 123: @scoped_tool(MCP_SCOPE_MEMORY_WRITE)\n  124: async def process_input(\n  125:     text: str | None = None,\n  126:     image_base64: str | None = None,\n  127:     image_mime: str | None = None,\n  128:     context_enrichment: bool = False,\n  129: ) -> dict:\n  130:     \"\"\"주인님의 텍스트·이미지를 접수하여 AI 분석 후 지식·할일·일정으로 정리합니다.\n  131: \n  132:     Args:\n  133:         text: 정리할 텍스트 또는 대화 기록\n  134:         image_base64: Base64 인코딩된 이미지 데이터\n  ... [snippet truncated]\n- E8 `backend/app/mcp/tools/input_tools.py:45-53` - tool_process_input calls process_source domain command\n  snippet: 45:         result = await process_source(\n  46:             session=session,\n  47:             raw_text=text,\n  48:             images=incoming_images,\n  49:             context_enrichment=context_enrichment,\n  50:             owner_id=owner_id,\n  51:             data_group_id=data_group_id,\n  52:             access_context=access_context,\n  53:         )\n- E9 `backend/app/domains/source/commands.py:81-87` - process_source domain command convergence point\n  snippet: 81: async def process_source(*args, **kwargs):\n  82:     return await _process_source(\n  83:         *args,\n  84:         **kwargs,\n  85:         ai_adapter_factory=get_ai_adapter,\n  86:         process_source_fn=_domain_process_source,\n  87:     )\n\nSession: sess_c1a56cffea6d47ff (pass as \"session\" for follow-up calls)"
+}

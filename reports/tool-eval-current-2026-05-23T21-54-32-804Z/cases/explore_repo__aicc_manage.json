@@ -1,0 +1,1599 @@
+{
+  "tool": "explore_repo",
+  "repo": "aicc_manage",
+  "args": {
+    "repo_root": "/home/kyubr/IdeaProjects/aicc_manage",
+    "scope": [
+      "src/**",
+      "websocket-server/src/**",
+      "lambda/**",
+      "prisma/**",
+      "scripts/**"
+    ],
+    "task": "Explain the repository purpose and the main implementation path for Next.js app auth, websocket auth, Lambda handlers, and Prisma data model. Return grounded targets that a parent coding agent should verify before editing."
+  },
+  "elapsedMs": 19242,
+  "error": null,
+  "isError": false,
+  "summary": {
+    "directAnswer": "aicc_manage is a multi-tenant AI Contact Center SaaS platform for managing AWS Lex chatbots, customer inquiries, schedules, support tickets, and billing. Uses Next.js with JWT session auth, WebSocket server for real-time features, AWS Lambda for backend services (Bedrock proxy, usage tracking, RDS metrics), and Prisma with PostgreSQL for data persistence.",
+    "status": {
+      "confidence": "high",
+      "verification": "targeted_read_needed",
+      "complete": true,
+      "warnings": []
+    },
+    "evidenceQuality": {
+      "level": "high",
+      "exactCount": 8,
+      "partialCount": 0,
+      "droppedCount": 0,
+      "fileCount": 6,
+      "warnings": [],
+      "summary": "Verified: 22 files read, 1 grep searches, 8/8 evidence items grounded, cross-verified across 6 files. All evidence grounded in inspected code."
+    },
+    "failure": null,
+    "nextAction": {
+      "type": "read_target",
+      "reason": "Read prisma/schema.prisma:10-76 before final verification.",
+      "target": {
+        "path": "prisma/schema.prisma",
+        "startLine": 10,
+        "endLine": 76,
+        "role": "read",
+        "reason": "Company model with multi-tenant structure and AWS Lex integration",
+        "evidenceRefs": [
+          "E1"
+        ]
+      }
+    },
+    "searchCoverage": {
+      "scope": [
+        "src/**",
+        "websocket-server/src/**",
+        "lambda/**",
+        "prisma/**",
+        "scripts/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 22,
+      "grepCalls": 1,
+      "listDirCalls": 6,
+      "symbolCalls": 0,
+      "toolResultsTruncated": 0,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: src/**, websocket-server/src/**, lambda/**, prisma/**, scripts/**"
+      ],
+      "summary": "scope-limited search across src/**, websocket-server/src/**, lambda/**, prisma/**, scripts/**; 22 file read(s), 1 grep search(es)."
+    },
+    "critic": null,
+    "sessionId": "sess_2cfc7781fa286b92",
+    "session": {
+      "id": "sess_2cfc7781fa286b92",
+      "status": "created",
+      "remainingCalls": 4
+    },
+    "targets": [
+      {
+        "path": "src/middleware.ts",
+        "role": "context",
+        "reason": "Next.js middleware protecting routes with JWT verification and role-based access",
+        "evidenceRefs": [
+          "E4"
+        ],
+        "startLine": 1,
+        "endLine": 170
+      },
+      {
+        "path": "src/lib/auth/api-route-access.ts",
+        "role": "context",
+        "reason": "API route access control policy with multiple auth modes",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 341
+      },
+      {
+        "path": "src/app/api/auth/login/route.ts",
+        "role": "context",
+        "reason": "Login API with rate limiting, account locking, and 2FA flow",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 365
+      },
+      {
+        "path": "websocket-server/src/middleware/auth.ts",
+        "role": "context",
+        "reason": "WebSocket JWT authentication with brute force protection",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 132
+      },
+      {
+        "path": "lambda/bedrock-proxy/index.mjs",
+        "role": "context",
+        "reason": "AWS Lambda proxy for Bedrock with API key authentication",
+        "evidenceRefs": [
+          "E8"
+        ],
+        "startLine": 1,
+        "endLine": 88
+      },
+      {
+        "path": "prisma/schema.prisma",
+        "role": "context",
+        "reason": "Complete Prisma schema with 40+ models and enums",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 1217
+      },
+      {
+        "path": "prisma/schema.prisma",
+        "startLine": 10,
+        "endLine": 76,
+        "role": "read",
+        "reason": "Company model with multi-tenant structure and AWS Lex integration",
+        "evidenceRefs": [
+          "E1"
+        ]
+      },
+      {
+        "path": "prisma/schema.prisma",
+        "startLine": 78,
+        "endLine": 129,
+        "role": "read",
+        "reason": "User model with 2FA fields, account locking, and session relationships",
+        "evidenceRefs": [
+          "E2"
+        ]
+      }
+    ],
+    "discoveredPathsCount": 100,
+    "evidence": [
+      {
+        "id": "E1",
+        "path": "prisma/schema.prisma",
+        "startLine": 10,
+        "endLine": 76,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Company model with multi-tenant structure and AWS Lex integration",
+        "snippet": "10: model Company {\n11:   id                    String                @id @default(dbgenerated(\"uuid_generate_v4()\")) @db.Uuid\n12:   companyCode           String                @unique @map(\"company_code\") @db.VarChar(50)\n13:   companyName           String                @map(\"company_name\") @db.VarChar(200)\n14:   businessNumber        String?               @map(\"business_number\") @db.VarChar(20)\n15:   representative        String?               @db.VarChar(100)\n16:   contactPhone          String?               @map(\"contact_phone\") @db.VarChar(20)\n17:   contactEmail          String?               @map(\"contact_email\") @db.VarChar(100)\n18:   address               String?\n19:   logoUrl               String?               @map(\"logo_url\") @db.VarChar(500)\n20:   isActive              Boolean?              @default(true) @map(\"is_active\")\n21:   settings              Json?                 @de\n... [truncated 35 chars]"
+      },
+      {
+        "id": "E2",
+        "path": "prisma/schema.prisma",
+        "startLine": 78,
+        "endLine": 129,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "User model with 2FA fields, account locking, and session relationships",
+        "snippet": "78: model User {\n79:   id                          String                @id @default(dbgenerated(\"uuid_generate_v4()\")) @db.Uuid\n80:   companyId                   String                @map(\"company_id\") @db.Uuid\n81:   username                    String                @db.VarChar(50)\n82:   email                       String?               @db.VarChar(100)\n83:   passwordHash                String                @map(\"password_hash\") @db.VarChar(255)\n84:   name                        String                @db.VarChar(100)\n85:   phone                       String?               @db.VarChar(20)\n86:   role                        user_role?            @default(staff)\n87:   department                  String?               @db.VarChar(100)\n88:   profileImageUrl             String?               @map(\"profile_image_url\") @db.VarChar(500)\n89:   isActive                    Boolean?              @\n... [truncated 55 chars]"
+      },
+      {
+        "id": "E3",
+        "path": "prisma/schema.prisma",
+        "startLine": 1022,
+        "endLine": 1217,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "All enums for roles, statuses, notification types, billing, payment methods",
+        "snippet": "1022: enum UserRole {\n1023:   super_admin\n1024:   admin\n1025:   manager\n1026:   staff\n1027: }\n1028: \n1029: enum InquiryStatus {\n1030:   pending\n1031:   in_progress\n1032:   scheduled\n1033:   completed\n... [snippet truncated]"
+      },
+      {
+        "id": "E4",
+        "path": "src/middleware.ts",
+        "startLine": 1,
+        "endLine": 170,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Route protection, JWT verification, admin routes, API rate limiting",
+        "snippet": "1: import { NextResponse } from 'next/server'\n2: import type { NextRequest } from 'next/server'\n3: import { jwtVerify } from 'jose'\n4: import {\n5:   decideApiSessionHandling,\n6:   isApiPath,\n7:   matchesPathPrefix,\n8: } from '@/lib/auth/api-route-access'\n9: \n10: // 보호할 경로 (일반 사용자 - 인증 필요)\n11: const PROTECTED_ROUTES = [\n12:   '/dashboard',\n... [snippet truncated]"
+      },
+      {
+        "id": "E5",
+        "path": "src/lib/auth/api-route-access.ts",
+        "startLine": 42,
+        "endLine": 118,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Exact API access rules: public, session, widget-key, secret, etc.",
+        "snippet": "42: export const EXACT_API_ACCESS_RULES: readonly ApiAccessRule[] = [\n43:   {\n44:     path: '/api/auth/login',\n45:     mode: 'public',\n46:     reason: 'Login entrypoint must stay outside middleware session enforcement.',\n47:   },\n48:   {\n49:     path: '/api/auth/logout',\n50:     mode: 'public',\n51:     reason: 'Logout must clear stale cookies even when no valid session remains.',\n52:   },\n53:   {\n... [snippet truncated]"
+      },
+      {
+        "id": "E6",
+        "path": "src/app/api/auth/login/route.ts",
+        "startLine": 1,
+        "endLine": 320,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Login with rate limiting, IP whitelist, account lockout, 2FA",
+        "snippet": "1: import { NextResponse } from 'next/server'\n2: import bcrypt from 'bcryptjs'\n3: import { randomInt, randomUUID } from 'crypto'\n4: import prisma from '@/lib/db/prisma'\n5: import { loginSchema } from '@/lib/validations/auth'\n6: import { createToken, setSession } from '@/lib/auth'\n7: import {\n8:   TWO_FACTOR_PENDING_TOKEN_TTL_MINUTES,\n9:   getTwoFactorChallengeExpiresAt,\n10:   getTwoFactorCodeExpiresAt,\n11: } from '@/lib/auth/two-factor'\n12: import {\n... [snippet truncated]"
+      },
+      {
+        "id": "E7",
+        "path": "websocket-server/src/middleware/auth.ts",
+        "startLine": 51,
+        "endLine": 121,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "JWT auth for WebSocket with IP-based brute force protection",
+        "snippet": "51: export function authMiddleware(socket: Socket, next: (err?: Error) => void) {\n52:   const ip = getSocketIp(socket)\n53: \n54:   // 무차별 대입 공격 차단\n55:   const failure = authFailures.get(ip)\n56:   if (failure && failure.count >= AUTH_BLOCK_THRESHOLD) {\n57:     const elapsed = Date.now() - failure.lastAttempt\n58:     if (elapsed < AUTH_BLOCK_DURATION) {\n59:       logger.warn('Auth', 'Blocked - too many failed attempts', { ip, failCount: failure.count })\n60:       return next(new Error('너무 많은 인증 시도입니다. 잠시 후 다시 시도해주세요.'))\n61:     }\n62:     // 차단 시간 경과 → 초기화\n... [snippet truncated]"
+      },
+      {
+        "id": "E8",
+        "path": "lambda/bedrock-proxy/index.mjs",
+        "startLine": 1,
+        "endLine": 88,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Bedrock proxy Lambda with x-api-key authentication and CORS",
+        "snippet": "1: import {\n2:   BedrockRuntimeClient,\n3:   InvokeModelCommand,\n4: } from '@aws-sdk/client-bedrock-runtime';\n5: \n6: const client = new BedrockRuntimeClient({\n7:   region: process.env.AWS_BEDROCK_REGION || 'us-east-1',\n8: });\n9: \n10: const MODEL_ID = process.env.BEDROCK_MODEL_ID || 'us.anthropic.claude-sonnet-4-5-20250929-v1:0';\n11: \n12: /**\n... [snippet truncated]"
+      }
+    ],
+    "uncertainties": [
+      "Prisma schema is 1217 lines; reviewed key models but some edge-case constraints may exist",
+      "WebSocket notification handlers not fully reviewed; assumed similar to chat handlers"
+    ],
+    "stats": {
+      "turns": 10,
+      "toolCalls": 29,
+      "filesRead": 22,
+      "grepCalls": 1,
+      "symbolCalls": 0,
+      "stoppedByBudget": false,
+      "elapsedMs": 19228,
+      "totalTokens": 335297
+    }
+  },
+  "structuredContent": {
+    "schemaVersion": 1,
+    "directAnswer": "aicc_manage is a multi-tenant AI Contact Center SaaS platform for managing AWS Lex chatbots, customer inquiries, schedules, support tickets, and billing. Uses Next.js with JWT session auth, WebSocket server for real-time features, AWS Lambda for backend services (Bedrock proxy, usage tracking, RDS metrics), and Prisma with PostgreSQL for data persistence.",
+    "status": {
+      "confidence": "high",
+      "verification": "targeted_read_needed",
+      "complete": true,
+      "warnings": []
+    },
+    "targets": [
+      {
+        "path": "src/middleware.ts",
+        "role": "context",
+        "reason": "Next.js middleware protecting routes with JWT verification and role-based access",
+        "evidenceRefs": [
+          "E4"
+        ],
+        "startLine": 1,
+        "endLine": 170
+      },
+      {
+        "path": "src/lib/auth/api-route-access.ts",
+        "role": "context",
+        "reason": "API route access control policy with multiple auth modes",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 341
+      },
+      {
+        "path": "src/app/api/auth/login/route.ts",
+        "role": "context",
+        "reason": "Login API with rate limiting, account locking, and 2FA flow",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 365
+      },
+      {
+        "path": "websocket-server/src/middleware/auth.ts",
+        "role": "context",
+        "reason": "WebSocket JWT authentication with brute force protection",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 132
+      },
+      {
+        "path": "lambda/bedrock-proxy/index.mjs",
+        "role": "context",
+        "reason": "AWS Lambda proxy for Bedrock with API key authentication",
+        "evidenceRefs": [
+          "E8"
+        ],
+        "startLine": 1,
+        "endLine": 88
+      },
+      {
+        "path": "prisma/schema.prisma",
+        "role": "context",
+        "reason": "Complete Prisma schema with 40+ models and enums",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 1217
+      },
+      {
+        "path": "prisma/schema.prisma",
+        "startLine": 10,
+        "endLine": 76,
+        "role": "read",
+        "reason": "Company model with multi-tenant structure and AWS Lex integration",
+        "evidenceRefs": [
+          "E1"
+        ]
+      },
+      {
+        "path": "prisma/schema.prisma",
+        "startLine": 78,
+        "endLine": 129,
+        "role": "read",
+        "reason": "User model with 2FA fields, account locking, and session relationships",
+        "evidenceRefs": [
+          "E2"
+        ]
+      },
+      {
+        "path": "prisma/schema.prisma",
+        "startLine": 1022,
+        "endLine": 1217,
+        "role": "read",
+        "reason": "All enums for roles, statuses, notification types, billing, payment methods",
+        "evidenceRefs": [
+          "E3"
+        ]
+      },
+      {
+        "path": "src/lib/auth/api-route-access.ts",
+        "startLine": 42,
+        "endLine": 118,
+        "role": "read",
+        "reason": "Exact API access rules: public, session, widget-key, secret, etc.",
+        "evidenceRefs": [
+          "E5"
+        ]
+      },
+      {
+        "path": "src/app/api/auth/login/route.ts",
+        "startLine": 1,
+        "endLine": 320,
+        "role": "read",
+        "reason": "Login with rate limiting, IP whitelist, account lockout, 2FA",
+        "evidenceRefs": [
+          "E6"
+        ]
+      },
+      {
+        "path": "websocket-server/src/middleware/auth.ts",
+        "startLine": 51,
+        "endLine": 121,
+        "role": "read",
+        "reason": "JWT auth for WebSocket with IP-based brute force protection",
+        "evidenceRefs": [
+          "E7"
+        ]
+      }
+    ],
+    "discoveredPaths": [
+      {
+        "path": "lambda",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "lambda/aws-usage-recorder",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "lambda/bedrock-proxy",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "lambda/newsletter-scheduler",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "lambda/rds-metrics",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "lambda/skyzcc-bedrock-usage-processor",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "prisma",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "prisma/encrypt-existing-data.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "prisma/migrations",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "prisma/schema.prisma",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "prisma/seed-billing-menu.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "prisma/seed-bulk.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "prisma/seed-newsletter-recipients.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "prisma/seed-newsletter-template.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "prisma/seed-skyz.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "prisma/seed-subscriptions.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "prisma/seed.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "prisma/update-billing-prices.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts/cleanup-company.mjs",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts/debug-totp.js",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts/dev-safe.mjs",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts/generate-docx.mjs",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts/migrate-notification-metadata.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts/test-choice-marker.mjs",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/app",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/components",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/lib",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/middleware.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/types",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "websocket-server",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "websocket-server/src",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/app/(admin)",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/app/(admin)/admin",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/app/(admin)/layout.tsx",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/app/(auth)",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/app/(auth)/layout.tsx",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/app/(auth)/login",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/app/(dashboard)",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/app/(dashboard)/access-denied",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/app/(dashboard)/action-items",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/app/(dashboard)/billing",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/app/(dashboard)/chat",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/app/(dashboard)/dashboard",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/app/(dashboard)/inquiries",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/app/(dashboard)/layout.tsx",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/app/(dashboard)/onboarding",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/app/(dashboard)/schedules",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/app/(dashboard)/settings",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/app/(dashboard)/statistics",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/app/(dashboard)/support",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/app/(dashboard)/terms",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/app/(get-started)",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/app/(get-started)/get-started",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/app/(lex-edit)",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/app/(lex-edit)/lex-edit",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/app/api",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/app/api/action-items",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/app/api/admin",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/app/api/announcements",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/app/api/auth",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/app/api/billing",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/app/api/chat-sessions",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/app/api/companies",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/app/api/company",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/app/api/cron",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/app/api/customers",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/app/api/dashboard",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/app/api/external",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/app/api/get-started",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/app/api/inquiries",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/app/api/lambda",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/app/api/lex",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/app/api/lex-bots",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/app/api/lex-edit",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/app/api/menus",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/app/api/notifications",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/app/api/onboarding",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/app/api/online-users",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/app/api/push",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/app/api/schedules",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/app/api/settings",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/app/api/statistics",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/app/api/support",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/app/api/upload",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/app/api/usage",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/app/api/users",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/app/api/webhooks",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/app/api/widget",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/app/globals.css",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/app/layout.tsx",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/app/not-found.tsx",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/app/page.tsx",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/app/payment",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/app/payment/_components",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/app/payment/fail",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/app/payment/page.tsx",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/app/payment/success",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/app/select-plan",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      }
+    ],
+    "evidence": [
+      {
+        "path": "prisma/schema.prisma",
+        "startLine": 10,
+        "endLine": 76,
+        "why": "Company model with multi-tenant structure and AWS Lex integration",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E1",
+        "snippet": "10: model Company {\n11:   id                    String                @id @default(dbgenerated(\"uuid_generate_v4()\")) @db.Uuid\n12:   companyCode           String                @unique @map(\"company_code\") @db.VarChar(50)\n13:   companyName           String                @map(\"company_name\") @db.VarChar(200)\n14:   businessNumber        String?               @map(\"business_number\") @db.VarChar(20)\n15:   representative        String?               @db.VarChar(100)\n16:   contactPhone          String?               @map(\"contact_phone\") @db.VarChar(20)\n17:   contactEmail          String?               @map(\"contact_email\") @db.VarChar(100)\n18:   address               String?\n19:   logoUrl               String?               @map(\"logo_url\") @db.VarChar(500)\n20:   isActive              Boolean?              @default(true) @map(\"is_active\")\n21:   settings              Json?                 @default(\"{}\")\n... [snippet truncated]"
+      },
+      {
+        "path": "prisma/schema.prisma",
+        "startLine": 78,
+        "endLine": 129,
+        "why": "User model with 2FA fields, account locking, and session relationships",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E2",
+        "snippet": "78: model User {\n79:   id                          String                @id @default(dbgenerated(\"uuid_generate_v4()\")) @db.Uuid\n80:   companyId                   String                @map(\"company_id\") @db.Uuid\n81:   username                    String                @db.VarChar(50)\n82:   email                       String?               @db.VarChar(100)\n83:   passwordHash                String                @map(\"password_hash\") @db.VarChar(255)\n84:   name                        String                @db.VarChar(100)\n85:   phone                       String?               @db.VarChar(20)\n86:   role                        user_role?            @default(staff)\n87:   department                  String?               @db.VarChar(100)\n88:   profileImageUrl             String?               @map(\"profile_image_url\") @db.VarChar(500)\n89:   isActive                    Boolean?              @default(true) @map(\"is_active\")\n... [snippet truncated]"
+      },
+      {
+        "path": "prisma/schema.prisma",
+        "startLine": 1022,
+        "endLine": 1217,
+        "why": "All enums for roles, statuses, notification types, billing, payment methods",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E3",
+        "snippet": "1022: enum UserRole {\n1023:   super_admin\n1024:   admin\n1025:   manager\n1026:   staff\n1027: }\n1028: \n1029: enum InquiryStatus {\n1030:   pending\n1031:   in_progress\n1032:   scheduled\n1033:   completed\n... [snippet truncated]"
+      },
+      {
+        "path": "src/middleware.ts",
+        "startLine": 1,
+        "endLine": 170,
+        "why": "Route protection, JWT verification, admin routes, API rate limiting",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E4",
+        "snippet": "1: import { NextResponse } from 'next/server'\n2: import type { NextRequest } from 'next/server'\n3: import { jwtVerify } from 'jose'\n4: import {\n5:   decideApiSessionHandling,\n6:   isApiPath,\n7:   matchesPathPrefix,\n8: } from '@/lib/auth/api-route-access'\n9: \n10: // 보호할 경로 (일반 사용자 - 인증 필요)\n11: const PROTECTED_ROUTES = [\n12:   '/dashboard',\n... [snippet truncated]"
+      },
+      {
+        "path": "src/lib/auth/api-route-access.ts",
+        "startLine": 42,
+        "endLine": 118,
+        "why": "Exact API access rules: public, session, widget-key, secret, etc.",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E5",
+        "snippet": "42: export const EXACT_API_ACCESS_RULES: readonly ApiAccessRule[] = [\n43:   {\n44:     path: '/api/auth/login',\n45:     mode: 'public',\n46:     reason: 'Login entrypoint must stay outside middleware session enforcement.',\n47:   },\n48:   {\n49:     path: '/api/auth/logout',\n50:     mode: 'public',\n51:     reason: 'Logout must clear stale cookies even when no valid session remains.',\n52:   },\n53:   {\n... [snippet truncated]"
+      },
+      {
+        "path": "src/app/api/auth/login/route.ts",
+        "startLine": 1,
+        "endLine": 320,
+        "why": "Login with rate limiting, IP whitelist, account lockout, 2FA",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E6",
+        "snippet": "1: import { NextResponse } from 'next/server'\n2: import bcrypt from 'bcryptjs'\n3: import { randomInt, randomUUID } from 'crypto'\n4: import prisma from '@/lib/db/prisma'\n5: import { loginSchema } from '@/lib/validations/auth'\n6: import { createToken, setSession } from '@/lib/auth'\n7: import {\n8:   TWO_FACTOR_PENDING_TOKEN_TTL_MINUTES,\n9:   getTwoFactorChallengeExpiresAt,\n10:   getTwoFactorCodeExpiresAt,\n11: } from '@/lib/auth/two-factor'\n12: import {\n... [snippet truncated]"
+      },
+      {
+        "path": "websocket-server/src/middleware/auth.ts",
+        "startLine": 51,
+        "endLine": 121,
+        "why": "JWT auth for WebSocket with IP-based brute force protection",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E7",
+        "snippet": "51: export function authMiddleware(socket: Socket, next: (err?: Error) => void) {\n52:   const ip = getSocketIp(socket)\n53: \n54:   // 무차별 대입 공격 차단\n55:   const failure = authFailures.get(ip)\n56:   if (failure && failure.count >= AUTH_BLOCK_THRESHOLD) {\n57:     const elapsed = Date.now() - failure.lastAttempt\n58:     if (elapsed < AUTH_BLOCK_DURATION) {\n59:       logger.warn('Auth', 'Blocked - too many failed attempts', { ip, failCount: failure.count })\n60:       return next(new Error('너무 많은 인증 시도입니다. 잠시 후 다시 시도해주세요.'))\n61:     }\n62:     // 차단 시간 경과 → 초기화\n... [snippet truncated]"
+      },
+      {
+        "path": "lambda/bedrock-proxy/index.mjs",
+        "startLine": 1,
+        "endLine": 88,
+        "why": "Bedrock proxy Lambda with x-api-key authentication and CORS",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E8",
+        "snippet": "1: import {\n2:   BedrockRuntimeClient,\n3:   InvokeModelCommand,\n4: } from '@aws-sdk/client-bedrock-runtime';\n5: \n6: const client = new BedrockRuntimeClient({\n7:   region: process.env.AWS_BEDROCK_REGION || 'us-east-1',\n8: });\n9: \n10: const MODEL_ID = process.env.BEDROCK_MODEL_ID || 'us.anthropic.claude-sonnet-4-5-20250929-v1:0';\n11: \n12: /**\n... [snippet truncated]"
+      }
+    ],
+    "uncertainties": [
+      "Prisma schema is 1217 lines; reviewed key models but some edge-case constraints may exist",
+      "WebSocket notification handlers not fully reviewed; assumed similar to chat handlers"
+    ],
+    "nextAction": {
+      "type": "read_target",
+      "reason": "Read prisma/schema.prisma:10-76 before final verification.",
+      "target": {
+        "path": "prisma/schema.prisma",
+        "startLine": 10,
+        "endLine": 76,
+        "role": "read",
+        "reason": "Company model with multi-tenant structure and AWS Lex integration",
+        "evidenceRefs": [
+          "E1"
+        ]
+      }
+    },
+    "evidenceQuality": {
+      "level": "high",
+      "exactCount": 8,
+      "partialCount": 0,
+      "droppedCount": 0,
+      "fileCount": 6,
+      "warnings": [],
+      "summary": "Verified: 22 files read, 1 grep searches, 8/8 evidence items grounded, cross-verified across 6 files. All evidence grounded in inspected code."
+    },
+    "searchCoverage": {
+      "scope": [
+        "src/**",
+        "websocket-server/src/**",
+        "lambda/**",
+        "prisma/**",
+        "scripts/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 22,
+      "grepCalls": 1,
+      "listDirCalls": 6,
+      "symbolCalls": 0,
+      "toolResultsTruncated": 0,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: src/**, websocket-server/src/**, lambda/**, prisma/**, scripts/**"
+      ],
+      "summary": "scope-limited search across src/**, websocket-server/src/**, lambda/**, prisma/**, scripts/**; 22 file read(s), 1 grep search(es)."
+    },
+    "failure": null,
+    "sessionId": "sess_2cfc7781fa286b92",
+    "session": {
+      "id": "sess_2cfc7781fa286b92",
+      "status": "created",
+      "remainingCalls": 4
+    },
+    "_debug": {
+      "evidenceSufficiency": {
+        "sufficient": true,
+        "reason": "edit_plan_has_actionable_target"
+      },
+      "confidenceScore": 1,
+      "confidenceFactors": {
+        "evidenceCount": 8,
+        "evidenceGrounded": 8,
+        "evidenceDropped": 0,
+        "exactCount": 8,
+        "crossVerified": true,
+        "symbolSearchUsed": true,
+        "stoppedByBudget": false,
+        "gitLogCalls": 0,
+        "gitDiffCalls": 0,
+        "gitBlameCalls": 0,
+        "gitGroundingHint": "none",
+        "taskKind": "default",
+        "adjustments": [
+          "base=0.30 (taskKind=default)",
+          "+0.54 (8 exact evidence item(s))",
+          "+0.12 (cross-verified across multiple files)",
+          "+0.05 (symbol/grep search used)"
+        ],
+        "droppedUngrounded": 0,
+        "droppedMalformed": 0
+      },
+      "stats": {
+        "model": "zai-glm-4.7",
+        "budget": "deep",
+        "budgetSource": "auto",
+        "turns": 10,
+        "toolCalls": 29,
+        "listDirCalls": 6,
+        "findFileCalls": 0,
+        "grepCalls": 1,
+        "filesRead": 22,
+        "gitLogCalls": 0,
+        "gitBlameCalls": 0,
+        "gitDiffCalls": 0,
+        "gitShowCalls": 0,
+        "symbolCalls": 0,
+        "inputTokens": 328295,
+        "outputTokens": 7002,
+        "totalTokens": 335297,
+        "elapsedMs": 19228,
+        "stoppedByBudget": false,
+        "scope": [
+          "src/**",
+          "websocket-server/src/**",
+          "lambda/**",
+          "prisma/**",
+          "scripts/**"
+        ],
+        "repoRoot": "/home/kyubr/IdeaProjects/aicc_manage",
+        "sessionId": "sess_2cfc7781fa286b92",
+        "sessionStatus": "created",
+        "sessionSource": "created",
+        "remainingCalls": 4,
+        "cacheHits": 0,
+        "cacheMisses": 70,
+        "cacheHitRate": 0,
+        "cacheEntries": 69,
+        "cacheSizeBytes": 628660
+      },
+      "toolTrace": {
+        "entries": [
+          {
+            "turn": 1,
+            "tool": "repo_list_dir",
+            "args": {
+              "dirPath": "."
+            },
+            "result": {
+              "entries": 33,
+              "paths": [
+                "lambda",
+                "lambda/aws-usage-recorder",
+                "lambda/bedrock-proxy",
+                "lambda/newsletter-scheduler",
+                "lambda/rds-metrics",
+                "lambda/skyzcc-bedrock-usage-processor"
+              ]
+            }
+          },
+          {
+            "turn": 1,
+            "tool": "repo_list_dir",
+            "args": {
+              "dirPath": "src"
+            },
+            "result": {
+              "entries": 300,
+              "paths": [
+                "src/app",
+                "src/app/(admin)",
+                "src/app/(admin)/admin",
+                "src/app/(admin)/layout.tsx",
+                "src/app/(auth)",
+                "src/app/(auth)/layout.tsx"
+              ]
+            }
+          },
+          {
+            "turn": 1,
+            "tool": "repo_list_dir",
+            "args": {
+              "dirPath": "websocket-server"
+            },
+            "result": {
+              "entries": 5,
+              "paths": [
+                "websocket-server/src",
+                "websocket-server/src/index.ts",
+                "websocket-server/src/lib",
+                "websocket-server/src/middleware",
+                "websocket-server/src/socket-handlers"
+              ]
+            }
+          },
+          {
+            "turn": 1,
+            "tool": "repo_list_dir",
+            "args": {
+              "dirPath": "lambda"
+            },
+            "result": {
+              "entries": 25,
+              "paths": [
+                "lambda/aws-usage-recorder",
+                "lambda/aws-usage-recorder/deploy.sh",
+                "lambda/aws-usage-recorder/index.mjs",
+                "lambda/aws-usage-recorder/package-lock.json",
+                "lambda/aws-usage-recorder/package.json",
+                "lambda/bedrock-proxy"
+              ]
+            }
+          },
+          {
+            "turn": 1,
+            "tool": "repo_list_dir",
+            "args": {
+              "dirPath": "prisma"
+            },
+            "result": {
+              "entries": 25,
+              "paths": [
+                "prisma/encrypt-existing-data.ts",
+                "prisma/migrations",
+                "prisma/migrations/20260317000000_rename_blog_posts_to_posts",
+                "prisma/migrations/20260325110000_add_two_factor_challenge_fields",
+                "prisma/migrations/20260401170000_add_lex_edit_apply_step",
+                "prisma/migrations/20260409120000_add_system_settings"
+              ]
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "prisma/schema.prisma",
+              "startLine": 1,
+              "endLine": 100
+            },
+            "result": {
+              "path": "prisma/schema.prisma",
+              "startLine": 1,
+              "endLine": 100,
+              "totalLines": 1217,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/middleware.ts"
+            },
+            "result": {
+              "path": "src/middleware.ts",
+              "startLine": 1,
+              "endLine": 170,
+              "totalLines": 170,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/lib/auth/index.ts"
+            },
+            "result": {
+              "path": "src/lib/auth/index.ts",
+              "startLine": 1,
+              "endLine": 24,
+              "totalLines": 24,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/lib/auth/session.ts"
+            },
+            "result": {
+              "path": "src/lib/auth/session.ts",
+              "startLine": 1,
+              "endLine": 54,
+              "totalLines": 54,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "websocket-server/src/index.ts"
+            },
+            "result": {
+              "path": "websocket-server/src/index.ts",
+              "startLine": 1,
+              "endLine": 267,
+              "totalLines": 267,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "prisma/schema.prisma",
+              "startLine": 78,
+              "endLine": 180
+            },
+            "result": {
+              "path": "prisma/schema.prisma",
+              "startLine": 78,
+              "endLine": 180,
+              "totalLines": 1217,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "websocket-server/src/middleware/auth.ts"
+            },
+            "result": {
+              "path": "websocket-server/src/middleware/auth.ts",
+              "startLine": 1,
+              "endLine": 132,
+              "totalLines": 132,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_list_dir",
+            "args": {
+              "dirPath": "src/app/api/auth"
+            },
+            "result": {
+              "entries": 21,
+              "paths": [
+                "src/app/api/auth/change-password",
+                "src/app/api/auth/change-password/route.ts",
+                "src/app/api/auth/login",
+                "src/app/api/auth/login/route.ts",
+                "src/app/api/auth/logout",
+                "src/app/api/auth/logout/route.ts"
+              ]
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "lambda/bedrock-proxy/index.mjs",
+              "startLine": 1,
+              "endLine": 100
+            },
+            "result": {
+              "path": "lambda/bedrock-proxy/index.mjs",
+              "startLine": 1,
+              "endLine": 88,
+              "totalLines": 88,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "lambda/aws-usage-recorder/index.mjs",
+              "startLine": 1,
+              "endLine": 80
+            },
+            "result": {
+              "path": "lambda/aws-usage-recorder/index.mjs",
+              "startLine": 1,
+              "endLine": 80,
+              "totalLines": 367,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/app/api/auth/login/route.ts"
+            },
+            "result": {
+              "path": "src/app/api/auth/login/route.ts",
+              "startLine": 1,
+              "endLine": 320,
+              "totalLines": 365,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/lib/auth/jwt.ts"
+            },
+            "result": {
+              "path": "src/lib/auth/jwt.ts",
+              "startLine": 1,
+              "endLine": 77,
+              "totalLines": 77,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/lib/auth/two-factor.ts"
+            },
+            "result": {
+              "path": "src/lib/auth/two-factor.ts",
+              "startLine": 1,
+              "endLine": 16,
+              "totalLines": 16,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "prisma/schema.prisma",
+              "startLine": 180,
+              "endLine": 280
+            },
+            "result": {
+              "path": "prisma/schema.prisma",
+              "startLine": 180,
+              "endLine": 280,
+              "totalLines": 1217,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "websocket-server/src/socket-handlers/chat.ts",
+              "startLine": 1,
+              "endLine": 80
+            },
+            "result": {
+              "path": "websocket-server/src/socket-handlers/chat.ts",
+              "startLine": 1,
+              "endLine": 80,
+              "totalLines": 265,
+              "truncated": true
+            }
+          }
+        ],
+        "totalCalls": 29,
+        "truncated": true,
+        "maxEntries": 20
+      },
+      "codeMap": {
+        "entryPoints": [
+          "src/lib/auth/index.ts",
+          "websocket-server/src/index.ts",
+          "lambda/bedrock-proxy/index.mjs",
+          "lambda/aws-usage-recorder/index.mjs",
+          "lambda/newsletter-scheduler/index.mjs",
+          "lambda/rds-metrics/index.mjs",
+          "lambda/skyzcc-bedrock-usage-processor/index.mjs"
+        ],
+        "keyModules": [
+          {
+            "path": "prisma/schema.prisma",
+            "role": "data model",
+            "linesRead": 650
+          },
+          {
+            "path": "src/middleware.ts",
+            "role": "middleware",
+            "linesRead": 170
+          },
+          {
+            "path": "src/lib/auth/index.ts",
+            "role": "middleware",
+            "linesRead": 24
+          },
+          {
+            "path": "src/lib/auth/session.ts",
+            "role": "middleware",
+            "linesRead": 54
+          },
+          {
+            "path": "websocket-server/src/index.ts",
+            "role": "entry point",
+            "linesRead": 267
+          },
+          {
+            "path": "websocket-server/src/middleware/auth.ts",
+            "role": "middleware",
+            "linesRead": 132
+          },
+          {
+            "path": "lambda/bedrock-proxy/index.mjs",
+            "role": "entry point",
+            "linesRead": 88
+          },
+          {
+            "path": "lambda/aws-usage-recorder/index.mjs",
+            "role": "entry point",
+            "linesRead": 80
+          },
+          {
+            "path": "src/app/api/auth/login/route.ts",
+            "role": "route/controller",
+            "linesRead": 320
+          },
+          {
+            "path": "src/lib/auth/jwt.ts",
+            "role": "middleware",
+            "linesRead": 77
+          },
+          {
+            "path": "src/lib/auth/two-factor.ts",
+            "role": "middleware",
+            "linesRead": 16
+          },
+          {
+            "path": "websocket-server/src/socket-handlers/chat.ts",
+            "role": "service",
+            "linesRead": 80
+          },
+          {
+            "path": "lambda/newsletter-scheduler/index.mjs",
+            "role": "entry point",
+            "linesRead": 62
+          },
+          {
+            "path": "lambda/rds-metrics/index.mjs",
+            "role": "entry point",
+            "linesRead": 145
+          },
+          {
+            "path": "src/lib/auth/api-route-access.ts",
+            "role": "route/controller",
+            "linesRead": 320
+          },
+          {
+            "path": "lambda/skyzcc-bedrock-usage-processor/index.mjs",
+            "role": "entry point",
+            "linesRead": 60
+          },
+          {
+            "path": "src/lib/db/prisma.ts",
+            "role": "module",
+            "linesRead": 19
+          }
+        ]
+      }
+    }
+  },
+  "contentText": "## Result\nConfidence: high\nVerification: targeted_read_needed\nEvidence Quality: high (8 exact, 0 partial, 0 dropped)\nSearch Coverage: scope-limited search across src/**, websocket-server/src/**, lambda/**, prisma/**, scripts/**; 22 file read(s), 1 grep search(es).\n\n## Answer\naicc_manage is a multi-tenant AI Contact Center SaaS platform for managing AWS Lex chatbots, customer inquiries, schedules, support tickets, and billing. Uses Next.js with JWT session auth, WebSocket server for real-time features, AWS Lambda for backend services (Bedrock proxy, usage tracking, RDS metrics), and Prisma with PostgreSQL for data persistence.\n\n## Next Action\nread_target: Read prisma/schema.prisma:10-76 before final verification.\n\n## Targets\n- [context] `src/middleware.ts:1-170` (E4) - Next.js middleware protecting routes with JWT verification and role-based access\n- [context] `src/lib/auth/api-route-access.ts:1-341` - API route access control policy with multiple auth modes\n- [context] `src/app/api/auth/login/route.ts:1-365` - Login API with rate limiting, account locking, and 2FA flow\n- [context] `websocket-server/src/middleware/auth.ts:1-132` - WebSocket JWT authentication with brute force protection\n- [context] `lambda/bedrock-proxy/index.mjs:1-88` (E8) - AWS Lambda proxy for Bedrock with API key authentication\n- [context] `prisma/schema.prisma:1-1217` - Complete Prisma schema with 40+ models and enums\n- [read] `prisma/schema.prisma:10-76` (E1) - Company model with multi-tenant structure and AWS Lex integration\n- [read] `prisma/schema.prisma:78-129` (E2) - User model with 2FA fields, account locking, and session relationships\n- [read] `prisma/schema.prisma:1022-1217` (E3) - All enums for roles, statuses, notification types, billing, payment methods\n- [read] `src/lib/auth/api-route-access.ts:42-118` (E5) - Exact API access rules: public, session, widget-key, secret, etc.\n- [read] `src/app/api/auth/login/route.ts:1-320` (E6) - Login with rate limiting, IP whitelist, account lockout, 2FA\n- [read] `websocket-server/src/middleware/auth.ts:51-121` (E7) - JWT auth for WebSocket with IP-based brute force protection\n\n## Evidence (8 items, confidence: high)\n- E1 `prisma/schema.prisma:10-76` - Company model with multi-tenant structure and AWS Lex integration\n  snippet: 10: model Company {\n  11:   id                    String                @id @default(dbgenerated(\"uuid_generate_v4()\")) @db.Uuid\n  12:   companyCode           String                @unique @map(\"company_code\") @db.VarChar(50)\n  13:   companyName           String                @map(\"company_name\") @db.VarChar(200)\n  14:   businessNumber        String?               @map(\"business_number\") @db.VarChar(20)\n  15:   representative        String?               @db.VarChar(100)\n  16:   contactPhone          String?               @map(\"contact_phone\") @db.VarChar(20)\n  17:   contactEmail          String?               @map(\"contact_email\") @db.VarChar(100)\n  18:   address               String?\n  19:   logoUrl               String?               @map(\"logo_url\") @db.VarChar(500)\n  20:   isActive              Boolean?              @default(true) @map(\"is_active\")\n  21:   settings              Json?                 @default(\"{}\")\n  ... [snippet truncated]\n- E2 `prisma/schema.prisma:78-129` - User model with 2FA fields, account locking, and session relationships\n  snippet: 78: model User {\n  79:   id                          String                @id @default(dbgenerated(\"uuid_generate_v4()\")) @db.Uuid\n  80:   companyId                   String                @map(\"company_id\") @db.Uuid\n  81:   username                    String                @db.VarChar(50)\n  82:   email                       String?               @db.VarChar(100)\n  83:   passwordHash                String                @map(\"password_hash\") @db.VarChar(255)\n  84:   name                        String                @db.VarChar(100)\n  85:   phone                       String?               @db.VarChar(20)\n  86:   role                        user_role?            @default(staff)\n  87:   department                  String?               @db.VarChar(100)\n  88:   profileImageUrl             String?               @map(\"profile_image_url\") @db.VarChar(500)\n  89:   isActive                    Boolean?              @default(true) @map(\"is_active\")\n  ... [snippet truncated]\n- E3 `prisma/schema.prisma:1022-1217` - All enums for roles, statuses, notification types, billing, payment methods\n  snippet: 1022: enum UserRole {\n  1023:   super_admin\n  1024:   admin\n  1025:   manager\n  1026:   staff\n  1027: }\n  1028: \n  1029: enum InquiryStatus {\n  1030:   pending\n  1031:   in_progress\n  1032:   scheduled\n  1033:   completed\n  ... [snippet truncated]\n- E4 `src/middleware.ts:1-170` - Route protection, JWT verification, admin routes, API rate limiting\n  snippet: 1: import { NextResponse } from 'next/server'\n  2: import type { NextRequest } from 'next/server'\n  3: import { jwtVerify } from 'jose'\n  4: import {\n  5:   decideApiSessionHandling,\n  6:   isApiPath,\n  7:   matchesPathPrefix,\n  8: } from '@/lib/auth/api-route-access'\n  9: \n  10: // 보호할 경로 (일반 사용자 - 인증 필요)\n  11: const PROTECTED_ROUTES = [\n  12:   '/dashboard',\n  ... [snippet truncated]\n- E5 `src/lib/auth/api-route-access.ts:42-118` - Exact API access rules: public, session, widget-key, secret, etc.\n  snippet: 42: export const EXACT_API_ACCESS_RULES: readonly ApiAccessRule[] = [\n  43:   {\n  44:     path: '/api/auth/login',\n  45:     mode: 'public',\n  46:     reason: 'Login entrypoint must stay outside middleware session enforcement.',\n  47:   },\n  48:   {\n  49:     path: '/api/auth/logout',\n  50:     mode: 'public',\n  51:     reason: 'Logout must clear stale cookies even when no valid session remains.',\n  52:   },\n  53:   {\n  ... [snippet truncated]\n- E6 `src/app/api/auth/login/route.ts:1-320` - Login with rate limiting, IP whitelist, account lockout, 2FA\n  snippet: 1: import { NextResponse } from 'next/server'\n  2: import bcrypt from 'bcryptjs'\n  3: import { randomInt, randomUUID } from 'crypto'\n  4: import prisma from '@/lib/db/prisma'\n  5: import { loginSchema } from '@/lib/validations/auth'\n  6: import { createToken, setSession } from '@/lib/auth'\n  7: import {\n  8:   TWO_FACTOR_PENDING_TOKEN_TTL_MINUTES,\n  9:   getTwoFactorChallengeExpiresAt,\n  10:   getTwoFactorCodeExpiresAt,\n  11: } from '@/lib/auth/two-factor'\n  12: import {\n  ... [snippet truncated]\n- E7 `websocket-server/src/middleware/auth.ts:51-121` - JWT auth for WebSocket with IP-based brute force protection\n  snippet: 51: export function authMiddleware(socket: Socket, next: (err?: Error) => void) {\n  52:   const ip = getSocketIp(socket)\n  53: \n  54:   // 무차별 대입 공격 차단\n  55:   const failure = authFailures.get(ip)\n  56:   if (failure && failure.count >= AUTH_BLOCK_THRESHOLD) {\n  57:     const elapsed = Date.now() - failure.lastAttempt\n  58:     if (elapsed < AUTH_BLOCK_DURATION) {\n  59:       logger.warn('Auth', 'Blocked - too many failed attempts', { ip, failCount: failure.count })\n  60:       return next(new Error('너무 많은 인증 시도입니다. 잠시 후 다시 시도해주세요.'))\n  61:     }\n  62:     // 차단 시간 경과 → 초기화\n  ... [snippet truncated]\n- E8 `lambda/bedrock-proxy/index.mjs:1-88` - Bedrock proxy Lambda with x-api-key authentication and CORS\n  snippet: 1: import {\n  2:   BedrockRuntimeClient,\n  3:   InvokeModelCommand,\n  4: } from '@aws-sdk/client-bedrock-runtime';\n  5: \n  6: const client = new BedrockRuntimeClient({\n  7:   region: process.env.AWS_BEDROCK_REGION || 'us-east-1',\n  8: });\n  9: \n  10: const MODEL_ID = process.env.BEDROCK_MODEL_ID || 'us.anthropic.claude-sonnet-4-5-20250929-v1:0';\n  11: \n  12: /**\n  ... [snippet truncated]\n\n## Uncertainty\n- Prisma schema is 1217 lines; reviewed key models but some edge-case constraints may exist\n- WebSocket notification handlers not fully reviewed; assumed similar to chat handlers\n\nSession: sess_2cfc7781fa286b92 (pass as \"session\" for follow-up calls)"
+}

@@ -1,0 +1,1618 @@
+{
+  "tool": "find_relevant_code",
+  "repo": "DeepResearch",
+  "args": {
+    "repo_root": "/home/kyubr/IdeaProjects/DeepResearch",
+    "scope": [
+      "app/**",
+      "main.py",
+      "migrations/**"
+    ],
+    "query": "Find the smallest useful files and line ranges for understanding FastAPI app, orchestration, provider, and repository wiring.",
+    "knownFiles": [
+      "app/main.py"
+    ]
+  },
+  "elapsedMs": 10487,
+  "error": null,
+  "isError": false,
+  "summary": {
+    "directAnswer": "FastAPI app uses app factory pattern with router registration, error handlers, and telemetry. Orchestration uses LangGraph with nodes wired through build_graph() and invoked from workers. Providers follow base protocol with log_sink injection via singleton service. Repositories use generic base class with AsyncSession dependency injection.",
+    "status": {
+      "confidence": "high",
+      "verification": "verified",
+      "complete": true,
+      "warnings": []
+    },
+    "evidenceQuality": {
+      "level": "high",
+      "exactCount": 8,
+      "partialCount": 0,
+      "droppedCount": 0,
+      "fileCount": 7,
+      "warnings": [],
+      "summary": "Verified: 18 files read, 4 grep searches, 8/8 evidence items grounded, cross-verified across 7 files. All evidence grounded in inspected code."
+    },
+    "failure": null,
+    "nextAction": {
+      "type": "stop",
+      "reason": "Explorer result is complete for the requested read-only investigation."
+    },
+    "searchCoverage": {
+      "scope": [
+        "app/**",
+        "main.py",
+        "migrations/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 18,
+      "grepCalls": 4,
+      "listDirCalls": 2,
+      "symbolCalls": 0,
+      "toolResultsTruncated": 0,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: app/**, main.py, migrations/**"
+      ],
+      "summary": "scope-limited search across app/**, main.py, migrations/**; 18 file read(s), 4 grep search(es)."
+    },
+    "critic": null,
+    "sessionId": "sess_0f94322d9ca2ec8c",
+    "session": {
+      "id": "sess_0f94322d9ca2ec8c",
+      "status": "created",
+      "remainingCalls": 4
+    },
+    "targets": [
+      {
+        "path": "app/main.py",
+        "role": "read",
+        "reason": "FastAPI app factory with router registration, error handlers, telemetry wiring",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 28
+      },
+      {
+        "path": "app/orchestrator/graph.py",
+        "role": "read",
+        "reason": "LangGraph build_graph with node registration and edge routing",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 100
+      },
+      {
+        "path": "app/workers/tasks.py",
+        "role": "read",
+        "reason": "Shows graph invocation from Celery worker with checkpointer",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 60
+      },
+      {
+        "path": "app/providers/base.py",
+        "role": "read",
+        "reason": "ProviderLogSink protocol, audit dataclasses, error handling base",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 108
+      },
+      {
+        "path": "app/providers/anthropic.py",
+        "role": "read",
+        "reason": "Provider __init__ showing log_sink dependency injection pattern",
+        "evidenceRefs": [],
+        "startLine": 37,
+        "endLine": 53
+      },
+      {
+        "path": "app/repositories/base.py",
+        "role": "read",
+        "reason": "Generic Repository base class with CRUD and UnitOfWork pattern",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 43
+      },
+      {
+        "path": "app/db/session.py",
+        "role": "read",
+        "reason": "Database session factory and get_session() dependency function",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 18
+      },
+      {
+        "path": "app/main.py",
+        "startLine": 12,
+        "endLine": 24,
+        "role": "read",
+        "reason": "FastAPI app factory wiring routers, error handlers, telemetry",
+        "evidenceRefs": [
+          "E1"
+        ]
+      }
+    ],
+    "discoveredPathsCount": 100,
+    "evidence": [
+      {
+        "id": "E1",
+        "path": "app/main.py",
+        "startLine": 12,
+        "endLine": 24,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "FastAPI app factory wiring routers, error handlers, telemetry",
+        "snippet": "12: def create_app() -> FastAPI:\n13:     settings = get_settings()\n14:     configure_logging(settings.log_level)\n15:     configure_telemetry(settings.otel_service_name)\n16: \n17:     app = FastAPI(title=\"DeepResearch Demo Alpha API\", version=\"0.1.0\")\n18:     register_error_handlers(app)\n19:     app.include_router(tasks.router)\n20:     app.include_router(plans.router)\n21:     app.include_router(claims.router)\n22:     app.include_router(sources.router)\n23:     instrument_fastapi_app(app)\n... [snippet truncated]"
+      },
+      {
+        "id": "E2",
+        "path": "app/orchestrator/graph.py",
+        "startLine": 39,
+        "endLine": 92,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "LangGraph build_graph function with node and edge wiring",
+        "snippet": "39: def build_graph(\n40:     nodes: ResearchGraphNodes | None = None,\n41:     checkpointer: Any | None = None,\n42:     debug: bool = False,\n43: ):\n44:     graph_nodes = nodes or ResearchGraphNodes()\n45:     graph = StateGraph(ResearchState)\n46: \n47:     graph.add_node(\"query_understanding\", graph_nodes.query_understanding)\n48:     graph.add_node(\"planner\", graph_nodes.planner)\n49:     graph.add_node(\"plan_approval_gate\", plan_approval_gate)\n50:     graph.add_node(\"search\", graph_nodes.search)\n... [snippet truncated]"
+      },
+      {
+        "id": "E3",
+        "path": "app/orchestrator/graph.py",
+        "startLine": 22,
+        "endLine": 36,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "ResearchGraphNodes dataclass defining orchestration nodes",
+        "snippet": "22: @dataclass(frozen=True)\n23: class ResearchGraphNodes:\n24:     query_understanding: ResearchNode = query_understanding_node\n25:     planner: ResearchNode = planner_node\n26:     search: ResearchNode = field(default_factory=lambda: _unconfigured_node(\"search\"))\n27:     policy_guard: ResearchNode = field(default_factory=lambda: _unconfigured_node(\"policy_guard\"))\n28:     fetcher: ResearchNode = field(default_factory=lambda: _unconfigured_node(\"fetcher\"))\n29:     parser: ResearchNode = field(default_factory=lambda: _unconfigured_node(\"parser\"))\n30:     evidence_extractor: ResearchNode = field(\n31:         default_factory=lambda: _unconfigured_node(\"evidence_extractor\")\n32:     )\n33:     synthesizer: ResearchNode = field(default_factory=lambda: _unconfigured_node(\"synthesizer\"))\n... [snippet truncated]"
+      },
+      {
+        "id": "E4",
+        "path": "app/workers/tasks.py",
+        "startLine": 30,
+        "endLine": 38,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Graph invocation pattern from worker with checkpointer",
+        "snippet": "30:     graph = build_graph(checkpointer=InMemorySaver())\n31:     result = await graph.ainvoke(\n32:         {\n33:             \"task_id\": task_uuid,\n34:             \"question\": record.question,\n35:             \"language\": record.language,\n36:         },\n37:         config={\"configurable\": {\"thread_id\": str(task_uuid)}},\n38:     )"
+      },
+      {
+        "id": "E5",
+        "path": "app/providers/base.py",
+        "startLine": 57,
+        "endLine": 73,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "ProviderLogSink protocol defining provider interface",
+        "snippet": "57: class ProviderLogSink(Protocol):\n58:     async def record_tool_call(self, record: ToolCallAudit) -> None: ...\n59: \n60:     async def record_cost(self, record: CostAudit) -> None: ...\n61: \n62:     async def record_provider_config(self, record: ProviderConfigSnapshotAudit) -> None: ...\n63: \n64: \n65: class NullProviderLogSink:\n66:     async def record_tool_call(self, record: ToolCallAudit) -> None:\n67:         return None\n68: \n... [snippet truncated]"
+      },
+      {
+        "id": "E6",
+        "path": "app/providers/anthropic.py",
+        "startLine": 38,
+        "endLine": 53,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Provider __init__ showing log_sink dependency injection",
+        "snippet": "38:     def __init__(\n39:         self,\n40:         api_key: str,\n41:         model: str,\n42:         temperature: float,\n43:         http_client: httpx.AsyncClient | None = None,\n44:         log_sink: ProviderLogSink | None = None,\n45:         base_url: str = \"https://api.anthropic.com\",\n46:     ) -> None:\n47:         self.api_key = api_key\n48:         self.model = model\n49:         self.temperature = temperature\n... [snippet truncated]"
+      },
+      {
+        "id": "E7",
+        "path": "app/repositories/base.py",
+        "startLine": 12,
+        "endLine": 32,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Repository base class with session-based CRUD operations",
+        "snippet": "12: class Repository[ModelT: Base]:\n13:     def __init__(self, session: AsyncSession, model: type[ModelT]) -> None:\n14:         self.session = session\n15:         self.model = model\n16: \n17:     async def get(self, item_id: UUID) -> ModelT | None:\n18:         return await self.session.get(self.model, item_id)\n19: \n20:     async def list(self, limit: int = 100, offset: int = 0) -> Sequence[ModelT]:\n21:         result = await self.session.scalars(select(self.model).limit(limit).offset(offset))\n22:         return result.all()\n23: \n... [snippet truncated]"
+      },
+      {
+        "id": "E8",
+        "path": "app/db/session.py",
+        "startLine": 11,
+        "endLine": 18,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Session factory and get_session() dependency function",
+        "snippet": "11: engine = create_async_engine(settings.database_url, pool_pre_ping=True)\n12: AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False)\n13: \n14: \n15: async def get_session() -> AsyncIterator[AsyncSession]:\n16:     async with AsyncSessionLocal() as session:\n17:         yield session\n18: "
+      }
+    ],
+    "uncertainties": [],
+    "stats": {
+      "turns": 10,
+      "toolCalls": 24,
+      "filesRead": 18,
+      "grepCalls": 4,
+      "symbolCalls": 0,
+      "stoppedByBudget": false,
+      "elapsedMs": 10473,
+      "totalTokens": 138783
+    }
+  },
+  "structuredContent": {
+    "schemaVersion": 1,
+    "directAnswer": "FastAPI app uses app factory pattern with router registration, error handlers, and telemetry. Orchestration uses LangGraph with nodes wired through build_graph() and invoked from workers. Providers follow base protocol with log_sink injection via singleton service. Repositories use generic base class with AsyncSession dependency injection.",
+    "status": {
+      "confidence": "high",
+      "verification": "verified",
+      "complete": true,
+      "warnings": []
+    },
+    "targets": [
+      {
+        "path": "app/main.py",
+        "role": "read",
+        "reason": "FastAPI app factory with router registration, error handlers, telemetry wiring",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 28
+      },
+      {
+        "path": "app/orchestrator/graph.py",
+        "role": "read",
+        "reason": "LangGraph build_graph with node registration and edge routing",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 100
+      },
+      {
+        "path": "app/workers/tasks.py",
+        "role": "read",
+        "reason": "Shows graph invocation from Celery worker with checkpointer",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 60
+      },
+      {
+        "path": "app/providers/base.py",
+        "role": "read",
+        "reason": "ProviderLogSink protocol, audit dataclasses, error handling base",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 108
+      },
+      {
+        "path": "app/providers/anthropic.py",
+        "role": "read",
+        "reason": "Provider __init__ showing log_sink dependency injection pattern",
+        "evidenceRefs": [],
+        "startLine": 37,
+        "endLine": 53
+      },
+      {
+        "path": "app/repositories/base.py",
+        "role": "read",
+        "reason": "Generic Repository base class with CRUD and UnitOfWork pattern",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 43
+      },
+      {
+        "path": "app/db/session.py",
+        "role": "read",
+        "reason": "Database session factory and get_session() dependency function",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 18
+      },
+      {
+        "path": "app/main.py",
+        "startLine": 12,
+        "endLine": 24,
+        "role": "read",
+        "reason": "FastAPI app factory wiring routers, error handlers, telemetry",
+        "evidenceRefs": [
+          "E1"
+        ]
+      },
+      {
+        "path": "app/orchestrator/graph.py",
+        "startLine": 39,
+        "endLine": 92,
+        "role": "read",
+        "reason": "LangGraph build_graph function with node and edge wiring",
+        "evidenceRefs": [
+          "E2"
+        ]
+      },
+      {
+        "path": "app/orchestrator/graph.py",
+        "startLine": 22,
+        "endLine": 36,
+        "role": "read",
+        "reason": "ResearchGraphNodes dataclass defining orchestration nodes",
+        "evidenceRefs": [
+          "E3"
+        ]
+      },
+      {
+        "path": "app/workers/tasks.py",
+        "startLine": 30,
+        "endLine": 38,
+        "role": "read",
+        "reason": "Graph invocation pattern from worker with checkpointer",
+        "evidenceRefs": [
+          "E4"
+        ]
+      },
+      {
+        "path": "app/providers/base.py",
+        "startLine": 57,
+        "endLine": 73,
+        "role": "read",
+        "reason": "ProviderLogSink protocol defining provider interface",
+        "evidenceRefs": [
+          "E5"
+        ]
+      },
+      {
+        "path": "app/providers/anthropic.py",
+        "startLine": 38,
+        "endLine": 53,
+        "role": "read",
+        "reason": "Provider __init__ showing log_sink dependency injection",
+        "evidenceRefs": [
+          "E6"
+        ]
+      },
+      {
+        "path": "app/repositories/base.py",
+        "startLine": 12,
+        "endLine": 32,
+        "role": "read",
+        "reason": "Repository base class with session-based CRUD operations",
+        "evidenceRefs": [
+          "E7"
+        ]
+      },
+      {
+        "path": "app/db/session.py",
+        "startLine": 11,
+        "endLine": 18,
+        "role": "read",
+        "reason": "Session factory and get_session() dependency function",
+        "evidenceRefs": [
+          "E8"
+        ]
+      }
+    ],
+    "discoveredPaths": [
+      {
+        "path": "app",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/api",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/citation",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/core",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/db",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/domain",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/eval",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/main.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/models",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/orchestrator",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/policy",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/providers",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/reporting",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/repositories",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/services",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/storage",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/workers",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "main.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "migrations",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "migrations/env.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "migrations/script.py.mako",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "migrations/versions",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/api/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/api/claims.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/api/errors.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/api/plans.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/api/sources.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/api/tasks.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/citation/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/citation/entailment.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/citation/fuzzy.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/citation/hashing.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/core/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/core/config.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/core/logging.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/core/telemetry.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/db/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/db/session.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/domain/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/domain/enums.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/domain/models.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/eval/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/eval/golden_questions.jsonl",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/eval/seed_provider_config.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/eval/smoke_runner.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/models/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/models/base.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/models/claim.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/models/evidence.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/models/log.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/models/policy.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/models/provider.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/models/report.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/models/research.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/models/search.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/models/source.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/orchestrator/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/orchestrator/graph.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/orchestrator/nodes",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/orchestrator/nodes/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/orchestrator/nodes/citation_validator.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/orchestrator/nodes/evidence_extractor.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/orchestrator/nodes/fetcher.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/orchestrator/nodes/parser.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/orchestrator/nodes/planner.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/orchestrator/nodes/policy_guard.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/orchestrator/nodes/query_understanding.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/orchestrator/nodes/search.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/orchestrator/nodes/synthesizer.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/orchestrator/state.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/policy/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/policy/budget.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/policy/prompt_injection.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/policy/robots.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/providers/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/providers/anthropic.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/providers/base.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/providers/firecrawl.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/providers/tavily.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/reporting/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/reporting/markdown_writer.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/repositories/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/repositories/base.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/repositories/claim_repository.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/repositories/evidence_repository.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/repositories/log_repository.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/repositories/plan_repository.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/repositories/report_repository.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/repositories/search_repository.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/repositories/source_repository.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/repositories/task_repository.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/services/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/services/claim_service.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/services/cost_service.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/services/plan_service.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/services/report_service.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/services/source_registry.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/services/task_service.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/storage/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      }
+    ],
+    "evidence": [
+      {
+        "path": "app/main.py",
+        "startLine": 12,
+        "endLine": 24,
+        "why": "FastAPI app factory wiring routers, error handlers, telemetry",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E1",
+        "snippet": "12: def create_app() -> FastAPI:\n13:     settings = get_settings()\n14:     configure_logging(settings.log_level)\n15:     configure_telemetry(settings.otel_service_name)\n16: \n17:     app = FastAPI(title=\"DeepResearch Demo Alpha API\", version=\"0.1.0\")\n18:     register_error_handlers(app)\n19:     app.include_router(tasks.router)\n20:     app.include_router(plans.router)\n21:     app.include_router(claims.router)\n22:     app.include_router(sources.router)\n23:     instrument_fastapi_app(app)\n... [snippet truncated]"
+      },
+      {
+        "path": "app/orchestrator/graph.py",
+        "startLine": 39,
+        "endLine": 92,
+        "why": "LangGraph build_graph function with node and edge wiring",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E2",
+        "snippet": "39: def build_graph(\n40:     nodes: ResearchGraphNodes | None = None,\n41:     checkpointer: Any | None = None,\n42:     debug: bool = False,\n43: ):\n44:     graph_nodes = nodes or ResearchGraphNodes()\n45:     graph = StateGraph(ResearchState)\n46: \n47:     graph.add_node(\"query_understanding\", graph_nodes.query_understanding)\n48:     graph.add_node(\"planner\", graph_nodes.planner)\n49:     graph.add_node(\"plan_approval_gate\", plan_approval_gate)\n50:     graph.add_node(\"search\", graph_nodes.search)\n... [snippet truncated]"
+      },
+      {
+        "path": "app/orchestrator/graph.py",
+        "startLine": 22,
+        "endLine": 36,
+        "why": "ResearchGraphNodes dataclass defining orchestration nodes",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E3",
+        "snippet": "22: @dataclass(frozen=True)\n23: class ResearchGraphNodes:\n24:     query_understanding: ResearchNode = query_understanding_node\n25:     planner: ResearchNode = planner_node\n26:     search: ResearchNode = field(default_factory=lambda: _unconfigured_node(\"search\"))\n27:     policy_guard: ResearchNode = field(default_factory=lambda: _unconfigured_node(\"policy_guard\"))\n28:     fetcher: ResearchNode = field(default_factory=lambda: _unconfigured_node(\"fetcher\"))\n29:     parser: ResearchNode = field(default_factory=lambda: _unconfigured_node(\"parser\"))\n30:     evidence_extractor: ResearchNode = field(\n31:         default_factory=lambda: _unconfigured_node(\"evidence_extractor\")\n32:     )\n33:     synthesizer: ResearchNode = field(default_factory=lambda: _unconfigured_node(\"synthesizer\"))\n... [snippet truncated]"
+      },
+      {
+        "path": "app/workers/tasks.py",
+        "startLine": 30,
+        "endLine": 38,
+        "why": "Graph invocation pattern from worker with checkpointer",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E4",
+        "snippet": "30:     graph = build_graph(checkpointer=InMemorySaver())\n31:     result = await graph.ainvoke(\n32:         {\n33:             \"task_id\": task_uuid,\n34:             \"question\": record.question,\n35:             \"language\": record.language,\n36:         },\n37:         config={\"configurable\": {\"thread_id\": str(task_uuid)}},\n38:     )"
+      },
+      {
+        "path": "app/providers/base.py",
+        "startLine": 57,
+        "endLine": 73,
+        "why": "ProviderLogSink protocol defining provider interface",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E5",
+        "snippet": "57: class ProviderLogSink(Protocol):\n58:     async def record_tool_call(self, record: ToolCallAudit) -> None: ...\n59: \n60:     async def record_cost(self, record: CostAudit) -> None: ...\n61: \n62:     async def record_provider_config(self, record: ProviderConfigSnapshotAudit) -> None: ...\n63: \n64: \n65: class NullProviderLogSink:\n66:     async def record_tool_call(self, record: ToolCallAudit) -> None:\n67:         return None\n68: \n... [snippet truncated]"
+      },
+      {
+        "path": "app/providers/anthropic.py",
+        "startLine": 38,
+        "endLine": 53,
+        "why": "Provider __init__ showing log_sink dependency injection",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E6",
+        "snippet": "38:     def __init__(\n39:         self,\n40:         api_key: str,\n41:         model: str,\n42:         temperature: float,\n43:         http_client: httpx.AsyncClient | None = None,\n44:         log_sink: ProviderLogSink | None = None,\n45:         base_url: str = \"https://api.anthropic.com\",\n46:     ) -> None:\n47:         self.api_key = api_key\n48:         self.model = model\n49:         self.temperature = temperature\n... [snippet truncated]"
+      },
+      {
+        "path": "app/repositories/base.py",
+        "startLine": 12,
+        "endLine": 32,
+        "why": "Repository base class with session-based CRUD operations",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E7",
+        "snippet": "12: class Repository[ModelT: Base]:\n13:     def __init__(self, session: AsyncSession, model: type[ModelT]) -> None:\n14:         self.session = session\n15:         self.model = model\n16: \n17:     async def get(self, item_id: UUID) -> ModelT | None:\n18:         return await self.session.get(self.model, item_id)\n19: \n20:     async def list(self, limit: int = 100, offset: int = 0) -> Sequence[ModelT]:\n21:         result = await self.session.scalars(select(self.model).limit(limit).offset(offset))\n22:         return result.all()\n23: \n... [snippet truncated]"
+      },
+      {
+        "path": "app/db/session.py",
+        "startLine": 11,
+        "endLine": 18,
+        "why": "Session factory and get_session() dependency function",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E8",
+        "snippet": "11: engine = create_async_engine(settings.database_url, pool_pre_ping=True)\n12: AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False)\n13: \n14: \n15: async def get_session() -> AsyncIterator[AsyncSession]:\n16:     async with AsyncSessionLocal() as session:\n17:         yield session\n18: "
+      }
+    ],
+    "uncertainties": [],
+    "nextAction": {
+      "type": "stop",
+      "reason": "Explorer result is complete for the requested read-only investigation."
+    },
+    "evidenceQuality": {
+      "level": "high",
+      "exactCount": 8,
+      "partialCount": 0,
+      "droppedCount": 0,
+      "fileCount": 7,
+      "warnings": [],
+      "summary": "Verified: 18 files read, 4 grep searches, 8/8 evidence items grounded, cross-verified across 7 files. All evidence grounded in inspected code."
+    },
+    "searchCoverage": {
+      "scope": [
+        "app/**",
+        "main.py",
+        "migrations/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 18,
+      "grepCalls": 4,
+      "listDirCalls": 2,
+      "symbolCalls": 0,
+      "toolResultsTruncated": 0,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: app/**, main.py, migrations/**"
+      ],
+      "summary": "scope-limited search across app/**, main.py, migrations/**; 18 file read(s), 4 grep search(es)."
+    },
+    "failure": null,
+    "sessionId": "sess_0f94322d9ca2ec8c",
+    "session": {
+      "id": "sess_0f94322d9ca2ec8c",
+      "status": "created",
+      "remainingCalls": 4
+    },
+    "_debug": {
+      "evidenceSufficiency": {
+        "sufficient": true,
+        "reason": "simple_task_exact_evidence"
+      },
+      "confidenceScore": 1,
+      "confidenceFactors": {
+        "evidenceCount": 8,
+        "evidenceGrounded": 8,
+        "evidenceDropped": 0,
+        "exactCount": 8,
+        "crossVerified": true,
+        "symbolSearchUsed": true,
+        "stoppedByBudget": false,
+        "gitLogCalls": 0,
+        "gitDiffCalls": 0,
+        "gitBlameCalls": 0,
+        "gitGroundingHint": "none",
+        "taskKind": "default",
+        "adjustments": [
+          "base=0.30 (taskKind=default)",
+          "+0.54 (8 exact evidence item(s))",
+          "+0.12 (cross-verified across multiple files)",
+          "+0.05 (symbol/grep search used)"
+        ],
+        "droppedUngrounded": 0,
+        "droppedMalformed": 0
+      },
+      "stats": {
+        "model": "zai-glm-4.7",
+        "budget": "deep",
+        "budgetSource": "auto",
+        "turns": 10,
+        "toolCalls": 24,
+        "listDirCalls": 2,
+        "findFileCalls": 0,
+        "grepCalls": 4,
+        "filesRead": 18,
+        "gitLogCalls": 0,
+        "gitBlameCalls": 0,
+        "gitDiffCalls": 0,
+        "gitShowCalls": 0,
+        "symbolCalls": 0,
+        "inputTokens": 133905,
+        "outputTokens": 4878,
+        "totalTokens": 138783,
+        "elapsedMs": 10473,
+        "stoppedByBudget": false,
+        "scope": [
+          "app/**",
+          "main.py",
+          "migrations/**"
+        ],
+        "repoRoot": "/home/kyubr/IdeaProjects/DeepResearch",
+        "sessionId": "sess_0f94322d9ca2ec8c",
+        "sessionStatus": "created",
+        "sessionSource": "created",
+        "remainingCalls": 4,
+        "cacheHits": 3,
+        "cacheMisses": 167,
+        "cacheHitRate": 0.018,
+        "cacheEntries": 163,
+        "cacheSizeBytes": 1234112
+      },
+      "toolTrace": {
+        "entries": [
+          {
+            "turn": 1,
+            "tool": "repo_list_dir",
+            "args": {
+              "dirPath": "."
+            },
+            "result": {
+              "entries": 23,
+              "paths": [
+                "app",
+                "app/__init__.py",
+                "app/api",
+                "app/citation",
+                "app/core",
+                "app/db"
+              ]
+            }
+          },
+          {
+            "turn": 1,
+            "tool": "repo_list_dir",
+            "args": {
+              "dirPath": "app"
+            },
+            "result": {
+              "entries": 98,
+              "paths": [
+                "app/__init__.py",
+                "app/api",
+                "app/api/__init__.py",
+                "app/api/claims.py",
+                "app/api/errors.py",
+                "app/api/plans.py"
+              ]
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "app/main.py",
+              "startLine": 1,
+              "endLine": 150
+            },
+            "result": {
+              "path": "app/main.py",
+              "startLine": 1,
+              "endLine": 28,
+              "totalLines": 28,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "main.py",
+              "startLine": 1,
+              "endLine": 50
+            },
+            "result": {
+              "path": "main.py",
+              "startLine": 1,
+              "endLine": 14,
+              "totalLines": 14,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "app/orchestrator/graph.py",
+              "startLine": 1,
+              "endLine": 100
+            },
+            "result": {
+              "path": "app/orchestrator/graph.py",
+              "startLine": 1,
+              "endLine": 100,
+              "totalLines": 223,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "app/providers/base.py",
+              "startLine": 1,
+              "endLine": 100
+            },
+            "result": {
+              "path": "app/providers/base.py",
+              "startLine": 1,
+              "endLine": 100,
+              "totalLines": 108,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "app/providers/base.py",
+              "startLine": 100,
+              "endLine": 200
+            },
+            "result": {
+              "path": "app/providers/base.py",
+              "startLine": 100,
+              "endLine": 108,
+              "totalLines": 108,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "app/repositories/base.py",
+              "startLine": 1,
+              "endLine": 100
+            },
+            "result": {
+              "path": "app/repositories/base.py",
+              "startLine": 1,
+              "endLine": 43,
+              "totalLines": 43,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "app/repositories/__init__.py"
+            },
+            "result": {
+              "path": "app/repositories/__init__.py",
+              "startLine": 1,
+              "endLine": 2,
+              "totalLines": 2,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "app/orchestrator/state.py",
+              "startLine": 1,
+              "endLine": 100
+            },
+            "result": {
+              "path": "app/orchestrator/state.py",
+              "startLine": 1,
+              "endLine": 100,
+              "totalLines": 110,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "app/services/task_service.py",
+              "startLine": 1,
+              "endLine": 80
+            },
+            "result": {
+              "path": "app/services/task_service.py",
+              "startLine": 1,
+              "endLine": 80,
+              "totalLines": 395,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "app/api/tasks.py",
+              "startLine": 1,
+              "endLine": 100
+            },
+            "result": {
+              "path": "app/api/tasks.py",
+              "startLine": 1,
+              "endLine": 100,
+              "totalLines": 190,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "app/db/session.py",
+              "startLine": 1,
+              "endLine": 80
+            },
+            "result": {
+              "path": "app/db/session.py",
+              "startLine": 1,
+              "endLine": 18,
+              "totalLines": 18,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "app/providers/__init__.py"
+            },
+            "result": {
+              "path": "app/providers/__init__.py",
+              "startLine": 1,
+              "endLine": 2,
+              "totalLines": 2,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 5,
+            "tool": "repo_grep",
+            "args": {
+              "pattern": "def get_.*_repository|Repository\\(",
+              "scope": [
+                "app/services"
+              ],
+              "maxResults": 20
+            },
+            "result": {
+              "matches": 0,
+              "paths": [],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 5,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "app/providers/anthropic.py",
+              "startLine": 1,
+              "endLine": 80
+            },
+            "result": {
+              "path": "app/providers/anthropic.py",
+              "startLine": 1,
+              "endLine": 80,
+              "totalLines": 262,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 6,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "app/services/cost_service.py",
+              "startLine": 1,
+              "endLine": 80
+            },
+            "result": {
+              "path": "app/services/cost_service.py",
+              "startLine": 1,
+              "endLine": 80,
+              "totalLines": 133,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 6,
+            "tool": "repo_grep",
+            "args": {
+              "scope": [
+                "app/repositories"
+              ],
+              "pattern": "class \\w+Repository"
+            },
+            "result": {
+              "matches": 15,
+              "paths": [
+                "app/repositories/claim_repository.py",
+                "app/repositories/evidence_repository.py",
+                "app/repositories/log_repository.py",
+                "app/repositories/plan_repository.py",
+                "app/repositories/report_repository.py",
+                "app/repositories/search_repository.py"
+              ],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 6,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "app/orchestrator/__init__.py"
+            },
+            "result": {
+              "path": "app/orchestrator/__init__.py",
+              "startLine": 1,
+              "endLine": 2,
+              "totalLines": 2,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 7,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "app/repositories/task_repository.py"
+            },
+            "result": {
+              "path": "app/repositories/task_repository.py",
+              "startLine": 1,
+              "endLine": 12,
+              "totalLines": 12,
+              "truncated": true
+            }
+          }
+        ],
+        "totalCalls": 24,
+        "truncated": true,
+        "maxEntries": 20
+      },
+      "codeMap": {
+        "entryPoints": [
+          "app/main.py",
+          "main.py"
+        ],
+        "keyModules": [
+          {
+            "path": "app/main.py",
+            "role": "entry point",
+            "linesRead": 28
+          },
+          {
+            "path": "main.py",
+            "role": "entry point",
+            "linesRead": 14
+          },
+          {
+            "path": "app/orchestrator/graph.py",
+            "role": "entry point",
+            "linesRead": 100
+          },
+          {
+            "path": "app/providers/base.py",
+            "role": "entry point",
+            "linesRead": 109
+          },
+          {
+            "path": "app/repositories/base.py",
+            "role": "entry point",
+            "linesRead": 43
+          },
+          {
+            "path": "app/repositories/__init__.py",
+            "role": "entry point",
+            "linesRead": 2
+          },
+          {
+            "path": "app/orchestrator/state.py",
+            "role": "entry point",
+            "linesRead": 100
+          },
+          {
+            "path": "app/services/task_service.py",
+            "role": "service",
+            "linesRead": 82
+          },
+          {
+            "path": "app/api/tasks.py",
+            "role": "entry point",
+            "linesRead": 100
+          },
+          {
+            "path": "app/db/session.py",
+            "role": "entry point",
+            "linesRead": 18
+          },
+          {
+            "path": "app/providers/__init__.py",
+            "role": "entry point",
+            "linesRead": 2
+          },
+          {
+            "path": "app/providers/anthropic.py",
+            "role": "entry point",
+            "linesRead": 80
+          },
+          {
+            "path": "app/services/cost_service.py",
+            "role": "service",
+            "linesRead": 134
+          },
+          {
+            "path": "app/repositories/claim_repository.py",
+            "role": "entry point",
+            "linesRead": 3
+          },
+          {
+            "path": "app/repositories/evidence_repository.py",
+            "role": "entry point",
+            "linesRead": 1
+          },
+          {
+            "path": "app/repositories/log_repository.py",
+            "role": "entry point",
+            "linesRead": 2
+          },
+          {
+            "path": "app/repositories/plan_repository.py",
+            "role": "entry point",
+            "linesRead": 2
+          },
+          {
+            "path": "app/repositories/report_repository.py",
+            "role": "entry point",
+            "linesRead": 1
+          },
+          {
+            "path": "app/repositories/search_repository.py",
+            "role": "entry point",
+            "linesRead": 2
+          },
+          {
+            "path": "app/repositories/source_repository.py",
+            "role": "entry point",
+            "linesRead": 3
+          },
+          {
+            "path": "app/repositories/task_repository.py",
+            "role": "entry point",
+            "linesRead": 13
+          },
+          {
+            "path": "app/orchestrator/__init__.py",
+            "role": "entry point",
+            "linesRead": 2
+          },
+          {
+            "path": "app/workers/tasks.py",
+            "role": "entry point",
+            "linesRead": 60
+          }
+        ]
+      }
+    }
+  },
+  "contentText": "## Result\nConfidence: high\nVerification: verified\nEvidence Quality: high (8 exact, 0 partial, 0 dropped)\nSearch Coverage: scope-limited search across app/**, main.py, migrations/**; 18 file read(s), 4 grep search(es).\n\n## Answer\nFastAPI app uses app factory pattern with router registration, error handlers, and telemetry. Orchestration uses LangGraph with nodes wired through build_graph() and invoked from workers. Providers follow base protocol with log_sink injection via singleton service. Repositories use generic base class with AsyncSession dependency injection.\n\n## Targets\n- [read] `app/main.py:1-28` - FastAPI app factory with router registration, error handlers, telemetry wiring\n- [read] `app/orchestrator/graph.py:1-100` - LangGraph build_graph with node registration and edge routing\n- [read] `app/workers/tasks.py:1-60` - Shows graph invocation from Celery worker with checkpointer\n- [read] `app/providers/base.py:1-108` - ProviderLogSink protocol, audit dataclasses, error handling base\n- [read] `app/providers/anthropic.py:37-53` - Provider __init__ showing log_sink dependency injection pattern\n- [read] `app/repositories/base.py:1-43` - Generic Repository base class with CRUD and UnitOfWork pattern\n- [read] `app/db/session.py:1-18` - Database session factory and get_session() dependency function\n- [read] `app/main.py:12-24` (E1) - FastAPI app factory wiring routers, error handlers, telemetry\n- [read] `app/orchestrator/graph.py:39-92` (E2) - LangGraph build_graph function with node and edge wiring\n- [read] `app/orchestrator/graph.py:22-36` (E3) - ResearchGraphNodes dataclass defining orchestration nodes\n- [read] `app/workers/tasks.py:30-38` (E4) - Graph invocation pattern from worker with checkpointer\n- [read] `app/providers/base.py:57-73` (E5) - ProviderLogSink protocol defining provider interface\n- ... and 3 more targets\n\n## Evidence (8 items, confidence: high)\n- E1 `app/main.py:12-24` - FastAPI app factory wiring routers, error handlers, telemetry\n  snippet: 12: def create_app() -> FastAPI:\n  13:     settings = get_settings()\n  14:     configure_logging(settings.log_level)\n  15:     configure_telemetry(settings.otel_service_name)\n  16: \n  17:     app = FastAPI(title=\"DeepResearch Demo Alpha API\", version=\"0.1.0\")\n  18:     register_error_handlers(app)\n  19:     app.include_router(tasks.router)\n  20:     app.include_router(plans.router)\n  21:     app.include_router(claims.router)\n  22:     app.include_router(sources.router)\n  23:     instrument_fastapi_app(app)\n  ... [snippet truncated]\n- E2 `app/orchestrator/graph.py:39-92` - LangGraph build_graph function with node and edge wiring\n  snippet: 39: def build_graph(\n  40:     nodes: ResearchGraphNodes | None = None,\n  41:     checkpointer: Any | None = None,\n  42:     debug: bool = False,\n  43: ):\n  44:     graph_nodes = nodes or ResearchGraphNodes()\n  45:     graph = StateGraph(ResearchState)\n  46: \n  47:     graph.add_node(\"query_understanding\", graph_nodes.query_understanding)\n  48:     graph.add_node(\"planner\", graph_nodes.planner)\n  49:     graph.add_node(\"plan_approval_gate\", plan_approval_gate)\n  50:     graph.add_node(\"search\", graph_nodes.search)\n  ... [snippet truncated]\n- E3 `app/orchestrator/graph.py:22-36` - ResearchGraphNodes dataclass defining orchestration nodes\n  snippet: 22: @dataclass(frozen=True)\n  23: class ResearchGraphNodes:\n  24:     query_understanding: ResearchNode = query_understanding_node\n  25:     planner: ResearchNode = planner_node\n  26:     search: ResearchNode = field(default_factory=lambda: _unconfigured_node(\"search\"))\n  27:     policy_guard: ResearchNode = field(default_factory=lambda: _unconfigured_node(\"policy_guard\"))\n  28:     fetcher: ResearchNode = field(default_factory=lambda: _unconfigured_node(\"fetcher\"))\n  29:     parser: ResearchNode = field(default_factory=lambda: _unconfigured_node(\"parser\"))\n  30:     evidence_extractor: ResearchNode = field(\n  31:         default_factory=lambda: _unconfigured_node(\"evidence_extractor\")\n  32:     )\n  33:     synthesizer: ResearchNode = field(default_factory=lambda: _unconfigured_node(\"synthesizer\"))\n  ... [snippet truncated]\n- E4 `app/workers/tasks.py:30-38` - Graph invocation pattern from worker with checkpointer\n  snippet: 30:     graph = build_graph(checkpointer=InMemorySaver())\n  31:     result = await graph.ainvoke(\n  32:         {\n  33:             \"task_id\": task_uuid,\n  34:             \"question\": record.question,\n  35:             \"language\": record.language,\n  36:         },\n  37:         config={\"configurable\": {\"thread_id\": str(task_uuid)}},\n  38:     )\n- E5 `app/providers/base.py:57-73` - ProviderLogSink protocol defining provider interface\n  snippet: 57: class ProviderLogSink(Protocol):\n  58:     async def record_tool_call(self, record: ToolCallAudit) -> None: ...\n  59: \n  60:     async def record_cost(self, record: CostAudit) -> None: ...\n  61: \n  62:     async def record_provider_config(self, record: ProviderConfigSnapshotAudit) -> None: ...\n  63: \n  64: \n  65: class NullProviderLogSink:\n  66:     async def record_tool_call(self, record: ToolCallAudit) -> None:\n  67:         return None\n  68: \n  ... [snippet truncated]\n- E6 `app/providers/anthropic.py:38-53` - Provider __init__ showing log_sink dependency injection\n  snippet: 38:     def __init__(\n  39:         self,\n  40:         api_key: str,\n  41:         model: str,\n  42:         temperature: float,\n  43:         http_client: httpx.AsyncClient | None = None,\n  44:         log_sink: ProviderLogSink | None = None,\n  45:         base_url: str = \"https://api.anthropic.com\",\n  46:     ) -> None:\n  47:         self.api_key = api_key\n  48:         self.model = model\n  49:         self.temperature = temperature\n  ... [snippet truncated]\n- E7 `app/repositories/base.py:12-32` - Repository base class with session-based CRUD operations\n  snippet: 12: class Repository[ModelT: Base]:\n  13:     def __init__(self, session: AsyncSession, model: type[ModelT]) -> None:\n  14:         self.session = session\n  15:         self.model = model\n  16: \n  17:     async def get(self, item_id: UUID) -> ModelT | None:\n  18:         return await self.session.get(self.model, item_id)\n  19: \n  20:     async def list(self, limit: int = 100, offset: int = 0) -> Sequence[ModelT]:\n  21:         result = await self.session.scalars(select(self.model).limit(limit).offset(offset))\n  22:         return result.all()\n  23: \n  ... [snippet truncated]\n- E8 `app/db/session.py:11-18` - Session factory and get_session() dependency function\n  snippet: 11: engine = create_async_engine(settings.database_url, pool_pre_ping=True)\n  12: AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False)\n  13: \n  14: \n  15: async def get_session() -> AsyncIterator[AsyncSession]:\n  16:     async with AsyncSessionLocal() as session:\n  17:         yield session\n  18: \n\nSession: sess_0f94322d9ca2ec8c (pass as \"session\" for follow-up calls)"
+}

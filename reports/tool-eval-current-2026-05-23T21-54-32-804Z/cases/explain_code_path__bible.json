@@ -1,0 +1,1121 @@
+{
+  "tool": "explain_code_path",
+  "repo": "bible",
+  "args": {
+    "repo_root": "/home/kyubr/IdeaProjects/bible",
+    "scope": [
+      "src/**",
+      "functions/**",
+      "scripts/**",
+      "migrations/**"
+    ],
+    "pathQuery": "Telegram auth Pages Function creates or authenticates a user session and exposes session state to the frontend",
+    "entryPoint": "src/store.tsx",
+    "knownFiles": [
+      "src/store.tsx"
+    ],
+    "knownSymbols": [
+      "useStore"
+    ]
+  },
+  "elapsedMs": 14417,
+  "error": null,
+  "isError": false,
+  "summary": {
+    "directAnswer": "Telegram auth flow: User clicks TelegramLoginButton → POST /api/auth/telegram → backend validates HMAC-SHA256 signature, upserts user to DB, creates session via createSession(), sets cookie, returns user → frontend calls setAuthUser() to update Zustand store. On page load, useAuthSessionBootstrap calls /api/auth/me → authenticateSession() validates cookie → restores or clears auth state. Frontend exposes auth state via useStore hook with selectors (selectAuthSession, selectAuthBootstrap).",
+    "status": {
+      "confidence": "high",
+      "verification": "verified",
+      "complete": true,
+      "warnings": []
+    },
+    "evidenceQuality": {
+      "level": "high",
+      "exactCount": 8,
+      "partialCount": 0,
+      "droppedCount": 0,
+      "fileCount": 7,
+      "warnings": [],
+      "summary": "Verified: 13 files read, 1 symbol lookups, 8/8 evidence items grounded, cross-verified across 7 files. All evidence grounded in inspected code."
+    },
+    "failure": null,
+    "nextAction": {
+      "type": "stop",
+      "reason": "Explorer result is complete for the requested read-only investigation."
+    },
+    "searchCoverage": {
+      "scope": [
+        "src/**",
+        "functions/**",
+        "scripts/**",
+        "migrations/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 13,
+      "grepCalls": 0,
+      "listDirCalls": 0,
+      "symbolCalls": 1,
+      "toolResultsTruncated": 0,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: src/**, functions/**, scripts/**, migrations/**"
+      ],
+      "summary": "scope-limited search across src/**, functions/**, scripts/**, migrations/**; 13 file read(s), 0 grep search(es)."
+    },
+    "critic": null,
+    "sessionId": "sess_7633d1a0632e0afe",
+    "session": {
+      "id": "sess_7633d1a0632e0afe",
+      "status": "created",
+      "remainingCalls": 4
+    },
+    "targets": [
+      {
+        "path": "src/shared/components/TelegramLoginButton.tsx",
+        "role": "read",
+        "reason": "Entry point: handleTelegramAuth posts to /api/auth/telegram and calls setAuthUser",
+        "evidenceRefs": [
+          "E1"
+        ],
+        "startLine": 38,
+        "endLine": 55
+      },
+      {
+        "path": "functions/api/auth/telegram.ts",
+        "role": "read",
+        "reason": "Backend auth: validates signature, upserts user, creates session, sets cookie",
+        "evidenceRefs": [
+          "E2"
+        ],
+        "startLine": 148,
+        "endLine": 232
+      },
+      {
+        "path": "functions/api/_lib/session.ts",
+        "role": "read",
+        "reason": "Session creation: generates token, hashes with HMAC-SHA256, stores in DB",
+        "evidenceRefs": [
+          "E4"
+        ],
+        "startLine": 57,
+        "endLine": 78
+      },
+      {
+        "path": "src/store/slices/auth.ts",
+        "role": "read",
+        "reason": "setAuthUser action: updates auth state with user and isAuthenticated flag",
+        "evidenceRefs": [
+          "E5"
+        ],
+        "startLine": 6,
+        "endLine": 12
+      },
+      {
+        "path": "src/shared/hooks/useAuthSessionBootstrap.ts",
+        "role": "read",
+        "reason": "Session restoration: calls fetchAuthSession on mount, then setAuthUser or logout",
+        "evidenceRefs": [
+          "E6"
+        ],
+        "startLine": 21,
+        "endLine": 44
+      },
+      {
+        "path": "functions/api/auth/me.ts",
+        "role": "read",
+        "reason": "Session validation: uses authenticateSession to verify cookie and return user",
+        "evidenceRefs": [
+          "E7"
+        ],
+        "startLine": 48,
+        "endLine": 84
+      },
+      {
+        "path": "src/store.selectors.ts",
+        "role": "read",
+        "reason": "Auth selectors: expose auth.user, isAuthenticated, and logout to components",
+        "evidenceRefs": [
+          "E8"
+        ],
+        "startLine": 41,
+        "endLine": 56
+      },
+      {
+        "path": "functions/api/auth/telegram.ts",
+        "startLine": 65,
+        "endLine": 104,
+        "role": "read",
+        "reason": "Telegram HMAC-SHA256 signature verification implementation",
+        "evidenceRefs": [
+          "E3"
+        ]
+      }
+    ],
+    "discoveredPathsCount": 30,
+    "evidence": [
+      {
+        "id": "E1",
+        "path": "src/shared/components/TelegramLoginButton.tsx",
+        "startLine": 38,
+        "endLine": 55,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Shows entry point flow: POST to /api/auth/telegram, setAuthUser call on success",
+        "snippet": "38:     const handleTelegramAuth = async (user: any) => {\n39:       console.log(\"Telegram auth received:\", user);\n40: \n41:       try {\n42:         // Send authentication data to backend for verification\n43:         const response = await fetch(\"/api/auth/telegram\", {\n44:           method: \"POST\",\n45:           headers: {\n46:             \"Content-Type\": \"application/json\",\n47:           },\n48:           body: JSON.stringify(user),\n49:         });\n... [snippet truncated]"
+      },
+      {
+        "id": "E2",
+        "path": "functions/api/auth/telegram.ts",
+        "startLine": 148,
+        "endLine": 232,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Backend auth flow: signature validation (206), user upsert (216), session creation (218), cookie (229)",
+        "snippet": "148: export const onRequestPost: PagesFunction<Env> = async (context) => {\n149:   const { request, env } = context;\n150: \n151:   // CORS headers\n152:   const corsHeaders = {\n153:     'Access-Control-Allow-Origin': '*',\n154:     'Access-Control-Allow-Methods': 'POST, OPTIONS',\n155:     'Access-Control-Allow-Headers': 'Content-Type',\n156:   };\n157: \n158:   // Handle OPTIONS request for CORS preflight\n159:   if (request.method === 'OPTIONS') {\n... [snippet truncated]"
+      },
+      {
+        "id": "E3",
+        "path": "functions/api/auth/telegram.ts",
+        "startLine": 65,
+        "endLine": 104,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Telegram HMAC-SHA256 signature verification implementation",
+        "snippet": "65: async function verifyTelegramAuth(\n66:   data: TelegramUser,\n67:   botToken: string\n68: ): Promise<boolean> {\n69:   const { hash, ...userData } = data;\n70: \n71:   // Create data-check-string: sorted key=value pairs joined with \\n\n72:   const dataCheckString = Object.keys(userData)\n73:     .sort()\n74:     .map((key) => `${key}=${userData[key as keyof typeof userData]}`)\n75:     .join('\\n');\n76: \n... [snippet truncated]"
+      },
+      {
+        "id": "E4",
+        "path": "functions/api/_lib/session.ts",
+        "startLine": 57,
+        "endLine": 78,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Session creation: generates token, hashes it, stores with 7-day expiry in auth_sessions",
+        "snippet": "57: export const createSession = async (\n58:   db: D1Database,\n59:   userId: number,\n60:   authSecret: string\n61: ): Promise<string> => {\n62:   const now = Math.floor(Date.now() / 1000);\n63:   const expiresAt = now + SESSION_MAX_AGE_SECONDS;\n64:   const sessionId = crypto.randomUUID();\n65:   const rawToken = createRawSessionToken();\n66:   const tokenHash = await hashSessionToken(rawToken, authSecret);\n67: \n68:   await db\n... [snippet truncated]"
+      },
+      {
+        "id": "E5",
+        "path": "src/store/slices/auth.ts",
+        "startLine": 6,
+        "endLine": 12,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "setAuthUser action: sets auth.user and auth.isAuthenticated based on user != null",
+        "snippet": "6:   setAuthUser: (user) =>\n7:     set(() => ({\n8:       auth: {\n9:         user,\n10:         isAuthenticated: user !== null,\n11:       },\n12:     })),"
+      },
+      {
+        "id": "E6",
+        "path": "src/shared/hooks/useAuthSessionBootstrap.ts",
+        "startLine": 21,
+        "endLine": 44,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Session restoration: calls fetchAuthSession, then setAuthUser(session.user) or logout()",
+        "snippet": "21: export const useAuthSessionBootstrap = () => {\n22:   const { logout, setAuthUser } = useStore(selectAuthBootstrap, shallow);\n23: \n24:   useEffect(() => {\n25:     let active = true;\n26:     const controller = new AbortController();\n27: \n28:     const restoreSession = async () => {\n29:       try {\n30:         const session = await fetchAuthSession(controller.signal);\n31:         if (!active) return;\n32: \n... [snippet truncated]"
+      },
+      {
+        "id": "E7",
+        "path": "functions/api/auth/me.ts",
+        "startLine": 48,
+        "endLine": 84,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Session validation: authenticateSession validates cookie, fetches user from DB",
+        "snippet": "48:     const session = await authenticateSession(\n49:       context.request,\n50:       context.env.DB,\n51:       context.env.AUTH_SECRET\n52:     );\n53: \n54:     if (!session) {\n55:       return json({\n56:         success: true,\n57:         authenticated: false,\n58:         user: null,\n59:       });\n... [snippet truncated]"
+      },
+      {
+        "id": "E8",
+        "path": "src/store.selectors.ts",
+        "startLine": 41,
+        "endLine": 56,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Auth selectors exposing state.auth.user, isAuthenticated, and logout action",
+        "snippet": "41: export const selectAuthSession = (state: AppStore) => ({\n42:   user: state.auth.user,\n43:   isAuthenticated: state.auth.isAuthenticated,\n44:   logout: state.logout,\n45: });\n46: \n47: export const selectExamAuth = (state: AppStore) => ({\n48:   isAuthenticated: state.auth.isAuthenticated,\n49:   language: state.settings.language,\n50:   logout: state.logout,\n51: });\n52: \n... [snippet truncated]"
+      }
+    ],
+    "uncertainties": [],
+    "stats": {
+      "turns": 10,
+      "toolCalls": 17,
+      "filesRead": 13,
+      "grepCalls": 0,
+      "symbolCalls": 1,
+      "stoppedByBudget": false,
+      "elapsedMs": 14405,
+      "totalTokens": 151715
+    }
+  },
+  "structuredContent": {
+    "schemaVersion": 1,
+    "directAnswer": "Telegram auth flow: User clicks TelegramLoginButton → POST /api/auth/telegram → backend validates HMAC-SHA256 signature, upserts user to DB, creates session via createSession(), sets cookie, returns user → frontend calls setAuthUser() to update Zustand store. On page load, useAuthSessionBootstrap calls /api/auth/me → authenticateSession() validates cookie → restores or clears auth state. Frontend exposes auth state via useStore hook with selectors (selectAuthSession, selectAuthBootstrap).",
+    "status": {
+      "confidence": "high",
+      "verification": "verified",
+      "complete": true,
+      "warnings": []
+    },
+    "targets": [
+      {
+        "path": "src/shared/components/TelegramLoginButton.tsx",
+        "role": "read",
+        "reason": "Entry point: handleTelegramAuth posts to /api/auth/telegram and calls setAuthUser",
+        "evidenceRefs": [
+          "E1"
+        ],
+        "startLine": 38,
+        "endLine": 55
+      },
+      {
+        "path": "functions/api/auth/telegram.ts",
+        "role": "read",
+        "reason": "Backend auth: validates signature, upserts user, creates session, sets cookie",
+        "evidenceRefs": [
+          "E2"
+        ],
+        "startLine": 148,
+        "endLine": 232
+      },
+      {
+        "path": "functions/api/_lib/session.ts",
+        "role": "read",
+        "reason": "Session creation: generates token, hashes with HMAC-SHA256, stores in DB",
+        "evidenceRefs": [
+          "E4"
+        ],
+        "startLine": 57,
+        "endLine": 78
+      },
+      {
+        "path": "src/store/slices/auth.ts",
+        "role": "read",
+        "reason": "setAuthUser action: updates auth state with user and isAuthenticated flag",
+        "evidenceRefs": [
+          "E5"
+        ],
+        "startLine": 6,
+        "endLine": 12
+      },
+      {
+        "path": "src/shared/hooks/useAuthSessionBootstrap.ts",
+        "role": "read",
+        "reason": "Session restoration: calls fetchAuthSession on mount, then setAuthUser or logout",
+        "evidenceRefs": [
+          "E6"
+        ],
+        "startLine": 21,
+        "endLine": 44
+      },
+      {
+        "path": "functions/api/auth/me.ts",
+        "role": "read",
+        "reason": "Session validation: uses authenticateSession to verify cookie and return user",
+        "evidenceRefs": [
+          "E7"
+        ],
+        "startLine": 48,
+        "endLine": 84
+      },
+      {
+        "path": "src/store.selectors.ts",
+        "role": "read",
+        "reason": "Auth selectors: expose auth.user, isAuthenticated, and logout to components",
+        "evidenceRefs": [
+          "E8"
+        ],
+        "startLine": 41,
+        "endLine": 56
+      },
+      {
+        "path": "functions/api/auth/telegram.ts",
+        "startLine": 65,
+        "endLine": 104,
+        "role": "read",
+        "reason": "Telegram HMAC-SHA256 signature verification implementation",
+        "evidenceRefs": [
+          "E3"
+        ]
+      }
+    ],
+    "discoveredPaths": [
+      {
+        "path": "src/store.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/shared/components/AGENTS.md",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/shared/components/MainTopBar.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/shared/components/TelegramLoginButton.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/shared/hooks/useAuthSessionBootstrap.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/shared/hooks/useCopyActions.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/bookmark/hooks/useBookmarkSync.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/bookmark/pages/BookmarkDetailPage.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/bookmark/pages/BookmarkEditorPage.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/bookmark/pages/BookmarksPage.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/exam/components/ExamNav.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/exam/components/ExperimentalFeatureGate.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/exam/hooks/useExamDataWithSync.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/exam/hooks/useExamHomeSummary.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/exam/hooks/useExamPageState.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/exam/hooks/useSimpleRevelationExamState.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/exam/pages/ExamHomePage.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/exam/pages/ExamPracticePage.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/exam/pages/ExamStatsPage.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/reader/components/WordContainer.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/reader/hooks/useReaderController.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/store/types.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_read_file",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/store/createActions.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_read_file",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/store/slices/auth.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_read_file",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/api/auth.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_read_file",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "functions/api/auth/telegram.ts",
+        "kind": "file",
+        "sourceTool": "repo_find_files",
+        "reason": "Matched file discovery query."
+      },
+      {
+        "path": "functions/api/auth/me.ts",
+        "kind": "file",
+        "sourceTool": "repo_find_files",
+        "reason": "Matched file discovery query."
+      },
+      {
+        "path": "functions/api/_lib/session.ts",
+        "kind": "file",
+        "sourceTool": "repo_find_files",
+        "reason": "Matched file discovery query."
+      },
+      {
+        "path": "src/store/initialState.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_read_file",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/store.selectors.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_read_file",
+        "reason": "Discovered from tool result."
+      }
+    ],
+    "evidence": [
+      {
+        "path": "src/shared/components/TelegramLoginButton.tsx",
+        "startLine": 38,
+        "endLine": 55,
+        "why": "Shows entry point flow: POST to /api/auth/telegram, setAuthUser call on success",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E1",
+        "snippet": "38:     const handleTelegramAuth = async (user: any) => {\n39:       console.log(\"Telegram auth received:\", user);\n40: \n41:       try {\n42:         // Send authentication data to backend for verification\n43:         const response = await fetch(\"/api/auth/telegram\", {\n44:           method: \"POST\",\n45:           headers: {\n46:             \"Content-Type\": \"application/json\",\n47:           },\n48:           body: JSON.stringify(user),\n49:         });\n... [snippet truncated]"
+      },
+      {
+        "path": "functions/api/auth/telegram.ts",
+        "startLine": 148,
+        "endLine": 232,
+        "why": "Backend auth flow: signature validation (206), user upsert (216), session creation (218), cookie (229)",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E2",
+        "snippet": "148: export const onRequestPost: PagesFunction<Env> = async (context) => {\n149:   const { request, env } = context;\n150: \n151:   // CORS headers\n152:   const corsHeaders = {\n153:     'Access-Control-Allow-Origin': '*',\n154:     'Access-Control-Allow-Methods': 'POST, OPTIONS',\n155:     'Access-Control-Allow-Headers': 'Content-Type',\n156:   };\n157: \n158:   // Handle OPTIONS request for CORS preflight\n159:   if (request.method === 'OPTIONS') {\n... [snippet truncated]"
+      },
+      {
+        "path": "functions/api/auth/telegram.ts",
+        "startLine": 65,
+        "endLine": 104,
+        "why": "Telegram HMAC-SHA256 signature verification implementation",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E3",
+        "snippet": "65: async function verifyTelegramAuth(\n66:   data: TelegramUser,\n67:   botToken: string\n68: ): Promise<boolean> {\n69:   const { hash, ...userData } = data;\n70: \n71:   // Create data-check-string: sorted key=value pairs joined with \\n\n72:   const dataCheckString = Object.keys(userData)\n73:     .sort()\n74:     .map((key) => `${key}=${userData[key as keyof typeof userData]}`)\n75:     .join('\\n');\n76: \n... [snippet truncated]"
+      },
+      {
+        "path": "functions/api/_lib/session.ts",
+        "startLine": 57,
+        "endLine": 78,
+        "why": "Session creation: generates token, hashes it, stores with 7-day expiry in auth_sessions",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E4",
+        "snippet": "57: export const createSession = async (\n58:   db: D1Database,\n59:   userId: number,\n60:   authSecret: string\n61: ): Promise<string> => {\n62:   const now = Math.floor(Date.now() / 1000);\n63:   const expiresAt = now + SESSION_MAX_AGE_SECONDS;\n64:   const sessionId = crypto.randomUUID();\n65:   const rawToken = createRawSessionToken();\n66:   const tokenHash = await hashSessionToken(rawToken, authSecret);\n67: \n68:   await db\n... [snippet truncated]"
+      },
+      {
+        "path": "src/store/slices/auth.ts",
+        "startLine": 6,
+        "endLine": 12,
+        "why": "setAuthUser action: sets auth.user and auth.isAuthenticated based on user != null",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E5",
+        "snippet": "6:   setAuthUser: (user) =>\n7:     set(() => ({\n8:       auth: {\n9:         user,\n10:         isAuthenticated: user !== null,\n11:       },\n12:     })),"
+      },
+      {
+        "path": "src/shared/hooks/useAuthSessionBootstrap.ts",
+        "startLine": 21,
+        "endLine": 44,
+        "why": "Session restoration: calls fetchAuthSession, then setAuthUser(session.user) or logout()",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E6",
+        "snippet": "21: export const useAuthSessionBootstrap = () => {\n22:   const { logout, setAuthUser } = useStore(selectAuthBootstrap, shallow);\n23: \n24:   useEffect(() => {\n25:     let active = true;\n26:     const controller = new AbortController();\n27: \n28:     const restoreSession = async () => {\n29:       try {\n30:         const session = await fetchAuthSession(controller.signal);\n31:         if (!active) return;\n32: \n... [snippet truncated]"
+      },
+      {
+        "path": "functions/api/auth/me.ts",
+        "startLine": 48,
+        "endLine": 84,
+        "why": "Session validation: authenticateSession validates cookie, fetches user from DB",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E7",
+        "snippet": "48:     const session = await authenticateSession(\n49:       context.request,\n50:       context.env.DB,\n51:       context.env.AUTH_SECRET\n52:     );\n53: \n54:     if (!session) {\n55:       return json({\n56:         success: true,\n57:         authenticated: false,\n58:         user: null,\n59:       });\n... [snippet truncated]"
+      },
+      {
+        "path": "src/store.selectors.ts",
+        "startLine": 41,
+        "endLine": 56,
+        "why": "Auth selectors exposing state.auth.user, isAuthenticated, and logout action",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E8",
+        "snippet": "41: export const selectAuthSession = (state: AppStore) => ({\n42:   user: state.auth.user,\n43:   isAuthenticated: state.auth.isAuthenticated,\n44:   logout: state.logout,\n45: });\n46: \n47: export const selectExamAuth = (state: AppStore) => ({\n48:   isAuthenticated: state.auth.isAuthenticated,\n49:   language: state.settings.language,\n50:   logout: state.logout,\n51: });\n52: \n... [snippet truncated]"
+      }
+    ],
+    "uncertainties": [],
+    "nextAction": {
+      "type": "stop",
+      "reason": "Explorer result is complete for the requested read-only investigation."
+    },
+    "evidenceQuality": {
+      "level": "high",
+      "exactCount": 8,
+      "partialCount": 0,
+      "droppedCount": 0,
+      "fileCount": 7,
+      "warnings": [],
+      "summary": "Verified: 13 files read, 1 symbol lookups, 8/8 evidence items grounded, cross-verified across 7 files. All evidence grounded in inspected code."
+    },
+    "searchCoverage": {
+      "scope": [
+        "src/**",
+        "functions/**",
+        "scripts/**",
+        "migrations/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 13,
+      "grepCalls": 0,
+      "listDirCalls": 0,
+      "symbolCalls": 1,
+      "toolResultsTruncated": 0,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: src/**, functions/**, scripts/**, migrations/**"
+      ],
+      "summary": "scope-limited search across src/**, functions/**, scripts/**, migrations/**; 13 file read(s), 0 grep search(es)."
+    },
+    "failure": null,
+    "sessionId": "sess_7633d1a0632e0afe",
+    "session": {
+      "id": "sess_7633d1a0632e0afe",
+      "status": "created",
+      "remainingCalls": 4
+    },
+    "_debug": {
+      "evidenceSufficiency": {
+        "sufficient": true,
+        "reason": "path_has_multi_step_evidence"
+      },
+      "confidenceScore": 1,
+      "confidenceFactors": {
+        "evidenceCount": 8,
+        "evidenceGrounded": 8,
+        "evidenceDropped": 0,
+        "exactCount": 8,
+        "crossVerified": true,
+        "symbolSearchUsed": true,
+        "stoppedByBudget": false,
+        "gitLogCalls": 0,
+        "gitDiffCalls": 0,
+        "gitBlameCalls": 0,
+        "gitGroundingHint": "none",
+        "taskKind": "reference-chase",
+        "adjustments": [
+          "base=0.30 (taskKind=reference-chase)",
+          "+0.54 (8 exact evidence item(s))",
+          "+0.12 (cross-verified across multiple files)",
+          "+0.05 (symbol/grep search used)"
+        ],
+        "droppedUngrounded": 0,
+        "droppedMalformed": 0
+      },
+      "stats": {
+        "model": "zai-glm-4.7",
+        "budget": "deep",
+        "budgetSource": "auto",
+        "turns": 10,
+        "toolCalls": 17,
+        "listDirCalls": 0,
+        "findFileCalls": 3,
+        "grepCalls": 0,
+        "filesRead": 13,
+        "gitLogCalls": 0,
+        "gitBlameCalls": 0,
+        "gitDiffCalls": 0,
+        "gitShowCalls": 0,
+        "symbolCalls": 1,
+        "inputTokens": 145869,
+        "outputTokens": 5846,
+        "totalTokens": 151715,
+        "elapsedMs": 14405,
+        "stoppedByBudget": false,
+        "scope": [
+          "src/**",
+          "functions/**",
+          "scripts/**",
+          "migrations/**"
+        ],
+        "repoRoot": "/home/kyubr/IdeaProjects/bible",
+        "sessionId": "sess_7633d1a0632e0afe",
+        "sessionStatus": "created",
+        "sessionSource": "created",
+        "remainingCalls": 4,
+        "cacheHits": 79,
+        "cacheMisses": 418,
+        "cacheHitRate": 0.159,
+        "cacheEntries": 413,
+        "cacheSizeBytes": 2461262
+      },
+      "toolTrace": {
+        "entries": [
+          {
+            "turn": 1,
+            "tool": "repo_symbol_context",
+            "args": {
+              "symbol": "useStore"
+            },
+            "result": {
+              "symbol": "useStore",
+              "definition": {
+                "path": "src/store.tsx",
+                "line": 30,
+                "endLine": 40,
+                "kind": "variable"
+              },
+              "callers": 20,
+              "observedRanges": 21,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 1,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/store.tsx"
+            },
+            "result": {
+              "path": "src/store.tsx",
+              "startLine": 1,
+              "endLine": 59,
+              "totalLines": 59,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/shared/components/TelegramLoginButton.tsx"
+            },
+            "result": {
+              "path": "src/shared/components/TelegramLoginButton.tsx",
+              "startLine": 1,
+              "endLine": 122,
+              "totalLines": 122,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/shared/hooks/useAuthSessionBootstrap.ts"
+            },
+            "result": {
+              "path": "src/shared/hooks/useAuthSessionBootstrap.ts",
+              "startLine": 1,
+              "endLine": 54,
+              "totalLines": 54,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/store/types.ts"
+            },
+            "result": {
+              "path": "src/store/types.ts",
+              "startLine": 1,
+              "endLine": 119,
+              "totalLines": 119,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/store/createActions.ts"
+            },
+            "result": {
+              "path": "src/store/createActions.ts",
+              "startLine": 1,
+              "endLine": 22,
+              "totalLines": 22,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/store/slices/auth.ts"
+            },
+            "result": {
+              "path": "src/store/slices/auth.ts",
+              "startLine": 1,
+              "endLine": 21,
+              "totalLines": 21,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/api/auth.ts"
+            },
+            "result": {
+              "path": "src/api/auth.ts",
+              "startLine": 1,
+              "endLine": 56,
+              "totalLines": 56,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_find_files",
+            "args": {
+              "pattern": "functions/**/telegram*.ts"
+            },
+            "result": {
+              "matches": 1,
+              "paths": [
+                "functions/api/auth/telegram.ts"
+              ],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "functions/api/auth/telegram.ts"
+            },
+            "result": {
+              "path": "functions/api/auth/telegram.ts",
+              "startLine": 1,
+              "endLine": 241,
+              "totalLines": 241,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_find_files",
+            "args": {
+              "pattern": "functions/**/me.ts"
+            },
+            "result": {
+              "matches": 1,
+              "paths": [
+                "functions/api/auth/me.ts"
+              ],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 5,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "functions/api/auth/me.ts"
+            },
+            "result": {
+              "path": "functions/api/auth/me.ts",
+              "startLine": 1,
+              "endLine": 96,
+              "totalLines": 96,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 5,
+            "tool": "repo_find_files",
+            "args": {
+              "pattern": "functions/**/_lib/session*"
+            },
+            "result": {
+              "matches": 1,
+              "paths": [
+                "functions/api/_lib/session.ts"
+              ],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 6,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "functions/api/_lib/session.ts"
+            },
+            "result": {
+              "path": "functions/api/_lib/session.ts",
+              "startLine": 1,
+              "endLine": 134,
+              "totalLines": 134,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 7,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/store/initialState.ts",
+              "startLine": 1,
+              "endLine": 30
+            },
+            "result": {
+              "path": "src/store/initialState.ts",
+              "startLine": 1,
+              "endLine": 30,
+              "totalLines": 64,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 8,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/store/initialState.ts",
+              "startLine": 50,
+              "endLine": 64
+            },
+            "result": {
+              "path": "src/store/initialState.ts",
+              "startLine": 50,
+              "endLine": 64,
+              "totalLines": 64,
+              "truncated": false
+            }
+          },
+          {
+            "turn": 9,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/store.selectors.ts"
+            },
+            "result": {
+              "path": "src/store.selectors.ts",
+              "startLine": 1,
+              "endLine": 175,
+              "totalLines": 175,
+              "truncated": true
+            }
+          }
+        ],
+        "totalCalls": 17,
+        "truncated": false,
+        "maxEntries": 20
+      },
+      "codeMap": {
+        "entryPoints": [],
+        "keyModules": [
+          {
+            "path": "src/store.tsx",
+            "role": "module",
+            "linesRead": 70
+          },
+          {
+            "path": "src/shared/components/AGENTS.md",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "src/shared/components/MainTopBar.tsx",
+            "role": "entry point",
+            "linesRead": 1
+          },
+          {
+            "path": "src/shared/components/TelegramLoginButton.tsx",
+            "role": "module",
+            "linesRead": 123
+          },
+          {
+            "path": "src/shared/hooks/useAuthSessionBootstrap.ts",
+            "role": "middleware",
+            "linesRead": 55
+          },
+          {
+            "path": "src/shared/hooks/useCopyActions.tsx",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "src/features/bookmark/hooks/useBookmarkSync.ts",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "src/features/bookmark/pages/BookmarkDetailPage.tsx",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "src/features/bookmark/pages/BookmarkEditorPage.tsx",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "src/features/bookmark/pages/BookmarksPage.tsx",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "src/features/exam/components/ExamNav.tsx",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "src/features/exam/components/ExperimentalFeatureGate.tsx",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "src/features/exam/hooks/useExamDataWithSync.ts",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "src/features/exam/hooks/useExamHomeSummary.ts",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "src/features/exam/hooks/useExamPageState.ts",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "src/features/exam/hooks/useSimpleRevelationExamState.ts",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "src/features/exam/pages/ExamHomePage.tsx",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "src/features/exam/pages/ExamPracticePage.tsx",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "src/features/exam/pages/ExamStatsPage.tsx",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "src/features/reader/components/WordContainer.tsx",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "src/features/reader/hooks/useReaderController.ts",
+            "role": "route/controller",
+            "linesRead": 1
+          },
+          {
+            "path": "src/store/types.ts",
+            "role": "module",
+            "linesRead": 119
+          },
+          {
+            "path": "src/store/createActions.ts",
+            "role": "module",
+            "linesRead": 22
+          },
+          {
+            "path": "src/store/slices/auth.ts",
+            "role": "middleware",
+            "linesRead": 21
+          },
+          {
+            "path": "src/api/auth.ts",
+            "role": "middleware",
+            "linesRead": 56
+          },
+          {
+            "path": "functions/api/auth/telegram.ts",
+            "role": "middleware",
+            "linesRead": 241
+          },
+          {
+            "path": "functions/api/auth/me.ts",
+            "role": "middleware",
+            "linesRead": 96
+          },
+          {
+            "path": "functions/api/_lib/session.ts",
+            "role": "API client",
+            "linesRead": 134
+          },
+          {
+            "path": "src/store/initialState.ts",
+            "role": "module",
+            "linesRead": 45
+          },
+          {
+            "path": "src/store.selectors.ts",
+            "role": "module",
+            "linesRead": 175
+          }
+        ]
+      }
+    }
+  },
+  "contentText": "## Result\nConfidence: high\nVerification: verified\nEvidence Quality: high (8 exact, 0 partial, 0 dropped)\nSearch Coverage: scope-limited search across src/**, functions/**, scripts/**, migrations/**; 13 file read(s), 0 grep search(es).\n\n## Answer\nTelegram auth flow: User clicks TelegramLoginButton → POST /api/auth/telegram → backend validates HMAC-SHA256 signature, upserts user to DB, creates session via createSession(), sets cookie, returns user → frontend calls setAuthUser() to update Zustand store. On page load, useAuthSessionBootstrap calls /api/auth/me → authenticateSession() validates cookie → restores or clears auth state. Frontend exposes auth state via useStore hook with selectors (selectAuthSession, selectAuthBootstrap).\n\n## Targets\n- [read] `src/shared/components/TelegramLoginButton.tsx:38-55` (E1) - Entry point: handleTelegramAuth posts to /api/auth/telegram and calls setAuthUser\n- [read] `functions/api/auth/telegram.ts:148-232` (E2) - Backend auth: validates signature, upserts user, creates session, sets cookie\n- [read] `functions/api/_lib/session.ts:57-78` (E4) - Session creation: generates token, hashes with HMAC-SHA256, stores in DB\n- [read] `src/store/slices/auth.ts:6-12` (E5) - setAuthUser action: updates auth state with user and isAuthenticated flag\n- [read] `src/shared/hooks/useAuthSessionBootstrap.ts:21-44` (E6) - Session restoration: calls fetchAuthSession on mount, then setAuthUser or logout\n- [read] `functions/api/auth/me.ts:48-84` (E7) - Session validation: uses authenticateSession to verify cookie and return user\n- [read] `src/store.selectors.ts:41-56` (E8) - Auth selectors: expose auth.user, isAuthenticated, and logout to components\n- [read] `functions/api/auth/telegram.ts:65-104` (E3) - Telegram HMAC-SHA256 signature verification implementation\n\n## Evidence (8 items, confidence: high)\n- E1 `src/shared/components/TelegramLoginButton.tsx:38-55` - Shows entry point flow: POST to /api/auth/telegram, setAuthUser call on success\n  snippet: 38:     const handleTelegramAuth = async (user: any) => {\n  39:       console.log(\"Telegram auth received:\", user);\n  40: \n  41:       try {\n  42:         // Send authentication data to backend for verification\n  43:         const response = await fetch(\"/api/auth/telegram\", {\n  44:           method: \"POST\",\n  45:           headers: {\n  46:             \"Content-Type\": \"application/json\",\n  47:           },\n  48:           body: JSON.stringify(user),\n  49:         });\n  ... [snippet truncated]\n- E2 `functions/api/auth/telegram.ts:148-232` - Backend auth flow: signature validation (206), user upsert (216), session creation (218), cookie (229)\n  snippet: 148: export const onRequestPost: PagesFunction<Env> = async (context) => {\n  149:   const { request, env } = context;\n  150: \n  151:   // CORS headers\n  152:   const corsHeaders = {\n  153:     'Access-Control-Allow-Origin': '*',\n  154:     'Access-Control-Allow-Methods': 'POST, OPTIONS',\n  155:     'Access-Control-Allow-Headers': 'Content-Type',\n  156:   };\n  157: \n  158:   // Handle OPTIONS request for CORS preflight\n  159:   if (request.method === 'OPTIONS') {\n  ... [snippet truncated]\n- E3 `functions/api/auth/telegram.ts:65-104` - Telegram HMAC-SHA256 signature verification implementation\n  snippet: 65: async function verifyTelegramAuth(\n  66:   data: TelegramUser,\n  67:   botToken: string\n  68: ): Promise<boolean> {\n  69:   const { hash, ...userData } = data;\n  70: \n  71:   // Create data-check-string: sorted key=value pairs joined with \\n\n  72:   const dataCheckString = Object.keys(userData)\n  73:     .sort()\n  74:     .map((key) => `${key}=${userData[key as keyof typeof userData]}`)\n  75:     .join('\\n');\n  76: \n  ... [snippet truncated]\n- E4 `functions/api/_lib/session.ts:57-78` - Session creation: generates token, hashes it, stores with 7-day expiry in auth_sessions\n  snippet: 57: export const createSession = async (\n  58:   db: D1Database,\n  59:   userId: number,\n  60:   authSecret: string\n  61: ): Promise<string> => {\n  62:   const now = Math.floor(Date.now() / 1000);\n  63:   const expiresAt = now + SESSION_MAX_AGE_SECONDS;\n  64:   const sessionId = crypto.randomUUID();\n  65:   const rawToken = createRawSessionToken();\n  66:   const tokenHash = await hashSessionToken(rawToken, authSecret);\n  67: \n  68:   await db\n  ... [snippet truncated]\n- E5 `src/store/slices/auth.ts:6-12` - setAuthUser action: sets auth.user and auth.isAuthenticated based on user != null\n  snippet: 6:   setAuthUser: (user) =>\n  7:     set(() => ({\n  8:       auth: {\n  9:         user,\n  10:         isAuthenticated: user !== null,\n  11:       },\n  12:     })),\n- E6 `src/shared/hooks/useAuthSessionBootstrap.ts:21-44` - Session restoration: calls fetchAuthSession, then setAuthUser(session.user) or logout()\n  snippet: 21: export const useAuthSessionBootstrap = () => {\n  22:   const { logout, setAuthUser } = useStore(selectAuthBootstrap, shallow);\n  23: \n  24:   useEffect(() => {\n  25:     let active = true;\n  26:     const controller = new AbortController();\n  27: \n  28:     const restoreSession = async () => {\n  29:       try {\n  30:         const session = await fetchAuthSession(controller.signal);\n  31:         if (!active) return;\n  32: \n  ... [snippet truncated]\n- E7 `functions/api/auth/me.ts:48-84` - Session validation: authenticateSession validates cookie, fetches user from DB\n  snippet: 48:     const session = await authenticateSession(\n  49:       context.request,\n  50:       context.env.DB,\n  51:       context.env.AUTH_SECRET\n  52:     );\n  53: \n  54:     if (!session) {\n  55:       return json({\n  56:         success: true,\n  57:         authenticated: false,\n  58:         user: null,\n  59:       });\n  ... [snippet truncated]\n- E8 `src/store.selectors.ts:41-56` - Auth selectors exposing state.auth.user, isAuthenticated, and logout action\n  snippet: 41: export const selectAuthSession = (state: AppStore) => ({\n  42:   user: state.auth.user,\n  43:   isAuthenticated: state.auth.isAuthenticated,\n  44:   logout: state.logout,\n  45: });\n  46: \n  47: export const selectExamAuth = (state: AppStore) => ({\n  48:   isAuthenticated: state.auth.isAuthenticated,\n  49:   language: state.settings.language,\n  50:   logout: state.logout,\n  51: });\n  52: \n  ... [snippet truncated]\n\nSession: sess_7633d1a0632e0afe (pass as \"session\" for follow-up calls)"
+}

@@ -1,0 +1,1575 @@
+{
+  "tool": "explore_repo",
+  "repo": "bible",
+  "args": {
+    "repo_root": "/home/kyubr/IdeaProjects/bible",
+    "scope": [
+      "src/**",
+      "functions/**",
+      "scripts/**",
+      "migrations/**"
+    ],
+    "task": "Explain the repository purpose and the main implementation path for React reader state, Cloudflare Pages Functions auth, bookmarks, and exam APIs. Return grounded targets that a parent coding agent should verify before editing."
+  },
+  "elapsedMs": 11422,
+  "error": null,
+  "isError": false,
+  "summary": {
+    "directAnswer": "Bible reader web app (React + Cloudflare Pages + D1) with scripture reading, search, bookmarks, and exams. React reader state: Zustand store (src/store.tsx) with persist middleware managing settings, current passage, search, UI, and auth. Reader features in src/features/reader/ with controller hooks (useReaderController.ts, useBibleData.tsx). Cloudflare Pages Functions auth: Telegram login widget (functions/api/auth/telegram.ts) validates HMAC-SHA256 signatures, stores users in D1, and creates session tokens. Session management (functions/api/_lib/session.ts) uses HttpOnly cookies with hashed tokens. Bookmarks: Client-side bookmarks (src/features/bookmark/) sync via /api/bookmarks/sync to D1 with soft-delete support (migrations/0004_bookmarks.sql). Exam APIs: Exam system (src/features/exam/) with attempts and chapter progress syncing via /api/exam/local-sync, submissions to /api/exam/submit, history/stats endpoints. Local sync tracked in D1 (migrations/0003_exam_local_sync.sql).",
+    "status": {
+      "confidence": "high",
+      "verification": "targeted_read_needed",
+      "complete": true,
+      "warnings": [
+        "1 evidence item(s) were removed because their line ranges were not inspected."
+      ]
+    },
+    "evidenceQuality": {
+      "level": "high",
+      "exactCount": 7,
+      "partialCount": 0,
+      "droppedCount": 1,
+      "fileCount": 7,
+      "warnings": [
+        "1 evidence item(s) were removed because their line ranges were not inspected."
+      ],
+      "summary": "Verified: 17 files read, 7/7 evidence items grounded, cross-verified across 7 files. All evidence grounded in inspected code."
+    },
+    "failure": null,
+    "nextAction": {
+      "type": "read_target",
+      "reason": "Read src/features/reader/hooks/useReaderController.ts:1-302 before final verification.",
+      "target": {
+        "path": "src/features/reader/hooks/useReaderController.ts",
+        "role": "read",
+        "reason": "Main reader controller orchestrating all reader interactions",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 302
+      }
+    },
+    "searchCoverage": {
+      "scope": [
+        "src/**",
+        "functions/**",
+        "scripts/**",
+        "migrations/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 17,
+      "grepCalls": 0,
+      "listDirCalls": 4,
+      "symbolCalls": 0,
+      "toolResultsTruncated": 0,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: src/**, functions/**, scripts/**, migrations/**"
+      ],
+      "summary": "scope-limited search across src/**, functions/**, scripts/**, migrations/**; 17 file read(s), 0 grep search(es)."
+    },
+    "critic": null,
+    "sessionId": "sess_f73798d5c87c2a58",
+    "session": {
+      "id": "sess_f73798d5c87c2a58",
+      "status": "created",
+      "remainingCalls": 4
+    },
+    "targets": [
+      {
+        "path": "src/store.tsx",
+        "role": "context",
+        "reason": "Root Zustand store with persist middleware managing app state",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 59
+      },
+      {
+        "path": "src/features/reader/hooks/useReaderController.ts",
+        "role": "read",
+        "reason": "Main reader controller orchestrating all reader interactions",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 302
+      },
+      {
+        "path": "functions/api/auth/telegram.ts",
+        "role": "read",
+        "reason": "Telegram auth endpoint with HMAC-SHA256 verification",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 241
+      },
+      {
+        "path": "functions/api/_lib/session.ts",
+        "role": "read",
+        "reason": "Session management utilities (create, authenticate, revoke)",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 134
+      },
+      {
+        "path": "src/features/bookmark/types/bookmark.ts",
+        "role": "context",
+        "reason": "Bookmark type definitions including sync state",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 50
+      },
+      {
+        "path": "functions/api/bookmarks/sync.ts",
+        "role": "read",
+        "reason": "Bookmark sync endpoint with validation and upsert logic",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 270
+      },
+      {
+        "path": "src/features/exam/types/exam.ts",
+        "role": "context",
+        "reason": "Exam type definitions for attempts, progress, and sync",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 227
+      },
+      {
+        "path": "src/store.tsx",
+        "startLine": 30,
+        "endLine": 58,
+        "role": "read",
+        "reason": "Zustand store with persist middleware for settings to localStorage",
+        "evidenceRefs": [
+          "E1"
+        ]
+      }
+    ],
+    "discoveredPathsCount": 100,
+    "evidence": [
+      {
+        "id": "E1",
+        "path": "src/store.tsx",
+        "startLine": 30,
+        "endLine": 58,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Zustand store with persist middleware for settings to localStorage",
+        "snippet": "30: export const useStore = create<AppStore>()(\n31:   persist(\n32:     (set, get, api) => ({\n33:       settings: INITIAL_SETTINGS,\n34:       currents: INITIAL_CURRENTS,\n35:       globals: INITIAL_GLOBALS,\n36:       search: INITIAL_SEARCH,\n37:       ui: INITIAL_UI,\n38:       auth: INITIAL_AUTH,\n39:       ...createStoreActions(set, get, api),\n40:     }),\n41:     {\n... [snippet truncated]"
+      },
+      {
+        "id": "E2",
+        "path": "src/features/reader/hooks/useReaderController.ts",
+        "startLine": 42,
+        "endLine": 105,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Main reader controller orchestrating data, search, and navigation",
+        "snippet": "42: export const useReaderController = ({\n43:   paramBookId,\n44:   paramChapter,\n45:   pathname,\n46:   locationState,\n47:   navigate,\n48:   t,\n49: }: UseReaderControllerParams) => {\n50:   const detectMobile = useMobileDetect();\n51:   const readerControllerState = useStore(selectReaderControllerState, shallow);\n52:   const {\n53:     language,\n... [snippet truncated]"
+      },
+      {
+        "id": "E3",
+        "path": "functions/api/auth/telegram.ts",
+        "startLine": 65,
+        "endLine": 104,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Telegram auth verification using HMAC-SHA256 signature",
+        "snippet": "65: async function verifyTelegramAuth(\n66:   data: TelegramUser,\n67:   botToken: string\n68: ): Promise<boolean> {\n69:   const { hash, ...userData } = data;\n70: \n71:   // Create data-check-string: sorted key=value pairs joined with \\n\n72:   const dataCheckString = Object.keys(userData)\n73:     .sort()\n74:     .map((key) => `${key}=${userData[key as keyof typeof userData]}`)\n75:     .join('\\n');\n76: \n... [snippet truncated]"
+      },
+      {
+        "id": "E4",
+        "path": "functions/api/_lib/session.ts",
+        "startLine": 80,
+        "endLine": 111,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Session authentication extracting and validating cookies",
+        "snippet": "80: export const authenticateSession = async (\n81:   request: Request,\n82:   db: D1Database,\n83:   authSecret: string\n84: ): Promise<{ sessionId: string; userId: number } | null> => {\n85:   const sessionToken = parseCookies(request)[SESSION_COOKIE_NAME];\n86:   if (!sessionToken) return null;\n87: \n88:   const tokenHash = await hashSessionToken(sessionToken, authSecret);\n89:   const now = Math.floor(Date.now() / 1000);\n90: \n91:   const session = await db\n... [snippet truncated]"
+      },
+      {
+        "id": "E5",
+        "path": "src/features/bookmark/types/bookmark.ts",
+        "startLine": 35,
+        "endLine": 44,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Bookmark record structure with sync state and clientId",
+        "snippet": "35: export interface BookmarkRecord {\n36:   clientId: string;\n37:   title: string;\n38:   blocks: BookmarkBlock[];\n39:   createdAt: string;\n40:   updatedAt: string;\n41:   schemaVersion: number;\n42:   syncState: BookmarkSyncState;\n43:   serverBookmarkId?: number | string | null;\n44: }"
+      },
+      {
+        "id": "E6",
+        "path": "functions/api/bookmarks/sync.ts",
+        "startLine": 116,
+        "endLine": 174,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Bookmark upsert logic with updatedAt conflict resolution",
+        "snippet": "116: const upsertBookmark = async (\n117:   db: D1Database,\n118:   userId: number,\n119:   bookmark: NormalizedBookmark,\n120:   syncedAt: number\n121: ): Promise<number | null> => {\n122:   const existing = await db\n123:     .prepare(\n124:       `SELECT id, updated_at FROM bookmarks\n125:        WHERE user_id = ? AND client_id = ? LIMIT 1`\n126:     )\n127:     .bind(userId, bookmark.clientId)\n... [snippet truncated]"
+      },
+      {
+        "id": "E7",
+        "path": "src/features/exam/types/exam.ts",
+        "startLine": 20,
+        "endLine": 42,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Exam attempt record with sync state and chapter ranges",
+        "snippet": "20: export interface ExamAttemptRecord {\n21:   clientId: string;\n22:   source: ExamAttemptSource;\n23:   scopeType: ExamAttemptScopeType;\n24:   bookId: number;\n25:   chapterStart: number;\n26:   chapterEnd: number;\n27:   verseStart?: number | null;\n28:   verseEnd?: number | null;\n29:   totalItems: number;\n30:   correctItems: number;\n31:   wrongItems: number;\n... [snippet truncated]"
+      }
+    ],
+    "uncertainties": [
+      "1 evidence item(s) were removed because their line ranges were not inspected.",
+      "Some evidence items were dropped because they were not grounded in inspected line ranges."
+    ],
+    "stats": {
+      "turns": 9,
+      "toolCalls": 30,
+      "filesRead": 17,
+      "grepCalls": 0,
+      "symbolCalls": 0,
+      "stoppedByBudget": false,
+      "elapsedMs": 11408,
+      "totalTokens": 168335
+    }
+  },
+  "structuredContent": {
+    "schemaVersion": 1,
+    "directAnswer": "Bible reader web app (React + Cloudflare Pages + D1) with scripture reading, search, bookmarks, and exams. React reader state: Zustand store (src/store.tsx) with persist middleware managing settings, current passage, search, UI, and auth. Reader features in src/features/reader/ with controller hooks (useReaderController.ts, useBibleData.tsx). Cloudflare Pages Functions auth: Telegram login widget (functions/api/auth/telegram.ts) validates HMAC-SHA256 signatures, stores users in D1, and creates session tokens. Session management (functions/api/_lib/session.ts) uses HttpOnly cookies with hashed tokens. Bookmarks: Client-side bookmarks (src/features/bookmark/) sync via /api/bookmarks/sync to D1 with soft-delete support (migrations/0004_bookmarks.sql). Exam APIs: Exam system (src/features/exam/) with attempts and chapter progress syncing via /api/exam/local-sync, submissions to /api/exam/submit, history/stats endpoints. Local sync tracked in D1 (migrations/0003_exam_local_sync.sql).",
+    "status": {
+      "confidence": "high",
+      "verification": "targeted_read_needed",
+      "complete": true,
+      "warnings": [
+        "1 evidence item(s) were removed because their line ranges were not inspected."
+      ]
+    },
+    "targets": [
+      {
+        "path": "src/store.tsx",
+        "role": "context",
+        "reason": "Root Zustand store with persist middleware managing app state",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 59
+      },
+      {
+        "path": "src/features/reader/hooks/useReaderController.ts",
+        "role": "read",
+        "reason": "Main reader controller orchestrating all reader interactions",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 302
+      },
+      {
+        "path": "functions/api/auth/telegram.ts",
+        "role": "read",
+        "reason": "Telegram auth endpoint with HMAC-SHA256 verification",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 241
+      },
+      {
+        "path": "functions/api/_lib/session.ts",
+        "role": "read",
+        "reason": "Session management utilities (create, authenticate, revoke)",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 134
+      },
+      {
+        "path": "src/features/bookmark/types/bookmark.ts",
+        "role": "context",
+        "reason": "Bookmark type definitions including sync state",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 50
+      },
+      {
+        "path": "functions/api/bookmarks/sync.ts",
+        "role": "read",
+        "reason": "Bookmark sync endpoint with validation and upsert logic",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 270
+      },
+      {
+        "path": "src/features/exam/types/exam.ts",
+        "role": "context",
+        "reason": "Exam type definitions for attempts, progress, and sync",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 227
+      },
+      {
+        "path": "src/store.tsx",
+        "startLine": 30,
+        "endLine": 58,
+        "role": "read",
+        "reason": "Zustand store with persist middleware for settings to localStorage",
+        "evidenceRefs": [
+          "E1"
+        ]
+      },
+      {
+        "path": "src/features/reader/hooks/useReaderController.ts",
+        "startLine": 42,
+        "endLine": 105,
+        "role": "read",
+        "reason": "Main reader controller orchestrating data, search, and navigation",
+        "evidenceRefs": [
+          "E2"
+        ]
+      },
+      {
+        "path": "functions/api/auth/telegram.ts",
+        "startLine": 65,
+        "endLine": 104,
+        "role": "read",
+        "reason": "Telegram auth verification using HMAC-SHA256 signature",
+        "evidenceRefs": [
+          "E3"
+        ]
+      },
+      {
+        "path": "functions/api/_lib/session.ts",
+        "startLine": 80,
+        "endLine": 111,
+        "role": "read",
+        "reason": "Session authentication extracting and validating cookies",
+        "evidenceRefs": [
+          "E4"
+        ]
+      },
+      {
+        "path": "src/features/bookmark/types/bookmark.ts",
+        "startLine": 35,
+        "endLine": 44,
+        "role": "read",
+        "reason": "Bookmark record structure with sync state and clientId",
+        "evidenceRefs": [
+          "E5"
+        ]
+      },
+      {
+        "path": "functions/api/bookmarks/sync.ts",
+        "startLine": 116,
+        "endLine": 174,
+        "role": "read",
+        "reason": "Bookmark upsert logic with updatedAt conflict resolution",
+        "evidenceRefs": [
+          "E6"
+        ]
+      },
+      {
+        "path": "src/features/exam/types/exam.ts",
+        "startLine": 20,
+        "endLine": 42,
+        "role": "read",
+        "reason": "Exam attempt record with sync state and chapter ranges",
+        "evidenceRefs": [
+          "E7"
+        ]
+      }
+    ],
+    "discoveredPaths": [
+      {
+        "path": "functions",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "functions/_middleware.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "functions/api",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "functions/api/_lib",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "functions/api/auth",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "functions/api/bookmarks",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "functions/api/exam",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "migrations",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "migrations/0001_initial.sql",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "migrations/0002_auth_sessions.sql",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "migrations/0003_exam_local_sync.sql",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "migrations/0004_bookmarks.sql",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts/build-worker-functions.sh",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts/check-no-legacy-i18n.sh",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts/check-style-imports.sh",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts/e2e-bookmark-playwright.sh",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts/e2e-reader-search-ux-playwright.sh",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts/e2e-regression-playwright.sh",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts/playwright_cli.sh",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts/revelation_corpus",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts/revelation_corpus/README.md",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts/revelation_corpus/build_corpus.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts/revelation_corpus/proper_nouns.tsv",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts/revelation_corpus/pyproject.toml",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts/revelation_corpus/sanity_score.mjs",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/api",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/api/auth.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/api/bible.tsx",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/api/bookmark.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/api/exam.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/api/load_from_server.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/data",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/data/NOTICE.md",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/features",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/features/bookmark",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/features/exam",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/features/reader",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/features/search",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/features/settings",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/i18n",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/i18n/index.tsx",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/i18n/locale.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/i18n/locales",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/index.tsx",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/pages",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/pages/EmbedPage.tsx",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/pages/LoadingPage.tsx",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/pages/NoticePage.tsx",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/reportWebVitals.tsx",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/routes.tsx",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/shared",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/shared/components",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/shared/constants",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/shared/hooks",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/shared/styles",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/shared/types",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/shared/utils",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/store",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/store/createActions.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/store/initialState.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/store/slices",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/store/types.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/store.selectors.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/store.tsx",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/styles",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/styles/css",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/styles/scss",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/utils",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/utils/database.tsx",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/vite-env.d.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/features/reader/components/AppView.tsx",
+        "kind": "file",
+        "sourceTool": "repo_find_files",
+        "reason": "Matched file discovery query."
+      },
+      {
+        "path": "src/features/reader/components/ChapterProgress.tsx",
+        "kind": "file",
+        "sourceTool": "repo_find_files",
+        "reason": "Matched file discovery query."
+      },
+      {
+        "path": "src/features/reader/components/ContextComponent.tsx",
+        "kind": "file",
+        "sourceTool": "repo_find_files",
+        "reason": "Matched file discovery query."
+      },
+      {
+        "path": "src/features/reader/components/FontSizeQuickPanel.tsx",
+        "kind": "file",
+        "sourceTool": "repo_find_files",
+        "reason": "Matched file discovery query."
+      },
+      {
+        "path": "src/features/reader/components/SearchMatchNavigator.tsx",
+        "kind": "file",
+        "sourceTool": "repo_find_files",
+        "reason": "Matched file discovery query."
+      },
+      {
+        "path": "src/features/reader/components/WordContainer.tsx",
+        "kind": "file",
+        "sourceTool": "repo_find_files",
+        "reason": "Matched file discovery query."
+      },
+      {
+        "path": "src/features/reader/hooks/useBibleData.tsx",
+        "kind": "file",
+        "sourceTool": "repo_find_files",
+        "reason": "Matched file discovery query."
+      },
+      {
+        "path": "src/features/reader/hooks/useChapterProgress.ts",
+        "kind": "file",
+        "sourceTool": "repo_find_files",
+        "reason": "Matched file discovery query."
+      },
+      {
+        "path": "src/features/reader/hooks/useReaderController.ts",
+        "kind": "file",
+        "sourceTool": "repo_find_files",
+        "reason": "Matched file discovery query."
+      },
+      {
+        "path": "src/features/reader/hooks/useReaderEffects.ts",
+        "kind": "file",
+        "sourceTool": "repo_find_files",
+        "reason": "Matched file discovery query."
+      },
+      {
+        "path": "src/features/reader/hooks/useReaderUiControls.ts",
+        "kind": "file",
+        "sourceTool": "repo_find_files",
+        "reason": "Matched file discovery query."
+      },
+      {
+        "path": "src/features/reader/hooks/useSearchMatchNavigation.ts",
+        "kind": "file",
+        "sourceTool": "repo_find_files",
+        "reason": "Matched file discovery query."
+      },
+      {
+        "path": "src/features/reader/pages/ReaderPage.tsx",
+        "kind": "file",
+        "sourceTool": "repo_find_files",
+        "reason": "Matched file discovery query."
+      },
+      {
+        "path": "src/features/reader/styles/App.css",
+        "kind": "file",
+        "sourceTool": "repo_find_files",
+        "reason": "Matched file discovery query."
+      },
+      {
+        "path": "src/features/reader/styles/FontSizeQuickPanel.css",
+        "kind": "file",
+        "sourceTool": "repo_find_files",
+        "reason": "Matched file discovery query."
+      },
+      {
+        "path": "src/features/reader/styles/Main.css",
+        "kind": "file",
+        "sourceTool": "repo_find_files",
+        "reason": "Matched file discovery query."
+      },
+      {
+        "path": "src/features/reader/styles/NavigationBook.css",
+        "kind": "file",
+        "sourceTool": "repo_find_files",
+        "reason": "Matched file discovery query."
+      },
+      {
+        "path": "src/features/reader/styles/NavigationChapter.css",
+        "kind": "file",
+        "sourceTool": "repo_find_files",
+        "reason": "Matched file discovery query."
+      },
+      {
+        "path": "src/features/reader/styles/SelectBook.css",
+        "kind": "file",
+        "sourceTool": "repo_find_files",
+        "reason": "Matched file discovery query."
+      },
+      {
+        "path": "src/features/reader/styles/Words.css",
+        "kind": "file",
+        "sourceTool": "repo_find_files",
+        "reason": "Matched file discovery query."
+      },
+      {
+        "path": "src/features/reader/styles/word-list-base.css",
+        "kind": "file",
+        "sourceTool": "repo_find_files",
+        "reason": "Matched file discovery query."
+      },
+      {
+        "path": "src/features/reader/types/searchNavigation.ts",
+        "kind": "file",
+        "sourceTool": "repo_find_files",
+        "reason": "Matched file discovery query."
+      },
+      {
+        "path": "src/features/reader/types/word.types.ts",
+        "kind": "file",
+        "sourceTool": "repo_find_files",
+        "reason": "Matched file discovery query."
+      },
+      {
+        "path": "src/features/reader/utils/chapterProgress.ts",
+        "kind": "file",
+        "sourceTool": "repo_find_files",
+        "reason": "Matched file discovery query."
+      },
+      {
+        "path": "src/features/reader/utils/readerNavigation.ts",
+        "kind": "file",
+        "sourceTool": "repo_find_files",
+        "reason": "Matched file discovery query."
+      },
+      {
+        "path": "src/features/reader/utils/selection.ts",
+        "kind": "file",
+        "sourceTool": "repo_find_files",
+        "reason": "Matched file discovery query."
+      },
+      {
+        "path": "src/features/reader/components/SideNavigationBook/LiBook.tsx",
+        "kind": "file",
+        "sourceTool": "repo_find_files",
+        "reason": "Matched file discovery query."
+      },
+      {
+        "path": "src/features/reader/components/SideNavigationBook/LiCheckOldOrNewBook.tsx",
+        "kind": "file",
+        "sourceTool": "repo_find_files",
+        "reason": "Matched file discovery query."
+      }
+    ],
+    "evidence": [
+      {
+        "path": "src/store.tsx",
+        "startLine": 30,
+        "endLine": 58,
+        "why": "Zustand store with persist middleware for settings to localStorage",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E1",
+        "snippet": "30: export const useStore = create<AppStore>()(\n31:   persist(\n32:     (set, get, api) => ({\n33:       settings: INITIAL_SETTINGS,\n34:       currents: INITIAL_CURRENTS,\n35:       globals: INITIAL_GLOBALS,\n36:       search: INITIAL_SEARCH,\n37:       ui: INITIAL_UI,\n38:       auth: INITIAL_AUTH,\n39:       ...createStoreActions(set, get, api),\n40:     }),\n41:     {\n... [snippet truncated]"
+      },
+      {
+        "path": "src/features/reader/hooks/useReaderController.ts",
+        "startLine": 42,
+        "endLine": 105,
+        "why": "Main reader controller orchestrating data, search, and navigation",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E2",
+        "snippet": "42: export const useReaderController = ({\n43:   paramBookId,\n44:   paramChapter,\n45:   pathname,\n46:   locationState,\n47:   navigate,\n48:   t,\n49: }: UseReaderControllerParams) => {\n50:   const detectMobile = useMobileDetect();\n51:   const readerControllerState = useStore(selectReaderControllerState, shallow);\n52:   const {\n53:     language,\n... [snippet truncated]"
+      },
+      {
+        "path": "functions/api/auth/telegram.ts",
+        "startLine": 65,
+        "endLine": 104,
+        "why": "Telegram auth verification using HMAC-SHA256 signature",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E3",
+        "snippet": "65: async function verifyTelegramAuth(\n66:   data: TelegramUser,\n67:   botToken: string\n68: ): Promise<boolean> {\n69:   const { hash, ...userData } = data;\n70: \n71:   // Create data-check-string: sorted key=value pairs joined with \\n\n72:   const dataCheckString = Object.keys(userData)\n73:     .sort()\n74:     .map((key) => `${key}=${userData[key as keyof typeof userData]}`)\n75:     .join('\\n');\n76: \n... [snippet truncated]"
+      },
+      {
+        "path": "functions/api/_lib/session.ts",
+        "startLine": 80,
+        "endLine": 111,
+        "why": "Session authentication extracting and validating cookies",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E4",
+        "snippet": "80: export const authenticateSession = async (\n81:   request: Request,\n82:   db: D1Database,\n83:   authSecret: string\n84: ): Promise<{ sessionId: string; userId: number } | null> => {\n85:   const sessionToken = parseCookies(request)[SESSION_COOKIE_NAME];\n86:   if (!sessionToken) return null;\n87: \n88:   const tokenHash = await hashSessionToken(sessionToken, authSecret);\n89:   const now = Math.floor(Date.now() / 1000);\n90: \n91:   const session = await db\n... [snippet truncated]"
+      },
+      {
+        "path": "src/features/bookmark/types/bookmark.ts",
+        "startLine": 35,
+        "endLine": 44,
+        "why": "Bookmark record structure with sync state and clientId",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E5",
+        "snippet": "35: export interface BookmarkRecord {\n36:   clientId: string;\n37:   title: string;\n38:   blocks: BookmarkBlock[];\n39:   createdAt: string;\n40:   updatedAt: string;\n41:   schemaVersion: number;\n42:   syncState: BookmarkSyncState;\n43:   serverBookmarkId?: number | string | null;\n44: }"
+      },
+      {
+        "path": "functions/api/bookmarks/sync.ts",
+        "startLine": 116,
+        "endLine": 174,
+        "why": "Bookmark upsert logic with updatedAt conflict resolution",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E6",
+        "snippet": "116: const upsertBookmark = async (\n117:   db: D1Database,\n118:   userId: number,\n119:   bookmark: NormalizedBookmark,\n120:   syncedAt: number\n121: ): Promise<number | null> => {\n122:   const existing = await db\n123:     .prepare(\n124:       `SELECT id, updated_at FROM bookmarks\n125:        WHERE user_id = ? AND client_id = ? LIMIT 1`\n126:     )\n127:     .bind(userId, bookmark.clientId)\n... [snippet truncated]"
+      },
+      {
+        "path": "src/features/exam/types/exam.ts",
+        "startLine": 20,
+        "endLine": 42,
+        "why": "Exam attempt record with sync state and chapter ranges",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E7",
+        "snippet": "20: export interface ExamAttemptRecord {\n21:   clientId: string;\n22:   source: ExamAttemptSource;\n23:   scopeType: ExamAttemptScopeType;\n24:   bookId: number;\n25:   chapterStart: number;\n26:   chapterEnd: number;\n27:   verseStart?: number | null;\n28:   verseEnd?: number | null;\n29:   totalItems: number;\n30:   correctItems: number;\n31:   wrongItems: number;\n... [snippet truncated]"
+      }
+    ],
+    "uncertainties": [
+      "1 evidence item(s) were removed because their line ranges were not inspected.",
+      "Some evidence items were dropped because they were not grounded in inspected line ranges."
+    ],
+    "nextAction": {
+      "type": "read_target",
+      "reason": "Read src/features/reader/hooks/useReaderController.ts:1-302 before final verification.",
+      "target": {
+        "path": "src/features/reader/hooks/useReaderController.ts",
+        "role": "read",
+        "reason": "Main reader controller orchestrating all reader interactions",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 302
+      }
+    },
+    "evidenceQuality": {
+      "level": "high",
+      "exactCount": 7,
+      "partialCount": 0,
+      "droppedCount": 1,
+      "fileCount": 7,
+      "warnings": [
+        "1 evidence item(s) were removed because their line ranges were not inspected."
+      ],
+      "summary": "Verified: 17 files read, 7/7 evidence items grounded, cross-verified across 7 files. All evidence grounded in inspected code."
+    },
+    "searchCoverage": {
+      "scope": [
+        "src/**",
+        "functions/**",
+        "scripts/**",
+        "migrations/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 17,
+      "grepCalls": 0,
+      "listDirCalls": 4,
+      "symbolCalls": 0,
+      "toolResultsTruncated": 0,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: src/**, functions/**, scripts/**, migrations/**"
+      ],
+      "summary": "scope-limited search across src/**, functions/**, scripts/**, migrations/**; 17 file read(s), 0 grep search(es)."
+    },
+    "failure": null,
+    "sessionId": "sess_f73798d5c87c2a58",
+    "session": {
+      "id": "sess_f73798d5c87c2a58",
+      "status": "created",
+      "remainingCalls": 4
+    },
+    "_debug": {
+      "evidenceSufficiency": {
+        "sufficient": true,
+        "reason": "edit_plan_has_actionable_target"
+      },
+      "confidenceScore": 0.88,
+      "confidenceFactors": {
+        "evidenceCount": 8,
+        "evidenceGrounded": 7,
+        "evidenceDropped": 1,
+        "exactCount": 7,
+        "crossVerified": true,
+        "symbolSearchUsed": false,
+        "stoppedByBudget": false,
+        "gitLogCalls": 0,
+        "gitDiffCalls": 0,
+        "gitBlameCalls": 0,
+        "gitGroundingHint": "none",
+        "taskKind": "default",
+        "adjustments": [
+          "base=0.30 (taskKind=default)",
+          "+0.54 (7 exact evidence item(s))",
+          "+0.12 (cross-verified across multiple files)",
+          "-0.08 (1 evidence item(s) dropped as ungrounded)"
+        ],
+        "droppedUngrounded": 1,
+        "droppedMalformed": 0
+      },
+      "stats": {
+        "model": "zai-glm-4.7",
+        "budget": "deep",
+        "budgetSource": "auto",
+        "turns": 9,
+        "toolCalls": 30,
+        "listDirCalls": 4,
+        "findFileCalls": 9,
+        "grepCalls": 0,
+        "filesRead": 17,
+        "gitLogCalls": 0,
+        "gitBlameCalls": 0,
+        "gitDiffCalls": 0,
+        "gitShowCalls": 0,
+        "symbolCalls": 0,
+        "inputTokens": 163208,
+        "outputTokens": 5127,
+        "totalTokens": 168335,
+        "elapsedMs": 11408,
+        "stoppedByBudget": false,
+        "scope": [
+          "src/**",
+          "functions/**",
+          "scripts/**",
+          "migrations/**"
+        ],
+        "repoRoot": "/home/kyubr/IdeaProjects/bible",
+        "sessionId": "sess_f73798d5c87c2a58",
+        "sessionStatus": "created",
+        "sessionSource": "created",
+        "remainingCalls": 4,
+        "cacheHits": 0,
+        "cacheMisses": 100,
+        "cacheHitRate": 0,
+        "cacheEntries": 98,
+        "cacheSizeBytes": 803080
+      },
+      "toolTrace": {
+        "entries": [
+          {
+            "turn": 1,
+            "tool": "repo_list_dir",
+            "args": {},
+            "result": {
+              "entries": 72,
+              "paths": [
+                "functions",
+                "functions/_middleware.ts",
+                "functions/api",
+                "functions/api/_lib",
+                "functions/api/auth",
+                "functions/api/bookmarks"
+              ]
+            }
+          },
+          {
+            "turn": 1,
+            "tool": "repo_find_files",
+            "args": {
+              "pattern": "package.json"
+            },
+            "result": {
+              "matches": 0,
+              "paths": [],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 1,
+            "tool": "repo_find_files",
+            "args": {
+              "pattern": "README*.md"
+            },
+            "result": {
+              "matches": 0,
+              "paths": [],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_list_dir",
+            "args": {
+              "dirPath": "."
+            },
+            "result": {
+              "entries": 4,
+              "paths": [
+                "functions",
+                "migrations",
+                "scripts",
+                "src"
+              ]
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/store.tsx"
+            },
+            "result": {
+              "path": "src/store.tsx",
+              "startLine": 1,
+              "endLine": 59,
+              "totalLines": 59,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/store/initialState.ts"
+            },
+            "result": {
+              "path": "src/store/initialState.ts",
+              "startLine": 1,
+              "endLine": 64,
+              "totalLines": 64,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/store/types.ts"
+            },
+            "result": {
+              "path": "src/store/types.ts",
+              "startLine": 1,
+              "endLine": 119,
+              "totalLines": 119,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_list_dir",
+            "args": {
+              "scope": [
+                "src/features/reader",
+                "src/features/bookmark",
+                "src/features/exam"
+              ]
+            },
+            "result": {
+              "entries": 33,
+              "paths": [
+                "functions",
+                "functions/_middleware.ts",
+                "functions/api",
+                "migrations",
+                "migrations/0001_initial.sql",
+                "migrations/0002_auth_sessions.sql"
+              ]
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "functions/_middleware.ts"
+            },
+            "result": {
+              "path": "functions/_middleware.ts",
+              "startLine": 1,
+              "endLine": 54,
+              "totalLines": 54,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_list_dir",
+            "args": {
+              "scope": [
+                "functions/api/auth",
+                "functions/api/bookmarks",
+                "functions/api/exam"
+              ]
+            },
+            "result": {
+              "entries": 72,
+              "paths": [
+                "functions",
+                "functions/_middleware.ts",
+                "functions/api",
+                "functions/api/_lib",
+                "functions/api/auth",
+                "functions/api/bookmarks"
+              ]
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_find_files",
+            "args": {
+              "pattern": "src/features/reader/**/*"
+            },
+            "result": {
+              "matches": 42,
+              "paths": [
+                "src/features/reader/components/AppView.tsx",
+                "src/features/reader/components/ChapterProgress.tsx",
+                "src/features/reader/components/ContextComponent.tsx",
+                "src/features/reader/components/FontSizeQuickPanel.tsx",
+                "src/features/reader/components/SearchMatchNavigator.tsx",
+                "src/features/reader/components/WordContainer.tsx"
+              ],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_find_files",
+            "args": {
+              "pattern": "src/features/bookmark/**/*"
+            },
+            "result": {
+              "matches": 10,
+              "paths": [
+                "src/features/bookmark/components/BookmarkTargetDialog.tsx",
+                "src/features/bookmark/hooks/useBookmarkActions.tsx",
+                "src/features/bookmark/hooks/useBookmarkSync.ts",
+                "src/features/bookmark/pages/BookmarkDetailPage.tsx",
+                "src/features/bookmark/pages/BookmarkEditorPage.tsx",
+                "src/features/bookmark/pages/BookmarksPage.tsx"
+              ],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_find_files",
+            "args": {
+              "pattern": "src/features/exam/**/*"
+            },
+            "result": {
+              "matches": 80,
+              "paths": [
+                "src/features/exam/components/AddressGuessInput.tsx",
+                "src/features/exam/components/ClozeCard.tsx",
+                "src/features/exam/components/ClozeInputPanel.tsx",
+                "src/features/exam/components/ErrorTypeSummary.tsx",
+                "src/features/exam/components/EssayCard.tsx",
+                "src/features/exam/components/ExamFeedbackPanel.tsx"
+              ],
+              "truncated": true
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_find_files",
+            "args": {
+              "pattern": "functions/api/auth/**/*"
+            },
+            "result": {
+              "matches": 3,
+              "paths": [
+                "functions/api/auth/logout.ts",
+                "functions/api/auth/me.ts",
+                "functions/api/auth/telegram.ts"
+              ],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_find_files",
+            "args": {
+              "pattern": "functions/api/bookmarks/**/*"
+            },
+            "result": {
+              "matches": 2,
+              "paths": [
+                "functions/api/bookmarks/list.ts",
+                "functions/api/bookmarks/sync.ts"
+              ],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_find_files",
+            "args": {
+              "pattern": "functions/api/exam/**/*"
+            },
+            "result": {
+              "matches": 4,
+              "paths": [
+                "functions/api/exam/history.ts",
+                "functions/api/exam/local-sync.ts",
+                "functions/api/exam/stats.ts",
+                "functions/api/exam/submit.ts"
+              ],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 5,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/features/reader/hooks/useReaderController.ts"
+            },
+            "result": {
+              "path": "src/features/reader/hooks/useReaderController.ts",
+              "startLine": 1,
+              "endLine": 302,
+              "totalLines": 302,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 5,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/features/reader/hooks/useBibleData.tsx"
+            },
+            "result": {
+              "path": "src/features/reader/hooks/useBibleData.tsx",
+              "startLine": 1,
+              "endLine": 183,
+              "totalLines": 183,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 5,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "functions/api/auth/telegram.ts"
+            },
+            "result": {
+              "path": "functions/api/auth/telegram.ts",
+              "startLine": 1,
+              "endLine": 241,
+              "totalLines": 241,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 5,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "functions/api/_lib"
+            },
+            "result": {
+              "error": true,
+              "type": "tool_execution_error",
+              "stage": "parse_or_exec",
+              "message": "Not a regular file: functions/api/_lib"
+            }
+          }
+        ],
+        "totalCalls": 30,
+        "truncated": true,
+        "maxEntries": 20
+      },
+      "codeMap": {
+        "entryPoints": [],
+        "keyModules": [
+          {
+            "path": "src/store.tsx",
+            "role": "module",
+            "linesRead": 59
+          },
+          {
+            "path": "src/store/initialState.ts",
+            "role": "module",
+            "linesRead": 64
+          },
+          {
+            "path": "src/store/types.ts",
+            "role": "module",
+            "linesRead": 119
+          },
+          {
+            "path": "functions/_middleware.ts",
+            "role": "middleware",
+            "linesRead": 54
+          },
+          {
+            "path": "src/features/reader/hooks/useReaderController.ts",
+            "role": "route/controller",
+            "linesRead": 302
+          },
+          {
+            "path": "src/features/reader/hooks/useBibleData.tsx",
+            "role": "module",
+            "linesRead": 183
+          },
+          {
+            "path": "functions/api/auth/telegram.ts",
+            "role": "middleware",
+            "linesRead": 241
+          },
+          {
+            "path": "functions/api/bookmarks/sync.ts",
+            "role": "API client",
+            "linesRead": 270
+          },
+          {
+            "path": "functions/api/exam/submit.ts",
+            "role": "API client",
+            "linesRead": 117
+          },
+          {
+            "path": "functions/api/_lib/session.ts",
+            "role": "API client",
+            "linesRead": 134
+          },
+          {
+            "path": "src/features/bookmark/types/bookmark.ts",
+            "role": "module",
+            "linesRead": 50
+          },
+          {
+            "path": "src/features/exam/types/exam.ts",
+            "role": "module",
+            "linesRead": 227
+          },
+          {
+            "path": "migrations/0004_bookmarks.sql",
+            "role": "module",
+            "linesRead": 24
+          },
+          {
+            "path": "src/api/bookmark.ts",
+            "role": "API client",
+            "linesRead": 80
+          },
+          {
+            "path": "src/api/exam.ts",
+            "role": "API client",
+            "linesRead": 142
+          },
+          {
+            "path": "src/api/auth.ts",
+            "role": "middleware",
+            "linesRead": 56
+          }
+        ]
+      }
+    }
+  },
+  "contentText": "## Result\nConfidence: high\nVerification: targeted_read_needed\nEvidence Quality: high (7 exact, 0 partial, 1 dropped)\nSearch Coverage: scope-limited search across src/**, functions/**, scripts/**, migrations/**; 17 file read(s), 0 grep search(es).\n\n## Answer\nBible reader web app (React + Cloudflare Pages + D1) with scripture reading, search, bookmarks, and exams. React reader state: Zustand store (src/store.tsx) with persist middleware managing settings, current passage, search, UI, and auth. Reader features in src/features/reader/ with controller hooks (useReaderController.ts, useBibleData.tsx). Cloudflare Pages Functions auth: Telegram login widget (functions/api/auth/telegram.ts) validates HMAC-SHA256 signatures, stores users in D1, and creates session tokens. Session management (functions/api/_lib/session.ts) uses HttpOnly cookies with hashed tokens. Bookmarks: Client-side bookmarks (src/features/bookmark/) sync via /api/bookmarks/sync to D1 with soft-delete support (migrations/0004_bookmarks.sql). Exam APIs: Exam system (src/features/exam/) with attempts and chapter progress syncing via /api/exam/local-sync, submissions to /api/exam/submit, history/stats endpoints. Local sync tracked in D1 (migrations/0003_exam_local_sync.sql).\n\n## Next Action\nread_target: Read src/features/reader/hooks/useReaderController.ts:1-302 before final verification.\n\n## Targets\n- [context] `src/store.tsx:1-59` - Root Zustand store with persist middleware managing app state\n- [read] `src/features/reader/hooks/useReaderController.ts:1-302` - Main reader controller orchestrating all reader interactions\n- [read] `functions/api/auth/telegram.ts:1-241` - Telegram auth endpoint with HMAC-SHA256 verification\n- [read] `functions/api/_lib/session.ts:1-134` - Session management utilities (create, authenticate, revoke)\n- [context] `src/features/bookmark/types/bookmark.ts:1-50` - Bookmark type definitions including sync state\n- [read] `functions/api/bookmarks/sync.ts:1-270` - Bookmark sync endpoint with validation and upsert logic\n- [context] `src/features/exam/types/exam.ts:1-227` - Exam type definitions for attempts, progress, and sync\n- [read] `src/store.tsx:30-58` (E1) - Zustand store with persist middleware for settings to localStorage\n- [read] `src/features/reader/hooks/useReaderController.ts:42-105` (E2) - Main reader controller orchestrating data, search, and navigation\n- [read] `functions/api/auth/telegram.ts:65-104` (E3) - Telegram auth verification using HMAC-SHA256 signature\n- [read] `functions/api/_lib/session.ts:80-111` (E4) - Session authentication extracting and validating cookies\n- [read] `src/features/bookmark/types/bookmark.ts:35-44` (E5) - Bookmark record structure with sync state and clientId\n- ... and 2 more targets\n\n## Evidence (7 items, confidence: high)\n- E1 `src/store.tsx:30-58` - Zustand store with persist middleware for settings to localStorage\n  snippet: 30: export const useStore = create<AppStore>()(\n  31:   persist(\n  32:     (set, get, api) => ({\n  33:       settings: INITIAL_SETTINGS,\n  34:       currents: INITIAL_CURRENTS,\n  35:       globals: INITIAL_GLOBALS,\n  36:       search: INITIAL_SEARCH,\n  37:       ui: INITIAL_UI,\n  38:       auth: INITIAL_AUTH,\n  39:       ...createStoreActions(set, get, api),\n  40:     }),\n  41:     {\n  ... [snippet truncated]\n- E2 `src/features/reader/hooks/useReaderController.ts:42-105` - Main reader controller orchestrating data, search, and navigation\n  snippet: 42: export const useReaderController = ({\n  43:   paramBookId,\n  44:   paramChapter,\n  45:   pathname,\n  46:   locationState,\n  47:   navigate,\n  48:   t,\n  49: }: UseReaderControllerParams) => {\n  50:   const detectMobile = useMobileDetect();\n  51:   const readerControllerState = useStore(selectReaderControllerState, shallow);\n  52:   const {\n  53:     language,\n  ... [snippet truncated]\n- E3 `functions/api/auth/telegram.ts:65-104` - Telegram auth verification using HMAC-SHA256 signature\n  snippet: 65: async function verifyTelegramAuth(\n  66:   data: TelegramUser,\n  67:   botToken: string\n  68: ): Promise<boolean> {\n  69:   const { hash, ...userData } = data;\n  70: \n  71:   // Create data-check-string: sorted key=value pairs joined with \\n\n  72:   const dataCheckString = Object.keys(userData)\n  73:     .sort()\n  74:     .map((key) => `${key}=${userData[key as keyof typeof userData]}`)\n  75:     .join('\\n');\n  76: \n  ... [snippet truncated]\n- E4 `functions/api/_lib/session.ts:80-111` - Session authentication extracting and validating cookies\n  snippet: 80: export const authenticateSession = async (\n  81:   request: Request,\n  82:   db: D1Database,\n  83:   authSecret: string\n  84: ): Promise<{ sessionId: string; userId: number } | null> => {\n  85:   const sessionToken = parseCookies(request)[SESSION_COOKIE_NAME];\n  86:   if (!sessionToken) return null;\n  87: \n  88:   const tokenHash = await hashSessionToken(sessionToken, authSecret);\n  89:   const now = Math.floor(Date.now() / 1000);\n  90: \n  91:   const session = await db\n  ... [snippet truncated]\n- E5 `src/features/bookmark/types/bookmark.ts:35-44` - Bookmark record structure with sync state and clientId\n  snippet: 35: export interface BookmarkRecord {\n  36:   clientId: string;\n  37:   title: string;\n  38:   blocks: BookmarkBlock[];\n  39:   createdAt: string;\n  40:   updatedAt: string;\n  41:   schemaVersion: number;\n  42:   syncState: BookmarkSyncState;\n  43:   serverBookmarkId?: number | string | null;\n  44: }\n- E6 `functions/api/bookmarks/sync.ts:116-174` - Bookmark upsert logic with updatedAt conflict resolution\n  snippet: 116: const upsertBookmark = async (\n  117:   db: D1Database,\n  118:   userId: number,\n  119:   bookmark: NormalizedBookmark,\n  120:   syncedAt: number\n  121: ): Promise<number | null> => {\n  122:   const existing = await db\n  123:     .prepare(\n  124:       `SELECT id, updated_at FROM bookmarks\n  125:        WHERE user_id = ? AND client_id = ? LIMIT 1`\n  126:     )\n  127:     .bind(userId, bookmark.clientId)\n  ... [snippet truncated]\n- E7 `src/features/exam/types/exam.ts:20-42` - Exam attempt record with sync state and chapter ranges\n  snippet: 20: export interface ExamAttemptRecord {\n  21:   clientId: string;\n  22:   source: ExamAttemptSource;\n  23:   scopeType: ExamAttemptScopeType;\n  24:   bookId: number;\n  25:   chapterStart: number;\n  26:   chapterEnd: number;\n  27:   verseStart?: number | null;\n  28:   verseEnd?: number | null;\n  29:   totalItems: number;\n  30:   correctItems: number;\n  31:   wrongItems: number;\n  ... [snippet truncated]\n\n## Uncertainty\n- 1 evidence item(s) were removed because their line ranges were not inspected.\n- Some evidence items were dropped because they were not grounded in inspected line ranges.\n\nSession: sess_f73798d5c87c2a58 (pass as \"session\" for follow-up calls)"
+}

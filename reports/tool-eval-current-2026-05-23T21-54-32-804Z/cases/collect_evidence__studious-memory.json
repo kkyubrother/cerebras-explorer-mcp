@@ -1,0 +1,961 @@
+{
+  "tool": "collect_evidence",
+  "repo": "studious-memory",
+  "args": {
+    "repo_root": "/home/kyubr/IdeaProjects/studious-memory",
+    "scope": [
+      "backend/**",
+      "frontend/src/**",
+      "extensions/firefox-inbox/src/**",
+      "scripts/**",
+      "android/**"
+    ],
+    "claim": "MCP tools are registered through scoped_tool or equivalent wrappers in backend/mcp_server.py",
+    "knownFiles": [
+      "backend/mcp_server.py"
+    ],
+    "knownSymbols": [
+      "scoped_tool"
+    ]
+  },
+  "elapsedMs": 67018,
+  "error": null,
+  "isError": false,
+  "summary": {
+    "directAnswer": "The claim is PARTIALLY CORRECT but contains a critical file path error. MCP tools ARE registered through the `scoped_tool` wrapper, but the correct file is `backend/app/mcp/server.py`, NOT `backend/mcp_server.py`. The file `backend/mcp_server.py` is only a 41-line stdio transport entry point that imports and runs the MCP server - it contains no tool registration code.",
+    "status": {
+      "confidence": "high",
+      "verification": "verified",
+      "complete": true,
+      "warnings": []
+    },
+    "evidenceQuality": {
+      "level": "high",
+      "exactCount": 6,
+      "partialCount": 0,
+      "droppedCount": 0,
+      "fileCount": 2,
+      "warnings": [],
+      "summary": "Verified: 5 files read, 3 grep searches, 2 symbol lookups, 6/6 evidence items grounded, cross-verified across 2 files. All evidence grounded in inspected code."
+    },
+    "failure": null,
+    "nextAction": {
+      "type": "stop",
+      "reason": "Explorer result is complete for the requested read-only investigation."
+    },
+    "searchCoverage": {
+      "scope": [
+        "backend/**",
+        "frontend/src/**",
+        "extensions/firefox-inbox/src/**",
+        "scripts/**",
+        "android/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 5,
+      "grepCalls": 3,
+      "listDirCalls": 0,
+      "symbolCalls": 2,
+      "toolResultsTruncated": 0,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: backend/**, frontend/src/**, extensions/firefox-inbox/src/**, scripts/**, android/**"
+      ],
+      "summary": "scope-limited search across backend/**, frontend/src/**, extensions/firefox-inbox/src/**, scripts/**, android/**; 5 file read(s), 3 grep search(es)."
+    },
+    "critic": null,
+    "sessionId": "sess_e5bf7a10b2679dfa",
+    "session": {
+      "id": "sess_e5bf7a10b2679dfa",
+      "status": "created",
+      "remainingCalls": 4
+    },
+    "targets": [
+      {
+        "path": "backend/mcp_server.py",
+        "role": "context",
+        "reason": "Full file showing it's only an entry point with no tool registration",
+        "evidenceRefs": [
+          "E1"
+        ],
+        "startLine": 1,
+        "endLine": 41
+      },
+      {
+        "path": "backend/app/mcp/server.py",
+        "role": "read",
+        "reason": "scoped_tool wrapper definition that wraps @mcp.tool() decorator",
+        "evidenceRefs": [
+          "E2"
+        ],
+        "startLine": 79,
+        "endLine": 91
+      },
+      {
+        "path": "backend/app/mcp/server.py",
+        "role": "read",
+        "reason": "scoped_resource wrapper (equivalent wrapper for resources)",
+        "evidenceRefs": [
+          "E4"
+        ],
+        "startLine": 110,
+        "endLine": 120
+      },
+      {
+        "path": "backend/app/mcp/server.py",
+        "role": "read",
+        "reason": "Example of tool registration using @scoped_tool decorator",
+        "evidenceRefs": [],
+        "startLine": 123,
+        "endLine": 143
+      },
+      {
+        "path": "backend/app/mcp/server.py",
+        "role": "read",
+        "reason": "Another example of tool registration using @scoped_tool",
+        "evidenceRefs": [],
+        "startLine": 146,
+        "endLine": 174
+      },
+      {
+        "path": "backend/app/mcp/server.py",
+        "startLine": 81,
+        "endLine": 81,
+        "role": "read",
+        "reason": "Shows scoped_tool calls @mcp.tool() for actual registration",
+        "evidenceRefs": [
+          "E3"
+        ]
+      },
+      {
+        "path": "backend/app/mcp/server.py",
+        "startLine": 123,
+        "endLine": 123,
+        "role": "read",
+        "reason": "Example: process_input tool uses @scoped_tool wrapper",
+        "evidenceRefs": [
+          "E5"
+        ]
+      },
+      {
+        "path": "backend/app/mcp/server.py",
+        "startLine": 146,
+        "endLine": 146,
+        "role": "read",
+        "reason": "Example: orchestrate_input tool uses @scoped_tool wrapper",
+        "evidenceRefs": [
+          "E6"
+        ]
+      }
+    ],
+    "discoveredPathsCount": 26,
+    "evidence": [
+      {
+        "id": "E1",
+        "path": "backend/mcp_server.py",
+        "startLine": 1,
+        "endLine": 41,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Shows this file is only an entry point with no tool registration",
+        "snippet": "1: \"\"\"Stdio transport entry point for MCP clients that don't support HTTP.\"\"\"\n2: \n3: import os\n4: import subprocess\n5: import sys\n6: \n7: \n8: def _run_migrations() -> None:\n9:     \"\"\"Run Alembic migrations before starting the stdio server.\"\"\"\n10:     from app.config import ensure_runtime_directories\n11: \n12:     ensure_runtime_directories()\n... [snippet truncated]"
+      },
+      {
+        "id": "E2",
+        "path": "backend/app/mcp/server.py",
+        "startLine": 79,
+        "endLine": 91,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Defines scoped_tool wrapper using @mcp.tool() internally",
+        "snippet": "79: def scoped_tool(*required_scopes: str):\n80:     def _decorator(func: Callable[..., Any]):\n81:         @mcp.tool(meta={\"required_scopes\": list(required_scopes)})\n82:         @wraps(func)\n83:         async def _wrapped(*args: Any, **kwargs: Any):\n84:             require_mcp_scopes(*required_scopes)\n85:             return await func(*args, **kwargs)\n86: \n87:         return _wrapped\n88: \n89:     return _decorator\n90: \n... [snippet truncated]"
+      },
+      {
+        "id": "E3",
+        "path": "backend/app/mcp/server.py",
+        "startLine": 81,
+        "endLine": 81,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Shows scoped_tool calls @mcp.tool() for actual registration",
+        "snippet": "81:         @mcp.tool(meta={\"required_scopes\": list(required_scopes)})"
+      },
+      {
+        "id": "E4",
+        "path": "backend/app/mcp/server.py",
+        "startLine": 110,
+        "endLine": 120,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Defines scoped_resource wrapper - equivalent for resources",
+        "snippet": "110: def scoped_resource(uri: str, *required_scopes: str):\n111:     def _decorator(func: Callable[..., Any]):\n112:         @mcp.resource(uri)\n113:         @wraps(func)\n114:         async def _wrapped(*args: Any, **kwargs: Any):\n115:             require_mcp_scopes(*required_scopes)\n116:             return await func(*args, **kwargs)\n117: \n118:         return _wrapped\n119: \n120:     return _decorator"
+      },
+      {
+        "id": "E5",
+        "path": "backend/app/mcp/server.py",
+        "startLine": 123,
+        "endLine": 123,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Example: process_input tool uses @scoped_tool wrapper",
+        "snippet": "123: @scoped_tool(MCP_SCOPE_MEMORY_WRITE)"
+      },
+      {
+        "id": "E6",
+        "path": "backend/app/mcp/server.py",
+        "startLine": 146,
+        "endLine": 146,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Example: orchestrate_input tool uses @scoped_tool wrapper",
+        "snippet": "146: @scoped_tool(MCP_SCOPE_MEMORY_WRITE)"
+      }
+    ],
+    "uncertainties": [
+      "The claim mentions 'equivalent wrappers' - I confirmed scoped_resource for resources, but other wrappers may exist in files outside backend/mcp_server.py scope"
+    ],
+    "stats": {
+      "turns": 6,
+      "toolCalls": 10,
+      "filesRead": 5,
+      "grepCalls": 3,
+      "symbolCalls": 2,
+      "stoppedByBudget": false,
+      "elapsedMs": 67008,
+      "totalTokens": 92446
+    }
+  },
+  "structuredContent": {
+    "schemaVersion": 1,
+    "directAnswer": "The claim is PARTIALLY CORRECT but contains a critical file path error. MCP tools ARE registered through the `scoped_tool` wrapper, but the correct file is `backend/app/mcp/server.py`, NOT `backend/mcp_server.py`. The file `backend/mcp_server.py` is only a 41-line stdio transport entry point that imports and runs the MCP server - it contains no tool registration code.",
+    "status": {
+      "confidence": "high",
+      "verification": "verified",
+      "complete": true,
+      "warnings": []
+    },
+    "targets": [
+      {
+        "path": "backend/mcp_server.py",
+        "role": "context",
+        "reason": "Full file showing it's only an entry point with no tool registration",
+        "evidenceRefs": [
+          "E1"
+        ],
+        "startLine": 1,
+        "endLine": 41
+      },
+      {
+        "path": "backend/app/mcp/server.py",
+        "role": "read",
+        "reason": "scoped_tool wrapper definition that wraps @mcp.tool() decorator",
+        "evidenceRefs": [
+          "E2"
+        ],
+        "startLine": 79,
+        "endLine": 91
+      },
+      {
+        "path": "backend/app/mcp/server.py",
+        "role": "read",
+        "reason": "scoped_resource wrapper (equivalent wrapper for resources)",
+        "evidenceRefs": [
+          "E4"
+        ],
+        "startLine": 110,
+        "endLine": 120
+      },
+      {
+        "path": "backend/app/mcp/server.py",
+        "role": "read",
+        "reason": "Example of tool registration using @scoped_tool decorator",
+        "evidenceRefs": [],
+        "startLine": 123,
+        "endLine": 143
+      },
+      {
+        "path": "backend/app/mcp/server.py",
+        "role": "read",
+        "reason": "Another example of tool registration using @scoped_tool",
+        "evidenceRefs": [],
+        "startLine": 146,
+        "endLine": 174
+      },
+      {
+        "path": "backend/app/mcp/server.py",
+        "startLine": 81,
+        "endLine": 81,
+        "role": "read",
+        "reason": "Shows scoped_tool calls @mcp.tool() for actual registration",
+        "evidenceRefs": [
+          "E3"
+        ]
+      },
+      {
+        "path": "backend/app/mcp/server.py",
+        "startLine": 123,
+        "endLine": 123,
+        "role": "read",
+        "reason": "Example: process_input tool uses @scoped_tool wrapper",
+        "evidenceRefs": [
+          "E5"
+        ]
+      },
+      {
+        "path": "backend/app/mcp/server.py",
+        "startLine": 146,
+        "endLine": 146,
+        "role": "read",
+        "reason": "Example: orchestrate_input tool uses @scoped_tool wrapper",
+        "evidenceRefs": [
+          "E6"
+        ]
+      }
+    ],
+    "discoveredPaths": [
+      {
+        "path": "backend/mcp_server.py",
+        "kind": "unknown",
+        "sourceTool": "repo_read_file",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/app/mcp/server.py",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "scripts/generate_contract_snapshot.py",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/tests/test_input_tools_contract.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/tests/test_real_web_search_providers.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/tests/test_sub_agent_coordinator.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/tests/test_web_search_storage.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/app/capabilities/metadata.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/app/capabilities/result.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/app/mcp/context.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/app/models/web_search.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/app/schemas/agent.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/app/schemas/web_search.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/app/services/agent_capability_map.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/app/services/web_search_audit.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/db_migrations/versions/0077_web_search_audit_foundation.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/tests/auth/test_mcp_scope_enforcement.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/tests/mcp/test_agent_action_tools.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/tests/mcp/test_agent_capability_map.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/tests/mcp/test_agent_contract_workflow.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/tests/mcp/test_feedback_tools.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/tests/mcp/test_mcp_access_profile_scope.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/tests/mcp/test_mcp_client.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/tests/mcp/test_memory_provenance_tool.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/tests/mcp/test_naver_openapi_agent_mcp.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/tests/mcp/test_proactive_tools.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      }
+    ],
+    "evidence": [
+      {
+        "path": "backend/mcp_server.py",
+        "startLine": 1,
+        "endLine": 41,
+        "why": "Shows this file is only an entry point with no tool registration",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E1",
+        "snippet": "1: \"\"\"Stdio transport entry point for MCP clients that don't support HTTP.\"\"\"\n2: \n3: import os\n4: import subprocess\n5: import sys\n6: \n7: \n8: def _run_migrations() -> None:\n9:     \"\"\"Run Alembic migrations before starting the stdio server.\"\"\"\n10:     from app.config import ensure_runtime_directories\n11: \n12:     ensure_runtime_directories()\n... [snippet truncated]"
+      },
+      {
+        "path": "backend/app/mcp/server.py",
+        "startLine": 79,
+        "endLine": 91,
+        "why": "Defines scoped_tool wrapper using @mcp.tool() internally",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E2",
+        "snippet": "79: def scoped_tool(*required_scopes: str):\n80:     def _decorator(func: Callable[..., Any]):\n81:         @mcp.tool(meta={\"required_scopes\": list(required_scopes)})\n82:         @wraps(func)\n83:         async def _wrapped(*args: Any, **kwargs: Any):\n84:             require_mcp_scopes(*required_scopes)\n85:             return await func(*args, **kwargs)\n86: \n87:         return _wrapped\n88: \n89:     return _decorator\n90: \n... [snippet truncated]"
+      },
+      {
+        "path": "backend/app/mcp/server.py",
+        "startLine": 81,
+        "endLine": 81,
+        "why": "Shows scoped_tool calls @mcp.tool() for actual registration",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E3",
+        "snippet": "81:         @mcp.tool(meta={\"required_scopes\": list(required_scopes)})"
+      },
+      {
+        "path": "backend/app/mcp/server.py",
+        "startLine": 110,
+        "endLine": 120,
+        "why": "Defines scoped_resource wrapper - equivalent for resources",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E4",
+        "snippet": "110: def scoped_resource(uri: str, *required_scopes: str):\n111:     def _decorator(func: Callable[..., Any]):\n112:         @mcp.resource(uri)\n113:         @wraps(func)\n114:         async def _wrapped(*args: Any, **kwargs: Any):\n115:             require_mcp_scopes(*required_scopes)\n116:             return await func(*args, **kwargs)\n117: \n118:         return _wrapped\n119: \n120:     return _decorator"
+      },
+      {
+        "path": "backend/app/mcp/server.py",
+        "startLine": 123,
+        "endLine": 123,
+        "why": "Example: process_input tool uses @scoped_tool wrapper",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E5",
+        "snippet": "123: @scoped_tool(MCP_SCOPE_MEMORY_WRITE)"
+      },
+      {
+        "path": "backend/app/mcp/server.py",
+        "startLine": 146,
+        "endLine": 146,
+        "why": "Example: orchestrate_input tool uses @scoped_tool wrapper",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E6",
+        "snippet": "146: @scoped_tool(MCP_SCOPE_MEMORY_WRITE)"
+      }
+    ],
+    "uncertainties": [
+      "The claim mentions 'equivalent wrappers' - I confirmed scoped_resource for resources, but other wrappers may exist in files outside backend/mcp_server.py scope"
+    ],
+    "nextAction": {
+      "type": "stop",
+      "reason": "Explorer result is complete for the requested read-only investigation."
+    },
+    "evidenceQuality": {
+      "level": "high",
+      "exactCount": 6,
+      "partialCount": 0,
+      "droppedCount": 0,
+      "fileCount": 2,
+      "warnings": [],
+      "summary": "Verified: 5 files read, 3 grep searches, 2 symbol lookups, 6/6 evidence items grounded, cross-verified across 2 files. All evidence grounded in inspected code."
+    },
+    "searchCoverage": {
+      "scope": [
+        "backend/**",
+        "frontend/src/**",
+        "extensions/firefox-inbox/src/**",
+        "scripts/**",
+        "android/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 5,
+      "grepCalls": 3,
+      "listDirCalls": 0,
+      "symbolCalls": 2,
+      "toolResultsTruncated": 0,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: backend/**, frontend/src/**, extensions/firefox-inbox/src/**, scripts/**, android/**"
+      ],
+      "summary": "scope-limited search across backend/**, frontend/src/**, extensions/firefox-inbox/src/**, scripts/**, android/**; 5 file read(s), 3 grep search(es)."
+    },
+    "failure": null,
+    "sessionId": "sess_e5bf7a10b2679dfa",
+    "session": {
+      "id": "sess_e5bf7a10b2679dfa",
+      "status": "created",
+      "remainingCalls": 4
+    },
+    "_debug": {
+      "evidenceSufficiency": {
+        "sufficient": true,
+        "reason": "claim_has_grounded_evidence"
+      },
+      "confidenceScore": 1,
+      "confidenceFactors": {
+        "evidenceCount": 6,
+        "evidenceGrounded": 6,
+        "evidenceDropped": 0,
+        "exactCount": 6,
+        "crossVerified": true,
+        "symbolSearchUsed": true,
+        "stoppedByBudget": false,
+        "gitLogCalls": 0,
+        "gitDiffCalls": 0,
+        "gitBlameCalls": 0,
+        "gitGroundingHint": "none",
+        "taskKind": "default",
+        "adjustments": [
+          "base=0.30 (taskKind=default)",
+          "+0.54 (6 exact evidence item(s))",
+          "+0.12 (cross-verified across multiple files)",
+          "+0.05 (symbol/grep search used)"
+        ],
+        "droppedUngrounded": 0,
+        "droppedMalformed": 0
+      },
+      "stats": {
+        "model": "zai-glm-4.7",
+        "budget": "deep",
+        "budgetSource": "auto",
+        "turns": 6,
+        "toolCalls": 10,
+        "listDirCalls": 0,
+        "findFileCalls": 0,
+        "grepCalls": 3,
+        "filesRead": 5,
+        "gitLogCalls": 0,
+        "gitBlameCalls": 0,
+        "gitDiffCalls": 0,
+        "gitShowCalls": 0,
+        "symbolCalls": 2,
+        "inputTokens": 88747,
+        "outputTokens": 3699,
+        "totalTokens": 92446,
+        "elapsedMs": 67008,
+        "stoppedByBudget": false,
+        "scope": [
+          "backend/**",
+          "frontend/src/**",
+          "extensions/firefox-inbox/src/**",
+          "scripts/**",
+          "android/**"
+        ],
+        "repoRoot": "/home/kyubr/IdeaProjects/studious-memory",
+        "sessionId": "sess_e5bf7a10b2679dfa",
+        "sessionStatus": "created",
+        "sessionSource": "created",
+        "remainingCalls": 4,
+        "cacheHits": 100,
+        "cacheMisses": 466,
+        "cacheHitRate": 0.177,
+        "cacheEntries": 461,
+        "cacheSizeBytes": 2722920
+      },
+      "toolTrace": {
+        "entries": [
+          {
+            "turn": 1,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "backend/mcp_server.py"
+            },
+            "result": {
+              "path": "backend/mcp_server.py",
+              "startLine": 1,
+              "endLine": 41,
+              "totalLines": 41,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 1,
+            "tool": "repo_symbol_context",
+            "args": {
+              "symbol": "scoped_tool"
+            },
+            "result": {
+              "symbol": "scoped_tool",
+              "definition": {
+                "path": "backend/app/mcp/server.py",
+                "line": 79,
+                "endLine": 91,
+                "kind": "function"
+              },
+              "callers": 39,
+              "observedRanges": 21,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 1,
+            "tool": "repo_grep",
+            "args": {
+              "pattern": "register.*tool|MCP.*tool|tool.*register",
+              "scope": [
+                "backend"
+              ]
+            },
+            "result": {
+              "matches": 80,
+              "paths": [
+                "backend/tests/test_input_tools_contract.py",
+                "backend/tests/test_real_web_search_providers.py",
+                "backend/tests/test_sub_agent_coordinator.py",
+                "backend/tests/test_web_search_storage.py",
+                "backend/app/capabilities/metadata.py",
+                "backend/app/capabilities/result.py"
+              ],
+              "truncated": true
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "backend/app/mcp/server.py",
+              "startLine": 1,
+              "endLine": 120
+            },
+            "result": {
+              "path": "backend/app/mcp/server.py",
+              "startLine": 1,
+              "endLine": 120,
+              "totalLines": 947,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "backend/app/mcp/server.py",
+              "startLine": 120,
+              "endLine": 260
+            },
+            "result": {
+              "path": "backend/app/mcp/server.py",
+              "startLine": 120,
+              "endLine": 260,
+              "totalLines": 947,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_grep",
+            "args": {
+              "pattern": "@mcp\\.tool|mcp\\.tool\\(",
+              "scope": [
+                "backend/app/mcp/server.py"
+              ],
+              "contextLines": 2
+            },
+            "result": {
+              "matches": 1,
+              "paths": [
+                "backend/app/mcp/server.py"
+              ],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "backend/app/mcp/server.py",
+              "startLine": 260,
+              "endLine": 320
+            },
+            "result": {
+              "path": "backend/app/mcp/server.py",
+              "startLine": 260,
+              "endLine": 320,
+              "totalLines": 947,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_grep",
+            "args": {
+              "scope": [
+                "backend/app/mcp"
+              ],
+              "pattern": "^@mcp\\.tool|^@mcp\\.resource"
+            },
+            "result": {
+              "matches": 0,
+              "paths": [],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_symbols",
+            "args": {
+              "path": "backend/app/mcp/server.py",
+              "kind": "function"
+            },
+            "result": {
+              "path": "backend/app/mcp/server.py",
+              "symbols": 65,
+              "names": [
+                "scoped_tool",
+                "_decorator",
+                "_wrapped",
+                "_list_tools_for_current_scope",
+                "scoped_resource",
+                "process_input"
+              ]
+            }
+          },
+          {
+            "turn": 5,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "backend/mcp_server.py"
+            },
+            "result": {
+              "path": "backend/mcp_server.py",
+              "startLine": 1,
+              "endLine": 41,
+              "totalLines": 41,
+              "truncated": true
+            }
+          }
+        ],
+        "totalCalls": 10,
+        "truncated": false,
+        "maxEntries": 20
+      },
+      "codeMap": {
+        "entryPoints": [
+          "backend/app/mcp/server.py"
+        ],
+        "keyModules": [
+          {
+            "path": "backend/mcp_server.py",
+            "role": "entry point",
+            "linesRead": 82
+          },
+          {
+            "path": "backend/app/mcp/server.py",
+            "role": "entry point",
+            "linesRead": 369
+          },
+          {
+            "path": "scripts/generate_contract_snapshot.py",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "backend/tests/test_input_tools_contract.py",
+            "role": "test",
+            "linesRead": 3
+          },
+          {
+            "path": "backend/tests/test_real_web_search_providers.py",
+            "role": "test",
+            "linesRead": 3
+          },
+          {
+            "path": "backend/tests/test_sub_agent_coordinator.py",
+            "role": "test",
+            "linesRead": 1
+          },
+          {
+            "path": "backend/tests/test_web_search_storage.py",
+            "role": "test",
+            "linesRead": 1
+          },
+          {
+            "path": "backend/app/capabilities/metadata.py",
+            "role": "entry point",
+            "linesRead": 24
+          },
+          {
+            "path": "backend/app/capabilities/result.py",
+            "role": "entry point",
+            "linesRead": 3
+          },
+          {
+            "path": "backend/app/mcp/context.py",
+            "role": "entry point",
+            "linesRead": 3
+          },
+          {
+            "path": "backend/app/models/web_search.py",
+            "role": "data model",
+            "linesRead": 1
+          },
+          {
+            "path": "backend/app/schemas/agent.py",
+            "role": "data model",
+            "linesRead": 1
+          },
+          {
+            "path": "backend/app/schemas/web_search.py",
+            "role": "data model",
+            "linesRead": 1
+          },
+          {
+            "path": "backend/app/services/agent_capability_map.py",
+            "role": "service",
+            "linesRead": 1
+          },
+          {
+            "path": "backend/app/services/web_search_audit.py",
+            "role": "service",
+            "linesRead": 2
+          },
+          {
+            "path": "backend/db_migrations/versions/0077_web_search_audit_foundation.py",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "backend/tests/auth/test_mcp_scope_enforcement.py",
+            "role": "test",
+            "linesRead": 5
+          },
+          {
+            "path": "backend/tests/mcp/test_agent_action_tools.py",
+            "role": "test",
+            "linesRead": 2
+          },
+          {
+            "path": "backend/tests/mcp/test_agent_capability_map.py",
+            "role": "test",
+            "linesRead": 1
+          },
+          {
+            "path": "backend/tests/mcp/test_agent_contract_workflow.py",
+            "role": "test",
+            "linesRead": 1
+          },
+          {
+            "path": "backend/tests/mcp/test_feedback_tools.py",
+            "role": "test",
+            "linesRead": 3
+          },
+          {
+            "path": "backend/tests/mcp/test_mcp_access_profile_scope.py",
+            "role": "test",
+            "linesRead": 2
+          },
+          {
+            "path": "backend/tests/mcp/test_mcp_client.py",
+            "role": "test",
+            "linesRead": 1
+          },
+          {
+            "path": "backend/tests/mcp/test_memory_provenance_tool.py",
+            "role": "test",
+            "linesRead": 2
+          },
+          {
+            "path": "backend/tests/mcp/test_naver_openapi_agent_mcp.py",
+            "role": "test",
+            "linesRead": 3
+          },
+          {
+            "path": "backend/tests/mcp/test_proactive_tools.py",
+            "role": "test",
+            "linesRead": 1
+          }
+        ]
+      }
+    }
+  },
+  "contentText": "## Result\nConfidence: high\nVerification: verified\nEvidence Quality: high (6 exact, 0 partial, 0 dropped)\nSearch Coverage: scope-limited search across backend/**, frontend/src/**, extensions/firefox-inbox/src/**, scripts/**, android/**; 5 file read(s), 3 grep search(es).\n\n## Answer\nThe claim is PARTIALLY CORRECT but contains a critical file path error. MCP tools ARE registered through the `scoped_tool` wrapper, but the correct file is `backend/app/mcp/server.py`, NOT `backend/mcp_server.py`. The file `backend/mcp_server.py` is only a 41-line stdio transport entry point that imports and runs the MCP server - it contains no tool registration code.\n\n## Targets\n- [context] `backend/mcp_server.py:1-41` (E1) - Full file showing it's only an entry point with no tool registration\n- [read] `backend/app/mcp/server.py:79-91` (E2) - scoped_tool wrapper definition that wraps @mcp.tool() decorator\n- [read] `backend/app/mcp/server.py:110-120` (E4) - scoped_resource wrapper (equivalent wrapper for resources)\n- [read] `backend/app/mcp/server.py:123-143` - Example of tool registration using @scoped_tool decorator\n- [read] `backend/app/mcp/server.py:146-174` - Another example of tool registration using @scoped_tool\n- [read] `backend/app/mcp/server.py:81-81` (E3) - Shows scoped_tool calls @mcp.tool() for actual registration\n- [read] `backend/app/mcp/server.py:123-123` (E5) - Example: process_input tool uses @scoped_tool wrapper\n- [read] `backend/app/mcp/server.py:146-146` (E6) - Example: orchestrate_input tool uses @scoped_tool wrapper\n\n## Evidence (6 items, confidence: high)\n- E1 `backend/mcp_server.py:1-41` - Shows this file is only an entry point with no tool registration\n  snippet: 1: \"\"\"Stdio transport entry point for MCP clients that don't support HTTP.\"\"\"\n  2: \n  3: import os\n  4: import subprocess\n  5: import sys\n  6: \n  7: \n  8: def _run_migrations() -> None:\n  9:     \"\"\"Run Alembic migrations before starting the stdio server.\"\"\"\n  10:     from app.config import ensure_runtime_directories\n  11: \n  12:     ensure_runtime_directories()\n  ... [snippet truncated]\n- E2 `backend/app/mcp/server.py:79-91` - Defines scoped_tool wrapper using @mcp.tool() internally\n  snippet: 79: def scoped_tool(*required_scopes: str):\n  80:     def _decorator(func: Callable[..., Any]):\n  81:         @mcp.tool(meta={\"required_scopes\": list(required_scopes)})\n  82:         @wraps(func)\n  83:         async def _wrapped(*args: Any, **kwargs: Any):\n  84:             require_mcp_scopes(*required_scopes)\n  85:             return await func(*args, **kwargs)\n  86: \n  87:         return _wrapped\n  88: \n  89:     return _decorator\n  90: \n  ... [snippet truncated]\n- E3 `backend/app/mcp/server.py:81-81` - Shows scoped_tool calls @mcp.tool() for actual registration\n  snippet: 81:         @mcp.tool(meta={\"required_scopes\": list(required_scopes)})\n- E4 `backend/app/mcp/server.py:110-120` - Defines scoped_resource wrapper - equivalent for resources\n  snippet: 110: def scoped_resource(uri: str, *required_scopes: str):\n  111:     def _decorator(func: Callable[..., Any]):\n  112:         @mcp.resource(uri)\n  113:         @wraps(func)\n  114:         async def _wrapped(*args: Any, **kwargs: Any):\n  115:             require_mcp_scopes(*required_scopes)\n  116:             return await func(*args, **kwargs)\n  117: \n  118:         return _wrapped\n  119: \n  120:     return _decorator\n- E5 `backend/app/mcp/server.py:123-123` - Example: process_input tool uses @scoped_tool wrapper\n  snippet: 123: @scoped_tool(MCP_SCOPE_MEMORY_WRITE)\n- E6 `backend/app/mcp/server.py:146-146` - Example: orchestrate_input tool uses @scoped_tool wrapper\n  snippet: 146: @scoped_tool(MCP_SCOPE_MEMORY_WRITE)\n\n## Uncertainty\n- The claim mentions 'equivalent wrappers' - I confirmed scoped_resource for resources, but other wrappers may exist in files outside backend/mcp_server.py scope\n\nSession: sess_e5bf7a10b2679dfa (pass as \"session\" for follow-up calls)"
+}

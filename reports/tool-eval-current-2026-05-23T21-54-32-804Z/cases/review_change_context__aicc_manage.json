@@ -1,0 +1,862 @@
+{
+  "tool": "review_change_context",
+  "repo": "aicc_manage",
+  "args": {
+    "repo_root": "/home/kyubr/IdeaProjects/aicc_manage",
+    "scope": [
+      "src/**",
+      "websocket-server/src/**",
+      "lambda/**",
+      "prisma/**",
+      "scripts/**"
+    ],
+    "reviewGoal": "Review recent auth and websocket-related changes for security or behavior risk.",
+    "path": "websocket-server/src/middleware/auth.ts"
+  },
+  "elapsedMs": 8585,
+  "error": null,
+  "isError": false,
+  "summary": {
+    "directAnswer": "Recent WebSocket auth changes address critical security vulnerabilities: (1) Removed JWT_SECRET fallback to 'your-secret-key' which allowed auth bypass, (2) Removed query parameter token extraction to prevent log/referrer exposure, (3) Added tenant authorization validating companyId+sessionId against database for all chat events, (4) Added role-based authorization restricting agent-only operations. Broader auth fixes include: 2FA email send failure now invalidates challenges, replaced Math.random() with crypto.randomInt() for OTP/temp passwords, fixed fail-open CRON_SECRET validation to fail-closed structure. All changes are defensive security improvements.",
+    "status": {
+      "confidence": "high",
+      "verification": "verified",
+      "complete": true,
+      "warnings": [
+        "2 evidence item(s) are grounded only by grep, blame, or nearby line observations."
+      ]
+    },
+    "evidenceQuality": {
+      "level": "high",
+      "exactCount": 6,
+      "partialCount": 2,
+      "droppedCount": 0,
+      "fileCount": 6,
+      "warnings": [
+        "2 evidence item(s) are grounded only by grep, blame, or nearby line observations."
+      ],
+      "summary": "Verified: 4 files read, 6/8 evidence items grounded, cross-verified across 6 files. All evidence grounded in inspected code."
+    },
+    "failure": null,
+    "nextAction": {
+      "type": "stop",
+      "reason": "Explorer result is complete for the requested read-only investigation."
+    },
+    "searchCoverage": {
+      "scope": [
+        "src/**",
+        "websocket-server/src/**",
+        "lambda/**",
+        "prisma/**",
+        "scripts/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 4,
+      "grepCalls": 0,
+      "listDirCalls": 0,
+      "symbolCalls": 0,
+      "toolResultsTruncated": 0,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: src/**, websocket-server/src/**, lambda/**, prisma/**, scripts/**"
+      ],
+      "summary": "scope-limited search across src/**, websocket-server/src/**, lambda/**, prisma/**, scripts/**; 4 file read(s), 0 grep search(es)."
+    },
+    "critic": null,
+    "sessionId": "sess_51772e8c68b2fa6f",
+    "session": {
+      "id": "sess_51772e8c68b2fa6f",
+      "status": "created",
+      "remainingCalls": 4
+    },
+    "targets": [
+      {
+        "path": "websocket-server/src/middleware/auth.ts",
+        "role": "context",
+        "reason": "JWT_SECRET strict validation - IIFE throws at startup if not set, preventing auth bypass from default secret",
+        "evidenceRefs": [
+          "E1"
+        ],
+        "startLine": 24,
+        "endLine": 28
+      },
+      {
+        "path": "websocket-server/src/middleware/auth.ts",
+        "role": "context",
+        "reason": "Token extraction removed query parameter support to prevent token exposure in logs/referrers",
+        "evidenceRefs": [
+          "E2"
+        ],
+        "startLine": 67,
+        "endLine": 70
+      },
+      {
+        "path": "websocket-server/src/lib/db.ts",
+        "role": "read",
+        "reason": "New tenant authorization helper - validates sessionId belongs to user's companyId before granting access",
+        "evidenceRefs": [
+          "E3"
+        ],
+        "startLine": 28,
+        "endLine": 44
+      },
+      {
+        "path": "websocket-server/src/socket-handlers/chat.ts",
+        "role": "context",
+        "reason": "join-session handler now validates tenant ownership via findChatSession before allowing room join",
+        "evidenceRefs": [
+          "E4"
+        ],
+        "startLine": 49,
+        "endLine": 61
+      },
+      {
+        "path": "websocket-server/src/socket-handlers/chat.ts",
+        "role": "context",
+        "reason": "accept-chat handler adds both tenant validation and agent role check",
+        "evidenceRefs": [
+          "E5"
+        ],
+        "startLine": 160,
+        "endLine": 175
+      },
+      {
+        "path": "src/app/api/auth/login/route.ts",
+        "role": "read",
+        "reason": "2FA email send failure handling - invalidates challenge and returns 503 to prevent stuck state",
+        "evidenceRefs": [
+          "E6"
+        ],
+        "startLine": 276,
+        "endLine": 285
+      },
+      {
+        "path": "src/lib/utils/password.ts",
+        "role": "read",
+        "reason": "Cryptographically secure random generation - replaced Math.random() with crypto.randomInt()",
+        "evidenceRefs": [
+          "E7"
+        ],
+        "startLine": 1,
+        "endLine": 16
+      },
+      {
+        "path": "src/app/api/cron/data-retention/route.ts",
+        "role": "read",
+        "reason": "Fail-closed CRON_SECRET validation - requires super_admin session when CRON_SECRET not set",
+        "evidenceRefs": [
+          "E8"
+        ],
+        "startLine": 9,
+        "endLine": 23
+      }
+    ],
+    "discoveredPathsCount": 11,
+    "evidence": [
+      {
+        "id": "E1",
+        "path": "websocket-server/src/middleware/auth.ts",
+        "startLine": 24,
+        "endLine": 28,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "JWT_SECRET validation change from commit 350728c2 - IIFE ensures startup failure if not set",
+        "snippet": "24: const JWT_SECRET: string = (() => {\n25:   const secret = process.env.JWT_SECRET\n26:   if (!secret) throw new Error('JWT_SECRET must be set')\n27:   return secret\n28: })()"
+      },
+      {
+        "id": "E2",
+        "path": "websocket-server/src/middleware/auth.ts",
+        "startLine": 67,
+        "endLine": 70,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Token extraction simplified to auth/header only, query token removed per commit 350728c2",
+        "snippet": "67:     // 토큰 추출 (auth 또는 헤더에서만 — query는 로그 노출 위험으로 제외)\n68:     const token =\n69:       socket.handshake.auth.token ||\n70:       socket.handshake.headers.authorization?.replace('Bearer ', '')"
+      },
+      {
+        "id": "E3",
+        "path": "websocket-server/src/lib/db.ts",
+        "startLine": 28,
+        "endLine": 44,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "New findChatSession function added in commit cae48b88 for tenant authorization",
+        "snippet": "28: export async function findChatSession(\n29:   sessionId: string,\n30:   companyId: string\n31: ): Promise<ChatSessionRow | null> {\n32:   const client = await getPool().connect()\n33:   try {\n34:     const { rows } = await client.query<ChatSessionRow>(\n35:       `SELECT id, assigned_to, status\n36:        FROM chat_sessions\n37:        WHERE id = $1 AND company_id = $2\n38:        LIMIT 1`,\n39:       [sessionId, companyId]\n... [snippet truncated]"
+      },
+      {
+        "id": "E4",
+        "path": "websocket-server/src/socket-handlers/chat.ts",
+        "startLine": 49,
+        "endLine": 61,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "join-session handler added tenant check in commit cae48b88",
+        "snippet": "49:   socket.on('join-session', async (data: JoinSessionData) => {\n50:     const { sessionId } = data\n51: \n52:     if (!isValidSessionId(sessionId)) {\n53:       socket.emit('error', { message: '유효하지 않은 세션 ID입니다.' })\n54:       return\n55:     }\n56: \n57:     const chatSession = await findChatSession(sessionId, companyId)\n58:     if (!chatSession) {\n59:       socket.emit('error', { message: '권한이 없는 세션입니다.' })\n60:       return\n... [snippet truncated]"
+      },
+      {
+        "id": "E5",
+        "path": "websocket-server/src/socket-handlers/chat.ts",
+        "startLine": 160,
+        "endLine": 175,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "accept-chat handler added tenant validation and agent role restriction in commit cae48b88",
+        "snippet": "160:   socket.on('accept-chat', async (data: JoinSessionData) => {\n161:     const { sessionId } = data\n162: \n163:     if (!isValidSessionId(sessionId)) return\n164: \n165:     // 상담원 role만 허용\n166:     if (!AGENT_ROLES.has(role)) {\n167:       socket.emit('error', { message: '상담원 권한이 필요합니다.' })\n168:       return\n169:     }\n170: \n171:     const chatSession = await findChatSession(sessionId, companyId)\n... [snippet truncated]"
+      },
+      {
+        "id": "E6",
+        "path": "src/app/api/auth/login/route.ts",
+        "startLine": 276,
+        "endLine": 285,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "2FA email send failure handling added in commit 78785c12",
+        "snippet": "276:           await sendTwoFactorCode(user.email, code)\n277:         } catch (emailError) {\n278:           console.error('2FA email send error:', emailError)\n279:           // 발송 실패 시 생성한 코드를 무효화하고 에러 반환\n280:           await prisma.twoFactorCode.updateMany({\n281:             where: { userId: user.id, used: false },\n282:             data: { used: true },\n283:           })\n284:           return NextResponse.json(\n285:             { error: '인증 코드 발송에 실패했습니다. 잠시 후 다시 시도해주세요.' },"
+      },
+      {
+        "id": "E7",
+        "path": "src/lib/utils/password.ts",
+        "startLine": 1,
+        "endLine": 16,
+        "groundingStatus": "partial",
+        "evidenceType": "file_range",
+        "why": "crypto.randomInt replaced Math.random for secure RNG in commit 7d0f1599",
+        "snippet": "1: import bcrypt from 'bcryptjs'\n2: import { randomInt } from 'crypto'\n3: \n4: // 임시 비밀번호 생성 (8자리 영문+숫자)\n5: export function generateTempPassword(): string {\n6:   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789'\n7:   let password = ''\n8:   for (let i = 0; i < 8; i++) {\n9:     password += chars.charAt(randomInt(0, chars.length))\n10:   }\n11:   return password\n12: }\n... [snippet truncated]"
+      },
+      {
+        "id": "E8",
+        "path": "src/app/api/cron/data-retention/route.ts",
+        "startLine": 9,
+        "endLine": 23,
+        "groundingStatus": "partial",
+        "evidenceType": "file_range",
+        "why": "Fail-closed CRON_SECRET validation fixed in commit f894b841",
+        "snippet": "9:     const authHeader = request.headers.get('authorization')\n10:     const cronSecret = process.env.CRON_SECRET\n11: \n12:     if (cronSecret) {\n13:       // CRON_SECRET 설정됨: Bearer 토큰 일치 여부만 확인\n14:       if (authHeader !== `Bearer ${cronSecret}`) {\n15:         return NextResponse.json({ error: '권한이 없습니다.' }, { status: 403 })\n16:       }\n17:     } else {\n18:       // CRON_SECRET 미설정: 수동 실행 경로 → super_admin 세션 필수\n19:       const { getSession } = await import('@/lib/auth')\n20:       const session = await getSession()\n... [snippet truncated]"
+      }
+    ],
+    "uncertainties": [
+      "2 evidence item(s) are grounded only by grep, blame, or nearby line observations."
+    ],
+    "stats": {
+      "turns": 7,
+      "toolCalls": 12,
+      "filesRead": 4,
+      "grepCalls": 0,
+      "symbolCalls": 0,
+      "stoppedByBudget": false,
+      "elapsedMs": 8573,
+      "totalTokens": 98967
+    }
+  },
+  "structuredContent": {
+    "schemaVersion": 1,
+    "directAnswer": "Recent WebSocket auth changes address critical security vulnerabilities: (1) Removed JWT_SECRET fallback to 'your-secret-key' which allowed auth bypass, (2) Removed query parameter token extraction to prevent log/referrer exposure, (3) Added tenant authorization validating companyId+sessionId against database for all chat events, (4) Added role-based authorization restricting agent-only operations. Broader auth fixes include: 2FA email send failure now invalidates challenges, replaced Math.random() with crypto.randomInt() for OTP/temp passwords, fixed fail-open CRON_SECRET validation to fail-closed structure. All changes are defensive security improvements.",
+    "status": {
+      "confidence": "high",
+      "verification": "verified",
+      "complete": true,
+      "warnings": [
+        "2 evidence item(s) are grounded only by grep, blame, or nearby line observations."
+      ]
+    },
+    "targets": [
+      {
+        "path": "websocket-server/src/middleware/auth.ts",
+        "role": "context",
+        "reason": "JWT_SECRET strict validation - IIFE throws at startup if not set, preventing auth bypass from default secret",
+        "evidenceRefs": [
+          "E1"
+        ],
+        "startLine": 24,
+        "endLine": 28
+      },
+      {
+        "path": "websocket-server/src/middleware/auth.ts",
+        "role": "context",
+        "reason": "Token extraction removed query parameter support to prevent token exposure in logs/referrers",
+        "evidenceRefs": [
+          "E2"
+        ],
+        "startLine": 67,
+        "endLine": 70
+      },
+      {
+        "path": "websocket-server/src/lib/db.ts",
+        "role": "read",
+        "reason": "New tenant authorization helper - validates sessionId belongs to user's companyId before granting access",
+        "evidenceRefs": [
+          "E3"
+        ],
+        "startLine": 28,
+        "endLine": 44
+      },
+      {
+        "path": "websocket-server/src/socket-handlers/chat.ts",
+        "role": "context",
+        "reason": "join-session handler now validates tenant ownership via findChatSession before allowing room join",
+        "evidenceRefs": [
+          "E4"
+        ],
+        "startLine": 49,
+        "endLine": 61
+      },
+      {
+        "path": "websocket-server/src/socket-handlers/chat.ts",
+        "role": "context",
+        "reason": "accept-chat handler adds both tenant validation and agent role check",
+        "evidenceRefs": [
+          "E5"
+        ],
+        "startLine": 160,
+        "endLine": 175
+      },
+      {
+        "path": "src/app/api/auth/login/route.ts",
+        "role": "read",
+        "reason": "2FA email send failure handling - invalidates challenge and returns 503 to prevent stuck state",
+        "evidenceRefs": [
+          "E6"
+        ],
+        "startLine": 276,
+        "endLine": 285
+      },
+      {
+        "path": "src/lib/utils/password.ts",
+        "role": "read",
+        "reason": "Cryptographically secure random generation - replaced Math.random() with crypto.randomInt()",
+        "evidenceRefs": [
+          "E7"
+        ],
+        "startLine": 1,
+        "endLine": 16
+      },
+      {
+        "path": "src/app/api/cron/data-retention/route.ts",
+        "role": "read",
+        "reason": "Fail-closed CRON_SECRET validation - requires super_admin session when CRON_SECRET not set",
+        "evidenceRefs": [
+          "E8"
+        ],
+        "startLine": 9,
+        "endLine": 23
+      }
+    ],
+    "discoveredPaths": [
+      {
+        "path": "websocket-server/src/lib/db.ts",
+        "kind": "file",
+        "sourceTool": "repo_git_show",
+        "reason": "Changed file discovered from git metadata."
+      },
+      {
+        "path": "websocket-server/src/middleware/auth.ts",
+        "kind": "file",
+        "sourceTool": "repo_git_show",
+        "reason": "Changed file discovered from git metadata."
+      },
+      {
+        "path": "websocket-server/src/socket-handlers/chat.ts",
+        "kind": "file",
+        "sourceTool": "repo_git_show",
+        "reason": "Changed file discovered from git metadata."
+      },
+      {
+        "path": "src/app/api/auth/login/route.ts",
+        "kind": "file",
+        "sourceTool": "repo_git_show",
+        "reason": "Changed file discovered from git metadata."
+      },
+      {
+        "path": "src/app/api/auth/two-factor/send-code/route.ts",
+        "kind": "file",
+        "sourceTool": "repo_git_show",
+        "reason": "Changed file discovered from git metadata."
+      },
+      {
+        "path": "src/app/api/auth/two-factor/setup/route.ts",
+        "kind": "file",
+        "sourceTool": "repo_git_show",
+        "reason": "Changed file discovered from git metadata."
+      },
+      {
+        "path": "src/lib/utils/password.ts",
+        "kind": "file",
+        "sourceTool": "repo_git_show",
+        "reason": "Changed file discovered from git metadata."
+      },
+      {
+        "path": "src/app/api/cron/aws-usage-cleanup/route.ts",
+        "kind": "file",
+        "sourceTool": "repo_git_show",
+        "reason": "Changed file discovered from git metadata."
+      },
+      {
+        "path": "src/app/api/cron/data-retention/route.ts",
+        "kind": "file",
+        "sourceTool": "repo_git_show",
+        "reason": "Changed file discovered from git metadata."
+      },
+      {
+        "path": "src/app/api/cron/newsletter-send/route.ts",
+        "kind": "file",
+        "sourceTool": "repo_git_show",
+        "reason": "Changed file discovered from git metadata."
+      },
+      {
+        "path": "src/app/api/cron/subscription-renewal/route.ts",
+        "kind": "file",
+        "sourceTool": "repo_git_show",
+        "reason": "Changed file discovered from git metadata."
+      }
+    ],
+    "evidence": [
+      {
+        "path": "websocket-server/src/middleware/auth.ts",
+        "startLine": 24,
+        "endLine": 28,
+        "why": "JWT_SECRET validation change from commit 350728c2 - IIFE ensures startup failure if not set",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E1",
+        "snippet": "24: const JWT_SECRET: string = (() => {\n25:   const secret = process.env.JWT_SECRET\n26:   if (!secret) throw new Error('JWT_SECRET must be set')\n27:   return secret\n28: })()"
+      },
+      {
+        "path": "websocket-server/src/middleware/auth.ts",
+        "startLine": 67,
+        "endLine": 70,
+        "why": "Token extraction simplified to auth/header only, query token removed per commit 350728c2",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E2",
+        "snippet": "67:     // 토큰 추출 (auth 또는 헤더에서만 — query는 로그 노출 위험으로 제외)\n68:     const token =\n69:       socket.handshake.auth.token ||\n70:       socket.handshake.headers.authorization?.replace('Bearer ', '')"
+      },
+      {
+        "path": "websocket-server/src/lib/db.ts",
+        "startLine": 28,
+        "endLine": 44,
+        "why": "New findChatSession function added in commit cae48b88 for tenant authorization",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E3",
+        "snippet": "28: export async function findChatSession(\n29:   sessionId: string,\n30:   companyId: string\n31: ): Promise<ChatSessionRow | null> {\n32:   const client = await getPool().connect()\n33:   try {\n34:     const { rows } = await client.query<ChatSessionRow>(\n35:       `SELECT id, assigned_to, status\n36:        FROM chat_sessions\n37:        WHERE id = $1 AND company_id = $2\n38:        LIMIT 1`,\n39:       [sessionId, companyId]\n... [snippet truncated]"
+      },
+      {
+        "path": "websocket-server/src/socket-handlers/chat.ts",
+        "startLine": 49,
+        "endLine": 61,
+        "why": "join-session handler added tenant check in commit cae48b88",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E4",
+        "snippet": "49:   socket.on('join-session', async (data: JoinSessionData) => {\n50:     const { sessionId } = data\n51: \n52:     if (!isValidSessionId(sessionId)) {\n53:       socket.emit('error', { message: '유효하지 않은 세션 ID입니다.' })\n54:       return\n55:     }\n56: \n57:     const chatSession = await findChatSession(sessionId, companyId)\n58:     if (!chatSession) {\n59:       socket.emit('error', { message: '권한이 없는 세션입니다.' })\n60:       return\n... [snippet truncated]"
+      },
+      {
+        "path": "websocket-server/src/socket-handlers/chat.ts",
+        "startLine": 160,
+        "endLine": 175,
+        "why": "accept-chat handler added tenant validation and agent role restriction in commit cae48b88",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E5",
+        "snippet": "160:   socket.on('accept-chat', async (data: JoinSessionData) => {\n161:     const { sessionId } = data\n162: \n163:     if (!isValidSessionId(sessionId)) return\n164: \n165:     // 상담원 role만 허용\n166:     if (!AGENT_ROLES.has(role)) {\n167:       socket.emit('error', { message: '상담원 권한이 필요합니다.' })\n168:       return\n169:     }\n170: \n171:     const chatSession = await findChatSession(sessionId, companyId)\n... [snippet truncated]"
+      },
+      {
+        "path": "src/app/api/auth/login/route.ts",
+        "startLine": 276,
+        "endLine": 285,
+        "why": "2FA email send failure handling added in commit 78785c12",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E6",
+        "snippet": "276:           await sendTwoFactorCode(user.email, code)\n277:         } catch (emailError) {\n278:           console.error('2FA email send error:', emailError)\n279:           // 발송 실패 시 생성한 코드를 무효화하고 에러 반환\n280:           await prisma.twoFactorCode.updateMany({\n281:             where: { userId: user.id, used: false },\n282:             data: { used: true },\n283:           })\n284:           return NextResponse.json(\n285:             { error: '인증 코드 발송에 실패했습니다. 잠시 후 다시 시도해주세요.' },"
+      },
+      {
+        "path": "src/lib/utils/password.ts",
+        "startLine": 1,
+        "endLine": 16,
+        "why": "crypto.randomInt replaced Math.random for secure RNG in commit 7d0f1599",
+        "evidenceType": "file_range",
+        "groundingStatus": "partial",
+        "id": "E7",
+        "snippet": "1: import bcrypt from 'bcryptjs'\n2: import { randomInt } from 'crypto'\n3: \n4: // 임시 비밀번호 생성 (8자리 영문+숫자)\n5: export function generateTempPassword(): string {\n6:   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789'\n7:   let password = ''\n8:   for (let i = 0; i < 8; i++) {\n9:     password += chars.charAt(randomInt(0, chars.length))\n10:   }\n11:   return password\n12: }\n... [snippet truncated]"
+      },
+      {
+        "path": "src/app/api/cron/data-retention/route.ts",
+        "startLine": 9,
+        "endLine": 23,
+        "why": "Fail-closed CRON_SECRET validation fixed in commit f894b841",
+        "evidenceType": "file_range",
+        "groundingStatus": "partial",
+        "id": "E8",
+        "snippet": "9:     const authHeader = request.headers.get('authorization')\n10:     const cronSecret = process.env.CRON_SECRET\n11: \n12:     if (cronSecret) {\n13:       // CRON_SECRET 설정됨: Bearer 토큰 일치 여부만 확인\n14:       if (authHeader !== `Bearer ${cronSecret}`) {\n15:         return NextResponse.json({ error: '권한이 없습니다.' }, { status: 403 })\n16:       }\n17:     } else {\n18:       // CRON_SECRET 미설정: 수동 실행 경로 → super_admin 세션 필수\n19:       const { getSession } = await import('@/lib/auth')\n20:       const session = await getSession()\n... [snippet truncated]"
+      }
+    ],
+    "uncertainties": [
+      "2 evidence item(s) are grounded only by grep, blame, or nearby line observations."
+    ],
+    "nextAction": {
+      "type": "stop",
+      "reason": "Explorer result is complete for the requested read-only investigation."
+    },
+    "evidenceQuality": {
+      "level": "high",
+      "exactCount": 6,
+      "partialCount": 2,
+      "droppedCount": 0,
+      "fileCount": 6,
+      "warnings": [
+        "2 evidence item(s) are grounded only by grep, blame, or nearby line observations."
+      ],
+      "summary": "Verified: 4 files read, 6/8 evidence items grounded, cross-verified across 6 files. All evidence grounded in inspected code."
+    },
+    "searchCoverage": {
+      "scope": [
+        "src/**",
+        "websocket-server/src/**",
+        "lambda/**",
+        "prisma/**",
+        "scripts/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 4,
+      "grepCalls": 0,
+      "listDirCalls": 0,
+      "symbolCalls": 0,
+      "toolResultsTruncated": 0,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: src/**, websocket-server/src/**, lambda/**, prisma/**, scripts/**"
+      ],
+      "summary": "scope-limited search across src/**, websocket-server/src/**, lambda/**, prisma/**, scripts/**; 4 file read(s), 0 grep search(es)."
+    },
+    "failure": null,
+    "sessionId": "sess_51772e8c68b2fa6f",
+    "session": {
+      "id": "sess_51772e8c68b2fa6f",
+      "status": "created",
+      "remainingCalls": 4
+    },
+    "_debug": {
+      "evidenceSufficiency": {
+        "sufficient": true,
+        "reason": "general_multi_evidence"
+      },
+      "confidenceScore": 1,
+      "confidenceFactors": {
+        "evidenceCount": 8,
+        "evidenceGrounded": 8,
+        "evidenceDropped": 0,
+        "exactCount": 6,
+        "crossVerified": true,
+        "symbolSearchUsed": false,
+        "stoppedByBudget": false,
+        "gitLogCalls": 3,
+        "gitDiffCalls": 0,
+        "gitBlameCalls": 0,
+        "gitGroundingHint": "git_tools_used",
+        "taskKind": "git-guided",
+        "adjustments": [
+          "base=0.30 (taskKind=git-guided)",
+          "+0.54 (6 exact evidence item(s))",
+          "+0.12 (cross-verified across multiple files)",
+          "+0.05 (git blame/diff/show used - git evidence quality)"
+        ],
+        "droppedUngrounded": 0,
+        "droppedMalformed": 0
+      },
+      "stats": {
+        "model": "zai-glm-4.7",
+        "budget": "deep",
+        "budgetSource": "auto",
+        "turns": 7,
+        "toolCalls": 12,
+        "listDirCalls": 0,
+        "findFileCalls": 0,
+        "grepCalls": 0,
+        "filesRead": 4,
+        "gitLogCalls": 3,
+        "gitBlameCalls": 0,
+        "gitDiffCalls": 0,
+        "gitShowCalls": 5,
+        "symbolCalls": 0,
+        "inputTokens": 93730,
+        "outputTokens": 5237,
+        "totalTokens": 98967,
+        "elapsedMs": 8573,
+        "stoppedByBudget": false,
+        "scope": [
+          "src/**",
+          "websocket-server/src/**",
+          "lambda/**",
+          "prisma/**",
+          "scripts/**"
+        ],
+        "repoRoot": "/home/kyubr/IdeaProjects/aicc_manage",
+        "sessionId": "sess_51772e8c68b2fa6f",
+        "sessionStatus": "created",
+        "sessionSource": "created",
+        "remainingCalls": 4,
+        "cacheHits": 103,
+        "cacheMisses": 495,
+        "cacheHitRate": 0.172,
+        "cacheEntries": 488,
+        "cacheSizeBytes": 2942480
+      },
+      "toolTrace": {
+        "entries": [
+          {
+            "turn": 1,
+            "tool": "repo_git_log",
+            "args": {
+              "path": "websocket-server/src/middleware/auth.ts"
+            },
+            "result": {
+              "commits": 4,
+              "hashes": [
+                "cae48b8855109efda7b62a4e9f1b83472af7c935",
+                "350728c22a4afe12acdd553942a1e14b2a9cb3b3",
+                "89ee3a77b0b28753654ac8e26d6520171af7984a",
+                "96faa95c639ff5196db949c452790bbf2b185ecb"
+              ],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 1,
+            "tool": "repo_git_log",
+            "args": {},
+            "result": {
+              "commits": 15,
+              "hashes": [
+                "1757f9556340be7f33a8f0e5be4148a31ed6cd1a",
+                "bfdab0369b95a7718fa049ea66f0a56bc093496e",
+                "86be3e9b4bed48d5f315477588864d392355a064",
+                "78785c123dd458d7a69d56adf1e17f1cb11b3887",
+                "350728c22a4afe12acdd553942a1e14b2a9cb3b3",
+                "63e2ff83d41af9047898a742e908f62252f780a3"
+              ],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 1,
+            "tool": "repo_git_log",
+            "args": {},
+            "result": {
+              "commits": 0,
+              "hashes": [],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_git_show",
+            "args": {
+              "ref": "cae48b8855109efda7b62a4e9f1b83472af7c935"
+            },
+            "result": {
+              "files": 3,
+              "paths": [
+                "websocket-server/src/lib/db.ts",
+                "websocket-server/src/middleware/auth.ts",
+                "websocket-server/src/socket-handlers/chat.ts"
+              ],
+              "additions": 101,
+              "deletions": 10
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_git_show",
+            "args": {
+              "ref": "350728c22a4afe12acdd553942a1e14b2a9cb3b3"
+            },
+            "result": {
+              "files": 1,
+              "paths": [
+                "websocket-server/src/middleware/auth.ts"
+              ],
+              "additions": 6,
+              "deletions": 4
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_git_show",
+            "args": {
+              "ref": "78785c123dd458d7a69d56adf1e17f1cb11b3887"
+            },
+            "result": {
+              "files": 1,
+              "paths": [
+                "src/app/api/auth/login/route.ts"
+              ],
+              "additions": 9,
+              "deletions": 0
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_git_show",
+            "args": {
+              "ref": "7d0f15996f422c02998503482c5256b8110801b7"
+            },
+            "result": {
+              "files": 4,
+              "paths": [
+                "src/app/api/auth/login/route.ts",
+                "src/app/api/auth/two-factor/send-code/route.ts",
+                "src/app/api/auth/two-factor/setup/route.ts",
+                "src/lib/utils/password.ts"
+              ],
+              "additions": 8,
+              "deletions": 4
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_git_show",
+            "args": {
+              "ref": "f894b8415ce3b479be46195919f3462845041b8e"
+            },
+            "result": {
+              "files": 4,
+              "paths": [
+                "src/app/api/cron/aws-usage-cleanup/route.ts",
+                "src/app/api/cron/data-retention/route.ts",
+                "src/app/api/cron/newsletter-send/route.ts",
+                "src/app/api/cron/subscription-renewal/route.ts"
+              ],
+              "additions": 33,
+              "deletions": 6
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "websocket-server/src/middleware/auth.ts"
+            },
+            "result": {
+              "path": "websocket-server/src/middleware/auth.ts",
+              "startLine": 1,
+              "endLine": 132,
+              "totalLines": 132,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "websocket-server/src/lib/db.ts"
+            },
+            "result": {
+              "path": "websocket-server/src/lib/db.ts",
+              "startLine": 1,
+              "endLine": 46,
+              "totalLines": 46,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 5,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "websocket-server/src/socket-handlers/chat.ts",
+              "startLine": 1,
+              "endLine": 70
+            },
+            "result": {
+              "path": "websocket-server/src/socket-handlers/chat.ts",
+              "startLine": 1,
+              "endLine": 70,
+              "totalLines": 265,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 6,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "websocket-server/src/socket-handlers/chat.ts",
+              "startLine": 157,
+              "endLine": 182
+            },
+            "result": {
+              "path": "websocket-server/src/socket-handlers/chat.ts",
+              "startLine": 157,
+              "endLine": 182,
+              "totalLines": 265,
+              "truncated": true
+            }
+          }
+        ],
+        "totalCalls": 12,
+        "truncated": false,
+        "maxEntries": 20
+      },
+      "codeMap": {
+        "entryPoints": [],
+        "keyModules": [
+          {
+            "path": "websocket-server/src/lib/db.ts",
+            "role": "entry point",
+            "linesRead": 91
+          },
+          {
+            "path": "websocket-server/src/middleware/auth.ts",
+            "role": "middleware",
+            "linesRead": 163
+          },
+          {
+            "path": "websocket-server/src/socket-handlers/chat.ts",
+            "role": "service",
+            "linesRead": 221
+          },
+          {
+            "path": "src/app/api/auth/login/route.ts",
+            "role": "route/controller",
+            "linesRead": 28
+          },
+          {
+            "path": "src/app/api/auth/two-factor/send-code/route.ts",
+            "role": "route/controller",
+            "linesRead": 12
+          },
+          {
+            "path": "src/app/api/auth/two-factor/setup/route.ts",
+            "role": "route/controller",
+            "linesRead": 12
+          },
+          {
+            "path": "src/lib/utils/password.ts",
+            "role": "utility",
+            "linesRead": 12
+          },
+          {
+            "path": "src/app/api/cron/aws-usage-cleanup/route.ts",
+            "role": "route/controller",
+            "linesRead": 18
+          },
+          {
+            "path": "src/app/api/cron/data-retention/route.ts",
+            "role": "route/controller",
+            "linesRead": 13
+          },
+          {
+            "path": "src/app/api/cron/newsletter-send/route.ts",
+            "role": "route/controller",
+            "linesRead": 13
+          },
+          {
+            "path": "src/app/api/cron/subscription-renewal/route.ts",
+            "role": "route/controller",
+            "linesRead": 13
+          }
+        ]
+      }
+    }
+  },
+  "contentText": "## Result\nConfidence: high\nVerification: verified\nEvidence Quality: high (6 exact, 2 partial, 0 dropped)\nSearch Coverage: scope-limited search across src/**, websocket-server/src/**, lambda/**, prisma/**, scripts/**; 4 file read(s), 0 grep search(es).\n\n## Answer\nRecent WebSocket auth changes address critical security vulnerabilities: (1) Removed JWT_SECRET fallback to 'your-secret-key' which allowed auth bypass, (2) Removed query parameter token extraction to prevent log/referrer exposure, (3) Added tenant authorization validating companyId+sessionId against database for all chat events, (4) Added role-based authorization restricting agent-only operations. Broader auth fixes include: 2FA email send failure now invalidates challenges, replaced Math.random() with crypto.randomInt() for OTP/temp passwords, fixed fail-open CRON_SECRET validation to fail-closed structure. All changes are defensive security improvements.\n\n## Targets\n- [context] `websocket-server/src/middleware/auth.ts:24-28` (E1) - JWT_SECRET strict validation - IIFE throws at startup if not set, preventing auth bypass from default secret\n- [context] `websocket-server/src/middleware/auth.ts:67-70` (E2) - Token extraction removed query parameter support to prevent token exposure in logs/referrers\n- [read] `websocket-server/src/lib/db.ts:28-44` (E3) - New tenant authorization helper - validates sessionId belongs to user's companyId before granting access\n- [context] `websocket-server/src/socket-handlers/chat.ts:49-61` (E4) - join-session handler now validates tenant ownership via findChatSession before allowing room join\n- [context] `websocket-server/src/socket-handlers/chat.ts:160-175` (E5) - accept-chat handler adds both tenant validation and agent role check\n- [read] `src/app/api/auth/login/route.ts:276-285` (E6) - 2FA email send failure handling - invalidates challenge and returns 503 to prevent stuck state\n- [read] `src/lib/utils/password.ts:1-16` (E7) - Cryptographically secure random generation - replaced Math.random() with crypto.randomInt()\n- [read] `src/app/api/cron/data-retention/route.ts:9-23` (E8) - Fail-closed CRON_SECRET validation - requires super_admin session when CRON_SECRET not set\n\n## Evidence (8 items, confidence: high)\n- E1 `websocket-server/src/middleware/auth.ts:24-28` - JWT_SECRET validation change from commit 350728c2 - IIFE ensures startup failure if not set\n  snippet: 24: const JWT_SECRET: string = (() => {\n  25:   const secret = process.env.JWT_SECRET\n  26:   if (!secret) throw new Error('JWT_SECRET must be set')\n  27:   return secret\n  28: })()\n- E2 `websocket-server/src/middleware/auth.ts:67-70` - Token extraction simplified to auth/header only, query token removed per commit 350728c2\n  snippet: 67:     // 토큰 추출 (auth 또는 헤더에서만 — query는 로그 노출 위험으로 제외)\n  68:     const token =\n  69:       socket.handshake.auth.token ||\n  70:       socket.handshake.headers.authorization?.replace('Bearer ', '')\n- E3 `websocket-server/src/lib/db.ts:28-44` - New findChatSession function added in commit cae48b88 for tenant authorization\n  snippet: 28: export async function findChatSession(\n  29:   sessionId: string,\n  30:   companyId: string\n  31: ): Promise<ChatSessionRow | null> {\n  32:   const client = await getPool().connect()\n  33:   try {\n  34:     const { rows } = await client.query<ChatSessionRow>(\n  35:       `SELECT id, assigned_to, status\n  36:        FROM chat_sessions\n  37:        WHERE id = $1 AND company_id = $2\n  38:        LIMIT 1`,\n  39:       [sessionId, companyId]\n  ... [snippet truncated]\n- E4 `websocket-server/src/socket-handlers/chat.ts:49-61` - join-session handler added tenant check in commit cae48b88\n  snippet: 49:   socket.on('join-session', async (data: JoinSessionData) => {\n  50:     const { sessionId } = data\n  51: \n  52:     if (!isValidSessionId(sessionId)) {\n  53:       socket.emit('error', { message: '유효하지 않은 세션 ID입니다.' })\n  54:       return\n  55:     }\n  56: \n  57:     const chatSession = await findChatSession(sessionId, companyId)\n  58:     if (!chatSession) {\n  59:       socket.emit('error', { message: '권한이 없는 세션입니다.' })\n  60:       return\n  ... [snippet truncated]\n- E5 `websocket-server/src/socket-handlers/chat.ts:160-175` - accept-chat handler added tenant validation and agent role restriction in commit cae48b88\n  snippet: 160:   socket.on('accept-chat', async (data: JoinSessionData) => {\n  161:     const { sessionId } = data\n  162: \n  163:     if (!isValidSessionId(sessionId)) return\n  164: \n  165:     // 상담원 role만 허용\n  166:     if (!AGENT_ROLES.has(role)) {\n  167:       socket.emit('error', { message: '상담원 권한이 필요합니다.' })\n  168:       return\n  169:     }\n  170: \n  171:     const chatSession = await findChatSession(sessionId, companyId)\n  ... [snippet truncated]\n- E6 `src/app/api/auth/login/route.ts:276-285` - 2FA email send failure handling added in commit 78785c12\n  snippet: 276:           await sendTwoFactorCode(user.email, code)\n  277:         } catch (emailError) {\n  278:           console.error('2FA email send error:', emailError)\n  279:           // 발송 실패 시 생성한 코드를 무효화하고 에러 반환\n  280:           await prisma.twoFactorCode.updateMany({\n  281:             where: { userId: user.id, used: false },\n  282:             data: { used: true },\n  283:           })\n  284:           return NextResponse.json(\n  285:             { error: '인증 코드 발송에 실패했습니다. 잠시 후 다시 시도해주세요.' },\n- E7 `src/lib/utils/password.ts:1-16` [partial] - crypto.randomInt replaced Math.random for secure RNG in commit 7d0f1599\n  snippet: 1: import bcrypt from 'bcryptjs'\n  2: import { randomInt } from 'crypto'\n  3: \n  4: // 임시 비밀번호 생성 (8자리 영문+숫자)\n  5: export function generateTempPassword(): string {\n  6:   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789'\n  7:   let password = ''\n  8:   for (let i = 0; i < 8; i++) {\n  9:     password += chars.charAt(randomInt(0, chars.length))\n  10:   }\n  11:   return password\n  12: }\n  ... [snippet truncated]\n- E8 `src/app/api/cron/data-retention/route.ts:9-23` [partial] - Fail-closed CRON_SECRET validation fixed in commit f894b841\n  snippet: 9:     const authHeader = request.headers.get('authorization')\n  10:     const cronSecret = process.env.CRON_SECRET\n  11: \n  12:     if (cronSecret) {\n  13:       // CRON_SECRET 설정됨: Bearer 토큰 일치 여부만 확인\n  14:       if (authHeader !== `Bearer ${cronSecret}`) {\n  15:         return NextResponse.json({ error: '권한이 없습니다.' }, { status: 403 })\n  16:       }\n  17:     } else {\n  18:       // CRON_SECRET 미설정: 수동 실행 경로 → super_admin 세션 필수\n  19:       const { getSession } = await import('@/lib/auth')\n  20:       const session = await getSession()\n  ... [snippet truncated]\n\n## Uncertainty\n- 2 evidence item(s) are grounded only by grep, blame, or nearby line observations.\n\nSession: sess_51772e8c68b2fa6f (pass as \"session\" for follow-up calls)"
+}

@@ -1,0 +1,1295 @@
+{
+  "tool": "explore_repo",
+  "repo": "cerebras-explorer-mcp",
+  "args": {
+    "repo_root": "/home/kyubr/IdeaProjects/cerebras-explorer-mcp",
+    "scope": [
+      "src/**",
+      "tests/**",
+      "examples/**"
+    ],
+    "task": "Explain the repository purpose and the main implementation path for MCP tool dispatch and evidence grounding. Return grounded targets that a parent coding agent should verify before editing."
+  },
+  "elapsedMs": 19518,
+  "error": null,
+  "isError": false,
+  "summary": {
+    "directAnswer": "cerebras-explorer-mcp is a Model Context Protocol server (v0.4.1) providing autonomous repository exploration tools. It returns structured JSON with grounded file:line evidence for code discovery (architecture, symbols, impact, evidence collection). Tool dispatch flows: src/index.mjs → src/mcp/server.mjs (handleRequest routes to tool wrappers) → src/explorer/runtime.mjs (ExplorerRuntime.explore manages LLM loop) → src/explorer/repo-tools.mjs (RepoToolkit.callTool dispatches to 13 repo_* tools). Evidence grounding tracks observedRanges/observedGit during tool execution, validates via src/explorer/critic.mjs, and redacts secrets via src/explorer/redact.mjs before output.",
+    "status": {
+      "confidence": "high",
+      "verification": "targeted_read_needed",
+      "complete": true,
+      "warnings": []
+    },
+    "evidenceQuality": {
+      "level": "high",
+      "exactCount": 8,
+      "partialCount": 0,
+      "droppedCount": 0,
+      "fileCount": 6,
+      "warnings": [],
+      "summary": "Verified: 17 files read, 6 grep searches, 1 symbol lookups, 8/8 evidence items grounded, cross-verified across 6 files. All evidence grounded in inspected code."
+    },
+    "failure": null,
+    "nextAction": {
+      "type": "read_target",
+      "reason": "Read src/explorer/runtime.mjs:1440-1582 before editing.",
+      "target": {
+        "path": "src/explorer/runtime.mjs",
+        "role": "edit",
+        "reason": "Exploration loop: executes LLM turns, calls repoToolkit.callTool, records evidence. Verify tracking.",
+        "evidenceRefs": [],
+        "startLine": 1440,
+        "endLine": 1582
+      }
+    },
+    "searchCoverage": {
+      "scope": [
+        "src/**",
+        "tests/**",
+        "examples/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 17,
+      "grepCalls": 6,
+      "listDirCalls": 2,
+      "symbolCalls": 1,
+      "toolResultsTruncated": 0,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: src/**, tests/**, examples/**"
+      ],
+      "summary": "scope-limited search across src/**, tests/**, examples/**; 17 file read(s), 6 grep search(es)."
+    },
+    "critic": null,
+    "sessionId": "sess_41936223855f3dee",
+    "session": {
+      "id": "sess_41936223855f3dee",
+      "status": "created",
+      "remainingCalls": 4
+    },
+    "targets": [
+      {
+        "path": "src/index.mjs",
+        "role": "context",
+        "reason": "Entry point: starts MCP server and shutdown handler. Verify before changing bootstrap.",
+        "evidenceRefs": [
+          "E1"
+        ],
+        "startLine": 87,
+        "endLine": 122
+      },
+      {
+        "path": "src/mcp/server.mjs",
+        "role": "reference",
+        "reason": "Request handler: routes tools/call to internal exploreRepository calls. Critical for dispatch.",
+        "evidenceRefs": [],
+        "startLine": 834,
+        "endLine": 922
+      },
+      {
+        "path": "src/explorer/runtime.mjs",
+        "role": "read",
+        "reason": "ExplorerRuntime init: creates repoToolkit, builds tools via buildToolDefinitions. Core setup.",
+        "evidenceRefs": [],
+        "startLine": 1278,
+        "endLine": 1342
+      },
+      {
+        "path": "src/explorer/runtime.mjs",
+        "role": "edit",
+        "reason": "Exploration loop: executes LLM turns, calls repoToolkit.callTool, records evidence. Verify tracking.",
+        "evidenceRefs": [],
+        "startLine": 1440,
+        "endLine": 1582
+      },
+      {
+        "path": "src/explorer/repo-tools.mjs",
+        "role": "edit",
+        "reason": "Tool dispatcher: callTool routes to repo_list_dir, repo_grep, repo_read_file with caching. Verify routing.",
+        "evidenceRefs": [],
+        "startLine": 1614,
+        "endLine": 1682
+      },
+      {
+        "path": "src/explorer/repo-tools.mjs",
+        "role": "config",
+        "reason": "Tool definitions: defines repo_* tool schemas for LLM. Verify before modifying interface.",
+        "evidenceRefs": [],
+        "startLine": 1371,
+        "endLine": 1400
+      },
+      {
+        "path": "src/explorer/critic.mjs",
+        "role": "read",
+        "reason": "Evidence validation: checkEvidenceGrounding validates citations against observedRanges. Critical for integrity.",
+        "evidenceRefs": [
+          "E7"
+        ],
+        "startLine": 28,
+        "endLine": 75
+      },
+      {
+        "path": "src/explorer/redact.mjs",
+        "role": "read",
+        "reason": "Security: redacts API keys, tokens, JWTs, private keys from tool results. Verify before modifying rules.",
+        "evidenceRefs": [
+          "E8"
+        ],
+        "startLine": 4,
+        "endLine": 17
+      }
+    ],
+    "discoveredPathsCount": 57,
+    "evidence": [
+      {
+        "id": "E1",
+        "path": "src/index.mjs",
+        "startLine": 87,
+        "endLine": 122,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Shows main() function calling startMcpServer and shutdown handler setup.",
+        "snippet": "87: export function main({\n88:   startServer = startMcpServer,\n89:   sessionStore = globalSessionStore,\n90:   logger = log,\n91:   processRef = process,\n92: } = {}) {\n93:   const transport = startServer({ logger });\n94:   logger('stdio MCP server started');\n95: \n96:   const shutdown = createShutdownHandler({\n97:     transport,\n98:     sessionStore,\n... [snippet truncated]"
+      },
+      {
+        "id": "E2",
+        "path": "src/mcp/server.mjs",
+        "startLine": 834,
+        "endLine": 878,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "handleRequest case 'tools/call' routes to callTool wrapper with validation.",
+        "snippet": "834:   async function handleRequest(message) {\n835:     switch (message.method) {\n836:       case 'initialize': {\n837:         const requestedVersion = message.params?.protocolVersion;\n838:         if (typeof requestedVersion === 'string' && requestedVersion.trim()) {\n839:           negotiatedProtocolVersion = requestedVersion;\n840:         }\n841:         const toolCount = buildToolList().length;\n842:         return {\n843:           protocolVersion: negotiatedProtocolVersion,\n844:           capabilities: { tools: { listChanged: false } },\n845:           serverInfo: SERVER_INFO,\n... [snippet truncated]"
+      },
+      {
+        "id": "E3",
+        "path": "src/explorer/runtime.mjs",
+        "startLine": 1329,
+        "endLine": 1331,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "_initExploreContext creates repoToolkit and builds tools via buildToolDefinitions.",
+        "snippet": "1329:     await repoToolkit.initialize(effectiveScope);\n1330: \n1331:     const tools = repoToolkit.buildToolDefinitions();"
+      },
+      {
+        "id": "E4",
+        "path": "src/explorer/runtime.mjs",
+        "startLine": 1551,
+        "endLine": 1582,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Executes tool calls via repoToolkit.callTool with TOOL_CONCURRENCY=8.",
+        "snippet": "1551:       // Execute up to TOOL_CONCURRENCY tool calls in parallel\n1552:       const toolCallResults = await runWithConcurrency(\n1553:         completion.message.toolCalls,\n1554:         TOOL_CONCURRENCY,\n1555:         async (toolCall) => {\n1556:           let toolName = toolCall.function?.name ?? '(unknown)';\n1557:           let toolArgs = {};\n1558:           let toolResult;\n1559: \n1560:           // Validate tool name first — catch hallucinated tools early\n1561:           const validationError = validateToolName(toolName, knownToolNames);\n1562:           if (validationError) {\n... [snippet truncated]"
+      },
+      {
+        "id": "E5",
+        "path": "src/explorer/runtime.mjs",
+        "startLine": 1599,
+        "endLine": 1650,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Records observedRanges from repo_read_file, repo_grep, repo_git_blame, repo_git_diff.",
+        "snippet": "1599:         if (toolName === 'repo_read_file' && !safeToolResult?.error) {\n1600:           recordObservedRange(observedRanges, safeToolResult.path, safeToolResult.startLine, safeToolResult.endLine, 'read');\n1601:         }\n1602: \n1603:         if (toolName === 'repo_grep' && Array.isArray(safeToolResult?.matches)) {\n1604:           for (const match of safeToolResult.matches) {\n1605:             recordObservedRange(observedRanges, match.path, match.line, match.line, 'grep');\n1606:           }\n1607:         }\n1608: \n1609:         // Record blame lines as observed ranges\n1610:         if (toolName === 'repo_git_blame' && !safeToolResult?.error && Array.isArray(safeToolResult?.lines)) {\n... [snippet truncated]"
+      },
+      {
+        "id": "E6",
+        "path": "src/explorer/repo-tools.mjs",
+        "startLine": 1614,
+        "endLine": 1661,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "callTool switch dispatches to repo_list_dir, repo_find_files, repo_grep with caching.",
+        "snippet": "1614:   async callTool(name, args) {\n1615:     let cacheKey;\n1616:     let ttlMs = null;\n1617: \n1618:     switch (name) {\n1619:       case 'repo_list_dir': {\n1620:         cacheKey = this._scopedCacheKey('list_dir', {\n1621:           dirPath: args?.dirPath ?? '.',\n1622:           depth: args?.depth ?? 2,\n1623:           maxEntries: args?.maxEntries ?? this.budgetConfig.maxDirectoryEntries,\n1624:         });\n1625:         const cached = this._cacheGet(cacheKey);\n... [snippet truncated]"
+      },
+      {
+        "id": "E7",
+        "path": "src/explorer/critic.mjs",
+        "startLine": 28,
+        "endLine": 75,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "checkEvidenceGrounding validates evidence against observedRanges with source-aware logic.",
+        "snippet": "28: export function checkEvidenceGrounding(observedRanges, evidenceItem) {\n29:   const ranges = observedRanges.get(evidenceItem.path);\n30:   if (!ranges || ranges.length === 0) {\n31:     return { overlaps: false, partial: false };\n32:   }\n33: \n34:   const evidenceStart = evidenceItem.startLine;\n35:   const evidenceEnd = evidenceItem.endLine;\n36:   const evidenceLength = evidenceEnd - evidenceStart + 1;\n37:   let bestResult = { overlaps: false, partial: false };\n38: \n39:   for (const range of ranges) {\n... [snippet truncated]"
+      },
+      {
+        "id": "E8",
+        "path": "src/explorer/redact.mjs",
+        "startLine": 4,
+        "endLine": 17,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "REDACTION_RULES define patterns for API keys, tokens, JWTs, private keys.",
+        "snippet": "4: const REDACTION_RULES = Object.freeze([\n5:   { id: 'aws-access-key', regex: /\\bAKIA[0-9A-Z]{16}\\b/g },\n6:   { id: 'github-token', regex: /\\bgh[pousr]_[A-Za-z0-9_]{36,}\\b/g },\n7:   { id: 'anthropic-api-key', regex: /\\bsk-ant-[A-Za-z0-9_-]{20,}\\b/g },\n8:   { id: 'openai-api-key', regex: /\\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}\\b/g },\n9:   { id: 'gcp-api-key', regex: /\\bAIza[0-9A-Za-z\\-_]{35}\\b/g },\n10:   { id: 'slack-token', regex: /\\bxox[baprs]-[0-9A-Za-z-]{10,}\\b/g },\n11:   { id: 'stripe-live-secret', regex: /\\bsk_live_[0-9a-zA-Z]{24,}\\b/g },\n12:   { id: 'jwt', regex: /\\beyJ[A-Za-z0-9_-]+\\.eyJ[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\b/g },\n13:   {\n14:     id: 'private-key-block',\n15:     regex: /-----BEGIN ([A-Z0-9 -]*PRIVATE KEY)-----[\\s\\S]*?-----END \\1-----/g,\n... [snippet truncated]"
+      }
+    ],
+    "uncertainties": [],
+    "stats": {
+      "turns": 15,
+      "toolCalls": 26,
+      "filesRead": 17,
+      "grepCalls": 6,
+      "symbolCalls": 1,
+      "stoppedByBudget": false,
+      "elapsedMs": 19493,
+      "totalTokens": 471612
+    }
+  },
+  "structuredContent": {
+    "schemaVersion": 1,
+    "directAnswer": "cerebras-explorer-mcp is a Model Context Protocol server (v0.4.1) providing autonomous repository exploration tools. It returns structured JSON with grounded file:line evidence for code discovery (architecture, symbols, impact, evidence collection). Tool dispatch flows: src/index.mjs → src/mcp/server.mjs (handleRequest routes to tool wrappers) → src/explorer/runtime.mjs (ExplorerRuntime.explore manages LLM loop) → src/explorer/repo-tools.mjs (RepoToolkit.callTool dispatches to 13 repo_* tools). Evidence grounding tracks observedRanges/observedGit during tool execution, validates via src/explorer/critic.mjs, and redacts secrets via src/explorer/redact.mjs before output.",
+    "status": {
+      "confidence": "high",
+      "verification": "targeted_read_needed",
+      "complete": true,
+      "warnings": []
+    },
+    "targets": [
+      {
+        "path": "src/index.mjs",
+        "role": "context",
+        "reason": "Entry point: starts MCP server and shutdown handler. Verify before changing bootstrap.",
+        "evidenceRefs": [
+          "E1"
+        ],
+        "startLine": 87,
+        "endLine": 122
+      },
+      {
+        "path": "src/mcp/server.mjs",
+        "role": "reference",
+        "reason": "Request handler: routes tools/call to internal exploreRepository calls. Critical for dispatch.",
+        "evidenceRefs": [],
+        "startLine": 834,
+        "endLine": 922
+      },
+      {
+        "path": "src/explorer/runtime.mjs",
+        "role": "read",
+        "reason": "ExplorerRuntime init: creates repoToolkit, builds tools via buildToolDefinitions. Core setup.",
+        "evidenceRefs": [],
+        "startLine": 1278,
+        "endLine": 1342
+      },
+      {
+        "path": "src/explorer/runtime.mjs",
+        "role": "edit",
+        "reason": "Exploration loop: executes LLM turns, calls repoToolkit.callTool, records evidence. Verify tracking.",
+        "evidenceRefs": [],
+        "startLine": 1440,
+        "endLine": 1582
+      },
+      {
+        "path": "src/explorer/repo-tools.mjs",
+        "role": "edit",
+        "reason": "Tool dispatcher: callTool routes to repo_list_dir, repo_grep, repo_read_file with caching. Verify routing.",
+        "evidenceRefs": [],
+        "startLine": 1614,
+        "endLine": 1682
+      },
+      {
+        "path": "src/explorer/repo-tools.mjs",
+        "role": "config",
+        "reason": "Tool definitions: defines repo_* tool schemas for LLM. Verify before modifying interface.",
+        "evidenceRefs": [],
+        "startLine": 1371,
+        "endLine": 1400
+      },
+      {
+        "path": "src/explorer/critic.mjs",
+        "role": "read",
+        "reason": "Evidence validation: checkEvidenceGrounding validates citations against observedRanges. Critical for integrity.",
+        "evidenceRefs": [
+          "E7"
+        ],
+        "startLine": 28,
+        "endLine": 75
+      },
+      {
+        "path": "src/explorer/redact.mjs",
+        "role": "read",
+        "reason": "Security: redacts API keys, tokens, JWTs, private keys from tool results. Verify before modifying rules.",
+        "evidenceRefs": [
+          "E8"
+        ],
+        "startLine": 4,
+        "endLine": 17
+      },
+      {
+        "path": "src/mcp/server.mjs",
+        "startLine": 834,
+        "endLine": 878,
+        "role": "read",
+        "reason": "handleRequest case 'tools/call' routes to callTool wrapper with validation.",
+        "evidenceRefs": [
+          "E2"
+        ]
+      },
+      {
+        "path": "src/explorer/runtime.mjs",
+        "startLine": 1329,
+        "endLine": 1331,
+        "role": "read",
+        "reason": "_initExploreContext creates repoToolkit and builds tools via buildToolDefinitions.",
+        "evidenceRefs": [
+          "E3"
+        ]
+      },
+      {
+        "path": "src/explorer/runtime.mjs",
+        "startLine": 1551,
+        "endLine": 1582,
+        "role": "read",
+        "reason": "Executes tool calls via repoToolkit.callTool with TOOL_CONCURRENCY=8.",
+        "evidenceRefs": [
+          "E4"
+        ]
+      },
+      {
+        "path": "src/explorer/runtime.mjs",
+        "startLine": 1599,
+        "endLine": 1650,
+        "role": "read",
+        "reason": "Records observedRanges from repo_read_file, repo_grep, repo_git_blame, repo_git_diff.",
+        "evidenceRefs": [
+          "E5"
+        ]
+      },
+      {
+        "path": "src/explorer/repo-tools.mjs",
+        "startLine": 1614,
+        "endLine": 1661,
+        "role": "read",
+        "reason": "callTool switch dispatches to repo_list_dir, repo_find_files, repo_grep with caching.",
+        "evidenceRefs": [
+          "E6"
+        ]
+      }
+    ],
+    "discoveredPaths": [
+      {
+        "path": "examples",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "examples/call-server-via-stdio.mjs",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "examples/direct-runtime.mjs",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "examples/expected-response.json",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "examples/explore-request.json",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/benchmark",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/benchmark/evaluator.mjs",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/benchmark/report.mjs",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/benchmark/transcript-metrics.mjs",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/explorer",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/explorer/cache.mjs",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/explorer/cerebras-client.mjs",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/explorer/config.mjs",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/explorer/critic.mjs",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/explorer/prompt.mjs",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/explorer/providers",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/explorer/redact.mjs",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/explorer/repo-tools.mjs",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/explorer/runtime.mjs",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/explorer/schemas.mjs",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/explorer/security.mjs",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/explorer/session.mjs",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/explorer/symbols.mjs",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/explorer/transcript.mjs",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/explorer/utils",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/index.mjs",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/mcp",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/mcp/jsonrpc-stdio.mjs",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/mcp/server.mjs",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "tests",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "tests/benchmark-evaluator.test.mjs",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "tests/benchmark-report.test.mjs",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "tests/benchmark-transcript-metrics.test.mjs",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "tests/cerebras-client.test.mjs",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "tests/critic.test.mjs",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "tests/free-explore.test.mjs",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "tests/http-client.test.mjs",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "tests/index.test.mjs",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "tests/integration",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "tests/integration/stdio-purity.test.mjs",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "tests/integration-script.test.mjs",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "tests/integrations.test.mjs",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "tests/jsonrpc-stdio.test.mjs",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "tests/mcp-server.test.mjs",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "tests/project-config.test.mjs",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "tests/providers.test.mjs",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "tests/regression.test.mjs",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "tests/repo-tools.test.mjs",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "tests/runtime.mock.test.mjs",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "tests/schemas.test.mjs",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "tests/security",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "tests/security/redact.test.mjs",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "tests/security/secret-deny-list.test.mjs",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "tests/session.test.mjs",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "tests/symbols.test.mjs",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "tests/transcript.test.mjs",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      }
+    ],
+    "evidence": [
+      {
+        "path": "src/index.mjs",
+        "startLine": 87,
+        "endLine": 122,
+        "why": "Shows main() function calling startMcpServer and shutdown handler setup.",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E1",
+        "snippet": "87: export function main({\n88:   startServer = startMcpServer,\n89:   sessionStore = globalSessionStore,\n90:   logger = log,\n91:   processRef = process,\n92: } = {}) {\n93:   const transport = startServer({ logger });\n94:   logger('stdio MCP server started');\n95: \n96:   const shutdown = createShutdownHandler({\n97:     transport,\n98:     sessionStore,\n... [snippet truncated]"
+      },
+      {
+        "path": "src/mcp/server.mjs",
+        "startLine": 834,
+        "endLine": 878,
+        "why": "handleRequest case 'tools/call' routes to callTool wrapper with validation.",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E2",
+        "snippet": "834:   async function handleRequest(message) {\n835:     switch (message.method) {\n836:       case 'initialize': {\n837:         const requestedVersion = message.params?.protocolVersion;\n838:         if (typeof requestedVersion === 'string' && requestedVersion.trim()) {\n839:           negotiatedProtocolVersion = requestedVersion;\n840:         }\n841:         const toolCount = buildToolList().length;\n842:         return {\n843:           protocolVersion: negotiatedProtocolVersion,\n844:           capabilities: { tools: { listChanged: false } },\n845:           serverInfo: SERVER_INFO,\n... [snippet truncated]"
+      },
+      {
+        "path": "src/explorer/runtime.mjs",
+        "startLine": 1329,
+        "endLine": 1331,
+        "why": "_initExploreContext creates repoToolkit and builds tools via buildToolDefinitions.",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E3",
+        "snippet": "1329:     await repoToolkit.initialize(effectiveScope);\n1330: \n1331:     const tools = repoToolkit.buildToolDefinitions();"
+      },
+      {
+        "path": "src/explorer/runtime.mjs",
+        "startLine": 1551,
+        "endLine": 1582,
+        "why": "Executes tool calls via repoToolkit.callTool with TOOL_CONCURRENCY=8.",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E4",
+        "snippet": "1551:       // Execute up to TOOL_CONCURRENCY tool calls in parallel\n1552:       const toolCallResults = await runWithConcurrency(\n1553:         completion.message.toolCalls,\n1554:         TOOL_CONCURRENCY,\n1555:         async (toolCall) => {\n1556:           let toolName = toolCall.function?.name ?? '(unknown)';\n1557:           let toolArgs = {};\n1558:           let toolResult;\n1559: \n1560:           // Validate tool name first — catch hallucinated tools early\n1561:           const validationError = validateToolName(toolName, knownToolNames);\n1562:           if (validationError) {\n... [snippet truncated]"
+      },
+      {
+        "path": "src/explorer/runtime.mjs",
+        "startLine": 1599,
+        "endLine": 1650,
+        "why": "Records observedRanges from repo_read_file, repo_grep, repo_git_blame, repo_git_diff.",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E5",
+        "snippet": "1599:         if (toolName === 'repo_read_file' && !safeToolResult?.error) {\n1600:           recordObservedRange(observedRanges, safeToolResult.path, safeToolResult.startLine, safeToolResult.endLine, 'read');\n1601:         }\n1602: \n1603:         if (toolName === 'repo_grep' && Array.isArray(safeToolResult?.matches)) {\n1604:           for (const match of safeToolResult.matches) {\n1605:             recordObservedRange(observedRanges, match.path, match.line, match.line, 'grep');\n1606:           }\n1607:         }\n1608: \n1609:         // Record blame lines as observed ranges\n1610:         if (toolName === 'repo_git_blame' && !safeToolResult?.error && Array.isArray(safeToolResult?.lines)) {\n... [snippet truncated]"
+      },
+      {
+        "path": "src/explorer/repo-tools.mjs",
+        "startLine": 1614,
+        "endLine": 1661,
+        "why": "callTool switch dispatches to repo_list_dir, repo_find_files, repo_grep with caching.",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E6",
+        "snippet": "1614:   async callTool(name, args) {\n1615:     let cacheKey;\n1616:     let ttlMs = null;\n1617: \n1618:     switch (name) {\n1619:       case 'repo_list_dir': {\n1620:         cacheKey = this._scopedCacheKey('list_dir', {\n1621:           dirPath: args?.dirPath ?? '.',\n1622:           depth: args?.depth ?? 2,\n1623:           maxEntries: args?.maxEntries ?? this.budgetConfig.maxDirectoryEntries,\n1624:         });\n1625:         const cached = this._cacheGet(cacheKey);\n... [snippet truncated]"
+      },
+      {
+        "path": "src/explorer/critic.mjs",
+        "startLine": 28,
+        "endLine": 75,
+        "why": "checkEvidenceGrounding validates evidence against observedRanges with source-aware logic.",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E7",
+        "snippet": "28: export function checkEvidenceGrounding(observedRanges, evidenceItem) {\n29:   const ranges = observedRanges.get(evidenceItem.path);\n30:   if (!ranges || ranges.length === 0) {\n31:     return { overlaps: false, partial: false };\n32:   }\n33: \n34:   const evidenceStart = evidenceItem.startLine;\n35:   const evidenceEnd = evidenceItem.endLine;\n36:   const evidenceLength = evidenceEnd - evidenceStart + 1;\n37:   let bestResult = { overlaps: false, partial: false };\n38: \n39:   for (const range of ranges) {\n... [snippet truncated]"
+      },
+      {
+        "path": "src/explorer/redact.mjs",
+        "startLine": 4,
+        "endLine": 17,
+        "why": "REDACTION_RULES define patterns for API keys, tokens, JWTs, private keys.",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E8",
+        "snippet": "4: const REDACTION_RULES = Object.freeze([\n5:   { id: 'aws-access-key', regex: /\\bAKIA[0-9A-Z]{16}\\b/g },\n6:   { id: 'github-token', regex: /\\bgh[pousr]_[A-Za-z0-9_]{36,}\\b/g },\n7:   { id: 'anthropic-api-key', regex: /\\bsk-ant-[A-Za-z0-9_-]{20,}\\b/g },\n8:   { id: 'openai-api-key', regex: /\\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}\\b/g },\n9:   { id: 'gcp-api-key', regex: /\\bAIza[0-9A-Za-z\\-_]{35}\\b/g },\n10:   { id: 'slack-token', regex: /\\bxox[baprs]-[0-9A-Za-z-]{10,}\\b/g },\n11:   { id: 'stripe-live-secret', regex: /\\bsk_live_[0-9a-zA-Z]{24,}\\b/g },\n12:   { id: 'jwt', regex: /\\beyJ[A-Za-z0-9_-]+\\.eyJ[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\b/g },\n13:   {\n14:     id: 'private-key-block',\n15:     regex: /-----BEGIN ([A-Z0-9 -]*PRIVATE KEY)-----[\\s\\S]*?-----END \\1-----/g,\n... [snippet truncated]"
+      }
+    ],
+    "uncertainties": [],
+    "nextAction": {
+      "type": "read_target",
+      "reason": "Read src/explorer/runtime.mjs:1440-1582 before editing.",
+      "target": {
+        "path": "src/explorer/runtime.mjs",
+        "role": "edit",
+        "reason": "Exploration loop: executes LLM turns, calls repoToolkit.callTool, records evidence. Verify tracking.",
+        "evidenceRefs": [],
+        "startLine": 1440,
+        "endLine": 1582
+      }
+    },
+    "evidenceQuality": {
+      "level": "high",
+      "exactCount": 8,
+      "partialCount": 0,
+      "droppedCount": 0,
+      "fileCount": 6,
+      "warnings": [],
+      "summary": "Verified: 17 files read, 6 grep searches, 1 symbol lookups, 8/8 evidence items grounded, cross-verified across 6 files. All evidence grounded in inspected code."
+    },
+    "searchCoverage": {
+      "scope": [
+        "src/**",
+        "tests/**",
+        "examples/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 17,
+      "grepCalls": 6,
+      "listDirCalls": 2,
+      "symbolCalls": 1,
+      "toolResultsTruncated": 0,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: src/**, tests/**, examples/**"
+      ],
+      "summary": "scope-limited search across src/**, tests/**, examples/**; 17 file read(s), 6 grep search(es)."
+    },
+    "failure": null,
+    "sessionId": "sess_41936223855f3dee",
+    "session": {
+      "id": "sess_41936223855f3dee",
+      "status": "created",
+      "remainingCalls": 4
+    },
+    "_debug": {
+      "evidenceSufficiency": {
+        "sufficient": true,
+        "reason": "edit_plan_has_actionable_target"
+      },
+      "confidenceScore": 1,
+      "confidenceFactors": {
+        "evidenceCount": 8,
+        "evidenceGrounded": 8,
+        "evidenceDropped": 0,
+        "exactCount": 8,
+        "crossVerified": true,
+        "symbolSearchUsed": true,
+        "stoppedByBudget": false,
+        "gitLogCalls": 0,
+        "gitDiffCalls": 0,
+        "gitBlameCalls": 0,
+        "gitGroundingHint": "none",
+        "taskKind": "default",
+        "adjustments": [
+          "base=0.30 (taskKind=default)",
+          "+0.54 (8 exact evidence item(s))",
+          "+0.12 (cross-verified across multiple files)",
+          "+0.05 (symbol/grep search used)"
+        ],
+        "droppedUngrounded": 0,
+        "droppedMalformed": 0
+      },
+      "stats": {
+        "model": "zai-glm-4.7",
+        "budget": "deep",
+        "budgetSource": "auto",
+        "turns": 15,
+        "toolCalls": 26,
+        "listDirCalls": 2,
+        "findFileCalls": 0,
+        "grepCalls": 6,
+        "filesRead": 17,
+        "gitLogCalls": 0,
+        "gitBlameCalls": 0,
+        "gitDiffCalls": 0,
+        "gitShowCalls": 0,
+        "symbolCalls": 1,
+        "inputTokens": 464526,
+        "outputTokens": 7086,
+        "totalTokens": 471612,
+        "elapsedMs": 19493,
+        "stoppedByBudget": false,
+        "scope": [
+          "src/**",
+          "tests/**",
+          "examples/**"
+        ],
+        "repoRoot": "/home/kyubr/IdeaProjects/cerebras-explorer-mcp",
+        "sessionId": "sess_41936223855f3dee",
+        "sessionStatus": "created",
+        "sessionSource": "created",
+        "remainingCalls": 4,
+        "cacheHits": 0,
+        "cacheMisses": 26,
+        "cacheHitRate": 0,
+        "cacheEntries": 25,
+        "cacheSizeBytes": 280466
+      },
+      "toolTrace": {
+        "entries": [
+          {
+            "turn": 1,
+            "tool": "repo_list_dir",
+            "args": {
+              "dirPath": "."
+            },
+            "result": {
+              "entries": 57,
+              "paths": [
+                "examples",
+                "examples/call-server-via-stdio.mjs",
+                "examples/direct-runtime.mjs",
+                "examples/expected-response.json",
+                "examples/explore-request.json",
+                "src"
+              ]
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_list_dir",
+            "args": {
+              "dirPath": "."
+            },
+            "result": {
+              "entries": 3,
+              "paths": [
+                "examples",
+                "src",
+                "tests"
+              ]
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/index.mjs"
+            },
+            "result": {
+              "path": "src/index.mjs",
+              "startLine": 1,
+              "endLine": 127,
+              "totalLines": 127,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "package.json"
+            },
+            "result": {
+              "error": true,
+              "type": "tool_execution_error",
+              "stage": "parse_or_exec",
+              "message": "Path is outside current scope: package.json"
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/mcp/server.mjs"
+            },
+            "result": {
+              "path": "src/mcp/server.mjs",
+              "startLine": 1,
+              "endLine": 320,
+              "totalLines": 1027,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/explorer/runtime.mjs"
+            },
+            "result": {
+              "path": "src/explorer/runtime.mjs",
+              "startLine": 1,
+              "endLine": 320,
+              "totalLines": 2412,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_read_file",
+            "args": {
+              "endLine": 400,
+              "path": "src/explorer/runtime.mjs",
+              "startLine": 320
+            },
+            "result": {
+              "path": "src/explorer/runtime.mjs",
+              "startLine": 320,
+              "endLine": 400,
+              "totalLines": 2412,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/explorer/repo-tools.mjs",
+              "startLine": 1,
+              "endLine": 200
+            },
+            "result": {
+              "path": "src/explorer/repo-tools.mjs",
+              "startLine": 1,
+              "endLine": 200,
+              "totalLines": 1881,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 5,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/mcp/server.mjs",
+              "startLine": 320,
+              "endLine": 600
+            },
+            "result": {
+              "path": "src/mcp/server.mjs",
+              "startLine": 320,
+              "endLine": 600,
+              "totalLines": 1027,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 5,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/explorer/schemas.mjs",
+              "startLine": 1,
+              "endLine": 200
+            },
+            "result": {
+              "path": "src/explorer/schemas.mjs",
+              "startLine": 1,
+              "endLine": 200,
+              "totalLines": 520,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 5,
+            "tool": "repo_grep",
+            "args": {
+              "pattern": "class RepoToolkit",
+              "scope": "src/explorer/repo-tools.mjs",
+              "maxResults": 5
+            },
+            "result": {
+              "matches": 1,
+              "paths": [
+                "src/explorer/repo-tools.mjs"
+              ],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 6,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/explorer/repo-tools.mjs",
+              "startLine": 551,
+              "endLine": 750
+            },
+            "result": {
+              "path": "src/explorer/repo-tools.mjs",
+              "startLine": 551,
+              "endLine": 750,
+              "totalLines": 1881,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 6,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/explorer/schemas.mjs",
+              "startLine": 200,
+              "endLine": 350
+            },
+            "result": {
+              "path": "src/explorer/schemas.mjs",
+              "startLine": 200,
+              "endLine": 350,
+              "totalLines": 520,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 7,
+            "tool": "repo_grep",
+            "args": {
+              "scope": "src/explorer/runtime.mjs",
+              "pattern": "async function executeToolCall|function callTool",
+              "maxResults": 10
+            },
+            "result": {
+              "matches": 1,
+              "paths": [
+                "src/mcp/server.mjs"
+              ],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 7,
+            "tool": "repo_grep",
+            "args": {
+              "scope": "src/explorer/runtime.mjs",
+              "pattern": "class.*Runtime|export.*Runtime",
+              "maxResults": 5
+            },
+            "result": {
+              "matches": 3,
+              "paths": [
+                "tests/providers.test.mjs",
+                "src/explorer/runtime.mjs",
+                "src/mcp/server.mjs"
+              ],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 8,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/explorer/runtime.mjs",
+              "startLine": 1278,
+              "endLine": 1450
+            },
+            "result": {
+              "path": "src/explorer/runtime.mjs",
+              "startLine": 1278,
+              "endLine": 1450,
+              "totalLines": 2412,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 8,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/mcp/server.mjs",
+              "startLine": 792,
+              "endLine": 950
+            },
+            "result": {
+              "path": "src/mcp/server.mjs",
+              "startLine": 792,
+              "endLine": 950,
+              "totalLines": 1027,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 9,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/explorer/runtime.mjs",
+              "startLine": 1450,
+              "endLine": 1650
+            },
+            "result": {
+              "path": "src/explorer/runtime.mjs",
+              "startLine": 1450,
+              "endLine": 1650,
+              "totalLines": 2412,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 9,
+            "tool": "repo_grep",
+            "args": {
+              "pattern": "repoToolkit\\.|buildToolDefinitions",
+              "scope": "src/explorer/runtime.mjs",
+              "maxResults": 10
+            },
+            "result": {
+              "matches": 6,
+              "paths": [
+                "tests/runtime.mock.test.mjs",
+                "src/explorer/repo-tools.mjs",
+                "src/explorer/runtime.mjs"
+              ],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 10,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/explorer/repo-tools.mjs",
+              "startLine": 1371,
+              "endLine": 1550
+            },
+            "result": {
+              "path": "src/explorer/repo-tools.mjs",
+              "startLine": 1371,
+              "endLine": 1550,
+              "totalLines": 1881,
+              "truncated": true
+            }
+          }
+        ],
+        "totalCalls": 26,
+        "truncated": true,
+        "maxEntries": 20
+      },
+      "codeMap": {
+        "entryPoints": [
+          "src/index.mjs",
+          "src/mcp/server.mjs"
+        ],
+        "keyModules": [
+          {
+            "path": "src/index.mjs",
+            "role": "entry point",
+            "linesRead": 127
+          },
+          {
+            "path": "src/mcp/server.mjs",
+            "role": "entry point",
+            "linesRead": 762
+          },
+          {
+            "path": "src/explorer/runtime.mjs",
+            "role": "module",
+            "linesRead": 780
+          },
+          {
+            "path": "src/explorer/repo-tools.mjs",
+            "role": "module",
+            "linesRead": 720
+          },
+          {
+            "path": "src/explorer/schemas.mjs",
+            "role": "data model",
+            "linesRead": 351
+          },
+          {
+            "path": "tests/providers.test.mjs",
+            "role": "test",
+            "linesRead": 1
+          },
+          {
+            "path": "tests/runtime.mock.test.mjs",
+            "role": "test",
+            "linesRead": 1
+          },
+          {
+            "path": "src/explorer/redact.mjs",
+            "role": "module",
+            "linesRead": 100
+          },
+          {
+            "path": "tests/regression.test.mjs",
+            "role": "test",
+            "linesRead": 3
+          },
+          {
+            "path": "tests/repo-tools.test.mjs",
+            "role": "test",
+            "linesRead": 2
+          },
+          {
+            "path": "src/explorer/critic.mjs",
+            "role": "module",
+            "linesRead": 100
+          }
+        ]
+      }
+    }
+  },
+  "contentText": "## Result\nConfidence: high\nVerification: targeted_read_needed\nEvidence Quality: high (8 exact, 0 partial, 0 dropped)\nSearch Coverage: scope-limited search across src/**, tests/**, examples/**; 17 file read(s), 6 grep search(es).\n\n## Answer\ncerebras-explorer-mcp is a Model Context Protocol server (v0.4.1) providing autonomous repository exploration tools. It returns structured JSON with grounded file:line evidence for code discovery (architecture, symbols, impact, evidence collection). Tool dispatch flows: src/index.mjs → src/mcp/server.mjs (handleRequest routes to tool wrappers) → src/explorer/runtime.mjs (ExplorerRuntime.explore manages LLM loop) → src/explorer/repo-tools.mjs (RepoToolkit.callTool dispatches to 13 repo_* tools). Evidence grounding tracks observedRanges/observedGit during tool execution, validates via src/explorer/critic.mjs, and redacts secrets via src/explorer/redact.mjs before output.\n\n## Next Action\nread_target: Read src/explorer/runtime.mjs:1440-1582 before editing.\n\n## Targets\n- [context] `src/index.mjs:87-122` (E1) - Entry point: starts MCP server and shutdown handler. Verify before changing bootstrap.\n- [reference] `src/mcp/server.mjs:834-922` - Request handler: routes tools/call to internal exploreRepository calls. Critical for dispatch.\n- [read] `src/explorer/runtime.mjs:1278-1342` - ExplorerRuntime init: creates repoToolkit, builds tools via buildToolDefinitions. Core setup.\n- [edit] `src/explorer/runtime.mjs:1440-1582` - Exploration loop: executes LLM turns, calls repoToolkit.callTool, records evidence. Verify tracking.\n- [edit] `src/explorer/repo-tools.mjs:1614-1682` - Tool dispatcher: callTool routes to repo_list_dir, repo_grep, repo_read_file with caching. Verify routing.\n- [config] `src/explorer/repo-tools.mjs:1371-1400` - Tool definitions: defines repo_* tool schemas for LLM. Verify before modifying interface.\n- [read] `src/explorer/critic.mjs:28-75` (E7) - Evidence validation: checkEvidenceGrounding validates citations against observedRanges. Critical for integrity.\n- [read] `src/explorer/redact.mjs:4-17` (E8) - Security: redacts API keys, tokens, JWTs, private keys from tool results. Verify before modifying rules.\n- [read] `src/mcp/server.mjs:834-878` (E2) - handleRequest case 'tools/call' routes to callTool wrapper with validation.\n- [read] `src/explorer/runtime.mjs:1329-1331` (E3) - _initExploreContext creates repoToolkit and builds tools via buildToolDefinitions.\n- [read] `src/explorer/runtime.mjs:1551-1582` (E4) - Executes tool calls via repoToolkit.callTool with TOOL_CONCURRENCY=8.\n- [read] `src/explorer/runtime.mjs:1599-1650` (E5) - Records observedRanges from repo_read_file, repo_grep, repo_git_blame, repo_git_diff.\n- ... and 1 more targets\n\n## Evidence (8 items, confidence: high)\n- E1 `src/index.mjs:87-122` - Shows main() function calling startMcpServer and shutdown handler setup.\n  snippet: 87: export function main({\n  88:   startServer = startMcpServer,\n  89:   sessionStore = globalSessionStore,\n  90:   logger = log,\n  91:   processRef = process,\n  92: } = {}) {\n  93:   const transport = startServer({ logger });\n  94:   logger('stdio MCP server started');\n  95: \n  96:   const shutdown = createShutdownHandler({\n  97:     transport,\n  98:     sessionStore,\n  ... [snippet truncated]\n- E2 `src/mcp/server.mjs:834-878` - handleRequest case 'tools/call' routes to callTool wrapper with validation.\n  snippet: 834:   async function handleRequest(message) {\n  835:     switch (message.method) {\n  836:       case 'initialize': {\n  837:         const requestedVersion = message.params?.protocolVersion;\n  838:         if (typeof requestedVersion === 'string' && requestedVersion.trim()) {\n  839:           negotiatedProtocolVersion = requestedVersion;\n  840:         }\n  841:         const toolCount = buildToolList().length;\n  842:         return {\n  843:           protocolVersion: negotiatedProtocolVersion,\n  844:           capabilities: { tools: { listChanged: false } },\n  845:           serverInfo: SERVER_INFO,\n  ... [snippet truncated]\n- E3 `src/explorer/runtime.mjs:1329-1331` - _initExploreContext creates repoToolkit and builds tools via buildToolDefinitions.\n  snippet: 1329:     await repoToolkit.initialize(effectiveScope);\n  1330: \n  1331:     const tools = repoToolkit.buildToolDefinitions();\n- E4 `src/explorer/runtime.mjs:1551-1582` - Executes tool calls via repoToolkit.callTool with TOOL_CONCURRENCY=8.\n  snippet: 1551:       // Execute up to TOOL_CONCURRENCY tool calls in parallel\n  1552:       const toolCallResults = await runWithConcurrency(\n  1553:         completion.message.toolCalls,\n  1554:         TOOL_CONCURRENCY,\n  1555:         async (toolCall) => {\n  1556:           let toolName = toolCall.function?.name ?? '(unknown)';\n  1557:           let toolArgs = {};\n  1558:           let toolResult;\n  1559: \n  1560:           // Validate tool name first — catch hallucinated tools early\n  1561:           const validationError = validateToolName(toolName, knownToolNames);\n  1562:           if (validationError) {\n  ... [snippet truncated]\n- E5 `src/explorer/runtime.mjs:1599-1650` - Records observedRanges from repo_read_file, repo_grep, repo_git_blame, repo_git_diff.\n  snippet: 1599:         if (toolName === 'repo_read_file' && !safeToolResult?.error) {\n  1600:           recordObservedRange(observedRanges, safeToolResult.path, safeToolResult.startLine, safeToolResult.endLine, 'read');\n  1601:         }\n  1602: \n  1603:         if (toolName === 'repo_grep' && Array.isArray(safeToolResult?.matches)) {\n  1604:           for (const match of safeToolResult.matches) {\n  1605:             recordObservedRange(observedRanges, match.path, match.line, match.line, 'grep');\n  1606:           }\n  1607:         }\n  1608: \n  1609:         // Record blame lines as observed ranges\n  1610:         if (toolName === 'repo_git_blame' && !safeToolResult?.error && Array.isArray(safeToolResult?.lines)) {\n  ... [snippet truncated]\n- E6 `src/explorer/repo-tools.mjs:1614-1661` - callTool switch dispatches to repo_list_dir, repo_find_files, repo_grep with caching.\n  snippet: 1614:   async callTool(name, args) {\n  1615:     let cacheKey;\n  1616:     let ttlMs = null;\n  1617: \n  1618:     switch (name) {\n  1619:       case 'repo_list_dir': {\n  1620:         cacheKey = this._scopedCacheKey('list_dir', {\n  1621:           dirPath: args?.dirPath ?? '.',\n  1622:           depth: args?.depth ?? 2,\n  1623:           maxEntries: args?.maxEntries ?? this.budgetConfig.maxDirectoryEntries,\n  1624:         });\n  1625:         const cached = this._cacheGet(cacheKey);\n  ... [snippet truncated]\n- E7 `src/explorer/critic.mjs:28-75` - checkEvidenceGrounding validates evidence against observedRanges with source-aware logic.\n  snippet: 28: export function checkEvidenceGrounding(observedRanges, evidenceItem) {\n  29:   const ranges = observedRanges.get(evidenceItem.path);\n  30:   if (!ranges || ranges.length === 0) {\n  31:     return { overlaps: false, partial: false };\n  32:   }\n  33: \n  34:   const evidenceStart = evidenceItem.startLine;\n  35:   const evidenceEnd = evidenceItem.endLine;\n  36:   const evidenceLength = evidenceEnd - evidenceStart + 1;\n  37:   let bestResult = { overlaps: false, partial: false };\n  38: \n  39:   for (const range of ranges) {\n  ... [snippet truncated]\n- E8 `src/explorer/redact.mjs:4-17` - REDACTION_RULES define patterns for API keys, tokens, JWTs, private keys.\n  snippet: 4: const REDACTION_RULES = Object.freeze([\n  5:   { id: 'aws-access-key', regex: /\\bAKIA[0-9A-Z]{16}\\b/g },\n  6:   { id: 'github-token', regex: /\\bgh[pousr]_[A-Za-z0-9_]{36,}\\b/g },\n  7:   { id: 'anthropic-api-key', regex: /\\bsk-ant-[A-Za-z0-9_-]{20,}\\b/g },\n  8:   { id: 'openai-api-key', regex: /\\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}\\b/g },\n  9:   { id: 'gcp-api-key', regex: /\\bAIza[0-9A-Za-z\\-_]{35}\\b/g },\n  10:   { id: 'slack-token', regex: /\\bxox[baprs]-[0-9A-Za-z-]{10,}\\b/g },\n  11:   { id: 'stripe-live-secret', regex: /\\bsk_live_[0-9a-zA-Z]{24,}\\b/g },\n  12:   { id: \n... [truncated 305 chars]"
+}

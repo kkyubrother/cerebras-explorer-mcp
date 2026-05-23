@@ -1,0 +1,1298 @@
+{
+  "tool": "explore",
+  "repo": "aicc_manage",
+  "args": {
+    "repo_root": "/home/kyubr/IdeaProjects/aicc_manage",
+    "scope": [
+      "src/**",
+      "websocket-server/src/**",
+      "lambda/**",
+      "prisma/**",
+      "scripts/**"
+    ],
+    "prompt": "Give a concise architecture report for Next.js app auth, websocket auth, Lambda handlers, and Prisma data model. Include inline file:line citations and flag uncertainty.",
+    "language": "en"
+  },
+  "elapsedMs": 15858,
+  "error": null,
+  "isError": false,
+  "summary": {
+    "reportPreview": "I have gathered comprehensive evidence. Now I'll write the final architecture report.\n\n# Architecture Report: Next.js App Auth, WebSocket Auth, Lambda Handlers, and Prisma Data Model\n\n## Summary\n\nThis application implements a multi-tenant SaaS platform with JWT-based authentication, WebSocket real-time collaboration, AWS Lambda integration for backend services, and a PostgreSQL database managed through Prisma ORM. The auth system supports password-based login with optional 2FA (TOTP/email), role-based access control, and fine-grained API route permissions. WebSocket connections use the same JWT tokens with additional rate limiting and IP-based brute-force protection. Five Lambda functions handle AWS Bedrock proxying, usage recording, RDS monitoring, newsletter scheduling, and Bedrock usage processing, all secured via API keys or internal secrets.\n\n## Findings\n\n### 1. Next.js App Authentication\n\n#### JWT-Based Session Management\nThe application uses JWT tokens signed with `HS256` algorithm for session management `src/lib/auth/jwt.ts:L29-L44`:\n\n- **Token creation**: Creates tokens with configurable expiration (default 24h, overrideable via `sessionTimeoutMinutes`)\n- **Token verification**: Validates signature and required fields (`userId`, `companyId`, `role`)\n- **Pending 2FA support**: Tokens can have `pending2FA` flag for incomplete authentication flows\n- **Cookie-based storage**: Session cookies named `session-token` with `httpOnly`, `secure` (production), `sameSite: lax` `src/lib/auth/session.ts:L5-L14`\n\n#### Middleware Route Protection\nGlobal middleware enforces authentication at `src/middleware.ts:L72-L155`:\n\n**Protected routes** (require valid session): `/dashboard`, `/inquiries`, `/chat`, `/schedules`, `/support`, `/statistics`, `/settings`, `/billing`, `/onboarding`, `/get-started`, `/access-denied`, `/terms`, `/select-plan`, `/payment` `src/middleware.ts:L11-L26`\n\n**Admin routes** (require `super_admin` role OR `PLATFORM` company): `/admin` `src/middleware.ts:L28-L29,L143-L146`\n\n**Public routes** (no auth): `/login`, `/widget` `src/middleware.ts:L31-L32,L107-L110`\n\n**Special role-based blocks**: `/select-plan` and `/payment` restricted to `admin` or `super_admin` only `src/middleware.ts:L148-L153`\n\n#### Login Flow with 2FA\nLogin process at `src/app/api/auth/login/route.ts:L23-L365` includes:\n\n1. **Rate limiting**: IP-based rate limiting before password check `src/app/api/auth/login/route.ts:L25-L33`\n2. **Company validation**: Checks company code and `isActive` status `src/app/api/auth/login/route.ts:L49-L66`\n3. **IP whitelist**: Optional per-comp\n... [truncated 16658 chars]",
+    "citations": [
+      {
+        "type": "file_range",
+        "path": "src/lib/auth/jwt.ts",
+        "startLine": 29,
+        "endLine": 44,
+        "raw": "`src/lib/auth/jwt.ts:L29-L44`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/lib/auth/session.ts",
+        "startLine": 5,
+        "endLine": 14,
+        "raw": "`src/lib/auth/session.ts:L5-L14`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/middleware.ts",
+        "startLine": 72,
+        "endLine": 155,
+        "raw": "`src/middleware.ts:L72-L155`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/middleware.ts",
+        "startLine": 11,
+        "endLine": 26,
+        "raw": "`src/middleware.ts:L11-L26`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/middleware.ts",
+        "startLine": 28,
+        "endLine": 29,
+        "raw": "`src/middleware.ts:L28-L29"
+      },
+      {
+        "type": "file_range",
+        "path": "src/middleware.ts",
+        "startLine": 31,
+        "endLine": 32,
+        "raw": "`src/middleware.ts:L31-L32"
+      },
+      {
+        "type": "file_range",
+        "path": "src/middleware.ts",
+        "startLine": 148,
+        "endLine": 153,
+        "raw": "`src/middleware.ts:L148-L153`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/app/api/auth/login/route.ts",
+        "startLine": 23,
+        "endLine": 365,
+        "raw": "`src/app/api/auth/login/route.ts:L23-L365`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/app/api/auth/login/route.ts",
+        "startLine": 25,
+        "endLine": 33,
+        "raw": "`src/app/api/auth/login/route.ts:L25-L33`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/app/api/auth/login/route.ts",
+        "startLine": 49,
+        "endLine": 66,
+        "raw": "`src/app/api/auth/login/route.ts:L49-L66`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/app/api/auth/login/route.ts",
+        "startLine": 68,
+        "endLine": 94,
+        "raw": "`src/app/api/auth/login/route.ts:L68-L94`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/app/api/auth/login/route.ts",
+        "startLine": 157,
+        "endLine": 192,
+        "raw": "`src/app/api/auth/login/route.ts:L157-L192`"
+      }
+    ],
+    "targets": [
+      {
+        "path": "src/lib/auth/jwt.ts",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 2 ranges.",
+        "evidenceRefs": [],
+        "startLine": 5,
+        "endLine": 44
+      },
+      {
+        "path": "src/lib/auth/session.ts",
+        "role": "reference",
+        "reason": "Markdown report citation",
+        "evidenceRefs": [],
+        "startLine": 5,
+        "endLine": 14
+      },
+      {
+        "path": "src/middleware.ts",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 5 ranges.",
+        "evidenceRefs": [],
+        "startLine": 11,
+        "endLine": 155
+      },
+      {
+        "path": "src/app/api/auth/login/route.ts",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 7 ranges.",
+        "evidenceRefs": [],
+        "startLine": 23,
+        "endLine": 365
+      },
+      {
+        "path": "src/lib/auth/two-factor.ts",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 2 ranges.",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 8
+      },
+      {
+        "path": "src/app/api/auth/two-factor/verify/route.ts",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 3 ranges.",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 320
+      },
+      {
+        "path": "src/lib/auth/api-route-access.ts",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 6 ranges.",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 341
+      },
+      {
+        "path": "websocket-server/src/middleware/auth.ts",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 6 ranges.",
+        "evidenceRefs": [],
+        "startLine": 30,
+        "endLine": 121
+      }
+    ],
+    "filesRead": [
+      "src/middleware.ts",
+      "prisma/schema.prisma",
+      "websocket-server/src/middleware/auth.ts",
+      "websocket-server/src/index.ts",
+      "src/lib/auth/index.ts",
+      "src/lib/auth/jwt.ts",
+      "src/lib/auth/session.ts",
+      "src/lib/auth/two-factor.ts",
+      "src/app/api/auth/login/route.ts",
+      "lambda/bedrock-proxy/index.mjs",
+      "lambda/aws-usage-recorder/index.mjs",
+      "lambda/rds-metrics/index.mjs",
+      "lambda/newsletter-scheduler/index.mjs",
+      "lambda/skyzcc-bedrock-usage-processor/index.mjs",
+      "src/lib/auth/api-route-access.ts",
+      "websocket-server/src/socket-handlers/chat.ts",
+      "websocket-server/src/socket-handlers/notification.ts",
+      "src/app/api/auth/logout/route.ts",
+      "src/app/api/auth/two-factor/verify/route.ts",
+      "src/types/index.ts"
+    ],
+    "toolsUsed": [
+      "repo_list_dir",
+      "repo_read_file",
+      "repo_find_files",
+      "repo_grep"
+    ],
+    "critic": {
+      "status": "caution",
+      "warnings": [
+        {
+          "type": "truncated_tool_results",
+          "severity": "low",
+          "message": "11 tool result(s) were truncated before model synthesis; re-run with a narrower query or read specific ranges if expected evidence is missing.",
+          "action": "Use a narrower follow-up query or read specific ranges before relying on missing evidence."
+        }
+      ]
+    },
+    "searchCoverage": {
+      "scope": [
+        "src/**",
+        "websocket-server/src/**",
+        "lambda/**",
+        "prisma/**",
+        "scripts/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 21,
+      "grepCalls": 1,
+      "listDirCalls": 6,
+      "symbolCalls": 0,
+      "toolResultsTruncated": 11,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: src/**, websocket-server/src/**, lambda/**, prisma/**, scripts/**",
+        "11 tool result(s) were truncated before model synthesis; re-run with a narrower query or read specific ranges if expected evidence is missing."
+      ],
+      "summary": "scope-limited search across src/**, websocket-server/src/**, lambda/**, prisma/**, scripts/**; 21 file read(s), 1 grep search(es)."
+    },
+    "stats": {
+      "turns": 7,
+      "toolCalls": 29,
+      "filesRead": 21,
+      "grepCalls": 1,
+      "symbolCalls": 0,
+      "stoppedByBudget": false,
+      "elapsedMs": 15845,
+      "totalTokens": 149449
+    }
+  },
+  "structuredContent": {
+    "report": "I have gathered comprehensive evidence. Now I'll write the final architecture report.\n\n# Architecture Report: Next.js App Auth, WebSocket Auth, Lambda Handlers, and Prisma Data Model\n\n## Summary\n\nThis application implements a multi-tenant SaaS platform with JWT-based authentication, WebSocket real-time collaboration, AWS Lambda integration for backend services, and a PostgreSQL database managed through Prisma ORM. The auth system supports password-based login with optional 2FA (TOTP/email), role-based access control, and fine-grained API route permissions. WebSocket connections use the same JWT tokens with additional rate limiting and IP-based brute-force protection. Five Lambda functions handle AWS Bedrock proxying, usage recording, RDS monitoring, newsletter scheduling, and Bedrock usage processing, all secured via API keys or internal secrets.\n\n## Findings\n\n### 1. Next.js App Authentication\n\n#### JWT-Based Session Management\nThe application uses JWT tokens signed with `HS256` algorithm for session management `src/lib/auth/jwt.ts:L29-L44`:\n\n- **Token creation**: Creates tokens with configurable expiration (default 24h, overrideable via `sessionTimeoutMinutes`)\n- **Token verification**: Validates signature and required fields (`userId`, `companyId`, `role`)\n- **Pending 2FA support**: Tokens can have `pending2FA` flag for incomplete authentication flows\n- **Cookie-based storage**: Session cookies named `session-token` with `httpOnly`, `secure` (production), `sameSite: lax` `src/lib/auth/session.ts:L5-L14`\n\n#### Middleware Route Protection\nGlobal middleware enforces authentication at `src/middleware.ts:L72-L155`:\n\n**Protected routes** (require valid session): `/dashboard`, `/inquiries`, `/chat`, `/schedules`, `/support`, `/statistics`, `/settings`, `/billing`, `/onboarding`, `/get-started`, `/access-denied`, `/terms`, `/select-plan`, `/payment` `src/middleware.ts:L11-L26`\n\n**Admin routes** (require `super_admin` role OR `PLATFORM` company): `/admin` `src/middleware.ts:L28-L29,L143-L146`\n\n**Public routes** (no auth): `/login`, `/widget` `src/middleware.ts:L31-L32,L107-L110`\n\n**Special role-based blocks**: `/select-plan` and `/payment` restricted to `admin` or `super_admin` only `src/middleware.ts:L148-L153`\n\n#### Login Flow with 2FA\nLogin process at `src/app/api/auth/login/route.ts:L23-L365` includes:\n\n1. **Rate limiting**: IP-based rate limiting before password check `src/app/api/auth/login/route.ts:L25-L33`\n2. **Company validation**: Checks company code and `isActive` status `src/app/api/auth/login/route.ts:L49-L66`\n3. **IP whitelist**: Optional per-company IP whitelist in `settings.security.ipWhitelistEnabled` `src/app/api/auth/login/route.ts:L68-L94`\n4. **Password verification**: bcrypt comparison with failed attempt tracking `src/app/api/auth/login/route.ts:L157-L192`\n5. **Account lockout**: After configurable max failed attempts (via system security settings), locks for 30 minutes `src/app/api/auth/login/route.ts:L166-L191`\n6. **2FA initiation**: If user has `twoFactorEnabled`, creates pending token with challenge ID `src/app/api/auth/login/route.ts:L221-L320`\n\n#### Two-Factor Authentication (2FA)\n2FA implementation supports both TOTP and email methods:\n\n- **Challenge management**: Uses `twoFactorChallengeId`, `twoFactorChallengeExpiresAt` (10min TTL) `src/lib/auth/two-factor.ts:L1-L8`\n- **Verification**: `/api/auth/two-factor/verify` validates codes and locks after 5 failed attempts `src/app/api/auth/two-factor/verify/route.ts:L1-L316`\n- **TOTP flow**: Uses `otplib` with decrypted secret from database, 30-second epoch tolerance `src/app/api/auth/two-factor/verify/route.ts:L174-L182`\n- **Email flow**: Validates against stored `TwoFactorCode` records `src/app/api/auth/two-factor/verify/route.ts:L186-L320`\n- **Lockout**: Separate lockout for 2FA failures (30min after 5 attempts) `src/lib/auth/two-factor.ts:L2-L3`\n\n#### API Route Access Control\nFine-grained access control via `src/lib/auth/api-route-access.ts:L1-L341` with six modes:\n\n- **`public`**: No auth required (login, logout, password-policy, 2FA endpoints)\n- **`session`**: Requires valid JWT session cookie (most dashboard APIs)\n- **`widget-key`**: Validates `widgetApiKey` from company record\n- **`external-token`**: Validates external API bearer tokens\n- **`secret`**: Requires `CRON_SECRET` or `INTERNAL_API_SECRET` header\n- **`session-or-secret`**: Accepts either session cookie or secret header\n\n**Key exemptions**: `/api/auth/login`, `/api/auth/logout`, `/api/auth/two-factor/*` are public to allow auth flow `src/lib/auth/api-route-access.ts:L42-L67`\n\n**Widget API routes**: `/api/widget/*` use widget API key validation at route layer `src/lib/auth/api-route-access.ts:L127-L130`\n\n**Cron routes**: `/api/cron/*` accept either admin session or cron secret `src/lib/auth/api-route-access.ts:L137-L140`\n\n#### JWT Payload Structure\nToken payload includes `src/lib/auth/jwt.ts:L5-L13`:\n```typescript\n{\n  userId: string\n  companyId: string\n  companyCode?: string\n  role: UserRole  // 'super_admin' | 'admin' | 'manager' | 'staff'\n  name?: string\n  pending2FA?: boolean\n  twoFactorChallengeId?: string\n  iat: number\n  exp: number\n}\n```\n\n### 2. WebSocket Authentication\n\n#### Connection-Level Auth\nWebSocket server uses JWT verification middleware at `websocket-server/src/middleware/auth.ts:L51-L121`:\n\n- **Token extraction**: Accepts token from `socket.handshake.auth.token` or `Authorization: Bearer <token>` header (query param excluded for security) `websocket-server/src/middleware/auth.ts:L68-L70`\n- **JWT verification**: Uses `jsonwebtoken` library with `JWT_SECRET` `websocket-server/src/middleware/auth.ts:L79`\n- **Payload storage**: Stores `userId`, `companyId`, `role`, `name` in `socket.data` `websocket-server/src/middleware/auth.ts:L88-L93`\n- **IP-based brute-force protection**: Blocks IPs after 10 failed attempts for 5 minutes `websocket-server/src/middleware/auth.ts:L30-L64`\n\n#### Room-Based Access Control\nSocket.IO server at `websocket-server/src/index.ts:L145-L176` implements:\n\n- **Automatic room assignment**:\n  - `company:{companyId}` - All users from same company\n  - `user:{userId}` - Personal room for notifications\n  - `admin:monitoring` - Super admin monitoring room\n- **Online user tracking**: Maintains map of connected users with deduplication by userId `websocket-server/src/index.ts:L21-L31,L156-L164`\n- **Connection limits**: Enforced via `checkConnectionLimit()` wrapper `websocket-server/src/index.ts:L153-L154`\n\n#### Chat Handlers\nReal-time chat functionality at `websocket-server/src/socket-handlers/chat.ts:L45-L265`:\n\n- **Session validation**: Validates `sessionId` format and company membership via `findChatSession()` `websocket-server/src/socket-handlers/chat.ts:L49-L61`\n- **Role-based actions**: Agent-only operations (`accept-chat`, `end-chat`) restricted to `staff`, `manager`, `admin`, `super_admin` `websocket-server/src/socket-handlers/chat.ts:L10,L165-L169`\n- **XSS protection**: HTML sanitization on message content `websocket-server/src/socket-handlers/chat.ts:L24-L31,L129`\n- **Message limits**: 5,000 character max `websocket-server/src/socket-handlers/chat.ts:L5,L110-L114`\n\n#### Notification Handlers\nPush notification system at `websocket-server/src/socket-handlers/notification.ts:L30-L38`:\n\n- **HTTP API integration**: Internal `/api/notify` endpoint allows backend to push notifications `websocket-server/src/index.ts:L66-L89`\n- **Secret protection**: Requires `X-Internal-Secret` header matching `INTERNAL_API_SECRET` `websocket-server/src/index.ts:L67-L72`\n- **User-targeted delivery**: Sends to `user:{userId}` room `websocket-server/src/socket-handlers/notification.ts:L34-L35`\n\n#### Rate Limiting\nComprehensive rate limiting at multiple levels:\n\n- **IP-based**: 10 auth failures blocks IP for 5 minutes `websocket-server/src/middleware/auth.ts:L31-L64`\n- **HTTP endpoints**: Rate limit check on all HTTP API calls `websocket-server/src/index.ts:L63`\n- **Socket events**: Per-event rate limiting wrapper applied to all non-system events `websocket-server/src/index.ts:L185-L198`\n\n### 3. Lambda Handlers\n\n#### Lambda 1: Bedrock Proxy (`lambda/bedrock-proxy/index.mjs`)\n**Purpose**: Proxy AWS Bedrock `InvokeModel` API with CORS support `lambda/bedrock-proxy/index.mjs:L12-L16`\n\n**Authentication**: API key via `x-api-key` header compared to `API_KEY` env var `lambda/bedrock-proxy/index.mjs:L29-L37`\n\n**Configuration**:\n- Model ID: `BEDROCK_MODEL_ID` env var (default: `us.anthropic.claude-sonnet-4-5`)\n- Region: `AWS_BEDROCK_REGION` (default: `us-east-1`)\n- CORS origin: `ALLOWED_ORIGIN` env var\n\n**Uncertainty**: Documentation mentions Lambda Function URL, but deployment strategy not confirmed from available files.\n\n#### Lambda 2: AWS Usage Recorder (`lambda/aws-usage-recorder/index.mjs`)\n**Purpose**: Records AWS service usage events (Bedrock, Connect, etc.) to `aws_usage_events` table `lambda/aws-usage-recorder/index.mjs:L105-L148`\n\n**Authentication**: Dual auth mode `lambda/aws-usage-recorder/index.mjs:L30-L36`:\n- HTTP API calls: Requires `x-api-key` matching `API_KEY`\n- Direct invocations (EventBridge, CWL subscriptions): Trusted via IAM role\n\n**Database connection**: Reuses pg pool across warm invocations (max 2 connections) `lambda/aws-usage-recorder/index.mjs:L6-L19`\n\n**Actions**:\n- `begin`: Create initial usage event record (idempotent via upsert)\n- `complete`: Update with final metrics, status, error info\n- `record`: Single event recording\n- `recordSession`: Session-level usage aggregation\n- `batch`: Batch recording\n\n**Connect integration**: Resolves company ID from `connectInstanceArn` by querying `connect_flows` table `lambda/aws-usage-recorder/index.mjs:L181-L200`\n\n#### Lambda 3: RDS Metrics (`lambda/rds-metrics/index.mjs`)\n**Purpose**: Retrieves RDS performance metrics from CloudWatch `lambda/rds-metrics/index.mjs:L7-L11`\n\n**Authentication**: API key via `x-api-key` header or `apiKey` query param `lambda/rds-metrics/index.mjs:L24-L32`\n\n**Configuration**:\n- RDS instance: `RDS_INSTANCE_ID` env var\n- Region: `AWS_REGION` (default: `ap-northeast-2`)\n\n**Metrics collected** (last 5 minutes): CPU, memory, connections, IOPS, latency, network, swap, disk queue `lambda/rds-metrics/index.mjs:L46-L58`\n\n#### Lambda 4: Newsletter Scheduler (`lambda/newsletter-scheduler/index.mjs`)\n**Purpose**: Simple cron caller that triggers Next.js newsletter send endpoint `lambda/newsletter-scheduler/index.mjs:L13-L14`\n\n**Authentication**: Uses `CRON_SECRET` as Bearer token to `APP_URL/api/cron/newsletter-send` `lambda/newsletter-scheduler/index.mjs:L29-L31`\n\n**Trigger**: Designed for EventBridge rule with 1-minute interval `lambda/newsletter-scheduler/index.mjs:L6-L7`\n\n**Uncertainty**: Actual EventBridge rule configuration not visible in repository.\n\n#### Lambda 5: Bedrock Usage Processor (`lambda/skyzcc-bedrock-usage-processor/index.mjs`)\n**Purpose**: Processes CloudWatch Logs subscription for Bedrock usage and forwards to usage-recorder Lambda `lambda/skyzcc-bedrock-usage-processor/index.mjs:L1-L327`\n\n**Authentication**: No HTTP auth; triggered by CWL subscription (IAM-based) `lambda/skyzcc-bedrock-usage-processor/index.mjs:L143-L148`\n\n**Company resolution**: Multiple methods to map Bedrock calls to companies `lambda/skyzcc-bedrock-usage-processor/index.mjs:L23-L68`:\n1. Database lookup: Query `lex_bots.bedrock_agent_id` → `company_id`\n2. Environment maps: `AGENT_COMPANY_MAP` and `IDENTITY_COMPANY_MAP` JSON env vars\n3. Default: `DEFAULT_COMPANY_ID` for single-company deployments\n\n**Processing**:\n- Gzipped CWL log data decompression\n- Filters for Claude/Anthropic model usage and agent calls\n- Aggregates usage by session\n- Invokes usage-recorder Lambda asynchronously (`InvocationType: Event`) `lambda/skyzcc-bedrock-usage-processor/index.mjs:L135-L141`\n\n**Regional support**: Region-specific agent IDs via `AWS_BEDROCK_AGENT_ID_<REGION>` env vars `lambda/skyzcc-bedrock-usage-processor/index.mjs:L119-L133`\n\n### 4. Prisma Data Model\n\n#### Core Models\n\n**Company** (`prisma/schema.prisma:L10-L76`):\n- Multi-tenant root entity with `companyCode` unique identifier\n- Widget integration: `widgetApiKey` (unique), `widgetSettings` JSON\n- AWS integration: `lexBotId`, `lexBotAliasId`, `lexBotRegion`\n- Security: `settings` JSON (contains IP whitelist config), `apiSecret`\n- Billing: `subscription` relation, onboarding deadline\n- Extensive relations: users, chat sessions, inquiries, notifications, etc.\n\n**User** (`prisma/schema.prisma:L78-L129`):\n- Belongs to Company via `companyId` with cascade delete\n- Unique constraint on `[companyId, username]`\n- Authentication: `passwordHash` (bcrypt), `twoFactorEnabled`, `twoFactorMethod`, `twoFactorSecret`\n- Account security: `failedLoginAttempts`, `lockedUntil`, `passwordChangedAt`\n- 2FA tracking: `twoFactorChallengeId`, `twoFactorChallengeExpiresAt`, `twoFactorFailedAttempts`, `twoFactorLockedUntil`\n- Role hierarchy: `role` enum (staff → manager → admin → super_admin)\n\n**Chat Session** (partial from schema):\n- Links to Company, assigned User\n- Status tracking via `chat_session_status` enum\n- Agent assignment and metadata\n\n**Inquiry** (`prisma/schema.prisma:L149-L182`):\n- Customer inquiries with `inquiryNumber` (unique per company)\n- Categories, channels (`inquiry_channel` enum), status (`inquiry_status` enum)\n- AI features: `aiSummary`, `aiIntent`\n- Assignment to users and schedules\n\n#### Enums\n\n**User Roles** (`src/types/index.ts:L2`, `prisma/schema.prisma:L1119-L1124`):\n- `super_admin`: Platform-level admin\n- `admin`: Company admin\n- `manager`: Team manager\n- `staff`: Regular staff member\n\n**Inquiry Status** (`src/types/index.ts:L5`):\n- `pending`, `in_progress`, `scheduled`, `completed`, `cancelled`\n\n**Inquiry Channel** (`src/types/index.ts:L8`):\n- `phone`, `chat`, `email`, `web`, `app`\n\n**Support & Scheduling**:\n- `SupportStatus`: `open`, `in_progress`, `resolved`, `closed`\n- `SupportPriority`: `low`, `medium`, `high`, `urgent`\n- `ScheduleStatus`: `scheduled`, `confirmed`, `completed`, `cancelled`, `no_show`\n\n**Additional Enums** (from schema grep):\n- `notification_type`: Various notification categories\n- `subscription_status`: Active/inactive/cancelled states\n- `payment_status`: Payment workflow states\n- `invoice_status`, `tax_invoice_status`, `cms_agreement_status`\n- `service_application_status`\n\n#### Audit and Activity Tracking\n\n**ActivityLog** (referenced in auth routes):\n- Tracks all login/logout, auth failures, account lockouts\n- Linked to company and user\n- Includes `action`, `entityType`, `description`, `newValues`, `oldValues`\n\n**UserSession** (in User relations):\n- Session management with IP tracking\n- Links to user record\n\n#### Usage and Billing Models\n\n**AwsUsageEvent** (from lambda context):\n- Records AWS service usage (Bedrock tokens, Connect duration)\n- Links to company, user, chat session\n- Fields: `aws_service`, `aws_operation`, `meter_code`, `token_input`, `token_output`, `gb_second`\n- Status tracking: `attempted`, `completed`, `failed`\n- Metadata as JSON\n\n**Subscription**:\n- Company subscription management\n- Links to plan changes, invoices, payments\n- Billing cycle tracking\n\n#### Widget and External Integration\n\n**Widget API Key**: Stored on Company record, used for public widget auth\n**External Token**: Not fully explored in schema - likely separate authentication model for external APIs\n\n## Key Code Paths\n\n### Login Flow\n1. Client POST to `/api/auth/login` → `src/app/api/auth/login/route.ts`\n2. Validate company code, user credentials, IP whitelist\n3. Check account lockout status\n4. Verify password with bcrypt\n5. If 2FA enabled: Create pending token, send code (TOTP/email) → return `pendingToken`\n6. If no 2FA: Create full JWT token, set cookie, log activity\n7. If 2FA: Client POST to `/api/auth/two-factor/verify` with `pendingToken` and `code`\n8. Verify code, consume challenge, create full JWT token, set cookie\n\n### WebSocket Connection Flow\n1. Client connects with token in `auth.token` or `Authorization` header\n2. `authMiddleware` validates JWT and stores user data in `socket.data`\n3. Socket joins rooms: `company:{companyId}`, `user:{userId}`, optionally `admin:monitoring`\n4. Online users map updated\n5. Handlers registered: `registerChatHandlers`, `registerNotificationHandlers`\n6. Rate limiting wrapper applied to all events\n\n### Lambda Invocation Patterns\n1. **Bedrock Proxy**: Client → Lambda Function URL (API key auth) → Bedrock API\n2. **Usage Recorder**: EventBridge/CWL → Lambda (IAM auth) → Database\n3. **RDS Metrics**: Client → Lambda Function URL (API key auth) → CloudWatch → Response\n4. **Newsletter Scheduler**: EventBridge cron → Lambda → Next.js API (CRON_SECRET auth)\n5. **Bedrock Usage Processor**: CWL subscription → Lambda → Usage Recorder (async invoke)\n\n## Uncertainty\n\n1. **Widget auth implementation**: Found API route mode `widget-key` at `src/lib/auth/api-route-access.ts:L127-L130`, but the actual route-layer validation logic was not explored. The `Company.widgetApiKey` field exists in schema, but the validation handler implementation is uncertain.\n\n2. **External token auth**: API route mode `external-token` exists at `src/lib/auth/api-route-access.ts:L132-L135`, and `/api/external/auth/token` endpoint is public, but the token validation implementation and token model/schema were not explored.\n\n3. **Lambda deployment configuration**: Lambda functions reference Function URLs and Environment Variables, but actual CloudFormation/SAM/Terraform configs not found. Deployment scripts exist (`deploy.sh`) but were not examined.\n\n4. **JWT secret management**: `JWT_SECRET` is loaded from environment in multiple places, but rotation strategy or KMS integration not visible.\n\n5. **Password encryption**: `User.passwordHash` uses bcrypt, but `User.twoFactorSecret` encryption method referenced as `decrypt()` in 2FA verify route - the encryption library/mechanism was not explored.\n\n6. **Session revocation**: Logout clears cookie and push subscriptions, but active WebSocket sessions for the user are not explicitly revoked.\n\n7. **Rate limit persistence**: Middleware and WebSocket rate limits use in-memory maps - unclear if persistent/DDoS protection exists beyond application layer.\n\n## Suggestions\n\n1. **Explore widget auth implementation**: Read `src/app/api/widget/*/route.ts` files to understand widget API key validation logic.\n\n2. **Explore external auth model**: Search for `external_token` table or related validation code in `src/lib/auth/external*` or `src/app/api/external/auth/*`.\n\n3. **Review deployment configs**: Examine `lambda/*/deploy.sh` and any IaC files (CloudFormation/SAM/Terraform) to understand Lambda Function URL configuration and CORS settings.\n\n4. **Investigate secret management**: Check if JWT secrets and API secrets use AWS Secrets Manager or KMS for rotation.\n\n5. **Examine encryption utilities**: Review `src/lib/encryption.ts` to understand how two-factor secrets are encrypted/decrypted.\n\n6. **WebSocket session cleanup**: Verify if logout triggers socket disconnection or if there's a separate session invalidation mechanism.\n\n7. **Test rate limit persistence**: Confirm if rate limits survive Lambda cold starts and whether distributed rate limiting (e.g., Redis) is needed for multi-instance deployments.",
+    "citations": [
+      {
+        "type": "file_range",
+        "path": "src/lib/auth/jwt.ts",
+        "startLine": 29,
+        "endLine": 44,
+        "raw": "`src/lib/auth/jwt.ts:L29-L44`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/lib/auth/session.ts",
+        "startLine": 5,
+        "endLine": 14,
+        "raw": "`src/lib/auth/session.ts:L5-L14`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/middleware.ts",
+        "startLine": 72,
+        "endLine": 155,
+        "raw": "`src/middleware.ts:L72-L155`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/middleware.ts",
+        "startLine": 11,
+        "endLine": 26,
+        "raw": "`src/middleware.ts:L11-L26`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/middleware.ts",
+        "startLine": 28,
+        "endLine": 29,
+        "raw": "`src/middleware.ts:L28-L29"
+      },
+      {
+        "type": "file_range",
+        "path": "src/middleware.ts",
+        "startLine": 31,
+        "endLine": 32,
+        "raw": "`src/middleware.ts:L31-L32"
+      },
+      {
+        "type": "file_range",
+        "path": "src/middleware.ts",
+        "startLine": 148,
+        "endLine": 153,
+        "raw": "`src/middleware.ts:L148-L153`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/app/api/auth/login/route.ts",
+        "startLine": 23,
+        "endLine": 365,
+        "raw": "`src/app/api/auth/login/route.ts:L23-L365`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/app/api/auth/login/route.ts",
+        "startLine": 25,
+        "endLine": 33,
+        "raw": "`src/app/api/auth/login/route.ts:L25-L33`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/app/api/auth/login/route.ts",
+        "startLine": 49,
+        "endLine": 66,
+        "raw": "`src/app/api/auth/login/route.ts:L49-L66`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/app/api/auth/login/route.ts",
+        "startLine": 68,
+        "endLine": 94,
+        "raw": "`src/app/api/auth/login/route.ts:L68-L94`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/app/api/auth/login/route.ts",
+        "startLine": 157,
+        "endLine": 192,
+        "raw": "`src/app/api/auth/login/route.ts:L157-L192`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/app/api/auth/login/route.ts",
+        "startLine": 166,
+        "endLine": 191,
+        "raw": "`src/app/api/auth/login/route.ts:L166-L191`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/app/api/auth/login/route.ts",
+        "startLine": 221,
+        "endLine": 320,
+        "raw": "`src/app/api/auth/login/route.ts:L221-L320`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/lib/auth/two-factor.ts",
+        "startLine": 1,
+        "endLine": 8,
+        "raw": "`src/lib/auth/two-factor.ts:L1-L8`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/app/api/auth/two-factor/verify/route.ts",
+        "startLine": 1,
+        "endLine": 316,
+        "raw": "`src/app/api/auth/two-factor/verify/route.ts:L1-L316`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/app/api/auth/two-factor/verify/route.ts",
+        "startLine": 174,
+        "endLine": 182,
+        "raw": "`src/app/api/auth/two-factor/verify/route.ts:L174-L182`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/app/api/auth/two-factor/verify/route.ts",
+        "startLine": 186,
+        "endLine": 320,
+        "raw": "`src/app/api/auth/two-factor/verify/route.ts:L186-L320`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/lib/auth/two-factor.ts",
+        "startLine": 2,
+        "endLine": 3,
+        "raw": "`src/lib/auth/two-factor.ts:L2-L3`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/lib/auth/api-route-access.ts",
+        "startLine": 1,
+        "endLine": 341,
+        "raw": "`src/lib/auth/api-route-access.ts:L1-L341`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/lib/auth/api-route-access.ts",
+        "startLine": 42,
+        "endLine": 67,
+        "raw": "`src/lib/auth/api-route-access.ts:L42-L67`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/lib/auth/api-route-access.ts",
+        "startLine": 127,
+        "endLine": 130,
+        "raw": "`src/lib/auth/api-route-access.ts:L127-L130`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/lib/auth/api-route-access.ts",
+        "startLine": 137,
+        "endLine": 140,
+        "raw": "`src/lib/auth/api-route-access.ts:L137-L140`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/lib/auth/jwt.ts",
+        "startLine": 5,
+        "endLine": 13,
+        "raw": "`src/lib/auth/jwt.ts:L5-L13`"
+      },
+      {
+        "type": "file_range",
+        "path": "websocket-server/src/middleware/auth.ts",
+        "startLine": 51,
+        "endLine": 121,
+        "raw": "`websocket-server/src/middleware/auth.ts:L51-L121`"
+      },
+      {
+        "type": "file_range",
+        "path": "websocket-server/src/middleware/auth.ts",
+        "startLine": 68,
+        "endLine": 70,
+        "raw": "`websocket-server/src/middleware/auth.ts:L68-L70`"
+      },
+      {
+        "type": "file_range",
+        "path": "websocket-server/src/middleware/auth.ts",
+        "startLine": 79,
+        "endLine": 79,
+        "raw": "`websocket-server/src/middleware/auth.ts:L79`"
+      },
+      {
+        "type": "file_range",
+        "path": "websocket-server/src/middleware/auth.ts",
+        "startLine": 88,
+        "endLine": 93,
+        "raw": "`websocket-server/src/middleware/auth.ts:L88-L93`"
+      },
+      {
+        "type": "file_range",
+        "path": "websocket-server/src/middleware/auth.ts",
+        "startLine": 30,
+        "endLine": 64,
+        "raw": "`websocket-server/src/middleware/auth.ts:L30-L64`"
+      },
+      {
+        "type": "file_range",
+        "path": "websocket-server/src/index.ts",
+        "startLine": 145,
+        "endLine": 176,
+        "raw": "`websocket-server/src/index.ts:L145-L176`"
+      },
+      {
+        "type": "file_range",
+        "path": "websocket-server/src/index.ts",
+        "startLine": 21,
+        "endLine": 31,
+        "raw": "`websocket-server/src/index.ts:L21-L31"
+      },
+      {
+        "type": "file_range",
+        "path": "websocket-server/src/index.ts",
+        "startLine": 153,
+        "endLine": 154,
+        "raw": "`websocket-server/src/index.ts:L153-L154`"
+      },
+      {
+        "type": "file_range",
+        "path": "websocket-server/src/socket-handlers/chat.ts",
+        "startLine": 45,
+        "endLine": 265,
+        "raw": "`websocket-server/src/socket-handlers/chat.ts:L45-L265`"
+      },
+      {
+        "type": "file_range",
+        "path": "websocket-server/src/socket-handlers/chat.ts",
+        "startLine": 49,
+        "endLine": 61,
+        "raw": "`websocket-server/src/socket-handlers/chat.ts:L49-L61`"
+      },
+      {
+        "type": "file_range",
+        "path": "websocket-server/src/socket-handlers/chat.ts",
+        "startLine": 10,
+        "endLine": 10,
+        "raw": "`websocket-server/src/socket-handlers/chat.ts:L10"
+      },
+      {
+        "type": "file_range",
+        "path": "websocket-server/src/socket-handlers/chat.ts",
+        "startLine": 24,
+        "endLine": 31,
+        "raw": "`websocket-server/src/socket-handlers/chat.ts:L24-L31"
+      },
+      {
+        "type": "file_range",
+        "path": "websocket-server/src/socket-handlers/chat.ts",
+        "startLine": 5,
+        "endLine": 5,
+        "raw": "`websocket-server/src/socket-handlers/chat.ts:L5"
+      },
+      {
+        "type": "file_range",
+        "path": "websocket-server/src/socket-handlers/notification.ts",
+        "startLine": 30,
+        "endLine": 38,
+        "raw": "`websocket-server/src/socket-handlers/notification.ts:L30-L38`"
+      },
+      {
+        "type": "file_range",
+        "path": "websocket-server/src/index.ts",
+        "startLine": 66,
+        "endLine": 89,
+        "raw": "`websocket-server/src/index.ts:L66-L89`"
+      },
+      {
+        "type": "file_range",
+        "path": "websocket-server/src/index.ts",
+        "startLine": 67,
+        "endLine": 72,
+        "raw": "`websocket-server/src/index.ts:L67-L72`"
+      },
+      {
+        "type": "file_range",
+        "path": "websocket-server/src/socket-handlers/notification.ts",
+        "startLine": 34,
+        "endLine": 35,
+        "raw": "`websocket-server/src/socket-handlers/notification.ts:L34-L35`"
+      },
+      {
+        "type": "file_range",
+        "path": "websocket-server/src/middleware/auth.ts",
+        "startLine": 31,
+        "endLine": 64,
+        "raw": "`websocket-server/src/middleware/auth.ts:L31-L64`"
+      },
+      {
+        "type": "file_range",
+        "path": "websocket-server/src/index.ts",
+        "startLine": 63,
+        "endLine": 63,
+        "raw": "`websocket-server/src/index.ts:L63`"
+      },
+      {
+        "type": "file_range",
+        "path": "websocket-server/src/index.ts",
+        "startLine": 185,
+        "endLine": 198,
+        "raw": "`websocket-server/src/index.ts:L185-L198`"
+      },
+      {
+        "type": "file_range",
+        "path": "lambda/bedrock-proxy/index.mjs",
+        "startLine": 12,
+        "endLine": 16,
+        "raw": "`lambda/bedrock-proxy/index.mjs:L12-L16`"
+      },
+      {
+        "type": "file_range",
+        "path": "lambda/bedrock-proxy/index.mjs",
+        "startLine": 29,
+        "endLine": 37,
+        "raw": "`lambda/bedrock-proxy/index.mjs:L29-L37`"
+      },
+      {
+        "type": "file_range",
+        "path": "lambda/aws-usage-recorder/index.mjs",
+        "startLine": 105,
+        "endLine": 148,
+        "raw": "`lambda/aws-usage-recorder/index.mjs:L105-L148`"
+      },
+      {
+        "type": "file_range",
+        "path": "lambda/aws-usage-recorder/index.mjs",
+        "startLine": 30,
+        "endLine": 36,
+        "raw": "`lambda/aws-usage-recorder/index.mjs:L30-L36`"
+      },
+      {
+        "type": "file_range",
+        "path": "lambda/aws-usage-recorder/index.mjs",
+        "startLine": 6,
+        "endLine": 19,
+        "raw": "`lambda/aws-usage-recorder/index.mjs:L6-L19`"
+      },
+      {
+        "type": "file_range",
+        "path": "lambda/aws-usage-recorder/index.mjs",
+        "startLine": 181,
+        "endLine": 200,
+        "raw": "`lambda/aws-usage-recorder/index.mjs:L181-L200`"
+      },
+      {
+        "type": "file_range",
+        "path": "lambda/rds-metrics/index.mjs",
+        "startLine": 7,
+        "endLine": 11,
+        "raw": "`lambda/rds-metrics/index.mjs:L7-L11`"
+      },
+      {
+        "type": "file_range",
+        "path": "lambda/rds-metrics/index.mjs",
+        "startLine": 24,
+        "endLine": 32,
+        "raw": "`lambda/rds-metrics/index.mjs:L24-L32`"
+      },
+      {
+        "type": "file_range",
+        "path": "lambda/rds-metrics/index.mjs",
+        "startLine": 46,
+        "endLine": 58,
+        "raw": "`lambda/rds-metrics/index.mjs:L46-L58`"
+      },
+      {
+        "type": "file_range",
+        "path": "lambda/newsletter-scheduler/index.mjs",
+        "startLine": 13,
+        "endLine": 14,
+        "raw": "`lambda/newsletter-scheduler/index.mjs:L13-L14`"
+      },
+      {
+        "type": "file_range",
+        "path": "lambda/newsletter-scheduler/index.mjs",
+        "startLine": 29,
+        "endLine": 31,
+        "raw": "`lambda/newsletter-scheduler/index.mjs:L29-L31`"
+      },
+      {
+        "type": "file_range",
+        "path": "lambda/newsletter-scheduler/index.mjs",
+        "startLine": 6,
+        "endLine": 7,
+        "raw": "`lambda/newsletter-scheduler/index.mjs:L6-L7`"
+      },
+      {
+        "type": "file_range",
+        "path": "lambda/skyzcc-bedrock-usage-processor/index.mjs",
+        "startLine": 1,
+        "endLine": 327,
+        "raw": "`lambda/skyzcc-bedrock-usage-processor/index.mjs:L1-L327`"
+      },
+      {
+        "type": "file_range",
+        "path": "lambda/skyzcc-bedrock-usage-processor/index.mjs",
+        "startLine": 143,
+        "endLine": 148,
+        "raw": "`lambda/skyzcc-bedrock-usage-processor/index.mjs:L143-L148`"
+      },
+      {
+        "type": "file_range",
+        "path": "lambda/skyzcc-bedrock-usage-processor/index.mjs",
+        "startLine": 23,
+        "endLine": 68,
+        "raw": "`lambda/skyzcc-bedrock-usage-processor/index.mjs:L23-L68`"
+      },
+      {
+        "type": "file_range",
+        "path": "lambda/skyzcc-bedrock-usage-processor/index.mjs",
+        "startLine": 135,
+        "endLine": 141,
+        "raw": "`lambda/skyzcc-bedrock-usage-processor/index.mjs:L135-L141`"
+      },
+      {
+        "type": "file_range",
+        "path": "lambda/skyzcc-bedrock-usage-processor/index.mjs",
+        "startLine": 119,
+        "endLine": 133,
+        "raw": "`lambda/skyzcc-bedrock-usage-processor/index.mjs:L119-L133`"
+      },
+      {
+        "type": "file_range",
+        "path": "prisma/schema.prisma",
+        "startLine": 10,
+        "endLine": 76,
+        "raw": "`prisma/schema.prisma:L10-L76`"
+      },
+      {
+        "type": "file_range",
+        "path": "prisma/schema.prisma",
+        "startLine": 78,
+        "endLine": 129,
+        "raw": "`prisma/schema.prisma:L78-L129`"
+      },
+      {
+        "type": "file_range",
+        "path": "prisma/schema.prisma",
+        "startLine": 149,
+        "endLine": 182,
+        "raw": "`prisma/schema.prisma:L149-L182`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/types/index.ts",
+        "startLine": 2,
+        "endLine": 2,
+        "raw": "`src/types/index.ts:L2`"
+      },
+      {
+        "type": "file_range",
+        "path": "prisma/schema.prisma",
+        "startLine": 1119,
+        "endLine": 1124,
+        "raw": "`prisma/schema.prisma:L1119-L1124`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/types/index.ts",
+        "startLine": 5,
+        "endLine": 5,
+        "raw": "`src/types/index.ts:L5`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/types/index.ts",
+        "startLine": 8,
+        "endLine": 8,
+        "raw": "`src/types/index.ts:L8`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/lib/auth/api-route-access.ts",
+        "startLine": 127,
+        "endLine": 130,
+        "raw": "`src/lib/auth/api-route-access.ts:L127-L130`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/lib/auth/api-route-access.ts",
+        "startLine": 132,
+        "endLine": 135,
+        "raw": "`src/lib/auth/api-route-access.ts:L132-L135`"
+      }
+    ],
+    "targets": [
+      {
+        "path": "src/lib/auth/jwt.ts",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 2 ranges.",
+        "evidenceRefs": [],
+        "startLine": 5,
+        "endLine": 44
+      },
+      {
+        "path": "src/lib/auth/session.ts",
+        "role": "reference",
+        "reason": "Markdown report citation",
+        "evidenceRefs": [],
+        "startLine": 5,
+        "endLine": 14
+      },
+      {
+        "path": "src/middleware.ts",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 5 ranges.",
+        "evidenceRefs": [],
+        "startLine": 11,
+        "endLine": 155
+      },
+      {
+        "path": "src/app/api/auth/login/route.ts",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 7 ranges.",
+        "evidenceRefs": [],
+        "startLine": 23,
+        "endLine": 365
+      },
+      {
+        "path": "src/lib/auth/two-factor.ts",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 2 ranges.",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 8
+      },
+      {
+        "path": "src/app/api/auth/two-factor/verify/route.ts",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 3 ranges.",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 320
+      },
+      {
+        "path": "src/lib/auth/api-route-access.ts",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 6 ranges.",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 341
+      },
+      {
+        "path": "websocket-server/src/middleware/auth.ts",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 6 ranges.",
+        "evidenceRefs": [],
+        "startLine": 30,
+        "endLine": 121
+      },
+      {
+        "path": "websocket-server/src/index.ts",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 7 ranges.",
+        "evidenceRefs": [],
+        "startLine": 21,
+        "endLine": 198
+      },
+      {
+        "path": "websocket-server/src/socket-handlers/chat.ts",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 5 ranges.",
+        "evidenceRefs": [],
+        "startLine": 5,
+        "endLine": 265
+      },
+      {
+        "path": "websocket-server/src/socket-handlers/notification.ts",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 2 ranges.",
+        "evidenceRefs": [],
+        "startLine": 30,
+        "endLine": 38
+      },
+      {
+        "path": "lambda/bedrock-proxy/index.mjs",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 2 ranges.",
+        "evidenceRefs": [],
+        "startLine": 12,
+        "endLine": 37
+      },
+      {
+        "path": "lambda/aws-usage-recorder/index.mjs",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 4 ranges.",
+        "evidenceRefs": [],
+        "startLine": 6,
+        "endLine": 200
+      },
+      {
+        "path": "lambda/rds-metrics/index.mjs",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 3 ranges.",
+        "evidenceRefs": [],
+        "startLine": 7,
+        "endLine": 58
+      },
+      {
+        "path": "lambda/newsletter-scheduler/index.mjs",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 3 ranges.",
+        "evidenceRefs": [],
+        "startLine": 6,
+        "endLine": 31
+      },
+      {
+        "path": "lambda/skyzcc-bedrock-usage-processor/index.mjs",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 5 ranges.",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 327
+      },
+      {
+        "path": "prisma/schema.prisma",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 4 ranges.",
+        "evidenceRefs": [],
+        "startLine": 10,
+        "endLine": 1124
+      },
+      {
+        "path": "src/types/index.ts",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 3 ranges.",
+        "evidenceRefs": [],
+        "startLine": 2,
+        "endLine": 8
+      }
+    ],
+    "filesRead": [
+      "src/middleware.ts",
+      "prisma/schema.prisma",
+      "websocket-server/src/middleware/auth.ts",
+      "websocket-server/src/index.ts",
+      "src/lib/auth/index.ts",
+      "src/lib/auth/jwt.ts",
+      "src/lib/auth/session.ts",
+      "src/lib/auth/two-factor.ts",
+      "src/app/api/auth/login/route.ts",
+      "lambda/bedrock-proxy/index.mjs",
+      "lambda/aws-usage-recorder/index.mjs",
+      "lambda/rds-metrics/index.mjs",
+      "lambda/newsletter-scheduler/index.mjs",
+      "lambda/skyzcc-bedrock-usage-processor/index.mjs",
+      "src/lib/auth/api-route-access.ts",
+      "websocket-server/src/socket-handlers/chat.ts",
+      "websocket-server/src/socket-handlers/notification.ts",
+      "src/app/api/auth/logout/route.ts",
+      "src/app/api/auth/two-factor/verify/route.ts",
+      "src/types/index.ts"
+    ],
+    "toolsUsed": [
+      "repo_list_dir",
+      "repo_read_file",
+      "repo_find_files",
+      "repo_grep"
+    ],
+    "stats": {
+      "model": "zai-glm-4.7",
+      "budget": "deep",
+      "turns": 7,
+      "toolCalls": 29,
+      "listDirCalls": 6,
+      "findFileCalls": 1,
+      "grepCalls": 1,
+      "filesRead": 21,
+      "gitLogCalls": 0,
+      "gitBlameCalls": 0,
+      "gitDiffCalls": 0,
+      "gitShowCalls": 0,
+      "symbolCalls": 0,
+      "elapsedMs": 15845,
+      "stoppedByBudget": false,
+      "llmCompactions": 0,
+      "toolResultsTruncated": 11,
+      "outputRecoveries": 0,
+      "scope": [
+        "src/**",
+        "websocket-server/src/**",
+        "lambda/**",
+        "prisma/**",
+        "scripts/**"
+      ],
+      "repoRoot": "/home/kyubr/IdeaProjects/aicc_manage",
+      "sessionId": "sess_ad65607c50bf13e2",
+      "sessionStatus": "created",
+      "sessionSource": "created",
+      "remainingCalls": 4,
+      "inputTokens": 143236,
+      "outputTokens": 6213,
+      "totalTokens": 149449,
+      "cacheHits": 162,
+      "cacheMisses": 634,
+      "cacheHitRate": 0.204,
+      "cacheEntries": 623,
+      "cacheSizeBytes": 3759146
+    },
+    "critic": {
+      "status": "caution",
+      "warnings": [
+        {
+          "type": "truncated_tool_results",
+          "severity": "low",
+          "message": "11 tool result(s) were truncated before model synthesis; re-run with a narrower query or read specific ranges if expected evidence is missing.",
+          "action": "Use a narrower follow-up query or read specific ranges before relying on missing evidence."
+        }
+      ]
+    },
+    "searchCoverage": {
+      "scope": [
+        "src/**",
+        "websocket-server/src/**",
+        "lambda/**",
+        "prisma/**",
+        "scripts/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 21,
+      "grepCalls": 1,
+      "listDirCalls": 6,
+      "symbolCalls": 0,
+      "toolResultsTruncated": 11,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: src/**, websocket-server/src/**, lambda/**, prisma/**, scripts/**",
+        "11 tool result(s) were truncated before model synthesis; re-run with a narrower query or read specific ranges if expected evidence is missing."
+      ],
+      "summary": "scope-limited search across src/**, websocket-server/src/**, lambda/**, prisma/**, scripts/**; 21 file read(s), 1 grep search(es)."
+    },
+    "transcriptPath": null,
+    "toolTrace": {
+      "entries": [
+        {
+          "turn": 1,
+          "tool": "repo_list_dir",
+          "args": {
+            "dirPath": "."
+          },
+          "result": {
+            "entries": 33,
+            "paths": [
+              "lambda",
+              "lambda/aws-usage-recorder",
+              "lambda/bedrock-proxy",
+              "lambda/newsletter-scheduler",
+              "lambda/rds-metrics",
+              "lambda/skyzcc-bedrock-usage-processor"
+            ]
+          }
+        },
+        {
+          "turn": 1,
+          "tool": "repo_list_dir",
+          "args": {
+            "dirPath": "src"
+          },
+          "result": {
+            "entries": 100,
+            "paths": [
+              "src/app",
+              "src/app/(admin)",
+              "src/app/(admin)/admin",
+              "src/app/(admin)/layout.tsx",
+              "src/app/(auth)",
+              "src/app/(auth)/layout.tsx"
+            ]
+          }
+        },
+        {
+          "turn": 1,
+          "tool": "repo_list_dir",
+          "args": {
+            "dirPath": "websocket-server"
+          },
+          "result": {
+            "entries": 11,
+            "paths": [
+              "websocket-server/src",
+              "websocket-server/src/index.ts",
+              "websocket-server/src/lib",
+              "websocket-server/src/lib/db.ts",
+              "websocket-server/src/lib/logger.ts",
+              "websocket-server/src/middleware"
+            ]
+          }
+        },
+        {
+          "turn": 1,
+          "tool": "repo_list_dir",
+          "args": {
+            "dirPath": "lambda"
+          },
+          "result": {
+            "entries": 25,
+            "paths": [
+              "lambda/aws-usage-recorder",
+              "lambda/aws-usage-recorder/deploy.sh",
+              "lambda/aws-usage-recorder/index.mjs",
+              "lambda/aws-usage-recorder/package-lock.json",
+              "lambda/aws-usage-recorder/package.json",
+              "lambda/bedrock-proxy"
+            ]
+          }
+        },
+        {
+          "turn": 1,
+          "tool": "repo_list_dir",
+          "args": {
+            "dirPath": "prisma"
+          },
+          "result": {
+            "entries": 25,
+            "paths": [
+              "prisma/encrypt-existing-data.ts",
+              "prisma/migrations",
+              "prisma/migrations/20260317000000_rename_blog_posts_to_posts",
+              "prisma/migrations/20260325110000_add_two_factor_challenge_fields",
+              "prisma/migrations/20260401170000_add_lex_edit_apply_step",
+              "prisma/migrations/20260409120000_add_system_settings"
+            ]
+          }
+        },
+        {
+          "turn": 2,
+          "tool": "repo_read_file",
+          "args": {
+            "path": "src/middleware.ts"
+          },
+          "result": {
+            "path": "src/middleware.ts",
+            "startLine": 1,
+            "endLine": 170,
+            "totalLines": 170,
+            "truncated": true
+          }
+        },
+        {
+          "turn": 2,
+          "tool": "repo_read_file",
+          "args": {
+            "path": "prisma/schema.prisma"
+          },
+          "result": {
+            "path": "prisma/schema.prisma",
+            "startLine": 1,
+            "endLine": 320,
+            "totalLines": 1217,
+            "truncated": true
+          }
+        },
+        {
+          "turn": 2,
+          "tool": "repo_read_file",
+          "args": {
+            "path": "websocket-server/src/middleware/auth.ts"
+          },
+          "result": {
+            "path": "websocket-server/src/middleware/auth.ts",
+            "startLine": 1,
+            "endLine": 132,
+            "totalLines": 132,
+            "truncated": true
+          }
+        },
+        {
+          "turn": 2,
+          "tool": "repo_read_file",
+          "args": {
+            "path": "websocket-server/src/index.ts"
+          },
+          "result": {
+            "path": "websocket-server/src/index.ts",
+            "startLine": 1,
+            "endLine": 267,
+            "totalLines": 267,
+            "truncated": true
+          }
+        },
+        {
+          "turn": 2,
+          "tool": "repo_list_dir",
+          "args": {
+            "dirPath": "src/lib"
+          },
+          "result": {
+            "entries": 100,
+            "paths": [
+              "src/lib/action-items",
+              "src/lib/action-items/engine.ts",
+              "src/lib/action-items/rules.ts",
+              "src/lib/action-items/types.ts",
+              "src/lib/activity-log.ts",
+              "src/lib/agent-action-profiles.test.ts"
+            ]
+          }
+        },
+        {
+          "turn": 3,
+          "tool": "repo_read_file",
+          "args": {
+            "path": "src/lib/auth/index.ts"
+          },
+          "result": {
+            "path": "src/lib/auth/index.ts",
+            "startLine": 1,
+            "endLine": 24,
+            "totalLines": 24,
+            "truncated": true
+          }
+        },
+        {
+          "turn": 3,
+          "tool": "repo_read_file",
+          "args": {
+            "path": "src/lib/auth/jwt.ts"
+          },
+          "result": {
+            "path": "src/lib/auth/jwt.ts",
+            "startLine": 1,
+            "endLine": 77,
+            "totalLines": 77,
+            "truncated": true
+          }
+        },
+        {
+          "turn": 3,
+          "tool": "repo_read_file",
+          "args": {
+            "path": "src/lib/auth/session.ts"
+          },
+          "result": {
+            "path": "src/lib/auth/session.ts",
+            "startLine": 1,
+            "endLine": 54,
+            "totalLines": 54,
+            "truncated": true
+          }
+        },
+        {
+          "turn": 3,
+          "tool": "repo_read_file",
+          "args": {
+            "path": "src/lib/auth/two-factor.ts"
+          },
+          "result": {
+            "path": "src/lib/auth/two-factor.ts",
+            "startLine": 1,
+            "endLine": 16,
+            "totalLines": 16,
+            "truncated": true
+          }
+        },
+        {
+          "turn": 3,
+          "tool": "repo_read_file",
+          "args": {
+            "path": "src/app/api/auth/login/route.ts"
+          },
+          "result": {
+            "path": "src/app/api/auth/login/route.ts",
+            "startLine": 1,
+            "endLine": 320,
+            "totalLines": 365,
+            "truncated": true
+          }
+        },
+        {
+          "turn": 4,
+          "tool": "repo_read_file",
+          "args": {
+            "path": "lambda/bedrock-proxy/index.mjs"
+          },
+          "result": {
+            "path": "lambda/bedrock-proxy/index.mjs",
+            "startLine": 1,
+            "endLine": 88,
+            "totalLines": 88,
+            "truncated": true
+          }
+        },
+        {
+          "turn": 4,
+          "tool": "repo_read_file",
+          "args": {
+            "path": "lambda/aws-usage-recorder/index.mjs"
+          },
+          "result": {
+            "path": "lambda/aws-usage-recorder/index.mjs",
+            "startLine": 1,
+            "endLine": 320,
+            "totalLines": 367,
+            "truncated": true
+          }
+        },
+        {
+          "turn": 4,
+          "tool": "repo_read_file",
+          "args": {
+            "path": "lambda/rds-metrics/index.mjs"
+          },
+          "result": {
+            "path": "lambda/rds-metrics/index.mjs",
+            "startLine": 1,
+            "endLine": 145,
+            "totalLines": 145,
+            "truncated": true
+          }
+        },
+        {
+          "turn": 4,
+          "tool": "repo_read_file",
+          "args": {
+            "path": "lambda/newsletter-scheduler/index.mjs"
+          },
+          "result": {
+            "path": "lambda/newsletter-scheduler/index.mjs",
+            "startLine": 1,
+            "endLine": 62,
+            "totalLines": 62,
+            "truncated": true
+          }
+        },
+        {
+          "turn": 4,
+          "tool": "repo_read_file",
+          "args": {
+            "path": "lambda/skyzcc-bedrock-usage-processor/index.mjs"
+          },
+          "result": {
+            "path": "lambda/skyzcc-bedrock-usage-processor/index.mjs",
+            "startLine": 1,
+            "endLine": 320,
+            "totalLines": 327,
+            "truncated": true
+          }
+        }
+      ],
+      "totalCalls": 29,
+      "truncated": true,
+      "maxEntries": 20
+    }
+  },
+  "contentText": "I have gathered comprehensive evidence. Now I'll write the final architecture report.\n\n# Architecture Report: Next.js App Auth, WebSocket Auth, Lambda Handlers, and Prisma Data Model\n\n## Summary\n\nThis application implements a multi-tenant SaaS platform with JWT-based authentication, WebSocket real-time collaboration, AWS Lambda integration for backend services, and a PostgreSQL database managed through Prisma ORM. The auth system supports password-based login with optional 2FA (TOTP/email), role-based access control, and fine-grained API route permissions. WebSocket connections use the same JWT tokens with additional rate limiting and IP-based brute-force protection. Five Lambda functions handle AWS Bedrock proxying, usage recording, RDS monitoring, newsletter scheduling, and Bedrock usage processing, all secured via API keys or internal secrets.\n\n## Findings\n\n### 1. Next.js App Authentication\n\n#### JWT-Based Session Management\nThe application uses JWT tokens signed with `HS256` algorithm for session management `src/lib/auth/jwt.ts:L29-L44`:\n\n- **Token creation**: Creates tokens with configurable expiration (default 24h, overrideable via `sessionTimeoutMinutes`)\n- **Token verification**: Validates signature and required fields (`userId`, `companyId`, `role`)\n- **Pending 2FA support**: Tokens can have `pending2FA` flag for incomplete authentication flows\n- **Cookie-based storage**: Session cookies named `session-token` with `httpOnly`, `secure` (production), `sameSite: lax` `src/lib/auth/session.ts:L5-L14`\n\n#### Middleware Route Protection\nGlobal middleware enforces authentication at `src/middleware.ts:L72-L155`:\n\n**Protected routes** (require valid session): `/dashboard`, `/inquiries`, `/chat`, `/schedules`, `/support`, `/statistics`, `/settings`, `/billing`, `/onboarding`, `/get-started`, `/access-denied`, `/terms`, `/select-plan`, `/payment` `src/middleware.ts:L11-L26`\n\n**Admin routes** (require `super_admin` role OR `PLATFORM` company): `/admin` `src/middleware.ts:L28-L29,L143-L146`\n\n**Public routes** (no auth): `/login`, `/widget` `src/middleware.ts:L31-L32,L107-L110`\n\n**Special role-based blocks**: `/select-plan` and `/payment` restricted to `admin` or `super_admin` only `src/middleware.ts:L148-L153`\n\n#### Login Flow with 2FA\nLogin process at `src/app/api/auth/login/route.ts:L23-L365` includes:\n\n1. **Rate limiting**: IP-based rate limiting before password check `src/app/api/auth/login/route.ts:L25-L33`\n2. **Company validation**: Checks company code and `isActive` status `src/app/api/auth/login/route.ts:L49-L66`\n3. **IP whitelist**: Optional per-company IP whitelist in `settings.security.ipWhitelistEnabled` `src/app/api/auth/login/route.ts:L68-L94`\n4. **Password verification**: bcrypt comparison with failed attempt tracking `src/app/api/auth/login/route.ts:L157-L192`\n5. **Account lockout**: After configurable max failed attempts (via system security settings), locks for 30 minutes `src/app/api/auth/login/route.ts:L166-L191`\n6. **2FA initiation**: If user has `twoFactorEnabled`, creates pending token with challenge ID `src/app/api/auth/login/route.ts:L221-L320`\n\n#### Two-Factor Authentication (2FA)\n2FA implementation supports both TOTP and email methods:\n\n- **Challenge management**: Uses `twoFactorChallengeId`, `twoFactorChallengeExpiresAt` (10min TTL) `src/lib/auth/two-factor.ts:L1-L8`\n- **Verification**: `/api/auth/two-factor/verify` validates codes and locks after 5 failed attempts `src/app/api/auth/two-factor/verify/route.ts:L1-L316`\n- **TOTP flow**: Uses `otplib` with decrypted secret from database, 30-second epoch tolerance `src/app/api/auth/two-factor/verify/route.ts:L174-L182`\n- **Email flow**: Validates against stored `TwoFactorCode` records `src/app/api/auth/two-factor/verify/route.ts:L186-L320`\n- **Lockout**: Separate lockout for 2FA failures (30min after 5 attempts) `src/lib/auth/two-factor.ts:L2-L3`\n\n#### API Route Access Control\nFine-grained access control via `src/lib/auth/api-route-access.ts:L1-L341` with six modes:\n\n- **`public`**: No auth required (login, logout, password-policy, 2FA endpoints)\n- **`session`**: Requires valid JWT session cookie (most dashboard APIs)\n- **`widget-key`**: Validates `widgetApiKey` from company record\n- **`external-token`**: Validates external API bearer tokens\n- **`secret`**: Requires `CRON_SECRET` or `INTERNAL_API_SECRET` header\n- **`session-or-secret`**: Accepts either session cookie or secret header\n\n**Key exemptions**: `/api/auth/login`, `/api/auth/logout`, `/api/auth/two-factor/*` are public to allow auth flow `src/lib/auth/api-route-access.ts:L42-L67`\n\n**Widget API routes**: `/api/widget/*` use widget API key validation at route layer `src/lib/auth/api-route-access.ts:L127-L130`\n\n**Cron routes**: `/api/cron/*` accept either admin session or cron secret `src/lib/auth/api-route-access.ts:L137-L140`\n\n#### JWT Payload Structure\nToken payload includes `src/lib/auth/jwt.ts:L5-L13`:\n```typescript\n{\n  userId: string\n  companyId: string\n  companyCode?: string\n  role: UserRole  // 'super_admin' | 'admin' | 'manager' | 'staff'\n  name?: string\n  pending2FA?: boolean\n  twoFactorChallengeId?: string\n  iat: number\n  exp: number\n}\n```\n\n### 2. WebSocket Authentication\n\n#### Connection-Level Auth\nWebSocket server uses JWT verification middleware at `websocket-server/src/middleware/auth.ts:L51-L121`:\n\n- **Token extraction**: Accepts token from `socket.handshake.auth.token` or `Authorization: Bearer <token>` header (query param excluded for security) `websocket-server/src/middleware/auth.ts:L68-L70`\n- **JWT verification**: Uses `jsonwebtoken` library with `JWT_SECRET` `websocket-server/src/middleware/auth.ts:L79`\n- **Payload storage**: Stores `userId`, `companyId`, `role`, `name` in `socket.data` `websocket-server/src/middleware/auth.ts:L88-L93`\n- **IP-based brute-force protection**: Blocks IPs after 10 failed attempts for 5 minutes `websocket-server/src/middleware/auth.ts:L30-L64`\n\n#### Room-Based Access Control\nSocket.IO server at `websocket-server/src/index.ts:L145-L176` implements:\n\n- **Automatic room assignment**:\n  - `company:{companyId}` - All users from same company\n  - `user:{userId}` - Personal room for notifications\n  - `admin:monitoring` - Super admin monitoring room\n- **Online user tracking**: Maintains map of connected users with deduplication by userId `websocket-server/src/index.ts:L21-L31,L156-L164`\n- **Connection limits**: Enforced via `checkConnectionLimit()` wrapper `websocket-server/src/index.ts:L153-L154`\n\n#### Chat Handlers\nReal-time chat functionality at `websocket-server/src/socket-handlers/chat.ts:L45-L265`:\n\n- **Session validation**: Validates `sessionId` format and company membership via `findChatSession()` `websocket-server/src/socket-handlers/chat.ts:L49-L61`\n- **Role-based actions**: Agent-only operations (`accept-chat`, `end-chat`) restricted to `staff`, `manager`, `admin`, `super_admin` `websocket-server/src/socket-handlers/chat.ts:L10,L165-L169`\n- **XSS protection**: HTML sanitization on message content `websocket-server/src/socket-handlers/chat.ts:L24-L31,L129`\n- **Message limits**: 5,000 character max `websocket-server/src/socket-handlers/chat.ts:L5,L110-L114`\n\n#### Notification Handlers\nPush notification system at `websocket-server/src/socket-handlers/notification.ts:L30-L38`:\n\n- **HTTP API integration**: Internal `/api/notify` endpoint allows backend to push notifications `websocket-server/src/index.ts:L66-L89`\n- **Secret protection**: Requires `X-Internal-Secret` header matching `INTERNAL_API_SECRET` `websocket-server/src/index.ts:L67-L72`\n- **User-targeted delivery**: Sends to `user:{userId}` room `websocket-server/src/socket-handlers/notification.ts:L34-L35`\n\n#### Rate Limiting\nComprehensive rate limiting at multiple levels:\n\n- **IP-based**: 10 auth failures blocks IP for 5 minutes `websocket-server/src/middleware/auth.ts:L31-L64`\n- **HTTP endpoints**: Rate limit check on all HTTP API calls `websocket-server/src/index.ts:L63`\n- **Socket events**: Per-event rate limiting w\n... [truncated 11258 chars]"
+}

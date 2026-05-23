@@ -1,0 +1,1487 @@
+{
+  "tool": "explore_repo",
+  "repo": "DeepResearch",
+  "args": {
+    "repo_root": "/home/kyubr/IdeaProjects/DeepResearch",
+    "scope": [
+      "app/**",
+      "main.py",
+      "migrations/**"
+    ],
+    "task": "Explain the repository purpose and the main implementation path for FastAPI app, orchestration, provider, and repository wiring. Return grounded targets that a parent coding agent should verify before editing."
+  },
+  "elapsedMs": 8282,
+  "error": null,
+  "isError": false,
+  "summary": {
+    "directAnswer": "DeepResearch is an AI-powered research platform orchestrating multi-step verification workflows. Uses LangGraph for query understanding → planning → search → policy checks → fetching → parsing → evidence extraction → synthesis → citation validation. Tracks costs, sources, evidence, claims, producing markdown reports with validated citations.",
+    "status": {
+      "confidence": "high",
+      "verification": "targeted_read_needed",
+      "complete": true,
+      "warnings": []
+    },
+    "evidenceQuality": {
+      "level": "high",
+      "exactCount": 8,
+      "partialCount": 0,
+      "droppedCount": 0,
+      "fileCount": 7,
+      "warnings": [],
+      "summary": "Verified: 12 files read, 8/8 evidence items grounded, cross-verified across 7 files. All evidence grounded in inspected code."
+    },
+    "failure": null,
+    "nextAction": {
+      "type": "read_target",
+      "reason": "Read app/repositories/base.py:12-43 before final verification.",
+      "target": {
+        "path": "app/repositories/base.py",
+        "role": "read",
+        "reason": "Generic repository base with CRUD and UnitOfWork.",
+        "evidenceRefs": [
+          "app/repositories/base.py:12-43",
+          "8"
+        ],
+        "startLine": 12,
+        "endLine": 43
+      }
+    },
+    "searchCoverage": {
+      "scope": [
+        "app/**",
+        "main.py",
+        "migrations/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 12,
+      "grepCalls": 0,
+      "listDirCalls": 1,
+      "symbolCalls": 0,
+      "toolResultsTruncated": 0,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: app/**, main.py, migrations/**"
+      ],
+      "summary": "scope-limited search across app/**, main.py, migrations/**; 12 file read(s), 0 grep search(es)."
+    },
+    "critic": null,
+    "sessionId": "sess_f69d901fce6f95bb",
+    "session": {
+      "id": "sess_f69d901fce6f95bb",
+      "status": "created",
+      "remainingCalls": 4
+    },
+    "targets": [
+      {
+        "path": "app/main.py",
+        "role": "context",
+        "reason": "FastAPI factory with router registration - verify before editing.",
+        "evidenceRefs": [
+          "app/main.py:1-28",
+          "1"
+        ],
+        "startLine": 1,
+        "endLine": 28
+      },
+      {
+        "path": "app/core/config.py",
+        "role": "config",
+        "reason": "Central settings (DB, Redis, S3, API keys) - verify defaults.",
+        "evidenceRefs": [
+          "app/core/config.py:1-39"
+        ],
+        "startLine": 1,
+        "endLine": 39
+      },
+      {
+        "path": "app/db/session.py",
+        "role": "context",
+        "reason": "SQLAlchemy async session factory - verify dependency injection.",
+        "evidenceRefs": [
+          "app/db/session.py:1-18"
+        ],
+        "startLine": 1,
+        "endLine": 18
+      },
+      {
+        "path": "app/orchestrator/graph.py",
+        "role": "context",
+        "reason": "LangGraph workflow with 8 nodes and budget gates.",
+        "evidenceRefs": [
+          "app/orchestrator/graph.py:1-92"
+        ],
+        "startLine": 1,
+        "endLine": 92
+      },
+      {
+        "path": "app/orchestrator/state.py",
+        "role": "context",
+        "reason": "ResearchState TypedDict defining workflow schema.",
+        "evidenceRefs": [
+          "app/orchestrator/state.py:92-110",
+          "6"
+        ],
+        "startLine": 92,
+        "endLine": 110
+      },
+      {
+        "path": "app/providers/base.py",
+        "role": "context",
+        "reason": "Provider logging protocol - verify before adding providers.",
+        "evidenceRefs": [
+          "app/providers/base.py:57-90",
+          "7"
+        ],
+        "startLine": 57,
+        "endLine": 90
+      },
+      {
+        "path": "app/repositories/base.py",
+        "role": "read",
+        "reason": "Generic repository base with CRUD and UnitOfWork.",
+        "evidenceRefs": [
+          "app/repositories/base.py:12-43",
+          "8"
+        ],
+        "startLine": 12,
+        "endLine": 43
+      },
+      {
+        "path": "app/core/config.py",
+        "startLine": 10,
+        "endLine": 39,
+        "role": "read",
+        "reason": "Settings with database, Redis, S3, API keys, budgets.",
+        "evidenceRefs": [
+          "2"
+        ]
+      }
+    ],
+    "discoveredPathsCount": 100,
+    "evidence": [
+      {
+        "id": "1",
+        "path": "app/main.py",
+        "startLine": 1,
+        "endLine": 28,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "FastAPI app factory with routers and error handlers.",
+        "snippet": "1: from __future__ import annotations\n2: \n3: from fastapi import FastAPI\n4: \n5: from app.api import claims, plans, sources, tasks\n6: from app.api.errors import register_error_handlers\n7: from app.core.config import get_settings\n8: from app.core.logging import configure_logging\n9: from app.core.telemetry import configure_telemetry, instrument_fastapi_app\n10: \n11: \n12: def create_app() -> FastAPI:\n... [snippet truncated]"
+      },
+      {
+        "id": "2",
+        "path": "app/core/config.py",
+        "startLine": 10,
+        "endLine": 39,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Settings with database, Redis, S3, API keys, budgets.",
+        "snippet": "10: class Settings(BaseSettings):\n11:     model_config = SettingsConfigDict(env_file=\"[REDACTED:secret-path]\", env_file_encoding=\"utf-8\", extra=\"ignore\")\n12: \n13:     database_url: str = \"postgresql+asyncpg://dev:dev@localhost:5432/deepresearch\"\n14:     redis_url: str = \"redis://localhost:6379/0\"\n15: \n16:     s3_endpoint_url: AnyUrl | str = \"http://localhost:9000\"\n17:     s3_bucket: str = \"deepresearch-snapshots\"\n18:     s3_access_key: str = \"minio\"\n19:     s3_secret_key: SecretStr = SecretStr(\"miniodev\")\n20: \n21:     tavily_api_key: SecretStr | None = None\n... [snippet truncated]"
+      },
+      {
+        "id": "3",
+        "path": "app/db/session.py",
+        "startLine": 11,
+        "endLine": 17,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "SQLAlchemy async engine and session factory.",
+        "snippet": "11: engine = create_async_engine(settings.database_url, pool_pre_ping=True)\n12: AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False)\n13: \n14: \n15: async def get_session() -> AsyncIterator[AsyncSession]:\n16:     async with AsyncSessionLocal() as session:\n17:         yield session"
+      },
+      {
+        "id": "4",
+        "path": "app/orchestrator/graph.py",
+        "startLine": 39,
+        "endLine": 92,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "LangGraph with 8 nodes, budget gates, conditional edges.",
+        "snippet": "39: def build_graph(\n40:     nodes: ResearchGraphNodes | None = None,\n41:     checkpointer: Any | None = None,\n42:     debug: bool = False,\n43: ):\n44:     graph_nodes = nodes or ResearchGraphNodes()\n45:     graph = StateGraph(ResearchState)\n46: \n47:     graph.add_node(\"query_understanding\", graph_nodes.query_understanding)\n48:     graph.add_node(\"planner\", graph_nodes.planner)\n49:     graph.add_node(\"plan_approval_gate\", plan_approval_gate)\n50:     graph.add_node(\"search\", graph_nodes.search)\n... [snippet truncated]"
+      },
+      {
+        "id": "5",
+        "path": "app/orchestrator/graph.py",
+        "startLine": 95,
+        "endLine": 123,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Plan approval gate with interrupt for human-in-the-loop.",
+        "snippet": "95: async def plan_approval_gate(state: ResearchState) -> ResearchState:\n96:     if state.get(\"plan_approved\") is True:\n97:         return state\n98: \n99:     resume_value = interrupt(\n100:         {\n101:             \"task_id\": str(state[\"task_id\"]),\n102:             \"status\": ResearchStatus.WAITING_FOR_USER.value,\n103:             \"plan\": state.get(\"plan\"),\n104:         }\n105:     )\n106:     approved = _resume_approved(resume_value)\n... [snippet truncated]"
+      },
+      {
+        "id": "6",
+        "path": "app/orchestrator/state.py",
+        "startLine": 92,
+        "endLine": 110,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "ResearchState with search results, evidence, claims fields.",
+        "snippet": "92: class ResearchState(TypedDict):\n93:     task_id: UUID\n94:     question: NotRequired[str]\n95:     language: NotRequired[str]\n96:     normalized_question: NotRequired[str]\n97:     search_queries: NotRequired[list[SearchQueryDraft]]\n98:     search_results: NotRequired[list[SearchResultDraft]]\n99:     allowed_search_results: NotRequired[list[SearchResultDraft]]\n100:     policy_decisions: NotRequired[list[PolicyDecisionDraft]]\n101:     source_snapshots: NotRequired[list[SourceSnapshotDraft]]\n102:     source_evaluations: NotRequired[list[SourceEvaluationDraft]]\n103:     evidence_spans: NotRequired[list[EvidenceSpanDraft]]\n... [snippet truncated]"
+      },
+      {
+        "id": "7",
+        "path": "app/providers/base.py",
+        "startLine": 57,
+        "endLine": 90,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "ProviderLogSink protocol for tool/cost/config logging.",
+        "snippet": "57: class ProviderLogSink(Protocol):\n58:     async def record_tool_call(self, record: ToolCallAudit) -> None: ...\n59: \n60:     async def record_cost(self, record: CostAudit) -> None: ...\n61: \n62:     async def record_provider_config(self, record: ProviderConfigSnapshotAudit) -> None: ...\n63: \n64: \n65: class NullProviderLogSink:\n66:     async def record_tool_call(self, record: ToolCallAudit) -> None:\n67:         return None\n68: \n... [snippet truncated]"
+      },
+      {
+        "id": "8",
+        "path": "app/repositories/base.py",
+        "startLine": 12,
+        "endLine": 43,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Generic Repository[ModelT] with CRUD and UnitOfWork.",
+        "snippet": "12: class Repository[ModelT: Base]:\n13:     def __init__(self, session: AsyncSession, model: type[ModelT]) -> None:\n14:         self.session = session\n15:         self.model = model\n16: \n17:     async def get(self, item_id: UUID) -> ModelT | None:\n18:         return await self.session.get(self.model, item_id)\n19: \n20:     async def list(self, limit: int = 100, offset: int = 0) -> Sequence[ModelT]:\n21:         result = await self.session.scalars(select(self.model).limit(limit).offset(offset))\n22:         return result.all()\n23: \n... [snippet truncated]"
+      }
+    ],
+    "uncertainties": [
+      "Migration schema not read - table structure unverified",
+      "Celery worker config not read - async task wiring unverified",
+      "Service layer not read - business logic unverified",
+      "Orchestrator nodes not read - individual node logic unverified"
+    ],
+    "stats": {
+      "turns": 5,
+      "toolCalls": 15,
+      "filesRead": 12,
+      "grepCalls": 0,
+      "symbolCalls": 0,
+      "stoppedByBudget": false,
+      "elapsedMs": 8265,
+      "totalTokens": 67176
+    }
+  },
+  "structuredContent": {
+    "schemaVersion": 1,
+    "directAnswer": "DeepResearch is an AI-powered research platform orchestrating multi-step verification workflows. Uses LangGraph for query understanding → planning → search → policy checks → fetching → parsing → evidence extraction → synthesis → citation validation. Tracks costs, sources, evidence, claims, producing markdown reports with validated citations.",
+    "status": {
+      "confidence": "high",
+      "verification": "targeted_read_needed",
+      "complete": true,
+      "warnings": []
+    },
+    "targets": [
+      {
+        "path": "app/main.py",
+        "role": "context",
+        "reason": "FastAPI factory with router registration - verify before editing.",
+        "evidenceRefs": [
+          "app/main.py:1-28",
+          "1"
+        ],
+        "startLine": 1,
+        "endLine": 28
+      },
+      {
+        "path": "app/core/config.py",
+        "role": "config",
+        "reason": "Central settings (DB, Redis, S3, API keys) - verify defaults.",
+        "evidenceRefs": [
+          "app/core/config.py:1-39"
+        ],
+        "startLine": 1,
+        "endLine": 39
+      },
+      {
+        "path": "app/db/session.py",
+        "role": "context",
+        "reason": "SQLAlchemy async session factory - verify dependency injection.",
+        "evidenceRefs": [
+          "app/db/session.py:1-18"
+        ],
+        "startLine": 1,
+        "endLine": 18
+      },
+      {
+        "path": "app/orchestrator/graph.py",
+        "role": "context",
+        "reason": "LangGraph workflow with 8 nodes and budget gates.",
+        "evidenceRefs": [
+          "app/orchestrator/graph.py:1-92"
+        ],
+        "startLine": 1,
+        "endLine": 92
+      },
+      {
+        "path": "app/orchestrator/state.py",
+        "role": "context",
+        "reason": "ResearchState TypedDict defining workflow schema.",
+        "evidenceRefs": [
+          "app/orchestrator/state.py:92-110",
+          "6"
+        ],
+        "startLine": 92,
+        "endLine": 110
+      },
+      {
+        "path": "app/providers/base.py",
+        "role": "context",
+        "reason": "Provider logging protocol - verify before adding providers.",
+        "evidenceRefs": [
+          "app/providers/base.py:57-90",
+          "7"
+        ],
+        "startLine": 57,
+        "endLine": 90
+      },
+      {
+        "path": "app/repositories/base.py",
+        "role": "read",
+        "reason": "Generic repository base with CRUD and UnitOfWork.",
+        "evidenceRefs": [
+          "app/repositories/base.py:12-43",
+          "8"
+        ],
+        "startLine": 12,
+        "endLine": 43
+      },
+      {
+        "path": "app/core/config.py",
+        "startLine": 10,
+        "endLine": 39,
+        "role": "read",
+        "reason": "Settings with database, Redis, S3, API keys, budgets.",
+        "evidenceRefs": [
+          "2"
+        ]
+      },
+      {
+        "path": "app/db/session.py",
+        "startLine": 11,
+        "endLine": 17,
+        "role": "read",
+        "reason": "SQLAlchemy async engine and session factory.",
+        "evidenceRefs": [
+          "3"
+        ]
+      },
+      {
+        "path": "app/orchestrator/graph.py",
+        "startLine": 39,
+        "endLine": 92,
+        "role": "read",
+        "reason": "LangGraph with 8 nodes, budget gates, conditional edges.",
+        "evidenceRefs": [
+          "4"
+        ]
+      },
+      {
+        "path": "app/orchestrator/graph.py",
+        "startLine": 95,
+        "endLine": 123,
+        "role": "read",
+        "reason": "Plan approval gate with interrupt for human-in-the-loop.",
+        "evidenceRefs": [
+          "5"
+        ]
+      }
+    ],
+    "discoveredPaths": [
+      {
+        "path": "app",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/api",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/api/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/api/claims.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/api/errors.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/api/plans.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/api/sources.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/api/tasks.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/citation",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/citation/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/citation/entailment.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/citation/fuzzy.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/citation/hashing.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/core",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/core/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/core/config.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/core/logging.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/core/telemetry.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/db",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/db/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/db/session.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/domain",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/domain/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/domain/enums.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/domain/models.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/eval",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/eval/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/eval/golden_questions.jsonl",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/eval/seed_provider_config.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/eval/smoke_runner.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/main.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/models",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/models/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/models/base.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/models/claim.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/models/evidence.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/models/log.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/models/policy.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/models/provider.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/models/report.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/models/research.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/models/search.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/models/source.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/orchestrator",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/orchestrator/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/orchestrator/graph.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/orchestrator/nodes",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/orchestrator/state.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/policy",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/policy/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/policy/budget.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/policy/prompt_injection.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/policy/robots.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/providers",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/providers/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/providers/anthropic.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/providers/base.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/providers/firecrawl.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/providers/tavily.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/reporting",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/reporting/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/reporting/markdown_writer.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/repositories",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/repositories/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/repositories/base.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/repositories/claim_repository.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/repositories/evidence_repository.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/repositories/log_repository.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/repositories/plan_repository.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/repositories/report_repository.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/repositories/search_repository.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/repositories/source_repository.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/repositories/task_repository.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/services",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/services/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/services/claim_service.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/services/cost_service.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/services/plan_service.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/services/report_service.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/services/source_registry.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/services/task_service.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/storage",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/storage/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/storage/s3.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/workers",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/workers/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/workers/celery_app.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/workers/tasks.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "main.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "migrations",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "migrations/env.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "migrations/script.py.mako",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "migrations/versions",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "migrations/versions/.gitkeep",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "migrations/versions/202605210001_initial_domain_schema.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "app/orchestrator/nodes/__init__.py",
+        "kind": "file",
+        "sourceTool": "repo_find_files",
+        "reason": "Matched file discovery query."
+      },
+      {
+        "path": "app/orchestrator/nodes/citation_validator.py",
+        "kind": "file",
+        "sourceTool": "repo_find_files",
+        "reason": "Matched file discovery query."
+      },
+      {
+        "path": "app/orchestrator/nodes/evidence_extractor.py",
+        "kind": "file",
+        "sourceTool": "repo_find_files",
+        "reason": "Matched file discovery query."
+      },
+      {
+        "path": "app/orchestrator/nodes/fetcher.py",
+        "kind": "file",
+        "sourceTool": "repo_find_files",
+        "reason": "Matched file discovery query."
+      }
+    ],
+    "evidence": [
+      {
+        "id": "1",
+        "path": "app/main.py",
+        "startLine": 1,
+        "endLine": 28,
+        "why": "FastAPI app factory with routers and error handlers.",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "snippet": "1: from __future__ import annotations\n2: \n3: from fastapi import FastAPI\n4: \n5: from app.api import claims, plans, sources, tasks\n6: from app.api.errors import register_error_handlers\n7: from app.core.config import get_settings\n8: from app.core.logging import configure_logging\n9: from app.core.telemetry import configure_telemetry, instrument_fastapi_app\n10: \n11: \n12: def create_app() -> FastAPI:\n... [snippet truncated]"
+      },
+      {
+        "id": "2",
+        "path": "app/core/config.py",
+        "startLine": 10,
+        "endLine": 39,
+        "why": "Settings with database, Redis, S3, API keys, budgets.",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "snippet": "10: class Settings(BaseSettings):\n11:     model_config = SettingsConfigDict(env_file=\"[REDACTED:secret-path]\", env_file_encoding=\"utf-8\", extra=\"ignore\")\n12: \n13:     database_url: str = \"postgresql+asyncpg://dev:dev@localhost:5432/deepresearch\"\n14:     redis_url: str = \"redis://localhost:6379/0\"\n15: \n16:     s3_endpoint_url: AnyUrl | str = \"http://localhost:9000\"\n17:     s3_bucket: str = \"deepresearch-snapshots\"\n18:     s3_access_key: str = \"minio\"\n19:     s3_secret_key: SecretStr = SecretStr(\"miniodev\")\n20: \n21:     tavily_api_key: SecretStr | None = None\n... [snippet truncated]",
+        "redacted": true,
+        "redactions": [
+          "secret-path"
+        ]
+      },
+      {
+        "id": "3",
+        "path": "app/db/session.py",
+        "startLine": 11,
+        "endLine": 17,
+        "why": "SQLAlchemy async engine and session factory.",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "snippet": "11: engine = create_async_engine(settings.database_url, pool_pre_ping=True)\n12: AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False)\n13: \n14: \n15: async def get_session() -> AsyncIterator[AsyncSession]:\n16:     async with AsyncSessionLocal() as session:\n17:         yield session"
+      },
+      {
+        "id": "4",
+        "path": "app/orchestrator/graph.py",
+        "startLine": 39,
+        "endLine": 92,
+        "why": "LangGraph with 8 nodes, budget gates, conditional edges.",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "snippet": "39: def build_graph(\n40:     nodes: ResearchGraphNodes | None = None,\n41:     checkpointer: Any | None = None,\n42:     debug: bool = False,\n43: ):\n44:     graph_nodes = nodes or ResearchGraphNodes()\n45:     graph = StateGraph(ResearchState)\n46: \n47:     graph.add_node(\"query_understanding\", graph_nodes.query_understanding)\n48:     graph.add_node(\"planner\", graph_nodes.planner)\n49:     graph.add_node(\"plan_approval_gate\", plan_approval_gate)\n50:     graph.add_node(\"search\", graph_nodes.search)\n... [snippet truncated]"
+      },
+      {
+        "id": "5",
+        "path": "app/orchestrator/graph.py",
+        "startLine": 95,
+        "endLine": 123,
+        "why": "Plan approval gate with interrupt for human-in-the-loop.",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "snippet": "95: async def plan_approval_gate(state: ResearchState) -> ResearchState:\n96:     if state.get(\"plan_approved\") is True:\n97:         return state\n98: \n99:     resume_value = interrupt(\n100:         {\n101:             \"task_id\": str(state[\"task_id\"]),\n102:             \"status\": ResearchStatus.WAITING_FOR_USER.value,\n103:             \"plan\": state.get(\"plan\"),\n104:         }\n105:     )\n106:     approved = _resume_approved(resume_value)\n... [snippet truncated]"
+      },
+      {
+        "id": "6",
+        "path": "app/orchestrator/state.py",
+        "startLine": 92,
+        "endLine": 110,
+        "why": "ResearchState with search results, evidence, claims fields.",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "snippet": "92: class ResearchState(TypedDict):\n93:     task_id: UUID\n94:     question: NotRequired[str]\n95:     language: NotRequired[str]\n96:     normalized_question: NotRequired[str]\n97:     search_queries: NotRequired[list[SearchQueryDraft]]\n98:     search_results: NotRequired[list[SearchResultDraft]]\n99:     allowed_search_results: NotRequired[list[SearchResultDraft]]\n100:     policy_decisions: NotRequired[list[PolicyDecisionDraft]]\n101:     source_snapshots: NotRequired[list[SourceSnapshotDraft]]\n102:     source_evaluations: NotRequired[list[SourceEvaluationDraft]]\n103:     evidence_spans: NotRequired[list[EvidenceSpanDraft]]\n... [snippet truncated]"
+      },
+      {
+        "id": "7",
+        "path": "app/providers/base.py",
+        "startLine": 57,
+        "endLine": 90,
+        "why": "ProviderLogSink protocol for tool/cost/config logging.",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "snippet": "57: class ProviderLogSink(Protocol):\n58:     async def record_tool_call(self, record: ToolCallAudit) -> None: ...\n59: \n60:     async def record_cost(self, record: CostAudit) -> None: ...\n61: \n62:     async def record_provider_config(self, record: ProviderConfigSnapshotAudit) -> None: ...\n63: \n64: \n65: class NullProviderLogSink:\n66:     async def record_tool_call(self, record: ToolCallAudit) -> None:\n67:         return None\n68: \n... [snippet truncated]"
+      },
+      {
+        "id": "8",
+        "path": "app/repositories/base.py",
+        "startLine": 12,
+        "endLine": 43,
+        "why": "Generic Repository[ModelT] with CRUD and UnitOfWork.",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "snippet": "12: class Repository[ModelT: Base]:\n13:     def __init__(self, session: AsyncSession, model: type[ModelT]) -> None:\n14:         self.session = session\n15:         self.model = model\n16: \n17:     async def get(self, item_id: UUID) -> ModelT | None:\n18:         return await self.session.get(self.model, item_id)\n19: \n20:     async def list(self, limit: int = 100, offset: int = 0) -> Sequence[ModelT]:\n21:         result = await self.session.scalars(select(self.model).limit(limit).offset(offset))\n22:         return result.all()\n23: \n... [snippet truncated]"
+      }
+    ],
+    "uncertainties": [
+      "Migration schema not read - table structure unverified",
+      "Celery worker config not read - async task wiring unverified",
+      "Service layer not read - business logic unverified",
+      "Orchestrator nodes not read - individual node logic unverified"
+    ],
+    "nextAction": {
+      "type": "read_target",
+      "reason": "Read app/repositories/base.py:12-43 before final verification.",
+      "target": {
+        "path": "app/repositories/base.py",
+        "role": "read",
+        "reason": "Generic repository base with CRUD and UnitOfWork.",
+        "evidenceRefs": [
+          "app/repositories/base.py:12-43",
+          "8"
+        ],
+        "startLine": 12,
+        "endLine": 43
+      }
+    },
+    "evidenceQuality": {
+      "level": "high",
+      "exactCount": 8,
+      "partialCount": 0,
+      "droppedCount": 0,
+      "fileCount": 7,
+      "warnings": [],
+      "summary": "Verified: 12 files read, 8/8 evidence items grounded, cross-verified across 7 files. All evidence grounded in inspected code."
+    },
+    "searchCoverage": {
+      "scope": [
+        "app/**",
+        "main.py",
+        "migrations/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 12,
+      "grepCalls": 0,
+      "listDirCalls": 1,
+      "symbolCalls": 0,
+      "toolResultsTruncated": 0,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: app/**, main.py, migrations/**"
+      ],
+      "summary": "scope-limited search across app/**, main.py, migrations/**; 12 file read(s), 0 grep search(es)."
+    },
+    "failure": null,
+    "sessionId": "sess_f69d901fce6f95bb",
+    "session": {
+      "id": "sess_f69d901fce6f95bb",
+      "status": "created",
+      "remainingCalls": 4
+    },
+    "_debug": {
+      "evidenceSufficiency": {
+        "sufficient": true,
+        "reason": "edit_plan_has_actionable_target"
+      },
+      "confidenceScore": 0.96,
+      "confidenceFactors": {
+        "evidenceCount": 8,
+        "evidenceGrounded": 8,
+        "evidenceDropped": 0,
+        "exactCount": 8,
+        "crossVerified": true,
+        "symbolSearchUsed": false,
+        "stoppedByBudget": false,
+        "gitLogCalls": 0,
+        "gitDiffCalls": 0,
+        "gitBlameCalls": 0,
+        "gitGroundingHint": "none",
+        "taskKind": "default",
+        "adjustments": [
+          "base=0.30 (taskKind=default)",
+          "+0.54 (8 exact evidence item(s))",
+          "+0.12 (cross-verified across multiple files)"
+        ],
+        "droppedUngrounded": 0,
+        "droppedMalformed": 0
+      },
+      "stats": {
+        "model": "zai-glm-4.7",
+        "budget": "deep",
+        "budgetSource": "auto",
+        "turns": 5,
+        "toolCalls": 15,
+        "listDirCalls": 1,
+        "findFileCalls": 2,
+        "grepCalls": 0,
+        "filesRead": 12,
+        "gitLogCalls": 0,
+        "gitBlameCalls": 0,
+        "gitDiffCalls": 0,
+        "gitShowCalls": 0,
+        "symbolCalls": 0,
+        "inputTokens": 62829,
+        "outputTokens": 4347,
+        "totalTokens": 67176,
+        "elapsedMs": 8265,
+        "stoppedByBudget": false,
+        "scope": [
+          "app/**",
+          "main.py",
+          "migrations/**"
+        ],
+        "repoRoot": "/home/kyubr/IdeaProjects/DeepResearch",
+        "sessionId": "sess_f69d901fce6f95bb",
+        "sessionStatus": "created",
+        "sessionSource": "created",
+        "remainingCalls": 4,
+        "cacheHits": 0,
+        "cacheMisses": 41,
+        "cacheHitRate": 0,
+        "cacheEntries": 40,
+        "cacheSizeBytes": 379470
+      },
+      "toolTrace": {
+        "entries": [
+          {
+            "turn": 1,
+            "tool": "repo_list_dir",
+            "args": {},
+            "result": {
+              "entries": 96,
+              "paths": [
+                "app",
+                "app/__init__.py",
+                "app/api",
+                "app/api/__init__.py",
+                "app/api/claims.py",
+                "app/api/errors.py"
+              ]
+            }
+          },
+          {
+            "turn": 1,
+            "tool": "repo_find_files",
+            "args": {
+              "pattern": "**/main.py"
+            },
+            "result": {
+              "matches": 2,
+              "paths": [
+                "main.py",
+                "app/main.py"
+              ],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 1,
+            "tool": "repo_find_files",
+            "args": {
+              "pattern": "**/app/**/*.py"
+            },
+            "result": {
+              "matches": 80,
+              "paths": [
+                "app/__init__.py",
+                "app/main.py",
+                "app/api/__init__.py",
+                "app/api/claims.py",
+                "app/api/errors.py",
+                "app/api/plans.py"
+              ],
+              "truncated": true
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "main.py"
+            },
+            "result": {
+              "path": "main.py",
+              "startLine": 1,
+              "endLine": 14,
+              "totalLines": 14,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "app/main.py"
+            },
+            "result": {
+              "path": "app/main.py",
+              "startLine": 1,
+              "endLine": 28,
+              "totalLines": 28,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "app/core/config.py"
+            },
+            "result": {
+              "path": "app/core/config.py",
+              "startLine": 1,
+              "endLine": 39,
+              "totalLines": 39,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "app/db/session.py"
+            },
+            "result": {
+              "path": "app/db/session.py",
+              "startLine": 1,
+              "endLine": 18,
+              "totalLines": 18,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "app/orchestrator/graph.py"
+            },
+            "result": {
+              "path": "app/orchestrator/graph.py",
+              "startLine": 1,
+              "endLine": 223,
+              "totalLines": 223,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "app/orchestrator/state.py"
+            },
+            "result": {
+              "path": "app/orchestrator/state.py",
+              "startLine": 1,
+              "endLine": 110,
+              "totalLines": 110,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "app/providers/base.py"
+            },
+            "result": {
+              "path": "app/providers/base.py",
+              "startLine": 1,
+              "endLine": 108,
+              "totalLines": 108,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "app/repositories/base.py"
+            },
+            "result": {
+              "path": "app/repositories/base.py",
+              "startLine": 1,
+              "endLine": 43,
+              "totalLines": 43,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "app/providers/anthropic.py"
+            },
+            "result": {
+              "path": "app/providers/anthropic.py",
+              "startLine": 1,
+              "endLine": 262,
+              "totalLines": 262,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "app/repositories/task_repository.py"
+            },
+            "result": {
+              "path": "app/repositories/task_repository.py",
+              "startLine": 1,
+              "endLine": 12,
+              "totalLines": 12,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "app/domain/models.py"
+            },
+            "result": {
+              "path": "app/domain/models.py",
+              "startLine": 1,
+              "endLine": 46,
+              "totalLines": 46,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "app/api/tasks.py"
+            },
+            "result": {
+              "path": "app/api/tasks.py",
+              "startLine": 1,
+              "endLine": 190,
+              "totalLines": 190,
+              "truncated": true
+            }
+          }
+        ],
+        "totalCalls": 15,
+        "truncated": false,
+        "maxEntries": 20
+      },
+      "codeMap": {
+        "entryPoints": [
+          "main.py",
+          "app/main.py"
+        ],
+        "keyModules": [
+          {
+            "path": "main.py",
+            "role": "entry point",
+            "linesRead": 14
+          },
+          {
+            "path": "app/main.py",
+            "role": "entry point",
+            "linesRead": 28
+          },
+          {
+            "path": "app/core/config.py",
+            "role": "configuration",
+            "linesRead": 39
+          },
+          {
+            "path": "app/db/session.py",
+            "role": "entry point",
+            "linesRead": 18
+          },
+          {
+            "path": "app/orchestrator/graph.py",
+            "role": "entry point",
+            "linesRead": 223
+          },
+          {
+            "path": "app/orchestrator/state.py",
+            "role": "entry point",
+            "linesRead": 110
+          },
+          {
+            "path": "app/providers/base.py",
+            "role": "entry point",
+            "linesRead": 108
+          },
+          {
+            "path": "app/repositories/base.py",
+            "role": "entry point",
+            "linesRead": 43
+          },
+          {
+            "path": "app/providers/anthropic.py",
+            "role": "entry point",
+            "linesRead": 262
+          },
+          {
+            "path": "app/repositories/task_repository.py",
+            "role": "entry point",
+            "linesRead": 12
+          },
+          {
+            "path": "app/domain/models.py",
+            "role": "data model",
+            "linesRead": 46
+          },
+          {
+            "path": "app/api/tasks.py",
+            "role": "entry point",
+            "linesRead": 190
+          }
+        ]
+      }
+    }
+  },
+  "contentText": "## Result\nConfidence: high\nVerification: targeted_read_needed\nEvidence Quality: high (8 exact, 0 partial, 0 dropped)\nSearch Coverage: scope-limited search across app/**, main.py, migrations/**; 12 file read(s), 0 grep search(es).\n\n## Answer\nDeepResearch is an AI-powered research platform orchestrating multi-step verification workflows. Uses LangGraph for query understanding → planning → search → policy checks → fetching → parsing → evidence extraction → synthesis → citation validation. Tracks costs, sources, evidence, claims, producing markdown reports with validated citations.\n\n## Next Action\nread_target: Read app/repositories/base.py:12-43 before final verification.\n\n## Targets\n- [context] `app/main.py:1-28` (app/main.py:1-28, 1) - FastAPI factory with router registration - verify before editing.\n- [config] `app/core/config.py:1-39` (app/core/config.py:1-39) - Central settings (DB, Redis, S3, API keys) - verify defaults.\n- [context] `app/db/session.py:1-18` (app/db/session.py:1-18) - SQLAlchemy async session factory - verify dependency injection.\n- [context] `app/orchestrator/graph.py:1-92` (app/orchestrator/graph.py:1-92) - LangGraph workflow with 8 nodes and budget gates.\n- [context] `app/orchestrator/state.py:92-110` (app/orchestrator/state.py:92-110, 6) - ResearchState TypedDict defining workflow schema.\n- [context] `app/providers/base.py:57-90` (app/providers/base.py:57-90, 7) - Provider logging protocol - verify before adding providers.\n- [read] `app/repositories/base.py:12-43` (app/repositories/base.py:12-43, 8) - Generic repository base with CRUD and UnitOfWork.\n- [read] `app/core/config.py:10-39` (2) - Settings with database, Redis, S3, API keys, budgets.\n- [read] `app/db/session.py:11-17` (3) - SQLAlchemy async engine and session factory.\n- [read] `app/orchestrator/graph.py:39-92` (4) - LangGraph with 8 nodes, budget gates, conditional edges.\n- [read] `app/orchestrator/graph.py:95-123` (5) - Plan approval gate with interrupt for human-in-the-loop.\n\n## Evidence (8 items, confidence: high)\n- 1 `app/main.py:1-28` - FastAPI app factory with routers and error handlers.\n  snippet: 1: from __future__ import annotations\n  2: \n  3: from fastapi import FastAPI\n  4: \n  5: from app.api import claims, plans, sources, tasks\n  6: from app.api.errors import register_error_handlers\n  7: from app.core.config import get_settings\n  8: from app.core.logging import configure_logging\n  9: from app.core.telemetry import configure_telemetry, instrument_fastapi_app\n  10: \n  11: \n  12: def create_app() -> FastAPI:\n  ... [snippet truncated]\n- 2 `app/core/config.py:10-39` - Settings with database, Redis, S3, API keys, budgets.\n  snippet: 10: class Settings(BaseSettings):\n  11:     model_config = SettingsConfigDict(env_file=\"[REDACTED:secret-path]\", env_file_encoding=\"utf-8\", extra=\"ignore\")\n  12: \n  13:     database_url: str = \"postgresql+asyncpg://dev:dev@localhost:5432/deepresearch\"\n  14:     redis_url: str = \"redis://localhost:6379/0\"\n  15: \n  16:     s3_endpoint_url: AnyUrl | str = \"http://localhost:9000\"\n  17:     s3_bucket: str = \"deepresearch-snapshots\"\n  18:     s3_access_key: str = \"minio\"\n  19:     s3_secret_key: SecretStr = SecretStr(\"miniodev\")\n  20: \n  21:     tavily_api_key: SecretStr | None = None\n  ... [snippet truncated]\n- 3 `app/db/session.py:11-17` - SQLAlchemy async engine and session factory.\n  snippet: 11: engine = create_async_engine(settings.database_url, pool_pre_ping=True)\n  12: AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False)\n  13: \n  14: \n  15: async def get_session() -> AsyncIterator[AsyncSession]:\n  16:     async with AsyncSessionLocal() as session:\n  17:         yield session\n- 4 `app/orchestrator/graph.py:39-92` - LangGraph with 8 nodes, budget gates, conditional edges.\n  snippet: 39: def build_graph(\n  40:     nodes: ResearchGraphNodes | None = None,\n  41:     checkpointer: Any | None = None,\n  42:     debug: bool = False,\n  43: ):\n  44:     graph_nodes = nodes or ResearchGraphNodes()\n  45:     graph = StateGraph(ResearchState)\n  46: \n  47:     graph.add_node(\"query_understanding\", graph_nodes.query_understanding)\n  48:     graph.add_node(\"planner\", graph_nodes.planner)\n  49:     graph.add_node(\"plan_approval_gate\", plan_approval_gate)\n  50:     graph.add_node(\"search\", graph_nodes.search)\n  ... [snippet truncated]\n- 5 `app/orchestrator/graph.py:95-123` - Plan approval gate with interrupt for human-in-the-loop.\n  snippet: 95: async def plan_approval_gate(state: ResearchState) -> ResearchState:\n  96:     if state.get(\"plan_approved\") is True:\n  97:         return state\n  98: \n  99:     resume_value = interrupt(\n  100:         {\n  101:             \"task_id\": str(state[\"task_id\"]),\n  102:             \"status\": ResearchStatus.WAITING_FOR_USER.value,\n  103:             \"plan\": state.get(\"plan\"),\n  104:         }\n  105:     )\n  106:     approved = _resume_approved(resume_value)\n  ... [snippet truncated]\n- 6 `app/orchestrator/state.py:92-110` - ResearchState with search results, evidence, claims fields.\n  snippet: 92: class ResearchState(TypedDict):\n  93:     task_id: UUID\n  94:     question: NotRequired[str]\n  95:     language: NotRequired[str]\n  96:     normalized_question: NotRequired[str]\n  97:     search_queries: NotRequired[list[SearchQueryDraft]]\n  98:     search_results: NotRequired[list[SearchResultDraft]]\n  99:     allowed_search_results: NotRequired[list[SearchResultDraft]]\n  100:     policy_decisions: NotRequired[list[PolicyDecisionDraft]]\n  101:     source_snapshots: NotRequired[list[SourceSnapshotDraft]]\n  102:     source_evaluations: NotRequired[list[SourceEvaluationDraft]]\n  103:     evidence_spans: NotRequired[list[EvidenceSpanDraft]]\n  ... [snippet truncated]\n- 7 `app/providers/base.py:57-90` - ProviderLogSink protocol for tool/cost/config logging.\n  snippet: 57: class ProviderLogSink(Protocol):\n  58:     async def record_tool_call(self, record: ToolCallAudit) -> None: ...\n  59: \n  60:     async def record_cost(self, record: CostAudit) -> None: ...\n  61: \n  62:     async def record_provider_config(self, record: ProviderConfigSnapshotAudit) -> None: ...\n  63: \n  64: \n  65: class NullProviderLogSink:\n  66:     async def record_tool_call(self, record: ToolCallAudit) -> None:\n  67:         return None\n  68: \n  ... [snippet truncated]\n- 8 `app/repositories/base.py:12-43` - Generic Repository[ModelT] with CRUD and UnitOfWork.\n  snippet: 12: class Repository[ModelT: Base]:\n  13:     def __init__(self, session: AsyncSession, model: type[ModelT]) -> None:\n  14:         self.session = session\n  15:         self.model = model\n  16: \n  17:     async def get(self, item_id: UUID) -> ModelT | None:\n  18:         return await self.session.get(self.model, item_id)\n  19: \n  20:     async def list(self, limit: int = 100, offset: int = 0) -> Sequence[ModelT]:\n  21:         result = await self.session.scalars(select(self.model).limit(limit).offset(offset))\n  22:         return result.all()\n  23: \n  ... [snippet truncated]\n\n## Uncertainty\n- Migration schema not read - table structure unverified\n- Celery worker config not read - async task wiring unverified\n- Service layer not read - business logic unverified\n- Orchestrator nodes not read - individual node logic unverified\n\nSession: sess_f69d901fce6f95bb (pass as \"session\" for follow-up calls)"
+}

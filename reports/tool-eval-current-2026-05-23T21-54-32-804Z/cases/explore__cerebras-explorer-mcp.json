@@ -1,0 +1,920 @@
+{
+  "tool": "explore",
+  "repo": "cerebras-explorer-mcp",
+  "args": {
+    "repo_root": "/home/kyubr/IdeaProjects/cerebras-explorer-mcp",
+    "scope": [
+      "src/**",
+      "tests/**",
+      "examples/**"
+    ],
+    "prompt": "Give a concise architecture report for MCP tool dispatch and evidence grounding. Include inline file:line citations and flag uncertainty.",
+    "language": "en"
+  },
+  "elapsedMs": 18129,
+  "error": null,
+  "isError": false,
+  "summary": {
+    "reportPreview": "Now I have sufficient evidence to produce the architecture report.\n\n---\n\n# Architecture Report: MCP Tool Dispatch and Evidence Grounding\n\n## Summary\n\nThe cerebras-explorer-mcp server implements a JSON-RPC-based MCP tool dispatch architecture with a two-layer grounding system. The `StdioJsonRpcServer` handles transport protocol (Content-Length framing or NDJSON), while `ExplorerRuntime` orchestrates LLM-driven exploration by dispatching repository tools through `RepoToolkit`. Evidence grounding is implemented via runtime observation tracking (`observedRanges` Map) and post-processing validation through `critic.mjs`, which validates LLM-generated citations against actually-executed tool results.\n\n## Findings\n\n### 1. MCP Tool Dispatch Architecture\n\n#### 1.1 Transport Layer (`src/mcp/jsonrpc-stdio.mjs`)\n- **Dual protocol support**: Auto-detects and handles both Content-Length framed JSON-RPC and newline-delimited JSON (NDJSON) `src/mcp/jsonrpc-stdio.mjs:L59-L124`\n- **Fire-and-forget dispatch**: Messages are processed concurrently; stdout ordering is serialized via a promise chain `_sendQueue` to prevent interleaving `src/mcp/jsonrpc-stdio.mjs:L80-L84,L169-L181`\n- **Request routing**: `dispatchMessage()` routes requests with an `id` field to `handleRequest()`, notifications to `handleNotification()` `src/mcp/jsonrpc-stdio.mjs:L128-L160`\n\n#### 1.2 Tool Registration (`src/mcp/server.mjs`)\n- **Tool definitions**: Seven high-level tools are registered: `explore_repo`, `find_relevant_code`, `trace_symbol`, `map_change_impact`, `explain_code_path`, `collect_evidence`, `review_change_context`, `map_impact` `src/mcp/server.mjs:L33-L472`\n- **Tool mapping**: Each high-level tool maps to the same `exploreRepository()` runtime but with different `taskMode` and constructed task text `src/mcp/server.mjs:L346-L442`\n- **Read-only enforcement**: All tools carry `readOnlyHint: true`, `destructiveHint: false` annotations `src/mcp/server.mjs:L17-L29`\n\n#### 1.3 Runtime Orchestration (`src/explorer/runtime.mjs`)\n- **ExplorerRuntime class**: Main orchestrator initialized with chat client and logger `src/explorer/runtime.mjs:L1278-L1287`\n- **Context initialization**: `_initExploreContext()` creates RepoToolkit, resolves sessions, loads project config, and builds tool definitions `src/explorer/runtime.mjs:L1294-L1342`\n- **Turn-based execution**: `explore()` method runs LLM conversation loops, executing tool calls in parallel with concurrency limit `TOOL_CONCURRENCY=8` `src/explorer/runtime.mjs:L1351-L1400,L1552-L1582`\n\n#### 1.4 Tool Execution (`src/explorer/repo-tools.mjs`)\n- **Tool \n... [truncated 6284 chars]",
+    "citations": [
+      {
+        "type": "file_range",
+        "path": "src/mcp/jsonrpc-stdio.mjs",
+        "startLine": 59,
+        "endLine": 124,
+        "raw": "`src/mcp/jsonrpc-stdio.mjs:L59-L124`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/mcp/jsonrpc-stdio.mjs",
+        "startLine": 80,
+        "endLine": 84,
+        "raw": "`src/mcp/jsonrpc-stdio.mjs:L80-L84"
+      },
+      {
+        "type": "file_range",
+        "path": "src/mcp/jsonrpc-stdio.mjs",
+        "startLine": 128,
+        "endLine": 160,
+        "raw": "`src/mcp/jsonrpc-stdio.mjs:L128-L160`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/mcp/server.mjs",
+        "startLine": 33,
+        "endLine": 472,
+        "raw": "`src/mcp/server.mjs:L33-L472`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/mcp/server.mjs",
+        "startLine": 346,
+        "endLine": 442,
+        "raw": "`src/mcp/server.mjs:L346-L442`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/mcp/server.mjs",
+        "startLine": 17,
+        "endLine": 29,
+        "raw": "`src/mcp/server.mjs:L17-L29`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/explorer/runtime.mjs",
+        "startLine": 1278,
+        "endLine": 1287,
+        "raw": "`src/explorer/runtime.mjs:L1278-L1287`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/explorer/runtime.mjs",
+        "startLine": 1294,
+        "endLine": 1342,
+        "raw": "`src/explorer/runtime.mjs:L1294-L1342`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/explorer/runtime.mjs",
+        "startLine": 1351,
+        "endLine": 1400,
+        "raw": "`src/explorer/runtime.mjs:L1351-L1400"
+      },
+      {
+        "type": "file_range",
+        "path": "src/explorer/repo-tools.mjs",
+        "startLine": 1371,
+        "endLine": 1450,
+        "raw": "`src/explorer/repo-tools.mjs:L1371-L1450`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/explorer/repo-tools.mjs",
+        "startLine": 1614,
+        "endLine": 1720,
+        "raw": "`src/explorer/repo-tools.mjs:L1614-L1720`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/explorer/repo-tools.mjs",
+        "startLine": 1615,
+        "endLine": 1696,
+        "raw": "`src/explorer/repo-tools.mjs:L1615-L1696`"
+      }
+    ],
+    "targets": [
+      {
+        "path": "src/mcp/jsonrpc-stdio.mjs",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 3 ranges.",
+        "evidenceRefs": [],
+        "startLine": 59,
+        "endLine": 160
+      },
+      {
+        "path": "src/mcp/server.mjs",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 3 ranges.",
+        "evidenceRefs": [],
+        "startLine": 17,
+        "endLine": 472
+      },
+      {
+        "path": "src/explorer/runtime.mjs",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 16 ranges.",
+        "evidenceRefs": [],
+        "startLine": 1209,
+        "endLine": 1669
+      },
+      {
+        "path": "src/explorer/repo-tools.mjs",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 4 ranges.",
+        "evidenceRefs": [],
+        "startLine": 1371,
+        "endLine": 1720
+      },
+      {
+        "path": "src/explorer/critic.mjs",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 6 ranges.",
+        "evidenceRefs": [],
+        "startLine": 28,
+        "endLine": 200
+      },
+      {
+        "path": "src/explorer/schemas.mjs",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 2 ranges.",
+        "evidenceRefs": [],
+        "startLine": 247,
+        "endLine": 305
+      }
+    ],
+    "filesRead": [
+      "src/mcp/server.mjs",
+      "src/mcp/jsonrpc-stdio.mjs",
+      "src/explorer/runtime.mjs",
+      "src/index.mjs",
+      "src/explorer/repo-tools.mjs",
+      "src/explorer/schemas.mjs",
+      "src/explorer/critic.mjs",
+      "src/explorer/transcript.mjs"
+    ],
+    "toolsUsed": [
+      "repo_list_dir",
+      "repo_read_file",
+      "repo_grep"
+    ],
+    "critic": {
+      "status": "caution",
+      "warnings": [
+        {
+          "type": "truncated_tool_results",
+          "severity": "low",
+          "message": "7 tool result(s) were truncated before model synthesis; re-run with a narrower query or read specific ranges if expected evidence is missing.",
+          "action": "Use a narrower follow-up query or read specific ranges before relying on missing evidence."
+        }
+      ]
+    },
+    "searchCoverage": {
+      "scope": [
+        "src/**",
+        "tests/**",
+        "examples/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 16,
+      "grepCalls": 11,
+      "listDirCalls": 3,
+      "symbolCalls": 0,
+      "toolResultsTruncated": 7,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: src/**, tests/**, examples/**",
+        "7 tool result(s) were truncated before model synthesis; re-run with a narrower query or read specific ranges if expected evidence is missing."
+      ],
+      "summary": "scope-limited search across src/**, tests/**, examples/**; 16 file read(s), 11 grep search(es)."
+    },
+    "stats": {
+      "turns": 14,
+      "toolCalls": 30,
+      "filesRead": 16,
+      "grepCalls": 11,
+      "symbolCalls": 0,
+      "stoppedByBudget": false,
+      "elapsedMs": 18118,
+      "totalTokens": 370837
+    }
+  },
+  "structuredContent": {
+    "report": "Now I have sufficient evidence to produce the architecture report.\n\n---\n\n# Architecture Report: MCP Tool Dispatch and Evidence Grounding\n\n## Summary\n\nThe cerebras-explorer-mcp server implements a JSON-RPC-based MCP tool dispatch architecture with a two-layer grounding system. The `StdioJsonRpcServer` handles transport protocol (Content-Length framing or NDJSON), while `ExplorerRuntime` orchestrates LLM-driven exploration by dispatching repository tools through `RepoToolkit`. Evidence grounding is implemented via runtime observation tracking (`observedRanges` Map) and post-processing validation through `critic.mjs`, which validates LLM-generated citations against actually-executed tool results.\n\n## Findings\n\n### 1. MCP Tool Dispatch Architecture\n\n#### 1.1 Transport Layer (`src/mcp/jsonrpc-stdio.mjs`)\n- **Dual protocol support**: Auto-detects and handles both Content-Length framed JSON-RPC and newline-delimited JSON (NDJSON) `src/mcp/jsonrpc-stdio.mjs:L59-L124`\n- **Fire-and-forget dispatch**: Messages are processed concurrently; stdout ordering is serialized via a promise chain `_sendQueue` to prevent interleaving `src/mcp/jsonrpc-stdio.mjs:L80-L84,L169-L181`\n- **Request routing**: `dispatchMessage()` routes requests with an `id` field to `handleRequest()`, notifications to `handleNotification()` `src/mcp/jsonrpc-stdio.mjs:L128-L160`\n\n#### 1.2 Tool Registration (`src/mcp/server.mjs`)\n- **Tool definitions**: Seven high-level tools are registered: `explore_repo`, `find_relevant_code`, `trace_symbol`, `map_change_impact`, `explain_code_path`, `collect_evidence`, `review_change_context`, `map_impact` `src/mcp/server.mjs:L33-L472`\n- **Tool mapping**: Each high-level tool maps to the same `exploreRepository()` runtime but with different `taskMode` and constructed task text `src/mcp/server.mjs:L346-L442`\n- **Read-only enforcement**: All tools carry `readOnlyHint: true`, `destructiveHint: false` annotations `src/mcp/server.mjs:L17-L29`\n\n#### 1.3 Runtime Orchestration (`src/explorer/runtime.mjs`)\n- **ExplorerRuntime class**: Main orchestrator initialized with chat client and logger `src/explorer/runtime.mjs:L1278-L1287`\n- **Context initialization**: `_initExploreContext()` creates RepoToolkit, resolves sessions, loads project config, and builds tool definitions `src/explorer/runtime.mjs:L1294-L1342`\n- **Turn-based execution**: `explore()` method runs LLM conversation loops, executing tool calls in parallel with concurrency limit `TOOL_CONCURRENCY=8` `src/explorer/runtime.mjs:L1351-L1400,L1552-L1582`\n\n#### 1.4 Tool Execution (`src/explorer/repo-tools.mjs`)\n- **Tool definitions**: `buildToolDefinitions()` returns 11 repo tools including `repo_list_dir`, `repo_grep`, `repo_read_file`, `repo_symbols`, `repo_git_*` `src/explorer/repo-tools.mjs:L1371-L1450`\n- **Dispatch routing**: `callTool(name, args)` uses switch statement to route to specific implementation methods with caching `src/explorer/repo-tools.mjs:L1614-L1720`\n- **Caching layer**: Each tool checks cache via `_cacheGet()` before executing; git operations use `GIT_TOOL_TTL_MS` TTL `src/explorer/repo-tools.mjs:L1615-L1696`\n\n### 2. Evidence Grounding Architecture\n\n#### 2.1 Runtime Observation Tracking (`src/explorer/runtime.mjs`)\n- **Observed ranges Map**: `observedRanges = new Map()` stores `{path → [{startLine, endLine, source}]}` `src/explorer/runtime.mjs:L1426`\n- **Observed git tracking**: `observedGit = { commits: new Set(), blame: new Set() }` for git evidence validation `src/explorer/runtime.mjs:L1427`\n- **Recording function**: `recordObservedRange()` appends range observations with source tags (`read`, `grep`, `diff_hunk`, etc.) `src/explorer/runtime.mjs:L1209-L1216`\n\n#### 2.2 Post-Tool-Call Recording (`src/explorer/runtime.mjs:L1584-L1669`)\nAfter each tool result, the runtime records observations:\n\n- **repo_read_file**: Records full range as `source: 'read'` `src/explorer/runtime.mjs:L1599-L1601`\n- **repo_grep**: Records each match line as `source: 'grep'` `src/explorer/runtime.mjs:L1603-L1607`\n- **repo_git_blame**: Records blame lines as `source: 'blame'` `src/explorer/runtime.mjs:L1610-L1619`\n- **repo_git_diff/show**: Records diff hunks as `source: 'diff_hunk'` `src/explorer/runtime.mjs:L1622-L1635`\n- **Macro tools**: Records embedded `observedRanges` array (e.g., `repo_symbol_context`) `src/explorer/runtime.mjs:L1638-L1643`\n- **Git commits**: Records commit hashes in `observedGit.commits` set `src/explorer/runtime.mjs:L1645-L1660`\n- **Git blame**: Records `path:line:hash` tuples in `observedGit.blame` set `src/explorer/runtime.mjs:L1662-L1669`\n\n#### 2.3 Grounding Validation (`src/explorer/critic.mjs`)\n- **Range overlap check**: `checkEvidenceGrounding()` tests if evidence range overlaps observed ranges with tolerance `EVIDENCE_LINE_TOLERANCE=2` `src/explorer/critic.mjs:L28-L75`\n- **Source-aware grounding**: \n  - `source: 'read'` → requires evidence range to be fully contained within observed range\n  - `source: 'grep'` → exact only for evidence ≤3 lines\n  - `source: 'blame'` → exact only for evidence ≤3 lines\n  - `source: 'diff_hunk'` → requires containment within hunk range\n  `src/explorer/critic.mjs:L54-L66`\n- **Item grounding**: `groundEvidenceItem()` validates evidence by type (`file_range`, `git_commit`, `git_blame`, `git_diff_hunk`) `src/explorer/critic.mjs:L83-L111`\n- **Batch grounding**: `groundEvidenceList()` processes all evidence, drops ungrounded/malformed items, returns stats `src/explorer/critic.mjs:L113-L154`\n\n#### 2.4 Evidence Schema (`src/explorer/schemas.mjs`)\n- **Evidence item structure**: Defined in `EVIDENCE_ITEM_SCHEMA` with fields: `path`, `startLine`, `endLine`, `why`, `snippet`, `redacted`, `redactions`, `groundingStatus`, `evidenceType`, `sha`, `author`, `commit`, etc. `src/explorer/schemas.mjs:L247-L273`\n- **Output schema**: `EXPLORE_REPO_OUTPUT_SCHEMA` includes `evidence` array, `evidenceQuality`, `uncertainties` `src/explorer/schemas.mjs:L275-L305`\n\n### 3. Confidence Scoring (`src/explorer/critic.mjs`)\n\n- **Confidence computation**: `computeConfidenceScore()` calculates 0.0-1.0 score based on:\n  - Base score by task kind (locate=0.45, default=0.30)\n  - Exact evidence count bonus (max +0.54)\n  - Cross-file verification bonus (+0.10)\n  - Search tool penalty (-0.05 to -0.10)\n  - Budget exhaustion penalty (-0.30)\n  `src/explorer/critic.mjs:L160-L200`\n\n## Key Code Paths\n\n### Tool Dispatch Flow\n```\nMCP Request (stdin)\n  → StdioJsonRpcServer.processBuffer() L57-L126\n  → dispatchMessage() L128-L161\n  → handleRequest() → tool handler (e.g., handleExploreRepo)\n  → exploreRepository() L2395-L2399\n  → ExplorerRuntime.explore() L1351-L1400\n  → repoToolkit.callTool() L1614-L1720\n  → specific implementation (e.g., this.grep())\n```\n\n### Evidence Grounding Flow\n```\nTool execution completes\n  → Tool result post-processing L1584-L1669\n  → recordObservedRange() L1209-L1216\n  → Populate observedRanges Map and observedGit sets\n  → Finalize phase → groundEvidenceList() L113-L154\n  → checkEvidenceGrounding() L28-L75\n  → Filter ungrounded evidence\n  → computeConfidenceScore() L160-L200\n  → Return grounded evidence with quality metrics\n```\n\n## Uncertainty\n\n1. **Macro tool observedRanges format**: While `src/explorer/runtime.mjs:L1638-L1643` shows macro tools return `observedRanges` array with optional `source` field, the exact structure for different macro tools (e.g., `repo_symbol_context` vs `repo_references`) is inferred but not fully verified across all implementations.\n\n2. **Cache invalidation strategy**: The `callTool()` method uses mtime-based cache invalidation for file reads (`src/explorer/repo-tools.mjs:L1664-L1676`), but the behavior for concurrent modifications during long-running explorations is unclear.\n\n3. **Partial grounding semantics**: The exact meaning of `groundingStatus: 'partial'` vs `'exact'` in user-facing outputs is defined in code (`src/explorer/critic.mjs:L68-L71`) but its impact on downstream agent behavior is not fully explored.\n\n4. **Session continuation**: How `sessionData.summaries` and `targetPathsWithContext` are merged across sessions is visible in `src/explorer/runtime.mjs:L1379,L1389` but the precise state preservation semantics require deeper testing.\n\n## Suggestions\n\n1. **Verify macro tool range formats**: Add explicit documentation or schema validation for `observedRanges` output from `repo_symbol_context`, `repo_references`, and other macro tools.\n\n2. **Test concurrent modification scenarios**: Create integration tests to verify cache invalidation when files are modified during exploration.\n\n3. **Document partial grounding impact**: Clarify in tool descriptions how agents should treat `partial` vs `exact` evidence (e.g., \"verify partial evidence with targeted reads\").\n\n4. **Add telemetry for grounding stats**: Expose `droppedUngrounded`, `droppedMalformed`, `exactCount`, `partialCount` in debug output for observability.",
+    "citations": [
+      {
+        "type": "file_range",
+        "path": "src/mcp/jsonrpc-stdio.mjs",
+        "startLine": 59,
+        "endLine": 124,
+        "raw": "`src/mcp/jsonrpc-stdio.mjs:L59-L124`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/mcp/jsonrpc-stdio.mjs",
+        "startLine": 80,
+        "endLine": 84,
+        "raw": "`src/mcp/jsonrpc-stdio.mjs:L80-L84"
+      },
+      {
+        "type": "file_range",
+        "path": "src/mcp/jsonrpc-stdio.mjs",
+        "startLine": 128,
+        "endLine": 160,
+        "raw": "`src/mcp/jsonrpc-stdio.mjs:L128-L160`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/mcp/server.mjs",
+        "startLine": 33,
+        "endLine": 472,
+        "raw": "`src/mcp/server.mjs:L33-L472`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/mcp/server.mjs",
+        "startLine": 346,
+        "endLine": 442,
+        "raw": "`src/mcp/server.mjs:L346-L442`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/mcp/server.mjs",
+        "startLine": 17,
+        "endLine": 29,
+        "raw": "`src/mcp/server.mjs:L17-L29`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/explorer/runtime.mjs",
+        "startLine": 1278,
+        "endLine": 1287,
+        "raw": "`src/explorer/runtime.mjs:L1278-L1287`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/explorer/runtime.mjs",
+        "startLine": 1294,
+        "endLine": 1342,
+        "raw": "`src/explorer/runtime.mjs:L1294-L1342`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/explorer/runtime.mjs",
+        "startLine": 1351,
+        "endLine": 1400,
+        "raw": "`src/explorer/runtime.mjs:L1351-L1400"
+      },
+      {
+        "type": "file_range",
+        "path": "src/explorer/repo-tools.mjs",
+        "startLine": 1371,
+        "endLine": 1450,
+        "raw": "`src/explorer/repo-tools.mjs:L1371-L1450`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/explorer/repo-tools.mjs",
+        "startLine": 1614,
+        "endLine": 1720,
+        "raw": "`src/explorer/repo-tools.mjs:L1614-L1720`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/explorer/repo-tools.mjs",
+        "startLine": 1615,
+        "endLine": 1696,
+        "raw": "`src/explorer/repo-tools.mjs:L1615-L1696`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/explorer/runtime.mjs",
+        "startLine": 1426,
+        "endLine": 1426,
+        "raw": "`src/explorer/runtime.mjs:L1426`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/explorer/runtime.mjs",
+        "startLine": 1427,
+        "endLine": 1427,
+        "raw": "`src/explorer/runtime.mjs:L1427`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/explorer/runtime.mjs",
+        "startLine": 1209,
+        "endLine": 1216,
+        "raw": "`src/explorer/runtime.mjs:L1209-L1216`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/explorer/runtime.mjs",
+        "startLine": 1584,
+        "endLine": 1669,
+        "raw": "`src/explorer/runtime.mjs:L1584-L1669`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/explorer/runtime.mjs",
+        "startLine": 1599,
+        "endLine": 1601,
+        "raw": "`src/explorer/runtime.mjs:L1599-L1601`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/explorer/runtime.mjs",
+        "startLine": 1603,
+        "endLine": 1607,
+        "raw": "`src/explorer/runtime.mjs:L1603-L1607`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/explorer/runtime.mjs",
+        "startLine": 1610,
+        "endLine": 1619,
+        "raw": "`src/explorer/runtime.mjs:L1610-L1619`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/explorer/runtime.mjs",
+        "startLine": 1622,
+        "endLine": 1635,
+        "raw": "`src/explorer/runtime.mjs:L1622-L1635`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/explorer/runtime.mjs",
+        "startLine": 1638,
+        "endLine": 1643,
+        "raw": "`src/explorer/runtime.mjs:L1638-L1643`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/explorer/runtime.mjs",
+        "startLine": 1645,
+        "endLine": 1660,
+        "raw": "`src/explorer/runtime.mjs:L1645-L1660`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/explorer/runtime.mjs",
+        "startLine": 1662,
+        "endLine": 1669,
+        "raw": "`src/explorer/runtime.mjs:L1662-L1669`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/explorer/critic.mjs",
+        "startLine": 28,
+        "endLine": 75,
+        "raw": "`src/explorer/critic.mjs:L28-L75`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/explorer/critic.mjs",
+        "startLine": 54,
+        "endLine": 66,
+        "raw": "`src/explorer/critic.mjs:L54-L66`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/explorer/critic.mjs",
+        "startLine": 83,
+        "endLine": 111,
+        "raw": "`src/explorer/critic.mjs:L83-L111`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/explorer/critic.mjs",
+        "startLine": 113,
+        "endLine": 154,
+        "raw": "`src/explorer/critic.mjs:L113-L154`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/explorer/schemas.mjs",
+        "startLine": 247,
+        "endLine": 273,
+        "raw": "`src/explorer/schemas.mjs:L247-L273`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/explorer/schemas.mjs",
+        "startLine": 275,
+        "endLine": 305,
+        "raw": "`src/explorer/schemas.mjs:L275-L305`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/explorer/critic.mjs",
+        "startLine": 160,
+        "endLine": 200,
+        "raw": "`src/explorer/critic.mjs:L160-L200`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/explorer/runtime.mjs",
+        "startLine": 1638,
+        "endLine": 1643,
+        "raw": "`src/explorer/runtime.mjs:L1638-L1643`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/explorer/repo-tools.mjs",
+        "startLine": 1664,
+        "endLine": 1676,
+        "raw": "`src/explorer/repo-tools.mjs:L1664-L1676`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/explorer/critic.mjs",
+        "startLine": 68,
+        "endLine": 71,
+        "raw": "`src/explorer/critic.mjs:L68-L71`"
+      },
+      {
+        "type": "file_range",
+        "path": "src/explorer/runtime.mjs",
+        "startLine": 1379,
+        "endLine": 1379,
+        "raw": "`src/explorer/runtime.mjs:L1379"
+      }
+    ],
+    "targets": [
+      {
+        "path": "src/mcp/jsonrpc-stdio.mjs",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 3 ranges.",
+        "evidenceRefs": [],
+        "startLine": 59,
+        "endLine": 160
+      },
+      {
+        "path": "src/mcp/server.mjs",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 3 ranges.",
+        "evidenceRefs": [],
+        "startLine": 17,
+        "endLine": 472
+      },
+      {
+        "path": "src/explorer/runtime.mjs",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 16 ranges.",
+        "evidenceRefs": [],
+        "startLine": 1209,
+        "endLine": 1669
+      },
+      {
+        "path": "src/explorer/repo-tools.mjs",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 4 ranges.",
+        "evidenceRefs": [],
+        "startLine": 1371,
+        "endLine": 1720
+      },
+      {
+        "path": "src/explorer/critic.mjs",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 6 ranges.",
+        "evidenceRefs": [],
+        "startLine": 28,
+        "endLine": 200
+      },
+      {
+        "path": "src/explorer/schemas.mjs",
+        "role": "reference",
+        "reason": "Markdown report citations merged from 2 ranges.",
+        "evidenceRefs": [],
+        "startLine": 247,
+        "endLine": 305
+      }
+    ],
+    "filesRead": [
+      "src/mcp/server.mjs",
+      "src/mcp/jsonrpc-stdio.mjs",
+      "src/explorer/runtime.mjs",
+      "src/index.mjs",
+      "src/explorer/repo-tools.mjs",
+      "src/explorer/schemas.mjs",
+      "src/explorer/critic.mjs",
+      "src/explorer/transcript.mjs"
+    ],
+    "toolsUsed": [
+      "repo_list_dir",
+      "repo_read_file",
+      "repo_grep"
+    ],
+    "stats": {
+      "model": "zai-glm-4.7",
+      "budget": "deep",
+      "turns": 14,
+      "toolCalls": 30,
+      "listDirCalls": 3,
+      "findFileCalls": 0,
+      "grepCalls": 11,
+      "filesRead": 16,
+      "gitLogCalls": 0,
+      "gitBlameCalls": 0,
+      "gitDiffCalls": 0,
+      "gitShowCalls": 0,
+      "symbolCalls": 0,
+      "elapsedMs": 18118,
+      "stoppedByBudget": false,
+      "llmCompactions": 0,
+      "toolResultsTruncated": 7,
+      "outputRecoveries": 0,
+      "scope": [
+        "src/**",
+        "tests/**",
+        "examples/**"
+      ],
+      "repoRoot": "/home/kyubr/IdeaProjects/cerebras-explorer-mcp",
+      "sessionId": "sess_cccdeeab565865a9",
+      "sessionStatus": "created",
+      "sessionSource": "created",
+      "remainingCalls": 4,
+      "inputTokens": 365979,
+      "outputTokens": 4858,
+      "totalTokens": 370837,
+      "cacheHits": 125,
+      "cacheMisses": 606,
+      "cacheHitRate": 0.171,
+      "cacheEntries": 595,
+      "cacheSizeBytes": 3534574
+    },
+    "critic": {
+      "status": "caution",
+      "warnings": [
+        {
+          "type": "truncated_tool_results",
+          "severity": "low",
+          "message": "7 tool result(s) were truncated before model synthesis; re-run with a narrower query or read specific ranges if expected evidence is missing.",
+          "action": "Use a narrower follow-up query or read specific ranges before relying on missing evidence."
+        }
+      ]
+    },
+    "searchCoverage": {
+      "scope": [
+        "src/**",
+        "tests/**",
+        "examples/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 16,
+      "grepCalls": 11,
+      "listDirCalls": 3,
+      "symbolCalls": 0,
+      "toolResultsTruncated": 7,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: src/**, tests/**, examples/**",
+        "7 tool result(s) were truncated before model synthesis; re-run with a narrower query or read specific ranges if expected evidence is missing."
+      ],
+      "summary": "scope-limited search across src/**, tests/**, examples/**; 16 file read(s), 11 grep search(es)."
+    },
+    "transcriptPath": null,
+    "toolTrace": {
+      "entries": [
+        {
+          "turn": 1,
+          "tool": "repo_list_dir",
+          "args": {
+            "dirPath": "."
+          },
+          "result": {
+            "entries": 34,
+            "paths": [
+              "examples",
+              "examples/call-server-via-stdio.mjs",
+              "examples/direct-runtime.mjs",
+              "examples/expected-response.json",
+              "examples/explore-request.json",
+              "src"
+            ]
+          }
+        },
+        {
+          "turn": 1,
+          "tool": "repo_list_dir",
+          "args": {
+            "dirPath": "src"
+          },
+          "result": {
+            "entries": 29,
+            "paths": [
+              "src/benchmark",
+              "src/benchmark/evaluator.mjs",
+              "src/benchmark/report.mjs",
+              "src/benchmark/transcript-metrics.mjs",
+              "src/explorer",
+              "src/explorer/cache.mjs"
+            ]
+          }
+        },
+        {
+          "turn": 1,
+          "tool": "repo_list_dir",
+          "args": {
+            "dirPath": "tests"
+          },
+          "result": {
+            "entries": 26,
+            "paths": [
+              "tests/benchmark-evaluator.test.mjs",
+              "tests/benchmark-report.test.mjs",
+              "tests/benchmark-transcript-metrics.test.mjs",
+              "tests/cerebras-client.test.mjs",
+              "tests/critic.test.mjs",
+              "tests/free-explore.test.mjs"
+            ]
+          }
+        },
+        {
+          "turn": 2,
+          "tool": "repo_read_file",
+          "args": {
+            "path": "src/mcp/server.mjs"
+          },
+          "result": {
+            "path": "src/mcp/server.mjs",
+            "startLine": 1,
+            "endLine": 320,
+            "totalLines": 1027,
+            "truncated": true
+          }
+        },
+        {
+          "turn": 2,
+          "tool": "repo_read_file",
+          "args": {
+            "path": "src/mcp/jsonrpc-stdio.mjs"
+          },
+          "result": {
+            "path": "src/mcp/jsonrpc-stdio.mjs",
+            "startLine": 1,
+            "endLine": 195,
+            "totalLines": 195,
+            "truncated": true
+          }
+        },
+        {
+          "turn": 2,
+          "tool": "repo_read_file",
+          "args": {
+            "path": "src/explorer/runtime.mjs"
+          },
+          "result": {
+            "path": "src/explorer/runtime.mjs",
+            "startLine": 1,
+            "endLine": 320,
+            "totalLines": 2412,
+            "truncated": true
+          }
+        },
+        {
+          "turn": 2,
+          "tool": "repo_read_file",
+          "args": {
+            "path": "src/index.mjs"
+          },
+          "result": {
+            "path": "src/index.mjs",
+            "startLine": 1,
+            "endLine": 127,
+            "totalLines": 127,
+            "truncated": true
+          }
+        },
+        {
+          "turn": 3,
+          "tool": "repo_read_file",
+          "args": {
+            "path": "src/mcp/server.mjs",
+            "startLine": 320,
+            "endLine": 500
+          },
+          "result": {
+            "path": "src/mcp/server.mjs",
+            "startLine": 320,
+            "endLine": 500,
+            "totalLines": 1027,
+            "truncated": true
+          }
+        },
+        {
+          "turn": 3,
+          "tool": "repo_read_file",
+          "args": {
+            "path": "src/explorer/repo-tools.mjs",
+            "startLine": 1,
+            "endLine": 200
+          },
+          "result": {
+            "path": "src/explorer/repo-tools.mjs",
+            "startLine": 1,
+            "endLine": 200,
+            "totalLines": 1881,
+            "truncated": true
+          }
+        },
+        {
+          "turn": 3,
+          "tool": "repo_read_file",
+          "args": {
+            "path": "src/explorer/schemas.mjs",
+            "startLine": 1,
+            "endLine": 200
+          },
+          "result": {
+            "path": "src/explorer/schemas.mjs",
+            "startLine": 1,
+            "endLine": 200,
+            "totalLines": 520,
+            "truncated": true
+          }
+        },
+        {
+          "turn": 4,
+          "tool": "repo_read_file",
+          "args": {
+            "path": "src/explorer/schemas.mjs",
+            "startLine": 200,
+            "endLine": 400
+          },
+          "result": {
+            "path": "src/explorer/schemas.mjs",
+            "startLine": 200,
+            "endLine": 400,
+            "totalLines": 520,
+            "truncated": true
+          }
+        },
+        {
+          "turn": 4,
+          "tool": "repo_read_file",
+          "args": {
+            "path": "src/explorer/critic.mjs",
+            "startLine": 1,
+            "endLine": 200
+          },
+          "result": {
+            "path": "src/explorer/critic.mjs",
+            "startLine": 1,
+            "endLine": 200,
+            "totalLines": 555,
+            "truncated": true
+          }
+        },
+        {
+          "turn": 4,
+          "tool": "repo_read_file",
+          "args": {
+            "path": "src/explorer/transcript.mjs",
+            "startLine": 1,
+            "endLine": 200
+          },
+          "result": {
+            "path": "src/explorer/transcript.mjs",
+            "startLine": 1,
+            "endLine": 200,
+            "totalLines": 348,
+            "truncated": true
+          }
+        },
+        {
+          "turn": 5,
+          "tool": "repo_grep",
+          "args": {
+            "pattern": "^export (async )?function (exploreRepository|freeExploreRepository)",
+            "scope": [
+              "src/explorer/runtime.mjs"
+            ],
+            "contextLines": 10
+          },
+          "result": {
+            "matches": 3,
+            "paths": [
+              "src/explorer/runtime.mjs"
+            ],
+            "truncated": false
+          }
+        },
+        {
+          "turn": 5,
+          "tool": "repo_grep",
+          "args": {
+            "pattern": "^export class RepoToolkit",
+            "scope": [
+              "src/explorer/repo-tools.mjs"
+            ],
+            "contextLines": 30
+          },
+          "result": {
+            "matches": 1,
+            "paths": [
+              "src/explorer/repo-tools.mjs"
+            ],
+            "truncated": false
+          }
+        },
+        {
+          "turn": 6,
+          "tool": "repo_grep",
+          "args": {
+            "contextLines": 20,
+            "pattern": "^class ExplorerRuntime",
+            "scope": [
+              "src/explorer/runtime.mjs"
+            ]
+          },
+          "result": {
+            "matches": 0,
+            "paths": [],
+            "truncated": false
+          }
+        },
+        {
+          "turn": 6,
+          "tool": "repo_read_file",
+          "args": {
+            "path": "src/explorer/repo-tools.mjs",
+            "startLine": 551,
+            "endLine": 650
+          },
+          "result": {
+            "path": "src/explorer/repo-tools.mjs",
+            "startLine": 551,
+            "endLine": 650,
+            "totalLines": 1881,
+            "truncated": true
+          }
+        },
+        {
+          "turn": 7,
+          "tool": "repo_grep",
+          "args": {
+            "contextLines": 20,
+            "pattern": "class ExplorerRuntime",
+            "scope": [
+              "src/explorer/runtime.mjs"
+            ]
+          },
+          "result": {
+            "matches": 1,
+            "paths": [
+              "src/explorer/runtime.mjs"
+            ],
+            "truncated": false
+          }
+        },
+        {
+          "turn": 7,
+          "tool": "repo_grep",
+          "args": {
+            "contextLines": 15,
+            "pattern": "async.*executeTools?|async dispatchTool|async callTool",
+            "scope": [
+              "src/explorer/runtime.mjs"
+            ]
+          },
+          "result": {
+            "matches": 0,
+            "paths": [],
+            "truncated": false
+          }
+        },
+        {
+          "turn": 8,
+          "tool": "repo_read_file",
+          "args": {
+            "path": "src/explorer/runtime.mjs",
+            "startLine": 1278,
+            "endLine": 1400
+          },
+          "result": {
+            "path": "src/explorer/runtime.mjs",
+            "startLine": 1278,
+            "endLine": 1400,
+            "totalLines": 2412,
+            "truncated": true
+          }
+        }
+      ],
+      "totalCalls": 30,
+      "truncated": true,
+      "maxEntries": 20
+    }
+  },
+  "contentText": "Now I have sufficient evidence to produce the architecture report.\n\n---\n\n# Architecture Report: MCP Tool Dispatch and Evidence Grounding\n\n## Summary\n\nThe cerebras-explorer-mcp server implements a JSON-RPC-based MCP tool dispatch architecture with a two-layer grounding system. The `StdioJsonRpcServer` handles transport protocol (Content-Length framing or NDJSON), while `ExplorerRuntime` orchestrates LLM-driven exploration by dispatching repository tools through `RepoToolkit`. Evidence grounding is implemented via runtime observation tracking (`observedRanges` Map) and post-processing validation through `critic.mjs`, which validates LLM-generated citations against actually-executed tool results.\n\n## Findings\n\n### 1. MCP Tool Dispatch Architecture\n\n#### 1.1 Transport Layer (`src/mcp/jsonrpc-stdio.mjs`)\n- **Dual protocol support**: Auto-detects and handles both Content-Length framed JSON-RPC and newline-delimited JSON (NDJSON) `src/mcp/jsonrpc-stdio.mjs:L59-L124`\n- **Fire-and-forget dispatch**: Messages are processed concurrently; stdout ordering is serialized via a promise chain `_sendQueue` to prevent interleaving `src/mcp/jsonrpc-stdio.mjs:L80-L84,L169-L181`\n- **Request routing**: `dispatchMessage()` routes requests with an `id` field to `handleRequest()`, notifications to `handleNotification()` `src/mcp/jsonrpc-stdio.mjs:L128-L160`\n\n#### 1.2 Tool Registration (`src/mcp/server.mjs`)\n- **Tool definitions**: Seven high-level tools are registered: `explore_repo`, `find_relevant_code`, `trace_symbol`, `map_change_impact`, `explain_code_path`, `collect_evidence`, `review_change_context`, `map_impact` `src/mcp/server.mjs:L33-L472`\n- **Tool mapping**: Each high-level tool maps to the same `exploreRepository()` runtime but with different `taskMode` and constructed task text `src/mcp/server.mjs:L346-L442`\n- **Read-only enforcement**: All tools carry `readOnlyHint: true`, `destructiveHint: false` annotations `src/mcp/server.mjs:L17-L29`\n\n#### 1.3 Runtime Orchestration (`src/explorer/runtime.mjs`)\n- **ExplorerRuntime class**: Main orchestrator initialized with chat client and logger `src/explorer/runtime.mjs:L1278-L1287`\n- **Context initialization**: `_initExploreContext()` creates RepoToolkit, resolves sessions, loads project config, and builds tool definitions `src/explorer/runtime.mjs:L1294-L1342`\n- **Turn-based execution**: `explore()` method runs LLM conversation loops, executing tool calls in parallel with concurrency limit `TOOL_CONCURRENCY=8` `src/explorer/runtime.mjs:L1351-L1400,L1552-L1582`\n\n#### 1.4 Tool Execution (`src/explorer/repo-tools.mjs`)\n- **Tool definitions**: `buildToolDefinitions()` returns 11 repo tools including `repo_list_dir`, `repo_grep`, `repo_read_file`, `repo_symbols`, `repo_git_*` `src/explorer/repo-tools.mjs:L1371-L1450`\n- **Dispatch routing**: `callTool(name, args)` uses switch statement to route to specific implementation methods with caching `src/explorer/repo-tools.mjs:L1614-L1720`\n- **Caching layer**: Each tool checks cache via `_cacheGet()` before executing; git operations use `GIT_TOOL_TTL_MS` TTL `src/explorer/repo-tools.mjs:L1615-L1696`\n\n### 2. Evidence Grounding Architecture\n\n#### 2.1 Runtime Observation Tracking (`src/explorer/runtime.mjs`)\n- **Observed ranges Map**: `observedRanges = new Map()` stores `{path → [{startLine, endLine, source}]}` `src/explorer/runtime.mjs:L1426`\n- **Observed git tracking**: `observedGit = { commits: new Set(), blame: new Set() }` for git evidence validation `src/explorer/runtime.mjs:L1427`\n- **Recording function**: `recordObservedRange()` appends range observations with source tags (`read`, `grep`, `diff_hunk`, etc.) `src/explorer/runtime.mjs:L1209-L1216`\n\n#### 2.2 Post-Tool-Call Recording (`src/explorer/runtime.mjs:L1584-L1669`)\nAfter each tool result, the runtime records observations:\n\n- **repo_read_file**: Records full range as `source: 'read'` `src/explorer/runtime.mjs:L1599-L1601`\n- **repo_grep**: Records each match line as `source: 'grep'` `src/explorer/runtime.mjs:L1603-L1607`\n- **repo_git_blame**: Records blame lines as `source: 'blame'` `src/explorer/runtime.mjs:L1610-L1619`\n- **repo_git_diff/show**: Records diff hunks as `source: 'diff_hunk'` `src/explorer/runtime.mjs:L1622-L1635`\n- **Macro tools**: Records embedded `observedRanges` array (e.g., `repo_symbol_context`) `src/explorer/runtime.mjs:L1638-L1643`\n- **Git commits**: Records commit hashes in `observedGit.commits` set `src/explorer/runtime.mjs:L1645-L1660`\n- **Git blame**: Records `path:line:hash` tuples in `observedGit.blame` set `src/explorer/runtime.mjs:L1662-L1669`\n\n#### 2.3 Grounding Validation (`src/explorer/critic.mjs`)\n- **Range overlap check**: `checkEvidenceGrounding()` tests if evidence range overlaps observed ranges with tolerance `EVIDENCE_LINE_TOLERANCE=2` `src/explorer/critic.mjs:L28-L75`\n- **Source-aware grounding**: \n  - `source: 'read'` → requires evidence range to be fully contained within observed range\n  - `source: 'grep'` → exact only for evidence ≤3 lines\n  - `source: 'blame'` → exact only for evidence ≤3 lines\n  - `source: 'diff_hunk'` → requires containment within hunk range\n  `src/explorer/critic.mjs:L54-L66`\n- **Item grounding**: `groundEvidenceItem()` validates evidence by type (`file_range`, `git_commit`, `git_blame`, `git_diff_hunk`) `src/explorer/critic.mjs:L83-L111`\n- **Batch grounding**: `groundEvidenceList()` processes all evidence, drops ungrounded/malformed items, returns stats `src/explorer/critic.mjs:L113-L154`\n\n#### 2.4 Evidence Schema (`src/explorer/schemas.mjs`)\n- **Evidence item structure**: Defined in `EVIDENCE_ITEM_SCHEMA` with fields: `path`, `startLine`, `endLine`, `why`, `snippet`, `redacted`, `redactions`, `groundingStatus`, `evidenceType`, `sha`, `author`, `commit`, etc. `src/explorer/schemas.mjs:L247-L273`\n- **Output schema**: `EXPLORE_REPO_OUTPUT_SCHEMA` includes `evidence` array, `evidenceQuality`, `uncertainties` `src/explorer/schemas.mjs:L275-L305`\n\n### 3. Confidence Scoring (`src/explorer/critic.mjs`)\n\n- **Confidence computation**: `computeConfidenceScore()` calculates 0.0-1.0 score based on:\n  - Base score by task kind (locate=0.45, default=0.30)\n  - Exact evidence count bonus (max +0.54)\n  - Cross-file verification bonus (+0.10)\n  - Search tool penalty (-0.05 to -0.10)\n  - Budget exhaustion penalty (-0.30)\n  `src/explorer/critic.mjs:L160-L200`\n\n## Key Code Paths\n\n### Tool Dispatch Flow\n```\nMCP Request (stdin)\n  → StdioJsonRpcServer.processBuffer() L57-L126\n  → dispatchMessage() L128-L161\n  → handleRequest() → tool handler (e.g., handleExploreRepo)\n  → exploreRepository() L2395-L2399\n  → ExplorerRuntime.explore() L1351-L1400\n  → repoToolkit.callTool() L1614-L1720\n  → specific implementation (e.g., this.grep())\n```\n\n### Evidence Grounding Flow\n```\nTool execution completes\n  → Tool result post-processing L1584-L1669\n  → recordObservedRange() L1209-L1216\n  → Populate observedRanges Map and observedGit sets\n  → Finalize phase → groundEvidenceList() L113-L154\n  → checkEvidenceGrounding() L28-L75\n  → Filter ungrounded evidence\n  → computeConfidenceScore() L160-L200\n  → Return grounded evidence with quality metrics\n```\n\n## Uncertainty\n\n1. **Macro tool observedRanges format**: While `src/explorer/runtime.mjs:L1638-L1643` shows macro tools return `observedRanges` array with optional `source` field, the exact structure for different macro tools (e.g., `repo_symbol_context` vs `repo_references`) is inferred but not fully verified across all implementations.\n\n2. **Cache invalidation strategy**: The `callTool()` method uses mtime-based cache invalidation for file reads (`src/explorer/repo-tools.mjs:L1664-L1676`), but the behavior for concurrent modifications during long-running explorations is unclear.\n\n3. **Partial grounding semantics**: The exact meaning of `groundingStatus: 'partial'` vs `'exact'` in user-facing outputs is defined in code (`src/explorer/critic.mjs:L68-L71`) but its impact on downstream agent behavior is not fully explored.\n\n4. **Session continuation**: How `s\n... [truncated 884 chars]"
+}

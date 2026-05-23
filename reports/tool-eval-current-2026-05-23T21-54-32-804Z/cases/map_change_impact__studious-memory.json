@@ -1,0 +1,1565 @@
+{
+  "tool": "map_change_impact",
+  "repo": "studious-memory",
+  "args": {
+    "repo_root": "/home/kyubr/IdeaProjects/studious-memory",
+    "scope": [
+      "backend/**",
+      "frontend/src/**",
+      "extensions/firefox-inbox/src/**",
+      "scripts/**",
+      "android/**"
+    ],
+    "change": "harden API-key bearer authentication across frontend extension and backend endpoints",
+    "knownFiles": [
+      "backend/mcp_server.py"
+    ],
+    "knownSymbols": [
+      "scoped_tool"
+    ]
+  },
+  "elapsedMs": 15412,
+  "error": null,
+  "isError": false,
+  "summary": {
+    "directAnswer": "Authentication flow: all clients send `Authorization: Bearer <credential>` to backend. AuthMiddleware extracts and validates via extract_bearer_token(), distinguishing API keys (0 dots) from session tokens (1+ dots). API keys verified by ApiKeyRepository.verify() with argon2id/sha256. MCP tools use @scoped_tool decorator calling require_mcp_scopes(). Hardening requires changes to 5 backend files plus client updates in frontend, Firefox extension, and Android.",
+    "status": {
+      "confidence": "high",
+      "verification": "targeted_read_needed",
+      "complete": true,
+      "warnings": [
+        "1 evidence item(s) are grounded only by grep, blame, or nearby line observations."
+      ]
+    },
+    "evidenceQuality": {
+      "level": "high",
+      "exactCount": 7,
+      "partialCount": 1,
+      "droppedCount": 0,
+      "fileCount": 6,
+      "warnings": [
+        "1 evidence item(s) are grounded only by grep, blame, or nearby line observations."
+      ],
+      "summary": "Verified: 10 files read, 5 grep searches, 2 symbol lookups, 7/8 evidence items grounded, cross-verified across 6 files. All evidence grounded in inspected code."
+    },
+    "failure": null,
+    "nextAction": {
+      "type": "read_target",
+      "reason": "Read backend/app/middleware/auth.py:59-77 before editing.",
+      "target": {
+        "path": "backend/app/middleware/auth.py",
+        "role": "edit",
+        "reason": "Core bearer extraction and query param fallback logic",
+        "evidenceRefs": [
+          "E1"
+        ],
+        "startLine": 59,
+        "endLine": 77
+      }
+    },
+    "searchCoverage": {
+      "scope": [
+        "backend/**",
+        "frontend/src/**",
+        "extensions/firefox-inbox/src/**",
+        "scripts/**",
+        "android/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 10,
+      "grepCalls": 5,
+      "listDirCalls": 0,
+      "symbolCalls": 2,
+      "toolResultsTruncated": 0,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: backend/**, frontend/src/**, extensions/firefox-inbox/src/**, scripts/**, android/**"
+      ],
+      "summary": "scope-limited search across backend/**, frontend/src/**, extensions/firefox-inbox/src/**, scripts/**, android/**; 10 file read(s), 5 grep search(es)."
+    },
+    "critic": null,
+    "sessionId": "sess_eb79b9c00a604bf3",
+    "session": {
+      "id": "sess_eb79b9c00a604bf3",
+      "status": "created",
+      "remainingCalls": 4
+    },
+    "targets": [
+      {
+        "path": "backend/app/middleware/auth.py",
+        "role": "edit",
+        "reason": "Core bearer extraction and query param fallback logic",
+        "evidenceRefs": [
+          "E1"
+        ],
+        "startLine": 59,
+        "endLine": 77
+      },
+      {
+        "path": "backend/app/middleware/auth.py",
+        "role": "edit",
+        "reason": "MCP authentication with OAuth/API-key dual mode",
+        "evidenceRefs": [
+          "E2"
+        ],
+        "startLine": 281,
+        "endLine": 325
+      },
+      {
+        "path": "backend/app/middleware/auth.py",
+        "role": "edit",
+        "reason": "Main dispatcher distinguishing API keys from session tokens",
+        "evidenceRefs": [
+          "E3"
+        ],
+        "startLine": 328,
+        "endLine": 368
+      },
+      {
+        "path": "backend/app/repositories/api_key.py",
+        "role": "edit",
+        "reason": "API key verification with argon2id/sha256 hashes",
+        "evidenceRefs": [
+          "E4"
+        ],
+        "startLine": 84,
+        "endLine": 107
+      },
+      {
+        "path": "backend/app/mcp/server.py",
+        "role": "edit",
+        "reason": "scoped_tool decorator wrapping MCP tools with scope validation",
+        "evidenceRefs": [
+          "E5"
+        ],
+        "startLine": 79,
+        "endLine": 91
+      },
+      {
+        "path": "frontend/src/api.ts",
+        "role": "edit",
+        "reason": "Axios interceptor adds Authorization: Bearer header",
+        "evidenceRefs": [
+          "E6"
+        ],
+        "startLine": 253,
+        "endLine": 260
+      },
+      {
+        "path": "extensions/firefox-inbox/src/shared/apiClient.ts",
+        "role": "edit",
+        "reason": "bearerHeaders() constructs Authorization: Bearer for extension",
+        "evidenceRefs": [
+          "E7"
+        ],
+        "startLine": 137,
+        "endLine": 141
+      },
+      {
+        "path": "android/app/src/main/java/com/studiousmemory/android/core/network/BackendApiClient.kt",
+        "role": "edit",
+        "reason": "Android client sets Authorization: Bearer header",
+        "evidenceRefs": [
+          "E8"
+        ],
+        "startLine": 49,
+        "endLine": 49
+      }
+    ],
+    "discoveredPathsCount": 62,
+    "evidence": [
+      {
+        "id": "E1",
+        "path": "backend/app/middleware/auth.py",
+        "startLine": 59,
+        "endLine": 77,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Defines extract_bearer_token and extract_api_key_from_request for parsing",
+        "snippet": "59: def extract_bearer_token(auth_header: str | None) -> str | None:\n60:     if not auth_header or not auth_header.startswith(\"Bearer \"):\n61:         return None\n62:     token = auth_header[len(\"Bearer \") :]\n63:     return token or None\n64: \n65: \n66: def extract_api_key_from_request(request: Request, path: str) -> str | None:\n67:     bearer_token = extract_bearer_token(request.headers.get(\"Authorization\"))\n68:     if bearer_token:\n69:         return bearer_token\n70: \n... [snippet truncated]"
+      },
+      {
+        "id": "E2",
+        "path": "backend/app/middleware/auth.py",
+        "startLine": 281,
+        "endLine": 325,
+        "groundingStatus": "partial",
+        "evidenceType": "file_range",
+        "why": "MCP authentication with OAuth/API-key dual mode and query fallback",
+        "snippet": "281: async def ensure_authenticated_mcp_request(request: Request) -> str:\n282:     mode = _mcp_auth_mode()\n283:     bearer_token = extract_bearer_token(request.headers.get(\"Authorization\"))\n284:     query_token = (\n285:         request.query_params.get(MCP_QUERY_KEY_PARAM)\n286:         if settings.MCP_ALLOW_QUERY_KEY\n287:         else None\n288:     )\n289:     raw_api_key = bearer_token or query_token\n290: \n291:     oauth_error: OAuthTokenError | None = None\n292:     if bearer_token and mode in {\"oauth\", \"dual\"}:\n... [snippet truncated]"
+      },
+      {
+        "id": "E3",
+        "path": "backend/app/middleware/auth.py",
+        "startLine": 328,
+        "endLine": 368,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Main auth dispatcher distinguishing API keys from session tokens",
+        "snippet": "328: async def ensure_authenticated_request(\n329:     request: Request,\n330: ) -> str:\n331:     path = request.url.path\n332: \n333:     is_mcp_request = is_mcp_path(path)\n334:     if is_mcp_request:\n335:         return await ensure_authenticated_mcp_request(request)\n336: \n337:     bearer_token = extract_bearer_token(request.headers.get(\"Authorization\"))\n338:     if bearer_token is None:\n339:         raise HTTPException(status_code=401, detail=\"Missing or invalid Authorization header\")\n... [snippet truncated]"
+      },
+      {
+        "id": "E4",
+        "path": "backend/app/repositories/api_key.py",
+        "startLine": 84,
+        "endLine": 107,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "API key verification with argon2id/sha256 and timing protection",
+        "snippet": "84:     async def verify(self, raw_key: str) -> ApiKey | None:\n85:         key_prefix = raw_key[:8]\n86:         now = now_utc()\n87:         result = await self.session.execute(\n88:             select(ApiKey).where(\n89:                 ApiKey.key_prefix == key_prefix,\n90:                 ApiKey.is_active.is_(True),\n91:                 or_(ApiKey.expires_at.is_(None), ApiKey.expires_at > now),\n92:             )\n93:         )\n94:         candidates = list(result.scalars().all())\n95:         for api_key in candidates:\n... [snippet truncated]"
+      },
+      {
+        "id": "E5",
+        "path": "backend/app/mcp/server.py",
+        "startLine": 79,
+        "endLine": 91,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "scoped_tool decorator wrapping MCP tools with scope validation",
+        "snippet": "79: def scoped_tool(*required_scopes: str):\n80:     def _decorator(func: Callable[..., Any]):\n81:         @mcp.tool(meta={\"required_scopes\": list(required_scopes)})\n82:         @wraps(func)\n83:         async def _wrapped(*args: Any, **kwargs: Any):\n84:             require_mcp_scopes(*required_scopes)\n85:             return await func(*args, **kwargs)\n86: \n87:         return _wrapped\n88: \n89:     return _decorator\n90: \n... [snippet truncated]"
+      },
+      {
+        "id": "E6",
+        "path": "frontend/src/api.ts",
+        "startLine": 253,
+        "endLine": 260,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Axios interceptor adding Authorization: Bearer from sessionStorage",
+        "snippet": "253: api.interceptors.request.use((config) => {\n254:   const token = sessionStorage.getItem(SESSION_TOKEN_STORAGE)\n255:   if (token) {\n256:     config.headers = config.headers ?? {}\n257:     ;(config.headers as Record<string, string>).Authorization = `Bearer ${token}`\n258:   }\n259:   return config\n260: })"
+      },
+      {
+        "id": "E7",
+        "path": "extensions/firefox-inbox/src/shared/apiClient.ts",
+        "startLine": 137,
+        "endLine": 141,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "bearerHeaders function constructing Authorization: Bearer",
+        "snippet": "137: function bearerHeaders(apiKey: string): Record<string, string> {\n138:   return {\n139:     Authorization: `Bearer ${apiKey}`,\n140:   }\n141: }"
+      },
+      {
+        "id": "E8",
+        "path": "android/app/src/main/java/com/studiousmemory/android/core/network/BackendApiClient.kt",
+        "startLine": 49,
+        "endLine": 49,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Android client setting Authorization: Bearer header",
+        "snippet": "49:         .header(\"Authorization\", \"Bearer $trimmedApiKey\")"
+      }
+    ],
+    "uncertainties": [
+      "1 evidence item(s) are grounded only by grep, blame, or nearby line observations.",
+      "Android API key rotation strategy during hardening needs verification"
+    ],
+    "stats": {
+      "turns": 7,
+      "toolCalls": 18,
+      "filesRead": 10,
+      "grepCalls": 5,
+      "symbolCalls": 2,
+      "stoppedByBudget": false,
+      "elapsedMs": 15397,
+      "totalTokens": 185019
+    }
+  },
+  "structuredContent": {
+    "schemaVersion": 1,
+    "directAnswer": "Authentication flow: all clients send `Authorization: Bearer <credential>` to backend. AuthMiddleware extracts and validates via extract_bearer_token(), distinguishing API keys (0 dots) from session tokens (1+ dots). API keys verified by ApiKeyRepository.verify() with argon2id/sha256. MCP tools use @scoped_tool decorator calling require_mcp_scopes(). Hardening requires changes to 5 backend files plus client updates in frontend, Firefox extension, and Android.",
+    "status": {
+      "confidence": "high",
+      "verification": "targeted_read_needed",
+      "complete": true,
+      "warnings": [
+        "1 evidence item(s) are grounded only by grep, blame, or nearby line observations."
+      ]
+    },
+    "targets": [
+      {
+        "path": "backend/app/middleware/auth.py",
+        "role": "edit",
+        "reason": "Core bearer extraction and query param fallback logic",
+        "evidenceRefs": [
+          "E1"
+        ],
+        "startLine": 59,
+        "endLine": 77
+      },
+      {
+        "path": "backend/app/middleware/auth.py",
+        "role": "edit",
+        "reason": "MCP authentication with OAuth/API-key dual mode",
+        "evidenceRefs": [
+          "E2"
+        ],
+        "startLine": 281,
+        "endLine": 325
+      },
+      {
+        "path": "backend/app/middleware/auth.py",
+        "role": "edit",
+        "reason": "Main dispatcher distinguishing API keys from session tokens",
+        "evidenceRefs": [
+          "E3"
+        ],
+        "startLine": 328,
+        "endLine": 368
+      },
+      {
+        "path": "backend/app/repositories/api_key.py",
+        "role": "edit",
+        "reason": "API key verification with argon2id/sha256 hashes",
+        "evidenceRefs": [
+          "E4"
+        ],
+        "startLine": 84,
+        "endLine": 107
+      },
+      {
+        "path": "backend/app/mcp/server.py",
+        "role": "edit",
+        "reason": "scoped_tool decorator wrapping MCP tools with scope validation",
+        "evidenceRefs": [
+          "E5"
+        ],
+        "startLine": 79,
+        "endLine": 91
+      },
+      {
+        "path": "frontend/src/api.ts",
+        "role": "edit",
+        "reason": "Axios interceptor adds Authorization: Bearer header",
+        "evidenceRefs": [
+          "E6"
+        ],
+        "startLine": 253,
+        "endLine": 260
+      },
+      {
+        "path": "extensions/firefox-inbox/src/shared/apiClient.ts",
+        "role": "edit",
+        "reason": "bearerHeaders() constructs Authorization: Bearer for extension",
+        "evidenceRefs": [
+          "E7"
+        ],
+        "startLine": 137,
+        "endLine": 141
+      },
+      {
+        "path": "android/app/src/main/java/com/studiousmemory/android/core/network/BackendApiClient.kt",
+        "role": "edit",
+        "reason": "Android client sets Authorization: Bearer header",
+        "evidenceRefs": [
+          "E8"
+        ],
+        "startLine": 49,
+        "endLine": 49
+      }
+    ],
+    "discoveredPaths": [
+      {
+        "path": "backend/app/mcp/server.py",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "scripts/generate_contract_snapshot.py",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/mcp_server.py",
+        "kind": "unknown",
+        "sourceTool": "repo_read_file",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "android/README.md",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "android/gradlew",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "android/gradlew.bat",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/conftest.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/main.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "scripts/benchmark_db_hardening.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "scripts/generate_architecture_explorer.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "scripts/idea_run_backend.sh",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "scripts/idea_run_mcp.sh",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "scripts/idea_setup.sh",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/app/access_context.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/app/config.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/app/mcp/authz.py",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/app/capabilities/registry.py",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/tests/auth/test_mcp_scope_enforcement.py",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/app/middleware/auth.py",
+        "kind": "unknown",
+        "sourceTool": "repo_read_file",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/app/dependencies.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/app/api/scope_policy.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/tests/api/test_ai_config.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/tests/api/test_runs_api.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/tests/auth/test_sudo_endpoint.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/app/api/v1/agent.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/app/api/v1/auth.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/app/api/v1/runs.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/app/repositories/api_key.py",
+        "kind": "unknown",
+        "sourceTool": "repo_read_file",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "frontend/src/api.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "frontend/src/test/agent-runs.test.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "frontend/src/test/ai-config.test.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "frontend/src/test/ai-logs-web-search.test.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "frontend/src/test/auth.bearer.test.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "frontend/src/test/full-chat-page.test.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "frontend/src/test/inbox.test.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "frontend/src/test/login.test.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "frontend/src/test/review-inbox.test.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "frontend/src/test/settings.test.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "extensions/firefox-inbox/src/background/background.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "extensions/firefox-inbox/src/options/options.html",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "extensions/firefox-inbox/src/options/options.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/tests/auth/test_api_regression_after_mcp_auth.py",
+        "kind": "file",
+        "sourceTool": "repo_find_files",
+        "reason": "Matched file discovery query."
+      },
+      {
+        "path": "backend/tests/auth/test_auth_session_cookie.py",
+        "kind": "file",
+        "sourceTool": "repo_find_files",
+        "reason": "Matched file discovery query."
+      },
+      {
+        "path": "backend/tests/auth/test_auth_session_no_cookie.py",
+        "kind": "file",
+        "sourceTool": "repo_find_files",
+        "reason": "Matched file discovery query."
+      },
+      {
+        "path": "backend/tests/auth/test_auth_session_route_flags.py",
+        "kind": "file",
+        "sourceTool": "repo_find_files",
+        "reason": "Matched file discovery query."
+      },
+      {
+        "path": "backend/tests/auth/test_dependencies_authz.py",
+        "kind": "file",
+        "sourceTool": "repo_find_files",
+        "reason": "Matched file discovery query."
+      },
+      {
+        "path": "backend/tests/auth/test_mcp_auth_enforcement.py",
+        "kind": "file",
+        "sourceTool": "repo_find_files",
+        "reason": "Matched file discovery query."
+      },
+      {
+        "path": "backend/tests/auth/test_mcp_auth_matrix.py",
+        "kind": "file",
+        "sourceTool": "repo_find_files",
+        "reason": "Matched file discovery query."
+      },
+      {
+        "path": "backend/tests/auth/test_mcp_oauth_token.py",
+        "kind": "file",
+        "sourceTool": "repo_find_files",
+        "reason": "Matched file discovery query."
+      },
+      {
+        "path": "backend/app/mcp/context.py",
+        "kind": "unknown",
+        "sourceTool": "repo_read_file",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/tests/test_web_search_storage.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/app/ai/cerebras_adapter.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/app/ai/ollama_adapter.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/app/services/openai_compat.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/app/services/web_search.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/tests/auth/test_bearer_dual_credential.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/tests/auth/test_mcp_credential_precedence.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "extensions/firefox-inbox/src/shared/apiClient.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_read_file",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "android/app/build.gradle.kts",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "android/gradle/libs.versions.toml",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "android/app/src/main/java/com/studiousmemory/android/core/network/BackendApiClient.kt",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "android/app/src/test/java/com/studiousmemory/android/core/network/BackendApiClientTest.kt",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      }
+    ],
+    "evidence": [
+      {
+        "path": "backend/app/middleware/auth.py",
+        "startLine": 59,
+        "endLine": 77,
+        "why": "Defines extract_bearer_token and extract_api_key_from_request for parsing",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E1",
+        "snippet": "59: def extract_bearer_token(auth_header: str | None) -> str | None:\n60:     if not auth_header or not auth_header.startswith(\"Bearer \"):\n61:         return None\n62:     token = auth_header[len(\"Bearer \") :]\n63:     return token or None\n64: \n65: \n66: def extract_api_key_from_request(request: Request, path: str) -> str | None:\n67:     bearer_token = extract_bearer_token(request.headers.get(\"Authorization\"))\n68:     if bearer_token:\n69:         return bearer_token\n70: \n... [snippet truncated]"
+      },
+      {
+        "path": "backend/app/middleware/auth.py",
+        "startLine": 281,
+        "endLine": 325,
+        "why": "MCP authentication with OAuth/API-key dual mode and query fallback",
+        "evidenceType": "file_range",
+        "groundingStatus": "partial",
+        "id": "E2",
+        "snippet": "281: async def ensure_authenticated_mcp_request(request: Request) -> str:\n282:     mode = _mcp_auth_mode()\n283:     bearer_token = extract_bearer_token(request.headers.get(\"Authorization\"))\n284:     query_token = (\n285:         request.query_params.get(MCP_QUERY_KEY_PARAM)\n286:         if settings.MCP_ALLOW_QUERY_KEY\n287:         else None\n288:     )\n289:     raw_api_key = bearer_token or query_token\n290: \n291:     oauth_error: OAuthTokenError | None = None\n292:     if bearer_token and mode in {\"oauth\", \"dual\"}:\n... [snippet truncated]"
+      },
+      {
+        "path": "backend/app/middleware/auth.py",
+        "startLine": 328,
+        "endLine": 368,
+        "why": "Main auth dispatcher distinguishing API keys from session tokens",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E3",
+        "snippet": "328: async def ensure_authenticated_request(\n329:     request: Request,\n330: ) -> str:\n331:     path = request.url.path\n332: \n333:     is_mcp_request = is_mcp_path(path)\n334:     if is_mcp_request:\n335:         return await ensure_authenticated_mcp_request(request)\n336: \n337:     bearer_token = extract_bearer_token(request.headers.get(\"Authorization\"))\n338:     if bearer_token is None:\n339:         raise HTTPException(status_code=401, detail=\"Missing or invalid Authorization header\")\n... [snippet truncated]"
+      },
+      {
+        "path": "backend/app/repositories/api_key.py",
+        "startLine": 84,
+        "endLine": 107,
+        "why": "API key verification with argon2id/sha256 and timing protection",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E4",
+        "snippet": "84:     async def verify(self, raw_key: str) -> ApiKey | None:\n85:         key_prefix = raw_key[:8]\n86:         now = now_utc()\n87:         result = await self.session.execute(\n88:             select(ApiKey).where(\n89:                 ApiKey.key_prefix == key_prefix,\n90:                 ApiKey.is_active.is_(True),\n91:                 or_(ApiKey.expires_at.is_(None), ApiKey.expires_at > now),\n92:             )\n93:         )\n94:         candidates = list(result.scalars().all())\n95:         for api_key in candidates:\n... [snippet truncated]"
+      },
+      {
+        "path": "backend/app/mcp/server.py",
+        "startLine": 79,
+        "endLine": 91,
+        "why": "scoped_tool decorator wrapping MCP tools with scope validation",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E5",
+        "snippet": "79: def scoped_tool(*required_scopes: str):\n80:     def _decorator(func: Callable[..., Any]):\n81:         @mcp.tool(meta={\"required_scopes\": list(required_scopes)})\n82:         @wraps(func)\n83:         async def _wrapped(*args: Any, **kwargs: Any):\n84:             require_mcp_scopes(*required_scopes)\n85:             return await func(*args, **kwargs)\n86: \n87:         return _wrapped\n88: \n89:     return _decorator\n90: \n... [snippet truncated]"
+      },
+      {
+        "path": "frontend/src/api.ts",
+        "startLine": 253,
+        "endLine": 260,
+        "why": "Axios interceptor adding Authorization: Bearer from sessionStorage",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E6",
+        "snippet": "253: api.interceptors.request.use((config) => {\n254:   const token = sessionStorage.getItem(SESSION_TOKEN_STORAGE)\n255:   if (token) {\n256:     config.headers = config.headers ?? {}\n257:     ;(config.headers as Record<string, string>).Authorization = `Bearer ${token}`\n258:   }\n259:   return config\n260: })"
+      },
+      {
+        "path": "extensions/firefox-inbox/src/shared/apiClient.ts",
+        "startLine": 137,
+        "endLine": 141,
+        "why": "bearerHeaders function constructing Authorization: Bearer",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E7",
+        "snippet": "137: function bearerHeaders(apiKey: string): Record<string, string> {\n138:   return {\n139:     Authorization: `Bearer ${apiKey}`,\n140:   }\n141: }"
+      },
+      {
+        "path": "android/app/src/main/java/com/studiousmemory/android/core/network/BackendApiClient.kt",
+        "startLine": 49,
+        "endLine": 49,
+        "why": "Android client setting Authorization: Bearer header",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E8",
+        "snippet": "49:         .header(\"Authorization\", \"Bearer $trimmedApiKey\")"
+      }
+    ],
+    "uncertainties": [
+      "1 evidence item(s) are grounded only by grep, blame, or nearby line observations.",
+      "Android API key rotation strategy during hardening needs verification"
+    ],
+    "nextAction": {
+      "type": "read_target",
+      "reason": "Read backend/app/middleware/auth.py:59-77 before editing.",
+      "target": {
+        "path": "backend/app/middleware/auth.py",
+        "role": "edit",
+        "reason": "Core bearer extraction and query param fallback logic",
+        "evidenceRefs": [
+          "E1"
+        ],
+        "startLine": 59,
+        "endLine": 77
+      }
+    },
+    "evidenceQuality": {
+      "level": "high",
+      "exactCount": 7,
+      "partialCount": 1,
+      "droppedCount": 0,
+      "fileCount": 6,
+      "warnings": [
+        "1 evidence item(s) are grounded only by grep, blame, or nearby line observations."
+      ],
+      "summary": "Verified: 10 files read, 5 grep searches, 2 symbol lookups, 7/8 evidence items grounded, cross-verified across 6 files. All evidence grounded in inspected code."
+    },
+    "searchCoverage": {
+      "scope": [
+        "backend/**",
+        "frontend/src/**",
+        "extensions/firefox-inbox/src/**",
+        "scripts/**",
+        "android/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 10,
+      "grepCalls": 5,
+      "listDirCalls": 0,
+      "symbolCalls": 2,
+      "toolResultsTruncated": 0,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: backend/**, frontend/src/**, extensions/firefox-inbox/src/**, scripts/**, android/**"
+      ],
+      "summary": "scope-limited search across backend/**, frontend/src/**, extensions/firefox-inbox/src/**, scripts/**, android/**; 10 file read(s), 5 grep search(es)."
+    },
+    "failure": null,
+    "sessionId": "sess_eb79b9c00a604bf3",
+    "session": {
+      "id": "sess_eb79b9c00a604bf3",
+      "status": "created",
+      "remainingCalls": 4
+    },
+    "_debug": {
+      "evidenceSufficiency": {
+        "sufficient": true,
+        "reason": "edit_plan_has_actionable_target"
+      },
+      "confidenceScore": 1,
+      "confidenceFactors": {
+        "evidenceCount": 8,
+        "evidenceGrounded": 8,
+        "evidenceDropped": 0,
+        "exactCount": 7,
+        "crossVerified": true,
+        "symbolSearchUsed": true,
+        "stoppedByBudget": false,
+        "gitLogCalls": 0,
+        "gitDiffCalls": 0,
+        "gitBlameCalls": 0,
+        "gitGroundingHint": "none",
+        "taskKind": "reference-chase",
+        "adjustments": [
+          "base=0.30 (taskKind=reference-chase)",
+          "+0.54 (7 exact evidence item(s))",
+          "+0.12 (cross-verified across multiple files)",
+          "+0.05 (symbol/grep search used)"
+        ],
+        "droppedUngrounded": 0,
+        "droppedMalformed": 0
+      },
+      "stats": {
+        "model": "zai-glm-4.7",
+        "budget": "deep",
+        "budgetSource": "auto",
+        "turns": 7,
+        "toolCalls": 18,
+        "listDirCalls": 0,
+        "findFileCalls": 1,
+        "grepCalls": 5,
+        "filesRead": 10,
+        "gitLogCalls": 0,
+        "gitBlameCalls": 0,
+        "gitDiffCalls": 0,
+        "gitShowCalls": 0,
+        "symbolCalls": 2,
+        "inputTokens": 177797,
+        "outputTokens": 7222,
+        "totalTokens": 185019,
+        "elapsedMs": 15397,
+        "stoppedByBudget": false,
+        "scope": [
+          "backend/**",
+          "frontend/src/**",
+          "extensions/firefox-inbox/src/**",
+          "scripts/**",
+          "android/**"
+        ],
+        "repoRoot": "/home/kyubr/IdeaProjects/studious-memory",
+        "sessionId": "sess_eb79b9c00a604bf3",
+        "sessionStatus": "created",
+        "sessionSource": "created",
+        "remainingCalls": 4,
+        "cacheHits": 54,
+        "cacheMisses": 313,
+        "cacheHitRate": 0.147,
+        "cacheEntries": 309,
+        "cacheSizeBytes": 2175972
+      },
+      "toolTrace": {
+        "entries": [
+          {
+            "turn": 1,
+            "tool": "repo_symbol_context",
+            "args": {
+              "symbol": "scoped_tool"
+            },
+            "result": {
+              "symbol": "scoped_tool",
+              "definition": {
+                "path": "backend/app/mcp/server.py",
+                "line": 79,
+                "endLine": 91,
+                "kind": "function"
+              },
+              "callers": 39,
+              "observedRanges": 21,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 1,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "backend/mcp_server.py"
+            },
+            "result": {
+              "path": "backend/mcp_server.py",
+              "startLine": 1,
+              "endLine": 41,
+              "totalLines": 41,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 1,
+            "tool": "repo_grep",
+            "args": {
+              "pattern": "(bearer|api[_-]?key|auth|authenticate)",
+              "scope": [
+                "backend/**",
+                "frontend/src/**",
+                "extensions/firefox-inbox/src/**",
+                "scripts/**",
+                "android/**"
+              ],
+              "maxResults": 100
+            },
+            "result": {
+              "matches": 100,
+              "paths": [
+                "android/README.md",
+                "android/gradlew",
+                "android/gradlew.bat",
+                "backend/conftest.py",
+                "backend/main.py",
+                "backend/mcp_server.py"
+              ],
+              "truncated": true
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_symbol_context",
+            "args": {
+              "symbol": "require_mcp_scopes"
+            },
+            "result": {
+              "symbol": "require_mcp_scopes",
+              "definition": {
+                "path": "backend/app/mcp/authz.py",
+                "line": 59,
+                "endLine": 69,
+                "kind": "function"
+              },
+              "callers": 14,
+              "observedRanges": 15,
+              "truncated": false
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "backend/app/middleware/auth.py"
+            },
+            "result": {
+              "path": "backend/app/middleware/auth.py",
+              "startLine": 1,
+              "endLine": 320,
+              "totalLines": 414,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "backend/app/mcp/authz.py"
+            },
+            "result": {
+              "path": "backend/app/mcp/authz.py",
+              "startLine": 1,
+              "endLine": 72,
+              "totalLines": 72,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_grep",
+            "args": {
+              "pattern": "get_request_api_key",
+              "scope": [
+                "backend/**"
+              ],
+              "maxResults": 50
+            },
+            "result": {
+              "matches": 37,
+              "paths": [
+                "backend/conftest.py",
+                "backend/app/dependencies.py",
+                "backend/app/api/scope_policy.py",
+                "backend/tests/api/test_ai_config.py",
+                "backend/tests/api/test_runs_api.py",
+                "backend/tests/auth/test_sudo_endpoint.py"
+              ],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "backend/app/dependencies.py"
+            },
+            "result": {
+              "path": "backend/app/dependencies.py",
+              "startLine": 1,
+              "endLine": 204,
+              "totalLines": 204,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "backend/app/repositories/api_key.py"
+            },
+            "result": {
+              "path": "backend/app/repositories/api_key.py",
+              "startLine": 1,
+              "endLine": 186,
+              "totalLines": 186,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_grep",
+            "args": {
+              "scope": [
+                "frontend/src/**",
+                "extensions/firefox-inbox/src/**",
+                "android/**"
+              ],
+              "pattern": "(Authorization|Bearer|api[_-]?key)",
+              "maxResults": 50
+            },
+            "result": {
+              "matches": 50,
+              "paths": [
+                "android/README.md",
+                "frontend/src/api.ts",
+                "frontend/src/test/agent-runs.test.tsx",
+                "frontend/src/test/ai-config.test.tsx",
+                "frontend/src/test/ai-logs-web-search.test.tsx",
+                "frontend/src/test/auth.bearer.test.tsx"
+              ],
+              "truncated": true
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_find_files",
+            "args": {
+              "pattern": "**/test*auth*.py",
+              "scope": [
+                "backend/**"
+              ]
+            },
+            "result": {
+              "matches": 8,
+              "paths": [
+                "backend/tests/auth/test_api_regression_after_mcp_auth.py",
+                "backend/tests/auth/test_auth_session_cookie.py",
+                "backend/tests/auth/test_auth_session_no_cookie.py",
+                "backend/tests/auth/test_auth_session_route_flags.py",
+                "backend/tests/auth/test_dependencies_authz.py",
+                "backend/tests/auth/test_mcp_auth_enforcement.py"
+              ],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "frontend/src/api.ts",
+              "startLine": 240,
+              "endLine": 280
+            },
+            "result": {
+              "path": "frontend/src/api.ts",
+              "startLine": 240,
+              "endLine": 280,
+              "totalLines": 781,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "extensions/firefox-inbox/src/background/background.ts"
+            },
+            "result": {
+              "path": "extensions/firefox-inbox/src/background/background.ts",
+              "startLine": 1,
+              "endLine": 191,
+              "totalLines": 191,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "backend/app/mcp/context.py"
+            },
+            "result": {
+              "path": "backend/app/mcp/context.py",
+              "startLine": 1,
+              "endLine": 116,
+              "totalLines": 116,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_grep",
+            "args": {
+              "maxResults": 30,
+              "scope": [
+                "backend/**"
+              ],
+              "pattern": "Authorization.*Bearer"
+            },
+            "result": {
+              "matches": 30,
+              "paths": [
+                "backend/tests/test_web_search_storage.py",
+                "backend/app/ai/cerebras_adapter.py",
+                "backend/app/ai/ollama_adapter.py",
+                "backend/app/services/openai_compat.py",
+                "backend/app/services/web_search.py",
+                "backend/tests/api/test_ai_config.py"
+              ],
+              "truncated": true
+            }
+          },
+          {
+            "turn": 5,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "extensions/firefox-inbox/src/shared/apiClient.ts"
+            },
+            "result": {
+              "path": "extensions/firefox-inbox/src/shared/apiClient.ts",
+              "startLine": 1,
+              "endLine": 170,
+              "totalLines": 170,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 5,
+            "tool": "repo_grep",
+            "args": {
+              "scope": [
+                "android/**"
+              ],
+              "pattern": "(Authorization|Bearer|okhttp|retrofit)",
+              "maxResults": 30
+            },
+            "result": {
+              "matches": 25,
+              "paths": [
+                "android/README.md",
+                "android/app/build.gradle.kts",
+                "android/gradle/libs.versions.toml",
+                "android/app/src/main/java/com/studiousmemory/android/core/network/BackendApiClient.kt",
+                "android/app/src/test/java/com/studiousmemory/android/core/network/BackendApiClientTest.kt"
+              ],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 6,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "backend/app/middleware/auth.py",
+              "startLine": 320,
+              "endLine": 414
+            },
+            "result": {
+              "path": "backend/app/middleware/auth.py",
+              "startLine": 320,
+              "endLine": 414,
+              "totalLines": 414,
+              "truncated": false
+            }
+          }
+        ],
+        "totalCalls": 18,
+        "truncated": false,
+        "maxEntries": 20
+      },
+      "codeMap": {
+        "entryPoints": [
+          "backend/app/mcp/server.py",
+          "backend/main.py"
+        ],
+        "keyModules": [
+          {
+            "path": "backend/app/mcp/server.py",
+            "role": "entry point",
+            "linesRead": 39
+          },
+          {
+            "path": "scripts/generate_contract_snapshot.py",
+            "role": "module",
+            "linesRead": 6
+          },
+          {
+            "path": "backend/mcp_server.py",
+            "role": "entry point",
+            "linesRead": 46
+          },
+          {
+            "path": "android/README.md",
+            "role": "module",
+            "linesRead": 4
+          },
+          {
+            "path": "android/gradlew",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "android/gradlew.bat",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "backend/conftest.py",
+            "role": "test",
+            "linesRead": 8
+          },
+          {
+            "path": "backend/main.py",
+            "role": "entry point",
+            "linesRead": 16
+          },
+          {
+            "path": "scripts/benchmark_db_hardening.py",
+            "role": "module",
+            "linesRead": 4
+          },
+          {
+            "path": "scripts/generate_architecture_explorer.py",
+            "role": "module",
+            "linesRead": 6
+          },
+          {
+            "path": "scripts/idea_run_backend.sh",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "scripts/idea_run_mcp.sh",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "scripts/idea_setup.sh",
+            "role": "module",
+            "linesRead": 2
+          },
+          {
+            "path": "backend/app/access_context.py",
+            "role": "entry point",
+            "linesRead": 5
+          },
+          {
+            "path": "backend/app/config.py",
+            "role": "configuration",
+            "linesRead": 48
+          },
+          {
+            "path": "backend/app/mcp/authz.py",
+            "role": "middleware",
+            "linesRead": 83
+          },
+          {
+            "path": "backend/app/capabilities/registry.py",
+            "role": "entry point",
+            "linesRead": 2
+          },
+          {
+            "path": "backend/tests/auth/test_mcp_scope_enforcement.py",
+            "role": "test",
+            "linesRead": 5
+          },
+          {
+            "path": "backend/app/middleware/auth.py",
+            "role": "middleware",
+            "linesRead": 415
+          },
+          {
+            "path": "backend/app/dependencies.py",
+            "role": "entry point",
+            "linesRead": 211
+          },
+          {
+            "path": "backend/app/api/scope_policy.py",
+            "role": "entry point",
+            "linesRead": 2
+          },
+          {
+            "path": "backend/tests/api/test_ai_config.py",
+            "role": "test",
+            "linesRead": 6
+          },
+          {
+            "path": "backend/tests/api/test_runs_api.py",
+            "role": "test",
+            "linesRead": 4
+          },
+          {
+            "path": "backend/tests/auth/test_sudo_endpoint.py",
+            "role": "test",
+            "linesRead": 4
+          },
+          {
+            "path": "backend/app/api/v1/agent.py",
+            "role": "entry point",
+            "linesRead": 2
+          },
+          {
+            "path": "backend/app/api/v1/auth.py",
+            "role": "middleware",
+            "linesRead": 8
+          },
+          {
+            "path": "backend/app/api/v1/runs.py",
+            "role": "entry point",
+            "linesRead": 2
+          },
+          {
+            "path": "backend/app/repositories/api_key.py",
+            "role": "entry point",
+            "linesRead": 186
+          },
+          {
+            "path": "frontend/src/api.ts",
+            "role": "API client",
+            "linesRead": 44
+          },
+          {
+            "path": "frontend/src/test/agent-runs.test.tsx",
+            "role": "test",
+            "linesRead": 7
+          },
+          {
+            "path": "frontend/src/test/ai-config.test.tsx",
+            "role": "test",
+            "linesRead": 5
+          },
+          {
+            "path": "frontend/src/test/ai-logs-web-search.test.tsx",
+            "role": "test",
+            "linesRead": 2
+          },
+          {
+            "path": "frontend/src/test/auth.bearer.test.tsx",
+            "role": "test",
+            "linesRead": 4
+          },
+          {
+            "path": "frontend/src/test/full-chat-page.test.tsx",
+            "role": "test",
+            "linesRead": 1
+          },
+          {
+            "path": "frontend/src/test/inbox.test.tsx",
+            "role": "test",
+            "linesRead": 1
+          },
+          {
+            "path": "frontend/src/test/login.test.tsx",
+            "role": "test",
+            "linesRead": 2
+          },
+          {
+            "path": "frontend/src/test/review-inbox.test.tsx",
+            "role": "test",
+            "linesRead": 4
+          },
+          {
+            "path": "frontend/src/test/settings.test.tsx",
+            "role": "test",
+            "linesRead": 11
+          },
+          {
+            "path": "extensions/firefox-inbox/src/background/background.ts",
+            "role": "module",
+            "linesRead": 193
+          },
+          {
+            "path": "extensions/firefox-inbox/src/options/options.html",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "extensions/firefox-inbox/src/options/options.ts",
+            "role": "module",
+            "linesRead": 6
+          },
+          {
+            "path": "backend/app/mcp/context.py",
+            "role": "entry point",
+            "linesRead": 116
+          },
+          {
+            "path": "backend/tests/test_web_search_storage.py",
+            "role": "test",
+            "linesRead": 1
+          },
+          {
+            "path": "backend/app/ai/cerebras_adapter.py",
+            "role": "entry point",
+            "linesRead": 1
+          },
+          {
+            "path": "backend/app/ai/ollama_adapter.py",
+            "role": "entry point",
+            "linesRead": 1
+          },
+          {
+            "path": "backend/app/services/openai_compat.py",
+            "role": "service",
+            "linesRead": 1
+          },
+          {
+            "path": "backend/app/services/web_search.py",
+            "role": "service",
+            "linesRead": 2
+          },
+          {
+            "path": "backend/tests/auth/test_auth_session_no_cookie.py",
+            "role": "test",
+            "linesRead": 1
+          },
+          {
+            "path": "backend/tests/auth/test_bearer_dual_credential.py",
+            "role": "test",
+            "linesRead": 9
+          },
+          {
+            "path": "backend/tests/auth/test_mcp_auth_enforcement.py",
+            "role": "test",
+            "linesRead": 2
+          },
+          {
+            "path": "backend/tests/auth/test_mcp_auth_matrix.py",
+            "role": "test",
+            "linesRead": 8
+          },
+          {
+            "path": "backend/tests/auth/test_mcp_credential_precedence.py",
+            "role": "test",
+            "linesRead": 2
+          },
+          {
+            "path": "extensions/firefox-inbox/src/shared/apiClient.ts",
+            "role": "API client",
+            "linesRead": 170
+          },
+          {
+            "path": "android/app/build.gradle.kts",
+            "role": "entry point",
+            "linesRead": 1
+          },
+          {
+            "path": "android/gradle/libs.versions.toml",
+            "role": "module",
+            "linesRead": 2
+          },
+          {
+            "path": "android/app/src/main/java/com/studiousmemory/android/core/network/BackendApiClient.kt",
+            "role": "entry point",
+            "linesRead": 9
+          },
+          {
+            "path": "android/app/src/test/java/com/studiousmemory/android/core/network/BackendApiClientTest.kt",
+            "role": "test",
+            "linesRead": 11
+          }
+        ]
+      }
+    }
+  },
+  "contentText": "## Result\nConfidence: high\nVerification: targeted_read_needed\nEvidence Quality: high (7 exact, 1 partial, 0 dropped)\nSearch Coverage: scope-limited search across backend/**, frontend/src/**, extensions/firefox-inbox/src/**, scripts/**, android/**; 10 file read(s), 5 grep search(es).\n\n## Answer\nAuthentication flow: all clients send `Authorization: Bearer <credential>` to backend. AuthMiddleware extracts and validates via extract_bearer_token(), distinguishing API keys (0 dots) from session tokens (1+ dots). API keys verified by ApiKeyRepository.verify() with argon2id/sha256. MCP tools use @scoped_tool decorator calling require_mcp_scopes(). Hardening requires changes to 5 backend files plus client updates in frontend, Firefox extension, and Android.\n\n## Next Action\nread_target: Read backend/app/middleware/auth.py:59-77 before editing.\n\n## Targets\n- [edit] `backend/app/middleware/auth.py:59-77` (E1) - Core bearer extraction and query param fallback logic\n- [edit] `backend/app/middleware/auth.py:281-325` (E2) - MCP authentication with OAuth/API-key dual mode\n- [edit] `backend/app/middleware/auth.py:328-368` (E3) - Main dispatcher distinguishing API keys from session tokens\n- [edit] `backend/app/repositories/api_key.py:84-107` (E4) - API key verification with argon2id/sha256 hashes\n- [edit] `backend/app/mcp/server.py:79-91` (E5) - scoped_tool decorator wrapping MCP tools with scope validation\n- [edit] `frontend/src/api.ts:253-260` (E6) - Axios interceptor adds Authorization: Bearer header\n- [edit] `extensions/firefox-inbox/src/shared/apiClient.ts:137-141` (E7) - bearerHeaders() constructs Authorization: Bearer for extension\n- [edit] `android/app/src/main/java/com/studiousmemory/android/core/network/BackendApiClient.kt:49-49` (E8) - Android client sets Authorization: Bearer header\n\n## Evidence (8 items, confidence: high)\n- E1 `backend/app/middleware/auth.py:59-77` - Defines extract_bearer_token and extract_api_key_from_request for parsing\n  snippet: 59: def extract_bearer_token(auth_header: str | None) -> str | None:\n  60:     if not auth_header or not auth_header.startswith(\"Bearer \"):\n  61:         return None\n  62:     token = auth_header[len(\"Bearer \") :]\n  63:     return token or None\n  64: \n  65: \n  66: def extract_api_key_from_request(request: Request, path: str) -> str | None:\n  67:     bearer_token = extract_bearer_token(request.headers.get(\"Authorization\"))\n  68:     if bearer_token:\n  69:         return bearer_token\n  70: \n  ... [snippet truncated]\n- E2 `backend/app/middleware/auth.py:281-325` [partial] - MCP authentication with OAuth/API-key dual mode and query fallback\n  snippet: 281: async def ensure_authenticated_mcp_request(request: Request) -> str:\n  282:     mode = _mcp_auth_mode()\n  283:     bearer_token = extract_bearer_token(request.headers.get(\"Authorization\"))\n  284:     query_token = (\n  285:         request.query_params.get(MCP_QUERY_KEY_PARAM)\n  286:         if settings.MCP_ALLOW_QUERY_KEY\n  287:         else None\n  288:     )\n  289:     raw_api_key = bearer_token or query_token\n  290: \n  291:     oauth_error: OAuthTokenError | None = None\n  292:     if bearer_token and mode in {\"oauth\", \"dual\"}:\n  ... [snippet truncated]\n- E3 `backend/app/middleware/auth.py:328-368` - Main auth dispatcher distinguishing API keys from session tokens\n  snippet: 328: async def ensure_authenticated_request(\n  329:     request: Request,\n  330: ) -> str:\n  331:     path = request.url.path\n  332: \n  333:     is_mcp_request = is_mcp_path(path)\n  334:     if is_mcp_request:\n  335:         return await ensure_authenticated_mcp_request(request)\n  336: \n  337:     bearer_token = extract_bearer_token(request.headers.get(\"Authorization\"))\n  338:     if bearer_token is None:\n  339:         raise HTTPException(status_code=401, detail=\"Missing or invalid Authorization header\")\n  ... [snippet truncated]\n- E4 `backend/app/repositories/api_key.py:84-107` - API key verification with argon2id/sha256 and timing protection\n  snippet: 84:     async def verify(self, raw_key: str) -> ApiKey | None:\n  85:         key_prefix = raw_key[:8]\n  86:         now = now_utc()\n  87:         result = await self.session.execute(\n  88:             select(ApiKey).where(\n  89:                 ApiKey.key_prefix == key_prefix,\n  90:                 ApiKey.is_active.is_(True),\n  91:                 or_(ApiKey.expires_at.is_(None), ApiKey.expires_at > now),\n  92:             )\n  93:         )\n  94:         candidates = list(result.scalars().all())\n  95:         for api_key in candidates:\n  ... [snippet truncated]\n- E5 `backend/app/mcp/server.py:79-91` - scoped_tool decorator wrapping MCP tools with scope validation\n  snippet: 79: def scoped_tool(*required_scopes: str):\n  80:     def _decorator(func: Callable[..., Any]):\n  81:         @mcp.tool(meta={\"required_scopes\": list(required_scopes)})\n  82:         @wraps(func)\n  83:         async def _wrapped(*args: Any, **kwargs: Any):\n  84:             require_mcp_scopes(*required_scopes)\n  85:             return await func(*args, **kwargs)\n  86: \n  87:         return _wrapped\n  88: \n  89:     return _decorator\n  90: \n  ... [snippet truncated]\n- E6 `frontend/src/api.ts:253-260` - Axios interceptor adding Authorization: Bearer from sessionStorage\n  snippet: 253: api.interceptors.request.use((config) => {\n  254:   const token = sessionStorage.getItem(SESSION_TOKEN_STORAGE)\n  255:   if (token) {\n  256:     config.headers = config.headers ?? {}\n  257:     ;(config.headers as Record<string, string>).Authorization = `Bearer ${token}`\n  258:   }\n  259:   return config\n  260: })\n- E7 `extensions/firefox-inbox/src/shared/apiClient.ts:137-141` - bearerHeaders function constructing Authorization: Bearer\n  snippet: 137: function bearerHeaders(apiKey: string): Record<string, string> {\n  138:   return {\n  139:     Authorization: `Bearer ${apiKey}`,\n  140:   }\n  141: }\n- E8 `android/app/src/main/java/com/studiousmemory/android/core/network/BackendApiClient.kt:49-49` - Android client setting Authorization: Bearer header\n  snippet: 49:         .header(\"Authorization\", \"Bearer $trimmedApiKey\")\n\n## Uncertainty\n- 1 evidence item(s) are grounded only by grep, blame, or nearby line observations.\n- Android API key rotation strategy during hardening needs verification\n\nSession: sess_eb79b9c00a604bf3 (pass as \"session\" for follow-up calls)"
+}

@@ -1,0 +1,1222 @@
+{
+  "tool": "map_impact",
+  "repo": "bible",
+  "args": {
+    "repo_root": "/home/kyubr/IdeaProjects/bible",
+    "scope": [
+      "src/**",
+      "functions/**",
+      "scripts/**",
+      "migrations/**"
+    ],
+    "anchor": "src/store.tsx",
+    "changeType": "refactor",
+    "knownSymbols": [
+      "useStore"
+    ]
+  },
+  "elapsedMs": 9782,
+  "error": null,
+  "isError": false,
+  "summary": {
+    "directAnswer": "Traced dependency chain from src/store.tsx: 31 direct importers across shared, bookmark, exam, reader, search, and settings features. 2 type-only importers (store.selectors.ts, auth.ts). 1 documentation reference (AGENTS.md). No test coverage or configuration references found. Store uses Zustand with localStorage persistence (key: 'bible-app-storage').",
+    "status": {
+      "confidence": "medium",
+      "verification": "targeted_read_needed",
+      "complete": true,
+      "warnings": [
+        "Model confidence was capped from high to medium.",
+        "7 evidence item(s) are grounded only by grep, blame, or nearby line observations."
+      ]
+    },
+    "evidenceQuality": {
+      "level": "medium",
+      "exactCount": 1,
+      "partialCount": 7,
+      "droppedCount": 0,
+      "fileCount": 8,
+      "warnings": [
+        "Model confidence was capped from high to medium.",
+        "7 evidence item(s) are grounded only by grep, blame, or nearby line observations."
+      ],
+      "summary": "Verified: 1 files read, 3 grep searches, 2 symbol lookups, 1/8 evidence items grounded, cross-verified across 8 files. Evidence partially verified — results are reliable for most uses."
+    },
+    "failure": null,
+    "nextAction": {
+      "type": "read_target",
+      "reason": "Read src/store.selectors.ts:1-166 before editing.",
+      "target": {
+        "path": "src/store.selectors.ts",
+        "role": "edit",
+        "reason": "Type-only importer: 15+ selectors using AppStore type",
+        "evidenceRefs": [
+          "ev8",
+          "E8"
+        ],
+        "startLine": 1,
+        "endLine": 166
+      }
+    },
+    "searchCoverage": {
+      "scope": [
+        "src/**",
+        "functions/**",
+        "scripts/**",
+        "migrations/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 1,
+      "grepCalls": 3,
+      "listDirCalls": 1,
+      "symbolCalls": 2,
+      "toolResultsTruncated": 0,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: src/**, functions/**, scripts/**, migrations/**"
+      ],
+      "summary": "scope-limited search across src/**, functions/**, scripts/**, migrations/**; 1 file read(s), 3 grep search(es)."
+    },
+    "critic": null,
+    "sessionId": "sess_cd7fbe5e8ff206b3",
+    "session": {
+      "id": "sess_cd7fbe5e8ff206b3",
+      "status": "created",
+      "remainingCalls": 4
+    },
+    "targets": [
+      {
+        "path": "src/store.tsx",
+        "role": "read",
+        "reason": "Anchor file: defines useStore with Zustand persistence config",
+        "evidenceRefs": [
+          "ev1"
+        ],
+        "startLine": 1,
+        "endLine": 59
+      },
+      {
+        "path": "src/store.selectors.ts",
+        "role": "edit",
+        "reason": "Type-only importer: 15+ selectors using AppStore type",
+        "evidenceRefs": [
+          "ev8",
+          "E8"
+        ],
+        "startLine": 1,
+        "endLine": 166
+      },
+      {
+        "path": "src/shared/hooks/useAuthSessionBootstrap.ts",
+        "role": "edit",
+        "reason": "Direct importer: uses useStore for auth session bootstrap",
+        "evidenceRefs": [
+          "ev2",
+          "E2"
+        ],
+        "startLine": 6,
+        "endLine": 22
+      },
+      {
+        "path": "src/shared/hooks/useCopyActions.tsx",
+        "role": "edit",
+        "reason": "Direct importer: uses useStore for language settings",
+        "evidenceRefs": [
+          "ev3",
+          "E3"
+        ],
+        "startLine": 6,
+        "endLine": 45
+      },
+      {
+        "path": "src/features/bookmark/pages/BookmarksPage.tsx",
+        "role": "edit",
+        "reason": "Direct importer: uses useStore for passage state",
+        "evidenceRefs": [
+          "ev4",
+          "E4"
+        ],
+        "startLine": 16,
+        "endLine": 40
+      },
+      {
+        "path": "src/features/exam/pages/ExamPracticePage.tsx",
+        "role": "edit",
+        "reason": "Direct importer: uses useStore for exam auth state",
+        "evidenceRefs": [
+          "ev5",
+          "E5"
+        ],
+        "startLine": 21,
+        "endLine": 42
+      },
+      {
+        "path": "src/features/reader/hooks/useReaderController.ts",
+        "role": "edit",
+        "reason": "Direct importer: uses useStore for reader controller",
+        "evidenceRefs": [
+          "ev6",
+          "E6"
+        ],
+        "startLine": 6,
+        "endLine": 51
+      },
+      {
+        "path": "src/features/search/hooks/useSearchV4.tsx",
+        "role": "edit",
+        "reason": "Direct importer: uses useStore for search v4 state",
+        "evidenceRefs": [
+          "ev7",
+          "E7"
+        ],
+        "startLine": 6,
+        "endLine": 41
+      }
+    ],
+    "discoveredPathsCount": 38,
+    "evidence": [
+      {
+        "id": "E1",
+        "path": "src/store.tsx",
+        "startLine": 30,
+        "endLine": 40,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Definition of useStore export with Zustand persistence config",
+        "snippet": "30: export const useStore = create<AppStore>()(\n31:   persist(\n32:     (set, get, api) => ({\n33:       settings: INITIAL_SETTINGS,\n34:       currents: INITIAL_CURRENTS,\n35:       globals: INITIAL_GLOBALS,\n36:       search: INITIAL_SEARCH,\n37:       ui: INITIAL_UI,\n38:       auth: INITIAL_AUTH,\n39:       ...createStoreActions(set, get, api),\n40:     }),"
+      },
+      {
+        "id": "E2",
+        "path": "src/shared/hooks/useAuthSessionBootstrap.ts",
+        "startLine": 6,
+        "endLine": 22,
+        "groundingStatus": "partial",
+        "evidenceType": "file_range",
+        "why": "Import and usage of useStore for auth bootstrap",
+        "snippet": "6: import { useStore } from \"@/store\";\n7: \n8: const isIgnorableSessionRestoreError = (error: unknown): boolean => {\n9:   if (error instanceof DOMException && error.name === \"AbortError\") {\n10:     return true;\n11:   }\n12: \n13:   if (error instanceof TypeError) {\n14:     const message = error.message.toLowerCase();\n15:     return message.includes(\"failed to fetch\") || message.includes(\"networkerror\");\n16:   }\n17: \n... [snippet truncated]"
+      },
+      {
+        "id": "E3",
+        "path": "src/shared/hooks/useCopyActions.tsx",
+        "startLine": 6,
+        "endLine": 45,
+        "groundingStatus": "partial",
+        "evidenceType": "file_range",
+        "why": "Import and usage of useStore for language settings",
+        "snippet": "6: import { useStore } from \"@/store\";\n7: import { copyToClipboard } from \"../utils/copy\";\n8: import {\n9:   createCopyTextType01,\n10:   createCopyTextType02,\n11:   verseNumbersToTextType01,\n12: } from \"../utils/text\";\n13: import type { BibleWordDataV3 } from \"@/features/reader/types/word.types\";\n14: \n15: type SelectableWord = BibleWordDataV3 & { line: string | number };\n16: \n17: interface UseCopyActionsParams {\n... [snippet truncated]"
+      },
+      {
+        "id": "E4",
+        "path": "src/features/bookmark/pages/BookmarksPage.tsx",
+        "startLine": 16,
+        "endLine": 40,
+        "groundingStatus": "partial",
+        "evidenceType": "file_range",
+        "why": "Import and usage of useStore for passage state",
+        "snippet": "16: import { useStore } from \"@/store\";\n17: import type { BookmarkDraft, BookmarkRecord } from \"../types/bookmark\";\n18: import { deleteBookmark, loadBookmarkDraft, loadBookmarks } from \"../utils/database\";\n19: import { useBookmarkSync } from \"../hooks/useBookmarkSync\";\n20: import {\n21:   countBookmarkDraftPassageBlocks,\n22:   countBookmarkNoteBlocks,\n23:   countBookmarkPassageBlocks,\n24:   getBookmarkDefaultTitle,\n25:   getBookmarkFirstNotePreview,\n26:   getBookmarkFirstPassageAddress,\n27:   getBookmarkPrimaryReferenceLabel,\n... [snippet truncated]"
+      },
+      {
+        "id": "E5",
+        "path": "src/features/exam/pages/ExamPracticePage.tsx",
+        "startLine": 21,
+        "endLine": 42,
+        "groundingStatus": "partial",
+        "evidenceType": "file_range",
+        "why": "Import and usage of useStore for exam auth state",
+        "snippet": "21: import { useStore } from \"@/store\";\n22: import { appendExamWrongNote } from \"../utils/database\";\n23: import { useExamVerseLoader } from \"../hooks/useExamVerseLoader\";\n24: import {\n25:   normalizeText,\n26:   getSmallMistakeChars,\n27:   tokenizeKo,\n28: } from \"../utils/examTextProcessing\";\n29: import { recordExamAttempt } from \"../utils/examPersistence\";\n30: import { makeClozePrompt, getInitials } from \"../utils/practiceTextUtils\";\n31: import type {\n32:   BookMeta,\n... [snippet truncated]"
+      },
+      {
+        "id": "E6",
+        "path": "src/features/reader/hooks/useReaderController.ts",
+        "startLine": 6,
+        "endLine": 51,
+        "groundingStatus": "partial",
+        "evidenceType": "file_range",
+        "why": "Import and usage of useStore for reader controller",
+        "snippet": "6: import { useStore } from \"@/store\";\n7: import { selectReaderControllerState } from \"@/store.selectors\";\n8: import { useMobileDetect } from \"@/shared/utils/device\";\n9: import { useBibleData } from \"./useBibleData\";\n10: import { useBookmarkActions } from \"@/features/bookmark/hooks/useBookmarkActions\";\n11: import { useChapterProgress } from \"./useChapterProgress\";\n12: import { useCopyActions } from \"@/shared/hooks/useCopyActions\";\n13: import { useDialogLink } from \"@/shared/hooks/useDialogLink\";\n14: import { useMainShortcuts } from \"@/shared/hooks/useMainShortcuts\";\n15: import { useReaderEffects } from \"./useReaderEffects\";\n16: import { useSearchMatchNavigation } from \"./useSearchMatchNavigation\";\n17: import { useReaderUiControls } from \"./useReaderUiControls\";\n... [snippet truncated]"
+      },
+      {
+        "id": "E7",
+        "path": "src/features/search/hooks/useSearchV4.tsx",
+        "startLine": 6,
+        "endLine": 41,
+        "groundingStatus": "partial",
+        "evidenceType": "file_range",
+        "why": "Import and usage of useStore for search v4 state",
+        "snippet": "6: import { useStore } from \"@/store\";\n7: import { selectSearchV4State } from \"@/store.selectors\";\n8: import type { BibleBook } from \"@/shared/types/bible\";\n9: import type {\n10:   FlexSearchRawDoc,\n11:   SearchResultDoc,\n12:   SearchResultGroup,\n13:   SearchResultItem,\n14: } from \"../types/search\";\n15: import { parseSearchRawDoc } from \"../utils/searchParsing\";\n16: \n17: interface FlexSearchDocumentLike {\n... [snippet truncated]"
+      },
+      {
+        "id": "E8",
+        "path": "src/store.selectors.ts",
+        "startLine": 1,
+        "endLine": 166,
+        "groundingStatus": "partial",
+        "evidenceType": "file_range",
+        "why": "Type import from store with 15+ selectors using AppStore",
+        "snippet": "1: import type { StoreActions, StoreState } from \"./store\";\n2: \n3: type AppStore = StoreState & StoreActions;\n4: \n5: export const selectReaderSettings = (state: AppStore) => ({\n6:   language: state.settings.language,\n7:   secondaryLanguage: state.settings.secondaryLanguage,\n8:   viewWithSecondaryLanguage: state.settings.viewWithSecondaryLanguage,\n9:   copyType: state.settings.copyType,\n10:   searchType: state.settings.searchType,\n11:   searchVersion: state.settings.searchVersion,\n12:   fontSize: state.settings.fontSize,\n... [snippet truncated]"
+      }
+    ],
+    "uncertainties": [
+      "Model confidence was capped from high to medium.",
+      "7 evidence item(s) are grounded only by grep, blame, or nearby line observations.",
+      "Persistence key 'bible-app-storage' in localStorage - migration strategy needed if format changes",
+      "No automated tests increase refactoring risk"
+    ],
+    "stats": {
+      "turns": 7,
+      "toolCalls": 14,
+      "filesRead": 1,
+      "grepCalls": 3,
+      "symbolCalls": 2,
+      "stoppedByBudget": false,
+      "elapsedMs": 9770,
+      "totalTokens": 87694
+    }
+  },
+  "structuredContent": {
+    "schemaVersion": 1,
+    "directAnswer": "Traced dependency chain from src/store.tsx: 31 direct importers across shared, bookmark, exam, reader, search, and settings features. 2 type-only importers (store.selectors.ts, auth.ts). 1 documentation reference (AGENTS.md). No test coverage or configuration references found. Store uses Zustand with localStorage persistence (key: 'bible-app-storage').",
+    "status": {
+      "confidence": "medium",
+      "verification": "targeted_read_needed",
+      "complete": true,
+      "warnings": [
+        "Model confidence was capped from high to medium.",
+        "7 evidence item(s) are grounded only by grep, blame, or nearby line observations."
+      ]
+    },
+    "targets": [
+      {
+        "path": "src/store.tsx",
+        "role": "read",
+        "reason": "Anchor file: defines useStore with Zustand persistence config",
+        "evidenceRefs": [
+          "ev1"
+        ],
+        "startLine": 1,
+        "endLine": 59
+      },
+      {
+        "path": "src/store.selectors.ts",
+        "role": "edit",
+        "reason": "Type-only importer: 15+ selectors using AppStore type",
+        "evidenceRefs": [
+          "ev8",
+          "E8"
+        ],
+        "startLine": 1,
+        "endLine": 166
+      },
+      {
+        "path": "src/shared/hooks/useAuthSessionBootstrap.ts",
+        "role": "edit",
+        "reason": "Direct importer: uses useStore for auth session bootstrap",
+        "evidenceRefs": [
+          "ev2",
+          "E2"
+        ],
+        "startLine": 6,
+        "endLine": 22
+      },
+      {
+        "path": "src/shared/hooks/useCopyActions.tsx",
+        "role": "edit",
+        "reason": "Direct importer: uses useStore for language settings",
+        "evidenceRefs": [
+          "ev3",
+          "E3"
+        ],
+        "startLine": 6,
+        "endLine": 45
+      },
+      {
+        "path": "src/features/bookmark/pages/BookmarksPage.tsx",
+        "role": "edit",
+        "reason": "Direct importer: uses useStore for passage state",
+        "evidenceRefs": [
+          "ev4",
+          "E4"
+        ],
+        "startLine": 16,
+        "endLine": 40
+      },
+      {
+        "path": "src/features/exam/pages/ExamPracticePage.tsx",
+        "role": "edit",
+        "reason": "Direct importer: uses useStore for exam auth state",
+        "evidenceRefs": [
+          "ev5",
+          "E5"
+        ],
+        "startLine": 21,
+        "endLine": 42
+      },
+      {
+        "path": "src/features/reader/hooks/useReaderController.ts",
+        "role": "edit",
+        "reason": "Direct importer: uses useStore for reader controller",
+        "evidenceRefs": [
+          "ev6",
+          "E6"
+        ],
+        "startLine": 6,
+        "endLine": 51
+      },
+      {
+        "path": "src/features/search/hooks/useSearchV4.tsx",
+        "role": "edit",
+        "reason": "Direct importer: uses useStore for search v4 state",
+        "evidenceRefs": [
+          "ev7",
+          "E7"
+        ],
+        "startLine": 6,
+        "endLine": 41
+      },
+      {
+        "path": "src/store.tsx",
+        "startLine": 30,
+        "endLine": 40,
+        "role": "read",
+        "reason": "Definition of useStore export with Zustand persistence config",
+        "evidenceRefs": [
+          "E1"
+        ]
+      }
+    ],
+    "discoveredPaths": [
+      {
+        "path": "src/store.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/shared/components/AGENTS.md",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/shared/components/MainTopBar.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/shared/components/TelegramLoginButton.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/shared/hooks/useAuthSessionBootstrap.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/shared/hooks/useCopyActions.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/bookmark/hooks/useBookmarkSync.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/bookmark/pages/BookmarkDetailPage.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/bookmark/pages/BookmarkEditorPage.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/bookmark/pages/BookmarksPage.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/exam/components/ExamNav.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/exam/components/ExperimentalFeatureGate.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/exam/hooks/useExamDataWithSync.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/exam/hooks/useExamHomeSummary.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/exam/hooks/useExamPageState.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/exam/hooks/useSimpleRevelationExamState.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/exam/pages/ExamHomePage.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/exam/pages/ExamPracticePage.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/exam/pages/ExamStatsPage.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/reader/components/WordContainer.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/reader/hooks/useReaderController.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/search/components/BookChapterList.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_references",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/search/components/MyAppBar.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_references",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/search/components/SearchResultBookButtonGroup.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_references",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/search/components/SearchResultList.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_references",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/search/components/SearchResultWord.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_references",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/search/components/TemporaryInput.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_references",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/search/hooks/useSearchV4.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_references",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/settings/pages/SettingPage.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_references",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/reader/components/SideNavigationBook/NavigationBookV2.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_references",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/reader/components/SideNavigationChapter/NavigationChapterV2.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_references",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/store.selectors.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/api/auth.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/reader/components/WordComponentV3/WordDragSelectComponent.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "functions",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "migrations",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      }
+    ],
+    "evidence": [
+      {
+        "path": "src/store.tsx",
+        "startLine": 30,
+        "endLine": 40,
+        "why": "Definition of useStore export with Zustand persistence config",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E1",
+        "snippet": "30: export const useStore = create<AppStore>()(\n31:   persist(\n32:     (set, get, api) => ({\n33:       settings: INITIAL_SETTINGS,\n34:       currents: INITIAL_CURRENTS,\n35:       globals: INITIAL_GLOBALS,\n36:       search: INITIAL_SEARCH,\n37:       ui: INITIAL_UI,\n38:       auth: INITIAL_AUTH,\n39:       ...createStoreActions(set, get, api),\n40:     }),"
+      },
+      {
+        "path": "src/shared/hooks/useAuthSessionBootstrap.ts",
+        "startLine": 6,
+        "endLine": 22,
+        "why": "Import and usage of useStore for auth bootstrap",
+        "evidenceType": "file_range",
+        "groundingStatus": "partial",
+        "id": "E2",
+        "snippet": "6: import { useStore } from \"@/store\";\n7: \n8: const isIgnorableSessionRestoreError = (error: unknown): boolean => {\n9:   if (error instanceof DOMException && error.name === \"AbortError\") {\n10:     return true;\n11:   }\n12: \n13:   if (error instanceof TypeError) {\n14:     const message = error.message.toLowerCase();\n15:     return message.includes(\"failed to fetch\") || message.includes(\"networkerror\");\n16:   }\n17: \n... [snippet truncated]"
+      },
+      {
+        "path": "src/shared/hooks/useCopyActions.tsx",
+        "startLine": 6,
+        "endLine": 45,
+        "why": "Import and usage of useStore for language settings",
+        "evidenceType": "file_range",
+        "groundingStatus": "partial",
+        "id": "E3",
+        "snippet": "6: import { useStore } from \"@/store\";\n7: import { copyToClipboard } from \"../utils/copy\";\n8: import {\n9:   createCopyTextType01,\n10:   createCopyTextType02,\n11:   verseNumbersToTextType01,\n12: } from \"../utils/text\";\n13: import type { BibleWordDataV3 } from \"@/features/reader/types/word.types\";\n14: \n15: type SelectableWord = BibleWordDataV3 & { line: string | number };\n16: \n17: interface UseCopyActionsParams {\n... [snippet truncated]"
+      },
+      {
+        "path": "src/features/bookmark/pages/BookmarksPage.tsx",
+        "startLine": 16,
+        "endLine": 40,
+        "why": "Import and usage of useStore for passage state",
+        "evidenceType": "file_range",
+        "groundingStatus": "partial",
+        "id": "E4",
+        "snippet": "16: import { useStore } from \"@/store\";\n17: import type { BookmarkDraft, BookmarkRecord } from \"../types/bookmark\";\n18: import { deleteBookmark, loadBookmarkDraft, loadBookmarks } from \"../utils/database\";\n19: import { useBookmarkSync } from \"../hooks/useBookmarkSync\";\n20: import {\n21:   countBookmarkDraftPassageBlocks,\n22:   countBookmarkNoteBlocks,\n23:   countBookmarkPassageBlocks,\n24:   getBookmarkDefaultTitle,\n25:   getBookmarkFirstNotePreview,\n26:   getBookmarkFirstPassageAddress,\n27:   getBookmarkPrimaryReferenceLabel,\n... [snippet truncated]"
+      },
+      {
+        "path": "src/features/exam/pages/ExamPracticePage.tsx",
+        "startLine": 21,
+        "endLine": 42,
+        "why": "Import and usage of useStore for exam auth state",
+        "evidenceType": "file_range",
+        "groundingStatus": "partial",
+        "id": "E5",
+        "snippet": "21: import { useStore } from \"@/store\";\n22: import { appendExamWrongNote } from \"../utils/database\";\n23: import { useExamVerseLoader } from \"../hooks/useExamVerseLoader\";\n24: import {\n25:   normalizeText,\n26:   getSmallMistakeChars,\n27:   tokenizeKo,\n28: } from \"../utils/examTextProcessing\";\n29: import { recordExamAttempt } from \"../utils/examPersistence\";\n30: import { makeClozePrompt, getInitials } from \"../utils/practiceTextUtils\";\n31: import type {\n32:   BookMeta,\n... [snippet truncated]"
+      },
+      {
+        "path": "src/features/reader/hooks/useReaderController.ts",
+        "startLine": 6,
+        "endLine": 51,
+        "why": "Import and usage of useStore for reader controller",
+        "evidenceType": "file_range",
+        "groundingStatus": "partial",
+        "id": "E6",
+        "snippet": "6: import { useStore } from \"@/store\";\n7: import { selectReaderControllerState } from \"@/store.selectors\";\n8: import { useMobileDetect } from \"@/shared/utils/device\";\n9: import { useBibleData } from \"./useBibleData\";\n10: import { useBookmarkActions } from \"@/features/bookmark/hooks/useBookmarkActions\";\n11: import { useChapterProgress } from \"./useChapterProgress\";\n12: import { useCopyActions } from \"@/shared/hooks/useCopyActions\";\n13: import { useDialogLink } from \"@/shared/hooks/useDialogLink\";\n14: import { useMainShortcuts } from \"@/shared/hooks/useMainShortcuts\";\n15: import { useReaderEffects } from \"./useReaderEffects\";\n16: import { useSearchMatchNavigation } from \"./useSearchMatchNavigation\";\n17: import { useReaderUiControls } from \"./useReaderUiControls\";\n... [snippet truncated]"
+      },
+      {
+        "path": "src/features/search/hooks/useSearchV4.tsx",
+        "startLine": 6,
+        "endLine": 41,
+        "why": "Import and usage of useStore for search v4 state",
+        "evidenceType": "file_range",
+        "groundingStatus": "partial",
+        "id": "E7",
+        "snippet": "6: import { useStore } from \"@/store\";\n7: import { selectSearchV4State } from \"@/store.selectors\";\n8: import type { BibleBook } from \"@/shared/types/bible\";\n9: import type {\n10:   FlexSearchRawDoc,\n11:   SearchResultDoc,\n12:   SearchResultGroup,\n13:   SearchResultItem,\n14: } from \"../types/search\";\n15: import { parseSearchRawDoc } from \"../utils/searchParsing\";\n16: \n17: interface FlexSearchDocumentLike {\n... [snippet truncated]"
+      },
+      {
+        "path": "src/store.selectors.ts",
+        "startLine": 1,
+        "endLine": 166,
+        "why": "Type import from store with 15+ selectors using AppStore",
+        "evidenceType": "file_range",
+        "groundingStatus": "partial",
+        "id": "E8",
+        "snippet": "1: import type { StoreActions, StoreState } from \"./store\";\n2: \n3: type AppStore = StoreState & StoreActions;\n4: \n5: export const selectReaderSettings = (state: AppStore) => ({\n6:   language: state.settings.language,\n7:   secondaryLanguage: state.settings.secondaryLanguage,\n8:   viewWithSecondaryLanguage: state.settings.viewWithSecondaryLanguage,\n9:   copyType: state.settings.copyType,\n10:   searchType: state.settings.searchType,\n11:   searchVersion: state.settings.searchVersion,\n12:   fontSize: state.settings.fontSize,\n... [snippet truncated]"
+      }
+    ],
+    "uncertainties": [
+      "Model confidence was capped from high to medium.",
+      "7 evidence item(s) are grounded only by grep, blame, or nearby line observations.",
+      "Persistence key 'bible-app-storage' in localStorage - migration strategy needed if format changes",
+      "No automated tests increase refactoring risk"
+    ],
+    "nextAction": {
+      "type": "read_target",
+      "reason": "Read src/store.selectors.ts:1-166 before editing.",
+      "target": {
+        "path": "src/store.selectors.ts",
+        "role": "edit",
+        "reason": "Type-only importer: 15+ selectors using AppStore type",
+        "evidenceRefs": [
+          "ev8",
+          "E8"
+        ],
+        "startLine": 1,
+        "endLine": 166
+      }
+    },
+    "evidenceQuality": {
+      "level": "medium",
+      "exactCount": 1,
+      "partialCount": 7,
+      "droppedCount": 0,
+      "fileCount": 8,
+      "warnings": [
+        "Model confidence was capped from high to medium.",
+        "7 evidence item(s) are grounded only by grep, blame, or nearby line observations."
+      ],
+      "summary": "Verified: 1 files read, 3 grep searches, 2 symbol lookups, 1/8 evidence items grounded, cross-verified across 8 files. Evidence partially verified — results are reliable for most uses."
+    },
+    "searchCoverage": {
+      "scope": [
+        "src/**",
+        "functions/**",
+        "scripts/**",
+        "migrations/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 1,
+      "grepCalls": 3,
+      "listDirCalls": 1,
+      "symbolCalls": 2,
+      "toolResultsTruncated": 0,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: src/**, functions/**, scripts/**, migrations/**"
+      ],
+      "summary": "scope-limited search across src/**, functions/**, scripts/**, migrations/**; 1 file read(s), 3 grep search(es)."
+    },
+    "failure": null,
+    "sessionId": "sess_cd7fbe5e8ff206b3",
+    "session": {
+      "id": "sess_cd7fbe5e8ff206b3",
+      "status": "created",
+      "remainingCalls": 4
+    },
+    "_debug": {
+      "evidenceSufficiency": {
+        "sufficient": true,
+        "reason": "edit_plan_has_actionable_target"
+      },
+      "confidenceScore": 0.65,
+      "confidenceFactors": {
+        "evidenceCount": 8,
+        "evidenceGrounded": 8,
+        "evidenceDropped": 0,
+        "exactCount": 1,
+        "crossVerified": true,
+        "symbolSearchUsed": true,
+        "stoppedByBudget": false,
+        "gitLogCalls": 0,
+        "gitDiffCalls": 0,
+        "gitBlameCalls": 0,
+        "gitGroundingHint": "none",
+        "taskKind": "reference-chase",
+        "adjustments": [
+          "base=0.30 (taskKind=reference-chase)",
+          "+0.18 (1 exact evidence item(s))",
+          "+0.12 (cross-verified across multiple files)",
+          "+0.05 (symbol/grep search used)"
+        ],
+        "droppedUngrounded": 0,
+        "droppedMalformed": 0
+      },
+      "stats": {
+        "model": "zai-glm-4.7",
+        "budget": "deep",
+        "budgetSource": "auto",
+        "turns": 7,
+        "toolCalls": 14,
+        "listDirCalls": 1,
+        "findFileCalls": 7,
+        "grepCalls": 3,
+        "filesRead": 1,
+        "gitLogCalls": 0,
+        "gitBlameCalls": 0,
+        "gitDiffCalls": 0,
+        "gitShowCalls": 0,
+        "symbolCalls": 2,
+        "inputTokens": 78653,
+        "outputTokens": 9041,
+        "totalTokens": 87694,
+        "elapsedMs": 9770,
+        "stoppedByBudget": false,
+        "scope": [
+          "src/**",
+          "functions/**",
+          "scripts/**",
+          "migrations/**"
+        ],
+        "repoRoot": "/home/kyubr/IdeaProjects/bible",
+        "sessionId": "sess_cd7fbe5e8ff206b3",
+        "sessionStatus": "created",
+        "sessionSource": "created",
+        "remainingCalls": 4,
+        "cacheHits": 61,
+        "cacheMisses": 376,
+        "cacheHitRate": 0.14,
+        "cacheEntries": 371,
+        "cacheSizeBytes": 2294094
+      },
+      "toolTrace": {
+        "entries": [
+          {
+            "turn": 1,
+            "tool": "repo_symbol_context",
+            "args": {
+              "symbol": "useStore"
+            },
+            "result": {
+              "symbol": "useStore",
+              "definition": {
+                "path": "src/store.tsx",
+                "line": 30,
+                "endLine": 40,
+                "kind": "variable"
+              },
+              "callers": 20,
+              "observedRanges": 21,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 1,
+            "tool": "repo_references",
+            "args": {
+              "symbol": "useStore",
+              "scope": [
+                "src",
+                "functions",
+                "scripts",
+                "migrations"
+              ]
+            },
+            "result": {
+              "symbol": "useStore",
+              "definition": {
+                "path": "src/store.tsx",
+                "line": 30
+              },
+              "references": 59,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_grep",
+            "args": {
+              "pattern": "from [\"']@?/?store[\"']|from [\"']@/store[\"']|from [\"']\\.\\.?/.*store[\"']",
+              "scope": [
+                "src",
+                "functions",
+                "scripts",
+                "migrations"
+              ]
+            },
+            "result": {
+              "matches": 32,
+              "paths": [
+                "src/store.selectors.ts",
+                "src/api/auth.ts",
+                "src/shared/components/MainTopBar.tsx",
+                "src/shared/components/TelegramLoginButton.tsx",
+                "src/shared/hooks/useAuthSessionBootstrap.ts",
+                "src/shared/hooks/useCopyActions.tsx"
+              ],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_find_files",
+            "args": {
+              "pattern": "**/*.test.{ts,tsx,js,jsx}"
+            },
+            "result": {
+              "matches": 0,
+              "paths": [],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_find_files",
+            "args": {
+              "pattern": "**/*.spec.{ts,tsx,js,jsx}"
+            },
+            "result": {
+              "matches": 0,
+              "paths": [],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_find_files",
+            "args": {
+              "pattern": "**/{jest,vitest,playwright,cypress}.config.{ts,js,mjs,cjs}"
+            },
+            "result": {
+              "matches": 0,
+              "paths": [],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/store.tsx"
+            },
+            "result": {
+              "path": "src/store.tsx",
+              "startLine": 1,
+              "endLine": 59,
+              "totalLines": 59,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_find_files",
+            "args": {
+              "pattern": "**/{tsconfig,package,vite,next}.json"
+            },
+            "result": {
+              "matches": 0,
+              "paths": [],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_find_files",
+            "args": {
+              "pattern": "**/*.config.{ts,js,mjs}"
+            },
+            "result": {
+              "matches": 0,
+              "paths": [],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_list_dir",
+            "args": {
+              "dirPath": "."
+            },
+            "result": {
+              "entries": 4,
+              "paths": [
+                "functions",
+                "migrations",
+                "scripts",
+                "src"
+              ]
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_find_files",
+            "args": {
+              "pattern": "src/store/**/*.{ts,tsx}"
+            },
+            "result": {
+              "matches": 0,
+              "paths": [],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_find_files",
+            "args": {
+              "pattern": "*.json"
+            },
+            "result": {
+              "matches": 0,
+              "paths": [],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 5,
+            "tool": "repo_grep",
+            "args": {
+              "pattern": "createStoreActions|INITIAL_|AppStore",
+              "scope": [
+                "src"
+              ],
+              "maxResults": 20
+            },
+            "result": {
+              "matches": 20,
+              "paths": [
+                "src/store.selectors.ts"
+              ],
+              "truncated": true
+            }
+          },
+          {
+            "turn": 6,
+            "tool": "repo_grep",
+            "args": {
+              "scope": [
+                "src"
+              ],
+              "pattern": "from [\"']\\.?/store[\"']|from [\"']@/store/types[\"']|from [\"']@/store/initialState[\"']"
+            },
+            "result": {
+              "matches": 1,
+              "paths": [
+                "src/store.selectors.ts"
+              ],
+              "truncated": false
+            }
+          }
+        ],
+        "totalCalls": 14,
+        "truncated": false,
+        "maxEntries": 20
+      },
+      "codeMap": {
+        "entryPoints": [],
+        "keyModules": [
+          {
+            "path": "src/store.tsx",
+            "role": "module",
+            "linesRead": 70
+          },
+          {
+            "path": "src/shared/components/AGENTS.md",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "src/shared/components/MainTopBar.tsx",
+            "role": "entry point",
+            "linesRead": 2
+          },
+          {
+            "path": "src/shared/components/TelegramLoginButton.tsx",
+            "role": "module",
+            "linesRead": 2
+          },
+          {
+            "path": "src/shared/hooks/useAuthSessionBootstrap.ts",
+            "role": "middleware",
+            "linesRead": 2
+          },
+          {
+            "path": "src/shared/hooks/useCopyActions.tsx",
+            "role": "module",
+            "linesRead": 2
+          },
+          {
+            "path": "src/features/bookmark/hooks/useBookmarkSync.ts",
+            "role": "module",
+            "linesRead": 2
+          },
+          {
+            "path": "src/features/bookmark/pages/BookmarkDetailPage.tsx",
+            "role": "module",
+            "linesRead": 2
+          },
+          {
+            "path": "src/features/bookmark/pages/BookmarkEditorPage.tsx",
+            "role": "module",
+            "linesRead": 2
+          },
+          {
+            "path": "src/features/bookmark/pages/BookmarksPage.tsx",
+            "role": "module",
+            "linesRead": 2
+          },
+          {
+            "path": "src/features/exam/components/ExamNav.tsx",
+            "role": "module",
+            "linesRead": 2
+          },
+          {
+            "path": "src/features/exam/components/ExperimentalFeatureGate.tsx",
+            "role": "module",
+            "linesRead": 2
+          },
+          {
+            "path": "src/features/exam/hooks/useExamDataWithSync.ts",
+            "role": "module",
+            "linesRead": 2
+          },
+          {
+            "path": "src/features/exam/hooks/useExamHomeSummary.ts",
+            "role": "module",
+            "linesRead": 2
+          },
+          {
+            "path": "src/features/exam/hooks/useExamPageState.ts",
+            "role": "module",
+            "linesRead": 2
+          },
+          {
+            "path": "src/features/exam/hooks/useSimpleRevelationExamState.ts",
+            "role": "module",
+            "linesRead": 2
+          },
+          {
+            "path": "src/features/exam/pages/ExamHomePage.tsx",
+            "role": "module",
+            "linesRead": 2
+          },
+          {
+            "path": "src/features/exam/pages/ExamPracticePage.tsx",
+            "role": "module",
+            "linesRead": 2
+          },
+          {
+            "path": "src/features/exam/pages/ExamStatsPage.tsx",
+            "role": "module",
+            "linesRead": 2
+          },
+          {
+            "path": "src/features/reader/components/WordContainer.tsx",
+            "role": "module",
+            "linesRead": 2
+          },
+          {
+            "path": "src/features/reader/hooks/useReaderController.ts",
+            "role": "route/controller",
+            "linesRead": 2
+          },
+          {
+            "path": "src/store.selectors.ts",
+            "role": "module",
+            "linesRead": 22
+          },
+          {
+            "path": "src/api/auth.ts",
+            "role": "middleware",
+            "linesRead": 1
+          },
+          {
+            "path": "src/features/search/components/BookChapterList.tsx",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "src/features/search/components/MyAppBar.tsx",
+            "role": "entry point",
+            "linesRead": 1
+          },
+          {
+            "path": "src/features/search/components/SearchResultBookButtonGroup.tsx",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "src/features/search/components/SearchResultList.tsx",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "src/features/search/components/SearchResultWord.tsx",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "src/features/search/components/TemporaryInput.tsx",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "src/features/search/hooks/useSearchV4.tsx",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "src/features/settings/pages/SettingPage.tsx",
+            "role": "configuration",
+            "linesRead": 1
+          },
+          {
+            "path": "src/features/reader/components/SideNavigationBook/NavigationBookV2.tsx",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "src/features/reader/components/SideNavigationChapter/NavigationChapterV2.tsx",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "src/features/reader/components/WordComponentV3/WordDragSelectComponent.tsx",
+            "role": "module",
+            "linesRead": 1
+          }
+        ]
+      }
+    }
+  },
+  "contentText": "## Result\nConfidence: medium\nVerification: targeted_read_needed\nEvidence Quality: medium (1 exact, 7 partial, 0 dropped)\nSearch Coverage: scope-limited search across src/**, functions/**, scripts/**, migrations/**; 1 file read(s), 3 grep search(es).\n\n## Answer\nTraced dependency chain from src/store.tsx: 31 direct importers across shared, bookmark, exam, reader, search, and settings features. 2 type-only importers (store.selectors.ts, auth.ts). 1 documentation reference (AGENTS.md). No test coverage or configuration references found. Store uses Zustand with localStorage persistence (key: 'bible-app-storage').\n\n## Next Action\nread_target: Read src/store.selectors.ts:1-166 before editing.\n\n## Targets\n- [read] `src/store.tsx:1-59` (ev1) - Anchor file: defines useStore with Zustand persistence config\n- [edit] `src/store.selectors.ts:1-166` (ev8, E8) - Type-only importer: 15+ selectors using AppStore type\n- [edit] `src/shared/hooks/useAuthSessionBootstrap.ts:6-22` (ev2, E2) - Direct importer: uses useStore for auth session bootstrap\n- [edit] `src/shared/hooks/useCopyActions.tsx:6-45` (ev3, E3) - Direct importer: uses useStore for language settings\n- [edit] `src/features/bookmark/pages/BookmarksPage.tsx:16-40` (ev4, E4) - Direct importer: uses useStore for passage state\n- [edit] `src/features/exam/pages/ExamPracticePage.tsx:21-42` (ev5, E5) - Direct importer: uses useStore for exam auth state\n- [edit] `src/features/reader/hooks/useReaderController.ts:6-51` (ev6, E6) - Direct importer: uses useStore for reader controller\n- [edit] `src/features/search/hooks/useSearchV4.tsx:6-41` (ev7, E7) - Direct importer: uses useStore for search v4 state\n- [read] `src/store.tsx:30-40` (E1) - Definition of useStore export with Zustand persistence config\n\n## Evidence (8 items, confidence: medium)\n- E1 `src/store.tsx:30-40` - Definition of useStore export with Zustand persistence config\n  snippet: 30: export const useStore = create<AppStore>()(\n  31:   persist(\n  32:     (set, get, api) => ({\n  33:       settings: INITIAL_SETTINGS,\n  34:       currents: INITIAL_CURRENTS,\n  35:       globals: INITIAL_GLOBALS,\n  36:       search: INITIAL_SEARCH,\n  37:       ui: INITIAL_UI,\n  38:       auth: INITIAL_AUTH,\n  39:       ...createStoreActions(set, get, api),\n  40:     }),\n- E2 `src/shared/hooks/useAuthSessionBootstrap.ts:6-22` [partial] - Import and usage of useStore for auth bootstrap\n  snippet: 6: import { useStore } from \"@/store\";\n  7: \n  8: const isIgnorableSessionRestoreError = (error: unknown): boolean => {\n  9:   if (error instanceof DOMException && error.name === \"AbortError\") {\n  10:     return true;\n  11:   }\n  12: \n  13:   if (error instanceof TypeError) {\n  14:     const message = error.message.toLowerCase();\n  15:     return message.includes(\"failed to fetch\") || message.includes(\"networkerror\");\n  16:   }\n  17: \n  ... [snippet truncated]\n- E3 `src/shared/hooks/useCopyActions.tsx:6-45` [partial] - Import and usage of useStore for language settings\n  snippet: 6: import { useStore } from \"@/store\";\n  7: import { copyToClipboard } from \"../utils/copy\";\n  8: import {\n  9:   createCopyTextType01,\n  10:   createCopyTextType02,\n  11:   verseNumbersToTextType01,\n  12: } from \"../utils/text\";\n  13: import type { BibleWordDataV3 } from \"@/features/reader/types/word.types\";\n  14: \n  15: type SelectableWord = BibleWordDataV3 & { line: string | number };\n  16: \n  17: interface UseCopyActionsParams {\n  ... [snippet truncated]\n- E4 `src/features/bookmark/pages/BookmarksPage.tsx:16-40` [partial] - Import and usage of useStore for passage state\n  snippet: 16: import { useStore } from \"@/store\";\n  17: import type { BookmarkDraft, BookmarkRecord } from \"../types/bookmark\";\n  18: import { deleteBookmark, loadBookmarkDraft, loadBookmarks } from \"../utils/database\";\n  19: import { useBookmarkSync } from \"../hooks/useBookmarkSync\";\n  20: import {\n  21:   countBookmarkDraftPassageBlocks,\n  22:   countBookmarkNoteBlocks,\n  23:   countBookmarkPassageBlocks,\n  24:   getBookmarkDefaultTitle,\n  25:   getBookmarkFirstNotePreview,\n  26:   getBookmarkFirstPassageAddress,\n  27:   getBookmarkPrimaryReferenceLabel,\n  ... [snippet truncated]\n- E5 `src/features/exam/pages/ExamPracticePage.tsx:21-42` [partial] - Import and usage of useStore for exam auth state\n  snippet: 21: import { useStore } from \"@/store\";\n  22: import { appendExamWrongNote } from \"../utils/database\";\n  23: import { useExamVerseLoader } from \"../hooks/useExamVerseLoader\";\n  24: import {\n  25:   normalizeText,\n  26:   getSmallMistakeChars,\n  27:   tokenizeKo,\n  28: } from \"../utils/examTextProcessing\";\n  29: import { recordExamAttempt } from \"../utils/examPersistence\";\n  30: import { makeClozePrompt, getInitials } from \"../utils/practiceTextUtils\";\n  31: import type {\n  32:   BookMeta,\n  ... [snippet truncated]\n- E6 `src/features/reader/hooks/useReaderController.ts:6-51` [partial] - Import and usage of useStore for reader controller\n  snippet: 6: import { useStore } from \"@/store\";\n  7: import { selectReaderControllerState } from \"@/store.selectors\";\n  8: import { useMobileDetect } from \"@/shared/utils/device\";\n  9: import { useBibleData } from \"./useBibleData\";\n  10: import { useBookmarkActions } from \"@/features/bookmark/hooks/useBookmarkActions\";\n  11: import { useChapterProgress } from \"./useChapterProgress\";\n  12: import { useCopyActions } from \"@/shared/hooks/useCopyActions\";\n  13: import { useDialogLink } from \"@/shared/hooks/useDialogLink\";\n  14: import { useMainShortcuts } from \"@/shared/hooks/useMainShortcuts\";\n  15: import { useReaderEffects } from \"./useReaderEffects\";\n  16: import { useSearchMatchNavigation } from \"./useSearchMatchNavigation\";\n  17: import { useReaderUiControls } from \"./useReaderUiControls\";\n  ... [snippet truncated]\n- E7 `src/features/search/hooks/useSearchV4.tsx:6-41` [partial] - Import and usage of useStore for search v4 state\n  snippet: 6: import { useStore } from \"@/store\";\n  7: import { selectSearchV4State } from \"@/store.selectors\";\n  8: import type { BibleBook } from \"@/shared/types/bible\";\n  9: import type {\n  10:   FlexSearchRawDoc,\n  11:   SearchResultDoc,\n  12:   SearchResultGroup,\n  13:   SearchResultItem,\n  14: } from \"../types/search\";\n  15: import { parseSearchRawDoc } from \"../utils/searchParsing\";\n  16: \n  17: interface FlexSearchDocumentLike {\n  ... [snippet truncated]\n- E8 `src/store.selectors.ts:1-166` [partial] - Type import from store with 15+ selectors using AppStore\n  snippet: 1: import type { StoreActions, StoreState } from \"./store\";\n  2: \n  3: type AppStore = StoreState & StoreActions;\n  4: \n  5: export const selectReaderSettings = (state: AppStore) => ({\n  6:   language: state.settings.language,\n  7:   secondaryLanguage: state.settings.secondaryLanguage,\n  8:   viewWithSecondaryLanguage: state.settings.viewWithSecondaryLanguage,\n  9:   copyType: state.settings.copyType,\n  10:   searchType: state.settings.searchType,\n  11:   searchVersion: state.settings.searchVersion,\n  12:   fontSize: state.settings.fontSize,\n  ... [snippet truncated]\n\n## Uncertainty\n- Model confidence was capped from high to medium.\n- 7 evidence item(s) are grounded only by grep, blame, or nearby line observations.\n- Persistence key 'bible-app-storage' in localStorage - migration strategy needed if format changes\n- No automated tests increase refactoring risk\n\nSession: sess_cd7fbe5e8ff206b3 (pass as \"session\" for follow-up calls)"
+}

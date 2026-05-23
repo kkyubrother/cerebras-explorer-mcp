@@ -1,0 +1,5813 @@
+[
+  {
+    "name": "find_relevant_code",
+    "title": "Find relevant code targets",
+    "description": "Use first when you need to locate the files and line ranges relevant to a feature, bug, config, route, or behavior before deciding what to read or edit. Give the natural-language query plus any known anchors. Returns targets and cited evidence; read only returned edit/read targets afterward.",
+    "inputSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "query": {
+          "type": "string",
+          "description": "What code to locate and why."
+        },
+        "repo_root": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "knownFiles": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "knownSymbols": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "knownText": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "session": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "query"
+      ]
+    },
+    "outputSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "directAnswer",
+        "status",
+        "targets",
+        "evidence",
+        "uncertainties",
+        "nextAction",
+        "evidenceQuality",
+        "failure"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "type": "integer",
+          "const": 1
+        },
+        "directAnswer": {
+          "type": "string"
+        },
+        "status": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "confidence": {
+              "type": "string",
+              "enum": [
+                "low",
+                "medium",
+                "high"
+              ]
+            },
+            "verification": {
+              "type": "string",
+              "enum": [
+                "verified",
+                "targeted_read_needed",
+                "follow_up_needed",
+                "broad_search_needed"
+              ]
+            },
+            "complete": {
+              "type": "boolean"
+            },
+            "warnings": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "confidence",
+            "verification",
+            "complete",
+            "warnings"
+          ]
+        },
+        "targets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "startLine": {
+                "type": "integer"
+              },
+              "endLine": {
+                "type": "integer"
+              },
+              "role": {
+                "type": "string",
+                "enum": [
+                  "edit",
+                  "read",
+                  "test",
+                  "config",
+                  "context",
+                  "reference"
+                ]
+              },
+              "reason": {
+                "type": "string"
+              },
+              "evidenceRefs": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "path",
+              "role",
+              "reason",
+              "evidenceRefs"
+            ]
+          }
+        },
+        "discoveredPaths": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "file",
+                  "dir",
+                  "unknown"
+                ]
+              },
+              "sourceTool": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path",
+              "kind",
+              "sourceTool",
+              "reason"
+            ]
+          }
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "startLine": {
+                "type": "integer"
+              },
+              "endLine": {
+                "type": "integer"
+              },
+              "why": {
+                "type": "string"
+              },
+              "snippet": {
+                "type": "string"
+              },
+              "redacted": {
+                "type": "boolean"
+              },
+              "redactions": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "groundingStatus": {
+                "type": "string",
+                "enum": [
+                  "exact",
+                  "partial"
+                ]
+              },
+              "evidenceType": {
+                "type": "string",
+                "enum": [
+                  "file_range",
+                  "git_commit",
+                  "git_blame",
+                  "git_diff_hunk"
+                ]
+              },
+              "sha": {
+                "type": "string"
+              },
+              "author": {
+                "type": "string"
+              },
+              "commit": {
+                "type": "string"
+              },
+              "oldPath": {
+                "type": "string"
+              },
+              "newPath": {
+                "type": "string"
+              },
+              "newStartLine": {
+                "type": "integer"
+              },
+              "newEndLine": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "path",
+              "startLine",
+              "endLine",
+              "why"
+            ]
+          }
+        },
+        "uncertainties": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "nextAction": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": [
+                "stop",
+                "read_target",
+                "explore_followup",
+                "ask_user"
+              ]
+            },
+            "reason": {
+              "type": "string"
+            },
+            "query": {
+              "type": "string"
+            },
+            "target": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "startLine": {
+                  "type": "integer"
+                },
+                "endLine": {
+                  "type": "integer"
+                },
+                "role": {
+                  "type": "string",
+                  "enum": [
+                    "edit",
+                    "read",
+                    "test",
+                    "config",
+                    "context",
+                    "reference"
+                  ]
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "evidenceRefs": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "path",
+                "role",
+                "reason",
+                "evidenceRefs"
+              ]
+            }
+          },
+          "required": [
+            "type",
+            "reason"
+          ]
+        },
+        "evidenceQuality": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "level": {
+              "type": "string",
+              "enum": [
+                "low",
+                "medium",
+                "high"
+              ]
+            },
+            "exactCount": {
+              "type": "integer"
+            },
+            "partialCount": {
+              "type": "integer"
+            },
+            "droppedCount": {
+              "type": "integer"
+            },
+            "fileCount": {
+              "type": "integer"
+            },
+            "warnings": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "summary": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "level",
+            "exactCount",
+            "partialCount",
+            "droppedCount",
+            "fileCount",
+            "warnings",
+            "summary"
+          ]
+        },
+        "failure": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "category": {
+                  "type": "string",
+                  "enum": [
+                    "execution",
+                    "input",
+                    "provider",
+                    "internal"
+                  ]
+                },
+                "reason": {
+                  "type": "string",
+                  "enum": [
+                    "budget_exhausted",
+                    "tool_errors",
+                    "aborted",
+                    "invalid_session",
+                    "repo_mismatch",
+                    "invalid_arguments",
+                    "provider_error",
+                    "access_denied",
+                    "invalid_final_response"
+                  ]
+                },
+                "message": {
+                  "type": "string"
+                },
+                "retry": {
+                  "anyOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "tool": {
+                          "type": "string",
+                          "enum": [
+                            "explore_repo",
+                            "find_relevant_code",
+                            "collect_evidence",
+                            "trace_symbol",
+                            "map_change_impact",
+                            "review_change_context",
+                            "explore"
+                          ]
+                        },
+                        "hints": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "args": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "properties": {
+                            "task": {
+                              "type": "string"
+                            },
+                            "query": {
+                              "type": "string"
+                            },
+                            "symbol": {
+                              "type": "string"
+                            },
+                            "change": {
+                              "type": "string"
+                            },
+                            "pathQuery": {
+                              "type": "string"
+                            },
+                            "claim": {
+                              "type": "string"
+                            },
+                            "reviewGoal": {
+                              "type": "string"
+                            },
+                            "prompt": {
+                              "type": "string"
+                            },
+                            "scope": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "knownFiles": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "knownSymbols": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "knownText": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "hints": {
+                              "type": "object",
+                              "additionalProperties": false,
+                              "properties": {
+                                "symbols": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string"
+                                  }
+                                },
+                                "files": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string"
+                                  }
+                                },
+                                "regex": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string"
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        },
+                        "expectedImprovement": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "tool",
+                        "hints"
+                      ]
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "category",
+                "reason",
+                "message",
+                "retry"
+              ]
+            }
+          ]
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "session": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "created",
+                "reused",
+                "fallback"
+              ]
+            },
+            "remainingCalls": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "id",
+            "status",
+            "remainingCalls"
+          ]
+        },
+        "searchCoverage": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "scope": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "scopeLimited": {
+              "type": "boolean"
+            },
+            "filesRead": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "grepCalls": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "listDirCalls": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "symbolCalls": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "toolResultsTruncated": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "stoppedByBudget": {
+              "type": "boolean"
+            },
+            "warnings": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "summary": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "scope",
+            "scopeLimited",
+            "filesRead",
+            "grepCalls",
+            "listDirCalls",
+            "symbolCalls",
+            "toolResultsTruncated",
+            "stoppedByBudget",
+            "warnings",
+            "summary"
+          ]
+        },
+        "_debug": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    },
+    "annotations": {
+      "title": "Find relevant code targets",
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true
+    }
+  },
+  {
+    "name": "trace_symbol",
+    "title": "Trace a symbol",
+    "description": "Use when a known function, class, variable, or type needs definition plus usage/callsite context. Returns grounded targets and evidence without requiring a manual grep-then-read loop.",
+    "inputSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "symbol": {
+          "type": "string",
+          "description": "The symbol name to explain (function, class, variable, type, etc.)."
+        },
+        "repo_root": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "session": {
+          "type": "string",
+          "description": "Optional session ID for continuity."
+        }
+      },
+      "required": [
+        "symbol"
+      ]
+    },
+    "outputSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "directAnswer",
+        "status",
+        "targets",
+        "evidence",
+        "uncertainties",
+        "nextAction",
+        "evidenceQuality",
+        "failure"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "type": "integer",
+          "const": 1
+        },
+        "directAnswer": {
+          "type": "string"
+        },
+        "status": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "confidence": {
+              "type": "string",
+              "enum": [
+                "low",
+                "medium",
+                "high"
+              ]
+            },
+            "verification": {
+              "type": "string",
+              "enum": [
+                "verified",
+                "targeted_read_needed",
+                "follow_up_needed",
+                "broad_search_needed"
+              ]
+            },
+            "complete": {
+              "type": "boolean"
+            },
+            "warnings": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "confidence",
+            "verification",
+            "complete",
+            "warnings"
+          ]
+        },
+        "targets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "startLine": {
+                "type": "integer"
+              },
+              "endLine": {
+                "type": "integer"
+              },
+              "role": {
+                "type": "string",
+                "enum": [
+                  "edit",
+                  "read",
+                  "test",
+                  "config",
+                  "context",
+                  "reference"
+                ]
+              },
+              "reason": {
+                "type": "string"
+              },
+              "evidenceRefs": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "path",
+              "role",
+              "reason",
+              "evidenceRefs"
+            ]
+          }
+        },
+        "discoveredPaths": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "file",
+                  "dir",
+                  "unknown"
+                ]
+              },
+              "sourceTool": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path",
+              "kind",
+              "sourceTool",
+              "reason"
+            ]
+          }
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "startLine": {
+                "type": "integer"
+              },
+              "endLine": {
+                "type": "integer"
+              },
+              "why": {
+                "type": "string"
+              },
+              "snippet": {
+                "type": "string"
+              },
+              "redacted": {
+                "type": "boolean"
+              },
+              "redactions": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "groundingStatus": {
+                "type": "string",
+                "enum": [
+                  "exact",
+                  "partial"
+                ]
+              },
+              "evidenceType": {
+                "type": "string",
+                "enum": [
+                  "file_range",
+                  "git_commit",
+                  "git_blame",
+                  "git_diff_hunk"
+                ]
+              },
+              "sha": {
+                "type": "string"
+              },
+              "author": {
+                "type": "string"
+              },
+              "commit": {
+                "type": "string"
+              },
+              "oldPath": {
+                "type": "string"
+              },
+              "newPath": {
+                "type": "string"
+              },
+              "newStartLine": {
+                "type": "integer"
+              },
+              "newEndLine": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "path",
+              "startLine",
+              "endLine",
+              "why"
+            ]
+          }
+        },
+        "uncertainties": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "nextAction": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": [
+                "stop",
+                "read_target",
+                "explore_followup",
+                "ask_user"
+              ]
+            },
+            "reason": {
+              "type": "string"
+            },
+            "query": {
+              "type": "string"
+            },
+            "target": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "startLine": {
+                  "type": "integer"
+                },
+                "endLine": {
+                  "type": "integer"
+                },
+                "role": {
+                  "type": "string",
+                  "enum": [
+                    "edit",
+                    "read",
+                    "test",
+                    "config",
+                    "context",
+                    "reference"
+                  ]
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "evidenceRefs": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "path",
+                "role",
+                "reason",
+                "evidenceRefs"
+              ]
+            }
+          },
+          "required": [
+            "type",
+            "reason"
+          ]
+        },
+        "evidenceQuality": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "level": {
+              "type": "string",
+              "enum": [
+                "low",
+                "medium",
+                "high"
+              ]
+            },
+            "exactCount": {
+              "type": "integer"
+            },
+            "partialCount": {
+              "type": "integer"
+            },
+            "droppedCount": {
+              "type": "integer"
+            },
+            "fileCount": {
+              "type": "integer"
+            },
+            "warnings": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "summary": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "level",
+            "exactCount",
+            "partialCount",
+            "droppedCount",
+            "fileCount",
+            "warnings",
+            "summary"
+          ]
+        },
+        "failure": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "category": {
+                  "type": "string",
+                  "enum": [
+                    "execution",
+                    "input",
+                    "provider",
+                    "internal"
+                  ]
+                },
+                "reason": {
+                  "type": "string",
+                  "enum": [
+                    "budget_exhausted",
+                    "tool_errors",
+                    "aborted",
+                    "invalid_session",
+                    "repo_mismatch",
+                    "invalid_arguments",
+                    "provider_error",
+                    "access_denied",
+                    "invalid_final_response"
+                  ]
+                },
+                "message": {
+                  "type": "string"
+                },
+                "retry": {
+                  "anyOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "tool": {
+                          "type": "string",
+                          "enum": [
+                            "explore_repo",
+                            "find_relevant_code",
+                            "collect_evidence",
+                            "trace_symbol",
+                            "map_change_impact",
+                            "review_change_context",
+                            "explore"
+                          ]
+                        },
+                        "hints": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "args": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "properties": {
+                            "task": {
+                              "type": "string"
+                            },
+                            "query": {
+                              "type": "string"
+                            },
+                            "symbol": {
+                              "type": "string"
+                            },
+                            "change": {
+                              "type": "string"
+                            },
+                            "pathQuery": {
+                              "type": "string"
+                            },
+                            "claim": {
+                              "type": "string"
+                            },
+                            "reviewGoal": {
+                              "type": "string"
+                            },
+                            "prompt": {
+                              "type": "string"
+                            },
+                            "scope": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "knownFiles": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "knownSymbols": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "knownText": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "hints": {
+                              "type": "object",
+                              "additionalProperties": false,
+                              "properties": {
+                                "symbols": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string"
+                                  }
+                                },
+                                "files": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string"
+                                  }
+                                },
+                                "regex": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string"
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        },
+                        "expectedImprovement": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "tool",
+                        "hints"
+                      ]
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "category",
+                "reason",
+                "message",
+                "retry"
+              ]
+            }
+          ]
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "session": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "created",
+                "reused",
+                "fallback"
+              ]
+            },
+            "remainingCalls": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "id",
+            "status",
+            "remainingCalls"
+          ]
+        },
+        "searchCoverage": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "scope": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "scopeLimited": {
+              "type": "boolean"
+            },
+            "filesRead": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "grepCalls": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "listDirCalls": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "symbolCalls": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "toolResultsTruncated": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "stoppedByBudget": {
+              "type": "boolean"
+            },
+            "warnings": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "summary": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "scope",
+            "scopeLimited",
+            "filesRead",
+            "grepCalls",
+            "listDirCalls",
+            "symbolCalls",
+            "toolResultsTruncated",
+            "stoppedByBudget",
+            "warnings",
+            "summary"
+          ]
+        },
+        "_debug": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    },
+    "annotations": {
+      "title": "Trace a symbol",
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true
+    }
+  },
+  {
+    "name": "map_change_impact",
+    "title": "Map change impact",
+    "description": "Use before editing when you know the intended change but need blast-radius context: likely edit files, callers, tests, config, and risky dependent paths. Do not use for a one-line known-file edit.",
+    "inputSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "change": {
+          "type": "string",
+          "description": "The intended change or suspected bug fix."
+        },
+        "repo_root": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "knownFiles": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "knownSymbols": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "session": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "change"
+      ]
+    },
+    "outputSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "directAnswer",
+        "status",
+        "targets",
+        "evidence",
+        "uncertainties",
+        "nextAction",
+        "evidenceQuality",
+        "failure"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "type": "integer",
+          "const": 1
+        },
+        "directAnswer": {
+          "type": "string"
+        },
+        "status": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "confidence": {
+              "type": "string",
+              "enum": [
+                "low",
+                "medium",
+                "high"
+              ]
+            },
+            "verification": {
+              "type": "string",
+              "enum": [
+                "verified",
+                "targeted_read_needed",
+                "follow_up_needed",
+                "broad_search_needed"
+              ]
+            },
+            "complete": {
+              "type": "boolean"
+            },
+            "warnings": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "confidence",
+            "verification",
+            "complete",
+            "warnings"
+          ]
+        },
+        "targets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "startLine": {
+                "type": "integer"
+              },
+              "endLine": {
+                "type": "integer"
+              },
+              "role": {
+                "type": "string",
+                "enum": [
+                  "edit",
+                  "read",
+                  "test",
+                  "config",
+                  "context",
+                  "reference"
+                ]
+              },
+              "reason": {
+                "type": "string"
+              },
+              "evidenceRefs": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "path",
+              "role",
+              "reason",
+              "evidenceRefs"
+            ]
+          }
+        },
+        "discoveredPaths": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "file",
+                  "dir",
+                  "unknown"
+                ]
+              },
+              "sourceTool": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path",
+              "kind",
+              "sourceTool",
+              "reason"
+            ]
+          }
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "startLine": {
+                "type": "integer"
+              },
+              "endLine": {
+                "type": "integer"
+              },
+              "why": {
+                "type": "string"
+              },
+              "snippet": {
+                "type": "string"
+              },
+              "redacted": {
+                "type": "boolean"
+              },
+              "redactions": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "groundingStatus": {
+                "type": "string",
+                "enum": [
+                  "exact",
+                  "partial"
+                ]
+              },
+              "evidenceType": {
+                "type": "string",
+                "enum": [
+                  "file_range",
+                  "git_commit",
+                  "git_blame",
+                  "git_diff_hunk"
+                ]
+              },
+              "sha": {
+                "type": "string"
+              },
+              "author": {
+                "type": "string"
+              },
+              "commit": {
+                "type": "string"
+              },
+              "oldPath": {
+                "type": "string"
+              },
+              "newPath": {
+                "type": "string"
+              },
+              "newStartLine": {
+                "type": "integer"
+              },
+              "newEndLine": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "path",
+              "startLine",
+              "endLine",
+              "why"
+            ]
+          }
+        },
+        "uncertainties": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "nextAction": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": [
+                "stop",
+                "read_target",
+                "explore_followup",
+                "ask_user"
+              ]
+            },
+            "reason": {
+              "type": "string"
+            },
+            "query": {
+              "type": "string"
+            },
+            "target": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "startLine": {
+                  "type": "integer"
+                },
+                "endLine": {
+                  "type": "integer"
+                },
+                "role": {
+                  "type": "string",
+                  "enum": [
+                    "edit",
+                    "read",
+                    "test",
+                    "config",
+                    "context",
+                    "reference"
+                  ]
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "evidenceRefs": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "path",
+                "role",
+                "reason",
+                "evidenceRefs"
+              ]
+            }
+          },
+          "required": [
+            "type",
+            "reason"
+          ]
+        },
+        "evidenceQuality": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "level": {
+              "type": "string",
+              "enum": [
+                "low",
+                "medium",
+                "high"
+              ]
+            },
+            "exactCount": {
+              "type": "integer"
+            },
+            "partialCount": {
+              "type": "integer"
+            },
+            "droppedCount": {
+              "type": "integer"
+            },
+            "fileCount": {
+              "type": "integer"
+            },
+            "warnings": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "summary": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "level",
+            "exactCount",
+            "partialCount",
+            "droppedCount",
+            "fileCount",
+            "warnings",
+            "summary"
+          ]
+        },
+        "failure": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "category": {
+                  "type": "string",
+                  "enum": [
+                    "execution",
+                    "input",
+                    "provider",
+                    "internal"
+                  ]
+                },
+                "reason": {
+                  "type": "string",
+                  "enum": [
+                    "budget_exhausted",
+                    "tool_errors",
+                    "aborted",
+                    "invalid_session",
+                    "repo_mismatch",
+                    "invalid_arguments",
+                    "provider_error",
+                    "access_denied",
+                    "invalid_final_response"
+                  ]
+                },
+                "message": {
+                  "type": "string"
+                },
+                "retry": {
+                  "anyOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "tool": {
+                          "type": "string",
+                          "enum": [
+                            "explore_repo",
+                            "find_relevant_code",
+                            "collect_evidence",
+                            "trace_symbol",
+                            "map_change_impact",
+                            "review_change_context",
+                            "explore"
+                          ]
+                        },
+                        "hints": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "args": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "properties": {
+                            "task": {
+                              "type": "string"
+                            },
+                            "query": {
+                              "type": "string"
+                            },
+                            "symbol": {
+                              "type": "string"
+                            },
+                            "change": {
+                              "type": "string"
+                            },
+                            "pathQuery": {
+                              "type": "string"
+                            },
+                            "claim": {
+                              "type": "string"
+                            },
+                            "reviewGoal": {
+                              "type": "string"
+                            },
+                            "prompt": {
+                              "type": "string"
+                            },
+                            "scope": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "knownFiles": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "knownSymbols": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "knownText": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "hints": {
+                              "type": "object",
+                              "additionalProperties": false,
+                              "properties": {
+                                "symbols": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string"
+                                  }
+                                },
+                                "files": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string"
+                                  }
+                                },
+                                "regex": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string"
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        },
+                        "expectedImprovement": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "tool",
+                        "hints"
+                      ]
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "category",
+                "reason",
+                "message",
+                "retry"
+              ]
+            }
+          ]
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "session": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "created",
+                "reused",
+                "fallback"
+              ]
+            },
+            "remainingCalls": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "id",
+            "status",
+            "remainingCalls"
+          ]
+        },
+        "searchCoverage": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "scope": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "scopeLimited": {
+              "type": "boolean"
+            },
+            "filesRead": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "grepCalls": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "listDirCalls": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "symbolCalls": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "toolResultsTruncated": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "stoppedByBudget": {
+              "type": "boolean"
+            },
+            "warnings": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "summary": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "scope",
+            "scopeLimited",
+            "filesRead",
+            "grepCalls",
+            "listDirCalls",
+            "symbolCalls",
+            "toolResultsTruncated",
+            "stoppedByBudget",
+            "warnings",
+            "summary"
+          ]
+        },
+        "_debug": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    },
+    "annotations": {
+      "title": "Map change impact",
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true
+    }
+  },
+  {
+    "name": "map_impact",
+    "title": "Map impact from anchor",
+    "description": "Use when the parent already knows the specific anchor (a file path or symbol name) that is about to change and wants a deeper dependency chain plus test/config blast radius. Differs from map_change_impact: this tool puts the anchor in front and runs a deeper reference chase; map_change_impact takes a natural-language change description.",
+    "inputSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "anchor": {
+          "type": "string",
+          "description": "A file path (e.g. \"src/auth.js\") or a symbol name (e.g. \"requireAuth\") that will change."
+        },
+        "changeType": {
+          "type": "string",
+          "enum": [
+            "rename",
+            "refactor",
+            "remove",
+            "add"
+          ],
+          "description": "Optional. The intended kind of change so the task statement reflects it (e.g. callers matter more for \"remove\")."
+        },
+        "repo_root": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "knownFiles": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "knownSymbols": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "session": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "anchor"
+      ]
+    },
+    "outputSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "directAnswer",
+        "status",
+        "targets",
+        "evidence",
+        "uncertainties",
+        "nextAction",
+        "evidenceQuality",
+        "failure"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "type": "integer",
+          "const": 1
+        },
+        "directAnswer": {
+          "type": "string"
+        },
+        "status": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "confidence": {
+              "type": "string",
+              "enum": [
+                "low",
+                "medium",
+                "high"
+              ]
+            },
+            "verification": {
+              "type": "string",
+              "enum": [
+                "verified",
+                "targeted_read_needed",
+                "follow_up_needed",
+                "broad_search_needed"
+              ]
+            },
+            "complete": {
+              "type": "boolean"
+            },
+            "warnings": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "confidence",
+            "verification",
+            "complete",
+            "warnings"
+          ]
+        },
+        "targets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "startLine": {
+                "type": "integer"
+              },
+              "endLine": {
+                "type": "integer"
+              },
+              "role": {
+                "type": "string",
+                "enum": [
+                  "edit",
+                  "read",
+                  "test",
+                  "config",
+                  "context",
+                  "reference"
+                ]
+              },
+              "reason": {
+                "type": "string"
+              },
+              "evidenceRefs": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "path",
+              "role",
+              "reason",
+              "evidenceRefs"
+            ]
+          }
+        },
+        "discoveredPaths": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "file",
+                  "dir",
+                  "unknown"
+                ]
+              },
+              "sourceTool": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path",
+              "kind",
+              "sourceTool",
+              "reason"
+            ]
+          }
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "startLine": {
+                "type": "integer"
+              },
+              "endLine": {
+                "type": "integer"
+              },
+              "why": {
+                "type": "string"
+              },
+              "snippet": {
+                "type": "string"
+              },
+              "redacted": {
+                "type": "boolean"
+              },
+              "redactions": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "groundingStatus": {
+                "type": "string",
+                "enum": [
+                  "exact",
+                  "partial"
+                ]
+              },
+              "evidenceType": {
+                "type": "string",
+                "enum": [
+                  "file_range",
+                  "git_commit",
+                  "git_blame",
+                  "git_diff_hunk"
+                ]
+              },
+              "sha": {
+                "type": "string"
+              },
+              "author": {
+                "type": "string"
+              },
+              "commit": {
+                "type": "string"
+              },
+              "oldPath": {
+                "type": "string"
+              },
+              "newPath": {
+                "type": "string"
+              },
+              "newStartLine": {
+                "type": "integer"
+              },
+              "newEndLine": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "path",
+              "startLine",
+              "endLine",
+              "why"
+            ]
+          }
+        },
+        "uncertainties": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "nextAction": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": [
+                "stop",
+                "read_target",
+                "explore_followup",
+                "ask_user"
+              ]
+            },
+            "reason": {
+              "type": "string"
+            },
+            "query": {
+              "type": "string"
+            },
+            "target": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "startLine": {
+                  "type": "integer"
+                },
+                "endLine": {
+                  "type": "integer"
+                },
+                "role": {
+                  "type": "string",
+                  "enum": [
+                    "edit",
+                    "read",
+                    "test",
+                    "config",
+                    "context",
+                    "reference"
+                  ]
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "evidenceRefs": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "path",
+                "role",
+                "reason",
+                "evidenceRefs"
+              ]
+            }
+          },
+          "required": [
+            "type",
+            "reason"
+          ]
+        },
+        "evidenceQuality": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "level": {
+              "type": "string",
+              "enum": [
+                "low",
+                "medium",
+                "high"
+              ]
+            },
+            "exactCount": {
+              "type": "integer"
+            },
+            "partialCount": {
+              "type": "integer"
+            },
+            "droppedCount": {
+              "type": "integer"
+            },
+            "fileCount": {
+              "type": "integer"
+            },
+            "warnings": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "summary": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "level",
+            "exactCount",
+            "partialCount",
+            "droppedCount",
+            "fileCount",
+            "warnings",
+            "summary"
+          ]
+        },
+        "failure": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "category": {
+                  "type": "string",
+                  "enum": [
+                    "execution",
+                    "input",
+                    "provider",
+                    "internal"
+                  ]
+                },
+                "reason": {
+                  "type": "string",
+                  "enum": [
+                    "budget_exhausted",
+                    "tool_errors",
+                    "aborted",
+                    "invalid_session",
+                    "repo_mismatch",
+                    "invalid_arguments",
+                    "provider_error",
+                    "access_denied",
+                    "invalid_final_response"
+                  ]
+                },
+                "message": {
+                  "type": "string"
+                },
+                "retry": {
+                  "anyOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "tool": {
+                          "type": "string",
+                          "enum": [
+                            "explore_repo",
+                            "find_relevant_code",
+                            "collect_evidence",
+                            "trace_symbol",
+                            "map_change_impact",
+                            "review_change_context",
+                            "explore"
+                          ]
+                        },
+                        "hints": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "args": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "properties": {
+                            "task": {
+                              "type": "string"
+                            },
+                            "query": {
+                              "type": "string"
+                            },
+                            "symbol": {
+                              "type": "string"
+                            },
+                            "change": {
+                              "type": "string"
+                            },
+                            "pathQuery": {
+                              "type": "string"
+                            },
+                            "claim": {
+                              "type": "string"
+                            },
+                            "reviewGoal": {
+                              "type": "string"
+                            },
+                            "prompt": {
+                              "type": "string"
+                            },
+                            "scope": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "knownFiles": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "knownSymbols": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "knownText": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "hints": {
+                              "type": "object",
+                              "additionalProperties": false,
+                              "properties": {
+                                "symbols": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string"
+                                  }
+                                },
+                                "files": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string"
+                                  }
+                                },
+                                "regex": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string"
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        },
+                        "expectedImprovement": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "tool",
+                        "hints"
+                      ]
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "category",
+                "reason",
+                "message",
+                "retry"
+              ]
+            }
+          ]
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "session": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "created",
+                "reused",
+                "fallback"
+              ]
+            },
+            "remainingCalls": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "id",
+            "status",
+            "remainingCalls"
+          ]
+        },
+        "searchCoverage": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "scope": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "scopeLimited": {
+              "type": "boolean"
+            },
+            "filesRead": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "grepCalls": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "listDirCalls": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "symbolCalls": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "toolResultsTruncated": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "stoppedByBudget": {
+              "type": "boolean"
+            },
+            "warnings": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "summary": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "scope",
+            "scopeLimited",
+            "filesRead",
+            "grepCalls",
+            "listDirCalls",
+            "symbolCalls",
+            "toolResultsTruncated",
+            "stoppedByBudget",
+            "warnings",
+            "summary"
+          ]
+        },
+        "_debug": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    },
+    "annotations": {
+      "title": "Map impact from anchor",
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true
+    }
+  },
+  {
+    "name": "explain_code_path",
+    "title": "Explain a code path",
+    "description": "Use for route, middleware, request, event, job, or CLI flow tracing across files. Returns the verified path through the code and the targets worth reading next.",
+    "inputSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "pathQuery": {
+          "type": "string",
+          "description": "The runtime path or flow to explain."
+        },
+        "repo_root": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "entryPoint": {
+          "type": "string"
+        },
+        "knownFiles": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "knownSymbols": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "session": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "pathQuery"
+      ]
+    },
+    "outputSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "directAnswer",
+        "status",
+        "targets",
+        "evidence",
+        "uncertainties",
+        "nextAction",
+        "evidenceQuality",
+        "failure"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "type": "integer",
+          "const": 1
+        },
+        "directAnswer": {
+          "type": "string"
+        },
+        "status": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "confidence": {
+              "type": "string",
+              "enum": [
+                "low",
+                "medium",
+                "high"
+              ]
+            },
+            "verification": {
+              "type": "string",
+              "enum": [
+                "verified",
+                "targeted_read_needed",
+                "follow_up_needed",
+                "broad_search_needed"
+              ]
+            },
+            "complete": {
+              "type": "boolean"
+            },
+            "warnings": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "confidence",
+            "verification",
+            "complete",
+            "warnings"
+          ]
+        },
+        "targets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "startLine": {
+                "type": "integer"
+              },
+              "endLine": {
+                "type": "integer"
+              },
+              "role": {
+                "type": "string",
+                "enum": [
+                  "edit",
+                  "read",
+                  "test",
+                  "config",
+                  "context",
+                  "reference"
+                ]
+              },
+              "reason": {
+                "type": "string"
+              },
+              "evidenceRefs": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "path",
+              "role",
+              "reason",
+              "evidenceRefs"
+            ]
+          }
+        },
+        "discoveredPaths": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "file",
+                  "dir",
+                  "unknown"
+                ]
+              },
+              "sourceTool": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path",
+              "kind",
+              "sourceTool",
+              "reason"
+            ]
+          }
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "startLine": {
+                "type": "integer"
+              },
+              "endLine": {
+                "type": "integer"
+              },
+              "why": {
+                "type": "string"
+              },
+              "snippet": {
+                "type": "string"
+              },
+              "redacted": {
+                "type": "boolean"
+              },
+              "redactions": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "groundingStatus": {
+                "type": "string",
+                "enum": [
+                  "exact",
+                  "partial"
+                ]
+              },
+              "evidenceType": {
+                "type": "string",
+                "enum": [
+                  "file_range",
+                  "git_commit",
+                  "git_blame",
+                  "git_diff_hunk"
+                ]
+              },
+              "sha": {
+                "type": "string"
+              },
+              "author": {
+                "type": "string"
+              },
+              "commit": {
+                "type": "string"
+              },
+              "oldPath": {
+                "type": "string"
+              },
+              "newPath": {
+                "type": "string"
+              },
+              "newStartLine": {
+                "type": "integer"
+              },
+              "newEndLine": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "path",
+              "startLine",
+              "endLine",
+              "why"
+            ]
+          }
+        },
+        "uncertainties": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "nextAction": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": [
+                "stop",
+                "read_target",
+                "explore_followup",
+                "ask_user"
+              ]
+            },
+            "reason": {
+              "type": "string"
+            },
+            "query": {
+              "type": "string"
+            },
+            "target": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "startLine": {
+                  "type": "integer"
+                },
+                "endLine": {
+                  "type": "integer"
+                },
+                "role": {
+                  "type": "string",
+                  "enum": [
+                    "edit",
+                    "read",
+                    "test",
+                    "config",
+                    "context",
+                    "reference"
+                  ]
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "evidenceRefs": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "path",
+                "role",
+                "reason",
+                "evidenceRefs"
+              ]
+            }
+          },
+          "required": [
+            "type",
+            "reason"
+          ]
+        },
+        "evidenceQuality": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "level": {
+              "type": "string",
+              "enum": [
+                "low",
+                "medium",
+                "high"
+              ]
+            },
+            "exactCount": {
+              "type": "integer"
+            },
+            "partialCount": {
+              "type": "integer"
+            },
+            "droppedCount": {
+              "type": "integer"
+            },
+            "fileCount": {
+              "type": "integer"
+            },
+            "warnings": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "summary": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "level",
+            "exactCount",
+            "partialCount",
+            "droppedCount",
+            "fileCount",
+            "warnings",
+            "summary"
+          ]
+        },
+        "failure": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "category": {
+                  "type": "string",
+                  "enum": [
+                    "execution",
+                    "input",
+                    "provider",
+                    "internal"
+                  ]
+                },
+                "reason": {
+                  "type": "string",
+                  "enum": [
+                    "budget_exhausted",
+                    "tool_errors",
+                    "aborted",
+                    "invalid_session",
+                    "repo_mismatch",
+                    "invalid_arguments",
+                    "provider_error",
+                    "access_denied",
+                    "invalid_final_response"
+                  ]
+                },
+                "message": {
+                  "type": "string"
+                },
+                "retry": {
+                  "anyOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "tool": {
+                          "type": "string",
+                          "enum": [
+                            "explore_repo",
+                            "find_relevant_code",
+                            "collect_evidence",
+                            "trace_symbol",
+                            "map_change_impact",
+                            "review_change_context",
+                            "explore"
+                          ]
+                        },
+                        "hints": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "args": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "properties": {
+                            "task": {
+                              "type": "string"
+                            },
+                            "query": {
+                              "type": "string"
+                            },
+                            "symbol": {
+                              "type": "string"
+                            },
+                            "change": {
+                              "type": "string"
+                            },
+                            "pathQuery": {
+                              "type": "string"
+                            },
+                            "claim": {
+                              "type": "string"
+                            },
+                            "reviewGoal": {
+                              "type": "string"
+                            },
+                            "prompt": {
+                              "type": "string"
+                            },
+                            "scope": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "knownFiles": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "knownSymbols": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "knownText": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "hints": {
+                              "type": "object",
+                              "additionalProperties": false,
+                              "properties": {
+                                "symbols": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string"
+                                  }
+                                },
+                                "files": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string"
+                                  }
+                                },
+                                "regex": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string"
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        },
+                        "expectedImprovement": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "tool",
+                        "hints"
+                      ]
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "category",
+                "reason",
+                "message",
+                "retry"
+              ]
+            }
+          ]
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "session": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "created",
+                "reused",
+                "fallback"
+              ]
+            },
+            "remainingCalls": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "id",
+            "status",
+            "remainingCalls"
+          ]
+        },
+        "searchCoverage": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "scope": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "scopeLimited": {
+              "type": "boolean"
+            },
+            "filesRead": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "grepCalls": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "listDirCalls": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "symbolCalls": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "toolResultsTruncated": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "stoppedByBudget": {
+              "type": "boolean"
+            },
+            "warnings": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "summary": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "scope",
+            "scopeLimited",
+            "filesRead",
+            "grepCalls",
+            "listDirCalls",
+            "symbolCalls",
+            "toolResultsTruncated",
+            "stoppedByBudget",
+            "warnings",
+            "summary"
+          ]
+        },
+        "_debug": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    },
+    "annotations": {
+      "title": "Explain a code path",
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true
+    }
+  },
+  {
+    "name": "collect_evidence",
+    "title": "Collect cited evidence",
+    "description": "Use when you already have a claim, hypothesis, or review point and need a compact bundle of grounded file:line evidence with snippets. Best for verifying facts before replying or reviewing a change.",
+    "inputSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "claim": {
+          "type": "string",
+          "description": "The claim or hypothesis to verify."
+        },
+        "repo_root": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "knownFiles": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "knownSymbols": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "knownText": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "session": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "claim"
+      ]
+    },
+    "outputSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "directAnswer",
+        "status",
+        "targets",
+        "evidence",
+        "uncertainties",
+        "nextAction",
+        "evidenceQuality",
+        "failure"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "type": "integer",
+          "const": 1
+        },
+        "directAnswer": {
+          "type": "string"
+        },
+        "status": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "confidence": {
+              "type": "string",
+              "enum": [
+                "low",
+                "medium",
+                "high"
+              ]
+            },
+            "verification": {
+              "type": "string",
+              "enum": [
+                "verified",
+                "targeted_read_needed",
+                "follow_up_needed",
+                "broad_search_needed"
+              ]
+            },
+            "complete": {
+              "type": "boolean"
+            },
+            "warnings": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "confidence",
+            "verification",
+            "complete",
+            "warnings"
+          ]
+        },
+        "targets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "startLine": {
+                "type": "integer"
+              },
+              "endLine": {
+                "type": "integer"
+              },
+              "role": {
+                "type": "string",
+                "enum": [
+                  "edit",
+                  "read",
+                  "test",
+                  "config",
+                  "context",
+                  "reference"
+                ]
+              },
+              "reason": {
+                "type": "string"
+              },
+              "evidenceRefs": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "path",
+              "role",
+              "reason",
+              "evidenceRefs"
+            ]
+          }
+        },
+        "discoveredPaths": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "file",
+                  "dir",
+                  "unknown"
+                ]
+              },
+              "sourceTool": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path",
+              "kind",
+              "sourceTool",
+              "reason"
+            ]
+          }
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "startLine": {
+                "type": "integer"
+              },
+              "endLine": {
+                "type": "integer"
+              },
+              "why": {
+                "type": "string"
+              },
+              "snippet": {
+                "type": "string"
+              },
+              "redacted": {
+                "type": "boolean"
+              },
+              "redactions": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "groundingStatus": {
+                "type": "string",
+                "enum": [
+                  "exact",
+                  "partial"
+                ]
+              },
+              "evidenceType": {
+                "type": "string",
+                "enum": [
+                  "file_range",
+                  "git_commit",
+                  "git_blame",
+                  "git_diff_hunk"
+                ]
+              },
+              "sha": {
+                "type": "string"
+              },
+              "author": {
+                "type": "string"
+              },
+              "commit": {
+                "type": "string"
+              },
+              "oldPath": {
+                "type": "string"
+              },
+              "newPath": {
+                "type": "string"
+              },
+              "newStartLine": {
+                "type": "integer"
+              },
+              "newEndLine": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "path",
+              "startLine",
+              "endLine",
+              "why"
+            ]
+          }
+        },
+        "uncertainties": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "nextAction": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": [
+                "stop",
+                "read_target",
+                "explore_followup",
+                "ask_user"
+              ]
+            },
+            "reason": {
+              "type": "string"
+            },
+            "query": {
+              "type": "string"
+            },
+            "target": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "startLine": {
+                  "type": "integer"
+                },
+                "endLine": {
+                  "type": "integer"
+                },
+                "role": {
+                  "type": "string",
+                  "enum": [
+                    "edit",
+                    "read",
+                    "test",
+                    "config",
+                    "context",
+                    "reference"
+                  ]
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "evidenceRefs": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "path",
+                "role",
+                "reason",
+                "evidenceRefs"
+              ]
+            }
+          },
+          "required": [
+            "type",
+            "reason"
+          ]
+        },
+        "evidenceQuality": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "level": {
+              "type": "string",
+              "enum": [
+                "low",
+                "medium",
+                "high"
+              ]
+            },
+            "exactCount": {
+              "type": "integer"
+            },
+            "partialCount": {
+              "type": "integer"
+            },
+            "droppedCount": {
+              "type": "integer"
+            },
+            "fileCount": {
+              "type": "integer"
+            },
+            "warnings": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "summary": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "level",
+            "exactCount",
+            "partialCount",
+            "droppedCount",
+            "fileCount",
+            "warnings",
+            "summary"
+          ]
+        },
+        "failure": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "category": {
+                  "type": "string",
+                  "enum": [
+                    "execution",
+                    "input",
+                    "provider",
+                    "internal"
+                  ]
+                },
+                "reason": {
+                  "type": "string",
+                  "enum": [
+                    "budget_exhausted",
+                    "tool_errors",
+                    "aborted",
+                    "invalid_session",
+                    "repo_mismatch",
+                    "invalid_arguments",
+                    "provider_error",
+                    "access_denied",
+                    "invalid_final_response"
+                  ]
+                },
+                "message": {
+                  "type": "string"
+                },
+                "retry": {
+                  "anyOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "tool": {
+                          "type": "string",
+                          "enum": [
+                            "explore_repo",
+                            "find_relevant_code",
+                            "collect_evidence",
+                            "trace_symbol",
+                            "map_change_impact",
+                            "review_change_context",
+                            "explore"
+                          ]
+                        },
+                        "hints": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "args": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "properties": {
+                            "task": {
+                              "type": "string"
+                            },
+                            "query": {
+                              "type": "string"
+                            },
+                            "symbol": {
+                              "type": "string"
+                            },
+                            "change": {
+                              "type": "string"
+                            },
+                            "pathQuery": {
+                              "type": "string"
+                            },
+                            "claim": {
+                              "type": "string"
+                            },
+                            "reviewGoal": {
+                              "type": "string"
+                            },
+                            "prompt": {
+                              "type": "string"
+                            },
+                            "scope": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "knownFiles": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "knownSymbols": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "knownText": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "hints": {
+                              "type": "object",
+                              "additionalProperties": false,
+                              "properties": {
+                                "symbols": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string"
+                                  }
+                                },
+                                "files": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string"
+                                  }
+                                },
+                                "regex": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string"
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        },
+                        "expectedImprovement": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "tool",
+                        "hints"
+                      ]
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "category",
+                "reason",
+                "message",
+                "retry"
+              ]
+            }
+          ]
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "session": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "created",
+                "reused",
+                "fallback"
+              ]
+            },
+            "remainingCalls": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "id",
+            "status",
+            "remainingCalls"
+          ]
+        },
+        "searchCoverage": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "scope": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "scopeLimited": {
+              "type": "boolean"
+            },
+            "filesRead": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "grepCalls": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "listDirCalls": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "symbolCalls": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "toolResultsTruncated": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "stoppedByBudget": {
+              "type": "boolean"
+            },
+            "warnings": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "summary": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "scope",
+            "scopeLimited",
+            "filesRead",
+            "grepCalls",
+            "listDirCalls",
+            "symbolCalls",
+            "toolResultsTruncated",
+            "stoppedByBudget",
+            "warnings",
+            "summary"
+          ]
+        },
+        "_debug": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    },
+    "annotations": {
+      "title": "Collect cited evidence",
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true
+    }
+  },
+  {
+    "name": "review_change_context",
+    "title": "Review change context",
+    "description": "Use for PR/review preparation or recent-change analysis when you need what changed, why it matters, and which files deserve review attention. Combines git-guided discovery with grounded code evidence.",
+    "inputSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "reviewGoal": {
+          "type": "string",
+          "description": "What to review or validate."
+        },
+        "since": {
+          "type": "string"
+        },
+        "until": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "repo_root": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "session": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "reviewGoal"
+      ]
+    },
+    "outputSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "directAnswer",
+        "status",
+        "targets",
+        "evidence",
+        "uncertainties",
+        "nextAction",
+        "evidenceQuality",
+        "failure"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "type": "integer",
+          "const": 1
+        },
+        "directAnswer": {
+          "type": "string"
+        },
+        "status": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "confidence": {
+              "type": "string",
+              "enum": [
+                "low",
+                "medium",
+                "high"
+              ]
+            },
+            "verification": {
+              "type": "string",
+              "enum": [
+                "verified",
+                "targeted_read_needed",
+                "follow_up_needed",
+                "broad_search_needed"
+              ]
+            },
+            "complete": {
+              "type": "boolean"
+            },
+            "warnings": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "confidence",
+            "verification",
+            "complete",
+            "warnings"
+          ]
+        },
+        "targets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "startLine": {
+                "type": "integer"
+              },
+              "endLine": {
+                "type": "integer"
+              },
+              "role": {
+                "type": "string",
+                "enum": [
+                  "edit",
+                  "read",
+                  "test",
+                  "config",
+                  "context",
+                  "reference"
+                ]
+              },
+              "reason": {
+                "type": "string"
+              },
+              "evidenceRefs": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "path",
+              "role",
+              "reason",
+              "evidenceRefs"
+            ]
+          }
+        },
+        "discoveredPaths": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "file",
+                  "dir",
+                  "unknown"
+                ]
+              },
+              "sourceTool": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path",
+              "kind",
+              "sourceTool",
+              "reason"
+            ]
+          }
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "startLine": {
+                "type": "integer"
+              },
+              "endLine": {
+                "type": "integer"
+              },
+              "why": {
+                "type": "string"
+              },
+              "snippet": {
+                "type": "string"
+              },
+              "redacted": {
+                "type": "boolean"
+              },
+              "redactions": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "groundingStatus": {
+                "type": "string",
+                "enum": [
+                  "exact",
+                  "partial"
+                ]
+              },
+              "evidenceType": {
+                "type": "string",
+                "enum": [
+                  "file_range",
+                  "git_commit",
+                  "git_blame",
+                  "git_diff_hunk"
+                ]
+              },
+              "sha": {
+                "type": "string"
+              },
+              "author": {
+                "type": "string"
+              },
+              "commit": {
+                "type": "string"
+              },
+              "oldPath": {
+                "type": "string"
+              },
+              "newPath": {
+                "type": "string"
+              },
+              "newStartLine": {
+                "type": "integer"
+              },
+              "newEndLine": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "path",
+              "startLine",
+              "endLine",
+              "why"
+            ]
+          }
+        },
+        "uncertainties": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "nextAction": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": [
+                "stop",
+                "read_target",
+                "explore_followup",
+                "ask_user"
+              ]
+            },
+            "reason": {
+              "type": "string"
+            },
+            "query": {
+              "type": "string"
+            },
+            "target": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "startLine": {
+                  "type": "integer"
+                },
+                "endLine": {
+                  "type": "integer"
+                },
+                "role": {
+                  "type": "string",
+                  "enum": [
+                    "edit",
+                    "read",
+                    "test",
+                    "config",
+                    "context",
+                    "reference"
+                  ]
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "evidenceRefs": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "path",
+                "role",
+                "reason",
+                "evidenceRefs"
+              ]
+            }
+          },
+          "required": [
+            "type",
+            "reason"
+          ]
+        },
+        "evidenceQuality": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "level": {
+              "type": "string",
+              "enum": [
+                "low",
+                "medium",
+                "high"
+              ]
+            },
+            "exactCount": {
+              "type": "integer"
+            },
+            "partialCount": {
+              "type": "integer"
+            },
+            "droppedCount": {
+              "type": "integer"
+            },
+            "fileCount": {
+              "type": "integer"
+            },
+            "warnings": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "summary": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "level",
+            "exactCount",
+            "partialCount",
+            "droppedCount",
+            "fileCount",
+            "warnings",
+            "summary"
+          ]
+        },
+        "failure": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "category": {
+                  "type": "string",
+                  "enum": [
+                    "execution",
+                    "input",
+                    "provider",
+                    "internal"
+                  ]
+                },
+                "reason": {
+                  "type": "string",
+                  "enum": [
+                    "budget_exhausted",
+                    "tool_errors",
+                    "aborted",
+                    "invalid_session",
+                    "repo_mismatch",
+                    "invalid_arguments",
+                    "provider_error",
+                    "access_denied",
+                    "invalid_final_response"
+                  ]
+                },
+                "message": {
+                  "type": "string"
+                },
+                "retry": {
+                  "anyOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "tool": {
+                          "type": "string",
+                          "enum": [
+                            "explore_repo",
+                            "find_relevant_code",
+                            "collect_evidence",
+                            "trace_symbol",
+                            "map_change_impact",
+                            "review_change_context",
+                            "explore"
+                          ]
+                        },
+                        "hints": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "args": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "properties": {
+                            "task": {
+                              "type": "string"
+                            },
+                            "query": {
+                              "type": "string"
+                            },
+                            "symbol": {
+                              "type": "string"
+                            },
+                            "change": {
+                              "type": "string"
+                            },
+                            "pathQuery": {
+                              "type": "string"
+                            },
+                            "claim": {
+                              "type": "string"
+                            },
+                            "reviewGoal": {
+                              "type": "string"
+                            },
+                            "prompt": {
+                              "type": "string"
+                            },
+                            "scope": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "knownFiles": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "knownSymbols": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "knownText": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "hints": {
+                              "type": "object",
+                              "additionalProperties": false,
+                              "properties": {
+                                "symbols": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string"
+                                  }
+                                },
+                                "files": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string"
+                                  }
+                                },
+                                "regex": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string"
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        },
+                        "expectedImprovement": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "tool",
+                        "hints"
+                      ]
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "category",
+                "reason",
+                "message",
+                "retry"
+              ]
+            }
+          ]
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "session": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "created",
+                "reused",
+                "fallback"
+              ]
+            },
+            "remainingCalls": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "id",
+            "status",
+            "remainingCalls"
+          ]
+        },
+        "searchCoverage": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "scope": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "scopeLimited": {
+              "type": "boolean"
+            },
+            "filesRead": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "grepCalls": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "listDirCalls": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "symbolCalls": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "toolResultsTruncated": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "stoppedByBudget": {
+              "type": "boolean"
+            },
+            "warnings": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "summary": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "scope",
+            "scopeLimited",
+            "filesRead",
+            "grepCalls",
+            "listDirCalls",
+            "symbolCalls",
+            "toolResultsTruncated",
+            "stoppedByBudget",
+            "warnings",
+            "summary"
+          ]
+        },
+        "_debug": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    },
+    "annotations": {
+      "title": "Review change context",
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true
+    }
+  },
+  {
+    "name": "find_entrypoints",
+    "title": "Find entry points",
+    "description": "Use to surface where execution starts in a repository: HTTP routes, CLI commands, cron handlers, MCP tools, or event handlers. Faster than running find_relevant_code with manual regex hints. Detection is regex-based and may include false positives — verify cited lines before acting.",
+    "inputSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "entryKind": {
+          "type": "string",
+          "enum": [
+            "http",
+            "cli",
+            "cron",
+            "mcp",
+            "event",
+            "all"
+          ],
+          "description": "Optional. Restrict detection to one entry kind. Defaults to \"all\"."
+        },
+        "repo_root": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "session": {
+          "type": "string"
+        }
+      }
+    },
+    "outputSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "directAnswer",
+        "status",
+        "targets",
+        "evidence",
+        "uncertainties",
+        "nextAction",
+        "evidenceQuality",
+        "failure"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "type": "integer",
+          "const": 1
+        },
+        "directAnswer": {
+          "type": "string"
+        },
+        "status": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "confidence": {
+              "type": "string",
+              "enum": [
+                "low",
+                "medium",
+                "high"
+              ]
+            },
+            "verification": {
+              "type": "string",
+              "enum": [
+                "verified",
+                "targeted_read_needed",
+                "follow_up_needed",
+                "broad_search_needed"
+              ]
+            },
+            "complete": {
+              "type": "boolean"
+            },
+            "warnings": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "confidence",
+            "verification",
+            "complete",
+            "warnings"
+          ]
+        },
+        "targets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "startLine": {
+                "type": "integer"
+              },
+              "endLine": {
+                "type": "integer"
+              },
+              "role": {
+                "type": "string",
+                "enum": [
+                  "edit",
+                  "read",
+                  "test",
+                  "config",
+                  "context",
+                  "reference"
+                ]
+              },
+              "reason": {
+                "type": "string"
+              },
+              "evidenceRefs": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "path",
+              "role",
+              "reason",
+              "evidenceRefs"
+            ]
+          }
+        },
+        "discoveredPaths": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "file",
+                  "dir",
+                  "unknown"
+                ]
+              },
+              "sourceTool": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path",
+              "kind",
+              "sourceTool",
+              "reason"
+            ]
+          }
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "startLine": {
+                "type": "integer"
+              },
+              "endLine": {
+                "type": "integer"
+              },
+              "why": {
+                "type": "string"
+              },
+              "snippet": {
+                "type": "string"
+              },
+              "redacted": {
+                "type": "boolean"
+              },
+              "redactions": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "groundingStatus": {
+                "type": "string",
+                "enum": [
+                  "exact",
+                  "partial"
+                ]
+              },
+              "evidenceType": {
+                "type": "string",
+                "enum": [
+                  "file_range",
+                  "git_commit",
+                  "git_blame",
+                  "git_diff_hunk"
+                ]
+              },
+              "sha": {
+                "type": "string"
+              },
+              "author": {
+                "type": "string"
+              },
+              "commit": {
+                "type": "string"
+              },
+              "oldPath": {
+                "type": "string"
+              },
+              "newPath": {
+                "type": "string"
+              },
+              "newStartLine": {
+                "type": "integer"
+              },
+              "newEndLine": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "path",
+              "startLine",
+              "endLine",
+              "why"
+            ]
+          }
+        },
+        "uncertainties": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "nextAction": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": [
+                "stop",
+                "read_target",
+                "explore_followup",
+                "ask_user"
+              ]
+            },
+            "reason": {
+              "type": "string"
+            },
+            "query": {
+              "type": "string"
+            },
+            "target": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "startLine": {
+                  "type": "integer"
+                },
+                "endLine": {
+                  "type": "integer"
+                },
+                "role": {
+                  "type": "string",
+                  "enum": [
+                    "edit",
+                    "read",
+                    "test",
+                    "config",
+                    "context",
+                    "reference"
+                  ]
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "evidenceRefs": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "path",
+                "role",
+                "reason",
+                "evidenceRefs"
+              ]
+            }
+          },
+          "required": [
+            "type",
+            "reason"
+          ]
+        },
+        "evidenceQuality": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "level": {
+              "type": "string",
+              "enum": [
+                "low",
+                "medium",
+                "high"
+              ]
+            },
+            "exactCount": {
+              "type": "integer"
+            },
+            "partialCount": {
+              "type": "integer"
+            },
+            "droppedCount": {
+              "type": "integer"
+            },
+            "fileCount": {
+              "type": "integer"
+            },
+            "warnings": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "summary": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "level",
+            "exactCount",
+            "partialCount",
+            "droppedCount",
+            "fileCount",
+            "warnings",
+            "summary"
+          ]
+        },
+        "failure": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "category": {
+                  "type": "string",
+                  "enum": [
+                    "execution",
+                    "input",
+                    "provider",
+                    "internal"
+                  ]
+                },
+                "reason": {
+                  "type": "string",
+                  "enum": [
+                    "budget_exhausted",
+                    "tool_errors",
+                    "aborted",
+                    "invalid_session",
+                    "repo_mismatch",
+                    "invalid_arguments",
+                    "provider_error",
+                    "access_denied",
+                    "invalid_final_response"
+                  ]
+                },
+                "message": {
+                  "type": "string"
+                },
+                "retry": {
+                  "anyOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "tool": {
+                          "type": "string",
+                          "enum": [
+                            "explore_repo",
+                            "find_relevant_code",
+                            "collect_evidence",
+                            "trace_symbol",
+                            "map_change_impact",
+                            "review_change_context",
+                            "explore"
+                          ]
+                        },
+                        "hints": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "args": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "properties": {
+                            "task": {
+                              "type": "string"
+                            },
+                            "query": {
+                              "type": "string"
+                            },
+                            "symbol": {
+                              "type": "string"
+                            },
+                            "change": {
+                              "type": "string"
+                            },
+                            "pathQuery": {
+                              "type": "string"
+                            },
+                            "claim": {
+                              "type": "string"
+                            },
+                            "reviewGoal": {
+                              "type": "string"
+                            },
+                            "prompt": {
+                              "type": "string"
+                            },
+                            "scope": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "knownFiles": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "knownSymbols": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "knownText": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "hints": {
+                              "type": "object",
+                              "additionalProperties": false,
+                              "properties": {
+                                "symbols": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string"
+                                  }
+                                },
+                                "files": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string"
+                                  }
+                                },
+                                "regex": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string"
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        },
+                        "expectedImprovement": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "tool",
+                        "hints"
+                      ]
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "category",
+                "reason",
+                "message",
+                "retry"
+              ]
+            }
+          ]
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "session": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "created",
+                "reused",
+                "fallback"
+              ]
+            },
+            "remainingCalls": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "id",
+            "status",
+            "remainingCalls"
+          ]
+        },
+        "searchCoverage": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "scope": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "scopeLimited": {
+              "type": "boolean"
+            },
+            "filesRead": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "grepCalls": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "listDirCalls": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "symbolCalls": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "toolResultsTruncated": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "stoppedByBudget": {
+              "type": "boolean"
+            },
+            "warnings": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "summary": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "scope",
+            "scopeLimited",
+            "filesRead",
+            "grepCalls",
+            "listDirCalls",
+            "symbolCalls",
+            "toolResultsTruncated",
+            "stoppedByBudget",
+            "warnings",
+            "summary"
+          ]
+        },
+        "_debug": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    },
+    "annotations": {
+      "title": "Find entry points",
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true
+    }
+  },
+  {
+    "name": "explore_repo",
+    "title": "Autonomous repository explorer",
+    "description": "Use FIRST for read-only code discovery when the exact files are unknown, the task may span 3+ files, or you need cross-file evidence: architecture, symbol usage, dependency/call tracing, bug root cause, change impact, config origin, or evidence collection. Do NOT use for a single known file/range or when immediate editing is cheaper. Returns structured JSON with directAnswer, status, targets, grounded file:line evidence with snippets, and nextAction. After this tool, avoid broad grep/read; only read cited targets needed for verification or edits. Omit budget and hints.strategy unless required by an advanced workflow. Pass sessionId as \"session\" for follow-up calls.",
+    "inputSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "task": {
+          "type": "string",
+          "description": "Natural-language exploration request. Be specific for best results: \"How does the auth middleware validate JWT tokens and where is it applied?\" is better than \"explain auth\"."
+        },
+        "repo_root": {
+          "type": "string",
+          "description": "Repository root path. Defaults to the current working directory of the MCP server process."
+        },
+        "scope": {
+          "type": "array",
+          "description": "Path prefixes or glob patterns to focus exploration. Example: [\"src/api/**\", \"lib/auth/\"]. Omit to search the entire repo.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "hints": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Starting hints to accelerate exploration. Provide known symbols, file paths, or regex patterns so the explorer skips broad scanning.",
+          "properties": {
+            "symbols": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Known symbol names to start with (e.g. [\"handleAuth\", \"JwtValidator\"])."
+            },
+            "files": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Known file paths to examine first (e.g. [\"src/middleware/auth.ts\"])."
+            },
+            "regex": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Advanced only. Prefer wrapper knownText for literal anchors; use regex only when the caller already knows an exact pattern."
+            },
+            "strategy": {
+              "type": "string",
+              "enum": [
+                "symbol-first",
+                "reference-chase",
+                "git-guided",
+                "breadth-first",
+                "blame-guided",
+                "pattern-scan"
+              ],
+              "description": "Advanced only. Omit for normal agent use; strategy is auto-detected from the task and known anchors."
+            }
+          }
+        },
+        "session": {
+          "type": "string",
+          "description": "Optional session ID returned by a previous explore_repo call. When provided, the explorer carries over discovered file paths and prior summaries to accelerate follow-up exploration."
+        },
+        "language": {
+          "type": "string",
+          "description": "Advanced/optional. Omit for normal agent use; the explorer infers response language from the task text. Use only when a workflow must force a BCP-47 language tag such as \"ko\", \"en\", or \"ja\"."
+        }
+      },
+      "required": [
+        "task"
+      ]
+    },
+    "outputSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "directAnswer",
+        "status",
+        "targets",
+        "evidence",
+        "uncertainties",
+        "nextAction",
+        "evidenceQuality",
+        "failure"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "type": "integer",
+          "const": 1
+        },
+        "directAnswer": {
+          "type": "string"
+        },
+        "status": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "confidence": {
+              "type": "string",
+              "enum": [
+                "low",
+                "medium",
+                "high"
+              ]
+            },
+            "verification": {
+              "type": "string",
+              "enum": [
+                "verified",
+                "targeted_read_needed",
+                "follow_up_needed",
+                "broad_search_needed"
+              ]
+            },
+            "complete": {
+              "type": "boolean"
+            },
+            "warnings": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "confidence",
+            "verification",
+            "complete",
+            "warnings"
+          ]
+        },
+        "targets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "startLine": {
+                "type": "integer"
+              },
+              "endLine": {
+                "type": "integer"
+              },
+              "role": {
+                "type": "string",
+                "enum": [
+                  "edit",
+                  "read",
+                  "test",
+                  "config",
+                  "context",
+                  "reference"
+                ]
+              },
+              "reason": {
+                "type": "string"
+              },
+              "evidenceRefs": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "path",
+              "role",
+              "reason",
+              "evidenceRefs"
+            ]
+          }
+        },
+        "discoveredPaths": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "file",
+                  "dir",
+                  "unknown"
+                ]
+              },
+              "sourceTool": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path",
+              "kind",
+              "sourceTool",
+              "reason"
+            ]
+          }
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "startLine": {
+                "type": "integer"
+              },
+              "endLine": {
+                "type": "integer"
+              },
+              "why": {
+                "type": "string"
+              },
+              "snippet": {
+                "type": "string"
+              },
+              "redacted": {
+                "type": "boolean"
+              },
+              "redactions": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "groundingStatus": {
+                "type": "string",
+                "enum": [
+                  "exact",
+                  "partial"
+                ]
+              },
+              "evidenceType": {
+                "type": "string",
+                "enum": [
+                  "file_range",
+                  "git_commit",
+                  "git_blame",
+                  "git_diff_hunk"
+                ]
+              },
+              "sha": {
+                "type": "string"
+              },
+              "author": {
+                "type": "string"
+              },
+              "commit": {
+                "type": "string"
+              },
+              "oldPath": {
+                "type": "string"
+              },
+              "newPath": {
+                "type": "string"
+              },
+              "newStartLine": {
+                "type": "integer"
+              },
+              "newEndLine": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "path",
+              "startLine",
+              "endLine",
+              "why"
+            ]
+          }
+        },
+        "uncertainties": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "nextAction": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": [
+                "stop",
+                "read_target",
+                "explore_followup",
+                "ask_user"
+              ]
+            },
+            "reason": {
+              "type": "string"
+            },
+            "query": {
+              "type": "string"
+            },
+            "target": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "startLine": {
+                  "type": "integer"
+                },
+                "endLine": {
+                  "type": "integer"
+                },
+                "role": {
+                  "type": "string",
+                  "enum": [
+                    "edit",
+                    "read",
+                    "test",
+                    "config",
+                    "context",
+                    "reference"
+                  ]
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "evidenceRefs": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "path",
+                "role",
+                "reason",
+                "evidenceRefs"
+              ]
+            }
+          },
+          "required": [
+            "type",
+            "reason"
+          ]
+        },
+        "evidenceQuality": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "level": {
+              "type": "string",
+              "enum": [
+                "low",
+                "medium",
+                "high"
+              ]
+            },
+            "exactCount": {
+              "type": "integer"
+            },
+            "partialCount": {
+              "type": "integer"
+            },
+            "droppedCount": {
+              "type": "integer"
+            },
+            "fileCount": {
+              "type": "integer"
+            },
+            "warnings": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "summary": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "level",
+            "exactCount",
+            "partialCount",
+            "droppedCount",
+            "fileCount",
+            "warnings",
+            "summary"
+          ]
+        },
+        "failure": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "category": {
+                  "type": "string",
+                  "enum": [
+                    "execution",
+                    "input",
+                    "provider",
+                    "internal"
+                  ]
+                },
+                "reason": {
+                  "type": "string",
+                  "enum": [
+                    "budget_exhausted",
+                    "tool_errors",
+                    "aborted",
+                    "invalid_session",
+                    "repo_mismatch",
+                    "invalid_arguments",
+                    "provider_error",
+                    "access_denied",
+                    "invalid_final_response"
+                  ]
+                },
+                "message": {
+                  "type": "string"
+                },
+                "retry": {
+                  "anyOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "tool": {
+                          "type": "string",
+                          "enum": [
+                            "explore_repo",
+                            "find_relevant_code",
+                            "collect_evidence",
+                            "trace_symbol",
+                            "map_change_impact",
+                            "review_change_context",
+                            "explore"
+                          ]
+                        },
+                        "hints": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "args": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "properties": {
+                            "task": {
+                              "type": "string"
+                            },
+                            "query": {
+                              "type": "string"
+                            },
+                            "symbol": {
+                              "type": "string"
+                            },
+                            "change": {
+                              "type": "string"
+                            },
+                            "pathQuery": {
+                              "type": "string"
+                            },
+                            "claim": {
+                              "type": "string"
+                            },
+                            "reviewGoal": {
+                              "type": "string"
+                            },
+                            "prompt": {
+                              "type": "string"
+                            },
+                            "scope": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "knownFiles": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "knownSymbols": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "knownText": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "hints": {
+                              "type": "object",
+                              "additionalProperties": false,
+                              "properties": {
+                                "symbols": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string"
+                                  }
+                                },
+                                "files": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string"
+                                  }
+                                },
+                                "regex": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string"
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        },
+                        "expectedImprovement": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "tool",
+                        "hints"
+                      ]
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "category",
+                "reason",
+                "message",
+                "retry"
+              ]
+            }
+          ]
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "session": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "created",
+                "reused",
+                "fallback"
+              ]
+            },
+            "remainingCalls": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "id",
+            "status",
+            "remainingCalls"
+          ]
+        },
+        "searchCoverage": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "scope": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "scopeLimited": {
+              "type": "boolean"
+            },
+            "filesRead": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "grepCalls": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "listDirCalls": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "symbolCalls": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "toolResultsTruncated": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "stoppedByBudget": {
+              "type": "boolean"
+            },
+            "warnings": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "summary": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "scope",
+            "scopeLimited",
+            "filesRead",
+            "grepCalls",
+            "listDirCalls",
+            "symbolCalls",
+            "toolResultsTruncated",
+            "stoppedByBudget",
+            "warnings",
+            "summary"
+          ]
+        },
+        "_debug": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    },
+    "annotations": {
+      "title": "Autonomous repository explorer",
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true
+    }
+  },
+  {
+    "name": "explore",
+    "title": "Free-form repository exploration",
+    "description": "Use for a user-facing Markdown investigation report with inline file:line citations. Best for architecture walkthroughs, onboarding explanations, code review context, or broad \"how does X work?\" answers. Do NOT use when the parent agent needs structured edit planning or programmatic next steps; use explore_repo instead. Omit thoroughness in normal agent use unless an advanced workflow explicitly requires quick, normal, or deep.",
+    "inputSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "prompt": {
+          "type": "string",
+          "description": "What to explore — a natural-language question or task."
+        },
+        "thoroughness": {
+          "type": "string",
+          "enum": [
+            "quick",
+            "normal",
+            "deep"
+          ],
+          "description": "Advanced only. Omit for normal agent use; defaults to normal report depth."
+        },
+        "scope": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Optional path prefixes to focus on."
+        },
+        "repo_root": {
+          "type": "string",
+          "description": "Repository root path."
+        },
+        "session": {
+          "type": "string",
+          "description": "Session ID from a previous call."
+        },
+        "language": {
+          "type": "string",
+          "description": "BCP-47 language tag for the report (e.g. \"ko\", \"en\")."
+        },
+        "context": {
+          "type": "string",
+          "description": "Optional additional context from the parent agent."
+        }
+      },
+      "required": [
+        "prompt"
+      ]
+    },
+    "annotations": {
+      "title": "Free-form repository exploration",
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true
+    }
+  }
+]

@@ -1,0 +1,670 @@
+{
+  "tool": "trace_symbol",
+  "repo": "studious-memory",
+  "args": {
+    "repo_root": "/home/kyubr/IdeaProjects/studious-memory",
+    "scope": [
+      "backend/**",
+      "frontend/src/**",
+      "extensions/firefox-inbox/src/**",
+      "scripts/**",
+      "android/**"
+    ],
+    "symbol": "scoped_tool"
+  },
+  "elapsedMs": 7033,
+  "error": null,
+  "isError": false,
+  "summary": {
+    "directAnswer": "scoped_tool is a decorator factory defined in backend/app/mcp/server.py (lines 79-91) that adds scope-based authorization to MCP tool functions. It accepts *required_scopes: str, returns a decorator, registers the function as an MCP tool with scope metadata, validates authorization via require_mcp_scopes() before execution, and uses scope constants defined in backend/app/mcp/authz.py (lines 5-13).",
+    "status": {
+      "confidence": "high",
+      "verification": "verified",
+      "complete": true,
+      "warnings": [
+        "1 evidence item(s) are grounded only by grep, blame, or nearby line observations."
+      ]
+    },
+    "evidenceQuality": {
+      "level": "high",
+      "exactCount": 5,
+      "partialCount": 1,
+      "droppedCount": 0,
+      "fileCount": 3,
+      "warnings": [
+        "1 evidence item(s) are grounded only by grep, blame, or nearby line observations."
+      ],
+      "summary": "Verified: 5 files read, 3 grep searches, 1 symbol lookups, 5/6 evidence items grounded, cross-verified across 3 files. All evidence grounded in inspected code."
+    },
+    "failure": null,
+    "nextAction": {
+      "type": "stop",
+      "reason": "Explorer result is complete for the requested read-only investigation."
+    },
+    "searchCoverage": {
+      "scope": [
+        "backend/**",
+        "frontend/src/**",
+        "extensions/firefox-inbox/src/**",
+        "scripts/**",
+        "android/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 5,
+      "grepCalls": 3,
+      "listDirCalls": 0,
+      "symbolCalls": 1,
+      "toolResultsTruncated": 0,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: backend/**, frontend/src/**, extensions/firefox-inbox/src/**, scripts/**, android/**"
+      ],
+      "summary": "scope-limited search across backend/**, frontend/src/**, extensions/firefox-inbox/src/**, scripts/**, android/**; 5 file read(s), 3 grep search(es)."
+    },
+    "critic": null,
+    "sessionId": "sess_ad05f770839640c3",
+    "session": {
+      "id": "sess_ad05f770839640c3",
+      "status": "created",
+      "remainingCalls": 4
+    },
+    "targets": [
+      {
+        "path": "backend/app/mcp/server.py",
+        "role": "context",
+        "reason": "Complete definition of scoped_tool decorator factory",
+        "evidenceRefs": [
+          "E1"
+        ],
+        "startLine": 79,
+        "endLine": 91
+      },
+      {
+        "path": "backend/app/mcp/server.py",
+        "role": "context",
+        "reason": "Imports showing dependencies (Callable, wraps, require_mcp_scopes)",
+        "evidenceRefs": [
+          "E2"
+        ],
+        "startLine": 1,
+        "endLine": 19
+      },
+      {
+        "path": "backend/app/mcp/authz.py",
+        "role": "context",
+        "reason": "Scope constant definitions (MCP_SCOPE_MEMORY_READ, MEMORY_WRITE, etc.)",
+        "evidenceRefs": [
+          "E3"
+        ],
+        "startLine": 5,
+        "endLine": 13
+      },
+      {
+        "path": "backend/app/mcp/authz.py",
+        "role": "context",
+        "reason": "require_mcp_scopes implementation for authorization checking",
+        "evidenceRefs": [
+          "E4"
+        ],
+        "startLine": 59,
+        "endLine": 67
+      },
+      {
+        "path": "backend/app/mcp/server.py",
+        "role": "read",
+        "reason": "Example usage: @scoped_tool(MCP_SCOPE_MEMORY_WRITE) on process_input",
+        "evidenceRefs": [
+          "E5"
+        ],
+        "startLine": 123,
+        "endLine": 130
+      },
+      {
+        "path": "scripts/generate_contract_snapshot.py",
+        "role": "read",
+        "reason": "Script references scoped_tool as an AST node identifier",
+        "evidenceRefs": [
+          "E6"
+        ],
+        "startLine": 166,
+        "endLine": 166
+      }
+    ],
+    "discoveredPathsCount": 4,
+    "evidence": [
+      {
+        "id": "E1",
+        "path": "backend/app/mcp/server.py",
+        "startLine": 79,
+        "endLine": 91,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Definition: decorator factory accepting *required_scopes, wrapping with require_mcp_scopes check",
+        "snippet": "79: def scoped_tool(*required_scopes: str):\n80:     def _decorator(func: Callable[..., Any]):\n81:         @mcp.tool(meta={\"required_scopes\": list(required_scopes)})\n82:         @wraps(func)\n83:         async def _wrapped(*args: Any, **kwargs: Any):\n84:             require_mcp_scopes(*required_scopes)\n85:             return await func(*args, **kwargs)\n86: \n87:         return _wrapped\n88: \n89:     return _decorator\n90: \n... [snippet truncated]"
+      },
+      {
+        "id": "E2",
+        "path": "backend/app/mcp/server.py",
+        "startLine": 1,
+        "endLine": 19,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Import statements showing Callable, wraps, Any, and require_mcp_scopes dependencies",
+        "snippet": "1: from collections.abc import Callable\n2: from functools import wraps\n3: from typing import Any\n4: \n5: from mcp.server.fastmcp import FastMCP\n6: \n7: from app.mcp.authz import (\n8:     MCP_SCOPE_APPROVAL_READ,\n9:     MCP_SCOPE_LOOP_WRITE,\n10:     MCP_SCOPE_MEMORY_READ,\n11:     MCP_SCOPE_MEMORY_WRITE,\n12:     MCP_SCOPE_NAVER_AGENT,\n... [snippet truncated]"
+      },
+      {
+        "id": "E3",
+        "path": "backend/app/mcp/authz.py",
+        "startLine": 5,
+        "endLine": 13,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Defines 9 scope constants used by scoped_tool (MEMORY_READ, MEMORY_WRITE, etc.)",
+        "snippet": "5: MCP_SCOPE_MEMORY_READ = \"maidbot.memory.read\"\n6: MCP_SCOPE_MEMORY_WRITE = \"maidbot.memory.write\"\n7: MCP_SCOPE_TODO_WRITE = \"maidbot.todo.write\"\n8: MCP_SCOPE_REMINDER_WRITE = \"maidbot.reminder.write\"\n9: MCP_SCOPE_SCHEDULE_WRITE = \"maidbot.schedule.write\"\n10: MCP_SCOPE_LOOP_WRITE = \"maidbot.loop.write\"\n11: MCP_SCOPE_APPROVAL_READ = \"maidbot.approval.read\"\n12: MCP_SCOPE_WEB_SEARCH = \"maidbot.web.search\"\n13: MCP_SCOPE_NAVER_AGENT = \"maidbot.naver.agent\""
+      },
+      {
+        "id": "E4",
+        "path": "backend/app/mcp/authz.py",
+        "startLine": 59,
+        "endLine": 67,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "require_mcp_scopes validates scopes, expands granted scopes, raises McpScopeError on failure",
+        "snippet": "59: def require_mcp_scopes(*required_scopes: str) -> None:\n60:     required = tuple(scope for scope in required_scopes if isinstance(scope, str) and scope.strip())\n61:     if not required:\n62:         return\n63: \n64:     granted = expand_mcp_scopes(get_mcp_scopes())\n65:     missing = tuple(scope for scope in required if scope not in granted)\n66:     if missing:\n67:         raise McpScopeError(missing)"
+      },
+      {
+        "id": "E5",
+        "path": "backend/app/mcp/server.py",
+        "startLine": 123,
+        "endLine": 130,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Shows scoped_tool usage as decorator requiring MCP_SCOPE_MEMORY_WRITE",
+        "snippet": "123: @scoped_tool(MCP_SCOPE_MEMORY_WRITE)\n124: async def process_input(\n125:     text: str | None = None,\n126:     image_base64: str | None = None,\n127:     image_mime: str | None = None,\n128:     context_enrichment: bool = False,\n129: ) -> dict:\n130:     \"\"\"주인님의 텍스트·이미지를 접수하여 AI 분석 후 지식·할일·일정으로 정리합니다."
+      },
+      {
+        "id": "E6",
+        "path": "scripts/generate_contract_snapshot.py",
+        "startLine": 166,
+        "endLine": 166,
+        "groundingStatus": "partial",
+        "evidenceType": "file_range",
+        "why": "AST node check referencing scoped_tool identifier in code generation",
+        "snippet": "166:             if isinstance(func, ast.Name) and func.id == \"scoped_tool\":"
+      }
+    ],
+    "uncertainties": [
+      "1 evidence item(s) are grounded only by grep, blame, or nearby line observations."
+    ],
+    "stats": {
+      "turns": 6,
+      "toolCalls": 9,
+      "filesRead": 5,
+      "grepCalls": 3,
+      "symbolCalls": 1,
+      "stoppedByBudget": false,
+      "elapsedMs": 7022,
+      "totalTokens": 45658
+    }
+  },
+  "structuredContent": {
+    "schemaVersion": 1,
+    "directAnswer": "scoped_tool is a decorator factory defined in backend/app/mcp/server.py (lines 79-91) that adds scope-based authorization to MCP tool functions. It accepts *required_scopes: str, returns a decorator, registers the function as an MCP tool with scope metadata, validates authorization via require_mcp_scopes() before execution, and uses scope constants defined in backend/app/mcp/authz.py (lines 5-13).",
+    "status": {
+      "confidence": "high",
+      "verification": "verified",
+      "complete": true,
+      "warnings": [
+        "1 evidence item(s) are grounded only by grep, blame, or nearby line observations."
+      ]
+    },
+    "targets": [
+      {
+        "path": "backend/app/mcp/server.py",
+        "role": "context",
+        "reason": "Complete definition of scoped_tool decorator factory",
+        "evidenceRefs": [
+          "E1"
+        ],
+        "startLine": 79,
+        "endLine": 91
+      },
+      {
+        "path": "backend/app/mcp/server.py",
+        "role": "context",
+        "reason": "Imports showing dependencies (Callable, wraps, require_mcp_scopes)",
+        "evidenceRefs": [
+          "E2"
+        ],
+        "startLine": 1,
+        "endLine": 19
+      },
+      {
+        "path": "backend/app/mcp/authz.py",
+        "role": "context",
+        "reason": "Scope constant definitions (MCP_SCOPE_MEMORY_READ, MEMORY_WRITE, etc.)",
+        "evidenceRefs": [
+          "E3"
+        ],
+        "startLine": 5,
+        "endLine": 13
+      },
+      {
+        "path": "backend/app/mcp/authz.py",
+        "role": "context",
+        "reason": "require_mcp_scopes implementation for authorization checking",
+        "evidenceRefs": [
+          "E4"
+        ],
+        "startLine": 59,
+        "endLine": 67
+      },
+      {
+        "path": "backend/app/mcp/server.py",
+        "role": "read",
+        "reason": "Example usage: @scoped_tool(MCP_SCOPE_MEMORY_WRITE) on process_input",
+        "evidenceRefs": [
+          "E5"
+        ],
+        "startLine": 123,
+        "endLine": 130
+      },
+      {
+        "path": "scripts/generate_contract_snapshot.py",
+        "role": "read",
+        "reason": "Script references scoped_tool as an AST node identifier",
+        "evidenceRefs": [
+          "E6"
+        ],
+        "startLine": 166,
+        "endLine": 166
+      }
+    ],
+    "discoveredPaths": [
+      {
+        "path": "backend/app/mcp/server.py",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "scripts/generate_contract_snapshot.py",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/app/mcp/authz.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "backend/app/capabilities/metadata.py",
+        "kind": "unknown",
+        "sourceTool": "repo_grep",
+        "reason": "Discovered from tool result."
+      }
+    ],
+    "evidence": [
+      {
+        "path": "backend/app/mcp/server.py",
+        "startLine": 79,
+        "endLine": 91,
+        "why": "Definition: decorator factory accepting *required_scopes, wrapping with require_mcp_scopes check",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E1",
+        "snippet": "79: def scoped_tool(*required_scopes: str):\n80:     def _decorator(func: Callable[..., Any]):\n81:         @mcp.tool(meta={\"required_scopes\": list(required_scopes)})\n82:         @wraps(func)\n83:         async def _wrapped(*args: Any, **kwargs: Any):\n84:             require_mcp_scopes(*required_scopes)\n85:             return await func(*args, **kwargs)\n86: \n87:         return _wrapped\n88: \n89:     return _decorator\n90: \n... [snippet truncated]"
+      },
+      {
+        "path": "backend/app/mcp/server.py",
+        "startLine": 1,
+        "endLine": 19,
+        "why": "Import statements showing Callable, wraps, Any, and require_mcp_scopes dependencies",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E2",
+        "snippet": "1: from collections.abc import Callable\n2: from functools import wraps\n3: from typing import Any\n4: \n5: from mcp.server.fastmcp import FastMCP\n6: \n7: from app.mcp.authz import (\n8:     MCP_SCOPE_APPROVAL_READ,\n9:     MCP_SCOPE_LOOP_WRITE,\n10:     MCP_SCOPE_MEMORY_READ,\n11:     MCP_SCOPE_MEMORY_WRITE,\n12:     MCP_SCOPE_NAVER_AGENT,\n... [snippet truncated]"
+      },
+      {
+        "path": "backend/app/mcp/authz.py",
+        "startLine": 5,
+        "endLine": 13,
+        "why": "Defines 9 scope constants used by scoped_tool (MEMORY_READ, MEMORY_WRITE, etc.)",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E3",
+        "snippet": "5: MCP_SCOPE_MEMORY_READ = \"maidbot.memory.read\"\n6: MCP_SCOPE_MEMORY_WRITE = \"maidbot.memory.write\"\n7: MCP_SCOPE_TODO_WRITE = \"maidbot.todo.write\"\n8: MCP_SCOPE_REMINDER_WRITE = \"maidbot.reminder.write\"\n9: MCP_SCOPE_SCHEDULE_WRITE = \"maidbot.schedule.write\"\n10: MCP_SCOPE_LOOP_WRITE = \"maidbot.loop.write\"\n11: MCP_SCOPE_APPROVAL_READ = \"maidbot.approval.read\"\n12: MCP_SCOPE_WEB_SEARCH = \"maidbot.web.search\"\n13: MCP_SCOPE_NAVER_AGENT = \"maidbot.naver.agent\""
+      },
+      {
+        "path": "backend/app/mcp/authz.py",
+        "startLine": 59,
+        "endLine": 67,
+        "why": "require_mcp_scopes validates scopes, expands granted scopes, raises McpScopeError on failure",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E4",
+        "snippet": "59: def require_mcp_scopes(*required_scopes: str) -> None:\n60:     required = tuple(scope for scope in required_scopes if isinstance(scope, str) and scope.strip())\n61:     if not required:\n62:         return\n63: \n64:     granted = expand_mcp_scopes(get_mcp_scopes())\n65:     missing = tuple(scope for scope in required if scope not in granted)\n66:     if missing:\n67:         raise McpScopeError(missing)"
+      },
+      {
+        "path": "backend/app/mcp/server.py",
+        "startLine": 123,
+        "endLine": 130,
+        "why": "Shows scoped_tool usage as decorator requiring MCP_SCOPE_MEMORY_WRITE",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E5",
+        "snippet": "123: @scoped_tool(MCP_SCOPE_MEMORY_WRITE)\n124: async def process_input(\n125:     text: str | None = None,\n126:     image_base64: str | None = None,\n127:     image_mime: str | None = None,\n128:     context_enrichment: bool = False,\n129: ) -> dict:\n130:     \"\"\"주인님의 텍스트·이미지를 접수하여 AI 분석 후 지식·할일·일정으로 정리합니다."
+      },
+      {
+        "path": "scripts/generate_contract_snapshot.py",
+        "startLine": 166,
+        "endLine": 166,
+        "why": "AST node check referencing scoped_tool identifier in code generation",
+        "evidenceType": "file_range",
+        "groundingStatus": "partial",
+        "id": "E6",
+        "snippet": "166:             if isinstance(func, ast.Name) and func.id == \"scoped_tool\":"
+      }
+    ],
+    "uncertainties": [
+      "1 evidence item(s) are grounded only by grep, blame, or nearby line observations."
+    ],
+    "nextAction": {
+      "type": "stop",
+      "reason": "Explorer result is complete for the requested read-only investigation."
+    },
+    "evidenceQuality": {
+      "level": "high",
+      "exactCount": 5,
+      "partialCount": 1,
+      "droppedCount": 0,
+      "fileCount": 3,
+      "warnings": [
+        "1 evidence item(s) are grounded only by grep, blame, or nearby line observations."
+      ],
+      "summary": "Verified: 5 files read, 3 grep searches, 1 symbol lookups, 5/6 evidence items grounded, cross-verified across 3 files. All evidence grounded in inspected code."
+    },
+    "searchCoverage": {
+      "scope": [
+        "backend/**",
+        "frontend/src/**",
+        "extensions/firefox-inbox/src/**",
+        "scripts/**",
+        "android/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 5,
+      "grepCalls": 3,
+      "listDirCalls": 0,
+      "symbolCalls": 1,
+      "toolResultsTruncated": 0,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: backend/**, frontend/src/**, extensions/firefox-inbox/src/**, scripts/**, android/**"
+      ],
+      "summary": "scope-limited search across backend/**, frontend/src/**, extensions/firefox-inbox/src/**, scripts/**, android/**; 5 file read(s), 3 grep search(es)."
+    },
+    "failure": null,
+    "sessionId": "sess_ad05f770839640c3",
+    "session": {
+      "id": "sess_ad05f770839640c3",
+      "status": "created",
+      "remainingCalls": 4
+    },
+    "_debug": {
+      "evidenceSufficiency": {
+        "sufficient": true,
+        "reason": "simple_task_exact_evidence"
+      },
+      "confidenceScore": 1,
+      "confidenceFactors": {
+        "evidenceCount": 6,
+        "evidenceGrounded": 6,
+        "evidenceDropped": 0,
+        "exactCount": 5,
+        "crossVerified": true,
+        "symbolSearchUsed": true,
+        "stoppedByBudget": false,
+        "gitLogCalls": 0,
+        "gitDiffCalls": 0,
+        "gitBlameCalls": 0,
+        "gitGroundingHint": "none",
+        "taskKind": "locate",
+        "adjustments": [
+          "base=0.45 (taskKind=locate)",
+          "+0.54 (5 exact evidence item(s))",
+          "+0.12 (cross-verified across multiple files)",
+          "+0.05 (symbol/grep search used)"
+        ],
+        "droppedUngrounded": 0,
+        "droppedMalformed": 0
+      },
+      "stats": {
+        "model": "zai-glm-4.7",
+        "budget": "deep",
+        "budgetSource": "auto",
+        "turns": 6,
+        "toolCalls": 9,
+        "listDirCalls": 0,
+        "findFileCalls": 0,
+        "grepCalls": 3,
+        "filesRead": 5,
+        "gitLogCalls": 0,
+        "gitBlameCalls": 0,
+        "gitDiffCalls": 0,
+        "gitShowCalls": 0,
+        "symbolCalls": 1,
+        "inputTokens": 42241,
+        "outputTokens": 3417,
+        "totalTokens": 45658,
+        "elapsedMs": 7022,
+        "stoppedByBudget": false,
+        "scope": [
+          "backend/**",
+          "frontend/src/**",
+          "extensions/firefox-inbox/src/**",
+          "scripts/**",
+          "android/**"
+        ],
+        "repoRoot": "/home/kyubr/IdeaProjects/studious-memory",
+        "sessionId": "sess_ad05f770839640c3",
+        "sessionStatus": "created",
+        "sessionSource": "created",
+        "remainingCalls": 4,
+        "cacheHits": 30,
+        "cacheMisses": 222,
+        "cacheHitRate": 0.119,
+        "cacheEntries": 218,
+        "cacheSizeBytes": 1619990
+      },
+      "toolTrace": {
+        "entries": [
+          {
+            "turn": 1,
+            "tool": "repo_symbol_context",
+            "args": {
+              "symbol": "scoped_tool"
+            },
+            "result": {
+              "symbol": "scoped_tool",
+              "definition": {
+                "path": "backend/app/mcp/server.py",
+                "line": 79,
+                "endLine": 91,
+                "kind": "function"
+              },
+              "callers": 39,
+              "observedRanges": 21,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "backend/app/mcp/server.py",
+              "startLine": 79,
+              "endLine": 91
+            },
+            "result": {
+              "path": "backend/app/mcp/server.py",
+              "startLine": 79,
+              "endLine": 91,
+              "totalLines": 947,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_grep",
+            "args": {
+              "pattern": "def require_mcp_scopes",
+              "scope": [
+                "backend"
+              ]
+            },
+            "result": {
+              "matches": 1,
+              "paths": [
+                "backend/app/mcp/authz.py"
+              ],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_grep",
+            "args": {
+              "pattern": "MCP_SCOPE_",
+              "scope": [
+                "backend"
+              ],
+              "maxResults": 10
+            },
+            "result": {
+              "matches": 10,
+              "paths": [
+                "backend/app/capabilities/metadata.py"
+              ],
+              "truncated": true
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "backend/app/mcp/authz.py",
+              "startLine": 59,
+              "endLine": 80
+            },
+            "result": {
+              "path": "backend/app/mcp/authz.py",
+              "startLine": 59,
+              "endLine": 72,
+              "totalLines": 72,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_grep",
+            "args": {
+              "pattern": "^MCP_SCOPE_.*=",
+              "scope": [
+                "backend"
+              ]
+            },
+            "result": {
+              "matches": 9,
+              "paths": [
+                "backend/app/mcp/authz.py"
+              ],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "backend/app/mcp/server.py",
+              "startLine": 1,
+              "endLine": 30
+            },
+            "result": {
+              "path": "backend/app/mcp/server.py",
+              "startLine": 1,
+              "endLine": 30,
+              "totalLines": 947,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "backend/app/mcp/authz.py",
+              "startLine": 1,
+              "endLine": 20
+            },
+            "result": {
+              "path": "backend/app/mcp/authz.py",
+              "startLine": 1,
+              "endLine": 20,
+              "totalLines": 72,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 5,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "backend/app/mcp/server.py",
+              "startLine": 123,
+              "endLine": 130
+            },
+            "result": {
+              "path": "backend/app/mcp/server.py",
+              "startLine": 123,
+              "endLine": 130,
+              "totalLines": 947,
+              "truncated": true
+            }
+          }
+        ],
+        "totalCalls": 9,
+        "truncated": false,
+        "maxEntries": 20
+      },
+      "codeMap": {
+        "entryPoints": [
+          "backend/app/mcp/server.py"
+        ],
+        "keyModules": [
+          {
+            "path": "backend/app/mcp/server.py",
+            "role": "entry point",
+            "linesRead": 83
+          },
+          {
+            "path": "scripts/generate_contract_snapshot.py",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "backend/app/mcp/authz.py",
+            "role": "middleware",
+            "linesRead": 44
+          },
+          {
+            "path": "backend/app/capabilities/metadata.py",
+            "role": "entry point",
+            "linesRead": 10
+          }
+        ]
+      }
+    }
+  },
+  "contentText": "## Result\nConfidence: high\nVerification: verified\nEvidence Quality: high (5 exact, 1 partial, 0 dropped)\nSearch Coverage: scope-limited search across backend/**, frontend/src/**, extensions/firefox-inbox/src/**, scripts/**, android/**; 5 file read(s), 3 grep search(es).\n\n## Answer\nscoped_tool is a decorator factory defined in backend/app/mcp/server.py (lines 79-91) that adds scope-based authorization to MCP tool functions. It accepts *required_scopes: str, returns a decorator, registers the function as an MCP tool with scope metadata, validates authorization via require_mcp_scopes() before execution, and uses scope constants defined in backend/app/mcp/authz.py (lines 5-13).\n\n## Targets\n- [context] `backend/app/mcp/server.py:79-91` (E1) - Complete definition of scoped_tool decorator factory\n- [context] `backend/app/mcp/server.py:1-19` (E2) - Imports showing dependencies (Callable, wraps, require_mcp_scopes)\n- [context] `backend/app/mcp/authz.py:5-13` (E3) - Scope constant definitions (MCP_SCOPE_MEMORY_READ, MEMORY_WRITE, etc.)\n- [context] `backend/app/mcp/authz.py:59-67` (E4) - require_mcp_scopes implementation for authorization checking\n- [read] `backend/app/mcp/server.py:123-130` (E5) - Example usage: @scoped_tool(MCP_SCOPE_MEMORY_WRITE) on process_input\n- [read] `scripts/generate_contract_snapshot.py:166-166` (E6) - Script references scoped_tool as an AST node identifier\n\n## Evidence (6 items, confidence: high)\n- E1 `backend/app/mcp/server.py:79-91` - Definition: decorator factory accepting *required_scopes, wrapping with require_mcp_scopes check\n  snippet: 79: def scoped_tool(*required_scopes: str):\n  80:     def _decorator(func: Callable[..., Any]):\n  81:         @mcp.tool(meta={\"required_scopes\": list(required_scopes)})\n  82:         @wraps(func)\n  83:         async def _wrapped(*args: Any, **kwargs: Any):\n  84:             require_mcp_scopes(*required_scopes)\n  85:             return await func(*args, **kwargs)\n  86: \n  87:         return _wrapped\n  88: \n  89:     return _decorator\n  90: \n  ... [snippet truncated]\n- E2 `backend/app/mcp/server.py:1-19` - Import statements showing Callable, wraps, Any, and require_mcp_scopes dependencies\n  snippet: 1: from collections.abc import Callable\n  2: from functools import wraps\n  3: from typing import Any\n  4: \n  5: from mcp.server.fastmcp import FastMCP\n  6: \n  7: from app.mcp.authz import (\n  8:     MCP_SCOPE_APPROVAL_READ,\n  9:     MCP_SCOPE_LOOP_WRITE,\n  10:     MCP_SCOPE_MEMORY_READ,\n  11:     MCP_SCOPE_MEMORY_WRITE,\n  12:     MCP_SCOPE_NAVER_AGENT,\n  ... [snippet truncated]\n- E3 `backend/app/mcp/authz.py:5-13` - Defines 9 scope constants used by scoped_tool (MEMORY_READ, MEMORY_WRITE, etc.)\n  snippet: 5: MCP_SCOPE_MEMORY_READ = \"maidbot.memory.read\"\n  6: MCP_SCOPE_MEMORY_WRITE = \"maidbot.memory.write\"\n  7: MCP_SCOPE_TODO_WRITE = \"maidbot.todo.write\"\n  8: MCP_SCOPE_REMINDER_WRITE = \"maidbot.reminder.write\"\n  9: MCP_SCOPE_SCHEDULE_WRITE = \"maidbot.schedule.write\"\n  10: MCP_SCOPE_LOOP_WRITE = \"maidbot.loop.write\"\n  11: MCP_SCOPE_APPROVAL_READ = \"maidbot.approval.read\"\n  12: MCP_SCOPE_WEB_SEARCH = \"maidbot.web.search\"\n  13: MCP_SCOPE_NAVER_AGENT = \"maidbot.naver.agent\"\n- E4 `backend/app/mcp/authz.py:59-67` - require_mcp_scopes validates scopes, expands granted scopes, raises McpScopeError on failure\n  snippet: 59: def require_mcp_scopes(*required_scopes: str) -> None:\n  60:     required = tuple(scope for scope in required_scopes if isinstance(scope, str) and scope.strip())\n  61:     if not required:\n  62:         return\n  63: \n  64:     granted = expand_mcp_scopes(get_mcp_scopes())\n  65:     missing = tuple(scope for scope in required if scope not in granted)\n  66:     if missing:\n  67:         raise McpScopeError(missing)\n- E5 `backend/app/mcp/server.py:123-130` - Shows scoped_tool usage as decorator requiring MCP_SCOPE_MEMORY_WRITE\n  snippet: 123: @scoped_tool(MCP_SCOPE_MEMORY_WRITE)\n  124: async def process_input(\n  125:     text: str | None = None,\n  126:     image_base64: str | None = None,\n  127:     image_mime: str | None = None,\n  128:     context_enrichment: bool = False,\n  129: ) -> dict:\n  130:     \"\"\"주인님의 텍스트·이미지를 접수하여 AI 분석 후 지식·할일·일정으로 정리합니다.\n- E6 `scripts/generate_contract_snapshot.py:166-166` [partial] - AST node check referencing scoped_tool identifier in code generation\n  snippet: 166:             if isinstance(func, ast.Name) and func.id == \"scoped_tool\":\n\n## Uncertainty\n- 1 evidence item(s) are grounded only by grep, blame, or nearby line observations.\n\nSession: sess_ad05f770839640c3 (pass as \"session\" for follow-up calls)"
+}

@@ -1,0 +1,1398 @@
+{
+  "tool": "map_change_impact",
+  "repo": "bible",
+  "args": {
+    "repo_root": "/home/kyubr/IdeaProjects/bible",
+    "scope": [
+      "src/**",
+      "functions/**",
+      "scripts/**",
+      "migrations/**"
+    ],
+    "change": "refactor reader selection state and bookmark sync without breaking Cloudflare Functions APIs",
+    "knownFiles": [
+      "src/store.tsx"
+    ],
+    "knownSymbols": [
+      "useStore"
+    ]
+  },
+  "elapsedMs": 15732,
+  "error": null,
+  "isError": false,
+  "summary": {
+    "directAnswer": "Refactoring reader selection and bookmark sync requires modifying the zustand store. The store's persist middleware only saves 'settings'; 'currents' (reader state) and 'ui.bookmarkDraftCount' are not persisted. Key risks: 20+ components use useStore directly; setCurrentPassage is called from 22 locations; bookmark sync depends on auth.isAuthenticated. Cloudflare Functions APIs (/api/bookmarks/list, /api/bookmarks/sync) use session auth and will not break. E2E tests in scripts/e2e-bookmark-playwright.sh validate the bookmark workflow.",
+    "status": {
+      "confidence": "high",
+      "verification": "targeted_read_needed",
+      "complete": true,
+      "warnings": [
+        "1 evidence item(s) were removed because their line ranges were not inspected."
+      ]
+    },
+    "evidenceQuality": {
+      "level": "high",
+      "exactCount": 7,
+      "partialCount": 0,
+      "droppedCount": 1,
+      "fileCount": 7,
+      "warnings": [
+        "1 evidence item(s) were removed because their line ranges were not inspected."
+      ],
+      "summary": "Verified: 15 files read, 2 symbol lookups, 7/7 evidence items grounded, cross-verified across 7 files. All evidence grounded in inspected code."
+    },
+    "failure": null,
+    "nextAction": {
+      "type": "read_target",
+      "reason": "Read src/store.tsx:30-58 before editing.",
+      "target": {
+        "path": "src/store.tsx",
+        "role": "edit",
+        "reason": "Main store with persist middleware and partialize—needs refactoring for state persistence",
+        "evidenceRefs": [
+          "E1"
+        ],
+        "startLine": 30,
+        "endLine": 58
+      }
+    },
+    "searchCoverage": {
+      "scope": [
+        "src/**",
+        "functions/**",
+        "scripts/**",
+        "migrations/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 15,
+      "grepCalls": 0,
+      "listDirCalls": 4,
+      "symbolCalls": 2,
+      "toolResultsTruncated": 0,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: src/**, functions/**, scripts/**, migrations/**"
+      ],
+      "summary": "scope-limited search across src/**, functions/**, scripts/**, migrations/**; 15 file read(s), 0 grep search(es)."
+    },
+    "critic": null,
+    "sessionId": "sess_ce484288e810a5fa",
+    "session": {
+      "id": "sess_ce484288e810a5fa",
+      "status": "created",
+      "remainingCalls": 4
+    },
+    "targets": [
+      {
+        "path": "src/store.tsx",
+        "role": "edit",
+        "reason": "Main store with persist middleware and partialize—needs refactoring for state persistence",
+        "evidenceRefs": [
+          "E1"
+        ],
+        "startLine": 30,
+        "endLine": 58
+      },
+      {
+        "path": "src/store/types.ts",
+        "role": "edit",
+        "reason": "CurrentsState defines reader selection state (currentBookId, chapter, wordIds)",
+        "evidenceRefs": [
+          "E2"
+        ],
+        "startLine": 27,
+        "endLine": 34
+      },
+      {
+        "path": "src/store/types.ts",
+        "role": "edit",
+        "reason": "UiState contains bookmarkDraftCount used in sync—may need restructuring",
+        "evidenceRefs": [],
+        "startLine": 47,
+        "endLine": 54
+      },
+      {
+        "path": "src/features/bookmark/hooks/useBookmarkSync.ts",
+        "role": "read",
+        "reason": "Bookmark sync hook depends on auth.isAuthenticated—key dependency",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 96
+      },
+      {
+        "path": "src/features/reader/hooks/useReaderController.ts",
+        "role": "read",
+        "reason": "Reader controller uses currents state and setBookmarkDraftCount—high dependency",
+        "evidenceRefs": [
+          "E4"
+        ],
+        "startLine": 51,
+        "endLine": 78
+      },
+      {
+        "path": "src/features/bookmark/hooks/useBookmarkSync.ts",
+        "startLine": 17,
+        "endLine": 17,
+        "role": "read",
+        "reason": "Bookmark sync hook depends on auth.isAuthenticated from store—shows dependency chain",
+        "evidenceRefs": [
+          "E3"
+        ]
+      },
+      {
+        "path": "functions/api/bookmarks/list.ts",
+        "startLine": 43,
+        "endLine": 52,
+        "role": "read",
+        "reason": "Bookmark list API uses authenticateSession—independent of client store, no breaking risk",
+        "evidenceRefs": [
+          "E5"
+        ]
+      },
+      {
+        "path": "functions/api/bookmarks/sync.ts",
+        "startLine": 176,
+        "endLine": 185,
+        "role": "read",
+        "reason": "Bookmark sync API uses authenticateSession—independent of client store, no breaking risk",
+        "evidenceRefs": [
+          "E6"
+        ]
+      }
+    ],
+    "discoveredPathsCount": 59,
+    "evidence": [
+      {
+        "id": "E1",
+        "path": "src/store.tsx",
+        "startLine": 30,
+        "endLine": 58,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Main store with persist middleware only persists 'settings', not currents or ui state—key refactoring scope",
+        "snippet": "30: export const useStore = create<AppStore>()(\n31:   persist(\n32:     (set, get, api) => ({\n33:       settings: INITIAL_SETTINGS,\n34:       currents: INITIAL_CURRENTS,\n35:       globals: INITIAL_GLOBALS,\n36:       search: INITIAL_SEARCH,\n37:       ui: INITIAL_UI,\n38:       auth: INITIAL_AUTH,\n39:       ...createStoreActions(set, get, api),\n40:     }),\n41:     {\n... [snippet truncated]"
+      },
+      {
+        "id": "E2",
+        "path": "src/store/types.ts",
+        "startLine": 27,
+        "endLine": 34,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "CurrentsState defines reader selection state—target for refactoring",
+        "snippet": "27: export interface CurrentsState {\n28:   currentBookId: number;\n29:   currentChapter: number;\n30:   currentMode: number;\n31:   currentSideOpen: boolean;\n32:   currentSelectedWordIds: Array<number | string>;\n33:   currentSearch: string;\n34: }"
+      },
+      {
+        "id": "E3",
+        "path": "src/features/bookmark/hooks/useBookmarkSync.ts",
+        "startLine": 17,
+        "endLine": 17,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Bookmark sync hook depends on auth.isAuthenticated from store—shows dependency chain",
+        "snippet": "17:   const isAuthenticated = useStore((state) => state.auth.isAuthenticated);"
+      },
+      {
+        "id": "E4",
+        "path": "src/features/reader/hooks/useReaderController.ts",
+        "startLine": 51,
+        "endLine": 78,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Reader controller uses currents state and setBookmarkDraftCount—high dependency on refactored state",
+        "snippet": "51:   const readerControllerState = useStore(selectReaderControllerState, shallow);\n52:   const {\n53:     language,\n54:     secondaryLanguage,\n55:     viewWithSecondaryLanguage,\n56:     copyType,\n57:     searchType,\n58:     searchVersion,\n59:     fontSize,\n60:     updateFontSize,\n61:     books,\n62:     currentBookId,\n... [snippet truncated]"
+      },
+      {
+        "id": "E5",
+        "path": "functions/api/bookmarks/list.ts",
+        "startLine": 43,
+        "endLine": 52,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Bookmark list API uses authenticateSession—independent of client store, no breaking risk",
+        "snippet": "43: export const onRequestGet: PagesFunction<Env> = async (context) => {\n44:   const { request, env } = context;\n45: \n46:   try {\n47:     if (!env.AUTH_SECRET) {\n48:       return json({ error: 'Server auth is not configured' }, 500);\n49:     }\n50: \n51:     const session = await authenticateSession(request, env.DB, env.AUTH_SECRET);\n52:     if (!session) return json({ error: 'Unauthorized' }, 401);"
+      },
+      {
+        "id": "E6",
+        "path": "functions/api/bookmarks/sync.ts",
+        "startLine": 176,
+        "endLine": 185,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "Bookmark sync API uses authenticateSession—independent of client store, no breaking risk",
+        "snippet": "176: export const onRequestPost: PagesFunction<Env> = async (context) => {\n177:   const { request, env } = context;\n178: \n179:   try {\n180:     if (!env.AUTH_SECRET) {\n181:       return json({ error: 'Server auth is not configured' }, 500);\n182:     }\n183: \n184:     const session = await authenticateSession(request, env.DB, env.AUTH_SECRET);\n185:     if (!session) return json({ error: 'Unauthorized' }, 401);"
+      },
+      {
+        "id": "E7",
+        "path": "scripts/e2e-bookmark-playwright.sh",
+        "startLine": 289,
+        "endLine": 320,
+        "groundingStatus": "exact",
+        "evidenceType": "file_range",
+        "why": "E2E test validates bookmark workflow—must pass after refactor",
+        "snippet": "289: log \"Scenario 1/1: multi-passage draft -> detail view -> append to saved bookmark -> delete\"\n290: BOOKMARK_TITLE=\"Playwright 북마크 상세 검증\"\n291: NOTE_TEXT=\"상세 화면 메모 검증\"\n292: \n293: run_js \"$(cat <<EOF\n294: async (page) => {\n295:   const dismissGuideIfPresent = async () => {\n296:     const closeButton = page.getByRole('button', { name: /팝업 닫기/i });\n297:     if (await closeButton.count()) {\n298:       await closeButton.first().click();\n299:     }\n300:   };\n... [snippet truncated]"
+      }
+    ],
+    "uncertainties": [
+      "1 evidence item(s) were removed because their line ranges were not inspected.",
+      "Some evidence items were dropped because they were not grounded in inspected line ranges."
+    ],
+    "stats": {
+      "turns": 12,
+      "toolCalls": 26,
+      "filesRead": 15,
+      "grepCalls": 0,
+      "symbolCalls": 2,
+      "stoppedByBudget": false,
+      "elapsedMs": 15719,
+      "totalTokens": 233894
+    }
+  },
+  "structuredContent": {
+    "schemaVersion": 1,
+    "directAnswer": "Refactoring reader selection and bookmark sync requires modifying the zustand store. The store's persist middleware only saves 'settings'; 'currents' (reader state) and 'ui.bookmarkDraftCount' are not persisted. Key risks: 20+ components use useStore directly; setCurrentPassage is called from 22 locations; bookmark sync depends on auth.isAuthenticated. Cloudflare Functions APIs (/api/bookmarks/list, /api/bookmarks/sync) use session auth and will not break. E2E tests in scripts/e2e-bookmark-playwright.sh validate the bookmark workflow.",
+    "status": {
+      "confidence": "high",
+      "verification": "targeted_read_needed",
+      "complete": true,
+      "warnings": [
+        "1 evidence item(s) were removed because their line ranges were not inspected."
+      ]
+    },
+    "targets": [
+      {
+        "path": "src/store.tsx",
+        "role": "edit",
+        "reason": "Main store with persist middleware and partialize—needs refactoring for state persistence",
+        "evidenceRefs": [
+          "E1"
+        ],
+        "startLine": 30,
+        "endLine": 58
+      },
+      {
+        "path": "src/store/types.ts",
+        "role": "edit",
+        "reason": "CurrentsState defines reader selection state (currentBookId, chapter, wordIds)",
+        "evidenceRefs": [
+          "E2"
+        ],
+        "startLine": 27,
+        "endLine": 34
+      },
+      {
+        "path": "src/store/types.ts",
+        "role": "edit",
+        "reason": "UiState contains bookmarkDraftCount used in sync—may need restructuring",
+        "evidenceRefs": [],
+        "startLine": 47,
+        "endLine": 54
+      },
+      {
+        "path": "src/features/bookmark/hooks/useBookmarkSync.ts",
+        "role": "read",
+        "reason": "Bookmark sync hook depends on auth.isAuthenticated—key dependency",
+        "evidenceRefs": [],
+        "startLine": 1,
+        "endLine": 96
+      },
+      {
+        "path": "src/features/reader/hooks/useReaderController.ts",
+        "role": "read",
+        "reason": "Reader controller uses currents state and setBookmarkDraftCount—high dependency",
+        "evidenceRefs": [
+          "E4"
+        ],
+        "startLine": 51,
+        "endLine": 78
+      },
+      {
+        "path": "src/features/bookmark/hooks/useBookmarkSync.ts",
+        "startLine": 17,
+        "endLine": 17,
+        "role": "read",
+        "reason": "Bookmark sync hook depends on auth.isAuthenticated from store—shows dependency chain",
+        "evidenceRefs": [
+          "E3"
+        ]
+      },
+      {
+        "path": "functions/api/bookmarks/list.ts",
+        "startLine": 43,
+        "endLine": 52,
+        "role": "read",
+        "reason": "Bookmark list API uses authenticateSession—independent of client store, no breaking risk",
+        "evidenceRefs": [
+          "E5"
+        ]
+      },
+      {
+        "path": "functions/api/bookmarks/sync.ts",
+        "startLine": 176,
+        "endLine": 185,
+        "role": "read",
+        "reason": "Bookmark sync API uses authenticateSession—independent of client store, no breaking risk",
+        "evidenceRefs": [
+          "E6"
+        ]
+      },
+      {
+        "path": "scripts/e2e-bookmark-playwright.sh",
+        "startLine": 289,
+        "endLine": 320,
+        "role": "read",
+        "reason": "E2E test validates bookmark workflow—must pass after refactor",
+        "evidenceRefs": [
+          "E7"
+        ]
+      }
+    ],
+    "discoveredPaths": [
+      {
+        "path": "src/store.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/shared/components/AGENTS.md",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/shared/components/MainTopBar.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/shared/components/TelegramLoginButton.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/shared/hooks/useAuthSessionBootstrap.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/shared/hooks/useCopyActions.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/bookmark/hooks/useBookmarkSync.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/bookmark/pages/BookmarkDetailPage.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/bookmark/pages/BookmarkEditorPage.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/bookmark/pages/BookmarksPage.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/exam/components/ExamNav.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/exam/components/ExperimentalFeatureGate.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/exam/hooks/useExamDataWithSync.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/exam/hooks/useExamHomeSummary.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/exam/hooks/useExamPageState.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/exam/hooks/useSimpleRevelationExamState.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/exam/pages/ExamHomePage.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/exam/pages/ExamPracticePage.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/exam/pages/ExamStatsPage.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/reader/components/WordContainer.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/reader/hooks/useReaderController.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/store/types.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_read_file",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/store/createActions.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_read_file",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/store/initialState.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_read_file",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/store/slices/currents.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_read_file",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/store/slices/auth.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_read_file",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/store/slices/ui.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_read_file",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/store.selectors.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_read_file",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "functions/_middleware.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "functions/api",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "functions/api/_lib",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "functions/api/auth",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "functions/api/bookmarks",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "functions/api/exam",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/api/bookmark.ts",
+        "kind": "unknown",
+        "sourceTool": "repo_read_file",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "migrations/0001_initial.sql",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "migrations/0002_auth_sessions.sql",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "migrations/0003_exam_local_sync.sql",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "migrations/0004_bookmarks.sql",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "functions/api/bookmarks/list.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "functions/api/bookmarks/sync.ts",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts/build-worker-functions.sh",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts/check-no-legacy-i18n.sh",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts/check-style-imports.sh",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts/e2e-bookmark-playwright.sh",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts/e2e-reader-search-ux-playwright.sh",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts/e2e-regression-playwright.sh",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts/playwright_cli.sh",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts/revelation_corpus",
+        "kind": "dir",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts/revelation_corpus/README.md",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts/revelation_corpus/build_corpus.py",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts/revelation_corpus/proper_nouns.tsv",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts/revelation_corpus/pyproject.toml",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "scripts/revelation_corpus/sanity_score.mjs",
+        "kind": "file",
+        "sourceTool": "repo_list_dir",
+        "reason": "Listed during repository discovery."
+      },
+      {
+        "path": "src/shared/hooks/useDialogLink.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/reader/hooks/useBibleData.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/search/hooks/useSearchV3.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/features/reader/components/SideNavigationBook/NavigationBookV2.tsx",
+        "kind": "unknown",
+        "sourceTool": "repo_symbol_context",
+        "reason": "Discovered from tool result."
+      },
+      {
+        "path": "src/store/selectors.ts",
+        "kind": "unknown",
+        "sourceTool": "model_target",
+        "reason": "Surfaced by model-proposed target."
+      }
+    ],
+    "evidence": [
+      {
+        "path": "src/store.tsx",
+        "startLine": 30,
+        "endLine": 58,
+        "why": "Main store with persist middleware only persists 'settings', not currents or ui state—key refactoring scope",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E1",
+        "snippet": "30: export const useStore = create<AppStore>()(\n31:   persist(\n32:     (set, get, api) => ({\n33:       settings: INITIAL_SETTINGS,\n34:       currents: INITIAL_CURRENTS,\n35:       globals: INITIAL_GLOBALS,\n36:       search: INITIAL_SEARCH,\n37:       ui: INITIAL_UI,\n38:       auth: INITIAL_AUTH,\n39:       ...createStoreActions(set, get, api),\n40:     }),\n41:     {\n... [snippet truncated]"
+      },
+      {
+        "path": "src/store/types.ts",
+        "startLine": 27,
+        "endLine": 34,
+        "why": "CurrentsState defines reader selection state—target for refactoring",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E2",
+        "snippet": "27: export interface CurrentsState {\n28:   currentBookId: number;\n29:   currentChapter: number;\n30:   currentMode: number;\n31:   currentSideOpen: boolean;\n32:   currentSelectedWordIds: Array<number | string>;\n33:   currentSearch: string;\n34: }"
+      },
+      {
+        "path": "src/features/bookmark/hooks/useBookmarkSync.ts",
+        "startLine": 17,
+        "endLine": 17,
+        "why": "Bookmark sync hook depends on auth.isAuthenticated from store—shows dependency chain",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E3",
+        "snippet": "17:   const isAuthenticated = useStore((state) => state.auth.isAuthenticated);"
+      },
+      {
+        "path": "src/features/reader/hooks/useReaderController.ts",
+        "startLine": 51,
+        "endLine": 78,
+        "why": "Reader controller uses currents state and setBookmarkDraftCount—high dependency on refactored state",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E4",
+        "snippet": "51:   const readerControllerState = useStore(selectReaderControllerState, shallow);\n52:   const {\n53:     language,\n54:     secondaryLanguage,\n55:     viewWithSecondaryLanguage,\n56:     copyType,\n57:     searchType,\n58:     searchVersion,\n59:     fontSize,\n60:     updateFontSize,\n61:     books,\n62:     currentBookId,\n... [snippet truncated]"
+      },
+      {
+        "path": "functions/api/bookmarks/list.ts",
+        "startLine": 43,
+        "endLine": 52,
+        "why": "Bookmark list API uses authenticateSession—independent of client store, no breaking risk",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E5",
+        "snippet": "43: export const onRequestGet: PagesFunction<Env> = async (context) => {\n44:   const { request, env } = context;\n45: \n46:   try {\n47:     if (!env.AUTH_SECRET) {\n48:       return json({ error: 'Server auth is not configured' }, 500);\n49:     }\n50: \n51:     const session = await authenticateSession(request, env.DB, env.AUTH_SECRET);\n52:     if (!session) return json({ error: 'Unauthorized' }, 401);"
+      },
+      {
+        "path": "functions/api/bookmarks/sync.ts",
+        "startLine": 176,
+        "endLine": 185,
+        "why": "Bookmark sync API uses authenticateSession—independent of client store, no breaking risk",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E6",
+        "snippet": "176: export const onRequestPost: PagesFunction<Env> = async (context) => {\n177:   const { request, env } = context;\n178: \n179:   try {\n180:     if (!env.AUTH_SECRET) {\n181:       return json({ error: 'Server auth is not configured' }, 500);\n182:     }\n183: \n184:     const session = await authenticateSession(request, env.DB, env.AUTH_SECRET);\n185:     if (!session) return json({ error: 'Unauthorized' }, 401);"
+      },
+      {
+        "path": "scripts/e2e-bookmark-playwright.sh",
+        "startLine": 289,
+        "endLine": 320,
+        "why": "E2E test validates bookmark workflow—must pass after refactor",
+        "evidenceType": "file_range",
+        "groundingStatus": "exact",
+        "id": "E7",
+        "snippet": "289: log \"Scenario 1/1: multi-passage draft -> detail view -> append to saved bookmark -> delete\"\n290: BOOKMARK_TITLE=\"Playwright 북마크 상세 검증\"\n291: NOTE_TEXT=\"상세 화면 메모 검증\"\n292: \n293: run_js \"$(cat <<EOF\n294: async (page) => {\n295:   const dismissGuideIfPresent = async () => {\n296:     const closeButton = page.getByRole('button', { name: /팝업 닫기/i });\n297:     if (await closeButton.count()) {\n298:       await closeButton.first().click();\n299:     }\n300:   };\n... [snippet truncated]"
+      }
+    ],
+    "uncertainties": [
+      "1 evidence item(s) were removed because their line ranges were not inspected.",
+      "Some evidence items were dropped because they were not grounded in inspected line ranges."
+    ],
+    "nextAction": {
+      "type": "read_target",
+      "reason": "Read src/store.tsx:30-58 before editing.",
+      "target": {
+        "path": "src/store.tsx",
+        "role": "edit",
+        "reason": "Main store with persist middleware and partialize—needs refactoring for state persistence",
+        "evidenceRefs": [
+          "E1"
+        ],
+        "startLine": 30,
+        "endLine": 58
+      }
+    },
+    "evidenceQuality": {
+      "level": "high",
+      "exactCount": 7,
+      "partialCount": 0,
+      "droppedCount": 1,
+      "fileCount": 7,
+      "warnings": [
+        "1 evidence item(s) were removed because their line ranges were not inspected."
+      ],
+      "summary": "Verified: 15 files read, 2 symbol lookups, 7/7 evidence items grounded, cross-verified across 7 files. All evidence grounded in inspected code."
+    },
+    "searchCoverage": {
+      "scope": [
+        "src/**",
+        "functions/**",
+        "scripts/**",
+        "migrations/**"
+      ],
+      "scopeLimited": true,
+      "filesRead": 15,
+      "grepCalls": 0,
+      "listDirCalls": 4,
+      "symbolCalls": 2,
+      "toolResultsTruncated": 0,
+      "stoppedByBudget": false,
+      "warnings": [
+        "Result is limited to scope: src/**, functions/**, scripts/**, migrations/**"
+      ],
+      "summary": "scope-limited search across src/**, functions/**, scripts/**, migrations/**; 15 file read(s), 0 grep search(es)."
+    },
+    "failure": null,
+    "sessionId": "sess_ce484288e810a5fa",
+    "session": {
+      "id": "sess_ce484288e810a5fa",
+      "status": "created",
+      "remainingCalls": 4
+    },
+    "_debug": {
+      "evidenceSufficiency": {
+        "sufficient": true,
+        "reason": "edit_plan_has_actionable_target"
+      },
+      "confidenceScore": 0.93,
+      "confidenceFactors": {
+        "evidenceCount": 8,
+        "evidenceGrounded": 7,
+        "evidenceDropped": 1,
+        "exactCount": 7,
+        "crossVerified": true,
+        "symbolSearchUsed": true,
+        "stoppedByBudget": false,
+        "gitLogCalls": 0,
+        "gitDiffCalls": 0,
+        "gitBlameCalls": 0,
+        "gitGroundingHint": "none",
+        "taskKind": "reference-chase",
+        "adjustments": [
+          "base=0.30 (taskKind=reference-chase)",
+          "+0.54 (7 exact evidence item(s))",
+          "+0.12 (cross-verified across multiple files)",
+          "+0.05 (symbol/grep search used)",
+          "-0.08 (1 evidence item(s) dropped as ungrounded)"
+        ],
+        "droppedUngrounded": 1,
+        "droppedMalformed": 0
+      },
+      "stats": {
+        "model": "zai-glm-4.7",
+        "budget": "deep",
+        "budgetSource": "auto",
+        "turns": 12,
+        "toolCalls": 26,
+        "listDirCalls": 4,
+        "findFileCalls": 5,
+        "grepCalls": 0,
+        "filesRead": 15,
+        "gitLogCalls": 0,
+        "gitBlameCalls": 0,
+        "gitDiffCalls": 0,
+        "gitShowCalls": 0,
+        "symbolCalls": 2,
+        "inputTokens": 227074,
+        "outputTokens": 6820,
+        "totalTokens": 233894,
+        "elapsedMs": 15719,
+        "stoppedByBudget": false,
+        "scope": [
+          "src/**",
+          "functions/**",
+          "scripts/**",
+          "migrations/**"
+        ],
+        "repoRoot": "/home/kyubr/IdeaProjects/bible",
+        "sessionId": "sess_ce484288e810a5fa",
+        "sessionStatus": "created",
+        "sessionSource": "created",
+        "remainingCalls": 4,
+        "cacheHits": 53,
+        "cacheMisses": 298,
+        "cacheHitRate": 0.151,
+        "cacheEntries": 294,
+        "cacheSizeBytes": 1992322
+      },
+      "toolTrace": {
+        "entries": [
+          {
+            "turn": 1,
+            "tool": "repo_symbol_context",
+            "args": {
+              "symbol": "useStore",
+              "scope": [
+                "src/**",
+                "functions/**"
+              ]
+            },
+            "result": {
+              "symbol": "useStore",
+              "definition": {
+                "path": "src/store.tsx",
+                "line": 30,
+                "endLine": 40,
+                "kind": "variable"
+              },
+              "callers": 20,
+              "observedRanges": 21,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 1,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/store.tsx"
+            },
+            "result": {
+              "path": "src/store.tsx",
+              "startLine": 1,
+              "endLine": 59,
+              "totalLines": 59,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/store/types.ts"
+            },
+            "result": {
+              "path": "src/store/types.ts",
+              "startLine": 1,
+              "endLine": 119,
+              "totalLines": 119,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/store/createActions.ts"
+            },
+            "result": {
+              "path": "src/store/createActions.ts",
+              "startLine": 1,
+              "endLine": 22,
+              "totalLines": 22,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 2,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/store/initialState.ts"
+            },
+            "result": {
+              "path": "src/store/initialState.ts",
+              "startLine": 1,
+              "endLine": 64,
+              "totalLines": 64,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/store/slices/currents.ts"
+            },
+            "result": {
+              "path": "src/store/slices/currents.ts",
+              "startLine": 1,
+              "endLine": 81,
+              "totalLines": 81,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/store/slices/auth.ts"
+            },
+            "result": {
+              "path": "src/store/slices/auth.ts",
+              "startLine": 1,
+              "endLine": 21,
+              "totalLines": 21,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/store/slices/ui.ts"
+            },
+            "result": {
+              "path": "src/store/slices/ui.ts",
+              "startLine": 1,
+              "endLine": 31,
+              "totalLines": 31,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/features/bookmark/hooks/useBookmarkSync.ts"
+            },
+            "result": {
+              "path": "src/features/bookmark/hooks/useBookmarkSync.ts",
+              "startLine": 1,
+              "endLine": 96,
+              "totalLines": 96,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 3,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/features/reader/hooks/useReaderController.ts"
+            },
+            "result": {
+              "path": "src/features/reader/hooks/useReaderController.ts",
+              "startLine": 1,
+              "endLine": 302,
+              "totalLines": 302,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/store.selectors.ts"
+            },
+            "result": {
+              "path": "src/store.selectors.ts",
+              "startLine": 1,
+              "endLine": 175,
+              "totalLines": 175,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 4,
+            "tool": "repo_find_files",
+            "args": {
+              "pattern": "functions/**/*.{ts,tsx,js}",
+              "scope": [
+                "functions/**"
+              ]
+            },
+            "result": {
+              "matches": 0,
+              "paths": [],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 5,
+            "tool": "repo_list_dir",
+            "args": {
+              "dirPath": "functions"
+            },
+            "result": {
+              "entries": 6,
+              "paths": [
+                "functions/_middleware.ts",
+                "functions/api",
+                "functions/api/_lib",
+                "functions/api/auth",
+                "functions/api/bookmarks",
+                "functions/api/exam"
+              ]
+            }
+          },
+          {
+            "turn": 5,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "src/api/bookmark.ts"
+            },
+            "result": {
+              "path": "src/api/bookmark.ts",
+              "startLine": 1,
+              "endLine": 80,
+              "totalLines": 80,
+              "truncated": true
+            }
+          },
+          {
+            "turn": 5,
+            "tool": "repo_find_files",
+            "args": {
+              "pattern": "**/*.test.{ts,tsx}",
+              "scope": [
+                "src/**"
+              ]
+            },
+            "result": {
+              "matches": 0,
+              "paths": [],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 6,
+            "tool": "repo_find_files",
+            "args": {
+              "pattern": "functions/api/bookmarks/**/*.{ts,js}",
+              "scope": [
+                "functions/**"
+              ]
+            },
+            "result": {
+              "matches": 0,
+              "paths": [],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 6,
+            "tool": "repo_list_dir",
+            "args": {
+              "dirPath": "migrations"
+            },
+            "result": {
+              "entries": 4,
+              "paths": [
+                "migrations/0001_initial.sql",
+                "migrations/0002_auth_sessions.sql",
+                "migrations/0003_exam_local_sync.sql",
+                "migrations/0004_bookmarks.sql"
+              ]
+            }
+          },
+          {
+            "turn": 6,
+            "tool": "repo_find_files",
+            "args": {
+              "pattern": "**/*.spec.{ts,tsx}",
+              "scope": [
+                "src/**"
+              ]
+            },
+            "result": {
+              "matches": 0,
+              "paths": [],
+              "truncated": false
+            }
+          },
+          {
+            "turn": 7,
+            "tool": "repo_list_dir",
+            "args": {
+              "dirPath": "functions/api/bookmarks"
+            },
+            "result": {
+              "entries": 2,
+              "paths": [
+                "functions/api/bookmarks/list.ts",
+                "functions/api/bookmarks/sync.ts"
+              ]
+            }
+          },
+          {
+            "turn": 7,
+            "tool": "repo_read_file",
+            "args": {
+              "path": "migrations/0004_bookmarks.sql"
+            },
+            "result": {
+              "path": "migrations/0004_bookmarks.sql",
+              "startLine": 1,
+              "endLine": 24,
+              "totalLines": 24,
+              "truncated": true
+            }
+          }
+        ],
+        "totalCalls": 26,
+        "truncated": true,
+        "maxEntries": 20
+      },
+      "codeMap": {
+        "entryPoints": [],
+        "keyModules": [
+          {
+            "path": "src/store.tsx",
+            "role": "module",
+            "linesRead": 70
+          },
+          {
+            "path": "src/shared/components/AGENTS.md",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "src/shared/components/MainTopBar.tsx",
+            "role": "entry point",
+            "linesRead": 1
+          },
+          {
+            "path": "src/shared/components/TelegramLoginButton.tsx",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "src/shared/hooks/useAuthSessionBootstrap.ts",
+            "role": "middleware",
+            "linesRead": 1
+          },
+          {
+            "path": "src/shared/hooks/useCopyActions.tsx",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "src/features/bookmark/hooks/useBookmarkSync.ts",
+            "role": "module",
+            "linesRead": 97
+          },
+          {
+            "path": "src/features/bookmark/pages/BookmarkDetailPage.tsx",
+            "role": "module",
+            "linesRead": 4
+          },
+          {
+            "path": "src/features/bookmark/pages/BookmarkEditorPage.tsx",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "src/features/bookmark/pages/BookmarksPage.tsx",
+            "role": "module",
+            "linesRead": 3
+          },
+          {
+            "path": "src/features/exam/components/ExamNav.tsx",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "src/features/exam/components/ExperimentalFeatureGate.tsx",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "src/features/exam/hooks/useExamDataWithSync.ts",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "src/features/exam/hooks/useExamHomeSummary.ts",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "src/features/exam/hooks/useExamPageState.ts",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "src/features/exam/hooks/useSimpleRevelationExamState.ts",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "src/features/exam/pages/ExamHomePage.tsx",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "src/features/exam/pages/ExamPracticePage.tsx",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "src/features/exam/pages/ExamStatsPage.tsx",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "src/features/reader/components/WordContainer.tsx",
+            "role": "module",
+            "linesRead": 1
+          },
+          {
+            "path": "src/features/reader/hooks/useReaderController.ts",
+            "role": "route/controller",
+            "linesRead": 307
+          },
+          {
+            "path": "src/store/types.ts",
+            "role": "module",
+            "linesRead": 119
+          },
+          {
+            "path": "src/store/createActions.ts",
+            "role": "module",
+            "linesRead": 22
+          },
+          {
+            "path": "src/store/initialState.ts",
+            "role": "module",
+            "linesRead": 64
+          },
+          {
+            "path": "src/store/slices/currents.ts",
+            "role": "module",
+            "linesRead": 81
+          },
+          {
+            "path": "src/store/slices/auth.ts",
+            "role": "middleware",
+            "linesRead": 21
+          },
+          {
+            "path": "src/store/slices/ui.ts",
+            "role": "module",
+            "linesRead": 31
+          },
+          {
+            "path": "src/store.selectors.ts",
+            "role": "module",
+            "linesRead": 175
+          },
+          {
+            "path": "src/api/bookmark.ts",
+            "role": "API client",
+            "linesRead": 80
+          },
+          {
+            "path": "migrations/0004_bookmarks.sql",
+            "role": "module",
+            "linesRead": 24
+          },
+          {
+            "path": "functions/api/bookmarks/list.ts",
+            "role": "API client",
+            "linesRead": 126
+          },
+          {
+            "path": "functions/api/bookmarks/sync.ts",
+            "role": "API client",
+            "linesRead": 270
+          },
+          {
+            "path": "scripts/e2e-bookmark-playwright.sh",
+            "role": "module",
+            "linesRead": 320
+          },
+          {
+            "path": "src/shared/hooks/useDialogLink.tsx",
+            "role": "module",
+            "linesRead": 2
+          },
+          {
+            "path": "src/features/reader/hooks/useBibleData.tsx",
+            "role": "module",
+            "linesRead": 4
+          },
+          {
+            "path": "src/features/search/hooks/useSearchV3.tsx",
+            "role": "module",
+            "linesRead": 3
+          },
+          {
+            "path": "src/features/reader/components/SideNavigationBook/NavigationBookV2.tsx",
+            "role": "module",
+            "linesRead": 2
+          }
+        ]
+      }
+    }
+  },
+  "contentText": "## Result\nConfidence: high\nVerification: targeted_read_needed\nEvidence Quality: high (7 exact, 0 partial, 1 dropped)\nSearch Coverage: scope-limited search across src/**, functions/**, scripts/**, migrations/**; 15 file read(s), 0 grep search(es).\n\n## Answer\nRefactoring reader selection and bookmark sync requires modifying the zustand store. The store's persist middleware only saves 'settings'; 'currents' (reader state) and 'ui.bookmarkDraftCount' are not persisted. Key risks: 20+ components use useStore directly; setCurrentPassage is called from 22 locations; bookmark sync depends on auth.isAuthenticated. Cloudflare Functions APIs (/api/bookmarks/list, /api/bookmarks/sync) use session auth and will not break. E2E tests in scripts/e2e-bookmark-playwright.sh validate the bookmark workflow.\n\n## Next Action\nread_target: Read src/store.tsx:30-58 before editing.\n\n## Targets\n- [edit] `src/store.tsx:30-58` (E1) - Main store with persist middleware and partialize—needs refactoring for state persistence\n- [edit] `src/store/types.ts:27-34` (E2) - CurrentsState defines reader selection state (currentBookId, chapter, wordIds)\n- [edit] `src/store/types.ts:47-54` - UiState contains bookmarkDraftCount used in sync—may need restructuring\n- [read] `src/features/bookmark/hooks/useBookmarkSync.ts:1-96` - Bookmark sync hook depends on auth.isAuthenticated—key dependency\n- [read] `src/features/reader/hooks/useReaderController.ts:51-78` (E4) - Reader controller uses currents state and setBookmarkDraftCount—high dependency\n- [read] `src/features/bookmark/hooks/useBookmarkSync.ts:17-17` (E3) - Bookmark sync hook depends on auth.isAuthenticated from store—shows dependency chain\n- [read] `functions/api/bookmarks/list.ts:43-52` (E5) - Bookmark list API uses authenticateSession—independent of client store, no breaking risk\n- [read] `functions/api/bookmarks/sync.ts:176-185` (E6) - Bookmark sync API uses authenticateSession—independent of client store, no breaking risk\n- [read] `scripts/e2e-bookmark-playwright.sh:289-320` (E7) - E2E test validates bookmark workflow—must pass after refactor\n\n## Evidence (7 items, confidence: high)\n- E1 `src/store.tsx:30-58` - Main store with persist middleware only persists 'settings', not currents or ui state—key refactoring scope\n  snippet: 30: export const useStore = create<AppStore>()(\n  31:   persist(\n  32:     (set, get, api) => ({\n  33:       settings: INITIAL_SETTINGS,\n  34:       currents: INITIAL_CURRENTS,\n  35:       globals: INITIAL_GLOBALS,\n  36:       search: INITIAL_SEARCH,\n  37:       ui: INITIAL_UI,\n  38:       auth: INITIAL_AUTH,\n  39:       ...createStoreActions(set, get, api),\n  40:     }),\n  41:     {\n  ... [snippet truncated]\n- E2 `src/store/types.ts:27-34` - CurrentsState defines reader selection state—target for refactoring\n  snippet: 27: export interface CurrentsState {\n  28:   currentBookId: number;\n  29:   currentChapter: number;\n  30:   currentMode: number;\n  31:   currentSideOpen: boolean;\n  32:   currentSelectedWordIds: Array<number | string>;\n  33:   currentSearch: string;\n  34: }\n- E3 `src/features/bookmark/hooks/useBookmarkSync.ts:17-17` - Bookmark sync hook depends on auth.isAuthenticated from store—shows dependency chain\n  snippet: 17:   const isAuthenticated = useStore((state) => state.auth.isAuthenticated);\n- E4 `src/features/reader/hooks/useReaderController.ts:51-78` - Reader controller uses currents state and setBookmarkDraftCount—high dependency on refactored state\n  snippet: 51:   const readerControllerState = useStore(selectReaderControllerState, shallow);\n  52:   const {\n  53:     language,\n  54:     secondaryLanguage,\n  55:     viewWithSecondaryLanguage,\n  56:     copyType,\n  57:     searchType,\n  58:     searchVersion,\n  59:     fontSize,\n  60:     updateFontSize,\n  61:     books,\n  62:     currentBookId,\n  ... [snippet truncated]\n- E5 `functions/api/bookmarks/list.ts:43-52` - Bookmark list API uses authenticateSession—independent of client store, no breaking risk\n  snippet: 43: export const onRequestGet: PagesFunction<Env> = async (context) => {\n  44:   const { request, env } = context;\n  45: \n  46:   try {\n  47:     if (!env.AUTH_SECRET) {\n  48:       return json({ error: 'Server auth is not configured' }, 500);\n  49:     }\n  50: \n  51:     const session = await authenticateSession(request, env.DB, env.AUTH_SECRET);\n  52:     if (!session) return json({ error: 'Unauthorized' }, 401);\n- E6 `functions/api/bookmarks/sync.ts:176-185` - Bookmark sync API uses authenticateSession—independent of client store, no breaking risk\n  snippet: 176: export const onRequestPost: PagesFunction<Env> = async (context) => {\n  177:   const { request, env } = context;\n  178: \n  179:   try {\n  180:     if (!env.AUTH_SECRET) {\n  181:       return json({ error: 'Server auth is not configured' }, 500);\n  182:     }\n  183: \n  184:     const session = await authenticateSession(request, env.DB, env.AUTH_SECRET);\n  185:     if (!session) return json({ error: 'Unauthorized' }, 401);\n- E7 `scripts/e2e-bookmark-playwright.sh:289-320` - E2E test validates bookmark workflow—must pass after refactor\n  snippet: 289: log \"Scenario 1/1: multi-passage draft -> detail view -> append to saved bookmark -> delete\"\n  290: BOOKMARK_TITLE=\"Playwright 북마크 상세 검증\"\n  291: NOTE_TEXT=\"상세 화면 메모 검증\"\n  292: \n  293: run_js \"$(cat <<EOF\n  294: async (page) => {\n  295:   const dismissGuideIfPresent = async () => {\n  296:     const closeButton = page.getByRole('button', { name: /팝업 닫기/i });\n  297:     if (await closeButton.count()) {\n  298:       await closeButton.first().click();\n  299:     }\n  300:   };\n  ... [snippet truncated]\n\n## Uncertainty\n- 1 evidence item(s) were removed because their line ranges were not inspected.\n- Some evidence items were dropped because they were not grounded in inspected line ranges.\n\nSession: sess_ce484288e810a5fa (pass as \"session\" for follow-up calls)"
+}
