@@ -1,5 +1,44 @@
 # Changelog
 
+## v0.4.1 - 2026-05-24
+
+### repo-specific ignore + find_entrypoints language expansion + classifier precision (2026-05-24)
+
+세 가드 묶음. 모두 backwards-compatible(또는 internal 정확도 패치)이라 단일
+patch bump v0.4.1로 묶어 release. 공개 도구 surface(10개)와 입출력 스키마는
+변경 없음.
+
+- **Added (spec 014)**: `.cerebras-explorer.json`의 `extraIgnorePatterns` 키
+  신설. 저장소 루트 기준 path glob 배열로 추가 ignore 규칙을 지정할 수 있다.
+  `extraIgnoreDirs`는 기존 동작 그대로.
+- **Changed (spec 014)**: `RepoToolkit`이 traversal 도중 발견하는 nested
+  `.gitignore`를 prefix-bounded matcher로 build해 해당 서브디렉토리 안에서만
+  적용한다. 모노레포의 `packages/foo/.gitignore` 같은 일반 케이스에서 자연
+  스럽게 동작한다. 부정 규칙(`!keep`)은 현재 매처가 line-precedence override
+  의미를 모델링하지 않으므로 silently dropped — DESIGN.md에 명시.
+- **Changed (spec 014)**: `shouldIgnorePath`의 평가 순서를 명시 — symlink →
+  secret deny-list → ignoreDirs → DEFAULT_IGNORE_FILE_SUFFIXES → root
+  `.gitignore` → nested `.gitignore` → `extraIgnorePatterns` → keep. 보안
+  경계인 symlink·secret·scope는 항상 다른 ignore 정책보다 강하다.
+- **Added (spec 015)**: `find_entrypoints` 정규식 패턴 묶음을 네 언어로 확장.
+  Ruby(Rails/Sinatra/Thor/whenever), PHP(Laravel/Symfony Console), Java
+  (Spring/picocli), Rust(actix-web/rocket/clap). 신규 `entryKind` 카테고리는
+  추가하지 않고 기존 http/cli/cron 카테고리에 정규식만 합쳤다. Lambda
+  handler·K8s CronJob YAML·Pub-Sub subscriber 같은 별도 의미 카테고리는 후속
+  spec.
+- **Changed (spec 016)**: parser-free 분류기(`classifyReference` /
+  `relationForUsage`)의 세 false positive 패치.
+  - 공백 멤버 호출(`obj . method ()`)이 `call`이 아니라 `member_call`로 분류.
+  - 다중 패턴 라인(`[new Foo(), foo()]`)의 두 번째 심볼이 `type_reference`
+    false positive 대신 `call`로 분류.
+  - `.tsx`/`.jsx` 파일의 JSX 태그가 `type_reference` 또는 `reference`로
+    비일관 분류되던 것을 `reference`로 통일.
+- **Migration**: 별도 변경 불필요. parent agent가 `relation` 값에 의존하는
+  드문 경우(분류 결과를 strict 라벨로 비교하는 코드)에는 위 세 케이스의
+  라벨 변경이 영향을 줄 수 있으나, parser-free 분류기는 LSP 수준의 정확도를
+  주장한 적이 없고 호출자가 라인 범위를 별도 검증하도록 README/DESIGN에
+  안내되어 있다.
+
 ## v0.4.0 - 2026-05-23
 
 ### Surface Expansion — map_impact / find_entrypoints (2026-05-23)
