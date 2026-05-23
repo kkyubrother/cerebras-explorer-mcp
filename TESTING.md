@@ -73,12 +73,40 @@ CEREBRAS_API_KEY=<key> node scripts/integration-test.mjs
 
 ### 미검증 항목 (추가 테스트 필요)
 
+남은 항목은 모두 외부 parent agent (Claude Code, Codex 등)의 행동 관찰이 필요해 단위 테스트로 자동화하기 어렵습니다. 각 항목별 관찰 절차는 아래 "수동 관찰 절차"를 참고하세요.
+
 | 항목 | 트리거 조건 | 테스트 방법 |
 |------|-----------|-----------|
 | **도구 자발적 사용** | Claude Code에서 명시적 지시 없이 도구 선택 | MCP 연결 후 실제 사용 관찰 |
 | **부모 모델 재탐색 방지** | 부모 모델이 결과 신뢰하고 동일 파일 재Read 안 함 | Claude Code에서 explore 결과 후 행동 관찰 |
 | **AbortController** | 탐색 중 MCP cancelled 알림 수신 | 탐색 중 Ctrl+C 또는 MCP 취소 |
 | **동시 도구 호출** (실제 API) | Claude Code에서 explore + explore_repo 동시 호출 | MCP 연결 후 병렬 호출 후 두 응답 모두 수신 확인 |
+
+### 수동 관찰 절차
+
+각 미검증 항목을 실측할 때 따를 단계와 기대 신호. 한 번 실측한 결과는 이 문서에 기록하지 않습니다 (점-시간 증거이고 다음 변경에서 곧 stale 됨). 회귀가 의심될 때마다 다시 따라 합니다.
+
+**1. 도구 자발적 사용**
+1. README의 `Claude Code 연결 예시` 절차로 MCP 서버를 등록한다 (`claude mcp add -s user cerebras-explorer ...`).
+2. Claude Code 세션에서 도구 이름을 언급하지 않은 자연어 질문을 던진다: 예) "이 저장소의 인증 흐름을 설명해줘".
+3. **기대**: parent 모델이 `explore_repo` 또는 `explore` 중 하나를 자동 호출하고, 자체 `Grep`/`Read` 반복으로 답을 만들지 않는다.
+4. **fail 신호**: parent가 explorer 도구를 한 번도 호출하지 않거나, 도구 호출 직전/직후에 동일 파일을 native `Read`로 다시 읽는다.
+
+**2. 부모 모델 재탐색 방지**
+1. 1번 절차로 explorer 응답을 받은 직후 같은 세션에서 후속 질문: 예) "그러면 `requireAuth`가 어디에 붙는지 정확한 라인 알려줘".
+2. **기대**: parent가 explorer 응답의 `targets[]` / `evidence[]` / `citations[]` 정보를 그대로 사용하고, 동일 파일을 다시 `Read`하거나 `Grep`하지 않는다.
+3. **fail 신호**: parent가 `result.targets[].path`를 무시하고 native `Read`로 같은 파일을 다시 열어 라인 검색한다 — explorer 응답의 신뢰 계약이 깨진 신호.
+
+**3. AbortController (MCP cancelled)**
+1. deep 호출이 예상되는 무거운 질문을 던진다: 예) "전체 라우팅 구조를 모든 미들웨어 포함해서 깊게 분석해줘".
+2. 탐색 도중 (turn 5–15 즈음, `_meta.progressToken` 진행률을 보면서) MCP cancellation을 트리거한다 (Claude Code: `Esc`, 또는 다른 클라이언트의 동등 명령).
+3. **기대**: 서버가 진행 중인 chat completion fetch를 abort하고, 응답에 `stoppedByAbort=true` 또는 `buildCancelledReport()` 본문을 반환한다.
+4. **fail 신호**: cancellation 후에도 서버가 끝까지 돌아 정상 결과를 반환하거나, 프로세스가 좀비처럼 남는다.
+
+**4. 동시 도구 호출**
+1. parent agent에 두 개 이상 도구 호출을 동시에 시키는 메시지를 보낸다: 예) "`explore`로 인증 구조 설명하면서 동시에 `explore_repo`로 라우터 변경 영향도 분석해줘".
+2. **기대**: 두 호출이 모두 응답을 반환하고, 한쪽이 다른 쪽을 차단(serialize)하지 않는다. 두 응답의 `sessionId`는 서로 다르며 각자 grounded evidence를 가진다.
+3. **fail 신호**: 한쪽 호출이 다른 쪽 완료까지 대기하거나, 두 응답의 `sessionId`가 충돌해서 reuse 동작이 어긋난다.
 
 ## Cerebras API 에러 코드 참조
 
