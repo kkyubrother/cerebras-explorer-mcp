@@ -772,9 +772,13 @@ node ./scripts/run-benchmark.mjs \
 
 ## 다음 확장 포인트
 
-- `map_impact`
-- `find_entrypoints`
-- repo-specific ignore 정책
-- 외부 파서 없는 symbol engine fixture 확대와 정밀도 향상
+현재 활성 확장 후보는 없습니다. 과거에 나열했던 4개 후보는 모두 완료되었습니다:
+
+- `map_impact` → spec 013 (v0.4.0)
+- `find_entrypoints` → spec 013 (v0.4.0), spec 015 (v0.4.1, Ruby/PHP/Java/Rust 확장)
+- repo-specific ignore 정책 → spec 014 (v0.4.1, nested `.gitignore` + `extraIgnorePatterns`)
+- 외부 파서 없는 symbol engine 정밀도 → spec 012 (v0.4.0 baseline), spec 016 (v0.4.1 의미 정밀도 패치)
+
+새 후보가 들어오면 [`plan/extension-backlog.md`](./plan/extension-backlog.md)에 추가하고 거기서 spec 진행 여부를 결정합니다.
 
 상세 설계 근거는 [DESIGN.md](./DESIGN.md)에 정리해 두었습니다.
