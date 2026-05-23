@@ -100,7 +100,7 @@
 
 ### Implementation for User Story 1 — CHANGELOG
 
-- [x] T017 [P] [US1] `./CHANGELOG.md`에 `package.json`의 현재 `0.2.0` 버전과 충돌하지 않는 별도 변경 묶음을 둔다. 현재 구현은 기존 `## v0.2.0 - 2026-05-19` 아래 `Tool Quality Follow-up (2026-05-21)` 섹션으로 기록하며, 묶음 머리말 한 줄에 "이 묶음은 `docs/superpowers/plans/2026-05-19-tool-quality-improvements.md`의 산출물"임을 외부 독자가 식별할 수 있도록 짧게 라벨링한다 (FR-006, plan (c)).
+- [x] T017 [P] [US1] `./CHANGELOG.md`에 `package.json`의 현재 `0.2.0` 버전과 충돌하지 않는 별도 변경 묶음을 둔다. 현재 구현은 기존 `## v0.2.0 - 2026-05-19` 아래 `Tool Quality Follow-up (2026-05-21)` 섹션으로 기록하며, 묶음 머리말 한 줄에 "이 묶음은 `docs/superpowers/plans/completed/2026-05-19-tool-quality-improvements.md`의 산출물"임을 외부 독자가 식별할 수 있도록 짧게 라벨링한다 (FR-006, plan (c)).
 - [x] T018 [US1] 같은 묶음 안에 다섯 항목을 `### Added`/`### Changed`/`### Documentation` 등의 하위 그룹으로 분배해 기록한다 (FR-006, SC-003).
   - V2 truncation 문구 정정 (Task 1).
   - report-mode `citations[]`/`targets[]` 노출 (Task 2).

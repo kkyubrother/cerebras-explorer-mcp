@@ -6,7 +6,7 @@
 
 ## Summary
 
-`TESTING.md`에서 시간이 지나면 즉시 낡아 버리는 절대 수치(`320 tests`, `319 pass`, `1 skipped`, `5/5 통과`, `기본 공개 도구 8개`)를 제거하고, 합격 기준을 "어떤 명령을 실행해 `0 fail`을 본다"는 행위 기준으로 재서술한다. 동시에 `tests/integrations.test.mjs`에 doc-drift 가드 테스트 한 건을 추가해, 향후 누군가 동일 패턴을 다시 박아 넣을 경우 `npm test` 단계에서 즉시 빨갛게 떨어지도록 한다. 런타임 코드(`src/**`) 변경은 없다. 본 작업은 원본 plan(`docs/superpowers/plans/2026-05-19-tool-quality-improvements.md` Task 4)이 단위 테스트 단락만 다루던 정규식 범위를 통합 테스트 표와 stdio smoke 표기까지 확장한 상위 계약을 구현한다.
+`TESTING.md`에서 시간이 지나면 즉시 낡아 버리는 절대 수치(`320 tests`, `319 pass`, `1 skipped`, `5/5 통과`, `기본 공개 도구 8개`)를 제거하고, 합격 기준을 "어떤 명령을 실행해 `0 fail`을 본다"는 행위 기준으로 재서술한다. 동시에 `tests/integrations.test.mjs`에 doc-drift 가드 테스트 한 건을 추가해, 향후 누군가 동일 패턴을 다시 박아 넣을 경우 `npm test` 단계에서 즉시 빨갛게 떨어지도록 한다. 런타임 코드(`src/**`) 변경은 없다. 본 작업은 원본 plan(`docs/superpowers/plans/completed/2026-05-19-tool-quality-improvements.md` Task 4)이 단위 테스트 단락만 다루던 정규식 범위를 통합 테스트 표와 stdio smoke 표기까지 확장한 상위 계약을 구현한다.
 
 ## Technical Context
 
@@ -66,7 +66,7 @@ tests/integrations.test.mjs      # 새 doc-drift 가드 테스트 블록 append
 참고만 하는(읽기 전용) 파일:
 
 ```text
-docs/superpowers/plans/2026-05-19-tool-quality-improvements.md   # 원본 plan, Task 4
+docs/superpowers/plans/completed/2026-05-19-tool-quality-improvements.md   # 원본 plan, Task 4
 AGENTS.md                                                        # doc-snapshot 가드 운영 규약
 ```
 

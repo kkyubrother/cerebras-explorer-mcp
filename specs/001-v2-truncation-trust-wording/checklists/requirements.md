@@ -33,5 +33,5 @@
 
 - The feature touches an API contract surface (`searchCoverage.warnings`, `stats.toolResultsTruncated`) that is documented in the public compact contract; spec references those existing surface names to make FR-006 (preserve counters) and SC-003 (counter equals truncated count) testable without inventing parallel naming. This is intentional, not leakage.
 - The truncation marker introduced by FR-003 is described as a stable, machine-detectable token rather than naming the specific constant; the constant identifier is an implementation choice belonging in `/speckit-plan`.
-- No [NEEDS CLARIFICATION] markers were needed because the source plan (docs/superpowers/plans/2026-05-19-tool-quality-improvements.md, Task 1, lines 53~195) pinned exact wording for both the envelope and the warning, and the sub-agent validation report confirmed the current code state matches the plan's assumptions.
+- No [NEEDS CLARIFICATION] markers were needed because the source plan (docs/superpowers/plans/completed/2026-05-19-tool-quality-improvements.md, Task 1, lines 53~195) pinned exact wording for both the envelope and the warning, and the sub-agent validation report confirmed the current code state matches the plan's assumptions.
 - Items marked incomplete require spec updates before `/speckit-clarify` or `/speckit-plan`. All items pass; spec is ready for planning.

@@ -4,7 +4,7 @@
 
 **Input**: Feature specification from `./specs/003-evidence-preservation-benchmark/spec.md`
 
-**원본 참고**: `./docs/superpowers/plans/2026-05-19-tool-quality-improvements.md`의 Task 3 섹션 (라인 428~597)
+**원본 참고**: `./docs/superpowers/plans/completed/2026-05-19-tool-quality-improvements.md`의 Task 3 섹션 (라인 428~597)
 
 ## Summary
 

@@ -11,7 +11,7 @@ description: "Task list for feature 006-explore-router-heuristics"
 
 **Tests**: Required — spec SC-001~SC-005 모두 단위 테스트로 검증되어야 한다. 본 작업은 신호별 5종 단위 테스트를 의무로 포함한다.
 
-**원본 plan(참고)**: `docs/superpowers/plans/2026-05-19-tool-quality-improvements.md` Task 6 (Strengthen Explore Router Heuristics)
+**원본 plan(참고)**: `docs/superpowers/plans/completed/2026-05-19-tool-quality-improvements.md` Task 6 (Strengthen Explore Router Heuristics)
 
 **Organization**: 본 작업은 spec의 User Story 1/2/3에 1:1 매핑된 Phase로 task를 묶어, 각 스토리를 독립적으로 구현·검증할 수 있게 한다.
 

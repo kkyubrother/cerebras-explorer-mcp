@@ -86,7 +86,7 @@ var so existing consumers can opt into the prior behavior for one release.
 
 ### Tool Quality Follow-up (2026-05-21)
 
-Docs-only bundle for `docs/superpowers/plans/2026-05-19-tool-quality-improvements.md`.
+Docs-only bundle for `docs/superpowers/plans/completed/2026-05-19-tool-quality-improvements.md`.
 
 - **Changed**: Clarified V2 tool-result truncation wording so callers understand truncation happens before model synthesis and must be treated as an evidence-limit signal.
 - **Changed**: Expanded the `explore` router heuristics for broad/deep report prompts while keeping `explore_v2` as an opt-in tool surface.

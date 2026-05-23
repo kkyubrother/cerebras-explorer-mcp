@@ -4,7 +4,7 @@
 
 **Input**: Feature specification from `specs/007-transcript-adoption-metrics/spec.md`
 
-**Origin Plan**: `docs/superpowers/plans/2026-05-19-tool-quality-improvements.md` Task 7 (Add Transcript-Based Adoption Metrics)
+**Origin Plan**: `docs/superpowers/plans/completed/2026-05-19-tool-quality-improvements.md` Task 7 (Add Transcript-Based Adoption Metrics)
 
 ## Summary
 

@@ -1,8 +1,8 @@
 # Tool Quality Improvements Implementation Plan
 
-> Status note: proposed implementation plan, not current repository status. Re-check `TESTING.md`, `src/`, and `tests/` before executing tasks because verification counts and some current-state notes can drift as fixes land.
+> Status note: completed historical implementation plan. Tasks 1–9 landed via `specs/001-v2-truncation-trust-wording/` through `specs/009-public-docs-and-verification/` (v0.2.0). Embedded code snippets, file paths, and verification counts are point-in-time evidence and may not match the current repository. Use `TESTING.md`, `src/`, `tests/`, and `specs/` for current state.
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. This repo's AGENTS guidance says subagents should be used only when needed, so inline execution is the default path unless a task owner deliberately splits off an independent benchmark or docs task.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking. This repo's AGENTS guidance says subagents should be used only when needed, so inline execution is the default path unless a task owner deliberately splits off an independent benchmark or docs task.
 
 **Goal:** Convert the tool-quality review into concrete, testable changes that improve V2 evidence reliability, report-mode handoff quality, router decisions, and adoption measurement without expanding the read-only trust boundary.
 
@@ -56,7 +56,7 @@
 - Modify: `src/explorer/runtime.mjs`
 - Test: `tests/runtime.mock.test.mjs`
 
-- [ ] **Step 1: Add a failing V2 truncation test**
+- [x] **Step 1: Add a failing V2 truncation test**
 
 Append this test near the existing `freeExploreV2` tests in `tests/runtime.mock.test.mjs`:
 
@@ -127,7 +127,7 @@ test('freeExploreV2 labels truncated tool results as incomplete before synthesis
 });
 ```
 
-- [ ] **Step 2: Run the targeted test and verify red**
+- [x] **Step 2: Run the targeted test and verify red**
 
 Run:
 
@@ -137,7 +137,7 @@ node --test tests/runtime.mock.test.mjs --test-name-pattern "freeExploreV2 label
 
 Expected: FAIL because the current truncation message still contains "Full data was inspected" and `searchCoverage.warnings` does not mention missing expected evidence.
 
-- [ ] **Step 3: Replace the truncation marker and warning text**
+- [x] **Step 3: Replace the truncation marker and warning text**
 
 In `src/explorer/runtime.mjs`, replace `applyToolResultCharBudget()` with this version and update the truncation counter to use the marker:
 
@@ -175,7 +175,7 @@ if ((stats.toolResultsTruncated ?? 0) > 0) {
 }
 ```
 
-- [ ] **Step 4: Verify the targeted test passes**
+- [x] **Step 4: Verify the targeted test passes**
 
 Run:
 
@@ -185,7 +185,7 @@ node --test tests/runtime.mock.test.mjs --test-name-pattern "freeExploreV2 label
 
 Expected: PASS with 0 failures for the new test.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add src/explorer/runtime.mjs tests/runtime.mock.test.mjs
@@ -202,7 +202,7 @@ git commit -m "fix: clarify v2 truncation evidence limits"
 - Test: `tests/free-explore.test.mjs`
 - Test: `tests/mcp-server.test.mjs`
 
-- [ ] **Step 1: Add failing runtime tests for report citations**
+- [x] **Step 1: Add failing runtime tests for report citations**
 
 In `tests/free-explore.test.mjs`, add this test:
 
@@ -251,7 +251,7 @@ test('freeExplore exposes report citations and citation targets', async () => {
 });
 ```
 
-- [ ] **Step 2: Add a failing MCP structuredContent test**
+- [x] **Step 2: Add a failing MCP structuredContent test**
 
 In `tests/mcp-server.test.mjs`, add a test that calls the public `explore` tool and asserts the text response remains Markdown while `structuredContent.citations` is machine-readable:
 
@@ -298,7 +298,7 @@ test('explore returns Markdown text plus structured citations', async () => {
 });
 ```
 
-- [ ] **Step 3: Run the targeted tests and verify red**
+- [x] **Step 3: Run the targeted tests and verify red**
 
 Run:
 
@@ -308,7 +308,7 @@ node --test tests/free-explore.test.mjs tests/mcp-server.test.mjs --test-name-pa
 
 Expected: FAIL because `freeExplore()` and `freeExploreV2()` currently return `report`, `filesRead`, `toolsUsed`, `stats`, `critic`, and coverage fields, but not `citations[]` or report `targets[]`.
 
-- [ ] **Step 4: Add deterministic citation normalization**
+- [x] **Step 4: Add deterministic citation normalization**
 
 In `src/explorer/runtime.mjs`, import the existing citation extractors:
 
@@ -364,7 +364,7 @@ function buildReportCitationTargets(citations) {
 }
 ```
 
-- [ ] **Step 5: Attach citations to both report-mode returns**
+- [x] **Step 5: Attach citations to both report-mode returns**
 
 In both `freeExplore()` and `freeExploreV2()`, compute citations after `reportFilesRead` and before the return:
 
@@ -406,7 +406,7 @@ return {
 };
 ```
 
-- [ ] **Step 6: Verify report citation tests pass**
+- [x] **Step 6: Verify report citation tests pass**
 
 Run:
 
@@ -416,7 +416,7 @@ node --test tests/free-explore.test.mjs tests/mcp-server.test.mjs --test-name-pa
 
 Expected: PASS with 0 failures for the new report citation tests.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```powershell
 git add src/explorer/runtime.mjs tests/free-explore.test.mjs tests/mcp-server.test.mjs
@@ -433,7 +433,7 @@ git commit -m "feat: expose structured citations for report tools"
 - Create: `benchmarks/evidence-preservation.json`
 - Modify: `package.json`
 
-- [ ] **Step 1: Add failing evaluator tests for citation checks**
+- [x] **Step 1: Add failing evaluator tests for citation checks**
 
 In `tests/benchmark-evaluator.test.mjs`, add:
 
@@ -467,7 +467,7 @@ test('evaluateBenchmarkCase scores report citation preservation checks', () => {
 });
 ```
 
-- [ ] **Step 2: Run the evaluator test and verify red**
+- [x] **Step 2: Run the evaluator test and verify red**
 
 Run:
 
@@ -477,7 +477,7 @@ node --test tests/benchmark-evaluator.test.mjs --test-name-pattern "citation pre
 
 Expected: FAIL with `Unknown benchmark check type: min_citation_count`.
 
-- [ ] **Step 3: Add citation and truncation checks to the evaluator**
+- [x] **Step 3: Add citation and truncation checks to the evaluator**
 
 In `src/benchmark/evaluator.mjs`, add helpers near `countGroundedEvidence()`:
 
@@ -522,7 +522,7 @@ Add cases to `evaluateCheck()`:
       break;
 ```
 
-- [ ] **Step 4: Add a focused evidence preservation suite**
+- [x] **Step 4: Add a focused evidence preservation suite**
 
 Create `benchmarks/evidence-preservation.json`:
 
@@ -559,7 +559,7 @@ Create `benchmarks/evidence-preservation.json`:
 }
 ```
 
-- [ ] **Step 5: Add an npm script for the new suite**
+- [x] **Step 5: Add an npm script for the new suite**
 
 In `package.json`, add:
 
@@ -569,7 +569,7 @@ In `package.json`, add:
 
 Keep the existing `benchmark` script unchanged.
 
-- [ ] **Step 6: Verify evaluator tests pass**
+- [x] **Step 6: Verify evaluator tests pass**
 
 Run:
 
@@ -579,7 +579,7 @@ node --test tests/benchmark-evaluator.test.mjs
 
 Expected: PASS with 0 failures.
 
-- [ ] **Step 7: Verify the benchmark suite can be parsed**
+- [x] **Step 7: Verify the benchmark suite can be parsed**
 
 Run without provider calls by evaluating the JSON with Node:
 
@@ -589,7 +589,7 @@ node -e "const fs=require('fs'); const s=JSON.parse(fs.readFileSync('benchmarks/
 
 Expected: exits with code 0.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```powershell
 git add src/benchmark/evaluator.mjs tests/benchmark-evaluator.test.mjs benchmarks/evidence-preservation.json package.json
@@ -604,7 +604,7 @@ git commit -m "test: benchmark report evidence preservation"
 - Modify: `TESTING.md`
 - Modify: `tests/integrations.test.mjs`
 
-- [ ] **Step 1: Add a failing docs test**
+- [x] **Step 1: Add a failing docs test**
 
 In `tests/integrations.test.mjs`, add:
 
@@ -619,7 +619,7 @@ test('TESTING.md describes the test contract without hard-coded totals', async (
 });
 ```
 
-- [ ] **Step 2: Run the docs test and verify red**
+- [x] **Step 2: Run the docs test and verify red**
 
 Run:
 
@@ -629,7 +629,7 @@ node --test tests/integrations.test.mjs --test-name-pattern "TESTING.md"
 
 Expected: FAIL because `TESTING.md` currently contains fixed observed totals.
 
-- [ ] **Step 3: Replace the fixed-count paragraph**
+- [x] **Step 3: Replace the fixed-count paragraph**
 
 In `TESTING.md`, replace the current-count paragraph with:
 
@@ -641,7 +641,7 @@ In `TESTING.md`, replace the current-count paragraph with:
 - PR 또는 릴리스 검증에서는 항상 현재 checkout에서 `npm test`를 다시 실행합니다.
 ```
 
-- [ ] **Step 4: Verify the docs test passes**
+- [x] **Step 4: Verify the docs test passes**
 
 Run:
 
@@ -651,7 +651,7 @@ node --test tests/integrations.test.mjs --test-name-pattern "TESTING.md"
 
 Expected: PASS with 0 failures for the docs test.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add TESTING.md tests/integrations.test.mjs
@@ -666,7 +666,7 @@ git commit -m "docs: avoid stale test totals"
 - Modify: `tests/mcp-server.test.mjs`
 - Modify: `src/mcp/server.mjs` only if the matrix test exposes a missing guard
 
-- [ ] **Step 1: Replace the single unknown-key test with a wrapper matrix**
+- [x] **Step 1: Replace the single unknown-key test with a wrapper matrix**
 
 Replace the current `MCP request handler rejects unknown wrapper arguments before runtime execution` test in `tests/mcp-server.test.mjs` with:
 
@@ -718,7 +718,7 @@ test('MCP request handler rejects unknown wrapper arguments before runtime execu
 });
 ```
 
-- [ ] **Step 2: Run the matrix test**
+- [x] **Step 2: Run the matrix test**
 
 Run:
 
@@ -728,7 +728,7 @@ node --test tests/mcp-server.test.mjs --test-name-pattern "unknown wrapper argum
 
 Expected: PASS on the current checkout because `validatePublicToolArgs()` already rejects unknown keys for every public tool before wrapper builders call runtime.
 
-- [ ] **Step 3: If the matrix fails, keep the guard centralized**
+- [x] **Step 3: If the matrix fails, keep the guard centralized**
 
 If a wrapper path bypasses the guard, do not add one-off destructuring checks inside each builder. Keep the centralized `validatePublicToolArgs()` pattern and route the missing tool through it before `callTool()`.
 
@@ -741,7 +741,7 @@ if (name === 'collect_evidence') {
 }
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```powershell
 git add tests/mcp-server.test.mjs src/mcp/server.mjs
@@ -756,7 +756,7 @@ git commit -m "test: cover wrapper argument strictness"
 - Modify: `src/mcp/server.mjs`
 - Test: `tests/mcp-server.test.mjs`
 
-- [ ] **Step 1: Add router tests for prompt length and broad scope**
+- [x] **Step 1: Add router tests for prompt length and broad scope**
 
 In `tests/mcp-server.test.mjs`, add:
 
@@ -824,7 +824,7 @@ test('explore router uses V2 for long or broad report prompts', async () => {
 });
 ```
 
-- [ ] **Step 2: Run the router test and verify red**
+- [x] **Step 2: Run the router test and verify red**
 
 Run:
 
@@ -834,7 +834,7 @@ node --test tests/mcp-server.test.mjs --test-name-pattern "explore router uses V
 
 Expected: FAIL because the current router uses V2 only for `thoroughness: deep` or a narrow keyword regex.
 
-- [ ] **Step 3: Replace the router with explicit signals**
+- [x] **Step 3: Replace the router with explicit signals**
 
 In `src/mcp/server.mjs`, replace `shouldUseV2ForExplore(args)` with:
 
@@ -862,7 +862,7 @@ function shouldUseV2ForExplore(args) {
 }
 ```
 
-- [ ] **Step 4: Verify router tests pass**
+- [x] **Step 4: Verify router tests pass**
 
 Run:
 
@@ -872,7 +872,7 @@ node --test tests/mcp-server.test.mjs --test-name-pattern "explore router uses V
 
 Expected: PASS with 0 failures for router behavior.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add src/mcp/server.mjs tests/mcp-server.test.mjs
@@ -889,7 +889,7 @@ git commit -m "feat: route broad explore reports to v2"
 - Modify: `scripts/run-benchmark.mjs`
 - Modify: `benchmarks/adoption.json`
 
-- [ ] **Step 1: Add failing tests for transcript metric parsing**
+- [x] **Step 1: Add failing tests for transcript metric parsing**
 
 Create `tests/benchmark-transcript-metrics.test.mjs`:
 
@@ -934,7 +934,7 @@ test('analyzeTranscriptEntries counts repeated tool plans', () => {
 });
 ```
 
-- [ ] **Step 2: Run the metric tests and verify red**
+- [x] **Step 2: Run the metric tests and verify red**
 
 Run:
 
@@ -944,7 +944,7 @@ node --test tests/benchmark-transcript-metrics.test.mjs
 
 Expected: FAIL because `src/benchmark/transcript-metrics.mjs` does not exist.
 
-- [ ] **Step 3: Implement transcript metrics**
+- [x] **Step 3: Implement transcript metrics**
 
 Create `src/benchmark/transcript-metrics.mjs`:
 
@@ -994,7 +994,7 @@ export async function analyzeTranscriptFile(filePath) {
 }
 ```
 
-- [ ] **Step 4: Wire metrics into benchmark reports**
+- [x] **Step 4: Wire metrics into benchmark reports**
 
 In `scripts/run-benchmark.mjs`, import:
 
@@ -1030,7 +1030,7 @@ avgBroadSearchCalls: avgBroadSearchCalls !== null ? Math.round(avgBroadSearchCal
 avgRepeatedToolPlanTurns: avgRepeatedToolPlanTurns !== null ? Math.round(avgRepeatedToolPlanTurns * 10) / 10 : null,
 ```
 
-- [ ] **Step 5: Add adoption checks for structured handoff**
+- [x] **Step 5: Add adoption checks for structured handoff**
 
 In `benchmarks/adoption.json`, add checks to existing cases rather than adding broad new prompts:
 
@@ -1040,7 +1040,7 @@ In `benchmarks/adoption.json`, add checks to existing cases rather than adding b
 
 For report-mode cases added in Task 3, rely on `min_citation_count` instead of evidence snippets.
 
-- [ ] **Step 6: Verify benchmark metric tests pass**
+- [x] **Step 6: Verify benchmark metric tests pass**
 
 Run:
 
@@ -1050,7 +1050,7 @@ node --test tests/benchmark-transcript-metrics.test.mjs
 
 Expected: PASS with 0 failures.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```powershell
 git add src/benchmark/transcript-metrics.mjs tests/benchmark-transcript-metrics.test.mjs scripts/run-benchmark.mjs benchmarks/adoption.json
@@ -1066,7 +1066,7 @@ git commit -m "feat: add transcript adoption metrics"
 - Modify: `src/explorer/symbols.mjs` only for classifier gaps exposed by tests
 - Modify: `DESIGN.md`
 
-- [ ] **Step 1: Add precision tests for common parser-free relation cases**
+- [x] **Step 1: Add precision tests for common parser-free relation cases**
 
 Append these cases near the existing `classifyReference adds relation details without changing legacy type` test in `tests/symbols.test.mjs`:
 
@@ -1091,7 +1091,7 @@ test('classifyReference distinguishes member, call, constructor, and type relati
 });
 ```
 
-- [ ] **Step 2: Run the symbol tests**
+- [x] **Step 2: Run the symbol tests**
 
 Run:
 
@@ -1101,7 +1101,7 @@ node --test tests/symbols.test.mjs --test-name-pattern "classifyReference"
 
 Expected: PASS if the current classifier already covers the cases; FAIL if one relation is misclassified.
 
-- [ ] **Step 3: Patch only failing classifier gaps**
+- [x] **Step 3: Patch only failing classifier gaps**
 
 If a case fails, patch `relationForUsage()` in `src/explorer/symbols.mjs` with ordered checks like:
 
@@ -1119,7 +1119,7 @@ if (new RegExp(`\\b${escaped}\\s*\\(`).test(trimmed)) {
 
 Keep `categorizeReference()` returning the legacy `definition|import|usage` type and put extra precision only in `classifyReference().relation`.
 
-- [ ] **Step 4: Document the long-term boundary**
+- [x] **Step 4: Document the long-term boundary**
 
 In `DESIGN.md`, add this paragraph near the symbol/reference design section:
 
@@ -1127,7 +1127,7 @@ In `DESIGN.md`, add this paragraph near the symbol/reference design section:
 Symbol precision remains parser-free by design. `repo_references` and `repo_symbol_context` may classify common relations such as `call`, `member_call`, `constructor`, `type_reference`, `import`, and `export`, but they do not claim LSP-level completeness. When relation confidence matters, parent agents should treat symbol results as a targeted map and verify returned line ranges before editing.
 ```
 
-- [ ] **Step 5: Verify symbol tests pass**
+- [x] **Step 5: Verify symbol tests pass**
 
 Run:
 
@@ -1137,7 +1137,7 @@ node --test tests/symbols.test.mjs
 
 Expected: PASS with 0 failures.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```powershell
 git add tests/symbols.test.mjs src/explorer/symbols.mjs DESIGN.md
@@ -1153,7 +1153,7 @@ git commit -m "test: capture symbol relation precision baseline"
 - Modify: `DESIGN.md`
 - Verify: all touched files
 
-- [ ] **Step 1: Update README tool-quality guidance**
+- [x] **Step 1: Update README tool-quality guidance**
 
 Add this concise guidance to the tool section in `README.md`:
 
@@ -1163,7 +1163,7 @@ Add this concise guidance to the tool section in `README.md`:
 Report tools return Markdown as text and include derived `citations[]` and `targets[]` in `structuredContent` so parent agents do not need to regex-scrape file:line references before verification.
 ```
 
-- [ ] **Step 2: Update DESIGN with V2 evidence controls**
+- [x] **Step 2: Update DESIGN with V2 evidence controls**
 
 Add this section to `DESIGN.md`:
 
@@ -1175,7 +1175,7 @@ V2 is allowed to spend more turns and compact context, so it must make evidence 
 V2 can become the sole report backend only after the evidence-preservation benchmark shows stable citation retention under broad report prompts and no unexplained citation-gap warnings.
 ```
 
-- [ ] **Step 3: Verify focused test files**
+- [x] **Step 3: Verify focused test files**
 
 Run:
 
@@ -1185,7 +1185,7 @@ node --test tests/runtime.mock.test.mjs tests/free-explore.test.mjs tests/mcp-se
 
 Expected: PASS with 0 failures.
 
-- [ ] **Step 4: Run full test suite**
+- [x] **Step 4: Run full test suite**
 
 Run:
 
@@ -1195,7 +1195,7 @@ npm test
 
 Expected: exits with code 0. Skip counts may vary by Windows/git availability; failures must be 0.
 
-- [ ] **Step 5: Run non-provider benchmark validation**
+- [x] **Step 5: Run non-provider benchmark validation**
 
 Run:
 
@@ -1205,7 +1205,7 @@ node -e "for (const f of ['benchmarks/adoption.json','benchmarks/evidence-preser
 
 Expected: exits with code 0.
 
-- [ ] **Step 6: Optional provider benchmark run**
+- [x] **Step 6: Optional provider benchmark run**
 
 Run this only in an environment with a working provider key:
 
@@ -1216,7 +1216,7 @@ npm run benchmark:evidence
 
 Expected: benchmark commands complete and print per-case PASS/FAIL summaries. Record any failed case with its score and warnings before deciding whether V2 can replace V1.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```powershell
 git add README.md DESIGN.md

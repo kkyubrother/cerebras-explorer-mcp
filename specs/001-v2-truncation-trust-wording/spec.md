@@ -6,7 +6,7 @@
 
 **Status**: Draft
 
-**Input**: User description: "V2 truncation trust wording 수정. src/explorer/runtime.mjs의 applyToolResultCharBudget()이 현재 'Full data was inspected; key content preserved above'라는 잘못된 신뢰 메시지를 반환하는데, 실제로는 데이터가 잘려서 모델에 전달됨. 이를 TRUNCATED_TOOL_RESULT_MARKER 상수를 도입해 'Result was truncated before model synthesis; re-run with a narrower query or read specific ranges if expected evidence is missing'로 교체하고, buildSearchCoverage의 truncation warning도 동일하게 강화한다. 원본 plan은 docs/superpowers/plans/2026-05-19-tool-quality-improvements.md의 Task 1 섹션(라인 53~195) 참조. 카테고리: P0. 변경 파일: src/explorer/runtime.mjs, tests/runtime.mock.test.mjs."
+**Input**: User description: "V2 truncation trust wording 수정. src/explorer/runtime.mjs의 applyToolResultCharBudget()이 현재 'Full data was inspected; key content preserved above'라는 잘못된 신뢰 메시지를 반환하는데, 실제로는 데이터가 잘려서 모델에 전달됨. 이를 TRUNCATED_TOOL_RESULT_MARKER 상수를 도입해 'Result was truncated before model synthesis; re-run with a narrower query or read specific ranges if expected evidence is missing'로 교체하고, buildSearchCoverage의 truncation warning도 동일하게 강화한다. 원본 plan은 docs/superpowers/plans/completed/2026-05-19-tool-quality-improvements.md의 Task 1 섹션(라인 53~195) 참조. 카테고리: P0. 변경 파일: src/explorer/runtime.mjs, tests/runtime.mock.test.mjs."
 
 ## User Scenarios & Testing *(mandatory)*
 

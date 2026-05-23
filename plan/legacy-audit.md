@@ -72,7 +72,7 @@ function getCandidatePaths(result) {
 ```
 
 - **증거**: 현행 runtime은 `candidatePaths` 필드를 생성하지 않는다. `grep candidatePaths src/explorer/` → 0. `tests/regression.test.mjs:18`이 import하는 cache 헬퍼와 무관. `plan/checklist.md:32`도 "candidatePaths → targets" 마이그레이션을 명시.
-- **영향 범위**: `tests/benchmark-evaluator.test.mjs`가 fallback 케이스를 검증할 수 있음 (`docs/superpowers/plans/2026-05-19-first-pass-feedback-fixes.md` Task 3 Step 3에서 이 helper를 의도적으로 추가했다고 명시).
+- **영향 범위**: `tests/benchmark-evaluator.test.mjs`가 fallback 케이스를 검증할 수 있음 (`docs/superpowers/plans/completed/2026-05-19-first-pass-feedback-fixes.md` Task 3 Step 3에서 이 helper를 의도적으로 추가했다고 명시).
 - **권고**: `keep-but-document` — 의도된 backward-compat shim이므로 함수 위에 "legacy benchmark JSON 호환용. 신규 runtime은 항상 targets만 생성." 한 줄 주석 추가.
 
 #### S-2. `src/benchmark/evaluator.mjs:52-53` `candidate_paths` 소스

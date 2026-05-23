@@ -24,7 +24,7 @@ description: "Tasks for Task 4 — TESTING.md 고정 테스트 수치 제거 및
   - `TESTING.md` (루트)
   - `tests/integrations.test.mjs`
 - **읽기 전용 참고 파일**:
-  - `docs/superpowers/plans/2026-05-19-tool-quality-improvements.md` (원본 plan Task 4)
+  - `docs/superpowers/plans/completed/2026-05-19-tool-quality-improvements.md` (원본 plan Task 4)
   - `AGENTS.md` (doc-snapshot 가드 운영 규약)
 - **런타임 코드 변경 금지**: `src/**`, `scripts/**`, `package.json`은 본 작업에서 수정하지 않는다.
 

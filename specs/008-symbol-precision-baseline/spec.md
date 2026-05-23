@@ -6,7 +6,7 @@
 
 **Status**: Draft
 
-**Input**: User description: "Task 8 (Add Symbol Precision Baseline Coverage). src/explorer/symbols.mjs의 분류 로직은 이미 구현됨. 남은 작업은 (a) 4개 parser-free relation case(session.touch() member_call, (req: Request) type_reference 등)를 명시적 단위 테스트로 굳히고 (b) DESIGN.md에 parser-free 경계 문서 추가. 원본 plan: docs/superpowers/plans/2026-05-19-tool-quality-improvements.md Task 8. 카테고리: P3, long-term baseline."
+**Input**: User description: "Task 8 (Add Symbol Precision Baseline Coverage). src/explorer/symbols.mjs의 분류 로직은 이미 구현됨. 남은 작업은 (a) 4개 parser-free relation case(session.touch() member_call, (req: Request) type_reference 등)를 명시적 단위 테스트로 굳히고 (b) DESIGN.md에 parser-free 경계 문서 추가. 원본 plan: docs/superpowers/plans/completed/2026-05-19-tool-quality-improvements.md Task 8. 카테고리: P3, long-term baseline."
 
 > 범위 메모: 본 스펙은 원본 plan Task 8의 의미를 그대로 따르되, 사전 검증 결과 `src/explorer/symbols.mjs:379-410`의 `relationForUsage()`와 `classifyReference()`가 이미 plan Step 3의 패치와 동등한 분류 (`constructor` → `call` → `member_call` ordered checks, `type_reference`, `export`, `property`, `reference`)를 구현하고 있다. 따라서 본 스펙의 실제 작업 범위는 **분류기 신규 구현이 아니라 이미 구현된 분류 결과를 회귀 테스트로 고정하고, parser-free 경계를 문서에 명시하는 것**으로 좁혀진다. 원본 plan Task 8의 Step 3 (분류기 패치) 는 조건부 가드일 뿐 실제 수정으로 이어지지 않을 가능성이 높다.
 

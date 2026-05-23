@@ -4,7 +4,7 @@
 
 **Input**: Feature specification from `./specs/009-public-docs-and-verification/spec.md`
 
-**Origin Plan**: ./docs/superpowers/plans/2026-05-19-tool-quality-improvements.md — Task 9 (closing task)
+**Origin Plan**: ./docs/superpowers/plans/completed/2026-05-19-tool-quality-improvements.md — Task 9 (closing task)
 
 ## Summary
 

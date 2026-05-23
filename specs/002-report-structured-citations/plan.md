@@ -4,7 +4,7 @@
 
 **Input**: Feature specification from `specs/002-report-structured-citations/spec.md` (002 브랜치 전용)
 
-**원본 plan 참조**: `docs/superpowers/plans/2026-05-19-tool-quality-improvements.md`의 Task 2 섹션 ("Add Structured Citations to Report Tools").
+**원본 plan 참조**: `docs/superpowers/plans/completed/2026-05-19-tool-quality-improvements.md`의 Task 2 섹션 ("Add Structured Citations to Report Tools").
 
 ## Summary
 

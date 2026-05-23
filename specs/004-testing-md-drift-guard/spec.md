@@ -6,7 +6,7 @@
 
 **Status**: Draft
 
-**Input**: User description: "Task 4 (Remove Fixed Test Totals From TESTING.md). TESTING.md에서 고정 테스트 합계 숫자(320 tests, 5/5, 8개 도구 등)를 제거하고 명령+합격 기준 형식으로 전환. 통합 테스트 표와 stdio smoke 표기 포함. drift 방지 가드 테스트도 추가. 원본 plan은 docs/superpowers/plans/2026-05-19-tool-quality-improvements.md Task 4. 카테고리: P2. plan 정규식이 통합 테스트 표를 누락하므로 spec에서 범위를 확장한다."
+**Input**: User description: "Task 4 (Remove Fixed Test Totals From TESTING.md). TESTING.md에서 고정 테스트 합계 숫자(320 tests, 5/5, 8개 도구 등)를 제거하고 명령+합격 기준 형식으로 전환. 통합 테스트 표와 stdio smoke 표기 포함. drift 방지 가드 테스트도 추가. 원본 plan은 docs/superpowers/plans/completed/2026-05-19-tool-quality-improvements.md Task 4. 카테고리: P2. plan 정규식이 통합 테스트 표를 누락하므로 spec에서 범위를 확장한다."
 
 > 상태: tool-quality-improvements 플랜의 Task 4 초안입니다. 원본 plan의 정규식이 단위 테스트 단락만 다루지만, 현재 `TESTING.md`에는 통합 테스트 표(`5/5 통과`)와 stdio smoke 표기(`기본 공개 도구 8개`)에도 고정 수치가 남아 있어 spec에서 적용 범위를 확장합니다.
 
@@ -70,7 +70,7 @@
 
 - **TESTING.md**: 단위 테스트, 통합 테스트, stdio smoke, API 에러 코드 참조 섹션을 가진 한국어 검증 문서. 본 작업의 편집 대상.
 - **Doc-drift 가드 테스트**: `tests/integrations.test.mjs`의 새 `test(...)` 블록. `fs.readFile`로 `TESTING.md`를 읽고 금지/필수 패턴을 어서션한다.
-- **원본 plan**: `docs/superpowers/plans/2026-05-19-tool-quality-improvements.md`의 Task 4. 본 spec은 그 plan의 정규식 범위(단위 테스트 단락만 커버)를 통합 테스트 표와 stdio smoke 표기까지 확장한 상위 계약이다.
+- **원본 plan**: `docs/superpowers/plans/completed/2026-05-19-tool-quality-improvements.md`의 Task 4. 본 spec은 그 plan의 정규식 범위(단위 테스트 단락만 커버)를 통합 테스트 표와 stdio smoke 표기까지 확장한 상위 계약이다.
 
 ## Success Criteria *(mandatory)*
 

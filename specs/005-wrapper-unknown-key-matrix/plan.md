@@ -4,7 +4,7 @@
 
 **Input**: Feature specification from `specs/005-wrapper-unknown-key-matrix/spec.md`
 
-**원본 plan(참고)**: `docs/superpowers/plans/2026-05-19-tool-quality-improvements.md` Task 5 (Expand Wrapper Unknown-Key Regression Coverage)
+**원본 plan(참고)**: `docs/superpowers/plans/completed/2026-05-19-tool-quality-improvements.md` Task 5 (Expand Wrapper Unknown-Key Regression Coverage)
 
 ## Summary
 

@@ -6,7 +6,7 @@
 
 **Status**: Draft
 
-**Input**: User description: "Task 6 (Strengthen Explore Router Heuristics). explore 도구의 내부 V1/V2 라우팅을 prompt 길이·scope 폭·확장 키워드 기반으로 강화. 외부 도구 surface는 변경 없음. 원본 plan: docs/superpowers/plans/2026-05-19-tool-quality-improvements.md Task 6. 카테고리: P1."
+**Input**: User description: "Task 6 (Strengthen Explore Router Heuristics). explore 도구의 내부 V1/V2 라우팅을 prompt 길이·scope 폭·확장 키워드 기반으로 강화. 외부 도구 surface는 변경 없음. 원본 plan: docs/superpowers/plans/completed/2026-05-19-tool-quality-improvements.md Task 6. 카테고리: P1."
 
 ## User Scenarios & Testing *(mandatory)*
 
