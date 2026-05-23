@@ -717,3 +717,23 @@ test('010 US4#4 — collectDiscoveredPathsFromToolResult only sees in-scope file
     'discoveredPaths must include in-scope changed files',
   );
 });
+
+test('callTool repo_read_file invalidates the cache when the file mtime changes', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-mtime-cache-'));
+  const filePath = path.join(root, 'demo.txt');
+  await fs.writeFile(filePath, 'initial content\nline 2\nline 3\n');
+
+  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig('normal') });
+  await toolkit.initialize();
+
+  const first = await toolkit.callTool('repo_read_file', { path: 'demo.txt', startLine: 1, endLine: 5 });
+  assert.match(JSON.stringify(first), /initial content/);
+
+  await fs.writeFile(filePath, 'updated content\nline 2\nline 3\n');
+  const future = (Date.now() + 5000) / 1000;
+  await fs.utimes(filePath, future, future);
+
+  const second = await toolkit.callTool('repo_read_file', { path: 'demo.txt', startLine: 1, endLine: 5 });
+  assert.match(JSON.stringify(second), /updated content/, 'mtime change must invalidate cache and reread the file');
+  assert.doesNotMatch(JSON.stringify(second), /initial content/);
+});

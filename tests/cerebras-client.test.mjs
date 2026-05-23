@@ -377,3 +377,57 @@ test('CerebrasChatClient does not retry non-retryable 400 errors', async () => {
   );
   assert.equal(callCount, 1, '400 error was not retried');
 });
+
+function makeOkResponse() {
+  return {
+    ok: true,
+    status: 200,
+    statusText: 'OK',
+    text: async () => JSON.stringify({
+      id: 'chatcmpl-test',
+      choices: [{ finish_reason: 'stop', message: { role: 'assistant', content: 'ok' } }],
+      usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+    }),
+  };
+}
+
+test('CerebrasChatClient gzips request payloads at or above the 32 KiB threshold', async () => {
+  const captured = { body: null, headers: null };
+  const client = new CerebrasChatClient({
+    apiKey: 'test-key',
+    model: 'zai-glm-4.7',
+    fetchImpl: async (_url, init) => {
+      captured.body = init.body;
+      captured.headers = init.headers;
+      return makeOkResponse();
+    },
+  });
+
+  const largeText = 'x'.repeat(40_000);
+  await client.createChatCompletion({ messages: [{ role: 'user', content: largeText }] });
+
+  assert.equal(captured.headers['content-encoding'], 'gzip', 'large payloads must declare gzip encoding');
+  assert.ok(Buffer.isBuffer(captured.body), 'gzip body must be a Buffer');
+  assert.ok(
+    captured.body.length < Buffer.byteLength(largeText, 'utf-8'),
+    'gzip body must be smaller than the source text',
+  );
+});
+
+test('CerebrasChatClient sends raw JSON for payloads below the gzip threshold', async () => {
+  const captured = { body: null, headers: null };
+  const client = new CerebrasChatClient({
+    apiKey: 'test-key',
+    model: 'zai-glm-4.7',
+    fetchImpl: async (_url, init) => {
+      captured.body = init.body;
+      captured.headers = init.headers;
+      return makeOkResponse();
+    },
+  });
+
+  await client.createChatCompletion({ messages: [{ role: 'user', content: 'short prompt' }] });
+
+  assert.equal(captured.headers['content-encoding'], undefined, 'small payloads must not declare gzip encoding');
+  assert.equal(typeof captured.body, 'string', 'small payloads must be sent as raw JSON string');
+});

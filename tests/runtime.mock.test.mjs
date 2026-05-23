@@ -2065,6 +2065,83 @@ test('Phase 4 — freeExploreV2 respects turn multiplier override', async () => 
   });
 });
 
+test('freeExploreV2 recovers from finishReason=length finalize and increments outputRecoveries', async () => {
+  class LengthRecoveryClient {
+    constructor() {
+      this.model = 'zai-glm-4.7';
+      this.calls = 0;
+    }
+
+    async createChatCompletion() {
+      this.calls += 1;
+
+      if (this.calls <= BUDGETS.quick.maxTurns) {
+        return {
+          usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+          message: {
+            content: '',
+            toolCalls: [{
+              id: `tool-${this.calls}`,
+              function: {
+                name: 'repo_grep',
+                arguments: JSON.stringify({ pattern: 'requireAuth', maxResults: 1 }),
+              },
+            }],
+          },
+        };
+      }
+
+      if (this.calls === BUDGETS.quick.maxTurns + 1) {
+        return {
+          usage: { prompt_tokens: 30, completion_tokens: 20, total_tokens: 50 },
+          finishReason: 'length',
+          message: {
+            content: '# Final report\n\nThis sentence was cut off before',
+            toolCalls: [],
+          },
+        };
+      }
+
+      return {
+        usage: { prompt_tokens: 30, completion_tokens: 20, total_tokens: 50 },
+        finishReason: 'stop',
+        message: {
+          content: ' the model could finish it. The report is now complete.',
+          toolCalls: [],
+        },
+      };
+    }
+  }
+
+  const root = await makeRepoFixture();
+
+  await withEnv({
+    CEREBRAS_EXPLORER_V2_TURN_MULTIPLIER: '1',
+    CEREBRAS_EXPLORER_V2_MAX_EXTRA_TURNS: '0',
+  }, async () => {
+    const client = new LengthRecoveryClient();
+    const runtime = new ExplorerRuntime({ chatClient: client });
+    const result = await runtime.freeExploreV2({
+      prompt: 'output recovery test',
+      repo_root: root,
+      thoroughness: 'quick',
+    });
+
+    assert.equal(
+      result.stats.outputRecoveries,
+      1,
+      'one recovery attempt must run when finalize returns finishReason=length',
+    );
+    assert.equal(
+      client.calls,
+      BUDGETS.quick.maxTurns + 2,
+      'main loop + finalize + one recovery continuation call',
+    );
+    assert.match(result.report, /cut off before/);
+    assert.match(result.report, /report is now complete/);
+  });
+});
+
 // ── Phase 3 — 프롬프트 구조 재배치 + 전략 유연화 ─────────────────────────────
 
 test('Phase 3 — system prompt has HARD REQUIREMENTS within first 30 lines', () => {
