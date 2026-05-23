@@ -16,7 +16,7 @@
   "mcpServers": {
     "cerebras-explorer": {
       "command": "npx",
-      "args": ["-y", "github:kkyubrother/cerebras-explorer-mcp#v0.3.0"],
+      "args": ["-y", "github:kkyubrother/cerebras-explorer-mcp#v0.4.0"],
       "env": {
         "CEREBRAS_API_KEY": "$CEREBRAS_API_KEY"
       },
@@ -26,9 +26,11 @@
         "find_relevant_code",
         "trace_symbol",
         "map_change_impact",
+        "map_impact",
         "explain_code_path",
         "collect_evidence",
         "review_change_context",
+        "find_entrypoints",
         "explore"
       ],
       "timeout": 180000
@@ -43,10 +45,11 @@ Gemini CLI는 MCP 서버 프로세스에 전달되는 환경변수 중 `*KEY*`, 
 
 `includeTools`는 Gemini CLI 쪽 allowlist입니다. 특정 도구를 추가로 막는 `excludeTools`를 함께 쓰면 `excludeTools`가 우선합니다.
 
-Recommended full wrapper exposure is the 8-tool list above. It keeps low-level
+Recommended full wrapper exposure is the 10-tool list above. It keeps low-level
 repo operations hidden while giving the agent separate entry points for locate,
-symbol tracing, impact mapping, path explanation, evidence collection, change
-review, structured JSON, and cited Markdown reports. A minimal 4-tool allowlist
+symbol tracing, change-impact mapping, anchor-based impact mapping, path
+explanation, evidence collection, change review, entry-point discovery,
+structured JSON, and cited Markdown reports. A minimal 4-tool allowlist
 (`explore_repo`, `find_relevant_code`, `trace_symbol`, `map_change_impact`) is
 reasonable for stricter trust boundaries, but it reduces the agent-facing value
 of the wrapper set.
@@ -56,7 +59,7 @@ of the wrapper set.
 ```bash
 gemini mcp add -e CEREBRAS_API_KEY="$CEREBRAS_API_KEY" \
   cerebras-explorer npx -- \
-  -y github:kkyubrother/cerebras-explorer-mcp#v0.3.0
+  -y github:kkyubrother/cerebras-explorer-mcp#v0.4.0
 ```
 
 ## 검증

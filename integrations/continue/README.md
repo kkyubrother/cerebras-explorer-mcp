@@ -20,7 +20,7 @@ mcpServers:
     command: npx
     args:
       - "-y"
-      - "github:kkyubrother/cerebras-explorer-mcp#v0.3.0"
+      - "github:kkyubrother/cerebras-explorer-mcp#v0.4.0"
     env:
       CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
 ```
@@ -32,11 +32,11 @@ mcpServers:
 ```yaml
 args:
   - "-y"
-  - "github:kkyubrother/cerebras-explorer-mcp#v0.3.0"
+  - "github:kkyubrother/cerebras-explorer-mcp#v0.4.0"
 ```
 
 ## 검증
 
-Continue를 재시작 후 Agent 모드로 전환하고, 기본 도구 목록(`find_relevant_code`, `trace_symbol`, `map_change_impact`, `explain_code_path`, `collect_evidence`, `review_change_context`, `explore_repo`, `explore`)이 보이는지 확인합니다.
+Continue를 재시작 후 Agent 모드로 전환하고, 기본 도구 목록(`find_relevant_code`, `trace_symbol`, `map_change_impact`, `map_impact`, `explain_code_path`, `collect_evidence`, `review_change_context`, `find_entrypoints`, `explore_repo`, `explore`)이 보이는지 확인합니다.
 
 공식 문서: <https://docs.continue.dev/customize/deep-dives/mcp>

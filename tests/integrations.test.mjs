@@ -102,16 +102,18 @@ test('Gemini example documents required env and recommended full wrapper allowli
   const server = settings.mcpServers?.['cerebras-explorer'];
   assert.ok(server, 'Gemini server alias should be cerebras-explorer');
   assert.equal(server.command, 'npx');
-  assert.deepEqual(server.args, ['-y', 'github:kkyubrother/cerebras-explorer-mcp#v0.3.0']);
+  assert.deepEqual(server.args, ['-y', 'github:kkyubrother/cerebras-explorer-mcp#v0.4.0']);
   assert.equal(server.env?.CEREBRAS_API_KEY, '$CEREBRAS_API_KEY');
   assert.deepEqual(server.includeTools, [
     'explore_repo',
     'find_relevant_code',
     'trace_symbol',
     'map_change_impact',
+    'map_impact',
     'explain_code_path',
     'collect_evidence',
     'review_change_context',
+    'find_entrypoints',
     'explore',
   ]);
 
@@ -129,7 +131,7 @@ test('Gemini example documents required env and recommended full wrapper allowli
 test('Codex example uses npx and tool allowlist controls', async () => {
   const toml = await read('integrations/codex/config.toml.example');
   assert.match(toml, /command = "npx"/);
-  assert.match(toml, /github:kkyubrother\/cerebras-explorer-mcp#v0\.3\.0/);
+  assert.match(toml, /github:kkyubrother\/cerebras-explorer-mcp#v0\.4\.0/);
   assert.match(toml, /startup_timeout_sec = 60/);
   assert.match(toml, /tool_timeout_sec = 180/);
   assert.match(toml, /default_tools_approval_mode = "approve"/);
@@ -232,7 +234,7 @@ test('Continue YAML example keeps the expected MCP shape', async () => {
   assert.match(yaml, /^mcpServers:/m);
   assert.match(yaml, /name: cerebras-explorer/);
   assert.match(yaml, /command: npx/);
-  assert.match(yaml, /github:kkyubrother\/cerebras-explorer-mcp#v0\.3\.0/);
+  assert.match(yaml, /github:kkyubrother\/cerebras-explorer-mcp#v0\.4\.0/);
   assert.match(yaml, /CEREBRAS_API_KEY/);
 });
 

@@ -192,7 +192,7 @@ test('MCP request handler exposes explore_repo and returns structuredContent', a
     params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'test', version: '0.0.1' } },
   });
   assert.equal(initialized.serverInfo.name, 'cerebras-explorer-mcp');
-  assert.equal(initialized.serverInfo.version, '0.3.0');
+  assert.equal(initialized.serverInfo.version, '0.4.0');
 
   const listed = await handleRequest({
     jsonrpc: '2.0',
@@ -227,9 +227,11 @@ test('MCP request handler exposes explore_repo and returns structuredContent', a
     'find_relevant_code',
     'trace_symbol',
     'map_change_impact',
+    'map_impact',
     'explain_code_path',
     'collect_evidence',
     'review_change_context',
+    'find_entrypoints',
   ]) {
     const tool = listed.tools.find(t => t.name === toolName);
     assert.equal(tool.inputSchema.properties.language, undefined, `${toolName} must not expose language`);
@@ -478,15 +480,18 @@ test('collect_evidence wrapper uses evidence verification mode instead of edit r
   assert.equal(called.structuredContent.status.verification, 'verified');
 });
 
-test('MCP request handler declares read-only annotations for the fixed 8-tool surface', async () => {
-  // spec 011: tool surface is fixed at 8 regardless of legacy envvars.
+test('MCP request handler declares read-only annotations for the fixed 10-tool surface', async () => {
+  // spec 013: tool surface is fixed at 10 (spec 011 added 8; spec 013 added
+  // map_impact and find_entrypoints) regardless of legacy envvars.
   const expectedNames = [
     'find_relevant_code',
     'trace_symbol',
     'map_change_impact',
+    'map_impact',
     'explain_code_path',
     'collect_evidence',
     'review_change_context',
+    'find_entrypoints',
     'explore_repo',
     'explore',
   ];
@@ -508,7 +513,7 @@ test('MCP request handler declares read-only annotations for the fixed 8-tool su
     assert.deepEqual(
       tools.map(tool => tool.name),
       expectedNames,
-      `${scenario.name}: tool surface is fixed at 8 regardless of legacy envvars`,
+      `${scenario.name}: tool surface is fixed at 10 regardless of legacy envvars`,
     );
     for (const tool of tools) assertReadOnlyAnnotations(tool);
   }
@@ -601,6 +606,11 @@ test('MCP request handler rejects unknown wrapper arguments before runtime execu
       unknownKey: 'unexpected',
     },
     {
+      tool: 'map_impact',
+      args: { anchor: 'src/auth.js' },
+      unknownKey: 'reasonForChange',
+    },
+    {
       tool: 'explain_code_path',
       args: { pathQuery: 'login request flow' },
       unknownKey: 'flowType',
@@ -614,6 +624,11 @@ test('MCP request handler rejects unknown wrapper arguments before runtime execu
       tool: 'review_change_context',
       args: { reviewGoal: 'audit auth refactor' },
       unknownKey: 'severity',
+    },
+    {
+      tool: 'find_entrypoints',
+      args: {},
+      unknownKey: 'targetLanguage',
     },
   ];
 
@@ -647,6 +662,57 @@ test('MCP request handler rejects unknown wrapper arguments before runtime execu
       assert.equal(called.structuredContent.failure.reason, 'invalid_arguments');
     });
   }
+});
+
+test('map_impact rejects missing or empty anchor argument before runtime dispatch', async () => {
+  class ShouldNotRunChatClient {
+    constructor() { this.model = 'zai-glm-4.7'; }
+    async createChatCompletion() {
+      throw new Error('runtime should not be invoked for invalid map_impact arguments');
+    }
+  }
+
+  const { handleRequest } = createMcpRequestHandler({
+    runtimeOptions: { chatClient: new ShouldNotRunChatClient() },
+  });
+
+  for (const [index, args] of [{}, { anchor: '' }, { anchor: '   ' }].entries()) {
+    const called = await handleRequest({
+      jsonrpc: '2.0',
+      id: 220 + index,
+      method: 'tools/call',
+      params: { name: 'map_impact', arguments: args },
+    });
+    assert.equal(called.isError, true, `case ${index}: must error on missing/empty anchor`);
+    assert.match(called.content[0].text, /map_impact requires a non-empty "anchor"/);
+    assert.equal(called.structuredContent.failure.category, 'input');
+    assert.equal(called.structuredContent.failure.reason, 'invalid_arguments');
+  }
+});
+
+test('find_entrypoints rejects unknown entryKind via enum schema before runtime dispatch', async () => {
+  class ShouldNotRunChatClient {
+    constructor() { this.model = 'zai-glm-4.7'; }
+    async createChatCompletion() {
+      throw new Error('runtime should not be invoked for invalid find_entrypoints arguments');
+    }
+  }
+
+  const { handleRequest } = createMcpRequestHandler({
+    runtimeOptions: { chatClient: new ShouldNotRunChatClient() },
+  });
+
+  const called = await handleRequest({
+    jsonrpc: '2.0',
+    id: 230,
+    method: 'tools/call',
+    params: { name: 'find_entrypoints', arguments: { entryKind: 'unknown_kind' } },
+  });
+  assert.equal(called.isError, true);
+  assert.match(called.content[0].text, /Invalid arguments for find_entrypoints/);
+  assert.match(called.content[0].text, /entryKind must be one of/);
+  assert.equal(called.structuredContent.failure.category, 'input');
+  assert.equal(called.structuredContent.failure.reason, 'invalid_arguments');
 });
 
 test('MCP request handler returns execution failures for explore_repo without mislabeling them as argument errors', async () => {

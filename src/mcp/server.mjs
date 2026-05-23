@@ -11,7 +11,7 @@ import { StdioJsonRpcServer } from './jsonrpc-stdio.mjs';
 
 const SERVER_INFO = {
   name: 'cerebras-explorer-mcp',
-  version: '0.3.0',
+  version: '0.4.0',
 };
 
 const READ_ONLY_TOOL_ANNOTATIONS = Object.freeze({
@@ -190,6 +190,61 @@ const REVIEW_CHANGE_CONTEXT_TOOL = {
   annotations: readOnlyToolAnnotations('Review change context'),
 };
 
+const MAP_IMPACT_TOOL = {
+  name: 'map_impact',
+  title: 'Map impact from anchor',
+  description:
+    'Use when the parent already knows the specific anchor (a file path or symbol name) that is about to change and wants a deeper dependency chain plus test/config blast radius. ' +
+    'Differs from map_change_impact: this tool puts the anchor in front and runs a deeper reference chase; map_change_impact takes a natural-language change description.',
+  inputSchema: {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      anchor: {
+        type: 'string',
+        description: 'A file path (e.g. "src/auth.js") or a symbol name (e.g. "requireAuth") that will change.',
+      },
+      changeType: {
+        type: 'string',
+        enum: ['rename', 'refactor', 'remove', 'add'],
+        description: 'Optional. The intended kind of change so the task statement reflects it (e.g. callers matter more for "remove").',
+      },
+      repo_root: { type: 'string' },
+      scope: { type: 'array', items: { type: 'string' } },
+      knownFiles: { type: 'array', items: { type: 'string' } },
+      knownSymbols: { type: 'array', items: { type: 'string' } },
+      session: { type: 'string' },
+    },
+    required: ['anchor'],
+  },
+  outputSchema: EXPLORE_REPO_OUTPUT_SCHEMA,
+  annotations: readOnlyToolAnnotations('Map impact from anchor'),
+};
+
+const FIND_ENTRYPOINTS_TOOL = {
+  name: 'find_entrypoints',
+  title: 'Find entry points',
+  description:
+    'Use to surface where execution starts in a repository: HTTP routes, CLI commands, cron handlers, MCP tools, or event handlers. ' +
+    'Faster than running find_relevant_code with manual regex hints. Detection is regex-based and may include false positives — verify cited lines before acting.',
+  inputSchema: {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      entryKind: {
+        type: 'string',
+        enum: ['http', 'cli', 'cron', 'mcp', 'event', 'all'],
+        description: 'Optional. Restrict detection to one entry kind. Defaults to "all".',
+      },
+      repo_root: { type: 'string' },
+      scope: { type: 'array', items: { type: 'string' } },
+      session: { type: 'string' },
+    },
+  },
+  outputSchema: EXPLORE_REPO_OUTPUT_SCHEMA,
+  annotations: readOnlyToolAnnotations('Find entry points'),
+};
+
 // ─── Phase 5: Free-form explore tool (beta) ───────────────────────────────
 
 const EXPLORE_TOOL = {
@@ -224,9 +279,11 @@ function buildToolList() {
     FIND_RELEVANT_CODE_TOOL,
     TRACE_SYMBOL_TOOL,
     MAP_CHANGE_IMPACT_TOOL,
+    MAP_IMPACT_TOOL,
     EXPLAIN_CODE_PATH_TOOL,
     COLLECT_EVIDENCE_TOOL,
     REVIEW_CHANGE_CONTEXT_TOOL,
+    FIND_ENTRYPOINTS_TOOL,
     EXPLORE_REPO_TOOL,
     EXPLORE_TOOL,
   ];
@@ -381,6 +438,119 @@ function buildReviewChangeContextArgs(args) {
     session,
     taskMode: 'change_review',
     hints: buildAnchorHints({ knownFiles: filePath ? [filePath] : [], strategy: 'git-guided' }),
+  };
+}
+
+function looksLikeFilePath(value) {
+  if (typeof value !== 'string') return false;
+  return value.includes('/') || value.includes('\\') || /\.[a-zA-Z0-9]{1,8}$/.test(value);
+}
+
+function buildMapImpactArgs(args) {
+  const { anchor, changeType, repo_root, scope, knownFiles, knownSymbols, session } = args;
+  if (!anchor || typeof anchor !== 'string' || !anchor.trim()) {
+    throw makeInvalidArgsError('map_impact requires a non-empty "anchor" argument (file path or symbol name).');
+  }
+  const anchorTrimmed = anchor.trim();
+  const anchorIsFile = looksLikeFilePath(anchorTrimmed);
+  const mergedFiles = [...cleanStringArray(knownFiles)];
+  const mergedSymbols = [...cleanStringArray(knownSymbols)];
+  if (anchorIsFile) {
+    if (!mergedFiles.includes(anchorTrimmed)) mergedFiles.unshift(anchorTrimmed);
+  } else if (!mergedSymbols.includes(anchorTrimmed)) {
+    mergedSymbols.unshift(anchorTrimmed);
+  }
+  const changeKind = typeof changeType === 'string' && changeType.trim() ? changeType.trim() : null;
+  const changeClause = changeKind
+    ? `Intended ${changeKind} of anchor "${anchorTrimmed}".`
+    : `Anchor: "${anchorTrimmed}".`;
+  const task = `${changeClause} Trace the deep dependency chain from this anchor: which other files import or call it, which tests cover it, and which configuration entries reference it. Return likely edit/read/test/config targets with cited evidence so the parent agent can plan the change.`;
+  return {
+    task,
+    repo_root,
+    scope,
+    session,
+    taskMode: 'impact_analysis',
+    hints: buildAnchorHints({ knownFiles: mergedFiles, knownSymbols: mergedSymbols, strategy: 'reference-chase' }),
+  };
+}
+
+const ENTRY_POINT_REGEX_BY_KIND = {
+  http: [
+    '\\bapp\\.(get|post|put|delete|patch)\\s*\\(',
+    '\\brouter\\.(get|post|put|delete|patch)\\s*\\(',
+    '@app\\.route\\s*\\(',
+    '@(Get|Post|Put|Delete|Patch)\\s*\\(',
+    '\\bhttp\\.HandleFunc\\s*\\(',
+    '\\b(?:r|mux|chi)\\.(Get|Post|Put|Delete|Patch)\\s*\\(',
+    '@\\w+\\.(get|post|put|delete|patch)\\s*\\(',
+  ],
+  cli: [
+    '\\bprogram\\.command\\s*\\(',
+    '\\b\\.argument\\s*\\(',
+    '@click\\.command\\s*\\(',
+    '\\bargparse\\.ArgumentParser\\s*\\(',
+    '\\bcobra\\.Command\\b',
+    '\\bprocess\\.argv\\b',
+  ],
+  cron: [
+    '\\bcron\\.schedule\\s*\\(',
+    '\\bnode-cron\\b',
+    '\\bsetInterval\\s*\\(',
+    '@scheduled\\b',
+  ],
+  mcp: [
+    '\\btools/list\\b',
+    '\\bmcpServer\\.tool\\s*\\(',
+    '\\bregisterTool\\s*\\(',
+  ],
+  event: [
+    '\\.on\\([\'"]',
+    '\\baddEventListener\\s*\\(',
+    '\\bEventEmitter\\b',
+    '\\.emit\\([\'"]',
+  ],
+};
+
+function buildEntryPointRegexBundle(entryKind) {
+  if (entryKind === 'all') {
+    const seen = new Set();
+    const merged = [];
+    for (const kind of Object.keys(ENTRY_POINT_REGEX_BY_KIND)) {
+      for (const pattern of ENTRY_POINT_REGEX_BY_KIND[kind]) {
+        if (!seen.has(pattern)) {
+          seen.add(pattern);
+          merged.push(pattern);
+        }
+      }
+    }
+    return merged;
+  }
+  return ENTRY_POINT_REGEX_BY_KIND[entryKind] ?? [];
+}
+
+function buildFindEntrypointsArgs(args) {
+  const { entryKind = 'all', repo_root, scope, session } = args;
+  const kindDescriptionByKind = {
+    http: 'HTTP routes only',
+    cli: 'CLI commands only',
+    cron: 'cron/schedule handlers only',
+    mcp: 'MCP tool registrations only',
+    event: 'event handlers only',
+    all: 'all entry kinds (HTTP routes, CLI commands, cron/schedule handlers, MCP tool registrations, event handlers)',
+  };
+  const kindDescription = kindDescriptionByKind[entryKind] ?? kindDescriptionByKind.all;
+  const task = `Find ${kindDescription} in this repository. Report grounded file:line evidence for each entry point and group targets by entry kind in the directAnswer. Entry-point detection is regex-based, so flag each cited line as something the parent agent should verify before acting (mention this caveat in the report once).`;
+  const regex = buildEntryPointRegexBundle(entryKind);
+  const hints = { strategy: 'auto' };
+  if (regex.length > 0) hints.regex = regex;
+  return {
+    task,
+    repo_root,
+    scope,
+    session,
+    taskMode: 'entry_point_discovery',
+    hints,
   };
 }
 
@@ -649,7 +819,7 @@ export function createMcpRequestHandler({
             `Cerebras Explorer provides autonomous codebase exploration (${toolCount} tools, powered by ${getExplorerModel()}). ` +
             'PREFER these tools over manual file search (Grep/Glob/Read) for any task that spans more than 2-3 files or requires cross-file understanding. ' +
             'explore_repo returns structured JSON with directAnswer, status, targets, discoveredPaths, and grounded evidence snippets; explore returns a Markdown report for human consumption. ' +
-            'Purpose shortcuts: find_relevant_code, trace_symbol, map_change_impact, explain_code_path, collect_evidence, review_change_context. ' +
+            'Purpose shortcuts: find_relevant_code, trace_symbol, map_change_impact, map_impact, explain_code_path, collect_evidence, review_change_context, find_entrypoints. ' +
             'All tools accept a "session" parameter for multi-call continuity — pass sessionId from one call to the next. ' +
             'Pass _meta.progressToken for heavy calls (broad reports / path / impact) to receive turn-by-turn progress updates. ' +
             'When summarizing or handing off a result to another agent, preserve these control-plane fields verbatim: ' +
@@ -690,6 +860,10 @@ export function createMcpRequestHandler({
             validatePublicToolArgs(MAP_CHANGE_IMPACT_TOOL, args);
             return await callTool(buildMapChangeImpactArgs(args), progressToken, requestId);
           }
+          if (name === 'map_impact') {
+            validatePublicToolArgs(MAP_IMPACT_TOOL, args);
+            return await callTool(buildMapImpactArgs(args), progressToken, requestId);
+          }
           if (name === 'explain_code_path') {
             validatePublicToolArgs(EXPLAIN_CODE_PATH_TOOL, args);
             return await callTool(buildExplainCodePathArgs(args), progressToken, requestId);
@@ -701,6 +875,10 @@ export function createMcpRequestHandler({
           if (name === 'review_change_context') {
             validatePublicToolArgs(REVIEW_CHANGE_CONTEXT_TOOL, args);
             return await callTool(buildReviewChangeContextArgs(args), progressToken, requestId);
+          }
+          if (name === 'find_entrypoints') {
+            validatePublicToolArgs(FIND_ENTRYPOINTS_TOOL, args);
+            return await callTool(buildFindEntrypointsArgs(args), progressToken, requestId);
           }
           if (name === 'explore') {
             validatePublicToolArgs(EXPLORE_TOOL, args);

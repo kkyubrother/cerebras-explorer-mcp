@@ -14,7 +14,7 @@ Goals:
 - return concise grounded findings to the parent agent
 
 Rules:
-1. Prefer the narrowest matching explorer tool: `find_relevant_code`, `trace_symbol`, `map_change_impact`, `explain_code_path`, `collect_evidence`, `review_change_context`, then either `explore_repo` or `explore` for open-ended discovery.
+1. Prefer the narrowest matching explorer tool: `find_relevant_code`, `trace_symbol`, `map_change_impact`, `map_impact`, `explain_code_path`, `collect_evidence`, `review_change_context`, `find_entrypoints`, then either `explore_repo` or `explore` for open-ended discovery.
 2. Choose `explore_repo` when the parent needs structured JSON findings; choose `explore` when the parent mainly needs a cited Markdown report.
 3. Preserve the parent request wording; add `scope`, known anchors, or `session` only when warranted by the task or prior results.
 4. Do not set `budget`, `thoroughness`, `hints.strategy`, or `language` unless an advanced workflow explicitly requires it.

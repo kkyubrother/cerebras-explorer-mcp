@@ -8,6 +8,8 @@
 
 ## 1. `map_impact` 도구 추가
 
+→ `specs/013-wrapper-surface-expansion/` 로 완료 (v0.4.0). anchor 입력 1급 시민 + reference-chase strategy + test/config 가중치로 정의됨. `map_change_impact`와의 차이는 anchor 입력 유무.
+
 **동작**: 사용자가 지목한 파일/심볼/diff에 대해 "이 변경이 어떤 파일·라인을 깰 수 있는가"를 grounded evidence와 함께 반환하는 신규 wrapper.
 
 **입력 후보**:
@@ -29,6 +31,8 @@
 ---
 
 ## 2. `find_entrypoints` 도구 추가
+
+→ `specs/013-wrapper-surface-expansion/` 로 완료 (v0.4.0). 1차 spec은 JS/TS(Express/Fastify/NestJS), Python(Flask/FastAPI/click/argparse), Go(`net/http`/`chi`), 기본 cron으로 한정. Ruby/PHP/Java/Rust + Lambda/K8s CronJob/Pub-Sub은 후속 spec.
 
 **동작**: 저장소의 entry point(라우터 등록, CLI 정의, cron/queue handler, HTTP handler, MCP tool 정의 등)를 자동으로 식별해서 grounded evidence와 함께 나열하는 신규 wrapper.
 

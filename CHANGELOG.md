@@ -1,5 +1,40 @@
 # Changelog
 
+## v0.4.0 - 2026-05-23
+
+### Surface Expansion — map_impact / find_entrypoints (2026-05-23)
+
+`specs/013-wrapper-surface-expansion/` 산출물. spec 011이 영구 고정해 둔
+8-tool surface를 두 wrapper(`map_impact`, `find_entrypoints`)로 명시적으로
+10-tool surface로 확장한다. backwards-compatible — 기존 8개 도구의 입출력
+스키마와 동작은 변하지 않으며, 환경변수 변경도 없다. minor bump 한 release.
+
+- **Added**: `map_impact` wrapper. parent agent가 변경 대상의 구체적
+  *anchor*(파일 경로 또는 심볼 이름)를 이미 알고 있을 때 사용. anchor를
+  knownFiles 또는 knownSymbols에 자동으로 push하고 `reference-chase`
+  strategy로 deep dependency chain + test/config target 가중치를 적용한다.
+  `map_change_impact`와의 차이는 anchor 입력의 유무: `map_change_impact`는
+  자연어 change 설명만 받아 빠른 blast radius를 산출하고, `map_impact`는
+  anchor를 1급 시민으로 받아 더 깊게 따라간다.
+- **Added**: `find_entrypoints` wrapper. HTTP routes(Express/Fastify/NestJS/
+  Flask/FastAPI/Go `net/http` & `chi`), CLI commands(commander/click/argparse/
+  cobra), cron/schedule handlers(`cron.schedule`/`node-cron`/`setInterval`),
+  MCP tool registrations, event handlers를 정규식 기반으로 자동 감지한다.
+  `entryKind` enum(`http|cli|cron|mcp|event|all`, default `all`)으로 카테고리
+  필터링 가능. 1차 spec은 JS/TS/Python/Go + 기본 cron 패턴에 한정한다 —
+  Ruby/PHP/Java/Rust + Lambda/K8s CronJob/Pub-Sub 같은 후속 카테고리는 별도
+  spec에서 확장한다.
+- **Changed**: 공개 도구 surface 정책이 spec 011의 "영구 고정 8개"에서
+  "영구 고정 10개"로 갱신되었다. README/DESIGN/integrations 7개 모두 새
+  wrapper 두 개를 포함하도록 동기화되었다.
+- **Caveat**: `find_entrypoints`의 entry-point 감지는 regex 기반이므로
+  false positive(예: 라우트가 아닌 미들웨어 등록)를 evidence로 포함할
+  가능성이 있다. parent agent는 인용된 라인을 그대로 신뢰하기보다 한 번 더
+  검증해야 한다.
+- **Migration**: 기존 사용자는 별도 변경 불필요. 신규 도구를 사용하려면
+  MCP client의 도구 화이트리스트에 `map_impact`와 `find_entrypoints`를
+  추가하면 된다 (`integrations/` 예시 갱신됨).
+
 ## v0.3.0 - 2026-05-23
 
 ### Surface Consolidation (2026-05-22)
