@@ -269,8 +269,8 @@ async function pathExists(target) {
   }
 }
 
-async function loadGitignoreRules(root) {
-  const gitignorePath = path.join(root, '.gitignore');
+async function loadGitignoreRulesAt(absDir) {
+  const gitignorePath = path.join(absDir, '.gitignore');
   if (!(await pathExists(gitignorePath))) {
     return [];
   }
@@ -278,7 +278,15 @@ async function loadGitignoreRules(root) {
   return raw
     .split(/\r?\n/)
     .map(line => line.trim())
-    .filter(line => line && !line.startsWith('#'));
+    // Spec 014: negation rules (`!keep`) are silently dropped. The current
+    // matcher does not model gitignore's line-precedence override semantics,
+    // so admitting them would create false negatives. Document this limit
+    // in DESIGN.md instead of throwing.
+    .filter(line => line && !line.startsWith('#') && !line.startsWith('!'));
+}
+
+async function loadGitignoreRules(root) {
+  return loadGitignoreRulesAt(root);
 }
 
 function buildGitignoreMatcher(rules) {
@@ -296,7 +304,20 @@ function buildGitignoreMatcher(rules) {
   return relPath => entries.some(match => match(relPath));
 }
 
-function shouldIgnorePath(relPath, dirent, gitignoreMatcher, ignoreDirs = DEFAULT_IGNORE_DIRS) {
+function buildNestedGitignoreMatcher(prefix, rules) {
+  const innerMatch = buildGitignoreMatcher(rules);
+  // `prefix` is a repo-root-relative POSIX path ending with '/'. The matcher
+  // is single-pass: short-circuit on prefix mismatch, then evaluate the
+  // inner glob against the path *relative to the nested .gitignore dir*.
+  return relPath => {
+    if (!relPath.startsWith(prefix)) return false;
+    return innerMatch(relPath.slice(prefix.length));
+  };
+}
+
+function shouldIgnorePath(relPath, dirent, gitignoreMatcher, ignoreDirs = DEFAULT_IGNORE_DIRS, nestedMatchers = [], extraPatternMatcher = null) {
+  // Evaluation order is defined in specs/014-repo-specific-ignore (FR-008).
+  // Secret deny-list always wins; scope is enforced earlier in callTool.
   if (dirent?.isSymbolicLink?.()) {
     return true;
   }
@@ -315,6 +336,14 @@ function shouldIgnorePath(relPath, dirent, gitignoreMatcher, ignoreDirs = DEFAUL
     }
   }
   if (gitignoreMatcher && gitignoreMatcher(relPath)) {
+    return true;
+  }
+  if (nestedMatchers.length > 0) {
+    for (const matcher of nestedMatchers) {
+      if (matcher(relPath)) return true;
+    }
+  }
+  if (extraPatternMatcher && extraPatternMatcher(relPath)) {
     return true;
   }
   return false;
@@ -526,6 +555,7 @@ export class RepoToolkit {
     logger = () => {},
     cache = null,
     extraIgnoreDirs = [],
+    extraIgnorePatterns = [],
   }) {
     this.repoRoot = repoRoot;
     this.repoRootReal = null;
@@ -542,6 +572,13 @@ export class RepoToolkit {
     this.ignoreDirs = extraIgnoreDirs.length > 0
       ? new Set([...DEFAULT_IGNORE_DIRS, ...extraIgnoreDirs])
       : DEFAULT_IGNORE_DIRS;
+    // Spec 014: nested .gitignore matchers built lazily during traversal, and
+    // a single matcher for `.cerebras-explorer.json` extraIgnorePatterns.
+    this.nestedGitignoreMatchers = [];
+    this.nestedGitignoreBuiltFor = new Set();
+    this.extraPatternMatcher = extraIgnorePatterns.length > 0
+      ? buildGitignoreMatcher(extraIgnorePatterns)
+      : null;
   }
 
   async initialize(scope = []) {
@@ -551,6 +588,24 @@ export class RepoToolkit {
     this.baseScopeRules = createScopeRules(scope);
     this._hasRipgrep = await detectBinary('rg', ['--version']);
     this._hasGit = await detectBinary('git', ['--version']);
+  }
+
+  /**
+   * Spec 014: when traversal enters a directory containing `.gitignore`,
+   * build a prefix-bounded matcher so its rules apply only to descendants
+   * of that directory. Idempotent — repeated entries to the same directory
+   * during the lifetime of this toolkit instance build at most once.
+   */
+  async _ensureNestedGitignoreLoaded(absDir, relDir) {
+    // Root `.gitignore` is already loaded in initialize() as
+    // `this.gitignoreMatcher`. Skip it here.
+    if (relDir === '.' || relDir === '') return;
+    if (this.nestedGitignoreBuiltFor.has(relDir)) return;
+    this.nestedGitignoreBuiltFor.add(relDir);
+    const rules = await loadGitignoreRulesAt(absDir);
+    if (rules.length === 0) return;
+    const prefix = `${relDir}/`;
+    this.nestedGitignoreMatchers.push(buildNestedGitignoreMatcher(prefix, rules));
   }
 
   buildEffectiveScopeRules(scope = []) {
@@ -565,17 +620,24 @@ export class RepoToolkit {
     while (queue.length > 0) {
       const current = queue.shift();
       let entries;
+      let absoluteDir;
       try {
         const { absolute } = await resolveSafePath(this.repoRootReal, current, { kind: 'directory' });
+        absoluteDir = absolute;
         entries = await fs.readdir(absolute, { withFileTypes: true });
       } catch {
         continue;
       }
 
+      // Spec 014: pre-load nested .gitignore so siblings see the matcher.
+      if (entries.some(e => e.name === '.gitignore' && e.isFile?.())) {
+        await this._ensureNestedGitignoreLoaded(absoluteDir, current);
+      }
+
       for (const entry of entries) {
         const rel = current === '.' ? entry.name : path.join(current, entry.name);
         const relPosix = sanitizeRelativePath(rel);
-        if (shouldIgnorePath(relPosix, entry, this.gitignoreMatcher, this.ignoreDirs)) {
+        if (shouldIgnorePath(relPosix, entry, this.gitignoreMatcher, this.ignoreDirs, this.nestedGitignoreMatchers, this.extraPatternMatcher)) {
           continue;
         }
 
@@ -616,11 +678,18 @@ export class RepoToolkit {
       }
 
       let entries;
+      let absoluteDir;
       try {
         const { absolute } = await resolveSafePath(this.repoRootReal, currentRel, { kind: 'directory' });
+        absoluteDir = absolute;
         entries = await fs.readdir(absolute, { withFileTypes: true });
       } catch (error) {
         throw new Error(`Unable to list directory ${currentRel}: ${error.message}`);
+      }
+
+      // Spec 014: pre-load nested .gitignore so siblings see the matcher.
+      if (entries.some(e => e.name === '.gitignore' && e.isFile?.())) {
+        await this._ensureNestedGitignoreLoaded(absoluteDir, currentRel);
       }
 
       for (const entry of entries) {
@@ -630,7 +699,7 @@ export class RepoToolkit {
 
         const rel = currentRel === '.' ? entry.name : `${currentRel}/${entry.name}`;
         const relPosix = sanitizeRelativePath(rel);
-        if (shouldIgnorePath(relPosix, entry, this.gitignoreMatcher, this.ignoreDirs)) {
+        if (shouldIgnorePath(relPosix, entry, this.gitignoreMatcher, this.ignoreDirs, this.nestedGitignoreMatchers, this.extraPatternMatcher)) {
           continue;
         }
 

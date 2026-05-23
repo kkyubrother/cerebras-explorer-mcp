@@ -103,6 +103,18 @@ test('normalizeProjectConfig: string array fields are filtered', () => {
   assert.deepEqual(config.keyFiles, ['src/index.mjs']);
 });
 
+test('normalizeProjectConfig: extraIgnorePatterns filters non-string entries (spec 014)', () => {
+  const config = normalizeProjectConfig({
+    extraIgnorePatterns: ['tmp/**', 42, null, '**/*.snapshot.json', { glob: 'oops' }],
+  });
+  assert.deepEqual(config.extraIgnorePatterns, ['tmp/**', '**/*.snapshot.json']);
+});
+
+test('normalizeProjectConfig: extraIgnorePatterns dropped when not an array (spec 014)', () => {
+  const config = normalizeProjectConfig({ extraIgnorePatterns: 'tmp/**' });
+  assert.equal(config.extraIgnorePatterns, undefined);
+});
+
 test('normalizeProjectConfig: projectContext trimmed and kept', () => {
   const config = normalizeProjectConfig({ projectContext: '  My app.  ' });
   assert.equal(config.projectContext, 'My app.');

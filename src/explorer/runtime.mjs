@@ -1305,6 +1305,7 @@ export class ExplorerRuntime {
     const projectContext = projectConfig.projectContext ?? null;
     const keyFiles = projectConfig.keyFiles ?? [];
     const extraIgnoreDirs = projectConfig.extraIgnoreDirs ?? [];
+    const extraIgnorePatterns = projectConfig.extraIgnorePatterns ?? [];
 
     const chatClient = this._explicitChatClient ?? createChatClient({ budget: resolveModelBudget() });
 
@@ -1323,6 +1324,7 @@ export class ExplorerRuntime {
       logger: this.logger,
       cache: globalRepoCache,
       extraIgnoreDirs,
+      extraIgnorePatterns,
     });
     await repoToolkit.initialize(effectiveScope);
 

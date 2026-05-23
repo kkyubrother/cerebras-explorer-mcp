@@ -57,6 +57,8 @@
 
 ## 3. repo-specific ignore 정책 강화
 
+→ `specs/014-repo-specific-ignore/` 로 완료. nested `.gitignore` prefix-bounded 매처 + `.cerebras-explorer.json:extraIgnorePatterns` 신설. `.npmignore`/`.dockerignore` 자동 처리는 별도 spec.
+
 **동작**: 현재는 저장소 루트의 `.gitignore` 단일 파일만 반영한다. 이를 확장해서:
 - nested `.gitignore` (서브디렉토리별 ignore) 처리
 - `.cerebras-explorer.json`의 `extraIgnoreDirs`/`extraIgnoreFiles` 키 보강

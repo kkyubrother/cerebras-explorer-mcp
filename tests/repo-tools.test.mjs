@@ -737,3 +737,129 @@ test('callTool repo_read_file invalidates the cache when the file mtime changes'
   assert.match(JSON.stringify(second), /updated content/, 'mtime change must invalidate cache and reread the file');
   assert.doesNotMatch(JSON.stringify(second), /initial content/);
 });
+
+// ─── Spec 014: repo-specific ignore (nested .gitignore + extraIgnorePatterns) ───
+
+async function makeNestedIgnoreFixture() {
+  // Note: avoid `build`, `tmp`, `dist`, `target`, etc — these are in
+  // DEFAULT_IGNORE_DIRS and would be excluded regardless of nested rules.
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-nested-ignore-'));
+  await fs.mkdir(path.join(root, 'packages', 'foo', 'compiled'), { recursive: true });
+  await fs.mkdir(path.join(root, 'packages', 'foo', 'src'), { recursive: true });
+  await fs.mkdir(path.join(root, 'packages', 'bar', 'compiled'), { recursive: true });
+  // packages/foo has a .gitignore that excludes compiled/; packages/bar does not.
+  await fs.writeFile(path.join(root, 'packages', 'foo', '.gitignore'), 'compiled/\n');
+  await fs.writeFile(path.join(root, 'packages', 'foo', 'compiled', 'output.txt'), 'foo-compiled-output');
+  await fs.writeFile(path.join(root, 'packages', 'foo', 'src', 'index.js'), '// foo entry\n');
+  await fs.writeFile(path.join(root, 'packages', 'bar', 'compiled', 'output.txt'), 'bar-compiled-output');
+  await fs.writeFile(path.join(root, 'noisy.txt'), 'top-level noisy file (not a directory)');
+  await fs.mkdir(path.join(root, 'noisy'));
+  await fs.writeFile(path.join(root, 'noisy', 'note.txt'), 'noisy note');
+  await fs.writeFile(path.join(root, 'fixture.snapshot.json'), '{"snap": true}');
+  return root;
+}
+
+test('Spec 014 — nested .gitignore is prefix-bounded (foo/compiled excluded, bar/compiled kept)', async () => {
+  const repoRoot = await makeNestedIgnoreFixture();
+  const toolkit = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig('normal') });
+  await toolkit.initialize();
+
+  const found = await toolkit.findFiles({ pattern: '**/*' });
+  const paths = found.matches;
+
+  assert.ok(
+    !paths.includes('packages/foo/compiled/output.txt'),
+    'foo/compiled/output.txt must be excluded by packages/foo/.gitignore',
+  );
+  assert.ok(
+    paths.includes('packages/bar/compiled/output.txt'),
+    'bar/compiled/output.txt must remain because packages/bar has no .gitignore',
+  );
+  assert.ok(
+    paths.includes('packages/foo/src/index.js'),
+    'foo/src/index.js must be kept (not matched by compiled/ rule)',
+  );
+});
+
+test('Spec 014 — root .gitignore and nested .gitignore coexist', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-nested-ignore-coexist-'));
+  await fs.writeFile(path.join(root, '.gitignore'), '*.log\n');
+  await fs.mkdir(path.join(root, 'pkg', 'compiled'), { recursive: true });
+  await fs.writeFile(path.join(root, 'pkg', '.gitignore'), 'compiled/\n');
+  await fs.writeFile(path.join(root, 'pkg', 'compiled', 'artifact.bin'), 'compiled artifact');
+  await fs.writeFile(path.join(root, 'app.log'), 'log');
+  await fs.writeFile(path.join(root, 'pkg', 'index.js'), '// pkg entry\n');
+
+  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig('normal') });
+  await toolkit.initialize();
+  const found = await toolkit.findFiles({ pattern: '**/*' });
+  assert.ok(!found.matches.includes('app.log'), 'root .gitignore must exclude *.log');
+  assert.ok(!found.matches.includes('pkg/compiled/artifact.bin'), 'nested .gitignore must exclude pkg/compiled/');
+  assert.ok(found.matches.includes('pkg/index.js'), 'pkg/index.js must be kept');
+});
+
+test('Spec 014 — nested .gitignore negation rules (`!keep`) are silently dropped', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-nested-ignore-negation-'));
+  await fs.mkdir(path.join(root, 'pkg', 'compiled'), { recursive: true });
+  // `!keep.js` would override a previous rule in real git, but we silently drop it.
+  await fs.writeFile(path.join(root, 'pkg', '.gitignore'), 'compiled/\n!keep.js\n');
+  await fs.writeFile(path.join(root, 'pkg', 'compiled', 'output.bin'), 'art');
+  await fs.writeFile(path.join(root, 'pkg', 'compiled', 'keep.js'), '// keep me');
+
+  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig('normal') });
+  await toolkit.initialize();
+  const found = await toolkit.findFiles({ pattern: '**/*' });
+  // compiled/ rule still excludes both — negation is dropped, no re-include happens.
+  assert.ok(!found.matches.includes('pkg/compiled/keep.js'), 'negation rule must NOT re-include keep.js');
+  assert.ok(!found.matches.includes('pkg/compiled/output.bin'), 'compiled/ rule still applies');
+});
+
+test('Spec 014 — extraIgnorePatterns glob excludes directory prefix and deep matches', async () => {
+  const repoRoot = await makeNestedIgnoreFixture();
+  const toolkit = new RepoToolkit({
+    repoRoot,
+    budgetConfig: getBudgetConfig('normal'),
+    extraIgnorePatterns: ['noisy/**', '**/*.snapshot.json'],
+  });
+  await toolkit.initialize();
+
+  const found = await toolkit.findFiles({ pattern: '**/*' });
+  assert.ok(!found.matches.includes('noisy/note.txt'), 'noisy/** must exclude noisy/note.txt');
+  assert.ok(found.matches.includes('noisy.txt'), 'noisy.txt (top-level file) is not matched by noisy/**');
+  assert.ok(!found.matches.includes('fixture.snapshot.json'), '**/*.snapshot.json must exclude deep snapshot files');
+});
+
+test('Spec 014 — extraIgnorePatterns empty is backwards-compatible', async () => {
+  const repoRoot = await makeNestedIgnoreFixture();
+  const baseline = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig('normal') });
+  await baseline.initialize();
+  const baselineFiles = (await baseline.findFiles({ pattern: '**/*' })).matches.sort();
+
+  const withEmpty = new RepoToolkit({
+    repoRoot,
+    budgetConfig: getBudgetConfig('normal'),
+    extraIgnorePatterns: [],
+  });
+  await withEmpty.initialize();
+  const withEmptyFiles = (await withEmpty.findFiles({ pattern: '**/*' })).matches.sort();
+  assert.deepEqual(withEmptyFiles, baselineFiles, 'empty extraIgnorePatterns must produce identical results');
+});
+
+test('Spec 014 — secret deny-list cannot be bypassed by extraIgnorePatterns', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-secret-priority-'));
+  await fs.writeFile(path.join(root, '.env'), 'API_KEY=should-stay-hidden');
+  await fs.writeFile(path.join(root, 'normal.js'), '// keep');
+
+  // The user tries to "un-ignore" .env via negation; spec 014 silently drops `!`
+  // entries, and even if it did not, secret deny-list runs *before* the
+  // extraIgnorePatterns evaluation in shouldIgnorePath.
+  const toolkit = new RepoToolkit({
+    repoRoot: root,
+    budgetConfig: getBudgetConfig('normal'),
+    extraIgnorePatterns: ['!.env'],
+  });
+  await toolkit.initialize();
+  const found = await toolkit.findFiles({ pattern: '**/*' });
+  assert.ok(!found.matches.includes('.env'), '.env must remain hidden regardless of extraIgnorePatterns');
+  assert.ok(found.matches.includes('normal.js'), 'normal.js is not a secret and must be present');
+});

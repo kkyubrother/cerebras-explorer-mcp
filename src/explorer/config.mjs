@@ -328,6 +328,7 @@ export function chooseAutoBudget() {
  *   defaultBudget       — "quick"|"normal"|"deep"
  *   defaultScope        — string[] of glob patterns
  *   extraIgnoreDirs     — string[] of directory names to skip during traversal
+ *   extraIgnorePatterns — string[] of repo-root-relative glob patterns to skip (spec 014)
  *   projectContext      — string injected into the explorer's system prompt
  *   entryPoints         — string[] of key entry-point file paths (used by codeMap and breadth-first exploration)
  *   keyFiles            — string[] of important files (searched first on arch queries)
@@ -366,6 +367,12 @@ export function normalizeProjectConfig(raw) {
   }
   if (Array.isArray(raw.extraIgnoreDirs)) {
     config.extraIgnoreDirs = raw.extraIgnoreDirs.filter(s => typeof s === 'string');
+  }
+  if (Array.isArray(raw.extraIgnorePatterns)) {
+    // Spec 014: path glob patterns evaluated with the same semantics as the
+    // root .gitignore matcher. Drop non-string entries silently (same policy
+    // as extraIgnoreDirs).
+    config.extraIgnorePatterns = raw.extraIgnorePatterns.filter(s => typeof s === 'string');
   }
   if (typeof raw.projectContext === 'string' && raw.projectContext.trim()) {
     config.projectContext = raw.projectContext.trim();

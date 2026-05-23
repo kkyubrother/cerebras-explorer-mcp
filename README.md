@@ -762,7 +762,7 @@ node ./scripts/run-benchmark.mjs \
 
 ## 현재 제한 사항
 
-- `.gitignore`는 루트 파일만 단순 반영합니다.
+- `.gitignore`는 루트 파일과 traversal 도중 발견되는 nested `.gitignore`(서브디렉토리별)를 함께 반영합니다 (spec 014). nested 매처는 자기 디렉토리 prefix 안의 path에만 적용됩니다. `.gitignore`의 부정 규칙(`!keep`)은 지원하지 않으며 silently dropped됩니다. 더 좁히려면 `.cerebras-explorer.json`의 `extraIgnorePatterns`(저장소 루트 기준 path glob)로 추가 ignore 규칙을 지정할 수 있습니다. secret deny-list와 scope 경계는 이 ignore 정책 위에서 항상 우선합니다.
 - 대용량 바이너리 / 압축 파일은 탐색 대상에서 제외합니다.
 - 최종 품질은 저장소 구조와 질문 품질에 영향을 받습니다.
 - 심볼 인덱싱은 외부 파서 없는 regex/syntax-lite 기반입니다. 언어 서버 수준의 semantic 분석은 제공하지 않지만, 설치 의존성을 늘리지 않는 방향을 우선합니다.

@@ -24,6 +24,21 @@
 - redaction은 line reference를 유지하고 민감 문자열만 `[REDACTED:<rule>]`로 치환한다. redacted evidence에는 `redacted`와 `redactions`를 additive metadata로 붙인다.
 - `explore_repo` 입출력 스키마는 기존 클라이언트를 깨지 않는 additive change 중심으로 확장한다.
 
+### Ignore 정책 우선순위 (spec 014)
+
+`shouldIgnorePath`는 다음 순서로 path를 평가한다 (위에서부터 평가, 첫 매치에서 종료). 보안 경계인 symlink·secret·scope는 항상 다른 ignore 정책보다 강하다.
+
+1. **symlink** → 항상 ignore (`isSymbolicLink`).
+2. **secret deny-list** → 항상 ignore (`.env*`, `.ssh/**`, `.aws/credentials`, `.npmrc`, `*.pem`, `secrets/**`, `credentials.json` 등).
+3. **`ignoreDirs`** = `DEFAULT_IGNORE_DIRS` ∪ `.cerebras-explorer.json:extraIgnoreDirs`. directory 이름 집합 매치.
+4. **`DEFAULT_IGNORE_FILE_SUFFIXES`** → 파일 확장자/suffix 매치.
+5. **root `.gitignore`** matcher → `loadGitignoreRules(repoRoot)` 결과.
+6. **nested `.gitignore`** matchers → traversal 도중 발견되는 서브디렉토리 `.gitignore`. 각 매처는 자기 디렉토리 prefix 안의 path에만 적용된다. 부정 규칙(`!`)은 silently dropped.
+7. **`.cerebras-explorer.json:extraIgnorePatterns`** matcher → 저장소 루트 기준 path glob 패턴.
+8. 위 어느 것도 매치하지 않으면 → keep.
+
+scope 검증(`_enforceScopedPath`)은 ignore 평가보다 더 강하다. scope 밖 path는 ignore 정책의 어떤 변화와도 무관하게 항상 거부된다.
+
 ---
 
 ## 2. 입력 근거
