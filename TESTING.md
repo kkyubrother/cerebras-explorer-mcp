@@ -58,19 +58,26 @@ CEREBRAS_API_KEY=<key> node scripts/integration-test.mjs
 - `tools/list` 응답에서 공개 도구 목록이 누락 없이 반환되는 것을 확인
 - `tools/call -> explore_repo` 정상 응답 (`confidence=high`, `sessionId` 반환)
 
+### 자동 회귀 가드로 커버된 항목
+
+다음 항목은 단위 테스트에서 트리거 시나리오를 직접 가드하므로 미검증 표에서 제외합니다.
+
+| 항목 | 가드 위치 |
+|------|-----------|
+| **LLM 대화 요약** (V2 `llmCompactions`) | `tests/runtime.mock.test.mjs` (대형 context로 compaction 강제) |
+| **API retry** (429/500/ECONNRESET/AbortError/timeout) | `tests/http-client.test.mjs` |
+| **Transcript JSONL trigger** (`CEREBRAS_EXPLORER_TRANSCRIPT=true` → `transcriptPath` 반환) | `tests/free-explore.test.mjs` |
+
 ### 미검증 항목 (추가 테스트 필요)
 
 | 항목 | 트리거 조건 | 테스트 방법 |
 |------|-----------|-----------|
 | **도구 자발적 사용** | Claude Code에서 명시적 지시 없이 도구 선택 | MCP 연결 후 실제 사용 관찰 |
 | **부모 모델 재탐색 방지** | 부모 모델이 결과 신뢰하고 동일 파일 재Read 안 함 | Claude Code에서 explore 결과 후 행동 관찰 |
-| **LLM 대화 요약** (V2) | context가 70% 임계값 초과 (llmCompactions>0) | deep budget (60턴) 테스트 |
 | **Max Output Recovery** (V2) | 보고서가 출력 토큰 한도 초과 (outputRecoveries>0) | 매우 상세한 보고서 요청 |
 | **AbortController** | 탐색 중 MCP cancelled 알림 수신 | 탐색 중 Ctrl+C 또는 MCP 취소 |
 | **gzip 압축** | 페이로드 32KB 초과 | deep budget에서 자동 트리거 |
-| **API retry (네트워크 에러)** | ECONNRESET, ETIMEDOUT 등 발생 | 네트워크 불안정 환경 또는 mock |
 | **캐시 mtime 감지** | 탐색 중 파일이 수정됨 | 탐색 도중 파일 수정 후 재읽기 확인 |
-| **Transcript 기록** | CEREBRAS_EXPLORER_TRANSCRIPT=true 설정 | 환경변수 설정 후 JSONL 파일 생성 확인 |
 | **동시 도구 호출** (실제 API) | Claude Code에서 explore + explore_repo 동시 호출 | MCP 연결 후 병렬 호출 후 두 응답 모두 수신 확인 |
 
 ## Cerebras API 에러 코드 참조
