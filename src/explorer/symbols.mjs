@@ -385,8 +385,11 @@ function relationForUsage(trimmed, symbol, lang) {
 
   if (
     lang === 'typescript' &&
-    new RegExp(`(?:[:<|&,]|\\b(?:as|satisfies|implements|extends)\\s+)\\s*[^=;(){}]*\\b${escaped}\\b`).test(trimmed)
+    new RegExp(`(?:[:<|&,]|\\b(?:as|satisfies|implements|extends)\\s+)\\s*[^=;(){}]*\\b${escaped}\\b\\s*(?!\\()`).test(trimmed)
   ) {
+    // Spec 016: `\\s*(?!\\()` lookahead prevents a TypeScript type_reference
+    // false positive when the symbol on a multi-pattern line is actually a
+    // function call (e.g. the second `foo` in `[new Foo(), foo()]`).
     return 'type_reference';
   }
 
@@ -394,12 +397,17 @@ function relationForUsage(trimmed, symbol, lang) {
     return 'constructor';
   }
 
-  if (new RegExp(`(?:^|[^.\\w$#])${escaped}\\s*(?:<[^>]+>)?\\s*\\(`).test(trimmed)) {
-    return 'call';
+  // Spec 016: detect spaced member calls (`obj . method ()`) before the bare
+  // call check. Without this, the spaced variant would match the bare-call
+  // regex (which only excludes a *directly* preceding `.`) and be mislabeled
+  // as `call`. This branch also absorbs the original `.X\\s*\\(` member_call
+  // pattern, since `\\.\\s*X\\s*\\(` is a strict superset.
+  if (new RegExp(`\\.\\s*${escaped}\\s*\\(`).test(trimmed)) {
+    return 'member_call';
   }
 
-  if (new RegExp(`\\.${escaped}\\s*\\(`).test(trimmed)) {
-    return 'member_call';
+  if (new RegExp(`(?:^|[^.\\w$#])${escaped}\\s*(?:<[^>]+>)?\\s*\\(`).test(trimmed)) {
+    return 'call';
   }
 
   if (new RegExp(`\\b${escaped}\\s*:`).test(trimmed)) {
@@ -430,6 +438,22 @@ export function classifyReference(line, symbol, filePath) {
 
   if (isDefinitionLine(line, symbol, lang)) {
     return { type: 'definition', relation: 'definition' };
+  }
+
+  // Spec 016: JSX tags in .tsx/.jsx used to false-positive as type_reference
+  // because the leading `<` triggered the TypeScript type_reference branch.
+  // Detect JSX explicitly here (after import/definition checks but before
+  // relationForUsage) and classify as plain 'reference'. spec 008 FR-004
+  // forbids adding a `jsx_element` category, so 'reference' is the most
+  // honest fit within the existing set.
+  if ((lang === 'typescript' || lang === 'javascript')
+      && /\.(tsx|jsx)$/.test(filePath || '')) {
+    const escapedSym = escapeRegex(symbol);
+    const jsxOpen = new RegExp(`(?:^|\\s|[(,{=>])\\s*<\\s*${escapedSym}\\s*(?:\\s+\\w+\\s*=|\\s*/?\\s*>)`);
+    const jsxClose = new RegExp(`</\\s*${escapedSym}\\s*>`);
+    if (jsxOpen.test(line) || jsxClose.test(trimmed)) {
+      return { type: 'usage', relation: 'reference' };
+    }
   }
 
   const relation = hasSymbol(line, symbol)

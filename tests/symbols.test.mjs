@@ -276,40 +276,43 @@ test('classifyReference distinguishes member, call, constructor, and type relati
 });
 
 test('classifyReference baselines edge case patterns for spaced member calls, multi-pattern lines, JSX, decorators, and dynamic imports', () => {
-  // Spec 012 baseline. Some of these labels are semantically imprecise
-  // (e.g. spaced member call resolves to "call" instead of "member_call",
-  // JSX tags resolve to "type_reference" in .tsx). The point of this test
-  // is to lock the current parser-free classifier behavior so that any
-  // accidental regex change is caught before it silently shifts these
-  // labels. Improving the classifier semantics is a follow-up spec.
+  // Spec 012 set the initial baseline; spec 016 improved precision on three
+  // categories (spaced member calls, multi-pattern type_reference false
+  // positives, JSX tags in .tsx). The assertions below reflect the spec 016
+  // results; comments call out which lines moved.
 
-  // A. Spaced member call — currently classified as "call" because the
-  // member_call regex requires `.X` without intervening whitespace.
+  // A. Spaced member call — spec 016 patched relationForUsage so that
+  // `obj . method ()` resolves to member_call (formerly false-positive
+  // 'call').
   assert.deepEqual(
     classifyReference('session . touch ( );', 'touch', 'session.ts'),
-    { type: 'usage', relation: 'call' },
+    { type: 'usage', relation: 'member_call' },
   );
 
-  // B. Multi-pattern line — constructor wins for the first symbol
-  // (spec 008 Edge Cases assertion); the second symbol on the same line
-  // currently false-positives as type_reference because the comma is a
-  // type_reference trigger character in TypeScript files.
+  // B. Multi-pattern line — constructor still wins for the first symbol;
+  // spec 016 added a (?!\\() lookahead to type_reference so the second
+  // symbol on the same line resolves to 'call' (formerly false-positive
+  // 'type_reference').
   assert.deepEqual(
     classifyReference('const arr = [new Foo(), foo()];', 'Foo', 'app.ts'),
     { type: 'usage', relation: 'constructor' },
   );
   assert.deepEqual(
     classifyReference('const arr = [new Foo(), foo()];', 'foo', 'app.ts'),
-    { type: 'usage', relation: 'type_reference' },
+    { type: 'usage', relation: 'call' },
   );
 
-  // C. JSX — in .tsx the type_reference regex matches the angle brackets
-  // and the JSX tag becomes type_reference; in .jsx the type_reference
-  // branch is skipped because the file is treated as JavaScript and the
-  // tag falls through to plain "reference".
+  // C. JSX — spec 016 added an explicit JSX detection branch for .tsx/.jsx
+  // files, so JSX tags resolve to plain 'reference' instead of the prior
+  // 'type_reference' false positive in .tsx. The .jsx behavior was already
+  // 'reference' before spec 016 and stays the same.
   assert.deepEqual(
     classifyReference('return <MyComponent />;', 'MyComponent', 'view.tsx'),
-    { type: 'usage', relation: 'type_reference' },
+    { type: 'usage', relation: 'reference' },
+  );
+  assert.deepEqual(
+    classifyReference('return <MyComponent foo="bar" />;', 'MyComponent', 'view.tsx'),
+    { type: 'usage', relation: 'reference' },
   );
   assert.deepEqual(
     classifyReference('return <MyComponent />;', 'MyComponent', 'view.jsx'),
@@ -334,6 +337,16 @@ test('classifyReference baselines edge case patterns for spaced member calls, mu
   assert.deepEqual(
     classifyReference("const mod = await import('./mod.js');", 'mod', 'app.ts'),
     { type: 'definition', relation: 'definition' },
+  );
+});
+
+test('Spec 016 — TypeScript generic Array<MyType> stays classified as type_reference (regression guard)', () => {
+  // The JSX patch in classifyReference must not accidentally reclassify
+  // genuine TypeScript generics. Lookbehind in jsxOpen excludes identifiers
+  // immediately preceding `<`, so `Array<MyType>` is not detected as JSX.
+  assert.deepEqual(
+    classifyReference('const items: Array<MyType> = [];', 'MyType', 'types.ts'),
+    { type: 'usage', relation: 'type_reference' },
   );
 });
 
