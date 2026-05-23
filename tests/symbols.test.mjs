@@ -275,6 +275,68 @@ test('classifyReference distinguishes member, call, constructor, and type relati
   );
 });
 
+test('classifyReference baselines edge case patterns for spaced member calls, multi-pattern lines, JSX, decorators, and dynamic imports', () => {
+  // Spec 012 baseline. Some of these labels are semantically imprecise
+  // (e.g. spaced member call resolves to "call" instead of "member_call",
+  // JSX tags resolve to "type_reference" in .tsx). The point of this test
+  // is to lock the current parser-free classifier behavior so that any
+  // accidental regex change is caught before it silently shifts these
+  // labels. Improving the classifier semantics is a follow-up spec.
+
+  // A. Spaced member call — currently classified as "call" because the
+  // member_call regex requires `.X` without intervening whitespace.
+  assert.deepEqual(
+    classifyReference('session . touch ( );', 'touch', 'session.ts'),
+    { type: 'usage', relation: 'call' },
+  );
+
+  // B. Multi-pattern line — constructor wins for the first symbol
+  // (spec 008 Edge Cases assertion); the second symbol on the same line
+  // currently false-positives as type_reference because the comma is a
+  // type_reference trigger character in TypeScript files.
+  assert.deepEqual(
+    classifyReference('const arr = [new Foo(), foo()];', 'Foo', 'app.ts'),
+    { type: 'usage', relation: 'constructor' },
+  );
+  assert.deepEqual(
+    classifyReference('const arr = [new Foo(), foo()];', 'foo', 'app.ts'),
+    { type: 'usage', relation: 'type_reference' },
+  );
+
+  // C. JSX — in .tsx the type_reference regex matches the angle brackets
+  // and the JSX tag becomes type_reference; in .jsx the type_reference
+  // branch is skipped because the file is treated as JavaScript and the
+  // tag falls through to plain "reference".
+  assert.deepEqual(
+    classifyReference('return <MyComponent />;', 'MyComponent', 'view.tsx'),
+    { type: 'usage', relation: 'type_reference' },
+  );
+  assert.deepEqual(
+    classifyReference('return <MyComponent />;', 'MyComponent', 'view.jsx'),
+    { type: 'usage', relation: 'reference' },
+  );
+
+  // D. Decorators — there is no dedicated decorator category. A bare
+  // decorator call resolves to "call"; a member-style decorator becomes
+  // "member_call" via the standard dot-call regex.
+  assert.deepEqual(
+    classifyReference('@Injectable()', 'Injectable', 'service.ts'),
+    { type: 'usage', relation: 'call' },
+  );
+  assert.deepEqual(
+    classifyReference('@deps.Injectable()', 'Injectable', 'service.ts'),
+    { type: 'usage', relation: 'member_call' },
+  );
+
+  // E. Dynamic import — the left-hand binding of `const mod = await import(...)`
+  // matches the JS definition pattern, so the symbol is classified as a
+  // definition just like any other top-level const.
+  assert.deepEqual(
+    classifyReference("const mod = await import('./mod.js');", 'mod', 'app.ts'),
+    { type: 'definition', relation: 'definition' },
+  );
+});
+
 // ─── RepoToolkit: repo_symbols tool ──────────────────────────────────────────
 
 async function makeJsFixture() {

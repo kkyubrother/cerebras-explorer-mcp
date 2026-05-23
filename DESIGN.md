@@ -675,6 +675,14 @@ Codex도 동일하다.
    - 이 분류는 regex/syntax-lite 기반이며 LSP/tree-sitter 수준의 완전한 스코프 분석, 타입 해석, JSX, 데코레이터, 동적 import 전개를 주장하지 않는다.
    - 신뢰가 중요한 편집 직전에는 분류 결과만으로 수정하지 말고 `repo_read_file` 등으로 실제 라인 범위를 별도 검증해야 한다. 본 작업은 카테고리 집합을 확장하지 않는다.
 
+6. **분류기 한계 — Parser-free의 실제 모서리 (spec 012 baseline):**
+   현재 분류기가 다음 5개 영역에서 어떤 라벨을 반환하는지는 `tests/symbols.test.mjs`의 `classifyReference baselines edge case patterns...` 테스트에 굳혀져 있다. 일부 라벨은 의미와 다를 수 있는 영역이므로 호출자는 의미적 확신이 필요할 때 라인 범위를 별도 검증해야 한다.
+   - **공백 멤버 호출 (spaced member call)**: `session . touch ( );` 같이 점과 심볼 사이에 공백이 있는 멤버 호출은 현재 `member_call`이 아니라 `call`로 분류된다.
+   - **다중 패턴 라인 (multi-pattern line)**: 한 줄에 `new Foo()`와 `foo()`가 함께 나오면 ordered checks 순서에 의해 첫 심볼은 `constructor`로 정확히 분류되지만, 두 번째 심볼은 콤마가 TypeScript `type_reference` 정규식을 트리거해 false positive로 `type_reference`가 된다.
+   - **JSX**: `.tsx` 파일의 `<MyComponent />` 같은 self-closing JSX 태그는 `type_reference`로 분류되고, `.jsx` 파일에서는 `reference`로 떨어진다. 둘 다 JSX 의미와 다를 수 있다.
+   - **데코레이터 (decorator)**: 별도 카테고리가 없어 `@Injectable()`는 `call`, `@deps.Injectable()`는 `member_call`로 분류된다. 데코레이터 의미는 라벨에 반영되지 않는다.
+   - **동적 임포트 (dynamic import)**: `const mod = await import('./mod.js');`의 좌변 변수는 일반 `const` 선언과 동일하게 `definition`으로 분류된다. import string literal 내부는 별도 의미를 부여하지 않는다.
+
 ### Phase 4 — 런타임 고도화
 
 Claude Code 소스 분석에서 도출된 아키텍처 개선 항목들.
