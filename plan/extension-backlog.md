@@ -32,7 +32,8 @@
 
 ## 2. `find_entrypoints` 도구 추가
 
-→ `specs/013-wrapper-surface-expansion/` 로 완료 (v0.4.0). 1차 spec은 JS/TS(Express/Fastify/NestJS), Python(Flask/FastAPI/click/argparse), Go(`net/http`/`chi`), 기본 cron으로 한정. Ruby/PHP/Java/Rust + Lambda/K8s CronJob/Pub-Sub은 후속 spec.
+→ `specs/013-wrapper-surface-expansion/` 로 완료 (v0.4.0). 1차 spec은 JS/TS(Express/Fastify/NestJS), Python(Flask/FastAPI/click/argparse), Go(`net/http`/`chi`), 기본 cron으로 한정.
+→ `specs/015-find-entrypoints-language-expansion/` 로 Ruby(Rails/Sinatra/Thor/whenever), PHP(Laravel/Symfony), Java(Spring/picocli), Rust(actix-web/rocket/clap) 확장 완료. Lambda handler / K8s CronJob YAML / Pub-Sub subscriber 같은 별도 의미 카테고리는 후속 spec.
 
 **동작**: 저장소의 entry point(라우터 등록, CLI 정의, cron/queue handler, HTTP handler, MCP tool 정의 등)를 자동으로 식별해서 grounded evidence와 함께 나열하는 신규 wrapper.
 

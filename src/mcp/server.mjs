@@ -484,6 +484,18 @@ const ENTRY_POINT_REGEX_BY_KIND = {
     '\\bhttp\\.HandleFunc\\s*\\(',
     '\\b(?:r|mux|chi)\\.(Get|Post|Put|Delete|Patch)\\s*\\(',
     '@\\w+\\.(get|post|put|delete|patch)\\s*\\(',
+    // Spec 015: Ruby on Rails / Sinatra
+    '\\bRails\\.application\\.routes\\.draw\\b',
+    '\\bresources\\s+:[a-z_]+',
+    '\\b(get|post|put|patch|delete)\\s+[\'"][/:]',
+    // Spec 015: PHP Laravel / Symfony
+    '\\bRoute::(get|post|put|delete|patch|any|match|resource)\\s*\\(',
+    '#\\[Route\\s*\\(',
+    // Spec 015: Java Spring
+    '@(Get|Post|Put|Delete|Patch|Request)Mapping\\b',
+    '@(Rest)?Controller\\b',
+    // Spec 015: Rust actix-web / rocket
+    '#\\[(get|post|put|delete|patch)\\s*\\(',
   ],
   cli: [
     '\\bprogram\\.command\\s*\\(',
@@ -492,12 +504,28 @@ const ENTRY_POINT_REGEX_BY_KIND = {
     '\\bargparse\\.ArgumentParser\\s*\\(',
     '\\bcobra\\.Command\\b',
     '\\bprocess\\.argv\\b',
+    // Spec 015: Ruby Thor
+    '\\bclass\\s+\\w+\\s*<\\s*Thor\\b',
+    '\\bdesc\\s+[\'"]',
+    // Spec 015: PHP Symfony Console
+    '\\bextends\\s+Command\\b',
+    // Spec 015: Java picocli
+    '@picocli\\.CommandLine\\.Command\\b',
+    // Spec 015: Rust clap
+    '\\bCommand::new\\b',
+    '#\\[derive\\s*\\([^)]*Parser[^)]*\\)\\]',
   ],
   cron: [
     '\\bcron\\.schedule\\s*\\(',
     '\\bnode-cron\\b',
     '\\bsetInterval\\s*\\(',
     '@scheduled\\b',
+    // Spec 015: Ruby whenever gem
+    '\\bevery\\s+\\d+\\.(seconds|minutes|hours|days)\\b',
+    // Spec 015: Laravel scheduler
+    '->\\s*(daily|hourly|weekly|monthly|cron|everyMinute)\\b',
+    // Spec 015: Java Spring @Scheduled
+    '@Scheduled\\b',
   ],
   mcp: [
     '\\btools/list\\b',
@@ -512,7 +540,7 @@ const ENTRY_POINT_REGEX_BY_KIND = {
   ],
 };
 
-function buildEntryPointRegexBundle(entryKind) {
+export function buildEntryPointRegexBundle(entryKind) {
   if (entryKind === 'all') {
     const seen = new Set();
     const merged = [];

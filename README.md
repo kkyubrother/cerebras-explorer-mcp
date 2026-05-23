@@ -367,7 +367,7 @@ not "not present in the repository."
 | `explain_code_path` | route/middleware/request/event/CLI 흐름을 파일 간 추적 | reference-chase |
 | `collect_evidence` | claim/review point에 대한 citation bundle 수집 | auto |
 | `review_change_context` | PR/recent-change review context 수집 | git-guided |
-| `find_entrypoints` | HTTP/CLI/cron/MCP/event entry point를 정규식 기반으로 자동 감지 (1차 spec은 JS/TS/Python/Go + 기본 cron) | auto |
+| `find_entrypoints` | HTTP/CLI/cron/MCP/event entry point를 정규식 기반으로 자동 감지. spec 013 + 015 패턴은 JS/TS, Python, Go, Ruby, PHP, Java, Rust를 cover (Lambda handler / K8s CronJob / Pub-Sub 같은 별도 의미 카테고리는 후속 spec). | auto |
 
 목적형 wrapper는 공통적으로 `repo_root`, `scope`, `session`과 이미 알고 있는 file/symbol/text anchor만 노출합니다. 응답 언어를 명시해야 하는 드문 경우에는 `explore_repo` 또는 `explore`의 `language`를 사용하세요.
 

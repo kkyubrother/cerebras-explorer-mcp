@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { createMcpRequestHandler } from '../src/mcp/server.mjs';
+import { createMcpRequestHandler, buildEntryPointRegexBundle } from '../src/mcp/server.mjs';
 import { getRepoRoot } from '../src/explorer/config.mjs';
 
 async function makeRepoFixture() {
@@ -713,6 +713,75 @@ test('find_entrypoints rejects unknown entryKind via enum schema before runtime 
   assert.match(called.content[0].text, /entryKind must be one of/);
   assert.equal(called.structuredContent.failure.category, 'input');
   assert.equal(called.structuredContent.failure.reason, 'invalid_arguments');
+});
+
+// ─── Spec 015: find_entrypoints regex bundle language expansion ─────────────
+
+function hasFragment(patterns, fragment) {
+  return patterns.some(p => p.includes(fragment));
+}
+
+test('Spec 015 — buildEntryPointRegexBundle("http") includes Ruby/PHP/Java/Rust patterns', () => {
+  const http = buildEntryPointRegexBundle('http');
+  // Existing spec 013 fragments still present.
+  assert.ok(hasFragment(http, 'app\\.(get|post'), 'spec 013 Express pattern preserved');
+  // Spec 015 Ruby on Rails.
+  assert.ok(hasFragment(http, 'Rails\\.application\\.routes\\.draw'), 'Rails routes draw pattern');
+  assert.ok(hasFragment(http, 'resources\\s+:'), 'Rails resources pattern');
+  // Spec 015 Laravel + Symfony.
+  assert.ok(hasFragment(http, 'Route::(get|post|put|delete|patch|any|match|resource)'), 'Laravel Route facade');
+  assert.ok(hasFragment(http, '#\\[Route\\s*\\('), 'Symfony attribute Route');
+  // Spec 015 Spring.
+  assert.ok(hasFragment(http, '@(Get|Post|Put|Delete|Patch|Request)Mapping'), 'Spring mapping annotation');
+  assert.ok(hasFragment(http, '@(Rest)?Controller'), 'Spring controller annotation');
+  // Spec 015 Rust actix-web / rocket attribute.
+  assert.ok(hasFragment(http, '#\\[(get|post|put|delete|patch)\\s*\\('), 'Rust route attribute');
+});
+
+test('Spec 015 — buildEntryPointRegexBundle("cli") includes Ruby/PHP/Java/Rust patterns', () => {
+  const cli = buildEntryPointRegexBundle('cli');
+  // Existing spec 013 fragments preserved.
+  assert.ok(hasFragment(cli, 'program\\.command'), 'spec 013 commander pattern preserved');
+  // Spec 015 Ruby Thor.
+  assert.ok(hasFragment(cli, 'class\\s+\\w+\\s*<\\s*Thor'), 'Ruby Thor subclass');
+  assert.ok(hasFragment(cli, 'desc\\s+'), 'Thor desc pattern');
+  // Spec 015 PHP Symfony Console.
+  assert.ok(hasFragment(cli, 'extends\\s+Command'), 'Symfony Console extends Command');
+  // Spec 015 Java picocli.
+  assert.ok(hasFragment(cli, '@picocli\\.CommandLine\\.Command'), 'picocli annotation');
+  // Spec 015 Rust clap.
+  assert.ok(hasFragment(cli, 'Command::new'), 'Rust clap Command::new');
+  assert.ok(hasFragment(cli, 'Parser'), 'Rust clap derive Parser');
+});
+
+test('Spec 015 — buildEntryPointRegexBundle("cron") includes whenever/Laravel scheduler/Spring @Scheduled', () => {
+  const cron = buildEntryPointRegexBundle('cron');
+  // Existing spec 013 fragments preserved.
+  assert.ok(hasFragment(cron, 'cron\\.schedule'), 'spec 013 cron.schedule preserved');
+  // Spec 015 Ruby whenever.
+  assert.ok(hasFragment(cron, 'every\\s+\\d+'), 'whenever every N units');
+  // Spec 015 Laravel scheduler.
+  assert.ok(hasFragment(cron, 'daily|hourly|weekly|monthly|cron|everyMinute'), 'Laravel scheduler frequency');
+  // Spec 015 Spring @Scheduled.
+  assert.ok(hasFragment(cron, '@Scheduled'), 'Spring @Scheduled annotation');
+});
+
+test('Spec 015 — buildEntryPointRegexBundle("all") is a superset including spec 013 and spec 015 patterns, and "cli" stays separate from http-only patterns', () => {
+  const all = buildEntryPointRegexBundle('all');
+  // Spec 013 anchors.
+  assert.ok(hasFragment(all, 'app\\.(get|post'), 'all includes spec 013 Express');
+  assert.ok(hasFragment(all, 'click\\.command'), 'all includes spec 013 click');
+  // Spec 015 anchors.
+  assert.ok(hasFragment(all, 'Rails\\.application\\.routes\\.draw'), 'all includes spec 015 Rails');
+  assert.ok(hasFragment(all, '@(Rest)?Controller'), 'all includes spec 015 Spring');
+  assert.ok(hasFragment(all, '@Scheduled'), 'all includes spec 015 Spring @Scheduled');
+
+  // Category separation: http-only Express must NOT bleed into the cli category.
+  const cli = buildEntryPointRegexBundle('cli');
+  assert.ok(!hasFragment(cli, 'app\\.(get|post'), 'cli must not include http-only Express pattern');
+  // And cli-only Thor must not bleed into http.
+  const http = buildEntryPointRegexBundle('http');
+  assert.ok(!hasFragment(http, 'class\\s+\\w+\\s*<\\s*Thor'), 'http must not include cli-only Thor pattern');
 });
 
 test('MCP request handler returns execution failures for explore_repo without mislabeling them as argument errors', async () => {
