@@ -573,7 +573,7 @@ Use the `cerebras-explorer` MCP tools as the default first move for broad read-o
 Prefer the narrowest exposed explorer tool that matches the request:
 - `find_relevant_code` for locating files and line targets before reads or edits
 - `trace_symbol` for known symbols
-- `map_change_impact` before edits when only a change description or known anchors are available
+- `map_change_impact` before edits when a change description is available; add `knownFiles`/`knownSymbols` only as optional anchors
 - `explain_code_path` for route, middleware, request, event, or CLI flows
 - `collect_evidence` for claim or review-point verification
 - `review_change_context` for PR or recent-change review context
@@ -581,6 +581,7 @@ Prefer the narrowest exposed explorer tool that matches the request:
 - `explore` for cited Markdown reports
 Pass the parent request almost verbatim; add `scope`, known anchors, or `session` only when justified by the task or prior results.
 Do not set `thoroughness`, `hints.strategy`, or `language` unless an advanced workflow explicitly requires it. (The `budget` input was removed in spec 011 — every call uses the single deep runtime config.)
+For anchor-only file, symbol, or flow discovery, use `trace_symbol`, `find_relevant_code`, or `explain_code_path` instead of `map_change_impact`.
 Use known symbols, files, or literal text anchors only when already known.
 Use regex only in advanced `explore_repo.hints.regex` workflows.
 Reuse `sessionId` as `session` for follow-up calls.

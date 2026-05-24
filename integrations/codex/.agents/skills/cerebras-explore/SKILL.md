@@ -12,7 +12,7 @@ If the role is not installed, call the `cerebras-explorer` MCP tools directly.
 Prefer the narrowest explorer entry point that matches the request:
 - `find_relevant_code` for locating relevant files and line targets before deciding what to read or edit
 - `trace_symbol` for definition, purpose, and callsite questions about a known symbol
-- `map_change_impact` before edits when only a natural-language change description or known anchors are available and blast radius is unknown
+- `map_change_impact` before edits when a natural-language change description is available and blast radius is unknown; include known anchors only as optional context
 - `explain_code_path` for route, middleware, request, event, job, or CLI flow tracing
 - `collect_evidence` for verifying a claim or review point with grounded snippets
 - `review_change_context` for PR/recent-change review context

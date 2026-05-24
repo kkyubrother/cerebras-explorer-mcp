@@ -7,13 +7,14 @@ Use the `cerebras-explorer` MCP tools as the default first move for broad read-o
 Prefer the narrowest exposed explorer tool that matches the request:
 - `find_relevant_code` for locating relevant files and line ranges
 - `trace_symbol` for known symbols
-- `map_change_impact` for blast-radius context before edits when only a change description or known anchors are available
+- `map_change_impact` for blast-radius context before edits when a change description is available; add `knownFiles`/`knownSymbols` only as optional anchors
 - `explain_code_path` for route, middleware, request, job, or CLI flows
 - `collect_evidence` for claim verification
 - `review_change_context` for git-history or PR-review questions
 - `explore_repo` for open-ended questions when structured JSON findings are useful
 - `explore` for open-ended questions when a cited Markdown report is the better final artifact
 Pass the parent request almost verbatim. Add `scope` and known anchors only when they are already implied by the task.
+For anchor-only file, symbol, or flow discovery, use `trace_symbol`, `find_relevant_code`, or `explain_code_path` instead of `map_change_impact`.
 Do not choose `budget` or `thoroughness`; the server chooses exploration depth automatically.
 Reuse `sessionId` as `session` when continuing the same investigation.
 Read `evidenceQuality.level` to gauge groundedness, treat `failure` non-null as a directive to use `failure.retry.tool`/`failure.retry.args`, and check `searchCoverage` for scope or budget limits.
