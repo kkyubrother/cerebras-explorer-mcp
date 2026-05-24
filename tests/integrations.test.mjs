@@ -10,6 +10,12 @@ async function read(relPath) {
   return fs.readFile(path.join(ROOT, relPath), 'utf8');
 }
 
+function extractFirstTomlStringArray(source, key) {
+  const match = source.match(new RegExp(`^\\s*${key}\\s*=\\s*\\[([\\s\\S]*?)^\\s*\\]`, 'm'));
+  assert.ok(match, `${key} array should exist`);
+  return [...match[1].matchAll(/"([^"]+)"/g)].map(item => item[1]);
+}
+
 test('JSON integration examples are parseable', async () => {
   const examples = [
     'integrations/claude/.mcp.json.example',
@@ -102,20 +108,18 @@ test('Gemini example documents required env and recommended full wrapper allowli
   const server = settings.mcpServers?.['cerebras-explorer'];
   assert.ok(server, 'Gemini server alias should be cerebras-explorer');
   assert.equal(server.command, 'npx');
-  assert.deepEqual(server.args, ['-y', 'github:kkyubrother/cerebras-explorer-mcp#v0.4.1']);
   assert.equal(server.env?.CEREBRAS_API_KEY, '$CEREBRAS_API_KEY');
   assert.deepEqual(server.includeTools, [
     'explore_repo',
     'find_relevant_code',
     'trace_symbol',
     'map_change_impact',
-    'map_impact',
     'explain_code_path',
     'collect_evidence',
     'review_change_context',
-    'find_entrypoints',
     'explore',
   ]);
+  assert.deepEqual(server.args, ['-y', 'github:kkyubrother/cerebras-explorer-mcp#v0.5.0']);
 
   const readme = await read('integrations/gemini/README.md');
   assert.match(readme, /recommended full wrapper/i);
@@ -131,16 +135,23 @@ test('Gemini example documents required env and recommended full wrapper allowli
 test('Codex example uses npx and tool allowlist controls', async () => {
   const toml = await read('integrations/codex/config.toml.example');
   assert.match(toml, /command = "npx"/);
-  assert.match(toml, /github:kkyubrother\/cerebras-explorer-mcp#v0\.4\.1/);
   assert.match(toml, /startup_timeout_sec = 60/);
   assert.match(toml, /tool_timeout_sec = 180/);
   assert.match(toml, /default_tools_approval_mode = "approve"/);
   assert.doesNotMatch(toml, /^required\s*=/m);
-  assert.match(toml, /enabled_tools = \[/);
-  assert.match(toml, /"explain_code_path"/);
-  assert.match(toml, /"collect_evidence"/);
-  assert.match(toml, /"review_change_context"/);
-  assert.match(toml, /"explore"/);
+  assert.deepEqual(extractFirstTomlStringArray(toml, 'enabled_tools'), [
+    'explore_repo',
+    'find_relevant_code',
+    'trace_symbol',
+    'map_change_impact',
+    'explain_code_path',
+    'collect_evidence',
+    'review_change_context',
+    'explore',
+  ]);
+  assert.doesNotMatch(toml, /"map_impact"/);
+  assert.doesNotMatch(toml, /"find_entrypoints"/);
+  assert.match(toml, /github:kkyubrother\/cerebras-explorer-mcp#v0\.5\.0/);
   assert.match(toml, /minimal 4-tool/i);
   // spec 011: explore_v2 tool name is gone; the disabled_tools example just
   // demonstrates the syntax with any retained tool name.
@@ -149,6 +160,8 @@ test('Codex example uses npx and tool allowlist controls', async () => {
   assert.doesNotMatch(toml, /absolute\/path/);
 
   const agents = await read('integrations/codex/AGENTS.md.example');
+  assert.doesNotMatch(agents, /\bmap_impact\b/);
+  assert.doesNotMatch(agents, /\bfind_entrypoints\b/);
   assert.match(agents, /enabled_tools/);
   assert.match(agents, /disabled_tools/);
   assert.match(agents, /recommended full wrapper/i);
@@ -234,7 +247,7 @@ test('Continue YAML example keeps the expected MCP shape', async () => {
   assert.match(yaml, /^mcpServers:/m);
   assert.match(yaml, /name: cerebras-explorer/);
   assert.match(yaml, /command: npx/);
-  assert.match(yaml, /github:kkyubrother\/cerebras-explorer-mcp#v0\.4\.1/);
+  assert.match(yaml, /github:kkyubrother\/cerebras-explorer-mcp#v0\.5\.0/);
   assert.match(yaml, /CEREBRAS_API_KEY/);
 });
 
