@@ -4,8 +4,25 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { createMcpRequestHandler, buildEntryPointRegexBundle } from '../src/mcp/server.mjs';
+import { createMcpRequestHandler } from '../src/mcp/server.mjs';
 import { getRepoRoot } from '../src/explorer/config.mjs';
+
+const EXPECTED_PUBLIC_TOOL_NAMES = [
+  'find_relevant_code',
+  'trace_symbol',
+  'map_change_impact',
+  'explain_code_path',
+  'collect_evidence',
+  'review_change_context',
+  'explore_repo',
+  'explore',
+];
+
+const EXPECTED_WRAPPER_TOOL_NAMES = EXPECTED_PUBLIC_TOOL_NAMES.filter(
+  name => name !== 'explore_repo' && name !== 'explore',
+);
+
+const REMOVED_SPEC_013_TOOL_NAMES = ['map_impact', 'find_entrypoints'];
 
 async function makeRepoFixture() {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-explorer-mcp-server-'));
@@ -192,7 +209,7 @@ test('MCP request handler exposes explore_repo and returns structuredContent', a
     params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'test', version: '0.0.1' } },
   });
   assert.equal(initialized.serverInfo.name, 'cerebras-explorer-mcp');
-  assert.equal(initialized.serverInfo.version, '0.4.1');
+  assert.equal(initialized.serverInfo.version, '0.5.0');
 
   const listed = await handleRequest({
     jsonrpc: '2.0',
@@ -202,6 +219,10 @@ test('MCP request handler exposes explore_repo and returns structuredContent', a
   });
   assert.equal(Array.isArray(listed.tools), true);
   const toolNames = listed.tools.map(t => t.name);
+  assert.deepEqual(toolNames, EXPECTED_PUBLIC_TOOL_NAMES);
+  for (const removedToolName of REMOVED_SPEC_013_TOOL_NAMES) {
+    assert.ok(!toolNames.includes(removedToolName), `${removedToolName} must not be exposed`);
+  }
   assert.ok(toolNames.includes('explore_repo'), 'explore_repo must be in tool list');
   // Extra tools are on by default
   assert.ok(toolNames.includes('find_relevant_code'), 'find_relevant_code must be in tool list');
@@ -223,16 +244,7 @@ test('MCP request handler exposes explore_repo and returns structuredContent', a
   assert.ok(exploreRepoTool.outputSchema.properties.targets, 'explore_repo must expose outputSchema targets');
   assert.equal(exploreRepoTool.outputSchema.additionalProperties, false);
   assert.equal(exploreRepoTool.outputSchema.properties.answer, undefined);
-  for (const toolName of [
-    'find_relevant_code',
-    'trace_symbol',
-    'map_change_impact',
-    'map_impact',
-    'explain_code_path',
-    'collect_evidence',
-    'review_change_context',
-    'find_entrypoints',
-  ]) {
+  for (const toolName of EXPECTED_WRAPPER_TOOL_NAMES) {
     const tool = listed.tools.find(t => t.name === toolName);
     assert.equal(tool.inputSchema.properties.language, undefined, `${toolName} must not expose language`);
     assert.equal(tool.inputSchema.properties.context, undefined, `${toolName} must not expose context`);
@@ -399,6 +411,28 @@ test('011 US1 — explore tool name explore_v2 is not exposed under any env', as
   }
 });
 
+test('MCP request handler rejects removed spec 013 wrappers as unknown tools', async () => {
+  const repoRoot = await makeRepoFixture();
+  const { handleRequest } = createMcpRequestHandler({
+    runtimeOptions: { chatClient: new MockChatClient() },
+  });
+
+  const listed = await handleRequest({ jsonrpc: '2.0', id: 1, method: 'tools/list' });
+  const toolNames = listed.tools.map(t => t.name);
+  for (const removedToolName of REMOVED_SPEC_013_TOOL_NAMES) {
+    assert.ok(!toolNames.includes(removedToolName), `${removedToolName} must not be listed`);
+    await assert.rejects(
+      handleRequest({
+        jsonrpc: '2.0',
+        id: 10,
+        method: 'tools/call',
+        params: { name: removedToolName, arguments: { repo_root: repoRoot } },
+      }),
+      new RegExp(`Unknown tool: ${removedToolName}`),
+    );
+  }
+});
+
 test('explore redacts deny-listed paths consistently in both surfaces', async () => {
   const repoRoot = await makeRepoFixture();
   const report = 'Secret `secrets/.env.production:L1` and public `src/auth.js:L1`.';
@@ -480,21 +514,9 @@ test('collect_evidence wrapper uses evidence verification mode instead of edit r
   assert.equal(called.structuredContent.status.verification, 'verified');
 });
 
-test('MCP request handler declares read-only annotations for the fixed 10-tool surface', async () => {
-  // spec 013: tool surface is fixed at 10 (spec 011 added 8; spec 013 added
-  // map_impact and find_entrypoints) regardless of legacy envvars.
-  const expectedNames = [
-    'find_relevant_code',
-    'trace_symbol',
-    'map_change_impact',
-    'map_impact',
-    'explain_code_path',
-    'collect_evidence',
-    'review_change_context',
-    'find_entrypoints',
-    'explore_repo',
-    'explore',
-  ];
+test('MCP request handler declares read-only annotations for the fixed 8-tool surface', async () => {
+  // spec 011: tool surface is fixed at 8 regardless of legacy envvars.
+  const expectedNames = EXPECTED_PUBLIC_TOOL_NAMES;
 
   const envScenarios = [
     { name: 'default', env: {} },
@@ -513,7 +535,7 @@ test('MCP request handler declares read-only annotations for the fixed 10-tool s
     assert.deepEqual(
       tools.map(tool => tool.name),
       expectedNames,
-      `${scenario.name}: tool surface is fixed at 10 regardless of legacy envvars`,
+      `${scenario.name}: tool surface is fixed at 8 regardless of legacy envvars`,
     );
     for (const tool of tools) assertReadOnlyAnnotations(tool);
   }
@@ -606,11 +628,6 @@ test('MCP request handler rejects unknown wrapper arguments before runtime execu
       unknownKey: 'unexpected',
     },
     {
-      tool: 'map_impact',
-      args: { anchor: 'src/auth.js' },
-      unknownKey: 'reasonForChange',
-    },
-    {
       tool: 'explain_code_path',
       args: { pathQuery: 'login request flow' },
       unknownKey: 'flowType',
@@ -624,11 +641,6 @@ test('MCP request handler rejects unknown wrapper arguments before runtime execu
       tool: 'review_change_context',
       args: { reviewGoal: 'audit auth refactor' },
       unknownKey: 'severity',
-    },
-    {
-      tool: 'find_entrypoints',
-      args: {},
-      unknownKey: 'targetLanguage',
     },
   ];
 
@@ -662,154 +674,6 @@ test('MCP request handler rejects unknown wrapper arguments before runtime execu
       assert.equal(called.structuredContent.failure.reason, 'invalid_arguments');
     });
   }
-});
-
-test('map_impact rejects missing or empty anchor argument before runtime dispatch', async () => {
-  class ShouldNotRunChatClient {
-    constructor() { this.model = 'zai-glm-4.7'; }
-    async createChatCompletion() {
-      throw new Error('runtime should not be invoked for invalid map_impact arguments');
-    }
-  }
-
-  const { handleRequest } = createMcpRequestHandler({
-    runtimeOptions: { chatClient: new ShouldNotRunChatClient() },
-  });
-
-  for (const [index, args] of [{}, { anchor: '' }, { anchor: '   ' }].entries()) {
-    const called = await handleRequest({
-      jsonrpc: '2.0',
-      id: 220 + index,
-      method: 'tools/call',
-      params: { name: 'map_impact', arguments: args },
-    });
-    assert.equal(called.isError, true, `case ${index}: must error on missing/empty anchor`);
-    assert.match(called.content[0].text, /map_impact requires a non-empty "anchor"/);
-    assert.equal(called.structuredContent.failure.category, 'input');
-    assert.equal(called.structuredContent.failure.reason, 'invalid_arguments');
-  }
-});
-
-test('find_entrypoints rejects unknown entryKind via enum schema before runtime dispatch', async () => {
-  class ShouldNotRunChatClient {
-    constructor() { this.model = 'zai-glm-4.7'; }
-    async createChatCompletion() {
-      throw new Error('runtime should not be invoked for invalid find_entrypoints arguments');
-    }
-  }
-
-  const { handleRequest } = createMcpRequestHandler({
-    runtimeOptions: { chatClient: new ShouldNotRunChatClient() },
-  });
-
-  const called = await handleRequest({
-    jsonrpc: '2.0',
-    id: 230,
-    method: 'tools/call',
-    params: { name: 'find_entrypoints', arguments: { entryKind: 'unknown_kind' } },
-  });
-  assert.equal(called.isError, true);
-  assert.match(called.content[0].text, /Invalid arguments for find_entrypoints/);
-  assert.match(called.content[0].text, /entryKind must be one of/);
-  assert.equal(called.structuredContent.failure.category, 'input');
-  assert.equal(called.structuredContent.failure.reason, 'invalid_arguments');
-});
-
-test('find_entrypoints dispatches with explore_repo-compatible hints', async () => {
-  const repoRoot = await makeRepoFixture();
-  const { handleRequest } = createMcpRequestHandler({
-    runtimeOptions: {
-      chatClient: new MockChatClient(),
-    },
-  });
-
-  const called = await handleRequest({
-    jsonrpc: '2.0',
-    id: 231,
-    method: 'tools/call',
-    params: {
-      name: 'find_entrypoints',
-      arguments: {
-        entryKind: 'http',
-        repo_root: repoRoot,
-        scope: ['src/**'],
-      },
-    },
-  });
-
-  assert.notEqual(called.isError, true, called.content?.[0]?.text);
-  assert.equal(called.structuredContent.failure, null);
-  assert.equal(called.structuredContent.status.verification, 'verified');
-  assert.match(called.content[0].text, /requireAuth/);
-});
-
-// ─── Spec 015: find_entrypoints regex bundle language expansion ─────────────
-
-function hasFragment(patterns, fragment) {
-  return patterns.some(p => p.includes(fragment));
-}
-
-test('Spec 015 — buildEntryPointRegexBundle("http") includes Ruby/PHP/Java/Rust patterns', () => {
-  const http = buildEntryPointRegexBundle('http');
-  // Existing spec 013 fragments still present.
-  assert.ok(hasFragment(http, 'app\\.(get|post'), 'spec 013 Express pattern preserved');
-  // Spec 015 Ruby on Rails.
-  assert.ok(hasFragment(http, 'Rails\\.application\\.routes\\.draw'), 'Rails routes draw pattern');
-  assert.ok(hasFragment(http, 'resources\\s+:'), 'Rails resources pattern');
-  // Spec 015 Laravel + Symfony.
-  assert.ok(hasFragment(http, 'Route::(get|post|put|delete|patch|any|match|resource)'), 'Laravel Route facade');
-  assert.ok(hasFragment(http, '#\\[Route\\s*\\('), 'Symfony attribute Route');
-  // Spec 015 Spring.
-  assert.ok(hasFragment(http, '@(Get|Post|Put|Delete|Patch|Request)Mapping'), 'Spring mapping annotation');
-  assert.ok(hasFragment(http, '@(Rest)?Controller'), 'Spring controller annotation');
-  // Spec 015 Rust actix-web / rocket attribute.
-  assert.ok(hasFragment(http, '#\\[(get|post|put|delete|patch)\\s*\\('), 'Rust route attribute');
-});
-
-test('Spec 015 — buildEntryPointRegexBundle("cli") includes Ruby/PHP/Java/Rust patterns', () => {
-  const cli = buildEntryPointRegexBundle('cli');
-  // Existing spec 013 fragments preserved.
-  assert.ok(hasFragment(cli, 'program\\.command'), 'spec 013 commander pattern preserved');
-  // Spec 015 Ruby Thor.
-  assert.ok(hasFragment(cli, 'class\\s+\\w+\\s*<\\s*Thor'), 'Ruby Thor subclass');
-  assert.ok(hasFragment(cli, 'desc\\s+'), 'Thor desc pattern');
-  // Spec 015 PHP Symfony Console.
-  assert.ok(hasFragment(cli, 'extends\\s+Command'), 'Symfony Console extends Command');
-  // Spec 015 Java picocli.
-  assert.ok(hasFragment(cli, '@picocli\\.CommandLine\\.Command'), 'picocli annotation');
-  // Spec 015 Rust clap.
-  assert.ok(hasFragment(cli, 'Command::new'), 'Rust clap Command::new');
-  assert.ok(hasFragment(cli, 'Parser'), 'Rust clap derive Parser');
-});
-
-test('Spec 015 — buildEntryPointRegexBundle("cron") includes whenever/Laravel scheduler/Spring @Scheduled', () => {
-  const cron = buildEntryPointRegexBundle('cron');
-  // Existing spec 013 fragments preserved.
-  assert.ok(hasFragment(cron, 'cron\\.schedule'), 'spec 013 cron.schedule preserved');
-  // Spec 015 Ruby whenever.
-  assert.ok(hasFragment(cron, 'every\\s+\\d+'), 'whenever every N units');
-  // Spec 015 Laravel scheduler.
-  assert.ok(hasFragment(cron, 'daily|hourly|weekly|monthly|cron|everyMinute'), 'Laravel scheduler frequency');
-  // Spec 015 Spring @Scheduled.
-  assert.ok(hasFragment(cron, '@Scheduled'), 'Spring @Scheduled annotation');
-});
-
-test('Spec 015 — buildEntryPointRegexBundle("all") is a superset including spec 013 and spec 015 patterns, and "cli" stays separate from http-only patterns', () => {
-  const all = buildEntryPointRegexBundle('all');
-  // Spec 013 anchors.
-  assert.ok(hasFragment(all, 'app\\.(get|post'), 'all includes spec 013 Express');
-  assert.ok(hasFragment(all, 'click\\.command'), 'all includes spec 013 click');
-  // Spec 015 anchors.
-  assert.ok(hasFragment(all, 'Rails\\.application\\.routes\\.draw'), 'all includes spec 015 Rails');
-  assert.ok(hasFragment(all, '@(Rest)?Controller'), 'all includes spec 015 Spring');
-  assert.ok(hasFragment(all, '@Scheduled'), 'all includes spec 015 Spring @Scheduled');
-
-  // Category separation: http-only Express must NOT bleed into the cli category.
-  const cli = buildEntryPointRegexBundle('cli');
-  assert.ok(!hasFragment(cli, 'app\\.(get|post'), 'cli must not include http-only Express pattern');
-  // And cli-only Thor must not bleed into http.
-  const http = buildEntryPointRegexBundle('http');
-  assert.ok(!hasFragment(http, 'class\\s+\\w+\\s*<\\s*Thor'), 'http must not include cli-only Thor pattern');
 });
 
 test('MCP request handler returns execution failures for explore_repo without mislabeling them as argument errors', async () => {
