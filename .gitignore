@@ -11,6 +11,7 @@ yarn-error.log*
 pnpm-debug.log*
 .claude/
 .codex/
+.worktrees/
 bash.exe.stackdump
 benchmark-report.json
 benchmark-report*.json
