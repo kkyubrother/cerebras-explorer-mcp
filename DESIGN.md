@@ -517,7 +517,7 @@ Cerebras Explorer의 제품 목표는 상위 AI가 정확한 판단을 내릴 �
 - critic은 answer를 재작성하지 않는다. 대신 `confidence`, `trustSummary`, `critic.warnings`로 상위 AI의 판단을 돕는다.
 - 상세 진단과 전체 evidence manifest는 기본 반환하지 않는다.
 
-`explore_repo`는 구조화 evidence가 있으므로 strongest critic을 적용한다. `explore`와 `explore_v2`는 Markdown report이므로 citation 존재 여부, cited path와 `filesRead`의 관계, budget/truncation/output recovery 같은 가벼운 report critic을 별도로 적용한다.
+`explore_repo`는 구조화 evidence를 반환하므로 가장 강한 critic을 적용한다. 공개 Markdown report 도구인 `explore`에는 citation 존재 여부, cited path와 `filesRead`의 관계, budget/truncation/output recovery를 확인하는 report critic을 적용한다.
 
 ### V2 Evidence Reliability Gates
 
@@ -525,9 +525,9 @@ V2 런타임의 도구 결과 truncation은 모델이 최종 보고서를 합성
 
 `searchCoverage.warnings`는 단순 주석이 아니라 복구 경로다. 예산 중단, tool-result truncation, scope 제한 같은 신호가 있으면 호출자는 그 내용을 다음 `explore_repo`/`explore` follow-up의 scope, known file, symbol 입력으로 사용해야 한다. Report citation gap처럼 report critic이 감지한 누락은 `critic.warnings`의 별도 경고로 읽되, 같은 방식으로 후속 검증 입력으로 취급한다.
 
-Report-mode 도구인 `explore`와 `explore_v2`는 Markdown 본문과 함께 MCP `structuredContent`에 `citations[]`(파일/라인 인용)와 인용에서 파생한 `targets[]`(다음 읽기/검증 대상)를 노출한다. 이 필드는 V1 `explore_repo`의 `targets[]`/`evidence[]`와 같은 구조화 탐색 계약이 아니라 report-mode 본문에서 추출한 별도 handoff 필드다.
+Report-mode 도구인 `explore`는 Markdown 본문과 함께 MCP `structuredContent`에 `citations[]`(파일/라인 인용)와 인용에서 파생한 `targets[]`(다음 읽기/검증 대상)를 노출한다. 이 필드는 `explore_repo`의 `targets[]`/`evidence[]`와 같은 구조화 탐색 계약이 아니라 report-mode 본문에서 추출한 별도 handoff 필드다.
 
-V2가 report-mode의 단독 백엔드로 승격되려면 evidence-preservation benchmark가 안정적인 citation 보존을 보여야 하고, 같은 벤치마크에서 미해명 citation gap 경고(`critic.warnings` 또는 동등 신호)가 없어야 한다. 이 조건 전까지 V2는 `explore_v2` opt-in 또는 `explore`의 내부 라우터 선택 경로로만 사용한다.
+V2 backend는 이제 report-mode의 단독 backend다. evidence-preservation benchmark의 citation 보존과 미해명 citation gap 경고(`critic.warnings` 또는 동등 신호) 부재는 opt-in 기준이 아니라 회귀 방지 기준으로 유지한다.
 
 ### 11.4 Evidence sufficiency gate (010)
 

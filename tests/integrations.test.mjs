@@ -254,6 +254,10 @@ const LLM_PROSE_FILES = [
   'integrations/codex/AGENTS.md.example',
 ];
 
+const REMOVED_PUBLIC_TOOL_NAME_PATTERN = new RegExp(
+  `\\b(${['map', 'impact'].join('_')}|${['find', 'entrypoints'].join('_')})\\b`,
+);
+
 test('Gemini client timeout matches Codex tool_timeout_sec budget', async () => {
   const gemini = JSON.parse(await read('integrations/gemini/settings.json.example'));
   const codex = await read('integrations/codex/config.toml.example');
@@ -294,6 +298,17 @@ test('Codex agent role TOML lists every public wrapper tool', async () => {
   for (const name of expected) {
     assert.match(toml, new RegExp(`\\b${name}\\b`), `${name} should appear in Codex agent role TOML`);
   }
+  assert.doesNotMatch(
+    toml,
+    REMOVED_PUBLIC_TOOL_NAME_PATTERN,
+    'Codex agent role TOML should not mention removed public tool names',
+  );
+});
+
+test('LLM prose files do not advertise removed public tool names', async () => {
+  for (const relPath of LLM_PROSE_FILES) {
+    assert.doesNotMatch(await read(relPath), REMOVED_PUBLIC_TOOL_NAME_PATTERN, relPath);
+  }
 });
 
 test('LLM prose files do not use stale "Discovered candidate path" phrasing', async () => {
@@ -323,6 +338,13 @@ test('Codex AGENTS.md.example and agent TOML introduce find_relevant_code before
       'find_relevant_code should appear before explore_repo in user-facing tool guidance',
     );
   }
+});
+
+test('DESIGN evidence reliability does not describe explore_v2 as active report mode', async () => {
+  const design = await read('DESIGN.md');
+  const staleActiveReportMode = /explore_v2 opt-in|`explore`와 `explore_v2`|explore_v2.*Report-mode|Report-mode.*explore_v2/;
+
+  assert.doesNotMatch(design, staleActiveReportMode);
 });
 
 test('TESTING.md does not pin absolute test totals or fixed tool counts', async () => {

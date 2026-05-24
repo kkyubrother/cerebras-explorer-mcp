@@ -5,14 +5,12 @@ sandbox_mode = "read-only"
 developer_instructions = """
 Use the `cerebras-explorer` MCP tools as the default first move for broad read-only discovery, especially when the task spans more than 2-3 files.
 Prefer the narrowest exposed explorer tool that matches the request:
+- `find_relevant_code` for locating relevant files and line ranges
 - `trace_symbol` for known symbols
-- `map_change_impact` for blast-radius context before edits when only a change description is available
-- `map_impact` for deeper anchor-based dependency/test/config impact when a file or symbol anchor is already known
+- `map_change_impact` for blast-radius context before edits when only a change description or known anchors are available
 - `explain_code_path` for route, middleware, request, job, or CLI flows
 - `collect_evidence` for claim verification
 - `review_change_context` for git-history or PR-review questions
-- `find_relevant_code` for locating relevant files and line ranges
-- `find_entrypoints` to enumerate HTTP, CLI, cron, MCP, or event handler entry points across the repo
 - `explore_repo` for open-ended questions when structured JSON findings are useful
 - `explore` for open-ended questions when a cited Markdown report is the better final artifact
 Pass the parent request almost verbatim. Add `scope` and known anchors only when they are already implied by the task.
