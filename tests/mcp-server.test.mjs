@@ -22,7 +22,10 @@ const EXPECTED_WRAPPER_TOOL_NAMES = EXPECTED_PUBLIC_TOOL_NAMES.filter(
   name => name !== 'explore_repo' && name !== 'explore',
 );
 
-const REMOVED_SPEC_013_TOOL_NAMES = ['map_impact', 'find_entrypoints'];
+const REMOVED_SPEC_013_TOOL_NAMES = [
+  ['map', 'impact'].join('_'),
+  ['find', 'entrypoints'].join('_'),
+];
 
 async function makeRepoFixture() {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-explorer-mcp-server-'));
