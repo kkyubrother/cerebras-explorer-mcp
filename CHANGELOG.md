@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.5.0 - 2026-05-25
+
+### Public surface contraction to spec 011 8-tool contract (2026-05-25)
+
+Breaking public MCP surface cleanup. The server again exposes exactly 8 tools:
+`explore_repo`, six purpose wrappers (`find_relevant_code`, `trace_symbol`,
+`map_change_impact`, `explain_code_path`, `collect_evidence`,
+`review_change_context`), and `explore`.
+
+- **Removed**: `map_impact` and `find_entrypoints` from the public MCP tool
+  registry, tool schemas, dispatch path, integration allowlists, and current
+  evaluation harnesses.
+- **Changed**: README, DESIGN, and integrations now describe the fixed 8-tool
+  surface. Calls to the removed names are rejected by the existing unknown-tool
+  guard.
+- **Migration**: Use `map_change_impact` when planning a change from a natural
+  language description plus known file or symbol anchors. Use `find_relevant_code`
+  or `explain_code_path` for route, CLI, job, MCP, or event entry-point discovery.
+
 ## v0.4.1 - 2026-05-24
 
 ### repo-specific ignore + find_entrypoints language expansion + classifier precision (2026-05-24)

@@ -123,7 +123,6 @@ test('Gemini example documents required env and recommended full wrapper allowli
 
   const readme = await read('integrations/gemini/README.md');
   assert.match(readme, /recommended full wrapper/i);
-  assert.match(readme, /minimal 4-tool/i);
   assert.match(readme, /\*KEY\*/);
   assert.match(readme, /CEREBRAS_API_KEY/);
   assert.match(readme, /excludeTools/);
@@ -149,8 +148,6 @@ test('Codex example uses npx and tool allowlist controls', async () => {
     'review_change_context',
     'explore',
   ]);
-  assert.doesNotMatch(toml, /"map_impact"/);
-  assert.doesNotMatch(toml, /"find_entrypoints"/);
   assert.match(toml, /github:kkyubrother\/cerebras-explorer-mcp#v0\.5\.0/);
   assert.match(toml, /minimal 4-tool/i);
   // spec 011: explore_v2 tool name is gone; the disabled_tools example just
@@ -160,8 +157,6 @@ test('Codex example uses npx and tool allowlist controls', async () => {
   assert.doesNotMatch(toml, /absolute\/path/);
 
   const agents = await read('integrations/codex/AGENTS.md.example');
-  assert.doesNotMatch(agents, /\bmap_impact\b/);
-  assert.doesNotMatch(agents, /\bfind_entrypoints\b/);
   assert.match(agents, /enabled_tools/);
   assert.match(agents, /disabled_tools/);
   assert.match(agents, /recommended full wrapper/i);

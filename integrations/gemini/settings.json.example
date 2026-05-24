@@ -2,7 +2,7 @@
   "mcpServers": {
     "cerebras-explorer": {
       "command": "npx",
-      "args": ["-y", "github:kkyubrother/cerebras-explorer-mcp#v0.4.1"],
+      "args": ["-y", "github:kkyubrother/cerebras-explorer-mcp#v0.5.0"],
       "env": {
         "CEREBRAS_API_KEY": "$CEREBRAS_API_KEY"
       },
@@ -12,11 +12,9 @@
         "find_relevant_code",
         "trace_symbol",
         "map_change_impact",
-        "map_impact",
         "explain_code_path",
         "collect_evidence",
         "review_change_context",
-        "find_entrypoints",
         "explore"
       ],
       "timeout": 180000

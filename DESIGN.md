@@ -215,7 +215,7 @@ GLM 4.7 마이그레이션 기준으로 explorer runtime은 다음 원칙을 따
 
 #### `MCP Server`
 
-spec 011 이후 상위 모델에게 노출되는 도구는 환경변수와 무관하게 고정 표면이며, spec 013에서 `map_impact`와 `find_entrypoints` 두 wrapper가 추가되어 **항상 10개로 고정**된다: `find_relevant_code`, `trace_symbol`, `map_change_impact`, `map_impact`, `explain_code_path`, `collect_evidence`, `review_change_context`, `find_entrypoints`, `explore_repo`, `explore`. `explore_v2` 도구 이름은 제거되었고, V2 구현은 단일 `explore` backend로 승격되었다. 이전 surface 토글 envvar(`CEREBRAS_EXPLORER_EXTRA_TOOLS`, `CEREBRAS_EXPLORER_ENABLE_EXPLORE`, `CEREBRAS_EXPLORER_ENABLE_EXPLORE_V2`)는 모두 인식되지 않는다.
+spec 011 이후 상위 모델에게 노출되는 도구는 환경변수와 무관하게 **항상 8개로 고정**된다: `find_relevant_code`, `trace_symbol`, `map_change_impact`, `explain_code_path`, `collect_evidence`, `review_change_context`, `explore_repo`, `explore`. `explore_v2` 도구 이름은 제거되었고, V2 구현은 단일 `explore` backend로 승격되었다. 이전 surface 토글 envvar(`CEREBRAS_EXPLORER_EXTRA_TOOLS`, `CEREBRAS_EXPLORER_ENABLE_EXPLORE`, `CEREBRAS_EXPLORER_ENABLE_EXPLORE_V2`)는 모두 인식되지 않는다.
 
 Wrapper tools pass an internal `taskMode` to runtime. Runtime uses this mode
 before text-based edit-intent detection when deciding `status.verification` and
@@ -650,8 +650,6 @@ Codex도 동일하다.
 ### Phase 2
 
 - `trace_symbol`
-- `map_impact`
-- `find_entrypoints`
 - nested `.gitignore` / `.ignore` 지원
 - `repo_symbol_context.depth > 1` 확장
 - `repo_grep.includeSymbol`
