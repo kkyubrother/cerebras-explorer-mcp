@@ -14,17 +14,17 @@ Cerebras Explorer는 상위 AI가 정확한 판단을 내릴 수 있도록, 필�
 
 ```bash
 export CEREBRAS_API_KEY="..."
-npx -y github:kkyubrother/cerebras-explorer-mcp#v0.4.1
+npx -y github:kkyubrother/cerebras-explorer-mcp#v0.5.0
 ```
 
-`npx`는 spec(URL + ref)을 캐시 키로 사용하므로 `#v0.3.0` 같은 tag를 권장합니다. 개발 브랜치를 추적해야 하면 `#master`, 특정 상태가 필요하면 `#<commit-sha>`를 명시하세요.
+`npx`는 spec(URL + ref)을 캐시 키로 사용하므로 `#v0.5.0` 같은 tag를 권장합니다. 개발 브랜치를 추적해야 하면 `#master`, 특정 상태가 필요하면 `#<commit-sha>`를 명시하세요.
 
 ### Claude Code
 
 ```bash
 claude mcp add -s user cerebras-explorer \
   -e CEREBRAS_API_KEY="$CEREBRAS_API_KEY" \
-  -- npx -y github:kkyubrother/cerebras-explorer-mcp#v0.4.1
+  -- npx -y github:kkyubrother/cerebras-explorer-mcp#v0.5.0
 ```
 
 ### Codex CLI
@@ -32,7 +32,7 @@ claude mcp add -s user cerebras-explorer \
 ```toml
 [mcp_servers.cerebras-explorer]
 command = "npx"
-args = ["-y", "github:kkyubrother/cerebras-explorer-mcp#v0.4.1"]
+args = ["-y", "github:kkyubrother/cerebras-explorer-mcp#v0.5.0"]
 enabled = true
 startup_timeout_sec = 60
 tool_timeout_sec = 180
@@ -43,11 +43,9 @@ enabled_tools = [
   "find_relevant_code",
   "trace_symbol",
   "map_change_impact",
-  "map_impact",
   "explain_code_path",
   "collect_evidence",
   "review_change_context",
-  "find_entrypoints",
   "explore",
 ]
 
@@ -55,11 +53,10 @@ enabled_tools = [
 CEREBRAS_API_KEY = "${CEREBRAS_API_KEY}"
 ```
 
-The 10-tool allowlist is the recommended full wrapper setup. For a stricter
+The 8-tool allowlist is the recommended full wrapper setup. For a stricter
 minimal trust boundary, expose only `explore_repo`, `find_relevant_code`,
 `trace_symbol`, and `map_change_impact`; that subset intentionally drops the
-purpose-built evidence, path, review, impact, entry-point, and Markdown-report
-entry points.
+purpose-built evidence, path, review, and Markdown-report entry points.
 
 ### OpenCode (`opencode.json`)
 
@@ -69,7 +66,7 @@ entry points.
   "mcp": {
     "cerebras-explorer": {
       "type": "local",
-      "command": ["npx", "-y", "github:kkyubrother/cerebras-explorer-mcp#v0.4.1"],
+      "command": ["npx", "-y", "github:kkyubrother/cerebras-explorer-mcp#v0.5.0"],
       "environment": { "CEREBRAS_API_KEY": "${CEREBRAS_API_KEY}" }
     }
   }
@@ -81,7 +78,7 @@ entry points.
 ```bash
 gemini mcp add -e CEREBRAS_API_KEY="$CEREBRAS_API_KEY" \
   cerebras-explorer npx -- \
-  -y github:kkyubrother/cerebras-explorer-mcp#v0.4.1
+  -y github:kkyubrother/cerebras-explorer-mcp#v0.5.0
 ```
 
 Gemini CLI는 `*KEY*`, `*SECRET*`, `*TOKEN*`, `*PASSWORD*`, `*AUTH*`, `*CREDENTIAL*` 패턴의 환경변수를 기본 차단합니다. `CEREBRAS_API_KEY`는 서버 설정의 `env` 블록 또는 위 `-e` 옵션으로 명시해야 전달됩니다.
@@ -100,12 +97,12 @@ Gemini CLI는 `*KEY*`, `*SECRET*`, `*TOKEN*`, `*PASSWORD*`, `*AUTH*`, `*CREDENTI
 
 ## 노출 도구 구성
 
-spec 011/013 이후 도구 surface는 환경변수와 무관하게 **항상 10개로 고정**입니다 (spec 011은 8개로, spec 013은 `map_impact`와 `find_entrypoints` 두 wrapper를 추가해 10개로 확장).
+도구 surface는 항상 정확히 **8개**(spec 011 이후 환경변수와 무관하게 고정).
 
 | 도구 | 역할 |
 | --- | --- |
 | `explore_repo` | 구조화 JSON handoff. 자동화/편집 계획/follow-up 검증의 기본 표면. |
-| `find_relevant_code` / `trace_symbol` / `map_change_impact` / `map_impact` / `explain_code_path` / `collect_evidence` / `review_change_context` / `find_entrypoints` | 목적형 wrapper 8개. 모두 내부적으로 `explore_repo`에 위임. |
+| `find_relevant_code` / `trace_symbol` / `map_change_impact` / `explain_code_path` / `collect_evidence` / `review_change_context` | 목적형 wrapper 6개. 모두 내부적으로 `explore_repo`에 위임. |
 | `explore` | 사람용 Markdown 보고 도구. 단일 V2 backend 구현(spec 011). |
 
 `explore_v2`라는 별도 도구 이름은 spec 011에서 제거되었으며, `CEREBRAS_EXPLORER_ENABLE_EXPLORE_V2` / `CEREBRAS_EXPLORER_EXTRA_TOOLS` / `CEREBRAS_EXPLORER_ENABLE_EXPLORE` 환경변수도 모두 더 이상 인식되지 않습니다.
@@ -152,7 +149,7 @@ Parent model (Claude Code / Codex)
 
 중요한 점은 상위 모델에 low-level 파일 도구를 노출하지 않는다는 점입니다.
 
-- 상위 모델은 목적형 wrapper, `explore_repo`, 또는 `explore`를 호출합니다. 도구 surface는 항상 10개로 고정입니다.
+- 상위 모델은 목적형 wrapper, `explore_repo`, 또는 `explore`를 호출합니다. 도구 surface는 항상 8개로 고정입니다.
 - 실제 파일 탐색 루프는 MCP 서버 안에서 선택된 Cerebras 모델이 자체적으로 수행합니다.
 - 따라서 “메인은 위임 1회, explorer가 자율 탐색”이라는 목표를 만족합니다.
 
@@ -173,18 +170,16 @@ Parent model (Claude Code / Codex)
 
 ## 공개 MCP 도구
 
-도구 surface는 항상 정확히 **10개**(spec 011/013 이후 환경변수와 무관하게 고정).
+도구 surface는 항상 정확히 **8개**(spec 011 이후 환경변수와 무관하게 고정).
 
 - `explore_repo`: parent agent handoff의 정상 구조화 표면입니다. `directAnswer`, `status`, `targets`, `discoveredPaths`, `evidence`, `searchCoverage` 같은 JSON 필드를 후속 자동화와 편집 전 검증에 사용합니다.
-- 목적형 wrapper 8개(`find_relevant_code`, `trace_symbol`, `map_change_impact`, `map_impact`, `explain_code_path`, `collect_evidence`, `review_change_context`, `find_entrypoints`): 모두 내부적으로 `explore_repo`에 위임하며, 특정 작업 의도를 더 좁은 입력 스키마로 표현하는 표면입니다.
+- 목적형 wrapper 6개(`find_relevant_code`, `trace_symbol`, `map_change_impact`, `explain_code_path`, `collect_evidence`, `review_change_context`): 모두 내부적으로 `explore_repo`에 위임하며, 특정 작업 의도를 더 좁은 입력 스키마로 표현하는 표면입니다.
 - `explore`: 사람에게 바로 보여줄 Markdown 보고 도구. spec 011에서 V2 backend가 단일 구현으로 승격되어 모든 프롬프트에서 동일한 신뢰 가이드라인(structuredContent.citations[]/targets[], critic.warnings, searchCoverage.warnings, tool-result truncation 라벨)을 적용합니다.
 
 **Decision rule for parent agents:**
 
 - 자동화 / 편집 계획 / follow-up 검증 → `explore_repo` (구조화 JSON)
-- known symbol / 특정 경로 / 단일 변경 리뷰 → 8 wrapper 중 의도에 맞는 것
-- 변경 대상 anchor(파일/심볼)가 이미 정해진 깊은 dependency chain + test/config blast radius → `map_impact`
-- 저장소의 HTTP/CLI/cron/MCP/event entry point를 한 번에 식별 → `find_entrypoints`
+- known symbol / 특정 경로 / 단일 변경 리뷰 → 6 wrappers 중 의도에 맞는 것
 - 사람에게 보여줄 narrative → `explore` (Markdown)
 
 Report 도구 `explore`는 Markdown 본문을 `text`로 반환하면서, 같은 MCP 응답의 `structuredContent`에 본문에서 파생한 `citations[]`와 인용 기반 `targets[]`도 포함합니다. parent agent는 file:line 인용을 Markdown에서 regex로 다시 긁기보다 이 구조화 필드를 다음 읽기/검증 대상으로 사용해야 합니다.
@@ -356,24 +351,18 @@ not "not present in the repository."
 
 ### 특화 도구 (Specialized Tools)
 
-목적형 wrapper 도구는 spec 011/013 이후 항상 노출됩니다 (총 8개). 모두 내부적으로 `explore_repo`에 위임하고 같은 `directAnswer/status/targets/discoveredPaths/evidence` 구조를 반환합니다.
+목적형 wrapper 도구는 spec 011 이후 항상 노출됩니다 (총 6개). 모두 내부적으로 `explore_repo`에 위임하고 같은 `directAnswer/status/targets/discoveredPaths/evidence` 구조를 반환합니다.
 
 | 도구 | 설명 | 전략 |
 |------|------|------|
 | `find_relevant_code` | 기능/버그/설정/라우트와 관련된 파일과 line target을 찾음 | auto |
 | `trace_symbol` | 심볼의 정의와 사용처를 추적하는 목적형 alias | symbol-first |
-| `map_change_impact` | 변경 *설명*만 알 때 likely edit/read target과 blast radius를 수집 | reference-chase |
-| `map_impact` | 변경 대상 *anchor*(파일/심볼)가 정해진 깊은 dependency chain + test/config 가중치 | reference-chase |
+| `map_change_impact` | 변경 *설명*과 이미 알려진 file/symbol anchor로 likely edit/read target과 blast radius를 수집 | reference-chase |
 | `explain_code_path` | route/middleware/request/event/CLI 흐름을 파일 간 추적 | reference-chase |
 | `collect_evidence` | claim/review point에 대한 citation bundle 수집 | auto |
 | `review_change_context` | PR/recent-change review context 수집 | git-guided |
-| `find_entrypoints` | HTTP/CLI/cron/MCP/event entry point를 정규식 기반으로 자동 감지. spec 013 + 015 패턴은 JS/TS, Python, Go, Ruby, PHP, Java, Rust를 cover (Lambda handler / K8s CronJob / Pub-Sub 같은 별도 의미 카테고리는 후속 spec). | auto |
 
 목적형 wrapper는 공통적으로 `repo_root`, `scope`, `session`과 이미 알고 있는 file/symbol/text anchor만 노출합니다. 응답 언어를 명시해야 하는 드문 경우에는 `explore_repo` 또는 `explore`의 `language`를 사용하세요.
-
-`map_change_impact` vs `map_impact` — 둘은 anchor 입력 유무로 구분합니다. `map_change_impact`는 변경 *의도/설명*만 자연어로 받아 빠른 blast radius를 산출하고, `map_impact`는 변경 대상의 구체적 *anchor*(파일 경로 또는 심볼 이름)를 1급 시민으로 받아 reference chain을 더 깊게 따라가며 test/config target에 가중치를 둡니다. 두 도구 모두 같은 응답 스키마(`EXPLORE_REPO_OUTPUT_SCHEMA`)를 씁니다.
-
-`find_entrypoints`의 entry point 감지는 정규식 기반이라 false positive 가능성이 있습니다. 응답의 `searchCoverage.warnings`/본문 안내에 그 한계가 명시되며, parent agent는 인용된 라인을 그대로 신뢰하기보다 한 번 더 검증해야 합니다.
 
 ## 프로젝트 구조
 
@@ -493,7 +482,7 @@ export CEREBRAS_EXPLORER_REASONING_FORMAT="parsed"      # reasoning 출력 형�
 export CEREBRAS_EXPLORER_REDACT_ENV_VAR_NAMES="1"
 ```
 
-> spec 011에서 제거된 envvar: `CEREBRAS_MODEL`, `CEREBRAS_EXPLORER_MODEL_QUICK|NORMAL|DEEP`, `CEREBRAS_EXPLORER_EXTRA_TOOLS`, `CEREBRAS_EXPLORER_ENABLE_EXPLORE`, `CEREBRAS_EXPLORER_ENABLE_EXPLORE_V2`, `CEREBRAS_EXPLORER_AUTO_ROUTE`, `CEREBRAS_EXPLORER_AUTO_SESSION_BY_REPO`, `CEREBRAS_EXPLORER_LEGACY_DISCOVERED_TARGETS`. 이전에 이들을 사용하던 운영 환경은 단일 모델 + 10-tool 고정 surface(spec 013)로 자동 전환됩니다. 도구 surface 축소가 필요하면 MCP gateway에서 도구 화이트리스트를 적용하세요. multi-call 세션 연결은 explicit `session` 인자로만 지원됩니다.
+> spec 011에서 제거된 envvar: `CEREBRAS_MODEL`, `CEREBRAS_EXPLORER_MODEL_QUICK|NORMAL|DEEP`, `CEREBRAS_EXPLORER_EXTRA_TOOLS`, `CEREBRAS_EXPLORER_ENABLE_EXPLORE`, `CEREBRAS_EXPLORER_ENABLE_EXPLORE_V2`, `CEREBRAS_EXPLORER_AUTO_ROUTE`, `CEREBRAS_EXPLORER_AUTO_SESSION_BY_REPO`, `CEREBRAS_EXPLORER_LEGACY_DISCOVERED_TARGETS`. 이전에 이들을 사용하던 운영 환경은 단일 모델 + 8-tool 고정 surface로 자동 전환됩니다. 도구 surface 축소가 필요하면 MCP gateway에서 도구 화이트리스트를 적용하세요. multi-call 세션 연결은 explicit `session` 인자로만 지원됩니다.
 
 선택 (explore 튜닝):
 
@@ -584,16 +573,15 @@ Use the `cerebras-explorer` MCP tools as the default first move for broad read-o
 Prefer the narrowest exposed explorer tool that matches the request:
 - `find_relevant_code` for locating files and line targets before reads or edits
 - `trace_symbol` for known symbols
-- `map_change_impact` before edits when only a change description is available
-- `map_impact` before edits when a specific file or symbol anchor is already known and a deeper dependency chain is needed
+- `map_change_impact` before edits when a change description is available; add `knownFiles`/`knownSymbols` only as optional anchors
 - `explain_code_path` for route, middleware, request, event, or CLI flows
 - `collect_evidence` for claim or review-point verification
 - `review_change_context` for PR or recent-change review context
-- `find_entrypoints` to surface HTTP, CLI, cron, MCP, or event handler entry points across the repo
 - `explore_repo` for open-ended structured JSON findings
 - `explore` for cited Markdown reports
 Pass the parent request almost verbatim; add `scope`, known anchors, or `session` only when justified by the task or prior results.
 Do not set `thoroughness`, `hints.strategy`, or `language` unless an advanced workflow explicitly requires it. (The `budget` input was removed in spec 011 — every call uses the single deep runtime config.)
+For anchor-only file, symbol, or flow discovery, use `trace_symbol`, `find_relevant_code`, or `explain_code_path` instead of `map_change_impact`.
 Use known symbols, files, or literal text anchors only when already known.
 Use regex only in advanced `explore_repo.hints.regex` workflows.
 Reuse `sessionId` as `session` for follow-up calls.
@@ -772,12 +760,7 @@ node ./scripts/run-benchmark.mjs \
 
 ## 다음 확장 포인트
 
-현재 활성 확장 후보는 없습니다. 과거에 나열했던 4개 후보는 모두 완료되었습니다:
-
-- `map_impact` → spec 013 (v0.4.0)
-- `find_entrypoints` → spec 013 (v0.4.0), spec 015 (v0.4.1, Ruby/PHP/Java/Rust 확장)
-- repo-specific ignore 정책 → spec 014 (v0.4.1, nested `.gitignore` + `extraIgnorePatterns`)
-- 외부 파서 없는 symbol engine 정밀도 → spec 012 (v0.4.0 baseline), spec 016 (v0.4.1 의미 정밀도 패치)
+현재 활성 확장 후보는 없습니다. 과거에 나열했던 후보 중 repo-specific ignore 정책과 외부 파서 없는 symbol engine 정밀도 패치는 완료되었습니다.
 
 새 후보가 들어오면 [`plan/extension-backlog.md`](./plan/extension-backlog.md)에 추가하고 거기서 spec 진행 여부를 결정합니다.
 

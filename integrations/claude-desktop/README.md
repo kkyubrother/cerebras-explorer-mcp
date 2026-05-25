@@ -19,7 +19,7 @@
   "mcpServers": {
     "cerebras-explorer": {
       "command": "npx",
-      "args": ["-y", "github:kkyubrother/cerebras-explorer-mcp#v0.4.1"],
+      "args": ["-y", "github:kkyubrother/cerebras-explorer-mcp#v0.5.0"],
       "env": {
         "CEREBRAS_API_KEY": "your-cerebras-api-key-here"
       }
@@ -33,7 +33,7 @@
 ## 버전 핀
 
 ```json
-"args": ["-y", "github:kkyubrother/cerebras-explorer-mcp#v0.4.1"]
+"args": ["-y", "github:kkyubrother/cerebras-explorer-mcp#v0.5.0"]
 ```
 
 ## 검증

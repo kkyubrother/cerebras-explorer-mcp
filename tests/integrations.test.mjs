@@ -10,6 +10,12 @@ async function read(relPath) {
   return fs.readFile(path.join(ROOT, relPath), 'utf8');
 }
 
+function extractFirstTomlStringArray(source, key) {
+  const match = source.match(new RegExp(`^\\s*${key}\\s*=\\s*\\[([\\s\\S]*?)^\\s*\\]`, 'm'));
+  assert.ok(match, `${key} array should exist`);
+  return [...match[1].matchAll(/"([^"]+)"/g)].map(item => item[1]);
+}
+
 test('JSON integration examples are parseable', async () => {
   const examples = [
     'integrations/claude/.mcp.json.example',
@@ -102,24 +108,21 @@ test('Gemini example documents required env and recommended full wrapper allowli
   const server = settings.mcpServers?.['cerebras-explorer'];
   assert.ok(server, 'Gemini server alias should be cerebras-explorer');
   assert.equal(server.command, 'npx');
-  assert.deepEqual(server.args, ['-y', 'github:kkyubrother/cerebras-explorer-mcp#v0.4.1']);
   assert.equal(server.env?.CEREBRAS_API_KEY, '$CEREBRAS_API_KEY');
   assert.deepEqual(server.includeTools, [
     'explore_repo',
     'find_relevant_code',
     'trace_symbol',
     'map_change_impact',
-    'map_impact',
     'explain_code_path',
     'collect_evidence',
     'review_change_context',
-    'find_entrypoints',
     'explore',
   ]);
+  assert.deepEqual(server.args, ['-y', 'github:kkyubrother/cerebras-explorer-mcp#v0.5.0']);
 
   const readme = await read('integrations/gemini/README.md');
   assert.match(readme, /recommended full wrapper/i);
-  assert.match(readme, /minimal 4-tool/i);
   assert.match(readme, /\*KEY\*/);
   assert.match(readme, /CEREBRAS_API_KEY/);
   assert.match(readme, /excludeTools/);
@@ -131,16 +134,21 @@ test('Gemini example documents required env and recommended full wrapper allowli
 test('Codex example uses npx and tool allowlist controls', async () => {
   const toml = await read('integrations/codex/config.toml.example');
   assert.match(toml, /command = "npx"/);
-  assert.match(toml, /github:kkyubrother\/cerebras-explorer-mcp#v0\.4\.1/);
   assert.match(toml, /startup_timeout_sec = 60/);
   assert.match(toml, /tool_timeout_sec = 180/);
   assert.match(toml, /default_tools_approval_mode = "approve"/);
   assert.doesNotMatch(toml, /^required\s*=/m);
-  assert.match(toml, /enabled_tools = \[/);
-  assert.match(toml, /"explain_code_path"/);
-  assert.match(toml, /"collect_evidence"/);
-  assert.match(toml, /"review_change_context"/);
-  assert.match(toml, /"explore"/);
+  assert.deepEqual(extractFirstTomlStringArray(toml, 'enabled_tools'), [
+    'explore_repo',
+    'find_relevant_code',
+    'trace_symbol',
+    'map_change_impact',
+    'explain_code_path',
+    'collect_evidence',
+    'review_change_context',
+    'explore',
+  ]);
+  assert.match(toml, /github:kkyubrother\/cerebras-explorer-mcp#v0\.5\.0/);
   assert.match(toml, /minimal 4-tool/i);
   // spec 011: explore_v2 tool name is gone; the disabled_tools example just
   // demonstrates the syntax with any retained tool name.
@@ -234,7 +242,7 @@ test('Continue YAML example keeps the expected MCP shape', async () => {
   assert.match(yaml, /^mcpServers:/m);
   assert.match(yaml, /name: cerebras-explorer/);
   assert.match(yaml, /command: npx/);
-  assert.match(yaml, /github:kkyubrother\/cerebras-explorer-mcp#v0\.4\.1/);
+  assert.match(yaml, /github:kkyubrother\/cerebras-explorer-mcp#v0\.5\.0/);
   assert.match(yaml, /CEREBRAS_API_KEY/);
 });
 
@@ -245,6 +253,10 @@ const LLM_PROSE_FILES = [
   'integrations/codex/.codex/agents/cerebras_explorer.toml',
   'integrations/codex/AGENTS.md.example',
 ];
+
+const REMOVED_PUBLIC_TOOL_NAME_PATTERN = new RegExp(
+  `\\b(${['map', 'impact'].join('_')}|${['find', 'entrypoints'].join('_')})\\b`,
+);
 
 test('Gemini client timeout matches Codex tool_timeout_sec budget', async () => {
   const gemini = JSON.parse(await read('integrations/gemini/settings.json.example'));
@@ -286,6 +298,17 @@ test('Codex agent role TOML lists every public wrapper tool', async () => {
   for (const name of expected) {
     assert.match(toml, new RegExp(`\\b${name}\\b`), `${name} should appear in Codex agent role TOML`);
   }
+  assert.doesNotMatch(
+    toml,
+    REMOVED_PUBLIC_TOOL_NAME_PATTERN,
+    'Codex agent role TOML should not mention removed public tool names',
+  );
+});
+
+test('LLM prose files do not advertise removed public tool names', async () => {
+  for (const relPath of LLM_PROSE_FILES) {
+    assert.doesNotMatch(await read(relPath), REMOVED_PUBLIC_TOOL_NAME_PATTERN, relPath);
+  }
 });
 
 test('LLM prose files do not use stale "Discovered candidate path" phrasing', async () => {
@@ -315,6 +338,13 @@ test('Codex AGENTS.md.example and agent TOML introduce find_relevant_code before
       'find_relevant_code should appear before explore_repo in user-facing tool guidance',
     );
   }
+});
+
+test('DESIGN evidence reliability does not describe explore_v2 as active report mode', async () => {
+  const design = await read('DESIGN.md');
+  const staleActiveReportMode = /explore_v2 opt-in|`explore`와 `explore_v2`|explore_v2.*Report-mode|Report-mode.*explore_v2/;
+
+  assert.doesNotMatch(design, staleActiveReportMode);
 });
 
 test('TESTING.md does not pin absolute test totals or fixed tool counts', async () => {

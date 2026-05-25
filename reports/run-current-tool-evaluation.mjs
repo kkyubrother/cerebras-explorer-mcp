@@ -21,8 +21,7 @@ const repos = [
     pathFlow: 'tools/call request dispatch from createMcpRequestHandler into wrapper task builders and runtime callTool',
     claim: 'explore_repo rejects a public budget input and all public tools are read-only annotated',
     change: 'rename or refactor the public tool output contract fields around evidenceQuality and searchCoverage',
-    reviewGoal: 'Review the current public MCP surface for fixed 10-tool behavior and removed explore_v2/budget inputs.',
-    entryKind: 'mcp',
+    reviewGoal: 'Review the current public MCP surface for fixed 8-tool behavior and removed explore_v2/budget inputs.',
   },
   {
     key: 'DeepResearch',
@@ -35,7 +34,6 @@ const repos = [
     claim: 'create_app is the main FastAPI application factory and wires API routers or middleware',
     change: 'add request telemetry across FastAPI routes and provider calls',
     reviewGoal: 'Review recent changes that could affect orchestration, provider logging, or API behavior.',
-    entryKind: 'http',
   },
   {
     key: 'aicc_manage',
@@ -48,7 +46,6 @@ const repos = [
     claim: 'websocket-server authenticates Socket.IO connections with authMiddleware before registering chat or notification handlers',
     change: 'tighten websocket authentication and internal secret validation without breaking notification pushes',
     reviewGoal: 'Review recent auth and websocket-related changes for security or behavior risk.',
-    entryKind: 'event',
   },
   {
     key: 'bible',
@@ -61,7 +58,6 @@ const repos = [
     claim: 'Telegram authentication uses a Cloudflare Pages Function and session helper rather than only client-side state',
     change: 'refactor reader selection state and bookmark sync without breaking Cloudflare Functions APIs',
     reviewGoal: 'Review current reader/search/bookmark changes for user-visible regressions and API contract risk.',
-    entryKind: 'http',
   },
   {
     key: 'studious-memory',
@@ -74,7 +70,6 @@ const repos = [
     claim: 'MCP tools are registered through scoped_tool or equivalent wrappers in backend/mcp_server.py',
     change: 'harden API-key bearer authentication across frontend extension and backend endpoints',
     reviewGoal: 'Review recent backend/frontend contract changes around source intake, API keys, and MCP tools.',
-    entryKind: 'mcp',
   },
 ];
 
@@ -83,11 +78,9 @@ const tools = [
   'find_relevant_code',
   'trace_symbol',
   'map_change_impact',
-  'map_impact',
   'explain_code_path',
   'collect_evidence',
   'review_change_context',
-  'find_entrypoints',
   'explore',
 ];
 
@@ -119,13 +112,6 @@ function argsFor(tool, repo) {
         knownFiles: [repo.fileAnchor],
         knownSymbols: [repo.symbol],
       };
-    case 'map_impact':
-      return {
-        ...base,
-        anchor: repo.fileAnchor,
-        changeType: 'refactor',
-        knownSymbols: [repo.symbol],
-      };
     case 'explain_code_path':
       return {
         ...base,
@@ -146,11 +132,6 @@ function argsFor(tool, repo) {
         ...base,
         reviewGoal: repo.reviewGoal,
         path: repo.fileAnchor,
-      };
-    case 'find_entrypoints':
-      return {
-        ...base,
-        entryKind: repo.entryKind,
       };
     case 'explore':
       return {
