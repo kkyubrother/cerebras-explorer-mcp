@@ -550,7 +550,22 @@ V2 backend는 이제 report-mode의 단독 backend다. evidence-preservation ben
 
 ### 11.7 Session/progress operational contract (010)
 
-spec 011에서 `CEREBRAS_EXPLORER_AUTO_SESSION_BY_REPO` 옵트인과 `SessionStore.findReusableForRepo()` 메서드는 모두 영구 제거되었다. multi-call 세션 연결은 explicit `session` 인자로만 지원된다. `session.status` enum은 그대로 `created`/`reused`/`fallback`이며, `_debug.stats.sessionSource`는 `explicit`/`created`/`reused` 중 하나(010 시점의 `auto_repo` 값은 발생하지 않는다).
+spec 011에서 `CEREBRAS_EXPLORER_AUTO_SESSION_BY_REPO` 옵트인과 `SessionStore.findReusableForRepo()` 메서드는 모두 영구 제거되었다. multi-call 세션 연결은 explicit `session` 인자로만 지원된다.
+
+`session.status`와 `_debug.stats.sessionSource`는 서로 다른 차원의 enum이다.
+
+- `session.status` ∈ `created` | `reused` | `fallback` — 응답의 세션 라이프사이클 단계
+- `_debug.stats.sessionSource` ∈ `explicit` | `created` — 세션 ID의 출처. 호출자가 넘긴 ID를 그대로 쓰면 `explicit`, 서버가 새로 만들었으면 `created`. `reused`는 status에만 존재할 수 있고 sessionSource에는 부여되지 않는다 (재사용은 항상 호출자가 넘긴 explicit ID 경로이기 때문).
+
+조합은 다음 세 가지뿐이다.
+
+| 상황 | `session.status` | `_debug.stats.sessionSource` |
+|------|------------------|-------------------------------|
+| 호출자가 넘긴 유효한 세션 | `reused` | `explicit` |
+| 호출자가 넘긴 세션이 expired/exhausted → 서버가 새 세션으로 대체 | `fallback` | `created` |
+| 호출자가 세션 인자를 넘기지 않음 | `created` | `created` |
+
+010 시점의 `auto_repo` 값은 더 이상 발생하지 않는다.
 
 heavy 호출(보고서/path/impact)에서는 parent agent가 `_meta.progressToken`을 전달해 turn-by-turn 진행률을 받아야 하고, 결과를 sub-agent에 인계할 때는 control-plane 필드(`status.verification`, `status.complete`, `evidenceQuality`, `searchCoverage`, `failure`, `session/sessionId`, `critic.warnings`)를 반드시 보존해야 한다.
 
@@ -649,9 +664,14 @@ Codex도 동일하다.
 
 ### Phase 2
 
-- `trace_symbol`
-- nested `.gitignore` / `.ignore` 지원
-- `repo_symbol_context.depth > 1` 확장
+완료된 항목 (참고):
+
+- `trace_symbol` — `src/mcp/server.mjs`에 8-tool surface의 일부로 노출 완료.
+- nested `.gitignore` 지원 — spec 014. `src/explorer/repo-tools.mjs`의 `buildNestedGitignoreMatcher` 등으로 구현. `.ignore` 파일은 대상이 아니다.
+
+남은 후보:
+
+- `repo_symbol_context.depth > 1` 확장 — 현재 `effectiveDepth = 1`로 의도적 고정 (§8.6).
 - `repo_grep.includeSymbol`
 
 ### Phase 3 — 의존성 최소화 심볼 엔진 정밀도 향상

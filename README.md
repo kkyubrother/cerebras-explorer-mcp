@@ -302,7 +302,7 @@ not "not present in the repository."
     "confidenceScore": 0.91,
     "toolTrace": { "totalCalls": 3, "truncated": false },
     "stats": {
-      "model": "${CEREBRAS_EXPLORER_MODEL:-zai-glm-4.7}",
+      "model": "zai-glm-4.7",
       "sessionId": "sess_abc123",
       "sessionStatus": "created",
       "remainingCalls": 4
