@@ -1,7 +1,188 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 
-import { createCompactToolTrace } from '../src/explorer/transcript.mjs';
+import {
+  createCompactToolTrace,
+  createTranscriptRecorder,
+  isTranscriptEnabled,
+  isTranscriptRawMode,
+} from '../src/explorer/transcript.mjs';
+
+function withEnvPatch(patch, fn) {
+  const previous = new Map();
+  for (const [key, value] of Object.entries(patch)) {
+    previous.set(key, process.env[key]);
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+  return Promise.resolve()
+    .then(fn)
+    .finally(() => {
+      for (const [key, value] of previous.entries()) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    });
+}
+
+async function readJsonl(filePath) {
+  const source = await fs.readFile(filePath, 'utf8');
+  return source.trim().split('\n').map(line => JSON.parse(line));
+}
+
+const TRANSCRIPT_ENV_OFF = {
+  CEREBRAS_EXPLORER_LOG_PATH: undefined,
+  CEREBRAS_EXPLORER_LOG_RAW: undefined,
+  CEREBRAS_EXPLORER_TRANSCRIPT: undefined,
+  CEREBRAS_EXPLORER_TRANSCRIPT_DIR: undefined,
+};
+
+test('LOG_PATH enables transcripts with UUID callId and default redaction', async () => {
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-transcript-repo-'));
+  const logDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-transcript-log-'));
+  const fakeKey = 'sk-proj-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+
+  await withEnvPatch({
+    ...TRANSCRIPT_ENV_OFF,
+    CEREBRAS_EXPLORER_LOG_PATH: logDir,
+  }, async () => {
+    assert.equal(isTranscriptEnabled(), true);
+    assert.equal(isTranscriptRawMode(), false);
+
+    const recorder = createTranscriptRecorder({
+      repoRoot,
+      tool: 'explore_repo',
+      task: 'inspect auth flow',
+    });
+
+    assert.equal(typeof recorder.filePath, 'string');
+    assert.equal(typeof recorder.callId, 'string');
+    assert.match(recorder.callId, /^[0-9a-f-]{36}$/);
+    assert.match(
+      path.basename(recorder.filePath),
+      /^[0-9T-]+Z_explore_repo_[0-9a-f-]{36}\.jsonl$/,
+    );
+
+    recorder.record('assistant', { content: `provider returned ${fakeKey}` });
+    await recorder.finalize({ turns: 1, toolCalls: 0 });
+
+    const entries = await readJsonl(recorder.filePath);
+    const filenameCallId = path.basename(recorder.filePath, '.jsonl').split('_').at(-1);
+    assert.equal(filenameCallId, recorder.callId);
+    assert.ok(entries.length >= 3);
+    assert.ok(entries.every(entry => entry.callId === recorder.callId));
+    assert.equal(entries.at(-1).redacted, true);
+    assert.equal(entries.at(-1).callId, recorder.callId);
+
+    const serialized = JSON.stringify(entries);
+    assert.equal(serialized.includes(fakeKey), false);
+    assert.match(serialized, /\[REDACTED:openai-api-key\]/);
+  });
+});
+
+test('LOG_RAW truthy mode preserves raw transcript record data and marks final meta', async () => {
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-transcript-raw-repo-'));
+  const logDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-transcript-raw-log-'));
+  const fakeKey = 'sk-proj-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+
+  await withEnvPatch({
+    ...TRANSCRIPT_ENV_OFF,
+    CEREBRAS_EXPLORER_LOG_PATH: logDir,
+    CEREBRAS_EXPLORER_LOG_RAW: 'true',
+  }, async () => {
+    assert.equal(isTranscriptRawMode(), true);
+    const recorder = createTranscriptRecorder({
+      repoRoot,
+      tool: 'explore_repo',
+      task: 'inspect raw mode',
+    });
+
+    recorder.record('assistant', { content: `raw key ${fakeKey}` });
+    await recorder.finalize({ turns: 1, toolCalls: 0 });
+
+    const entries = await readJsonl(recorder.filePath);
+    assert.equal(entries.at(-1).redacted, false);
+    assert.match(JSON.stringify(entries), new RegExp(fakeKey));
+  });
+});
+
+test('LOG_PATH takes precedence over legacy TRANSCRIPT_DIR', async () => {
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-transcript-precedence-repo-'));
+  const logDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-transcript-precedence-log-'));
+  const legacyDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-transcript-legacy-log-'));
+
+  await withEnvPatch({
+    ...TRANSCRIPT_ENV_OFF,
+    CEREBRAS_EXPLORER_LOG_PATH: logDir,
+    CEREBRAS_EXPLORER_TRANSCRIPT: 'true',
+    CEREBRAS_EXPLORER_TRANSCRIPT_DIR: legacyDir,
+  }, async () => {
+    const recorder = createTranscriptRecorder({ repoRoot, tool: 'explore_repo', task: 'precedence' });
+    await recorder.finalize({ turns: 0, toolCalls: 0 });
+
+    assert.equal(path.dirname(recorder.filePath), path.resolve(logDir));
+    assert.deepEqual((await fs.readdir(legacyDir)).filter(name => name.endsWith('.jsonl')), []);
+  });
+});
+
+test('legacy TRANSCRIPT aliases still enable transcripts for backward compatibility', async () => {
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-transcript-legacy-repo-'));
+  const legacyDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-transcript-legacy-dir-'));
+
+  await withEnvPatch({
+    ...TRANSCRIPT_ENV_OFF,
+    CEREBRAS_EXPLORER_TRANSCRIPT: 'yes',
+    CEREBRAS_EXPLORER_TRANSCRIPT_DIR: legacyDir,
+  }, async () => {
+    assert.equal(isTranscriptEnabled(), true);
+    const recorder = createTranscriptRecorder({ repoRoot, tool: 'explore_repo', task: 'legacy' });
+    await recorder.finalize({ turns: 0, toolCalls: 0 });
+
+    assert.equal(path.dirname(recorder.filePath), path.resolve(legacyDir));
+    assert.equal((await fs.readdir(legacyDir)).filter(name => name.endsWith('.jsonl')).length, 1);
+  });
+});
+
+test('transcripts stay disabled when neither LOG_PATH nor legacy enable flag is set', async () => {
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-transcript-off-repo-'));
+
+  await withEnvPatch(TRANSCRIPT_ENV_OFF, async () => {
+    assert.equal(isTranscriptEnabled(), false);
+    const recorder = createTranscriptRecorder({ repoRoot, tool: 'explore_repo', task: 'off' });
+
+    assert.equal(recorder.filePath, null);
+    assert.equal(recorder.callId, null);
+    recorder.record('assistant', { content: 'no-op' });
+    await recorder.finalize({ turns: 0, toolCalls: 0 });
+  });
+});
+
+test('default transcript redaction masks deny-list paths and secret values', async () => {
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-transcript-deny-repo-'));
+  const logDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-transcript-deny-log-'));
+  const fakeKey = 'sk-proj-cccccccccccccccccccccccccccccccc';
+
+  await withEnvPatch({
+    ...TRANSCRIPT_ENV_OFF,
+    CEREBRAS_EXPLORER_LOG_PATH: logDir,
+  }, async () => {
+    const recorder = createTranscriptRecorder({ repoRoot, tool: 'explore_repo', task: 'deny-list' });
+    recorder.record('tool', {
+      path: '.env',
+      content: `OPENAI_API_KEY=${fakeKey}`,
+    });
+    await recorder.finalize({ turns: 1, toolCalls: 1 });
+
+    const serialized = JSON.stringify(await readJsonl(recorder.filePath));
+    assert.equal(serialized.includes(fakeKey), false);
+    assert.doesNotMatch(serialized, /\.env/);
+    assert.match(serialized, /\[REDACTED:openai-api-key\]/);
+    assert.match(serialized, /\[REDACTED:secret-path\]/);
+  });
+});
 
 test('compact tool trace stores bounded tool summaries without raw content', () => {
   const trace = createCompactToolTrace({ maxEntries: 2 });

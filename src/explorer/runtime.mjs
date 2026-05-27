@@ -1307,6 +1307,13 @@ export class ExplorerRuntime {
       repoRoot,
     };
 
+    const transcript = createTranscriptRecorder({
+      repoRoot,
+      tool: 'explore_repo',
+      task: args.task,
+      logger: this.logger,
+    });
+
     let discoveredPaths = [];
     let finalObject = null;
     let lastAssistantContent = '';
@@ -1324,6 +1331,7 @@ export class ExplorerRuntime {
     let repeatedTurns = 0;
     let consecutiveAllErrorTurns = 0;
 
+    try {
     for (let turnIndex = 0; turnIndex < budgetConfig.maxTurns; turnIndex += 1) {
       // Abort check: gracefully stop if signal was triggered
       if (abortSignal?.aborted) {
@@ -1378,6 +1386,11 @@ export class ExplorerRuntime {
 
       const assistantMessage = buildAssistantMessage(completion.message);
       messages.push(assistantMessage);
+      transcript.record('assistant', {
+        content: assistantMessage.content,
+        toolCalls: completion.message.toolCalls.map(c => c.function?.name),
+        turn: turnIndex,
+      });
 
       if (completion.message.toolCalls.length === 0) {
         // No more tool calls — route through finalizeAfterToolLoop() so strict schema
@@ -1555,10 +1568,17 @@ export class ExplorerRuntime {
           }
         }
 
+        const serializedToolResult = JSON.stringify(safeToolResult);
         messages.push({
           role: 'tool',
           tool_call_id: toolCall.id,
-          content: JSON.stringify(safeToolResult),
+          content: serializedToolResult,
+        });
+        transcript.record('tool', {
+          tool: toolName,
+          error: safeToolResult?.error ?? false,
+          resultChars: serializedToolResult.length,
+          turn: turnIndex,
         });
       }
 
@@ -1696,7 +1716,14 @@ export class ExplorerRuntime {
       normalized.codeMap = codeMap;
     }
 
+    normalized.transcriptPath = transcript.filePath;
     return normalized;
+    } finally {
+      if (!stats.elapsedMs) {
+        stats.elapsedMs = nowMs() - startedAt;
+      }
+      await transcript.finalize(stats);
+    }
   }
 
   /**

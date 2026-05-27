@@ -1,11 +1,21 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const SCRIPT_PATH = path.join(ROOT, 'scripts', 'integration-test.mjs');
 const SCRIPT_URL = pathToFileURL(path.join(ROOT, 'scripts', 'integration-test.mjs')).href;
+
+test('integration script uses current no-session no-budget explore contract', async () => {
+  const source = await fs.readFile(SCRIPT_PATH, 'utf8');
+
+  assert.doesNotMatch(source, /SessionStore/);
+  assert.doesNotMatch(source, /\n\s+budget:\s*['"]/);
+  assert.match(source, /CEREBRAS_EXPLORER_LOG_PATH|transcript/i);
+});
 
 test('integration script compact checks do not require legacy explore result fields', () => {
   const code = `
