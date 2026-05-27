@@ -10,7 +10,9 @@ function joinLines(values) {
 }
 
 function getStats(result) {
-  return result?._debug?.stats ?? result?.stats ?? {};
+  // spec 017: MCP structuredContent no longer exposes _debug.stats. Raw runtime
+  // results still carry result.stats for benchmark/transcript use.
+  return result?.stats ?? {};
 }
 
 function getCitations(result) {
@@ -167,13 +169,6 @@ function evaluateCheck(result, check) {
       break;
     case 'stopped_by_budget_equals':
       actual = Boolean(getStats(result).stoppedByBudget);
-      passed = actual === Boolean(check.value);
-      break;
-    case 'has_session_id':
-      {
-        const sessionId = result.sessionId ?? getStats(result).sessionId;
-        actual = typeof sessionId === 'string' && sessionId.startsWith('sess_');
-      }
       passed = actual === Boolean(check.value);
       break;
     default:

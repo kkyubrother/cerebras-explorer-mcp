@@ -82,7 +82,6 @@
       ],
       "checks": [
         { "label": "Returns at least three targets", "type": "min_target_count", "value": 3, "weight": 0.2 },
-        { "label": "Has session id", "type": "has_session_id", "value": true, "weight": 0.1 },
         { "label": "Citations or evidence snippets present", "type": "min_evidence_snippet_count", "value": 1, "weight": 0.1 }
       ]
     },

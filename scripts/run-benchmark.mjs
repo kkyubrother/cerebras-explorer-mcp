@@ -104,7 +104,11 @@ function formatPercent(score) {
 }
 
 function getStats(result) {
-  return result?._debug?.stats ?? result?.stats ?? {};
+  // spec 017: MCP structuredContent no longer exposes _debug or stats. Extended
+  // metrics that previously read from _debug.stats now degrade gracefully to {}
+  // for any case that runs through the MCP envelope. Raw runtime results
+  // continue to expose .stats for callers that bypass the envelope.
+  return result?.stats ?? {};
 }
 
 function getConfidence(result) {
@@ -112,7 +116,7 @@ function getConfidence(result) {
 }
 
 function getConfidenceScore(result) {
-  return result?._debug?.confidenceScore ?? result?.confidenceScore ?? 'n/a';
+  return result?.confidenceScore ?? 'n/a';
 }
 
 /**

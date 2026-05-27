@@ -2246,20 +2246,19 @@ export class ExplorerRuntime {
 }
 
 export async function exploreRepository(args, options = {}) {
-  // sessionStore is accepted-and-ignored for callers that still pass it.
-  const { onProgress, sessionStore: _ignoredSessionStore, abortSignal, ...runtimeOptions } = options;
+  const { onProgress, abortSignal, ...runtimeOptions } = options;
   const runtime = new ExplorerRuntime(runtimeOptions);
   return runtime.explore(args, { onProgress, abortSignal });
 }
 
 export async function freeExploreRepository(args, options = {}) {
-  const { onProgress, sessionStore: _ignoredSessionStore, abortSignal, ...runtimeOptions } = options;
+  const { onProgress, abortSignal, ...runtimeOptions } = options;
   const runtime = new ExplorerRuntime(runtimeOptions);
   return runtime.freeExplore(args, { onProgress, abortSignal });
 }
 
 export async function freeExploreRepositoryV2(args, options = {}) {
-  const { onProgress, sessionStore: _ignoredSessionStore, abortSignal, ...runtimeOptions } = options;
+  const { onProgress, abortSignal, ...runtimeOptions } = options;
   const runtime = new ExplorerRuntime(runtimeOptions);
   return runtime.freeExploreV2(args, { onProgress, abortSignal });
 }

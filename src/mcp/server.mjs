@@ -5,7 +5,6 @@ import {
   EXPLORE_REPO_OUTPUT_SCHEMA,
   validateExploreRepoArgs,
 } from '../explorer/schemas.mjs';
-import { globalSessionStore } from '../explorer/session.mjs';
 import { redactExploreResult, redactValue } from '../explorer/redact.mjs';
 import { StdioJsonRpcServer } from './jsonrpc-stdio.mjs';
 
@@ -378,7 +377,6 @@ export function createMcpRequestHandler({
   logger = () => {},
   runtimeOptions = {},
   sendNotification = null,
-  sessionStore = globalSessionStore,
 } = {}) {
   let negotiatedProtocolVersion = DEFAULT_PROTOCOL_VERSION;
 
@@ -562,7 +560,6 @@ export function createMcpRequestHandler({
         logger,
         ...runtimeOptions,
         onProgress: makeProgressCallback(progressToken),
-        sessionStore,
         abortSignal: abortController.signal,
       });
       const agentResult = redactExploreResult(toAgentFacingResult(result)).value;
@@ -583,7 +580,6 @@ export function createMcpRequestHandler({
         logger,
         ...runtimeOptions,
         onProgress: makeProgressCallback(progressToken),
-        sessionStore,
         abortSignal: abortController.signal,
       });
       const safeResult = redactValue(result).value;

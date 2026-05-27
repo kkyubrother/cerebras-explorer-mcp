@@ -5,7 +5,6 @@ import util from 'node:util';
 import { fileURLToPath } from 'node:url';
 
 import { startMcpServer } from './mcp/server.mjs';
-import { globalSessionStore } from './explorer/session.mjs';
 
 export function installStdioGuard({
   consoleRef = console,
@@ -34,7 +33,6 @@ function log(message) {
 
 export function createShutdownHandler({
   transport,
-  sessionStore = globalSessionStore,
   logger = log,
   processRef = process,
   scheduleTimeout = setTimeout,
@@ -49,10 +47,7 @@ export function createShutdownHandler({
     // 1. Stop accepting new requests
     try { transport?.stop?.(); } catch { /* ignore */ }
 
-    // 2. Clean up sessions
-    try { sessionStore?.destroy?.(); } catch { /* ignore */ }
-
-    // 3. Allow the process to exit naturally; keep a failsafe for stuck handles
+    // 2. Allow the process to exit naturally; keep a failsafe for stuck handles
     logger('Shutdown complete.');
     processRef.exitCode = exitCode;
 
@@ -86,7 +81,6 @@ export function isCliEntrypoint({
 
 export function main({
   startServer = startMcpServer,
-  sessionStore = globalSessionStore,
   logger = log,
   processRef = process,
 } = {}) {
@@ -95,7 +89,6 @@ export function main({
 
   const shutdown = createShutdownHandler({
     transport,
-    sessionStore,
     logger,
     processRef,
   });
