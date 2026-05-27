@@ -242,13 +242,15 @@ they have no wrapper-owned intent.
 
 spec 011 이후 `explore`는 단일 V2 backend 구현으로 실행된다. 모든 explore 호출에서 LLM 기반 대화 요약, 도구 결과 예산 관리, 최대 출력 복구 기능이 항상 적용된다.
 
-#### 세션 계약
+#### 세션 계약 (spec 017에서 제거)
 
-- MCP `structuredContent`에서는 세션이 top-level `session` 객체와 호환용 `sessionId`로 반환된다. 다음 호출에는 `session.id` 또는 `sessionId`를 `session` 파라미터로 전달하면 된다.
-- runtime raw result에는 backward compatibility를 위해 `stats.sessionId`, `stats.sessionStatus`, `stats.remainingCalls`도 남긴다.
-- 명시적으로 요청된 세션이 invalid 또는 repo_mismatch인 경우 에러를 반환한다.
-- 명시적으로 요청된 세션이 expired 또는 exhausted인 경우 새 세션으로 fallback하고, top-level `session.status`와 `stats.sessionStatus`에 `fallback`을 표시한다.
-- `session.status`가 `created`, `reused`, `fallback` 중 하나를 표시하고, `session.remainingCalls`가 현재 호출 반영 후 남은 호출 수를 표시한다.
+spec 017 (v0.6.0) 이전에는 multi-call 세션 연결을 위해 `session` 입력 파라미터와 응답의 `sessionId`/`session` 필드, `SessionStore` 모듈이 존재했다. 이 표면은 다음 이유로 전부 제거되었다.
+
+- parent agent(Claude Code, Codex)는 응답을 사람에게 그대로 노출하지 않으므로 `_debug` 운영 메타데이터가 사실상 디버깅 채널로 동작하지 않았고, 같은 이유로 세션 ID도 외부에서 재사용되는 비중이 작았다.
+- spec 011에서 `CEREBRAS_EXPLORER_AUTO_SESSION_BY_REPO` 옵트인이 제거되어 multi-call 세션 연결은 explicit `session` 인자로만 가능했으며, 이를 응답에서 빼면 자연히 사용할 방법이 사라진다.
+
+이후 모든 explore 호출은 stateless로 시작한다. 운영 디버깅이 필요하면 transcript JSONL(`CEREBRAS_EXPLORER_TRANSCRIPT=true`) 또는 후속 spec의 local ops log 채널을 사용한다.
+
 ---
 
 ## 6. 독립성 정의
@@ -341,13 +343,13 @@ spec 011에서 `CEREBRAS_MODEL` alias와 budget별 모델 지정(`CEREBRAS_EXPLO
 
 ## 9. 반환 스키마
 
-Explorer의 내부 모델 출력은 compact finding contract만 생성한다. 런타임은 검증된 관측값으로 snippet, critic 결과, `schemaVersion`, `evidenceQuality`, nullable `failure`, `session`, `_debug` 운영 정보를 덧붙여 MCP `structuredContent`를 만든다.
+Explorer의 내부 모델 출력은 compact finding contract만 생성한다. 런타임은 검증된 관측값으로 snippet, critic 결과, `schemaVersion`, `evidenceQuality`, `searchCoverage`, nullable `failure`를 덧붙여 MCP `structuredContent`를 만든다. spec 017 이후 `_debug`, `sessionId`, `session`은 응답에 포함되지 않는다.
 
 MCP agent-facing contract:
 
 ```json
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "directAnswer": "string",
   "status": {
     "confidence": "low|medium|high",
@@ -396,17 +398,7 @@ MCP agent-facing contract:
     "summary": "string"
   },
   "failure": null,
-  "sessionId": "sess_...",
-  "session": {
-    "id": "sess_...",
-    "status": "created|reused|fallback",
-    "remainingCalls": 4
-  },
-  "_debug": {
-    "stats": {},
-    "confidenceScore": 0.0,
-    "confidenceFactors": {}
-  }
+  "searchCoverage": { /* ... */ }
 }
 ```
 
@@ -415,8 +407,7 @@ Agent control precedence:
 1. `failure.retry` wins when `failure` is present.
 2. `nextAction` wins when `failure` is null.
 3. `evidenceQuality.level` gates whether the agent should re-open cited targets or trust the answer.
-4. `session` is the ordinary control-plane field for session reuse and fallback awareness.
-5. `_debug` remains diagnostic and should not drive ordinary agent behavior.
+4. `searchCoverage.warnings` surfaces budget / truncation / scope-limit follow-up needs.
 
 Retry recipe safety:
 
@@ -427,10 +418,12 @@ Retry recipe safety:
   encouraging a blind replay of the same exhausted search.
 - Unknown keys are dropped before the object reaches MCP `structuredContent`.
 
-`searchCoverage` is runtime-owned metadata derived from stats. It reports scope,
-basic read/search counts, budget stop, and tool-result truncation. It deliberately
-does not expose raw `_debug.toolTrace` and does not claim LSP-level semantic
-coverage.
+`searchCoverage` is runtime-owned metadata derived from raw stats. It reports
+scope, basic read/search counts, budget stop, and tool-result truncation. It
+deliberately does not claim LSP-level semantic coverage. The underlying
+`stats` and `codeMap` objects stay on the raw runtime result for transcript /
+benchmark introspection but are not exposed through the MCP envelope (spec
+017).
 
 반환을 자연어가 아니라 JSON으로 고정한 이유:
 
@@ -548,26 +541,11 @@ V2 backend는 이제 report-mode의 단독 backend다. evidence-preservation ben
 
 `repo_git_diff`(file/stat 모드)와 `repo_git_show` 모두 base scope를 hard boundary로 적용한다. scope 밖에서 제외된 파일 수는 응답의 optional `omittedOutOfScopeFiles`로만 표면화되며 `targets[]`/`discoveredPaths[]` 어느 쪽에도 노출되지 않는다.
 
-### 11.7 Session/progress operational contract (010)
+### 11.7 Progress operational contract (010, spec 017에서 세션 부분 제거)
 
-spec 011에서 `CEREBRAS_EXPLORER_AUTO_SESSION_BY_REPO` 옵트인과 `SessionStore.findReusableForRepo()` 메서드는 모두 영구 제거되었다. multi-call 세션 연결은 explicit `session` 인자로만 지원된다.
+spec 011에서 `CEREBRAS_EXPLORER_AUTO_SESSION_BY_REPO` 옵트인과 `SessionStore.findReusableForRepo()` 메서드가 제거되어 multi-call 세션 연결이 explicit `session` 인자로만 지원되었다. spec 017 (v0.6.0)에서는 그 explicit 입력과 응답의 `sessionId`/`session`/`_debug` 표면, 그리고 `SessionStore` 모듈 자체가 모두 제거되었다. 응답 표면이 사람에게 도달하지 않아 사실상 운영 디버깅 채널로 동작하지 못한 점, 그리고 응답에서 sessionId가 사라지면 입력 `session`을 채울 외부 경로가 없는 점이 결정 이유다.
 
-`session.status`와 `_debug.stats.sessionSource`는 서로 다른 차원의 enum이다.
-
-- `session.status` ∈ `created` | `reused` | `fallback` — 응답의 세션 라이프사이클 단계
-- `_debug.stats.sessionSource` ∈ `explicit` | `created` — 세션 ID의 출처. 호출자가 넘긴 ID를 그대로 쓰면 `explicit`, 서버가 새로 만들었으면 `created`. `reused`는 status에만 존재할 수 있고 sessionSource에는 부여되지 않는다 (재사용은 항상 호출자가 넘긴 explicit ID 경로이기 때문).
-
-조합은 다음 세 가지뿐이다.
-
-| 상황 | `session.status` | `_debug.stats.sessionSource` |
-|------|------------------|-------------------------------|
-| 호출자가 넘긴 유효한 세션 | `reused` | `explicit` |
-| 호출자가 넘긴 세션이 expired/exhausted → 서버가 새 세션으로 대체 | `fallback` | `created` |
-| 호출자가 세션 인자를 넘기지 않음 | `created` | `created` |
-
-010 시점의 `auto_repo` 값은 더 이상 발생하지 않는다.
-
-heavy 호출(보고서/path/impact)에서는 parent agent가 `_meta.progressToken`을 전달해 turn-by-turn 진행률을 받아야 하고, 결과를 sub-agent에 인계할 때는 control-plane 필드(`status.verification`, `status.complete`, `evidenceQuality`, `searchCoverage`, `failure`, `session/sessionId`, `critic.warnings`)를 반드시 보존해야 한다.
+heavy 호출(보고서/path/impact)에서는 parent agent가 `_meta.progressToken`을 전달해 turn-by-turn 진행률을 받아야 하고, 결과를 sub-agent에 인계할 때는 control-plane 필드(`status.verification`, `status.complete`, `evidenceQuality`, `searchCoverage`, `failure`, `critic.warnings`)를 반드시 보존해야 한다.
 
 ---
 

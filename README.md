@@ -166,7 +166,7 @@ Parent model (Claude Code / Codex)
 - **샘플링 기본값**: `temperature=1.0`, `top_p=0.95` (단일 deep config). direct client 경로에는 envvar fallback 지원
 - **근거 강제**: 최종 evidence는 실제로 읽거나 grep으로 확인한 라인 범위에만 남김
 - **Read-only tool annotations**: 모든 공개 MCP 도구는 `readOnlyHint: true`를 선언합니다. 이는 클라이언트 UX hint이며 보안 경계는 아닙니다.
-- **Compact 반환 계약**: MCP `structuredContent`는 `schemaVersion`, `directAnswer`, `status`, `targets`, snippet 포함 `evidence`, `uncertainties`, `nextAction`, `evidenceQuality`, nullable `failure`, `session`, `sessionId` 중심의 compact 계약을 사용합니다. 운영 디버그 정보는 `_debug.stats`, `_debug.toolTrace`에만 남깁니다.
+- **Compact 반환 계약**: MCP `structuredContent`는 `schemaVersion`(현재 `2`), `directAnswer`, `status`, `targets`, snippet 포함 `evidence`, `uncertainties`, `nextAction`, `evidenceQuality`, nullable `failure`, `searchCoverage` 중심의 compact 계약을 사용합니다. spec 017 이후 `_debug`, `sessionId`, `session`은 응답에서 모두 제거되었으며, 입력 `session` 파라미터와 `SessionStore`도 함께 사라졌습니다(breaking, v0.6.0). 운영 디버깅이 필요하면 transcript JSONL(`CEREBRAS_EXPLORER_TRANSCRIPT=true`) 또는 후속 spec의 local ops log를 사용하세요.
 
 ## 공개 MCP 도구
 
@@ -190,7 +190,7 @@ Report 도구 `explore`는 Markdown 본문을 `text`로 반환하면서, 같은 
 
 `status.complete`는 "충분한 grounded evidence가 모였는가"를 의미합니다. budget이 소진됐어도 evidence sufficiency가 충족되면 `complete:true`/`failure:null`로 반환되며 budget 사실은 `searchCoverage.stoppedByBudget=true`에 그대로 남습니다.
 
-Heavy 호출이나 sub-agent 핸드오프에서는 `_meta.progressToken`을 함께 전달해 turn-by-turn 진행률을 받고, 결과를 다른 agent에 요약/전달할 때는 다음 control-plane 필드를 그대로 보존하세요: `status.verification`, `status.complete`, `evidenceQuality`, `searchCoverage`, `failure`, `session/sessionId`, `critic.warnings`.
+Heavy 호출이나 sub-agent 핸드오프에서는 `_meta.progressToken`을 함께 전달해 turn-by-turn 진행률을 받고, 결과를 다른 agent에 요약/전달할 때는 다음 control-plane 필드를 그대로 보존하세요: `status.verification`, `status.complete`, `evidenceQuality`, `searchCoverage`, `failure`, `critic.warnings`.
 
 ### `explore_repo`
 
@@ -208,16 +208,15 @@ Heavy 호출이나 sub-agent 핸드오프에서는 `_meta.progressToken`을 함�
 }
 ```
 
-- `repo_root` (선택): 절대경로나 상대경로. Windows에서는 `C:\repo`, `C:/repo`뿐 아니라 Git Bash/MSYS 스타일 `/c/repo`도 받아 실제 filesystem 경로로 canonicalize한 뒤 세션과 도구 실행에 사용합니다.
+- `repo_root` (선택): 절대경로나 상대경로. Windows에서는 `C:\repo`, `C:/repo`뿐 아니라 Git Bash/MSYS 스타일 `/c/repo`도 받아 실제 filesystem 경로로 canonicalize한 뒤 도구 실행에 사용합니다.
 - `language` (advanced/optional): 응답 언어를 명시적으로 고정해야 할 때만 사용합니다. 보통은 task 텍스트에서 자동 추론되므로 생략하세요.
-- `session` (선택): 이전 탐색의 `sessionId`를 넘기면 target/evidence 경로와 요약을 다음 탐색에 재사용합니다.
-- `hints.strategy` (advanced): 일반 agent 사용에서는 생략하세요. 자동 strategy 감지가 우선입니다. (spec 011 이후 `budget` 입력은 제거되었습니다 — 단일 deep runtime config가 적용됩니다.)
+- `hints.strategy` (advanced): 일반 agent 사용에서는 생략하세요. 자동 strategy 감지가 우선입니다. (spec 011 이후 `budget` 입력은 제거되었습니다 — 단일 deep runtime config가 적용됩니다. spec 017 이후 `session` 입력도 함께 제거되었습니다.)
 
 반환 예시:
 
 ```json
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "directAnswer": "registerUserRoutes는 /users/me 라우트에 requireAuth 미들웨어를 직접 연결한다.",
   "status": {
     "confidence": "high",
@@ -269,47 +268,17 @@ Heavy 호출이나 sub-agent 핸드오프에서는 `_meta.progressToken`을 함�
     "warnings": [],
     "summary": "Verified: 2 files read, 1 grep searches, 2/2 evidence items grounded, cross-verified across 2 files. All evidence grounded in inspected code."
   },
-  "failure": null,
-  "sessionId": "sess_abc123",
-  "session": {
-    "id": "sess_abc123",
-    "status": "created",
-    "remainingCalls": 4
-  }
+  "failure": null
 }
 ```
 
 `failure`는 실행/input/provider/internal failure event에만 사용합니다. 낮은 confidence는 failure가 아니라 `evidenceQuality`와 `status`의 품질 신호입니다. `failure`가 있으면 `failure.retry`를 `nextAction`보다 먼저 보고, `failure`가 `null`이면 기존처럼 `nextAction`을 따르세요. budget이 소진된 호출이라도 evidence sufficiency가 만족되면 `failure.reason='budget_exhausted'`는 더 이상 부여되지 않습니다 — budget 사실은 `searchCoverage.stoppedByBudget=true`에서만 확인할 수 있고, `status.warnings`에는 "budget exhausted after sufficient evidence was collected." 메모가 함께 남습니다.
 
-`failure.retry.args` is a sanitized retry recipe, not a reflection of the
-original tool input. It contains only bounded text fields, bounded string
-arrays, and known hint keys that the runtime considers safe to hand back to an
-upper agent. Budget-exhausted retries intentionally avoid echoing the unchanged
-scope so an upper agent does not blindly replay the same bounded search.
+`failure.retry.args`는 sanitized retry recipe이며 원본 도구 입력을 그대로 반영하지 않습니다. bounded text 필드, bounded string array, 알려진 hint 키만 포함하며, budget-exhausted retry는 동일한 bounded 검색을 다시 돌리지 않도록 unchanged scope를 의도적으로 생략합니다.
 
-`session`은 후속 호출을 위한 control-plane 필드입니다. `session.id`는 `sessionId`와 같은 값이며 다음 호출의 `session` 입력으로 넘기면 됩니다. `session.status`가 `fallback`이면 넘긴 세션이 expired/exhausted 상태라 새 세션으로 교체된 것이므로, 이후에는 반환된 `session.id`를 사용하세요.
+`searchCoverage`는 explorer가 실제로 검색·읽은 범위를 요약합니다. 완전한 의미 분석 보증은 아닙니다. `scopeLimited`가 true면 evidence가 없다는 사실은 "이 scope 안에서는 없다"이지 "저장소에 없다"가 아닙니다.
 
-`searchCoverage` summarizes what the explorer actually searched or read. It is
-a quality signal, not a proof of complete semantic coverage. When
-`scopeLimited` is true, absence of evidence means "not found inside this scope,"
-not "not present in the repository."
-
-운영 디버그 정보는 실제 응답의 `_debug` 객체에 별도로 포함됩니다. 일반 agent handoff에서는 위의 top-level 계약을 먼저 읽고, explorer 동작 자체를 디버깅할 때만 `_debug.stats`, `_debug.toolTrace`를 확인하세요.
-
-```json
-{
-  "_debug": {
-    "confidenceScore": 0.91,
-    "toolTrace": { "totalCalls": 3, "truncated": false },
-    "stats": {
-      "model": "zai-glm-4.7",
-      "sessionId": "sess_abc123",
-      "sessionStatus": "created",
-      "remainingCalls": 4
-    }
-  }
-}
-```
+spec 017 이후 응답에는 `_debug` 운영 디버그 객체가 포함되지 않습니다. parent agent가 사람에게 노출하지 않는 채널이라 사실상 운영 디버깅에 쓰이지 않았다는 판단에 따라 응답 표면에서 제거되었습니다. 운영 관찰성이 필요하면 transcript JSONL(`CEREBRAS_EXPLORER_TRANSCRIPT=true`) 또는 후속 spec의 local ops log를 사용하세요.
 
 권장 사용처:
 
@@ -331,7 +300,6 @@ not "not present in the repository."
 
 - `prompt`: 사람이 읽을 수 있는 설명형 보고서를 만들 질문 또는 요청
 - `thoroughness` (advanced): 일반 agent 사용에서는 생략하세요. 서버가 질문과 scope를 보고 깊이를 고릅니다.
-- `session`: 이전 탐색의 `sessionId`를 넘기면 후속 보고서에도 target/evidence 경로와 요약을 재사용합니다.
 
 반환 특성:
 
@@ -362,7 +330,7 @@ not "not present in the repository."
 | `collect_evidence` | claim/review point에 대한 citation bundle 수집 | auto |
 | `review_change_context` | PR/recent-change review context 수집 | git-guided |
 
-목적형 wrapper는 공통적으로 `repo_root`, `scope`, `session`과 이미 알고 있는 file/symbol/text anchor만 노출합니다. 응답 언어를 명시해야 하는 드문 경우에는 `explore_repo` 또는 `explore`의 `language`를 사용하세요.
+목적형 wrapper는 공통적으로 `repo_root`, `scope`와 이미 알고 있는 file/symbol/text anchor만 노출합니다 (spec 017 이후 `session` 입력은 모든 wrapper에서 제거). 응답 언어를 명시해야 하는 드문 경우에는 `explore_repo` 또는 `explore`의 `language`를 사용하세요.
 
 ## 프로젝트 구조
 
@@ -410,7 +378,6 @@ cerebras-explorer-mcp/
       repo-tools.mjs
       runtime.mjs
       schemas.mjs
-      session.mjs
       symbols.mjs
       transcript.mjs
       utils/
@@ -482,7 +449,9 @@ export CEREBRAS_EXPLORER_REASONING_FORMAT="parsed"      # reasoning 출력 형�
 export CEREBRAS_EXPLORER_REDACT_ENV_VAR_NAMES="1"
 ```
 
-> spec 011에서 제거된 envvar: `CEREBRAS_MODEL`, `CEREBRAS_EXPLORER_MODEL_QUICK|NORMAL|DEEP`, `CEREBRAS_EXPLORER_EXTRA_TOOLS`, `CEREBRAS_EXPLORER_ENABLE_EXPLORE`, `CEREBRAS_EXPLORER_ENABLE_EXPLORE_V2`, `CEREBRAS_EXPLORER_AUTO_ROUTE`, `CEREBRAS_EXPLORER_AUTO_SESSION_BY_REPO`, `CEREBRAS_EXPLORER_LEGACY_DISCOVERED_TARGETS`. 이전에 이들을 사용하던 운영 환경은 단일 모델 + 8-tool 고정 surface로 자동 전환됩니다. 도구 surface 축소가 필요하면 MCP gateway에서 도구 화이트리스트를 적용하세요. multi-call 세션 연결은 explicit `session` 인자로만 지원됩니다.
+> spec 011에서 제거된 envvar: `CEREBRAS_MODEL`, `CEREBRAS_EXPLORER_MODEL_QUICK|NORMAL|DEEP`, `CEREBRAS_EXPLORER_EXTRA_TOOLS`, `CEREBRAS_EXPLORER_ENABLE_EXPLORE`, `CEREBRAS_EXPLORER_ENABLE_EXPLORE_V2`, `CEREBRAS_EXPLORER_AUTO_ROUTE`, `CEREBRAS_EXPLORER_AUTO_SESSION_BY_REPO`, `CEREBRAS_EXPLORER_LEGACY_DISCOVERED_TARGETS`. 이전에 이들을 사용하던 운영 환경은 단일 모델 + 8-tool 고정 surface로 자동 전환됩니다. 도구 surface 축소가 필요하면 MCP gateway에서 도구 화이트리스트를 적용하세요.
+>
+> spec 017 (v0.6.0) 추가 변경: 응답에서 `_debug`, `sessionId`, `session` 필드를 모두 제거, 입력 `session` 파라미터 제거, `SessionStore` 모듈 삭제. multi-call 세션 연결 기능은 더 이상 지원되지 않습니다. `schemaVersion`은 1 → 2.
 
 선택 (explore 튜닝):
 
@@ -579,12 +548,11 @@ Prefer the narrowest exposed explorer tool that matches the request:
 - `review_change_context` for PR or recent-change review context
 - `explore_repo` for open-ended structured JSON findings
 - `explore` for cited Markdown reports
-Pass the parent request almost verbatim; add `scope`, known anchors, or `session` only when justified by the task or prior results.
-Do not set `thoroughness`, `hints.strategy`, or `language` unless an advanced workflow explicitly requires it. (The `budget` input was removed in spec 011 — every call uses the single deep runtime config.)
+Pass the parent request almost verbatim; add `scope` or known anchors only when justified by the task or prior results.
+Do not set `thoroughness`, `hints.strategy`, or `language` unless an advanced workflow explicitly requires it. (The `budget` input was removed in spec 011, and the `session` input was removed in spec 017 — every call uses the single deep runtime config and starts a fresh exploration.)
 For anchor-only file, symbol, or flow discovery, use `trace_symbol`, `find_relevant_code`, or `explain_code_path` instead of `map_change_impact`.
 Use known symbols, files, or literal text anchors only when already known.
 Use regex only in advanced `explore_repo.hints.regex` workflows.
-Reuse `sessionId` as `session` for follow-up calls.
 Treat returned `targets` or `explore` citations as the primary map, then do only targeted native reads or one or two focused `rg` checks to verify critical claims.
 If MCP findings and local evidence disagree, report the conflict instead of smoothing it over.
 Do not modify files.
@@ -704,7 +672,7 @@ node ./scripts/run-benchmark.mjs \
 - 답변/요약 키워드 그룹 일치율
 - evidence / targets에 기대 파일이 포함되는지
 - grounded evidence 개수
-- evidence snippet, directAnswer, status, nextAction, sessionId, budget stop 여부 같은 구조적 체크
+- evidence snippet, directAnswer, status, nextAction, budget stop 여부 같은 구조적 체크
 
 즉, 모델이 문장을 조금 다르게 생성해도 핵심 사실과 근거가 맞으면 안정적으로 점수가 나옵니다.
 

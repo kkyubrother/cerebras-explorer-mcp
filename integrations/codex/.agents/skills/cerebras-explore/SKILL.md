@@ -24,9 +24,8 @@ Default call shape:
 - Add known files, symbols, or literal text anchors only when already known.
 - Use regex only in advanced `explore_repo.hints.regex` workflows.
 - Add `scope` only when the subsystem or directory is already obvious.
-- Do not set `budget`, `thoroughness`, `hints.strategy`, or `language` unless an advanced workflow explicitly requires it.
+- Do not set `thoroughness`, `hints.strategy`, or `language` unless an advanced workflow explicitly requires it. (`budget` was removed in spec 011 and `session` was removed in spec 017.)
 - For `explore`, use `prompt` instead of `task`.
-- Reuse `sessionId` as `session` when continuing the same investigation.
 
 Do not delegate by default when one or two direct native reads are cheaper, when the task is primarily to edit code, or when the user explicitly wants raw local verification first.
 

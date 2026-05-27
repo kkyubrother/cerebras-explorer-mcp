@@ -1,5 +1,40 @@
 # Changelog
 
+## v0.6.0 - 2026-05-27
+
+### BREAKING: remove `_debug` and session features from the response/input contract (spec 017)
+
+The MCP `structuredContent` contract is now a strict compact envelope with no
+operational metadata or session control-plane. `schemaVersion` bumps from `1`
+to `2`.
+
+- **BREAKING (spec 017)**: `_debug`, `sessionId`, and `session` are removed
+  from every MCP response (`explore_repo`, the six purpose wrappers, and
+  `explore`). Parent agents never surfaced `_debug` to a human, so it could
+  not function as an operational debugging channel; the session fields are
+  removed alongside it for consistency.
+- **BREAKING (spec 017)**: the `session` input parameter is removed from
+  `explore_repo`, `explore`, and all six wrapper tools. Schema validation
+  (`additionalProperties: false`) rejects requests that still pass `session`.
+- **BREAKING (spec 017)**: `SessionStore` (`src/explorer/session.mjs`) and
+  `tests/session.test.mjs` are deleted. Multi-call session continuity is no
+  longer supported; every call starts a fresh exploration.
+- **BREAKING (spec 017)**: `schemaVersion` bumps from `1` to `2`. The
+  `EXPLORE_REPO_OUTPUT_SCHEMA` no longer lists `_debug`, `sessionId`, or
+  `session`. The `invalid_session` failure reason is removed from the
+  `FAILURE_SCHEMA` enum.
+- **Changed**: benchmark/evaluator/transcript code paths now read raw
+  `result.stats` directly; the `_debug.stats` fallback is gone. Live-API
+  benchmark extended metrics (`avgToolTurns`, `budgetExhaustionRate`,
+  `noToolExitRate`, `deepBudgetAvgTotalTokens`) will degrade to zero/null
+  for cases that run through the MCP envelope until a follow-up spec adds
+  a local ops log channel.
+- **Migration**: drop any `session` arguments from your MCP calls and stop
+  reading `_debug` / `sessionId` / `session` from responses. If you relied
+  on session multi-call continuity, expect every call to start fresh.
+  Operational debugging belongs in transcript JSONL
+  (`CEREBRAS_EXPLORER_TRANSCRIPT=true`) or a future local ops log spec.
+
 ## v0.5.0 - 2026-05-25
 
 ### Public surface contraction to spec 011 8-tool contract (2026-05-25)
