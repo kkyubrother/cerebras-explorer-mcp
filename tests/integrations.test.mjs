@@ -10,6 +10,23 @@ async function read(relPath) {
   return fs.readFile(path.join(ROOT, relPath), 'utf8');
 }
 
+async function listTextFiles(relDir) {
+  const output = [];
+  async function walk(currentRelDir) {
+    const entries = await fs.readdir(path.join(ROOT, currentRelDir), { withFileTypes: true });
+    for (const entry of entries) {
+      const relPath = path.join(currentRelDir, entry.name);
+      if (entry.isDirectory()) {
+        await walk(relPath);
+      } else if (/\.(md|json|toml|yaml|yml|example)$/.test(entry.name)) {
+        output.push(relPath);
+      }
+    }
+  }
+  await walk(relDir);
+  return output;
+}
+
 function extractFirstTomlStringArray(source, key) {
   const match = source.match(new RegExp(`^\\s*${key}\\s*=\\s*\\[([\\s\\S]*?)^\\s*\\]`, 'm'));
   assert.ok(match, `${key} array should exist`);
@@ -101,6 +118,27 @@ test('docs and benchmark fixtures do not advertise recentActivity as an output c
   }
 });
 
+test('user-facing docs advertise LOG_PATH instead of legacy transcript envvars', async () => {
+  const docs = [
+    'README.md',
+    'DESIGN.md',
+    ...(await listTextFiles('integrations')),
+  ];
+
+  for (const relPath of docs) {
+    assert.doesNotMatch(
+      await read(relPath),
+      /CEREBRAS_EXPLORER_TRANSCRIPT/,
+      `${relPath} should not advertise legacy transcript envvars`,
+    );
+  }
+
+  const changelogLines = (await read('CHANGELOG.md'))
+    .split(/\r?\n/)
+    .filter(line => /CEREBRAS_EXPLORER_TRANSCRIPT/.test(line));
+  assert.equal(changelogLines.length, 1, 'CHANGELOG should contain the single deprecation announcement');
+});
+
 test('Gemini example documents required env and recommended full wrapper allowlist', async () => {
   const settings = JSON.parse(await read('integrations/gemini/settings.json.example'));
   const server = settings.mcpServers?.['cerebras-explorer'];
@@ -117,7 +155,7 @@ test('Gemini example documents required env and recommended full wrapper allowli
     'review_change_context',
     'explore',
   ]);
-  assert.deepEqual(server.args, ['-y', 'github:kkyubrother/cerebras-explorer-mcp#v0.6.0']);
+  assert.deepEqual(server.args, ['-y', 'github:kkyubrother/cerebras-explorer-mcp#v0.6.1']);
 
   const readme = await read('integrations/gemini/README.md');
   assert.match(readme, /recommended full wrapper/i);
@@ -146,7 +184,7 @@ test('Codex example uses npx and tool allowlist controls', async () => {
     'review_change_context',
     'explore',
   ]);
-  assert.match(toml, /github:kkyubrother\/cerebras-explorer-mcp#v0\.6\.0/);
+  assert.match(toml, /github:kkyubrother\/cerebras-explorer-mcp#v0\.6\.1/);
   assert.match(toml, /minimal 4-tool/i);
   // spec 011: explore_v2 tool name is gone; the disabled_tools example just
   // demonstrates the syntax with any retained tool name.
@@ -240,7 +278,7 @@ test('Continue YAML example keeps the expected MCP shape', async () => {
   assert.match(yaml, /^mcpServers:/m);
   assert.match(yaml, /name: cerebras-explorer/);
   assert.match(yaml, /command: npx/);
-  assert.match(yaml, /github:kkyubrother\/cerebras-explorer-mcp#v0\.6\.0/);
+  assert.match(yaml, /github:kkyubrother\/cerebras-explorer-mcp#v0\.6\.1/);
   assert.match(yaml, /CEREBRAS_API_KEY/);
 });
 

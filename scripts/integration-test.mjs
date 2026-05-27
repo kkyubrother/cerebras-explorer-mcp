@@ -81,15 +81,18 @@ function formatChecks(checks) {
 }
 
 async function testExploreRepo() {
-  logSection('1. explore_repo (quick) — 기본 동작, compact contract');
+  logSection('1. explore_repo — transcript ops contract');
 
-  const client = createChatClient({ budget: 'quick' });
+  const client = createChatClient();
   const runtime = new ExplorerRuntime({ chatClient: client, logger: console.error });
   const result = await runtime.explore({
-    task: 'How does the session management work in this project? Find the SessionStore class and explain its key methods.',
+    task: 'How does transcript ops logging work in this project? Explain createTranscriptRecorder, LOG_PATH, callId, and redaction behavior.',
     repo_root: REPO_ROOT,
-    budget: 'quick',
-    hints: { symbols: ['SessionStore'], strategy: 'symbol-first' },
+    hints: {
+      symbols: ['createTranscriptRecorder'],
+      files: ['src/explorer/transcript.mjs', 'src/explorer/runtime.mjs'],
+      strategy: 'symbol-first',
+    },
   }, {
     onProgress: ({ progress, total, message }) => {
       process.stderr.write(`  [explore_repo] ${message} (${progress}/${total})\n`);
@@ -119,7 +122,7 @@ async function testExploreRepo() {
   const checks = buildExploreRepoChecks(result, {
     answerLabel: 'directAnswer',
     minFilesRead: 1,
-    answerIncludes: /sessionstore|session/i,
+    answerIncludes: /transcript|callId|redact|log/i,
   });
 
   log('Checks', formatChecks(checks));
@@ -127,14 +130,13 @@ async function testExploreRepo() {
 }
 
 async function testExploreRepoNormal() {
-  logSection('2. explore_repo (normal) — deeper analysis, confidence scoring');
+  logSection('2. explore_repo — deeper analysis, confidence scoring');
 
-  const client = createChatClient({ budget: 'normal' });
+  const client = createChatClient();
   const runtime = new ExplorerRuntime({ chatClient: client, logger: console.error });
   const result = await runtime.explore({
-    task: 'Trace the full execution flow when explore_v2 tool is called from the MCP server. Start from server.mjs request handler, through runtime.mjs freeExploreV2(), and explain each advanced technique (LLM compaction, tool result budgeting, max output recovery).',
+    task: 'Trace the full execution flow when the public explore tool is called from the MCP server. Start from server.mjs request handler, through runtime.mjs freeExploreV2(), and explain each advanced technique (LLM compaction, tool result budgeting, max output recovery).',
     repo_root: REPO_ROOT,
-    budget: 'normal',
     hints: { symbols: ['freeExploreV2', 'callFreeExploreV2Tool'], files: ['src/mcp/server.mjs', 'src/explorer/runtime.mjs'] },
   }, {
     onProgress: ({ progress, total, message }) => {
@@ -170,7 +172,7 @@ async function testExploreRepoNormal() {
 async function testFreeExplore() {
   logSection('3. freeExplore (explore tool) — Markdown report');
 
-  const client = createChatClient({ budget: 'quick' });
+  const client = createChatClient();
   const runtime = new ExplorerRuntime({ chatClient: client, logger: console.error });
 
   const result = await runtime.freeExplore({
@@ -204,13 +206,13 @@ async function testFreeExplore() {
 }
 
 async function testFreeExploreV2() {
-  logSection('4. freeExploreV2 (explore_v2 tool) — advanced techniques');
+  logSection('4. freeExploreV2 backend — advanced techniques');
 
-  const client = createChatClient({ budget: 'normal' });
+  const client = createChatClient();
   const runtime = new ExplorerRuntime({ chatClient: client, logger: console.error });
 
   const result = await runtime.freeExploreV2({
-    prompt: 'Produce a comprehensive architecture report of this project. Cover: MCP server structure, explorer runtime loop, prompt system, session management, caching, symbol extraction, provider abstraction, and the three V2 advanced techniques. Include file:line citations.',
+    prompt: 'Produce a comprehensive architecture report of this project. Cover: MCP server structure, explorer runtime loop, prompt system, transcript ops logging, caching, symbol extraction, provider abstraction, and the three V2 advanced techniques. Include file:line citations.',
     repo_root: REPO_ROOT,
     thoroughness: 'normal',
     language: 'ko',
@@ -250,16 +252,14 @@ async function testFreeExploreV2() {
 async function testToolValidation() {
   logSection('5. Tool name validation — hallucinated tool feedback');
 
-  const client = createChatClient({ budget: 'quick' });
+  const client = createChatClient();
   const runtime = new ExplorerRuntime({ chatClient: client, logger: console.error });
-  const sessionStore = new SessionStore();
 
   // This test verifies that the system handles tool validation properly.
   // We can't force the model to hallucinate, but we can verify the runtime starts and completes.
   const result = await runtime.explore({
     task: 'What is the main entry point file of this project? Just find index.mjs and describe its contents.',
     repo_root: REPO_ROOT,
-    budget: 'quick',
     hints: { files: ['src/index.mjs'] },
   }, {
     onProgress: ({ progress, total, message }) => {

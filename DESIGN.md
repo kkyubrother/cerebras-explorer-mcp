@@ -249,7 +249,7 @@ spec 017 (v0.6.0) 이전에는 multi-call 세션 연결을 위해 `session` 입�
 - parent agent(Claude Code, Codex)는 응답을 사람에게 그대로 노출하지 않으므로 `_debug` 운영 메타데이터가 사실상 디버깅 채널로 동작하지 않았고, 같은 이유로 세션 ID도 외부에서 재사용되는 비중이 작았다.
 - spec 011에서 `CEREBRAS_EXPLORER_AUTO_SESSION_BY_REPO` 옵트인이 제거되어 multi-call 세션 연결은 explicit `session` 인자로만 가능했으며, 이를 응답에서 빼면 자연히 사용할 방법이 사라진다.
 
-이후 모든 explore 호출은 stateless로 시작한다. 운영 디버깅이 필요하면 transcript JSONL(`CEREBRAS_EXPLORER_TRANSCRIPT=true`) 또는 후속 spec의 local ops log 채널을 사용한다.
+이후 모든 explore 호출은 stateless로 시작한다. 운영 디버깅은 항상 stderr에 출력되는 한 줄 요약과 `CEREBRAS_EXPLORER_LOG_PATH`로 옵트인하는 transcript JSONL 채널을 사용한다.
 
 ---
 
@@ -541,9 +541,13 @@ V2 backend는 이제 report-mode의 단독 backend다. evidence-preservation ben
 
 `repo_git_diff`(file/stat 모드)와 `repo_git_show` 모두 base scope를 hard boundary로 적용한다. scope 밖에서 제외된 파일 수는 응답의 optional `omittedOutOfScopeFiles`로만 표면화되며 `targets[]`/`discoveredPaths[]` 어느 쪽에도 노출되지 않는다.
 
-### 11.7 Progress operational contract (010, spec 017에서 세션 부분 제거)
+### 11.7 Progress and transcript operational contract (010, 018)
 
 spec 011에서 `CEREBRAS_EXPLORER_AUTO_SESSION_BY_REPO` 옵트인과 `SessionStore.findReusableForRepo()` 메서드가 제거되어 multi-call 세션 연결이 explicit `session` 인자로만 지원되었다. spec 017 (v0.6.0)에서는 그 explicit 입력과 응답의 `sessionId`/`session`/`_debug` 표면, 그리고 `SessionStore` 모듈 자체가 모두 제거되었다. 응답 표면이 사람에게 도달하지 않아 사실상 운영 디버깅 채널로 동작하지 못한 점, 그리고 응답에서 sessionId가 사라지면 입력 `session`을 채울 외부 경로가 없는 점이 결정 이유다.
+
+spec 018에서 transcript은 운영 디버깅 채널로 재정의되었다. `CEREBRAS_EXPLORER_LOG_PATH`가 설정되면 `explore_repo`, 6개 wrapper, `explore`가 호출별 JSONL 파일을 만들고, 파일명과 모든 record에는 같은 UUID `callId`가 들어간다. 각 record는 `{ t, type, callId, ...data }` 형태이며 기본적으로 response redaction과 같은 정책을 통과한다. `CEREBRAS_EXPLORER_LOG_RAW=true`일 때만 raw record를 보존하고 final meta에는 `redacted` 상태를 남긴다.
+
+모든 explore 호출은 transcript 옵트인 여부와 무관하게 종료 시 stderr에 `[cerebras-explorer] tool=... turns=... toolCalls=... stoppedByBudget=... elapsed=...s` 한 줄을 출력한다. transcript 파일이 생성되면 같은 줄에 `log=<path>`를 붙이고 raw 모드면 `raw=true`를 붙인다. stdout은 MCP JSON-RPC frame 전용으로 유지한다.
 
 heavy 호출(보고서/path/impact)에서는 parent agent가 `_meta.progressToken`을 전달해 turn-by-turn 진행률을 받아야 하고, 결과를 sub-agent에 인계할 때는 control-plane 필드(`status.verification`, `status.complete`, `evidenceQuality`, `searchCoverage`, `failure`, `critic.warnings`)를 반드시 보존해야 한다.
 

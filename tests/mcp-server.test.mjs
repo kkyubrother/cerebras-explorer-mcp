@@ -153,6 +153,16 @@ class MarkdownReportClient {
   }
 }
 
+class ThrowingChatClient {
+  constructor() {
+    this.model = 'mock';
+  }
+
+  async createChatCompletion() {
+    throw new Error('provider unavailable');
+  }
+}
+
 function applyEnvPatch(patch) {
   const previous = new Map();
   for (const [key, value] of Object.entries(patch)) {
@@ -166,6 +176,28 @@ function applyEnvPatch(patch) {
       else process.env[key] = value;
     }
   };
+}
+
+async function readJsonl(filePath) {
+  const source = await fs.readFile(filePath, 'utf8');
+  return source.trim().split('\n').map(line => JSON.parse(line));
+}
+
+async function captureStderr(fn) {
+  const originalWrite = process.stderr.write;
+  const chunks = [];
+  process.stderr.write = function patchedWrite(chunk, encoding, callback) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk));
+    if (typeof encoding === 'function') encoding();
+    else if (typeof callback === 'function') callback();
+    return true;
+  };
+  try {
+    const result = await fn();
+    return { result, stderr: chunks.join('') };
+  } finally {
+    process.stderr.write = originalWrite;
+  }
 }
 
 async function listToolsWithEnv(envPatch) {
@@ -212,7 +244,7 @@ test('MCP request handler exposes explore_repo and returns structuredContent', a
     params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'test', version: '0.0.1' } },
   });
   assert.equal(initialized.serverInfo.name, 'cerebras-explorer-mcp');
-  assert.equal(initialized.serverInfo.version, '0.6.0');
+  assert.equal(initialized.serverInfo.version, '0.6.1');
 
   const listed = await handleRequest({
     jsonrpc: '2.0',
@@ -304,6 +336,239 @@ test('MCP request handler exposes explore_repo and returns structuredContent', a
 });
 
 // spec 017: fallback-session integration test removed alongside SessionStore.
+
+test('trace_symbol wrapper delegates through explore_repo and writes LOG_PATH transcript', async () => {
+  const repoRoot = await makeRepoFixture();
+  const logDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-wrapper-transcripts-'));
+  const restore = applyEnvPatch({
+    CEREBRAS_EXPLORER_LOG_PATH: logDir,
+    CEREBRAS_EXPLORER_LOG_RAW: undefined,
+    CEREBRAS_EXPLORER_TRANSCRIPT: undefined,
+    CEREBRAS_EXPLORER_TRANSCRIPT_DIR: undefined,
+  });
+
+  try {
+    const { handleRequest } = createMcpRequestHandler({
+      runtimeOptions: {
+        chatClient: new MockChatClient(),
+      },
+    });
+
+    const called = await handleRequest({
+      jsonrpc: '2.0',
+      id: 3,
+      method: 'tools/call',
+      params: {
+        name: 'trace_symbol',
+        arguments: {
+          symbol: 'requireAuth',
+          repo_root: repoRoot,
+          scope: ['src/**'],
+        },
+      },
+    });
+
+    assert.equal(called.structuredContent.status.verification, 'verified');
+    const files = (await fs.readdir(logDir)).filter(name => name.endsWith('.jsonl'));
+    assert.equal(files.length, 1);
+
+    const transcriptPath = path.join(logDir, files[0]);
+    assert.match(files[0], /^[0-9T-]+Z_explore_repo_[0-9a-f-]{36}\.jsonl$/);
+    const entries = await readJsonl(transcriptPath);
+    assert.equal(entries[0].tool, 'explore_repo');
+    assert.ok(entries.every(entry => entry.callId === entries[0].callId));
+  } finally {
+    restore();
+  }
+});
+
+test('explore_repo MCP call writes one stderr ops summary without polluting result payload', async () => {
+  const repoRoot = await makeRepoFixture();
+  const restore = applyEnvPatch({
+    CEREBRAS_EXPLORER_LOG_PATH: undefined,
+    CEREBRAS_EXPLORER_LOG_RAW: undefined,
+    CEREBRAS_EXPLORER_TRANSCRIPT: undefined,
+    CEREBRAS_EXPLORER_TRANSCRIPT_DIR: undefined,
+  });
+
+  try {
+    const { handleRequest } = createMcpRequestHandler({
+      runtimeOptions: {
+        chatClient: new MockChatClient(),
+      },
+    });
+
+    const { result: called, stderr } = await captureStderr(() => handleRequest({
+      jsonrpc: '2.0',
+      id: 31,
+      method: 'tools/call',
+      params: {
+        name: 'explore_repo',
+        arguments: {
+          task: 'trace requireAuth usage',
+          repo_root: repoRoot,
+          scope: ['src/**'],
+        },
+      },
+    }));
+
+    const lines = stderr.trim().split(/\r?\n/).filter(Boolean);
+    assert.equal(lines.length, 1);
+    assert.match(lines[0], /^\[cerebras-explorer\] tool=explore_repo turns=\d+ toolCalls=\d+ stoppedByBudget=(true|false) elapsed=\d+s$/);
+    assert.doesNotMatch(JSON.stringify(called), /\[cerebras-explorer\]/);
+  } finally {
+    restore();
+  }
+});
+
+test('explore_repo stderr ops summary includes transcript log path when LOG_PATH is set', async () => {
+  const repoRoot = await makeRepoFixture();
+  const logDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-ops-summary-log-'));
+  const restore = applyEnvPatch({
+    CEREBRAS_EXPLORER_LOG_PATH: logDir,
+    CEREBRAS_EXPLORER_LOG_RAW: undefined,
+    CEREBRAS_EXPLORER_TRANSCRIPT: undefined,
+    CEREBRAS_EXPLORER_TRANSCRIPT_DIR: undefined,
+  });
+
+  try {
+    const { handleRequest } = createMcpRequestHandler({
+      runtimeOptions: {
+        chatClient: new MockChatClient(),
+      },
+    });
+
+    const { stderr } = await captureStderr(() => handleRequest({
+      jsonrpc: '2.0',
+      id: 32,
+      method: 'tools/call',
+      params: {
+        name: 'explore_repo',
+        arguments: {
+          task: 'trace requireAuth usage',
+          repo_root: repoRoot,
+          scope: ['src/**'],
+        },
+      },
+    }));
+
+    const line = stderr.trim();
+    assert.match(line, /^\[cerebras-explorer\] tool=explore_repo turns=\d+ toolCalls=\d+ stoppedByBudget=(true|false) elapsed=\d+s log=.+\.jsonl$/);
+    assert.ok(line.includes(logDir));
+  } finally {
+    restore();
+  }
+});
+
+test('explore_repo stderr ops summary marks LOG_RAW mode after log path', async () => {
+  const repoRoot = await makeRepoFixture();
+  const logDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-ops-summary-raw-log-'));
+  const restore = applyEnvPatch({
+    CEREBRAS_EXPLORER_LOG_PATH: logDir,
+    CEREBRAS_EXPLORER_LOG_RAW: 'true',
+    CEREBRAS_EXPLORER_TRANSCRIPT: undefined,
+    CEREBRAS_EXPLORER_TRANSCRIPT_DIR: undefined,
+  });
+
+  try {
+    const { handleRequest } = createMcpRequestHandler({
+      runtimeOptions: {
+        chatClient: new MockChatClient(),
+      },
+    });
+
+    const { stderr } = await captureStderr(() => handleRequest({
+      jsonrpc: '2.0',
+      id: 33,
+      method: 'tools/call',
+      params: {
+        name: 'explore_repo',
+        arguments: {
+          task: 'trace requireAuth usage',
+          repo_root: repoRoot,
+          scope: ['src/**'],
+        },
+      },
+    }));
+
+    assert.match(stderr.trim(), / log=.+\.jsonl raw=true$/);
+  } finally {
+    restore();
+  }
+});
+
+test('explore MCP call writes stderr ops summary for free-form reports', async () => {
+  const repoRoot = await makeRepoFixture();
+  const report = 'Summary cites `src/auth.js:L1-L3`.';
+  const restore = applyEnvPatch({
+    CEREBRAS_EXPLORER_LOG_PATH: undefined,
+    CEREBRAS_EXPLORER_LOG_RAW: undefined,
+    CEREBRAS_EXPLORER_TRANSCRIPT: undefined,
+    CEREBRAS_EXPLORER_TRANSCRIPT_DIR: undefined,
+  });
+
+  try {
+    const { handleRequest } = createMcpRequestHandler({
+      runtimeOptions: {
+        chatClient: new MarkdownReportClient(report),
+      },
+    });
+
+    const { stderr } = await captureStderr(() => handleRequest({
+      jsonrpc: '2.0',
+      id: 34,
+      method: 'tools/call',
+      params: {
+        name: 'explore',
+        arguments: {
+          prompt: 'explain auth flow',
+          repo_root: repoRoot,
+        },
+      },
+    }));
+
+    assert.match(stderr.trim(), /^\[cerebras-explorer\] tool=explore turns=\d+ toolCalls=\d+ stoppedByBudget=(true|false) elapsed=\d+s$/);
+  } finally {
+    restore();
+  }
+});
+
+test('explore_repo MCP call writes stderr ops summary when execution fails', async () => {
+  const repoRoot = await makeRepoFixture();
+  const restore = applyEnvPatch({
+    CEREBRAS_EXPLORER_LOG_PATH: undefined,
+    CEREBRAS_EXPLORER_LOG_RAW: undefined,
+    CEREBRAS_EXPLORER_TRANSCRIPT: undefined,
+    CEREBRAS_EXPLORER_TRANSCRIPT_DIR: undefined,
+  });
+
+  try {
+    const { handleRequest } = createMcpRequestHandler({
+      runtimeOptions: {
+        chatClient: new ThrowingChatClient(),
+      },
+    });
+
+    const { result: called, stderr } = await captureStderr(() => handleRequest({
+      jsonrpc: '2.0',
+      id: 35,
+      method: 'tools/call',
+      params: {
+        name: 'explore_repo',
+        arguments: {
+          task: 'trace requireAuth usage',
+          repo_root: repoRoot,
+          scope: ['src/**'],
+        },
+      },
+    }));
+
+    assert.equal(called.isError, true);
+    assert.match(stderr.trim(), /^\[cerebras-explorer\] tool=explore_repo turns=0 toolCalls=0 stoppedByBudget=false elapsed=0s failure=execution_failed$/);
+  } finally {
+    restore();
+  }
+});
 
 test('explore returns Markdown text plus structured citations', async () => {
   const repoRoot = await makeRepoFixture();

@@ -217,6 +217,11 @@ async function withEnv(overrides, fn) {
   }
 }
 
+async function readJsonl(filePath) {
+  const source = await fs.readFile(filePath, 'utf8');
+  return source.trim().split('\n').map(line => JSON.parse(line));
+}
+
 function assertNoOrphanedToolMessages(messages) {
   let pendingToolCallIds = null;
 
@@ -307,6 +312,42 @@ test('ExplorerRuntime performs an autonomous tool loop and returns structured fi
   assert.ok(Array.isArray(result.codeMap.entryPoints), 'codeMap.entryPoints must be an array');
   assert.ok(Array.isArray(result.codeMap.keyModules), 'codeMap.keyModules must be an array');
   assert.ok(result.codeMap.keyModules.length >= 2, 'codeMap must include at least the two read files');
+});
+
+test('ExplorerRuntime explore writes LOG_PATH transcript with stable callId records', async () => {
+  const repoRoot = await makeRepoFixture();
+  const logDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-runtime-transcripts-'));
+
+  await withEnv({
+    CEREBRAS_EXPLORER_LOG_PATH: logDir,
+    CEREBRAS_EXPLORER_LOG_RAW: undefined,
+    CEREBRAS_EXPLORER_TRANSCRIPT: undefined,
+    CEREBRAS_EXPLORER_TRANSCRIPT_DIR: undefined,
+  }, async () => {
+    const runtime = new ExplorerRuntime({ chatClient: new MockChatClient() });
+    const result = await runtime.explore({
+      task: 'users/me 라우트에 인증 미들웨어가 어떻게 붙는지 추적해라.',
+      repo_root: repoRoot,
+      scope: ['src/**'],
+    });
+
+    assert.equal(typeof result.transcriptPath, 'string');
+    assert.match(
+      path.basename(result.transcriptPath),
+      /^[0-9T-]+Z_explore_repo_[0-9a-f-]{36}\.jsonl$/,
+    );
+
+    const files = (await fs.readdir(logDir)).filter(name => name.endsWith('.jsonl'));
+    assert.deepEqual(files, [path.basename(result.transcriptPath)]);
+
+    const entries = await readJsonl(result.transcriptPath);
+    const filenameCallId = path.basename(result.transcriptPath, '.jsonl').split('_').at(-1);
+    assert.ok(entries.length >= 3);
+    assert.ok(entries.every(entry => entry.callId === filenameCallId));
+    assert.ok(entries.some(entry => entry.type === 'assistant'));
+    assert.ok(entries.some(entry => entry.type === 'tool'));
+    assert.equal(entries.at(-1).redacted, true);
+  });
 });
 
 test('ExplorerRuntime preserves model-provided edit targets when deriving evidence targets', async () => {

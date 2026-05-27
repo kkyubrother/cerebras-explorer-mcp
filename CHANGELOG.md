@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.6.1 - 2026-05-27
+
+### Transcript ops log channel (spec 018)
+
+- **Added**: `CEREBRAS_EXPLORER_LOG_PATH` enables per-call transcript JSONL
+  files for `explore_repo`, all six wrappers, and `explore`.
+- **Added**: transcript filenames and every JSONL record now include a shared
+  UUID `callId`; final meta records include whether the file was redacted.
+- **Added**: every explore call emits a single stderr operational summary with
+  tool name, turns, tool calls, budget stop state, elapsed time, optional
+  `log=<path>`, and optional `raw=true`.
+- **Security**: transcript records use the same redaction policy as responses
+  by default. `CEREBRAS_EXPLORER_LOG_RAW=true` is the explicit raw-mode escape
+  hatch for local debugging only.
+- **Planned breaking (v0.7.0)**: `CEREBRAS_EXPLORER_TRANSCRIPT` and `CEREBRAS_EXPLORER_TRANSCRIPT_DIR` are deprecated hidden aliases and will be removed; use `CEREBRAS_EXPLORER_LOG_PATH` instead.
+
 ## v0.6.0 - 2026-05-27
 
 ### BREAKING: remove `_debug` and session features from the response/input contract (spec 017)
@@ -32,8 +48,8 @@ to `2`.
 - **Migration**: drop any `session` arguments from your MCP calls and stop
   reading `_debug` / `sessionId` / `session` from responses. If you relied
   on session multi-call continuity, expect every call to start fresh.
-  Operational debugging belongs in transcript JSONL
-  (`CEREBRAS_EXPLORER_TRANSCRIPT=true`) or a future local ops log spec.
+  Operational debugging belongs in stderr ops summaries and
+  `CEREBRAS_EXPLORER_LOG_PATH` transcript JSONL files.
 
 ## v0.5.0 - 2026-05-25
 

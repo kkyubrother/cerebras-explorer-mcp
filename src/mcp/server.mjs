@@ -6,11 +6,12 @@ import {
   validateExploreRepoArgs,
 } from '../explorer/schemas.mjs';
 import { redactExploreResult, redactValue } from '../explorer/redact.mjs';
+import { isTranscriptRawMode } from '../explorer/transcript.mjs';
 import { StdioJsonRpcServer } from './jsonrpc-stdio.mjs';
 
 const SERVER_INFO = {
   name: 'cerebras-explorer-mcp',
-  version: '0.6.0',
+  version: '0.6.1',
 };
 
 const READ_ONLY_TOOL_ANNOTATIONS = Object.freeze({
@@ -466,6 +467,29 @@ export function createMcpRequestHandler({
     return lines.join('\n');
   }
 
+  function formatOpsSummary({ tool, stats = {}, transcriptPath = null, raw = false, failureReason = '' }) {
+    const safeStats = stats && typeof stats === 'object' ? stats : {};
+    const elapsedSeconds = Math.round((safeStats.elapsedMs ?? 0) / 1000);
+    let line =
+      `[cerebras-explorer] tool=${tool} ` +
+      `turns=${safeStats.turns ?? 0} ` +
+      `toolCalls=${safeStats.toolCalls ?? 0} ` +
+      `stoppedByBudget=${Boolean(safeStats.stoppedByBudget)} ` +
+      `elapsed=${elapsedSeconds}s`;
+    if (transcriptPath) line += ` log=${transcriptPath}`;
+    if (raw) line += ' raw=true';
+    if (failureReason) line += ` failure=${failureReason}`;
+    return line;
+  }
+
+  function writeOpsSummary(summary) {
+    try {
+      process.stderr.write(`${formatOpsSummary(summary)}\n`);
+    } catch {
+      // Operational logging must never affect the MCP response path.
+    }
+  }
+
   function defaultEvidenceQuality(summary = 'No grounded evidence was retained.', warnings = []) {
     return {
       level: 'low',
@@ -552,9 +576,12 @@ export function createMcpRequestHandler({
     };
   }
 
-  async function callTool(exploreArgs, progressToken, requestId) {
+  async function callTool(exploreArgs, progressToken, requestId, toolName = 'explore_repo') {
     const abortController = new AbortController();
     if (requestId) activeAbortControllers.set(requestId, abortController);
+    let stats = null;
+    let transcriptPath = null;
+    let failureReason = '';
     try {
       const result = await exploreRepository(exploreArgs, {
         logger,
@@ -562,12 +589,26 @@ export function createMcpRequestHandler({
         onProgress: makeProgressCallback(progressToken),
         abortSignal: abortController.signal,
       });
+      stats = result.stats;
+      transcriptPath = result.transcriptPath ?? result.stats?.transcriptPath ?? null;
       const agentResult = redactExploreResult(toAgentFacingResult(result)).value;
       return {
         content: [{ type: 'text', text: formatExploreResult(agentResult) }],
         structuredContent: agentResult,
       };
+    } catch (error) {
+      stats = error?.stats ?? stats;
+      transcriptPath = error?.transcriptPath ?? transcriptPath;
+      failureReason = error?.failure?.reason ?? error?.reason ?? 'execution_failed';
+      throw error;
     } finally {
+      writeOpsSummary({
+        tool: toolName,
+        stats,
+        transcriptPath,
+        raw: isTranscriptRawMode(),
+        failureReason,
+      });
       if (requestId) activeAbortControllers.delete(requestId);
     }
   }
@@ -575,6 +616,9 @@ export function createMcpRequestHandler({
   async function callFreeExploreTool(exploreArgs, progressToken, requestId) {
     const abortController = new AbortController();
     if (requestId) activeAbortControllers.set(requestId, abortController);
+    let stats = null;
+    let transcriptPath = null;
+    let failureReason = '';
     try {
       const result = await freeExploreRepository(exploreArgs, {
         logger,
@@ -582,12 +626,26 @@ export function createMcpRequestHandler({
         onProgress: makeProgressCallback(progressToken),
         abortSignal: abortController.signal,
       });
+      stats = result.stats;
+      transcriptPath = result.transcriptPath ?? null;
       const safeResult = redactValue(result).value;
       return {
         content: [{ type: 'text', text: safeResult.report }],
         structuredContent: safeResult,
       };
+    } catch (error) {
+      stats = error?.stats ?? stats;
+      transcriptPath = error?.transcriptPath ?? transcriptPath;
+      failureReason = error?.failure?.reason ?? error?.reason ?? 'execution_failed';
+      throw error;
     } finally {
+      writeOpsSummary({
+        tool: 'explore',
+        stats,
+        transcriptPath,
+        raw: isTranscriptRawMode(),
+        failureReason,
+      });
       if (requestId) activeAbortControllers.delete(requestId);
     }
   }
@@ -634,31 +692,31 @@ export function createMcpRequestHandler({
 
           if (name === 'explore_repo') {
             validateExploreRepoArgs(args);
-            return await callTool(args, progressToken, requestId);
+            return await callTool(args, progressToken, requestId, name);
           }
           if (name === 'find_relevant_code') {
             validatePublicToolArgs(FIND_RELEVANT_CODE_TOOL, args);
-            return await callTool(buildFindRelevantCodeArgs(args), progressToken, requestId);
+            return await callTool(buildFindRelevantCodeArgs(args), progressToken, requestId, name);
           }
           if (name === 'trace_symbol') {
             validatePublicToolArgs(TRACE_SYMBOL_TOOL, args);
-            return await callTool(buildTraceSymbolArgs(args), progressToken, requestId);
+            return await callTool(buildTraceSymbolArgs(args), progressToken, requestId, name);
           }
           if (name === 'map_change_impact') {
             validatePublicToolArgs(MAP_CHANGE_IMPACT_TOOL, args);
-            return await callTool(buildMapChangeImpactArgs(args), progressToken, requestId);
+            return await callTool(buildMapChangeImpactArgs(args), progressToken, requestId, name);
           }
           if (name === 'explain_code_path') {
             validatePublicToolArgs(EXPLAIN_CODE_PATH_TOOL, args);
-            return await callTool(buildExplainCodePathArgs(args), progressToken, requestId);
+            return await callTool(buildExplainCodePathArgs(args), progressToken, requestId, name);
           }
           if (name === 'collect_evidence') {
             validatePublicToolArgs(COLLECT_EVIDENCE_TOOL, args);
-            return await callTool(buildCollectEvidenceArgs(args), progressToken, requestId);
+            return await callTool(buildCollectEvidenceArgs(args), progressToken, requestId, name);
           }
           if (name === 'review_change_context') {
             validatePublicToolArgs(REVIEW_CHANGE_CONTEXT_TOOL, args);
-            return await callTool(buildReviewChangeContextArgs(args), progressToken, requestId);
+            return await callTool(buildReviewChangeContextArgs(args), progressToken, requestId, name);
           }
           if (name === 'explore') {
             validatePublicToolArgs(EXPLORE_TOOL, args);

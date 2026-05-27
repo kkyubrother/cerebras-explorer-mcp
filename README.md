@@ -14,17 +14,17 @@ Cerebras Explorer는 상위 AI가 정확한 판단을 내릴 수 있도록, 필�
 
 ```bash
 export CEREBRAS_API_KEY="..."
-npx -y github:kkyubrother/cerebras-explorer-mcp#v0.6.0
+npx -y github:kkyubrother/cerebras-explorer-mcp#v0.6.1
 ```
 
-`npx`는 spec(URL + ref)을 캐시 키로 사용하므로 `#v0.6.0` 같은 tag를 권장합니다. 개발 브랜치를 추적해야 하면 `#master`, 특정 상태가 필요하면 `#<commit-sha>`를 명시하세요.
+`npx`는 spec(URL + ref)을 캐시 키로 사용하므로 `#v0.6.1` 같은 tag를 권장합니다. 개발 브랜치를 추적해야 하면 `#master`, 특정 상태가 필요하면 `#<commit-sha>`를 명시하세요.
 
 ### Claude Code
 
 ```bash
 claude mcp add -s user cerebras-explorer \
   -e CEREBRAS_API_KEY="$CEREBRAS_API_KEY" \
-  -- npx -y github:kkyubrother/cerebras-explorer-mcp#v0.6.0
+  -- npx -y github:kkyubrother/cerebras-explorer-mcp#v0.6.1
 ```
 
 ### Codex CLI
@@ -32,7 +32,7 @@ claude mcp add -s user cerebras-explorer \
 ```toml
 [mcp_servers.cerebras-explorer]
 command = "npx"
-args = ["-y", "github:kkyubrother/cerebras-explorer-mcp#v0.6.0"]
+args = ["-y", "github:kkyubrother/cerebras-explorer-mcp#v0.6.1"]
 enabled = true
 startup_timeout_sec = 60
 tool_timeout_sec = 180
@@ -66,7 +66,7 @@ purpose-built evidence, path, review, and Markdown-report entry points.
   "mcp": {
     "cerebras-explorer": {
       "type": "local",
-      "command": ["npx", "-y", "github:kkyubrother/cerebras-explorer-mcp#v0.6.0"],
+      "command": ["npx", "-y", "github:kkyubrother/cerebras-explorer-mcp#v0.6.1"],
       "environment": { "CEREBRAS_API_KEY": "${CEREBRAS_API_KEY}" }
     }
   }
@@ -78,7 +78,7 @@ purpose-built evidence, path, review, and Markdown-report entry points.
 ```bash
 gemini mcp add -e CEREBRAS_API_KEY="$CEREBRAS_API_KEY" \
   cerebras-explorer npx -- \
-  -y github:kkyubrother/cerebras-explorer-mcp#v0.6.0
+  -y github:kkyubrother/cerebras-explorer-mcp#v0.6.1
 ```
 
 Gemini CLI는 `*KEY*`, `*SECRET*`, `*TOKEN*`, `*PASSWORD*`, `*AUTH*`, `*CREDENTIAL*` 패턴의 환경변수를 기본 차단합니다. `CEREBRAS_API_KEY`는 서버 설정의 `env` 블록 또는 위 `-e` 옵션으로 명시해야 전달됩니다.
@@ -165,8 +165,9 @@ Parent model (Claude Code / Codex)
 - **GLM 4.7 reasoning 정렬**: spec 011 단일 deep config에서는 `reasoning_effort`를 설정하지 않고 기본 reasoning을 유지하며 `clear_thinking=false`로 이전 turn의 reasoning을 보존
 - **샘플링 기본값**: `temperature=1.0`, `top_p=0.95` (단일 deep config). direct client 경로에는 envvar fallback 지원
 - **근거 강제**: 최종 evidence는 실제로 읽거나 grep으로 확인한 라인 범위에만 남김
+- **운영 디버깅 출력**: 모든 explore 호출 종료 시 stderr에 한 줄 요약을 출력하고, `CEREBRAS_EXPLORER_LOG_PATH` 설정 시 호출별 transcript JSONL을 기록
 - **Read-only tool annotations**: 모든 공개 MCP 도구는 `readOnlyHint: true`를 선언합니다. 이는 클라이언트 UX hint이며 보안 경계는 아닙니다.
-- **Compact 반환 계약**: MCP `structuredContent`는 `schemaVersion`(현재 `2`), `directAnswer`, `status`, `targets`, snippet 포함 `evidence`, `uncertainties`, `nextAction`, `evidenceQuality`, nullable `failure`, `searchCoverage` 중심의 compact 계약을 사용합니다. spec 017 이후 `_debug`, `sessionId`, `session`은 응답에서 모두 제거되었으며, 입력 `session` 파라미터와 `SessionStore`도 함께 사라졌습니다(breaking, v0.6.0). 운영 디버깅이 필요하면 transcript JSONL(`CEREBRAS_EXPLORER_TRANSCRIPT=true`) 또는 후속 spec의 local ops log를 사용하세요.
+- **Compact 반환 계약**: MCP `structuredContent`는 `schemaVersion`(현재 `2`), `directAnswer`, `status`, `targets`, snippet 포함 `evidence`, `uncertainties`, `nextAction`, `evidenceQuality`, nullable `failure`, `searchCoverage` 중심의 compact 계약을 사용합니다. spec 017 이후 `_debug`, `sessionId`, `session`은 응답에서 모두 제거되었으며, 입력 `session` 파라미터와 `SessionStore`도 함께 사라졌습니다(breaking, v0.6.0). 운영 디버깅은 stderr 한 줄 요약과 `CEREBRAS_EXPLORER_LOG_PATH` transcript JSONL을 사용하세요.
 
 ## 공개 MCP 도구
 
@@ -278,7 +279,7 @@ Heavy 호출이나 sub-agent 핸드오프에서는 `_meta.progressToken`을 함�
 
 `searchCoverage`는 explorer가 실제로 검색·읽은 범위를 요약합니다. 완전한 의미 분석 보증은 아닙니다. `scopeLimited`가 true면 evidence가 없다는 사실은 "이 scope 안에서는 없다"이지 "저장소에 없다"가 아닙니다.
 
-spec 017 이후 응답에는 `_debug` 운영 디버그 객체가 포함되지 않습니다. parent agent가 사람에게 노출하지 않는 채널이라 사실상 운영 디버깅에 쓰이지 않았다는 판단에 따라 응답 표면에서 제거되었습니다. 운영 관찰성이 필요하면 transcript JSONL(`CEREBRAS_EXPLORER_TRANSCRIPT=true`) 또는 후속 spec의 local ops log를 사용하세요.
+spec 017 이후 응답에는 `_debug` 운영 디버그 객체가 포함되지 않습니다. parent agent가 사람에게 노출하지 않는 채널이라 사실상 운영 디버깅에 쓰이지 않았다는 판단에 따라 응답 표면에서 제거되었습니다. 운영 관찰성은 항상 출력되는 stderr 한 줄 요약과 `CEREBRAS_EXPLORER_LOG_PATH`로 옵트인하는 transcript JSONL을 사용하세요.
 
 권장 사용처:
 
@@ -464,9 +465,11 @@ export CEREBRAS_EXPLORER_V2_MAX_COMPACTIONS="3"         # 기본값: 3, 0~10으�
 선택 (디버깅 / 관측):
 
 ```bash
-export CEREBRAS_EXPLORER_TRANSCRIPT="true"              # true이면 탐색 내역을 JSONL 파일로 기록
-export CEREBRAS_EXPLORER_TRANSCRIPT_DIR="./transcripts" # transcript 저장 디렉터리. 기본값: <repoRoot>/.cerebras-explorer/transcripts (repoRoot 없으면 cwd 기준)
+export CEREBRAS_EXPLORER_LOG_PATH="./transcripts" # 설정하면 호출별 transcript JSONL을 이 디렉터리에 기록
+export CEREBRAS_EXPLORER_LOG_RAW="true"           # 기본 redaction을 끄는 raw 디버깅 모드. 필요한 경우에만 사용
 ```
+
+기존 transcript envvar 이름은 v0.6.x 동안 hidden alias로만 계속 동작하며, 새 문서/설정에는 `CEREBRAS_EXPLORER_LOG_PATH`를 사용하세요. 제거 예정 시점은 `CHANGELOG.md`의 v0.7 계획 항목을 확인하세요.
 
 ### 2) 서버 실행
 

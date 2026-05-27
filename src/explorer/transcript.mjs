@@ -1,6 +1,8 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { randomBytes } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
+
+import { redactValue } from './redact.mjs';
 
 /**
  * Lightweight transcript recorder for exploration sessions.
@@ -41,10 +43,16 @@ const TRACE_ARG_KEYS = new Set([
 
 /** Resolve the transcript directory (relative to repo root, or absolute override). */
 function resolveTranscriptDir(repoRoot) {
-  const override = process.env.CEREBRAS_EXPLORER_TRANSCRIPT_DIR;
+  const override = process.env.CEREBRAS_EXPLORER_LOG_PATH
+    || process.env.CEREBRAS_EXPLORER_TRANSCRIPT_DIR;
   if (override) return path.resolve(override);
   if (repoRoot) return path.resolve(repoRoot, DEFAULT_TRANSCRIPT_DIR);
   return path.resolve(process.cwd(), DEFAULT_TRANSCRIPT_DIR);
+}
+
+function isTruthyEnv(value) {
+  if (value === undefined || value === null) return false;
+  return value === '1' || value.toLowerCase() === 'true' || value.toLowerCase() === 'yes';
 }
 
 /**
@@ -52,9 +60,17 @@ function resolveTranscriptDir(repoRoot) {
  * Default: disabled (opt-in via environment variable).
  */
 export function isTranscriptEnabled() {
-  const v = process.env.CEREBRAS_EXPLORER_TRANSCRIPT;
-  if (v === undefined || v === null) return false;
-  return v === '1' || v.toLowerCase() === 'true' || v.toLowerCase() === 'yes';
+  if (process.env.CEREBRAS_EXPLORER_LOG_PATH) return true;
+  return isTruthyEnv(process.env.CEREBRAS_EXPLORER_TRANSCRIPT);
+}
+
+export function isTranscriptRawMode() {
+  return isTruthyEnv(process.env.CEREBRAS_EXPLORER_LOG_RAW);
+}
+
+function redactForTranscript(data) {
+  if (isTranscriptRawMode()) return data;
+  return redactValue(data).value;
 }
 
 function truncateString(value, maxChars = MAX_TRACE_STRING_CHARS) {
@@ -272,13 +288,14 @@ export function createTranscriptRecorder({ repoRoot, tool, task, logger = () => 
       record: () => {},
       finalize: () => Promise.resolve(),
       filePath: null,
+      callId: null,
     };
   }
 
   const transcriptDir = resolveTranscriptDir(repoRoot);
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const id = randomBytes(4).toString('hex');
-  const filename = `${timestamp}_${tool}_${id}.jsonl`;
+  const callId = randomUUID();
+  const filename = `${timestamp}_${tool}_${callId}.jsonl`;
   const filePath = path.join(transcriptDir, filename);
 
   let dirCreated = false;
@@ -313,10 +330,12 @@ export function createTranscriptRecorder({ repoRoot, tool, task, logger = () => 
    * @param {object} data - Message data
    */
   function record(type, data) {
+    const entryData = redactForTranscript(data ?? {});
     buffer.push({
       t: Date.now(),
       type,
-      ...data,
+      callId,
+      ...entryData,
     });
     if (buffer.length >= FLUSH_THRESHOLD) {
       flush().catch(() => {}); // fire-and-forget
@@ -338,10 +357,15 @@ export function createTranscriptRecorder({ repoRoot, tool, task, logger = () => 
    */
   async function finalize(stats) {
     if (stats) {
-      record('meta', { finishedAt: new Date().toISOString(), stats });
+      record('meta', {
+        finishedAt: new Date().toISOString(),
+        stats,
+        redacted: !isTranscriptRawMode(),
+        callId,
+      });
     }
     await flush();
   }
 
-  return { record, finalize, filePath };
+  return { record, finalize, filePath, callId };
 }
