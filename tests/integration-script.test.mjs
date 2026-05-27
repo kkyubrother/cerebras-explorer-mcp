@@ -43,11 +43,7 @@ test('integration script compact checks do not require legacy explore result fie
         summary: 'repo-wide search; 1 file read(s), 0 grep search(es).',
       },
       failure: null,
-      sessionId: 'sess_test',
       stats: {
-        sessionId: 'sess_test',
-        sessionStatus: 'created',
-        remainingCalls: 4,
         turns: 1,
         elapsedMs: 10,
         filesRead: 1,

@@ -292,7 +292,7 @@ test('evaluateBenchmarkCase reads legacy candidate path expectations from archiv
   assert.equal(evaluation.passed, true);
 });
 
-test('evaluateBenchmarkCase reads compact MCP results with debug stats', () => {
+test('evaluateBenchmarkCase reads compact MCP results with stats', () => {
   const caseDefinition = {
     id: 'compact',
     passScore: 0.9,
@@ -325,7 +325,6 @@ test('evaluateBenchmarkCase reads compact MCP results with debug stats', () => {
     checks: [
       { label: 'Compact targets', type: 'min_target_count', value: 1, weight: 0.1 },
       { label: 'Budget stop', type: 'stopped_by_budget_equals', value: true, weight: 0.05 },
-      { label: 'Session id', type: 'has_session_id', value: true, weight: 0.05 },
     ],
   };
 
@@ -342,10 +341,8 @@ test('evaluateBenchmarkCase reads compact MCP results with debug stats', () => {
     ],
     evidence: [],
     nextAction: { type: 'explore_followup', reason: 'Followup needed.' },
-    sessionId: 'sess_compact',
-    _debug: {
-      stats: { stoppedByBudget: true },
-    },
+    // spec 017: raw runtime result keeps stats; MCP envelope strips it.
+    stats: { stoppedByBudget: true },
   };
 
   const evaluation = evaluateBenchmarkCase(caseDefinition, result);

@@ -258,7 +258,7 @@ test('ExplorerRuntime performs an autonomous tool loop and returns structured fi
   assert.ok(Array.isArray(result.targets), 'targets must be an array');
   assert.ok(result.targets.some(target => target.path === 'src/routes/user.js'), 'targets include route file');
   assert.ok(result.targets.every(target => target.role !== 'edit'), 'read-only tracing must not mark all evidence targets as edit');
-  assert.equal(result.schemaVersion, 1);
+  assert.equal(result.schemaVersion, 2);
   assert.equal(result.failure, null);
   assert.equal(result.evidenceQuality.level, result.status.confidence);
   assert.equal(result.evidenceQuality.exactCount, 2);
@@ -277,18 +277,10 @@ test('ExplorerRuntime performs an autonomous tool loop and returns structured fi
   assert.equal(result.evidence.length, 2);
   assert.ok(result.evidence.every(item => item.id && item.snippet), 'evidence has ids and snippets');
   assert.ok(result.evidence.every(item => !item.snippet.includes('FORGED_BY_MODEL')), 'model-supplied snippets are replaced with local file snippets');
-  assert.ok(result._debug?.stats, '_debug.stats is present');
-  assert.ok(result._debug?.toolTrace, '_debug.toolTrace is present');
-  assert.equal(result._debug.toolTrace.totalCalls, 3);
-  assert.equal(result._debug.toolTrace.truncated, false);
-  assert.deepEqual(
-    result._debug.toolTrace.entries.map(entry => entry.tool),
-    ['repo_grep', 'repo_read_file', 'repo_read_file'],
-  );
-  assert.deepEqual(result._debug.toolTrace.entries[0].args, { pattern: 'requireAuth', scope: ['src/**'] });
-  assert.ok(result._debug.toolTrace.entries[0].result.matches >= 2);
-  assert.equal(result._debug.toolTrace.entries[1].result.path, 'src/routes/user.js');
-  assert.equal(JSON.stringify(result._debug.toolTrace).includes('/users/me'), false, 'trace excludes raw file content');
+  // spec 017: _debug envelope was removed; toolCalls/grepCalls/filesRead stay on
+  // result.stats which is no longer propagated to MCP structuredContent. The
+  // toolTrace and its grep/read entries are no longer surfaced.
+  assert.equal(result._debug, undefined, 'runtime no longer exposes a _debug envelope');
   assert.equal(result.stats.toolCalls, 3);
   assert.equal(result.stats.grepCalls, 1);
   assert.equal(result.stats.filesRead, 2);
@@ -622,9 +614,9 @@ test('Phase 2 — codeMap remains available without generating Mermaid diagram o
   });
 
   assert.equal(result.diagram, undefined, 'runtime should not emit Mermaid diagram output');
-  assert.equal(result._debug.diagram, undefined, 'debug payload should not emit Mermaid diagram output');
+  // spec 017: _debug envelope was removed; codeMap stays on the raw runtime result.
+  assert.equal(result._debug, undefined, 'runtime no longer exposes a _debug envelope');
   assert.ok(result.codeMap, 'codeMap should remain available as structured data');
-  assert.ok(result._debug.codeMap, 'debug payload should retain structured codeMap');
   assert.ok(result.codeMap.keyModules.some(item => item.path === 'src/auth.js'));
   assert.ok(result.codeMap.keyModules.some(item => item.path === 'src/routes/user.js'));
 });
@@ -681,7 +673,7 @@ test('Phase 1 — explore circuit breaker trips after three all-error turns', as
   assert.equal(result.stats.stoppedByErrors, true, 'circuit breaker must mark stoppedByErrors');
   assert.equal(result.stats.stoppedByBudget, false, 'error stop must not be mislabeled as budget stop');
   assert.equal(client.calls, 4, 'three tool-loop calls plus one finalization call');
-  assert.equal(result.schemaVersion, 1);
+  assert.equal(result.schemaVersion, 2);
   assert.equal(result.failure.category, 'execution');
   assert.equal(result.failure.reason, 'tool_errors');
   assert.equal(result.failure.retry.tool, 'explore_repo');
@@ -1236,243 +1228,9 @@ test('ExplorerRuntime calls onProgress callback on each turn', async () => {
   assert.ok(result.directAnswer);
 });
 
-test('ExplorerRuntime returns sessionId in stats when sessionStore is provided', async () => {
-  class SimpleClient {
-    constructor() { this.model = 'mock'; }
-    async createChatCompletion() {
-      return {
-        usage: { prompt_tokens: 30, completion_tokens: 10, total_tokens: 40 },
-        message: {
-          content: JSON.stringify(compactResult({
-            directAnswer: '세션 테스트', statusConfidence: 'low',
-            targets: [
-              { path: 'src/auth.js', role: 'read', reason: 'session target', evidenceRefs: [] },
-            ],
-            evidence: [],
-          })),
-          toolCalls: [],
-        },
-      };
-    }
-  }
-
-  const root = await makeRepoFixture();
-  const { SessionStore } = await import('../src/explorer/session.mjs');
-  const sessionStore = new SessionStore();
-
-  const runtime = new ExplorerRuntime({ chatClient: new SimpleClient() });
-  const result = await runtime.explore(
-    { task: '테스트', repo_root: root },
-    { sessionStore },
-  );
-
-  assert.ok(typeof result.stats.sessionId === 'string', 'stats.sessionId must be a string');
-  assert.ok(result.stats.sessionId.startsWith('sess_'), 'sessionId must start with sess_');
-  assert.equal(result.sessionId, result.stats.sessionId, 'sessionId must also be top-level');
-
-  // Session should store compact target paths from this call
-  const session = sessionStore.get(result.stats.sessionId);
-  assert.ok(session, 'session must exist in the store');
-  assert.ok(session.targetPaths.includes('src/auth.js'), 'targetPaths must be accumulated');
-});
-
-test('ExplorerRuntime reports remainingCalls after the current session call is consumed', async () => {
-  class SimpleClient {
-    constructor() { this.model = 'mock'; }
-    async createChatCompletion() {
-      return {
-        usage: { prompt_tokens: 30, completion_tokens: 10, total_tokens: 40 },
-        message: {
-          content: JSON.stringify(compactResult({
-            directAnswer: '세션 테스트', statusConfidence: 'low',
-            evidence: [],
-          })),
-          toolCalls: [],
-        },
-      };
-    }
-  }
-
-  const root = await makeRepoFixture();
-  const { SessionStore } = await import('../src/explorer/session.mjs');
-  const sessionStore = new SessionStore({ maxCalls: 5 });
-  const runtime = new ExplorerRuntime({ chatClient: new SimpleClient() });
-
-  const first = await runtime.explore(
-    { task: '첫 번째 세션 호출', repo_root: root },
-    { sessionStore },
-  );
-  assert.equal(first.stats.remainingCalls, 4, 'new session stats must report remaining calls after this call completes');
-  assert.equal(sessionStore.getRemainingCalls(first.stats.sessionId), 4, 'session store and runtime stats must agree after first call');
-
-  const second = await runtime.explore(
-    { task: '두 번째 세션 호출', repo_root: root, session: first.stats.sessionId },
-    { sessionStore },
-  );
-  assert.equal(second.stats.remainingCalls, 3, 'reused session stats must decrement after the current call completes');
-  assert.equal(sessionStore.getRemainingCalls(second.stats.sessionId), 3, 'session store and runtime stats must agree after second call');
-});
-
-test('ExplorerRuntime injects previous session context into next call', async () => {
-  const capturedPrompts = [];
-
-  class CapturingClient {
-    constructor() { this.model = 'mock'; }
-    async createChatCompletion({ messages }) {
-      capturedPrompts.push(messages[0].content); // system prompt
-      return {
-        usage: { prompt_tokens: 30, completion_tokens: 10, total_tokens: 40 },
-        message: {
-          content: JSON.stringify(compactResult({
-            directAnswer: 'ok', statusConfidence: 'low',
-            evidence: [],
-          })),
-          toolCalls: [],
-        },
-      };
-    }
-  }
-
-  const root = await makeRepoFixture();
-  const { SessionStore } = await import('../src/explorer/session.mjs');
-  const sessionStore = new SessionStore();
-  const runtime = new ExplorerRuntime({ chatClient: new CapturingClient() });
-
-  // First call — creates session
-  const first = await runtime.explore({ task: '첫 번째 탐색', repo_root: root }, { sessionStore });
-  const sessionId = first.stats.sessionId;
-
-  // Second call — uses session ID
-  await runtime.explore(
-    { task: '두 번째 탐색', repo_root: root, session: sessionId },
-    { sessionStore },
-  );
-
-  // Each explore() now makes 2 chat completions (agentic + finalize).
-  // First explore: capturedPrompts[0] (agentic), capturedPrompts[1] (finalize)
-  // Second explore: capturedPrompts[2] (agentic), capturedPrompts[3] (finalize)
-  // The second explore's agentic system prompt should include the previous summary.
-  const secondSystemPrompt = capturedPrompts[2];
-  assert.ok(
-    secondSystemPrompt.includes('previous context test') ||
-    secondSystemPrompt.includes('Findings from previous'),
-    'Second call must reference previous session summary in system prompt',
-  );
-});
-
-test('ExplorerRuntime falls back to a new session when exhausted_session', async () => {
-  class SimpleClient {
-    constructor() { this.model = 'mock'; }
-    async createChatCompletion() {
-      return {
-        usage: { prompt_tokens: 30, completion_tokens: 10, total_tokens: 40 },
-        message: {
-          content: JSON.stringify(compactResult({
-            directAnswer: 'ok', statusConfidence: 'low',
-            evidence: [],
-          })),
-          toolCalls: [],
-        },
-      };
-    }
-  }
-
-  const root = await makeRepoFixture();
-  const { SessionStore } = await import('../src/explorer/session.mjs');
-  // maxCalls=1 so the session is exhausted after the first call
-  const sessionStore = new SessionStore({ maxCalls: 1 });
-  const runtime = new ExplorerRuntime({ chatClient: new SimpleClient() });
-
-  // First call — creates session, exhausts it (calls reaches maxCalls=1)
-  const first = await runtime.explore({ task: '첫 번째', repo_root: root }, { sessionStore });
-  const exhaustedId = first.stats.sessionId;
-
-  // Second call — passes the exhausted session ID
-  const second = await runtime.explore(
-    { task: '두 번째', repo_root: root, session: exhaustedId },
-    { sessionStore },
-  );
-
-  // Must succeed and silently use a new session
-  assert.ok(second.stats.sessionId, 'sessionId must exist in fallback result');
-  assert.notEqual(second.stats.sessionId, exhaustedId, 'fallback must create a new session ID');
-  assert.equal(second.stats.sessionStatus, 'fallback', 'sessionStatus must be "fallback"');
-});
-
-test('ExplorerRuntime falls back to a new session when expired_session', async () => {
-  class SimpleClient {
-    constructor() { this.model = 'mock'; }
-    async createChatCompletion() {
-      return {
-        usage: { prompt_tokens: 30, completion_tokens: 10, total_tokens: 40 },
-        message: {
-          content: JSON.stringify(compactResult({
-            directAnswer: 'ok', statusConfidence: 'low',
-            evidence: [],
-          })),
-          toolCalls: [],
-        },
-      };
-    }
-  }
-
-  const root = await makeRepoFixture();
-  const { SessionStore } = await import('../src/explorer/session.mjs');
-  const sessionStore = new SessionStore();
-  const runtime = new ExplorerRuntime({ chatClient: new SimpleClient() });
-
-  // First call — creates session
-  const first = await runtime.explore({ task: '첫 번째', repo_root: root }, { sessionStore });
-  const sessionId = first.stats.sessionId;
-
-  // Backdate lastUsedAt to simulate TTL expiry without relying on wall-clock timing
-  const raw = sessionStore._sessions.get(sessionId);
-  raw.lastUsedAt = Date.now() - sessionStore._ttlMs - 1000;
-
-  // Second call — passes the now-expired session ID
-  const second = await runtime.explore(
-    { task: '두 번째', repo_root: root, session: sessionId },
-    { sessionStore },
-  );
-
-  // Must succeed and silently use a new session
-  assert.ok(second.stats.sessionId, 'sessionId must exist in fallback result');
-  assert.notEqual(second.stats.sessionId, sessionId, 'fallback must create a new session ID');
-  assert.equal(second.stats.sessionStatus, 'fallback', 'sessionStatus must be "fallback"');
-});
-
-test('ExplorerRuntime reuses the same session when the same Windows repo is passed as a Git Bash path', { skip: process.platform !== 'win32' }, async () => {
-  class SimpleClient {
-    constructor() { this.model = 'mock'; }
-    async createChatCompletion() {
-      return {
-        usage: { prompt_tokens: 30, completion_tokens: 10, total_tokens: 40 },
-        message: {
-          content: JSON.stringify(compactResult({
-            directAnswer: 'ok', statusConfidence: 'low',
-            evidence: [],
-          })),
-          toolCalls: [],
-        },
-      };
-    }
-  }
-
-  const root = await makeRepoFixture();
-  const bashStyleRoot = root.replace(/\\/g, '/').replace(/^([A-Za-z]):\//, (_, drive) => `/${drive.toLowerCase()}/`);
-  const { SessionStore } = await import('../src/explorer/session.mjs');
-  const sessionStore = new SessionStore();
-  const runtime = new ExplorerRuntime({ chatClient: new SimpleClient() });
-
-  const first = await runtime.explore({ task: '첫 번째', repo_root: root }, { sessionStore });
-  const second = await runtime.explore(
-    { task: '두 번째', repo_root: bashStyleRoot, session: first.stats.sessionId },
-    { sessionStore },
-  );
-
-  assert.equal(second.stats.sessionStatus, 'reused');
-  assert.equal(second.stats.sessionId, first.stats.sessionId);
-});
+// spec 017: SessionStore was removed entirely. Tests that exercised session
+// fallback / remainingCalls / cross-call summary injection were deleted along
+// with src/explorer/session.mjs.
 
 // ── Phase 1 — 최종 출력 경로 단일화 ──────────────────────────────────────────
 
@@ -1586,7 +1344,7 @@ test('Phase 1 — malformed freeform content still produces strict-schema result
   assert.ok(Array.isArray(result.evidence), 'evidence must be an array on fallback');
   assert.ok(Array.isArray(result.uncertainties), 'uncertainties must be an array on fallback');
   assert.equal(result.followups, undefined);
-  assert.equal(result.schemaVersion, 1);
+  assert.equal(result.schemaVersion, 2);
   assert.equal(result.failure.category, 'internal');
   assert.equal(result.failure.reason, 'invalid_final_response');
   assert.equal(result.failure.retry.tool, 'explore_repo');
@@ -1716,95 +1474,7 @@ test('Phase 5 — git_commit evidence without verified SHA is dropped (strict va
   assert.equal(result.evidence.length, 0, 'unverified git_commit evidence must be dropped');
 });
 
-test('Phase 5 — session reuse stores targetPathsWithContext as {path, why} objects', async () => {
-  // Verifies that after an explore() call with evidence, the session stores
-  // targetPathsWithContext as { path, why }[] objects (not plain strings).
-  // The mock must call repo_read_file first so the evidence passes grounding.
-  class SimpleClient {
-    constructor() { this.model = 'zai-glm-4.7'; this.calls = 0; }
-    async createChatCompletion() {
-      this.calls += 1;
-      if (this.calls === 1) {
-        // Read both files to establish observedRanges for grounding
-        return {
-          usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
-          message: {
-            content: '',
-            toolCalls: [
-              { id: 'c1', function: { name: 'repo_read_file', arguments: JSON.stringify({ path: 'src/auth.js', startLine: 1, endLine: 4 }) } },
-              { id: 'c2', function: { name: 'repo_read_file', arguments: JSON.stringify({ path: 'src/routes/user.js', startLine: 1, endLine: 6 }) } },
-            ],
-          },
-        };
-      }
-      // Second call: no tools → triggers finalize
-      return {
-        usage: { prompt_tokens: 30, completion_tokens: 5, total_tokens: 35 },
-        message: { content: '', toolCalls: [] },
-      };
-    }
-  }
-
-  // Finalize client returns answer with evidence in observed ranges
-  class FinalizeClient extends SimpleClient {
-    async createChatCompletion(req) {
-      this.calls += 1;
-      if (this.calls === 1) {
-        return {
-          usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
-          message: {
-            content: '',
-            toolCalls: [
-              { id: 'c1', function: { name: 'repo_read_file', arguments: JSON.stringify({ path: 'src/auth.js', startLine: 1, endLine: 4 }) } },
-              { id: 'c2', function: { name: 'repo_read_file', arguments: JSON.stringify({ path: 'src/routes/user.js', startLine: 1, endLine: 6 }) } },
-            ],
-          },
-        };
-      }
-      // finalizeAfterToolLoop call: return evidence within observed ranges
-      return {
-        usage: { prompt_tokens: 30, completion_tokens: 15, total_tokens: 45 },
-        message: {
-          content: JSON.stringify(compactResult({
-            directAnswer: '분석 완료',
-            statusConfidence: 'medium',
-            evidence: [
-              { path: 'src/auth.js', startLine: 1, endLine: 4, why: '인증 함수 정의 위치' },
-              { path: 'src/routes/user.js', startLine: 1, endLine: 6, why: '라우트 등록 위치' },
-            ],
-          })),
-          toolCalls: [],
-        },
-      };
-    }
-  }
-
-  const root = await makeRepoFixture();
-  const { SessionStore } = await import('../src/explorer/session.mjs');
-  const sessionStore = new SessionStore();
-  const runtime = new ExplorerRuntime({ chatClient: new FinalizeClient() });
-
-  const result = await runtime.explore({ task: '인증 분석', repo_root: root }, { sessionStore });
-  const session = sessionStore.get(result.stats.sessionId);
-
-  assert.ok(session, 'session must exist');
-  assert.ok(Array.isArray(session.targetPathsWithContext),
-    'targetPathsWithContext must be an array');
-  assert.ok(session.targetPathsWithContext.length >= 2,
-    'must have at least 2 enriched paths from evidence items');
-
-  // Verify each entry is a { path, why } object
-  for (const entry of session.targetPathsWithContext) {
-    assert.equal(typeof entry.path, 'string', 'each entry must have a path string');
-    assert.equal(typeof entry.why, 'string', 'each entry must have a why string');
-    assert.ok(entry.why.length > 0, 'why must not be empty (should come from evidence.why)');
-  }
-
-  // Verify the paths are from the evidence items
-  const paths = session.targetPathsWithContext.map(e => e.path);
-  assert.ok(paths.includes('src/auth.js'), 'must include src/auth.js from evidence');
-  assert.ok(paths.includes('src/routes/user.js'), 'must include src/routes/user.js from evidence');
-});
+// spec 017: Phase 5 session reuse test removed alongside SessionStore module.
 
 test('Phase 5 — unknown tool validation stays in sync with current tool definitions', async () => {
   class UnknownToolClient {
@@ -3058,7 +2728,7 @@ test('010 US1#1 — locate task with exact evidence stays complete even when bud
     `verification must reflect sufficiency, got ${result.status.verification}`,
   );
   assert.equal(result.failure, null, 'budget exhaustion must not produce failure when sufficient');
-  assert.ok(result._debug?.evidenceSufficiency?.sufficient === true);
+  assert.ok(result.stats?.evidenceSufficiency?.sufficient === true);
   assert.ok(
     (result.status.warnings ?? []).some(w => /budget/i.test(w)),
     'budget warning should remain in status.warnings even when complete',
@@ -3136,7 +2806,7 @@ test('010 US1#2 — path_explanation with one evidence still incomplete after bu
   assert.equal(result.status.complete, false, 'complex task with one evidence must stay incomplete');
   assert.equal(result.status.verification, 'follow_up_needed');
   assert.equal(result.failure?.reason, 'budget_exhausted', 'insufficient + budget exhaustion must emit failure');
-  assert.equal(result._debug?.evidenceSufficiency?.sufficient, false);
+  assert.equal(result.stats?.evidenceSufficiency?.sufficient, false);
 });
 
 test('010 US1#3 — buildNextAction prefers explore_followup with a cited target over ask_user', async () => {
@@ -3219,50 +2889,9 @@ test('010 US1#3 — buildNextAction prefers explore_followup with a cited target
   }
 });
 
-// spec 011: CEREBRAS_EXPLORER_AUTO_SESSION_BY_REPO was removed. The
-// repeated-call scenario below keeps a regression check for the default
-// "always create a new session" behavior; the opt-in test is gone.
-
-test('spec 011 — repeated calls without an explicit session always create a new session', async () => {
-  // The envvar is ignored after spec 011, but we set it to prove that.
-  const previous = process.env.CEREBRAS_EXPLORER_AUTO_SESSION_BY_REPO;
-  process.env.CEREBRAS_EXPLORER_AUTO_SESSION_BY_REPO = '1';
-  try {
-    class SimpleClient {
-      constructor() { this.model = 'zai-glm-4.7'; }
-      async createChatCompletion() {
-        return {
-          usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
-          message: {
-            content: JSON.stringify(compactResult({
-              directAnswer: 'noop', statusConfidence: 'low', evidence: [],
-            })),
-            toolCalls: [],
-          },
-        };
-      }
-    }
-
-    const { SessionStore } = await import('../src/explorer/session.mjs');
-    const sessionStore = new SessionStore({ maxCalls: 5 });
-    const runtime = new ExplorerRuntime({ chatClient: new SimpleClient() });
-
-    const root = await makeRepoFixture();
-    const first = await runtime.explore({ task: '인증', repo_root: root }, { sessionStore });
-    const second = await runtime.explore({ task: '라우터', repo_root: root }, { sessionStore });
-
-    assert.notEqual(
-      first.sessionId,
-      second.sessionId,
-      'spec 011: even with the legacy envvar set, repeated implicit-session calls must create new sessions',
-    );
-    assert.notEqual(second._debug?.stats?.sessionSource, 'auto_repo',
-      'sessionSource=auto_repo no longer exists');
-  } finally {
-    if (previous === undefined) delete process.env.CEREBRAS_EXPLORER_AUTO_SESSION_BY_REPO;
-    else process.env.CEREBRAS_EXPLORER_AUTO_SESSION_BY_REPO = previous;
-  }
-});
+// spec 017: SessionStore was removed. The spec-011 regression check
+// for the legacy CEREBRAS_EXPLORER_AUTO_SESSION_BY_REPO opt-in is
+// no longer reachable and has been deleted.
 
 // ── 010 — Spec-2: targets[] / discoveredPaths[] separation ──────────────────
 
@@ -3463,6 +3092,6 @@ test('010 US1#4 — critic fail forces broad_search_needed regardless of evidenc
   if (result.critic?.status === 'fail') {
     assert.equal(result.status.complete, false);
     assert.equal(result.status.verification, 'broad_search_needed');
-    assert.equal(result._debug?.evidenceSufficiency?.sufficient, false);
+    assert.equal(result.stats?.evidenceSufficiency?.sufficient, false);
   }
 });

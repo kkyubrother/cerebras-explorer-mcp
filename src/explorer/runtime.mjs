@@ -1674,6 +1674,10 @@ export class ExplorerRuntime {
       task: args.task,
       taskMode: args.taskMode,
     });
+    // Keep the sufficiency verdict on the raw runtime result for benchmark /
+    // transcript / test introspection; it is not propagated into the MCP
+    // structuredContent envelope (spec 017 dropped _debug).
+    stats.evidenceSufficiency = evidenceSufficiency;
     normalized.status = buildResultStatus(normalized, stats, {
       task: args.task,
       taskMode: args.taskMode,

@@ -241,7 +241,11 @@ test('MCP request handler exposes explore_repo and returns structuredContent', a
   assert.ok(!toolNames.includes('explore_v2'), 'explore_v2 tool name was removed in spec 011');
   const exploreRepoTool = listed.tools.find(t => t.name === 'explore_repo');
   assert.match(exploreRepoTool.description, /Use FIRST/);
-  assert.match(exploreRepoTool.description, /Pass sessionId as "session"/);
+  // spec 017: session input parameter was removed; description no longer
+  // mentions it.
+  assert.doesNotMatch(exploreRepoTool.description, /sessionId/);
+  assert.equal(exploreRepoTool.inputSchema.properties.session, undefined,
+    'spec 017: session input parameter was removed');
   // spec 011: budget input was removed; every call runs against the single deep runtime config.
   assert.equal(exploreRepoTool.inputSchema.properties.budget, undefined, 'budget input was removed in spec 011');
   assert.ok(exploreRepoTool.outputSchema.properties.targets, 'explore_repo must expose outputSchema targets');
@@ -276,7 +280,7 @@ test('MCP request handler exposes explore_repo and returns structuredContent', a
   assert.equal(called.structuredContent.status.verification, 'verified');
   assert.equal(called.structuredContent.targets.length, 2);
   assert.equal(called.structuredContent.evidence.length, 2);
-  assert.equal(called.structuredContent.schemaVersion, 1);
+  assert.equal(called.structuredContent.schemaVersion, 2);
   assert.equal(called.structuredContent.failure, null);
   assert.equal(called.structuredContent.evidenceQuality.level, called.structuredContent.status.confidence);
   assert.equal(called.structuredContent.evidenceQuality.exactCount, 2);
@@ -284,14 +288,10 @@ test('MCP request handler exposes explore_repo and returns structuredContent', a
   assert.deepEqual(called.structuredContent.searchCoverage.scope, ['src/**']);
   assert.equal(called.structuredContent.searchCoverage.scopeLimited, true);
   assert.ok(called.structuredContent.evidence.every(item => item.id && item.snippet), 'evidence must include ids and snippets');
-  assert.ok(called.structuredContent.sessionId.startsWith('sess_'), 'sessionId must be top-level');
-  assert.deepEqual(called.structuredContent.session, {
-    id: called.structuredContent.sessionId,
-    status: 'created',
-    remainingCalls: 4,
-  });
-  assert.ok(called.structuredContent._debug.stats, '_debug.stats must be populated');
-  assert.equal(Object.hasOwn(called.structuredContent._debug, 'legacy'), false);
+  // spec 017: MCP response no longer exposes sessionId, session, or _debug.
+  assert.equal(called.structuredContent.sessionId, undefined);
+  assert.equal(called.structuredContent.session, undefined);
+  assert.equal(called.structuredContent._debug, undefined);
   assert.match(called.content[0].text, /requireAuth/);
   assert.match(called.content[0].text, /Evidence Quality/);
   assert.match(called.content[0].text, /Search Coverage/);
@@ -300,56 +300,10 @@ test('MCP request handler exposes explore_repo and returns structuredContent', a
   assert.doesNotMatch(called.content[0].text, /FORGED_BY_MODEL/);
   assert.ok(called.structuredContent.evidence.every(item => !item.snippet.includes('FORGED_BY_MODEL')), 'model-supplied snippets are not returned');
   assert.doesNotMatch(called.content[0].text, /## Stats/);
-  assert.doesNotMatch(called.content[0].text, /stats\.sessionId/);
+  assert.doesNotMatch(called.content[0].text, /Session:/);
 });
 
-test('MCP request handler exposes fallback session when supplied session is exhausted', async () => {
-  const repoRoot = await makeRepoFixture();
-  const { SessionStore } = await import('../src/explorer/session.mjs');
-  const sessionStore = new SessionStore({ maxCalls: 1 });
-  const { handleRequest } = createMcpRequestHandler({
-    sessionStore,
-    runtimeOptions: {
-      chatClient: new MockChatClient(),
-    },
-  });
-
-  const first = await handleRequest({
-    jsonrpc: '2.0',
-    id: 1,
-    method: 'tools/call',
-    params: {
-      name: 'explore_repo',
-      arguments: {
-        task: '첫 번째 호출',
-        repo_root: repoRoot,
-        scope: ['src/**'],
-      },
-    },
-  });
-
-  const exhaustedId = first.structuredContent.session.id;
-
-  const second = await handleRequest({
-    jsonrpc: '2.0',
-    id: 2,
-    method: 'tools/call',
-    params: {
-      name: 'explore_repo',
-      arguments: {
-        task: '두 번째 호출',
-        repo_root: repoRoot,
-        scope: ['src/**'],
-        session: exhaustedId,
-      },
-    },
-  });
-
-  assert.equal(second.structuredContent.session.status, 'fallback');
-  assert.notEqual(second.structuredContent.session.id, exhaustedId);
-  assert.equal(second.structuredContent.session.id, second.structuredContent.sessionId);
-  assert.equal(second.structuredContent.session.remainingCalls, 0);
-});
+// spec 017: fallback-session integration test removed alongside SessionStore.
 
 test('explore returns Markdown text plus structured citations', async () => {
   const repoRoot = await makeRepoFixture();
@@ -577,7 +531,7 @@ test('MCP request handler returns repo_root resolution errors without mislabelin
   assert.equal(called.structuredContent.failure.reason, 'repo_mismatch');
 });
 
-test('MCP request handler classifies generic invalid params separately from session errors', async () => {
+test('MCP request handler classifies generic invalid params as invalid_arguments', async () => {
   const { handleRequest } = createMcpRequestHandler({
     runtimeOptions: {
       chatClient: new MockChatClient(),
@@ -596,7 +550,7 @@ test('MCP request handler classifies generic invalid params separately from sess
 
   assert.equal(called.isError, true);
   assert.match(called.content[0].text, /Invalid arguments for trace_symbol/);
-  assert.equal(called.structuredContent.schemaVersion, 1);
+  assert.equal(called.structuredContent.schemaVersion, 2);
   assert.equal(called.structuredContent.failure.category, 'input');
   assert.equal(called.structuredContent.failure.reason, 'invalid_arguments');
   assert.equal(called.structuredContent.failure.retry, null);
@@ -715,7 +669,7 @@ test('MCP request handler returns execution failures for explore_repo without mi
   assert.match(called.content[0].text, /provider exploded/);
   assert.doesNotMatch(called.content[0].text, /Invalid explore_repo arguments/);
   assert.doesNotMatch(called.content[0].text, /Invalid arguments for explore_repo/);
-  assert.equal(called.structuredContent.schemaVersion, 1);
+  assert.equal(called.structuredContent.schemaVersion, 2);
   assert.equal(called.structuredContent.status.verification, 'broad_search_needed');
   assert.equal(called.structuredContent.failure.category, 'provider');
   assert.equal(called.structuredContent.failure.reason, 'provider_error');

@@ -215,7 +215,7 @@ test('validateExploreRepoArgs rejects unknown hint keys', () => {
   );
 });
 
-test('agent-facing output schema is compact and exposes directAnswer, status, targets, snippets, sessionId, and debug', () => {
+test('agent-facing output schema is compact and exposes directAnswer, status, targets, snippets', () => {
   assert.equal(EXPLORE_REPO_OUTPUT_SCHEMA.additionalProperties, false);
   assert.deepEqual(EXPLORE_REPO_OUTPUT_SCHEMA.required, [
     'schemaVersion',
@@ -228,7 +228,7 @@ test('agent-facing output schema is compact and exposes directAnswer, status, ta
     'evidenceQuality',
     'failure',
   ]);
-  assert.equal(EXPLORE_REPO_OUTPUT_SCHEMA.properties.schemaVersion.const, 1);
+  assert.equal(EXPLORE_REPO_OUTPUT_SCHEMA.properties.schemaVersion.const, 2);
   assert.ok(EXPLORE_REPO_OUTPUT_SCHEMA.properties.directAnswer);
   assert.ok(EXPLORE_REPO_OUTPUT_SCHEMA.properties.status);
   assert.ok(EXPLORE_REPO_OUTPUT_SCHEMA.properties.targets);
@@ -245,17 +245,17 @@ test('agent-facing output schema is compact and exposes directAnswer, status, ta
     undefined,
     'failure.retry.args must not expose advanced hints.strategy',
   );
-  assert.ok(EXPLORE_REPO_OUTPUT_SCHEMA.properties.sessionId);
-  assert.ok(EXPLORE_REPO_OUTPUT_SCHEMA.properties.session);
-  assert.deepEqual(
-    EXPLORE_REPO_OUTPUT_SCHEMA.properties.session.properties.status.enum,
-    ['created', 'reused', 'fallback'],
+  // spec 017: session / sessionId / _debug were removed from the response
+  // envelope along with the invalid_session failure reason.
+  assert.equal(EXPLORE_REPO_OUTPUT_SCHEMA.properties.sessionId, undefined);
+  assert.equal(EXPLORE_REPO_OUTPUT_SCHEMA.properties.session, undefined);
+  assert.equal(EXPLORE_REPO_OUTPUT_SCHEMA.properties._debug, undefined);
+  assert.ok(
+    !EXPLORE_REPO_OUTPUT_SCHEMA.properties.failure.anyOf[1].properties.reason.enum.includes('invalid_session'),
+    'invalid_session is no longer a recognised failure reason',
   );
-  assert.deepEqual(EXPLORE_REPO_OUTPUT_SCHEMA.properties.session.required, [
-    'id',
-    'status',
-    'remainingCalls',
-  ]);
+  // spec 017: input schema also drops the session parameter.
+  assert.equal(EXPLORE_REPO_INPUT_SCHEMA.properties.session, undefined);
   assert.ok(EXPLORE_REPO_OUTPUT_SCHEMA.properties.searchCoverage);
   assert.deepEqual(EXPLORE_REPO_OUTPUT_SCHEMA.properties.searchCoverage.required, [
     'scope',
@@ -269,7 +269,6 @@ test('agent-facing output schema is compact and exposes directAnswer, status, ta
     'warnings',
     'summary',
   ]);
-  assert.ok(EXPLORE_REPO_OUTPUT_SCHEMA.properties._debug);
   assert.equal(EXPLORE_REPO_OUTPUT_SCHEMA.properties.answer, undefined);
   assert.equal(EXPLORE_REPO_OUTPUT_SCHEMA.properties.candidatePaths, undefined);
   assert.equal(EXPLORE_REPO_OUTPUT_SCHEMA.properties.followups, undefined);

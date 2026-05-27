@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "directAnswer": "registerUserRoutes는 /users/me 라우트에 requireAuth 미들웨어를 직접 연결한다.",
   "status": {
     "confidence": "high",
@@ -68,12 +68,6 @@
     "summary": "Verified: 2 evidence items grounded across 2 files."
   },
   "failure": null,
-  "sessionId": "sess_example",
-  "session": {
-    "id": "sess_example",
-    "status": "created",
-    "remainingCalls": 4
-  },
   "searchCoverage": {
     "scope": ["src/**", "docs/**"],
     "scopeLimited": true,
@@ -85,21 +79,5 @@
     "stoppedByBudget": false,
     "warnings": ["Result is limited to scope: src/**, docs/**"],
     "summary": "scope-limited search across src/**, docs/**; 2 file read(s), 1 grep search(es)."
-  },
-  "_debug": {
-    "confidenceScore": 0.9,
-    "confidenceFactors": {
-      "evidenceCount": 2,
-      "evidenceGrounded": 2
-    },
-    "stats": {
-      "model": "zai-glm-4.7",
-      "budget": "quick",
-      "turns": 3,
-      "toolCalls": 4,
-      "sessionId": "sess_example",
-      "sessionStatus": "created",
-      "remainingCalls": 4
-    }
   }
 }

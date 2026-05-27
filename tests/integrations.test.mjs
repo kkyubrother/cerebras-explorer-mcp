@@ -35,19 +35,17 @@ test('expected response example matches compact explore_repo contract', async ()
   const raw = await read('examples/expected-response.json');
   const example = JSON.parse(raw);
 
-  assert.equal(example.schemaVersion, 1);
+  assert.equal(example.schemaVersion, 2);
   assert.equal(typeof example.directAnswer, 'string');
   assert.ok(example.status);
   assert.ok(Array.isArray(example.targets));
   assert.ok(Array.isArray(example.evidence));
   assert.ok(example.evidenceQuality);
   assert.equal(example.failure, null);
-  assert.ok(example.sessionId);
-  assert.deepEqual(example.session, {
-    id: example.sessionId,
-    status: 'created',
-    remainingCalls: 4,
-  });
+  // spec 017: sessionId/session/_debug are no longer part of the contract.
+  assert.equal(example.sessionId, undefined);
+  assert.equal(example.session, undefined);
+  assert.equal(example._debug, undefined);
   assert.ok(example.searchCoverage);
   assert.ok(example.nextAction?.type);
   assert.doesNotMatch(raw, /Discovered candidate path/);

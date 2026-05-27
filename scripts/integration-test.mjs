@@ -6,7 +6,6 @@
 
 import { ExplorerRuntime } from '../src/explorer/runtime.mjs';
 import { createChatClient } from '../src/explorer/providers/index.mjs';
-import { SessionStore } from '../src/explorer/session.mjs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -38,20 +37,6 @@ function getStatusConfidence(result) {
   return result?.status?.confidence;
 }
 
-function getSessionId(result) {
-  return result?.session?.id ?? result?.sessionId ?? result?.stats?.sessionId ?? '';
-}
-
-function getSessionSummary(result) {
-  const sessionId = getSessionId(result);
-  if (!sessionId) return null;
-  return {
-    id: sessionId,
-    status: result?.session?.status ?? result?.stats?.sessionStatus,
-    remainingCalls: result?.session?.remainingCalls ?? result?.stats?.remainingCalls,
-  };
-}
-
 export function buildExploreRepoChecks(result, {
   answerLabel = 'directAnswer',
   minAnswerLength = 10,
@@ -60,7 +45,6 @@ export function buildExploreRepoChecks(result, {
 } = {}) {
   const answer = getDirectAnswer(result);
   const confidence = getStatusConfidence(result);
-  const sessionId = getSessionId(result);
   const checks = [];
 
   checks.push([`${answerLabel} is non-empty`, answer.length > minAnswerLength]);
@@ -80,7 +64,6 @@ export function buildExploreRepoChecks(result, {
     typeof result?.searchCoverage?.summary === 'string' && result.searchCoverage.summary.length > 0,
   ]);
   checks.push(['failure is null', result?.failure === null]);
-  checks.push(['session id exists', typeof sessionId === 'string' && sessionId.startsWith('sess_')]);
   checks.push(['stats.turns > 0', result?.stats?.turns > 0]);
   checks.push(['stats.elapsedMs > 0', result?.stats?.elapsedMs > 0]);
   if (minFilesRead > 0) {
@@ -102,8 +85,6 @@ async function testExploreRepo() {
 
   const client = createChatClient({ budget: 'quick' });
   const runtime = new ExplorerRuntime({ chatClient: client, logger: console.error });
-  const sessionStore = new SessionStore();
-
   const result = await runtime.explore({
     task: 'How does the session management work in this project? Find the SessionStore class and explain its key methods.',
     repo_root: REPO_ROOT,
@@ -113,7 +94,6 @@ async function testExploreRepo() {
     onProgress: ({ progress, total, message }) => {
       process.stderr.write(`  [explore_repo] ${message} (${progress}/${total})\n`);
     },
-    sessionStore,
   });
 
   log('Direct Answer', getDirectAnswer(result));
@@ -121,7 +101,6 @@ async function testExploreRepo() {
   log('Evidence Quality', result.evidenceQuality);
   log('Search Coverage', result.searchCoverage);
   log('Failure', result.failure);
-  log('Session', getSessionSummary(result));
   log('Evidence count', `${result.evidence?.length ?? 0} items`);
   if (result.evidence?.length > 0) {
     log('Evidence sample', result.evidence.slice(0, 3));
@@ -152,8 +131,6 @@ async function testExploreRepoNormal() {
 
   const client = createChatClient({ budget: 'normal' });
   const runtime = new ExplorerRuntime({ chatClient: client, logger: console.error });
-  const sessionStore = new SessionStore();
-
   const result = await runtime.explore({
     task: 'Trace the full execution flow when explore_v2 tool is called from the MCP server. Start from server.mjs request handler, through runtime.mjs freeExploreV2(), and explain each advanced technique (LLM compaction, tool result budgeting, max output recovery).',
     repo_root: REPO_ROOT,
@@ -163,7 +140,6 @@ async function testExploreRepoNormal() {
     onProgress: ({ progress, total, message }) => {
       process.stderr.write(`  [explore_repo normal] ${message} (${progress}/${total})\n`);
     },
-    sessionStore,
   });
 
   log('Direct Answer (first 500 chars)', getDirectAnswer(result).slice(0, 500));
@@ -171,7 +147,6 @@ async function testExploreRepoNormal() {
   log('Evidence Quality', result.evidenceQuality);
   log('Search Coverage', result.searchCoverage);
   log('Failure', result.failure);
-  log('Session', getSessionSummary(result));
   log('Evidence count', `${result.evidence?.length ?? 0} items`);
   log('Stats', {
     turns: result.stats?.turns,
@@ -290,7 +265,6 @@ async function testToolValidation() {
     onProgress: ({ progress, total, message }) => {
       process.stderr.write(`  [tool-validation] ${message} (${progress}/${total})\n`);
     },
-    sessionStore,
   });
 
   log('Direct Answer (first 300 chars)', getDirectAnswer(result).slice(0, 300));
@@ -298,7 +272,6 @@ async function testToolValidation() {
   log('Evidence Quality', result.evidenceQuality);
   log('Search Coverage', result.searchCoverage);
   log('Failure', result.failure);
-  log('Session', getSessionSummary(result));
   log('Stats', { turns: result.stats?.turns, toolCalls: result.stats?.toolCalls });
 
   const checks = buildExploreRepoChecks(result, {
