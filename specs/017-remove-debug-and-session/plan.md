@@ -209,13 +209,25 @@ integrations/codex/AGENTS.md.example  # session 가이드 제거
 - **transcript JSONL backward compatibility**: schemaVersion 1로 기록된 과거 transcript가 분석 도구에서 깨지는지 확인. read-only이므로 신규 record만 schemaVersion 2가 들어간다. 분석 도구가 schemaVersion을 보고 분기하지 않는다면 영향 없음.
 - **외부 사용자의 session 의존**: 본인 외 사용자가 session multi-call을 production에서 쓰는지는 불명. CHANGELOG와 README breaking 안내로 고지.
 - **`failover` provider 등 다른 운영 기능**: 본 spec과 독립. 영향 없음.
-- **plan 자체에 대한 reversibility**: 본 spec은 명백한 breaking이다. 되돌리려면 또 다른 spec이 필요. 단계별 commit으로 분리해 두면 rollback 단위가 작아진다 (Phase 1/2/3/4/5/6/7/8을 각 commit으로 분리하는 것도 한 옵션, 그러나 단일 release 단일 PR이 사용자 결정).
+- **plan 자체에 대한 reversibility**: 본 spec은 명백한 breaking이다. 되돌리려면 또 다른 spec이 필요. 사용자 결정에 따라 Phase 단위 5 commit으로 끊어 rollback/bisect 단위를 작게 가져간다 (아래 "Commit 단위" 표 참고).
+
+## Commit 단위 (확정)
+
+| Commit | 범위 | 메시지 prefix |
+|---|---|---|
+| C1 | Phase 1+2+3 (schemas + runtime + mcp server) | `refactor(spec-017): drop _debug, session, and sessionId from response/input contracts` |
+| C2 | Phase 4+5 (session.mjs 삭제, benchmark/critic 정리) | `refactor(spec-017): remove SessionStore module and benchmark fallbacks` |
+| C3 | Phase 6 (테스트 갱신) | `test(spec-017): align tests with schemaVersion 2 contract` |
+| C4 | Phase 7 (README/DESIGN/CHANGELOG/integrations) | `docs(spec-017): document breaking change and remove session/_debug references` |
+| C5 | Phase 8 (버전 bump + tag + push) | `chore: release v0.6.0` |
+
+C1을 한 덩어리로 가는 이유: schema와 runtime/server가 어긋나면 모든 테스트가 깨진다. C2부터는 surface가 정합 상태라 단독으로 끊어도 빌드/테스트 통과해야 한다. 각 commit 끝에 `npm test`로 0 failures 확인 후 다음 commit으로 넘어간다 (C4 문서 commit은 코드 영향 없으므로 검증 생략 가능).
 
 ## Out of Scope
 
 - progress notification (`_meta.progressToken`) 흐름 — 그대로 유지.
 - `failover` provider 기능 — 그대로 유지.
-- `_debug` 같은 운영 메타데이터를 별도 envvar로 노출하는 옵트인 — 추가 안 함. 필요하면 후속 spec에서.
+- `_debug` 같은 운영 메타데이터를 응답에 다시 노출하는 envvar 옵트인 — 추가 안 함. parent agent는 어차피 `_debug`를 사람에게 보여주지 않으므로 응답 채널은 운영 디버깅 용도로 부적합. **로컬 운영 로그(stderr 또는 파일)는 후속 spec 018에서 별도 채널로 도입**한다 (본 spec과 독립).
 - transcript schemaVersion 1 → 2 자동 마이그레이션 — 제공 안 함.
 - explore의 markdown 본문 contract — 변경 없음. `citations[]`/`targets[]`는 그대로.
 - 6 wrapper 도구 자체의 surface — 그대로 8개 고정.

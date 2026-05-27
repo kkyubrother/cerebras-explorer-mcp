@@ -1,72 +1,73 @@
 # QUESTION.md
 
-다른 PC에서 spec 017 구현을 이어갈 때 결정이 필요한 항목.
+다른 PC에서 spec 017 구현을 이어갈 때 결정 사항.
 
 ## 진행 상황
 
 - `specs/017-remove-debug-and-session/spec.md`, `plan.md`, `tasks.md` 작성 완료.
 - 코드 변경은 아직 시작 안 함.
-- 사용자 결정 사항(2026-05-26 대화 기준):
+- 사용자 결정 사항 (확정):
   - `_debug` 응답에서 완전 제거.
   - 세션 기능 완전 제거 (입력·응답·SessionStore·tests/session.test.mjs 전부).
   - schemaVersion 1 → 2, breaking 단일 변경.
   - 다음 release는 minor bump(0.6.0).
 
-## 결정이 필요한 항목
+## 확정된 결정
 
-### Q1. 단일 commit vs Phase 단위 commit?
+### A1. Commit 단위 → **Phase 단위 5 commit**
 
-`spec.md`의 Assumptions에는 "단일 PR + 단일 commit"으로 적었지만, plan.md의 Complexity Tracking에는 Phase 단위 commit이 rollback 단위가 작아진다는 점도 적어두었다.
+`plan.md`의 8 Phase를 다음 5개 commit으로 묶는다. 각 commit은 빌드/테스트가 통과하는 상태로 끊는다.
 
-- **단일 commit**: PR 리뷰는 쉽지만 bisect/rollback 단위가 큼.
-- **Phase 단위 8 commit**: 각 phase가 단독 빌드 가능(Phase 1 schema → Phase 2 runtime → ...)하지만 Phase 1 commit만 main에 들어가면 schema-runtime 불일치로 잠시 깨짐.
+| Commit | 범위 | 메시지 prefix |
+|---|---|---|
+| C1 | Phase 1+2+3 (schemas + runtime + mcp server) | `refactor(spec-017): drop _debug, session, and sessionId from response/input contracts` |
+| C2 | Phase 4+5 (session.mjs 삭제, benchmark/critic 정리) | `refactor(spec-017): remove SessionStore module and benchmark fallbacks` |
+| C3 | Phase 6 (테스트 갱신) | `test(spec-017): align tests with schemaVersion 2 contract` |
+| C4 | Phase 7 (README/DESIGN/CHANGELOG/integrations 문서) | `docs(spec-017): document breaking change and remove session/_debug references` |
+| C5 | Phase 8 (version bump + tag + push) | `chore: release v0.6.0` |
 
-**추천**: Phase 1+2+3 한 commit (schema + runtime + server), Phase 4+5 한 commit (모듈/벤치마크 정리), Phase 6 한 commit (테스트), Phase 7 한 commit (문서), Phase 8 한 commit (버전 bump + tag) — 5개 commit. Phase 1만 들어가면 빌드는 되지만 runtime이 schema와 어긋나 테스트 깨짐. Phase 1+2+3을 묶으면 안전.
+근거: C1을 한 덩어리로 가는 이유는 schema와 runtime/server가 어긋나면 모든 테스트가 깨지기 때문. C2부터는 surface가 정합 상태라 단독으로 끊어도 된다.
 
-다른 PC에서 진행할 때 commit 단위를 어떻게 잡을지 결정 부탁.
+### A2. Transcript schemaVersion 1/2 호환 → **그대로 두고 분기**
 
-### Q2. transcript 호환성 명시?
+마이그레이션 제공 안 함. 분석 도구가 schemaVersion으로 분기. `spec.md` Edge Cases에 이미 명시되어 있음. 추가 작업 없음.
 
-기존 `.cerebras-explorer/transcripts/*.jsonl`에 schemaVersion 1로 기록된 레코드가 있을 수 있다. 본 spec은 마이그레이션 제공 안 함. 그러나 transcript 파싱 도구가 새로 도입된다면 schemaVersion에 분기를 해야 할 수 있다.
+### A3. Breaking 안내 → **CHANGELOG + GitHub Releases**
 
-- **Option A**: spec.md Edge Cases에 명시한 대로 그대로 둠 (분석 도구가 schemaVersion으로 분기). 추가 작업 없음.
-- **Option B**: transcript writer가 schemaVersion 1 레코드를 자동으로 회전(rotate)해서 새 transcript는 schemaVersion 2만 갖도록. 구현 추가.
+- `CHANGELOG.md` 새 release 라인에 BREAKING 항목 명시 (T-081).
+- GitHub Releases에 release notes 작성 — `git log v0.5.0..v0.6.0 --oneline` 기반.
+- README 상단 경고 박스는 추가하지 않음 (v0.5.0이 단일 사용자 시점이라 과함).
 
-**추천**: Option A. 본 spec 범위 밖 작업.
+### A4. Release tag sed → **Bash 기준 (GNU sed)**
 
-### Q3. 다른 사용자에게 breaking 안내?
+Windows 환경이라도 Git Bash에서 GNU sed로 일관 처리. `tasks.md` T-096의 sed 명령을 그대로 사용:
 
-본인 외 사용자가 session multi-call을 production에서 쓰는지 알 길이 없다. v0.5.0이 npm publish가 아직 안 됐고 GitHub tag 기반 npx 설치만 안내된 상태이므로, breaking 사용자가 적을 가능성이 높다. 그래도 명시적 안내를 어디까지 할지:
+```bash
+grep -rl "github:kkyubrother/cerebras-explorer-mcp#v0.5.0" README.md integrations/ \
+  | xargs sed -i "s|cerebras-explorer-mcp#v0.5.0|cerebras-explorer-mcp#v0.6.0|g"
+```
 
-- **Option A**: CHANGELOG의 BREAKING 항목 + README의 새 버전 릴리즈 안내문구.
-- **Option B**: Option A + GitHub Releases에 release notes 별도 작성.
-- **Option C**: Option B + README 상단에 "v0.6.0+은 v0.5.x와 응답 contract 호환 안 됨" 경고 박스.
+PowerShell 대안은 채택 안 함. 다른 PC가 Linux/macOS여도 동일하게 동작.
 
-**추천**: Option B. v0.5.0이 아직 단일 사용자 시점이라 Option C는 과함.
+### A5. `_debug` 제거 후 운영 디버깅 → **별도 로컬 로그 메커니즘 필요 (후속 spec)**
 
-### Q4. release tag 갱신 sed 명령의 OS 호환성?
+사용자 결정: "_debug는 어차피 parent agent가 사람에게 보여주지 않으니 응답에 박혀 있어도 운영 디버깅 용도로는 못 쓴다. 운영 디버깅이 필요하면 로컬에 로그를 남기는 별도 메커니즘이 맞다."
 
-`tasks.md`의 T-096이 README의 release 절차를 따라 `sed -i`로 v0.5.0 → v0.6.0 치환을 권하지만, 본 작업이 Windows에서 진행 중이라면 `sed -i` 문법이 다르다 (GNU sed: `sed -i`, BSD sed: `sed -i ''`, PowerShell: `(Get-Content ...) -replace ... | Set-Content ...`).
+본 spec 017 범위에서는 `_debug`를 단순 제거만 한다. **별도 로컬 로그 메커니즘은 spec 018로 분리**한다.
 
-- **Option A**: Git Bash에서 GNU sed 사용 (Windows에 `Git for Windows` 설치되어 있으면 가능).
-- **Option B**: PowerShell의 `Get-Content | Set-Content`로 대체.
-- **Option C**: Node 스크립트(`scripts/bump-version.mjs` 같은 것)로 일관 처리.
+후속 spec 018 (가칭 "explorer local operational log")에서 다룰 후보:
 
-**추천**: Option B (Windows 환경 가정). 추가 스크립트 없이 PowerShell 한 줄로 처리.
+- stderr에 turn 수·tool 호출 횟수·budget 상태를 한 줄 요약으로 출력 (envvar 무관 또는 `CEREBRAS_EXPLORER_OPS_LOG`로 토글).
+- 또는 `.cerebras-explorer/ops/*.log` 로테이션 파일로 기록.
+- transcript JSONL과의 역할 분리: transcript는 LLM 대화 trace, ops log는 호출 단위 메타 요약.
+- MCP stdio 채널은 절대 오염하지 않음 (stdout은 JSON-RPC 전용 보장).
 
-### Q5. `_debug` 제거 후 stdio JSON-RPC 로그가 부족하지 않을까?
-
-`_debug.stats`/`_debug.toolTrace`가 사라지면 운영 디버깅 시 응답만 보고는 turn 수·tool 호출 횟수를 알 수 없다. 다음 옵션 검토 필요.
-
-- **Option A**: 그대로 두고 디버깅은 transcript JSONL로만 대응. (`CEREBRAS_EXPLORER_TRANSCRIPT=true`)
-- **Option B**: stderr에 운영 메타데이터 한 줄 요약을 항상 출력 (envvar 무관). MCP stdio 채널은 안 오염, 사용자가 로그로 확인.
-- **Option C**: envvar로 `_debug`를 옵트인 응답 필드로 노출 (사용자 첫 답변의 옵션 3과 유사).
-
-**추천**: Option A. Option C는 사용자가 명시적으로 거부한 선택지. Option B는 작업이 늘어남.
+본 spec 017은 이 후속 spec을 차단하지 않으며, 후속 spec에서 `_debug` 복원이 아닌 신규 로그 채널 도입을 전제로 한다.
 
 ## 메모
 
-- 본 plan의 모든 파일 라인 번호는 2026-05-26 master 기준이다. 다른 PC에서 pull 후 라인이 어긋날 수 있다 — grep으로 식별자 기준 재탐색 권장.
-- `SessionStore` 모듈 의존성 잔재가 의외로 깊을 수 있다. T-032/T-033을 가장 먼저 돌려서 surface를 확인하면 좋다.
+- 본 plan의 모든 파일 라인 번호는 master 기준이다. 다른 PC에서 pull 후 라인이 어긋날 수 있다 — grep으로 식별자 기준 재탐색 권장.
+- `SessionStore` 모듈 의존성 잔재가 의외로 깊을 수 있다. T-032/T-033(grep 검증)을 Phase 4 마지막에 돌려 surface를 확인.
 - `src/explorer/critic.mjs`가 stats 10건을 본다고 grep에 잡혔는데, 본 spec은 critic이 stats의 비-세션 필드만 본다고 가정. 실제 코드에서 확인 후 가정이 맞으면 T-042는 최소 변경.
-- `benchmark/transcript-metrics.mjs`의 `_debug` 의존(grep 1건)은 실제로 봤을 때 단순 fallback일 가능성이 높지만, 직접 확인이 필요.
+- `benchmark/transcript-metrics.mjs`의 `_debug` 의존(grep 1건)은 단순 fallback일 가능성 높지만 직접 확인 필요.
+- 본 spec 작업 완료 직후 spec 018(로컬 운영 로그) 초안을 같은 방식으로 작성하는 것이 자연스러운 흐름이다.

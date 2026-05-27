@@ -181,4 +181,5 @@
 - 외부 사용자가 session multi-call 기능을 production에서 사용 중이라면 본 release로 그 기능을 잃는다. CHANGELOG와 README의 breaking 안내로 충분히 고지한다.
 - benchmark/transcript는 runtime raw result의 `stats`를 직접 사용하도록 단순화한다. MCP 응답에는 `stats`도 전파되지 않는다.
 - `failover` provider 같은 다른 운영 기능은 본 spec 범위 밖이며 영향 받지 않는다.
-- 본 spec은 P0/P1 작업을 차단하지 않으며 단일 PR + 단일 commit으로 처리한다.
+- 본 spec은 P0/P1 작업을 차단하지 않는다. 단일 PR로 처리하되 commit은 Phase 단위 5개로 끊어 bisect/rollback 단위를 작게 가져간다 (plan.md "Commit 단위" 표 참고).
+- 본 spec 완료 직후 spec 018(로컬 운영 로그 채널 — `_debug` 응답 제거의 운영 디버깅 대체 수단)을 별도로 시작한다. 본 spec은 spec 018을 차단하지 않으며 surface도 겹치지 않는다.
