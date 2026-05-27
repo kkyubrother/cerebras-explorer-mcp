@@ -70,3 +70,9 @@
 - Release history: `CHANGELOG.md`
 - 과거 plan / audit: `plan/README.md`, `plan/legacy-audit.md`
 - Local pre-commit hook 설치: `bash scripts/install-hooks.sh` (한 번만)
+
+<!-- SPECKIT START -->
+For additional context about technologies to be used, project structure,
+shell commands, and other important information, read the current plan:
+[`specs/018-transcript-ops-log/plan.md`](./specs/018-transcript-ops-log/plan.md)
+<!-- SPECKIT END -->
