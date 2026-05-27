@@ -42,11 +42,6 @@ export const EXPLORE_REPO_INPUT_SCHEMA = {
         },
       },
     },
-    session: {
-      type: 'string',
-      description:
-        'Optional session ID returned by a previous explore_repo call. When provided, the explorer carries over discovered file paths and prior summaries to accelerate follow-up exploration.',
-    },
     language: {
       type: 'string',
       description:
@@ -175,7 +170,6 @@ const FAILURE_SCHEMA = {
         'budget_exhausted',
         'tool_errors',
         'aborted',
-        'invalid_session',
         'repo_mismatch',
         'invalid_arguments',
         'provider_error',
@@ -202,17 +196,6 @@ const EVIDENCE_QUALITY_SCHEMA = {
     summary: { type: 'string' },
   },
   required: ['level', 'exactCount', 'partialCount', 'droppedCount', 'fileCount', 'warnings', 'summary'],
-};
-
-const SESSION_SCHEMA = {
-  type: 'object',
-  additionalProperties: false,
-  properties: {
-    id: { type: 'string' },
-    status: { type: 'string', enum: ['created', 'reused', 'fallback'] },
-    remainingCalls: { type: 'integer', minimum: 0 },
-  },
-  required: ['id', 'status', 'remainingCalls'],
 };
 
 const SEARCH_COVERAGE_SCHEMA = {
@@ -287,7 +270,7 @@ export const EXPLORE_REPO_OUTPUT_SCHEMA = {
     'failure',
   ],
   properties: {
-    schemaVersion: { type: 'integer', const: 1 },
+    schemaVersion: { type: 'integer', const: 2 },
     directAnswer: { type: 'string' },
     status: STATUS_SCHEMA,
     targets: { type: 'array', items: TARGET_ITEM_SCHEMA },
@@ -297,10 +280,7 @@ export const EXPLORE_REPO_OUTPUT_SCHEMA = {
     nextAction: NEXT_ACTION_SCHEMA,
     evidenceQuality: EVIDENCE_QUALITY_SCHEMA,
     failure: { anyOf: [{ type: 'null' }, FAILURE_SCHEMA] },
-    sessionId: { type: 'string' },
-    session: SESSION_SCHEMA,
     searchCoverage: SEARCH_COVERAGE_SCHEMA,
-    _debug: { type: 'object', additionalProperties: true },
   },
 };
 
@@ -363,9 +343,6 @@ export function validateExploreRepoArgs(args, { allowInternal = false } = {}) {
   }
   if (args.repo_root !== undefined && typeof args.repo_root !== 'string') {
     throw new Error('repo_root must be a string when provided.');
-  }
-  if (args.session !== undefined && (typeof args.session !== 'string' || !args.session.trim())) {
-    throw new Error('session must be a non-empty string when provided.');
   }
   if (args.language !== undefined && (typeof args.language !== 'string' || !args.language.trim())) {
     throw new Error('language must be a non-empty string when provided.');
@@ -511,9 +488,6 @@ export function normalizeExploreResult(raw, stats) {
           })
           .filter(item => item.path && item.why)
       : [],
-    ...(typeof safe.sessionId === 'string' && safe.sessionId ? { sessionId: safe.sessionId } : {}),
-    ...(typeof stats?.sessionId === 'string' && stats.sessionId ? { sessionId: stats.sessionId } : {}),
     stats,
-    _debug: safe._debug && typeof safe._debug === 'object' ? safe._debug : {},
   };
 }

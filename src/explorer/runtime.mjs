@@ -302,14 +302,13 @@ function buildTrustSummary(result, stats) {
   return parts.join(', ') + '. ' + suffix;
 }
 
-const AGENT_FACING_SCHEMA_VERSION = 1;
+const AGENT_FACING_SCHEMA_VERSION = 2;
 
 const FAILURE_CATEGORIES = ['execution', 'input', 'provider', 'internal'];
 const FAILURE_REASONS = [
   'budget_exhausted',
   'tool_errors',
   'aborted',
-  'invalid_session',
   'repo_mismatch',
   'invalid_arguments',
   'provider_error',
@@ -955,18 +954,6 @@ function buildNextAction(result, { sufficiency = null } = {}) {
   return { type: 'stop', reason: 'Explorer result is complete for the requested read-only investigation.' };
 }
 
-function attachDebug(result, { stats, codeMap, toolTrace }) {
-  result._debug = {
-    ...(result._debug ?? {}),
-    confidenceScore: result.confidenceScore,
-    confidenceFactors: result.confidenceFactors,
-    stats,
-    ...(toolTrace ? { toolTrace } : {}),
-    ...(codeMap ? { codeMap } : {}),
-  };
-  return result;
-}
-
 function nowMs() {
   return Date.now();
 }
@@ -1122,90 +1109,6 @@ function fingerprintToolCalls(toolCalls) {
   );
 }
 
-/**
- * Resolve session for an explore() call.
- * Returns { ok, sessionId, sessionData, sessionStatus, remainingCalls } on success,
- * or { ok: false, reason } when an explicitly requested session is invalid.
- *
- * When no session is requested (or sessionStore is null), a new session is created.
- * Recoverable failures (exhausted_session, expired_session) silently fall back to
- * a new session — sessionStatus will be 'fallback' to signal this in stats.
- * Non-recoverable failures (invalid_session, repo_mismatch) still reject with an error.
- */
-function resolveSessionForExplore(sessionStore, requestedSessionId, repoRoot) {
-  if (!sessionStore) {
-    return {
-      ok: true,
-      sessionId: null,
-      sessionData: null,
-      sessionStatus: null,
-      sessionSource: null,
-      remainingCalls: null,
-    };
-  }
-
-  const trimmedId = requestedSessionId && typeof requestedSessionId === 'string'
-    ? requestedSessionId.trim()
-    : '';
-
-  if (trimmedId) {
-    // Explicit session requested — validate it
-    const validation = sessionStore.validateForReuse(trimmedId, repoRoot);
-    if (!validation.ok) {
-      // Recoverable: session ran out of calls or expired — silently start a fresh one
-      if (validation.reason === 'exhausted_session' || validation.reason === 'expired_session') {
-        const newId = sessionStore.create(repoRoot);
-        const newData = sessionStore.get(newId);
-        return {
-          ok: true,
-          sessionId: newId,
-          sessionData: newData,
-          sessionStatus: 'fallback',
-          sessionSource: 'created',
-          remainingCalls: sessionStore.getRemainingCalls(newId),
-        };
-      }
-      // Non-recoverable (invalid_session, repo_mismatch): propagate error
-      return { ok: false, reason: validation.reason };
-    }
-    return {
-      ok: true,
-      sessionId: trimmedId,
-      sessionData: validation.session,
-      sessionStatus: 'reused',
-      sessionSource: 'explicit',
-      remainingCalls: validation.remainingCalls,
-    };
-  }
-
-  // spec 011: auto repo-keyed session reuse (010 opt-in
-  // CEREBRAS_EXPLORER_AUTO_SESSION_BY_REPO) was removed. Multi-call
-  // continuity now requires an explicit `session` argument.
-
-  // No session requested — create a new one
-  const newId = sessionStore.create(repoRoot);
-  const newData = sessionStore.get(newId);
-  return {
-    ok: true,
-    sessionId: newId,
-    sessionData: newData,
-    sessionStatus: 'created',
-    sessionSource: 'created',
-    remainingCalls: sessionStore.getRemainingCalls(newId),
-  };
-}
-
-function syncRemainingCallsStat(stats, sessionStore, sessionId) {
-  if (!stats || !sessionStore || !sessionId || typeof sessionStore.getRemainingCalls !== 'function') {
-    return;
-  }
-
-  const remainingCalls = sessionStore.getRemainingCalls(sessionId);
-  if (Number.isFinite(remainingCalls)) {
-    stats.remainingCalls = remainingCalls;
-  }
-}
-
 function recordObservedRange(observedRanges, targetPath, startLine, endLine, source = 'read') {
   if (!targetPath) {
     return;
@@ -1291,7 +1194,7 @@ export class ExplorerRuntime {
    * Returns all the common infrastructure: budgetConfig, repoRoot, projectConfig,
    * session data, repoToolkit, chatClient, tools, and timing helpers.
    */
-  async _initExploreContext({ repoRootArg, scope, session, taskText, sessionStore }) {
+  async _initExploreContext({ repoRootArg, scope, taskText }) {
     const repoRoot = await resolveRepoRoot(repoRootArg);
 
     const rawProjectConfig = await loadProjectConfig(repoRoot);
@@ -1308,15 +1211,6 @@ export class ExplorerRuntime {
     const extraIgnorePatterns = projectConfig.extraIgnorePatterns ?? [];
 
     const chatClient = this._explicitChatClient ?? createChatClient({ budget: resolveModelBudget() });
-
-    const sessionResolution = resolveSessionForExplore(sessionStore, session, repoRoot);
-    if (!sessionResolution.ok) {
-      const err = new Error(`Invalid session: ${sessionResolution.reason}`);
-      err.code = -32602;
-      err.sessionError = sessionResolution.reason;
-      throw err;
-    }
-    const { sessionId, sessionData, sessionStatus, sessionSource, remainingCalls } = sessionResolution;
 
     const repoToolkit = new RepoToolkit({
       repoRoot,
@@ -1336,7 +1230,7 @@ export class ExplorerRuntime {
     return {
       budgetConfig, repoRoot, projectConfig, effectiveScope, projectContext, keyFiles,
       budgetSource,
-      chatClient, sessionId, sessionData, sessionStatus, sessionSource, remainingCalls,
+      chatClient,
       repoToolkit, tools, reasoningEffort, temperature, topP,
     };
   }
@@ -1345,23 +1239,20 @@ export class ExplorerRuntime {
    * @param {object} args - explore_repo arguments (validated by validateExploreRepoArgs)
    * @param {object} [callOpts]
    * @param {Function}      [callOpts.onProgress]    - Called with {progress, total, message}
-   * @param {object}        [callOpts.sessionStore]  - SessionStore instance for session management
    * @param {AbortSignal}   [callOpts.abortSignal]   - Signal to abort exploration gracefully
    */
-  async explore(args, { onProgress = null, sessionStore = null, abortSignal = null } = {}) {
+  async explore(args, { onProgress = null, abortSignal = null } = {}) {
     validateExploreRepoArgs(args, { allowInternal: true });
 
     const {
       budgetConfig, repoRoot, projectConfig, effectiveScope, projectContext, keyFiles,
       budgetSource,
-      chatClient, sessionId, sessionData, sessionStatus, sessionSource, remainingCalls,
+      chatClient,
       repoToolkit, tools, reasoningEffort, temperature, topP,
     } = await this._initExploreContext({
       repoRootArg: args.repo_root,
       scope: args.scope,
-      session: args.session,
       taskText: args.task,
-      sessionStore,
     });
 
     const startedAt = nowMs();
@@ -1376,7 +1267,7 @@ export class ExplorerRuntime {
           language: args.language,
           projectContext,
           keyFiles,
-          previousSummaries: sessionData?.summaries ?? [],
+          previousSummaries: [],
         }),
       },
       {
@@ -1386,7 +1277,7 @@ export class ExplorerRuntime {
           scope: effectiveScope,
           budget: budgetConfig.label,
           hints: args.hints,
-          sessionTargetPaths: sessionData?.targetPathsWithContext ?? sessionData?.targetPaths ?? [],
+          sessionTargetPaths: [],
           language: args.language,
         }),
       },
@@ -1414,10 +1305,6 @@ export class ExplorerRuntime {
       stoppedByBudget: false,
       scope: Array.isArray(effectiveScope) ? effectiveScope : [],
       repoRoot,
-      sessionId,
-      sessionStatus,
-      sessionSource,
-      remainingCalls,
     };
 
     let discoveredPaths = [];
@@ -1787,34 +1674,22 @@ export class ExplorerRuntime {
       task: args.task,
       taskMode: args.taskMode,
     });
-    normalized._debug = {
-      ...(normalized._debug ?? {}),
-      evidenceSufficiency,
-    };
     normalized.status = buildResultStatus(normalized, stats, {
       task: args.task,
       taskMode: args.taskMode,
       sufficiency: evidenceSufficiency,
     });
     normalized.nextAction = buildNextAction(normalized, { sufficiency: evidenceSufficiency });
-    if (stats.sessionId) normalized.sessionId = stats.sessionId;
 
     // Trust summary — a natural-language sentence the parent model can rely on
     normalized.trustSummary = buildTrustSummary(normalized, stats);
     attachAgentFacingContract(normalized, stats, criticPass.grounding);
 
-    // codeMap
+    // codeMap is kept on the raw runtime result for benchmark/transcript use,
+    // but is not propagated into the MCP structuredContent envelope.
     const codeMap = buildCodeMap(observedRanges, projectConfig.entryPoints ?? []);
     if (codeMap) {
       normalized.codeMap = codeMap;
-    }
-
-    attachDebug(normalized, { stats, codeMap, toolTrace: toolTrace.toJSON() });
-
-    // Update session with this call's result
-    if (sessionStore && sessionId) {
-      sessionStore.update(sessionId, normalized);
-      syncRemainingCallsStat(stats, sessionStore, sessionId);
     }
 
     return normalized;
@@ -1840,7 +1715,7 @@ export class ExplorerRuntime {
    * @param {object} args - { prompt, thoroughness?, scope?, repo_root?, session?, language?, context? }
    * @param {object} [callOpts]
    */
-  async freeExploreV2(args, { onProgress = null, sessionStore = null, abortSignal = null } = {}) {
+  async freeExploreV2(args, { onProgress = null, abortSignal = null } = {}) {
     if (!args || typeof args.prompt !== 'string' || !args.prompt.trim()) {
       const err = new Error('prompt is required and must be a non-empty string.');
       err.code = -32602;
@@ -1851,14 +1726,12 @@ export class ExplorerRuntime {
     // explore call runs against the single deep runtime config.
     const {
       budgetConfig: baseBudgetConfig, repoRoot, effectiveScope, projectContext, keyFiles,
-      chatClient, sessionId, sessionData, sessionStatus, sessionSource, remainingCalls,
+      chatClient,
       tools, reasoningEffort, temperature, topP, repoToolkit,
     } = await this._initExploreContext({
       repoRootArg: args.repo_root,
       scope: args.scope,
-      session: args.session,
       taskText: args.prompt,
-      sessionStore,
     });
 
     // V2: extend the turn budget, but keep it bounded by configurable caps.
@@ -1893,7 +1766,7 @@ export class ExplorerRuntime {
           language: args.language,
           projectContext,
           keyFiles,
-          previousSummaries: sessionData?.summaries ?? [],
+          previousSummaries: [],
         }),
       },
       {
@@ -1928,10 +1801,6 @@ export class ExplorerRuntime {
       outputRecoveries: 0,
       scope: Array.isArray(effectiveScope) ? effectiveScope : [],
       repoRoot,
-      sessionId,
-      sessionStatus,
-      sessionSource,
-      remainingCalls,
     };
 
     const filesRead = new Set();
@@ -2286,22 +2155,6 @@ export class ExplorerRuntime {
     // Finalize transcript
     await transcript.finalize(stats);
 
-    // Update session
-    if (sessionStore && sessionId) {
-      const summaryLine = report.split('\n').find(l => l.trim())?.slice(0, 400) ?? '';
-      sessionStore.update(sessionId, {
-        targets: [...filesRead].map(filePath => ({
-          path: filePath,
-          role: 'read',
-          reason: 'Read during report exploration.',
-          evidenceRefs: [],
-        })),
-        evidence: [],
-        directAnswer: summaryLine,
-      });
-      syncRemainingCallsStat(stats, sessionStore, sessionId);
-    }
-
     return {
       report,
       citations,
@@ -2393,19 +2246,20 @@ export class ExplorerRuntime {
 }
 
 export async function exploreRepository(args, options = {}) {
-  const { onProgress, sessionStore, abortSignal, ...runtimeOptions } = options;
+  // sessionStore is accepted-and-ignored for callers that still pass it.
+  const { onProgress, sessionStore: _ignoredSessionStore, abortSignal, ...runtimeOptions } = options;
   const runtime = new ExplorerRuntime(runtimeOptions);
-  return runtime.explore(args, { onProgress, sessionStore, abortSignal });
+  return runtime.explore(args, { onProgress, abortSignal });
 }
 
 export async function freeExploreRepository(args, options = {}) {
-  const { onProgress, sessionStore, abortSignal, ...runtimeOptions } = options;
+  const { onProgress, sessionStore: _ignoredSessionStore, abortSignal, ...runtimeOptions } = options;
   const runtime = new ExplorerRuntime(runtimeOptions);
-  return runtime.freeExplore(args, { onProgress, sessionStore, abortSignal });
+  return runtime.freeExplore(args, { onProgress, abortSignal });
 }
 
 export async function freeExploreRepositoryV2(args, options = {}) {
-  const { onProgress, sessionStore, abortSignal, ...runtimeOptions } = options;
+  const { onProgress, sessionStore: _ignoredSessionStore, abortSignal, ...runtimeOptions } = options;
   const runtime = new ExplorerRuntime(runtimeOptions);
-  return runtime.freeExploreV2(args, { onProgress, sessionStore, abortSignal });
+  return runtime.freeExploreV2(args, { onProgress, abortSignal });
 }

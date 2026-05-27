@@ -39,7 +39,7 @@ const EXPLORE_REPO_TOOL = {
     'Do NOT use for a single known file/range or when immediate editing is cheaper. ' +
     'Returns structured JSON with directAnswer, status, targets, grounded file:line evidence with snippets, and nextAction. ' +
     'After this tool, avoid broad grep/read; only read cited targets needed for verification or edits. ' +
-    'Omit budget and hints.strategy unless required by an advanced workflow. Pass sessionId as "session" for follow-up calls.',
+    'Omit budget and hints.strategy unless required by an advanced workflow.',
   inputSchema: EXPLORE_REPO_INPUT_SCHEMA,
   outputSchema: EXPLORE_REPO_OUTPUT_SCHEMA,
   annotations: readOnlyToolAnnotations('Autonomous repository explorer'),
@@ -63,7 +63,6 @@ const FIND_RELEVANT_CODE_TOOL = {
       knownFiles: { type: 'array', items: { type: 'string' } },
       knownSymbols: { type: 'array', items: { type: 'string' } },
       knownText: { type: 'array', items: { type: 'string' } },
-      session: { type: 'string' },
     },
     required: ['query'],
   },
@@ -87,7 +86,6 @@ const TRACE_SYMBOL_TOOL = {
       },
       repo_root: { type: 'string' },
       scope: { type: 'array', items: { type: 'string' } },
-      session: { type: 'string', description: 'Optional session ID for continuity.' },
     },
     required: ['symbol'],
   },
@@ -110,7 +108,6 @@ const MAP_CHANGE_IMPACT_TOOL = {
       scope: { type: 'array', items: { type: 'string' } },
       knownFiles: { type: 'array', items: { type: 'string' } },
       knownSymbols: { type: 'array', items: { type: 'string' } },
-      session: { type: 'string' },
     },
     required: ['change'],
   },
@@ -134,7 +131,6 @@ const EXPLAIN_CODE_PATH_TOOL = {
       entryPoint: { type: 'string' },
       knownFiles: { type: 'array', items: { type: 'string' } },
       knownSymbols: { type: 'array', items: { type: 'string' } },
-      session: { type: 'string' },
     },
     required: ['pathQuery'],
   },
@@ -158,7 +154,6 @@ const COLLECT_EVIDENCE_TOOL = {
       knownFiles: { type: 'array', items: { type: 'string' } },
       knownSymbols: { type: 'array', items: { type: 'string' } },
       knownText: { type: 'array', items: { type: 'string' } },
-      session: { type: 'string' },
     },
     required: ['claim'],
   },
@@ -182,7 +177,6 @@ const REVIEW_CHANGE_CONTEXT_TOOL = {
       path: { type: 'string' },
       repo_root: { type: 'string' },
       scope: { type: 'array', items: { type: 'string' } },
-      session: { type: 'string' },
     },
     required: ['reviewGoal'],
   },
@@ -208,7 +202,6 @@ const EXPLORE_TOOL = {
       thoroughness: { type: 'string', enum: ['quick', 'normal', 'deep'], description: 'Advanced only. Omit for normal agent use; defaults to normal report depth.' },
       scope: { type: 'array', items: { type: 'string' }, description: 'Optional path prefixes to focus on.' },
       repo_root: { type: 'string', description: 'Repository root path.' },
-      session: { type: 'string', description: 'Session ID from a previous call.' },
       language: { type: 'string', description: 'BCP-47 language tag for the report (e.g. "ko", "en").' },
       context: { type: 'string', description: 'Optional additional context from the parent agent.' },
     },
@@ -287,20 +280,20 @@ function buildAnchorHints({ knownFiles, knownSymbols, knownText, strategy } = {}
 }
 
 function buildTraceSymbolArgs(args) {
-  const { symbol, repo_root, scope, session } = args;
+  const { symbol, repo_root, scope } = args;
   if (!symbol || typeof symbol !== 'string' || !symbol.trim()) {
     throw makeInvalidArgsError('trace_symbol requires a non-empty "symbol" argument.');
   }
   const task = `Explain the symbol "${symbol.trim()}": where it is defined, what it does, its parameters/return type if applicable, and where it is called or used in the codebase.`;
   return {
-    task, repo_root, scope, session,
+    task, repo_root, scope,
     taskMode: 'symbol_trace',
     hints: { symbols: [symbol.trim()], strategy: 'symbol-first' },
   };
 }
 
 function buildFindRelevantCodeArgs(args) {
-  const { query, repo_root, scope, knownFiles, knownSymbols, knownText, session } = args;
+  const { query, repo_root, scope, knownFiles, knownSymbols, knownText } = args;
   if (!query || typeof query !== 'string' || !query.trim()) {
     throw makeInvalidArgsError('find_relevant_code requires a non-empty "query" argument.');
   }
@@ -309,14 +302,13 @@ function buildFindRelevantCodeArgs(args) {
     task,
     repo_root,
     scope,
-    session,
     taskMode: 'locate',
     hints: buildAnchorHints({ knownFiles, knownSymbols, knownText }),
   };
 }
 
 function buildMapChangeImpactArgs(args) {
-  const { change, repo_root, scope, knownFiles, knownSymbols, session } = args;
+  const { change, repo_root, scope, knownFiles, knownSymbols } = args;
   if (!change || typeof change !== 'string' || !change.trim()) {
     throw makeInvalidArgsError('map_change_impact requires a non-empty "change" argument.');
   }
@@ -325,14 +317,13 @@ function buildMapChangeImpactArgs(args) {
     task,
     repo_root,
     scope,
-    session,
     taskMode: 'edit_planning',
     hints: buildAnchorHints({ knownFiles, knownSymbols, strategy: 'reference-chase' }),
   };
 }
 
 function buildExplainCodePathArgs(args) {
-  const { pathQuery, repo_root, scope, entryPoint, knownFiles, knownSymbols, session } = args;
+  const { pathQuery, repo_root, scope, entryPoint, knownFiles, knownSymbols } = args;
   if (!pathQuery || typeof pathQuery !== 'string' || !pathQuery.trim()) {
     throw makeInvalidArgsError('explain_code_path requires a non-empty "pathQuery" argument.');
   }
@@ -343,14 +334,13 @@ function buildExplainCodePathArgs(args) {
     task,
     repo_root,
     scope,
-    session,
     taskMode: 'path_explanation',
     hints: buildAnchorHints({ knownFiles: files, knownSymbols, strategy: 'reference-chase' }),
   };
 }
 
 function buildCollectEvidenceArgs(args) {
-  const { claim, repo_root, scope, knownFiles, knownSymbols, knownText, session } = args;
+  const { claim, repo_root, scope, knownFiles, knownSymbols, knownText } = args;
   if (!claim || typeof claim !== 'string' || !claim.trim()) {
     throw makeInvalidArgsError('collect_evidence requires a non-empty "claim" argument.');
   }
@@ -359,14 +349,13 @@ function buildCollectEvidenceArgs(args) {
     task,
     repo_root,
     scope,
-    session,
     taskMode: 'evidence_verification',
     hints: buildAnchorHints({ knownFiles, knownSymbols, knownText }),
   };
 }
 
 function buildReviewChangeContextArgs(args) {
-  const { reviewGoal, since, until, path: filePath, repo_root, scope, session } = args;
+  const { reviewGoal, since, until, path: filePath, repo_root, scope } = args;
   if (!reviewGoal || typeof reviewGoal !== 'string' || !reviewGoal.trim()) {
     throw makeInvalidArgsError('review_change_context requires a non-empty "reviewGoal" argument.');
   }
@@ -378,7 +367,6 @@ function buildReviewChangeContextArgs(args) {
     task,
     repo_root,
     scope,
-    session,
     taskMode: 'change_review',
     hints: buildAnchorHints({ knownFiles: filePath ? [filePath] : [], strategy: 'git-guided' }),
   };
@@ -477,11 +465,6 @@ export function createMcpRequestHandler({
       }
     }
 
-    if (result.sessionId) {
-      lines.push('');
-      lines.push(`Session: ${result.sessionId} (pass as "session" for follow-up calls)`);
-    }
-
     return lines.join('\n');
   }
 
@@ -512,17 +495,6 @@ export function createMcpRequestHandler({
     };
   }
 
-  function buildAgentSession(result) {
-    const stats = result.stats ?? result._debug?.stats ?? {};
-    const id = result.session?.id ?? result.sessionId ?? stats.sessionId ?? null;
-    const status = result.session?.status ?? stats.sessionStatus ?? null;
-    const remainingCalls = result.session?.remainingCalls ?? stats.remainingCalls;
-    if (!id || !['created', 'reused', 'fallback'].includes(status) || !Number.isInteger(remainingCalls) || remainingCalls < 0) {
-      return null;
-    }
-    return { id, status, remainingCalls };
-  }
-
   function buildHandledFailure({
     category,
     reason,
@@ -533,7 +505,7 @@ export function createMcpRequestHandler({
     expectedImprovement = '',
   }) {
     return {
-      schemaVersion: 1,
+      schemaVersion: 2,
       directAnswer: '',
       status: {
         confidence: 'low',
@@ -558,18 +530,12 @@ export function createMcpRequestHandler({
           ...(expectedImprovement ? { expectedImprovement } : {}),
         } : null,
       },
-      _debug: {},
     };
   }
 
   function toAgentFacingResult(result) {
-    const sessionId = result.sessionId ?? result.stats?.sessionId ?? result._debug?.stats?.sessionId ?? null;
-    const session = buildAgentSession(result);
-    const debug = { ...(result._debug ?? {}) };
-    delete debug.legacy;
-
     return {
-      schemaVersion: result.schemaVersion ?? 1,
+      schemaVersion: result.schemaVersion ?? 2,
       directAnswer: result.directAnswer || '',
       status: result.status ?? {
         confidence: 'low',
@@ -585,9 +551,6 @@ export function createMcpRequestHandler({
       evidenceQuality: result.evidenceQuality ?? defaultEvidenceQuality(result.trustSummary),
       searchCoverage: result.searchCoverage ?? defaultSearchCoverage(),
       failure: result.failure ?? null,
-      ...(sessionId ? { sessionId } : {}),
-      ...(session ? { session } : {}),
-      _debug: debug,
     };
   }
 
@@ -650,10 +613,9 @@ export function createMcpRequestHandler({
             'PREFER these tools over manual file search (Grep/Glob/Read) for any task that spans more than 2-3 files or requires cross-file understanding. ' +
             'explore_repo returns structured JSON with directAnswer, status, targets, discoveredPaths, and grounded evidence snippets; explore returns a Markdown report for human consumption. ' +
             'Purpose shortcuts: find_relevant_code, trace_symbol, map_change_impact, explain_code_path, collect_evidence, review_change_context. ' +
-            'All tools accept a "session" parameter for multi-call continuity — pass sessionId from one call to the next. ' +
             'Pass _meta.progressToken for heavy calls (broad reports / path / impact) to receive turn-by-turn progress updates. ' +
             'When summarizing or handing off a result to another agent, preserve these control-plane fields verbatim: ' +
-            'status.verification, status.complete, evidenceQuality, searchCoverage, failure, session/sessionId, and any critic.warnings.',
+            'status.verification, status.complete, evidenceQuality, searchCoverage, failure, and any critic.warnings.',
         };
       }
       case 'ping':
@@ -729,22 +691,14 @@ export function createMcpRequestHandler({
           }
           if (error.code === -32602) {
             const message = `Invalid arguments for ${name}: ${error.message}`;
-            const reason = error.sessionError === 'repo_mismatch'
-              ? 'repo_mismatch'
-              : error.sessionError === 'invalid_session'
-                ? 'invalid_session'
-                : 'invalid_arguments';
             return {
               isError: true,
               content: [{ type: 'text', text: message }],
               structuredContent: buildHandledFailure({
                 category: 'input',
-                reason,
+                reason: 'invalid_arguments',
                 message,
-                retryTool: reason === 'invalid_session' ? 'explore_repo' : null,
-                hints: reason === 'invalid_session'
-                  ? ['Drop the stale session id and retry with the current repo root.']
-                  : [],
+                retryTool: null,
               }),
             };
           }
