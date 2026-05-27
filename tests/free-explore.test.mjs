@@ -237,6 +237,54 @@ test('freeExplore finalizes and returns a non-empty report when the tool loop te
   );
 });
 
+test('freeExplore finalizes intent-only no-tool responses instead of returning them as reports', async () => {
+  let finalizeCallCount = 0;
+  class IntentOnlyClient {
+    constructor() { this.model = 'test'; this.calls = 0; }
+    async createChatCompletion({ messages }) {
+      this.calls += 1;
+      const lastUser = [...messages].reverse().find(m => m.role === 'user');
+      const lastUserText = String(lastUser?.content ?? '');
+      if (lastUserText.includes('Budget exhausted') || lastUserText.includes('final Markdown report')) {
+        finalizeCallCount += 1;
+        return {
+          usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+          message: {
+            content: '## Summary\n\nProvider behavior is implemented by Cerebras and OpenAI-compatible clients.',
+            toolCalls: [],
+          },
+        };
+      }
+      if (this.calls === 1) {
+        return {
+          usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+          message: {
+            content: null,
+            toolCalls: [
+              { id: 't1', function: { name: 'repo_read_file', arguments: JSON.stringify({ path: 'src/auth.js', startLine: 1, endLine: 4 }) } },
+            ],
+          },
+        };
+      }
+      return {
+        usage: { prompt_tokens: 10, completion_tokens: 8, total_tokens: 18 },
+        message: {
+          content: 'I have enough evidence to write the report. Let me compile it now.',
+          toolCalls: [],
+        },
+      };
+    }
+  }
+
+  const root = await makeRepoFixture();
+  const runtime = new ExplorerRuntime({ chatClient: new IntentOnlyClient() });
+  const result = await runtime.freeExplore({ prompt: 'explain providers', repo_root: root, thoroughness: 'quick' });
+
+  assert.equal(finalizeCallCount, 1, 'intent-only no-tool response should trigger finalize prompt');
+  assert.match(result.report, /Provider behavior/);
+  assert.doesNotMatch(result.report, /Let me compile it now/);
+});
+
 test('freeExplore stops after repeated unknown tool errors', async () => {
   class UnknownToolClient {
     constructor() { this.model = 'test'; this.calls = 0; }

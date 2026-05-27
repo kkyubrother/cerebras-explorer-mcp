@@ -170,6 +170,18 @@ function redactToolResult(toolResult) {
   return redactValue(toolResult).value;
 }
 
+function isIntentOnlyFreeExploreReport(content) {
+  const text = typeof content === 'string' ? content.trim() : '';
+  if (!text || text.length > 300) return false;
+
+  return [
+    /\bi have (?:now )?enough (?:evidence|information|context)\b/i,
+    /\blet me (?:now )?(?:compile|write|produce|draft) (?:the )?(?:final )?report\b/i,
+    /\bi (?:will|can|should) (?:now )?(?:compile|write|produce|draft) (?:the )?(?:final )?report\b/i,
+    /\bready to (?:compile|write|produce|draft) (?:the )?(?:final )?report\b/i,
+  ].some(pattern => pattern.test(text));
+}
+
 /**
  * LLM-based conversation compaction for V2.
  * Instead of simple truncation, asks the LLM to summarize findings so far,
@@ -1939,7 +1951,9 @@ export class ExplorerRuntime {
       // No tool calls — model wants to produce its report
       if (!completion.message.toolCalls || completion.message.toolCalls.length === 0) {
         if (completion.message.content) {
-          report = completion.message.content;
+          report = isIntentOnlyFreeExploreReport(completion.message.content)
+            ? ''
+            : completion.message.content;
         }
         break;
       }
