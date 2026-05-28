@@ -36,9 +36,9 @@ const EXPLORE_REPO_TOOL = {
   name: 'explore_repo',
   title: 'Autonomous repository explorer',
   description:
-    'Use FIRST for read-only code discovery when the exact files are unknown, the task may span 3+ files, or you need cross-file evidence: ' +
-    'architecture, symbol usage, dependency/call tracing, bug root cause, change impact, config origin, or evidence collection. ' +
-    'Do NOT use for a single known file/range or when immediate editing is cheaper. ' +
+    'Use first for read-only repository exploration when the relevant files are unknown, the answer likely spans multiple files, or cited cross-file evidence is needed: ' +
+    'architecture, symbol usage, dependency/call tracing, bug root-cause hypotheses, change impact, config origin, or evidence collection. ' +
+    'Do not use for edits, running tests/builds, or single known-file inspection. ' +
     'Returns structured JSON with directAnswer, status, targets, grounded file:line evidence with snippets, and nextAction. ' +
     'After this tool, avoid broad grep/read; only read cited targets needed for verification or edits. ' +
     'Omit budget and hints.strategy unless required by an advanced workflow.',
@@ -54,7 +54,9 @@ const FIND_RELEVANT_CODE_TOOL = {
   title: 'Find relevant code targets',
   description:
     'Use first when you need to locate the files and line ranges relevant to a feature, bug, config, route, or behavior before deciding what to read or edit. ' +
-    'Give the natural-language query plus any known anchors. Returns targets and cited evidence; read only returned edit/read targets afterward.',
+    'Give the natural-language query plus any known anchors via knownFiles, knownSymbols, or knownText to narrow the search. ' +
+    'Do not use when the exact file/range is already known, a single grep would suffice, or a sibling tool fits the intent better (trace_symbol for a known symbol, explain_code_path for a request/event/job flow, map_change_impact for blast radius). ' +
+    'Returns targets and cited evidence; read only returned edit/read targets afterward.',
   inputSchema: {
     type: 'object',
     additionalProperties: false,
@@ -100,6 +102,7 @@ const MAP_CHANGE_IMPACT_TOOL = {
   title: 'Map change impact',
   description:
     'Use before editing when you know the intended change but need blast-radius context: likely edit files, callers, tests, config, and risky dependent paths. ' +
+    'Coverage of documentation and example fixtures is best-effort; mention docs/examples in the change description if their impact must be included. ' +
     'Do not use for a one-line known-file edit.',
   inputSchema: {
     type: 'object',
@@ -193,8 +196,9 @@ const EXPLORE_TOOL = {
   title: 'Free-form repository exploration',
   description:
     'Use for a user-facing Markdown investigation report with inline file:line citations. ' +
-    'Best for architecture walkthroughs, onboarding explanations, code review context, or broad "how does X work?" answers. ' +
-    'Do NOT use when the parent agent needs structured edit planning or programmatic next steps; use explore_repo instead. ' +
+    'Best for architecture walkthroughs, onboarding explanations, or broad "how does X work?" answers when polished prose is what the requester needs. ' +
+    'For narrow lookups, symbol traces, impact maps, code-path walks, or PR/diff review context, prefer find_relevant_code, trace_symbol, map_change_impact, explain_code_path, or review_change_context — they return the same grounded evidence in their tool-specific shape. ' +
+    'Do not use when the parent agent needs structured edit planning or programmatic next steps; use explore_repo instead. ' +
     'Omit thoroughness in normal agent use unless an advanced workflow explicitly requires quick, normal, or deep.',
   inputSchema: {
     type: 'object',
