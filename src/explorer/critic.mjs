@@ -477,7 +477,7 @@ export function runDeterministicCriticPass({
 export function extractReportCitations(report) {
   if (typeof report !== 'string' || !report.trim()) return [];
   const citations = [];
-  const regex = /`?([A-Za-z0-9_][A-Za-z0-9_./\\-]*\/[A-Za-z0-9_./\\-]+\.[A-Za-z0-9]+):L?(\d+)(?:-L?(\d+))?`?/g;
+  const regex = /`?(\.?[A-Za-z0-9_][A-Za-z0-9_./\\-]*\/[A-Za-z0-9_./\\-]+\.[A-Za-z0-9]+):L?(\d+)(?:-L?(\d+))?`?/g;
   let match;
   while ((match = regex.exec(report)) !== null) {
     citations.push({
