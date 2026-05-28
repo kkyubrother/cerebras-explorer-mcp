@@ -346,8 +346,178 @@ test('ExplorerRuntime explore writes LOG_PATH transcript with stable callId reco
     assert.ok(entries.every(entry => entry.callId === filenameCallId));
     assert.ok(entries.some(entry => entry.type === 'assistant'));
     assert.ok(entries.some(entry => entry.type === 'tool'));
+    const grepEntry = entries.find(entry => entry.type === 'tool' && entry.tool === 'repo_grep');
+    assert.ok(grepEntry, 'grep tool entry must be recorded');
+    assert.deepEqual(grepEntry.args, { pattern: 'requireAuth', scope: ['src/**'] });
+    assert.ok(grepEntry.result.matches >= 2);
+    assert.deepEqual(grepEntry.result.paths, ['src/auth.js', 'src/routes/user.js']);
+    assert.equal(JSON.stringify(grepEntry).includes('export function requireAuth'), false);
     assert.equal(entries.at(-1).redacted, true);
   });
+});
+
+test('ExplorerRuntime trust summary mentions dropped evidence caveats', async () => {
+  class DroppedEvidenceClient {
+    constructor() { this.model = 'zai-glm-4.7'; this.calls = 0; }
+    async createChatCompletion({ responseFormat }) {
+      this.calls += 1;
+      if (this.calls === 1) {
+        return {
+          usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+          message: {
+            content: '',
+            toolCalls: [{
+              id: 'read-auth',
+              function: {
+                name: 'repo_read_file',
+                arguments: JSON.stringify({ path: 'src/auth.js', startLine: 1, endLine: 4 }),
+              },
+            }],
+          },
+        };
+      }
+      if (responseFormat) {
+        return {
+          usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+          message: {
+            content: JSON.stringify(compactResult({
+              directAnswer: 'requireAuth rejects unauthenticated requests.',
+              statusConfidence: 'high',
+              evidence: [
+                { path: 'src/auth.js', startLine: 1, endLine: 4, why: 'read implementation' },
+                { path: 'src/missing.js', startLine: 1, endLine: 2, why: 'not observed' },
+              ],
+            })),
+            toolCalls: [],
+          },
+        };
+      }
+      return {
+        usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+        message: { content: '', toolCalls: [] },
+      };
+    }
+  }
+
+  const root = await makeRepoFixture();
+  const runtime = new ExplorerRuntime({ chatClient: new DroppedEvidenceClient() });
+  const result = await runtime.explore({
+    task: 'Explain requireAuth',
+    repo_root: root,
+    taskMode: 'symbol_trace',
+  });
+
+  assert.equal(result.evidenceQuality.droppedCount, 1);
+  assert.match(result.evidenceQuality.summary, /retained evidence/i);
+  assert.match(result.evidenceQuality.summary, /1 evidence item\(s\) dropped/i);
+  assert.doesNotMatch(result.evidenceQuality.summary, /^.*All evidence grounded in inspected code\.$/);
+});
+
+test('ExplorerRuntime bounds discoveredPaths and reports omitted candidate count', async () => {
+  class DiscoveryClient {
+    constructor() { this.model = 'zai-glm-4.7'; this.calls = 0; }
+    async createChatCompletion({ responseFormat }) {
+      this.calls += 1;
+      if (this.calls === 1) {
+        return {
+          usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+          message: {
+            content: '',
+            toolCalls: [
+              {
+                id: 'list-src',
+                function: { name: 'repo_list_dir', arguments: JSON.stringify({ dirPath: 'src' }) },
+              },
+              {
+                id: 'read-auth',
+                function: {
+                  name: 'repo_read_file',
+                  arguments: JSON.stringify({ path: 'src/auth.js', startLine: 1, endLine: 4 }),
+                },
+              },
+            ],
+          },
+        };
+      }
+      if (responseFormat) {
+        return {
+          usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+          message: {
+            content: JSON.stringify(compactResult({
+              directAnswer: 'requireAuth is defined in src/auth.js.',
+              statusConfidence: 'medium',
+              evidence: [
+                { path: 'src/auth.js', startLine: 1, endLine: 4, why: 'definition was read' },
+              ],
+            })),
+            toolCalls: [],
+          },
+        };
+      }
+      return {
+        usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+        message: { content: '', toolCalls: [] },
+      };
+    }
+  }
+
+  const root = await makeRepoFixture();
+  for (let i = 0; i < 60; i += 1) {
+    await fs.writeFile(path.join(root, 'src', `candidate-${i}.js`), `export const c${i} = ${i};\n`);
+  }
+
+  const runtime = new ExplorerRuntime({ chatClient: new DiscoveryClient() });
+  const result = await runtime.explore({
+    task: 'Find auth-related candidates',
+    repo_root: root,
+  });
+
+  assert.ok(result.discoveredPaths.length <= 50, `expected bounded discoveredPaths, got ${result.discoveredPaths.length}`);
+  assert.ok(result.searchCoverage.omittedDiscoveredPaths > 0);
+  assert.ok(
+    result.searchCoverage.warnings.some(warning => /discovered path/i.test(warning)),
+    'searchCoverage must warn when discovered path candidates are omitted',
+  );
+});
+
+test('ExplorerRuntime stats use successful failover provider metadata when present', async () => {
+  class ProviderMetadataClient {
+    constructor() { this.model = 'primary-model'; this.calls = 0; }
+    async createChatCompletion({ responseFormat }) {
+      this.calls += 1;
+      const base = {
+        usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+        usedProvider: { providerIndex: 1, model: 'fallback-model' },
+      };
+      if (responseFormat) {
+        return {
+          ...base,
+          message: {
+            content: JSON.stringify(compactResult({
+              directAnswer: 'Provider metadata was attached.',
+              statusConfidence: 'low',
+              evidence: [],
+            })),
+            toolCalls: [],
+          },
+        };
+      }
+      return {
+        ...base,
+        message: { content: '', toolCalls: [] },
+      };
+    }
+  }
+
+  const root = await makeRepoFixture();
+  const runtime = new ExplorerRuntime({ chatClient: new ProviderMetadataClient() });
+  const result = await runtime.explore({
+    task: 'Return a minimal provider metadata result',
+    repo_root: root,
+  });
+
+  assert.equal(result.stats.model, 'fallback-model');
+  assert.equal(result.stats.providerIndex, 1);
 });
 
 test('ExplorerRuntime preserves model-provided edit targets when deriving evidence targets', async () => {

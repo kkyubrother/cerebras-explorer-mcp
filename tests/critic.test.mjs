@@ -74,6 +74,69 @@ test('groundEvidenceList treats wide symbol-context evidence as partial, not exa
   assert.equal(result.evidence[0].groundingStatus, 'partial');
 });
 
+test('groundEvidenceList treats grep anchors as exact only for fully observed ranges', () => {
+  const result = groundEvidenceList({
+    evidence: [
+      { path: 'src/auth.js', startLine: 10, endLine: 10, why: 'single grep hit' },
+      { path: 'src/auth.js', startLine: 10, endLine: 12, why: 'neighboring lines not inspected' },
+    ],
+    observedRanges: new Map([
+      ['src/auth.js', [{ startLine: 10, endLine: 10, source: 'grep' }]],
+    ]),
+    observedGit: { commits: new Set(), blame: new Set() },
+  });
+
+  assert.equal(result.evidence.length, 2);
+  assert.equal(result.exactEvidence, 1);
+  assert.equal(result.partialEvidence, 1);
+  assert.equal(result.evidence[0].groundingStatus, 'exact');
+  assert.equal(result.evidence[1].groundingStatus, 'partial');
+});
+
+test('groundEvidenceList does not count single-line blame as exact multi-line evidence', () => {
+  const result = groundEvidenceList({
+    evidence: [
+      {
+        evidenceType: 'git_blame',
+        path: 'src/auth.js',
+        startLine: 20,
+        endLine: 22,
+        sha: 'abc1234',
+        why: 'only one blamed line was observed',
+      },
+    ],
+    observedRanges: new Map([
+      ['src/auth.js', [{ startLine: 20, endLine: 20, source: 'blame' }]],
+    ]),
+    observedGit: { commits: new Set(), blame: new Set(['src/auth.js:20:abc1234']) },
+  });
+
+  assert.equal(result.evidence.length, 1);
+  assert.equal(result.exactEvidence, 0);
+  assert.equal(result.partialEvidence, 1);
+  assert.equal(result.evidence[0].groundingStatus, 'partial');
+});
+
+test('groundEvidenceList drops malformed line ranges instead of grounding them', () => {
+  const result = groundEvidenceList({
+    evidence: [
+      { path: 'src/auth.js', why: 'missing range' },
+      { path: 'src/auth.js', startLine: '1', endLine: 2, why: 'non-integer start' },
+      { path: 'src/auth.js', startLine: 5, endLine: 3, why: 'inverted range' },
+      { path: 'src/auth.js', startLine: 1, endLine: 2, why: 'valid range' },
+    ],
+    observedRanges: new Map([
+      ['src/auth.js', [{ startLine: 1, endLine: 2, source: 'read' }]],
+    ]),
+    observedGit: { commits: new Set(), blame: new Set() },
+  });
+
+  assert.equal(result.evidence.length, 1);
+  assert.equal(result.droppedMalformed, 3);
+  assert.equal(result.droppedUngrounded, 0);
+  assert.equal(result.exactEvidence, 1);
+});
+
 test('groundEvidenceList requires observed sha for sha-only git diff hunk evidence', () => {
   const result = groundEvidenceList({
     evidence: [

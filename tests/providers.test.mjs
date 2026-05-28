@@ -182,6 +182,7 @@ test('FailoverChatClient: uses first provider when it succeeds', async () => {
 
   const result = await client.createChatCompletion({ messages: [] });
   assert.equal(result.id, 'cmpl-test-1');  // came from primary
+  assert.deepEqual(result.usedProvider, { providerIndex: 0, model: 'primary-model' });
 });
 
 test('FailoverChatClient: falls back to second provider when first fails', async () => {
@@ -201,6 +202,7 @@ test('FailoverChatClient: falls back to second provider when first fails', async
   const client = new FailoverChatClient({ providers: [primary, fallback] });
   const result = await client.createChatCompletion({ messages: [] });
   assert.equal(result.id, 'fallback-id');
+  assert.deepEqual(result.usedProvider, { providerIndex: 1, model: 'fallback-model' });
 });
 
 test('FailoverChatClient: throws when all providers fail', async () => {
@@ -309,6 +311,7 @@ test('FailoverChatClient: hard timeout advances when provider ignores abort sign
   const result = await client.createChatCompletion({ messages: [] });
 
   assert.equal(result.id, 'fallback-id');
+  assert.deepEqual(result.usedProvider, { providerIndex: 1, model: 'fallback-model' });
   assert.equal(primarySignalAborted, true, 'primary provider should still be signalled to abort');
   assert.equal(fallbackCalls, 1, 'fallback provider should run after timeout');
 });

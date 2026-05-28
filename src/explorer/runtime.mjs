@@ -45,7 +45,7 @@ import {
   runDeterministicCriticPass,
 } from './critic.mjs';
 import { createChatClient } from './providers/index.mjs';
-import { createCompactToolTrace, createTranscriptRecorder } from './transcript.mjs';
+import { buildCompactToolDiagnostic, createCompactToolTrace, createTranscriptRecorder } from './transcript.mjs';
 
 // Maximum number of tool calls to execute in parallel within a single turn.
 const TOOL_CONCURRENCY = 8;
@@ -285,36 +285,52 @@ const ENTRY_POINT_PATTERNS = /^(index|main|app|server|cli|start|entry)\.(m?[jt]s
  * Build a natural-language trust summary for the parent model.
  * This replaces opaque confidence numbers with a human-readable verification statement.
  */
-function buildTrustSummary(result, stats) {
+function buildTrustSummary(result, stats, grounding = {}) {
   const evidenceCount = result.evidence?.length ?? 0;
   const exactCount = result.evidence?.filter(e => e.groundingStatus === 'exact').length ?? 0;
   const distinctFiles = new Set((result.evidence ?? []).map(e => e.path)).size;
+  const droppedCount = (grounding.droppedUngrounded ?? 0) + (grounding.droppedMalformed ?? 0);
+  const toolResultsTruncated = stats.toolResultsTruncated ?? 0;
   const parts = [];
+  const caveats = [];
 
   parts.push(`Verified: ${stats.filesRead ?? 0} files read`);
   if ((stats.grepCalls ?? 0) > 0) parts.push(`${stats.grepCalls} grep searches`);
   if ((stats.symbolCalls ?? 0) > 0) parts.push(`${stats.symbolCalls} symbol lookups`);
   if (evidenceCount > 0) {
-    parts.push(`${exactCount}/${evidenceCount} evidence items grounded`);
+    parts.push(`${exactCount}/${evidenceCount} retained evidence items grounded`);
   }
   if (distinctFiles >= 2) {
     parts.push(`cross-verified across ${distinctFiles} files`);
+  }
+  if (droppedCount > 0) {
+    caveats.push(`${droppedCount} evidence item(s) dropped before final output`);
+  }
+  if (toolResultsTruncated > 0) {
+    caveats.push(`${toolResultsTruncated} tool result(s) truncated before synthesis`);
+  }
+  if (stats.stoppedByBudget) {
+    caveats.push('exploration stopped at the configured turn budget');
   }
 
   const confidence = result.status?.confidence ?? 'low';
   let suffix = '';
   if (confidence === 'high') {
-    suffix = 'All evidence grounded in inspected code.';
+    suffix = 'All retained evidence grounded in inspected code.';
   } else if (confidence === 'medium') {
     suffix = 'Evidence partially verified — results are reliable for most uses.';
   } else {
     suffix = 'Limited evidence found — consider follow-up exploration.';
+  }
+  if (caveats.length > 0) {
+    suffix += ` Caveats: ${caveats.join('; ')}.`;
   }
 
   return parts.join(', ') + '. ' + suffix;
 }
 
 const AGENT_FACING_SCHEMA_VERSION = 2;
+const MAX_DISCOVERED_PATHS = 50;
 
 const FAILURE_CATEGORIES = ['execution', 'input', 'provider', 'internal'];
 const FAILURE_REASONS = [
@@ -432,7 +448,7 @@ function buildEvidenceQuality(result, stats, grounding = {}) {
   const droppedCount = (grounding.droppedUngrounded ?? 0) + (grounding.droppedMalformed ?? 0);
   const fileCount = new Set(evidence.map(item => item.path).filter(Boolean)).size;
   const warnings = Array.isArray(result.status?.warnings) ? result.status.warnings.slice(0, 5) : [];
-  const summary = result.trustSummary || buildTrustSummary(result, stats);
+  const summary = result.trustSummary || buildTrustSummary(result, stats, grounding);
   return {
     level: result.status?.confidence ?? 'low',
     exactCount,
@@ -457,6 +473,9 @@ function buildSearchCoverage(stats = {}) {
       're-run with a narrower query or read specific ranges if expected evidence is missing.',
     );
   }
+  if ((stats.omittedDiscoveredPaths ?? 0) > 0) {
+    warnings.push(`${stats.omittedDiscoveredPaths} discovered path candidate(s) were omitted from the bounded result list.`);
+  }
 
   const summary = scope.length > 0
     ? `scope-limited search across ${scope.join(', ')}; ${stats.filesRead ?? 0} file read(s), ${stats.grepCalls ?? 0} grep search(es).`
@@ -471,6 +490,7 @@ function buildSearchCoverage(stats = {}) {
     symbolCalls: stats.symbolCalls ?? 0,
     toolResultsTruncated: stats.toolResultsTruncated ?? 0,
     stoppedByBudget: Boolean(stats.stoppedByBudget),
+    omittedDiscoveredPaths: stats.omittedDiscoveredPaths ?? 0,
     warnings,
     summary,
   };
@@ -585,6 +605,12 @@ function buildFailure(result, stats) {
 function attachAgentFacingContract(result, stats, grounding = {}) {
   result.schemaVersion = AGENT_FACING_SCHEMA_VERSION;
   result.failure = buildFailure(result, stats);
+  result.critic = {
+    status: result.critic?.status ?? 'pass',
+    warnings: Array.isArray(result.critic?.warnings) ? result.critic.warnings : [],
+    droppedEvidence: (grounding.droppedUngrounded ?? 0) + (grounding.droppedMalformed ?? 0),
+    partialEvidence: grounding.partialEvidence ?? 0,
+  };
   result.evidenceQuality = buildEvidenceQuality(result, stats, grounding);
   result.searchCoverage = buildSearchCoverage(stats);
   return result;
@@ -741,7 +767,7 @@ function buildTargets({ evidence = [] } = {}) {
   return targets.slice(0, 20);
 }
 
-function mergeDiscoveredPaths(existing = [], next = []) {
+function mergeDiscoveredPaths(existing = [], next = [], stats = null) {
   const byPath = new Map();
   for (const item of [...(existing || []), ...(next || [])]) {
     if (!item || typeof item !== 'object') continue;
@@ -754,7 +780,12 @@ function mergeDiscoveredPaths(existing = [], next = []) {
       byPath.set(normalizedPath, { ...current, ...item, path: normalizedPath });
     }
   }
-  return [...byPath.values()].slice(0, 100);
+  const merged = [...byPath.values()];
+  const omitted = Math.max(0, merged.length - MAX_DISCOVERED_PATHS);
+  if (stats && omitted > 0) {
+    stats.omittedDiscoveredPaths = (stats.omittedDiscoveredPaths ?? 0) + omitted;
+  }
+  return merged.slice(0, MAX_DISCOVERED_PATHS);
 }
 
 function targetKey(target) {
@@ -1079,6 +1110,27 @@ function summarizeUsage(existing, usage) {
   };
 }
 
+function applyCompletionMetadata(stats, completion) {
+  const usedProvider = completion?.usedProvider;
+  if (!usedProvider || typeof usedProvider !== 'object') return;
+
+  if (Number.isInteger(usedProvider.providerIndex)) {
+    stats.providerIndex = usedProvider.providerIndex;
+  }
+  if (typeof usedProvider.model === 'string' && usedProvider.model) {
+    stats.model = usedProvider.model;
+  }
+  stats.usedProvider = {
+    ...(Number.isInteger(usedProvider.providerIndex) ? { providerIndex: usedProvider.providerIndex } : {}),
+    ...(typeof usedProvider.model === 'string' && usedProvider.model ? { model: usedProvider.model } : {}),
+  };
+}
+
+function recordCompletionStats(stats, completion) {
+  Object.assign(stats, summarizeUsage(stats, completion?.usage));
+  applyCompletionMetadata(stats, completion);
+}
+
 function incrementToolStats(stats, toolName, { countReadFiles = true } = {}) {
   stats.toolCalls += 1;
   const statField = TOOL_STAT_FIELD_MAP[toolName];
@@ -1315,6 +1367,7 @@ export class ExplorerRuntime {
       totalTokens: 0,
       elapsedMs: 0,
       stoppedByBudget: false,
+      omittedDiscoveredPaths: 0,
       scope: Array.isArray(effectiveScope) ? effectiveScope : [],
       repoRoot,
     };
@@ -1394,7 +1447,7 @@ export class ExplorerRuntime {
       }
 
       stats.turns += 1;
-      Object.assign(stats, summarizeUsage(stats, completion.usage));
+      recordCompletionStats(stats, completion);
 
       const assistantMessage = buildAssistantMessage(completion.message);
       messages.push(assistantMessage);
@@ -1435,7 +1488,7 @@ export class ExplorerRuntime {
         }
         finalObject = finalized.result;
         if (finalized.invalidFinalResponse) stats.invalidFinalResponse = true;
-        Object.assign(stats, summarizeUsage(stats, finalized.usage));
+        recordCompletionStats(stats, finalized);
         break;
       }
 
@@ -1506,6 +1559,7 @@ export class ExplorerRuntime {
         discoveredPaths = mergeDiscoveredPaths(
           discoveredPaths,
           collectDiscoveredPathsFromToolResult(toolName, safeToolResult),
+          stats,
         );
 
         if (toolName === 'repo_read_file' && !safeToolResult?.error) {
@@ -1591,6 +1645,7 @@ export class ExplorerRuntime {
           error: safeToolResult?.error ?? false,
           resultChars: serializedToolResult.length,
           turn: turnIndex,
+          ...buildCompactToolDiagnostic({ tool: toolName, args: toolArgs, result: safeToolResult }),
         });
       }
 
@@ -1645,7 +1700,7 @@ export class ExplorerRuntime {
       });
       finalObject = finalized.result;
       if (finalized.invalidFinalResponse) stats.invalidFinalResponse = true;
-      Object.assign(stats, summarizeUsage(stats, finalized.usage));
+      recordCompletionStats(stats, finalized);
     }
 
     stats.elapsedMs = nowMs() - startedAt;
@@ -1662,6 +1717,7 @@ export class ExplorerRuntime {
           sourceTool: 'model_target',
           reason: 'Surfaced by model-proposed target.',
         })),
+      stats,
     );
 
     const taskKind = deriveTaskKindFromHints(args.hints);
@@ -1718,7 +1774,7 @@ export class ExplorerRuntime {
     normalized.nextAction = buildNextAction(normalized, { sufficiency: evidenceSufficiency });
 
     // Trust summary — a natural-language sentence the parent model can rely on
-    normalized.trustSummary = buildTrustSummary(normalized, stats);
+    normalized.trustSummary = buildTrustSummary(normalized, stats, criticPass.grounding);
     attachAgentFacingContract(normalized, stats, criticPass.grounding);
 
     // codeMap is kept on the raw runtime result for benchmark/transcript use,
@@ -1839,6 +1895,7 @@ export class ExplorerRuntime {
       symbolCalls: 0,
       elapsedMs: 0,
       stoppedByBudget: false,
+      omittedDiscoveredPaths: 0,
       llmCompactions: 0,
       toolResultsTruncated: 0,
       outputRecoveries: 0,
@@ -1946,7 +2003,7 @@ export class ExplorerRuntime {
         throw error;
       }
 
-      Object.assign(stats, summarizeUsage(stats, completion.usage));
+      recordCompletionStats(stats, completion);
 
       // No tool calls — model wants to produce its report
       if (!completion.message.toolCalls || completion.message.toolCalls.length === 0) {
@@ -2044,6 +2101,7 @@ export class ExplorerRuntime {
           error: toolResult?.error ?? false,
           resultChars: serialized.length,
           turn: turnIndex,
+          ...buildCompactToolDiagnostic({ tool: toolName, args: toolArgs, result: safeToolResult }),
         });
       }
 
@@ -2117,7 +2175,7 @@ export class ExplorerRuntime {
         }
       }
       if (finalized) {
-        Object.assign(stats, summarizeUsage(stats, finalized.usage));
+        recordCompletionStats(stats, finalized);
         report = finalized.message.content || '';
       }
 
@@ -2165,7 +2223,7 @@ export class ExplorerRuntime {
             }
             throw error;
           }
-          Object.assign(stats, summarizeUsage(stats, continuation.usage));
+          recordCompletionStats(stats, continuation);
 
           const continuedText = continuation.message.content || '';
           if (continuedText) {
@@ -2236,13 +2294,13 @@ export class ExplorerRuntime {
     // 1) Primary: clean JSON parse
     const structured = extractFirstJsonObject(completion.message.content);
     if (structured) {
-      return { result: structured, usage: completion.usage ?? null };
+      return { result: structured, usage: completion.usage ?? null, usedProvider: completion.usedProvider };
     }
 
     // 2) Local salvage: extract JSON wrapped in prose (e.g., ```json ... ```)
     const loose = tryLooseRepair(completion.message.content);
     if (loose) {
-      return { result: loose, usage: completion.usage ?? null };
+      return { result: loose, usage: completion.usage ?? null, usedProvider: completion.usedProvider };
     }
 
     // 3) No-tools repair pass: ask model to produce clean JSON within conversation context
@@ -2265,7 +2323,11 @@ export class ExplorerRuntime {
       });
       const repaired = extractFirstJsonObject(repair.message.content) ?? tryLooseRepair(repair.message.content);
       if (repaired) {
-        return { result: repaired, usage: repair.usage ?? completion.usage ?? null };
+        return {
+          result: repaired,
+          usage: repair.usage ?? completion.usage ?? null,
+          usedProvider: repair.usedProvider ?? completion.usedProvider,
+        };
       }
     } catch { /* repair failed, fall through to local fallback */ }
 
@@ -2285,6 +2347,7 @@ export class ExplorerRuntime {
         nextAction: { type: 'ask_user', reason: 'The explorer could not synthesize a valid compact JSON answer.' },
       },
       usage: completion.usage ?? null,
+      usedProvider: completion.usedProvider,
       invalidFinalResponse: true,
     };
   }

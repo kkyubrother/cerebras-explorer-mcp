@@ -23,7 +23,7 @@ purpose-built evidence, path, review, and Markdown-report entry points.
 Read the compact response contract: `evidenceQuality.level` rates groundedness,
 `failure` is non-null with `failure.retry.tool`/`failure.retry.args` when the
 explorer cannot answer, and `searchCoverage` flags scope-limited or
-budget-capped searches.
+budget-capped searches. Preserve `critic.warnings` during handoff.
 
 Tool exposure is configured in `~/.codex/config.toml`.
 Use `enabled_tools` to keep the server surface narrow for normal coding sessions.

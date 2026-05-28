@@ -21,9 +21,8 @@ function evidenceTarget(item) {
 
 /**
  * Check whether an evidence item's line range overlaps with any observed range
- * for that file. Source-aware: grep-only observations can only produce partial
- * grounding for wide evidence ranges; exact grounding requires source-specific
- * range containment or a narrow observation.
+ * for that file. Exact grounding requires the observed ranges to fully cover
+ * the cited range; nearby or partially overlapping anchors remain partial.
  */
 export function checkEvidenceGrounding(observedRanges, evidenceItem) {
   const ranges = observedRanges.get(evidenceItem.path);
@@ -33,13 +32,19 @@ export function checkEvidenceGrounding(observedRanges, evidenceItem) {
 
   const evidenceStart = evidenceItem.startLine;
   const evidenceEnd = evidenceItem.endLine;
+  if (!Number.isInteger(evidenceStart) || !Number.isInteger(evidenceEnd) || evidenceStart < 1 || evidenceEnd < evidenceStart) {
+    return { overlaps: false, partial: false };
+  }
   const evidenceLength = evidenceEnd - evidenceStart + 1;
   let bestResult = { overlaps: false, partial: false };
+  const overlappingRanges = [];
 
   for (const range of ranges) {
     const rangeStart = range.startLine;
     const rangeEnd = range.endLine;
-    const source = range.source ?? 'read';
+    if (!Number.isInteger(rangeStart) || !Number.isInteger(rangeEnd) || rangeStart < 1 || rangeEnd < rangeStart) {
+      continue;
+    }
 
     const overlaps = evidenceStart <= rangeEnd && evidenceEnd >= rangeStart;
     if (!overlaps) {
@@ -50,34 +55,79 @@ export function checkEvidenceGrounding(observedRanges, evidenceItem) {
       continue;
     }
 
-    let isExact;
-    if (source === 'read') {
-      isExact = evidenceStart >= rangeStart && evidenceEnd <= rangeEnd;
-    } else if (source === 'symbol_context_definition') {
-      isExact = evidenceStart >= rangeStart && evidenceEnd <= rangeEnd;
-    } else if (source === 'grep') {
-      isExact = evidenceLength <= 3;
-    } else if (source === 'diff_hunk') {
-      isExact = evidenceStart >= rangeStart && evidenceEnd <= rangeEnd;
-    } else if (source === 'blame') {
-      isExact = evidenceLength <= 3;
-    } else {
-      isExact = false;
-    }
-
-    if (isExact) {
-      return { overlaps: true, partial: false };
-    }
+    overlappingRanges.push(range);
     bestResult = { overlaps: true, partial: true };
   }
 
+  if (isLineRangeFullyCovered(overlappingRanges, evidenceStart, evidenceEnd)) {
+    return { overlaps: true, partial: false };
+  }
+
   return bestResult;
+}
+
+function isLineRangeFullyCovered(ranges, startLine, endLine) {
+  if (!Number.isInteger(startLine) || !Number.isInteger(endLine) || startLine < 1 || endLine < startLine) {
+    return false;
+  }
+
+  let cursor = startLine;
+  const sorted = ranges
+    .filter(range =>
+      Number.isInteger(range?.startLine) &&
+      Number.isInteger(range?.endLine) &&
+      range.startLine <= range.endLine &&
+      range.endLine >= startLine &&
+      range.startLine <= endLine
+    )
+    .sort((a, b) => a.startLine - b.startLine || a.endLine - b.endLine);
+
+  for (const range of sorted) {
+    if (range.startLine > cursor) break;
+    if (range.endLine >= cursor) cursor = range.endLine + 1;
+    if (cursor > endLine) return true;
+  }
+
+  return false;
 }
 
 function isObservedCommit(sha, observedGit) {
   if (!sha || !observedGit?.commits) return false;
   return observedGit.commits.has(sha) ||
     [...observedGit.commits].some(h => h.startsWith(sha) || sha.startsWith(h));
+}
+
+function blameKeyMatches(key, path, line, sha = '') {
+  const prefix = `${path}:${line}:`;
+  if (!key.startsWith(prefix)) return false;
+  if (!sha) return true;
+  const observedSha = key.slice(prefix.length);
+  return observedSha === sha || observedSha.startsWith(sha) || sha.startsWith(observedSha);
+}
+
+function hasObservedBlameLine(item, observedGit, line) {
+  if (!observedGit?.blame || !item?.path || !Number.isInteger(line)) return false;
+  const sha = item.sha ?? '';
+  for (const key of observedGit.blame) {
+    if (blameKeyMatches(key, item.path, line, sha)) return true;
+  }
+  return false;
+}
+
+function hasAnyObservedBlameLine(item, observedGit) {
+  if (!Number.isInteger(item.startLine) || !Number.isInteger(item.endLine)) return false;
+  for (let line = item.startLine; line <= item.endLine; line += 1) {
+    if (hasObservedBlameLine(item, observedGit, line)) return true;
+  }
+  return false;
+}
+
+function hasFullyObservedBlameRange(item, observedGit) {
+  if (!Number.isInteger(item.startLine) || !Number.isInteger(item.endLine) || item.endLine < item.startLine) return false;
+  for (let line = item.startLine; line <= item.endLine; line += 1) {
+    if (!hasObservedBlameLine(item, observedGit, line)) return false;
+  }
+  return true;
 }
 
 export function groundEvidenceItem(item, { observedRanges, observedGit }) {
@@ -89,11 +139,14 @@ export function groundEvidenceItem(item, { observedRanges, observedGit }) {
   }
 
   if (kind === 'git_blame') {
-    const blameKey = `${item.path}:${item.startLine}:${item.sha ?? ''}`;
-    const endKey = `${item.path}:${item.endLine}:${item.sha ?? ''}`;
-    return observedGit.blame.has(blameKey) || observedGit.blame.has(endKey)
-      ? { ...item, groundingStatus: 'exact' }
-      : null;
+    const { overlaps, partial } = checkEvidenceGrounding(observedRanges, item);
+    if (hasFullyObservedBlameRange(item, observedGit) || (overlaps && !partial)) {
+      return { ...item, groundingStatus: 'exact' };
+    }
+    if (hasAnyObservedBlameLine(item, observedGit) || overlaps) {
+      return { ...item, groundingStatus: 'partial' };
+    }
+    return null;
   }
 
   if (kind === 'git_diff_hunk') {
@@ -122,7 +175,7 @@ export function groundEvidenceList({ evidence, observedRanges, observedGit }) {
       path: typeof rawItem?.path === 'string' ? rawItem.path.replace(/^\.\//, '') : '',
     };
 
-    if (!item.path || !item.why) {
+    if (!item.path || !item.why || item.malformedRange === true || !hasValidEvidenceLineRange(item)) {
       droppedMalformed += 1;
       continue;
     }
@@ -151,6 +204,13 @@ export function groundEvidenceList({ evidence, observedRanges, observedGit }) {
     partialEvidence,
     partialTargets,
   };
+}
+
+function hasValidEvidenceLineRange(item) {
+  return Number.isInteger(item.startLine) &&
+    Number.isInteger(item.endLine) &&
+    item.startLine >= 1 &&
+    item.endLine >= item.startLine;
 }
 
 /**
@@ -299,7 +359,7 @@ export function buildCriticWarnings({
     pushWarning(warnings, {
       type: 'dropped_evidence',
       severity: 'medium',
-      message: `${grounding.droppedMalformed} evidence item(s) were removed because required fields were missing.`,
+      message: `${grounding.droppedMalformed} evidence item(s) were removed because required fields or valid line ranges were missing.`,
       action: 'Rely only on the remaining evidence list.',
     });
   }

@@ -343,7 +343,7 @@ spec 011에서 `CEREBRAS_MODEL` alias와 budget별 모델 지정(`CEREBRAS_EXPLO
 
 ## 9. 반환 스키마
 
-Explorer의 내부 모델 출력은 compact finding contract만 생성한다. 런타임은 검증된 관측값으로 snippet, critic 결과, `schemaVersion`, `evidenceQuality`, `searchCoverage`, nullable `failure`를 덧붙여 MCP `structuredContent`를 만든다. spec 017 이후 `_debug`, `sessionId`, `session`은 응답에 포함되지 않는다.
+Explorer의 내부 모델 출력은 compact finding contract만 생성한다. 런타임은 검증된 관측값으로 snippet, critic 결과, `schemaVersion`, `evidenceQuality`, `searchCoverage`, bounded `discoveredPaths`, nullable `failure`를 덧붙여 MCP `structuredContent`를 만든다. spec 017 이후 `_debug`, `sessionId`, `session`은 응답에 포함되지 않는다.
 
 MCP agent-facing contract:
 
@@ -365,6 +365,14 @@ MCP agent-facing contract:
       "role": "edit|read|test|config|context|reference",
       "reason": "why this target matters",
       "evidenceRefs": ["E1"]
+    }
+  ],
+  "discoveredPaths": [
+    {
+      "path": "relative/path",
+      "kind": "file|dir|unknown",
+      "sourceTool": "repo_list_dir",
+      "reason": "why this was discovered"
     }
   ],
   "evidence": [
@@ -397,8 +405,14 @@ MCP agent-facing contract:
     "warnings": [],
     "summary": "string"
   },
-  "failure": null,
-  "searchCoverage": { /* ... */ }
+  "searchCoverage": { /* includes omittedDiscoveredPaths */ },
+  "critic": {
+    "status": "pass|caution|fail",
+    "warnings": [],
+    "droppedEvidence": 0,
+    "partialEvidence": 0
+  },
+  "failure": null
 }
 ```
 
@@ -407,7 +421,8 @@ Agent control precedence:
 1. `failure.retry` wins when `failure` is present.
 2. `nextAction` wins when `failure` is null.
 3. `evidenceQuality.level` gates whether the agent should re-open cited targets or trust the answer.
-4. `searchCoverage.warnings` surfaces budget / truncation / scope-limit follow-up needs.
+4. `critic.warnings` is the canonical deterministic warning list for handoff.
+5. `searchCoverage.warnings` surfaces budget / truncation / scope-limit / discovery omission follow-up needs.
 
 Retry recipe safety:
 
@@ -419,7 +434,8 @@ Retry recipe safety:
 - Unknown keys are dropped before the object reaches MCP `structuredContent`.
 
 `searchCoverage` is runtime-owned metadata derived from raw stats. It reports
-scope, basic read/search counts, budget stop, and tool-result truncation. It
+scope, basic read/search counts, budget stop, tool-result truncation, and
+`omittedDiscoveredPaths` when the bounded candidate list is truncated. It
 deliberately does not claim LSP-level semantic coverage. The underlying
 `stats` and `codeMap` objects stay on the raw runtime result for transcript /
 benchmark introspection but are not exposed through the MCP envelope (spec
@@ -514,11 +530,13 @@ Cerebras Explorer의 제품 목표는 상위 AI가 정확한 판단을 내릴 �
 
 ### V2 Evidence Reliability Gates
 
+`groundingStatus="exact"`은 evidence의 전체 line range가 관측된 line range들로 완전히 덮일 때만 부여한다. `repo_grep`/`repo_git_blame`의 single-line hit는 같은 한 줄 evidence에는 exact가 될 수 있지만, 주변 미관측 라인을 포함하는 multi-line evidence는 partial로만 남는다. missing, non-integer, inverted line range는 line 1로 보정하지 않고 critic이 malformed evidence로 drop하여 `critic.warnings`와 `evidenceQuality.droppedCount`에 반영한다.
+
 V2 런타임의 도구 결과 truncation은 모델이 최종 보고서를 합성하기 전에 발생한다. 응답은 이 사실을 truncation 라벨과 `searchCoverage.warnings`로 노출해야 하며, 호출자는 보고서가 자연스럽게 읽히더라도 해당 라벨이 있으면 누락 가능성을 전제로 다음 검증을 계획해야 한다.
 
 `searchCoverage.warnings`는 단순 주석이 아니라 복구 경로다. 예산 중단, tool-result truncation, scope 제한 같은 신호가 있으면 호출자는 그 내용을 다음 `explore_repo`/`explore` follow-up의 scope, known file, symbol 입력으로 사용해야 한다. Report citation gap처럼 report critic이 감지한 누락은 `critic.warnings`의 별도 경고로 읽되, 같은 방식으로 후속 검증 입력으로 취급한다.
 
-Report-mode 도구인 `explore`는 Markdown 본문과 함께 MCP `structuredContent`에 `citations[]`(파일/라인 인용)와 인용에서 파생한 `targets[]`(다음 읽기/검증 대상)를 노출한다. 이 필드는 `explore_repo`의 `targets[]`/`evidence[]`와 같은 구조화 탐색 계약이 아니라 report-mode 본문에서 추출한 별도 handoff 필드다.
+Report-mode 도구인 `explore`는 Markdown 본문과 함께 MCP `structuredContent`에 `report`, `citations[]`(파일/라인 인용), 인용에서 파생한 `targets[]`(다음 읽기/검증 대상), `searchCoverage`, `critic`, `failure`를 노출한다. 운영용 `stats`, transcript path, compact tool trace, files/tools lists는 default answer payload가 아니라 MCP `_meta.ops`에 분리한다. 이 필드는 `explore_repo`의 `targets[]`/`evidence[]`와 같은 구조화 탐색 계약이 아니라 report-mode 본문에서 추출한 별도 handoff 필드다.
 
 V2 backend는 이제 report-mode의 단독 backend다. evidence-preservation benchmark의 citation 보존과 미해명 citation gap 경고(`critic.warnings` 또는 동등 신호) 부재는 opt-in 기준이 아니라 회귀 방지 기준으로 유지한다.
 
@@ -535,7 +553,7 @@ V2 backend는 이제 report-mode의 단독 backend다. evidence-preservation ben
 
 ### 11.5 Targets vs discoveredPaths (010)
 
-`targets[]`는 grounded evidence와 직접 연결된 actionable 항목만 담는다. `repo_list_dir`/`repo_find_files`/`repo_git_diff`/`repo_git_show`로 발견만 된 path는 별도 top-level `discoveredPaths[]`에 `{ path, kind, sourceTool, reason }` 형태로 노출한다. report 도구 `explore`의 citation target은 file path 기준으로 병합되어 `startLine`은 최소·`endLine`은 최대로 묶이며, 두 citation 이상이 합쳐진 경우 `reason`에 merge count가 명시된다. spec 011에서 `CEREBRAS_EXPLORER_LEGACY_DISCOVERED_TARGETS` 옵트인은 영구 제거되었고, 신 동작만 적용된다.
+`targets[]`는 grounded evidence와 직접 연결된 actionable 항목만 담는다. `repo_list_dir`/`repo_find_files`/`repo_git_diff`/`repo_git_show`로 발견만 된 path는 별도 top-level `discoveredPaths[]`에 `{ path, kind, sourceTool, reason }` 형태로 최대 50개까지 노출한다. 더 많은 후보가 있으면 `searchCoverage.omittedDiscoveredPaths`와 `searchCoverage.warnings`로 생략 수를 노출한다. report 도구 `explore`의 citation target은 file path 기준으로 병합되어 `startLine`은 최소·`endLine`은 최대로 묶이며, 두 citation 이상이 합쳐진 경우 `reason`에 merge count가 명시된다. spec 011에서 `CEREBRAS_EXPLORER_LEGACY_DISCOVERED_TARGETS` 옵트인은 영구 제거되었고, 신 동작만 적용된다.
 
 ### 11.6 Scope hard boundary for git tools (010)
 
@@ -545,9 +563,9 @@ V2 backend는 이제 report-mode의 단독 backend다. evidence-preservation ben
 
 spec 011에서 `CEREBRAS_EXPLORER_AUTO_SESSION_BY_REPO` 옵트인과 `SessionStore.findReusableForRepo()` 메서드가 제거되어 multi-call 세션 연결이 explicit `session` 인자로만 지원되었다. spec 017 (v0.6.0)에서는 그 explicit 입력과 응답의 `sessionId`/`session`/`_debug` 표면, 그리고 `SessionStore` 모듈 자체가 모두 제거되었다. 응답 표면이 사람에게 도달하지 않아 사실상 운영 디버깅 채널로 동작하지 못한 점, 그리고 응답에서 sessionId가 사라지면 입력 `session`을 채울 외부 경로가 없는 점이 결정 이유다.
 
-spec 018에서 transcript은 운영 디버깅 채널로 재정의되었다. `CEREBRAS_EXPLORER_LOG_PATH`가 설정되면 `explore_repo`, 6개 wrapper, `explore`가 호출별 JSONL 파일을 만들고, 파일명과 모든 record에는 같은 UUID `callId`가 들어간다. 각 record는 `{ t, type, callId, ...data }` 형태이며 기본적으로 response redaction과 같은 정책을 통과한다. `CEREBRAS_EXPLORER_LOG_RAW=true`일 때만 raw record를 보존하고 final meta에는 `redacted` 상태를 남긴다.
+spec 018에서 transcript은 운영 디버깅 채널로 재정의되었다. `CEREBRAS_EXPLORER_LOG_PATH`가 설정되면 `explore_repo`, 6개 wrapper, `explore`가 호출별 JSONL 파일을 만들고, 파일명과 모든 record에는 같은 UUID `callId`가 들어간다. 각 record는 `{ t, type, callId, ...data }` 형태이며 기본적으로 response redaction과 같은 정책을 통과한다. tool record에는 compact `args`/`result` summary가 들어가지만 raw file content와 complete tool result JSON은 기본적으로 남기지 않는다. `CEREBRAS_EXPLORER_LOG_RAW=true`일 때만 raw record를 보존하고 final meta에는 `redacted` 상태를 남긴다.
 
-모든 explore 호출은 transcript 옵트인 여부와 무관하게 종료 시 stderr에 `[cerebras-explorer] tool=... turns=... toolCalls=... stoppedByBudget=... elapsed=...s` 한 줄을 출력한다. transcript 파일이 생성되면 같은 줄에 `log=<path>`를 붙이고 raw 모드면 `raw=true`를 붙인다. stdout은 MCP JSON-RPC frame 전용으로 유지한다.
+모든 explore 호출은 transcript 옵트인 여부와 무관하게 종료 시 stderr에 `[cerebras-explorer] tool=... turns=... toolCalls=... stoppedByBudget=... elapsed=...s` 한 줄을 출력한다. transcript 파일이 생성되면 같은 줄에 `log=<basename>.jsonl`를 붙이고 raw 모드면 `raw=true`를 붙인다. 기본 stderr 요약은 전체 local path를 노출하지 않는다. stdout은 MCP JSON-RPC frame 전용으로 유지한다.
 
 heavy 호출(보고서/path/impact)에서는 parent agent가 `_meta.progressToken`을 전달해 turn-by-turn 진행률을 받아야 하고, 결과를 sub-agent에 인계할 때는 control-plane 필드(`status.verification`, `status.complete`, `evidenceQuality`, `searchCoverage`, `failure`, `critic.warnings`)를 반드시 보존해야 한다.
 

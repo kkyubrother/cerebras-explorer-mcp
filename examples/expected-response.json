@@ -19,16 +19,18 @@
     {
       "path": "src/auth.js",
       "startLine": 1,
-      "endLine": 6,
+      "endLine": 4,
       "role": "read",
       "reason": "requireAuth의 실제 구현이 여기 있다.",
       "evidenceRefs": ["E2"]
-    },
+    }
+  ],
+  "discoveredPaths": [
     {
       "path": "docs/auth.md",
-      "role": "reference",
-      "reason": "Discovered path; read only if the cited evidence does not answer the edit or verification need.",
-      "evidenceRefs": []
+      "kind": "file",
+      "sourceTool": "repo_list_dir",
+      "reason": "Listed during repository discovery."
     }
   ],
   "evidence": [
@@ -46,7 +48,7 @@
       "id": "E2",
       "path": "src/auth.js",
       "startLine": 1,
-      "endLine": 6,
+      "endLine": 4,
       "why": "requireAuth의 실제 구현이 여기 있다.",
       "evidenceType": "file_range",
       "groundingStatus": "exact",
@@ -65,19 +67,26 @@
     "droppedCount": 0,
     "fileCount": 2,
     "warnings": [],
-    "summary": "Verified: 2 evidence items grounded across 2 files."
+    "summary": "Verified: 2 files read, 1 grep searches, 2/2 retained evidence items grounded, cross-verified across 2 files. All retained evidence grounded in inspected code."
   },
-  "failure": null,
   "searchCoverage": {
     "scope": ["src/**", "docs/**"],
     "scopeLimited": true,
     "filesRead": 2,
     "grepCalls": 1,
-    "listDirCalls": 0,
-    "symbolCalls": 1,
+    "listDirCalls": 1,
+    "symbolCalls": 0,
     "toolResultsTruncated": 0,
     "stoppedByBudget": false,
+    "omittedDiscoveredPaths": 0,
     "warnings": ["Result is limited to scope: src/**, docs/**"],
     "summary": "scope-limited search across src/**, docs/**; 2 file read(s), 1 grep search(es)."
-  }
+  },
+  "critic": {
+    "status": "pass",
+    "warnings": [],
+    "droppedEvidence": 0,
+    "partialEvidence": 0
+  },
+  "failure": null
 }

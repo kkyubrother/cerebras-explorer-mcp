@@ -160,20 +160,20 @@ Parent model (Claude Code / Codex)
 - **자율 탐색 루프**: 모델이 내부 도구를 직접 호출하며 파일을 찾고 읽음
 - **단일 runtime config**: 모든 호출이 deep 한도(turn 30, 검색 80, 읽기 320 lines 등)로 실행됩니다. 사용자가 budget을 고를 필요가 없습니다.
 - **전략 기반 탐색**: symbol-first, reference-chase, git-guided 등은 질문과 anchor에서 자동 유도
-- **세션/진행 상황 지원**: 세션 ID 기반 후속 탐색과 MCP progress notification 지원
-- **프로젝트별 설정 파일 지원**: `.cerebras-explorer.json`으로 `defaultBudget`, `defaultScope`, `entryPoints`, `keyFiles`, `extraIgnoreDirs`, `projectContext` 지정 가능
+- **진행 상황 지원**: MCP progress notification 지원
+- **프로젝트별 설정 파일 지원**: `.cerebras-explorer.json`으로 `defaultScope`, `entryPoints`, `keyFiles`, `extraIgnoreDirs`, `projectContext` 지정 가능
 - **GLM 4.7 reasoning 정렬**: spec 011 단일 deep config에서는 `reasoning_effort`를 설정하지 않고 기본 reasoning을 유지하며 `clear_thinking=false`로 이전 turn의 reasoning을 보존
 - **샘플링 기본값**: `temperature=1.0`, `top_p=0.95` (단일 deep config). direct client 경로에는 envvar fallback 지원
-- **근거 강제**: 최종 evidence는 실제로 읽거나 grep으로 확인한 라인 범위에만 남김
+- **근거 강제**: 최종 evidence의 exact status는 실제 관측 라인이 전체 범위를 덮을 때만 부여
 - **운영 디버깅 출력**: 모든 explore 호출 종료 시 stderr에 한 줄 요약을 출력하고, `CEREBRAS_EXPLORER_LOG_PATH` 설정 시 호출별 transcript JSONL을 기록
 - **Read-only tool annotations**: 모든 공개 MCP 도구는 `readOnlyHint: true`를 선언합니다. 이는 클라이언트 UX hint이며 보안 경계는 아닙니다.
-- **Compact 반환 계약**: MCP `structuredContent`는 `schemaVersion`(현재 `2`), `directAnswer`, `status`, `targets`, snippet 포함 `evidence`, `uncertainties`, `nextAction`, `evidenceQuality`, nullable `failure`, `searchCoverage` 중심의 compact 계약을 사용합니다. spec 017 이후 `_debug`, `sessionId`, `session`은 응답에서 모두 제거되었으며, 입력 `session` 파라미터와 `SessionStore`도 함께 사라졌습니다(breaking, v0.6.0). 운영 디버깅은 stderr 한 줄 요약과 `CEREBRAS_EXPLORER_LOG_PATH` transcript JSONL을 사용하세요.
+- **Compact 반환 계약**: MCP `structuredContent`는 `schemaVersion`(현재 `2`), `directAnswer`, `status`, `targets`, bounded `discoveredPaths`, snippet 포함 `evidence`, `uncertainties`, `nextAction`, `evidenceQuality`, `searchCoverage`, `critic`, nullable `failure` 중심의 compact 계약을 사용합니다. spec 017 이후 `_debug`, `sessionId`, `session`은 응답에서 모두 제거되었으며, 입력 `session` 파라미터와 `SessionStore`도 함께 사라졌습니다(breaking, v0.6.0). 운영 디버깅은 stderr 한 줄 요약과 `CEREBRAS_EXPLORER_LOG_PATH` transcript JSONL을 사용하세요.
 
 ## 공개 MCP 도구
 
 도구 surface는 항상 정확히 **8개**(spec 011 이후 환경변수와 무관하게 고정).
 
-- `explore_repo`: parent agent handoff의 정상 구조화 표면입니다. `directAnswer`, `status`, `targets`, `discoveredPaths`, `evidence`, `searchCoverage` 같은 JSON 필드를 후속 자동화와 편집 전 검증에 사용합니다.
+- `explore_repo`: parent agent handoff의 정상 구조화 표면입니다. `directAnswer`, `status`, `targets`, `discoveredPaths`, `evidence`, `evidenceQuality`, `searchCoverage`, `critic.warnings` 같은 JSON 필드를 후속 자동화와 편집 전 검증에 사용합니다.
 - 목적형 wrapper 6개(`find_relevant_code`, `trace_symbol`, `map_change_impact`, `explain_code_path`, `collect_evidence`, `review_change_context`): 모두 내부적으로 `explore_repo`에 위임하며, 특정 작업 의도를 더 좁은 입력 스키마로 표현하는 표면입니다.
 - `explore`: 사람에게 바로 보여줄 Markdown 보고 도구. spec 011에서 V2 backend가 단일 구현으로 승격되어 모든 프롬프트에서 동일한 신뢰 가이드라인(structuredContent.citations[]/targets[], critic.warnings, searchCoverage.warnings, tool-result truncation 라벨)을 적용합니다.
 
@@ -183,9 +183,9 @@ Parent model (Claude Code / Codex)
 - known symbol / 특정 경로 / 단일 변경 리뷰 → 6 wrappers 중 의도에 맞는 것
 - 사람에게 보여줄 narrative → `explore` (Markdown)
 
-Report 도구 `explore`는 Markdown 본문을 `text`로 반환하면서, 같은 MCP 응답의 `structuredContent`에 본문에서 파생한 `citations[]`와 인용 기반 `targets[]`도 포함합니다. parent agent는 file:line 인용을 Markdown에서 regex로 다시 긁기보다 이 구조화 필드를 다음 읽기/검증 대상으로 사용해야 합니다.
+Report 도구 `explore`는 Markdown 본문을 `text`로 반환하면서, 같은 MCP 응답의 `structuredContent`에 본문에서 파생한 `citations[]`, 인용 기반 `targets[]`, `searchCoverage`, `critic`, `failure`도 포함합니다. 운영용 `stats`, transcript path, compact tool trace는 기본 answer payload가 아니라 MCP `_meta.ops`에 분리됩니다. parent agent는 file:line 인용을 Markdown에서 regex로 다시 긁기보다 이 구조화 필드를 다음 읽기/검증 대상으로 사용해야 합니다.
 
-`targets[]` vs `discoveredPaths[]` — `targets[]`에는 grounded evidence와 연결된 actionable 항목만 들어가며, `repo_list_dir`/`repo_find_files`/`repo_git_diff` 등으로 발견만 된 path는 별도 top-level `discoveredPaths[]`에 `{ path, kind, sourceTool, reason }` 형태로 노출됩니다. 자동화는 `targets[]`를 다음 읽기/편집 대상으로 신뢰하고, 필요할 때만 `discoveredPaths[]`를 follow-up 후보로 참고하세요. (spec 011 이후 reference target 자동 승격 옵트인은 영구 종료.)
+`targets[]` vs `discoveredPaths[]` — `targets[]`에는 grounded evidence와 연결된 actionable 항목만 들어가며, `repo_list_dir`/`repo_find_files`/`repo_git_diff` 등으로 발견만 된 path는 별도 top-level `discoveredPaths[]`에 `{ path, kind, sourceTool, reason }` 형태로 최대 50개까지 노출됩니다. 후보가 더 있으면 `searchCoverage.omittedDiscoveredPaths`와 `searchCoverage.warnings`가 생략 수를 알려줍니다. 자동화는 `targets[]`를 다음 읽기/편집 대상으로 신뢰하고, 필요할 때만 `discoveredPaths[]`를 follow-up 후보로 참고하세요. (spec 011 이후 reference target 자동 승격 옵트인은 영구 종료.)
 
 `explore_repo`는 더 이상 `budget` 입력을 받지 않습니다. 모든 호출은 단일 deep runtime config(turn limit 30, search/read 한도 등)로 실행되며, 사용자가 quick/normal/deep을 선택할 필요가 없습니다.
 
@@ -235,6 +235,14 @@ Heavy 호출이나 sub-agent 핸드오프에서는 `_meta.progressToken`을 함�
       "evidenceRefs": ["E1"]
     }
   ],
+  "discoveredPaths": [
+    {
+      "path": "docs/auth.md",
+      "kind": "file",
+      "sourceTool": "repo_list_dir",
+      "reason": "Listed during repository discovery."
+    }
+  ],
   "evidence": [
     {
       "id": "E1",
@@ -267,7 +275,26 @@ Heavy 호출이나 sub-agent 핸드오프에서는 `_meta.progressToken`을 함�
     "droppedCount": 0,
     "fileCount": 2,
     "warnings": [],
-    "summary": "Verified: 2 files read, 1 grep searches, 2/2 evidence items grounded, cross-verified across 2 files. All evidence grounded in inspected code."
+    "summary": "Verified: 2 files read, 1 grep searches, 2/2 retained evidence items grounded, cross-verified across 2 files. All retained evidence grounded in inspected code."
+  },
+  "searchCoverage": {
+    "scope": ["src/**", "docs/**"],
+    "scopeLimited": true,
+    "filesRead": 2,
+    "grepCalls": 1,
+    "listDirCalls": 1,
+    "symbolCalls": 0,
+    "toolResultsTruncated": 0,
+    "stoppedByBudget": false,
+    "omittedDiscoveredPaths": 0,
+    "warnings": ["Result is limited to scope: src/**, docs/**"],
+    "summary": "scope-limited search across src/**, docs/**; 2 file read(s), 1 grep search(es)."
+  },
+  "critic": {
+    "status": "pass",
+    "warnings": [],
+    "droppedEvidence": 0,
+    "partialEvidence": 0
   },
   "failure": null
 }
@@ -277,7 +304,7 @@ Heavy 호출이나 sub-agent 핸드오프에서는 `_meta.progressToken`을 함�
 
 `failure.retry.args`는 sanitized retry recipe이며 원본 도구 입력을 그대로 반영하지 않습니다. bounded text 필드, bounded string array, 알려진 hint 키만 포함하며, budget-exhausted retry는 동일한 bounded 검색을 다시 돌리지 않도록 unchanged scope를 의도적으로 생략합니다.
 
-`searchCoverage`는 explorer가 실제로 검색·읽은 범위를 요약합니다. 완전한 의미 분석 보증은 아닙니다. `scopeLimited`가 true면 evidence가 없다는 사실은 "이 scope 안에서는 없다"이지 "저장소에 없다"가 아닙니다.
+`searchCoverage`는 explorer가 실제로 검색·읽은 범위를 요약합니다. 완전한 의미 분석 보증은 아닙니다. `scopeLimited`가 true면 evidence가 없다는 사실은 "이 scope 안에서는 없다"이지 "저장소에 없다"가 아닙니다. `omittedDiscoveredPaths`가 0보다 크면 `discoveredPaths[]`는 follow-up 후보 일부만 담고 있습니다.
 
 spec 017 이후 응답에는 `_debug` 운영 디버그 객체가 포함되지 않습니다. parent agent가 사람에게 노출하지 않는 채널이라 사실상 운영 디버깅에 쓰이지 않았다는 판단에 따라 응답 표면에서 제거되었습니다. 운영 관찰성은 항상 출력되는 stderr 한 줄 요약과 `CEREBRAS_EXPLORER_LOG_PATH`로 옵트인하는 transcript JSONL을 사용하세요.
 
@@ -306,7 +333,8 @@ spec 017 이후 응답에는 `_debug` 운영 디버그 객체가 포함되지 �
 
 - JSON 필드 묶음 대신 **Markdown 보고서 본문**이 중심입니다.
 - 본문 안에 inline file:line citation이 들어갑니다.
-- `structuredContent`에는 본문에서 파생한 `citations[]`와 인용 기반 `targets[]`가 함께 들어갑니다.
+- `structuredContent`에는 본문에서 파생한 `citations[]`, 인용 기반 `targets[]`, `searchCoverage`, `critic`, `failure`가 함께 들어갑니다.
+- 운영용 `stats`, transcript path, compact tool trace는 기본 `structuredContent`가 아니라 `_meta.ops`에 분리됩니다.
 - 사용자 설명, 아키텍처 브리핑, 조사 결과 공유에 적합합니다.
 - 후속 자동화나 정형 후처리가 중요하면 `explore_repo`를 우선 사용하세요.
 
@@ -421,15 +449,17 @@ export CEREBRAS_EXPLORER_HTTP_TIMEOUT_MS="60000"        # HTTP 요청 timeout (m
 
 > spec 011 이후 `CEREBRAS_MODEL` alias와 `CEREBRAS_EXPLORER_MODEL_QUICK` / `_NORMAL` / `_DEEP` budget별 모델 override는 모두 제거되었습니다. 모델은 항상 `CEREBRAS_EXPLORER_MODEL` 하나로만 결정됩니다. budget별 비용 분리가 필요하면 서버 인스턴스를 두 개 띄워 각각 다른 모델을 지정하세요.
 
-선택 (provider override):
+내부 provider escape hatch (공개 계약 아님):
 
 ```bash
-# 기본 provider는 cerebras입니다. OpenAI-compatible endpoint를 쓰려면:
+# 기본 공개 계약은 Cerebras explorer입니다. 아래 값은 개발/운영용 내부 escape hatch입니다.
 export EXPLORER_PROVIDER="openai-compat"
 export EXPLORER_OPENAI_API_KEY="..."
 export EXPLORER_OPENAI_BASE_URL="https://api.openai.com/v1"
 export EXPLORER_OPENAI_MODEL="gpt-4o-mini"
 ```
+
+`EXPLORER_PROVIDER` / `EXPLORER_FAILOVER`는 내부 구현 경로이며 안정적인 사용자용 설정 표면으로 취급하지 않습니다.
 
 선택 (샘플링 / reasoning):
 
@@ -727,7 +757,7 @@ node ./scripts/run-benchmark.mjs \
 - 심볼 인덱싱은 외부 파서 없는 regex/syntax-lite 기반입니다. 언어 서버 수준의 semantic 분석은 제공하지 않지만, 설치 의존성을 늘리지 않는 방향을 우선합니다.
 - `repo_symbol_context.depth > 1`은 현재 `effectiveDepth = 1`로 고정됩니다 (직접 호출자만 반환). 의도적 설계 결정이며, 반환값에 `effectiveDepth: 1` 필드가 포함되어 실제 동작을 명시합니다. 더 깊은 호출 체인이 필요하면 `explore_repo`의 `reference-chase` 전략을 사용하세요.
 참고:
-- 코드베이스 안에는 provider abstraction 관련 구현이 일부 존재하지만, 이 프로젝트의 문서화된 주요 공개 인터페이스는 Cerebras 기반 explorer에 맞춰져 있습니다. Provider override가 필요하면 `EXPLORER_PROVIDER`와 provider별 환경 변수를 사용하세요.
+- 코드베이스 안에는 provider abstraction/failover 구현이 일부 존재하지만, 이 프로젝트의 문서화된 주요 공개 인터페이스는 Cerebras 기반 explorer에 맞춰져 있습니다. `EXPLORER_PROVIDER` / `EXPLORER_FAILOVER`는 내부 escape hatch이며 안정적인 사용자용 계약이 아닙니다.
 
 ## 다음 확장 포인트
 

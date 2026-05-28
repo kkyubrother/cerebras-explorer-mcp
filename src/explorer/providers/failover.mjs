@@ -43,7 +43,7 @@ export class FailoverChatClient extends AbstractChatClient {
     }
 
     let lastError;
-    for (const provider of this._providers) {
+    for (const [providerIndex, provider] of this._providers.entries()) {
       // Create a per-provider AbortController so we can actually cancel the
       // underlying HTTP request when the timeout fires, instead of just racing
       // a promise and leaving a ghost request running in the background.
@@ -76,7 +76,14 @@ export class FailoverChatClient extends AbstractChatClient {
         const races = callerAbortPromise
           ? [providerPromise, timeoutPromise, callerAbortPromise]
           : [providerPromise, timeoutPromise];
-        return await Promise.race(races);
+        const result = await Promise.race(races);
+        return {
+          ...result,
+          usedProvider: result?.usedProvider ?? {
+            providerIndex,
+            model: provider.model ?? 'unknown',
+          },
+        };
       } catch (error) {
         if (callerSignal?.aborted) {
           throw (error?.name === 'AbortError' ? error : createAbortError());

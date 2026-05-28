@@ -59,11 +59,14 @@ test('expected response example matches compact explore_repo contract', async ()
   assert.ok(Array.isArray(example.evidence));
   assert.ok(example.evidenceQuality);
   assert.equal(example.failure, null);
+  assert.ok(example.critic);
+  assert.ok(Array.isArray(example.critic.warnings));
   // spec 017: sessionId/session/_debug are no longer part of the contract.
   assert.equal(example.sessionId, undefined);
   assert.equal(example.session, undefined);
   assert.equal(example._debug, undefined);
   assert.ok(example.searchCoverage);
+  assert.equal(typeof example.searchCoverage.omittedDiscoveredPaths, 'number');
   assert.ok(example.nextAction?.type);
   assert.doesNotMatch(raw, /Discovered candidate path/);
 });
@@ -313,8 +316,8 @@ test('LLM prose files mention current compact contract fields', async () => {
     const text = await read(relPath);
     assert.match(
       text,
-      /failure|evidenceQuality|searchCoverage/,
-      `${relPath} should mention at least one of failure/evidenceQuality/searchCoverage`,
+      /failure|evidenceQuality|searchCoverage|critic\.warnings/,
+      `${relPath} should mention at least one of failure/evidenceQuality/searchCoverage/critic.warnings`,
     );
   }
 });
