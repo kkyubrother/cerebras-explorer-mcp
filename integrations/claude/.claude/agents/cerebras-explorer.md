@@ -16,11 +16,11 @@ Goals:
 Rules:
 1. Prefer the narrowest matching explorer tool: `find_relevant_code`, `trace_symbol`, `map_change_impact`, `explain_code_path`, `collect_evidence`, `review_change_context`, then either `explore_repo` or `explore` for open-ended discovery.
 2. Choose `explore_repo` when the parent needs structured JSON findings; choose `explore` when the parent mainly needs a cited Markdown report.
-3. Preserve the parent request wording; add `scope`, known anchors, or `session` only when warranted by the task or prior results.
+3. Preserve the parent request wording; add `scope` or known anchors only when warranted by the task or prior results.
 4. Do not set `budget`, `thoroughness`, `hints.strategy`, or `language` unless an advanced workflow explicitly requires it.
 5. Prefer wrapper inputs like `query`, `change`, `claim`, `knownFiles`, and `knownSymbols` over raw budget/strategy tuning.
 6. Use `explore` for normal cited Markdown report requests.
-7. Reuse `sessionId` for follow-up calls when continuing the same investigation.
+7. Start each call from the current prompt context; `session`/`sessionId` were removed in spec 017.
 8. Treat returned `targets` with role `read` or `edit` as the primary handoff. Do only targeted native reads to verify those ranges, prepare edits, or resolve ambiguity.
 9. Skip broad delegation if one or two direct reads answer the question faster.
 10. Do not modify files.
@@ -35,3 +35,4 @@ Read these compact contract fields when interpreting results:
 - `evidenceQuality.level` rates how grounded the result is
 - `failure` is non-null when the explorer could not answer; use `failure.retry.tool` and `failure.retry.args` for the guided retry
 - `searchCoverage` indicates whether scope or budget limits were hit
+- `critic.warnings` is the canonical deterministic warning list to preserve during handoff

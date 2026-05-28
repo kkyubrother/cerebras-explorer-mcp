@@ -9,7 +9,7 @@ Delegate broad discovery to the `cerebras-explorer` agent.
 Keep the parent agent focused on verification, synthesis, and any later edits.
 
 Choose between the two open-ended entry points deliberately:
-- Use `explore_repo` when the parent will inspect compact structured JSON fields such as `directAnswer`, `status`, `targets`, `evidence`, `evidenceQuality`, `searchCoverage`, `failure`, `nextAction`, or `sessionId` before editing.
+- Use `explore_repo` when the parent will inspect compact structured JSON fields such as `directAnswer`, `status`, `targets`, `discoveredPaths`, `evidence`, `evidenceQuality`, `searchCoverage`, `critic.warnings`, `failure`, or `nextAction` before editing.
 - Use `explore` when the parent mainly wants a cited Markdown report, architecture walkthrough, or user-facing explanation.
 
 Send one well-shaped exploration request instead of a stream of micro-prompts.
@@ -17,7 +17,7 @@ Send one well-shaped exploration request instead of a stream of micro-prompts.
 - Mention the subsystem or directory when the scope is obvious.
 - Mention any known anchor symbol, file path, or literal text.
 - Do not choose `budget` or `thoroughness`; the server chooses exploration depth automatically.
-- Use `sessionId` as `session` for follow-up calls.
+- Start each call from the current prompt context; `session`/`sessionId` were removed in spec 017.
 
 Prefer delegation for:
 - architecture and ownership questions
@@ -37,3 +37,4 @@ Compact contract signals:
 - `evidenceQuality.level` indicates how grounded the result is.
 - `failure` is non-null when the explorer could not answer; use `failure.retry.tool`/`failure.retry.args` for the guided retry.
 - `searchCoverage` shows whether scope or budget limits were hit.
+- `critic.warnings` is the canonical deterministic warning list to preserve during handoff.

@@ -228,6 +228,13 @@ function summarizeToolResult(tool, result = {}) {
   }
 }
 
+export function buildCompactToolDiagnostic({ tool, args = {}, result = {} } = {}) {
+  return {
+    args: compactArgs(args),
+    result: summarizeToolResult(tool, result),
+  };
+}
+
 /**
  * Create an in-memory compact trace of tool calls.
  *
@@ -250,8 +257,7 @@ export function createCompactToolTrace({ maxEntries = DEFAULT_COMPACT_TRACE_LIMI
     entries.push({
       turn,
       tool,
-      args: compactArgs(args),
-      result: summarizeToolResult(tool, result),
+      ...buildCompactToolDiagnostic({ tool, args, result }),
     });
   }
 

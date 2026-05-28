@@ -198,6 +198,31 @@ const EVIDENCE_QUALITY_SCHEMA = {
   required: ['level', 'exactCount', 'partialCount', 'droppedCount', 'fileCount', 'warnings', 'summary'],
 };
 
+const CRITIC_WARNING_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    type: { type: 'string' },
+    severity: { type: 'string', enum: ['low', 'medium', 'high'] },
+    message: { type: 'string' },
+    target: { type: 'string' },
+    action: { type: 'string' },
+  },
+  required: ['type', 'severity', 'message', 'action'],
+};
+
+const CRITIC_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    status: { type: 'string', enum: ['pass', 'caution', 'fail'] },
+    warnings: { type: 'array', items: CRITIC_WARNING_SCHEMA },
+    droppedEvidence: { type: 'integer', minimum: 0 },
+    partialEvidence: { type: 'integer', minimum: 0 },
+  },
+  required: ['warnings', 'droppedEvidence', 'partialEvidence'],
+};
+
 const SEARCH_COVERAGE_SCHEMA = {
   type: 'object',
   additionalProperties: false,
@@ -210,6 +235,7 @@ const SEARCH_COVERAGE_SCHEMA = {
     symbolCalls: { type: 'integer', minimum: 0 },
     toolResultsTruncated: { type: 'integer', minimum: 0 },
     stoppedByBudget: { type: 'boolean' },
+    omittedDiscoveredPaths: { type: 'integer', minimum: 0 },
     warnings: { type: 'array', items: { type: 'string' } },
     summary: { type: 'string' },
   },
@@ -222,6 +248,7 @@ const SEARCH_COVERAGE_SCHEMA = {
     'symbolCalls',
     'toolResultsTruncated',
     'stoppedByBudget',
+    'omittedDiscoveredPaths',
     'warnings',
     'summary',
   ],
@@ -263,10 +290,13 @@ export const EXPLORE_REPO_OUTPUT_SCHEMA = {
     'directAnswer',
     'status',
     'targets',
+    'discoveredPaths',
     'evidence',
     'uncertainties',
     'nextAction',
     'evidenceQuality',
+    'searchCoverage',
+    'critic',
     'failure',
   ],
   properties: {
@@ -279,6 +309,7 @@ export const EXPLORE_REPO_OUTPUT_SCHEMA = {
     uncertainties: { type: 'array', items: { type: 'string' } },
     nextAction: NEXT_ACTION_SCHEMA,
     evidenceQuality: EVIDENCE_QUALITY_SCHEMA,
+    critic: CRITIC_SCHEMA,
     failure: { anyOf: [{ type: 'null' }, FAILURE_SCHEMA] },
     searchCoverage: SEARCH_COVERAGE_SCHEMA,
   },
@@ -454,14 +485,24 @@ export function normalizeExploreResult(raw, stats) {
             const kind = typeof item.evidenceType === 'string' && EVIDENCE_TYPES.includes(item.evidenceType)
               ? item.evidenceType
               : 'file_range';
+            const startLine = Number.isInteger(item.startLine) && item.startLine >= 1
+              ? item.startLine
+              : undefined;
+            const endLine = Number.isInteger(item.endLine) && item.endLine >= 1
+              ? item.endLine
+              : undefined;
+            const malformedRange = !Number.isInteger(startLine) ||
+              !Number.isInteger(endLine) ||
+              endLine < startLine;
 
             const base = {
               ...(typeof item.id === 'string' && item.id ? { id: item.id } : {}),
               path: typeof item.path === 'string' ? item.path : '',
-              startLine: Number.isInteger(item.startLine) ? item.startLine : 1,
-              endLine: Number.isInteger(item.endLine) ? item.endLine : 1,
+              ...(Number.isInteger(startLine) ? { startLine } : {}),
+              ...(Number.isInteger(endLine) ? { endLine } : {}),
               why: typeof item.why === 'string' ? item.why : '',
               evidenceType: kind,
+              ...(malformedRange ? { malformedRange: true } : {}),
             };
             if (item.groundingStatus === 'exact' || item.groundingStatus === 'partial') {
               base.groundingStatus = item.groundingStatus;

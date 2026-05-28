@@ -1,3 +1,5 @@
+import path from 'node:path';
+
 import { DEFAULT_PROTOCOL_VERSION, getExplorerModel } from '../explorer/config.mjs';
 import { exploreRepository, freeExploreRepository } from '../explorer/runtime.mjs';
 import {
@@ -447,9 +449,6 @@ export function createMcpRequestHandler({
         const grounding = e.groundingStatus === 'exact' ? '' : ' [partial]';
         const id = e.id ? `${e.id} ` : '';
         lines.push(`- ${id}\`${e.path}:${e.startLine}-${e.endLine}\`${grounding} - ${e.why}`);
-        if (e.snippet) {
-          lines.push(`  snippet: ${e.snippet.replace(/\n/g, '\n  ')}`);
-        }
       }
       if (result.evidence.length > 10) {
         lines.push(`- ... and ${result.evidence.length - 10} more evidence items`);
@@ -476,7 +475,7 @@ export function createMcpRequestHandler({
       `toolCalls=${safeStats.toolCalls ?? 0} ` +
       `stoppedByBudget=${Boolean(safeStats.stoppedByBudget)} ` +
       `elapsed=${elapsedSeconds}s`;
-    if (transcriptPath) line += ` log=${transcriptPath}`;
+    if (transcriptPath) line += ` log=${path.basename(transcriptPath)}`;
     if (raw) line += ' raw=true';
     if (failureReason) line += ` failure=${failureReason}`;
     return line;
@@ -512,8 +511,59 @@ export function createMcpRequestHandler({
       symbolCalls: 0,
       toolResultsTruncated: 0,
       stoppedByBudget: false,
+      omittedDiscoveredPaths: 0,
       warnings: [],
       summary,
+    };
+  }
+
+  function normalizeCriticWarning(warning) {
+    if (warning && typeof warning === 'object') {
+      return {
+        type: typeof warning.type === 'string' && warning.type ? warning.type : 'runtime_warning',
+        severity: ['low', 'medium', 'high'].includes(warning.severity) ? warning.severity : 'medium',
+        message: typeof warning.message === 'string' ? warning.message : '',
+        ...(typeof warning.target === 'string' && warning.target ? { target: warning.target } : {}),
+        action: typeof warning.action === 'string' && warning.action
+          ? warning.action
+          : 'Review this warning before relying on the result.',
+      };
+    }
+    return {
+      type: 'runtime_warning',
+      severity: 'medium',
+      message: typeof warning === 'string' ? warning : 'Explorer emitted an unspecified warning.',
+      action: 'Review this warning before relying on the result.',
+    };
+  }
+
+  function defaultCritic(warnings = []) {
+    const normalizedWarnings = Array.isArray(warnings)
+      ? warnings.map(normalizeCriticWarning).filter(warning => warning.message)
+      : [];
+    return {
+      status: normalizedWarnings.some(warning => warning.severity === 'high')
+        ? 'fail'
+        : (normalizedWarnings.length > 0 ? 'caution' : 'pass'),
+      warnings: normalizedWarnings,
+      droppedEvidence: 0,
+      partialEvidence: 0,
+    };
+  }
+
+  function toAgentFacingCritic(result = {}) {
+    const warnings = Array.isArray(result.critic?.warnings)
+      ? result.critic.warnings
+      : [];
+    return {
+      status: result.critic?.status ?? (warnings.length > 0 ? 'caution' : 'pass'),
+      warnings: warnings.map(normalizeCriticWarning).filter(warning => warning.message),
+      droppedEvidence: Number.isInteger(result.critic?.droppedEvidence)
+        ? result.critic.droppedEvidence
+        : (result.evidenceQuality?.droppedCount ?? 0),
+      partialEvidence: Number.isInteger(result.critic?.partialEvidence)
+        ? result.critic.partialEvidence
+        : (result.evidenceQuality?.partialCount ?? 0),
     };
   }
 
@@ -536,11 +586,13 @@ export function createMcpRequestHandler({
         warnings: [message],
       },
       targets: [],
+      discoveredPaths: [],
       evidence: [],
       uncertainties: [message],
       nextAction: { type: 'ask_user', reason: message },
       evidenceQuality: defaultEvidenceQuality(message, [message]),
       searchCoverage: defaultSearchCoverage(message),
+      critic: defaultCritic([message]),
       failure: {
         category,
         reason,
@@ -572,6 +624,26 @@ export function createMcpRequestHandler({
       nextAction: result.nextAction ?? { type: 'stop', reason: '' },
       evidenceQuality: result.evidenceQuality ?? defaultEvidenceQuality(result.trustSummary),
       searchCoverage: result.searchCoverage ?? defaultSearchCoverage(),
+      critic: toAgentFacingCritic(result),
+      failure: result.failure ?? null,
+    };
+  }
+
+  function toAgentFacingFreeExploreResult(result) {
+    return {
+      report: result.report ?? '',
+      citations: Array.isArray(result.citations) ? result.citations : [],
+      targets: Array.isArray(result.targets) ? result.targets : [],
+      searchCoverage: result.searchCoverage ?? defaultSearchCoverage(),
+      critic: {
+        ...defaultCritic(),
+        ...(result.critic && typeof result.critic === 'object' ? result.critic : {}),
+        warnings: Array.isArray(result.critic?.warnings)
+          ? result.critic.warnings.map(normalizeCriticWarning).filter(warning => warning.message)
+          : [],
+        droppedEvidence: 0,
+        partialEvidence: 0,
+      },
       failure: result.failure ?? null,
     };
   }
@@ -628,10 +700,18 @@ export function createMcpRequestHandler({
       });
       stats = result.stats;
       transcriptPath = result.transcriptPath ?? null;
-      const safeResult = redactValue(result).value;
+      const safeResult = redactValue(toAgentFacingFreeExploreResult(result)).value;
+      const ops = redactValue({
+        stats: result.stats ?? {},
+        transcriptPath: result.transcriptPath ?? null,
+        toolTrace: result.toolTrace ?? null,
+        filesRead: result.filesRead ?? [],
+        toolsUsed: result.toolsUsed ?? [],
+      }).value;
       return {
         content: [{ type: 'text', text: safeResult.report }],
         structuredContent: safeResult,
+        _meta: { ops },
       };
     } catch (error) {
       stats = error?.stats ?? stats;

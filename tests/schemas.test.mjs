@@ -222,10 +222,13 @@ test('agent-facing output schema is compact and exposes directAnswer, status, ta
     'directAnswer',
     'status',
     'targets',
+    'discoveredPaths',
     'evidence',
     'uncertainties',
     'nextAction',
     'evidenceQuality',
+    'searchCoverage',
+    'critic',
     'failure',
   ]);
   assert.equal(EXPLORE_REPO_OUTPUT_SCHEMA.properties.schemaVersion.const, 2);
@@ -234,6 +237,12 @@ test('agent-facing output schema is compact and exposes directAnswer, status, ta
   assert.ok(EXPLORE_REPO_OUTPUT_SCHEMA.properties.targets);
   assert.ok(EXPLORE_REPO_OUTPUT_SCHEMA.properties.evidence.items.properties.snippet);
   assert.ok(EXPLORE_REPO_OUTPUT_SCHEMA.properties.evidenceQuality);
+  assert.ok(EXPLORE_REPO_OUTPUT_SCHEMA.properties.critic);
+  assert.deepEqual(EXPLORE_REPO_OUTPUT_SCHEMA.properties.critic.required, [
+    'warnings',
+    'droppedEvidence',
+    'partialEvidence',
+  ]);
   assert.ok(EXPLORE_REPO_OUTPUT_SCHEMA.properties.failure);
   assert.ok(EXPLORE_REPO_OUTPUT_SCHEMA.properties.failure.anyOf[1].properties.reason.enum.includes('invalid_arguments'));
   const retrySchema = EXPLORE_REPO_OUTPUT_SCHEMA.properties.failure.anyOf[1].properties.retry.anyOf[1];
@@ -266,6 +275,7 @@ test('agent-facing output schema is compact and exposes directAnswer, status, ta
     'symbolCalls',
     'toolResultsTruncated',
     'stoppedByBudget',
+    'omittedDiscoveredPaths',
     'warnings',
     'summary',
   ]);
@@ -276,6 +286,7 @@ test('agent-facing output schema is compact and exposes directAnswer, status, ta
   assert.equal(EXPLORE_RESULT_JSON_SCHEMA.schema.properties.evidenceQuality, undefined);
   assert.equal(EXPLORE_RESULT_JSON_SCHEMA.schema.properties.failure, undefined);
   assert.equal(EXPLORE_RESULT_JSON_SCHEMA.schema.properties.searchCoverage, undefined);
+  assert.equal(EXPLORE_RESULT_JSON_SCHEMA.schema.properties.critic, undefined);
 });
 
 test('normalizeExploreResult accepts compact result fields without legacy aliases', () => {
@@ -323,4 +334,39 @@ test('normalizeExploreResult accepts compact result fields without legacy aliase
   assert.equal(result.answer, undefined);
   assert.equal(result.candidatePaths, undefined);
   assert.equal(result.followups, undefined);
+});
+
+test('normalizeExploreResult marks malformed evidence ranges instead of coercing to line 1', () => {
+  const result = normalizeExploreResult({
+    directAnswer: 'direct',
+    status: {
+      confidence: 'medium',
+      verification: 'verified',
+      complete: true,
+      warnings: [],
+    },
+    targets: [],
+    evidence: [
+      { path: 'src/auth.js', why: 'missing range' },
+      { path: 'src/auth.js', startLine: '1', endLine: 2, why: 'non-integer start' },
+      { path: 'src/auth.js', startLine: 5, endLine: 3, why: 'inverted range' },
+      { path: 'src/auth.js', startLine: 1, endLine: 2, why: 'valid range' },
+    ],
+    uncertainties: [],
+    nextAction: { type: 'stop', reason: 'Complete.' },
+  }, makeStats());
+
+  assert.equal(result.evidence.length, 4);
+  assert.equal(result.evidence[0].malformedRange, true);
+  assert.equal(result.evidence[0].startLine, undefined);
+  assert.equal(result.evidence[0].endLine, undefined);
+  assert.equal(result.evidence[1].malformedRange, true);
+  assert.equal(result.evidence[1].startLine, undefined);
+  assert.equal(result.evidence[1].endLine, 2);
+  assert.equal(result.evidence[2].malformedRange, true);
+  assert.equal(result.evidence[2].startLine, 5);
+  assert.equal(result.evidence[2].endLine, 3);
+  assert.equal(result.evidence[3].malformedRange, undefined);
+  assert.equal(result.evidence[3].startLine, 1);
+  assert.equal(result.evidence[3].endLine, 2);
 });

@@ -40,6 +40,7 @@ Compact contract signals:
 - `evidenceQuality.level` indicates how grounded the result is.
 - `failure` non-null with `failure.retry.tool`/`failure.retry.args` describes one safe guided retry.
 - `searchCoverage` reports scope or budget limits hit during the search.
+- `critic.warnings` is the canonical deterministic warning list to preserve during handoff.
 
 Example calls:
 - `find_relevant_code({ query: "Where is auth middleware applied to API routes?", knownSymbols: ["requireAuth"] })`

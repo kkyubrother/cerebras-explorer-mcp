@@ -314,11 +314,14 @@ test('MCP request handler exposes explore_repo and returns structuredContent', a
   assert.equal(called.structuredContent.evidence.length, 2);
   assert.equal(called.structuredContent.schemaVersion, 2);
   assert.equal(called.structuredContent.failure, null);
+  assert.ok(called.structuredContent.critic);
+  assert.ok(Array.isArray(called.structuredContent.critic.warnings));
   assert.equal(called.structuredContent.evidenceQuality.level, called.structuredContent.status.confidence);
   assert.equal(called.structuredContent.evidenceQuality.exactCount, 2);
   assert.equal(called.structuredContent.evidenceQuality.fileCount, 2);
   assert.deepEqual(called.structuredContent.searchCoverage.scope, ['src/**']);
   assert.equal(called.structuredContent.searchCoverage.scopeLimited, true);
+  assert.equal(called.structuredContent.searchCoverage.omittedDiscoveredPaths, 0);
   assert.ok(called.structuredContent.evidence.every(item => item.id && item.snippet), 'evidence must include ids and snippets');
   // spec 017: MCP response no longer exposes sessionId, session, or _debug.
   assert.equal(called.structuredContent.sessionId, undefined);
@@ -328,7 +331,8 @@ test('MCP request handler exposes explore_repo and returns structuredContent', a
   assert.match(called.content[0].text, /Evidence Quality/);
   assert.match(called.content[0].text, /Search Coverage/);
   assert.match(called.content[0].text, /## Targets/);
-  assert.match(called.content[0].text, /snippet:/);
+  assert.doesNotMatch(called.content[0].text, /snippet:/);
+  assert.doesNotMatch(called.content[0].text, /export function requireAuth/);
   assert.doesNotMatch(called.content[0].text, /FORGED_BY_MODEL/);
   assert.ok(called.structuredContent.evidence.every(item => !item.snippet.includes('FORGED_BY_MODEL')), 'model-supplied snippets are not returned');
   assert.doesNotMatch(called.content[0].text, /## Stats/);
@@ -454,7 +458,8 @@ test('explore_repo stderr ops summary includes transcript log path when LOG_PATH
 
     const line = stderr.trim();
     assert.match(line, /^\[cerebras-explorer\] tool=explore_repo turns=\d+ toolCalls=\d+ stoppedByBudget=(true|false) elapsed=\d+s log=.+\.jsonl$/);
-    assert.ok(line.includes(logDir));
+    assert.equal(line.includes(logDir), false, 'ops summary should not expose the full local log directory');
+    assert.match(line, / log=[^/\\]+\.jsonl$/);
   } finally {
     restore();
   }
@@ -491,7 +496,8 @@ test('explore_repo stderr ops summary marks LOG_RAW mode after log path', async 
       },
     }));
 
-    assert.match(stderr.trim(), / log=.+\.jsonl raw=true$/);
+    assert.match(stderr.trim(), / log=[^/\\]+\.jsonl raw=true$/);
+    assert.equal(stderr.includes(logDir), false, 'raw ops summary should not expose the full local log directory');
   } finally {
     restore();
   }
@@ -594,6 +600,7 @@ test('explore returns Markdown text plus structured citations', async () => {
   });
 
   assert.equal(called.content[0].text, report);
+  assert.equal(called.structuredContent.report, report);
   assert.deepEqual(called.structuredContent.citations.map(item => ({
     type: item.type,
     path: item.path,
@@ -604,6 +611,16 @@ test('explore returns Markdown text plus structured citations', async () => {
     { type: 'file_range', path: 'src/routes/user.js', startLine: 2, endLine: 2 },
   ]);
   assert.equal(called.structuredContent.targets[0].role, 'reference');
+  assert.ok(called.structuredContent.searchCoverage);
+  assert.ok(called.structuredContent.critic);
+  assert.equal(called.structuredContent.failure, null);
+  assert.equal(called.structuredContent.filesRead, undefined);
+  assert.equal(called.structuredContent.toolsUsed, undefined);
+  assert.equal(called.structuredContent.stats, undefined);
+  assert.equal(called.structuredContent.transcriptPath, undefined);
+  assert.equal(called.structuredContent.toolTrace, undefined);
+  assert.ok(called._meta?.ops, 'operational diagnostics should be separated into MCP _meta');
+  assert.ok(called._meta.ops.stats);
 });
 
 test('011 US1 — explore tool name explore_v2 is not exposed under any env', async () => {

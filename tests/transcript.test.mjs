@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import {
+  buildCompactToolDiagnostic,
   createCompactToolTrace,
   createTranscriptRecorder,
   isTranscriptEnabled,
@@ -280,4 +281,35 @@ test('compact tool trace bounds nested argument depth', () => {
   assert.equal(result.totalCalls, 1);
   assert.equal(result.entries.length, 1);
   assert.equal(JSON.stringify(result.entries[0].args).includes('[MaxDepth]'), true);
+});
+
+test('compact tool diagnostics expose redacted args and result summaries without raw content', () => {
+  const diagnostic = buildCompactToolDiagnostic({
+    tool: 'repo_read_file',
+    args: {
+      path: 'src/auth.js',
+      startLine: 1,
+      endLine: 40,
+      ignoredPrompt: 'do not retain this',
+    },
+    result: {
+      path: 'src/auth.js',
+      startLine: 1,
+      endLine: 40,
+      totalLines: 100,
+      truncated: false,
+      content: 'raw source content must not be retained',
+    },
+  });
+
+  assert.deepEqual(diagnostic.args, { path: 'src/auth.js', startLine: 1, endLine: 40 });
+  assert.deepEqual(diagnostic.result, {
+    path: 'src/auth.js',
+    startLine: 1,
+    endLine: 40,
+    totalLines: 100,
+    truncated: false,
+  });
+  assert.equal(JSON.stringify(diagnostic).includes('raw source content'), false);
+  assert.equal(JSON.stringify(diagnostic).includes('ignoredPrompt'), false);
 });
