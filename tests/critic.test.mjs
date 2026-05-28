@@ -261,6 +261,19 @@ test('extractReportCitations ignores root filenames and non-path dotted values',
   assert.deepEqual(citations, []);
 });
 
+test('extractReportCitations preserves leading dot for dotfile paths', () => {
+  const citations = extractReportCitations(
+    'See `.github/PULL_REQUEST_TEMPLATE.md:L5` and .github/workflows/ci.yml:L10-L20 for CI rules.'
+  );
+  assert.deepEqual(citations.map(c => c.path), [
+    '.github/PULL_REQUEST_TEMPLATE.md',
+    '.github/workflows/ci.yml',
+  ]);
+  assert.equal(citations[0].startLine, 5);
+  assert.equal(citations[1].startLine, 10);
+  assert.equal(citations[1].endLine, 20);
+});
+
 test('extractGitCitations finds commit and blame citations', () => {
   const citations = extractGitCitations('See commit:abc1234 and blame:src/auth.js:L5.');
   assert.deepEqual(citations, [
