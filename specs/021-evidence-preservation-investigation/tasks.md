@@ -7,8 +7,8 @@
 - [x] T003 Attribute the failing checks: `citation_gap_warning=true`, `tool_results_truncated=true`, and partial (1/2) target-path coverage.
 - [x] T004 Confirm orthogonality to v0.7.0 (transcript envvar removal does not touch citation/evidence extraction).
 
-## Remediation (pending maintainer decision)
+## Remediation — A applied (2026-05-31)
 
-- [ ] T010 [DECISION] Choose remediation A (calibration) / B (confirm-first) / C (no-change).
-- [ ] T011 If A: edit `benchmarks/evidence-preservation.json` prompt to drop the literal `src/explorer/runtime.mjs:L474-L500` example; optionally re-weight `citation_gap`/`truncated`; re-baseline and record the new score.
-- [ ] T012 If B: run with `CEREBRAS_EXPLORER_LOG_PATH` set, inspect the gapped citation in the transcript JSONL, then revisit A/C.
+- [x] T010 [DECISION] Chose **A** (benchmark calibration); maintainer approved.
+- [x] T011 Removed the literal `src/explorer/runtime.mjs:L474-L500` example from the case prompt (self-echo source), replaced with a placeholder `path/to/file.ext:L10-L20`. Weights left unchanged — the documented 0.75 core / 0.25 informational split is intentional ([[feedback-benchmark-calibration]]). Re-baseline: **63% FAIL → 75% PASS** on two consecutive runs; `target_paths` 1/2 → 2/2 groups, citations 25–28 across 6–7 files. `tool_results_truncated` and `citation_gap` still fire by design within the 0.25 informational budget, so core-full lands exactly at the 0.75 PASS threshold.
+- [~] T012 N/A — chose A, not B.

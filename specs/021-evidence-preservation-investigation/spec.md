@@ -1,6 +1,6 @@
 # Investigation Spec: evidence-preservation report-mode benchmark scoring
 
-**Spec**: 021-evidence-preservation-investigation | **Date**: 2026-05-31 | **Status**: investigation complete, remediation pending decision
+**Spec**: 021-evidence-preservation-investigation | **Date**: 2026-05-31 | **Status**: remediation A applied (benchmark prompt de-echoed; 63% FAIL → 75% PASS)
 
 ## Trigger
 
