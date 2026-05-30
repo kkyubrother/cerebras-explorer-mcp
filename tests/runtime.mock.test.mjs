@@ -413,6 +413,77 @@ test('ExplorerRuntime trust summary mentions dropped evidence caveats', async ()
   assert.doesNotMatch(result.evidenceQuality.summary, /^.*All evidence grounded in inspected code\.$/);
 });
 
+test('ExplorerRuntime drops target evidenceRefs that do not reference retained evidence ids', async () => {
+  class InvalidRefsClient {
+    constructor() { this.model = 'zai-glm-4.7'; this.calls = 0; }
+    async createChatCompletion({ responseFormat }) {
+      this.calls += 1;
+      if (this.calls === 1) {
+        return {
+          usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 },
+          message: {
+            content: '',
+            toolCalls: [{
+              id: 'read-auth',
+              function: {
+                name: 'repo_read_file',
+                arguments: JSON.stringify({ path: 'src/auth.js', startLine: 1, endLine: 4 }),
+              },
+            }],
+          },
+        };
+      }
+      if (responseFormat) {
+        return {
+          usage: { prompt_tokens: 30, completion_tokens: 20, total_tokens: 50 },
+          message: {
+            content: JSON.stringify(compactResult({
+              directAnswer: 'requireAuth는 인증되지 않은 요청을 거부합니다.',
+              statusConfidence: 'high',
+              evidence: [
+                { path: 'src/auth.js', startLine: 1, endLine: 4, why: 'requireAuth 구현 위치입니다.' },
+              ],
+              targets: [
+                {
+                  path: 'src/auth.js',
+                  startLine: 1,
+                  endLine: 4,
+                  role: 'read',
+                  reason: '근거가 있는 target입니다.',
+                  evidenceRefs: ['file_range', 'E1', 'missing-id'],
+                },
+              ],
+            })),
+            toolCalls: [],
+          },
+        };
+      }
+      return {
+        usage: { prompt_tokens: 30, completion_tokens: 20, total_tokens: 50 },
+        message: { content: '', toolCalls: [] },
+      };
+    }
+  }
+
+  const root = await makeRepoFixture();
+  const runtime = new ExplorerRuntime({ chatClient: new InvalidRefsClient() });
+  const result = await runtime.explore({
+    task: 'requireAuth를 설명해라.',
+    repo_root: root,
+    scope: ['src/**'],
+  });
+
+  const validEvidenceIds = new Set(result.evidence.map(item => item.id));
+  assert.ok(result.targets.length > 0, 'expected at least one grounded target');
+  for (const target of result.targets) {
+    for (const ref of target.evidenceRefs) {
+      assert.equal(validEvidenceIds.has(ref), true, `${ref} must point at retained evidence`);
+    }
+  }
+  assert.ok(!JSON.stringify(result.targets).includes('file_range'), 'dangling ref "file_range" must be dropped');
+  assert.ok(!JSON.stringify(result.targets).includes('missing-id'), 'hallucinated ref "missing-id" must be dropped');
+});
+
 test('ExplorerRuntime bounds discoveredPaths and reports omitted candidate count', async () => {
   class DiscoveryClient {
     constructor() { this.model = 'zai-glm-4.7'; this.calls = 0; }
