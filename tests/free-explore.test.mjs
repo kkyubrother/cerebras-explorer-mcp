@@ -408,8 +408,7 @@ test('freeExploreV2 exposes the same citation shape with transcriptPath preserve
   const root = await makeRepoFixture();
   const transcriptDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-freeexplore-transcripts-'));
   await withEnvPatch({
-    CEREBRAS_EXPLORER_TRANSCRIPT: 'true',
-    CEREBRAS_EXPLORER_TRANSCRIPT_DIR: transcriptDir,
+    CEREBRAS_EXPLORER_LOG_PATH: transcriptDir,
   }, async () => {
     const runtime = new ExplorerRuntime({ chatClient: new CitationReportClient() });
     const result = await runtime.freeExploreV2({

@@ -1847,7 +1847,7 @@ export class ExplorerRuntime {
     const startedAt = nowMs();
     const knownToolNames = new Set(tools.map(tool => tool.function?.name).filter(Boolean));
 
-    // Transcript recording (opt-in via CEREBRAS_EXPLORER_TRANSCRIPT=true)
+    // Transcript recording (opt-in via CEREBRAS_EXPLORER_LOG_PATH)
     const transcript = createTranscriptRecorder({
       repoRoot,
       tool: 'explore_v2',

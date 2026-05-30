@@ -139,7 +139,7 @@ test('user-facing docs advertise LOG_PATH instead of legacy transcript envvars',
   const changelogLines = (await read('CHANGELOG.md'))
     .split(/\r?\n/)
     .filter(line => /CEREBRAS_EXPLORER_TRANSCRIPT/.test(line));
-  assert.equal(changelogLines.length, 1, 'CHANGELOG should contain the single deprecation announcement');
+  assert.equal(changelogLines.length, 3, 'CHANGELOG should mention the legacy transcript envvars only in the v0.6.1 deprecation notice and the v0.7.0 removal record');
 });
 
 test('Gemini example documents required env and recommended full wrapper allowlist', async () => {
