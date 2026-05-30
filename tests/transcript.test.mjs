@@ -110,7 +110,7 @@ test('LOG_RAW truthy mode preserves raw transcript record data and marks final m
   });
 });
 
-test('LOG_PATH takes precedence over legacy TRANSCRIPT_DIR', async () => {
+test('legacy transcript envvars are ignored even when set alongside LOG_PATH', async () => {
   const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-transcript-precedence-repo-'));
   const logDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-transcript-precedence-log-'));
   const legacyDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-transcript-legacy-log-'));
@@ -129,7 +129,7 @@ test('LOG_PATH takes precedence over legacy TRANSCRIPT_DIR', async () => {
   });
 });
 
-test('legacy TRANSCRIPT aliases still enable transcripts for backward compatibility', async () => {
+test('legacy TRANSCRIPT envvars no longer enable transcripts (removed in v0.7.0)', async () => {
   const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-transcript-legacy-repo-'));
   const legacyDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-transcript-legacy-dir-'));
 
@@ -138,12 +138,13 @@ test('legacy TRANSCRIPT aliases still enable transcripts for backward compatibil
     CEREBRAS_EXPLORER_TRANSCRIPT: 'yes',
     CEREBRAS_EXPLORER_TRANSCRIPT_DIR: legacyDir,
   }, async () => {
-    assert.equal(isTranscriptEnabled(), true);
+    assert.equal(isTranscriptEnabled(), false);
     const recorder = createTranscriptRecorder({ repoRoot, tool: 'explore_repo', task: 'legacy' });
+    assert.equal(recorder.filePath, null);
+    assert.equal(recorder.callId, null);
     await recorder.finalize({ turns: 0, toolCalls: 0 });
 
-    assert.equal(path.dirname(recorder.filePath), path.resolve(legacyDir));
-    assert.equal((await fs.readdir(legacyDir)).filter(name => name.endsWith('.jsonl')).length, 1);
+    assert.deepEqual((await fs.readdir(legacyDir)).filter(name => name.endsWith('.jsonl')), []);
   });
 });
 

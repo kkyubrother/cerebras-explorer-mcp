@@ -43,8 +43,7 @@ const TRACE_ARG_KEYS = new Set([
 
 /** Resolve the transcript directory (relative to repo root, or absolute override). */
 function resolveTranscriptDir(repoRoot) {
-  const override = process.env.CEREBRAS_EXPLORER_LOG_PATH
-    || process.env.CEREBRAS_EXPLORER_TRANSCRIPT_DIR;
+  const override = process.env.CEREBRAS_EXPLORER_LOG_PATH;
   if (override) return path.resolve(override);
   if (repoRoot) return path.resolve(repoRoot, DEFAULT_TRANSCRIPT_DIR);
   return path.resolve(process.cwd(), DEFAULT_TRANSCRIPT_DIR);
@@ -60,8 +59,7 @@ function isTruthyEnv(value) {
  * Default: disabled (opt-in via environment variable).
  */
 export function isTranscriptEnabled() {
-  if (process.env.CEREBRAS_EXPLORER_LOG_PATH) return true;
-  return isTruthyEnv(process.env.CEREBRAS_EXPLORER_TRANSCRIPT);
+  return Boolean(process.env.CEREBRAS_EXPLORER_LOG_PATH);
 }
 
 export function isTranscriptRawMode() {
