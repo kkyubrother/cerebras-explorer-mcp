@@ -1,6 +1,17 @@
 # Contract Hygiene Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+## Status: CLOSED (2026-05-31)
+
+This plan (2026-05-25) predates specs 014–021 and was never executed as written. On 2026-05-31 each task was re-evaluated against the v0.7.0 source and dispositioned individually. **The literal task bodies below are retained as historical context — do not execute them as written.** Several were superseded, achieved differently, or deliberately narrowed; the unchecked `- [ ]` boxes are *not* a live TODO. Actual outcome:
+
+- **Task 1 — 8-tool surface guard: covered by an equivalent guard.** `tests/mcp-server.test.mjs` asserts `tools/list` deepEquals the 8 public names and rejects the removed spec 013 wrappers — a different location/mechanism than the `integrations.test.mjs` doc-parity test this plan specified, but the same invariant. No further work.
+- **Task 2 — evidence ref integrity: DONE (commit fb9b73a).** `enforceTargetEvidenceRefs()` drops dangling `targets[].evidenceRefs` after the final `mergeTargets`. Note path-grounding (`filterGroundedModelTargets`) already blocked phantom-*file* targets; this closes the dangling-*id* gap on top of it.
+- **Task 3 — deterministic nextAction: ALREADY DONE.** Present verbatim in `runtime.mjs` (target-first follow-up chosen over model `ask_user`). No new work.
+- **Task 4 — extraIgnorePatterns consistency: NARROWED + partially DONE (commit f1deaa3).** Applied the patterns to the ripgrep grep fast path + a shared cache-key fingerprint, giving discovery-tool parity (grep ↔ find/list). The **read/symbols hard-block in Steps 4/3 was intentionally dropped**: spec 014 deliberately scoped `extraIgnorePatterns` to a *traversal noise-filter*, and ignore ≠ forbidden — the secret deny-list and scope remain the hard boundaries on every access path. Likewise the `_enforceExtraIgnorePolicy` throw on direct reads is **not** implemented by design.
+- **Task 5 — response provenance: RE-HOMED to spec 022** (`specs/022-response-provenance/`), implementation deferred. Too large for a checkbox — it changes the public output schema and the MCP boundary. Spec + plan drafted in commit 6ae912d (with a memoized/lazy git SHA instead of a per-response subprocess).
+- **Task 6 — closure: this section + the move to `completed/`.**
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. *(Superseded — see Status above; this plan is closed.)*
 
 **Goal:** Finish the remaining contract hygiene fixes after `map_impact` and `find_entrypoints` were removed from the public MCP surface.
 
