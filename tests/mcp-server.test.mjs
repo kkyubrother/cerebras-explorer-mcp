@@ -244,7 +244,7 @@ test('MCP request handler exposes explore_repo and returns structuredContent', a
     params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'test', version: '0.0.1' } },
   });
   assert.equal(initialized.serverInfo.name, 'cerebras-explorer-mcp');
-  assert.equal(initialized.serverInfo.version, '0.6.2');
+  assert.equal(initialized.serverInfo.version, '0.7.0');
 
   const listed = await handleRequest({
     jsonrpc: '2.0',

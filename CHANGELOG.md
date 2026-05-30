@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.7.0 - Unreleased
+## v0.7.0 - 2026-05-31
 
 ### BREAKING: remove legacy transcript env aliases (spec 020)
 
