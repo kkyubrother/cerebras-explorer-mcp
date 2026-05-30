@@ -576,8 +576,9 @@ export class RepoToolkit {
     // a single matcher for `.cerebras-explorer.json` extraIgnorePatterns.
     this.nestedGitignoreMatchers = [];
     this.nestedGitignoreBuiltFor = new Set();
-    this.extraPatternMatcher = extraIgnorePatterns.length > 0
-      ? buildGitignoreMatcher(extraIgnorePatterns)
+    this.extraIgnorePatterns = extraIgnorePatterns.filter(item => typeof item === 'string');
+    this.extraPatternMatcher = this.extraIgnorePatterns.length > 0
+      ? buildGitignoreMatcher(this.extraIgnorePatterns)
       : null;
   }
 
@@ -769,6 +770,13 @@ export class RepoToolkit {
     for (const pattern of DEFAULT_SECRET_DENY_PATTERNS) {
       rgArgs.push('--glob', `!${pattern}`);
     }
+    // Spec 014 parity: align the ripgrep fast path with walkFiles()/findFiles(),
+    // which already exclude `.cerebras-explorer.json` extraIgnorePatterns during
+    // traversal. Without this, grep was the only discovery tool that surfaced
+    // ignored paths.
+    for (const ignorePattern of this.extraIgnorePatterns) {
+      rgArgs.push('--glob', `!${ignorePattern}`);
+    }
     if (!caseSensitive) rgArgs.push('--ignore-case');
     const perFileMax = Math.min(maxResults, 50);
     rgArgs.push('--max-count', String(perFileMax));
@@ -822,6 +830,7 @@ export class RepoToolkit {
       // Post-filter: enforce effectiveScope to catch glob patterns ripgrep may over-include
       if (!effectiveScope.matches(relPath)) continue;
       if (isSecretPath(relPath).matched) continue;
+      if (this.extraPatternMatcher && this.extraPatternMatcher(relPath)) continue;
       matches.push({ path: relPath, line: lineNum, text: text.slice(0, 300).replace(/\n$/, '') });
       if (matches.length >= maxResults) break;
     }
@@ -1597,6 +1606,10 @@ export class RepoToolkit {
     return [...this.ignoreDirs].sort().join(',');
   }
 
+  _extraIgnorePatternsFingerprint() {
+    return this.extraIgnorePatterns.length > 0 ? [...this.extraIgnorePatterns].sort().join(',') : '';
+  }
+
   /**
    * Build a scoped cache key that includes repoRoot, baseScopeRules, and ignoreDirs
    * so that toolkit instances with different scopes never share cache entries.
@@ -1607,6 +1620,7 @@ export class RepoToolkit {
       r: this.repoRootReal,
       s: this._baseScopeFingerprint(),
       i: this._ignoreDirsFingerprint(),
+      x: this._extraIgnorePatternsFingerprint(),
       ...parts,
     });
   }

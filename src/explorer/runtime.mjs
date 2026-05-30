@@ -839,6 +839,24 @@ function mergeTargets(...targetGroups) {
   return targets.slice(0, 20);
 }
 
+// Drop any evidenceRefs that do not point at a retained evidence id. The model
+// (or a merge) can leave dangling refs (e.g. "file_range", a hallucinated id);
+// a consumer following targets[].evidenceRefs -> evidence[].id must never miss.
+function enforceTargetEvidenceRefs(targets = [], evidence = []) {
+  const validIds = new Set(
+    (evidence ?? [])
+      .map(item => (typeof item?.id === 'string' && item.id ? item.id : null))
+      .filter(Boolean),
+  );
+
+  return (targets ?? []).map(target => ({
+    ...target,
+    evidenceRefs: Array.isArray(target.evidenceRefs)
+      ? target.evidenceRefs.filter(ref => validIds.has(ref))
+      : [],
+  }));
+}
+
 function buildUncertainties(result, stats) {
   const warnings = (result.critic?.warnings ?? []).map(warning => warning.message).filter(Boolean);
   const modelUncertainties = Array.isArray(result.uncertainties) ? result.uncertainties : [];
@@ -1756,6 +1774,7 @@ export class ExplorerRuntime {
       groundedModelTargets,
       buildTargets({ evidence: normalized.evidence }),
     );
+    normalized.targets = enforceTargetEvidenceRefs(normalized.targets, normalized.evidence);
     normalized.discoveredPaths = discoveredPaths;
     normalized.uncertainties = buildUncertainties(normalized, stats);
     const evidenceSufficiency = evaluateEvidenceSufficiency(normalized, stats, {

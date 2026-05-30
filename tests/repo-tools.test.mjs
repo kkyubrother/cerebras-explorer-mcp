@@ -863,3 +863,56 @@ test('Spec 014 — secret deny-list cannot be bypassed by extraIgnorePatterns', 
   assert.ok(!found.matches.includes('.env'), '.env must remain hidden regardless of extraIgnorePatterns');
   assert.ok(found.matches.includes('normal.js'), 'normal.js is not a secret and must be present');
 });
+
+test('Spec 014 follow-up — ripgrep grep fast path excludes extraIgnorePatterns (parity with findFiles)', { skip: !hasRipgrep() }, async () => {
+  const repoRoot = await makeNestedIgnoreFixture();
+  await fs.writeFile(path.join(repoRoot, 'fixture.snapshot.json'), '{"marker":"GREP_MARKER"}');
+  await fs.writeFile(path.join(repoRoot, 'normal.js'), 'const GREP_MARKER = true;\n');
+
+  const toolkit = new RepoToolkit({
+    repoRoot,
+    budgetConfig: getBudgetConfig('normal'),
+    extraIgnorePatterns: ['**/*.snapshot.json'],
+  });
+  await toolkit.initialize([]);
+  assert.equal(toolkit._hasRipgrep, true, 'ripgrep must be available for this test');
+
+  const result = await toolkit.grep({ pattern: 'GREP_MARKER' });
+  assert.ok(result.matches.some(match => match.path === 'normal.js'), 'normal.js must match GREP_MARKER');
+  assert.ok(
+    !result.matches.some(match => match.path === 'fixture.snapshot.json'),
+    'grep must not surface a path excluded by extraIgnorePatterns',
+  );
+});
+
+test('Spec 014 follow-up — grep cache keys partition by extraIgnorePatterns', async () => {
+  globalRepoCache.clear();
+  const repoRoot = await makeNestedIgnoreFixture();
+  await fs.writeFile(path.join(repoRoot, 'fixture.snapshot.json'), '{"marker":"CACHE_MARKER"}');
+  await fs.writeFile(path.join(repoRoot, 'normal.js'), 'const CACHE_MARKER = true;\n');
+
+  // First toolkit has no extra ignores, so it both matches and caches the snapshot path.
+  const open = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig('normal'), cache: globalRepoCache });
+  await open.initialize([]);
+  const openResult = await open.callTool('repo_grep', { pattern: 'CACHE_MARKER' });
+  assert.ok(
+    openResult.matches.some(match => match.path === 'fixture.snapshot.json'),
+    'baseline toolkit (no extra ignores) must match the snapshot file',
+  );
+
+  // Second toolkit ignores the snapshot. Without an extraIgnorePatterns fingerprint
+  // in the cache key, it would collide with `open`'s entry and wrongly inherit the match.
+  const ignored = new RepoToolkit({
+    repoRoot,
+    budgetConfig: getBudgetConfig('normal'),
+    cache: globalRepoCache,
+    extraIgnorePatterns: ['**/*.snapshot.json'],
+  });
+  await ignored.initialize([]);
+  const ignoredResult = await ignored.callTool('repo_grep', { pattern: 'CACHE_MARKER' });
+  assert.ok(ignoredResult.matches.some(match => match.path === 'normal.js'), 'ignored toolkit must still match normal.js');
+  assert.ok(
+    !ignoredResult.matches.some(match => match.path === 'fixture.snapshot.json'),
+    'extraIgnorePatterns toolkit must not inherit the snapshot match via a shared cache entry',
+  );
+});
