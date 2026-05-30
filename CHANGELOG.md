@@ -1,5 +1,38 @@
 # Changelog
 
+## v0.6.2 - 2026-05-30
+
+### Trust surface tightening (spec 019) + citation and finalization fixes
+
+Backwards-compatible bundle. The public 8-tool surface, input schemas, and
+`schemaVersion` (2) are unchanged; structured output gains stronger trust
+signals, plus two correctness fixes and a tool-description refresh.
+
+- **Changed (spec 019)**: evidence grounding is stricter — `grep`/`blame`
+  anchors count as `exact` only when the full claimed line range was actually
+  observed, and malformed evidence ranges are dropped instead of being coerced
+  to line 1.
+- **Added (spec 019)**: trust caveats now surface when evidence was dropped, a
+  tool result was truncated, or the turn budget stopped the run. `critic` and
+  `searchCoverage` are always present in structured output (additive for
+  consumers), and `searchCoverage.omittedDiscoveredPaths` signals when the
+  `discoveredPaths` list was capped.
+- **Changed (spec 019)**: the Markdown `explore` answer is separated from
+  operational diagnostics, default snippet duplication is reduced, stderr log
+  paths are sanitized, and successful failover completions attribute the
+  provider/model actually used.
+- **Fixed (#21)**: dotfile citations such as `.github/PULL_REQUEST_TEMPLATE.md`
+  no longer lose their leading dot in `extractReportCitations`, which had caused
+  a false-positive `citation_gap` warning on otherwise grounded reports.
+- **Fixed (#19)**: short intent-only `explore` responses are routed through the
+  final report synthesis path instead of being treated as a finished report.
+- **Changed (#22)**: refined the `explore_repo`, `explore`, `find_relevant_code`,
+  and `map_change_impact` tool descriptions for clearer routing — description
+  text only; schemas and runtime behavior are unchanged.
+- **Internal**: added the Codex Speckit integration and dropped obsolete
+  QUESTION.md handoff notes.
+- **Migration**: none. All changes are backwards-compatible.
+
 ## v0.6.1 - 2026-05-27
 
 ### Transcript ops log channel (spec 018)
