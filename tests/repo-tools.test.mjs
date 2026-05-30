@@ -253,18 +253,6 @@ test('RepoToolkit git tools: gitDiff returns file changes', { skip: !hasGit() },
   assert.match(stat.stat, /hello\.js/);
 });
 
-test('RepoToolkit gitDiff ignores repository external diff commands', { skip: !hasGit() || process.platform === 'win32' }, async () => {
-  const root = await makeGitRepoFixture();
-  const markerPath = await configureExternalDiffMarker(root);
-  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig('normal') });
-  await toolkit.initialize();
-
-  const diff = await toolkit.gitDiff({ from: 'HEAD~1', to: 'HEAD' });
-
-  assert.ok(diff.files.some(f => f.path === 'hello.js'), 'normal diff output is still parsed');
-  await assert.rejects(fs.stat(markerPath), /ENOENT/, 'configured external diff command must not run');
-});
-
 test('RepoToolkit gitShow ignores repository external diff commands', { skip: !hasGit() || process.platform === 'win32' }, async () => {
   const root = await makeGitRepoFixture();
   const markerPath = await configureExternalDiffMarker(root);

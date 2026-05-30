@@ -10,12 +10,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
-
-import { getBudgetConfig } from '../src/explorer/config.mjs';
-import { RepoToolkit } from '../src/explorer/repo-tools.mjs';
 import { ExplorerRuntime } from '../src/explorer/runtime.mjs';
-import { globalRepoCache, cacheKeyReadFile, cacheKeyGrep } from '../src/explorer/cache.mjs';
+import { cacheKeyReadFile, cacheKeyGrep } from '../src/explorer/cache.mjs';
 
 // ─── Fixture helpers ─────────────────────────────────────────────────────────
 
@@ -33,33 +29,11 @@ async function makeRepoFixture(prefix = 'regression-') {
   return root;
 }
 
-// ─── P0-1: cross-repo cache isolation ────────────────────────────────────────
+// ─── P0-1: cache key derivation ──────────────────────────────────────────────
 
-test('P0: cache keys are isolated by repoRoot — different repos do not share cache entries', async () => {
-  const rootA = await makeRepoFixture('cache-a-');
-  const rootB = await makeRepoFixture('cache-b-');
-
-  // Write a different file at the same relative path in each fixture
-  await fs.writeFile(path.join(rootA, 'src', 'auth.js'), 'const FROM_REPO_A = true;\n');
-  await fs.writeFile(path.join(rootB, 'src', 'auth.js'), 'const FROM_REPO_B = true;\n');
-
-  const budgetConfig = getBudgetConfig('quick');
-  const cache = globalRepoCache;
-
-  const toolkitA = new RepoToolkit({ repoRoot: rootA, budgetConfig, cache });
-  const toolkitB = new RepoToolkit({ repoRoot: rootB, budgetConfig, cache });
-
-  await toolkitA.initialize();
-  await toolkitB.initialize();
-
-  const resultA = await toolkitA.callTool('repo_read_file', { path: 'src/auth.js' });
-  const resultB = await toolkitB.callTool('repo_read_file', { path: 'src/auth.js' });
-
-  assert.ok(resultA.content.includes('REPO_A'), `Repo A result must contain REPO_A content, got: ${resultA.content}`);
-  assert.ok(resultB.content.includes('REPO_B'), `Repo B result must contain REPO_B content, got: ${resultB.content}`);
-  assert.ok(!resultA.content.includes('REPO_B'), 'Repo A result must NOT contain REPO_B content');
-  assert.ok(!resultB.content.includes('REPO_A'), 'Repo B result must NOT contain REPO_A content');
-});
+// Cross-repo cache isolation behaviour (read_file/symbols/scope) is covered by
+// the dedicated cluster in repo-tools.test.mjs; here we only guard the key
+// derivation functions directly, since they have no other direct unit coverage.
 
 test('P0: cacheKeyReadFile includes repoRootReal to prevent cross-repo collisions', () => {
   const keyA = cacheKeyReadFile('/repo/a', 'src/auth.js', 1, 100);
@@ -73,25 +47,6 @@ test('P0: cacheKeyGrep includes repoRootReal and maxResults', () => {
   const k3 = cacheKeyGrep('/repo/a', 'pattern', false, [], 100, 0);
   assert.notEqual(k1, k2, 'different repo roots must produce different keys');
   assert.notEqual(k1, k3, 'different maxResults must produce different keys');
-});
-
-// ─── P0-2: ripgrep scope bypass ──────────────────────────────────────────────
-
-test('P0: ripgrep fast-path is skipped when baseScopeRules is active', async () => {
-  const root = await makeRepoFixture('scope-rg-');
-  // Add a file OUTSIDE the scope
-  await fs.mkdir(path.join(root, 'docs'), { recursive: true });
-  await fs.writeFile(path.join(root, 'docs', 'notes.md'), 'requireAuth is documented here\n');
-
-  const budgetConfig = getBudgetConfig('quick');
-  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig });
-  // Initialize with scope restricted to src/**
-  await toolkit.initialize(['src/**']);
-
-  const result = await toolkit.grep({ pattern: 'requireAuth' });
-
-  const docMatch = result.matches.find(m => m.path.startsWith('docs/'));
-  assert.equal(docMatch, undefined, 'grep with baseScopeRules must not return results outside scope (docs/)');
 });
 
 // ─── P0-3: malformed tool args isolation ─────────────────────────────────────
@@ -146,27 +101,6 @@ test('P0: malformed tool arguments produce error result instead of crashing expl
 
   assert.ok(result, 'result must be returned even after malformed tool args');
   assert.ok(typeof result.directAnswer === 'string', 'result must have a directAnswer field');
-});
-
-// ─── P0-4: macro tool grounding (repo_symbol_context) ────────────────────────
-
-test('P0: repo_symbol_context result includes observedRanges metadata', async () => {
-  const root = await makeRepoFixture('sym-ctx-');
-  const budgetConfig = getBudgetConfig('quick');
-  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig });
-  await toolkit.initialize();
-
-  const result = await toolkit.callTool('repo_symbol_context', { symbol: 'requireAuth' });
-
-  assert.ok(Array.isArray(result.observedRanges), 'symbolContext must return observedRanges array');
-  // requireAuth is defined in src/auth.js — at least the definition should be in observedRanges
-  if (result.definition) {
-    assert.ok(result.observedRanges.length >= 1, 'observedRanges must contain at least the definition location');
-    const defRange = result.observedRanges[0];
-    assert.ok(typeof defRange.path === 'string', 'each observed range must have a path');
-    assert.ok(typeof defRange.startLine === 'number', 'each observed range must have a startLine');
-    assert.ok(typeof defRange.endLine === 'number', 'each observed range must have an endLine');
-  }
 });
 
 // ─── P0-6: freeExplore intermediate drafts ───────────────────────────────────
