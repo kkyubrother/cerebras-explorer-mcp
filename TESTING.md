@@ -69,7 +69,7 @@ CEREBRAS_API_KEY=<key> node scripts/integration-test.mjs
 | **API retry** (429/500/ECONNRESET/AbortError/timeout) | `tests/http-client.test.mjs` |
 | **gzip 압축** (페이로드 32 KiB 이상) | `tests/cerebras-client.test.mjs` (`content-encoding: gzip` 헤더 + Buffer body 검증) |
 | **캐시 mtime 감지** (`repo_read_file` 캐시 무효화) | `tests/repo-tools.test.mjs` (`fs.utimes`로 mtime 변경 후 새 내용 반환 검증) |
-| **Transcript JSONL trigger** (`CEREBRAS_EXPLORER_TRANSCRIPT=true` → `transcriptPath` 반환) | `tests/free-explore.test.mjs` |
+| **Transcript JSONL trigger** (`CEREBRAS_EXPLORER_LOG_PATH` 설정 → `transcriptPath` 반환) | `tests/free-explore.test.mjs` |
 
 ### 미검증 항목 (추가 테스트 필요)
 

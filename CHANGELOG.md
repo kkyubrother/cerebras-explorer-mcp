@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.7.0 - Unreleased
+
+### BREAKING: remove legacy transcript env aliases (spec 020)
+
+The deprecated hidden aliases from the spec 018 transcript work are removed.
+Transcript logging is now controlled solely by `CEREBRAS_EXPLORER_LOG_PATH`
+(opt-in by path), with `CEREBRAS_EXPLORER_LOG_RAW` as the raw-mode escape hatch.
+
+- **BREAKING (spec 020)**: `CEREBRAS_EXPLORER_TRANSCRIPT` and `CEREBRAS_EXPLORER_TRANSCRIPT_DIR` are removed. Setting them no longer enables transcript recording or selects the output directory — they are silently ignored.
+- **Migration**: replace `CEREBRAS_EXPLORER_TRANSCRIPT=true` plus `CEREBRAS_EXPLORER_TRANSCRIPT_DIR=<dir>` with a single `CEREBRAS_EXPLORER_LOG_PATH=<dir>`. The path implies opt-in, so no separate enable flag is needed.
+
 ## v0.6.2 - 2026-05-30
 
 ### Trust surface tightening (spec 019) + citation and finalization fixes

@@ -499,7 +499,7 @@ export CEREBRAS_EXPLORER_LOG_PATH="./transcripts" # 설정하면 호출별 trans
 export CEREBRAS_EXPLORER_LOG_RAW="true"           # 기본 redaction을 끄는 raw 디버깅 모드. 필요한 경우에만 사용
 ```
 
-기존 transcript envvar 이름은 v0.6.x 동안 hidden alias로만 계속 동작하며, 새 문서/설정에는 `CEREBRAS_EXPLORER_LOG_PATH`를 사용하세요. 제거 예정 시점은 `CHANGELOG.md`의 v0.7 계획 항목을 확인하세요.
+이전 transcript envvar 이름(v0.6.x의 hidden alias)은 v0.7.0에서 제거되었습니다. transcript은 `CEREBRAS_EXPLORER_LOG_PATH`로만 켜지며(경로 설정이 곧 opt-in), 마이그레이션 안내는 `CHANGELOG.md`의 v0.7.0 항목을 참고하세요.
 
 ### 2) 서버 실행
 
