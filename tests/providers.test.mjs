@@ -396,6 +396,7 @@ test('classifyTaskComplexity: simple queries', () => {
 test('classifyTaskComplexity: complex queries', () => {
   assert.equal(classifyTaskComplexity('이 메모리 누수의 원인을 분석해줘'), 'complex');
   assert.equal(classifyTaskComplexity('Identify the security vulnerability in the auth module'), 'complex');
+  assert.equal(classifyTaskComplexity('find vulnerabilities in authentication'), 'complex');
   assert.equal(classifyTaskComplexity('왜 이 성능 문제가 발생하는가?'), 'complex');
 });
 

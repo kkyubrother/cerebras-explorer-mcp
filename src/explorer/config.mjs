@@ -297,15 +297,17 @@ export function getReasoningEffortForBudget(model) {
  */
 export function classifyTaskComplexity(task) {
   const t = task.toLowerCase();
+  const isDefinitionQuery = /어디\s|위치|선언|정의\s|defined|where\s|locate|definition/.test(t);
+  if (
+    !isDefinitionQuery &&
+    /원인|왜\s|버그|보안|성능|취약|race.*cond|security|vulnerabilit|flaws?|weakness(?:es)?|bypass(?:es)?|performance|memory.?leak|오류.*원인|bug.*cause/.test(t)
+  ) {
+    return 'complex';
+  }
   if (
     /어디\s|찾아|위치|선언|정의\s|defined|where\s|find\s|locate|definition/.test(t)
   ) {
     return 'simple';
-  }
-  if (
-    /원인|왜\s|버그|보안|성능|취약|race.*cond|security|vulnerabilit|performance|memory.?leak|오류.*원인|bug.*cause/.test(t)
-  ) {
-    return 'complex';
   }
   return 'moderate';
 }
