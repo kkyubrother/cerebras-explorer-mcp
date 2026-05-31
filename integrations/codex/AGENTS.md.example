@@ -26,6 +26,9 @@ explorer cannot answer, and `searchCoverage` flags scope-limited or
 budget-capped searches. Preserve `critic.warnings` during handoff.
 
 Tool exposure is configured in `~/.codex/config.toml`.
+The example config uses `default_tools_approval_mode = "approve"` for trusted
+local coding sessions because installing the explorer means accepting that calls
+may send selected repository evidence to the configured external model provider.
 Use `enabled_tools` to keep the server surface narrow for normal coding sessions.
 Use `disabled_tools` when you want to remove only a specific tool; if both are set,
 Codex applies the allowlist first and then removes disabled tools.
