@@ -135,9 +135,9 @@ async function testExploreRepoNormal() {
   const client = createChatClient();
   const runtime = new ExplorerRuntime({ chatClient: client, logger: console.error });
   const result = await runtime.explore({
-    task: 'Trace the full execution flow when the public explore tool is called from the MCP server. Start from server.mjs request handler, through runtime.mjs freeExploreV2(), and explain each advanced technique (LLM compaction, tool result budgeting, max output recovery).',
+    task: 'Trace the full execution flow when the public explore tool is called from the MCP server. Start from server.mjs request handler, through runtime.mjs freeExplore(), and explain each advanced technique (LLM compaction, tool result budgeting, max output recovery).',
     repo_root: REPO_ROOT,
-    hints: { symbols: ['freeExploreV2', 'callFreeExploreV2Tool'], files: ['src/mcp/server.mjs', 'src/explorer/runtime.mjs'] },
+    hints: { symbols: ['freeExplore', 'callFreeExploreTool'], files: ['src/mcp/server.mjs', 'src/explorer/runtime.mjs'] },
   }, {
     onProgress: ({ progress, total, message }) => {
       process.stderr.write(`  [explore_repo normal] ${message} (${progress}/${total})\n`);
@@ -162,7 +162,7 @@ async function testExploreRepoNormal() {
   const checks = buildExploreRepoChecks(result, {
     answerLabel: 'directAnswer',
     minFilesRead: 3,
-    answerIncludes: /v2|explore/i,
+    answerIncludes: /advanced|explore|compaction|budgeting/i,
   });
 
   log('Checks', formatChecks(checks));
@@ -178,7 +178,6 @@ async function testFreeExplore() {
   const result = await runtime.freeExplore({
     prompt: 'Explain the provider system in this project: how CerebrasChatClient, OpenAICompatChatClient, and FailoverChatClient work together.',
     repo_root: REPO_ROOT,
-    thoroughness: 'quick',
   }, {
     onProgress: ({ progress, total, message }) => {
       process.stderr.write(`  [freeExplore] ${message} (${progress}/${total})\n`);
@@ -205,20 +204,19 @@ async function testFreeExplore() {
   return checks.every(([, ok]) => ok);
 }
 
-async function testFreeExploreV2() {
-  logSection('4. freeExploreV2 backend — advanced techniques');
+async function testFreeExploreAdvanced() {
+  logSection('4. freeExplore backend — advanced techniques');
 
   const client = createChatClient();
   const runtime = new ExplorerRuntime({ chatClient: client, logger: console.error });
 
-  const result = await runtime.freeExploreV2({
-    prompt: 'Produce a comprehensive architecture report of this project. Cover: MCP server structure, explorer runtime loop, prompt system, transcript ops logging, caching, symbol extraction, provider abstraction, and the three V2 advanced techniques. Include file:line citations.',
+  const result = await runtime.freeExplore({
+    prompt: 'Produce a comprehensive architecture report of this project. Cover: MCP server structure, explorer runtime loop, prompt system, transcript ops logging, caching, symbol extraction, provider abstraction, and the three report-mode advanced techniques. Include file:line citations.',
     repo_root: REPO_ROOT,
-    thoroughness: 'normal',
     language: 'ko',
   }, {
     onProgress: ({ progress, total, message }) => {
-      process.stderr.write(`  [freeExploreV2] ${message} (${progress}/${total})\n`);
+      process.stderr.write(`  [freeExplore] ${message} (${progress}/${total})\n`);
     },
   });
 
@@ -239,9 +237,9 @@ async function testFreeExploreV2() {
   const checks = [];
   checks.push(['report is substantial (>500 chars)', (result.report?.length ?? 0) > 500]);
   checks.push(['report in Korean', /[가-힣]/.test(result.report ?? '')]);
-  checks.push(['V2 stats tracked (llmCompactions field)', result.stats?.llmCompactions !== undefined]);
-  checks.push(['V2 stats tracked (toolResultsTruncated field)', result.stats?.toolResultsTruncated !== undefined]);
-  checks.push(['V2 stats tracked (outputRecoveries field)', result.stats?.outputRecoveries !== undefined]);
+  checks.push(['report-mode stats tracked (llmCompactions field)', result.stats?.llmCompactions !== undefined]);
+  checks.push(['report-mode stats tracked (toolResultsTruncated field)', result.stats?.toolResultsTruncated !== undefined]);
+  checks.push(['report-mode stats tracked (outputRecoveries field)', result.stats?.outputRecoveries !== undefined]);
   checks.push(['turns > 3 (actually explored)', (result.stats?.turns ?? 0) > 3]);
   checks.push(['filesRead >= 3', (result.filesRead?.length ?? 0) >= 3]);
 
@@ -321,10 +319,10 @@ async function main() {
   }
 
   try {
-    results.push(['freeExploreV2', await testFreeExploreV2()]);
+    results.push(['freeExplore advanced', await testFreeExploreAdvanced()]);
   } catch (err) {
     console.error('TEST 4 FAILED:', err.message);
-    results.push(['freeExploreV2', false]);
+    results.push(['freeExplore advanced', false]);
   }
 
   try {

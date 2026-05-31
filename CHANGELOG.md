@@ -4,16 +4,15 @@
 
 ### Prompt & contract hygiene (spec 023)
 
-Backwards-compatible. The public 8-tool surface, input schemas, and
-`schemaVersion` are unchanged; this pass aligns the tool descriptions and the
-internal explorer system prompts with what the runtime actually does. No
-behavior change except one additive retry-enum value.
+The public 8-tool surface and `schemaVersion` are unchanged; this pass aligns
+tool descriptions, prompt contracts, and runtime configuration names with what
+the runtime actually does.
 
 - **Changed (spec 023)**: `explore_repo` is now described as the general
   fallback (not "Use first") so the six purpose tools are the front door; the
-  stale `budget` mention is dropped (it is a rejected input); `explore`'s
-  `thoroughness` description and the `repo_references` "all usages" description
-  are corrected to match runtime behavior; sibling-defer hints were added to
+  stale `budget` mention is dropped (it is a rejected input); the
+  `repo_references` "all usages" description is corrected to match runtime
+  behavior; sibling-defer hints were added to
   `trace_symbol`/`explain_code_path`/`collect_evidence`.
 - **Changed (spec 023)**: the explorer system prompts now explicitly permit
   identifying candidate `role:edit` targets (while still forbidding mutation
@@ -23,6 +22,13 @@ behavior change except one additive retry-enum value.
   (`RETRY_SCHEMA` enum + runtime `RETRY_TOOLS`) for contract symmetry; a test
   pins the two lists set-equal.
 - **Removed (spec 023)**: dead V1 free-explore prompt builders.
+- **Removed (spec 023)**: inert `explore.thoroughness` input and the old
+  `CEREBRAS_EXPLORER_V2_TURN_MULTIPLIER`,
+  `CEREBRAS_EXPLORER_V2_MAX_EXTRA_TURNS`,
+  `CEREBRAS_EXPLORER_V2_MAX_COMPACTIONS` tuning envvar names. Use
+  `CEREBRAS_EXPLORER_TURN_MULTIPLIER`,
+  `CEREBRAS_EXPLORER_MAX_EXTRA_TURNS`, and
+  `CEREBRAS_EXPLORER_MAX_COMPACTIONS`.
 - **Out of scope (spec 023)**: wrapper output-language preservation (results
   are consumed by an upstream agent that controls language) and
   `repo_symbol_context` depth disclosure (already documented at the param level).

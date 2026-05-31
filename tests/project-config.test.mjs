@@ -5,9 +5,9 @@ import os from 'node:os';
 import path from 'node:path';
 
 import {
-  getExploreV2MaxCompactions,
-  getExploreV2MaxExtraTurns,
-  getExploreV2TurnMultiplier,
+  getExploreMaxCompactions,
+  getExploreMaxExtraTurns,
+  getExploreTurnMultiplier,
   getRepoRoot,
   loadProjectConfig,
   normalizeProjectConfig,
@@ -52,10 +52,9 @@ test('loadProjectConfig returns {} when config file does not exist', async () =>
 
 test('loadProjectConfig reads and parses .cerebras-explorer.json', async () => {
   const root = await makeTempDir();
-  const payload = { defaultBudget: 'quick', projectContext: 'My project' };
+  const payload = { projectContext: 'My project' };
   await fs.writeFile(path.join(root, '.cerebras-explorer.json'), JSON.stringify(payload));
   const config = await loadProjectConfig(root);
-  assert.equal(config.defaultBudget, 'quick');
   assert.equal(config.projectContext, 'My project');
 });
 
@@ -82,13 +81,8 @@ test('loadProjectConfig returns {} for an empty object', async () => {
 
 // ─── normalizeProjectConfig ──────────────────────────────────────────────────
 
-test('normalizeProjectConfig: valid defaultBudget is kept', () => {
+test('normalizeProjectConfig: legacy defaultBudget is dropped', () => {
   const config = normalizeProjectConfig({ defaultBudget: 'deep' });
-  assert.equal(config.defaultBudget, 'deep');
-});
-
-test('normalizeProjectConfig: invalid defaultBudget is dropped', () => {
-  const config = normalizeProjectConfig({ defaultBudget: 'ultra' });
   assert.equal(config.defaultBudget, undefined);
 });
 
@@ -132,7 +126,7 @@ test('normalizeProjectConfig: null input returns {}', () => {
 
 test('normalizeProjectConfig: unknown fields are ignored', () => {
   const config = normalizeProjectConfig({ unknownKey: 'value', defaultBudget: 'normal' });
-  assert.equal(config.defaultBudget, 'normal');
+  assert.equal(config.defaultBudget, undefined);
   assert.equal(config.unknownKey, undefined);
 });
 
@@ -180,41 +174,65 @@ test('resolveRepoRoot wraps unresolved repo_root errors with repo_root context',
   );
 });
 
-test('getExploreV2TurnMultiplier uses defaults and env overrides with clamping', async () => {
+test('getExploreTurnMultiplier uses defaults and env overrides with clamping', async () => {
   await withEnv({
+    CEREBRAS_EXPLORER_TURN_MULTIPLIER: undefined,
     CEREBRAS_EXPLORER_V2_TURN_MULTIPLIER: undefined,
   }, async () => {
-    assert.equal(getExploreV2TurnMultiplier(), 2);
+    assert.equal(getExploreTurnMultiplier(), 2);
   });
 
   await withEnv({
+    CEREBRAS_EXPLORER_TURN_MULTIPLIER: '1',
+    CEREBRAS_EXPLORER_V2_TURN_MULTIPLIER: undefined,
+  }, async () => {
+    assert.equal(getExploreTurnMultiplier(), 1);
+  });
+
+  await withEnv({
+    CEREBRAS_EXPLORER_TURN_MULTIPLIER: '99',
+    CEREBRAS_EXPLORER_V2_TURN_MULTIPLIER: undefined,
+  }, async () => {
+    assert.equal(getExploreTurnMultiplier(), 4);
+  });
+
+  await withEnv({
+    CEREBRAS_EXPLORER_TURN_MULTIPLIER: undefined,
     CEREBRAS_EXPLORER_V2_TURN_MULTIPLIER: '1',
   }, async () => {
-    assert.equal(getExploreV2TurnMultiplier(), 1);
-  });
-
-  await withEnv({
-    CEREBRAS_EXPLORER_V2_TURN_MULTIPLIER: '99',
-  }, async () => {
-    assert.equal(getExploreV2TurnMultiplier(), 4);
+    assert.equal(getExploreTurnMultiplier(), 2, 'removed V2 tuning envvar must be ignored');
   });
 });
 
-test('getExploreV2 caps extra turns and compactions from env', async () => {
+test('getExplore caps extra turns and compactions from env', async () => {
   await withEnv({
+    CEREBRAS_EXPLORER_MAX_EXTRA_TURNS: undefined,
+    CEREBRAS_EXPLORER_MAX_COMPACTIONS: undefined,
     CEREBRAS_EXPLORER_V2_MAX_EXTRA_TURNS: undefined,
     CEREBRAS_EXPLORER_V2_MAX_COMPACTIONS: undefined,
   }, async () => {
-    assert.equal(getExploreV2MaxExtraTurns(), 30);
-    assert.equal(getExploreV2MaxCompactions(), 3);
+    assert.equal(getExploreMaxExtraTurns(), 30);
+    assert.equal(getExploreMaxCompactions(), 3);
   });
 
   await withEnv({
-    CEREBRAS_EXPLORER_V2_MAX_EXTRA_TURNS: '-5',
-    CEREBRAS_EXPLORER_V2_MAX_COMPACTIONS: '20',
+    CEREBRAS_EXPLORER_MAX_EXTRA_TURNS: '-5',
+    CEREBRAS_EXPLORER_MAX_COMPACTIONS: '20',
+    CEREBRAS_EXPLORER_V2_MAX_EXTRA_TURNS: undefined,
+    CEREBRAS_EXPLORER_V2_MAX_COMPACTIONS: undefined,
   }, async () => {
-    assert.equal(getExploreV2MaxExtraTurns(), 0);
-    assert.equal(getExploreV2MaxCompactions(), 10);
+    assert.equal(getExploreMaxExtraTurns(), 0);
+    assert.equal(getExploreMaxCompactions(), 10);
+  });
+
+  await withEnv({
+    CEREBRAS_EXPLORER_MAX_EXTRA_TURNS: undefined,
+    CEREBRAS_EXPLORER_MAX_COMPACTIONS: undefined,
+    CEREBRAS_EXPLORER_V2_MAX_EXTRA_TURNS: '0',
+    CEREBRAS_EXPLORER_V2_MAX_COMPACTIONS: '10',
+  }, async () => {
+    assert.equal(getExploreMaxExtraTurns(), 30, 'removed V2 max-extra-turns envvar must be ignored');
+    assert.equal(getExploreMaxCompactions(), 3, 'removed V2 max-compactions envvar must be ignored');
   });
 });
 
@@ -232,7 +250,6 @@ test('loadProjectConfig is applied in ExplorerRuntime via defaultScope', async (
   await fs.writeFile(
     path.join(root, '.cerebras-explorer.json'),
     JSON.stringify({
-      defaultBudget: 'quick',
       defaultScope: ['src/**'],
       projectContext: 'A test project for cerebras-explorer.',
     }),

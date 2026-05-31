@@ -214,7 +214,6 @@ test('MCP explore Markdown reports are redacted', async () => {
       arguments: {
         prompt: 'Produce a report.',
         repo_root: repoRoot,
-        thoroughness: 'quick',
       },
     },
   });
@@ -236,7 +235,7 @@ test('git diff and show patches are redacted', { skip: !hasGit() }, async () => 
   await execFileAsync('git', ['add', 'config.js'], { cwd: repoRoot });
   await execFileAsync('git', ['commit', '-m', `add ${OPENAI_KEY}`], { cwd: repoRoot });
 
-  const toolkit = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig('quick') });
+  const toolkit = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig() });
   await toolkit.initialize();
 
   const diff = await toolkit.gitDiff({ from: 'HEAD~1', to: 'HEAD' });

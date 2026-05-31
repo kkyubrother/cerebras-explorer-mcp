@@ -225,9 +225,8 @@ function assertReadOnlyAnnotations(tool) {
   assert.equal(tool.annotations.openWorldHint, true, `${tool.name} must disclose provider API egress`);
 }
 
-// spec 011: shouldUseV2ForExplore router was removed. All explore calls route
-// to the (formerly V2) backend unconditionally, so the previous routing tests
-// are no longer applicable.
+// spec 011: the report-mode router was removed. All explore calls use one
+// backend unconditionally, so the previous routing tests are no longer applicable.
 
 test('MCP request handler exposes explore_repo and returns structuredContent', async () => {
   const repoRoot = await makeRepoFixture();
@@ -283,6 +282,10 @@ test('MCP request handler exposes explore_repo and returns structuredContent', a
   assert.ok(exploreRepoTool.outputSchema.properties.targets, 'explore_repo must expose outputSchema targets');
   assert.equal(exploreRepoTool.outputSchema.additionalProperties, false);
   assert.equal(exploreRepoTool.outputSchema.properties.answer, undefined);
+  const exploreTool = listed.tools.find(t => t.name === 'explore');
+  assert.equal(exploreTool.inputSchema.properties.thoroughness, undefined,
+    'inert thoroughness input was removed from explore');
+  assert.doesNotMatch(exploreTool.description, /thoroughness/);
   for (const toolName of EXPECTED_WRAPPER_TOOL_NAMES) {
     const tool = listed.tools.find(t => t.name === toolName);
     assert.equal(tool.inputSchema.properties.language, undefined, `${toolName} must not expose language`);
@@ -594,7 +597,6 @@ test('explore returns Markdown text plus structured citations', async () => {
       arguments: {
         prompt: 'explain auth flow with citations',
         repo_root: repoRoot,
-        thoroughness: 'quick',
       },
     },
   });
@@ -621,6 +623,34 @@ test('explore returns Markdown text plus structured citations', async () => {
   assert.equal(called.structuredContent.toolTrace, undefined);
   assert.ok(called._meta?.ops, 'operational diagnostics should be separated into MCP _meta');
   assert.ok(called._meta.ops.stats);
+});
+
+test('explore rejects removed thoroughness input', async () => {
+  const repoRoot = await makeRepoFixture();
+  const { handleRequest } = createMcpRequestHandler({
+    runtimeOptions: {
+      chatClient: new MarkdownReportClient('No call should be made.'),
+    },
+  });
+
+  const called = await handleRequest({
+    jsonrpc: '2.0',
+    id: 31,
+    method: 'tools/call',
+    params: {
+      name: 'explore',
+      arguments: {
+        prompt: 'explain auth flow',
+        repo_root: repoRoot,
+        thoroughness: 'quick',
+      },
+    },
+  });
+
+  assert.equal(called.isError, true);
+  assert.match(called.content[0].text, /Unknown explore argument: thoroughness/);
+  assert.equal(called.structuredContent.failure.category, 'input');
+  assert.equal(called.structuredContent.failure.reason, 'invalid_arguments');
 });
 
 test('011 US1 — explore tool name explore_v2 is not exposed under any env', async () => {
@@ -690,7 +720,6 @@ test('explore redacts deny-listed paths consistently in both surfaces', async ()
       arguments: {
         prompt: 'explain auth flow with secret citation',
         repo_root: repoRoot,
-        thoroughness: 'quick',
       },
     },
   });
@@ -719,7 +748,6 @@ test('explore with empty-citation report exposes citations: [] in structuredCont
       arguments: {
         prompt: 'write a report without citations',
         repo_root: repoRoot,
-        thoroughness: 'quick',
       },
     },
   });
@@ -988,7 +1016,7 @@ test('MCP request handler returns execution failures for other exposed tools as 
   const cases = [
     {
       name: 'explore',
-      arguments: { prompt: '런타임 실패를 재현해라.', repo_root: repoRoot, thoroughness: 'quick' },
+      arguments: { prompt: '런타임 실패를 재현해라.', repo_root: repoRoot },
     },
     {
       name: 'trace_symbol',

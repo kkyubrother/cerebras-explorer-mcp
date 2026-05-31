@@ -136,6 +136,12 @@ const RETRY_ARGS_SCHEMA = {
   },
 };
 
+export const MAX_EVIDENCE_LINE_RANGE = 10_000;
+
+function isValidEvidenceLineNumber(value) {
+  return Number.isSafeInteger(value) && value >= 1;
+}
+
 export const RETRY_SCHEMA = {
   type: 'object',
   additionalProperties: false,
@@ -486,15 +492,16 @@ export function normalizeExploreResult(raw, stats) {
             const kind = typeof item.evidenceType === 'string' && EVIDENCE_TYPES.includes(item.evidenceType)
               ? item.evidenceType
               : 'file_range';
-            const startLine = Number.isInteger(item.startLine) && item.startLine >= 1
+            const startLine = isValidEvidenceLineNumber(item.startLine)
               ? item.startLine
               : undefined;
-            const endLine = Number.isInteger(item.endLine) && item.endLine >= 1
+            const endLine = isValidEvidenceLineNumber(item.endLine)
               ? item.endLine
               : undefined;
-            const malformedRange = !Number.isInteger(startLine) ||
-              !Number.isInteger(endLine) ||
-              endLine < startLine;
+            const malformedRange = !isValidEvidenceLineNumber(startLine) ||
+              !isValidEvidenceLineNumber(endLine) ||
+              endLine < startLine ||
+              endLine - startLine + 1 > MAX_EVIDENCE_LINE_RANGE;
 
             const base = {
               ...(typeof item.id === 'string' && item.id ? { id: item.id } : {}),

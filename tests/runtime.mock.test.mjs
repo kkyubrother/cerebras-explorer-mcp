@@ -6,8 +6,8 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { ExplorerRuntime } from '../src/explorer/runtime.mjs';
-import { buildExplorerSystemPrompt, buildFreeExploreV2SystemPrompt, buildFinalizePrompt, detectStrategy } from '../src/explorer/prompt.mjs';
-import { BUDGETS } from '../src/explorer/config.mjs';
+import { buildExplorerSystemPrompt, buildFreeExploreSystemPrompt, buildFinalizePrompt, detectStrategy } from '../src/explorer/prompt.mjs';
+import { getBudgetConfig } from '../src/explorer/config.mjs';
 import { RepoToolkit } from '../src/explorer/repo-tools.mjs';
 
 function hasGit() {
@@ -972,8 +972,8 @@ test('Phase 1 — explore circuit breaker trips after three all-error turns', as
   );
 });
 
-test('Phase 1 — freeExploreV2 circuit breaker trips after three all-error turns', async () => {
-  class AllErrorFreeExploreV2Client {
+test('Phase 1 — freeExplore circuit breaker trips after three all-error turns', async () => {
+  class AllErrorFreeExploreClient {
     constructor() {
       this.model = 'zai-glm-4.7';
       this.calls = 0;
@@ -1009,28 +1009,27 @@ test('Phase 1 — freeExploreV2 circuit breaker trips after three all-error turn
   }
 
   const repoRoot = await makeRepoFixture();
-  const client = new AllErrorFreeExploreV2Client();
+  const client = new AllErrorFreeExploreClient();
   const runtime = new ExplorerRuntime({ chatClient: client });
 
-  const result = await runtime.freeExploreV2({
+  const result = await runtime.freeExplore({
     prompt: '반복적인 도구 실패 이후 보고서를 작성해라.',
     repo_root: repoRoot,
-    thoroughness: 'quick',
   });
 
-  assert.equal(result.stats.turns, 3, 'V2 tool loop must stop after the third all-error turn');
-  assert.equal(result.stats.stoppedByErrors, true, 'V2 circuit breaker must mark stoppedByErrors');
+  assert.equal(result.stats.turns, 3, 'report-mode tool loop must stop after the third all-error turn');
+  assert.equal(result.stats.stoppedByErrors, true, 'report-mode circuit breaker must mark stoppedByErrors');
   assert.equal(result.stats.stoppedByBudget, false, 'error stop must not be mislabeled as budget stop');
   assert.equal(client.calls, 4, 'three tool-loop calls plus one finalization call');
 
   const thirdTurnMessages = client.snapshots[2];
   assert.ok(
     thirdTurnMessages.some(m => m.role === 'user' && m.content?.includes('repeating the same failing')),
-    'V2 recovery guidance must be present before the third failing turn',
+    'report-mode recovery guidance must be present before the third failing turn',
   );
 });
 
-test('freeExploreV2 labels truncated tool results as incomplete before synthesis', async () => {
+test('freeExplore labels truncated tool results as incomplete before synthesis', async () => {
   class TruncationClient {
     constructor() {
       this.model = 'zai-glm-4.7';
@@ -1118,10 +1117,9 @@ test('freeExploreV2 labels truncated tool results as incomplete before synthesis
 
   const client = new TruncationClient();
   const runtime = new ExplorerRuntime({ chatClient: client });
-  const result = await runtime.freeExploreV2({
+  const result = await runtime.freeExplore({
     prompt: 'inspect a large file and produce a cited report',
     repo_root: root,
-    thoroughness: 'quick',
   });
 
   const secondTurnMessages = client.snapshots[1] ?? [];
@@ -1142,10 +1140,9 @@ test('freeExploreV2 labels truncated tool results as incomplete before synthesis
   assert.match(criticTruncationWarning.message, /expected evidence is missing/i);
 
   const completeRuntime = new ExplorerRuntime({ chatClient: new CompleteResultClient() });
-  const completeResult = await completeRuntime.freeExploreV2({
+  const completeResult = await completeRuntime.freeExplore({
     prompt: 'inspect a small file and produce a cited report',
     repo_root: root,
-    thoroughness: 'quick',
   });
   assert.equal(completeResult.searchCoverage.toolResultsTruncated, 0);
   assert.equal(
@@ -1155,8 +1152,8 @@ test('freeExploreV2 labels truncated tool results as incomplete before synthesis
   );
 });
 
-test('freeExploreV2 searchCoverage counts non-read tool calls', async () => {
-  class CoverageFreeExploreV2Client {
+test('freeExplore searchCoverage counts non-read tool calls', async () => {
+  class CoverageFreeExploreClient {
     constructor() {
       this.model = 'zai-glm-4.7';
       this.calls = 0;
@@ -1208,12 +1205,11 @@ test('freeExploreV2 searchCoverage counts non-read tool calls', async () => {
   }
 
   const repoRoot = await makeRepoFixture();
-  const runtime = new ExplorerRuntime({ chatClient: new CoverageFreeExploreV2Client() });
+  const runtime = new ExplorerRuntime({ chatClient: new CoverageFreeExploreClient() });
 
-  const result = await runtime.freeExploreV2({
+  const result = await runtime.freeExplore({
     prompt: 'auth surface coverage',
     repo_root: repoRoot,
-    thoroughness: 'quick',
   });
 
   assert.equal(result.stats.listDirCalls, 1);
@@ -1224,7 +1220,7 @@ test('freeExploreV2 searchCoverage counts non-read tool calls', async () => {
   assert.equal(result.searchCoverage.grepCalls, 1);
 });
 
-test('Phase 1 — freeExploreV2 compaction preserves complete turns and valid tool sequencing', async () => {
+test('Phase 1 — freeExplore compaction preserves complete turns and valid tool sequencing', async () => {
   class CompactionSequenceClient {
     constructor() {
       this.model = 'zai-glm-4.7';
@@ -1290,11 +1286,10 @@ test('Phase 1 — freeExploreV2 compaction preserves complete turns and valid to
   const client = new CompactionSequenceClient();
   const runtime = new ExplorerRuntime({ chatClient: client });
 
-  const result = await runtime.freeExploreV2({
+  const result = await runtime.freeExplore({
     prompt: '큰 파일을 반복적으로 읽으며 컨텍스트 컴팩션을 강제로 발생시켜라.',
     context: 'context '.repeat(40000),
     repo_root: repoRoot,
-    thoroughness: 'normal',
   });
 
   assert.match(result.report, /Compaction kept valid turn boundaries/);
@@ -1682,7 +1677,7 @@ test('ExplorerRuntime budget retry args do not echo unchanged scope', async () =
   const root = await makeRepoFixture();
   const runtime = new ExplorerRuntime({ chatClient: new BudgetRetryScopeClient() });
   const result = await runtime.explore({
-    task: 'Map auth behavior broadly enough to exhaust the quick budget.',
+    task: 'Map auth behavior broadly enough to exhaust the configured turn budget.',
     repo_root: root,
     scope: ['src/**', 'tests/**'],
   });
@@ -1802,7 +1797,7 @@ test('Phase 5 — unknown tool validation stays in sync with current tool defini
   const runtime = new ExplorerRuntime({ chatClient: client });
   await runtime.explore({ task: 'unknown tool sync test', repo_root: root });
 
-  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: BUDGETS.quick });
+  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig() });
   await toolkit.initialize();
   const definedNames = toolkit.buildToolDefinitions().map(tool => tool.function.name).sort();
 
@@ -1822,8 +1817,8 @@ test('Phase 5 — unknown tool validation stays in sync with current tool defini
 
 // ── Phase 4 — 멀티턴 안정화 장치 ─────────────────────────────────────────────
 
-test('Phase 4 — checkpoint message is inserted for normal/deep budget after every 4 turns', async () => {
-  // Verifies that for budgets with maxTurns > 6, a checkpoint user message is
+test('Phase 4 — checkpoint message is inserted after every 4 turns', async () => {
+  // Verifies that when maxTurns > 6, a checkpoint user message is
   // injected into the conversation every CHECKPOINT_INTERVAL (4) turns.
   const capturedMessages = [];
 
@@ -1863,7 +1858,6 @@ test('Phase 4 — checkpoint message is inserted for normal/deep budget after ev
   const root = await makeRepoFixture();
   const client = new CheckpointObserverClient();
   const runtime = new ExplorerRuntime({ chatClient: client });
-  // Use 'normal' budget (maxTurns=10 > 6 → checkpoint enabled)
   await runtime.explore({ task: '인증 분석', repo_root: root });
 
   // The 5th call to createChatCompletion (turnIndex=4) should have a checkpoint
@@ -1873,10 +1867,10 @@ test('Phase 4 — checkpoint message is inserted for normal/deep budget after ev
   const checkpointMsg = turn5Messages.find(
     m => m.role === 'user' && m.content?.includes('Checkpoint'),
   );
-  assert.ok(checkpointMsg, 'checkpoint message must be injected at turnIndex=4 for normal budget');
+  assert.ok(checkpointMsg, 'checkpoint message must be injected at turnIndex=4');
 });
 
-test('Phase 4 — checkpoint is NOT inserted for quick budget (maxTurns <= 6)', async () => {
+test('Phase 4 — checkpoint is NOT inserted before the loop reaches the interval', async () => {
   const capturedMessages = [];
 
   class NoCheckpointClient {
@@ -1899,14 +1893,13 @@ test('Phase 4 — checkpoint is NOT inserted for quick budget (maxTurns <= 6)', 
 
   const root = await makeRepoFixture();
   const runtime = new ExplorerRuntime({ chatClient: new NoCheckpointClient() });
-  // Use 'quick' budget (maxTurns=6 → checkpoint disabled)
   await runtime.explore({ task: '테스트', repo_root: root });
 
   // No message should contain "Checkpoint"
   const hasCheckpoint = capturedMessages.some(msgs =>
     msgs.some(m => m.role === 'user' && m.content?.includes('Checkpoint')),
   );
-  assert.equal(hasCheckpoint, false, 'checkpoint must NOT be inserted for quick budget');
+  assert.equal(hasCheckpoint, false, 'checkpoint must NOT be inserted before the interval');
 });
 
 test('Phase 4 — critic-lite: confidence=high with only 1 evidence item is reconciled to medium', async () => {
@@ -1958,7 +1951,7 @@ test('Phase 4 — critic-lite: confidence=high with only 1 evidence item is reco
   assert.ok(result.critic.warnings.every(w => w.message && w.action));
 });
 
-test('Phase 4 — freeExploreV2 respects turn multiplier override', async () => {
+test('Phase 4 — freeExplore respects turn multiplier override', async () => {
   class TurnBudgetClient {
     constructor() {
       this.model = 'zai-glm-4.7';
@@ -1968,7 +1961,7 @@ test('Phase 4 — freeExploreV2 respects turn multiplier override', async () => 
     async createChatCompletion() {
       this.calls += 1;
 
-      if (this.calls <= BUDGETS.quick.maxTurns) {
+      if (this.calls <= getBudgetConfig().maxTurns) {
         return {
           usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
           message: {
@@ -1998,26 +1991,25 @@ test('Phase 4 — freeExploreV2 respects turn multiplier override', async () => 
   const root = await makeRepoFixture();
 
   await withEnv({
-    CEREBRAS_EXPLORER_V2_TURN_MULTIPLIER: '1',
-    CEREBRAS_EXPLORER_V2_MAX_EXTRA_TURNS: '0',
+    CEREBRAS_EXPLORER_TURN_MULTIPLIER: '1',
+    CEREBRAS_EXPLORER_MAX_EXTRA_TURNS: '0',
   }, async () => {
     const client = new TurnBudgetClient();
     const runtime = new ExplorerRuntime({ chatClient: client });
-    const result = await runtime.freeExploreV2({
+    const result = await runtime.freeExplore({
       prompt: 'turn override test',
       repo_root: root,
-      thoroughness: 'quick',
     });
 
-    assert.equal(result.stats.turns, BUDGETS.quick.maxTurns, 'V2 turn multiplier override must keep the base quick budget');
+    assert.equal(result.stats.turns, getBudgetConfig().maxTurns, 'turn multiplier override must keep the base runtime config');
     assert.equal(result.stats.stoppedByBudget, true, 'result must stop by budget when the override removes extra turns');
     assert.equal(result.searchCoverage.stoppedByBudget, true);
     assert.ok(result.searchCoverage.warnings.some(warning => /budget/i.test(warning)));
-    assert.equal(client.calls, BUDGETS.quick.maxTurns + 1, 'one finalization call should follow the bounded tool loop');
+    assert.equal(client.calls, getBudgetConfig().maxTurns + 1, 'one finalization call should follow the bounded tool loop');
   });
 });
 
-test('freeExploreV2 recovers from finishReason=length finalize and increments outputRecoveries', async () => {
+test('freeExplore recovers from finishReason=length finalize and increments outputRecoveries', async () => {
   class LengthRecoveryClient {
     constructor() {
       this.model = 'zai-glm-4.7';
@@ -2027,7 +2019,7 @@ test('freeExploreV2 recovers from finishReason=length finalize and increments ou
     async createChatCompletion() {
       this.calls += 1;
 
-      if (this.calls <= BUDGETS.quick.maxTurns) {
+      if (this.calls <= getBudgetConfig().maxTurns) {
         return {
           usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
           message: {
@@ -2043,7 +2035,7 @@ test('freeExploreV2 recovers from finishReason=length finalize and increments ou
         };
       }
 
-      if (this.calls === BUDGETS.quick.maxTurns + 1) {
+      if (this.calls === getBudgetConfig().maxTurns + 1) {
         return {
           usage: { prompt_tokens: 30, completion_tokens: 20, total_tokens: 50 },
           finishReason: 'length',
@@ -2068,15 +2060,14 @@ test('freeExploreV2 recovers from finishReason=length finalize and increments ou
   const root = await makeRepoFixture();
 
   await withEnv({
-    CEREBRAS_EXPLORER_V2_TURN_MULTIPLIER: '1',
-    CEREBRAS_EXPLORER_V2_MAX_EXTRA_TURNS: '0',
+    CEREBRAS_EXPLORER_TURN_MULTIPLIER: '1',
+    CEREBRAS_EXPLORER_MAX_EXTRA_TURNS: '0',
   }, async () => {
     const client = new LengthRecoveryClient();
     const runtime = new ExplorerRuntime({ chatClient: client });
-    const result = await runtime.freeExploreV2({
+    const result = await runtime.freeExplore({
       prompt: 'output recovery test',
       repo_root: root,
-      thoroughness: 'quick',
     });
 
     assert.equal(
@@ -2086,7 +2077,7 @@ test('freeExploreV2 recovers from finishReason=length finalize and increments ou
     );
     assert.equal(
       client.calls,
-      BUDGETS.quick.maxTurns + 2,
+      getBudgetConfig().maxTurns + 2,
       'main loop + finalize + one recovery continuation call',
     );
     assert.match(result.report, /cut off before/);
@@ -2099,7 +2090,7 @@ test('freeExploreV2 recovers from finishReason=length finalize and increments ou
 test('Phase 3 — system prompt has HARD REQUIREMENTS within first 30 lines', () => {
   const prompt = buildExplorerSystemPrompt({
     repoRoot: '/tmp/repo',
-    budgetConfig: BUDGETS.normal,
+    budgetConfig: getBudgetConfig(),
   });
   const lines = prompt.split('\n');
   const first30 = lines.slice(0, 30).join('\n');
@@ -2112,7 +2103,7 @@ test('Phase 3 — system prompt has HARD REQUIREMENTS within first 30 lines', ()
 test('Spec 023 — explorer system prompt has UNTRUSTED CONTENT rule and candidate-edit-target wording', () => {
   const prompt = buildExplorerSystemPrompt({
     repoRoot: '/tmp/repo',
-    budgetConfig: BUDGETS.normal,
+    budgetConfig: getBudgetConfig(),
   });
   assert.ok(
     prompt.includes('UNTRUSTED CONTENT'),
@@ -2124,18 +2115,23 @@ test('Spec 023 — explorer system prompt has UNTRUSTED CONTENT rule and candida
   );
 });
 
-test('Spec 023 — freeExploreV2 system prompt has UNTRUSTED CONTENT rule and candidate-edit-target wording', () => {
-  const prompt = buildFreeExploreV2SystemPrompt({
+test('Spec 023 — freeExplore system prompt has UNTRUSTED CONTENT rule and candidate-edit-target wording', () => {
+  const prompt = buildFreeExploreSystemPrompt({
     repoRoot: '/tmp/repo',
-    budgetConfig: BUDGETS.normal,
+    budgetConfig: getBudgetConfig(),
   });
+  assert.doesNotMatch(
+    prompt,
+    /\bV2\b/,
+    'single explore backend prompt must not identify itself as V2',
+  );
   assert.ok(
     prompt.includes('UNTRUSTED CONTENT'),
-    'freeExploreV2 system prompt must include the UNTRUSTED CONTENT hard requirement',
+    'freeExplore system prompt must include the UNTRUSTED CONTENT hard requirement',
   );
   assert.ok(
     prompt.includes('candidate edit targets'),
-    'freeExploreV2 READ-ONLY rule must allow identifying candidate edit targets',
+    'freeExplore READ-ONLY rule must allow identifying candidate edit targets',
   );
 });
 
@@ -2159,7 +2155,7 @@ test('Phase 3 — Korean task produces Korean answer/summary language (language 
   // We verify the system prompt contains the expected language rule text.
   const prompt = buildExplorerSystemPrompt({
     repoRoot: '/tmp/repo',
-    budgetConfig: BUDGETS.quick,
+    budgetConfig: getBudgetConfig(),
   });
   assert.ok(
     prompt.includes('LANGUAGE RULE'),
@@ -2174,7 +2170,7 @@ test('Phase 3 — Korean task produces Korean answer/summary language (language 
 test('Phase 3 — explicit language is reflected in system prompt language rule', () => {
   const prompt = buildExplorerSystemPrompt({
     repoRoot: '/tmp/repo',
-    budgetConfig: BUDGETS.quick,
+    budgetConfig: getBudgetConfig(),
     language: 'Korean',
   });
   assert.ok(
@@ -2191,7 +2187,7 @@ test('Phase 3 — system prompt does not expose the absolute repo root path', ()
   const repoRoot = path.resolve('fixtures', 'demo-repo');
   const prompt = buildExplorerSystemPrompt({
     repoRoot,
-    budgetConfig: BUDGETS.quick,
+    budgetConfig: getBudgetConfig(),
   });
 
   assert.ok(
@@ -2856,8 +2852,8 @@ test('finalizeAfterToolLoop gives repair pass the full finalize token budget', a
   const result = await runtime.explore({ task: 'find auth', repo_root: root });
 
   assert.deepEqual(seenFinalizeBudgets, [
-    BUDGETS.quick.finalizeMaxCompletionTokens,
-    BUDGETS.quick.finalizeMaxCompletionTokens,
+    getBudgetConfig().finalizeMaxCompletionTokens,
+    getBudgetConfig().finalizeMaxCompletionTokens,
   ]);
   assert.equal(result.directAnswer, 'repaired with full budget');
 });
@@ -3032,7 +3028,7 @@ test('010 US1#1 — locate task with exact evidence stays complete even when bud
     repo_root: root,
   });
 
-  assert.equal(result.stats.stoppedByBudget, true, 'fixture must exhaust the quick budget');
+  assert.equal(result.stats.stoppedByBudget, true, 'fixture must exhaust the configured turn budget');
   assert.equal(result.searchCoverage.stoppedByBudget, true, 'budget fact must remain visible');
   assert.equal(result.status.complete, true, 'sufficient locate evidence must yield complete:true');
   assert.ok(
@@ -3408,7 +3404,6 @@ test('010 US2#2 — buildReportCitationTargets merges same-file citations at fil
   const runtime = new ExplorerRuntime({ chatClient: new ReportCitationClient() });
   const reportResult = await runtime.freeExplore({
     prompt: 'Summarize the auth wiring',
-    thoroughness: 'quick',
     repo_root: root,
   });
 

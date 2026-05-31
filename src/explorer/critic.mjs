@@ -1,4 +1,5 @@
 const EVIDENCE_LINE_TOLERANCE = 2;
+const MAX_EVIDENCE_LINE_RANGE = 10_000;
 
 function scoreToLevel(score) {
   if (score >= 0.7) return 'high';
@@ -115,7 +116,7 @@ function hasObservedBlameLine(item, observedGit, line) {
 }
 
 function hasAnyObservedBlameLine(item, observedGit) {
-  if (!Number.isInteger(item.startLine) || !Number.isInteger(item.endLine)) return false;
+  if (!hasValidEvidenceLineRange(item)) return false;
   for (let line = item.startLine; line <= item.endLine; line += 1) {
     if (hasObservedBlameLine(item, observedGit, line)) return true;
   }
@@ -123,7 +124,7 @@ function hasAnyObservedBlameLine(item, observedGit) {
 }
 
 function hasFullyObservedBlameRange(item, observedGit) {
-  if (!Number.isInteger(item.startLine) || !Number.isInteger(item.endLine) || item.endLine < item.startLine) return false;
+  if (!hasValidEvidenceLineRange(item)) return false;
   for (let line = item.startLine; line <= item.endLine; line += 1) {
     if (!hasObservedBlameLine(item, observedGit, line)) return false;
   }
@@ -140,10 +141,16 @@ export function groundEvidenceItem(item, { observedRanges, observedGit }) {
 
   if (kind === 'git_blame') {
     const { overlaps, partial } = checkEvidenceGrounding(observedRanges, item);
-    if (hasFullyObservedBlameRange(item, observedGit) || (overlaps && !partial)) {
+    if (overlaps && !partial) {
       return { ...item, groundingStatus: 'exact' };
     }
-    if (hasAnyObservedBlameLine(item, observedGit) || overlaps) {
+    if (overlaps) {
+      return { ...item, groundingStatus: 'partial' };
+    }
+    if (hasFullyObservedBlameRange(item, observedGit)) {
+      return { ...item, groundingStatus: 'exact' };
+    }
+    if (hasAnyObservedBlameLine(item, observedGit)) {
       return { ...item, groundingStatus: 'partial' };
     }
     return null;
@@ -207,10 +214,11 @@ export function groundEvidenceList({ evidence, observedRanges, observedGit }) {
 }
 
 function hasValidEvidenceLineRange(item) {
-  return Number.isInteger(item.startLine) &&
-    Number.isInteger(item.endLine) &&
+  return Number.isSafeInteger(item.startLine) &&
+    Number.isSafeInteger(item.endLine) &&
     item.startLine >= 1 &&
-    item.endLine >= item.startLine;
+    item.endLine >= item.startLine &&
+    item.endLine - item.startLine + 1 <= MAX_EVIDENCE_LINE_RANGE;
 }
 
 /**

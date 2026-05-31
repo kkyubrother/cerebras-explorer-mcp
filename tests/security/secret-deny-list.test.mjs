@@ -58,7 +58,7 @@ test('secret path matcher covers default deny-list fixtures', () => {
 
 test('RepoToolkit excludes secret files from traversal, read, grep, symbols, and context enrichment', async () => {
   const root = await makeSecretFixture();
-  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig('quick') });
+  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig() });
   await toolkit.initialize(['**']);
 
   const walked = await toolkit.walkFiles({ scope: ['**'] });
@@ -104,7 +104,7 @@ test('secret deny-list can be disabled explicitly for local debugging', async ()
   process.env.CEREBRAS_EXPLORER_DISABLE_SECRET_DENY_LIST = '1';
   try {
     const root = await makeSecretFixture();
-    const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig('quick') });
+    const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig() });
     await toolkit.initialize(['**']);
     const read = await toolkit.readFile({ path: '.env', startLine: 1, endLine: 5 });
     assert.match(read.content, new RegExp(SECRET));
@@ -188,7 +188,7 @@ test('git diff/show omit deny-listed files from broad patch results', { skip: !h
   await execFileAsync('git', ['add', '.env', 'src.js'], { cwd: root });
   await execFileAsync('git', ['commit', '-m', 'add env and source'], { cwd: root });
 
-  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig('quick') });
+  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig() });
   await toolkit.initialize(['**']);
 
   const directRead = await toolkit.readFile({ path: '.env' });

@@ -6,9 +6,9 @@ export const DEFAULT_EXPLORER_MODEL = 'zai-glm-4.7';
 export const DEFAULT_PROTOCOL_VERSION = '2025-06-18';
 export const DEFAULT_EXPLORER_TEMPERATURE = 1;
 export const DEFAULT_EXPLORER_TOP_P = 0.95;
-export const DEFAULT_EXPLORE_V2_TURN_MULTIPLIER = 2;
-export const DEFAULT_EXPLORE_V2_MAX_EXTRA_TURNS = 30;
-export const DEFAULT_EXPLORE_V2_MAX_COMPACTIONS = 3;
+export const DEFAULT_EXPLORE_TURN_MULTIPLIER = 2;
+export const DEFAULT_EXPLORE_MAX_EXTRA_TURNS = 30;
+export const DEFAULT_EXPLORE_MAX_COMPACTIONS = 3;
 
 function parseEnvNumber(name) {
   const raw = process.env[name];
@@ -48,26 +48,26 @@ export function getExplorerTopP() {
   return parseEnvNumber('CEREBRAS_EXPLORER_TOP_P') ?? DEFAULT_EXPLORER_TOP_P;
 }
 
-export function getExploreV2TurnMultiplier() {
-  const parsed = parseEnvNumber('CEREBRAS_EXPLORER_V2_TURN_MULTIPLIER');
+export function getExploreTurnMultiplier() {
+  const parsed = parseEnvNumber('CEREBRAS_EXPLORER_TURN_MULTIPLIER');
   if (parsed === null) {
-    return DEFAULT_EXPLORE_V2_TURN_MULTIPLIER;
+    return DEFAULT_EXPLORE_TURN_MULTIPLIER;
   }
   return clampNumber(Math.round(parsed), 1, 4);
 }
 
-export function getExploreV2MaxExtraTurns() {
-  const parsed = parseEnvNumber('CEREBRAS_EXPLORER_V2_MAX_EXTRA_TURNS');
+export function getExploreMaxExtraTurns() {
+  const parsed = parseEnvNumber('CEREBRAS_EXPLORER_MAX_EXTRA_TURNS');
   if (parsed === null) {
-    return DEFAULT_EXPLORE_V2_MAX_EXTRA_TURNS;
+    return DEFAULT_EXPLORE_MAX_EXTRA_TURNS;
   }
   return clampNumber(Math.round(parsed), 0, 200);
 }
 
-export function getExploreV2MaxCompactions() {
-  const parsed = parseEnvNumber('CEREBRAS_EXPLORER_V2_MAX_COMPACTIONS');
+export function getExploreMaxCompactions() {
+  const parsed = parseEnvNumber('CEREBRAS_EXPLORER_MAX_COMPACTIONS');
   if (parsed === null) {
-    return DEFAULT_EXPLORE_V2_MAX_COMPACTIONS;
+    return DEFAULT_EXPLORE_MAX_COMPACTIONS;
   }
   return clampNumber(Math.round(parsed), 0, 10);
 }
@@ -149,10 +149,9 @@ export const DEFAULT_TEXT_FILE_MAX_BYTES = 512 * 1024;
 export const DEFAULT_GREP_FILE_MAX_BYTES = 256 * 1024;
 export const DEFAULT_WALK_FILE_LIMIT = 5000;
 
-// spec 011: BUDGETS is now a single deep config. The quick/normal labels
-// were removed along with the `budget` input parameter, and every call
-// runs against these limits regardless of label.
-const DEEP_BUDGET = {
+// spec 011: every call uses the single deep runtime config. The user-facing
+// `budget` input and quick/normal routing labels were removed.
+const DEEP_RUNTIME_CONFIG = {
   label: 'deep',
   maxTurns: 30,
   maxSearchResults: 80,
@@ -166,15 +165,8 @@ const DEEP_BUDGET = {
   topP: 0.95,
 };
 
-export const BUDGETS = {
-  deep: DEEP_BUDGET,
-  // Back-compat aliases so any lingering import keeps working until removed.
-  quick: DEEP_BUDGET,
-  normal: DEEP_BUDGET,
-};
-
 export function getBudgetConfig() {
-  return DEEP_BUDGET;
+  return DEEP_RUNTIME_CONFIG;
 }
 
 function getPathModule(platform = process.platform) {
@@ -265,59 +257,15 @@ export function redactEnvVarNamesEnabled(env = process.env) {
   return isTruthyEnv(env.CEREBRAS_EXPLORER_REDACT_ENV_VAR_NAMES);
 }
 
-// spec 011: budget-specific model env vars were removed. Every call uses the
-// single CEREBRAS_EXPLORER_MODEL. This helper survives as a thin alias to keep
-// provider entry points stable.
-export function getModelForBudget() {
-  return getExplorerModel();
-}
-
 /**
  * Resolve the reasoning effort hint for the selected model under the single
- * deep runtime config (spec 011). GLM 4.7 leaves the parameter unset (model
- * default behavior). GPT-OSS uses the deep tier ("high"). Other models
- * leave the parameter unset.
+ * runtime config. GLM 4.7 leaves the parameter unset (model default behavior).
+ * GPT-OSS uses the high effort tier. Other models leave the parameter unset.
  */
-export function getReasoningEffortForBudget(model) {
+export function getReasoningEffortForModel(model) {
   if (isGlm47Model(model)) return undefined;
   if (isGptOssModel(model)) return 'high';
   return undefined;
-}
-
-/**
- * Classify the complexity of a task string as 'simple', 'moderate', or 'complex'.
- *
- * spec 011: automatic model routing (`CEREBRAS_EXPLORER_AUTO_ROUTE`) and the
- * budget input were removed, so this helper is no longer consumed by the
- * runtime. Kept exported for test coverage of the heuristic regex.
- *
- * - simple:   "where is X defined?" type questions
- * - complex:  performance/security/bug-cause analysis
- * - moderate: everything else
- */
-export function classifyTaskComplexity(task) {
-  const t = task.toLowerCase();
-  const isDefinitionQuery = /어디\s|위치|선언|정의\s|defined|where\s|locate|definition/.test(t);
-  if (
-    !isDefinitionQuery &&
-    /원인|왜\s|버그|보안|성능|취약|race.*cond|security|vulnerabilit|flaws?|weakness(?:es)?|bypass(?:es)?|performance|memory.?leak|오류.*원인|bug.*cause/.test(t)
-  ) {
-    return 'complex';
-  }
-  if (
-    /어디\s|찾아|위치|선언|정의\s|defined|where\s|find\s|locate|definition/.test(t)
-  ) {
-    return 'simple';
-  }
-  return 'moderate';
-}
-
-// spec 011: every explore call uses the single deep runtime config. The
-// auto-budget heuristic was removed along with the `budget` input parameter
-// and the `CEREBRAS_EXPLORER_AUTO_ROUTE` env var, so this helper is now a
-// constant-returning stub kept for back-compat with internal callers.
-export function chooseAutoBudget() {
-  return 'deep';
 }
 
 /**
@@ -327,7 +275,6 @@ export function chooseAutoBudget() {
  * when the file is absent, unreadable, or contains invalid JSON.
  *
  * Recognised fields (all optional):
- *   defaultBudget       — "quick"|"normal"|"deep"
  *   defaultScope        — string[] of glob patterns
  *   extraIgnoreDirs     — string[] of directory names to skip during traversal
  *   extraIgnorePatterns — string[] of repo-root-relative glob patterns to skip (spec 014)
@@ -361,9 +308,6 @@ export function normalizeProjectConfig(raw) {
 
   const config = {};
 
-  if (['quick', 'normal', 'deep'].includes(raw.defaultBudget)) {
-    config.defaultBudget = raw.defaultBudget;
-  }
   if (Array.isArray(raw.defaultScope)) {
     config.defaultScope = raw.defaultScope.filter(s => typeof s === 'string');
   }

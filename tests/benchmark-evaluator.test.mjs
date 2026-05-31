@@ -11,7 +11,7 @@ test('evaluateBenchmarkCase scores keyword expectations and checks', () => {
     expectations: [
       {
         label: 'Answer groups',
-        source: 'answer',
+        source: 'direct_answer',
         groups: [['sessionstore'], ['target paths'], ['missing-token']],
         weight: 0.6,
       },
@@ -245,51 +245,38 @@ test('evaluateBenchmarkCase checks citation gap warning equality', () => {
   assert.equal(unexpectedGap.checks[0].passed, false);
 });
 
-test('evaluateBenchmarkCase supports legacy candidate path count checks from compact targets', () => {
-  const caseDefinition = {
-    id: 'legacy-candidate-paths',
-    checks: [
-      {
-        label: 'Candidate paths from targets',
-        type: 'min_candidate_path_count',
-        value: 2,
-        weight: 1,
-      },
-    ],
-  };
+test('evaluateBenchmarkCase rejects removed legacy benchmark aliases', () => {
+  for (const source of ['answer', 'summary', 'candidate_paths', 'confidence_level']) {
+    assert.throws(
+      () => evaluateBenchmarkCase({
+        id: `removed-${source}`,
+        expectations: [
+          {
+            label: source,
+            source,
+            groups: [['anything']],
+          },
+        ],
+      }, {
+        directAnswer: 'anything',
+        candidatePaths: ['src/legacy-auth.js'],
+        status: { confidence: 'high' },
+      }),
+      new RegExp(`Unknown benchmark source: ${source}`),
+    );
+  }
 
-  const result = {
-    targets: [
-      { path: 'src/auth.js', role: 'read', reason: 'auth definition', evidenceRefs: [] },
-      { path: 'src/routes/user.js', role: 'read', reason: 'route usage', evidenceRefs: [] },
-    ],
-  };
-
-  const evaluation = evaluateBenchmarkCase(caseDefinition, result);
-  assert.equal(evaluation.checks[0].actual, 2);
-  assert.equal(evaluation.checks[0].passed, true);
-});
-
-test('evaluateBenchmarkCase reads legacy candidate path expectations from archived result JSON', () => {
-  const caseDefinition = {
-    id: 'legacy-candidate-path-source',
-    expectations: [
-      {
-        label: 'Candidate path source',
-        source: 'candidate_paths',
-        groups: [['src/legacy-auth.js']],
-        weight: 1,
-      },
-    ],
-  };
-
-  const result = {
-    candidatePaths: ['src/legacy-auth.js'],
-  };
-
-  const evaluation = evaluateBenchmarkCase(caseDefinition, result);
-  assert.equal(evaluation.expectations[0].matchedCount, 1);
-  assert.equal(evaluation.passed, true);
+  assert.throws(
+    () => evaluateBenchmarkCase({
+      id: 'removed-min-candidate-path-count',
+      checks: [
+        { label: 'Candidate paths', type: 'min_candidate_path_count', value: 1 },
+      ],
+    }, {
+      targets: [{ path: 'src/auth.js', role: 'read', reason: 'auth definition', evidenceRefs: [] }],
+    }),
+    /Unknown benchmark check type: min_candidate_path_count/,
+  );
 });
 
 test('evaluateBenchmarkCase reads compact MCP results with stats', () => {
