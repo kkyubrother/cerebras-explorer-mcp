@@ -1,6 +1,6 @@
 # Feature Spec: prompt & contract hygiene for the 8-tool surface
 
-**Spec**: 023-prompt-contract-hygiene | **Date**: 2026-05-31 | **Status**: drafted (implementation deferred)
+**Spec**: 023-prompt-contract-hygiene | **Date**: 2026-05-31 | **Status**: implemented 2026-05-31 (FR-001…FR-010, `npm test` 384/0)
 
 ## Summary
 
