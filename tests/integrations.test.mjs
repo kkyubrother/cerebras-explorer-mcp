@@ -142,6 +142,18 @@ test('user-facing docs advertise LOG_PATH instead of legacy transcript envvars',
   assert.equal(changelogLines.length, 3, 'CHANGELOG should mention the legacy transcript envvars only in the v0.6.1 deprecation notice and the v0.7.0 removal record');
 });
 
+test('CI workflows do not receive provider API keys', async () => {
+  const workflows = await listTextFiles('.github/workflows');
+
+  for (const relPath of workflows) {
+    assert.doesNotMatch(
+      await read(relPath),
+      /CEREBRAS_API_KEY/,
+      `${relPath} must not expose provider API keys to GitHub Actions jobs`,
+    );
+  }
+});
+
 test('Gemini example documents required env and recommended full wrapper allowlist', async () => {
   const settings = JSON.parse(await read('integrations/gemini/settings.json.example'));
   const server = settings.mcpServers?.['cerebras-explorer'];
