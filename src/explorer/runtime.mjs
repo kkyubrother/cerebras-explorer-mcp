@@ -596,6 +596,7 @@ function buildFailure(result, stats) {
       hints: ['Retry with a narrower scope or a more specific task.', 'Add concrete file, symbol, or text anchors when available.'],
       args: {
         task: 'Retry with a narrower scope or a more specific task.',
+        scope: Array.isArray(stats.scope) ? stats.scope : [],
       },
       expectedImprovement: 'A narrower task should reduce budget pressure and improve evidence quality.',
     });
