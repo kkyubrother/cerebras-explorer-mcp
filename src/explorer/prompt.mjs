@@ -233,7 +233,7 @@ export function buildExplorerSystemPrompt({ repoRoot, budgetConfig, language, pr
   parts.push(
     '',
     `Repository: ${formatRepoLabel(repoRoot)} (tool paths are relative to the repo root).`,
-    `Exploration budget: ${budgetConfig.label} (maxTurns=${budgetConfig.maxTurns}, maxReadLinesPerCall=${budgetConfig.maxReadLines}, maxSearchResults=${budgetConfig.maxSearchResults}).`,
+    `Runtime profile: ${budgetConfig.label} (maxTurns=${budgetConfig.maxTurns}, maxReadLinesPerCall=${budgetConfig.maxReadLines}, maxSearchResults=${budgetConfig.maxSearchResults}).`,
   );
 
   return parts.join('\n');
@@ -251,14 +251,14 @@ function formatStrategyLine(strategy) {
   return `Strategy: ${strategy} — ${STRATEGY_DESCRIPTIONS[strategy] ?? strategy}`;
 }
 
-export function buildExplorerUserPrompt({ task, scope, budget, hints, sessionTargetPaths, language }) {
+export function buildExplorerUserPrompt({ task, scope, runtimeProfile, hints, sessionTargetPaths, language }) {
   const strategy = hints?.strategy ?? detectStrategy(task);
 
   const lines = [
     'Delegated exploration request:',
     task.trim(),
     '',
-    `Requested budget: ${budget}`,
+    `Runtime profile: ${runtimeProfile}`,
     `Scope: ${formatScope(scope)}`,
     formatStrategyLine(strategy),
     'Hints:',
@@ -333,14 +333,14 @@ export function buildFinalizePrompt() {
 /**
  * Build user prompt for freeExplore().
  */
-export function buildFreeExploreUserPrompt({ prompt, scope, budget, context }) {
+export function buildFreeExploreUserPrompt({ prompt, scope, runtimeProfile, context }) {
   const parts = [`Explore this repository and produce a report:\n${prompt}`];
 
   if (scope && scope.length > 0) {
     parts.push(`\nScope: focus on ${scope.join(', ')}`);
   }
 
-  parts.push(`\nBudget: ${budget}. Use your turns wisely — stop when you have enough evidence.`);
+  parts.push(`\nRuntime profile: ${runtimeProfile}. Use your turns wisely — stop when you have enough evidence.`);
 
   if (context) {
     parts.push(`\nAdditional context from the parent agent:\n${context}`);
@@ -349,19 +349,14 @@ export function buildFreeExploreUserPrompt({ prompt, scope, budget, context }) {
   return parts.join('\n');
 }
 
-// ── freeExploreV2 prompts ─────────────────────────────────────────────────────
+// ── freeExplore prompts ───────────────────────────────────────────────────────
 
 /**
- * Build system prompt for freeExploreV2() — enhanced with context-aware exploration.
- *
- * Key differences from V1:
- * - Explicit awareness of context window management (tool results may be truncated)
- * - Stronger emphasis on incremental synthesis (build understanding progressively)
- * - Guidance for working with mid-exploration summaries
+ * Build system prompt for freeExplore() — context-aware Markdown exploration.
  */
-export function buildFreeExploreV2SystemPrompt({ repoRoot, budgetConfig, language, projectContext, previousSummaries, keyFiles }) {
+export function buildFreeExploreSystemPrompt({ repoRoot, budgetConfig, language, projectContext, previousSummaries, keyFiles }) {
   const parts = [
-    'You are Cerebras Explorer V2, an advanced autonomous READ-ONLY repository exploration agent.',
+    'You are Cerebras Explorer, an advanced autonomous READ-ONLY repository exploration agent.',
     'Your output is a **comprehensive, well-structured Markdown report**.',
     '',
     '## HARD REQUIREMENTS',
@@ -450,9 +445,9 @@ export function buildOutputContinuationPrompt() {
 }
 
 /**
- * Build finalize prompt for freeExploreV2().
+ * Build finalize prompt for freeExplore().
  */
-export function buildFreeExploreV2FinalizePrompt() {
+export function buildFreeExploreFinalizePrompt() {
   return [
     'Budget exhausted. Produce your final Markdown report now.',
     'REQUIREMENTS:',

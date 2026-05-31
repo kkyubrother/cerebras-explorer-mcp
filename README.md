@@ -103,7 +103,7 @@ Gemini CLI는 `*KEY*`, `*SECRET*`, `*TOKEN*`, `*PASSWORD*`, `*AUTH*`, `*CREDENTI
 | --- | --- |
 | `explore_repo` | 구조화 JSON handoff. 자동화/편집 계획/follow-up 검증의 기본 표면. |
 | `find_relevant_code` / `trace_symbol` / `map_change_impact` / `explain_code_path` / `collect_evidence` / `review_change_context` | 목적형 wrapper 6개. 모두 내부적으로 `explore_repo`에 위임. |
-| `explore` | 사람용 Markdown 보고 도구. 단일 V2 backend 구현(spec 011). |
+| `explore` | 사람용 Markdown 보고 도구. 단일 advanced backend 구현(spec 011). |
 
 `explore_v2`라는 별도 도구 이름은 spec 011에서 제거되었으며, `CEREBRAS_EXPLORER_ENABLE_EXPLORE_V2` / `CEREBRAS_EXPLORER_EXTRA_TOOLS` / `CEREBRAS_EXPLORER_ENABLE_EXPLORE` 환경변수도 모두 더 이상 인식되지 않습니다.
 
@@ -175,7 +175,7 @@ Parent model (Claude Code / Codex)
 
 - `explore_repo`: parent agent handoff의 정상 구조화 표면입니다. `directAnswer`, `status`, `targets`, `discoveredPaths`, `evidence`, `evidenceQuality`, `searchCoverage`, `critic.warnings` 같은 JSON 필드를 후속 자동화와 편집 전 검증에 사용합니다.
 - 목적형 wrapper 6개(`find_relevant_code`, `trace_symbol`, `map_change_impact`, `explain_code_path`, `collect_evidence`, `review_change_context`): 모두 내부적으로 `explore_repo`에 위임하며, 특정 작업 의도를 더 좁은 입력 스키마로 표현하는 표면입니다.
-- `explore`: 사람에게 바로 보여줄 Markdown 보고 도구. spec 011에서 V2 backend가 단일 구현으로 승격되어 모든 프롬프트에서 동일한 신뢰 가이드라인(structuredContent.citations[]/targets[], critic.warnings, searchCoverage.warnings, tool-result truncation 라벨)을 적용합니다.
+- `explore`: 사람에게 바로 보여줄 Markdown 보고 도구. spec 011에서 report backend가 단일 구현으로 정리되어 모든 프롬프트에서 동일한 신뢰 가이드라인(structuredContent.citations[]/targets[], critic.warnings, searchCoverage.warnings, tool-result truncation 라벨)을 적용합니다.
 
 **Decision rule for parent agents:**
 
@@ -327,7 +327,7 @@ spec 017 이후 응답에는 `_debug` 운영 디버그 객체가 포함되지 �
 ```
 
 - `prompt`: 사람이 읽을 수 있는 설명형 보고서를 만들 질문 또는 요청
-- `thoroughness` (advanced): 일반 agent 사용에서는 생략하세요. 서버가 질문과 scope를 보고 깊이를 고릅니다.
+- `scope`, `repo_root`, `language`, `context`: 필요할 때만 보고서 범위, 저장소 루트, 출력 언어, 상위 agent 컨텍스트를 지정합니다.
 
 반환 특성:
 
@@ -340,7 +340,7 @@ spec 017 이후 응답에는 `_debug` 운영 디버그 객체가 포함되지 �
 
 ### `explore` 단일 백엔드 (spec 011)
 
-이전 `explore_v2` 도구 이름과 분기 라우터는 spec 011에서 모두 제거되었습니다. 모든 `explore` 호출은 단일 V2 backend 구현으로 실행되며 세 가지 고급 기법이 항상 적용됩니다.
+이전 `explore_v2` 도구 이름과 분기 라우터는 spec 011에서 모두 제거되었습니다. 모든 `explore` 호출은 단일 advanced backend 구현으로 실행되며 세 가지 고급 기법이 항상 적용됩니다.
 
 1. **LLM 기반 대화 요약**: 탐색이 진행되면서 이전 발견 내용을 지능적으로 요약해 유용한 컨텍스트를 최대화합니다.
 2. **도구 결과 예산 관리**: 개별 도구 출력에 상한을 두어 컨텍스트 오버플로를 방지합니다.
@@ -480,16 +480,16 @@ export CEREBRAS_EXPLORER_REASONING_FORMAT="parsed"      # reasoning 출력 형�
 export CEREBRAS_EXPLORER_REDACT_ENV_VAR_NAMES="1"
 ```
 
-> spec 011에서 제거된 envvar: `CEREBRAS_MODEL`, `CEREBRAS_EXPLORER_MODEL_QUICK|NORMAL|DEEP`, `CEREBRAS_EXPLORER_EXTRA_TOOLS`, `CEREBRAS_EXPLORER_ENABLE_EXPLORE`, `CEREBRAS_EXPLORER_ENABLE_EXPLORE_V2`, `CEREBRAS_EXPLORER_AUTO_ROUTE`, `CEREBRAS_EXPLORER_AUTO_SESSION_BY_REPO`, `CEREBRAS_EXPLORER_LEGACY_DISCOVERED_TARGETS`. 이전에 이들을 사용하던 운영 환경은 단일 모델 + 8-tool 고정 surface로 자동 전환됩니다. 도구 surface 축소가 필요하면 MCP gateway에서 도구 화이트리스트를 적용하세요.
+> spec 011에서 제거된 envvar: `CEREBRAS_MODEL`, `CEREBRAS_EXPLORER_MODEL_QUICK|NORMAL|DEEP`, `CEREBRAS_EXPLORER_EXTRA_TOOLS`, `CEREBRAS_EXPLORER_ENABLE_EXPLORE`, `CEREBRAS_EXPLORER_ENABLE_EXPLORE_V2`, `CEREBRAS_EXPLORER_AUTO_ROUTE`, `CEREBRAS_EXPLORER_AUTO_SESSION_BY_REPO`, `CEREBRAS_EXPLORER_LEGACY_DISCOVERED_TARGETS`. spec 023에서 `CEREBRAS_EXPLORER_V2_TURN_MULTIPLIER`, `CEREBRAS_EXPLORER_V2_MAX_EXTRA_TURNS`, `CEREBRAS_EXPLORER_V2_MAX_COMPACTIONS`도 non-V2 이름으로 교체되었습니다. 이전에 이들을 사용하던 운영 환경은 단일 모델 + 8-tool 고정 surface로 자동 전환됩니다. 도구 surface 축소가 필요하면 MCP gateway에서 도구 화이트리스트를 적용하세요.
 >
 > spec 017 (v0.6.0) 추가 변경: 응답에서 `_debug`, `sessionId`, `session` 필드를 모두 제거, 입력 `session` 파라미터 제거, `SessionStore` 모듈 삭제. multi-call 세션 연결 기능은 더 이상 지원되지 않습니다. `schemaVersion`은 1 → 2.
 
 선택 (explore 튜닝):
 
 ```bash
-export CEREBRAS_EXPLORER_V2_TURN_MULTIPLIER="2"         # 기본값: 2, 1~4로 clamp
-export CEREBRAS_EXPLORER_V2_MAX_EXTRA_TURNS="30"        # 기본값: 30, 0~200으로 clamp
-export CEREBRAS_EXPLORER_V2_MAX_COMPACTIONS="3"         # 기본값: 3, 0~10으로 clamp
+export CEREBRAS_EXPLORER_TURN_MULTIPLIER="2"         # 기본값: 2, 1~4로 clamp
+export CEREBRAS_EXPLORER_MAX_EXTRA_TURNS="30"        # 기본값: 30, 0~200으로 clamp
+export CEREBRAS_EXPLORER_MAX_COMPACTIONS="3"         # 기본값: 3, 0~10으로 clamp
 ```
 
 선택 (디버깅 / 관측):
@@ -582,7 +582,7 @@ Prefer the narrowest exposed explorer tool that matches the request:
 - `explore_repo` for open-ended structured JSON findings
 - `explore` for cited Markdown reports
 Pass the parent request almost verbatim; add `scope` or known anchors only when justified by the task or prior results.
-Do not set `thoroughness`, `hints.strategy`, or `language` unless an advanced workflow explicitly requires it. (The `budget` input was removed in spec 011, and the `session` input was removed in spec 017 — every call uses the single deep runtime config and starts a fresh exploration.)
+Do not set `hints.strategy` or `language` unless an advanced workflow explicitly requires it. (The `budget` input was removed in spec 011, `session` was removed in spec 017, and `explore.thoroughness` was removed in spec 023 — every call uses the single deep runtime config and starts a fresh exploration.)
 For anchor-only file, symbol, or flow discovery, use `trace_symbol`, `find_relevant_code`, or `explain_code_path` instead of `map_change_impact`.
 Use known symbols, files, or literal text anchors only when already known.
 Use regex only in advanced `explore_repo.hints.regex` workflows.

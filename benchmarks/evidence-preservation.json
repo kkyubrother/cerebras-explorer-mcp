@@ -9,7 +9,6 @@
       "tool": "explore",
       "args": {
         "prompt": "Explain how report-mode citations are extracted and returned for explore output. Cite the implementation and at least one test file using backticked file references that include a line range (for example `path/to/file.ext:L10-L20`).",
-        "thoroughness": "quick",
         "scope": [
           "src/explorer/runtime.mjs",
           "src/explorer/critic.mjs",

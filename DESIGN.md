@@ -196,26 +196,26 @@ Cerebras는 OpenAI 호환 API를 제공하지만, 일부 OpenAI 전용 파라미
 
 `tools[].function.strict`와 `response_format.json_schema.strict`는 이름이 같지만 위치와 역할이 다르다. 전자는 tool 인자 검증(OpenAI 전용), 후자는 응답 JSON 스키마 강제(Cerebras 지원)이다.
 
-GLM 4.7 마이그레이션 기준으로 explorer runtime은 다음 원칙을 따른다.
+GLM 4.7 마이그레이션 이후 explorer runtime은 다음 원칙을 따른다.
 
-- quick budget: `reasoning_effort="none"`
-- normal/deep budget: reasoning 파라미터를 생략해 기본 reasoning 유지
+- GLM 4.7: reasoning 파라미터를 생략해 기본 reasoning 유지
+- GPT-OSS: 단일 runtime config에서 `reasoning_effort="high"` 사용
 - multi-turn tool loop: `clear_thinking=false` + assistant `reasoning` 재주입으로 preserved thinking 유지
-- 샘플링 기본값: budget별 temperature (`quick`: 0.3, `normal`: 0.8, `deep`: 1.0), `top_p=0.95`
+- 샘플링 기본값: `temperature=1.0`, `top_p=0.95`
 
 #### `ExplorerRuntime`
 
 실제 autonomous loop를 담당한다.
 
 - system/user prompt 구성
-- budget 설정
+- runtime config 적용
 - tool loop 실행
 - evidence grounding
 - 최종 결과 정규화
 
 #### `MCP Server`
 
-spec 011 이후 상위 모델에게 노출되는 도구는 환경변수와 무관하게 **항상 8개로 고정**된다: `find_relevant_code`, `trace_symbol`, `map_change_impact`, `explain_code_path`, `collect_evidence`, `review_change_context`, `explore_repo`, `explore`. `explore_v2` 도구 이름은 제거되었고, V2 구현은 단일 `explore` backend로 승격되었다. 이전 surface 토글 envvar(`CEREBRAS_EXPLORER_EXTRA_TOOLS`, `CEREBRAS_EXPLORER_ENABLE_EXPLORE`, `CEREBRAS_EXPLORER_ENABLE_EXPLORE_V2`)는 모두 인식되지 않는다.
+spec 011 이후 상위 모델에게 노출되는 도구는 환경변수와 무관하게 **항상 8개로 고정**된다: `find_relevant_code`, `trace_symbol`, `map_change_impact`, `explain_code_path`, `collect_evidence`, `review_change_context`, `explore_repo`, `explore`. `explore_v2` 도구 이름은 제거되었고, report 구현은 단일 `explore` backend로 정리되었다. 이전 surface 토글 envvar(`CEREBRAS_EXPLORER_EXTRA_TOOLS`, `CEREBRAS_EXPLORER_ENABLE_EXPLORE`, `CEREBRAS_EXPLORER_ENABLE_EXPLORE_V2`)는 모두 인식되지 않는다.
 
 Wrapper tools pass an internal `taskMode` to runtime. Runtime uses this mode
 before text-based edit-intent detection when deciding `status.verification` and
@@ -240,7 +240,7 @@ they have no wrapper-owned intent.
 | `explore_repo` | 구조화된 JSON | 자동화, 파이프라인, 후처리 |
 | `explore` | Markdown 보고서 | 아키텍처 개요, 광범위한 질문, deep 보고서 |
 
-spec 011 이후 `explore`는 단일 V2 backend 구현으로 실행된다. 모든 explore 호출에서 LLM 기반 대화 요약, 도구 결과 예산 관리, 최대 출력 복구 기능이 항상 적용된다.
+spec 011 이후 `explore`는 단일 advanced backend 구현으로 실행된다. 모든 explore 호출에서 LLM 기반 대화 요약, 도구 결과 예산 관리, 최대 출력 복구 기능이 항상 적용된다.
 
 #### 세션 계약 (spec 017에서 제거)
 
@@ -528,17 +528,17 @@ Cerebras Explorer의 제품 목표는 상위 AI가 정확한 판단을 내릴 �
 
 `explore_repo`는 구조화 evidence를 반환하므로 가장 강한 critic을 적용한다. 공개 Markdown report 도구인 `explore`에는 citation 존재 여부, cited path와 `filesRead`의 관계, budget/truncation/output recovery를 확인하는 report critic을 적용한다.
 
-### V2 Evidence Reliability Gates
+### Evidence Reliability Gates
 
 `groundingStatus="exact"`은 evidence의 전체 line range가 관측된 line range들로 완전히 덮일 때만 부여한다. `repo_grep`/`repo_git_blame`의 single-line hit는 같은 한 줄 evidence에는 exact가 될 수 있지만, 주변 미관측 라인을 포함하는 multi-line evidence는 partial로만 남는다. missing, non-integer, inverted line range는 line 1로 보정하지 않고 critic이 malformed evidence로 drop하여 `critic.warnings`와 `evidenceQuality.droppedCount`에 반영한다.
 
-V2 런타임의 도구 결과 truncation은 모델이 최종 보고서를 합성하기 전에 발생한다. 응답은 이 사실을 truncation 라벨과 `searchCoverage.warnings`로 노출해야 하며, 호출자는 보고서가 자연스럽게 읽히더라도 해당 라벨이 있으면 누락 가능성을 전제로 다음 검증을 계획해야 한다.
+Report-mode 런타임의 도구 결과 truncation은 모델이 최종 보고서를 합성하기 전에 발생한다. 응답은 이 사실을 truncation 라벨과 `searchCoverage.warnings`로 노출해야 하며, 호출자는 보고서가 자연스럽게 읽히더라도 해당 라벨이 있으면 누락 가능성을 전제로 다음 검증을 계획해야 한다.
 
 `searchCoverage.warnings`는 단순 주석이 아니라 복구 경로다. 예산 중단, tool-result truncation, scope 제한 같은 신호가 있으면 호출자는 그 내용을 다음 `explore_repo`/`explore` follow-up의 scope, known file, symbol 입력으로 사용해야 한다. Report citation gap처럼 report critic이 감지한 누락은 `critic.warnings`의 별도 경고로 읽되, 같은 방식으로 후속 검증 입력으로 취급한다.
 
 Report-mode 도구인 `explore`는 Markdown 본문과 함께 MCP `structuredContent`에 `report`, `citations[]`(파일/라인 인용), 인용에서 파생한 `targets[]`(다음 읽기/검증 대상), `searchCoverage`, `critic`, `failure`를 노출한다. 운영용 `stats`, transcript path, compact tool trace, files/tools lists는 default answer payload가 아니라 MCP `_meta.ops`에 분리한다. 이 필드는 `explore_repo`의 `targets[]`/`evidence[]`와 같은 구조화 탐색 계약이 아니라 report-mode 본문에서 추출한 별도 handoff 필드다.
 
-V2 backend는 이제 report-mode의 단독 backend다. evidence-preservation benchmark의 citation 보존과 미해명 citation gap 경고(`critic.warnings` 또는 동등 신호) 부재는 opt-in 기준이 아니라 회귀 방지 기준으로 유지한다.
+Advanced report backend는 이제 report-mode의 단독 backend다. evidence-preservation benchmark의 citation 보존과 미해명 citation gap 경고(`critic.warnings` 또는 동등 신호) 부재는 opt-in 기준이 아니라 회귀 방지 기준으로 유지한다.
 
 ### 11.4 Evidence sufficiency gate (010)
 
@@ -602,7 +602,9 @@ spec 011 이후 사용자가 선택할 수 있는 budget label은 없다. 모든
 | `temperature` | 1.0 |
 | `top_p` | 0.95 |
 
-`EXPLORE_REPO_INPUT_SCHEMA`에서 `budget` 키는 제거되었고, 모든 호출은 위 값으로 실행된다. `chooseAutoBudget()`/`getBudgetConfig()`는 단일 'deep' label을 반환하는 호환 stub으로 남아 있다.
+`EXPLORE_REPO_INPUT_SCHEMA`에서 `budget` 키는 제거되었고, 모든 호출은 위 값으로 실행된다. `getBudgetConfig()`는 인자를 받지 않고 이 단일 runtime config를 반환한다.
+
+Report-mode turn 확장은 `CEREBRAS_EXPLORER_TURN_MULTIPLIER`, `CEREBRAS_EXPLORER_MAX_EXTRA_TURNS`, `CEREBRAS_EXPLORER_MAX_COMPACTIONS`로만 조정한다. spec 023 이후 `CEREBRAS_EXPLORER_V2_*` tuning envvar 이름은 인식하지 않는다.
 
 ---
 

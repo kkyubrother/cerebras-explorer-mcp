@@ -38,6 +38,11 @@ function withEnvPatch(patch, fn) {
     });
 }
 
+async function readJsonl(filePath) {
+  const raw = await fs.readFile(filePath, 'utf8');
+  return raw.trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
+}
+
 // --- Phase 8: freeExplore Stabilization Tests ---
 
 test('freeExplore executes tool calls without repoToolkit ReferenceError', async () => {
@@ -182,7 +187,7 @@ test('freeExplore sets stoppedByBudget when budget is exhausted', async () => {
 
   const root = await makeRepoFixture();
   const runtime = new ExplorerRuntime({ chatClient: new BudgetExhaustClient() });
-  const result = await runtime.freeExplore({ prompt: 'explore everything', repo_root: root, thoroughness: 'quick' });
+  const result = await runtime.freeExplore({ prompt: 'explore everything', repo_root: root });
 
   assert.ok(result, 'freeExplore completed');
   assert.equal(result.stats.stoppedByBudget, true, 'stoppedByBudget is true when budget runs out');
@@ -190,7 +195,7 @@ test('freeExplore sets stoppedByBudget when budget is exhausted', async () => {
 });
 
 test('freeExplore finalizes and returns a non-empty report when the tool loop terminates', async () => {
-  // spec 011: freeExplore now delegates to the (formerly V2) backend, which has
+  // spec 011: freeExplore now delegates to the report backend, which has
   // periodic checkpoint nudges asking the model to wrap up. The contract this
   // test protects is "the loop reliably produces a report even when the model
   // never stops calling tools on its own".
@@ -227,7 +232,7 @@ test('freeExplore finalizes and returns a non-empty report when the tool loop te
 
   const root = await makeRepoFixture();
   const runtime = new ExplorerRuntime({ chatClient: new InterimReportClient() });
-  const result = await runtime.freeExplore({ prompt: 'deep dive into auth', repo_root: root, thoroughness: 'quick' });
+  const result = await runtime.freeExplore({ prompt: 'deep dive into auth', repo_root: root });
 
   assert.ok(result, 'freeExplore completed');
   assert.ok(finalizeCallCount >= 1, 'finalize-style turn must fire at least once');
@@ -278,7 +283,7 @@ test('freeExplore finalizes intent-only no-tool responses instead of returning t
 
   const root = await makeRepoFixture();
   const runtime = new ExplorerRuntime({ chatClient: new IntentOnlyClient() });
-  const result = await runtime.freeExplore({ prompt: 'explain providers', repo_root: root, thoroughness: 'quick' });
+  const result = await runtime.freeExplore({ prompt: 'explain providers', repo_root: root });
 
   assert.equal(finalizeCallCount, 1, 'intent-only no-tool response should trigger finalize prompt');
   assert.match(result.report, /Provider behavior/);
@@ -312,7 +317,7 @@ test('freeExplore stops after repeated unknown tool errors', async () => {
   const root = await makeRepoFixture();
   const client = new UnknownToolClient();
   const runtime = new ExplorerRuntime({ chatClient: client });
-  const result = await runtime.freeExplore({ prompt: 'find auth', repo_root: root, thoroughness: 'quick' });
+  const result = await runtime.freeExplore({ prompt: 'find auth', repo_root: root });
 
   assert.ok(result, 'freeExplore completed');
   assert.equal(result.stats.stoppedByErrors, true, 'stoppedByErrors is true after repeated all-error turns');
@@ -341,7 +346,6 @@ test('freeExplore exposes report citations and citation targets', async () => {
   const result = await runtime.freeExplore({
     prompt: 'explain auth flow with citations',
     repo_root: root,
-    thoroughness: 'quick',
   });
 
   assert.deepEqual(result.citations.map(item => ({
@@ -383,14 +387,13 @@ test('freeExplore returns empty citations and targets when report has no citatio
   const result = await runtime.freeExplore({
     prompt: 'write a report without citations',
     repo_root: root,
-    thoroughness: 'quick',
   });
 
   assert.deepEqual(result.citations, []);
   assert.deepEqual(result.targets, []);
 });
 
-test('freeExploreV2 exposes the same citation shape with transcriptPath preserved', async () => {
+test('freeExplore exposes the same citation shape with transcriptPath preserved', async () => {
   class CitationReportClient {
     constructor() { this.model = 'test'; }
     async createChatCompletion() {
@@ -411,10 +414,9 @@ test('freeExploreV2 exposes the same citation shape with transcriptPath preserve
     CEREBRAS_EXPLORER_LOG_PATH: transcriptDir,
   }, async () => {
     const runtime = new ExplorerRuntime({ chatClient: new CitationReportClient() });
-    const result = await runtime.freeExploreV2({
+    const result = await runtime.freeExplore({
       prompt: 'explain auth flow with citations',
       repo_root: root,
-      thoroughness: 'quick',
     });
 
     assert.deepEqual(result.citations.map(item => ({
@@ -436,6 +438,8 @@ test('freeExploreV2 exposes the same citation shape with transcriptPath preserve
       { path: 'src/routes/user.js', startLine: 2, endLine: 2, role: 'reference' },
     ]);
     assert.equal(typeof result.transcriptPath, 'string');
+    const entries = await readJsonl(result.transcriptPath);
+    assert.equal(entries[0]?.tool, 'explore');
   });
 });
 
@@ -458,7 +462,6 @@ test('freeExplore deduplicates citation-derived targets by (path, startLine, end
   const result = await runtime.freeExplore({
     prompt: 'explain auth flow with repeated citations',
     repo_root: root,
-    thoroughness: 'quick',
   });
 
   assert.equal(result.citations.length, 2);

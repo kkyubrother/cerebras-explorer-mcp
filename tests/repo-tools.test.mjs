@@ -94,7 +94,7 @@ test('RepoToolkit finds files, greps, reads ranges, and respects gitignore', asy
   const repoRoot = await makeRepoFixture();
   const toolkit = new RepoToolkit({
     repoRoot,
-    budgetConfig: getBudgetConfig('normal'),
+    budgetConfig: getBudgetConfig(),
   });
   await toolkit.initialize(['src/**', 'docs/**']);
 
@@ -121,7 +121,7 @@ test('RepoToolkit enforces the initial scope as a hard boundary', async () => {
   const repoRoot = await makeRepoFixture();
   const toolkit = new RepoToolkit({
     repoRoot,
-    budgetConfig: getBudgetConfig('normal'),
+    budgetConfig: getBudgetConfig(),
   });
   await toolkit.initialize(['src/**']);
 
@@ -174,7 +174,7 @@ test('RepoToolkit blocks symlink reads and skips symlink entries during traversa
 
   const toolkit = new RepoToolkit({
     repoRoot,
-    budgetConfig: getBudgetConfig('normal'),
+    budgetConfig: getBudgetConfig(),
   });
   await toolkit.initialize(['src/**']);
 
@@ -204,7 +204,7 @@ test('collectTargetPathsFromToolResult handles git diff and show results', () =>
 
 test('RepoToolkit git tools: gitLog returns commits', { skip: !hasGit() }, async () => {
   const root = await makeGitRepoFixture();
-  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig('normal') });
+  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig() });
   await toolkit.initialize();
 
   const log = await toolkit.gitLog({ maxCount: 10 });
@@ -217,7 +217,7 @@ test('RepoToolkit git tools: gitLog returns commits', { skip: !hasGit() }, async
 
 test('RepoToolkit git tools: gitLog filters by file path', { skip: !hasGit() }, async () => {
   const root = await makeGitRepoFixture();
-  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig('normal') });
+  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig() });
   await toolkit.initialize();
 
   const log = await toolkit.gitLog({ path: 'hello.js', maxCount: 5 });
@@ -227,7 +227,7 @@ test('RepoToolkit git tools: gitLog filters by file path', { skip: !hasGit() }, 
 
 test('RepoToolkit git tools: gitBlame returns line authorship', { skip: !hasGit() }, async () => {
   const root = await makeGitRepoFixture();
-  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig('normal') });
+  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig() });
   await toolkit.initialize();
 
   const blame = await toolkit.gitBlame({ path: 'hello.js', startLine: 1, endLine: 1 });
@@ -240,7 +240,7 @@ test('RepoToolkit git tools: gitBlame returns line authorship', { skip: !hasGit(
 
 test('RepoToolkit git tools: gitDiff returns file changes', { skip: !hasGit() }, async () => {
   const root = await makeGitRepoFixture();
-  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig('normal') });
+  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig() });
   await toolkit.initialize();
 
   const diff = await toolkit.gitDiff({ from: 'HEAD~1', to: 'HEAD' });
@@ -256,7 +256,7 @@ test('RepoToolkit git tools: gitDiff returns file changes', { skip: !hasGit() },
 test('RepoToolkit gitShow ignores repository external diff commands', { skip: !hasGit() || process.platform === 'win32' }, async () => {
   const root = await makeGitRepoFixture();
   const markerPath = await configureExternalDiffMarker(root);
-  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig('normal') });
+  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig() });
   await toolkit.initialize();
 
   const show = await toolkit.gitShow({ ref: 'HEAD' });
@@ -267,7 +267,7 @@ test('RepoToolkit gitShow ignores repository external diff commands', { skip: !h
 
 test('RepoToolkit git tools: gitShow returns commit details', { skip: !hasGit() }, async () => {
   const root = await makeGitRepoFixture();
-  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig('normal') });
+  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig() });
   await toolkit.initialize();
 
   const show = await toolkit.gitShow({ ref: 'HEAD' });
@@ -280,7 +280,7 @@ test('RepoToolkit git tools: gitShow returns commit details', { skip: !hasGit() 
 
 test('RepoToolkit git tools: gitShow rejects invalid ref', { skip: !hasGit() }, async () => {
   const root = await makeGitRepoFixture();
-  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig('normal') });
+  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig() });
   await toolkit.initialize();
 
   await assert.rejects(
@@ -291,7 +291,7 @@ test('RepoToolkit git tools: gitShow rejects invalid ref', { skip: !hasGit() }, 
 
 test('RepoToolkit grep uses ripgrep when available', { skip: !hasRipgrep() }, async () => {
   const repoRoot = await makeRepoFixture();
-  const toolkit = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig('normal') });
+  const toolkit = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig() });
   await toolkit.initialize(['src/**', 'docs/**']);
 
   assert.equal(toolkit._hasRipgrep, true, 'ripgrep detected');
@@ -310,7 +310,7 @@ test('RepoToolkit rejects traversal scopes before grep can escape the repo root'
   await fs.writeFile(path.join(repoRoot, 'inside.txt'), 'inside content\n');
   await fs.writeFile(path.join(outsideDir, 'secret.txt'), 'LEAK_MARKER outside repo secret\n');
 
-  const toolkit = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig('normal') });
+  const toolkit = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig() });
   await toolkit.initialize();
 
   await assert.rejects(
@@ -335,7 +335,7 @@ test('RepoToolkit gitDiff validates refs and disables external diff helpers', { 
   await fs.chmod(helper, 0o755);
   execFileSync('git', ['config', 'diff.external', helper], { cwd: root, stdio: 'pipe' });
 
-  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig('normal') });
+  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig() });
   await toolkit.initialize();
 
   const diff = await toolkit.gitDiff({ from: 'HEAD~1', to: 'HEAD' });
@@ -371,7 +371,7 @@ test('RepoToolkit gitShow disables textconv helpers', { skip: !hasGit() }, async
   await fs.chmod(helper, 0o755);
   git(['config', 'diff.evil.textconv', helper]);
 
-  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig('normal') });
+  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig() });
   await toolkit.initialize();
 
   const show = await toolkit.gitShow({ ref: 'HEAD' });
@@ -390,9 +390,9 @@ test('cache isolates read_file results by repo root', async () => {
   await fs.writeFile(path.join(repoA, 'src', 'auth.js'), 'export const REPO = "A";\n');
   await fs.writeFile(path.join(repoB, 'src', 'auth.js'), 'export const REPO = "B";\n');
 
-  const toolkitA = new RepoToolkit({ repoRoot: repoA, budgetConfig: getBudgetConfig('normal'), cache: globalRepoCache });
+  const toolkitA = new RepoToolkit({ repoRoot: repoA, budgetConfig: getBudgetConfig(), cache: globalRepoCache });
   await toolkitA.initialize(['src/**']);
-  const toolkitB = new RepoToolkit({ repoRoot: repoB, budgetConfig: getBudgetConfig('normal'), cache: globalRepoCache });
+  const toolkitB = new RepoToolkit({ repoRoot: repoB, budgetConfig: getBudgetConfig(), cache: globalRepoCache });
   await toolkitB.initialize(['src/**']);
 
   const resultA = await toolkitA.callTool('repo_read_file', { path: 'src/auth.js' });
@@ -407,14 +407,14 @@ test('cache does not reuse read_file across different base scopes', async () => 
   const repoRoot = await makeRepoFixture();
 
   // Toolkit with no scope restriction reads docs/auth.md
-  const toolkitFull = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig('normal'), cache: globalRepoCache });
+  const toolkitFull = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig(), cache: globalRepoCache });
   await toolkitFull.initialize([]);
 
   const fullResult = await toolkitFull.callTool('repo_read_file', { path: 'docs/auth.md' });
   assert.ok(fullResult.content.includes('Auth'), 'full toolkit reads docs/auth.md');
 
   // Toolkit with src/** scope should reject docs/auth.md even if it was cached
-  const toolkitSrc = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig('normal'), cache: globalRepoCache });
+  const toolkitSrc = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig(), cache: globalRepoCache });
   await toolkitSrc.initialize(['src/**']);
 
   await assert.rejects(
@@ -427,7 +427,7 @@ test('cache does not reuse read_file across different base scopes', async () => 
 test('grep cache key includes maxResults — different maxResults get different cache entries', async () => {
   globalRepoCache.clear();
   const repoRoot = await makeRepoFixture();
-  const toolkit = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig('normal'), cache: globalRepoCache });
+  const toolkit = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig(), cache: globalRepoCache });
   await toolkit.initialize(['src/**', 'docs/**']);
 
   const result1 = await toolkit.callTool('repo_grep', { pattern: 'requireAuth', maxResults: 1 });
@@ -440,7 +440,7 @@ test('grep cache key includes maxResults — different maxResults get different 
 test('find_files cache key includes maxResults', async () => {
   globalRepoCache.clear();
   const repoRoot = await makeRepoFixture();
-  const toolkit = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig('normal'), cache: globalRepoCache });
+  const toolkit = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig(), cache: globalRepoCache });
   await toolkit.initialize(['src/**']);
 
   const result1 = await toolkit.callTool('repo_find_files', { pattern: 'src/**/*.js', maxResults: 1 });
@@ -459,9 +459,9 @@ test('cache isolates repo_symbols results by repo root', async () => {
   await fs.writeFile(path.join(repoA, 'src', 'auth.js'), 'export function fromRepoA() {}\n');
   await fs.writeFile(path.join(repoB, 'src', 'auth.js'), 'export function fromRepoB() {}\n');
 
-  const toolkitA = new RepoToolkit({ repoRoot: repoA, budgetConfig: getBudgetConfig('normal'), cache: globalRepoCache });
+  const toolkitA = new RepoToolkit({ repoRoot: repoA, budgetConfig: getBudgetConfig(), cache: globalRepoCache });
   await toolkitA.initialize(['src/**']);
-  const toolkitB = new RepoToolkit({ repoRoot: repoB, budgetConfig: getBudgetConfig('normal'), cache: globalRepoCache });
+  const toolkitB = new RepoToolkit({ repoRoot: repoB, budgetConfig: getBudgetConfig(), cache: globalRepoCache });
   await toolkitB.initialize(['src/**']);
 
   const symA = await toolkitA.callTool('repo_symbols', { path: 'src/auth.js' });
@@ -487,7 +487,7 @@ test('LruCache accepts precomputed serializedLength without breaking eviction', 
 
 test('repo_symbol_context returns observations with source for definition and callers', async () => {
   const repoRoot = await makeRepoFixture();
-  const toolkit = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig('normal') });
+  const toolkit = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig() });
   await toolkit.initialize(['src/**', 'docs/**']);
 
   const result = await toolkit.symbolContext({ symbol: 'requireAuth' });
@@ -506,7 +506,7 @@ test('repo_symbol_context returns observations with source for definition and ca
 
 test('repo_grep returns line-level observations via runtime integration', async () => {
   const repoRoot = await makeRepoFixture();
-  const toolkit = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig('normal') });
+  const toolkit = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig() });
   await toolkit.initialize(['src/**', 'docs/**']);
 
   const result = await toolkit.grep({ pattern: 'requireAuth', maxResults: 10 });
@@ -524,7 +524,7 @@ test('repo_grep returns line-level observations via runtime integration', async 
 
 test('RepoToolkit grep with ripgrep respects initialize base scope', { skip: !hasRipgrep() }, async () => {
   const repoRoot = await makeRepoFixture();
-  const toolkit = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig('normal') });
+  const toolkit = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig() });
   await toolkit.initialize(['src/**']);
 
   assert.equal(toolkit._hasRipgrep, true, 'ripgrep is available');
@@ -540,7 +540,7 @@ test('RepoToolkit grep with ripgrep respects extraIgnoreDirs', { skip: !hasRipgr
   await fs.mkdir(path.join(repoRoot, 'vendor'), { recursive: true });
   await fs.writeFile(path.join(repoRoot, 'vendor', 'lib.js'), 'function requireAuth() {} // vendor copy\n');
 
-  const toolkit = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig('normal'), extraIgnoreDirs: ['vendor'] });
+  const toolkit = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig(), extraIgnoreDirs: ['vendor'] });
   await toolkit.initialize([]);
 
   assert.equal(toolkit._hasRipgrep, true, 'ripgrep is available');
@@ -556,7 +556,7 @@ test('RepoToolkit grep with ripgrep respects built-in ignore dirs', { skip: !has
     'function requireAuth() {} // dependency copy\n',
   );
 
-  const toolkit = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig('normal') });
+  const toolkit = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig() });
   await toolkit.initialize([]);
 
   assert.equal(toolkit._hasRipgrep, true, 'ripgrep is available');
@@ -569,7 +569,7 @@ test('RepoToolkit grep with ripgrep respects built-in ignore dirs', { skip: !has
 
 test('RepoToolkit symbols rejects out-of-scope paths', async () => {
   const repoRoot = await makeRepoFixture();
-  const toolkit = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig('normal') });
+  const toolkit = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig() });
   await toolkit.initialize(['src/**']);
 
   await assert.rejects(
@@ -587,7 +587,7 @@ test('RepoToolkit gitLog rejects out-of-scope path', { skip: !hasGit() }, async 
   git(['add', '.']);
   git(['commit', '-m', 'add docs']);
 
-  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig('normal') });
+  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig() });
   await toolkit.initialize(['docs/**']);
 
   await assert.rejects(
@@ -598,7 +598,7 @@ test('RepoToolkit gitLog rejects out-of-scope path', { skip: !hasGit() }, async 
 
 test('RepoToolkit gitBlame rejects out-of-scope path', { skip: !hasGit() }, async () => {
   const root = await makeGitRepoFixture();
-  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig('normal') });
+  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig() });
   await toolkit.initialize(['docs/**']);
 
   await assert.rejects(
@@ -621,7 +621,7 @@ test('RepoToolkit gitShow filters changed files to current scope', { skip: !hasG
   git(['add', '.']);
   git(['commit', '-m', 'touch both']);
 
-  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig('normal') });
+  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig() });
   await toolkit.initialize(['docs/**']);
 
   const show = await toolkit.gitShow({ ref: 'HEAD' });
@@ -643,7 +643,7 @@ test('010 US4#1 — RepoToolkit gitDiff filters changed files to current scope',
   git(['add', '.']);
   git(['commit', '-m', 'touch both']);
 
-  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig('normal') });
+  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig() });
   await toolkit.initialize(['docs/**']);
 
   const diff = await toolkit.gitDiff({ from: 'HEAD~1', to: 'HEAD' });
@@ -670,7 +670,7 @@ test('010 US4#2 — RepoToolkit gitDiff stat mode filters out-of-scope lines', {
   git(['add', '.']);
   git(['commit', '-m', 'touch both']);
 
-  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig('normal') });
+  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig() });
   await toolkit.initialize(['docs/**']);
 
   const diff = await toolkit.gitDiff({ from: 'HEAD~1', to: 'HEAD', stat: true });
@@ -692,7 +692,7 @@ test('010 US4#4 — collectDiscoveredPathsFromToolResult only sees in-scope file
   git(['add', '.']);
   git(['commit', '-m', 'touch both']);
 
-  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig('normal') });
+  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig() });
   await toolkit.initialize(['docs/**']);
   const diff = await toolkit.gitDiff({ from: 'HEAD~1', to: 'HEAD' });
   const discovered = collectDiscoveredPathsFromToolResult('repo_git_diff', diff);
@@ -711,7 +711,7 @@ test('callTool repo_read_file invalidates the cache when the file mtime changes'
   const filePath = path.join(root, 'demo.txt');
   await fs.writeFile(filePath, 'initial content\nline 2\nline 3\n');
 
-  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig('normal') });
+  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig() });
   await toolkit.initialize();
 
   const first = await toolkit.callTool('repo_read_file', { path: 'demo.txt', startLine: 1, endLine: 5 });
@@ -749,7 +749,7 @@ async function makeNestedIgnoreFixture() {
 
 test('Spec 014 — nested .gitignore is prefix-bounded (foo/compiled excluded, bar/compiled kept)', async () => {
   const repoRoot = await makeNestedIgnoreFixture();
-  const toolkit = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig('normal') });
+  const toolkit = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig() });
   await toolkit.initialize();
 
   const found = await toolkit.findFiles({ pattern: '**/*' });
@@ -778,7 +778,7 @@ test('Spec 014 — root .gitignore and nested .gitignore coexist', async () => {
   await fs.writeFile(path.join(root, 'app.log'), 'log');
   await fs.writeFile(path.join(root, 'pkg', 'index.js'), '// pkg entry\n');
 
-  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig('normal') });
+  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig() });
   await toolkit.initialize();
   const found = await toolkit.findFiles({ pattern: '**/*' });
   assert.ok(!found.matches.includes('app.log'), 'root .gitignore must exclude *.log');
@@ -794,7 +794,7 @@ test('Spec 014 — nested .gitignore negation rules (`!keep`) are silently dropp
   await fs.writeFile(path.join(root, 'pkg', 'compiled', 'output.bin'), 'art');
   await fs.writeFile(path.join(root, 'pkg', 'compiled', 'keep.js'), '// keep me');
 
-  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig('normal') });
+  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig() });
   await toolkit.initialize();
   const found = await toolkit.findFiles({ pattern: '**/*' });
   // compiled/ rule still excludes both — negation is dropped, no re-include happens.
@@ -806,7 +806,7 @@ test('Spec 014 — extraIgnorePatterns glob excludes directory prefix and deep m
   const repoRoot = await makeNestedIgnoreFixture();
   const toolkit = new RepoToolkit({
     repoRoot,
-    budgetConfig: getBudgetConfig('normal'),
+    budgetConfig: getBudgetConfig(),
     extraIgnorePatterns: ['noisy/**', '**/*.snapshot.json'],
   });
   await toolkit.initialize();
@@ -819,13 +819,13 @@ test('Spec 014 — extraIgnorePatterns glob excludes directory prefix and deep m
 
 test('Spec 014 — extraIgnorePatterns empty is backwards-compatible', async () => {
   const repoRoot = await makeNestedIgnoreFixture();
-  const baseline = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig('normal') });
+  const baseline = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig() });
   await baseline.initialize();
   const baselineFiles = (await baseline.findFiles({ pattern: '**/*' })).matches.sort();
 
   const withEmpty = new RepoToolkit({
     repoRoot,
-    budgetConfig: getBudgetConfig('normal'),
+    budgetConfig: getBudgetConfig(),
     extraIgnorePatterns: [],
   });
   await withEmpty.initialize();
@@ -843,7 +843,7 @@ test('Spec 014 — secret deny-list cannot be bypassed by extraIgnorePatterns', 
   // extraIgnorePatterns evaluation in shouldIgnorePath.
   const toolkit = new RepoToolkit({
     repoRoot: root,
-    budgetConfig: getBudgetConfig('normal'),
+    budgetConfig: getBudgetConfig(),
     extraIgnorePatterns: ['!.env'],
   });
   await toolkit.initialize();
@@ -859,7 +859,7 @@ test('Spec 014 follow-up — ripgrep grep fast path excludes extraIgnorePatterns
 
   const toolkit = new RepoToolkit({
     repoRoot,
-    budgetConfig: getBudgetConfig('normal'),
+    budgetConfig: getBudgetConfig(),
     extraIgnorePatterns: ['**/*.snapshot.json'],
   });
   await toolkit.initialize([]);
@@ -880,7 +880,7 @@ test('Spec 014 follow-up — grep cache keys partition by extraIgnorePatterns', 
   await fs.writeFile(path.join(repoRoot, 'normal.js'), 'const CACHE_MARKER = true;\n');
 
   // First toolkit has no extra ignores, so it both matches and caches the snapshot path.
-  const open = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig('normal'), cache: globalRepoCache });
+  const open = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig(), cache: globalRepoCache });
   await open.initialize([]);
   const openResult = await open.callTool('repo_grep', { pattern: 'CACHE_MARKER' });
   assert.ok(
@@ -892,7 +892,7 @@ test('Spec 014 follow-up — grep cache keys partition by extraIgnorePatterns', 
   // in the cache key, it would collide with `open`'s entry and wrongly inherit the match.
   const ignored = new RepoToolkit({
     repoRoot,
-    budgetConfig: getBudgetConfig('normal'),
+    budgetConfig: getBudgetConfig(),
     cache: globalRepoCache,
     extraIgnorePatterns: ['**/*.snapshot.json'],
   });

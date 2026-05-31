@@ -6,10 +6,10 @@ import {
   getBudgetConfig,
   getExplorerTemperature,
   getExplorerTopP,
-  getExploreV2MaxCompactions,
-  getExploreV2MaxExtraTurns,
-  getExploreV2TurnMultiplier,
-  getReasoningEffortForBudget,
+  getExploreMaxCompactions,
+  getExploreMaxExtraTurns,
+  getExploreTurnMultiplier,
+  getReasoningEffortForModel,
   isSecretPath,
   isTruthyEnv,
   loadProjectConfig,
@@ -27,10 +27,10 @@ import {
   buildExplorerUserPrompt,
   buildFinalizePrompt,
   buildFreeExploreUserPrompt,
-  buildFreeExploreV2SystemPrompt,
+  buildFreeExploreSystemPrompt,
   buildCompactionSummaryPrompt,
   buildOutputContinuationPrompt,
-  buildFreeExploreV2FinalizePrompt,
+  buildFreeExploreFinalizePrompt,
 } from './prompt.mjs';
 import {
   EXPLORE_RESULT_JSON_SCHEMA,
@@ -128,10 +128,10 @@ function sliceRecentTurns(messages, keepLastUserTurns = 3) {
   return messages.slice(startIndex);
 }
 
-// ── freeExploreV2 utilities ───────────────────────────────────────────────────
+// ── freeExplore utilities ─────────────────────────────────────────────────────
 
 /**
- * Per-tool result character budgets for V2.
+ * Per-tool result character budgets for report mode.
  * Larger results are truncated with a preview to save context window.
  */
 const TOOL_RESULT_CHAR_BUDGETS = {
@@ -183,7 +183,7 @@ function isIntentOnlyFreeExploreReport(content) {
 }
 
 /**
- * LLM-based conversation compaction for V2.
+ * LLM-based conversation compaction for report mode.
  * Instead of simple truncation, asks the LLM to summarize findings so far,
  * then replaces old messages with the summary to free context window.
  *
@@ -237,7 +237,7 @@ async function compactWithLlmSummary(chatClient, messages, threshold, opts) {
 }
 
 /**
- * Max output token recovery for V2.
+ * Max output token recovery for report mode.
  * When the model's output is cut short (finish_reason === 'length'),
  * asks it to continue from where it left off, up to MAX_RECOVERY_ATTEMPTS.
  */
@@ -1244,13 +1244,6 @@ function guessModuleRole(filePath) {
   return 'module';
 }
 
-// spec 011: budget input and AUTO_ROUTE were removed. Every call runs against
-// the single deep runtime config; this stub stays for callers that still pass
-// a label through.
-function resolveModelBudget() {
-  return 'deep';
-}
-
 /**
  * Describe the tool calls that are about to be executed, for progress messages.
  */
@@ -1285,15 +1278,13 @@ export class ExplorerRuntime {
 
     // spec 011: single runtime config — no user-facing budget knob.
     const budgetConfig = getBudgetConfig();
-    const budgetSource = 'auto';
-    const effectiveBudgetLabel = 'deep';
     const effectiveScope = scope ?? projectConfig.defaultScope ?? [];
     const projectContext = projectConfig.projectContext ?? null;
     const keyFiles = projectConfig.keyFiles ?? [];
     const extraIgnoreDirs = projectConfig.extraIgnoreDirs ?? [];
     const extraIgnorePatterns = projectConfig.extraIgnorePatterns ?? [];
 
-    const chatClient = this._explicitChatClient ?? createChatClient({ budget: resolveModelBudget() });
+    const chatClient = this._explicitChatClient ?? createChatClient();
 
     const repoToolkit = new RepoToolkit({
       repoRoot,
@@ -1306,13 +1297,12 @@ export class ExplorerRuntime {
     await repoToolkit.initialize(effectiveScope);
 
     const tools = repoToolkit.buildToolDefinitions();
-    const reasoningEffort = getReasoningEffortForBudget(chatClient.model, budgetConfig.label);
+    const reasoningEffort = getReasoningEffortForModel(chatClient.model);
     const temperature = budgetConfig.temperature ?? getExplorerTemperature();
     const topP = budgetConfig.topP ?? getExplorerTopP();
 
     return {
       budgetConfig, repoRoot, projectConfig, effectiveScope, projectContext, keyFiles,
-      budgetSource,
       chatClient,
       repoToolkit, tools, reasoningEffort, temperature, topP,
     };
@@ -1329,7 +1319,6 @@ export class ExplorerRuntime {
 
     const {
       budgetConfig, repoRoot, projectConfig, effectiveScope, projectContext, keyFiles,
-      budgetSource,
       chatClient,
       repoToolkit, tools, reasoningEffort, temperature, topP,
     } = await this._initExploreContext({
@@ -1358,7 +1347,7 @@ export class ExplorerRuntime {
         content: buildExplorerUserPrompt({
           task: args.task,
           scope: effectiveScope,
-          budget: budgetConfig.label,
+          runtimeProfile: budgetConfig.label,
           hints: args.hints,
           sessionTargetPaths: [],
           language: args.language,
@@ -1369,7 +1358,6 @@ export class ExplorerRuntime {
     const stats = {
       model: chatClient.model,
       budget: budgetConfig.label,
-      budgetSource,
       turns: 0,
       toolCalls: 0,
       listDirCalls: 0,
@@ -1816,33 +1804,22 @@ export class ExplorerRuntime {
 
   /**
    * Phase 5: Free-form exploration — produces a human-readable Markdown report.
-   * As of spec 011 this method delegates to freeExploreV2, which is the single
-   * supported backend for explore. The V1 implementation was removed.
-   */
-  async freeExplore(args, callOpts = {}) {
-    return this.freeExploreV2(args, callOpts);
-  }
-
-  // ── freeExploreV2 ───────────────────────────────────────────────────────────
-
-  /**
-   * V2 free-form exploration with three advanced techniques:
+   * As of spec 011 this is the single supported backend for explore.
+   *
    * 1. Tool Result Budgeting — per-tool character limits to conserve context
    * 2. LLM-based Conversation Compaction — intelligent summarization instead of truncation
    * 3. Max Output Recovery — multi-attempt continuation when output is cut short
    *
-   * @param {object} args - { prompt, thoroughness?, scope?, repo_root?, session?, language?, context? }
+   * @param {object} args - { prompt, scope?, repo_root?, language?, context? }
    * @param {object} [callOpts]
    */
-  async freeExploreV2(args, { onProgress = null, abortSignal = null } = {}) {
+  async freeExplore(args, { onProgress = null, abortSignal = null } = {}) {
     if (!args || typeof args.prompt !== 'string' || !args.prompt.trim()) {
       const err = new Error('prompt is required and must be a non-empty string.');
       err.code = -32602;
       throw err;
     }
 
-    // spec 011: `thoroughness` is accepted for back-compat but ignored — every
-    // explore call runs against the single deep runtime config.
     const {
       budgetConfig: baseBudgetConfig, repoRoot, effectiveScope, projectContext, keyFiles,
       chatClient,
@@ -1853,15 +1830,15 @@ export class ExplorerRuntime {
       taskText: args.prompt,
     });
 
-    // V2: extend the turn budget, but keep it bounded by configurable caps.
-    const requestedV2Turns = Math.max(
+    // Report mode extends the turn budget, but keeps it bounded by configurable caps.
+    const requestedTurns = Math.max(
       baseBudgetConfig.maxTurns,
-      Math.round(baseBudgetConfig.maxTurns * getExploreV2TurnMultiplier()),
+      Math.round(baseBudgetConfig.maxTurns * getExploreTurnMultiplier()),
     );
-    const maxAllowedV2Turns = baseBudgetConfig.maxTurns + getExploreV2MaxExtraTurns();
+    const maxAllowedTurns = baseBudgetConfig.maxTurns + getExploreMaxExtraTurns();
     const budgetConfig = {
       ...baseBudgetConfig,
-      maxTurns: Math.min(requestedV2Turns, maxAllowedV2Turns),
+      maxTurns: Math.min(requestedTurns, maxAllowedTurns),
     };
 
     const startedAt = nowMs();
@@ -1870,7 +1847,7 @@ export class ExplorerRuntime {
     // Transcript recording (opt-in via CEREBRAS_EXPLORER_LOG_PATH)
     const transcript = createTranscriptRecorder({
       repoRoot,
-      tool: 'explore_v2',
+      tool: 'explore',
       task: args.prompt,
       logger: this.logger,
     });
@@ -1879,7 +1856,7 @@ export class ExplorerRuntime {
     let messages = [
       {
         role: 'system',
-        content: buildFreeExploreV2SystemPrompt({
+        content: buildFreeExploreSystemPrompt({
           repoRoot,
           budgetConfig,
           language: args.language,
@@ -1893,7 +1870,7 @@ export class ExplorerRuntime {
         content: buildFreeExploreUserPrompt({
           prompt: args.prompt,
           scope: effectiveScope,
-          budget: budgetConfig.label,
+          runtimeProfile: budgetConfig.label,
           context: args.context,
         }),
       },
@@ -1938,7 +1915,7 @@ export class ExplorerRuntime {
 
     // Compaction threshold: trigger LLM summary at 70% of context window
     const compactionThreshold = Math.floor((budgetConfig.maxContextTokens ?? 100_000) * 0.70);
-    const maxLlmCompactions = getExploreV2MaxCompactions();
+    const maxLlmCompactions = getExploreMaxCompactions();
 
     for (let turnIndex = 0; turnIndex < budgetConfig.maxTurns; turnIndex += 1) {
       // Abort check
@@ -1998,7 +1975,7 @@ export class ExplorerRuntime {
           progress: turnIndex,
           total: budgetConfig.maxTurns,
           message: turnIndex === 0
-            ? 'Starting V2 exploration...'
+            ? 'Starting exploration report...'
             : `Turn ${turnIndex + 1}/${budgetConfig.maxTurns}: exploring...`,
         });
       }
@@ -2171,7 +2148,7 @@ export class ExplorerRuntime {
       // Initial finalization
       const finalizeMessages = [
         ...messages,
-        { role: 'user', content: buildFreeExploreV2FinalizePrompt() },
+        { role: 'user', content: buildFreeExploreFinalizePrompt() },
       ];
 
       let finalized;
@@ -2265,7 +2242,7 @@ export class ExplorerRuntime {
     }
 
     if (!report || report.trim() === '') {
-      report = 'Explorer V2 could not produce a report.';
+      report = 'Explorer could not produce a report.';
     }
 
     stats.elapsedMs = nowMs() - startedAt;
@@ -2383,10 +2360,4 @@ export async function freeExploreRepository(args, options = {}) {
   const { onProgress, abortSignal, ...runtimeOptions } = options;
   const runtime = new ExplorerRuntime(runtimeOptions);
   return runtime.freeExplore(args, { onProgress, abortSignal });
-}
-
-export async function freeExploreRepositoryV2(args, options = {}) {
-  const { onProgress, abortSignal, ...runtimeOptions } = options;
-  const runtime = new ExplorerRuntime(runtimeOptions);
-  return runtime.freeExploreV2(args, { onProgress, abortSignal });
 }

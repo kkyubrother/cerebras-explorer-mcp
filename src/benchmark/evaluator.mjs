@@ -38,24 +38,9 @@ function toolResultsWereTruncated(result) {
   return coverageCount > 0 || statsCount > 0;
 }
 
-// Benchmark-only compatibility for archived result JSON. Public explorer output
-// stays compact and uses targets[], not candidatePaths.
-function getCandidatePaths(result) {
-  if (Array.isArray(result?.candidatePaths)) {
-    return result.candidatePaths.filter(item => typeof item === 'string' && item.trim());
-  }
-  return (result?.targets ?? [])
-    .map(item => item?.path)
-    .filter(item => typeof item === 'string' && item.trim());
-}
-
 function getSourceText(result, source) {
   switch (source) {
     case 'direct_answer':
-      return result.directAnswer ?? '';
-    case 'answer':
-      return result.directAnswer ?? '';
-    case 'summary':
       return result.directAnswer ?? '';
     case 'combined_text':
       return joinLines([
@@ -71,8 +56,6 @@ function getSourceText(result, source) {
       return joinLines((result.evidence ?? []).map(item => item.path));
     case 'evidence_why':
       return joinLines((result.evidence ?? []).map(item => item.why));
-    case 'candidate_paths':
-      return joinLines(getCandidatePaths(result));
     case 'target_paths':
       return joinLines((result.targets ?? []).map(item => item.path));
     case 'target_reasons':
@@ -86,8 +69,6 @@ function getSourceText(result, source) {
     case 'next_action':
       return joinLines([result.nextAction?.type, result.nextAction?.reason, result.nextAction?.query]);
     case 'confidence':
-      return result.status?.confidence ?? '';
-    case 'confidence_level':
       return result.status?.confidence ?? '';
     default:
       throw new Error(`Unknown benchmark source: ${source}`);
@@ -129,10 +110,6 @@ function evaluateCheck(result, check) {
       break;
     case 'min_grounded_evidence_count':
       actual = countGroundedEvidence(result);
-      passed = actual >= Number(check.value ?? 0);
-      break;
-    case 'min_candidate_path_count':
-      actual = getCandidatePaths(result).length;
       passed = actual >= Number(check.value ?? 0);
       break;
     case 'min_target_count':

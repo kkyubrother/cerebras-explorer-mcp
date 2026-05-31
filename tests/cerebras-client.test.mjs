@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 
 import {
   DEFAULT_EXPLORER_MODEL,
-  getReasoningEffortForBudget,
-  BUDGETS,
+  getBudgetConfig,
+  getReasoningEffortForModel,
 } from '../src/explorer/config.mjs';
 import { CerebrasChatClient } from '../src/explorer/cerebras-client.mjs';
 
@@ -180,24 +180,22 @@ test('CerebrasChatClient forwards structured response_format without OpenAI stri
   assert.equal(schema.properties.b.type, 'string');
 });
 
-test('spec 011 — getReasoningEffortForBudget returns the single-config hint per model', () => {
-  // After spec 011 the budget label argument is unused.
-  assert.equal(getReasoningEffortForBudget('zai-glm-4.7'), undefined,
+test('spec 011 — getReasoningEffortForModel returns the single-config hint per model', () => {
+  assert.equal(getReasoningEffortForModel('zai-glm-4.7'), undefined,
     'GLM 4.7 leaves reasoning_effort unset under the deep config');
-  assert.equal(getReasoningEffortForBudget('zai-glm-4.7', 'quick'), undefined,
-    'budget label argument is ignored after spec 011');
 });
 
-// ── Phase 2 — budget-specific parameter alignment ─────────────────────────────
+// ── Phase 2 — single-config parameter alignment ───────────────────────────────
 
-test('Phase 2 — budget-specific temperatures are correctly reflected in payload', async () => {
-  // Verifies that when the caller (runtime) passes budget-specific temperature values,
-  // they reach the HTTP payload unchanged for each budget label.
-  const payloads = {};
+test('Phase 2 — single runtime temperature is correctly reflected in payload', async () => {
+  const cfg = getBudgetConfig();
+  let capturedPayload = null;
 
-  function makeFetch(budgetLabel) {
-    return async (_url, init) => {
-      payloads[budgetLabel] = JSON.parse(init.body);
+  const client = new CerebrasChatClient({
+    apiKey: 'test-key',
+    model: 'zai-glm-4.7',
+    fetchImpl: async (_url, init) => {
+      capturedPayload = JSON.parse(init.body);
       return {
         ok: true,
         status: 200,
@@ -208,33 +206,19 @@ test('Phase 2 — budget-specific temperatures are correctly reflected in payloa
           usage: { prompt_tokens: 5, completion_tokens: 5, total_tokens: 10 },
         }),
       };
-    };
-  }
+    },
+  });
 
-  for (const [label, cfg] of Object.entries(BUDGETS)) {
-    const client = new CerebrasChatClient({
-      apiKey: 'test-key',
-      model: 'zai-glm-4.7',
-      fetchImpl: makeFetch(label),
-    });
-    await client.createChatCompletion({
-      messages: [{ role: 'user', content: 'test' }],
-      temperature: cfg.temperature,
-      topP: cfg.topP,
-    });
-  }
+  await client.createChatCompletion({
+    messages: [{ role: 'user', content: 'test' }],
+    temperature: cfg.temperature,
+    topP: cfg.topP,
+  });
 
-  assert.equal(payloads.quick.temperature, BUDGETS.quick.temperature,
-    'quick budget temperature must be 0.3');
-  assert.equal(payloads.normal.temperature, BUDGETS.normal.temperature,
-    'normal budget temperature must be 0.8');
-  assert.equal(payloads.deep.temperature, BUDGETS.deep.temperature,
-    'deep budget temperature must be 1.0');
-
-  // top_p must be 0.95 for all budgets
-  for (const label of ['quick', 'normal', 'deep']) {
-    assert.equal(payloads[label].top_p, 0.95, `top_p must be 0.95 for ${label}`);
-  }
+  assert.equal(capturedPayload.temperature, cfg.temperature,
+    'single runtime temperature must be sent unchanged');
+  assert.equal(capturedPayload.top_p, cfg.topP,
+    'single runtime top_p must be sent unchanged');
 });
 
 test('spec 011 — GLM 4.7 payload omits reasoning_effort under the single deep config', async () => {
@@ -257,8 +241,8 @@ test('spec 011 — GLM 4.7 payload omits reasoning_effort under the single deep 
 
   await client.createChatCompletion({
     messages: [{ role: 'user', content: 'test' }],
-    reasoningEffort: getReasoningEffortForBudget('zai-glm-4.7'),
-    temperature: BUDGETS.deep.temperature,
+    reasoningEffort: getReasoningEffortForModel('zai-glm-4.7'),
+    temperature: getBudgetConfig().temperature,
   });
 
   assert.equal('reasoning_effort' in capturedPayload, false,
@@ -267,36 +251,34 @@ test('spec 011 — GLM 4.7 payload omits reasoning_effort under the single deep 
     'GLM 4.7 must always include clear_thinking: false');
 });
 
-test('Phase 2 — normal and deep budgets include clear_thinking: false for GLM 4.7', async () => {
-  for (const budget of ['normal', 'deep']) {
-    let capturedPayload = null;
-    const client = new CerebrasChatClient({
-      apiKey: 'test-key',
-      model: 'zai-glm-4.7',
-      fetchImpl: async (_url, init) => {
-        capturedPayload = JSON.parse(init.body);
-        return {
-          ok: true, status: 200, statusText: 'OK',
-          text: async () => JSON.stringify({
-            id: 'chatcmpl-test',
-            choices: [{ finish_reason: 'stop', message: { role: 'assistant', content: 'ok', tool_calls: null } }],
-            usage: { prompt_tokens: 5, completion_tokens: 5, total_tokens: 10 },
-          }),
-        };
-      },
-    });
+test('Phase 2 — single config includes clear_thinking: false for GLM 4.7', async () => {
+  let capturedPayload = null;
+  const client = new CerebrasChatClient({
+    apiKey: 'test-key',
+    model: 'zai-glm-4.7',
+    fetchImpl: async (_url, init) => {
+      capturedPayload = JSON.parse(init.body);
+      return {
+        ok: true, status: 200, statusText: 'OK',
+        text: async () => JSON.stringify({
+          id: 'chatcmpl-test',
+          choices: [{ finish_reason: 'stop', message: { role: 'assistant', content: 'ok', tool_calls: null } }],
+          usage: { prompt_tokens: 5, completion_tokens: 5, total_tokens: 10 },
+        }),
+      };
+    },
+  });
 
-    await client.createChatCompletion({
-      messages: [{ role: 'user', content: 'test' }],
-      reasoningEffort: getReasoningEffortForBudget('zai-glm-4.7', budget), // undefined
-      temperature: BUDGETS[budget].temperature,
-    });
+  await client.createChatCompletion({
+    messages: [{ role: 'user', content: 'test' }],
+    reasoningEffort: getReasoningEffortForModel('zai-glm-4.7'),
+    temperature: getBudgetConfig().temperature,
+  });
 
-    assert.equal(capturedPayload.clear_thinking, false,
-      `${budget} budget must include clear_thinking: false`);
-    assert.equal('reasoning_effort' in capturedPayload, false,
-      `${budget} budget must NOT include reasoning_effort`);
-  }
+  assert.equal(capturedPayload.clear_thinking, false,
+    'single config must include clear_thinking: false');
+  assert.equal('reasoning_effort' in capturedPayload, false,
+    'single config must NOT include reasoning_effort');
 });
 
 // --- Phase 9: Timeout / Abort / Retry Tests ---

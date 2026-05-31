@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
 
 import {
   OpenAICompatChatClient,
@@ -9,12 +10,7 @@ import { FailoverChatClient } from '../src/explorer/providers/failover.mjs';
 import { createChatClient } from '../src/explorer/providers/index.mjs';
 import { CerebrasChatClient } from '../src/explorer/cerebras-client.mjs';
 import { EXPLORE_RESULT_JSON_SCHEMA } from '../src/explorer/schemas.mjs';
-import {
-  chooseAutoBudget,
-  classifyTaskComplexity,
-  getModelForBudget,
-  getReasoningEffortForBudget,
-} from '../src/explorer/config.mjs';
+import * as explorerConfig from '../src/explorer/config.mjs';
 
 // ─── Shared mock fetch helpers ───────────────────────────────────────────────
 
@@ -385,47 +381,41 @@ test('createChatClient: throws on unknown provider name', () => {
   }
 });
 
-// ─── classifyTaskComplexity ──────────────────────────────────────────────────
+test('spec 023 — config exports no budget routing compatibility helpers', () => {
+  for (const key of [
+    'chooseAutoBudget',
+    'classifyTaskComplexity',
+    'getModelForBudget',
+    'getReasoningEffortForBudget',
+    'BUDGETS',
+  ]) {
+    assert.equal(Object.hasOwn(explorerConfig, key), false, `${key} must not remain exported`);
+  }
 
-test('classifyTaskComplexity: simple queries', () => {
-  assert.equal(classifyTaskComplexity('requireAuth 함수가 어디 정의돼 있어?'), 'simple');
-  assert.equal(classifyTaskComplexity('Where is the CacheManager class defined?'), 'simple');
-  assert.equal(classifyTaskComplexity('ExplorerRuntime 찾아줘'), 'simple');
+  assert.equal(typeof explorerConfig.getReasoningEffortForModel, 'function');
+  assert.equal(explorerConfig.getBudgetConfig().label, 'deep');
 });
 
-test('classifyTaskComplexity: complex queries', () => {
-  assert.equal(classifyTaskComplexity('이 메모리 누수의 원인을 분석해줘'), 'complex');
-  assert.equal(classifyTaskComplexity('Identify the security vulnerability in the auth module'), 'complex');
-  assert.equal(classifyTaskComplexity('왜 이 성능 문제가 발생하는가?'), 'complex');
+test('spec 023 — provider factory source has no budget routing path', async () => {
+  const source = await fs.readFile(new URL('../src/explorer/providers/index.mjs', import.meta.url), 'utf8');
+  assert.doesNotMatch(source, /\bgetModelForBudget\b/);
+  assert.doesNotMatch(source, /\bbudget\b/i);
 });
 
-test('classifyTaskComplexity: moderate queries (default)', () => {
-  assert.equal(classifyTaskComplexity('인증 미들웨어의 전체 구조를 설명해줘'), 'moderate');
-  assert.equal(classifyTaskComplexity('How does the cache layer work?'), 'moderate');
-  assert.equal(classifyTaskComplexity('What changed in the last release?'), 'moderate');
-});
-
-test('spec 011 — chooseAutoBudget always returns deep (single runtime config)', () => {
-  assert.equal(chooseAutoBudget({ task: 'requireAuth가 어디 정의돼 있어?' }), 'deep');
-  assert.equal(chooseAutoBudget({ task: 'explain auth flow', hints: { files: ['src/auth.js'] } }), 'deep');
-  assert.equal(chooseAutoBudget({ task: 'map change impact for auth middleware' }), 'deep');
-});
-
-// ─── getModelForBudget (spec 011) ────────────────────────────────────────────
-
-test('spec 011 — getModelForBudget always returns the single CEREBRAS_EXPLORER_MODEL', () => {
+test('spec 011 — createChatClient uses the single CEREBRAS_EXPLORER_MODEL', () => {
   const prevQuick = process.env.CEREBRAS_EXPLORER_MODEL_QUICK;
   const prevDeep = process.env.CEREBRAS_EXPLORER_MODEL_DEEP;
   const prevGlobal = process.env.CEREBRAS_EXPLORER_MODEL;
+  const prevProvider = process.env.EXPLORER_PROVIDER;
+  const prevFailover = process.env.EXPLORER_FAILOVER;
   process.env.CEREBRAS_EXPLORER_MODEL_QUICK = 'must-be-ignored-quick';
   process.env.CEREBRAS_EXPLORER_MODEL_DEEP = 'must-be-ignored-deep';
   process.env.CEREBRAS_EXPLORER_MODEL = 'global-model';
+  delete process.env.EXPLORER_PROVIDER;
+  delete process.env.EXPLORER_FAILOVER;
   try {
-    // Budget-specific env vars were removed; getModelForBudget ignores its
-    // argument and reads only CEREBRAS_EXPLORER_MODEL.
-    assert.equal(getModelForBudget('quick'), 'global-model');
-    assert.equal(getModelForBudget('deep'), 'global-model');
-    assert.equal(getModelForBudget(), 'global-model');
+    const client = createChatClient();
+    assert.equal(client.model, 'global-model');
   } finally {
     if (prevQuick === undefined) delete process.env.CEREBRAS_EXPLORER_MODEL_QUICK;
     else process.env.CEREBRAS_EXPLORER_MODEL_QUICK = prevQuick;
@@ -433,6 +423,10 @@ test('spec 011 — getModelForBudget always returns the single CEREBRAS_EXPLORER
     else process.env.CEREBRAS_EXPLORER_MODEL_DEEP = prevDeep;
     if (prevGlobal === undefined) delete process.env.CEREBRAS_EXPLORER_MODEL;
     else process.env.CEREBRAS_EXPLORER_MODEL = prevGlobal;
+    if (prevProvider === undefined) delete process.env.EXPLORER_PROVIDER;
+    else process.env.EXPLORER_PROVIDER = prevProvider;
+    if (prevFailover === undefined) delete process.env.EXPLORER_FAILOVER;
+    else process.env.EXPLORER_FAILOVER = prevFailover;
   }
 });
 
@@ -562,10 +556,8 @@ test('makeOpenAIStrictCompatibleResponseFormat converts explore result schema fo
   ]);
 });
 
-test('spec 011 — getReasoningEffortForBudget returns high for gpt-oss under the single deep config', () => {
-  assert.equal(getReasoningEffortForBudget('gpt-oss-120b'), 'high');
-  // The budget label argument is ignored.
-  assert.equal(getReasoningEffortForBudget('gpt-oss-120b', 'quick'), 'high');
+test('spec 011 — getReasoningEffortForModel returns high for gpt-oss under the single config', () => {
+  assert.equal(explorerConfig.getReasoningEffortForModel('gpt-oss-120b'), 'high');
 });
 
 // --- Phase 9: Provider Timeout / Abort / Retry ---
