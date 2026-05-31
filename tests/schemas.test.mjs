@@ -384,3 +384,28 @@ test('normalizeExploreResult marks malformed evidence ranges instead of coercing
   assert.equal(result.evidence[3].startLine, 1);
   assert.equal(result.evidence[3].endLine, 2);
 });
+
+test('normalizeExploreResult marks unsafe and overly broad evidence ranges as malformed', () => {
+  const result = normalizeExploreResult({
+    directAnswer: 'direct',
+    status: { confidence: 'medium', verification: 'verified', complete: true, warnings: [] },
+    targets: [],
+    evidence: [
+      { path: 'src/auth.js', startLine: 1e100, endLine: 1e100, why: 'unsafe range' },
+      { path: 'src/auth.js', startLine: 1, endLine: 10_001, why: 'overly broad range' },
+      { path: 'src/auth.js', startLine: 1, endLine: 10_000, why: 'maximum valid range' },
+    ],
+    uncertainties: [],
+    nextAction: { type: 'stop', reason: 'Complete.' },
+  }, makeStats());
+
+  assert.equal(result.evidence[0].malformedRange, true);
+  assert.equal(result.evidence[0].startLine, undefined);
+  assert.equal(result.evidence[0].endLine, undefined);
+  assert.equal(result.evidence[1].malformedRange, true);
+  assert.equal(result.evidence[1].startLine, 1);
+  assert.equal(result.evidence[1].endLine, 10_001);
+  assert.equal(result.evidence[2].malformedRange, undefined);
+  assert.equal(result.evidence[2].startLine, 1);
+  assert.equal(result.evidence[2].endLine, 10_000);
+});
