@@ -6,8 +6,9 @@
 
 Backwards-compatible. The public 8-tool surface, input schemas, and
 `schemaVersion` are unchanged; this pass aligns the tool descriptions and the
-internal explorer system prompts with what the runtime actually does. No
-behavior change except one additive retry-enum value.
+internal explorer system prompts with what the runtime actually does, and
+restores internal budget guardrails without reintroducing the removed public
+`explore_repo.budget` input.
 
 - **Changed (spec 023)**: `explore_repo` is now described as the general
   fallback (not "Use first") so the six purpose tools are the front door; the
@@ -26,6 +27,15 @@ behavior change except one additive retry-enum value.
 - **Out of scope (spec 023)**: wrapper output-language preservation (results
   are consumed by an upstream agent that controls language) and
   `repo_symbol_context` depth disclosure (already documented at the param level).
+
+### Security
+
+- **Fixed**: restored quick/normal/deep internal resource guardrails after the
+  spec 011 public-budget removal. `explore_repo` still rejects a public
+  `budget` argument, but automatic selection, `.cerebras-explorer.json`
+  `defaultBudget`, and `explore.thoroughness` now cap turns/search/read/output
+  limits for simple or anchored tasks instead of always forcing the maximum
+  deep limits.
 
 ## v0.7.0 - 2026-05-31
 

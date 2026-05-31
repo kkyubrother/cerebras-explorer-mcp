@@ -37,9 +37,9 @@ function createProviderByName(name, { budget, fetchImpl, logger } = {}) {
  *
  * The `budget` option is accepted for back-compat with internal callers but
  * is a no-op since spec 011: every explore call uses the single
- * CEREBRAS_EXPLORER_MODEL under the deep runtime config. Budget-specific
- * model env vars (_QUICK/_NORMAL/_DEEP) and CEREBRAS_EXPLORER_AUTO_ROUTE
- * were permanently removed.
+ * CEREBRAS_EXPLORER_MODEL. Budget-specific model env vars
+ * (_QUICK/_NORMAL/_DEEP) and CEREBRAS_EXPLORER_AUTO_ROUTE were permanently
+ * removed; budget labels now represent internal resource guardrails only.
  *
  * @param {object} [opts]
  * @param {string} [opts.budget]     - accepted but ignored (spec 011)

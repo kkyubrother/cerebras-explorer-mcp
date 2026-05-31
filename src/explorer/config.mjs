@@ -149,32 +149,54 @@ export const DEFAULT_TEXT_FILE_MAX_BYTES = 512 * 1024;
 export const DEFAULT_GREP_FILE_MAX_BYTES = 256 * 1024;
 export const DEFAULT_WALK_FILE_LIMIT = 5000;
 
-// spec 011: BUDGETS is now a single deep config. The quick/normal labels
-// were removed along with the `budget` input parameter, and every call
-// runs against these limits regardless of label.
-const DEEP_BUDGET = {
-  label: 'deep',
-  maxTurns: 30,
-  maxSearchResults: 80,
-  maxReadLines: 320,
-  maxDirectoryEntries: 300,
-  maxWalkFiles: 6000,
-  maxCompletionTokens: 32000,
-  finalizeMaxCompletionTokens: 3000,
-  maxContextTokens: 110_000,
-  temperature: 1.0,
-  topP: 0.95,
-};
-
+// Resource/data-exposure guardrails. The public explore_repo schema no longer
+// exposes a budget knob, but the runtime still uses these tiers internally so
+// anchored/simple work can stay on tighter limits and project config can opt
+// into a smaller default.
 export const BUDGETS = {
-  deep: DEEP_BUDGET,
-  // Back-compat aliases so any lingering import keeps working until removed.
-  quick: DEEP_BUDGET,
-  normal: DEEP_BUDGET,
+  quick: {
+    label: 'quick',
+    maxTurns: 10,
+    maxSearchResults: 20,
+    maxReadLines: 140,
+    maxDirectoryEntries: 120,
+    maxWalkFiles: 1500,
+    maxCompletionTokens: 8000,
+    finalizeMaxCompletionTokens: 1500,
+    maxContextTokens: 80_000,
+    temperature: 0.3,
+    topP: 0.95,
+  },
+  normal: {
+    label: 'normal',
+    maxTurns: 20,
+    maxSearchResults: 40,
+    maxReadLines: 220,
+    maxDirectoryEntries: 200,
+    maxWalkFiles: 3000,
+    maxCompletionTokens: 16000,
+    finalizeMaxCompletionTokens: 2000,
+    maxContextTokens: 100_000,
+    temperature: 0.8,
+    topP: 0.95,
+  },
+  deep: {
+    label: 'deep',
+    maxTurns: 30,
+    maxSearchResults: 80,
+    maxReadLines: 320,
+    maxDirectoryEntries: 300,
+    maxWalkFiles: 6000,
+    maxCompletionTokens: 32000,
+    finalizeMaxCompletionTokens: 3000,
+    maxContextTokens: 110_000,
+    temperature: 1.0,
+    topP: 0.95,
+  },
 };
 
-export function getBudgetConfig() {
-  return DEEP_BUDGET;
+export function getBudgetConfig(label = 'normal') {
+  return BUDGETS[label] ?? BUDGETS.normal;
 }
 
 function getPathModule(platform = process.platform) {
@@ -273,23 +295,33 @@ export function getModelForBudget() {
 }
 
 /**
- * Resolve the reasoning effort hint for the selected model under the single
- * deep runtime config (spec 011). GLM 4.7 leaves the parameter unset (model
- * default behavior). GPT-OSS uses the deep tier ("high"). Other models
- * leave the parameter unset.
+ * Resolve the reasoning effort hint for the selected model and internal
+ * exploration budget. GLM 4.7 only supports `reasoning_effort="none"` to
+ * disable reasoning, so quick disables it while normal/deep leave the model
+ * default enabled. GPT-OSS supports the low/medium/high ladder.
  */
-export function getReasoningEffortForBudget(model) {
-  if (isGlm47Model(model)) return undefined;
-  if (isGptOssModel(model)) return 'high';
+export function getReasoningEffortForBudget(model, budget) {
+  const label = BUDGETS[budget] ? budget : 'normal';
+
+  if (isGlm47Model(model)) {
+    return label === 'quick' ? 'none' : undefined;
+  }
+
+  if (isGptOssModel(model)) {
+    if (label === 'quick') return 'low';
+    if (label === 'deep') return 'high';
+    return 'medium';
+  }
+
   return undefined;
 }
 
 /**
  * Classify the complexity of a task string as 'simple', 'moderate', or 'complex'.
  *
- * spec 011: automatic model routing (`CEREBRAS_EXPLORER_AUTO_ROUTE`) and the
- * budget input were removed, so this helper is no longer consumed by the
- * runtime. Kept exported for test coverage of the heuristic regex.
+ * spec 011 removed public budget input and automatic model-env routing. The
+ * runtime still consumes this classifier indirectly through chooseAutoBudget()
+ * to select bounded internal resource/data-exposure tiers.
  *
  * - simple:   "where is X defined?" type questions
  * - complex:  performance/security/bug-cause analysis
@@ -310,12 +342,30 @@ export function classifyTaskComplexity(task) {
   return 'moderate';
 }
 
-// spec 011: every explore call uses the single deep runtime config. The
-// auto-budget heuristic was removed along with the `budget` input parameter
-// and the `CEREBRAS_EXPLORER_AUTO_ROUTE` env var, so this helper is now a
-// constant-returning stub kept for back-compat with internal callers.
-export function chooseAutoBudget() {
-  return 'deep';
+export function chooseAutoBudget({ task = '', scope = [], hints = {} } = {}) {
+  const text = String(task ?? '').toLowerCase();
+  const hasAnchors =
+    (Array.isArray(hints?.symbols) && hints.symbols.length > 0) ||
+    (Array.isArray(hints?.files) && hints.files.length > 0) ||
+    (Array.isArray(hints?.regex) && hints.regex.length > 0);
+
+  if (hasAnchors) return 'quick';
+
+  if (/어디\s|찾아|위치|선언|정의\s|defined|where\s|find\s|locate|definition/.test(text)) {
+    return 'quick';
+  }
+
+  if (
+    /architecture|overview|impact|root cause|bug|security|performance|아키텍처|개요|영향|원인|버그|보안|성능/.test(text)
+  ) {
+    return 'normal';
+  }
+
+  if (Array.isArray(scope) && scope.length === 1 && typeof scope[0] === 'string' && scope[0].trim()) {
+    return 'quick';
+  }
+
+  return 'normal';
 }
 
 /**

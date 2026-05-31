@@ -180,12 +180,13 @@ test('CerebrasChatClient forwards structured response_format without OpenAI stri
   assert.equal(schema.properties.b.type, 'string');
 });
 
-test('spec 011 — getReasoningEffortForBudget returns the single-config hint per model', () => {
-  // After spec 011 the budget label argument is unused.
+test('getReasoningEffortForBudget maps GLM 4.7 quick to the lower-cost hint', () => {
   assert.equal(getReasoningEffortForBudget('zai-glm-4.7'), undefined,
-    'GLM 4.7 leaves reasoning_effort unset under the deep config');
-  assert.equal(getReasoningEffortForBudget('zai-glm-4.7', 'quick'), undefined,
-    'budget label argument is ignored after spec 011');
+    'default normal budget leaves reasoning_effort unset');
+  assert.equal(getReasoningEffortForBudget('zai-glm-4.7', 'quick'), 'none',
+    'quick disables GLM 4.7 reasoning to preserve the low-exposure guardrail');
+  assert.equal(getReasoningEffortForBudget('zai-glm-4.7', 'deep'), undefined,
+    'deep leaves reasoning_effort unset');
 });
 
 // ── Phase 2 — budget-specific parameter alignment ─────────────────────────────
@@ -237,7 +238,7 @@ test('Phase 2 — budget-specific temperatures are correctly reflected in payloa
   }
 });
 
-test('spec 011 — GLM 4.7 payload omits reasoning_effort under the single deep config', async () => {
+test('GLM 4.7 payload omits reasoning_effort when the runtime leaves it unset', async () => {
   let capturedPayload = null;
   const client = new CerebrasChatClient({
     apiKey: 'test-key',
@@ -262,7 +263,7 @@ test('spec 011 — GLM 4.7 payload omits reasoning_effort under the single deep 
   });
 
   assert.equal('reasoning_effort' in capturedPayload, false,
-    'GLM 4.7 under the single deep config must NOT include reasoning_effort');
+    'GLM 4.7 must omit reasoning_effort when the runtime leaves it unset');
   assert.equal(capturedPayload.clear_thinking, false,
     'GLM 4.7 must always include clear_thinking: false');
 });

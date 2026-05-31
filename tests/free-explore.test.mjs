@@ -185,6 +185,7 @@ test('freeExplore sets stoppedByBudget when budget is exhausted', async () => {
   const result = await runtime.freeExplore({ prompt: 'explore everything', repo_root: root, thoroughness: 'quick' });
 
   assert.ok(result, 'freeExplore completed');
+  assert.equal(result.stats.budget, 'quick', 'thoroughness=quick selects the quick guardrail tier');
   assert.equal(result.stats.stoppedByBudget, true, 'stoppedByBudget is true when budget runs out');
   assert.ok(result.report, 'report is set even when budget is exhausted');
 });

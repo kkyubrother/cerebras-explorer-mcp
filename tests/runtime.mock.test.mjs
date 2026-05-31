@@ -2270,9 +2270,9 @@ test('Phase 0 metric — JSON parse success: model content parsed into correct f
   assertStrictSchema(result);
 });
 
-test('Phase 0 metric — strict schema compliance: required fields present under the single runtime config', async () => {
-  // spec 011: every call runs against the single deep runtime config. The
-  // previous matrix across budget labels collapses to a single scenario.
+test('Phase 0 metric — strict schema compliance: required fields present under the default runtime config', async () => {
+  // Public explore_repo no longer accepts budget input, but runtime auto/default
+  // selection still chooses an internal guardrail tier for the call.
   class MinimalClient {
     constructor() { this.model = 'zai-glm-4.7'; }
     async createChatCompletion() {
@@ -2294,8 +2294,9 @@ test('Phase 0 metric — strict schema compliance: required fields present under
   const runtime = new ExplorerRuntime({ chatClient: new MinimalClient() });
   const result = await runtime.explore({ task: '테스트', repo_root: root });
   assertStrictSchema(result);
-  assert.equal(result.stats.budget, 'deep',
-    'stats.budget should report the single deep runtime config');
+  assert.equal(result.stats.budget, 'normal',
+    'stats.budget should report the auto-selected normal guardrail tier');
+  assert.equal(result.stats.budgetSource, 'auto');
 });
 
 test('011 US2 — explore_repo rejects budget input as unknown property', async () => {
@@ -2313,6 +2314,31 @@ test('011 US2 — explore_repo rejects budget input as unknown property', async 
   );
 });
 
+test('ExplorerRuntime honors project defaultBudget as an internal guardrail', async () => {
+  class MinimalClient {
+    constructor() { this.model = 'zai-glm-4.7'; }
+    async createChatCompletion({ reasoningEffort, temperature }) {
+      assert.equal(reasoningEffort, 'none');
+      assert.equal(temperature, 0.3);
+      return {
+        usage: { prompt_tokens: 30, completion_tokens: 15, total_tokens: 45 },
+        message: {
+          content: JSON.stringify(compactResult({ directAnswer: 'configured quick', statusConfidence: 'medium', evidence: [] })),
+          toolCalls: [],
+        },
+      };
+    }
+  }
+
+  const root = await makeRepoFixture();
+  await fs.writeFile(path.join(root, '.cerebras-explorer.json'), JSON.stringify({ defaultBudget: 'quick' }));
+  const runtime = new ExplorerRuntime({ chatClient: new MinimalClient() });
+  const result = await runtime.explore({ task: '테스트', repo_root: root });
+
+  assert.equal(result.stats.budget, 'quick');
+  assert.equal(result.stats.budgetSource, 'project_config');
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 test('ExplorerRuntime forwards assistant reasoning into the next turn when available', async () => {
@@ -2326,10 +2352,10 @@ test('ExplorerRuntime forwards assistant reasoning into the next turn when avail
       this.calls += 1;
 
       if (this.calls === 1) {
-        // spec 011: single deep runtime config. For glm-4.7, deep label leaves
-        // reasoningEffort undefined and uses temperature: 1.0, topP: 0.95.
-        assert.equal(reasoningEffort, undefined);
-        assert.equal(temperature, 1.0);
+        // Simple locate-style tasks auto-select the quick guardrail tier.
+        // For glm-4.7, quick disables reasoning and lowers temperature.
+        assert.equal(reasoningEffort, 'none');
+        assert.equal(temperature, 0.3);
         assert.equal(topP, 0.95);
         return {
           usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },

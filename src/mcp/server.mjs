@@ -202,13 +202,13 @@ const EXPLORE_TOOL = {
     'Best for architecture walkthroughs, onboarding explanations, or broad "how does X work?" answers when polished prose is what the requester needs. ' +
     'For narrow lookups, symbol traces, impact maps, code-path walks, or PR/diff review context, prefer find_relevant_code, trace_symbol, map_change_impact, explain_code_path, or review_change_context — they return the same grounded evidence in their tool-specific shape. ' +
     'Do not use when the parent agent needs structured edit planning or programmatic next steps; use explore_repo instead. ' +
-    'Omit thoroughness — it is accepted for backward compatibility but currently has no effect; every call uses the full-depth runtime config.',
+    'Omit thoroughness for normal use; when provided for backward compatibility, quick/normal/deep selects the report exploration guardrail tier.',
   inputSchema: {
     type: 'object',
     additionalProperties: false,
     properties: {
       prompt: { type: 'string', description: 'What to explore — a natural-language question or task.' },
-      thoroughness: { type: 'string', enum: ['quick', 'normal', 'deep'], description: 'Accepted for backward compatibility only and currently ignored — every explore call runs against the single full-depth runtime config. Omit it.' },
+      thoroughness: { type: 'string', enum: ['quick', 'normal', 'deep'], description: 'Advanced/backward compatibility. Selects the internal quick/normal/deep guardrail tier for Markdown exploration; omit for automatic selection.' },
       scope: { type: 'array', items: { type: 'string' }, description: 'Optional path prefixes to focus on.' },
       repo_root: { type: 'string', description: 'Repository root path.' },
       language: { type: 'string', description: 'BCP-47 language tag for the report (e.g. "ko", "en").' },

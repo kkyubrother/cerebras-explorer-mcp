@@ -7,7 +7,7 @@ Preferred flow:
 1. Use the narrowest `cerebras-explorer` tool that fits the question: `find_relevant_code`, `trace_symbol`, `map_change_impact`, `explain_code_path`, `collect_evidence`, `review_change_context`, `explore_repo`, or `explore`.
 2. Prefer `explore_repo` when you want structured JSON findings for follow-up analysis or edits.
 3. Prefer `explore` when you want a cited Markdown report or architecture explanation to hand back to the user.
-4. Do not set `thoroughness`, `hints.strategy`, or `language` unless an advanced workflow explicitly requires it. (`budget` was removed in spec 011 and `session` was removed in spec 017; every call uses the deep runtime config and starts fresh.)
+4. Do not set `thoroughness`, `hints.strategy`, or `language` unless an advanced workflow explicitly requires it. (public `budget` was removed in spec 011 and `session` was removed in spec 017; internal guardrails are selected automatically and each call starts fresh.)
 5. Add `scope` and known anchors only when they are already implied by the task.
 6. After a passing result, read only returned `targets` with role `read` or `edit`.
 7. Use one or two targeted `rg` checks to verify critical claims when local shell search is available.

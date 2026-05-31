@@ -405,10 +405,12 @@ test('classifyTaskComplexity: moderate queries (default)', () => {
   assert.equal(classifyTaskComplexity('What changed in the last release?'), 'moderate');
 });
 
-test('spec 011 — chooseAutoBudget always returns deep (single runtime config)', () => {
-  assert.equal(chooseAutoBudget({ task: 'requireAuth가 어디 정의돼 있어?' }), 'deep');
-  assert.equal(chooseAutoBudget({ task: 'explain auth flow', hints: { files: ['src/auth.js'] } }), 'deep');
-  assert.equal(chooseAutoBudget({ task: 'map change impact for auth middleware' }), 'deep');
+test('chooseAutoBudget selects bounded tiers for simple and broader tasks', () => {
+  assert.equal(chooseAutoBudget({ task: 'requireAuth가 어디 정의돼 있어?' }), 'quick');
+  assert.equal(chooseAutoBudget({ task: 'explain auth flow', hints: { files: ['src/auth.js'] } }), 'quick');
+  assert.equal(chooseAutoBudget({ task: 'map change impact for auth middleware' }), 'normal');
+  assert.equal(chooseAutoBudget({ task: 'general implementation notes', scope: ['src/auth.js'] }), 'quick');
+  assert.equal(chooseAutoBudget({ task: 'general implementation notes' }), 'normal');
 });
 
 // ─── getModelForBudget (spec 011) ────────────────────────────────────────────
@@ -562,10 +564,11 @@ test('makeOpenAIStrictCompatibleResponseFormat converts explore result schema fo
   ]);
 });
 
-test('spec 011 — getReasoningEffortForBudget returns high for gpt-oss under the single deep config', () => {
-  assert.equal(getReasoningEffortForBudget('gpt-oss-120b'), 'high');
-  // The budget label argument is ignored.
-  assert.equal(getReasoningEffortForBudget('gpt-oss-120b', 'quick'), 'high');
+test('getReasoningEffortForBudget maps gpt-oss by selected guardrail tier', () => {
+  assert.equal(getReasoningEffortForBudget('gpt-oss-120b'), 'medium');
+  assert.equal(getReasoningEffortForBudget('gpt-oss-120b', 'quick'), 'low');
+  assert.equal(getReasoningEffortForBudget('gpt-oss-120b', 'normal'), 'medium');
+  assert.equal(getReasoningEffortForBudget('gpt-oss-120b', 'deep'), 'high');
 });
 
 // --- Phase 9: Provider Timeout / Abort / Retry ---

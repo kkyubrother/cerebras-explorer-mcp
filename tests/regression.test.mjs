@@ -145,5 +145,5 @@ test('P0: freeExplore does not use intermediate tool-call content as final repor
   assert.ok(result.report.includes('FINAL_REPORT'), `report must contain the final response content, got: ${result.report}`);
 });
 
-// spec 011: project config defaultBudget and the `budget` input were both
-// removed. Every call now runs against the single deep runtime config.
+// spec 011 removed the public `budget` input. Project `defaultBudget` remains
+// an internal guardrail and is covered in runtime.mock.test.mjs.

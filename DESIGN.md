@@ -271,7 +271,7 @@ spec 017 (v0.6.0) 이전에는 multi-call 세션 연결을 위해 `session` 입�
 - 기본 모델: `zai-glm-4.7`
 - override: `CEREBRAS_EXPLORER_MODEL` (단일 source of truth)
 
-spec 011에서 `CEREBRAS_MODEL` alias와 budget별 모델 지정(`CEREBRAS_EXPLORER_MODEL_QUICK`/`_NORMAL`/`_DEEP`)은 영구 제거되었다. 모든 explore 호출이 동일한 단일 deep runtime config로 실행되므로 budget별 모델 분리가 필요하면 server 인스턴스를 두 개 띄워 각각 다른 `CEREBRAS_EXPLORER_MODEL`을 지정하는 방식으로 우회한다.
+spec 011에서 `CEREBRAS_MODEL` alias와 budget별 모델 지정(`CEREBRAS_EXPLORER_MODEL_QUICK`/`_NORMAL`/`_DEEP`)은 영구 제거되었다. 모델은 `CEREBRAS_EXPLORER_MODEL` 하나로 정해지며, quick/normal/deep은 모델 선택이 아니라 내부 resource/data-exposure guardrail로만 사용된다. budget별 모델 분리가 필요하면 server 인스턴스를 두 개 띄워 각각 다른 `CEREBRAS_EXPLORER_MODEL`을 지정하는 방식으로 우회한다.
 
 이 프로젝트의 문서화된 계약은 Cerebras provider 기준이다. 모델 이름은 바꿀 수 있지만, 부모 모델이 아닌 explorer 내부 모델만 교체한다.
 
@@ -585,24 +585,24 @@ heavy 호출(보고서/path/impact)에서는 parent agent가 `_meta.progressToke
 
 ---
 
-## 13. Runtime config (spec 011 이후 단일화)
+## 13. Runtime config / guardrails (spec 011 이후)
 
-spec 011 이후 사용자가 선택할 수 있는 budget label은 없다. 모든 explore 호출은 단일 deep runtime config로 실행된다.
+spec 011 이후 사용자가 `explore_repo`에서 선택할 수 있는 public budget label은 없다. 대신 runtime은 task/scope/hints 및 project `defaultBudget`로 내부 quick/normal/deep guardrail을 선택해 단순/anchored 작업의 provider 노출과 비용을 낮춘다.
 
-| 항목 | 값 |
-| --- | --- |
-| `maxTurns` | 30 |
-| `maxSearchResults` | 80 |
-| `maxReadLines` | 320 |
-| `maxDirectoryEntries` | 300 |
-| `maxWalkFiles` | 6000 |
-| `maxCompletionTokens` | 32000 |
-| `finalizeMaxCompletionTokens` | 3000 |
-| `maxContextTokens` | 110000 |
-| `temperature` | 1.0 |
-| `top_p` | 0.95 |
+| 항목 | quick | normal | deep |
+| --- | ---: | ---: | ---: |
+| `maxTurns` | 10 | 20 | 30 |
+| `maxSearchResults` | 20 | 40 | 80 |
+| `maxReadLines` | 140 | 220 | 320 |
+| `maxDirectoryEntries` | 120 | 200 | 300 |
+| `maxWalkFiles` | 1500 | 3000 | 6000 |
+| `maxCompletionTokens` | 8000 | 16000 | 32000 |
+| `finalizeMaxCompletionTokens` | 1500 | 2000 | 3000 |
+| `maxContextTokens` | 80000 | 100000 | 110000 |
+| `temperature` | 0.3 | 0.8 | 1.0 |
+| `top_p` | 0.95 | 0.95 | 0.95 |
 
-`EXPLORE_REPO_INPUT_SCHEMA`에서 `budget` 키는 제거되었고, 모든 호출은 위 값으로 실행된다. `chooseAutoBudget()`/`getBudgetConfig()`는 단일 'deep' label을 반환하는 호환 stub으로 남아 있다.
+`EXPLORE_REPO_INPUT_SCHEMA`에서 `budget` 키는 제거되었고, runtime은 위 guardrail 중 하나를 내부적으로 선택한다. `chooseAutoBudget()`은 anchored/simple 요청을 `quick`, 일반 요청을 `normal`으로 낮춰 data exposure를 제한하고, `getBudgetConfig()`는 선택된 label의 한도를 반환한다.
 
 ---
 

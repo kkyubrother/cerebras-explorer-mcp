@@ -278,7 +278,7 @@ test('MCP request handler exposes explore_repo and returns structuredContent', a
   assert.doesNotMatch(exploreRepoTool.description, /sessionId/);
   assert.equal(exploreRepoTool.inputSchema.properties.session, undefined,
     'spec 017: session input parameter was removed');
-  // spec 011: budget input was removed; every call runs against the single deep runtime config.
+  // spec 011: budget input was removed; internal guardrail tiers are selected automatically.
   assert.equal(exploreRepoTool.inputSchema.properties.budget, undefined, 'budget input was removed in spec 011');
   assert.ok(exploreRepoTool.outputSchema.properties.targets, 'explore_repo must expose outputSchema targets');
   assert.equal(exploreRepoTool.outputSchema.additionalProperties, false);

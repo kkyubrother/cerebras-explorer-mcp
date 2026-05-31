@@ -158,12 +158,12 @@ Parent model (Claude Code / Codex)
 - **모델 선택 가능**: 기본값은 `zai-glm-4.7`, 필요하면 `CEREBRAS_EXPLORER_MODEL`로 override
 - **읽기 전용**: 파일 수정, bash 실행, 네트워크 탐색 없음
 - **자율 탐색 루프**: 모델이 내부 도구를 직접 호출하며 파일을 찾고 읽음
-- **단일 runtime config**: 모든 호출이 deep 한도(turn 30, 검색 80, 읽기 320 lines 등)로 실행됩니다. 사용자가 budget을 고를 필요가 없습니다.
+- **내부 runtime guardrails**: `explore_repo`는 public `budget` 입력을 받지 않지만, 서버가 task/scope/hints 및 프로젝트 설정으로 quick/normal/deep 한도를 자동 선택해 단순/anchored 탐색의 provider 노출과 비용을 제한합니다.
 - **전략 기반 탐색**: symbol-first, reference-chase, git-guided 등은 질문과 anchor에서 자동 유도
 - **진행 상황 지원**: MCP progress notification 지원
-- **프로젝트별 설정 파일 지원**: `.cerebras-explorer.json`으로 `defaultScope`, `entryPoints`, `keyFiles`, `extraIgnoreDirs`, `projectContext` 지정 가능
-- **GLM 4.7 reasoning 정렬**: spec 011 단일 deep config에서는 `reasoning_effort`를 설정하지 않고 기본 reasoning을 유지하며 `clear_thinking=false`로 이전 turn의 reasoning을 보존
-- **샘플링 기본값**: `temperature=1.0`, `top_p=0.95` (단일 deep config). direct client 경로에는 envvar fallback 지원
+- **프로젝트별 설정 파일 지원**: `.cerebras-explorer.json`으로 `defaultBudget`, `defaultScope`, `entryPoints`, `keyFiles`, `extraIgnoreDirs`, `projectContext` 지정 가능
+- **GLM 4.7 reasoning 정렬**: quick guardrail은 `reasoning_effort="none"`으로 비용을 낮추고, normal/deep은 reasoning 파라미터를 생략해 기본 reasoning을 유지하며 `clear_thinking=false`로 이전 turn의 reasoning을 보존
+- **샘플링 기본값**: guardrail별 temperature(`quick`: 0.3, `normal`: 0.8, `deep`: 1.0), `top_p=0.95`. direct client 경로에는 envvar fallback 지원
 - **근거 강제**: 최종 evidence의 exact status는 실제 관측 라인이 전체 범위를 덮을 때만 부여
 - **운영 디버깅 출력**: 모든 explore 호출 종료 시 stderr에 한 줄 요약을 출력하고, `CEREBRAS_EXPLORER_LOG_PATH` 설정 시 호출별 transcript JSONL을 기록
 - **Read-only tool annotations**: 모든 공개 MCP 도구는 `readOnlyHint: true`를 선언합니다. 이는 클라이언트 UX hint이며 보안 경계는 아닙니다.
@@ -187,7 +187,7 @@ Report 도구 `explore`는 Markdown 본문을 `text`로 반환하면서, 같은 
 
 `targets[]` vs `discoveredPaths[]` — `targets[]`에는 grounded evidence와 연결된 actionable 항목만 들어가며, `repo_list_dir`/`repo_find_files`/`repo_git_diff` 등으로 발견만 된 path는 별도 top-level `discoveredPaths[]`에 `{ path, kind, sourceTool, reason }` 형태로 최대 50개까지 노출됩니다. 후보가 더 있으면 `searchCoverage.omittedDiscoveredPaths`와 `searchCoverage.warnings`가 생략 수를 알려줍니다. 자동화는 `targets[]`를 다음 읽기/편집 대상으로 신뢰하고, 필요할 때만 `discoveredPaths[]`를 follow-up 후보로 참고하세요. (spec 011 이후 reference target 자동 승격 옵트인은 영구 종료.)
 
-`explore_repo`는 더 이상 `budget` 입력을 받지 않습니다. 모든 호출은 단일 deep runtime config(turn limit 30, search/read 한도 등)로 실행되며, 사용자가 quick/normal/deep을 선택할 필요가 없습니다.
+`explore_repo`는 더 이상 public `budget` 입력을 받지 않습니다. 대신 서버가 task/scope/hints 및 `.cerebras-explorer.json`의 `defaultBudget`로 내부 quick/normal/deep guardrail을 선택합니다. 사용자가 도구 인자로 budget을 전달할 필요는 없고, 전달하면 unknown property로 거부됩니다.
 
 `status.complete`는 "충분한 grounded evidence가 모였는가"를 의미합니다. budget이 소진됐어도 evidence sufficiency가 충족되면 `complete:true`/`failure:null`로 반환되며 budget 사실은 `searchCoverage.stoppedByBudget=true`에 그대로 남습니다.
 
@@ -211,7 +211,7 @@ Heavy 호출이나 sub-agent 핸드오프에서는 `_meta.progressToken`을 함�
 
 - `repo_root` (선택): 절대경로나 상대경로. Windows에서는 `C:\repo`, `C:/repo`뿐 아니라 Git Bash/MSYS 스타일 `/c/repo`도 받아 실제 filesystem 경로로 canonicalize한 뒤 도구 실행에 사용합니다.
 - `language` (advanced/optional): 응답 언어를 명시적으로 고정해야 할 때만 사용합니다. 보통은 task 텍스트에서 자동 추론되므로 생략하세요.
-- `hints.strategy` (advanced): 일반 agent 사용에서는 생략하세요. 자동 strategy 감지가 우선입니다. (spec 011 이후 `budget` 입력은 제거되었습니다 — 단일 deep runtime config가 적용됩니다. spec 017 이후 `session` 입력도 함께 제거되었습니다.)
+- `hints.strategy` (advanced): 일반 agent 사용에서는 생략하세요. 자동 strategy 감지가 우선입니다. (spec 011 이후 public `budget` 입력은 제거되었습니다 — 내부 guardrail은 자동 선택됩니다. spec 017 이후 `session` 입력도 함께 제거되었습니다.)
 
 반환 예시:
 
@@ -470,7 +470,7 @@ export CEREBRAS_EXPLORER_TOP_P="0.95"                   # direct client 호출 �
 export CEREBRAS_EXPLORER_REASONING_FORMAT="parsed"      # reasoning 출력 형식 override
 ```
 
-> **sampling 동작 (spec 011)**: 모든 explore 호출이 단일 deep runtime config(`temperature=1.0`, `top_p=0.95`)로 실행됩니다. 별도 envvar fallback은 direct client 사용 경로에서만 의미가 있습니다.
+> **sampling 동작**: runtime guardrail별 temperature(`quick`: 0.3, `normal`: 0.8, `deep`: 1.0)와 `top_p=0.95`가 적용됩니다. 별도 envvar fallback은 direct client 사용 경로에서만 의미가 있습니다.
 
 선택 (보안 옵션):
 
@@ -582,7 +582,7 @@ Prefer the narrowest exposed explorer tool that matches the request:
 - `explore_repo` for open-ended structured JSON findings
 - `explore` for cited Markdown reports
 Pass the parent request almost verbatim; add `scope` or known anchors only when justified by the task or prior results.
-Do not set `thoroughness`, `hints.strategy`, or `language` unless an advanced workflow explicitly requires it. (The `budget` input was removed in spec 011, and the `session` input was removed in spec 017 — every call uses the single deep runtime config and starts a fresh exploration.)
+Do not set `thoroughness`, `hints.strategy`, or `language` unless an advanced workflow explicitly requires it. (The public `budget` input was removed in spec 011, and the `session` input was removed in spec 017 — internal guardrails are selected automatically and each call starts a fresh exploration.)
 For anchor-only file, symbol, or flow discovery, use `trace_symbol`, `find_relevant_code`, or `explain_code_path` instead of `map_change_impact`.
 Use known symbols, files, or literal text anchors only when already known.
 Use regex only in advanced `explore_repo.hints.regex` workflows.
@@ -633,22 +633,22 @@ MCP client for `cerebras-explorer` timed out after 30 seconds.
 4. 충분한 근거가 모이면 최종 JSON 또는 Markdown 보고서를 생성합니다.
 5. MCP 서버는 그 결과만 부모 모델에 반환합니다.
 
-## Runtime 한도 (spec 011)
+## Runtime 한도 (spec 011 이후)
 
-spec 011 이후 모든 explore 호출은 단일 deep runtime config로 실행됩니다. 사용자가 budget 라벨을 고를 필요가 없고, `budget` 입력 자체가 schema에서 제거되었습니다.
+`explore_repo`의 public `budget` 입력은 schema에서 제거되었습니다. 대신 서버가 task/scope/hints로 내부 guardrail을 자동 선택하고, `.cerebras-explorer.json`의 `defaultBudget`(`quick`/`normal`/`deep`)이 있으면 이를 우선 적용합니다. `explore`의 `thoroughness`는 backward compatibility용 advanced 입력으로 같은 guardrail을 명시할 수 있습니다.
 
-| 항목 | 값 |
-| --- | --- |
-| `maxTurns` | 30 |
-| `maxSearchResults` | 80 |
-| `maxReadLines` | 320 |
-| `maxDirectoryEntries` | 300 |
-| `maxWalkFiles` | 6000 |
-| `maxCompletionTokens` | 32000 |
-| `finalizeMaxCompletionTokens` | 3000 |
-| `maxContextTokens` | 110000 |
-| `temperature` | 1.0 |
-| `top_p` | 0.95 |
+| 항목 | quick | normal | deep |
+| --- | ---: | ---: | ---: |
+| `maxTurns` | 10 | 20 | 30 |
+| `maxSearchResults` | 20 | 40 | 80 |
+| `maxReadLines` | 140 | 220 | 320 |
+| `maxDirectoryEntries` | 120 | 200 | 300 |
+| `maxWalkFiles` | 1500 | 3000 | 6000 |
+| `maxCompletionTokens` | 8000 | 16000 | 32000 |
+| `finalizeMaxCompletionTokens` | 1500 | 2000 | 3000 |
+| `maxContextTokens` | 80000 | 100000 | 110000 |
+| `temperature` | 0.3 | 0.8 | 1.0 |
+| `top_p` | 0.95 | 0.95 | 0.95 |
 
 ## 안전 경계
 

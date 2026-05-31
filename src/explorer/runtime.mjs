@@ -3,6 +3,7 @@ import path from 'node:path';
 
 import { CerebrasChatClient, extractFirstJsonObject } from './cerebras-client.mjs';
 import {
+  chooseAutoBudget,
   getBudgetConfig,
   getExplorerTemperature,
   getExplorerTopP,
@@ -1244,12 +1245,14 @@ function guessModuleRole(filePath) {
   return 'module';
 }
 
-// spec 011: budget input and AUTO_ROUTE were removed. Every call runs against
-// the single deep runtime config; this stub stays for callers that still pass
-// a label through.
-function resolveModelBudget() {
-  return 'deep';
+// Model routing env vars were removed in spec 011, but provider factories still
+// accept an internal budget label for compatibility. Keep passing the selected
+// guardrail tier so any internal/failover logic can stay aligned.
+function resolveModelBudget(budgetLabel) {
+  return BUDGETS_LABELS.has(budgetLabel) ? budgetLabel : 'normal';
 }
+
+const BUDGETS_LABELS = new Set(['quick', 'normal', 'deep']);
 
 /**
  * Describe the tool calls that are about to be executed, for progress messages.
@@ -1277,23 +1280,26 @@ export class ExplorerRuntime {
    * Returns all the common infrastructure: budgetConfig, repoRoot, projectConfig,
    * session data, repoToolkit, chatClient, tools, and timing helpers.
    */
-  async _initExploreContext({ repoRootArg, scope, taskText }) {
+  async _initExploreContext({ budgetLabel, repoRootArg, scope, hints, taskText }) {
     const repoRoot = await resolveRepoRoot(repoRootArg);
 
     const rawProjectConfig = await loadProjectConfig(repoRoot);
     const projectConfig = normalizeProjectConfig(rawProjectConfig);
 
-    // spec 011: single runtime config — no user-facing budget knob.
-    const budgetConfig = getBudgetConfig();
-    const budgetSource = 'auto';
-    const effectiveBudgetLabel = 'deep';
+    const budgetSource = budgetLabel
+      ? 'argument'
+      : projectConfig.defaultBudget
+        ? 'project_config'
+        : 'auto';
+    const effectiveBudgetLabel = budgetLabel ?? projectConfig.defaultBudget ?? chooseAutoBudget({ task: taskText, scope, hints });
+    const budgetConfig = getBudgetConfig(effectiveBudgetLabel);
     const effectiveScope = scope ?? projectConfig.defaultScope ?? [];
     const projectContext = projectConfig.projectContext ?? null;
     const keyFiles = projectConfig.keyFiles ?? [];
     const extraIgnoreDirs = projectConfig.extraIgnoreDirs ?? [];
     const extraIgnorePatterns = projectConfig.extraIgnorePatterns ?? [];
 
-    const chatClient = this._explicitChatClient ?? createChatClient({ budget: resolveModelBudget() });
+    const chatClient = this._explicitChatClient ?? createChatClient({ budget: resolveModelBudget(effectiveBudgetLabel) });
 
     const repoToolkit = new RepoToolkit({
       repoRoot,
@@ -1336,6 +1342,7 @@ export class ExplorerRuntime {
       repoRootArg: args.repo_root,
       scope: args.scope,
       taskText: args.task,
+      hints: args.hints,
     });
 
     const startedAt = nowMs();
@@ -1841,8 +1848,9 @@ export class ExplorerRuntime {
       throw err;
     }
 
-    // spec 011: `thoroughness` is accepted for back-compat but ignored — every
-    // explore call runs against the single deep runtime config.
+    const thoroughnessMap = { quick: 'quick', normal: 'normal', deep: 'deep' };
+    const budgetLabel = args.thoroughness ? thoroughnessMap[args.thoroughness] : undefined;
+
     const {
       budgetConfig: baseBudgetConfig, repoRoot, effectiveScope, projectContext, keyFiles,
       chatClient,
@@ -1851,6 +1859,7 @@ export class ExplorerRuntime {
       repoRootArg: args.repo_root,
       scope: args.scope,
       taskText: args.prompt,
+      budgetLabel,
     });
 
     // V2: extend the turn budget, but keep it bounded by configurable caps.
