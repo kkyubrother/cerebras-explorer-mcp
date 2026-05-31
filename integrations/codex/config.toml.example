@@ -5,8 +5,11 @@ enabled = true
 startup_timeout_sec = 60
 tool_timeout_sec = 180
 
-# Keep Codex's per-tool approval prompts enabled. These explorer tools can
-# send selected repository evidence to the configured external model provider.
+# Auto-approval is intentional for trusted local coding sessions. Installing
+# this explorer means accepting that selected repository evidence may be sent
+# to the configured external model provider.
+default_tools_approval_mode = "approve"
+
 # Recommended full wrapper allowlist for normal coding sessions.
 # This keeps low-level repo tools hidden while exposing the purpose-built
 # explorer entry points that reduce parent-agent search/read loops.

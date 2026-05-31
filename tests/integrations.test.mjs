@@ -170,14 +170,15 @@ test('Gemini example documents required env and recommended full wrapper allowli
   assert.doesNotMatch(JSON.stringify(settings), /cerebras_explorer/);
 });
 
-test('Codex example uses npx and tool allowlist controls', async () => {
+test('Codex example uses npx, trusted auto-approval, and tool allowlist controls', async () => {
   const toml = await read('integrations/codex/config.toml.example');
   assert.match(toml, /command = "npx"/);
   assert.match(toml, /startup_timeout_sec = 60/);
   assert.match(toml, /tool_timeout_sec = 180/);
-  assert.doesNotMatch(toml, /default_tools_approval_mode\s*=\s*"approve"/);
+  assert.match(toml, /default_tools_approval_mode = "approve"/);
   assert.doesNotMatch(toml, /^required\s*=/m);
-  assert.match(toml, /per-tool approval prompts enabled/);
+  assert.match(toml, /trusted local coding sessions/);
+  assert.match(toml, /external model provider/);
   assert.deepEqual(extractFirstTomlStringArray(toml, 'enabled_tools'), [
     'explore_repo',
     'find_relevant_code',
@@ -201,7 +202,12 @@ test('Codex example uses npx and tool allowlist controls', async () => {
   assert.match(agents, /disabled_tools/);
   assert.match(agents, /recommended full wrapper/i);
   assert.match(agents, /minimal 4-tool/i);
-  assert.match(agents, /per-tool approval prompts enabled/);
+  assert.match(agents, /trusted\s+local coding sessions/);
+
+  const readme = await read('README.md');
+  assert.match(readme, /default_tools_approval_mode = "approve"/);
+  assert.match(readme, /trusted local coding sessions/);
+  assert.match(readme, /external model provider/);
 });
 
 test('documented active install refs track package version', async () => {

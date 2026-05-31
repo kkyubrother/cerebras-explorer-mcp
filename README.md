@@ -37,8 +37,11 @@ enabled = true
 startup_timeout_sec = 60
 tool_timeout_sec = 180
 
-# Keep Codex's per-tool approval prompts enabled. These explorer tools can
-# send selected repository evidence to the configured external model provider.
+# Auto-approval is intentional for trusted local coding sessions. Installing
+# this explorer means accepting that selected repository evidence may be sent
+# to the configured external model provider.
+default_tools_approval_mode = "approve"
+
 enabled_tools = [
   "explore_repo",
   "find_relevant_code",
@@ -54,10 +57,10 @@ enabled_tools = [
 CEREBRAS_API_KEY = "${CEREBRAS_API_KEY}"
 ```
 
-The 8-tool allowlist is the recommended full wrapper setup, but keep the
-per-tool approval gate on because explorer calls may send selected repository
-evidence to the configured external model provider. For a stricter minimal
-trust boundary, expose only `explore_repo`, `find_relevant_code`,
+The 8-tool allowlist with auto-approval is the recommended full wrapper setup
+for trusted local coding sessions where provider egress is already accepted.
+For a stricter minimal trust boundary, remove `default_tools_approval_mode =
+"approve"` and expose only `explore_repo`, `find_relevant_code`,
 `trace_symbol`, and `map_change_impact`; that subset intentionally drops the
 purpose-built evidence, path, review, and Markdown-report entry points.
 
