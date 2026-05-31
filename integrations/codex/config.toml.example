@@ -1,6 +1,6 @@
 [mcp_servers.cerebras-explorer]
 command = "npx"
-args = ["-y", "github:kkyubrother/cerebras-explorer-mcp#v0.7.0"]
+args = ["-y", "github:kkyubrother/cerebras-explorer-mcp#v0.7.1"]
 enabled = true
 startup_timeout_sec = 60
 tool_timeout_sec = 180

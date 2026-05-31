@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.7.1 - Unreleased
+## v0.7.1 - 2026-05-31
 
 ### Prompt & contract hygiene (spec 023)
 
