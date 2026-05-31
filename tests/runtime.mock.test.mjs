@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { ExplorerRuntime } from '../src/explorer/runtime.mjs';
-import { buildExplorerSystemPrompt, buildFinalizePrompt, detectStrategy } from '../src/explorer/prompt.mjs';
+import { buildExplorerSystemPrompt, buildFreeExploreV2SystemPrompt, buildFinalizePrompt, detectStrategy } from '../src/explorer/prompt.mjs';
 import { BUDGETS } from '../src/explorer/config.mjs';
 import { RepoToolkit } from '../src/explorer/repo-tools.mjs';
 
@@ -2106,6 +2106,36 @@ test('Phase 3 — system prompt has HARD REQUIREMENTS within first 30 lines', ()
   assert.ok(
     first30.includes('HARD REQUIREMENTS'),
     'HARD REQUIREMENTS must appear within the first 30 lines of the system prompt',
+  );
+});
+
+test('Spec 023 — explorer system prompt has UNTRUSTED CONTENT rule and candidate-edit-target wording', () => {
+  const prompt = buildExplorerSystemPrompt({
+    repoRoot: '/tmp/repo',
+    budgetConfig: BUDGETS.normal,
+  });
+  assert.ok(
+    prompt.includes('UNTRUSTED CONTENT'),
+    'explorer system prompt must include the UNTRUSTED CONTENT hard requirement',
+  );
+  assert.ok(
+    prompt.includes('candidate edit targets'),
+    'explorer READ-ONLY rule must allow identifying candidate edit targets',
+  );
+});
+
+test('Spec 023 — freeExploreV2 system prompt has UNTRUSTED CONTENT rule and candidate-edit-target wording', () => {
+  const prompt = buildFreeExploreV2SystemPrompt({
+    repoRoot: '/tmp/repo',
+    budgetConfig: BUDGETS.normal,
+  });
+  assert.ok(
+    prompt.includes('UNTRUSTED CONTENT'),
+    'freeExploreV2 system prompt must include the UNTRUSTED CONTENT hard requirement',
+  );
+  assert.ok(
+    prompt.includes('candidate edit targets'),
+    'freeExploreV2 READ-ONLY rule must allow identifying candidate edit targets',
   );
 });
 

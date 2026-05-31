@@ -136,7 +136,7 @@ const RETRY_ARGS_SCHEMA = {
   },
 };
 
-const RETRY_SCHEMA = {
+export const RETRY_SCHEMA = {
   type: 'object',
   additionalProperties: false,
   properties: {
@@ -149,6 +149,7 @@ const RETRY_SCHEMA = {
         'trace_symbol',
         'map_change_impact',
         'review_change_context',
+        'explain_code_path',
         'explore',
       ],
     },

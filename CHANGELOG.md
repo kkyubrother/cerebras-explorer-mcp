@@ -1,5 +1,32 @@
 # Changelog
 
+## v0.7.1 - Unreleased
+
+### Prompt & contract hygiene (spec 023)
+
+Backwards-compatible. The public 8-tool surface, input schemas, and
+`schemaVersion` are unchanged; this pass aligns the tool descriptions and the
+internal explorer system prompts with what the runtime actually does. No
+behavior change except one additive retry-enum value.
+
+- **Changed (spec 023)**: `explore_repo` is now described as the general
+  fallback (not "Use first") so the six purpose tools are the front door; the
+  stale `budget` mention is dropped (it is a rejected input); `explore`'s
+  `thoroughness` description and the `repo_references` "all usages" description
+  are corrected to match runtime behavior; sibling-defer hints were added to
+  `trace_symbol`/`explain_code_path`/`collect_evidence`.
+- **Changed (spec 023)**: the explorer system prompts now explicitly permit
+  identifying candidate `role:edit` targets (while still forbidding mutation
+  and patches) and add an untrusted-content / prompt-injection hard requirement
+  that treats repository content and tool output as data, not instructions.
+- **Added (spec 023)**: `explain_code_path` joins the retry-tool vocabulary
+  (`RETRY_SCHEMA` enum + runtime `RETRY_TOOLS`) for contract symmetry; a test
+  pins the two lists set-equal.
+- **Removed (spec 023)**: dead V1 free-explore prompt builders.
+- **Out of scope (spec 023)**: wrapper output-language preservation (results
+  are consumed by an upstream agent that controls language) and
+  `repo_symbol_context` depth disclosure (already documented at the param level).
+
 ## v0.7.0 - 2026-05-31
 
 ### BREAKING: remove legacy transcript env aliases (spec 020)

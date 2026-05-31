@@ -343,13 +343,14 @@ const FAILURE_REASONS = [
   'access_denied',
   'invalid_final_response',
 ];
-const RETRY_TOOLS = [
+export const RETRY_TOOLS = [
   'explore_repo',
   'find_relevant_code',
   'collect_evidence',
   'trace_symbol',
   'map_change_impact',
   'review_change_context',
+  'explain_code_path',
   'explore',
 ];
 

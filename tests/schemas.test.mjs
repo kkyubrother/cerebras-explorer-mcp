@@ -5,11 +5,13 @@ import {
   EXPLORE_REPO_INPUT_SCHEMA,
   EXPLORE_REPO_OUTPUT_SCHEMA,
   EXPLORE_RESULT_JSON_SCHEMA,
+  RETRY_SCHEMA,
   computeConfidenceScore,
   normalizeExploreResult,
   reconcileConfidence,
   validateExploreRepoArgs,
 } from '../src/explorer/schemas.mjs';
+import { RETRY_TOOLS } from '../src/explorer/runtime.mjs';
 
 // Helper: build a grounded evidence item with a given groundingStatus and optional path
 function makeEvidence({ groundingStatus = 'exact', path = 'src/foo.mjs' } = {}) {
@@ -334,6 +336,18 @@ test('normalizeExploreResult accepts compact result fields without legacy aliase
   assert.equal(result.answer, undefined);
   assert.equal(result.candidatePaths, undefined);
   assert.equal(result.followups, undefined);
+});
+
+test('retry tool vocabulary includes explain_code_path and stays set-equal across modules', () => {
+  assert.ok(
+    RETRY_SCHEMA.properties.tool.enum.includes('explain_code_path'),
+    'RETRY_SCHEMA tool enum must include explain_code_path',
+  );
+  assert.deepEqual(
+    new Set(RETRY_SCHEMA.properties.tool.enum),
+    new Set(RETRY_TOOLS),
+    'schema tool enum and runtime RETRY_TOOLS must have the same members',
+  );
 });
 
 test('normalizeExploreResult marks malformed evidence ranges instead of coercing to line 1', () => {

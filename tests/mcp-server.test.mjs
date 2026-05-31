@@ -272,7 +272,7 @@ test('MCP request handler exposes explore_repo and returns structuredContent', a
   assert.ok(!toolNames.includes('find_similar_code'), 'removed shortcut find_similar_code must not be exposed');
   assert.ok(!toolNames.includes('explore_v2'), 'explore_v2 tool name was removed in spec 011');
   const exploreRepoTool = listed.tools.find(t => t.name === 'explore_repo');
-  assert.match(exploreRepoTool.description, /Use first for read-only repository exploration/);
+  assert.match(exploreRepoTool.description, /general fallback for read-only repository exploration/);
   // spec 017: session input parameter was removed; description no longer
   // mentions it.
   assert.doesNotMatch(exploreRepoTool.description, /sessionId/);
