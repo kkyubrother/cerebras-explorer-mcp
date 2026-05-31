@@ -175,8 +175,9 @@ test('Codex example uses npx and tool allowlist controls', async () => {
   assert.match(toml, /command = "npx"/);
   assert.match(toml, /startup_timeout_sec = 60/);
   assert.match(toml, /tool_timeout_sec = 180/);
-  assert.match(toml, /default_tools_approval_mode = "approve"/);
+  assert.doesNotMatch(toml, /default_tools_approval_mode\s*=\s*"approve"/);
   assert.doesNotMatch(toml, /^required\s*=/m);
+  assert.match(toml, /per-tool approval prompts enabled/);
   assert.deepEqual(extractFirstTomlStringArray(toml, 'enabled_tools'), [
     'explore_repo',
     'find_relevant_code',
@@ -200,6 +201,7 @@ test('Codex example uses npx and tool allowlist controls', async () => {
   assert.match(agents, /disabled_tools/);
   assert.match(agents, /recommended full wrapper/i);
   assert.match(agents, /minimal 4-tool/i);
+  assert.match(agents, /per-tool approval prompts enabled/);
 });
 
 test('documented active install refs track package version', async () => {

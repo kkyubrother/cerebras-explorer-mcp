@@ -4,8 +4,9 @@ args = ["-y", "github:kkyubrother/cerebras-explorer-mcp#v0.7.1"]
 enabled = true
 startup_timeout_sec = 60
 tool_timeout_sec = 180
-default_tools_approval_mode = "approve"
 
+# Keep Codex's per-tool approval prompts enabled. These explorer tools can
+# send selected repository evidence to the configured external model provider.
 # Recommended full wrapper allowlist for normal coding sessions.
 # This keeps low-level repo tools hidden while exposing the purpose-built
 # explorer entry points that reduce parent-agent search/read loops.

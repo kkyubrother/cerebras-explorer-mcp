@@ -36,8 +36,9 @@ args = ["-y", "github:kkyubrother/cerebras-explorer-mcp#v0.7.1"]
 enabled = true
 startup_timeout_sec = 60
 tool_timeout_sec = 180
-default_tools_approval_mode = "approve"
 
+# Keep Codex's per-tool approval prompts enabled. These explorer tools can
+# send selected repository evidence to the configured external model provider.
 enabled_tools = [
   "explore_repo",
   "find_relevant_code",
@@ -53,8 +54,10 @@ enabled_tools = [
 CEREBRAS_API_KEY = "${CEREBRAS_API_KEY}"
 ```
 
-The 8-tool allowlist is the recommended full wrapper setup. For a stricter
-minimal trust boundary, expose only `explore_repo`, `find_relevant_code`,
+The 8-tool allowlist is the recommended full wrapper setup, but keep the
+per-tool approval gate on because explorer calls may send selected repository
+evidence to the configured external model provider. For a stricter minimal
+trust boundary, expose only `explore_repo`, `find_relevant_code`,
 `trace_symbol`, and `map_change_impact`; that subset intentionally drops the
 purpose-built evidence, path, review, and Markdown-report entry points.
 
