@@ -52,10 +52,9 @@ test('loadProjectConfig returns {} when config file does not exist', async () =>
 
 test('loadProjectConfig reads and parses .cerebras-explorer.json', async () => {
   const root = await makeTempDir();
-  const payload = { defaultBudget: 'quick', projectContext: 'My project' };
+  const payload = { projectContext: 'My project' };
   await fs.writeFile(path.join(root, '.cerebras-explorer.json'), JSON.stringify(payload));
   const config = await loadProjectConfig(root);
-  assert.equal(config.defaultBudget, 'quick');
   assert.equal(config.projectContext, 'My project');
 });
 
@@ -82,13 +81,8 @@ test('loadProjectConfig returns {} for an empty object', async () => {
 
 // ─── normalizeProjectConfig ──────────────────────────────────────────────────
 
-test('normalizeProjectConfig: valid defaultBudget is kept', () => {
+test('normalizeProjectConfig: legacy defaultBudget is dropped', () => {
   const config = normalizeProjectConfig({ defaultBudget: 'deep' });
-  assert.equal(config.defaultBudget, 'deep');
-});
-
-test('normalizeProjectConfig: invalid defaultBudget is dropped', () => {
-  const config = normalizeProjectConfig({ defaultBudget: 'ultra' });
   assert.equal(config.defaultBudget, undefined);
 });
 
@@ -132,7 +126,7 @@ test('normalizeProjectConfig: null input returns {}', () => {
 
 test('normalizeProjectConfig: unknown fields are ignored', () => {
   const config = normalizeProjectConfig({ unknownKey: 'value', defaultBudget: 'normal' });
-  assert.equal(config.defaultBudget, 'normal');
+  assert.equal(config.defaultBudget, undefined);
   assert.equal(config.unknownKey, undefined);
 });
 
@@ -232,7 +226,6 @@ test('loadProjectConfig is applied in ExplorerRuntime via defaultScope', async (
   await fs.writeFile(
     path.join(root, '.cerebras-explorer.json'),
     JSON.stringify({
-      defaultBudget: 'quick',
       defaultScope: ['src/**'],
       projectContext: 'A test project for cerebras-explorer.',
     }),

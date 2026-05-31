@@ -325,7 +325,6 @@ export function chooseAutoBudget() {
  * when the file is absent, unreadable, or contains invalid JSON.
  *
  * Recognised fields (all optional):
- *   defaultBudget       — "quick"|"normal"|"deep"
  *   defaultScope        — string[] of glob patterns
  *   extraIgnoreDirs     — string[] of directory names to skip during traversal
  *   extraIgnorePatterns — string[] of repo-root-relative glob patterns to skip (spec 014)
@@ -359,9 +358,6 @@ export function normalizeProjectConfig(raw) {
 
   const config = {};
 
-  if (['quick', 'normal', 'deep'].includes(raw.defaultBudget)) {
-    config.defaultBudget = raw.defaultBudget;
-  }
   if (Array.isArray(raw.defaultScope)) {
     config.defaultScope = raw.defaultScope.filter(s => typeof s === 'string');
   }
