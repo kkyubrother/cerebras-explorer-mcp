@@ -145,36 +145,11 @@ _extract_highest_number() {
     echo "$highest"
 }
 
-# Function to get highest number from remote branches without fetching (side-effect-free)
-get_highest_from_remote_refs() {
-    local highest=0
-
-    for remote in $(git remote 2>/dev/null); do
-        local remote_highest
-        remote_highest=$(GIT_TERMINAL_PROMPT=0 git ls-remote --heads "$remote" 2>/dev/null | sed 's|.*refs/heads/||' | _extract_highest_number)
-        if [ "$remote_highest" -gt "$highest" ]; then
-            highest=$remote_highest
-        fi
-    done
-
-    echo "$highest"
-}
-
-# Function to check existing branches and return next available number.
+# Function to check existing local/remote-tracking branches and return next available number.
+# Intentionally avoids contacting remotes; this hook may run automatically in untrusted repositories.
 check_existing_branches() {
     local specs_dir="$1"
-    local skip_fetch="${2:-false}"
-
-    if [ "$skip_fetch" = true ]; then
-        local highest_remote=$(get_highest_from_remote_refs)
-        local highest_branch=$(get_highest_from_branches)
-        if [ "$highest_remote" -gt "$highest_branch" ]; then
-            highest_branch=$highest_remote
-        fi
-    else
-        git fetch --all --prune >/dev/null 2>&1 || true
-        local highest_branch=$(get_highest_from_branches)
-    fi
+    local highest_branch=$(get_highest_from_branches)
 
     local highest_spec=$(get_highest_from_specs "$specs_dir")
 
@@ -380,13 +355,13 @@ fi
 if [ "$DRY_RUN" != true ]; then
     if [ "$HAS_GIT" = true ]; then
         branch_create_error=""
-        if ! branch_create_error=$(git checkout -q -b "$BRANCH_NAME" 2>&1); then
+        if ! branch_create_error=$(git -c core.hooksPath=/dev/null checkout -q -b "$BRANCH_NAME" 2>&1); then
             current_branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
             if git branch --list "$BRANCH_NAME" | grep -q .; then
                 if [ "$ALLOW_EXISTING" = true ]; then
                     if [ "$current_branch" = "$BRANCH_NAME" ]; then
                         :
-                    elif ! switch_branch_error=$(git checkout -q "$BRANCH_NAME" 2>&1); then
+                    elif ! switch_branch_error=$(git -c core.hooksPath=/dev/null checkout -q "$BRANCH_NAME" 2>&1); then
                         >&2 echo "Error: Failed to switch to existing branch '$BRANCH_NAME'. Please resolve any local changes or conflicts and try again."
                         if [ -n "$switch_branch_error" ]; then
                             >&2 printf '%s\n' "$switch_branch_error"

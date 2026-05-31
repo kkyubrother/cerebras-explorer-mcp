@@ -97,46 +97,15 @@ function Get-HighestNumberFromBranches {
     return 0
 }
 
-function Get-HighestNumberFromRemoteRefs {
-    [long]$highest = 0
-    try {
-        $remotes = git remote 2>$null
-        if ($remotes) {
-            foreach ($remote in $remotes) {
-                $env:GIT_TERMINAL_PROMPT = '0'
-                $refs = git ls-remote --heads $remote 2>$null
-                $env:GIT_TERMINAL_PROMPT = $null
-                if ($LASTEXITCODE -eq 0 -and $refs) {
-                    $refNames = $refs | ForEach-Object {
-                        if ($_ -match 'refs/heads/(.+)$') { $matches[1] }
-                    } | Where-Object { $_ }
-                    $remoteHighest = Get-HighestNumberFromNames -Names $refNames
-                    if ($remoteHighest -gt $highest) { $highest = $remoteHighest }
-                }
-            }
-        }
-    } catch {
-        Write-Verbose "Could not query remote refs: $_"
-    }
-    return $highest
-}
-
 function Get-NextBranchNumber {
     param(
         [string]$SpecsDir,
         [switch]$SkipFetch
     )
 
-    if ($SkipFetch) {
-        $highestBranch = Get-HighestNumberFromBranches
-        $highestRemote = Get-HighestNumberFromRemoteRefs
-        $highestBranch = [Math]::Max($highestBranch, $highestRemote)
-    } else {
-        try {
-            git fetch --all --prune 2>$null | Out-Null
-        } catch { }
-        $highestBranch = Get-HighestNumberFromBranches
-    }
+    # Intentionally avoid contacting remotes; this hook may run automatically in untrusted repositories.
+    # Existing remote-tracking refs are still considered by Get-HighestNumberFromBranches.
+    $highestBranch = Get-HighestNumberFromBranches
 
     $highestSpec = Get-HighestNumberFromSpecs -SpecsDir $SpecsDir
     $maxNum = [Math]::Max($highestBranch, $highestSpec)
@@ -329,7 +298,7 @@ if (-not $DryRun) {
         $branchCreated = $false
         $branchCreateError = ''
         try {
-            $branchCreateError = git checkout -q -b $branchName 2>&1 | Out-String
+            $branchCreateError = git -c core.hooksPath=/dev/null checkout -q -b $branchName 2>&1 | Out-String
             if ($LASTEXITCODE -eq 0) {
                 $branchCreated = $true
             }
@@ -346,7 +315,7 @@ if (-not $DryRun) {
                     if ($currentBranch -eq $branchName) {
                         # Already on the target branch
                     } else {
-                        $switchBranchError = git checkout -q $branchName 2>&1 | Out-String
+                        $switchBranchError = git -c core.hooksPath=/dev/null checkout -q $branchName 2>&1 | Out-String
                         if ($LASTEXITCODE -ne 0) {
                             if ($switchBranchError) {
                                 Write-Error "Error: Branch '$branchName' exists but could not be checked out.`n$($switchBranchError.Trim())"
