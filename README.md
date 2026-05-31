@@ -308,7 +308,7 @@ Heavy 호출이나 sub-agent 핸드오프에서는 `_meta.progressToken`을 함�
 
 `failure`는 실행/input/provider/internal failure event에만 사용합니다. 낮은 confidence는 failure가 아니라 `evidenceQuality`와 `status`의 품질 신호입니다. `failure`가 있으면 `failure.retry`를 `nextAction`보다 먼저 보고, `failure`가 `null`이면 기존처럼 `nextAction`을 따르세요. budget이 소진된 호출이라도 evidence sufficiency가 만족되면 `failure.reason='budget_exhausted'`는 더 이상 부여되지 않습니다 — budget 사실은 `searchCoverage.stoppedByBudget=true`에서만 확인할 수 있고, `status.warnings`에는 "budget exhausted after sufficient evidence was collected." 메모가 함께 남습니다.
 
-`failure.retry.args`는 sanitized retry recipe이며 원본 도구 입력을 그대로 반영하지 않습니다. bounded text 필드, bounded string array, 알려진 hint 키만 포함하며, budget-exhausted retry는 동일한 bounded 검색을 다시 돌리지 않도록 unchanged scope를 의도적으로 생략합니다.
+`failure.retry.args`는 sanitized retry recipe이며 원본 도구 입력을 그대로 반영하지 않습니다. bounded text 필드, bounded string array, 알려진 hint 키만 포함합니다. budget-exhausted retry는 상위 agent가 더 좁은 task/anchor를 선택하더라도 기존 scope hard boundary를 넓히지 않도록 sanitized `scope`를 보존합니다.
 
 `searchCoverage`는 explorer가 실제로 검색·읽은 범위를 요약합니다. 완전한 의미 분석 보증은 아닙니다. `scopeLimited`가 true면 evidence가 없다는 사실은 "이 scope 안에서는 없다"이지 "저장소에 없다"가 아닙니다. `omittedDiscoveredPaths`가 0보다 크면 `discoveredPaths[]`는 follow-up 후보 일부만 담고 있습니다.
 

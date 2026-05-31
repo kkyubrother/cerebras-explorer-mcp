@@ -1632,7 +1632,7 @@ test('Phase 1 — malformed freeform content still produces strict-schema result
   assert.equal(result.evidenceQuality.level, 'low');
 });
 
-test('ExplorerRuntime budget retry args do not echo unchanged scope', async () => {
+test('ExplorerRuntime budget retry args preserve scope boundary', async () => {
   class BudgetRetryScopeClient {
     constructor() {
       this.model = 'zai-glm-4.7';
@@ -1685,8 +1685,8 @@ test('ExplorerRuntime budget retry args do not echo unchanged scope', async () =
   assert.equal(result.stats.stoppedByBudget, true);
   assert.equal(result.failure.reason, 'budget_exhausted');
   assert.equal(result.failure.retry.args.task, 'Retry with a narrower scope or a more specific task.');
-  assert.equal(result.failure.retry.args.scope, undefined);
-  assert.deepEqual(Object.keys(result.failure.retry.args).sort(), ['task']);
+  assert.deepEqual(result.failure.retry.args.scope, ['src/**', 'tests/**']);
+  assert.deepEqual(Object.keys(result.failure.retry.args).sort(), ['scope', 'task']);
   assert.ok(
     result.failure.retry.hints.every(hint => !/deep budget/i.test(hint)),
     'budget exhaustion retry hints must not ask parent agents to select deep budget',
