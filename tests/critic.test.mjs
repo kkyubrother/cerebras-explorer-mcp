@@ -137,6 +137,44 @@ test('groundEvidenceList drops malformed line ranges instead of grounding them',
   assert.equal(result.exactEvidence, 1);
 });
 
+test('groundEvidenceList rejects unsafe and overly broad blame ranges before grounding scans', () => {
+  const result = groundEvidenceList({
+    evidence: [
+      {
+        evidenceType: 'git_blame',
+        path: 'src/auth.js',
+        startLine: 1e100,
+        endLine: 1e100,
+        sha: 'abc1234',
+        why: 'unsafe integer range',
+      },
+      {
+        evidenceType: 'git_blame',
+        path: 'src/auth.js',
+        startLine: 1,
+        endLine: 10_001,
+        sha: 'abc1234',
+        why: 'range exceeds critic cap',
+      },
+      {
+        evidenceType: 'git_blame',
+        path: 'src/auth.js',
+        startLine: 20,
+        endLine: 20,
+        sha: 'abc1234',
+        why: 'valid blamed line',
+      },
+    ],
+    observedRanges: new Map(),
+    observedGit: { commits: new Set(), blame: new Set(['src/auth.js:20:abc1234']) },
+  });
+
+  assert.equal(result.evidence.length, 1);
+  assert.equal(result.droppedMalformed, 2);
+  assert.equal(result.droppedUngrounded, 0);
+  assert.equal(result.evidence[0].groundingStatus, 'exact');
+});
+
 test('groundEvidenceList requires observed sha for sha-only git diff hunk evidence', () => {
   const result = groundEvidenceList({
     evidence: [
