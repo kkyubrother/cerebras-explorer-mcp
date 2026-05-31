@@ -36,12 +36,13 @@ const EXPLORE_REPO_TOOL = {
   name: 'explore_repo',
   title: 'Autonomous repository explorer',
   description:
-    'Use first for read-only repository exploration when the relevant files are unknown, the answer likely spans multiple files, or cited cross-file evidence is needed: ' +
+    'Use as the general fallback for read-only repository exploration when no purpose-specific tool fits, or when you need programmable structured JSON spanning multiple files: ' +
     'architecture, symbol usage, dependency/call tracing, bug root-cause hypotheses, change impact, config origin, or evidence collection. ' +
+    'Prefer the specialized tools when intent matches (find_relevant_code to locate code, trace_symbol for a known symbol, map_change_impact for blast radius, explain_code_path for a flow, collect_evidence to verify a claim, review_change_context for PR review). ' +
     'Do not use for edits, running tests/builds, or single known-file inspection. ' +
     'Returns structured JSON with directAnswer, status, targets, grounded file:line evidence with snippets, and nextAction. ' +
     'After this tool, avoid broad grep/read; only read cited targets needed for verification or edits. ' +
-    'Omit budget and hints.strategy unless required by an advanced workflow.',
+    'Omit hints.strategy unless required by an advanced workflow.',
   inputSchema: EXPLORE_REPO_INPUT_SCHEMA,
   outputSchema: EXPLORE_REPO_OUTPUT_SCHEMA,
   annotations: readOnlyToolAnnotations('Autonomous repository explorer'),
@@ -79,7 +80,8 @@ const TRACE_SYMBOL_TOOL = {
   title: 'Trace a symbol',
   description:
     'Use when a known function, class, variable, or type needs definition plus usage/callsite context. ' +
-    'Returns grounded targets and evidence without requiring a manual grep-then-read loop.',
+    'Returns grounded targets and evidence without requiring a manual grep-then-read loop. ' +
+    'Do not use when the symbol is unknown (use find_relevant_code) or you need a runtime flow (use explain_code_path).',
   inputSchema: {
     type: 'object',
     additionalProperties: false,
@@ -125,7 +127,8 @@ const EXPLAIN_CODE_PATH_TOOL = {
   title: 'Explain a code path',
   description:
     'Use for route, middleware, request, event, job, or CLI flow tracing across files. ' +
-    'Returns the verified path through the code and the targets worth reading next.',
+    'Returns the verified path through the code and the targets worth reading next. ' +
+    'Do not use for a single symbol (use trace_symbol) or a static blast-radius map (use map_change_impact).',
   inputSchema: {
     type: 'object',
     additionalProperties: false,
@@ -148,7 +151,7 @@ const COLLECT_EVIDENCE_TOOL = {
   title: 'Collect cited evidence',
   description:
     'Use when you already have a claim, hypothesis, or review point and need a compact bundle of grounded file:line evidence with snippets. ' +
-    'Best for verifying facts before replying or reviewing a change.',
+    'Best for verifying specific facts or a single review point before replying; for whole-PR/diff scoping use review_change_context.',
   inputSchema: {
     type: 'object',
     additionalProperties: false,
@@ -199,13 +202,13 @@ const EXPLORE_TOOL = {
     'Best for architecture walkthroughs, onboarding explanations, or broad "how does X work?" answers when polished prose is what the requester needs. ' +
     'For narrow lookups, symbol traces, impact maps, code-path walks, or PR/diff review context, prefer find_relevant_code, trace_symbol, map_change_impact, explain_code_path, or review_change_context — they return the same grounded evidence in their tool-specific shape. ' +
     'Do not use when the parent agent needs structured edit planning or programmatic next steps; use explore_repo instead. ' +
-    'Omit thoroughness in normal agent use unless an advanced workflow explicitly requires quick, normal, or deep.',
+    'Omit thoroughness — it is accepted for backward compatibility but currently has no effect; every call uses the full-depth runtime config.',
   inputSchema: {
     type: 'object',
     additionalProperties: false,
     properties: {
       prompt: { type: 'string', description: 'What to explore — a natural-language question or task.' },
-      thoroughness: { type: 'string', enum: ['quick', 'normal', 'deep'], description: 'Advanced only. Omit for normal agent use; defaults to normal report depth.' },
+      thoroughness: { type: 'string', enum: ['quick', 'normal', 'deep'], description: 'Accepted for backward compatibility only and currently ignored — every explore call runs against the single full-depth runtime config. Omit it.' },
       scope: { type: 'array', items: { type: 'string' }, description: 'Optional path prefixes to focus on.' },
       repo_root: { type: 'string', description: 'Repository root path.' },
       language: { type: 'string', description: 'BCP-47 language tag for the report (e.g. "ko", "en").' },
@@ -748,7 +751,7 @@ export function createMcpRequestHandler({
           serverInfo: SERVER_INFO,
           instructions:
             `Cerebras Explorer provides autonomous codebase exploration (${toolCount} tools, powered by ${getExplorerModel()}). ` +
-            'PREFER these tools over manual file search (Grep/Glob/Read) for any task that spans more than 2-3 files or requires cross-file understanding. ' +
+            'PREFER these tools over manual file search (Grep/Glob/Read) whenever you would otherwise run a grep-then-read loop — including for a single known symbol or claim — and especially for multi-file or cross-file understanding. ' +
             'explore_repo returns structured JSON with directAnswer, status, targets, discoveredPaths, and grounded evidence snippets; explore returns a Markdown report for human consumption. ' +
             'Purpose shortcuts: find_relevant_code, trace_symbol, map_change_impact, explain_code_path, collect_evidence, review_change_context. ' +
             'Pass _meta.progressToken for heavy calls (broad reports / path / impact) to receive turn-by-turn progress updates. ' +

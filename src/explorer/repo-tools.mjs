@@ -1461,7 +1461,7 @@ export class RepoToolkit {
         function: {
           name: 'repo_references',
           description:
-            'Find all usages of a symbol across the codebase and locate its definition. Categorises each hit as import, definition, or usage. Use instead of grep when you need structured reference information.',
+            'Find likely textual references to a symbol and a likely definition, categorising each hit as import, definition, or usage. Matching is text/heuristic-based (not semantic) and results are capped (the truncated flag is set when so) — use grep/read follow-ups when complete coverage is required. Prefer over raw grep when you need structured reference information.',
           parameters: {
             type: 'object',
             additionalProperties: false,
