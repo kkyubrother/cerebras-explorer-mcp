@@ -3043,6 +3043,86 @@ test('010 US1#1 — locate task with exact evidence stays complete even when bud
   );
 });
 
+
+test('010 security — broad find vulnerability task remains incomplete when budget exhausts', async () => {
+  class BroadSecurityFindClient {
+    constructor() { this.model = 'zai-glm-4.7'; this.calls = 0; }
+    async createChatCompletion({ responseFormat }) {
+      this.calls += 1;
+      if (responseFormat) {
+        return {
+          usage: { prompt_tokens: 30, completion_tokens: 10, total_tokens: 40 },
+          message: {
+            content: JSON.stringify(compactResult({
+              directAnswer: 'One potential auth flaw was observed, but coverage is incomplete.',
+              statusConfidence: 'high',
+              evidence: [{
+                path: 'src/auth.js',
+                startLine: 1,
+                endLine: 4,
+                why: 'single exact evidence item that must not complete a broad security review',
+                evidenceType: 'file_range',
+                groundingStatus: 'exact',
+              }],
+            })),
+            toolCalls: [],
+          },
+        };
+      }
+
+      if (this.calls === 1) {
+        return {
+          usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+          message: {
+            content: '',
+            toolCalls: [{
+              id: 'read-1',
+              function: {
+                name: 'repo_read_file',
+                arguments: JSON.stringify({ path: 'src/auth.js', startLine: 1, endLine: 4 }),
+              },
+            }],
+          },
+        };
+      }
+
+      return {
+        usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+        message: {
+          content: '',
+          toolCalls: [{
+            id: `noop-${this.calls}`,
+            function: {
+              name: 'repo_grep',
+              arguments: JSON.stringify({ pattern: `no-security-hit-${this.calls}`, scope: ['src/**'] }),
+            },
+          }],
+        },
+      };
+    }
+  }
+
+  for (const taskMode of [undefined, 'locate']) {
+    const root = await makeRepoFixture();
+    const runtime = new ExplorerRuntime({ chatClient: new BroadSecurityFindClient() });
+    const result = await runtime.explore({
+      task: 'find vulnerabilities in authentication',
+      ...(taskMode ? { taskMode } : {}),
+      repo_root: root,
+    });
+
+    assert.equal(result.stats.stoppedByBudget, true, 'fixture must exhaust the quick budget');
+    assert.equal(result.searchCoverage.stoppedByBudget, true, 'budget fact must remain visible');
+    assert.equal(result.status.complete, false, `broad security task must stay incomplete for taskMode=${taskMode}`);
+    assert.equal(result.status.verification, 'follow_up_needed');
+    assert.equal(result.failure?.reason, 'budget_exhausted');
+    assert.deepEqual(result.stats?.evidenceSufficiency, {
+      sufficient: false,
+      reason: 'broad_investigation_budget_exhausted',
+    });
+  }
+});
+
 test('010 US1#2 — path_explanation with one evidence still incomplete after budget exhausts', async () => {
   // path_explanation requires exact >= 2 OR fileCount >= 2. One file/one exact item ⇒ insufficient.
   class PathExplanationClient {

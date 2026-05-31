@@ -885,9 +885,19 @@ function getGroundingCounts(result) {
   return { exactCount, partialCount, fileCount };
 }
 
+function isBroadInvestigationTask(task) {
+  const text = String(task ?? '').toLowerCase();
+  if (/보안|취약|버그|감사|검토|분석/.test(text)) return true;
+  const definitionIntent = /어디\s|위치|선언|정의\s|defined|where\s|locate(?:d)?|definition/.test(text);
+  if (definitionIntent) return false;
+  return /\b(audit|review|investigate|analy[sz]e|vulnerabilit(?:y|ies)|security\s+(?:issues?|flaws?|risks?|bugs?|review|audit)|flaws?|weakness(?:es)?|bugs?|exploit(?:s|able)?|bypass(?:es)?|injection|xss|csrf|ssrf|rce|auth(?:entication|orization)?\s+(?:flaws?|bypass(?:es)?|bugs?|vulnerabilit(?:y|ies)|weakness(?:es)?))\b/.test(text);
+}
+
 function isSimpleCompletionMode({ taskMode, task } = {}) {
   const mode = normalizeTaskMode(taskMode);
-  if (mode === 'locate' || mode === 'symbol_trace') return true;
+  if (mode === 'symbol_trace') return true;
+  if (isBroadInvestigationTask(task)) return false;
+  if (mode === 'locate') return true;
   const text = String(task ?? '').toLowerCase();
   return /어디\s|찾아|위치|선언|정의\s|defined|where\s|find\s|locate|definition/.test(text);
 }
@@ -906,6 +916,10 @@ function evaluateEvidenceSufficiency(result, stats, { task, taskMode } = {}) {
   }
 
   const mode = normalizeTaskMode(taskMode);
+
+  if (isBroadInvestigationTask(task) && stats.stoppedByBudget) {
+    return { sufficient: false, reason: 'broad_investigation_budget_exhausted' };
+  }
 
   if (isSimpleCompletionMode({ taskMode, task })) {
     return exactCount >= 1
