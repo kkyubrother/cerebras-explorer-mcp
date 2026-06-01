@@ -51,16 +51,36 @@ import { buildCompactToolDiagnostic, createCompactToolTrace, createTranscriptRec
 const TOOL_CONCURRENCY = 8;
 
 /**
- * Estimate token count for a message array.
- * Uses a conservative 1 token ≈ 4 chars heuristic.
+ * Estimate token count for a single string.
+ * ASCII is counted at ~4 chars/token; non-ASCII (CJK and other multibyte text)
+ * at ~2 chars/token, because BPE tokenizers emit many more tokens per CJK
+ * character than per ASCII character. This reduces — but does not eliminate —
+ * under-counting on Korean/CJK-heavy contexts; `/2` is a deliberate middle point
+ * (smaller divisors over-estimate and trigger premature compaction).
  */
-function estimateTokens(messages) {
+function estimateStringTokens(str) {
+  if (typeof str !== 'string' || str.length === 0) return 0;
+  let ascii = 0;
+  for (let i = 0; i < str.length; i += 1) {
+    if (str.charCodeAt(i) < 128) ascii += 1;
+  }
+  const nonAscii = str.length - ascii;
+  return Math.ceil(ascii / 4 + nonAscii / 2);
+}
+
+/**
+ * Estimate token count for a message array.
+ * Uses a char-based heuristic that weights non-ASCII text more heavily than the
+ * legacy flat 1-token-per-4-chars rule (see estimateStringTokens). Exported for
+ * unit testing.
+ */
+export function estimateTokens(messages) {
   let total = 0;
   for (const msg of messages) {
     const content = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content ?? '');
-    total += Math.ceil(content.length / 4);
-    if (msg.tool_calls) total += Math.ceil(JSON.stringify(msg.tool_calls).length / 4);
-    if (msg.reasoning) total += Math.ceil(msg.reasoning.length / 4);
+    total += estimateStringTokens(content);
+    if (msg.tool_calls) total += estimateStringTokens(JSON.stringify(msg.tool_calls));
+    if (msg.reasoning) total += estimateStringTokens(msg.reasoning);
   }
   return total;
 }
@@ -1216,6 +1236,43 @@ function recordObservedRange(observedRanges, targetPath, startLine, endLine, sou
   observedRanges.set(targetPath, current);
 }
 
+// spec 024 FR-002: marker prefix for the deterministic evidence ledger injected into
+// the compact loop after proactive compaction. The ledger lists verified inspected
+// file ranges (path:Lx-Ly) — and observed commit shas — so the model keeps its grounded
+// anchors even after old tool results are truncated. It carries no snippet text
+// (observedRanges stores ranges only), so it stays deterministic and cheap.
+const LEDGER_MARKER = '[verified-evidence-ledger]';
+
+function buildEvidenceLedgerMessage(observedRanges, observedGit) {
+  const lines = [];
+  for (const [filePath, ranges] of observedRanges.entries()) {
+    if (!filePath || !Array.isArray(ranges) || ranges.length === 0) continue;
+    const formatted = ranges
+      .filter(r =>
+        Number.isInteger(r.startLine) && Number.isInteger(r.endLine)
+        && r.startLine >= 1 && r.endLine >= r.startLine)
+      .map(r => (r.startLine === r.endLine ? `L${r.startLine}` : `L${r.startLine}-${r.endLine}`));
+    if (formatted.length > 0) {
+      lines.push(`- ${filePath}: ${formatted.join(', ')}`);
+    }
+  }
+
+  const commits = observedGit?.commits ? [...observedGit.commits] : [];
+  if (lines.length === 0 && commits.length === 0) {
+    return null;
+  }
+
+  const parts = [
+    `${LEDGER_MARKER} Verified file ranges you have already inspected this session. `
+    + 'Cite from these and do not re-read them unless you need different line ranges:',
+    ...lines,
+  ];
+  if (commits.length > 0) {
+    parts.push(`- commits: ${commits.slice(0, 10).join(', ')}`);
+  }
+  return parts.join('\n');
+}
+
 function buildCodeMap(observedRanges, configEntryPoints = []) {
   const paths = [...observedRanges.keys()];
   if (paths.length === 0) {
@@ -1413,6 +1470,10 @@ export class ExplorerRuntime {
     const CHECKPOINT_INTERVAL = 4;
     const checkpointEnabled = budgetConfig.maxTurns > 6;
 
+    // Proactive context compaction (FR-002): trigger at 70% of the context window,
+    // mirroring the report loop, instead of only truncating at the 100% hard limit.
+    const compactionThreshold = Math.floor((budgetConfig.maxContextTokens ?? 100_000) * 0.70);
+
     // Stagnation tracking: detect repeated identical tool plans
     let lastFingerprint = null;
     let repeatedTurns = 0;
@@ -1426,8 +1487,22 @@ export class ExplorerRuntime {
         break;
       }
 
-      // Context window management: compact old tool results when approaching limit
-      messages = compactOldToolResults(messages, budgetConfig.maxContextTokens);
+      // Context window management (FR-002): proactively compact at 70% and re-inject a
+      // deterministic evidence ledger so verified locations survive tool-result truncation.
+      if (estimateTokens(messages) >= compactionThreshold && messages.length > 6) {
+        messages = compactOldToolResults(messages, compactionThreshold);
+        const ledger = buildEvidenceLedgerMessage(observedRanges, observedGit);
+        if (ledger) {
+          // Replace any prior ledger (user-role, marker-prefixed) so exactly one current
+          // ledger remains. This filter never matches assistant/tool messages, so
+          // tool_call pairing stays intact; it is pushed only at this turn-boundary slot.
+          messages = messages.filter(message =>
+            !(message.role === 'user'
+              && typeof message.content === 'string'
+              && message.content.startsWith(LEDGER_MARKER)));
+          messages.push({ role: 'user', content: ledger });
+        }
+      }
 
       // Checkpoint: every CHECKPOINT_INTERVAL turns, ask the model to self-assess.
       if (checkpointEnabled && turnIndex > 0 && turnIndex % CHECKPOINT_INTERVAL === 0) {
@@ -1916,6 +1991,9 @@ export class ExplorerRuntime {
     };
 
     const filesRead = new Set();
+    // FR-004: track inspected line ranges (not just paths) so buildReportCritic can
+    // ground report citation line ranges, matching the compact path's grounding.
+    const observedRanges = new Map();
     const toolsUsed = new Set();
     let report = '';
 
@@ -1950,7 +2028,10 @@ export class ExplorerRuntime {
           });
         }
         if (stats.llmCompactions >= maxLlmCompactions) {
-          messages = compactOldToolResults(messages, budgetConfig.maxContextTokens);
+          // FR-001: fall back at the 70% compactionThreshold, not maxContextTokens
+          // (100%). compactOldToolResults no-ops below its threshold, so passing
+          // maxContextTokens left the 70–100% band uncompacted.
+          messages = compactOldToolResults(messages, compactionThreshold);
         } else {
           try {
             const compactResult = await compactWithLlmSummary(
@@ -1969,8 +2050,9 @@ export class ExplorerRuntime {
               stats.stoppedByAbort = true;
               break;
             }
-            // Compaction failed — fall back to simple truncation
-            messages = compactOldToolResults(messages, budgetConfig.maxContextTokens);
+            // Compaction failed — fall back to simple truncation at the 70%
+            // compactionThreshold (FR-001) so the fallback fires in the 70–100% band.
+            messages = compactOldToolResults(messages, compactionThreshold);
           }
         }
       }
@@ -2094,6 +2176,19 @@ export class ExplorerRuntime {
         if (toolName === 'repo_read_file' && !safeToolResult?.error) {
           filesRead.add(safeToolResult.path);
           stats.filesRead += 1;
+          // FR-004: record the inspected range so citation line ranges can be grounded.
+          recordObservedRange(observedRanges, safeToolResult.path, safeToolResult.startLine, safeToolResult.endLine, 'read');
+        }
+        if (toolName === 'repo_grep' && Array.isArray(safeToolResult?.matches)) {
+          for (const match of safeToolResult.matches) {
+            recordObservedRange(observedRanges, match.path, match.line, match.line, 'grep');
+          }
+        }
+        // Macro tools (e.g. repo_symbol_context) carry their own observed ranges.
+        if (Array.isArray(safeToolResult?.observedRanges)) {
+          for (const observed of safeToolResult.observedRanges) {
+            recordObservedRange(observedRanges, observed.path, observed.startLine, observed.endLine, observed.source ?? 'macro_tool');
+          }
         }
         if (!safeToolResult?.error) allErrors = false;
 
@@ -2263,7 +2358,7 @@ export class ExplorerRuntime {
     stats.elapsedMs = nowMs() - startedAt;
     Object.assign(stats, globalRepoCache.stats());
     const reportFilesRead = [...filesRead];
-    const critic = buildReportCritic({ report, filesRead: reportFilesRead, stats });
+    const critic = buildReportCritic({ report, filesRead: reportFilesRead, observedRanges, stats });
     const citations = buildReportCitations(report);
     const targets = buildReportCitationTargets(citations);
 

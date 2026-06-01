@@ -5,7 +5,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { ExplorerRuntime } from '../src/explorer/runtime.mjs';
+import { ExplorerRuntime, estimateTokens } from '../src/explorer/runtime.mjs';
 import { buildExplorerSystemPrompt, buildFreeExploreSystemPrompt, buildFinalizePrompt, detectStrategy } from '../src/explorer/prompt.mjs';
 import { getBudgetConfig } from '../src/explorer/config.mjs';
 import { RepoToolkit } from '../src/explorer/repo-tools.mjs';
@@ -1304,6 +1304,251 @@ test('Phase 1 — freeExplore compaction preserves complete turns and valid tool
   );
 });
 
+test('freeExplore fallback compaction fires in the 70-100% band when LLM summary is unavailable (spec 024 FR-001)', async () => {
+  // The LLM-summary compaction call uses maxCompletionTokens: 1000. Throwing for it
+  // forces the runtime down the catch-branch fallback. Before FR-001 that fallback
+  // passed maxContextTokens (100%), so compactOldToolResults no-oped in the 70-100%
+  // band; now it passes compactionThreshold (70%) and actually truncates old tool results.
+  class SummaryFailsClient {
+    constructor() {
+      this.model = 'zai-glm-4.7';
+      this.calls = 0;
+      this.snapshots = [];
+    }
+
+    async createChatCompletion({ messages, maxCompletionTokens }) {
+      if (maxCompletionTokens === 1000) {
+        throw new Error('summary provider unavailable');
+      }
+      this.calls += 1;
+      this.snapshots.push(cloneMessages(messages));
+
+      if (this.calls <= 10) {
+        return {
+          usage: { prompt_tokens: 40, completion_tokens: 10, total_tokens: 50 },
+          message: {
+            content: '',
+            toolCalls: [{
+              id: `read-${this.calls}`,
+              function: {
+                name: 'repo_read_file',
+                arguments: JSON.stringify({ path: 'src/large.js', startLine: 1, endLine: 220 }),
+              },
+            }],
+          },
+        };
+      }
+
+      return {
+        usage: { prompt_tokens: 50, completion_tokens: 30, total_tokens: 80 },
+        finishReason: 'stop',
+        message: {
+          content: '# Final report\n\nFallback truncation kept the loop within budget.',
+          toolCalls: [],
+        },
+      };
+    }
+  }
+
+  const repoRoot = await makeRepoFixture();
+  const largeLines = Array.from({ length: 260 }, (_, index) => `export const line${index} = "${'x'.repeat(700)}";`);
+  await fs.writeFile(path.join(repoRoot, 'src', 'large.js'), largeLines.join('\n'));
+
+  const client = new SummaryFailsClient();
+  const runtime = new ExplorerRuntime({ chatClient: client });
+
+  const result = await runtime.freeExplore({
+    prompt: 'Force fallback compaction by exhausting the summary path.',
+    context: 'context '.repeat(40000), // ~80k tokens → inside the 70-100% band of 110k
+    repo_root: repoRoot,
+  });
+
+  const sawTruncatedToolResult = client.snapshots.some(snapshot =>
+    snapshot.some(message =>
+      message.role === 'tool'
+      && typeof message.content === 'string'
+      && message.content.includes('[truncated from'),
+    ),
+  );
+  assert.ok(
+    sawTruncatedToolResult,
+    'fallback compaction must truncate old tool results in the 70-100% band (FR-001)',
+  );
+
+  for (const snapshot of client.snapshots) {
+    assertNoOrphanedToolMessages(snapshot);
+  }
+  assert.ok(result.report.length > 0, 'a report must still be produced after fallback compaction');
+});
+
+test('estimateTokens weights non-ASCII higher than ASCII (spec 024 FR-003)', () => {
+  const koreanText = '가'.repeat(400); // 400 non-ASCII chars
+  const asciiText = 'a'.repeat(400);   // 400 ASCII chars
+
+  const koreanEstimate = estimateTokens([{ role: 'user', content: koreanText }]);
+  const asciiEstimate = estimateTokens([{ role: 'user', content: asciiText }]);
+  const legacyChars4 = Math.ceil(koreanText.length / 4);
+
+  // Non-ASCII text must estimate more tokens than the same length of ASCII...
+  assert.ok(
+    koreanEstimate > asciiEstimate,
+    `Korean text (${koreanEstimate}) must estimate more tokens than equal-length ASCII (${asciiEstimate})`,
+  );
+  // ...and more than the legacy flat chars/4 heuristic.
+  assert.ok(
+    koreanEstimate > legacyChars4,
+    `Korean text (${koreanEstimate}) must estimate more than legacy chars/4 (${legacyChars4})`,
+  );
+  // ASCII estimation stays at chars/4.
+  assert.equal(asciiEstimate, Math.ceil(asciiText.length / 4));
+  // tool_calls and reasoning fields are also counted.
+  assert.ok(estimateTokens([{ role: 'assistant', content: '', reasoning: koreanText }]) > 0);
+});
+
+test('explore compacts proactively at 70% and injects a deterministic evidence ledger (spec 024 FR-002)', async () => {
+  const LEDGER_MARKER = '[verified-evidence-ledger]'; // internal protocol string (runtime.mjs)
+
+  class CompactExploreClient {
+    constructor() {
+      this.model = 'zai-glm-4.7';
+      this.calls = 0;
+      this.snapshots = [];
+    }
+
+    async createChatCompletion({ messages, responseFormat }) {
+      this.calls += 1;
+      this.snapshots.push(cloneMessages(messages));
+
+      // Finalize call (json_schema) → return a valid compact JSON result.
+      if (responseFormat) {
+        return {
+          usage: { prompt_tokens: 50, completion_tokens: 20, total_tokens: 70 },
+          message: { content: JSON.stringify(compactResult({ directAnswer: 'done' })), toolCalls: [] },
+        };
+      }
+
+      // First turns: read the large file to push the compact context past 70%.
+      if (this.calls <= 8) {
+        return {
+          usage: { prompt_tokens: 40, completion_tokens: 10, total_tokens: 50 },
+          message: {
+            content: '',
+            toolCalls: [{
+              id: `read-${this.calls}`,
+              function: {
+                name: 'repo_read_file',
+                arguments: JSON.stringify({ path: 'src/large.js', startLine: 1, endLine: 220 }),
+              },
+            }],
+          },
+        };
+      }
+
+      // Stop calling tools → loop finalizes.
+      return {
+        usage: { prompt_tokens: 45, completion_tokens: 15, total_tokens: 60 },
+        finishReason: 'stop',
+        message: { content: 'Done exploring.', toolCalls: [] },
+      };
+    }
+  }
+
+  const repoRoot = await makeRepoFixture();
+  const largeLines = Array.from({ length: 260 }, (_, index) => `export const line${index} = "${'x'.repeat(700)}";`);
+  await fs.writeFile(path.join(repoRoot, 'src', 'large.js'), largeLines.join('\n'));
+
+  const client = new CompactExploreClient();
+  const runtime = new ExplorerRuntime({ chatClient: client });
+
+  await runtime.explore({
+    task: 'Force proactive compaction on the compact path.',
+    repo_root: repoRoot,
+    scope: ['src/**'],
+  });
+
+  const isLedger = (message) =>
+    message.role === 'user'
+    && typeof message.content === 'string'
+    && message.content.startsWith(LEDGER_MARKER);
+
+  // (a) proactive compaction truncated at least one old tool result.
+  const sawTruncatedToolResult = client.snapshots.some(snapshot =>
+    snapshot.some(message =>
+      message.role === 'tool'
+      && typeof message.content === 'string'
+      && message.content.includes('[truncated from'),
+    ),
+  );
+  assert.ok(sawTruncatedToolResult, 'proactive compaction must truncate old tool results (FR-002)');
+
+  // (b) a deterministic ledger was injected, lists the inspected range, and is never duplicated.
+  const ledgerSnapshot = client.snapshots.find(snapshot => snapshot.some(isLedger));
+  assert.ok(ledgerSnapshot, 'an evidence ledger must be injected after proactive compaction (FR-002)');
+  const ledgerMsg = ledgerSnapshot.find(isLedger);
+  assert.ok(ledgerMsg.content.includes('large.js'), 'ledger must list the inspected file');
+  assert.match(ledgerMsg.content, /L\d+-\d+/, 'ledger must carry a verified line range');
+  assert.ok(
+    client.snapshots.every(snapshot => snapshot.filter(isLedger).length <= 1),
+    'at most one ledger message may exist at a time (dedup-replace)',
+  );
+
+  // (c) tool_call pairing stays intact across every snapshot.
+  for (const snapshot of client.snapshots) {
+    assertNoOrphanedToolMessages(snapshot);
+  }
+});
+
+test('freeExplore wires observedRanges into the report critic for line-range grounding (spec 024 FR-004)', async () => {
+  // Reads src/auth.js lines 1-4, then writes a report citing L50-L60 (outside the
+  // inspected range). End-to-end this must surface a citation_line_gap, proving the
+  // report loop records observedRanges and passes them to buildReportCritic.
+  class CiteOutOfRangeClient {
+    constructor() {
+      this.model = 'zai-glm-4.7';
+      this.calls = 0;
+    }
+
+    async createChatCompletion() {
+      this.calls += 1;
+      if (this.calls === 1) {
+        return {
+          usage: { prompt_tokens: 40, completion_tokens: 10, total_tokens: 50 },
+          message: {
+            content: '',
+            toolCalls: [{
+              id: 'read-1',
+              function: {
+                name: 'repo_read_file',
+                arguments: JSON.stringify({ path: 'src/auth.js', startLine: 1, endLine: 4 }),
+              },
+            }],
+          },
+        };
+      }
+      return {
+        usage: { prompt_tokens: 45, completion_tokens: 30, total_tokens: 75 },
+        finishReason: 'stop',
+        message: {
+          content: '# Report\n\nThe auth guard is defined at `src/auth.js:L50-L60` (claimed).',
+          toolCalls: [],
+        },
+      };
+    }
+  }
+
+  const repoRoot = await makeRepoFixture();
+  const runtime = new ExplorerRuntime({ chatClient: new CiteOutOfRangeClient() });
+
+  const result = await runtime.freeExplore({
+    prompt: 'Where is the auth guard defined?',
+    repo_root: repoRoot,
+  });
+
+  const lineGap = result.critic.warnings.find(warning => warning.type === 'citation_line_gap');
+  assert.ok(lineGap, 'freeExplore must wire observedRanges into buildReportCritic (FR-004)');
+  assert.match(lineGap.target, /auth\.js/);
+});
+
 test('ExplorerRuntime carries compact uncertainties instead of legacy followups', async () => {
   class UncertaintyClient {
     constructor() {
@@ -2132,6 +2377,27 @@ test('Spec 023 — freeExplore system prompt has UNTRUSTED CONTENT rule and cand
   assert.ok(
     prompt.includes('candidate edit targets'),
     'freeExplore READ-ONLY rule must allow identifying candidate edit targets',
+  );
+});
+
+test('spec 024 FR-005 — freeExplore system prompt no longer overstates truncation-marker preservation', () => {
+  const prompt = buildFreeExploreSystemPrompt({
+    repoRoot: '/tmp/repo',
+    budgetConfig: getBudgetConfig(),
+  });
+  assert.doesNotMatch(
+    prompt,
+    /the key information is preserved/,
+    'truncation-marker line must not claim key information is preserved',
+  );
+  assert.ok(
+    prompt.includes('some content was omitted'),
+    'truncation-marker line must state content may be omitted',
+  );
+  assert.match(
+    prompt,
+    /re-read a narrower line range or re-run a narrower query/,
+    'truncation-marker line must advise re-reading when evidence seems missing',
   );
 });
 
