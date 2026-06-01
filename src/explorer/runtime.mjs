@@ -51,16 +51,36 @@ import { buildCompactToolDiagnostic, createCompactToolTrace, createTranscriptRec
 const TOOL_CONCURRENCY = 8;
 
 /**
- * Estimate token count for a message array.
- * Uses a conservative 1 token ≈ 4 chars heuristic.
+ * Estimate token count for a single string.
+ * ASCII is counted at ~4 chars/token; non-ASCII (CJK and other multibyte text)
+ * at ~2 chars/token, because BPE tokenizers emit many more tokens per CJK
+ * character than per ASCII character. This reduces — but does not eliminate —
+ * under-counting on Korean/CJK-heavy contexts; `/2` is a deliberate middle point
+ * (smaller divisors over-estimate and trigger premature compaction).
  */
-function estimateTokens(messages) {
+function estimateStringTokens(str) {
+  if (typeof str !== 'string' || str.length === 0) return 0;
+  let ascii = 0;
+  for (let i = 0; i < str.length; i += 1) {
+    if (str.charCodeAt(i) < 128) ascii += 1;
+  }
+  const nonAscii = str.length - ascii;
+  return Math.ceil(ascii / 4 + nonAscii / 2);
+}
+
+/**
+ * Estimate token count for a message array.
+ * Uses a char-based heuristic that weights non-ASCII text more heavily than the
+ * legacy flat 1-token-per-4-chars rule (see estimateStringTokens). Exported for
+ * unit testing.
+ */
+export function estimateTokens(messages) {
   let total = 0;
   for (const msg of messages) {
     const content = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content ?? '');
-    total += Math.ceil(content.length / 4);
-    if (msg.tool_calls) total += Math.ceil(JSON.stringify(msg.tool_calls).length / 4);
-    if (msg.reasoning) total += Math.ceil(msg.reasoning.length / 4);
+    total += estimateStringTokens(content);
+    if (msg.tool_calls) total += estimateStringTokens(JSON.stringify(msg.tool_calls));
+    if (msg.reasoning) total += estimateStringTokens(msg.reasoning);
   }
   return total;
 }

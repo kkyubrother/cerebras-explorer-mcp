@@ -5,7 +5,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { ExplorerRuntime } from '../src/explorer/runtime.mjs';
+import { ExplorerRuntime, estimateTokens } from '../src/explorer/runtime.mjs';
 import { buildExplorerSystemPrompt, buildFreeExploreSystemPrompt, buildFinalizePrompt, detectStrategy } from '../src/explorer/prompt.mjs';
 import { getBudgetConfig } from '../src/explorer/config.mjs';
 import { RepoToolkit } from '../src/explorer/repo-tools.mjs';
@@ -1379,6 +1379,30 @@ test('freeExplore fallback compaction fires in the 70-100% band when LLM summary
     assertNoOrphanedToolMessages(snapshot);
   }
   assert.ok(result.report.length > 0, 'a report must still be produced after fallback compaction');
+});
+
+test('estimateTokens weights non-ASCII higher than ASCII (spec 024 FR-003)', () => {
+  const koreanText = '가'.repeat(400); // 400 non-ASCII chars
+  const asciiText = 'a'.repeat(400);   // 400 ASCII chars
+
+  const koreanEstimate = estimateTokens([{ role: 'user', content: koreanText }]);
+  const asciiEstimate = estimateTokens([{ role: 'user', content: asciiText }]);
+  const legacyChars4 = Math.ceil(koreanText.length / 4);
+
+  // Non-ASCII text must estimate more tokens than the same length of ASCII...
+  assert.ok(
+    koreanEstimate > asciiEstimate,
+    `Korean text (${koreanEstimate}) must estimate more tokens than equal-length ASCII (${asciiEstimate})`,
+  );
+  // ...and more than the legacy flat chars/4 heuristic.
+  assert.ok(
+    koreanEstimate > legacyChars4,
+    `Korean text (${koreanEstimate}) must estimate more than legacy chars/4 (${legacyChars4})`,
+  );
+  // ASCII estimation stays at chars/4.
+  assert.equal(asciiEstimate, Math.ceil(asciiText.length / 4));
+  // tool_calls and reasoning fields are also counted.
+  assert.ok(estimateTokens([{ role: 'assistant', content: '', reasoning: koreanText }]) > 0);
 });
 
 test('ExplorerRuntime carries compact uncertainties instead of legacy followups', async () => {
