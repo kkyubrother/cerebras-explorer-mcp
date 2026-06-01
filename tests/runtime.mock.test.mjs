@@ -1405,6 +1405,99 @@ test('estimateTokens weights non-ASCII higher than ASCII (spec 024 FR-003)', () 
   assert.ok(estimateTokens([{ role: 'assistant', content: '', reasoning: koreanText }]) > 0);
 });
 
+test('explore compacts proactively at 70% and injects a deterministic evidence ledger (spec 024 FR-002)', async () => {
+  const LEDGER_MARKER = '[verified-evidence-ledger]'; // internal protocol string (runtime.mjs)
+
+  class CompactExploreClient {
+    constructor() {
+      this.model = 'zai-glm-4.7';
+      this.calls = 0;
+      this.snapshots = [];
+    }
+
+    async createChatCompletion({ messages, responseFormat }) {
+      this.calls += 1;
+      this.snapshots.push(cloneMessages(messages));
+
+      // Finalize call (json_schema) → return a valid compact JSON result.
+      if (responseFormat) {
+        return {
+          usage: { prompt_tokens: 50, completion_tokens: 20, total_tokens: 70 },
+          message: { content: JSON.stringify(compactResult({ directAnswer: 'done' })), toolCalls: [] },
+        };
+      }
+
+      // First turns: read the large file to push the compact context past 70%.
+      if (this.calls <= 8) {
+        return {
+          usage: { prompt_tokens: 40, completion_tokens: 10, total_tokens: 50 },
+          message: {
+            content: '',
+            toolCalls: [{
+              id: `read-${this.calls}`,
+              function: {
+                name: 'repo_read_file',
+                arguments: JSON.stringify({ path: 'src/large.js', startLine: 1, endLine: 220 }),
+              },
+            }],
+          },
+        };
+      }
+
+      // Stop calling tools → loop finalizes.
+      return {
+        usage: { prompt_tokens: 45, completion_tokens: 15, total_tokens: 60 },
+        finishReason: 'stop',
+        message: { content: 'Done exploring.', toolCalls: [] },
+      };
+    }
+  }
+
+  const repoRoot = await makeRepoFixture();
+  const largeLines = Array.from({ length: 260 }, (_, index) => `export const line${index} = "${'x'.repeat(700)}";`);
+  await fs.writeFile(path.join(repoRoot, 'src', 'large.js'), largeLines.join('\n'));
+
+  const client = new CompactExploreClient();
+  const runtime = new ExplorerRuntime({ chatClient: client });
+
+  await runtime.explore({
+    task: 'Force proactive compaction on the compact path.',
+    repo_root: repoRoot,
+    scope: ['src/**'],
+  });
+
+  const isLedger = (message) =>
+    message.role === 'user'
+    && typeof message.content === 'string'
+    && message.content.startsWith(LEDGER_MARKER);
+
+  // (a) proactive compaction truncated at least one old tool result.
+  const sawTruncatedToolResult = client.snapshots.some(snapshot =>
+    snapshot.some(message =>
+      message.role === 'tool'
+      && typeof message.content === 'string'
+      && message.content.includes('[truncated from'),
+    ),
+  );
+  assert.ok(sawTruncatedToolResult, 'proactive compaction must truncate old tool results (FR-002)');
+
+  // (b) a deterministic ledger was injected, lists the inspected range, and is never duplicated.
+  const ledgerSnapshot = client.snapshots.find(snapshot => snapshot.some(isLedger));
+  assert.ok(ledgerSnapshot, 'an evidence ledger must be injected after proactive compaction (FR-002)');
+  const ledgerMsg = ledgerSnapshot.find(isLedger);
+  assert.ok(ledgerMsg.content.includes('large.js'), 'ledger must list the inspected file');
+  assert.match(ledgerMsg.content, /L\d+-\d+/, 'ledger must carry a verified line range');
+  assert.ok(
+    client.snapshots.every(snapshot => snapshot.filter(isLedger).length <= 1),
+    'at most one ledger message may exist at a time (dedup-replace)',
+  );
+
+  // (c) tool_call pairing stays intact across every snapshot.
+  for (const snapshot of client.snapshots) {
+    assertNoOrphanedToolMessages(snapshot);
+  }
+});
+
 test('ExplorerRuntime carries compact uncertainties instead of legacy followups', async () => {
   class UncertaintyClient {
     constructor() {

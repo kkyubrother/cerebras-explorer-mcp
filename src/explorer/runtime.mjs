@@ -1236,6 +1236,43 @@ function recordObservedRange(observedRanges, targetPath, startLine, endLine, sou
   observedRanges.set(targetPath, current);
 }
 
+// spec 024 FR-002: marker prefix for the deterministic evidence ledger injected into
+// the compact loop after proactive compaction. The ledger lists verified inspected
+// file ranges (path:Lx-Ly) — and observed commit shas — so the model keeps its grounded
+// anchors even after old tool results are truncated. It carries no snippet text
+// (observedRanges stores ranges only), so it stays deterministic and cheap.
+const LEDGER_MARKER = '[verified-evidence-ledger]';
+
+function buildEvidenceLedgerMessage(observedRanges, observedGit) {
+  const lines = [];
+  for (const [filePath, ranges] of observedRanges.entries()) {
+    if (!filePath || !Array.isArray(ranges) || ranges.length === 0) continue;
+    const formatted = ranges
+      .filter(r =>
+        Number.isInteger(r.startLine) && Number.isInteger(r.endLine)
+        && r.startLine >= 1 && r.endLine >= r.startLine)
+      .map(r => (r.startLine === r.endLine ? `L${r.startLine}` : `L${r.startLine}-${r.endLine}`));
+    if (formatted.length > 0) {
+      lines.push(`- ${filePath}: ${formatted.join(', ')}`);
+    }
+  }
+
+  const commits = observedGit?.commits ? [...observedGit.commits] : [];
+  if (lines.length === 0 && commits.length === 0) {
+    return null;
+  }
+
+  const parts = [
+    `${LEDGER_MARKER} Verified file ranges you have already inspected this session. `
+    + 'Cite from these and do not re-read them unless you need different line ranges:',
+    ...lines,
+  ];
+  if (commits.length > 0) {
+    parts.push(`- commits: ${commits.slice(0, 10).join(', ')}`);
+  }
+  return parts.join('\n');
+}
+
 function buildCodeMap(observedRanges, configEntryPoints = []) {
   const paths = [...observedRanges.keys()];
   if (paths.length === 0) {
@@ -1433,6 +1470,10 @@ export class ExplorerRuntime {
     const CHECKPOINT_INTERVAL = 4;
     const checkpointEnabled = budgetConfig.maxTurns > 6;
 
+    // Proactive context compaction (FR-002): trigger at 70% of the context window,
+    // mirroring the report loop, instead of only truncating at the 100% hard limit.
+    const compactionThreshold = Math.floor((budgetConfig.maxContextTokens ?? 100_000) * 0.70);
+
     // Stagnation tracking: detect repeated identical tool plans
     let lastFingerprint = null;
     let repeatedTurns = 0;
@@ -1446,8 +1487,22 @@ export class ExplorerRuntime {
         break;
       }
 
-      // Context window management: compact old tool results when approaching limit
-      messages = compactOldToolResults(messages, budgetConfig.maxContextTokens);
+      // Context window management (FR-002): proactively compact at 70% and re-inject a
+      // deterministic evidence ledger so verified locations survive tool-result truncation.
+      if (estimateTokens(messages) >= compactionThreshold && messages.length > 6) {
+        messages = compactOldToolResults(messages, compactionThreshold);
+        const ledger = buildEvidenceLedgerMessage(observedRanges, observedGit);
+        if (ledger) {
+          // Replace any prior ledger (user-role, marker-prefixed) so exactly one current
+          // ledger remains. This filter never matches assistant/tool messages, so
+          // tool_call pairing stays intact; it is pushed only at this turn-boundary slot.
+          messages = messages.filter(message =>
+            !(message.role === 'user'
+              && typeof message.content === 'string'
+              && message.content.startsWith(LEDGER_MARKER)));
+          messages.push({ role: 'user', content: ledger });
+        }
+      }
 
       // Checkpoint: every CHECKPOINT_INTERVAL turns, ask the model to self-assess.
       if (checkpointEnabled && turnIndex > 0 && turnIndex % CHECKPOINT_INTERVAL === 0) {
