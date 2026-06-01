@@ -2380,6 +2380,27 @@ test('Spec 023 — freeExplore system prompt has UNTRUSTED CONTENT rule and cand
   );
 });
 
+test('spec 024 FR-005 — freeExplore system prompt no longer overstates truncation-marker preservation', () => {
+  const prompt = buildFreeExploreSystemPrompt({
+    repoRoot: '/tmp/repo',
+    budgetConfig: getBudgetConfig(),
+  });
+  assert.doesNotMatch(
+    prompt,
+    /the key information is preserved/,
+    'truncation-marker line must not claim key information is preserved',
+  );
+  assert.ok(
+    prompt.includes('some content was omitted'),
+    'truncation-marker line must state content may be omitted',
+  );
+  assert.match(
+    prompt,
+    /re-read a narrower line range or re-run a narrower query/,
+    'truncation-marker line must advise re-reading when evidence seems missing',
+  );
+});
+
 test('Phase 3 — detectStrategy returns compound array for mixed-signal task', () => {
   // A task that triggers both git-guided (변경) and blame-guided (버그) signals
   const strategy = detectStrategy('이 버그가 언제 변경된 커밋에서 도입됐는지 찾아라');
