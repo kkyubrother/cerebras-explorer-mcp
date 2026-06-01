@@ -1,5 +1,30 @@
 # Changelog
 
+## Unreleased
+
+### Context-window safety (spec 024)
+
+Behavior fixes to the explorer runtime's context management and evidence
+grounding (spec 023 was wording-only; these are split out as behavior changes).
+The public 8-tool surface and `schemaVersion` are unchanged.
+
+- **Fixed (spec 024)**: the report-loop compaction fallback now fires at the 70%
+  threshold instead of 100%, so simple truncation actually runs in the 70–100%
+  band when LLM-summary compaction is unavailable (previously a no-op).
+- **Changed (spec 024)**: the compact (`explore`) loop now compacts proactively
+  at 70% of the context window (matching the report loop) and re-injects a
+  deterministic evidence ledger (verified `path:Lx-Ly` ranges) so grounded
+  anchors survive tool-result truncation.
+- **Changed (spec 024)**: token estimation now weights non-ASCII (CJK) text more
+  heavily than the flat chars/4 heuristic, reducing under-counting that delayed
+  compaction on Korean/CJK-heavy contexts.
+- **Added (spec 024)**: report citations are now line-range grounded — a
+  `citation_line_gap` critic warning is emitted when a cited range overlaps no
+  inspected range (previously only path-level "was this file read" grounding).
+- **Changed (spec 024)**: the report system prompt no longer claims `[truncated]`
+  markers preserve key information; it advises re-reading a narrower range when
+  evidence seems missing.
+
 ## v0.7.1 - 2026-05-31
 
 ### Prompt & contract hygiene (spec 023)
