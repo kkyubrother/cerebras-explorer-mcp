@@ -528,6 +528,7 @@ export function extractGitCitations(report) {
 export function buildReportCritic({
   report,
   filesRead = [],
+  observedRanges = new Map(),
   stats = {},
   maxWarnings = 3,
 }) {
@@ -536,6 +537,15 @@ export function buildReportCritic({
   const gitCitations = extractGitCitations(report);
   const totalCitations = citations.length + gitCitations.length;
   const filesReadSet = new Set(filesRead.map(path => String(path).replace(/\\/g, '/').replace(/^\.\//, '')));
+
+  // spec 024 FR-004: normalize observedRanges keys the same way as citation paths so
+  // line-range grounding survives path-format differences between tool results and the
+  // model's markdown citations.
+  const normalizedObserved = new Map();
+  for (const [observedPath, ranges] of observedRanges.entries()) {
+    const key = String(observedPath).replace(/\\/g, '/').replace(/^\.\//, '');
+    normalizedObserved.set(key, [...(normalizedObserved.get(key) ?? []), ...(ranges ?? [])]);
+  }
 
   if (typeof report !== 'string' || !report.trim()) {
     warnings.push({
@@ -569,6 +579,24 @@ export function buildReportCritic({
       message: `${unknownCitations.length} citation(s) reference paths that were not recorded as read.`,
       target: sample.raw,
       action: 'Verify that citation before relying on the related claim.',
+    });
+  }
+
+  // spec 024 FR-004: line-range grounding for citations whose file WAS read. Only
+  // check paths that have observed ranges; a path read by an un-instrumented tool
+  // falls back to the path-level check above and never double-warns.
+  const lineGapCitations = citations.filter(citation =>
+    filesReadSet.has(citation.path)
+    && normalizedObserved.has(citation.path)
+    && !checkEvidenceGrounding(normalizedObserved, citation).overlaps);
+  if (lineGapCitations.length > 0) {
+    const sample = lineGapCitations[0];
+    warnings.push({
+      type: 'citation_line_gap',
+      severity: 'medium',
+      message: `${lineGapCitations.length} citation(s) reference line ranges that were not in any inspected range.`,
+      target: sample.raw,
+      action: 'Verify the cited line range before relying on the related claim.',
     });
   }
 

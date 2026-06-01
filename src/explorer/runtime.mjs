@@ -1991,6 +1991,9 @@ export class ExplorerRuntime {
     };
 
     const filesRead = new Set();
+    // FR-004: track inspected line ranges (not just paths) so buildReportCritic can
+    // ground report citation line ranges, matching the compact path's grounding.
+    const observedRanges = new Map();
     const toolsUsed = new Set();
     let report = '';
 
@@ -2173,6 +2176,19 @@ export class ExplorerRuntime {
         if (toolName === 'repo_read_file' && !safeToolResult?.error) {
           filesRead.add(safeToolResult.path);
           stats.filesRead += 1;
+          // FR-004: record the inspected range so citation line ranges can be grounded.
+          recordObservedRange(observedRanges, safeToolResult.path, safeToolResult.startLine, safeToolResult.endLine, 'read');
+        }
+        if (toolName === 'repo_grep' && Array.isArray(safeToolResult?.matches)) {
+          for (const match of safeToolResult.matches) {
+            recordObservedRange(observedRanges, match.path, match.line, match.line, 'grep');
+          }
+        }
+        // Macro tools (e.g. repo_symbol_context) carry their own observed ranges.
+        if (Array.isArray(safeToolResult?.observedRanges)) {
+          for (const observed of safeToolResult.observedRanges) {
+            recordObservedRange(observedRanges, observed.path, observed.startLine, observed.endLine, observed.source ?? 'macro_tool');
+          }
         }
         if (!safeToolResult?.error) allErrors = false;
 
@@ -2342,7 +2358,7 @@ export class ExplorerRuntime {
     stats.elapsedMs = nowMs() - startedAt;
     Object.assign(stats, globalRepoCache.stats());
     const reportFilesRead = [...filesRead];
-    const critic = buildReportCritic({ report, filesRead: reportFilesRead, stats });
+    const critic = buildReportCritic({ report, filesRead: reportFilesRead, observedRanges, stats });
     const citations = buildReportCitations(report);
     const targets = buildReportCitationTargets(citations);
 

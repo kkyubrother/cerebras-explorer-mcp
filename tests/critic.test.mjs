@@ -368,3 +368,52 @@ test('buildReportCritic warns for citations that were not read', () => {
   assert.equal(critic.warnings[0].target, '`src/missing.js:L1-L2`');
   assert.match(critic.warnings[0].message, /2 citation\(s\)/);
 });
+
+test('buildReportCritic flags citations outside inspected line ranges (spec 024 FR-004)', () => {
+  const critic = buildReportCritic({
+    report: 'Auth at `src/auth.js:L1-L4`. Routing at `src/routes/user.js:50-60`.',
+    filesRead: ['src/auth.js', 'src/routes/user.js'],
+    observedRanges: new Map([
+      ['src/auth.js', [{ startLine: 1, endLine: 4, source: 'read' }]],
+      ['src/routes/user.js', [{ startLine: 1, endLine: 10, source: 'read' }]],
+    ]),
+    stats: makeStats(),
+  });
+
+  const lineGap = critic.warnings.find(warning => warning.type === 'citation_line_gap');
+  assert.ok(lineGap, 'must warn when a cited range is outside inspected ranges');
+  // auth.js:L1-4 is covered (1-4 read); user.js:50-60 is not (only 1-10 read).
+  assert.match(lineGap.target, /user\.js/);
+  assert.match(lineGap.message, /1 citation\(s\)/);
+});
+
+test('buildReportCritic does not flag citations within inspected line ranges (spec 024 FR-004)', () => {
+  const critic = buildReportCritic({
+    report: 'Auth at `src/auth.js:L1-L4`.',
+    filesRead: ['src/auth.js'],
+    observedRanges: new Map([
+      ['src/auth.js', [{ startLine: 1, endLine: 10, source: 'read' }]],
+    ]),
+    stats: makeStats(),
+  });
+
+  assert.ok(
+    !critic.warnings.some(warning => warning.type === 'citation_line_gap'),
+    'a citation covered by an inspected range must not warn',
+  );
+});
+
+test('buildReportCritic skips line-range grounding for paths without observed ranges (spec 024 FR-004)', () => {
+  // Path read but not range-instrumented → falls back to path-level check, no line gap.
+  const critic = buildReportCritic({
+    report: 'Auth at `src/auth.js:L99-L120`.',
+    filesRead: ['src/auth.js'],
+    observedRanges: new Map(), // no ranges recorded for this path
+    stats: makeStats(),
+  });
+
+  assert.ok(
+    !critic.warnings.some(warning => warning.type === 'citation_line_gap'),
+    'without observed ranges for the path, no line-gap warning is emitted (no false positive)',
+  );
+});

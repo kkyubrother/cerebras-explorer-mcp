@@ -1498,6 +1498,57 @@ test('explore compacts proactively at 70% and injects a deterministic evidence l
   }
 });
 
+test('freeExplore wires observedRanges into the report critic for line-range grounding (spec 024 FR-004)', async () => {
+  // Reads src/auth.js lines 1-4, then writes a report citing L50-L60 (outside the
+  // inspected range). End-to-end this must surface a citation_line_gap, proving the
+  // report loop records observedRanges and passes them to buildReportCritic.
+  class CiteOutOfRangeClient {
+    constructor() {
+      this.model = 'zai-glm-4.7';
+      this.calls = 0;
+    }
+
+    async createChatCompletion() {
+      this.calls += 1;
+      if (this.calls === 1) {
+        return {
+          usage: { prompt_tokens: 40, completion_tokens: 10, total_tokens: 50 },
+          message: {
+            content: '',
+            toolCalls: [{
+              id: 'read-1',
+              function: {
+                name: 'repo_read_file',
+                arguments: JSON.stringify({ path: 'src/auth.js', startLine: 1, endLine: 4 }),
+              },
+            }],
+          },
+        };
+      }
+      return {
+        usage: { prompt_tokens: 45, completion_tokens: 30, total_tokens: 75 },
+        finishReason: 'stop',
+        message: {
+          content: '# Report\n\nThe auth guard is defined at `src/auth.js:L50-L60` (claimed).',
+          toolCalls: [],
+        },
+      };
+    }
+  }
+
+  const repoRoot = await makeRepoFixture();
+  const runtime = new ExplorerRuntime({ chatClient: new CiteOutOfRangeClient() });
+
+  const result = await runtime.freeExplore({
+    prompt: 'Where is the auth guard defined?',
+    repo_root: repoRoot,
+  });
+
+  const lineGap = result.critic.warnings.find(warning => warning.type === 'citation_line_gap');
+  assert.ok(lineGap, 'freeExplore must wire observedRanges into buildReportCritic (FR-004)');
+  assert.match(lineGap.target, /auth\.js/);
+});
+
 test('ExplorerRuntime carries compact uncertainties instead of legacy followups', async () => {
   class UncertaintyClient {
     constructor() {
