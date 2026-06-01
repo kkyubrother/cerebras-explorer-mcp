@@ -1304,6 +1304,83 @@ test('Phase 1 — freeExplore compaction preserves complete turns and valid tool
   );
 });
 
+test('freeExplore fallback compaction fires in the 70-100% band when LLM summary is unavailable (spec 024 FR-001)', async () => {
+  // The LLM-summary compaction call uses maxCompletionTokens: 1000. Throwing for it
+  // forces the runtime down the catch-branch fallback. Before FR-001 that fallback
+  // passed maxContextTokens (100%), so compactOldToolResults no-oped in the 70-100%
+  // band; now it passes compactionThreshold (70%) and actually truncates old tool results.
+  class SummaryFailsClient {
+    constructor() {
+      this.model = 'zai-glm-4.7';
+      this.calls = 0;
+      this.snapshots = [];
+    }
+
+    async createChatCompletion({ messages, maxCompletionTokens }) {
+      if (maxCompletionTokens === 1000) {
+        throw new Error('summary provider unavailable');
+      }
+      this.calls += 1;
+      this.snapshots.push(cloneMessages(messages));
+
+      if (this.calls <= 10) {
+        return {
+          usage: { prompt_tokens: 40, completion_tokens: 10, total_tokens: 50 },
+          message: {
+            content: '',
+            toolCalls: [{
+              id: `read-${this.calls}`,
+              function: {
+                name: 'repo_read_file',
+                arguments: JSON.stringify({ path: 'src/large.js', startLine: 1, endLine: 220 }),
+              },
+            }],
+          },
+        };
+      }
+
+      return {
+        usage: { prompt_tokens: 50, completion_tokens: 30, total_tokens: 80 },
+        finishReason: 'stop',
+        message: {
+          content: '# Final report\n\nFallback truncation kept the loop within budget.',
+          toolCalls: [],
+        },
+      };
+    }
+  }
+
+  const repoRoot = await makeRepoFixture();
+  const largeLines = Array.from({ length: 260 }, (_, index) => `export const line${index} = "${'x'.repeat(700)}";`);
+  await fs.writeFile(path.join(repoRoot, 'src', 'large.js'), largeLines.join('\n'));
+
+  const client = new SummaryFailsClient();
+  const runtime = new ExplorerRuntime({ chatClient: client });
+
+  const result = await runtime.freeExplore({
+    prompt: 'Force fallback compaction by exhausting the summary path.',
+    context: 'context '.repeat(40000), // ~80k tokens → inside the 70-100% band of 110k
+    repo_root: repoRoot,
+  });
+
+  const sawTruncatedToolResult = client.snapshots.some(snapshot =>
+    snapshot.some(message =>
+      message.role === 'tool'
+      && typeof message.content === 'string'
+      && message.content.includes('[truncated from'),
+    ),
+  );
+  assert.ok(
+    sawTruncatedToolResult,
+    'fallback compaction must truncate old tool results in the 70-100% band (FR-001)',
+  );
+
+  for (const snapshot of client.snapshots) {
+    assertNoOrphanedToolMessages(snapshot);
+  }
+  assert.ok(result.report.length > 0, 'a report must still be produced after fallback compaction');
+});
+
 test('ExplorerRuntime carries compact uncertainties instead of legacy followups', async () => {
   class UncertaintyClient {
     constructor() {

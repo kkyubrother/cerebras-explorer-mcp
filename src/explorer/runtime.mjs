@@ -1950,7 +1950,10 @@ export class ExplorerRuntime {
           });
         }
         if (stats.llmCompactions >= maxLlmCompactions) {
-          messages = compactOldToolResults(messages, budgetConfig.maxContextTokens);
+          // FR-001: fall back at the 70% compactionThreshold, not maxContextTokens
+          // (100%). compactOldToolResults no-ops below its threshold, so passing
+          // maxContextTokens left the 70–100% band uncompacted.
+          messages = compactOldToolResults(messages, compactionThreshold);
         } else {
           try {
             const compactResult = await compactWithLlmSummary(
@@ -1969,8 +1972,9 @@ export class ExplorerRuntime {
               stats.stoppedByAbort = true;
               break;
             }
-            // Compaction failed — fall back to simple truncation
-            messages = compactOldToolResults(messages, budgetConfig.maxContextTokens);
+            // Compaction failed — fall back to simple truncation at the 70%
+            // compactionThreshold (FR-001) so the fallback fires in the 70–100% band.
+            messages = compactOldToolResults(messages, compactionThreshold);
           }
         }
       }
