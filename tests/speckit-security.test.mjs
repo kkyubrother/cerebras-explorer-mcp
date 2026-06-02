@@ -14,9 +14,27 @@ async function read(relPath) {
   return fs.readFile(path.join(ROOT, relPath), 'utf8');
 }
 
+async function normalizeShellScripts(dir) {
+  const entries = await fs.readdir(dir, { withFileTypes: true });
+
+  for (const entry of entries) {
+    const entryPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      await normalizeShellScripts(entryPath);
+    } else if (entry.isFile() && entry.name.endsWith('.sh')) {
+      const content = await fs.readFile(entryPath, 'utf8');
+      const normalized = content.replace(/\r\n?/g, '\n');
+      if (normalized !== content) {
+        await fs.writeFile(entryPath, normalized);
+      }
+    }
+  }
+}
+
 async function makeRepoWithSpeckit() {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'speckit-security-'));
   await fs.cp(path.join(ROOT, '.specify'), path.join(tempDir, '.specify'), { recursive: true });
+  await normalizeShellScripts(path.join(tempDir, '.specify'));
 
   await execFileAsync('git', ['init', '-q'], { cwd: tempDir });
   await execFileAsync('git', ['config', 'user.email', 'test@example.invalid'], { cwd: tempDir });
@@ -39,6 +57,37 @@ async function makeRepoWithSpeckit() {
   return { tempDir, marker };
 }
 
+function isRetryableRmError(error) {
+  return error?.code === 'EBUSY' || error?.code === 'ENOTEMPTY' || error?.code === 'EPERM';
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function rmTempDirWithRetries(tempDir) {
+  const retryDelaysMs = [25, 75, 150, 300, 600];
+  let lastError;
+
+  for (let attempt = 0; attempt <= retryDelaysMs.length; attempt += 1) {
+    if (attempt > 0) {
+      await delay(retryDelaysMs[attempt - 1]);
+    }
+
+    try {
+      await fs.rm(tempDir, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      if (!isRetryableRmError(error)) {
+        throw error;
+      }
+      lastError = error;
+    }
+  }
+
+  throw lastError;
+}
+
 async function assertScriptDoesNotRunRemoteConfigOrCheckoutHook(scriptRelPath, shortName) {
   const { tempDir, marker } = await makeRepoWithSpeckit();
 
@@ -53,7 +102,7 @@ async function assertScriptDoesNotRunRemoteConfigOrCheckoutHook(scriptRelPath, s
     assert.match(result.BRANCH_NAME, new RegExp(`^001-${shortName}$`));
     await assert.rejects(fs.access(marker), { code: 'ENOENT' });
   } finally {
-    await fs.rm(tempDir, { recursive: true, force: true });
+    await rmTempDirWithRetries(tempDir);
   }
 }
 
