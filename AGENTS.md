@@ -6,11 +6,11 @@
 
 - **Zero runtime dependencies**. `package.json`에 `dependencies`/`devDependencies` 둘 다 비어 있어야 한다.
 - **Read-only 파일 접근**. 탐색기는 코드를 읽기만 한다. 쓰기·삭제 경로를 추가하지 말 것.
-- **Secret deny-list + redaction**은 항상 활성. `src/explorer/redact.mjs` 참조. snippet 안의 `process.env.X`/`import.meta.env.X`/`Deno.env.get("X")` 같은 env var 식별자는 public 인터페이스로 간주해 기본적으로 보존하고, secret 값/secret file path만 마스킹한다.
+- **Secret deny-list + redaction**은 항상 활성. deny-list(경로 패턴 `DEFAULT_SECRET_DENY_PATTERNS` / `isSecretPath`)는 `src/explorer/security.mjs`, redaction 규칙은 `src/explorer/redact.mjs` 참조. snippet 안의 `process.env.X`/`import.meta.env.X`/`Deno.env.get("X")` 같은 env var 식별자는 public 인터페이스로 간주해 기본적으로 보존하고, secret 값/secret file path만 마스킹한다.
 - **공개 도구 표면은 8개로 고정** (spec 011): `explore_repo`, 6개 wrapper(`find_relevant_code`, `trace_symbol`, `map_change_impact`, `explain_code_path`, `collect_evidence`, `review_change_context`), `explore`(Markdown 보고서). `explore_v2` 도구 이름과 `_ENABLE_EXPLORE_V2` / `_EXTRA_TOOLS` / `_ENABLE_EXPLORE` envvar는 모두 제거되었다.
 - **`explore_repo` 입력에 `budget`이 없다** (spec 011). 모든 호출은 단일 deep runtime config로 실행된다. budget 인자를 추가하지 말 것.
 - **Scope는 모든 도구에서 hard boundary**. `repo_list_dir`/`repo_read_file`/`repo_grep`/`repo_symbols`뿐 아니라 `repo_git_diff`/`repo_git_show`/`repo_git_diff({stat:true})`도 scope 밖 파일을 결과에서 제외하고, 제외 수는 `omittedOutOfScopeFiles`로만 가시화한다.
-- **Sub-agent / parent-agent handoff**: 결과를 자연어로 요약하거나 다른 agent에 인계할 때 다음 control-plane 필드를 반드시 보존하라 — `status.verification`, `status.complete`, `evidenceQuality`, `searchCoverage`, `failure`, `session/sessionId`, `critic.warnings`. heavy 호출에서는 `_meta.progressToken`을 함께 전달한다.
+- **Sub-agent / parent-agent handoff**: 결과를 자연어로 요약하거나 다른 agent에 인계할 때 다음 control-plane 필드를 반드시 보존하라 — `status.verification`, `status.complete`, `evidenceQuality`, `searchCoverage`, `failure`, `critic.warnings`. heavy 호출에서는 `_meta.progressToken`을 함께 전달한다.
 - `EXPLORER_PROVIDER` / `EXPLORER_FAILOVER` 경로는 **내부 구현이며 공개 계약 아님**. 사용자용 문서에서 1급 시민처럼 다루지 말 것.
 
 ## 문서-코드 동기화 매트릭스
@@ -24,7 +24,7 @@
 | `src/mcp/server.mjs`의 공개 도구 표면 (도구 추가/삭제/이름 변경) | `README.md` 공개 MCP 도구 섹션, `DESIGN.md`, 모든 `integrations/*/README.md` 및 `*.json.example` |
 | `package.json`의 `version` | `CHANGELOG.md`, 모든 `integrations/*` install ref(`#v0.X.Y`), `README.md` install snippet |
 | 공개 환경 변수 (`CEREBRAS_EXPLORER_*`, `EXPLORER_*` 중 공개분) | `README.md` 설정 섹션, `DESIGN.md` |
-| `src/explorer/redact.mjs` deny-list | `README.md` Security Model 섹션, `DESIGN.md` |
+| `src/explorer/security.mjs` deny-list (`DEFAULT_SECRET_DENY_PATTERNS`) / `src/explorer/redact.mjs` redaction 규칙 | `README.md` Security Model 섹션, `DESIGN.md` |
 | `src/benchmark/evaluator.mjs` 벤치마크 스키마 | `benchmarks/adoption.json` |
 
 ## Plan 종료(closure) 규칙
