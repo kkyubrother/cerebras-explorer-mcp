@@ -33,7 +33,7 @@ CEREBRAS_API_KEY=<key> node scripts/integration-test.mjs
 | explore_repo (quick) | 통과 |
 | explore_repo (normal) | 통과 |
 | freeExplore (quick) | 통과 |
-| freeExploreV2 (normal) | 통과 |
+| freeExplore advanced | 통과 |
 | tool validation | 통과 |
 
 전체 기준: 스크립트가 보고하는 모든 케이스가 통과하고 `0 fail`로 종료합니다.
@@ -41,12 +41,12 @@ CEREBRAS_API_KEY=<key> node scripts/integration-test.mjs
 ### 검증된 기능
 
 - `explore_repo` quick/normal 경로 모두 정상 동작
-- `explore`, `explore_v2` Markdown 보고서 생성 정상 동작
+- `explore` Markdown 보고서 생성 정상 동작
 - compact JSON finalization과 repair 경로 정상 동작
 - confidence, evidence quality, target/evidence 기반 compact contract 정상 동작
 - 결과 포맷: formatExploreResult로 스캔 가능한 텍스트 생성
-- tool result budgeting: V2에서 truncation 카운트 정상 기록
-- V2 통계 필드: `llmCompactions`, `toolResultsTruncated`, `outputRecoveries` 모두 정상 노출
+- tool result budgeting: report 백엔드에서 truncation 카운트 정상 기록
+- report-mode 통계 필드: `llmCompactions`, `toolResultsTruncated`, `outputRecoveries` 모두 정상 노출
 - 한국어 출력: language 파라미터 정상 동작
 - ERROR RECOVERY 프롬프트: 모델이 에러 시 전략 전환 관찰됨
 
@@ -56,7 +56,7 @@ CEREBRAS_API_KEY=<key> node scripts/integration-test.mjs
 
 - `initialize` 응답 정상
 - `tools/list` 응답에서 공개 도구 목록이 누락 없이 반환되는 것을 확인
-- `tools/call -> explore_repo` 정상 응답 (`confidence=high`, `sessionId` 반환)
+- `tools/call -> explore_repo` 정상 응답 (`confidence=high`)
 
 ### 자동 회귀 가드로 커버된 항목
 
@@ -105,8 +105,8 @@ CEREBRAS_API_KEY=<key> node scripts/integration-test.mjs
 
 **4. 동시 도구 호출**
 1. parent agent에 두 개 이상 도구 호출을 동시에 시키는 메시지를 보낸다: 예) "`explore`로 인증 구조 설명하면서 동시에 `explore_repo`로 라우터 변경 영향도 분석해줘".
-2. **기대**: 두 호출이 모두 응답을 반환하고, 한쪽이 다른 쪽을 차단(serialize)하지 않는다. 두 응답의 `sessionId`는 서로 다르며 각자 grounded evidence를 가진다.
-3. **fail 신호**: 한쪽 호출이 다른 쪽 완료까지 대기하거나, 두 응답의 `sessionId`가 충돌해서 reuse 동작이 어긋난다.
+2. **기대**: 두 호출이 모두 응답을 반환하고, 한쪽이 다른 쪽을 차단(serialize)하지 않으며, 두 응답이 각자 grounded evidence를 가진다.
+3. **fail 신호**: 한쪽 호출이 다른 쪽 완료까지 대기하거나, 두 응답이 서로 간섭해 한쪽 결과가 비거나 깨진다.
 
 ## Cerebras API 에러 코드 참조
 

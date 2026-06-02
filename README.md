@@ -256,6 +256,7 @@ Heavy 호출이나 sub-agent 핸드오프에서는 `_meta.progressToken`을 함�
       "startLine": 1,
       "endLine": 4,
       "why": "라우트가 requireAuth를 import하고 /users/me 핸들러에 연결한다.",
+      "evidenceType": "file_range",
       "groundingStatus": "exact",
       "snippet": "1: import { requireAuth } from \"../auth.js\";\n2: \n3: export function registerUserRoutes(app) {\n4:   app.get(\"/users/me\", requireAuth, (req, res) => {"
     },
@@ -265,6 +266,7 @@ Heavy 호출이나 sub-agent 핸드오프에서는 `_meta.progressToken`을 함�
       "startLine": 1,
       "endLine": 4,
       "why": "requireAuth의 실제 동작이 여기 정의되어 있다.",
+      "evidenceType": "file_range",
       "groundingStatus": "exact",
       "snippet": "1: export function requireAuth(req, res, next) {\n2:   if (!req.user) throw new Error(\"unauthorized\");\n3:   next();\n4: }"
     }
@@ -377,12 +379,17 @@ cerebras-explorer-mcp/
   integrations/
     claude/
       .mcp.json.example
+      .claude/
+        agents/cerebras-explorer.md
+        skills/cerebras-explore/SKILL.md
     claude-desktop/
       claude_desktop_config.json.example
       README.md
     codex/
       AGENTS.md.example
       config.toml.example
+      .agents/skills/cerebras-explore/SKILL.md
+      .codex/agents/cerebras_explorer.toml
     continue/
       config.yaml.example
       README.md
@@ -400,19 +407,23 @@ cerebras-explorer-mcp/
     benchmark/
       evaluator.mjs
       report.mjs
+      transcript-metrics.mjs
     explorer/
       cache.mjs
       cerebras-client.mjs
       config.mjs
+      critic.mjs
       prompt.mjs
       providers/
         abstract.mjs
         failover.mjs
         index.mjs
         openai-compat.mjs
+      redact.mjs
       repo-tools.mjs
       runtime.mjs
       schemas.mjs
+      security.mjs
       symbols.mjs
       transcript.mjs
       utils/
@@ -484,6 +495,10 @@ export CEREBRAS_EXPLORER_REASONING_FORMAT="parsed"      # reasoning 출력 형�
 # snippet 텍스트의 process.env.X / import.meta.env.X / Deno.env.get("X") 식별자까지
 # [REDACTED:env-var-name]로 마스킹합니다. 기본은 식별자 보존(코드 인터페이스).
 export CEREBRAS_EXPLORER_REDACT_ENV_VAR_NAMES="1"
+
+# snippet 텍스트의 32자 이상 연속 hex 문자열(일부 토큰/해시 형태)을
+# [REDACTED:generic-hex-32]로 추가 마스킹합니다. false positive를 피하려고 기본은 off.
+export CEREBRAS_EXPLORER_REDACT_GENERIC_HEX="1"
 ```
 
 > spec 011에서 제거된 envvar: `CEREBRAS_MODEL`, `CEREBRAS_EXPLORER_MODEL_QUICK|NORMAL|DEEP`, `CEREBRAS_EXPLORER_EXTRA_TOOLS`, `CEREBRAS_EXPLORER_ENABLE_EXPLORE`, `CEREBRAS_EXPLORER_ENABLE_EXPLORE_V2`, `CEREBRAS_EXPLORER_AUTO_ROUTE`, `CEREBRAS_EXPLORER_AUTO_SESSION_BY_REPO`, `CEREBRAS_EXPLORER_LEGACY_DISCOVERED_TARGETS`. spec 023에서 `CEREBRAS_EXPLORER_V2_TURN_MULTIPLIER`, `CEREBRAS_EXPLORER_V2_MAX_EXTRA_TURNS`, `CEREBRAS_EXPLORER_V2_MAX_COMPACTIONS`도 non-V2 이름으로 교체되었습니다. 이전에 이들을 사용하던 운영 환경은 단일 모델 + 8-tool 고정 surface로 자동 전환됩니다. 도구 surface 축소가 필요하면 MCP gateway에서 도구 화이트리스트를 적용하세요.
