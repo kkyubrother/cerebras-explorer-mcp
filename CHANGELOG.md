@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.8.0 - 2026-06-02
 
 ### Context-window safety (spec 024)
 
