@@ -463,9 +463,9 @@ benchmark introspection but are not exposed through the MCP envelope (spec
 - `repo_git_diff`/`repo_git_show`에서 추출한 hunk range를 기록한다.
 - 최종 evidence는 **kind별로 다르게 grounding**한다:
   - `file_range` (기본): 기록된 line range와 겹치는 항목만 유지
-  - `git_commit`: git tool 결과로부터 생성된 것이므로 자동 grounded
-  - `git_blame`: git tool 결과로부터 생성된 것이므로 자동 grounded
-  - `git_diff_hunk`: hunk range 매칭 또는 sha 존재 시 grounded
+  - `git_commit`: 인용한 sha가 git tool로 실제 관측된 commit일 때만 grounded, 아니면 ungrounded로 drop
+  - `git_blame`: 관측된 line range와 겹치거나 blame한 line이 실제 관측된 blame 결과에 있을 때만 grounded, 아니면 drop
+  - `git_diff_hunk`: 관측된 hunk range와 겹치거나, 겹치지 않아도 인용 sha가 관측된 commit이면 grounded, 아니면 drop
 - 누락된 evidence가 있으면 confidence를 낮추며, `droppedUngrounded`/`droppedMalformed`로 분류한다.
 
 이 정책 덕분에 “탐색은 했다고 하는데 근거가 빈약한” 출력을 줄일 수 있다.
@@ -614,7 +614,7 @@ Claude Code에서는 두 층으로 붙인다.
 
 ### A. MCP 서버 등록
 
-Claude는 `explore_repo`를 하나의 외부 고수준 도구로 본다.
+Claude는 cerebras-explorer를 8-tool MCP surface로 본다 — 구조화 핸드오프 `explore_repo`, 목적형 wrapper 6개(`find_relevant_code`/`trace_symbol`/`map_change_impact`/`explain_code_path`/`collect_evidence`/`review_change_context`), 사람용 Markdown `explore`. spec 011 이후 이 surface는 환경변수와 무관하게 8개로 고정이다.
 
 ### B. 얇은 sub-agent / skill
 
@@ -648,7 +648,6 @@ Codex도 동일하다.
 - autonomous tool loop
 - 심볼/참조 추적용 경량 regex 기반 인덱서
 - git 메타데이터 기반 탐색
-- 세션 기반 후속 탐색
 - MCP progress notification
 - 기본 테스트
 - Claude/Codex integration 예시
@@ -683,7 +682,9 @@ Codex도 동일하다.
 서버 lifecycle, native dependency, 프로젝트별 설정 비용이 있어 agent adoption
 관점에서 기본 경로에 넣지 않는다.
 
-**구현 계획:**
+아래 1–3과 분류기 경계(5–6)는 **구현 완료**되어 `symbols.mjs`에 반영돼 있다 (spec 012 baseline + spec 016 정밀도 패치; README "다음 확장 포인트"에도 완료로 기록). item 4(import/call graph, fingerprint warm-start)만 아직 **남은 후보**다.
+
+**구현 현황:**
 
 1. **내장 symbol provider 경계 정리**
    - `src/explorer/symbols.mjs`의 built-in extractor를 기본 provider로 유지
@@ -701,9 +702,9 @@ Codex도 동일하다.
    - 추가 relation(`call`, `constructor`, `export`, `type_reference`)으로 caller 잡음 감소
    - `repo_symbol_context`는 re-export/type-only reference를 caller에서 제외
 
-4. **기존 Phase 3 항목 유지:**
+4. **남은 후보 (미구현):**
    - import graph / call graph는 관측된 grep/symbol/read 결과로만 edge 기록
-   - repo fingerprint 기반 warm-start
+   - repo fingerprint 기반 warm-start (현재 `fingerprintToolCalls`는 turn 단위 stagnation 감지용일 뿐 repo warm-start가 아니다)
 
 5. **Parser-free 분류기 경계:**
    - `repo_references`와 `repo_symbol_context`의 `relation`은 현재 `call`, `member_call`, `constructor`, `type_reference`, `import`, `export` 카테고리를 안정적인 타겟 맵 신호로 제공한다.
