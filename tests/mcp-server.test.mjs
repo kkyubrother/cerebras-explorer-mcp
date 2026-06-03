@@ -839,6 +839,9 @@ test('MCP request handler returns repo_root resolution errors without mislabelin
   assert.doesNotMatch(called.content[0].text, /Invalid explore_repo arguments/);
   assert.equal(called.structuredContent.failure.category, 'input');
   assert.equal(called.structuredContent.failure.reason, 'repo_mismatch');
+  // F7: clients may surface only content text on isError and drop structuredContent,
+  // so the machine-readable reason must also appear in the text.
+  assert.match(called.content[0].text, /reason: repo_mismatch/i);
 });
 
 test('MCP request handler classifies generic invalid params as invalid_arguments', async () => {

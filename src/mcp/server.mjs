@@ -612,6 +612,17 @@ export function createMcpRequestHandler({
     };
   }
 
+  // Build a non-throwing isError tool result from a handled failure. The
+  // machine-readable reason is mirrored into content[0].text because some MCP
+  // clients surface only the text on isError and discard structuredContent (F7).
+  function handledFailureResult(opts) {
+    return {
+      isError: true,
+      content: [{ type: 'text', text: `${opts.message} [reason: ${opts.reason}]` }],
+      structuredContent: buildHandledFailure(opts),
+    };
+  }
+
   function toAgentFacingResult(result) {
     return {
       schemaVersion: result.schemaVersion ?? 2,
@@ -816,52 +827,37 @@ export function createMcpRequestHandler({
           throw error;
         } catch (error) {
           if (error.repoRootError) {
-            const message = `Unable to resolve repo_root for ${name}: ${error.message}`;
-            return {
-              isError: true,
-              content: [{ type: 'text', text: message }],
-              structuredContent: buildHandledFailure({
-                category: 'input',
-                reason: 'repo_mismatch',
-                message,
-                retryTool: null,
-              }),
-            };
+            return handledFailureResult({
+              category: 'input',
+              reason: 'repo_mismatch',
+              message: `Unable to resolve repo_root for ${name}: ${error.message}`,
+              retryTool: null,
+            });
           }
           if (error.code === -32602) {
-            const message = `Invalid arguments for ${name}: ${error.message}`;
-            return {
-              isError: true,
-              content: [{ type: 'text', text: message }],
-              structuredContent: buildHandledFailure({
-                category: 'input',
-                reason: 'invalid_arguments',
-                message,
-                retryTool: null,
-              }),
-            };
+            return handledFailureResult({
+              category: 'input',
+              reason: 'invalid_arguments',
+              message: `Invalid arguments for ${name}: ${error.message}`,
+              retryTool: null,
+            });
           }
           if (exposedToolNames.has(name)) {
-            const message = `${name} execution failed: ${error.message}`;
             const retryScope = Array.isArray(args?.scope)
               ? args.scope.filter(item => typeof item === 'string').slice(0, 8)
               : [];
-            return {
-              isError: true,
-              content: [{ type: 'text', text: message }],
-              structuredContent: buildHandledFailure({
-                category: 'provider',
-                reason: 'provider_error',
-                message,
-                retryTool: name === 'explore' ? 'explore' : 'explore_repo',
-                hints: ['Retry after the provider recovers, or narrow the task and scope.'],
-                retryArgs: {
-                  task: 'Retry after the provider recovers, or narrow the task and scope.',
-                  scope: retryScope,
-                },
-                expectedImprovement: 'A provider recovery or narrower scope should reduce failure risk.',
-              }),
-            };
+            return handledFailureResult({
+              category: 'provider',
+              reason: 'provider_error',
+              message: `${name} execution failed: ${error.message}`,
+              retryTool: name === 'explore' ? 'explore' : 'explore_repo',
+              hints: ['Retry after the provider recovers, or narrow the task and scope.'],
+              retryArgs: {
+                task: 'Retry after the provider recovers, or narrow the task and scope.',
+                scope: retryScope,
+              },
+              expectedImprovement: 'A provider recovery or narrower scope should reduce failure risk.',
+            });
           }
           throw error;
         }

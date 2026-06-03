@@ -94,12 +94,17 @@ export class StdioJsonRpcServer {
 
         const headerText = this.buffer.subarray(0, headerEnd).toString('utf8');
         const headers = parseHeaders(headerText);
+        const messageStart = headerEnd + (hasCrLfHeaders ? 4 : 2);
         const contentLength = Number.parseInt(headers['content-length'] || '', 10);
         if (!Number.isFinite(contentLength)) {
-          throw new Error('Missing or invalid Content-Length header.');
+          // Malformed frame: discard the bad header block and resync rather than
+          // throwing, which would wedge the Content-Length path for the rest of
+          // the stream and drop every subsequent framed message (audit F5).
+          this.logger(`Ignoring malformed Content-Length frame and resyncing: "${headers['content-length'] ?? ''}"`);
+          this.buffer = this.buffer.subarray(messageStart);
+          continue;
         }
 
-        const messageStart = headerEnd + (hasCrLfHeaders ? 4 : 2);
         const messageEnd = messageStart + contentLength;
         if (this.buffer.length < messageEnd) {
           return;

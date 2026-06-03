@@ -377,13 +377,31 @@ function isSecretDiffFile(file) {
   return diffFilePaths(file).some(relPath => isSecretPath(relPath).matched);
 }
 
-function statPathDenied(rawPath) {
-  const pathText = String(rawPath ?? '').trim();
-  if (isSecretPath(pathText).matched) return true;
-  const expanded = pathText.replace(/[{}]/g, '');
-  return expanded
-    .split(/\s+=>\s+/)
-    .some(part => isSecretPath(part.trim()).matched || isSecretPath(path.basename(part.trim())).matched);
+// git --stat renders renames as `prefix/{old => new}/suffix` or plain `old => new`.
+// Reconstruct the real old AND new paths (a naive `{}`-strip + ` => ` split drops
+// the shared prefix from the new side, so a secret like `.git/config` was missed
+// when the new name alone was not deny-listed — audit F6).
+function expandStatRenameCandidates(rawPath) {
+  const p = String(rawPath ?? '').trim();
+  const candidates = new Set([p]);
+  const brace = p.match(/^(.*)\{(.*?) => (.*?)\}(.*)$/);
+  if (brace) {
+    const [, prefix, oldMid, newMid, suffix] = brace;
+    const norm = mid => `${prefix}${mid}${suffix}`.replace(/\/{2,}/g, '/').trim();
+    candidates.add(norm(oldMid));
+    candidates.add(norm(newMid));
+  } else if (/\s=>\s/.test(p)) {
+    for (const part of p.split(/\s+=>\s+/)) candidates.add(part.trim());
+  }
+  return [...candidates].filter(Boolean);
+}
+
+export function statPathDenied(rawPath) {
+  for (const candidate of expandStatRenameCandidates(rawPath)) {
+    if (isSecretPath(candidate).matched) return true;
+    if (isSecretPath(path.basename(candidate)).matched) return true;
+  }
+  return false;
 }
 
 function filterGitStatOutput(statText) {
@@ -507,6 +525,20 @@ async function detectBinary(cmd, args) {
   } catch {
     return false;
   }
+}
+
+// Detects regex patterns prone to catastrophic backtracking (ReDoS). The JS grep
+// fallback runs regex.test() per line in-process with no time budget, so a nested
+// quantifier on a model-supplied pattern can block the event loop (audit F3). The
+// ripgrep fast path is linear-time and unaffected; this guard protects only the
+// fallback (base-scope greps / environments without ripgrep).
+export function isCatastrophicRegexPattern(pattern) {
+  const src = String(pattern || '');
+  // Nested quantifier: a group that contains an unbounded quantifier (+, *, {n,})
+  // and is itself unbounded-quantified — e.g. (a+)+, (a*)*, (.*)*, ([a-z]+)+, (a+){2,}.
+  // This covers the common exponential-backtracking ReDoS shapes; the bounded
+  // forms (a+)? and (default )? are intentionally left alone.
+  return /\([^()]*(?:[*+]|\{\d*,\d*\})[^()]*\)\s*(?:[*+]|\{\d*,\d*\})/.test(src);
 }
 
 function tryBuildRegex(pattern, caseSensitive = false) {
@@ -851,6 +883,17 @@ export class RepoToolkit {
     if (this._hasRipgrep) {
       const result = await this._grepWithRipgrep({ pattern, scope, caseSensitive, maxResults });
       if (result !== null) return result;
+    }
+
+    // ReDoS guard (audit F3): the JS fallback below runs regex.test() per line with
+    // no time budget, so a nested-quantifier pattern can block the event loop. The
+    // ripgrep fast path above is linear-time; only the fallback (base-scope greps /
+    // ripgrep-less environments) is reachable here, so reject the pattern instead.
+    if (isCatastrophicRegexPattern(pattern)) {
+      throw new Error(
+        `Pattern rejected: "${pattern}" may cause catastrophic backtracking in the fallback matcher. ` +
+        'Simplify it (avoid nested quantifiers like (a+)+) or narrow the scope so ripgrep can run.',
+      );
     }
 
     const regex = tryBuildRegex(pattern, caseSensitive);

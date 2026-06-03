@@ -190,7 +190,7 @@ function redactToolResult(toolResult) {
   return redactValue(toolResult).value;
 }
 
-function isIntentOnlyFreeExploreReport(content) {
+export function isIntentOnlyFreeExploreReport(content) {
   const text = typeof content === 'string' ? content.trim() : '';
   if (!text || text.length > 300) return false;
 
@@ -199,6 +199,13 @@ function isIntentOnlyFreeExploreReport(content) {
     /\blet me (?:now )?(?:compile|write|produce|draft) (?:the )?(?:final )?report\b/i,
     /\bi (?:will|can|should) (?:now )?(?:compile|write|produce|draft) (?:the )?(?:final )?report\b/i,
     /\bready to (?:compile|write|produce|draft) (?:the )?(?:final )?report\b/i,
+    // Korean intent-only preambles (audit F2): a short CJK response that merely
+    // announces it will write the report / has gathered enough info, without the
+    // report body. e.g. "보고서를 작성하겠습니다. 충분한 정보를 수집했습니다."
+    /보고서를?\s*(?:작성|정리|준비|제출)/,
+    /(?:정보|증거|자료|컨텍스트|맥락)(?:를|을)?\s*(?:충분히\s*)?(?:수집|확보|모았)/,
+    /충분(?:한|히)\s*(?:정보|증거|자료|컨텍스트|맥락)/,
+    /(?:작성|정리|준비)\s*하겠습니다/,
   ].some(pattern => pattern.test(text));
 }
 
