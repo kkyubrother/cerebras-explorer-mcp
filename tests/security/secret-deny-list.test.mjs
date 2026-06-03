@@ -56,6 +56,20 @@ test('secret path matcher covers default deny-list fixtures', () => {
   assert.equal(isSecretPath('src/main.js').matched, false);
 });
 
+test('F1 — service-account credential JSON files match the secret deny-list', () => {
+  for (const relPath of [
+    'google-meet-service-account.json',
+    'config/firebase-service-account.json',
+    'service-account.json',
+    'gcp_service_account.json',
+  ]) {
+    assert.equal(isSecretPath(relPath).matched, true, `${relPath} must match the secret deny-list`);
+  }
+  // Unrelated source files that merely mention "account" must not be denied.
+  assert.equal(isSecretPath('src/account-service.ts').matched, false);
+  assert.equal(isSecretPath('src/services/account.ts').matched, false);
+});
+
 test('RepoToolkit excludes secret files from traversal, read, grep, symbols, and context enrichment', async () => {
   const root = await makeSecretFixture();
   const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig() });

@@ -107,6 +107,13 @@ export const DEFAULT_SECRET_DENY_PATTERNS = Object.freeze([
   '**/credentials.yaml',
   'credentials.yml',
   '**/credentials.yml',
+  // Cloud service-account credential files (e.g. google-meet-service-account.json)
+  // bundle a private_key; deny them by name so their contents never enter
+  // evidence (audit finding F1). Covers hyphen and underscore conventions.
+  '*service-account*.json',
+  '**/*service-account*.json',
+  '*service_account*.json',
+  '**/*service_account*.json',
 ]);
 
 const COMPILED_SECRET_DENY_PATTERNS = DEFAULT_SECRET_DENY_PATTERNS.map(pattern => ({
