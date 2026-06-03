@@ -14,6 +14,16 @@ const REDACTION_RULES = Object.freeze([
     id: 'private-key-block',
     regex: /-----BEGIN ([A-Z0-9 -]*PRIVATE KEY)-----[\s\S]*?-----END \1-----/g,
   },
+  {
+    // Fallback for truncated/unclosed key blocks. Evidence snippets truncate
+    // long lines and tool results before the final redaction pass, so the
+    // matching -----END----- is frequently cut off (a service-account key is
+    // stored on one ~1.7KB physical line). Redact from the BEGIN marker through
+    // the trailing base64 / whitespace / JSON-escaped "\n" run even without an
+    // END marker, so a partial key body can never leak (audit finding F1).
+    id: 'private-key-block',
+    regex: /-----BEGIN [A-Z0-9 -]*PRIVATE KEY-----[\sA-Za-z0-9+/=\\-]*/g,
+  },
 ]);
 
 const GENERIC_HEX_RULE = Object.freeze({

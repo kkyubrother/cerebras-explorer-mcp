@@ -1,5 +1,41 @@
 # Changelog
 
+## Unreleased
+
+### Security & robustness (audit remediation)
+
+Fixes from a tool-behavior audit (live exploration of real repos + deterministic
+probes). The public 8-tool surface and `schemaVersion` are unchanged.
+
+- **Fixed (security, F1)**: the explorer could leak a committed private key
+  verbatim through evidence snippets. The `private-key-block` redaction required
+  a complete `BEGIN…END` block, but snippet truncation routinely cut off the
+  `END` marker; and the deny-list did not cover service-account credential JSON.
+  Added an unclosed/truncated private-key fallback redaction and deny
+  `*service-account*.json` / `*service_account*.json` by name.
+- **Fixed (security, F6)**: `repo_git_diff` `stat:true` could leak a secret path
+  when a rename used git's `prefix/{old => new}` form — the shared prefix was
+  dropped from the new side, so a path-deny-listed secret (e.g. `.git/config`)
+  was missed. Rename paths are now reconstructed before the deny-list check.
+- **Fixed (robustness, F3)**: the JS grep fallback (base-scope greps / no
+  ripgrep) ran model-supplied regexes with no time budget, so a nested-quantifier
+  pattern could block the event loop (ReDoS). Such patterns are now rejected on
+  the fallback path with an actionable error; the linear-time ripgrep path is
+  unchanged.
+- **Fixed (F2)**: the `explore` report loop now recognizes Korean/CJK
+  intent-only preambles ("…보고서를 작성하겠습니다") as non-reports, so a
+  degenerate preamble is reported as "could not produce a report" instead of
+  being surfaced as the report body.
+- **Fixed (F5)**: a malformed `Content-Length` frame no longer wedges the
+  Content-Length transport path — the bad header is skipped and the stream
+  resynced instead of throwing and dropping every subsequent framed message.
+- **Changed (F4)**: the context-management prompt now names the truncation
+  markers the runtime actually emits (`"[truncated…]"`, "summarized to save
+  context") instead of literals (`"[summarized]"`) that never appear.
+- **Changed (F7)**: handled failures now mirror the machine-readable
+  `failure.reason` into the error text, so MCP clients that surface only the
+  text on `isError` still see the reason.
+
 ## v0.8.0 - 2026-06-02
 
 ### Context-window safety (spec 024)

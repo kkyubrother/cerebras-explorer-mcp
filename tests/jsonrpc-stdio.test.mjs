@@ -77,6 +77,26 @@ test('stdio parser still accepts CRLF header separators', async () => {
   assert.deepEqual(sent[0].result, { echoedMethod: 'ping' });
 });
 
+test('F5 — a malformed Content-Length frame does not wedge subsequent valid frames', async () => {
+  const sent = [];
+  const server = new StdioJsonRpcServer({
+    handleRequest: async message => ({ echoedMethod: message.method }),
+  });
+  server.send = payload => { sent.push(payload); };
+
+  const malformed = Buffer.from('Content-Length: notanumber\r\n\r\n', 'utf8');
+  const body = JSON.stringify({ jsonrpc: '2.0', id: 7, method: 'ping', params: {} });
+  const valid = makeRequest(body, '\r\n');
+
+  server.buffer = Buffer.concat([malformed, valid]);
+  server.processBuffer();
+  await waitFor(() => sent.length >= 1);
+
+  // The valid request after the bad frame must still be processed (buffer resynced).
+  assert.ok(sent.some(p => p.id === 7 && p.result?.echoedMethod === 'ping'),
+    'valid framed request after a malformed Content-Length must still be answered');
+});
+
 test('concurrent requests are processed in parallel — slow request does not block fast one', async () => {
   const sent = [];
   const startTimes = {};

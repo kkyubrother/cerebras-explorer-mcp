@@ -95,6 +95,34 @@ test('redactText covers common PEM private key block labels', () => {
   }
 });
 
+test('F1 — redactText redacts an unclosed private key block whose END marker was truncated away', () => {
+  // Evidence snippets truncate long lines/tool results before the final redaction
+  // pass, so the matching -----END----- is frequently cut off. The key body must
+  // still not survive (see audit finding F1: service-account private_key leak).
+  const truncated = [
+    `-----BEGIN ${joinSecretParts('PRIVATE ', 'KEY')}-----`,
+    'MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQ' + 'C'.repeat(180),
+    '... [truncated from 1753 chars to save context]',
+  ].join('\n');
+
+  const result = redactText(truncated);
+  assert.ok(result.redacted, 'a BEGIN PRIVATE KEY block with no END must still be redacted');
+  assert.ok(result.redactions.includes('private-key-block'), 'must report the private-key-block rule');
+  assert.ok(!result.text.includes('MIIEvQIBAD'), 'private key body must not survive redaction');
+});
+
+test('F1 — redactText redacts a JSON-escaped service-account private key truncated mid-body', () => {
+  // service-account JSON stores the key on one physical line with literal \n escapes;
+  // a truncated evidence snippet keeps BEGIN + base64 but loses the END marker.
+  const jsonSnippet =
+    `"private_key": "-----BEGIN ${joinSecretParts('PRIVATE ', 'KEY')}-----\\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcw` +
+    'ggSjAgEAAoIBAQ'.repeat(40);
+
+  const result = redactText(jsonSnippet);
+  assert.ok(result.redacted, 'JSON-escaped truncated private key must be redacted');
+  assert.ok(!result.text.includes('MIIEvQIBAD'), 'private key body must not leak');
+});
+
 test('redactValue recursively redacts nested string fields', () => {
   const result = redactValue({
     content: `token=${OPENAI_KEY}`,
