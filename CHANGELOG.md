@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.8.2 - 2026-06-05
+
+### Evidence integrity
+
+The public 8-tool surface and `schemaVersion` are unchanged; this adds one
+additive critic warning type.
+
+- **Fixed (report critic)**: report-mode (`explore`) git citations
+  (`commit:<sha>`, `blame:<path>:L<n>`) are now grounded against the git tool
+  calls actually observed during exploration. A cited commit or blame line that
+  was never inspected raises a new `git_citation_gap` critic warning — symmetric
+  to `citation_line_gap` for file-range citations. Previously git citations were
+  counted toward the citation total but never verified, so a fabricated
+  `commit:` reference could pass the report critic unflagged.
+
 ## v0.8.1 - 2026-06-04
 
 ### Security & robustness (audit remediation)
