@@ -97,7 +97,10 @@ the runtime actually does.
 - **Added (spec 023)**: `explain_code_path` joins the retry-tool vocabulary
   (`RETRY_SCHEMA` enum + runtime `RETRY_TOOLS`) for contract symmetry; a test
   pins the two lists set-equal.
-- **Removed (spec 023)**: dead V1 free-explore prompt builders.
+- **Changed (spec 023)**: removed the stale V1/V2 free-explore prompt split from the
+  public contract. The remaining `buildFreeExploreSystemPrompt` /
+  `buildFreeExploreFinalizePrompt` functions are the live single report-backend
+  builders.
 - **Removed (spec 023)**: inert `explore.thoroughness` input and the old
   `CEREBRAS_EXPLORER_V2_TURN_MULTIPLIER`,
   `CEREBRAS_EXPLORER_V2_MAX_EXTRA_TURNS`,

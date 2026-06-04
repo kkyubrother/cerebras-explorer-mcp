@@ -4,7 +4,7 @@
 
 **Created**: 2026-05-22
 
-**Status**: Draft
+**Status**: Implemented
 
 **Input**: User description: "010 follow-up — 사용 빈도 낮은 환경변수 10개와 `explore_repo`의 `budget` 입력 파라미터를 모두 제거하고, V2(`explore_v2`)가 그대로 단일 `explore` 도구가 되도록 V1 explore 코드를 제거한다. 모든 호출은 기존 deep budget config 값을 단일 runtime config로 사용한다. 도구 surface는 8개로 고정(explore_repo + wrapper 6 + explore)."
 

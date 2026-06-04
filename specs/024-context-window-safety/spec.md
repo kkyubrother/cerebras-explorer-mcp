@@ -1,6 +1,6 @@
 # Feature Spec: context-window safety for the explorer runtime
 
-**Spec**: 024-context-window-safety | **Date**: 2026-06-01 | **Status**: draft (baseline `npm test` 385/0, 2 skipped)
+**Spec**: 024-context-window-safety | **Date**: 2026-06-01 | **Status**: implemented 2026-06-02; closure verified 2026-06-05 (`npm test` 411/0)
 
 ## Summary
 
@@ -149,12 +149,11 @@ The work plan and the line-level verification behind these items live in
 - Existing compaction test (`tests/runtime.mock.test.mjs` ~`:1289` report-path, `llmCompactions>=1`,
   usage accounting 215/80/295) stays green. Zero-dependency invariant unchanged.
 
-## Open questions for implementation kickoff
+## Closure Notes
 
-- **FR-002 ledger refresh cadence**: replace-on-every-compaction (chosen — deterministic, always
+- **FR-002 ledger refresh cadence**: replace-on-every-compaction was implemented — deterministic, always
   current) vs inject-once. Chosen keeps exactly one current ledger as `observedRanges` grows.
-- **FR-003 divisor**: `/2` (chosen, middle point) vs `/1.5` (closer to measured Korean ratio, more
+- **FR-003 divisor**: `/2` was implemented as the middle point vs `/1.5` (closer to measured Korean ratio, more
   aggressive). Provider window is now known (paid 131k); revisit the divisor only if the budget is
   re-tuned against it.
-- **CLAUDE.md / AGENTS.md "current plan" pointer**: per speckit convention, move to spec 024 **on
-  landing** (a `plan.md` landing task), not at draft time.
+- **CLAUDE.md / AGENTS.md "current plan" pointer**: moved to spec 024 on landing.

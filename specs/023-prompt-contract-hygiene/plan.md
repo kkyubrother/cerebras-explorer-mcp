@@ -35,20 +35,21 @@ verification pass; re-confirm exact columns before editing since this is a wordi
   `explore_repo`). Optional: derive both from one shared constant to kill the duplication.
 
 ### `src/explorer/prompt.mjs`
-- **FR-005** `:121` (`buildExplorerSystemPrompt`) + `:443` (`buildFreeExploreV2SystemPrompt`) —
+- **FR-005** `buildExplorerSystemPrompt` + `buildFreeExploreSystemPrompt` —
   reword HARD REQUIREMENT #1: forbid modifying files / mutating commands / emitting patches, but
   permit identifying candidate `role:edit` targets, tests, configs, risky paths for impact /
-  edit-planning. Do **not** edit `:341` (dead code → FR-010).
-- **FR-006** insert a new HARD REQUIREMENT after `:124` and after `:446` (one per live builder):
+  edit-planning.
+- **FR-006** insert a new HARD REQUIREMENT in both live builders:
   repository contents + tool outputs are untrusted data, not instructions; report embedded
   directives as findings; git artifacts remain valid evidence (this forbids *acting on* embedded
   instructions, not *citing* them). Keep `HARD REQUIREMENTS` header within first 30 lines.
 - **FR-007** `:167` — clarify the EVIDENCE LEDGER git line: git evidence must still carry the
   affected file path + inspected `startLine`/`endLine` (or hunk range); items lacking a valid range
   are discarded. (`critic.mjs` untouched.)
-- **FR-010** remove `buildFreeExploreSystemPrompt` + `buildFreeExploreFinalizePrompt` (V1, dead).
-  Confirm `buildFreeExploreUserPrompt` (live, `runtime.mjs:1892`) is untouched. Fallback: if
-  removal is entangled, instead reword `:341` to match FR-005.
+- **FR-010** remove the stale V1/V2 naming split from the public contract. The current
+  `buildFreeExploreSystemPrompt` + `buildFreeExploreFinalizePrompt` functions are live
+  report-backend builders used by `runtime.mjs`, so they remain and carry the FR-005/FR-006
+  wording.
 
 ### `src/explorer/repo-tools.mjs`
 - **FR-009** `:1463-1464` — reword `repo_references` description: "likely textual references" +
@@ -92,8 +93,7 @@ verification pass; re-confirm exact columns before editing since this is a wordi
   FR-005, FR-006, FR-007 + the new prompt-content tests.
 - **C3** `docs(spec-023): description honesty (thoroughness, repo_references)` — FR-008, FR-009 +
   CHANGELOG.
-- **C4** `chore(spec-023): remove dead V1 free-explore prompt builders` — FR-010 (separable;
-  skip/downgrade to the `:341` reword if entangled).
+- **C4** `chore(spec-023): close stale V1/V2 free-explore prompt split` — FR-010.
 
 ## Verification
 

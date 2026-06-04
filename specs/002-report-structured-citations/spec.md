@@ -4,7 +4,7 @@
 
 **Created**: 2026-05-21
 
-**Status**: Draft
+**Status**: Implemented
 
 **Input**: User description: "Report-mode 도구(explore, explore_v2)의 출력에 structured citations를 추가한다. 현재 freeExplore/freeExploreV2는 Markdown report 텍스트만 반환하고, 상위 에이전트가 file:line 인용을 얻으려면 정규식으로 다시 파싱해야 한다. critic.mjs에 이미 존재하는 extractReportCitations/extractGitCitations 헬퍼를 재사용해 runtime 반환 객체에 citations[] (type, path, startLine, endLine 등)와 citation-derived targets[]를 추가한다. MCP structuredContent를 통해 상위 에이전트에 노출. 원본 plan은 docs/superpowers/plans/completed/2026-05-19-tool-quality-improvements.md의 Task 2 섹션. 카테고리: P1. 의존성: Task 3(evidence-preservation benchmark)이 이 spec에 의존함. 변경 파일: src/explorer/runtime.mjs, src/mcp/server.mjs, src/explorer/critic.mjs(선택), tests/free-explore.test.mjs, tests/mcp-server.test.mjs."
 

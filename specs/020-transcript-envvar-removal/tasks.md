@@ -14,4 +14,4 @@
 
 ## Deferred (release step)
 
-- [ ] v0.7.0 release finalize: bump version refs 0.6.2 → 0.7.0, date the CHANGELOG heading, tag, `gh release create --prerelease` (breaking). Not part of this spec.
+- Closure note (2026-06-05): repo-state release finalization is complete. `CHANGELOG.md` has dated `v0.7.0`, tag `v0.7.0` exists, and active install refs have advanced to the current `v0.8.2`. GitHub release publication is external to this repository and is not tracked as an open implementation task here.

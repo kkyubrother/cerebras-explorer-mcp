@@ -4,7 +4,7 @@
 
 **Created**: 2026-05-22
 
-**Status**: Draft
+**Status**: Implemented
 
 **Input**: User description: "RAW.md — Cerebras Explorer MCP 피드백 검증 및 수정 구현 명세서. 외부 피드백 16개 클레임을 검증해 참 7, 부분참 8, 거짓 0, 검증불가 1로 판정한 뒤, 5개 신뢰성 수정 묶음(상태 계약 재정의 / targets·discoveredPaths 분리 / redaction 보정 / scope hard boundary 복구 / session·progress·sub-agent handoff 강화)을 단일 릴리스로 묶어 도입한다."
 

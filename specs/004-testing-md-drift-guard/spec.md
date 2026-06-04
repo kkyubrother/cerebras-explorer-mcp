@@ -4,7 +4,7 @@
 
 **Created**: 2026-05-21
 
-**Status**: Draft
+**Status**: Implemented
 
 **Input**: User description: "Task 4 (Remove Fixed Test Totals From TESTING.md). TESTING.md에서 고정 테스트 합계 숫자(320 tests, 5/5, 8개 도구 등)를 제거하고 명령+합격 기준 형식으로 전환. 통합 테스트 표와 stdio smoke 표기 포함. drift 방지 가드 테스트도 추가. 원본 plan은 docs/superpowers/plans/completed/2026-05-19-tool-quality-improvements.md Task 4. 카테고리: P2. plan 정규식이 통합 테스트 표를 누락하므로 spec에서 범위를 확장한다."
 

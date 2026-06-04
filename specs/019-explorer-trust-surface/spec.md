@@ -4,7 +4,7 @@
 
 **Created**: 2026-05-28
 
-**Status**: Draft
+**Status**: Implemented
 
 **Input**: User description: "각각 수정 방향을 제안받아서 수정을 진행합니다. speckit-workflow를 따라갑니다"
 

@@ -4,7 +4,7 @@
 
 **Created**: 2026-05-21
 
-**Status**: Draft
+**Status**: Implemented
 
 **Input**: User description: "Task 7 (Add Transcript-Based Adoption Metrics). JSONL transcript에서 broad search·repeated reads·repeated plans 같은 V2 채택 판단 신호를 추출하는 메트릭 모듈을 추가한다. 원본 plan: docs/superpowers/plans/completed/2026-05-19-tool-quality-improvements.md Task 7. 카테고리: P2. transcript 인프라는 이미 존재함."
 

@@ -4,7 +4,7 @@
 
 **Created**: 2026-05-23
 
-**Status**: Draft
+**Status**: Implemented; later refined by spec 016
 
 **Input**: User description: "spec 008(`symbol-precision-baseline`)의 Edge Cases 섹션이 명시적으로 미래 작업으로 분리한 5개 영역(공백 멤버 호출, 다중 패턴 라인, JSX, 데코레이터, 동적 임포트)에 대해 현재 parser-free 분류기의 동작을 단위 테스트로 굳히고, DESIGN.md의 parser-free 경계 단락에 새 처리 영역과 한계를 명시한다. 원본 plan: `plan/extension-backlog.md` §4 (symbol engine 정밀도 확장). 카테고리: P3, long-term baseline 연장."
 

@@ -4,7 +4,7 @@
 
 **Created**: 2026-05-27
 
-**Status**: Draft
+**Status**: Implemented
 
 **Input**: User description: "spec 017에서 응답의 `_debug` / `sessionId` / `session`을 제거했다. 운영 디버깅 채널이 필요하지만 응답 표면에 다시 박는 것은 사용자가 명시적으로 거부했다. 기존 transcript 메커니즘이 거의 같은 역할을 하므로 이를 운영 디버깅 채널로 재정의하고 적용 범위·옵트인 방식·보안 경계를 정리한다."
 

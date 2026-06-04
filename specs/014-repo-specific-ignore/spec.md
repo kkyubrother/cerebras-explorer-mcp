@@ -4,7 +4,7 @@
 
 **Created**: 2026-05-24
 
-**Status**: Draft
+**Status**: Implemented
 
 **Input**: User description: "extension-backlog #3 — 현재 `loadGitignoreRules`가 저장소 루트의 `.gitignore` 한 파일만 처리한다. nested `.gitignore`(서브디렉토리별 ignore)를 추가로 처리하고, `.cerebras-explorer.json`의 ignore 표면도 `extraIgnoreDirs`(이미 존재) 옆에 `extraIgnorePatterns`를 신설해 path glob 단위로도 ignore할 수 있게 한다. secret deny-list와 scope 검증은 항상 더 강한 우선순위를 유지한다."
 

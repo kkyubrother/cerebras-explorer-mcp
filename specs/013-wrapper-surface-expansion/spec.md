@@ -4,7 +4,7 @@
 
 **Created**: 2026-05-23
 
-**Status**: Draft
+**Status**: Implemented historically; public surface later reconsolidated to 8 tools by spec 011
 
 **Input**: User description: "extension-backlog #1(`map_impact`)과 #2(`find_entrypoints`)를 묶어서 한 번에 도입한다. spec 011의 \"공개 surface 영구 고정 8개\" 정책을 \"surface 영구 고정 10개\"로 명시적으로 갱신한다. minor 버전 bump(0.3.0 → 0.4.0)와 README/DESIGN/integrations 전체 동기화까지 release 단위로 한 번에 처리한다."
 

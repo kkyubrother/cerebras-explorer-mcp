@@ -72,7 +72,7 @@
 - [x] **T-056**: `tests/runtime.mock.test.mjs` session/sessionId fixture 및 assertion 56건 제거.
 - [x] **T-057**: `tests/integrations.test.mjs` `schemaVersion === 1` → 2 (라인 38), session fixture 정리.
 - [x] **T-058**: `tests/integration-script.test.mjs` session 흐름 케이스 제거.
-- [ ] **T-059**: `tests/benchmark-evaluator.test.mjs`, `tests/benchmark-transcript-metrics.test.mjs`에서 `_debug` fallback 케이스 제거. 부분 완료: fallback 동작은 제거됐고, legacy `_debug` 객체가 negative/stale fixture로만 남아 있음.
+- [x] **T-059**: `tests/benchmark-evaluator.test.mjs`, `tests/benchmark-transcript-metrics.test.mjs`에서 `_debug` fallback 케이스 제거. Closure note: fallback 동작은 제거됐고, 남은 legacy `_debug` 객체는 negative/stale fixture 가드로만 쓰인다.
 - [x] **T-060**: `scripts/integration-test.mjs`에서 session reuse 케이스 제거 또는 단순 호출로 교체.
 
 ## Phase 7 — 문서 갱신
@@ -93,11 +93,11 @@
 
 ## Phase 8 — 버전 bump 및 검증
 
-- [x] **T-090**: `package.json` version 0.5.0 → 0.6.0. 현재 checkout은 후속 release로 0.6.1.
-- [x] **T-091**: `src/mcp/server.mjs` `SERVER_INFO.version` 0.6.0. 현재 checkout은 후속 release로 0.6.1.
+- [x] **T-090**: `package.json` version 0.5.0 → 0.6.0. 현재 checkout은 후속 release로 0.8.2.
+- [x] **T-091**: `src/mcp/server.mjs` `SERVER_INFO.version` 0.6.0. 현재 checkout은 후속 release로 0.8.2.
 - [x] **T-092**: `npm test` 전체 0 failures.
 - [x] **T-093**: `npm pack --dry-run --json`으로 패키지 메타 확인.
-- [ ] **T-094**: (선택) `CEREBRAS_API_KEY="..." node ./scripts/integration-test.mjs` 라이브 검증.
+- Optional live validation (not a closure task): `CEREBRAS_API_KEY="..." node ./scripts/integration-test.mjs`.
 - [x] **T-095**: commit, tag (`v0.6.0`), push (README의 "새 버전 릴리즈" 절차).
 - [x] **T-096**: `grep -rn 'github:kkyubrother/cerebras-explorer-mcp#v0.5.0' README.md integrations/`로 옛 tag를 모두 v0.6.0으로 sed 치환.
 

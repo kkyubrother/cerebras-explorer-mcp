@@ -4,7 +4,7 @@
 
 **Created**: 2026-05-21
 
-**Status**: Draft
+**Status**: Implemented
 
 **Input**: User description: "Task 8 (Add Symbol Precision Baseline Coverage). src/explorer/symbols.mjs의 분류 로직은 이미 구현됨. 남은 작업은 (a) 4개 parser-free relation case(session.touch() member_call, (req: Request) type_reference 등)를 명시적 단위 테스트로 굳히고 (b) DESIGN.md에 parser-free 경계 문서 추가. 원본 plan: docs/superpowers/plans/completed/2026-05-19-tool-quality-improvements.md Task 8. 카테고리: P3, long-term baseline."
 

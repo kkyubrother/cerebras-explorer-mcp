@@ -4,7 +4,7 @@
 
 **Created**: 2026-05-21
 
-**Status**: Draft
+**Status**: Implemented
 
 **Input**: User description: "Task 5 (Expand Wrapper Unknown-Key Regression Coverage). 검증 로직(validatePublicToolArgs)은 이미 6개 wrapper 모두에 중앙 적용. 회귀 테스트만 trace_symbol에서 6개 wrapper 매트릭스로 확장. 원본 plan: docs/superpowers/plans/completed/2026-05-19-tool-quality-improvements.md Task 5. 카테고리: P1, 저위험·고가치."
 

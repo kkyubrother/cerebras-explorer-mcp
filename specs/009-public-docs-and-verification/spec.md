@@ -4,7 +4,7 @@
 
 **Created**: 2026-05-21
 
-**Status**: Draft
+**Status**: Implemented
 
 **Input**: User description: "Task 9 (Update Public Docs and Run Full Verification). Task 1~3, 6, 7 산출물을 README.md, DESIGN.md, CHANGELOG.md에 반영하고 npm test + benchmark JSON parse + optional provider benchmark로 전체 검증. 원본 plan: docs/superpowers/plans/completed/2026-05-19-tool-quality-improvements.md Task 9. 카테고리: closing task, Task 1~3·6·7 선행 필수."
 

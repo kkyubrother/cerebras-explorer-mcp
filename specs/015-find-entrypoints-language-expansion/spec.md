@@ -4,7 +4,7 @@
 
 **Created**: 2026-05-24
 
-**Status**: Draft
+**Status**: Implemented
 
 **Input**: User description: "spec 013(`find_entrypoints` 1차 spec)이 JS/TS/Python/Go + 기본 cron으로 한정한 entry-point 정규식 패턴 묶음을 Ruby(Rails/Sinatra/Thor/whenever), PHP(Laravel/Symfony), Java(Spring), Rust(actix-web/rocket/clap) 네 언어로 확장한다. 신규 `entryKind` 카테고리는 추가하지 않으며 기존 http/cli/cron 카테고리에 정규식만 증분한다. Lambda handler / K8s CronJob YAML / Pub-Sub subscriber 같은 별도 의미 카테고리는 후속 spec에서 다룬다."
 

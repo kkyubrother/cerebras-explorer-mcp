@@ -4,7 +4,7 @@
 
 **Created**: 2026-05-21
 
-**Status**: Draft
+**Status**: Implemented
 
 **Input**: User description: "Task 3 (Add Evidence Preservation Benchmark Coverage). 원본 plan의 Task 3 섹션 참조. report-mode 도구의 citation 보존을 측정하는 별도 벤치마크 suite를 추가한다. 카테고리: P1. 의존성: Task 2(citations[]) 선행 필수."
 

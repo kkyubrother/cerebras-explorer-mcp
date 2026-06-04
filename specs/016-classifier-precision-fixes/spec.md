@@ -4,7 +4,7 @@
 
 **Created**: 2026-05-24
 
-**Status**: Draft
+**Status**: Implemented
 
 **Input**: User description: "spec 012에서 baseline으로 굳혀둔 5개 edge case 중 의미상 부정확한 3개 분류를 패치한다. 신규 분류 카테고리는 추가하지 않으며 기존 `{ type, relation }` 형식 안에서만 분류 결과를 더 정확하게 만든다. spec 012의 단위 테스트는 명시적으로 새 결과로 갱신해 새 baseline을 다시 굳힌다. spec 008의 4 baseline 케이스는 그대로 유지한다."
 

@@ -86,7 +86,7 @@ pairing — keep all injected messages on turn boundaries.
 
 ## Verification
 
-- `npm test` 0 fail; baseline 385/0/2-skipped preserved + new tests green.
+- `npm test` 0 fail; closure verification on 2026-06-05 observed 411 pass / 0 fail.
 - Manual: a >70 % compact exploration shows prefix-truncated old tool results and a single
   `[verified-evidence-ledger]` message; report fallback truncates when summary is unavailable;
   `estimateTokens` on Korean text exceeds `length/4`; a report citing an unread line range yields
@@ -97,7 +97,7 @@ pairing — keep all injected messages on turn boundaries.
 
 ## Landing tasks (on merge, not at draft)
 
-- Move the CLAUDE.md / AGENTS.md "current plan" pointer to spec 024 (speckit convention; spec 023
+- [x] Move the CLAUDE.md / AGENTS.md "current plan" pointer to spec 024 (speckit convention; spec 023
   moved it on landing).
-- `CHANGELOG.md`: note the context-window-safety behavior fixes under the next version. Version
+- [x] `CHANGELOG.md`: note the context-window-safety behavior fixes under the next version. Version
   bump + tag is a separate release step ([[project-release-procedure]]).
