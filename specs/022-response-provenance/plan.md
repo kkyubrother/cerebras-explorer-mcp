@@ -1,44 +1,115 @@
-# Implementation Plan: response provenance (spec 022)
+# Implementation Plan: log and benchmark provenance (spec 022)
 
 **Branch**: `022-response-provenance` (when picked up) | **Date**: 2026-05-31 | **Spec**: [`spec.md`](./spec.md)
 
-> **Status: NOT STARTED.** This plan is drafted ahead of implementation per the maintainer's "spec only" decision (2026-05-31). Resolve the schemaVersion open question in `spec.md` before writing code.
+> **Status: NOT STARTED.** This plan was rewritten on 2026-06-05 after the
+> maintainer rejected parent-facing response provenance. The implementation must
+> keep MCP `structuredContent` unchanged and record provenance only in benchmark
+> reports and transcript/log metadata.
 
 ## Technical Context
 
-Node.js 22+ ESM, zero-dep. The change is server-boundary only: the child model schema is untouched, so `research.md`/`data-model.md`/`contracts/` are not generated (spec 014–021 pattern). All identifiers below are verified against the current source (v0.7.0): `EXPLORE_REPO_OUTPUT_SCHEMA` (`schemas.mjs:285`), `EXPLORE_RESULT_JSON_SCHEMA` (`schemas.mjs:318`), `SERVER_INFO` (`server.mjs:14`), `buildToolList()` (`server.mjs:221`), `toAgentFacingResult()` (`server.mjs:614`).
+Node.js 22+ ESM, zero-dep. Current source is v0.8.2 with compact
+`schemaVersion: 2`. Public MCP tool surface remains fixed at 8 tools:
+`explore_repo`, 6 specialized wrappers, and `explore`. The current compact
+structured-content schema already excludes `provenance`; preserve that invariant.
 
-## Code changes
+Relevant current anchors:
 
-- `src/explorer/schemas.mjs`
-  - Add `PROVENANCE_SCHEMA` (`type: object`, `additionalProperties: false`, the 8 required fields from FR-001).
-  - Add `provenance: PROVENANCE_SCHEMA` to `EXPLORE_REPO_OUTPUT_SCHEMA.properties`.
-  - Do **not** touch `EXPLORE_RESULT_JSON_SCHEMA` — FR-002 keeps it server-authored.
+- `src/mcp/server.mjs`: `SERVER_INFO`, public tool registry, tool-call envelope,
+  `toAgentFacingResult()`.
+- `src/explorer/schemas.mjs`: `EXPLORE_REPO_OUTPUT_SCHEMA` and
+  `EXPLORE_RESULT_JSON_SCHEMA`.
+- `src/explorer/transcript.mjs`: `createTranscriptRecorder()` writes initial and
+  final `meta` JSONL records when `CEREBRAS_EXPLORER_LOG_PATH` is set.
+- `scripts/run-benchmark.mjs`: writes sanitized JSON reports via `--output`.
+
+## Code Changes
+
 - `src/mcp/server.mjs`
-  - Imports: `execFileSync` (`node:child_process`), `createHash` (`node:crypto`), `fs` (`node:fs`).
-  - `readPackageVersion()`: read `../../package.json`, fall back to `SERVER_INFO.version`.
-  - `resolveGitSha()`: `CEREBRAS_EXPLORER_GIT_SHA` trimmed → else `git rev-parse HEAD` → else `null`. **Memoize in a module-level variable** so the subprocess runs at most once per process (FR-003). Use a sentinel (e.g. `undefined` = not yet resolved, `null` = resolved-absent) to cache the negative case too.
-  - `buildToolRegistryHash(tools)`: sha256 hex over `tools.map({name, inputSchema, outputSchema})`. **Memoize** — `buildToolList()` is stable per process (FR-004).
-  - `buildResponseProvenance()`: assemble the object from the above + `SERVER_INFO` + `schemaVersion: 1`.
-  - In `toAgentFacingResult()`, add `provenance: result.provenance ?? buildResponseProvenance()`.
+  - Add an internal/exported helper such as `buildExecutionProvenance()`.
+  - The helper reads `SERVER_INFO`, package version, compact schema version `2`,
+    and the ordered live `buildToolList()` registry.
+  - `gitSha`: trimmed `CEREBRAS_EXPLORER_GIT_SHA` -> `git rev-parse HEAD` ->
+    `null`, memoized once per process.
+  - `toolRegistryHash`: sha256 hex over
+    `tools.map(({ name, inputSchema, outputSchema }) => ({ name, inputSchema,
+    outputSchema: outputSchema ?? null }))`, memoized once per process unless
+    the helper is given an explicit registry in tests.
+  - Do not add the helper result to `toAgentFacingResult()` or
+    `toAgentFacingFreeExploreResult()`.
+  - For normal MCP calls, avoid resolving provenance unless transcript logging is
+    enabled. Benchmark report generation resolves it once for the run.
 
-## Test changes
+- `src/explorer/transcript.mjs`
+  - Extend `createTranscriptRecorder({ ... })` with an optional `provenance`
+    parameter.
+  - Include `provenance` in the initial `meta` record when supplied. Do not
+    require transcript recording to resolve provenance when disabled.
+  - Preserve existing redaction/raw-mode behavior by passing the metadata through
+    the current `record()` path.
 
-- `tests/mcp-server.test.mjs`: in the structuredContent test, assert provenance presence + shape (serverName, serverVersion === initialized version, packageVersion === package.json, schemaVersion === 1, exposedToolCount === live registry length, toolNames deepEqual live registry, toolRegistryHash matches `/^[0-9a-f]{64}$/`, gitSha null-or-`/^[0-9a-f]{7,40}$/`).
-- `tests/schemas.test.mjs`: assert `EXPLORE_REPO_OUTPUT_SCHEMA.properties.provenance` exists with the 8 `required` fields; assert `EXPLORE_RESULT_JSON_SCHEMA` does **not** carry `provenance` (FR-002 guard).
+- `src/explorer/runtime.mjs`
+  - Accept optional provenance through runtime options for
+    `exploreRepository()` and `freeExploreRepository()`.
+  - Pass that option into `createTranscriptRecorder()` for both compact and
+    Markdown exploration paths.
+  - Do not import `src/mcp/server.mjs` from runtime; keep dependency direction
+    server -> runtime -> transcript.
+  - Keep runtime behavior read-only and avoid exposing provenance in returned
+    `structuredContent` or report text.
 
-## Doc changes
+- `scripts/run-benchmark.mjs`
+  - Capture one run-level provenance object after initializing the in-process MCP
+    handler.
+  - Include it as top-level `provenance` in the JSON object written by
+    `--output`.
+  - Leave `cases[].result` as the raw parent-facing `structuredContent`.
 
-- `README.md`: extend the compact-contract bullet to list `provenance`; add the 8-tool `provenance` object to the sample compact response.
-- `DESIGN.md`: one paragraph in the public-contract section describing provenance and the "record it with raw initialize/tools/list before product verdicts" expectation.
-- `examples/expected-response.json`: add the top-level `provenance` object after `schemaVersion`.
-- Benchmark runner (`scripts/run-benchmark.mjs`): record `provenance` + raw `initialize`/`tools/list` in the transcript (FR-007). Confirm exact insertion point during implementation.
+## Test Changes
 
-## Commit units
+- `tests/mcp-server.test.mjs`
+  - If `buildExecutionProvenance()` is exported from `server.mjs`, assert its
+    field shape and registry-derived values against the live 8-tool list.
 
-- C1 `feat(spec-022): add server-authored response provenance` (schema + server + tests)
-- C2 `docs(spec-022): document response provenance` (README/DESIGN/example/benchmark runner)
+- `tests/transcript.test.mjs`
+  - Assert a transcript `meta` record carries provenance when supplied.
+  - Re-run the redaction/raw-mode assertions to confirm provenance does not
+    bypass existing transcript sanitization.
+
+- `tests/benchmark-report.test.mjs` or a focused benchmark-runner test
+  - Run the benchmark writer against a small mocked/fixture case if available,
+    or call the report assembly helper if one is extracted.
+  - Assert top-level `provenance` exists in the saved report and
+    `cases[].result` remains the existing parent-facing result payload.
+
+## Doc Changes
+
+- `README.md`
+  - Keep the compact-contract bullet free of provenance.
+  - In the benchmark/transcript section, document that provenance is stored in
+    benchmark JSON reports and transcript metadata, not parent-facing tool
+    responses.
+
+- `DESIGN.md`
+  - Add one short note in the public-contract / observability discussion:
+    provenance is operational/evaluation metadata and intentionally lives outside
+    `structuredContent`.
+
+- `examples/expected-response.json`
+  - Do not add provenance. If touched, add/update a guard comment elsewhere
+    instead of changing the canonical response body.
+
+## Commit Units
+
+- C1 `feat(spec-022): record execution provenance in logs`
+  - provenance helper, transcript wiring, benchmark report output, tests.
+- C2 `docs(spec-022): document log-only provenance`
+  - README/DESIGN updates, no canonical response shape change.
 
 ## Verification
 
-`npm test` 0 fail (385 → 385 + new provenance assertions). Zero-dep check passes. 8-tool surface guard (`tests/mcp-server.test.mjs`) still green. Whether this ships in a patch or minor depends on the schemaVersion decision — record-only, no release gate.
+- `npm test` 0 fail.
+- Zero-dependency invariant unchanged.
+- Public tool count remains 8.
+- No compact response schema or canonical response example update is required.

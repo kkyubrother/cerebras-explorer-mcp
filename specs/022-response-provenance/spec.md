@@ -1,42 +1,105 @@
-# Feature Spec: response provenance for the 8-tool surface
+# Feature Spec: log and benchmark provenance for execution records
 
-**Spec**: 022-response-provenance | **Date**: 2026-05-31 | **Status**: drafted (implementation deferred)
+**Spec**: 022-response-provenance | **Date**: 2026-05-31 | **Status**: drafted (implementation deferred; rewritten 2026-06-05)
 
 ## Summary
 
-Attach a server-authored `provenance` object to every structured MCP tool response (`structuredContent`). It pins the running executor: server/package version, schema version, git SHA (when resolvable), a stable tool-registry hash, and the exposed tool count + ordered names. The goal is that an evaluation/benchmark transcript can fix *exactly which build* produced a verdict, without trusting the child model to self-report.
+Record server-authored provenance in execution records, not in parent-agent tool
+responses. The provenance object identifies the running executor: server/package
+version, compact response schema version, git SHA when resolvable, stable public
+tool-registry hash, exposed tool count, and ordered tool names.
+
+The goal is that benchmark reports and opt-in transcript logs can later answer
+"which exact build produced this verdict?" without forcing parent agents to spend
+context on operational metadata that does not help answer the code question.
 
 ## Motivation
 
-- Benchmarks are record-only and never a release gate ([[feedback-release-policy]]). For a record to be meaningful months later, it must be attributable to a precise executor build — version string alone is not enough across un-tagged working-tree runs.
-- The project thesis is **trust = context saving** ([[project-trust-as-context-saving]]). Provenance is a trust signal that costs the consumer almost nothing to record and lets them detect surface drift (e.g. a tool added/removed, schema changed) by hash rather than by prose diffing.
-- `initialize` / `tools/list` already expose `serverVersion`, but they are separate round-trips; a per-response field means every captured result is self-describing.
-- This is the last open technical item of the 2026-05-25 contract-hygiene plan (Task 5); it was never built. It deserves its own spec rather than a checkbox because it changes the public output schema and the MCP boundary.
+- The project purpose is context saving for parent coding agents: return compact,
+  grounded code evidence so the parent does not repeat broad repository searches.
+  Build identifiers do not improve that answer quality and should not be part of
+  the normal `structuredContent` contract.
+- Benchmarks are record-only and never a release gate ([[feedback-release-policy]]).
+  For a record to be useful months later, it must be attributable to a precise
+  executor build. Package version alone is insufficient for untagged working-tree
+  runs or parallel agent sessions.
+- `initialize` / `tools/list` can expose version and tool information, but a
+  benchmark JSON file or transcript JSONL should remain self-describing even when
+  those setup round-trips were not preserved alongside the result.
+- This supersedes the earlier 022 draft that proposed adding `provenance` to every
+  public MCP `structuredContent` response. That direction would make the compact
+  parent-facing contract noisier without improving exploration quality.
 
 ## Functional Requirements
 
-- **FR-001**: Every structured tool response (`structuredContent`) for the public surface includes a `provenance` object with exactly: `serverName`, `serverVersion`, `packageVersion`, `schemaVersion`, `gitSha`, `toolRegistryHash`, `exposedToolCount`, `toolNames`.
-- **FR-002**: `provenance` is **server-authored only**. It appears in `EXPLORE_REPO_OUTPUT_SCHEMA` (the agent-facing output schema) and is **absent** from the child-model `EXPLORE_RESULT_JSON_SCHEMA` — the model must never be able to author or forge it.
-- **FR-003**: `gitSha` = trimmed `CEREBRAS_EXPLORER_GIT_SHA` if set; else the result of `git rev-parse HEAD`; else `null`. The git subprocess runs **at most once per process** (memoized) — never per response.
-- **FR-004**: `toolRegistryHash` is a sha256 hex digest over the ordered registry's stable shape (`{name, inputSchema, outputSchema}` per tool). `toolNames` is the ordered live registry and `exposedToolCount` its length (currently 8). The hash is process-stable and may be memoized.
-- **FR-005**: `packageVersion` is read from `package.json` (falling back to `SERVER_INFO.version` on read failure); `serverVersion` is `SERVER_INFO.version`; `schemaVersion` is the integer `1`.
-- **FR-006**: The zero-dependency invariant holds — only `node:crypto`, `node:child_process`, `node:fs` (all built-in).
-- **FR-007**: Docs and the canonical example are updated: `README.md` compact-contract bullet + sample response, `DESIGN.md` public-contract section, and `examples/expected-response.json` carry the 8-tool `provenance` shape. The benchmark runner records `provenance` alongside raw `initialize` / `tools/list` payloads.
+- **FR-001**: Public MCP tool `structuredContent` remains unchanged. The feature
+  records provenance only in benchmark/log envelopes, not in parent-facing tool
+  responses or child-model JSON.
+- **FR-002**: The implementation MUST produce a server-authored provenance object
+  for execution records with exactly these fields: `serverName`, `serverVersion`,
+  `packageVersion`, `schemaVersion`, `gitSha`, `toolRegistryHash`,
+  `exposedToolCount`, `toolNames`.
+- **FR-003**: `schemaVersion` in the provenance object MUST be the current compact
+  parent-facing response schema version, currently integer `2`.
+- **FR-004**: `gitSha` MUST be the trimmed `CEREBRAS_EXPLORER_GIT_SHA` value when
+  set; otherwise the result of `git rev-parse HEAD`; otherwise `null`. Git
+  resolution MUST be memoized so a subprocess runs at most once per process,
+  including the negative/null case.
+- **FR-005**: `toolRegistryHash` MUST be a stable sha256 hex digest over the
+  ordered public tool registry shape. The hash input MUST include each public
+  tool's `name`, `inputSchema`, and `outputSchema` (`null` when absent);
+  `toolNames` MUST mirror the ordered live registry and `exposedToolCount` MUST
+  match its length (currently 8).
+- **FR-006**: Benchmark JSON reports written by the `scripts/run-benchmark.mjs`
+  `--output` path MUST include a top-level run-level `provenance` object. Individual
+  case `result` payloads MUST remain the original parent-facing tool result.
+- **FR-007**: When `CEREBRAS_EXPLORER_LOG_PATH` enables transcript JSONL logging,
+  the transcript metadata MUST include the same provenance object at least once
+  per exploration call, preferably in the initial `meta` record so failed or
+  interrupted runs still have a build identifier.
+- **FR-008**: Provenance records MUST pass through the existing report/transcript
+  sanitization paths and MUST NOT require raw prompts, raw file content, secret
+  values, or secret file paths.
+- **FR-009**: The zero-dependency invariant holds. Implementation may use only
+  Node built-ins such as `node:crypto`, `node:child_process`, and `node:fs`.
+- **FR-010**: README/DESIGN updates MUST state that provenance is log/benchmark
+  metadata only and that the compact MCP `structuredContent` contract remains
+  focused on `directAnswer`, `status`, `targets`, `evidence`,
+  `evidenceQuality`, `searchCoverage`, `critic`, and `failure`.
 
 ## Out of Scope
 
-- Cryptographic signing / attestation of responses — this is identity, not a signature.
-- Per-tool or per-call provenance variation; the object describes the server build, identical across the 8 tools within one process.
-- Changing any other compact-contract field, or the child-model schema beyond confirming `provenance` is excluded from it.
-- Surfacing provenance in the Markdown `explore` report mode (structured `structuredContent` only).
+- Adding `provenance` to public MCP `structuredContent`.
+- Changing any other compact-contract field or bumping the compact response
+  `schemaVersion`.
+- Allowing the child model to author, suggest, or override provenance.
+- Cryptographic signing, attestation, or tamper-proof storage. This is build
+  identity metadata, not a signature.
+- Per-tool or per-call variation inside one process. The provenance describes the
+  server build and public tool registry, which are stable for the process.
+- Surfacing provenance inside the Markdown `explore` report text.
 
 ## Acceptance
 
 - `npm test` 0 fail.
-- `tests/mcp-server.test.mjs` asserts `structuredContent.provenance` exists, `serverName === 'cerebras-explorer-mcp'`, `serverVersion`/`packageVersion` match, `schemaVersion === 1`, `exposedToolCount` and `toolNames` match the live 8-tool registry, `toolRegistryHash` is 64-hex, and `gitSha` is `null` or a `[0-9a-f]{7,40}` hash.
-- `tests/schemas.test.mjs` asserts `EXPLORE_REPO_OUTPUT_SCHEMA.properties.provenance` exists with the 8 required fields, and that the child-model schema does not.
-- Zero-dependency check still passes.
+- A provenance unit/integration test asserts the object shape, `serverName ===
+  'cerebras-explorer-mcp'`, `serverVersion`/`packageVersion` match the running
+  package, `schemaVersion === 2`, `exposedToolCount === 8`, `toolNames` match the
+  live public registry order, `toolRegistryHash` is 64 lowercase hex chars, and
+  `gitSha` is `null` or a resolvable commit hash string.
+- A benchmark report test asserts `scripts/run-benchmark.mjs --output` emits a
+  top-level `provenance` object while leaving `cases[].result` as the existing
+  parent-facing result payload.
+- A transcript test asserts the initial or final `meta` JSONL record carries
+  provenance when `CEREBRAS_EXPLORER_LOG_PATH` is enabled, and that transcript
+  redaction behavior remains unchanged.
+- Zero-dependency checks remain green.
 
-## Open question for implementation kickoff
+## Closure Notes
 
-- **schemaVersion bump policy**: does adding `provenance` itself warrant `schemaVersion` 1 → 2, or is `provenance` an additive field under the existing `1`? Default assumption here: additive, stays `1` (consumers tolerant of new top-level keys). Confirm with maintainer before implementing.
+- The previous response-provenance design was intentionally rejected: parent
+  agents do not need git SHA or tool-registry hashes to make code decisions, and
+  adding them to every response would work against the compact-contract goal.
+- Provenance is still useful for benchmark reproducibility and operational
+  debugging. The correct boundary is the log/report envelope, not the parent
+  model's answer payload.
