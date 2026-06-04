@@ -671,6 +671,8 @@ spec 011 이후 모든 explore 호출은 단일 deep runtime config로 실행됩
 | `temperature` | 1.0 |
 | `top_p` | 0.95 |
 
+> `maxContextTokens`(110000)는 Cerebras zai-glm-4.7 **paid 티어** 컨텍스트 윈도우(131k 토큰) 아래로 잡은 작업 예산입니다. ~21k는 출력/추론 여유분이고, 압축은 70%(≈77k)에서 선제 발동합니다(spec 024).
+
 ## 안전 경계
 
 이 구현은 의도적으로 다음을 하지 않습니다.

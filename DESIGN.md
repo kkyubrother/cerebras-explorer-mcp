@@ -602,6 +602,8 @@ spec 011 이후 사용자가 선택할 수 있는 budget label은 없다. 모든
 | `temperature` | 1.0 |
 | `top_p` | 0.95 |
 
+> `maxContextTokens`(110000)는 Cerebras zai-glm-4.7 **paid 티어** 컨텍스트 윈도우(131k 토큰, max output 40k — [Cerebras 문서](https://inference-docs.cerebras.ai/models/zai-glm-47)) **아래로 잡은 작업 예산**이다. ~21k는 출력/추론 여유분이며, 압축은 70%(≈77k)에서 선제 발동한다(spec 024).
+
 `EXPLORE_REPO_INPUT_SCHEMA`에서 `budget` 키는 제거되었고, 모든 호출은 위 값으로 실행된다. `getBudgetConfig()`는 인자를 받지 않고 이 단일 runtime config를 반환한다.
 
 Report-mode turn 확장은 `CEREBRAS_EXPLORER_TURN_MULTIPLIER`, `CEREBRAS_EXPLORER_MAX_EXTRA_TURNS`, `CEREBRAS_EXPLORER_MAX_COMPACTIONS`로만 조정한다. spec 023 이후 `CEREBRAS_EXPLORER_V2_*` tuning envvar 이름은 인식하지 않는다.

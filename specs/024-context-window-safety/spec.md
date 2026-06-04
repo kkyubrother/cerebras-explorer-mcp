@@ -114,9 +114,11 @@ The work plan and the line-level verification behind these items live in
 
 ## Out of Scope
 
-- **Provider hard-limit calibration.** `maxContextTokens: 110_000` is a self-imposed budget, not the
-  measured provider ceiling (unknown — action plan §5). FR-003 improves the estimate's *direction*,
-  not a measured limit.
+- **Provider hard-limit calibration.** `maxContextTokens: 110_000` is a self-imposed working budget
+  held under the Cerebras zai-glm-4.7 **paid-tier** context window (131k tokens, max output 40k —
+  [Cerebras docs](https://inference-docs.cerebras.ai/models/zai-glm-47)), leaving ~21k headroom for
+  output/reasoning. FR-003 improves the estimate's *direction*; re-calibrating the budget itself is
+  out of scope here.
 - **Output-continuation overlap/consistency detection.** The `finishReason === 'length'` recovery
   (`runtime.mjs:2194-2251`) stays best-effort; deterministic overlap detection and main-loop
   (non-finalize) cut-off recovery are a separate, larger effort.
@@ -152,6 +154,7 @@ The work plan and the line-level verification behind these items live in
 - **FR-002 ledger refresh cadence**: replace-on-every-compaction (chosen — deterministic, always
   current) vs inject-once. Chosen keeps exactly one current ledger as `observedRanges` grows.
 - **FR-003 divisor**: `/2` (chosen, middle point) vs `/1.5` (closer to measured Korean ratio, more
-  aggressive). Revisit if a provider limit is ever measured.
+  aggressive). Provider window is now known (paid 131k); revisit the divisor only if the budget is
+  re-tuned against it.
 - **CLAUDE.md / AGENTS.md "current plan" pointer**: per speckit convention, move to spec 024 **on
   landing** (a `plan.md` landing task), not at draft time.

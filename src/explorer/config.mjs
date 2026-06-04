@@ -160,6 +160,11 @@ const DEEP_RUNTIME_CONFIG = {
   maxWalkFiles: 6000,
   maxCompletionTokens: 32000,
   finalizeMaxCompletionTokens: 3000,
+  // Working input budget, held under the Cerebras zai-glm-4.7 paid-tier context
+  // window (131k tokens, max output 40k —
+  // https://inference-docs.cerebras.ai/models/zai-glm-47). ~21k headroom is left
+  // for the model's output/reasoning (finalize caps at 3k). Proactive compaction
+  // fires at 70% (≈77k); see spec 024. Calibrated to the paid tier, not arbitrary.
   maxContextTokens: 110_000,
   temperature: 1.0,
   topP: 0.95,
