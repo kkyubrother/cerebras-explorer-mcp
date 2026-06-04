@@ -346,15 +346,54 @@ test('buildReportCritic warns when report has no citations and no files read', (
   assert.ok(critic.warnings[0].action);
 });
 
-test('buildReportCritic accepts git citations as citations', () => {
+test('buildReportCritic counts git citations but flags them when unverified', () => {
   const critic = buildReportCritic({
     report: 'Recent history points to commit:abc1234.',
     filesRead: [],
     stats: makeStats(),
   });
 
-  assert.equal(critic.status, 'pass');
-  assert.deepEqual(critic.warnings, []);
+  // A git citation still counts as a citation, so the report does not trip no_files_read.
+  assert.ok(!critic.warnings.some(w => w.type === 'no_files_read'));
+  // But an uninspected commit must not be silently accepted as grounded.
+  assert.equal(critic.status, 'caution');
+  assert.ok(critic.warnings.some(w => w.type === 'git_citation_gap'));
+});
+
+test('buildReportCritic flags git commit citations not observed via git tools', () => {
+  const critic = buildReportCritic({
+    report: 'Introduced in commit:abc1234; commit:deadbee is unrelated.',
+    filesRead: [],
+    observedGit: { commits: new Set(['abc1234']), blame: new Set() },
+    stats: makeStats(),
+  });
+
+  const gap = critic.warnings.find(w => w.type === 'git_citation_gap');
+  assert.ok(gap, 'must flag a commit citation that was not observed via a git tool');
+  assert.match(gap.target, /deadbee/);
+  assert.match(gap.message, /1 git citation/);
+});
+
+test('buildReportCritic does not flag git citations grounded in observed git tools', () => {
+  const critic = buildReportCritic({
+    report: 'Origin at blame:src/auth.js:L5 and commit:abc1234.',
+    filesRead: [],
+    observedGit: { commits: new Set(['abc1234']), blame: new Set(['src/auth.js:5:abc1234']) },
+    stats: makeStats(),
+  });
+
+  assert.ok(!critic.warnings.some(w => w.type === 'git_citation_gap'));
+});
+
+test('buildReportCritic flags blame citations whose line was not blamed', () => {
+  const critic = buildReportCritic({
+    report: 'See blame:src/auth.js:L5 for the change.',
+    filesRead: [],
+    observedGit: { commits: new Set(), blame: new Set() },
+    stats: makeStats(),
+  });
+
+  assert.ok(critic.warnings.some(w => w.type === 'git_citation_gap'));
 });
 
 test('buildReportCritic warns for citations that were not read', () => {

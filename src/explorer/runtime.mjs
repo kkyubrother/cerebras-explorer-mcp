@@ -2001,6 +2001,9 @@ export class ExplorerRuntime {
     // FR-004: track inspected line ranges (not just paths) so buildReportCritic can
     // ground report citation line ranges, matching the compact path's grounding.
     const observedRanges = new Map();
+    // Track observed git commits/blame lines so buildReportCritic can ground
+    // commit:/blame: citations, matching the compact path's git evidence grounding.
+    const observedGit = { commits: new Set(), blame: new Set() };
     const toolsUsed = new Set();
     let report = '';
 
@@ -2197,6 +2200,26 @@ export class ExplorerRuntime {
             recordObservedRange(observedRanges, observed.path, observed.startLine, observed.endLine, observed.source ?? 'macro_tool');
           }
         }
+        // Record observed git commits/blame lines so report commit:/blame: citations
+        // can be grounded (mirrors the compact path's observedGit recording).
+        if (toolName === 'repo_git_log' && !safeToolResult?.error && Array.isArray(safeToolResult.commits)) {
+          for (const commit of safeToolResult.commits) {
+            const h = commit.hash ?? commit.sha;
+            if (h) observedGit.commits.add(h);
+          }
+        }
+        if (toolName === 'repo_git_show' && !safeToolResult?.error) {
+          const h = safeToolResult.hash ?? safeToolResult.sha;
+          if (h) observedGit.commits.add(h);
+        }
+        if (toolName === 'repo_git_blame' && !safeToolResult?.error && Array.isArray(safeToolResult.lines)) {
+          const blamePath = toolArgs.path ?? null;
+          for (const entry of safeToolResult.lines) {
+            if (blamePath && typeof entry.line === 'number' && entry.hash) {
+              observedGit.blame.add(`${blamePath}:${entry.line}:${entry.hash}`);
+            }
+          }
+        }
         if (!safeToolResult?.error) allErrors = false;
 
         // ── Technique 1: Tool Result Budgeting ──
@@ -2365,7 +2388,7 @@ export class ExplorerRuntime {
     stats.elapsedMs = nowMs() - startedAt;
     Object.assign(stats, globalRepoCache.stats());
     const reportFilesRead = [...filesRead];
-    const critic = buildReportCritic({ report, filesRead: reportFilesRead, observedRanges, stats });
+    const critic = buildReportCritic({ report, filesRead: reportFilesRead, observedRanges, observedGit, stats });
     const citations = buildReportCitations(report);
     const targets = buildReportCitationTargets(citations);
 
