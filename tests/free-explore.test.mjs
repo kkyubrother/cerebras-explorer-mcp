@@ -3,8 +3,25 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 
 import { ExplorerRuntime } from '../src/explorer/runtime.mjs';
+
+function hasGit() {
+  try { execFileSync('git', ['--version'], { stdio: 'pipe' }); return true; } catch { return false; }
+}
+
+async function makeGitRepoFixture() {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-freeexplore-git-'));
+  const git = (args) => execFileSync('git', args, { cwd: root, stdio: 'pipe', encoding: 'utf8' });
+  git(['init', '-b', 'main']);
+  git(['config', 'user.email', 'test@example.com']);
+  git(['config', 'user.name', 'Test User']);
+  await fs.writeFile(path.join(root, 'hello.js'), 'console.log("hello");\n');
+  git(['add', '.']);
+  git(['commit', '-m', 'initial commit: add hello.js']);
+  return root;
+}
 
 async function makeRepoFixture() {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-freeexplore-'));
@@ -441,6 +458,70 @@ test('freeExplore exposes the same citation shape with transcriptPath preserved'
     const entries = await readJsonl(result.transcriptPath);
     assert.equal(entries[0]?.tool, 'explore');
   });
+});
+
+test('freeExplore flags git citations never observed via git tools', async () => {
+  // The model writes a report citing a commit it never inspected via a git tool.
+  // observedGit stays empty, so the report critic must flag it instead of trusting it.
+  class FabricatedGitClient {
+    constructor() { this.model = 'test'; }
+    async createChatCompletion() {
+      return {
+        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+        message: {
+          content: '## Summary\n\nHistory points to commit:abc1234 introducing the bug.',
+          toolCalls: [],
+        },
+      };
+    }
+  }
+
+  const root = await makeRepoFixture();
+  const runtime = new ExplorerRuntime({ chatClient: new FabricatedGitClient() });
+  const result = await runtime.freeExplore({ prompt: 'when was this introduced', repo_root: root });
+
+  assert.ok(
+    result.critic.warnings.some(w => w.type === 'git_citation_gap'),
+    'a commit citation never observed via a git tool must be flagged',
+  );
+});
+
+test('freeExplore grounds blame citations observed via git tools (no git_citation_gap)', { skip: !hasGit() }, async () => {
+  // The model blames a real line, then cites it. The report loop must record the blame
+  // observation into observedGit and pass it to the critic so the citation is grounded.
+  class BlameThenReportClient {
+    constructor() { this.model = 'test'; this.calls = 0; }
+    async createChatCompletion() {
+      this.calls += 1;
+      if (this.calls === 1) {
+        return {
+          usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+          message: {
+            content: null,
+            toolCalls: [
+              { id: 'b1', function: { name: 'repo_git_blame', arguments: JSON.stringify({ path: 'hello.js' }) } },
+            ],
+          },
+        };
+      }
+      return {
+        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+        message: {
+          content: '## Summary\n\nThe greeting line origin is blame:hello.js:L1.',
+          toolCalls: [],
+        },
+      };
+    }
+  }
+
+  const root = await makeGitRepoFixture();
+  const runtime = new ExplorerRuntime({ chatClient: new BlameThenReportClient() });
+  const result = await runtime.freeExplore({ prompt: 'who introduced the greeting', repo_root: root });
+
+  assert.ok(
+    !result.critic.warnings.some(w => w.type === 'git_citation_gap'),
+    'a blame line observed via repo_git_blame must not be flagged as an ungrounded git citation',
+  );
 });
 
 test('freeExplore deduplicates citation-derived targets by (path, startLine, endLine)', async () => {

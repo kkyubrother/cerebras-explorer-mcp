@@ -532,6 +532,8 @@ Cerebras Explorer의 제품 목표는 상위 AI가 정확한 판단을 내릴 �
 
 `groundingStatus="exact"`은 evidence의 전체 line range가 관측된 line range들로 완전히 덮일 때만 부여한다. `repo_grep`/`repo_git_blame`의 single-line hit는 같은 한 줄 evidence에는 exact가 될 수 있지만, 주변 미관측 라인을 포함하는 multi-line evidence는 partial로만 남는다. missing, non-integer, inverted line range는 line 1로 보정하지 않고 critic이 malformed evidence로 drop하여 `critic.warnings`와 `evidenceQuality.droppedCount`에 반영한다.
 
+Report-mode의 inline git 인용(`commit:<sha>`, `blame:<path>:L<n>`)도 같은 원칙으로 검증한다. report critic은 해당 commit/blame이 실제 git 도구 호출로 관측됐는지(`observedGit`)를 확인하고, 관측되지 않은 인용에는 `git_citation_gap` 경고를 단다 — file-range 인용의 `citation_line_gap`과 대칭이다. 관측된 git 인용은 인용 수에 포함되어 `no_files_read`를 막지만, 미관측 commit/blame이 단지 본문에 존재한다는 이유로 grounded로 신뢰되지는 않는다.
+
 Report-mode 런타임의 도구 결과 truncation은 모델이 최종 보고서를 합성하기 전에 발생한다. 응답은 이 사실을 truncation 라벨과 `searchCoverage.warnings`로 노출해야 하며, 호출자는 보고서가 자연스럽게 읽히더라도 해당 라벨이 있으면 누락 가능성을 전제로 다음 검증을 계획해야 한다.
 
 `searchCoverage.warnings`는 단순 주석이 아니라 복구 경로다. 예산 중단, tool-result truncation, scope 제한 같은 신호가 있으면 호출자는 그 내용을 다음 `explore_repo`/`explore` follow-up의 scope, known file, symbol 입력으로 사용해야 한다. Report citation gap처럼 report critic이 감지한 누락은 `critic.warnings`의 별도 경고로 읽되, 같은 방식으로 후속 검증 입력으로 취급한다.

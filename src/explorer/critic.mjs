@@ -529,6 +529,7 @@ export function buildReportCritic({
   report,
   filesRead = [],
   observedRanges = new Map(),
+  observedGit = { commits: new Set(), blame: new Set() },
   stats = {},
   maxWarnings = 3,
 }) {
@@ -597,6 +598,27 @@ export function buildReportCritic({
       message: `${lineGapCitations.length} citation(s) reference line ranges that were not in any inspected range.`,
       target: sample.raw,
       action: 'Verify the cited line range before relying on the related claim.',
+    });
+  }
+
+  // Report-path git-citation grounding: a commit:/blame: citation only counts as
+  // grounded when the same commit hash or blame line was actually observed via a git
+  // tool. Mirrors the evidence-path checks (isObservedCommit/hasObservedBlameLine);
+  // without it a fabricated commit:abc1234 would pass solely by being present, the same
+  // way an unread file path trips citation_gap above.
+  const ungroundedGitCitations = gitCitations.filter(citation => {
+    if (citation.type === 'git_commit') return !isObservedCommit(citation.sha, observedGit);
+    if (citation.type === 'git_blame') return !hasObservedBlameLine({ path: citation.path }, observedGit, citation.line);
+    return false;
+  });
+  if (ungroundedGitCitations.length > 0) {
+    const sample = ungroundedGitCitations[0];
+    warnings.push({
+      type: 'git_citation_gap',
+      severity: 'medium',
+      message: `${ungroundedGitCitations.length} git citation(s) reference commits or blame lines that were not inspected via git tools.`,
+      target: sample.raw,
+      action: 'Verify the cited commit or blame line before relying on the related claim.',
     });
   }
 
