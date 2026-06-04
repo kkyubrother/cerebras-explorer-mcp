@@ -1339,9 +1339,10 @@ export class ExplorerRuntime {
    * @param {object}   [opts.chatClient]   - Pre-built chat client (overrides factory).
    * @param {Function} [opts.logger]
    */
-  constructor({ chatClient = null, logger = () => {} } = {}) {
+  constructor({ chatClient = null, logger = () => {}, provenance = null } = {}) {
     this._explicitChatClient = chatClient;
     this.logger = logger;
+    this.provenance = provenance;
   }
 
   /**
@@ -1463,6 +1464,7 @@ export class ExplorerRuntime {
       tool: 'explore_repo',
       task: args.task,
       logger: this.logger,
+      provenance: this.provenance,
     });
 
     let discoveredPaths = [];
@@ -1947,6 +1949,7 @@ export class ExplorerRuntime {
       tool: 'explore',
       task: args.prompt,
       logger: this.logger,
+      provenance: this.provenance,
     });
     const toolTrace = createCompactToolTrace();
 

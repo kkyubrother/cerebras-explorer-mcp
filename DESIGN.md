@@ -567,6 +567,8 @@ spec 011에서 `CEREBRAS_EXPLORER_AUTO_SESSION_BY_REPO` 옵트인과 `SessionSto
 
 spec 018에서 transcript은 운영 디버깅 채널로 재정의되었다. `CEREBRAS_EXPLORER_LOG_PATH`가 설정되면 `explore_repo`, 6개 wrapper, `explore`가 호출별 JSONL 파일을 만들고, 파일명과 모든 record에는 같은 UUID `callId`가 들어간다. 각 record는 `{ t, type, callId, ...data }` 형태이며 기본적으로 response redaction과 같은 정책을 통과한다. tool record에는 compact `args`/`result` summary가 들어가지만 raw file content와 complete tool result JSON은 기본적으로 남기지 않는다. `CEREBRAS_EXPLORER_LOG_RAW=true`일 때만 raw record를 보존하고 final meta에는 `redacted` 상태를 남긴다.
 
+spec 022에서 execution provenance는 parent-facing 응답 계약이 아니라 운영/평가 envelope metadata로 한정되었다. transcript 초기 `meta` record와 benchmark JSON report top-level에는 서버 이름/버전, package version, compact schema version, git SHA, 공개 tool registry hash, 공개 tool count/name list가 기록된다. 이 정보는 나중에 benchmark verdict나 transcript를 특정 executor build에 귀속하기 위한 것이며, 상위 모델의 `structuredContent`에는 포함하지 않는다.
+
 모든 explore 호출은 transcript 옵트인 여부와 무관하게 종료 시 stderr에 `[cerebras-explorer] tool=... turns=... toolCalls=... stoppedByBudget=... elapsed=...s` 한 줄을 출력한다. transcript 파일이 생성되면 같은 줄에 `log=<basename>.jsonl`를 붙이고 raw 모드면 `raw=true`를 붙인다. 기본 stderr 요약은 전체 local path를 노출하지 않는다. stdout은 MCP JSON-RPC frame 전용으로 유지한다.
 
 heavy 호출(보고서/path/impact)에서는 parent agent가 `_meta.progressToken`을 전달해 turn-by-turn 진행률을 받아야 하고, 결과를 sub-agent에 인계할 때는 control-plane 필드(`status.verification`, `status.complete`, `evidenceQuality`, `searchCoverage`, `failure`, `critic.warnings`)를 반드시 보존해야 한다.

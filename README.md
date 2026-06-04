@@ -522,6 +522,8 @@ export CEREBRAS_EXPLORER_LOG_RAW="true"           # 기본 redaction을 끄는 r
 
 이전 transcript envvar 이름(v0.6.x의 hidden alias)은 v0.7.0에서 제거되었습니다. transcript은 `CEREBRAS_EXPLORER_LOG_PATH`로만 켜지며(경로 설정이 곧 opt-in), 마이그레이션 안내는 `CHANGELOG.md`의 v0.7.0 항목을 참고하세요.
 
+transcript의 초기 `meta` record에는 서버/패키지 버전, compact schema version, git SHA(확인 가능할 때), 공개 tool registry hash와 tool 이름 목록을 담은 execution provenance가 포함됩니다. 이 metadata는 운영/평가 기록용이며 MCP `structuredContent` 응답 계약에는 포함되지 않습니다.
+
 ### 2) 서버 실행
 
 ```bash
@@ -722,6 +724,8 @@ node ./scripts/run-benchmark.mjs \
   --suite ./benchmarks/adoption.json \
   --output ./benchmark-report.json
 ```
+
+저장된 JSON 리포트에는 run-level `provenance`가 top-level metadata로 포함됩니다. 개별 `cases[].result`는 parent-facing MCP 결과 payload 그대로 유지되며, provenance는 응답 본문에 복제되지 않습니다.
 
 벤치마크는 exact-string 정답 대신 다음 요소를 가중치로 평가합니다.
 

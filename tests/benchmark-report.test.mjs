@@ -7,6 +7,7 @@ import {
   sanitizePathForReport,
   sanitizeStringForReport,
 } from '../src/benchmark/report.mjs';
+import { buildBenchmarkReport } from '../scripts/run-benchmark.mjs';
 
 test('sanitizePathForReport converts repo-root absolute paths to portable relative paths', () => {
   const repoRoot = path.resolve('tmp', 'private-repo');
@@ -67,4 +68,41 @@ test('sanitizeStringForReport preserves non-path strings', () => {
     sanitizeStringForReport('confidence=high evidence=4'),
     'confidence=high evidence=4',
   );
+});
+
+test('buildBenchmarkReport records run-level provenance without changing case results', () => {
+  const repoRoot = path.resolve('tmp', 'private-repo');
+  const provenance = {
+    serverName: 'cerebras-explorer-mcp',
+    serverVersion: '0.8.2',
+    packageVersion: '0.8.2',
+    schemaVersion: 2,
+    gitSha: 'abc1234',
+    toolRegistryHash: 'a'.repeat(64),
+    exposedToolCount: 8,
+    toolNames: ['explore_repo'],
+  };
+  const result = {
+    schemaVersion: 2,
+    directAnswer: 'ok',
+    status: { confidence: 'high' },
+    evidence: [],
+  };
+
+  const report = buildBenchmarkReport({
+    suite: { name: 'suite', description: 'desc' },
+    suitePath: path.join(repoRoot, 'benchmarks', 'adoption.json'),
+    repoRoot,
+    summary: { passedCount: 1, caseCount: 1 },
+    metrics: { avgTargets: 0 },
+    caseResults: [{ result }],
+    provenance,
+    generatedAt: '2026-06-05T00:00:00.000Z',
+    cwd: process.cwd(),
+  });
+
+  assert.deepEqual(report.provenance, provenance);
+  assert.equal(report.suite.path, 'benchmarks/adoption.json');
+  assert.equal(report.suite.repoRoot, '.');
+  assert.deepEqual(report.cases[0].result, result);
 });

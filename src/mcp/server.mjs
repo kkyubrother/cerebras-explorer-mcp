@@ -1,3 +1,6 @@
+import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { DEFAULT_PROTOCOL_VERSION, getExplorerModel } from '../explorer/config.mjs';
@@ -8,7 +11,7 @@ import {
   validateExploreRepoArgs,
 } from '../explorer/schemas.mjs';
 import { redactExploreResult, redactValue } from '../explorer/redact.mjs';
-import { isTranscriptRawMode } from '../explorer/transcript.mjs';
+import { isTranscriptEnabled, isTranscriptRawMode } from '../explorer/transcript.mjs';
 import { StdioJsonRpcServer } from './jsonrpc-stdio.mjs';
 
 const SERVER_INFO = {
@@ -230,6 +233,76 @@ function buildToolList() {
     EXPLORE_REPO_TOOL,
     EXPLORE_TOOL,
   ];
+}
+
+let memoizedGitSha;
+let memoizedPackageVersion;
+let memoizedToolRegistryHash;
+
+function readPackageVersion() {
+  if (memoizedPackageVersion !== undefined) return memoizedPackageVersion;
+  try {
+    const raw = readFileSync(new URL('../../package.json', import.meta.url), 'utf8');
+    const parsed = JSON.parse(raw);
+    memoizedPackageVersion = typeof parsed.version === 'string' && parsed.version.trim()
+      ? parsed.version.trim()
+      : SERVER_INFO.version;
+  } catch {
+    memoizedPackageVersion = SERVER_INFO.version;
+  }
+  return memoizedPackageVersion;
+}
+
+function resolveGitSha() {
+  if (memoizedGitSha !== undefined) return memoizedGitSha;
+  const envSha = process.env.CEREBRAS_EXPLORER_GIT_SHA?.trim();
+  if (envSha) {
+    memoizedGitSha = envSha;
+    return memoizedGitSha;
+  }
+  try {
+    const raw = execFileSync('git', ['rev-parse', 'HEAD'], {
+      cwd: new URL('../../', import.meta.url),
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    const sha = raw.trim();
+    memoizedGitSha = sha || null;
+  } catch {
+    memoizedGitSha = null;
+  }
+  return memoizedGitSha;
+}
+
+function buildToolRegistryHash(tools) {
+  const shape = tools.map(({ name, inputSchema, outputSchema }) => ({
+    name,
+    inputSchema,
+    outputSchema: outputSchema ?? null,
+  }));
+  return createHash('sha256').update(JSON.stringify(shape)).digest('hex');
+}
+
+export function buildExecutionProvenance(options = {}) {
+  const {
+    tools = null,
+    packageVersion = null,
+    toolRegistryHash = null,
+  } = options;
+  const registry = Array.isArray(tools) ? tools : buildToolList();
+  const hash = toolRegistryHash
+    ?? (tools ? buildToolRegistryHash(registry) : (memoizedToolRegistryHash ??= buildToolRegistryHash(registry)));
+
+  return {
+    serverName: SERVER_INFO.name,
+    serverVersion: SERVER_INFO.version,
+    packageVersion: packageVersion ?? readPackageVersion(),
+    schemaVersion: 2,
+    gitSha: Object.hasOwn(options, 'gitSha') ? options.gitSha : resolveGitSha(),
+    toolRegistryHash: hash,
+    exposedToolCount: registry.length,
+    toolNames: registry.map(tool => tool.name),
+  };
 }
 
 // ─── Specialized tool task builders ────────────────────────────────────────
@@ -671,9 +744,11 @@ export function createMcpRequestHandler({
     let transcriptPath = null;
     let failureReason = '';
     try {
+      const provenance = runtimeOptions.provenance ?? (isTranscriptEnabled() ? buildExecutionProvenance() : null);
       const result = await exploreRepository(exploreArgs, {
         logger,
         ...runtimeOptions,
+        provenance,
         onProgress: makeProgressCallback(progressToken),
         abortSignal: abortController.signal,
       });
@@ -708,9 +783,11 @@ export function createMcpRequestHandler({
     let transcriptPath = null;
     let failureReason = '';
     try {
+      const provenance = runtimeOptions.provenance ?? (isTranscriptEnabled() ? buildExecutionProvenance() : null);
       const result = await freeExploreRepository(exploreArgs, {
         logger,
         ...runtimeOptions,
+        provenance,
         onProgress: makeProgressCallback(progressToken),
         abortSignal: abortController.signal,
       });

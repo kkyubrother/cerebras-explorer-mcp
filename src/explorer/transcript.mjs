@@ -283,9 +283,10 @@ export function createCompactToolTrace({ maxEntries = DEFAULT_COMPACT_TRACE_LIMI
  * @param {string} opts.tool - Tool name (e.g., 'explore_repo', 'explore')
  * @param {string} [opts.task] - The exploration task/prompt (first 200 chars)
  * @param {Function} [opts.logger] - Logger function for errors
+ * @param {object} [opts.provenance] - Optional server-authored execution metadata
  * @returns {{ record: Function, finalize: Function, filePath: string }}
  */
-export function createTranscriptRecorder({ repoRoot, tool, task, logger = () => {} }) {
+export function createTranscriptRecorder({ repoRoot, tool, task, logger = () => {}, provenance = null }) {
   if (!isTranscriptEnabled()) {
     // No-op recorder when disabled
     return {
@@ -353,6 +354,7 @@ export function createTranscriptRecorder({ repoRoot, tool, task, logger = () => 
     repoRoot,
     startedAt: new Date().toISOString(),
     pid: process.pid,
+    ...(provenance ? { provenance } : {}),
   });
 
   /**

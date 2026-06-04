@@ -1,6 +1,6 @@
 # Feature Spec: log and benchmark provenance for execution records
 
-**Spec**: 022-response-provenance | **Date**: 2026-05-31 | **Status**: drafted (implementation deferred; rewritten 2026-06-05)
+**Spec**: 022-response-provenance | **Date**: 2026-05-31 | **Status**: implemented 2026-06-05; closure verified (`npm test` 414/0)
 
 ## Summary
 

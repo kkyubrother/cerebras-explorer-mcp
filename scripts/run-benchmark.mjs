@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import { createMcpRequestHandler } from '../src/mcp/server.mjs';
+import { buildExecutionProvenance, createMcpRequestHandler } from '../src/mcp/server.mjs';
 import { evaluateBenchmarkCase, summarizeBenchmarkSuite } from '../src/benchmark/evaluator.mjs';
 import { sanitizeBenchmarkReport, sanitizePathForReport } from '../src/benchmark/report.mjs';
 import { analyzeTranscriptFile } from '../src/benchmark/transcript-metrics.mjs';
@@ -219,6 +219,35 @@ function printCaseResult(caseResult, verbose) {
   }
 }
 
+export function buildBenchmarkReport({
+  suite,
+  suitePath,
+  repoRoot,
+  summary,
+  metrics,
+  caseResults,
+  provenance,
+  generatedAt = new Date().toISOString(),
+  cwd = process.cwd(),
+}) {
+  return sanitizeBenchmarkReport(
+    {
+      suite: {
+        name: suite.name,
+        description: suite.description ?? '',
+        path: suitePath,
+        repoRoot,
+      },
+      provenance,
+      summary,
+      metrics,
+      cases: caseResults,
+      generatedAt,
+    },
+    { repoRoot, cwd },
+  );
+}
+
 async function main() {
   const options = parseArgs(process.argv.slice(2));
   if (options.help) {
@@ -237,6 +266,7 @@ async function main() {
   }
 
   const handleRequest = await createHandler(() => {});
+  const provenance = options.output ? buildExecutionProvenance() : null;
   const caseResults = [];
   const displayRepoRoot = sanitizePathForReport(repoRoot, { repoRoot });
   const displaySuitePath = sanitizePathForReport(suitePath, { repoRoot });
@@ -307,21 +337,15 @@ async function main() {
 
   if (options.output) {
     const outputPath = path.resolve(options.output);
-    const sanitizedReport = sanitizeBenchmarkReport(
-      {
-        suite: {
-          name: suite.name,
-          description: suite.description ?? '',
-          path: suitePath,
-          repoRoot,
-        },
-        summary,
-        metrics,
-        cases: caseResults,
-        generatedAt: new Date().toISOString(),
-      },
-      { repoRoot, cwd: process.cwd() },
-    );
+    const sanitizedReport = buildBenchmarkReport({
+      suite,
+      suitePath,
+      repoRoot,
+      summary,
+      metrics,
+      caseResults,
+      provenance,
+    });
     await fs.writeFile(
       outputPath,
       JSON.stringify(sanitizedReport, null, 2),

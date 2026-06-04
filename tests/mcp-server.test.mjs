@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { createMcpRequestHandler } from '../src/mcp/server.mjs';
+import { buildExecutionProvenance, createMcpRequestHandler } from '../src/mcp/server.mjs';
 import { getRepoRoot } from '../src/explorer/config.mjs';
 
 const EXPECTED_PUBLIC_TOOL_NAMES = [
@@ -26,6 +26,29 @@ const REMOVED_SPEC_013_TOOL_NAMES = [
   ['map', 'impact'].join('_'),
   ['find', 'entrypoints'].join('_'),
 ];
+
+test('spec 022 execution provenance describes the live 8-tool registry', () => {
+  const provenance = buildExecutionProvenance({ gitSha: 'abc1234' });
+
+  assert.deepEqual(Object.keys(provenance).sort(), [
+    'exposedToolCount',
+    'gitSha',
+    'packageVersion',
+    'schemaVersion',
+    'serverName',
+    'serverVersion',
+    'toolNames',
+    'toolRegistryHash',
+  ].sort());
+  assert.equal(provenance.serverName, 'cerebras-explorer-mcp');
+  assert.equal(provenance.serverVersion, '0.8.2');
+  assert.equal(provenance.packageVersion, '0.8.2');
+  assert.equal(provenance.schemaVersion, 2);
+  assert.equal(provenance.gitSha, 'abc1234');
+  assert.equal(provenance.exposedToolCount, EXPECTED_PUBLIC_TOOL_NAMES.length);
+  assert.deepEqual(provenance.toolNames, EXPECTED_PUBLIC_TOOL_NAMES);
+  assert.match(provenance.toolRegistryHash, /^[0-9a-f]{64}$/);
+});
 
 async function makeRepoFixture() {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-explorer-mcp-server-'));
@@ -384,6 +407,11 @@ test('trace_symbol wrapper delegates through explore_repo and writes LOG_PATH tr
     const entries = await readJsonl(transcriptPath);
     assert.equal(entries[0].tool, 'explore_repo');
     assert.ok(entries.every(entry => entry.callId === entries[0].callId));
+    assert.equal(entries[0].provenance.serverName, 'cerebras-explorer-mcp');
+    assert.equal(entries[0].provenance.schemaVersion, 2);
+    assert.equal(entries[0].provenance.exposedToolCount, EXPECTED_PUBLIC_TOOL_NAMES.length);
+    assert.deepEqual(entries[0].provenance.toolNames, EXPECTED_PUBLIC_TOOL_NAMES);
+    assert.match(entries[0].provenance.toolRegistryHash, /^[0-9a-f]{64}$/);
   } finally {
     restore();
   }

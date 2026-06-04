@@ -2,10 +2,10 @@
 
 **Branch**: `022-response-provenance` (when picked up) | **Date**: 2026-05-31 | **Spec**: [`spec.md`](./spec.md)
 
-> **Status: NOT STARTED.** This plan was rewritten on 2026-06-05 after the
-> maintainer rejected parent-facing response provenance. The implementation must
-> keep MCP `structuredContent` unchanged and record provenance only in benchmark
-> reports and transcript/log metadata.
+> **Status: IMPLEMENTED.** This plan was rewritten on 2026-06-05 after the
+> maintainer rejected parent-facing response provenance. The landed implementation
+> keeps MCP `structuredContent` unchanged and records provenance only in benchmark
+> reports and transcript/log metadata. Closure verified with `npm test` 414/0.
 
 ## Technical Context
 

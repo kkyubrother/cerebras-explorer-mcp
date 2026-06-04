@@ -41,6 +41,17 @@ const TRANSCRIPT_ENV_OFF = {
   CEREBRAS_EXPLORER_TRANSCRIPT_DIR: undefined,
 };
 
+const FAKE_PROVENANCE = {
+  serverName: 'cerebras-explorer-mcp',
+  serverVersion: '0.8.2',
+  packageVersion: '0.8.2',
+  schemaVersion: 2,
+  gitSha: 'abc1234',
+  toolRegistryHash: 'a'.repeat(64),
+  exposedToolCount: 8,
+  toolNames: ['explore_repo'],
+};
+
 test('LOG_PATH enables transcripts with UUID callId and default redaction', async () => {
   const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-transcript-repo-'));
   const logDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-transcript-log-'));
@@ -81,6 +92,30 @@ test('LOG_PATH enables transcripts with UUID callId and default redaction', asyn
     const serialized = JSON.stringify(entries);
     assert.equal(serialized.includes(fakeKey), false);
     assert.match(serialized, /\[REDACTED:openai-api-key\]/);
+  });
+});
+
+test('LOG_PATH transcript metadata records execution provenance when supplied', async () => {
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-transcript-provenance-repo-'));
+  const logDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-transcript-provenance-log-'));
+
+  await withEnvPatch({
+    ...TRANSCRIPT_ENV_OFF,
+    CEREBRAS_EXPLORER_LOG_PATH: logDir,
+  }, async () => {
+    const recorder = createTranscriptRecorder({
+      repoRoot,
+      tool: 'explore_repo',
+      task: 'inspect provenance',
+      provenance: FAKE_PROVENANCE,
+    });
+
+    await recorder.finalize({ turns: 0, toolCalls: 0 });
+
+    const entries = await readJsonl(recorder.filePath);
+    assert.deepEqual(entries[0].provenance, FAKE_PROVENANCE);
+    assert.equal(entries[0].type, 'meta');
+    assert.equal(entries[0].tool, 'explore_repo');
   });
 });
 
