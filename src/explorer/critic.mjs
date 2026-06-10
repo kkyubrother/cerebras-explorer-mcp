@@ -444,6 +444,12 @@ export function buildCriticWarnings({
     .slice(0, maxWarnings);
 }
 
+// NOTE: buildCriticStatus maps warning severity to status string.
+// Any new high-severity warning type added here MUST also be keyed in
+// gateSuppressed (runDeterministicCriticPass) so that cause-keyed suppression
+// stays equivalent to status-keyed suppression. Failure to do so would allow
+// usage_cross_check_missing to fire simultaneously with the new warning,
+// producing spurious double-warnings on precedence routes.
 export function buildCriticStatus(warnings) {
   if (warnings.some(warning => warning.severity === 'high')) return 'fail';
   if (warnings.length > 0) return 'caution';
@@ -496,6 +502,7 @@ export function runDeterministicCriticPass({
   if (usageCrossCheck?.required && !usageCrossCheck.observed && !gateSuppressed) {
     if (confidence.finalConfidence === 'high') {
       confidence.finalConfidence = 'medium';
+      confidence.factors.adjustments.push('capped at medium (usage cross-check missing)');
     }
     // medium or below: no further lowering (low → follow_up_needed violates FR-003)
   }

@@ -3893,6 +3893,7 @@ test('spec 026 T003(c): 0-match grep still satisfies gate (attempt counts, args-
     !(result.critic?.warnings ?? []).some(w => w.type === 'usage_cross_check_missing'),
     'a grep attempt (args-based, even 0-match) must satisfy the gate',
   );
+  assert.equal(result.status.verification, 'verified', `expected verified, got ${result.status.verification}`);
 });
 
 test('spec 026 T003(d): repo_references call satisfies gate', async () => {
@@ -3917,15 +3918,24 @@ test('spec 026 T003(d): repo_references call satisfies gate', async () => {
     !(result.critic?.warnings ?? []).some(w => w.type === 'usage_cross_check_missing'),
     'repo_references satisfies the gate',
   );
+  assert.equal(result.status.verification, 'verified', `expected verified, got ${result.status.verification}`);
 });
 
 test('spec 026 T003(e): narrow scope + grep inside scope satisfies gate', async () => {
+  // Read a file within scope (src/routes/user.js) so evidence can be grounded.
   const client = makeSymbolTraceClient({
     toolSequence: [
       { name: 'repo_symbol_context', arguments: { symbol: 'requireAuth' } },
       { name: 'repo_grep', arguments: { pattern: 'requireAuth', scope: ['src/routes/**'] } },
-      { name: 'repo_read_file', arguments: { path: 'src/auth.js', startLine: 1, endLine: 4 } },
+      { name: 'repo_read_file', arguments: { path: 'src/routes/user.js', startLine: 1, endLine: 7 } },
     ],
+    finalResult: {
+      directAnswer: 'requireAuth is imported and used in route handler.',
+      statusConfidence: 'high',
+      evidence: [
+        { path: 'src/routes/user.js', startLine: 1, endLine: 7, why: 'requireAuth usage site', evidenceType: 'file_range', groundingStatus: 'exact' },
+      ],
+    },
   });
 
   const root = await makeRepoFixture();
@@ -3942,6 +3952,7 @@ test('spec 026 T003(e): narrow scope + grep inside scope satisfies gate', async 
     !(result.critic?.warnings ?? []).some(w => w.type === 'usage_cross_check_missing'),
     'grep within narrow scope satisfies gate',
   );
+  assert.equal(result.status.verification, 'verified', `expected verified, got ${result.status.verification}`);
 });
 
 test('spec 026 T003(f): critic-fail path → broad_search_needed, NO usage_cross_check_missing (no double warning)', async () => {
@@ -4026,6 +4037,42 @@ test('spec 026 T003(g): taskMode locate → no warning, no downgrade', async () 
   );
 });
 
+test('spec 026 T003(i): symbol_trace where the ONLY grep attempt errors → targeted_read_needed + usage_cross_check_missing', async () => {
+  // An erroring grep attempt must NOT satisfy the gate.
+  // Technique: pass a catastrophic regex pattern combined with a narrow scope so ripgrep
+  // returns null (baseScopeRules active) and the JS fallback throws on isCatastrophicRegexPattern.
+  const client = makeSymbolTraceClient({
+    toolSequence: [
+      { name: 'repo_symbol_context', arguments: { symbol: 'requireAuth' } },
+      // This grep call will error: pattern is catastrophic AND narrow scope forces JS fallback.
+      { name: 'repo_grep', arguments: { pattern: '(requireAuth+)+', scope: ['src/**'] } },
+      { name: 'repo_read_file', arguments: { path: 'src/auth.js', startLine: 1, endLine: 4 } },
+    ],
+  });
+
+  const root = await makeRepoFixture();
+  const runtime = new ExplorerRuntime({ chatClient: client });
+  const result = await runtime.explore({
+    task: 'Trace requireAuth usages',
+    taskMode: 'symbol_trace',
+    hints: { symbols: ['requireAuth'] },
+    // Pass a narrow scope so baseScopeRules.patterns.length > 0 → ripgrep returns null
+    // → JS fallback hits isCatastrophicRegexPattern → throws → error result
+    scope: ['src/**'],
+    repo_root: root,
+  });
+
+  // The errored grep must NOT satisfy the gate → warning must fire
+  const crossCheckWarning = (result.critic?.warnings ?? []).find(w => w.type === 'usage_cross_check_missing');
+  assert.ok(crossCheckWarning, 'errored grep attempt must NOT satisfy the gate — usage_cross_check_missing must be present');
+  assert.equal(
+    (result.critic?.warnings ?? []).filter(w => w.type === 'usage_cross_check_missing').length,
+    1,
+    'exactly one usage_cross_check_missing',
+  );
+  assert.equal(result.status.verification, 'targeted_read_needed', `expected targeted_read_needed, got ${result.status.verification}`);
+});
+
 test('spec 026 T003(h): symbol_trace with all evidence ungrounded → broad_search_needed or follow_up_needed, NO usage_cross_check_missing', async () => {
   // Model returns evidence items but none get grounded (no reads, no observed ranges) →
   // grounding.evidence drops to 0 → precedence route fires in buildResultStatus →
@@ -4055,11 +4102,11 @@ test('spec 026 T003(h): symbol_trace with all evidence ungrounded → broad_sear
     repo_root: root,
   });
 
-  // When all evidence is dropped: broad_search_needed (no grounded evidence) OR follow_up_needed
-  // Either is acceptable as a precedence route — assert it is NOT 'verified' or 'targeted_read_needed'
-  assert.ok(
-    result.status.verification === 'broad_search_needed' || result.status.verification === 'follow_up_needed',
-    `expected precedence route (broad_search_needed or follow_up_needed), got ${result.status.verification}`,
+  // When all evidence is dropped: broad_search_needed (no grounded evidence forces this branch)
+  assert.equal(
+    result.status.verification,
+    'broad_search_needed',
+    `expected broad_search_needed (all evidence dropped), got ${result.status.verification}`,
   );
   // Gate must NOT fire on this precedence route
   assert.ok(

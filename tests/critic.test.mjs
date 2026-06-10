@@ -687,10 +687,11 @@ test('spec 026 T002-⑤b: runDeterministicCriticPass when all evidence is droppe
     !result.critic.warnings.some(w => w.type === 'usage_cross_check_missing'),
     'all-evidence-dropped route must NOT emit usage_cross_check_missing',
   );
-  // Gate cap must NOT be applied when evidence is all dropped
-  assert.ok(
-    confidence.finalConfidence !== 'medium' || confidence.modelConfidence === 'medium',
-    'gate must not cap confidence when evidence is all dropped (cap would be spurious)',
+  // Gate cap must NOT be applied when evidence is all dropped — finalConfidence must be 'low'
+  assert.equal(
+    confidence.finalConfidence,
+    'low',
+    `gate must not cap confidence when evidence is all dropped — expected low, got ${confidence.finalConfidence}`,
   );
 });
 
@@ -731,5 +732,38 @@ test('spec 026 T002-⑤c: runDeterministicCriticPass when finalConfidence is low
     confidence.finalConfidence,
     'low',
     `low-confidence route: finalConfidence must stay low, got ${confidence.finalConfidence}`,
+  );
+});
+
+// spec 026 status-level invariant: 'usage_cross_check_missing' must never appear on a
+// critic 'fail' result — the precedence route (stoppedByErrors) suppresses the gate.
+test('spec 026 invariant: usage_cross_check_missing must be absent from critic fail (tool_errors) results', () => {
+  // Build a result via the tool_errors path: stoppedByErrors → gateSuppressed → no gate warning.
+  const normalized = {
+    directAnswer: 'Stopped by errors.',
+    status: { confidence: 'high', verification: 'verified', complete: true, warnings: [] },
+    targets: [],
+    evidence: [{ path: 'src/auth.js', startLine: 1, endLine: 4, why: 'symbol definition' }],
+    uncertainties: [],
+    nextAction: { type: 'stop', reason: 'Complete.' },
+  };
+  const observedRanges = new Map([
+    ['src/auth.js', [{ startLine: 1, endLine: 4, source: 'read' }]],
+  ]);
+
+  const { result } = runDeterministicCriticPass({
+    normalized,
+    observedRanges,
+    observedGit: { commits: new Set(), blame: new Set() },
+    stats: makeStats({ stoppedByErrors: true }),
+    taskKind: 'symbol_trace',
+    usageCrossCheck: { required: true, observed: false, symbol: 'mySym' },
+  });
+
+  // Invariant: critic fail path must never carry usage_cross_check_missing
+  assert.equal(result.critic.status, 'fail', 'stoppedByErrors must produce critic fail');
+  assert.ok(
+    !result.critic.warnings.some(w => w.type === 'usage_cross_check_missing'),
+    'usage_cross_check_missing must be absent on critic fail (tool_errors) path',
   );
 });

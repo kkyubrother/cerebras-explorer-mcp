@@ -1152,6 +1152,9 @@ function validateToolName(toolName, knownToolNames) {
 const MAX_CONSECUTIVE_ERROR_TURNS = 3;
 const ERROR_RECOVERY_GUIDANCE_TURNS = Math.max(1, MAX_CONSECUTIVE_ERROR_TURNS - 1);
 
+/** Max entries recorded for the spec 026 usage cross-check observation sets. */
+const MAX_USAGE_CROSS_CHECK_ENTRIES = 50;
+
 const TOOL_STAT_FIELD_MAP = Object.freeze({
   repo_read_file: 'filesRead',
   repo_grep: 'grepCalls',
@@ -1685,15 +1688,18 @@ export class ExplorerRuntime {
           }
         }
 
-        // spec 026: args-based usage cross-check observation (attempt counts, 0-match included)
-        if (toolName === 'repo_grep' && typeof toolArgs?.pattern === 'string') {
-          if (usageCrossCheck.grepPatterns.size < 50) {
-            usageCrossCheck.grepPatterns.add(toolArgs.pattern);
+        // spec 026: args-based usage cross-check observation (attempt counts, 0-match included).
+        // Errored tool executions must NOT satisfy the gate — only record on success.
+        if (!safeToolResult?.error) {
+          if (toolName === 'repo_grep' && typeof toolArgs?.pattern === 'string') {
+            if (usageCrossCheck.grepPatterns.size < MAX_USAGE_CROSS_CHECK_ENTRIES) {
+              usageCrossCheck.grepPatterns.add(toolArgs.pattern);
+            }
           }
-        }
-        if (toolName === 'repo_references' && typeof toolArgs?.symbol === 'string') {
-          if (usageCrossCheck.referenceSymbols.size < 50) {
-            usageCrossCheck.referenceSymbols.add(toolArgs.symbol);
+          if (toolName === 'repo_references' && typeof toolArgs?.symbol === 'string') {
+            if (usageCrossCheck.referenceSymbols.size < MAX_USAGE_CROSS_CHECK_ENTRIES) {
+              usageCrossCheck.referenceSymbols.add(toolArgs.symbol);
+            }
           }
         }
 
