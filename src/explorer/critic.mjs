@@ -360,6 +360,7 @@ export function buildCriticWarnings({
   confidence,
   stats,
   maxWarnings = 3,
+  usageCrossCheck = null,
 }) {
   const warnings = [];
 
@@ -389,6 +390,21 @@ export function buildCriticWarnings({
       message: `${grounding.partialEvidence} evidence item(s) are grounded only by grep, blame, or nearby line observations.`,
       target,
       action: 'Treat the targeted evidence as weaker than an exact file read.',
+    });
+  }
+
+  // spec 026: usage cross-check gate warning — push BEFORE confidence_downgraded so it
+  // wins budget competition when both fire simultaneously (R5).
+  // Do NOT fire when the exploration stopped by errors (critic-fail path takes precedence —
+  // no double warning, data-model E2 state-transition table).
+  if (usageCrossCheck?.required && !usageCrossCheck.observed && !stats?.stoppedByErrors) {
+    const sym = usageCrossCheck.symbol ?? '';
+    pushWarning(warnings, {
+      type: 'usage_cross_check_missing',
+      severity: 'medium',
+      message: `Usage tracing relied on a single symbol lookup; no grep or reference search for \`${sym}\` was observed.`,
+      target: sym,
+      action: `Run one repo_grep for the bare symbol name (within the current scope) before trusting the usage list as complete.`,
     });
   }
 
@@ -440,6 +456,7 @@ export function runDeterministicCriticPass({
   stats,
   taskKind,
   maxWarnings = 3,
+  usageCrossCheck = null,
 }) {
   const totalEvidenceBefore = normalized.evidence.length;
   const grounding = groundEvidenceList({
@@ -459,7 +476,17 @@ export function runDeterministicCriticPass({
   confidence.factors.droppedUngrounded = grounding.droppedUngrounded;
   confidence.factors.droppedMalformed = grounding.droppedMalformed;
 
-  const warnings = buildCriticWarnings({ grounding, confidence, stats, maxWarnings });
+  // spec 026: gate-fail caps finalConfidence to medium (never low — R4 constraint).
+  // modelConfidence is preserved; confidence_downgraded warning fires automatically.
+  // Do NOT apply cap when stoppedByErrors (critic-fail path takes precedence).
+  if (usageCrossCheck?.required && !usageCrossCheck.observed && !stats?.stoppedByErrors) {
+    if (confidence.finalConfidence === 'high') {
+      confidence.finalConfidence = 'medium';
+    }
+    // medium or below: no further lowering (low → follow_up_needed violates FR-003)
+  }
+
+  const warnings = buildCriticWarnings({ grounding, confidence, stats, maxWarnings, usageCrossCheck });
 
   return {
     result: {

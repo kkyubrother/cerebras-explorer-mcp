@@ -3748,3 +3748,280 @@ test('010 US1#4 — critic fail forces broad_search_needed regardless of evidenc
     assert.equal(result.stats?.evidenceSufficiency?.sufficient, false);
   }
 });
+
+// ── spec 026 US1 — usage cross-check gate scenario tests ────────────────────
+
+// Helper: builds a mock client that does exactly the given tool calls then finalizes.
+// toolSequence: array of {name, arguments} objects for the tool turn.
+// finalResult: compactResult overrides for the finalize turn.
+function makeSymbolTraceClient({ toolSequence = [], finalResult = {} } = {}) {
+  class Spec026Client {
+    constructor() {
+      this.model = 'zai-glm-4.7';
+      this.calls = 0;
+      this._toolIdx = 0;
+    }
+
+    async createChatCompletion({ responseFormat }) {
+      this.calls += 1;
+
+      if (responseFormat) {
+        return {
+          usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+          message: {
+            content: JSON.stringify(compactResult({
+              directAnswer: 'requireAuth rejects unauthenticated requests.',
+              statusConfidence: 'high',
+              evidence: [
+                { path: 'src/auth.js', startLine: 1, endLine: 4, why: 'symbol definition site', evidenceType: 'file_range', groundingStatus: 'exact' },
+              ],
+              ...finalResult,
+            })),
+            toolCalls: [],
+          },
+        };
+      }
+
+      if (this._toolIdx < toolSequence.length) {
+        const toolDef = toolSequence[this._toolIdx];
+        this._toolIdx += 1;
+        return {
+          usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+          message: {
+            content: '',
+            toolCalls: [{
+              id: `tc-${this._toolIdx}`,
+              function: {
+                name: toolDef.name,
+                arguments: JSON.stringify(toolDef.arguments),
+              },
+            }],
+          },
+        };
+      }
+
+      // No more tools — trigger finalize
+      return {
+        usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+        message: { content: '', toolCalls: [] },
+      };
+    }
+  }
+
+  return new Spec026Client();
+}
+
+test('spec 026 T003(a): symbol_trace + only repo_symbol_context/repo_read_file → targeted_read_needed + medium + warning', async () => {
+  const client = makeSymbolTraceClient({
+    toolSequence: [
+      { name: 'repo_symbol_context', arguments: { symbol: 'requireAuth' } },
+      { name: 'repo_read_file', arguments: { path: 'src/auth.js', startLine: 1, endLine: 4 } },
+    ],
+  });
+
+  const root = await makeRepoFixture();
+  const runtime = new ExplorerRuntime({ chatClient: client });
+  const result = await runtime.explore({
+    task: 'Trace requireAuth usages',
+    taskMode: 'symbol_trace',
+    hints: { symbols: ['requireAuth'] },
+    repo_root: root,
+  });
+
+  assert.equal(result.status.verification, 'targeted_read_needed', `expected targeted_read_needed, got ${result.status.verification}`);
+  assert.equal(result.status.confidence, 'medium', `expected medium confidence, got ${result.status.confidence}`);
+  assert.equal(result.status.complete, true, 'complete must be true for targeted_read_needed');
+  const crossCheckWarning = (result.critic?.warnings ?? []).find(w => w.type === 'usage_cross_check_missing');
+  assert.ok(crossCheckWarning, 'must have exactly one usage_cross_check_missing warning');
+  assert.equal(
+    (result.critic?.warnings ?? []).filter(w => w.type === 'usage_cross_check_missing').length,
+    1,
+    'exactly one usage_cross_check_missing',
+  );
+  assert.equal(result.nextAction?.type, 'read_target', `expected read_target nextAction, got ${result.nextAction?.type}`);
+});
+
+test('spec 026 T003(b): symbol_trace + repo_grep containing symbol → verified, no warning', async () => {
+  const client = makeSymbolTraceClient({
+    toolSequence: [
+      { name: 'repo_symbol_context', arguments: { symbol: 'requireAuth' } },
+      { name: 'repo_grep', arguments: { pattern: 'requireAuth', scope: ['src/**'] } },
+      { name: 'repo_read_file', arguments: { path: 'src/auth.js', startLine: 1, endLine: 4 } },
+    ],
+  });
+
+  const root = await makeRepoFixture();
+  const runtime = new ExplorerRuntime({ chatClient: client });
+  const result = await runtime.explore({
+    task: 'Trace requireAuth usages',
+    taskMode: 'symbol_trace',
+    hints: { symbols: ['requireAuth'] },
+    repo_root: root,
+  });
+
+  assert.equal(result.status.verification, 'verified', `expected verified, got ${result.status.verification}`);
+  assert.ok(
+    !(result.critic?.warnings ?? []).some(w => w.type === 'usage_cross_check_missing'),
+    'must not have usage_cross_check_missing when grep satisfied gate',
+  );
+});
+
+test('spec 026 T003(c): 0-match grep still satisfies gate (attempt counts, args-based)', async () => {
+  // The repo fixture has requireAuth defined in src/auth.js, so grep for 'requireAuth_NOMATCH'
+  // returns 0 matches. But for the gate, we check the ARGS pattern. Here we use a pattern
+  // that contains the bare symbol name so it satisfies the gate even with 0 matches.
+  const client = makeSymbolTraceClient({
+    toolSequence: [
+      { name: 'repo_symbol_context', arguments: { symbol: 'requireAuth' } },
+      // Pattern contains "requireAuth" but won't match anything meaningful
+      { name: 'repo_grep', arguments: { pattern: 'requireAuth_something_that_wont_match', scope: ['src/**'] } },
+      { name: 'repo_read_file', arguments: { path: 'src/auth.js', startLine: 1, endLine: 4 } },
+    ],
+  });
+
+  const root = await makeRepoFixture();
+  const runtime = new ExplorerRuntime({ chatClient: client });
+  const result = await runtime.explore({
+    task: 'Trace requireAuth usages',
+    taskMode: 'symbol_trace',
+    hints: { symbols: ['requireAuth'] },
+    repo_root: root,
+  });
+
+  // grep attempt (args-based) satisfies the gate even if 0 matches
+  assert.ok(
+    !(result.critic?.warnings ?? []).some(w => w.type === 'usage_cross_check_missing'),
+    'a grep attempt (args-based, even 0-match) must satisfy the gate',
+  );
+});
+
+test('spec 026 T003(d): repo_references call satisfies gate', async () => {
+  const client = makeSymbolTraceClient({
+    toolSequence: [
+      { name: 'repo_symbol_context', arguments: { symbol: 'requireAuth' } },
+      { name: 'repo_references', arguments: { symbol: 'requireAuth' } },
+      { name: 'repo_read_file', arguments: { path: 'src/auth.js', startLine: 1, endLine: 4 } },
+    ],
+  });
+
+  const root = await makeRepoFixture();
+  const runtime = new ExplorerRuntime({ chatClient: client });
+  const result = await runtime.explore({
+    task: 'Trace requireAuth usages',
+    taskMode: 'symbol_trace',
+    hints: { symbols: ['requireAuth'] },
+    repo_root: root,
+  });
+
+  assert.ok(
+    !(result.critic?.warnings ?? []).some(w => w.type === 'usage_cross_check_missing'),
+    'repo_references satisfies the gate',
+  );
+});
+
+test('spec 026 T003(e): narrow scope + grep inside scope satisfies gate', async () => {
+  const client = makeSymbolTraceClient({
+    toolSequence: [
+      { name: 'repo_symbol_context', arguments: { symbol: 'requireAuth' } },
+      { name: 'repo_grep', arguments: { pattern: 'requireAuth', scope: ['src/routes/**'] } },
+      { name: 'repo_read_file', arguments: { path: 'src/auth.js', startLine: 1, endLine: 4 } },
+    ],
+  });
+
+  const root = await makeRepoFixture();
+  const runtime = new ExplorerRuntime({ chatClient: client });
+  const result = await runtime.explore({
+    task: 'Trace requireAuth usages',
+    taskMode: 'symbol_trace',
+    hints: { symbols: ['requireAuth'] },
+    scope: ['src/routes/**'],
+    repo_root: root,
+  });
+
+  assert.ok(
+    !(result.critic?.warnings ?? []).some(w => w.type === 'usage_cross_check_missing'),
+    'grep within narrow scope satisfies gate',
+  );
+});
+
+test('spec 026 T003(f): critic-fail path → broad_search_needed, NO usage_cross_check_missing (no double warning)', async () => {
+  // All tool calls error → stoppedByErrors → critic fail → broad_search_needed
+  class AllErrorsClient {
+    constructor() { this.model = 'zai-glm-4.7'; this.calls = 0; }
+    async createChatCompletion({ responseFormat }) {
+      this.calls += 1;
+      if (responseFormat) {
+        return {
+          usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+          message: {
+            content: JSON.stringify(compactResult({
+              directAnswer: 'Could not find symbol.',
+              statusConfidence: 'low',
+              evidence: [],
+            })),
+            toolCalls: [],
+          },
+        };
+      }
+      // Always return invalid tool name → triggers tool error → stoppedByErrors
+      return {
+        usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+        message: {
+          content: '',
+          toolCalls: [{
+            id: `tc-${this.calls}`,
+            function: {
+              name: 'repo_nonexistent_tool',
+              arguments: JSON.stringify({ x: 1 }),
+            },
+          }],
+        },
+      };
+    }
+  }
+
+  const root = await makeRepoFixture();
+  const runtime = new ExplorerRuntime({ chatClient: new AllErrorsClient() });
+  const result = await runtime.explore({
+    task: 'Trace requireAuth usages',
+    taskMode: 'symbol_trace',
+    hints: { symbols: ['requireAuth'] },
+    repo_root: root,
+  });
+
+  // When critic fails (broad_search_needed), gate must NOT fire
+  assert.ok(
+    !(result.critic?.warnings ?? []).some(w => w.type === 'usage_cross_check_missing'),
+    'no usage_cross_check_missing when path is broad_search_needed',
+  );
+  assert.equal(result.status.verification, 'broad_search_needed', `expected broad_search_needed, got ${result.status.verification}`);
+});
+
+test('spec 026 T003(g): taskMode locate → no warning, no downgrade', async () => {
+  const client = makeSymbolTraceClient({
+    toolSequence: [
+      { name: 'repo_symbol_context', arguments: { symbol: 'requireAuth' } },
+      { name: 'repo_read_file', arguments: { path: 'src/auth.js', startLine: 1, endLine: 4 } },
+    ],
+  });
+
+  const root = await makeRepoFixture();
+  const runtime = new ExplorerRuntime({ chatClient: client });
+  const result = await runtime.explore({
+    task: 'Locate requireAuth',
+    taskMode: 'locate',
+    hints: { symbols: ['requireAuth'] },
+    repo_root: root,
+  });
+
+  assert.ok(
+    !(result.critic?.warnings ?? []).some(w => w.type === 'usage_cross_check_missing'),
+    'locate taskMode must not trigger gate',
+  );
+  // verification should NOT be targeted_read_needed due to gate (may be verified or something else)
+  assert.notEqual(
+    result.status.verification,
+    'targeted_read_needed',
+    'locate taskMode must not be downgraded by gate to targeted_read_needed',
+  );
+});

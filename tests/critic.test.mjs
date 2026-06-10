@@ -456,3 +456,146 @@ test('buildReportCritic skips line-range grounding for paths without observed ra
     'without observed ranges for the path, no line-gap warning is emitted (no false positive)',
   );
 });
+
+// ── spec 026 US1 — usage cross-check gate ────────────────────────────────────
+
+test('spec 026 T002-①: buildCriticWarnings emits usage_cross_check_missing when required and not observed', () => {
+  const warnings = buildCriticWarnings({
+    grounding: { droppedMalformed: 0, droppedUngrounded: 0 },
+    confidence: { modelConfidence: 'high', finalConfidence: 'high' },
+    stats: makeStats(),
+    usageCrossCheck: { required: true, observed: false, symbol: 'mySym' },
+  });
+
+  const w = warnings.find(w => w.type === 'usage_cross_check_missing');
+  assert.ok(w, 'must emit usage_cross_check_missing warning');
+  assert.equal(w.severity, 'medium');
+  assert.ok(w.message.includes('mySym'), `message must include symbol, got: ${w.message}`);
+  assert.equal(w.target, 'mySym');
+  assert.ok(w.action, 'action must be present');
+  // action must NOT imply searching outside scope
+  assert.ok(
+    !w.action.toLowerCase().includes('outside') && !w.action.toLowerCase().includes('global') && !w.action.toLowerCase().includes('entire repo'),
+    `action must not imply searching outside scope, got: ${w.action}`,
+  );
+  assert.ok(w.action.toLowerCase().includes('repo_grep'), 'action should suggest repo_grep');
+  assert.equal(warnings.filter(w => w.type === 'usage_cross_check_missing').length, 1, 'exactly one warning');
+});
+
+test('spec 026 T002-②: budget competition — usage_cross_check_missing precedes confidence_downgraded in 3-warning budget', () => {
+  // droppedMalformed triggers dropped_evidence (medium), usageCrossCheck fires (medium),
+  // confidence_downgraded fires (medium), stoppedByBudget fires (medium) → 4 medium warnings,
+  // slice(0,3) keeps first 3. The new warning must be pushed BEFORE confidence_downgraded.
+  const warnings = buildCriticWarnings({
+    grounding: { droppedMalformed: 2, droppedUngrounded: 0 },
+    confidence: { modelConfidence: 'high', finalConfidence: 'medium' },
+    stats: makeStats({ stoppedByBudget: true }),
+    usageCrossCheck: { required: true, observed: false, symbol: 'mySym' },
+  });
+
+  assert.ok(warnings.length <= 3, 'must not exceed 3-warning budget');
+  const crossCheckIdx = warnings.findIndex(w => w.type === 'usage_cross_check_missing');
+  const downgradedIdx = warnings.findIndex(w => w.type === 'confidence_downgraded');
+  assert.ok(crossCheckIdx !== -1, 'usage_cross_check_missing must be in budget');
+  // If confidence_downgraded is also present, cross_check must come before it
+  if (downgradedIdx !== -1) {
+    assert.ok(crossCheckIdx < downgradedIdx, 'usage_cross_check_missing must precede confidence_downgraded');
+  }
+});
+
+test('spec 026 T002-③a: buildCriticWarnings with observed:true emits no usage_cross_check_missing', () => {
+  const warnings = buildCriticWarnings({
+    grounding: { droppedMalformed: 0, droppedUngrounded: 0 },
+    confidence: { modelConfidence: 'high', finalConfidence: 'high' },
+    stats: makeStats(),
+    usageCrossCheck: { required: true, observed: true, symbol: 'mySym' },
+  });
+
+  assert.ok(!warnings.some(w => w.type === 'usage_cross_check_missing'), 'observed:true must not emit warning');
+});
+
+test('spec 026 T002-③b: buildCriticWarnings with omitted usageCrossCheck (old signature) emits no usage_cross_check_missing', () => {
+  // This is exactly the existing :208 test signature — must stay green unmodified.
+  const warnings = buildCriticWarnings({
+    grounding: {
+      droppedMalformed: 0,
+      droppedUngrounded: 2,
+      partialEvidence: 1,
+      partialTargets: ['src/auth.js:20-24'],
+    },
+    confidence: {
+      modelConfidence: 'high',
+      finalConfidence: 'medium',
+    },
+    stats: makeStats({ stoppedByBudget: true }),
+  });
+
+  assert.ok(!warnings.some(w => w.type === 'usage_cross_check_missing'), 'omitted param must not fire gate');
+  assert.ok(warnings.length <= 3, 'default warning list must stay compact');
+  assert.ok(warnings.every(w => w.message && w.action), 'warnings need reason and action');
+  assert.ok(warnings.some(w => w.type === 'confidence_downgraded'));
+});
+
+test('spec 026 T002-④a: runDeterministicCriticPass with gate-fail caps finalConfidence to medium (not low)', () => {
+  const normalized = {
+    directAnswer: 'answer',
+    status: { confidence: 'high', verification: 'verified', complete: true, warnings: [] },
+    targets: [],
+    evidence: [
+      { path: 'src/auth.js', startLine: 1, endLine: 4, why: 'symbol definition' },
+    ],
+    uncertainties: [],
+    nextAction: { type: 'stop', reason: 'Complete.' },
+    stats: makeStats(),
+  };
+  const observedRanges = new Map([
+    ['src/auth.js', [{ startLine: 1, endLine: 4, source: 'read' }]],
+  ]);
+
+  const { result, confidence } = runDeterministicCriticPass({
+    normalized,
+    observedRanges,
+    observedGit: { commits: new Set(), blame: new Set() },
+    stats: makeStats(),
+    taskKind: 'locate',
+    usageCrossCheck: { required: true, observed: false, symbol: 'mySym' },
+  });
+
+  // modelConfidence should remain 'high' (as evaluated), finalConfidence capped to medium
+  assert.equal(confidence.modelConfidence, 'high', 'modelConfidence must be preserved');
+  assert.equal(result.status.confidence, 'medium', 'finalConfidence must be capped to medium');
+  assert.notEqual(result.status.confidence, 'low', 'must never cap to low');
+  // confidence_downgraded warning fires automatically because model!=final
+  assert.ok(result.critic.warnings.some(w => w.type === 'confidence_downgraded'), 'confidence_downgraded must fire');
+  // usage_cross_check_missing must also be present
+  assert.ok(result.critic.warnings.some(w => w.type === 'usage_cross_check_missing'), 'usage_cross_check_missing must be present');
+});
+
+test('spec 026 T002-④b: runDeterministicCriticPass with gate-pass leaves confidence unchanged', () => {
+  const normalized = {
+    directAnswer: 'answer',
+    status: { confidence: 'high', verification: 'verified', complete: true, warnings: [] },
+    targets: [],
+    evidence: [
+      { path: 'src/auth.js', startLine: 1, endLine: 4, why: 'symbol definition' },
+    ],
+    uncertainties: [],
+    nextAction: { type: 'stop', reason: 'Complete.' },
+    stats: makeStats(),
+  };
+  const observedRanges = new Map([
+    ['src/auth.js', [{ startLine: 1, endLine: 4, source: 'read' }]],
+  ]);
+
+  const { result } = runDeterministicCriticPass({
+    normalized,
+    observedRanges,
+    observedGit: { commits: new Set(), blame: new Set() },
+    stats: makeStats(),
+    taskKind: 'locate',
+    usageCrossCheck: { required: true, observed: true, symbol: 'mySym' },
+  });
+
+  // gate-pass: no usage_cross_check_missing warning; confidence can be whatever evaluateConfidence returns
+  assert.ok(!result.critic.warnings.some(w => w.type === 'usage_cross_check_missing'), 'gate-pass must not emit warning');
+});
