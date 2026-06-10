@@ -2,7 +2,7 @@
 
 > **목적**: 확장 후보의 동작·입력·영향·전제 조건을 풀어쓴 살아있는 백로그. 다음 spec NNN을 끊을 때 이 문서를 입력으로 사용한다. (README "다음 확장 포인트" 절이 이 문서를 가리킨다.)
 >
-> **상태** (2026-06-10 갱신): 아래 4개 후보는 모두 spec으로 소진 완료 — #1·#2 → specs/013 (+#2 언어 확장은 specs/015), #3 → specs/014, #4 → specs/012. 현재 열린 후보는 없다. 남은 씨앗: (a) `.npmignore`/`.dockerignore` 옵트인 처리(#3 후속), (b) Lambda handler / K8s CronJob / Pub-Sub subscriber entrypoint 카테고리(#2 후속), (c) `src/benchmark/evaluator.mjs`의 `stopped_by_budget_equals` check가 spec 017 이후 죽은 `result.stats`를 읽어 vacuous — `searchCoverage.stoppedByBudget`로 이전하거나 삭제 (현재 어떤 스위트도 이 check 타입을 사용하지 않음; spec 025 final review 발견), (d) parent-agent 실측 A/B 자동화와 adoption 케이스 입력-기대 키워드 에코 정리 (spec 025 Out of Scope에서 이월). 새 후보가 생기면 본 문서에 절을 추가하고, 진행할 때 개별 `specs/NNN-slug/` 디렉토리를 끊은 뒤 해당 절을 "→ specs/NNN-slug 완료"처럼 갱신한다.
+> **상태** (2026-06-10 갱신): #1~#4는 모두 spec으로 소진 완료 — #1·#2 → specs/013 (+#2 언어 확장은 specs/015), #3 → specs/014, #4 → specs/012. **#5 (`trace_symbol` usage cross-check)가 신규 등록된 열린 후보다 (미진행, 수정 기획 포함).** 남은 씨앗: (a) `.npmignore`/`.dockerignore` 옵트인 처리(#3 후속), (b) Lambda handler / K8s CronJob / Pub-Sub subscriber entrypoint 카테고리(#2 후속), (c) `src/benchmark/evaluator.mjs`의 `stopped_by_budget_equals` check가 spec 017 이후 죽은 `result.stats`를 읽어 vacuous — `searchCoverage.stoppedByBudget`로 이전하거나 삭제 (현재 어떤 스위트도 이 check 타입을 사용하지 않음; spec 025 final review 발견), (d) parent-agent 실측 A/B 자동화와 adoption 케이스 입력-기대 키워드 에코 정리 (spec 025 Out of Scope에서 이월). 새 후보가 생기면 본 문서에 절을 추가하고, 진행할 때 개별 `specs/NNN-slug/` 디렉토리를 끊은 뒤 해당 절을 "→ specs/NNN-slug 완료"처럼 갱신한다.
 
 ---
 
@@ -109,6 +109,35 @@
 - 다중 패턴 라인은 spec 008 Edge Cases에서 "constructor가 우선"이라고 단언했으므로 그대로 굳히는 회귀 테스트.
 
 **리스크**: 하. 기존 단위 테스트 패턴(`tests/symbols.test.mjs`)에 케이스 추가가 본질. 신규 surface 없음.
+
+---
+
+## 5. `trace_symbol` usage cross-check 강제 (사용처 누락 과신 완화)
+
+**배경 (2026-06-10 평가에서 실측)**: `trace_symbol`로 `buildReportCritic`을 추적한 라이브 프로브에서 explorer가 정의(`critic.mjs`)는 정확히 찾았지만 **프로덕션 호출처(`runtime.mjs:2394`)를 누락**하고 테스트 사용처만 보고했다. 탐색은 `repo_symbol_context` 1회 + 파일 read 5회로 끝났고 **repo-wide grep을 한 번도 수행하지 않았는데도**(`searchCoverage.grepCalls=0`) `status.verification='verified'`, `complete=true`, `confidence='high'`, `critic.status='pass'`, `uncertainties=[]`를 반환했다. 인용한 것은 전부 사실(거짓 양성 차단은 잘 작동)이지만, "찾아야 할 것을 다 찾았는가"(거짓 음성)는 어떤 신호로도 표면화되지 않았다 — 사용처 추적이 본업인 도구에서 가장 해로운 과신 모드다.
+
+**동작 (수정 기획 — 정책 적합 형태)**: 세 층으로 나누되, 모두 기존 정책 안에서 deterministic하게 동작한다.
+
+1. **원인 측정 먼저 (전제 조사)**: 재현 케이스(`buildReportCritic`)로 `repo_symbol_context`의 caller 수집이 왜 `runtime.mjs`의 호출처를 놓쳤는지 측정한다 — 후보: `maxSearchResults`(80) 한도에서의 정렬/절단, caller 수집 범위, regex 매칭 한계. 인덱서 자체 결함이면 그 fix가 1차 (zero-dep regex 원칙 유지, DESIGN §17 Phase 3 경계 준수).
+2. **Sufficiency gate 확장 (DESIGN §11.4, deterministic)**: `taskMode='symbol_trace'`에서 `verified` 판정의 추가 조건으로 **usage cross-check 신호**를 요구한다 — 대상 심볼에 대한 `repo_grep` 또는 `repo_references` 호출이 실제 관측됐을 것. 미관측이면 `verification`을 `targeted_read_needed`로 강등하고 confidence를 high→medium으로 cap(기존 `confidence_downgraded` 메커니즘 재사용). 런타임 tool loop는 호출 args를 이미 파싱하므로 `observedGrepPatterns`/`observedReferenceSymbols`를 내부 stat으로 기록하면 된다(envelope 비노출, ops/transcript 전용).
+3. **Additive critic warning (DESIGN §11.3 형식)**: 새 warning type `usage_cross_check_missing` — `{ type, severity: 'medium', message: "Usage tracing relied on a single symbol lookup; no repo-wide grep/reference search was observed for <symbol>.", target: <symbol>, action: "Run repo_grep for the bare symbol name (or repo_references) before trusting the usage list as complete." }`. §11.1 원칙대로 "전체 불신"이 아니라 좁힌 후속 행동을 지시한다. v0.8.2의 `git_citation_gap`과 같은 additive 확장 패턴.
+4. **(보조) 전략 프롬프트 보강**: symbol-first 전략 가이드에 "정의 확인 후 최종화 전에 bare symbol로 repo-wide grep 1회 교차 확인"을 명시. 프롬프트만으로는 준수가 비결정적이므로 2·3의 gate가 본체이고 이것은 비용 절감용 유도.
+
+**입력 후보**: 없음 (공개 스키마 변경 없음).
+
+**출력 후보**: `critic.warnings`에 additive type 1개 추가, 기존 `status.verification`/`confidence` 값 범위 내 강등만 사용. `schemaVersion` 불변. 벤치마크 `trace-symbol` 케이스에 프로덕션 호출처 파일 기대 그룹과 cross-check 수행 체크를 추가(record-only 원칙 유지, spec 021).
+
+**영향**:
+- **공개 surface 불변** (8-tool 고정, 새 envvar 없음, additive warning만).
+- `symbol_trace` 호출의 평균 턴/내부 토큰이 약간 증가(grep 1회 추가 유도). spec 025의 `avgToolTurns`/`avgInternalTokens` 메트릭으로 추이 관측 가능.
+- 직접 `explore_repo` + symbol hints 경로는 taskMode가 없어 1차 범위 밖 (DESIGN §5.1의 wrapper-owned intent 비대칭과 일치). 전략 자동 감지(`symbol-first`) 기반 확대는 후속 결정.
+
+**전제 조건**:
+- 1번 원인 측정 결과를 spec에 baseline으로 기록 (인덱서 결함 fix와 gate 도입의 분리 가능성 판단).
+- `usage_cross_check_missing`이 좁은 scope 호출(예: 단일 파일 scope)에서 과경고가 되지 않는지 확인 — scope 내 grep이면 충족으로 인정.
+- 기존 §11.4 판정 순서(critic fail → low confidence → edit 경로 → 임계)와의 합류 지점 명시.
+
+**리스크**: 중하. gate/critic은 순수 함수 확장이라 구현 위험이 낮지만, 과경고 시 상위 AI의 불필요한 재탐색(§11.1이 경계하는 비용)을 유발할 수 있어 임계 설계가 핵심. 프로브 재현 케이스가 있어 회귀 검증은 용이.
 
 ---
 
