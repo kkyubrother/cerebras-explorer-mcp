@@ -7,6 +7,12 @@ import { buildExecutionProvenance, createMcpRequestHandler } from '../src/mcp/se
 import { evaluateBenchmarkCase, summarizeBenchmarkSuite } from '../src/benchmark/evaluator.mjs';
 import { sanitizeBenchmarkReport, sanitizePathForReport } from '../src/benchmark/report.mjs';
 import { analyzeTranscriptFile } from '../src/benchmark/transcript-metrics.mjs';
+import {
+  computeCaseEffectMetrics,
+  verifyCitations,
+  NEUTRAL_CITATION_STATUSES,
+  MATCH_CITATION_STATUSES,
+} from '../src/benchmark/effect-metrics.mjs';
 
 function parseArgs(argv) {
   const options = {
@@ -103,14 +109,6 @@ function formatPercent(score) {
   return `${Math.round(score * 100)}%`;
 }
 
-function getStats(result) {
-  // spec 017: MCP structuredContent no longer exposes _debug or stats. Extended
-  // metrics that previously read from _debug.stats now degrade gracefully to {}
-  // for any case that runs through the MCP envelope. Raw runtime results
-  // continue to expose .stats for callers that bypass the envelope.
-  return result?.stats ?? {};
-}
-
 function getConfidence(result) {
   return result?.status?.confidence ?? result?.confidence ?? 'n/a';
 }
@@ -120,32 +118,47 @@ function getConfidenceScore(result) {
 }
 
 /**
- * Compute extended benchmark metrics beyond pass/fail scoring.
- * All five Phase 0 indicators:
- *   - avgToolTurns          : average agentic loop turns across successful cases
- *   - budgetExhaustionRate  : fraction of cases where stoppedByBudget === true
- *   - noToolExitRate        : fraction of cases where the model answered with 0 tool calls
- *   - avgGroundedEvidence   : average count of grounded evidence items per case
- *   - deepBudgetAvgTotalTokens : average total tokens for deep-budget cases (null if none)
- *   - avgTargets            : average number of action targets in structured output
- *   - evidenceSnippetRate   : fraction of evidence items that include snippets
- *   - targetedVerificationRate : fraction of cases that narrow the next step to returned targets
- *   - avgBroadSearchCalls   : average transcript broad-search tool calls (null without transcripts)
- *   - avgRepeatedToolPlanTurns : average repeated transcript tool-plan turns (null without transcripts)
+ * Compute extended benchmark metrics beyond pass/fail scoring. All metrics are
+ * record-only (spec 021: never a gate). Sources (spec 025):
+ *   - _meta.ops side-channel  : avgToolTurns, avgInternalTokens, noToolExitRate (primary)
+ *   - structuredContent       : budgetExhaustionRate, noToolExitRate (fallback),
+ *                               avgGroundedEvidence, avgTargets, evidenceSnippetRate,
+ *                               targetedVerificationRate
+ *   - effect-metrics harness  : avgResponsePayloadTokens, avgCitedSourceTokens,
+ *                               avgContextSavingsRatio, citationAccuracy, weakCitationChecks
+ *   - transcript analysis     : avgBroadSearchCalls, avgRepeatedToolPlanTurns
+ * A metric with no available source is null (printed as "n/a") — never a
+ * fabricated 0/100%.
  */
 export function computeExtendedMetrics(caseResults) {
   const successCases = caseResults.filter(cr => cr.result !== null);
   const count = successCases.length;
   if (count === 0) return null;
 
-  const avgToolTurns =
-    successCases.reduce((sum, cr) => sum + (getStats(cr.result).turns ?? 0), 0) / count;
+  const avgOf = values => (values.length > 0
+    ? values.reduce((sum, value) => sum + value, 0) / values.length
+    : null);
+  const round1 = value => (value === null ? null : Math.round(value * 10) / 10);
+  const round3 = value => (value === null ? null : Math.round(value * 1000) / 1000);
+
+  const opsStats = successCases
+    .map(cr => cr.ops?.stats)
+    .filter(stats => stats && typeof stats === 'object');
+
+  const avgToolTurns = round1(avgOf(opsStats.map(stats => stats.turns ?? 0)));
+  const avgInternalTokensRaw = avgOf(opsStats.map(stats => stats.totalTokens ?? 0));
 
   const budgetExhaustionRate =
-    successCases.filter(cr => getStats(cr.result).stoppedByBudget).length / count;
+    successCases.filter(cr => cr.result.searchCoverage?.stoppedByBudget === true).length / count;
 
-  const noToolExitRate =
-    successCases.filter(cr => (getStats(cr.result).toolCalls ?? 0) === 0).length / count;
+  const noToolExitRate = successCases.filter(cr => {
+    const stats = cr.ops?.stats;
+    if (stats && typeof stats.toolCalls === 'number') return stats.toolCalls === 0;
+    // Fallback caveat: searchCoverage has no git-call counter, so a
+    // git-tools-only exploration can be misread as a no-tool exit here.
+    const sc = cr.result.searchCoverage ?? {};
+    return ((sc.filesRead ?? 0) + (sc.grepCalls ?? 0) + (sc.listDirCalls ?? 0) + (sc.symbolCalls ?? 0)) === 0;
+  }).length / count;
 
   const avgGroundedEvidence =
     successCases.reduce((sum, cr) => {
@@ -154,11 +167,6 @@ export function computeExtendedMetrics(caseResults) {
       ).length;
       return sum + grounded;
     }, 0) / count;
-
-  const deepCases = successCases.filter(cr => getStats(cr.result).budget === 'deep');
-  const deepBudgetAvgTotalTokens = deepCases.length > 0
-    ? deepCases.reduce((sum, cr) => sum + (getStats(cr.result).totalTokens ?? 0), 0) / deepCases.length
-    : null;
 
   const evidenceCount = successCases.reduce((sum, cr) => sum + (cr.result.evidence?.length ?? 0), 0);
   const snippetCount = successCases.reduce((sum, cr) => {
@@ -179,25 +187,39 @@ export function computeExtendedMetrics(caseResults) {
     ? transcriptCases.reduce((sum, cr) => sum + Number(cr.transcriptMetrics.repeatedToolPlanTurns ?? 0), 0) / transcriptCases.length
     : null;
 
+  const effectCases = successCases.map(cr => cr.effectMetrics).filter(Boolean);
+  const avgResponsePayloadTokens = avgOf(effectCases.map(m => m.responsePayloadTokens));
+  const avgCitedSourceTokens = avgOf(effectCases.map(m => m.citedSourceTokens));
+  const avgContextSavingsRatio = avgOf(
+    effectCases.map(m => m.contextSavingsRatio).filter(value => typeof value === 'number'),
+  );
+
+  const allChecks = successCases.flatMap(cr => cr.citation?.checks ?? []);
+  const countedChecks = allChecks.filter(check => !NEUTRAL_CITATION_STATUSES.has(check.status));
+  const matchedChecks = countedChecks.filter(check => MATCH_CITATION_STATUSES.has(check.status));
+  const citationAccuracy = countedChecks.length > 0
+    ? round3(matchedChecks.length / countedChecks.length)
+    : null;
+  const weakCitationChecks = allChecks.filter(check => check.status === 'weak_match').length;
+
   return {
-    avgToolTurns: Math.round(avgToolTurns * 10) / 10,
-    budgetExhaustionRate: Math.round(budgetExhaustionRate * 1000) / 1000,
-    noToolExitRate: Math.round(noToolExitRate * 1000) / 1000,
-    avgGroundedEvidence: Math.round(avgGroundedEvidence * 10) / 10,
-    deepBudgetAvgTotalTokens: deepBudgetAvgTotalTokens !== null
-      ? Math.round(deepBudgetAvgTotalTokens)
-      : null,
-    avgTargets: Math.round(avgTargets * 10) / 10,
+    avgToolTurns,
+    avgInternalTokens: avgInternalTokensRaw === null ? null : Math.round(avgInternalTokensRaw),
+    budgetExhaustionRate: round3(budgetExhaustionRate),
+    noToolExitRate: round3(noToolExitRate),
+    avgGroundedEvidence: round1(avgGroundedEvidence),
+    avgTargets: round1(avgTargets),
     evidenceSnippetRate: evidenceCount > 0
-      ? Math.round((snippetCount / evidenceCount) * 1000) / 1000
+      ? round3(snippetCount / evidenceCount)
       : 0,
-    targetedVerificationRate: Math.round(targetedVerificationRate * 1000) / 1000,
-    avgBroadSearchCalls: avgBroadSearchCalls !== null
-      ? Math.round(avgBroadSearchCalls * 10) / 10
-      : null,
-    avgRepeatedToolPlanTurns: avgRepeatedToolPlanTurns !== null
-      ? Math.round(avgRepeatedToolPlanTurns * 10) / 10
-      : null,
+    targetedVerificationRate: round3(targetedVerificationRate),
+    avgBroadSearchCalls: round1(avgBroadSearchCalls),
+    avgRepeatedToolPlanTurns: round1(avgRepeatedToolPlanTurns),
+    avgResponsePayloadTokens: avgResponsePayloadTokens === null ? null : Math.round(avgResponsePayloadTokens),
+    avgCitedSourceTokens: avgCitedSourceTokens === null ? null : Math.round(avgCitedSourceTokens),
+    avgContextSavingsRatio: avgContextSavingsRatio === null ? null : Math.round(avgContextSavingsRatio * 100) / 100,
+    citationAccuracy,
+    weakCitationChecks,
   };
 }
 
@@ -330,9 +352,6 @@ async function main() {
     console.log(`  targeted verify    : ${formatPercent(metrics.targetedVerificationRate)}`);
     console.log(`  avg broad searches : ${metrics.avgBroadSearchCalls ?? 'n/a'}`);
     console.log(`  avg repeated plans : ${metrics.avgRepeatedToolPlanTurns ?? 'n/a'}`);
-    if (metrics.deepBudgetAvgTotalTokens !== null) {
-      console.log(`  deep budget tokens : ${metrics.deepBudgetAvgTotalTokens} avg total`);
-    }
   }
 
   if (options.output) {
