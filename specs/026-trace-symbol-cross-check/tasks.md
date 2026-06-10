@@ -77,12 +77,12 @@
 
 ### Tests for User Story 3 (failing first)
 
-- [ ] T015 [P] [US3] `tests/runtime.mock.test.mjs`(기존 프롬프트 단언 블록 :2404-2429 부근)에 snapshot 테스트 추가: `buildExplorerUserPrompt`(strategy 'symbol-first')의 approach 문구에 ① cross-check 지시(bare symbol `repo_grep` + finalize 전) ② `truncated` fallback 문구 포함 단언; 시스템 프롬프트 전략 카탈로그(`buildExplorerSystemPrompt` 경유, prompt.mjs:197-198)와 `STRATEGY_DESCRIPTIONS`(:4)의 동기화 단언. 실행해 FAIL 확인.
+- [X] T015 [P] [US3] `tests/runtime.mock.test.mjs`(기존 프롬프트 단언 블록 :2404-2429 부근)에 snapshot 테스트 추가: `buildExplorerUserPrompt`(strategy 'symbol-first')의 approach 문구에 ① cross-check 지시(bare symbol `repo_grep` + finalize 전) ② `truncated` fallback 문구 포함 단언; 시스템 프롬프트 전략 카탈로그(`buildExplorerSystemPrompt` 경유, prompt.mjs:197-198)와 `STRATEGY_DESCRIPTIONS`(:4)의 동기화 단언. 실행해 FAIL 확인.
 
 ### Implementation for User Story 3
 
-- [ ] T016 [US3] `src/explorer/prompt.mjs` — :291의 symbol-first approach를 확장("Start with repo_symbol_context(symbol). After confirming the definition and before finalizing, run one scope-wide repo_grep for the bare symbol name to cross-check usages. If no result **or the result reports truncated: true**, fall back to repo_grep(symbol) → repo_read_file for top matches." 취지); `STRATEGY_DESCRIPTIONS`(:4)와 시스템 카탈로그(:197-198) 한 줄 동기화 (R7).
-- [ ] T017 [US3] 테스트 green + `npm test` 0 fail; Commit: `feat(spec-026): symbol-first strategy cross-check instruction (US3)`.
+- [X] T016 [US3] `src/explorer/prompt.mjs` — :291의 symbol-first approach를 확장("Start with repo_symbol_context(symbol). After confirming the definition and before finalizing, run one scope-wide repo_grep for the bare symbol name to cross-check usages. If no result **or the result reports truncated: true**, fall back to repo_grep(symbol) → repo_read_file for top matches." 취지); `STRATEGY_DESCRIPTIONS`(:4)와 시스템 카탈로그(:197-198) 한 줄 동기화 (R7).
+- [X] T017 [US3] 테스트 green + `npm test` 0 fail; Commit: `feat(spec-026): symbol-first strategy cross-check instruction (US3)`.
 
 **Checkpoint**: 세 스토리 모두 독립 검증 완료.
 

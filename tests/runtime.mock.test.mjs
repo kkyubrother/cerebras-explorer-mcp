@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { ExplorerRuntime, estimateTokens } from '../src/explorer/runtime.mjs';
-import { buildExplorerSystemPrompt, buildFreeExploreSystemPrompt, buildFinalizePrompt, detectStrategy } from '../src/explorer/prompt.mjs';
+import { buildExplorerSystemPrompt, buildFreeExploreSystemPrompt, buildFinalizePrompt, detectStrategy, buildExplorerUserPrompt, STRATEGY_DESCRIPTIONS } from '../src/explorer/prompt.mjs';
 import { getBudgetConfig } from '../src/explorer/config.mjs';
 import { RepoToolkit } from '../src/explorer/repo-tools.mjs';
 
@@ -4112,5 +4112,56 @@ test('spec 026 T003(h): symbol_trace with all evidence ungrounded → broad_sear
   assert.ok(
     !(result.critic?.warnings ?? []).some(w => w.type === 'usage_cross_check_missing'),
     `no usage_cross_check_missing on all-evidence-dropped precedence route (verification=${result.status.verification})`,
+  );
+});
+
+// ── spec 026 US3: symbol-first strategy cross-check instruction (T015) ──────────
+
+test('spec 026 T015: buildExplorerUserPrompt symbol-first approach includes cross-check instruction and truncated fallback', () => {
+  const prompt = buildExplorerUserPrompt({
+    task: 'Find where requireAuth is defined',
+    hints: { strategy: 'symbol-first', symbols: ['requireAuth'] },
+    runtimeProfile: 'compact',
+    scope: [],
+  });
+
+  // ① The approach text must instruct a scope-wide repo_grep cross-check before finalizing
+  assert.ok(
+    prompt.includes('repo_grep') && prompt.includes('cross-check'),
+    `symbol-first approach must instruct repo_grep cross-check; got: ${prompt.slice(prompt.indexOf('Initial strategy'), prompt.indexOf('Initial strategy') + 400)}`,
+  );
+  assert.ok(
+    /before finaliz/i.test(prompt),
+    'symbol-first approach must say "before finalizing" (or similar) for the cross-check instruction',
+  );
+
+  // ② The fallback condition must mention "truncated"
+  assert.ok(
+    /truncated/i.test(prompt),
+    'symbol-first approach must mention "truncated" as a fallback trigger',
+  );
+});
+
+test('spec 026 T015: STRATEGY_DESCRIPTIONS symbol-first mentions cross-check', () => {
+  const desc = STRATEGY_DESCRIPTIONS['symbol-first'];
+  assert.ok(typeof desc === 'string', 'STRATEGY_DESCRIPTIONS must have symbol-first entry');
+  assert.ok(
+    /cross.check/i.test(desc),
+    `STRATEGY_DESCRIPTIONS['symbol-first'] must mention cross-check; got: "${desc}"`,
+  );
+});
+
+test('spec 026 T015: system prompt strategy catalog symbol-first line mentions cross-check', () => {
+  const systemPrompt = buildExplorerSystemPrompt({
+    repoRoot: '/tmp/repo',
+    budgetConfig: getBudgetConfig(),
+  });
+  // Find the strategy catalog line for symbol-first
+  const lines = systemPrompt.split('\n');
+  const symbolFirstLine = lines.find(l => l.includes('symbol-first') && l.includes('→'));
+  assert.ok(symbolFirstLine, 'system prompt strategy catalog must have a symbol-first line');
+  assert.ok(
+    /cross.check/i.test(symbolFirstLine),
+    `system prompt symbol-first catalog line must mention cross-check; got: "${symbolFirstLine}"`,
   );
 });
