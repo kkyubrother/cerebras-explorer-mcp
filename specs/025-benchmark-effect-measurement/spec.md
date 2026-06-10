@@ -1,6 +1,6 @@
 # Feature Spec: benchmark effect measurement and dead-metric cleanup
 
-**Spec**: 025-benchmark-effect-measurement | **Date**: 2026-06-10 | **Status**: draft
+**Spec**: 025-benchmark-effect-measurement | **Date**: 2026-06-10 | **Status**: implemented 2026-06-10 (PR #42); closure verified (`npm test` 433/0, integration 5/5, adoption benchmark 8/8 avg 95%, citationAccuracy 100%, contextSavingsRatio 13.19x)
 
 ## Summary
 

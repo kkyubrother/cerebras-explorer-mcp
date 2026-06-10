@@ -25,7 +25,7 @@
 - Create: `src/benchmark/effect-metrics.mjs`
 - Modify: `src/explorer/runtime.mjs:61` (add `export` keyword only)
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/effect-metrics.test.mjs`:
 
@@ -174,12 +174,12 @@ test('computeCaseEffectMetrics never reads outside the repo root', async () => {
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `node --test tests/effect-metrics.test.mjs`
 Expected: FAIL — `Cannot find module ... src/benchmark/effect-metrics.mjs`
 
-- [ ] **Step 3: Export the estimator and write the module**
+- [x] **Step 3: Export the estimator and write the module**
 
 In `src/explorer/runtime.mjs:61` change:
 
@@ -340,17 +340,17 @@ export async function verifyCitations({ result, repoRoot }) {
 export { NEUTRAL_STATUSES as NEUTRAL_CITATION_STATUSES, MATCH_STATUSES as MATCH_CITATION_STATUSES };
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 Run: `node --test tests/effect-metrics.test.mjs`
 Expected: PASS (9 tests)
 
-- [ ] **Step 5: Run the full suite**
+- [x] **Step 5: Run the full suite**
 
 Run: `npm test`
 Expected: 0 fail (the `export` keyword on `estimateStringTokens` is additive)
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/benchmark/effect-metrics.mjs tests/effect-metrics.test.mjs src/explorer/runtime.mjs
@@ -365,7 +365,7 @@ git commit -m "feat(spec-025): add deterministic effect metrics and citation ver
 - Modify: `tests/mcp-server.test.mjs` (append new test at end of file)
 - Modify: `src/mcp/server.mjs:756-761` (`callTool` return block)
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `tests/mcp-server.test.mjs`:
 
@@ -405,12 +405,12 @@ test('explore_repo and wrappers expose _meta.ops without touching structuredCont
 });
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Run: `node --test tests/mcp-server.test.mjs --test-name-pattern "spec 025"`
 Expected: FAIL — `called._meta?.ops` is `undefined`
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `src/mcp/server.mjs` `callTool`, replace:
 
@@ -439,7 +439,7 @@ with:
       };
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `node --test tests/mcp-server.test.mjs`
 Expected: PASS (all, including existing contract-freeze assertions at :337/:353-355)
@@ -447,7 +447,7 @@ Expected: PASS (all, including existing contract-freeze assertions at :337/:353-
 Run: `npm test`
 Expected: 0 fail
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/mcp/server.mjs tests/mcp-server.test.mjs
@@ -462,7 +462,7 @@ git commit -m "feat(spec-025): expose _meta.ops side-channel on explore_repo and
 - Modify: `tests/benchmark-transcript-metrics.test.mjs:79-113` (replace the stale `_debug.stats` fixture test)
 - Modify: `scripts/run-benchmark.mjs:106-202` (`getStats` removed, `computeExtendedMetrics` rewritten)
 
-- [ ] **Step 1: Replace the stale fixture test with the new contract (failing first)**
+- [x] **Step 1: Replace the stale fixture test with the new contract (failing first)**
 
 In `tests/benchmark-transcript-metrics.test.mjs`, replace the entire last test (`'computeExtendedMetrics reports transcript averages only when transcript metrics exist'`, lines 79-113) with:
 
@@ -539,12 +539,12 @@ test('computeExtendedMetrics reports transcript averages only when transcript me
 });
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Run: `node --test tests/benchmark-transcript-metrics.test.mjs`
 Expected: FAIL — `avgToolTurns` is `0` (not `3`/`null`), `deepBudgetAvgTotalTokens` still present
 
-- [ ] **Step 3: Rewrite `computeExtendedMetrics`**
+- [x] **Step 3: Rewrite `computeExtendedMetrics`**
 
 In `scripts/run-benchmark.mjs`, delete `getStats` (lines 106-112) and replace the whole `computeExtendedMetrics` function (and its doc comment) with:
 
@@ -677,7 +677,7 @@ deleted metric):
     }
 ```
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `node --test tests/benchmark-transcript-metrics.test.mjs`
 Expected: PASS
@@ -685,7 +685,7 @@ Expected: PASS
 Run: `npm test`
 Expected: 0 fail
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add scripts/run-benchmark.mjs tests/benchmark-transcript-metrics.test.mjs
@@ -703,7 +703,7 @@ No good unit seam exists for `main()`; this task is wired code covered by the
 suite-level guards from Tasks 1-3 plus the real-run verification in Task 6.
 Keep the changes mechanical.
 
-- [ ] **Step 1: Extend CLI options**
+- [x] **Step 1: Extend CLI options**
 
 In `parseArgs`, add to the `options` object: `keepTranscripts: false,` and add the branch:
 
@@ -717,7 +717,7 @@ In `printHelp`, add the line:
       '  --keep-transcripts  Keep the temporary transcript directory (when the runner created one)',
 ```
 
-- [ ] **Step 2: Capture ops in `runCase`**
+- [x] **Step 2: Capture ops in `runCase`**
 
 Replace the `return` of `runCase` with:
 
@@ -733,7 +733,7 @@ Replace the `return` of `runCase` with:
   };
 ```
 
-- [ ] **Step 3: Enable temporary transcripts around `main()`'s run**
+- [x] **Step 3: Enable temporary transcripts around `main()`'s run**
 
 Add `import os from 'node:os';` to the imports. In `main()`, after `const repoRoot = path.resolve(options.repoRoot);` add:
 
@@ -762,7 +762,7 @@ Wrap everything from `const handleRequest = await createHandler(() => {});` to t
   }
 ```
 
-- [ ] **Step 4: Wire per-case analysis in the case loop**
+- [x] **Step 4: Wire per-case analysis in the case loop**
 
 Replace the body of the `try` block inside the `for (const suiteCase of selectedCases)` loop with:
 
@@ -784,7 +784,7 @@ Note: `computeCaseEffectMetrics(...)`/`verifyCitations(...)` return promises;
 the `catch` block's `failed` object, add `ops: null, effectMetrics: null,
 citation: null` alongside the existing `transcriptMetrics: null`.
 
-- [ ] **Step 5: Honest console output**
+- [x] **Step 5: Honest console output**
 
 Add next to `formatPercent`:
 
@@ -815,12 +815,12 @@ Replace the `if (metrics) { ... }` console block in `main()` with:
   }
 ```
 
-- [ ] **Step 6: Syntax + suite check**
+- [x] **Step 6: Syntax + suite check**
 
 Run: `node --check scripts/run-benchmark.mjs` — Expected: no output
 Run: `npm test` — Expected: 0 fail
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add scripts/run-benchmark.mjs
@@ -836,7 +836,7 @@ git commit -m "feat(spec-025): per-case effect metrics, citation verification, a
 - Modify: `DESIGN.md` (§11.7 끝에 ops 채널 단락 추가)
 - Modify: `CHANGELOG.md` (new Unreleased section above `## v0.8.3`)
 
-- [ ] **Step 1: README — add after the "벤치마크는 exact-string 정답 대신 ..." bullet list**
+- [x] **Step 1: README — add after the "벤치마크는 exact-string 정답 대신 ..." bullet list**
 
 ```markdown
 spec 025 이후 벤치마크는 다음 효과 메트릭을 함께 기록합니다 (모두 record-only — 합격/불합격에 영향 없음):
@@ -851,13 +851,13 @@ spec 025 이후 벤치마크는 다음 효과 메트릭을 함께 기록합니�
 소스가 없는 지표는 0이나 100%로 날조하지 않고 `n/a`로 표기합니다.
 ```
 
-- [ ] **Step 2: DESIGN.md — append to §11.7**
+- [x] **Step 2: DESIGN.md — append to §11.7**
 
 ```markdown
 spec 025에서 `_meta.ops` 사이드채널이 `explore`뿐 아니라 `explore_repo`와 wrapper 6개에도 대칭 적용되었다 (`{ stats, transcriptPath }` 최소 집합). 이는 spec 017 변경 기록이 약속했던 "local ops log channel" follow-up의 이행이며, spec 022가 정의한 경계(운영/평가 metadata는 응답 계약이 아니라 envelope/log에 속한다)를 따른다. 부모 agent는 `_meta.ops`를 답변 신호로 사용해서는 안 되고, `structuredContent`의 control-plane 필드만 신뢰해야 한다. 벤치마크 하네스는 이 채널로 내부 효율 지표를 복원하고, 인용 정확성은 자기보고 `groundingStatus`가 아니라 working tree 대조로 독립 검증한다.
 ```
 
-- [ ] **Step 3: CHANGELOG.md — insert above `## v0.8.3`**
+- [x] **Step 3: CHANGELOG.md — insert above `## v0.8.3`**
 
 ```markdown
 ## v0.8.4 - Unreleased
@@ -884,7 +884,7 @@ unchanged. `_meta.ops` is operational metadata, not part of the answer payload.
   `n/a`.
 ```
 
-- [ ] **Step 4: Run the doc guards and commit**
+- [x] **Step 4: Run the doc guards and commit**
 
 Run: `npm test` — Expected: 0 fail (integrations.test.mjs CHANGELOG/README guards stay green)
 
@@ -897,12 +897,12 @@ git commit -m "docs(spec-025): document effect metrics, ops side-channel, and ho
 
 ### Task 6: verification (Acceptance)
 
-- [ ] **Step 1: Full suite** — Run: `npm test` — Expected: 0 fail
-- [ ] **Step 2: Integration test (runtime export touched)** — Run: `node ./scripts/integration-test.mjs` (requires `CEREBRAS_API_KEY`) — Expected: 5/5 PASS
-- [ ] **Step 3: Real benchmark run** — Run: `node ./scripts/run-benchmark.mjs --suite ./benchmarks/adoption.json --verbose --output "$env:TEMP\spec025-report.json"`
+- [x] **Step 1: Full suite** — Run: `npm test` — Expected: 0 fail
+- [x] **Step 2: Integration test (runtime export touched)** — Run: `node ./scripts/integration-test.mjs` (requires `CEREBRAS_API_KEY`) — Expected: 5/5 PASS
+- [x] **Step 3: Real benchmark run** — Run: `node ./scripts/run-benchmark.mjs --suite ./benchmarks/adoption.json --verbose --output "$env:TEMP\spec025-report.json"`
   Expected (acceptance): all cases PASS; `avg tool turns` > 0 (not `n/a`/`0` fabrication); `no-tool exit rate` < 100%; `avg broad searches`/`avg repeated plans` non-`n/a`; `payload tokens`/`cited source tokens`/`context savings` real numbers; `citation accuracy` reported (expected near 100% per the 2026-06-10 live probes). Inspect the JSON report: `metrics` contains the new fields; no temp transcript paths appear anywhere in the file.
-- [ ] **Step 4: Honest-degrade spot check** — Run the evidence-preservation suite: `node ./scripts/run-benchmark.mjs --suite ./benchmarks/evidence-preservation.json --verbose` — Expected: weak citation checks counted for the `explore` case (citations[] carry no snippets); no crash.
-- [ ] **Step 5: Spec closure prep** — update `specs/025-benchmark-effect-measurement/spec.md` Status line to `implemented <date>; closure verified (npm test <N>/0)` at landing, per project convention.
+- [x] **Step 4: Honest-degrade spot check** — Run the evidence-preservation suite: `node ./scripts/run-benchmark.mjs --suite ./benchmarks/evidence-preservation.json --verbose` — Expected: weak citation checks counted for the `explore` case (citations[] carry no snippets); no crash.
+- [x] **Step 5: Spec closure prep** — update `specs/025-benchmark-effect-measurement/spec.md` Status line to `implemented <date>; closure verified (npm test <N>/0)` at landing, per project convention.
 
 ## Amendments (post-review, during execution)
 
@@ -919,5 +919,5 @@ git commit -m "docs(spec-025): document effect metrics, ops side-channel, and ho
 
 ## Landing tasks (on merge, not at draft)
 
-- [ ] Move the CLAUDE.md / AGENTS.md SPECKIT pointer to spec 025 (project convention: pointer moves at landing).
+- [x] Move the CLAUDE.md / AGENTS.md SPECKIT pointer to spec 025 (project convention: pointer moves at landing).
 - [ ] CHANGELOG `v0.8.4 - Unreleased` heading gets its release date at the next release (separate release step per README procedure).
