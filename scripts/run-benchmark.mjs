@@ -131,7 +131,7 @@ function getConfidenceScore(result) {
  * fabricated 0/100%.
  */
 export function computeExtendedMetrics(caseResults) {
-  const successCases = caseResults.filter(cr => cr.result !== null);
+  const successCases = caseResults.filter(cr => cr.result != null);
   const count = successCases.length;
   if (count === 0) return null;
 
@@ -145,8 +145,8 @@ export function computeExtendedMetrics(caseResults) {
     .map(cr => cr.ops?.stats)
     .filter(stats => stats && typeof stats === 'object');
 
-  const avgToolTurns = round1(avgOf(opsStats.map(stats => stats.turns ?? 0)));
-  const avgInternalTokensRaw = avgOf(opsStats.map(stats => stats.totalTokens ?? 0));
+  const avgToolTurns = round1(avgOf(opsStats.map(stats => stats.turns).filter(value => typeof value === 'number')));
+  const avgInternalTokensRaw = avgOf(opsStats.map(stats => stats.totalTokens).filter(value => typeof value === 'number'));
 
   const budgetExhaustionRate =
     successCases.filter(cr => cr.result.searchCoverage?.stoppedByBudget === true).length / count;
@@ -156,7 +156,8 @@ export function computeExtendedMetrics(caseResults) {
     if (stats && typeof stats.toolCalls === 'number') return stats.toolCalls === 0;
     // Fallback caveat: searchCoverage has no git-call counter, so a
     // git-tools-only exploration can be misread as a no-tool exit here.
-    const sc = cr.result.searchCoverage ?? {};
+    if (!cr.result.searchCoverage) return false; // an absent source must not fabricate a positive
+    const sc = cr.result.searchCoverage;
     return ((sc.filesRead ?? 0) + (sc.grepCalls ?? 0) + (sc.listDirCalls ?? 0) + (sc.symbolCalls ?? 0)) === 0;
   }).length / count;
 
@@ -190,6 +191,8 @@ export function computeExtendedMetrics(caseResults) {
   const effectCases = successCases.map(cr => cr.effectMetrics).filter(Boolean);
   const avgResponsePayloadTokens = avgOf(effectCases.map(m => m.responsePayloadTokens));
   const avgCitedSourceTokens = avgOf(effectCases.map(m => m.citedSourceTokens));
+  // Mean of per-case ratios (each case = one delegation decision), NOT pooled
+  // avgCitedSourceTokens / avgResponsePayloadTokens — the two can differ.
   const avgContextSavingsRatio = avgOf(
     effectCases.map(m => m.contextSavingsRatio).filter(value => typeof value === 'number'),
   );
@@ -211,7 +214,7 @@ export function computeExtendedMetrics(caseResults) {
     avgTargets: round1(avgTargets),
     evidenceSnippetRate: evidenceCount > 0
       ? round3(snippetCount / evidenceCount)
-      : 0,
+      : null,
     targetedVerificationRate: round3(targetedVerificationRate),
     avgBroadSearchCalls: round1(avgBroadSearchCalls),
     avgRepeatedToolPlanTurns: round1(avgRepeatedToolPlanTurns),
