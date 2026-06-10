@@ -111,8 +111,10 @@ async function verifyEvidenceItem(item, repoRoot) {
   }
   const snippetLines = parseSnippetLines(item.snippet ?? '');
   if (snippetLines.length === 0) {
-    // No snippet to compare (e.g. oversized file skipped by the runtime):
-    // existence + range validity is the strongest possible check.
+    // No snippet to compare (the runtime omits snippets it could not rebuild,
+    // e.g. for non-file evidence wrappers): existence + range validity is the
+    // strongest possible check here. Oversized files never reach this branch —
+    // readFileLines already classified them as unreadable.
     return { citation, status: 'weak_match', weak: true };
   }
   for (const [index, { line, text }] of snippetLines.entries()) {
