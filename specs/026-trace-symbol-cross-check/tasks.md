@@ -90,9 +90,9 @@
 
 ## Phase 6: Polish & Cross-Cutting Concerns
 
-- [ ] T018 [P] 벤치마크 check type: `tests/benchmark-evaluator.test.mjs`에 `critic_warning_absent` 테스트 먼저(경고 존재→fail / 부재→pass / 기존 unknown-type throw 경로 비충돌) → `src/benchmark/evaluator.mjs`(:103-153 switch)에 type 추가 (contracts §2, R8). 구현 후 green.
-- [ ] T019 [P] `benchmarks/adoption.json`에 케이스 `trace-symbol-cross-check` 추가: tool `trace_symbol`, `args.symbol='buildReportCritic'`, `scope:["src/**","tests/**"]`; expectations — `target_paths`에 `src/explorer/runtime.mjs` 그룹(프로덕션 호출처) + `combined_text` 키워드 그룹(정의/호출처 서술); checks — `min_grounded_evidence_count`, `critic_warning_absent`(`usage_cross_check_missing`). 기존 `trace-symbol` 케이스는 무변경(추이 연속성 — R8).
-- [ ] T020 [P] 문서 (FR-010): `DESIGN.md` §11.3 경고 카탈로그에 `usage_cross_check_missing` 추가·§11.4에 symbol_trace gate 합류 서술; `CHANGELOG.md`에 `## v0.8.5 - Unreleased` 섹션(인덱서 결정성 fix + gate/warning + 프롬프트, surface 불변 명시); README는 벤치마크 케이스 언급이 필요한 경우만 최소 갱신.
+- [X] T018 [P] 벤치마크 check type: `tests/benchmark-evaluator.test.mjs`에 `critic_warning_absent` 테스트 먼저(경고 존재→fail / 부재→pass / 기존 unknown-type throw 경로 비충돌) → `src/benchmark/evaluator.mjs`(:103-153 switch)에 type 추가 (contracts §2, R8). 구현 후 green.
+- [X] T019 [P] `benchmarks/adoption.json`에 케이스 `trace-symbol-cross-check` 추가: tool `trace_symbol`, `args.symbol='buildReportCritic'`, `scope:["src/**","tests/**"]`; expectations — `target_paths`에 `src/explorer/runtime.mjs` 그룹(프로덕션 호출처) + `combined_text` 키워드 그룹(정의/호출처 서술); checks — `min_grounded_evidence_count`, `critic_warning_absent`(`usage_cross_check_missing`). 기존 `trace-symbol` 케이스는 무변경(추이 연속성 — R8).
+- [X] T020 [P] 문서 (FR-010): `DESIGN.md` §11.3 경고 카탈로그에 `usage_cross_check_missing` 추가·§11.4에 symbol_trace gate 합류 서술; `CHANGELOG.md`에 `## v0.8.5 - Unreleased` 섹션(인덱서 결정성 fix + gate/warning + 프롬프트, surface 불변 명시); README는 벤치마크 케이스 언급이 필요한 경우만 최소 갱신.
 - [ ] T021 통합 검증 (quickstart §4-§5, 실 API — operator 단계): ① `scripts/integration-test.mjs` 5/5; ② SC-001 — `trace_symbol(symbol='buildReportCritic')` 라이브 5회: `verified`+`high`인데 cross-check 관측 0인 응답 **0건** 기록; ③ 벤치마크 `--case trace-symbol-cross-check` + 전체 스위트: 기존 trace-symbol pass 비회귀(SC-003), `avgToolTurns` +2 이내·내부 토큰 +25% 이내(SC-004, v0.8.4 baseline 대비); 결과 수치를 본 파일 Notes에 기록.
 - [ ] T022 마무리: `npm test` 최종 0 fail; Polish 변경 commit(`docs(spec-026)`/`feat(spec-026): benchmark reflection`); 브랜치 정리 후 PR 생성 준비 (머지 시 landing: spec.md Status → implemented + 검증 수치, CHANGELOG 날짜는 다음 릴리즈).
 
