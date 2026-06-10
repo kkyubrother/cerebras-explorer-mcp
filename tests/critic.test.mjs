@@ -599,3 +599,137 @@ test('spec 026 T002-④b: runDeterministicCriticPass with gate-pass leaves confi
   // gate-pass: no usage_cross_check_missing warning; confidence can be whatever evaluateConfidence returns
   assert.ok(!result.critic.warnings.some(w => w.type === 'usage_cross_check_missing'), 'gate-pass must not emit warning');
 });
+
+// ── spec 026 precedence-route suppression tests ───────────────────────────────
+
+test('spec 026 T002-⑤a: runDeterministicCriticPass with stoppedByAbort emits NO usage_cross_check_missing and NO gate cap', () => {
+  // stoppedByAbort is a precedence route — critic must NOT warn or cap on it.
+  // Set up two files so evaluateConfidence reaches 'high' (cross-verified + exactCount >= 1 + locate base).
+  // taskKind:'locate' (base=0.45) + exactCount=1 (+0.18) + cross-verified (+0.12) = 0.75 → 'high'
+  const normalized = {
+    directAnswer: 'Exploration aborted.',
+    status: { confidence: 'high', verification: 'verified', complete: false, warnings: [] },
+    targets: [],
+    evidence: [
+      { path: 'src/auth.js', startLine: 1, endLine: 4, why: 'symbol definition', evidenceType: 'file_range' },
+      { path: 'src/other.js', startLine: 5, endLine: 8, why: 'usage site', evidenceType: 'file_range' },
+    ],
+    uncertainties: [],
+    nextAction: { type: 'stop', reason: 'Aborted.' },
+  };
+  const observedRanges = new Map([
+    ['src/auth.js', [{ startLine: 1, endLine: 4, source: 'read' }]],
+    ['src/other.js', [{ startLine: 5, endLine: 8, source: 'read' }]],
+  ]);
+  const statsAbort = makeStats({ stoppedByAbort: true });
+
+  // Baseline: same inputs WITHOUT stoppedByAbort — gate WOULD cap high→medium
+  const { confidence: baselineConf } = runDeterministicCriticPass({
+    normalized,
+    observedRanges,
+    observedGit: { commits: new Set(), blame: new Set() },
+    stats: makeStats(),
+    taskKind: 'locate',
+    usageCrossCheck: { required: true, observed: false, symbol: 'mySym' },
+  });
+  // Sanity check: without abort, gate caps high→medium
+  assert.equal(baselineConf.finalConfidence, 'medium', 'baseline (no abort): gate must cap high→medium');
+
+  // Now test with stoppedByAbort — gate must be suppressed
+  const { result, confidence } = runDeterministicCriticPass({
+    normalized,
+    observedRanges,
+    observedGit: { commits: new Set(), blame: new Set() },
+    stats: statsAbort,
+    taskKind: 'locate',
+    usageCrossCheck: { required: true, observed: false, symbol: 'mySym' },
+  });
+
+  assert.ok(
+    !result.critic.warnings.some(w => w.type === 'usage_cross_check_missing'),
+    'stoppedByAbort route must NOT emit usage_cross_check_missing',
+  );
+  // Gate cap must NOT be applied: evaluateConfidence returns 'high', so finalConfidence stays 'high'
+  assert.equal(
+    confidence.finalConfidence,
+    'high',
+    `stoppedByAbort: gate must not cap confidence — expected high (gate suppressed), got ${confidence.finalConfidence}`,
+  );
+});
+
+test('spec 026 T002-⑤b: runDeterministicCriticPass when all evidence is dropped emits NO usage_cross_check_missing and NO gate cap', () => {
+  // All evidence items are ungrounded → grounding.evidence becomes [] → precedence route
+  const normalized = {
+    directAnswer: 'Answer with ungrounded evidence.',
+    status: { confidence: 'high', verification: 'verified', complete: true, warnings: [] },
+    targets: [],
+    evidence: [
+      // These items won't have matching observed ranges → droppedUngrounded
+      { path: 'src/missing.js', startLine: 10, endLine: 20, why: 'ungrounded claim' },
+    ],
+    uncertainties: [],
+    nextAction: { type: 'stop', reason: 'Complete.' },
+  };
+  // Empty observedRanges → no range covers the evidence → all dropped
+  const observedRanges = new Map();
+
+  const { result, confidence } = runDeterministicCriticPass({
+    normalized,
+    observedRanges,
+    observedGit: { commits: new Set(), blame: new Set() },
+    stats: makeStats(),
+    taskKind: 'symbol_trace',
+    usageCrossCheck: { required: true, observed: false, symbol: 'mySym' },
+  });
+
+  // After dropping, grounding.evidence.length === 0 → precedence route
+  assert.ok(
+    !result.critic.warnings.some(w => w.type === 'usage_cross_check_missing'),
+    'all-evidence-dropped route must NOT emit usage_cross_check_missing',
+  );
+  // Gate cap must NOT be applied when evidence is all dropped
+  assert.ok(
+    confidence.finalConfidence !== 'medium' || confidence.modelConfidence === 'medium',
+    'gate must not cap confidence when evidence is all dropped (cap would be spurious)',
+  );
+});
+
+test('spec 026 T002-⑤c: runDeterministicCriticPass when finalConfidence is low emits NO usage_cross_check_missing and confidence stays low', () => {
+  // When evaluateConfidence produces 'low', it is already a precedence route —
+  // gate must not warn (no double warning) and must not cap (low→medium violates FR-003 intent
+  // since 'low' already maps to follow_up_needed in buildResultStatus).
+  const normalized = {
+    directAnswer: 'Very sparse answer.',
+    // modelConfidence 'low' → evaluateConfidence will return 'low' as final
+    status: { confidence: 'low', verification: 'verified', complete: true, warnings: [] },
+    targets: [],
+    evidence: [
+      { path: 'src/auth.js', startLine: 1, endLine: 4, why: 'symbol definition' },
+    ],
+    uncertainties: [],
+    nextAction: { type: 'stop', reason: 'Complete.' },
+  };
+  const observedRanges = new Map([
+    ['src/auth.js', [{ startLine: 1, endLine: 4, source: 'read' }]],
+  ]);
+
+  const { result, confidence } = runDeterministicCriticPass({
+    normalized,
+    observedRanges,
+    observedGit: { commits: new Set(), blame: new Set() },
+    stats: makeStats(),
+    taskKind: 'symbol_trace',
+    usageCrossCheck: { required: true, observed: false, symbol: 'mySym' },
+  });
+
+  assert.ok(
+    !result.critic.warnings.some(w => w.type === 'usage_cross_check_missing'),
+    'low-confidence route must NOT emit usage_cross_check_missing',
+  );
+  // confidence must remain 'low' — gate must not upgrade it or suppress it
+  assert.equal(
+    confidence.finalConfidence,
+    'low',
+    `low-confidence route: finalConfidence must stay low, got ${confidence.finalConfidence}`,
+  );
+});

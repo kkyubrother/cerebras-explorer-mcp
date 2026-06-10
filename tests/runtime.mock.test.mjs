@@ -4025,3 +4025,45 @@ test('spec 026 T003(g): taskMode locate → no warning, no downgrade', async () 
     'locate taskMode must not be downgraded by gate to targeted_read_needed',
   );
 });
+
+test('spec 026 T003(h): symbol_trace with all evidence ungrounded → broad_search_needed or follow_up_needed, NO usage_cross_check_missing', async () => {
+  // Model returns evidence items but none get grounded (no reads, no observed ranges) →
+  // grounding.evidence drops to 0 → precedence route fires in buildResultStatus →
+  // gate must NOT emit usage_cross_check_missing
+  const client = makeSymbolTraceClient({
+    toolSequence: [
+      // Only a symbol_context call (does not create observed ranges for evidence lines)
+      { name: 'repo_symbol_context', arguments: { symbol: 'requireAuth' } },
+    ],
+    finalResult: {
+      // Model claims evidence but the tool call did NOT produce a file read for those lines
+      // so groundEvidenceList will drop them as ungrounded.
+      // Use a path that was NOT read so observedRanges won't cover it.
+      evidence: [
+        { path: 'src/unread_file.js', startLine: 1, endLine: 5, why: 'symbol usage', evidenceType: 'file_range', groundingStatus: 'exact' },
+      ],
+      statusConfidence: 'high',
+    },
+  });
+
+  const root = await makeRepoFixture();
+  const runtime = new ExplorerRuntime({ chatClient: client });
+  const result = await runtime.explore({
+    task: 'Trace requireAuth usages',
+    taskMode: 'symbol_trace',
+    hints: { symbols: ['requireAuth'] },
+    repo_root: root,
+  });
+
+  // When all evidence is dropped: broad_search_needed (no grounded evidence) OR follow_up_needed
+  // Either is acceptable as a precedence route — assert it is NOT 'verified' or 'targeted_read_needed'
+  assert.ok(
+    result.status.verification === 'broad_search_needed' || result.status.verification === 'follow_up_needed',
+    `expected precedence route (broad_search_needed or follow_up_needed), got ${result.status.verification}`,
+  );
+  // Gate must NOT fire on this precedence route
+  assert.ok(
+    !(result.critic?.warnings ?? []).some(w => w.type === 'usage_cross_check_missing'),
+    `no usage_cross_check_missing on all-evidence-dropped precedence route (verification=${result.status.verification})`,
+  );
+});

@@ -361,6 +361,7 @@ export function buildCriticWarnings({
   stats,
   maxWarnings = 3,
   usageCrossCheck = null,
+  gateSuppressed = false,
 }) {
   const warnings = [];
 
@@ -395,9 +396,9 @@ export function buildCriticWarnings({
 
   // spec 026: usage cross-check gate warning — push BEFORE confidence_downgraded so it
   // wins budget competition when both fire simultaneously (R5).
-  // Do NOT fire when the exploration stopped by errors (critic-fail path takes precedence —
-  // no double warning, data-model E2 state-transition table).
-  if (usageCrossCheck?.required && !usageCrossCheck.observed && !stats?.stoppedByErrors) {
+  // Suppressed on all precedence routes (stoppedByErrors/stoppedByAbort/no-evidence/low-confidence)
+  // that pre-empt 'verified' in buildResultStatus — no double warning on those paths.
+  if (usageCrossCheck?.required && !usageCrossCheck.observed && !gateSuppressed) {
     const sym = usageCrossCheck.symbol ?? '';
     pushWarning(warnings, {
       type: 'usage_cross_check_missing',
@@ -476,17 +477,30 @@ export function runDeterministicCriticPass({
   confidence.factors.droppedUngrounded = grounding.droppedUngrounded;
   confidence.factors.droppedMalformed = grounding.droppedMalformed;
 
+  // spec 026: suppress the cross-check gate on all precedence routes that pre-empt 'verified'
+  // in buildResultStatus (runtime.mjs:993-996):
+  //   • stoppedByErrors  — critic-fail → broad_search_needed
+  //   • stoppedByAbort   — abort path  → broad_search_needed
+  //   • no grounded evidence — evidence-dropped path → broad_search_needed
+  //   • finalConfidence === 'low' — low-confidence path → follow_up_needed
+  // The suppression predicate MUST be evaluated against the pre-cap finalConfidence so that
+  // the 'low' branch is read before any potential cap mutates it.
+  const gateSuppressed =
+    Boolean(stats?.stoppedByErrors) ||
+    Boolean(stats?.stoppedByAbort) ||
+    (grounding.evidence?.length ?? 0) === 0 ||
+    confidence.finalConfidence === 'low';
+
   // spec 026: gate-fail caps finalConfidence to medium (never low — R4 constraint).
   // modelConfidence is preserved; confidence_downgraded warning fires automatically.
-  // Do NOT apply cap when stoppedByErrors (critic-fail path takes precedence).
-  if (usageCrossCheck?.required && !usageCrossCheck.observed && !stats?.stoppedByErrors) {
+  if (usageCrossCheck?.required && !usageCrossCheck.observed && !gateSuppressed) {
     if (confidence.finalConfidence === 'high') {
       confidence.finalConfidence = 'medium';
     }
     // medium or below: no further lowering (low → follow_up_needed violates FR-003)
   }
 
-  const warnings = buildCriticWarnings({ grounding, confidence, stats, maxWarnings, usageCrossCheck });
+  const warnings = buildCriticWarnings({ grounding, confidence, stats, maxWarnings, usageCrossCheck, gateSuppressed });
 
   return {
     result: {
