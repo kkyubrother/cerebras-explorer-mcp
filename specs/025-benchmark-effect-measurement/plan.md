@@ -904,6 +904,19 @@ git commit -m "docs(spec-025): document effect metrics, ops side-channel, and ho
 - [ ] **Step 4: Honest-degrade spot check** — Run the evidence-preservation suite: `node ./scripts/run-benchmark.mjs --suite ./benchmarks/evidence-preservation.json --verbose` — Expected: weak citation checks counted for the `explore` case (citations[] carry no snippets); no crash.
 - [ ] **Step 5: Spec closure prep** — update `specs/025-benchmark-effect-measurement/spec.md` Status line to `implemented <date>; closure verified (npm test <N>/0)` at landing, per project convention.
 
+## Amendments (post-review, during execution)
+
+- **Task 1 (commit `2d30a7e`)**: code review found the plan's original verifier
+  code CRLF-unsafe — on a CRLF working tree (this repo) snippet lines carry
+  `\r` residue, the `^(\d+): (.*)$` regex never matches, and every check
+  degraded to vacuous `weak_match`. Fixed by stripping trailing `\r` on both
+  snippet and file lines, plus mirroring the runtime's lstat guards (regular
+  file, no symlink, 512 KiB cap) in both read paths; `weak` flag now only
+  accompanies `weak_match`. Three regression tests added (12 total in the
+  module suite). Known follow-up (minor): the snippetless-branch comment still
+  cites the now-unreachable oversized-file example; oversized cited files now
+  classify conservatively as `file_missing`.
+
 ## Landing tasks (on merge, not at draft)
 
 - [ ] Move the CLAUDE.md / AGENTS.md SPECKIT pointer to spec 025 (project convention: pointer moves at landing).
