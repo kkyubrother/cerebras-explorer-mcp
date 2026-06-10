@@ -1,5 +1,31 @@
 # Changelog
 
+## v0.8.4 - Unreleased
+
+### Benchmark effect measurement (spec 025)
+
+The public 8-tool `structuredContent` contract and `schemaVersion` are
+unchanged. `_meta.ops` is operational metadata, not part of the answer payload.
+
+- **Added (spec 025)**: the benchmark records deterministic effect metrics —
+  response payload tokens vs cited-source tokens (a conservative lower bound of
+  parent context savings) and an independent `citationAccuracy` computed by
+  re-reading cited files instead of trusting self-reported `groundingStatus`.
+- **Added (spec 025)**: `explore_repo` and the six wrappers now return the same
+  `_meta.ops` side-channel (`stats`, `transcriptPath`) the `explore` tool
+  already had, fulfilling the spec 017 follow-up promise of a local ops
+  channel.
+- **Fixed (spec 025)**: dead benchmark metrics no longer fabricate values —
+  `avgToolTurns`/`noToolExitRate` read real ops data (previously always
+  `0`/`100%`), `budgetExhaustionRate` reads `searchCoverage`, transcript
+  metrics run again via an auto-enabled temporary transcript directory
+  (`--keep-transcripts` to retain), and the spec-011-dead
+  `deepBudgetAvgTotalTokens` metric is deleted. Metrics without a source print
+  `n/a`.
+- **Fixed (spec 025)**: transcript record appends are serialized through a
+  per-recorder write chain, so `finalize()` guarantees a complete, in-order
+  JSONL before the benchmark (or any reader) consumes it.
+
 ## v0.8.3 - 2026-06-10
 
 ### Execution provenance (spec 022) & doc hygiene

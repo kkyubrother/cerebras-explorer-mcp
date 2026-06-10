@@ -755,9 +755,13 @@ export function createMcpRequestHandler({
       stats = result.stats;
       transcriptPath = result.transcriptPath ?? result.stats?.transcriptPath ?? null;
       const agentResult = redactExploreResult(toAgentFacingResult(result)).value;
+      // Spec 025: ops side-channel, symmetric with callFreeExploreTool. This is
+      // operational/eval metadata (spec 022 boundary), not the answer contract.
+      const ops = redactValue({ stats: stats ?? {}, transcriptPath }).value;
       return {
         content: [{ type: 'text', text: formatExploreResult(agentResult) }],
         structuredContent: agentResult,
+        _meta: { ops },
       };
     } catch (error) {
       stats = error?.stats ?? stats;
@@ -795,8 +799,8 @@ export function createMcpRequestHandler({
       transcriptPath = result.transcriptPath ?? null;
       const safeResult = redactValue(toAgentFacingFreeExploreResult(result)).value;
       const ops = redactValue({
-        stats: result.stats ?? {},
-        transcriptPath: result.transcriptPath ?? null,
+        stats: stats ?? {},
+        transcriptPath,
         toolTrace: result.toolTrace ?? null,
         filesRead: result.filesRead ?? [],
         toolsUsed: result.toolsUsed ?? [],

@@ -573,6 +573,8 @@ spec 022에서 execution provenance는 parent-facing 응답 계약이 아니라 
 
 heavy 호출(보고서/path/impact)에서는 parent agent가 `_meta.progressToken`을 전달해 turn-by-turn 진행률을 받아야 하고, 결과를 sub-agent에 인계할 때는 control-plane 필드(`status.verification`, `status.complete`, `evidenceQuality`, `searchCoverage`, `failure`, `critic.warnings`)를 반드시 보존해야 한다.
 
+spec 025에서 `_meta.ops` 사이드채널이 `explore`뿐 아니라 `explore_repo`와 wrapper 6개에도 대칭 적용되었다 (`{ stats, transcriptPath }` 최소 집합). 이는 spec 017 변경 기록이 약속했던 "local ops log channel" follow-up의 이행이며, spec 022가 정의한 경계(운영/평가 metadata는 응답 계약이 아니라 envelope/log에 속한다)를 따른다. 부모 agent는 `_meta.ops`를 답변 신호로 사용해서는 안 되고, `structuredContent`의 control-plane 필드만 신뢰해야 한다. 벤치마크 하네스는 이 채널로 내부 효율 지표를 복원하고, 인용 정확성은 자기보고 `groundingStatus`가 아니라 working tree 대조로 독립 검증한다 (`src/benchmark/effect-metrics.mjs`).
+
 ---
 
 ## 12. 경계 강화 정책

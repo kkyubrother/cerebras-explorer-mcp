@@ -734,6 +734,17 @@ node ./scripts/run-benchmark.mjs \
 - grounded evidence 개수
 - evidence snippet, directAnswer, status, nextAction, budget stop 여부 같은 구조적 체크
 
+spec 025 이후 벤치마크는 다음 효과 메트릭을 함께 기록합니다 (모두 record-only — 합격/불합격에 영향 없음):
+
+- `avgResponsePayloadTokens`: 상위 AI가 실제로 받는 `structuredContent`의 토큰 추정치
+- `avgCitedSourceTokens`: 인용된 파일 전체를 native로 읽었을 때의 토큰 추정치 — 탐색 오버헤드를 제외한 **보수적 하한**
+- `avgContextSavingsRatio`: 위 둘의 비율 (>1이면 위임이 컨텍스트를 절감). 케이스별 비율의 평균입니다.
+- `citationAccuracy`: 하네스가 인용 파일을 직접 열어 snippet을 라인 단위로 대조한 독립 검증 일치율 — 시스템 자기보고 `groundingStatus`와 무관. snippet이 없는 report 인용(`explore`)은 파일 존재·라인 범위만 확인하는 약한 검증으로 집계되므로, 함께 보고되는 weak check 수와 같이 해석해야 합니다.
+- `avgToolTurns` / `avgInternalTokens`: `_meta.ops` 사이드채널 기반 내부 효율/비용 지표
+- transcript 기반 지표(`avgBroadSearchCalls` 등)는 실행 중 임시 transcript를 자동 활성화해 계산하며, `--keep-transcripts`로 파일을 보존할 수 있습니다.
+
+소스가 없는 지표는 0이나 100%로 날조하지 않고 `n/a`로 표기합니다.
+
 즉, 모델이 문장을 조금 다르게 생성해도 핵심 사실과 근거가 맞으면 안정적으로 점수가 나옵니다.
 
 ## 새 버전 릴리즈

@@ -76,38 +76,99 @@ test('analyzeTranscriptFile returns null for missing paths and parses JSONL file
   });
 });
 
-test('computeExtendedMetrics reports transcript averages only when transcript metrics exist', () => {
-  const successfulResult = {
-    directAnswer: 'ok',
-    evidence: [],
-    targets: [],
-    status: {},
-    _debug: {
-      stats: {
-        turns: 1,
-        toolCalls: 1,
-        stoppedByBudget: false,
-      },
+function syntheticCase({ ops, searchCoverage, transcriptMetrics = null, effectMetrics = null, citation = null } = {}) {
+  return {
+    result: {
+      directAnswer: 'ok',
+      evidence: [],
+      targets: [],
+      status: {},
+      searchCoverage: searchCoverage ?? { filesRead: 1, grepCalls: 0, listDirCalls: 0, symbolCalls: 0, stoppedByBudget: false },
     },
+    ops: ops ?? null,
+    transcriptMetrics,
+    effectMetrics,
+    citation,
   };
+}
 
-  const metrics = computeExtendedMetrics([
-    {
-      result: successfulResult,
-      transcriptMetrics: { broadSearchCalls: 2, repeatedToolPlanTurns: 1 },
-    },
-    {
-      result: successfulResult,
-      transcriptMetrics: { broadSearchCalls: 0, repeatedToolPlanTurns: 0 },
-    },
+test('computeExtendedMetrics reads ops stats and reports n/a (null) when ops are absent (spec 025)', () => {
+  const withOps = computeExtendedMetrics([
+    syntheticCase({ ops: { stats: { turns: 4, toolCalls: 6, totalTokens: 1200 } } }),
+    syntheticCase({ ops: { stats: { turns: 2, toolCalls: 0, totalTokens: 800 } } }),
   ]);
+  assert.equal(withOps.avgToolTurns, 3);
+  assert.equal(withOps.avgInternalTokens, 1000);
+  assert.equal(withOps.noToolExitRate, 0.5, 'ops.toolCalls === 0 marks a no-tool exit');
+  assert.equal('deepBudgetAvgTotalTokens' in withOps, false, 'dead spec-011 metric is deleted');
 
+  const withoutOps = computeExtendedMetrics([syntheticCase()]);
+  assert.equal(withoutOps.avgToolTurns, null, 'no fabricated 0 without a source');
+  assert.equal(withoutOps.avgInternalTokens, null);
+  assert.equal(withoutOps.noToolExitRate, 0, 'searchCoverage fallback sees 1 file read');
+});
+
+test('computeExtendedMetrics sources budget exhaustion from searchCoverage (spec 025)', () => {
+  const metrics = computeExtendedMetrics([
+    syntheticCase({ searchCoverage: { filesRead: 2, grepCalls: 1, listDirCalls: 0, symbolCalls: 0, stoppedByBudget: true } }),
+    syntheticCase(),
+  ]);
+  assert.equal(metrics.budgetExhaustionRate, 0.5);
+});
+
+test('computeExtendedMetrics aggregates effect metrics and pools citation checks (spec 025)', () => {
+  const metrics = computeExtendedMetrics([
+    syntheticCase({
+      effectMetrics: { responsePayloadTokens: 100, citedSourceTokens: 1000, citedFileCount: 2, contextSavingsRatio: 10 },
+      citation: { checks: [{ status: 'match' }, { status: 'mismatch' }, { status: 'redacted' }] },
+    }),
+    syntheticCase({
+      effectMetrics: { responsePayloadTokens: 300, citedSourceTokens: 600, citedFileCount: 1, contextSavingsRatio: 2 },
+      citation: { checks: [{ status: 'weak_match' }] },
+    }),
+  ]);
+  assert.equal(metrics.avgResponsePayloadTokens, 200);
+  assert.equal(metrics.avgCitedSourceTokens, 800);
+  assert.equal(metrics.avgContextSavingsRatio, 6);
+  assert.equal(metrics.citationAccuracy, 0.667, 'pooled across all non-neutral checks, not a mean of per-case ratios');
+  assert.equal(metrics.weakCitationChecks, 1);
+});
+
+test('computeExtendedMetrics reports transcript averages only when transcript metrics exist', () => {
+  const metrics = computeExtendedMetrics([
+    syntheticCase({ transcriptMetrics: { broadSearchCalls: 2, repeatedToolPlanTurns: 1 } }),
+    syntheticCase({ transcriptMetrics: { broadSearchCalls: 0, repeatedToolPlanTurns: 0 } }),
+  ]);
   assert.equal(metrics.avgBroadSearchCalls, 1);
   assert.equal(metrics.avgRepeatedToolPlanTurns, 0.5);
 
-  const withoutTranscripts = computeExtendedMetrics([
-    { result: successfulResult, transcriptMetrics: null },
-  ]);
+  const withoutTranscripts = computeExtendedMetrics([syntheticCase()]);
   assert.equal(withoutTranscripts.avgBroadSearchCalls, null);
   assert.equal(withoutTranscripts.avgRepeatedToolPlanTurns, null);
+});
+
+test('computeExtendedMetrics handles mixed ops populations without fabricating values (spec 025)', () => {
+  const metrics = computeExtendedMetrics([
+    syntheticCase({ ops: { stats: { turns: 4, toolCalls: 6, totalTokens: 1200 } } }),
+    syntheticCase(),
+    syntheticCase({ ops: { stats: {} } }),
+  ]);
+  assert.equal(metrics.avgToolTurns, 4, 'empty ops.stats objects contribute nothing instead of fabricated zeros');
+  assert.equal(metrics.avgInternalTokens, 1200);
+  assert.equal(metrics.noToolExitRate, 0, 'fallback cases with real searchCoverage activity are not no-tool exits');
+});
+
+test('computeExtendedMetrics does not fabricate a no-tool exit from an absent searchCoverage (spec 025)', () => {
+  const bare = syntheticCase();
+  delete bare.result.searchCoverage;
+  const metrics = computeExtendedMetrics([bare]);
+  assert.equal(metrics.noToolExitRate, 0);
+  assert.equal(metrics.evidenceSnippetRate, null, 'empty evidence denominator degrades to null, not 0');
+});
+
+test('computeExtendedMetrics counts an all-zero searchCoverage as a no-tool exit via the fallback (spec 025)', () => {
+  const metrics = computeExtendedMetrics([
+    syntheticCase({ searchCoverage: { filesRead: 0, grepCalls: 0, listDirCalls: 0, symbolCalls: 0, stoppedByBudget: false } }),
+  ]);
+  assert.equal(metrics.noToolExitRate, 1);
 });

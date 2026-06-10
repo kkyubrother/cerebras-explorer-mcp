@@ -2,7 +2,7 @@
 
 > **목적**: 확장 후보의 동작·입력·영향·전제 조건을 풀어쓴 살아있는 백로그. 다음 spec NNN을 끊을 때 이 문서를 입력으로 사용한다. (README "다음 확장 포인트" 절이 이 문서를 가리킨다.)
 >
-> **상태** (2026-06-10 갱신): 아래 4개 후보는 모두 spec으로 소진 완료 — #1·#2 → specs/013 (+#2 언어 확장은 specs/015), #3 → specs/014, #4 → specs/012. 현재 열린 후보는 없다. 남은 씨앗: (a) `.npmignore`/`.dockerignore` 옵트인 처리(#3 후속), (b) Lambda handler / K8s CronJob / Pub-Sub subscriber entrypoint 카테고리(#2 후속). 새 후보가 생기면 본 문서에 절을 추가하고, 진행할 때 개별 `specs/NNN-slug/` 디렉토리를 끊은 뒤 해당 절을 "→ specs/NNN-slug 완료"처럼 갱신한다.
+> **상태** (2026-06-10 갱신): 아래 4개 후보는 모두 spec으로 소진 완료 — #1·#2 → specs/013 (+#2 언어 확장은 specs/015), #3 → specs/014, #4 → specs/012. 현재 열린 후보는 없다. 남은 씨앗: (a) `.npmignore`/`.dockerignore` 옵트인 처리(#3 후속), (b) Lambda handler / K8s CronJob / Pub-Sub subscriber entrypoint 카테고리(#2 후속), (c) `src/benchmark/evaluator.mjs`의 `stopped_by_budget_equals` check가 spec 017 이후 죽은 `result.stats`를 읽어 vacuous — `searchCoverage.stoppedByBudget`로 이전하거나 삭제 (현재 어떤 스위트도 이 check 타입을 사용하지 않음; spec 025 final review 발견), (d) parent-agent 실측 A/B 자동화와 adoption 케이스 입력-기대 키워드 에코 정리 (spec 025 Out of Scope에서 이월). 새 후보가 생기면 본 문서에 절을 추가하고, 진행할 때 개별 `specs/NNN-slug/` 디렉토리를 끊은 뒤 해당 절을 "→ specs/NNN-slug 완료"처럼 갱신한다.
 
 ---
 

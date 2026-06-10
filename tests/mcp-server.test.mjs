@@ -1138,3 +1138,37 @@ test('MCP request handler sends progress notifications when progressToken is 0',
     'progressToken=0 must be preserved in emitted notifications',
   );
 });
+
+test('explore_repo and wrappers expose _meta.ops without touching structuredContent (spec 025)', async () => {
+  const repoRoot = await makeRepoFixture();
+
+  for (const [toolName, args] of [
+    ['explore_repo', { task: 'users/me 라우트 인증 추적', repo_root: repoRoot, scope: ['src/**'] }],
+    ['find_relevant_code', { query: 'auth middleware wiring', repo_root: repoRoot }],
+  ]) {
+    const { handleRequest } = createMcpRequestHandler({
+      runtimeOptions: { chatClient: new MockChatClient() },
+    });
+    await handleRequest({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'initialize',
+      params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'test', version: '0.0.1' } },
+    });
+    const called = await handleRequest({
+      jsonrpc: '2.0',
+      id: 2,
+      method: 'tools/call',
+      params: { name: toolName, arguments: args },
+    });
+
+    assert.ok(called._meta?.ops, `${toolName} response must carry _meta.ops (spec 025)`);
+    assert.equal(typeof called._meta.ops.stats?.turns, 'number', `${toolName} ops.stats.turns`);
+    assert.equal(typeof called._meta.ops.stats?.toolCalls, 'number', `${toolName} ops.stats.toolCalls`);
+    assert.ok('transcriptPath' in called._meta.ops, `${toolName} ops.transcriptPath key`);
+    // FR-001 contract freeze: the side-channel must not leak into the answer payload.
+    assert.equal(called.structuredContent.stats, undefined);
+    assert.equal(called.structuredContent.transcriptPath, undefined);
+    assert.equal(called.structuredContent._debug, undefined);
+  }
+});
