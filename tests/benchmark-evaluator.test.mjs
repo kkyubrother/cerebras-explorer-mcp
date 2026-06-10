@@ -245,6 +245,47 @@ test('evaluateBenchmarkCase checks citation gap warning equality', () => {
   assert.equal(unexpectedGap.checks[0].passed, false);
 });
 
+test('evaluateBenchmarkCase checks critic_warning_absent — warning absent passes, present fails', () => {
+  const absentCheck = {
+    id: 'usage-cross-check-absent',
+    checks: [
+      { label: 'No usage cross-check warning', type: 'critic_warning_absent', warningType: 'usage_cross_check_missing', weight: 0.1 },
+    ],
+  };
+
+  // Warning absent → pass
+  const warningAbsent = evaluateBenchmarkCase(absentCheck, {});
+  assert.equal(warningAbsent.checks[0].actual, true);
+  assert.equal(warningAbsent.checks[0].passed, true);
+  assert.equal(warningAbsent.checks[0].expected, 'usage_cross_check_missing');
+
+  // Other warning type present → still absent → pass
+  const otherWarning = evaluateBenchmarkCase(absentCheck, {
+    critic: { warnings: [{ type: 'citation_gap' }] },
+  });
+  assert.equal(otherWarning.checks[0].actual, true);
+  assert.equal(otherWarning.checks[0].passed, true);
+
+  // Target warning present → fail
+  const warningPresent = evaluateBenchmarkCase(absentCheck, {
+    critic: { warnings: [{ type: 'usage_cross_check_missing' }] },
+  });
+  assert.equal(warningPresent.checks[0].actual, false);
+  assert.equal(warningPresent.checks[0].passed, false);
+
+  // Multiple warnings including target → fail
+  const multipleWarnings = evaluateBenchmarkCase(absentCheck, {
+    critic: { warnings: [{ type: 'citation_gap' }, { type: 'usage_cross_check_missing' }] },
+  });
+  assert.equal(multipleWarnings.checks[0].actual, false);
+  assert.equal(multipleWarnings.checks[0].passed, false);
+
+  // null/non-array warnings → absent → pass
+  const nullWarnings = evaluateBenchmarkCase(absentCheck, { critic: { warnings: null } });
+  assert.equal(nullWarnings.checks[0].actual, true);
+  assert.equal(nullWarnings.checks[0].passed, true);
+});
+
 test('evaluateBenchmarkCase rejects removed legacy benchmark aliases', () => {
   for (const source of ['answer', 'summary', 'candidate_paths', 'confidence_level']) {
     assert.throws(

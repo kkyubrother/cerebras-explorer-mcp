@@ -32,6 +32,11 @@ function hasCitationGapWarning(result) {
   return Array.isArray(warnings) && warnings.some(warning => warning?.type === 'citation_gap');
 }
 
+function hasCriticWarningType(result, type) {
+  const warnings = result?.critic?.warnings;
+  return Array.isArray(warnings) && warnings.some(warning => warning?.type === type);
+}
+
 function toolResultsWereTruncated(result) {
   const coverageCount = Number(result?.searchCoverage?.toolResultsTruncated ?? 0);
   const statsCount = Number(getStats(result).toolResultsTruncated ?? 0);
@@ -103,6 +108,7 @@ function countGroundedEvidence(result) {
 function evaluateCheck(result, check) {
   let passed = false;
   let actual;
+  let expected = check.value;
   switch (check.type) {
     case 'min_evidence_count':
       actual = (result.evidence ?? []).length;
@@ -136,6 +142,11 @@ function evaluateCheck(result, check) {
       actual = hasCitationGapWarning(result);
       passed = actual === Boolean(check.value);
       break;
+    case 'critic_warning_absent':
+      expected = check.warningType;
+      actual = !hasCriticWarningType(result, check.warningType);
+      passed = actual;
+      break;
     case 'has_direct_answer':
       actual = typeof result.directAnswer === 'string' && result.directAnswer.trim().length > 0;
       passed = actual === Boolean(check.value);
@@ -155,7 +166,7 @@ function evaluateCheck(result, check) {
   return {
     label: check.label,
     type: check.type,
-    expected: check.value,
+    expected,
     actual,
     passed,
     weight: Number(check.weight ?? 1),
