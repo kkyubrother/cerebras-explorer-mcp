@@ -1135,14 +1135,16 @@ export class RepoToolkit {
 
     // Step 4: deterministic, diversity-preserving truncation of callers.
     // Priority order: (a) code files first, (b) relation weight (call/member_call/
-    // constructor=0, other usages=1, reference=2), (c) per-file cap of 3 via
-    // round-robin, (d) stable tie-break by (path asc, line asc).
+    // constructor=0, other callable usages (reference)=1), (c) true round-robin
+    // per-file cap of 3, (d) stable tie-break by (path asc, line asc).
     // This ensures production callsites in code files are never crowded out by
     // non-code (e.g. markdown) mentions or by a single test file with many hits.
     const RELATION_WEIGHT = { call: 0, member_call: 0, constructor: 0 };
     const CALLER_PER_FILE_CAP = 3;
+    const CALLER_TOTAL_CAP = 20;
 
-    // Sort: code-first, then relation weight, then path asc, then line asc
+    // Sort: code-first, then relation weight, then path asc, then line asc.
+    // This establishes both per-file internal order and inter-file priority.
     const sortedCallers = callers.slice().sort((a, b) => {
       const aIsCode = detectLanguage(a.path) !== 'generic' ? 0 : 1;
       const bIsCode = detectLanguage(b.path) !== 'generic' ? 0 : 1;
@@ -1155,19 +1157,34 @@ export class RepoToolkit {
       return a.line - b.line;
     });
 
-    // Round-robin per-file cap: walk the sorted list and include up to
-    // CALLER_PER_FILE_CAP entries per file, preserving the priority order.
-    const fileSlots = new Map();
-    const cappedCallers = [];
+    // True round-robin per-file cap: group callers by file path, preserving each
+    // group's internal sorted order. Groups are ordered by their first entry's sort
+    // position (i.e. the order in which each file first appears in sortedCallers),
+    // so a code file with a `call` outranks a doc file with a `reference`.
+    // Then iterate rounds 0..CALLER_PER_FILE_CAP-1; in each round take the round-th
+    // entry from each group in group-priority order, stopping at CALLER_TOTAL_CAP.
+    // This guarantees every file gets its 1st callsite before any file gets its 2nd,
+    // maximising cross-file breadth while never exceeding 3 per file.
+    const fileGroups = new Map(); // path → caller[]
     for (const caller of sortedCallers) {
-      const used = fileSlots.get(caller.path) ?? 0;
-      if (used < CALLER_PER_FILE_CAP) {
-        cappedCallers.push(caller);
-        fileSlots.set(caller.path, used + 1);
+      const group = fileGroups.get(caller.path);
+      if (group) {
+        group.push(caller);
+      } else {
+        fileGroups.set(caller.path, [caller]);
       }
     }
+    const groups = [...fileGroups.values()]; // ordered by first-entry sort position
 
-    const selectedCallers = cappedCallers.slice(0, 20);
+    const selectedCallers = [];
+    outer: for (let round = 0; round < CALLER_PER_FILE_CAP; round++) {
+      for (const group of groups) {
+        if (round < group.length) {
+          selectedCallers.push(group[round]);
+          if (selectedCallers.length >= CALLER_TOTAL_CAP) break outer;
+        }
+      }
+    }
 
     const observedRanges = [];
 
