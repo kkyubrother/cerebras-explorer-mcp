@@ -56,14 +56,14 @@
 
 ### Tests for User Story 2 (failing first)
 
-- [ ] T010 [P] [US2] `tests/repo-tools.test.mjs`에 regression fixture 테스트 추가: temp fixture repo — `lib/def.js`(정의), `app/main.js`(프로덕션 호출 1개, 대형 파일), `tests/def.test.js`(매치 25개), `docs/*.md` 3개(산문 언급 합계 30개 — cap 초과 + 비코드 잠식을 결정적으로 유도). 단언: ① `symbolContext` callers에 `app/main.js` 호출처 포함(relation 'call'); ② 2회 연속 호출 결과 `deepEqual`(결정성); ③ callers의 파일당 항목 ≤3 (round-robin 다양성); ④ `definition` 항상 존재(`lib/def.js`); ⑤ `truncated`/`callerCount` 필드 의미 유지(스키마 불변 — data-model E5).
-- [ ] T011 [US2] 실행해 FAIL 확인 — 현 코드의 비결정성 때문에 flaky-fail이 아니라 **결정적 fail**이 되도록 fixture의 비코드 매치 수(30+25 > 40-cap)가 코드 호출처를 항상 밀어내는지 확인하고, 필요시 매치 수 조정.
+- [X] T010 [P] [US2] `tests/repo-tools.test.mjs`에 regression fixture 테스트 추가: temp fixture repo — `lib/def.js`(정의), `app/main.js`(프로덕션 호출 1개, 대형 파일), `tests/def.test.js`(매치 25개), `docs/*.md` 3개(산문 언급 합계 30개 — cap 초과 + 비코드 잠식을 결정적으로 유도). 단언: ① `symbolContext` callers에 `app/main.js` 호출처 포함(relation 'call'); ② 2회 연속 호출 결과 `deepEqual`(결정성); ③ callers의 파일당 항목 ≤3 (round-robin 다양성); ④ `definition` 항상 존재(`lib/def.js`); ⑤ `truncated`/`callerCount` 필드 의미 유지(스키마 불변 — data-model E5).
+- [X] T011 [US2] 실행해 FAIL 확인 — 현 코드의 비결정성 때문에 flaky-fail이 아니라 **결정적 fail**이 되도록 fixture의 비코드 매치 수(30+25 > 40-cap)가 코드 호출처를 항상 밀어내는지 확인하고, 필요시 매치 수 조정.
 
 ### Implementation for User Story 2
 
-- [ ] T012 [US2] `src/explorer/repo-tools.mjs` — `symbolContext`(:1085 부근): 내부 grep `maxResults: 40` → `this.budgetConfig?.maxSearchResults ?? 80`; `callers.slice(0, 20)`(:1147, :1161) 전에 결정적 정렬 적용 — ① 코드 파일 우선(`detectLanguage(path) !== 'generic'`), ② relation 가중치(`call`/`member_call`/`constructor` > 기타 > `reference`), ③ 파일당 상한 3개 round-robin, ④ (path, line) 안정 정렬 (R2/data-model E5); 스테일 주석(:1815 "internally uses cached grep") 교정. 반환 필드 형태 불변.
-- [ ] T013 [US2] `node --test tests/repo-tools.test.mjs` green + `npm test` 0 fail; quickstart §1 재현 스크립트($env:TEMP, 실행 후 삭제)로 이 저장소에서 `buildReportCritic` 5회 — 5/5 동일 출력 + `src/explorer/runtime.mjs` 호출처(`call`) 포함 + definition 항상 존재를 확인하고 결과 수치를 본 파일 하단 Notes에 기록.
-- [ ] T014 [US2] Commit: `fix(spec-026): deterministic, diversity-preserving caller truncation in symbolContext (US2)`.
+- [X] T012 [US2] `src/explorer/repo-tools.mjs` — `symbolContext`(:1085 부근): 내부 grep `maxResults: 40` → `this.budgetConfig?.maxSearchResults ?? 80`; `callers.slice(0, 20)`(:1147, :1161) 전에 결정적 정렬 적용 — ① 코드 파일 우선(`detectLanguage(path) !== 'generic'`), ② relation 가중치(`call`/`member_call`/`constructor` > 기타 > `reference`), ③ 파일당 상한 3개 round-robin, ④ (path, line) 안정 정렬 (R2/data-model E5); 스테일 주석(:1815 "internally uses cached grep") 교정. 반환 필드 형태 불변.
+- [X] T013 [US2] `node --test tests/repo-tools.test.mjs` green + `npm test` 0 fail; quickstart §1 재현 스크립트($env:TEMP, 실행 후 삭제)로 이 저장소에서 `buildReportCritic` 5회 — 5/5 동일 출력 + `src/explorer/runtime.mjs` 호출처(`call`) 포함 + definition 항상 존재를 확인하고 결과 수치를 본 파일 하단 Notes에 기록.
+- [X] T014 [US2] Commit: `fix(spec-026): deterministic, diversity-preserving caller truncation in symbolContext (US2)`.
 
 **Checkpoint**: US1+US2 — gate는 드물게 발화하고, 인덱서는 같은 입력에 같은 답.
 
@@ -133,3 +133,15 @@ Task: "T003 runtime gate scenarios in tests/runtime.mock.test.mjs"
 ## Notes
 
 - (T013/T021 실측 수치 기록 자리)
+
+### T013 실측 수치 (2026-06-10)
+
+`buildReportCritic` 5-run 검증 결과 (`src/explorer/repo-tools.mjs` US2 fix 적용 후):
+
+- **5/5 identical**: true (결정적 출력 확인)
+- **definition**: 항상 존재 (`src/explorer/critic.mjs:576`)
+- **callerCount**: 68 (grep maxResults=80으로 전체 58→68 매치 수집, 모두 반환)
+- **callers.length**: 20 (round-robin diversity cap 적용 후 선택)
+- **truncated**: true (68 callable usages > 20 선택 슬롯)
+- **`src/explorer/runtime.mjs` 포함**: true (`:2435 [call]` — 프로덕션 호출처)
+- fix 전 3/11회 → fix 후 5/5회 결정적 포함

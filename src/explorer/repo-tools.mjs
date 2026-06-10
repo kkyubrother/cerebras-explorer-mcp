@@ -11,7 +11,7 @@ import {
   DEFAULT_WALK_FILE_LIMIT,
 } from './config.mjs';
 import { GIT_TOOL_TTL_MS } from './cache.mjs';
-import { extractSymbols, classifyReference } from './symbols.mjs';
+import { extractSymbols, classifyReference, detectLanguage } from './symbols.mjs';
 import {
   DEFAULT_SECRET_DENY_PATTERNS,
   isSecretPath,
@@ -1082,7 +1082,7 @@ export class RepoToolkit {
     const sym = symbol.trim();
 
     // Step 1: grep for all occurrences (escape special regex chars in symbol name)
-    const grepResult = await this.grep({ pattern: symbolSearchPattern(sym), scope, caseSensitive: true, maxResults: 40 });
+    const grepResult = await this.grep({ pattern: symbolSearchPattern(sym), scope, caseSensitive: true, maxResults: this.budgetConfig?.maxSearchResults ?? 80 });
 
     let definition = null;
     const callers = [];
@@ -1133,6 +1133,42 @@ export class RepoToolkit {
       } catch { /* skip body read */ }
     }
 
+    // Step 4: deterministic, diversity-preserving truncation of callers.
+    // Priority order: (a) code files first, (b) relation weight (call/member_call/
+    // constructor=0, other usages=1, reference=2), (c) per-file cap of 3 via
+    // round-robin, (d) stable tie-break by (path asc, line asc).
+    // This ensures production callsites in code files are never crowded out by
+    // non-code (e.g. markdown) mentions or by a single test file with many hits.
+    const RELATION_WEIGHT = { call: 0, member_call: 0, constructor: 0 };
+    const CALLER_PER_FILE_CAP = 3;
+
+    // Sort: code-first, then relation weight, then path asc, then line asc
+    const sortedCallers = callers.slice().sort((a, b) => {
+      const aIsCode = detectLanguage(a.path) !== 'generic' ? 0 : 1;
+      const bIsCode = detectLanguage(b.path) !== 'generic' ? 0 : 1;
+      if (aIsCode !== bIsCode) return aIsCode - bIsCode;
+      const aWeight = RELATION_WEIGHT[a.relation] ?? 1;
+      const bWeight = RELATION_WEIGHT[b.relation] ?? 1;
+      if (aWeight !== bWeight) return aWeight - bWeight;
+      if (a.path < b.path) return -1;
+      if (a.path > b.path) return 1;
+      return a.line - b.line;
+    });
+
+    // Round-robin per-file cap: walk the sorted list and include up to
+    // CALLER_PER_FILE_CAP entries per file, preserving the priority order.
+    const fileSlots = new Map();
+    const cappedCallers = [];
+    for (const caller of sortedCallers) {
+      const used = fileSlots.get(caller.path) ?? 0;
+      if (used < CALLER_PER_FILE_CAP) {
+        cappedCallers.push(caller);
+        fileSlots.set(caller.path, used + 1);
+      }
+    }
+
+    const selectedCallers = cappedCallers.slice(0, 20);
+
     const observedRanges = [];
 
     if (definition?.path && Number.isInteger(definition.line)) {
@@ -1144,7 +1180,7 @@ export class RepoToolkit {
       });
     }
 
-    for (const caller of callers.slice(0, 20)) {
+    for (const caller of selectedCallers) {
       if (caller.path && Number.isInteger(caller.line)) {
         observedRanges.push({
           path: caller.path,
@@ -1158,9 +1194,9 @@ export class RepoToolkit {
     return {
       symbol: sym,
       definition,
-      callers: callers.slice(0, 20),
+      callers: selectedCallers,
       callerCount: callers.length,
-      truncated: grepResult.truncated,
+      truncated: grepResult.truncated || selectedCallers.length < callers.length,
       effectiveDepth,
       observedRanges,
     };
@@ -1812,7 +1848,7 @@ export class RepoToolkit {
         return this.references({ symbol: args?.symbol, scope: args?.scope });
       }
       case 'repo_symbol_context': {
-        // Not cached at top level — internally uses cached grep + symbols
+        // Not cached at top level — calls this.grep directly (bypasses grep cache)
         return this.symbolContext({ symbol: args?.symbol, scope: args?.scope, depth: args?.depth });
       }
       default:

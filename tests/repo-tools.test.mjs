@@ -726,6 +726,96 @@ test('callTool repo_read_file invalidates the cache when the file mtime changes'
   assert.doesNotMatch(JSON.stringify(second), /initial content/);
 });
 
+// ─── Spec 026 US2: deterministic, diversity-preserving caller truncation ──────
+
+async function makePaintWidgetFixture() {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-paintwidget-'));
+  await fs.mkdir(path.join(root, 'lib'), { recursive: true });
+  await fs.mkdir(path.join(root, 'app'), { recursive: true });
+  await fs.mkdir(path.join(root, 'tests'), { recursive: true });
+  await fs.mkdir(path.join(root, 'docs'), { recursive: true });
+
+  // lib/def.js — definition of paintWidget
+  await fs.writeFile(
+    path.join(root, 'lib', 'def.js'),
+    [
+      'export function paintWidget(canvas, opts) {',
+      '  canvas.fill(opts.color);',
+      '  canvas.stroke(opts.border);',
+      '  return canvas;',
+      '}',
+    ].join('\n') + '\n',
+  );
+
+  // app/main.js — large production file with exactly one call to paintWidget
+  const mainLines = ['// Production entry point', ''];
+  for (let i = 0; i < 100; i++) {
+    mainLines.push(`// padding line ${i}`);
+  }
+  mainLines.push("import { paintWidget } from '../lib/def.js';");
+  mainLines.push('');
+  mainLines.push('function renderApp(canvas) {');
+  mainLines.push('  return paintWidget(canvas, { color: "blue", border: "1px" });');
+  mainLines.push('}');
+  mainLines.push('');
+  mainLines.push('export { renderApp };');
+  await fs.writeFile(path.join(root, 'app', 'main.js'), mainLines.join('\n') + '\n');
+
+  // tests/def.test.js — 25 call-like mention lines to paintWidget
+  const testLines = ["import { paintWidget } from '../lib/def.js';", ''];
+  for (let i = 0; i < 25; i++) {
+    testLines.push(`  paintWidget(mockCanvas${i}, { color: 'red' });`);
+  }
+  await fs.writeFile(path.join(root, 'tests', 'def.test.js'), testLines.join('\n') + '\n');
+
+  // docs/a.md, docs/b.md, docs/c.md — 30 total prose mention lines (10 each)
+  for (const [letter, num] of [['a', 10], ['b', 10], ['c', 10]]) {
+    const docLines = [`# Docs ${letter.toUpperCase()}`, ''];
+    for (let i = 0; i < num; i++) {
+      docLines.push(`The paintWidget function is described in section ${i}.`);
+    }
+    await fs.writeFile(path.join(root, 'docs', `${letter}.md`), docLines.join('\n') + '\n');
+  }
+
+  return root;
+}
+
+test('spec-026 US2: symbolContext includes production callsite, is deterministic, and caps per-file entries', async () => {
+  const repoRoot = await makePaintWidgetFixture();
+  const toolkit = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig() });
+  await toolkit.initialize([]);
+
+  const result1 = await toolkit.symbolContext({ symbol: 'paintWidget', depth: 1 });
+
+  // ① callers includes app/main.js with relation 'call'
+  const mainCaller = result1.callers.find(c => c.path === 'app/main.js');
+  assert.ok(mainCaller, 'production callsite app/main.js must be in callers');
+  assert.equal(mainCaller.relation, 'call', 'app/main.js caller must have relation "call"');
+
+  // ② two consecutive calls return deepEqual results (determinism)
+  const result2 = await toolkit.symbolContext({ symbol: 'paintWidget', depth: 1 });
+  assert.deepEqual(result1, result2, 'symbolContext must return identical results on consecutive calls');
+
+  // ③ no file contributes more than 3 caller entries (round-robin diversity)
+  const perFileCount = {};
+  for (const caller of result1.callers) {
+    perFileCount[caller.path] = (perFileCount[caller.path] ?? 0) + 1;
+  }
+  for (const [file, count] of Object.entries(perFileCount)) {
+    assert.ok(count <= 3, `file "${file}" contributes ${count} entries — must be ≤3`);
+  }
+
+  // ④ definition exists and points at lib/def.js
+  assert.ok(result1.definition, 'definition must be present');
+  assert.ok(result1.definition.path === 'lib/def.js', `definition must point at lib/def.js, got: ${result1.definition.path}`);
+
+  // ⑤ truncated/callerCount semantics preserved
+  assert.equal(typeof result1.callerCount, 'number', 'callerCount must be a number');
+  assert.ok(result1.callerCount >= result1.callers.length, 'callerCount must be >= callers.length');
+  // There are 25+30=55 non-definition callable matches total, many more than 20-slot output
+  assert.equal(result1.truncated, true, 'truncated must be true when more matches existed than maxResults');
+});
+
 // ─── Spec 014: repo-specific ignore (nested .gitignore + extraIgnorePatterns) ───
 
 async function makeNestedIgnoreFixture() {
