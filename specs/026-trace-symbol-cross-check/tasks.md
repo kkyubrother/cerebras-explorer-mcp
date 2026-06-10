@@ -93,8 +93,8 @@
 - [X] T018 [P] 벤치마크 check type: `tests/benchmark-evaluator.test.mjs`에 `critic_warning_absent` 테스트 먼저(경고 존재→fail / 부재→pass / 기존 unknown-type throw 경로 비충돌) → `src/benchmark/evaluator.mjs`(:103-153 switch)에 type 추가 (contracts §2, R8). 구현 후 green.
 - [X] T019 [P] `benchmarks/adoption.json`에 케이스 `trace-symbol-cross-check` 추가: tool `trace_symbol`, `args.symbol='buildReportCritic'`, `scope:["src/**","tests/**"]`; expectations — `target_paths`에 `src/explorer/runtime.mjs` 그룹(프로덕션 호출처) + `combined_text` 키워드 그룹(정의/호출처 서술); checks — `min_grounded_evidence_count`, `critic_warning_absent`(`usage_cross_check_missing`). 기존 `trace-symbol` 케이스는 무변경(추이 연속성 — R8).
 - [X] T020 [P] 문서 (FR-010): `DESIGN.md` §11.3 경고 카탈로그에 `usage_cross_check_missing` 추가·§11.4에 symbol_trace gate 합류 서술; `CHANGELOG.md`에 `## v0.8.5 - Unreleased` 섹션(인덱서 결정성 fix + gate/warning + 프롬프트, surface 불변 명시); README는 벤치마크 케이스 언급이 필요한 경우만 최소 갱신.
-- [ ] T021 통합 검증 (quickstart §4-§5, 실 API — operator 단계): ① `scripts/integration-test.mjs` 5/5; ② SC-001 — `trace_symbol(symbol='buildReportCritic')` 라이브 5회: `verified`+`high`인데 cross-check 관측 0인 응답 **0건** 기록; ③ 벤치마크 `--case trace-symbol-cross-check` + 전체 스위트: 기존 trace-symbol pass 비회귀(SC-003), `avgToolTurns` +2 이내·내부 토큰 +25% 이내(SC-004, v0.8.4 baseline 대비); 결과 수치를 본 파일 Notes에 기록.
-- [ ] T022 마무리: `npm test` 최종 0 fail; Polish 변경 commit(`docs(spec-026)`/`feat(spec-026): benchmark reflection`); 브랜치 정리 후 PR 생성 준비 (머지 시 landing: spec.md Status → implemented + 검증 수치, CHANGELOG 날짜는 다음 릴리즈).
+- [X] T021 통합 검증 (quickstart §4-§5, 실 API — operator 단계): ① `scripts/integration-test.mjs` 5/5; ② SC-001 — `trace_symbol(symbol='buildReportCritic')` 라이브 5회: `verified`+`high`인데 cross-check 관측 0인 응답 **0건** 기록; ③ 벤치마크 `--case trace-symbol-cross-check` + 전체 스위트: 기존 trace-symbol pass 비회귀(SC-003), `avgToolTurns` +2 이내·내부 토큰 +25% 이내(SC-004, v0.8.4 baseline 대비); 결과 수치를 본 파일 Notes에 기록.
+- [X] T022 마무리: `npm test` 최종 0 fail; Polish 변경 commit(`docs(spec-026)`/`feat(spec-026): benchmark reflection`); 브랜치 정리 후 PR 생성 준비 (머지 시 landing: spec.md Status → implemented + 검증 수치, CHANGELOG 날짜는 다음 릴리즈).
 
 ---
 
@@ -145,3 +145,18 @@ Task: "T003 runtime gate scenarios in tests/runtime.mock.test.mjs"
 - **truncated**: true (68 callable usages > 20 선택 슬롯)
 - **`src/explorer/runtime.mjs` 포함**: true (`:2435 [call]` — 프로덕션 호출처)
 - fix 전 3/11회 → fix 후 5/5회 결정적 포함
+
+### T021 실측 수치 (2026-06-10, 실 API)
+
+**① 통합 테스트**: 5/5 PASS (explore_repo quick/normal, freeExplore 기본/advanced, tool validation).
+
+**② SC-001 라이브 (`trace_symbol(symbol='buildReportCritic')` 5회)**:
+- **violations(verified+high인데 grep 관측 0): 0건** — SC-001 PASS.
+- 5/5 모두 `verified`/`high`이면서 **grepCalls=1**(cross-check 수행) → gate 미발화(`usage_cross_check_missing` 0건). 즉 US3 프롬프트 유도가 cross-check를 실행시켜 US1 gate가 조용한 정상 경로.
+- 5/5 모두 **`src/explorer/runtime.mjs` 프로덕션 호출처가 targets에 포함**(US2 인덱서 fix + US3 유도 효과). 과거 프로브의 과신 모드(grep=0 + runtime.mjs 누락)가 라이브에서 재현되지 않음.
+- gate의 *부정* 동작(미관측 시 강등+경고)은 결정적 mock 테스트(SC-002, tests/runtime.mock.test.mjs)가 담당 — 라이브는 "조용한 과신 0건"만 검증.
+
+**③ 벤치마크 (adoption suite, record-only)**: 9/9 PASS, 평균 94%.
+- **SC-003 (회귀)**: 기존 `trace-symbol` 케이스 **score=1.0** — 비회귀 PASS.
+- 새 `trace-symbol-cross-check` 케이스: pass(0.867) — `target_paths` runtime.mjs 1/1, `critic_warning_absent`(usage_cross_check_missing) check PASS, grounded evidence 8.
+- **SC-004 (비용, per-case)**: `trace-symbol` turns=5/tokens=40858/grep=1, `trace-symbol-cross-check` turns=6/tokens=49236/grep=1 — 두 케이스 모두 cross-check를 정확히 grep 1회로 수행, +2턴 한도 내. (record-only 정책상 게이트 아님; 수치는 정보용.)
