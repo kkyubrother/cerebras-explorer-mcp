@@ -59,6 +59,33 @@
       ]
     },
     {
+      "id": "trace-symbol-cross-check",
+      "description": "Trace a symbol's definition and callsites; the usage cross-check must be satisfied.",
+      "tool": "trace_symbol",
+      "args": {
+        "symbol": "buildReportCritic",
+        "scope": ["src/**", "tests/**"]
+      },
+      "expectations": [
+        {
+          "label": "Combined text describes definition and production callsite",
+          "source": "combined_text",
+          "groups": [["buildReportCritic"], ["critic.mjs"], ["runtime.mjs"]],
+          "weight": 0.4
+        },
+        {
+          "label": "Targets include production callsite",
+          "source": "target_paths",
+          "groups": [["src/explorer/runtime.mjs"]],
+          "weight": 0.3
+        }
+      ],
+      "checks": [
+        { "label": "Grounded evidence", "type": "min_grounded_evidence_count", "value": 2, "weight": 0.2 },
+        { "label": "No usage cross-check warning", "type": "critic_warning_absent", "warningType": "usage_cross_check_missing", "weight": 0.1 }
+      ]
+    },
+    {
       "id": "map-change-impact",
       "description": "Map likely blast radius before an edit.",
       "tool": "map_change_impact",
