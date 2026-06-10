@@ -844,7 +844,7 @@ spec 025 이후 벤치마크는 다음 효과 메트릭을 함께 기록합니�
 - `avgResponsePayloadTokens`: 상위 AI가 실제로 받는 `structuredContent`의 토큰 추정치
 - `avgCitedSourceTokens`: 인용된 파일 전체를 native로 읽었을 때의 토큰 추정치 — 탐색 오버헤드를 제외한 **보수적 하한**
 - `avgContextSavingsRatio`: 위 둘의 비율 (>1이면 위임이 컨텍스트를 절감)
-- `citationAccuracy`: 하너스가 인용 파일을 직접 열어 snippet을 라인 단위로 대조한 독립 검증 일치율 (시스템 자기보고 `groundingStatus`와 무관)
+- `citationAccuracy`: 하네스가 인용 파일을 직접 열어 snippet을 라인 단위로 대조한 독립 검증 일치율 (시스템 자기보고 `groundingStatus`와 무관)
 - `avgToolTurns` / `avgInternalTokens`: `_meta.ops` 사이드채널 기반 내부 효율/비용 지표
 - transcript 기반 지표(`avgBroadSearchCalls` 등)는 실행 중 임시 transcript를 자동 활성화해 계산하며, `--keep-transcripts`로 파일을 보존할 수 있습니다.
 
@@ -854,7 +854,7 @@ spec 025 이후 벤치마크는 다음 효과 메트릭을 함께 기록합니�
 - [ ] **Step 2: DESIGN.md — append to §11.7**
 
 ```markdown
-spec 025에서 `_meta.ops` 사이드채널이 `explore`뿐 아니라 `explore_repo`와 wrapper 6개에도 대칭 적용되었다 (`{ stats, transcriptPath }` 최소 집합). 이는 spec 017 변경 기록이 약속했던 "local ops log channel" follow-up의 이행이며, spec 022가 정의한 경계(운영/평가 metadata는 응답 계약이 아니라 envelope/log에 속한다)를 따른다. 부모 agent는 `_meta.ops`를 답변 신호로 사용해서는 안 되고, `structuredContent`의 control-plane 필드만 신뢰해야 한다. 벤치마크 하너스는 이 채널로 내부 효율 지표를 복원하고, 인용 정확성은 자기보고 `groundingStatus`가 아니라 working tree 대조로 독립 검증한다.
+spec 025에서 `_meta.ops` 사이드채널이 `explore`뿐 아니라 `explore_repo`와 wrapper 6개에도 대칭 적용되었다 (`{ stats, transcriptPath }` 최소 집합). 이는 spec 017 변경 기록이 약속했던 "local ops log channel" follow-up의 이행이며, spec 022가 정의한 경계(운영/평가 metadata는 응답 계약이 아니라 envelope/log에 속한다)를 따른다. 부모 agent는 `_meta.ops`를 답변 신호로 사용해서는 안 되고, `structuredContent`의 control-plane 필드만 신뢰해야 한다. 벤치마크 하네스는 이 채널로 내부 효율 지표를 복원하고, 인용 정확성은 자기보고 `groundingStatus`가 아니라 working tree 대조로 독립 검증한다.
 ```
 
 - [ ] **Step 3: CHANGELOG.md — insert above `## v0.8.3`**
