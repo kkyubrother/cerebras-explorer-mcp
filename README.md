@@ -14,17 +14,17 @@ Cerebras Explorer는 상위 AI가 정확한 판단을 내릴 수 있도록, 필�
 
 ```bash
 export CEREBRAS_API_KEY="..."
-npx -y github:kkyubrother/cerebras-explorer-mcp#v0.8.3
+npx -y github:kkyubrother/cerebras-explorer-mcp#v0.8.4
 ```
 
-`npx`는 spec(URL + ref)을 캐시 키로 사용하므로 `#v0.8.3` 같은 tag를 권장합니다. 개발 브랜치를 추적해야 하면 `#master`, 특정 상태가 필요하면 `#<commit-sha>`를 명시하세요.
+`npx`는 spec(URL + ref)을 캐시 키로 사용하므로 `#v0.8.4` 같은 tag를 권장합니다. 개발 브랜치를 추적해야 하면 `#master`, 특정 상태가 필요하면 `#<commit-sha>`를 명시하세요.
 
 ### Claude Code
 
 ```bash
 claude mcp add -s user cerebras-explorer \
   -e CEREBRAS_API_KEY="$CEREBRAS_API_KEY" \
-  -- npx -y github:kkyubrother/cerebras-explorer-mcp#v0.8.3
+  -- npx -y github:kkyubrother/cerebras-explorer-mcp#v0.8.4
 ```
 
 ### Codex CLI
@@ -32,7 +32,7 @@ claude mcp add -s user cerebras-explorer \
 ```toml
 [mcp_servers.cerebras-explorer]
 command = "npx"
-args = ["-y", "github:kkyubrother/cerebras-explorer-mcp#v0.8.3"]
+args = ["-y", "github:kkyubrother/cerebras-explorer-mcp#v0.8.4"]
 enabled = true
 startup_timeout_sec = 60
 tool_timeout_sec = 180
@@ -72,7 +72,7 @@ purpose-built evidence, path, review, and Markdown-report entry points.
   "mcp": {
     "cerebras-explorer": {
       "type": "local",
-      "command": ["npx", "-y", "github:kkyubrother/cerebras-explorer-mcp#v0.8.3"],
+      "command": ["npx", "-y", "github:kkyubrother/cerebras-explorer-mcp#v0.8.4"],
       "environment": { "CEREBRAS_API_KEY": "${CEREBRAS_API_KEY}" }
     }
   }
@@ -84,7 +84,7 @@ purpose-built evidence, path, review, and Markdown-report entry points.
 ```bash
 gemini mcp add -e CEREBRAS_API_KEY="$CEREBRAS_API_KEY" \
   cerebras-explorer npx -- \
-  -y github:kkyubrother/cerebras-explorer-mcp#v0.8.3
+  -y github:kkyubrother/cerebras-explorer-mcp#v0.8.4
 ```
 
 Gemini CLI는 `*KEY*`, `*SECRET*`, `*TOKEN*`, `*PASSWORD*`, `*AUTH*`, `*CREDENTIAL*` 패턴의 환경변수를 기본 차단합니다. `CEREBRAS_API_KEY`는 서버 설정의 `env` 블록 또는 위 `-e` 옵션으로 명시해야 전달됩니다.

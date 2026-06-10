@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.8.4 - Unreleased
+## v0.8.4 - 2026-06-10
 
 ### Benchmark effect measurement (spec 025)
 

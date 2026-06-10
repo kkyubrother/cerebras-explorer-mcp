@@ -920,4 +920,4 @@ git commit -m "docs(spec-025): document effect metrics, ops side-channel, and ho
 ## Landing tasks (on merge, not at draft)
 
 - [x] Move the CLAUDE.md / AGENTS.md SPECKIT pointer to spec 025 (project convention: pointer moves at landing).
-- [ ] CHANGELOG `v0.8.4 - Unreleased` heading gets its release date at the next release (separate release step per README procedure).
+- [x] CHANGELOG `v0.8.4 - Unreleased` heading gets its release date at the next release (separate release step per README procedure). → released as v0.8.4 (2026-06-10).
