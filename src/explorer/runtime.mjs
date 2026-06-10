@@ -981,7 +981,7 @@ function evaluateEvidenceSufficiency(result, stats, { task, taskMode } = {}) {
     : { sufficient: false, reason: 'general_needs_more_evidence' };
 }
 
-function buildResultStatus(result, stats, { task, taskMode, sufficiency = null } = {}) {
+function buildResultStatus(result, stats, { task, taskMode, sufficiency = null, usageCrossCheckGate = null } = {}) {
   const criticStatus = result.critic?.status ?? 'caution';
   const warnings = (result.critic?.warnings ?? []).map(warning => warning.message).filter(Boolean);
   const hasEvidence = (result.evidence?.length ?? 0) > 0;
@@ -998,6 +998,12 @@ function buildResultStatus(result, stats, { task, taskMode, sufficiency = null }
     verification = evidenceSufficiency.sufficient ? 'targeted_read_needed' : 'follow_up_needed';
   } else if (criticStatus === 'caution' || stats.stoppedByBudget) {
     verification = evidenceSufficiency.sufficient ? 'verified' : 'follow_up_needed';
+  }
+
+  // spec 026: gate — only fires when status would otherwise be 'verified' (critic-fail and
+  // low-confidence branches have already taken precedence above, preventing double warnings).
+  if (verification === 'verified' && usageCrossCheckGate?.required && !usageCrossCheckGate.observed) {
+    verification = 'targeted_read_needed';
   }
 
   const complete = verification === 'verified' || verification === 'targeted_read_needed';
@@ -1145,6 +1151,9 @@ function validateToolName(toolName, knownToolNames) {
 /** Max consecutive all-error turns before forcing early exit. */
 const MAX_CONSECUTIVE_ERROR_TURNS = 3;
 const ERROR_RECOVERY_GUIDANCE_TURNS = Math.max(1, MAX_CONSECUTIVE_ERROR_TURNS - 1);
+
+/** Max entries recorded for the spec 026 usage cross-check observation sets. */
+const MAX_USAGE_CROSS_CHECK_ENTRIES = 50;
 
 const TOOL_STAT_FIELD_MAP = Object.freeze({
   repo_read_file: 'filesRead',
@@ -1472,6 +1481,7 @@ export class ExplorerRuntime {
     let lastAssistantContent = '';
     const observedRanges = new Map();
     const observedGit = { commits: new Set(), blame: new Set() };
+    const usageCrossCheck = { grepPatterns: new Set(), referenceSymbols: new Set() };
     const toolTrace = createCompactToolTrace();
 
     // Checkpoint interval: inject a self-assessment message every N turns.
@@ -1678,6 +1688,21 @@ export class ExplorerRuntime {
           }
         }
 
+        // spec 026: args-based usage cross-check observation (attempt counts, 0-match included).
+        // Errored tool executions must NOT satisfy the gate — only record on success.
+        if (!safeToolResult?.error) {
+          if (toolName === 'repo_grep' && typeof toolArgs?.pattern === 'string') {
+            if (usageCrossCheck.grepPatterns.size < MAX_USAGE_CROSS_CHECK_ENTRIES) {
+              usageCrossCheck.grepPatterns.add(toolArgs.pattern);
+            }
+          }
+          if (toolName === 'repo_references' && typeof toolArgs?.symbol === 'string') {
+            if (usageCrossCheck.referenceSymbols.size < MAX_USAGE_CROSS_CHECK_ENTRIES) {
+              usageCrossCheck.referenceSymbols.add(toolArgs.symbol);
+            }
+          }
+        }
+
         // Record blame lines as observed ranges
         if (toolName === 'repo_git_blame' && !safeToolResult?.error && Array.isArray(safeToolResult?.lines)) {
           const blamePath = toolArgs.path ?? null;
@@ -1827,12 +1852,27 @@ export class ExplorerRuntime {
     );
 
     const taskKind = deriveTaskKindFromHints(args.hints);
+
+    // spec 026: build gate input for the usage cross-check.
+    // targetSymbol is sourced from args.hints.symbols[0] (set by trace_symbol wrapper).
+    const targetSymbol = typeof args.hints?.symbols?.[0] === 'string' ? args.hints.symbols[0].trim() : '';
+    const crossCheckObserved = targetSymbol.length > 0 && (
+      [...usageCrossCheck.grepPatterns].some(p => p.includes(targetSymbol)) ||
+      usageCrossCheck.referenceSymbols.has(targetSymbol)
+    );
+    const usageCrossCheckGate = {
+      required: args.taskMode === 'symbol_trace' && targetSymbol.length > 0,
+      observed: crossCheckObserved,
+      symbol: targetSymbol,
+    };
+
     const criticPass = runDeterministicCriticPass({
       normalized,
       observedRanges,
       observedGit,
       stats,
       taskKind,
+      usageCrossCheck: usageCrossCheckGate,
     });
     normalized = criticPass.result;
     normalized.evidence = await attachEvidenceMetadata({
@@ -1877,6 +1917,7 @@ export class ExplorerRuntime {
       task: args.task,
       taskMode: args.taskMode,
       sufficiency: evidenceSufficiency,
+      usageCrossCheckGate,
     });
     normalized.nextAction = buildNextAction(normalized, { sufficiency: evidenceSufficiency });
 

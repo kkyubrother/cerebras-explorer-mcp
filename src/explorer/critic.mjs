@@ -360,6 +360,8 @@ export function buildCriticWarnings({
   confidence,
   stats,
   maxWarnings = 3,
+  usageCrossCheck = null,
+  gateSuppressed = false,
 }) {
   const warnings = [];
 
@@ -389,6 +391,21 @@ export function buildCriticWarnings({
       message: `${grounding.partialEvidence} evidence item(s) are grounded only by grep, blame, or nearby line observations.`,
       target,
       action: 'Treat the targeted evidence as weaker than an exact file read.',
+    });
+  }
+
+  // spec 026: usage cross-check gate warning — push BEFORE confidence_downgraded so it
+  // wins budget competition when both fire simultaneously (R5).
+  // Suppressed on all precedence routes (stoppedByErrors/stoppedByAbort/no-evidence/low-confidence)
+  // that pre-empt 'verified' in buildResultStatus — no double warning on those paths.
+  if (usageCrossCheck?.required && !usageCrossCheck.observed && !gateSuppressed) {
+    const sym = usageCrossCheck.symbol ?? '';
+    pushWarning(warnings, {
+      type: 'usage_cross_check_missing',
+      severity: 'medium',
+      message: `Usage tracing relied on a single symbol lookup; no grep or reference search for \`${sym}\` was observed.`,
+      target: sym,
+      action: `Run one repo_grep for the bare symbol name (within the current scope) before trusting the usage list as complete.`,
     });
   }
 
@@ -427,6 +444,12 @@ export function buildCriticWarnings({
     .slice(0, maxWarnings);
 }
 
+// NOTE: buildCriticStatus maps warning severity to status string.
+// Any new high-severity warning type added here MUST also be keyed in
+// gateSuppressed (runDeterministicCriticPass) so that cause-keyed suppression
+// stays equivalent to status-keyed suppression. Failure to do so would allow
+// usage_cross_check_missing to fire simultaneously with the new warning,
+// producing spurious double-warnings on precedence routes.
 export function buildCriticStatus(warnings) {
   if (warnings.some(warning => warning.severity === 'high')) return 'fail';
   if (warnings.length > 0) return 'caution';
@@ -440,6 +463,7 @@ export function runDeterministicCriticPass({
   stats,
   taskKind,
   maxWarnings = 3,
+  usageCrossCheck = null,
 }) {
   const totalEvidenceBefore = normalized.evidence.length;
   const grounding = groundEvidenceList({
@@ -459,7 +483,31 @@ export function runDeterministicCriticPass({
   confidence.factors.droppedUngrounded = grounding.droppedUngrounded;
   confidence.factors.droppedMalformed = grounding.droppedMalformed;
 
-  const warnings = buildCriticWarnings({ grounding, confidence, stats, maxWarnings });
+  // spec 026: suppress the cross-check gate on all precedence routes that pre-empt 'verified'
+  // in buildResultStatus (runtime.mjs:993-996):
+  //   • stoppedByErrors  — critic-fail → broad_search_needed
+  //   • stoppedByAbort   — abort path  → broad_search_needed
+  //   • no grounded evidence — evidence-dropped path → broad_search_needed
+  //   • finalConfidence === 'low' — low-confidence path → follow_up_needed
+  // The suppression predicate MUST be evaluated against the pre-cap finalConfidence so that
+  // the 'low' branch is read before any potential cap mutates it.
+  const gateSuppressed =
+    Boolean(stats?.stoppedByErrors) ||
+    Boolean(stats?.stoppedByAbort) ||
+    (grounding.evidence?.length ?? 0) === 0 ||
+    confidence.finalConfidence === 'low';
+
+  // spec 026: gate-fail caps finalConfidence to medium (never low — R4 constraint).
+  // modelConfidence is preserved; confidence_downgraded warning fires automatically.
+  if (usageCrossCheck?.required && !usageCrossCheck.observed && !gateSuppressed) {
+    if (confidence.finalConfidence === 'high') {
+      confidence.finalConfidence = 'medium';
+      confidence.factors.adjustments.push('capped at medium (usage cross-check missing)');
+    }
+    // medium or below: no further lowering (low → follow_up_needed violates FR-003)
+  }
+
+  const warnings = buildCriticWarnings({ grounding, confidence, stats, maxWarnings, usageCrossCheck, gateSuppressed });
 
   return {
     result: {
