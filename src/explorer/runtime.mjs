@@ -58,7 +58,7 @@ const TOOL_CONCURRENCY = 8;
  * under-counting on Korean/CJK-heavy contexts; `/2` is a deliberate middle point
  * (smaller divisors over-estimate and trigger premature compaction).
  */
-function estimateStringTokens(str) {
+export function estimateStringTokens(str) {
   if (typeof str !== 'string' || str.length === 0) return 0;
   let ascii = 0;
   for (let i = 0; i < str.length; i += 1) {
