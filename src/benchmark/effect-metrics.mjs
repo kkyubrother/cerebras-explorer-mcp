@@ -11,6 +11,10 @@ import { estimateStringTokens } from '../explorer/runtime.mjs';
 const NEUTRAL_STATUSES = new Set(['redacted', 'skipped']);
 const MATCH_STATUSES = new Set(['match', 'weak_match']);
 
+// Mirror of the runtime snippet reader's file guards (runtime.mjs
+// readEvidenceSnippet): regular files only, no symlinks, 512 KiB cap.
+const MAX_READ_BYTES = 512 * 1024;
+
 function resolveInsideRoot(repoRoot, relPath) {
   if (typeof relPath !== 'string' || !relPath.trim()) return null;
   const root = path.resolve(repoRoot);
@@ -38,6 +42,8 @@ export async function computeCaseEffectMetrics({ result, repoRoot }) {
     const resolved = resolveInsideRoot(repoRoot, relPath);
     if (!resolved) continue;
     try {
+      const stat = await fs.lstat(resolved);
+      if (!stat.isFile() || stat.isSymbolicLink() || stat.size > MAX_READ_BYTES) continue;
       const content = await fs.readFile(resolved, 'utf8');
       citedSourceTokens += estimateStringTokens(content);
       citedFileCount += 1;
@@ -62,7 +68,10 @@ export async function computeCaseEffectMetrics({ result, repoRoot }) {
 function parseSnippetLines(snippet) {
   const lines = [];
   for (const raw of String(snippet).split('\n')) {
-    const match = raw.match(/^(\d+): (.*)$/);
+    // The runtime splits files on '\n' only, so CRLF working trees leave a
+    // trailing '\r' on every snippet line; without stripping it the regex
+    // never matches and verification silently degrades to weak_match.
+    const match = raw.replace(/\r$/, '').match(/^(\d+): (.*)$/);
     if (match) lines.push({ line: Number(match[1]), text: match[2] });
   }
   return lines;
@@ -72,7 +81,13 @@ async function readFileLines(repoRoot, relPath) {
   const resolved = resolveInsideRoot(repoRoot, relPath);
   if (!resolved) return { status: 'out_of_root' };
   try {
-    return { lines: (await fs.readFile(resolved, 'utf8')).split('\n') };
+    const stat = await fs.lstat(resolved);
+    if (!stat.isFile() || stat.isSymbolicLink() || stat.size > MAX_READ_BYTES) {
+      return { status: 'file_missing' };
+    }
+    const content = await fs.readFile(resolved, 'utf8');
+    // Strip '\r' residue for the same CRLF reason as parseSnippetLines.
+    return { lines: content.split('\n').map(line => line.replace(/\r$/, '')) };
   } catch {
     return { status: 'file_missing' };
   }
@@ -104,6 +119,9 @@ async function verifyEvidenceItem(item, repoRoot) {
     if (line < item.startLine || line > item.endLine) return { citation, status: 'mismatch' };
     const fileLine = file.lines[line - 1] ?? '';
     const isLast = index === snippetLines.length - 1;
+    // text === '' can occur when the maxChars cut lands right after "N: ";
+    // requiring exact equality there (no vacuous startsWith('')) trades a
+    // rare false mismatch for never auto-passing an empty comparison.
     const matches = fileLine === text || (isLast && text.length > 0 && fileLine.startsWith(text));
     if (!matches) return { citation, status: 'mismatch' };
   }
@@ -113,9 +131,9 @@ async function verifyEvidenceItem(item, repoRoot) {
 async function verifyReportCitation(item, repoRoot) {
   const citation = `${item?.path}:${item?.startLine}-${item?.endLine}`;
   const file = await readFileLines(repoRoot, item?.path);
-  if (file.status) return { citation, status: file.status, weak: true };
+  if (file.status) return { citation, status: file.status };
   if (!validRange(item?.startLine, item?.endLine, file.lines.length)) {
-    return { citation, status: 'range_invalid', weak: true };
+    return { citation, status: 'range_invalid' };
   }
   // citations[] carry no snippets: existence + range validity only.
   return { citation, status: 'weak_match', weak: true };

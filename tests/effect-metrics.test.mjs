@@ -140,3 +140,48 @@ test('computeCaseEffectMetrics never reads outside the repo root', async () => {
   });
   assert.equal(metrics.citedFileCount, 0);
 });
+
+test('verifyCitations matches snippets and detects forgeries on CRLF files', async () => {
+  const repoRoot = await makeFixtureRepo();
+  await fs.writeFile(path.join(repoRoot, 'src', 'crlf.js'), 'const a = 1;\r\nconst b = 2;\r\n');
+  // Replicate the runtime snippet builder on a CRLF file: '\n' split leaves '\r'.
+  const crlfSnippet = '1: const a = 1;\r\n2: const b = 2;\r';
+  const ok = await verifyCitations({
+    result: { evidence: [evidenceItem({ path: 'src/crlf.js', snippet: crlfSnippet })] },
+    repoRoot,
+  });
+  assert.equal(ok.checks[0].status, 'match');
+
+  const forged = await verifyCitations({
+    result: { evidence: [evidenceItem({ path: 'src/crlf.js', snippet: '1: FORGED();\r' })] },
+    repoRoot,
+  });
+  assert.equal(forged.checks[0].status, 'mismatch');
+});
+
+test('verifyCitations ignores the truncation marker line and flags out-of-range snippet lines', async () => {
+  const repoRoot = await makeFixtureRepo();
+  const truncated = await verifyCitations({
+    result: { evidence: [evidenceItem({
+      snippet: '1: export function requireAuth(req) {\n... [snippet truncated]',
+    })] },
+    repoRoot,
+  });
+  assert.equal(truncated.checks[0].status, 'match');
+
+  const outOfRange = await verifyCitations({
+    result: { evidence: [evidenceItem({ snippet: '3: }' })] },
+    repoRoot,
+  });
+  assert.equal(outOfRange.checks[0].status, 'mismatch', 'snippet line outside startLine-endLine is a mismatch');
+});
+
+test('verifyCitations treats oversized files as unreadable instead of slurping them', async () => {
+  const repoRoot = await makeFixtureRepo();
+  await fs.writeFile(path.join(repoRoot, 'src', 'big.js'), 'x'.repeat(513 * 1024));
+  const { checks } = await verifyCitations({
+    result: { evidence: [evidenceItem({ path: 'src/big.js', startLine: 1, endLine: 1, snippet: `1: ${'x'.repeat(20)}` })] },
+    repoRoot,
+  });
+  assert.equal(checks[0].status, 'file_missing');
+});
