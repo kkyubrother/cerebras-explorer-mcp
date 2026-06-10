@@ -1,5 +1,29 @@
 # Changelog
 
+## v0.8.3 - 2026-06-10
+
+### Execution provenance (spec 022) & doc hygiene
+
+The public 8-tool surface and `schemaVersion` are unchanged. Provenance is
+operational/evaluation envelope metadata and is not added to the MCP
+`structuredContent` contract.
+
+- **Added (spec 022)**: transcript JSONL initial `meta` records and benchmark
+  JSON reports now carry execution provenance — server name/version, package
+  version, compact schema version, git SHA (when resolvable), public tool
+  registry hash, and the exposed tool count/name list — so a transcript or
+  benchmark verdict can be attributed to the exact executor build.
+- **Fixed (integrations)**: the Claude agent/skill and Codex role TOML/skill
+  prose no longer describe the removed `budget` (spec 011) and
+  `explore.thoroughness` (spec 023) inputs as settable in advanced workflows;
+  both are rejected inputs. A new drift guard in `tests/integrations.test.mjs`
+  rejects settable-parameter phrasing for removed inputs.
+- **Docs**: `CLAUDE.md`/`AGENTS.md` no longer point at the closed spec 024 plan
+  as the current plan; the extension backlog header reflects that all four
+  candidates were consumed (specs 012–015); the release procedure now covers
+  the hardcoded tag/version pins under `tests/`; `TESTING.md` observations
+  refreshed (2026-06-10 run).
+
 ## v0.8.2 - 2026-06-05
 
 ### Evidence integrity

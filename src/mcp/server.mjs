@@ -16,7 +16,7 @@ import { StdioJsonRpcServer } from './jsonrpc-stdio.mjs';
 
 const SERVER_INFO = {
   name: 'cerebras-explorer-mcp',
-  version: '0.8.2',
+  version: '0.8.3',
 };
 
 const READ_ONLY_TOOL_ANNOTATIONS = Object.freeze({
