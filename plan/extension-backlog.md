@@ -1,8 +1,8 @@
 # Extension Backlog
 
-> **목적**: README "다음 확장 포인트"에 짧게 나열된 4개 확장 후보의 동작·입력·영향·전제 조건을 풀어쓴 살아있는 백로그. 다음 spec NNN을 끊을 때 이 문서를 입력으로 사용한다.
+> **목적**: 확장 후보의 동작·입력·영향·전제 조건을 풀어쓴 살아있는 백로그. 다음 spec NNN을 끊을 때 이 문서를 입력으로 사용한다. (README "다음 확장 포인트" 절이 이 문서를 가리킨다.)
 >
-> **상태**: 모두 idea 단계. 어느 후보도 아직 spec/branch가 없으며, 진행할 때마다 개별 `specs/NNN-slug/` 디렉토리를 끊고 본 문서의 해당 절은 "→ specs/NNN-slug에서 진행 중/완료" 처럼 짧게 갱신한다.
+> **상태** (2026-06-10 갱신): 아래 4개 후보는 모두 spec으로 소진 완료 — #1·#2 → specs/013 (+#2 언어 확장은 specs/015), #3 → specs/014, #4 → specs/012. 현재 열린 후보는 없다. 남은 씨앗: (a) `.npmignore`/`.dockerignore` 옵트인 처리(#3 후속), (b) Lambda handler / K8s CronJob / Pub-Sub subscriber entrypoint 카테고리(#2 후속). 새 후보가 생기면 본 문서에 절을 추가하고, 진행할 때 개별 `specs/NNN-slug/` 디렉토리를 끊은 뒤 해당 절을 "→ specs/NNN-slug 완료"처럼 갱신한다.
 
 ---
 
