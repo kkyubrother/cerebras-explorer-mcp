@@ -307,6 +307,10 @@ export function createTranscriptRecorder({ repoRoot, tool, task, logger = () => 
   let buffer = [];
   const FLUSH_THRESHOLD = 5; // Flush after N buffered entries
 
+  // Serializes all append operations so threshold-triggered fire-and-forget
+  // flushes and the finalize flush can never race on the same file.
+  let writeChain = Promise.resolve();
+
   async function ensureDir() {
     if (dirCreated) return;
     try {
@@ -317,7 +321,7 @@ export function createTranscriptRecorder({ repoRoot, tool, task, logger = () => 
     }
   }
 
-  async function flush() {
+  async function doFlush() {
     if (buffer.length === 0) return;
     const lines = buffer.map(entry => JSON.stringify(entry)).join('\n') + '\n';
     buffer = [];
@@ -327,6 +331,11 @@ export function createTranscriptRecorder({ repoRoot, tool, task, logger = () => 
     } catch (err) {
       logger(`Transcript write failed: ${err.message}`);
     }
+  }
+
+  function flush() {
+    writeChain = writeChain.then(() => doFlush()).catch(() => {});
+    return writeChain;
   }
 
   /**
@@ -343,7 +352,7 @@ export function createTranscriptRecorder({ repoRoot, tool, task, logger = () => 
       ...entryData,
     });
     if (buffer.length >= FLUSH_THRESHOLD) {
-      flush().catch(() => {}); // fire-and-forget
+      flush(); // fire-and-forget, serialized through writeChain
     }
   }
 
@@ -359,6 +368,8 @@ export function createTranscriptRecorder({ repoRoot, tool, task, logger = () => 
 
   /**
    * Finalize: flush remaining buffer and write summary.
+   * Awaits the full writeChain so all previously enqueued records are
+   * durably written before this promise resolves.
    * @param {object} [stats] - Final stats to include
    */
   async function finalize(stats) {
@@ -370,7 +381,10 @@ export function createTranscriptRecorder({ repoRoot, tool, task, logger = () => 
         callId,
       });
     }
-    await flush();
+    // Route the final flush through the chain so it runs after any
+    // in-flight threshold-triggered flushes, then await the chain tail.
+    flush();
+    await writeChain;
   }
 
   return { record, finalize, filePath, callId };

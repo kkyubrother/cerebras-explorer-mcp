@@ -319,6 +319,53 @@ test('compact tool trace bounds nested argument depth', () => {
   assert.equal(JSON.stringify(result.entries[0].args).includes('[MaxDepth]'), true);
 });
 
+test('finalize waits for in-flight threshold flushes so JSONL contains all records in order', async () => {
+  // FLUSH_THRESHOLD is 5 (internal). Recording 11 entries triggers two
+  // threshold-based fire-and-forget flushes before finalize is called.
+  // Without the writeChain serialization those flushes could race with the
+  // finalize flush and produce an incomplete or out-of-order JSONL.
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-transcript-chain-repo-'));
+  const logDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-transcript-chain-log-'));
+
+  await withEnvPatch({
+    ...TRANSCRIPT_ENV_OFF,
+    CEREBRAS_EXPLORER_LOG_PATH: logDir,
+  }, async () => {
+    const recorder = createTranscriptRecorder({
+      repoRoot,
+      tool: 'explore_repo',
+      task: 'chain test',
+    });
+
+    // Record 11 entries synchronously to trigger two threshold flushes (at 5
+    // and 10 buffered entries including the initial meta record written in the
+    // constructor). Then call finalize without any await in between.
+    for (let i = 0; i < 11; i += 1) {
+      recorder.record('assistant', { seq: i });
+    }
+    await recorder.finalize({ turns: 11, toolCalls: 0 });
+
+    const entries = await readJsonl(recorder.filePath);
+
+    // Must contain: 1 initial meta + 11 assistant records + 1 final meta = 13
+    assert.equal(entries.length, 13);
+    // Every entry must carry the correct callId (proves no corruption)
+    assert.ok(entries.every(entry => entry.callId === recorder.callId));
+    // Initial meta record is first
+    assert.equal(entries[0].type, 'meta');
+    assert.equal(entries[0].tool, 'explore_repo');
+    // Final meta record is last
+    assert.equal(entries.at(-1).type, 'meta');
+    assert.ok('stats' in entries.at(-1));
+    // Assistant records are present and in order
+    const assistantEntries = entries.filter(entry => entry.type === 'assistant');
+    assert.equal(assistantEntries.length, 11);
+    for (let i = 0; i < 11; i += 1) {
+      assert.equal(assistantEntries[i].seq, i);
+    }
+  });
+});
+
 test('compact tool diagnostics expose redacted args and result summaries without raw content', () => {
   const diagnostic = buildCompactToolDiagnostic({
     tool: 'repo_read_file',

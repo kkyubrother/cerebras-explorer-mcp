@@ -111,10 +111,12 @@ async function verifyEvidenceItem(item, repoRoot) {
   }
   const snippetLines = parseSnippetLines(item.snippet ?? '');
   if (snippetLines.length === 0) {
-    // No snippet to compare (the runtime omits snippets it could not rebuild,
-    // e.g. for non-file evidence wrappers): existence + range validity is the
-    // strongest possible check here. Oversized files never reach this branch —
-    // readFileLines already classified them as unreadable.
+    // No snippet to compare — the runtime omits snippets it could not rebuild
+    // (e.g. a path whose realpath escapes the root: the runtime suppresses the
+    // snippet, while this harness's lexical root check still admits the file).
+    // Existence + range validity is the strongest possible check here.
+    // Oversized files never reach this branch — readFileLines already
+    // classified them as unreadable.
     return { citation, status: 'weak_match', weak: true };
   }
   for (const [index, { line, text }] of snippetLines.entries()) {

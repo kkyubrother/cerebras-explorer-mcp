@@ -122,6 +122,14 @@ function formatMetric(value, formatter = String) {
   return value === null || value === undefined ? 'n/a' : formatter(value);
 }
 
+const warnedHarnessFaults = new Set();
+function warnHarnessFault(label, error) {
+  if (warnedHarnessFaults.has(label)) return null;
+  warnedHarnessFaults.add(label);
+  console.warn(`[${label}] harness fault, metric degraded to n/a: ${error.message}`);
+  return null;
+}
+
 function getConfidence(result) {
   return result?.status?.confidence ?? result?.confidence ?? 'n/a';
 }
@@ -332,10 +340,10 @@ async function main() {
       try {
         const { result, elapsedMs, ops, transcriptPath } = await runCase(handleRequest, caseDefinition, repoRoot);
         const transcriptMetrics = transcriptPath
-          ? await analyzeTranscriptFile(transcriptPath).catch(() => null)
+          ? await analyzeTranscriptFile(transcriptPath).catch(error => warnHarnessFault('transcript-metrics', error))
           : null;
-        const effectMetrics = await computeCaseEffectMetrics({ result, repoRoot }).catch(() => null);
-        const citation = await verifyCitations({ result, repoRoot }).catch(() => null);
+        const effectMetrics = await computeCaseEffectMetrics({ result, repoRoot }).catch(error => warnHarnessFault('effect-metrics', error));
+        const citation = await verifyCitations({ result, repoRoot }).catch(error => warnHarnessFault('citation-verification', error));
         const evaluation = evaluateBenchmarkCase(caseDefinition, result);
         const caseResult = { caseDefinition, evaluation, result, elapsedMs, ops, transcriptMetrics, effectMetrics, citation };
         caseResults.push(caseResult);
@@ -418,7 +426,8 @@ async function main() {
       if (options.keepTranscripts) {
         console.log(`Transcripts kept at ${tempTranscriptDir}`);
       } else {
-        await fs.rm(tempTranscriptDir, { recursive: true, force: true });
+        await fs.rm(tempTranscriptDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 })
+          .catch(error => console.warn(`Transcript cleanup failed: ${error.message} (${tempTranscriptDir})`));
       }
     }
   }

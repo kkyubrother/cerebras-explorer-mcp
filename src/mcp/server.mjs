@@ -799,8 +799,8 @@ export function createMcpRequestHandler({
       transcriptPath = result.transcriptPath ?? null;
       const safeResult = redactValue(toAgentFacingFreeExploreResult(result)).value;
       const ops = redactValue({
-        stats: result.stats ?? {},
-        transcriptPath: result.transcriptPath ?? null,
+        stats: stats ?? {},
+        transcriptPath,
         toolTrace: result.toolTrace ?? null,
         filesRead: result.filesRead ?? [],
         toolsUsed: result.toolsUsed ?? [],
