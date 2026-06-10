@@ -16,7 +16,7 @@ Send one well-shaped exploration request instead of a stream of micro-prompts.
 - Keep the main question close to the user's wording.
 - Mention the subsystem or directory when the scope is obvious.
 - Mention any known anchor symbol, file path, or literal text.
-- Do not choose `budget` or `thoroughness`; the server chooses exploration depth automatically.
+- Exploration depth is fixed server-side; the removed `budget` (spec 011) and `explore.thoroughness` (spec 023) inputs are rejected if sent.
 - Start each call from the current prompt context; `session`/`sessionId` were removed in spec 017.
 
 Prefer delegation for:

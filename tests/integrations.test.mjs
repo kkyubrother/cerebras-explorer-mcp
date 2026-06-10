@@ -383,6 +383,23 @@ test('LLM prose files do not advertise removed top-level fields', async () => {
   }
 });
 
+test('LLM prose files do not present removed inputs as settable parameters', async () => {
+  // `budget` (spec 011), `session` (spec 017), and `explore.thoroughness`
+  // (spec 023) are rejected inputs. Prose may mention them only as removed
+  // (e.g. "`budget` was removed in spec 011"), never as something an agent
+  // could set, choose, or tune — "Do not set `budget` ... unless an advanced
+  // workflow requires it" phrasing led agents into invalid_arguments failures.
+  const settableRemovedInput =
+    /\b(?:set|sets|setting|choose|chooses|choosing|pass|passes|passing|specify|specifies|specifying|tune|tunes|tuning)\s+[`"']?(?:budget|thoroughness|session)\b/i;
+  for (const relPath of LLM_PROSE_FILES) {
+    assert.doesNotMatch(
+      await read(relPath),
+      settableRemovedInput,
+      `${relPath} must describe budget/thoroughness/session as removed inputs, not settable ones`,
+    );
+  }
+});
+
 test('Codex AGENTS.md.example and agent TOML introduce find_relevant_code before explore_repo', async () => {
   const sources = [
     await read('integrations/codex/AGENTS.md.example'),

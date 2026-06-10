@@ -1,6 +1,6 @@
 ---
 name: cerebras-explore
-description: Use first for broad read-only code discovery when exact files are unknown, 3+ files may be needed, or cross-file symbol/path/impact evidence is required. Call with query and known anchors only; do not choose budget.
+description: Use first for broad read-only code discovery when exact files are unknown, 3+ files may be needed, or cross-file symbol/path/impact evidence is required. Call with query and known anchors only; exploration depth is fixed server-side.
 ---
 
 Use this skill to offload the wide search/read loop, not the final engineering judgment.
@@ -24,7 +24,7 @@ Default call shape:
 - Add known files, symbols, or literal text anchors only when already known.
 - Use regex only in advanced `explore_repo.hints.regex` workflows.
 - Add `scope` only when the subsystem or directory is already obvious.
-- Do not set `thoroughness`, `hints.strategy`, or `language` unless an advanced workflow explicitly requires it. (`budget` was removed in spec 011 and `session` was removed in spec 017.)
+- Do not set `hints.strategy` or `language` unless an advanced workflow explicitly requires it. (`budget` was removed in spec 011, `session` in spec 017, and `explore.thoroughness` in spec 023.)
 - For `explore`, use `prompt` instead of `task`.
 
 Do not delegate by default when one or two direct native reads are cheaper, when the task is primarily to edit code, or when the user explicitly wants raw local verification first.
