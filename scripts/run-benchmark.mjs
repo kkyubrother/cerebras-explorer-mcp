@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import fs from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -22,6 +23,7 @@ function parseArgs(argv) {
     caseId: null,
     verbose: false,
     help: false,
+    keepTranscripts: false,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -31,6 +33,7 @@ function parseArgs(argv) {
     else if (arg === '--output') options.output = argv[++index];
     else if (arg === '--case') options.caseId = argv[++index];
     else if (arg === '--verbose') options.verbose = true;
+    else if (arg === '--keep-transcripts') options.keepTranscripts = true;
     else if (arg === '--help' || arg === '-h') options.help = true;
     else throw new Error(`Unknown argument: ${arg}`);
   }
@@ -49,6 +52,7 @@ function printHelp() {
       '  --case <id>         Run only one benchmark case',
       '  --output <path>     Write full JSON results to a file',
       '  --verbose           Print per-expectation details',
+      '  --keep-transcripts  Keep the temporary transcript directory (when the runner created one)',
       '  --help              Show this help text',
     ].join('\n'),
   );
@@ -99,14 +103,23 @@ async function runCase(handleRequest, caseDefinition, repoRoot) {
     throw new Error(message);
   }
 
+  const ops = response._meta?.ops ?? null;
   return {
     elapsedMs: Date.now() - startedAt,
     result: response.structuredContent,
+    // Keep stats for metrics; do not persist transcriptPath on the case
+    // result so temp paths never reach the saved JSON report.
+    ops: ops ? { stats: ops.stats ?? null } : null,
+    transcriptPath: ops?.transcriptPath ?? null,
   };
 }
 
 function formatPercent(score) {
   return `${Math.round(score * 100)}%`;
+}
+
+function formatMetric(value, formatter = String) {
+  return value === null || value === undefined ? 'n/a' : formatter(value);
 }
 
 function getConfidence(result) {
@@ -282,102 +295,132 @@ async function main() {
 
   const { path: suitePath, suite } = await loadSuite(options.suite);
   const repoRoot = path.resolve(options.repoRoot);
-  const selectedCases = options.caseId
-    ? suite.cases.filter(item => item.id === options.caseId)
-    : suite.cases;
 
-  if (selectedCases.length === 0) {
-    throw new Error(`No benchmark case matched: ${options.caseId}`);
+  // Spec 025 (FR-006): transcripts power the spec 007 metrics. If the operator
+  // did not opt in, enable them into a temp dir for this run only.
+  let tempTranscriptDir = null;
+  if (!process.env.CEREBRAS_EXPLORER_LOG_PATH) {
+    tempTranscriptDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-benchmark-transcripts-'));
+    process.env.CEREBRAS_EXPLORER_LOG_PATH = tempTranscriptDir;
   }
 
-  const handleRequest = await createHandler(() => {});
-  const provenance = options.output ? buildExecutionProvenance() : null;
-  const caseResults = [];
-  const displayRepoRoot = sanitizePathForReport(repoRoot, { repoRoot });
-  const displaySuitePath = sanitizePathForReport(suitePath, { repoRoot });
+  try {
+    const selectedCases = options.caseId
+      ? suite.cases.filter(item => item.id === options.caseId)
+      : suite.cases;
 
-  console.log(`Suite: ${suite.name}`);
-  console.log(`Repo : ${displayRepoRoot}`);
-  console.log(`File : ${displaySuitePath}`);
-  console.log('');
-
-  for (const suiteCase of selectedCases) {
-    const caseDefinition = {
-      ...suiteCase,
-      passScore: suiteCase.passScore ?? suite.defaultPassScore ?? 0.7,
-    };
-    try {
-      const { result, elapsedMs } = await runCase(handleRequest, caseDefinition, repoRoot);
-      const transcriptMetrics = result?.transcriptPath
-        ? await analyzeTranscriptFile(result.transcriptPath).catch(() => null)
-        : null;
-      const evaluation = evaluateBenchmarkCase(caseDefinition, result);
-      const caseResult = { caseDefinition, evaluation, result, elapsedMs, transcriptMetrics };
-      caseResults.push(caseResult);
-      printCaseResult(caseResult, options.verbose);
-    } catch (error) {
-      const failed = {
-        caseDefinition,
-        elapsedMs: 0,
-        result: null,
-        evaluation: {
-          id: caseDefinition.id,
-          description: caseDefinition.description ?? '',
-          score: 0,
-          passScore: caseDefinition.passScore,
-          passed: false,
-          expectations: [],
-          checks: [],
-        },
-        transcriptMetrics: null,
-        error: error.message,
-      };
-      caseResults.push(failed);
-      console.log(`FAIL ${caseDefinition.id}  score=0%  elapsed=0ms`);
-      console.log(`  ${caseDefinition.description}`);
-      console.log(`  error=${error.message}`);
+    if (selectedCases.length === 0) {
+      throw new Error(`No benchmark case matched: ${options.caseId}`);
     }
-  }
 
-  const summary = summarizeBenchmarkSuite(caseResults);
-  const metrics = computeExtendedMetrics(caseResults);
-  console.log('');
-  console.log(
-    `Summary: ${summary.passedCount}/${summary.caseCount} passed, average score ${formatPercent(summary.averageScore)}`,
-  );
-  if (metrics) {
-    console.log(`  avg tool turns     : ${metrics.avgToolTurns}`);
-    console.log(`  budget exhaustion  : ${formatPercent(metrics.budgetExhaustionRate)}`);
-    console.log(`  no-tool exit rate  : ${formatPercent(metrics.noToolExitRate)}`);
-    console.log(`  avg grounded evid. : ${metrics.avgGroundedEvidence}`);
-    console.log(`  avg targets        : ${metrics.avgTargets}`);
-    console.log(`  evidence snippets  : ${formatPercent(metrics.evidenceSnippetRate)}`);
-    console.log(`  targeted verify    : ${formatPercent(metrics.targetedVerificationRate)}`);
-    console.log(`  avg broad searches : ${metrics.avgBroadSearchCalls ?? 'n/a'}`);
-    console.log(`  avg repeated plans : ${metrics.avgRepeatedToolPlanTurns ?? 'n/a'}`);
-  }
+    const handleRequest = await createHandler(() => {});
+    const provenance = options.output ? buildExecutionProvenance() : null;
+    const caseResults = [];
+    const displayRepoRoot = sanitizePathForReport(repoRoot, { repoRoot });
+    const displaySuitePath = sanitizePathForReport(suitePath, { repoRoot });
 
-  if (options.output) {
-    const outputPath = path.resolve(options.output);
-    const sanitizedReport = buildBenchmarkReport({
-      suite,
-      suitePath,
-      repoRoot,
-      summary,
-      metrics,
-      caseResults,
-      provenance,
-    });
-    await fs.writeFile(
-      outputPath,
-      JSON.stringify(sanitizedReport, null, 2),
-      'utf8',
+    console.log(`Suite: ${suite.name}`);
+    console.log(`Repo : ${displayRepoRoot}`);
+    console.log(`File : ${displaySuitePath}`);
+    console.log('');
+
+    for (const suiteCase of selectedCases) {
+      const caseDefinition = {
+        ...suiteCase,
+        passScore: suiteCase.passScore ?? suite.defaultPassScore ?? 0.7,
+      };
+      try {
+        const { result, elapsedMs, ops, transcriptPath } = await runCase(handleRequest, caseDefinition, repoRoot);
+        const transcriptMetrics = transcriptPath
+          ? await analyzeTranscriptFile(transcriptPath).catch(() => null)
+          : null;
+        const effectMetrics = await computeCaseEffectMetrics({ result, repoRoot }).catch(() => null);
+        const citation = await verifyCitations({ result, repoRoot }).catch(() => null);
+        const evaluation = evaluateBenchmarkCase(caseDefinition, result);
+        const caseResult = { caseDefinition, evaluation, result, elapsedMs, ops, transcriptMetrics, effectMetrics, citation };
+        caseResults.push(caseResult);
+        printCaseResult(caseResult, options.verbose);
+      } catch (error) {
+        const failed = {
+          caseDefinition,
+          elapsedMs: 0,
+          result: null,
+          evaluation: {
+            id: caseDefinition.id,
+            description: caseDefinition.description ?? '',
+            score: 0,
+            passScore: caseDefinition.passScore,
+            passed: false,
+            expectations: [],
+            checks: [],
+          },
+          transcriptMetrics: null,
+          ops: null,
+          effectMetrics: null,
+          citation: null,
+          error: error.message,
+        };
+        caseResults.push(failed);
+        console.log(`FAIL ${caseDefinition.id}  score=0%  elapsed=0ms`);
+        console.log(`  ${caseDefinition.description}`);
+        console.log(`  error=${error.message}`);
+      }
+    }
+
+    const summary = summarizeBenchmarkSuite(caseResults);
+    const metrics = computeExtendedMetrics(caseResults);
+    console.log('');
+    console.log(
+      `Summary: ${summary.passedCount}/${summary.caseCount} passed, average score ${formatPercent(summary.averageScore)}`,
     );
-    console.log(`Saved JSON report to ${sanitizePathForReport(outputPath, { repoRoot })}`);
-  }
+    if (metrics) {
+      console.log(`  avg tool turns     : ${formatMetric(metrics.avgToolTurns)}`);
+      console.log(`  avg internal tokens: ${formatMetric(metrics.avgInternalTokens)}`);
+      console.log(`  budget exhaustion  : ${formatPercent(metrics.budgetExhaustionRate)}`);
+      console.log(`  no-tool exit rate  : ${formatPercent(metrics.noToolExitRate)}`);
+      console.log(`  avg grounded evid. : ${metrics.avgGroundedEvidence}`);
+      console.log(`  avg targets        : ${metrics.avgTargets}`);
+      console.log(`  evidence snippets  : ${formatMetric(metrics.evidenceSnippetRate, formatPercent)}`);
+      console.log(`  targeted verify    : ${formatPercent(metrics.targetedVerificationRate)}`);
+      console.log(`  avg broad searches : ${formatMetric(metrics.avgBroadSearchCalls)}`);
+      console.log(`  avg repeated plans : ${formatMetric(metrics.avgRepeatedToolPlanTurns)}`);
+      console.log(`  payload tokens     : ${formatMetric(metrics.avgResponsePayloadTokens)} avg/case`);
+      console.log(`  cited source tokens: ${formatMetric(metrics.avgCitedSourceTokens)} avg/case (conservative native-read lower bound)`);
+      console.log(`  context savings    : ${formatMetric(metrics.avgContextSavingsRatio, v => `${v}x`)}`);
+      console.log(`  citation accuracy  : ${formatMetric(metrics.citationAccuracy, formatPercent)} (${metrics.weakCitationChecks} weak checks)`);
+    }
 
-  if (summary.failedCount > 0) {
-    process.exitCode = 1;
+    if (options.output) {
+      const outputPath = path.resolve(options.output);
+      const sanitizedReport = buildBenchmarkReport({
+        suite,
+        suitePath,
+        repoRoot,
+        summary,
+        metrics,
+        caseResults,
+        provenance,
+      });
+      await fs.writeFile(
+        outputPath,
+        JSON.stringify(sanitizedReport, null, 2),
+        'utf8',
+      );
+      console.log(`Saved JSON report to ${sanitizePathForReport(outputPath, { repoRoot })}`);
+    }
+
+    if (summary.failedCount > 0) {
+      process.exitCode = 1;
+    }
+  } finally {
+    if (tempTranscriptDir) {
+      delete process.env.CEREBRAS_EXPLORER_LOG_PATH;
+      if (options.keepTranscripts) {
+        console.log(`Transcripts kept at ${tempTranscriptDir}`);
+      } else {
+        await fs.rm(tempTranscriptDir, { recursive: true, force: true });
+      }
+    }
   }
 }
 
