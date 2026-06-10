@@ -2,10 +2,10 @@
 
 ## 최근 확인 환경
 
-- 확인 일시: 2026-05-21 03:01 KST
-- Node.js: v24.14.1
-- npm: 11.11.0
-- OS/셸: Linux 6.17.0-23-generic / bash
+- 확인 일시: 2026-06-10 KST
+- Node.js: v24.14.0
+- npm: 11.0.0
+- OS/셸: Windows 11 (10.0.26200) / PowerShell 7
 - 통합 테스트: `CEREBRAS_API_KEY`가 설정된 상태에서 실행
 
 ## 단위 테스트
@@ -16,8 +16,7 @@ npm test
 
 성공 기준: 현재 checkout에서 `npm test`가 `0 fail`로 종료되어야 합니다.
 
-- 현재 skip 1건은 Windows 전용 경로 재사용 테스트가 Linux 환경에서 제외된 결과입니다.
-- `git` 또는 `rg`가 없는 환경, 또는 Windows에서는 skip 수가 달라질 수 있습니다.
+- skip 수는 실행 OS와 설치된 도구(`git`, `rg`)에 따라 달라집니다. 특정 OS 전용 테스트는 다른 OS에서 제외됩니다.
 - 이 문서의 숫자는 마지막 관측값입니다. 실제 기준은 항상 위 `npm test` 실행 결과입니다.
 
 ## 통합 테스트 (실제 Cerebras API)
@@ -26,13 +25,13 @@ npm test
 CEREBRAS_API_KEY=<key> node scripts/integration-test.mjs
 ```
 
-### 최근 실행 결과 (2026-05-21, `zai-glm-4.7`)
+### 최근 실행 결과 (2026-06-10, `zai-glm-4.7`)
 
 | 테스트 | 결과 |
 |--------|------|
 | explore_repo (quick) | 통과 |
 | explore_repo (normal) | 통과 |
-| freeExplore (quick) | 통과 |
+| freeExplore | 통과 |
 | freeExplore advanced | 통과 |
 | tool validation | 통과 |
 

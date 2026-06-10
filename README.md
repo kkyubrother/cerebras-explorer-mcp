@@ -748,11 +748,12 @@ node ./scripts/run-benchmark.mjs \
 
    npm version "${NEW_TAG#v}" --no-git-tag-version
    # src/mcp/server.mjs SERVER_INFO.version도 같은 값으로 갱신
+   # tests/mcp-server.test.mjs의 버전 단언(serverInfo.version, provenance serverVersion/packageVersion)도 같은 값으로 갱신
    # CHANGELOG.md에 새 release 날짜와 사용자 영향 항목 기록
    ```
-3. 모든 클라이언트 설치 예시에 박혀 있는 이전 tag를 한 번에 치환합니다.
+3. 클라이언트 설치 예시와 테스트 pin에 박혀 있는 이전 tag를 한 번에 치환합니다.
    ```bash
-   grep -rl "github:kkyubrother/cerebras-explorer-mcp#${OLD_TAG}" README.md integrations/ \
+   grep -rl "github:kkyubrother/cerebras-explorer-mcp#${OLD_TAG}" README.md integrations/ tests/ \
      | xargs sed -i "s|cerebras-explorer-mcp#${OLD_TAG}|cerebras-explorer-mcp#${NEW_TAG}|g"
    ```
 4. 검증을 실행합니다.
@@ -764,7 +765,7 @@ node ./scripts/run-benchmark.mjs \
    ```
 5. 변경 commit, tag, push:
    ```bash
-   git add package.json src/mcp/server.mjs CHANGELOG.md README.md integrations/
+   git add package.json src/mcp/server.mjs CHANGELOG.md README.md integrations/ tests/
    git commit -m "chore: release ${NEW_TAG}"
    git tag "$NEW_TAG"
    git push origin master
