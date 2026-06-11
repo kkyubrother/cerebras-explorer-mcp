@@ -1,10 +1,11 @@
 # HANDOFF — spec 026 (trace_symbol usage cross-check) 야간 자율 실행 기록
 
 **작성**: 2026-06-10 야간 세션 (사용자 퇴근 후 subagent-driven 자율 실행)
+**갱신**: 2026-06-11 — README/DESIGN 의도 정합 검토 결과와 남은 작업 반영 (§6)
 **브랜치**: `026-trace-symbol-cross-check`
-**상태**: 구현·검증 완료, master로 PR 생성됨. 머지와 릴리즈는 사용자 결정 대기.
+**상태**: 구현·검증 완료, master로 PR 생성됨(#44). 머지와 릴리즈는 사용자 결정 대기.
 
-이 문서는 자율 실행 중 (a) 사용자 부재로 제가 내린 판단과 근거, (b) 머지 이후 남은 작업을 기록합니다. 작업 완료 후 이 문서도 커밋·푸시했습니다.
+이 문서는 자율 실행 중 (a) 사용자 부재로 제가 내린 판단과 근거, (b) 머지 이후 남은 작업을 기록합니다. 작업 완료 후 이 문서도 커밋·푸시했습니다. 머지 전 남은 작업의 최신 정리는 **§6**을 보세요.
 
 ---
 
@@ -103,3 +104,46 @@ node ./scripts/run-benchmark.mjs --suite ./benchmarks/adoption.json --verbose   
 ```
 
 gate의 부정 동작(미관측→강등+경고)은 `tests/runtime.mock.test.mjs`·`tests/critic.test.mjs`의 "spec 026" 클러스터가 결정적으로 고정합니다(API 불필요).
+
+---
+
+## 6. 2026-06-11 README/DESIGN 의도 정합 검토 — 남은 작업 (머지 전 최신 정리)
+
+**경위**: 머지 전 사용자 요청으로, 이 브랜치의 작업이 README.md·DESIGN.md의 제품 의도와 맞는지 다관점 검토를 수행했다 (5개 의도 렌즈 — 위임 경제성 / surface 동결 / critic 정책 / 문서·릴리즈 관례 / 벤치마크 record-only — 각각 독립 리뷰 후 발견 전건 적대적 검증, 총 17 agents).
+
+**총평: 정합.** 방향 수정 필요 없음. 특히 US3는 의도상 필수임이 재확인됨 — gate가 `repo_symbol_context`를 cross-check 충족으로 인정하지 않으므로, 프롬프트 유도가 없으면 정상적인 `trace_symbol` 호출이 일상적으로 강등되어 부모에게 후속 비용을 전가한다(DESIGN §11.1이 금지하는 결과). 라이브 5회 grep=1 실측이 이 설계가 작동함을 보여준다. 검토 발견 12건 중 5건은 검증 단계에서 기각, 7건 중 4건은 브랜치가 이미 해소(§6.1), 3건이 잔여 작업(§6.2–6.3).
+
+### 6.1 브랜치가 이미 해소한 것 (재검토 불필요 — 기록용)
+
+- **scope-aware 충족 규칙 문서화 (FR-010)**: DESIGN.md §11.4(:567)에 서술 완료 — gate 억제 4경로, scope 내 grep/references 충족, 0-match attempt 인정 포함.
+- **벤치 check 관례**: `benchmarks/adoption.json` 새 케이스 checks에 `label` 포함, evaluator가 `expected = check.warningType`을 채움 — 스위트 관례 충족.
+- **backlog #5 closure**: §4 landing task 4에 이미 기록됨.
+- **CHANGELOG `v0.8.5 - Unreleased` + 날짜 유보**: v0.8.4 선례·README 릴리즈 절차와 정확히 일치 확인.
+
+### 6.2 머지 전 권장 — PR #44 추가 커밋 후보 2건
+
+1. **경고 action 문구가 부모가 호출할 수 없는 내부 도구 `repo_grep`을 지시** (확정 minor gap).
+   - 근거: DESIGN §4는 low-level 도구를 부모에게 노출하지 않는 평면 분리를 선언하는데, parent-facing action 문구가 내부 도구명을 그대로 지시한다. spec FR-004 원문은 generic "grep"이라 재조정이 spec에 더 충실하다. FR-007은 필드 집합·schemaVersion만 동결하므로 메시지 문자열 변경은 동결 위반이 아니고, v0.8.5 미릴리즈라 무위험.
+   - 수정 시 **4개 파일을 한 커밋으로 동기화**: `src/explorer/critic.mjs:408`(action 문자열), `specs/026-trace-symbol-cross-check/contracts/critic-warning-usage-cross-check.md`(JSON 예시 :31 + 소비자 규칙), `specs/026-trace-symbol-cross-check/data-model.md:57`(E3 action), `tests/critic.test.mjs:481`(`includes('repo_grep')` 단언 → `includes('grep')` + 선택적으로 `repo_grep` 부재 단언).
+   - 권장 문구 예: "Run one grep for the bare symbol name within the current scope (natively or via a follow-up trace_symbol/explore_repo with the same symbol and scope) before trusting the usage list as complete."
+   - 코드 동결을 선호하면 대안: DESIGN §11.3/§11.4에 "부모는 native grep 또는 동일 symbol/scope의 후속 wrapper 호출로 이행"을 명시해 repo_grep이 부모 호출 가능으로 읽히지 않게 한다.
+
+2. **SC-004 수치의 baseline 출처 보강** (확정 minor gap — 문서 정직성).
+   - 현황: tasks.md Notes의 SC-004 기록은 변경 후 트리의 케이스 간 비교(trace-symbol 5턴/40858tok vs cross-check 6턴/49236tok)다. spec SC-004가 요구하는 비교 대상은 "pre-change(v0.8.4) baseline"인데, 그 실측치가 저장소 어디에도 없고 master에는 이미 US1+US2가 들어가 있어 사후 측정도 불가.
+   - 처리(택1): (a) `v0.8.4` 태그 체크아웃에서 동일 스위트를 1회 실행해 trace-symbol 케이스의 turns/tokens baseline을 tasks.md Notes에 추가하고 델타를 기록, 또는 (b) README 벤치 정책("소스가 없는 지표는 날조하지 않고 n/a") 그대로 "v0.8.4 baseline 미확보 — 변경 후 케이스 간 비교로 대체" 사유를 Notes에 명시.
+   - record-only(FR-008)라 머지 차단 사항은 아니다. 비용을 들이지 않으려면 (b)로 충분.
+
+### 6.3 선택 (실해 미관측 — polish 후보)
+
+3. **symbol-first fallback 문구 앵커링** (`src/explorer/prompt.mjs:291`, `:4`): "If no result or the result reports truncated: true, fall back to repo_grep…" 절이 직전 문장(cross-check grep)을 선행사로 읽혀 grep-후-grep 순환으로 해석될 여지가 있다. 단 **라이브 5회 + 벤치 전부 grep=1로 실측되어 실해는 관측되지 않았다**. 고친다면 fallback 조건의 주어를 `repo_symbol_context`로 명시("If repo_symbol_context returns no result or reports truncated: true, …")하고 "fallback grep도 cross-check로 인정, 동일 grep 반복 금지"를 덧붙이며, snapshot 테스트가 단순 존재가 아니라 앵커링을 단언하게 한다.
+
+### 6.4 landing 시 주의
+
+- **master 작업 트리에 미커밋 변경**이 있고(`.specify/*`, `.agents/skills/speckit-*`, `AGENTS.md`), 그중 AGENTS.md 수정분은 SPECKIT 블록에서 plan 링크를 제거하는 내용이다. 머지/landing/cleanup 커밋에 섞이지 않게 별도 취급할 것.
+
+### 6.5 검토에서 기각된 우려 (재론 불필요)
+
+- *프롬프트 변경이 비-symbol_trace 경로(자동 감지 symbol-first)에도 영향*: spec의 의도적 설계 — FR-006는 전략 레벨 지침이고, SC-005의 byte-identical 동결은 응답 계약에 대한 것.
+- *TESTING.md 갱신 누락*: TESTING.md 자체 정책(:86)이 일회성 측정 기록을 배제하며 FR-010 의무 범위 밖.
+- *SC-003 단일 실행 비교의 샘플링 노이즈*: quickstart가 5회 반복을 SC-001에 의도적으로 배분한 설계.
+- *README "다음 확장 포인트" 갱신 필요*: landing 후 backlog #5가 소진되면 현행 문구("현재 활성 확장 후보는 없습니다")가 다시 참이 되므로 필수 수정 아님(§4 task 4의 backlog 갱신으로 충분).
