@@ -111,7 +111,7 @@ gate의 부정 동작(미관측→강등+경고)은 `tests/runtime.mock.test.mjs
 
 **경위**: 머지 전 사용자 요청으로, 이 브랜치의 작업이 README.md·DESIGN.md의 제품 의도와 맞는지 다관점 검토를 수행했다 (5개 의도 렌즈 — 위임 경제성 / surface 동결 / critic 정책 / 문서·릴리즈 관례 / 벤치마크 record-only — 각각 독립 리뷰 후 발견 전건 적대적 검증, 총 17 agents).
 
-**총평: 정합.** 방향 수정 필요 없음. 특히 US3는 의도상 필수임이 재확인됨 — gate가 `repo_symbol_context`를 cross-check 충족으로 인정하지 않으므로, 프롬프트 유도가 없으면 정상적인 `trace_symbol` 호출이 일상적으로 강등되어 부모에게 후속 비용을 전가한다(DESIGN §11.1이 금지하는 결과). 라이브 5회 grep=1 실측이 이 설계가 작동함을 보여준다. 검토 발견 12건 중 5건은 검증 단계에서 기각, 7건 중 4건은 브랜치가 이미 해소(§6.1), 3건이 잔여 작업(§6.2–6.3).
+**총평: 정합.** 방향 수정 필요 없음. 특히 US3는 의도상 필수임이 재확인됨 — gate가 `repo_symbol_context`를 cross-check 충족으로 인정하지 않으므로, 프롬프트 유도가 없으면 정상적인 `trace_symbol` 호출이 일상적으로 강등되어 부모에게 후속 비용을 전가한다(DESIGN §11.1이 금지하는 결과). 라이브 5회 grep=1 실측이 이 설계가 작동함을 보여준다. 검토 발견 12건 중 5건은 검증 단계에서 기각, 7건 중 4건은 브랜치가 이미 해소(§6.1), 머지 전 권장 2건도 후속 커밋으로 해소(§6.2)되었다. 선택 polish 1건만 남아 있다(§6.3).
 
 ### 6.1 브랜치가 이미 해소한 것 (재검토 불필요 — 기록용)
 
@@ -120,18 +120,15 @@ gate의 부정 동작(미관측→강등+경고)은 `tests/runtime.mock.test.mjs
 - **backlog #5 closure**: §4 landing task 4에 이미 기록됨.
 - **CHANGELOG `v0.8.5 - Unreleased` + 날짜 유보**: v0.8.4 선례·README 릴리즈 절차와 정확히 일치 확인.
 
-### 6.2 머지 전 권장 — PR #44 추가 커밋 후보 2건
+### 6.2 머지 전 권장 2건 — 후속 커밋으로 해소
 
-1. **경고 action 문구가 부모가 호출할 수 없는 내부 도구 `repo_grep`을 지시** (확정 minor gap).
-   - 근거: DESIGN §4는 low-level 도구를 부모에게 노출하지 않는 평면 분리를 선언하는데, parent-facing action 문구가 내부 도구명을 그대로 지시한다. spec FR-004 원문은 generic "grep"이라 재조정이 spec에 더 충실하다. FR-007은 필드 집합·schemaVersion만 동결하므로 메시지 문자열 변경은 동결 위반이 아니고, v0.8.5 미릴리즈라 무위험.
-   - 수정 시 **4개 파일을 한 커밋으로 동기화**: `src/explorer/critic.mjs:408`(action 문자열), `specs/026-trace-symbol-cross-check/contracts/critic-warning-usage-cross-check.md`(JSON 예시 :31 + 소비자 규칙), `specs/026-trace-symbol-cross-check/data-model.md:57`(E3 action), `tests/critic.test.mjs:481`(`includes('repo_grep')` 단언 → `includes('grep')` + 선택적으로 `repo_grep` 부재 단언).
-   - 권장 문구 예: "Run one grep for the bare symbol name within the current scope (natively or via a follow-up trace_symbol/explore_repo with the same symbol and scope) before trusting the usage list as complete."
-   - 코드 동결을 선호하면 대안: DESIGN §11.3/§11.4에 "부모는 native grep 또는 동일 symbol/scope의 후속 wrapper 호출로 이행"을 명시해 repo_grep이 부모 호출 가능으로 읽히지 않게 한다.
+1. **경고 action 문구가 부모가 호출할 수 없는 내부 도구 `repo_grep`을 지시** (확정 minor gap) — 해소.
+   - `src/explorer/critic.mjs`의 parent-facing action을 generic grep 안내로 바꾸고, native grep 또는 동일 symbol/scope의 후속 `trace_symbol`/`explore_repo`로 이행 가능하다고 명시했다.
+   - `specs/026-trace-symbol-cross-check/contracts/critic-warning-usage-cross-check.md`, `data-model.md`, `tests/critic.test.mjs`를 같은 문구와 단언으로 동기화했다.
 
-2. **SC-004 수치의 baseline 출처 보강** (확정 minor gap — 문서 정직성).
-   - 현황: tasks.md Notes의 SC-004 기록은 변경 후 트리의 케이스 간 비교(trace-symbol 5턴/40858tok vs cross-check 6턴/49236tok)다. spec SC-004가 요구하는 비교 대상은 "pre-change(v0.8.4) baseline"인데, 그 실측치가 저장소 어디에도 없고 master에는 이미 US1+US2가 들어가 있어 사후 측정도 불가.
-   - 처리(택1): (a) `v0.8.4` 태그 체크아웃에서 동일 스위트를 1회 실행해 trace-symbol 케이스의 turns/tokens baseline을 tasks.md Notes에 추가하고 델타를 기록, 또는 (b) README 벤치 정책("소스가 없는 지표는 날조하지 않고 n/a") 그대로 "v0.8.4 baseline 미확보 — 변경 후 케이스 간 비교로 대체" 사유를 Notes에 명시.
-   - record-only(FR-008)라 머지 차단 사항은 아니다. 비용을 들이지 않으려면 (b)로 충분.
+2. **SC-004 수치의 baseline 출처 보강** (확정 minor gap — 문서 정직성) — 해소.
+   - `tasks.md` Notes에 `v0.8.4` pre-change baseline을 별도 보존하지 않았고 master도 사후 재현 기준으로 쓰기 어렵다는 사유를 명시했다.
+   - 기존 수치는 baseline 날조 없이 변경 후 케이스 간 비교로만 기록한다고 정리했다.
 
 ### 6.3 선택 (실해 미관측 — polish 후보)
 

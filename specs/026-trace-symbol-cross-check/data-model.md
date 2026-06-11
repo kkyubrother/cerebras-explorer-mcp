@@ -54,7 +54,7 @@ scope 비교 없음 — base scope 안에서만 도구가 실행되므로 구조
 | `severity` | `"medium"` |
 | `message` | 짧은 사실 서술 — "Usage tracing relied on a single symbol lookup; no grep or reference search for `<symbol>` was observed." |
 | `target` | bare symbol name |
-| `action` | 좁힌 후속 행동 — "Run one repo_grep for the bare symbol name (within the current scope) before trusting the usage list as complete." scope 밖 검색을 암시하지 않는 문구. |
+| `action` | 좁힌 후속 행동 — "Run one grep for the bare symbol name within the current scope (natively or via a follow-up trace_symbol/explore_repo with the same symbol and scope) before trusting the usage list as complete." scope 밖 검색을 암시하지 않는 문구. |
 
 - 예산: 기존 최대 3개·severity 정렬·stable sort 규칙 안에서 경쟁. medium
   tier에서 `confidence_downgraded`보다 **앞 위치**에 push (research R5).

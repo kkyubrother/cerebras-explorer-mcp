@@ -159,4 +159,4 @@ Task: "T003 runtime gate scenarios in tests/runtime.mock.test.mjs"
 **③ 벤치마크 (adoption suite, record-only)**: 9/9 PASS, 평균 94%.
 - **SC-003 (회귀)**: 기존 `trace-symbol` 케이스 **score=1.0** — 비회귀 PASS.
 - 새 `trace-symbol-cross-check` 케이스: pass(0.867) — `target_paths` runtime.mjs 1/1, `critic_warning_absent`(usage_cross_check_missing) check PASS, grounded evidence 8.
-- **SC-004 (비용, per-case)**: `trace-symbol` turns=5/tokens=40858/grep=1, `trace-symbol-cross-check` turns=6/tokens=49236/grep=1 — 두 케이스 모두 cross-check를 정확히 grep 1회로 수행, +2턴 한도 내. (record-only 정책상 게이트 아님; 수치는 정보용.)
+- **SC-004 (비용, per-case)**: `trace-symbol` turns=5/tokens=40858/grep=1, `trace-symbol-cross-check` turns=6/tokens=49236/grep=1 — 두 케이스 모두 cross-check를 정확히 grep 1회로 수행, +2턴 한도 내. `v0.8.4` pre-change baseline은 이 브랜치 검증 당시 별도 보존하지 않았고 master에도 일부 spec 026 변경이 이미 반영되어 사후 재현 기준으로 쓰기 어렵다. 따라서 이 수치는 baseline 날조 없이 변경 후 케이스 간 비교로만 기록한다. (record-only 정책상 게이트 아님; 수치는 정보용.)

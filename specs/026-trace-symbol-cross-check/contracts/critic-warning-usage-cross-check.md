@@ -28,7 +28,7 @@ usage cross-check(해당 심볼을 포함하는 `repo_grep` 패턴 또는 해당
         "severity": "medium",
         "message": "Usage tracing relied on a single symbol lookup; no grep or reference search for `<symbol>` was observed.",
         "target": "<symbol>",
-        "action": "Run one repo_grep for the bare symbol name (within the current scope) before trusting the usage list as complete."
+        "action": "Run one grep for the bare symbol name within the current scope (natively or via a follow-up trace_symbol/explore_repo with the same symbol and scope) before trusting the usage list as complete."
       }
     ]
   }
@@ -37,7 +37,8 @@ usage cross-check(해당 심볼을 포함하는 `repo_grep` 패턴 또는 해당
 
 소비자 규칙 (parent agent):
 - 이 경고를 받으면 usage 목록을 **불완전 가능**으로 취급하고, action의 후속
-  1회(grep)로 신뢰를 복원한다 — 전체 재탐색은 불필요 (DESIGN §11.1 철학).
+  1회(grep; native grep 또는 동일 symbol/scope의 후속 `trace_symbol`/`explore_repo`)
+  로 신뢰를 복원한다 — 전체 재탐색은 불필요 (DESIGN §11.1 철학).
 - 경고는 기존 최대 3개 예산 안에서 경쟁하며, confidence cap이 동반되면
   `confidence_downgraded` 경고가 함께 나타날 수 있다.
 - cross-check가 관측된 호출에서는 이 경고가 절대 나타나지 않고 기존 판정이
