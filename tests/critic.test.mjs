@@ -478,7 +478,11 @@ test('spec 026 T002-①: buildCriticWarnings emits usage_cross_check_missing whe
     !w.action.toLowerCase().includes('outside') && !w.action.toLowerCase().includes('global') && !w.action.toLowerCase().includes('entire repo'),
     `action must not imply searching outside scope, got: ${w.action}`,
   );
-  assert.ok(w.action.toLowerCase().includes('repo_grep'), 'action should suggest repo_grep');
+  assert.ok(w.action.toLowerCase().includes('grep'), 'action should suggest a grep follow-up');
+  assert.ok(
+    !w.action.toLowerCase().includes('repo_grep'),
+    `action must not expose internal repo_grep tool name, got: ${w.action}`,
+  );
   assert.equal(warnings.filter(w => w.type === 'usage_cross_check_missing').length, 1, 'exactly one warning');
 });
 

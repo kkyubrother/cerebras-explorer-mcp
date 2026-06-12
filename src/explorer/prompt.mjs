@@ -1,7 +1,7 @@
 import path from 'node:path';
 
-const STRATEGY_DESCRIPTIONS = {
-  'symbol-first':    'Find where a symbol is defined. Start with repo_symbol_context(symbol); fall back to repo_grep → repo_read_file.',
+export const STRATEGY_DESCRIPTIONS = {
+  'symbol-first':    'Find where a symbol is defined. Start with repo_symbol_context(symbol); cross-check usages with repo_grep before finalizing; fall back to repo_grep → repo_read_file if no result or truncated.',
   'reference-chase': 'Find all callers/usages. Start with repo_symbol_context(symbol); fall back to repo_references(symbol) → read each caller.',
   'git-guided':      'Understand recent changes. Start with repo_git_log → repo_git_diff → repo_read_file.',
   'breadth-first':   'Understand project structure. Start with repo_list_dir(depth:3) → read key files.',
@@ -195,7 +195,7 @@ export function buildExplorerSystemPrompt({ repoRoot, budgetConfig, language, pr
     // ── STRATEGY CATALOG ──
     '## STRATEGY CATALOG',
     'Use the strategy that best fits the task (you may switch once if evidence warrants it):',
-    '- symbol-first:    "where is X defined?" → repo_symbol_context(symbol)',
+    '- symbol-first:    "where is X defined?" → repo_symbol_context(symbol); cross-check usages with repo_grep before finalizing',
     '- reference-chase: "where is X used/called?" → repo_symbol_context(symbol) or repo_references(symbol)',
     '- git-guided:      "what changed recently?" → repo_git_log → repo_git_diff → repo_read_file',
     '- breadth-first:   "project structure/overview?" → repo_list_dir(depth:3) → read key files',
@@ -288,7 +288,7 @@ export function buildExplorerUserPrompt({ task, scope, runtimeProfile, hints, se
   if (strategy) {
     const label = Array.isArray(strategy) ? strategy.join('+') : strategy;
     const approaches = {
-      'symbol-first': 'Start with repo_symbol_context(symbol). If no result, fall back to repo_grep(symbol) → repo_read_file for top matches.',
+      'symbol-first': 'Start with repo_symbol_context(symbol). After confirming the definition and before finalizing, run one scope-wide repo_grep for the bare symbol name to cross-check usages. If no result or the result reports truncated: true, fall back to repo_grep(symbol) → repo_read_file for top matches.',
       'reference-chase': 'Start with repo_symbol_context(symbol) or repo_references(symbol) to find all call sites. Then read key callers.',
       'git-guided': 'Start with repo_git_log to find relevant commits. Then repo_git_diff or repo_git_show to understand changes. Read affected files for context.',
       'breadth-first': 'Start with repo_list_dir(depth:3) to understand project structure. Then read key files (entry points, config, README).',

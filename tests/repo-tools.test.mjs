@@ -780,7 +780,7 @@ async function makePaintWidgetFixture() {
   return root;
 }
 
-test('spec-026 US2: symbolContext includes production callsite, is deterministic, and caps per-file entries', async () => {
+test('spec-026 US2: symbolContext includes production callsite, is deterministic, and caps per-file entries', { skip: !hasRipgrep() }, async () => {
   const repoRoot = await makePaintWidgetFixture();
   const toolkit = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig() });
   await toolkit.initialize([]);
@@ -812,8 +812,67 @@ test('spec-026 US2: symbolContext includes production callsite, is deterministic
   // ⑤ truncated/callerCount semantics preserved
   assert.equal(typeof result1.callerCount, 'number', 'callerCount must be a number');
   assert.ok(result1.callerCount >= result1.callers.length, 'callerCount must be >= callers.length');
-  // There are 25+30=55 non-definition callable matches total, many more than 20-slot output
-  assert.equal(result1.truncated, true, 'truncated must be true when more matches existed than maxResults');
+  // There are 25+30=55 non-definition callable matches total; truncated is true when
+  // the selected set is smaller than total callers (selection cap, not grep cap)
+  assert.equal(result1.truncated, true, 'truncated must be true when the selected set is smaller than total callers');
+});
+
+async function makeMultiFileBreadthFixture() {
+  // 8 code files, each containing 4 calls to 'myFunc' (32 candidates total, all same tier).
+  // True round-robin must give every file at least 1 slot before any file gets its 2nd.
+  // Greedy groupwise cap would fill first ~6-7 files (3 each = 18-21) leaving later files at 0.
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-breadth-'));
+  await fs.mkdir(path.join(root, 'src'), { recursive: true });
+
+  // Definition file
+  await fs.writeFile(
+    path.join(root, 'src', 'def.js'),
+    'export function myFunc(x) { return x; }\n',
+  );
+
+  // 8 caller files, each with 4 calls
+  for (let i = 0; i < 8; i++) {
+    const letter = String.fromCharCode(97 + i); // a..h
+    const lines = [`import { myFunc } from './def.js';`, ''];
+    for (let j = 0; j < 4; j++) {
+      lines.push(`myFunc(${i * 10 + j});`);
+    }
+    await fs.writeFile(path.join(root, 'src', `caller_${letter}.js`), lines.join('\n') + '\n');
+  }
+
+  return root;
+}
+
+test('spec-026 US2 round-robin breadth: all files represented before any file gets a 2nd slot', { skip: !hasRipgrep() }, async () => {
+  const repoRoot = await makeMultiFileBreadthFixture();
+  const toolkit = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig() });
+  await toolkit.initialize([]);
+
+  const result = await toolkit.symbolContext({ symbol: 'myFunc', depth: 1 });
+
+  // 32 candidates total (8 files × 4 calls each), 20-slot output cap, per-file cap 3.
+  // True round-robin: round 0 = 1 from each of 8 files (8 slots),
+  //                   round 1 = 1 more from each of 8 files (16 slots),
+  //                   round 2 = 1 more from each of 8 files (24 — but stop at 20).
+  // So 20 selected entries span all 8 files.
+  assert.ok(result.callers.length === 20, `expected 20 selected callers, got ${result.callers.length}`);
+
+  const filesRepresented = new Set(result.callers.map(c => c.path));
+  assert.equal(
+    filesRepresented.size,
+    8,
+    `round-robin must represent all 8 files; only got ${filesRepresented.size}: ${[...filesRepresented].join(', ')}`,
+  );
+
+  for (const [file, count] of Object.entries(
+    result.callers.reduce((acc, c) => { acc[c.path] = (acc[c.path] ?? 0) + 1; return acc; }, {}),
+  )) {
+    assert.ok(count <= 3, `file "${file}" has ${count} entries — must be ≤3`);
+  }
+
+  // Determinism: second call must return identical results
+  const result2 = await toolkit.symbolContext({ symbol: 'myFunc', depth: 1 });
+  assert.deepEqual(result.callers, result2.callers, 'round-robin selection must be deterministic');
 });
 
 // ─── Spec 014: repo-specific ignore (nested .gitignore + extraIgnorePatterns) ───

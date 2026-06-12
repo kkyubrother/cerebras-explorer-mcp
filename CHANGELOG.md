@@ -1,5 +1,50 @@
 # Changelog
 
+## v0.8.5 - Unreleased
+
+### symbol_trace usage cross-check enforcement (spec 026)
+
+The public 8-tool surface, input schemas, and `schemaVersion` (2) are
+unchanged. All changes are additive to the `symbol_trace` / `trace_symbol`
+path only; other five wrappers, direct `explore_repo`, and `explore`
+produce byte-identical responses.
+
+- **Added (spec 026, US1)**: deterministic usage cross-check gate for
+  `trace_symbol` — when a `symbol_trace` exploration reaches `verified`
+  without an observed `repo_grep` or `repo_references` for the target
+  symbol, the runtime downgrades `status.verification` to
+  `targeted_read_needed`, caps `confidence` at medium, and emits a new
+  additive `usage_cross_check_missing` critic warning (severity: medium).
+  The gate is suppressed on critic-fail / abort / no-evidence / low-confidence
+  precedence routes, and is satisfied by any scope-aware grep attempt
+  (including 0-match results) or a `repo_references({symbol})` call.
+- **Added (spec 026, US1)**: `usage_cross_check_missing` critic warning type
+  — shape `{type, severity, message, target, action}` per the compact critic
+  contract; competes within the existing 3-warning budget.
+- **Fixed (spec 026, US2)**: deterministic, diversity-preserving caller
+  truncation in `symbolContext` — the internal grep cap is raised from 40 to
+  `budgetConfig.maxSearchResults` (80), and the `callers.slice(0,20)`
+  selection now applies a deterministic priority sort: code files before
+  generic, call/member_call/constructor relations before reference, per-file
+  round-robin cap of 3, then stable (path, line) order. Identical inputs
+  now always produce identical outputs; the production callsite is included
+  deterministically even when non-code matches exceed the budget.
+- **Added (spec 026, US3)**: symbol-first strategy prompt cross-check
+  instruction — the `symbol-first` approach now instructs the explorer to
+  run one scope-wide `repo_grep` for the bare symbol name after confirming
+  the definition and before finalizing, with `truncated: true` as an
+  additional fallback trigger. This reduces gate-firing frequency as a
+  cost-saving layer complementary to US1.
+- **Added (spec 026, Polish)**: `critic_warning_absent` benchmark check type
+  in the declarative suite evaluator — passes when the named `warningType`
+  is absent from `result.critic.warnings[]`; record-only benchmark policy
+  (spec 021) maintained.
+- **Added (spec 026, Polish)**: new `trace-symbol-cross-check` benchmark case
+  in `benchmarks/adoption.json` — traces `buildReportCritic` expecting
+  definition + `src/explorer/runtime.mjs` production callsite in targets,
+  grounded evidence, and absence of the `usage_cross_check_missing` warning.
+  The existing `trace-symbol` case is unchanged for trend continuity.
+
 ## v0.8.4 - 2026-06-10
 
 ### Benchmark effect measurement (spec 025)

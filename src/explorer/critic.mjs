@@ -405,7 +405,7 @@ export function buildCriticWarnings({
       severity: 'medium',
       message: `Usage tracing relied on a single symbol lookup; no grep or reference search for \`${sym}\` was observed.`,
       target: sym,
-      action: `Run one repo_grep for the bare symbol name (within the current scope) before trusting the usage list as complete.`,
+      action: `Run one grep for the bare symbol name within the current scope (natively or via a follow-up trace_symbol/explore_repo with the same symbol and scope) before trusting the usage list as complete.`,
     });
   }
 

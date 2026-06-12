@@ -526,6 +526,19 @@ Cerebras Explorer의 제품 목표는 상위 AI가 정확한 판단을 내릴 �
 - critic은 answer를 재작성하지 않는다. 대신 `confidence`, `trustSummary`, `critic.warnings`로 상위 AI의 판단을 돕는다.
 - 상세 진단과 전체 evidence manifest는 기본 반환하지 않는다.
 
+현재 정의된 critic warning type 목록 (additive — 추가 시 이 목록 갱신):
+
+| type | severity | 발화 조건 |
+|---|---|---|
+| `partial_evidence` | low | grounded-only grep hit이 포함된 evidence가 존재 |
+| `citation_line_gap` | medium | compact 결과의 citation 라인이 관측 범위 밖 |
+| `citation_gap` | medium | cited path가 관측된 파일 목록에 없음 |
+| `git_citation_gap` | medium | report-mode git 인용(`commit:`/`blame:`)이 미관측 |
+| `dropped_evidence` | medium | malformed evidence가 드롭됨 |
+| `confidence_downgraded` | medium | 모델 confidence가 critic pass로 cap됨 |
+| `no_files_read` | high | 관측 파일이 전혀 없음 |
+| `usage_cross_check_missing` | medium | `symbol_trace` 탐색이 대상 심볼에 대한 grep/references 관측 없이 `verified`에 도달 (`specs/026-trace-symbol-cross-check/` 참조) |
+
 `explore_repo`는 구조화 evidence를 반환하므로 가장 강한 critic을 적용한다. 공개 Markdown report 도구인 `explore`에는 citation 존재 여부, cited path와 `filesRead`의 관계, budget/truncation/output recovery를 확인하는 report critic을 적용한다.
 
 ### Evidence Reliability Gates
@@ -550,6 +563,8 @@ Advanced report backend는 이제 report-mode의 단독 backend다. evidence-pre
 2. `confidence='low'`이면 `follow_up_needed`.
 3. edit/edit_planning 경로에서는 actionable target과 exact evidence가 함께 있어야 `targeted_read_needed`로 본다.
 4. critic이 `caution`이거나 `stoppedByBudget`이면 task 임계(simple=exact 1, evidence_verification=exact 1, path_explanation=exact 2 또는 distinct file 2, edit_planning=actionable target + exact 1, 일반=exact 2 또는 distinct file 2)를 만족할 때 `verified`로 본다.
+
+**symbol_trace usage cross-check gate (026)**: `taskMode='symbol_trace'`(= `trace_symbol` wrapper) 탐색이 대상 심볼에 대한 usage cross-check — 해당 심볼을 포함하는 `repo_grep` 패턴 또는 해당 심볼로의 `repo_references` 호출 — 없이 `verified`에 도달하면, 런타임은 `verification='targeted_read_needed'`로 강등하고 `confidence`를 medium으로 cap하며 `usage_cross_check_missing` 경고를 발화한다. 이 gate는 다음 조건에서 억제된다: critic fail / stoppedByAbort / stoppedByErrors(위 1번 분기가 선행), `confidence='low'`(위 2번 분기가 선행), 또는 cross-check가 실제로 관측된 경우. scope-aware 판정: 현재 활성 scope 내 `repo_grep` 한 번으로 충족 조건이 만족된다 — 0-match 결과도 시도(attempt) 기준으로 충족. `repo_references({symbol})` 호출도 동등하게 인정한다. 경고를 받은 호출자는 usage 목록을 불완전 가능으로 취급하고, action에 명시된 1회 grep으로 신뢰를 복원할 수 있다 (전체 재탐색 불필요). 상세 계약: `specs/026-trace-symbol-cross-check/contracts/critic-warning-usage-cross-check.md`.
 
 `stoppedByBudget`이 true여도 sufficiency가 충족되면 `failure`는 null로 두고 `searchCoverage.stoppedByBudget=true`에 사실만 남긴다. `status.warnings`에는 "budget exhausted after sufficient evidence was collected." 메모가 함께 들어가서 호출자가 budget 사실을 잃지 않는다. sufficiency가 부족하면 기존처럼 `failure.reason='budget_exhausted'`가 부여된다. `nextAction`은 (1) `failure.retry`, (2) sufficient+no edit → `stop`, (3) sufficient+edit/read → `read_target`, (4) insufficient+cited target → `explore_followup`, (5) 그 외 → `ask_user` 순으로 선택된다.
 
