@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.8.5 - Unreleased
+## v0.8.5 - 2026-06-12
 
 ### symbol_trace usage cross-check enforcement (spec 026)
 
