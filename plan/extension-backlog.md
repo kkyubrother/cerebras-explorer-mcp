@@ -2,7 +2,7 @@
 
 > **목적**: 확장 후보의 동작·입력·영향·전제 조건을 풀어쓴 살아있는 백로그. 다음 spec NNN을 끊을 때 이 문서를 입력으로 사용한다. (README "다음 확장 포인트" 절이 이 문서를 가리킨다.)
 >
-> **상태** (2026-06-12 갱신): #1~#5는 모두 spec으로 소진 완료 — #1·#2 → specs/013 (+#2 언어 확장은 specs/015), #3 → specs/014, #4 → specs/012, **#5 → specs/026 (PR #43/#44 머지 완료)**. 현재 열린 후보 없음. 남은 씨앗: (a) `.npmignore`/`.dockerignore` 옵트인 처리(#3 후속), (b) Lambda handler / K8s CronJob / Pub-Sub subscriber entrypoint 카테고리(#2 후속), (c) `src/benchmark/evaluator.mjs`의 `stopped_by_budget_equals` check가 spec 017 이후 죽은 `result.stats`를 읽어 vacuous — `searchCoverage.stoppedByBudget`로 이전하거나 삭제 (현재 어떤 스위트도 이 check 타입을 사용하지 않음; spec 025 final review 발견), (d) parent-agent 실측 A/B 자동화와 adoption 케이스 입력-기대 키워드 에코 정리 (spec 025 Out of Scope에서 이월). 새 후보가 생기면 본 문서에 절을 추가하고, 진행할 때 개별 `specs/NNN-slug/` 디렉토리를 끊은 뒤 해당 절을 "→ specs/NNN-slug 완료"처럼 갱신한다.
+> **상태** (2026-06-12 갱신): #1~#5는 모두 spec으로 소진 완료 — #1·#2 → specs/013 (+#2 언어 확장은 specs/015), #3 → specs/014, #4 → specs/012, **#5 → specs/026 (PR #43/#44 머지 완료)**. 현재 열린 후보 없음. 남은 씨앗: (a) `.npmignore`/`.dockerignore` 옵트인 처리(#3 후속), (b) `src/benchmark/evaluator.mjs`의 `stopped_by_budget_equals` check가 spec 017 이후 죽은 `result.stats`를 읽어 vacuous — `searchCoverage.stoppedByBudget`로 이전하거나 삭제 (현재 어떤 스위트도 이 check 타입을 사용하지 않음; spec 025 final review 발견), (c) parent-agent 실측 A/B 자동화와 adoption 케이스 입력-기대 키워드 에코 정리 (spec 025 Out of Scope에서 이월). (구 entrypoint 카테고리 씨앗 — Lambda/K8s CronJob/Pub-Sub — 은 2026-06-12 검토로 제거, 사유는 #2 절 참조.) 새 후보가 생기면 본 문서에 절을 추가하고, 진행할 때 개별 `specs/NNN-slug/` 디렉토리를 끊은 뒤 해당 절을 "→ specs/NNN-slug 완료"처럼 갱신한다.
 
 ---
 
@@ -33,7 +33,8 @@
 ## 2. `find_entrypoints` 도구 추가
 
 → `specs/013-wrapper-surface-expansion/` 로 완료 (v0.4.0). 1차 spec은 JS/TS(Express/Fastify/NestJS), Python(Flask/FastAPI/click/argparse), Go(`net/http`/`chi`), 기본 cron으로 한정.
-→ `specs/015-find-entrypoints-language-expansion/` 로 Ruby(Rails/Sinatra/Thor/whenever), PHP(Laravel/Symfony), Java(Spring/picocli), Rust(actix-web/rocket/clap) 확장 완료. Lambda handler / K8s CronJob YAML / Pub-Sub subscriber 같은 별도 의미 카테고리는 후속 spec.
+→ `specs/015-find-entrypoints-language-expansion/` 로 Ruby(Rails/Sinatra/Thor/whenever), PHP(Laravel/Symfony), Java(Spring/picocli), Rust(actix-web/rocket/clap) 확장 완료.
+→ 이후 도구 자체가 8-tool surface 재통합으로 **제거됨** (`307a0fd`, 2026-05-25 — spec 011의 surface 동결 정책 우선). Lambda handler / K8s CronJob YAML / Pub-Sub subscriber 후속 카테고리 씨앗은 2026-06-12 검토로 백로그에서 제거: 숙주 도구가 없어 surface 정책 재결정 없이는 진행 불가하고, 실측된 수요/실패 사례가 없으며, entry point 질문은 현 8-tool surface(`explain_code_path`/`find_relevant_code`/`explore_repo`)로 표현 가능하다. 재론 조건: 서버리스/K8s 저장소에서 entry point 질문에 explorer가 약한 답을 준다는 실측이 생기는 경우 — 그때도 정책 적합 형태는 도구 부활이 아니라 전략/프롬프트 레이어 보강이다.
 
 **동작**: 저장소의 entry point(라우터 등록, CLI 정의, cron/queue handler, HTTP handler, MCP tool 정의 등)를 자동으로 식별해서 grounded evidence와 함께 나열하는 신규 wrapper.
 
