@@ -800,7 +800,7 @@ spec 025 이후 벤치마크는 다음 효과 메트릭을 함께 기록합니�
 
 ## 다음 확장 포인트
 
-현재 활성 확장 후보는 없습니다. 과거에 나열했던 후보 중 repo-specific ignore 정책과 외부 파서 없는 symbol engine 정밀도 패치는 완료되었습니다.
+현재 활성 확장 후보는 없습니다. 과거에 나열했던 후보 중 repo-specific ignore 정책, 외부 파서 없는 symbol engine 정밀도 패치, `trace_symbol` usage cross-check 강제(v0.8.5)는 완료되었습니다.
 
 새 후보가 들어오면 [`plan/extension-backlog.md`](./plan/extension-backlog.md)에 추가하고 거기서 spec 진행 여부를 결정합니다.
 

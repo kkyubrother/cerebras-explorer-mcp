@@ -4,7 +4,7 @@
 
 **Created**: 2026-06-10
 
-**Status**: implemented 2026-06-10 (branch `026-trace-symbol-cross-check`); closure verified (`npm test` 458 pass / 0 fail / 2 skipped, integration 5/5, SC-001 live 0 violations, adoption benchmark 9/9 — existing trace-symbol non-regressed at 1.0, new trace-symbol-cross-check 0.867). Awaiting PR review/merge.
+**Status**: implemented 2026-06-10 (branch `026-trace-symbol-cross-check`); closure verified (`npm test` 458 pass / 0 fail / 2 skipped, integration 5/5, SC-001 live 0 violations, adoption benchmark 9/9 — existing trace-symbol non-regressed at 1.0, new trace-symbol-cross-check 0.867). Merged to master 2026-06-12 (PR #43 US1/US2 + PR #44 US3/Polish).
 
 **Input**: User description: "trace_symbol이 정의는 정확히 찾았지만 프로덕션 호출처를 누락하고도, repo-wide grep 0회 상태에서 verified / complete / high / critic pass를 반환 — 거짓 양성 차단은 잘 되지만 '다 찾았는가'(거짓 음성)는 어떤 신호도 없는 과신 모드. 4층 수정: ① 원인 측정 먼저(repo_symbol_context caller 수집 누락 원인), ② sufficiency gate 확장(taskMode='symbol_trace'에 usage cross-check 관측 요구, 미관측 시 targeted_read_needed 강등 + confidence cap), ③ additive critic warning usage_cross_check_missing, ④ symbol-first 전략 프롬프트 보강. 공개 surface 불변, 과경고 방지를 위해 scope 내 grep 충족 인정."
 
