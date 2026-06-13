@@ -1,6 +1,6 @@
 {
   "name": "@kkyubrother/cerebras-explorer-mcp",
-  "version": "0.8.5",
+  "version": "0.8.6",
   "description": "Read-only autonomous repository explorer MCP server backed by a configurable Cerebras model.",
   "type": "module",
   "license": "MIT",
