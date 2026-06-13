@@ -1,4 +1,4 @@
-function normalizeText(value) {
+export function normalizeText(value) {
   return String(value ?? '')
     .toLowerCase()
     .replace(/\s+/g, ' ')

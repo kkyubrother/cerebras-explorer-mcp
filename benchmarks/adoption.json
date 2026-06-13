@@ -15,7 +15,7 @@
         {
           "label": "Direct answer identifies server tool registry",
           "source": "direct_answer",
-          "groups": [["src/mcp/server.mjs"], ["tools/list", "buildToolList"]],
+          "groups": [["src/mcp/server.mjs"], ["buildToolList"]],
           "weight": 0.35
         },
         {
@@ -43,7 +43,7 @@
         {
           "label": "Answer explains schema normalization",
           "source": "combined_text",
-          "groups": [["normalizeExploreResult"], ["schemas.mjs"], ["evidence", "targets"]],
+          "groups": [["schemas.mjs"], ["evidence", "targets"]],
           "weight": 0.45
         },
         {
@@ -70,7 +70,7 @@
         {
           "label": "Combined text describes definition and production callsite",
           "source": "combined_text",
-          "groups": [["buildReportCritic"], ["critic.mjs"], ["runtime.mjs"]],
+          "groups": [["critic.mjs"], ["runtime.mjs"]],
           "weight": 0.4
         },
         {
@@ -97,13 +97,13 @@
         {
           "label": "Answer covers runtime, schema, server, tests",
           "source": "combined_text",
-          "groups": [["schemas.mjs"], ["runtime.mjs"], ["server.mjs"], ["tests"]],
+          "groups": [["schemas.mjs"], ["runtime.mjs"], ["server.mjs"]],
           "weight": 0.4
         },
         {
           "label": "Targets describe actionability",
           "source": "target_reasons",
-          "groups": [["output", "schema"], ["runtime", "normaliz"], ["test", "검증"]],
+          "groups": [["schema"], ["runtime", "normaliz"], ["검증"]],
           "weight": 0.2
         }
       ],
@@ -125,13 +125,13 @@
         {
           "label": "Flow mentions handler and runtime",
           "source": "combined_text",
-          "groups": [["tools/call"], ["handleRequest"], ["exploreRepository"]],
+          "groups": [["handleRequest"]],
           "weight": 0.5
         },
         {
           "label": "Targets include server and runtime",
           "source": "target_paths",
-          "groups": [["src/mcp/server.mjs"], ["src/explorer/runtime.mjs"]],
+          "groups": [["src/explorer/runtime.mjs"]],
           "weight": 0.25
         }
       ],
@@ -181,7 +181,7 @@
         {
           "label": "Answer discusses change context",
           "source": "combined_text",
-          "groups": [["tool", "metadata"], ["server.mjs"], ["test", "검토"]],
+          "groups": [["server.mjs"], ["검토"]],
           "weight": 0.6
         }
       ],
@@ -203,7 +203,7 @@
         {
           "label": "Answer mentions formatting and normalization",
           "source": "combined_text",
-          "groups": [["formatExploreResult"], ["normalizeExploreResult"], ["structuredContent"]],
+          "groups": [["src/explorer/schemas.mjs"], ["src/mcp/server.mjs"]],
           "weight": 0.45
         },
         {
@@ -231,13 +231,13 @@
         {
           "label": "Answer stays narrow",
           "source": "combined_text",
-          "groups": [["README.md"], ["explore_repo"], ["return", "반환"]],
+          "groups": [["반환"]],
           "weight": 0.45
         },
         {
           "label": "Next action is targeted",
           "source": "next_action",
-          "groups": [["read_target", "stop"], ["README.md"]],
+          "groups": [["read_target", "stop"]],
           "weight": 0.2,
           "minCoverage": 0.5
         }
