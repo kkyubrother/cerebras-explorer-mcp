@@ -320,7 +320,7 @@ test('evaluateBenchmarkCase rejects removed legacy benchmark aliases', () => {
   );
 });
 
-test('evaluateBenchmarkCase reads compact MCP results with stats', () => {
+test('evaluateBenchmarkCase reads compact MCP results', () => {
   const caseDefinition = {
     id: 'compact',
     passScore: 0.9,
@@ -352,7 +352,6 @@ test('evaluateBenchmarkCase reads compact MCP results with stats', () => {
     ],
     checks: [
       { label: 'Compact targets', type: 'min_target_count', value: 1, weight: 0.1 },
-      { label: 'Budget stop', type: 'stopped_by_budget_equals', value: true, weight: 0.05 },
     ],
   };
 
@@ -369,8 +368,6 @@ test('evaluateBenchmarkCase reads compact MCP results with stats', () => {
     ],
     evidence: [],
     nextAction: { type: 'explore_followup', reason: 'Followup needed.' },
-    // spec 017: raw runtime result keeps stats; MCP envelope strips it.
-    stats: { stoppedByBudget: true },
   };
 
   const evaluation = evaluateBenchmarkCase(caseDefinition, result);
@@ -400,6 +397,16 @@ test('evaluateBenchmarkCase rejects removed recentActivity benchmark sources and
       ],
     }, { _debug: { recentActivity: { hotFiles: ['src/mcp/server.mjs'] } } }),
     /Unknown benchmark check type: has_recent_activity/,
+  );
+
+  assert.throws(
+    () => evaluateBenchmarkCase({
+      id: 'removed-budget-stop-check',
+      checks: [
+        { label: 'Budget stop', type: 'stopped_by_budget_equals', value: true },
+      ],
+    }, { searchCoverage: { stoppedByBudget: true } }),
+    /Unknown benchmark check type: stopped_by_budget_equals/,
   );
 });
 

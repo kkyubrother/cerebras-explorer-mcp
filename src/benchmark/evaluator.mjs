@@ -155,10 +155,6 @@ function evaluateCheck(result, check) {
       actual = result.status?.verification ?? null;
       passed = actual === check.value;
       break;
-    case 'stopped_by_budget_equals':
-      actual = Boolean(getStats(result).stoppedByBudget);
-      passed = actual === Boolean(check.value);
-      break;
     default:
       throw new Error(`Unknown benchmark check type: ${check.type}`);
   }

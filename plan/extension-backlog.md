@@ -2,7 +2,7 @@
 
 > **목적**: 확장 후보의 동작·입력·영향·전제 조건을 풀어쓴 살아있는 백로그. 다음 spec NNN을 끊을 때 이 문서를 입력으로 사용한다. (README "다음 확장 포인트" 절이 이 문서를 가리킨다.)
 >
-> **상태** (2026-06-12 갱신): #1~#5는 모두 spec으로 소진 완료 — #1·#2 → specs/013 (+#2 언어 확장은 specs/015), #3 → specs/014, #4 → specs/012, **#5 → specs/026 (PR #43/#44 머지 완료)**. 현재 열린 후보 없음. 남은 씨앗: (a) `.npmignore`/`.dockerignore` 옵트인 처리(#3 후속), (b) `src/benchmark/evaluator.mjs`의 `stopped_by_budget_equals` check가 spec 017 이후 죽은 `result.stats`를 읽어 vacuous — `searchCoverage.stoppedByBudget`로 이전하거나 삭제 (현재 어떤 스위트도 이 check 타입을 사용하지 않음; spec 025 final review 발견), (c) parent-agent 실측 A/B 자동화와 adoption 케이스 입력-기대 키워드 에코 정리 (spec 025 Out of Scope에서 이월). (구 entrypoint 카테고리 씨앗 — Lambda/K8s CronJob/Pub-Sub — 은 2026-06-12 검토로 제거, 사유는 #2 절 참조.) 새 후보가 생기면 본 문서에 절을 추가하고, 진행할 때 개별 `specs/NNN-slug/` 디렉토리를 끊은 뒤 해당 절을 "→ specs/NNN-slug 완료"처럼 갱신한다.
+> **상태** (2026-06-14 갱신): #1~#5는 모두 spec으로 소진 완료 — #1·#2 → specs/013 (+#2 언어 확장은 specs/015), #3 → specs/014, #4 → specs/012, **#5 → specs/026 (PR #43/#44 머지 완료)**. 현재 열린 후보 없음. 남은 씨앗: (a) parent-agent 실측 A/B 자동화와 adoption 케이스 입력-기대 키워드 에코 정리 (spec 025 Out of Scope에서 이월). `.npmignore`/`.dockerignore` 옵트인 처리는 2026-06-14 검토로 백로그에서 제거 — spec 014의 `.cerebras-explorer.json:extraIgnorePatterns`로 충분히 대체 가능하고 별도 자동/옵트인 표면을 늘릴 필요가 없다. `src/benchmark/evaluator.mjs`의 vacuous `stopped_by_budget_equals` check도 2026-06-14 삭제했다. (구 entrypoint 카테고리 씨앗 — Lambda/K8s CronJob/Pub-Sub — 은 2026-06-12 검토로 제거, 사유는 #2 절 참조.) 새 후보가 생기면 본 문서에 절을 추가하고, 진행할 때 개별 `specs/NNN-slug/` 디렉토리를 끊은 뒤 해당 절을 "→ specs/NNN-slug 완료"처럼 갱신한다.
 
 ---
 
@@ -59,12 +59,11 @@
 
 ## 3. repo-specific ignore 정책 강화
 
-→ `specs/014-repo-specific-ignore/` 로 완료. nested `.gitignore` prefix-bounded 매처 + `.cerebras-explorer.json:extraIgnorePatterns` 신설. `.npmignore`/`.dockerignore` 자동 처리는 별도 spec.
+→ `specs/014-repo-specific-ignore/` 로 완료. nested `.gitignore` prefix-bounded 매처 + `.cerebras-explorer.json:extraIgnorePatterns` 신설. `.npmignore`/`.dockerignore` 자동/옵트인 처리는 2026-06-14 검토로 백로그에서 제거했다.
 
 **동작**: 현재는 저장소 루트의 `.gitignore` 단일 파일만 반영한다. 이를 확장해서:
 - nested `.gitignore` (서브디렉토리별 ignore) 처리
 - `.cerebras-explorer.json`의 `extraIgnoreDirs`/`extraIgnoreFiles` 키 보강
-- 선택적으로 `.npmignore`, `.dockerignore` 같은 인접 ignore 파일 옵트인
 
 **입력 후보**:
 - `.cerebras-explorer.json`에 `ignore.{nested, extraDirs, extraFiles, useGitNested}` 같은 nested 구조 추가
@@ -154,4 +153,4 @@
 - ignore 정책 (#3)은 사용자 면 영향이 직접적이라 회귀 가드 범위가 크다.
 - #4는 spec 008이 명시적으로 후속으로 남긴 항목을 줄이는 작업이라 입력·출력·영향이 가장 명확하고 리스크가 가장 낮다.
 
-(2026-06-12 추기) 당시 보관했던 #1, #2, #3도 이후 모두 소진되었다 — #1·#2 → specs/013 (+#2 언어 확장은 specs/015), #3 → specs/014. 다음 spec 후보는 상단 상태 블록의 남은 씨앗 (a)~(d)에서 고른다.
+(2026-06-12 추기) 당시 보관했던 #1, #2, #3도 이후 모두 소진되었다 — #1·#2 → specs/013 (+#2 언어 확장은 specs/015), #3 → specs/014. 다음 spec 후보는 상단 상태 블록의 남은 씨앗 (a)에서 고른다.

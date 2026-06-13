@@ -90,7 +90,7 @@ PR이 머지되면 다음을 수행하세요(spec 025 landing과 동일 패턴):
 
 - `.npmignore`/`.dockerignore` 옵트인 (spec 014 후속)
 - Lambda/K8s CronJob/Pub-Sub entrypoint 카테고리 (spec 013/015 후속)
-- evaluator의 vacuous `stopped_by_budget_equals` check 정리 (spec 025 final review 발견 — 죽은 `result.stats` 읽음)
+- evaluator의 vacuous `stopped_by_budget_equals` check 정리 — 2026-06-14 삭제 완료 (spec 025 final review 발견 — 죽은 `result.stats` 읽음)
 - parent-agent 실측 A/B 자동화 + adoption 입력-기대 에코 정리 (spec 025 Out of Scope 이월)
 
 ---
