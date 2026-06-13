@@ -1,5 +1,34 @@
 # Changelog
 
+## v0.8.6 - 2026-06-14
+
+### adoption benchmark prompt-echo credit removal (spec 027)
+
+No public surface, tool schema, `schemaVersion` (2), or runtime behavior
+change. Benchmark-internal only.
+
+- **Fixed (spec 027)**: the adoption benchmark (`benchmarks/adoption.json`) no
+  longer awards keyword-group credit to answers that merely echo a case's own
+  input args. The evaluator matches a group on any one token and awards
+  `pointsEarned = coverage * weight` decoupled from the pass gate, so a group
+  holding even one arg-derived token was earnable by pure echo (`trace-symbol`
+  scored 0.15/1.0 for parroting the input symbol). 18 echo tokens across 8 cases
+  were stripped; the all-echo `structured-output-contract` expectation was
+  rewritten to located-file discovery groups. `trace-symbol` echo-only score is
+  now 0.
+- **Added (spec 027)**: `tests/adoption-suite-hygiene.test.mjs` — a
+  deterministic guard asserting no scored expectation group contains an echo
+  token (substring of the case args values) and every scored expectation keeps
+  ≥1 group and ≥1 discovery group (an empty group list would otherwise score
+  full vacuous credit). Reuses the evaluator's `normalizeText` (now exported)
+  for parity; empty allowlist.
+- **Changed**: README benchmark section documents that keyword scoring credits
+  discovered facts, not input echo.
+- **Dropped (backlog)**: automated parent-agent A/B measurement is removed from
+  the extension backlog with a recorded reason (never-gating, npm-test-external,
+  brittle against parent CLI format drift, zero-dep pressure); TESTING.md manual
+  observation procedures §1–§2 remain the honest stand-in.
+
 ## v0.8.5 - 2026-06-12
 
 ### symbol_trace usage cross-check enforcement (spec 026)
