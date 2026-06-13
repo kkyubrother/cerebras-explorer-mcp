@@ -1,5 +1,27 @@
 # Changelog
 
+## v0.8.7 - 2026-06-14
+
+### case-insensitive secret deny-list matching
+
+No public surface, tool schema, `schemaVersion` (2), or wire-protocol change.
+Security hardening of an internal matcher.
+
+- **Fixed (security)**: the secret deny-list compiled its glob patterns without
+  the regex `i` flag, so case-variant secret paths (`.ENV`, `Secret.PEM`,
+  `ID_RSA`) bypassed the deny-list. On case-insensitive filesystems (macOS
+  APFS, Windows NTFS) such a variant still resolves to the real secret file, so
+  a model-supplied case-variant path could surface a secret the canonical-case
+  pattern was meant to block. `globToRegExp` in `src/explorer/security.mjs` now
+  matches case-insensitively. The separate `globToRegExp` in `repo-tools.mjs`
+  (scope / `findFiles` / ignore matching) intentionally stays case-sensitive to
+  preserve search semantics on case-sensitive filesystems.
+- **Added**: case-variant coverage in
+  `tests/security/secret-deny-list.test.mjs` — positive cases for case-folded
+  secret paths plus over-match negatives (`SecretsManager.ts`,
+  `Account-Service.ts` stay allowed; patterns are segment-anchored, so
+  case-folding does not over-match ordinary files).
+
 ## v0.8.6 - 2026-06-14
 
 ### adoption benchmark prompt-echo credit removal (spec 027)
