@@ -734,6 +734,8 @@ node ./scripts/run-benchmark.mjs \
 - grounded evidence 개수
 - evidence snippet, directAnswer, status, nextAction, budget stop 여부 같은 구조적 체크
 
+키워드 그룹은 **탐색으로만 알 수 있는 사실**(찾아낸 파일 경로, grounded snippet, 프로덕션 호출처)에만 점수를 줍니다 — 케이스 입력 인자를 그대로 되읊는 것(echo)만으로는 점수가 오르지 않습니다. `tests/adoption-suite-hygiene.test.mjs`가 모든 케이스에서 echo-earnable 그룹이 없고 각 기대가 discovery 그룹을 최소 1개 유지하는지 강제합니다 (spec 027).
+
 spec 025 이후 벤치마크는 다음 효과 메트릭을 함께 기록합니다 (모두 record-only — 합격/불합격에 영향 없음):
 
 - `avgResponsePayloadTokens`: 상위 AI가 실제로 받는 `structuredContent`의 토큰 추정치
