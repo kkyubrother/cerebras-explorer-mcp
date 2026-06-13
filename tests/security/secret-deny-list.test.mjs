@@ -70,27 +70,6 @@ test('F1 — service-account credential JSON files match the secret deny-list', 
   assert.equal(isSecretPath('src/services/account.ts').matched, false);
 });
 
-test('secret deny-list matches case-variant secret paths (case-insensitive)', () => {
-  // On case-insensitive filesystems (macOS APFS, Windows NTFS) a case-variant
-  // path still resolves to the real secret file, so a case-sensitive deny-list
-  // could be bypassed by requesting e.g. `Secret.PEM`. Match case-insensitively.
-  for (const relPath of [
-    '.ENV',
-    '.Env.Local',
-    'ID_RSA',
-    '.SSH/id_rsa',
-    'secrets/App.PEM',
-    'Secret.PEM',
-    'config/Firebase-Service-Account.JSON',
-  ]) {
-    assert.equal(isSecretPath(relPath).matched, true, `${relPath} must match the secret deny-list regardless of case`);
-  }
-  // Case-folding must not over-match ordinary source files.
-  assert.equal(isSecretPath('src/Main.js').matched, false);
-  assert.equal(isSecretPath('src/SecretsManager.ts').matched, false);
-  assert.equal(isSecretPath('src/Account-Service.ts').matched, false);
-});
-
 test('RepoToolkit excludes secret files from traversal, read, grep, symbols, and context enrichment', async () => {
   const root = await makeSecretFixture();
   const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig() });

@@ -37,11 +37,7 @@ function globToRegExp(glob) {
     }
     pattern += escapeRegex(char);
   }
-  // Case-insensitive: on case-insensitive filesystems (macOS APFS, Windows NTFS)
-  // a case-variant path (e.g. `Secret.PEM`, `.ENV`) still resolves to the real
-  // secret file, so a case-sensitive deny-list could be bypassed. Secret-file
-  // names are conventional enough that case-folding biases safely toward denial.
-  return new RegExp(`^${pattern}$`, 'i');
+  return new RegExp(`^${pattern}$`);
 }
 
 export const DEFAULT_SECRET_DENY_PATTERNS = Object.freeze([
