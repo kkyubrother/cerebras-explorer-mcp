@@ -227,7 +227,9 @@ const CRITIC_SCHEMA = {
     droppedEvidence: { type: 'integer', minimum: 0 },
     partialEvidence: { type: 'integer', minimum: 0 },
   },
-  required: ['warnings', 'droppedEvidence', 'partialEvidence'],
+  // `status` is always populated by the runtime/server, so the declared output
+  // contract marks it required (matches DESIGN §11.3 and the agent-facing result).
+  required: ['status', 'warnings', 'droppedEvidence', 'partialEvidence'],
 };
 
 const SEARCH_COVERAGE_SCHEMA = {
