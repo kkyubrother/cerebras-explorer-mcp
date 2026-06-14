@@ -289,6 +289,64 @@ test('RepoToolkit git tools: gitShow rejects invalid ref', { skip: !hasGit() }, 
   );
 });
 
+async function makeRenameAcrossScopeFixture() {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-rename-'));
+  const git = (args) => execFileSync('git', args, { cwd: root, stdio: 'pipe', encoding: 'utf8' });
+  git(['init', '-b', 'main']);
+  git(['config', 'user.email', 'test@example.com']);
+  git(['config', 'user.name', 'Test User']);
+  // Force rename detection so the unfixed code would emit `rename from <old>`.
+  git(['config', 'diff.renames', 'true']);
+  await fs.mkdir(path.join(root, 'internal'), { recursive: true });
+  await fs.mkdir(path.join(root, 'src'), { recursive: true });
+  await fs.writeFile(path.join(root, 'src', 'keep.js'), 'export const keep = 1;\n');
+  await fs.writeFile(
+    path.join(root, 'internal', 'out-of-scope-name.js'),
+    'export const moved = 1;\n',
+  );
+  git(['add', '.']);
+  git(['commit', '-m', 'initial: add internal and src files']);
+  // Pure move of an out-of-scope file into the in-scope src/ directory.
+  git(['mv', 'internal/out-of-scope-name.js', 'src/moved.js']);
+  git(['commit', '-m', 'refactor: move file into src']);
+  return root;
+}
+
+const OUT_OF_SCOPE_OLD_PATH = 'internal/out-of-scope-name.js';
+
+test('RepoToolkit gitDiff does not leak out-of-scope old paths from a rename into scope', { skip: !hasGit() }, async () => {
+  const root = await makeRenameAcrossScopeFixture();
+  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig() });
+  await toolkit.initialize(['src/**']);
+
+  const diff = await toolkit.gitDiff({ from: 'HEAD~1', to: 'HEAD' });
+  const serialized = JSON.stringify(diff);
+  assert.ok(serialized.includes('src/moved.js'), 'the in-scope new path is still reported');
+  assert.ok(
+    !serialized.includes(OUT_OF_SCOPE_OLD_PATH),
+    `out-of-scope old path leaked through the diff patch: ${serialized}`,
+  );
+
+  const stat = await toolkit.gitDiff({ from: 'HEAD~1', to: 'HEAD', stat: true });
+  assert.ok(
+    !stat.stat.includes(OUT_OF_SCOPE_OLD_PATH),
+    `out-of-scope old path leaked through the diff stat: ${stat.stat}`,
+  );
+});
+
+test('RepoToolkit gitShow does not leak out-of-scope old paths from a rename into scope', { skip: !hasGit() }, async () => {
+  const root = await makeRenameAcrossScopeFixture();
+  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig() });
+  await toolkit.initialize(['src/**']);
+
+  const show = await toolkit.gitShow({ ref: 'HEAD' });
+  const serialized = JSON.stringify(show);
+  assert.ok(
+    !serialized.includes(OUT_OF_SCOPE_OLD_PATH),
+    `out-of-scope old path leaked through the show patch: ${serialized}`,
+  );
+});
+
 test('RepoToolkit grep uses ripgrep when available', { skip: !hasRipgrep() }, async () => {
   const repoRoot = await makeRepoFixture();
   const toolkit = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig() });

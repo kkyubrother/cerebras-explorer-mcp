@@ -16,7 +16,7 @@ import { StdioJsonRpcServer } from './jsonrpc-stdio.mjs';
 
 const SERVER_INFO = {
   name: 'cerebras-explorer-mcp',
-  version: '0.8.8',
+  version: '0.8.9',
 };
 
 const READ_ONLY_TOOL_ANNOTATIONS = Object.freeze({
@@ -933,10 +933,18 @@ export function createMcpRequestHandler({
               message: `${name} execution failed: ${error.message}`,
               retryTool: name === 'explore' ? 'explore' : 'explore_repo',
               hints: ['Retry after the provider recovers, or narrow the task and scope.'],
-              retryArgs: {
-                task: 'Retry after the provider recovers, or narrow the task and scope.',
-                scope: retryScope,
-              },
+              // The retry recipe must match the target tool's input schema:
+              // explore requires `prompt`, while explore_repo (and the wrappers
+              // that lower into it) require `task`.
+              retryArgs: name === 'explore'
+                ? {
+                    prompt: 'Retry after the provider recovers, or narrow the prompt and scope.',
+                    scope: retryScope,
+                  }
+                : {
+                    task: 'Retry after the provider recovers, or narrow the task and scope.',
+                    scope: retryScope,
+                  },
               expectedImprovement: 'A provider recovery or narrower scope should reduce failure risk.',
             });
           }

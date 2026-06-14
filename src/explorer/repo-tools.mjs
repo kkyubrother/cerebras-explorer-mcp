@@ -1399,7 +1399,10 @@ export class RepoToolkit {
   async gitDiff({ from = 'HEAD~1', to = 'HEAD', path: filePath, stat = false } = {}) {
     const safeFrom = safeGitRef(from, 'from ref');
     const safeTo = safeGitRef(to, 'to ref');
-    const args = ['-c', 'diff.external=', 'diff', '--no-ext-diff', '--no-textconv'];
+    // --no-renames keeps scope a hard boundary: a rename into scope is reported as a
+    // delete(old) + add(new) pair, so the out-of-scope source path is filtered out
+    // instead of surviving in `rename from <old>` patch/stat metadata.
+    const args = ['-c', 'diff.external=', 'diff', '--no-ext-diff', '--no-textconv', '--no-renames'];
     if (stat) {
       args.push('--stat');
     } else {
@@ -1456,7 +1459,9 @@ export class RepoToolkit {
 
     const patchArgs = [
       '-c', 'diff.external=',
-      'show', '--no-ext-diff', '--no-textconv', '--format=', '--unified=3', safeRef,
+      // --no-renames: see gitDiff — prevents out-of-scope rename source paths from
+      // leaking through `rename from <old>` metadata when the new path is in scope.
+      'show', '--no-ext-diff', '--no-textconv', '--no-renames', '--format=', '--unified=3', safeRef,
     ];
     const patchOutput = await this._runGit(patchArgs, { env: withUnsetEnv(SAFE_GIT_DIFF_ENV_UNSET) });
     const filtered = this._filterGitDiffFiles(parseDiffOutput(patchOutput), { enforceScope: true });

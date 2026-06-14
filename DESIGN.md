@@ -753,7 +753,7 @@ Claude Code 소스 분석에서 도출된 아키텍처 개선 항목들.
   2. Explorer는 완성된 `tool_calls` 배열이 필요 — 청크 누적 후 실행이므로 스트리밍 이점 감소
   3. 구현 복잡도: SSE 파싱, 도구 호출 인자 청크 누적, 인터페이스 변경 필요
 - 대신 적용 완료된 대안:
-  - **gzip 압축**: 4KB 이상 페이로드 자동 압축 (최대 ~98% 크기 감소, `cerebras-client.mjs`)
+  - **gzip 압축**: 32KB 이상 페이로드 자동 압축 (최대 ~98% 크기 감소, `cerebras-client.mjs`). Cerebras 속도에서는 작은 페이로드의 압축 CPU 비용이 네트워크 절감을 넘을 수 있어 임계값을 보수적으로 높게 잡았다.
   - **프롬프트 캐시 최적화**: static→dynamic 순서 재배치로 캐시 히트율 극대화 (`prompt.mjs`)
 - Cerebras 참고 문서: `/capabilities/streaming`, `/capabilities/payload-optimization`
 

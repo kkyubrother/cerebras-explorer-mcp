@@ -41,8 +41,8 @@ test('spec 022 execution provenance describes the live 8-tool registry', () => {
     'toolRegistryHash',
   ].sort());
   assert.equal(provenance.serverName, 'cerebras-explorer-mcp');
-  assert.equal(provenance.serverVersion, '0.8.8');
-  assert.equal(provenance.packageVersion, '0.8.8');
+  assert.equal(provenance.serverVersion, '0.8.9');
+  assert.equal(provenance.packageVersion, '0.8.9');
   assert.equal(provenance.schemaVersion, 2);
   assert.equal(provenance.gitSha, 'abc1234');
   assert.equal(provenance.exposedToolCount, EXPECTED_PUBLIC_TOOL_NAMES.length);
@@ -266,7 +266,7 @@ test('MCP request handler exposes explore_repo and returns structuredContent', a
     params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'test', version: '0.0.1' } },
   });
   assert.equal(initialized.serverInfo.name, 'cerebras-explorer-mcp');
-  assert.equal(initialized.serverInfo.version, '0.8.8');
+  assert.equal(initialized.serverInfo.version, '0.8.9');
 
   const listed = await handleRequest({
     jsonrpc: '2.0',
@@ -605,6 +605,43 @@ test('explore_repo MCP call writes stderr ops summary when execution fails', asy
   } finally {
     restore();
   }
+});
+
+test('explore provider-error retry recipe matches the explore input schema', async () => {
+  const repoRoot = await makeRepoFixture();
+  const { handleRequest } = createMcpRequestHandler({
+    runtimeOptions: { chatClient: new ThrowingChatClient() },
+  });
+
+  const failed = await handleRequest({
+    jsonrpc: '2.0',
+    id: 70,
+    method: 'tools/call',
+    params: {
+      name: 'explore',
+      arguments: { prompt: 'explain the auth flow', repo_root: repoRoot, scope: ['src/**'] },
+    },
+  });
+
+  const retry = failed.structuredContent.failure.retry;
+  assert.equal(retry.tool, 'explore', 'retry recipe targets the explore tool');
+  // explore requires `prompt` and rejects unknown keys, so a recipe using
+  // explore_repo's `task` key would be unusable by the parent agent.
+  assert.equal(retry.args.task, undefined, 'retry args must not use the explore_repo `task` key for explore');
+  assert.equal(typeof retry.args.prompt, 'string', 'retry args must carry a `prompt` for explore');
+
+  // Replaying the suggested retry must not be rejected as invalid input.
+  const replay = await handleRequest({
+    jsonrpc: '2.0',
+    id: 71,
+    method: 'tools/call',
+    params: { name: retry.tool, arguments: { ...retry.args, repo_root: repoRoot } },
+  });
+  assert.notEqual(
+    replay.structuredContent.failure?.reason,
+    'invalid_arguments',
+    'the suggested retry args must be accepted by the explore schema',
+  );
 });
 
 test('explore returns Markdown text plus structured citations', async () => {

@@ -1,5 +1,36 @@
 # Changelog
 
+## v0.8.9 - 2026-06-14
+
+### fix: scope / retry / schema corrections from an external source audit (gpt-5.5-pro)
+
+No `schemaVersion` (2) or wire-protocol change. Public tool surface unchanged (8 tools).
+
+- **Fixed (security — scope hard boundary)**: `repo_git_diff` and `repo_git_show`
+  now run with `--no-renames`. Previously a file renamed *into* an active `scope`
+  from an out-of-scope path kept the source path in the diff `patch`
+  (`rename from <old>`) and in `--stat` text, because scope was enforced only on
+  the new path while secret-filtering already checked both. With `--no-renames` a
+  rename is reported as delete(old) + add(new), so the out-of-scope source is
+  filtered out and surfaced only via `omittedOutOfScopeFiles`. The leak was path
+  metadata only (no file contents); the trade-off is that in-scope renames now
+  render as an add+delete pair rather than a compact rename.
+- **Fixed (failure recovery)**: the `explore` provider-error `failure.retry.args`
+  recipe used the `task` key, but `explore` requires `prompt` and rejects unknown
+  keys, so the suggested retry was rejected by its own validator. The recipe now
+  emits `prompt` for `explore` and `task` for `explore_repo` and the wrappers.
+- **Fixed (output contract)**: `critic.status` is now marked `required` in the
+  declared `explore_repo` output schema, matching the always-populated runtime
+  field and DESIGN §11.3 (the value was already always emitted).
+- **Docs**: DESIGN gzip auto-compression threshold corrected from 4KB to the
+  implemented 32KB (`cerebras-client.mjs`) and the conservative-threshold
+  rationale noted.
+
+Full suite 465/465 (3 new regression tests: rename scope leak ×2, explore retry
+recipe ×1). Findings originate from a gpt-5.5-pro source audit of v0.8.8;
+lower-value items (empty-report finalize prompt wording, per-block untrusted
+label on injected `projectContext`) were deliberately deferred/dropped.
+
 ## v0.8.8 - 2026-06-14
 
 ### revert: secret deny-list matching back to case-sensitive

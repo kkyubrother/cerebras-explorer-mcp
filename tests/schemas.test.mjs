@@ -241,6 +241,7 @@ test('agent-facing output schema is compact and exposes directAnswer, status, ta
   assert.ok(EXPLORE_REPO_OUTPUT_SCHEMA.properties.evidenceQuality);
   assert.ok(EXPLORE_REPO_OUTPUT_SCHEMA.properties.critic);
   assert.deepEqual(EXPLORE_REPO_OUTPUT_SCHEMA.properties.critic.required, [
+    'status',
     'warnings',
     'droppedEvidence',
     'partialEvidence',
