@@ -16,6 +16,16 @@ No public surface, tool schema, `schemaVersion` (2), or wire-protocol change.
   APFS, Windows NTFS), which are out of scope for this stdio/Linux deployment;
   the revert trades that narrow protection for precision and behavioral
   stability. The case-variant test added in v0.8.7 is removed with the revert.
+- **Security note (residual risk)**: with case-sensitive matching the deny-list
+  blocks secret files only under conventional lowercase names (`.env`, `id_rsa`,
+  `*.pem`, `*.key`, `credentials.json`, `*service-account*.json`, …).
+  Case-variant names (`.ENV`, `Secret.PEM`, `ID_RSA`, `Credentials.JSON`) are
+  **not** blocked and may be included in evidence sent to the configured model
+  provider. Keep secret files conventionally named; if non-canonical-case
+  secrets may be present in a repo, exclude them via a project
+  `.cerebras-explorer.json` ignore or a custom deny pattern, or re-enable
+  case-insensitive matching (the v0.8.7 `i` flag) and accept the over-match
+  tradeoff on case-sensitive filesystems.
 
 ## v0.8.7 - 2026-06-14
 
