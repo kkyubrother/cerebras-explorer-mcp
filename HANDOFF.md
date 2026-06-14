@@ -1,101 +1,90 @@
-# HANDOFF — production-readiness 감사 + deny-list 대소문자 수정/되돌림 (v0.8.7 → v0.8.8)
+# HANDOFF — gpt-5.5-pro 외부 소스 감사 → scope/retry/schema 수정 (v0.8.8 → v0.8.9)
 
 **작성**: 2026-06-14 세션 (대화형 — 사용자 동석)
-**상태**: **종결 (2026-06-14)** — v0.8.8 릴리스 완료(tag + GitHub release, CI success). master clean, 462/462.
-**이전 핸드오프**: spec 026(trace_symbol cross-check, 종결 2026-06-12)는 git 이력에 보존 — `git log -- HANDOFF.md` 또는 `git show 076d323:HANDOFF.md`.
+**상태**: **종결 (2026-06-14)** — v0.8.9 릴리스 완료(PR #46 merge → master `ee795b5`, annotated tag + GitHub release, CI success). master clean, 465/465.
+**이전 핸드오프**: production-readiness 감사 + deny-list 케이스 왕복(v0.8.7→v0.8.8, 종결 2026-06-14)은 git 이력에 보존 — `git log -- HANDOFF.md` 또는 `git show 0852ad7:HANDOFF.md` 직후 버전.
 
-이 문서는 이번 세션의 (a) production-readiness 감사 결과, (b) 거기서 파생된 deny-list 수정과 *되돌림*의 판단·근거, (c) 감사가 식별했지만 의도적으로 보류/드롭한 항목을 기록합니다.
+이 문서는 이번 세션의 (a) gpt-5.5-pro에 의뢰한 외부 소스 감사와 그 결과 재검증, (b) 확정된 4건의 수정과 의도적으로 보류/드롭한 2건의 판단·근거, (c) 후임자가 알아야 할 잔존 리스크를 기록합니다.
 
 ---
 
 ## 1. 무엇을 했나 (요약)
 
-| 단계 | 커밋/산출 | 결과 |
+| 단계 | 산출/커밋 | 결과 |
 |---|---|---|
-| Production-readiness 감사 | (워크플로우, 무커밋) | 8차원 × 14 agents, 갭 적대 검증. **배포 모델 기준 production-grade** (7/8 ready, 1 minor-gaps) |
-| deny-list 대소문자 수정 | `ac3ae17` | `security.mjs` deny-list에 regex `i` 플래그 — `.ENV`/`Secret.PEM` 케이스 변형 우회 차단 (TDD red→green) |
-| v0.8.7 릴리스 | `0ad9207` | 16개 버전 ref 동기화 + CHANGELOG + tag + GitHub release |
-| **되돌림** | `580ff9d` | `git revert ac3ae17` — deny-list를 다시 **case-sensitive**로 (코드+테스트 복원) |
-| v0.8.8 릴리스 | `2223f91` | 16개 ref v0.8.8 동기화 + CHANGELOG(revert 사유) + tag + GitHub release |
+| 감사 의뢰서 작성 | `reports/gpt55-pro-audit-commission-2026-06-14.md` | 내부 프롬프트 인벤토리(19) + DESIGN R-규칙(~80) + README 약속(~80) 체크리스트. 소스 zip과 함께 gpt-5.5-pro에 전달 |
+| 외부 감사 수신 | (대화) | gpt-5.5-pro가 F-001~F-007 보고 |
+| 독립 재검증 | (워크플로우, 무커밋) | 적대 verifier 6 + 직접 read. **F-001은 오탐**(아래), F-002~007은 전부 실재 확인 |
+| 4건 수정 (test-first) | `56f3d66` (v0.8.9 release commit) | F-002/003/005 코드 + F-004 문서. 신규 회귀 테스트 3개 |
+| v0.8.9 릴리스 | `56f3d66` + merge `ee795b5` | 16개 버전 ref 동기화 + CHANGELOG + PR #46 → merge → tag + GitHub release |
 
-**커밋 그래프**: `ac3ae17 fix → 0ad9207 (v0.8.7) → 580ff9d revert → 2223f91 (v0.8.8)`.
-**최종 상태**: 최신 태그 **v0.8.8 = case-sensitive deny-list**(v0.8.6과 동일 동작). v0.8.7은 이력에 보존(forward-only, 삭제 안 함).
+**최종 상태**: 최신 태그 **v0.8.9**. 공개 도구 표면(8개)·`schemaVersion`(2)·와이어 프로토콜 불변. deny-list 케이스 동작은 v0.8.8과 동일(이번 세션에서 안 건드림).
 
 ---
 
-## 2. Production-readiness 감사 결과
+## 2. 감사 결과와 재검증 (핵심)
 
-**방법**: ultracode 워크플로우 — 8개 차원 각각 Explore agent가 실제 코드를 읽어 구조화 평가, medium+/배포관련 갭은 두 번째 agent가 "반박하라" 지시로 적대 검증(가짜 갭 배제).
+**의뢰 방식**: 내부 프롬프트를 표로 정리하고 DESIGN/README 규칙을 체크리스트화한 의뢰서 + 소스 zip을 gpt-5.5-pro에 전달. **수신한 finding은 코드로 직접 재검증한 뒤에만 행동**([[feedback-option-honesty]] 원칙) — 외부 감사관은 브리프를 못 받았다고 했고 라인번호가 어긋날 수 있어 맹신 금지.
 
-**총평: 이 배포 모델(상위 AI가 spawn하는 로컬 read-only stdio 서브프로세스) 기준 production-grade.** "production을 막는다"고 플래그된 갭이 검증에서 전부 무너졌고, Content-Length 버퍼 갭은 사실무근으로 반박됨.
+| ID | 감사관 판정 | 재검증 | 처리 | 비고 |
+|---|---|---|---|---|
+| F-001 (`npm test` 실패) | P1 FAIL | **오탐** | — | **내가 만든 zip에서 `.specify`를 빼서** 생긴 것. 실제 레포는 465/465 통과. → 재감사 zip엔 `.specify` 포함할 것 |
+| F-002 (git rename scope 유출) | P1 | CONFIRMED → 실제 **Medium** | **수정** | 경로 메타데이터만(내용 X), 트리거 좁음 — 감사관이 심각도 과대 |
+| F-003 (`explore` retry recipe) | P2/High | CONFIRMED → **Low-Med** | **수정** | explore·provider오류 한정. 자기 계약(OUT-07) 위반이라 수정 |
+| F-004 (DESIGN gzip 4KB) | P3 | CONFIRMED | **수정(문서)** | 코드 32KB가 의도(주석에 근거). 문서가 stale |
+| F-005 (`critic.status` schema) | P3 PARTIAL | CONFIRMED | **수정** | 항상 방출 + DESIGN 계약인데 required 누락. 1줄 |
+| F-006 (빈 보고서 finalize 프롬프트) | P3 | CONFIRMED | **보류** | "Budget exhausted." 문구 재사용. 기능 영향 없음, 저가치 |
+| F-007 (projectContext untrusted 라벨) | P3 | CONFIRMED | **드롭** | §3 판단 참조 |
 
-| 차원 | 판정 |
-|---|---|
-| 장애 처리/복원력 | ✅ ready (AbortController 타임아웃, 지수 백오프+Retry-After, failover, 3-turn 서킷브레이커, JSON 복구) |
-| 보안/데이터 노출 | ✅ ready (path traversal 다층 차단, 117패턴 deny-list, redact, API키 비로깅) |
-| 자원/비용 안전 | ✅ ready (30-iter 캡, 512KB/256KB 한도, 70% compaction) |
-| MCP 프로토콜/IO | ✅ ready (Content-Length+NDJSON, stdout 순수성, 프레임 resync) |
-| 테스트 품질 | ✅ ready (복구/서킷/심링크탈출/시크릿필터 실측, 실서버 E2E) |
-| 관측성/운영 | ✅ ready (구조화 에러 + MCP 실패계약 + stderr 스냅샷 + JSONL transcript) |
-| 릴리스/CI | ⚠️ minor-gaps (단일 Node22/단일 OS — 블로커 아님) |
-| 핵심 가치(근거성) | ✅ ready (citation 결정적 재검증, critic 환각 강등, 벤치 독립 재검증) |
+**총평**: 외부 감사는 고품질이고 6/7이 실재했으나 **심각도를 일관되게 과대평가**했고 헤드라인 F-001은 내 패키징 실수였다.
 
-추가 신호: 소스 ~10.7K LOC에 TODO/FIXME/HACK **0개**, 런타임 의존성 0개.
+### 수정 상세 (모두 RED→GREEN)
+
+- **F-002** `repo_git_diff`/`repo_git_show`에 `--no-renames` 추가(`repo-tools.mjs`). 원인: `_filterGitDiffFiles`가 scope를 `file.path`(새 경로)만 검사 — `isSecretDiffFile`은 이미 양쪽을 보는데 비대칭. scope 안으로 rename된 파일의 `patch`/`--stat`에 `rename from <out-of-scope old>`가 남아 옛 경로가 유출. `--no-renames`면 rename이 delete(옛, scope에서 필터)+add(새)로 분해되어 일괄 차단. **트레이드오프**: scope 내 rename도 add+delete로 표시됨(읽기전용 evidence 도구엔 수용 가능).
+- **F-003** `server.mjs` provider-error 핸들러에서 `retryArgs`를 도구별 분기: `explore`=`prompt`, `explore_repo`/wrapper=`task`.
+- **F-005** `CRITIC_SCHEMA.required`에 `status` 추가(`schemas.mjs`).
+- **F-004** DESIGN gzip 임계 4KB→32KB + 보수적 임계 근거 문장.
 
 ---
 
 ## 3. 자율/협의 판단과 근거
 
-### 판단 1 — deny-list 수정을 confined하게 (security.mjs만)
+### 판단 1 — F-001을 "프로젝트 결함"으로 보고하지 않음 (정직성)
 
-- **상황**: `globToRegExp`가 `security.mjs`(deny-list 전용)와 `repo-tools.mjs`(scope/`findFiles`/ignore 매칭) **두 벌** 존재.
-- **결정**: `i` 플래그를 `security.mjs:40`에만 추가. `repo-tools.mjs`의 것은 case-sensitive 유지.
-- **근거**: repo-tools 쪽을 case-insensitive로 바꾸면 case-sensitive FS(Linux)에서 정상 검색/스코프 의미가 달라짐(`Foo.js`가 `foo.js` 패턴에 매치). 보안 패치에 행위 변경을 섞지 않음. 격리 확인 + 과차단 방지 negative 테스트(`SecretsManager.ts` 등) 통과.
+- **상황**: gpt-5.5-pro가 `npm test` 3건 실패를 P1로 보고.
+- **결정**: 오탐으로 분류하고 **내 책임**으로 명시.
+- **근거**: 실제 레포는 465/465 통과. 실패는 내가 audit zip에서 `.specify/`(speckit-security 테스트가 요구)를 누락해서 생긴 것. `.specify`는 git 추적됨(39 files). → **재감사 zip엔 `.specify` 포함**(재생성 완료).
 
-### 판단 2 — 되돌리기 (case-insensitive → case-sensitive)
+### 판단 2 — 수정 범위: 추천 세트(F-002·003·004·005)만 (사용자 선택)
 
-- **상황**: v0.8.7 릴리스 후 사용자가 case-sensitive로 되돌리기를 요청.
-- **결정**: 되돌림 + v0.8.8 릴리스.
-- **근거(검증됨)**: 주 배포 환경이 case-sensitive FS(Linux). 거기선 case-sensitive 매칭이 **더 정밀** — `Secrets/` 디렉터리, `Deck.KEY` Keynote, `Credentials.JSON` 같은 정상 파일을 false-positive로 스킵하지 않음. v0.8.7이 닫은 변형 우회는 case-insensitive FS(macOS/Windows)에서만 의미 있었고 이는 배포 범위 밖. 좁은 보호를 정밀도·동작 안정성과 맞바꿈.
-- **⚠️ 잔존 리스크 (수용함)**: deny-list가 **대소문자를 구분하므로**, 시크릿 파일이 관용 소문자 이름(`​.env`, `id_rsa`, `secret.pem`, `credentials.json`)일 때만 차단된다. **케이스 변형 이름(`​.ENV`, `Secret.PEM`, `ID_RSA`)은 deny-list를 통과해 LLM 프로바이더로 전송될 수 있다.** §5 운영 주의 참조.
+- **결정**: 보안 경계 + retry 정합 + 문서/스키마 trivial 4건만 수정. F-006 보류, F-007 드롭.
+- **근거**: 심각도 재산정 후 "깔끔한 correctness/보안/문서" 항목만 채택.
 
-### 판단 3 — 릴리스 방식: forward-only (v0.8.7 삭제 대신 v0.8.8)
+### 판단 3 — F-007 드롭 (절제 = on-thesis)
 
-- **결정**: v0.8.7 태그/릴리스를 **삭제하지 않고** master에서 되돌린 뒤 v0.8.8로 릴리스. (사용자 선택)
-- **근거**: 비파괴적. 누가 이미 `#v0.8.7`을 받았어도 안 깨짐. 커밋 그래프가 의도(수정→되돌림)를 정직하게 기록.
-
----
-
-## 4. 감사가 식별한 항목 — 보류/드롭 결정 (블로커 아님)
-
-전부 "더 단단하게"이지 "준비도 미달"이 아니며, **사용자 검토 후 드롭/보류**됨. 후속 TODO로 박지 말 것:
-
-1. **CI 매트릭스** — 단일 `ubuntu × Node22`. **드롭 결정.** 근거: 주 환경이 Linux+Node22. macOS는 GH Actions `macos-latest`(퍼블릭 repo 무료)로 *기술적으론 가능*하나 실익 낮음(POSIX 동일, 심링크 테스트는 macOS에선 안 skip되어 그냥 통과, 유일 차이인 case-insensitive FS를 현 테스트가 안 건드림). Windows 심링크 skip은 정당(`fs.symlink` 권한 필요 + Git for Windows `core.symlinks=false` 기본). git/ripgrep skip은 가용성 가드일 뿐 로컬/CI에서 돈다.
-2. **Action SHA 핀** — `checkout@v4`/`setup-node@v4` 부유 태그. 공급망 강화 후보(선택, minor).
-3. **벨트-앤-서스펜더(선택)** — 시작 시 API키 fail-fast 검증, `.cerebras-explorer.json` 파싱오류 표면화(현재 silent default), Content-Length 상한 가드. 검증단에서 "있으면 좋지만 현재 위험 아님"으로 판정.
-
-### 의도된 절제 (체크리스트 반사로 손대지 말 것)
-
-- **커버리지툴/lint/TypeScript 없음** — zero-dep 미니멀리즘. 462 테스트가 경험적 커버리지 제공.
-- **regex-lite 심볼 인덱싱**(tree-sitter 아님) — 문서화된 의도적 한계, zero-dep 유지용.
-- **텔레메트리/알림 서버 없음, 수동 릴리스** — 로컬 subprocess + 솔로 + tag 배포에 맞는 선택.
+- **상황**: repo 제어 `.cerebras-explorer.json`의 `projectContext`가 system 프롬프트에 per-block untrusted 라벨 없이 주입됨(전역 untrusted hard-rule은 존재).
+- **결정**: **드롭.**
+- **근거**: 위협모델이 약함 — `.cerebras-explorer.json`을 통제하는 주체는 repo 소유자(= 도구 실행자) 본인이고, 도구는 read-only라 파괴적 행위로 유도 불가하며, 전역 untrusted 규칙이 이미 defense-in-depth. system-role 섹션에 라벨 한 줄 추가하는 것은 [[project-gpt55-review-2026-06]]·[[project-spec027-echo-cleanup]]에서 반복적으로 드롭해온 "복잡도만 늘리는" 종류. **체크리스트 반사로 다시 추가하지 말 것.**
 
 ---
 
-## 5. 후임자 주의
+## 4. 후임자 주의 (잔존 리스크)
 
-- **⚠️ 보안 파일 주의 — deny-list가 대소문자를 구분한다.** v0.8.8 기준 시크릿 차단은 **관용 소문자 이름에만** 작동한다(`​.env`, `id_rsa`, `*.pem`, `*.key`, `credentials.json`, `*service-account*.json` 등). 케이스 변형(`​.ENV`, `Secret.PEM`, `ID_RSA`, `Credentials.JSON`)은 **차단되지 않고** evidence에 실려 외부 모델로 나갈 수 있다. 운영 시: ① repo의 시크릿 파일은 관용 소문자 이름을 유지하고, ② 비표준 케이싱 시크릿이 있을 수 있으면 그 경로를 프로젝트별 ignore(`.cerebras-explorer.json`)나 별도 deny 패턴으로 보강하거나, ③ 전면 차단이 필요하면 case-insensitive 재도입(v0.8.7 `ac3ae17`의 `i` 플래그)을 되살리는 것을 고려한다 — 단 그때는 case-sensitive FS에서의 과차단(정상 파일 스킵)을 다시 받아들이는 트레이드오프임.
-- **deny-list는 v0.8.8 기준 의도적으로 case-sensitive.** 향후 `security.mjs`와 `repo-tools.mjs`의 두 `globToRegExp`를 "중복 제거"로 합치면 동작이 바뀐다 — security 쪽 case-sensitive 의도가 깨지지 않도록 주의(이번 세션 ac3ae17→580ff9d 왕복의 원인).
-- **감사는 코드 기반(static).** 라이브 provider 상대 타임아웃/429/대형 repo 카오스 테스트는 미실행 — 마지막 1% 확신이 필요하면 관측하 스모크 테스트가 유일하게 남는 검증.
+- **⚠️ deny-list 대소문자 — 변함없이 유효 (v0.8.8 이후 그대로).** 시크릿 차단은 관용 소문자 이름에만 작동(`.env`, `id_rsa`, `*.pem`, `*.key`, `credentials.json`, `*service-account*.json`). 케이스 변형(`.ENV`, `Secret.PEM`, `ID_RSA`, `Credentials.JSON`)은 차단되지 않고 evidence로 외부 모델에 나갈 수 있다. 대응은 직전 핸드오프 §5와 동일(관용 소문자 유지 / 프로젝트 ignore 보강 / 필요 시 case-insensitive 재도입 트레이드오프 수용). `security.mjs`와 `repo-tools.mjs`의 두 `globToRegExp`를 "중복 제거"로 합치면 security 쪽 case-sensitive 의도가 깨진다 — 주의.
+- **⚠️ git rename 표시 — `--no-renames` 의존(F-002 수정).** scope hard boundary가 이 플래그로 유지된다. "압축된 rename 표시 복원"이나 "diff 가독성 개선"을 이유로 `--no-renames`를 제거하거나 `diff.renames`를 켜면 **F-002 유출이 재발**한다. 굳이 rename 탐지를 되살리려면 scope 밖 `oldPath`를 patch/stat에서 마스킹/필터하는 대체 방어를 먼저 넣을 것. 회귀 테스트: `tests/repo-tools.test.mjs`의 "rename into scope" 2건이 가드.
+- **(드롭됨, 문서화) projectContext 프롬프트 주입** — F-007. system-role 주입이지만 위협모델 약하고 전역 untrusted 규칙으로 완화됨. 의도적 미수정.
+- **(보류, 문서화) 빈 보고서 finalize 프롬프트** — F-006. budget 소진이 아닌 빈 보고서 경로도 "Budget exhausted." 프롬프트를 재사용(`runtime.mjs` finalize 분기). 모델에 원인을 잘못 전달하나 기능 영향 없음.
+- **감사는 static(코드 기반).** 라이브 provider 상대 카오스 테스트는 미실행 — 마지막 1% 확신엔 관측하 스모크 테스트가 유일.
 
 ---
 
-## 6. 검증 재현
+## 5. 검증 재현
 
 ```bash
-npm test                                    # 462 pass / 0 fail / 0 skip (git+ripgrep 있는 환경)
+npm test                                    # 465 pass / 0 fail / 0 skip (git+ripgrep 있는 환경)
 node ./scripts/integration-test.mjs         # 실 API (CEREBRAS_API_KEY 필요)
-git log --oneline -4                         # ac3ae17 → 0ad9207 → 580ff9d → 2223f91
-git describe --tags --exact-match HEAD       # v0.8.8
-sed -n '40p' src/explorer/security.mjs       # case-sensitive 확인 (i 플래그 없음)
+git describe --tags --exact-match HEAD       # v0.8.9 (master 기준)
+git log --oneline -2                         # ee795b5 (merge #46) → 56f3d66 (release v0.8.9)
+grep -n -- '--no-renames' src/explorer/repo-tools.mjs   # F-002 가드 2곳 (gitDiff, gitShow)
+node --test --test-name-pattern="rename into scope" tests/repo-tools.test.mjs   # 2 pass
 ```
