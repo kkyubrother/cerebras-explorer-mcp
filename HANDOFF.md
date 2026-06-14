@@ -57,6 +57,7 @@
 - **상황**: v0.8.7 릴리스 후 사용자가 case-sensitive로 되돌리기를 요청.
 - **결정**: 되돌림 + v0.8.8 릴리스.
 - **근거(검증됨)**: 주 배포 환경이 case-sensitive FS(Linux). 거기선 case-sensitive 매칭이 **더 정밀** — `Secrets/` 디렉터리, `Deck.KEY` Keynote, `Credentials.JSON` 같은 정상 파일을 false-positive로 스킵하지 않음. v0.8.7이 닫은 변형 우회는 case-insensitive FS(macOS/Windows)에서만 의미 있었고 이는 배포 범위 밖. 좁은 보호를 정밀도·동작 안정성과 맞바꿈.
+- **⚠️ 잔존 리스크 (수용함)**: deny-list가 **대소문자를 구분하므로**, 시크릿 파일이 관용 소문자 이름(`​.env`, `id_rsa`, `secret.pem`, `credentials.json`)일 때만 차단된다. **케이스 변형 이름(`​.ENV`, `Secret.PEM`, `ID_RSA`)은 deny-list를 통과해 LLM 프로바이더로 전송될 수 있다.** §5 운영 주의 참조.
 
 ### 판단 3 — 릴리스 방식: forward-only (v0.8.7 삭제 대신 v0.8.8)
 
@@ -83,6 +84,7 @@
 
 ## 5. 후임자 주의
 
+- **⚠️ 보안 파일 주의 — deny-list가 대소문자를 구분한다.** v0.8.8 기준 시크릿 차단은 **관용 소문자 이름에만** 작동한다(`​.env`, `id_rsa`, `*.pem`, `*.key`, `credentials.json`, `*service-account*.json` 등). 케이스 변형(`​.ENV`, `Secret.PEM`, `ID_RSA`, `Credentials.JSON`)은 **차단되지 않고** evidence에 실려 외부 모델로 나갈 수 있다. 운영 시: ① repo의 시크릿 파일은 관용 소문자 이름을 유지하고, ② 비표준 케이싱 시크릿이 있을 수 있으면 그 경로를 프로젝트별 ignore(`.cerebras-explorer.json`)나 별도 deny 패턴으로 보강하거나, ③ 전면 차단이 필요하면 case-insensitive 재도입(v0.8.7 `ac3ae17`의 `i` 플래그)을 되살리는 것을 고려한다 — 단 그때는 case-sensitive FS에서의 과차단(정상 파일 스킵)을 다시 받아들이는 트레이드오프임.
 - **deny-list는 v0.8.8 기준 의도적으로 case-sensitive.** 향후 `security.mjs`와 `repo-tools.mjs`의 두 `globToRegExp`를 "중복 제거"로 합치면 동작이 바뀐다 — security 쪽 case-sensitive 의도가 깨지지 않도록 주의(이번 세션 ac3ae17→580ff9d 왕복의 원인).
 - **감사는 코드 기반(static).** 라이브 provider 상대 타임아웃/429/대형 repo 카오스 테스트는 미실행 — 마지막 1% 확신이 필요하면 관측하 스모크 테스트가 유일하게 남는 검증.
 
