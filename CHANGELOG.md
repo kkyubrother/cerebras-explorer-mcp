@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.8.8 - 2026-06-14
+
+### revert: secret deny-list matching back to case-sensitive
+
+No public surface, tool schema, `schemaVersion` (2), or wire-protocol change.
+
+- **Reverted (v0.8.7)**: the deny-list `globToRegExp` no longer carries the
+  regex `i` flag — secret-path matching is case-sensitive again, as it was
+  through v0.8.6. On case-sensitive filesystems (the primary deployment target)
+  case-sensitive matching is strictly more precise: it does not skip ordinary
+  files whose names merely case-fold onto a secret pattern (e.g. a `Secrets/`
+  directory, a `Deck.KEY` Keynote file, `Credentials.JSON`). The case-variant
+  bypass that v0.8.7 closed only applied on case-insensitive filesystems (macOS
+  APFS, Windows NTFS), which are out of scope for this stdio/Linux deployment;
+  the revert trades that narrow protection for precision and behavioral
+  stability. The case-variant test added in v0.8.7 is removed with the revert.
+
 ## v0.8.7 - 2026-06-14
 
 ### case-insensitive secret deny-list matching

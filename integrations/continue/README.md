@@ -20,7 +20,7 @@ mcpServers:
     command: npx
     args:
       - "-y"
-      - "github:kkyubrother/cerebras-explorer-mcp#v0.8.7"
+      - "github:kkyubrother/cerebras-explorer-mcp#v0.8.8"
     env:
       CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
 ```
@@ -32,7 +32,7 @@ mcpServers:
 ```yaml
 args:
   - "-y"
-  - "github:kkyubrother/cerebras-explorer-mcp#v0.8.7"
+  - "github:kkyubrother/cerebras-explorer-mcp#v0.8.8"
 ```
 
 ## 검증
