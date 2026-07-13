@@ -186,13 +186,13 @@ The ledger may be logged as redacted JSONL events:
 - `plan_revised`
 - `goal_rejected`
 - `subgoal_state`
-- `observation_recorded`
-- `claim_proposed`
-- `claim_verified`
-- `gap_created`
-- `repair_started`
-- `repair_finished`
-- `safety_limit_reached`
-- `state_reduced`
+- `tool`
+- `claim`
+- `verdict`
+- `repair` (`status=started|finished`; finished outcome은 `completed|failed|aborted`)
+- `safety_limit`
+- `final`
+- `usage`
 
 Successful sub-goals and internal ids stay in logs and are not copied to the parent handoff.
+T043의 schema-v3 parent projection이 landing되기 전에는 `final`이 state-reduction 입력만 기록한다. Public payload hash/size는 legacy schema-v2 payload를 중복 기준으로 고정하지 않고 v3 projection과 함께 추가한다.

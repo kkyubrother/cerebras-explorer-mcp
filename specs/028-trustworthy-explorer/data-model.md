@@ -301,6 +301,8 @@ Optional redacted JSONL/direct-runtime diagnostic data.
 
 Operational trace records follow current redaction policy. They are not copied into the normal MCP response.
 
+Implementation staging: T034 records the `final` state-reduction inputs first. The public payload hash/size lands atomically with the schema-v3 parent projection in T043 so no legacy schema-v2 payload becomes a second trust baseline.
+
 ## 12. Public Tool Intent
 
 | Tool | Internal baseline sub-goals/proof policy |

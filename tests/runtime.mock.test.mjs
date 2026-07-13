@@ -7219,6 +7219,276 @@ semanticPipelineRuntimeTest('Spec 028 T033 — cancellation after the final veri
   assert.doesNotMatch(result.directAnswer, /requireAuth is defined/);
 });
 
+semanticPipelineRuntimeTest('Spec 028 T034 — semantic repair lifecycle stays diagnostic and prose-free', async () => {
+  const logDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-trust-events-'));
+  const goal = definitionAndAbsenceGoals()[0];
+  const claimText = 'UNVERIFIED_CLAIM_TRANSCRIPT_SENTINEL';
+  const explorationDraft = 'UNVERIFIED_EXPLORATION_TRANSCRIPT_SENTINEL';
+  const repairDraft = 'UNVERIFIED_REPAIR_TRANSCRIPT_SENTINEL';
+  const verifierNote = 'UNVERIFIED_VERIFIER_NOTE_SENTINEL';
+  const initialClaim = candidateClaim('C-transcript', goal.id, claimText, ['E1']);
+  const repairedClaim = candidateClaim('C-transcript', goal.id, claimText, ['E1', 'E2']);
+  const steps = buildTrustSteps({
+    goals: [goal],
+    initial: {
+      tools: [{
+        tool: 'repo_read_file',
+        args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+        id: 'read-auth',
+      }],
+      prose: explorationDraft,
+      claims: [initialClaim],
+      verdicts: [{
+        ...semanticVerdict(initialClaim.id, 'insufficient'),
+        note: verifierNote,
+      }],
+    },
+    repair: {
+      tools: [{
+        tool: 'repo_read_file',
+        args: { path: 'src/routes/user.js', startLine: 1, endLine: 8 },
+        id: 'read-route',
+      }],
+      prose: repairDraft,
+      claims: [repairedClaim],
+      verdicts: [{
+        ...semanticVerdict(repairedClaim.id, 'supported', ['E2']),
+        note: verifierNote,
+      }],
+    },
+  });
+
+  await withEnv({
+    CEREBRAS_EXPLORER_LOG_PATH: logDir,
+    CEREBRAS_EXPLORER_LOG_RAW: 'true',
+  }, async () => {
+    const { client, result } = await runTrustScript(steps);
+    const entries = await readJsonl(result.transcriptPath);
+    const claims = entries.filter(entry => entry.type === 'claim');
+    const verdicts = entries.filter(entry => entry.type === 'verdict');
+    const repairs = entries.filter(entry => entry.type === 'repair');
+    const finals = entries.filter(entry => entry.type === 'final');
+    const usage = entries.filter(entry => entry.type === 'usage');
+
+    assert.deepEqual(claims.map(entry => entry.phase), ['initial', 'post-repair']);
+    assert.deepEqual(verdicts.map(entry => entry.phase), ['initial', 'post-repair']);
+    assert.deepEqual(repairs.map(entry => entry.status), ['started', 'finished']);
+    assert.equal(repairs[1].outcome, 'completed');
+    assert.equal(repairs[1].outcomes[0].state, 'supported');
+    assert.deepEqual(finals[0].acceptedClaimIds, [initialClaim.id]);
+    assert.equal(finals[0].requiredSubgoals[0].state, 'supported');
+    assert.equal(usage.length, 1);
+    assert.equal(usage[0].providerCalls, client.requests.length);
+    assert.equal(usage[0].repositoryToolCalls, 2);
+    const repairTool = entries.find(entry => entry.type === 'tool' && entry.stage === 'repair');
+    assert.ok(repairTool);
+    assert.ok(repairs[1].actionFingerprints.includes(repairTool.actionFingerprint));
+    assert.equal(entries.at(-1).type, 'meta');
+    assert.ok(entries.filter(entry => entry.type === 'assistant')
+      .every(entry => !('content' in entry) && Number.isInteger(entry.contentChars)));
+    assert.ok(claims.every(entry => entry.claims.every(claim => !('text' in claim))));
+    assert.ok(verdicts.every(entry => entry.verdicts.every(verdict => !('note' in verdict))));
+
+    const serialized = JSON.stringify(entries);
+    for (const sentinel of [claimText, explorationDraft, repairDraft, verifierNote]) {
+      assert.equal(serialized.includes(sentinel), false);
+    }
+  });
+});
+
+semanticPipelineRuntimeTest('Spec 028 T034 — transcript persistence cannot change the committed terminal outcome', async () => {
+  const logDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-trust-terminal-cutoff-'));
+  const controller = new AbortController();
+  const goal = definitionAndAbsenceGoals()[0];
+  const claim = candidateClaim(
+    'C-terminal-cutoff', goal.id, 'requireAuth is defined in src/auth.js.', ['E1']);
+  const steps = buildTrustSteps({
+    goals: [goal],
+    initial: {
+      tools: [{
+        tool: 'repo_read_file',
+        args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+        id: 'read-auth-terminal-cutoff',
+      }],
+      claims: [claim],
+      verdicts: [semanticVerdict(claim.id, 'supported', ['E1'])],
+    },
+  });
+
+  await withEnv({
+    CEREBRAS_EXPLORER_LOG_PATH: logDir,
+    CEREBRAS_EXPLORER_LOG_RAW: 'true',
+  }, async () => {
+    const originalAppendFile = fs.appendFile;
+    let abortedDuringTerminalWrite = false;
+    fs.appendFile = async (file, data, ...rest) => {
+      if (!abortedDuringTerminalWrite && String(data).includes('"type":"final"')) {
+        abortedDuringTerminalWrite = true;
+        controller.abort();
+      }
+      return originalAppendFile.call(fs, file, data, ...rest);
+    };
+    let result;
+    try {
+      ({ result } = await runTrustScript(steps, { abortSignal: controller.signal }));
+    } finally {
+      fs.appendFile = originalAppendFile;
+    }
+
+    const entries = await readJsonl(result.transcriptPath);
+    const final = entries.find(entry => entry.type === 'final');
+    assert.equal(abortedDuringTerminalWrite, true);
+    assert.equal(controller.signal.aborted, true);
+    assert.equal(result.failure?.reason, undefined);
+    assert.equal(final.failureReason, undefined);
+    assert.deepEqual(final.acceptedClaimIds, [claim.id]);
+  });
+});
+
+semanticPipelineRuntimeTest('Spec 028 T034 — planner and auditor cancellation count the issued provider request', async () => {
+  const goal = definitionAndAbsenceGoals()[0];
+  for (const abortAt of ['planner:1', 'goal_audit:1']) {
+    const logDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-trust-planning-cancel-'));
+    const controller = new AbortController();
+    const labels = [];
+    const client = {
+      model: 'zai-glm-4.7',
+      async createChatCompletion(request) {
+        const stage = classifyControlRequest(request);
+        const label = `${stage}:1`;
+        labels.push(label);
+        if (label === abortAt) {
+          controller.abort();
+          const error = new Error(`cancelled at ${label}`);
+          error.name = 'AbortError';
+          throw error;
+        }
+        if (label === 'planner:1') return controlCompletion(plannerControl([goal]));
+        assert.fail(`unexpected request after ${abortAt}: ${label}`);
+      },
+    };
+
+    await withEnv({
+      CEREBRAS_EXPLORER_LOG_PATH: logDir,
+      CEREBRAS_EXPLORER_LOG_RAW: 'true',
+    }, async () => {
+      const root = await makeRepoFixture();
+      const result = await new RuntimeImplementation({ chatClient: client }).explore(
+        { task: GOAL_AUDIT_TASK, repo_root: root },
+        { abortSignal: controller.signal },
+      );
+      const entries = await readJsonl(result.transcriptPath);
+      const usage = entries.find(entry => entry.type === 'usage');
+
+      assert.equal(result.failure?.reason, 'aborted', abortAt);
+      assert.equal(labels.at(-1), abortAt);
+      assert.equal(usage.providerCalls, labels.length, abortAt);
+    });
+  }
+});
+
+semanticPipelineRuntimeTest('Spec 028 T034 — failed repair records one terminal failure without stale claims', async () => {
+  const logDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-trust-failure-events-'));
+  const goal = definitionAndAbsenceGoals()[0];
+  const staleText = 'UNVERIFIED_FAILED_REPAIR_CLAIM_SENTINEL';
+  const claim = candidateClaim('C-failed-repair', goal.id, staleText, ['E1']);
+  const steps = buildTrustSteps({
+    goals: [goal],
+    initial: {
+      tools: [{
+        tool: 'repo_read_file',
+        args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+        id: 'read-auth',
+      }],
+      claims: [claim],
+      verdicts: [semanticVerdict(claim.id, 'insufficient')],
+    },
+    repair: {
+      providerError: 'repair provider outage sentinel',
+    },
+  });
+
+  await withEnv({
+    CEREBRAS_EXPLORER_LOG_PATH: logDir,
+    CEREBRAS_EXPLORER_LOG_RAW: 'true',
+  }, async () => {
+    const { client, result } = await runTrustScript(steps);
+    const entries = await readJsonl(result.transcriptPath);
+    const repairs = entries.filter(entry => entry.type === 'repair');
+    const final = entries.find(entry => entry.type === 'final');
+    const usage = entries.find(entry => entry.type === 'usage');
+
+    assert.equal(result.failure?.reason, 'provider_error');
+    assert.deepEqual(repairs.map(entry => entry.status), ['started', 'finished']);
+    assert.equal(repairs[1].outcome, 'failed');
+    assert.equal(final.failureReason, 'provider_error');
+    assert.deepEqual(final.acceptedClaimIds, []);
+    assert.equal(usage.providerCalls, client.requests.length);
+    assert.equal(entries.at(-1).type, 'meta');
+    assert.equal(JSON.stringify(entries).includes(staleText), false);
+    assert.equal(JSON.stringify(entries).includes('repair provider outage sentinel'), false);
+  });
+});
+
+semanticPipelineRuntimeTest('Spec 028 T034 — closing repair failure preserves opening usage', async () => {
+  const logDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-trust-closing-failure-'));
+  const goal = definitionAndAbsenceGoals()[0];
+  const claim = candidateClaim(
+    'C-closing-failure', goal.id, 'Closing failure candidate.', ['E1']);
+  const steps = buildTrustSteps({
+    goals: [goal],
+    initial: {
+      tools: [{
+        tool: 'repo_read_file',
+        args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+        id: 'read-auth',
+      }],
+      claims: [claim],
+      verdicts: [semanticVerdict(claim.id, 'insufficient')],
+    },
+    repair: {
+      tools: [{
+        tool: 'repo_read_file',
+        args: { path: 'src/routes/user.js', startLine: 1, endLine: 8 },
+        id: 'read-route-before-closing-failure',
+      }],
+      claims: [claim],
+      verdicts: [semanticVerdict(claim.id, 'supported', ['E2'])],
+    },
+  });
+  const closingIndex = steps.findIndex(step => step.stage === 'exploration:4');
+  assert.notEqual(closingIndex, -1);
+  steps[closingIndex] = {
+    stage: 'exploration:4',
+    run() {
+      const error = new Error('closing repair provider outage sentinel');
+      error.retryable = false;
+      throw error;
+    },
+  };
+
+  await withEnv({
+    CEREBRAS_EXPLORER_LOG_PATH: logDir,
+    CEREBRAS_EXPLORER_LOG_RAW: 'true',
+  }, async () => {
+    const { client, result } = await runTrustScript(steps);
+    const entries = await readJsonl(result.transcriptPath);
+    const repairs = entries.filter(entry => entry.type === 'repair');
+    const usage = entries.find(entry => entry.type === 'usage');
+    const completedTokens = client.completions.reduce(
+      (total, completion) => total + (completion.usage?.total_tokens ?? 0),
+      0,
+    );
+
+    assert.equal(result.failure?.reason, 'provider_error');
+    assert.deepEqual(repairs.map(entry => entry.status), ['started', 'finished']);
+    assert.equal(repairs[1].outcome, 'failed');
+    assert.equal(usage.providerCalls, client.requests.length);
+    assert.equal(usage.totalTokens, completedTokens);
+    assert.equal(JSON.stringify(entries).includes('closing repair provider outage sentinel'), false);
+  });
+});
+
 semanticPipelineRuntimeTest('Spec 028 T033 — invalid final control never promotes a stale draft', async t => {
   const goal = definitionAndAbsenceGoals()[0];
   const claim = candidateClaim(

@@ -83,6 +83,7 @@ import {
   createCompactToolTrace,
   createTranscriptRecorder,
   recordPlanningEvent,
+  recordTrustEvent,
 } from './transcript.mjs';
 
 // Maximum number of tool calls to execute in parallel within a single turn.
@@ -90,6 +91,15 @@ const TOOL_CONCURRENCY = 8;
 const GOAL_AUDIT_BATCH_SIZE = 12;
 const SEMANTIC_CONTROL_BATCH_SIZE = 12;
 const GOAL_PLANNER_VERSION = 'planner-v1';
+const PROVIDER_REQUEST_FAILED = Symbol('providerRequestFailed');
+const PROVIDER_FAILURE_USAGE_RECORDED = Symbol('providerFailureUsageRecorded');
+const TRANSCRIPT_FINISH_REASONS = new Set([
+  'stop',
+  'length',
+  'tool_calls',
+  'content_filter',
+  'function_call',
+]);
 const GOAL_AUDIT_VERSION = 'goal-audit-v1';
 const INVALID_GOAL_CONTROL = 'ERR_INVALID_GOAL_CONTROL';
 const GOAL_COVERAGE_RECONCILIATION_SCHEMA = Object.freeze({
@@ -1201,10 +1211,31 @@ function isAbortError(error) {
 }
 
 function markProviderFault(error) {
-  if (isAbortError(error)) return error;
+  if (isAbortError(error)) {
+    try {
+      error[PROVIDER_REQUEST_FAILED] = true;
+      return error;
+    } catch {
+      const markedAbort = abortError(error?.message ?? 'Provider request was cancelled.');
+      markedAbort[PROVIDER_REQUEST_FAILED] = true;
+      return markedAbort;
+    }
+  }
   const providerFault = new Error('Provider request failed.', { cause: error });
   providerFault.explorerFailureKind = 'provider';
+  providerFault[PROVIDER_REQUEST_FAILED] = true;
   return providerFault;
+}
+
+function recordFailedProviderRequest(error, transcript, chatClient) {
+  if (!error?.[PROVIDER_REQUEST_FAILED] || error[PROVIDER_FAILURE_USAGE_RECORDED]) return;
+  transcript?.observeUsage?.({ model: chatClient?.model });
+  error[PROVIDER_FAILURE_USAGE_RECORDED] = true;
+}
+
+function transcriptFinishReason(value) {
+  if (value === null || value === undefined) return null;
+  return TRANSCRIPT_FINISH_REASONS.has(value) ? value : 'other';
 }
 
 async function requestProviderCompletion(chatClient, request) {
@@ -1730,6 +1761,7 @@ async function runEvidenceRepairToolBatch({
   maxCompletionTokens,
   abortSignal,
   priorActionFingerprints = [],
+  onCompletion,
 }) {
   const messages = buildEvidenceRepairMessages({ gaps, effectiveScope, anchors });
   const request = async () => requestProviderCompletion(chatClient, {
@@ -1743,7 +1775,7 @@ async function runEvidenceRepairToolBatch({
     signal: abortSignal,
   });
   const firstCompletion = await request();
-  const completions = [firstCompletion];
+  onCompletion?.(firstCompletion, 'repair');
   messages.push(buildAssistantMessage(firstCompletion.message));
 
   const toolCalls = Array.isArray(firstCompletion.message?.toolCalls)
@@ -1834,12 +1866,11 @@ async function runEvidenceRepairToolBatch({
 
   if (toolCalls.length > 0) {
     const closingCompletion = await request();
-    completions.push(closingCompletion);
+    onCompletion?.(closingCompletion, 'repair');
     messages.push(buildAssistantMessage(closingCompletion.message));
   }
   return {
     messages,
-    completions,
     executions: executed,
     attemptedActions: executed.map(item => item.action),
   };
@@ -2362,9 +2393,14 @@ function applyCompletionMetadata(stats, completion) {
   };
 }
 
-function recordCompletionStats(stats, completion) {
+function recordCompletionStats(stats, completion, transcript = null) {
   Object.assign(stats, summarizeUsage(stats, completion?.usage));
   applyCompletionMetadata(stats, completion);
+  transcript?.observeUsage?.({
+    providerIndex: completion?.usedProvider?.providerIndex ?? stats.providerIndex,
+    model: completion?.usedProvider?.model ?? stats.model,
+    usage: completion?.usage,
+  });
 }
 
 function incrementToolStats(stats, toolName, { countReadFiles = true } = {}) {
@@ -3088,6 +3124,7 @@ export class ExplorerRuntime {
     maxCompletionTokens,
     abortSignal,
     onCompletion,
+    onTrustEvent,
   }) {
     const safeObservations = Array.isArray(observations) ? observations : [];
     const observationIds = runtimeObservationIds(safeObservations);
@@ -3146,6 +3183,7 @@ export class ExplorerRuntime {
         }),
       });
       claims.push(...batchClaims);
+      onTrustEvent?.('claim', { phase, claims: batchClaims });
     }
 
     const candidateSubgoals = prepareCandidateSubgoals(taskContract, claims, {
@@ -3188,6 +3226,12 @@ export class ExplorerRuntime {
       });
       semanticVerdicts.push(...verified.verdicts);
       uncoveredRequestParts.push(...verified.uncoveredRequestParts);
+      onTrustEvent?.('verdict', {
+        phase,
+        claims: batchClaims,
+        verdicts: verified.verdicts,
+        uncoveredRequestParts: verified.uncoveredRequestParts,
+      });
     }
 
     const runtimeAllowedEvidenceRefsBySubgoal = runtimeAllowedEvidenceBySubgoal(
@@ -3715,6 +3759,7 @@ export class ExplorerRuntime {
       logger: this.logger,
       provenance: this.provenance,
     });
+    const traceTrustEvent = (type, data) => recordTrustEvent(transcript, type, data);
 
     let discoveredPaths = [];
     let finalObject = null;
@@ -3728,6 +3773,7 @@ export class ExplorerRuntime {
     const toolTrace = createCompactToolTrace();
     let auditedPlan = null;
     let semanticVerification = null;
+    let activeRepairTrace = null;
 
     const recordRuntimeToolExecution = async ({
       toolCall,
@@ -3862,6 +3908,8 @@ export class ExplorerRuntime {
       }
       transcript.record('tool', {
         tool: toolName,
+        stage,
+        actionFingerprint: fingerprintAction({ type: 'tool', tool: toolName, arguments: toolArgs }),
         error: safeToolResult?.error ?? false,
         resultChars: serializedToolResult.length,
         turn: transcriptTurn,
@@ -3900,7 +3948,7 @@ export class ExplorerRuntime {
         maxCompletionTokens: runtimeConfig.maxCompletionTokens,
         abortSignal,
         onCompletion: (completion, stage) => {
-          recordCompletionStats(stats, completion);
+          recordCompletionStats(stats, completion, transcript);
           if (completion.finishReason === 'length') {
             recordSafetyLimit(stats, {
               name: 'generation_output_limit',
@@ -3932,6 +3980,7 @@ export class ExplorerRuntime {
       }
     } catch (error) {
       if (isAbortError(error)) {
+        recordFailedProviderRequest(error, transcript, chatClient);
         stats.stoppedByAbort = true;
         finalObject = buildCancelledExploreObject();
       } else if (error?.code === INVALID_GOAL_CONTROL) {
@@ -4010,6 +4059,7 @@ export class ExplorerRuntime {
         });
       } catch (error) {
         if (abortSignal?.aborted && isAbortError(error)) {
+          recordFailedProviderRequest(error, transcript, chatClient);
           stats.stoppedByAbort = true;
           break;
         }
@@ -4017,7 +4067,7 @@ export class ExplorerRuntime {
       }
 
       stats.turns += 1;
-      recordCompletionStats(stats, completion);
+      recordCompletionStats(stats, completion, transcript);
       if (completion.finishReason === 'length') {
         recordSafetyLimit(stats, {
           name: 'generation_output_limit',
@@ -4030,8 +4080,14 @@ export class ExplorerRuntime {
       const assistantMessage = buildAssistantMessage(completion.message);
       messages.push(assistantMessage);
       transcript.record('assistant', {
-        content: assistantMessage.content,
-        toolCalls: completion.message.toolCalls.map(c => c.function?.name),
+        contentChars: typeof assistantMessage.content === 'string'
+          ? assistantMessage.content.length
+          : 0,
+        toolCalls: completion.message.toolCalls.map(call => {
+          const name = call.function?.name;
+          return knownToolNames.has(name) ? name : '(unknown)';
+        }),
+        finishReason: transcriptFinishReason(completion.finishReason),
         turn: turnIndex,
       });
 
@@ -4056,9 +4112,11 @@ export class ExplorerRuntime {
             topP,
             runtimeConfig,
             abortSignal,
+            onCompletion: completion => recordCompletionStats(stats, completion, transcript),
           });
         } catch (error) {
           if (abortSignal?.aborted && isAbortError(error)) {
+            recordFailedProviderRequest(error, transcript, chatClient);
             stats.stoppedByAbort = true;
             break;
           }
@@ -4066,7 +4124,6 @@ export class ExplorerRuntime {
         }
         finalObject = finalized.result;
         recordSafetyLimits(stats, finalized.safetyLimits);
-        recordCompletionStats(stats, finalized);
         if (finalized.invalidFinalResponse) {
           stats.invalidFinalResponse = true;
           throw invalidGoalControl(
@@ -4202,10 +4259,10 @@ export class ExplorerRuntime {
         topP,
         runtimeConfig,
         abortSignal,
+        onCompletion: completion => recordCompletionStats(stats, completion, transcript),
       });
       finalObject = finalized.result;
       recordSafetyLimits(stats, finalized.safetyLimits);
-      recordCompletionStats(stats, finalized);
       if (finalized.invalidFinalResponse) {
         stats.invalidFinalResponse = true;
         throw invalidGoalControl(
@@ -4231,8 +4288,9 @@ export class ExplorerRuntime {
         topP,
         maxCompletionTokens: runtimeConfig.maxCompletionTokens,
         abortSignal,
+        onTrustEvent: traceTrustEvent,
         onCompletion: (completion, stage) => {
-          recordCompletionStats(stats, completion);
+          recordCompletionStats(stats, completion, transcript);
           if (completion.finishReason === 'length') {
             recordSafetyLimit(stats, {
               name: 'generation_output_limit',
@@ -4263,7 +4321,7 @@ export class ExplorerRuntime {
             chatClient,
             abortSignal,
             onCompletion: (completion, stage, context) => {
-              recordCompletionStats(stats, completion);
+              recordCompletionStats(stats, completion, transcript);
               if (completion.finishReason === 'length') {
                 recordSafetyLimit(stats, {
                   name: 'generation_output_limit',
@@ -4306,6 +4364,12 @@ export class ExplorerRuntime {
         const priorActionFingerprints = [...new Set(
           attemptedRepositoryActions.map(fingerprintAction),
         )];
+        activeRepairTrace = {
+          status: 'started',
+          gaps: repairGaps,
+          priorActionFingerprints,
+        };
+        traceTrustEvent('repair', activeRepairTrace);
         const repairRun = await runEvidenceRepairToolBatch({
           chatClient,
           gaps: repairGaps,
@@ -4320,24 +4384,30 @@ export class ExplorerRuntime {
           maxCompletionTokens: runtimeConfig.maxCompletionTokens,
           abortSignal,
           priorActionFingerprints,
-        });
-        for (const completion of repairRun.completions) {
-          stats.turns += 1;
-          recordCompletionStats(stats, completion);
-          if (completion.finishReason === 'length') {
-            recordSafetyLimit(stats, {
-              name: 'generation_output_limit',
-              stage: 'repair',
-              affectedSubgoalIds: repairSubgoalIds,
-              truncated: true,
+          onCompletion: completion => {
+            stats.turns += 1;
+            recordCompletionStats(stats, completion, transcript);
+            if (completion.finishReason === 'length') {
+              recordSafetyLimit(stats, {
+                name: 'generation_output_limit',
+                stage: 'repair',
+                affectedSubgoalIds: repairSubgoalIds,
+                truncated: true,
+              });
+            }
+            transcript.record('assistant', {
+              contentChars: typeof completion.message?.content === 'string'
+                ? completion.message.content.length
+                : 0,
+              toolCalls: (completion.message?.toolCalls ?? []).map(call => {
+                const name = call.function?.name;
+                return knownToolNames.has(name) ? name : '(unknown)';
+              }),
+              finishReason: transcriptFinishReason(completion.finishReason),
+              turn: stats.turns,
             });
-          }
-          transcript.record('assistant', {
-            content: redactText(completion.message?.content ?? '').text,
-            toolCalls: (completion.message?.toolCalls ?? []).map(call => call.function?.name),
-            turn: stats.turns,
-          });
-        }
+          },
+        });
 
         const freshEvidenceRefs = [];
         for (const execution of repairRun.executions) {
@@ -4388,8 +4458,9 @@ export class ExplorerRuntime {
             topP,
             maxCompletionTokens: runtimeConfig.maxCompletionTokens,
             abortSignal,
+            onTrustEvent: traceTrustEvent,
             onCompletion: (completion, stage) => {
-              recordCompletionStats(stats, completion);
+              recordCompletionStats(stats, completion, transcript);
               if (completion.finishReason === 'length') {
                 recordSafetyLimit(stats, {
                   name: 'generation_output_limit',
@@ -4422,7 +4493,7 @@ export class ExplorerRuntime {
                 chatClient,
                 abortSignal,
                 onCompletion: (completion, stage, context) => {
-                  recordCompletionStats(stats, completion);
+                  recordCompletionStats(stats, completion, transcript);
                   if (completion.finishReason === 'length') {
                     recordSafetyLimit(stats, {
                       name: 'generation_output_limit',
@@ -4452,6 +4523,16 @@ export class ExplorerRuntime {
             };
           }
         }
+        traceTrustEvent('repair', {
+          status: 'finished',
+          outcome: 'completed',
+          gaps: repairGaps,
+          actionFingerprints: repairRun.executions.map(execution => execution.actionFingerprint),
+          freshEvidenceRefs: repaired.freshEvidenceRefs,
+          outcomes: auditedPlan.taskContract.subgoals.filter(goal =>
+            repairSubgoalIds.includes(goal.id)),
+        });
+        activeRepairTrace = null;
       }
     }
 
@@ -4580,6 +4661,15 @@ export class ExplorerRuntime {
     outcome = normalized;
     } catch (error) {
       const cancelled = abortSignal?.aborted || isAbortError(error);
+      recordFailedProviderRequest(error, transcript, chatClient);
+      if (activeRepairTrace) {
+        traceTrustEvent('repair', {
+          ...activeRepairTrace,
+          status: 'finished',
+          outcome: cancelled ? 'aborted' : 'failed',
+        });
+        activeRepairTrace = null;
+      }
       let runtimeFailure = null;
       if (cancelled) {
         stats.stoppedByAbort = true;
@@ -4642,17 +4732,38 @@ export class ExplorerRuntime {
       if (!stats.elapsedMs) {
         stats.elapsedMs = nowMs() - startedAt;
       }
-      await transcript.finalize(stats);
-    }
-    if (abortSignal?.aborted) {
-      stats.stoppedByAbort = true;
-      stats.elapsedMs = nowMs() - startedAt;
-      const cancelled = normalizeExploreResult(buildCancelledExploreObject(), stats);
-      cancelled.discoveredPaths = [];
-      cancelled.observations = [];
-      cancelled.transcriptPath = transcript.filePath;
-      attachAgentFacingContract(cancelled, stats);
-      return cancelled;
+      // Cancellation has precedence until this synchronous commit point. Once
+      // final/usage/meta persistence starts, return the exact committed outcome
+      // so the transcript can never describe a different terminal state.
+      if (abortSignal?.aborted && outcome?.failure?.reason !== 'aborted') {
+        stats.stoppedByAbort = true;
+        stats.elapsedMs = nowMs() - startedAt;
+        const cancelled = normalizeExploreResult(buildCancelledExploreObject(), stats);
+        cancelled.discoveredPaths = [];
+        cancelled.observations = [];
+        cancelled.transcriptPath = transcript.filePath;
+        attachAgentFacingContract(cancelled, stats);
+        outcome = cancelled;
+      }
+      const requiredSubgoals = outcome?.taskContract?.subgoals ??
+        auditedPlan?.taskContract?.subgoals ?? [];
+      const gaps = outcome?.coverageGaps ?? auditedPlan?.coverageGaps ?? [];
+      const stateBySubgoal = new Map(requiredSubgoals.map(goal => [goal.id, goal.state]));
+      const acceptedClaimIds = outcome?.failure
+        ? []
+        : (semanticVerification?.claims ?? [])
+            .filter(claim => claim.verdict === 'supported' &&
+              stateBySubgoal.get(claim.subgoalId) !== 'blocked' &&
+              stateBySubgoal.get(claim.subgoalId) !== 'contradicted')
+            .map(claim => claim.id);
+      await transcript.finalize(stats, {
+        finalEvent: {
+          failureReason: outcome?.failure?.reason ?? null,
+          requiredSubgoals,
+          acceptedClaimIds,
+          gaps,
+        },
+      });
     }
     return outcome;
   }
@@ -4814,6 +4925,7 @@ export class ExplorerRuntime {
               messages = compactResult.messages;
               stats.llmCompactions += 1;
               Object.assign(stats, summarizeUsage(stats, compactResult.usage));
+              transcript.observeUsage?.({ model: chatClient.model, usage: compactResult.usage });
             }
           } catch (error) {
             if (abortSignal?.aborted && isAbortError(error)) {
@@ -4867,7 +4979,7 @@ export class ExplorerRuntime {
         throw error;
       }
 
-      recordCompletionStats(stats, completion);
+      recordCompletionStats(stats, completion, transcript);
 
       // No tool calls — model wants to produce its report
       if (!completion.message.toolCalls || completion.message.toolCalls.length === 0) {
@@ -5072,7 +5184,7 @@ export class ExplorerRuntime {
         }
       }
       if (finalized) {
-        recordCompletionStats(stats, finalized);
+        recordCompletionStats(stats, finalized, transcript);
         report = finalized.message.content || '';
       }
 
@@ -5120,7 +5232,7 @@ export class ExplorerRuntime {
             }
             throw error;
           }
-          recordCompletionStats(stats, continuation);
+          recordCompletionStats(stats, continuation, transcript);
 
           const continuedText = continuation.message.content || '';
           if (continuedText) {
@@ -5169,7 +5281,16 @@ export class ExplorerRuntime {
     };
   }
 
-  async finalizeAfterToolLoop({ chatClient, messages, reasoningEffort, temperature, topP, runtimeConfig, abortSignal = null }) {
+  async finalizeAfterToolLoop({
+    chatClient,
+    messages,
+    reasoningEffort,
+    temperature,
+    topP,
+    runtimeConfig,
+    abortSignal = null,
+    onCompletion = null,
+  }) {
     const maxCompletionTokens = runtimeConfig?.finalizeMaxCompletionTokens ?? 2000;
     let safetyLimits = [];
     const observeOutputLimit = (completion) => {
@@ -5198,6 +5319,7 @@ export class ExplorerRuntime {
       signal: abortSignal,
     });
     observeOutputLimit(completion);
+    onCompletion?.(completion);
 
     // 1) Primary: clean JSON parse
     const structured = extractFirstJsonObject(completion.message.content);
@@ -5240,6 +5362,7 @@ export class ExplorerRuntime {
         // Explicitly omit tools to prevent the model from requesting more tool calls
       });
       observeOutputLimit(repair);
+      onCompletion?.(repair);
       const repairStructured = extractFirstJsonObject(repair.message.content);
       const repaired = isValidExploreControlResult(repairStructured)
         ? repairStructured

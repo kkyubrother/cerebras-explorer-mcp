@@ -11,6 +11,7 @@ import {
   isTranscriptEnabled,
   isTranscriptRawMode,
   recordPlanningEvent,
+  recordTrustEvent,
 } from '../src/explorer/transcript.mjs';
 
 function withEnvPatch(patch, fn) {
@@ -191,6 +192,146 @@ test('structured safety limits are emitted as exact record-only transcript event
       limit,
     );
     assert.equal(entries.at(-1).type, 'meta', 'final summary stays the last transcript record');
+  });
+});
+
+test('Spec 028 T034 — trust events are allowlisted and forced-redacted in raw mode', async () => {
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-transcript-trust-repo-'));
+  const logDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-transcript-trust-log-'));
+  const sentinel = 'UNVERIFIED_TRANSCRIPT_PROSE_SENTINEL';
+  const fakeKey = `sk-proj-${'t'.repeat(32)}`;
+  const allowedSecretId = `AKIA${'A'.repeat(16)}`;
+
+  await withEnvPatch({
+    ...TRANSCRIPT_ENV_OFF,
+    CEREBRAS_EXPLORER_LOG_PATH: logDir,
+    CEREBRAS_EXPLORER_LOG_RAW: 'true',
+  }, async () => {
+    const recorder = createTranscriptRecorder({
+      repoRoot,
+      tool: 'explore_repo',
+      task: 'inspect trust events',
+    });
+    recordTrustEvent(recorder, 'claim', {
+      t: 0,
+      type: 'attacker-type',
+      callId: 'attacker-call-id',
+      phase: 'initial',
+      claims: [{
+        id: 'C1',
+        subgoalId: 'S1',
+        text: `${sentinel} ${fakeKey} config/.env`,
+        evidenceRefs: ['E1', fakeKey],
+        arbitrary: sentinel,
+      }],
+    });
+    recordTrustEvent(recorder, 'verdict', {
+      phase: 'initial',
+      claims: [{ id: 'C1', subgoalId: 'S1', evidenceRefs: ['E1'] }],
+      verdicts: [{
+        claimId: 'C1',
+        result: 'supported',
+        resolution: 'affirmed',
+        supportingEvidenceRefs: ['E1'],
+        reasonCode: 'entailed',
+        note: sentinel,
+      }],
+      uncoveredRequestParts: [{ question: sentinel, proofCondition: sentinel }],
+    });
+    recordTrustEvent(recorder, 'repair', {
+      status: 'started',
+      gaps: [{ id: 'G1', subgoalId: 'S1', question: sentinel, followUp: sentinel }],
+      priorActionFingerprints: ['tool:one'],
+    });
+    recordTrustEvent(recorder, 'repair', {
+      status: 'finished',
+      outcome: 'completed',
+      selectedGapIds: ['G1'],
+      affectedSubgoalIds: ['S1'],
+      actionFingerprints: ['tool:two'],
+      freshEvidenceRefs: ['E2'],
+      outcomes: [{ id: 'S1', state: 'supported', resolution: 'affirmed' }],
+      completion: sentinel,
+    });
+    recorder.observeUsage({
+      providerIndex: 1,
+      model: 'trust-model',
+      usage: { prompt_tokens: 11, completion_tokens: 7, total_tokens: 18 },
+    });
+    recorder.observeUsage({
+      model: 'trust-model',
+      usage: { prompt_tokens: 5, completion_tokens: 3, total_tokens: 8 },
+    });
+    await recorder.finalize({
+      toolCalls: 2,
+      elapsedMs: 25,
+      safetyLimits: [{
+        name: 'tool_result_limit',
+        stage: 'repair',
+        affectedSubgoalIds: ['S1', allowedSecretId, 'config/.env'],
+        truncated: true,
+      }],
+    }, {
+      finalEvent: {
+        failureReason: null,
+        requiredSubgoals: [{ id: 'S1', state: 'supported', resolution: 'affirmed' }],
+        acceptedClaimIds: ['C1'],
+        gaps: [],
+        directAnswer: sentinel,
+      },
+    });
+
+    const entries = await readJsonl(recorder.filePath);
+    assert.deepEqual(entries.map(entry => entry.type), [
+      'meta',
+      'claim',
+      'verdict',
+      'repair',
+      'repair',
+      'safety_limit',
+      'final',
+      'usage',
+      'meta',
+    ]);
+    assert.deepEqual(entries[1].claims, [{
+      claimId: 'C1',
+      subgoalId: 'S1',
+      evidenceRefs: ['E1', '[REDACTED:openai-api-key]'],
+    }]);
+    assert.equal(entries[2].uncoveredProposalCount, 1);
+    assert.equal(entries[2].verdicts[0].subgoalId, 'S1');
+    assert.equal(entries[3].status, 'started');
+    assert.equal(entries[4].status, 'finished');
+    assert.equal(entries[4].outcome, 'completed');
+    assert.equal(entries[5].stage, 'repair');
+    assert.deepEqual(entries[6].acceptedClaimIds, ['C1']);
+    assert.deepEqual(entries[7], {
+      providerIndex: 1,
+      model: 'trust-model',
+      providerCalls: 2,
+      repositoryToolCalls: 2,
+      inputTokens: 16,
+      outputTokens: 10,
+      totalTokens: 26,
+      elapsedMs: 25,
+      t: entries[7].t,
+      type: 'usage',
+      callId: recorder.callId,
+    });
+    assert.ok(entries.every(entry => entry.callId === recorder.callId));
+    assert.equal(entries.at(-1).type, 'meta');
+    const serialized = JSON.stringify(entries);
+    assert.equal(serialized.includes(sentinel), false);
+    assert.equal(serialized.includes(fakeKey), false);
+    assert.doesNotMatch(serialized, /config\/\.env/);
+    assert.match(serialized, /\[REDACTED:aws-access-key\]/);
+    assert.match(serialized, /\[REDACTED:openai-api-key\]/);
+    assert.match(serialized, /\[REDACTED:secret-path\]/);
+    assert.deepEqual(entries.at(-1).stats.safetyLimits[0].affectedSubgoalIds, [
+      'S1',
+      '[REDACTED:aws-access-key]',
+      '[REDACTED:secret-path]',
+    ]);
   });
 });
 
@@ -422,8 +563,8 @@ test('finalize waits for in-flight threshold flushes so JSONL contains all recor
 
     const entries = await readJsonl(recorder.filePath);
 
-    // Must contain: 1 initial meta + 11 assistant records + 1 final meta = 13
-    assert.equal(entries.length, 13);
+    // Must contain: initial meta + 11 assistant records + usage + final meta.
+    assert.equal(entries.length, 14);
     // Every entry must carry the correct callId (proves no corruption)
     assert.ok(entries.every(entry => entry.callId === recorder.callId));
     // Initial meta record is first

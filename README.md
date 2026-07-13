@@ -520,7 +520,7 @@ export CEREBRAS_EXPLORER_LOG_PATH="./transcripts" # 설정하면 호출별 trans
 export CEREBRAS_EXPLORER_LOG_RAW="true"           # 기본 redaction을 끄는 raw 디버깅 모드. 필요한 경우에만 사용
 ```
 
-`LOG_RAW=true`는 planning control record를 제외한 일반 transcript record에 적용됩니다. 잘못 제안된 목표에 secret이 포함될 수 있으므로 `plan_proposed`, `goal_audit`, `plan_revised`, `goal_rejected`, `subgoal_state` planning record는 항상 redaction을 거칩니다.
+`LOG_RAW=true`는 planning/trust control record를 제외한 일반 transcript record에 적용됩니다. 잘못 제안된 목표나 검증 전 문장이 포함될 수 있으므로 planning record(`plan_proposed`, `goal_audit`, `plan_revised`, `goal_rejected`, `subgoal_state`)는 항상 redaction을 거치고, trust record(`claim`, `verdict`, `repair`, `safety_limit`, `final`, `usage`)는 필드 allowlist projection과 redaction을 모두 거칩니다. Structured-path `assistant` record에는 본문 대신 길이, 허용된 tool 이름, 정규화된 finish reason만 남습니다.
 
 이전 transcript envvar 이름(v0.6.x의 hidden alias)은 v0.7.0에서 제거되었습니다. transcript은 `CEREBRAS_EXPLORER_LOG_PATH`로만 켜지며(경로 설정이 곧 opt-in), 마이그레이션 안내는 `CHANGELOG.md`의 v0.7.0 항목을 참고하세요.
 

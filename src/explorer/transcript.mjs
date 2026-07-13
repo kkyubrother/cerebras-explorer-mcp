@@ -71,12 +71,160 @@ function redactForTranscript(data) {
   return redactValue(data).value;
 }
 
+function stringOrNull(value) {
+  return typeof value === 'string' && value ? value : null;
+}
+
+function stringList(value) {
+  return Array.isArray(value)
+    ? [...new Set(value.filter(item => typeof item === 'string' && item))]
+    : [];
+}
+
+function nonNegativeInteger(value) {
+  return Number.isInteger(value) && value >= 0 ? value : 0;
+}
+
+function summarizeClaims(claims = []) {
+  return (Array.isArray(claims) ? claims : []).map(claim => ({
+    claimId: stringOrNull(claim?.id),
+    subgoalId: stringOrNull(claim?.subgoalId),
+    evidenceRefs: stringList(claim?.evidenceRefs),
+  })).filter(claim => claim.claimId && claim.subgoalId);
+}
+
+function summarizeVerdicts(data = {}) {
+  const subgoalByClaim = new Map(
+    summarizeClaims(data.claims).map(claim => [claim.claimId, claim.subgoalId]),
+  );
+  return (Array.isArray(data.verdicts) ? data.verdicts : []).map(verdict => ({
+    claimId: stringOrNull(verdict?.claimId),
+    subgoalId: subgoalByClaim.get(verdict?.claimId) ?? null,
+    result: stringOrNull(verdict?.result),
+    ...(stringOrNull(verdict?.resolution) ? { resolution: verdict.resolution } : {}),
+    supportingEvidenceRefs: stringList(verdict?.supportingEvidenceRefs),
+    reasonCode: stringOrNull(verdict?.reasonCode),
+  })).filter(verdict => verdict.claimId && verdict.result);
+}
+
+function summarizeRepair(data = {}) {
+  const gaps = Array.isArray(data.gaps) ? data.gaps : [];
+  const outcomes = Array.isArray(data.outcomes) ? data.outcomes : [];
+  const outcome = ['completed', 'failed', 'aborted'].includes(data.outcome)
+    ? data.outcome
+    : null;
+  return {
+    status: data.status === 'finished' ? 'finished' : 'started',
+    round: 1,
+    ...(outcome ? { outcome } : {}),
+    selectedGapIds: stringList(data.selectedGapIds ?? gaps.map(gap => gap?.id)),
+    affectedSubgoalIds: stringList(
+      data.affectedSubgoalIds ?? gaps.map(gap => gap?.subgoalId),
+    ),
+    priorActionFingerprints: stringList(data.priorActionFingerprints),
+    actionFingerprints: stringList(data.actionFingerprints),
+    freshEvidenceRefs: stringList(data.freshEvidenceRefs),
+    outcomes: outcomes.map(outcome => ({
+      subgoalId: stringOrNull(outcome?.id ?? outcome?.subgoalId),
+      state: stringOrNull(outcome?.state),
+      ...(stringOrNull(outcome?.resolution) ? { resolution: outcome.resolution } : {}),
+      ...(stringOrNull(outcome?.gapRef) ? { gapRef: outcome.gapRef } : {}),
+    })).filter(outcome => outcome.subgoalId && outcome.state),
+  };
+}
+
+function summarizeFinal(data = {}) {
+  const requiredSubgoals = Array.isArray(data.requiredSubgoals)
+    ? data.requiredSubgoals
+    : [];
+  const gaps = Array.isArray(data.gaps) ? data.gaps : [];
+  return {
+    ...(stringOrNull(data.failureReason) ? { failureReason: data.failureReason } : {}),
+    requiredSubgoals: requiredSubgoals.map(subgoal => ({
+      subgoalId: stringOrNull(subgoal?.id ?? subgoal?.subgoalId),
+      state: stringOrNull(subgoal?.state),
+      ...(stringOrNull(subgoal?.resolution) ? { resolution: subgoal.resolution } : {}),
+      ...(stringOrNull(subgoal?.gapRef) ? { gapRef: subgoal.gapRef } : {}),
+    })).filter(subgoal => subgoal.subgoalId && subgoal.state),
+    acceptedClaimIds: stringList(data.failureReason ? [] : data.acceptedClaimIds),
+    gaps: gaps.map(gap => ({
+      gapId: stringOrNull(gap?.id ?? gap?.gapId),
+      ...(stringOrNull(gap?.subgoalId) ? { subgoalId: gap.subgoalId } : {}),
+      reason: stringOrNull(gap?.reason),
+      repairable: gap?.repairable === true,
+    })).filter(gap => gap.gapId && gap.reason),
+  };
+}
+
+function summarizeUsage(data = {}) {
+  return {
+    ...(Number.isInteger(data.providerIndex) && data.providerIndex >= 0
+      ? { providerIndex: data.providerIndex }
+      : {}),
+    ...(stringOrNull(data.model) ? { model: data.model } : {}),
+    providerCalls: nonNegativeInteger(data.providerCalls),
+    repositoryToolCalls: nonNegativeInteger(data.repositoryToolCalls),
+    inputTokens: nonNegativeInteger(data.inputTokens),
+    outputTokens: nonNegativeInteger(data.outputTokens),
+    totalTokens: nonNegativeInteger(data.totalTokens),
+    elapsedMs: nonNegativeInteger(data.elapsedMs),
+  };
+}
+
+function buildTrustEventData(type, data = {}) {
+  switch (type) {
+    case 'claim':
+      return {
+        phase: data.phase === 'post-repair' ? 'post-repair' : 'initial',
+        claims: summarizeClaims(data.claims),
+      };
+    case 'verdict':
+      return {
+        phase: data.phase === 'post-repair' ? 'post-repair' : 'initial',
+        verdicts: summarizeVerdicts(data),
+        uncoveredProposalCount: Array.isArray(data.uncoveredRequestParts)
+          ? data.uncoveredRequestParts.length
+          : 0,
+      };
+    case 'repair':
+      return summarizeRepair(data);
+    case 'safety_limit':
+      return {
+        name: stringOrNull(data.name),
+        stage: stringOrNull(data.stage),
+        affectedSubgoalIds: stringList(data.affectedSubgoalIds),
+        truncated: data.truncated === true,
+      };
+    case 'final':
+      return summarizeFinal(data);
+    case 'usage':
+      return summarizeUsage(data);
+    default:
+      throw new TypeError(`Unsupported trust transcript event: ${type}`);
+  }
+}
+
+function recordAlwaysRedactedEvent(recorder, type, data) {
+  recorder.record(type, redactValue(data).value);
+}
+
 /** Record one trusted planning control event through the transcript's redaction boundary. */
 export function recordPlanningEvent(recorder, type, data = {}) {
   if (!recorder || typeof recorder.record !== 'function' || recorder.filePath === null) return;
   // Planning control events remain redacted even when legacy LOG_RAW mode is
   // enabled; they may contain rejected secret-bearing model proposals.
-  recorder.record(type, redactValue(data).value);
+  recordAlwaysRedactedEvent(recorder, type, data);
+}
+
+/** Record one allowlisted trust-pipeline event without retaining model prose. */
+export function recordTrustEvent(recorder, type, data = {}) {
+  if (!recorder || recorder.filePath === null) return;
+  if (typeof recorder.recordTrust === 'function') {
+    recorder.recordTrust(type, data);
+    return;
+  }
+  if (typeof recorder.record !== 'function') return;
+  recordAlwaysRedactedEvent(recorder, type, buildTrustEventData(type, data));
 }
 
 function truncateString(value, maxChars = MAX_TRACE_STRING_CHARS) {
@@ -299,6 +447,8 @@ export function createTranscriptRecorder({ repoRoot, tool, task, logger = () => 
     // No-op recorder when disabled
     return {
       record: () => {},
+      recordTrust: () => {},
+      observeUsage: () => {},
       finalize: () => Promise.resolve(),
       filePath: null,
       callId: null,
@@ -313,6 +463,14 @@ export function createTranscriptRecorder({ repoRoot, tool, task, logger = () => 
 
   let dirCreated = false;
   let buffer = [];
+  const usage = {
+    providerCalls: 0,
+    providerIndex: null,
+    model: null,
+    inputTokens: 0,
+    outputTokens: 0,
+    totalTokens: 0,
+  };
   const FLUSH_THRESHOLD = 5; // Flush after N buffered entries
 
   // Serializes all append operations so threshold-triggered fire-and-forget
@@ -364,6 +522,21 @@ export function createTranscriptRecorder({ repoRoot, tool, task, logger = () => 
     }
   }
 
+  function recordTrust(type, data = {}) {
+    recordAlwaysRedactedEvent({ record }, type, buildTrustEventData(type, data));
+  }
+
+  function observeUsage({ providerIndex = null, model = null, usage: completionUsage = null } = {}) {
+    usage.providerCalls += 1;
+    if (Number.isInteger(providerIndex) && providerIndex >= 0) {
+      usage.providerIndex = providerIndex;
+    }
+    if (typeof model === 'string' && model) usage.model = model;
+    usage.inputTokens += nonNegativeInteger(completionUsage?.prompt_tokens);
+    usage.outputTokens += nonNegativeInteger(completionUsage?.completion_tokens);
+    usage.totalTokens += nonNegativeInteger(completionUsage?.total_tokens);
+  }
+
   // Write initial metadata
   record('meta', {
     tool,
@@ -380,22 +553,27 @@ export function createTranscriptRecorder({ repoRoot, tool, task, logger = () => 
    * durably written before this promise resolves.
    * @param {object} [stats] - Final stats to include
    */
-  async function finalize(stats) {
+  async function finalize(stats, { finalEvent = null } = {}) {
     if (stats) {
       for (const limit of Array.isArray(stats.safetyLimits) ? stats.safetyLimits : []) {
         if (!limit || typeof limit !== 'object') continue;
-        record('safety_limit', {
-          name: limit.name,
-          stage: limit.stage,
-          affectedSubgoalIds: Array.isArray(limit.affectedSubgoalIds)
-            ? limit.affectedSubgoalIds
-            : [],
-          truncated: limit.truncated === true,
-        });
+        recordTrust('safety_limit', limit);
       }
-      record('meta', {
+      if (finalEvent) recordTrust('final', finalEvent);
+      recordTrust('usage', {
+        ...usage,
+        repositoryToolCalls: stats.toolCalls,
+        elapsedMs: stats.elapsedMs,
+      });
+      const protectedStats = {
+        ...stats,
+        safetyLimits: (Array.isArray(stats.safetyLimits) ? stats.safetyLimits : [])
+          .filter(limit => limit && typeof limit === 'object')
+          .map(limit => buildTrustEventData('safety_limit', limit)),
+      };
+      recordAlwaysRedactedEvent({ record }, 'meta', {
         finishedAt: new Date().toISOString(),
-        stats,
+        stats: protectedStats,
         redacted: !isTranscriptRawMode(),
         callId,
       });
@@ -406,5 +584,5 @@ export function createTranscriptRecorder({ repoRoot, tool, task, logger = () => 
     await writeChain;
   }
 
-  return { record, finalize, filePath, callId };
+  return { record, recordTrust, observeUsage, finalize, filePath, callId };
 }
