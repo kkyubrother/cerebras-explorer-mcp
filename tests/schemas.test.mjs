@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+import * as schemaExports from '../src/explorer/schemas.mjs';
 import {
   EXPLORE_REPO_INPUT_SCHEMA,
   EXPLORE_REPO_OUTPUT_SCHEMA,
@@ -12,6 +13,82 @@ import {
   validateExploreRepoArgs,
 } from '../src/explorer/schemas.mjs';
 import { RETRY_TOOLS } from '../src/explorer/runtime.mjs';
+
+function internalSchemaTest(schemaExportName, validatorExportName, name, callback) {
+  const schema = schemaExports[schemaExportName];
+  const validate = schemaExports[validatorExportName];
+  const partiallyImplemented = schema !== undefined || validate !== undefined;
+  const register = partiallyImplemented ? test : test.todo;
+  register(name, () => {
+    assert.ok(schema, `${schemaExportName} is not implemented`);
+    assert.equal(typeof validate, 'function', `${validatorExportName} is not implemented`);
+    callback(schema, validate);
+  });
+}
+
+function assertStrictObjectTree(schema, label) {
+  function visit(node, path) {
+    if (!node || typeof node !== 'object' || Array.isArray(node)) return;
+    if (node.type === 'object' || node.properties !== undefined) {
+      assert.equal(node.type, 'object', `${label} ${path} must declare object type`);
+      assert.equal(node.additionalProperties, false,
+        `${label} ${path} must reject additional properties`);
+      assert.ok(node.properties && typeof node.properties === 'object',
+        `${label} ${path} must declare properties`);
+    }
+    for (const [key, child] of Object.entries(node.properties ?? {})) {
+      visit(child, `${path}.properties.${key}`);
+    }
+    if (node.items) visit(node.items, `${path}.items`);
+    for (const keyword of ['allOf', 'anyOf', 'oneOf']) {
+      for (const [index, child] of (node[keyword] ?? []).entries()) {
+        visit(child, `${path}.${keyword}[${index}]`);
+      }
+    }
+    for (const [key, child] of Object.entries(node.$defs ?? {})) {
+      visit(child, `${path}.$defs.${key}`);
+    }
+  }
+
+  visit(schema, '$');
+}
+
+function assertSchemaKeys(schema, { required, optional = [] }, label) {
+  assert.deepEqual(new Set(schema.required), new Set(required),
+    `${label} required fields drifted`);
+  assert.deepEqual(new Set(Object.keys(schema.properties)), new Set([...required, ...optional]),
+    `${label} property set drifted`);
+}
+
+function assertStringArraySchema(schema, label) {
+  assert.equal(schema.type, 'array', `${label} must be an array`);
+  assert.equal(schema.items?.type, 'string', `${label} must contain strings`);
+}
+
+function assertStringProperties(schema, keys, label) {
+  for (const key of keys) {
+    assert.equal(schema.properties[key]?.type, 'string', `${label}.${key} must be a string`);
+  }
+}
+
+function assertStrictValidator(validate, validValue, { missingKey, makeInvalid }) {
+  assert.doesNotThrow(() => validate(structuredClone(validValue)));
+
+  const withUnknownKey = structuredClone(validValue);
+  withUnknownKey.unexpected = true;
+  assert.throws(() => validate(withUnknownKey),
+    'additionalProperties:false must be enforced at runtime');
+
+  const missingRequired = structuredClone(validValue);
+  delete missingRequired[missingKey];
+  assert.throws(() => validate(missingRequired),
+    'missing required fields must be rejected at runtime');
+
+  const invalid = structuredClone(validValue);
+  makeInvalid(invalid);
+  assert.throws(() => validate(invalid),
+    'invalid enum/type values must be rejected at runtime');
+}
 
 // Helper: build a grounded evidence item with a given groundingStatus and optional path
 function makeEvidence({ groundingStatus = 'exact', path = 'src/foo.mjs' } = {}) {
@@ -177,6 +254,402 @@ test('agent-facing strategy hint stays advanced only and budget input was remove
     /Advanced only/,
   );
 });
+
+// T006 is committed before T010. Missing schema/validator pairs run as
+// expected-red TODOs; a partial implementation becomes an ordinary failure.
+function makeValidRequiredSubgoal(overrides = {}) {
+  return {
+    id: 'S1',
+    question: 'Where is the auth policy defined?',
+    originRefs: ['request:0-32'],
+    claimType: 'positive',
+    proofPolicy: 'direct_source',
+    proofCondition: 'Observe the in-scope implementation.',
+    constraints: [],
+    auditVerdict: 'ready',
+    state: 'audited',
+    claimRefs: [],
+    ...overrides,
+  };
+}
+
+function makeValidTaskContract() {
+  return {
+    task: 'Find the auth policy implementation.',
+    effectiveScope: ['src'],
+    constraints: [],
+    capabilities: {
+      repositoryRead: true,
+      gitRead: true,
+      repositoryWrite: false,
+      liveRuntimeState: false,
+      scopeWidening: false,
+      secretPathRead: false,
+    },
+    subgoals: [makeValidRequiredSubgoal()],
+    plannerVersion: 'planner-v1',
+    goalAuditVersion: 'goal-audit-v1',
+  };
+}
+
+internalSchemaTest(
+  'TASK_CONTRACT_SCHEMA',
+  'validateTaskContract',
+  'Spec 028 T006 — TaskContract and runtime-owned nested entities are strict',
+  (schema, validate) => {
+    assertStrictObjectTree(schema, 'TASK_CONTRACT_SCHEMA');
+    assertSchemaKeys(schema, {
+      required: [
+        'task',
+        'effectiveScope',
+        'constraints',
+        'capabilities',
+        'subgoals',
+        'plannerVersion',
+        'goalAuditVersion',
+      ],
+    }, 'TASK_CONTRACT_SCHEMA');
+    assert.equal(schema.properties.task.type, 'string');
+    assertStringArraySchema(schema.properties.effectiveScope,
+      'TASK_CONTRACT_SCHEMA.effectiveScope');
+    assertStringArraySchema(schema.properties.constraints,
+      'TASK_CONTRACT_SCHEMA.constraints');
+    assert.equal(schema.properties.subgoals.type, 'array');
+    assert.equal(schema.properties.subgoals.maxItems, undefined,
+      '12 is a processing batch size, not a semantic subgoal cap');
+    assert.equal(schema.properties.plannerVersion.type, 'string');
+    assert.equal(schema.properties.goalAuditVersion.type, 'string');
+
+    const capabilitySchema = schema.properties.capabilities;
+    assertSchemaKeys(capabilitySchema, {
+      required: [
+        'repositoryRead',
+        'gitRead',
+        'repositoryWrite',
+        'liveRuntimeState',
+        'scopeWidening',
+        'secretPathRead',
+      ],
+    }, 'TASK_CONTRACT_SCHEMA.capabilities');
+    assert.equal(capabilitySchema.properties.repositoryRead.const, true);
+    assert.equal(capabilitySchema.properties.gitRead.const, true);
+    assert.equal(capabilitySchema.properties.repositoryWrite.const, false);
+    assert.equal(capabilitySchema.properties.liveRuntimeState.const, false);
+    assert.equal(capabilitySchema.properties.scopeWidening.const, false);
+    assert.equal(capabilitySchema.properties.secretPathRead.const, false);
+
+    const subgoalSchema = schema.properties.subgoals.items;
+    assertSchemaKeys(subgoalSchema, {
+      required: [
+        'id',
+        'question',
+        'originRefs',
+        'claimType',
+        'proofPolicy',
+        'proofCondition',
+        'constraints',
+        'auditVerdict',
+        'state',
+        'claimRefs',
+      ],
+      optional: ['resolution', 'blockerRef', 'gapRef'],
+    }, 'TASK_CONTRACT_SCHEMA.subgoals[]');
+    assertStringProperties(subgoalSchema, [
+      'id',
+      'question',
+      'claimType',
+      'proofPolicy',
+      'proofCondition',
+      'auditVerdict',
+      'state',
+      'resolution',
+      'blockerRef',
+      'gapRef',
+    ], 'TASK_CONTRACT_SCHEMA.subgoals[]');
+    assertStringArraySchema(subgoalSchema.properties.originRefs,
+      'TASK_CONTRACT_SCHEMA.subgoals[].originRefs');
+    assert.equal(subgoalSchema.properties.originRefs.minItems, 1);
+    assertStringArraySchema(subgoalSchema.properties.constraints,
+      'TASK_CONTRACT_SCHEMA.subgoals[].constraints');
+    assertStringArraySchema(subgoalSchema.properties.claimRefs,
+      'TASK_CONTRACT_SCHEMA.subgoals[].claimRefs');
+    assert.deepEqual(subgoalSchema.properties.claimType.enum, [
+      'positive',
+      'absence',
+      'count',
+      'symbol_definition',
+      'symbol_usage',
+      'flow',
+      'impact',
+      'comparison',
+      'claim_verification',
+    ]);
+    assert.deepEqual(subgoalSchema.properties.proofPolicy.enum, [
+      'direct_source',
+      'bounded_absence',
+      'deterministic_count',
+      'symbol_definition',
+      'bounded_usage_cross_check',
+      'ordered_handoffs',
+      'impact_categories',
+      'distinct_policy_paths',
+      'support_or_refute',
+    ]);
+    assert.deepEqual(subgoalSchema.properties.auditVerdict.enum, [
+      'ready',
+      'blocked_scope',
+      'blocked_capability',
+      'requires_external_state',
+      'missing_input',
+      'contradictory',
+      'unverifiable',
+      'planning_incomplete',
+    ]);
+    assert.deepEqual(subgoalSchema.properties.state.enum, [
+      'audited',
+      'blocked',
+      'exploring',
+      'candidate',
+      'supported',
+      'gap',
+      'contradicted',
+    ]);
+    assert.deepEqual(subgoalSchema.properties.resolution.enum, ['affirmed', 'refuted']);
+
+    const valid = makeValidTaskContract();
+    assertStrictValidator(validate, valid, {
+      missingKey: 'task',
+      makeInvalid: value => { value.subgoals[0].state = 'done'; },
+    });
+    const nestedExtra = structuredClone(valid);
+    nestedExtra.subgoals[0].priority = 1;
+    assert.throws(() => validate(nestedExtra));
+    const capabilityExtra = structuredClone(valid);
+    capabilityExtra.capabilities.networkRead = true;
+    assert.throws(() => validate(capabilityExtra));
+  },
+);
+
+internalSchemaTest(
+  'GOAL_AUDIT_RECORD_SCHEMA',
+  'validateGoalAuditRecord',
+  'Spec 028 T006 — goal-audit records are strict and categorical',
+  (schema, validate) => {
+    assertStrictObjectTree(schema, 'GOAL_AUDIT_RECORD_SCHEMA');
+    assertSchemaKeys(schema, {
+      required: ['proposedGoalId', 'verdict', 'originRefs', 'missingRequestParts', 'reason'],
+      optional: ['mergeInto'],
+    }, 'GOAL_AUDIT_RECORD_SCHEMA');
+    assertStringArraySchema(schema.properties.originRefs,
+      'GOAL_AUDIT_RECORD_SCHEMA.originRefs');
+    assertStringArraySchema(schema.properties.missingRequestParts,
+      'GOAL_AUDIT_RECORD_SCHEMA.missingRequestParts');
+    assertStringProperties(schema, [
+      'proposedGoalId',
+      'verdict',
+      'mergeInto',
+      'reason',
+    ], 'GOAL_AUDIT_RECORD_SCHEMA');
+    assert.deepEqual(schema.properties.verdict.enum, [
+      'ready',
+      'merge_duplicate',
+      'needs_decomposition',
+      'reject_untraceable',
+      'blocked_scope',
+      'blocked_capability',
+      'requires_external_state',
+      'missing_input',
+      'contradictory',
+      'unverifiable',
+    ]);
+
+    assertStrictValidator(validate, {
+      proposedGoalId: 'S1',
+      verdict: 'ready',
+      originRefs: ['request:0-32'],
+      missingRequestParts: [],
+      reason: 'Traceable and observable.',
+    }, {
+      missingKey: 'proposedGoalId',
+      makeInvalid: value => { value.verdict = 'approved'; },
+    });
+  },
+);
+
+internalSchemaTest(
+  'ATOMIC_CLAIM_SCHEMA',
+  'validateAtomicClaim',
+  'Spec 028 T006 — atomic claims are strict and carry one runtime verdict',
+  (schema, validate) => {
+    assertStrictObjectTree(schema, 'ATOMIC_CLAIM_SCHEMA');
+    assertSchemaKeys(schema, {
+      required: ['id', 'subgoalId', 'text', 'evidenceRefs', 'verdict'],
+    }, 'ATOMIC_CLAIM_SCHEMA');
+    assertStringArraySchema(schema.properties.evidenceRefs,
+      'ATOMIC_CLAIM_SCHEMA.evidenceRefs');
+    assertStringProperties(schema, [
+      'id',
+      'subgoalId',
+      'text',
+      'verdict',
+    ], 'ATOMIC_CLAIM_SCHEMA');
+    assert.equal(schema.properties.evidenceRefs.minItems, 1);
+    assert.deepEqual(schema.properties.verdict.enum, [
+      'pending',
+      'supported',
+      'insufficient',
+      'contradicted',
+    ]);
+
+    assertStrictValidator(validate, {
+      id: 'C1',
+      subgoalId: 'S1',
+      text: 'The policy is defined in src/auth.mjs.',
+      evidenceRefs: ['E1'],
+      verdict: 'pending',
+    }, {
+      missingKey: 'id',
+      makeInvalid: value => { value.verdict = 'verified'; },
+    });
+  },
+);
+
+internalSchemaTest(
+  'SEMANTIC_VERDICT_SCHEMA',
+  'validateSemanticVerdict',
+  'Spec 028 T006 — semantic verdicts are strict and cannot rewrite claims',
+  (schema, validate) => {
+    assertStrictObjectTree(schema, 'SEMANTIC_VERDICT_SCHEMA');
+    assertSchemaKeys(schema, {
+      required: ['claimId', 'result', 'supportingEvidenceRefs', 'reasonCode', 'note'],
+    }, 'SEMANTIC_VERDICT_SCHEMA');
+    assertStringArraySchema(schema.properties.supportingEvidenceRefs,
+      'SEMANTIC_VERDICT_SCHEMA.supportingEvidenceRefs');
+    assertStringProperties(schema, [
+      'claimId',
+      'result',
+      'reasonCode',
+      'note',
+    ], 'SEMANTIC_VERDICT_SCHEMA');
+    assert.deepEqual(schema.properties.result.enum, [
+      'supported',
+      'insufficient',
+      'contradicted',
+    ]);
+    assert.deepEqual(schema.properties.reasonCode.enum, [
+      'entailed',
+      'semantic_mismatch',
+      'overgeneralized',
+      'missing_transition',
+      'missing_category',
+      'boundary_mismatch',
+      'contradiction',
+      'uncovered_request',
+    ]);
+    assert.equal(schema.properties.text, undefined);
+    assert.equal(schema.properties.evidence, undefined);
+
+    assertStrictValidator(validate, {
+      claimId: 'C1',
+      result: 'supported',
+      supportingEvidenceRefs: ['E1'],
+      reasonCode: 'entailed',
+      note: 'The cited implementation directly supports the claim.',
+    }, {
+      missingKey: 'claimId',
+      makeInvalid: value => { value.reasonCode = 'confident'; },
+    });
+  },
+);
+
+internalSchemaTest(
+  'ABSENCE_CERTIFICATE_SCHEMA',
+  'validateAbsenceCertificate',
+  'Spec 028 T006 — absence certificates are strict runtime-owned proof objects',
+  (schema, validate) => {
+    assertStrictObjectTree(schema, 'ABSENCE_CERTIFICATE_SCHEMA');
+    assertSchemaKeys(schema, {
+      required: [
+        'id',
+        'subgoalId',
+        'claimBoundary',
+        'searchRefs',
+        'searchSummary',
+        'complete',
+      ],
+      optional: ['qualification'],
+    }, 'ABSENCE_CERTIFICATE_SCHEMA');
+    assertStringArraySchema(schema.properties.claimBoundary,
+      'ABSENCE_CERTIFICATE_SCHEMA.claimBoundary');
+    assertStringArraySchema(schema.properties.searchRefs,
+      'ABSENCE_CERTIFICATE_SCHEMA.searchRefs');
+    assertStringArraySchema(schema.properties.searchSummary,
+      'ABSENCE_CERTIFICATE_SCHEMA.searchSummary');
+    assertStringProperties(schema, [
+      'id',
+      'subgoalId',
+      'qualification',
+    ], 'ABSENCE_CERTIFICATE_SCHEMA');
+    assert.equal(schema.properties.complete.type, 'boolean');
+
+    assertStrictValidator(validate, {
+      id: 'A1',
+      subgoalId: 'S1',
+      claimBoundary: ['src'],
+      searchRefs: ['O1'],
+      searchSummary: ['legacy route registration'],
+      complete: true,
+      qualification: 'Static in-scope source only.',
+    }, {
+      missingKey: 'id',
+      makeInvalid: value => { value.complete = 'yes'; },
+    });
+  },
+);
+
+internalSchemaTest(
+  'SAFETY_LIMIT_SCHEMA',
+  'validateSafetyLimit',
+  'Spec 028 T006 — safety limits use exact strict ceiling and stage enums',
+  (schema, validate) => {
+    assertStrictObjectTree(schema, 'SAFETY_LIMIT_SCHEMA');
+    assertSchemaKeys(schema, {
+      required: ['name', 'stage', 'affectedSubgoalIds', 'truncated'],
+    }, 'SAFETY_LIMIT_SCHEMA');
+    assertStringArraySchema(schema.properties.affectedSubgoalIds,
+      'SAFETY_LIMIT_SCHEMA.affectedSubgoalIds');
+    assertStringProperties(schema, ['name', 'stage'], 'SAFETY_LIMIT_SCHEMA');
+    assert.deepEqual(schema.properties.name.enum, [
+      'turn_limit',
+      'context_limit',
+      'generation_output_limit',
+      'walk_limit',
+      'tool_result_limit',
+    ]);
+    assert.deepEqual(schema.properties.stage.enum, [
+      'planner',
+      'goal_audit',
+      'plan_revision',
+      'exploration',
+      'synthesis',
+      'verification',
+      'repair',
+    ]);
+    assert.equal(schema.properties.affectedSubgoalIds.minItems ?? 0, 0,
+      'an operational-only limit may affect no subgoal');
+    assert.equal(schema.properties.truncated.type, 'boolean');
+
+    assertStrictValidator(validate, {
+      name: 'tool_result_limit',
+      stage: 'exploration',
+      affectedSubgoalIds: [],
+      truncated: true,
+    }, {
+      missingKey: 'name',
+      makeInvalid: value => { value.name = 'budget'; },
+    });
+  },
+);
 
 test('internal model result schema uses the compact explore contract', () => {
   assert.deepEqual(EXPLORE_RESULT_JSON_SCHEMA.schema.required, [
