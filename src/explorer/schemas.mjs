@@ -837,6 +837,14 @@ function validateInternalEntity(schema, label, value) {
   return validateInternalValue(schema, value, label);
 }
 
+export function validateExploreControlResult(value) {
+  return validateInternalEntity(
+    EXPLORE_RESULT_JSON_SCHEMA.schema,
+    'ExploreControlResult',
+    value,
+  );
+}
+
 export function validateTaskContract(value) {
   return validateInternalEntity(TASK_CONTRACT_SCHEMA, 'TaskContract', value);
 }

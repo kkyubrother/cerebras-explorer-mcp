@@ -35,6 +35,7 @@ import {
 import {
   EXPLORE_RESULT_JSON_SCHEMA,
   normalizeExploreResult,
+  validateExploreControlResult,
   validateExploreRepoArgs,
 } from './schemas.mjs';
 import {
@@ -44,6 +45,7 @@ import {
   extractReportCitations,
   runDeterministicCriticPass,
 } from './critic.mjs';
+import { mergeSafetyLimit } from './coverage.mjs';
 import { createChatClient } from './providers/index.mjs';
 import { buildCompactToolDiagnostic, createCompactToolTrace, createTranscriptRecorder } from './transcript.mjs';
 
@@ -336,8 +338,9 @@ function buildTrustSummary(result, stats, grounding = {}) {
   if (toolResultsTruncated > 0) {
     caveats.push(`${toolResultsTruncated} tool result(s) truncated before synthesis`);
   }
-  if (stats.stoppedByBudget) {
-    caveats.push('exploration stopped at the configured turn budget');
+  const affectedLimits = affectedSafetyLimitNames(stats);
+  if (affectedLimits.length > 0) {
+    caveats.push(`required proof was interrupted by: ${affectedLimits.join(', ')}`);
   }
 
   const confidence = result.status?.confidence ?? 'low';
@@ -617,17 +620,6 @@ function buildFailure(result, stats) {
       expectedImprovement: 'A narrower task should reduce repeated tool errors and improve grounding.',
     });
   }
-  if (stats.stoppedByBudget && result.status?.complete !== true) {
-    return makeFailure('execution', 'budget_exhausted', 'Exploration stopped at the turn budget before all follow-up checks were exhausted.', {
-      tool: 'explore_repo',
-      hints: ['Retry with a narrower scope or a more specific task.', 'Add concrete file, symbol, or text anchors when available.'],
-      args: {
-        task: 'Retry with a narrower scope or a more specific task.',
-        scope: Array.isArray(stats.scope) ? stats.scope : [],
-      },
-      expectedImprovement: 'A narrower task should reduce budget pressure and improve evidence quality.',
-    });
-  }
   return null;
 }
 
@@ -893,8 +885,9 @@ function buildUncertainties(result, stats) {
   if ((result.evidence?.length ?? 0) === 0) {
     uncertainties.push('No grounded evidence was retained.');
   }
-  if (stats.stoppedByBudget) {
-    uncertainties.push('Exploration stopped at the turn budget before all possible follow-up checks were exhausted.');
+  const affectedLimits = affectedSafetyLimitNames(stats);
+  if (affectedLimits.length > 0) {
+    uncertainties.push(`Required proof was interrupted by fixed safety limits: ${affectedLimits.join(', ')}.`);
   }
   if (stats.stoppedByErrors) {
     uncertainties.push('Exploration stopped after repeated tool errors.');
@@ -945,10 +938,6 @@ function evaluateEvidenceSufficiency(result, stats, { task, taskMode } = {}) {
 
   const mode = normalizeTaskMode(taskMode);
 
-  if (isBroadInvestigationTask(task) && stats.stoppedByBudget) {
-    return { sufficient: false, reason: 'broad_investigation_budget_exhausted' };
-  }
-
   if (isSimpleCompletionMode({ taskMode, task })) {
     return exactCount >= 1
       ? { sufficient: true, reason: 'simple_task_exact_evidence' }
@@ -988,15 +977,18 @@ function buildResultStatus(result, stats, { task, taskMode, sufficiency = null, 
   const hasEditTarget = (result.targets ?? []).some(target => target.role === 'edit');
   const editPlanning = isEditPlanningMode({ taskMode, task });
   const evidenceSufficiency = sufficiency ?? evaluateEvidenceSufficiency(result, stats, { task, taskMode });
+  const proofInterrupted = affectedSafetyLimitNames(stats).length > 0;
   let verification = 'verified';
 
   if (!hasEvidence || criticStatus === 'fail' || stats.stoppedByErrors || stats.stoppedByAbort) {
     verification = 'broad_search_needed';
+  } else if (proofInterrupted) {
+    verification = 'follow_up_needed';
   } else if (result.status?.confidence === 'low') {
     verification = 'follow_up_needed';
   } else if (hasEditTarget || editPlanning) {
     verification = evidenceSufficiency.sufficient ? 'targeted_read_needed' : 'follow_up_needed';
-  } else if (criticStatus === 'caution' || stats.stoppedByBudget) {
+  } else if (criticStatus === 'caution') {
     verification = evidenceSufficiency.sufficient ? 'verified' : 'follow_up_needed';
   }
 
@@ -1007,9 +999,6 @@ function buildResultStatus(result, stats, { task, taskMode, sufficiency = null, 
   }
 
   const complete = verification === 'verified' || verification === 'targeted_read_needed';
-  if (complete && stats.stoppedByBudget) {
-    warnings.push('Budget exhausted after sufficient evidence was collected.');
-  }
 
   return {
     confidence: result.status?.confidence ?? 'low',
@@ -1019,7 +1008,7 @@ function buildResultStatus(result, stats, { task, taskMode, sufficiency = null, 
   };
 }
 
-function buildNextAction(result, { sufficiency = null } = {}) {
+function buildNextAction(result, { sufficiency = null, stats = {} } = {}) {
   const verification = result.status?.verification;
   if (verification === 'targeted_read_needed') {
     const target = (result.targets ?? []).find(item => item.role === 'edit') ??
@@ -1041,6 +1030,13 @@ function buildNextAction(result, { sufficiency = null } = {}) {
         type: modelNextAction.type,
         reason: modelNextAction.reason || 'The retained evidence is not sufficient for a complete answer.',
         ...(modelNextAction.query ? { query: modelNextAction.query } : {}),
+      };
+    }
+
+    if ((stats.safetyLimits?.length ?? 0) > 0 && result.nextAction?.type === 'stop') {
+      return {
+        type: 'stop',
+        reason: result.nextAction.reason || 'No useful parent action can recover the fixed safety limit.',
       };
     }
 
@@ -1133,6 +1129,15 @@ function tryLooseRepair(content) {
   return null;
 }
 
+function isValidExploreControlResult(value) {
+  try {
+    validateExploreControlResult(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Validate a tool call name. If the model hallucinated a non-existent tool,
  * return an error result with clear feedback so the model switches strategy.
@@ -1208,6 +1213,43 @@ function incrementToolStats(stats, toolName, { countReadFiles = true } = {}) {
   if (statField) {
     stats[statField] += 1;
   }
+}
+
+function recordSafetyLimit(stats, observation) {
+  stats.safetyLimits = mergeSafetyLimit(stats.safetyLimits ?? [], observation);
+}
+
+function recordSafetyLimits(stats, observations = []) {
+  for (const observation of observations) recordSafetyLimit(stats, observation);
+}
+
+function affectedSafetyLimitNames(stats = {}) {
+  if (!Array.isArray(stats.safetyLimits)) return [];
+  return [...new Set(stats.safetyLimits
+    .filter(limit => Array.isArray(limit?.affectedSubgoalIds) && limit.affectedSubgoalIds.length > 0)
+    .map(limit => limit?.name)
+    .filter(name => typeof name === 'string' && name))];
+}
+
+function classifyToolSafetyLimit({ toolName, toolArgs, toolResult, runtimeConfig }) {
+  if (!toolResult || toolResult.error || toolResult.truncated !== true) return null;
+  if (toolResult.skipped?.walkLimitReached === true) return 'walk_limit';
+
+  if (toolName === 'repo_read_file') {
+    const startLine = Math.max(1, Number(toolArgs?.startLine) || 1);
+    const requestedEnd = Number(toolArgs?.endLine);
+    const observedEnd = Number(toolResult.endLine);
+    const totalLines = Number(toolResult.totalLines);
+    if (!Number.isFinite(requestedEnd) || !Number.isFinite(observedEnd) || !Number.isFinite(totalLines)) {
+      return null;
+    }
+    const lastRequestedExistingLine = Math.min(Math.max(startLine, requestedEnd), totalLines);
+    const requestedSpan = lastRequestedExistingLine - startLine + 1;
+    if (requestedSpan <= (runtimeConfig?.maxReadLines ?? requestedSpan)) return null;
+    if (observedEnd >= lastRequestedExistingLine) return null;
+  }
+
+  return 'tool_result_limit';
 }
 
 function buildAssistantMessage(completionMessage) {
@@ -1459,7 +1501,7 @@ export class ExplorerRuntime {
       outputTokens: 0,
       totalTokens: 0,
       elapsedMs: 0,
-      stoppedByBudget: false,
+      safetyLimits: [],
       omittedDiscoveredPaths: 0,
       scope: Array.isArray(effectiveScope) ? effectiveScope : [],
       repoRoot,
@@ -1505,8 +1547,18 @@ export class ExplorerRuntime {
 
       // Context window management (FR-002): proactively compact at 70% and re-inject a
       // deterministic evidence ledger so verified locations survive tool-result truncation.
-      if (estimateTokens(messages) >= compactionThreshold && messages.length > 6) {
-        messages = compactOldToolResults(messages, compactionThreshold);
+      const estimatedTokens = estimateTokens(messages);
+      if (estimatedTokens >= compactionThreshold && messages.length > 6) {
+        const compactedMessages = compactOldToolResults(messages, compactionThreshold);
+        if (estimateTokens(compactedMessages) < estimatedTokens) {
+          recordSafetyLimit(stats, {
+            name: 'context_limit',
+            stage: 'exploration',
+            affectedSubgoalIds: [],
+            truncated: true,
+          });
+        }
+        messages = compactedMessages;
         const ledger = buildEvidenceLedgerMessage(observedRanges, observedGit);
         if (ledger) {
           // Replace any prior ledger (user-role, marker-prefixed) so exactly one current
@@ -1561,6 +1613,14 @@ export class ExplorerRuntime {
 
       stats.turns += 1;
       recordCompletionStats(stats, completion);
+      if (completion.finishReason === 'length') {
+        recordSafetyLimit(stats, {
+          name: 'generation_output_limit',
+          stage: 'exploration',
+          affectedSubgoalIds: [],
+          truncated: true,
+        });
+      }
 
       const assistantMessage = buildAssistantMessage(completion.message);
       messages.push(assistantMessage);
@@ -1601,6 +1661,7 @@ export class ExplorerRuntime {
         }
         finalObject = finalized.result;
         if (finalized.invalidFinalResponse) stats.invalidFinalResponse = true;
+        recordSafetyLimits(stats, finalized.safetyLimits);
         recordCompletionStats(stats, finalized);
         break;
       }
@@ -1662,6 +1723,20 @@ export class ExplorerRuntime {
       for (const { toolCall, toolName, toolArgs, toolResult } of toolCallResults) {
         const safeToolResult = redactToolResult(toolResult);
         incrementToolStats(stats, toolName);
+        const toolSafetyLimit = classifyToolSafetyLimit({
+          toolName,
+          toolArgs,
+          toolResult: safeToolResult,
+          runtimeConfig,
+        });
+        if (toolSafetyLimit) {
+          recordSafetyLimit(stats, {
+            name: toolSafetyLimit,
+            stage: 'exploration',
+            affectedSubgoalIds: [],
+            truncated: true,
+          });
+        }
         toolTrace.record({
           turn: turnIndex + 1,
           tool: toolName,
@@ -1809,12 +1884,22 @@ export class ExplorerRuntime {
     if (!finalObject && stats.stoppedByAbort) {
       finalObject = buildCancelledExploreObject(lastAssistantContent);
     } else if (!finalObject) {
-      stats.stoppedByBudget = !stats.stoppedByErrors && !stats.stoppedByAbort;
+      const turnLimitReached = !stats.stoppedByErrors && !stats.stoppedByAbort;
+      if (turnLimitReached) {
+        recordSafetyLimit(stats, {
+          name: 'turn_limit',
+          stage: 'exploration',
+          affectedSubgoalIds: [],
+          truncated: false,
+        });
+      }
       if (onProgress) {
         onProgress({
           progress: runtimeConfig.maxTurns,
           total: runtimeConfig.maxTurns,
-          message: 'Budget exhausted — synthesizing partial answer...',
+          message: turnLimitReached
+            ? 'Turn limit reached — synthesizing partial answer...'
+            : 'Tool errors stopped exploration — synthesizing partial answer...',
         });
       }
       const finalized = await this.finalizeAfterToolLoop({
@@ -1828,6 +1913,7 @@ export class ExplorerRuntime {
       });
       finalObject = finalized.result;
       if (finalized.invalidFinalResponse) stats.invalidFinalResponse = true;
+      recordSafetyLimits(stats, finalized.safetyLimits);
       recordCompletionStats(stats, finalized);
     }
 
@@ -1916,7 +2002,10 @@ export class ExplorerRuntime {
       sufficiency: evidenceSufficiency,
       usageCrossCheckGate,
     });
-    normalized.nextAction = buildNextAction(normalized, { sufficiency: evidenceSufficiency });
+    normalized.nextAction = buildNextAction(normalized, {
+      sufficiency: evidenceSufficiency,
+      stats,
+    });
 
     // Trust summary — a natural-language sentence the parent model can rely on
     normalized.trustSummary = buildTrustSummary(normalized, stats, criticPass.grounding);
@@ -2453,6 +2542,16 @@ export class ExplorerRuntime {
 
   async finalizeAfterToolLoop({ chatClient, messages, reasoningEffort, temperature, topP, runtimeConfig, abortSignal = null }) {
     const maxCompletionTokens = runtimeConfig?.finalizeMaxCompletionTokens ?? 2000;
+    let safetyLimits = [];
+    const observeOutputLimit = (completion) => {
+      if (completion?.finishReason !== 'length') return;
+      safetyLimits = mergeSafetyLimit(safetyLimits, {
+        name: 'generation_output_limit',
+        stage: 'synthesis',
+        affectedSubgoalIds: [],
+        truncated: true,
+      });
+    };
     const completion = await chatClient.createChatCompletion({
       messages: [
         ...messages,
@@ -2469,17 +2568,28 @@ export class ExplorerRuntime {
       parallelToolCalls: false,
       signal: abortSignal,
     });
+    observeOutputLimit(completion);
 
     // 1) Primary: clean JSON parse
     const structured = extractFirstJsonObject(completion.message.content);
-    if (structured) {
-      return { result: structured, usage: completion.usage ?? null, usedProvider: completion.usedProvider };
+    if (structured && isValidExploreControlResult(structured)) {
+      return {
+        result: structured,
+        usage: completion.usage ?? null,
+        usedProvider: completion.usedProvider,
+        safetyLimits,
+      };
     }
 
     // 2) Local salvage: extract JSON wrapped in prose (e.g., ```json ... ```)
     const loose = tryLooseRepair(completion.message.content);
-    if (loose) {
-      return { result: loose, usage: completion.usage ?? null, usedProvider: completion.usedProvider };
+    if (loose && isValidExploreControlResult(loose)) {
+      return {
+        result: loose,
+        usage: completion.usage ?? null,
+        usedProvider: completion.usedProvider,
+        safetyLimits,
+      };
     }
 
     // 3) No-tools repair pass: ask model to produce clean JSON within conversation context
@@ -2500,12 +2610,17 @@ export class ExplorerRuntime {
         signal: abortSignal,
         // Explicitly omit tools to prevent the model from requesting more tool calls
       });
-      const repaired = extractFirstJsonObject(repair.message.content) ?? tryLooseRepair(repair.message.content);
-      if (repaired) {
+      observeOutputLimit(repair);
+      const repairStructured = extractFirstJsonObject(repair.message.content);
+      const repaired = isValidExploreControlResult(repairStructured)
+        ? repairStructured
+        : tryLooseRepair(repair.message.content);
+      if (repaired && isValidExploreControlResult(repaired)) {
         return {
           result: repaired,
           usage: repair.usage ?? completion.usage ?? null,
           usedProvider: repair.usedProvider ?? completion.usedProvider,
+          safetyLimits,
         };
       }
     } catch { /* repair failed, fall through to local fallback */ }
@@ -2528,6 +2643,7 @@ export class ExplorerRuntime {
       usage: completion.usage ?? null,
       usedProvider: completion.usedProvider,
       invalidFinalResponse: true,
+      safetyLimits,
     };
   }
 }

@@ -221,6 +221,14 @@ function hasValidEvidenceLineRange(item) {
     item.endLine - item.startLine + 1 <= MAX_EVIDENCE_LINE_RANGE;
 }
 
+function affectedSafetyLimitNames(stats = {}) {
+  if (!Array.isArray(stats.safetyLimits)) return [];
+  return [...new Set(stats.safetyLimits
+    .filter(limit => Array.isArray(limit?.affectedSubgoalIds) && limit.affectedSubgoalIds.length > 0)
+    .map(limit => limit?.name)
+    .filter(name => typeof name === 'string' && name))];
+}
+
 /**
  * Compute a continuous confidence score (0.0-1.0) and breakdown factors
  * based on evidence grounding and exploration stats.
@@ -241,7 +249,6 @@ export function computeConfidenceScore(groundedEvidence, totalEvidenceBefore, st
     exactCount,
     crossVerified: distinctFiles >= 2,
     symbolSearchUsed: usedSearch,
-    stoppedByBudget: stats.stoppedByBudget ?? false,
     gitLogCalls,
     gitDiffCalls,
     gitBlameCalls,
@@ -273,11 +280,6 @@ export function computeConfidenceScore(groundedEvidence, totalEvidenceBefore, st
   if (gitActionCalls > 0) {
     score += 0.05;
     factors.adjustments.push('+0.05 (git blame/diff/show used - git evidence quality)');
-  }
-
-  if (factors.stoppedByBudget) {
-    score -= 0.10;
-    factors.adjustments.push('-0.10 (stopped by budget before completion)');
   }
 
   if (evidenceDropped > 0) {
@@ -315,8 +317,8 @@ export function computeConfidenceScore(groundedEvidence, totalEvidenceBefore, st
 /**
  * Reconcile the model-reported confidence level with the computed level.
  */
-export function reconcileConfidence({ modelConfidence, computedLevel, droppedEvidence, stoppedByBudget }) {
-  if (droppedEvidence > 0 || stoppedByBudget) return computedLevel;
+export function reconcileConfidence({ modelConfidence, computedLevel, droppedEvidence }) {
+  if (droppedEvidence > 0) return computedLevel;
   return lowerLevel(modelConfidence, computedLevel);
 }
 
@@ -333,7 +335,6 @@ export function evaluateConfidence({
     modelConfidence,
     computedLevel: level,
     droppedEvidence,
-    stoppedByBudget: stats.stoppedByBudget ?? false,
   });
 
   return {
@@ -364,6 +365,15 @@ export function buildCriticWarnings({
   gateSuppressed = false,
 }) {
   const warnings = [];
+  const safetyLimitNames = affectedSafetyLimitNames(stats);
+  if (safetyLimitNames.length > 0) {
+    pushWarning(warnings, {
+      type: 'safety_limit_reached',
+      severity: 'medium',
+      message: `A fixed safety limit affected required proof: ${safetyLimitNames.join(', ')}.`,
+      action: 'Use supported unaffected claims only; treat the affected requirement as incomplete.',
+    });
+  }
 
   if ((grounding.droppedMalformed ?? 0) > 0) {
     pushWarning(warnings, {
@@ -395,7 +405,7 @@ export function buildCriticWarnings({
   }
 
   // spec 026: usage cross-check gate warning — push BEFORE confidence_downgraded so it
-  // wins budget competition when both fire simultaneously (R5).
+  // wins the warning-cap competition when both fire simultaneously (R5).
   // Suppressed on all precedence routes (stoppedByErrors/stoppedByAbort/no-evidence/low-confidence)
   // that pre-empt 'verified' in buildResultStatus — no double warning on those paths.
   if (usageCrossCheck?.required && !usageCrossCheck.observed && !gateSuppressed) {
@@ -415,15 +425,6 @@ export function buildCriticWarnings({
       severity: 'medium',
       message: `Model confidence was capped from ${confidence.modelConfidence} to ${confidence.finalConfidence}.`,
       action: 'Use the capped confidence value.',
-    });
-  }
-
-  if (stats?.stoppedByBudget) {
-    pushWarning(warnings, {
-      type: 'budget_exhausted',
-      severity: 'medium',
-      message: 'Exploration stopped at the configured turn budget.',
-      action: 'Treat broad conclusions as incomplete unless supported by exact evidence.',
     });
   }
 
@@ -494,6 +495,7 @@ export function runDeterministicCriticPass({
   const gateSuppressed =
     Boolean(stats?.stoppedByErrors) ||
     Boolean(stats?.stoppedByAbort) ||
+    affectedSafetyLimitNames(stats).length > 0 ||
     (grounding.evidence?.length ?? 0) === 0 ||
     confidence.finalConfidence === 'low';
 

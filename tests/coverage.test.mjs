@@ -8,6 +8,7 @@ import {
   createTaskContract,
   deriveGapPriority,
   fingerprintAction,
+  mergeSafetyLimit,
   reduceTrustState,
   transitionSubgoal,
 } from '../src/explorer/coverage.mjs';
@@ -257,6 +258,29 @@ const contractTest = test;
     }), /safety limit|budget/i);
   });
 
+  test('Spec 028 T013 — safety-limit observations merge deterministically without losing affected goals', () => {
+    const first = mergeSafetyLimit([], {
+      name: 'tool_result_limit',
+      stage: 'exploration',
+      affectedSubgoalIds: ['S2'],
+      truncated: false,
+    });
+    const merged = mergeSafetyLimit(first, {
+      name: 'tool_result_limit',
+      stage: 'exploration',
+      affectedSubgoalIds: ['S1', 'S2'],
+      truncated: true,
+    });
+
+    assert.deepEqual(merged, [{
+      name: 'tool_result_limit',
+      stage: 'exploration',
+      affectedSubgoalIds: ['S2', 'S1'],
+      truncated: true,
+    }]);
+    assert.deepEqual(first[0].affectedSubgoalIds, ['S2'], 'merging must not mutate prior observations');
+  });
+
   contractTest('Spec 028 T005 — audited goals follow the legal verified success path', () => {
     const audited = createAuditedSubgoal();
     const exploring = transitionSubgoal(audited, 'exploring');
@@ -422,4 +446,34 @@ const contractTest = test;
       requiredSubgoals: [supported],
       parentMustReadTargets: false,
     }), 'complete');
+  });
+
+  test('Spec 028 T013 — only affected safety limits block supported goals and fatal faults still win', () => {
+    const supported = createSupportedSubgoal();
+    const operationalOnly = createSafetyLimit({
+      name: 'context_limit',
+      stage: 'exploration',
+      affectedSubgoalIds: [],
+      truncated: true,
+    });
+    const affected = createSafetyLimit({
+      name: 'tool_result_limit',
+      stage: 'exploration',
+      affectedSubgoalIds: [supported.id],
+      truncated: true,
+    });
+
+    assert.equal(reduceTrustState({
+      requiredSubgoals: [supported],
+      safetyLimits: [operationalOnly],
+    }), 'complete', 'operator-only observations must not change trust state');
+    assert.equal(reduceTrustState({
+      requiredSubgoals: [supported],
+      safetyLimits: [affected],
+    }), 'incomplete', 'a limit invalidating a required proof must block completion');
+    assert.equal(reduceTrustState({
+      fatalFault: { type: 'invalid_control_output' },
+      requiredSubgoals: [supported],
+      safetyLimits: [affected],
+    }), 'failed', 'fatal control faults take precedence over valid partial limits');
   });

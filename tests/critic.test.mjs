@@ -15,7 +15,7 @@ function makeStats(overrides = {}) {
   return {
     grepCalls: 0,
     symbolCalls: 0,
-    stoppedByBudget: false,
+    safetyLimits: [],
     gitLogCalls: 0,
     gitDiffCalls: 0,
     gitBlameCalls: 0,
@@ -217,12 +217,47 @@ test('buildCriticWarnings explains warning reasons and actions', () => {
       modelConfidence: 'high',
       finalConfidence: 'medium',
     },
-    stats: makeStats({ stoppedByBudget: true }),
+    stats: makeStats(),
   });
 
   assert.ok(warnings.length <= 3, 'default warning list must stay compact');
   assert.ok(warnings.every(w => w.message && w.action), 'warnings need reason and action');
   assert.ok(warnings.some(w => w.type === 'confidence_downgraded'));
+});
+
+test('Spec 028 T013 — critic reports only goal-affecting safety limits', () => {
+  const base = {
+    grounding: { droppedMalformed: 0, droppedUngrounded: 0, partialEvidence: 0 },
+    confidence: { modelConfidence: 'high', finalConfidence: 'high' },
+  };
+  const operationalOnly = buildCriticWarnings({
+    ...base,
+    stats: makeStats({
+      safetyLimits: [{
+        name: 'context_limit',
+        stage: 'exploration',
+        affectedSubgoalIds: [],
+        truncated: true,
+      }],
+    }),
+  });
+  const affected = buildCriticWarnings({
+    ...base,
+    stats: makeStats({
+      safetyLimits: [{
+        name: 'tool_result_limit',
+        stage: 'exploration',
+        affectedSubgoalIds: ['S1'],
+        truncated: true,
+      }],
+    }),
+  });
+
+  assert.equal(operationalOnly.some(warning => warning.type === 'safety_limit_reached'), false);
+  const warning = affected.find(item => item.type === 'safety_limit_reached');
+  assert.ok(warning);
+  assert.match(warning.message, /tool_result_limit/);
+  assert.doesNotMatch(warning.message, /budget/i);
 });
 
 test('runDeterministicCriticPass returns compact critic warnings and capped confidence', () => {
@@ -486,21 +521,30 @@ test('spec 026 T002-①: buildCriticWarnings emits usage_cross_check_missing whe
   assert.equal(warnings.filter(w => w.type === 'usage_cross_check_missing').length, 1, 'exactly one warning');
 });
 
-test('spec 026 T002-②: budget competition — usage_cross_check_missing precedes confidence_downgraded in 3-warning budget', () => {
+test('spec 026 T002-②: warning cap — usage_cross_check_missing precedes confidence_downgraded', () => {
   // droppedMalformed triggers dropped_evidence (medium), usageCrossCheck fires (medium),
-  // confidence_downgraded fires (medium), stoppedByBudget fires (medium) → 4 medium warnings,
+  // confidence_downgraded and an affected safety limit also fire → 4 medium warnings,
   // slice(0,3) keeps first 3. The new warning must be pushed BEFORE confidence_downgraded.
   const warnings = buildCriticWarnings({
     grounding: { droppedMalformed: 2, droppedUngrounded: 0 },
     confidence: { modelConfidence: 'high', finalConfidence: 'medium' },
-    stats: makeStats({ stoppedByBudget: true }),
+    stats: makeStats({
+      safetyLimits: [{
+        name: 'turn_limit',
+        stage: 'exploration',
+        affectedSubgoalIds: ['S1'],
+        truncated: false,
+      }],
+    }),
     usageCrossCheck: { required: true, observed: false, symbol: 'mySym' },
   });
 
-  assert.ok(warnings.length <= 3, 'must not exceed 3-warning budget');
+  assert.ok(warnings.length <= 3, 'must not exceed the 3-warning cap');
+  assert.ok(warnings.some(w => w.type === 'safety_limit_reached'),
+    'a goal-affecting safety limit must survive the warning cap');
   const crossCheckIdx = warnings.findIndex(w => w.type === 'usage_cross_check_missing');
   const downgradedIdx = warnings.findIndex(w => w.type === 'confidence_downgraded');
-  assert.ok(crossCheckIdx !== -1, 'usage_cross_check_missing must be in budget');
+  assert.ok(crossCheckIdx !== -1, 'usage_cross_check_missing must fit within the warning cap');
   // If confidence_downgraded is also present, cross_check must come before it
   if (downgradedIdx !== -1) {
     assert.ok(crossCheckIdx < downgradedIdx, 'usage_cross_check_missing must precede confidence_downgraded');
@@ -531,7 +575,7 @@ test('spec 026 T002-③b: buildCriticWarnings with omitted usageCrossCheck (old 
       modelConfidence: 'high',
       finalConfidence: 'medium',
     },
-    stats: makeStats({ stoppedByBudget: true }),
+    stats: makeStats(),
   });
 
   assert.ok(!warnings.some(w => w.type === 'usage_cross_check_missing'), 'omitted param must not fire gate');

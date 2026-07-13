@@ -105,7 +105,7 @@ function makeStats(overrides = {}) {
   return {
     grepCalls: 0,
     symbolCalls: 0,
-    stoppedByBudget: false,
+    safetyLimits: [],
     gitLogCalls: 0,
     gitDiffCalls: 0,
     gitBlameCalls: 0,
@@ -160,16 +160,23 @@ test('computeConfidenceScore: two exact items from same file can reach high (rel
   assert.ok(['medium', 'high'].includes(level), `expected medium or high, got ${level}`);
 });
 
-test('computeConfidenceScore: stoppedByBudget lowers confidence score', () => {
+test('computeConfidenceScore: safety-limit observations are not confidence inputs', () => {
   const evidence = [
     makeEvidence({ groundingStatus: 'exact', path: 'src/a.mjs' }),
     makeEvidence({ groundingStatus: 'exact', path: 'src/b.mjs' }),
   ];
-  const withBudget = computeConfidenceScore(evidence, 2, makeStats({ stoppedByBudget: true }));
-  const withoutBudget = computeConfidenceScore(evidence, 2, makeStats({ stoppedByBudget: false }));
-  assert.ok(withBudget.score < withoutBudget.score,
-    'stoppedByBudget must reduce the confidence score');
-  assert.equal(withBudget.factors.stoppedByBudget, true);
+  const withLimit = computeConfidenceScore(evidence, 2, makeStats({
+    safetyLimits: [{
+      name: 'tool_result_limit',
+      stage: 'exploration',
+      affectedSubgoalIds: ['S1'],
+      truncated: true,
+    }],
+  }));
+  const withoutLimit = computeConfidenceScore(evidence, 2, makeStats());
+  assert.equal(withLimit.score, withoutLimit.score,
+    'proof-state limits must not be converted into confidence penalties');
+  assert.equal('stoppedByBudget' in withLimit.factors, false);
 });
 
 test('computeConfidenceScore: no evidence returns score 0.10 and low level', () => {
@@ -203,19 +210,23 @@ test('reconcileConfidence: always returns computedLevel when evidence was droppe
     modelConfidence: 'high',
     computedLevel: 'low',
     droppedEvidence: 1,
-    stoppedByBudget: false,
   });
   assert.equal(result, 'low', 'dropped evidence must force computed level');
 });
 
-test('reconcileConfidence: always returns computedLevel when stoppedByBudget', () => {
+test('reconcileConfidence: safety-limit metadata does not create a separate confidence branch', () => {
   const result = reconcileConfidence({
     modelConfidence: 'high',
     computedLevel: 'medium',
     droppedEvidence: 0,
-    stoppedByBudget: true,
+    safetyLimits: [{
+      name: 'turn_limit',
+      stage: 'exploration',
+      affectedSubgoalIds: ['S1'],
+      truncated: false,
+    }],
   });
-  assert.equal(result, 'medium', 'stoppedByBudget must force computed level');
+  assert.equal(result, 'medium', 'normal model/computed reconciliation still applies');
 });
 
 test('reconcileConfidence: locate still takes the lower of model and computed confidence', () => {
@@ -223,7 +234,6 @@ test('reconcileConfidence: locate still takes the lower of model and computed co
     modelConfidence: 'high',
     computedLevel: 'medium',
     droppedEvidence: 0,
-    stoppedByBudget: false,
   });
   assert.equal(result, 'medium', 'locate must not bypass computed confidence');
 });
@@ -233,7 +243,6 @@ test('reconcileConfidence: non-locate takes the lower of model and computed', ()
     modelConfidence: 'high',
     computedLevel: 'medium',
     droppedEvidence: 0,
-    stoppedByBudget: false,
   });
   assert.equal(result, 'medium', 'non-locate must take the lower confidence');
 });
@@ -243,7 +252,6 @@ test('reconcileConfidence: model low is preserved even when computed is high', (
     modelConfidence: 'low',
     computedLevel: 'high',
     droppedEvidence: 0,
-    stoppedByBudget: false,
   });
   assert.equal(result, 'low', 'lower of model/computed wins; here model=low');
 });

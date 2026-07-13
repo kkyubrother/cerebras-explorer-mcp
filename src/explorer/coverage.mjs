@@ -240,6 +240,28 @@ export function createSafetyLimit(input) {
   };
 }
 
+export function mergeSafetyLimit(existingLimits = [], input) {
+  if (!Array.isArray(existingLimits)) {
+    throw new TypeError('Safety limit observations must be an array.');
+  }
+  const normalizedExisting = existingLimits.map(createSafetyLimit);
+  const next = createSafetyLimit(input);
+  const index = normalizedExisting.findIndex(item =>
+    item.name === next.name && item.stage === next.stage);
+  if (index === -1) return [...normalizedExisting, next];
+
+  return normalizedExisting.map((item, itemIndex) => itemIndex === index
+    ? {
+        ...item,
+        affectedSubgoalIds: [...new Set([
+          ...item.affectedSubgoalIds,
+          ...next.affectedSubgoalIds,
+        ])],
+        truncated: item.truncated || next.truncated,
+      }
+    : item);
+}
+
 function canonicalizeJson(value, seen) {
   if (value === null || typeof value === 'string' || typeof value === 'boolean') return value;
   if (typeof value === 'number') {
@@ -342,9 +364,23 @@ export function transitionSubgoal(input, nextState, metadata = {}) {
   illegalTransition(currentState, nextState);
 }
 
-export function reduceTrustState({ fatalFault = null, requiredSubgoals = [], parentMustReadTargets = false } = {}) {
+export function reduceTrustState({
+  fatalFault = null,
+  requiredSubgoals = [],
+  parentMustReadTargets = false,
+  safetyLimits = [],
+} = {}) {
   if (fatalFault) return 'failed';
   if (!Array.isArray(requiredSubgoals) || requiredSubgoals.length === 0) return 'incomplete';
-  if (requiredSubgoals.some(subgoal => subgoal?.state !== 'supported')) return 'incomplete';
+  if (!Array.isArray(safetyLimits)) {
+    throw new TypeError('Safety limit observations must be an array.');
+  }
+  const affectedSubgoalIds = new Set(
+    safetyLimits.flatMap(limit => createSafetyLimit(limit).affectedSubgoalIds),
+  );
+  if (requiredSubgoals.some(subgoal =>
+    subgoal?.state !== 'supported' || affectedSubgoalIds.has(subgoal?.id))) {
+    return 'incomplete';
+  }
   return parentMustReadTargets === true ? 'verify_targets' : 'complete';
 }
