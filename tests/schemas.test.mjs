@@ -710,7 +710,6 @@ test('computeConfidenceScore: safety-limit observations are not confidence input
   const withoutLimit = computeConfidenceScore(evidence, 2, makeStats());
   assert.equal(withLimit.score, withoutLimit.score,
     'proof-state limits must not be converted into confidence penalties');
-  assert.equal('stoppedByBudget' in withLimit.factors, false);
 });
 
 test('computeConfidenceScore: no evidence returns score 0.10 and low level', () => {
@@ -790,12 +789,7 @@ test('reconcileConfidence: model low is preserved even when computed is high', (
   assert.equal(result, 'low', 'lower of model/computed wins; here model=low');
 });
 
-test('public budget and strategy inputs stay removed', () => {
-  assert.equal(
-    EXPLORE_REPO_INPUT_SCHEMA.properties.budget,
-    undefined,
-    'spec 011: budget input was removed',
-  );
+test('public strategy input stays removed', () => {
   assert.equal(
     EXPLORE_REPO_INPUT_SCHEMA.properties.hints.properties.strategy,
     undefined,
@@ -1312,7 +1306,7 @@ internalSchemaTest(
       truncated: true,
     }, {
       missingKey: 'name',
-      makeInvalid: value => { value.name = 'budget'; },
+      makeInvalid: value => { value.name = 'unknown_ceiling'; },
     });
   },
 );

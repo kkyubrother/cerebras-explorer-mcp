@@ -41,7 +41,6 @@ const ORACLE_RESOLUTIONS = new Set(['supported', 'refuted', 'gap', 'failed']);
 const ORACLE_STATES = new Set(['complete', 'incomplete', 'failed']);
 const ORACLE_FAILURE_CATEGORIES = new Set(['execution', 'input', 'provider', 'internal']);
 const ORACLE_FAILURE_REASONS = new Set([
-  'budget_exhausted',
   'tool_errors',
   'aborted',
   'repo_mismatch',
@@ -1458,15 +1457,6 @@ test('evaluateBenchmarkCase rejects removed recentActivity benchmark sources and
     /Unknown benchmark check type: has_recent_activity/,
   );
 
-  assert.throws(
-    () => evaluateBenchmarkCase({
-      id: 'removed-budget-stop-check',
-      checks: [
-        { label: 'Budget stop', type: 'stopped_by_budget_equals', value: true },
-      ],
-    }, { searchCoverage: { stoppedByBudget: true } }),
-    /Unknown benchmark check type: stopped_by_budget_equals/,
-  );
 });
 
 test('Spec 028 T052 — report benchmark entry points migrate to structured suites', async () => {

@@ -441,7 +441,7 @@ export function createMcpRequestHandler({
       `[cerebras-explorer] tool=${tool} ` +
       `turns=${safeStats.turns ?? 0} ` +
       `toolCalls=${safeStats.toolCalls ?? 0} ` +
-      `stoppedByBudget=${Boolean(safeStats.stoppedByBudget)} ` +
+      `safetyLimits=${Array.isArray(safeStats.safetyLimits) ? safeStats.safetyLimits.length : 0} ` +
       `elapsed=${elapsedSeconds}s`;
     if (transcriptPath) line += ` log=${path.basename(transcriptPath)}`;
     if (raw) line += ' raw=true';

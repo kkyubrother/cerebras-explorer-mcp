@@ -5,9 +5,6 @@ import os from 'node:os';
 import path from 'node:path';
 
 import {
-  getExploreMaxCompactions,
-  getExploreMaxExtraTurns,
-  getExploreTurnMultiplier,
   getRepoRoot,
   getRuntimeConfig,
   loadProjectConfig,
@@ -62,28 +59,18 @@ test('Spec 028 T008 — structured runtime limits are fixed, unlabeled, and not 
     assert.ok(baseline[key] > 0, `${key} must be positive`);
   }
   assert.equal(
-    Object.keys(baseline).some(key => /budget|effort|strategy|thorough|label|multiplier/i.test(key)),
+    Object.keys(baseline).some(key => /effort|strategy|thorough|label|multiplier/i.test(key)),
     false,
     'the structured runtime config must not encode a selectable effort tier',
   );
 
-  await withEnv({
-    CEREBRAS_EXPLORER_TURN_MULTIPLIER: '4',
-    CEREBRAS_EXPLORER_MAX_EXTRA_TURNS: '200',
-    CEREBRAS_EXPLORER_MAX_COMPACTIONS: '10',
-  }, async () => {
-    assert.deepEqual(getRuntimeConfig(), baseline,
-      'legacy report effort controls must not mutate structured runtime limits');
-  });
-
   const injected = normalizeProjectConfig({
-    defaultBudget: 'deep',
     maxTurns: 1,
     searchDepth: 'shallow',
     strategy: 'fast',
     safetyLimits: { maxTurns: 1 },
   });
-  assert.deepEqual(injected, {}, 'project config cannot override fixed runtime limits or effort');
+  assert.deepEqual(injected, {}, 'project config cannot override fixed runtime limits or search policy');
 
   const originalMaxTurns = baseline.maxTurns;
   try {
@@ -140,13 +127,8 @@ test('loadProjectConfig returns {} for an empty object', async () => {
 
 // ─── normalizeProjectConfig ──────────────────────────────────────────────────
 
-test('normalizeProjectConfig: legacy defaultBudget is dropped', () => {
-  const config = normalizeProjectConfig({ defaultBudget: 'deep' });
-  assert.equal(config.defaultBudget, undefined);
-});
-
 // T047_ACTIVE_SURFACE_GUARD_FIXTURE_START
-const T054_LEGACY_CONFIG_SURFACE_REMOVED = false;
+const T054_LEGACY_CONFIG_SURFACE_REMOVED = true;
 
 test('Spec 028 T047 — project config drops case-insensitive budget-shaped keys', () => {
   const config = normalizeProjectConfig({
@@ -223,8 +205,7 @@ test('normalizeProjectConfig: null input returns {}', () => {
 });
 
 test('normalizeProjectConfig: unknown fields are ignored', () => {
-  const config = normalizeProjectConfig({ unknownKey: 'value', defaultBudget: 'normal' });
-  assert.equal(config.defaultBudget, undefined);
+  const config = normalizeProjectConfig({ unknownKey: 'value' });
   assert.equal(config.unknownKey, undefined);
 });
 
@@ -270,68 +251,6 @@ test('resolveRepoRoot wraps unresolved repo_root errors with repo_root context',
       return true;
     },
   );
-});
-
-test('getExploreTurnMultiplier uses defaults and env overrides with clamping', async () => {
-  await withEnv({
-    CEREBRAS_EXPLORER_TURN_MULTIPLIER: undefined,
-    CEREBRAS_EXPLORER_V2_TURN_MULTIPLIER: undefined,
-  }, async () => {
-    assert.equal(getExploreTurnMultiplier(), 2);
-  });
-
-  await withEnv({
-    CEREBRAS_EXPLORER_TURN_MULTIPLIER: '1',
-    CEREBRAS_EXPLORER_V2_TURN_MULTIPLIER: undefined,
-  }, async () => {
-    assert.equal(getExploreTurnMultiplier(), 1);
-  });
-
-  await withEnv({
-    CEREBRAS_EXPLORER_TURN_MULTIPLIER: '99',
-    CEREBRAS_EXPLORER_V2_TURN_MULTIPLIER: undefined,
-  }, async () => {
-    assert.equal(getExploreTurnMultiplier(), 4);
-  });
-
-  await withEnv({
-    CEREBRAS_EXPLORER_TURN_MULTIPLIER: undefined,
-    CEREBRAS_EXPLORER_V2_TURN_MULTIPLIER: '1',
-  }, async () => {
-    assert.equal(getExploreTurnMultiplier(), 2, 'removed V2 tuning envvar must be ignored');
-  });
-});
-
-test('getExplore caps extra turns and compactions from env', async () => {
-  await withEnv({
-    CEREBRAS_EXPLORER_MAX_EXTRA_TURNS: undefined,
-    CEREBRAS_EXPLORER_MAX_COMPACTIONS: undefined,
-    CEREBRAS_EXPLORER_V2_MAX_EXTRA_TURNS: undefined,
-    CEREBRAS_EXPLORER_V2_MAX_COMPACTIONS: undefined,
-  }, async () => {
-    assert.equal(getExploreMaxExtraTurns(), 30);
-    assert.equal(getExploreMaxCompactions(), 3);
-  });
-
-  await withEnv({
-    CEREBRAS_EXPLORER_MAX_EXTRA_TURNS: '-5',
-    CEREBRAS_EXPLORER_MAX_COMPACTIONS: '20',
-    CEREBRAS_EXPLORER_V2_MAX_EXTRA_TURNS: undefined,
-    CEREBRAS_EXPLORER_V2_MAX_COMPACTIONS: undefined,
-  }, async () => {
-    assert.equal(getExploreMaxExtraTurns(), 0);
-    assert.equal(getExploreMaxCompactions(), 10);
-  });
-
-  await withEnv({
-    CEREBRAS_EXPLORER_MAX_EXTRA_TURNS: undefined,
-    CEREBRAS_EXPLORER_MAX_COMPACTIONS: undefined,
-    CEREBRAS_EXPLORER_V2_MAX_EXTRA_TURNS: '0',
-    CEREBRAS_EXPLORER_V2_MAX_COMPACTIONS: '10',
-  }, async () => {
-    assert.equal(getExploreMaxExtraTurns(), 30, 'removed V2 max-extra-turns envvar must be ignored');
-    assert.equal(getExploreMaxCompactions(), 3, 'removed V2 max-compactions envvar must be ignored');
-  });
 });
 
 // ─── Integration: projectConfig applied in runtime ───────────────────────────

@@ -38,9 +38,8 @@ test('analyzeTranscriptEntries detects repeated tool plans and tool errors', () 
   assert.equal(metrics.toolErrorCalls, 1);
 });
 
-test('analyzeTranscriptEntries counts exact safety-limit events and ignores legacy budget stats', () => {
+test('analyzeTranscriptEntries counts exact safety-limit events', () => {
   const metrics = analyzeTranscriptEntries([
-    { type: 'meta', stats: { stoppedByBudget: true } },
     {
       type: 'safety_limit',
       name: 'turn_limit',
@@ -58,7 +57,6 @@ test('analyzeTranscriptEntries counts exact safety-limit events and ignores lega
   ]);
 
   assert.equal(metrics.safetyLimitCount, 2);
-  assert.equal('stoppedByBudget' in metrics, false);
 });
 
 test('analyzeTranscriptFile returns null for missing paths and parses safety-limit JSONL events', async () => {
@@ -119,7 +117,6 @@ test('computeExtendedMetrics reads ops stats and reports n/a (null) when ops are
   assert.equal(withOps.avgToolTurns, 3);
   assert.equal(withOps.avgInternalTokens, 1000);
   assert.equal(withOps.noToolExitRate, 0.5, 'ops.toolCalls === 0 marks a no-tool exit');
-  assert.equal('deepBudgetAvgTotalTokens' in withOps, false, 'dead spec-011 metric is deleted');
 
   const withoutOps = computeExtendedMetrics([syntheticCase()]);
   assert.equal(withoutOps.avgToolTurns, null, 'no fabricated 0 without a source');
@@ -127,14 +124,13 @@ test('computeExtendedMetrics reads ops stats and reports n/a (null) when ops are
   assert.equal(withoutOps.noToolExitRate, 0, 'searchCoverage fallback sees 1 file read');
 });
 
-test('computeExtendedMetrics reports record-only safety-limit incidence without budget exhaustion', () => {
+test('computeExtendedMetrics reports record-only safety-limit incidence', () => {
   const metrics = computeExtendedMetrics([
     syntheticCase({ transcriptMetrics: { safetyLimitCount: 1 } }),
     syntheticCase({ transcriptMetrics: { safetyLimitCount: 0 } }),
     syntheticCase(),
   ]);
   assert.equal(metrics.safetyLimitIncidenceRate, 0.5);
-  assert.equal('budgetExhaustionRate' in metrics, false);
 
   const withoutTrace = computeExtendedMetrics([syntheticCase()]);
   assert.equal(withoutTrace.safetyLimitIncidenceRate, null,

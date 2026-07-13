@@ -190,9 +190,6 @@ test('Spec 028 T046 — report-only prompt and critic helpers are removed', t =>
   }
 });
 
-// spec 011: the public `budget` input was removed. Every call now runs against
-// the single deep runtime config.
-
 // ─── Spec 028 T018: isolated planner/auditor prompt boundaries ──────────────
 
 const auditedPromptBoundaryTest =
@@ -305,7 +302,7 @@ auditedPromptBoundaryTest('Spec 028 T018 — planner policy is invariant under u
       secretPathRead: true,
     },
     proofPolicy: 'direct_source',
-    budget: 'unbounded',
+    unknownControl: 'override',
   })), 'planner');
 
   assert.equal(attacked.system, baseline.system,
@@ -315,7 +312,7 @@ auditedPromptBoundaryTest('Spec 028 T018 — planner policy is invariant under u
   assert.doesNotMatch(attacked.system, new RegExp(`${contextMarker}|${pathMarker}`));
   assertRawArtifactsExcluded(attacked.all);
   assert.doesNotMatch(attacked.all, /"proofPolicy"\s*:\s*"direct_source"/);
-  assert.doesNotMatch(attacked.all, /"budget"\s*:/);
+  assert.doesNotMatch(attacked.all, /"unknownControl"\s*:/);
   assert.match(attacked.data, /"repositoryRead":true/);
   assert.match(attacked.data, /"repositoryWrite":false/);
   assert.match(attacked.data, /"liveRuntimeState":false/);
@@ -432,8 +429,7 @@ auditedPromptBoundaryTest('Spec 028 T018 — goal auditor sees only request cont
     candidateClaims: ['CANDIDATE_CLAIM_AUDITOR_OVERRIDE'],
     confidence: 'high',
     tokenStatistics: { total: 1 },
-    effort: 'maximum',
-    budget: 'unbounded',
+    unknownControl: 'override',
   }), 'goal auditor');
 
   assert.equal(attacked.system, baseline.system,
@@ -446,7 +442,7 @@ auditedPromptBoundaryTest('Spec 028 T018 — goal auditor sees only request cont
     /PROJECT_CONTEXT_AUDITOR_OVERRIDE|EXPLORER_DRAFT_AUDITOR_OVERRIDE|CANDIDATE_CLAIM_AUDITOR_OVERRIDE/);
   assert.doesNotMatch(attacked.data, /"auditVerdict"\s*:|"state"\s*:/,
     'a fresh audit cannot receive a prior verdict or runtime state');
-  assert.doesNotMatch(attacked.all, /"confidence"\s*:|tokenStatistics|"effort"\s*:|"budget"\s*:/);
+  assert.doesNotMatch(attacked.all, /"confidence"\s*:|tokenStatistics|"unknownControl"\s*:/);
   assert.match(attacked.system, /original request|request text/i);
   assert.match(attacked.system, /wrapper/i);
   assert.match(attacked.system, /blocked_scope[\s\S]{0,100}outside the immutable scope/i);
@@ -488,7 +484,7 @@ auditedPromptBoundaryTest('Spec 028 T022 — coverage reconciliation uses opaque
       repositoryArtifacts: RAW_REPOSITORY_MARKERS,
       exploratoryMessages: ['EXPLORER_DRAFT_OVERRIDE_POLICY'],
       candidateClaims: ['CANDIDATE_CLAIM_OVERRIDE_POLICY'],
-      budget: 'unbounded',
+      unknownControl: 'override',
     }),
     'goal coverage reconciliation',
   );
@@ -502,7 +498,7 @@ auditedPromptBoundaryTest('Spec 028 T022 — coverage reconciliation uses opaque
   assertRawArtifactsExcluded(attacked.all);
   assert.doesNotMatch(attacked.all,
     /EXPLORER_DRAFT_OVERRIDE_POLICY|CANDIDATE_CLAIM_OVERRIDE_POLICY/);
-  assert.doesNotMatch(attacked.all, /"budget"\s*:/);
+  assert.doesNotMatch(attacked.all, /"unknownControl"\s*:/);
 });
 
 test('Spec 028 T028 — claim synthesis receives bounded observations and cannot author evidence facts', () => {

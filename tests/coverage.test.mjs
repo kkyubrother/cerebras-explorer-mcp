@@ -478,7 +478,7 @@ const contractTest = test;
     assert.doesNotMatch(first, /Locate|src|explore_repo/, 'fingerprints must not leak raw action data');
   });
 
-  contractTest('Spec 028 T005 — SafetyLimit names exact ceilings and never accepts a generic budget', () => {
+  contractTest('Spec 028 T005 — SafetyLimit accepts only exact named ceilings', () => {
     assert.deepEqual(createSafetyLimit({
       name: 'tool_result_limit',
       stage: 'exploration',
@@ -499,11 +499,11 @@ const contractTest = test;
     }).affectedSubgoalIds, [], 'an operational-only limit may affect no goal');
 
     assert.throws(() => createSafetyLimit({
-      name: 'budget',
+      name: 'unknown_ceiling',
       stage: 'exploration',
       affectedSubgoalIds: ['S1'],
       truncated: true,
-    }), /safety limit|budget/i);
+    }), /safety limit|unknown/i);
   });
 
   test('Spec 028 T013 — safety-limit observations merge deterministically without losing affected goals', () => {

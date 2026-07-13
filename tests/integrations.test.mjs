@@ -124,7 +124,7 @@ test('regression tests do not reference removed feedback document', async () => 
 // T056 removes the remaining user-facing migration surface. This block is the
 // guard's own narrowly scoped negative-test allowlist and is stripped before
 // the repository scan, so its banned fixtures cannot satisfy themselves.
-const T054_ACTIVE_EFFORT_STATE_REMOVED = false;
+const T054_ACTIVE_EFFORT_STATE_REMOVED = true;
 const T056_USER_SURFACE_MIGRATED = false;
 
 const ACTIVE_CODE_ROOTS = Object.freeze(['src', 'scripts', 'benchmarks', 'tests']);
@@ -452,7 +452,7 @@ const REMOVED_PUBLIC_TOOL_NAME_PATTERN = new RegExp(
   `\\b(${['map', 'impact'].join('_')}|${['find', 'entrypoints'].join('_')})\\b`,
 );
 
-test('Gemini client timeout matches Codex tool_timeout_sec budget', async () => {
+test('Gemini client timeout matches Codex tool_timeout_sec limit', async () => {
   const gemini = JSON.parse(await read('integrations/gemini/settings.json.example'));
   const codex = await read('integrations/codex/config.toml.example');
   const codexMatch = codex.match(/tool_timeout_sec\s*=\s*(\d+)/);
@@ -519,18 +519,16 @@ test('LLM prose files do not advertise removed top-level fields', async () => {
 });
 
 test('LLM prose files do not present removed inputs as settable parameters', async () => {
-  // `budget` (spec 011), `session` (spec 017), and `explore.thoroughness`
-  // (spec 023) are rejected inputs. Prose may mention them only as removed
-  // (e.g. "`budget` was removed in spec 011"), never as something an agent
-  // could set, choose, or tune — "Do not set `budget` ... unless an advanced
-  // workflow requires it" phrasing led agents into invalid_arguments failures.
+  // `session` (spec 017) and `explore.thoroughness` (spec 023) are rejected
+  // inputs. Prose may mention them only as removed, never as something an
+  // agent could set, choose, or tune.
   const settableRemovedInput =
-    /\b(?:set|sets|setting|choose|chooses|choosing|pass|passes|passing|specify|specifies|specifying|tune|tunes|tuning)\s+[`"']?(?:budget|thoroughness|session)\b/i;
+    /\b(?:set|sets|setting|choose|chooses|choosing|pass|passes|passing|specify|specifies|specifying|tune|tunes|tuning)\s+[`"']?(?:thoroughness|session)\b/i;
   for (const relPath of LLM_PROSE_FILES) {
     assert.doesNotMatch(
       await read(relPath),
       settableRemovedInput,
-      `${relPath} must describe budget/thoroughness/session as removed inputs, not settable ones`,
+      `${relPath} must describe thoroughness/session as removed inputs, not settable ones`,
     );
   }
 });

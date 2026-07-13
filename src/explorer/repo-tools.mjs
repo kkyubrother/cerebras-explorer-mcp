@@ -528,7 +528,7 @@ async function detectBinary(cmd, args) {
 }
 
 // Detects regex patterns prone to catastrophic backtracking (ReDoS). The JS grep
-// fallback runs regex.test() per line in-process with no time budget, so a nested
+// fallback runs regex.test() per line in-process with no execution deadline, so a nested
 // quantifier on a model-supplied pattern can block the event loop (audit F3). The
 // ripgrep fast path is linear-time and unaffected; this guard protects only the
 // fallback (base-scope greps / environments without ripgrep).
@@ -886,7 +886,7 @@ export class RepoToolkit {
     }
 
     // ReDoS guard (audit F3): the JS fallback below runs regex.test() per line with
-    // no time budget, so a nested-quantifier pattern can block the event loop. The
+    // no execution deadline, so a nested-quantifier pattern can block the event loop. The
     // ripgrep fast path above is linear-time; only the fallback (base-scope greps /
     // ripgrep-less environments) is reachable here, so reject the pattern instead.
     if (isCatastrophicRegexPattern(pattern)) {

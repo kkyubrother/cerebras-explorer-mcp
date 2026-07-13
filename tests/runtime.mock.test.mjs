@@ -280,21 +280,6 @@ test('Spec 028 T041 — failed handoff maps reasons and drops stale success data
     },
   });
   assert.doesNotThrow(() => validateParentHandoffV3(handoff));
-
-  const legacyBudgetStop = buildParentHandoffV3({
-    result: {
-      failure: {
-        reason: 'budget_exhausted',
-        message: 'Legacy internal limit label.',
-      },
-    },
-    task: 'Trace token validation.',
-  });
-  assert.equal(legacyBudgetStop.state, 'incomplete');
-  assert.equal(legacyBudgetStop.failure, undefined);
-  assert.equal(legacyBudgetStop.gaps[0].reason,
-    'A fixed safety limit interrupted proof for this requested part.');
-  assert.doesNotThrow(() => validateParentHandoffV3(legacyBudgetStop));
 });
 
 test('Spec 028 T041 — plan-level gaps prevent a false complete handoff', () => {
@@ -647,7 +632,6 @@ test('ExplorerRuntime performs an autonomous tool loop and returns structured fi
   assert.equal(result.searchCoverage.scopeLimited, true);
   assert.equal(result.searchCoverage.filesRead, result.stats.filesRead);
   assert.equal(result.searchCoverage.grepCalls, result.stats.grepCalls);
-  assert.equal(result.searchCoverage.stoppedByBudget, false);
   assert.ok(Array.isArray(result.searchCoverage.warnings));
   assert.match(result.searchCoverage.summary, /scope-limited|repo-wide/);
   assert.equal(result.evidence.length, 2);
@@ -1334,7 +1318,6 @@ test('Phase 1 — explore circuit breaker trips after three all-error turns', as
 
   assert.equal(result.stats.turns, 3, 'tool loop must stop after the third all-error turn');
   assert.equal(result.stats.stoppedByErrors, true, 'circuit breaker must mark stoppedByErrors');
-  assert.equal('stoppedByBudget' in result.stats, false, 'structured stats must not expose a budget stop');
   assert.deepEqual(result.stats.safetyLimits, [], 'tool errors must not be mislabeled as safety-limit stops');
   assert.equal(client.calls, 3, 'tool-error termination must not make an untrusted finalization call');
   assert.equal(result.schemaVersion, 2);
@@ -1874,8 +1857,6 @@ test('Spec 028 T008 — a valid partial tool-result limit is non-fatal and canno
     scope: ['src/**'],
   });
 
-  assert.equal('budget' in result.stats, false);
-  assert.equal('stoppedByBudget' in result.stats, false);
   assert.equal(result.status.complete, false);
   assert.equal(result.failure, null, 'a valid partial result is an incomplete proof state, not execution failure');
   assert.equal(result.nextAction.type, 'stop', 'a fixed limit must not create a pointless question for the parent');
@@ -1914,8 +1895,6 @@ test('Spec 028 T008 — an output-capped invalid control response remains a fata
   const runtime = new ExplorerRuntime({ chatClient: new InvalidControlOutputClient() });
   const result = await runtime.explore({ task: 'Locate the auth middleware.', repo_root: root });
 
-  assert.equal('budget' in result.stats, false);
-  assert.equal('stoppedByBudget' in result.stats, false);
   assert.equal(result.status.complete, false);
   assert.ok(result.failure, 'invalid required control JSON cannot be promoted as partial evidence');
   assert.equal(result.failure.reason, 'invalid_final_response');
@@ -2087,7 +2066,6 @@ test('ExplorerRuntime turn limit stays non-fatal and preserves the hard scope', 
     scope: ['src/**', 'tests/**'],
   });
 
-  assert.equal('stoppedByBudget' in result.stats, false);
   assert.equal(result.failure, null, 'a valid turn limit is a partial proof state, not an execution fault');
   assert.deepEqual(result.stats.scope, ['src/**', 'tests/**']);
   assert.ok(result.stats.safetyLimits.some(limit =>
@@ -2382,7 +2360,7 @@ test('Spec 028 T012 — structured prompts expose exact fixed-limit names withou
     systemPrompt,
     new RegExp(`Fixed runtime limits: maxTurns=${runtimeConfig.maxTurns}, maxReadLines=${runtimeConfig.maxReadLines}, maxSearchResults=${runtimeConfig.maxSearchResults}\\.`),
   );
-  assert.doesNotMatch(`${systemPrompt}\n${userPrompt}`, /Runtime profile|\bdeep\b|\bbudget\b/i);
+  assert.doesNotMatch(`${systemPrompt}\n${userPrompt}`, /Runtime profile|\bdeep\b/i);
 });
 
 test('Spec 023 — explorer system prompt has UNTRUSTED CONTENT rule and candidate-edit-target wording', () => {
@@ -2574,23 +2552,6 @@ test('Phase 0 metric — strict schema compliance: required fields present under
   const runtime = new ExplorerRuntime({ chatClient: new MinimalClient() });
   const result = await runtime.explore({ task: '테스트', repo_root: root });
   assertStrictSchema(result);
-  assert.equal('budget' in result.stats, false,
-    'structured stats must not expose a runtime effort label');
-});
-
-test('011 US2 — explore_repo rejects budget input as unknown property', async () => {
-  class StubClient {
-    constructor() { this.model = 'zai-glm-4.7'; }
-    async createChatCompletion() {
-      return { usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }, message: { content: '', toolCalls: [] } };
-    }
-  }
-  const root = await makeRepoFixture();
-  const runtime = new ExplorerRuntime({ chatClient: new StubClient() });
-  await assert.rejects(
-    runtime.explore({ task: '테스트', repo_root: root, budget: 'quick' }),
-    /Unknown explore_repo argument: budget/,
-  );
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -3233,9 +3194,9 @@ test('finalize prompt bounds output size for compact JSON synthesis', () => {
   assert.match(prompt, /at most 8 evidence/i);
 });
 
-test('finalizeAfterToolLoop gives repair pass the full finalize token budget', async () => {
-  const seenFinalizeBudgets = [];
-  class TokenBudgetRepairClient {
+test('finalizeAfterToolLoop gives repair pass the full finalize output limit', async () => {
+  const seenFinalizeLimits = [];
+  class OutputLimitRepairClient {
     constructor() { this.model = 'test'; this.calls = 0; }
     async createChatCompletion({ messages, maxCompletionTokens }) {
       this.calls += 1;
@@ -3256,7 +3217,7 @@ test('finalizeAfterToolLoop gives repair pass the full finalize token budget', a
           message: { content: '', toolCalls: [] },
         };
       }
-      seenFinalizeBudgets.push(maxCompletionTokens);
+      seenFinalizeLimits.push(maxCompletionTokens);
       if (lastMessage.includes('Produce the final exploration result now.')) {
         return {
           usage: { prompt_tokens: 10, completion_tokens: maxCompletionTokens, total_tokens: 10 + maxCompletionTokens },
@@ -3270,7 +3231,7 @@ test('finalizeAfterToolLoop gives repair pass the full finalize token budget', a
         usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
         message: {
           content: JSON.stringify(compactResult({
-            directAnswer: 'repaired with full budget',
+            directAnswer: 'repaired with full output limit',
             statusConfidence: 'low',
             evidence: [],
           })),
@@ -3281,14 +3242,14 @@ test('finalizeAfterToolLoop gives repair pass the full finalize token budget', a
   }
 
   const root = await makeRepoFixture();
-  const runtime = new ExplorerRuntime({ chatClient: new TokenBudgetRepairClient() });
+  const runtime = new ExplorerRuntime({ chatClient: new OutputLimitRepairClient() });
   const result = await runtime.explore({ task: 'find auth', repo_root: root });
 
-  assert.deepEqual(seenFinalizeBudgets, [
+  assert.deepEqual(seenFinalizeLimits, [
     getRuntimeConfig().finalizeMaxCompletionTokens,
     getRuntimeConfig().finalizeMaxCompletionTokens,
   ]);
-  assert.equal(result.directAnswer, 'repaired with full budget');
+  assert.equal(result.directAnswer, 'repaired with full output limit');
 });
 
 // ── Phase 10 — Confidence Recalibration ──────────────────────────────────────
@@ -3461,8 +3422,6 @@ test('010 US1#1 — locate task with exact evidence stays complete when the turn
     repo_root: root,
   });
 
-  assert.equal('stoppedByBudget' in result.stats, false);
-  assert.equal(result.searchCoverage.stoppedByBudget, false, 'the v2 compatibility field must not mislabel a safety limit');
   assert.ok(result.stats.safetyLimits.some(limit => limit.name === 'turn_limit'));
   assert.equal(result.status.complete, true, 'sufficient locate evidence must yield complete:true');
   assert.ok(
@@ -3471,7 +3430,6 @@ test('010 US1#1 — locate task with exact evidence stays complete when the turn
   );
   assert.equal(result.failure, null, 'a turn limit must not produce failure when evidence is sufficient');
   assert.ok(result.stats?.evidenceSufficiency?.sufficient === true);
-  assert.ok((result.status.warnings ?? []).every(w => !/budget/i.test(w)));
 });
 
 
@@ -3542,8 +3500,6 @@ test('010 security — broad find vulnerability task remains incomplete when the
       repo_root: root,
     });
 
-    assert.equal('stoppedByBudget' in result.stats, false);
-    assert.equal(result.searchCoverage.stoppedByBudget, false);
     assert.ok(result.stats.safetyLimits.some(limit => limit.name === 'turn_limit'));
     assert.equal(result.status.complete, false, `broad security task must stay incomplete for taskMode=${taskMode}`);
     assert.equal(result.status.verification, 'follow_up_needed');
@@ -3684,7 +3640,6 @@ test('010 US1#2 — path_explanation with one evidence stays incomplete after th
     repo_root: root,
   });
 
-  assert.equal('stoppedByBudget' in result.stats, false);
   assert.ok(result.stats.safetyLimits.some(limit => limit.name === 'turn_limit'));
   assert.equal(result.status.complete, false, 'complex task with one evidence must stay incomplete');
   assert.equal(result.status.verification, 'follow_up_needed');

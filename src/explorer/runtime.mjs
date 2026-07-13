@@ -291,7 +291,6 @@ const MAX_DISCOVERED_PATHS = 50;
 
 const FAILURE_CATEGORIES = ['execution', 'input', 'provider', 'internal'];
 const FAILURE_REASONS = [
-  'budget_exhausted',
   'tool_errors',
   'aborted',
   'repo_mismatch',
@@ -433,7 +432,6 @@ function buildSearchCoverage(stats = {}) {
     : [];
   const warnings = [];
   if (scope.length > 0) warnings.push(`Result is limited to scope: ${scope.join(', ')}`);
-  if (stats.stoppedByBudget) warnings.push('Exploration stopped by budget before all follow-up checks were exhausted.');
   if ((stats.toolResultsTruncated ?? 0) > 0) {
     warnings.push(
       `${stats.toolResultsTruncated} tool result(s) were truncated before model synthesis; ` +
@@ -456,7 +454,6 @@ function buildSearchCoverage(stats = {}) {
     listDirCalls: stats.listDirCalls ?? 0,
     symbolCalls: stats.symbolCalls ?? 0,
     toolResultsTruncated: stats.toolResultsTruncated ?? 0,
-    stoppedByBudget: Boolean(stats.stoppedByBudget),
     omittedDiscoveredPaths: stats.omittedDiscoveredPaths ?? 0,
     warnings,
     summary,
@@ -1541,9 +1538,8 @@ function buildParentHandoffProjection({
     ? effectiveTaskContract.subgoals
     : [];
   const effectiveScope = effectiveTaskContract?.effectiveScope ?? [];
-  const legacyBudgetStop = result?.failure?.reason === 'budget_exhausted';
 
-  if (result?.failure && !legacyBudgetStop) {
+  if (result?.failure) {
     const reason = parentFailureReason(result.failure);
     const failure = { reason };
     const retry = buildParentFailureRetry(result.failure, { task, effectiveScope });
@@ -1613,17 +1609,7 @@ function buildParentHandoffProjection({
   if (state === 'incomplete') {
     const gaps = buildParentGaps({
       requiredSubgoals,
-      coverageGaps: legacyBudgetStop
-        ? [...(Array.isArray(coverageGaps) ? coverageGaps : []), {
-            id: 'parent-gap:safety-limit',
-            question: typeof task === 'string' && task.trim()
-              ? task.trim()
-              : 'Complete the requested repository investigation.',
-            reason: 'safety_limit_reached',
-            repairable: false,
-            priority: Number.MAX_SAFE_INTEGER,
-          }]
-        : coverageGaps,
+      coverageGaps,
       unresolvedGoalIds,
       task,
     });

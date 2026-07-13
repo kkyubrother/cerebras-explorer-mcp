@@ -256,7 +256,6 @@ test('Spec 028 T013 — critic reports only goal-affecting safety limits', () =>
   const warning = affected.find(item => item.type === 'safety_limit_reached');
   assert.ok(warning);
   assert.match(warning.message, /tool_result_limit/);
-  assert.doesNotMatch(warning.message, /budget/i);
 });
 
 test('runDeterministicCriticPass returns compact critic warnings and capped confidence', () => {

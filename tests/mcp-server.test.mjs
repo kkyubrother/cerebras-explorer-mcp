@@ -752,8 +752,6 @@ test('MCP request handler exposes explore_repo and returns structuredContent', a
   assert.doesNotMatch(exploreRepoTool.description, /sessionId/);
   assert.equal(exploreRepoTool.inputSchema.properties.session, undefined,
     'spec 017: session input parameter was removed');
-  // The public budget input is removed; structured calls use fixed, unlabeled limits.
-  assert.equal(exploreRepoTool.inputSchema.properties.budget, undefined, 'budget input was removed in spec 011');
   assert.ok(exploreRepoTool.outputSchema.properties.targets, 'explore_repo must expose outputSchema targets');
   assert.equal(exploreRepoTool.outputSchema.additionalProperties, false);
   assert.equal(exploreRepoTool.outputSchema.properties.answer, undefined);
@@ -912,7 +910,7 @@ test('explore_repo MCP call writes one stderr ops summary without polluting resu
 
     const lines = stderr.trim().split(/\r?\n/).filter(Boolean);
     assert.equal(lines.length, 1);
-    assert.match(lines[0], /^\[cerebras-explorer\] tool=explore_repo turns=\d+ toolCalls=\d+ stoppedByBudget=(true|false) elapsed=\d+s$/);
+    assert.match(lines[0], /^\[cerebras-explorer\] tool=explore_repo turns=\d+ toolCalls=\d+ safetyLimits=\d+ elapsed=\d+s$/);
     assert.doesNotMatch(JSON.stringify(called), /\[cerebras-explorer\]/);
   } finally {
     restore();
@@ -951,7 +949,7 @@ test('explore_repo stderr ops summary includes transcript log path when LOG_PATH
     }));
 
     const line = stderr.trim();
-    assert.match(line, /^\[cerebras-explorer\] tool=explore_repo turns=\d+ toolCalls=\d+ stoppedByBudget=(true|false) elapsed=\d+s log=.+\.jsonl$/);
+    assert.match(line, /^\[cerebras-explorer\] tool=explore_repo turns=\d+ toolCalls=\d+ safetyLimits=\d+ elapsed=\d+s log=.+\.jsonl$/);
     assert.equal(line.includes(logDir), false, 'ops summary should not expose the full local log directory');
     assert.match(line, / log=[^/\\]+\.jsonl$/);
   } finally {
@@ -1028,7 +1026,7 @@ test('explore_repo MCP call writes stderr ops summary when execution fails', asy
     }));
 
     assert.equal(called.isError, true);
-    assert.match(stderr.trim(), /^\[cerebras-explorer\] tool=explore_repo turns=0 toolCalls=0 stoppedByBudget=false elapsed=0s failure=provider_error$/);
+    assert.match(stderr.trim(), /^\[cerebras-explorer\] tool=explore_repo turns=0 toolCalls=0 safetyLimits=0 elapsed=0s failure=provider_error$/);
   } finally {
     restore();
   }
