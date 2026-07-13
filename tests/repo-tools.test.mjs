@@ -6,17 +6,16 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 
 import { getBudgetConfig } from '../src/explorer/config.mjs';
-import * as repoToolExports from '../src/explorer/repo-tools.mjs';
-import { RepoToolkit, collectTargetPathsFromToolResult } from '../src/explorer/repo-tools.mjs';
+import {
+  RepoToolkit,
+  collectTargetPathsFromToolResult,
+  normalizeRepositoryObservation,
+} from '../src/explorer/repo-tools.mjs';
 import { LruCache, globalRepoCache } from '../src/explorer/cache.mjs';
 
 function repositoryObservationTest(name, callback) {
-  const normalize = repoToolExports.normalizeRepositoryObservation;
-  const register = normalize === undefined ? test.todo : test;
-  register(name, () => {
-    assert.equal(typeof normalize, 'function',
-      'normalizeRepositoryObservation is not implemented');
-    callback(normalize);
+  test(name, () => {
+    callback(normalizeRepositoryObservation);
   });
 }
 
@@ -209,6 +208,7 @@ repositoryObservationTest('repository observations retain omission, denial, and 
     enumerationCandidate: true,
     result: {
       matches: [],
+      truncated: false,
       omittedOutOfScopeFiles: -1,
       omittedSecretPaths: 1.5,
       errors: Number.NaN,
@@ -242,7 +242,7 @@ repositoryObservationTest('policy-denied observations count the denial without l
   const observation = normalize({
     id: 'search-secret-denied',
     tool: 'repo_read_file',
-    args: { path: '.env' },
+    args: { path: '.env', debugPath: '.env.local' },
     boundary: ['**'],
     result: {
       error: 'redacted_by_policy',
@@ -256,6 +256,7 @@ repositoryObservationTest('policy-denied observations count the denial without l
   assert.equal(observation.errors, 0);
   assert.equal(observation.enumerationComplete, false);
   assert.equal(observation.normalizedArgs.path, '[REDACTED:secret-path]');
+  assert.equal(observation.normalizedArgs.debugPath, undefined);
   assert.doesNotMatch(JSON.stringify(observation), /\.env|secret-deny-list|redacted_by_policy/);
 });
 
@@ -286,6 +287,60 @@ repositoryObservationTest('enumeration completeness requires a runtime candidate
     },
   });
   assert.equal(selfReportedOnly.enumerationComplete, false);
+
+  const inheritedResult = normalize({
+    id: 'search-inherited-result',
+    tool: 'repo_grep',
+    args: { pattern: 'needle' },
+    boundary: ['src/**'],
+    enumerationCandidate: true,
+    result: Object.create({ matches: [], truncated: false }),
+  });
+  assert.equal(inheritedResult.errors, 1);
+  assert.equal(inheritedResult.enumerationComplete, false,
+    'prototype-inherited result telemetry must never certify enumeration');
+
+  const inheritedMatch = Object.assign(Object.create({ line: 1 }), {
+    path: 'src/index.mjs',
+  });
+  const inheritedMatchResult = normalize({
+    id: 'search-inherited-match',
+    tool: 'repo_grep',
+    args: { pattern: 'needle' },
+    boundary: ['src/**'],
+    enumerationCandidate: true,
+    result: { matches: [inheritedMatch], truncated: false },
+  });
+  assert.equal(inheritedMatchResult.matchCount, 0);
+  assert.equal(inheritedMatchResult.enumerationComplete, false,
+    'prototype-inherited nested match fields must not certify enumeration');
+
+  const malformedRead = normalize({
+    id: 'search-malformed-read',
+    tool: 'repo_read_file',
+    args: { path: 'src/index.mjs' },
+    boundary: ['src/index.mjs'],
+    enumerationCandidate: true,
+    result: {
+      path: 'src/index.mjs',
+      startLine: -2,
+      endLine: -1,
+      content: 'not an observable range',
+      truncated: false,
+    },
+  });
+  assert.equal(malformedRead.matchCount, 0);
+  assert.equal(malformedRead.enumerationComplete, false,
+    'an invalid source range must not become a complete observation');
+
+  assert.throws(() => normalize({
+    id: 'search-invalid-boundary',
+    tool: 'repo_grep',
+    args: { pattern: 'needle' },
+    boundary: 'src/**',
+    enumerationCandidate: true,
+    result: { matches: [], truncated: false },
+  }), /boundary|string array/i, 'a malformed boundary must not widen to repository scope');
 });
 
 test('RepoToolkit finds files, greps, reads ranges, and respects gitignore', async () => {

@@ -1879,6 +1879,274 @@ export class RepoToolkit {
   }
 }
 
+const OBSERVATION_ARG_KEYS = Object.freeze({
+  repo_list_dir: ['dirPath', 'depth', 'maxEntries'],
+  repo_find_files: ['pattern', 'scope', 'maxResults'],
+  repo_grep: ['pattern', 'scope', 'caseSensitive', 'maxResults', 'contextLines'],
+  repo_symbols: ['path', 'kind'],
+  repo_references: ['symbol', 'scope'],
+  repo_symbol_context: ['symbol', 'scope', 'depth'],
+  repo_read_file: ['path', 'startLine', 'endLine'],
+  repo_git_log: ['path', 'maxCount', 'since', 'author', 'grep'],
+  repo_git_blame: ['path', 'startLine', 'endLine'],
+  repo_git_diff: ['from', 'to', 'path', 'stat'],
+  repo_git_show: ['ref'],
+});
+
+function requireObservationObject(value, label) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new TypeError(`${label} must be an object.`);
+  }
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) {
+    throw new TypeError(`${label} must be a plain object.`);
+  }
+  return value;
+}
+
+function isPlainObservationObject(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+function hasOwn(value, key) {
+  return Object.prototype.hasOwnProperty.call(value, key);
+}
+
+function ownValue(value, key) {
+  return hasOwn(value, key) ? value[key] : undefined;
+}
+
+function cloneRedactedObservationValue(value, seen = new Set()) {
+  if (value === null || typeof value === 'boolean') return value;
+  if (typeof value === 'string') return redactText(value).text;
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) {
+      throw new TypeError('Observation arguments require finite numbers.');
+    }
+    return value;
+  }
+  if (!value || typeof value !== 'object') {
+    throw new TypeError('Observation arguments must be JSON-compatible.');
+  }
+  if (seen.has(value)) {
+    throw new TypeError('Observation arguments must not contain cycles.');
+  }
+
+  seen.add(value);
+  try {
+    if (Array.isArray(value)) {
+      return value.map(item => cloneRedactedObservationValue(item, seen));
+    }
+    requireObservationObject(value, 'Observation argument');
+    const output = {};
+    for (const key of Object.keys(value).sort()) {
+      const redactedKey = redactText(key).text;
+      Object.defineProperty(output, redactedKey, {
+        value: cloneRedactedObservationValue(value[key], seen),
+        enumerable: true,
+        configurable: true,
+        writable: true,
+      });
+    }
+    return output;
+  } finally {
+    seen.delete(value);
+  }
+}
+
+function normalizeObservationArgs(tool, args) {
+  const allowedKeys = OBSERVATION_ARG_KEYS[tool];
+  if (!allowedKeys) throw new TypeError(`Unsupported repository observation tool: ${tool}`);
+  const value = requireObservationObject(args, 'Repository observation arguments');
+  const normalized = {};
+  for (const key of allowedKeys) {
+    if (Object.prototype.hasOwnProperty.call(value, key)) {
+      normalized[key] = cloneRedactedObservationValue(value[key]);
+    }
+  }
+  return normalized;
+}
+
+function normalizeObservationBoundary(boundary) {
+  if (!Array.isArray(boundary) || boundary.some(item => typeof item !== 'string' || !item)) {
+    throw new TypeError('Repository observation boundary must be a string array.');
+  }
+  return boundary.map(item => redactText(item).text);
+}
+
+function readNonNegativeCount(result, key) {
+  if (!hasOwn(result, key)) {
+    return { value: 0, valid: true };
+  }
+  const value = result[key];
+  if (!Number.isSafeInteger(value) || value < 0) {
+    return { value: 0, valid: false };
+  }
+  return { value, valid: true };
+}
+
+function readAliasedCount(result, keys) {
+  let value = 0;
+  let valid = true;
+  for (const key of keys) {
+    const count = readNonNegativeCount(result, key);
+    value = Math.max(value, count.value);
+    valid = valid && count.valid;
+  }
+  return { value, valid };
+}
+
+function countArrayField(result, key, predicate) {
+  if (!hasOwn(result, key) || !Array.isArray(result[key])) {
+    return { value: 0, valid: false };
+  }
+  let value = 0;
+  let valid = true;
+  for (const item of result[key]) {
+    if (predicate(item)) value += 1;
+    else valid = false;
+  }
+  return { value, valid };
+}
+
+function hasPath(value) {
+  return Boolean(isPlainObservationObject(value) &&
+    hasOwn(value, 'path') && typeof value.path === 'string' && value.path);
+}
+
+function countObservationMatches(tool, result, { policyDenied, executionError }) {
+  if (policyDenied || executionError) return { value: 0, valid: true };
+
+  switch (tool) {
+    case 'repo_list_dir':
+      return countArrayField(result, 'entries', hasPath);
+    case 'repo_find_files':
+      return countArrayField(result, 'matches', item => typeof item === 'string' && item.length > 0);
+    case 'repo_grep':
+      return countArrayField(result, 'matches', item =>
+        hasPath(item) && hasOwn(item, 'line') &&
+          Number.isSafeInteger(item.line) && item.line >= 1);
+    case 'repo_symbols':
+      return countArrayField(result, 'symbols', item =>
+        Boolean(isPlainObservationObject(item) &&
+          hasOwn(item, 'name') && typeof item.name === 'string' && item.name));
+    case 'repo_references': {
+      const references = countArrayField(result, 'references', hasPath);
+      const definition = ownValue(result, 'definition');
+      const definitionValid = hasOwn(result, 'definition') &&
+        (definition === null || hasPath(definition));
+      return {
+        value: references.value + (hasPath(definition) ? 1 : 0),
+        valid: references.valid && definitionValid,
+      };
+    }
+    case 'repo_symbol_context': {
+      const callers = countArrayField(result, 'callers', hasPath);
+      const definition = ownValue(result, 'definition');
+      const definitionValid = hasOwn(result, 'definition') &&
+        (definition === null || hasPath(definition));
+      return {
+        value: callers.value + (hasPath(definition) ? 1 : 0),
+        valid: callers.valid && definitionValid,
+      };
+    }
+    case 'repo_read_file': {
+      const valid = hasPath(result) &&
+        hasOwn(result, 'startLine') && Number.isSafeInteger(result.startLine) && result.startLine >= 1 &&
+        hasOwn(result, 'endLine') && Number.isSafeInteger(result.endLine) && result.endLine >= result.startLine &&
+        hasOwn(result, 'content') && typeof result.content === 'string';
+      return {
+        value: valid ? 1 : 0,
+        valid,
+      };
+    }
+    case 'repo_git_log':
+      return countArrayField(result, 'commits', item =>
+        Boolean(isPlainObservationObject(item) &&
+          hasOwn(item, 'hash') && typeof item.hash === 'string' && item.hash));
+    case 'repo_git_blame':
+      return countArrayField(result, 'lines', item =>
+        Boolean(isPlainObservationObject(item) &&
+          hasOwn(item, 'line') && Number.isSafeInteger(item.line) && item.line >= 1));
+    case 'repo_git_diff':
+    case 'repo_git_show':
+      return countArrayField(result, 'files', hasPath);
+    default:
+      return { value: 0, valid: false };
+  }
+}
+
+export function normalizeRepositoryObservation({
+  id,
+  tool,
+  args,
+  boundary,
+  enumerationCandidate = false,
+  result,
+  contextTruncated = false,
+} = {}) {
+  if (typeof id !== 'string' || !id) {
+    throw new TypeError('Repository observation id must be a non-empty string.');
+  }
+  if (typeof tool !== 'string' || !tool) {
+    throw new TypeError('Repository observation tool must be a non-empty string.');
+  }
+
+  const normalizedArgs = normalizeObservationArgs(tool, args);
+  const normalizedBoundary = normalizeObservationBoundary(boundary);
+  const resultIsObject = isPlainObservationObject(result);
+  const safeResult = resultIsObject ? result : {};
+  const resultError = ownValue(safeResult, 'error');
+  const policyDenied = resultError === 'redacted_by_policy' &&
+    ownValue(safeResult, 'reason') === 'secret-deny-list';
+  const executionError = !policyDenied && Boolean(resultError);
+
+  const omitted = readNonNegativeCount(safeResult, 'omittedOutOfScopeFiles');
+  const denied = readAliasedCount(safeResult, ['deniedPaths', 'omittedSecretPaths']);
+  const reportedErrors = readNonNegativeCount(safeResult, 'errors');
+  const matchCount = countObservationMatches(tool, safeResult, { policyDenied, executionError });
+
+  const omittedOutOfScopeFiles = omitted.value;
+  const deniedPaths = Math.max(denied.value, policyDenied ? 1 : 0);
+  const errors = Math.max(reportedErrors.value, executionError || !resultIsObject ? 1 : 0);
+  const resultTruncated = ownValue(safeResult, 'truncated');
+  const toolTruncationKnown = typeof resultTruncated === 'boolean';
+  const toolTruncated = resultTruncated === true;
+  const contextTruncationKnown = typeof contextTruncated === 'boolean';
+  const normalizedContextTruncated = contextTruncated === true;
+
+  const enumerationComplete = enumerationCandidate === true &&
+    resultIsObject &&
+    matchCount.valid &&
+    omitted.valid &&
+    denied.valid &&
+    reportedErrors.valid &&
+    toolTruncationKnown &&
+    contextTruncationKnown &&
+    !toolTruncated &&
+    !normalizedContextTruncated &&
+    omittedOutOfScopeFiles === 0 &&
+    deniedPaths === 0 &&
+    errors === 0;
+
+  return {
+    id,
+    kind: 'search',
+    tool,
+    normalizedArgs,
+    boundary: normalizedBoundary,
+    matchCount: matchCount.value,
+    toolTruncated,
+    contextTruncated: normalizedContextTruncated,
+    omittedOutOfScopeFiles,
+    deniedPaths,
+    errors,
+    enumerationComplete,
+  };
+}
+
 export function collectTargetPathsFromToolResult(toolName, result) {
   if (!result || typeof result !== 'object') {
     return [];
