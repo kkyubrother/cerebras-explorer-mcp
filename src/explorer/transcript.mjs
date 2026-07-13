@@ -454,7 +454,7 @@ export function createCompactToolTrace({ maxEntries = DEFAULT_COMPACT_TRACE_LIMI
  *
  * @param {object} opts
  * @param {string} opts.repoRoot - Repository root path
- * @param {string} opts.tool - Tool name (e.g., 'explore_repo', 'explore')
+ * @param {string} opts.tool - Tool name (e.g., 'explore_repo', 'trace_symbol')
  * @param {string} [opts.task] - The exploration task/prompt (first 200 chars)
  * @param {Function} [opts.logger] - Logger function for errors
  * @param {object} [opts.provenance] - Optional server-authored execution metadata

@@ -84,18 +84,6 @@ const TARGET_ITEM_SCHEMA = {
   required: ['path', 'role', 'reason', 'evidenceRefs'],
 };
 
-const DISCOVERED_PATH_SCHEMA = {
-  type: 'object',
-  additionalProperties: false,
-  properties: {
-    path: { type: 'string' },
-    kind: { type: 'string', enum: ['file', 'dir', 'unknown'] },
-    sourceTool: { type: 'string' },
-    reason: { type: 'string' },
-  },
-  required: ['path', 'kind', 'sourceTool', 'reason'],
-};
-
 const NEXT_ACTION_SCHEMA = {
   type: 'object',
   additionalProperties: false,
@@ -160,103 +148,6 @@ export const RETRY_SCHEMA = {
     expectedImprovement: { type: 'string' },
   },
   required: ['tool', 'hints'],
-};
-
-const FAILURE_SCHEMA = {
-  type: 'object',
-  additionalProperties: false,
-  properties: {
-    category: { type: 'string', enum: ['execution', 'input', 'provider', 'internal'] },
-    reason: {
-      type: 'string',
-      enum: [
-        'budget_exhausted',
-        'tool_errors',
-        'aborted',
-        'repo_mismatch',
-        'invalid_arguments',
-        'provider_error',
-        'access_denied',
-        'invalid_final_response',
-      ],
-    },
-    message: { type: 'string' },
-    retry: { anyOf: [{ type: 'null' }, RETRY_SCHEMA] },
-  },
-  required: ['category', 'reason', 'message', 'retry'],
-};
-
-const EVIDENCE_QUALITY_SCHEMA = {
-  type: 'object',
-  additionalProperties: false,
-  properties: {
-    level: { type: 'string', enum: ['low', 'medium', 'high'] },
-    exactCount: { type: 'integer' },
-    partialCount: { type: 'integer' },
-    droppedCount: { type: 'integer' },
-    fileCount: { type: 'integer' },
-    warnings: { type: 'array', items: { type: 'string' } },
-    summary: { type: 'string' },
-  },
-  required: ['level', 'exactCount', 'partialCount', 'droppedCount', 'fileCount', 'warnings', 'summary'],
-};
-
-const CRITIC_WARNING_SCHEMA = {
-  type: 'object',
-  additionalProperties: false,
-  properties: {
-    type: { type: 'string' },
-    severity: { type: 'string', enum: ['low', 'medium', 'high'] },
-    message: { type: 'string' },
-    target: { type: 'string' },
-    action: { type: 'string' },
-  },
-  required: ['type', 'severity', 'message', 'action'],
-};
-
-const CRITIC_SCHEMA = {
-  type: 'object',
-  additionalProperties: false,
-  properties: {
-    status: { type: 'string', enum: ['pass', 'caution', 'fail'] },
-    warnings: { type: 'array', items: CRITIC_WARNING_SCHEMA },
-    droppedEvidence: { type: 'integer', minimum: 0 },
-    partialEvidence: { type: 'integer', minimum: 0 },
-  },
-  // `status` is always populated by the runtime/server, so the declared output
-  // contract marks it required (matches DESIGN §11.3 and the agent-facing result).
-  required: ['status', 'warnings', 'droppedEvidence', 'partialEvidence'],
-};
-
-const SEARCH_COVERAGE_SCHEMA = {
-  type: 'object',
-  additionalProperties: false,
-  properties: {
-    scope: { type: 'array', items: { type: 'string' } },
-    scopeLimited: { type: 'boolean' },
-    filesRead: { type: 'integer', minimum: 0 },
-    grepCalls: { type: 'integer', minimum: 0 },
-    listDirCalls: { type: 'integer', minimum: 0 },
-    symbolCalls: { type: 'integer', minimum: 0 },
-    toolResultsTruncated: { type: 'integer', minimum: 0 },
-    stoppedByBudget: { type: 'boolean' },
-    omittedDiscoveredPaths: { type: 'integer', minimum: 0 },
-    warnings: { type: 'array', items: { type: 'string' } },
-    summary: { type: 'string' },
-  },
-  required: [
-    'scope',
-    'scopeLimited',
-    'filesRead',
-    'grepCalls',
-    'listDirCalls',
-    'symbolCalls',
-    'toolResultsTruncated',
-    'stoppedByBudget',
-    'omittedDiscoveredPaths',
-    'warnings',
-    'summary',
-  ],
 };
 
 const EVIDENCE_ITEM_SCHEMA = {

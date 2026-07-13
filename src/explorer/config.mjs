@@ -252,7 +252,7 @@ export function isTruthyEnv(value) {
 
 /**
  * When set to a truthy value, the redaction layer masks environment-variable
- * identifiers (e.g. `process.env.X`, `import.meta.env.Y`) in snippet/report
+ * identifiers (e.g. `process.env.X`, `import.meta.env.Y`) in returned text
  * text in addition to secret values and secret paths. Default off — the
  * modern behavior preserves identifier names because they describe a public
  * code interface, not a secret value.

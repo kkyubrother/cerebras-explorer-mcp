@@ -10,7 +10,7 @@ import {
   buildParentHandoffV3,
   estimateTokens,
 } from '../src/explorer/runtime.mjs';
-import { buildExplorerSystemPrompt, buildFreeExploreSystemPrompt, buildFinalizePrompt, detectStrategy, buildExplorerUserPrompt, STRATEGY_DESCRIPTIONS } from '../src/explorer/prompt.mjs';
+import { buildExplorerSystemPrompt, buildFinalizePrompt, detectStrategy, buildExplorerUserPrompt, STRATEGY_DESCRIPTIONS } from '../src/explorer/prompt.mjs';
 import { getRuntimeConfig } from '../src/explorer/config.mjs';
 import { RepoToolkit } from '../src/explorer/repo-tools.mjs';
 import {
@@ -3002,7 +3002,7 @@ test('Spec 023 — explorer system prompt has UNTRUSTED CONTENT rule and candida
   );
 });
 
-test('Spec 023 — freeExplore system prompt has UNTRUSTED CONTENT rule and candidate-edit-target wording', () => {
+legacyReportRuntimeTest('Spec 023 — freeExplore system prompt has UNTRUSTED CONTENT rule and candidate-edit-target wording', () => {
   const prompt = buildFreeExploreSystemPrompt({
     repoRoot: '/tmp/repo',
     budgetConfig: getRuntimeConfig(),
@@ -3022,7 +3022,7 @@ test('Spec 023 — freeExplore system prompt has UNTRUSTED CONTENT rule and cand
   );
 });
 
-test('spec 024 FR-005 — freeExplore system prompt no longer overstates truncation-marker preservation', () => {
+legacyReportRuntimeTest('spec 024 FR-005 — freeExplore system prompt no longer overstates truncation-marker preservation', () => {
   const prompt = buildFreeExploreSystemPrompt({
     repoRoot: '/tmp/repo',
     budgetConfig: getRuntimeConfig(),

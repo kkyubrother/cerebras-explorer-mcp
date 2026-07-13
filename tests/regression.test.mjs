@@ -10,10 +10,12 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { ExplorerRuntime } from '../src/explorer/runtime.mjs';
+import * as runtimeModule from '../src/explorer/runtime.mjs';
 import { cacheKeyReadFile, cacheKeyGrep } from '../src/explorer/cache.mjs';
 import * as promptModule from '../src/explorer/prompt.mjs';
 import * as criticModule from '../src/explorer/critic.mjs';
+
+const { ExplorerRuntime } = runtimeModule;
 
 // ─── Fixture helpers ─────────────────────────────────────────────────────────
 
@@ -162,18 +164,24 @@ test('Spec 028 T046 — structured cancellation drops every intermediate planner
 
 // Test-first activation point for T050. These names are deliberately exact so
 // report-only code cannot survive behind a compatibility alias.
-const T050_REPORT_ONLY_HELPERS_REMOVED = false;
+const T050_REPORT_ONLY_HELPERS_REMOVED = true;
 
 test('Spec 028 T046 — report-only prompt and critic helpers are removed', t => {
   if (!T050_REPORT_ONLY_HELPERS_REMOVED) {
     t.todo('T050 activates report-only helper removal assertions');
     return;
   }
+  assert.equal(
+    'isIntentOnlyFreeExploreReport' in runtimeModule,
+    false,
+    'isIntentOnlyFreeExploreReport must not be exported',
+  );
   for (const name of [
-    'isIntentOnlyFreeExploreReport',
     'buildFreeExploreSystemPrompt',
     'buildFreeExploreUserPrompt',
     'buildFreeExploreFinalizePrompt',
+    'buildCompactionSummaryPrompt',
+    'buildOutputContinuationPrompt',
   ]) {
     assert.equal(name in promptModule, false, `${name} must not be exported`);
   }
