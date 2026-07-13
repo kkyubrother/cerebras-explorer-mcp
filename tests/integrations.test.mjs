@@ -119,6 +119,132 @@ test('regression tests do not reference removed feedback document', async () => 
   assert.match(source, /prior P0\/P1 fixes/);
 });
 
+// T047_ACTIVE_SURFACE_GUARD_FIXTURE_START
+// Test-first activation points. T054 removes executable effort/budget state;
+// T056 removes the remaining user-facing migration surface. This block is the
+// guard's own narrowly scoped negative-test allowlist and is stripped before
+// the repository scan, so its banned fixtures cannot satisfy themselves.
+const T054_ACTIVE_EFFORT_STATE_REMOVED = false;
+const T056_USER_SURFACE_MIGRATED = false;
+
+const ACTIVE_CODE_ROOTS = Object.freeze(['src', 'scripts', 'benchmarks', 'tests']);
+const ACTIVE_USER_ROOTS = Object.freeze(['integrations', 'examples']);
+const ACTIVE_USER_FILES = Object.freeze([
+  'package.json',
+  'README.md',
+  'DESIGN.md',
+  'TESTING.md',
+  'AGENTS.md',
+]);
+const GENERAL_IDENTIFIER = /[A-Za-z_$][A-Za-z0-9_$]*/g;
+const GENERAL_BUDGET_IDENTIFIER = /^budget[A-Za-z0-9_$]*$/i;
+const KNOWN_EFFORT_IDENTIFIERS = new Set([
+  'getBudgetConfig',
+  'budgetConfig',
+  'stoppedByBudget',
+  'budget_exhausted',
+  'TOOL_RESULT_CHAR_BUDGETS',
+  'applyToolResultCharBudget',
+  'budgetExhaustionRate',
+  'deepBudgetAvgTotalTokens',
+  'chooseAutoBudget',
+  'getModelForBudget',
+  'getReasoningEffortForBudget',
+  'BUDGETS',
+  'CEREBRAS_EXPLORER_TURN_MULTIPLIER',
+  'CEREBRAS_EXPLORER_MAX_EXTRA_TURNS',
+  'CEREBRAS_EXPLORER_MAX_COMPACTIONS',
+  'getExploreTurnMultiplier',
+  'getExploreMaxExtraTurns',
+  'getExploreMaxCompactions',
+  'DEEP_RUNTIME_CONFIG',
+].map(value => value.toLowerCase()));
+const T047_BLOCK_START = '// T047_ACTIVE_SURFACE_GUARD_FIXTURE_START';
+const T047_BLOCK_END = '// T047_ACTIVE_SURFACE_GUARD_FIXTURE_END';
+
+async function listActiveFiles(relDir) {
+  const files = [];
+  async function walk(current) {
+    for (const entry of await fs.readdir(path.join(ROOT, current), { withFileTypes: true })) {
+      const relPath = path.join(current, entry.name);
+      if (entry.isDirectory()) await walk(relPath);
+      else if (/\.(?:cjs|js|json|md|mjs|toml|txt|yaml|yml|example)$/.test(entry.name)) {
+        files.push(relPath.replaceAll('\\', '/'));
+      }
+    }
+  }
+  await walk(relDir);
+  return files;
+}
+
+function stripT047NegativeFixture(relPath, source) {
+  if (relPath !== 'tests/integrations.test.mjs' &&
+      relPath !== 'tests/project-config.test.mjs') return source;
+  const lines = source.split(/\r?\n/);
+  const output = [];
+  let insideFixture = false;
+  for (const line of lines) {
+    if (line.trim() === T047_BLOCK_START) {
+      insideFixture = true;
+      continue;
+    }
+    if (line.trim() === T047_BLOCK_END) {
+      insideFixture = false;
+      continue;
+    }
+    if (!insideFixture) output.push(line);
+  }
+  assert.equal(insideFixture, false, `${relPath} has an unterminated T047 fixture block`);
+  return output.join('\n');
+}
+
+function effortSurfaceViolations(relPath, source) {
+  const violations = [];
+  for (const [index, line] of stripT047NegativeFixture(relPath, source).split(/\r?\n/).entries()) {
+    const tokens = line.match(GENERAL_IDENTIFIER) ?? [];
+    for (const token of tokens) {
+      if (GENERAL_BUDGET_IDENTIFIER.test(token) ||
+          KNOWN_EFFORT_IDENTIFIERS.has(token.toLowerCase())) {
+        violations.push(`${relPath}:${index + 1}:${token}`);
+      }
+    }
+    if (/Runtime profile:\s*deep/i.test(line)) {
+      violations.push(`${relPath}:${index + 1}:Runtime profile: deep`);
+    }
+  }
+  return violations;
+}
+
+async function scanEffortSurface(relPaths) {
+  const violations = [];
+  for (const relPath of [...new Set(relPaths)].sort()) {
+    violations.push(...effortSurfaceViolations(relPath, await read(relPath)));
+  }
+  return violations;
+}
+
+test('Spec 028 T047 — executable active surface has no budget or effort abstraction', async t => {
+  if (!T054_ACTIVE_EFFORT_STATE_REMOVED) {
+    t.todo('T054 activates the executable active-surface guard');
+    return;
+  }
+  const files = (await Promise.all(ACTIVE_CODE_ROOTS.map(listActiveFiles))).flat();
+  assert.deepEqual(await scanEffortSurface(files), []);
+});
+
+test('Spec 028 T047 — public docs and examples have no selectable budget or effort surface', async t => {
+  if (!T056_USER_SURFACE_MIGRATED) {
+    t.todo('T056 activates the public active-surface guard');
+    return;
+  }
+  const files = [
+    ...(await Promise.all(ACTIVE_USER_ROOTS.map(listActiveFiles))).flat(),
+    ...ACTIVE_USER_FILES,
+  ];
+  assert.deepEqual(await scanEffortSurface(files), []);
+});
+// T047_ACTIVE_SURFACE_GUARD_FIXTURE_END
+
 test('docs and benchmark fixtures do not advertise recentActivity as an output contract', async () => {
   const docs = [
     'README.md',

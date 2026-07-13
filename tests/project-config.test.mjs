@@ -14,6 +14,7 @@ import {
   normalizeProjectConfig,
   resolveRepoRoot,
 } from '../src/explorer/config.mjs';
+import * as configModule from '../src/explorer/config.mjs';
 
 async function makeTempDir() {
   return fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-explorer-config-'));
@@ -143,6 +144,45 @@ test('normalizeProjectConfig: legacy defaultBudget is dropped', () => {
   const config = normalizeProjectConfig({ defaultBudget: 'deep' });
   assert.equal(config.defaultBudget, undefined);
 });
+
+// T047_ACTIVE_SURFACE_GUARD_FIXTURE_START
+const T054_LEGACY_CONFIG_SURFACE_REMOVED = false;
+
+test('Spec 028 T047 — project config drops case-insensitive budget-shaped keys', () => {
+  const config = normalizeProjectConfig({
+    budget: 'deep',
+    BudgetTier: 'deep',
+    BUDGET_CONFIG: { turns: 99 },
+    defaultBudget: 'deep',
+  });
+  assert.deepEqual(config, {});
+});
+
+test('Spec 028 T047 — legacy report effort envvars cannot alter runtime limits', async () => {
+  const baseline = getRuntimeConfig();
+  await withEnv({
+    CEREBRAS_EXPLORER_TURN_MULTIPLIER: '4',
+    CEREBRAS_EXPLORER_MAX_EXTRA_TURNS: '200',
+    CEREBRAS_EXPLORER_MAX_COMPACTIONS: '10',
+  }, async () => {
+    assert.deepEqual(getRuntimeConfig(), baseline);
+  });
+});
+
+test('Spec 028 T047 — legacy report effort getters are not exported', t => {
+  if (!T054_LEGACY_CONFIG_SURFACE_REMOVED) {
+    t.todo('T054 activates the legacy getter removal assertions');
+    return;
+  }
+  for (const name of [
+    'getExploreTurnMultiplier',
+    'getExploreMaxExtraTurns',
+    'getExploreMaxCompactions',
+  ]) {
+    assert.equal(name in configModule, false, `${name} must not be exported`);
+  }
+});
+// T047_ACTIVE_SURFACE_GUARD_FIXTURE_END
 
 test('normalizeProjectConfig: string array fields are filtered', () => {
   const config = normalizeProjectConfig({
