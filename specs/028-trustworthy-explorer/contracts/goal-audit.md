@@ -53,9 +53,10 @@ Mechanical duplicates are merged. Other defects are sent to the isolated auditor
 {
   "goals": [
     {
-      "id": "S1",
+      "proposedGoalId": "S1",
       "verdict": "ready",
-      "confirmedOriginRefs": ["request:18-62"],
+      "originRefs": ["request:18-62"],
+      "missingRequestParts": [],
       "reason": "The goal is requested, bounded, and has an observable repository proof condition."
     }
   ],

@@ -546,12 +546,15 @@ export function normalizeExploreResult(raw, stats) {
 // Internal trust-plane schemas are strict runtime contracts. They are kept
 // separate from the parent-facing MCP schemas above and are never exposed as
 // tool input or output fields.
+const NON_EMPTY_INTERNAL_STRINGS = new WeakSet();
+
 function internalString(enumValues) {
-  return {
+  const schema = {
     type: 'string',
-    minLength: 1,
     ...(enumValues ? { enum: [...enumValues] } : {}),
   };
+  NON_EMPTY_INTERNAL_STRINGS.add(schema);
+  return schema;
 }
 
 function internalStringArray({ minItems } = {}) {
@@ -570,6 +573,61 @@ function strictInternalObject(properties, required) {
     required,
   };
 }
+
+const CLAIM_TYPE_TO_PROOF_POLICY = Object.freeze({
+  positive: 'direct_source',
+  absence: 'bounded_absence',
+  count: 'deterministic_count',
+  symbol_definition: 'symbol_definition',
+  symbol_usage: 'bounded_usage_cross_check',
+  flow: 'ordered_handoffs',
+  impact: 'impact_categories',
+  comparison: 'distinct_policy_paths',
+  claim_verification: 'support_or_refute',
+});
+
+const CLAIM_TYPES = Object.freeze(Object.keys(CLAIM_TYPE_TO_PROOF_POLICY));
+const PROOF_POLICIES = Object.freeze(Object.values(CLAIM_TYPE_TO_PROOF_POLICY));
+
+const WRAPPER_GOAL_SEEDS = Object.freeze({
+  find_relevant_code: Object.freeze(['locations', 'relevance', 'smallest_set']),
+  trace_symbol: Object.freeze(['definition', 'usage']),
+  map_change_impact: Object.freeze([
+    'targets',
+    'dependents',
+    'requested_categories',
+    'risk_boundary',
+  ]),
+  explain_code_path: Object.freeze(['entry', 'handoffs', 'terminal_effect', 'transitions']),
+  collect_evidence: Object.freeze(['verdict', 'direct_evidence', 'counterevidence']),
+  explore_repo: Object.freeze([]),
+});
+
+const PLANNER_SUBGOAL_SCHEMA = strictInternalObject({
+  id: internalString(),
+  question: internalString(),
+  originRefs: internalStringArray(),
+  claimType: internalString(CLAIM_TYPES),
+  proofCondition: internalString(),
+  constraints: internalStringArray(),
+}, ['id', 'question', 'originRefs', 'claimType', 'proofCondition', 'constraints']);
+
+export const LATE_UNCOVERED_PROPOSAL_SCHEMA = strictInternalObject({
+  question: internalString(),
+  originRefs: internalStringArray(),
+  claimType: internalString(CLAIM_TYPES),
+  proofCondition: internalString(),
+  constraints: internalStringArray(),
+}, ['question', 'originRefs', 'claimType', 'proofCondition', 'constraints']);
+
+export const PLANNER_PROPOSAL_SCHEMA = strictInternalObject({
+  taskSummary: internalString(),
+  constraints: internalStringArray(),
+  subgoals: {
+    type: 'array',
+    items: PLANNER_SUBGOAL_SCHEMA,
+  },
+}, ['taskSummary', 'constraints', 'subgoals']);
 
 const CAPABILITY_MANIFEST_SCHEMA = strictInternalObject({
   repositoryRead: { type: 'boolean', const: true },
@@ -591,28 +649,8 @@ const REQUIRED_SUBGOAL_SCHEMA = strictInternalObject({
   id: internalString(),
   question: internalString(),
   originRefs: internalStringArray({ minItems: 1 }),
-  claimType: internalString([
-    'positive',
-    'absence',
-    'count',
-    'symbol_definition',
-    'symbol_usage',
-    'flow',
-    'impact',
-    'comparison',
-    'claim_verification',
-  ]),
-  proofPolicy: internalString([
-    'direct_source',
-    'bounded_absence',
-    'deterministic_count',
-    'symbol_definition',
-    'bounded_usage_cross_check',
-    'ordered_handoffs',
-    'impact_categories',
-    'distinct_policy_paths',
-    'support_or_refute',
-  ]),
+  claimType: internalString(CLAIM_TYPES),
+  proofPolicy: internalString(PROOF_POLICIES),
   proofCondition: internalString(),
   constraints: internalStringArray(),
   auditVerdict: internalString([
@@ -698,6 +736,17 @@ export const GOAL_AUDIT_RECORD_SCHEMA = strictInternalObject({
   'missingRequestParts',
   'reason',
 ]);
+
+export const GOAL_AUDITOR_RESPONSE_SCHEMA = strictInternalObject({
+  goals: {
+    type: 'array',
+    items: GOAL_AUDIT_RECORD_SCHEMA,
+  },
+  uncoveredRequestParts: {
+    type: 'array',
+    items: LATE_UNCOVERED_PROPOSAL_SCHEMA,
+  },
+}, ['goals', 'uncoveredRequestParts']);
 
 export const ATOMIC_CLAIM_SCHEMA = strictInternalObject({
   id: internalString(),
@@ -810,6 +859,9 @@ function validateInternalValue(schema, value, path) {
       break;
     case 'string':
       if (typeof value !== 'string') failInternalValidation(path, 'expected a string');
+      if (NON_EMPTY_INTERNAL_STRINGS.has(schema) && value.length === 0) {
+        failInternalValidation(path, 'expected at least 1 character');
+      }
       if (schema.minLength !== undefined && value.length < schema.minLength) {
         failInternalValidation(path, `expected at least ${schema.minLength} character(s)`);
       }
@@ -837,6 +889,62 @@ function validateInternalEntity(schema, label, value) {
   return validateInternalValue(schema, value, label);
 }
 
+function validateOriginContext({ task, wrapperTool } = {}, label) {
+  if (typeof task !== 'string' || task.length === 0) {
+    failInternalValidation(`${label}.task`, 'expected the original non-empty task string');
+  }
+  const activeWrapper = wrapperTool === undefined ? 'explore_repo' : wrapperTool;
+  if (typeof activeWrapper !== 'string' || !Object.hasOwn(WRAPPER_GOAL_SEEDS, activeWrapper)) {
+    failInternalValidation(`${label}.wrapperTool`, 'expected one retained explorer wrapper');
+  }
+  return { task, activeWrapper };
+}
+
+function validateOriginRefs(originRefs, context, path) {
+  const { task, activeWrapper } = validateOriginContext(context, path);
+  for (let index = 0; index < originRefs.length; index += 1) {
+    const originRef = originRefs[index];
+    const requestMatch = /^request:(\d+)-(\d+)$/.exec(originRef);
+    if (requestMatch) {
+      const start = Number(requestMatch[1]);
+      const end = Number(requestMatch[2]);
+      if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) ||
+          start < 0 || end <= start || end > task.length || task.slice(start, end).trim() === '') {
+        failInternalValidation(`${path}[${index}]`, `invalid request origin ${originRef}`);
+      }
+      continue;
+    }
+
+    const wrapperMatch = /^wrapper:([^:]+):([^:]+)$/.exec(originRef);
+    if (wrapperMatch &&
+        wrapperMatch[1] === activeWrapper &&
+        WRAPPER_GOAL_SEEDS[activeWrapper].includes(wrapperMatch[2])) {
+      continue;
+    }
+    failInternalValidation(`${path}[${index}]`, `invalid wrapper origin ${originRef}`);
+  }
+}
+
+function validateRequiredOriginRefs(originRefs, context, path) {
+  if (originRefs.length === 0) {
+    failInternalValidation(path, 'expected at least one origin reference');
+  }
+  validateOriginRefs(originRefs, context, path);
+}
+
+function validateGoalAuditRecordRules(value, path) {
+  const hasMergeInto = Object.prototype.hasOwnProperty.call(value, 'mergeInto');
+  if (value.verdict === 'merge_duplicate' && !hasMergeInto) {
+    failInternalValidation(path, 'merge_duplicate requires mergeInto');
+  }
+  if (value.verdict !== 'merge_duplicate' && hasMergeInto) {
+    failInternalValidation(path, 'mergeInto is allowed only for merge_duplicate');
+  }
+  if (value.verdict !== 'reject_untraceable' && value.originRefs.length === 0) {
+    failInternalValidation(path, `${value.verdict} requires at least one confirmed origin`);
+  }
+}
+
 export function validateExploreControlResult(value) {
   return validateInternalEntity(
     EXPLORE_RESULT_JSON_SCHEMA.schema,
@@ -846,11 +954,107 @@ export function validateExploreControlResult(value) {
 }
 
 export function validateTaskContract(value) {
-  return validateInternalEntity(TASK_CONTRACT_SCHEMA, 'TaskContract', value);
+  const validated = validateInternalEntity(TASK_CONTRACT_SCHEMA, 'TaskContract', value);
+  for (let index = 0; index < validated.subgoals.length; index += 1) {
+    const subgoal = validated.subgoals[index];
+    const expectedPolicy = CLAIM_TYPE_TO_PROOF_POLICY[subgoal.claimType];
+    if (subgoal.proofPolicy !== expectedPolicy) {
+      failInternalValidation(
+        `TaskContract.subgoals[${index}].proofPolicy`,
+        `expected runtime-derived policy ${expectedPolicy}`,
+      );
+    }
+  }
+  return validated;
 }
 
 export function validateGoalAuditRecord(value) {
-  return validateInternalEntity(GOAL_AUDIT_RECORD_SCHEMA, 'GoalAuditRecord', value);
+  const validated = validateInternalEntity(GOAL_AUDIT_RECORD_SCHEMA, 'GoalAuditRecord', value);
+  validateGoalAuditRecordRules(validated, 'GoalAuditRecord');
+  return validated;
+}
+
+export function validatePlannerProposal(value, context) {
+  const validated = validateInternalEntity(PLANNER_PROPOSAL_SCHEMA, 'PlannerProposal', value);
+  if (validated.subgoals.length === 0) {
+    failInternalValidation('PlannerProposal.subgoals', 'expected at least one subgoal');
+  }
+  for (let index = 0; index < validated.subgoals.length; index += 1) {
+    validateRequiredOriginRefs(
+      validated.subgoals[index].originRefs,
+      context,
+      `PlannerProposal.subgoals[${index}].originRefs`,
+    );
+  }
+  return validated;
+}
+
+export function validateLateUncoveredProposal(value, context) {
+  const validated = validateInternalEntity(
+    LATE_UNCOVERED_PROPOSAL_SCHEMA,
+    'LateUncoveredProposal',
+    value,
+  );
+  validateRequiredOriginRefs(
+    validated.originRefs,
+    context,
+    'LateUncoveredProposal.originRefs',
+  );
+  return validated;
+}
+
+export function validateGoalAuditorResponse(value, context = {}) {
+  const validated = validateInternalEntity(
+    GOAL_AUDITOR_RESPONSE_SCHEMA,
+    'GoalAuditorResponse',
+    value,
+  );
+  if (validated.goals.length === 0) {
+    failInternalValidation('GoalAuditorResponse.goals', 'expected at least one audit record');
+  }
+  const plannerProposal = validatePlannerProposal(context.plannerProposal, context);
+  const proposalById = new Map();
+  for (const proposal of plannerProposal.subgoals) {
+    proposalById.set(proposal.id, proposal);
+  }
+  const auditedGoalIds = new Set();
+
+  for (let index = 0; index < validated.goals.length; index += 1) {
+    const record = validated.goals[index];
+    const path = `GoalAuditorResponse.goals[${index}]`;
+    validateGoalAuditRecordRules(record, path);
+
+    if (auditedGoalIds.has(record.proposedGoalId)) {
+      failInternalValidation(path, `duplicate audit record for ${record.proposedGoalId}`);
+    }
+    auditedGoalIds.add(record.proposedGoalId);
+
+    const proposal = proposalById.get(record.proposedGoalId);
+    if (!proposal) {
+      failInternalValidation(path, `unknown proposedGoalId ${record.proposedGoalId}`);
+    }
+    validateOriginRefs(record.originRefs, context, `${path}.originRefs`);
+    for (const originRef of record.originRefs) {
+      if (!proposal.originRefs.includes(originRef)) {
+        failInternalValidation(path, `unproposed origin ${originRef}`);
+      }
+    }
+
+    if (record.verdict === 'merge_duplicate') {
+      if (record.mergeInto === record.proposedGoalId || !proposalById.has(record.mergeInto)) {
+        failInternalValidation(path, `invalid merge target ${record.mergeInto}`);
+      }
+    }
+  }
+
+  for (let index = 0; index < validated.uncoveredRequestParts.length; index += 1) {
+    validateRequiredOriginRefs(
+      validated.uncoveredRequestParts[index].originRefs,
+      context,
+      `GoalAuditorResponse.uncoveredRequestParts[${index}].originRefs`,
+    );
+  }
+  return validated;
 }
 
 export function validateAtomicClaim(value) {
