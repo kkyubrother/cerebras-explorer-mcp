@@ -26,7 +26,7 @@ function controlCompletion(value) {
  * Lets pre-spec-028 provider scripts keep testing the exploration loop while
  * the real runtime still executes its required isolated planner and auditor.
  */
-export function adaptLegacyGoalAuditClient(chatClient) {
+export function adaptLegacyGoalAuditClient(chatClient, { rejectedGoal = null } = {}) {
   if (!chatClient) return chatClient;
   return new Proxy(chatClient, {
     get(target, property, receiver) {
@@ -41,14 +41,24 @@ export function adaptLegacyGoalAuditClient(chatClient) {
           return controlCompletion({
             taskSummary: 'Legacy runtime behavior under test.',
             constraints: [],
-            subgoals: [{
-              id: 'legacy-test-goal',
-              question: 'Complete the requested repository investigation.',
-              originRefs: [`request:0-${task.length}`],
-              claimType: 'positive',
-              proofCondition: 'Observe repository evidence that answers the requested investigation.',
-              constraints: [],
-            }],
+            subgoals: [
+              {
+                id: 'legacy-test-goal',
+                question: 'Complete the requested repository investigation.',
+                originRefs: [`request:0-${task.length}`],
+                claimType: 'positive',
+                proofCondition: 'Observe repository evidence that answers the requested investigation.',
+                constraints: [],
+              },
+              ...(rejectedGoal ? [{
+                id: rejectedGoal.id,
+                question: rejectedGoal.question,
+                originRefs: [`request:0-${task.length}`],
+                claimType: 'positive',
+                proofCondition: rejectedGoal.proofCondition,
+                constraints: [],
+              }] : []),
+            ],
           });
         }
         if (kind === 'goal_audit') {
@@ -56,10 +66,12 @@ export function adaptLegacyGoalAuditClient(chatClient) {
           return controlCompletion({
             goals: packet.proposals.map(goal => ({
               proposedGoalId: goal.id,
-              verdict: 'ready',
-              originRefs: [...goal.originRefs],
+              verdict: goal.id === rejectedGoal?.id ? 'reject_untraceable' : 'ready',
+              originRefs: goal.id === rejectedGoal?.id ? [] : [...goal.originRefs],
               missingRequestParts: [],
-              reason: 'Retained for the legacy behavior test.',
+              reason: goal.id === rejectedGoal?.id
+                ? rejectedGoal.reason
+                : 'Retained for the legacy behavior test.',
             })),
             uncoveredRequestParts: [],
           });

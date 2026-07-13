@@ -5366,6 +5366,107 @@ auditedPlanningRuntimeTest('Spec 028 T017 — an all-blocked audited plan return
   assert.ok(result.coverageGaps.some(gap => gap.reason === 'external_state_required'));
 });
 
+auditedPlanningRuntimeTest('Spec 028 T023 — planning, rejection, and blocker transitions stay in redacted transcripts', async () => {
+  const root = await makeRepoFixture();
+  const logDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-planning-events-'));
+  const fakeKey = `sk-proj-${'q'.repeat(32)}`;
+  const broad = proposedRuntimeGoal({
+    id: 'T-broad',
+    question: GOAL_AUDIT_TASK,
+    originRefs: [`request:0-${GOAL_AUDIT_TASK.length}`],
+    claimType: 'positive',
+    proofCondition: 'Observe each requested authentication distinction independently.',
+  });
+  const invented = proposedRuntimeGoal({
+    id: 'T-invented',
+    question: `Inspect unrelated credential ${fakeKey}.`,
+    originRefs: [`request:0-${GOAL_AUDIT_TASK.length}`],
+    claimType: 'positive',
+    proofCondition: 'Observe an unrelated credential in repository content.',
+  });
+  const corrected = definitionAndAbsenceGoals();
+  const client = new ScriptedGoalAuditClient([
+    { stage: 'planner:1', value: plannerControl([broad, invented]) },
+    {
+      stage: 'goal_audit:1',
+      value: auditorControl([
+        auditControlRecord(broad, 'needs_decomposition'),
+        auditControlRecord(invented, 'reject_untraceable', { originRefs: [] }),
+      ]),
+    },
+    { stage: 'planner:2', value: plannerControl(corrected) },
+    {
+      stage: 'goal_audit:2',
+      value: auditorControl(corrected.map(goal =>
+        auditControlRecord(goal, 'needs_decomposition'))),
+    },
+    {
+      stage: 'goal_coverage:1',
+      value: coverageControl([
+        coveredObligation('revision-obligation-1', corrected.map(goal => goal.id)),
+      ]),
+    },
+  ]);
+
+  await withEnv({
+    CEREBRAS_EXPLORER_LOG_PATH: logDir,
+    CEREBRAS_EXPLORER_LOG_RAW: 'true',
+  }, async () => {
+    const runtime = new RuntimeImplementation({ chatClient: client });
+    const result = await runtime.explore({ task: GOAL_AUDIT_TASK, repo_root: root });
+    const entries = await readJsonl(result.transcriptPath);
+    const eventTypes = new Set([
+      'plan_proposed',
+      'goal_audit',
+      'plan_revised',
+      'goal_rejected',
+      'subgoal_state',
+    ]);
+    const planningEvents = entries.filter(entry => eventTypes.has(entry.type));
+
+    assert.deepEqual(planningEvents.map(entry => entry.type), [
+      'plan_proposed',
+      'goal_audit',
+      'goal_rejected',
+      'plan_revised',
+      'goal_audit',
+      'subgoal_state',
+      'subgoal_state',
+    ]);
+    assert.equal(planningEvents[0].revisionCount, 0);
+    assert.deepEqual(planningEvents[0].proposal.subgoals.map(goal => goal.id),
+      ['T-broad', 'T-invented']);
+    assert.equal(planningEvents[1].revisionCount, 0);
+    assert.deepEqual(planningEvents[1].auditRecords.map(record => record.proposedGoalId),
+      ['T-broad', 'T-invented']);
+    assert.deepEqual(planningEvents[1].capabilities, {
+      repositoryRead: true,
+      gitRead: true,
+      repositoryWrite: false,
+      liveRuntimeState: false,
+      scopeWidening: false,
+      secretPathRead: false,
+    });
+    assert.equal(planningEvents[2].proposedGoalId, 'T-invented');
+    assert.equal(planningEvents[2].verdict, 'reject_untraceable');
+    assert.equal(planningEvents[3].revisionCount, 1);
+    assert.equal(planningEvents[3].proposal.subgoals.some(goal => goal.id === 'T-invented'), false);
+    assert.equal(planningEvents[4].revisionCount, 1);
+    assert.deepEqual(planningEvents.slice(5).map(event => event.subgoalId),
+      corrected.map(goal => goal.id));
+    assert.ok(planningEvents.slice(5).every(event => event.from === 'audit'));
+    assert.ok(planningEvents.slice(5).every(event => event.to === 'blocked'));
+    assert.ok(planningEvents.slice(5).every(event => event.reason === 'planning_incomplete'));
+    assert.equal(entries.some(entry => entry.type === 'assistant'), false);
+    assert.equal(entries.some(entry => entry.type === 'tool'), false);
+    assert.equal(entries.at(-1).type, 'meta');
+
+    const serialized = JSON.stringify(entries);
+    assert.equal(serialized.includes(fakeKey), false);
+    assert.match(serialized, /\[REDACTED:openai-api-key\]/);
+  });
+});
+
 auditedPlanningRuntimeTest('Spec 028 T022 — control prompts and returned trust state redact secret values', async () => {
   const secret = ['sk', '-proj-', 'a'.repeat(32)].join('');
   const task = `Inspect ${secret} without exposing it.`;

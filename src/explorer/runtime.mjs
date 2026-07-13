@@ -56,13 +56,19 @@ import {
   runDeterministicCriticPass,
 } from './critic.mjs';
 import {
+  createCapabilityManifest,
   createTaskContract,
   mergeSafetyLimit,
   preflightGoalProposals,
   reduceGoalAudit,
 } from './coverage.mjs';
 import { createChatClient } from './providers/index.mjs';
-import { buildCompactToolDiagnostic, createCompactToolTrace, createTranscriptRecorder } from './transcript.mjs';
+import {
+  buildCompactToolDiagnostic,
+  createCompactToolTrace,
+  createTranscriptRecorder,
+  recordPlanningEvent,
+} from './transcript.mjs';
 
 // Maximum number of tool calls to execute in parallel within a single turn.
 const TOOL_CONCURRENCY = 8;
@@ -1548,6 +1554,52 @@ function coverageCandidateIds({ obligations, proposal, auditRecords, eligibleGoa
   }).map(goal => goal.id);
 }
 
+function emitGoalAuditEvents(onPlanningEvent, {
+  phase,
+  revisionCount,
+  preflight,
+  audited,
+}) {
+  if (typeof onPlanningEvent !== 'function') return;
+  onPlanningEvent('goal_audit', {
+    phase,
+    revisionCount,
+    goalAuditVersion: GOAL_AUDIT_VERSION,
+    capabilities: createCapabilityManifest(),
+    auditRecords: audited.response.goals,
+    uncoveredRequestParts: audited.response.uncoveredRequestParts,
+    diagnostics: preflight.diagnostics ?? [],
+    mechanicalMergeTargets: preflight.mechanicalMergeTargets ?? {},
+  });
+  for (const audit of audited.reduction.rejectedGoals) {
+    onPlanningEvent('goal_rejected', {
+      phase,
+      revisionCount,
+      proposedGoalId: audit.proposedGoalId,
+      verdict: audit.verdict,
+      originRefs: audit.originRefs,
+      reason: audit.reason,
+    });
+  }
+}
+
+function emitBlockerTransitions(onPlanningEvent, requiredSubgoals, gaps) {
+  if (typeof onPlanningEvent !== 'function') return;
+  const gapBySubgoalId = new Map(gaps.map(gap => [gap.subgoalId, gap]));
+  for (const subgoal of requiredSubgoals) {
+    if (subgoal.state !== 'blocked') continue;
+    const gap = gapBySubgoalId.get(subgoal.id);
+    onPlanningEvent('subgoal_state', {
+      subgoalId: subgoal.id,
+      from: 'audit',
+      to: 'blocked',
+      auditVerdict: subgoal.auditVerdict,
+      blockerRef: subgoal.blockerRef,
+      reason: gap?.reason ?? subgoal.auditVerdict,
+    });
+  }
+}
+
 function uniquePlanningCarryId(base, usedIds) {
   let id = `planning-carry:${base}`;
   let suffix = 2;
@@ -2215,6 +2267,7 @@ export class ExplorerRuntime {
     maxCompletionTokens,
     abortSignal,
     onCompletion,
+    onPlanningEvent,
   }) {
     const requestPlan = async ({
       messages,
@@ -2237,11 +2290,15 @@ export class ExplorerRuntime {
         onCompletion,
         validate: raw => {
           const validated = validatePlannerProposal(raw, { task, wrapperTool });
+          const traceExcludedGoals = typeof onPlanningEvent === 'function' ? [] : null;
           const proposal = {
             ...validated,
-            subgoals: validated.subgoals.filter(goal =>
-              !excludedGoals.some(excluded =>
-                goal.id === excluded.id || samePlannerGoalContent(goal, excluded))),
+            subgoals: validated.subgoals.filter(goal => {
+              const excludedByRevision = excludedGoals.some(excluded =>
+                goal.id === excluded.id || samePlannerGoalContent(goal, excluded));
+              if (excludedByRevision && traceExcludedGoals) traceExcludedGoals.push(goal);
+              return !excludedByRevision;
+            }),
           };
           requirePreservedGoals(proposal, preservedGoals);
           const preflight = preflightGoalProposals({
@@ -2256,7 +2313,15 @@ export class ExplorerRuntime {
           if (!allowEmptyPlan && preflight.auditCandidates.length === 0) {
             throw new TypeError('Planner produced no auditable requested goal.');
           }
-          return { proposal: { ...proposal, subgoals: preflight.auditCandidates }, preflight };
+          const validatedPlan = {
+            proposal: { ...proposal, subgoals: preflight.auditCandidates },
+            preflight,
+          };
+          if (traceExcludedGoals) {
+            validatedPlan.submittedProposal = validated;
+            validatedPlan.excludedByRevision = traceExcludedGoals;
+          }
+          return validatedPlan;
         },
       });
 
@@ -2269,6 +2334,14 @@ export class ExplorerRuntime {
         projectContext,
       }),
       stage: 'planner',
+    });
+    onPlanningEvent?.('plan_proposed', {
+      revisionCount: 0,
+      plannerVersion: GOAL_PLANNER_VERSION,
+      proposal: {
+        constraints: initial.submittedProposal.constraints,
+        subgoals: initial.submittedProposal.subgoals,
+      },
     });
     const initialAudit = await this._auditGoalPlanBatched({
       chatClient,
@@ -2284,6 +2357,12 @@ export class ExplorerRuntime {
       maxCompletionTokens,
       abortSignal,
       onCompletion,
+    });
+    emitGoalAuditEvents(onPlanningEvent, {
+      phase: 'initial',
+      revisionCount: 0,
+      preflight: initial.preflight,
+      audited: initialAudit,
     });
 
     let finalReduction = initialAudit.reduction;
@@ -2315,6 +2394,26 @@ export class ExplorerRuntime {
         excludedGoals,
         allowEmptyPlan: preservedGoals.length === 0,
       });
+      if (typeof onPlanningEvent === 'function') {
+        onPlanningEvent('plan_revised', {
+          revisionCount: 1,
+          plannerVersion: GOAL_PLANNER_VERSION,
+          proposal: {
+            constraints: revised.submittedProposal.constraints,
+            subgoals: revised.submittedProposal.subgoals,
+          },
+        });
+        for (const proposal of revised.excludedByRevision) {
+          onPlanningEvent('goal_rejected', {
+            phase: 'revision_filter',
+            revisionCount: 1,
+            proposedGoalId: proposal.id,
+            verdict: 'reject_untraceable',
+            originRefs: proposal.originRefs,
+            reason: 'The corrected plan attempted to revive a previously rejected goal.',
+          });
+        }
+      }
       const revisedAudit = revised.preflight.auditCandidates.length === 0
         ? {
           response: { goals: [], uncoveredRequestParts: [] },
@@ -2341,6 +2440,12 @@ export class ExplorerRuntime {
           onCompletion,
           allowEmptyRequired: true,
         });
+      emitGoalAuditEvents(onPlanningEvent, {
+        phase: 'revision',
+        revisionCount: 1,
+        preflight: revised.preflight,
+        audited: revisedAudit,
+      });
       try {
         finalReduction = mergeRevisedGoalAudit(
           initialAudit.reduction,
@@ -2420,6 +2525,11 @@ export class ExplorerRuntime {
     } catch (error) {
       throw invalidGoalControl('task_contract', error);
     }
+    emitBlockerTransitions(
+      onPlanningEvent,
+      taskContract.subgoals,
+      finalReduction.gaps,
+    );
     return {
       taskContract,
       coverageGaps: finalReduction.gaps,
@@ -2637,6 +2747,9 @@ export class ExplorerRuntime {
             });
           }
         },
+        onPlanningEvent: transcript.filePath
+          ? (type, data) => recordPlanningEvent(transcript, type, data)
+          : null,
       });
       if (auditedPlan.taskContract.subgoals.every(goal => goal.state === 'blocked')) {
         finalObject = buildAllBlockedExploreObject(auditedPlan.coverageGaps);

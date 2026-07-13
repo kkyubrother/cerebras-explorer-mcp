@@ -151,7 +151,7 @@ function requireStringArray(value, label, { allowEmpty = true } = {}) {
   return [...value];
 }
 
-function fixedCapabilities() {
+export function createCapabilityManifest() {
   return {
     repositoryRead: true,
     gitRead: true,
@@ -172,7 +172,7 @@ export function createTaskContract(input) {
     task: requireString(value.task, 'TaskContract.task'),
     effectiveScope: requireStringArray(value.effectiveScope, 'TaskContract.effectiveScope'),
     constraints: requireStringArray(value.constraints, 'TaskContract.constraints'),
-    capabilities: fixedCapabilities(),
+    capabilities: createCapabilityManifest(),
     subgoals: [...value.subgoals],
     plannerVersion: requireString(value.plannerVersion, 'TaskContract.plannerVersion'),
     goalAuditVersion: requireString(value.goalAuditVersion, 'TaskContract.goalAuditVersion'),

@@ -79,10 +79,10 @@ async function makeRepoFixture() {
 }
 
 class MockChatClient {
-  constructor() {
+  constructor(adapterOptions = {}) {
     this.model = 'zai-glm-4.7';
     this.calls = 0;
-    return adaptLegacyGoalAuditClient(this);
+    return adaptLegacyGoalAuditClient(this, adapterOptions);
   }
 
   async createChatCompletion() {
@@ -255,9 +255,15 @@ function assertReadOnlyAnnotations(tool) {
 
 test('MCP request handler exposes explore_repo and returns structuredContent', async () => {
   const repoRoot = await makeRepoFixture();
+  const rejectedSentinel = {
+    id: 'REJECTED_PARENT_SENTINEL_ID',
+    question: 'REJECTED_PARENT_SENTINEL_QUESTION',
+    proofCondition: 'REJECTED_PARENT_SENTINEL_PROOF',
+    reason: 'REJECTED_PARENT_SENTINEL_REASON',
+  };
   const { handleRequest } = createMcpRequestHandler({
     runtimeOptions: {
-      chatClient: new MockChatClient(),
+      chatClient: new MockChatClient({ rejectedGoal: rejectedSentinel }),
     },
   });
 
@@ -355,6 +361,18 @@ test('MCP request handler exposes explore_repo and returns structuredContent', a
   assert.equal(called.structuredContent.sessionId, undefined);
   assert.equal(called.structuredContent.session, undefined);
   assert.equal(called.structuredContent._debug, undefined);
+  assert.equal(called.structuredContent.taskContract, undefined);
+  assert.equal(called.structuredContent.coverageGaps, undefined);
+  assert.equal(called.structuredContent.rejectedGoals, undefined);
+  assert.equal(called.structuredContent.plan_proposed, undefined);
+  assert.equal(called.structuredContent.goal_audit, undefined);
+  const serializedMcpResult = JSON.stringify(called);
+  for (const sentinel of Object.values(rejectedSentinel)) {
+    assert.equal(serializedMcpResult.includes(sentinel), false,
+      `rejected planning sentinel leaked through MCP: ${sentinel}`);
+  }
+  assert.doesNotMatch(serializedMcpResult,
+    /taskContract|coverageGaps|rejectedGoals|plan_proposed|goal_audit|plan_revised|goal_rejected|subgoal_state/);
   assert.match(called.content[0].text, /requireAuth/);
   assert.match(called.content[0].text, /Evidence Quality/);
   assert.match(called.content[0].text, /Search Coverage/);

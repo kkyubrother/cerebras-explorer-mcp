@@ -163,11 +163,11 @@ A `contradicted` verdict applies to the candidate claim, not automatically to th
 
 The ledger may be logged as redacted JSONL events:
 
-- `plan_created`
-- `goal_audited`
+- `plan_proposed`
+- `goal_audit`
 - `plan_revised`
 - `goal_rejected`
-- `subgoal_started`
+- `subgoal_state`
 - `observation_recorded`
 - `claim_proposed`
 - `claim_verified`

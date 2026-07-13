@@ -71,6 +71,14 @@ function redactForTranscript(data) {
   return redactValue(data).value;
 }
 
+/** Record one trusted planning control event through the transcript's redaction boundary. */
+export function recordPlanningEvent(recorder, type, data = {}) {
+  if (!recorder || typeof recorder.record !== 'function' || recorder.filePath === null) return;
+  // Planning control events remain redacted even when legacy LOG_RAW mode is
+  // enabled; they may contain rejected secret-bearing model proposals.
+  recorder.record(type, redactValue(data).value);
+}
+
 function truncateString(value, maxChars = MAX_TRACE_STRING_CHARS) {
   if (typeof value !== 'string') return value;
   if (value.length <= maxChars) return value;
@@ -340,16 +348,16 @@ export function createTranscriptRecorder({ repoRoot, tool, task, logger = () => 
 
   /**
    * Record a message or event to the transcript.
-   * @param {string} type - Message type: 'system', 'user', 'assistant', 'tool', 'safety_limit', 'meta'
+   * @param {string} type - Message or operational event type
    * @param {object} data - Message data
    */
   function record(type, data) {
     const entryData = redactForTranscript(data ?? {});
     buffer.push({
+      ...entryData,
       t: Date.now(),
       type,
       callId,
-      ...entryData,
     });
     if (buffer.length >= FLUSH_THRESHOLD) {
       flush(); // fire-and-forget, serialized through writeChain

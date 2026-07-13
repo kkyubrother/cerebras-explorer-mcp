@@ -10,6 +10,7 @@ import {
   createTranscriptRecorder,
   isTranscriptEnabled,
   isTranscriptRawMode,
+  recordPlanningEvent,
 } from '../src/explorer/transcript.mjs';
 
 function withEnvPatch(patch, fn) {
@@ -116,6 +117,42 @@ test('LOG_PATH transcript metadata records execution provenance when supplied', 
     assert.deepEqual(entries[0].provenance, FAKE_PROVENANCE);
     assert.equal(entries[0].type, 'meta');
     assert.equal(entries[0].tool, 'explore_repo');
+  });
+});
+
+test('Spec 028 T023 — planning events force redaction and immutable metadata in raw mode', async () => {
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-transcript-plan-repo-'));
+  const logDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-transcript-plan-log-'));
+  const fakeKey = `sk-proj-${'p'.repeat(32)}`;
+
+  await withEnvPatch({
+    ...TRANSCRIPT_ENV_OFF,
+    CEREBRAS_EXPLORER_LOG_PATH: logDir,
+    CEREBRAS_EXPLORER_LOG_RAW: 'true',
+  }, async () => {
+    const recorder = createTranscriptRecorder({
+      repoRoot,
+      tool: 'explore_repo',
+      task: 'inspect planning trace',
+    });
+    recordPlanningEvent(recorder, 'plan_proposed', {
+      t: 0,
+      type: 'assistant',
+      callId: 'attacker-controlled',
+      detail: `plan_proposed ${fakeKey}`,
+      path: 'config/.env',
+    });
+    await recorder.finalize({ turns: 0, toolCalls: 0 });
+
+    const entries = await readJsonl(recorder.filePath);
+    const planningEntry = entries.find(entry => entry.type === 'plan_proposed');
+    assert.equal(planningEntry.callId, recorder.callId);
+    assert.ok(planningEntry.t > 0);
+    const serialized = JSON.stringify(entries);
+    assert.equal(serialized.includes(fakeKey), false);
+    assert.match(serialized, /\[REDACTED:openai-api-key\]/);
+    assert.equal(serialized.includes('config/.env'), false);
+    assert.match(serialized, /\[REDACTED:secret-path\]/);
   });
 });
 
