@@ -1,131 +1,226 @@
 # 테스트 현황
 
+이 문서는 현재 checkout을 검증하는 명령과 acceptance signal을 정의합니다. 고정 test 개수나 pass 개수는 기록하지 않습니다. Test 추가·삭제에 따라 숫자가 바뀌어도 기준은 동일합니다.
+
 ## 최근 확인 환경
 
-- 확인 일시: 2026-06-10 KST
-- Node.js: v24.14.0
-- npm: 11.0.0
-- OS/셸: Windows 11 (10.0.26200) / PowerShell 7
-- 통합 테스트: `CEREBRAS_API_KEY`가 설정된 상태에서 실행
+- 확인 일시: 2026-07-14 KST
+- Node.js: 22 이상
+- OS/셸: Windows 11 / PowerShell 7
+- 실제 API 검증: `CEREBRAS_API_KEY`가 설정된 상태
 
-## 단위 테스트
+## 필수 단위·계약 테스트
 
 ```bash
 npm test
 ```
 
-성공 기준: 현재 checkout에서 `npm test`가 `0 fail`로 종료되어야 합니다.
+성공 기준은 현재 checkout에서 process가 exit code 0, `0 fail`로 종료하는 것입니다. Skip은 OS와 설치된 optional binary(`git`, `rg`)에 따라 달라질 수 있습니다.
 
-- skip 수는 실행 OS와 설치된 도구(`git`, `rg`)에 따라 달라집니다. 특정 OS 전용 테스트는 다른 OS에서 제외됩니다.
-- 이 문서의 숫자는 마지막 관측값입니다. 실제 기준은 항상 위 `npm test` 실행 결과입니다.
+주요 회귀 범위:
 
-## 통합 테스트 (실제 Cerebras API)
+- Public registry 순서와 각 tool description/dispatch
+- Strict input schema와 schema-v3 parent handoff
+- Required sub-goal planning, audit, revision, blocker classification
+- Source range reconstruction과 secret redaction
+- Atomic claim semantic verification과 unsupported claim 제거
+- Bounded absence/count proof와 truncation 처리
+- One-round evidence repair와 repeated-action 억제
+- `complete`, `verify_targets`, `incomplete`, `failed` state reduction
+- Scope hard boundary와 git diff/show/stat filtering
+- Request id `0`을 포함한 cancellation
+- Fixed safety-limit observation과 affected-goal attribution
+- Transcript allowlist, usage accounting, redaction
+- Integration manifests, install refs, stale public name 차단
+- Zero runtime/dev dependencies
+
+변경 범위가 좁으면 해당 test file을 먼저 실행하고, commit 전에는 반드시 전체 명령을 실행합니다.
+
+```bash
+node --test tests/schemas.test.mjs tests/mcp-server.test.mjs
+node --test tests/coverage.test.mjs tests/runtime.mock.test.mjs
+node --test tests/repo-tools.test.mjs tests/transcript.test.mjs
+npm test
+```
+
+## 실제 Cerebras API 검증
+
+Runtime 또는 prompt의 model reasoning path를 변경했고 API key를 사용할 수 있으면 다음을 실행합니다.
 
 ```bash
 CEREBRAS_API_KEY=<key> node scripts/integration-test.mjs
 ```
 
-### 최근 실행 결과 (2026-06-10, `zai-glm-4.7`)
+PowerShell:
 
-| 테스트 | 결과 |
-|--------|------|
-| explore_repo (quick) | 통과 |
-| explore_repo (normal) | 통과 |
-| freeExplore | 통과 |
-| freeExplore advanced | 통과 |
-| tool validation | 통과 |
+```powershell
+$env:CEREBRAS_API_KEY = "..."
+node scripts/integration-test.mjs
+```
 
-전체 기준: 스크립트가 보고하는 모든 케이스가 통과하고 `0 fail`로 종료합니다.
+성공 기준은 script가 모든 scenario를 PASS로 표시하고 exit code 0, `0 fail`로 끝나는 것입니다.
 
-### 검증된 기능
+현재 script가 확인하는 핵심 경로:
 
-- `explore_repo` quick/normal 경로 모두 정상 동작
-- `explore` Markdown 보고서 생성 정상 동작
-- compact JSON finalization과 repair 경로 정상 동작
-- confidence, evidence quality, target/evidence 기반 compact contract 정상 동작
-- 결과 포맷: formatExploreResult로 스캔 가능한 텍스트 생성
-- tool result budgeting: report 백엔드에서 truncation 카운트 정상 기록
-- report-mode 통계 필드: `llmCompactions`, `toolResultsTruncated`, `outputRecoveries` 모두 정상 노출
-- 한국어 출력: language 파라미터 정상 동작
-- ERROR RECOVERY 프롬프트: 모델이 에러 시 전략 전환 관찰됨
+- `explore_repo`가 실제 repository fact를 schema-v3 `complete` handoff로 반환
+- Repository source로 mutable external state를 증명할 수 없을 때 `incomplete`와 최소 external verification 반환
+- Cancellation이 intermediate answer를 재사용하지 않고 `failed`/`aborted`로 종료
 
-## 수동 stdio smoke 확인
+API key 값은 console, fixture, transcript, commit에 남기지 않습니다.
 
-`src/index.mjs`를 stdio MCP 서버로 직접 기동한 뒤 다음 왕복을 확인했습니다.
+## Direct runtime 검증
 
-- `initialize` 응답 정상
-- `tools/list` 응답에서 공개 도구 목록이 누락 없이 반환되는 것을 확인
-- `tools/call -> explore_repo` 정상 응답 (`confidence=high`)
+MCP transport 없이 runtime을 test할 때는 public runtime entry point를 사용합니다.
 
-### 자동 회귀 가드로 커버된 항목
+```js
+import { ExplorerRuntime, exploreRepository } from '../src/explorer/runtime.mjs';
 
-다음 항목은 단위 테스트에서 트리거 시나리오를 직접 가드하므로 미검증 표에서 제외합니다.
+const result = await exploreRepository(args, { abortSignal, onProgress });
 
-| 항목 | 가드 위치 |
-|------|-----------|
-| **LLM 대화 요약** (V2 `llmCompactions`) | `tests/runtime.mock.test.mjs` (대형 context로 compaction 강제) |
-| **Max Output Recovery** (V2 `outputRecoveries`) | `tests/runtime.mock.test.mjs` (`finishReason='length'` 후 continuation 검증) |
-| **API retry** (429/500/ECONNRESET/AbortError/timeout) | `tests/http-client.test.mjs` |
-| **gzip 압축** (페이로드 32 KiB 이상) | `tests/cerebras-client.test.mjs` (`content-encoding: gzip` 헤더 + Buffer body 검증) |
-| **캐시 mtime 감지** (`repo_read_file` 캐시 무효화) | `tests/repo-tools.test.mjs` (`fs.utimes`로 mtime 변경 후 새 내용 반환 검증) |
-| **Transcript JSONL trigger** (`CEREBRAS_EXPLORER_LOG_PATH` 설정 → `transcriptPath` 반환) | `tests/free-explore.test.mjs` |
+const runtime = new ExplorerRuntime({ chatClient: mockClient });
+const injected = await runtime.explore(args, { abortSignal, onProgress });
+```
 
-### 미검증 항목 (추가 테스트 필요)
+Mock-provider test는 planner, goal auditor, exploration, synthesis, verifier, repair stage를 독립 fixture로 제어합니다. Direct 결과의 operational diagnostics는 runtime assertion에 사용할 수 있지만 parent contract assertion은 MCP projection의 schema-v3 payload를 대상으로 합니다.
 
-남은 항목은 모두 외부 parent agent (Claude Code, Codex 등)의 행동 관찰이 필요해 단위 테스트로 자동화하기 어렵습니다. 각 항목별 관찰 절차는 아래 "수동 관찰 절차"를 참고하세요.
+## stdio MCP smoke
 
-| 항목 | 트리거 조건 | 테스트 방법 |
-|------|-----------|-----------|
-| **도구 자발적 사용** | Claude Code에서 명시적 지시 없이 도구 선택 | MCP 연결 후 실제 사용 관찰 |
-| **부모 모델 재탐색 방지** | 부모 모델이 결과 신뢰하고 동일 파일 재Read 안 함 | Claude Code에서 explore 결과 후 행동 관찰 |
-| **AbortController** | 탐색 중 MCP cancelled 알림 수신 | 탐색 중 Ctrl+C 또는 MCP 취소 |
-| **동시 도구 호출** (실제 API) | Claude Code에서 explore + explore_repo 동시 호출 | MCP 연결 후 병렬 호출 후 두 응답 모두 수신 확인 |
+`src/index.mjs`를 stdio server로 기동하고 다음 왕복을 확인합니다.
 
-### 수동 관찰 절차
+1. `initialize`가 protocol/server info와 concise dispatch rule을 반환
+2. `tools/list`가 `find_relevant_code`, `trace_symbol`, `map_change_impact`, `explain_code_path`, `collect_evidence`, `explore_repo` 순서로 반환
+3. `tools/call` 결과의 `structuredContent.schemaVersion`이 `3`
+4. `content[0].text`가 structured result를 확장하거나 모순하지 않음
+5. `_meta.progressToken`이 있는 long call에서 progress notification 수신
+6. `notifications/cancelled`가 해당 request만 중단
 
-각 미검증 항목을 실측할 때 따를 단계와 기대 신호. 한 번 실측한 결과는 이 문서에 기록하지 않습니다 (점-시간 증거이고 다음 변경에서 곧 stale 됨). 회귀가 의심될 때마다 다시 따라 합니다.
+Unknown tool이나 unknown input field는 provider call 전에 거부되어야 합니다.
 
-**1. 도구 자발적 사용**
-1. README의 `Claude Code 연결 예시` 절차로 MCP 서버를 등록한다 (`claude mcp add -s user cerebras-explorer ...`).
-2. Claude Code 세션에서 도구 이름을 언급하지 않은 자연어 질문을 던진다: 예) "이 저장소의 인증 흐름을 설명해줘".
-3. **기대**: parent 모델이 `explore_repo` 또는 `explore` 중 하나를 자동 호출하고, 자체 `Grep`/`Read` 반복으로 답을 만들지 않는다.
-4. **fail 신호**: parent가 explorer 도구를 한 번도 호출하지 않거나, 도구 호출 직전/직후에 동일 파일을 native `Read`로 다시 읽는다.
+## Parent-agent 관찰
 
-**2. 부모 모델 재탐색 방지**
-1. 1번 절차로 explorer 응답을 받은 직후 같은 세션에서 후속 질문: 예) "그러면 `requireAuth`가 어디에 붙는지 정확한 라인 알려줘".
-2. **기대**: parent가 explorer 응답의 `targets[]` / `evidence[]` / `citations[]` 정보를 그대로 사용하고, 동일 파일을 다시 `Read`하거나 `Grep`하지 않는다.
-3. **fail 신호**: parent가 `result.targets[].path`를 무시하고 native `Read`로 같은 파일을 다시 열어 라인 검색한다 — explorer 응답의 신뢰 계약이 깨진 신호.
+다음은 실제 Claude Code/Codex 행동을 관찰해야 하는 adoption scenario입니다. 한 번의 관찰 결과는 빠르게 stale해지므로 이 문서에 고정 pass 숫자를 기록하지 않습니다.
 
-**3. AbortController (MCP cancelled)**
-1. deep 호출이 예상되는 무거운 질문을 던진다: 예) "전체 라우팅 구조를 모든 미들웨어 포함해서 깊게 분석해줘".
-2. 탐색 도중 (turn 5–15 즈음, `_meta.progressToken` 진행률을 보면서) MCP cancellation을 트리거한다 (Claude Code: `Esc`, 또는 다른 클라이언트의 동등 명령).
-3. **기대**: 서버가 진행 중인 chat completion fetch를 abort하고, 응답에 `stoppedByAbort=true` 또는 `buildCancelledReport()` 본문을 반환한다.
-4. **fail 신호**: cancellation 후에도 서버가 끝까지 돌아 정상 결과를 반환하거나, 프로세스가 좀비처럼 남는다.
+### 1. 자발적 tool selection
 
-**4. 동시 도구 호출**
-1. parent agent에 두 개 이상 도구 호출을 동시에 시키는 메시지를 보낸다: 예) "`explore`로 인증 구조 설명하면서 동시에 `explore_repo`로 라우터 변경 영향도 분석해줘".
-2. **기대**: 두 호출이 모두 응답을 반환하고, 한쪽이 다른 쪽을 차단(serialize)하지 않으며, 두 응답이 각자 grounded evidence를 가진다.
-3. **fail 신호**: 한쪽 호출이 다른 쪽 완료까지 대기하거나, 두 응답이 서로 간섭해 한쪽 결과가 비거나 깨진다.
+Parent에게 tool 이름 없이 repository 질문을 줍니다.
 
-## Cerebras API 에러 코드 참조
+```text
+이 저장소에서 인증 middleware가 등록되는 위치를 찾아 설명해줘.
+```
 
-https://inference-docs.cerebras.ai/api-reference/error-codes
+기대:
 
-| 코드 | 유형 | retry 여부 |
-|------|------|-----------|
-| 400 | BadRequestError | X |
-| 401 | AuthenticationError | X |
-| 402 | PaymentRequired | X |
-| 403 | PermissionDeniedError | X |
-| 404 | NotFoundError | X |
-| 408 | Request Timeout | O (자동 retry) |
-| 422 | UnprocessableEntityError | X |
-| 429 | RateLimitError | O (exponential backoff + Retry-After) |
-| 500 | InternalServerError | O |
-| 502 | Bad Gateway | O |
-| 503 | ServiceUnavailable | O |
-| 504 | Gateway Timeout | O |
-| N/A | APIConnectionError (네트워크) | O (ECONNRESET, ETIMEDOUT 등) |
+- 위치 discovery에는 `find_relevant_code`
+- known symbol 후속 질문에는 `trace_symbol`
+- 어느 specialized intent에도 명확히 속하지 않으면 `explore_repo`
+- 동일 질문을 native Glob/Grep/Read로 먼저 반복하지 않음
 
-기본 timeout: 60초 (환경변수 `CEREBRAS_EXPLORER_HTTP_TIMEOUT_MS`로 변경 가능).
-기본 retry: 최대 2회, exponential backoff (500ms base, 25% jitter, 최대 32초).
+### 2. Parent 재탐색 억제
+
+`state=complete` 응답 뒤 같은 fact를 다시 묻습니다.
+
+기대:
+
+- Parent가 `directAnswer`와 `evidence`를 사용
+- `state=verify_targets`일 때만 named `targets`를 읽고 편집 진행
+- `complete`인데 같은 file을 습관적으로 다시 search/read하지 않음
+
+### 3. Incomplete honesty
+
+Repository 밖 mutable state나 일부러 scope 밖 evidence가 필요한 질문을 줍니다.
+
+기대:
+
+- 검증된 partial fact만 answer에 포함
+- 해결되지 않은 원래 질문이 `gaps`에 남음
+- Scope를 자동으로 넓히지 않음
+- External fact가 필요하면 최소 `external_verification`만 제시
+- 결과를 개선할 행동이 없으면 `followUp`을 생략
+
+### 4. Cancellation
+
+진행 중인 exploration을 client에서 취소합니다.
+
+기대:
+
+- Active provider request가 abort됨
+- 해당 MCP request만 종료됨
+- Intermediate assistant prose가 `directAnswer`로 나오지 않음
+- Parent는 `state=failed`, `failure.reason=aborted`를 받음
+
+### 5. Concurrent calls
+
+서로 다른 두 repository question을 병렬 호출합니다.
+
+기대:
+
+- 두 request의 progress, cancellation, transcript callId가 섞이지 않음
+- 한 call이 다른 call을 serialize하지 않음
+- 각 결과가 자기 scope와 evidence만 포함
+
+## Trust fixture 원칙
+
+Known-answer fixture는 explorer output과 분리된 oracle을 가집니다.
+
+- Expected required questions
+- Allowed/forbidden claims
+- Required evidence anchors
+- Scope와 negative boundary
+- Expected public state
+- Fixture content hash 또는 repository revision
+
+반복 실행은 model의 자연어 일치가 아니라 다음을 평가합니다.
+
+- False-complete 여부
+- Unsupported cited claim 여부
+- Wrong/infeasible goal classification
+- Request-part coverage
+- Citation/source reconstruction accuracy
+- Parent payload byte size
+- Parent native re-search 행동
+
+Token usage와 latency는 운영 비교용으로 기록하지만 trust acceptance를 대신하지 않습니다.
+
+## Safety-limit scenario
+
+Runtime 내부 관측 이름은 다음으로 고정됩니다.
+
+```text
+turn_limit
+context_limit
+generation_output_limit
+walk_limit
+tool_result_limit
+```
+
+Test는 한계 도달만으로 성공이나 실패가 되지 않는지 확인해야 합니다. 실제로 evidence 수집이 끊긴 required goal만 `safety_limit_reached` gap이 되고, 영향을 받지 않은 goal은 기존 verdict를 유지합니다. Invalid planner/auditor/verifier/final control response가 bounded recovery 뒤에도 남으면 coverage gap이 아니라 해당 fault로 처리합니다.
+
+## Transcript 검증
+
+```powershell
+$env:CEREBRAS_EXPLORER_LOG_PATH = ".\.explorer-logs"
+node scripts/integration-test.mjs
+```
+
+확인 항목:
+
+- 각 file/record의 `callId` 일치
+- Planning, goal-audit, claim, verdict, repair, safety-limit, usage, final event 존재
+- Secret value/path redaction
+- Raw mode에서도 planning/trust record allowlist와 redaction 유지
+- Parent payload에 transcript path, stats, usage, timing이 섞이지 않음
+- Failed/cancelled provider call도 실제 발행된 usage가 있으면 집계
+
+## HTTP recovery
+
+`tests/http-client.test.mjs`는 retry 가능한 timeout, connection reset, 408, 429, 5xx와 retry하지 않는 authentication/input 오류를 가드합니다. 기본 timeout은 `CEREBRAS_EXPLORER_HTTP_TIMEOUT_MS`로 조정할 수 있습니다.
+
+Cerebras API reference: <https://inference-docs.cerebras.ai/api-reference/error-codes>
+
+## Commit gate
+
+1. 변경에 대응하는 targeted test 실행
+2. `npm test` → `0 fail`
+3. Runtime/prompt reasoning path 변경이며 key 사용 가능 → 실제 API script 통과
+4. `git diff --check`
+5. Public schema/tool/env 변경 시 README, DESIGN, examples, integrations snapshot 동기화 확인

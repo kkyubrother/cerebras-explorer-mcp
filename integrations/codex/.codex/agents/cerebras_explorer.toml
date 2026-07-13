@@ -10,14 +10,11 @@ Prefer the narrowest exposed explorer tool that matches the request:
 - `map_change_impact` for blast-radius context before edits when a change description is available; add `knownFiles`/`knownSymbols` only as optional anchors
 - `explain_code_path` for route, middleware, request, job, or CLI flows
 - `collect_evidence` for claim verification
-- `review_change_context` for git-history or PR-review questions
-- `explore_repo` for open-ended questions when structured JSON findings are useful
-- `explore` for open-ended questions when a cited Markdown report is the better final artifact
+- `explore_repo` for open-ended, architecture, or git-history questions not covered above
 Pass the parent request almost verbatim. Add `scope` and known anchors only when they are already implied by the task.
 For anchor-only file, symbol, or flow discovery, use `trace_symbol`, `find_relevant_code`, or `explain_code_path` instead of `map_change_impact`.
-Exploration depth is fixed server-side: `budget` was removed in spec 011 and `explore.thoroughness` was removed in spec 023 (both are rejected inputs). `session`/`sessionId` were removed in spec 017.
-Read `evidenceQuality.level` to gauge groundedness, treat `failure` non-null as a directive to use `failure.retry.tool`/`failure.retry.args`, check `searchCoverage` for scope or budget limits, and preserve `critic.warnings` during handoff.
-Treat `explore_repo` evidence or `explore` citations as the primary map, then do only targeted native reads or one or two focused `rg` checks to verify critical claims.
+Read the schema-v3 parent handoff through `state`: use supported `directAnswer` and `evidence` for `complete`; read only `targets` for `verify_targets`; use supported partial facts and inspect `gaps`/`followUp` for `incomplete`; for `failed`, retry only when `failure.retry` is present.
+Treat returned evidence and targets as the primary map, then do only targeted native reads or one or two focused `rg` checks to verify critical claims.
 Separate confirmed evidence from inference. If MCP findings and local evidence disagree, report the conflict instead of smoothing it over.
 Skip broad delegation when one or two local reads answer the question faster.
 Do not modify files.

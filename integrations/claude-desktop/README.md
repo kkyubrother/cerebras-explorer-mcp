@@ -38,7 +38,7 @@
 
 ## 검증
 
-설정 파일을 저장한 뒤 Claude Desktop을 **완전히 종료(메뉴바에서 Quit)** 하고 다시 실행합니다. 입력창 우하단의 MCP 슬라이더 아이콘을 클릭해 `cerebras-explorer` 도구들이 보이는지 확인하세요.
+설정 파일을 저장한 뒤 Claude Desktop을 **완전히 종료(메뉴바에서 Quit)** 하고 다시 실행합니다. 입력창 우하단의 MCP 슬라이더 아이콘을 클릭해 `find_relevant_code`, `trace_symbol`, `map_change_impact`, `explain_code_path`, `collect_evidence`, `explore_repo`가 이 순서로 보이는지 확인하세요.
 
 문제 발생 시 로그 위치:
 - macOS: `~/Library/Logs/Claude/mcp.log`, `mcp-server-cerebras-explorer.log`

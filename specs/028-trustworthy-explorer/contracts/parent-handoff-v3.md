@@ -187,7 +187,7 @@ The evidence list is claim-cover-minimized: retain one direct item per claim whe
 ```
 
 - Public reasons are exactly `invalid_arguments`, `repo_mismatch`, `aborted`, `provider_error`, `tool_failure`, `verifier_error`, `access_denied`, and `internal_error`.
-- `budget_exhausted` is not a public reason. Reaching a fixed safety/context ceiling produces `state=incomplete` with a `safety_limit_reached` gap only for affected goals; a narrow continuation is present only when it can materially help. Exact usage/limit facts remain operational logs.
+- `budget_exhausted` is not a public reason. Reaching a fixed safety/context ceiling produces `state=incomplete` and a concise gap only for affected goals; `safety_limit_reached` remains an internal gap classification rather than a new public field. A narrow continuation is present only when it can materially help. Exact usage/limit facts remain operational logs.
 - If a provider output cap leaves the required planner, goal-auditor, verifier, or final structured response invalid after bounded recovery, use the applicable provider/verifier/internal failure reason and `state=failed`; invalid control JSON is not a partial coverage gap.
 - Cancellation never reuses intermediate assistant content as `directAnswer`.
 - `directAnswer` is the only human failure message; `failure` does not repeat it.

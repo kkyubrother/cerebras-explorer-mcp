@@ -22,14 +22,12 @@
       },
       "trust": false,
       "includeTools": [
-        "explore_repo",
         "find_relevant_code",
         "trace_symbol",
         "map_change_impact",
         "explain_code_path",
         "collect_evidence",
-        "review_change_context",
-        "explore"
+        "explore_repo"
       ],
       "timeout": 180000
     }
@@ -43,10 +41,9 @@ Gemini CLI는 MCP 서버 프로세스에 전달되는 환경변수 중 `*KEY*`, 
 
 `includeTools`는 Gemini CLI 쪽 allowlist입니다. 특정 도구를 추가로 막는 `excludeTools`를 함께 쓰면 `excludeTools`가 우선합니다.
 
-Recommended full wrapper exposure is the 8-tool list above. It keeps low-level
-repo operations hidden while giving the agent separate entry points for locate,
-symbol tracing, change-impact mapping, path explanation, evidence collection,
-change review, structured JSON, and cited Markdown reports.
+Recommended full six-tool exposure is the list above. It keeps low-level
+repository operations hidden while providing purpose-built entry points for
+location, symbol, change-impact, path, and evidence work plus one general fallback.
 
 ## CLI 등록
 

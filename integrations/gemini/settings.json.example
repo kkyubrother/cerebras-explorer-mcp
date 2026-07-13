@@ -8,14 +8,12 @@
       },
       "trust": false,
       "includeTools": [
-        "explore_repo",
         "find_relevant_code",
         "trace_symbol",
         "map_change_impact",
         "explain_code_path",
         "collect_evidence",
-        "review_change_context",
-        "explore"
+        "explore_repo"
       ],
       "timeout": 180000
     }

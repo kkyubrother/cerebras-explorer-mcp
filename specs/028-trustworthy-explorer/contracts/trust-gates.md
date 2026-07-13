@@ -134,6 +134,8 @@ The verifier cannot invent a new narrowed answer after the fact.
 | Relevant denied path | Repository-wide claim blocked; narrower unaffected claim may pass without exposing secret path. |
 | Fixed safety/context ceiling reached | Record the exact limit and affected goals. Unaffected supported goals remain usable; affected goals make the result `incomplete` with `safety_limit_reached`. A limit hit alone is never a completion shortcut or `failed`. |
 
+The internal `SafetyLimit.name` vocabulary is closed: `turn_limit`, `context_limit`, `generation_output_limit`, `walk_limit`, and `tool_result_limit`. Values and mappings are fixed in [public-tool-surface.md](./public-tool-surface.md); callers cannot select or override them. Only direct-runtime/transcript diagnostics retain the observation name and affected sub-goal ids.
+
 Valid JSON-RPC request id `0` is tracked exactly like other ids. Truthiness is not used for active cancellation registration/removal.
 
 ## State reduction pseudocode

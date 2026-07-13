@@ -125,7 +125,7 @@ test('regression tests do not reference removed feedback document', async () => 
 // guard's own narrowly scoped negative-test allowlist and is stripped before
 // the repository scan, so its banned fixtures cannot satisfy themselves.
 const T054_ACTIVE_EFFORT_STATE_REMOVED = true;
-const T056_USER_SURFACE_MIGRATED = false;
+const T056_USER_SURFACE_MIGRATED = true;
 
 const ACTIVE_CODE_ROOTS = Object.freeze(['src', 'scripts', 'benchmarks', 'tests']);
 const ACTIVE_USER_ROOTS = Object.freeze(['integrations', 'examples']);
@@ -289,26 +289,24 @@ test('CI workflows do not receive provider API keys', async () => {
   }
 });
 
-test('Gemini example documents required env and recommended full wrapper allowlist', async () => {
+test('Gemini example documents required env and the full six-tool allowlist', async () => {
   const settings = JSON.parse(await read('integrations/gemini/settings.json.example'));
   const server = settings.mcpServers?.['cerebras-explorer'];
   assert.ok(server, 'Gemini server alias should be cerebras-explorer');
   assert.equal(server.command, 'npx');
   assert.equal(server.env?.CEREBRAS_API_KEY, '$CEREBRAS_API_KEY');
   assert.deepEqual(server.includeTools, [
-    'explore_repo',
     'find_relevant_code',
     'trace_symbol',
     'map_change_impact',
     'explain_code_path',
     'collect_evidence',
-    'review_change_context',
-    'explore',
+    'explore_repo',
   ]);
   assert.deepEqual(server.args, ['-y', 'github:kkyubrother/cerebras-explorer-mcp#v0.8.9']);
 
   const readme = await read('integrations/gemini/README.md');
-  assert.match(readme, /recommended full wrapper/i);
+  assert.match(readme, /full six-tool/i);
   assert.match(readme, /\*KEY\*/);
   assert.match(readme, /CEREBRAS_API_KEY/);
   assert.match(readme, /excludeTools/);
@@ -327,17 +325,16 @@ test('Codex example uses npx, trusted auto-approval, and tool allowlist controls
   assert.match(toml, /trusted local coding sessions/);
   assert.match(toml, /external model provider/);
   assert.deepEqual(extractFirstTomlStringArray(toml, 'enabled_tools'), [
-    'explore_repo',
     'find_relevant_code',
     'trace_symbol',
     'map_change_impact',
     'explain_code_path',
     'collect_evidence',
-    'review_change_context',
-    'explore',
+    'explore_repo',
   ]);
   assert.match(toml, /github:kkyubrother\/cerebras-explorer-mcp#v0.8.9/);
-  assert.match(toml, /minimal 4-tool/i);
+  assert.match(toml, /full six-tool/i);
+  assert.doesNotMatch(toml, /minimal 4-tool/i);
   // spec 011: explore_v2 tool name is gone; the disabled_tools example just
   // demonstrates the syntax with any retained tool name.
   assert.match(toml, /disabled_tools = \["/);
@@ -347,8 +344,8 @@ test('Codex example uses npx, trusted auto-approval, and tool allowlist controls
   const agents = await read('integrations/codex/AGENTS.md.example');
   assert.match(agents, /enabled_tools/);
   assert.match(agents, /disabled_tools/);
-  assert.match(agents, /recommended full wrapper/i);
-  assert.match(agents, /minimal 4-tool/i);
+  assert.match(agents, /full six-tool/i);
+  assert.doesNotMatch(agents, /minimal 4-tool/i);
   assert.match(agents, /trusted\s+local coding sessions/);
 
   const readme = await read('README.md');
@@ -449,7 +446,11 @@ const LLM_PROSE_FILES = [
 ];
 
 const REMOVED_PUBLIC_TOOL_NAME_PATTERN = new RegExp(
-  `\\b(${['map', 'impact'].join('_')}|${['find', 'entrypoints'].join('_')})\\b`,
+  `\\b(${[
+    ['map', 'impact'].join('_'),
+    ['find', 'entrypoints'].join('_'),
+    ['review', 'change', 'context'].join('_'),
+  ].join('|')})\\b|(?:\`explore\`|"explore"|'explore')`,
 );
 
 test('Gemini client timeout matches Codex tool_timeout_sec limit', async () => {
@@ -466,18 +467,19 @@ test('Gemini client timeout matches Codex tool_timeout_sec limit', async () => {
   );
 });
 
-test('LLM prose files mention current compact contract fields', async () => {
+test('LLM prose files mention the current schema-v3 state contract', async () => {
   for (const relPath of LLM_PROSE_FILES) {
     const text = await read(relPath);
     assert.match(
       text,
-      /failure|evidenceQuality|searchCoverage|critic\.warnings/,
-      `${relPath} should mention at least one of failure/evidenceQuality/searchCoverage/critic.warnings`,
+      /schema[- ]?v3|schemaVersion[^\r\n]*3/i,
+      `${relPath} should identify the schema-v3 handoff`,
     );
+    assert.match(text, /\bstate\b/, `${relPath} should explain the state field`);
   }
 });
 
-test('Codex agent role TOML lists every public wrapper tool', async () => {
+test('Codex agent role TOML lists every public tool', async () => {
   const toml = await read('integrations/codex/.codex/agents/cerebras_explorer.toml');
   const expected = [
     'find_relevant_code',
@@ -485,9 +487,7 @@ test('Codex agent role TOML lists every public wrapper tool', async () => {
     'map_change_impact',
     'explain_code_path',
     'collect_evidence',
-    'review_change_context',
     'explore_repo',
-    'explore',
   ];
   for (const name of expected) {
     assert.match(toml, new RegExp(`\\b${name}\\b`), `${name} should appear in Codex agent role TOML`);
@@ -547,6 +547,18 @@ test('Codex AGENTS.md.example and agent TOML introduce find_relevant_code before
       'find_relevant_code should appear before explore_repo in user-facing tool guidance',
     );
   }
+});
+
+test('Spec 028 T056 — quickstart uses executable Node option order and PowerShell-native search', async () => {
+  const quickstart = await read('specs/028-trustworthy-explorer/quickstart.md');
+  assert.doesNotMatch(
+    quickstart,
+    /node\s+--test\s+tests\/[^\r\n]+\s+--test-name-pattern/,
+    'Node test-runner options must precede positional test files',
+  );
+  assert.match(quickstart, /node\s+--test\s+--test-name-pattern(?:=|\s+)[^\r\n]+\s+tests\//);
+  assert.match(quickstart, /```powershell[\s\S]*?\brg\s+-n/);
+  assert.doesNotMatch(quickstart, /\bfind\s+\.\s+-name\b|\bxargs\b|\bgrep\s+-R\b/);
 });
 
 test('DESIGN evidence reliability does not describe explore_v2 as active report mode', async () => {

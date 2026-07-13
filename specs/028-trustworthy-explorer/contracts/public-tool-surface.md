@@ -61,6 +61,8 @@ After the wrapper is removed, delete its now-orphaned internal `change_review` t
 
 Removed because Markdown presentation is not a distinct repository proof policy. The parent receives structured verified claims and decides how much prose the user needs. Remove the public handler and report-only backend code after reference analysis; do not keep a hidden compatibility alias or enable flag.
 
+The same removal applies to the direct-runtime report APIs: `freeExploreRepository` and `ExplorerRuntime.freeExplore` have no compatibility aliases. Direct callers migrate to `exploreRepository` and `ExplorerRuntime.explore`, respectively; both return the structured exploration result used to build the v3 parent handoff.
+
 Migration example:
 
 ```json
@@ -87,6 +89,21 @@ None of the six tools accepts:
 `explore_repo.hints.strategy` is removed from the public schema. Known anchors and hard `scope` remain useful task facts, not effort controls. Wrappers may still pass trusted internal task intents to the runtime; those values never become parent choices.
 
 The old internal single-`deep` budget abstraction and report effort envvars are removed as well. Fixed provider/context/process safety limits remain implementation constants, are named for the exact constraint they protect, and cannot be selected or multiplied by the parent or operator. Reaching one affects only the proof state of goals it actually interrupted.
+
+The fixed runtime configuration is exactly:
+
+| Runtime key | Value | Limit observation when it interrupts proof |
+|---|---:|---|
+| `maxTurns` | 30 | `turn_limit` |
+| `maxSearchResults` | 80 | `tool_result_limit` when the result is actually truncated |
+| `maxReadLines` | 320 | `tool_result_limit` when a requested existing range is actually truncated |
+| `maxDirectoryEntries` | 300 | `tool_result_limit` when the result is actually truncated |
+| `maxWalkFiles` | 6000 | `walk_limit` |
+| `maxCompletionTokens` | 32000 | `generation_output_limit` |
+| `finalizeMaxCompletionTokens` | 3000 | `generation_output_limit` |
+| `maxContextTokens` | 110000 | `context_limit` |
+
+The internal safety-limit vocabulary is exactly `turn_limit`, `context_limit`, `generation_output_limit`, `walk_limit`, and `tool_result_limit`. These observations belong to the direct-runtime/transcript diagnostics; normal v3 output exposes only the affected requested gap, not configuration or usage telemetry.
 
 ## Addition/removal gate
 
