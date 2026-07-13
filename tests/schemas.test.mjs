@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import * as schemaModule from '../src/explorer/schemas.mjs';
 
 import {
   ABSENCE_CERTIFICATE_SCHEMA,
@@ -915,4 +916,237 @@ test('normalizeExploreResult marks unsafe and overly broad evidence ranges as ma
   assert.equal(result.evidence[2].malformedRange, undefined);
   assert.equal(result.evidence[2].startLine, 1);
   assert.equal(result.evidence[2].endLine, 10_000);
+});
+
+const plannerAuditorSchemaTest =
+  schemaModule.PLANNER_PROPOSAL_SCHEMA &&
+  schemaModule.GOAL_AUDITOR_RESPONSE_SCHEMA &&
+  typeof schemaModule.validatePlannerProposal === 'function' &&
+  typeof schemaModule.validateGoalAuditorResponse === 'function'
+    ? test
+    : test.todo;
+// T020 must replace this feature gate with ordinary tests once the schemas land.
+
+const PLANNER_TASK = 'Trace authenticateUser and verify that legacyLogin is absent.';
+const REQUEST_ORIGIN = 'request:0-22';
+const TRACE_DEFINITION_ORIGIN = 'wrapper:trace_symbol:definition';
+
+function plannerGoal(overrides = {}) {
+  return {
+    id: 'S1',
+    question: 'Where is authenticateUser defined?',
+    originRefs: [REQUEST_ORIGIN],
+    claimType: 'symbol_definition',
+    proofCondition: 'Observe the in-scope definition and source body.',
+    constraints: [],
+    ...overrides,
+  };
+}
+
+function plannerProposal(subgoals = [plannerGoal()], overrides = {}) {
+  return {
+    taskSummary: 'Trace authenticateUser and check the legacy registration.',
+    constraints: ['Do not infer deployed runtime state.'],
+    subgoals,
+    ...overrides,
+  };
+}
+
+function goalAudit(goal, verdict = 'ready', overrides = {}) {
+  return {
+    proposedGoalId: goal.id,
+    verdict,
+    originRefs: [...goal.originRefs],
+    missingRequestParts: [],
+    reason: `Categorized as ${verdict}.`,
+    ...overrides,
+  };
+}
+
+function auditorResponse(goals, uncoveredRequestParts = []) {
+  return { goals, uncoveredRequestParts };
+}
+
+function validatePlanner(value, context = {}) {
+  assert.equal(typeof schemaModule.validatePlannerProposal, 'function');
+  return schemaModule.validatePlannerProposal(value, {
+    task: PLANNER_TASK,
+    wrapperTool: 'trace_symbol',
+    ...context,
+  });
+}
+
+function validateAuditor(value, proposal, context = {}) {
+  assert.equal(typeof schemaModule.validateGoalAuditorResponse, 'function');
+  return schemaModule.validateGoalAuditorResponse(value, {
+    task: PLANNER_TASK,
+    wrapperTool: 'trace_symbol',
+    plannerProposal: proposal,
+    ...context,
+  });
+}
+
+plannerAuditorSchemaTest('Spec 028 T016 — planner and auditor schemas are strict control-plane objects', () => {
+  const plannerSchema = schemaModule.PLANNER_PROPOSAL_SCHEMA;
+  const auditorSchema = schemaModule.GOAL_AUDITOR_RESPONSE_SCHEMA;
+  assertStrictObjectTree(plannerSchema, 'PLANNER_PROPOSAL_SCHEMA');
+  assertStrictObjectTree(auditorSchema, 'GOAL_AUDITOR_RESPONSE_SCHEMA');
+  assertSchemaKeys(plannerSchema, {
+    required: ['taskSummary', 'constraints', 'subgoals'],
+  }, 'PLANNER_PROPOSAL_SCHEMA');
+  assertSchemaKeys(plannerSchema.properties.subgoals.items, {
+    required: ['id', 'question', 'originRefs', 'claimType', 'proofCondition', 'constraints'],
+  }, 'PLANNER_PROPOSAL_SCHEMA.subgoals[]');
+  assertSchemaKeys(auditorSchema, {
+    required: ['goals', 'uncoveredRequestParts'],
+  }, 'GOAL_AUDITOR_RESPONSE_SCHEMA');
+  assert.equal('proofPolicy' in plannerSchema.properties.subgoals.items.properties, false);
+  for (const runtimeOwned of ['revisionRequired', 'revisionCount', 'requestRevision']) {
+    assert.equal(runtimeOwned in plannerSchema.properties, false);
+    assert.equal(runtimeOwned in auditorSchema.properties, false);
+  }
+});
+
+plannerAuditorSchemaTest('Spec 028 T016 — origin references are bounded and auditor-confirmed', () => {
+  const goal = plannerGoal({ originRefs: [REQUEST_ORIGIN, TRACE_DEFINITION_ORIGIN] });
+  const proposal = plannerProposal([goal]);
+  assert.doesNotThrow(() => validatePlanner(proposal));
+  assert.doesNotThrow(() => validateAuditor(auditorResponse([
+    goalAudit(goal, 'ready', { originRefs: [REQUEST_ORIGIN] }),
+  ]), proposal));
+
+  for (const invalidOrigin of [
+    'request:-1-4',
+    'request:0-0',
+    `request:0-${PLANNER_TASK.length + 1}`,
+    'request:0.5-4',
+    'wrapper:trace_symbol:unknown',
+    'wrapper:map_change_impact:targets',
+  ]) {
+    const invalid = plannerProposal([plannerGoal({ originRefs: [invalidOrigin] })]);
+    assert.throws(() => validatePlanner(invalid), invalidOrigin);
+  }
+
+  const unconfirmed = auditorResponse([
+    goalAudit(goal, 'ready', { originRefs: ['request:0-5'] }),
+  ]);
+  assert.throws(() => validateAuditor(unconfirmed, proposal),
+    'auditor origins must be a subset of the proposed origins');
+  assert.throws(() => validateAuditor(auditorResponse([
+    goalAudit(goal, 'ready', { originRefs: [] }),
+  ]), proposal), 'ready goals require a confirmed origin');
+  assert.doesNotThrow(() => validateAuditor(auditorResponse([
+    goalAudit(goal, 'reject_untraceable', { originRefs: [] }),
+  ]), proposal), 'an untraceable rejection may confirm no origin');
+});
+
+plannerAuditorSchemaTest('Spec 028 T016 — claim types map to one runtime-owned proof policy', () => {
+  const policyByClaimType = new Map([
+    ['positive', 'direct_source'],
+    ['absence', 'bounded_absence'],
+    ['count', 'deterministic_count'],
+    ['symbol_definition', 'symbol_definition'],
+    ['symbol_usage', 'bounded_usage_cross_check'],
+    ['flow', 'ordered_handoffs'],
+    ['impact', 'impact_categories'],
+    ['comparison', 'distinct_policy_paths'],
+    ['claim_verification', 'support_or_refute'],
+  ]);
+
+  for (const [claimType, proofPolicy] of policyByClaimType) {
+    assert.doesNotThrow(() => validatePlanner(plannerProposal([
+      plannerGoal({ claimType }),
+    ])), claimType);
+
+    const contract = makeValidTaskContract();
+    contract.subgoals[0].claimType = claimType;
+    contract.subgoals[0].proofPolicy = proofPolicy;
+    assert.doesNotThrow(() => validateTaskContract(contract), claimType);
+    contract.subgoals[0].proofPolicy = proofPolicy === 'direct_source'
+      ? 'bounded_absence'
+      : 'direct_source';
+    assert.throws(() => validateTaskContract(contract),
+      `${claimType} cannot be paired with a model-selected proof policy`);
+  }
+
+  const modelPolicy = plannerProposal();
+  modelPolicy.subgoals[0].proofPolicy = 'direct_source';
+  assert.throws(() => validatePlanner(modelPolicy), 'the planner cannot author proofPolicy');
+  const unknownType = plannerProposal([plannerGoal({ claimType: 'security_review' })]);
+  assert.throws(() => validatePlanner(unknownType));
+});
+
+plannerAuditorSchemaTest('Spec 028 T016 — auditor verdicts are categorical and merge rules are strict', () => {
+  const first = plannerGoal();
+  const second = plannerGoal({
+    id: 'S2',
+    question: 'Identify the authenticateUser declaration.',
+    originRefs: [TRACE_DEFINITION_ORIGIN],
+  });
+  const proposal = plannerProposal([first, second]);
+  const verdicts = [
+    'ready',
+    'merge_duplicate',
+    'needs_decomposition',
+    'reject_untraceable',
+    'blocked_scope',
+    'blocked_capability',
+    'requires_external_state',
+    'missing_input',
+    'contradictory',
+    'unverifiable',
+  ];
+
+  for (const verdict of verdicts) {
+    const goal = verdict === 'merge_duplicate' ? second : first;
+    const record = goalAudit(goal, verdict, verdict === 'merge_duplicate'
+      ? { mergeInto: first.id }
+      : {});
+    assert.doesNotThrow(() => validateAuditor(auditorResponse([record]), proposal), verdict);
+  }
+
+  assert.throws(() => validateAuditor(auditorResponse([
+    goalAudit(second, 'merge_duplicate'),
+  ]), proposal), 'merge_duplicate requires mergeInto');
+  assert.throws(() => validateAuditor(auditorResponse([
+    goalAudit(first, 'ready', { mergeInto: second.id }),
+  ]), proposal), 'non-merge verdicts cannot carry mergeInto');
+  for (const invalidVerdict of ['approved', 'planning_incomplete', 'ready_with_caveat']) {
+    assert.throws(() => validateAuditor(auditorResponse([
+      goalAudit(first, invalidVerdict),
+    ]), proposal), invalidVerdict);
+  }
+});
+
+plannerAuditorSchemaTest('Spec 028 T016 — revision decisions remain runtime-owned', () => {
+  const broad = plannerGoal({
+    question: 'Establish the definition and every bounded usage in one goal.',
+  });
+  const proposal = plannerProposal([broad]);
+  const uncovered = {
+    question: 'Determine whether legacyLogin is absent.',
+    originRefs: [`request:${PLANNER_TASK.indexOf('verify')}-${PLANNER_TASK.length}`],
+    claimType: 'absence',
+    proofCondition: 'Enumerate the bounded registration surface and certify absence.',
+    constraints: [],
+  };
+  const response = auditorResponse([
+    goalAudit(broad, 'needs_decomposition'),
+  ], [uncovered]);
+  assert.doesNotThrow(() => validateAuditor(response, proposal));
+
+  for (const [key, value] of [
+    ['revisionRequired', true],
+    ['revisionCount', 1],
+    ['requestRevision', true],
+    ['repairCount', 1],
+  ]) {
+    const modelOwnedDecision = structuredClone(response);
+    modelOwnedDecision[key] = value;
+    assert.throws(() => validateAuditor(modelOwnedDecision, proposal), key);
+  }
+
+  const plannerOwnedDecision = structuredClone(proposal);
+  plannerOwnedDecision.revisionCount = 1;
+  assert.throws(() => validatePlanner(plannerOwnedDecision));
 });
