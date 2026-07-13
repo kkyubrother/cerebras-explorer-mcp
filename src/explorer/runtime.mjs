@@ -31,10 +31,20 @@ import {
   buildCompactionSummaryPrompt,
   buildOutputContinuationPrompt,
   buildFreeExploreFinalizePrompt,
+  buildPlannerMessages,
+  buildCorrectedPlannerMessages,
+  buildGoalAuditorMessages,
+  buildGoalCoverageReconciliationMessages,
 } from './prompt.mjs';
 import {
   EXPLORE_RESULT_JSON_SCHEMA,
+  GOAL_AUDITOR_RESPONSE_SCHEMA,
+  PLANNER_PROPOSAL_SCHEMA,
   normalizeExploreResult,
+  validateGoalAuditorResponse,
+  validateLateUncoveredProposal,
+  validatePlannerProposal,
+  validateTaskContract,
   validateExploreControlResult,
   validateExploreRepoArgs,
 } from './schemas.mjs';
@@ -45,12 +55,53 @@ import {
   extractReportCitations,
   runDeterministicCriticPass,
 } from './critic.mjs';
-import { mergeSafetyLimit } from './coverage.mjs';
+import {
+  createTaskContract,
+  mergeSafetyLimit,
+  preflightGoalProposals,
+  reduceGoalAudit,
+} from './coverage.mjs';
 import { createChatClient } from './providers/index.mjs';
 import { buildCompactToolDiagnostic, createCompactToolTrace, createTranscriptRecorder } from './transcript.mjs';
 
 // Maximum number of tool calls to execute in parallel within a single turn.
 const TOOL_CONCURRENCY = 8;
+const GOAL_AUDIT_BATCH_SIZE = 12;
+const GOAL_PLANNER_VERSION = 'planner-v1';
+const GOAL_AUDIT_VERSION = 'goal-audit-v1';
+const INVALID_GOAL_CONTROL = 'ERR_INVALID_GOAL_CONTROL';
+const GOAL_COVERAGE_RECONCILIATION_SCHEMA = Object.freeze({
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    findings: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          obligationId: { type: 'string' },
+          disposition: { type: 'string', enum: ['covered', 'remaining'] },
+          coveredByGoalIds: { type: 'array', items: { type: 'string' } },
+          reason: { type: 'string' },
+        },
+        required: ['obligationId', 'disposition', 'coveredByGoalIds', 'reason'],
+      },
+    },
+    uncoveredRequestParts: GOAL_AUDITOR_RESPONSE_SCHEMA.properties.uncoveredRequestParts,
+  },
+  required: ['findings', 'uncoveredRequestParts'],
+});
+
+const WRAPPER_BY_TASK_MODE = Object.freeze({
+  symbol_trace: 'trace_symbol',
+  locate: 'find_relevant_code',
+  edit_planning: 'map_change_impact',
+  path_explanation: 'explain_code_path',
+  evidence_verification: 'collect_evidence',
+  // review_change_context has no distinct completion policy and is removed by T048.
+  change_review: 'explore_repo',
+});
 
 /**
  * Estimate token count for a single string.
@@ -595,6 +646,17 @@ function buildReportCitationTargets(citations = []) {
 function buildFailure(result, stats) {
   const existing = normalizeFailure(result.failure);
   if (existing) return existing;
+  if (stats.invalidGoalControl) {
+    return makeFailure('internal', 'invalid_final_response', 'The explorer could not validate its required internal goal plan.', {
+      tool: 'explore_repo',
+      hints: ['Retry the same task; repeated invalid planning control output indicates a provider fault.'],
+      args: {
+        task: 'Retry the same repository investigation.',
+        scope: Array.isArray(stats.scope) ? stats.scope : [],
+      },
+      expectedImprovement: 'A valid isolated planner and goal-auditor response should allow exploration to start.',
+    });
+  }
   if (stats.invalidFinalResponse) {
     return makeFailure('internal', 'invalid_final_response', 'The explorer could not synthesize a valid compact JSON answer.', {
       tool: 'explore_repo',
@@ -1129,6 +1191,490 @@ function tryLooseRepair(content) {
   return null;
 }
 
+function goalControlResponseFormat(name, schema) {
+  return {
+    type: 'json_schema',
+    json_schema: { name, strict: true, schema },
+  };
+}
+
+function invalidGoalControl(stage, cause) {
+  const error = new Error(`Invalid required ${stage} control output.`);
+  error.code = INVALID_GOAL_CONTROL;
+  error.cause = cause;
+  return error;
+}
+
+function abortError(message) {
+  const error = new Error(message);
+  error.name = 'AbortError';
+  return error;
+}
+
+function normalizeGoalAuditorControl(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+  return {
+    ...value,
+    ...(Array.isArray(value.goals) ? {
+      goals: value.goals.map(record => {
+        if (!record || typeof record !== 'object' || Array.isArray(record)) return record;
+        const normalized = { ...record };
+        // OpenAI strict schemas represent optional fields as required nullable.
+        if (normalized.verdict !== 'merge_duplicate' && normalized.mergeInto === null) {
+          delete normalized.mergeInto;
+        }
+        return normalized;
+      }),
+    } : {}),
+  };
+}
+
+async function requestValidatedGoalControl({
+  chatClient,
+  messages,
+  schemaName,
+  schema,
+  stage,
+  validate,
+  reasoningEffort,
+  temperature,
+  topP,
+  maxCompletionTokens,
+  abortSignal,
+  onCompletion,
+}) {
+  let requestMessages = messages;
+  let validationError = null;
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    if (abortSignal?.aborted) throw abortError(`${stage} was cancelled.`);
+    const completion = await chatClient.createChatCompletion({
+      messages: redactValue(requestMessages).value,
+      responseFormat: goalControlResponseFormat(schemaName, schema),
+      reasoningEffort,
+      temperature,
+      topP,
+      maxCompletionTokens,
+      parallelToolCalls: false,
+      signal: abortSignal,
+    });
+    onCompletion?.(completion, stage);
+    if (abortSignal?.aborted) throw abortError(`${stage} was cancelled.`);
+
+    const content = completion.message?.content ?? '';
+    const parsed = extractFirstJsonObject(content) ?? tryLooseRepair(content);
+    try {
+      if ((completion.message?.toolCalls?.length ?? 0) > 0) {
+        throw new TypeError('Isolated control stages cannot return tool calls.');
+      }
+      if (!parsed) throw new TypeError('No JSON control object was returned.');
+      return validate(parsed);
+    } catch (error) {
+      validationError = error;
+      if (attempt === 1) break;
+      requestMessages = [
+        ...messages,
+        {
+          role: 'assistant',
+          content: redactText(String(content).slice(0, 4000)).text,
+        },
+        {
+          role: 'user',
+          content: 'Your previous control object was invalid. Return exactly one JSON object matching the supplied schema. Do not call tools, answer the repository task, add requirements, or change scope.',
+        },
+      ];
+    }
+  }
+
+  throw invalidGoalControl(stage, validationError);
+}
+
+function wrapperToolForTaskMode(taskMode) {
+  return WRAPPER_BY_TASK_MODE[taskMode] ?? 'explore_repo';
+}
+
+function plannerAnchors(hints = {}) {
+  return {
+    files: Array.isArray(hints.files) ? hints.files : [],
+    symbols: Array.isArray(hints.symbols) ? hints.symbols : [],
+    text: Array.isArray(hints.regex) ? hints.regex : [],
+  };
+}
+
+function sameStringSet(left, right) {
+  if (!Array.isArray(left) || !Array.isArray(right)) return false;
+  const leftSet = new Set(left);
+  const rightSet = new Set(right);
+  return leftSet.size === rightSet.size && [...leftSet].every(item => rightSet.has(item));
+}
+
+function samePlannerGoalContent(left, right) {
+  return left?.question === right?.question &&
+    left?.claimType === right?.claimType &&
+    left?.proofCondition === right?.proofCondition &&
+    sameStringSet(left?.originRefs, right?.originRefs) &&
+    sameStringSet(left?.constraints, right?.constraints);
+}
+
+function samePlannerGoal(left, right) {
+  return left?.id === right?.id && samePlannerGoalContent(left, right);
+}
+
+function validateGoalAuditConsistency(response, proposal) {
+  const recordById = new Map(response.goals.map(record => [record.proposedGoalId, record]));
+  if (response.uncoveredRequestParts.some(part => proposal.subgoals.some(goal =>
+    recordById.get(goal.id)?.verdict === 'reject_untraceable' &&
+    samePlannerGoalContent(goal, part)))) {
+    throw new TypeError('Goal audit conflict: a rejected proposal was also reported as uncovered.');
+  }
+  return response;
+}
+
+function requirePreservedGoals(proposal, preservedGoals) {
+  for (const preserved of preservedGoals) {
+    const corrected = proposal.subgoals.find(goal => goal.id === preserved.id);
+    if (!samePlannerGoal(corrected, preserved)) {
+      throw new TypeError(`Corrected plan did not preserve audited goal ${preserved.id}.`);
+    }
+  }
+}
+
+function mergeRevisedGoalAudit(initial, revised, preservedGoals) {
+  const preservedById = new Map(preservedGoals.map(goal => [goal.id, goal]));
+  const revisedById = new Map(revised.requiredSubgoals.map(goal => [goal.id, goal]));
+  for (const id of preservedById.keys()) {
+    if (!revisedById.has(id)) {
+      throw new TypeError(`Corrected audit removed preserved goal ${id}.`);
+    }
+  }
+  const preserved = preservedGoals.map(goal => {
+    const auditedAgain = revisedById.get(goal.id);
+    if (auditedAgain.auditVerdict !== goal.auditVerdict ||
+        !sameStringSet(auditedAgain.originRefs, goal.originRefs)) {
+      throw new TypeError(`Corrected audit changed preserved goal ${goal.id}.`);
+    }
+    return {
+      ...goal,
+      originRefs: [...new Set([...goal.originRefs, ...auditedAgain.originRefs])],
+      constraints: [...new Set([...goal.constraints, ...auditedAgain.constraints])],
+    };
+  });
+  const preservedIds = new Set(preservedById.keys());
+  return {
+    ...revised,
+    requiredSubgoals: [
+      ...preserved,
+      ...revised.requiredSubgoals.filter(goal => !preservedIds.has(goal.id)),
+    ],
+    gaps: [
+      ...initial.gaps.filter(gap => preservedIds.has(gap.subgoalId)),
+      ...revised.gaps.filter(gap => !preservedIds.has(gap.subgoalId)),
+    ],
+    rejectedGoals: [
+      ...initial.rejectedGoals,
+      ...revised.rejectedGoals.filter(goal => !preservedIds.has(goal.proposedGoalId)),
+    ],
+  };
+}
+
+function originDescendsFrom(candidate, original) {
+  if (candidate === original) return true;
+  const candidateRange = /^request:(\d+)-(\d+)$/.exec(candidate);
+  const originalRange = /^request:(\d+)-(\d+)$/.exec(original);
+  if (!candidateRange || !originalRange) return false;
+  return Number(candidateRange[1]) >= Number(originalRange[1]) &&
+    Number(candidateRange[2]) <= Number(originalRange[2]);
+}
+
+const COVERAGE_ELIGIBLE_VERDICTS = new Set([
+  'ready',
+  'needs_decomposition',
+  'blocked_scope',
+  'blocked_capability',
+  'requires_external_state',
+  'missing_input',
+  'contradictory',
+  'unverifiable',
+]);
+
+function buildRevisionObligations(initialProposal, revisionRequest) {
+  const initialById = new Map(initialProposal.subgoals.map(goal => [goal.id, goal]));
+  const obligations = [];
+  for (const id of revisionRequest.decomposeGoalIds) {
+    const goal = initialById.get(id);
+    if (goal) obligations.push({
+      obligationId: `revision-obligation-${obligations.length + 1}`,
+      sourceId: id,
+      kind: 'decompose',
+      goal,
+    });
+  }
+  for (const goal of revisionRequest.uncoveredRequestParts) {
+    obligations.push({
+      obligationId: `revision-obligation-${obligations.length + 1}`,
+      sourceId: `uncovered-${obligations.length + 1}`,
+      kind: 'uncovered',
+      goal,
+    });
+  }
+  return obligations;
+}
+
+function dedupeUncoveredParts(parts) {
+  const seen = new Set();
+  return parts.filter(part => {
+    const key = JSON.stringify([
+      part.question,
+      [...part.originRefs].sort(),
+      part.claimType,
+      part.proofCondition,
+      [...part.constraints].sort(),
+    ]);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function validateCoverageReconciliation(value, {
+  task,
+  wrapperTool,
+  obligations,
+  proposal,
+  auditRecords,
+  eligibleGoalIds = null,
+}) {
+  if (!value || typeof value !== 'object' || Array.isArray(value) ||
+      !Array.isArray(value.findings) || !Array.isArray(value.uncoveredRequestParts) ||
+      Object.keys(value).some(key => !['findings', 'uncoveredRequestParts'].includes(key))) {
+    throw new TypeError('Coverage reconciliation must contain findings and uncoveredRequestParts only.');
+  }
+  if (value.uncoveredRequestParts.length !== 0) {
+    throw new TypeError('Coverage reconciliation cannot add request obligations.');
+  }
+  const obligationById = new Map(obligations.map(item => [item.obligationId, item]));
+  const goalById = new Map(proposal.subgoals.map(goal => [goal.id, goal]));
+  const recordById = new Map(auditRecords.map(record => [record.proposedGoalId, record]));
+  const allowedIds = eligibleGoalIds ? new Set(eligibleGoalIds) : new Set(goalById.keys());
+  const findings = [];
+  const seenIds = new Set();
+
+  for (const raw of value.findings) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw) ||
+        Object.keys(raw).some(key =>
+          !['obligationId', 'disposition', 'coveredByGoalIds', 'reason'].includes(key)) ||
+        typeof raw.obligationId !== 'string' ||
+        !['covered', 'remaining'].includes(raw.disposition) ||
+        !Array.isArray(raw.coveredByGoalIds) ||
+        raw.coveredByGoalIds.some(id => typeof id !== 'string' || !id) ||
+        typeof raw.reason !== 'string' || !raw.reason) {
+      throw new TypeError('Invalid coverage reconciliation finding.');
+    }
+    const obligation = obligationById.get(raw.obligationId);
+    if (!obligation || seenIds.has(raw.obligationId)) {
+      throw new TypeError(`Unknown or duplicate coverage obligation: ${raw.obligationId}.`);
+    }
+    seenIds.add(raw.obligationId);
+    const coveredByGoalIds = [...new Set(raw.coveredByGoalIds)];
+    if (coveredByGoalIds.length !== raw.coveredByGoalIds.length) {
+      throw new TypeError(`Duplicate covered goal id for ${raw.obligationId}.`);
+    }
+    if (raw.disposition === 'remaining') {
+      if (coveredByGoalIds.length !== 0) {
+        throw new TypeError(`Remaining obligation ${raw.obligationId} cannot name covered goals.`);
+      }
+    } else {
+      const minimum = obligation.kind === 'decompose' ? 2 : 1;
+      if (coveredByGoalIds.length < minimum) {
+        throw new TypeError(`Covered obligation ${raw.obligationId} requires ${minimum} goal(s).`);
+      }
+      const mapped = coveredByGoalIds.map(id => {
+        const goal = goalById.get(id);
+        const record = recordById.get(id);
+        if (!goal || !record || !allowedIds.has(id) ||
+            !COVERAGE_ELIGIBLE_VERDICTS.has(record.verdict)) {
+          throw new TypeError(`Coverage obligation ${raw.obligationId} maps to an ineligible goal.`);
+        }
+        if (record.originRefs.some(originRef =>
+          !obligation.goal.originRefs.some(original => originDescendsFrom(originRef, original))) ||
+            obligation.goal.constraints.some(constraint => !goal.constraints.includes(constraint))) {
+          throw new TypeError(`Coverage obligation ${raw.obligationId} widened its origin or constraints.`);
+        }
+        return { goal, record };
+      });
+      if (obligation.kind !== 'decompose') {
+        if (mapped.some(({ goal }) => goal.claimType !== obligation.goal.claimType)) {
+          throw new TypeError(`Coverage obligation ${raw.obligationId} weakened proof or origin.`);
+        }
+      }
+    }
+    findings.push({
+      obligationId: raw.obligationId,
+      disposition: raw.disposition,
+      coveredByGoalIds,
+      reason: raw.reason,
+    });
+  }
+  if (seenIds.size !== obligations.length) {
+    throw new TypeError('Coverage reconciliation omitted a runtime obligation.');
+  }
+
+  const uncoveredRequestParts = value.uncoveredRequestParts.map(part =>
+    validateLateUncoveredProposal(part, { task, wrapperTool }));
+  for (const part of uncoveredRequestParts) {
+    if (proposal.subgoals.some(goal =>
+      recordById.get(goal.id)?.verdict === 'reject_untraceable' &&
+      samePlannerGoalContent(goal, part))) {
+      throw new TypeError('Coverage reconciliation revived a rejected proposal.');
+    }
+  }
+  return { findings, uncoveredRequestParts };
+}
+
+function coverageCandidateIds({ obligations, proposal, auditRecords, eligibleGoalIds = null }) {
+  const allowedIds = eligibleGoalIds ? new Set(eligibleGoalIds) : null;
+  const recordById = new Map(auditRecords.map(record => [record.proposedGoalId, record]));
+  return proposal.subgoals.filter(goal => {
+    const record = recordById.get(goal.id);
+    if (!record || (allowedIds && !allowedIds.has(goal.id)) ||
+        !COVERAGE_ELIGIBLE_VERDICTS.has(record.verdict)) {
+      return false;
+    }
+    return obligations.some(obligation =>
+      record.originRefs.every(originRef =>
+        obligation.goal.originRefs.some(original => originDescendsFrom(originRef, original))) &&
+      obligation.goal.constraints.every(constraint => goal.constraints.includes(constraint)) &&
+      (obligation.kind === 'decompose' || goal.claimType === obligation.goal.claimType));
+  }).map(goal => goal.id);
+}
+
+function uniquePlanningCarryId(base, usedIds) {
+  let id = `planning-carry:${base}`;
+  let suffix = 2;
+  while (usedIds.has(id)) {
+    id = `planning-carry:${base}:${suffix}`;
+    suffix += 1;
+  }
+  usedIds.add(id);
+  return id;
+}
+
+function materializeUnresolvedRevision({
+  task,
+  effectiveScope,
+  wrapperTool,
+  revisionObligations,
+  revisionCoverage,
+  revisedReduction,
+}) {
+  const findingById = new Map(revisionCoverage.findings.map(finding => [
+    finding.obligationId,
+    finding,
+  ]));
+  const candidates = [
+    ...revisionObligations
+      .filter(obligation => findingById.get(obligation.obligationId)?.disposition === 'remaining'),
+    ...revisionCoverage.uncoveredRequestParts.map((goal, index) => ({
+      obligationId: `final-uncovered-${index + 1}`,
+      sourceId: `final-uncovered-${index + 1}`,
+      kind: 'uncovered',
+      goal,
+    })),
+  ];
+  const unresolved = candidates.filter(({ goal }, index) =>
+    !revisedReduction.requiredSubgoals.some(existing =>
+      existing.auditVerdict === 'planning_incomplete' && samePlannerGoalContent(existing, goal)) &&
+    !candidates.slice(0, index).some(previous => samePlannerGoalContent(previous.goal, goal)));
+  if (unresolved.length === 0) {
+    return { requiredSubgoals: [], gaps: [], rejectedGoals: [] };
+  }
+
+  const usedIds = new Set(revisedReduction.requiredSubgoals.map(goal => goal.id));
+  const proposals = unresolved.map(({ sourceId, goal }) => ({
+    ...goal,
+    id: uniquePlanningCarryId(sourceId, usedIds),
+  }));
+  const preflight = preflightGoalProposals({
+    task,
+    effectiveScope,
+    wrapperTool,
+    proposals,
+  });
+  if (preflight.controlFault || preflight.auditCandidates.length === 0) {
+    throw new TypeError('Unresolved revision obligations could not be materialized.');
+  }
+  const reduction = reduceGoalAudit({
+    preflight,
+    auditRecords: preflight.auditCandidates.map(goal => ({
+      proposedGoalId: goal.id,
+      verdict: 'needs_decomposition',
+      originRefs: [...goal.originRefs],
+      missingRequestParts: [],
+      reason: 'The one corrected plan did not retain this requested obligation.',
+    })),
+    uncoveredRequestParts: [],
+    revisionCount: 1,
+  });
+  if (reduction.controlFault) {
+    throw new TypeError(`Revision carry-forward control fault: ${reduction.controlFault.code}.`);
+  }
+  return reduction;
+}
+
+function auditedGoalLedgerMessage(requiredSubgoals) {
+  const goals = requiredSubgoals
+    .filter(goal => goal.state === 'audited')
+    .map(goal => ({
+      id: goal.id,
+      question: goal.question,
+      claimType: goal.claimType,
+      proofPolicy: goal.proofPolicy,
+      proofCondition: goal.proofCondition,
+      constraints: goal.constraints,
+    }));
+  return [
+    'The following runtime-audited goals are the complete exploration ledger. Investigate and answer only these goals. Other request parts are runtime-blocked or rejected and must not be investigated or answered. Do not add, remove, or weaken obligations.',
+    'BEGIN_AUDITED_GOALS_JSON',
+    JSON.stringify(goals),
+    'END_AUDITED_GOALS_JSON',
+  ].join('\n');
+}
+
+function buildPlanningFailureExploreObject() {
+  const message = 'The explorer could not validate its required internal goal plan.';
+  return {
+    directAnswer: '',
+    status: {
+      confidence: 'low',
+      verification: 'broad_search_needed',
+      complete: false,
+      warnings: [message],
+    },
+    targets: [],
+    evidence: [],
+    uncertainties: [message],
+    nextAction: { type: 'stop', reason: message },
+  };
+}
+
+function buildAllBlockedExploreObject(gaps) {
+  const message = 'Repository exploration did not start because every required goal is blocked by the current scope, capability, state, or supplied input.';
+  const safeGaps = redactValue(gaps).value;
+  return {
+    directAnswer: message,
+    status: {
+      confidence: 'low',
+      verification: 'follow_up_needed',
+      complete: false,
+      warnings: [],
+    },
+    targets: [],
+    evidence: [],
+    uncertainties: safeGaps.map(gap => gap.question),
+    nextAction: { type: 'stop', reason: message },
+  };
+}
+
 function isValidExploreControlResult(value) {
   try {
     validateExploreControlResult(value);
@@ -1438,6 +1984,534 @@ export class ExplorerRuntime {
     };
   }
 
+  async _auditGoalPlan({
+    chatClient,
+    task,
+    effectiveScope,
+    wrapperTool,
+    proposal,
+    preflight,
+    revisionCount,
+    reasoningEffort,
+    temperature,
+    topP,
+    maxCompletionTokens,
+    abortSignal,
+    onCompletion,
+    allowEmptyRequired = false,
+  }) {
+    const messages = buildGoalAuditorMessages({
+      task,
+      effectiveScope,
+      wrapperTool,
+      proposals: preflight.auditCandidates,
+      preflightDiagnostics: preflight.diagnostics,
+      revisionCount,
+    });
+    return requestValidatedGoalControl({
+      chatClient,
+      messages,
+      schemaName: 'goal_auditor_response',
+      schema: GOAL_AUDITOR_RESPONSE_SCHEMA,
+      stage: 'goal_audit',
+      reasoningEffort,
+      temperature,
+      topP,
+      maxCompletionTokens,
+      abortSignal,
+      onCompletion,
+      validate: raw => {
+        const response = validateGoalAuditorResponse(normalizeGoalAuditorControl(raw), {
+          task,
+          wrapperTool,
+          plannerProposal: proposal,
+        });
+        validateGoalAuditConsistency(response, proposal);
+        const reduction = reduceGoalAudit({
+          preflight,
+          auditRecords: response.goals,
+          uncoveredRequestParts: response.uncoveredRequestParts,
+          revisionCount,
+        });
+        if (reduction.controlFault) {
+          throw new TypeError(`Goal audit control fault: ${reduction.controlFault.code}.`);
+        }
+        if (!allowEmptyRequired && reduction.requiredSubgoals.length === 0 &&
+            reduction.revisionRequest === null) {
+          throw new TypeError('Goal audit discarded every requested obligation.');
+        }
+        return { response, reduction };
+      },
+    });
+  }
+
+  async _reconcileGoalCoverage({
+    chatClient,
+    task,
+    effectiveScope,
+    wrapperTool,
+    obligations,
+    proposal,
+    auditRecords,
+    eligibleGoalIds = null,
+    reasoningEffort,
+    temperature,
+    topP,
+    maxCompletionTokens,
+    abortSignal,
+    onCompletion,
+  }) {
+    const recordById = new Map(auditRecords.map(record => [record.proposedGoalId, record]));
+    const candidateIds = coverageCandidateIds({
+      obligations,
+      proposal,
+      auditRecords,
+      eligibleGoalIds,
+    });
+    if (obligations.length === 0 || candidateIds.length === 0) {
+      return {
+        findings: obligations.map(obligation => ({
+          obligationId: obligation.obligationId,
+          disposition: 'remaining',
+          coveredByGoalIds: [],
+          reason: 'No audited goal is structurally eligible to cover this obligation.',
+        })),
+        uncoveredRequestParts: [],
+      };
+    }
+    const candidateIdSet = new Set(candidateIds);
+    const messages = buildGoalCoverageReconciliationMessages({
+      task,
+      effectiveScope,
+      wrapperTool,
+      obligations,
+      auditedGoals: proposal.subgoals.filter(goal => candidateIdSet.has(goal.id)).map(goal => ({
+        goal,
+        audit: recordById.get(goal.id),
+      })),
+    });
+    return requestValidatedGoalControl({
+      chatClient,
+      messages,
+      schemaName: 'goal_coverage_reconciliation',
+      schema: GOAL_COVERAGE_RECONCILIATION_SCHEMA,
+      stage: 'goal_audit',
+      reasoningEffort,
+      temperature,
+      topP,
+      maxCompletionTokens,
+      abortSignal,
+      onCompletion,
+      validate: raw => validateCoverageReconciliation(raw, {
+        task,
+        wrapperTool,
+        obligations,
+        proposal,
+        auditRecords,
+        eligibleGoalIds: candidateIds,
+      }),
+    });
+  }
+
+  async _auditGoalPlanBatched(options) {
+    const { preflight, proposal } = options;
+    if (preflight.auditCandidates.length <= GOAL_AUDIT_BATCH_SIZE) {
+      return this._auditGoalPlan(options);
+    }
+
+    const auditRecords = [];
+    const uncoveredRequestParts = [];
+    for (let offset = 0; offset < preflight.auditCandidates.length; offset += GOAL_AUDIT_BATCH_SIZE) {
+      const batch = preflight.auditCandidates.slice(offset, offset + GOAL_AUDIT_BATCH_SIZE);
+      const batchPreflight = preflightGoalProposals({
+        task: options.task,
+        effectiveScope: options.effectiveScope,
+        wrapperTool: options.wrapperTool,
+        proposals: batch,
+      });
+      if (batchPreflight.controlFault || batchPreflight.auditCandidates.length !== batch.length) {
+        throw invalidGoalControl('goal_audit', new TypeError('Goal audit batch changed after preflight.'));
+      }
+      const audited = await this._auditGoalPlan({
+        ...options,
+        proposal: { ...proposal, subgoals: batch },
+        preflight: batchPreflight,
+        allowEmptyRequired: true,
+      });
+      auditRecords.push(...audited.response.goals);
+      uncoveredRequestParts.push(...audited.response.uncoveredRequestParts);
+    }
+
+    try {
+      validateGoalAuditConsistency({
+        goals: auditRecords,
+        uncoveredRequestParts,
+      }, proposal);
+      const obligations = dedupeUncoveredParts(uncoveredRequestParts).map((goal, index) => ({
+        obligationId: `batch-uncovered-${index + 1}`,
+        sourceId: `batch-uncovered-${index + 1}`,
+        kind: 'uncovered',
+        goal,
+      }));
+      const coverage = await this._reconcileGoalCoverage({
+        ...options,
+        obligations,
+        proposal,
+        auditRecords,
+      });
+      const findingById = new Map(coverage.findings.map(finding => [
+        finding.obligationId,
+        finding,
+      ]));
+      const reconciledUncovered = dedupeUncoveredParts([
+        ...obligations
+          .filter(obligation =>
+            findingById.get(obligation.obligationId)?.disposition === 'remaining')
+          .map(obligation => obligation.goal),
+        ...coverage.uncoveredRequestParts,
+      ]);
+      const retainedQuestions = new Set(reconciledUncovered.map(part => part.question));
+      const reconciledRecords = auditRecords.map(record => ({
+        ...record,
+        missingRequestParts: record.missingRequestParts.filter(question =>
+          retainedQuestions.has(question)),
+      }));
+      const reduction = reduceGoalAudit({
+        preflight,
+        auditRecords: reconciledRecords,
+        uncoveredRequestParts: reconciledUncovered,
+        revisionCount: options.revisionCount,
+      });
+      if (reduction.controlFault) {
+        throw new TypeError(`Goal audit control fault: ${reduction.controlFault.code}.`);
+      }
+      if (!options.allowEmptyRequired && reduction.requiredSubgoals.length === 0 &&
+          reduction.revisionRequest === null) {
+        throw new TypeError('Goal audit discarded every requested obligation.');
+      }
+      return {
+        response: {
+          goals: reconciledRecords,
+          uncoveredRequestParts: reconciledUncovered,
+        },
+        reduction,
+      };
+    } catch (error) {
+      if (isAbortError(error)) throw error;
+      throw invalidGoalControl('goal_audit', error);
+    }
+  }
+
+  async _createAuditedTaskPlan({
+    chatClient,
+    task,
+    effectiveScope,
+    wrapperTool,
+    knownAnchors,
+    projectContext,
+    reasoningEffort,
+    temperature,
+    topP,
+    maxCompletionTokens,
+    abortSignal,
+    onCompletion,
+  }) {
+    const requestPlan = async ({
+      messages,
+      stage,
+      preservedGoals = [],
+      excludedGoals = [],
+      allowEmptyPlan = false,
+    }) =>
+      requestValidatedGoalControl({
+        chatClient,
+        messages,
+        schemaName: 'planner_proposal',
+        schema: PLANNER_PROPOSAL_SCHEMA,
+        stage,
+        reasoningEffort,
+        temperature,
+        topP,
+        maxCompletionTokens,
+        abortSignal,
+        onCompletion,
+        validate: raw => {
+          const validated = validatePlannerProposal(raw, { task, wrapperTool });
+          const proposal = {
+            ...validated,
+            subgoals: validated.subgoals.filter(goal =>
+              !excludedGoals.some(excluded =>
+                goal.id === excluded.id || samePlannerGoalContent(goal, excluded))),
+          };
+          requirePreservedGoals(proposal, preservedGoals);
+          const preflight = preflightGoalProposals({
+            task,
+            effectiveScope,
+            wrapperTool,
+            proposals: proposal.subgoals,
+          });
+          if (preflight.controlFault) {
+            throw new TypeError(`Planner control fault: ${preflight.controlFault.code}.`);
+          }
+          if (!allowEmptyPlan && preflight.auditCandidates.length === 0) {
+            throw new TypeError('Planner produced no auditable requested goal.');
+          }
+          return { proposal: { ...proposal, subgoals: preflight.auditCandidates }, preflight };
+        },
+      });
+
+    const initial = await requestPlan({
+      messages: buildPlannerMessages({
+        task,
+        effectiveScope,
+        wrapperTool,
+        knownAnchors,
+        projectContext,
+      }),
+      stage: 'planner',
+    });
+    const initialAudit = await this._auditGoalPlanBatched({
+      chatClient,
+      task,
+      effectiveScope,
+      wrapperTool,
+      proposal: initial.proposal,
+      preflight: initial.preflight,
+      revisionCount: 0,
+      reasoningEffort,
+      temperature,
+      topP,
+      maxCompletionTokens,
+      abortSignal,
+      onCompletion,
+    });
+
+    let finalReduction = initialAudit.reduction;
+    let revisionCount = 0;
+    if (initialAudit.reduction.revisionRequest) {
+      const preservedGoals = initialAudit.reduction.requiredSubgoals;
+      const revisionObligations = buildRevisionObligations(
+        initial.proposal,
+        initialAudit.reduction.revisionRequest,
+      );
+      const revisionPacket = {
+        ...initialAudit.reduction.revisionRequest,
+        obligations: revisionObligations,
+      };
+      const initialById = new Map(initial.proposal.subgoals.map(goal => [goal.id, goal]));
+      const excludedGoals = initialAudit.reduction.rejectedGoals
+        .map(record => initialById.get(record.proposedGoalId))
+        .filter(Boolean);
+      const revised = await requestPlan({
+        messages: buildCorrectedPlannerMessages({
+          task,
+          effectiveScope,
+          wrapperTool,
+          preservedGoals,
+          revisionRequest: revisionPacket,
+        }),
+        stage: 'plan_revision',
+        preservedGoals,
+        excludedGoals,
+        allowEmptyPlan: preservedGoals.length === 0,
+      });
+      const revisedAudit = revised.preflight.auditCandidates.length === 0
+        ? {
+          response: { goals: [], uncoveredRequestParts: [] },
+          reduction: reduceGoalAudit({
+            preflight: revised.preflight,
+            auditRecords: [],
+            uncoveredRequestParts: [],
+            revisionCount: 1,
+          }),
+        }
+        : await this._auditGoalPlanBatched({
+          chatClient,
+          task,
+          effectiveScope,
+          wrapperTool,
+          proposal: revised.proposal,
+          preflight: revised.preflight,
+          revisionCount: 1,
+          reasoningEffort,
+          temperature,
+          topP,
+          maxCompletionTokens,
+          abortSignal,
+          onCompletion,
+          allowEmptyRequired: true,
+        });
+      try {
+        finalReduction = mergeRevisedGoalAudit(
+          initialAudit.reduction,
+          revisedAudit.reduction,
+          preservedGoals,
+        );
+        const preservedIds = new Set(preservedGoals.map(goal => goal.id));
+        const correctedGoalIds = revised.proposal.subgoals
+          .filter(goal => !preservedIds.has(goal.id))
+          .map(goal => goal.id);
+        const revisionCoverage = correctedGoalIds.length === 0
+          ? {
+            findings: revisionObligations.map(obligation => ({
+              obligationId: obligation.obligationId,
+              disposition: 'remaining',
+              coveredByGoalIds: [],
+              reason: 'The corrected plan produced no auditable replacement goal.',
+            })),
+            uncoveredRequestParts: [],
+          }
+          : await this._reconcileGoalCoverage({
+            chatClient,
+            task,
+            effectiveScope,
+            wrapperTool,
+            obligations: revisionObligations,
+            proposal: revised.proposal,
+            auditRecords: revisedAudit.response.goals,
+            eligibleGoalIds: correctedGoalIds,
+            reasoningEffort,
+            temperature,
+            topP,
+            maxCompletionTokens,
+            abortSignal,
+            onCompletion,
+          });
+        const carryForward = materializeUnresolvedRevision({
+          task,
+          effectiveScope,
+          wrapperTool,
+          revisionObligations,
+          revisionCoverage,
+          revisedReduction: revisedAudit.reduction,
+        });
+        finalReduction = {
+          ...finalReduction,
+          requiredSubgoals: [
+            ...finalReduction.requiredSubgoals,
+            ...carryForward.requiredSubgoals,
+          ],
+          gaps: [...finalReduction.gaps, ...carryForward.gaps],
+          rejectedGoals: [...finalReduction.rejectedGoals, ...carryForward.rejectedGoals],
+        };
+      } catch (error) {
+        if (isAbortError(error)) throw error;
+        throw invalidGoalControl('plan_revision', error);
+      }
+      revisionCount = 1;
+    }
+
+    if (finalReduction.requiredSubgoals.length === 0) {
+      throw invalidGoalControl('goal_audit', new TypeError('No requested obligations survived goal audit.'));
+    }
+    let taskContract;
+    try {
+      taskContract = createTaskContract({
+        task,
+        effectiveScope,
+        constraints: [...new Set(
+          finalReduction.requiredSubgoals.flatMap(goal => goal.constraints),
+        )],
+        subgoals: finalReduction.requiredSubgoals,
+        plannerVersion: GOAL_PLANNER_VERSION,
+        goalAuditVersion: GOAL_AUDIT_VERSION,
+      });
+      validateTaskContract(taskContract);
+    } catch (error) {
+      throw invalidGoalControl('task_contract', error);
+    }
+    return {
+      taskContract,
+      coverageGaps: finalReduction.gaps,
+      rejectedGoals: finalReduction.rejectedGoals,
+      revisionCount,
+    };
+  }
+
+  async auditLateGoalProposals({
+    task,
+    effectiveScope = [],
+    wrapperTool = 'explore_repo',
+    proposals,
+  }, { abortSignal = null, onCompletion = null } = {}) {
+    if (typeof task !== 'string' || !task.trim()) {
+      throw new TypeError('Late goal audit requires a non-empty task.');
+    }
+    if (!Array.isArray(effectiveScope) || effectiveScope.some(item => typeof item !== 'string')) {
+      throw new TypeError('Late goal audit effectiveScope must be a string array.');
+    }
+    if (!Array.isArray(proposals)) {
+      throw new TypeError('Late goal audit proposals must be an array.');
+    }
+    if (abortSignal?.aborted) throw abortError('Late goal audit was cancelled.');
+
+    const validatedProposals = proposals.map((proposal, index) => {
+      if (!proposal || typeof proposal !== 'object' || Array.isArray(proposal) ||
+          typeof proposal.id !== 'string' || !proposal.id) {
+        throw new TypeError(`Late goal proposal ${index} requires a non-empty runtime id.`);
+      }
+      const { id, ...uncovered } = proposal;
+      return {
+        id,
+        ...validateLateUncoveredProposal(uncovered, { task, wrapperTool }),
+      };
+    });
+    if (validatedProposals.length === 0) {
+      return { requiredSubgoals: [], gaps: [], rejectedGoals: [], revisionRequest: null };
+    }
+
+    const globalPreflight = preflightGoalProposals({
+      task,
+      effectiveScope,
+      wrapperTool,
+      proposals: validatedProposals,
+    });
+    if (globalPreflight.controlFault) {
+      throw invalidGoalControl('late_goal_audit', new TypeError(
+        `Late goal control fault: ${globalPreflight.controlFault.code}.`,
+      ));
+    }
+
+    const runtimeConfig = getRuntimeConfig();
+    const chatClient = this._explicitChatClient ?? createChatClient();
+    const reasoningEffort = getReasoningEffortForModel(chatClient.model);
+    const temperature = runtimeConfig.temperature ?? getExplorerTemperature();
+    const topP = runtimeConfig.topP ?? getExplorerTopP();
+    const proposal = {
+      taskSummary: 'Audit late uncovered requested goals.',
+      constraints: [],
+      subgoals: globalPreflight.auditCandidates,
+    };
+    let audited;
+    try {
+      audited = await this._auditGoalPlanBatched({
+        chatClient,
+        task,
+        effectiveScope,
+        wrapperTool,
+        proposal,
+        preflight: globalPreflight,
+        revisionCount: 1,
+        reasoningEffort,
+        temperature,
+        topP,
+        maxCompletionTokens: runtimeConfig.maxCompletionTokens,
+        abortSignal,
+        onCompletion,
+        allowEmptyRequired: true,
+      });
+    } catch (error) {
+      if (isAbortError(error)) throw error;
+      throw invalidGoalControl('late_goal_audit', error.cause ?? error);
+    }
+    return redactValue({
+      requiredSubgoals: audited.reduction.requiredSubgoals,
+      gaps: audited.reduction.gaps,
+      rejectedGoals: audited.reduction.rejectedGoals,
+      revisionRequest: null,
+    }).value;
+  }
+
   /**
    * @param {object} args - explore_repo arguments (validated by validateExploreRepoArgs)
    * @param {object} [callOpts]
@@ -1460,7 +2534,7 @@ export class ExplorerRuntime {
     const startedAt = nowMs();
     const knownToolNames = new Set(tools.map(tool => tool.function?.name).filter(Boolean));
 
-    let messages = [
+    let messages = redactValue([
       {
         role: 'system',
         content: buildExplorerSystemPrompt({
@@ -1482,7 +2556,7 @@ export class ExplorerRuntime {
           language: args.language,
         }),
       },
-    ];
+    ]).value;
 
     const stats = {
       model: chatClient.model,
@@ -1522,6 +2596,7 @@ export class ExplorerRuntime {
     const observedGit = { commits: new Set(), blame: new Set() };
     const usageCrossCheck = { grepPatterns: new Set(), referenceSymbols: new Set() };
     const toolTrace = createCompactToolTrace();
+    let auditedPlan = null;
 
     // Checkpoint interval: inject a self-assessment message every N turns.
     // Only active when the fixed turn limit leaves enough room to benefit (>6).
@@ -1538,7 +2613,53 @@ export class ExplorerRuntime {
     let consecutiveAllErrorTurns = 0;
 
     try {
+    try {
+      auditedPlan = await this._createAuditedTaskPlan({
+        chatClient,
+        task: args.task,
+        effectiveScope,
+        wrapperTool: wrapperToolForTaskMode(args.taskMode),
+        knownAnchors: plannerAnchors(args.hints),
+        projectContext,
+        reasoningEffort,
+        temperature,
+        topP,
+        maxCompletionTokens: runtimeConfig.maxCompletionTokens,
+        abortSignal,
+        onCompletion: (completion, stage) => {
+          recordCompletionStats(stats, completion);
+          if (completion.finishReason === 'length') {
+            recordSafetyLimit(stats, {
+              name: 'generation_output_limit',
+              stage,
+              affectedSubgoalIds: [],
+              truncated: true,
+            });
+          }
+        },
+      });
+      if (auditedPlan.taskContract.subgoals.every(goal => goal.state === 'blocked')) {
+        finalObject = buildAllBlockedExploreObject(auditedPlan.coverageGaps);
+      } else {
+        messages.push({
+          role: 'user',
+          content: auditedGoalLedgerMessage(auditedPlan.taskContract.subgoals),
+        });
+      }
+    } catch (error) {
+      if (isAbortError(error)) {
+        stats.stoppedByAbort = true;
+        finalObject = buildCancelledExploreObject();
+      } else if (error?.code === INVALID_GOAL_CONTROL) {
+        stats.invalidGoalControl = true;
+        finalObject = buildPlanningFailureExploreObject();
+      } else {
+        throw error;
+      }
+    }
+
     for (let turnIndex = 0; turnIndex < runtimeConfig.maxTurns; turnIndex += 1) {
+      if (finalObject) break;
       // Abort check: gracefully stop if signal was triggered
       if (abortSignal?.aborted) {
         stats.stoppedByAbort = true;
@@ -2010,6 +3131,12 @@ export class ExplorerRuntime {
     // Trust summary — a natural-language sentence the parent model can rely on
     normalized.trustSummary = buildTrustSummary(normalized, stats, criticPass.grounding);
     attachAgentFacingContract(normalized, stats, criticPass.grounding);
+    if (auditedPlan) {
+      const safePlan = redactValue(auditedPlan).value;
+      normalized.taskContract = safePlan.taskContract;
+      normalized.coverageGaps = safePlan.coverageGaps;
+      normalized.rejectedGoals = safePlan.rejectedGoals;
+    }
 
     // codeMap is kept on the raw runtime result for benchmark/transcript use,
     // but is not propagated into the MCP structuredContent envelope.

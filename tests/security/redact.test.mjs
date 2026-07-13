@@ -10,6 +10,7 @@ import { createMcpRequestHandler } from '../../src/mcp/server.mjs';
 import { getRuntimeConfig } from '../../src/explorer/config.mjs';
 import { RepoToolkit } from '../../src/explorer/repo-tools.mjs';
 import { redactText, redactValue } from '../../src/explorer/redact.mjs';
+import { adaptLegacyGoalAuditClient } from '../helpers/legacy-goal-audit-client.mjs';
 
 const execFileAsync = promisify(execFile);
 const joinSecretParts = (...parts) => parts.join('');
@@ -191,7 +192,7 @@ test('MCP explore_repo redacts provider-facing messages, content text, structure
     }
   }
 
-  const chatClient = new RedactionClient();
+  const chatClient = adaptLegacyGoalAuditClient(new RedactionClient());
   const { handleRequest } = createMcpRequestHandler({ runtimeOptions: { chatClient } });
   const called = await handleRequest({
     jsonrpc: '2.0',

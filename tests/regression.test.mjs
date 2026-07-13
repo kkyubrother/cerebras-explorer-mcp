@@ -154,7 +154,8 @@ test('P0: freeExplore does not use intermediate tool-call content as final repor
 const auditedPromptBoundaryTest =
   typeof promptModule.buildPlannerMessages === 'function' &&
   typeof promptModule.buildCorrectedPlannerMessages === 'function' &&
-  typeof promptModule.buildGoalAuditorMessages === 'function'
+  typeof promptModule.buildGoalAuditorMessages === 'function' &&
+  typeof promptModule.buildGoalCoverageReconciliationMessages === 'function'
     ? test
     : test.todo;
 // T019 activates these tests when the isolated control-plane builders land.
@@ -323,6 +324,17 @@ auditedPromptBoundaryTest('Spec 028 T018 — corrected planner receives one boun
         proofCondition: 'Enumerate the bounded registration surface.',
         constraints: [],
       }],
+      obligations: [{
+        obligationId: 'revision-obligation-1',
+        kind: 'uncovered',
+        goal: {
+          question: 'Is legacyGuard absent?',
+          originRefs: ['request:23-57'],
+          claimType: 'absence',
+          proofCondition: 'Enumerate the bounded registration surface.',
+          constraints: [],
+        },
+      }],
       diagnostics: ['DIAGNOSTIC_DATA_NOT_POLICY'],
     },
   };
@@ -342,6 +354,7 @@ auditedPromptBoundaryTest('Spec 028 T018 — corrected planner receives one boun
   assert.equal(attacked.system, baseline.system);
   assert.match(attacked.data, /S1/);
   assert.match(attacked.data, /legacyGuard/);
+  assert.match(attacked.data, /revision-obligation-1/);
   assert.match(attacked.data, /DIAGNOSTIC_DATA_NOT_POLICY/);
   assert.match(attacked.system, /one|single|final/i);
   assert.match(attacked.system, /no (?:further|additional|recursive)|must not re.?plan/i);
@@ -399,6 +412,51 @@ auditedPromptBoundaryTest('Spec 028 T018 — goal auditor sees only request cont
   assert.match(attacked.system,
     /request coverage[\s\S]{0,120}request originRefs[\s\S]{0,160}wrapper originRef/i);
   assert.match(attacked.system,
-    /confirm each originRef[\s\S]{0,200}entire question and proofCondition[\s\S]{0,180}omit an unentailed ref/i);
+    /confirm each originRef[\s\S]{0,220}entire question, claimType, proofCondition, and every constraint[\s\S]{0,180}omit an unentailed ref/i);
+  assert.match(attacked.system,
+    /invented constraint[\s\S]{0,240}needs_decomposition/i);
   assertRuntimeOwnedProofPolicy(attacked.system, 'goal auditor');
+});
+
+auditedPromptBoundaryTest('Spec 028 T022 — coverage reconciliation uses opaque obligations and audited control only', () => {
+  const goal = proposedPromptGoal();
+  const args = {
+    task: PROMPT_TASK,
+    effectiveScope: ['src/**'],
+    wrapperTool: 'trace_symbol',
+    obligations: [{
+      obligationId: 'revision-obligation-1',
+      kind: 'uncovered',
+      goal,
+    }],
+    auditedGoals: [{
+      goal,
+      audit: { verdict: 'ready', originRefs: [...goal.originRefs] },
+    }],
+  };
+  const baseline = assertTwoMessageBoundary(
+    promptModule.buildGoalCoverageReconciliationMessages(args),
+    'goal coverage reconciliation',
+  );
+  const attacked = assertTwoMessageBoundary(
+    promptModule.buildGoalCoverageReconciliationMessages({
+      ...args,
+      repositoryArtifacts: RAW_REPOSITORY_MARKERS,
+      exploratoryMessages: ['EXPLORER_DRAFT_OVERRIDE_POLICY'],
+      candidateClaims: ['CANDIDATE_CLAIM_OVERRIDE_POLICY'],
+      budget: 'unbounded',
+    }),
+    'goal coverage reconciliation',
+  );
+
+  assert.equal(attacked.system, baseline.system);
+  assert.match(attacked.data, /revision-obligation-1/);
+  assert.match(attacked.data, /Where is requireAuth defined/);
+  assert.match(attacked.system, /coveredByGoalIds/);
+  assert.match(attacked.system, /direction|directional/i);
+  assert.match(attacked.system, /cannot add request obligations[\s\S]{0,100}empty array/i);
+  assertRawArtifactsExcluded(attacked.all);
+  assert.doesNotMatch(attacked.all,
+    /EXPLORER_DRAFT_OVERRIDE_POLICY|CANDIDATE_CLAIM_OVERRIDE_POLICY/);
+  assert.doesNotMatch(attacked.all, /"budget"\s*:/);
 });

@@ -68,7 +68,7 @@
 - [x] T019 [US3] Implement isolated planner, corrected-planner, and goal-auditor prompt builders with fixed capability/wrapper inputs and untrusted-content boundaries in `src/explorer/prompt.mjs`
 - [x] T020 [US3] Implement planner proposal, goal-auditor response, and late-uncovered proposal schemas plus request-origin validation in `src/explorer/schemas.mjs`
 - [x] T021 [US3] Implement deterministic preflight, duplicate merge, traceability checks, blocker reduction, repair eligibility, and `planning_incomplete` materialization in `src/explorer/coverage.mjs`
-- [ ] T022 [US3] Orchestrate initial planning, isolated audit, one bounded revision, all-blocked short-circuit, and audited late-goal helper calls in `src/explorer/runtime.mjs`
+- [x] T022 [US3] Orchestrate initial planning, isolated audit, one bounded revision, all-blocked short-circuit, and audited late-goal helper calls in `src/explorer/runtime.mjs`
 - [ ] T023 [US3] Record redacted `plan_proposed`, `goal_audit`, `plan_revised`, `goal_rejected`, and blocker transitions in `src/explorer/transcript.mjs`, then run the US3 independent test set and `npm test`
 
 **Checkpoint**: US3 works through the direct runtime without exposing internal goal state; no untraceable model-proposed goal can block completion.

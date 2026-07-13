@@ -9,6 +9,7 @@ import { promisify } from 'node:util';
 import { getRuntimeConfig, isSecretPath } from '../../src/explorer/config.mjs';
 import { RepoToolkit } from '../../src/explorer/repo-tools.mjs';
 import { exploreRepository } from '../../src/explorer/runtime.mjs';
+import { adaptLegacyGoalAuditClient } from '../helpers/legacy-goal-audit-client.mjs';
 
 const execFileAsync = promisify(execFile);
 const joinSecretParts = (...parts) => parts.join('');
@@ -176,7 +177,7 @@ test('deny-listed file content is blocked before provider-facing tool messages',
     }
   }
 
-  const chatClient = new SecretReadClient();
+  const chatClient = adaptLegacyGoalAuditClient(new SecretReadClient());
   const result = await exploreRepository({
     task: 'Check whether secret files can be read.',
     repo_root: root,

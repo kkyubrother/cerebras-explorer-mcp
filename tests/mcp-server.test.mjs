@@ -6,6 +6,7 @@ import path from 'node:path';
 
 import { buildExecutionProvenance, createMcpRequestHandler } from '../src/mcp/server.mjs';
 import { getRepoRoot } from '../src/explorer/config.mjs';
+import { adaptLegacyGoalAuditClient } from './helpers/legacy-goal-audit-client.mjs';
 
 const EXPECTED_PUBLIC_TOOL_NAMES = [
   'find_relevant_code',
@@ -81,6 +82,7 @@ class MockChatClient {
   constructor() {
     this.model = 'zai-glm-4.7';
     this.calls = 0;
+    return adaptLegacyGoalAuditClient(this);
   }
 
   async createChatCompletion() {

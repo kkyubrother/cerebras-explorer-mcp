@@ -5,10 +5,11 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { ExplorerRuntime, estimateTokens } from '../src/explorer/runtime.mjs';
+import { ExplorerRuntime as RuntimeImplementation, estimateTokens } from '../src/explorer/runtime.mjs';
 import { buildExplorerSystemPrompt, buildFreeExploreSystemPrompt, buildFinalizePrompt, detectStrategy, buildExplorerUserPrompt, STRATEGY_DESCRIPTIONS } from '../src/explorer/prompt.mjs';
 import { getRuntimeConfig } from '../src/explorer/config.mjs';
 import { RepoToolkit } from '../src/explorer/repo-tools.mjs';
+import { adaptLegacyGoalAuditClient } from './helpers/legacy-goal-audit-client.mjs';
 
 function hasGit() {
   try {
@@ -70,6 +71,15 @@ function compactResult({
     uncertainties,
     nextAction,
   };
+}
+
+// Existing tests below isolate the pre-028 exploration loop. Their provider
+// scripts predate required planning, so this test-only adapter answers only the
+// isolated planner/auditor calls. T017 uses RuntimeImplementation directly.
+class ExplorerRuntime extends RuntimeImplementation {
+  constructor({ chatClient = null, ...options } = {}) {
+    super({ ...options, chatClient: adaptLegacyGoalAuditClient(chatClient) });
+  }
 }
 
 class MockChatClient {
@@ -4410,7 +4420,7 @@ test('spec 026 T015: system prompt strategy catalog symbol-first line mentions c
 // callbacks as TODOs, so missing runtime behavior stays visible without making
 // the test-first commits unshippable.
 const auditedPlanningRuntimeTest =
-  typeof ExplorerRuntime.prototype.auditLateGoalProposals === 'function'
+  typeof RuntimeImplementation.prototype.auditLateGoalProposals === 'function'
     ? test
     : test.todo;
 
@@ -4458,6 +4468,28 @@ function auditorControl(goals, uncoveredRequestParts = []) {
   return { goals, uncoveredRequestParts };
 }
 
+function coverageControl(findings, uncoveredRequestParts = []) {
+  return { findings, uncoveredRequestParts };
+}
+
+function coveredObligation(obligationId, coveredByGoalIds) {
+  return {
+    obligationId,
+    disposition: 'covered',
+    coveredByGoalIds,
+    reason: 'The audited goal mapping preserves this runtime obligation.',
+  };
+}
+
+function remainingObligation(obligationId) {
+  return {
+    obligationId,
+    disposition: 'remaining',
+    coveredByGoalIds: [],
+    reason: 'No audited corrected goal fully preserves this runtime obligation.',
+  };
+}
+
 function controlCompletion(content, { finishReason = 'stop' } = {}) {
   return {
     usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
@@ -4475,6 +4507,9 @@ function classifyControlRequest(request) {
   const required = Array.isArray(schema?.required) ? schema.required : [];
   if (required.includes('taskSummary') && required.includes('subgoals')) return 'planner';
   if (required.includes('goals') && required.includes('uncoveredRequestParts')) return 'goal_audit';
+  if (required.includes('findings') && required.includes('uncoveredRequestParts')) {
+    return 'goal_coverage';
+  }
   if (request.responseFormat) return 'synthesis';
   return 'exploration';
 }
@@ -4490,7 +4525,7 @@ class ScriptedGoalAuditClient {
 
   async createChatCompletion(request) {
     const stage = classifyControlRequest(request);
-    if (stage === 'planner' || stage === 'goal_audit') {
+    if (stage === 'planner' || stage === 'goal_audit' || stage === 'goal_coverage') {
       assert.equal((request.tools?.length ?? 0), 0,
         `${stage} must not receive repository tools`);
     }
@@ -4545,7 +4580,8 @@ auditedPlanningRuntimeTest('Spec 028 T017 — initial plan and isolated audit fi
     {
       stage: 'goal_audit:1',
       value: auditorControl([
-        ...goals.map(goal => auditControlRecord(goal)),
+        auditControlRecord(goals[0], 'ready', { mergeInto: null }),
+        auditControlRecord(goals[1]),
         auditControlRecord(invented, 'reject_untraceable', { originRefs: [] }),
       ]),
     },
@@ -4553,7 +4589,7 @@ auditedPlanningRuntimeTest('Spec 028 T017 — initial plan and isolated audit fi
     { stage: 'synthesis:1', value: readyExplorationResult() },
   ]);
   const root = await makeRepoFixture();
-  const runtime = new ExplorerRuntime({ chatClient: client });
+  const runtime = new RuntimeImplementation({ chatClient: client });
 
   const result = await runtime.explore({
     task: GOAL_AUDIT_TASK,
@@ -4609,11 +4645,18 @@ auditedPlanningRuntimeTest('Spec 028 T017 — one corrected plan is re-audited a
         auditControlRecord(corrected[1], 'needs_decomposition'),
       ]),
     },
+    {
+      stage: 'goal_coverage:1',
+      value: coverageControl([
+        coveredObligation('revision-obligation-1', corrected.map(goal => goal.id)),
+        coveredObligation('revision-obligation-2', [corrected[1].id]),
+      ]),
+    },
     { stage: 'exploration:1', content: 'Corrected audited goals are ready.' },
     { stage: 'synthesis:1', value: readyExplorationResult() },
   ]);
   const root = await makeRepoFixture();
-  const runtime = new ExplorerRuntime({ chatClient: client });
+  const runtime = new RuntimeImplementation({ chatClient: client });
 
   const result = await runtime.explore({
     task: GOAL_AUDIT_TASK,
@@ -4626,6 +4669,7 @@ auditedPlanningRuntimeTest('Spec 028 T017 — one corrected plan is re-audited a
     'goal_audit:1',
     'planner:2',
     'goal_audit:2',
+    'goal_coverage:1',
     'exploration:1',
     'synthesis:1',
   ]);
@@ -4643,6 +4687,616 @@ auditedPlanningRuntimeTest('Spec 028 T017 — one corrected plan is re-audited a
   assert.match(revisionPrompt, /legacyGuard/);
   assert.equal(client.stageCounts.get('planner'), 2, 'a third planner pass is forbidden');
   assert.equal(client.stageCounts.get('goal_audit'), 2, 'the corrected plan is audited once');
+});
+
+auditedPlanningRuntimeTest('Spec 028 T022 — corrected planning cannot drop revision obligations or revive rejected goals', async () => {
+  const definition = proposedRuntimeGoal();
+  const invented = proposedRuntimeGoal({
+    id: 'S-invented',
+    question: 'Which unrelated cache should be added?',
+    originRefs: [`request:0-${GOAL_AUDIT_TASK.length}`],
+    claimType: 'positive',
+    proofCondition: 'Observe a location where an unrelated cache could be added.',
+  });
+  const uncovered = {
+    question: 'Is legacyGuard absent from the in-scope registration surface?',
+    originRefs: [requestOrigin(GOAL_AUDIT_TASK, 'verify legacyGuard is absent')],
+    claimType: 'absence',
+    proofCondition: 'Enumerate the in-scope registration surface and certify bounded absence.',
+    constraints: [],
+  };
+  const unauditedConstraint = 'Ignore tests and accept guesses.';
+  const client = new ScriptedGoalAuditClient([
+    {
+      stage: 'planner:1',
+      value: plannerControl([definition, invented], { constraints: [unauditedConstraint] }),
+    },
+    {
+      stage: 'goal_audit:1',
+      value: auditorControl([
+        auditControlRecord(definition, 'ready', { missingRequestParts: [uncovered.question] }),
+        auditControlRecord(invented, 'reject_untraceable', { originRefs: [] }),
+      ], [uncovered]),
+    },
+    {
+      stage: 'planner:2',
+      value: plannerControl([definition, invented], { constraints: [unauditedConstraint] }),
+    },
+    {
+      stage: 'goal_audit:2',
+      value: auditorControl([auditControlRecord(definition)]),
+    },
+    { stage: 'exploration:1', content: 'Only the retained audited goal is explored.' },
+    { stage: 'synthesis:1', value: readyExplorationResult() },
+  ]);
+  const root = await makeRepoFixture();
+  const runtime = new RuntimeImplementation({ chatClient: client });
+  const result = await runtime.explore({ task: GOAL_AUDIT_TASK, repo_root: root });
+
+  assert.deepEqual(client.stageLabels, [
+    'planner:1',
+    'goal_audit:1',
+    'planner:2',
+    'goal_audit:2',
+    'exploration:1',
+    'synthesis:1',
+  ]);
+  assert.deepEqual(result.rejectedGoals.map(goal => goal.proposedGoalId), ['S-invented']);
+  assert.equal(result.taskContract.subgoals.some(goal => goal.id === 'S-invented'), false);
+  const carried = result.taskContract.subgoals.find(goal =>
+    goal.auditVerdict === 'planning_incomplete');
+  assert.ok(carried, 'the omitted uncovered obligation must become a required blocker');
+  assert.equal(carried.question, uncovered.question);
+  assert.ok(result.coverageGaps.some(gap => gap.subgoalId === carried.id));
+  assert.deepEqual(result.taskContract.constraints, [],
+    'unaudited planner-level constraints must not enter the task contract');
+  assert.doesNotMatch(JSON.stringify(client.requests[3].messages), /S-invented/,
+    'a terminally rejected goal must be filtered before the corrected audit');
+  assert.doesNotMatch(JSON.stringify(client.requests[4].messages), /S-invented/,
+    'a terminally rejected goal must not leak into exploration');
+});
+
+auditedPlanningRuntimeTest('Spec 028 T022 — one audited rephrase can satisfy an uncovered revision obligation', async () => {
+  const definition = proposedRuntimeGoal();
+  const uncovered = {
+    question: 'Is legacyGuard absent from the in-scope registration surface?',
+    originRefs: [requestOrigin(GOAL_AUDIT_TASK, 'verify legacyGuard is absent')],
+    claimType: 'absence',
+    proofCondition: 'Enumerate the in-scope registration surface and certify bounded absence.',
+    constraints: [],
+  };
+  const replacement = proposedRuntimeGoal({
+    id: 'S-absence-rephrased',
+    question: 'Determine whether legacyGuard is absent in the in-scope registration surface.',
+    originRefs: [...uncovered.originRefs],
+    claimType: 'absence',
+    proofCondition: 'Completely enumerate the bounded registration surface and establish absence.',
+  });
+  const client = new ScriptedGoalAuditClient([
+    { stage: 'planner:1', value: plannerControl([definition]) },
+    {
+      stage: 'goal_audit:1',
+      value: auditorControl([
+        auditControlRecord(definition, 'ready', { missingRequestParts: [uncovered.question] }),
+      ], [uncovered]),
+    },
+    { stage: 'planner:2', value: plannerControl([definition, replacement]) },
+    {
+      stage: 'goal_audit:2',
+      value: auditorControl([
+        auditControlRecord(definition),
+        auditControlRecord(replacement),
+      ]),
+    },
+    {
+      stage: 'goal_coverage:1',
+      value: coverageControl([
+        coveredObligation('revision-obligation-1', [replacement.id]),
+      ]),
+    },
+    { stage: 'exploration:1', content: 'The audited replacement is ready.' },
+    { stage: 'synthesis:1', value: readyExplorationResult() },
+  ]);
+  const root = await makeRepoFixture();
+  const runtime = new RuntimeImplementation({ chatClient: client });
+  const result = await runtime.explore({ task: GOAL_AUDIT_TASK, repo_root: root });
+
+  assert.deepEqual(result.taskContract.subgoals.map(goal => goal.id),
+    ['S-definition', 'S-absence-rephrased']);
+  assert.equal(result.taskContract.subgoals.some(goal =>
+    goal.auditVerdict === 'planning_incomplete'), false);
+  assert.deepEqual(result.coverageGaps, []);
+  const coveragePrompt = JSON.stringify(client.requests[4].messages);
+  assert.match(coveragePrompt, /S-absence-rephrased/);
+  assert.doesNotMatch(coveragePrompt, /S-definition/,
+    'preserved goals that cannot discharge a revision obligation stay out of the coverage prompt');
+});
+
+auditedPlanningRuntimeTest('Spec 028 T022 — range-only decomposition cannot erase a missing request distinction', async () => {
+  const broad = proposedRuntimeGoal({
+    id: 'S-broad',
+    question: GOAL_AUDIT_TASK,
+    originRefs: [`request:0-${GOAL_AUDIT_TASK.length}`],
+    claimType: 'positive',
+    proofCondition: 'Observe requireAuth definition and usage plus the legacyGuard absence outcome.',
+  });
+  const revised = [
+    proposedRuntimeGoal({
+      id: 'S-definition',
+      originRefs: [`request:0-${GOAL_AUDIT_TASK.length}`],
+    }),
+    proposedRuntimeGoal({
+      id: 'S-usage',
+      question: 'Where is requireAuth used?',
+      originRefs: [`request:0-${GOAL_AUDIT_TASK.length}`],
+      claimType: 'symbol_usage',
+      proofCondition: 'Observe bounded requireAuth usage sites.',
+    }),
+  ];
+  const client = new ScriptedGoalAuditClient([
+    { stage: 'planner:1', value: plannerControl([broad]) },
+    {
+      stage: 'goal_audit:1',
+      value: auditorControl([auditControlRecord(broad, 'needs_decomposition')]),
+    },
+    { stage: 'planner:2', value: plannerControl(revised) },
+    {
+      stage: 'goal_audit:2',
+      value: auditorControl(revised.map(goal => auditControlRecord(goal))),
+    },
+    {
+      stage: 'goal_coverage:1',
+      value: coverageControl([
+        remainingObligation('revision-obligation-1'),
+      ]),
+    },
+    { stage: 'exploration:1', content: 'Only audited revised goals are explored.' },
+    { stage: 'synthesis:1', value: readyExplorationResult() },
+  ]);
+  const root = await makeRepoFixture();
+  const runtime = new RuntimeImplementation({ chatClient: client });
+  const result = await runtime.explore({ task: GOAL_AUDIT_TASK, repo_root: root });
+
+  assert.deepEqual(result.taskContract.subgoals
+    .filter(goal => goal.auditVerdict === 'ready')
+    .map(goal => goal.id), ['S-definition', 'S-usage']);
+  const carried = result.taskContract.subgoals.find(goal =>
+    goal.auditVerdict === 'planning_incomplete');
+  assert.ok(carried, 'legacyGuard absence cannot be discharged by range-only positive goals');
+  assert.equal(carried.question, GOAL_AUDIT_TASK);
+  assert.deepEqual(result.coverageGaps.map(gap => gap.reason), ['planning_incomplete']);
+});
+
+auditedPlanningRuntimeTest('Spec 028 T022 — opaque coverage mapping preserves directional distinctions', async () => {
+  const task = 'Check whether frontend calls backend and whether backend calls frontend.';
+  const forward = {
+    id: 'S-forward',
+    question: 'Does frontend call backend?',
+    originRefs: [`request:0-${task.length}`],
+    claimType: 'flow',
+    proofCondition: 'Observe the frontend-to-backend call path.',
+    constraints: [],
+  };
+  const reverse = {
+    question: 'Does backend call frontend?',
+    originRefs: [`request:0-${task.length}`],
+    claimType: 'flow',
+    proofCondition: 'Observe the backend-to-frontend call path.',
+    constraints: [],
+  };
+  const wrongReplacement = {
+    ...forward,
+    id: 'S-forward-again',
+    question: 'Can frontend call backend?',
+  };
+  const client = new ScriptedGoalAuditClient([
+    { stage: 'planner:1', value: plannerControl([forward]) },
+    {
+      stage: 'goal_audit:1',
+      value: auditorControl([
+        auditControlRecord(forward, 'ready', { missingRequestParts: [reverse.question] }),
+      ], [reverse]),
+    },
+    { stage: 'planner:2', value: plannerControl([forward, wrongReplacement]) },
+    {
+      stage: 'goal_audit:2',
+      value: auditorControl([
+        auditControlRecord(forward),
+        auditControlRecord(wrongReplacement),
+      ]),
+    },
+    {
+      stage: 'goal_coverage:1',
+      value: coverageControl([remainingObligation('revision-obligation-1')]),
+    },
+    { stage: 'exploration:1', content: 'Only forward goals are ready.' },
+    { stage: 'synthesis:1', value: readyExplorationResult() },
+  ]);
+  const root = await makeRepoFixture();
+  const runtime = new RuntimeImplementation({ chatClient: client });
+  const result = await runtime.explore({ task, repo_root: root });
+
+  const carried = result.taskContract.subgoals.find(goal =>
+    goal.auditVerdict === 'planning_incomplete');
+  assert.ok(carried);
+  assert.equal(carried.question, reverse.question);
+  assert.deepEqual(result.coverageGaps.map(gap => gap.reason), ['planning_incomplete']);
+});
+
+auditedPlanningRuntimeTest('Spec 028 T022 — opaque coverage mapping accepts a valid Korean decomposition', async () => {
+  const task = '인증과 인가 흐름을 각각 분석해줘.';
+  const broad = {
+    id: 'K-broad',
+    question: task,
+    originRefs: [`request:0-${task.length}`],
+    claimType: 'flow',
+    proofCondition: '인증과 인가 흐름을 각각 관찰한다.',
+    constraints: [],
+  };
+  const corrected = [
+    {
+      id: 'K-authentication',
+      question: '인증 흐름을 분석한다.',
+      originRefs: [`request:0-${task.length}`],
+      claimType: 'flow',
+      proofCondition: '인증 진입점과 전이를 관찰한다.',
+      constraints: [],
+    },
+    {
+      id: 'K-authorization',
+      question: '인가 흐름을 분석한다.',
+      originRefs: [`request:0-${task.length}`],
+      claimType: 'flow',
+      proofCondition: '인가 진입점과 전이를 관찰한다.',
+      constraints: [],
+    },
+  ];
+  const client = new ScriptedGoalAuditClient([
+    { stage: 'planner:1', value: plannerControl([broad]) },
+    {
+      stage: 'goal_audit:1',
+      value: auditorControl([auditControlRecord(broad, 'needs_decomposition')]),
+    },
+    { stage: 'planner:2', value: plannerControl(corrected) },
+    {
+      stage: 'goal_audit:2',
+      value: auditorControl(corrected.map(goal => auditControlRecord(goal))),
+    },
+    {
+      stage: 'goal_coverage:1',
+      value: coverageControl([
+        coveredObligation('revision-obligation-1', corrected.map(goal => goal.id)),
+      ]),
+    },
+    { stage: 'exploration:1', content: '교정된 목표를 탐색합니다.' },
+    { stage: 'synthesis:1', value: readyExplorationResult() },
+  ]);
+  const root = await makeRepoFixture();
+  const runtime = new RuntimeImplementation({ chatClient: client });
+  const result = await runtime.explore({ task, repo_root: root, language: 'ko' });
+
+  assert.deepEqual(result.taskContract.subgoals.map(goal => goal.id),
+    corrected.map(goal => goal.id));
+  assert.equal(result.taskContract.subgoals.some(goal =>
+    goal.auditVerdict === 'planning_incomplete'), false);
+  assert.deepEqual(result.coverageGaps, []);
+});
+
+auditedPlanningRuntimeTest('Spec 028 T022 — invalid coverage cardinality fails after one bounded retry', async () => {
+  const broad = proposedRuntimeGoal({
+    id: 'S-broad',
+    question: GOAL_AUDIT_TASK,
+    originRefs: [`request:0-${GOAL_AUDIT_TASK.length}`],
+    claimType: 'positive',
+    proofCondition: 'Observe each requested authentication distinction independently.',
+  });
+  const corrected = definitionAndAbsenceGoals();
+  const invalidCoverage = coverageControl([
+    coveredObligation('revision-obligation-1', [corrected[0].id]),
+  ]);
+  const client = new ScriptedGoalAuditClient([
+    { stage: 'planner:1', value: plannerControl([broad]) },
+    {
+      stage: 'goal_audit:1',
+      value: auditorControl([auditControlRecord(broad, 'needs_decomposition')]),
+    },
+    { stage: 'planner:2', value: plannerControl(corrected) },
+    {
+      stage: 'goal_audit:2',
+      value: auditorControl(corrected.map(goal => auditControlRecord(goal))),
+    },
+    { stage: 'goal_coverage:1', value: invalidCoverage },
+    { stage: 'goal_coverage:2', value: invalidCoverage },
+  ]);
+  const root = await makeRepoFixture();
+  const runtime = new RuntimeImplementation({ chatClient: client });
+  const result = await runtime.explore({ task: GOAL_AUDIT_TASK, repo_root: root });
+
+  assert.equal(client.stageCounts.get('goal_coverage'), 2);
+  assert.ok(result.failure);
+  assert.equal(result.failure.reason, 'invalid_final_response');
+  assert.equal(client.stageLabels.includes('exploration:1'), false);
+});
+
+auditedPlanningRuntimeTest('Spec 028 T022 — coverage reconciliation cannot invent new obligations', async () => {
+  const broad = proposedRuntimeGoal({
+    id: 'S-broad',
+    question: GOAL_AUDIT_TASK,
+    originRefs: [`request:0-${GOAL_AUDIT_TASK.length}`],
+    claimType: 'positive',
+    proofCondition: 'Observe each requested authentication distinction independently.',
+  });
+  const corrected = definitionAndAbsenceGoals();
+  const invented = {
+    question: 'Which unrelated cache should be implemented?',
+    originRefs: [`request:0-${GOAL_AUDIT_TASK.length}`],
+    claimType: 'positive',
+    proofCondition: 'Observe a location for an unrelated cache.',
+    constraints: [],
+  };
+  const invalidCoverage = coverageControl([
+    coveredObligation('revision-obligation-1', corrected.map(goal => goal.id)),
+  ], [invented]);
+  const client = new ScriptedGoalAuditClient([
+    { stage: 'planner:1', value: plannerControl([broad]) },
+    {
+      stage: 'goal_audit:1',
+      value: auditorControl([auditControlRecord(broad, 'needs_decomposition')]),
+    },
+    { stage: 'planner:2', value: plannerControl(corrected) },
+    {
+      stage: 'goal_audit:2',
+      value: auditorControl(corrected.map(goal => auditControlRecord(goal))),
+    },
+    { stage: 'goal_coverage:1', value: invalidCoverage },
+    { stage: 'goal_coverage:2', value: invalidCoverage },
+  ]);
+  const root = await makeRepoFixture();
+  const runtime = new RuntimeImplementation({ chatClient: client });
+  const result = await runtime.explore({ task: GOAL_AUDIT_TASK, repo_root: root });
+
+  assert.equal(client.stageCounts.get('goal_coverage'), 2);
+  assert.equal(result.failure?.reason, 'invalid_final_response');
+  assert.equal(client.stageLabels.includes('exploration:1'), false);
+});
+
+auditedPlanningRuntimeTest('Spec 028 T022 — rejected corrected goals leave the original obligation blocked', async () => {
+  const broad = proposedRuntimeGoal({
+    id: 'S-broad',
+    question: GOAL_AUDIT_TASK,
+    originRefs: [`request:0-${GOAL_AUDIT_TASK.length}`],
+    claimType: 'positive',
+    proofCondition: 'Observe each requested authentication distinction independently.',
+  });
+  const wrong = proposedRuntimeGoal({
+    id: 'S-wrong',
+    question: 'Which unrelated cache should be added?',
+    originRefs: [`request:0-${GOAL_AUDIT_TASK.length}`],
+    claimType: 'positive',
+    proofCondition: 'Observe a location for an unrelated cache.',
+  });
+  const client = new ScriptedGoalAuditClient([
+    { stage: 'planner:1', value: plannerControl([broad]) },
+    {
+      stage: 'goal_audit:1',
+      value: auditorControl([auditControlRecord(broad, 'needs_decomposition')]),
+    },
+    { stage: 'planner:2', value: plannerControl([wrong]) },
+    {
+      stage: 'goal_audit:2',
+      value: auditorControl([
+        auditControlRecord(wrong, 'reject_untraceable', { originRefs: [] }),
+      ]),
+    },
+    {
+      stage: 'goal_coverage:1',
+      value: coverageControl([remainingObligation('revision-obligation-1')]),
+    },
+  ]);
+  const root = await makeRepoFixture();
+  const runtime = new RuntimeImplementation({ chatClient: client });
+  const result = await runtime.explore({ task: GOAL_AUDIT_TASK, repo_root: root });
+
+  assert.equal(result.failure, null);
+  assert.equal(result.taskContract.subgoals.length, 1);
+  assert.equal(result.taskContract.subgoals[0].question, broad.question);
+  assert.equal(result.taskContract.subgoals[0].auditVerdict, 'planning_incomplete');
+  assert.deepEqual(result.rejectedGoals.map(goal => goal.proposedGoalId), ['S-wrong']);
+  assert.deepEqual(result.coverageGaps.map(gap => gap.reason), ['planning_incomplete']);
+});
+
+auditedPlanningRuntimeTest('Spec 028 T022 — a corrected plan filtered to zero goals carries the obligation', async () => {
+  const broad = proposedRuntimeGoal({
+    id: 'S-broad',
+    question: GOAL_AUDIT_TASK,
+    originRefs: [`request:0-${GOAL_AUDIT_TASK.length}`],
+    claimType: 'positive',
+    proofCondition: 'Observe each requested authentication distinction independently.',
+  });
+  const invented = proposedRuntimeGoal({
+    id: 'S-invented',
+    question: 'Which unrelated cache should be added?',
+    originRefs: [`request:0-${GOAL_AUDIT_TASK.length}`],
+    claimType: 'positive',
+    proofCondition: 'Observe a location for an unrelated cache.',
+  });
+  const client = new ScriptedGoalAuditClient([
+    { stage: 'planner:1', value: plannerControl([broad, invented]) },
+    {
+      stage: 'goal_audit:1',
+      value: auditorControl([
+        auditControlRecord(broad, 'needs_decomposition'),
+        auditControlRecord(invented, 'reject_untraceable', { originRefs: [] }),
+      ]),
+    },
+    { stage: 'planner:2', value: plannerControl([invented]) },
+  ]);
+  const root = await makeRepoFixture();
+  const runtime = new RuntimeImplementation({ chatClient: client });
+  const result = await runtime.explore({ task: GOAL_AUDIT_TASK, repo_root: root });
+
+  assert.deepEqual(client.stageLabels, ['planner:1', 'goal_audit:1', 'planner:2']);
+  assert.equal(result.failure, null);
+  assert.equal(result.taskContract.subgoals.length, 1);
+  assert.equal(result.taskContract.subgoals[0].auditVerdict, 'planning_incomplete');
+  assert.equal(result.taskContract.subgoals[0].question, broad.question);
+  assert.deepEqual(result.rejectedGoals.map(goal => goal.proposedGoalId), ['S-invented']);
+});
+
+auditedPlanningRuntimeTest('Spec 028 T022 — a corrected audit cannot reclassify a preserved goal silently', async () => {
+  const definition = proposedRuntimeGoal();
+  const broad = proposedRuntimeGoal({
+    id: 'S-broad',
+    question: 'Independently inspect the requested authentication facets.',
+    originRefs: [`request:0-${GOAL_AUDIT_TASK.length}`],
+    claimType: 'positive',
+    proofCondition: 'Observe separate evidence for the requested authentication facets.',
+  });
+  const absence = definitionAndAbsenceGoals()[1];
+  const client = new ScriptedGoalAuditClient([
+    { stage: 'planner:1', value: plannerControl([definition, broad]) },
+    {
+      stage: 'goal_audit:1',
+      value: auditorControl([
+        auditControlRecord(definition),
+        auditControlRecord(broad, 'needs_decomposition'),
+      ]),
+    },
+    { stage: 'planner:2', value: plannerControl([definition, absence]) },
+    {
+      stage: 'goal_audit:2',
+      value: auditorControl([
+        auditControlRecord(definition, 'blocked_scope'),
+        auditControlRecord(absence),
+      ]),
+    },
+  ]);
+  const root = await makeRepoFixture();
+  const runtime = new RuntimeImplementation({ chatClient: client });
+  const result = await runtime.explore({ task: GOAL_AUDIT_TASK, repo_root: root });
+
+  assert.deepEqual(client.stageLabels, [
+    'planner:1', 'goal_audit:1', 'planner:2', 'goal_audit:2',
+  ]);
+  assert.ok(result.failure, 'inconsistent second-pass control must fail closed');
+  assert.equal(result.status.complete, false);
+});
+
+auditedPlanningRuntimeTest('Spec 028 T022 — preserved origin and constraint sets may be reordered', async () => {
+  const kept = proposedRuntimeGoal({
+    id: 'S-kept',
+    originRefs: [
+      requestOrigin(GOAL_AUDIT_TASK, 'Locate requireAuth'),
+      'wrapper:trace_symbol:definition',
+    ],
+    constraints: ['Stay in scope.', 'Use source evidence.'],
+  });
+  const broad = proposedRuntimeGoal({
+    id: 'S-broad',
+    question: 'Inspect both authentication distinctions.',
+    originRefs: [`request:0-${GOAL_AUDIT_TASK.length}`],
+    claimType: 'positive',
+    proofCondition: 'Observe each requested distinction independently.',
+  });
+  const reordered = {
+    ...kept,
+    originRefs: [...kept.originRefs].reverse(),
+    constraints: [...kept.constraints].reverse(),
+  };
+  const client = new ScriptedGoalAuditClient([
+    { stage: 'planner:1', value: plannerControl([kept, broad]) },
+    {
+      stage: 'goal_audit:1',
+      value: auditorControl([
+        auditControlRecord(kept),
+        auditControlRecord(broad, 'needs_decomposition'),
+      ]),
+    },
+    { stage: 'planner:2', value: plannerControl([reordered]) },
+    {
+      stage: 'goal_audit:2',
+      value: auditorControl([auditControlRecord(reordered)]),
+    },
+    { stage: 'exploration:1', content: 'The preserved goal remains auditable.' },
+    { stage: 'synthesis:1', value: readyExplorationResult() },
+  ]);
+  const root = await makeRepoFixture();
+  const runtime = new RuntimeImplementation({ chatClient: client });
+  const result = await runtime.explore({
+    task: GOAL_AUDIT_TASK,
+    repo_root: root,
+    taskMode: 'symbol_trace',
+  });
+
+  assert.equal(result.failure, null);
+  assert.equal(result.taskContract.subgoals[0].id, kept.id);
+  assert.ok(result.taskContract.subgoals.some(goal =>
+    goal.auditVerdict === 'planning_incomplete'));
+});
+
+auditedPlanningRuntimeTest('Spec 028 T022 — initial goal audit batches are bounded and reconcile cross-batch coverage', async () => {
+  const task = 'Inspect every requested authentication facet in the repository.';
+  const goals = Array.from({ length: 13 }, (_, index) => ({
+    id: `P${index + 1}`,
+    question: `Inspect authentication facet ${index + 1}.`,
+    originRefs: [`request:0-${task.length}`],
+    claimType: 'positive',
+    proofCondition: `Observe repository evidence for authentication facet ${index + 1}.`,
+    constraints: [],
+  }));
+  class BatchedInitialAuditClient {
+    constructor() {
+      this.model = 'zai-glm-4.7';
+      this.auditBatches = [];
+      this.stages = [];
+    }
+
+    async createChatCompletion(request) {
+      const stage = classifyControlRequest(request);
+      this.stages.push(stage);
+      if (stage === 'planner') return controlCompletion(plannerControl(goals));
+      if (stage === 'goal_audit') {
+        const prompt = JSON.stringify(request.messages);
+        const batch = goals.filter(goal => new RegExp(`\\b${goal.id}\\b`).test(prompt));
+        this.auditBatches.push(batch.map(goal => goal.id));
+        const uncovered = batch.some(goal => goal.id === 'P13')
+          ? []
+          : [{
+            ...goals[12],
+            id: undefined,
+            question: 'Review authentication facet 13.',
+            proofCondition: 'Observe repository evidence that resolves authentication facet 13.',
+          }];
+        delete uncovered[0]?.id;
+        const missingQuestion = uncovered[0]?.question;
+        return controlCompletion(auditorControl(
+          batch.map((goal, index) => auditControlRecord(goal, 'ready', {
+            missingRequestParts: index === 0 && missingQuestion ? [missingQuestion] : [],
+          })),
+          uncovered,
+        ));
+      }
+      if (stage === 'goal_coverage') {
+        return controlCompletion(coverageControl([
+          coveredObligation('batch-uncovered-1', ['P13']),
+        ]));
+      }
+      if (stage === 'exploration') return controlCompletion('Batched goals are ready.');
+      return controlCompletion(readyExplorationResult());
+    }
+  }
+
+  const client = new BatchedInitialAuditClient();
+  const root = await makeRepoFixture();
+  const runtime = new RuntimeImplementation({ chatClient: client });
+  const result = await runtime.explore({ task, repo_root: root });
+
+  assert.equal(client.auditBatches.length, 2);
+  assert.ok(client.auditBatches.every(batch => batch.length <= 12));
+  assert.deepEqual(client.auditBatches.flat(), goals.map(goal => goal.id));
+  assert.deepEqual(result.taskContract.subgoals.map(goal => goal.id), goals.map(goal => goal.id));
+  assert.deepEqual(result.coverageGaps, [],
+    'another batch must not create a false uncovered blocker for a ready goal');
 });
 
 auditedPlanningRuntimeTest('Spec 028 T017 — malformed goal-audit control output fails before exploration', async () => {
@@ -4668,7 +5322,7 @@ auditedPlanningRuntimeTest('Spec 028 T017 — malformed goal-audit control outpu
 
   const root = await makeRepoFixture();
   const client = new MalformedAuditClient();
-  const runtime = new ExplorerRuntime({ chatClient: client });
+  const runtime = new RuntimeImplementation({ chatClient: client });
   const result = await runtime.explore({ task: GOAL_AUDIT_TASK, repo_root: root });
 
   assert.ok(client.auditCalls >= 1 && client.auditCalls <= 2,
@@ -4701,7 +5355,7 @@ auditedPlanningRuntimeTest('Spec 028 T017 — an all-blocked audited plan return
     },
   ]);
   const root = await makeRepoFixture();
-  const runtime = new ExplorerRuntime({ chatClient: client });
+  const runtime = new RuntimeImplementation({ chatClient: client });
   const result = await runtime.explore({ task: blockedTask, repo_root: root });
 
   assert.deepEqual(client.stageLabels, ['planner:1', 'goal_audit:1']);
@@ -4710,6 +5364,80 @@ auditedPlanningRuntimeTest('Spec 028 T017 — an all-blocked audited plan return
   assert.equal(result.taskContract.subgoals[0].state, 'blocked');
   assert.equal(result.taskContract.subgoals[0].auditVerdict, 'requires_external_state');
   assert.ok(result.coverageGaps.some(gap => gap.reason === 'external_state_required'));
+});
+
+auditedPlanningRuntimeTest('Spec 028 T022 — control prompts and returned trust state redact secret values', async () => {
+  const secret = ['sk', '-proj-', 'a'.repeat(32)].join('');
+  const task = `Inspect ${secret} without exposing it.`;
+  const goal = {
+    id: 'S-secret',
+    question: 'Inspect the supplied token safely.',
+    originRefs: [`request:0-${task.length}`],
+    claimType: 'positive',
+    proofCondition: 'Observe whether the requested repository evidence can be inspected safely.',
+    constraints: [],
+  };
+  const client = new ScriptedGoalAuditClient([
+    {
+      stage: 'planner:1',
+      run(request) {
+        const serialized = JSON.stringify(request.messages);
+        assert.doesNotMatch(serialized, new RegExp(secret));
+        assert.match(serialized, /\[REDACTED:openai-api-key\]/);
+        return controlCompletion(plannerControl([goal]));
+      },
+    },
+    {
+      stage: 'goal_audit:1',
+      value: auditorControl([auditControlRecord(goal)]),
+    },
+    {
+      stage: 'exploration:1',
+      run(request) {
+        const serialized = JSON.stringify(request.messages);
+        assert.doesNotMatch(serialized, new RegExp(secret));
+        assert.match(serialized, /\[REDACTED:openai-api-key\]/);
+        return controlCompletion('The redacted audited goal is ready.');
+      },
+    },
+    {
+      stage: 'synthesis:1',
+      run(request) {
+        assert.doesNotMatch(JSON.stringify(request.messages), new RegExp(secret));
+        return controlCompletion(readyExplorationResult());
+      },
+    },
+  ]);
+  const root = await makeRepoFixture();
+  const runtime = new RuntimeImplementation({ chatClient: client });
+  const result = await runtime.explore({ task, repo_root: root });
+
+  assert.doesNotMatch(JSON.stringify(result), new RegExp(secret));
+  assert.match(result.taskContract.task, /\[REDACTED:openai-api-key\]/);
+
+  const lateProposal = {
+    ...goal,
+    id: 'L-secret',
+    question: `Inspect ${secret} safely.`,
+  };
+  const lateClient = {
+    model: 'zai-glm-4.7',
+    async createChatCompletion(request) {
+      const serialized = JSON.stringify(request.messages);
+      assert.doesNotMatch(serialized, new RegExp(secret));
+      assert.match(serialized, /\[REDACTED:openai-api-key\]/);
+      return controlCompletion(auditorControl([auditControlRecord(lateProposal)]));
+    },
+  };
+  const lateRuntime = new RuntimeImplementation({ chatClient: lateClient });
+  const lateResult = await lateRuntime.auditLateGoalProposals({
+    task,
+    effectiveScope: ['src/**'],
+    wrapperTool: 'find_relevant_code',
+    proposals: [lateProposal],
+  });
+  assert.doesNotMatch(JSON.stringify(lateResult), new RegExp(secret));
+  assert.match(lateResult.requiredSubgoals[0].question, /\[REDACTED:openai-api-key\]/);
 });
 
 auditedPlanningRuntimeTest('Spec 028 T017 — cancellation is honored at every planning and audit stage', async () => {
@@ -4731,7 +5459,13 @@ auditedPlanningRuntimeTest('Spec 028 T017 — cancellation is honored at every p
     constraints: [],
   }]);
 
-  for (const abortAt of ['planner:1', 'goal_audit:1', 'planner:2', 'goal_audit:2']) {
+  for (const abortAt of [
+    'planner:1',
+    'goal_audit:1',
+    'planner:2',
+    'goal_audit:2',
+    'goal_coverage:1',
+  ]) {
     const controller = new AbortController();
     class AbortAtStageClient {
       constructor() {
@@ -4759,13 +5493,19 @@ auditedPlanningRuntimeTest('Spec 028 T017 — cancellation is honored at every p
         if (label === 'goal_audit:2') {
           return controlCompletion(auditorControl(corrected.map(goal => auditControlRecord(goal))));
         }
+        if (label === 'goal_coverage:1') {
+          return controlCompletion(coverageControl([
+            coveredObligation('revision-obligation-1', corrected.map(goal => goal.id)),
+            coveredObligation('revision-obligation-2', [corrected[1].id]),
+          ]));
+        }
         assert.fail(`exploration must not start after cancellation target ${abortAt}`);
       }
     }
 
     const root = await makeRepoFixture();
     const client = new AbortAtStageClient();
-    const runtime = new ExplorerRuntime({ chatClient: client });
+    const runtime = new RuntimeImplementation({ chatClient: client });
     const result = await runtime.explore(
       { task: GOAL_AUDIT_TASK, repo_root: root },
       { abortSignal: controller.signal },
@@ -4798,27 +5538,40 @@ auditedPlanningRuntimeTest('Spec 028 T017 — late goal proposals are audited in
     }
 
     async createChatCompletion(request) {
-      assert.equal(classifyControlRequest(request), 'goal_audit',
-        'late proposals must never invoke the planner');
+      const stage = classifyControlRequest(request);
+      assert.notEqual(stage, 'planner', 'late proposals must never invoke the planner');
       this.requests.push(request);
+      if (stage === 'goal_coverage') {
+        return controlCompletion(coverageControl([
+          coveredObligation('batch-uncovered-1', ['L13']),
+        ]));
+      }
+      assert.equal(stage, 'goal_audit');
       const prompt = JSON.stringify(request.messages);
       const batch = proposals.filter(goal =>
         new RegExp(`\\b${goal.id}\\b`).test(prompt));
       assert.ok(batch.length > 0 && batch.length <= 12);
       this.seenGoalIds.push(...batch.map(goal => goal.id));
       const records = batch.map(goal => {
-        if (goal.id === 'L13') {
+        if (goal.id === 'L11') {
           return auditControlRecord(goal, 'reject_untraceable', { originRefs: [] });
         }
         if (goal.id === 'L12') return auditControlRecord(goal, 'needs_decomposition');
         return auditControlRecord(goal);
       });
-      return controlCompletion(auditorControl(records));
+      const { id: _ignoredId, ...otherBatchPart } = proposals[12];
+      if (!batch.some(goal => goal.id === 'L13')) {
+        records[0].missingRequestParts = [otherBatchPart.question];
+      }
+      return controlCompletion(auditorControl(
+        records,
+        batch.some(goal => goal.id === 'L13') ? [] : [otherBatchPart],
+      ));
     }
   }
 
   const client = new LateBatchAuditClient();
-  const runtime = new ExplorerRuntime({ chatClient: client });
+  const runtime = new RuntimeImplementation({ chatClient: client });
   const result = await runtime.auditLateGoalProposals({
     task,
     effectiveScope: ['src/**'],
@@ -4831,15 +5584,183 @@ auditedPlanningRuntimeTest('Spec 028 T017 — late goal proposals are audited in
     'late proposals must be audited exactly once and in request order');
   assert.deepEqual(result.requiredSubgoals
     .filter(goal => goal.auditVerdict === 'ready')
-    .map(goal => goal.id), proposals.slice(0, 11).map(goal => goal.id));
+    .map(goal => goal.id), [
+    ...proposals.slice(0, 10).map(goal => goal.id),
+    proposals[12].id,
+  ]);
   const latePlanningDefect = result.requiredSubgoals.find(goal =>
     goal.auditVerdict === 'planning_incomplete');
   assert.ok(latePlanningDefect);
   assert.equal(latePlanningDefect.state, 'blocked');
-  assert.match(latePlanningDefect.question, /facet 12/);
-  assert.deepEqual(result.rejectedGoals.map(goal => goal.proposedGoalId), ['L13']);
+  assert.equal(latePlanningDefect.question, proposals[11].question);
+  assert.deepEqual(result.rejectedGoals.map(goal => goal.proposedGoalId), ['L11']);
   assert.deepEqual(result.gaps.map(gap => gap.reason), ['planning_incomplete']);
   assert.equal(result.revisionRequest, null, 'late goals can never trigger another planner pass');
+});
+
+auditedPlanningRuntimeTest('Spec 028 T022 — a clean large audit skips unnecessary coverage reconciliation', async () => {
+  const task = 'Inspect every requested authentication facet in the repository.';
+  const proposals = Array.from({ length: 25 }, (_, index) => ({
+    id: `Q${index + 1}`,
+    question: `Inspect authentication facet ${index + 1}.`,
+    originRefs: [`request:0-${task.length}`],
+    claimType: 'positive',
+    proofCondition: `Observe repository evidence for authentication facet ${index + 1}.`,
+    constraints: [],
+  }));
+  const stages = [];
+  const client = {
+    model: 'zai-glm-4.7',
+    async createChatCompletion(request) {
+      const stage = classifyControlRequest(request);
+      stages.push(stage);
+      assert.equal(stage, 'goal_audit',
+        'a clean batched audit must not trigger a holistic coverage provider call');
+      const prompt = JSON.stringify(request.messages);
+      const batch = proposals.filter(goal => new RegExp(`\\b${goal.id}\\b`).test(prompt));
+      assert.ok(batch.length > 0 && batch.length <= 12);
+      return controlCompletion(auditorControl(batch.map(goal => auditControlRecord(goal))));
+    },
+  };
+  const runtime = new RuntimeImplementation({ chatClient: client });
+  const result = await runtime.auditLateGoalProposals({
+    task,
+    effectiveScope: ['src/**'],
+    wrapperTool: 'find_relevant_code',
+    proposals,
+  });
+
+  assert.deepEqual(stages, ['goal_audit', 'goal_audit', 'goal_audit']);
+  assert.deepEqual(result.requiredSubgoals.map(goal => goal.id), proposals.map(goal => goal.id));
+  assert.deepEqual(result.gaps, []);
+});
+
+auditedPlanningRuntimeTest('Spec 028 T022 — rejected and uncovered batch conflict fails closed', async () => {
+  const task = 'Inspect every requested authentication facet in the repository.';
+  const proposals = Array.from({ length: 13 }, (_, index) => ({
+    id: `C${index + 1}`,
+    question: `Inspect authentication facet ${index + 1}.`,
+    originRefs: [`request:0-${task.length}`],
+    claimType: 'positive',
+    proofCondition: `Observe repository evidence for authentication facet ${index + 1}.`,
+    constraints: [],
+  }));
+  let auditCalls = 0;
+  let coverageCalls = 0;
+  const client = {
+    model: 'zai-glm-4.7',
+    async createChatCompletion(request) {
+      const stage = classifyControlRequest(request);
+      if (stage === 'goal_coverage') {
+        coverageCalls += 1;
+        return controlCompletion(coverageControl([remainingObligation('batch-uncovered-1')]));
+      }
+      assert.equal(stage, 'goal_audit');
+      auditCalls += 1;
+      const prompt = JSON.stringify(request.messages);
+      const batch = proposals.filter(goal => new RegExp(`\\b${goal.id}\\b`).test(prompt));
+      const records = batch.map(goal => goal.id === 'C13'
+        ? auditControlRecord(goal, 'reject_untraceable', { originRefs: [] })
+        : auditControlRecord(goal));
+      const { id: _ignored, ...conflict } = proposals[12];
+      if (!batch.some(goal => goal.id === 'C13')) {
+        records[0].missingRequestParts = [conflict.question];
+      }
+      return controlCompletion(auditorControl(
+        records,
+        batch.some(goal => goal.id === 'C13') ? [] : [conflict],
+      ));
+    },
+  };
+  const runtime = new RuntimeImplementation({ chatClient: client });
+
+  await assert.rejects(runtime.auditLateGoalProposals({
+    task,
+    effectiveScope: ['src/**'],
+    wrapperTool: 'find_relevant_code',
+    proposals,
+  }), error => error?.code === 'ERR_INVALID_GOAL_CONTROL' &&
+    /rejected proposal was also reported as uncovered/.test(error.cause?.message ?? ''));
+  assert.equal(auditCalls, 2);
+  assert.equal(coverageCalls, 0, 'the merged audit conflict must fail before reconciliation');
+});
+
+auditedPlanningRuntimeTest('Spec 028 T022 — rejected and uncovered direct conflict fails closed', async () => {
+  const task = 'Inspect the requested authentication facet.';
+  const proposal = {
+    id: 'C-direct',
+    question: 'Invent an unrelated cache change.',
+    originRefs: [`request:0-${task.length}`],
+    claimType: 'positive',
+    proofCondition: 'Observe a location for an unrelated cache change.',
+    constraints: [],
+  };
+  const { id: _ignored, ...conflict } = proposal;
+  let calls = 0;
+  const client = {
+    model: 'zai-glm-4.7',
+    async createChatCompletion(request) {
+      calls += 1;
+      assert.equal(classifyControlRequest(request), 'goal_audit');
+      return controlCompletion(auditorControl([
+        auditControlRecord(proposal, 'reject_untraceable', { originRefs: [] }),
+      ], [conflict]));
+    },
+  };
+  const runtime = new RuntimeImplementation({ chatClient: client });
+
+  await assert.rejects(runtime.auditLateGoalProposals({
+    task,
+    effectiveScope: ['src/**'],
+    wrapperTool: 'find_relevant_code',
+    proposals: [proposal],
+  }), error => error?.code === 'ERR_INVALID_GOAL_CONTROL' &&
+    /rejected proposal was also reported as uncovered/.test(error.cause?.message ?? ''));
+  assert.equal(calls, 2, 'the invalid direct audit receives only one bounded retry');
+});
+
+auditedPlanningRuntimeTest('Spec 028 T022 — a genuine late uncovered part becomes a terminal planning gap', async () => {
+  const task = 'Inspect authentication and authorization facets.';
+  const proposal = {
+    id: 'L-authentication',
+    question: 'Inspect the authentication facet.',
+    originRefs: [`request:0-${task.length}`],
+    claimType: 'positive',
+    proofCondition: 'Observe bounded repository evidence for authentication.',
+    constraints: [],
+  };
+  const uncovered = {
+    question: 'Inspect the authorization facet.',
+    originRefs: [`request:0-${task.length}`],
+    claimType: 'positive',
+    proofCondition: 'Observe bounded repository evidence for authorization.',
+    constraints: [],
+  };
+  const client = {
+    model: 'zai-glm-4.7',
+    async createChatCompletion(request) {
+      assert.equal(classifyControlRequest(request), 'goal_audit');
+      return controlCompletion(auditorControl([
+        auditControlRecord(proposal, 'ready', {
+          missingRequestParts: [uncovered.question],
+        }),
+      ], [uncovered]));
+    },
+  };
+  const runtime = new RuntimeImplementation({ chatClient: client });
+  const result = await runtime.auditLateGoalProposals({
+    task,
+    effectiveScope: ['src/**'],
+    wrapperTool: 'find_relevant_code',
+    proposals: [proposal],
+  });
+
+  assert.equal(result.requiredSubgoals.length, 2);
+  assert.equal(result.requiredSubgoals[0].id, 'L-authentication');
+  assert.equal(result.requiredSubgoals[1].auditVerdict, 'planning_incomplete');
+  assert.equal(result.requiredSubgoals[1].question, uncovered.question);
+  assert.deepEqual(result.gaps.map(gap => gap.reason), ['planning_incomplete']);
+  assert.equal(result.revisionRequest, null);
 });
 
 auditedPlanningRuntimeTest('Spec 028 T017 — late goal audit forwards cancellation without registering goals', async () => {
@@ -4864,7 +5785,7 @@ auditedPlanningRuntimeTest('Spec 028 T017 — late goal audit forwards cancellat
       throw error;
     },
   };
-  const runtime = new ExplorerRuntime({ chatClient: client });
+  const runtime = new RuntimeImplementation({ chatClient: client });
 
   await assert.rejects(runtime.auditLateGoalProposals({
     task,
