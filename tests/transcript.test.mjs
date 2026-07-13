@@ -277,6 +277,14 @@ test('Spec 028 T034 — trust events are allowlisted and forced-redacted in raw 
         requiredSubgoals: [{ id: 'S1', state: 'supported', resolution: 'affirmed' }],
         acceptedClaimIds: ['C1'],
         gaps: [],
+        parentPayload: {
+          encoding: 'utf8',
+          contentBytes: 11,
+          structuredContentBytes: 17,
+          parentPayloadBytes: 28,
+          sha256: 'a'.repeat(64),
+          ignored: sentinel,
+        },
         directAnswer: sentinel,
       },
     });
@@ -305,6 +313,13 @@ test('Spec 028 T034 — trust events are allowlisted and forced-redacted in raw 
     assert.equal(entries[4].outcome, 'completed');
     assert.equal(entries[5].stage, 'repair');
     assert.deepEqual(entries[6].acceptedClaimIds, ['C1']);
+    assert.deepEqual(entries[6].parentPayload, {
+      encoding: 'utf8',
+      contentBytes: 11,
+      structuredContentBytes: 17,
+      parentPayloadBytes: 28,
+      sha256: 'a'.repeat(64),
+    });
     assert.deepEqual(entries[7], {
       providerIndex: 1,
       model: 'trust-model',

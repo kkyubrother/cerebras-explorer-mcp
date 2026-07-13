@@ -138,6 +138,15 @@ function summarizeFinal(data = {}) {
     ? data.requiredSubgoals
     : [];
   const gaps = Array.isArray(data.gaps) ? data.gaps : [];
+  const parentPayload = data.parentPayload;
+  const validParentPayload = parentPayload?.encoding === 'utf8' &&
+    Number.isInteger(parentPayload.contentBytes) && parentPayload.contentBytes >= 0 &&
+    Number.isInteger(parentPayload.structuredContentBytes) &&
+      parentPayload.structuredContentBytes >= 0 &&
+    Number.isInteger(parentPayload.parentPayloadBytes) &&
+      parentPayload.parentPayloadBytes ===
+        parentPayload.contentBytes + parentPayload.structuredContentBytes &&
+    typeof parentPayload.sha256 === 'string' && /^[a-f0-9]{64}$/.test(parentPayload.sha256);
   return {
     ...(stringOrNull(data.failureReason) ? { failureReason: data.failureReason } : {}),
     requiredSubgoals: requiredSubgoals.map(subgoal => ({
@@ -153,6 +162,15 @@ function summarizeFinal(data = {}) {
       reason: stringOrNull(gap?.reason),
       repairable: gap?.repairable === true,
     })).filter(gap => gap.gapId && gap.reason),
+    ...(validParentPayload ? {
+      parentPayload: {
+        encoding: 'utf8',
+        contentBytes: parentPayload.contentBytes,
+        structuredContentBytes: parentPayload.structuredContentBytes,
+        parentPayloadBytes: parentPayload.parentPayloadBytes,
+        sha256: parentPayload.sha256,
+      },
+    } : {}),
   };
 }
 

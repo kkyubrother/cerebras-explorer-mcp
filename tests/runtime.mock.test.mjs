@@ -624,6 +624,18 @@ test('ExplorerRuntime performs an autonomous tool loop and returns structured fi
   assert.equal(result.parentHandoff.state, 'complete');
   assert.equal(Object.hasOwn(result.parentHandoff, 'status'), false);
   assert.doesNotThrow(() => validateParentHandoffV3(result.parentHandoff));
+  assert.deepEqual(Object.keys(result.parentPayloadMeasurement).sort(), [
+    'contentBytes',
+    'encoding',
+    'parentPayloadBytes',
+    'sha256',
+    'structuredContentBytes',
+  ]);
+  assert.equal(result.parentPayloadMeasurement.encoding, 'utf8');
+  assert.equal(result.parentPayloadMeasurement.parentPayloadBytes,
+    result.parentPayloadMeasurement.contentBytes +
+      result.parentPayloadMeasurement.structuredContentBytes);
+  assert.match(result.parentPayloadMeasurement.sha256, /^[a-f0-9]{64}$/);
   assert.equal(result.evidenceQuality.level, result.status.confidence);
   assert.equal(result.evidenceQuality.exactCount, 2);
   assert.equal(result.evidenceQuality.partialCount, 0);
@@ -7695,6 +7707,7 @@ semanticPipelineRuntimeTest('Spec 028 T034 — semantic repair lifecycle stays d
     assert.equal(repairs[1].outcomes[0].state, 'supported');
     assert.deepEqual(finals[0].acceptedClaimIds, [initialClaim.id]);
     assert.equal(finals[0].requiredSubgoals[0].state, 'supported');
+    assert.deepEqual(finals[0].parentPayload, result.parentPayloadMeasurement);
     assert.equal(usage.length, 1);
     assert.equal(usage[0].providerCalls, client.requests.length);
     assert.equal(usage[0].repositoryToolCalls, 2);

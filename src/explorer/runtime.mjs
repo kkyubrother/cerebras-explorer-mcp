@@ -89,6 +89,7 @@ import {
   recordPlanningEvent,
   recordTrustEvent,
 } from './transcript.mjs';
+import { buildParentPayload, measureParentPayload } from './parent-payload.mjs';
 
 // Maximum number of tool calls to execute in parallel within a single turn.
 const TOOL_CONCURRENCY = 8;
@@ -5394,12 +5395,18 @@ export class ExplorerRuntime {
         auditedPlan?.taskContract?.subgoals ?? [];
       const gaps = outcome?.coverageGaps ?? auditedPlan?.coverageGaps ?? [];
       const acceptedClaimIds = outcome?.failure ? [] : parentAcceptedClaimIds;
+      const safeParentHandoff = redactValue(outcome.parentHandoff).value;
+      validateParentHandoffV3(safeParentHandoff);
+      outcome.parentPayloadMeasurement = measureParentPayload(
+        buildParentPayload(safeParentHandoff),
+      );
       await transcript.finalize(stats, {
         finalEvent: {
           failureReason: outcome?.failure?.reason ?? null,
           requiredSubgoals,
           acceptedClaimIds,
           gaps,
+          parentPayload: outcome.parentPayloadMeasurement,
         },
       });
     }

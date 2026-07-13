@@ -12,6 +12,7 @@ import {
   validateParentHandoffV3,
 } from '../explorer/schemas.mjs';
 import { redactValue } from '../explorer/redact.mjs';
+import { buildParentPayload } from '../explorer/parent-payload.mjs';
 import { isTranscriptEnabled, isTranscriptRawMode } from '../explorer/transcript.mjs';
 import { StdioJsonRpcServer } from './jsonrpc-stdio.mjs';
 
@@ -453,56 +454,6 @@ function buildReviewChangeContextArgs(args) {
   };
 }
 
-const ACTION_ARGUMENT_LABEL = Object.freeze({
-  explore_repo: 'task',
-  find_relevant_code: 'query',
-  trace_symbol: 'symbol',
-  map_change_impact: 'change',
-  explain_code_path: 'pathQuery',
-  collect_evidence: 'claim',
-});
-
-function formatParentToolAction(prefix, action) {
-  const argumentKey = ACTION_ARGUMENT_LABEL[action.tool];
-  return `${prefix}: ${action.tool} — ${action.arguments[argumentKey]}`;
-}
-
-function formatParentTarget(target) {
-  const location = Number.isInteger(target.startLine)
-    ? `${target.path}:${target.startLine}${Number.isInteger(target.endLine) ? `-${target.endLine}` : ''}`
-    : target.path;
-  return `Target: ${location} — ${target.reason}`;
-}
-
-function formatParentHandoffText(handoff) {
-  if (handoff.state === 'complete') return handoff.directAnswer;
-
-  const lines = [];
-  if (handoff.directAnswer) {
-    lines.push(handoff.directAnswer, '');
-  }
-  lines.push(`State: ${handoff.state}`);
-
-  for (const target of handoff.targets ?? []) lines.push(formatParentTarget(target));
-  for (const gap of handoff.gaps ?? []) {
-    lines.push(`Gap: ${gap.question} — ${gap.reason}`);
-  }
-  if (handoff.followUp?.type === 'tool') {
-    lines.push(formatParentToolAction('Follow-up', handoff.followUp));
-  } else if (handoff.followUp?.type === 'ask_user') {
-    lines.push(`Follow-up: ${handoff.followUp.question}`);
-  } else if (handoff.followUp?.type === 'external_verification') {
-    lines.push(`Follow-up: ${handoff.followUp.requirement}`);
-  }
-  if (handoff.failure) {
-    lines.push(`Failure: ${handoff.failure.reason}`);
-    if (handoff.failure.retry) {
-      lines.push(formatParentToolAction('Retry', handoff.failure.retry));
-    }
-  }
-  return lines.join('\n');
-}
-
 /**
  * Project a strict runtime-owned handoff into the only facts visible to the
  * parent agent. Redaction precedes validation so text and structured output
@@ -513,8 +464,7 @@ export function buildParentHandoffResponse(parentHandoff) {
   validateParentHandoffV3(safeHandoff);
   return {
     ...(safeHandoff.state === 'failed' ? { isError: true } : {}),
-    content: [{ type: 'text', text: formatParentHandoffText(safeHandoff) }],
-    structuredContent: safeHandoff,
+    ...buildParentPayload(safeHandoff),
   };
 }
 

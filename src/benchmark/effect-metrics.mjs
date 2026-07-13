@@ -7,6 +7,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { estimateStringTokens } from '../explorer/runtime.mjs';
+import { measureParentPayload } from '../explorer/parent-payload.mjs';
 
 const NEUTRAL_STATUSES = new Set(['redacted', 'skipped']);
 const MATCH_STATUSES = new Set(['match', 'weak_match']);
@@ -34,11 +35,17 @@ function uniqueCitedPaths(result) {
   return [...paths];
 }
 
-export async function computeCaseEffectMetrics({ result, repoRoot }) {
-  const responsePayloadTokens = estimateStringTokens(JSON.stringify(result ?? {}));
+export async function computeCaseEffectMetrics({ result, parentPayload, repoRoot }) {
+  const measuredPayload = parentPayload ? measureParentPayload(parentPayload) : null;
+  const measuredResult = parentPayload?.structuredContent ?? result;
+  const responsePayloadTokens = parentPayload
+    ? estimateStringTokens(
+      `${JSON.stringify(parentPayload.content)}\0${JSON.stringify(parentPayload.structuredContent)}`,
+    )
+    : estimateStringTokens(JSON.stringify(result ?? {}));
   let citedSourceTokens = 0;
   let citedFileCount = 0;
-  for (const relPath of uniqueCitedPaths(result)) {
+  for (const relPath of uniqueCitedPaths(measuredResult)) {
     const resolved = resolveInsideRoot(repoRoot, relPath);
     if (!resolved) continue;
     try {
@@ -52,6 +59,7 @@ export async function computeCaseEffectMetrics({ result, repoRoot }) {
     }
   }
   return {
+    ...(measuredPayload ? { parentPayloadBytes: measuredPayload.parentPayloadBytes } : {}),
     responsePayloadTokens,
     citedSourceTokens,
     citedFileCount,
@@ -101,6 +109,9 @@ function validRange(startLine, endLine, totalLines) {
 async function verifyEvidenceItem(item, repoRoot) {
   const citation = `${item?.path}:${item?.startLine}-${item?.endLine}`;
   if (item?.redacted === true) return { citation, status: 'redacted' };
+  if (item?.kind && item.kind !== 'source') {
+    return { citation, status: 'skipped' };
+  }
   if ((item?.evidenceType ?? 'file_range') !== 'file_range') {
     return { citation, status: 'skipped' };
   }
@@ -162,3 +173,4 @@ export async function verifyCitations({ result, repoRoot }) {
 }
 
 export { NEUTRAL_STATUSES as NEUTRAL_CITATION_STATUSES, MATCH_STATUSES as MATCH_CITATION_STATUSES };
+export { measureParentPayload };
