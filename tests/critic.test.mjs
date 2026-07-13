@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import * as criticModule from '../src/explorer/critic.mjs';
 
 import {
   buildCriticWarnings,
@@ -814,4 +815,200 @@ test('spec 026 invariant: usage_cross_check_missing must be absent from critic f
     !result.critic.warnings.some(w => w.type === 'usage_cross_check_missing'),
     'usage_cross_check_missing must be absent on critic fail (tool_errors) path',
   );
+});
+
+const claimEvidenceGateTest =
+  typeof criticModule.applyClaimEvidenceGate === 'function'
+    ? test
+    : test.todo;
+// T029/T030 must replace this feature gate with ordinary tests after the
+// observation ledger and isolated semantic-verifier path land.
+
+function atomicClaim({
+  id = 'C1',
+  text = 'The current runtime enables authentication.',
+  evidenceRefs = ['E1'],
+} = {}) {
+  return {
+    id,
+    subgoalId: 'S1',
+    text,
+    evidenceRefs,
+    verdict: 'pending',
+  };
+}
+
+function semanticVerdict(result = 'supported', {
+  claimId = 'C1',
+  supportingEvidenceRefs = ['E1'],
+  reasonCode = result === 'supported' ? 'entailed' : 'semantic_mismatch',
+  resolution = result === 'supported' ? 'affirmed' : null,
+} = {}) {
+  return {
+    claimId,
+    result,
+    supportingEvidenceRefs,
+    reasonCode,
+    note: 'Isolated verifier result.',
+    ...(resolution ? { resolution } : {}),
+  };
+}
+
+function sourceObservation(id = 'E1', overrides = {}) {
+  return {
+    id,
+    kind: 'source',
+    path: `src/source-${id}.mjs`,
+    startLine: 1,
+    endLine: 1,
+    snippet: 'export const authenticationEnabled = true;',
+    rangeGrounding: 'exact',
+    sourceRole: 'implementation',
+    temporalRole: 'current',
+    redacted: false,
+    ...overrides,
+  };
+}
+
+function gitObservation(id = 'E1') {
+  return {
+    id,
+    kind: 'git_commit',
+    sha: 'abc1234',
+    content: 'Authentication was introduced in this observed commit.',
+    temporalRole: 'historical',
+  };
+}
+
+function applyClaimEvidenceGate(input) {
+  assert.equal(typeof criticModule.applyClaimEvidenceGate, 'function');
+  return criticModule.applyClaimEvidenceGate(input);
+}
+
+claimEvidenceGateTest('Spec 028 T025 — only exact reconstructed observations preserve support', () => {
+  const claim = atomicClaim();
+  const verdict = semanticVerdict();
+  const exact = sourceObservation();
+  assert.deepEqual(applyClaimEvidenceGate({
+    claim,
+    semanticVerdict: verdict,
+    observations: [exact],
+  }), verdict);
+
+  const missingSourceRole = { ...exact };
+  const missingTemporalRole = { ...exact };
+  delete missingSourceRole.sourceRole;
+  delete missingTemporalRole.temporalRole;
+  const invalidObservations = [
+    { ...exact, rangeGrounding: 'partial' },
+    { ...exact, snippet: '' },
+    missingSourceRole,
+    missingTemporalRole,
+  ];
+  for (const observation of invalidObservations) {
+    const effective = applyClaimEvidenceGate({
+      claim,
+      semanticVerdict: verdict,
+      observations: [observation],
+    });
+    assert.equal(effective.result, 'insufficient');
+    assert.equal(effective.reasonCode, 'boundary_mismatch');
+    assert.deepEqual(effective.supportingEvidenceRefs, []);
+    assert.equal(effective.resolution, undefined);
+  }
+});
+
+claimEvidenceGateTest('Spec 028 T025 — explicit source roles inform but never replace semantic verification', () => {
+  const roles = ['documentation', 'test', 'fixture'];
+  for (const sourceRole of roles) {
+    const observations = [sourceObservation('E1', { sourceRole })];
+    const roleClaim = atomicClaim({
+      text: `The observed ${sourceRole} source states authentication is enabled.`,
+    });
+    const supported = semanticVerdict();
+    assert.deepEqual(applyClaimEvidenceGate({
+      claim: roleClaim,
+      semanticVerdict: supported,
+      observations,
+    }), supported, 'a claim about the source itself may use its matching role');
+
+    const mismatch = semanticVerdict('insufficient', {
+      reasonCode: 'semantic_mismatch',
+    });
+    assert.deepEqual(applyClaimEvidenceGate({
+      claim: atomicClaim(),
+      semanticVerdict: mismatch,
+      observations,
+    }), mismatch, 'the same source role cannot be promoted into current behavior proof');
+  }
+});
+
+claimEvidenceGateTest('Spec 028 T025 — temporal provenance cannot be rewritten into current behavior', () => {
+  const currentClaim = atomicClaim();
+  const currentVerdict = semanticVerdict();
+  assert.deepEqual(applyClaimEvidenceGate({
+    claim: currentClaim,
+    semanticVerdict: currentVerdict,
+    observations: [sourceObservation()],
+  }), currentVerdict);
+
+  const historyClaim = atomicClaim({
+    text: 'The observed commit introduced authentication.',
+  });
+  const historyVerdict = semanticVerdict();
+  assert.deepEqual(applyClaimEvidenceGate({
+    claim: historyClaim,
+    semanticVerdict: historyVerdict,
+    observations: [gitObservation()],
+  }), historyVerdict);
+
+  const temporalMismatch = semanticVerdict('insufficient', {
+    reasonCode: 'boundary_mismatch',
+  });
+  assert.deepEqual(applyClaimEvidenceGate({
+    claim: currentClaim,
+    semanticVerdict: temporalMismatch,
+    observations: [gitObservation()],
+  }), temporalMismatch);
+});
+
+claimEvidenceGateTest('Spec 028 T025 — exact evidence count cannot override semantic mismatch', () => {
+  const claim = atomicClaim({ evidenceRefs: ['E1', 'E2'] });
+  const verdict = semanticVerdict('insufficient', {
+    supportingEvidenceRefs: ['E1', 'E2'],
+    reasonCode: 'semantic_mismatch',
+  });
+  const input = {
+    claim,
+    semanticVerdict: verdict,
+    observations: [sourceObservation('E1'), sourceObservation('E2')],
+  };
+  const snapshot = structuredClone(input);
+
+  assert.deepEqual(applyClaimEvidenceGate(input), verdict);
+  assert.deepEqual(input, snapshot);
+});
+
+claimEvidenceGateTest('Spec 028 T025 — cross-file evidence cannot outvote an overgeneralized verdict', () => {
+  const claim = atomicClaim({
+    text: 'Every registered route applies both authentication policies.',
+    evidenceRefs: ['E1', 'E2'],
+  });
+  const verdict = semanticVerdict('insufficient', {
+    supportingEvidenceRefs: ['E1'],
+    reasonCode: 'overgeneralized',
+  });
+  const observations = [
+    sourceObservation('E1', { path: 'src/routes/admin.mjs' }),
+    sourceObservation('E2', { path: 'src/routes/user.mjs' }),
+  ];
+  const forward = applyClaimEvidenceGate({ claim, semanticVerdict: verdict, observations });
+  const reversed = applyClaimEvidenceGate({
+    claim,
+    semanticVerdict: verdict,
+    observations: [...observations].reverse(),
+  });
+
+  assert.deepEqual(forward, verdict);
+  assert.deepEqual(reversed, verdict);
 });
