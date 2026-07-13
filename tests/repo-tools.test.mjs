@@ -6,8 +6,19 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 
 import { getBudgetConfig } from '../src/explorer/config.mjs';
+import * as repoToolExports from '../src/explorer/repo-tools.mjs';
 import { RepoToolkit, collectTargetPathsFromToolResult } from '../src/explorer/repo-tools.mjs';
 import { LruCache, globalRepoCache } from '../src/explorer/cache.mjs';
+
+function repositoryObservationTest(name, callback) {
+  const normalize = repoToolExports.normalizeRepositoryObservation;
+  const register = normalize === undefined ? test.todo : test;
+  register(name, () => {
+    assert.equal(typeof normalize, 'function',
+      'normalizeRepositoryObservation is not implemented');
+    callback(normalize);
+  });
+}
 
 function hasGit() {
   try { execFileSync('git', ['--version'], { stdio: 'pipe' }); return true; } catch { return false; }
@@ -89,6 +100,193 @@ async function makeRepoFixture() {
   await fs.writeFile(path.join(root, 'logo.png'), Buffer.from([0, 1, 2, 3, 4]));
   return root;
 }
+
+repositoryObservationTest('repository observations preserve the authoritative boundary and compute result counts', normalize => {
+  const observation = normalize({
+    id: 'search-1',
+    tool: 'repo_grep',
+    args: {
+      pattern: 'requireAuth',
+      scope: ['**'],
+    },
+    boundary: ['src/**'],
+    enumerationCandidate: true,
+    result: {
+      matches: [
+        { path: 'src/auth.js', line: 1 },
+        { path: 'src/routes/user.js', line: 2 },
+      ],
+      truncated: false,
+      matchCount: 999,
+      enumerationComplete: false,
+      boundary: ['**'],
+      contextTruncated: true,
+    },
+    contextTruncated: false,
+  });
+
+  assert.deepEqual(Object.keys(observation).sort(), [
+    'boundary',
+    'contextTruncated',
+    'deniedPaths',
+    'enumerationComplete',
+    'errors',
+    'id',
+    'kind',
+    'matchCount',
+    'normalizedArgs',
+    'omittedOutOfScopeFiles',
+    'tool',
+    'toolTruncated',
+  ]);
+  assert.equal(observation.id, 'search-1');
+  assert.equal(observation.kind, 'search');
+  assert.equal(observation.tool, 'repo_grep');
+  assert.equal(observation.normalizedArgs.pattern, 'requireAuth');
+  assert.deepEqual(observation.boundary, ['src/**']);
+  assert.equal(observation.matchCount, 2);
+  assert.equal(observation.toolTruncated, false);
+  assert.equal(observation.contextTruncated, false);
+  assert.equal(observation.omittedOutOfScopeFiles, 0);
+  assert.equal(observation.deniedPaths, 0);
+  assert.equal(observation.errors, 0);
+  assert.equal(observation.enumerationComplete, true);
+});
+
+repositoryObservationTest('repository observations distinguish tool truncation from runtime context truncation', normalize => {
+  const toolLimited = normalize({
+    id: 'search-tool-limited',
+    tool: 'repo_find_files',
+    args: { pattern: '**/*.mjs' },
+    boundary: ['src/**'],
+    enumerationCandidate: true,
+    result: { matches: ['src/index.mjs'], truncated: true },
+    contextTruncated: false,
+  });
+  assert.equal(toolLimited.toolTruncated, true);
+  assert.equal(toolLimited.contextTruncated, false);
+  assert.equal(toolLimited.enumerationComplete, false);
+
+  const contextLimited = normalize({
+    id: 'search-context-limited',
+    tool: 'repo_find_files',
+    args: { pattern: '**/*.mjs' },
+    boundary: ['src/**'],
+    enumerationCandidate: true,
+    result: { matches: ['src/index.mjs'], truncated: false },
+    contextTruncated: true,
+  });
+  assert.equal(contextLimited.toolTruncated, false);
+  assert.equal(contextLimited.contextTruncated, true);
+  assert.equal(contextLimited.enumerationComplete, false);
+});
+
+repositoryObservationTest('repository observations retain omission, denial, and error counts without trusting invalid counts', normalize => {
+  const blocked = normalize({
+    id: 'search-blocked',
+    tool: 'repo_grep',
+    args: { pattern: 'token' },
+    boundary: ['src/**'],
+    enumerationCandidate: true,
+    result: {
+      matches: [],
+      truncated: false,
+      omittedOutOfScopeFiles: 2,
+      omittedSecretPaths: 3,
+      errors: 4,
+    },
+  });
+  assert.equal(blocked.omittedOutOfScopeFiles, 2);
+  assert.equal(blocked.deniedPaths, 3);
+  assert.equal(blocked.errors, 4);
+  assert.equal(blocked.enumerationComplete, false);
+
+  const invalidCounts = normalize({
+    id: 'search-invalid-counts',
+    tool: 'repo_grep',
+    args: { pattern: 'token' },
+    boundary: ['src/**'],
+    enumerationCandidate: true,
+    result: {
+      matches: [],
+      omittedOutOfScopeFiles: -1,
+      omittedSecretPaths: 1.5,
+      errors: Number.NaN,
+    },
+  });
+  assert.equal(invalidCounts.omittedOutOfScopeFiles, 0);
+  assert.equal(invalidCounts.deniedPaths, 0);
+  assert.equal(invalidCounts.errors, 0);
+  assert.equal(invalidCounts.enumerationComplete, false);
+
+  const executionError = normalize({
+    id: 'search-execution-error',
+    tool: 'repo_grep',
+    args: { pattern: 'token' },
+    boundary: ['src/**'],
+    enumerationCandidate: true,
+    result: {
+      error: true,
+      stage: 'parse_or_exec',
+      type: 'tool_execution_error',
+      message: 'tool failed',
+      tool: 'repo_grep',
+    },
+  });
+  assert.equal(executionError.deniedPaths, 0);
+  assert.equal(executionError.errors, 1);
+  assert.equal(executionError.enumerationComplete, false);
+});
+
+repositoryObservationTest('policy-denied observations count the denial without leaking a path or double-counting an error', normalize => {
+  const observation = normalize({
+    id: 'search-secret-denied',
+    tool: 'repo_read_file',
+    args: { path: '.env' },
+    boundary: ['**'],
+    result: {
+      error: 'redacted_by_policy',
+      reason: 'secret-deny-list',
+      path: '.env',
+      pattern: '**/.env',
+    },
+  });
+
+  assert.equal(observation.deniedPaths, 1);
+  assert.equal(observation.errors, 0);
+  assert.equal(observation.enumerationComplete, false);
+  assert.equal(observation.normalizedArgs.path, '[REDACTED:secret-path]');
+  assert.doesNotMatch(JSON.stringify(observation), /\.env|secret-deny-list|redacted_by_policy/);
+});
+
+repositoryObservationTest('enumeration completeness requires a runtime candidate and never trusts result self-report', normalize => {
+  const runtimeCertified = normalize({
+    id: 'search-runtime-certified',
+    tool: 'repo_grep',
+    args: { pattern: 'needle' },
+    boundary: ['src/**'],
+    enumerationCandidate: true,
+    result: {
+      matches: [],
+      truncated: false,
+      enumerationComplete: false,
+    },
+  });
+  assert.equal(runtimeCertified.enumerationComplete, true);
+
+  const selfReportedOnly = normalize({
+    id: 'search-self-reported',
+    tool: 'repo_grep',
+    args: { pattern: 'needle' },
+    boundary: ['src/**'],
+    result: {
+      matches: [],
+      truncated: false,
+      enumerationComplete: true,
+    },
+  });
+  assert.equal(selfReportedOnly.enumerationComplete, false);
+});
 
 test('RepoToolkit finds files, greps, reads ranges, and respects gitignore', async () => {
   const repoRoot = await makeRepoFixture();
