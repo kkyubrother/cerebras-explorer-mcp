@@ -166,7 +166,7 @@
 
 - [x] T057 [P] [US5] Add absence-certificate, deterministic count, uniqueness/exhaustiveness, source-role, temporal-role, and supported-refutation proof-policy tests in `tests/coverage.test.mjs` and `tests/critic.test.mjs`
 - [ ] T058 [P] [US5] Add tool-specific enumeration-completeness tests for grep/find/walk, symbol/reference, macro, and scoped git operations with truncation, errors, denial, and out-of-scope omissions in `tests/repo-tools.test.mjs`
-- [ ] T059 [P] [US5] Add runtime tests for scoped absence, repository-wide overclaim rejection, all-usages truncation, route-policy divergence, current-versus-history evidence, and impact-category gaps in `tests/runtime.mock.test.mjs`
+- [x] T059 [P] [US5] Add runtime tests for scoped absence, repository-wide overclaim rejection, all-usages truncation, route-policy divergence, current-versus-history evidence, and impact-category gaps in `tests/runtime.mock.test.mjs`
 
 ### Implementation for User Story 5
 

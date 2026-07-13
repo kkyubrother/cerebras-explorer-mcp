@@ -6092,7 +6092,13 @@ function buildTrustSteps({ goals, initial, repair }) {
   return steps;
 }
 
-async function runTrustScript(steps, { task, setup, abortSignal } = {}) {
+async function runTrustScript(steps, {
+  task,
+  setup,
+  abortSignal,
+  scope = ['src/**'],
+  taskMode,
+} = {}) {
   const root = await makeRepoFixture();
   if (setup) await setup(root);
   const client = new ScriptedGoalAuditClient(steps);
@@ -6100,7 +6106,8 @@ async function runTrustScript(steps, { task, setup, abortSignal } = {}) {
   const result = await runtime.explore({
     task: task ?? GOAL_AUDIT_TASK,
     repo_root: root,
-    scope: ['src/**'],
+    scope,
+    ...(taskMode ? { taskMode } : {}),
   }, { abortSignal });
   return { client, result };
 }
@@ -6119,6 +6126,348 @@ function assertNoRequiredLeak(result, text) {
   assert.equal(result.coverageGaps.some(gap => gap.question === text), false);
   assert.doesNotMatch(result.directAnswer ?? '', new RegExp(text));
 }
+
+// T062 integrates proof-policy artifacts into the runtime result. Until that
+// direct-runtime diagnostic exists, execute the complete provider script but
+// report these T059 tests as TODO. Once even a partial integration exposes the
+// marker, every assertion below runs so an incomplete implementation stays red.
+function hasRuntimeProofPolicyIntegration(result) {
+  return Array.isArray(result?.semanticVerification?.absenceCertificates);
+}
+
+function requireRuntimeProofPolicyIntegration(t, result) {
+  if (hasRuntimeProofPolicyIntegration(result)) return true;
+  t.todo('T062 must expose runtime-computed absenceCertificates before T059 activates.');
+  return false;
+}
+
+function assertMinimalCompleteParentHandoff(result, {
+  answer,
+  evidenceCount,
+  evidenceKinds,
+}) {
+  const handoff = result.parentHandoff;
+  assert.doesNotThrow(() => validateParentHandoffV3(handoff));
+  assert.deepEqual(Object.keys(handoff).sort(), [
+    'directAnswer', 'evidence', 'schemaVersion', 'state',
+  ]);
+  assert.equal(handoff.schemaVersion, 3);
+  assert.equal(handoff.state, 'complete');
+  assert.equal(handoff.directAnswer, answer);
+  assert.equal(handoff.evidence.length, evidenceCount);
+  assert.deepEqual(handoff.evidence.map(item => item.kind).sort(), [...evidenceKinds].sort());
+}
+
+function assertMinimalIncompleteParentHandoff(result, question) {
+  const handoff = result.parentHandoff;
+  assert.doesNotThrow(() => validateParentHandoffV3(handoff));
+  assert.deepEqual(Object.keys(handoff).sort(), ['gaps', 'schemaVersion', 'state']);
+  assert.equal(handoff.schemaVersion, 3);
+  assert.equal(handoff.state, 'incomplete');
+  assert.equal(handoff.gaps.length, 1);
+  assert.equal(handoff.gaps[0].question, question);
+  assert.ok(handoff.gaps[0].reason.length > 0);
+}
+
+function assertInternalProofGap(result, goalId) {
+  const subgoal = result.taskContract.subgoals.find(item => item.id === goalId);
+  assert.ok(subgoal, `missing runtime sub-goal ${goalId}`);
+  assert.notEqual(subgoal.state, 'supported');
+  assert.ok(result.coverageGaps.some(gap => gap.subgoalId === goalId));
+  const claims = result.semanticVerification.claims.filter(claim => claim.subgoalId === goalId);
+  assert.ok(claims.length > 0);
+  assert.ok(claims.every(claim => claim.verdict !== 'supported'),
+    'deterministic proof policy must override a model-supported overclaim');
+}
+
+test('Spec 028 T059 — runtime enforces negative and critical proof boundaries', async t => {
+  const fixtures = [
+    {
+      name: 'scoped absence produces one certified public absence item',
+      task: 'Confirm legacyGuard is absent from src/routes/**.',
+      scope: ['src/routes/**'],
+      goal: {
+        id: 'S-scoped-absence',
+        question: 'Is legacyGuard absent from src/routes/**?',
+        originText: 'legacyGuard is absent from src/routes/**',
+        claimType: 'absence',
+        proofCondition: 'Completely search src/routes/** and certify the bounded static absence.',
+        constraints: ['Keep the conclusion qualified to src/routes/**.'],
+      },
+      claimText: 'No static reference to legacyGuard exists in src/routes/**.',
+      initialTools: [{
+        tool: 'repo_grep',
+        args: { pattern: 'legacyGuard', scope: ['src/routes/**'] },
+        id: 'scoped-absence-search',
+      }],
+      initialEvidenceRefs: ['E1'],
+      assertImplemented({ result, goal, claim }) {
+        assert.equal(result.taskContract.subgoals.find(item => item.id === goal.id).state,
+          'supported');
+        assert.equal(result.semanticVerification.claims.find(item => item.id === claim.id).verdict,
+          'supported');
+        const certificate = result.semanticVerification.absenceCertificates.find(item =>
+          item.subgoalId === goal.id);
+        assert.ok(certificate);
+        assert.equal(certificate.complete, true);
+        assert.deepEqual(certificate.claimBoundary, ['src/routes/**']);
+        assert.ok(certificate.searchRefs.includes('E1'));
+        assertMinimalCompleteParentHandoff(result, {
+          answer: claim.text,
+          evidenceCount: 1,
+          evidenceKinds: ['absence'],
+        });
+        assert.deepEqual(result.parentHandoff.evidence[0].boundary, ['src/routes/**']);
+        assert.ok(result.parentHandoff.evidence[0].searches.length > 0);
+      },
+    },
+    {
+      name: 'repository-wide absence cannot be inferred from narrower searches',
+      task: 'Confirm legacyGuard is absent from every path in the repository.',
+      scope: [],
+      goal: {
+        id: 'S-repository-absence',
+        question: 'Is legacyGuard absent from every path in the repository?',
+        originText: 'legacyGuard is absent from every path in the repository',
+        claimType: 'absence',
+        proofCondition: 'Certify a complete repository-wide static search boundary.',
+        constraints: ['Do not generalize from a narrower src/routes search.'],
+      },
+      claimText: 'No static reference to legacyGuard exists anywhere in the repository.',
+      initialTools: [{
+        tool: 'repo_grep',
+        args: { pattern: 'legacyGuard', scope: ['src/routes/**'] },
+        id: 'narrow-absence-search',
+      }],
+      initialEvidenceRefs: ['E1'],
+      repairTools: [{
+        tool: 'repo_grep',
+        args: { pattern: 'legacyGuard', scope: ['src/**'] },
+        id: 'still-narrow-absence-search',
+      }],
+      repairEvidenceRefs: ['E1', 'E2'],
+      assertImplemented({ result, goal }) {
+        assertInternalProofGap(result, goal.id);
+        assertMinimalIncompleteParentHandoff(result, goal.question);
+        assert.equal(result.parentHandoff.evidence, undefined);
+        assert.equal(result.parentHandoff.directAnswer, undefined);
+        assert.equal(result.semanticVerification.absenceCertificates.some(item =>
+          item.subgoalId === goal.id && item.complete === true), false);
+      },
+    },
+    {
+      name: 'truncated symbol search cannot prove all usages',
+      task: 'List all usages of requireAuth in src/**.',
+      goal: {
+        id: 'S-all-usages',
+        question: 'What are all usages of requireAuth in src/**?',
+        originText: 'all usages of requireAuth in src/**',
+        claimType: 'symbol_usage',
+        proofCondition: 'Cross-check every in-scope usage without truncated results.',
+        constraints: ['The answer must be exhaustive.'],
+      },
+      claimText: 'The returned matches represent all requireAuth usages in src/**.',
+      initialTools: [{
+        tool: 'repo_grep',
+        args: { pattern: 'requireAuth', scope: ['src/**'], maxResults: 1 },
+        id: 'truncated-usage-search',
+      }],
+      initialEvidenceRefs: ['E1'],
+      repairTools: [{
+        tool: 'repo_grep',
+        args: { pattern: 'requireAuth', scope: ['src/**'], maxResults: 2 },
+        id: 'still-truncated-usage-search',
+      }],
+      repairEvidenceRefs: ['E1', 'E2'],
+      assertImplemented({ result, goal }) {
+        assert.ok(result.observations.some(observation =>
+          observation.kind === 'search' && observation.toolTruncated === true));
+        assertInternalProofGap(result, goal.id);
+        assertMinimalIncompleteParentHandoff(result, goal.question);
+      },
+    },
+    {
+      name: 'route-policy comparison preserves both distinct current paths',
+      task: 'Compare the authorization policies of the user and admin routes.',
+      goal: {
+        id: 'S-route-policy',
+        question: 'How do the user and admin route authorization policies differ?',
+        originText: 'authorization policies of the user and admin routes',
+        claimType: 'comparison',
+        proofCondition: 'Observe and compare each current route policy independently.',
+        constraints: ['Do not generalize one route policy to the other.'],
+      },
+      setup: async root => {
+        await fs.writeFile(
+          path.join(root, 'src', 'routes', 'admin.js'),
+          [
+            'import { requireAdmin } from "../admin-auth.js";',
+            'export function registerAdminRoutes(app) {',
+            '  app.get("/admin", requireAdmin, (_req, res) => res.end());',
+            '}',
+          ].join('\n'),
+        );
+      },
+      claimText: 'The user route uses requireAuth, while the admin route uses requireAdmin.',
+      initialTools: [
+        {
+          tool: 'repo_read_file',
+          args: { path: 'src/routes/user.js', startLine: 1, endLine: 6 },
+          id: 'read-user-policy',
+        },
+        {
+          tool: 'repo_read_file',
+          args: { path: 'src/routes/admin.js', startLine: 1, endLine: 4 },
+          id: 'read-admin-policy',
+        },
+      ],
+      initialEvidenceRefs: ['E1', 'E2'],
+      assertImplemented({ result, goal, claim }) {
+        assert.equal(result.taskContract.subgoals.find(item => item.id === goal.id).state,
+          'supported');
+        assert.equal(result.coverageGaps.length, 0);
+        assertMinimalCompleteParentHandoff(result, {
+          answer: claim.text,
+          evidenceCount: 2,
+          evidenceKinds: ['source', 'source'],
+        });
+        assert.deepEqual(new Set(result.parentHandoff.evidence.map(item => item.path)),
+          new Set(['src/routes/user.js', 'src/routes/admin.js']));
+      },
+    },
+    {
+      name: 'historical git evidence alone cannot prove current behavior',
+      requiresGit: true,
+      task: 'Which authentication function does current src/auth.js export?',
+      goal: {
+        id: 'S-current-auth',
+        question: 'Which authentication function does current src/auth.js export?',
+        originText: 'authentication function does current src/auth.js export',
+        claimType: 'positive',
+        proofCondition: 'Observe current implementation source for src/auth.js.',
+        constraints: ['Historical evidence alone cannot establish current behavior.'],
+      },
+      setup: async root => {
+        execFileSync('git', ['init'], { cwd: root, stdio: 'ignore' });
+        execFileSync('git', ['config', 'user.email', 'test@example.com'], {
+          cwd: root,
+          stdio: 'ignore',
+        });
+        execFileSync('git', ['config', 'user.name', 'Test User'], {
+          cwd: root,
+          stdio: 'ignore',
+        });
+        await fs.writeFile(path.join(root, 'src', 'auth.js'),
+          'export function legacyAuth() { return true; }\n');
+        execFileSync('git', ['add', '.'], { cwd: root, stdio: 'ignore' });
+        execFileSync('git', ['commit', '-m', 'add legacy auth'], {
+          cwd: root,
+          stdio: 'ignore',
+        });
+        await fs.writeFile(path.join(root, 'src', 'auth.js'),
+          'export function requireAuth() { return true; }\n');
+      },
+      claimText: 'Current src/auth.js exports legacyAuth.',
+      initialTools: [{
+        tool: 'repo_git_log',
+        args: { path: 'src/auth.js', maxCount: 1 },
+        id: 'historical-auth-log',
+      }],
+      initialEvidenceRefs: ['E1'],
+      repairTools: [{
+        tool: 'repo_git_log',
+        args: { path: 'src/auth.js', maxCount: 5 },
+        id: 'more-historical-auth-log',
+      }],
+      repairEvidenceRefs: ['E1', 'E2'],
+      assertImplemented({ result, goal }) {
+        const directObservations = result.observations.filter(observation =>
+          observation.kind === 'git_commit');
+        assert.ok(directObservations.length > 0);
+        assert.ok(directObservations.every(observation =>
+          observation.temporalRole === 'historical'));
+        assertInternalProofGap(result, goal.id);
+        assertMinimalIncompleteParentHandoff(result, goal.question);
+      },
+    },
+    {
+      name: 'impact result remains incomplete when requested categories are missing',
+      task: 'Plan the impact of changing requireAuth, including callers, tests, configuration, and documentation.',
+      taskMode: 'edit_planning',
+      goal: {
+        id: 'S-impact-categories',
+        question: 'What is the impact of changing requireAuth across callers, tests, configuration, and documentation?',
+        originText: 'impact of changing requireAuth, including callers, tests, configuration, and documentation',
+        claimType: 'impact',
+        proofCondition: 'Observe or certify absence for every requested impact category.',
+        constraints: ['Cover callers, tests, configuration, and documentation independently.'],
+      },
+      claimText: 'Changing requireAuth is fully covered across callers, tests, configuration, and documentation.',
+      initialTools: [{
+        tool: 'repo_read_file',
+        args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+        id: 'read-impact-definition',
+      }],
+      initialEvidenceRefs: ['E1'],
+      repairTools: [{
+        tool: 'repo_read_file',
+        args: { path: 'src/routes/user.js', startLine: 1, endLine: 6 },
+        id: 'read-impact-caller',
+      }],
+      repairEvidenceRefs: ['E1', 'E2'],
+      assertImplemented({ result, goal }) {
+        assertInternalProofGap(result, goal.id);
+        assertMinimalIncompleteParentHandoff(result, goal.question);
+      },
+    },
+  ];
+
+  for (const fixture of fixtures) {
+    await t.test(fixture.name, async t => {
+      if (fixture.requiresGit && !hasGit()) {
+        t.skip('git is required for temporal-role runtime coverage');
+        return;
+      }
+      const goal = trustGoal(fixture.task, fixture.goal);
+      const claim = candidateClaim(
+        `C-${goal.id}`,
+        goal.id,
+        fixture.claimText,
+        fixture.initialEvidenceRefs,
+      );
+      const repairClaim = fixture.repairTools
+        ? { ...claim, evidenceRefs: fixture.repairEvidenceRefs }
+        : null;
+      const steps = buildTrustSteps({
+        goals: [goal],
+        initial: {
+          tools: fixture.initialTools,
+          claims: [claim],
+          verdicts: [semanticVerdict(claim.id, 'supported', fixture.initialEvidenceRefs)],
+        },
+        repair: fixture.repairTools ? {
+          tools: fixture.repairTools,
+          claims: [repairClaim],
+          verdicts: [semanticVerdict(
+            repairClaim.id,
+            'supported',
+            fixture.repairEvidenceRefs,
+          )],
+        } : null,
+      });
+      const { client, result } = await runTrustScript(steps, {
+        task: fixture.task,
+        scope: fixture.scope ?? ['src/**'],
+        taskMode: fixture.taskMode,
+        setup: fixture.setup,
+      });
+      assert.equal(client.stageCounts.get('planner'), 1);
+      assert.equal(client.stageCounts.get('goal_audit'), 1);
+      if (!requireRuntimeProofPolicyIntegration(t, result)) return;
+      fixture.assertImplemented({ client, result, goal, claim });
+    });
+  }
+});
 
 test('Spec 028 T030 — isolated semantic controls reduce claims without trusting exploration prose', async () => {
   const goals = definitionAndAbsenceGoals();
