@@ -371,7 +371,7 @@ test('ExplorerRuntime explore writes LOG_PATH transcript with stable callId reco
   });
 });
 
-test('ExplorerRuntime trust summary mentions dropped evidence caveats', async () => {
+test('ExplorerRuntime semantic projection omits unverified model evidence', async () => {
   class DroppedEvidenceClient {
     constructor() { this.model = 'zai-glm-4.7'; this.calls = 0; }
     async createChatCompletion({ responseFormat }) {
@@ -422,10 +422,12 @@ test('ExplorerRuntime trust summary mentions dropped evidence caveats', async ()
     taskMode: 'symbol_trace',
   });
 
-  assert.equal(result.evidenceQuality.droppedCount, 1);
-  assert.match(result.evidenceQuality.summary, /retained evidence/i);
-  assert.match(result.evidenceQuality.summary, /1 evidence item\(s\) dropped/i);
-  assert.doesNotMatch(result.evidenceQuality.summary, /^.*All evidence grounded in inspected code\.$/);
+  assert.ok(result.evidence.some(item =>
+    item.path === 'src/auth.js' && item.startLine === 1 && item.endLine === 4));
+  assert.ok(result.evidence.every(item => item.path !== 'src/missing.js'));
+  assert.equal(result.evidenceQuality.droppedCount, 0,
+    'unverified model evidence is excluded before the parent-facing critic pass');
+  assert.doesNotMatch(result.evidenceQuality.summary, /evidence item\(s\) dropped/i);
 });
 
 test('ExplorerRuntime drops target evidenceRefs that do not reference retained evidence ids', async () => {
@@ -1672,7 +1674,7 @@ test('ExplorerRuntime does not expose recentActivity when git_log tool is called
   'git history keeps its normalized search boundary separately from commit content');
 });
 
-test('ExplorerRuntime partial match evidence: evidence within tolerance lines is kept', async () => {
+test('ExplorerRuntime semantic projection rebuilds exact observed ranges', async () => {
   class PartialMatchClient {
     constructor() {
       this.model = 'zai-glm-4.7';
@@ -1723,11 +1725,15 @@ test('ExplorerRuntime partial match evidence: evidence within tolerance lines is
     scope: ['src/**'],
   });
 
-  // The evidence item at lines 5-6 should be kept as a partial match (read range was 1-4,
-  // and 5 is within EVIDENCE_LINE_TOLERANCE=2 of endLine=4)
-  assert.ok(result.evidence.length >= 1, 'partial-match evidence should be retained');
-  const partialItems = result.evidence.filter(e => e.groundingStatus === 'partial');
-  assert.ok(partialItems.length >= 1, 'at least one evidence item should have groundingStatus=partial');
+  assert.ok(result.evidence.some(item =>
+    item.path === 'src/auth.js' &&
+    item.startLine === 1 &&
+    item.endLine === 4 &&
+    item.groundingStatus === 'exact'),
+  'parent evidence is rebuilt from the runtime observation');
+  assert.ok(result.evidence.every(item =>
+    !(item.path === 'src/auth.js' && item.startLine === 5 && item.endLine === 6)),
+  'the nearby model-proposed range is not exposed to the parent');
 });
 
 test('ExplorerRuntime calls onProgress callback on each turn', async () => {
@@ -2239,8 +2245,11 @@ test('Phase 5 — git_commit evidence without verified SHA is dropped (strict va
     hints: { strategy: 'git-guided' },
   });
 
-  // git_commit evidence with unverified SHA must be dropped (fabrication prevention)
-  assert.equal(result.evidence.length, 0, 'unverified git_commit evidence must be dropped');
+  // The semantic projection may retain separately verified source evidence, but it must
+  // never expose the model-proposed commit or SHA.
+  assert.ok(result.evidence.every(item =>
+    item.evidenceType !== 'git_commit' && item.sha !== 'abc1234'),
+  'unverified git_commit evidence must not reach the parent');
 });
 
 // spec 017: Phase 5 session reuse test removed alongside SessionStore module.
@@ -3138,9 +3147,12 @@ test('Spec 028 T029 — runtime ledger assigns stable ids and rebuilds redacted 
     scope: ['src/**'],
   });
 
-  assert.deepEqual(result.observations.map(item => item.id), [
+  const observationIds = result.observations.map(item => item.id);
+  assert.deepEqual(observationIds.slice(0, 6), [
     'E1', 'E1:search', 'E2', 'E3', 'E4', 'E4:search',
   ]);
+  assert.equal(new Set(observationIds).size, observationIds.length,
+    'bounded repair observations must keep unique stable ids');
   assert.deepEqual(result.observations[0], {
     id: 'E1',
     kind: 'source',
@@ -3779,6 +3791,68 @@ test('010 security — broad find vulnerability task remains incomplete when the
       reason: 'general_needs_more_evidence',
     });
   }
+});
+
+test('Spec 028 T035 — broad single-source proof stays incomplete without a safety limit', async () => {
+  class BroadSingleSourceClient {
+    constructor() { this.model = 'zai-glm-4.7'; this.calls = 0; }
+    async createChatCompletion({ responseFormat }) {
+      this.calls += 1;
+      if (this.calls === 1) {
+        return {
+          usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+          message: {
+            content: '',
+            toolCalls: [{
+              id: 'read-auth',
+              function: {
+                name: 'repo_read_file',
+                arguments: JSON.stringify({ path: 'src/auth.js', startLine: 1, endLine: 4 }),
+              },
+            }],
+          },
+        };
+      }
+      if (responseFormat) {
+        return {
+          usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+          message: {
+            content: JSON.stringify(compactResult({
+              directAnswer: 'requireAuth rejects requests without req.user.',
+              statusConfidence: 'high',
+              evidence: [{
+                path: 'src/auth.js',
+                startLine: 1,
+                endLine: 4,
+                why: 'one observed authorization implementation',
+              }],
+            })),
+            toolCalls: [],
+          },
+        };
+      }
+      return {
+        usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+        message: { content: '', toolCalls: [] },
+      };
+    }
+  }
+
+  const root = await makeRepoFixture();
+  const runtime = new ExplorerRuntime({ chatClient: new BroadSingleSourceClient() });
+  const result = await runtime.explore({
+    task: 'Analyze authorization behavior across the repository.',
+    repo_root: root,
+  });
+
+  assert.equal(result.stats.safetyLimits.some(limit => limit.affectedSubgoalIds?.length > 0), false);
+  assert.deepEqual(result.stats.evidenceSufficiency, {
+    sufficient: false,
+    reason: 'general_needs_more_evidence',
+  });
+  assert.equal(result.status.verification, 'follow_up_needed');
+  assert.equal(result.status.complete, false);
+  assert.equal(result.failure, null);
 });
 
 test('010 US1#2 — path_explanation with one evidence stays incomplete after the turn limit', async () => {

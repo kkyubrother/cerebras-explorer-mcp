@@ -39,6 +39,27 @@ const ORACLE_CLAIM_TYPES = new Set([
 ]);
 const ORACLE_RESOLUTIONS = new Set(['supported', 'refuted', 'gap', 'failed']);
 const ORACLE_STATES = new Set(['complete', 'incomplete', 'failed']);
+const ORACLE_FAILURE_CATEGORIES = new Set(['execution', 'input', 'provider', 'internal']);
+const ORACLE_FAILURE_REASONS = new Set([
+  'budget_exhausted',
+  'tool_errors',
+  'aborted',
+  'repo_mismatch',
+  'invalid_arguments',
+  'provider_error',
+  'access_denied',
+  'invalid_final_response',
+]);
+const EXPECTED_US1_FIXTURE_IDS = Object.freeze([
+  'fx-semantic-mismatch',
+  'fx-incomplete-multipart',
+  'fx-partial-multipart',
+  'fx-contradictory-policies',
+  'audit-feasible-unsupported',
+  'fx-supported-refutation',
+  'fx-cancellation',
+  'fx-provider-failure',
+]);
 
 const EXPECTED_KNOWN_BAD_VIOLATIONS = {
   'obs-deny-list-count-range': ['FORBIDDEN_CLAIM_PRESENT'],
@@ -141,6 +162,19 @@ function isSafeScope(value) {
   return isSafeRelativePath(value)
     && (!/[*?\[]/.test(value)
       || (value.endsWith('/**') && !/[*?\[]/.test(value.slice(0, -3))));
+}
+
+function isValidRequestOriginRef(value, requestText) {
+  const match = /^request:(\d+)-(\d+)$/.exec(value ?? '');
+  if (!match || typeof requestText !== 'string') return false;
+  const start = Number(match[1]);
+  const end = Number(match[2]);
+  return Number.isSafeInteger(start)
+    && Number.isSafeInteger(end)
+    && start >= 0
+    && end > start
+    && end <= requestText.length
+    && requestText.slice(start, end).trim().length > 0;
 }
 
 function pathInScope(candidate, scope) {
@@ -373,6 +407,7 @@ async function collectTrustManifestProblems(manifest, options = {}) {
   const cases = Array.isArray(manifest.cases) ? manifest.cases : [];
   if (cases.length === 0) problems.push('manifest cases must be a non-empty array');
   const caseIds = new Set();
+  const caseById = new Map();
   const provenanceBySourceKind = {
     fixture: 'fixture_assertion',
     repository: 'source_review',
@@ -388,6 +423,9 @@ async function collectTrustManifestProblems(manifest, options = {}) {
       problems.push(label + ' has an invalid or duplicate id');
     }
     caseIds.add(caseDefinition.id);
+    if (typeof caseDefinition.id === 'string' && !caseById.has(caseDefinition.id)) {
+      caseById.set(caseDefinition.id, caseDefinition);
+    }
     if (!['observed', 'fixture', 'goal_audit'].includes(caseDefinition.kind)
         || !Number.isInteger(caseDefinition.repeatCount)
         || caseDefinition.repeatCount < 1) {
@@ -450,6 +488,16 @@ async function collectTrustManifestProblems(manifest, options = {}) {
       if (originRefs.length === 0 || originRefs.some(ref => !partIds.has(ref))) {
         problems.push(label + ' goal ' + goal.id + ' has invalid origin refs');
       }
+      if (goal.requestOriginRefs !== undefined) {
+        const requestOriginRefs = Array.isArray(goal.requestOriginRefs)
+          ? goal.requestOriginRefs
+          : [];
+        if (requestOriginRefs.length === 0
+            || new Set(requestOriginRefs).size !== requestOriginRefs.length
+            || requestOriginRefs.some(ref => !isValidRequestOriginRef(ref, request.text))) {
+          problems.push(label + ' goal ' + goal.id + ' has invalid request-origin refs');
+        }
+      }
       for (const ref of originRefs) coveredParts.add(ref);
       const evidenceAnchorRefs = Array.isArray(goal.evidenceAnchorRefs)
         ? goal.evidenceAnchorRefs
@@ -495,6 +543,13 @@ async function collectTrustManifestProblems(manifest, options = {}) {
           && (!goalResolutions.includes('gap') || goalResolutions.includes('failed')))
         || (oracle.expectedState === 'failed' && !goalResolutions.includes('failed'))) {
       problems.push(label + ' expected state contradicts goal resolutions');
+    }
+    if (oracle.expectedFailure !== undefined
+        && (!isObject(oracle.expectedFailure)
+          || !ORACLE_FAILURE_CATEGORIES.has(oracle.expectedFailure.category)
+          || !ORACLE_FAILURE_REASONS.has(oracle.expectedFailure.reason)
+          || oracle.expectedState !== 'failed')) {
+      problems.push(label + ' has an invalid expected failure oracle');
     }
 
     const scope = Array.isArray(boundary.scope) ? boundary.scope : [];
@@ -578,6 +633,45 @@ async function collectTrustManifestProblems(manifest, options = {}) {
     }
   }
 
+  const us1Subset = manifest.fixtureSubsets?.US1;
+  if (!isObject(manifest.fixtureSubsets)
+      || !Array.isArray(us1Subset)
+      || us1Subset.length === 0
+      || new Set(us1Subset).size !== us1Subset.length
+      || us1Subset.some(id => typeof id !== 'string' || id.length === 0)) {
+    problems.push('US1 fixture subset must contain unique case ids');
+  } else {
+    if (!sameStringSet(us1Subset, EXPECTED_US1_FIXTURE_IDS)) {
+      problems.push('US1 fixture subset does not match the required scenario ids');
+    }
+    for (const caseId of us1Subset) {
+      const caseDefinition = caseById.get(caseId);
+      const source = sources[caseDefinition?.sourceRef];
+      if (!caseDefinition) {
+        problems.push('US1 fixture subset references unknown case ' + caseId);
+        continue;
+      }
+      if (source?.kind !== 'fixture'
+          || caseDefinition.fixtureExecution !== 'direct'
+          || caseDefinition.repeatCount !== 3) {
+        problems.push('US1 fixture case ' + caseId + ' is not a direct three-run fixture');
+      }
+      if (caseDefinition.oracle?.expectedGoals?.some(goal =>
+        !Array.isArray(goal.requestOriginRefs) || goal.requestOriginRefs.length === 0)) {
+        problems.push('US1 fixture case ' + caseId + ' lacks request-origin oracles');
+      }
+      if (caseDefinition.oracle?.expectedState === 'failed'
+          && !isObject(caseDefinition.oracle.expectedFailure)) {
+        problems.push('US1 fixture case ' + caseId + ' lacks a failure oracle');
+      }
+      const providerPath = caseDefinition.providerFixture?.path ?? source?.providerPath;
+      const providerSha256 = caseDefinition.providerFixture?.sha256 ?? source?.providerSha256;
+      if (!isSafeRelativePath(providerPath) || !SHA256_PATTERN.test(providerSha256 ?? '')) {
+        problems.push('US1 fixture case ' + caseId + ' lacks a pinned provider sequence');
+      }
+    }
+  }
+
   try {
     const fixtureFiles = await walkRegularFiles(projectPath('fixtures/trust-known-answer'));
     const actualProviders = new Set(fixtureFiles
@@ -629,6 +723,42 @@ function readFileWithReplacement(relativePath, replacement) {
 
 test('trust manifest and all registered fixtures pass independent integrity validation', async () => {
   assert.deepEqual(await collectTrustManifestProblems(await loadTrustManifest()), []);
+});
+
+test('trust manifest integrity rejects invalid US1 fixture subset entries', async t => {
+  const canonical = await loadTrustManifest();
+  const mutations = [
+    ['duplicate', 'unique case ids', manifest => {
+      manifest.fixtureSubsets.US1.push(manifest.fixtureSubsets.US1[0]);
+    }],
+    ['unknown', 'references unknown case', manifest => {
+      manifest.fixtureSubsets.US1[0] = 'missing-us1-case';
+    }],
+    ['scenario replacement', 'does not match the required scenario ids', manifest => {
+      manifest.fixtureSubsets.US1[0] = 'fx-scope-limited-absence';
+    }],
+    ['partial', 'not a direct three-run fixture', manifest => {
+      manifest.cases.find(item => item.id === 'fx-incomplete-multipart').fixtureExecution = 'partial';
+    }],
+    ['single run', 'not a direct three-run fixture', manifest => {
+      manifest.cases.find(item => item.id === 'fx-cancellation').repeatCount = 1;
+    }],
+    ['missing request origin', 'lacks request-origin oracles', manifest => {
+      delete manifest.cases.find(item => item.id === 'fx-semantic-mismatch')
+        .oracle.expectedGoals[0].requestOriginRefs;
+    }],
+    ['missing failure oracle', 'lacks a failure oracle', manifest => {
+      delete manifest.cases.find(item => item.id === 'fx-provider-failure')
+        .oracle.expectedFailure;
+    }],
+  ];
+  for (const [name, expected, mutate] of mutations) {
+    await t.test(name, async () => {
+      const manifest = structuredClone(canonical);
+      mutate(manifest);
+      await expectIntegrityProblem(manifest, expected);
+    });
+  }
 });
 
 test('trust manifest integrity rejects missing and mismatched pins', async t => {

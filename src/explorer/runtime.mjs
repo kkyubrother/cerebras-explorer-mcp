@@ -720,6 +720,7 @@ function buildFailure(result, stats, runtimeFailure = null) {
 function attachAgentFacingContract(result, stats, grounding = {}, runtimeFailure = null) {
   result.schemaVersion = AGENT_FACING_SCHEMA_VERSION;
   result.failure = buildFailure(result, stats, runtimeFailure);
+  if (result.failure) result.directAnswer = result.failure.message;
   result.critic = {
     status: result.critic?.status ?? 'pass',
     warnings: Array.isArray(result.critic?.warnings) ? result.critic.warnings : [],
@@ -781,6 +782,11 @@ async function readRuntimeSourceRange(repoRoot, sourceRange, {
         );
     if (!snippet || actualEndLine < sourceRange.startLine) return null;
     const pathResult = redactText(sourceRange.path.replace(/\\/g, '/').replace(/^\.\//, ''));
+    const redactions = [...new Set([
+      ...contentResult.redactions,
+      ...formattedResult.redactions,
+      ...pathResult.redactions,
+    ])];
     return {
       path: pathResult.text,
       startLine: sourceRange.startLine,
@@ -788,6 +794,7 @@ async function readRuntimeSourceRange(repoRoot, sourceRange, {
       snippet,
       rangeGrounding: collapsedMultilineSecret || contentWasCut ? 'partial' : 'exact',
       redacted: contentResult.redacted || formattedResult.redacted || pathResult.redacted,
+      redactions,
       truncated: collapsedMultilineSecret || contentWasCut || actualEndLine < finalRequestedLine,
     };
   } catch {
@@ -795,27 +802,46 @@ async function readRuntimeSourceRange(repoRoot, sourceRange, {
   }
 }
 
-async function readEvidenceSnippet(repoRoot, evidenceItem, { maxLines = 12, maxChars = 1200 } = {}) {
-  if (!repoRoot || !evidenceItem?.path) return '';
-  if (!Number.isInteger(evidenceItem.startLine) || !Number.isInteger(evidenceItem.endLine)) return '';
-  if ((evidenceItem.evidenceType ?? 'file_range') !== 'file_range') return '';
+async function readEvidenceMetadata(repoRoot, evidenceItem, { maxLines = 12, maxChars = 1200 } = {}) {
+  if (!repoRoot || !evidenceItem?.path) return null;
+  if (!Number.isInteger(evidenceItem.startLine) || !Number.isInteger(evidenceItem.endLine)) return null;
+  if ((evidenceItem.evidenceType ?? 'file_range') !== 'file_range') return null;
   const rebuilt = await readRuntimeSourceRange(repoRoot, evidenceItem, { maxLines, maxChars });
-  if (!rebuilt) return '';
-  if (!rebuilt.truncated) return rebuilt.snippet;
-  return `${rebuilt.snippet}\n... [snippet truncated]`.slice(0, maxChars);
+  if (!rebuilt) return null;
+  const snippet = rebuilt.truncated
+    ? `${rebuilt.snippet}\n... [snippet truncated]`.slice(0, maxChars)
+    : rebuilt.snippet;
+  return {
+    snippet,
+    sourceSnippet: rebuilt.snippet,
+    redacted: rebuilt.redacted,
+    redactions: rebuilt.redactions,
+  };
 }
 
-async function attachEvidenceMetadata({ evidence, repoRoot }) {
+async function attachEvidenceMetadata({ evidence, repoRoot, expectedObservations = null }) {
+  const expectedById = Array.isArray(expectedObservations)
+    ? new Map(expectedObservations.map(observation => [observation?.id, observation]))
+    : null;
   const result = [];
   for (const [index, item] of (evidence ?? []).entries()) {
     const id = typeof item.id === 'string' && item.id ? item.id : `E${index + 1}`;
     const trustedItem = { ...item };
     delete trustedItem.snippet;
-    const snippet = await readEvidenceSnippet(repoRoot, item);
+    const metadata = await readEvidenceMetadata(repoRoot, item);
+    const expected = expectedById?.get(id);
+    if (expectedById && !expected) continue;
+    if (expected?.kind === 'source' &&
+        (!metadata || metadata.sourceSnippet !== expected.snippet)) {
+      continue;
+    }
     result.push({
       ...trustedItem,
       id,
-      ...(snippet ? { snippet } : {}),
+      ...(metadata?.snippet ? { snippet: metadata.snippet } : {}),
+      ...(metadata?.redacted
+        ? { redacted: true, redactions: metadata.redactions }
+        : {}),
     });
   }
   return result;
@@ -1101,7 +1127,14 @@ function evaluateEvidenceSufficiency(result, stats, { task, taskMode } = {}) {
     : { sufficient: false, reason: 'general_needs_more_evidence' };
 }
 
-function buildResultStatus(result, stats, { task, taskMode, sufficiency = null, usageCrossCheckGate = null } = {}) {
+function buildResultStatus(result, stats, {
+  task,
+  taskMode,
+  sufficiency = null,
+  usageCrossCheckGate = null,
+  requiredSubgoals = null,
+  semanticEvidenceComplete = null,
+} = {}) {
   const criticStatus = result.critic?.status ?? 'caution';
   const warnings = (result.critic?.warnings ?? []).map(warning => warning.message).filter(Boolean);
   const hasEvidence = (result.evidence?.length ?? 0) > 0;
@@ -1109,6 +1142,10 @@ function buildResultStatus(result, stats, { task, taskMode, sufficiency = null, 
   const editPlanning = isEditPlanningMode({ taskMode, task });
   const evidenceSufficiency = sufficiency ?? evaluateEvidenceSufficiency(result, stats, { task, taskMode });
   const proofInterrupted = affectedSafetyLimitNames(stats).length > 0;
+  const semanticProofSufficient = semanticEvidenceComplete === true &&
+    Array.isArray(requiredSubgoals) &&
+    requiredSubgoals.length > 0 &&
+    requiredSubgoals.every(goal => goal?.proofPolicy === 'support_or_refute');
   let verification = 'verified';
 
   if (!hasEvidence || criticStatus === 'fail' || stats.stoppedByErrors || stats.stoppedByAbort) {
@@ -1119,14 +1156,23 @@ function buildResultStatus(result, stats, { task, taskMode, sufficiency = null, 
     verification = 'follow_up_needed';
   } else if (hasEditTarget || editPlanning) {
     verification = evidenceSufficiency.sufficient ? 'targeted_read_needed' : 'follow_up_needed';
+  } else if (!semanticProofSufficient && !evidenceSufficiency.sufficient) {
+    verification = 'follow_up_needed';
   } else if (criticStatus === 'caution') {
-    verification = evidenceSufficiency.sufficient ? 'verified' : 'follow_up_needed';
+    verification = 'verified';
   }
 
   // spec 026: gate — only fires when status would otherwise be 'verified' (critic-fail and
   // low-confidence branches have already taken precedence above, preventing double warnings).
   if (verification === 'verified' && usageCrossCheckGate?.required && !usageCrossCheckGate.observed) {
     verification = 'targeted_read_needed';
+  }
+
+  const hasUnresolvedRequiredGoal = Array.isArray(requiredSubgoals) &&
+    requiredSubgoals.some(goal => goal?.state !== 'supported');
+  if ((hasUnresolvedRequiredGoal || semanticEvidenceComplete === false) &&
+      (verification === 'verified' || verification === 'targeted_read_needed')) {
+    verification = 'follow_up_needed';
   }
 
   const complete = verification === 'verified' || verification === 'targeted_read_needed';
@@ -1283,7 +1329,7 @@ function buildFatalExploreObject(message) {
   };
 }
 
-function buildVerifiedDirectAnswer(semanticVerification) {
+function buildVerifiedDirectAnswer(semanticVerification, allowedClaimIds = null) {
   const subgoalStateById = new Map(
     (semanticVerification?.taskContract?.subgoals ?? []).map(goal => [goal.id, goal.state]),
   );
@@ -1292,12 +1338,108 @@ function buildVerifiedDirectAnswer(semanticVerification) {
   for (const claim of semanticVerification?.claims ?? []) {
     const state = subgoalStateById.get(claim.subgoalId);
     const text = typeof claim.text === 'string' ? claim.text.trim() : '';
-    if (claim.verdict !== 'supported' || state === 'blocked' || state === 'contradicted' ||
+    if (claim.verdict !== 'supported' || state !== 'supported' ||
+        (allowedClaimIds && !allowedClaimIds.has(claim.id)) ||
         !text || seen.has(text)) continue;
     seen.add(text);
     texts.push(text);
   }
   return texts.join('\n');
+}
+
+function parentEvidenceFromObservation(observation) {
+  const path = normalizeTargetPath(observation?.path);
+  const hasRange = Number.isInteger(observation?.startLine) &&
+    Number.isInteger(observation?.endLine) &&
+    observation.startLine >= 1 && observation.endLine >= observation.startLine;
+  if (!path || !hasRange || typeof observation?.id !== 'string' || !observation.id) return null;
+  const base = {
+    id: observation.id,
+    path,
+    startLine: observation.startLine,
+    endLine: observation.endLine,
+    why: 'Runtime-rebuilt evidence used by semantic verification.',
+  };
+  if (observation.kind === 'source') {
+    return { ...base, evidenceType: 'file_range' };
+  }
+  if (observation.kind === 'git_blame' && typeof observation.sha === 'string' && observation.sha) {
+    return { ...base, evidenceType: 'git_blame', sha: observation.sha };
+  }
+  if (observation.kind === 'git_diff_hunk') {
+    return {
+      ...base,
+      evidenceType: 'git_diff_hunk',
+      ...(typeof observation.sha === 'string' && observation.sha
+        ? { sha: observation.sha }
+        : {}),
+    };
+  }
+  return null;
+}
+
+function buildSemanticParentProjection({ semanticVerification, observations }) {
+  const subgoalStateById = new Map(
+    (semanticVerification?.taskContract?.subgoals ?? []).map(goal => [goal.id, goal.state]),
+  );
+  const verdictByClaimId = new Map(
+    (semanticVerification?.semanticVerdicts ?? []).map(verdict => [verdict.claimId, verdict]),
+  );
+  const observationById = new Map(
+    (observations ?? []).map(observation => [observation.id, observation]),
+  );
+  const claimIds = new Set();
+  const supportingRefsByClaimId = new Map();
+  const evidenceById = new Map();
+
+  for (const claim of semanticVerification?.claims ?? []) {
+    if (claim.verdict !== 'supported' || subgoalStateById.get(claim.subgoalId) !== 'supported') {
+      continue;
+    }
+    const verdict = verdictByClaimId.get(claim.id);
+    const supportingRefs = verdict?.result === 'supported' &&
+      Array.isArray(verdict.supportingEvidenceRefs)
+      ? verdict.supportingEvidenceRefs
+      : [];
+    if (supportingRefs.length === 0) continue;
+    const projectedEvidence = supportingRefs.map(ref => {
+      if (!(claim.evidenceRefs ?? []).includes(ref)) return null;
+      return parentEvidenceFromObservation(observationById.get(ref));
+    });
+    if (projectedEvidence.some(item => item === null)) continue;
+    claimIds.add(claim.id);
+    supportingRefsByClaimId.set(claim.id, [...supportingRefs]);
+    for (const item of projectedEvidence) evidenceById.set(item.id, item);
+  }
+  return {
+    claimIds,
+    supportingRefsByClaimId,
+    evidence: [...evidenceById.values()],
+  };
+}
+
+function retainedProjectedClaimIds(projection, evidence) {
+  const retainedEvidenceIds = new Set((evidence ?? []).map(item => item?.id).filter(Boolean));
+  return new Set([...projection.claimIds].filter(claimId =>
+    projection.supportingRefsByClaimId.get(claimId)
+      ?.every(ref => retainedEvidenceIds.has(ref))));
+}
+
+function supportedClaimsAreFullyProjected(semanticVerification, projectedClaimIds) {
+  const supportedGoalIds = new Set(
+    (semanticVerification?.taskContract?.subgoals ?? [])
+      .filter(goal => goal.state === 'supported')
+      .map(goal => goal.id),
+  );
+  const supportedClaims = (semanticVerification?.claims ?? [])
+    .filter(claim => claim.verdict === 'supported' && supportedGoalIds.has(claim.subgoalId));
+  const projectedGoalIds = new Set(
+    supportedClaims
+      .filter(claim => projectedClaimIds.has(claim.id))
+      .map(claim => claim.subgoalId),
+  );
+  return supportedClaims.every(claim => projectedClaimIds.has(claim.id)) &&
+    [...supportedGoalIds].every(goalId => projectedGoalIds.has(goalId));
 }
 
 function applyObservationSafetyLimits({ semanticVerification, observations, stats }) {
@@ -4540,8 +4682,17 @@ export class ExplorerRuntime {
     Object.assign(stats, globalRepoCache.stats());
 
     let normalized = normalizeExploreResult(finalObject, stats);
+    let semanticProjection = null;
     if (semanticVerification) {
-      normalized.directAnswer = buildVerifiedDirectAnswer(semanticVerification);
+      semanticProjection = buildSemanticParentProjection({
+        semanticVerification,
+        observations,
+      });
+      normalized.directAnswer = buildVerifiedDirectAnswer(
+        semanticVerification,
+        semanticProjection.claimIds,
+      );
+      normalized.evidence = semanticProjection.evidence;
     }
     discoveredPaths = mergeDiscoveredPaths(
       discoveredPaths,
@@ -4571,6 +4722,13 @@ export class ExplorerRuntime {
       symbol: targetSymbol,
     };
 
+    if (semanticVerification) {
+      normalized.evidence = await attachEvidenceMetadata({
+        evidence: normalized.evidence,
+        repoRoot,
+        expectedObservations: observations,
+      });
+    }
     const criticPass = runDeterministicCriticPass({
       normalized,
       observedRanges,
@@ -4580,10 +4738,24 @@ export class ExplorerRuntime {
       usageCrossCheck: usageCrossCheckGate,
     });
     normalized = criticPass.result;
-    normalized.evidence = await attachEvidenceMetadata({
-      evidence: normalized.evidence,
-      repoRoot,
-    });
+    if (!semanticVerification) {
+      normalized.evidence = await attachEvidenceMetadata({
+        evidence: normalized.evidence,
+        repoRoot,
+      });
+    }
+    let semanticEvidenceComplete = null;
+    if (semanticVerification) {
+      const retainedClaimIds = retainedProjectedClaimIds(
+        semanticProjection,
+        normalized.evidence,
+      );
+      normalized.directAnswer = buildVerifiedDirectAnswer(semanticVerification, retainedClaimIds);
+      semanticEvidenceComplete = supportedClaimsAreFullyProjected(
+        semanticVerification,
+        retainedClaimIds,
+      );
+    }
     if (abortSignal?.aborted) throw abortError('Final result projection was cancelled.');
 
     if (criticPass.grounding.droppedUngrounded + criticPass.grounding.droppedMalformed > 0) {
@@ -4624,6 +4796,9 @@ export class ExplorerRuntime {
       taskMode: args.taskMode,
       sufficiency: evidenceSufficiency,
       usageCrossCheckGate,
+      requiredSubgoals: semanticVerification?.taskContract?.subgoals ??
+        auditedPlan?.taskContract?.subgoals ?? null,
+      semanticEvidenceComplete,
     });
     normalized.nextAction = buildNextAction(normalized, {
       sufficiency: evidenceSufficiency,

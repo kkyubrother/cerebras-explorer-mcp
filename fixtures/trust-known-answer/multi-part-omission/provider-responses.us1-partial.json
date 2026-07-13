@@ -1,0 +1,220 @@
+{
+  "fixtureVersion": 1,
+  "scenario": "partial_multi_part_us1",
+  "responses": [
+    {
+      "stage": "planner",
+      "result": {
+        "message": {
+          "content": {
+            "taskSummary": "Explain the implementation and test, and determine whether the default is established.",
+            "constraints": [],
+            "subgoals": [
+              {
+                "id": "S1",
+                "question": "What does serviceMode return?",
+                "originRefs": ["request:12-34"],
+                "claimType": "positive",
+                "proofCondition": "Read the current serviceMode return value.",
+                "constraints": []
+              },
+              {
+                "id": "S2",
+                "question": "Which test verifies it?",
+                "originRefs": ["request:36-44"],
+                "claimType": "positive",
+                "proofCondition": "Read the test assertion for serviceMode.",
+                "constraints": []
+              },
+              {
+                "id": "S3",
+                "question": "What is the configured default?",
+                "originRefs": ["request:54-72"],
+                "claimType": "positive",
+                "proofCondition": "Read the current default configuration value.",
+                "constraints": []
+              }
+            ]
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "goal_audit",
+      "result": {
+        "message": {
+          "content": {
+            "goals": [
+              {
+                "proposedGoalId": "S1",
+                "verdict": "ready",
+                "originRefs": ["request:12-34"],
+                "missingRequestParts": [],
+                "reason": "The implementation is directly observable."
+              },
+              {
+                "proposedGoalId": "S2",
+                "verdict": "ready",
+                "originRefs": ["request:36-44"],
+                "missingRequestParts": [],
+                "reason": "The test assertion is directly observable."
+              },
+              {
+                "proposedGoalId": "S3",
+                "verdict": "ready",
+                "originRefs": ["request:54-72"],
+                "missingRequestParts": [],
+                "reason": "The default is observable if its file is inspected."
+              }
+            ],
+            "uncoveredRequestParts": []
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "exploration",
+      "result": {
+        "message": {
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "read-partial-service",
+              "function": {
+                "name": "repo_read_file",
+                "arguments": {
+                  "path": "src/service.mjs",
+                  "startLine": 1,
+                  "endLine": 3
+                }
+              }
+            },
+            {
+              "id": "read-partial-test",
+              "function": {
+                "name": "repo_read_file",
+                "arguments": {
+                  "path": "tests/service.test.mjs",
+                  "startLine": 1,
+                  "endLine": 4
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "stage": "exploration",
+      "result": {
+        "message": {
+          "content": "The implementation and test were inspected; the default was not.",
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "synthesis",
+      "result": {
+        "message": {
+          "content": {
+            "directAnswer": "The implementation and test are supported, but the default remains unchecked.",
+            "status": {
+              "confidence": "high",
+              "verification": "verified",
+              "complete": true,
+              "warnings": []
+            },
+            "targets": [],
+            "evidence": [
+              {
+                "id": "E1",
+                "path": "src/service.mjs",
+                "startLine": 1,
+                "endLine": 3,
+                "why": "The implementation returns the active service mode."
+              },
+              {
+                "id": "E2",
+                "path": "tests/service.test.mjs",
+                "startLine": 1,
+                "endLine": 4,
+                "why": "The test asserts the serviceMode result."
+              }
+            ],
+            "uncertainties": [],
+            "nextAction": {
+              "type": "stop",
+              "reason": "The trust reducer must preserve the unresolved default goal."
+            }
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "claim_synthesis",
+      "result": {
+        "message": {
+          "content": {
+            "claims": [
+              {
+                "id": "C1",
+                "subgoalId": "S1",
+                "text": "serviceMode returns 'safe'.",
+                "evidenceRefs": ["E1"]
+              },
+              {
+                "id": "C2",
+                "subgoalId": "S2",
+                "text": "tests/service.test.mjs asserts 'safe'.",
+                "evidenceRefs": ["E2"]
+              }
+            ]
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "semantic_verifier",
+      "result": {
+        "message": {
+          "content": {
+            "verdicts": [
+              {
+                "claimId": "C1",
+                "result": "supported",
+                "resolution": "affirmed",
+                "supportingEvidenceRefs": ["E1"],
+                "reasonCode": "entailed",
+                "note": "The implementation directly returns 'safe'."
+              },
+              {
+                "claimId": "C2",
+                "result": "supported",
+                "resolution": "affirmed",
+                "supportingEvidenceRefs": ["E2"],
+                "reasonCode": "entailed",
+                "note": "The test directly asserts 'safe'."
+              }
+            ],
+            "uncoveredRequestParts": []
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "repair",
+      "result": {
+        "message": {
+          "content": "No additional repository action is selected for the unresolved default in this fixture.",
+          "toolCalls": []
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,157 @@
+{
+  "fixtureVersion": 1,
+  "scenario": "semantic_mismatch_us1",
+  "responses": [
+    {
+      "stage": "planner",
+      "result": {
+        "message": {
+          "content": {
+            "taskSummary": "Count the configured SECRET_PATTERNS entries.",
+            "constraints": ["Use the array item count, not a line number."],
+            "subgoals": [
+              {
+                "id": "S1",
+                "question": "How many patterns are configured?",
+                "originRefs": ["request:0-75"],
+                "claimType": "count",
+                "proofCondition": "Count every element in SECRET_PATTERNS from the complete array declaration.",
+                "constraints": ["Do not infer the count from a line number."]
+              }
+            ]
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "goal_audit",
+      "result": {
+        "message": {
+          "content": {
+            "goals": [
+              {
+                "proposedGoalId": "S1",
+                "verdict": "ready",
+                "originRefs": ["request:0-75"],
+                "missingRequestParts": [],
+                "reason": "The array declaration is observable inside the requested scope."
+              }
+            ],
+            "uncoveredRequestParts": []
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "exploration",
+      "result": {
+        "message": {
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "read-security",
+              "function": {
+                "name": "repo_read_file",
+                "arguments": {
+                  "path": "src/security.mjs",
+                  "startLine": 1,
+                  "endLine": 5
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "stage": "exploration",
+      "result": {
+        "message": {
+          "content": "Evidence collection is complete.",
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "synthesis",
+      "result": {
+        "message": {
+          "content": {
+            "directAnswer": "The proposed count still requires semantic verification.",
+            "status": {
+              "confidence": "low",
+              "verification": "follow_up_needed",
+              "complete": false,
+              "warnings": []
+            },
+            "targets": [],
+            "evidence": [
+              {
+                "id": "E1",
+                "path": "src/security.mjs",
+                "startLine": 1,
+                "endLine": 5,
+                "why": "The complete SECRET_PATTERNS declaration is visible here."
+              }
+            ],
+            "uncertainties": [],
+            "nextAction": {
+              "type": "stop",
+              "reason": "The isolated verifier decides whether the proposed count is supported."
+            }
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "claim_synthesis",
+      "result": {
+        "message": {
+          "content": {
+            "claims": [
+              {
+                "id": "C1",
+                "subgoalId": "S1",
+                "text": "There are 117 configured secret patterns.",
+                "evidenceRefs": ["E1"]
+              }
+            ]
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "semantic_verifier",
+      "result": {
+        "message": {
+          "content": {
+            "verdicts": [
+              {
+                "claimId": "C1",
+                "result": "insufficient",
+                "supportingEvidenceRefs": [],
+                "reasonCode": "semantic_mismatch",
+                "note": "The observed array has three elements; line 117 is not an item count."
+              }
+            ],
+            "uncoveredRequestParts": []
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "repair",
+      "result": {
+        "message": {
+          "content": "The observed array is already complete, so no additional read can support the proposed count.",
+          "toolCalls": []
+        }
+      }
+    }
+  ]
+}

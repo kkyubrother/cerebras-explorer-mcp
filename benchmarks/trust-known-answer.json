@@ -45,6 +45,18 @@
     "modelConfidenceIsOracle": false,
     "groundingStatusIsSemanticOracle": false
   },
+  "fixtureSubsets": {
+    "US1": [
+      "fx-semantic-mismatch",
+      "fx-incomplete-multipart",
+      "fx-partial-multipart",
+      "fx-contradictory-policies",
+      "audit-feasible-unsupported",
+      "fx-supported-refutation",
+      "fx-cancellation",
+      "fx-provider-failure"
+    ]
+  },
   "sources": {
     "repo-cerebras-explorer-mcp-b3a7e75": {
       "kind": "repository",
@@ -1341,6 +1353,10 @@
       "description": "A line number is proposed as a deterministic array count.",
       "sourceRef": "fixture-semantic-mismatch",
       "fixtureExecution": "direct",
+      "providerFixture": {
+        "path": "fixtures/trust-known-answer/semantic-mismatch/provider-responses.us1.json",
+        "sha256": "7a3339abe1c89d6a2bcf32355caba76396009e51388fb277d9f0157ac935315c"
+      },
       "invocation": {
         "tool": "explore_repo",
         "args": {
@@ -1359,7 +1375,7 @@
           }
         ]
       },
-      "repeatCount": 1,
+      "repeatCount": 3,
       "schemaV2Baseline": {
         "outcome": "not_recorded",
         "schemaVersion": 2,
@@ -1376,6 +1392,9 @@
             "question": "How many patterns are configured?",
             "originRefs": [
               "P1"
+            ],
+            "requestOriginRefs": [
+              "request:0-75"
             ],
             "claimType": "count",
             "expectedResolution": "gap",
@@ -1422,7 +1441,11 @@
       "kind": "fixture",
       "description": "A planner initially omits tests and defaults from a three-part request.",
       "sourceRef": "fixture-multi-part-omission",
-      "fixtureExecution": "partial",
+      "fixtureExecution": "direct",
+      "providerFixture": {
+        "path": "fixtures/trust-known-answer/multi-part-omission/provider-responses.us1.json",
+        "sha256": "c538dc3bcfcc9fd33245844b2354b18e0103409eeaf88cf4f4c808ddbfed2513"
+      },
       "invocation": {
         "tool": "explore_repo",
         "args": {
@@ -1451,7 +1474,7 @@
           }
         ]
       },
-      "repeatCount": 1,
+      "repeatCount": 3,
       "schemaV2Baseline": {
         "outcome": "not_recorded",
         "schemaVersion": 2,
@@ -1469,6 +1492,9 @@
             "originRefs": [
               "P1"
             ],
+            "requestOriginRefs": [
+              "request:12-34"
+            ],
             "claimType": "positive",
             "expectedResolution": "supported",
             "evidenceAnchorRefs": [
@@ -1482,6 +1508,9 @@
             "originRefs": [
               "P2"
             ],
+            "requestOriginRefs": [
+              "request:36-44"
+            ],
             "claimType": "positive",
             "expectedResolution": "supported",
             "evidenceAnchorRefs": [
@@ -1494,6 +1523,9 @@
             "question": "What is the configured default?",
             "originRefs": [
               "P3"
+            ],
+            "requestOriginRefs": [
+              "request:54-72"
             ],
             "claimType": "positive",
             "expectedResolution": "supported",
@@ -1591,6 +1623,10 @@
       "description": "A broad role claim contradicts two route-specific policies.",
       "sourceRef": "fixture-route-policy-divergence",
       "fixtureExecution": "direct",
+      "providerFixture": {
+        "path": "fixtures/trust-known-answer/route-policy-divergence/provider-responses.us1.json",
+        "sha256": "511663964d29b6c32a3f4dfa7758c21e5d11d33f65b727b7390da91162715f67"
+      },
       "invocation": {
         "tool": "explore_repo",
         "args": {
@@ -1613,7 +1649,7 @@
           }
         ]
       },
-      "repeatCount": 1,
+      "repeatCount": 3,
       "schemaV2Baseline": {
         "outcome": "not_recorded",
         "schemaVersion": 2,
@@ -1631,6 +1667,9 @@
             "originRefs": [
               "P1",
               "P2"
+            ],
+            "requestOriginRefs": [
+              "request:0-79"
             ],
             "claimType": "comparison",
             "expectedResolution": "gap",
@@ -1941,7 +1980,7 @@
           }
         ]
       },
-      "repeatCount": 1,
+      "repeatCount": 3,
       "schemaV2Baseline": {
         "outcome": "not_recorded",
         "schemaVersion": 2,
@@ -1958,6 +1997,9 @@
             "question": "What does slowOperation do?",
             "originRefs": [
               "P1"
+            ],
+            "requestOriginRefs": [
+              "request:0-63"
             ],
             "claimType": "positive",
             "expectedResolution": "failed",
@@ -1996,7 +2038,11 @@
             "src/**"
           ]
         },
-        "expectedState": "failed"
+        "expectedState": "failed",
+        "expectedFailure": {
+          "category": "execution",
+          "reason": "aborted"
+        }
       }
     },
     {
@@ -2023,7 +2069,7 @@
           }
         ]
       },
-      "repeatCount": 1,
+      "repeatCount": 3,
       "schemaV2Baseline": {
         "outcome": "not_recorded",
         "schemaVersion": 2,
@@ -2040,6 +2086,9 @@
             "question": "What is STABLE_VALUE?",
             "originRefs": [
               "P1"
+            ],
+            "requestOriginRefs": [
+              "request:0-21"
             ],
             "claimType": "positive",
             "expectedResolution": "failed",
@@ -2078,7 +2127,11 @@
             "src/**"
           ]
         },
-        "expectedState": "failed"
+        "expectedState": "failed",
+        "expectedFailure": {
+          "category": "provider",
+          "reason": "provider_error"
+        }
       }
     },
     {
@@ -3326,7 +3379,11 @@
       "kind": "goal_audit",
       "description": "A feasible broad policy goal remains unresolved after counterevidence repair.",
       "sourceRef": "fixture-repair-counterevidence",
-      "fixtureExecution": "partial",
+      "fixtureExecution": "direct",
+      "providerFixture": {
+        "path": "fixtures/trust-known-answer/repair-counterevidence/provider-responses.us1.json",
+        "sha256": "fa957d5b9c1c969ca06e6b7b3da63a22be12d2782cd57d51b0f293f845f58310"
+      },
       "invocation": {
         "tool": "explore_repo",
         "args": {
@@ -3349,7 +3406,7 @@
           }
         ]
       },
-      "repeatCount": 1,
+      "repeatCount": 3,
       "schemaV2Baseline": {
         "outcome": "not_recorded",
         "schemaVersion": 2,
@@ -3367,6 +3424,9 @@
             "originRefs": [
               "P1",
               "P2"
+            ],
+            "requestOriginRefs": [
+              "request:0-77"
             ],
             "claimType": "comparison",
             "expectedResolution": "gap",
@@ -3438,6 +3498,274 @@
           "maxRepairRounds": 1,
           "repeatEquivalentFollowUp": false
         }
+      }
+    },
+    {
+      "id": "fx-supported-refutation",
+      "kind": "fixture",
+      "description": "A directly observed public route supports refuting the caller's universal authentication premise.",
+      "sourceRef": "fixture-repair-counterevidence",
+      "fixtureExecution": "direct",
+      "providerFixture": {
+        "path": "fixtures/trust-known-answer/repair-counterevidence/provider-responses.us1-refutation.json",
+        "sha256": "2f114ad5912af616ab6ca1c1db9545ffb73afc2a571c128bf7a63da3f012b4dc"
+      },
+      "invocation": {
+        "tool": "explore_repo",
+        "args": {
+          "task": "Verify the claim that every route requires authentication.",
+          "scope": [
+            "src/**"
+          ]
+        }
+      },
+      "request": {
+        "text": "Verify the claim that every route requires authentication.",
+        "parts": [
+          {
+            "id": "P1",
+            "text": "Verify whether every route requires authentication."
+          }
+        ]
+      },
+      "repeatCount": 3,
+      "schemaV2Baseline": {
+        "outcome": "not_recorded",
+        "schemaVersion": 2,
+        "reason": "This schema-v3 control case had no trustworthy schema-v2 parent payload captured before implementation."
+      },
+      "oracle": {
+        "provenance": {
+          "kind": "fixture_assertion",
+          "sourceRef": "fixture-repair-counterevidence"
+        },
+        "expectedGoals": [
+          {
+            "id": "G1",
+            "question": "Is the claim that every route requires authentication true?",
+            "originRefs": [
+              "P1"
+            ],
+            "requestOriginRefs": [
+              "request:0-58"
+            ],
+            "claimType": "claim_verification",
+            "expectedResolution": "refuted",
+            "evidenceAnchorRefs": [
+              "E1"
+            ],
+            "anchorPolicy": "any"
+          }
+        ],
+        "allowedClaims": [
+          {
+            "id": "A1",
+            "goalId": "G1",
+            "text": "The claim is false: legacyRouteAccess is 'public', so not every route requires authentication.",
+            "evidenceAnchorRefs": [
+              "E1"
+            ]
+          }
+        ],
+        "forbiddenClaims": [
+          {
+            "id": "F1",
+            "goalId": "G1",
+            "text": "Every route requires authentication.",
+            "reason": "legacyRouteAccess is directly declared public."
+          }
+        ],
+        "evidenceAnchors": [
+          {
+            "id": "E1",
+            "kind": "source",
+            "path": "src/routes/legacy.mjs",
+            "startLine": 1,
+            "endLine": 1,
+            "sourceRole": "implementation",
+            "temporalRole": "current"
+          }
+        ],
+        "boundary": {
+          "repoId": "fixture-repair-counterevidence",
+          "scope": [
+            "src/**"
+          ],
+          "claimScope": [
+            "src/**"
+          ]
+        },
+        "expectedState": "complete"
+      }
+    },
+    {
+      "id": "fx-partial-multipart",
+      "kind": "fixture",
+      "description": "Two supported request parts must remain usable while an uninspected third part prevents completion.",
+      "sourceRef": "fixture-multi-part-omission",
+      "fixtureExecution": "direct",
+      "providerFixture": {
+        "path": "fixtures/trust-known-answer/multi-part-omission/provider-responses.us1-partial.json",
+        "sha256": "923844a9ba79c880fdf2397b63ae9f40311898455729e1e5a9a90bd3cc9d5bce"
+      },
+      "invocation": {
+        "tool": "explore_repo",
+        "args": {
+          "task": "Explain the service implementation, its test, and its configured default.",
+          "scope": [
+            "src/**",
+            "tests/**",
+            "config/**"
+          ]
+        }
+      },
+      "request": {
+        "text": "Explain the service implementation, its test, and its configured default.",
+        "parts": [
+          {
+            "id": "P1",
+            "text": "Explain the implementation."
+          },
+          {
+            "id": "P2",
+            "text": "Identify the test."
+          },
+          {
+            "id": "P3",
+            "text": "Identify the default."
+          }
+        ]
+      },
+      "repeatCount": 3,
+      "schemaV2Baseline": {
+        "outcome": "not_recorded",
+        "schemaVersion": 2,
+        "reason": "This schema-v3 control case had no trustworthy schema-v2 parent payload captured before implementation."
+      },
+      "oracle": {
+        "provenance": {
+          "kind": "fixture_assertion",
+          "sourceRef": "fixture-multi-part-omission"
+        },
+        "expectedGoals": [
+          {
+            "id": "G1",
+            "question": "What does serviceMode return?",
+            "originRefs": [
+              "P1"
+            ],
+            "requestOriginRefs": [
+              "request:12-34"
+            ],
+            "claimType": "positive",
+            "expectedResolution": "supported",
+            "evidenceAnchorRefs": [
+              "E1"
+            ],
+            "anchorPolicy": "any"
+          },
+          {
+            "id": "G2",
+            "question": "Which test verifies it?",
+            "originRefs": [
+              "P2"
+            ],
+            "requestOriginRefs": [
+              "request:36-44"
+            ],
+            "claimType": "positive",
+            "expectedResolution": "supported",
+            "evidenceAnchorRefs": [
+              "E2"
+            ],
+            "anchorPolicy": "any"
+          },
+          {
+            "id": "G3",
+            "question": "What is the configured default?",
+            "originRefs": [
+              "P3"
+            ],
+            "requestOriginRefs": [
+              "request:54-72"
+            ],
+            "claimType": "positive",
+            "expectedResolution": "gap",
+            "evidenceAnchorRefs": [
+              "E3"
+            ],
+            "anchorPolicy": "any"
+          }
+        ],
+        "allowedClaims": [
+          {
+            "id": "A1",
+            "goalId": "G1",
+            "text": "serviceMode returns 'safe'.",
+            "evidenceAnchorRefs": [
+              "E1"
+            ]
+          },
+          {
+            "id": "A2",
+            "goalId": "G2",
+            "text": "tests/service.test.mjs asserts 'safe'.",
+            "evidenceAnchorRefs": [
+              "E2"
+            ]
+          }
+        ],
+        "forbiddenClaims": [
+          {
+            "id": "F1",
+            "goalId": "G3",
+            "text": "DEFAULT_SERVICE_MODE is 'safe'.",
+            "reason": "The default file was not inspected in this run."
+          }
+        ],
+        "evidenceAnchors": [
+          {
+            "id": "E1",
+            "kind": "source",
+            "path": "src/service.mjs",
+            "startLine": 1,
+            "endLine": 3,
+            "sourceRole": "implementation",
+            "temporalRole": "current"
+          },
+          {
+            "id": "E2",
+            "kind": "source",
+            "path": "tests/service.test.mjs",
+            "startLine": 1,
+            "endLine": 4,
+            "sourceRole": "test",
+            "temporalRole": "current"
+          },
+          {
+            "id": "E3",
+            "kind": "source",
+            "path": "config/defaults.mjs",
+            "startLine": 1,
+            "endLine": 1,
+            "sourceRole": "config",
+            "temporalRole": "current"
+          }
+        ],
+        "boundary": {
+          "repoId": "fixture-multi-part-omission",
+          "scope": [
+            "src/**",
+            "tests/**",
+            "config/**"
+          ],
+          "claimScope": [
+            "src/**",
+            "tests/**",
+            "config/**"
+          ]
+        },
+        "expectedState": "incomplete"
       }
     }
   ]

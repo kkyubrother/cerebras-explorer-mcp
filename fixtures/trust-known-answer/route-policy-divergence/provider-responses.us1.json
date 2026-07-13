@@ -1,0 +1,184 @@
+{
+  "fixtureVersion": 1,
+  "scenario": "route_policy_divergence_us1",
+  "responses": [
+    {
+      "stage": "planner",
+      "result": {
+        "message": {
+          "content": {
+            "taskSummary": "Compare the admin and team route authorization policies.",
+            "constraints": ["Preserve route-specific differences."],
+            "subgoals": [
+              {
+                "id": "S1",
+                "question": "How do the two route policies differ?",
+                "originRefs": ["request:0-79"],
+                "claimType": "comparison",
+                "proofCondition": "Observe both route declarations and their shared authorization helper.",
+                "constraints": ["Do not generalize one route to every protected route."]
+              }
+            ]
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "goal_audit",
+      "result": {
+        "message": {
+          "content": {
+            "goals": [
+              {
+                "proposedGoalId": "S1",
+                "verdict": "ready",
+                "originRefs": ["request:0-79"],
+                "missingRequestParts": [],
+                "reason": "Both route declarations are observable in scope."
+              }
+            ],
+            "uncoveredRequestParts": []
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "exploration",
+      "result": {
+        "message": {
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "read-admin-route",
+              "function": {
+                "name": "repo_read_file",
+                "arguments": {
+                  "path": "src/routes/admin.mjs",
+                  "startLine": 1,
+                  "endLine": 3
+                }
+              }
+            },
+            {
+              "id": "read-team-route",
+              "function": {
+                "name": "repo_read_file",
+                "arguments": {
+                  "path": "src/routes/team.mjs",
+                  "startLine": 1,
+                  "endLine": 3
+                }
+              }
+            },
+            {
+              "id": "read-role-policy",
+              "function": {
+                "name": "repo_read_file",
+                "arguments": {
+                  "path": "src/policy.mjs",
+                  "startLine": 1,
+                  "endLine": 5
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "stage": "exploration",
+      "result": {
+        "message": {
+          "content": "Both route declarations and the role helper were inspected.",
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "synthesis",
+      "result": {
+        "message": {
+          "content": {
+            "directAnswer": "The proposed cross-route summary requires semantic verification.",
+            "status": {
+              "confidence": "low",
+              "verification": "follow_up_needed",
+              "complete": false,
+              "warnings": []
+            },
+            "targets": [],
+            "evidence": [
+              {
+                "id": "E1",
+                "path": "src/routes/admin.mjs",
+                "startLine": 1,
+                "endLine": 3,
+                "why": "The admin route role declaration is here."
+              },
+              {
+                "id": "E2",
+                "path": "src/routes/team.mjs",
+                "startLine": 1,
+                "endLine": 3,
+                "why": "The team route role declaration is here."
+              },
+              {
+                "id": "E3",
+                "path": "src/policy.mjs",
+                "startLine": 1,
+                "endLine": 5,
+                "why": "The shared authorization helper explains the role lists."
+              }
+            ],
+            "uncertainties": [],
+            "nextAction": {
+              "type": "stop",
+              "reason": "The isolated verifier decides whether the summary preserves the distinction."
+            }
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "claim_synthesis",
+      "result": {
+        "message": {
+          "content": {
+            "claims": [
+              {
+                "id": "C1",
+                "subgoalId": "S1",
+                "text": "All protected routes require the super_admin role.",
+                "evidenceRefs": ["E1", "E2", "E3"]
+              }
+            ]
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "semantic_verifier",
+      "result": {
+        "message": {
+          "content": {
+            "verdicts": [
+              {
+                "claimId": "C1",
+                "result": "contradicted",
+                "supportingEvidenceRefs": ["E1", "E2"],
+                "reasonCode": "overgeneralized",
+                "note": "The admin route requires super_admin, while the team route accepts admin or manager."
+              }
+            ],
+            "uncoveredRequestParts": []
+          },
+          "toolCalls": []
+        }
+      }
+    }
+  ]
+}

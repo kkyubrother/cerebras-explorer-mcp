@@ -131,18 +131,20 @@ export function adaptLegacyGoalAuditClient(chatClient, { rejectedGoal = null } =
         if (kind === 'claim_synthesis') {
           const packet = parseControlPacket(request.messages);
           const subgoal = packet?.control?.requiredSubgoals?.[0];
-          const evidenceRef = packet?.observations?.find(observation =>
-            observation?.kind === 'source' || String(observation?.kind ?? '').startsWith('git_'))?.id;
+          const evidenceRefs = (packet?.observations ?? [])
+            .filter(observation => observation?.kind === 'source' ||
+              String(observation?.kind ?? '').startsWith('git_'))
+            .map(observation => observation.id);
           const text = typeof lastCompactResult?.directAnswer === 'string'
             ? lastCompactResult.directAnswer.trim()
             : '';
           return controlCompletion({
-            claims: subgoal && evidenceRef && text
+            claims: subgoal && evidenceRefs.length > 0 && text
               ? [{
                   id: 'legacy-test-claim',
                   subgoalId: subgoal.id,
                   text,
-                  evidenceRefs: [evidenceRef],
+                  evidenceRefs,
                 }]
               : [],
           });

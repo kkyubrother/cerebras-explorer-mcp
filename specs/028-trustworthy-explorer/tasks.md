@@ -97,7 +97,7 @@
 - [x] T032 [US1] Implement one feasible-gap repair round, normalized attempted-action fingerprints, full post-repair claim reopening/reverification, terminal gaps for newly valid post-repair goals, and no second repair or repeated parent action in `src/explorer/runtime.mjs` and `src/explorer/coverage.mjs`
 - [x] T033 [US1] Implement fatal-fault precedence, invalid-control-output handling, stale-answer suppression, and request-id-zero cancellation tracking in `src/explorer/runtime.mjs`, `src/mcp/server.mjs`, and `src/mcp/jsonrpc-stdio.mjs`
 - [x] T034 [US1] Record redacted claim, verdict, repair, safety-limit, final-reduction, and usage events without copying unverified prose in `src/explorer/transcript.mjs`
-- [ ] T035 [US1] Add the US1 known-answer cases and expected state/claim oracles to `benchmarks/trust-known-answer.json`, run the independent US1 fixture subset three times, and pass `npm test`
+- [x] T035 [US1] Add the US1 known-answer cases and expected state/claim oracles to `benchmarks/trust-known-answer.json`, run the independent US1 fixture subset three times, and pass `npm test`
 
 **Checkpoint**: Foundational + US3 + US1 is the development MVP. It is testable through the direct runtime but is not releasable until the public v3 migration is complete.
 
@@ -173,7 +173,7 @@
 - [ ] T060 [US5] Compute tool-specific enumeration completeness and normalized search boundaries from actual traversal/result metadata in `src/explorer/repo-tools.mjs`
 - [ ] T061 [US5] Implement absence certificates, deterministic counts, strong negative/exhaustive gates, symbol definition/usage separation, flow transitions, impact categories, and comparison policy in `src/explorer/coverage.mjs` and `src/explorer/critic.mjs`
 - [ ] T062 [US5] Integrate certified bounded negative/refutation claims and compact public absence evidence while turning uncertified claims into gaps in `src/explorer/runtime.mjs` and `src/explorer/schemas.mjs`
-- [ ] T063 [US5] Add scoped-negative, truncated-all-usages, route-divergence, count/range, and historical-source cases to `benchmarks/trust-known-answer.json`, run the US5 independent fixture subset, and pass `npm test`
+- [ ] T063 [US5] Add scoped-negative, truncated-all-usages, route-divergence, count/range, and historical-source cases—including exact path/range-free `git_commit` projection without fabricated locations—to `benchmarks/trust-known-answer.json`, run the US5 independent fixture subset, and pass `npm test`
 
 **Checkpoint**: No negative or critical conclusion is stronger than its inspected boundary, source role, temporal role, and enumeration facts.
 

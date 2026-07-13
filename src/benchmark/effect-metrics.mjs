@@ -61,7 +61,7 @@ export async function computeCaseEffectMetrics({ result, repoRoot }) {
   };
 }
 
-// Replicates the snippet shape built at runtime.mjs readEvidenceSnippet():
+// Replicates the snippet shape built by runtime.mjs attachEvidenceMetadata():
 // "N: content" lines from a '\n'-split file, optional trailing
 // "... [snippet truncated]" marker, and a whole-snippet maxChars cut that can
 // truncate the final line mid-text (hence the prefix tolerance).
