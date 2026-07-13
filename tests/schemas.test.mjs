@@ -106,7 +106,10 @@ function assertStrictValidator(validate, validValue, { missingKey, makeInvalid }
 function parentHandoffV3Test(name, callback) {
   const schema = schemaModule.PARENT_HANDOFF_V3_SCHEMA;
   const validate = schemaModule.validateParentHandoffV3;
-  const partiallyImplemented = schema !== undefined || validate !== undefined;
+  const publicOutputMigrationStarted =
+    schemaModule.EXPLORE_REPO_OUTPUT_SCHEMA?.properties?.schemaVersion?.const === 3;
+  const partiallyImplemented =
+    schema !== undefined || validate !== undefined || publicOutputMigrationStarted;
   const register = partiallyImplemented ? test : test.todo;
   register(name, () => {
     assert.ok(schema, 'PARENT_HANDOFF_V3_SCHEMA is not implemented');
@@ -177,6 +180,40 @@ parentHandoffV3Test(
     assert.equal(schema.properties.targets.minItems, 1);
     assert.equal(schema.properties.evidence.minItems, 1);
     assert.equal(schema.properties.gaps.minItems, 1);
+
+    assert.equal(schema.oneOf?.length, 4,
+      'the public JSON Schema must discriminate all four states itself');
+    const branches = new Map(schema.oneOf.map(branch => [branch.properties?.state?.const, branch]));
+    const expectedBranches = {
+      complete: {
+        required: ['schemaVersion', 'directAnswer', 'state', 'evidence'],
+        optional: ['targets'],
+      },
+      verify_targets: {
+        required: ['schemaVersion', 'directAnswer', 'state', 'targets', 'evidence'],
+        optional: [],
+      },
+      incomplete: {
+        required: ['schemaVersion', 'state', 'gaps'],
+        optional: ['directAnswer', 'targets', 'evidence', 'followUp'],
+      },
+      failed: {
+        required: ['schemaVersion', 'directAnswer', 'state', 'failure'],
+        optional: [],
+      },
+    };
+    for (const [state, expected] of Object.entries(expectedBranches)) {
+      const branch = branches.get(state);
+      assert.ok(branch, `missing ${state} schema branch`);
+      assert.equal(branch.additionalProperties, false, `${state} branch must be strict`);
+      assert.deepEqual(new Set(branch.required), new Set(expected.required),
+        `${state} required fields drifted`);
+      assert.deepEqual(
+        new Set(Object.keys(branch.properties)),
+        new Set([...expected.required, ...expected.optional]),
+        `${state} allowed fields drifted`,
+      );
+    }
   },
 );
 
@@ -234,6 +271,11 @@ parentHandoffV3Test(
 
     assertV3Rejected(validate, { ...complete, directAnswer: '' }, 'complete needs an answer');
     assertV3Rejected(validate, { ...complete, evidence: [] }, 'complete needs evidence');
+    for (const required of ['directAnswer', 'evidence']) {
+      const invalid = structuredClone(complete);
+      delete invalid[required];
+      assertV3Rejected(validate, invalid, `complete requires ${required}`);
+    }
     assertV3Rejected(validate, { ...complete, gaps: incompleteWithPartial.gaps },
       'complete cannot expose gaps');
     assertV3Rejected(validate, { ...complete, followUp: incompleteWithPartial.followUp },
@@ -246,6 +288,11 @@ parentHandoffV3Test(
     assertV3Rejected(validate, verifyWithoutTargets, 'verify_targets needs targets');
     assertV3Rejected(validate, { ...verifyTargets, targets: [] },
       'verify_targets cannot return an empty target list');
+    for (const required of ['directAnswer', 'evidence']) {
+      const invalid = structuredClone(verifyTargets);
+      delete invalid[required];
+      assertV3Rejected(validate, invalid, `verify_targets requires ${required}`);
+    }
 
     const incompleteWithoutGaps = structuredClone(incompleteWithPartial);
     delete incompleteWithoutGaps.gaps;
@@ -264,6 +311,11 @@ parentHandoffV3Test(
       'all-blocked incomplete omits rather than empties directAnswer');
     assertV3Rejected(validate, { ...incompleteBlocked, failure: { reason: 'provider_error' } },
       'incomplete cannot expose a failure');
+    assert.doesNotThrow(() => validate({
+      schemaVersion: 3,
+      state: 'incomplete',
+      gaps: structuredClone(incompleteBlocked.gaps),
+    }), 'incomplete followUp is optional when no action would help');
 
     const failedWithoutAnswer = structuredClone(failed);
     delete failedWithoutAnswer.directAnswer;
@@ -271,6 +323,14 @@ parentHandoffV3Test(
     const failedWithoutFailure = structuredClone(failed);
     delete failedWithoutFailure.failure;
     assertV3Rejected(validate, failedWithoutFailure, 'failed needs failure data');
+    assertV3Rejected(validate, { ...failed, directAnswer: '' },
+      'failed directAnswer cannot be empty');
+    assertV3Rejected(validate, { ...failed, failure: null },
+      'failed failure cannot be null');
+    assertV3Rejected(validate, {
+      ...failed,
+      failure: { reason: 'provider_error', retry: null },
+    }, 'failed retry is omitted rather than null');
     for (const forbidden of ['targets', 'evidence', 'gaps', 'followUp']) {
       const invalid = structuredClone(failed);
       invalid[forbidden] = forbidden === 'followUp'
@@ -325,6 +385,24 @@ parentHandoffV3Test(
         requirement: 'Report the live deployment revision.',
       },
     }));
+
+    const toolActions = [
+      ['find_relevant_code', { query: 'Locate token validation.' }],
+      ['trace_symbol', { symbol: 'validateToken' }],
+      ['map_change_impact', { change: 'Change token validation.' }],
+      ['explain_code_path', { pathQuery: 'Trace request authentication.' }],
+      ['collect_evidence', { claim: 'The route validates tokens.' }],
+      ['explore_repo', {
+        task: 'Explain token validation.',
+        hints: { files: ['src/auth.mjs'], symbols: ['validateToken'], regex: ['validateToken'] },
+      }],
+    ];
+    for (const [tool, args] of toolActions) {
+      assert.doesNotThrow(() => validate({
+        ...incompleteBase,
+        followUp: { type: 'tool', tool, arguments: args },
+      }), tool);
+    }
     assert.doesNotThrow(() => validate({
       ...incompleteBase,
       followUp: {
@@ -333,6 +411,68 @@ parentHandoffV3Test(
         arguments: { symbol: 'validateToken', scope: ['src/auth/**'] },
       },
     }));
+
+    const requiredFieldCases = [
+      ['target.path', makeV3Complete({ targets: [makeV3Target()] }), 'targets', 0, 'path'],
+      ['target.role', makeV3Complete({ targets: [makeV3Target()] }), 'targets', 0, 'role'],
+      ['target.reason', makeV3Complete({ targets: [makeV3Target()] }), 'targets', 0, 'reason'],
+      ['source.path', makeV3Complete({ evidence: [source] }), 'evidence', 0, 'path'],
+      ['source.startLine', makeV3Complete({ evidence: [source] }), 'evidence', 0, 'startLine'],
+      ['source.endLine', makeV3Complete({ evidence: [source] }), 'evidence', 0, 'endLine'],
+      ['source.supports', makeV3Complete({ evidence: [source] }), 'evidence', 0, 'supports'],
+      ['git.sha', makeV3Complete({ evidence: [git] }), 'evidence', 0, 'sha'],
+      ['git.supports', makeV3Complete({ evidence: [git] }), 'evidence', 0, 'supports'],
+      ['absence.boundary', makeV3Complete({ evidence: [absence] }), 'evidence', 0, 'boundary'],
+      ['absence.searches', makeV3Complete({ evidence: [absence] }), 'evidence', 0, 'searches'],
+      ['absence.supports', makeV3Complete({ evidence: [absence] }), 'evidence', 0, 'supports'],
+      ['gap.question', structuredClone(incompleteBase), 'gaps', 0, 'question'],
+      ['gap.reason', structuredClone(incompleteBase), 'gaps', 0, 'reason'],
+    ];
+    for (const [label, value, collection, index, key] of requiredFieldCases) {
+      delete value[collection][index][key];
+      assertV3Rejected(validate, value, `${label} is required`);
+    }
+
+    for (const followUp of [
+      { type: 'ask_user' },
+      { type: 'external_verification' },
+      { type: 'tool', tool: 'explore_repo' },
+      { type: 'tool', arguments: { task: 'Search.' } },
+    ]) {
+      assertV3Rejected(validate, { ...incompleteBase, followUp },
+        'follow-up variants require their exact fields');
+    }
+
+    for (const [label, evidence] of [
+      ['source with git key', { ...source, sha: 'abc1234' }],
+      ['git with source key', { ...git, snippet: 'not allowed' }],
+      ['absence with git key', { ...absence, sha: 'abc1234' }],
+    ]) {
+      assertV3Rejected(validate, makeV3Complete({ evidence: [evidence] }), label);
+    }
+
+    for (const tool of ['review_change_context', 'explore']) {
+      assertV3Rejected(validate, {
+        ...incompleteBase,
+        followUp: { type: 'tool', tool, arguments: { task: 'Retry.' } },
+      }, `removed tool ${tool} is rejected`);
+    }
+    assertV3Rejected(validate, {
+      ...incompleteBase,
+      followUp: {
+        type: 'tool',
+        tool: 'trace_symbol',
+        arguments: { task: 'Wrong selected-tool arguments.' },
+      },
+    }, 'tool arguments must match the selected tool');
+    assertV3Rejected(validate, {
+      ...incompleteBase,
+      followUp: {
+        type: 'tool',
+        tool: 'explore_repo',
+        arguments: { task: 'Search.', hints: { strategy: 'breadth-first' } },
+      },
+    }, 'follow-up arguments cannot expose hints.strategy');
 
     const failureReasons = [
       'invalid_arguments',
@@ -412,6 +552,7 @@ parentHandoffV3Test(
       'v2 verification values are rejected');
     for (const field of [
       'status',
+      'verification',
       'confidence',
       'complete',
       'warnings',

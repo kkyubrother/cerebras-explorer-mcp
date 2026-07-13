@@ -260,7 +260,7 @@ function parentHandoffMcpTest(name, callback) {
   register(name, () => {
     assert.equal(typeof buildResponse, 'function',
       'buildParentHandoffResponse is not implemented');
-    callback(buildResponse);
+    return callback(buildResponse);
   });
 }
 
@@ -476,6 +476,63 @@ parentHandoffMcpTest(
         ...failed,
         failure: { reason: 'provider_error', retry },
       }));
+    }
+    for (const retry of [
+      { type: 'ask_user', question: 'Should this be retried?' },
+      {
+        type: 'external_verification',
+        requirement: 'Check the provider outside this explorer.',
+      },
+    ]) {
+      assert.throws(() => buildResponse({
+        ...failed,
+        failure: { reason: 'provider_error', retry },
+      }), 'failure.retry accepts tool actions only');
+    }
+  },
+);
+
+parentHandoffMcpTest(
+  'Spec 028 T037 — real core and wrapper tool calls use the quiet v3 projection',
+  async (buildResponse) => {
+    const repoRoot = await makeRepoFixture();
+    for (const [tool, args] of [
+      ['explore_repo', {
+        task: 'Trace users/me route authentication.',
+        repo_root: repoRoot,
+        scope: ['src/**'],
+      }],
+      ['find_relevant_code', {
+        query: 'Locate users/me route authentication.',
+        repo_root: repoRoot,
+        scope: ['src/**'],
+      }],
+    ]) {
+      const { handleRequest } = createMcpRequestHandler({
+        runtimeOptions: { chatClient: new MockChatClient() },
+      });
+      const called = await handleRequest({
+        jsonrpc: '2.0',
+        id: tool,
+        method: 'tools/call',
+        params: { name: tool, arguments: args },
+      });
+      const expectedEnvelope = buildResponse(structuredClone(called.structuredContent));
+      assert.deepEqual(called, expectedEnvelope,
+        `${tool} must route its actual result through buildParentHandoffResponse`);
+      assert.equal(called._meta, undefined, `${tool} must keep default _meta quiet`);
+      assert.equal(called.structuredContent.schemaVersion, 3);
+      for (const legacy of [
+        'status',
+        'evidenceQuality',
+        'searchCoverage',
+        'critic',
+        'nextAction',
+        'discoveredPaths',
+      ]) {
+        assert.equal(Object.hasOwn(called.structuredContent, legacy), false,
+          `${tool} must omit ${legacy}`);
+      }
     }
   },
 );
