@@ -479,12 +479,7 @@ const contractTest = test;
     }), 'failed', 'fatal control faults take precedence over valid partial limits');
   });
 
-  const goalAuditTest =
-    typeof coverageModule.preflightGoalProposals === 'function' &&
-    typeof coverageModule.reduceGoalAudit === 'function'
-      ? test
-      : test.todo;
-  // T021 must replace this feature gate with ordinary tests once both reducers exist.
+  const goalAuditTest = test;
 
   const GOAL_AUDIT_TASK = 'Trace authenticateUser and determine whether legacyLogin is absent.';
   const FULL_ORIGIN = `request:0-${GOAL_AUDIT_TASK.length}`;
@@ -637,6 +632,8 @@ const contractTest = test;
     });
     assert.equal(duplicateReduced.requiredSubgoals.some(goal => goal.id === 'SAME'), false,
       'auditor output cannot revive conflicting duplicate ids');
+    assert.equal(duplicateReduced.controlFault?.code, 'duplicate_id',
+      'ambiguous ids remain an explicit control fault for runtime recovery or failure');
 
     const invalid = goalProposal({ id: 'BAD-ready', originRefs: ['request:0-0'] });
     const invalidReduced = reduceAudit({
@@ -645,6 +642,83 @@ const contractTest = test;
     });
     assert.deepEqual(invalidReduced.requiredSubgoals, [],
       'an auditor cannot promote a goal excluded by deterministic origin checks');
+  });
+
+  goalAuditTest('Spec 028 T021 — incomplete audit sets and invalid merge graphs fail closed', () => {
+    const first = goalProposal();
+    const second = goalProposal({
+      id: 'S2',
+      question: 'Identify the authenticateUser declaration.',
+      originRefs: [TRACE_DEFINITION_SEED],
+    });
+    const checked = preflight([first, second]);
+
+    assert.throws(() => reduceAudit({
+      preflightResult: checked,
+      auditRecords: [auditRecord(first)],
+    }), /Missing audit record/);
+    assert.throws(() => reduceAudit({
+      preflightResult: checked,
+      auditRecords: [
+        auditRecord(first, 'ready', { missingRequestParts: ['An omitted request part.'] }),
+        auditRecord(second),
+      ],
+    }), /without structured uncovered parts/);
+    assert.throws(() => reduceAudit({
+      preflightResult: checked,
+      auditRecords: [
+        auditRecord(first, 'ready', { missingRequestParts: ['The omitted request part.'] }),
+        auditRecord(second),
+      ],
+      uncoveredRequestParts: [{
+        question: 'A different request part.',
+        originRefs: [LEGACY_ORIGIN],
+        claimType: 'absence',
+        proofCondition: 'Enumerate the bounded registration surface and certify absence.',
+        constraints: [],
+      }],
+    }), /without structured uncovered parts/);
+    assert.throws(() => reduceAudit({
+      preflightResult: checked,
+      auditRecords: [
+        auditRecord(first),
+        auditRecord(second),
+        auditRecord({ ...second, id: 'unknown' }),
+      ],
+    }), /unknown proposal/);
+    assert.throws(() => reduceAudit({
+      preflightResult: checked,
+      auditRecords: [
+        auditRecord(first, 'merge_duplicate', { mergeInto: first.id }),
+        auditRecord(second),
+      ],
+    }), /Invalid merge target/);
+    assert.throws(() => reduceAudit({
+      preflightResult: checked,
+      auditRecords: [
+        auditRecord(first, 'merge_duplicate', { mergeInto: second.id }),
+        auditRecord(second, 'merge_duplicate', { mergeInto: first.id }),
+      ],
+    }), /Circular audit merge/);
+    assert.throws(() => reduceAudit({
+      preflightResult: checked,
+      auditRecords: [
+        auditRecord(first, 'reject_untraceable', { originRefs: [] }),
+        auditRecord(second, 'merge_duplicate', { mergeInto: first.id }),
+      ],
+    }), /cannot target rejected proposal/);
+    assert.throws(() => reduceAudit({
+      preflightResult: checked,
+      auditRecords: [auditRecord(first), auditRecord(second)],
+      uncoveredRequestParts: [{
+        question: 'An uncovered request part.',
+        originRefs: ['request:900-999'],
+        claimType: 'positive',
+        proofCondition: 'Observe matching repository evidence.',
+        constraints: [],
+      }],
+      revisionCount: 1,
+    }), /Invalid uncovered request-part origin/);
   });
 
   goalAuditTest('Spec 028 T015 — mechanical and audited duplicates merge without losing origins or constraints', () => {
@@ -708,6 +782,12 @@ const contractTest = test;
         .map(item => item.proposedGoalId),
       ['S1', 'S2'],
     );
+    const repositoryStatus = preflight([goalProposal({
+      id: 'S-status',
+      proofCondition: 'Observe that migration status is complete in the in-scope config.',
+    })]);
+    assert.deepEqual(repositoryStatus.diagnostics, [],
+      'an observable repository status is not model self-verification');
 
     const reduced = reduceAudit({
       preflightResult: checked,
