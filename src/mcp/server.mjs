@@ -9,8 +9,9 @@ import {
   EXPLORE_REPO_INPUT_SCHEMA,
   EXPLORE_REPO_OUTPUT_SCHEMA,
   validateExploreRepoArgs,
+  validateParentHandoffV3,
 } from '../explorer/schemas.mjs';
-import { redactExploreResult, redactValue } from '../explorer/redact.mjs';
+import { redactValue } from '../explorer/redact.mjs';
 import { isTranscriptEnabled, isTranscriptRawMode } from '../explorer/transcript.mjs';
 import { StdioJsonRpcServer } from './jsonrpc-stdio.mjs';
 
@@ -452,6 +453,71 @@ function buildReviewChangeContextArgs(args) {
   };
 }
 
+const ACTION_ARGUMENT_LABEL = Object.freeze({
+  explore_repo: 'task',
+  find_relevant_code: 'query',
+  trace_symbol: 'symbol',
+  map_change_impact: 'change',
+  explain_code_path: 'pathQuery',
+  collect_evidence: 'claim',
+});
+
+function formatParentToolAction(prefix, action) {
+  const argumentKey = ACTION_ARGUMENT_LABEL[action.tool];
+  return `${prefix}: ${action.tool} — ${action.arguments[argumentKey]}`;
+}
+
+function formatParentTarget(target) {
+  const location = Number.isInteger(target.startLine)
+    ? `${target.path}:${target.startLine}${Number.isInteger(target.endLine) ? `-${target.endLine}` : ''}`
+    : target.path;
+  return `Target: ${location} — ${target.reason}`;
+}
+
+function formatParentHandoffText(handoff) {
+  if (handoff.state === 'complete') return handoff.directAnswer;
+
+  const lines = [];
+  if (handoff.directAnswer) {
+    lines.push(handoff.directAnswer, '');
+  }
+  lines.push(`State: ${handoff.state}`);
+
+  for (const target of handoff.targets ?? []) lines.push(formatParentTarget(target));
+  for (const gap of handoff.gaps ?? []) {
+    lines.push(`Gap: ${gap.question} — ${gap.reason}`);
+  }
+  if (handoff.followUp?.type === 'tool') {
+    lines.push(formatParentToolAction('Follow-up', handoff.followUp));
+  } else if (handoff.followUp?.type === 'ask_user') {
+    lines.push(`Follow-up: ${handoff.followUp.question}`);
+  } else if (handoff.followUp?.type === 'external_verification') {
+    lines.push(`Follow-up: ${handoff.followUp.requirement}`);
+  }
+  if (handoff.failure) {
+    lines.push(`Failure: ${handoff.failure.reason}`);
+    if (handoff.failure.retry) {
+      lines.push(formatParentToolAction('Retry', handoff.failure.retry));
+    }
+  }
+  return lines.join('\n');
+}
+
+/**
+ * Project a strict runtime-owned handoff into the only facts visible to the
+ * parent agent. Redaction precedes validation so text and structured output
+ * are generated from one identical safe value.
+ */
+export function buildParentHandoffResponse(parentHandoff) {
+  const safeHandoff = redactValue(parentHandoff).value;
+  validateParentHandoffV3(safeHandoff);
+  return {
+    ...(safeHandoff.state === 'failed' ? { isError: true } : {}),
+    content: [{ type: 'text', text: formatParentHandoffText(safeHandoff) }],
+    structuredContent: safeHandoff,
+  };
+}
+
 // ─── Request handler ────────────────────────────────────────────────────────
 
 export function createMcpRequestHandler({
@@ -478,71 +544,6 @@ export function createMcpRequestHandler({
         // Swallow errors — progress notification failure must not abort exploration.
       }
     };
-  }
-
-  /**
-   * Format explore_repo result as readable text for the parent model.
-   * Provides a scannable summary at the top with full JSON in a collapsible block.
-   */
-  function formatExploreResult(result) {
-    const lines = [];
-
-    lines.push(`## Result`);
-    lines.push(`Confidence: ${result.status?.confidence ?? 'unknown'}`);
-    if (result.status?.verification) lines.push(`Verification: ${result.status.verification}`);
-    if (result.evidenceQuality) {
-      lines.push(`Evidence Quality: ${result.evidenceQuality.level} (${result.evidenceQuality.exactCount} exact, ${result.evidenceQuality.partialCount} partial, ${result.evidenceQuality.droppedCount} dropped)`);
-    }
-    if (result.searchCoverage) {
-      lines.push(`Search Coverage: ${result.searchCoverage.summary}`);
-    }
-    if (result.trustSummary) lines.push(`Grounding: ${result.trustSummary}`);
-    lines.push('');
-
-    lines.push(`## Answer`);
-    lines.push(result.directAnswer || '(no answer)');
-
-    if (result.nextAction?.type && result.nextAction.type !== 'stop') {
-      lines.push('');
-      lines.push(`## Next Action`);
-      lines.push(`${result.nextAction.type}: ${result.nextAction.reason}`);
-    }
-
-    if (result.targets?.length > 0) {
-      lines.push('');
-      lines.push(`## Targets`);
-      for (const target of result.targets.slice(0, 12)) {
-        const location = target.startLine ? `${target.path}:${target.startLine}-${target.endLine}` : target.path;
-        const refs = target.evidenceRefs?.length ? ` (${target.evidenceRefs.join(', ')})` : '';
-        lines.push(`- [${target.role}] \`${location}\`${refs} - ${target.reason}`);
-      }
-      if (result.targets.length > 12) {
-        lines.push(`- ... and ${result.targets.length - 12} more targets`);
-      }
-    }
-
-    if (result.evidence?.length > 0) {
-      lines.push('');
-      lines.push(`## Evidence (${result.evidence.length} items, confidence: ${result.status?.confidence ?? 'unknown'})`);
-      for (const e of result.evidence.slice(0, 10)) {
-        const grounding = e.groundingStatus === 'exact' ? '' : ' [partial]';
-        const id = e.id ? `${e.id} ` : '';
-        lines.push(`- ${id}\`${e.path}:${e.startLine}-${e.endLine}\`${grounding} - ${e.why}`);
-      }
-      if (result.evidence.length > 10) {
-        lines.push(`- ... and ${result.evidence.length - 10} more evidence items`);
-      }
-    }
-
-    if (result.uncertainties?.length > 0) {
-      lines.push('');
-      lines.push(`## Uncertainty`);
-      for (const uncertainty of result.uncertainties) {
-        lines.push(`- ${uncertainty}`);
-      }
-    }
-
-    return lines.join('\n');
   }
 
   function formatOpsSummary({ tool, stats = {}, transcriptPath = null, raw = false, failureReason = '' }) {
@@ -630,22 +631,6 @@ export function createMcpRequestHandler({
     };
   }
 
-  function toAgentFacingCritic(result = {}) {
-    const warnings = Array.isArray(result.critic?.warnings)
-      ? result.critic.warnings
-      : [];
-    return {
-      status: result.critic?.status ?? (warnings.length > 0 ? 'caution' : 'pass'),
-      warnings: warnings.map(normalizeCriticWarning).filter(warning => warning.message),
-      droppedEvidence: Number.isInteger(result.critic?.droppedEvidence)
-        ? result.critic.droppedEvidence
-        : (result.evidenceQuality?.droppedCount ?? 0),
-      partialEvidence: Number.isInteger(result.critic?.partialEvidence)
-        ? result.critic.partialEvidence
-        : (result.evidenceQuality?.partialCount ?? 0),
-    };
-  }
-
   function buildHandledFailure({
     category,
     reason,
@@ -697,26 +682,26 @@ export function createMcpRequestHandler({
     };
   }
 
-  function toAgentFacingResult(result) {
-    return {
-      schemaVersion: result.schemaVersion ?? 2,
-      directAnswer: result.directAnswer || '',
-      status: result.status ?? {
-        confidence: 'low',
-        verification: 'broad_search_needed',
-        complete: false,
-        warnings: [],
-      },
-      targets: Array.isArray(result.targets) ? result.targets : [],
-      discoveredPaths: Array.isArray(result.discoveredPaths) ? result.discoveredPaths : [],
-      evidence: Array.isArray(result.evidence) ? result.evidence : [],
-      uncertainties: Array.isArray(result.uncertainties) ? result.uncertainties : [],
-      nextAction: result.nextAction ?? { type: 'stop', reason: '' },
-      evidenceQuality: result.evidenceQuality ?? defaultEvidenceQuality(result.trustSummary),
-      searchCoverage: result.searchCoverage ?? defaultSearchCoverage(),
-      critic: toAgentFacingCritic(result),
-      failure: result.failure ?? null,
-    };
+  function handledParentFailureResult({
+    reason,
+    message,
+    retryTool = null,
+    retryArgs = null,
+  }) {
+    const failure = { reason };
+    if (retryTool && retryArgs) {
+      failure.retry = {
+        type: 'tool',
+        tool: retryTool,
+        arguments: retryArgs,
+      };
+    }
+    return buildParentHandoffResponse({
+      schemaVersion: 3,
+      directAnswer: message,
+      state: 'failed',
+      failure,
+    });
   }
 
   function toAgentFacingFreeExploreResult(result) {
@@ -755,23 +740,13 @@ export function createMcpRequestHandler({
       });
       stats = result.stats;
       transcriptPath = result.transcriptPath ?? result.stats?.transcriptPath ?? null;
-      failureReason = result.failure?.reason ?? '';
-      const agentResult = redactExploreResult(toAgentFacingResult(result)).value;
-      // Spec 025: ops side-channel, symmetric with callFreeExploreTool. This is
-      // operational/eval metadata (spec 022 boundary), not the answer contract.
-      const ops = redactValue({ stats: stats ?? {}, transcriptPath }).value;
-      const failed = agentResult.failure !== null;
-      return {
-        ...(failed ? { isError: true } : {}),
-        content: [{
-          type: 'text',
-          text: failed
-            ? `${agentResult.directAnswer || agentResult.failure.message} [reason: ${agentResult.failure.reason}]`
-            : formatExploreResult(agentResult),
-        }],
-        structuredContent: agentResult,
-        _meta: { ops },
-      };
+      failureReason = result.parentHandoff?.failure?.reason ?? result.failure?.reason ?? '';
+      try {
+        return buildParentHandoffResponse(result.parentHandoff);
+      } catch (error) {
+        error.parentHandoffError = true;
+        throw error;
+      }
     } catch (error) {
       stats = error?.stats ?? stats;
       transcriptPath = error?.transcriptPath ?? transcriptPath;
@@ -781,6 +756,8 @@ export function createMcpRequestHandler({
           ? 'repo_mismatch'
         : error?.explorerFailureKind === 'provider'
           ? 'provider_error'
+        : error?.parentHandoffError
+          ? 'internal_error'
         : error?.failure?.reason ?? error?.reason ?? 'execution_failed';
       throw error;
     } finally {
@@ -814,17 +791,9 @@ export function createMcpRequestHandler({
       transcriptPath = result.transcriptPath ?? null;
       failureReason = result.failure?.reason ?? '';
       const safeResult = redactValue(toAgentFacingFreeExploreResult(result)).value;
-      const ops = redactValue({
-        stats: stats ?? {},
-        transcriptPath,
-        toolTrace: result.toolTrace ?? null,
-        filesRead: result.filesRead ?? [],
-        toolsUsed: result.toolsUsed ?? [],
-      }).value;
       return {
         content: [{ type: 'text', text: safeResult.report }],
         structuredContent: safeResult,
-        _meta: { ops },
       };
     } catch (error) {
       stats = error?.stats ?? stats;
@@ -929,8 +898,12 @@ export function createMcpRequestHandler({
           error.code = -32603;
           throw error;
         } catch (error) {
+          const parentTool = name !== 'explore';
+          const handledResult = parentTool
+            ? handledParentFailureResult
+            : handledFailureResult;
           if (error?.name === 'AbortError') {
-            return handledFailureResult({
+            return handledResult({
               category: 'execution',
               reason: 'aborted',
               message: `${name} was cancelled before completion.`,
@@ -938,7 +911,7 @@ export function createMcpRequestHandler({
             });
           }
           if (error.repoRootError) {
-            return handledFailureResult({
+            return handledResult({
               category: 'input',
               reason: 'repo_mismatch',
               message: `Unable to resolve repo_root for ${name}: ${error.message}`,
@@ -946,7 +919,7 @@ export function createMcpRequestHandler({
             });
           }
           if (error.code === -32602) {
-            return handledFailureResult({
+            return handledResult({
               category: 'input',
               reason: 'invalid_arguments',
               message: `Invalid arguments for ${name}: ${error.message}`,
@@ -957,10 +930,13 @@ export function createMcpRequestHandler({
             const retryScope = Array.isArray(args?.scope)
               ? args.scope.filter(item => typeof item === 'string').slice(0, 8)
               : [];
-            return handledFailureResult({
-              category: 'provider',
-              reason: 'provider_error',
-              message: `${name} execution failed because the provider was unavailable.`,
+            const parentProjectionFailure = parentTool && error?.parentHandoffError;
+            return handledResult({
+              category: parentProjectionFailure ? 'internal' : 'provider',
+              reason: parentProjectionFailure ? 'internal_error' : 'provider_error',
+              message: parentProjectionFailure
+                ? `${name} execution failed because its parent handoff was invalid.`
+                : `${name} execution failed because the provider was unavailable.`,
               retryTool: name === 'explore' ? 'explore' : 'explore_repo',
               hints: ['Retry after the provider recovers, or narrow the task and scope.'],
               // The retry recipe must match the target tool's input schema:

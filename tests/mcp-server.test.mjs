@@ -624,26 +624,16 @@ test('MCP request handler exposes explore_repo and returns structuredContent', a
     },
   });
 
-  assert.ok(['medium', 'high'].includes(called.structuredContent.status.confidence), `confidence must be medium or high, got: ${called.structuredContent.status.confidence}`);
+  assert.equal(called.structuredContent.schemaVersion, 3);
+  assert.equal(called.structuredContent.state, 'complete');
   assert.match(called.structuredContent.directAnswer, /requireAuth/);
   assert.equal(called.structuredContent.answer, undefined);
   assert.equal(called.structuredContent.candidatePaths, undefined);
   assert.equal(called.structuredContent.citations, undefined);
   assert.equal(called.structuredContent.stats, undefined);
-  assert.equal(called.structuredContent.status.verification, 'verified');
-  assert.equal(called.structuredContent.targets.length, 2);
-  assert.equal(called.structuredContent.evidence.length, 2);
-  assert.equal(called.structuredContent.schemaVersion, 2);
-  assert.equal(called.structuredContent.failure, null);
-  assert.ok(called.structuredContent.critic);
-  assert.ok(Array.isArray(called.structuredContent.critic.warnings));
-  assert.equal(called.structuredContent.evidenceQuality.level, called.structuredContent.status.confidence);
-  assert.equal(called.structuredContent.evidenceQuality.exactCount, 2);
-  assert.equal(called.structuredContent.evidenceQuality.fileCount, 2);
-  assert.deepEqual(called.structuredContent.searchCoverage.scope, ['src/**']);
-  assert.equal(called.structuredContent.searchCoverage.scopeLimited, true);
-  assert.equal(called.structuredContent.searchCoverage.omittedDiscoveredPaths, 0);
-  assert.ok(called.structuredContent.evidence.every(item => item.id && item.snippet), 'evidence must include ids and snippets');
+  assert.equal(called.structuredContent.evidence.length, 1,
+    'the parent receives only the minimal claim-cover evidence');
+  assert.ok(called.structuredContent.evidence.every(item => item.kind === 'source'));
   // spec 017: MCP response no longer exposes sessionId, session, or _debug.
   assert.equal(called.structuredContent.sessionId, undefined);
   assert.equal(called.structuredContent.session, undefined);
@@ -655,6 +645,12 @@ test('MCP request handler exposes explore_repo and returns structuredContent', a
   assert.equal(called.structuredContent.semanticVerification, undefined);
   assert.equal(called.structuredContent.plan_proposed, undefined);
   assert.equal(called.structuredContent.goal_audit, undefined);
+  assert.equal(called.structuredContent.status, undefined);
+  assert.equal(called.structuredContent.failure, undefined);
+  assert.equal(called.structuredContent.critic, undefined);
+  assert.equal(called.structuredContent.evidenceQuality, undefined);
+  assert.equal(called.structuredContent.searchCoverage, undefined);
+  assert.equal(called._meta, undefined);
   const serializedMcpResult = JSON.stringify(called);
   for (const sentinel of Object.values(rejectedSentinel)) {
     assert.equal(serializedMcpResult.includes(sentinel), false,
@@ -663,13 +659,15 @@ test('MCP request handler exposes explore_repo and returns structuredContent', a
   assert.doesNotMatch(serializedMcpResult,
     /taskContract|coverageGaps|rejectedGoals|observations|semanticVerification|runtimeAllowedEvidenceRefsBySubgoal|plan_proposed|goal_audit|plan_revised|goal_rejected|subgoal_state/);
   assert.match(called.content[0].text, /requireAuth/);
-  assert.match(called.content[0].text, /Evidence Quality/);
-  assert.match(called.content[0].text, /Search Coverage/);
-  assert.match(called.content[0].text, /## Targets/);
+  assert.equal(called.content[0].text, called.structuredContent.directAnswer);
+  assert.doesNotMatch(called.content[0].text, /Evidence Quality/);
+  assert.doesNotMatch(called.content[0].text, /Search Coverage/);
+  assert.doesNotMatch(called.content[0].text, /## Targets/);
   assert.doesNotMatch(called.content[0].text, /snippet:/);
   assert.doesNotMatch(called.content[0].text, /export function requireAuth/);
   assert.doesNotMatch(called.content[0].text, /FORGED_BY_MODEL/);
-  assert.ok(called.structuredContent.evidence.every(item => !item.snippet.includes('FORGED_BY_MODEL')), 'model-supplied snippets are not returned');
+  assert.ok(called.structuredContent.evidence.every(item =>
+    !JSON.stringify(item).includes('FORGED_BY_MODEL')), 'model-supplied snippets are not returned');
   assert.doesNotMatch(called.content[0].text, /## Stats/);
   assert.doesNotMatch(called.content[0].text, /Session:/);
 });
@@ -707,7 +705,8 @@ test('trace_symbol wrapper delegates through explore_repo and writes LOG_PATH tr
       },
     });
 
-    assert.equal(called.structuredContent.status.verification, 'verified');
+    assert.equal(called.structuredContent.schemaVersion, 3);
+    assert.equal(called.structuredContent.state, 'complete');
     const files = (await fs.readdir(logDir)).filter(name => name.endsWith('.jsonl'));
     assert.equal(files.length, 1);
 
@@ -995,8 +994,8 @@ test('explore returns Markdown text plus structured citations', async () => {
   assert.equal(called.structuredContent.stats, undefined);
   assert.equal(called.structuredContent.transcriptPath, undefined);
   assert.equal(called.structuredContent.toolTrace, undefined);
-  assert.ok(called._meta?.ops, 'operational diagnostics should be separated into MCP _meta');
-  assert.ok(called._meta.ops.stats);
+  assert.equal(called._meta, undefined,
+    'operational diagnostics stay in stderr/transcripts, not the parent response');
 });
 
 test('explore rejects removed thoroughness input', async () => {
@@ -1152,7 +1151,9 @@ test('collect_evidence wrapper uses evidence verification mode instead of edit r
     },
   });
 
-  assert.equal(called.structuredContent.status.verification, 'verified');
+  assert.equal(called.structuredContent.schemaVersion, 3);
+  assert.equal(called.structuredContent.state, 'complete');
+  assert.notEqual(called.structuredContent.state, 'verify_targets');
 });
 
 test('MCP request handler declares read-only annotations for the fixed 8-tool surface', async () => {
@@ -1211,11 +1212,11 @@ test('MCP request handler returns repo_root resolution errors without mislabelin
   assert.match(called.content[0].text, /Unable to resolve repo_root for explore_repo/);
   assert.match(called.content[0].text, new RegExp(normalizedRepoRoot.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   assert.doesNotMatch(called.content[0].text, /Invalid explore_repo arguments/);
-  assert.equal(called.structuredContent.failure.category, 'input');
   assert.equal(called.structuredContent.failure.reason, 'repo_mismatch');
   // F7: clients may surface only content text on isError and drop structuredContent,
   // so the machine-readable reason must also appear in the text.
-  assert.match(called.content[0].text, /reason: repo_mismatch/i);
+  assert.match(called.content[0].text, /Failure: repo_mismatch/i);
+  assert.equal(called._meta, undefined);
   assert.match(stderr.trim(), /tool=explore_repo .* failure=repo_mismatch$/);
 });
 
@@ -1238,11 +1239,11 @@ test('MCP request handler classifies generic invalid params as invalid_arguments
 
   assert.equal(called.isError, true);
   assert.match(called.content[0].text, /Invalid arguments for trace_symbol/);
-  assert.equal(called.structuredContent.schemaVersion, 2);
-  assert.equal(called.structuredContent.failure.category, 'input');
+  assert.equal(called.structuredContent.schemaVersion, 3);
+  assert.equal(called.structuredContent.state, 'failed');
   assert.equal(called.structuredContent.failure.reason, 'invalid_arguments');
-  assert.equal(called.structuredContent.failure.retry, null);
-  assert.equal(called.structuredContent.evidenceQuality.level, 'low');
+  assert.equal(called.structuredContent.failure.retry, undefined);
+  assert.equal(called._meta, undefined);
 });
 
 test('MCP request handler rejects unknown wrapper arguments before runtime execution', async (t) => {
@@ -1315,8 +1316,9 @@ test('MCP request handler rejects unknown wrapper arguments before runtime execu
       assert.match(called.content[0].text, new RegExp(`Invalid arguments for ${tool}`));
       assert.match(called.content[0].text, new RegExp(`Unknown ${tool} argument: ${unknownKey}`));
       assert.doesNotMatch(called.content[0].text, /runtime should not be invoked/);
-      assert.equal(called.structuredContent.failure.category, 'input');
       assert.equal(called.structuredContent.failure.reason, 'invalid_arguments');
+      assert.equal(called.structuredContent.schemaVersion, 3);
+      assert.equal(called.structuredContent.state, 'failed');
     });
   }
 });
@@ -1357,20 +1359,18 @@ test('MCP request handler returns execution failures for explore_repo without mi
   assert.doesNotMatch(called.content[0].text, /provider exploded/);
   assert.doesNotMatch(called.content[0].text, /Invalid explore_repo arguments/);
   assert.doesNotMatch(called.content[0].text, /Invalid arguments for explore_repo/);
-  assert.equal(called.structuredContent.schemaVersion, 2);
-  assert.equal(called.structuredContent.status.verification, 'broad_search_needed');
-  assert.equal(called.structuredContent.failure.category, 'provider');
+  assert.equal(called.structuredContent.schemaVersion, 3);
+  assert.equal(called.structuredContent.state, 'failed');
   assert.equal(called.structuredContent.failure.reason, 'provider_error');
+  assert.equal(called.structuredContent.failure.retry.type, 'tool');
   assert.equal(called.structuredContent.failure.retry.tool, 'explore_repo');
-  assert.deepEqual(called.structuredContent.failure.retry.args, {
+  assert.deepEqual(called.structuredContent.failure.retry.arguments, {
     task: 'Retry after the provider recovers, or narrow the task and scope.',
-    scope: [],
   });
-  assert.equal(
-    called.structuredContent.failure.retry.expectedImprovement,
-    'A provider recovery or narrower scope should reduce failure risk.',
-  );
-  assert.equal(called.structuredContent.evidenceQuality.level, 'low');
+  assert.equal(called.structuredContent.failure.retry.args, undefined);
+  assert.equal(called.structuredContent.failure.retry.hints, undefined);
+  assert.equal(called.structuredContent.failure.retry.expectedImprovement, undefined);
+  assert.equal(called._meta, undefined);
 });
 
 test('MCP request handler returns execution failures for other exposed tools as MCP errors', async () => {
@@ -1487,7 +1487,7 @@ test('MCP request handler sends progress notifications when progressToken is 0',
   );
 });
 
-test('explore_repo and wrappers expose _meta.ops without touching structuredContent (spec 025)', async () => {
+test('explore_repo and wrappers keep operational diagnostics out of the parent response', async () => {
   const repoRoot = await makeRepoFixture();
 
   for (const [toolName, args] of [
@@ -1510,11 +1510,7 @@ test('explore_repo and wrappers expose _meta.ops without touching structuredCont
       params: { name: toolName, arguments: args },
     });
 
-    assert.ok(called._meta?.ops, `${toolName} response must carry _meta.ops (spec 025)`);
-    assert.equal(typeof called._meta.ops.stats?.turns, 'number', `${toolName} ops.stats.turns`);
-    assert.equal(typeof called._meta.ops.stats?.toolCalls, 'number', `${toolName} ops.stats.toolCalls`);
-    assert.ok('transcriptPath' in called._meta.ops, `${toolName} ops.transcriptPath key`);
-    // FR-001 contract freeze: the side-channel must not leak into the answer payload.
+    assert.equal(called._meta, undefined, `${toolName} response must keep _meta quiet`);
     assert.equal(called.structuredContent.stats, undefined);
     assert.equal(called.structuredContent.transcriptPath, undefined);
     assert.equal(called.structuredContent._debug, undefined);

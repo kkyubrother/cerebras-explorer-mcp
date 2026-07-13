@@ -347,7 +347,7 @@ test('Spec 028 T038 — operational JSONL redacts v3 payload-shaped diagnostics'
   });
 });
 
-test('MCP explore_repo redacts provider-facing messages, content text, structuredContent, evidence, and debug', async () => {
+test('MCP explore_repo redacts provider-facing messages and strict v3 output without diagnostics', async () => {
   const repoRoot = await makeRepoFixture();
 
   class RedactionClient {
@@ -423,8 +423,10 @@ test('MCP explore_repo redacts provider-facing messages, content text, structure
   const serialized = JSON.stringify(called);
   assert.ok(!serialized.includes(OPENAI_KEY), 'MCP result must not include raw secret');
   assert.match(serialized, /\[REDACTED:openai-api-key\]/);
-  assert.equal(called.structuredContent.evidence[0].redacted, true);
-  assert.deepEqual(called.structuredContent.evidence[0].redactions, ['openai-api-key']);
+  assert.equal(called.structuredContent.schemaVersion, 3);
+  assert.equal(called.structuredContent.evidence[0].redacted, undefined);
+  assert.equal(called.structuredContent.evidence[0].redactions, undefined);
+  assert.equal(called._meta, undefined);
 });
 
 test('MCP explore Markdown reports are redacted', async () => {
