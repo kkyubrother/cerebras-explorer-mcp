@@ -291,38 +291,381 @@ const EVIDENCE_ITEM_SCHEMA = {
   required: ['path', 'startLine', 'endLine', 'why'],
 };
 
-export const EXPLORE_REPO_OUTPUT_SCHEMA = {
-  type: 'object',
-  additionalProperties: false,
-  required: [
-    'schemaVersion',
-    'directAnswer',
-    'status',
-    'targets',
-    'discoveredPaths',
-    'evidence',
-    'uncertainties',
-    'nextAction',
-    'evidenceQuality',
-    'searchCoverage',
-    'critic',
-    'failure',
-  ],
-  properties: {
-    schemaVersion: { type: 'integer', const: 2 },
-    directAnswer: { type: 'string' },
-    status: STATUS_SCHEMA,
-    targets: { type: 'array', items: TARGET_ITEM_SCHEMA },
-    discoveredPaths: { type: 'array', items: DISCOVERED_PATH_SCHEMA },
-    evidence: { type: 'array', items: EVIDENCE_ITEM_SCHEMA },
-    uncertainties: { type: 'array', items: { type: 'string' } },
-    nextAction: NEXT_ACTION_SCHEMA,
-    evidenceQuality: EVIDENCE_QUALITY_SCHEMA,
-    critic: CRITIC_SCHEMA,
-    failure: { anyOf: [{ type: 'null' }, FAILURE_SCHEMA] },
-    searchCoverage: SEARCH_COVERAGE_SCHEMA,
+function strictPublicObject(properties, required = []) {
+  return {
+    type: 'object',
+    additionalProperties: false,
+    properties,
+    required,
+  };
+}
+
+function nonEmptyPublicString(extra = {}) {
+  return { type: 'string', minLength: 1, ...extra };
+}
+
+function publicStringArray({ minItems } = {}) {
+  return {
+    type: 'array',
+    items: { type: 'string' },
+    ...(minItems === undefined ? {} : { minItems }),
+  };
+}
+
+const V3_TARGET_SCHEMA = strictPublicObject({
+  path: nonEmptyPublicString(),
+  startLine: { type: 'integer', minimum: 1 },
+  endLine: { type: 'integer', minimum: 1 },
+  role: { type: 'string', enum: ['read', 'edit', 'test', 'config'] },
+  reason: nonEmptyPublicString(),
+  evidenceRefs: {
+    type: 'array',
+    minItems: 1,
+    uniqueItems: true,
+    items: nonEmptyPublicString(),
   },
+}, ['path', 'role', 'reason']);
+
+const V3_SOURCE_EVIDENCE_SCHEMA = strictPublicObject({
+  id: nonEmptyPublicString(),
+  kind: { type: 'string', const: 'source' },
+  path: nonEmptyPublicString(),
+  startLine: { type: 'integer', minimum: 1 },
+  endLine: { type: 'integer', minimum: 1 },
+  supports: nonEmptyPublicString(),
+  snippet: nonEmptyPublicString(),
+}, ['kind', 'path', 'startLine', 'endLine', 'supports']);
+
+const V3_GIT_EVIDENCE_SCHEMA = strictPublicObject({
+  id: nonEmptyPublicString(),
+  kind: { type: 'string', const: 'git' },
+  sha: nonEmptyPublicString(),
+  path: nonEmptyPublicString(),
+  startLine: { type: 'integer', minimum: 1 },
+  endLine: { type: 'integer', minimum: 1 },
+  supports: nonEmptyPublicString(),
+}, ['kind', 'sha', 'supports']);
+
+const V3_ABSENCE_EVIDENCE_SCHEMA = strictPublicObject({
+  id: nonEmptyPublicString(),
+  kind: { type: 'string', const: 'absence' },
+  boundary: {
+    type: 'array',
+    minItems: 1,
+    uniqueItems: true,
+    items: nonEmptyPublicString(),
+  },
+  searches: {
+    type: 'array',
+    minItems: 1,
+    uniqueItems: true,
+    items: nonEmptyPublicString(),
+  },
+  supports: nonEmptyPublicString(),
+}, ['kind', 'boundary', 'searches', 'supports']);
+
+const V3_EVIDENCE_SCHEMA = {
+  oneOf: [
+    V3_SOURCE_EVIDENCE_SCHEMA,
+    V3_GIT_EVIDENCE_SCHEMA,
+    V3_ABSENCE_EVIDENCE_SCHEMA,
+  ],
 };
+
+const V3_GAP_SCHEMA = strictPublicObject({
+  question: nonEmptyPublicString(),
+  reason: nonEmptyPublicString(),
+}, ['question', 'reason']);
+
+const PUBLIC_SCOPE_SCHEMA = publicStringArray();
+const PUBLIC_KNOWN_FILES_SCHEMA = publicStringArray();
+const PUBLIC_KNOWN_SYMBOLS_SCHEMA = publicStringArray();
+const PUBLIC_KNOWN_TEXT_SCHEMA = publicStringArray();
+
+const V3_EXPLORE_REPO_ARGUMENT_SCHEMA = strictPublicObject({
+  task: nonEmptyPublicString(),
+  repo_root: nonEmptyPublicString(),
+  scope: PUBLIC_SCOPE_SCHEMA,
+  hints: strictPublicObject({
+    symbols: PUBLIC_KNOWN_SYMBOLS_SCHEMA,
+    files: PUBLIC_KNOWN_FILES_SCHEMA,
+    regex: publicStringArray(),
+  }),
+  language: nonEmptyPublicString(),
+}, ['task']);
+
+const V3_FIND_RELEVANT_CODE_ARGUMENT_SCHEMA = strictPublicObject({
+  query: nonEmptyPublicString(),
+  repo_root: nonEmptyPublicString(),
+  scope: PUBLIC_SCOPE_SCHEMA,
+  knownFiles: PUBLIC_KNOWN_FILES_SCHEMA,
+  knownSymbols: PUBLIC_KNOWN_SYMBOLS_SCHEMA,
+  knownText: PUBLIC_KNOWN_TEXT_SCHEMA,
+}, ['query']);
+
+const V3_TRACE_SYMBOL_ARGUMENT_SCHEMA = strictPublicObject({
+  symbol: nonEmptyPublicString(),
+  repo_root: nonEmptyPublicString(),
+  scope: PUBLIC_SCOPE_SCHEMA,
+}, ['symbol']);
+
+const V3_MAP_CHANGE_IMPACT_ARGUMENT_SCHEMA = strictPublicObject({
+  change: nonEmptyPublicString(),
+  repo_root: nonEmptyPublicString(),
+  scope: PUBLIC_SCOPE_SCHEMA,
+  knownFiles: PUBLIC_KNOWN_FILES_SCHEMA,
+  knownSymbols: PUBLIC_KNOWN_SYMBOLS_SCHEMA,
+}, ['change']);
+
+const V3_EXPLAIN_CODE_PATH_ARGUMENT_SCHEMA = strictPublicObject({
+  pathQuery: nonEmptyPublicString(),
+  repo_root: nonEmptyPublicString(),
+  scope: PUBLIC_SCOPE_SCHEMA,
+  entryPoint: nonEmptyPublicString(),
+  knownFiles: PUBLIC_KNOWN_FILES_SCHEMA,
+  knownSymbols: PUBLIC_KNOWN_SYMBOLS_SCHEMA,
+}, ['pathQuery']);
+
+const V3_COLLECT_EVIDENCE_ARGUMENT_SCHEMA = strictPublicObject({
+  claim: nonEmptyPublicString(),
+  repo_root: nonEmptyPublicString(),
+  scope: PUBLIC_SCOPE_SCHEMA,
+  knownFiles: PUBLIC_KNOWN_FILES_SCHEMA,
+  knownSymbols: PUBLIC_KNOWN_SYMBOLS_SCHEMA,
+  knownText: PUBLIC_KNOWN_TEXT_SCHEMA,
+}, ['claim']);
+
+export const PUBLIC_TOOL_ARGUMENT_SCHEMAS = Object.freeze({
+  find_relevant_code: V3_FIND_RELEVANT_CODE_ARGUMENT_SCHEMA,
+  trace_symbol: V3_TRACE_SYMBOL_ARGUMENT_SCHEMA,
+  map_change_impact: V3_MAP_CHANGE_IMPACT_ARGUMENT_SCHEMA,
+  explain_code_path: V3_EXPLAIN_CODE_PATH_ARGUMENT_SCHEMA,
+  collect_evidence: V3_COLLECT_EVIDENCE_ARGUMENT_SCHEMA,
+  explore_repo: V3_EXPLORE_REPO_ARGUMENT_SCHEMA,
+});
+
+const V3_TOOL_ACTION_SCHEMA = {
+  oneOf: Object.entries(PUBLIC_TOOL_ARGUMENT_SCHEMAS).map(([tool, argumentSchema]) =>
+    strictPublicObject({
+      type: { type: 'string', const: 'tool' },
+      tool: { type: 'string', const: tool },
+      arguments: argumentSchema,
+    }, ['type', 'tool', 'arguments'])),
+};
+
+const V3_ASK_USER_ACTION_SCHEMA = strictPublicObject({
+  type: { type: 'string', const: 'ask_user' },
+  question: nonEmptyPublicString(),
+}, ['type', 'question']);
+
+const V3_EXTERNAL_VERIFICATION_ACTION_SCHEMA = strictPublicObject({
+  type: { type: 'string', const: 'external_verification' },
+  requirement: nonEmptyPublicString(),
+}, ['type', 'requirement']);
+
+const V3_FOLLOW_UP_SCHEMA = {
+  oneOf: [
+    V3_TOOL_ACTION_SCHEMA,
+    V3_ASK_USER_ACTION_SCHEMA,
+    V3_EXTERNAL_VERIFICATION_ACTION_SCHEMA,
+  ],
+};
+
+const V3_FAILURE_SCHEMA = strictPublicObject({
+  reason: {
+    type: 'string',
+    enum: [
+      'invalid_arguments',
+      'repo_mismatch',
+      'aborted',
+      'provider_error',
+      'tool_failure',
+      'verifier_error',
+      'access_denied',
+      'internal_error',
+    ],
+  },
+  retry: V3_TOOL_ACTION_SCHEMA,
+}, ['reason']);
+
+const V3_PARENT_PROPERTIES = {
+  schemaVersion: { type: 'integer', const: 3 },
+  directAnswer: nonEmptyPublicString(),
+  state: {
+    type: 'string',
+    enum: ['complete', 'verify_targets', 'incomplete', 'failed'],
+  },
+  targets: { type: 'array', minItems: 1, items: V3_TARGET_SCHEMA },
+  evidence: { type: 'array', minItems: 1, items: V3_EVIDENCE_SCHEMA },
+  gaps: { type: 'array', minItems: 1, items: V3_GAP_SCHEMA },
+  followUp: V3_FOLLOW_UP_SCHEMA,
+  failure: V3_FAILURE_SCHEMA,
+};
+
+function parentStateProperties(state, keys) {
+  const properties = Object.fromEntries(keys.map(key => [key, V3_PARENT_PROPERTIES[key]]));
+  properties.state = { type: 'string', const: state };
+  return properties;
+}
+
+const V3_COMPLETE_STATE_SCHEMA = strictPublicObject(
+  parentStateProperties('complete', [
+    'schemaVersion', 'directAnswer', 'state', 'targets', 'evidence',
+  ]),
+  ['schemaVersion', 'directAnswer', 'state', 'evidence'],
+);
+
+const V3_VERIFY_TARGETS_STATE_SCHEMA = strictPublicObject(
+  parentStateProperties('verify_targets', [
+    'schemaVersion', 'directAnswer', 'state', 'targets', 'evidence',
+  ]),
+  ['schemaVersion', 'directAnswer', 'state', 'targets', 'evidence'],
+);
+
+const V3_INCOMPLETE_NO_PARTIAL_SCHEMA = strictPublicObject(
+  parentStateProperties('incomplete', [
+    'schemaVersion', 'state', 'targets', 'gaps', 'followUp',
+  ]),
+  ['schemaVersion', 'state', 'gaps'],
+);
+
+const V3_INCOMPLETE_WITH_PARTIAL_SCHEMA = strictPublicObject(
+  parentStateProperties('incomplete', [
+    'schemaVersion', 'directAnswer', 'state', 'targets', 'evidence', 'gaps', 'followUp',
+  ]),
+  ['schemaVersion', 'directAnswer', 'state', 'evidence', 'gaps'],
+);
+
+const V3_INCOMPLETE_STATE_SCHEMA = {
+  ...strictPublicObject(
+    parentStateProperties('incomplete', [
+      'schemaVersion', 'directAnswer', 'state', 'targets', 'evidence', 'gaps', 'followUp',
+    ]),
+    ['schemaVersion', 'state', 'gaps'],
+  ),
+  oneOf: [V3_INCOMPLETE_NO_PARTIAL_SCHEMA, V3_INCOMPLETE_WITH_PARTIAL_SCHEMA],
+};
+
+const V3_FAILED_STATE_SCHEMA = strictPublicObject(
+  parentStateProperties('failed', ['schemaVersion', 'directAnswer', 'state', 'failure']),
+  ['schemaVersion', 'directAnswer', 'state', 'failure'],
+);
+
+export const PARENT_HANDOFF_V3_SCHEMA = {
+  ...strictPublicObject(V3_PARENT_PROPERTIES, ['schemaVersion', 'state']),
+  oneOf: [
+    V3_COMPLETE_STATE_SCHEMA,
+    V3_VERIFY_TARGETS_STATE_SCHEMA,
+    V3_INCOMPLETE_STATE_SCHEMA,
+    V3_FAILED_STATE_SCHEMA,
+  ],
+};
+
+export const EXPLORE_REPO_OUTPUT_SCHEMA = PARENT_HANDOFF_V3_SCHEMA;
+
+function failPublicValidation(path, message) {
+  throw new TypeError(`${path}: ${message}`);
+}
+
+function validatePublicSchemaValue(schema, value, path = 'ParentHandoffV3') {
+  if (!schema || typeof schema !== 'object') {
+    failPublicValidation(path, 'invalid schema node');
+  }
+
+  if (Array.isArray(schema.oneOf)) {
+    let matches = 0;
+    const errors = [];
+    for (const branch of schema.oneOf) {
+      try {
+        validatePublicSchemaValue(branch, value, path);
+        matches += 1;
+      } catch (error) {
+        errors.push(error?.message ?? String(error));
+      }
+    }
+    if (matches !== 1) {
+      failPublicValidation(
+        path,
+        `expected exactly one schema branch, matched ${matches}; ${errors[0] ?? 'no branch detail'}`,
+      );
+    }
+  }
+
+  switch (schema.type) {
+    case undefined:
+      break;
+    case 'object': {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        failPublicValidation(path, 'expected an object');
+      }
+      const prototype = Object.getPrototypeOf(value);
+      if (prototype !== Object.prototype && prototype !== null) {
+        failPublicValidation(path, 'expected a plain object');
+      }
+      for (const key of schema.required ?? []) {
+        if (!Object.hasOwn(value, key)) {
+          failPublicValidation(path, `missing required property ${key}`);
+        }
+      }
+      const allowedKeys = new Set(Object.keys(schema.properties ?? {}));
+      if (schema.additionalProperties === false) {
+        for (const key of Reflect.ownKeys(value)) {
+          if (typeof key !== 'string' || !allowedKeys.has(key)) {
+            failPublicValidation(path, `unexpected property ${String(key)}`);
+          }
+        }
+      }
+      for (const [key, childSchema] of Object.entries(schema.properties ?? {})) {
+        if (Object.hasOwn(value, key)) {
+          validatePublicSchemaValue(childSchema, value[key], `${path}.${key}`);
+        }
+      }
+      break;
+    }
+    case 'array': {
+      if (!Array.isArray(value)) failPublicValidation(path, 'expected an array');
+      if (schema.minItems !== undefined && value.length < schema.minItems) {
+        failPublicValidation(path, `expected at least ${schema.minItems} item(s)`);
+      }
+      if (schema.uniqueItems === true) {
+        const fingerprints = value.map(item => JSON.stringify(item));
+        if (new Set(fingerprints).size !== fingerprints.length) {
+          failPublicValidation(path, 'expected unique items');
+        }
+      }
+      for (let index = 0; index < value.length; index += 1) {
+        validatePublicSchemaValue(schema.items, value[index], `${path}[${index}]`);
+      }
+      break;
+    }
+    case 'string':
+      if (typeof value !== 'string') failPublicValidation(path, 'expected a string');
+      if (schema.minLength !== undefined && value.length < schema.minLength) {
+        failPublicValidation(path, `expected at least ${schema.minLength} character(s)`);
+      }
+      break;
+    case 'integer':
+      if (!Number.isSafeInteger(value)) failPublicValidation(path, 'expected a safe integer');
+      if (schema.minimum !== undefined && value < schema.minimum) {
+        failPublicValidation(path, `expected a value >= ${schema.minimum}`);
+      }
+      break;
+    default:
+      failPublicValidation(path, `unsupported schema type ${schema.type}`);
+  }
+
+  if (schema.const !== undefined && !Object.is(value, schema.const)) {
+    failPublicValidation(path, `expected constant ${String(schema.const)}`);
+  }
+  if (Array.isArray(schema.enum) && !schema.enum.includes(value)) {
+    failPublicValidation(path, 'value is not in the allowed enum');
+  }
+  return value;
+}
+
+export function validateParentHandoffV3(value) {
+  return validatePublicSchemaValue(PARENT_HANDOFF_V3_SCHEMA, value);
+}
 
 export const EXPLORE_RESULT_JSON_SCHEMA = {
   name: 'explore_repo_result',

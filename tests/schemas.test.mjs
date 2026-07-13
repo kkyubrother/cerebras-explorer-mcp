@@ -100,18 +100,10 @@ function assertStrictValidator(validate, validValue, { missingKey, makeInvalid }
     'invalid enum/type values must be rejected at runtime');
 }
 
-// T036 lands before the public schema implementation in T040. Keeping the
-// contract tests as expected-red TODOs preserves a green task commit while
-// making any partial v3 implementation fail immediately.
 function parentHandoffV3Test(name, callback) {
   const schema = schemaModule.PARENT_HANDOFF_V3_SCHEMA;
   const validate = schemaModule.validateParentHandoffV3;
-  const publicOutputMigrationStarted =
-    schemaModule.EXPLORE_REPO_OUTPUT_SCHEMA?.properties?.schemaVersion?.const === 3;
-  const partiallyImplemented =
-    schema !== undefined || validate !== undefined || publicOutputMigrationStarted;
-  const register = partiallyImplemented ? test : test.todo;
-  register(name, () => {
+  test(name, () => {
     assert.ok(schema, 'PARENT_HANDOFF_V3_SCHEMA is not implemented');
     assert.equal(typeof validate, 'function', 'validateParentHandoffV3 is not implemented');
     callback(schema, validate);
@@ -1298,74 +1290,41 @@ test('validateExploreRepoArgs rejects unknown hint keys', () => {
   );
 });
 
-test('agent-facing output schema is compact and exposes directAnswer, status, targets, snippets', () => {
+test('agent-facing output is v3 while model synthesis remains an internal compact contract', () => {
   assert.equal(EXPLORE_REPO_OUTPUT_SCHEMA.additionalProperties, false);
-  assert.deepEqual(EXPLORE_REPO_OUTPUT_SCHEMA.required, [
-    'schemaVersion',
-    'directAnswer',
+  assert.deepEqual(EXPLORE_REPO_OUTPUT_SCHEMA.required, ['schemaVersion', 'state']);
+  assert.equal(EXPLORE_REPO_OUTPUT_SCHEMA.properties.schemaVersion.const, 3);
+  assert.ok(EXPLORE_REPO_OUTPUT_SCHEMA.properties.directAnswer);
+  assert.ok(EXPLORE_REPO_OUTPUT_SCHEMA.properties.state);
+  assert.ok(EXPLORE_REPO_OUTPUT_SCHEMA.properties.targets);
+  assert.ok(EXPLORE_REPO_OUTPUT_SCHEMA.properties.evidence);
+  assert.ok(EXPLORE_REPO_OUTPUT_SCHEMA.properties.gaps);
+  assert.ok(EXPLORE_REPO_OUTPUT_SCHEMA.properties.followUp);
+  assert.ok(EXPLORE_REPO_OUTPUT_SCHEMA.properties.failure);
+  for (const removed of [
     'status',
-    'targets',
     'discoveredPaths',
-    'evidence',
     'uncertainties',
     'nextAction',
     'evidenceQuality',
     'searchCoverage',
     'critic',
-    'failure',
-  ]);
-  assert.equal(EXPLORE_REPO_OUTPUT_SCHEMA.properties.schemaVersion.const, 2);
-  assert.ok(EXPLORE_REPO_OUTPUT_SCHEMA.properties.directAnswer);
-  assert.ok(EXPLORE_REPO_OUTPUT_SCHEMA.properties.status);
-  assert.ok(EXPLORE_REPO_OUTPUT_SCHEMA.properties.targets);
-  assert.ok(EXPLORE_REPO_OUTPUT_SCHEMA.properties.evidence.items.properties.snippet);
-  assert.ok(EXPLORE_REPO_OUTPUT_SCHEMA.properties.evidenceQuality);
-  assert.ok(EXPLORE_REPO_OUTPUT_SCHEMA.properties.critic);
-  assert.deepEqual(EXPLORE_REPO_OUTPUT_SCHEMA.properties.critic.required, [
-    'status',
-    'warnings',
-    'droppedEvidence',
-    'partialEvidence',
-  ]);
-  assert.ok(EXPLORE_REPO_OUTPUT_SCHEMA.properties.failure);
-  assert.ok(EXPLORE_REPO_OUTPUT_SCHEMA.properties.failure.anyOf[1].properties.reason.enum.includes('invalid_arguments'));
-  const retrySchema = EXPLORE_REPO_OUTPUT_SCHEMA.properties.failure.anyOf[1].properties.retry.anyOf[1];
-  assert.ok(retrySchema.properties.args);
-  assert.ok(retrySchema.properties.expectedImprovement);
-  assert.equal(retrySchema.properties.args.additionalProperties, false);
-  assert.equal(
-    retrySchema.properties.args.properties.hints.properties.strategy,
-    undefined,
-    'failure.retry.args must not expose advanced hints.strategy',
-  );
-  // spec 017: session / sessionId / _debug were removed from the response
-  // envelope along with the invalid_session failure reason.
-  assert.equal(EXPLORE_REPO_OUTPUT_SCHEMA.properties.sessionId, undefined);
-  assert.equal(EXPLORE_REPO_OUTPUT_SCHEMA.properties.session, undefined);
-  assert.equal(EXPLORE_REPO_OUTPUT_SCHEMA.properties._debug, undefined);
-  assert.ok(
-    !EXPLORE_REPO_OUTPUT_SCHEMA.properties.failure.anyOf[1].properties.reason.enum.includes('invalid_session'),
-    'invalid_session is no longer a recognised failure reason',
-  );
-  // spec 017: input schema also drops the session parameter.
+    'sessionId',
+    'session',
+    '_debug',
+  ]) {
+    assert.equal(EXPLORE_REPO_OUTPUT_SCHEMA.properties[removed], undefined, removed);
+  }
   assert.equal(EXPLORE_REPO_INPUT_SCHEMA.properties.session, undefined);
-  assert.ok(EXPLORE_REPO_OUTPUT_SCHEMA.properties.searchCoverage);
-  assert.deepEqual(EXPLORE_REPO_OUTPUT_SCHEMA.properties.searchCoverage.required, [
-    'scope',
-    'scopeLimited',
-    'filesRead',
-    'grepCalls',
-    'listDirCalls',
-    'symbolCalls',
-    'toolResultsTruncated',
-    'stoppedByBudget',
-    'omittedDiscoveredPaths',
-    'warnings',
-    'summary',
+
+  assert.deepEqual(EXPLORE_RESULT_JSON_SCHEMA.schema.required, [
+    'directAnswer',
+    'status',
+    'targets',
+    'evidence',
+    'uncertainties',
+    'nextAction',
   ]);
-  assert.equal(EXPLORE_REPO_OUTPUT_SCHEMA.properties.answer, undefined);
-  assert.equal(EXPLORE_REPO_OUTPUT_SCHEMA.properties.candidatePaths, undefined);
-  assert.equal(EXPLORE_REPO_OUTPUT_SCHEMA.properties.followups, undefined);
   assert.equal(EXPLORE_RESULT_JSON_SCHEMA.schema.properties.schemaVersion, undefined);
   assert.equal(EXPLORE_RESULT_JSON_SCHEMA.schema.properties.evidenceQuality, undefined);
   assert.equal(EXPLORE_RESULT_JSON_SCHEMA.schema.properties.failure, undefined);
