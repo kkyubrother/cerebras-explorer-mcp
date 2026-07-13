@@ -5,12 +5,14 @@ import * as schemaModule from '../src/explorer/schemas.mjs';
 import {
   ABSENCE_CERTIFICATE_SCHEMA,
   ATOMIC_CLAIM_SCHEMA,
+  CLAIM_SYNTHESIS_SCHEMA,
   EXPLORE_REPO_INPUT_SCHEMA,
   EXPLORE_REPO_OUTPUT_SCHEMA,
   EXPLORE_RESULT_JSON_SCHEMA,
   GOAL_AUDIT_RECORD_SCHEMA,
   RETRY_SCHEMA,
   SAFETY_LIMIT_SCHEMA,
+  SEMANTIC_VERIFIER_RESPONSE_SCHEMA,
   SEMANTIC_VERDICT_SCHEMA,
   TASK_CONTRACT_SCHEMA,
   computeConfidenceScore,
@@ -18,9 +20,11 @@ import {
   reconcileConfidence,
   validateAbsenceCertificate,
   validateAtomicClaim,
+  validateClaimSynthesisResponse,
   validateExploreRepoArgs,
   validateGoalAuditRecord,
   validateSafetyLimit,
+  validateSemanticVerifierResponse,
   validateSemanticVerdict,
   validateTaskContract,
 } from '../src/explorer/schemas.mjs';
@@ -548,12 +552,14 @@ internalSchemaTest(
     assertStrictObjectTree(schema, 'SEMANTIC_VERDICT_SCHEMA');
     assertSchemaKeys(schema, {
       required: ['claimId', 'result', 'supportingEvidenceRefs', 'reasonCode', 'note'],
+      optional: ['resolution'],
     }, 'SEMANTIC_VERDICT_SCHEMA');
     assertStringArraySchema(schema.properties.supportingEvidenceRefs,
       'SEMANTIC_VERDICT_SCHEMA.supportingEvidenceRefs');
     assertStringProperties(schema, [
       'claimId',
       'result',
+      'resolution',
       'reasonCode',
       'note',
     ], 'SEMANTIC_VERDICT_SCHEMA');
@@ -562,6 +568,7 @@ internalSchemaTest(
       'insufficient',
       'contradicted',
     ]);
+    assert.deepEqual(schema.properties.resolution.enum, ['affirmed', 'refuted']);
     assert.deepEqual(schema.properties.reasonCode.enum, [
       'entailed',
       'semantic_mismatch',
@@ -578,6 +585,7 @@ internalSchemaTest(
     assertStrictValidator(validate, {
       claimId: 'C1',
       result: 'supported',
+      resolution: 'affirmed',
       supportingEvidenceRefs: ['E1'],
       reasonCode: 'entailed',
       note: 'The cited implementation directly supports the claim.',
@@ -585,6 +593,100 @@ internalSchemaTest(
       missingKey: 'claimId',
       makeInvalid: value => { value.reasonCode = 'confident'; },
     });
+
+    const missingResolution = {
+      claimId: 'C1',
+      result: 'supported',
+      supportingEvidenceRefs: ['E1'],
+      reasonCode: 'entailed',
+      note: 'Supported without a runtime resolution.',
+    };
+    assert.throws(() => validate(missingResolution));
+    assert.throws(() => validate({
+      ...missingResolution,
+      result: 'insufficient',
+      resolution: 'affirmed',
+      supportingEvidenceRefs: [],
+      reasonCode: 'semantic_mismatch',
+    }));
+  },
+);
+
+internalSchemaTest(
+  CLAIM_SYNTHESIS_SCHEMA,
+  validateClaimSynthesisResponse,
+  'Spec 028 T028 — claim synthesis emits references, never model-authored verdicts or evidence facts',
+  (schema, validate) => {
+    assertStrictObjectTree(schema, 'CLAIM_SYNTHESIS_SCHEMA');
+    assertSchemaKeys(schema, { required: ['claims'] }, 'CLAIM_SYNTHESIS_SCHEMA');
+    assert.equal(schema.properties.claims.type, 'array');
+    const claimSchema = schema.properties.claims.items;
+    assertSchemaKeys(claimSchema, {
+      required: ['id', 'subgoalId', 'text', 'evidenceRefs'],
+    }, 'CLAIM_SYNTHESIS_SCHEMA.claims.items');
+    assertStringArraySchema(claimSchema.properties.evidenceRefs,
+      'CLAIM_SYNTHESIS_SCHEMA.claims.items.evidenceRefs');
+    assert.equal(claimSchema.properties.evidenceRefs.minItems, undefined,
+      'provider-facing strict schemas must avoid unsupported minItems');
+    for (const forbidden of ['verdict', 'evidence', 'snippet', 'matchCount', 'complete']) {
+      assert.equal(claimSchema.properties[forbidden], undefined);
+    }
+
+    const valid = {
+      claims: [{
+        id: 'C1',
+        subgoalId: 'S1',
+        text: 'requireAuth is defined in src/auth.js.',
+        evidenceRefs: ['E1'],
+      }],
+    };
+    assertStrictValidator(validate, valid, {
+      missingKey: 'claims',
+      makeInvalid: value => { value.claims = 'not-an-array'; },
+    });
+    assert.throws(() => validate({
+      claims: [{ ...valid.claims[0], verdict: 'supported' }],
+    }));
+    assert.throws(() => validate({
+      claims: [{ ...valid.claims[0], evidenceRefs: [] }],
+    }), 'local validation must reject empty evidence references');
+  },
+);
+
+internalSchemaTest(
+  SEMANTIC_VERIFIER_RESPONSE_SCHEMA,
+  validateSemanticVerifierResponse,
+  'Spec 028 T028 — verifier can return verdicts and goal proposals but cannot rewrite claims',
+  (schema, validate) => {
+    assertStrictObjectTree(schema, 'SEMANTIC_VERIFIER_RESPONSE_SCHEMA');
+    assertSchemaKeys(schema, {
+      required: ['verdicts', 'uncoveredRequestParts'],
+    }, 'SEMANTIC_VERIFIER_RESPONSE_SCHEMA');
+    assert.equal(schema.properties.verdicts.items, SEMANTIC_VERDICT_SCHEMA);
+    assert.equal(schema.properties.uncoveredRequestParts.type, 'array');
+    for (const forbidden of ['claims', 'directAnswer', 'evidence', 'confidence']) {
+      assert.equal(schema.properties[forbidden], undefined);
+    }
+
+    const valid = {
+      verdicts: [{
+        claimId: 'C1',
+        result: 'supported',
+        resolution: 'affirmed',
+        supportingEvidenceRefs: ['E1'],
+        reasonCode: 'entailed',
+        note: 'The rebuilt source entails the existing claim.',
+      }],
+      uncoveredRequestParts: [],
+    };
+    assertStrictValidator(validate, valid, {
+      missingKey: 'verdicts',
+      makeInvalid: value => { value.uncoveredRequestParts = false; },
+    });
+    assert.throws(() => validate({
+      ...valid,
+      verdicts: [{ ...valid.verdicts[0], text: 'A rewritten claim.' }],
+    }));
   },
 );
 
@@ -1005,6 +1107,8 @@ test('Spec 028 T020 — provider control schemas avoid unsupported validation ke
   for (const [label, root] of [
     ['PLANNER_PROPOSAL_SCHEMA', schemaModule.PLANNER_PROPOSAL_SCHEMA],
     ['GOAL_AUDITOR_RESPONSE_SCHEMA', schemaModule.GOAL_AUDITOR_RESPONSE_SCHEMA],
+    ['CLAIM_SYNTHESIS_SCHEMA', schemaModule.CLAIM_SYNTHESIS_SCHEMA],
+    ['SEMANTIC_VERIFIER_RESPONSE_SCHEMA', schemaModule.SEMANTIC_VERIFIER_RESPONSE_SCHEMA],
   ]) {
     const pending = [root];
     while (pending.length > 0) {

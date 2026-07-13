@@ -761,9 +761,24 @@ export const ATOMIC_CLAIM_SCHEMA = strictInternalObject({
   ]),
 }, ['id', 'subgoalId', 'text', 'evidenceRefs', 'verdict']);
 
+const SYNTHESIZED_CLAIM_SCHEMA = strictInternalObject({
+  id: internalString(),
+  subgoalId: internalString(),
+  text: internalString(),
+  evidenceRefs: internalStringArray(),
+}, ['id', 'subgoalId', 'text', 'evidenceRefs']);
+
+export const CLAIM_SYNTHESIS_SCHEMA = strictInternalObject({
+  claims: {
+    type: 'array',
+    items: SYNTHESIZED_CLAIM_SCHEMA,
+  },
+}, ['claims']);
+
 export const SEMANTIC_VERDICT_SCHEMA = strictInternalObject({
   claimId: internalString(),
   result: internalString(['supported', 'insufficient', 'contradicted']),
+  resolution: internalString(['affirmed', 'refuted']),
   supportingEvidenceRefs: internalStringArray(),
   reasonCode: internalString([
     'entailed',
@@ -777,6 +792,17 @@ export const SEMANTIC_VERDICT_SCHEMA = strictInternalObject({
   ]),
   note: internalString(),
 }, ['claimId', 'result', 'supportingEvidenceRefs', 'reasonCode', 'note']);
+
+export const SEMANTIC_VERIFIER_RESPONSE_SCHEMA = strictInternalObject({
+  verdicts: {
+    type: 'array',
+    items: SEMANTIC_VERDICT_SCHEMA,
+  },
+  uncoveredRequestParts: {
+    type: 'array',
+    items: LATE_UNCOVERED_PROPOSAL_SCHEMA,
+  },
+}, ['verdicts', 'uncoveredRequestParts']);
 
 export const ABSENCE_CERTIFICATE_SCHEMA = strictInternalObject({
   id: internalString(),
@@ -1061,8 +1087,52 @@ export function validateAtomicClaim(value) {
   return validateInternalEntity(ATOMIC_CLAIM_SCHEMA, 'AtomicClaim', value);
 }
 
+export function validateClaimSynthesisResponse(value) {
+  const validated = validateInternalEntity(
+    CLAIM_SYNTHESIS_SCHEMA,
+    'ClaimSynthesisResponse',
+    value,
+  );
+  for (let index = 0; index < validated.claims.length; index += 1) {
+    if (validated.claims[index].evidenceRefs.length === 0) {
+      failInternalValidation(
+        `ClaimSynthesisResponse.claims[${index}].evidenceRefs`,
+        'expected at least one evidence reference',
+      );
+    }
+  }
+  return validated;
+}
+
+function validateSemanticVerdictRules(value, path) {
+  const hasResolution = Object.prototype.hasOwnProperty.call(value, 'resolution');
+  if (value.result === 'supported' && !hasResolution) {
+    failInternalValidation(path, 'supported verdict requires resolution');
+  }
+  if (value.result !== 'supported' && hasResolution) {
+    failInternalValidation(path, 'resolution is allowed only for supported verdicts');
+  }
+}
+
 export function validateSemanticVerdict(value) {
-  return validateInternalEntity(SEMANTIC_VERDICT_SCHEMA, 'SemanticVerdict', value);
+  const validated = validateInternalEntity(SEMANTIC_VERDICT_SCHEMA, 'SemanticVerdict', value);
+  validateSemanticVerdictRules(validated, 'SemanticVerdict');
+  return validated;
+}
+
+export function validateSemanticVerifierResponse(value) {
+  const validated = validateInternalEntity(
+    SEMANTIC_VERIFIER_RESPONSE_SCHEMA,
+    'SemanticVerifierResponse',
+    value,
+  );
+  for (let index = 0; index < validated.verdicts.length; index += 1) {
+    validateSemanticVerdictRules(
+      validated.verdicts[index],
+      `SemanticVerifierResponse.verdicts[${index}]`,
+    );
+  }
+  return validated;
 }
 
 export function validateAbsenceCertificate(value) {
