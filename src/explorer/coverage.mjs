@@ -423,6 +423,21 @@ function uniqueStrings(values) {
   return [...new Set(values)];
 }
 
+function sameStringMembers(left, right) {
+  if (!Array.isArray(left) || !Array.isArray(right)) return false;
+  const leftSet = new Set(left);
+  const rightSet = new Set(right);
+  return leftSet.size === rightSet.size && [...leftSet].every(item => rightSet.has(item));
+}
+
+function sameRequiredPart(left, right) {
+  return left?.question === right?.question &&
+    left?.claimType === right?.claimType &&
+    left?.proofCondition === right?.proofCondition &&
+    sameStringMembers(left?.originRefs, right?.originRefs) &&
+    sameStringMembers(left?.constraints, right?.constraints);
+}
+
 function cloneGoalProposal(value) {
   return {
     id: value.id,
@@ -843,6 +858,152 @@ export function reduceGoalAudit(input) {
     revisionRequest,
     diagnostics: [...(preflight.diagnostics ?? [])],
     controlFault: preflight.controlFault ?? null,
+  };
+}
+
+/**
+ * Register an already-audited verifier proposal without trusting the verifier
+ * to author state, ids, priorities, or repair eligibility. Ready late goals
+ * have no evidence yet, so they become uncovered-request gaps. The runtime
+ * phase determines whether the single repair round is still available.
+ */
+export function integrateAuditedLateGoals(input) {
+  const value = requireObject(input, 'Late goal integration');
+  const taskContract = requireObject(value.taskContract, 'Late goal integration.taskContract');
+  const auditResult = requireObject(value.auditResult, 'Late goal integration.auditResult');
+  if (!Array.isArray(taskContract.subgoals) || !Array.isArray(taskContract.constraints)) {
+    throw new TypeError('Late goal integration requires a valid task contract.');
+  }
+  if (!Array.isArray(value.coverageGaps) || !Array.isArray(value.rejectedGoals) ||
+      !Array.isArray(auditResult.requiredSubgoals) || !Array.isArray(auditResult.gaps) ||
+      !Array.isArray(auditResult.rejectedGoals)) {
+    throw new TypeError('Late goal integration requires gap, rejection, and audit arrays.');
+  }
+  if (value.phase !== 'initial' && value.phase !== 'post-repair') {
+    throw new TypeError('Late goal integration.phase must be initial or post-repair.');
+  }
+  if (auditResult.revisionRequest !== null) {
+    throw new TypeError('Late goal integration cannot request another planner revision.');
+  }
+
+  const existingSubgoals = taskContract.subgoals.map(subgoal => ({
+    ...requireObject(subgoal, 'Existing required sub-goal'),
+    originRefs: Array.isArray(subgoal.originRefs) ? [...subgoal.originRefs] : [],
+    constraints: Array.isArray(subgoal.constraints) ? [...subgoal.constraints] : [],
+    claimRefs: Array.isArray(subgoal.claimRefs) ? [...subgoal.claimRefs] : [],
+  }));
+  const rejectedGoals = [
+    ...value.rejectedGoals,
+    ...auditResult.rejectedGoals,
+  ].map(record => ({
+    ...requireObject(record, 'Rejected goal record'),
+    ...(Array.isArray(record.originRefs) ? { originRefs: [...record.originRefs] } : {}),
+    ...(Array.isArray(record.missingRequestParts)
+      ? { missingRequestParts: [...record.missingRequestParts] }
+      : {}),
+  }));
+  const rejectedGoalIds = new Set();
+  for (const record of rejectedGoals) {
+    if (typeof record.proposedGoalId !== 'string' || !record.proposedGoalId ||
+        rejectedGoalIds.has(record.proposedGoalId)) {
+      throw new TypeError('Rejected goal records require unique non-empty proposal ids.');
+    }
+    rejectedGoalIds.add(record.proposedGoalId);
+  }
+  const usedSubgoalIds = new Set([
+    ...existingSubgoals.map(subgoal => subgoal.id),
+    ...rejectedGoalIds,
+  ]);
+  const existingGaps = value.coverageGaps.map(cloneCoverageGap);
+  const usedGapIds = new Set(existingGaps.map(gap => gap.id));
+  const auditGapBySubgoal = new Map();
+  for (const rawGap of auditResult.gaps) {
+    const gap = cloneCoverageGap(requireObject(rawGap, 'Audited late gap'));
+    if (typeof gap.subgoalId !== 'string' || !gap.subgoalId ||
+        auditGapBySubgoal.has(gap.subgoalId) || usedGapIds.has(gap.id)) {
+      throw new TypeError('Audited late gaps require unique ids and sub-goal links.');
+    }
+    auditGapBySubgoal.set(gap.subgoalId, gap);
+    usedGapIds.add(gap.id);
+  }
+
+  const lateSubgoals = [];
+  const lateGaps = [];
+  for (const [index, rawSubgoal] of auditResult.requiredSubgoals.entries()) {
+    const subgoal = {
+      ...requireObject(rawSubgoal, 'Audited late sub-goal'),
+      originRefs: Array.isArray(rawSubgoal.originRefs) ? [...rawSubgoal.originRefs] : [],
+      constraints: Array.isArray(rawSubgoal.constraints) ? [...rawSubgoal.constraints] : [],
+      claimRefs: Array.isArray(rawSubgoal.claimRefs) ? [...rawSubgoal.claimRefs] : [],
+    };
+    if (typeof subgoal.id !== 'string' || !subgoal.id || usedSubgoalIds.has(subgoal.id)) {
+      throw new TypeError(`Audited late sub-goal ${index} has a duplicate or invalid id.`);
+    }
+    usedSubgoalIds.add(subgoal.id);
+
+    if ([...existingSubgoals, ...lateSubgoals].some(existing =>
+      sameRequiredPart(existing, subgoal))) {
+      auditGapBySubgoal.delete(subgoal.id);
+      continue;
+    }
+
+    if (subgoal.auditVerdict === 'ready' && subgoal.state === 'audited') {
+      if (auditGapBySubgoal.has(subgoal.id)) {
+        throw new TypeError(`Ready late sub-goal ${subgoal.id} cannot already have a gap.`);
+      }
+      const baseGapId = `uncovered-gap:${subgoal.id}`;
+      let gapId = baseGapId;
+      let suffix = 2;
+      while (usedGapIds.has(gapId)) {
+        gapId = `${baseGapId}-${suffix}`;
+        suffix += 1;
+      }
+      usedGapIds.add(gapId);
+      const gap = createCoverageGap({
+        id: gapId,
+        subgoalId: subgoal.id,
+        question: subgoal.question,
+        reason: 'uncovered_request',
+        repairable: value.phase === 'initial',
+      }, {
+        requestOrder: requestOrder(subgoal.originRefs, existingSubgoals.length + index),
+        proofPolicy: subgoal.proofPolicy,
+      });
+      const exploring = transitionSubgoal(subgoal, 'exploring');
+      lateSubgoals.push(transitionSubgoal(exploring, 'gap', {
+        gapRef: gap.id,
+        missingEvidence: true,
+      }));
+      lateGaps.push(gap);
+      continue;
+    }
+
+    if (subgoal.state !== 'blocked') {
+      throw new TypeError(`Audited late sub-goal ${subgoal.id} has invalid state ${subgoal.state}.`);
+    }
+    const gap = auditGapBySubgoal.get(subgoal.id);
+    if (!gap) {
+      throw new TypeError(`Blocked late sub-goal ${subgoal.id} requires a terminal gap.`);
+    }
+    auditGapBySubgoal.delete(subgoal.id);
+    lateSubgoals.push(subgoal);
+    lateGaps.push(gap);
+  }
+  if (auditGapBySubgoal.size > 0) {
+    throw new TypeError('Audited late gaps must belong to registered late sub-goals.');
+  }
+
+  return {
+    taskContract: {
+      ...taskContract,
+      constraints: uniqueStrings([
+        ...taskContract.constraints,
+        ...lateSubgoals.flatMap(subgoal => subgoal.constraints),
+      ]),
+      subgoals: [...existingSubgoals, ...lateSubgoals],
+    },
+    coverageGaps: [...existingGaps, ...lateGaps],
+    rejectedGoals,
   };
 }
 

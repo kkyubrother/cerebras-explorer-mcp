@@ -9,7 +9,11 @@ import { ExplorerRuntime as RuntimeImplementation, estimateTokens } from '../src
 import { buildExplorerSystemPrompt, buildFreeExploreSystemPrompt, buildFinalizePrompt, detectStrategy, buildExplorerUserPrompt, STRATEGY_DESCRIPTIONS } from '../src/explorer/prompt.mjs';
 import { getRuntimeConfig } from '../src/explorer/config.mjs';
 import { RepoToolkit } from '../src/explorer/repo-tools.mjs';
-import { fingerprintAction } from '../src/explorer/coverage.mjs';
+import {
+  createRequiredSubgoal,
+  createTaskContract,
+  fingerprintAction,
+} from '../src/explorer/coverage.mjs';
 import { adaptLegacyGoalAuditClient } from './helpers/legacy-goal-audit-client.mjs';
 
 function hasGit() {
@@ -6327,47 +6331,251 @@ test('Spec 028 T030 — isolated semantic controls reduce claims without trustin
   ]);
 });
 
-test('Spec 028 T030 — verifier uncovered proposals fail closed until T031 audits them', async () => {
-  const goal = definitionAndAbsenceGoals()[0];
-  const claim = candidateClaim(
-    'C-definition', goal.id, 'requireAuth is defined in src/auth.js.', ['E1']);
-  const proposal = {
-    question: 'Which route registration needs another authentication check?',
-    originRefs: [requestOrigin(GOAL_AUDIT_TASK, 'Locate requireAuth')],
-    claimType: 'positive',
-    proofCondition: 'Observe the requested route registration.',
-    constraints: [],
-  };
-  const steps = buildTrustSteps({
-    goals: [goal],
-    initial: {
-      tools: [{
-        tool: 'repo_read_file',
-        args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
-        id: 'read-auth',
-      }],
-      claims: [claim],
-      verdicts: [semanticVerdict(claim.id, 'supported', ['E1'])],
-      uncovered: [proposal],
+test('Spec 028 T031 — verifier proposals are audited once without re-planning or parent leakage', async t => {
+  const fixtures = [
+    {
+      name: 'ready proposal becomes an initial repair candidate',
+      verdict: 'ready',
+      expectedReason: 'uncovered_request',
+      expectedState: 'gap',
+      repairable: true,
     },
-  });
-  const claimStage = steps.findIndex(step => step.stage === 'claim_synthesis:1');
-  steps.splice(claimStage, 0, {
-    stage: 'synthesis:1',
-    value: readyExplorationResult(),
-  });
-  const root = await makeRepoFixture();
-  const client = new ScriptedGoalAuditClient(steps);
-  const runtime = new RuntimeImplementation({ chatClient: client });
+    {
+      name: 'untraceable proposal is discarded',
+      verdict: 'reject_untraceable',
+    },
+    {
+      name: 'scope blocker becomes a terminal required gap',
+      verdict: 'blocked_scope',
+      expectedReason: 'scope_blocked',
+      expectedState: 'blocked',
+      repairable: false,
+    },
+    {
+      name: 'undecomposed proposal becomes a terminal planning gap',
+      verdict: 'needs_decomposition',
+      expectedReason: 'planning_incomplete',
+      expectedState: 'blocked',
+      repairable: false,
+    },
+  ];
 
-  await assert.rejects(runtime.explore({
-    task: GOAL_AUDIT_TASK,
+  for (const fixture of fixtures) {
+    await t.test(fixture.name, async () => {
+      const goal = definitionAndAbsenceGoals()[0];
+      const claim = candidateClaim(
+        'C-definition', goal.id, 'requireAuth is defined in src/auth.js.', ['E1']);
+      const proposal = {
+        question: fixture.verdict === 'reject_untraceable'
+          ? 'Which unrelated cache should be rewritten?'
+          : 'Which requested authentication check still needs repository evidence?',
+        originRefs: [requestOrigin(GOAL_AUDIT_TASK, 'Locate requireAuth')],
+        claimType: 'positive',
+        proofCondition: 'Observe the requested authentication evidence.',
+        constraints: [],
+      };
+      const steps = buildTrustSteps({
+        goals: [goal],
+        initial: {
+          tools: [{
+            tool: 'repo_read_file',
+            args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+            id: 'read-auth',
+          }],
+          claims: [claim],
+          verdicts: [semanticVerdict(claim.id, 'supported', ['E1'])],
+          uncovered: [proposal],
+          auditVerdict: fixture.verdict,
+        },
+      });
+      const claimStage = steps.findIndex(step => step.stage === 'claim_synthesis:1');
+      steps.splice(claimStage, 0, {
+        stage: 'synthesis:1',
+        value: readyExplorationResult(),
+      });
+
+      const { client, result } = await runTrustScript(steps);
+
+      assert.equal(client.stageCounts.get('planner'), 1);
+      assert.equal(client.stageCounts.get('goal_audit'), 2);
+      assert.equal(client.stageCounts.get('semantic_verifier'), 1);
+      const lateAuditRequest = client.requests[client.stageLabels.indexOf('goal_audit:2')];
+      assert.deepEqual(parseControlPacket(lateAuditRequest).proposals.map(item => item.id), [
+        'late-uncovered:initial:1',
+      ]);
+      if (fixture.verdict === 'reject_untraceable') {
+        assertNoRequiredLeak(result, proposal.question);
+        assert.deepEqual(result.rejectedGoals.map(item => item.proposedGoalId), [
+          'late-uncovered:initial:1',
+        ]);
+      } else {
+        const lateGoal = result.taskContract.subgoals.find(item =>
+          item.id === 'late-uncovered:initial:1');
+        const gap = result.coverageGaps.find(item => item.subgoalId === lateGoal?.id);
+        assert.ok(lateGoal);
+        assert.ok(gap);
+        assert.equal(lateGoal.state, fixture.expectedState);
+        assert.equal(gap.reason, fixture.expectedReason);
+        assert.equal(gap.repairable, fixture.repairable);
+      }
+      assert.equal(result.failure, null);
+    });
+  }
+});
+
+test('Spec 028 T031 — proposals from every verifier batch enter one late audit ledger', async () => {
+  const task = 'Inspect every requested authentication facet in the repository.';
+  const goals = Array.from({ length: 13 }, (_, index) => trustGoal(task, {
+    id: `S-batch-${index + 1}`,
+    question: `Inspect requested authentication facet ${index + 1}.`,
+    originText: task,
+  }));
+
+  class BatchedVerifierClient {
+    constructor() {
+      this.model = 'zai-glm-4.7';
+      this.stageCounts = new Map();
+      this.lateAuditBatches = [];
+    }
+
+    async createChatCompletion(request) {
+      const stage = classifyControlRequest(request);
+      const count = (this.stageCounts.get(stage) ?? 0) + 1;
+      this.stageCounts.set(stage, count);
+
+      if (stage === 'planner') return controlCompletion(plannerControl(goals));
+      if (stage === 'goal_audit') {
+        const proposals = parseControlPacket(request).proposals;
+        if (proposals.every(goal => goal.id.startsWith('late-uncovered:'))) {
+          this.lateAuditBatches.push(proposals.map(goal => goal.id));
+        }
+        return controlCompletion(auditorControl(
+          proposals.map(goal => auditControlRecord(goal)),
+        ));
+      }
+      if (stage === 'exploration') {
+        return count === 1
+          ? toolControlCompletion(
+              'repo_read_file',
+              { path: 'src/auth.js', startLine: 1, endLine: 4 },
+              'batch-read',
+            )
+          : controlCompletion('Evidence collection complete.');
+      }
+      if (stage === 'synthesis') return controlCompletion(readyExplorationResult());
+      if (stage === 'claim_synthesis') {
+        const batchGoals = parseControlPacket(request).control.requiredSubgoals;
+        return controlCompletion({
+          claims: batchGoals.map(goal => candidateClaim(
+            `C-${goal.id}`,
+            goal.id,
+            `Observed source evidence for ${goal.question}`,
+            ['E1'],
+          )),
+        });
+      }
+      if (stage === 'semantic_verifier') {
+        const claims = parseControlPacket(request).claims;
+        return controlCompletion(verifierResponse(
+          claims.map(claim => semanticVerdict(claim.id, 'supported', ['E1'])),
+          [{
+            question: `Inspect verifier batch ${count} follow-up requirement.`,
+            originRefs: [`request:0-${task.length}`],
+            claimType: 'positive',
+            proofCondition: `Observe repository evidence for verifier batch ${count}.`,
+            constraints: [],
+          }],
+        ));
+      }
+      assert.fail(`unexpected stage ${stage}`);
+    }
+  }
+
+  const root = await makeRepoFixture();
+  const client = new BatchedVerifierClient();
+  const runtime = new RuntimeImplementation({ chatClient: client });
+  const result = await runtime.explore({
+    task,
     repo_root: root,
     scope: ['src/**'],
-  }), error => error?.code === 'ERR_INVALID_GOAL_CONTROL' &&
-    /semantic_verifier_uncovered/.test(error.message));
-  assert.equal(client.stageCounts.get('semantic_verifier'), 1,
-    'a valid uncovered proposal must not be retried away');
+  });
+
+  assert.equal(client.stageCounts.get('planner'), 1);
+  assert.equal(client.stageCounts.get('semantic_verifier'), 2);
+  assert.deepEqual(client.lateAuditBatches, [[
+    'late-uncovered:initial:1',
+    'late-uncovered:initial:2',
+  ]], 'all verifier batches must be collected before one isolated late audit');
+  assert.deepEqual(result.taskContract.subgoals
+    .filter(goal => goal.id.startsWith('late-uncovered:'))
+    .map(goal => goal.state), ['gap', 'gap']);
+  assert.deepEqual(result.coverageGaps
+    .filter(gap => gap.reason === 'uncovered_request')
+    .map(gap => gap.repairable), [true, true]);
+});
+
+test('Spec 028 T031 — post-repair verifier proposals use the same audit and stay terminal', async () => {
+  const task = 'Locate requireAuth and inspect its requested route registration.';
+  const existing = createRequiredSubgoal({
+    id: 'S-existing',
+    question: 'Where is requireAuth defined?',
+    originRefs: [requestOrigin(task, 'Locate requireAuth')],
+    claimType: 'symbol_definition',
+    proofCondition: 'Observe the in-scope definition and source body.',
+    constraints: [],
+    auditVerdict: 'ready',
+  });
+  const taskContract = createTaskContract({
+    task,
+    effectiveScope: ['src/**'],
+    constraints: [],
+    subgoals: [existing],
+    plannerVersion: 'planner-v1',
+    goalAuditVersion: 'goal-audit-v1',
+  });
+  const stages = [];
+  const client = {
+    model: 'zai-glm-4.7',
+    async createChatCompletion(request) {
+      stages.push(classifyControlRequest(request));
+      return lateAuditResponse(request, 'ready');
+    },
+  };
+  const runtime = new RuntimeImplementation({ chatClient: client });
+  const result = await runtime._auditVerifierGoalProposals({
+    task,
+    effectiveScope: ['src/**'],
+    wrapperTool: 'explore_repo',
+    taskContract,
+    coverageGaps: [],
+    rejectedGoals: [{
+      proposedGoalId: 'late-uncovered:post-repair:1',
+      verdict: 'reject_untraceable',
+      originRefs: [],
+      missingRequestParts: [],
+      reason: 'Previously rejected.',
+    }],
+    uncoveredRequestParts: [{
+      question: 'Which requested route registration still needs inspection?',
+      originRefs: [requestOrigin(task, 'inspect its requested route registration')],
+      claimType: 'positive',
+      proofCondition: 'Observe current route registration source.',
+      constraints: [],
+    }],
+    phase: 'post-repair',
+  });
+
+  assert.deepEqual(stages, ['goal_audit']);
+  const lateGoal = result.taskContract.subgoals.find(goal =>
+    goal.id === 'late-uncovered:post-repair:2');
+  assert.ok(lateGoal, 'runtime ids must avoid prior rejected-goal ids');
+  assert.equal(lateGoal.state, 'gap');
+  const gap = result.coverageGaps.find(item => item.subgoalId === lateGoal.id);
+  assert.equal(gap.reason, 'uncovered_request');
+  assert.equal(gap.repairable, false);
+  assert.deepEqual(result.rejectedGoals.map(goal => goal.proposedGoalId), [
+    'late-uncovered:post-repair:1',
+  ]);
 });
 
 semanticPipelineRuntimeTest('Spec 028 T026 — verifier input is isolated and gates semantic mismatch', async () => {

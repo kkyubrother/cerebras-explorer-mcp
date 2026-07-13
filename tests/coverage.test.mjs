@@ -9,6 +9,7 @@ import {
   createTaskContract,
   deriveGapPriority,
   fingerprintAction,
+  integrateAuditedLateGoals,
   mergeSafetyLimit,
   reduceTrustState,
   transitionSubgoal,
@@ -192,6 +193,171 @@ const contractTest = test;
     assert.deepEqual(gap.followUp.scope, ['src/explorer']);
     assert.deepEqual(gap.attemptedActionFingerprints, [],
       'attempt history starts empty and is populated only by runtime actions');
+  });
+
+  contractTest('Spec 028 T031 — audited late goals become bounded initial or terminal gaps', () => {
+    const existing = createSupportedSubgoal();
+    const taskContract = createTaskContract({
+      task: 'Locate the definition and inspect the requested route registration.',
+      effectiveScope: ['src/**'],
+      constraints: [],
+      subgoals: [existing],
+      plannerVersion: 'planner-v1',
+      goalAuditVersion: 'goal-audit-v1',
+    });
+    const ready = createRequiredSubgoal({
+      id: 'late-uncovered:initial:1',
+      question: 'Which requested route registration still needs inspection?',
+      originRefs: ['request:26-66'],
+      claimType: 'positive',
+      proofCondition: 'Observe the requested route registration in current source.',
+      constraints: ['Remain within src/**.'],
+      auditVerdict: 'ready',
+    });
+    const blockedGap = createCoverageGap({
+      id: 'audit-gap:late-blocked',
+      subgoalId: 'late-blocked',
+      question: 'What does the deployed route currently execute?',
+      reason: 'external_state_required',
+      repairable: false,
+    }, { requestOrder: 1, proofPolicy: 'direct_source' });
+    const blocked = createRequiredSubgoal({
+      id: 'late-blocked',
+      question: blockedGap.question,
+      originRefs: ['request:26-66'],
+      claimType: 'positive',
+      proofCondition: 'Observe deployed route execution state.',
+      constraints: [],
+      auditVerdict: 'requires_external_state',
+      blockerRef: blockedGap.id,
+    });
+    const input = {
+      taskContract,
+      coverageGaps: [],
+      rejectedGoals: [],
+      auditResult: {
+        requiredSubgoals: [ready, blocked],
+        gaps: [blockedGap],
+        rejectedGoals: [{
+          proposedGoalId: 'late-rejected',
+          verdict: 'reject_untraceable',
+          originRefs: [],
+          missingRequestParts: [],
+          reason: 'Not requested.',
+        }],
+        revisionRequest: null,
+      },
+    };
+    const snapshot = structuredClone(input);
+
+    const initial = integrateAuditedLateGoals({ ...input, phase: 'initial' });
+    const postRepair = integrateAuditedLateGoals({ ...input, phase: 'post-repair' });
+
+    const initialLate = initial.taskContract.subgoals.find(goal => goal.id === ready.id);
+    const postRepairLate = postRepair.taskContract.subgoals.find(goal => goal.id === ready.id);
+    assert.equal(initialLate.state, 'gap');
+    assert.equal(postRepairLate.state, 'gap');
+    assert.deepEqual(initial.coverageGaps.map(gap => [gap.reason, gap.repairable]), [
+      ['uncovered_request', true],
+      ['external_state_required', false],
+    ]);
+    assert.deepEqual(postRepair.coverageGaps.map(gap => [gap.reason, gap.repairable]), [
+      ['uncovered_request', false],
+      ['external_state_required', false],
+    ]);
+    assert.equal(initial.taskContract.subgoals.find(goal => goal.id === blocked.id).state, 'blocked');
+    assert.deepEqual(initial.rejectedGoals.map(goal => goal.proposedGoalId), ['late-rejected']);
+    assert.ok(initial.taskContract.constraints.includes('Remain within src/**.'));
+    assert.deepEqual(input, snapshot, 'late-goal integration must not mutate audited inputs');
+    assert.throws(() => integrateAuditedLateGoals({
+      ...input,
+      auditResult: {
+        ...input.auditResult,
+        requiredSubgoals: [createAuditedSubgoal({ id: existing.id })],
+        gaps: [],
+      },
+      phase: 'initial',
+    }), /duplicate or invalid id/);
+
+    const exactDuplicate = createAuditedSubgoal({ id: 'late-duplicate' });
+    const duplicateResult = integrateAuditedLateGoals({
+      taskContract,
+      coverageGaps: [],
+      rejectedGoals: [],
+      auditResult: {
+        requiredSubgoals: [exactDuplicate],
+        gaps: [],
+        rejectedGoals: [],
+        revisionRequest: null,
+      },
+      phase: 'initial',
+    });
+    assert.equal(duplicateResult.taskContract.subgoals.length, 1,
+      'an already-required exact obligation must not become a duplicate gap');
+    assert.deepEqual(duplicateResult.coverageGaps, []);
+
+    const duplicateBlockedGap = createCoverageGap({
+      id: 'audit-gap:late-duplicate-blocked',
+      subgoalId: 'late-duplicate-blocked',
+      question: exactDuplicate.question,
+      reason: 'scope_blocked',
+      repairable: false,
+    }, { requestOrder: 0, proofPolicy: exactDuplicate.proofPolicy });
+    const duplicateBlocked = createRequiredSubgoal({
+      ...exactDuplicate,
+      id: 'late-duplicate-blocked',
+      auditVerdict: 'blocked_scope',
+      blockerRef: duplicateBlockedGap.id,
+    });
+    const duplicateBlockedResult = integrateAuditedLateGoals({
+      taskContract,
+      coverageGaps: [],
+      rejectedGoals: [],
+      auditResult: {
+        requiredSubgoals: [duplicateBlocked],
+        gaps: [duplicateBlockedGap],
+        rejectedGoals: [],
+        revisionRequest: null,
+      },
+      phase: 'initial',
+    });
+    assert.equal(duplicateBlockedResult.taskContract.subgoals.length, 1,
+      'auditor verdict drift must not duplicate an existing exact obligation');
+    assert.deepEqual(duplicateBlockedResult.coverageGaps, []);
+
+    const strengthened = createRequiredSubgoal({
+      ...exactDuplicate,
+      id: 'late-strengthened',
+      constraints: ['Inspect the route-specific caller too.'],
+      auditVerdict: 'ready',
+    });
+    const strengthenedResult = integrateAuditedLateGoals({
+      taskContract,
+      coverageGaps: [],
+      rejectedGoals: [],
+      auditResult: {
+        requiredSubgoals: [strengthened],
+        gaps: [],
+        rejectedGoals: [],
+        revisionRequest: null,
+      },
+      phase: 'post-repair',
+    });
+    assert.equal(strengthenedResult.taskContract.subgoals.length, 2,
+      'a stronger audited obligation must not silently inherit prior support');
+    assert.equal(strengthenedResult.coverageGaps[0].repairable, false);
+    assert.throws(() => integrateAuditedLateGoals({
+      taskContract,
+      coverageGaps: [],
+      rejectedGoals: input.auditResult.rejectedGoals,
+      auditResult: {
+        requiredSubgoals: [],
+        gaps: [],
+        rejectedGoals: input.auditResult.rejectedGoals,
+        revisionRequest: null,
+      },
+      phase: 'initial',
+    }), /unique non-empty proposal ids/);
   });
 
   contractTest('Spec 028 T009 — action fingerprints are opaque, stable, and key-order independent', () => {

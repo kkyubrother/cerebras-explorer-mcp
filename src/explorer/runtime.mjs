@@ -68,6 +68,7 @@ import {
   createCapabilityManifest,
   createAtomicClaim,
   createTaskContract,
+  integrateAuditedLateGoals,
   mergeSafetyLimit,
   preflightGoalProposals,
   reduceGoalAudit,
@@ -1625,6 +1626,31 @@ function dedupeUncoveredParts(parts) {
   });
 }
 
+function createRuntimeLateGoalProposals(parts, {
+  phase,
+  reservedIds = [],
+} = {}) {
+  if (phase !== 'initial' && phase !== 'post-repair') {
+    throw new TypeError('Late goal proposal phase must be initial or post-repair.');
+  }
+  const usedIds = new Set(reservedIds);
+  let ordinal = 1;
+  return parts.map(part => {
+    let id;
+    do {
+      id = `late-uncovered:${phase}:${ordinal}`;
+      ordinal += 1;
+    } while (usedIds.has(id));
+    usedIds.add(id);
+    return {
+      id,
+      ...part,
+      originRefs: [...part.originRefs],
+      constraints: [...part.constraints],
+    };
+  });
+}
+
 function validateCoverageReconciliation(value, {
   task,
   wrapperTool,
@@ -2776,13 +2802,8 @@ export class ExplorerRuntime {
           observations: batchObservations,
         }),
       });
-      if (verified.uncoveredRequestParts.length > 0) {
-        throw invalidGoalControl(
-          'semantic_verifier_uncovered',
-          new TypeError('Verifier uncovered proposals require the T031 isolated goal audit.'),
-        );
-      }
       semanticVerdicts.push(...verified.verdicts);
+      uncoveredRequestParts.push(...verified.uncoveredRequestParts);
     }
 
     const runtimeAllowedEvidenceRefsBySubgoal = runtimeAllowedEvidenceBySubgoal(
@@ -3101,7 +3122,11 @@ export class ExplorerRuntime {
     effectiveScope = [],
     wrapperTool = 'explore_repo',
     proposals,
-  }, { abortSignal = null, onCompletion = null } = {}) {
+  }, {
+    abortSignal = null,
+    onCompletion = null,
+    chatClient: providedChatClient = null,
+  } = {}) {
     if (typeof task !== 'string' || !task.trim()) {
       throw new TypeError('Late goal audit requires a non-empty task.');
     }
@@ -3141,7 +3166,7 @@ export class ExplorerRuntime {
     }
 
     const runtimeConfig = getRuntimeConfig();
-    const chatClient = this._explicitChatClient ?? createChatClient();
+    const chatClient = providedChatClient ?? this._explicitChatClient ?? createChatClient();
     const reasoningEffort = getReasoningEffortForModel(chatClient.model);
     const temperature = runtimeConfig.temperature ?? getExplorerTemperature();
     const topP = runtimeConfig.topP ?? getExplorerTopP();
@@ -3178,6 +3203,54 @@ export class ExplorerRuntime {
       rejectedGoals: audited.reduction.rejectedGoals,
       revisionRequest: null,
     }).value;
+  }
+
+  async _auditVerifierGoalProposals({
+    task,
+    effectiveScope = [],
+    wrapperTool = 'explore_repo',
+    taskContract,
+    coverageGaps = [],
+    rejectedGoals = [],
+    uncoveredRequestParts,
+    phase,
+  }, {
+    abortSignal = null,
+    onCompletion = null,
+    chatClient = null,
+  } = {}) {
+    if (!Array.isArray(uncoveredRequestParts)) {
+      throw new TypeError('Verifier uncovered request parts must be an array.');
+    }
+    if (uncoveredRequestParts.length === 0) {
+      return { taskContract, coverageGaps, rejectedGoals };
+    }
+    const lateGoalProposals = createRuntimeLateGoalProposals(uncoveredRequestParts, {
+      phase,
+      reservedIds: [
+        ...taskContract.subgoals.map(goal => goal.id),
+        ...rejectedGoals.map(goal => goal.proposedGoalId),
+      ],
+    });
+    const lateAudit = await this.auditLateGoalProposals({
+      task,
+      effectiveScope,
+      wrapperTool,
+      proposals: lateGoalProposals,
+    }, {
+      chatClient,
+      abortSignal,
+      onCompletion: (completion, stage) => onCompletion?.(completion, stage, {
+        affectedSubgoalIds: lateGoalProposals.map(goal => goal.id),
+      }),
+    });
+    return integrateAuditedLateGoals({
+      taskContract,
+      coverageGaps,
+      rejectedGoals,
+      auditResult: lateAudit,
+      phase,
+    });
   }
 
   /**
@@ -3758,10 +3831,47 @@ export class ExplorerRuntime {
         },
       });
       if (semanticVerification) {
-        auditedPlan = {
-          ...auditedPlan,
+        let integrated = {
           taskContract: semanticVerification.taskContract,
           coverageGaps: semanticVerification.coverageGaps,
+          rejectedGoals: auditedPlan.rejectedGoals,
+        };
+        if (semanticVerification.uncoveredRequestParts.length > 0) {
+          integrated = await this._auditVerifierGoalProposals({
+            task: args.task,
+            effectiveScope,
+            wrapperTool: wrapperToolForTaskMode(args.taskMode),
+            taskContract: semanticVerification.taskContract,
+            coverageGaps: semanticVerification.coverageGaps,
+            rejectedGoals: auditedPlan.rejectedGoals,
+            uncoveredRequestParts: semanticVerification.uncoveredRequestParts,
+            phase: 'initial',
+          }, {
+            chatClient,
+            abortSignal,
+            onCompletion: (completion, stage, context) => {
+              recordCompletionStats(stats, completion);
+              if (completion.finishReason === 'length') {
+                recordSafetyLimit(stats, {
+                  name: 'generation_output_limit',
+                  stage: stage === 'goal_audit' ? 'goal_audit' : 'verification',
+                  affectedSubgoalIds: context.affectedSubgoalIds,
+                  truncated: true,
+                });
+              }
+            },
+          });
+        }
+        semanticVerification = {
+          ...semanticVerification,
+          taskContract: integrated.taskContract,
+          coverageGaps: integrated.coverageGaps,
+        };
+        auditedPlan = {
+          ...auditedPlan,
+          taskContract: integrated.taskContract,
+          coverageGaps: integrated.coverageGaps,
+          rejectedGoals: integrated.rejectedGoals,
         };
       }
     }
