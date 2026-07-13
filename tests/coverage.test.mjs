@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import * as coverageModule from '../src/explorer/coverage.mjs';
 import {
   createAtomicClaim,
   createCoverageGap,
@@ -476,4 +477,422 @@ const contractTest = test;
       requiredSubgoals: [supported],
       safetyLimits: [affected],
     }), 'failed', 'fatal control faults take precedence over valid partial limits');
+  });
+
+  const goalAuditTest =
+    typeof coverageModule.preflightGoalProposals === 'function' &&
+    typeof coverageModule.reduceGoalAudit === 'function'
+      ? test
+      : test.todo;
+  // T021 must replace this feature gate with ordinary tests once both reducers exist.
+
+  const GOAL_AUDIT_TASK = 'Trace authenticateUser and determine whether legacyLogin is absent.';
+  const FULL_ORIGIN = `request:0-${GOAL_AUDIT_TASK.length}`;
+  const AUTH_ORIGIN = 'request:0-22';
+  const LEGACY_ORIGIN = `request:${GOAL_AUDIT_TASK.indexOf('determine')}-${GOAL_AUDIT_TASK.length}`;
+  const TRACE_DEFINITION_SEED = 'wrapper:trace_symbol:definition';
+  const TRACE_USAGE_SEED = 'wrapper:trace_symbol:usage';
+  const WRAPPER_SEEDS = new Map([
+    ['find_relevant_code', ['locations', 'relevance', 'smallest_set']],
+    ['trace_symbol', ['definition', 'usage']],
+    ['map_change_impact', ['targets', 'dependents', 'requested_categories', 'risk_boundary']],
+    ['explain_code_path', ['entry', 'handoffs', 'terminal_effect', 'transitions']],
+    ['collect_evidence', ['verdict', 'direct_evidence', 'counterevidence']],
+    ['explore_repo', []],
+  ]);
+
+  function goalProposal(overrides = {}) {
+    return {
+      id: 'S1',
+      question: 'Where is authenticateUser defined?',
+      originRefs: [AUTH_ORIGIN],
+      claimType: 'symbol_definition',
+      proofCondition: 'Observe the in-scope definition and source body.',
+      constraints: [],
+      ...overrides,
+    };
+  }
+
+  function auditRecord(proposal, verdict = 'ready', overrides = {}) {
+    return {
+      proposedGoalId: proposal.id,
+      verdict,
+      originRefs: [...proposal.originRefs],
+      missingRequestParts: [],
+      reason: `Audited as ${verdict}.`,
+      ...overrides,
+    };
+  }
+
+  function preflight(proposals, { wrapperTool = 'trace_symbol', ...overrides } = {}) {
+    assert.equal(typeof coverageModule.preflightGoalProposals, 'function');
+    return coverageModule.preflightGoalProposals({
+      task: GOAL_AUDIT_TASK,
+      effectiveScope: ['src/**'],
+      wrapperTool,
+      proposals,
+      ...overrides,
+    });
+  }
+
+  function reduceAudit({
+    preflightResult,
+    auditRecords,
+    uncoveredRequestParts = [],
+    revisionCount = 0,
+  }) {
+    assert.equal(typeof coverageModule.reduceGoalAudit, 'function');
+    return coverageModule.reduceGoalAudit({
+      preflight: preflightResult,
+      auditRecords,
+      uncoveredRequestParts,
+      revisionCount,
+    });
+  }
+
+  goalAuditTest('Spec 028 T015 — valid offsets and module-owned wrapper seeds are the only traceable origins', () => {
+    const requestGoal = goalProposal();
+    const validRequest = preflight([requestGoal]);
+
+    assert.deepEqual(validRequest.diagnostics, []);
+    assert.deepEqual(validRequest.auditCandidates.map(goal => goal.id), ['S1']);
+    const fullRange = preflight([goalProposal({ id: 'S-full', originRefs: [FULL_ORIGIN] })]);
+    assert.deepEqual(fullRange.auditCandidates.map(goal => goal.id), ['S-full'],
+      'request origins use zero-based half-open offsets and may cover the whole task');
+
+    for (const [wrapperTool, seedNames] of WRAPPER_SEEDS) {
+      for (const [index, seedName] of seedNames.entries()) {
+        const originRef = `wrapper:${wrapperTool}:${seedName}`;
+        const checked = preflight([goalProposal({
+          id: `${wrapperTool}-${index}`,
+          originRefs: [originRef],
+        })], { wrapperTool });
+        assert.deepEqual(checked.diagnostics, [], originRef);
+        assert.deepEqual(checked.auditCandidates.map(goal => goal.originRefs), [[originRef]]);
+      }
+    }
+
+    const unknownSeed = preflight([goalProposal({
+      id: 'S3',
+      originRefs: ['wrapper:trace_symbol:invented'],
+    })]);
+    assert.ok(unknownSeed.diagnostics.some(diagnostic =>
+      diagnostic.proposedGoalId === 'S3' && diagnostic.code === 'invalid_origin_ref'));
+    assert.deepEqual(unknownSeed.auditCandidates, []);
+
+    const wrongActiveWrapper = preflight([goalProposal({
+      id: 'S4',
+      originRefs: [TRACE_USAGE_SEED],
+    })], { wrapperTool: 'map_change_impact' });
+    assert.deepEqual(wrongActiveWrapper.auditCandidates, []);
+
+    for (const removedTool of ['review_change_context', 'explore']) {
+      const removed = preflight([goalProposal()], { wrapperTool: removedTool });
+      assert.deepEqual(removed.auditCandidates, [], removedTool);
+      assert.ok(removed.diagnostics.length > 0, removedTool);
+    }
+
+    const fallbackSeed = preflight([goalProposal({
+      id: 'S5',
+      originRefs: ['wrapper:explore_repo:anything'],
+    })], { wrapperTool: 'explore_repo' });
+    assert.deepEqual(fallbackSeed.auditCandidates, [], 'explore_repo has no fixed seed beyond the request');
+  });
+
+  goalAuditTest('Spec 028 T015 — malformed offsets and duplicate ids fail deterministic preflight', () => {
+    const invalidOrigins = [
+      'request:-1-4',
+      'request:0-0',
+      'request:8-4',
+      `request:0-${GOAL_AUDIT_TASK.length + 1}`,
+      'request:0.5-4',
+      'request:x-4',
+    ];
+
+    for (const [index, originRef] of invalidOrigins.entries()) {
+      const id = `BAD${index + 1}`;
+      const result = preflight([goalProposal({ id, originRefs: [originRef] })]);
+      assert.ok(result.diagnostics.some(diagnostic =>
+        diagnostic.proposedGoalId === id && diagnostic.code === 'invalid_origin_ref'), originRef);
+      assert.equal(result.auditCandidates.some(goal => goal.id === id), false, originRef);
+    }
+
+    const duplicateProposals = [
+      goalProposal({ id: 'SAME' }),
+      goalProposal({
+        id: 'SAME',
+        question: 'Is legacyLogin absent?',
+        originRefs: [LEGACY_ORIGIN],
+        claimType: 'absence',
+        proofCondition: 'Enumerate the bounded route registrations and certify absence.',
+      }),
+    ];
+    const duplicateId = preflight(duplicateProposals);
+    assert.ok(duplicateId.diagnostics.some(diagnostic => diagnostic.code === 'duplicate_id'));
+    assert.equal(duplicateId.auditCandidates.some(goal => goal.id === 'SAME'), false,
+      'conflicting duplicate ids must not leave an auditable survivor');
+    const duplicateReduced = reduceAudit({
+      preflightResult: duplicateId,
+      auditRecords: duplicateProposals.map(proposal => auditRecord(proposal, 'ready')),
+    });
+    assert.equal(duplicateReduced.requiredSubgoals.some(goal => goal.id === 'SAME'), false,
+      'auditor output cannot revive conflicting duplicate ids');
+
+    const invalid = goalProposal({ id: 'BAD-ready', originRefs: ['request:0-0'] });
+    const invalidReduced = reduceAudit({
+      preflightResult: preflight([invalid]),
+      auditRecords: [auditRecord(invalid, 'ready')],
+    });
+    assert.deepEqual(invalidReduced.requiredSubgoals, [],
+      'an auditor cannot promote a goal excluded by deterministic origin checks');
+  });
+
+  goalAuditTest('Spec 028 T015 — mechanical and audited duplicates merge without losing origins or constraints', () => {
+    const first = goalProposal({
+      originRefs: [AUTH_ORIGIN, FULL_ORIGIN],
+      constraints: ['Include the source body.'],
+    });
+    const mechanicalDuplicate = goalProposal({
+      id: 'S2',
+      originRefs: [TRACE_DEFINITION_SEED],
+      constraints: ['Do not infer deployed state.'],
+    });
+    const mechanicallyMerged = preflight([first, mechanicalDuplicate]);
+
+    assert.equal(mechanicallyMerged.auditCandidates.length, 1);
+    assert.deepEqual(new Set(mechanicallyMerged.auditCandidates[0].originRefs),
+      new Set([AUTH_ORIGIN, FULL_ORIGIN, TRACE_DEFINITION_SEED]));
+    assert.deepEqual(new Set(mechanicallyMerged.auditCandidates[0].constraints),
+      new Set(['Include the source body.', 'Do not infer deployed state.']));
+
+    const semanticDuplicate = goalProposal({
+      id: 'S2',
+      question: 'Identify the authenticateUser declaration.',
+      originRefs: [TRACE_DEFINITION_SEED],
+      constraints: ['Preserve the requested boundary.'],
+    });
+    const semanticPreflight = preflight([first, semanticDuplicate]);
+    const reduced = reduceAudit({
+      preflightResult: semanticPreflight,
+      auditRecords: [
+        auditRecord(first, 'ready', { originRefs: [AUTH_ORIGIN] }),
+        auditRecord(semanticDuplicate, 'merge_duplicate', { mergeInto: 'S1' }),
+      ],
+    });
+
+    assert.equal(reduced.requiredSubgoals.length, 1);
+    assert.deepEqual(new Set(reduced.requiredSubgoals[0].originRefs),
+      new Set([AUTH_ORIGIN, TRACE_DEFINITION_SEED]));
+    assert.equal(reduced.requiredSubgoals[0].originRefs.includes(FULL_ORIGIN), false,
+      'only auditor-confirmed origins enter the required ledger');
+    assert.ok(reduced.requiredSubgoals[0].constraints.includes('Preserve the requested boundary.'));
+  });
+
+  goalAuditTest('Spec 028 T015 — circular proof conditions cannot be promoted by a ready audit verdict', () => {
+    const proposals = [
+      goalProposal({
+        id: 'S1',
+        proofCondition: 'The model is confident that the goal is complete.',
+      }),
+      goalProposal({
+        id: 'S2',
+        question: 'Is legacyLogin absent?',
+        originRefs: [LEGACY_ORIGIN],
+        claimType: 'absence',
+        proofCondition: 'The final status says the answer is verified.',
+      }),
+    ];
+    const checked = preflight(proposals);
+    assert.deepEqual(
+      checked.diagnostics.filter(item => item.code === 'circular_proof_condition')
+        .map(item => item.proposedGoalId),
+      ['S1', 'S2'],
+    );
+
+    const reduced = reduceAudit({
+      preflightResult: checked,
+      auditRecords: proposals.map(proposal => auditRecord(proposal)),
+    });
+    assert.deepEqual(reduced.requiredSubgoals, []);
+    assert.ok(reduced.revisionRequest,
+      'the traceable requested parts still need observable proof conditions after correction');
+
+    const covered = goalProposal({ id: 'S-covered' });
+    const invented = goalProposal({
+      id: 'S-circular-invention',
+      question: 'Design an unrelated auth framework.',
+      proofCondition: 'The model is confident that the design is excellent.',
+    });
+    const inventionReduced = reduceAudit({
+      preflightResult: preflight([covered, invented]),
+      auditRecords: [auditRecord(covered), auditRecord(invented, 'reject_untraceable')],
+    });
+    assert.deepEqual(inventionReduced.requiredSubgoals.map(goal => goal.id), [covered.id]);
+    assert.equal(inventionReduced.revisionRequest, null,
+      'a circular planner invention does not consume the revision when requested parts are covered');
+  });
+
+  goalAuditTest('Spec 028 T015 — untraceable inventions are discarded without becoming required gaps', () => {
+    const requested = goalProposal();
+    const invented = goalProposal({
+      id: 'S-invented',
+      question: 'Design a new authentication framework.',
+      proofCondition: 'The proposed framework has a documented design.',
+    });
+    const reduced = reduceAudit({
+      preflightResult: preflight([requested, invented]),
+      auditRecords: [auditRecord(requested), auditRecord(invented, 'reject_untraceable')],
+    });
+
+    assert.deepEqual(reduced.requiredSubgoals.map(goal => goal.id), [requested.id]);
+    assert.deepEqual(reduced.gaps, []);
+    assert.equal(reduced.rejectedGoals[0].proposedGoalId, invented.id);
+    assert.equal(reduced.revisionRequest, null,
+      'a planner invention must not create work or block the covered requested goal');
+  });
+
+  goalAuditTest('Spec 028 T015 — every valid blocker becomes one terminal non-repairable required gap', () => {
+    const blockerReasons = new Map([
+      ['blocked_scope', 'scope_blocked'],
+      ['blocked_capability', 'capability_blocked'],
+      ['requires_external_state', 'external_state_required'],
+      ['missing_input', 'missing_input'],
+      ['contradictory', 'contradictory_request'],
+      ['unverifiable', 'unverifiable'],
+    ]);
+
+    for (const [verdict, gapReason] of blockerReasons) {
+      const proposal = goalProposal({ id: `S-${verdict}` });
+      const reduced = reduceAudit({
+        preflightResult: preflight([proposal]),
+        auditRecords: [auditRecord(proposal, verdict)],
+      });
+      const [required] = reduced.requiredSubgoals;
+      const [gap] = reduced.gaps;
+
+      assert.equal(required.auditVerdict, verdict);
+      assert.equal(required.state, 'blocked');
+      assert.equal(typeof required.blockerRef, 'string');
+      assert.ok(required.blockerRef.length > 0);
+      assert.equal(gap.subgoalId, required.id);
+      assert.equal(gap.reason, gapReason);
+      assert.equal(gap.repairable, false, verdict);
+      assert.equal(reduced.revisionRequest, null, verdict);
+      assert.equal(reduceTrustState({ requiredSubgoals: [required] }), 'incomplete', verdict);
+    }
+  });
+
+  goalAuditTest('Spec 028 T015 — difficulty and a refutable false premise remain feasible ready goals', () => {
+    const difficult = goalProposal({
+      id: 'S-large',
+      question: 'Trace authenticateUser usages across the repository.',
+      claimType: 'symbol_usage',
+      proofCondition: 'Cross-check bounded usages independently of the definition lookup.',
+    });
+    const falsePremise = goalProposal({
+      id: 'S-refute',
+      question: 'Does the claimed legacyLogin registration exist?',
+      originRefs: [LEGACY_ORIGIN],
+      claimType: 'claim_verification',
+      proofCondition: 'Support or refute the claim with direct evidence and bounded counterevidence search.',
+    });
+    const reduced = reduceAudit({
+      preflightResult: preflight([difficult, falsePremise]),
+      auditRecords: [
+        auditRecord(difficult, 'ready', {
+          reason: 'The repository is large and the search path is not obvious, but the goal is observable.',
+        }),
+        auditRecord(falsePremise),
+      ],
+    });
+
+    assert.deepEqual(reduced.requiredSubgoals.map(goal => goal.state), ['audited', 'audited']);
+    assert.deepEqual(reduced.requiredSubgoals.map(goal => goal.proofPolicy),
+      ['bounded_usage_cross_check', 'support_or_refute']);
+    assert.deepEqual(reduced.gaps, []);
+    assert.equal(reduced.revisionRequest, null);
+  });
+
+  goalAuditTest('Spec 028 T015 — decomposition and missing request parts get one revision only', () => {
+    const broad = goalProposal({
+      id: 'S-broad',
+      question: 'Establish both the authenticateUser definition and all bounded usages.',
+      proofCondition: 'Observe the distinct definition and independent bounded-usage conditions.',
+    });
+    const uncovered = {
+      question: 'Determine whether legacyLogin is absent.',
+      originRefs: [LEGACY_ORIGIN],
+      claimType: 'absence',
+      proofCondition: 'Enumerate the bounded registration surface and certify absence.',
+      constraints: [],
+    };
+    const checked = preflight([broad]);
+    const records = [auditRecord(broad, 'needs_decomposition')];
+
+    const initial = reduceAudit({
+      preflightResult: checked,
+      auditRecords: records,
+      uncoveredRequestParts: [uncovered],
+      revisionCount: 0,
+    });
+    assert.deepEqual(initial.revisionRequest.decomposeGoalIds, [broad.id]);
+    assert.deepEqual(initial.revisionRequest.uncoveredRequestParts, [uncovered]);
+    assert.deepEqual(initial.requiredSubgoals, []);
+    assert.deepEqual(initial.gaps, []);
+
+    const correctedGoals = [
+      goalProposal({ id: 'S-definition' }),
+      goalProposal({
+        id: 'S-usage',
+        question: 'Where is authenticateUser used?',
+        originRefs: [AUTH_ORIGIN, TRACE_USAGE_SEED],
+        claimType: 'symbol_usage',
+        proofCondition: 'Cross-check bounded usages independently of the definition lookup.',
+      }),
+      goalProposal({
+        id: 'S-absence',
+        ...uncovered,
+      }),
+    ];
+    const corrected = reduceAudit({
+      preflightResult: preflight(correctedGoals),
+      auditRecords: correctedGoals.map(goal => auditRecord(goal)),
+      revisionCount: 1,
+    });
+    assert.deepEqual(corrected.requiredSubgoals.map(goal => goal.id),
+      ['S-definition', 'S-usage', 'S-absence']);
+    assert.ok(corrected.requiredSubgoals.every(goal => goal.state === 'audited'));
+    assert.deepEqual(corrected.gaps, []);
+    assert.equal(corrected.revisionRequest, null);
+
+    const afterRevision = reduceAudit({
+      preflightResult: checked,
+      auditRecords: records,
+      uncoveredRequestParts: [uncovered],
+      revisionCount: 1,
+    });
+    assert.equal(afterRevision.revisionRequest, null, 'recursive re-planning is forbidden');
+    assert.equal(afterRevision.requiredSubgoals.length, 2);
+    assert.equal(afterRevision.gaps.length, 2);
+    assert.ok(afterRevision.requiredSubgoals.every(goal =>
+      goal.auditVerdict === 'planning_incomplete' && goal.state === 'blocked'));
+    assert.ok(afterRevision.gaps.every(gap =>
+      gap.reason === 'planning_incomplete' && gap.repairable === false));
+    assert.ok(afterRevision.gaps.every(gap => Number.isInteger(gap.priority)));
+    assert.equal(new Set(afterRevision.requiredSubgoals.map(goal => goal.id)).size, 2);
+    assert.ok(afterRevision.requiredSubgoals.every(goal => typeof goal.id === 'string' && goal.id));
+    assert.deepEqual(new Set(afterRevision.requiredSubgoals.map(goal => goal.question)),
+      new Set([broad.question, uncovered.question]));
+    assert.deepEqual(new Set(afterRevision.requiredSubgoals.flatMap(goal => goal.originRefs)),
+      new Set([AUTH_ORIGIN, LEGACY_ORIGIN]));
+    for (const gap of afterRevision.gaps) {
+      assert.ok(afterRevision.requiredSubgoals.some(goal => goal.id === gap.subgoalId));
+    }
+    assert.deepEqual(reduceAudit({
+      preflightResult: checked,
+      auditRecords: records,
+      uncoveredRequestParts: [uncovered],
+      revisionCount: 1,
+    }), afterRevision, 'second-pass materialization must be deterministic');
+    assert.equal(reduceTrustState({ requiredSubgoals: afterRevision.requiredSubgoals }), 'incomplete');
   });
