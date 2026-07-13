@@ -122,7 +122,7 @@
 - [x] T041 [US2] Implement minimal claim-cover evidence selection, deterministic parent action, optional-field omission, and v3 handoff assembly in `src/explorer/coverage.mjs` and `src/explorer/runtime.mjs`
 - [x] T042 [US2] Project only v3 facts into MCP text and `structuredContent`, validate tool/retry arguments, and remove default detailed `_meta.ops` from `src/mcp/server.mjs`
 - [x] T043 [US2] Preserve full redacted direct-runtime/transcript diagnostics and update parent-payload measurement in `src/explorer/transcript.mjs` and `src/benchmark/effect-metrics.mjs`
-- [ ] T044 [US2] Replace the canonical response and live smoke assertions with v3 complete/incomplete/failed examples in `examples/expected-response.json`, `examples/direct-runtime.mjs`, and `scripts/integration-test.mjs`, then run the US2 contract tests and `npm test`
+- [x] T044 [US2] Replace the canonical response and live smoke assertions with v3 complete/incomplete/failed examples in `examples/expected-response.json`, `examples/direct-runtime.mjs`, and `scripts/integration-test.mjs`, then run the US2 contract tests and `npm test`
 
 **Checkpoint**: The parent receives one unambiguous state and no internal planning, confidence, search, critic, usage, or empty-field noise.
 

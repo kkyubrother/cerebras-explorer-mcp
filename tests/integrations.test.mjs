@@ -4,6 +4,8 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { validateParentHandoffV3 } from '../src/explorer/schemas.mjs';
+
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 async function read(relPath) {
@@ -48,27 +50,32 @@ test('JSON integration examples are parseable', async () => {
   }
 });
 
-test('expected response example matches compact explore_repo contract', async () => {
+test('expected response example matches the minimal v3 complete contract', async () => {
   const raw = await read('examples/expected-response.json');
   const example = JSON.parse(raw);
 
-  assert.equal(example.schemaVersion, 2);
+  assert.doesNotThrow(() => validateParentHandoffV3(example));
+  assert.equal(example.schemaVersion, 3);
   assert.equal(typeof example.directAnswer, 'string');
-  assert.ok(example.status);
-  assert.ok(Array.isArray(example.targets));
-  assert.ok(Array.isArray(example.evidence));
-  assert.ok(example.evidenceQuality);
-  assert.equal(example.failure, null);
-  assert.ok(example.critic);
-  assert.ok(Array.isArray(example.critic.warnings));
-  // spec 017: sessionId/session/_debug are no longer part of the contract.
-  assert.equal(example.sessionId, undefined);
-  assert.equal(example.session, undefined);
-  assert.equal(example._debug, undefined);
-  assert.ok(example.searchCoverage);
-  assert.equal(typeof example.searchCoverage.omittedDiscoveredPaths, 'number');
-  assert.ok(example.nextAction?.type);
-  assert.doesNotMatch(raw, /Discovered candidate path/);
+  assert.equal(example.state, 'complete');
+  assert.ok(Array.isArray(example.evidence) && example.evidence.length > 0);
+  assert.deepEqual(Object.keys(example).sort(), [
+    'directAnswer',
+    'evidence',
+    'schemaVersion',
+    'state',
+  ]);
+  for (const diagnostic of [
+    'status',
+    'evidenceQuality',
+    'searchCoverage',
+    'critic',
+    'stats',
+    'nextAction',
+    'failure',
+  ]) {
+    assert.equal(Object.hasOwn(example, diagnostic), false, diagnostic);
+  }
 });
 
 test('stdio example documents NDJSON and Content-Length framing modes', async () => {
@@ -85,6 +92,8 @@ test('direct runtime example warns that output is raw runtime, not MCP structure
 
   assert.match(source, /raw runtime result/i);
   assert.match(source, /MCP structuredContent/i);
+  assert.match(source, /parentHandoff/);
+  assert.match(source, /parentPayloadMeasurement/);
 });
 
 test('completed superpowers implementation plans are not left as unchecked active backlog', async () => {
