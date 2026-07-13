@@ -100,6 +100,337 @@ function assertStrictValidator(validate, validValue, { missingKey, makeInvalid }
     'invalid enum/type values must be rejected at runtime');
 }
 
+// T036 lands before the public schema implementation in T040. Keeping the
+// contract tests as expected-red TODOs preserves a green task commit while
+// making any partial v3 implementation fail immediately.
+function parentHandoffV3Test(name, callback) {
+  const schema = schemaModule.PARENT_HANDOFF_V3_SCHEMA;
+  const validate = schemaModule.validateParentHandoffV3;
+  const partiallyImplemented = schema !== undefined || validate !== undefined;
+  const register = partiallyImplemented ? test : test.todo;
+  register(name, () => {
+    assert.ok(schema, 'PARENT_HANDOFF_V3_SCHEMA is not implemented');
+    assert.equal(typeof validate, 'function', 'validateParentHandoffV3 is not implemented');
+    callback(schema, validate);
+  });
+}
+
+function makeV3SourceEvidence(overrides = {}) {
+  return {
+    kind: 'source',
+    path: 'src/auth.mjs',
+    startLine: 10,
+    endLine: 18,
+    supports: 'The handler validates the token before dispatch.',
+    ...overrides,
+  };
+}
+
+function makeV3Target(overrides = {}) {
+  return {
+    path: 'src/auth.mjs',
+    role: 'read',
+    reason: 'Read the validated handler before changing it.',
+    ...overrides,
+  };
+}
+
+function makeV3Complete(overrides = {}) {
+  return {
+    schemaVersion: 3,
+    directAnswer: 'The handler validates the token before dispatch.',
+    state: 'complete',
+    evidence: [makeV3SourceEvidence()],
+    ...overrides,
+  };
+}
+
+function assertV3Rejected(validate, value, label) {
+  assert.throws(() => validate(structuredClone(value)), undefined, label);
+}
+
+parentHandoffV3Test(
+  'Spec 028 T036 — schema v3 exposes only the strict minimal parent fields',
+  (schema) => {
+    assert.equal(schemaModule.EXPLORE_REPO_OUTPUT_SCHEMA, schema,
+      'the MCP output schema must be the v3 parent-handoff schema');
+    assertStrictObjectTree(schema, 'PARENT_HANDOFF_V3_SCHEMA');
+    assert.deepEqual(new Set(schema.required), new Set(['schemaVersion', 'state']));
+    assert.deepEqual(new Set(Object.keys(schema.properties)), new Set([
+      'schemaVersion',
+      'directAnswer',
+      'state',
+      'targets',
+      'evidence',
+      'gaps',
+      'followUp',
+      'failure',
+    ]));
+    assert.equal(schema.properties.schemaVersion.const, 3);
+    assert.deepEqual(schema.properties.state.enum, [
+      'complete',
+      'verify_targets',
+      'incomplete',
+      'failed',
+    ]);
+    assert.equal(schema.properties.directAnswer.minLength, 1);
+    assert.equal(schema.properties.targets.minItems, 1);
+    assert.equal(schema.properties.evidence.minItems, 1);
+    assert.equal(schema.properties.gaps.minItems, 1);
+  },
+);
+
+parentHandoffV3Test(
+  'Spec 028 T036 — every v3 state accepts only its conditional fields',
+  (_schema, validate) => {
+    const complete = makeV3Complete();
+    const verifyTargets = makeV3Complete({
+      state: 'verify_targets',
+      targets: [makeV3Target({ role: 'edit', evidenceRefs: ['E1'] })],
+      evidence: [makeV3SourceEvidence({ id: 'E1' })],
+    });
+    const incompleteWithPartial = {
+      schemaVersion: 3,
+      directAnswer: 'The API route exists.',
+      state: 'incomplete',
+      targets: [makeV3Target()],
+      evidence: [makeV3SourceEvidence({ supports: 'The API route exists.' })],
+      gaps: [{
+        question: 'Whether another bootstrap also registers the route',
+        reason: 'The bootstrap enumeration was truncated.',
+      }],
+      followUp: {
+        type: 'tool',
+        tool: 'explore_repo',
+        arguments: {
+          task: 'Check bootstrap files for route registration.',
+          scope: ['src/app/**'],
+          hints: { files: ['src/app/index.mjs'] },
+        },
+      },
+    };
+    const incompleteBlocked = {
+      schemaVersion: 3,
+      state: 'incomplete',
+      gaps: [{
+        question: 'Whether the deployed service uses this configuration',
+        reason: 'The fact depends on live state unavailable to this repository explorer.',
+      }],
+      followUp: {
+        type: 'external_verification',
+        requirement: 'Report the active deployed configuration revision.',
+      },
+    };
+    const failed = {
+      schemaVersion: 3,
+      directAnswer: 'Explorer was cancelled before a trustworthy answer was produced.',
+      state: 'failed',
+      failure: { reason: 'aborted' },
+    };
+
+    for (const valid of [complete, verifyTargets, incompleteWithPartial, incompleteBlocked, failed]) {
+      assert.doesNotThrow(() => validate(structuredClone(valid)));
+    }
+
+    assertV3Rejected(validate, { ...complete, directAnswer: '' }, 'complete needs an answer');
+    assertV3Rejected(validate, { ...complete, evidence: [] }, 'complete needs evidence');
+    assertV3Rejected(validate, { ...complete, gaps: incompleteWithPartial.gaps },
+      'complete cannot expose gaps');
+    assertV3Rejected(validate, { ...complete, followUp: incompleteWithPartial.followUp },
+      'complete cannot expose a follow-up');
+    assertV3Rejected(validate, { ...complete, failure: { reason: 'internal_error' } },
+      'complete cannot expose a failure');
+
+    const verifyWithoutTargets = structuredClone(verifyTargets);
+    delete verifyWithoutTargets.targets;
+    assertV3Rejected(validate, verifyWithoutTargets, 'verify_targets needs targets');
+    assertV3Rejected(validate, { ...verifyTargets, targets: [] },
+      'verify_targets cannot return an empty target list');
+
+    const incompleteWithoutGaps = structuredClone(incompleteWithPartial);
+    delete incompleteWithoutGaps.gaps;
+    assertV3Rejected(validate, incompleteWithoutGaps, 'incomplete needs gaps');
+    assertV3Rejected(validate, { ...incompleteWithPartial, gaps: [] },
+      'incomplete cannot return an empty gap list');
+    const partialWithoutEvidence = structuredClone(incompleteWithPartial);
+    delete partialWithoutEvidence.evidence;
+    assertV3Rejected(validate, partialWithoutEvidence,
+      'an incomplete supported partial answer needs evidence');
+    const evidenceWithoutPartial = structuredClone(incompleteWithPartial);
+    delete evidenceWithoutPartial.directAnswer;
+    assertV3Rejected(validate, evidenceWithoutPartial,
+      'incomplete evidence cannot appear without a supported partial answer');
+    assertV3Rejected(validate, { ...incompleteBlocked, directAnswer: '' },
+      'all-blocked incomplete omits rather than empties directAnswer');
+    assertV3Rejected(validate, { ...incompleteBlocked, failure: { reason: 'provider_error' } },
+      'incomplete cannot expose a failure');
+
+    const failedWithoutAnswer = structuredClone(failed);
+    delete failedWithoutAnswer.directAnswer;
+    assertV3Rejected(validate, failedWithoutAnswer, 'failed needs a concise answer');
+    const failedWithoutFailure = structuredClone(failed);
+    delete failedWithoutFailure.failure;
+    assertV3Rejected(validate, failedWithoutFailure, 'failed needs failure data');
+    for (const forbidden of ['targets', 'evidence', 'gaps', 'followUp']) {
+      const invalid = structuredClone(failed);
+      invalid[forbidden] = forbidden === 'followUp'
+        ? { type: 'ask_user', question: 'Retry?' }
+        : [{}];
+      assertV3Rejected(validate, invalid, `failed cannot expose ${forbidden}`);
+    }
+  },
+);
+
+parentHandoffV3Test(
+  'Spec 028 T036 — v3 nested target, evidence, gap, action, and failure unions are exact',
+  (_schema, validate) => {
+    const source = makeV3SourceEvidence({
+      id: 'E1',
+      snippet: '10: validateToken(token);',
+    });
+    const git = {
+      kind: 'git',
+      sha: 'abc1234',
+      supports: 'This commit introduced token validation.',
+    };
+    const absence = {
+      kind: 'absence',
+      boundary: ['src/auth/**'],
+      searches: ['symbol references: legacyAuthorize', 'text: legacyAuthorize'],
+      supports: 'No static reference to legacyAuthorize was found in src/auth/**.',
+    };
+    for (const evidence of [source, git, absence]) {
+      assert.doesNotThrow(() => validate(makeV3Complete({ evidence: [evidence] })));
+    }
+
+    for (const role of ['read', 'edit', 'test', 'config']) {
+      assert.doesNotThrow(() => validate(makeV3Complete({
+        targets: [makeV3Target({ role })],
+      })));
+    }
+
+    const incompleteBase = {
+      schemaVersion: 3,
+      state: 'incomplete',
+      gaps: [{ question: 'Which environment is intended?', reason: 'The caller did not name one.' }],
+    };
+    assert.doesNotThrow(() => validate({
+      ...incompleteBase,
+      followUp: { type: 'ask_user', question: 'Which deployment should be checked?' },
+    }));
+    assert.doesNotThrow(() => validate({
+      ...incompleteBase,
+      followUp: {
+        type: 'external_verification',
+        requirement: 'Report the live deployment revision.',
+      },
+    }));
+    assert.doesNotThrow(() => validate({
+      ...incompleteBase,
+      followUp: {
+        type: 'tool',
+        tool: 'trace_symbol',
+        arguments: { symbol: 'validateToken', scope: ['src/auth/**'] },
+      },
+    }));
+
+    const failureReasons = [
+      'invalid_arguments',
+      'repo_mismatch',
+      'aborted',
+      'provider_error',
+      'tool_failure',
+      'verifier_error',
+      'access_denied',
+      'internal_error',
+    ];
+    for (const reason of failureReasons) {
+      assert.doesNotThrow(() => validate({
+        schemaVersion: 3,
+        directAnswer: 'Explorer could not produce a trustworthy answer.',
+        state: 'failed',
+        failure: { reason },
+      }), reason);
+    }
+    assert.doesNotThrow(() => validate({
+      schemaVersion: 3,
+      directAnswer: 'Provider failed before verification.',
+      state: 'failed',
+      failure: {
+        reason: 'provider_error',
+        retry: {
+          type: 'tool',
+          tool: 'explore_repo',
+          arguments: { task: 'Trace token validation.' },
+        },
+      },
+    }));
+
+    const nestedMutations = [
+      ['target', makeV3Complete({ targets: [makeV3Target({ unexpected: true })] })],
+      ['source evidence', makeV3Complete({ evidence: [{ ...source, unexpected: true }] })],
+      ['git evidence', makeV3Complete({ evidence: [{ ...git, unexpected: true }] })],
+      ['absence evidence', makeV3Complete({ evidence: [{ ...absence, unexpected: true }] })],
+      ['gap', { ...incompleteBase, gaps: [{ ...incompleteBase.gaps[0], unexpected: true }] }],
+      ['follow-up', {
+        ...incompleteBase,
+        followUp: { type: 'ask_user', question: 'Which deployment?', unexpected: true },
+      }],
+      ['failure', {
+        schemaVersion: 3,
+        directAnswer: 'Explorer failed.',
+        state: 'failed',
+        failure: { reason: 'internal_error', unexpected: true },
+      }],
+      ['retry', {
+        schemaVersion: 3,
+        directAnswer: 'Provider failed.',
+        state: 'failed',
+        failure: {
+          reason: 'provider_error',
+          retry: {
+            type: 'tool',
+            tool: 'explore_repo',
+            arguments: { task: 'Retry.' },
+            unexpected: true,
+          },
+        },
+      }],
+    ];
+    for (const [label, value] of nestedMutations) {
+      assertV3Rejected(validate, value, `${label} rejects additional properties`);
+    }
+  },
+);
+
+parentHandoffV3Test(
+  'Spec 028 T036 — schema v3 rejects schema v2 and diagnostic fields',
+  (_schema, validate) => {
+    assertV3Rejected(validate, { ...makeV3Complete(), schemaVersion: 2 },
+      'schemaVersion 2 is rejected');
+    assertV3Rejected(validate, { ...makeV3Complete(), state: 'verified' },
+      'v2 verification values are rejected');
+    for (const field of [
+      'status',
+      'confidence',
+      'complete',
+      'warnings',
+      'nextAction',
+      'evidenceQuality',
+      'searchCoverage',
+      'critic',
+      'discoveredPaths',
+      'candidatePaths',
+      'uncertainties',
+      'trustSummary',
+    ]) {
+      const invalid = makeV3Complete();
+      invalid[field] = field === 'complete' ? true : {};
+      assertV3Rejected(validate, invalid, `v2 field ${field} is rejected`);
+    }
+  },
+);
+
 // Helper: build a grounded evidence item with a given groundingStatus and optional path
 function makeEvidence({ groundingStatus = 'exact', path = 'src/foo.mjs' } = {}) {
   return { groundingStatus, path, startLine: 1, endLine: 10, why: 'test' };
