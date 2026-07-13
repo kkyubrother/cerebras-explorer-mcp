@@ -1,8 +1,298 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 
-import { evaluateBenchmarkCase, summarizeBenchmarkSuite } from '../src/benchmark/evaluator.mjs';
+import {
+  evaluateBenchmarkCase,
+  evaluateKnownBadBaseline,
+  summarizeBenchmarkSuite,
+} from '../src/benchmark/evaluator.mjs';
+
+const TRUST_MANIFEST_URL = new URL('../benchmarks/trust-known-answer.json', import.meta.url);
+const BASELINE_RESULTS_URL = new URL('../fixtures/trust-known-answer/baseline-results/', import.meta.url);
+
+const EXPECTED_KNOWN_BAD_VIOLATIONS = {
+  'obs-deny-list-count-range': ['FORBIDDEN_CLAIM_PRESENT'],
+  'obs-large-route-ui-api-mismatch': ['REQUIRED_GOAL_UNSUPPORTED:G1'],
+  'obs-route-admin-divergence': [
+    'REQUIRED_GOAL_UNSUPPORTED:G2',
+    'REQUIRED_GOAL_UNSUPPORTED:G3',
+  ],
+  'obs-external-process-inference': ['DOCUMENTED_TRUST_FAILURE'],
+  'obs-repeat-tests-environment': [
+    'REQUIRED_GOAL_UNSUPPORTED:G2',
+    'REQUIRED_GOAL_UNSUPPORTED:G3',
+  ],
+  'obs-aws-inventory-classification': ['REQUIRED_GOAL_UNSUPPORTED:G1'],
+  'fx-jsonrpc-id-zero-cancellation': [
+    'EXPECTED_STATE_MISMATCH',
+    'REQUEST_NOT_ABORTED',
+  ],
+};
+
+async function loadTrustManifest() {
+  return JSON.parse(await fs.readFile(TRUST_MANIFEST_URL, 'utf8'));
+}
+
+function artifactDefinitionForCase(manifest, caseDefinition) {
+  const baselineRef = caseDefinition.schemaV2Baseline?.baselineRef;
+  if (baselineRef) {
+    return { kind: 'baseline', definition: manifest.baselines[baselineRef] };
+  }
+  const observationRef = caseDefinition.knownBadObservationRef;
+  if (observationRef) {
+    return { kind: 'observation', definition: manifest.observations[observationRef] };
+  }
+  return null;
+}
+
+async function loadKnownBadEntries() {
+  const manifest = await loadTrustManifest();
+  const entries = [];
+  for (const caseDefinition of manifest.cases) {
+    const artifactDefinition = artifactDefinitionForCase(manifest, caseDefinition);
+    if (!artifactDefinition) continue;
+    const artifactUrl = new URL('../' + artifactDefinition.definition.artifact, import.meta.url);
+    const rawArtifact = await fs.readFile(artifactUrl, 'utf8');
+    entries.push({
+      caseDefinition,
+      ...artifactDefinition,
+      rawArtifact,
+      artifact: JSON.parse(rawArtifact),
+    });
+  }
+  return { manifest, entries };
+}
+
+function canonicalSha256(rawText) {
+  return createHash('sha256')
+    .update(rawText.replace(/\r\n?/g, '\n'))
+    .digest('hex');
+}
+
+function knownBadViolationKeys(evaluation) {
+  return evaluation.violations.map(violation =>
+    violation.goalId ? violation.code + ':' + violation.goalId : violation.code
+  );
+}
+
+function buildCorrectedArtifact(caseDefinition, knownBadArtifact) {
+  if (knownBadArtifact.transport && !knownBadArtifact.parentPayload) {
+    return {
+      transport: {
+        ...knownBadArtifact.transport,
+        abortObserved: true,
+        outcome: 'aborted',
+      },
+    };
+  }
+
+  const expectedState = caseDefinition.oracle.expectedState;
+  const directAnswer = caseDefinition.oracle.allowedClaims
+    .map(claim => claim.text)
+    .join(' ') || 'The requested conclusion remains unresolved.';
+  return {
+    parentPayload: {
+      content: [{ type: 'text', text: directAnswer }],
+      structuredContent: {
+        schemaVersion: 2,
+        directAnswer,
+        status: {
+          confidence: 'high',
+          verification: expectedState === 'complete' ? 'verified' : 'follow_up_needed',
+          complete: expectedState === 'complete',
+          warnings: [],
+        },
+        evidence: caseDefinition.oracle.evidenceAnchors.map(anchor => ({
+          id: anchor.id,
+          path: anchor.path,
+          startLine: anchor.startLine,
+          endLine: anchor.endLine,
+          why: 'Independent corrected control.',
+          evidenceType: 'file_range',
+          groundingStatus: 'exact',
+        })),
+        failure: expectedState === 'failed' ? { reason: 'aborted' } : null,
+      },
+    },
+  };
+}
+
+test('known-bad artifact registry is set-equal, immutable, and hash-pinned', async () => {
+  const { manifest, entries } = await loadKnownBadEntries();
+  const registeredFiles = entries
+    .map(entry => entry.definition.artifact.split('/').at(-1))
+    .sort();
+  const directoryFiles = (await fs.readdir(BASELINE_RESULTS_URL))
+    .filter(name => name.endsWith('.json'))
+    .sort();
+
+  assert.deepEqual(registeredFiles, directoryFiles);
+  assert.equal(
+    entries.filter(entry => entry.kind === 'baseline').length,
+    Object.keys(manifest.baselines).length,
+  );
+  assert.equal(
+    entries.filter(entry => entry.kind === 'observation').length,
+    Object.keys(manifest.observations).length,
+  );
+  assert.equal(entries.length, 7);
+
+  for (const entry of entries) {
+    const { artifact, caseDefinition, definition, rawArtifact } = entry;
+    assert.equal(
+      definition.artifact.startsWith('fixtures/trust-known-answer/baseline-results/'),
+      true,
+    );
+    assert.equal(artifact.caseId, caseDefinition.id);
+    assert.equal(artifact.immutable, true);
+    assert.equal(artifact.oracle, undefined, 'the observed artifact must not contain its oracle');
+    assert.equal(canonicalSha256(rawArtifact), definition.artifactSha256);
+
+    if (artifact.parentPayload) {
+      const contentBytes = Buffer.byteLength(JSON.stringify(artifact.parentPayload.content));
+      const structuredContentBytes = Buffer.byteLength(
+        JSON.stringify(artifact.parentPayload.structuredContent),
+      );
+      assert.deepEqual(artifact.measurement, {
+        encoding: 'utf8',
+        formula: 'byteLength(JSON.stringify(content)) + byteLength(JSON.stringify(structuredContent))',
+        contentBytes,
+        structuredContentBytes,
+        parentPayloadBytes: contentBytes + structuredContentBytes,
+      });
+      assert.equal(definition.contentBytes, contentBytes);
+      assert.equal(definition.structuredContentBytes, structuredContentBytes);
+      assert.equal(definition.parentPayloadBytes, contentBytes + structuredContentBytes);
+    } else if (artifact.transport) {
+      assert.equal(definition.outcome, 'no_response');
+      assert.equal(artifact.measurement.parentPayloadBytes, 0);
+    } else {
+      assert.equal(entry.kind, 'observation');
+      assert.equal(artifact.recordType, 'documented_known_bad_observation');
+      assert.equal(artifact.source.rawParentPayloadPreserved, false);
+      assert.equal(artifact.measurement, undefined);
+    }
+  }
+});
+
+test('manifest oracles reject every immutable known-bad artifact', async t => {
+  const { entries } = await loadKnownBadEntries();
+  for (const entry of entries) {
+    await t.test(entry.caseDefinition.id, () => {
+      const evaluation = evaluateKnownBadBaseline(
+        entry.caseDefinition.oracle,
+        entry.artifact,
+      );
+      assert.equal(evaluation.passed, false);
+      assert.notEqual(evaluation.observedState, 'invalid');
+      assert.deepEqual(
+        knownBadViolationKeys(evaluation),
+        EXPECTED_KNOWN_BAD_VIOLATIONS[entry.caseDefinition.id],
+      );
+    });
+  }
+});
+
+test('known-bad evaluator accepts corrected controls for all seven records', async t => {
+  const { entries } = await loadKnownBadEntries();
+  for (const entry of entries) {
+    await t.test(entry.caseDefinition.id, () => {
+      const correctedArtifact = buildCorrectedArtifact(
+        entry.caseDefinition,
+        entry.artifact,
+      );
+      assert.deepEqual(
+        evaluateKnownBadBaseline(entry.caseDefinition.oracle, correctedArtifact),
+        {
+          passed: true,
+          observedState: entry.caseDefinition.oracle.expectedState,
+          violations: [],
+        },
+      );
+    });
+  }
+});
+
+test('known-bad evaluator does not reject an explicit negation by substring', async () => {
+  const { entries } = await loadKnownBadEntries();
+  const entry = entries.find(item => item.caseDefinition.id === 'obs-external-process-inference');
+  const correctedArtifact = buildCorrectedArtifact(entry.caseDefinition, entry.artifact);
+  correctedArtifact.parentPayload.structuredContent.directAnswer =
+    'It is false that the flow launches an external process.';
+  correctedArtifact.parentPayload.content[0].text =
+    correctedArtifact.parentPayload.structuredContent.directAnswer;
+  assert.equal(
+    evaluateKnownBadBaseline(entry.caseDefinition.oracle, correctedArtifact).passed,
+    true,
+  );
+});
+
+test('known-bad evaluator binds transport ids and documented failure classes to the oracle', async () => {
+  const { entries } = await loadKnownBadEntries();
+  const cancellation = entries.find(
+    item => item.caseDefinition.id === 'fx-jsonrpc-id-zero-cancellation',
+  );
+  const correctedCancellation = buildCorrectedArtifact(
+    cancellation.caseDefinition,
+    cancellation.artifact,
+  );
+  correctedCancellation.transport.requestId = 1;
+  assert.deepEqual(
+    knownBadViolationKeys(evaluateKnownBadBaseline(
+      cancellation.caseDefinition.oracle,
+      correctedCancellation,
+    )),
+    ['REQUEST_ID_MISMATCH'],
+  );
+
+  const documented = entries.find(
+    item => item.caseDefinition.id === 'obs-external-process-inference',
+  );
+  const wrongClass = structuredClone(documented.artifact);
+  wrongClass.observation.failureClass = 'different_failure';
+  assert.deepEqual(
+    knownBadViolationKeys(evaluateKnownBadBaseline(
+      documented.caseDefinition.oracle,
+      wrongClass,
+    )),
+    ['DOCUMENTED_FAILURE_CLASS_MISMATCH'],
+  );
+});
+
+test('known-bad evaluator requires exact file-range grounding for goal anchors', async () => {
+  const { entries } = await loadKnownBadEntries();
+  const entry = entries.find(item => item.caseDefinition.id === 'obs-large-route-ui-api-mismatch');
+  const correctedArtifact = buildCorrectedArtifact(entry.caseDefinition, entry.artifact);
+  correctedArtifact.parentPayload.structuredContent.evidence
+    .find(item => item.id === 'E3').groundingStatus = 'partial';
+
+  const evaluation = evaluateKnownBadBaseline(entry.caseDefinition.oracle, correctedArtifact);
+  assert.deepEqual(knownBadViolationKeys(evaluation), ['REQUIRED_GOAL_UNSUPPORTED:G1']);
+});
+
+test('known-bad evaluator fails closed on an incomplete payload', async () => {
+  const manifest = await loadTrustManifest();
+  const caseDefinition = manifest.cases.find(item => item.id === 'obs-deny-list-count-range');
+  assert.deepEqual(evaluateKnownBadBaseline(caseDefinition.oracle, {}), {
+    passed: false,
+    observedState: 'invalid',
+    violations: [{
+      code: 'INVALID_BASELINE_ARTIFACT',
+      problems: [
+        'parentPayload is required',
+        'parentPayload.content must be an array',
+        'structuredContent must be an object',
+        'structuredContent.schemaVersion must be 2',
+        'structuredContent.directAnswer must be non-empty',
+        'structuredContent.status.verification must be a string',
+        'structuredContent.status.complete must be a boolean',
+        'structuredContent.evidence must be an array',
+      ],
+    }],
+  });
+});
 
 test('evaluateBenchmarkCase scores keyword expectations and checks', () => {
   const caseDefinition = {

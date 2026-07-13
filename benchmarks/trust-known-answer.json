@@ -840,6 +840,7 @@
           "kind": "fixture_assertion",
           "sourceRef": "fixture-external-process-inference"
         },
+        "documentedFailureClass": "unsupported_external_process_inference",
         "expectedGoals": [
           {
             "id": "G1",
@@ -2115,6 +2116,11 @@
         "provenance": {
           "kind": "source_review",
           "sourceRef": "repo-cerebras-explorer-mcp-b3a7e75"
+        },
+        "transportExpectation": {
+          "requestId": 0,
+          "cancelNotificationSent": true,
+          "abortObserved": true
         },
         "expectedGoals": [
           {
