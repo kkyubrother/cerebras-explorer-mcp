@@ -623,7 +623,7 @@ test('explore_repo MCP call writes stderr ops summary when execution fails', asy
     }));
 
     assert.equal(called.isError, true);
-    assert.match(stderr.trim(), /^\[cerebras-explorer\] tool=explore_repo turns=0 toolCalls=0 stoppedByBudget=false elapsed=0s failure=execution_failed$/);
+    assert.match(stderr.trim(), /^\[cerebras-explorer\] tool=explore_repo turns=0 toolCalls=0 stoppedByBudget=false elapsed=0s failure=provider_error$/);
   } finally {
     restore();
   }
@@ -907,18 +907,18 @@ test('MCP request handler returns repo_root resolution errors without mislabelin
     : '/definitely/missing/cerebras-explorer-repo';
   const normalizedRepoRoot = getRepoRoot(rawRepoRoot);
 
-  const called = await handleRequest({
-    jsonrpc: '2.0',
-    id: 4,
-    method: 'tools/call',
-    params: {
-      name: 'explore_repo',
-      arguments: {
-        task: '없는 저장소 경로를 진단해라.',
-        repo_root: rawRepoRoot,
+  const { result: called, stderr } = await captureStderr(() => handleRequest({
+      jsonrpc: '2.0',
+      id: 4,
+      method: 'tools/call',
+      params: {
+        name: 'explore_repo',
+        arguments: {
+          task: '없는 저장소 경로를 진단해라.',
+          repo_root: rawRepoRoot,
+        },
       },
-    },
-  });
+    }));
 
   assert.equal(called.isError, true);
   assert.match(called.content[0].text, /Unable to resolve repo_root for explore_repo/);
@@ -929,6 +929,7 @@ test('MCP request handler returns repo_root resolution errors without mislabelin
   // F7: clients may surface only content text on isError and drop structuredContent,
   // so the machine-readable reason must also appear in the text.
   assert.match(called.content[0].text, /reason: repo_mismatch/i);
+  assert.match(stderr.trim(), /tool=explore_repo .* failure=repo_mismatch$/);
 });
 
 test('MCP request handler classifies generic invalid params as invalid_arguments', async () => {
@@ -1065,8 +1066,8 @@ test('MCP request handler returns execution failures for explore_repo without mi
   });
 
   assert.equal(called.isError, true);
-  assert.match(called.content[0].text, /explore_repo execution failed/i);
-  assert.match(called.content[0].text, /provider exploded/);
+  assert.match(called.content[0].text, /provider failed/i);
+  assert.doesNotMatch(called.content[0].text, /provider exploded/);
   assert.doesNotMatch(called.content[0].text, /Invalid explore_repo arguments/);
   assert.doesNotMatch(called.content[0].text, /Invalid arguments for explore_repo/);
   assert.equal(called.structuredContent.schemaVersion, 2);
@@ -1115,17 +1116,18 @@ test('MCP request handler returns execution failures for other exposed tools as 
   ];
 
   for (const [index, testCase] of cases.entries()) {
-    const called = await handleRequest({
-      jsonrpc: '2.0',
-      id: 100 + index,
-      method: 'tools/call',
-      params: testCase,
-    });
+    const { result: called, stderr } = await captureStderr(() => handleRequest({
+        jsonrpc: '2.0',
+        id: 100 + index,
+        method: 'tools/call',
+        params: testCase,
+      }));
 
     assert.equal(called.isError, true, `${testCase.name} must return an MCP tool error`);
-    assert.match(called.content[0].text, new RegExp(`${testCase.name} execution failed`, 'i'));
-    assert.match(called.content[0].text, /provider exploded/);
+    assert.match(called.content[0].text, /provider (?:failed|was unavailable)/i);
+    assert.doesNotMatch(called.content[0].text, /provider exploded/);
     assert.doesNotMatch(called.content[0].text, /Invalid arguments for/);
+    assert.match(stderr.trim(), new RegExp(`tool=${testCase.name} .* failure=provider_error$`));
   }
 });
 
@@ -1234,7 +1236,7 @@ test('explore_repo and wrappers expose _meta.ops without touching structuredCont
 
 // T033 activates this transport-to-runtime cancellation matrix after the
 // semantic verifier and repair stages exist end to end.
-const mcpPipelineCancellationTest = test.todo;
+const mcpPipelineCancellationTest = test;
 const CANCELLATION_TASK = 'Locate requireAuth and trace legacyGuard usage.';
 
 function cancellationControlStage(request, verifierFinished) {
@@ -1367,6 +1369,21 @@ class BlockingPipelineClient {
         }]);
       }
       return cancellationCompletion('STALE_EXPLORER_SENTINEL');
+    }
+    if (stage === 'legacy_synthesis') {
+      return cancellationCompletion({
+        directAnswer: 'STALE_EXPLORER_SENTINEL',
+        status: {
+          confidence: 'low',
+          verification: 'follow_up_needed',
+          complete: false,
+          warnings: [],
+        },
+        targets: [],
+        evidence: [],
+        uncertainties: [],
+        nextAction: { type: 'stop', reason: 'Evidence pass complete.' },
+      });
     }
     if (stage === 'claim_synthesis') {
       return cancellationCompletion({ claims: this.claims });

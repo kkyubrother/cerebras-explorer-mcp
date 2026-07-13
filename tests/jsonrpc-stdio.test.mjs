@@ -142,7 +142,7 @@ test('concurrent requests are processed in parallel — slow request does not bl
 });
 
 // T033 changes this to `test` after request-id-zero controller tracking lands.
-const requestIdCancellationTest = test.todo;
+const requestIdCancellationTest = test;
 
 class AbortProbeChatClient {
   constructor() {

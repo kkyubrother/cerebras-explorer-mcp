@@ -95,7 +95,7 @@
 - [x] T030 [US1] Implement isolated semantic-verifier execution, claim entailment filtering, supported refutation, and claim-to-goal resolution in `src/explorer/runtime.mjs` and `src/explorer/coverage.mjs`
 - [x] T031 [US1] Pass every verifier `uncoveredRequestParts` proposal, including post-repair proposals, through the same deterministic and isolated goal audit before registration, with no rejected-goal leakage or additional planner revision, in `src/explorer/runtime.mjs` and `src/explorer/coverage.mjs`
 - [x] T032 [US1] Implement one feasible-gap repair round, normalized attempted-action fingerprints, full post-repair claim reopening/reverification, terminal gaps for newly valid post-repair goals, and no second repair or repeated parent action in `src/explorer/runtime.mjs` and `src/explorer/coverage.mjs`
-- [ ] T033 [US1] Implement fatal-fault precedence, invalid-control-output handling, stale-answer suppression, and request-id-zero cancellation tracking in `src/explorer/runtime.mjs`, `src/mcp/server.mjs`, and `src/mcp/jsonrpc-stdio.mjs`
+- [x] T033 [US1] Implement fatal-fault precedence, invalid-control-output handling, stale-answer suppression, and request-id-zero cancellation tracking in `src/explorer/runtime.mjs`, `src/mcp/server.mjs`, and `src/mcp/jsonrpc-stdio.mjs`
 - [ ] T034 [US1] Record redacted claim, verdict, repair, safety-limit, final-reduction, and usage events without copying unverified prose in `src/explorer/transcript.mjs`
 - [ ] T035 [US1] Add the US1 known-answer cases and expected state/claim oracles to `benchmarks/trust-known-answer.json`, run the independent US1 fixture subset three times, and pass `npm test`
 

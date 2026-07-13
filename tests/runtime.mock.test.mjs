@@ -970,7 +970,7 @@ test('Phase 1 — explore circuit breaker trips after three all-error turns', as
   assert.equal(result.stats.stoppedByErrors, true, 'circuit breaker must mark stoppedByErrors');
   assert.equal('stoppedByBudget' in result.stats, false, 'structured stats must not expose a budget stop');
   assert.deepEqual(result.stats.safetyLimits, [], 'tool errors must not be mislabeled as safety-limit stops');
-  assert.equal(client.calls, 4, 'three tool-loop calls plus one finalization call');
+  assert.equal(client.calls, 3, 'tool-error termination must not make an untrusted finalization call');
   assert.equal(result.schemaVersion, 2);
   assert.equal(result.failure.category, 'execution');
   assert.equal(result.failure.reason, 'tool_errors');
@@ -5808,6 +5808,92 @@ auditedPlanningRuntimeTest('Spec 028 T017 — cancellation is honored at every p
   }
 });
 
+auditedPlanningRuntimeTest('Spec 028 T033 — provider faults retain precedence through audit wrappers', async t => {
+  const initialGoal = proposedRuntimeGoal();
+  await t.test('initial batched audit', async () => {
+    const client = new ScriptedGoalAuditClient([
+      { stage: 'planner:1', value: plannerControl([initialGoal]) },
+      {
+        stage: 'goal_audit:1',
+        run() {
+          throw new Error('initial audit provider outage');
+        },
+      },
+    ]);
+    const root = await makeRepoFixture();
+    const result = await new RuntimeImplementation({ chatClient: client }).explore({
+      task: GOAL_AUDIT_TASK,
+      repo_root: root,
+    });
+    assert.equal(result.failure?.category, 'provider');
+    assert.equal(result.failure?.reason, 'provider_error');
+  });
+
+  await t.test('revision coverage reconciliation', async () => {
+    const broad = proposedRuntimeGoal({
+      id: 'S-broad-provider',
+      question: 'Locate requireAuth and independently check legacyGuard.',
+      originRefs: [`request:0-${GOAL_AUDIT_TASK.length}`],
+      claimType: 'positive',
+      proofCondition: 'Observe the definition and enumerate the registration surface.',
+    });
+    const corrected = definitionAndAbsenceGoals();
+    const client = new ScriptedGoalAuditClient([
+      { stage: 'planner:1', value: plannerControl([broad]) },
+      {
+        stage: 'goal_audit:1',
+        value: auditorControl([
+          auditControlRecord(broad, 'needs_decomposition'),
+        ], [{
+          question: corrected[1].question,
+          originRefs: [...corrected[1].originRefs],
+          claimType: corrected[1].claimType,
+          proofCondition: corrected[1].proofCondition,
+          constraints: [],
+        }]),
+      },
+      { stage: 'planner:2', value: plannerControl(corrected) },
+      {
+        stage: 'goal_audit:2',
+        value: auditorControl(corrected.map(goal => auditControlRecord(goal))),
+      },
+      {
+        stage: 'goal_coverage:1',
+        run() {
+          throw new Error('revision reconciliation provider outage');
+        },
+      },
+    ]);
+    const root = await makeRepoFixture();
+    const result = await new RuntimeImplementation({ chatClient: client }).explore({
+      task: GOAL_AUDIT_TASK,
+      repo_root: root,
+    });
+    assert.equal(result.failure?.category, 'provider');
+    assert.equal(result.failure?.reason, 'provider_error');
+  });
+
+  await t.test('late-goal audit wrapper', async () => {
+    const lateGoal = {
+      ...initialGoal,
+      id: 'L-provider',
+    };
+    const client = new ScriptedGoalAuditClient([{
+      stage: 'goal_audit:1',
+      run() {
+        throw new Error('late audit provider outage');
+      },
+    }]);
+    const runtime = new RuntimeImplementation({ chatClient: client });
+    await assert.rejects(runtime.auditLateGoalProposals({
+      task: GOAL_AUDIT_TASK,
+      effectiveScope: ['src/**'],
+      wrapperTool: 'find_relevant_code',
+      proposals: [lateGoal],
+    }), error => error?.explorerFailureKind === 'provider');
+  });
+});
+
 auditedPlanningRuntimeTest('Spec 028 T017 — late goal proposals are audited in bounded batches without re-planning', async () => {
   const task = 'Inspect every requested authentication facet in the repository.';
   const proposals = Array.from({ length: 13 }, (_, index) => ({
@@ -6086,7 +6172,7 @@ auditedPlanningRuntimeTest('Spec 028 T017 — late goal audit forwards cancellat
 
 // T030-T033 implement this pipeline in stages. T033 flips this alias after the
 // verifier, late-goal audit, repair, and fatal-fault paths have all landed.
-const semanticPipelineRuntimeTest = test.todo;
+const semanticPipelineRuntimeTest = test;
 
 function trustGoal(task, {
   id,
@@ -6259,7 +6345,7 @@ function buildTrustSteps({ goals, initial, repair }) {
   return steps;
 }
 
-async function runTrustScript(steps, { task, setup } = {}) {
+async function runTrustScript(steps, { task, setup, abortSignal } = {}) {
   const root = await makeRepoFixture();
   if (setup) await setup(root);
   const client = new ScriptedGoalAuditClient(steps);
@@ -6268,7 +6354,7 @@ async function runTrustScript(steps, { task, setup } = {}) {
     task: task ?? GOAL_AUDIT_TASK,
     repo_root: root,
     scope: ['src/**'],
-  });
+  }, { abortSignal });
   return { client, result };
 }
 
@@ -6711,6 +6797,7 @@ semanticPipelineRuntimeTest('Spec 028 T026 — verifier input is isolated and ga
         }
       },
     },
+    repair: { tools: [], claims: [], verdicts: [] },
   });
   const { client, result } = await runTrustScript(steps);
 
@@ -6956,6 +7043,8 @@ test('Spec 028 T032 — repair never re-executes an equivalent initial action', 
   assert.equal(client.stageCounts.get('semantic_verifier'), 1);
   assert.deepEqual(result.observations.map(observation => observation.id), ['E1', 'E1:search']);
   assert.equal(result.stats.filesRead, 1, 'the equivalent repair read was suppressed');
+  assert.equal(result.directAnswer, '',
+    'an unresolved claim must not fall back to pre-verifier exploration text');
   const gap = result.coverageGaps.find(item => item.subgoalId === goal.id);
   assert.equal(gap.repairable, false);
   assert.deepEqual(gap.attemptedActionFingerprints, [fingerprintAction(action)]);
@@ -6997,9 +7086,13 @@ test('Spec 028 T032 — post-repair synthesis cannot omit a prior claim', async 
     value: { claims: [] },
   });
 
-  await assert.rejects(runTrustScript(steps, { task }), error =>
-    error?.code === 'ERR_INVALID_GOAL_CONTROL' &&
-    /omitted prior claim C-preserve/.test(error.cause?.message ?? ''));
+  const { result } = await runTrustScript(steps, { task });
+  assert.equal(result.failure?.category, 'internal');
+  assert.equal(result.failure?.reason, 'invalid_final_response');
+  assert.equal(result.status.complete, false);
+  assert.deepEqual(result.targets, []);
+  assert.deepEqual(result.evidence, []);
+  assert.doesNotMatch(result.directAnswer, /requireAuth protects the inspected route/);
 });
 
 test('Spec 028 T032 — a zero-observation gap still receives the one repair round', async () => {
@@ -7089,6 +7182,101 @@ semanticPipelineRuntimeTest('Spec 028 T026 — valid partial limits are goal-loc
   assert.doesNotMatch(result.directAnswer, /legacyGuard is absent from every line/);
   assert.ok(result.coverageGaps.some(gap =>
     gap.subgoalId === goals[1].id && gap.reason === 'safety_limit_reached'));
+  const toolLimits = result.stats.safetyLimits.filter(limit =>
+    limit.name === 'tool_result_limit');
+  assert.deepEqual(toolLimits.map(limit => limit.stage), ['exploration']);
+  assert.ok(toolLimits[0].affectedSubgoalIds.includes(goals[1].id));
+});
+
+semanticPipelineRuntimeTest('Spec 028 T033 — cancellation after the final verifier response suppresses verified output', async () => {
+  const controller = new AbortController();
+  const goal = definitionAndAbsenceGoals()[0];
+  const claim = candidateClaim(
+    'C-late-cancel', goal.id, 'requireAuth is defined in src/auth.js.', ['E1']);
+  const steps = buildTrustSteps({
+    goals: [goal],
+    initial: {
+      tools: [{
+        tool: 'repo_read_file',
+        args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+        id: 'read-auth',
+      }],
+      claims: [claim],
+      verdicts: [semanticVerdict(claim.id, 'supported', ['E1'])],
+      assertVerifier() {
+        controller.abort();
+      },
+    },
+  });
+
+  const { result } = await runTrustScript(steps, { abortSignal: controller.signal });
+
+  assert.equal(controller.signal.aborted, true);
+  assert.equal(result.failure?.reason, 'aborted');
+  assert.equal(result.status.complete, false);
+  assert.deepEqual(result.targets, []);
+  assert.deepEqual(result.evidence, []);
+  assert.doesNotMatch(result.directAnswer, /requireAuth is defined/);
+});
+
+semanticPipelineRuntimeTest('Spec 028 T033 — invalid final control never promotes a stale draft', async t => {
+  const goal = definitionAndAbsenceGoals()[0];
+  const claim = candidateClaim(
+    'C-final-stale', goal.id, 'requireAuth is defined in src/auth.js.', ['E1']);
+  for (const fixture of [
+    {
+      name: 'bounded invalid responses become an internal control failure',
+      secondStep: { stage: 'synthesis:2', content: 'STALE_FINAL_REPAIR_SENTINEL' },
+      category: 'internal',
+      reason: 'invalid_final_response',
+    },
+    {
+      name: 'provider failure during final repair takes precedence',
+      secondStep: {
+        stage: 'synthesis:2',
+        run() {
+          const error = new Error('final repair provider outage');
+          error.retryable = false;
+          throw error;
+        },
+      },
+      category: 'provider',
+      reason: 'provider_error',
+    },
+  ]) {
+    await t.test(fixture.name, async () => {
+      const steps = buildTrustSteps({
+        goals: [goal],
+        initial: {
+          tools: [{
+            tool: 'repo_read_file',
+            args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+            id: 'read-auth',
+          }],
+          claims: [claim],
+          verdicts: [semanticVerdict(claim.id, 'supported', ['E1'])],
+        },
+      });
+      const synthesisIndex = steps.findIndex(step => step.stage === 'synthesis:1');
+      steps.splice(
+        synthesisIndex,
+        1,
+        { stage: 'synthesis:1', content: 'STALE_FINAL_PRIMARY_SENTINEL' },
+        fixture.secondStep,
+      );
+
+      const { client, result } = await runTrustScript(steps);
+
+      assert.equal(client.stageCounts.get('semantic_verifier') ?? 0, 0);
+      assert.equal(result.failure?.category, fixture.category);
+      assert.equal(result.failure?.reason, fixture.reason);
+      assert.equal(result.status.complete, false);
+      assert.deepEqual(result.targets, []);
+      assert.deepEqual(result.evidence, []);
+      assert.deepEqual(result.discoveredPaths, []);
+      assert.doesNotMatch(JSON.stringify(result), /STALE_FINAL_(?:PRIMARY|REPAIR)_SENTINEL/);
+    });
+  }
 });
 
 semanticPipelineRuntimeTest('Spec 028 T026 — invalid verifier and provider faults fail closed', async t => {
@@ -7100,6 +7288,8 @@ semanticPipelineRuntimeTest('Spec 028 T026 — invalid verifier and provider fau
       name: 'malformed verifier JSON after bounded recovery',
       verifierSteps: [{ raw: '{"verdicts":' }, { raw: '{"verdicts":' }],
       verifierCalls: 2,
+      failureCategory: 'internal',
+      failureReason: 'invalid_final_response',
     },
     {
       name: 'output-capped invalid verifier JSON',
@@ -7108,6 +7298,8 @@ semanticPipelineRuntimeTest('Spec 028 T026 — invalid verifier and provider fau
         { raw: '{"verdicts":', finishReason: 'length' },
       ],
       verifierCalls: 2,
+      failureCategory: 'internal',
+      failureReason: 'invalid_final_response',
       check(result) {
         const limit = result.stats.safetyLimits.find(item =>
           item.name === 'generation_output_limit');
@@ -7119,12 +7311,16 @@ semanticPipelineRuntimeTest('Spec 028 T026 — invalid verifier and provider fau
       name: 'provider fault at verifier',
       verifierSteps: [{ error: 'non-retryable verifier outage' }],
       verifierCalls: 1,
+      failureCategory: 'provider',
+      failureReason: 'provider_error',
     },
     {
       name: 'provider fault during repair',
       verifierSteps: [{ verdicts: [semanticVerdict(claim.id, 'insufficient')] }],
       repairError: 'non-retryable repair outage',
       verifierCalls: 1,
+      failureCategory: 'provider',
+      failureReason: 'provider_error',
     },
   ];
 
@@ -7147,7 +7343,13 @@ semanticPipelineRuntimeTest('Spec 028 T026 — invalid verifier and provider fau
         buildTrustSteps({ goals: [goal], initial, repair }));
 
       assert.ok(result.failure);
+      assert.equal(result.failure.category, fixture.failureCategory);
+      assert.equal(result.failure.reason, fixture.failureReason);
       assert.doesNotMatch(result.directAnswer ?? '', new RegExp(staleText));
+      assert.equal(result.status.complete, false);
+      assert.deepEqual(result.targets, []);
+      assert.deepEqual(result.evidence, []);
+      assert.deepEqual(result.discoveredPaths, []);
       assert.equal(client.stageCounts.get('semantic_verifier'), fixture.verifierCalls);
       fixture.check?.(result);
     });

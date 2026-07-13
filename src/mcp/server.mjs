@@ -463,6 +463,7 @@ export function createMcpRequestHandler({
 
   // Track active explorations for abort support
   const activeAbortControllers = new Map(); // requestId → AbortController
+  const hasRequestId = requestId => requestId !== null && requestId !== undefined;
 
   /**
    * Build an onProgress callback that fires MCP notifications/progress when
@@ -739,7 +740,7 @@ export function createMcpRequestHandler({
 
   async function callTool(exploreArgs, progressToken, requestId, toolName = 'explore_repo') {
     const abortController = new AbortController();
-    if (requestId) activeAbortControllers.set(requestId, abortController);
+    if (hasRequestId(requestId)) activeAbortControllers.set(requestId, abortController);
     let stats = null;
     let transcriptPath = null;
     let failureReason = '';
@@ -754,19 +755,33 @@ export function createMcpRequestHandler({
       });
       stats = result.stats;
       transcriptPath = result.transcriptPath ?? result.stats?.transcriptPath ?? null;
+      failureReason = result.failure?.reason ?? '';
       const agentResult = redactExploreResult(toAgentFacingResult(result)).value;
       // Spec 025: ops side-channel, symmetric with callFreeExploreTool. This is
       // operational/eval metadata (spec 022 boundary), not the answer contract.
       const ops = redactValue({ stats: stats ?? {}, transcriptPath }).value;
+      const failed = agentResult.failure !== null;
       return {
-        content: [{ type: 'text', text: formatExploreResult(agentResult) }],
+        ...(failed ? { isError: true } : {}),
+        content: [{
+          type: 'text',
+          text: failed
+            ? `${agentResult.directAnswer || agentResult.failure.message} [reason: ${agentResult.failure.reason}]`
+            : formatExploreResult(agentResult),
+        }],
         structuredContent: agentResult,
         _meta: { ops },
       };
     } catch (error) {
       stats = error?.stats ?? stats;
       transcriptPath = error?.transcriptPath ?? transcriptPath;
-      failureReason = error?.failure?.reason ?? error?.reason ?? 'execution_failed';
+      failureReason = error?.name === 'AbortError'
+        ? 'aborted'
+        : error?.repoRootError
+          ? 'repo_mismatch'
+        : error?.explorerFailureKind === 'provider'
+          ? 'provider_error'
+        : error?.failure?.reason ?? error?.reason ?? 'execution_failed';
       throw error;
     } finally {
       writeOpsSummary({
@@ -776,13 +791,13 @@ export function createMcpRequestHandler({
         raw: isTranscriptRawMode(),
         failureReason,
       });
-      if (requestId) activeAbortControllers.delete(requestId);
+      if (hasRequestId(requestId)) activeAbortControllers.delete(requestId);
     }
   }
 
   async function callFreeExploreTool(exploreArgs, progressToken, requestId) {
     const abortController = new AbortController();
-    if (requestId) activeAbortControllers.set(requestId, abortController);
+    if (hasRequestId(requestId)) activeAbortControllers.set(requestId, abortController);
     let stats = null;
     let transcriptPath = null;
     let failureReason = '';
@@ -797,6 +812,7 @@ export function createMcpRequestHandler({
       });
       stats = result.stats;
       transcriptPath = result.transcriptPath ?? null;
+      failureReason = result.failure?.reason ?? '';
       const safeResult = redactValue(toAgentFacingFreeExploreResult(result)).value;
       const ops = redactValue({
         stats: stats ?? {},
@@ -813,7 +829,13 @@ export function createMcpRequestHandler({
     } catch (error) {
       stats = error?.stats ?? stats;
       transcriptPath = error?.transcriptPath ?? transcriptPath;
-      failureReason = error?.failure?.reason ?? error?.reason ?? 'execution_failed';
+      failureReason = error?.name === 'AbortError'
+        ? 'aborted'
+        : error?.repoRootError
+          ? 'repo_mismatch'
+        : error?.explorerFailureKind === 'provider'
+          ? 'provider_error'
+        : error?.failure?.reason ?? error?.reason ?? 'execution_failed';
       throw error;
     } finally {
       writeOpsSummary({
@@ -823,7 +845,7 @@ export function createMcpRequestHandler({
         raw: isTranscriptRawMode(),
         failureReason,
       });
-      if (requestId) activeAbortControllers.delete(requestId);
+      if (hasRequestId(requestId)) activeAbortControllers.delete(requestId);
     }
   }
 
@@ -907,6 +929,14 @@ export function createMcpRequestHandler({
           error.code = -32603;
           throw error;
         } catch (error) {
+          if (error?.name === 'AbortError') {
+            return handledFailureResult({
+              category: 'execution',
+              reason: 'aborted',
+              message: `${name} was cancelled before completion.`,
+              retryTool: null,
+            });
+          }
           if (error.repoRootError) {
             return handledFailureResult({
               category: 'input',
@@ -930,7 +960,7 @@ export function createMcpRequestHandler({
             return handledFailureResult({
               category: 'provider',
               reason: 'provider_error',
-              message: `${name} execution failed: ${error.message}`,
+              message: `${name} execution failed because the provider was unavailable.`,
               retryTool: name === 'explore' ? 'explore' : 'explore_repo',
               hints: ['Retry after the provider recovers, or narrow the task and scope.'],
               // The retry recipe must match the target tool's input schema:
@@ -965,7 +995,7 @@ export function createMcpRequestHandler({
     }
     if (message.method === 'notifications/cancelled') {
       const requestId = message.params?.requestId;
-      if (requestId) {
+      if (hasRequestId(requestId)) {
         const controller = activeAbortControllers.get(requestId);
         if (controller) {
           controller.abort();

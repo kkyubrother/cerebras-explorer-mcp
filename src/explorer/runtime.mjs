@@ -302,7 +302,7 @@ async function compactWithLlmSummary(chatClient, messages, threshold, opts) {
   }
 
   // Ask the LLM to summarize exploration findings so far
-  const summaryCompletion = await chatClient.createChatCompletion({
+  const summaryCompletion = await requestProviderCompletion(chatClient, {
     messages: [
       ...messages,
       { role: 'user', content: buildCompactionSummaryPrompt() },
@@ -665,9 +665,12 @@ function buildReportCitationTargets(citations = []) {
   }));
 }
 
-function buildFailure(result, stats) {
-  const existing = normalizeFailure(result.failure);
-  if (existing) return existing;
+function buildFailure(result, stats, runtimeFailure = null) {
+  if (stats.stoppedByAbort) {
+    return makeFailure('execution', 'aborted', 'Exploration was cancelled before completion.', null);
+  }
+  const fatalFailure = normalizeFailure(runtimeFailure);
+  if (fatalFailure) return fatalFailure;
   if (stats.invalidGoalControl) {
     return makeFailure('internal', 'invalid_final_response', 'The explorer could not validate its required internal goal plan.', {
       tool: 'explore_repo',
@@ -690,9 +693,6 @@ function buildFailure(result, stats) {
       expectedImprovement: 'A more specific prompt should improve compact JSON synthesis.',
     });
   }
-  if (stats.stoppedByAbort) {
-    return makeFailure('execution', 'aborted', 'Exploration was cancelled before completion.', null);
-  }
   if (stats.stoppedByErrors) {
     return makeFailure('execution', 'tool_errors', 'Exploration stopped after repeated tool errors.', {
       tool: 'explore_repo',
@@ -704,12 +704,12 @@ function buildFailure(result, stats) {
       expectedImprovement: 'A narrower task should reduce repeated tool errors and improve grounding.',
     });
   }
-  return null;
+  return normalizeFailure(result.failure);
 }
 
-function attachAgentFacingContract(result, stats, grounding = {}) {
+function attachAgentFacingContract(result, stats, grounding = {}, runtimeFailure = null) {
   result.schemaVersion = AGENT_FACING_SCHEMA_VERSION;
-  result.failure = buildFailure(result, stats);
+  result.failure = buildFailure(result, stats, runtimeFailure);
   result.critic = {
     status: result.critic?.status ?? 'pass',
     warnings: Array.isArray(result.critic?.warnings) ? result.critic.warnings : [],
@@ -1200,10 +1200,23 @@ function isAbortError(error) {
   return error?.name === 'AbortError';
 }
 
-function buildCancelledExploreObject(lastAssistantContent = '') {
-  const message = typeof lastAssistantContent === 'string' && lastAssistantContent.trim()
-    ? lastAssistantContent.trim()
-    : 'Exploration was cancelled before a final answer was produced.';
+function markProviderFault(error) {
+  if (isAbortError(error)) return error;
+  const providerFault = new Error('Provider request failed.', { cause: error });
+  providerFault.explorerFailureKind = 'provider';
+  return providerFault;
+}
+
+async function requestProviderCompletion(chatClient, request) {
+  try {
+    return await chatClient.createChatCompletion(request);
+  } catch (error) {
+    throw markProviderFault(error);
+  }
+}
+
+function buildCancelledExploreObject() {
+  const message = 'Exploration was cancelled before a trustworthy answer was produced.';
   return {
     directAnswer: message,
     status: {
@@ -1219,11 +1232,102 @@ function buildCancelledExploreObject(lastAssistantContent = '') {
   };
 }
 
-function buildCancelledReport(report = '') {
-  if (typeof report === 'string' && report.trim()) {
-    return report;
-  }
+function buildCancelledReport() {
   return 'Exploration was cancelled before a final report was produced.';
+}
+
+function buildFatalExploreObject(message) {
+  return {
+    directAnswer: message,
+    status: {
+      confidence: 'low',
+      verification: 'broad_search_needed',
+      complete: false,
+      warnings: [message],
+    },
+    targets: [],
+    evidence: [],
+    uncertainties: [message],
+    nextAction: { type: 'stop', reason: message },
+  };
+}
+
+function buildVerifiedDirectAnswer(semanticVerification) {
+  const subgoalStateById = new Map(
+    (semanticVerification?.taskContract?.subgoals ?? []).map(goal => [goal.id, goal.state]),
+  );
+  const texts = [];
+  const seen = new Set();
+  for (const claim of semanticVerification?.claims ?? []) {
+    const state = subgoalStateById.get(claim.subgoalId);
+    const text = typeof claim.text === 'string' ? claim.text.trim() : '';
+    if (claim.verdict !== 'supported' || state === 'blocked' || state === 'contradicted' ||
+        !text || seen.has(text)) continue;
+    seen.add(text);
+    texts.push(text);
+  }
+  return texts.join('\n');
+}
+
+function applyObservationSafetyLimits({ semanticVerification, observations, stats }) {
+  if (!semanticVerification) return semanticVerification;
+  const observationById = new Map((observations ?? []).map(observation => [observation.id, observation]));
+  const gapBySubgoal = new Map(
+    (semanticVerification.coverageGaps ?? [])
+      .filter(gap => typeof gap?.subgoalId === 'string')
+      .map(gap => [gap.subgoalId, gap]),
+  );
+  const attributableGapReasons = new Set([
+    'missing_evidence',
+    'semantic_mismatch',
+    'truncated',
+    'enumeration_incomplete',
+  ]);
+  const limitsBySubgoal = new Map();
+  for (const claim of semanticVerification.claims ?? []) {
+    const gap = gapBySubgoal.get(claim.subgoalId);
+    if (claim.verdict !== 'insufficient' || !attributableGapReasons.has(gap?.reason)) continue;
+    const limits = new Map((claim.evidenceRefs ?? []).flatMap(ref => {
+      const candidates = [observationById.get(ref), observationById.get(`${ref}:search`)];
+      return candidates
+        .map(observation => observation?.safetyLimit)
+        .filter(limit => limit?.name && limit?.stage)
+        .map(limit => [`${limit.name}:${limit.stage}`, limit]);
+    }));
+    if (limits.size > 0) {
+      const combined = new Map(limitsBySubgoal.get(claim.subgoalId) ?? []);
+      for (const [key, limit] of limits) combined.set(key, limit);
+      limitsBySubgoal.set(claim.subgoalId, combined);
+    }
+  }
+  if (limitsBySubgoal.size === 0) return semanticVerification;
+
+  const uniqueLimits = new Map(
+    [...limitsBySubgoal.values()].flatMap(limits => [...limits]),
+  );
+  for (const [limitKey, limit] of uniqueLimits) {
+    recordSafetyLimit(stats, {
+      name: limit.name,
+      stage: limit.stage,
+      affectedSubgoalIds: [...limitsBySubgoal]
+        .filter(([, limits]) => limits.has(limitKey))
+        .map(([subgoalId]) => subgoalId),
+      truncated: true,
+    });
+  }
+  return {
+    ...semanticVerification,
+    coverageGaps: semanticVerification.coverageGaps.map(gap => {
+      if (!limitsBySubgoal.has(gap.subgoalId)) return gap;
+      const limitedGap = {
+        ...gap,
+        reason: 'safety_limit_reached',
+        repairable: false,
+      };
+      delete limitedGap.followUp;
+      return limitedGap;
+    }),
+  };
 }
 
 /**
@@ -1260,6 +1364,7 @@ function goalControlResponseFormat(name, schema) {
 function invalidGoalControl(stage, cause) {
   const error = new Error(`Invalid required ${stage} control output.`);
   error.code = INVALID_GOAL_CONTROL;
+  error.stage = stage;
   error.cause = cause;
   return error;
 }
@@ -1307,7 +1412,7 @@ async function requestValidatedGoalControl({
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
     if (abortSignal?.aborted) throw abortError(`${stage} was cancelled.`);
-    const completion = await chatClient.createChatCompletion({
+    const completion = await requestProviderCompletion(chatClient, {
       messages: redactValue(requestMessages).value,
       responseFormat: goalControlResponseFormat(schemaName, schema),
       reasoningEffort,
@@ -1627,7 +1732,7 @@ async function runEvidenceRepairToolBatch({
   priorActionFingerprints = [],
 }) {
   const messages = buildEvidenceRepairMessages({ gaps, effectiveScope, anchors });
-  const request = async () => chatClient.createChatCompletion({
+  const request = async () => requestProviderCompletion(chatClient, {
     messages,
     tools,
     reasoningEffort,
@@ -2963,7 +3068,7 @@ export class ExplorerRuntime {
         reduction,
       };
     } catch (error) {
-      if (isAbortError(error)) throw error;
+      if (isAbortError(error) || error?.explorerFailureKind === 'provider') throw error;
       throw invalidGoalControl('goal_audit', error);
     }
   }
@@ -3360,7 +3465,7 @@ export class ExplorerRuntime {
           rejectedGoals: [...finalReduction.rejectedGoals, ...carryForward.rejectedGoals],
         };
       } catch (error) {
-        if (isAbortError(error)) throw error;
+        if (isAbortError(error) || error?.explorerFailureKind === 'provider') throw error;
         throw invalidGoalControl('plan_revision', error);
       }
       revisionCount = 1;
@@ -3475,7 +3580,7 @@ export class ExplorerRuntime {
         allowEmptyRequired: true,
       });
     } catch (error) {
-      if (isAbortError(error)) throw error;
+      if (isAbortError(error) || error?.explorerFailureKind === 'provider') throw error;
       throw invalidGoalControl('late_goal_audit', error.cause ?? error);
     }
     return redactValue({
@@ -3654,6 +3759,11 @@ export class ExplorerRuntime {
         runtimeConfig,
       });
       if (toolSafetyLimit) {
+        for (const observation of newObservations) {
+          if (observation.kind === 'search') {
+            observation.safetyLimit = { name: toolSafetyLimit, stage };
+          }
+        }
         recordSafetyLimit(stats, {
           name: toolSafetyLimit,
           stage,
@@ -3773,6 +3883,7 @@ export class ExplorerRuntime {
     let lastFingerprint = null;
     let repeatedTurns = 0;
     let consecutiveAllErrorTurns = 0;
+    let outcome = null;
 
     try {
     try {
@@ -3887,7 +3998,7 @@ export class ExplorerRuntime {
 
       let completion;
       try {
-        completion = await chatClient.createChatCompletion({
+        completion = await requestProviderCompletion(chatClient, {
           messages,
           tools,
           reasoningEffort,
@@ -3954,9 +4065,15 @@ export class ExplorerRuntime {
           throw error;
         }
         finalObject = finalized.result;
-        if (finalized.invalidFinalResponse) stats.invalidFinalResponse = true;
         recordSafetyLimits(stats, finalized.safetyLimits);
         recordCompletionStats(stats, finalized);
+        if (finalized.invalidFinalResponse) {
+          stats.invalidFinalResponse = true;
+          throw invalidGoalControl(
+            'final_synthesis',
+            new TypeError('Final structured response remained invalid after bounded recovery.'),
+          );
+        }
         break;
       }
 
@@ -4060,24 +4177,21 @@ export class ExplorerRuntime {
     }
 
     if (!finalObject && stats.stoppedByAbort) {
-      finalObject = buildCancelledExploreObject(lastAssistantContent);
+      finalObject = buildCancelledExploreObject();
+    } else if (!finalObject && stats.stoppedByErrors) {
+      finalObject = buildFatalExploreObject('Exploration stopped after repeated tool errors.');
     } else if (!finalObject) {
-      const turnLimitReached = !stats.stoppedByErrors && !stats.stoppedByAbort;
-      if (turnLimitReached) {
-        recordSafetyLimit(stats, {
-          name: 'turn_limit',
-          stage: 'exploration',
-          affectedSubgoalIds: [],
-          truncated: false,
-        });
-      }
+      recordSafetyLimit(stats, {
+        name: 'turn_limit',
+        stage: 'exploration',
+        affectedSubgoalIds: [],
+        truncated: false,
+      });
       if (onProgress) {
         onProgress({
           progress: runtimeConfig.maxTurns,
           total: runtimeConfig.maxTurns,
-          message: turnLimitReached
-            ? 'Turn limit reached — synthesizing partial answer...'
-            : 'Tool errors stopped exploration — synthesizing partial answer...',
+          message: 'Turn limit reached — synthesizing partial answer...',
         });
       }
       const finalized = await this.finalizeAfterToolLoop({
@@ -4090,12 +4204,18 @@ export class ExplorerRuntime {
         abortSignal,
       });
       finalObject = finalized.result;
-      if (finalized.invalidFinalResponse) stats.invalidFinalResponse = true;
       recordSafetyLimits(stats, finalized.safetyLimits);
       recordCompletionStats(stats, finalized);
+      if (finalized.invalidFinalResponse) {
+        stats.invalidFinalResponse = true;
+        throw invalidGoalControl(
+          'final_synthesis',
+          new TypeError('Final structured response remained invalid after bounded recovery.'),
+        );
+      }
     }
 
-    if (!stats.stoppedByAbort && auditedPlan &&
+    if (!stats.stoppedByAbort && !stats.stoppedByErrors && !stats.invalidFinalResponse && auditedPlan &&
         auditedPlan.taskContract.subgoals.some(goal => goal.state !== 'blocked')) {
       const affectedSubgoalIds = auditedPlan.taskContract.subgoals
         .filter(goal => goal.state !== 'blocked')
@@ -4160,10 +4280,15 @@ export class ExplorerRuntime {
           taskContract: integrated.taskContract,
           coverageGaps: integrated.coverageGaps,
         };
+        semanticVerification = applyObservationSafetyLimits({
+          semanticVerification,
+          observations,
+          stats,
+        });
         auditedPlan = {
           ...auditedPlan,
-          taskContract: integrated.taskContract,
-          coverageGaps: integrated.coverageGaps,
+          taskContract: semanticVerification.taskContract,
+          coverageGaps: semanticVerification.coverageGaps,
           rejectedGoals: integrated.rejectedGoals,
         };
       }
@@ -4314,10 +4439,15 @@ export class ExplorerRuntime {
               taskContract: integrated.taskContract,
               coverageGaps: integrated.coverageGaps,
             };
+            semanticVerification = applyObservationSafetyLimits({
+              semanticVerification,
+              observations,
+              stats,
+            });
             auditedPlan = {
               ...auditedPlan,
-              taskContract: integrated.taskContract,
-              coverageGaps: integrated.coverageGaps,
+              taskContract: semanticVerification.taskContract,
+              coverageGaps: semanticVerification.coverageGaps,
               rejectedGoals: integrated.rejectedGoals,
             };
           }
@@ -4329,6 +4459,9 @@ export class ExplorerRuntime {
     Object.assign(stats, globalRepoCache.stats());
 
     let normalized = normalizeExploreResult(finalObject, stats);
+    if (semanticVerification) {
+      normalized.directAnswer = buildVerifiedDirectAnswer(semanticVerification);
+    }
     discoveredPaths = mergeDiscoveredPaths(
       discoveredPaths,
       normalized.targets
@@ -4370,6 +4503,7 @@ export class ExplorerRuntime {
       evidence: normalized.evidence,
       repoRoot,
     });
+    if (abortSignal?.aborted) throw abortError('Final result projection was cancelled.');
 
     if (criticPass.grounding.droppedUngrounded + criticPass.grounding.droppedMalformed > 0) {
       normalized.uncertainties = [
@@ -4378,7 +4512,7 @@ export class ExplorerRuntime {
       ];
     }
 
-    if (!normalized.directAnswer) {
+    if (!normalized.directAnswer && !semanticVerification) {
       normalized.directAnswer = lastAssistantContent || 'Explorer did not return a final answer.';
       normalized.status = {
         ...normalized.status,
@@ -4443,13 +4577,84 @@ export class ExplorerRuntime {
     }
 
     normalized.transcriptPath = transcript.filePath;
-    return normalized;
+    outcome = normalized;
+    } catch (error) {
+      const cancelled = abortSignal?.aborted || isAbortError(error);
+      let runtimeFailure = null;
+      if (cancelled) {
+        stats.stoppedByAbort = true;
+        finalObject = buildCancelledExploreObject();
+      } else if (error?.code === INVALID_GOAL_CONTROL) {
+        stats.invalidGoalControl = true;
+        const verifierStage = error.stage === 'claim_synthesis' || error.stage === 'semantic_verifier';
+        const finalStage = error.stage === 'final_synthesis';
+        const message = verifierStage
+          ? 'The explorer could not validate the required verifier output.'
+          : 'The explorer could not validate its required internal control output.';
+        runtimeFailure = makeFailure('internal', 'invalid_final_response', message, {
+          tool: 'explore_repo',
+          hints: [finalStage
+            ? 'Retry with a more specific task, symbol, file, or scope.'
+            : 'Retry the same task; repeated invalid control output indicates a provider fault.'],
+          args: {
+            task: finalStage
+              ? 'Retry with a more specific task, symbol, file, or scope.'
+              : 'Retry the same repository investigation.',
+            scope: stats.scope,
+          },
+          expectedImprovement: finalStage
+            ? 'A more specific prompt should improve compact JSON synthesis.'
+            : 'A valid isolated control response should allow trustworthy completion.',
+        });
+        finalObject = buildFatalExploreObject(message);
+      } else if (error?.explorerFailureKind === 'provider') {
+        const message = 'The exploration provider failed before a trustworthy answer was produced.';
+        runtimeFailure = makeFailure('provider', 'provider_error', message, {
+          tool: 'explore_repo',
+          hints: ['Retry after the provider recovers, or narrow the task and scope.'],
+          args: {
+            task: 'Retry after the provider recovers, or narrow the task and scope.',
+            scope: stats.scope,
+          },
+          expectedImprovement: 'A provider recovery or narrower scope should reduce failure risk.',
+        });
+        finalObject = buildFatalExploreObject(message);
+      } else {
+        const message = 'The explorer encountered an internal failure before a trustworthy answer was produced.';
+        runtimeFailure = makeFailure('internal', 'invalid_final_response', message, {
+          tool: 'explore_repo',
+          hints: ['Retry the same task; report repeated internal failures.'],
+          args: { task: 'Retry the same repository investigation.', scope: stats.scope },
+          expectedImprovement: 'A clean execution should allow trustworthy completion.',
+        });
+        finalObject = buildFatalExploreObject(message);
+      }
+
+      stats.elapsedMs = nowMs() - startedAt;
+      Object.assign(stats, globalRepoCache.stats());
+      const normalized = normalizeExploreResult(finalObject, stats);
+      normalized.discoveredPaths = [];
+      normalized.observations = [];
+      normalized.transcriptPath = transcript.filePath;
+      attachAgentFacingContract(normalized, stats, {}, runtimeFailure);
+      outcome = normalized;
     } finally {
       if (!stats.elapsedMs) {
         stats.elapsedMs = nowMs() - startedAt;
       }
       await transcript.finalize(stats);
     }
+    if (abortSignal?.aborted) {
+      stats.stoppedByAbort = true;
+      stats.elapsedMs = nowMs() - startedAt;
+      const cancelled = normalizeExploreResult(buildCancelledExploreObject(), stats);
+      cancelled.discoveredPaths = [];
+      cancelled.observations = [];
+      cancelled.transcriptPath = transcript.filePath;
+      attachAgentFacingContract(cancelled, stats);
+      return cancelled;
+    }
+    return outcome;
   }
 
   /**
@@ -4644,7 +4849,7 @@ export class ExplorerRuntime {
 
       let completion;
       try {
-        completion = await chatClient.createChatCompletion({
+        completion = await requestProviderCompletion(chatClient, {
           messages,
           tools,
           reasoningEffort,
@@ -4848,7 +5053,7 @@ export class ExplorerRuntime {
 
       let finalized;
       try {
-        finalized = await chatClient.createChatCompletion({
+        finalized = await requestProviderCompletion(chatClient, {
           messages: finalizeMessages,
           reasoningEffort,
           temperature,
@@ -4898,7 +5103,7 @@ export class ExplorerRuntime {
 
           let continuation;
           try {
-            continuation = await chatClient.createChatCompletion({
+            continuation = await requestProviderCompletion(chatClient, {
               messages: recoveryMessages,
               reasoningEffort,
               temperature,
@@ -4976,7 +5181,7 @@ export class ExplorerRuntime {
         truncated: true,
       });
     };
-    const completion = await chatClient.createChatCompletion({
+    const completion = await requestProviderCompletion(chatClient, {
       messages: [
         ...messages,
         { role: 'user', content: buildFinalizePrompt() },
@@ -5023,7 +5228,7 @@ export class ExplorerRuntime {
         { role: 'assistant', content: redactText(completion.message.content || '').text },
         { role: 'user', content: 'Repair your previous response into exactly one compact JSON object matching the schema. Do not add new facts. Do not call tools. Keep directAnswer at most 1200 characters, include at most 8 targets and at most 8 evidence items, and keep reason/why strings brief.' },
       ];
-      const repair = await chatClient.createChatCompletion({
+      const repair = await requestProviderCompletion(chatClient, {
         messages: repairMessages,
         responseFormat: { type: 'json_schema', json_schema: EXPLORE_RESULT_JSON_SCHEMA },
         reasoningEffort: 'none',
@@ -5047,12 +5252,14 @@ export class ExplorerRuntime {
           safetyLimits,
         };
       }
-    } catch { /* repair failed, fall through to local fallback */ }
+    } catch (error) {
+      if (isAbortError(error) || error?.explorerFailureKind === 'provider') throw error;
+    }
 
     // 4) Last resort: raw text as low-confidence answer
     return {
       result: {
-        directAnswer: completion.message.content || 'Explorer could not synthesize a final answer.',
+        directAnswer: '',
         status: {
           confidence: 'low',
           verification: 'broad_search_needed',

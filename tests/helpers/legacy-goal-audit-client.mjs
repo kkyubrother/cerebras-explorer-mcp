@@ -26,13 +26,32 @@ function controlCompletion(value) {
   };
 }
 
+function parseCompactResult(content) {
+  if (typeof content !== 'string' || !content.trim()) return null;
+  try {
+    return JSON.parse(content);
+  } catch {
+    const start = content.indexOf('{');
+    const end = content.lastIndexOf('}');
+    if (start < 0 || end <= start) return null;
+    try {
+      return JSON.parse(content.slice(start, end + 1));
+    } catch {
+      return null;
+    }
+  }
+}
+
 /**
- * Lets pre-spec-028 provider scripts keep testing the exploration loop while
- * the real runtime still executes its required isolated planner and auditor.
+ * Test-only compatibility adapter for pre-spec-028 provider scripts. It keeps
+ * those fixtures focused on the legacy exploration loop by supplying isolated
+ * planner, auditor, claim, verifier, and single-repair controls. New trust-gate
+ * tests must use explicit provider fixtures instead of this adapter.
  */
 export function adaptLegacyGoalAuditClient(chatClient, { rejectedGoal = null } = {}) {
   if (!chatClient) return chatClient;
   let repairCalls = 0;
+  let lastCompactResult = null;
   return new Proxy(chatClient, {
     get(target, property, receiver) {
       if (property !== 'createChatCompletion') {
@@ -42,11 +61,30 @@ export function adaptLegacyGoalAuditClient(chatClient, { rejectedGoal = null } =
         if (request.messages?.some(message =>
           message.role === 'user' && typeof message.content === 'string' &&
           message.content.includes('BEGIN_EVIDENCE_REPAIR_JSON'))) {
+          if (request.messages.at(-1)?.role === 'tool') {
+            return controlCompletion('Legacy loop fixture repair read complete.');
+          }
           repairCalls += 1;
           if (repairCalls > 1) {
             throw new Error('Legacy runtime fixture observed more than one repair round.');
           }
-          return controlCompletion('Legacy loop fixture has no scripted repair action.');
+          const path = lastCompactResult?.evidence?.find(item => typeof item?.path === 'string')?.path
+            ?? lastCompactResult?.targets?.find(item => typeof item?.path === 'string')?.path
+            ?? 'src/auth.js';
+          return {
+            usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+            finishReason: 'tool_calls',
+            message: {
+              content: '',
+              toolCalls: [{
+                id: 'legacy-test-repair-read',
+                function: {
+                  name: 'repo_read_file',
+                  arguments: JSON.stringify({ path, startLine: 1, endLine: 20 }),
+                },
+              }],
+            },
+          };
         }
         const kind = controlKind(request);
         if (kind === 'planner') {
@@ -91,27 +129,47 @@ export function adaptLegacyGoalAuditClient(chatClient, { rejectedGoal = null } =
           });
         }
         if (kind === 'claim_synthesis') {
-          return controlCompletion({ claims: [] });
+          const packet = parseControlPacket(request.messages);
+          const subgoal = packet?.control?.requiredSubgoals?.[0];
+          const evidenceRef = packet?.observations?.find(observation =>
+            observation?.kind === 'source' || String(observation?.kind ?? '').startsWith('git_'))?.id;
+          const text = typeof lastCompactResult?.directAnswer === 'string'
+            ? lastCompactResult.directAnswer.trim()
+            : '';
+          return controlCompletion({
+            claims: subgoal && evidenceRef && text
+              ? [{
+                  id: 'legacy-test-claim',
+                  subgoalId: subgoal.id,
+                  text,
+                  evidenceRefs: [evidenceRef],
+                }]
+              : [],
+          });
         }
         if (kind === 'semantic_verifier') {
           const packet = parseControlPacket(request.messages);
           return controlCompletion({
             verdicts: (packet?.claims ?? []).map(claim => ({
               claimId: claim.id,
-              result: 'insufficient',
-              supportingEvidenceRefs: [],
-              reasonCode: 'semantic_mismatch',
-              note: 'Legacy loop fixtures do not exercise semantic support.',
+              result: 'supported',
+              resolution: 'affirmed',
+              supportingEvidenceRefs: [...claim.evidenceRefs],
+              reasonCode: 'entailed',
+              note: 'Legacy loop fixture preserves its pre-existing asserted result.',
             })),
             uncoveredRequestParts: [],
           });
         }
-        return target.createChatCompletion({
+        const completion = await target.createChatCompletion({
           ...request,
           messages: request.messages?.filter(message =>
             !(message.role === 'user' && typeof message.content === 'string' &&
               message.content.includes('BEGIN_AUDITED_GOALS_JSON'))),
         });
+        const parsed = parseCompactResult(completion?.message?.content);
+        if (parsed && typeof parsed.directAnswer === 'string') lastCompactResult = parsed;
+        return completion;
       };
     },
   });
