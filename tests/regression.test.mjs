@@ -160,14 +160,6 @@ const auditedPromptBoundaryTest =
 // T019 activates these tests when the isolated control-plane builders land.
 
 const PROMPT_TASK = 'Locate requireAuth and verify that legacyGuard is absent.';
-const FIXED_CAPABILITIES = Object.freeze({
-  repositoryRead: true,
-  gitRead: true,
-  repositoryWrite: false,
-  liveRuntimeState: false,
-  scopeWidening: false,
-  secretPathRead: false,
-});
 
 function assertTwoMessageBoundary(messages, label) {
   assert.ok(Array.isArray(messages), `${label} must return a message array`);
@@ -192,7 +184,6 @@ function plannerArgs(overrides = {}) {
     task: PROMPT_TASK,
     effectiveScope: ['src/**'],
     wrapperTool: 'trace_symbol',
-    capabilities: FIXED_CAPABILITIES,
     knownAnchors: {
       files: ['src/auth.js'],
       symbols: ['requireAuth'],
@@ -260,6 +251,14 @@ auditedPromptBoundaryTest('Spec 028 T018 — planner policy is invariant under u
       text: [],
     },
     repositoryArtifacts: RAW_REPOSITORY_MARKERS,
+    capabilities: {
+      repositoryRead: false,
+      gitRead: false,
+      repositoryWrite: true,
+      liveRuntimeState: true,
+      scopeWidening: true,
+      secretPathRead: true,
+    },
     proofPolicy: 'direct_source',
     budget: 'unbounded',
   })), 'planner');
@@ -272,7 +271,40 @@ auditedPromptBoundaryTest('Spec 028 T018 — planner policy is invariant under u
   assertRawArtifactsExcluded(attacked.all);
   assert.doesNotMatch(attacked.all, /"proofPolicy"\s*:\s*"direct_source"/);
   assert.doesNotMatch(attacked.all, /"budget"\s*:/);
+  assert.match(attacked.data, /"repositoryRead":true/);
+  assert.match(attacked.data, /"repositoryWrite":false/);
+  assert.match(attacked.data, /"liveRuntimeState":false/);
+  assert.match(attacked.data, /"scopeWidening":false/);
+  assert.match(attacked.data, /"secretPathRead":false/);
+  assert.doesNotMatch(attacked.data,
+    /"repositoryRead":false|"repositoryWrite":true|"scopeWidening":true|"secretPathRead":true/);
+  assert.match(attacked.data, /"usage":"symbol_usage"/);
+  assert.match(attacked.data, /"start":7,"end":18,"text":"requireAuth"/);
+  assert.match(attacked.system, /symbol_usage[\s\S]{0,120}independent bounded usage cross-check/i);
+  assert.match(attacked.system, /zero-based[\s\S]{0,80}half-open[\s\S]{0,120}original task/i);
+  assert.match(attacked.system, /goal id[\s\S]{0,80}non-empty[\s\S]{0,80}unique/i);
+  assert.match(attacked.system, /runtime-computed[\s\S]{0,80}taskOffsetGuide[\s\S]{0,140}entry\.start/i);
+  assert.match(attacked.system,
+    /every explicit request part[\s\S]{0,160}request originRef[\s\S]{0,180}one origin kind never substitutes/i);
+  assert.match(attacked.system,
+    /never copy a request originRef[\s\S]{0,180}wrapper-only goal[\s\S]{0,220}usage cross-check/i);
   assertRuntimeOwnedProofPolicy(attacked.system, 'planner');
+
+  const wholeRepository = assertTwoMessageBoundary(promptModule.buildPlannerMessages(plannerArgs({
+    effectiveScope: [],
+  })), 'whole-repository planner');
+  assert.match(wholeRepository.data, /"effectiveScope":\{"mode":"repository","paths":\[\]\}/);
+  assert.throws(
+    () => promptModule.buildPlannerMessages(plannerArgs({ effectiveScope: ['src/**', null] })),
+    /effectiveScope must be a normalized string array/,
+  );
+
+  for (const removedOrUnknownTool of ['review_change_context', 'explore', 'unknown_wrapper']) {
+    assert.throws(
+      () => promptModule.buildPlannerMessages(plannerArgs({ wrapperTool: removedOrUnknownTool })),
+      /Unsupported goal-planning wrapper/,
+    );
+  }
 });
 
 auditedPromptBoundaryTest('Spec 028 T018 — corrected planner receives one bounded revision packet, not repository prose', () => {
@@ -281,7 +313,6 @@ auditedPromptBoundaryTest('Spec 028 T018 — corrected planner receives one boun
     task: PROMPT_TASK,
     effectiveScope: ['src/**'],
     wrapperTool: 'trace_symbol',
-    capabilities: FIXED_CAPABILITIES,
     preservedGoals: [goal],
     revisionRequest: {
       decomposeGoalIds: ['S1'],
@@ -327,7 +358,6 @@ auditedPromptBoundaryTest('Spec 028 T018 — goal auditor sees only request cont
     task: PROMPT_TASK,
     effectiveScope: ['src/**'],
     wrapperTool: 'trace_symbol',
-    capabilities: FIXED_CAPABILITIES,
     proposals: [goal],
     preflightDiagnostics: [],
     revisionCount: 0,
@@ -338,6 +368,7 @@ auditedPromptBoundaryTest('Spec 028 T018 — goal auditor sees only request cont
   );
   const attacked = assertTwoMessageBoundary(promptModule.buildGoalAuditorMessages({
     ...args,
+    proposals: [{ ...goal, auditVerdict: 'ready', state: 'supported' }],
     repositoryArtifacts: RAW_REPOSITORY_MARKERS,
     projectContext: 'PROJECT_CONTEXT_AUDITOR_OVERRIDE',
     exploratoryMessages: ['EXPLORER_DRAFT_AUDITOR_OVERRIDE'],
@@ -356,8 +387,18 @@ auditedPromptBoundaryTest('Spec 028 T018 — goal auditor sees only request cont
   assertRawArtifactsExcluded(attacked.all);
   assert.doesNotMatch(attacked.all,
     /PROJECT_CONTEXT_AUDITOR_OVERRIDE|EXPLORER_DRAFT_AUDITOR_OVERRIDE|CANDIDATE_CLAIM_AUDITOR_OVERRIDE/);
+  assert.doesNotMatch(attacked.data, /"auditVerdict"\s*:|"state"\s*:/,
+    'a fresh audit cannot receive a prior verdict or runtime state');
   assert.doesNotMatch(attacked.all, /"confidence"\s*:|tokenStatistics|"effort"\s*:|"budget"\s*:/);
   assert.match(attacked.system, /original request|request text/i);
   assert.match(attacked.system, /wrapper/i);
+  assert.match(attacked.system, /blocked_scope[\s\S]{0,100}outside the immutable scope/i);
+  assert.match(attacked.system,
+    /contradictory[\s\S]{0,180}caller requirements[\s\S]{0,180}repository sources/i);
+  assert.match(attacked.system, /weakened claim-type|weaker enum-valid claimType/i);
+  assert.match(attacked.system,
+    /request coverage[\s\S]{0,120}request originRefs[\s\S]{0,160}wrapper originRef/i);
+  assert.match(attacked.system,
+    /confirm each originRef[\s\S]{0,200}entire question and proofCondition[\s\S]{0,180}omit an unentailed ref/i);
   assertRuntimeOwnedProofPolicy(attacked.system, 'goal auditor');
 });

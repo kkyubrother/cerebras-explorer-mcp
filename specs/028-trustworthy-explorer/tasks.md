@@ -65,7 +65,7 @@
 
 ### Implementation for User Story 3
 
-- [ ] T019 [US3] Implement isolated planner, corrected-planner, and goal-auditor prompt builders with fixed capability/wrapper inputs and untrusted-content boundaries in `src/explorer/prompt.mjs`
+- [x] T019 [US3] Implement isolated planner, corrected-planner, and goal-auditor prompt builders with fixed capability/wrapper inputs and untrusted-content boundaries in `src/explorer/prompt.mjs`
 - [ ] T020 [US3] Implement planner proposal, goal-auditor response, and late-uncovered proposal schemas plus request-origin validation in `src/explorer/schemas.mjs`
 - [ ] T021 [US3] Implement deterministic preflight, duplicate merge, traceability checks, blocker reduction, repair eligibility, and `planning_incomplete` materialization in `src/explorer/coverage.mjs`
 - [ ] T022 [US3] Orchestrate initial planning, isolated audit, one bounded revision, all-blocked short-circuit, and audited late-goal helper calls in `src/explorer/runtime.mjs`
