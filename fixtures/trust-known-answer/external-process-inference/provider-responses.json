@@ -1,0 +1,66 @@
+{
+  "fixtureVersion": 1,
+  "scenario": "external_process_inference",
+  "responses": [
+    {
+      "stage": "planner",
+      "result": {
+        "message": {
+          "content": {
+            "taskSummary": "Trace only the Python transitions visible in flow/**.",
+            "constraints": ["Do not infer an external process without direct proof."],
+            "subgoals": [
+              {
+                "id": "S1",
+                "question": "Which transitions are directly observed in flow/**?",
+                "originRefs": ["request:0-97"],
+                "claimType": "flow",
+                "proofCondition": "Observe the entry, each handoff, and the terminal local effect.",
+                "constraints": ["Do not infer unobserved process launches."]
+              }
+            ]
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "synthesis",
+      "result": {
+        "message": {
+          "content": {
+            "claims": [
+              {
+                "id": "C1",
+                "subgoalId": "S1",
+                "text": "The flow launches an external process.",
+                "evidenceRefs": ["E1", "E2"]
+              }
+            ]
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "verification",
+      "result": {
+        "message": {
+          "content": {
+            "verdicts": [
+              {
+                "claimId": "C1",
+                "result": "contradicted",
+                "supportingEvidenceRefs": ["E1", "E2"],
+                "reasonCode": "unsupported_transition",
+                "note": "The observed files show only a local function call and value normalization."
+              }
+            ],
+            "uncoveredRequestParts": []
+          },
+          "toolCalls": []
+        }
+      }
+    }
+  ]
+}

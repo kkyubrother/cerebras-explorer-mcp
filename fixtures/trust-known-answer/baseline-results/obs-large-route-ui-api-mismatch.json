@@ -1,0 +1,519 @@
+{
+  "formatVersion": 1,
+  "caseId": "obs-large-route-ui-api-mismatch",
+  "recordType": "known_bad_schema_v2_parent_payload",
+  "immutable": true,
+  "capture": {
+    "packageVersion": "0.8.9",
+    "schemaVersion": 2,
+    "capturedAt": "2026-07-13",
+    "fidelity": "live_api_reproduction",
+    "repoId": "lawfirm",
+    "gitSha": "fe7a5ca1cb7e279ae1eee5a931b60b69d93020b4",
+    "dirtyTreeSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "note": "The response claims three UI pages but retains evidence for only the list and form pages, while still reporting complete."
+  },
+  "request": {
+    "tool": "explore_repo",
+    "task": "Map the marketing/source feature across all current UI pages, API routes including any differing or orphaned route prefix, and the Prisma model or database table. Treat UI, API, and data model as three separate required parts; do not mark complete if any part is unsupported."
+  },
+  "parentPayload": {
+    "content": [
+      {
+        "type": "text",
+        "text": "## Result\nConfidence: high\nVerification: verified\nEvidence Quality: high (7 exact, 1 partial, 0 dropped)\nSearch Coverage: repo-wide search; 8 file read(s), 8 grep search(es).\n\n## Answer\nThe marketing/source feature spans UI pages (3 pages under pages/mkt/source), API routes with two differing prefixes (internal /api/mkt/source/* and external /api/external/skyz/marketing/source/*), and a single Prisma model mkt_source. The external routes are NOT orphaned—they are documented for skyz-groupware integration using verifySkyzAuth authentication. Route prefix differs: internal uses 'mkt' while external uses 'marketing' in the path.\n\n## Targets\n- [context] `prisma/schema.prisma:1397-1409` (E1) - Prisma model definition for mkt_source table with all fields\n- [read] `pages/api/mkt/source/index.ts:11-73` (E2) - Internal API route for mkt_source CRUD (POST/PUT/DELETE)\n- [read] `pages/api/mkt/source/list.ts:10-57` (E3) - Internal API route for paginated mkt_source list\n- [read] `pages/api/external/skyz/marketing/source/index.ts:5-86` (E4) - External API with 'marketing' prefix for skyz-groupware integration\n- [read] `pages/api/external/skyz/marketing/source/list.ts:5-75` (E5) - External list API using Prisma ORM with 'marketing' prefix\n- [read] `pages/api/external/skyz/marketing/source/[idx].ts:5-35` (E6) - External single-record fetch by idx with soft-delete check\n- [read] `pages/mkt/source/index.tsx:12-40` (E7) - UI list page for marketing sources with table columns\n- [read] `pages/mkt/source/form.tsx:12-80` (E8) - UI form page for creating new marketing source entries\n\n## Evidence (8 items, confidence: high)\n- E1 `prisma/schema.prisma:1397-1409` - Defines mkt_source Prisma model with idx, title, category, sub_category, tel, timestamps, and soft-delete support\n- E2 `pages/api/mkt/source/index.ts:11-73` - Internal API at /api/mkt/source supporting POST/PUT/DELETE operations with verifyHeaders middleware\n- E3 `pages/api/mkt/source/list.ts:10-57` - Internal API at /api/mkt/source/list using raw SQL for pagination and search on mkt_source table\n- E4 `pages/api/external/skyz/marketing/source/index.ts:5-86` - External API at /api/external/skyz/marketing/source for skyz-groupware with verifySkyzAuth auth\n- E5 `pages/api/external/skyz/marketing/source/list.ts:5-75` - External API using Prisma ORM with 'marketing' prefix instead of internal 'mkt' prefix\n- E6 `pages/api/external/skyz/marketing/source/[idx].ts:5-35` - External GET endpoint for single record fetch with 404 for soft-deleted rows\n- E7 `pages/mkt/source/index.tsx:12-40` - UI list page with columns for idx, category, sub_category, title, description, creator, created_at\n- E8 `pages/mkt/source/form.tsx:12-80` [partial] - UI form with useState for mktSource object and handlers for input changes and createProc\n\n## Uncertainty\n- 1 evidence item(s) are grounded only by grep, blame, or nearby line observations."
+      }
+    ],
+    "structuredContent": {
+      "schemaVersion": 2,
+      "directAnswer": "The marketing/source feature spans UI pages (3 pages under pages/mkt/source), API routes with two differing prefixes (internal /api/mkt/source/* and external /api/external/skyz/marketing/source/*), and a single Prisma model mkt_source. The external routes are NOT orphaned—they are documented for skyz-groupware integration using verifySkyzAuth authentication. Route prefix differs: internal uses 'mkt' while external uses 'marketing' in the path.",
+      "status": {
+        "confidence": "high",
+        "verification": "verified",
+        "complete": true,
+        "warnings": [
+          "1 evidence item(s) are grounded only by grep, blame, or nearby line observations."
+        ]
+      },
+      "targets": [
+        {
+          "path": "prisma/schema.prisma",
+          "role": "context",
+          "reason": "Prisma model definition for mkt_source table with all fields",
+          "evidenceRefs": [
+            "E1"
+          ],
+          "startLine": 1397,
+          "endLine": 1409
+        },
+        {
+          "path": "pages/api/mkt/source/index.ts",
+          "role": "read",
+          "reason": "Internal API route for mkt_source CRUD (POST/PUT/DELETE)",
+          "evidenceRefs": [
+            "E2"
+          ],
+          "startLine": 11,
+          "endLine": 73
+        },
+        {
+          "path": "pages/api/mkt/source/list.ts",
+          "role": "read",
+          "reason": "Internal API route for paginated mkt_source list",
+          "evidenceRefs": [
+            "E3"
+          ],
+          "startLine": 10,
+          "endLine": 57
+        },
+        {
+          "path": "pages/api/external/skyz/marketing/source/index.ts",
+          "role": "read",
+          "reason": "External API with 'marketing' prefix for skyz-groupware integration",
+          "evidenceRefs": [
+            "E4"
+          ],
+          "startLine": 5,
+          "endLine": 86
+        },
+        {
+          "path": "pages/api/external/skyz/marketing/source/list.ts",
+          "role": "read",
+          "reason": "External list API using Prisma ORM with 'marketing' prefix",
+          "evidenceRefs": [
+            "E5"
+          ],
+          "startLine": 5,
+          "endLine": 75
+        },
+        {
+          "path": "pages/api/external/skyz/marketing/source/[idx].ts",
+          "role": "read",
+          "reason": "External single-record fetch by idx with soft-delete check",
+          "evidenceRefs": [
+            "E6"
+          ],
+          "startLine": 5,
+          "endLine": 35
+        },
+        {
+          "path": "pages/mkt/source/index.tsx",
+          "role": "read",
+          "reason": "UI list page for marketing sources with table columns",
+          "evidenceRefs": [
+            "E7"
+          ],
+          "startLine": 12,
+          "endLine": 40
+        },
+        {
+          "path": "pages/mkt/source/form.tsx",
+          "role": "read",
+          "reason": "UI form page for creating new marketing source entries",
+          "evidenceRefs": [
+            "E8"
+          ],
+          "startLine": 12,
+          "endLine": 80
+        }
+      ],
+      "discoveredPaths": [
+        {
+          "path": "pages/api/external/skyz/marketing/source/[idx].ts",
+          "kind": "file",
+          "sourceTool": "repo_list_dir",
+          "reason": "Listed during repository discovery."
+        },
+        {
+          "path": "pages/api/external/skyz/marketing/source/list.ts",
+          "kind": "file",
+          "sourceTool": "repo_list_dir",
+          "reason": "Listed during repository discovery."
+        },
+        {
+          "path": "pages/api/external/skyz/marketing/source/index.ts",
+          "kind": "file",
+          "sourceTool": "repo_list_dir",
+          "reason": "Listed during repository discovery."
+        },
+        {
+          "path": "hooks/inquiry/useInquiryForm.ts",
+          "kind": "unknown",
+          "sourceTool": "repo_grep",
+          "reason": "Discovered from tool result."
+        },
+        {
+          "path": "scripts/backfill-gunbai.ts",
+          "kind": "unknown",
+          "sourceTool": "repo_grep",
+          "reason": "Discovered from tool result."
+        },
+        {
+          "path": "pages/secret/s_inquiry/[idx].tsx",
+          "kind": "unknown",
+          "sourceTool": "repo_grep",
+          "reason": "Discovered from tool result."
+        },
+        {
+          "path": "lib/cronTasks/refreshLongformatTable.ts",
+          "kind": "unknown",
+          "sourceTool": "repo_grep",
+          "reason": "Discovered from tool result."
+        },
+        {
+          "path": "pages/api/debug/place-inquiry.ts",
+          "kind": "unknown",
+          "sourceTool": "repo_grep",
+          "reason": "Discovered from tool result."
+        },
+        {
+          "path": "pages/mkt/source/[idx].tsx",
+          "kind": "file",
+          "sourceTool": "repo_list_dir",
+          "reason": "Listed during repository discovery."
+        },
+        {
+          "path": "pages/api/mkt/source/list.ts",
+          "kind": "file",
+          "sourceTool": "repo_list_dir",
+          "reason": "Listed during repository discovery."
+        },
+        {
+          "path": "pages/api/mkt/source/index.ts",
+          "kind": "file",
+          "sourceTool": "repo_list_dir",
+          "reason": "Listed during repository discovery."
+        },
+        {
+          "path": "pages/api/mkt/data/list.ts",
+          "kind": "unknown",
+          "sourceTool": "repo_grep",
+          "reason": "Discovered from tool result."
+        },
+        {
+          "path": "pages/api/mkt/data/list-v2.ts",
+          "kind": "unknown",
+          "sourceTool": "repo_grep",
+          "reason": "Discovered from tool result."
+        },
+        {
+          "path": "pages/api/mkt/data/list-compare.ts",
+          "kind": "unknown",
+          "sourceTool": "repo_grep",
+          "reason": "Discovered from tool result."
+        },
+        {
+          "path": "pages/api/external/skyz/marketing/match-data.ts",
+          "kind": "file",
+          "sourceTool": "repo_list_dir",
+          "reason": "Listed during repository discovery."
+        },
+        {
+          "path": "pages/api/excel/mkt/source/list.ts",
+          "kind": "unknown",
+          "sourceTool": "repo_grep",
+          "reason": "Discovered from tool result."
+        },
+        {
+          "path": "pages/api/excel/mkt/match.ts",
+          "kind": "unknown",
+          "sourceTool": "repo_grep",
+          "reason": "Discovered from tool result."
+        },
+        {
+          "path": "pages/inquiry/[idx].tsx",
+          "kind": "unknown",
+          "sourceTool": "repo_grep",
+          "reason": "Discovered from tool result."
+        },
+        {
+          "path": "pages/inquiry/modify/index.tsx",
+          "kind": "unknown",
+          "sourceTool": "repo_grep",
+          "reason": "Discovered from tool result."
+        },
+        {
+          "path": "pages/inquiry/form.tsx",
+          "kind": "unknown",
+          "sourceTool": "repo_grep",
+          "reason": "Discovered from tool result."
+        },
+        {
+          "path": "pages/api/inquiry/index.ts",
+          "kind": "unknown",
+          "sourceTool": "repo_grep",
+          "reason": "Discovered from tool result."
+        },
+        {
+          "path": "interface/mkt/index.interface.ts",
+          "kind": "unknown",
+          "sourceTool": "repo_grep",
+          "reason": "Discovered from tool result."
+        },
+        {
+          "path": "components/Inquiry/Form/ReceptionSection.tsx",
+          "kind": "unknown",
+          "sourceTool": "repo_grep",
+          "reason": "Discovered from tool result."
+        },
+        {
+          "path": "pages/mkt/source/form.tsx",
+          "kind": "file",
+          "sourceTool": "repo_list_dir",
+          "reason": "Listed during repository discovery."
+        },
+        {
+          "path": "pages/bi/case_type/index.tsx",
+          "kind": "unknown",
+          "sourceTool": "repo_grep",
+          "reason": "Discovered from tool result."
+        },
+        {
+          "path": "prisma/schema.prisma",
+          "kind": "file",
+          "sourceTool": "repo_find_files",
+          "reason": "Matched file discovery query."
+        },
+        {
+          "path": "대륜_GTM_buttonID_설계.md",
+          "kind": "unknown",
+          "sourceTool": "repo_grep",
+          "reason": "Discovered from tool result."
+        },
+        {
+          "path": "server/trpc/routers/skyzCustomerManagement.ts",
+          "kind": "unknown",
+          "sourceTool": "repo_grep",
+          "reason": "Discovered from tool result."
+        },
+        {
+          "path": "pages/bi/branch/index.tsx",
+          "kind": "unknown",
+          "sourceTool": "repo_grep",
+          "reason": "Discovered from tool result."
+        },
+        {
+          "path": "components/common/TailAdminV2/DefaultInputs.tsx",
+          "kind": "unknown",
+          "sourceTool": "repo_grep",
+          "reason": "Discovered from tool result."
+        },
+        {
+          "path": "pages/skyz/marketing/[idx].tsx",
+          "kind": "unknown",
+          "sourceTool": "repo_grep",
+          "reason": "Discovered from tool result."
+        },
+        {
+          "path": "pages/skyz/marketing/index.tsx",
+          "kind": "unknown",
+          "sourceTool": "repo_grep",
+          "reason": "Discovered from tool result."
+        },
+        {
+          "path": "pages/skyz/marketing/form.tsx",
+          "kind": "unknown",
+          "sourceTool": "repo_grep",
+          "reason": "Discovered from tool result."
+        },
+        {
+          "path": "pages/skyz/index.tsx",
+          "kind": "unknown",
+          "sourceTool": "repo_grep",
+          "reason": "Discovered from tool result."
+        },
+        {
+          "path": "server/domain/my-daeryun/__tests__/push-notification.service.test.ts",
+          "kind": "unknown",
+          "sourceTool": "repo_grep",
+          "reason": "Discovered from tool result."
+        },
+        {
+          "path": "server/domain/my-daeryun/user.service.ts",
+          "kind": "unknown",
+          "sourceTool": "repo_grep",
+          "reason": "Discovered from tool result."
+        },
+        {
+          "path": "pages/mkt/source/index.tsx",
+          "kind": "file",
+          "sourceTool": "repo_list_dir",
+          "reason": "Listed during repository discovery."
+        },
+        {
+          "path": "pages/api/external/skyz/marketing/branch-meta.ts",
+          "kind": "file",
+          "sourceTool": "repo_list_dir",
+          "reason": "Listed during repository discovery."
+        },
+        {
+          "path": "pages/api/external/skyz/marketing/branch-stats.ts",
+          "kind": "file",
+          "sourceTool": "repo_list_dir",
+          "reason": "Listed during repository discovery."
+        },
+        {
+          "path": "pages/api/external/skyz/marketing/inquiry-count.ts",
+          "kind": "file",
+          "sourceTool": "repo_list_dir",
+          "reason": "Listed during repository discovery."
+        },
+        {
+          "path": "pages/api/external/skyz/marketing/snapshot.ts",
+          "kind": "file",
+          "sourceTool": "repo_list_dir",
+          "reason": "Listed during repository discovery."
+        },
+        {
+          "path": "pages/api/external/skyz/marketing/source",
+          "kind": "dir",
+          "sourceTool": "repo_list_dir",
+          "reason": "Listed during repository discovery."
+        }
+      ],
+      "evidence": [
+        {
+          "path": "prisma/schema.prisma",
+          "startLine": 1397,
+          "endLine": 1409,
+          "why": "Defines mkt_source Prisma model with idx, title, category, sub_category, tel, timestamps, and soft-delete support",
+          "evidenceType": "file_range",
+          "groundingStatus": "exact",
+          "id": "E1",
+          "snippet": "1397: model mkt_source {\n1398:   idx          Int       @id(map: \"mkt_source_pk\") @default(autoincrement())\n1399:   title        String    @db.VarChar\n1400:   description  String?   @db.VarChar\n1401:   created_at   DateTime  @default(now()) @db.Timestamp(6)\n1402:   creator      String    @db.VarChar\n1403:   modified_at  DateTime? @db.Timestamp(6)\n1404:   modifier     String?   @db.VarChar\n1405:   deleted_at   DateTime? @db.Timestamp(6)\n1406:   category     String?   @db.VarChar\n1407:   sub_category String?   @db.VarChar\n1408:   tel          String?   @db.VarChar\n... [snippet truncated]"
+        },
+        {
+          "path": "pages/api/mkt/source/index.ts",
+          "startLine": 11,
+          "endLine": 73,
+          "why": "Internal API at /api/mkt/source supporting POST/PUT/DELETE operations with verifyHeaders middleware",
+          "evidenceType": "file_range",
+          "groundingStatus": "exact",
+          "id": "E2",
+          "snippet": "11: export default verifyHeaders(async function handler(req: NextApiRequest, res: NextApiResponse<Data>) {\n12:     if (req.method === 'POST') {\n13:         const data = {\n14:             title: req.body.title,\n15:             category: req.body.category,\n16:             sub_category: req.body.sub_category,\n17:             tel: req.body.tel,\n18:             description: req.body.description,\n19:             creator: req.body.creator\n20:         }\n21:         const createResult = await prisma.mkt_source.create({\n22:             data: data\n... [snippet truncated]"
+        },
+        {
+          "path": "pages/api/mkt/source/list.ts",
+          "startLine": 10,
+          "endLine": 57,
+          "why": "Internal API at /api/mkt/source/list using raw SQL for pagination and search on mkt_source table",
+          "evidenceType": "file_range",
+          "groundingStatus": "exact",
+          "id": "E3",
+          "snippet": "10: export default async function handler(req: NextApiRequest, res: NextApiResponse<Data>) {\n11:     const { page = 1, size = 10, searchValue, sortState, sortTarget } = req.query\n12:     const offset = (Number(page) - 1) * Number(size)\n13:     const where = `WHERE sub::text LIKE '%${searchValue}%'`\n14:     const order = sortTarget ? `order by sub.${sortTarget} ${sortState}` : ''\n15: \n16:     const getTotalList = `\n17:                 select * \n18:                 from (\n19:                          SELECT ms.idx,\n20:                                 ms.title as title,\n21:                                 ms.category as category,\n... [snippet truncated]"
+        },
+        {
+          "path": "pages/api/external/skyz/marketing/source/index.ts",
+          "startLine": 5,
+          "endLine": 86,
+          "why": "External API at /api/external/skyz/marketing/source for skyz-groupware with verifySkyzAuth auth",
+          "evidenceType": "file_range",
+          "groundingStatus": "exact",
+          "id": "E4",
+          "snippet": "5: /**\n6:  * /api/external/skyz/marketing/source (POST/PUT/DELETE)\n7:  *\n8:  * skyz-groupware → lawfirm 마케팅 유입경로 쓰기 API.\n9:  * - POST  : 생성   body { title, category, sub_category, tel?, description?, creator }\n10:  * - PUT   : 수정   body { idx, title, category, sub_category, tel?, description?, modifier }\n11:  * - DELETE: 소프트삭제 body { idx, modifier }\n12:  *\n13:  * lawfirm 기존 `/api/mkt/source`와 동일한 동작.\n14:  *   - creator/modifier는 skyz 측에서 인증된 adminId가 전달되어야 함 (skyz wrapper에서 자동 주입)\n15:  *   - DELETE는 deleted_at만 갱신 (이미 삭제된 행은 404)\n16:  */\n... [snippet truncated]"
+        },
+        {
+          "path": "pages/api/external/skyz/marketing/source/list.ts",
+          "startLine": 5,
+          "endLine": 75,
+          "why": "External API using Prisma ORM with 'marketing' prefix instead of internal 'mkt' prefix",
+          "evidenceType": "file_range",
+          "groundingStatus": "exact",
+          "id": "E5",
+          "snippet": "5: /**\n6:  * GET /api/external/skyz/marketing/source/list\n7:  *\n8:  * 마케팅 유입경로(mkt_source) 목록 조회 (skyz-groupware 전용)\n9:  *\n10:  * Query\n11:  *  - page (default 1, min 1)\n12:  *  - size (default 20, max 100)\n13:  *  - searchValue (title/category/sub_category/description ilike)\n14:  *  - sortTarget (idx|title|category|sub_category|created_at) 그 외는 idx로 폴백\n15:  *  - sortState  (asc|desc) 기본 desc\n16:  *\n... [snippet truncated]"
+        },
+        {
+          "path": "pages/api/external/skyz/marketing/source/[idx].ts",
+          "startLine": 5,
+          "endLine": 35,
+          "why": "External GET endpoint for single record fetch with 404 for soft-deleted rows",
+          "evidenceType": "file_range",
+          "groundingStatus": "exact",
+          "id": "E6",
+          "snippet": "5: /**\n6:  * GET /api/external/skyz/marketing/source/[idx]\n7:  *\n8:  * 마케팅 유입경로 단일 조회. soft-delete된 행은 404.\n9:  */\n10: export default verifySkyzAuth(async function handler(req: NextApiRequest, res: NextApiResponse) {\n11:     if (req.method !== 'GET') {\n12:         return res.status(405).json({ result: false, message: 'Method not allowed' })\n13:     }\n14: \n15:     const idx = Number(req.query.idx)\n16:     if (!Number.isFinite(idx) || idx <= 0) {\n... [snippet truncated]"
+        },
+        {
+          "path": "pages/mkt/source/index.tsx",
+          "startLine": 12,
+          "endLine": 40,
+          "why": "UI list page with columns for idx, category, sub_category, title, description, creator, created_at",
+          "evidenceType": "file_range",
+          "groundingStatus": "exact",
+          "id": "E7",
+          "snippet": "12: const column: IColumn[] = [\n13:     {\n14:         text: '고유번호',\n15:         accessor: 'idx'\n16:     },\n17:     {\n18:         text: '카테고리',\n19:         accessor: 'category'\n20:     },\n21:     {\n22:         text: '서브 카테고리',\n23:         accessor: 'sub_category'\n... [snippet truncated]"
+        },
+        {
+          "path": "pages/mkt/source/form.tsx",
+          "startLine": 12,
+          "endLine": 80,
+          "why": "UI form with useState for mktSource object and handlers for input changes and createProc",
+          "evidenceType": "file_range",
+          "groundingStatus": "partial",
+          "id": "E8",
+          "snippet": "12:     const [mktSource, setMktSource] = useState<IMktSource>({\n13:         title: '',\n14:         category: '',\n15:         sub_category: '',\n16:         tel: '',\n17:         description: ''\n18:     })\n19:     const router = useRouter()\n20:     const [selectedCategory, setSelectedCategory] = useState('')\n21:     const [subCategories, setSubCategories] = useState<string[]>([])\n22: \n23:     const handleInputChange = (e: React.FormEvent<HTMLInputElement>) => {\n... [snippet truncated]"
+        }
+      ],
+      "uncertainties": [
+        "1 evidence item(s) are grounded only by grep, blame, or nearby line observations."
+      ],
+      "nextAction": {
+        "type": "stop",
+        "reason": "Explorer result is complete for the requested read-only investigation."
+      },
+      "evidenceQuality": {
+        "level": "high",
+        "exactCount": 7,
+        "partialCount": 1,
+        "droppedCount": 0,
+        "fileCount": 8,
+        "warnings": [
+          "1 evidence item(s) are grounded only by grep, blame, or nearby line observations."
+        ],
+        "summary": "Verified: 8 files read, 8 grep searches, 7/8 retained evidence items grounded, cross-verified across 8 files. All retained evidence grounded in inspected code."
+      },
+      "searchCoverage": {
+        "scope": [],
+        "scopeLimited": false,
+        "filesRead": 8,
+        "grepCalls": 8,
+        "listDirCalls": 3,
+        "symbolCalls": 0,
+        "toolResultsTruncated": 0,
+        "stoppedByBudget": false,
+        "omittedDiscoveredPaths": 0,
+        "warnings": [],
+        "summary": "repo-wide search; 8 file read(s), 8 grep search(es)."
+      },
+      "critic": {
+        "status": "caution",
+        "warnings": [
+          {
+            "type": "partial_evidence",
+            "severity": "low",
+            "message": "1 evidence item(s) are grounded only by grep, blame, or nearby line observations.",
+            "target": "pages/mkt/source/form.tsx:12-80",
+            "action": "Treat the targeted evidence as weaker than an exact file read."
+          }
+        ],
+        "droppedEvidence": 0,
+        "partialEvidence": 1
+      },
+      "failure": null
+    }
+  },
+  "operational": {
+    "model": "zai-glm-4.7",
+    "toolChoice": "explore_repo",
+    "turns": 7,
+    "toolCalls": 20,
+    "totalTokens": 269813,
+    "elapsedMs": 19184
+  },
+  "measurement": {
+    "encoding": "utf8",
+    "formula": "byteLength(JSON.stringify(content)) + byteLength(JSON.stringify(structuredContent))",
+    "contentBytes": 2957,
+    "structuredContentBytes": 15261,
+    "parentPayloadBytes": 18218
+  }
+}

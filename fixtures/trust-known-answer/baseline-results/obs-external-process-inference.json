@@ -1,0 +1,21 @@
+{
+  "formatVersion": 1,
+  "caseId": "obs-external-process-inference",
+  "recordType": "documented_known_bad_observation",
+  "immutable": true,
+  "source": {
+    "sourceRef": "research-record",
+    "path": "specs/028-trustworthy-explorer/research.md",
+    "startLine": 12,
+    "endLine": 12,
+    "rawParentPayloadPreserved": false
+  },
+  "observation": {
+    "failureClass": "unsupported_external_process_inference",
+    "summary": "A Python-flow response inferred an external process despite an explicit instruction not to speculate."
+  },
+  "limitations": [
+    "The original request, repository revision, response payload, status, evidence, usage, and latency were not retained.",
+    "This record must not be evaluated as a schema-v2 parent payload."
+  ]
+}

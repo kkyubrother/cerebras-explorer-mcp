@@ -1,0 +1,166 @@
+{
+  "fixtureVersion": 1,
+  "scenario": "fx_scope_limited_absence",
+  "responses": [
+    {
+      "stage": "planner",
+      "result": {
+        "message": {
+          "content": {
+            "taskSummary": "Enumerate route registrations and prove absence only within src/in-scope/**.",
+            "constraints": ["Do not widen the hard scope or claim repository-wide absence."],
+            "subgoals": [
+              {
+                "id": "S1",
+                "question": "Which route registrations exist within src/in-scope/**?",
+                "originRefs": ["request:0-52"],
+                "claimType": "count",
+                "proofCondition": "Completely enumerate the files and route registrations within src/in-scope/** and read every matched registration.",
+                "constraints": ["Count only registrations within src/in-scope/**."]
+              },
+              {
+                "id": "S2",
+                "question": "Does any additional route registration exist within src/in-scope/**?",
+                "originRefs": ["request:57-111"],
+                "claimType": "absence",
+                "proofCondition": "A non-truncated enumeration and route-registration search covers every file within src/in-scope/**.",
+                "constraints": ["Qualify any absence claim to src/in-scope/**."]
+              }
+            ]
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "goal_audit",
+      "result": {
+        "message": {
+          "content": {
+            "goals": [
+              {
+                "id": "S1",
+                "verdict": "ready",
+                "confirmedOriginRefs": ["request:0-52"],
+                "reason": "The bounded route enumeration is requested and observable within the hard scope."
+              },
+              {
+                "id": "S2",
+                "verdict": "ready",
+                "confirmedOriginRefs": ["request:57-111"],
+                "reason": "A scope-qualified absence can be established by complete in-scope enumeration and search."
+              }
+            ],
+            "uncoveredRequestParts": []
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "exploration",
+      "result": {
+        "message": {
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "call-list-in-scope",
+              "function": {
+                "name": "repo_list_dir",
+                "arguments": {
+                  "dirPath": "src/in-scope",
+                  "depth": 1,
+                  "maxEntries": 10
+                }
+              }
+            },
+            {
+              "id": "call-grep-routes",
+              "function": {
+                "name": "repo_grep",
+                "arguments": {
+                  "pattern": "app\\.get\\(",
+                  "scope": ["src/in-scope/**"],
+                  "maxResults": 10
+                }
+              }
+            },
+            {
+              "id": "call-read-primary",
+              "function": {
+                "name": "repo_read_file",
+                "arguments": {
+                  "path": "src/in-scope/primary.mjs",
+                  "startLine": 1,
+                  "endLine": 3
+                }
+              }
+            },
+            {
+              "id": "call-read-secondary",
+              "function": {
+                "name": "repo_read_file",
+                "arguments": {
+                  "path": "src/in-scope/secondary.mjs",
+                  "startLine": 1,
+                  "endLine": 3
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "stage": "synthesis",
+      "result": {
+        "message": {
+          "content": {
+            "claims": [
+              {
+                "id": "C1",
+                "subgoalId": "S1",
+                "text": "The bounded scope registers /primary and /secondary.",
+                "evidenceRefs": ["E1", "E2"]
+              },
+              {
+                "id": "C2",
+                "subgoalId": "S2",
+                "text": "No additional route registration exists within src/in-scope/**.",
+                "evidenceRefs": ["E1", "E2"]
+              }
+            ]
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "verification",
+      "result": {
+        "message": {
+          "content": {
+            "verdicts": [
+              {
+                "claimId": "C1",
+                "result": "supported",
+                "supportingEvidenceRefs": ["E1", "E2"],
+                "reasonCode": "exact_bounded_enumeration",
+                "note": "The complete in-scope enumeration contains exactly the primary and secondary registrations."
+              },
+              {
+                "claimId": "C2",
+                "result": "supported",
+                "supportingEvidenceRefs": ["E1", "E2"],
+                "reasonCode": "bounded_absence",
+                "note": "The non-truncated search and complete file enumeration support absence only within src/in-scope/**."
+              }
+            ],
+            "uncoveredRequestParts": []
+          },
+          "toolCalls": []
+        }
+      }
+    }
+  ]
+}

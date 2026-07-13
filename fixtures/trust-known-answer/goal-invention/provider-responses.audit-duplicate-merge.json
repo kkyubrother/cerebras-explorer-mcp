@@ -1,0 +1,121 @@
+{
+  "fixtureVersion": 1,
+  "scenario": "audit_duplicate_merge",
+  "responses": [
+    {
+      "stage": "planner",
+      "result": {
+        "message": {
+          "content": {
+            "taskSummary": "Explain the session authentication predicate once.",
+            "constraints": [],
+            "subgoals": [
+              {
+                "id": "S1",
+                "question": "How is a session authenticated?",
+                "originRefs": ["request:0-36"],
+                "claimType": "positive",
+                "proofCondition": "Read the current session authentication predicate.",
+                "constraints": []
+              },
+              {
+                "id": "S2",
+                "question": "What predicate decides whether that same session is authenticated?",
+                "originRefs": ["request:0-36"],
+                "claimType": "positive",
+                "proofCondition": "Observe the current predicate that decides session authentication.",
+                "constraints": []
+              }
+            ]
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "goal_audit",
+      "result": {
+        "message": {
+          "content": {
+            "goals": [
+              {
+                "id": "S1",
+                "verdict": "ready",
+                "confirmedOriginRefs": ["request:0-36"],
+                "reason": "The requested predicate is directly observable in current source."
+              },
+              {
+                "id": "S2",
+                "verdict": "merge_duplicate",
+                "mergeInto": "S1",
+                "confirmedOriginRefs": ["request:0-36"],
+                "reason": "This is the same authentication obligation as S1 with different wording."
+              }
+            ],
+            "uncoveredRequestParts": []
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "exploration",
+      "result": {
+        "message": {
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "call-read-auth",
+              "function": {
+                "name": "repo_read_file",
+                "arguments": {
+                  "path": "src/auth.mjs",
+                  "startLine": 1,
+                  "endLine": 3
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "stage": "synthesis",
+      "result": {
+        "message": {
+          "content": {
+            "claims": [
+              {
+                "id": "C1",
+                "subgoalId": "S1",
+                "text": "Authentication is Boolean(session?.userId).",
+                "evidenceRefs": ["E1"]
+              }
+            ]
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "verification",
+      "result": {
+        "message": {
+          "content": {
+            "verdicts": [
+              {
+                "claimId": "C1",
+                "result": "supported",
+                "supportingEvidenceRefs": ["E1"],
+                "reasonCode": "direct_source",
+                "note": "The current function returns Boolean(session?.userId)."
+              }
+            ],
+            "uncoveredRequestParts": []
+          },
+          "toolCalls": []
+        }
+      }
+    }
+  ]
+}

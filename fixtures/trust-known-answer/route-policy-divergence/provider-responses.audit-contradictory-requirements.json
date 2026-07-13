@@ -1,0 +1,53 @@
+{
+  "fixtureVersion": 1,
+  "scenario": "audit_contradictory_requirements",
+  "responses": [
+    {
+      "stage": "planner",
+      "result": {
+        "message": {
+          "content": {
+            "taskSummary": "Assess two mutually incompatible route-reporting requirements.",
+            "constraints": [
+              "Report both routes as super_admin-only.",
+              "Preserve their actual distinct role sets."
+            ],
+            "subgoals": [
+              {
+                "id": "S1",
+                "question": "Can both routes be reported as super_admin-only while preserving their actual distinct role sets?",
+                "originRefs": ["request:0-38", "request:50-92"],
+                "claimType": "comparison",
+                "proofCondition": "Produce one route-policy comparison that simultaneously satisfies both explicit reporting constraints.",
+                "constraints": [
+                  "Report both routes as super_admin-only.",
+                  "Preserve distinct role sets."
+                ]
+              }
+            ]
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "goal_audit",
+      "result": {
+        "message": {
+          "content": {
+            "goals": [
+              {
+                "id": "S1",
+                "verdict": "contradictory",
+                "confirmedOriginRefs": ["request:0-38", "request:50-92"],
+                "reason": "Calling both role sets super_admin-only cannot preserve the caller's explicit assertion that the actual role sets are distinct."
+              }
+            ],
+            "uncoveredRequestParts": []
+          },
+          "toolCalls": []
+        }
+      }
+    }
+  ]
+}

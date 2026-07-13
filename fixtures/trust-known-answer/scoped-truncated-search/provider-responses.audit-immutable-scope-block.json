@@ -1,0 +1,47 @@
+{
+  "fixtureVersion": 1,
+  "scenario": "audit_immutable_scope_block",
+  "responses": [
+    {
+      "stage": "planner",
+      "result": {
+        "message": {
+          "content": {
+            "taskSummary": "Determine whether the legacy route exists without widening src/in-scope/**.",
+            "constraints": ["The hard scope remains src/in-scope/**."],
+            "subgoals": [
+              {
+                "id": "S1",
+                "question": "Does the legacy route exist?",
+                "originRefs": ["request:0-78"],
+                "claimType": "positive",
+                "proofCondition": "Inspect the legacy route registration outside src/in-scope/** while keeping the supplied scope unchanged.",
+                "constraints": ["Do not widen the hard scope."]
+              }
+            ]
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "goal_audit",
+      "result": {
+        "message": {
+          "content": {
+            "goals": [
+              {
+                "id": "S1",
+                "verdict": "blocked_scope",
+                "confirmedOriginRefs": ["request:0-78"],
+                "reason": "The requested legacy-route evidence lies outside the immutable src/in-scope/** boundary."
+              }
+            ],
+            "uncoveredRequestParts": []
+          },
+          "toolCalls": []
+        }
+      }
+    }
+  ]
+}
