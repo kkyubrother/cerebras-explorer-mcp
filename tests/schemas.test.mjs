@@ -30,6 +30,39 @@ import {
 } from '../src/explorer/schemas.mjs';
 import { RETRY_TOOLS } from '../src/explorer/runtime.mjs';
 
+test('Spec 028 T045 — explore_repo rejects public hints.strategy but keeps anchors', t => {
+  if (EXPLORE_REPO_INPUT_SCHEMA.properties.hints.properties.strategy !== undefined) {
+    t.todo('awaiting public strategy removal');
+    return;
+  }
+  assert.deepEqual(
+    Object.keys(EXPLORE_REPO_INPUT_SCHEMA.properties.hints.properties).sort(),
+    ['files', 'regex', 'symbols'],
+  );
+  assert.doesNotThrow(() => validateExploreRepoArgs({
+    task: 'Trace auth.',
+    scope: ['src/**'],
+    hints: {
+      symbols: ['requireAuth'],
+      files: ['src/auth.mjs'],
+      regex: ['requireAuth\\('],
+    },
+  }));
+  for (const strategy of [
+    'symbol-first',
+    'reference-chase',
+    'git-guided',
+    'breadth-first',
+    'blame-guided',
+    'pattern-scan',
+  ]) {
+    assert.throws(
+      () => validateExploreRepoArgs({ task: 'Trace auth.', hints: { strategy } }),
+      /Unknown explore_repo hints argument: strategy/,
+    );
+  }
+});
+
 function internalSchemaTest(schema, validate, name, callback) {
   test(name, () => {
     callback(schema, validate);

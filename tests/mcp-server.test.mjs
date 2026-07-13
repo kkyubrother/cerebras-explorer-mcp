@@ -20,6 +20,19 @@ const EXPECTED_PUBLIC_TOOL_NAMES = [
   'explore',
 ];
 
+const TARGET_SIX_TOOL_NAMES = [
+  'find_relevant_code',
+  'trace_symbol',
+  'map_change_impact',
+  'explain_code_path',
+  'collect_evidence',
+  'explore_repo',
+];
+
+const TARGET_DISPATCH_RULE =
+  'Need locations: find_relevant_code; known symbol: trace_symbol; change impact: map_change_impact; ' +
+  'code path: explain_code_path; verify a claim: collect_evidence; otherwise: explore_repo.';
+
 const EXPECTED_WRAPPER_TOOL_NAMES = EXPECTED_PUBLIC_TOOL_NAMES.filter(
   name => name !== 'explore_repo' && name !== 'explore',
 );
@@ -250,6 +263,111 @@ function assertReadOnlyAnnotations(tool) {
   assert.equal(tool.annotations.idempotentHint, true, `${tool.name} must be idempotent`);
   assert.equal(tool.annotations.openWorldHint, true, `${tool.name} must disclose provider API egress`);
 }
+
+function isTargetSixToolSurface(tools) {
+  return JSON.stringify(tools.map(tool => tool.name)) === JSON.stringify(TARGET_SIX_TOOL_NAMES);
+}
+
+function hasConciseIntentDescription(tool, allTools) {
+  const description = tool.description ?? '';
+  const siblingNames = allTools.map(item => item.name).filter(name => name !== tool.name);
+  return /^Use (?:when|for)\b/.test(description) &&
+    (description.match(/\bDo not use\b/g) ?? []).length === 1 &&
+    (description.match(/[.!?](?:\s|$)/g) ?? []).length === 2 &&
+    description.length <= 320 &&
+    siblingNames.every(name => !description.includes(name));
+}
+
+function sixToolSurfaceTest(name, callback) {
+  test(name, async t => {
+    const tools = await listToolsWithEnv({});
+    if (!isTargetSixToolSurface(tools)) {
+      t.todo('awaiting the six-tool implementation');
+      return;
+    }
+    await callback({ tools, t });
+  });
+}
+
+sixToolSurfaceTest('Spec 028 T045 — tools/list and provenance use one stable six-tool order', async ({ tools }) => {
+  assert.deepEqual(tools.map(tool => tool.name), TARGET_SIX_TOOL_NAMES);
+  const provenance = buildExecutionProvenance({ tools, gitSha: 'abc1234' });
+  assert.equal(provenance.exposedToolCount, 6);
+  assert.deepEqual(provenance.toolNames, TARGET_SIX_TOOL_NAMES);
+  assert.match(provenance.toolRegistryHash, /^[0-9a-f]{64}$/);
+  assert.equal(
+    provenance.toolRegistryHash,
+    buildExecutionProvenance({ tools, gitSha: 'different-sha' }).toolRegistryHash,
+    'registry hash must not depend on git state',
+  );
+});
+
+sixToolSurfaceTest('Spec 028 T045 — legacy environment variables cannot change the six-tool registry', async () => {
+  const scenarios = [
+    {},
+    {
+      CEREBRAS_EXPLORER_EXTRA_TOOLS: 'false',
+      CEREBRAS_EXPLORER_ENABLE_EXPLORE: 'false',
+      CEREBRAS_EXPLORER_ENABLE_EXPLORE_V2: 'false',
+    },
+    {
+      CEREBRAS_EXPLORER_EXTRA_TOOLS: 'true',
+      CEREBRAS_EXPLORER_ENABLE_EXPLORE: 'true',
+      CEREBRAS_EXPLORER_ENABLE_EXPLORE_V2: 'true',
+    },
+  ];
+  for (const env of scenarios) {
+    const tools = await listToolsWithEnv(env);
+    assert.deepEqual(tools.map(tool => tool.name), TARGET_SIX_TOOL_NAMES);
+    for (const tool of tools) assertReadOnlyAnnotations(tool);
+  }
+});
+
+sixToolSurfaceTest('Spec 028 T045 — removed public tool names are listed nowhere and have no handler', async () => {
+  const { handleRequest } = createMcpRequestHandler();
+  for (const name of ['review_change_context', 'explore']) {
+    await assert.rejects(
+      handleRequest({
+        jsonrpc: '2.0',
+        id: 45,
+        method: 'tools/call',
+        params: { name, arguments: {} },
+      }),
+      new RegExp(`Unknown tool: ${name}`),
+    );
+  }
+});
+
+test('Spec 028 T045 — retained tool descriptions have one trigger and one boundary', async t => {
+  const tools = await listToolsWithEnv({});
+  if (!isTargetSixToolSurface(tools) ||
+      !tools.every(tool => hasConciseIntentDescription(tool, tools))) {
+    t.todo('awaiting concise six-tool descriptions');
+    return;
+  }
+  for (const tool of tools) {
+    assert.equal(hasConciseIntentDescription(tool, tools), true, tool.name);
+  }
+});
+
+test('Spec 028 T045 — initialization contains one concise six-way dispatch rule', async t => {
+  const { handleRequest } = createMcpRequestHandler();
+  const initialized = await handleRequest({
+    jsonrpc: '2.0',
+    id: 46,
+    method: 'initialize',
+    params: { protocolVersion: '2025-06-18', capabilities: {} },
+  });
+  if (!initialized.instructions.includes(TARGET_DISPATCH_RULE)) {
+    t.todo('awaiting concise initialization dispatch instructions');
+    return;
+  }
+  assert.ok(initialized.instructions.length <= 800);
+  assert.doesNotMatch(initialized.instructions, /review_change_context|Markdown report|status\.verification/);
+  for (const name of TARGET_SIX_TOOL_NAMES) {
+    assert.equal(initialized.instructions.split(name).length - 1, 1, name);
+  }
+});
 
 // T037 precedes the T042 MCP projection. As with the other test-first tasks,
 // the missing projection runs as expected-red TODO; a partial export activates
