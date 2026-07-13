@@ -221,7 +221,7 @@ test('Spec 028 T038 — v3 source, git, absence, gap, and failure values share o
 });
 
 v3RedactionMcpTest(
-  'Spec 028 T038 — v3 MCP text and structured evidence are redacted without diagnostic fields',
+  'Spec 028 T046 — structured handoff redaction supersedes report-only redaction',
   (buildResponse) => {
     const handoff = {
       schemaVersion: 3,
@@ -258,6 +258,8 @@ v3RedactionMcpTest(
     assert.equal(serialized.includes('config/.env'), false);
     assert.match(response.content[0].text, /\[REDACTED:openai-api-key\]/);
     assert.match(serialized, /\[REDACTED:secret-path\]/);
+    assert.equal(Object.hasOwn(response.structuredContent, 'report'), false,
+      'the structured redaction contract must not depend on a Markdown report field');
     assert.equal(serialized.includes('"redacted"'), false,
       'redaction diagnostics stay outside the strict parent contract');
     assert.equal(serialized.includes('"redactions"'), false,

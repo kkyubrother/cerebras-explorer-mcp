@@ -137,7 +137,7 @@
 ### Tests for User Story 4
 
 - [x] T045 [P] [US4] Add six-tool registry, stable-order, provenance, concise dispatch-description, removed-name, `hints.strategy` rejection, and legacy-env invariance tests in `tests/mcp-server.test.mjs` and `tests/schemas.test.mjs`
-- [ ] T046 [P] [US4] Add direct-runtime export/removal and migrated cancellation, intermediate-draft, report-redaction, and untrusted-content safeguard tests in `tests/free-explore.test.mjs`, `tests/regression.test.mjs`, and `tests/security/redact.test.mjs`
+- [x] T046 [P] [US4] Add direct-runtime export/removal and migrated cancellation, intermediate-draft, report-redaction, and untrusted-content safeguard tests in `tests/free-explore.test.mjs`, `tests/regression.test.mjs`, and `tests/security/redact.test.mjs`
 - [ ] T047 [P] [US4] Add known-name and case-insensitive general `budget*` active-surface guards with narrow migration/history/negative-test allowlists in `tests/integrations.test.mjs` and `tests/project-config.test.mjs`
 
 ### Implementation for User Story 4

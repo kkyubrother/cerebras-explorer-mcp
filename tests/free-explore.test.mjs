@@ -5,7 +5,33 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 
-import { ExplorerRuntime } from '../src/explorer/runtime.mjs';
+import * as runtimeModule from '../src/explorer/runtime.mjs';
+
+const { ExplorerRuntime } = runtimeModule;
+
+// Test-first activation point: T049 flips this only after the report-only
+// direct runtime API is actually removed. Keep aliases in the same guard so a
+// rename cannot preserve the obsolete surface accidentally.
+const T049_REPORT_RUNTIME_API_REMOVED = false;
+
+test('Spec 028 T046 — report-only direct runtime exports are removed without aliases', t => {
+  if (!T049_REPORT_RUNTIME_API_REMOVED) {
+    t.todo('T049 activates the direct runtime removal assertions');
+    return;
+  }
+  for (const exportName of [
+    'freeExploreRepository',
+    'freeExploreRepositoryV2',
+    'freeExploreV2',
+  ]) {
+    assert.equal(exportName in runtimeModule, false, `${exportName} must not be exported`);
+  }
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(ExplorerRuntime.prototype, 'freeExplore'),
+    false,
+    'ExplorerRuntime.prototype.freeExplore must be removed',
+  );
+});
 
 function hasGit() {
   try { execFileSync('git', ['--version'], { stdio: 'pipe' }); return true; } catch { return false; }
