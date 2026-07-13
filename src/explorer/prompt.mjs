@@ -14,7 +14,12 @@ export const STRATEGY_DESCRIPTIONS = {
 const STRATEGY_RULES = [
   {
     label: 'git-guided',
-    patterns: [/\b(commit|changed?|history|since|recent)\b/i, /누가|언제|변경|커밋|이력|수정/],
+    patterns: [
+      /\b(commit|changed?|history|since|recent)\b/i,
+      /\b(?:pull\s+request|pr|diff|patch|change\s+review|review\s+changes?)\b/i,
+      /누가|언제|변경|커밋|이력|수정/,
+      /(?:pr|풀\s*리퀘스트|diff|패치|변경).{0,32}(?:리뷰|검토)|(?:리뷰|검토).{0,32}(?:pr|풀\s*리퀘스트|diff|패치|변경)/i,
+    ],
     weight: 2,
   },
   {

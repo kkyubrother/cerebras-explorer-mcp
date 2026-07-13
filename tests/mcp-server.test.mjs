@@ -15,7 +15,6 @@ const EXPECTED_PUBLIC_TOOL_NAMES = [
   'map_change_impact',
   'explain_code_path',
   'collect_evidence',
-  'review_change_context',
   'explore_repo',
   'explore',
 ];
@@ -63,7 +62,7 @@ const REMOVED_SPEC_013_TOOL_NAMES = [
   ['find', 'entrypoints'].join('_'),
 ];
 
-test('spec 022 execution provenance describes the live 8-tool registry', () => {
+test('spec 022 execution provenance describes the live public registry', () => {
   const provenance = buildExecutionProvenance({ gitSha: 'abc1234' });
 
   assert.deepEqual(Object.keys(provenance).sort(), [
@@ -765,7 +764,7 @@ test('MCP request handler exposes explore_repo and returns structuredContent', a
   assert.ok(toolNames.includes('map_change_impact'), 'map_change_impact must be in tool list');
   assert.ok(toolNames.includes('explain_code_path'), 'explain_code_path must be in tool list');
   assert.ok(toolNames.includes('collect_evidence'), 'collect_evidence must be in tool list');
-  assert.ok(toolNames.includes('review_change_context'), 'review_change_context must be in tool list');
+  assert.ok(!toolNames.includes('review_change_context'), 'review_change_context was removed in T048');
   assert.ok(!toolNames.includes('explain_symbol'), 'removed shortcut explain_symbol must not be exposed');
   assert.ok(!toolNames.includes('trace_dependency'), 'removed shortcut trace_dependency must not be exposed');
   assert.ok(!toolNames.includes('summarize_changes'), 'removed shortcut summarize_changes must not be exposed');
@@ -1258,6 +1257,24 @@ test('MCP request handler rejects removed spec 013 wrappers as unknown tools', a
   }
 });
 
+test('Spec 028 T048 — review_change_context is neither listed nor callable', async () => {
+  const { handleRequest } = createMcpRequestHandler();
+  const listed = await handleRequest({ jsonrpc: '2.0', id: 20, method: 'tools/list' });
+  assert.equal(listed.tools.some(tool => tool.name === 'review_change_context'), false);
+  await assert.rejects(
+    handleRequest({
+      jsonrpc: '2.0',
+      id: 21,
+      method: 'tools/call',
+      params: {
+        name: 'review_change_context',
+        arguments: { reviewGoal: 'Inspect the current diff.' },
+      },
+    }),
+    /Unknown tool: review_change_context/,
+  );
+});
+
 test('explore redacts deny-listed paths consistently in both surfaces', async () => {
   const repoRoot = await makeRepoFixture();
   const report = 'Secret `secrets/.env.production:L1` and public `src/auth.js:L1`.';
@@ -1339,8 +1356,8 @@ test('collect_evidence wrapper uses evidence verification mode instead of edit r
   assert.notEqual(called.structuredContent.state, 'verify_targets');
 });
 
-test('MCP request handler declares read-only annotations for the fixed 8-tool surface', async () => {
-  // spec 011: tool surface is fixed at 8 regardless of legacy envvars.
+test('MCP request handler declares read-only annotations for the current public surface', async () => {
+  // The current public registry is invariant under every removed surface toggle.
   const expectedNames = EXPECTED_PUBLIC_TOOL_NAMES;
 
   const envScenarios = [
@@ -1360,7 +1377,7 @@ test('MCP request handler declares read-only annotations for the fixed 8-tool su
     assert.deepEqual(
       tools.map(tool => tool.name),
       expectedNames,
-      `${scenario.name}: tool surface is fixed at 8 regardless of legacy envvars`,
+      `${scenario.name}: public registry must ignore legacy surface envvars`,
     );
     for (const tool of tools) assertReadOnlyAnnotations(tool);
   }
@@ -1465,11 +1482,6 @@ test('MCP request handler rejects unknown wrapper arguments before runtime execu
       tool: 'collect_evidence',
       args: { claim: 'tokens are revoked on logout' },
       unknownKey: 'priority',
-    },
-    {
-      tool: 'review_change_context',
-      args: { reviewGoal: 'audit auth refactor' },
-      unknownKey: 'severity',
     },
   ];
 

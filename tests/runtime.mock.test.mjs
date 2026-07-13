@@ -1120,18 +1120,26 @@ test('ExplorerRuntime drops model-provided edit targets outside grounded evidenc
   assert.notEqual(result.nextAction.target?.path, '../../.ssh/id_rsa');
 });
 
-test('ExplorerRuntime does not treat review-change context as edit planning', async () => {
+test('Spec 028 T048 — automatic PR and diff review intent stays read-only', async (t) => {
   const repoRoot = await makeRepoFixture();
-  const runtime = new ExplorerRuntime({ chatClient: new MockChatClient() });
-
-  const result = await runtime.explore({
-    task: 'Review change context: What changed recently around auth routing? Summarize what changed and return grounded read targets.',
-    repo_root: repoRoot,
-    scope: ['src/**'],
-  });
-
-  assert.equal(result.status.verification, 'verified');
-  assert.equal(result.nextAction.type, 'stop');
+  for (const task of [
+    'Review change context: What changed recently around auth routing?',
+    'Review this PR for auth risks.',
+    'Review the diff for auth risks.',
+    'Review this change to auth code for risks.',
+    '이 PR의 인증 변경을 검토해라.',
+  ]) {
+    await t.test(task, async () => {
+      const runtime = new ExplorerRuntime({ chatClient: new MockChatClient() });
+      const result = await runtime.explore({
+        task,
+        repo_root: repoRoot,
+        scope: ['src/**'],
+      });
+      assert.equal(result.status.verification, 'verified');
+      assert.equal(result.nextAction.type, 'stop');
+    });
+  }
 });
 
 test('ExplorerRuntime still treats code changes as edit planning', async () => {
@@ -3420,6 +3428,23 @@ test('ExplorerRuntime records observations from macro tools (repo_symbol_context
   // Evidence for src/auth.js should be retained (grounded via symbol_context observations)
   const authEvidence = result.evidence?.filter(e => e.path === 'src/auth.js') ?? [];
   assert.ok(authEvidence.length > 0, 'evidence for src/auth.js is retained via symbol_context observations');
+});
+
+test('Spec 028 T048 — PR and diff review text automatically selects git-guided exploration', () => {
+  for (const task of [
+    'Review this PR for auth risks.',
+    'Review the diff for auth risks.',
+    'Audit this pull request for regressions.',
+    '이 PR의 변경을 검토해라.',
+  ]) {
+    const strategy = detectStrategy(task);
+    assert.equal(
+      strategy === 'git-guided' ||
+        (Array.isArray(strategy) && strategy.includes('git-guided')),
+      true,
+      task,
+    );
+  }
 });
 
 test('Spec 028 T029 — runtime ledger assigns stable ids and rebuilds redacted current source', async () => {

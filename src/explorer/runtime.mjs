@@ -136,8 +136,6 @@ const WRAPPER_BY_TASK_MODE = Object.freeze({
   edit_planning: 'map_change_impact',
   path_explanation: 'explain_code_path',
   evidence_verification: 'collect_evidence',
-  // review_change_context has no distinct completion policy and is removed by T048.
-  change_review: 'explore_repo',
 });
 
 /**
@@ -477,7 +475,6 @@ export const RETRY_TOOLS = [
   'collect_evidence',
   'trace_symbol',
   'map_change_impact',
-  'review_change_context',
   'explain_code_path',
   'explore',
 ];
@@ -516,7 +513,7 @@ function sanitizeRetryHints(value) {
 
 function sanitizeRetryArgs(args = {}) {
   const safe = {};
-  for (const key of ['task', 'query', 'symbol', 'change', 'pathQuery', 'claim', 'reviewGoal', 'prompt']) {
+  for (const key of ['task', 'query', 'symbol', 'change', 'pathQuery', 'claim', 'prompt']) {
     const text = sanitizeRetryText(args[key]);
     if (text) safe[key] = text;
   }
@@ -866,7 +863,10 @@ async function attachEvidenceMetadata({ evidence, repoRoot, expectedObservations
 function hasEditIntent(task) {
   const text = String(task ?? '').toLowerCase();
   if (/\b(review change context|what changed|summarize changes|recent changes)\b/.test(text) ||
-      /변경\s*(사항|내역|요약)|최근\s*변경|무엇이\s*변경/.test(text)) {
+      /\b(?:review|audit)\b.{0,48}\b(?:pr|pull request|diff|patch|changes?|commits?|history)\b/.test(text) ||
+      /\b(?:pr|pull request|diff|patch|changes?|commits?|history)\b.{0,48}\b(?:review|audit)\b/.test(text) ||
+      /변경\s*(사항|내역|요약)|최근\s*변경|무엇이\s*변경/.test(text) ||
+      /(?:리뷰|검토).{0,48}(?:pr|풀\s*리퀘스트|diff|패치|변경|커밋|이력)|(?:pr|풀\s*리퀘스트|diff|패치|변경|커밋|이력).{0,48}(?:리뷰|검토)/i.test(text)) {
     return false;
   }
   return /\b(fix|modify|implement|refactor|migrate|patch|edit|editing)\b/.test(text) ||
@@ -880,7 +880,6 @@ const TASK_MODES = new Set([
   'edit_planning',
   'path_explanation',
   'evidence_verification',
-  'change_review',
 ]);
 
 function normalizeTaskMode(taskMode) {
@@ -892,7 +891,6 @@ function isEditPlanningMode({ taskMode, task }) {
   if (mode === 'edit_planning') return true;
   if (
     mode === 'evidence_verification' ||
-    mode === 'change_review' ||
     mode === 'path_explanation' ||
     mode === 'symbol_trace' ||
     mode === 'locate'

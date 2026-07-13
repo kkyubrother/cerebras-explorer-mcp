@@ -43,7 +43,7 @@ const EXPLORE_REPO_TOOL = {
   description:
     'Use as the general fallback for read-only repository exploration when no purpose-specific tool fits, or when you need programmable structured JSON spanning multiple files: ' +
     'architecture, symbol usage, dependency/call tracing, bug root-cause hypotheses, change impact, config origin, or evidence collection. ' +
-    'Prefer the specialized tools when intent matches (find_relevant_code to locate code, trace_symbol for a known symbol, map_change_impact for blast radius, explain_code_path for a flow, collect_evidence to verify a claim, review_change_context for PR review). ' +
+    'Prefer the specialized tools when intent matches (find_relevant_code to locate code, trace_symbol for a known symbol, map_change_impact for blast radius, explain_code_path for a flow, collect_evidence to verify a claim). ' +
     'Do not use for edits, running tests/builds, or single known-file inspection. ' +
     'Returns structured JSON with directAnswer, status, targets, grounded file:line evidence with snippets, and nextAction. ' +
     'After this tool, avoid broad grep/read; only read cited targets needed for verification or edits. ' +
@@ -156,7 +156,7 @@ const COLLECT_EVIDENCE_TOOL = {
   title: 'Collect cited evidence',
   description:
     'Use when you already have a claim, hypothesis, or review point and need a compact bundle of grounded file:line evidence with snippets. ' +
-    'Best for verifying specific facts or a single review point before replying; for whole-PR/diff scoping use review_change_context.',
+    'Best for verifying specific facts or a single review point before replying; for whole-PR/diff scoping use explore_repo.',
   inputSchema: {
     type: 'object',
     additionalProperties: false,
@@ -174,29 +174,6 @@ const COLLECT_EVIDENCE_TOOL = {
   annotations: readOnlyToolAnnotations('Collect cited evidence'),
 };
 
-const REVIEW_CHANGE_CONTEXT_TOOL = {
-  name: 'review_change_context',
-  title: 'Review change context',
-  description:
-    'Use for PR/review preparation or recent-change analysis when you need what changed, why it matters, and which files deserve review attention. ' +
-    'Combines git-guided discovery with grounded code evidence.',
-  inputSchema: {
-    type: 'object',
-    additionalProperties: false,
-    properties: {
-      reviewGoal: { type: 'string', description: 'What to review or validate.' },
-      since: { type: 'string' },
-      until: { type: 'string' },
-      path: { type: 'string' },
-      repo_root: { type: 'string' },
-      scope: { type: 'array', items: { type: 'string' } },
-    },
-    required: ['reviewGoal'],
-  },
-  outputSchema: EXPLORE_REPO_OUTPUT_SCHEMA,
-  annotations: readOnlyToolAnnotations('Review change context'),
-};
-
 // ─── Phase 5: Free-form explore tool (beta) ───────────────────────────────
 
 const EXPLORE_TOOL = {
@@ -205,7 +182,7 @@ const EXPLORE_TOOL = {
   description:
     'Use for a user-facing Markdown investigation report with inline file:line citations. ' +
     'Best for architecture walkthroughs, onboarding explanations, or broad "how does X work?" answers when polished prose is what the requester needs. ' +
-    'For narrow lookups, symbol traces, impact maps, code-path walks, or PR/diff review context, prefer find_relevant_code, trace_symbol, map_change_impact, explain_code_path, or review_change_context — they return the same grounded evidence in their tool-specific shape. ' +
+    'For narrow lookups, symbol traces, impact maps, code-path walks, or claim checks, prefer find_relevant_code, trace_symbol, map_change_impact, explain_code_path, or collect_evidence — they return the same grounded evidence in their tool-specific shape. ' +
     'Do not use when the parent agent needs structured edit planning or programmatic next steps; use explore_repo instead.',
   inputSchema: {
     type: 'object',
@@ -231,7 +208,6 @@ function buildToolList() {
     MAP_CHANGE_IMPACT_TOOL,
     EXPLAIN_CODE_PATH_TOOL,
     COLLECT_EVIDENCE_TOOL,
-    REVIEW_CHANGE_CONTEXT_TOOL,
     EXPLORE_REPO_TOOL,
     EXPLORE_TOOL,
   ];
@@ -433,24 +409,6 @@ function buildCollectEvidenceArgs(args) {
     scope,
     taskMode: 'evidence_verification',
     hints: buildAnchorHints({ knownFiles, knownSymbols, knownText }),
-  };
-}
-
-function buildReviewChangeContextArgs(args) {
-  const { reviewGoal, since, until, path: filePath, repo_root, scope } = args;
-  if (!reviewGoal || typeof reviewGoal !== 'string' || !reviewGoal.trim()) {
-    throw makeInvalidArgsError('review_change_context requires a non-empty "reviewGoal" argument.');
-  }
-  const sincePart = since ? ` since "${since}"` : '';
-  const untilPart = until ? ` until "${until}"` : '';
-  const pathPart = filePath ? ` for path "${filePath}"` : '';
-  const task = `Review change context${sincePart}${untilPart}${pathPart}: ${reviewGoal.trim()}. Summarize what changed, why it matters, likely review risks, and grounded read targets.`;
-  return {
-    task,
-    repo_root,
-    scope,
-    taskMode: 'change_review',
-    hints: buildAnchorHints({ knownFiles: filePath ? [filePath] : [], strategy: 'git-guided' }),
   };
 }
 
@@ -784,7 +742,7 @@ export function createMcpRequestHandler({
             `Cerebras Explorer provides autonomous codebase exploration (${toolCount} tools, powered by ${getExplorerModel()}). ` +
             'PREFER these tools over manual file search (Grep/Glob/Read) whenever you would otherwise run a grep-then-read loop — including for a single known symbol or claim — and especially for multi-file or cross-file understanding. ' +
             'explore_repo returns structured JSON with directAnswer, status, targets, discoveredPaths, and grounded evidence snippets; explore returns a Markdown report for human consumption. ' +
-            'Purpose shortcuts: find_relevant_code, trace_symbol, map_change_impact, explain_code_path, collect_evidence, review_change_context. ' +
+            'Purpose shortcuts: find_relevant_code, trace_symbol, map_change_impact, explain_code_path, collect_evidence. ' +
             'Pass _meta.progressToken for heavy calls (broad reports / path / impact) to receive turn-by-turn progress updates. ' +
             'When summarizing or handing off a result to another agent, preserve these control-plane fields verbatim: ' +
             'status.verification, status.complete, evidenceQuality, searchCoverage, failure, and any critic.warnings.',
@@ -831,10 +789,6 @@ export function createMcpRequestHandler({
           if (name === 'collect_evidence') {
             validatePublicToolArgs(COLLECT_EVIDENCE_TOOL, args);
             return await callTool(buildCollectEvidenceArgs(args), progressToken, requestId, name);
-          }
-          if (name === 'review_change_context') {
-            validatePublicToolArgs(REVIEW_CHANGE_CONTEXT_TOOL, args);
-            return await callTool(buildReviewChangeContextArgs(args), progressToken, requestId, name);
           }
           if (name === 'explore') {
             validatePublicToolArgs(EXPLORE_TOOL, args);

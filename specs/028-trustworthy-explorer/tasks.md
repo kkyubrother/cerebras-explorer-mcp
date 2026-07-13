@@ -142,7 +142,7 @@
 
 ### Implementation for User Story 4
 
-- [ ] T048 [US4] Remove `review_change_context`, its retry/provenance/schema surfaces, and the orphaned `change_review` task mode while retaining automatic git-intent classification in `src/mcp/server.mjs`, `src/explorer/runtime.mjs`, and `src/explorer/schemas.mjs`
+- [x] T048 [US4] Remove `review_change_context`, its retry/provenance/schema surfaces, and the orphaned `change_review` task mode while retaining automatic git-intent classification in `src/mcp/server.mjs`, `src/explorer/runtime.mjs`, and `src/explorer/schemas.mjs`
 - [ ] T049 [US4] Remove the public Markdown `explore` handler plus `freeExploreRepository` and `ExplorerRuntime.freeExplore` exports without compatibility aliases in `src/mcp/server.mjs` and `src/explorer/runtime.mjs`
 - [ ] T050 [US4] Delete report-only loop, prompt, citation extraction, critic, schema, recovery code, transcript example, and config wording after reference analysis while preserving structured-path compaction/truncation safeguards in `src/explorer/runtime.mjs`, `src/explorer/prompt.mjs`, `src/explorer/critic.mjs`, `src/explorer/schemas.mjs`, `src/explorer/transcript.mjs`, and `src/explorer/config.mjs`
 - [ ] T051 [US4] Migrate valuable report tests to structured planner/verifier, cancellation, redaction, and source-integrity coverage and remove orphaned report assertions in `tests/free-explore.test.mjs`, `tests/audit-remediation.test.mjs`, `tests/integration-script.test.mjs`, `tests/benchmark-evaluator.test.mjs`, `tests/regression.test.mjs`, `tests/critic.test.mjs`, and `tests/runtime.mock.test.mjs`

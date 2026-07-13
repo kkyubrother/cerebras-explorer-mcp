@@ -87,6 +87,12 @@ test('Spec 028 T045 — retry vocabularies are set-equal to the six public tools
   assert.equal(RETRY_SCHEMA.properties.args.properties.prompt, undefined);
 });
 
+test('Spec 028 T048 — removed review wrapper is absent from retry schema and runtime', () => {
+  assert.equal(RETRY_SCHEMA.properties.tool.enum.includes('review_change_context'), false);
+  assert.equal(RETRY_TOOLS.includes('review_change_context'), false);
+  assert.equal(RETRY_SCHEMA.properties.args.properties.reviewGoal, undefined);
+});
+
 function internalSchemaTest(schema, validate, name, callback) {
   test(name, () => {
     callback(schema, validate);
