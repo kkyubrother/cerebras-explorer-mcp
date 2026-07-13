@@ -1657,6 +1657,15 @@ test('ExplorerRuntime does not expose recentActivity when git_log tool is called
   assert.equal(result.recentActivity, undefined);
   assert.equal(result._debug?.recentActivity, undefined);
   assert.equal(result.stats.gitLogCalls, 1);
+  const commitObservation = result.observations.find(item => item.kind === 'git_commit');
+  assert.ok(commitObservation, 'git log must produce a runtime-owned commit observation');
+  assert.equal(commitObservation.id, 'E1');
+  assert.equal(commitObservation.temporalRole, 'historical');
+  assert.match(commitObservation.sha, /^[0-9a-f]{40}$/);
+  assert.match(commitObservation.content, /add index/);
+  assert.ok(result.observations.some(item =>
+    item.id === 'E1:search' && item.kind === 'search' && item.tool === 'repo_git_log'),
+  'git history keeps its normalized search boundary separately from commit content');
 });
 
 test('ExplorerRuntime partial match evidence: evidence within tolerance lines is kept', async () => {
@@ -3042,6 +3051,135 @@ test('ExplorerRuntime records observations from macro tools (repo_symbol_context
   // Evidence for src/auth.js should be retained (grounded via symbol_context observations)
   const authEvidence = result.evidence?.filter(e => e.path === 'src/auth.js') ?? [];
   assert.ok(authEvidence.length > 0, 'evidence for src/auth.js is retained via symbol_context observations');
+});
+
+test('Spec 028 T029 — runtime ledger assigns stable ids and rebuilds redacted current source', async () => {
+  const rawSecret = 'sk-proj-1234567890abcdefghijklmnop';
+  const rawPrivateBody = 'QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo=';
+  class ObservationLedgerClient {
+    constructor() { this.model = 'test'; this.calls = 0; }
+    async createChatCompletion() {
+      this.calls += 1;
+      if (this.calls === 1) {
+        return {
+          usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+          message: {
+            content: 'FORGED_EXPLORER_SNIPPET',
+            toolCalls: [
+              {
+                id: 'read-auth',
+                function: {
+                  name: 'repo_read_file',
+                  arguments: JSON.stringify({ path: 'src/auth.js', startLine: 1, endLine: 2 }),
+                },
+              },
+              {
+                id: 'grep-missing',
+                function: {
+                  name: 'repo_grep',
+                  arguments: JSON.stringify({ pattern: 'legacyGuard', scope: ['src/routes/**'] }),
+                },
+              },
+              {
+                id: 'list-routes',
+                function: {
+                  name: 'repo_list_dir',
+                  arguments: JSON.stringify({ dirPath: 'src/routes', depth: 1 }),
+                },
+              },
+            ],
+          },
+        };
+      }
+      if (this.calls === 2) {
+        return {
+          usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+          message: {
+            content: '',
+            toolCalls: [{
+              id: 'read-redaction',
+              function: {
+                name: 'repo_read_file',
+                arguments: JSON.stringify({ path: 'src/redaction.js', startLine: 1, endLine: 5 }),
+              },
+            }],
+          },
+        };
+      }
+      return {
+        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+        message: {
+          content: JSON.stringify(compactResult({
+            directAnswer: 'runtime observations recorded',
+            evidence: [],
+          })),
+          toolCalls: [],
+        },
+      };
+    }
+  }
+
+  const root = await makeRepoFixture();
+  await fs.writeFile(path.join(root, 'src', 'redaction.js'), [
+    `export const token = '${rawSecret}';`,
+    'export const key = `-----BEGIN PRIVATE KEY-----',
+    rawPrivateBody,
+    '-----END PRIVATE KEY-----`;',
+    'export const safe = true;',
+  ].join('\n'));
+  const runtime = new ExplorerRuntime({ chatClient: new ObservationLedgerClient() });
+  const result = await runtime.explore({
+    task: 'Locate authentication and check whether legacyGuard exists.',
+    repo_root: root,
+    scope: ['src/**'],
+  });
+
+  assert.deepEqual(result.observations.map(item => item.id), [
+    'E1', 'E1:search', 'E2', 'E3', 'E4', 'E4:search',
+  ]);
+  assert.deepEqual(result.observations[0], {
+    id: 'E1',
+    kind: 'source',
+    path: 'src/auth.js',
+    startLine: 1,
+    endLine: 2,
+    snippet: [
+      '1: export function requireAuth(req, res, next) {',
+      '2:   if (!req.user) throw new Error("unauthorized");',
+    ].join('\n'),
+    rangeGrounding: 'exact',
+    sourceRole: 'implementation',
+    temporalRole: 'current',
+    redacted: false,
+  });
+  assert.equal(result.observations[1].kind, 'search');
+  assert.equal(result.observations[1].tool, 'repo_read_file');
+  assert.equal(result.observations[1].toolTruncated, true,
+    'the exact rebuilt source range must not erase read-result truncation');
+  assert.deepEqual(result.observations[1].boundary, ['src/auth.js']);
+  assert.equal(result.observations[2].kind, 'search');
+  assert.equal(result.observations[2].tool, 'repo_grep');
+  assert.deepEqual(result.observations[2].normalizedArgs, {
+    pattern: 'legacyGuard',
+    scope: ['src/routes/**'],
+  });
+  assert.deepEqual(result.observations[2].boundary, ['src/routes/**'],
+    'the local scope narrows the hard scope instead of being unioned with it');
+  assert.equal(result.observations[2].matchCount, 0);
+  assert.equal(result.observations[2].enumerationComplete, false,
+    'T029 must not preempt the tool-specific completeness policy in T060');
+  assert.equal(result.observations[3].tool, 'repo_list_dir');
+  assert.deepEqual(result.observations[3].boundary, ['src/routes/*']);
+  assert.equal(result.observations[4].kind, 'source');
+  assert.equal(result.observations[4].redacted, true);
+  assert.match(result.observations[4].snippet, /\[REDACTED:openai-api-key\]/);
+  assert.match(result.observations[4].snippet, /\[REDACTED:private-key-block\]/);
+  assert.equal(result.observations[4].rangeGrounding, 'partial');
+  assert.equal(result.observations[5].tool, 'repo_read_file');
+  assert.equal(result.observations[5].toolTruncated, false);
+  assert.doesNotMatch(JSON.stringify(result.observations), /FORGED_EXPLORER_SNIPPET/);
+  assert.doesNotMatch(JSON.stringify(result.observations), new RegExp(rawSecret));
+  assert.doesNotMatch(JSON.stringify(result.observations), new RegExp(rawPrivateBody));
 });
 
 // --- Phase 5: Source-aware Grounding + Git Evidence Validation Tests ---

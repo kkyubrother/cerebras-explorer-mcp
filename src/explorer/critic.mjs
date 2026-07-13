@@ -213,6 +213,108 @@ export function groundEvidenceList({ evidence, observedRanges, observedGit }) {
   };
 }
 
+const SOURCE_ROLES = new Set([
+  'implementation', 'test', 'config', 'documentation', 'fixture', 'generated', 'unknown',
+]);
+const GIT_OBSERVATION_KINDS = new Set([
+  'git_commit', 'git_blame', 'git_diff_hunk',
+]);
+
+function cloneSemanticVerdict(verdict) {
+  if (!verdict || typeof verdict !== 'object' || Array.isArray(verdict)) return {};
+  return {
+    ...verdict,
+    ...(Array.isArray(verdict.supportingEvidenceRefs)
+      ? { supportingEvidenceRefs: [...verdict.supportingEvidenceRefs] }
+      : {}),
+  };
+}
+
+function isValidSourceObservation(observation) {
+  return observation?.kind === 'source' &&
+    typeof observation.id === 'string' && observation.id.length > 0 &&
+    typeof observation.path === 'string' && observation.path.length > 0 &&
+    Number.isInteger(observation.startLine) && observation.startLine >= 1 &&
+    Number.isInteger(observation.endLine) && observation.endLine >= observation.startLine &&
+    typeof observation.snippet === 'string' && observation.snippet.trim().length > 0 &&
+    observation.rangeGrounding === 'exact' &&
+    SOURCE_ROLES.has(observation.sourceRole) &&
+    observation.temporalRole === 'current' &&
+    typeof observation.redacted === 'boolean';
+}
+
+function isValidGitObservation(observation) {
+  if (!GIT_OBSERVATION_KINDS.has(observation?.kind) ||
+      typeof observation.id !== 'string' || !observation.id ||
+      typeof observation.content !== 'string' || !observation.content.trim() ||
+      observation.temporalRole !== 'historical') {
+    return false;
+  }
+  if (observation.kind === 'git_commit') {
+    return typeof observation.sha === 'string' && observation.sha.length > 0;
+  }
+  if (observation.kind === 'git_blame') {
+    return typeof observation.sha === 'string' && observation.sha.length > 0 &&
+      typeof observation.path === 'string' && observation.path.length > 0 &&
+      Number.isInteger(observation.startLine) && observation.startLine >= 1 &&
+      observation.endLine === observation.startLine;
+  }
+  const hasAnyRange = observation.startLine !== undefined || observation.endLine !== undefined;
+  return !hasAnyRange || (
+    Number.isInteger(observation.startLine) && observation.startLine >= 1 &&
+    Number.isInteger(observation.endLine) && observation.endLine >= observation.startLine
+  );
+}
+
+function downgradeUnsupportedEvidence(verdict) {
+  const downgraded = {
+    ...verdict,
+    result: 'insufficient',
+    supportingEvidenceRefs: [],
+    reasonCode: 'boundary_mismatch',
+    note: 'Claim support was downgraded because its runtime evidence was incomplete or outside the verified boundary.',
+  };
+  delete downgraded.resolution;
+  return downgraded;
+}
+
+/**
+ * Downgrade-only structural gate after isolated semantic verification. It does
+ * not interpret claim prose and can never promote a verifier result.
+ */
+export function applyClaimEvidenceGate({ claim, semanticVerdict, observations } = {}) {
+  const verdict = cloneSemanticVerdict(semanticVerdict);
+  if (verdict.result !== 'supported') return verdict;
+  if (!claim || typeof claim !== 'object' || Array.isArray(claim) ||
+      verdict.claimId !== claim.id ||
+      !Array.isArray(claim.evidenceRefs) ||
+      !Array.isArray(verdict.supportingEvidenceRefs) ||
+      verdict.supportingEvidenceRefs.length === 0 ||
+      !Array.isArray(observations)) {
+    return downgradeUnsupportedEvidence(verdict);
+  }
+
+  const claimRefs = new Set(claim.evidenceRefs.filter(ref => typeof ref === 'string' && ref));
+  const observationById = new Map();
+  const duplicateIds = new Set();
+  for (const observation of observations) {
+    const id = typeof observation?.id === 'string' ? observation.id : '';
+    if (!id) continue;
+    if (observationById.has(id)) duplicateIds.add(id);
+    else observationById.set(id, observation);
+  }
+
+  const supportingRefs = verdict.supportingEvidenceRefs;
+  const valid = new Set(supportingRefs).size === supportingRefs.length &&
+    supportingRefs.every(ref => {
+      if (typeof ref !== 'string' || !claimRefs.has(ref) || duplicateIds.has(ref)) return false;
+      const observation = observationById.get(ref);
+      return isValidSourceObservation(observation) || isValidGitObservation(observation);
+    });
+
+  return valid ? verdict : downgradeUnsupportedEvidence(verdict);
+}
+
 function hasValidEvidenceLineRange(item) {
   return Number.isSafeInteger(item.startLine) &&
     Number.isSafeInteger(item.endLine) &&

@@ -8,6 +8,7 @@ import { execFileSync } from 'node:child_process';
 import { getRuntimeConfig } from '../src/explorer/config.mjs';
 import {
   RepoToolkit,
+  classifySourceRole,
   collectTargetPathsFromToolResult,
   normalizeRepositoryObservation,
 } from '../src/explorer/repo-tools.mjs';
@@ -341,6 +342,31 @@ repositoryObservationTest('enumeration completeness requires a runtime candidate
     enumerationCandidate: true,
     result: { matches: [], truncated: false },
   }), /boundary|string array/i, 'a malformed boundary must not widen to repository scope');
+});
+
+test('Spec 028 T029 — source roles use conservative path segments and suffixes', () => {
+  const fixtures = new Map([
+    ['generated/client/index.ts', 'generated'],
+    ['tests/fixtures/auth-response.json', 'fixture'],
+    ['docs/local-e2e-test.md', 'documentation'],
+    ['tests/test_cli.py', 'test'],
+    ['src/auth.spec.mjs', 'test'],
+    ['pipeline/config.py', 'config'],
+    ['app/my_lib/config.py', 'config'],
+    ['config/defaults.mjs', 'config'],
+    ['prisma/schema.prisma', 'config'],
+    ['requirements.txt', 'config'],
+    ['kiro/pipeline-runner.json', 'config'],
+    ['src/contest.mjs', 'implementation'],
+    ['src/specialist.ts', 'implementation'],
+    ['assets/logo.png', 'unknown'],
+  ]);
+
+  for (const [sourcePath, expected] of fixtures) {
+    assert.equal(classifySourceRole(sourcePath), expected, sourcePath);
+  }
+  assert.equal(classifySourceRole(''), 'unknown');
+  assert.equal(classifySourceRole(null), 'unknown');
 });
 
 test('RepoToolkit finds files, greps, reads ranges, and respects gitignore', async () => {

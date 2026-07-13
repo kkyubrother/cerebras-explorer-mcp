@@ -1893,6 +1893,66 @@ const OBSERVATION_ARG_KEYS = Object.freeze({
   repo_git_show: ['ref'],
 });
 
+const GENERATED_SOURCE_SEGMENTS = new Set([
+  'build', 'coverage', 'dist', 'gen', 'generated', 'out', '.next',
+]);
+const FIXTURE_SOURCE_SEGMENTS = new Set([
+  '__fixtures__', '__snapshots__', 'fixture', 'fixtures', 'snapshot', 'snapshots',
+  'test-data', 'testdata',
+]);
+const DOCUMENTATION_SOURCE_SEGMENTS = new Set([
+  'doc', 'docs', 'documentation',
+]);
+const TEST_SOURCE_SEGMENTS = new Set([
+  '__tests__', 'spec', 'specs', 'test', 'tests',
+]);
+const CONFIG_SOURCE_SEGMENTS = new Set([
+  '.github', '.kiro', 'config', 'configs', 'configuration', 'prisma', 'settings',
+]);
+const IMPLEMENTATION_SOURCE_EXTENSIONS = new Set([
+  '.c', '.cc', '.cjs', '.cpp', '.cs', '.css', '.dart', '.fs', '.go', '.h', '.hpp',
+  '.html', '.java', '.js', '.jsx', '.kt', '.kts', '.mjs', '.php', '.ps1', '.py',
+  '.rb', '.rs', '.scala', '.scss', '.sh', '.sql', '.svelte', '.swift', '.ts',
+  '.tsx', '.vue',
+]);
+
+/**
+ * Classify a repository path without inspecting model-authored prose. Segment and
+ * suffix checks are deliberately conservative: names such as `contest.mjs` and
+ * `specialist.ts` must not become tests merely because they contain `test`/`spec`.
+ */
+export function classifySourceRole(filePath) {
+  if (typeof filePath !== 'string' || !filePath.trim()) return 'unknown';
+  const normalized = filePath.replace(/\\/g, '/').replace(/^\.\//, '').toLowerCase();
+  const segments = normalized.split('/').filter(Boolean);
+  const filename = segments.at(-1) ?? '';
+  const extension = path.extname(filename);
+  const hasSegment = candidates => segments.slice(0, -1).some(segment => candidates.has(segment));
+
+  if (hasSegment(GENERATED_SOURCE_SEGMENTS) ||
+      /(?:^|[._-])generated(?:[._-]|$)/.test(filename) ||
+      /^(?:package-lock\.json|pnpm-lock\.yaml|yarn\.lock)$/.test(filename)) {
+    return 'generated';
+  }
+  if (hasSegment(FIXTURE_SOURCE_SEGMENTS) || extension === '.snap') return 'fixture';
+  if (hasSegment(DOCUMENTATION_SOURCE_SEGMENTS) ||
+      /^(?:agents|changelog|claude|contributing|design|license|readme)(?:\.[^.]+)?$/.test(filename) ||
+      ['.adoc', '.md', '.mdx', '.rst'].includes(extension)) {
+    return 'documentation';
+  }
+  if (hasSegment(TEST_SOURCE_SEGMENTS) ||
+      /(?:^|[._-])(?:spec|test)(?:[._-]|$)/.test(filename)) {
+    return 'test';
+  }
+  if (hasSegment(CONFIG_SOURCE_SEGMENTS) ||
+      /^(?:config|dockerfile|makefile|package|pyproject|requirements|schema|settings|tsconfig)(?:[._-].*)?$/.test(filename) ||
+      ['.conf', '.ini', '.json', '.jsonc', '.prisma', '.properties', '.toml', '.yaml', '.yml'].includes(extension)) {
+    return 'config';
+  }
+  if (IMPLEMENTATION_SOURCE_EXTENSIONS.has(extension)) return 'implementation';
+  return 'unknown';
+}
+
 function requireObservationObject(value, label) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new TypeError(`${label} must be an object.`);

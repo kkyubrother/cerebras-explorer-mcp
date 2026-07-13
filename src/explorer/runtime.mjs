@@ -17,7 +17,9 @@ import {
   resolveRepoRoot,
 } from './config.mjs';
 import {
+  classifySourceRole,
   collectDiscoveredPathsFromToolResult,
+  normalizeRepositoryObservation,
   RepoToolkit,
 } from './repo-tools.mjs';
 import { redactText, redactValue } from './redact.mjs';
@@ -710,36 +712,73 @@ function isOutsideRoot(root, targetPath) {
   return relative.startsWith('..') || path.isAbsolute(relative);
 }
 
+async function readRuntimeSourceRange(repoRoot, sourceRange, {
+  maxLines = 12,
+  maxChars = 1200,
+} = {}) {
+  if (!repoRoot || !sourceRange?.path) return null;
+  if (!Number.isInteger(sourceRange.startLine) || !Number.isInteger(sourceRange.endLine) ||
+      sourceRange.startLine < 1 || sourceRange.endLine < sourceRange.startLine) return null;
+  if (isSecretPath(sourceRange.path).matched) return null;
+
+  const absolutePath = path.resolve(repoRoot, sourceRange.path);
+  if (isOutsideRoot(repoRoot, absolutePath)) return null;
+
+  try {
+    const stat = await fs.lstat(absolutePath);
+    if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 512 * 1024) return null;
+
+    const realRoot = await fs.realpath(repoRoot);
+    const realPath = await fs.realpath(absolutePath);
+    if (isOutsideRoot(realRoot, realPath)) return null;
+
+    const sourceLines = (await fs.readFile(realPath, 'utf8')).split(/\r?\n/);
+    if (sourceRange.startLine > sourceLines.length) return null;
+    const finalRequestedLine = Math.min(sourceRange.endLine, sourceLines.length);
+    const finalCandidateLine = Math.min(
+      finalRequestedLine,
+      sourceRange.startLine + Math.max(1, maxLines) - 1,
+    );
+    const rawLines = sourceLines.slice(sourceRange.startLine - 1, finalCandidateLine);
+    const contentResult = redactText(rawLines.join('\n'));
+    const redactedLines = contentResult.text.split('\n');
+    const collapsedMultilineSecret = redactedLines.length !== rawLines.length;
+    const formattedLines = collapsedMultilineSecret
+      ? [`${sourceRange.startLine}: ${contentResult.text.replace(/\r?\n/g, ' ')}`]
+      : redactedLines.map((line, index) => `${sourceRange.startLine + index}: ${line}`);
+    const formattedResult = redactText(formattedLines.join('\n'));
+    const contentWasCut = formattedResult.text.length > maxChars;
+    const snippet = formattedResult.text.slice(0, maxChars);
+    const actualEndLine = collapsedMultilineSecret
+      ? finalCandidateLine
+      : Math.min(
+          finalCandidateLine,
+          sourceRange.startLine + snippet.split('\n').length - 1,
+        );
+    if (!snippet || actualEndLine < sourceRange.startLine) return null;
+    const pathResult = redactText(sourceRange.path.replace(/\\/g, '/').replace(/^\.\//, ''));
+    return {
+      path: pathResult.text,
+      startLine: sourceRange.startLine,
+      endLine: actualEndLine,
+      snippet,
+      rangeGrounding: collapsedMultilineSecret || contentWasCut ? 'partial' : 'exact',
+      redacted: contentResult.redacted || formattedResult.redacted || pathResult.redacted,
+      truncated: collapsedMultilineSecret || contentWasCut || actualEndLine < finalRequestedLine,
+    };
+  } catch {
+    return null;
+  }
+}
+
 async function readEvidenceSnippet(repoRoot, evidenceItem, { maxLines = 12, maxChars = 1200 } = {}) {
   if (!repoRoot || !evidenceItem?.path) return '';
   if (!Number.isInteger(evidenceItem.startLine) || !Number.isInteger(evidenceItem.endLine)) return '';
   if ((evidenceItem.evidenceType ?? 'file_range') !== 'file_range') return '';
-  if (isSecretPath(evidenceItem.path).matched) return '';
-
-  const absolutePath = path.resolve(repoRoot, evidenceItem.path);
-  if (isOutsideRoot(repoRoot, absolutePath)) return '';
-
-  try {
-    const stat = await fs.lstat(absolutePath);
-    if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 512 * 1024) return '';
-
-    const realRoot = await fs.realpath(repoRoot);
-    const realPath = await fs.realpath(absolutePath);
-    if (isOutsideRoot(realRoot, realPath)) return '';
-
-    const lines = (await fs.readFile(realPath, 'utf8')).split('\n');
-    const startLine = Math.max(1, evidenceItem.startLine);
-    const requestedEnd = Math.max(startLine, evidenceItem.endLine);
-    const endLine = Math.min(requestedEnd, startLine + maxLines - 1, lines.length);
-    const snippet = [];
-    for (let lineNo = startLine; lineNo <= endLine; lineNo += 1) {
-      snippet.push(`${lineNo}: ${lines[lineNo - 1] ?? ''}`);
-    }
-    if (requestedEnd > endLine) snippet.push('... [snippet truncated]');
-    return snippet.join('\n').slice(0, maxChars);
-  } catch {
-    return '';
-  }
+  const rebuilt = await readRuntimeSourceRange(repoRoot, evidenceItem, { maxLines, maxChars });
+  if (!rebuilt) return '';
+  if (!rebuilt.truncated) return rebuilt.snippet;
+  return `${rebuilt.snippet}\n... [snippet truncated]`.slice(0, maxChars);
 }
 
 async function attachEvidenceMetadata({ evidence, repoRoot }) {
@@ -1892,6 +1931,262 @@ function recordObservedRange(observedRanges, targetPath, startLine, endLine, sou
   observedRanges.set(targetPath, current);
 }
 
+function normalizeObservationScope(scope) {
+  return [...new Set((Array.isArray(scope) ? scope : [])
+    .filter(item => typeof item === 'string' && item.trim())
+    .map(item => item.replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/$/, ''))
+    .filter(Boolean))];
+}
+
+function scopeContainsPattern(broadPattern, narrowPattern) {
+  if (broadPattern === narrowPattern || broadPattern === '**' || broadPattern === '**/*') return true;
+  if (!broadPattern.endsWith('/**')) return false;
+  const prefix = broadPattern.slice(0, -3).replace(/\/$/, '');
+  return narrowPattern === prefix || narrowPattern.startsWith(`${prefix}/`);
+}
+
+function literalScopePrefix(pattern) {
+  const wildcardIndex = pattern.search(/[?*\[]/);
+  return pattern.slice(0, wildcardIndex === -1 ? pattern.length : wildcardIndex).replace(/\/$/, '');
+}
+
+function scopePatternsAreDisjoint(left, right) {
+  const leftPrefix = literalScopePrefix(left);
+  const rightPrefix = literalScopePrefix(right);
+  if (!leftPrefix || !rightPrefix) return false;
+  return !(leftPrefix === rightPrefix ||
+    leftPrefix.startsWith(`${rightPrefix}/`) ||
+    rightPrefix.startsWith(`${leftPrefix}/`));
+}
+
+function intersectObservationScopes(baseScope, localScope) {
+  const base = normalizeObservationScope(baseScope);
+  const local = normalizeObservationScope(localScope);
+  if (base.length === 0) return local;
+  if (local.length === 0) return base;
+
+  const intersections = [];
+  for (const basePattern of base) {
+    for (const localPattern of local) {
+      if (scopeContainsPattern(basePattern, localPattern)) intersections.push(localPattern);
+      else if (scopeContainsPattern(localPattern, basePattern)) intersections.push(basePattern);
+      else if (!scopePatternsAreDisjoint(basePattern, localPattern)) {
+        intersections.push(`intersection:${JSON.stringify([basePattern, localPattern])}`);
+      }
+    }
+  }
+  return [...new Set(intersections.length > 0 ? intersections : ['empty-intersection'])];
+}
+
+function listDirectoryObservationScope(toolArgs) {
+  const rawDir = typeof toolArgs?.dirPath === 'string' && toolArgs.dirPath.trim()
+    ? toolArgs.dirPath
+    : '.';
+  const dirPath = rawDir.replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/$/, '');
+  const depth = Math.min(4, Math.max(1, Number.isInteger(toolArgs?.depth) ? toolArgs.depth : 2));
+  const prefix = dirPath === '.' ? '' : `${dirPath}/`;
+  return Array.from({ length: depth }, (_, index) => `${prefix}${'*/'.repeat(index)}*`);
+}
+
+function runtimeObservationBoundary({ effectiveScope, toolName, toolArgs, toolResult }) {
+  const baseScope = normalizeObservationScope(effectiveScope);
+  const successfulPath = !toolResult?.error && typeof toolResult?.path === 'string'
+    ? toolResult.path
+    : '';
+  if (successfulPath && ['repo_read_file', 'repo_symbols'].includes(toolName)) {
+    return [successfulPath];
+  }
+  const requestedPath = typeof toolArgs?.path === 'string' && !isSecretPath(toolArgs.path).matched
+    ? toolArgs.path
+    : '';
+  if (requestedPath && ['repo_git_log', 'repo_git_blame', 'repo_git_diff'].includes(toolName)) {
+    return [requestedPath];
+  }
+  if (toolName === 'repo_list_dir') {
+    return intersectObservationScopes(baseScope, listDirectoryObservationScope(toolArgs));
+  }
+  return intersectObservationScopes(baseScope, toolArgs?.scope);
+}
+
+function compactGitObservationContent(parts, maxChars = 1200) {
+  const raw = parts
+    .filter(part => typeof part === 'string' && part.trim())
+    .map(part => part.trim())
+    .join('\n');
+  if (!raw) return '';
+  return redactText(raw).text.slice(0, maxChars);
+}
+
+function parsedGitPatchHunks(patch) {
+  const hunks = [];
+  let current = null;
+  for (const line of String(patch ?? '').split(/\r?\n/)) {
+    const match = /^@@\s+-(\d+)(?:,(\d+))?\s+\+(\d+)(?:,(\d+))?\s+@@/.exec(line);
+    if (match) {
+      if (current) hunks.push(current);
+      current = {
+        startLine: Number(match[3]),
+        lineCount: Number(match[4] ?? '1'),
+        lines: [line],
+      };
+    } else if (current) {
+      current.lines.push(line);
+    }
+  }
+  if (current) hunks.push(current);
+  return hunks;
+}
+
+function gitFileObservations({ baseId, files, sha = '', firstUsesBaseId = true }) {
+  const observations = [];
+  let hunkIndex = 0;
+  for (const file of Array.isArray(files) ? files : []) {
+    if (typeof file?.path !== 'string' || !file.path || isSecretPath(file.path).matched) continue;
+    const parsedHunks = parsedGitPatchHunks(file.patch);
+    const hunks = parsedHunks.length > 0
+      ? parsedHunks
+      : (typeof file.patch === 'string' && file.patch.trim()
+          ? [{ startLine: null, lineCount: null, lines: [file.patch] }]
+          : []);
+    for (const hunk of hunks) {
+      hunkIndex += 1;
+      const id = firstUsesBaseId && hunkIndex === 1 ? baseId : `${baseId}:hunk:${hunkIndex}`;
+      const content = compactGitObservationContent(hunk.lines);
+      if (!content) continue;
+      const hasCurrentRange = Number.isInteger(hunk.startLine) && hunk.startLine >= 1 &&
+        Number.isInteger(hunk.lineCount) && hunk.lineCount > 0;
+      observations.push({
+        id,
+        kind: 'git_diff_hunk',
+        ...(sha ? { sha } : {}),
+        path: redactText(file.path).text,
+        ...(hasCurrentRange
+          ? { startLine: hunk.startLine, endLine: hunk.startLine + hunk.lineCount - 1 }
+          : {}),
+        content,
+        temporalRole: 'historical',
+      });
+    }
+  }
+  return observations;
+}
+
+function buildGitRuntimeObservations({ id, toolName, toolArgs, toolResult }) {
+  if (toolResult?.error) return [];
+  if (toolName === 'repo_git_log') {
+    return (Array.isArray(toolResult?.commits) ? toolResult.commits : []).flatMap((commit, index) => {
+      const sha = commit?.hash ?? commit?.sha;
+      if (typeof sha !== 'string' || !sha) return [];
+      return [{
+        id: index === 0 ? id : `${id}:commit:${index + 1}`,
+        kind: 'git_commit',
+        sha,
+        content: compactGitObservationContent([
+          `commit ${sha}`,
+          commit.date,
+          commit.author,
+          commit.message,
+        ]),
+        temporalRole: 'historical',
+      }];
+    });
+  }
+  if (toolName === 'repo_git_blame') {
+    const blamePath = typeof toolArgs?.path === 'string' && !isSecretPath(toolArgs.path).matched
+      ? redactText(toolArgs.path).text
+      : '';
+    if (!blamePath) return [];
+    return (Array.isArray(toolResult?.lines) ? toolResult.lines : []).flatMap((line, index) => {
+      if (!Number.isInteger(line?.line) || line.line < 1 || typeof line.hash !== 'string' || !line.hash) {
+        return [];
+      }
+      return [{
+        id: index === 0 ? id : `${id}:blame:${index + 1}`,
+        kind: 'git_blame',
+        sha: line.hash,
+        path: blamePath,
+        startLine: line.line,
+        endLine: line.line,
+        content: compactGitObservationContent([line.date, line.author, line.content]),
+        temporalRole: 'historical',
+      }];
+    });
+  }
+  if (toolName === 'repo_git_show') {
+    const sha = toolResult?.hash ?? toolResult?.sha;
+    const observations = typeof sha === 'string' && sha
+      ? [{
+          id,
+          kind: 'git_commit',
+          sha,
+          content: compactGitObservationContent([
+            `commit ${sha}`,
+            toolResult.date,
+            toolResult.author,
+            toolResult.message,
+          ]),
+          temporalRole: 'historical',
+        }]
+      : [];
+    return observations.concat(gitFileObservations({
+      baseId: id,
+      files: toolResult?.files,
+      sha: typeof sha === 'string' ? sha : '',
+      firstUsesBaseId: observations.length === 0,
+    }));
+  }
+  if (toolName === 'repo_git_diff') {
+    return gitFileObservations({ baseId: id, files: toolResult?.files });
+  }
+  return [];
+}
+
+async function buildRuntimeToolObservations({
+  id,
+  toolName,
+  toolArgs,
+  toolResult,
+  repoRoot,
+  effectiveScope,
+}) {
+  const sourceObservations = [];
+  if (toolName === 'repo_read_file' && !toolResult?.error) {
+    const rebuilt = await readRuntimeSourceRange(repoRoot, toolResult);
+    if (rebuilt) {
+      sourceObservations.push({
+        id,
+        kind: 'source',
+        path: rebuilt.path,
+        startLine: rebuilt.startLine,
+        endLine: rebuilt.endLine,
+        snippet: rebuilt.snippet,
+        rangeGrounding: rebuilt.rangeGrounding,
+        sourceRole: classifySourceRole(toolResult.path),
+        temporalRole: 'current',
+        redacted: rebuilt.redacted,
+      });
+    }
+  }
+
+  const gitObservations = buildGitRuntimeObservations({ id, toolName, toolArgs, toolResult });
+  const directObservations = [...sourceObservations, ...gitObservations];
+  const searchId = directObservations.length > 0 ? `${id}:search` : id;
+  try {
+    const searchObservation = normalizeRepositoryObservation({
+      id: searchId,
+      tool: toolName,
+      args: toolArgs && typeof toolArgs === 'object' && !Array.isArray(toolArgs) ? toolArgs : {},
+      boundary: runtimeObservationBoundary({ effectiveScope, toolName, toolArgs, toolResult }),
+      enumerationCandidate: false,
+      result: toolResult,
+      contextTruncated: false,
+    });
+    return [...directObservations, searchObservation];
+  } catch {
+    return directObservations;
+  }
+}
+
 // spec 024 FR-002: marker prefix for the deterministic evidence ledger injected into
 // the compact loop after proactive compaction. The ledger lists verified inspected
 // file ranges (path:Lx-Ly) — and observed commit shas — so the model keeps its grounded
@@ -2704,6 +2999,8 @@ export class ExplorerRuntime {
     let lastAssistantContent = '';
     const observedRanges = new Map();
     const observedGit = { commits: new Set(), blame: new Set() };
+    const observations = [];
+    let observationCallCount = 0;
     const usageCrossCheck = { grepPatterns: new Set(), referenceSymbols: new Set() };
     const toolTrace = createCompactToolTrace();
     let auditedPlan = null;
@@ -2956,6 +3253,15 @@ export class ExplorerRuntime {
 
       for (const { toolCall, toolName, toolArgs, toolResult } of toolCallResults) {
         const safeToolResult = redactToolResult(toolResult);
+        observationCallCount += 1;
+        observations.push(...await buildRuntimeToolObservations({
+          id: `E${observationCallCount}`,
+          toolName,
+          toolArgs,
+          toolResult: safeToolResult,
+          repoRoot,
+          effectiveScope,
+        }));
         incrementToolStats(stats, toolName);
         const toolSafetyLimit = classifyToolSafetyLimit({
           toolName,
@@ -3250,6 +3556,7 @@ export class ExplorerRuntime {
       normalized.coverageGaps = safePlan.coverageGaps;
       normalized.rejectedGoals = safePlan.rejectedGoals;
     }
+    normalized.observations = redactValue(observations).value;
 
     // codeMap is kept on the raw runtime result for benchmark/transcript use,
     // but is not propagated into the MCP structuredContent envelope.

@@ -817,12 +817,7 @@ test('spec 026 invariant: usage_cross_check_missing must be absent from critic f
   );
 });
 
-const claimEvidenceGateTest =
-  typeof criticModule.applyClaimEvidenceGate === 'function'
-    ? test
-    : test.todo;
-// T029/T030 must replace this feature gate with ordinary tests after the
-// observation ledger and isolated semantic-verifier path land.
+const claimEvidenceGateTest = test;
 
 function atomicClaim({
   id = 'C1',
