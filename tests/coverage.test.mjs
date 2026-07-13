@@ -108,6 +108,293 @@ const contractTest = test;
     });
   });
 
+// T057 is intentionally test-first. T061 owns these three pure proof-policy
+// capabilities. With none present the cases remain visible TODOs; exporting
+// any subset activates every assertion so a partial implementation fails
+// normally instead of hiding behind feature detection.
+const T061_COVERAGE_PROOF_EXPORTS = [
+  'buildAbsenceCertificate',
+  'computeDeterministicCount',
+  'evaluateProofPolicy',
+];
+
+function proofPolicyCoverageTest(name, callback) {
+  const present = T061_COVERAGE_PROOF_EXPORTS.filter(
+    exportName => typeof coverageModule[exportName] === 'function',
+  );
+  if (present.length === 0) {
+    test.todo(name);
+    return;
+  }
+  test(name, () => {
+    const capabilities = {};
+    for (const exportName of T061_COVERAGE_PROOF_EXPORTS) {
+      assert.equal(
+        typeof coverageModule[exportName],
+        'function',
+        `T061 partially implemented the proof-policy surface: ${exportName} is missing`,
+      );
+      capabilities[exportName] = coverageModule[exportName];
+    }
+    return callback(capabilities);
+  });
+}
+
+function t057SearchObservation(overrides = {}) {
+  return {
+    id: 'Q1',
+    kind: 'search',
+    tool: 'repo_grep',
+    normalizedArgs: { pattern: 'legacyRoute' },
+    boundary: ['src/auth/**'],
+    matchCount: 0,
+    toolTruncated: false,
+    contextTruncated: false,
+    omittedOutOfScopeFiles: 0,
+    deniedPaths: 0,
+    errors: 0,
+    enumerationComplete: true,
+    ...overrides,
+  };
+}
+
+function t057CertificateInput(overrides = {}) {
+  return {
+    id: 'A1',
+    subgoalId: 'S-absence',
+    claimBoundary: ['src/auth/**'],
+    searches: [t057SearchObservation()],
+    qualification: 'Static repository source within src/auth/**.',
+    ...overrides,
+  };
+}
+
+function assertFailedProof(result, message) {
+  assert.equal(result?.passed, false, message);
+  assert.equal(typeof result?.reason, 'string', `${message}: a stable reason is required`);
+  assert.ok(result.reason.length > 0, `${message}: reason must not be empty`);
+}
+
+proofPolicyCoverageTest(
+  'Spec 028 T057 — a complete bounded search produces a deterministic absence certificate',
+  ({ buildAbsenceCertificate }) => {
+    const input = t057CertificateInput();
+    const snapshot = structuredClone(input);
+    const certificate = buildAbsenceCertificate(input);
+
+    assert.deepEqual(input, snapshot, 'certificate construction must not mutate runtime observations');
+    assert.deepEqual(buildAbsenceCertificate(input), certificate,
+      'the same observed boundary must produce the same certificate');
+    assert.equal(certificate.id, 'A1');
+    assert.equal(certificate.subgoalId, 'S-absence');
+    assert.deepEqual(certificate.claimBoundary, ['src/auth/**']);
+    assert.deepEqual(certificate.searchRefs, ['Q1']);
+    assert.equal(certificate.complete, true);
+    assert.equal(certificate.qualification, input.qualification);
+    assert.ok(Array.isArray(certificate.searchSummary) && certificate.searchSummary.length > 0);
+    assert.ok(certificate.searchSummary.every(item => typeof item === 'string' && item.length > 0));
+  },
+);
+
+proofPolicyCoverageTest(
+  'Spec 028 T057 — truncation, omissions, denial, errors, or a narrower search keep absence uncertified',
+  ({ buildAbsenceCertificate }) => {
+    const incompleteCases = [
+      ['narrower search boundary', { boundary: ['src/auth/internal/**'] }],
+      ['tool truncation', { toolTruncated: true }],
+      ['context truncation', { contextTruncated: true }],
+      ['out-of-scope omission', { omittedOutOfScopeFiles: 1 }],
+      ['denied path', { deniedPaths: 1 }],
+      ['tool error', { errors: 1 }],
+      ['incomplete enumeration', { enumerationComplete: false }],
+    ];
+
+    for (const [label, searchOverride] of incompleteCases) {
+      const certificate = buildAbsenceCertificate(t057CertificateInput({
+        claimBoundary: ['**'],
+        searches: [t057SearchObservation({ boundary: ['**'], ...searchOverride })],
+      }));
+      assert.equal(certificate.complete, false, label);
+      assert.deepEqual(certificate.searchRefs, ['Q1'], `${label}: observation remains auditable`);
+    }
+  },
+);
+
+proofPolicyCoverageTest(
+  'Spec 028 T057 — deterministic counts use complete normalized identities, never prose or line numbers',
+  ({ buildAbsenceCertificate, computeDeterministicCount }) => {
+    const certificate = buildAbsenceCertificate(t057CertificateInput({
+      id: 'A-count',
+      subgoalId: 'S-count',
+      claimBoundary: ['src/routes/**'],
+      searches: [t057SearchObservation({
+        id: 'Q-count',
+        boundary: ['src/routes/**'],
+        matchCount: 2,
+      })],
+      qualification: 'Static route registrations within src/routes/**.',
+    }));
+    const input = {
+      subgoalId: 'S-count',
+      claimBoundary: ['src/routes/**'],
+      certificate,
+      normalizedItemIds: ['route:/users', 'route:/users', 'route:/admin'],
+      modelClaimedCount: 117,
+      citedLineNumber: 117,
+    };
+    const snapshot = structuredClone(input);
+    const count = computeDeterministicCount(input);
+
+    assert.deepEqual(input, snapshot);
+    assert.equal(count.complete, true);
+    assert.equal(count.count, 2, 'duplicate normalized identities count once');
+    assert.equal(count.subgoalId, 'S-count');
+
+    const incomplete = computeDeterministicCount({
+      ...input,
+      certificate: { ...certificate, complete: false },
+    });
+    assert.equal(incomplete.complete, false);
+    assert.equal(incomplete.count, null,
+      'an incomplete boundary must not leak a plausible numeric answer');
+  },
+);
+
+proofPolicyCoverageTest(
+  'Spec 028 T057 — claimType-derived negative, uniqueness, and exhaustive policies ignore claim language',
+  ({ buildAbsenceCertificate, evaluateProofPolicy }) => {
+    const certificate = buildAbsenceCertificate(t057CertificateInput());
+    const texts = [
+      'Only one static registration exists in the bounded source tree.',
+      '경계 안의 정적 등록은 유일하다.',
+      '境界内の静的登録は一意です。',
+      'opaque-token-without-negative-keywords',
+    ];
+    const outcomes = texts.map(text => evaluateProofPolicy({
+      subgoal: {
+        id: 'S-absence',
+        claimType: 'absence',
+        proofPolicy: 'bounded_absence',
+        constraints: ['boundary:src/auth/**', 'uniqueness', 'exhaustiveness'],
+      },
+      claim: { id: 'C1', subgoalId: 'S-absence', text, evidenceRefs: ['Q1'] },
+      semanticVerdict: {
+        claimId: 'C1',
+        result: 'supported',
+        resolution: 'affirmed',
+        supportingEvidenceRefs: ['Q1'],
+      },
+      absenceCertificates: [certificate],
+      deterministicCounts: [],
+    }));
+
+    assert.ok(outcomes.every(outcome => outcome?.passed === true));
+    assert.deepEqual(
+      outcomes.map(outcome => ({ passed: outcome.passed, reason: outcome.reason ?? null })),
+      outcomes.map(() => ({ passed: true, reason: null })),
+      'proofPolicy and runtime artifacts, not vocabulary, select the strong gate',
+    );
+
+    const incomplete = evaluateProofPolicy({
+      subgoal: {
+        id: 'S-absence',
+        claimType: 'absence',
+        proofPolicy: 'bounded_absence',
+        constraints: ['boundary:src/auth/**'],
+      },
+      claim: { id: 'C1', subgoalId: 'S-absence', text: texts[3], evidenceRefs: ['Q1'] },
+      semanticVerdict: {
+        claimId: 'C1',
+        result: 'supported',
+        resolution: 'affirmed',
+        supportingEvidenceRefs: ['Q1'],
+      },
+      absenceCertificates: [{ ...certificate, complete: false }],
+      deterministicCounts: [],
+    });
+    assertFailedProof(incomplete, 'uncertified exhaustive claim');
+  },
+);
+
+proofPolicyCoverageTest(
+  'Spec 028 T057 — count and supported-refutation goals require their runtime proof artifacts',
+  ({ buildAbsenceCertificate, computeDeterministicCount, evaluateProofPolicy }) => {
+    const countCertificate = buildAbsenceCertificate(t057CertificateInput({
+      id: 'A-count',
+      subgoalId: 'S-count',
+    }));
+    const deterministicCount = computeDeterministicCount({
+      subgoalId: 'S-count',
+      claimBoundary: ['src/auth/**'],
+      certificate: countCertificate,
+      normalizedItemIds: ['registration:primary'],
+    });
+    const countInput = {
+      subgoal: {
+        id: 'S-count',
+        claimType: 'count',
+        proofPolicy: 'deterministic_count',
+        constraints: ['boundary:src/auth/**'],
+      },
+      claim: { id: 'C-count', subgoalId: 'S-count', text: 'opaque', evidenceRefs: ['Q1'] },
+      semanticVerdict: {
+        claimId: 'C-count',
+        result: 'supported',
+        resolution: 'affirmed',
+        supportingEvidenceRefs: ['Q1'],
+      },
+      absenceCertificates: [countCertificate],
+      deterministicCounts: [deterministicCount],
+    };
+    assert.equal(evaluateProofPolicy(countInput).passed, true);
+    assertFailedProof(evaluateProofPolicy({
+      ...countInput,
+      deterministicCounts: [{ ...deterministicCount, complete: false, count: null }],
+    }), 'uncertified deterministic count');
+
+    const refutationCertificate = buildAbsenceCertificate(t057CertificateInput({
+      id: 'A-refute',
+      subgoalId: 'S-refute',
+    }));
+    const refutationInput = {
+      subgoal: {
+        id: 'S-refute',
+        claimType: 'claim_verification',
+        proofPolicy: 'support_or_refute',
+        constraints: ['boundary:src/auth/**'],
+      },
+      claim: {
+        id: 'C-refute',
+        subgoalId: 'S-refute',
+        text: 'The supplied registration premise is refuted within src/auth/**.',
+        evidenceRefs: ['Q1'],
+      },
+      semanticVerdict: {
+        claimId: 'C-refute',
+        result: 'supported',
+        resolution: 'refuted',
+        supportingEvidenceRefs: ['Q1'],
+      },
+      absenceCertificates: [refutationCertificate],
+      deterministicCounts: [],
+    };
+    assert.equal(evaluateProofPolicy(refutationInput).passed, true);
+    assertFailedProof(evaluateProofPolicy({
+      ...refutationInput,
+      semanticVerdict: {
+        ...refutationInput.semanticVerdict,
+        result: 'contradicted',
+        resolution: undefined,
+        supportingEvidenceRefs: [],
+      },
+    }), 'candidate contradiction is not a supported refutation');
+    assertFailedProof(evaluateProofPolicy({
+      ...refutationInput,
+      absenceCertificates: [{ ...refutationCertificate, complete: false }],
+    }), 'unsupported refutation boundary');
+  },
+);
+
   contractTest('Spec 028 T005 — RequiredSubgoal derives proof policy and initial state at runtime', () => {
     for (const [claimType, proofPolicy] of Object.entries(CLAIM_TYPE_POLICIES)) {
       const subgoal = createAuditedSubgoal({

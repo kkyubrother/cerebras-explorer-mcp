@@ -834,3 +834,191 @@ claimEvidenceGateTest('Spec 028 T025 — cross-file evidence cannot outvote an o
   assert.deepEqual(forward, verdict);
   assert.deepEqual(reversed, verdict);
 });
+
+// T061 introduces the combined downgrade-only proof gate. Until the export is
+// present these remain visible test-first TODOs. A stub export activates every
+// assertion and therefore cannot make a partial implementation look complete.
+const T061_CRITIC_PROOF_EXPORTS = ['applyClaimProofPolicyGate'];
+
+function proofPolicyCriticTest(name, callback) {
+  const present = T061_CRITIC_PROOF_EXPORTS.filter(
+    exportName => typeof criticModule[exportName] === 'function',
+  );
+  if (present.length === 0) {
+    test.todo(name);
+    return;
+  }
+  test(name, () => {
+    const capabilities = {};
+    for (const exportName of T061_CRITIC_PROOF_EXPORTS) {
+      assert.equal(
+        typeof criticModule[exportName],
+        'function',
+        `T061 partially implemented the critic proof surface: ${exportName} is missing`,
+      );
+      capabilities[exportName] = criticModule[exportName];
+    }
+    return callback(capabilities);
+  });
+}
+
+function t057Subgoal(overrides = {}) {
+  return {
+    id: 'S1',
+    claimType: 'positive',
+    proofPolicy: 'direct_source',
+    constraints: ['boundary:src/**'],
+    ...overrides,
+  };
+}
+
+function t057RoleRequirement(overrides = {}) {
+  return {
+    observationKinds: ['source'],
+    sourceRoles: ['implementation', 'config'],
+    temporalRole: 'current',
+    ...overrides,
+  };
+}
+
+function t057GateInput(overrides = {}) {
+  return {
+    subgoal: t057Subgoal(),
+    claim: atomicClaim(),
+    semanticVerdict: semanticVerdict(),
+    observations: [sourceObservation()],
+    proofPolicyResult: { passed: true, reason: null },
+    roleRequirement: t057RoleRequirement(),
+    ...overrides,
+  };
+}
+
+function assertProofDowngrade(result, label) {
+  assert.equal(result.result, 'insufficient', label);
+  assert.deepEqual(result.supportingEvidenceRefs, [], `${label}: evidence refs must be cleared`);
+  assert.equal(result.resolution, undefined, `${label}: support resolution must be removed`);
+  assert.equal(typeof result.reasonCode, 'string', `${label}: a stable reason code is required`);
+  assert.ok(result.reasonCode.length > 0);
+}
+
+proofPolicyCriticTest(
+  'Spec 028 T057 — current behavior requires a runtime-declared current implementation/config role',
+  ({ applyClaimProofPolicyGate }) => {
+    const validRoles = ['implementation', 'config'];
+    for (const sourceRole of validRoles) {
+      const verdict = semanticVerdict();
+      assert.deepEqual(applyClaimProofPolicyGate(t057GateInput({
+        semanticVerdict: verdict,
+        observations: [sourceObservation('E1', { sourceRole })],
+      })), verdict, sourceRole);
+    }
+
+    for (const sourceRole of ['test', 'documentation', 'fixture', 'generated', 'unknown']) {
+      const downgraded = applyClaimProofPolicyGate(t057GateInput({
+        observations: [sourceObservation('E1', { sourceRole })],
+      }));
+      assertProofDowngrade(downgraded, sourceRole);
+    }
+
+    const documentationVerdict = semanticVerdict();
+    assert.deepEqual(applyClaimProofPolicyGate(t057GateInput({
+      claim: atomicClaim({ text: 'This document states that authentication is enabled.' }),
+      semanticVerdict: documentationVerdict,
+      observations: [sourceObservation('E1', { sourceRole: 'documentation' })],
+      roleRequirement: t057RoleRequirement({ sourceRoles: ['documentation'] }),
+    })), documentationVerdict,
+    'a claim specifically about documentation may use documentation as primary evidence');
+  },
+);
+
+proofPolicyCriticTest(
+  'Spec 028 T057 — temporal role is explicit and historical evidence cannot prove current behavior',
+  ({ applyClaimProofPolicyGate }) => {
+    const historicalVerdict = semanticVerdict();
+    assert.deepEqual(applyClaimProofPolicyGate(t057GateInput({
+      claim: atomicClaim({ text: 'The observed commit introduced authentication.' }),
+      semanticVerdict: historicalVerdict,
+      observations: [gitObservation()],
+      roleRequirement: {
+        observationKinds: ['git_commit'],
+        sourceRoles: [],
+        temporalRole: 'historical',
+      },
+    })), historicalVerdict);
+
+    const wrongTime = applyClaimProofPolicyGate(t057GateInput({
+      observations: [gitObservation()],
+      roleRequirement: {
+        observationKinds: ['git_commit'],
+        sourceRoles: [],
+        temporalRole: 'current',
+      },
+    }));
+    assertProofDowngrade(wrongTime, 'historical evidence for a current claim');
+
+    const sourceMarkedHistorical = applyClaimProofPolicyGate(t057GateInput({
+      observations: [sourceObservation('E1', { temporalRole: 'historical' })],
+    }));
+    assertProofDowngrade(sourceMarkedHistorical, 'historical source observation');
+  },
+);
+
+proofPolicyCriticTest(
+  'Spec 028 T057 — role gates use structured requirements rather than claim-language keywords',
+  ({ applyClaimProofPolicyGate }) => {
+    const texts = [
+      'Current authentication behavior is enabled.',
+      '현재 인증 동작이 활성화되어 있다.',
+      '現在の認証動作は有効です。',
+      'opaque-fact-token',
+    ];
+    const outcomes = texts.map(text => applyClaimProofPolicyGate(t057GateInput({
+      claim: atomicClaim({ text }),
+      observations: [sourceObservation('E1', { sourceRole: 'documentation' })],
+    })));
+
+    assert.ok(outcomes.every(result => result.result === 'insufficient'));
+    assert.deepEqual(
+      outcomes.map(result => result.reasonCode),
+      outcomes.map(() => outcomes[0].reasonCode),
+    );
+  },
+);
+
+proofPolicyCriticTest(
+  'Spec 028 T057 — only a proof-policy-approved supported refutation resolves the premise',
+  ({ applyClaimProofPolicyGate }) => {
+    const refutation = semanticVerdict('supported', { resolution: 'refuted' });
+    const input = t057GateInput({
+      subgoal: t057Subgoal({
+        claimType: 'claim_verification',
+        proofPolicy: 'support_or_refute',
+      }),
+      claim: atomicClaim({
+        text: 'The supplied registration premise is refuted within src/**.',
+      }),
+      semanticVerdict: refutation,
+    });
+    const snapshot = structuredClone(input);
+
+    assert.deepEqual(applyClaimProofPolicyGate(input), refutation);
+    assert.deepEqual(input, snapshot, 'the combined critic gate must be downgrade-only and pure');
+
+    const uncertified = applyClaimProofPolicyGate({
+      ...input,
+      proofPolicyResult: { passed: false, reason: 'incomplete_enumeration' },
+    });
+    assertProofDowngrade(uncertified, 'uncertified supported refutation');
+
+    const contradiction = semanticVerdict('contradicted', {
+      supportingEvidenceRefs: [],
+      resolution: null,
+      reasonCode: 'contradiction',
+    });
+    assert.deepEqual(applyClaimProofPolicyGate({
+      ...input,
+      semanticVerdict: contradiction,
+    }), contradiction,
+    'candidate contradiction remains unresolved and is never promoted to refuted support');
+  },
+);
