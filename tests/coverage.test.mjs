@@ -1,32 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {
+  createAtomicClaim,
+  createCoverageGap,
+  createRequiredSubgoal,
+  createSafetyLimit,
+  createTaskContract,
+  deriveGapPriority,
+  fingerprintAction,
+  reduceTrustState,
+  transitionSubgoal,
+} from '../src/explorer/coverage.mjs';
 
-const COVERAGE_MODULE_URL = new URL('../src/explorer/coverage.mjs', import.meta.url);
-
-// T005 is intentionally committed before T009. The contract suite becomes
-// active as soon as the implementation module exists. Until then, Node runs
-// each callback as an expected-red TODO, preserving the TDD contract while the
-// repository-wide pre-commit suite remains green.
-let coverageModule;
-try {
-  coverageModule = await import(COVERAGE_MODULE_URL);
-} catch (error) {
-  const isMissingCoverageModule = error?.code === 'ERR_MODULE_NOT_FOUND' &&
-    error?.url === COVERAGE_MODULE_URL.href;
-  if (!isMissingCoverageModule) throw error;
-}
-
-const contractTest = coverageModule ? test : test.todo;
-const {
-    createAtomicClaim,
-    createCoverageGap,
-    createRequiredSubgoal,
-    createSafetyLimit,
-    createTaskContract,
-    deriveGapPriority,
-    reduceTrustState,
-    transitionSubgoal,
-} = coverageModule ?? {};
+const contractTest = test;
 
   const PROOF_POLICIES = [
     'direct_source',
@@ -206,6 +192,43 @@ const {
       'attempt history starts empty and is populated only by runtime actions');
   });
 
+  contractTest('Spec 028 T009 — action fingerprints are opaque, stable, and key-order independent', () => {
+    const first = fingerprintAction({
+      type: 'tool',
+      tool: 'explore_repo',
+      arguments: {
+        task: 'Locate the parser.',
+        scope: ['src/**'],
+      },
+    });
+    const equivalent = fingerprintAction({
+      arguments: {
+        scope: ['src/**'],
+        task: 'Locate the parser.',
+      },
+      tool: 'explore_repo',
+      type: 'tool',
+    });
+    const different = fingerprintAction({
+      type: 'tool',
+      tool: 'explore_repo',
+      arguments: {
+        task: 'Locate the parser.',
+        scope: ['tests/**'],
+      },
+    });
+
+    assert.match(first, /^sha256:[0-9a-f]{64}$/);
+    assert.equal(first, equivalent, 'JSON object key order must not create a new attempted action');
+    assert.notEqual(first, different, 'materially different arguments need a distinct fingerprint');
+    assert.notEqual(
+      first,
+      fingerprintAction(JSON.parse('{"type":"tool","tool":"explore_repo","arguments":{"task":"Locate the parser.","scope":["src/**"]},"__proto__":{"polluted":true}}')),
+      'an own __proto__ argument must not disappear during canonicalization',
+    );
+    assert.doesNotMatch(first, /Locate|src|explore_repo/, 'fingerprints must not leak raw action data');
+  });
+
   contractTest('Spec 028 T005 — SafetyLimit names exact ceilings and never accepts a generic budget', () => {
     assert.deepEqual(createSafetyLimit({
       name: 'tool_result_limit',
@@ -294,6 +317,10 @@ const {
     const supported = createSupportedSubgoal();
 
     assert.throws(() => transitionSubgoal(supported, 'candidate'), /counterevidence|transition/i);
+    assert.throws(
+      () => transitionSubgoal(supported, 'candidate', { counterevidenceRefs: [null] }),
+      /counterevidence|transition/i,
+    );
     const reopened = transitionSubgoal(supported, 'candidate', {
       counterevidenceRefs: ['E2'],
     });
