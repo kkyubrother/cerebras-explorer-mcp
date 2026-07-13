@@ -13,6 +13,8 @@ import {
   integrateAuditedLateGoals,
   mergeSafetyLimit,
   reduceTrustState,
+  selectClaimCover,
+  selectParentFollowUp,
   transitionSubgoal,
 } from '../src/explorer/coverage.mjs';
 
@@ -194,6 +196,84 @@ const contractTest = test;
     assert.deepEqual(gap.followUp.scope, ['src/explorer']);
     assert.deepEqual(gap.attemptedActionFingerprints, [],
       'attempt history starts empty and is populated only by runtime actions');
+  });
+
+  test('Spec 028 T041 — claim cover keeps shared references scoped to each claim', () => {
+    const cover = selectClaimCover({
+      subgoals: [
+        { id: 'S1', proofPolicy: 'direct_source', state: 'supported' },
+        { id: 'S2', proofPolicy: 'ordered_handoffs', state: 'supported' },
+      ],
+      claims: [
+        { id: 'C1', subgoalId: 'S1', verdict: 'supported', evidenceRefs: ['E1', 'E2'] },
+        { id: 'C2', subgoalId: 'S2', verdict: 'supported', evidenceRefs: ['E2', 'E3'] },
+      ],
+      verdicts: [
+        { claimId: 'C1', result: 'supported', supportingEvidenceRefs: ['E2', 'E1'] },
+        { claimId: 'C2', result: 'supported', supportingEvidenceRefs: ['E2', 'E3'] },
+      ],
+    });
+
+    assert.deepEqual(cover.evidenceRefs, ['E1', 'E2', 'E3']);
+    assert.deepEqual(cover.evidenceRefsByClaimId.get('C1'), ['E1']);
+    assert.deepEqual(cover.evidenceRefsByClaimId.get('C2'), ['E2', 'E3']);
+  });
+
+  test('Spec 028 T041 — parent follow-up uses gap priority and suppresses repeated tools', () => {
+    const askUser = selectParentFollowUp({
+      effectiveScope: ['src/**'],
+      coverageGaps: [
+        {
+          id: 'G-tool',
+          question: 'Where is the remaining definition?',
+          reason: 'missing_evidence',
+          repairable: true,
+          priority: 100,
+          followUp: { task: 'Find the definition.', anchors: ['src/auth.js'] },
+        },
+        {
+          id: 'G-input',
+          question: 'Which deployment should be checked?',
+          reason: 'missing_input',
+          repairable: false,
+          priority: 0,
+        },
+      ],
+    });
+    assert.deepEqual(askUser, {
+      type: 'ask_user',
+      question: 'Which deployment should be checked?',
+    });
+
+    const gap = {
+      id: 'G-tool',
+      question: 'Where is the remaining definition?',
+      reason: 'missing_evidence',
+      repairable: true,
+      priority: 0,
+      followUp: { task: 'Find the definition.', anchors: ['src/auth.js'] },
+      attemptedActionFingerprints: [],
+    };
+    const action = selectParentFollowUp({
+      coverageGaps: [gap],
+      effectiveScope: ['src/**'],
+    });
+    assert.deepEqual(action, {
+      type: 'tool',
+      tool: 'explore_repo',
+      arguments: {
+        task: 'Find the definition.',
+        scope: ['src/**'],
+        hints: { files: ['src/auth.js'] },
+      },
+    });
+    assert.equal(selectParentFollowUp({
+      coverageGaps: [{
+        ...gap,
+        attemptedActionFingerprints: [fingerprintAction(action)],
+      }],
+      effectiveScope: ['src/**'],
+    }), null);
   });
 
   contractTest('Spec 028 T031 — audited late goals become bounded initial or terminal gaps', () => {

@@ -5,7 +5,11 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { ExplorerRuntime as RuntimeImplementation, estimateTokens } from '../src/explorer/runtime.mjs';
+import {
+  ExplorerRuntime as RuntimeImplementation,
+  buildParentHandoffV3,
+  estimateTokens,
+} from '../src/explorer/runtime.mjs';
 import { buildExplorerSystemPrompt, buildFreeExploreSystemPrompt, buildFinalizePrompt, detectStrategy, buildExplorerUserPrompt, STRATEGY_DESCRIPTIONS } from '../src/explorer/prompt.mjs';
 import { getRuntimeConfig } from '../src/explorer/config.mjs';
 import { RepoToolkit } from '../src/explorer/repo-tools.mjs';
@@ -15,6 +19,7 @@ import {
   fingerprintAction,
 } from '../src/explorer/coverage.mjs';
 import { adaptLegacyGoalAuditClient } from './helpers/legacy-goal-audit-client.mjs';
+import { validateParentHandoffV3 } from '../src/explorer/schemas.mjs';
 
 function hasGit() {
   try {
@@ -77,6 +82,341 @@ function compactResult({
     nextAction,
   };
 }
+
+function parentHandoffFixture() {
+  const subgoal = {
+    id: 'S1',
+    question: 'Where is token validation implemented?',
+    proofPolicy: 'direct_source',
+    state: 'supported',
+  };
+  return {
+    semanticVerification: {
+      taskContract: { effectiveScope: ['src/**'], subgoals: [subgoal] },
+      claims: [{
+        id: 'C1',
+        subgoalId: 'S1',
+        text: 'Token validation is implemented in src/auth.js.',
+        verdict: 'supported',
+        evidenceRefs: ['E1', 'E2'],
+      }],
+      semanticVerdicts: [{
+        claimId: 'C1',
+        result: 'supported',
+        supportingEvidenceRefs: ['E2', 'E1'],
+      }],
+    },
+    observations: [
+      { id: 'E1', kind: 'source', path: 'src/auth.js', startLine: 1, endLine: 4 },
+      { id: 'E2', kind: 'source', path: 'src/routes/user.js', startLine: 1, endLine: 6 },
+    ],
+    result: {
+      evidence: [
+        { id: 'E1', path: 'src/auth.js', startLine: 1, endLine: 4 },
+        { id: 'E2', path: 'src/routes/user.js', startLine: 1, endLine: 6 },
+      ],
+      targets: [{
+        path: 'src/auth.js',
+        startLine: 1,
+        endLine: 4,
+        role: 'edit',
+        reason: 'Change token validation here.',
+      }],
+    },
+  };
+}
+
+test('Spec 028 T041 — v3 handoff minimizes direct evidence and omits irrelevant targets', () => {
+  const fixture = parentHandoffFixture();
+  const handoff = buildParentHandoffV3({
+    ...fixture,
+    task: 'Explain token validation behavior.',
+  });
+
+  assert.deepEqual(handoff, {
+    schemaVersion: 3,
+    state: 'complete',
+    directAnswer: 'Token validation is implemented in src/auth.js.',
+    evidence: [{
+      kind: 'source',
+      path: 'src/auth.js',
+      startLine: 1,
+      endLine: 4,
+      supports: 'Token validation is implemented in src/auth.js.',
+    }],
+  });
+  assert.doesNotThrow(() => validateParentHandoffV3(handoff));
+
+  const selectedEvidenceDropped = buildParentHandoffV3({
+    ...fixture,
+    result: {
+      ...fixture.result,
+      evidence: fixture.result.evidence.filter(item => item.id !== 'E1'),
+    },
+    task: 'Explain token validation behavior.',
+  });
+  assert.equal(selectedEvidenceDropped.state, 'incomplete');
+  assert.equal(selectedEvidenceDropped.directAnswer, undefined,
+    'a claim cannot switch to a redundant ref after its selected proof is dropped');
+  assert.equal(selectedEvidenceDropped.evidence, undefined);
+  assert.equal(selectedEvidenceDropped.gaps.length, 1);
+  assert.doesNotThrow(() => validateParentHandoffV3(selectedEvidenceDropped));
+});
+
+test('Spec 028 T041 — edit intent deterministically becomes verify_targets', () => {
+  const fixture = parentHandoffFixture();
+  const handoff = buildParentHandoffV3({
+    ...fixture,
+    task: 'Modify the token validation implementation.',
+    taskMode: 'edit_planning',
+  });
+
+  assert.equal(handoff.state, 'verify_targets');
+  assert.deepEqual(handoff.targets, [{
+    path: 'src/auth.js',
+    startLine: 1,
+    endLine: 4,
+    role: 'edit',
+    reason: 'Change token validation here.',
+    evidenceRefs: ['E1'],
+  }]);
+  assert.equal(handoff.evidence.length, 1);
+  assert.equal(handoff.evidence[0].id, 'E1');
+  assert.doesNotThrow(() => validateParentHandoffV3(handoff));
+});
+
+test('Spec 028 T041 — partial and all-blocked handoffs expose only actionable gaps', () => {
+  const partial = parentHandoffFixture();
+  const blockedGoal = {
+    id: 'S2',
+    question: 'Whether every alternate bootstrap uses token validation',
+    proofPolicy: 'bounded_absence',
+    state: 'gap',
+  };
+  partial.semanticVerification.taskContract.subgoals.push(blockedGoal);
+  const partialHandoff = buildParentHandoffV3({
+    ...partial,
+    task: 'Explain token validation and check every alternate bootstrap.',
+    coverageGaps: [{
+      id: 'G2',
+      subgoalId: 'S2',
+      question: blockedGoal.question,
+      reason: 'enumeration_incomplete',
+      repairable: false,
+      priority: 100,
+    }],
+  });
+  assert.equal(partialHandoff.state, 'incomplete');
+  assert.equal(partialHandoff.directAnswer,
+    'Token validation is implemented in src/auth.js.');
+  assert.equal(partialHandoff.evidence.length, 1);
+  assert.deepEqual(partialHandoff.gaps, [{
+    question: blockedGoal.question,
+    reason: 'The required repository boundary was not completely enumerated.',
+  }]);
+  assert.equal(partialHandoff.followUp, undefined);
+
+  const allBlocked = buildParentHandoffV3({
+    result: {},
+    task: 'Report the deployed token validation revision.',
+    taskContract: {
+      effectiveScope: ['src/**'],
+      subgoals: [{
+        id: 'S-live',
+        question: 'Which token validation revision is deployed?',
+        proofPolicy: 'direct_source',
+        state: 'blocked',
+      }],
+    },
+    coverageGaps: [{
+      id: 'G-live',
+      subgoalId: 'S-live',
+      question: 'Which token validation revision is deployed?',
+      reason: 'external_state_required',
+      repairable: false,
+      priority: 0,
+    }],
+  });
+  assert.deepEqual(allBlocked, {
+    schemaVersion: 3,
+    state: 'incomplete',
+    gaps: [{
+      question: 'Which token validation revision is deployed?',
+      reason: 'This depends on live or external state unavailable to the repository explorer.',
+    }],
+    followUp: {
+      type: 'external_verification',
+      requirement: 'Which token validation revision is deployed?',
+    },
+  });
+  assert.doesNotThrow(() => validateParentHandoffV3(partialHandoff));
+  assert.doesNotThrow(() => validateParentHandoffV3(allBlocked));
+});
+
+test('Spec 028 T041 — failed handoff maps reasons and drops stale success data', () => {
+  const handoff = buildParentHandoffV3({
+    result: {
+      directAnswer: 'Stale unverified answer.',
+      evidence: [{ id: 'stale', path: 'src/stale.js', startLine: 1, endLine: 1 }],
+      failure: {
+        reason: 'tool_errors',
+        message: 'Repository tools failed before verification.',
+        retry: { args: { task: 'Retry the token trace.', scope: ['src/**'] } },
+      },
+    },
+    task: 'Trace token validation.',
+  });
+  assert.deepEqual(handoff, {
+    schemaVersion: 3,
+    directAnswer: 'Repository tools failed before verification.',
+    state: 'failed',
+    failure: {
+      reason: 'tool_failure',
+      retry: {
+        type: 'tool',
+        tool: 'explore_repo',
+        arguments: { task: 'Retry the token trace.', scope: ['src/**'] },
+      },
+    },
+  });
+  assert.doesNotThrow(() => validateParentHandoffV3(handoff));
+
+  const legacyBudgetStop = buildParentHandoffV3({
+    result: {
+      failure: {
+        reason: 'budget_exhausted',
+        message: 'Legacy internal limit label.',
+      },
+    },
+    task: 'Trace token validation.',
+  });
+  assert.equal(legacyBudgetStop.state, 'incomplete');
+  assert.equal(legacyBudgetStop.failure, undefined);
+  assert.equal(legacyBudgetStop.gaps[0].reason,
+    'A fixed safety limit interrupted proof for this requested part.');
+  assert.doesNotThrow(() => validateParentHandoffV3(legacyBudgetStop));
+});
+
+test('Spec 028 T041 — plan-level gaps prevent a false complete handoff', () => {
+  const fixture = parentHandoffFixture();
+  const handoff = buildParentHandoffV3({
+    ...fixture,
+    task: 'Explain token validation behavior.',
+    coverageGaps: [{
+      id: 'G-plan',
+      question: 'Resolve the uncovered request obligation.',
+      reason: 'planning_incomplete',
+      repairable: false,
+      priority: 0,
+    }],
+  });
+
+  assert.equal(handoff.state, 'incomplete');
+  assert.equal(handoff.directAnswer,
+    'Token validation is implemented in src/auth.js.');
+  assert.deepEqual(handoff.gaps, [{
+    question: 'Resolve the uncovered request obligation.',
+    reason: 'This requested part could not be reduced to a complete verifiable repository goal.',
+  }]);
+  assert.doesNotThrow(() => validateParentHandoffV3(handoff));
+});
+
+test('Spec 028 T041 — shared search refs require claim-local absence certificates', () => {
+  const subgoals = [
+    {
+      id: 'S1',
+      question: 'Is legacyAuth absent from src?',
+      proofPolicy: 'bounded_absence',
+      state: 'supported',
+    },
+    {
+      id: 'S2',
+      question: 'Is debugAuth absent from src?',
+      proofPolicy: 'bounded_absence',
+      state: 'supported',
+    },
+  ];
+  const claims = [
+    {
+      id: 'C1',
+      subgoalId: 'S1',
+      text: 'legacyAuth is absent from the enumerated src boundary.',
+      verdict: 'supported',
+      evidenceRefs: ['E1'],
+    },
+    {
+      id: 'C2',
+      subgoalId: 'S2',
+      text: 'debugAuth is absent from the enumerated src boundary.',
+      verdict: 'supported',
+      evidenceRefs: ['E1'],
+    },
+  ];
+  const handoff = buildParentHandoffV3({
+    result: {},
+    task: 'Check bounded absence for legacyAuth and debugAuth.',
+    semanticVerification: {
+      taskContract: { effectiveScope: ['src/**'], subgoals },
+      claims,
+      semanticVerdicts: claims.map(claim => ({
+        claimId: claim.id,
+        result: 'supported',
+        supportingEvidenceRefs: ['E1'],
+      })),
+      absenceCertificates: [{
+        id: 'A1',
+        subgoalId: 'S1',
+        claimBoundary: ['src/**'],
+        searchRefs: ['E1'],
+        searchSummary: ['Searched legacyAuth across src/** with no matches.'],
+        complete: true,
+      }],
+    },
+    observations: [{ id: 'E1', kind: 'search' }],
+  });
+
+  assert.equal(handoff.state, 'incomplete');
+  assert.equal(handoff.directAnswer,
+    'legacyAuth is absent from the enumerated src boundary.');
+  assert.deepEqual(handoff.evidence, [{
+    kind: 'absence',
+    boundary: ['src/**'],
+    searches: ['Searched legacyAuth across src/** with no matches.'],
+    supports: 'legacyAuth is absent from the enumerated src boundary.',
+  }]);
+  assert.deepEqual(handoff.gaps, [{
+    question: 'Is debugAuth absent from src?',
+    reason: 'Required repository evidence was not found.',
+  }]);
+  assert.doesNotThrow(() => validateParentHandoffV3(handoff));
+});
+
+test('Spec 028 T041 — verifier failure classification uses explicit provenance', () => {
+  const verifierFailure = buildParentHandoffV3({
+    result: {
+      failure: {
+        reason: 'invalid_final_response',
+        publicReason: 'verifier_error',
+        message: 'The isolated control output was invalid.',
+      },
+    },
+    task: 'Trace token validation.',
+  });
+  const unmarkedFailure = buildParentHandoffV3({
+    result: {
+      failure: {
+        reason: 'invalid_final_response',
+        message: 'A verifier-like phrase must not classify this failure.',
+      },
+    },
+    task: 'Trace token validation.',
+  });
+
+  assert.equal(verifierFailure.failure.reason, 'verifier_error');
+  assert.equal(unmarkedFailure.failure.reason, 'internal_error');
+  assert.doesNotThrow(() => validateParentHandoffV3(verifierFailure));
+  assert.doesNotThrow(() => validateParentHandoffV3(unmarkedFailure));
+});
 
 // Existing tests below isolate the pre-028 exploration loop. Their provider
 // scripts predate required planning, so this test-only adapter answers only the
@@ -280,6 +620,10 @@ test('ExplorerRuntime performs an autonomous tool loop and returns structured fi
   assert.ok(result.targets.every(target => target.role !== 'edit'), 'read-only tracing must not mark all evidence targets as edit');
   assert.equal(result.schemaVersion, 2);
   assert.equal(result.failure, null);
+  assert.equal(result.parentHandoff.schemaVersion, 3);
+  assert.equal(result.parentHandoff.state, 'complete');
+  assert.equal(Object.hasOwn(result.parentHandoff, 'status'), false);
+  assert.doesNotThrow(() => validateParentHandoffV3(result.parentHandoff));
   assert.equal(result.evidenceQuality.level, result.status.confidence);
   assert.equal(result.evidenceQuality.exactCount, 2);
   assert.equal(result.evidenceQuality.partialCount, 0);
@@ -7367,6 +7711,63 @@ semanticPipelineRuntimeTest('Spec 028 T034 — semantic repair lifecycle stays d
     for (const sentinel of [claimText, explorationDraft, repairDraft, verifierNote]) {
       assert.equal(serialized.includes(sentinel), false);
     }
+  });
+});
+
+semanticPipelineRuntimeTest('Spec 028 T041 — transcript records only claims accepted by the parent projection', {
+  skip: !hasGit(),
+}, async () => {
+  const logDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-parent-accepted-claims-'));
+  const task = 'Identify the committed requireAuth change.';
+  const goal = trustGoal(task, {
+    id: 'S-parent-projection',
+    question: task,
+    originText: task,
+  });
+  const claim = candidateClaim(
+    'C-parent-projection', goal.id, 'requireAuth changed in the inspected diff.', ['E1']);
+  const steps = buildTrustSteps({
+    goals: [goal],
+    initial: {
+      tools: [{
+        tool: 'repo_git_diff',
+        args: { from: 'HEAD~1', to: 'HEAD', path: 'src/auth.js' },
+        id: 'diff-auth',
+      }],
+      claims: [claim],
+      verdicts: [semanticVerdict(claim.id, 'supported', ['E1'])],
+    },
+  });
+
+  await withEnv({
+    CEREBRAS_EXPLORER_LOG_PATH: logDir,
+    CEREBRAS_EXPLORER_LOG_RAW: 'true',
+  }, async () => {
+    const { result } = await runTrustScript(steps, {
+      task,
+      async setup(root) {
+        const git = args => execFileSync('git', args, {
+          cwd: root,
+          stdio: 'pipe',
+          encoding: 'utf8',
+        });
+        git(['init']);
+        git(['config', 'user.email', 'explorer@example.invalid']);
+        git(['config', 'user.name', 'Explorer Test']);
+        git(['add', '.']);
+        git(['commit', '-m', 'base']);
+        await fs.appendFile(path.join(root, 'src', 'auth.js'), '\n// inspected change\n');
+        git(['add', 'src/auth.js']);
+        git(['commit', '-m', 'change auth']);
+      },
+    });
+    const entries = await readJsonl(result.transcriptPath);
+    const final = entries.find(entry => entry.type === 'final');
+
+    assert.equal(result.semanticVerification.claims[0].verdict, 'supported');
+    assert.equal(result.parentHandoff.state, 'incomplete',
+      'a diff hunk without a commit sha cannot be parent-facing git proof');
+    assert.deepEqual(final.acceptedClaimIds, []);
   });
 });
 

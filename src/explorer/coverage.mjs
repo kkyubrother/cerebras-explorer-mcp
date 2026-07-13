@@ -1420,6 +1420,133 @@ export function reduceSemanticClaims(input) {
   };
 }
 
+const MULTI_ITEM_PARENT_PROOF_POLICIES = new Set([
+  'bounded_usage_cross_check',
+  'ordered_handoffs',
+  'distinct_policy_paths',
+]);
+
+/**
+ * Select the smallest verifier-approved evidence-reference set that still
+ * preserves the proof shape of every supported claim. Direct claims keep the
+ * first approved reference in claim order; flow, comparison, and independent
+ * cross-check claims retain every approved part. The returned order is stable
+ * and globally deduplicated.
+ */
+export function selectClaimCover({ subgoals = [], claims = [], verdicts = [] } = {}) {
+  const subgoalById = new Map(
+    (Array.isArray(subgoals) ? subgoals : [])
+      .filter(subgoal => typeof subgoal?.id === 'string' && subgoal.id)
+      .map(subgoal => [subgoal.id, subgoal]),
+  );
+  const verdictByClaimId = new Map(
+    (Array.isArray(verdicts) ? verdicts : [])
+      .filter(verdict => typeof verdict?.claimId === 'string' && verdict.claimId)
+      .map(verdict => [verdict.claimId, verdict]),
+  );
+  const selected = [];
+  const seen = new Set();
+  const evidenceRefsByClaimId = new Map();
+
+  for (const claim of Array.isArray(claims) ? claims : []) {
+    const subgoal = subgoalById.get(claim?.subgoalId);
+    const verdict = verdictByClaimId.get(claim?.id);
+    if (!subgoal || claim?.verdict !== 'supported' || verdict?.result !== 'supported' ||
+        (subgoal.state !== undefined && subgoal.state !== 'supported')) {
+      continue;
+    }
+    const approved = new Set(
+      Array.isArray(verdict.supportingEvidenceRefs)
+        ? verdict.supportingEvidenceRefs.filter(ref => typeof ref === 'string' && ref)
+        : [],
+    );
+    const orderedApproved = (Array.isArray(claim.evidenceRefs) ? claim.evidenceRefs : [])
+      .filter(ref => typeof ref === 'string' && ref && approved.has(ref));
+    const claimSelection = MULTI_ITEM_PARENT_PROOF_POLICIES.has(subgoal.proofPolicy)
+      ? orderedApproved
+      : orderedApproved.slice(0, 1);
+    evidenceRefsByClaimId.set(claim.id, [...new Set(claimSelection)]);
+    for (const ref of claimSelection) {
+      if (seen.has(ref)) continue;
+      seen.add(ref);
+      selected.push(ref);
+    }
+  }
+  return { evidenceRefs: selected, evidenceRefsByClaimId };
+}
+
+export function selectClaimCoverEvidenceRefs(input = {}) {
+  return selectClaimCover(input).evidenceRefs;
+}
+
+function compactParentStrings(value) {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value
+    .filter(item => typeof item === 'string')
+    .map(item => item.trim())
+    .filter(Boolean))];
+}
+
+/**
+ * Pick at most one caller-visible continuation from the highest-priority gap.
+ * Runtime-owned blockers become a focused caller/external action. A tool
+ * continuation is emitted only for a still-repairable gap with an explicit
+ * follow-up and is normalized to the general public explorer contract.
+ */
+export function selectParentFollowUp({ coverageGaps = [], effectiveScope = [] } = {}) {
+  const ordered = (Array.isArray(coverageGaps) ? coverageGaps : [])
+    .filter(gap => gap && typeof gap === 'object')
+    .slice()
+    .sort((left, right) => {
+      const leftPriority = Number.isInteger(left.priority) ? left.priority : Number.MAX_SAFE_INTEGER;
+      const rightPriority = Number.isInteger(right.priority) ? right.priority : Number.MAX_SAFE_INTEGER;
+      return (leftPriority - rightPriority) || String(left.id ?? '').localeCompare(String(right.id ?? ''));
+    });
+  const gap = ordered[0];
+  if (!gap || typeof gap.question !== 'string' || !gap.question.trim()) return null;
+
+  if (gap.reason === 'missing_input' || gap.reason === 'contradictory_request') {
+    return { type: 'ask_user', question: gap.question.trim() };
+  }
+  if (gap.reason === 'external_state_required') {
+    return { type: 'external_verification', requirement: gap.question.trim() };
+  }
+  if (gap.repairable !== true || !gap.followUp || typeof gap.followUp !== 'object') {
+    return null;
+  }
+
+  const rawArguments = gap.followUp.arguments && typeof gap.followUp.arguments === 'object'
+    ? gap.followUp.arguments
+    : gap.followUp;
+  const task = [
+    rawArguments.task,
+    rawArguments.query,
+    rawArguments.symbol,
+    rawArguments.change,
+    rawArguments.pathQuery,
+    rawArguments.claim,
+    gap.question,
+  ].find(value => typeof value === 'string' && value.trim())?.trim();
+  if (!task) return null;
+
+  const argumentsValue = { task };
+  const scope = compactParentStrings(effectiveScope);
+  if (scope.length > 0) argumentsValue.scope = scope;
+  const files = compactParentStrings([
+    ...(Array.isArray(rawArguments.hints?.files) ? rawArguments.hints.files : []),
+    ...(Array.isArray(rawArguments.anchors) ? rawArguments.anchors : []),
+  ]);
+  if (files.length > 0) argumentsValue.hints = { files };
+
+  const action = { type: 'tool', tool: 'explore_repo', arguments: argumentsValue };
+  const attempted = new Set(
+    Array.isArray(gap.attemptedActionFingerprints)
+      ? gap.attemptedActionFingerprints.filter(item => typeof item === 'string')
+      : [],
+  );
+  return attempted.has(fingerprintAction(action)) ? null : action;
+}
+
 export function reduceTrustState({
   fatalFault = null,
   requiredSubgoals = [],

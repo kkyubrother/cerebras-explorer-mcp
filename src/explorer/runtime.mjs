@@ -55,6 +55,7 @@ import {
   validateTaskContract,
   validateExploreControlResult,
   validateExploreRepoArgs,
+  validateParentHandoffV3,
 } from './schemas.mjs';
 import {
   applyClaimEvidenceGate,
@@ -75,6 +76,9 @@ import {
   preflightGoalProposals,
   reduceGoalAudit,
   reduceSemanticClaims,
+  reduceTrustState,
+  selectClaimCover,
+  selectParentFollowUp,
   transitionSubgoal,
 } from './coverage.mjs';
 import { createChatClient } from './providers/index.mjs';
@@ -456,6 +460,16 @@ const FAILURE_REASONS = [
   'access_denied',
   'invalid_final_response',
 ];
+const PUBLIC_FAILURE_REASONS = new Set([
+  'invalid_arguments',
+  'repo_mismatch',
+  'aborted',
+  'provider_error',
+  'tool_failure',
+  'verifier_error',
+  'access_denied',
+  'internal_error',
+]);
 export const RETRY_TOOLS = [
   'explore_repo',
   'find_relevant_code',
@@ -526,12 +540,13 @@ function buildRetryRecipe({ tool = 'explore_repo', args = {}, hints = [], expect
   };
 }
 
-function makeFailure(category, reason, message, retry = null) {
+function makeFailure(category, reason, message, retry = null, publicReason = null) {
   return {
     category,
     reason,
     message,
     retry: retry ? buildRetryRecipe(retry) : null,
+    ...(PUBLIC_FAILURE_REASONS.has(publicReason) ? { publicReason } : {}),
   };
 }
 
@@ -552,7 +567,7 @@ function normalizeFailure(failure) {
         expectedImprovement: sanitizeRetryText(failure.retry.expectedImprovement),
       }
     : null;
-  return makeFailure(category, reason, message, retry);
+  return makeFailure(category, reason, message, retry, failure.publicReason);
 }
 
 function buildEvidenceQuality(result, stats, grounding = {}) {
@@ -1440,6 +1455,436 @@ function supportedClaimsAreFullyProjected(semanticVerification, projectedClaimId
   );
   return supportedClaims.every(claim => projectedClaimIds.has(claim.id)) &&
     [...supportedGoalIds].every(goalId => projectedGoalIds.has(goalId));
+}
+
+const PARENT_GAP_REASON_TEXT = Object.freeze({
+  missing_evidence: 'Required repository evidence was not found.',
+  semantic_mismatch: 'The observed evidence did not support the requested claim.',
+  contradicted: 'The observed evidence contradicted the requested claim.',
+  planning_incomplete: 'This requested part could not be reduced to a complete verifiable repository goal.',
+  scope_blocked: 'The required evidence is outside the allowed repository scope.',
+  capability_blocked: 'This requires a capability unavailable to the read-only repository explorer.',
+  external_state_required: 'This depends on live or external state unavailable to the repository explorer.',
+  missing_input: 'A required caller input or scope decision is missing.',
+  contradictory_request: 'The requested constraints are contradictory.',
+  unverifiable: 'No observable repository proof condition is available for this requested part.',
+  truncated: 'Evidence collection was truncated before this requested part could be verified.',
+  enumeration_incomplete: 'The required repository boundary was not completely enumerated.',
+  safety_limit_reached: 'A fixed safety limit interrupted proof for this requested part.',
+  denied_evidence: 'Required evidence is unavailable under the active secret-access policy.',
+  uncovered_request: 'This requested part remained uncovered after bounded planning and verification.',
+});
+
+const PARENT_FAILURE_REASON = Object.freeze({
+  invalid_arguments: 'invalid_arguments',
+  repo_mismatch: 'repo_mismatch',
+  aborted: 'aborted',
+  provider_error: 'provider_error',
+  tool_errors: 'tool_failure',
+  tool_failure: 'tool_failure',
+  verifier_error: 'verifier_error',
+  access_denied: 'access_denied',
+  invalid_final_response: 'internal_error',
+  internal_error: 'internal_error',
+});
+
+function compactParentStrings(values) {
+  if (!Array.isArray(values)) return [];
+  return [...new Set(values
+    .filter(value => typeof value === 'string')
+    .map(value => value.trim())
+    .filter(Boolean))];
+}
+
+function parentFailureReason(failure) {
+  if (PUBLIC_FAILURE_REASONS.has(failure?.publicReason)) return failure.publicReason;
+  return PARENT_FAILURE_REASON[failure?.reason] ?? 'internal_error';
+}
+
+function parentFailureMessage(result, reason) {
+  const message = typeof result?.failure?.message === 'string'
+    ? result.failure.message.trim()
+    : '';
+  if (message) return message;
+  return {
+    invalid_arguments: 'Explorer arguments were invalid.',
+    repo_mismatch: 'The requested repository could not be resolved safely.',
+    aborted: 'Exploration was cancelled before a trustworthy answer was produced.',
+    provider_error: 'The exploration provider failed before a trustworthy answer was produced.',
+    tool_failure: 'Repository tools failed before a trustworthy answer was produced.',
+    verifier_error: 'The explorer could not validate the required verifier output.',
+    access_denied: 'Required repository evidence could not be accessed.',
+    internal_error: 'The explorer encountered an internal error before a trustworthy answer was produced.',
+  }[reason];
+}
+
+function buildParentFailureRetry(failure, { task, effectiveScope }) {
+  if (!failure?.retry || parentFailureReason(failure) === 'aborted') return null;
+  const rawArguments = failure.retry.arguments && typeof failure.retry.arguments === 'object'
+    ? failure.retry.arguments
+    : (failure.retry.args && typeof failure.retry.args === 'object' ? failure.retry.args : {});
+  const retryTask = [
+    rawArguments.task,
+    rawArguments.query,
+    rawArguments.symbol,
+    rawArguments.change,
+    rawArguments.pathQuery,
+    rawArguments.claim,
+    task,
+  ].find(value => typeof value === 'string' && value.trim())?.trim();
+  if (!retryTask) return null;
+  const argumentsValue = { task: retryTask };
+  const fixedScope = compactParentStrings(effectiveScope);
+  const scope = fixedScope.length > 0 ? fixedScope : compactParentStrings(rawArguments.scope);
+  if (scope.length > 0) argumentsValue.scope = scope;
+  const files = compactParentStrings(rawArguments.hints?.files);
+  if (files.length > 0) argumentsValue.hints = { files };
+  return { type: 'tool', tool: 'explore_repo', arguments: argumentsValue };
+}
+
+function buildParentEvidenceProjection({ result, semanticVerification, observations }) {
+  const subgoals = semanticVerification?.taskContract?.subgoals ?? [];
+  const claims = semanticVerification?.claims ?? [];
+  const verdicts = semanticVerification?.semanticVerdicts ?? [];
+  const claimCover = selectClaimCover({ subgoals, claims, verdicts });
+  const selectedRefs = claimCover.evidenceRefs;
+  const verdictByClaimId = new Map(verdicts.map(verdict => [verdict.claimId, verdict]));
+  const observationById = new Map((observations ?? []).map(observation => [observation.id, observation]));
+  const groundedById = new Map((result?.evidence ?? []).map(item => [item.id, item]));
+  const certificates = Array.isArray(semanticVerification?.absenceCertificates)
+    ? semanticVerification.absenceCertificates
+    : [];
+  const baseEvidenceByRef = new Map();
+
+  for (const ref of selectedRefs) {
+    const observation = observationById.get(ref);
+    if (observation?.kind === 'source') {
+      const grounded = groundedById.get(ref);
+      const evidencePath = normalizeTargetPath(grounded?.path);
+      const validRange = Number.isInteger(grounded?.startLine) &&
+        Number.isInteger(grounded?.endLine) && grounded.startLine >= 1 &&
+        grounded.endLine >= grounded.startLine;
+      if (evidencePath && validRange) {
+        baseEvidenceByRef.set(ref, {
+          id: ref,
+          kind: 'source',
+          path: evidencePath,
+          startLine: grounded.startLine,
+          endLine: grounded.endLine,
+        });
+      }
+      continue;
+    }
+    if (observation?.kind === 'git_commit' || observation?.kind === 'git_blame' ||
+        observation?.kind === 'git_diff_hunk') {
+      if (typeof observation.sha !== 'string' || !observation.sha.trim()) continue;
+      const gitEvidence = { id: ref, kind: 'git', sha: observation.sha.trim() };
+      const evidencePath = normalizeTargetPath(observation.path);
+      if (evidencePath) gitEvidence.path = evidencePath;
+      if (Number.isInteger(observation.startLine) && Number.isInteger(observation.endLine) &&
+          observation.startLine >= 1 && observation.endLine >= observation.startLine) {
+        gitEvidence.startLine = observation.startLine;
+        gitEvidence.endLine = observation.endLine;
+      }
+      baseEvidenceByRef.set(ref, gitEvidence);
+      continue;
+    }
+  }
+
+  const subgoalById = new Map(subgoals.map(subgoal => [subgoal.id, subgoal]));
+  const absenceEvidenceByClaimRef = new Map();
+  const evidenceForClaimRef = (claim, ref) => {
+    const direct = baseEvidenceByRef.get(ref);
+    if (direct) return { key: `ref:${ref}`, evidence: direct };
+    if (observationById.get(ref)?.kind !== 'search') return null;
+    const key = `${claim.subgoalId}\0${ref}`;
+    if (!absenceEvidenceByClaimRef.has(key)) {
+      const certificate = certificates.find(item => item?.complete === true &&
+        item?.subgoalId === claim.subgoalId && item?.searchRefs?.includes(ref));
+      const boundary = compactParentStrings(certificate?.claimBoundary);
+      const searches = compactParentStrings(certificate?.searchSummary);
+      absenceEvidenceByClaimRef.set(key, boundary.length > 0 && searches.length > 0
+        ? {
+            id: `${ref}:${claim.subgoalId}`,
+            kind: 'absence',
+            boundary,
+            searches,
+          }
+        : null);
+    }
+    const evidence = absenceEvidenceByClaimRef.get(key);
+    return evidence ? { key: `absence:${key}`, evidence } : null;
+  };
+  const acceptedClaims = [];
+  const refsByClaimId = new Map();
+  for (const claim of claims) {
+    const subgoal = subgoalById.get(claim?.subgoalId);
+    const verdict = verdictByClaimId.get(claim?.id);
+    if (claim?.verdict !== 'supported' || subgoal?.state !== 'supported' ||
+        verdict?.result !== 'supported') continue;
+    const refs = claimCover.evidenceRefsByClaimId.get(claim.id) ?? [];
+    if (refs.length === 0 || refs.some(ref => !evidenceForClaimRef(claim, ref))) continue;
+    const text = typeof claim.text === 'string' ? claim.text.trim() : '';
+    if (!text) continue;
+    acceptedClaims.push(claim);
+    refsByClaimId.set(claim.id, refs);
+  }
+
+  const projectedEvidence = new Map();
+  for (const claim of acceptedClaims) {
+    for (const ref of refsByClaimId.get(claim.id) ?? []) {
+      const projected = evidenceForClaimRef(claim, ref);
+      const existing = projectedEvidence.get(projected.key);
+      if (!existing) {
+        projectedEvidence.set(projected.key, {
+          ...projected.evidence,
+          supports: [claim.text.trim()],
+        });
+      } else if (!existing.supports.includes(claim.text.trim())) {
+        existing.supports.push(claim.text.trim());
+      }
+    }
+  }
+  const evidence = [...projectedEvidence.values()].map(item => ({
+    ...item,
+    supports: item.supports.join(' '),
+  }));
+  return { acceptedClaims, refsByClaimId, evidence };
+}
+
+function buildParentTargets(resultTargets, evidence) {
+  const sourceEvidence = evidence.filter(item => item.kind === 'source' && item.id);
+  const evidenceByPath = new Map();
+  for (const item of sourceEvidence) {
+    if (!evidenceByPath.has(item.path)) evidenceByPath.set(item.path, []);
+    evidenceByPath.get(item.path).push(item);
+  }
+  const targets = [];
+  const seen = new Set();
+  const add = (pathValue, roleValue, reasonValue, preferredEvidence = null) => {
+    const targetPath = normalizeTargetPath(pathValue);
+    const candidates = evidenceByPath.get(targetPath) ?? [];
+    const evidenceItem = preferredEvidence ?? candidates[0];
+    if (!targetPath || !evidenceItem) return;
+    const role = ['read', 'edit', 'test', 'config'].includes(roleValue) ? roleValue : 'read';
+    const key = `${targetPath}:${evidenceItem.startLine}:${evidenceItem.endLine}:${role}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    targets.push({
+      path: targetPath,
+      startLine: evidenceItem.startLine,
+      endLine: evidenceItem.endLine,
+      role,
+      reason: typeof reasonValue === 'string' && reasonValue.trim()
+        ? reasonValue.trim()
+        : evidenceItem.supports,
+      evidenceRefs: [evidenceItem.id],
+    });
+  };
+
+  for (const target of Array.isArray(resultTargets) ? resultTargets : []) {
+    const targetPath = normalizeTargetPath(target?.path);
+    const candidates = evidenceByPath.get(targetPath) ?? [];
+    const matching = candidates.find(item =>
+      Number.isInteger(target?.startLine) && Number.isInteger(target?.endLine) &&
+      target.startLine === item.startLine && target.endLine === item.endLine) ?? candidates[0];
+    add(targetPath, target?.role, target?.reason, matching);
+  }
+  for (const item of sourceEvidence) {
+    const alreadyTargeted = targets.some(target => target.path === item.path &&
+      target.startLine === item.startLine && target.endLine === item.endLine);
+    if (!alreadyTargeted) add(item.path, 'read', item.supports, item);
+  }
+  return targets.slice(0, 8);
+}
+
+function buildParentGaps({ requiredSubgoals, coverageGaps, unresolvedGoalIds, task }) {
+  const unresolved = new Set(unresolvedGoalIds);
+  const internalGaps = (Array.isArray(coverageGaps) ? coverageGaps : [])
+    .filter(gap => !gap?.subgoalId || unresolved.has(gap.subgoalId))
+    .slice()
+    .sort((left, right) => {
+      const leftPriority = Number.isInteger(left?.priority) ? left.priority : Number.MAX_SAFE_INTEGER;
+      const rightPriority = Number.isInteger(right?.priority) ? right.priority : Number.MAX_SAFE_INTEGER;
+      return (leftPriority - rightPriority) || String(left?.id ?? '').localeCompare(String(right?.id ?? ''));
+    });
+  const gapBySubgoal = new Set(internalGaps.map(gap => gap?.subgoalId).filter(Boolean));
+  for (const [index, subgoal] of requiredSubgoals.entries()) {
+    if (!unresolved.has(subgoal?.id) || gapBySubgoal.has(subgoal.id)) continue;
+    internalGaps.push({
+      id: `parent-gap:${subgoal.id}`,
+      subgoalId: subgoal.id,
+      question: subgoal.question,
+      reason: 'missing_evidence',
+      repairable: false,
+      priority: Number.MAX_SAFE_INTEGER - requiredSubgoals.length + index,
+      attemptedActionFingerprints: [],
+    });
+  }
+  if (internalGaps.length === 0) {
+    internalGaps.push({
+      id: 'parent-gap:unresolved',
+      question: typeof task === 'string' && task.trim()
+        ? task.trim()
+        : 'Complete the requested repository investigation.',
+      reason: 'missing_evidence',
+      repairable: false,
+      priority: Number.MAX_SAFE_INTEGER,
+      attemptedActionFingerprints: [],
+    });
+  }
+
+  const seen = new Set();
+  const gaps = [];
+  for (const gap of internalGaps) {
+    const question = typeof gap?.question === 'string' ? gap.question.trim() : '';
+    if (!question) continue;
+    const reason = PARENT_GAP_REASON_TEXT[gap.reason] ??
+      (typeof gap.reason === 'string' && gap.reason.trim()
+        ? gap.reason.trim()
+        : 'This requested part remains unresolved.');
+    const key = `${question}\0${reason}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    gaps.push({ question, reason });
+  }
+  return { gaps, internalGaps };
+}
+
+/**
+ * Assemble the minimal schema-v3 result consumed by the MCP projection while
+ * leaving the direct runtime result free to retain operational diagnostics.
+ */
+function buildParentHandoffProjection({
+  result,
+  task,
+  taskMode = null,
+  semanticVerification = null,
+  observations = [],
+  taskContract = null,
+  coverageGaps = [],
+  safetyLimits = [],
+} = {}) {
+  const effectiveTaskContract = taskContract ?? semanticVerification?.taskContract ??
+    result?.taskContract ?? null;
+  const requiredSubgoals = Array.isArray(effectiveTaskContract?.subgoals)
+    ? effectiveTaskContract.subgoals
+    : [];
+  const effectiveScope = effectiveTaskContract?.effectiveScope ?? [];
+  const legacyBudgetStop = result?.failure?.reason === 'budget_exhausted';
+
+  if (result?.failure && !legacyBudgetStop) {
+    const reason = parentFailureReason(result.failure);
+    const failure = { reason };
+    const retry = buildParentFailureRetry(result.failure, { task, effectiveScope });
+    if (retry) failure.retry = retry;
+    const failed = redactValue({
+      schemaVersion: 3,
+      directAnswer: parentFailureMessage(result, reason),
+      state: 'failed',
+      failure,
+    }).value;
+    validateParentHandoffV3(failed);
+    return { handoff: failed, acceptedClaimIds: [] };
+  }
+
+  const projection = buildParentEvidenceProjection({
+    result,
+    semanticVerification,
+    observations,
+  });
+  const acceptedClaimIds = new Set(projection.acceptedClaims.map(claim => claim.id));
+  const supportedClaimsByGoal = new Map();
+  for (const claim of semanticVerification?.claims ?? []) {
+    if (claim?.verdict !== 'supported') continue;
+    const ids = supportedClaimsByGoal.get(claim.subgoalId) ?? [];
+    ids.push(claim.id);
+    supportedClaimsByGoal.set(claim.subgoalId, ids);
+  }
+  const unresolvedGoalIds = new Set(requiredSubgoals
+    .filter(subgoal => subgoal?.state !== 'supported')
+    .map(subgoal => subgoal.id));
+  const hasPlanLevelGap = (Array.isArray(coverageGaps) ? coverageGaps : [])
+    .some(gap => gap && !gap.subgoalId);
+  for (const subgoal of requiredSubgoals.filter(item => item?.state === 'supported')) {
+    const claimIds = supportedClaimsByGoal.get(subgoal.id) ?? [];
+    if (claimIds.length === 0 || claimIds.some(id => !acceptedClaimIds.has(id))) {
+      unresolvedGoalIds.add(subgoal.id);
+    }
+  }
+  for (const limit of Array.isArray(safetyLimits) ? safetyLimits : []) {
+    for (const subgoalId of limit?.affectedSubgoalIds ?? []) unresolvedGoalIds.add(subgoalId);
+  }
+
+  const candidateTargets = buildParentTargets(result?.targets, projection.evidence);
+  const editIntent = isEditPlanningMode({ taskMode, task });
+  let state = reduceTrustState({
+    requiredSubgoals,
+    parentMustReadTargets: editIntent && candidateTargets.length > 0,
+    safetyLimits,
+  });
+  if (hasPlanLevelGap || unresolvedGoalIds.size > 0 || projection.acceptedClaims.length === 0 ||
+      projection.evidence.length === 0 || (editIntent && candidateTargets.length === 0)) {
+    state = 'incomplete';
+  }
+
+  const directAnswer = compactParentStrings(
+    projection.acceptedClaims.map(claim => claim.text),
+  ).join('\n');
+  const handoff = { schemaVersion: 3, state };
+  if (directAnswer) handoff.directAnswer = directAnswer;
+
+  const includeTargets = state === 'verify_targets' ||
+    (state === 'complete' && isSimpleCompletionMode({ taskMode, task }));
+  const targets = includeTargets ? candidateTargets : [];
+  if (targets.length > 0) handoff.targets = targets;
+  if (projection.evidence.length > 0 && directAnswer) handoff.evidence = projection.evidence;
+
+  if (state === 'incomplete') {
+    const gaps = buildParentGaps({
+      requiredSubgoals,
+      coverageGaps: legacyBudgetStop
+        ? [...(Array.isArray(coverageGaps) ? coverageGaps : []), {
+            id: 'parent-gap:safety-limit',
+            question: typeof task === 'string' && task.trim()
+              ? task.trim()
+              : 'Complete the requested repository investigation.',
+            reason: 'safety_limit_reached',
+            repairable: false,
+            priority: Number.MAX_SAFE_INTEGER,
+          }]
+        : coverageGaps,
+      unresolvedGoalIds,
+      task,
+    });
+    handoff.gaps = gaps.gaps;
+    const followUp = selectParentFollowUp({
+      coverageGaps: gaps.internalGaps,
+      effectiveScope,
+    });
+    if (followUp) handoff.followUp = followUp;
+  }
+
+  const referencedEvidenceIds = new Set(
+    (handoff.targets ?? []).flatMap(target => target.evidenceRefs ?? []),
+  );
+  if (handoff.evidence) {
+    handoff.evidence = handoff.evidence.map(item => {
+      if (referencedEvidenceIds.has(item.id)) return item;
+      const { id, ...withoutId } = item;
+      return withoutId;
+    });
+  }
+  const safeHandoff = redactValue(handoff).value;
+  validateParentHandoffV3(safeHandoff);
+  return {
+    handoff: safeHandoff,
+    acceptedClaimIds: projection.acceptedClaims.map(claim => claim.id),
+  };
+}
+
+export function buildParentHandoffV3(input = {}) {
+  return buildParentHandoffProjection(input).handoff;
 }
 
 function applyObservationSafetyLimits({ semanticVerification, observations, stats }) {
@@ -4870,7 +5315,7 @@ export class ExplorerRuntime {
           expectedImprovement: finalStage
             ? 'A more specific prompt should improve compact JSON synthesis.'
             : 'A valid isolated control response should allow trustworthy completion.',
-        });
+        }, verifierStage ? 'verifier_error' : 'internal_error');
         finalObject = buildFatalExploreObject(message);
       } else if (error?.explorerFailureKind === 'provider') {
         const message = 'The exploration provider failed before a trustworthy answer was produced.';
@@ -4882,7 +5327,7 @@ export class ExplorerRuntime {
             scope: stats.scope,
           },
           expectedImprovement: 'A provider recovery or narrower scope should reduce failure risk.',
-        });
+        }, 'provider_error');
         finalObject = buildFatalExploreObject(message);
       } else {
         const message = 'The explorer encountered an internal failure before a trustworthy answer was produced.';
@@ -4891,7 +5336,7 @@ export class ExplorerRuntime {
           hints: ['Retry the same task; report repeated internal failures.'],
           args: { task: 'Retry the same repository investigation.', scope: stats.scope },
           expectedImprovement: 'A clean execution should allow trustworthy completion.',
-        });
+        }, 'internal_error');
         finalObject = buildFatalExploreObject(message);
       }
 
@@ -4920,17 +5365,35 @@ export class ExplorerRuntime {
         attachAgentFacingContract(cancelled, stats);
         outcome = cancelled;
       }
+      let parentAcceptedClaimIds = [];
+      try {
+        const parentProjection = buildParentHandoffProjection({
+          result: outcome,
+          task: args.task,
+          taskMode: args.taskMode,
+          semanticVerification,
+          observations: outcome?.observations ?? observations,
+          taskContract: outcome?.taskContract ?? auditedPlan?.taskContract ?? null,
+          coverageGaps: outcome?.coverageGaps ?? auditedPlan?.coverageGaps ?? [],
+          safetyLimits: stats.safetyLimits ?? [],
+        });
+        outcome.parentHandoff = parentProjection.handoff;
+        parentAcceptedClaimIds = parentProjection.acceptedClaimIds;
+      } catch {
+        const message = 'The explorer could not assemble a trustworthy parent handoff.';
+        outcome.failure = makeFailure('internal', 'invalid_final_response', message, null);
+        outcome.directAnswer = message;
+        outcome.parentHandoff = {
+          schemaVersion: 3,
+          directAnswer: message,
+          state: 'failed',
+          failure: { reason: 'internal_error' },
+        };
+      }
       const requiredSubgoals = outcome?.taskContract?.subgoals ??
         auditedPlan?.taskContract?.subgoals ?? [];
       const gaps = outcome?.coverageGaps ?? auditedPlan?.coverageGaps ?? [];
-      const stateBySubgoal = new Map(requiredSubgoals.map(goal => [goal.id, goal.state]));
-      const acceptedClaimIds = outcome?.failure
-        ? []
-        : (semanticVerification?.claims ?? [])
-            .filter(claim => claim.verdict === 'supported' &&
-              stateBySubgoal.get(claim.subgoalId) !== 'blocked' &&
-              stateBySubgoal.get(claim.subgoalId) !== 'contradicted')
-            .map(claim => claim.id);
+      const acceptedClaimIds = outcome?.failure ? [] : parentAcceptedClaimIds;
       await transcript.finalize(stats, {
         finalEvent: {
           failureReason: outcome?.failure?.reason ?? null,
