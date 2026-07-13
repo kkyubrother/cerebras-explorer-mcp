@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as coverageModule from '../src/explorer/coverage.mjs';
 import {
+  applyEvidenceRepairRound,
   createAtomicClaim,
   createCoverageGap,
   createRequiredSubgoal,
@@ -514,9 +515,162 @@ const contractTest = test;
     );
     const reopened = transitionSubgoal(supported, 'candidate', {
       counterevidenceRefs: ['E2'],
+      claimRefs: ['C2'],
     });
     assert.equal(reopened.state, 'candidate');
+    assert.deepEqual(reopened.claimRefs, ['C2']);
     assert.equal(reopened.resolution, undefined);
+  });
+
+  test('Spec 028 T032 — contradicted goals reopen only for recorded post-repair evidence', () => {
+    const contradicted = transitionSubgoal(createCandidateSubgoal(), 'contradicted', {
+      gapRef: 'G-contradicted',
+    });
+
+    assert.throws(() => transitionSubgoal(contradicted, 'candidate'),
+      /counterevidence|transition/i);
+    const reopened = transitionSubgoal(contradicted, 'candidate', {
+      counterevidenceRefs: ['E2'],
+      claimRefs: ['C2'],
+    });
+
+    assert.equal(reopened.state, 'candidate');
+    assert.deepEqual(reopened.claimRefs, ['C2']);
+    assert.equal(reopened.gapRef, undefined);
+  });
+
+  test('Spec 028 T032 — one repair terminalizes gaps and records only actual selected-gap actions', () => {
+    const supported = createSupportedSubgoal({ id: 'S-supported' });
+    const firstCandidate = createCandidateSubgoal({ id: 'S-first' });
+    const secondCandidate = createCandidateSubgoal({ id: 'S-second' });
+    const firstGapGoal = transitionSubgoal(firstCandidate, 'gap', { gapRef: 'G-first' });
+    const secondGapGoal = transitionSubgoal(secondCandidate, 'gap', { gapRef: 'G-second' });
+    const blocked = createAuditedSubgoal({
+      id: 'S-blocked',
+      auditVerdict: 'blocked_scope',
+      blockerRef: 'G-blocked',
+    });
+    const firstGap = {
+      ...createCoverageGap({
+        id: 'G-first',
+        subgoalId: firstGapGoal.id,
+        question: firstGapGoal.question,
+        reason: 'semantic_mismatch',
+        repairable: true,
+        followUp: { type: 'tool', tool: 'repo_read_file', arguments: { path: 'src/a.js' } },
+      }, { requestOrder: 1, proofPolicy: firstGapGoal.proofPolicy }),
+      attemptedActionFingerprints: ['sha256:prior'],
+    };
+    const secondGap = createCoverageGap({
+      id: 'G-second',
+      subgoalId: secondGapGoal.id,
+      question: secondGapGoal.question,
+      reason: 'missing_evidence',
+      repairable: true,
+    }, { requestOrder: 2, proofPolicy: secondGapGoal.proofPolicy });
+    const blockerGap = createCoverageGap({
+      id: 'G-blocked',
+      subgoalId: blocked.id,
+      question: blocked.question,
+      reason: 'scope_blocked',
+      repairable: false,
+    }, { requestOrder: 3, proofPolicy: blocked.proofPolicy });
+    const action = {
+      type: 'tool',
+      tool: 'repo_read_file',
+      arguments: { path: 'src/a.js', startLine: 1, endLine: 20 },
+    };
+    const input = {
+      taskContract: createTaskContract({
+        task: 'Resolve every requested part.',
+        effectiveScope: ['src/**'],
+        constraints: [],
+        subgoals: [supported, firstGapGoal, secondGapGoal, blocked],
+        plannerVersion: 'planner-v1',
+        goalAuditVersion: 'goal-audit-v1',
+      }),
+      coverageGaps: [secondGap, blockerGap, firstGap],
+      selectedGapIds: ['G-first'],
+      attemptedActions: [action, {
+        arguments: { endLine: 20, path: 'src/a.js', startLine: 1 },
+        tool: 'repo_read_file',
+        type: 'tool',
+      }],
+      freshEvidenceRefs: ['E3', 'E3:search'],
+    };
+    const snapshot = structuredClone(input);
+    const result = applyEvidenceRepairRound(input);
+
+    assert.deepEqual(input, snapshot, 'repair reduction must not mutate its input');
+    assert.deepEqual(result.attemptedActionFingerprints, [fingerprintAction(action)]);
+    assert.equal(result.taskContract.subgoals.find(goal => goal.id === supported.id).state,
+      'supported');
+    assert.equal(result.taskContract.subgoals.find(goal => goal.id === firstGapGoal.id).state,
+      'exploring');
+    assert.equal(result.taskContract.subgoals.find(goal => goal.id === secondGapGoal.id).state,
+      'exploring', 'fresh counterevidence reopens every feasible gap');
+    assert.equal(result.taskContract.subgoals.find(goal => goal.id === blocked.id).state,
+      'blocked');
+    assert.ok(result.coverageGaps.every(gap => gap.repairable === false));
+    assert.ok(result.coverageGaps.every(gap => gap.followUp === undefined));
+    assert.deepEqual(result.coverageGaps.find(gap => gap.id === 'G-first')
+      .attemptedActionFingerprints, ['sha256:prior', fingerprintAction(action)]);
+    assert.deepEqual(result.coverageGaps.find(gap => gap.id === 'G-second')
+      .attemptedActionFingerprints, []);
+  });
+
+  test('Spec 028 T032 — repair rejects blocked and duplicate sub-goal gap links', () => {
+    const blocked = createAuditedSubgoal({
+      id: 'S-blocked-repair',
+      auditVerdict: 'blocked_scope',
+      blockerRef: 'G-blocked-repair',
+    });
+    const forgedRepairable = createCoverageGap({
+      id: 'G-forged-repair',
+      subgoalId: blocked.id,
+      question: blocked.question,
+      reason: 'missing_evidence',
+      repairable: true,
+    }, { requestOrder: 0, proofPolicy: blocked.proofPolicy });
+    const taskContract = createTaskContract({
+      task: 'Inspect the blocked goal.',
+      effectiveScope: ['src/**'],
+      constraints: [],
+      subgoals: [blocked],
+      plannerVersion: 'planner-v1',
+      goalAuditVersion: 'goal-audit-v1',
+    });
+    assert.throws(() => applyEvidenceRepairRound({
+      taskContract,
+      coverageGaps: [forgedRepairable],
+      selectedGapIds: [forgedRepairable.id],
+      attemptedActions: [],
+      freshEvidenceRefs: [],
+    }), /invalid sub-goal link/i);
+
+    const candidate = createCandidateSubgoal({ id: 'S-duplicate-gap' });
+    const gapGoal = transitionSubgoal(candidate, 'gap', { gapRef: 'G-duplicate-1' });
+    const first = createCoverageGap({
+      id: 'G-duplicate-1',
+      subgoalId: gapGoal.id,
+      question: gapGoal.question,
+      reason: 'missing_evidence',
+      repairable: true,
+    }, { requestOrder: 0, proofPolicy: gapGoal.proofPolicy });
+    const second = createCoverageGap({
+      id: 'G-duplicate-2',
+      subgoalId: gapGoal.id,
+      question: gapGoal.question,
+      reason: 'contradicted',
+      repairable: false,
+    }, { requestOrder: 0, proofPolicy: gapGoal.proofPolicy });
+    assert.throws(() => applyEvidenceRepairRound({
+      taskContract: { ...taskContract, subgoals: [gapGoal] },
+      coverageGaps: [first, second],
+      selectedGapIds: [first.id],
+      attemptedActions: [],
+      freshEvidenceRefs: [],
+    }), /multiple coverage gaps/i);
   });
 
   contractTest('Spec 028 T005 — illegal shortcuts and blocked-goal transitions fail closed', () => {
@@ -1216,6 +1370,37 @@ const contractTest = test;
     assert.deepEqual(result.gaps, []);
   });
 
+  test('Spec 028 T032 — every atomic claim must agree before a goal is supported', () => {
+    const claims = [
+      atomicClaim('C1'),
+      atomicClaim('C2', { subgoalId: 'S1', evidenceRefs: ['E2'] }),
+    ];
+    const base = {
+      requiredSubgoals: [candidateGoal('S1', ['C1', 'C2'])],
+      claims,
+      evidenceBySubgoal: [evidenceLink('S1', 'E1', 'E2')],
+    };
+    const contradicted = reduceClaims({
+      ...base,
+      semanticVerdicts: [
+        semanticVerdict('C1'),
+        semanticVerdict('C2', 'contradicted', { supportingEvidenceRefs: [] }),
+      ],
+    });
+    assert.deepEqual(goalStates(contradicted), [['S1', 'contradicted', undefined]]);
+    assert.deepEqual(gapStates(contradicted), [['S1', 'contradicted']]);
+
+    const incomplete = reduceClaims({
+      ...base,
+      semanticVerdicts: [
+        semanticVerdict('C1'),
+        semanticVerdict('C2', 'insufficient', { supportingEvidenceRefs: [] }),
+      ],
+    });
+    assert.deepEqual(goalStates(incomplete), [['S1', 'gap', undefined]]);
+    assert.deepEqual(gapStates(incomplete), [['S1', 'semantic_mismatch']]);
+  });
+
   claimReductionTest('Spec 028 T024 — supported refutation resolves a goal but contradiction alone does not', () => {
     const premise = atomicClaim('C1', {
       text: 'The claimed legacyLogin registration exists.',
@@ -1431,4 +1616,98 @@ const contractTest = test;
 
     assert.deepEqual(goalStates(result), [['S-empty', 'gap', undefined]]);
     assert.deepEqual(gapStates(result), [['S-empty', 'missing_evidence']]);
+  });
+
+  test('Spec 028 T032 — post-repair gaps require fresh proof and preserve attempted actions', () => {
+    const candidate = candidateGoal('S1', ['C1']);
+    const existingGap = {
+      ...createCoverageGap({
+        id: 'semantic-gap:S1',
+        subgoalId: 'S1',
+        question: candidate.question,
+        reason: 'semantic_mismatch',
+        repairable: false,
+      }, { requestOrder: 0, proofPolicy: candidate.proofPolicy }),
+      attemptedActionFingerprints: ['sha256:attempted'],
+    };
+    const oldOnly = atomicClaim('C1', { evidenceRefs: ['E1', 'E2'] });
+    const stalePromotion = reduceClaims({
+      phase: 'post-repair',
+      freshEvidenceRefs: ['E2'],
+      requiredSubgoals: [candidate],
+      existingGaps: [existingGap],
+      claims: [oldOnly],
+      semanticVerdicts: [semanticVerdict('C1', 'supported', {
+        supportingEvidenceRefs: ['E1'],
+      })],
+      evidenceBySubgoal: [evidenceLink('S1', 'E1', 'E2')],
+    });
+
+    assert.deepEqual(claimStates(stalePromotion), [['C1', 'supported']]);
+    assert.deepEqual(goalStates(stalePromotion), [['S1', 'gap', undefined]]);
+    assert.equal(stalePromotion.gaps[0].repairable, false);
+    assert.deepEqual(stalePromotion.gaps[0].attemptedActionFingerprints,
+      ['sha256:attempted']);
+    assert.equal(stalePromotion.gaps[0].followUp, undefined);
+    assert.throws(() => reduceClaims({
+      phase: 'post-repair',
+      freshEvidenceRefs: ['E2'],
+      requiredSubgoals: [candidate],
+      existingGaps: [existingGap, { ...existingGap, id: 'semantic-gap:S1:duplicate' }],
+      claims: [oldOnly],
+      semanticVerdicts: [semanticVerdict('C1', 'supported', {
+        supportingEvidenceRefs: ['E1'],
+      })],
+      evidenceBySubgoal: [evidenceLink('S1', 'E1', 'E2')],
+    }), /multiple existing gaps/i);
+
+    const refreshed = atomicClaim('C1', { evidenceRefs: ['E1', 'E2'] });
+    const supported = reduceClaims({
+      phase: 'post-repair',
+      freshEvidenceRefs: ['E2'],
+      requiredSubgoals: [candidate],
+      existingGaps: [existingGap],
+      claims: [refreshed],
+      semanticVerdicts: [semanticVerdict('C1', 'supported', {
+        supportingEvidenceRefs: ['E2'],
+      })],
+      evidenceBySubgoal: [evidenceLink('S1', 'E1', 'E2')],
+    });
+    assert.deepEqual(goalStates(supported), [['S1', 'supported', 'affirmed']]);
+    assert.deepEqual(supported.gaps, []);
+
+    const multiCandidate = candidateGoal('S-multi', ['C-old', 'C-fresh']);
+    const multiGap = {
+      ...existingGap,
+      id: 'semantic-gap:S-multi',
+      subgoalId: 'S-multi',
+      question: multiCandidate.question,
+    };
+    const supportedByCombinedEvidence = reduceClaims({
+      phase: 'post-repair',
+      freshEvidenceRefs: ['E2'],
+      requiredSubgoals: [multiCandidate],
+      existingGaps: [multiGap],
+      claims: [
+        atomicClaim('C-old', { subgoalId: 'S-multi', evidenceRefs: ['E1'] }),
+        atomicClaim('C-fresh', { subgoalId: 'S-multi', evidenceRefs: ['E2'] }),
+      ],
+      semanticVerdicts: [
+        semanticVerdict('C-old', 'supported', {
+          supportingEvidenceRefs: ['E1'],
+        }),
+        semanticVerdict('C-fresh', 'supported', {
+          supportingEvidenceRefs: ['E2'],
+        }),
+      ],
+      evidenceBySubgoal: [evidenceLink('S-multi', 'E1', 'E2')],
+    });
+    assert.deepEqual(claimStates(supportedByCombinedEvidence), [
+      ['C-fresh', 'supported'],
+      ['C-old', 'supported'],
+    ]);
+    assert.deepEqual(goalStates(supportedByCombinedEvidence), [
+      ['S-multi', 'supported', 'affirmed'],
+    ]);
+    assert.deepEqual(supportedByCombinedEvidence.gaps, []);
   });

@@ -4664,7 +4664,22 @@ function classifyControlRequest(request) {
 class ScriptedGoalAuditClient {
   constructor(steps) {
     this.model = 'zai-glm-4.7';
-    this.steps = steps;
+    const planningOnly = steps.some(step => step.stage.startsWith('synthesis:')) &&
+      !steps.some(step => step.stage.startsWith('claim_synthesis:') ||
+        step.stage.startsWith('semantic_verifier:'));
+    const explorationCount = steps.reduce((highest, step) => {
+      const match = /^exploration:(\d+)$/.exec(step.stage);
+      return match ? Math.max(highest, Number.parseInt(match[1], 10)) : highest;
+    }, 0);
+    this.steps = planningOnly
+      ? [
+          ...steps,
+          {
+            stage: `exploration:${explorationCount + 1}`,
+            content: 'Planning-only fixture closes the single evidence-repair round without a tool action.',
+          },
+        ]
+      : steps;
     this.stepCursor = 0;
     this.requests = [];
     this.completions = [];
@@ -4760,6 +4775,7 @@ auditedPlanningRuntimeTest('Spec 028 T017 — initial plan and isolated audit fi
     'goal_audit:1',
     'exploration:1',
     'synthesis:1',
+    'exploration:2',
   ]);
   assert.deepEqual(result.taskContract.subgoals.map(goal => goal.id),
     ['S-definition', 'S-absence']);
@@ -4830,6 +4846,7 @@ auditedPlanningRuntimeTest('Spec 028 T017 — one corrected plan is re-audited a
     'goal_coverage:1',
     'exploration:1',
     'synthesis:1',
+    'exploration:2',
   ]);
   assert.equal(result.taskContract.subgoals.length, 2);
   assert.equal(result.taskContract.subgoals[0].id, 'S-definition');
@@ -4898,6 +4915,7 @@ auditedPlanningRuntimeTest('Spec 028 T022 — corrected planning cannot drop rev
     'goal_audit:2',
     'exploration:1',
     'synthesis:1',
+    'exploration:2',
   ]);
   assert.deepEqual(result.rejectedGoals.map(goal => goal.proposedGoalId), ['S-invented']);
   assert.equal(result.taskContract.subgoals.some(goal => goal.id === 'S-invented'), false);
@@ -6162,11 +6180,11 @@ function buildTrustSteps({ goals, initial, repair }) {
     },
   ];
   let exploration = 0;
-  let synthesis = 0;
+  let claimSynthesis = 0;
   let verification = 0;
   let audit = 1;
 
-  const addPass = (pass, { optionalSynthesis = false } = {}) => {
+  const addPass = (pass, { includeFinalSynthesis = false } = {}) => {
     if (pass.providerError) {
       exploration += 1;
       steps.push({
@@ -6192,11 +6210,13 @@ function buildTrustSteps({ goals, initial, repair }) {
     }
     exploration += 1;
     steps.push({ stage: `exploration:${exploration}`, content: pass.prose ?? 'Evidence pass complete.' });
-    synthesis += 1;
+    if (includeFinalSynthesis) {
+      steps.push({ stage: 'synthesis:1', value: readyExplorationResult() });
+    }
+    claimSynthesis += 1;
     steps.push({
-      stage: `claim_synthesis:${synthesis}`,
+      stage: `claim_synthesis:${claimSynthesis}`,
       value: { claims: pass.claims },
-      optional: optionalSynthesis,
     });
 
     const verifierSteps = pass.verifierSteps ?? [{
@@ -6234,8 +6254,8 @@ function buildTrustSteps({ goals, initial, repair }) {
     }
   };
 
-  addPass(initial);
-  if (repair) addPass(repair, { optionalSynthesis: true });
+  addPass(initial, { includeFinalSynthesis: true });
+  if (repair) addPass(repair);
   return steps;
 }
 
@@ -6290,13 +6310,26 @@ test('Spec 028 T030 — isolated semantic controls reduce claims without trustin
         ]),
       }],
     },
+    repair: {
+      tools: [{
+        tool: 'repo_read_file',
+        args: { path: 'src/routes/user.js', startLine: 1, endLine: 20 },
+        id: 'repair-routes',
+      }],
+      assertRequest: request => assertRepairRequest(request, {
+        question: goals[1].question,
+        anchors: ['src/auth.js', 'legacyGuard'],
+      }),
+      claims: [
+        { ...supported, evidenceRefs: ['E1', 'E3'] },
+        { ...mismatch, evidenceRefs: ['E2', 'E3'] },
+      ],
+      verdicts: [
+        semanticVerdict(supported.id, 'supported', ['E1', 'E3']),
+        semanticVerdict(mismatch.id, 'insufficient'),
+      ],
+    },
   });
-  const claimStage = steps.findIndex(step => step.stage === 'claim_synthesis:1');
-  steps.splice(claimStage, 0, {
-    stage: 'synthesis:1',
-    value: readyExplorationResult(),
-  });
-
   const { client, result } = await runTrustScript(steps);
   assert.deepEqual(client.stageLabels, [
     'planner:1',
@@ -6307,18 +6340,38 @@ test('Spec 028 T030 — isolated semantic controls reduce claims without trustin
     'synthesis:1',
     'claim_synthesis:1',
     'semantic_verifier:1',
+    'exploration:4',
+    'exploration:5',
+    'claim_synthesis:2',
+    'semantic_verifier:2',
   ]);
-  for (const stage of ['claim_synthesis:1', 'semantic_verifier:1']) {
+  for (const stage of [
+    'claim_synthesis:1', 'semantic_verifier:1',
+    'claim_synthesis:2', 'semantic_verifier:2',
+  ]) {
     const request = client.requests[client.stageLabels.indexOf(stage)];
     assert.equal((request.tools?.length ?? 0), 0);
     assert.doesNotMatch(JSON.stringify(request.messages), new RegExp(privateSentinel));
   }
+  const postClaimRequest = client.requests[
+    client.stageLabels.indexOf('claim_synthesis:2')
+  ];
+  const priorPacketText = postClaimRequest.messages.findLast(message =>
+    typeof message.content === 'string' &&
+    message.content.includes('BEGIN_REQUIRED_PRIOR_CLAIMS_JSON'))?.content ?? '';
+  const priorPacketMatch = /BEGIN_REQUIRED_PRIOR_CLAIMS_JSON\n([\s\S]*?)\nEND_REQUIRED_PRIOR_CLAIMS_JSON/
+    .exec(priorPacketText);
+  assert.ok(priorPacketMatch);
+  const priorPacket = JSON.parse(priorPacketMatch[1]);
+  assert.ok(priorPacket.priorClaims.every(claim =>
+    Object.keys(claim).sort().join(',') === 'evidenceRefs,id,subgoalId,text'));
   assert.equal(result.taskContract.subgoals.find(goal =>
     goal.id === goals[0].id).state, 'supported');
   assert.equal(result.taskContract.subgoals.find(goal =>
     goal.id === goals[1].id).state, 'gap');
   assert.ok(result.coverageGaps.some(gap =>
-    gap.subgoalId === goals[1].id && gap.reason === 'semantic_mismatch'));
+    gap.subgoalId === goals[1].id && gap.reason === 'semantic_mismatch' &&
+    gap.repairable === false));
   assert.deepEqual(result.semanticVerification.verdicts.map(verdict =>
     [verdict.claimId, verdict.result]), [
     ['C-definition', 'supported'],
@@ -6326,19 +6379,19 @@ test('Spec 028 T030 — isolated semantic controls reduce claims without trustin
   ]);
   assert.deepEqual(result.semanticVerification.runtimeAllowedEvidenceRefsBySubgoal
     .map(item => [item.subgoalId, item.evidenceRefs]), [
-    ['S-definition', ['E1', 'E1:search', 'E2']],
-    ['S-absence', ['E1', 'E1:search', 'E2']],
+    ['S-definition', ['E1', 'E1:search', 'E2', 'E3', 'E3:search']],
+    ['S-absence', ['E1', 'E1:search', 'E2', 'E3', 'E3:search']],
   ]);
 });
 
 test('Spec 028 T031 — verifier proposals are audited once without re-planning or parent leakage', async t => {
   const fixtures = [
     {
-      name: 'ready proposal becomes an initial repair candidate',
+      name: 'ready proposal enters one repair and ends terminal',
       verdict: 'ready',
-      expectedReason: 'uncovered_request',
+      expectedReason: 'semantic_mismatch',
       expectedState: 'gap',
-      repairable: true,
+      repairable: false,
     },
     {
       name: 'untraceable proposal is discarded',
@@ -6387,18 +6440,37 @@ test('Spec 028 T031 — verifier proposals are audited once without re-planning 
           uncovered: [proposal],
           auditVerdict: fixture.verdict,
         },
+        repair: fixture.verdict === 'ready' ? {
+          tools: [{
+            tool: 'repo_read_file',
+            args: { path: 'src/routes/user.js', startLine: 1, endLine: 20 },
+            id: 'repair-auth-check',
+          }],
+          assertRequest: request => assertRepairRequest(request, {
+            question: proposal.question,
+            anchors: ['src/auth.js'],
+          }),
+          claims: [
+            { ...claim, evidenceRefs: ['E1', 'E2'] },
+            candidateClaim(
+              'C-late-auth-check',
+              'late-uncovered:initial:1',
+              'The requested additional authentication check is not yet established.',
+              ['E2'],
+            ),
+          ],
+          verdicts: [
+            semanticVerdict(claim.id, 'supported', ['E1', 'E2']),
+            semanticVerdict('C-late-auth-check', 'insufficient'),
+          ],
+        } : null,
       });
-      const claimStage = steps.findIndex(step => step.stage === 'claim_synthesis:1');
-      steps.splice(claimStage, 0, {
-        stage: 'synthesis:1',
-        value: readyExplorationResult(),
-      });
-
       const { client, result } = await runTrustScript(steps);
 
       assert.equal(client.stageCounts.get('planner'), 1);
       assert.equal(client.stageCounts.get('goal_audit'), 2);
-      assert.equal(client.stageCounts.get('semantic_verifier'), 1);
+      assert.equal(client.stageCounts.get('semantic_verifier'),
+        fixture.verdict === 'ready' ? 2 : 1);
       const lateAuditRequest = client.requests[client.stageLabels.indexOf('goal_audit:2')];
       assert.deepEqual(parseControlPacket(lateAuditRequest).proposals.map(item => item.id), [
         'late-uncovered:initial:1',
@@ -6454,13 +6526,35 @@ test('Spec 028 T031 — proposals from every verifier batch enter one late audit
         ));
       }
       if (stage === 'exploration') {
-        return count === 1
-          ? toolControlCompletion(
-              'repo_read_file',
-              { path: 'src/auth.js', startLine: 1, endLine: 4 },
-              'batch-read',
-            )
-          : controlCompletion('Evidence collection complete.');
+        if (count === 1) {
+          return toolControlCompletion(
+            'repo_read_file',
+            { path: 'src/auth.js', startLine: 1, endLine: 4 },
+            'batch-read',
+          );
+        }
+        if (count === 3) {
+          assertRepairRequest(request, {
+            question: 'Inspect verifier batch 1 follow-up requirement.',
+            anchors: ['src/auth.js'],
+          });
+          const repairMessage = request.messages.findLast(message =>
+            typeof message.content === 'string' &&
+            message.content.includes('BEGIN_EVIDENCE_REPAIR_JSON'))?.content ?? '';
+          const repairMatch = /BEGIN_EVIDENCE_REPAIR_JSON\n([\s\S]*?)\nEND_EVIDENCE_REPAIR_JSON/
+            .exec(repairMessage);
+          assert.ok(repairMatch);
+          assert.deepEqual(JSON.parse(repairMatch[1]).questions.map(item => item.question), [
+            'Inspect verifier batch 1 follow-up requirement.',
+            'Inspect verifier batch 2 follow-up requirement.',
+          ]);
+          return toolControlCompletion(
+            'repo_read_file',
+            { path: 'src/routes/user.js', startLine: 1, endLine: 20 },
+            'batch-repair-read',
+          );
+        }
+        return controlCompletion('Evidence collection complete.');
       }
       if (stage === 'synthesis') return controlCompletion(readyExplorationResult());
       if (stage === 'claim_synthesis') {
@@ -6470,21 +6564,26 @@ test('Spec 028 T031 — proposals from every verifier batch enter one late audit
             `C-${goal.id}`,
             goal.id,
             `Observed source evidence for ${goal.question}`,
-            ['E1'],
+            count <= 2
+              ? ['E1']
+              : goal.id.startsWith('late-uncovered:') ? ['E2'] : ['E1', 'E2'],
           )),
         });
       }
       if (stage === 'semantic_verifier') {
         const claims = parseControlPacket(request).claims;
         return controlCompletion(verifierResponse(
-          claims.map(claim => semanticVerdict(claim.id, 'supported', ['E1'])),
-          [{
+          claims.map(claim => claim.subgoalId.startsWith('late-uncovered:')
+            ? semanticVerdict(claim.id, 'insufficient')
+            : semanticVerdict(claim.id, 'supported',
+                count <= 2 ? ['E1'] : ['E1', 'E2'])),
+          count <= 2 ? [{
             question: `Inspect verifier batch ${count} follow-up requirement.`,
             originRefs: [`request:0-${task.length}`],
             claimType: 'positive',
             proofCondition: `Observe repository evidence for verifier batch ${count}.`,
             constraints: [],
-          }],
+          }] : [],
         ));
       }
       assert.fail(`unexpected stage ${stage}`);
@@ -6501,7 +6600,7 @@ test('Spec 028 T031 — proposals from every verifier batch enter one late audit
   });
 
   assert.equal(client.stageCounts.get('planner'), 1);
-  assert.equal(client.stageCounts.get('semantic_verifier'), 2);
+  assert.equal(client.stageCounts.get('semantic_verifier'), 4);
   assert.deepEqual(client.lateAuditBatches, [[
     'late-uncovered:initial:1',
     'late-uncovered:initial:2',
@@ -6510,8 +6609,8 @@ test('Spec 028 T031 — proposals from every verifier batch enter one late audit
     .filter(goal => goal.id.startsWith('late-uncovered:'))
     .map(goal => goal.state), ['gap', 'gap']);
   assert.deepEqual(result.coverageGaps
-    .filter(gap => gap.reason === 'uncovered_request')
-    .map(gap => gap.repairable), [true, true]);
+    .filter(gap => gap.subgoalId?.startsWith('late-uncovered:'))
+    .map(gap => gap.repairable), [false, false]);
 });
 
 test('Spec 028 T031 — post-repair verifier proposals use the same audit and stay terminal', async () => {
@@ -6627,7 +6726,7 @@ semanticPipelineRuntimeTest('Spec 028 T026 — verifier input is isolated and ga
   assert.equal(result.failure, null);
 });
 
-semanticPipelineRuntimeTest('Spec 028 T026 — verifier inventions are audited without re-planning or leakage', async t => {
+test('Spec 028 T032 — verifier inventions are audited without re-planning or leakage', async t => {
   const task = 'Locate requireAuth and report whether route registration needs another authentication check.';
   const goal = trustGoal(task, {
     id: 'S-definition',
@@ -6714,7 +6813,7 @@ semanticPipelineRuntimeTest('Spec 028 T026 — verifier inventions are audited w
   }
 });
 
-semanticPipelineRuntimeTest('Spec 028 T026 — one repair reopens claims and suppresses equivalent follow-up', async () => {
+test('Spec 028 T032 — one repair reopens claims and suppresses equivalent follow-up', async () => {
   const task = 'Verify every user route uses requireAuth and determine whether legacyGuard is registered.';
   const goals = [
     trustGoal(task, {
@@ -6727,11 +6826,17 @@ semanticPipelineRuntimeTest('Spec 028 T026 — one repair reopens claims and sup
       proofCondition: 'Use the exact grep and complete route-registration read without repeating either action.',
       constraints: ['Do not widen src/** or require external state.'],
     }),
+    trustGoal(task, {
+      id: 'S-recovered', question: 'Does the public route use requireAuth?',
+      originText: 'Verify every user route uses requireAuth', claimType: 'positive',
+    }),
   ];
   const routeClaim = candidateClaim(
     'C-routes', goals[0].id, 'Every observed user route uses requireAuth.', ['E1']);
   const legacyClaim = candidateClaim(
     'C-legacy', goals[1].id, 'legacyGuard is absent from src/**.', ['E2']);
+  const recoveredClaim = candidateClaim(
+    'C-recovered', goals[2].id, 'The public route uses requireAuth.', ['E1']);
   const repairAction = {
     type: 'tool',
     tool: 'repo_read_file',
@@ -6745,10 +6850,11 @@ semanticPipelineRuntimeTest('Spec 028 T026 — one repair reopens claims and sup
         { tool: 'repo_read_file', args: { path: 'src/routes/user.js', startLine: 1, endLine: 4 }, id: 'read-route' },
         { tool: 'repo_grep', args: { pattern: 'legacyGuard', scope: ['src/**'] }, id: 'grep-legacy' },
       ],
-      claims: [routeClaim, legacyClaim],
+      claims: [routeClaim, legacyClaim, recoveredClaim],
       verdicts: [
         semanticVerdict(routeClaim.id, 'supported', ['E1']),
         semanticVerdict(legacyClaim.id, 'insufficient'),
+        semanticVerdict(recoveredClaim.id, 'contradicted'),
       ],
     },
     repair: {
@@ -6764,14 +6870,19 @@ semanticPipelineRuntimeTest('Spec 028 T026 — one repair reopens claims and sup
       claims: [
         { ...routeClaim, evidenceRefs: ['E1', 'E3'] },
         { ...legacyClaim, evidenceRefs: ['E2', 'E3'] },
+        { ...recoveredClaim, evidenceRefs: ['E1', 'E3'] },
       ],
       verdicts: [
         semanticVerdict(routeClaim.id, 'contradicted'),
         semanticVerdict(legacyClaim.id, 'insufficient'),
+        semanticVerdict(recoveredClaim.id, 'supported', ['E3']),
       ],
       assertVerifier(request) {
         const packet = JSON.stringify(request.messages);
-        for (const id of ['S-routes', 'S-legacy', 'C-routes', 'C-legacy']) {
+        for (const id of [
+          'S-routes', 'S-legacy', 'S-recovered',
+          'C-routes', 'C-legacy', 'C-recovered',
+        ]) {
           assert.match(packet, new RegExp(id));
         }
         assert.match(packet, /\/users\/public/);
@@ -6787,16 +6898,158 @@ semanticPipelineRuntimeTest('Spec 028 T026 — one repair reopens claims and sup
   });
 
   assert.equal(client.stageCounts.get('semantic_verifier'), 2);
+  assert.equal(client.stageCounts.get('claim_synthesis'), 2);
+  assert.equal(client.stageCounts.get('planner'), 1);
   assert.equal(providerToolActions(client).filter(action =>
     fingerprintAction(action) === repairFingerprint).length, 1);
   assert.doesNotMatch(result.directAnswer ?? '', /Every observed user route uses requireAuth/);
   assert.equal(result.taskContract.subgoals.find(goal =>
     goal.id === goals[0].id).state, 'contradicted');
+  assert.equal(result.taskContract.subgoals.find(goal =>
+    goal.id === goals[2].id).state, 'supported',
+  'fresh repair evidence can resolve a previously contradicted goal');
   const legacyGap = result.coverageGaps.find(gap => gap.subgoalId === goals[1].id);
   assert.ok(legacyGap.attemptedActionFingerprints.includes(repairFingerprint));
+  assert.equal(legacyGap.repairable, false);
   assert.equal(legacyGap.followUp, undefined,
     'the only equivalent action was already attempted during repair');
+  assert.deepEqual(result.observations.map(observation => observation.id), [
+    'E1', 'E1:search', 'E2', 'E3', 'E3:search',
+  ]);
   assert.equal(result.failure, null);
+});
+
+test('Spec 028 T032 — repair never re-executes an equivalent initial action', async () => {
+  const task = 'Determine whether requireAuth is fully established by the inspected range.';
+  const goal = trustGoal(task, {
+    id: 'S-repeat',
+    question: task,
+    originText: task,
+  });
+  const claim = candidateClaim(
+    'C-repeat', goal.id, 'The inspected range fully establishes requireAuth.', ['E1']);
+  const action = {
+    type: 'tool',
+    tool: 'repo_read_file',
+    arguments: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+  };
+  const { client, result } = await runTrustScript(buildTrustSteps({
+    goals: [goal],
+    initial: {
+      tools: [{ tool: action.tool, args: action.arguments, id: 'initial-read' }],
+      claims: [claim],
+      verdicts: [semanticVerdict(claim.id, 'insufficient')],
+    },
+    repair: {
+      tools: [{ tool: action.tool, args: { endLine: 4, path: 'src/auth.js', startLine: 1 }, id: 'repeat-read' }],
+      assertRequest: request => assertRepairRequest(request, {
+        question: goal.question,
+        anchors: ['src/auth.js'],
+      }),
+      claims: [{ ...claim }],
+      verdicts: [semanticVerdict(claim.id, 'insufficient')],
+    },
+  }), { task });
+
+  assert.equal(client.stageCounts.get('claim_synthesis'), 1,
+    'no fresh observation means there is no post-repair synthesis');
+  assert.equal(client.stageCounts.get('semantic_verifier'), 1);
+  assert.deepEqual(result.observations.map(observation => observation.id), ['E1', 'E1:search']);
+  assert.equal(result.stats.filesRead, 1, 'the equivalent repair read was suppressed');
+  const gap = result.coverageGaps.find(item => item.subgoalId === goal.id);
+  assert.equal(gap.repairable, false);
+  assert.deepEqual(gap.attemptedActionFingerprints, [fingerprintAction(action)]);
+});
+
+test('Spec 028 T032 — post-repair synthesis cannot omit a prior claim', async () => {
+  const task = 'Determine whether requireAuth protects the inspected route.';
+  const goal = trustGoal(task, {
+    id: 'S-preserve',
+    question: task,
+    originText: task,
+  });
+  const claim = candidateClaim(
+    'C-preserve', goal.id, 'requireAuth protects the inspected route.', ['E1']);
+  const steps = buildTrustSteps({
+    goals: [goal],
+    initial: {
+      tools: [{
+        tool: 'repo_read_file',
+        args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+        id: 'initial-auth',
+      }],
+      claims: [claim],
+      verdicts: [semanticVerdict(claim.id, 'insufficient')],
+    },
+    repair: {
+      tools: [{
+        tool: 'repo_read_file',
+        args: { path: 'src/routes/user.js', startLine: 1, endLine: 20 },
+        id: 'repair-route',
+      }],
+      claims: [],
+      verdicts: [],
+    },
+  });
+  const omittedClaimIndex = steps.findIndex(step => step.stage === 'claim_synthesis:2');
+  steps.splice(omittedClaimIndex + 1, 0, {
+    stage: 'claim_synthesis:3',
+    value: { claims: [] },
+  });
+
+  await assert.rejects(runTrustScript(steps, { task }), error =>
+    error?.code === 'ERR_INVALID_GOAL_CONTROL' &&
+    /omitted prior claim C-preserve/.test(error.cause?.message ?? ''));
+});
+
+test('Spec 028 T032 — a zero-observation gap still receives the one repair round', async () => {
+  const task = 'Determine whether requireAuth is defined.';
+  const goal = trustGoal(task, {
+    id: 'S-anchorless',
+    question: task,
+    originText: task,
+  });
+  const claim = candidateClaim(
+    'C-anchorless', goal.id, 'requireAuth is defined in src/auth.js.', ['E1']);
+  const steps = [
+    { stage: 'planner:1', value: plannerControl([goal]) },
+    {
+      stage: 'goal_audit:1',
+      value: auditorControl([auditControlRecord(goal)]),
+    },
+    { stage: 'exploration:1', content: 'No initial repository action.' },
+    { stage: 'synthesis:1', value: readyExplorationResult() },
+    {
+      stage: 'exploration:2',
+      run(request) {
+        assertRepairRequest(request, { question: goal.question, anchors: [] });
+        const content = request.messages.find(message =>
+          message.role === 'user' && message.content.includes('BEGIN_EVIDENCE_REPAIR_JSON'))
+          ?.content ?? '';
+        const match = /BEGIN_EVIDENCE_REPAIR_JSON\n([\s\S]*?)\nEND_EVIDENCE_REPAIR_JSON/.exec(content);
+        assert.deepEqual(JSON.parse(match?.[1] ?? 'null').anchors, [],
+          'question and immutable scope bound an anchorless repair');
+        return toolControlCompletion('repo_read_file', {
+          path: 'src/auth.js', startLine: 1, endLine: 4,
+        }, 'anchorless-repair');
+      },
+    },
+    { stage: 'exploration:3', content: 'Anchorless repair complete.' },
+    { stage: 'claim_synthesis:1', value: { claims: [claim] } },
+    {
+      stage: 'semantic_verifier:1',
+      value: verifierResponse([semanticVerdict(claim.id, 'supported', ['E1'])]),
+    },
+  ];
+
+  const { client, result } = await runTrustScript(steps, { task });
+
+  assert.equal(client.stageCounts.get('exploration'), 3);
+  assert.equal(client.stageCounts.get('claim_synthesis'), 1);
+  assert.equal(result.taskContract.subgoals.find(item => item.id === goal.id).state,
+    'supported');
+  assert.equal(result.coverageGaps.some(gap => gap.subgoalId === goal.id), false);
+  assert.deepEqual(result.observations.map(observation => observation.id), ['E1', 'E1:search']);
 });
 
 semanticPipelineRuntimeTest('Spec 028 T026 — valid partial limits are goal-local and non-fatal', async () => {

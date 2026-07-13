@@ -32,12 +32,22 @@ function controlCompletion(value) {
  */
 export function adaptLegacyGoalAuditClient(chatClient, { rejectedGoal = null } = {}) {
   if (!chatClient) return chatClient;
+  let repairCalls = 0;
   return new Proxy(chatClient, {
     get(target, property, receiver) {
       if (property !== 'createChatCompletion') {
         return Reflect.get(target, property, receiver);
       }
       return async request => {
+        if (request.messages?.some(message =>
+          message.role === 'user' && typeof message.content === 'string' &&
+          message.content.includes('BEGIN_EVIDENCE_REPAIR_JSON'))) {
+          repairCalls += 1;
+          if (repairCalls > 1) {
+            throw new Error('Legacy runtime fixture observed more than one repair round.');
+          }
+          return controlCompletion('Legacy loop fixture has no scripted repair action.');
+        }
         const kind = controlKind(request);
         if (kind === 'planner') {
           const packet = parseControlPacket(request.messages);
