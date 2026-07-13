@@ -30,8 +30,29 @@ const TARGET_SIX_TOOL_NAMES = [
 ];
 
 const TARGET_DISPATCH_RULE =
-  'Need locations: find_relevant_code; known symbol: trace_symbol; change impact: map_change_impact; ' +
-  'code path: explain_code_path; verify a claim: collect_evidence; otherwise: explore_repo.';
+  'Need locations → find_relevant_code; Know the symbol → trace_symbol; ' +
+  'Plan a change → map_change_impact; Need an execution/data path → explain_code_path; ' +
+  'Need to verify one claim → collect_evidence; Anything else → explore_repo.';
+
+const TARGET_TOOL_DESCRIPTIONS = Object.freeze({
+  find_relevant_code:
+    'Use when locating unknown implementation, configuration, test, or route positions. Do not use when the exact location is already known.',
+  trace_symbol:
+    'Use when explaining a known function, class, type, or variable and its usages. Do not use for unknown-symbol discovery or execution-flow tracing.',
+  map_change_impact:
+    'Use before a planned change to identify its blast radius. Do not use for a one-line edit in a known file.',
+  explain_code_path:
+    'Use when tracing an ordered request, event, job, CLI, or data flow. Do not use for static single-symbol usage.',
+  collect_evidence:
+    'Use when supporting or refuting an existing claim or hypothesis. Do not use for broad discovery without a claim.',
+  explore_repo:
+    'Use for repository investigations not clearly covered by another tool. Do not use it to control search tactics or effort.',
+});
+
+// Test-first activation point: T055 flips this only after exact descriptions
+// and initialization instructions land. The assertions below never self-skip
+// based on the quality they are meant to enforce.
+const T055_SURFACE_TEXT_LANDED = false;
 
 const EXPECTED_WRAPPER_TOOL_NAMES = EXPECTED_PUBLIC_TOOL_NAMES.filter(
   name => name !== 'explore_repo' && name !== 'explore',
@@ -264,18 +285,27 @@ function assertReadOnlyAnnotations(tool) {
   assert.equal(tool.annotations.openWorldHint, true, `${tool.name} must disclose provider API egress`);
 }
 
-function isTargetSixToolSurface(tools) {
-  return JSON.stringify(tools.map(tool => tool.name)) === JSON.stringify(TARGET_SIX_TOOL_NAMES);
+async function surfaceWithEnv(envPatch) {
+  const restore = applyEnvPatch(envPatch);
+  try {
+    const { handleRequest } = createMcpRequestHandler();
+    const listed = await handleRequest({
+      jsonrpc: '2.0',
+      id: 98,
+      method: 'tools/list',
+      params: {},
+    });
+    return {
+      tools: listed.tools,
+      provenance: buildExecutionProvenance({ gitSha: 'abc1234' }),
+    };
+  } finally {
+    restore();
+  }
 }
 
-function hasConciseIntentDescription(tool, allTools) {
-  const description = tool.description ?? '';
-  const siblingNames = allTools.map(item => item.name).filter(name => name !== tool.name);
-  return /^Use (?:when|for)\b/.test(description) &&
-    (description.match(/\bDo not use\b/g) ?? []).length === 1 &&
-    (description.match(/[.!?](?:\s|$)/g) ?? []).length === 2 &&
-    description.length <= 320 &&
-    siblingNames.every(name => !description.includes(name));
+function isTargetSixToolSurface(tools) {
+  return JSON.stringify(tools.map(tool => tool.name)) === JSON.stringify(TARGET_SIX_TOOL_NAMES);
 }
 
 function sixToolSurfaceTest(name, callback) {
@@ -291,34 +321,33 @@ function sixToolSurfaceTest(name, callback) {
 
 sixToolSurfaceTest('Spec 028 T045 — tools/list and provenance use one stable six-tool order', async ({ tools }) => {
   assert.deepEqual(tools.map(tool => tool.name), TARGET_SIX_TOOL_NAMES);
-  const provenance = buildExecutionProvenance({ tools, gitSha: 'abc1234' });
+  const provenance = buildExecutionProvenance({ gitSha: 'abc1234' });
   assert.equal(provenance.exposedToolCount, 6);
   assert.deepEqual(provenance.toolNames, TARGET_SIX_TOOL_NAMES);
   assert.match(provenance.toolRegistryHash, /^[0-9a-f]{64}$/);
   assert.equal(
     provenance.toolRegistryHash,
-    buildExecutionProvenance({ tools, gitSha: 'different-sha' }).toolRegistryHash,
+    buildExecutionProvenance({ gitSha: 'different-sha' }).toolRegistryHash,
     'registry hash must not depend on git state',
   );
 });
 
 sixToolSurfaceTest('Spec 028 T045 — legacy environment variables cannot change the six-tool registry', async () => {
-  const scenarios = [
-    {},
-    {
-      CEREBRAS_EXPLORER_EXTRA_TOOLS: 'false',
-      CEREBRAS_EXPLORER_ENABLE_EXPLORE: 'false',
-      CEREBRAS_EXPLORER_ENABLE_EXPLORE_V2: 'false',
-    },
-    {
-      CEREBRAS_EXPLORER_EXTRA_TOOLS: 'true',
-      CEREBRAS_EXPLORER_ENABLE_EXPLORE: 'true',
-      CEREBRAS_EXPLORER_ENABLE_EXPLORE_V2: 'true',
-    },
+  const legacyKeys = [
+    'CEREBRAS_EXPLORER_EXTRA_TOOLS',
+    'CEREBRAS_EXPLORER_ENABLE_EXPLORE',
+    'CEREBRAS_EXPLORER_ENABLE_EXPLORE_V2',
   ];
+  const scenarios = [{}];
+  for (let mask = 0; mask < 2 ** legacyKeys.length; mask += 1) {
+    scenarios.push(Object.fromEntries(legacyKeys.map((key, index) =>
+      [key, mask & (1 << index) ? 'true' : 'false'])));
+  }
   for (const env of scenarios) {
-    const tools = await listToolsWithEnv(env);
+    const { tools, provenance } = await surfaceWithEnv(env);
     assert.deepEqual(tools.map(tool => tool.name), TARGET_SIX_TOOL_NAMES);
+    assert.deepEqual(provenance.toolNames, TARGET_SIX_TOOL_NAMES);
+    assert.equal(provenance.exposedToolCount, 6);
     for (const tool of tools) assertReadOnlyAnnotations(tool);
   }
 });
@@ -339,18 +368,22 @@ sixToolSurfaceTest('Spec 028 T045 — removed public tool names are listed nowhe
 });
 
 test('Spec 028 T045 — retained tool descriptions have one trigger and one boundary', async t => {
-  const tools = await listToolsWithEnv({});
-  if (!isTargetSixToolSurface(tools) ||
-      !tools.every(tool => hasConciseIntentDescription(tool, tools))) {
-    t.todo('awaiting concise six-tool descriptions');
+  if (!T055_SURFACE_TEXT_LANDED) {
+    t.todo('T055 activates exact description fixtures');
     return;
   }
+  const tools = await listToolsWithEnv({});
+  assert.deepEqual(tools.map(tool => tool.name), TARGET_SIX_TOOL_NAMES);
   for (const tool of tools) {
-    assert.equal(hasConciseIntentDescription(tool, tools), true, tool.name);
+    assert.equal(tool.description, TARGET_TOOL_DESCRIPTIONS[tool.name], tool.name);
   }
 });
 
 test('Spec 028 T045 — initialization contains one concise six-way dispatch rule', async t => {
+  if (!T055_SURFACE_TEXT_LANDED) {
+    t.todo('T055 activates exact initialization fixtures');
+    return;
+  }
   const { handleRequest } = createMcpRequestHandler();
   const initialized = await handleRequest({
     jsonrpc: '2.0',
@@ -358,15 +391,47 @@ test('Spec 028 T045 — initialization contains one concise six-way dispatch rul
     method: 'initialize',
     params: { protocolVersion: '2025-06-18', capabilities: {} },
   });
-  if (!initialized.instructions.includes(TARGET_DISPATCH_RULE)) {
-    t.todo('awaiting concise initialization dispatch instructions');
-    return;
-  }
+  assert.ok(initialized.instructions.includes(TARGET_DISPATCH_RULE));
   assert.ok(initialized.instructions.length <= 800);
   assert.doesNotMatch(initialized.instructions, /review_change_context|Markdown report|status\.verification/);
   for (const name of TARGET_SIX_TOOL_NAMES) {
     assert.equal(initialized.instructions.split(name).length - 1, 1, name);
   }
+});
+
+test('Spec 028 T045 — MCP rejects hints.strategy as invalid arguments before provider use', async t => {
+  const tools = await listToolsWithEnv({});
+  const exploreRepoTool = tools.find(tool => tool.name === 'explore_repo');
+  if (exploreRepoTool?.inputSchema?.properties?.hints?.properties?.strategy !== undefined) {
+    t.todo('awaiting public strategy removal');
+    return;
+  }
+  let providerCalls = 0;
+  const { handleRequest } = createMcpRequestHandler({
+    runtimeOptions: {
+      chatClient: {
+        model: 'must-not-run',
+        async createChatCompletion() {
+          providerCalls += 1;
+          throw new Error('provider must not be called for invalid arguments');
+        },
+      },
+    },
+  });
+  const called = await handleRequest({
+    jsonrpc: '2.0',
+    id: 47,
+    method: 'tools/call',
+    params: {
+      name: 'explore_repo',
+      arguments: { task: 'Trace auth.', hints: { strategy: 'symbol-first' } },
+    },
+  });
+  assert.equal(called.isError, true);
+  assert.equal(called.structuredContent?.state, 'failed');
+  assert.equal(called.structuredContent?.failure?.reason, 'invalid_arguments');
+  assert.equal(called._meta, undefined);
+  assert.equal(providerCalls, 0);
 });
 
 // T037 precedes the T042 MCP projection. As with the other test-first tasks,

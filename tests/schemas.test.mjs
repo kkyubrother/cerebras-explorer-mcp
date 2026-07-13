@@ -10,6 +10,7 @@ import {
   EXPLORE_REPO_OUTPUT_SCHEMA,
   EXPLORE_RESULT_JSON_SCHEMA,
   GOAL_AUDIT_RECORD_SCHEMA,
+  PUBLIC_TOOL_ARGUMENT_SCHEMAS,
   RETRY_SCHEMA,
   SAFETY_LIMIT_SCHEMA,
   SEMANTIC_VERIFIER_RESPONSE_SCHEMA,
@@ -29,6 +30,9 @@ import {
   validateTaskContract,
 } from '../src/explorer/schemas.mjs';
 import { RETRY_TOOLS } from '../src/explorer/runtime.mjs';
+
+// Test-first activation point for T055's retry/provenance vocabulary cleanup.
+const T055_RETRY_VOCABULARY_LANDED = false;
 
 test('Spec 028 T045 — explore_repo rejects public hints.strategy but keeps anchors', t => {
   if (EXPLORE_REPO_INPUT_SCHEMA.properties.hints.properties.strategy !== undefined) {
@@ -61,6 +65,26 @@ test('Spec 028 T045 — explore_repo rejects public hints.strategy but keeps anc
       /Unknown explore_repo hints argument: strategy/,
     );
   }
+});
+
+test('Spec 028 T045 — retry vocabularies are set-equal to the six public tools', t => {
+  if (!T055_RETRY_VOCABULARY_LANDED) {
+    t.todo('T055 activates exact retry vocabulary assertions');
+    return;
+  }
+  const expected = Object.keys(PUBLIC_TOOL_ARGUMENT_SCHEMAS);
+  assert.deepEqual(expected, [
+    'find_relevant_code',
+    'trace_symbol',
+    'map_change_impact',
+    'explain_code_path',
+    'collect_evidence',
+    'explore_repo',
+  ]);
+  assert.deepEqual(RETRY_SCHEMA.properties.tool.enum, expected);
+  assert.deepEqual(RETRY_TOOLS, expected);
+  assert.equal(RETRY_SCHEMA.properties.args.properties.reviewGoal, undefined);
+  assert.equal(RETRY_SCHEMA.properties.args.properties.prompt, undefined);
 });
 
 function internalSchemaTest(schema, validate, name, callback) {
@@ -758,16 +782,14 @@ test('reconcileConfidence: model low is preserved even when computed is high', (
   assert.equal(result, 'low', 'lower of model/computed wins; here model=low');
 });
 
-test('agent-facing strategy hint stays advanced only and budget input was removed in spec 011', () => {
+test('public budget input stays removed while strategy completes its v3 migration', () => {
   assert.equal(
     EXPLORE_REPO_INPUT_SCHEMA.properties.budget,
     undefined,
     'spec 011: budget input was removed',
   );
-  assert.match(
-    EXPLORE_REPO_INPUT_SCHEMA.properties.hints.properties.strategy.description,
-    /Advanced only/,
-  );
+  const strategy = EXPLORE_REPO_INPUT_SCHEMA.properties.hints.properties.strategy;
+  if (strategy !== undefined) assert.match(strategy.description, /Advanced only/);
 });
 
 // Named T010 imports keep these trust-plane contracts fail-closed if an export
