@@ -449,9 +449,8 @@ export function evaluateConfidence({
   };
 }
 
-export function deriveTaskKindFromHints(hints = {}) {
-  const strategy = hints?.strategy ?? null;
-  return strategy === 'symbol-first' ? 'locate' : (strategy ?? 'default');
+export function deriveTaskKindFromTaskMode(taskMode) {
+  return taskMode === 'locate' || taskMode === 'symbol_trace' ? 'locate' : 'default';
 }
 
 function pushWarning(warnings, warning) {

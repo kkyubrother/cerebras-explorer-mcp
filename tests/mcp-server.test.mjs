@@ -379,13 +379,10 @@ test('Spec 028 T045 — initialization contains one concise six-way dispatch rul
   }
 });
 
-test('Spec 028 T045 — MCP rejects hints.strategy as invalid arguments before provider use', async t => {
+test('Spec 028 T045 — MCP rejects hints.strategy as invalid arguments before provider use', async () => {
   const tools = await listToolsWithEnv({});
   const exploreRepoTool = tools.find(tool => tool.name === 'explore_repo');
-  if (exploreRepoTool?.inputSchema?.properties?.hints?.properties?.strategy !== undefined) {
-    t.todo('awaiting public strategy removal');
-    return;
-  }
+  assert.equal(exploreRepoTool?.inputSchema?.properties?.hints?.properties?.strategy, undefined);
   let providerCalls = 0;
   const { handleRequest } = createMcpRequestHandler({
     runtimeOptions: {

@@ -40,11 +40,7 @@ test('Spec 028 T049 — removed report tool is absent from retry schema and runt
   assert.equal(RETRY_SCHEMA.properties.args.properties.prompt, undefined);
 });
 
-test('Spec 028 T045 — explore_repo rejects public hints.strategy but keeps anchors', t => {
-  if (EXPLORE_REPO_INPUT_SCHEMA.properties.hints.properties.strategy !== undefined) {
-    t.todo('awaiting public strategy removal');
-    return;
-  }
+test('Spec 028 T045 — explore_repo rejects public hints.strategy but keeps anchors', () => {
   assert.deepEqual(
     Object.keys(EXPLORE_REPO_INPUT_SCHEMA.properties.hints.properties).sort(),
     ['files', 'regex', 'symbols'],
@@ -794,14 +790,17 @@ test('reconcileConfidence: model low is preserved even when computed is high', (
   assert.equal(result, 'low', 'lower of model/computed wins; here model=low');
 });
 
-test('public budget input stays removed while strategy completes its v3 migration', () => {
+test('public budget and strategy inputs stay removed', () => {
   assert.equal(
     EXPLORE_REPO_INPUT_SCHEMA.properties.budget,
     undefined,
     'spec 011: budget input was removed',
   );
-  const strategy = EXPLORE_REPO_INPUT_SCHEMA.properties.hints.properties.strategy;
-  if (strategy !== undefined) assert.match(strategy.description, /Advanced only/);
+  assert.equal(
+    EXPLORE_REPO_INPUT_SCHEMA.properties.hints.properties.strategy,
+    undefined,
+    'spec 028: strategy selection is runtime-owned',
+  );
 });
 
 // Named T010 imports keep these trust-plane contracts fail-closed if an export

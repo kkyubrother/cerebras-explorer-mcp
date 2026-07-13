@@ -46,8 +46,7 @@ const EXPLORE_REPO_TOOL = {
     'Prefer the specialized tools when intent matches (find_relevant_code to locate code, trace_symbol for a known symbol, map_change_impact for blast radius, explain_code_path for a flow, collect_evidence to verify a claim). ' +
     'Do not use for edits, running tests/builds, or single known-file inspection. ' +
     'Returns structured JSON with directAnswer, status, targets, grounded file:line evidence with snippets, and nextAction. ' +
-    'After this tool, avoid broad grep/read; only read cited targets needed for verification or edits. ' +
-    'Omit hints.strategy unless required by an advanced workflow.',
+    'After this tool, avoid broad grep/read; only read cited targets needed for verification or edits.',
   inputSchema: EXPLORE_REPO_INPUT_SCHEMA,
   outputSchema: EXPLORE_REPO_OUTPUT_SCHEMA,
   annotations: readOnlyToolAnnotations('Autonomous repository explorer'),
@@ -299,7 +298,7 @@ function escapeRegexLiteral(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function buildAnchorHints({ knownFiles, knownSymbols, knownText, strategy } = {}) {
+function buildAnchorHints({ knownFiles, knownSymbols, knownText } = {}) {
   const hints = {};
   const files = cleanStringArray(knownFiles);
   const symbols = cleanStringArray(knownSymbols);
@@ -307,7 +306,6 @@ function buildAnchorHints({ knownFiles, knownSymbols, knownText, strategy } = {}
   if (files.length > 0) hints.files = files;
   if (symbols.length > 0) hints.symbols = symbols;
   if (regex.length > 0) hints.regex = regex;
-  if (strategy) hints.strategy = strategy;
   return Object.keys(hints).length > 0 ? hints : undefined;
 }
 
@@ -320,7 +318,7 @@ function buildTraceSymbolArgs(args) {
   return {
     task, repo_root, scope,
     taskMode: 'symbol_trace',
-    hints: { symbols: [symbol.trim()], strategy: 'symbol-first' },
+    hints: { symbols: [symbol.trim()] },
   };
 }
 
@@ -350,7 +348,7 @@ function buildMapChangeImpactArgs(args) {
     repo_root,
     scope,
     taskMode: 'edit_planning',
-    hints: buildAnchorHints({ knownFiles, knownSymbols, strategy: 'reference-chase' }),
+    hints: buildAnchorHints({ knownFiles, knownSymbols }),
   };
 }
 
@@ -367,7 +365,7 @@ function buildExplainCodePathArgs(args) {
     repo_root,
     scope,
     taskMode: 'path_explanation',
-    hints: buildAnchorHints({ knownFiles: files, knownSymbols, strategy: 'reference-chase' }),
+    hints: buildAnchorHints({ knownFiles: files, knownSymbols }),
   };
 }
 
@@ -398,6 +396,14 @@ export function buildParentHandoffResponse(parentHandoff) {
     ...(safeHandoff.state === 'failed' ? { isError: true } : {}),
     ...buildParentPayload(safeHandoff),
   };
+}
+
+function validateExploreRepoPublicArgs(args) {
+  try {
+    validateExploreRepoArgs(args);
+  } catch (error) {
+    throw makeInvalidArgsError(error?.message ?? String(error));
+  }
 }
 
 // ─── Request handler ────────────────────────────────────────────────────────
@@ -563,7 +569,7 @@ export function createMcpRequestHandler({
           }
 
           if (name === 'explore_repo') {
-            validateExploreRepoArgs(args);
+            validateExploreRepoPublicArgs(args);
             return await callTool(args, progressToken, requestId, name);
           }
           if (name === 'find_relevant_code') {

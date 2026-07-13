@@ -51,7 +51,7 @@ import {
 } from './schemas.mjs';
 import {
   applyClaimEvidenceGate,
-  deriveTaskKindFromHints,
+  deriveTaskKindFromTaskMode,
   runDeterministicCriticPass,
 } from './critic.mjs';
 import {
@@ -4082,6 +4082,7 @@ export class ExplorerRuntime {
           hints: args.hints,
           sessionTargetPaths: [],
           language: args.language,
+          taskMode: args.taskMode,
         }),
       },
     ]).value;
@@ -4922,7 +4923,7 @@ export class ExplorerRuntime {
       stats,
     );
 
-    const taskKind = deriveTaskKindFromHints(args.hints);
+    const taskKind = deriveTaskKindFromTaskMode(args.taskMode);
 
     // spec 026: build gate input for the usage cross-check.
     // targetSymbol is sourced from args.hints.symbols[0] (set by trace_symbol wrapper).

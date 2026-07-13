@@ -34,12 +34,6 @@ export const EXPLORE_REPO_INPUT_SCHEMA = {
           description:
             'Advanced only. Prefer wrapper knownText for literal anchors; use regex only when the caller already knows an exact pattern.',
         },
-        strategy: {
-          type: 'string',
-          enum: ['symbol-first', 'reference-chase', 'git-guided', 'breadth-first', 'blame-guided', 'pattern-scan'],
-          description:
-            'Advanced only. Omit for normal agent use; strategy is auto-detected from the task and known anchors.',
-        },
       },
     },
     language: {
@@ -634,10 +628,6 @@ export function validateExploreRepoArgs(args, { allowInternal = false } = {}) {
           throw new Error(`hints.${key} must be an array of strings when provided.`);
         }
       }
-    }
-    const validStrategies = ['symbol-first', 'reference-chase', 'git-guided', 'breadth-first', 'blame-guided', 'pattern-scan'];
-    if (args.hints.strategy !== undefined && !validStrategies.includes(args.hints.strategy)) {
-      throw new Error(`hints.strategy must be one of: ${validStrategies.join(', ')}.`);
     }
   }
 }

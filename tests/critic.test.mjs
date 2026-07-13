@@ -4,7 +4,7 @@ import * as criticModule from '../src/explorer/critic.mjs';
 
 import {
   buildCriticWarnings,
-  deriveTaskKindFromHints,
+  deriveTaskKindFromTaskMode,
   groundEvidenceList,
   runDeterministicCriticPass,
 } from '../src/explorer/critic.mjs';
@@ -21,10 +21,11 @@ function makeStats(overrides = {}) {
   };
 }
 
-test('deriveTaskKindFromHints maps symbol-first to locate', () => {
-  assert.equal(deriveTaskKindFromHints({ strategy: 'symbol-first' }), 'locate');
-  assert.equal(deriveTaskKindFromHints({ strategy: 'reference-chase' }), 'reference-chase');
-  assert.equal(deriveTaskKindFromHints({}), 'default');
+test('deriveTaskKindFromTaskMode preserves runtime-owned locate classification', () => {
+  assert.equal(deriveTaskKindFromTaskMode('locate'), 'locate');
+  assert.equal(deriveTaskKindFromTaskMode('symbol_trace'), 'locate');
+  assert.equal(deriveTaskKindFromTaskMode('edit_planning'), 'default');
+  assert.equal(deriveTaskKindFromTaskMode(), 'default');
 });
 
 test('groundEvidenceList returns exact, partial, and dropped evidence counts without mutating input', () => {

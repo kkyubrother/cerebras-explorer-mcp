@@ -1561,7 +1561,6 @@ test('ExplorerRuntime does not expose recentActivity when git_log tool is called
   const result = await runtime.explore({
     task: '최근에 어떤 파일이 변경되었나요?',
     repo_root: root,
-    hints: { strategy: 'git-guided' },
   });
 
   assert.equal(result.recentActivity, undefined);
@@ -2146,7 +2145,6 @@ test('Phase 5 — git_commit evidence without verified SHA is dropped (strict va
   const result = await runtime.explore({
     task: '이 버그가 언제 도입됐나요?',
     repo_root: root,
-    hints: { strategy: 'git-guided' },
   });
 
   // The semantic projection may retain separately verified source evidence, but it must
@@ -2414,6 +2412,26 @@ test('Phase 3 — detectStrategy returns single string for unambiguous task', ()
   const strategy = detectStrategy('requireAuth 함수가 어디 정의되어 있는지 찾아라');
   assert.equal(typeof strategy, 'string', 'unambiguous task must return a single strategy string');
   assert.equal(strategy, 'symbol-first');
+});
+
+test('Spec 028 T053 — wrapper task modes preserve internal strategy without a public hint', () => {
+  const tracePrompt = buildExplorerUserPrompt({
+    task: 'Inspect this delegated target.',
+    scope: [],
+    hints: { symbols: ['requireAuth'] },
+    taskMode: 'symbol_trace',
+  });
+  assert.match(tracePrompt, /Strategy: symbol-first/);
+
+  for (const taskMode of ['edit_planning', 'path_explanation']) {
+    const prompt = buildExplorerUserPrompt({
+      task: 'Inspect this delegated target.',
+      scope: [],
+      hints: { files: ['src/auth.mjs'] },
+      taskMode,
+    });
+    assert.match(prompt, /Strategy: reference-chase/);
+  }
 });
 
 test('Phase 3 — Korean task produces Korean answer/summary language (language rule)', async () => {
@@ -4287,7 +4305,7 @@ test('spec 026 T003(h): symbol_trace with all evidence ungrounded → broad_sear
 test('spec 026 T015: buildExplorerUserPrompt symbol-first approach includes cross-check instruction and truncated fallback', () => {
   const prompt = buildExplorerUserPrompt({
     task: 'Find where requireAuth is defined',
-    hints: { strategy: 'symbol-first', symbols: ['requireAuth'] },
+    hints: { symbols: ['requireAuth'] },
     scope: [],
   });
 

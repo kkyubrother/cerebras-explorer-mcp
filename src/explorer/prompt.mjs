@@ -827,8 +827,14 @@ function formatStrategyLine(strategy) {
   return `Strategy: ${strategy} — ${STRATEGY_DESCRIPTIONS[strategy] ?? strategy}`;
 }
 
-export function buildExplorerUserPrompt({ task, scope, hints, sessionTargetPaths, language }) {
-  const strategy = hints?.strategy ?? detectStrategy(task);
+function strategyForTaskMode(taskMode) {
+  if (taskMode === 'symbol_trace') return 'symbol-first';
+  if (taskMode === 'edit_planning' || taskMode === 'path_explanation') return 'reference-chase';
+  return null;
+}
+
+export function buildExplorerUserPrompt({ task, scope, hints, sessionTargetPaths, language, taskMode }) {
+  const strategy = strategyForTaskMode(taskMode) ?? detectStrategy(task);
 
   const lines = [
     'Delegated exploration request:',
