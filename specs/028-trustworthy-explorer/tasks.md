@@ -60,7 +60,7 @@
 
 - [x] T015 [P] [US3] Add the full deterministic goal-audit matrix for valid offsets, wrapper seeds, duplicates, circular proof conditions, decomposition, missing request parts, every blocker category, difficulty-not-infeasibility, and `planning_incomplete` materialization in `tests/coverage.test.mjs`
 - [x] T016 [P] [US3] Add strict planner/auditor schema tests for origin references, claim-type/proof-policy combinations, categorical verdicts, and runtime-owned revision decisions in `tests/schemas.test.mjs`
-- [ ] T017 [P] [US3] Add mock-provider tests for initial plan/audit, one corrected plan/audit, malformed audit failure, all-blocked early completion, cancellation at each new stage, and audited late-goal batching in `tests/runtime.mock.test.mjs`
+- [x] T017 [P] [US3] Add mock-provider tests for initial plan/audit, one corrected plan/audit, malformed audit failure, all-blocked early completion, cancellation at each new stage, and audited late-goal batching in `tests/runtime.mock.test.mjs`
 - [ ] T018 [P] [US3] Add prompt-boundary regressions proving repository comments, docs, tests, fixtures, paths, and git messages cannot alter planner/auditor instructions or proof policy in `tests/regression.test.mjs`
 
 ### Implementation for User Story 3
