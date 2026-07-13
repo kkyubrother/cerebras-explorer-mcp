@@ -9,6 +9,7 @@ import { ExplorerRuntime as RuntimeImplementation, estimateTokens } from '../src
 import { buildExplorerSystemPrompt, buildFreeExploreSystemPrompt, buildFinalizePrompt, detectStrategy, buildExplorerUserPrompt, STRATEGY_DESCRIPTIONS } from '../src/explorer/prompt.mjs';
 import { getRuntimeConfig } from '../src/explorer/config.mjs';
 import { RepoToolkit } from '../src/explorer/repo-tools.mjs';
+import { fingerprintAction } from '../src/explorer/coverage.mjs';
 import { adaptLegacyGoalAuditClient } from './helpers/legacy-goal-audit-client.mjs';
 
 function hasGit() {
@@ -4510,6 +4511,10 @@ function classifyControlRequest(request) {
   if (required.includes('findings') && required.includes('uncoveredRequestParts')) {
     return 'goal_coverage';
   }
+  if (required.includes('claims')) return 'claim_synthesis';
+  if (required.includes('verdicts') && required.includes('uncoveredRequestParts')) {
+    return 'semantic_verifier';
+  }
   if (request.responseFormat) return 'synthesis';
   return 'exploration';
 }
@@ -4518,14 +4523,17 @@ class ScriptedGoalAuditClient {
   constructor(steps) {
     this.model = 'zai-glm-4.7';
     this.steps = steps;
+    this.stepCursor = 0;
     this.requests = [];
+    this.completions = [];
     this.stageCounts = new Map();
     this.stageLabels = [];
   }
 
   async createChatCompletion(request) {
     const stage = classifyControlRequest(request);
-    if (stage === 'planner' || stage === 'goal_audit' || stage === 'goal_coverage') {
+    if (stage === 'planner' || stage === 'goal_audit' || stage === 'goal_coverage' ||
+        stage === 'semantic_verifier') {
       assert.equal((request.tools?.length ?? 0), 0,
         `${stage} must not receive repository tools`);
     }
@@ -4535,11 +4543,19 @@ class ScriptedGoalAuditClient {
     this.stageLabels.push(label);
     this.requests.push(request);
 
-    const step = this.steps[this.requests.length - 1];
+    let step = this.steps[this.stepCursor];
+    while (step?.optional && step.stage !== label) {
+      this.stepCursor += 1;
+      step = this.steps[this.stepCursor];
+    }
     assert.ok(step, `unexpected provider call ${label}`);
     assert.equal(label, step.stage);
-    if (step.run) return step.run(request);
-    return controlCompletion(step.content ?? step.value);
+    this.stepCursor += 1;
+    const completion = step.run
+      ? await step.run(request, this)
+      : controlCompletion(step.content ?? step.value);
+    this.completions.push(completion);
+    return completion;
   }
 }
 
@@ -5894,4 +5910,528 @@ auditedPlanningRuntimeTest('Spec 028 T017 — late goal audit forwards cancellat
     wrapperTool: 'find_relevant_code',
     proposals: [proposal],
   }, { abortSignal: controller.signal }), error => error?.name === 'AbortError');
+});
+
+// T030-T033 implement this pipeline in stages. T033 flips this alias after the
+// verifier, late-goal audit, repair, and fatal-fault paths have all landed.
+const semanticPipelineRuntimeTest = test.todo;
+
+function trustGoal(task, {
+  id,
+  question,
+  originText,
+  claimType = 'positive',
+  proofCondition = `Observe current repository evidence for ${question}`,
+  constraints = [],
+}) {
+  return {
+    id,
+    question,
+    originRefs: [requestOrigin(task, originText)],
+    claimType,
+    proofCondition,
+    constraints,
+  };
+}
+
+function candidateClaim(id, subgoalId, text, evidenceRefs) {
+  return { id, subgoalId, text, evidenceRefs };
+}
+
+function semanticVerdict(claimId, result, evidenceRefs = []) {
+  return {
+    claimId,
+    result,
+    ...(result === 'supported' ? { resolution: 'affirmed' } : {}),
+    supportingEvidenceRefs: evidenceRefs,
+    reasonCode: result === 'supported'
+      ? 'entailed'
+      : result === 'contradicted' ? 'contradiction' : 'semantic_mismatch',
+    note: `${claimId} is ${result}.`,
+  };
+}
+
+function toolControlCompletion(tool, args, id) {
+  return {
+    usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+    finishReason: 'tool_calls',
+    message: {
+      content: '',
+      toolCalls: [{
+        id,
+        function: { name: tool, arguments: JSON.stringify(args) },
+      }],
+    },
+  };
+}
+
+function parseControlPacket(request) {
+  const content = request.messages.findLast(message =>
+    message.role === 'user' && typeof message.content === 'string' &&
+    message.content.includes('BEGIN_CONTROL_DATA_JSON'))?.content ?? '';
+  const match = /BEGIN_CONTROL_DATA_JSON\n([\s\S]*?)\nEND_CONTROL_DATA_JSON/.exec(content);
+  assert.ok(match, 'isolated control request must contain structured control data');
+  return JSON.parse(match[1]);
+}
+
+function lateAuditResponse(request, verdict) {
+  const packet = parseControlPacket(request);
+  const proposals = packet.proposals ?? [];
+  assert.ok(proposals.length > 0);
+  return controlCompletion(auditorControl(proposals.map(proposal =>
+    auditControlRecord(proposal, verdict, verdict === 'reject_untraceable'
+      ? { originRefs: [] }
+      : {}))));
+}
+
+function verifierResponse(verdicts, uncoveredRequestParts = []) {
+  return { verdicts, uncoveredRequestParts };
+}
+
+function assertRepairRequest(request, { question, anchors }) {
+  const packet = JSON.stringify(request.messages);
+  assert.ok(packet.includes(question));
+  assert.ok(packet.includes('src/**'));
+  for (const anchor of anchors) assert.ok(packet.includes(anchor));
+  assert.ok((request.tools?.length ?? 0) > 0,
+    'repair must remain a scoped repository-tool pass');
+  assert.equal(request.responseFormat, undefined,
+    'repair input is a gap task, not a second planner/control response');
+}
+
+function buildTrustSteps({ goals, initial, repair }) {
+  const steps = [
+    { stage: 'planner:1', value: plannerControl(goals) },
+    {
+      stage: 'goal_audit:1',
+      value: auditorControl(goals.map(goal => auditControlRecord(goal))),
+    },
+  ];
+  let exploration = 0;
+  let synthesis = 0;
+  let verification = 0;
+  let audit = 1;
+
+  const addPass = (pass, { optionalSynthesis = false } = {}) => {
+    if (pass.providerError) {
+      exploration += 1;
+      steps.push({
+        stage: `exploration:${exploration}`,
+        run(request) {
+          pass.assertRequest?.(request);
+          const error = new Error(pass.providerError);
+          error.retryable = false;
+          throw error;
+        },
+      });
+      return;
+    }
+    for (const call of pass.tools ?? []) {
+      exploration += 1;
+      steps.push({
+        stage: `exploration:${exploration}`,
+        run(request) {
+          pass.assertRequest?.(request);
+          return toolControlCompletion(call.tool, call.args, call.id);
+        },
+      });
+    }
+    exploration += 1;
+    steps.push({ stage: `exploration:${exploration}`, content: pass.prose ?? 'Evidence pass complete.' });
+    synthesis += 1;
+    steps.push({
+      stage: `claim_synthesis:${synthesis}`,
+      value: { claims: pass.claims },
+      optional: optionalSynthesis,
+    });
+
+    const verifierSteps = pass.verifierSteps ?? [{
+      verdicts: pass.verdicts,
+      uncovered: pass.uncovered,
+      assertRequest: pass.assertVerifier,
+    }];
+    for (const verifier of verifierSteps) {
+      verification += 1;
+      steps.push({
+        stage: `semantic_verifier:${verification}`,
+        run(request) {
+          verifier.assertRequest?.(request);
+          if (verifier.error) {
+            const error = new Error(verifier.error);
+            error.retryable = false;
+            throw error;
+          }
+          if (verifier.raw !== undefined) {
+            return controlCompletion(verifier.raw, { finishReason: verifier.finishReason });
+          }
+          return controlCompletion(verifierResponse(
+            verifier.verdicts,
+            verifier.uncovered ?? [],
+          ));
+        },
+      });
+    }
+    if (pass.auditVerdict) {
+      audit += 1;
+      steps.push({
+        stage: `goal_audit:${audit}`,
+        run: request => lateAuditResponse(request, pass.auditVerdict),
+      });
+    }
+  };
+
+  addPass(initial);
+  if (repair) addPass(repair, { optionalSynthesis: true });
+  return steps;
+}
+
+async function runTrustScript(steps, { task, setup } = {}) {
+  const root = await makeRepoFixture();
+  if (setup) await setup(root);
+  const client = new ScriptedGoalAuditClient(steps);
+  const runtime = new RuntimeImplementation({ chatClient: client });
+  const result = await runtime.explore({
+    task: task ?? GOAL_AUDIT_TASK,
+    repo_root: root,
+    scope: ['src/**'],
+  });
+  return { client, result };
+}
+
+function providerToolActions(client) {
+  return client.completions.flatMap(completion => completion?.message?.toolCalls ?? [])
+    .map(call => ({
+      type: 'tool',
+      tool: call.function.name,
+      arguments: JSON.parse(call.function.arguments),
+    }));
+}
+
+function assertNoRequiredLeak(result, text) {
+  assert.equal(result.taskContract.subgoals.some(goal => goal.question === text), false);
+  assert.equal(result.coverageGaps.some(gap => gap.question === text), false);
+  assert.doesNotMatch(result.directAnswer ?? '', new RegExp(text));
+}
+
+semanticPipelineRuntimeTest('Spec 028 T026 — verifier input is isolated and gates semantic mismatch', async () => {
+  const goals = definitionAndAbsenceGoals();
+  const supported = candidateClaim(
+    'C-definition', goals[0].id, 'requireAuth is defined in src/auth.js.', ['E1']);
+  const mismatch = candidateClaim(
+    'C-absence', goals[1].id, 'legacyGuard is absent from every repository path.', ['E2']);
+  const privateSentinels = [
+    'PRIVATE_EXPLORER_REASONING',
+    'MODEL_CONFIDENCE_099',
+  ];
+  const steps = buildTrustSteps({
+    goals,
+    initial: {
+      tools: [
+        { tool: 'repo_read_file', args: { path: 'src/auth.js', startLine: 1, endLine: 4 }, id: 'read-auth' },
+        { tool: 'repo_grep', args: { pattern: 'legacyGuard', scope: ['src/**'] }, id: 'grep-legacy' },
+      ],
+      prose: privateSentinels.join(' '),
+      claims: [supported, mismatch],
+      verdicts: [
+        semanticVerdict(supported.id, 'supported', ['E1']),
+        semanticVerdict(mismatch.id, 'insufficient'),
+      ],
+      assertVerifier(request) {
+        const packet = JSON.stringify(request.messages);
+        for (const expected of [
+          'Locate requireAuth', 'src/**', supported.id, mismatch.id,
+          'export function requireAuth', 'sourceRole', 'temporalRole', 'current',
+        ]) assert.match(packet, new RegExp(expected.replaceAll('*', '\\*')));
+        for (const sentinel of privateSentinels) {
+          assert.doesNotMatch(packet, new RegExp(sentinel));
+        }
+      },
+    },
+  });
+  const { client, result } = await runTrustScript(steps);
+
+  assert.equal(client.stageCounts.get('semantic_verifier'), 1);
+  assert.equal(result.taskContract.subgoals.find(goal =>
+    goal.id === goals[0].id).state, 'supported');
+  assert.equal(result.taskContract.subgoals.find(goal =>
+    goal.id === goals[1].id).state, 'gap');
+  assert.match(result.directAnswer, /requireAuth is defined/);
+  assert.doesNotMatch(result.directAnswer, /absent from every repository path/);
+  assert.ok(result.coverageGaps.some(gap =>
+    gap.subgoalId === goals[1].id && gap.reason === 'semantic_mismatch'));
+  assert.equal(result.failure, null);
+});
+
+semanticPipelineRuntimeTest('Spec 028 T026 — verifier inventions are audited without re-planning or leakage', async t => {
+  const task = 'Locate requireAuth and report whether route registration needs another authentication check.';
+  const goal = trustGoal(task, {
+    id: 'S-definition',
+    question: 'Where is requireAuth defined?',
+    originText: 'Locate requireAuth',
+    claimType: 'symbol_definition',
+  });
+  const claim = candidateClaim(
+    'C-definition', goal.id, 'requireAuth is defined in src/auth.js.', ['E1']);
+  const cases = [
+    {
+      name: 'initial untraceable proposal is discarded',
+      question: 'Which unrelated cache should be rewritten?',
+      initialVerdict: 'supported',
+      auditVerdict: 'reject_untraceable',
+      postRepair: false,
+    },
+    {
+      name: 'post-repair traceable proposal becomes a terminal gap',
+      question: 'Which route registration needs another authentication check?',
+      initialVerdict: 'insufficient',
+      auditVerdict: 'ready',
+      postRepair: true,
+    },
+    {
+      name: 'post-repair untraceable proposal is discarded',
+      question: 'Which unrelated cache should be rewritten?',
+      initialVerdict: 'insufficient',
+      auditVerdict: 'reject_untraceable',
+      postRepair: true,
+    },
+  ];
+
+  for (const fixture of cases) {
+    await t.test(fixture.name, async () => {
+      const proposal = {
+        question: fixture.question,
+        originRefs: [requestOrigin(task, fixture.postRepair
+          ? 'report whether route registration needs another authentication check'
+          : 'Locate requireAuth')],
+        claimType: 'positive',
+        proofCondition: `Observe evidence for ${fixture.question}`,
+        constraints: [],
+      };
+      const initial = {
+        tools: [{ tool: 'repo_read_file', args: { path: 'src/auth.js', startLine: 1, endLine: 1 }, id: 'read-partial' }],
+        claims: [claim],
+        verdicts: [semanticVerdict(claim.id, fixture.initialVerdict,
+          fixture.initialVerdict === 'supported' ? ['E1'] : [])],
+        ...(fixture.postRepair ? {} : {
+          uncovered: [proposal], auditVerdict: fixture.auditVerdict,
+        }),
+      };
+      const repair = fixture.postRepair ? {
+        tools: [{ tool: 'repo_read_file', args: { path: 'src/auth.js', startLine: 1, endLine: 4 }, id: 'repair-read' }],
+        assertRequest: request => assertRepairRequest(request, {
+          question: goal.question,
+          anchors: ['src/auth.js'],
+        }),
+        claims: [{ ...claim, evidenceRefs: ['E1', 'E2'] }],
+        verdicts: [semanticVerdict(claim.id, 'supported', ['E1', 'E2'])],
+        uncovered: [proposal],
+        auditVerdict: fixture.auditVerdict,
+      } : null;
+      const { client, result } = await runTrustScript(
+        buildTrustSteps({ goals: [goal], initial, repair }), { task });
+
+      assert.equal(client.stageCounts.get('planner'), 1);
+      assert.equal(client.stageCounts.get('goal_audit'), 2);
+      assert.equal(client.stageCounts.get('semantic_verifier'), fixture.postRepair ? 2 : 1);
+      assert.equal(providerToolActions(client).filter(action =>
+        action.arguments.path === 'src/auth.js' && action.arguments.endLine === 4).length,
+      fixture.postRepair ? 1 : 0);
+      if (fixture.auditVerdict === 'ready') {
+        const gap = result.coverageGaps.find(item => item.question === fixture.question);
+        assert.ok(gap);
+        assert.equal(gap.reason, 'uncovered_request');
+        assert.equal(gap.repairable, false);
+      } else {
+        assertNoRequiredLeak(result, fixture.question);
+      }
+      assert.equal(result.failure, null);
+    });
+  }
+});
+
+semanticPipelineRuntimeTest('Spec 028 T026 — one repair reopens claims and suppresses equivalent follow-up', async () => {
+  const task = 'Verify every user route uses requireAuth and determine whether legacyGuard is registered.';
+  const goals = [
+    trustGoal(task, {
+      id: 'S-routes', question: 'Does every user route use requireAuth?',
+      originText: 'Verify every user route uses requireAuth', claimType: 'absence',
+    }),
+    trustGoal(task, {
+      id: 'S-legacy', question: 'Is legacyGuard registered?',
+      originText: 'determine whether legacyGuard is registered', claimType: 'absence',
+      proofCondition: 'Use the exact grep and complete route-registration read without repeating either action.',
+      constraints: ['Do not widen src/** or require external state.'],
+    }),
+  ];
+  const routeClaim = candidateClaim(
+    'C-routes', goals[0].id, 'Every observed user route uses requireAuth.', ['E1']);
+  const legacyClaim = candidateClaim(
+    'C-legacy', goals[1].id, 'legacyGuard is absent from src/**.', ['E2']);
+  const repairAction = {
+    type: 'tool',
+    tool: 'repo_read_file',
+    arguments: { path: 'src/routes/user.js', startLine: 1, endLine: 20 },
+  };
+  const repairFingerprint = fingerprintAction(repairAction);
+  const steps = buildTrustSteps({
+    goals,
+    initial: {
+      tools: [
+        { tool: 'repo_read_file', args: { path: 'src/routes/user.js', startLine: 1, endLine: 4 }, id: 'read-route' },
+        { tool: 'repo_grep', args: { pattern: 'legacyGuard', scope: ['src/**'] }, id: 'grep-legacy' },
+      ],
+      claims: [routeClaim, legacyClaim],
+      verdicts: [
+        semanticVerdict(routeClaim.id, 'supported', ['E1']),
+        semanticVerdict(legacyClaim.id, 'insufficient'),
+      ],
+    },
+    repair: {
+      tools: [{
+        tool: repairAction.tool,
+        args: { endLine: 20, startLine: 1, path: 'src/routes/user.js' },
+        id: 'repair-routes',
+      }],
+      assertRequest: request => assertRepairRequest(request, {
+        question: goals[1].question,
+        anchors: ['src/routes/user.js', 'legacyGuard'],
+      }),
+      claims: [
+        { ...routeClaim, evidenceRefs: ['E1', 'E3'] },
+        { ...legacyClaim, evidenceRefs: ['E2', 'E3'] },
+      ],
+      verdicts: [
+        semanticVerdict(routeClaim.id, 'contradicted'),
+        semanticVerdict(legacyClaim.id, 'insufficient'),
+      ],
+      assertVerifier(request) {
+        const packet = JSON.stringify(request.messages);
+        for (const id of ['S-routes', 'S-legacy', 'C-routes', 'C-legacy']) {
+          assert.match(packet, new RegExp(id));
+        }
+        assert.match(packet, /\/users\/public/);
+      },
+    },
+  });
+  const { client, result } = await runTrustScript(steps, {
+    task,
+    setup: root => fs.appendFile(
+      path.join(root, 'src', 'routes', 'user.js'),
+      '\n\nexport const publicRoute = app => app.get("/users/public", publicHandler);',
+    ),
+  });
+
+  assert.equal(client.stageCounts.get('semantic_verifier'), 2);
+  assert.equal(providerToolActions(client).filter(action =>
+    fingerprintAction(action) === repairFingerprint).length, 1);
+  assert.doesNotMatch(result.directAnswer ?? '', /Every observed user route uses requireAuth/);
+  assert.equal(result.taskContract.subgoals.find(goal =>
+    goal.id === goals[0].id).state, 'contradicted');
+  const legacyGap = result.coverageGaps.find(gap => gap.subgoalId === goals[1].id);
+  assert.ok(legacyGap.attemptedActionFingerprints.includes(repairFingerprint));
+  assert.equal(legacyGap.followUp, undefined,
+    'the only equivalent action was already attempted during repair');
+  assert.equal(result.failure, null);
+});
+
+semanticPipelineRuntimeTest('Spec 028 T026 — valid partial limits are goal-local and non-fatal', async () => {
+  const goals = definitionAndAbsenceGoals();
+  const definition = candidateClaim(
+    'C-definition', goals[0].id, 'requireAuth is defined in src/auth.js.', ['E1']);
+  const exhaustive = candidateClaim(
+    'C-long', goals[1].id, 'legacyGuard is absent from every line of src/long.js.', ['E2']);
+  const steps = buildTrustSteps({
+    goals,
+    initial: {
+      tools: [
+        { tool: 'repo_read_file', args: { path: 'src/auth.js', startLine: 1, endLine: 4 }, id: 'read-auth' },
+        { tool: 'repo_read_file', args: { path: 'src/long.js', startLine: 1, endLine: 10_000 }, id: 'read-long' },
+      ],
+      claims: [definition, exhaustive],
+      verdicts: [
+        semanticVerdict(definition.id, 'supported', ['E1']),
+        semanticVerdict(exhaustive.id, 'insufficient'),
+      ],
+      assertVerifier(request) {
+        assert.match(JSON.stringify(request.messages),
+          /tool_result_limit|toolTruncated|contextTruncated/);
+      },
+    },
+  });
+  const { client, result } = await runTrustScript(steps, {
+    setup: root => fs.writeFile(
+      path.join(root, 'src', 'long.js'),
+      Array.from({ length: 400 }, (_, index) => `export const line${index} = ${index};`).join('\n'),
+    ),
+  });
+
+  assert.equal(client.stageCounts.get('semantic_verifier'), 1);
+  assert.equal(result.failure, null);
+  assert.match(result.directAnswer, /requireAuth is defined/);
+  assert.doesNotMatch(result.directAnswer, /legacyGuard is absent from every line/);
+  assert.ok(result.coverageGaps.some(gap =>
+    gap.subgoalId === goals[1].id && gap.reason === 'safety_limit_reached'));
+});
+
+semanticPipelineRuntimeTest('Spec 028 T026 — invalid verifier and provider faults fail closed', async t => {
+  const goal = definitionAndAbsenceGoals()[0];
+  const staleText = 'UNVERIFIED_FIRST_PASS_CLAIM';
+  const claim = candidateClaim('C-stale', goal.id, staleText, ['E1']);
+  const faultCases = [
+    {
+      name: 'malformed verifier JSON after bounded recovery',
+      verifierSteps: [{ raw: '{"verdicts":' }, { raw: '{"verdicts":' }],
+      verifierCalls: 2,
+    },
+    {
+      name: 'output-capped invalid verifier JSON',
+      verifierSteps: [
+        { raw: '{"verdicts":', finishReason: 'length' },
+        { raw: '{"verdicts":', finishReason: 'length' },
+      ],
+      verifierCalls: 2,
+      check(result) {
+        const limit = result.stats.safetyLimits.find(item =>
+          item.name === 'generation_output_limit');
+        assert.equal(limit.stage, 'verification');
+        assert.equal(limit.truncated, true);
+      },
+    },
+    {
+      name: 'provider fault at verifier',
+      verifierSteps: [{ error: 'non-retryable verifier outage' }],
+      verifierCalls: 1,
+    },
+    {
+      name: 'provider fault during repair',
+      verifierSteps: [{ verdicts: [semanticVerdict(claim.id, 'insufficient')] }],
+      repairError: 'non-retryable repair outage',
+      verifierCalls: 1,
+    },
+  ];
+
+  for (const fixture of faultCases) {
+    await t.test(fixture.name, async () => {
+      const initial = {
+        tools: [{ tool: 'repo_read_file', args: { path: 'src/auth.js', startLine: 1, endLine: 4 }, id: 'read-auth' }],
+        prose: staleText,
+        claims: [claim],
+        verifierSteps: fixture.verifierSteps,
+      };
+      const repair = fixture.repairError ? { providerError: fixture.repairError } : null;
+      if (repair) {
+        repair.assertRequest = request => assertRepairRequest(request, {
+          question: goal.question,
+          anchors: ['src/auth.js'],
+        });
+      }
+      const { client, result } = await runTrustScript(
+        buildTrustSteps({ goals: [goal], initial, repair }));
+
+      assert.ok(result.failure);
+      assert.doesNotMatch(result.directAnswer ?? '', new RegExp(staleText));
+      assert.equal(client.stageCounts.get('semantic_verifier'), fixture.verifierCalls);
+      fixture.check?.(result);
+    });
+  }
 });

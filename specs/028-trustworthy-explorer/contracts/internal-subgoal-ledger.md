@@ -141,7 +141,25 @@ It does not receive:
 - unrelated candidate paths;
 - token or latency statistics.
 
-Verifier output is claim verdicts plus proposed `uncoveredRequestParts`. It cannot add evidence or new answer claims. An uncovered suggestion includes exact request/wrapper origin references and a proof condition, then passes [goal-audit.md](./goal-audit.md) before registration. Only audited `ready` goals may enter the remaining repair round; audited blockers become required gaps, and untraceable suggestions are discarded/logged.
+Verifier output uses one bounded control object:
+
+```json
+{
+  "verdicts": [
+    {
+      "claimId": "C1",
+      "result": "supported",
+      "resolution": "affirmed",
+      "supportingEvidenceRefs": ["E1"],
+      "reasonCode": "entailed",
+      "note": "The rebuilt source entails the candidate claim."
+    }
+  ],
+  "uncoveredRequestParts": []
+}
+```
+
+It cannot add evidence or new answer claims. An uncovered suggestion includes exact request/wrapper origin references and a proof condition, then passes [goal-audit.md](./goal-audit.md) before registration. Only audited `ready` goals may enter the remaining repair round; audited blockers become required gaps, and untraceable suggestions are discarded/logged.
 
 A `contradicted` verdict applies to the candidate claim, not automatically to the required goal. A `supported` verdict carries `resolution=affirmed|refuted`; runtime never derives this classification from claim prose. If another existing atomic claim is a semantically supported refutation, the goal becomes `supported` with `resolution=refuted`. Without a supported resolution, or when supported claims disagree on resolution, the goal remains a gap/contradiction.
 
