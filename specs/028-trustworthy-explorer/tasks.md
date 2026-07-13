@@ -22,7 +22,7 @@
 
 - [x] T001 Create `benchmarks/trust-known-answer.json` with pinned fixture/repository hashes, requested sub-goals, allowed and forbidden claims, evidence anchors, boundaries, expected states, repeat counts, and schema-v2 parent-payload baselines for every Phase 0 case in `specs/028-trustworthy-explorer/plan.md`
 - [x] T002 Create deterministic minimal repositories and provider-response fixtures for semantic mismatch, multi-part omission, route-policy divergence, scoped/truncated search, cancellation, provider failure, goal invention, infeasible goals, and repair counterevidence under `fixtures/trust-known-answer/`
-- [ ] T003 Add manifest/fixture integrity tests that reject missing hashes, self-authored explorer oracles, invalid boundaries, missing expected goals, and unparseable cases in `tests/benchmark-evaluator.test.mjs`
+- [x] T003 Add manifest/fixture integrity tests that reject missing hashes, self-authored explorer oracles, invalid boundaries, missing expected goals, and unparseable cases in `tests/benchmark-evaluator.test.mjs`
 - [x] T004 Pin the observed false-complete outputs and request-id-zero cancellation defect as immutable expected-failure records under `fixtures/trust-known-answer/baseline-results/`, and add green assertions that the independent oracle detects each trust failure in `tests/benchmark-evaluator.test.mjs`
 
 **Checkpoint**: Every known trust failure is reproducible from a pinned fixture or independently checked case before production logic changes.

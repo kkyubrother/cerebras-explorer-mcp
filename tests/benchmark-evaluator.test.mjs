@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import {
   evaluateBenchmarkCase,
@@ -11,6 +13,32 @@ import {
 
 const TRUST_MANIFEST_URL = new URL('../benchmarks/trust-known-answer.json', import.meta.url);
 const BASELINE_RESULTS_URL = new URL('../fixtures/trust-known-answer/baseline-results/', import.meta.url);
+const PROJECT_ROOT = fileURLToPath(new URL('../', import.meta.url));
+const SHA256_PATTERN = /^[0-9a-f]{64}$/;
+const GIT_SHA_PATTERN = /^[0-9a-f]{40}$/;
+const SAFE_ORACLE_PROVENANCE = new Set([
+  'fixture_assertion',
+  'source_review',
+  'external_record',
+]);
+const FORBIDDEN_ORACLE_PROVENANCE = [
+  'explorer_output',
+  'model_output',
+  'self_report',
+];
+const ORACLE_CLAIM_TYPES = new Set([
+  'positive',
+  'absence',
+  'count',
+  'symbol_definition',
+  'symbol_usage',
+  'flow',
+  'impact',
+  'comparison',
+  'claim_verification',
+]);
+const ORACLE_RESOLUTIONS = new Set(['supported', 'refuted', 'gap', 'failed']);
+const ORACLE_STATES = new Set(['complete', 'incomplete', 'failed']);
 
 const EXPECTED_KNOWN_BAD_VIOLATIONS = {
   'obs-deny-list-count-range': ['FORBIDDEN_CLAIM_PRESENT'],
@@ -32,7 +60,7 @@ const EXPECTED_KNOWN_BAD_VIOLATIONS = {
 };
 
 async function loadTrustManifest() {
-  return JSON.parse(await fs.readFile(TRUST_MANIFEST_URL, 'utf8'));
+  return parseTrustManifest(await fs.readFile(TRUST_MANIFEST_URL, 'utf8'));
 }
 
 function artifactDefinitionForCase(manifest, caseDefinition) {
@@ -65,11 +93,781 @@ async function loadKnownBadEntries() {
   return { manifest, entries };
 }
 
-function canonicalSha256(rawText) {
+function normalizeLfBytes(input) {
+  const bytes = Buffer.isBuffer(input) ? input : Buffer.from(input);
+  const output = [];
+  for (let index = 0; index < bytes.length; index += 1) {
+    if (bytes[index] !== 13) {
+      output.push(bytes[index]);
+      continue;
+    }
+    if (bytes[index + 1] === 10) index += 1;
+    output.push(10);
+  }
+  return Buffer.from(output);
+}
+
+function canonicalSha256(input) {
   return createHash('sha256')
-    .update(rawText.replace(/\r\n?/g, '\n'))
+    .update(normalizeLfBytes(input))
     .digest('hex');
 }
+
+function parseTrustManifest(rawText) {
+  try {
+    return JSON.parse(rawText);
+  } catch (cause) {
+    const error = new Error('Trust manifest is not valid JSON.', { cause });
+    error.code = 'INVALID_TRUST_MANIFEST';
+    error.problems = ['manifest is not valid JSON'];
+    throw error;
+  }
+}
+
+function isObject(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isSafeRelativePath(value) {
+  return typeof value === 'string'
+    && value.length > 0
+    && !value.includes('\\')
+    && !value.startsWith('/')
+    && !/^[A-Za-z]:/.test(value)
+    && value.split('/').every(part => part !== '' && part !== '.' && part !== '..');
+}
+
+function isSafeScope(value) {
+  return isSafeRelativePath(value)
+    && (!/[*?\[]/.test(value)
+      || (value.endsWith('/**') && !/[*?\[]/.test(value.slice(0, -3))));
+}
+
+function pathInScope(candidate, scope) {
+  return Array.isArray(scope) && scope.some(entry => typeof entry === 'string'
+    && (entry.endsWith('/**')
+      ? candidate === entry.slice(0, -3) || candidate.startsWith(entry.slice(0, -3) + '/')
+      : candidate === entry));
+}
+
+function sameStringSet(left, right) {
+  return Array.isArray(left)
+    && Array.isArray(right)
+    && new Set(left).size === left.length
+    && new Set(right).size === right.length
+    && left.length === right.length
+    && left.every(value => right.includes(value));
+}
+
+function projectPath(relativePath) {
+  return path.join(PROJECT_ROOT, ...relativePath.split('/'));
+}
+
+async function walkRegularFiles(root, relativeRoot = '') {
+  const files = [];
+  for (const entry of await fs.readdir(root, { withFileTypes: true })) {
+    const relativePath = relativeRoot ? relativeRoot + '/' + entry.name : entry.name;
+    const absolutePath = path.join(root, entry.name);
+    if (entry.isSymbolicLink()) throw new Error('symlink: ' + relativePath);
+    if (entry.isDirectory()) {
+      files.push(...await walkRegularFiles(absolutePath, relativePath));
+    } else if (entry.isFile()) {
+      files.push({ absolutePath, relativePath });
+    } else {
+      throw new Error('non-regular entry: ' + relativePath);
+    }
+  }
+  return files;
+}
+
+async function fixtureTreeSha256(root, readFile) {
+  const files = await walkRegularFiles(root);
+  files.sort((left, right) => left.relativePath === right.relativePath
+    ? 0
+    : left.relativePath < right.relativePath ? -1 : 1);
+  const hash = createHash('sha256');
+  for (const file of files) {
+    const content = normalizeLfBytes(await readFile(file.absolutePath));
+    hash.update(file.relativePath);
+    hash.update('\0');
+    hash.update(String(content.length));
+    hash.update('\0');
+    hash.update(content);
+    hash.update('\0');
+  }
+  return hash.digest('hex');
+}
+
+function validateProvider(document, label, problems) {
+  if (!isObject(document)
+      || document.fixtureVersion !== 1
+      || typeof document.scenario !== 'string'
+      || document.scenario.length === 0
+      || !Array.isArray(document.responses)
+      || document.responses.length === 0) {
+    problems.push(label + ' has an invalid provider document shape');
+    return;
+  }
+  if (Object.hasOwn(document, 'oracle')) problems.push(label + ' embeds a model-authored oracle');
+  document.responses.forEach((response, index) => {
+    const modes = isObject(response)
+      ? [Object.hasOwn(response, 'result'), Object.hasOwn(response, 'error'), response.waitForAbort === true]
+      : [];
+    if (!isObject(response)
+        || typeof response.stage !== 'string'
+        || response.stage.length === 0
+        || modes.filter(Boolean).length !== 1) {
+      problems.push(label + ' response ' + index + ' is not parseable');
+    } else if (Object.hasOwn(response, 'result')) {
+      const message = response.result?.message;
+      if (!isObject(message)
+          || !Object.hasOwn(message, 'content')
+          || !Array.isArray(message.toolCalls)) {
+        problems.push(label + ' response ' + index + ' has an invalid result message');
+      }
+    } else if (Object.hasOwn(response, 'error')
+        && (!isObject(response.error)
+          || typeof response.error.message !== 'string'
+          || response.error.message.length === 0)) {
+      problems.push(label + ' response ' + index + ' has an invalid error');
+    }
+  });
+}
+
+async function readPinned(relativePath, expectedHash, label, context, parseJson = false) {
+  const { problems, readFile } = context;
+  if (!isSafeRelativePath(relativePath)) {
+    problems.push(label + ' path is not repository-relative');
+    return null;
+  }
+  if (!SHA256_PATTERN.test(expectedHash ?? '')) {
+    problems.push(label + ' is missing a SHA-256 pin');
+  }
+  let raw;
+  try {
+    raw = await readFile(projectPath(relativePath));
+  } catch (error) {
+    problems.push(label + ' cannot be read: ' + error.code);
+    return null;
+  }
+  if (SHA256_PATTERN.test(expectedHash ?? '') && canonicalSha256(raw) !== expectedHash) {
+    problems.push(label + ' hash does not match');
+  }
+  if (!parseJson) return raw;
+  try {
+    return JSON.parse(raw.toString('utf8'));
+  } catch {
+    problems.push(label + ' is not valid JSON');
+    return null;
+  }
+}
+
+async function collectTrustManifestProblems(manifest, options = {}) {
+  const problems = [];
+  const context = { problems, readFile: options.readFile ?? fs.readFile };
+  if (!isObject(manifest)) return ['manifest must be an object'];
+  if (manifest.schemaVersion !== 1) problems.push('manifest schemaVersion must be 1');
+  if (manifest.hashSchemes?.file?.id !== 'sha256-lf-v1'
+      || manifest.hashSchemes?.fixtureTree?.id !== 'sha256-tree-lf-v1'
+      || manifest.hashSchemes?.dirtyTree?.id !== 'sha256-dirty-tree-v1') {
+    problems.push('manifest hash schemes are invalid');
+  }
+  const allowedProvenanceValues = Array.isArray(manifest.oraclePolicy?.allowedProvenance)
+    ? manifest.oraclePolicy.allowedProvenance
+    : [];
+  const forbiddenProvenanceValues = Array.isArray(manifest.oraclePolicy?.forbiddenProvenance)
+    ? manifest.oraclePolicy.forbiddenProvenance
+    : [];
+  const allowedProvenance = new Set(allowedProvenanceValues);
+  if (allowedProvenance.size !== SAFE_ORACLE_PROVENANCE.size
+      || [...SAFE_ORACLE_PROVENANCE].some(kind => !allowedProvenance.has(kind))
+      || FORBIDDEN_ORACLE_PROVENANCE.some(kind => !forbiddenProvenanceValues.includes(kind))) {
+    problems.push('manifest oracle provenance policy is not independent');
+  }
+  if (manifest.oraclePolicy?.modelConfidenceIsOracle !== false
+      || manifest.oraclePolicy?.groundingStatusIsSemanticOracle !== false) {
+    problems.push('model self-report cannot be an oracle');
+  }
+
+  const sources = isObject(manifest.sources) ? manifest.sources : {};
+  if (Object.keys(sources).length === 0) problems.push('manifest sources must be non-empty');
+  const registeredProviders = new Set();
+  for (const [sourceId, source] of Object.entries(sources)) {
+    const label = 'source ' + sourceId;
+    if (!isObject(source)) {
+      problems.push(label + ' is not parseable');
+      continue;
+    }
+    if (source.kind !== 'record'
+        && (typeof source.repoId !== 'string' || source.repoId.length === 0)) {
+      problems.push(label + ' is missing repoId');
+    }
+    if (source.kind === 'repository') {
+      if (!GIT_SHA_PATTERN.test(source.gitSha ?? '')
+          || !SHA256_PATTERN.test(source.dirtyTreeSha256 ?? '')) {
+        problems.push(label + ' is missing repository hash pins');
+      }
+      continue;
+    }
+    if (source.kind === 'record') {
+      await readPinned(source.path, source.sha256, label + ' record', context);
+      continue;
+    }
+    if (source.kind !== 'fixture') {
+      problems.push(label + ' has an invalid kind');
+      continue;
+    }
+    if (!isSafeRelativePath(source.root)
+        || !isSafeRelativePath(source.repoPath)
+        || source.repoPath !== source.root + '/repo'
+        || !isSafeRelativePath(source.providerPath)
+        || !source.providerPath.startsWith(source.root + '/')) {
+      problems.push(label + ' has an invalid fixture boundary');
+    }
+    if (!SHA256_PATTERN.test(source.repoTreeSha256 ?? '')) {
+      problems.push(label + ' is missing a fixture-tree hash pin');
+    } else if (isSafeRelativePath(source.repoPath)) {
+      try {
+        if (await fixtureTreeSha256(projectPath(source.repoPath), context.readFile)
+            !== source.repoTreeSha256) {
+          problems.push(label + ' fixture-tree hash does not match');
+        }
+      } catch (error) {
+        problems.push(label + ' fixture tree cannot be read: ' + error.message);
+      }
+    }
+    registeredProviders.add(source.providerPath);
+    const provider = await readPinned(
+      source.providerPath,
+      source.providerSha256,
+      label + ' provider',
+      context,
+      true,
+    );
+    if (provider) validateProvider(provider, label + ' provider', problems);
+  }
+
+  for (const [kind, definitions] of [
+    ['baseline', manifest.baselines],
+    ['observation', manifest.observations],
+  ]) {
+    for (const [id, definition] of Object.entries(isObject(definitions) ? definitions : {})) {
+      const label = kind + ' ' + id;
+      if (!isObject(definition)) {
+        problems.push(label + ' is not parseable');
+        continue;
+      }
+      const artifact = await readPinned(
+        definition.artifact,
+        definition.artifactSha256,
+        label,
+        context,
+        true,
+      );
+      if (isObject(artifact) && Object.hasOwn(artifact, 'oracle')) {
+        problems.push(label + ' embeds a model-authored oracle');
+      }
+    }
+  }
+
+  const cases = Array.isArray(manifest.cases) ? manifest.cases : [];
+  if (cases.length === 0) problems.push('manifest cases must be a non-empty array');
+  const caseIds = new Set();
+  const provenanceBySourceKind = {
+    fixture: 'fixture_assertion',
+    repository: 'source_review',
+    record: 'external_record',
+  };
+  for (const caseDefinition of cases) {
+    if (!isObject(caseDefinition)) {
+      problems.push('case entry is not parseable');
+      continue;
+    }
+    const label = 'case ' + String(caseDefinition.id ?? '<missing>');
+    if (typeof caseDefinition.id !== 'string' || caseIds.has(caseDefinition.id)) {
+      problems.push(label + ' has an invalid or duplicate id');
+    }
+    caseIds.add(caseDefinition.id);
+    if (!['observed', 'fixture', 'goal_audit'].includes(caseDefinition.kind)
+        || !Number.isInteger(caseDefinition.repeatCount)
+        || caseDefinition.repeatCount < 1) {
+      problems.push(label + ' has an invalid case shape');
+    }
+    const source = sources[caseDefinition.sourceRef];
+    const request = caseDefinition.request;
+    const oracle = caseDefinition.oracle;
+    const boundary = oracle?.boundary;
+    if (!isObject(source) || !isObject(request) || !isObject(oracle) || !isObject(boundary)) {
+      problems.push(label + ' has an unparseable source, request, oracle, or boundary');
+      continue;
+    }
+
+    const provenance = oracle.provenance;
+    if (!SAFE_ORACLE_PROVENANCE.has(provenance?.kind)
+        || provenance?.sourceRef !== caseDefinition.sourceRef
+        || provenance?.kind !== provenanceBySourceKind[source.kind]) {
+      problems.push(label + ' oracle is not independently authored');
+    }
+    const allowedClaims = Array.isArray(oracle.allowedClaims) ? oracle.allowedClaims : [];
+    const forbiddenClaims = Array.isArray(oracle.forbiddenClaims) ? oracle.forbiddenClaims : [];
+    const anchors = Array.isArray(oracle.evidenceAnchors) ? oracle.evidenceAnchors : [];
+    if (!ORACLE_STATES.has(oracle.expectedState)
+        || !Array.isArray(oracle.allowedClaims)
+        || !Array.isArray(oracle.forbiddenClaims)
+        || anchors.length === 0) {
+      problems.push(label + ' is missing required oracle fields');
+    }
+    const parts = Array.isArray(request.parts) ? request.parts : [];
+    const partIds = new Set(parts.map(part => part?.id));
+    const goals = Array.isArray(oracle.expectedGoals) ? oracle.expectedGoals : [];
+    if (typeof request.text !== 'string'
+        || parts.length === 0
+        || parts.some(part => !isObject(part)
+          || typeof part.id !== 'string'
+          || typeof part.text !== 'string')
+        || partIds.size !== parts.length
+        || goals.length === 0) {
+      problems.push(label + ' is missing request parts or expected goals');
+    }
+    const goalIds = new Set();
+    const coveredParts = new Set();
+    const referencedAnchors = new Set();
+    const goalResolutions = [];
+    for (const goal of goals) {
+      if (!isObject(goal)
+          || typeof goal.id !== 'string'
+          || typeof goal.question !== 'string'
+          || !ORACLE_CLAIM_TYPES.has(goal.claimType)
+          || !ORACLE_RESOLUTIONS.has(goal.expectedResolution)
+          || !['any', 'all'].includes(goal.anchorPolicy)
+          || goalIds.has(goal.id)) {
+        problems.push(label + ' has an invalid or duplicate expected goal');
+        continue;
+      }
+      goalIds.add(goal.id);
+      goalResolutions.push(goal.expectedResolution);
+      const originRefs = Array.isArray(goal.originRefs) ? goal.originRefs : [];
+      if (originRefs.length === 0 || originRefs.some(ref => !partIds.has(ref))) {
+        problems.push(label + ' goal ' + goal.id + ' has invalid origin refs');
+      }
+      for (const ref of originRefs) coveredParts.add(ref);
+      const evidenceAnchorRefs = Array.isArray(goal.evidenceAnchorRefs)
+        ? goal.evidenceAnchorRefs
+        : [];
+      if (evidenceAnchorRefs.length === 0) {
+        problems.push(label + ' goal ' + goal.id + ' has no evidence anchors');
+      }
+      for (const ref of evidenceAnchorRefs) referencedAnchors.add(ref);
+    }
+    for (const partId of partIds) {
+      if (!coveredParts.has(partId)) problems.push(label + ' request part ' + partId + ' has no goal');
+    }
+    const claimIds = new Set();
+    for (const claim of allowedClaims) {
+      const evidenceAnchorRefs = Array.isArray(claim?.evidenceAnchorRefs)
+        ? claim.evidenceAnchorRefs
+        : [];
+      if (!isObject(claim)
+          || typeof claim.id !== 'string'
+          || typeof claim.text !== 'string'
+          || claimIds.has(claim.id)
+          || !goalIds.has(claim.goalId)
+          || evidenceAnchorRefs.length === 0) {
+        problems.push(label + ' allowed claim has an unknown goal or invalid shape');
+      }
+      if (typeof claim?.id === 'string') claimIds.add(claim.id);
+      for (const ref of evidenceAnchorRefs) referencedAnchors.add(ref);
+    }
+    for (const claim of forbiddenClaims) {
+      if (!isObject(claim)
+          || typeof claim.id !== 'string'
+          || typeof claim.text !== 'string'
+          || typeof claim.reason !== 'string'
+          || claimIds.has(claim.id)
+          || (claim.goalId !== undefined && !goalIds.has(claim.goalId))) {
+        problems.push(label + ' forbidden claim has an invalid shape');
+      }
+      if (typeof claim?.id === 'string') claimIds.add(claim.id);
+    }
+    if ((oracle.expectedState === 'complete'
+        && goalResolutions.some(resolution => ['gap', 'failed'].includes(resolution)))
+        || (oracle.expectedState === 'incomplete'
+          && (!goalResolutions.includes('gap') || goalResolutions.includes('failed')))
+        || (oracle.expectedState === 'failed' && !goalResolutions.includes('failed'))) {
+      problems.push(label + ' expected state contradicts goal resolutions');
+    }
+
+    const scope = Array.isArray(boundary.scope) ? boundary.scope : [];
+    const claimScope = Array.isArray(boundary.claimScope) ? boundary.claimScope : [];
+    if (typeof boundary.repoId !== 'string'
+        || boundary.repoId.length === 0
+        || boundary.repoId !== source.repoId
+        || scope.length === 0
+        || scope.some(entry => !isSafeScope(entry))
+        || !sameStringSet(scope, claimScope)) {
+      problems.push(label + ' has an invalid repository boundary');
+    }
+    if (caseDefinition.invocation?.tool !== 'explore_repo'
+        || caseDefinition.invocation?.args?.task !== request.text
+        || !sameStringSet(caseDefinition.invocation?.args?.scope, scope)) {
+      problems.push(label + ' invocation crosses the oracle boundary');
+    }
+
+    const anchorIds = new Set();
+    for (const anchor of anchors) {
+      if (!isObject(anchor)
+          || typeof anchor.id !== 'string'
+          || anchorIds.has(anchor.id)
+          || !isSafeRelativePath(anchor.path)
+          || !pathInScope(anchor.path, claimScope)
+          || !Number.isInteger(anchor.startLine)
+          || !Number.isInteger(anchor.endLine)
+          || anchor.startLine < 1
+          || anchor.endLine < anchor.startLine) {
+        problems.push(label + ' has an invalid evidence boundary');
+        continue;
+      }
+      anchorIds.add(anchor.id);
+      if (source.kind === 'fixture') {
+        try {
+          const raw = normalizeLfBytes(await context.readFile(
+            projectPath(source.repoPath + '/' + anchor.path),
+          ));
+          const text = raw.toString('utf8');
+          const lineCount = text.length === 0
+            ? 0
+            : text.split('\n').length - (text.endsWith('\n') ? 1 : 0);
+          if (anchor.endLine > lineCount) problems.push(label + ' evidence range exceeds fixture');
+        } catch (error) {
+          problems.push(label + ' evidence file cannot be read: ' + error.code);
+        }
+      }
+    }
+    for (const ref of referencedAnchors) {
+      if (!anchorIds.has(ref)) problems.push(label + ' has a dangling evidence anchor ref');
+    }
+
+    const baseline = caseDefinition.schemaV2Baseline;
+    if (!isObject(baseline)
+        || (baseline.baselineRef && !isObject(manifest.baselines?.[baseline.baselineRef]))
+        || (!baseline.baselineRef && (baseline.outcome !== 'not_recorded'
+          || baseline.schemaVersion !== 2
+          || typeof baseline.reason !== 'string'
+          || baseline.reason.length === 0))) {
+      problems.push(label + ' has an unparseable schema-v2 baseline reference');
+    }
+    if (caseDefinition.knownBadObservationRef
+        && !isObject(manifest.observations?.[caseDefinition.knownBadObservationRef])) {
+      problems.push(label + ' has an unparseable observation reference');
+    }
+    if (caseDefinition.providerFixture) {
+      const fixture = caseDefinition.providerFixture;
+      if (!isSafeRelativePath(fixture.path)
+          || !fixture.path.startsWith(source.root + '/')) {
+        problems.push(label + ' provider fixture crosses its source boundary');
+      }
+      registeredProviders.add(fixture.path);
+      const provider = await readPinned(
+        fixture.path,
+        fixture.sha256,
+        label + ' provider fixture',
+        context,
+        true,
+      );
+      if (provider) validateProvider(provider, label + ' provider fixture', problems);
+    }
+  }
+
+  try {
+    const fixtureFiles = await walkRegularFiles(projectPath('fixtures/trust-known-answer'));
+    const actualProviders = new Set(fixtureFiles
+      .filter(file => /^provider-responses.*\.json$/.test(path.basename(file.relativePath)))
+      .map(file => 'fixtures/trust-known-answer/' + file.relativePath));
+    for (const providerPath of actualProviders) {
+      if (!registeredProviders.has(providerPath)) problems.push('unregistered provider: ' + providerPath);
+    }
+    for (const providerPath of registeredProviders) {
+      if (!actualProviders.has(providerPath)) problems.push('missing provider: ' + providerPath);
+    }
+  } catch (error) {
+    problems.push('provider inventory cannot be read: ' + error.message);
+  }
+  return problems;
+}
+
+async function assertTrustManifestIntegrity(manifest, options) {
+  let problems;
+  try {
+    problems = await collectTrustManifestProblems(manifest, options);
+  } catch (cause) {
+    problems = ['validator could not parse manifest: ' + cause.message];
+  }
+  if (problems.length === 0) return;
+  const error = new Error('Trust manifest integrity failed:\n- ' + problems.join('\n- '));
+  error.code = 'INVALID_TRUST_MANIFEST';
+  error.problems = problems;
+  throw error;
+}
+
+async function expectIntegrityProblem(manifest, expectedProblem, options) {
+  await assert.rejects(assertTrustManifestIntegrity(manifest, options), error => {
+    assert.equal(error.code, 'INVALID_TRUST_MANIFEST');
+    assert.equal(
+      error.problems.some(problem => problem.includes(expectedProblem)),
+      true,
+      'expected problem containing: ' + expectedProblem + '\n' + error.message,
+    );
+    return true;
+  });
+}
+
+function readFileWithReplacement(relativePath, replacement) {
+  const target = path.resolve(projectPath(relativePath));
+  const bytes = Buffer.isBuffer(replacement) ? replacement : Buffer.from(replacement);
+  return async filePath => path.resolve(filePath) === target ? bytes : fs.readFile(filePath);
+}
+
+test('trust manifest and all registered fixtures pass independent integrity validation', async () => {
+  assert.deepEqual(await collectTrustManifestProblems(await loadTrustManifest()), []);
+});
+
+test('trust manifest integrity rejects missing and mismatched pins', async t => {
+  const mutations = [
+    ['repository pins', 'missing repository hash pins', manifest => {
+      delete manifest.sources['repo-lawfirm-fe7a5ca'].gitSha;
+    }],
+    ['fixture tree pin', 'missing a fixture-tree hash pin', manifest => {
+      delete manifest.sources['fixture-semantic-mismatch'].repoTreeSha256;
+    }],
+    ['default provider pin', 'provider is missing a SHA-256 pin', manifest => {
+      delete manifest.sources['fixture-semantic-mismatch'].providerSha256;
+    }],
+    ['record pin', 'record is missing a SHA-256 pin', manifest => {
+      delete manifest.sources['research-record'].sha256;
+    }],
+    ['baseline pin', 'baseline v2-obs-deny-list-count-range is missing', manifest => {
+      delete manifest.baselines['v2-obs-deny-list-count-range'].artifactSha256;
+    }],
+    ['observation pin', 'observation research-obs-external-process-inference is missing', manifest => {
+      delete manifest.observations['research-obs-external-process-inference'].artifactSha256;
+    }],
+    ['provider override pin', 'provider fixture is missing a SHA-256 pin', manifest => {
+      const caseDefinition = manifest.cases.find(item => item.id === 'fx-scope-limited-absence');
+      delete caseDefinition.providerFixture.sha256;
+    }],
+    ['well-formed wrong pin', 'provider hash does not match', manifest => {
+      manifest.sources['fixture-semantic-mismatch'].providerSha256 = '0'.repeat(64);
+    }],
+  ];
+  const canonical = await loadTrustManifest();
+  for (const [name, expected, mutate] of mutations) {
+    await t.test(name, async () => {
+      const manifest = structuredClone(canonical);
+      mutate(manifest);
+      await expectIntegrityProblem(manifest, expected);
+    });
+  }
+});
+
+test('trust manifest integrity rejects explorer-authored or embedded oracles', async t => {
+  const canonical = await loadTrustManifest();
+  for (const provenance of FORBIDDEN_ORACLE_PROVENANCE) {
+    await t.test(provenance, async () => {
+      const manifest = structuredClone(canonical);
+      manifest.oraclePolicy.allowedProvenance.push(provenance);
+      manifest.cases[0].oracle.provenance.kind = provenance;
+      await expectIntegrityProblem(manifest, 'oracle is not independently authored');
+    });
+  }
+  await t.test('provider-embedded oracle', async () => {
+    const manifest = structuredClone(canonical);
+    const source = manifest.sources['fixture-semantic-mismatch'];
+    const provider = JSON.parse(await fs.readFile(projectPath(source.providerPath), 'utf8'));
+    provider.oracle = { expectedState: 'complete' };
+    const replacement = Buffer.from(JSON.stringify(provider));
+    source.providerSha256 = canonicalSha256(replacement);
+    await expectIntegrityProblem(
+      manifest,
+      'embeds a model-authored oracle',
+      { readFile: readFileWithReplacement(source.providerPath, replacement) },
+    );
+  });
+});
+
+test('trust manifest integrity rejects invalid boundaries', async t => {
+  const mutations = [
+    ['wrong repo', 'invalid repository boundary', caseDefinition => {
+      caseDefinition.oracle.boundary.repoId = 'different-repository';
+    }],
+    ['scope traversal', 'invalid repository boundary', caseDefinition => {
+      caseDefinition.oracle.boundary.scope = ['../escape/**'];
+      caseDefinition.oracle.boundary.claimScope = ['../escape/**'];
+      caseDefinition.invocation.args.scope = ['../escape/**'];
+    }],
+    ['unsupported wildcard', 'invalid repository boundary', caseDefinition => {
+      caseDefinition.oracle.boundary.scope = ['src/?.mjs'];
+      caseDefinition.oracle.boundary.claimScope = ['src/?.mjs'];
+      caseDefinition.invocation.args.scope = ['src/?.mjs'];
+    }],
+    ['non-string scope', 'invalid repository boundary', caseDefinition => {
+      caseDefinition.oracle.boundary.scope = [1];
+      caseDefinition.oracle.boundary.claimScope = [1];
+      caseDefinition.invocation.args.scope = [1];
+    }],
+    ['claim scope expansion', 'invalid repository boundary', caseDefinition => {
+      caseDefinition.oracle.boundary.claimScope = ['src/outside/**'];
+    }],
+    ['anchor escape', 'invalid evidence boundary', caseDefinition => {
+      caseDefinition.oracle.evidenceAnchors[0].path = 'src/outside.mjs';
+    }],
+    ['invalid line range', 'evidence range exceeds fixture', caseDefinition => {
+      caseDefinition.oracle.evidenceAnchors[0].endLine = 999;
+    }],
+    ['invocation drift', 'invocation crosses the oracle boundary', caseDefinition => {
+      caseDefinition.invocation.args.scope = ['src/**'];
+    }],
+  ];
+  const canonical = await loadTrustManifest();
+  for (const [name, expected, mutate] of mutations) {
+    await t.test(name, async () => {
+      const manifest = structuredClone(canonical);
+      mutate(manifest.cases.find(item => item.id === 'fx-semantic-mismatch'));
+      await expectIntegrityProblem(manifest, expected);
+    });
+  }
+  await t.test('missing source and boundary repoId', async () => {
+    const manifest = structuredClone(canonical);
+    delete manifest.sources['fixture-semantic-mismatch'].repoId;
+    delete manifest.cases
+      .find(item => item.id === 'fx-semantic-mismatch').oracle.boundary.repoId;
+    await expectIntegrityProblem(manifest, 'source fixture-semantic-mismatch is missing repoId');
+  });
+});
+
+test('trust manifest integrity rejects missing goals and dangling references', async t => {
+  const mutations = [
+    ['empty expected goals', 'missing request parts or expected goals', caseDefinition => {
+      caseDefinition.oracle.expectedGoals = [];
+    }],
+    ['missing expected state', 'missing required oracle fields', caseDefinition => {
+      delete caseDefinition.oracle.expectedState;
+    }],
+    ['missing claim type', 'invalid or duplicate expected goal', caseDefinition => {
+      delete caseDefinition.oracle.expectedGoals[0].claimType;
+    }],
+    ['missing expected resolution', 'invalid or duplicate expected goal', caseDefinition => {
+      delete caseDefinition.oracle.expectedGoals[0].expectedResolution;
+    }],
+    ['missing allowed claims', 'missing required oracle fields', caseDefinition => {
+      delete caseDefinition.oracle.allowedClaims;
+    }],
+    ['missing forbidden claims', 'missing required oracle fields', caseDefinition => {
+      delete caseDefinition.oracle.forbiddenClaims;
+    }],
+    ['unknown request origin', 'has invalid origin refs', caseDefinition => {
+      caseDefinition.oracle.expectedGoals[0].originRefs = ['P999'];
+    }],
+    ['non-array request origins', 'has invalid origin refs', caseDefinition => {
+      caseDefinition.oracle.expectedGoals[0].originRefs = {};
+    }],
+    ['uncovered request part', 'request part P2 has no goal', caseDefinition => {
+      caseDefinition.oracle.expectedGoals[1].originRefs = ['P1'];
+    }],
+    ['dangling anchor', 'dangling evidence anchor ref', caseDefinition => {
+      caseDefinition.oracle.expectedGoals[0].evidenceAnchorRefs = ['E999'];
+    }],
+    ['allowed claim without anchors', 'allowed claim has an unknown goal or invalid shape', caseDefinition => {
+      delete caseDefinition.oracle.allowedClaims[0].evidenceAnchorRefs;
+    }],
+    ['duplicate claim id', 'allowed claim has an unknown goal or invalid shape', caseDefinition => {
+      caseDefinition.oracle.allowedClaims[1].id = 'A1';
+    }],
+    ['forbidden claim with unknown goal', 'forbidden claim has an invalid shape', caseDefinition => {
+      caseDefinition.oracle.forbiddenClaims[0].goalId = 'G999';
+    }],
+    ['complete state with gap goal', 'expected state contradicts goal resolutions', caseDefinition => {
+      caseDefinition.oracle.expectedGoals[0].expectedResolution = 'gap';
+    }],
+    ['duplicate goal id', 'invalid or duplicate expected goal', caseDefinition => {
+      caseDefinition.oracle.expectedGoals[1].id = 'G1';
+    }],
+  ];
+  const canonical = await loadTrustManifest();
+  for (const [name, expected, mutate] of mutations) {
+    await t.test(name, async () => {
+      const manifest = structuredClone(canonical);
+      mutate(manifest.cases.find(item => item.id === 'obs-deny-list-count-range'));
+      await expectIntegrityProblem(manifest, expected);
+    });
+  }
+});
+
+test('trust manifest integrity rejects unparseable cases and provider documents', async t => {
+  assert.throws(
+    () => parseTrustManifest('{"cases": ['),
+    error => error.code === 'INVALID_TRUST_MANIFEST'
+      && error.problems.includes('manifest is not valid JSON'),
+  );
+  const canonical = await loadTrustManifest();
+  await t.test('null case', async () => {
+    const manifest = structuredClone(canonical);
+    manifest.cases[0] = null;
+    await expectIntegrityProblem(manifest, 'case entry is not parseable');
+  });
+  await t.test('invalid case request', async () => {
+    const manifest = structuredClone(canonical);
+    manifest.cases[0].request = '{not-an-object}';
+    await expectIntegrityProblem(manifest, 'unparseable source, request, oracle, or boundary');
+  });
+  await t.test('non-array provenance policy', async () => {
+    const manifest = structuredClone(canonical);
+    manifest.oraclePolicy.allowedProvenance = {};
+    manifest.oraclePolicy.forbiddenProvenance = {};
+    await expectIntegrityProblem(manifest, 'oracle provenance policy is not independent');
+  });
+  await t.test('non-array allowed claims', async () => {
+    const manifest = structuredClone(canonical);
+    manifest.cases[0].oracle.allowedClaims = {};
+    await expectIntegrityProblem(manifest, 'missing required oracle fields');
+  });
+  await t.test('malformed provider JSON', async () => {
+    const manifest = structuredClone(canonical);
+    const source = manifest.sources['fixture-semantic-mismatch'];
+    const replacement = Buffer.from('{"fixtureVersion":');
+    source.providerSha256 = canonicalSha256(replacement);
+    await expectIntegrityProblem(
+      manifest,
+      'provider is not valid JSON',
+      { readFile: readFileWithReplacement(source.providerPath, replacement) },
+    );
+  });
+  await t.test('ambiguous provider response', async () => {
+    const manifest = structuredClone(canonical);
+    const source = manifest.sources['fixture-semantic-mismatch'];
+    const provider = JSON.parse(await fs.readFile(projectPath(source.providerPath), 'utf8'));
+    delete provider.responses[0].result;
+    const replacement = Buffer.from(JSON.stringify(provider));
+    source.providerSha256 = canonicalSha256(replacement);
+    await expectIntegrityProblem(
+      manifest,
+      'response 0 is not parseable',
+      { readFile: readFileWithReplacement(source.providerPath, replacement) },
+    );
+  });
+  await t.test('provider result without content and toolCalls', async () => {
+    const manifest = structuredClone(canonical);
+    const source = manifest.sources['fixture-semantic-mismatch'];
+    const provider = JSON.parse(await fs.readFile(projectPath(source.providerPath), 'utf8'));
+    provider.responses[0].result.message = {};
+    const replacement = Buffer.from(JSON.stringify(provider));
+    source.providerSha256 = canonicalSha256(replacement);
+    await expectIntegrityProblem(
+      manifest,
+      'response 0 has an invalid result message',
+      { readFile: readFileWithReplacement(source.providerPath, replacement) },
+    );
+  });
+});
 
 function knownBadViolationKeys(evaluation) {
   return evaluation.violations.map(violation =>
