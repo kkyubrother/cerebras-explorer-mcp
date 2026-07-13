@@ -16,8 +16,11 @@ const EXPECTED_PUBLIC_TOOL_NAMES = [
   'explain_code_path',
   'collect_evidence',
   'explore_repo',
-  'explore',
 ];
+
+// T049 removes the report-only public surface. These tests remain skipped
+// until T051 removes their obsolete fixtures and assertions.
+const legacyPublicReportTest = test.skip;
 
 const TARGET_SIX_TOOL_NAMES = [
   'find_relevant_code',
@@ -783,9 +786,7 @@ test('MCP request handler exposes explore_repo and returns structuredContent', a
   assert.equal(exploreRepoTool.outputSchema.additionalProperties, false);
   assert.equal(exploreRepoTool.outputSchema.properties.answer, undefined);
   const exploreTool = listed.tools.find(t => t.name === 'explore');
-  assert.equal(exploreTool.inputSchema.properties.thoroughness, undefined,
-    'inert thoroughness input was removed from explore');
-  assert.doesNotMatch(exploreTool.description, /thoroughness/);
+  assert.equal(exploreTool, undefined, 'report-only explore was removed in T049');
   for (const toolName of EXPECTED_WRAPPER_TOOL_NAMES) {
     const tool = listed.tools.find(t => t.name === toolName);
     assert.equal(tool.inputSchema.properties.language, undefined, `${toolName} must not expose language`);
@@ -1024,7 +1025,7 @@ test('explore_repo stderr ops summary marks LOG_RAW mode after log path', async 
   }
 });
 
-test('explore MCP call writes stderr ops summary for free-form reports', async () => {
+legacyPublicReportTest('explore MCP call writes stderr ops summary for free-form reports', async () => {
   const repoRoot = await makeRepoFixture();
   const report = 'Summary cites `src/auth.js:L1-L3`.';
   const restore = applyEnvPatch({
@@ -1097,7 +1098,7 @@ test('explore_repo MCP call writes stderr ops summary when execution fails', asy
   }
 });
 
-test('explore provider-error retry recipe matches the explore input schema', async () => {
+legacyPublicReportTest('explore provider-error retry recipe matches the explore input schema', async () => {
   const repoRoot = await makeRepoFixture();
   const { handleRequest } = createMcpRequestHandler({
     runtimeOptions: { chatClient: new ThrowingChatClient() },
@@ -1134,7 +1135,7 @@ test('explore provider-error retry recipe matches the explore input schema', asy
   );
 });
 
-test('explore returns Markdown text plus structured citations', async () => {
+legacyPublicReportTest('explore returns Markdown text plus structured citations', async () => {
   const repoRoot = await makeRepoFixture();
   const report = 'Summary cites `src/auth.js:L1-L3` and `src/routes/user.js:L2`.';
   const { handleRequest } = createMcpRequestHandler({
@@ -1180,7 +1181,7 @@ test('explore returns Markdown text plus structured citations', async () => {
     'operational diagnostics stay in stderr/transcripts, not the parent response');
 });
 
-test('explore rejects removed thoroughness input', async () => {
+legacyPublicReportTest('explore rejects removed thoroughness input', async () => {
   const repoRoot = await makeRepoFixture();
   const { handleRequest } = createMcpRequestHandler({
     runtimeOptions: {
@@ -1275,7 +1276,25 @@ test('Spec 028 T048 — review_change_context is neither listed nor callable', a
   );
 });
 
-test('explore redacts deny-listed paths consistently in both surfaces', async () => {
+test('Spec 028 T049 — report-only explore is neither listed nor callable', async () => {
+  const { handleRequest } = createMcpRequestHandler();
+  const listed = await handleRequest({ jsonrpc: '2.0', id: 22, method: 'tools/list' });
+  assert.equal(listed.tools.some(tool => tool.name === 'explore'), false);
+  await assert.rejects(
+    handleRequest({
+      jsonrpc: '2.0',
+      id: 23,
+      method: 'tools/call',
+      params: {
+        name: 'explore',
+        arguments: { prompt: 'Write a Markdown report.' },
+      },
+    }),
+    /Unknown tool: explore/,
+  );
+});
+
+legacyPublicReportTest('explore redacts deny-listed paths consistently in both surfaces', async () => {
   const repoRoot = await makeRepoFixture();
   const report = 'Secret `secrets/.env.production:L1` and public `src/auth.js:L1`.';
   const { handleRequest } = createMcpRequestHandler({
@@ -1303,7 +1322,7 @@ test('explore redacts deny-listed paths consistently in both surfaces', async ()
   assert.equal(called.structuredContent.citations[1].path, 'src/auth.js');
 });
 
-test('explore with empty-citation report exposes citations: [] in structuredContent', async () => {
+legacyPublicReportTest('explore with empty-citation report exposes citations: [] in structuredContent', async () => {
   const repoRoot = await makeRepoFixture();
   const report = 'No file references here.';
   const { handleRequest } = createMcpRequestHandler({
@@ -1568,7 +1587,7 @@ test('MCP request handler returns execution failures for explore_repo without mi
   assert.equal(called._meta, undefined);
 });
 
-test('MCP request handler returns execution failures for other exposed tools as MCP errors', async () => {
+test('MCP request handler returns execution failures for exposed wrapper tools as MCP errors', async () => {
   class ThrowingChatClient {
     constructor() {
       this.model = 'zai-glm-4.7';
@@ -1586,16 +1605,10 @@ test('MCP request handler returns execution failures for other exposed tools as 
     },
   });
 
-  const cases = [
-    {
-      name: 'explore',
-      arguments: { prompt: '런타임 실패를 재현해라.', repo_root: repoRoot },
-    },
-    {
-      name: 'trace_symbol',
-      arguments: { symbol: 'requireAuth', repo_root: repoRoot },
-    },
-  ];
+  const cases = [{
+    name: 'trace_symbol',
+    arguments: { symbol: 'requireAuth', repo_root: repoRoot },
+  }];
 
   for (const [index, testCase] of cases.entries()) {
     const { result: called, stderr } = await captureStderr(() => handleRequest({

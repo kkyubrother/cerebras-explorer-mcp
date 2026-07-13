@@ -12,7 +12,11 @@ const { ExplorerRuntime } = runtimeModule;
 // Test-first activation point: T049 flips this only after the report-only
 // direct runtime API is actually removed. Keep aliases in the same guard so a
 // rename cannot preserve the obsolete surface accidentally.
-const T049_REPORT_RUNTIME_API_REMOVED = false;
+const T049_REPORT_RUNTIME_API_REMOVED = true;
+
+// T049 removes the runtime entry point. T051 deletes these obsolete report
+// fixtures after the integration runner is migrated to explore_repo.
+const legacyReportRuntimeTest = test.skip;
 
 test('Spec 028 T046 — report-only direct runtime exports are removed without aliases', t => {
   if (!T049_REPORT_RUNTIME_API_REMOVED) {
@@ -88,7 +92,7 @@ async function readJsonl(filePath) {
 
 // --- Phase 8: freeExplore Stabilization Tests ---
 
-test('freeExplore executes tool calls without repoToolkit ReferenceError', async () => {
+legacyReportRuntimeTest('freeExplore executes tool calls without repoToolkit ReferenceError', async () => {
   class SimpleToolClient {
     constructor() { this.model = 'test'; this.calls = 0; }
     async createChatCompletion({ messages }) {
@@ -133,7 +137,7 @@ test('freeExplore executes tool calls without repoToolkit ReferenceError', async
   assert.ok(result.critic.warnings.some(w => w.type === 'citation_gap'));
 });
 
-test('freeExplore continues after malformed tool arguments', async () => {
+legacyReportRuntimeTest('freeExplore continues after malformed tool arguments', async () => {
   class MalformedArgsClient {
     constructor() { this.model = 'test'; this.calls = 0; }
     async createChatCompletion({ messages }) {
@@ -165,7 +169,7 @@ test('freeExplore continues after malformed tool arguments', async () => {
   assert.ok(result.report, 'result has report');
 });
 
-test('freeExplore searchCoverage counts non-read tool calls', async () => {
+legacyReportRuntimeTest('freeExplore searchCoverage counts non-read tool calls', async () => {
   class CoverageClient {
     constructor() { this.model = 'test'; this.calls = 0; }
     async createChatCompletion() {
@@ -202,7 +206,7 @@ test('freeExplore searchCoverage counts non-read tool calls', async () => {
   assert.equal(result.searchCoverage.grepCalls, 1);
 });
 
-test('freeExplore sets stoppedByBudget when budget is exhausted', async () => {
+legacyReportRuntimeTest('freeExplore sets stoppedByBudget when budget is exhausted', async () => {
   // Always return tool calls to exhaust the budget
   class BudgetExhaustClient {
     constructor() { this.model = 'test'; this.calls = 0; }
@@ -237,7 +241,7 @@ test('freeExplore sets stoppedByBudget when budget is exhausted', async () => {
   assert.ok(result.report, 'report is set even when budget is exhausted');
 });
 
-test('freeExplore finalizes and returns a non-empty report when the tool loop terminates', async () => {
+legacyReportRuntimeTest('freeExplore finalizes and returns a non-empty report when the tool loop terminates', async () => {
   // spec 011: freeExplore now delegates to the report backend, which has
   // periodic checkpoint nudges asking the model to wrap up. The contract this
   // test protects is "the loop reliably produces a report even when the model
@@ -285,7 +289,7 @@ test('freeExplore finalizes and returns a non-empty report when the tool loop te
   );
 });
 
-test('freeExplore finalizes intent-only no-tool responses instead of returning them as reports', async () => {
+legacyReportRuntimeTest('freeExplore finalizes intent-only no-tool responses instead of returning them as reports', async () => {
   let finalizeCallCount = 0;
   class IntentOnlyClient {
     constructor() { this.model = 'test'; this.calls = 0; }
@@ -333,7 +337,7 @@ test('freeExplore finalizes intent-only no-tool responses instead of returning t
   assert.doesNotMatch(result.report, /Let me compile it now/);
 });
 
-test('freeExplore stops after repeated unknown tool errors', async () => {
+legacyReportRuntimeTest('freeExplore stops after repeated unknown tool errors', async () => {
   class UnknownToolClient {
     constructor() { this.model = 'test'; this.calls = 0; }
     async createChatCompletion({ messages }) {
@@ -370,7 +374,7 @@ test('freeExplore stops after repeated unknown tool errors', async () => {
   assert.equal(client.calls, 4, 'three tool-loop calls plus one finalization call');
 });
 
-test('freeExplore exposes report citations and citation targets', async () => {
+legacyReportRuntimeTest('freeExplore exposes report citations and citation targets', async () => {
   class CitationReportClient {
     constructor() { this.model = 'test'; }
     async createChatCompletion() {
@@ -411,7 +415,7 @@ test('freeExplore exposes report citations and citation targets', async () => {
   ]);
 });
 
-test('freeExplore returns empty citations and targets when report has no citations', async () => {
+legacyReportRuntimeTest('freeExplore returns empty citations and targets when report has no citations', async () => {
   class PlainReportClient {
     constructor() { this.model = 'test'; }
     async createChatCompletion() {
@@ -436,7 +440,7 @@ test('freeExplore returns empty citations and targets when report has no citatio
   assert.deepEqual(result.targets, []);
 });
 
-test('freeExplore exposes the same citation shape with transcriptPath preserved', async () => {
+legacyReportRuntimeTest('freeExplore exposes the same citation shape with transcriptPath preserved', async () => {
   class CitationReportClient {
     constructor() { this.model = 'test'; }
     async createChatCompletion() {
@@ -486,7 +490,7 @@ test('freeExplore exposes the same citation shape with transcriptPath preserved'
   });
 });
 
-test('freeExplore flags git citations never observed via git tools', async () => {
+legacyReportRuntimeTest('freeExplore flags git citations never observed via git tools', async () => {
   // The model writes a report citing a commit it never inspected via a git tool.
   // observedGit stays empty, so the report critic must flag it instead of trusting it.
   class FabricatedGitClient {
@@ -512,7 +516,7 @@ test('freeExplore flags git citations never observed via git tools', async () =>
   );
 });
 
-test('freeExplore grounds blame citations observed via git tools (no git_citation_gap)', { skip: !hasGit() }, async () => {
+legacyReportRuntimeTest('freeExplore grounds blame citations observed via git tools (no git_citation_gap)', { skip: !hasGit() }, async () => {
   // The model blames a real line, then cites it. The report loop must record the blame
   // observation into observedGit and pass it to the critic so the citation is grounded.
   class BlameThenReportClient {
@@ -550,7 +554,7 @@ test('freeExplore grounds blame citations observed via git tools (no git_citatio
   );
 });
 
-test('freeExplore deduplicates citation-derived targets by (path, startLine, endLine)', async () => {
+legacyReportRuntimeTest('freeExplore deduplicates citation-derived targets by (path, startLine, endLine)', async () => {
   class DuplicateCitationClient {
     constructor() { this.model = 'test'; }
     async createChatCompletion() {

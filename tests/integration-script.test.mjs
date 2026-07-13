@@ -9,11 +9,13 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SCRIPT_PATH = path.join(ROOT, 'scripts', 'integration-test.mjs');
 const SCRIPT_URL = pathToFileURL(path.join(ROOT, 'scripts', 'integration-test.mjs')).href;
 
-test('integration script uses current no-session no-budget explore contract', async () => {
+test('integration script uses only the structured v3 runtime contract', async () => {
   const source = await fs.readFile(SCRIPT_PATH, 'utf8');
 
   assert.doesNotMatch(source, /SessionStore/);
   assert.doesNotMatch(source, /\n\s+budget:\s*['"]/);
+  assert.doesNotMatch(source, /freeExplore/);
+  assert.match(source, /runtime\.explore\(/);
   assert.match(source, /CEREBRAS_EXPLORER_LOG_PATH|transcript/i);
 });
 

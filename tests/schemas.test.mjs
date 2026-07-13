@@ -34,6 +34,12 @@ import { RETRY_TOOLS } from '../src/explorer/runtime.mjs';
 // Test-first activation point for T055's retry/provenance vocabulary cleanup.
 const T055_RETRY_VOCABULARY_LANDED = false;
 
+test('Spec 028 T049 — removed report tool is absent from retry schema and runtime', () => {
+  assert.equal(RETRY_SCHEMA.properties.tool.enum.includes('explore'), false);
+  assert.equal(RETRY_TOOLS.includes('explore'), false);
+  assert.equal(RETRY_SCHEMA.properties.args.properties.prompt, undefined);
+});
+
 test('Spec 028 T045 — explore_repo rejects public hints.strategy but keeps anchors', t => {
   if (EXPLORE_REPO_INPUT_SCHEMA.properties.hints.properties.strategy !== undefined) {
     t.todo('awaiting public strategy removal');

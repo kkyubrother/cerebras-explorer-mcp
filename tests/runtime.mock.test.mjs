@@ -21,6 +21,10 @@ import {
 import { adaptLegacyGoalAuditClient } from './helpers/legacy-goal-audit-client.mjs';
 import { validateParentHandoffV3 } from '../src/explorer/schemas.mjs';
 
+// T049 removes the report runtime entry point. T050/T051 remove the remaining
+// report-only implementation and these legacy regression fixtures.
+const legacyReportRuntimeTest = test.skip;
+
 function hasGit() {
   try {
     execFileSync('git', ['--version'], { stdio: 'ignore' });
@@ -1354,7 +1358,7 @@ test('Phase 1 — explore circuit breaker trips after three all-error turns', as
   );
 });
 
-test('Phase 1 — freeExplore circuit breaker trips after three all-error turns', async () => {
+legacyReportRuntimeTest('Phase 1 — freeExplore circuit breaker trips after three all-error turns', async () => {
   class AllErrorFreeExploreClient {
     constructor() {
       this.model = 'zai-glm-4.7';
@@ -1411,7 +1415,7 @@ test('Phase 1 — freeExplore circuit breaker trips after three all-error turns'
   );
 });
 
-test('freeExplore labels truncated tool results as incomplete before synthesis', async () => {
+legacyReportRuntimeTest('freeExplore labels truncated tool results as incomplete before synthesis', async () => {
   class TruncationClient {
     constructor() {
       this.model = 'zai-glm-4.7';
@@ -1534,7 +1538,7 @@ test('freeExplore labels truncated tool results as incomplete before synthesis',
   );
 });
 
-test('freeExplore searchCoverage counts non-read tool calls', async () => {
+legacyReportRuntimeTest('freeExplore searchCoverage counts non-read tool calls', async () => {
   class CoverageFreeExploreClient {
     constructor() {
       this.model = 'zai-glm-4.7';
@@ -1602,7 +1606,7 @@ test('freeExplore searchCoverage counts non-read tool calls', async () => {
   assert.equal(result.searchCoverage.grepCalls, 1);
 });
 
-test('Phase 1 — freeExplore compaction preserves complete turns and valid tool sequencing', async () => {
+legacyReportRuntimeTest('Phase 1 — freeExplore compaction preserves complete turns and valid tool sequencing', async () => {
   class CompactionSequenceClient {
     constructor() {
       this.model = 'zai-glm-4.7';
@@ -1686,7 +1690,7 @@ test('Phase 1 — freeExplore compaction preserves complete turns and valid tool
   );
 });
 
-test('freeExplore fallback compaction fires in the 70-100% band when LLM summary is unavailable (spec 024 FR-001)', async () => {
+legacyReportRuntimeTest('freeExplore fallback compaction fires in the 70-100% band when LLM summary is unavailable (spec 024 FR-001)', async () => {
   // The LLM-summary compaction call uses maxCompletionTokens: 1000. Throwing for it
   // forces the runtime down the catch-branch fallback. Before FR-001 that fallback
   // passed maxContextTokens (100%), so compactOldToolResults no-oped in the 70-100%
@@ -1883,7 +1887,7 @@ test('explore compacts proactively at 70% and injects a deterministic evidence l
   }
 });
 
-test('freeExplore wires observedRanges into the report critic for line-range grounding (spec 024 FR-004)', async () => {
+legacyReportRuntimeTest('freeExplore wires observedRanges into the report critic for line-range grounding (spec 024 FR-004)', async () => {
   // Reads src/auth.js lines 1-4, then writes a report citing L50-L60 (outside the
   // inspected range). End-to-end this must surface a citation_line_gap, proving the
   // report loop records observedRanges and passes them to buildReportCritic.
@@ -2816,7 +2820,7 @@ test('Phase 4 — critic-lite: confidence=high with only 1 evidence item is reco
   assert.ok(result.critic.warnings.every(w => w.message && w.action));
 });
 
-test('Phase 4 — freeExplore respects turn multiplier override', async () => {
+legacyReportRuntimeTest('Phase 4 — freeExplore respects turn multiplier override', async () => {
   class TurnBudgetClient {
     constructor() {
       this.model = 'zai-glm-4.7';
@@ -2874,7 +2878,7 @@ test('Phase 4 — freeExplore respects turn multiplier override', async () => {
   });
 });
 
-test('freeExplore recovers from finishReason=length finalize and increments outputRecoveries', async () => {
+legacyReportRuntimeTest('freeExplore recovers from finishReason=length finalize and increments outputRecoveries', async () => {
   class LengthRecoveryClient {
     constructor() {
       this.model = 'zai-glm-4.7';
@@ -4487,7 +4491,7 @@ test('010 US2#1 — listDir entries land in discoveredPaths[], not targets[]', a
 // modern targets vs discoveredPaths split is permanent, so the opt-in
 // regression test from 010 is gone.
 
-test('010 US2#2 — buildReportCitationTargets merges same-file citations at file level', async () => {
+legacyReportRuntimeTest('010 US2#2 — buildReportCitationTargets merges same-file citations at file level', async () => {
   const { buildReportCitationTargets } = await import('../src/explorer/runtime.mjs').then(async m => {
     // The helper is not exported. Build a structurally equivalent test via the public route.
     return { buildReportCitationTargets: null };

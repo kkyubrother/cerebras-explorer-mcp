@@ -476,7 +476,6 @@ export const RETRY_TOOLS = [
   'trace_symbol',
   'map_change_impact',
   'explain_code_path',
-  'explore',
 ];
 
 const RETRY_TEXT_MAX = 500;
@@ -513,7 +512,7 @@ function sanitizeRetryHints(value) {
 
 function sanitizeRetryArgs(args = {}) {
   const safe = {};
-  for (const key of ['task', 'query', 'symbol', 'change', 'pathQuery', 'claim', 'prompt']) {
+  for (const key of ['task', 'query', 'symbol', 'change', 'pathQuery', 'claim']) {
     const text = sanitizeRetryText(args[key]);
     if (text) safe[key] = text;
   }
@@ -5422,7 +5421,7 @@ export class ExplorerRuntime {
    * @param {object} args - { prompt, scope?, repo_root?, language?, context? }
    * @param {object} [callOpts]
    */
-  async freeExplore(args, { onProgress = null, abortSignal = null } = {}) {
+  async #runReportLoop(args, { onProgress = null, abortSignal = null } = {}) {
     if (!args || typeof args.prompt !== 'string' || !args.prompt.trim()) {
       const err = new Error('prompt is required and must be a non-empty string.');
       err.code = -32602;
@@ -6049,10 +6048,4 @@ export async function exploreRepository(args, options = {}) {
   const { onProgress, abortSignal, ...runtimeOptions } = options;
   const runtime = new ExplorerRuntime(runtimeOptions);
   return runtime.explore(args, { onProgress, abortSignal });
-}
-
-export async function freeExploreRepository(args, options = {}) {
-  const { onProgress, abortSignal, ...runtimeOptions } = options;
-  const runtime = new ExplorerRuntime(runtimeOptions);
-  return runtime.freeExplore(args, { onProgress, abortSignal });
 }

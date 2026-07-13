@@ -2,6 +2,7 @@
 /**
  * Integration test against real Cerebras API.
  * Usage: CEREBRAS_API_KEY=<key> node scripts/integration-test.mjs
+ * Recommended: set CEREBRAS_EXPLORER_LOG_PATH to retain redacted transcripts.
  */
 
 import { ExplorerRuntime } from '../src/explorer/runtime.mjs';
@@ -157,86 +158,8 @@ async function testExploreRepoIncomplete() {
   return checks.every(([, ok]) => ok);
 }
 
-async function testFreeExplore() {
-  logSection('3. freeExplore (explore tool) — Markdown report');
-
-  const client = createChatClient();
-  const runtime = new ExplorerRuntime({ chatClient: client, logger: console.error });
-
-  const result = await runtime.freeExplore({
-    prompt: 'Explain the provider system in this project: how CerebrasChatClient, OpenAICompatChatClient, and FailoverChatClient work together.',
-    repo_root: REPO_ROOT,
-  }, {
-    onProgress: ({ progress, total, message }) => {
-      process.stderr.write(`  [freeExplore] ${message} (${progress}/${total})\n`);
-    },
-  });
-
-  log('Report (first 800 chars)', result.report?.slice(0, 800));
-  log('Stats', {
-    turns: result.stats?.turns,
-    toolCalls: result.stats?.toolCalls,
-    filesRead: result.stats?.filesRead,
-    elapsedMs: result.stats?.elapsedMs,
-  });
-  log('Files Read', result.filesRead);
-  log('Tools Used', result.toolsUsed);
-
-  const checks = [];
-  checks.push(['report is non-empty', !!result.report && result.report.length > 100]);
-  checks.push(['report mentions providers', result.report?.toLowerCase().includes('provider') || result.report?.toLowerCase().includes('cerebras')]);
-  checks.push(['filesRead is array', Array.isArray(result.filesRead)]);
-  checks.push(['toolsUsed is array', Array.isArray(result.toolsUsed)]);
-
-  log('Checks', checks.map(([name, ok]) => `${ok ? 'PASS' : 'FAIL'} — ${name}`).join('\n'));
-  return checks.every(([, ok]) => ok);
-}
-
-async function testFreeExploreAdvanced() {
-  logSection('4. freeExplore backend — advanced techniques');
-
-  const client = createChatClient();
-  const runtime = new ExplorerRuntime({ chatClient: client, logger: console.error });
-
-  const result = await runtime.freeExplore({
-    prompt: 'Produce a comprehensive architecture report of this project. Cover: MCP server structure, explorer runtime loop, prompt system, transcript ops logging, caching, symbol extraction, provider abstraction, and the three report-mode advanced techniques. Include file:line citations.',
-    repo_root: REPO_ROOT,
-    language: 'ko',
-  }, {
-    onProgress: ({ progress, total, message }) => {
-      process.stderr.write(`  [freeExplore] ${message} (${progress}/${total})\n`);
-    },
-  });
-
-  log('Report (first 1200 chars)', result.report?.slice(0, 1200));
-  log('Report length', `${result.report?.length ?? 0} chars`);
-  log('Stats', {
-    turns: result.stats?.turns,
-    toolCalls: result.stats?.toolCalls,
-    filesRead: result.stats?.filesRead,
-    elapsedMs: result.stats?.elapsedMs,
-    llmCompactions: result.stats?.llmCompactions,
-    toolResultsTruncated: result.stats?.toolResultsTruncated,
-    outputRecoveries: result.stats?.outputRecoveries,
-  });
-  log('Files Read', result.filesRead);
-  log('Transcript Path', result.transcriptPath ?? '(disabled)');
-
-  const checks = [];
-  checks.push(['report is substantial (>500 chars)', (result.report?.length ?? 0) > 500]);
-  checks.push(['report in Korean', /[가-힣]/.test(result.report ?? '')]);
-  checks.push(['report-mode stats tracked (llmCompactions field)', result.stats?.llmCompactions !== undefined]);
-  checks.push(['report-mode stats tracked (toolResultsTruncated field)', result.stats?.toolResultsTruncated !== undefined]);
-  checks.push(['report-mode stats tracked (outputRecoveries field)', result.stats?.outputRecoveries !== undefined]);
-  checks.push(['turns > 3 (actually explored)', (result.stats?.turns ?? 0) > 3]);
-  checks.push(['filesRead >= 3', (result.filesRead?.length ?? 0) >= 3]);
-
-  log('Checks', checks.map(([name, ok]) => `${ok ? 'PASS' : 'FAIL'} — ${name}`).join('\n'));
-  return checks.every(([, ok]) => ok);
-}
-
 async function testFailedCancellation() {
-  logSection('5. explore_repo — schema-v3 failed cancellation');
+  logSection('3. explore_repo — schema-v3 failed cancellation');
 
   const client = createChatClient();
   const runtime = new ExplorerRuntime({ chatClient: client, logger: console.error });
@@ -292,23 +215,9 @@ async function main() {
   }
 
   try {
-    results.push(['freeExplore', await testFreeExplore()]);
-  } catch (err) {
-    console.error('TEST 3 FAILED:', err.message);
-    results.push(['freeExplore', false]);
-  }
-
-  try {
-    results.push(['freeExplore advanced', await testFreeExploreAdvanced()]);
-  } catch (err) {
-    console.error('TEST 4 FAILED:', err.message);
-    results.push(['freeExplore advanced', false]);
-  }
-
-  try {
     results.push(['explore_repo (failed)', await testFailedCancellation()]);
   } catch (err) {
-    console.error('TEST 5 FAILED:', err.message);
+    console.error('TEST 3 FAILED:', err.message);
     results.push(['explore_repo (failed)', false]);
   }
 

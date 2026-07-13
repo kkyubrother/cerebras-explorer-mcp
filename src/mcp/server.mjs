@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { DEFAULT_PROTOCOL_VERSION, getExplorerModel } from '../explorer/config.mjs';
-import { exploreRepository, freeExploreRepository } from '../explorer/runtime.mjs';
+import { exploreRepository } from '../explorer/runtime.mjs';
 import {
   EXPLORE_REPO_INPUT_SCHEMA,
   EXPLORE_REPO_OUTPUT_SCHEMA,
@@ -174,31 +174,6 @@ const COLLECT_EVIDENCE_TOOL = {
   annotations: readOnlyToolAnnotations('Collect cited evidence'),
 };
 
-// ─── Phase 5: Free-form explore tool (beta) ───────────────────────────────
-
-const EXPLORE_TOOL = {
-  name: 'explore',
-  title: 'Free-form repository exploration',
-  description:
-    'Use for a user-facing Markdown investigation report with inline file:line citations. ' +
-    'Best for architecture walkthroughs, onboarding explanations, or broad "how does X work?" answers when polished prose is what the requester needs. ' +
-    'For narrow lookups, symbol traces, impact maps, code-path walks, or claim checks, prefer find_relevant_code, trace_symbol, map_change_impact, explain_code_path, or collect_evidence — they return the same grounded evidence in their tool-specific shape. ' +
-    'Do not use when the parent agent needs structured edit planning or programmatic next steps; use explore_repo instead.',
-  inputSchema: {
-    type: 'object',
-    additionalProperties: false,
-    properties: {
-      prompt: { type: 'string', description: 'What to explore — a natural-language question or task.' },
-      scope: { type: 'array', items: { type: 'string' }, description: 'Optional path prefixes to focus on.' },
-      repo_root: { type: 'string', description: 'Repository root path.' },
-      language: { type: 'string', description: 'BCP-47 language tag for the report (e.g. "ko", "en").' },
-      context: { type: 'string', description: 'Optional additional context from the parent agent.' },
-    },
-    required: ['prompt'],
-  },
-  annotations: readOnlyToolAnnotations('Free-form repository exploration'),
-};
-
 // ─── Tool registry ─────────────────────────────────────────────────────────
 
 function buildToolList() {
@@ -209,7 +184,6 @@ function buildToolList() {
     EXPLAIN_CODE_PATH_TOOL,
     COLLECT_EVIDENCE_TOOL,
     EXPLORE_REPO_TOOL,
-    EXPLORE_TOOL,
   ];
 }
 
@@ -477,119 +451,6 @@ export function createMcpRequestHandler({
     }
   }
 
-  function defaultEvidenceQuality(summary = 'No grounded evidence was retained.', warnings = []) {
-    return {
-      level: 'low',
-      exactCount: 0,
-      partialCount: 0,
-      droppedCount: 0,
-      fileCount: 0,
-      warnings: warnings.filter(item => typeof item === 'string').slice(0, 5),
-      summary,
-    };
-  }
-
-  function defaultSearchCoverage(summary = 'No search coverage was recorded.') {
-    return {
-      scope: [],
-      scopeLimited: false,
-      filesRead: 0,
-      grepCalls: 0,
-      listDirCalls: 0,
-      symbolCalls: 0,
-      toolResultsTruncated: 0,
-      stoppedByBudget: false,
-      omittedDiscoveredPaths: 0,
-      warnings: [],
-      summary,
-    };
-  }
-
-  function normalizeCriticWarning(warning) {
-    if (warning && typeof warning === 'object') {
-      return {
-        type: typeof warning.type === 'string' && warning.type ? warning.type : 'runtime_warning',
-        severity: ['low', 'medium', 'high'].includes(warning.severity) ? warning.severity : 'medium',
-        message: typeof warning.message === 'string' ? warning.message : '',
-        ...(typeof warning.target === 'string' && warning.target ? { target: warning.target } : {}),
-        action: typeof warning.action === 'string' && warning.action
-          ? warning.action
-          : 'Review this warning before relying on the result.',
-      };
-    }
-    return {
-      type: 'runtime_warning',
-      severity: 'medium',
-      message: typeof warning === 'string' ? warning : 'Explorer emitted an unspecified warning.',
-      action: 'Review this warning before relying on the result.',
-    };
-  }
-
-  function defaultCritic(warnings = []) {
-    const normalizedWarnings = Array.isArray(warnings)
-      ? warnings.map(normalizeCriticWarning).filter(warning => warning.message)
-      : [];
-    return {
-      status: normalizedWarnings.some(warning => warning.severity === 'high')
-        ? 'fail'
-        : (normalizedWarnings.length > 0 ? 'caution' : 'pass'),
-      warnings: normalizedWarnings,
-      droppedEvidence: 0,
-      partialEvidence: 0,
-    };
-  }
-
-  function buildHandledFailure({
-    category,
-    reason,
-    message,
-    retryTool = 'explore_repo',
-    hints = [],
-    retryArgs = null,
-    expectedImprovement = '',
-  }) {
-    return {
-      schemaVersion: 2,
-      directAnswer: '',
-      status: {
-        confidence: 'low',
-        verification: 'broad_search_needed',
-        complete: false,
-        warnings: [message],
-      },
-      targets: [],
-      discoveredPaths: [],
-      evidence: [],
-      uncertainties: [message],
-      nextAction: { type: 'ask_user', reason: message },
-      evidenceQuality: defaultEvidenceQuality(message, [message]),
-      searchCoverage: defaultSearchCoverage(message),
-      critic: defaultCritic([message]),
-      failure: {
-        category,
-        reason,
-        message,
-        retry: retryTool ? {
-          tool: retryTool,
-          hints,
-          ...(retryArgs ? { args: retryArgs } : {}),
-          ...(expectedImprovement ? { expectedImprovement } : {}),
-        } : null,
-      },
-    };
-  }
-
-  // Build a non-throwing isError tool result from a handled failure. The
-  // machine-readable reason is mirrored into content[0].text because some MCP
-  // clients surface only the text on isError and discard structuredContent (F7).
-  function handledFailureResult(opts) {
-    return {
-      isError: true,
-      content: [{ type: 'text', text: `${opts.message} [reason: ${opts.reason}]` }],
-      structuredContent: buildHandledFailure(opts),
-    };
-  }
-
   function handledParentFailureResult({
     reason,
     message,
@@ -610,25 +471,6 @@ export function createMcpRequestHandler({
       state: 'failed',
       failure,
     });
-  }
-
-  function toAgentFacingFreeExploreResult(result) {
-    return {
-      report: result.report ?? '',
-      citations: Array.isArray(result.citations) ? result.citations : [],
-      targets: Array.isArray(result.targets) ? result.targets : [],
-      searchCoverage: result.searchCoverage ?? defaultSearchCoverage(),
-      critic: {
-        ...defaultCritic(),
-        ...(result.critic && typeof result.critic === 'object' ? result.critic : {}),
-        warnings: Array.isArray(result.critic?.warnings)
-          ? result.critic.warnings.map(normalizeCriticWarning).filter(warning => warning.message)
-          : [],
-        droppedEvidence: 0,
-        partialEvidence: 0,
-      },
-      failure: result.failure ?? null,
-    };
   }
 
   async function callTool(exploreArgs, progressToken, requestId, toolName = 'explore_repo') {
@@ -680,52 +522,6 @@ export function createMcpRequestHandler({
     }
   }
 
-  async function callFreeExploreTool(exploreArgs, progressToken, requestId) {
-    const abortController = new AbortController();
-    if (hasRequestId(requestId)) activeAbortControllers.set(requestId, abortController);
-    let stats = null;
-    let transcriptPath = null;
-    let failureReason = '';
-    try {
-      const provenance = runtimeOptions.provenance ?? (isTranscriptEnabled() ? buildExecutionProvenance() : null);
-      const result = await freeExploreRepository(exploreArgs, {
-        logger,
-        ...runtimeOptions,
-        provenance,
-        onProgress: makeProgressCallback(progressToken),
-        abortSignal: abortController.signal,
-      });
-      stats = result.stats;
-      transcriptPath = result.transcriptPath ?? null;
-      failureReason = result.failure?.reason ?? '';
-      const safeResult = redactValue(toAgentFacingFreeExploreResult(result)).value;
-      return {
-        content: [{ type: 'text', text: safeResult.report }],
-        structuredContent: safeResult,
-      };
-    } catch (error) {
-      stats = error?.stats ?? stats;
-      transcriptPath = error?.transcriptPath ?? transcriptPath;
-      failureReason = error?.name === 'AbortError'
-        ? 'aborted'
-        : error?.repoRootError
-          ? 'repo_mismatch'
-        : error?.explorerFailureKind === 'provider'
-          ? 'provider_error'
-        : error?.failure?.reason ?? error?.reason ?? 'execution_failed';
-      throw error;
-    } finally {
-      writeOpsSummary({
-        tool: 'explore',
-        stats,
-        transcriptPath,
-        raw: isTranscriptRawMode(),
-        failureReason,
-      });
-      if (hasRequestId(requestId)) activeAbortControllers.delete(requestId);
-    }
-  }
-
   async function handleRequest(message) {
     switch (message.method) {
       case 'initialize': {
@@ -741,7 +537,7 @@ export function createMcpRequestHandler({
           instructions:
             `Cerebras Explorer provides autonomous codebase exploration (${toolCount} tools, powered by ${getExplorerModel()}). ` +
             'PREFER these tools over manual file search (Grep/Glob/Read) whenever you would otherwise run a grep-then-read loop — including for a single known symbol or claim — and especially for multi-file or cross-file understanding. ' +
-            'explore_repo returns structured JSON with directAnswer, status, targets, discoveredPaths, and grounded evidence snippets; explore returns a Markdown report for human consumption. ' +
+            'All tools return the same strict structured parent handoff with grounded evidence. ' +
             'Purpose shortcuts: find_relevant_code, trace_symbol, map_change_impact, explain_code_path, collect_evidence. ' +
             'Pass _meta.progressToken for heavy calls (broad reports / path / impact) to receive turn-by-turn progress updates. ' +
             'When summarizing or handing off a result to another agent, preserve these control-plane fields verbatim: ' +
@@ -790,10 +586,6 @@ export function createMcpRequestHandler({
             validatePublicToolArgs(COLLECT_EVIDENCE_TOOL, args);
             return await callTool(buildCollectEvidenceArgs(args), progressToken, requestId, name);
           }
-          if (name === 'explore') {
-            validatePublicToolArgs(EXPLORE_TOOL, args);
-            return await callFreeExploreTool(args, progressToken, requestId);
-          }
 
           // Unreachable: all exposed tool names are handled above.
           // If a new tool is added to buildToolList() but not dispatched here,
@@ -802,10 +594,7 @@ export function createMcpRequestHandler({
           error.code = -32603;
           throw error;
         } catch (error) {
-          const parentTool = name !== 'explore';
-          const handledResult = parentTool
-            ? handledParentFailureResult
-            : handledFailureResult;
+          const handledResult = handledParentFailureResult;
           if (error?.name === 'AbortError') {
             return handledResult({
               category: 'execution',
@@ -834,27 +623,19 @@ export function createMcpRequestHandler({
             const retryScope = Array.isArray(args?.scope)
               ? args.scope.filter(item => typeof item === 'string').slice(0, 8)
               : [];
-            const parentProjectionFailure = parentTool && error?.parentHandoffError;
+            const parentProjectionFailure = error?.parentHandoffError;
             return handledResult({
               category: parentProjectionFailure ? 'internal' : 'provider',
               reason: parentProjectionFailure ? 'internal_error' : 'provider_error',
               message: parentProjectionFailure
                 ? `${name} execution failed because its parent handoff was invalid.`
                 : `${name} execution failed because the provider was unavailable.`,
-              retryTool: name === 'explore' ? 'explore' : 'explore_repo',
+              retryTool: 'explore_repo',
               hints: ['Retry after the provider recovers, or narrow the task and scope.'],
-              // The retry recipe must match the target tool's input schema:
-              // explore requires `prompt`, while explore_repo (and the wrappers
-              // that lower into it) require `task`.
-              retryArgs: name === 'explore'
-                ? {
-                    prompt: 'Retry after the provider recovers, or narrow the prompt and scope.',
-                    scope: retryScope,
-                  }
-                : {
-                    task: 'Retry after the provider recovers, or narrow the task and scope.',
-                    scope: retryScope,
-                  },
+              retryArgs: {
+                task: 'Retry after the provider recovers, or narrow the task and scope.',
+                scope: retryScope,
+              },
               expectedImprovement: 'A provider recovery or narrower scope should reduce failure risk.',
             });
           }
