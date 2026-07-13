@@ -976,3 +976,285 @@ const contractTest = test;
     }), afterRevision, 'second-pass materialization must be deterministic');
     assert.equal(reduceTrustState({ requiredSubgoals: afterRevision.requiredSubgoals }), 'incomplete');
   });
+
+  const claimReductionTest =
+    typeof coverageModule.reduceSemanticClaims === 'function'
+      ? test
+      : test.todo;
+  // T030 must replace this feature gate with ordinary tests when the pure
+  // claim-to-goal reducer lands. Until then these callbacks are expected-red.
+
+  function candidateGoal(id, claimRefs, claimType = 'positive') {
+    const audited = createAuditedSubgoal({
+      id,
+      claimType,
+      question: 'Resolve requested part ' + id + '.',
+      proofCondition: claimType === 'claim_verification'
+        ? 'Support or refute the supplied premise with bounded evidence.'
+        : 'Observe evidence that resolves requested part ' + id + '.',
+    });
+    return transitionSubgoal(
+      transitionSubgoal(audited, 'exploring'),
+      'candidate',
+      { claimRefs },
+    );
+  }
+
+  function atomicClaim(id, {
+    subgoalId = 'S' + id.slice(1),
+    evidenceRefs = ['E' + id.slice(1)],
+    text = 'Atomic answer ' + id + '.',
+  } = {}) {
+    return createAtomicClaim({ id, subgoalId, text, evidenceRefs });
+  }
+
+  function semanticVerdict(claimId, result = 'supported', {
+    supportingEvidenceRefs = ['E' + claimId.slice(1)],
+    resolution = result === 'supported' ? 'affirmed' : null,
+  } = {}) {
+    return {
+      claimId,
+      result,
+      supportingEvidenceRefs,
+      reasonCode: result === 'supported' ? 'entailed' :
+        result === 'contradicted' ? 'contradiction' : 'semantic_mismatch',
+      note: 'Verifier returned ' + result + '.',
+      ...(resolution ? { resolution } : {}),
+    };
+  }
+
+  function evidenceLink(subgoalId, ...evidenceRefs) {
+    return { subgoalId, evidenceRefs };
+  }
+
+  function reduceClaims(input) {
+    assert.equal(typeof coverageModule.reduceSemanticClaims, 'function');
+    return coverageModule.reduceSemanticClaims(input);
+  }
+
+  const claimStates = result => result.claims
+    .map(claim => [claim.id, claim.verdict]).sort();
+  const goalStates = result => result.requiredSubgoals
+    .map(goal => [goal.id, goal.state, goal.resolution]);
+  const gapStates = result => result.gaps
+    .map(gap => [gap.subgoalId, gap.reason]);
+
+  claimReductionTest('Spec 028 T024 — supported atomic claim preserves text and affirms one goal', () => {
+    const claim = atomicClaim('C1', {
+      text: 'The current implementation exports authenticateUser.',
+    });
+    const result = reduceClaims({
+      requiredSubgoals: [candidateGoal('S1', ['C1'])],
+      claims: [claim],
+      semanticVerdicts: [semanticVerdict('C1')],
+      evidenceBySubgoal: [evidenceLink('S1', 'E1')],
+    });
+
+    assert.deepEqual(result.claims, [{ ...claim, verdict: 'supported' }]);
+    assert.deepEqual(goalStates(result), [['S1', 'supported', 'affirmed']]);
+    assert.deepEqual(result.gaps, []);
+  });
+
+  claimReductionTest('Spec 028 T024 — supported refutation resolves a goal but contradiction alone does not', () => {
+    const premise = atomicClaim('C1', {
+      text: 'The claimed legacyLogin registration exists.',
+    });
+    const refutation = atomicClaim('C2', {
+      subgoalId: 'S1',
+      text: 'The claimed registration is absent within the certified boundary.',
+    });
+    const evidenceBySubgoal = [evidenceLink('S1', 'E1', 'E2')];
+
+    const contradictedOnly = reduceClaims({
+      requiredSubgoals: [candidateGoal('S1', ['C1'], 'claim_verification')],
+      claims: [premise],
+      semanticVerdicts: [semanticVerdict('C1', 'contradicted')],
+      evidenceBySubgoal,
+    });
+    assert.deepEqual(claimStates(contradictedOnly), [['C1', 'contradicted']]);
+    assert.deepEqual(goalStates(contradictedOnly), [['S1', 'contradicted', undefined]]);
+    assert.deepEqual(gapStates(contradictedOnly), [['S1', 'contradicted']]);
+
+    const resolved = reduceClaims({
+      requiredSubgoals: [candidateGoal('S1', ['C1', 'C2'], 'claim_verification')],
+      claims: [premise, refutation],
+      semanticVerdicts: [
+        semanticVerdict('C1', 'contradicted'),
+        semanticVerdict('C2', 'supported', { resolution: 'refuted' }),
+      ],
+      evidenceBySubgoal,
+    });
+    assert.deepEqual(goalStates(resolved), [['S1', 'supported', 'refuted']]);
+
+    const invalidVerdicts = [
+      semanticVerdict('C2', 'supported', { resolution: null }),
+      semanticVerdict('C1', 'contradicted', { resolution: 'refuted' }),
+    ];
+    for (const verdict of invalidVerdicts) {
+      const claim = verdict.claimId === 'C1' ? premise : refutation;
+      assert.throws(() => reduceClaims({
+        requiredSubgoals: [candidateGoal('S1', [claim.id], 'claim_verification')],
+        claims: [claim],
+        semanticVerdicts: [verdict],
+        evidenceBySubgoal,
+      }), TypeError);
+    }
+
+    const conflicting = {
+      requiredSubgoals: [candidateGoal('S1', ['C1', 'C2'], 'claim_verification')],
+      claims: [premise, refutation],
+      semanticVerdicts: [
+        semanticVerdict('C1', 'supported', { resolution: 'affirmed' }),
+        semanticVerdict('C2', 'supported', { resolution: 'refuted' }),
+      ],
+      evidenceBySubgoal,
+    };
+    const conflictResult = reduceClaims(conflicting);
+    assert.deepEqual(goalStates(conflictResult), [['S1', 'contradicted', undefined]]);
+    assert.deepEqual(gapStates(conflictResult), [['S1', 'contradicted']]);
+  });
+
+  claimReductionTest('Spec 028 T024 — claim, goal, and verdict relationships fail closed', () => {
+    const claim = atomicClaim('C1');
+    const verdict = semanticVerdict('C1');
+    const base = {
+      requiredSubgoals: [candidateGoal('S1', ['C1'])],
+      claims: [claim],
+      semanticVerdicts: [verdict],
+      evidenceBySubgoal: [evidenceLink('S1', 'E1')],
+    };
+    const invalidControls = [
+      { claims: [claim, { ...claim }] },
+      { claims: [{ ...claim, subgoalId: 'unknown-subgoal' }] },
+      { requiredSubgoals: [candidateGoal('S1', ['C1', 'C9'])] },
+      {
+        requiredSubgoals: [
+          candidateGoal('S1', ['C2']),
+          candidateGoal('S2', ['C1']),
+        ],
+        claims: [claim, atomicClaim('C2')],
+        semanticVerdicts: [verdict, semanticVerdict('C2')],
+        evidenceBySubgoal: [evidenceLink('S1', 'E1'), evidenceLink('S2', 'E2')],
+      },
+      { semanticVerdicts: [] },
+      { semanticVerdicts: [verdict, { ...verdict }] },
+      { semanticVerdicts: [semanticVerdict('C9', 'supported', {
+        supportingEvidenceRefs: ['E1'],
+      })] },
+    ];
+
+    for (const override of invalidControls) {
+      assert.throws(() => reduceClaims({ ...base, ...override }), TypeError);
+    }
+  });
+
+  claimReductionTest('Spec 028 T024 — evidence subsets and subgoal boundaries gate claim support', () => {
+    const baseClaim = atomicClaim('C1');
+    const base = {
+      requiredSubgoals: [candidateGoal('S1', ['C1'])],
+      claims: [baseClaim],
+      evidenceBySubgoal: [evidenceLink('S1', 'E1')],
+    };
+    for (const verdict of [
+      semanticVerdict('C1', 'supported', { supportingEvidenceRefs: [] }),
+      semanticVerdict('C1', 'supported', { supportingEvidenceRefs: ['E9'] }),
+    ]) {
+      assert.throws(() => reduceClaims({
+        ...base,
+        semanticVerdicts: [verdict],
+      }), TypeError);
+    }
+
+    const sibling = atomicClaim('C2');
+    const invalidCandidates = [
+      {
+        claim: atomicClaim('C1', { evidenceRefs: ['E1', 'E2'] }),
+        evidenceBySubgoal: [evidenceLink('S1', 'E1'), evidenceLink('S2', 'E2')],
+      },
+      {
+        claim: atomicClaim('C1', { evidenceRefs: ['E9'] }),
+        evidenceBySubgoal: [evidenceLink('S1', 'E1'), evidenceLink('S2', 'E2')],
+      },
+    ];
+    for (const fixture of invalidCandidates) {
+      const result = reduceClaims({
+        requiredSubgoals: [
+          candidateGoal('S1', ['C1']),
+          candidateGoal('S2', ['C2']),
+        ],
+        claims: [fixture.claim, sibling],
+        semanticVerdicts: [
+          semanticVerdict('C1', 'supported', {
+            supportingEvidenceRefs: [fixture.claim.evidenceRefs[0]],
+          }),
+          semanticVerdict('C2'),
+        ],
+        evidenceBySubgoal: fixture.evidenceBySubgoal,
+      });
+      assert.equal(result.claims.find(claim => claim.id === 'C1').verdict, 'insufficient');
+      assert.notEqual(result.requiredSubgoals[0].state, 'supported');
+      assert.equal(result.requiredSubgoals[1].state, 'supported');
+    }
+  });
+
+  claimReductionTest('Spec 028 T024 — request coverage and reduction are deterministic', () => {
+    const claims = [atomicClaim('C1'), atomicClaim('C2')];
+    const semanticVerdicts = [
+      semanticVerdict('C1'),
+      semanticVerdict('C2', 'insufficient'),
+    ];
+    const evidenceBySubgoal = [
+      evidenceLink('S1', 'E1'),
+      evidenceLink('S2', 'E2'),
+    ];
+    const blocked = createAuditedSubgoal({
+      id: 'S3',
+      auditVerdict: 'blocked_scope',
+      blockerRef: 'G3',
+    });
+    const blockerGap = createCoverageGap({
+      id: 'G3',
+      subgoalId: 'S3',
+      question: blocked.question,
+      reason: 'scope_blocked',
+      repairable: false,
+    }, {
+      requestOrder: 2,
+      proofPolicy: blocked.proofPolicy,
+    });
+    const input = {
+      requiredSubgoals: [
+        candidateGoal('S1', ['C1']),
+        candidateGoal('S2', ['C2']),
+        blocked,
+      ],
+      existingGaps: [blockerGap],
+      claims,
+      semanticVerdicts,
+      evidenceBySubgoal,
+    };
+    const snapshot = structuredClone(input);
+    const forward = reduceClaims(input);
+    const reversed = reduceClaims({
+      ...input,
+      claims: [...claims].reverse(),
+      semanticVerdicts: [...semanticVerdicts].reverse(),
+      evidenceBySubgoal: [...evidenceBySubgoal].reverse(),
+    });
+
+    assert.deepEqual(input, snapshot);
+    assert.deepEqual(reversed.requiredSubgoals, forward.requiredSubgoals);
+    assert.deepEqual(reversed.gaps, forward.gaps);
+    assert.deepEqual(claimStates(reversed), claimStates(forward));
+    assert.deepEqual(goalStates(forward), [
+      ['S1', 'supported', 'affirmed'],
+      ['S2', 'gap', undefined],
+      ['S3', 'blocked', undefined],
+    ]);
+    assert.deepEqual(claimStates(forward), [['C1', 'supported'], ['C2', 'insufficient']]);
+    assert.deepEqual(gapStates(forward), [
+      ['S2', 'semantic_mismatch'],
+      ['S3', 'scope_blocked'],
+    ]);
+    assert.equal(reduceTrustState({ requiredSubgoals: forward.requiredSubgoals }), 'incomplete');
+  });

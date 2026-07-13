@@ -211,9 +211,12 @@ Output of the isolated verifier, retained internally.
 |---|---|---|
 | `claimId` | string | Existing candidate claim only. |
 | `result` | enum | `supported`, `insufficient`, `contradicted`. |
+| `resolution` | enum? | Required only for `supported`: `affirmed` or `refuted`. It classifies the supported claim against the required question; runtime never infers this from claim prose. |
 | `supportingEvidenceRefs` | string[] | Subset of the claim's existing references. |
 | `reasonCode` | enum | `entailed`, `semantic_mismatch`, `overgeneralized`, `missing_transition`, `missing_category`, `boundary_mismatch`, `contradiction`, `uncovered_request`. |
 | `note` | string | Compact internal diagnostic, recorded in transcript. |
+
+Every supported verdict must carry exactly one resolution. Non-supported verdicts must not carry one. If supported claims for the same required goal disagree on resolution, the goal remains contradicted and incomplete rather than selecting a result by model or array order.
 
 The verifier may also return `uncoveredRequestParts[]`. Each proposed part contains a question, exact original-request/wrapper origin references, claim type, proof condition, and constraints. It is not registered directly. Runtime sends the batch through the same deterministic traceability/scope/capability checks and isolated goal-audit rules without another planner revision:
 
