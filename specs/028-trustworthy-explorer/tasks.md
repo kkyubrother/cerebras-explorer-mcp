@@ -38,7 +38,7 @@
 - [x] T005 [P] Add failing pure tests for TaskContract, RequiredSubgoal, AtomicClaim, CoverageGap, SafetyLimit, legal state transitions, runtime-owned priority, and fatal-fault precedence in `tests/coverage.test.mjs`
 - [x] T006 [P] Add failing strict-schema tests for internal plan, audit, claim, verdict, absence-certificate, and safety-limit objects with `additionalProperties:false` in `tests/schemas.test.mjs`
 - [x] T007 [P] Add failing repository observation tests for boundary, tool/context truncation, denied paths, out-of-scope omissions, errors, and runtime-computed enumeration completeness in `tests/repo-tools.test.mjs`
-- [ ] T008 [P] Add failing tests that distinguish fixed safety/context limits from effort policy and migrate structured-path config/metrics away from budget-derived completion in `tests/project-config.test.mjs`, `tests/runtime.mock.test.mjs`, and `tests/benchmark-transcript-metrics.test.mjs`
+- [x] T008 [P] Add failing tests that distinguish fixed safety/context limits from effort policy and migrate structured-path config/metrics away from budget-derived completion in `tests/project-config.test.mjs`, `tests/runtime.mock.test.mjs`, and `tests/benchmark-transcript-metrics.test.mjs`
 - [ ] T009 Implement the pure trust-plane entities, legal transitions, deterministic priority, action fingerprinting, and state-reduction skeleton in `src/explorer/coverage.mjs`
 - [ ] T010 Implement reusable strict internal schema definitions and validators for the trust-plane entities in `src/explorer/schemas.mjs`
 - [ ] T011 [P] Normalize source/git/search observations and preserve scope, omission, denial, truncation, error, and enumeration facts in `src/explorer/repo-tools.mjs`

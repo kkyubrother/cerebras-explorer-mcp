@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
+import * as configExports from '../src/explorer/config.mjs';
 import {
   getExploreMaxCompactions,
   getExploreMaxExtraTurns,
@@ -13,6 +14,16 @@ import {
   normalizeProjectConfig,
   resolveRepoRoot,
 } from '../src/explorer/config.mjs';
+
+function runtimeConfigTest(name, callback) {
+  const getRuntimeConfig = configExports.getRuntimeConfig;
+  const register = getRuntimeConfig === undefined ? test.todo : test;
+  register(name, () => {
+    assert.equal(typeof getRuntimeConfig, 'function', 'getRuntimeConfig is not implemented');
+    return callback(getRuntimeConfig);
+  });
+}
+// T012 must replace this expected-red guard with a named import and an ordinary test.
 
 async function makeTempDir() {
   return fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-explorer-config-'));
@@ -41,6 +52,63 @@ async function withEnv(overrides, fn) {
     }
   }
 }
+
+runtimeConfigTest('Spec 028 T008 — structured runtime limits are fixed, unlabeled, and not effort controls', async getRuntimeConfig => {
+  const baseline = getRuntimeConfig();
+  const fixedLimitKeys = [
+    'maxTurns',
+    'maxSearchResults',
+    'maxReadLines',
+    'maxDirectoryEntries',
+    'maxWalkFiles',
+    'maxCompletionTokens',
+    'finalizeMaxCompletionTokens',
+    'maxContextTokens',
+  ];
+
+  for (const key of fixedLimitKeys) {
+    assert.equal(Number.isInteger(baseline[key]), true, `${key} must be a fixed integer limit`);
+    assert.ok(baseline[key] > 0, `${key} must be positive`);
+  }
+  assert.equal(
+    Object.keys(baseline).some(key => /budget|effort|strategy|thorough|label|multiplier/i.test(key)),
+    false,
+    'the structured runtime config must not encode a selectable effort tier',
+  );
+
+  await withEnv({
+    CEREBRAS_EXPLORER_TURN_MULTIPLIER: '4',
+    CEREBRAS_EXPLORER_MAX_EXTRA_TURNS: '200',
+    CEREBRAS_EXPLORER_MAX_COMPACTIONS: '10',
+  }, async () => {
+    assert.deepEqual(getRuntimeConfig(), baseline,
+      'legacy report effort controls must not mutate structured runtime limits');
+  });
+
+  const injected = normalizeProjectConfig({
+    defaultBudget: 'deep',
+    maxTurns: 1,
+    searchDepth: 'shallow',
+    strategy: 'fast',
+    safetyLimits: { maxTurns: 1 },
+  });
+  assert.deepEqual(injected, {}, 'project config cannot override fixed runtime limits or effort');
+
+  const originalMaxTurns = baseline.maxTurns;
+  try {
+    baseline.maxTurns = originalMaxTurns + 1;
+  } catch {
+    // A frozen object is one valid implementation; a defensive copy is also valid.
+  }
+  const observedMaxTurns = getRuntimeConfig().maxTurns;
+  try {
+    baseline.maxTurns = originalMaxTurns;
+  } catch {
+    // Frozen configs need no restoration.
+  }
+  assert.equal(observedMaxTurns, originalMaxTurns,
+    'a caller cannot mutate the process-wide fixed runtime limits');
+});
 
 // ─── loadProjectConfig ────────────────────────────────────────────────────────
 

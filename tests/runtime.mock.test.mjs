@@ -1877,6 +1877,118 @@ test('Phase 1 — malformed freeform content still produces strict-schema result
   assert.equal(result.evidenceQuality.level, 'low');
 });
 
+// T008 fixes the expected behavior before T013 changes runtime fault precedence.
+// T013 must convert these expected-red TODOs to ordinary tests.
+test.todo('Spec 028 T008 — a valid partial tool-result limit is non-fatal and cannot establish completion', async () => {
+  class PartialToolLimitClient {
+    constructor() {
+      this.model = 'zai-glm-4.7';
+      this.calls = 0;
+    }
+
+    async createChatCompletion({ responseFormat }) {
+      this.calls += 1;
+      if (this.calls === 1) {
+        return {
+          usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+          message: {
+            content: '',
+            toolCalls: [{
+              id: 'read-long-file',
+              function: {
+                name: 'repo_read_file',
+                arguments: JSON.stringify({ path: 'src/long.js', startLine: 1, endLine: 10_000 }),
+              },
+            }],
+          },
+        };
+      }
+
+      if (!responseFormat) {
+        return {
+          usage: { prompt_tokens: 30, completion_tokens: 10, total_tokens: 40 },
+          message: { content: 'Ready to synthesize.', toolCalls: [] },
+        };
+      }
+
+      return {
+        usage: { prompt_tokens: 40, completion_tokens: 20, total_tokens: 60 },
+        message: {
+          content: JSON.stringify(compactResult({
+            directAnswer: 'The complete file could not be inspected within the fixed read limit.',
+            verification: 'follow_up_needed',
+            complete: false,
+            uncertainties: ['The requested exhaustive read is incomplete.'],
+            nextAction: { type: 'stop', reason: 'The bounded result is incomplete.' },
+          })),
+          toolCalls: [],
+        },
+      };
+    }
+  }
+
+  const root = await makeRepoFixture();
+  const longSource = Array.from({ length: 400 }, (_, index) => `export const line${index + 1} = ${index + 1};`).join('\n');
+  await fs.writeFile(path.join(root, 'src', 'long.js'), longSource);
+
+  const runtime = new ExplorerRuntime({ chatClient: new PartialToolLimitClient() });
+  const result = await runtime.explore({
+    task: 'Inspect every line in src/long.js and report whether any line was omitted.',
+    repo_root: root,
+    scope: ['src/**'],
+  });
+
+  assert.equal('budget' in result.stats, false);
+  assert.equal('stoppedByBudget' in result.stats, false);
+  assert.equal(result.status.complete, false);
+  assert.equal(result.failure, null, 'a valid partial result is an incomplete proof state, not execution failure');
+  assert.equal(Array.isArray(result.stats.safetyLimits), true);
+  const limit = result.stats.safetyLimits.find(item => item.name === 'tool_result_limit');
+  assert.ok(limit, 'the exact reached limit must be recorded');
+  assert.equal(limit.stage, 'exploration');
+  assert.equal(limit.truncated, true);
+  assert.equal(Array.isArray(limit.affectedSubgoalIds), true);
+});
+
+test.todo('Spec 028 T008 — an output-capped invalid control response remains a fatal fault', async () => {
+  class InvalidControlOutputClient {
+    constructor() {
+      this.model = 'zai-glm-4.7';
+      this.calls = 0;
+    }
+
+    async createChatCompletion({ responseFormat }) {
+      this.calls += 1;
+      if (!responseFormat) {
+        return {
+          usage: { prompt_tokens: 20, completion_tokens: 5, total_tokens: 25 },
+          message: { content: '', toolCalls: [] },
+        };
+      }
+      return {
+        usage: { prompt_tokens: 30, completion_tokens: 5, total_tokens: 35 },
+        finishReason: 'length',
+        message: { content: '{"directAnswer":', toolCalls: [] },
+      };
+    }
+  }
+
+  const root = await makeRepoFixture();
+  const runtime = new ExplorerRuntime({ chatClient: new InvalidControlOutputClient() });
+  const result = await runtime.explore({ task: 'Locate the auth middleware.', repo_root: root });
+
+  assert.equal('budget' in result.stats, false);
+  assert.equal('stoppedByBudget' in result.stats, false);
+  assert.equal(result.status.complete, false);
+  assert.ok(result.failure, 'invalid required control JSON cannot be promoted as partial evidence');
+  assert.notEqual(result.failure.reason, 'budget_exhausted');
+  assert.equal(Array.isArray(result.stats.safetyLimits), true);
+  const limit = result.stats.safetyLimits.find(item => item.name === 'generation_output_limit');
+  assert.ok(limit, 'the provider output ceiling must remain observable alongside the fatal fault');
+  assert.equal(limit.stage, 'synthesis');
+  assert.equal(limit.truncated, true);
+});
+
 test('ExplorerRuntime budget retry args preserve scope boundary', async () => {
   class BudgetRetryScopeClient {
     constructor() {

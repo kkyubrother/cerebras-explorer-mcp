@@ -7,14 +7,18 @@ import path from 'node:path';
 import { analyzeTranscriptEntries, analyzeTranscriptFile } from '../src/benchmark/transcript-metrics.mjs';
 import { computeExtendedMetrics } from '../scripts/run-benchmark.mjs';
 
-test('analyzeTranscriptEntries summarizes assistant, broad search, read, and budget signals', () => {
+const safetyLimitMetricTest = Object.hasOwn(analyzeTranscriptEntries([]), 'safetyLimitCount')
+  ? test
+  : test.todo;
+// T014 must make these ordinary tests once the record-only metric is implemented.
+
+safetyLimitMetricTest('analyzeTranscriptEntries summarizes tools and record-only safety-limit signals', () => {
   const metrics = analyzeTranscriptEntries([
     { type: 'assistant', turn: 1, toolCalls: ['repo_grep'] },
     { type: 'tool', turn: 1, tool: 'repo_grep', error: false },
     { type: 'assistant', turn: 2, toolCalls: ['repo_read_file', 'repo_symbols'] },
     { type: 'tool', turn: 2, tool: 'repo_read_file', error: false },
     { type: 'tool', turn: 2, tool: 'repo_symbols', error: false },
-    { type: 'meta', stats: { stoppedByBudget: false } },
   ]);
 
   assert.deepEqual(metrics, {
@@ -24,7 +28,7 @@ test('analyzeTranscriptEntries summarizes assistant, broad search, read, and bud
     readCalls: 2,
     toolErrorCalls: 0,
     repeatedToolPlanTurns: 0,
-    stoppedByBudget: false,
+    safetyLimitCount: 0,
   });
 });
 
@@ -39,16 +43,30 @@ test('analyzeTranscriptEntries detects repeated tool plans and tool errors', () 
   assert.equal(metrics.toolErrorCalls, 1);
 });
 
-test('analyzeTranscriptEntries uses the final meta stats for stoppedByBudget', () => {
+safetyLimitMetricTest('analyzeTranscriptEntries counts exact safety-limit events and ignores legacy budget stats', () => {
   const metrics = analyzeTranscriptEntries([
     { type: 'meta', stats: { stoppedByBudget: true } },
-    { type: 'meta', stats: { stoppedByBudget: false } },
+    {
+      type: 'safety_limit',
+      name: 'turn_limit',
+      stage: 'exploration',
+      affectedSubgoalIds: ['S1'],
+      truncated: false,
+    },
+    {
+      type: 'safety_limit',
+      name: 'context_limit',
+      stage: 'verification',
+      affectedSubgoalIds: [],
+      truncated: true,
+    },
   ]);
 
-  assert.equal(metrics.stoppedByBudget, false);
+  assert.equal(metrics.safetyLimitCount, 2);
+  assert.equal('stoppedByBudget' in metrics, false);
 });
 
-test('analyzeTranscriptFile returns null for missing paths and parses JSONL files', async () => {
+safetyLimitMetricTest('analyzeTranscriptFile returns null for missing paths and parses safety-limit JSONL events', async () => {
   assert.equal(await analyzeTranscriptFile(null), null);
 
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'transcript-metrics-'));
@@ -59,7 +77,13 @@ test('analyzeTranscriptFile returns null for missing paths and parses JSONL file
       JSON.stringify({ type: 'assistant', toolCalls: ['repo_find_files'] }),
       '',
       JSON.stringify({ type: 'tool', tool: 'repo_find_files', error: false }),
-      JSON.stringify({ type: 'meta', stats: { stoppedByBudget: true } }),
+      JSON.stringify({
+        type: 'safety_limit',
+        name: 'walk_limit',
+        stage: 'exploration',
+        affectedSubgoalIds: ['S1'],
+        truncated: true,
+      }),
       '',
     ].join('\n'),
     'utf8',
@@ -72,7 +96,7 @@ test('analyzeTranscriptFile returns null for missing paths and parses JSONL file
     readCalls: 0,
     toolErrorCalls: 0,
     repeatedToolPlanTurns: 0,
-    stoppedByBudget: true,
+    safetyLimitCount: 1,
   });
 });
 
@@ -83,7 +107,7 @@ function syntheticCase({ ops, searchCoverage, transcriptMetrics = null, effectMe
       evidence: [],
       targets: [],
       status: {},
-      searchCoverage: searchCoverage ?? { filesRead: 1, grepCalls: 0, listDirCalls: 0, symbolCalls: 0, stoppedByBudget: false },
+      searchCoverage: searchCoverage ?? { filesRead: 1, grepCalls: 0, listDirCalls: 0, symbolCalls: 0 },
     },
     ops: ops ?? null,
     transcriptMetrics,
@@ -108,12 +132,18 @@ test('computeExtendedMetrics reads ops stats and reports n/a (null) when ops are
   assert.equal(withoutOps.noToolExitRate, 0, 'searchCoverage fallback sees 1 file read');
 });
 
-test('computeExtendedMetrics sources budget exhaustion from searchCoverage (spec 025)', () => {
+safetyLimitMetricTest('computeExtendedMetrics reports record-only safety-limit incidence without budget exhaustion', () => {
   const metrics = computeExtendedMetrics([
-    syntheticCase({ searchCoverage: { filesRead: 2, grepCalls: 1, listDirCalls: 0, symbolCalls: 0, stoppedByBudget: true } }),
+    syntheticCase({ transcriptMetrics: { safetyLimitCount: 1 } }),
+    syntheticCase({ transcriptMetrics: { safetyLimitCount: 0 } }),
     syntheticCase(),
   ]);
-  assert.equal(metrics.budgetExhaustionRate, 0.5);
+  assert.equal(metrics.safetyLimitIncidenceRate, 0.5);
+  assert.equal('budgetExhaustionRate' in metrics, false);
+
+  const withoutTrace = computeExtendedMetrics([syntheticCase()]);
+  assert.equal(withoutTrace.safetyLimitIncidenceRate, null,
+    'absence of an operational source must not fabricate zero incidence');
 });
 
 test('computeExtendedMetrics aggregates effect metrics and pools citation checks (spec 025)', () => {
@@ -168,7 +198,7 @@ test('computeExtendedMetrics does not fabricate a no-tool exit from an absent se
 
 test('computeExtendedMetrics counts an all-zero searchCoverage as a no-tool exit via the fallback (spec 025)', () => {
   const metrics = computeExtendedMetrics([
-    syntheticCase({ searchCoverage: { filesRead: 0, grepCalls: 0, listDirCalls: 0, symbolCalls: 0, stoppedByBudget: false } }),
+    syntheticCase({ searchCoverage: { filesRead: 0, grepCalls: 0, listDirCalls: 0, symbolCalls: 0 } }),
   ]);
   assert.equal(metrics.noToolExitRate, 1);
 });
