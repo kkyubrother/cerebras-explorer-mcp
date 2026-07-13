@@ -72,6 +72,6 @@
 - Local pre-commit hook 설치: `bash scripts/install-hooks.sh` (한 번만)
 
 <!-- SPECKIT START -->
-For additional context about technologies to be used, project structure,
-shell commands, and other important information, read the current plan
+For feature 028 trust and parent-handoff work, read
+`specs/028-trustworthy-explorer/plan.md` before implementation.
 <!-- SPECKIT END -->
