@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
+import * as mcpServerModule from '../src/mcp/server.mjs';
 import { buildExecutionProvenance, createMcpRequestHandler } from '../src/mcp/server.mjs';
 import { getRepoRoot } from '../src/explorer/config.mjs';
 import { adaptLegacyGoalAuditClient } from './helpers/legacy-goal-audit-client.mjs';
@@ -249,6 +250,235 @@ function assertReadOnlyAnnotations(tool) {
   assert.equal(tool.annotations.idempotentHint, true, `${tool.name} must be idempotent`);
   assert.equal(tool.annotations.openWorldHint, true, `${tool.name} must disclose provider API egress`);
 }
+
+// T037 precedes the T042 MCP projection. As with the other test-first tasks,
+// the missing projection runs as expected-red TODO; a partial export activates
+// all assertions and fails normally.
+function parentHandoffMcpTest(name, callback) {
+  const buildResponse = mcpServerModule.buildParentHandoffResponse;
+  const register = typeof buildResponse === 'function' ? test : test.todo;
+  register(name, () => {
+    assert.equal(typeof buildResponse, 'function',
+      'buildParentHandoffResponse is not implemented');
+    callback(buildResponse);
+  });
+}
+
+function mcpV3SourceEvidence(overrides = {}) {
+  return {
+    kind: 'source',
+    path: 'src/auth.mjs',
+    startLine: 10,
+    endLine: 18,
+    supports: 'The route validates the token before dispatch.',
+    ...overrides,
+  };
+}
+
+function assertQuietMcpEnvelope(response, expectedStructured) {
+  assert.deepEqual(response.structuredContent, expectedStructured);
+  assert.equal(response._meta, undefined, 'default MCP responses must omit operational metadata');
+  assert.equal(response.content?.length, 1);
+  assert.equal(response.content[0]?.type, 'text');
+  const serialized = JSON.stringify(response);
+  assert.doesNotMatch(serialized,
+    /evidenceQuality|searchCoverage|critic|confidence|taskContract|coverageGaps|stats|transcriptPath|toolTrace/);
+}
+
+parentHandoffMcpTest(
+  'Spec 028 T037 — complete and verify_targets MCP text mirror only action-relevant v3 facts',
+  (buildResponse) => {
+    const complete = {
+      schemaVersion: 3,
+      directAnswer: 'The route validates the token before dispatch.',
+      state: 'complete',
+      evidence: [mcpV3SourceEvidence()],
+    };
+    const completeResponse = buildResponse(structuredClone(complete));
+    assertQuietMcpEnvelope(completeResponse, complete);
+    assert.equal(completeResponse.content[0].text, complete.directAnswer,
+      'complete text must be the direct answer only');
+    assert.equal(completeResponse.isError, undefined);
+
+    const verifyTargets = {
+      schemaVersion: 3,
+      directAnswer: 'The schema declaration and MCP projection must change together.',
+      state: 'verify_targets',
+      targets: [{
+        path: 'src/explorer/schemas.mjs',
+        startLine: 294,
+        endLine: 324,
+        role: 'edit',
+        reason: 'Change the public output schema here.',
+        evidenceRefs: ['E1'],
+      }],
+      evidence: [mcpV3SourceEvidence({
+        id: 'E1',
+        path: 'src/explorer/schemas.mjs',
+        startLine: 294,
+        endLine: 324,
+        supports: 'This range declares the public output schema.',
+      })],
+    };
+    const verifyResponse = buildResponse(structuredClone(verifyTargets));
+    assertQuietMcpEnvelope(verifyResponse, verifyTargets);
+    assert.equal(verifyResponse.content[0].text, [
+      verifyTargets.directAnswer,
+      '',
+      'State: verify_targets',
+      'Target: src/explorer/schemas.mjs:294-324 — Change the public output schema here.',
+    ].join('\n'));
+    assert.equal(verifyResponse.isError, undefined);
+  },
+);
+
+parentHandoffMcpTest(
+  'Spec 028 T037 — partial and all-blocked incomplete MCP results omit empty fields',
+  (buildResponse) => {
+    const partial = {
+      schemaVersion: 3,
+      directAnswer: 'The API route exists.',
+      state: 'incomplete',
+      evidence: [mcpV3SourceEvidence({ supports: 'The API route exists.' })],
+      gaps: [{
+        question: 'Whether an alternate bootstrap registers the route',
+        reason: 'The bootstrap search was truncated.',
+      }],
+      followUp: {
+        type: 'tool',
+        tool: 'explore_repo',
+        arguments: {
+          task: 'Check bootstrap files for route registration.',
+          scope: ['src/app/**'],
+          hints: { files: ['src/app/index.mjs'] },
+        },
+      },
+    };
+    const partialResponse = buildResponse(structuredClone(partial));
+    assertQuietMcpEnvelope(partialResponse, partial);
+    assert.equal(partialResponse.content[0].text, [
+      partial.directAnswer,
+      '',
+      'State: incomplete',
+      'Gap: Whether an alternate bootstrap registers the route — The bootstrap search was truncated.',
+      'Follow-up: explore_repo — Check bootstrap files for route registration.',
+    ].join('\n'));
+    assert.deepEqual(
+      partialResponse.structuredContent.followUp.arguments.hints.files,
+      ['src/app/index.mjs'],
+      'explore_repo anchors stay nested under arguments.hints.files',
+    );
+
+    const allBlocked = {
+      schemaVersion: 3,
+      state: 'incomplete',
+      gaps: [{
+        question: 'Whether the deployed service uses the repository configuration',
+        reason: 'This depends on live state unavailable to the repository explorer.',
+      }],
+      followUp: {
+        type: 'external_verification',
+        requirement: 'Report the active deployed configuration revision.',
+      },
+    };
+    const blockedResponse = buildResponse(structuredClone(allBlocked));
+    assertQuietMcpEnvelope(blockedResponse, allBlocked);
+    assert.equal(blockedResponse.content[0].text, [
+      'State: incomplete',
+      'Gap: Whether the deployed service uses the repository configuration — This depends on live state unavailable to the repository explorer.',
+      'Follow-up: Report the active deployed configuration revision.',
+    ].join('\n'));
+    for (const omitted of ['directAnswer', 'targets', 'evidence', 'failure']) {
+      assert.equal(Object.hasOwn(blockedResponse.structuredContent, omitted), false,
+        `all-blocked responses must omit ${omitted}`);
+    }
+  },
+);
+
+parentHandoffMcpTest(
+  'Spec 028 T037 — failed MCP results use exact nested retry actions without stale success data',
+  (buildResponse) => {
+    const failed = {
+      schemaVersion: 3,
+      directAnswer: 'Provider failed before a trustworthy answer was produced.',
+      state: 'failed',
+      failure: {
+        reason: 'provider_error',
+        retry: {
+          type: 'tool',
+          tool: 'explore_repo',
+          arguments: {
+            task: 'Trace token validation.',
+            hints: { files: ['src/auth.mjs'] },
+          },
+        },
+      },
+    };
+    const response = buildResponse(structuredClone(failed));
+    assertQuietMcpEnvelope(response, failed);
+    assert.equal(response.isError, true);
+    assert.equal(response.content[0].text, [
+      failed.directAnswer,
+      '',
+      'State: failed',
+      'Failure: provider_error',
+      'Retry: explore_repo — Trace token validation.',
+    ].join('\n'));
+    for (const omitted of ['targets', 'evidence', 'gaps', 'followUp']) {
+      assert.equal(Object.hasOwn(response.structuredContent, omitted), false,
+        `failed responses must omit ${omitted}`);
+    }
+  },
+);
+
+parentHandoffMcpTest(
+  'Spec 028 T037 — MCP projection rejects flattened, legacy, and tool-mismatched actions',
+  (buildResponse) => {
+    const incomplete = {
+      schemaVersion: 3,
+      state: 'incomplete',
+      gaps: [{ question: 'Where is the symbol used?', reason: 'Usage evidence is incomplete.' }],
+    };
+    const invalidFollowUps = [
+      {
+        type: 'tool',
+        tool: 'explore_repo',
+        task: 'Search again.',
+      },
+      {
+        type: 'tool',
+        tool: 'explore_repo',
+        args: { task: 'Search again.' },
+      },
+      {
+        type: 'tool',
+        tool: 'trace_symbol',
+        arguments: { task: 'This is not a trace_symbol argument.' },
+      },
+      {
+        type: 'tool',
+        tool: 'explore_repo',
+        arguments: { task: 'Search again.', hints: { files: ['src/a.mjs'], unknown: true } },
+      },
+    ];
+    for (const followUp of invalidFollowUps) {
+      assert.throws(() => buildResponse({ ...incomplete, followUp }));
+    }
+
+    const failed = {
+      schemaVersion: 3,
+      directAnswer: 'Provider failed.',
+      state: 'failed',
+      failure: { reason: 'provider_error' },
+    };
+    for (const retry of invalidFollowUps) {
+      assert.throws(() => buildResponse({
+        ...failed,
+        failure: { reason: 'provider_error', retry },
+      }));
+    }
+  },
+);
 
 // spec 011: the report-mode router was removed. All explore calls use one
 // backend unconditionally, so the previous routing tests are no longer applicable.

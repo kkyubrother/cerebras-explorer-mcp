@@ -112,7 +112,7 @@
 ### Tests for User Story 2
 
 - [x] T036 [P] [US2] Add exhaustive schema-v3 state/conditional-field/additional-properties tests and v2-field rejection tests in `tests/schemas.test.mjs`
-- [ ] T037 [P] [US2] Add MCP tests for concise text parity, minimal structured output, deterministic `verify_targets`, exact `{type, tool, arguments}` follow-up/retry unions, rejection of flattened action keys, `explore_repo` anchors under `arguments.hints.files`, all-blocked omission, and default `_meta` quietness in `tests/mcp-server.test.mjs`
+- [x] T037 [P] [US2] Add MCP tests for concise text parity, minimal structured output, deterministic `verify_targets`, exact `{type, tool, arguments}` follow-up/retry unions, rejection of flattened action keys, `explore_repo` anchors under `arguments.hints.files`, all-blocked omission, and default `_meta` quietness in `tests/mcp-server.test.mjs`
 - [ ] T038 [P] [US2] Add redaction parity tests for v3 source/git/absence evidence, gaps, failures, text, structured output, and operational logs in `tests/security/redact.test.mjs`
 - [ ] T039 [P] [US2] Add parent-visible `content + structuredContent` UTF-8 payload-size and claim-cover-minimization tests in `tests/effect-metrics.test.mjs`
 
