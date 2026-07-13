@@ -1,0 +1,61 @@
+{
+  "fixtureVersion": 1,
+  "scenario": "infeasible_goals",
+  "responses": [
+    {
+      "stage": "planner",
+      "result": {
+        "message": {
+          "content": {
+            "taskSummary": "Confirm live deployment state and update it if stale.",
+            "constraints": [],
+            "subgoals": [
+              {
+                "id": "S1",
+                "question": "Is service:v2 currently deployed?",
+                "originRefs": ["request:0-32"],
+                "claimType": "positive",
+                "proofCondition": "Observe the mutable live deployment state.",
+                "constraints": []
+              },
+              {
+                "id": "S2",
+                "question": "Update the deployment if the image is stale.",
+                "originRefs": ["request:34-76"],
+                "claimType": "positive",
+                "proofCondition": "Write the desired image to the deployment.",
+                "constraints": []
+              }
+            ]
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "goal_audit",
+      "result": {
+        "message": {
+          "content": {
+            "goals": [
+              {
+                "id": "S1",
+                "verdict": "requires_external_state",
+                "confirmedOriginRefs": ["request:0-32"],
+                "reason": "Repository configuration cannot establish mutable live deployment state."
+              },
+              {
+                "id": "S2",
+                "verdict": "blocked_capability",
+                "confirmedOriginRefs": ["request:34-76"],
+                "reason": "The explorer has no repository or deployment write capability."
+              }
+            ],
+            "uncoveredRequestParts": []
+          },
+          "toolCalls": []
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "fixtureVersion": 1,
+  "scenario": "provider_failure",
+  "responses": [
+    {
+      "stage": "planner",
+      "error": {
+        "name": "ProviderError",
+        "message": "fixture provider unavailable",
+        "retryable": false
+      }
+    }
+  ]
+}

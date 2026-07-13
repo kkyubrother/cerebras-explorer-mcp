@@ -1,0 +1,69 @@
+{
+  "fixtureVersion": 1,
+  "scenario": "scoped_truncated_search",
+  "responses": [
+    {
+      "stage": "planner",
+      "result": {
+        "message": {
+          "content": {
+            "taskSummary": "Determine whether any other route registration exists.",
+            "constraints": ["Scope is src/in-scope/**."],
+            "subgoals": [
+              {
+                "id": "S1",
+                "question": "Are there any other in-scope route registrations?",
+                "originRefs": ["request:0-46"],
+                "claimType": "absence",
+                "proofCondition": "Enumerate every route registration in src/in-scope/** without truncation.",
+                "constraints": ["Do not claim repository-wide absence."]
+              }
+            ]
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "exploration",
+      "result": {
+        "message": {
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "call-search-1",
+              "function": {
+                "name": "repo_grep",
+                "arguments": {
+                  "pattern": "app.get(",
+                  "scope": ["src/in-scope/**"],
+                  "maxResults": 1
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "stage": "verification",
+      "result": {
+        "message": {
+          "content": {
+            "verdicts": [
+              {
+                "claimId": "C1",
+                "result": "insufficient",
+                "supportingEvidenceRefs": [],
+                "reasonCode": "boundary_mismatch",
+                "note": "The capped in-scope search cannot prove repository-wide absence."
+              }
+            ],
+            "uncoveredRequestParts": []
+          },
+          "toolCalls": []
+        }
+      }
+    }
+  ]
+}

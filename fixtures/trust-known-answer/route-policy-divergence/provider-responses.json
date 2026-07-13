@@ -1,0 +1,66 @@
+{
+  "fixtureVersion": 1,
+  "scenario": "route_policy_divergence",
+  "responses": [
+    {
+      "stage": "planner",
+      "result": {
+        "message": {
+          "content": {
+            "taskSummary": "Compare authorization policies for the admin and team routes.",
+            "constraints": ["Keep route-specific differences."],
+            "subgoals": [
+              {
+                "id": "S1",
+                "question": "Which roles can access each route?",
+                "originRefs": ["request:0-57"],
+                "claimType": "comparison",
+                "proofCondition": "Observe and compare both current route policy declarations.",
+                "constraints": ["Do not generalize one route to the other."]
+              }
+            ]
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "synthesis",
+      "result": {
+        "message": {
+          "content": {
+            "claims": [
+              {
+                "id": "C1",
+                "subgoalId": "S1",
+                "text": "All protected routes require the super_admin role.",
+                "evidenceRefs": ["E1", "E2"]
+              }
+            ]
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "verification",
+      "result": {
+        "message": {
+          "content": {
+            "verdicts": [
+              {
+                "claimId": "C1",
+                "result": "contradicted",
+                "supportingEvidenceRefs": ["E1", "E2"],
+                "reasonCode": "overgeneralized",
+                "note": "The routes declare different role sets."
+              }
+            ],
+            "uncoveredRequestParts": []
+          },
+          "toolCalls": []
+        }
+      }
+    }
+  ]
+}

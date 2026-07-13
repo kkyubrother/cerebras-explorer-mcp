@@ -1,0 +1,66 @@
+{
+  "fixtureVersion": 1,
+  "scenario": "semantic_mismatch",
+  "responses": [
+    {
+      "stage": "planner",
+      "result": {
+        "message": {
+          "content": {
+            "taskSummary": "Count the configured secret patterns.",
+            "constraints": ["Use the array item count, not a line number."],
+            "subgoals": [
+              {
+                "id": "S1",
+                "question": "How many secret patterns are configured?",
+                "originRefs": ["request:0-40"],
+                "claimType": "count",
+                "proofCondition": "Count every element in SECRET_PATTERNS from complete source output.",
+                "constraints": []
+              }
+            ]
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "synthesis",
+      "result": {
+        "message": {
+          "content": {
+            "claims": [
+              {
+                "id": "C1",
+                "subgoalId": "S1",
+                "text": "There are 117 configured secret patterns.",
+                "evidenceRefs": ["E1"]
+              }
+            ]
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "verification",
+      "result": {
+        "message": {
+          "content": {
+            "verdicts": [
+              {
+                "claimId": "C1",
+                "result": "insufficient",
+                "supportingEvidenceRefs": [],
+                "reasonCode": "semantic_mismatch",
+                "note": "117 is not the deterministic array item count."
+              }
+            ],
+            "uncoveredRequestParts": []
+          },
+          "toolCalls": []
+        }
+      }
+    }
+  ]
+}
