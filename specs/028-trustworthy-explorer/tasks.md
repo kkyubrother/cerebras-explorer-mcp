@@ -86,7 +86,7 @@
 - [x] T024 [P] [US1] Add failing atomic-claim, supported/refuted resolution, evidence-link, cross-boundary rejection, request-coverage, and deterministic state-reduction tests in `tests/coverage.test.mjs`
 - [x] T025 [P] [US1] Add failing source-integrity, source-role, temporal-role, semantic-mismatch, and cross-file generalization tests in `tests/critic.test.mjs`
 - [x] T026 [P] [US1] Add mock-provider tests for isolated semantic verification, verifier-invented goals, one repair round, post-repair reopening of prior claims, traceable and untraceable post-repair uncovered goals with audit/leakage/terminal-state/no-second-repair assertions, no equivalent repeated follow-up, valid partial limits, invalid control JSON, and provider/verifier faults in `tests/runtime.mock.test.mjs`
-- [ ] T027 [P] [US1] Add cancellation regressions for planner, auditor, explorer, verifier, and repair stages plus JSON-RPC request id `0` in `tests/mcp-server.test.mjs` and `tests/jsonrpc-stdio.test.mjs`
+- [x] T027 [P] [US1] Add cancellation regressions for planner, auditor, explorer, verifier, and repair stages plus JSON-RPC request id `0` in `tests/mcp-server.test.mjs` and `tests/jsonrpc-stdio.test.mjs`
 
 ### Implementation for User Story 1
 

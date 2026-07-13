@@ -1229,3 +1229,255 @@ test('explore_repo and wrappers expose _meta.ops without touching structuredCont
     assert.equal(called.structuredContent._debug, undefined);
   }
 });
+
+// T033 activates this transport-to-runtime cancellation matrix after the
+// semantic verifier and repair stages exist end to end.
+const mcpPipelineCancellationTest = test.todo;
+const CANCELLATION_TASK = 'Locate requireAuth and trace legacyGuard usage.';
+
+function cancellationControlStage(request, verifierFinished) {
+  const wrapped = request.responseFormat?.json_schema;
+  const schema = wrapped?.schema ?? wrapped;
+  const required = Array.isArray(schema?.required) ? schema.required : [];
+  if (required.includes('taskSummary') && required.includes('subgoals')) return 'planner';
+  if (required.includes('goals') && required.includes('uncoveredRequestParts')) return 'auditor';
+  if (required.includes('claims')) return 'claim_synthesis';
+  if (required.includes('verdicts') && required.includes('uncoveredRequestParts')) {
+    return 'verifier';
+  }
+  if (request.responseFormat) return 'legacy_synthesis';
+  return verifierFinished ? 'repair' : 'explorer';
+}
+
+function cancellationCompletion(value, toolCalls = []) {
+  return {
+    usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+    finishReason: toolCalls.length > 0 ? 'tool_calls' : 'stop',
+    message: {
+      content: typeof value === 'string' ? value : JSON.stringify(value),
+      toolCalls,
+    },
+  };
+}
+
+class BlockingPipelineClient {
+  constructor(cancelAt) {
+    this.model = 'zai-glm-4.7';
+    this.cancelAt = cancelAt;
+    this.labels = [];
+    this.signals = new Set();
+    this.explorerCalls = 0;
+    this.verifierFinished = false;
+    this.reached = new Promise(resolve => { this.resolveReached = resolve; });
+    this.goals = [
+      {
+        id: 'S-definition',
+        question: 'Where is requireAuth defined?',
+        originRefs: ['request:0-18'],
+        claimType: 'symbol_definition',
+        proofCondition: 'Observe the definition and current source body.',
+        constraints: [],
+      },
+      {
+        id: 'S-usage',
+        question: 'Where is legacyGuard used?',
+        originRefs: ['request:23-46'],
+        claimType: 'symbol_usage',
+        proofCondition: 'Cross-check exact and symbolic usage within src/**.',
+        constraints: ['Keep the fixed src/** scope.'],
+      },
+    ];
+    this.claims = [
+      {
+        id: 'C-definition',
+        subgoalId: 'S-definition',
+        text: 'requireAuth is defined in src/auth.js. STALE_SUPPORTED_SENTINEL',
+        evidenceRefs: ['E1'],
+      },
+      {
+        id: 'C-usage',
+        subgoalId: 'S-usage',
+        text: 'legacyGuard has no exact textual usage in src/**. STALE_CANDIDATE_SENTINEL',
+        evidenceRefs: ['E2'],
+      },
+    ];
+  }
+
+  blockUntilCancelled(request, stage) {
+    this.targetSignal = request.signal;
+    this.resolveReached(stage);
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`cancellation did not reach ${stage}`)), 2_000);
+      const abort = () => {
+        clearTimeout(timer);
+        const error = new Error(`cancelled at ${stage}`);
+        error.name = 'AbortError';
+        reject(error);
+      };
+      if (request.signal.aborted) abort();
+      else request.signal.addEventListener('abort', abort, { once: true });
+    });
+  }
+
+  async createChatCompletion(request) {
+    this.signals.add(request.signal);
+    const stage = cancellationControlStage(request, this.verifierFinished);
+    this.labels.push(stage);
+    if (stage === this.cancelAt) return this.blockUntilCancelled(request, stage);
+
+    if (stage === 'planner') {
+      return cancellationCompletion({
+        taskSummary: 'STALE_PLANNER_SENTINEL',
+        constraints: [],
+        subgoals: this.goals,
+      });
+    }
+    if (stage === 'auditor') {
+      return cancellationCompletion({
+        goals: this.goals.map(goal => ({
+          proposedGoalId: goal.id,
+          verdict: 'ready',
+          originRefs: goal.originRefs,
+          missingRequestParts: [],
+          reason: 'STALE_AUDITOR_SENTINEL',
+        })),
+        uncoveredRequestParts: [],
+      });
+    }
+    if (stage === 'explorer') {
+      this.explorerCalls += 1;
+      if (this.explorerCalls === 1) {
+        return cancellationCompletion('', [{
+          id: 'read-auth',
+          function: {
+            name: 'repo_read_file',
+            arguments: JSON.stringify({ path: 'src/auth.js', startLine: 1, endLine: 4 }),
+          },
+        }]);
+      }
+      if (this.explorerCalls === 2) {
+        return cancellationCompletion('', [{
+          id: 'grep-legacy',
+          function: {
+            name: 'repo_grep',
+            arguments: JSON.stringify({ pattern: 'legacyGuard', scope: ['src/**'] }),
+          },
+        }]);
+      }
+      return cancellationCompletion('STALE_EXPLORER_SENTINEL');
+    }
+    if (stage === 'claim_synthesis') {
+      return cancellationCompletion({ claims: this.claims });
+    }
+    if (stage === 'verifier') {
+      this.verifierFinished = true;
+      return cancellationCompletion({
+        verdicts: [
+          {
+            claimId: 'C-definition',
+            result: 'supported',
+            resolution: 'affirmed',
+            supportingEvidenceRefs: ['E1'],
+            reasonCode: 'entailed',
+            note: 'Definition supported.',
+          },
+          {
+            claimId: 'C-usage',
+            result: 'insufficient',
+            supportingEvidenceRefs: [],
+            reasonCode: 'semantic_mismatch',
+            note: 'A symbolic cross-check is still required.',
+          },
+        ],
+        uncoveredRequestParts: [],
+      });
+    }
+    assert.fail(`unexpected pre-cancellation stage: ${stage}`);
+  }
+}
+
+async function waitForCancellationStage(client, stage) {
+  let timer;
+  try {
+    return await Promise.race([
+      client.reached,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`runtime never reached ${stage}`)), 2_000);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+mcpPipelineCancellationTest(
+  'Spec 028 T027 — MCP cancellation reaches planner, auditor, explorer, verifier, and repair',
+  async t => {
+    for (const [index, cancelAt] of [
+      'planner',
+      'auditor',
+      'explorer',
+      'verifier',
+      'repair',
+    ].entries()) {
+      await t.test(cancelAt, async () => {
+        const repoRoot = await makeRepoFixture();
+        const logs = [];
+        const client = new BlockingPipelineClient(cancelAt);
+        const { handleRequest, handleNotification } = createMcpRequestHandler({
+          logger: line => logs.push(line),
+          runtimeOptions: { chatClient: client },
+        });
+        const requestId = index === 0 ? 0 : 100 + index;
+        const pending = handleRequest({
+          jsonrpc: '2.0',
+          id: requestId,
+          method: 'tools/call',
+          params: {
+            name: 'explore_repo',
+            arguments: {
+              task: CANCELLATION_TASK,
+              repo_root: repoRoot,
+              scope: ['src/**'],
+            },
+          },
+        });
+
+        assert.equal(await waitForCancellationStage(client, cancelAt), cancelAt);
+        assert.equal(client.targetSignal.aborted, false);
+        await handleNotification({
+          jsonrpc: '2.0',
+          method: 'notifications/cancelled',
+          params: { requestId },
+        });
+        assert.equal(client.targetSignal.aborted, true);
+
+        const called = await pending;
+        assert.equal(client.signals.size, 1,
+          'every provider stage must receive the MCP-created signal');
+        assert.equal(client.labels.at(-1), cancelAt);
+        assert.equal(called.structuredContent.failure?.reason, 'aborted');
+        assert.equal(called.structuredContent.failure?.retry ?? null, null);
+        assert.equal(
+          called.structuredContent.state === 'failed'
+            || called.structuredContent.status?.complete === false,
+          true,
+          'an aborted request must never project a complete result',
+        );
+        assert.equal(called.structuredContent.evidence?.length ?? 0, 0);
+        assert.equal(called.structuredContent.targets?.length ?? 0, 0);
+        assert.doesNotMatch(JSON.stringify(called), /STALE_[A-Z_]+/);
+        assert.match(called.content?.[0]?.text ?? '', /abort|cancel/i);
+
+        await handleNotification({
+          jsonrpc: '2.0',
+          method: 'notifications/cancelled',
+          params: { requestId },
+        });
+        assert.equal(logs.filter(line =>
+          line.includes(`Cancelled exploration for request ${requestId}`)).length, 1,
+        'a completed cancellation must remove the active controller');
+      });
+    }
+  },
+);
