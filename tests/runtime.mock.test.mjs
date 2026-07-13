@@ -4959,7 +4959,10 @@ auditedPlanningRuntimeTest('Spec 028 T022 — one audited rephrase can satisfy a
     ['S-definition', 'S-absence-rephrased']);
   assert.equal(result.taskContract.subgoals.some(goal =>
     goal.auditVerdict === 'planning_incomplete'), false);
-  assert.deepEqual(result.coverageGaps, []);
+  assert.equal(result.coverageGaps.some(gap => gap.reason === 'planning_incomplete'), false);
+  assert.deepEqual(result.coverageGaps
+    .filter(gap => gap.reason === 'missing_evidence')
+    .map(gap => gap.subgoalId), ['S-definition', 'S-absence-rephrased']);
   const coveragePrompt = JSON.stringify(client.requests[4].messages);
   assert.match(coveragePrompt, /S-absence-rephrased/);
   assert.doesNotMatch(coveragePrompt, /S-definition/,
@@ -5018,7 +5021,9 @@ auditedPlanningRuntimeTest('Spec 028 T022 — range-only decomposition cannot er
     goal.auditVerdict === 'planning_incomplete');
   assert.ok(carried, 'legacyGuard absence cannot be discharged by range-only positive goals');
   assert.equal(carried.question, GOAL_AUDIT_TASK);
-  assert.deepEqual(result.coverageGaps.map(gap => gap.reason), ['planning_incomplete']);
+  assert.deepEqual(result.coverageGaps
+    .filter(gap => gap.reason === 'planning_incomplete')
+    .map(gap => gap.reason), ['planning_incomplete']);
 });
 
 auditedPlanningRuntimeTest('Spec 028 T022 — opaque coverage mapping preserves directional distinctions', async () => {
@@ -5074,7 +5079,9 @@ auditedPlanningRuntimeTest('Spec 028 T022 — opaque coverage mapping preserves 
     goal.auditVerdict === 'planning_incomplete');
   assert.ok(carried);
   assert.equal(carried.question, reverse.question);
-  assert.deepEqual(result.coverageGaps.map(gap => gap.reason), ['planning_incomplete']);
+  assert.deepEqual(result.coverageGaps
+    .filter(gap => gap.reason === 'planning_incomplete')
+    .map(gap => gap.reason), ['planning_incomplete']);
 });
 
 auditedPlanningRuntimeTest('Spec 028 T022 — opaque coverage mapping accepts a valid Korean decomposition', async () => {
@@ -5133,7 +5140,9 @@ auditedPlanningRuntimeTest('Spec 028 T022 — opaque coverage mapping accepts a 
     corrected.map(goal => goal.id));
   assert.equal(result.taskContract.subgoals.some(goal =>
     goal.auditVerdict === 'planning_incomplete'), false);
-  assert.deepEqual(result.coverageGaps, []);
+  assert.equal(result.coverageGaps.some(gap => gap.reason === 'planning_incomplete'), false);
+  assert.deepEqual(result.coverageGaps.map(gap => gap.reason),
+    ['missing_evidence', 'missing_evidence']);
 });
 
 auditedPlanningRuntimeTest('Spec 028 T022 — invalid coverage cardinality fails after one bounded retry', async () => {
@@ -5449,8 +5458,11 @@ auditedPlanningRuntimeTest('Spec 028 T022 — initial goal audit batches are bou
   assert.ok(client.auditBatches.every(batch => batch.length <= 12));
   assert.deepEqual(client.auditBatches.flat(), goals.map(goal => goal.id));
   assert.deepEqual(result.taskContract.subgoals.map(goal => goal.id), goals.map(goal => goal.id));
-  assert.deepEqual(result.coverageGaps, [],
+  assert.deepEqual(result.coverageGaps
+    .filter(gap => gap.reason === 'planning_incomplete'), [],
     'another batch must not create a false uncovered blocker for a ready goal');
+  assert.equal(result.coverageGaps.filter(gap => gap.reason === 'missing_evidence').length,
+    goals.length);
 });
 
 auditedPlanningRuntimeTest('Spec 028 T017 — malformed goal-audit control output fails before exploration', async () => {
@@ -6250,6 +6262,113 @@ function assertNoRequiredLeak(result, text) {
   assert.equal(result.coverageGaps.some(gap => gap.question === text), false);
   assert.doesNotMatch(result.directAnswer ?? '', new RegExp(text));
 }
+
+test('Spec 028 T030 — isolated semantic controls reduce claims without trusting exploration prose', async () => {
+  const goals = definitionAndAbsenceGoals();
+  const supported = candidateClaim(
+    'C-definition', goals[0].id, 'requireAuth is defined in src/auth.js.', ['E1']);
+  const mismatch = candidateClaim(
+    'C-absence', goals[1].id, 'legacyGuard is absent from every repository path.', ['E2']);
+  const privateSentinel = 'PRIVATE_EXPLORER_REASONING';
+  const steps = buildTrustSteps({
+    goals,
+    initial: {
+      tools: [
+        { tool: 'repo_read_file', args: { path: 'src/auth.js', startLine: 1, endLine: 4 }, id: 'read-auth' },
+        { tool: 'repo_grep', args: { pattern: 'legacyGuard', scope: ['src/**'] }, id: 'grep-legacy' },
+      ],
+      prose: privateSentinel,
+      claims: [supported, mismatch],
+      verifierSteps: [{
+        raw: verifierResponse([
+          semanticVerdict(supported.id, 'supported', ['E1']),
+          { ...semanticVerdict(mismatch.id, 'insufficient'), resolution: null },
+        ]),
+      }],
+    },
+  });
+  const claimStage = steps.findIndex(step => step.stage === 'claim_synthesis:1');
+  steps.splice(claimStage, 0, {
+    stage: 'synthesis:1',
+    value: readyExplorationResult(),
+  });
+
+  const { client, result } = await runTrustScript(steps);
+  assert.deepEqual(client.stageLabels, [
+    'planner:1',
+    'goal_audit:1',
+    'exploration:1',
+    'exploration:2',
+    'exploration:3',
+    'synthesis:1',
+    'claim_synthesis:1',
+    'semantic_verifier:1',
+  ]);
+  for (const stage of ['claim_synthesis:1', 'semantic_verifier:1']) {
+    const request = client.requests[client.stageLabels.indexOf(stage)];
+    assert.equal((request.tools?.length ?? 0), 0);
+    assert.doesNotMatch(JSON.stringify(request.messages), new RegExp(privateSentinel));
+  }
+  assert.equal(result.taskContract.subgoals.find(goal =>
+    goal.id === goals[0].id).state, 'supported');
+  assert.equal(result.taskContract.subgoals.find(goal =>
+    goal.id === goals[1].id).state, 'gap');
+  assert.ok(result.coverageGaps.some(gap =>
+    gap.subgoalId === goals[1].id && gap.reason === 'semantic_mismatch'));
+  assert.deepEqual(result.semanticVerification.verdicts.map(verdict =>
+    [verdict.claimId, verdict.result]), [
+    ['C-definition', 'supported'],
+    ['C-absence', 'insufficient'],
+  ]);
+  assert.deepEqual(result.semanticVerification.runtimeAllowedEvidenceRefsBySubgoal
+    .map(item => [item.subgoalId, item.evidenceRefs]), [
+    ['S-definition', ['E1', 'E1:search', 'E2']],
+    ['S-absence', ['E1', 'E1:search', 'E2']],
+  ]);
+});
+
+test('Spec 028 T030 — verifier uncovered proposals fail closed until T031 audits them', async () => {
+  const goal = definitionAndAbsenceGoals()[0];
+  const claim = candidateClaim(
+    'C-definition', goal.id, 'requireAuth is defined in src/auth.js.', ['E1']);
+  const proposal = {
+    question: 'Which route registration needs another authentication check?',
+    originRefs: [requestOrigin(GOAL_AUDIT_TASK, 'Locate requireAuth')],
+    claimType: 'positive',
+    proofCondition: 'Observe the requested route registration.',
+    constraints: [],
+  };
+  const steps = buildTrustSteps({
+    goals: [goal],
+    initial: {
+      tools: [{
+        tool: 'repo_read_file',
+        args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+        id: 'read-auth',
+      }],
+      claims: [claim],
+      verdicts: [semanticVerdict(claim.id, 'supported', ['E1'])],
+      uncovered: [proposal],
+    },
+  });
+  const claimStage = steps.findIndex(step => step.stage === 'claim_synthesis:1');
+  steps.splice(claimStage, 0, {
+    stage: 'synthesis:1',
+    value: readyExplorationResult(),
+  });
+  const root = await makeRepoFixture();
+  const client = new ScriptedGoalAuditClient(steps);
+  const runtime = new RuntimeImplementation({ chatClient: client });
+
+  await assert.rejects(runtime.explore({
+    task: GOAL_AUDIT_TASK,
+    repo_root: root,
+    scope: ['src/**'],
+  }), error => error?.code === 'ERR_INVALID_GOAL_CONTROL' &&
+    /semantic_verifier_uncovered/.test(error.message));
+  assert.equal(client.stageCounts.get('semantic_verifier'), 1,
+    'a valid uncovered proposal must not be retried away');
+});
 
 semanticPipelineRuntimeTest('Spec 028 T026 — verifier input is isolated and gates semantic mismatch', async () => {
   const goals = definitionAndAbsenceGoals();

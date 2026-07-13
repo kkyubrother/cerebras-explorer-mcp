@@ -92,7 +92,7 @@
 
 - [x] T028 [US1] Implement atomic-claim synthesis and isolated semantic-verifier schemas/prompts without prose rewriting or model-authored evidence facts in `src/explorer/schemas.mjs` and `src/explorer/prompt.mjs`
 - [x] T029 [US1] Build the runtime observation ledger, rebuilt source/git evidence, and current/historical source-role classification in `src/explorer/runtime.mjs`, `src/explorer/critic.mjs`, and `src/explorer/repo-tools.mjs`
-- [ ] T030 [US1] Implement isolated semantic-verifier execution, claim entailment filtering, supported refutation, and claim-to-goal resolution in `src/explorer/runtime.mjs` and `src/explorer/coverage.mjs`
+- [x] T030 [US1] Implement isolated semantic-verifier execution, claim entailment filtering, supported refutation, and claim-to-goal resolution in `src/explorer/runtime.mjs` and `src/explorer/coverage.mjs`
 - [ ] T031 [US1] Pass every verifier `uncoveredRequestParts` proposal, including post-repair proposals, through the same deterministic and isolated goal audit before registration, with no rejected-goal leakage or additional planner revision, in `src/explorer/runtime.mjs` and `src/explorer/coverage.mjs`
 - [ ] T032 [US1] Implement one feasible-gap repair round, normalized attempted-action fingerprints, full post-repair claim reopening/reverification, terminal gaps for newly valid post-repair goals, and no second repair or repeated parent action in `src/explorer/runtime.mjs` and `src/explorer/coverage.mjs`
 - [ ] T033 [US1] Implement fatal-fault precedence, invalid-control-output handling, stale-answer suppression, and request-id-zero cancellation tracking in `src/explorer/runtime.mjs`, `src/mcp/server.mjs`, and `src/mcp/jsonrpc-stdio.mjs`

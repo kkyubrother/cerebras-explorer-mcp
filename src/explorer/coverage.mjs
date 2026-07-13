@@ -366,6 +366,16 @@ export function transitionSubgoal(input, nextState, metadata = {}) {
     return next;
   }
 
+  if (currentState === 'exploring' && nextState === 'gap') {
+    if (metadata.missingEvidence !== true) {
+      illegalTransition(currentState, nextState, 'A runtime-owned missing-evidence observation is required.');
+    }
+    next.state = 'gap';
+    next.gapRef = requireString(metadata.gapRef, 'missing-evidence gapRef');
+    delete next.resolution;
+    return next;
+  }
+
   if (currentState === 'candidate' && nextState === 'supported') {
     if (metadata.semanticVerified !== true) {
       illegalTransition(currentState, nextState, 'Semantic verification is required.');
@@ -833,6 +843,257 @@ export function reduceGoalAudit(input) {
     revisionRequest,
     diagnostics: [...(preflight.diagnostics ?? [])],
     controlFault: preflight.controlFault ?? null,
+  };
+}
+
+const SEMANTIC_RESULTS = new Set(['supported', 'insufficient', 'contradicted']);
+const SEMANTIC_RESOLUTIONS = new Set(['affirmed', 'refuted']);
+
+function uniqueEntityMap(values, label, idFor) {
+  if (!Array.isArray(values)) throw new TypeError(`${label} must be an array.`);
+  const byId = new Map();
+  for (const [index, value] of values.entries()) {
+    requireObject(value, `${label}[${index}]`);
+    const id = requireString(idFor(value), `${label}[${index}] id`);
+    if (byId.has(id)) throw new TypeError(`Duplicate ${label} id: ${id}.`);
+    byId.set(id, value);
+  }
+  return byId;
+}
+
+function normalizeEvidenceBySubgoal(values, knownSubgoalIds) {
+  if (!Array.isArray(values)) {
+    throw new TypeError('Semantic claim reduction.evidenceBySubgoal must be an array.');
+  }
+  const result = new Map();
+  for (const [index, value] of values.entries()) {
+    const link = requireObject(value, `evidenceBySubgoal[${index}]`);
+    const subgoalId = requireString(link.subgoalId, `evidenceBySubgoal[${index}].subgoalId`);
+    if (!knownSubgoalIds.has(subgoalId)) {
+      throw new TypeError(`Evidence references unknown sub-goal: ${subgoalId}.`);
+    }
+    if (result.has(subgoalId)) {
+      throw new TypeError(`Duplicate evidence boundary for sub-goal: ${subgoalId}.`);
+    }
+    const evidenceRefs = requireStringArray(
+      link.evidenceRefs,
+      `evidenceBySubgoal[${index}].evidenceRefs`,
+    );
+    if (new Set(evidenceRefs).size !== evidenceRefs.length) {
+      throw new TypeError(`Duplicate evidence reference for sub-goal: ${subgoalId}.`);
+    }
+    result.set(subgoalId, new Set(evidenceRefs));
+  }
+  return result;
+}
+
+function normalizeSemanticVerdict(value, claim) {
+  const verdict = requireObject(value, `Semantic verdict for ${claim.id}`);
+  if (verdict.claimId !== claim.id) {
+    throw new TypeError(`Semantic verdict does not match claim ${claim.id}.`);
+  }
+  if (!SEMANTIC_RESULTS.has(verdict.result)) {
+    throw new TypeError(`Unsupported semantic result for ${claim.id}: ${verdict.result}.`);
+  }
+  const supportingEvidenceRefs = requireStringArray(
+    verdict.supportingEvidenceRefs,
+    `Semantic verdict ${claim.id}.supportingEvidenceRefs`,
+  );
+  if (new Set(supportingEvidenceRefs).size !== supportingEvidenceRefs.length ||
+      supportingEvidenceRefs.some(ref => !claim.evidenceRefs.includes(ref))) {
+    throw new TypeError(`Semantic verdict ${claim.id} references evidence outside its claim.`);
+  }
+  const hasResolution = Object.prototype.hasOwnProperty.call(verdict, 'resolution');
+  if (verdict.result === 'supported') {
+    if (!SEMANTIC_RESOLUTIONS.has(verdict.resolution) || supportingEvidenceRefs.length === 0) {
+      throw new TypeError(`Supported semantic verdict ${claim.id} requires evidence and resolution.`);
+    }
+  } else if (hasResolution) {
+    throw new TypeError(`Only supported semantic verdicts may resolve claim ${claim.id}.`);
+  }
+  return {
+    ...verdict,
+    supportingEvidenceRefs,
+  };
+}
+
+function cloneCoverageGap(gap) {
+  const cloned = {
+    ...gap,
+    attemptedActionFingerprints: Array.isArray(gap?.attemptedActionFingerprints)
+      ? [...gap.attemptedActionFingerprints]
+      : [],
+  };
+  if (gap?.followUp && typeof gap.followUp === 'object') {
+    cloned.followUp = {
+      ...gap.followUp,
+      ...(Array.isArray(gap.followUp.scope) ? { scope: [...gap.followUp.scope] } : {}),
+      ...(Array.isArray(gap.followUp.anchors) ? { anchors: [...gap.followUp.anchors] } : {}),
+    };
+  }
+  return cloned;
+}
+
+/**
+ * Deterministically reduce isolated semantic verdicts into claim and required
+ * sub-goal states. Model verdicts cannot create claims, evidence, goals, or a
+ * supported transition outside the supplied relationships.
+ */
+export function reduceSemanticClaims(input) {
+  const value = requireObject(input, 'Semantic claim reduction');
+  const requiredSubgoals = Array.isArray(value.requiredSubgoals)
+    ? value.requiredSubgoals.map(goal => ({
+        ...requireObject(goal, 'Required sub-goal'),
+        claimRefs: Array.isArray(goal.claimRefs) ? [...goal.claimRefs] : [],
+      }))
+    : null;
+  if (!requiredSubgoals) {
+    throw new TypeError('Semantic claim reduction.requiredSubgoals must be an array.');
+  }
+  const subgoalById = uniqueEntityMap(requiredSubgoals, 'required sub-goal', goal => goal.id);
+  const evidenceBySubgoal = normalizeEvidenceBySubgoal(
+    value.evidenceBySubgoal,
+    new Set(subgoalById.keys()),
+  );
+
+  const rawClaims = Array.isArray(value.claims) ? value.claims : null;
+  if (!rawClaims) throw new TypeError('Semantic claim reduction.claims must be an array.');
+  const claims = rawClaims.map(createAtomicClaim);
+  const claimById = uniqueEntityMap(claims, 'claim', claim => claim.id);
+  for (const claim of claims) {
+    const subgoal = subgoalById.get(claim.subgoalId);
+    if (!subgoal || subgoal.state === 'blocked') {
+      throw new TypeError(`Claim ${claim.id} references unavailable sub-goal ${claim.subgoalId}.`);
+    }
+  }
+
+  for (const subgoal of requiredSubgoals) {
+    const claimRefs = requireStringArray(subgoal.claimRefs, `Sub-goal ${subgoal.id}.claimRefs`);
+    if (new Set(claimRefs).size !== claimRefs.length) {
+      throw new TypeError(`Sub-goal ${subgoal.id} has duplicate claim references.`);
+    }
+    for (const claimRef of claimRefs) {
+      const claim = claimById.get(claimRef);
+      if (!claim || claim.subgoalId !== subgoal.id) {
+        throw new TypeError(`Sub-goal ${subgoal.id} references an unrelated claim ${claimRef}.`);
+      }
+    }
+    const assignedClaims = claims.filter(claim => claim.subgoalId === subgoal.id);
+    if (assignedClaims.some(claim => !claimRefs.includes(claim.id))) {
+      throw new TypeError(`Sub-goal ${subgoal.id} omits an assigned claim reference.`);
+    }
+  }
+
+  const verdictByClaim = uniqueEntityMap(
+    value.semanticVerdicts,
+    'semantic verdict',
+    verdict => verdict.claimId,
+  );
+  if (verdictByClaim.size !== claims.length) {
+    throw new TypeError('Semantic verdicts must cover every candidate claim exactly once.');
+  }
+  for (const claimId of verdictByClaim.keys()) {
+    if (!claimById.has(claimId)) {
+      throw new TypeError(`Semantic verdict references unknown claim: ${claimId}.`);
+    }
+  }
+
+  const reducedClaims = claims.map(claim => {
+    const verdict = normalizeSemanticVerdict(verdictByClaim.get(claim.id), claim);
+    const boundary = evidenceBySubgoal.get(claim.subgoalId) ?? new Set();
+    const boundaryValid = new Set(claim.evidenceRefs).size === claim.evidenceRefs.length &&
+      claim.evidenceRefs.every(ref => boundary.has(ref));
+    return {
+      ...claim,
+      verdict: boundaryValid ? verdict.result : 'insufficient',
+      ...(boundaryValid && verdict.result === 'supported'
+        ? { resolution: verdict.resolution }
+        : {}),
+    };
+  });
+  const reducedClaimById = new Map(reducedClaims.map(claim => [claim.id, claim]));
+  const existingGaps = Array.isArray(value.existingGaps)
+    ? value.existingGaps.map(cloneCoverageGap)
+    : [];
+  const existingGapBySubgoal = new Map(existingGaps
+    .filter(gap => typeof gap.subgoalId === 'string' && gap.subgoalId)
+    .map(gap => [gap.subgoalId, gap]));
+  const reducedSubgoals = [];
+  const gaps = [];
+
+  for (const [requestOrder, subgoal] of requiredSubgoals.entries()) {
+    const goalClaims = subgoal.claimRefs.map(ref => reducedClaimById.get(ref));
+    if ((subgoal.state === 'audited' || subgoal.state === 'exploring') && goalClaims.length === 0) {
+      const exploring = subgoal.state === 'audited'
+        ? transitionSubgoal(subgoal, 'exploring')
+        : subgoal;
+      const gap = createCoverageGap({
+        id: `semantic-gap:${subgoal.id}`,
+        subgoalId: subgoal.id,
+        question: subgoal.question,
+        reason: 'missing_evidence',
+        repairable: true,
+      }, {
+        requestOrder,
+        proofPolicy: subgoal.proofPolicy,
+      });
+      gaps.push(gap);
+      reducedSubgoals.push(transitionSubgoal(exploring, 'gap', {
+        gapRef: gap.id,
+        missingEvidence: true,
+      }));
+      continue;
+    }
+    if (subgoal.state !== 'candidate') {
+      reducedSubgoals.push(subgoal);
+      const existingGap = existingGapBySubgoal.get(subgoal.id);
+      if (existingGap) gaps.push(existingGap);
+      continue;
+    }
+
+    const supportedResolutions = new Set(goalClaims
+      .filter(claim => claim?.verdict === 'supported')
+      .map(claim => claim.resolution));
+    if (supportedResolutions.size === 1) {
+      reducedSubgoals.push(transitionSubgoal(subgoal, 'supported', {
+        semanticVerified: true,
+        resolution: [...supportedResolutions][0],
+      }));
+      continue;
+    }
+
+    const contradicted = supportedResolutions.size > 1 ||
+      goalClaims.some(claim => claim?.verdict === 'contradicted');
+    const reason = contradicted ? 'contradicted' : 'semantic_mismatch';
+    const gap = createCoverageGap({
+      id: `semantic-gap:${subgoal.id}`,
+      subgoalId: subgoal.id,
+      question: subgoal.question,
+      reason,
+      repairable: !contradicted,
+    }, {
+      requestOrder,
+      proofPolicy: subgoal.proofPolicy,
+    });
+    gaps.push(gap);
+    reducedSubgoals.push(transitionSubgoal(
+      subgoal,
+      contradicted ? 'contradicted' : 'gap',
+      { gapRef: gap.id },
+    ));
+  }
+
+  for (const gap of existingGaps) {
+    if (!gap.subgoalId && !gaps.some(item => item.id === gap.id)) gaps.push(gap);
+  }
+  return {
+    requiredSubgoals: reducedSubgoals,
+    claims: reducedClaims.map(claim => {
+      const result = { ...claim };
+      delete result.resolution;
+      return result;
+    }),
+    gaps,
   };
 }
 

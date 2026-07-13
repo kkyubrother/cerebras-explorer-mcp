@@ -365,6 +365,7 @@ test('MCP request handler exposes explore_repo and returns structuredContent', a
   assert.equal(called.structuredContent.coverageGaps, undefined);
   assert.equal(called.structuredContent.rejectedGoals, undefined);
   assert.equal(called.structuredContent.observations, undefined);
+  assert.equal(called.structuredContent.semanticVerification, undefined);
   assert.equal(called.structuredContent.plan_proposed, undefined);
   assert.equal(called.structuredContent.goal_audit, undefined);
   const serializedMcpResult = JSON.stringify(called);
@@ -373,7 +374,7 @@ test('MCP request handler exposes explore_repo and returns structuredContent', a
       `rejected planning sentinel leaked through MCP: ${sentinel}`);
   }
   assert.doesNotMatch(serializedMcpResult,
-    /taskContract|coverageGaps|rejectedGoals|observations|plan_proposed|goal_audit|plan_revised|goal_rejected|subgoal_state/);
+    /taskContract|coverageGaps|rejectedGoals|observations|semanticVerification|runtimeAllowedEvidenceRefsBySubgoal|plan_proposed|goal_audit|plan_revised|goal_rejected|subgoal_state/);
   assert.match(called.content[0].text, /requireAuth/);
   assert.match(called.content[0].text, /Evidence Quality/);
   assert.match(called.content[0].text, /Search Coverage/);

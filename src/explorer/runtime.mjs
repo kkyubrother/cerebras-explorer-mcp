@@ -37,20 +37,27 @@ import {
   buildCorrectedPlannerMessages,
   buildGoalAuditorMessages,
   buildGoalCoverageReconciliationMessages,
+  buildClaimSynthesisMessages,
+  buildSemanticVerifierMessages,
 } from './prompt.mjs';
 import {
+  CLAIM_SYNTHESIS_SCHEMA,
   EXPLORE_RESULT_JSON_SCHEMA,
   GOAL_AUDITOR_RESPONSE_SCHEMA,
   PLANNER_PROPOSAL_SCHEMA,
+  SEMANTIC_VERIFIER_RESPONSE_SCHEMA,
   normalizeExploreResult,
+  validateClaimSynthesisResponse,
   validateGoalAuditorResponse,
   validateLateUncoveredProposal,
   validatePlannerProposal,
+  validateSemanticVerifierResponse,
   validateTaskContract,
   validateExploreControlResult,
   validateExploreRepoArgs,
 } from './schemas.mjs';
 import {
+  applyClaimEvidenceGate,
   buildReportCritic,
   deriveTaskKindFromHints,
   extractGitCitations,
@@ -59,10 +66,13 @@ import {
 } from './critic.mjs';
 import {
   createCapabilityManifest,
+  createAtomicClaim,
   createTaskContract,
   mergeSafetyLimit,
   preflightGoalProposals,
   reduceGoalAudit,
+  reduceSemanticClaims,
+  transitionSubgoal,
 } from './coverage.mjs';
 import { createChatClient } from './providers/index.mjs';
 import {
@@ -75,6 +85,7 @@ import {
 // Maximum number of tool calls to execute in parallel within a single turn.
 const TOOL_CONCURRENCY = 8;
 const GOAL_AUDIT_BATCH_SIZE = 12;
+const SEMANTIC_CONTROL_BATCH_SIZE = 12;
 const GOAL_PLANNER_VERSION = 'planner-v1';
 const GOAL_AUDIT_VERSION = 'goal-audit-v1';
 const INVALID_GOAL_CONTROL = 'ERR_INVALID_GOAL_CONTROL';
@@ -1334,6 +1345,139 @@ async function requestValidatedGoalControl({
   throw invalidGoalControl(stage, validationError);
 }
 
+function controlBatches(values, size = SEMANTIC_CONTROL_BATCH_SIZE) {
+  const batches = [];
+  for (let offset = 0; offset < values.length; offset += size) {
+    batches.push(values.slice(offset, offset + size));
+  }
+  return batches;
+}
+
+function semanticBatchContract(taskContract, subgoals) {
+  return {
+    ...taskContract,
+    effectiveScope: [...taskContract.effectiveScope],
+    constraints: [...taskContract.constraints],
+    subgoals: subgoals.map(goal => ({
+      ...goal,
+      originRefs: [...goal.originRefs],
+      constraints: [...goal.constraints],
+      claimRefs: Array.isArray(goal.claimRefs) ? [...goal.claimRefs] : [],
+    })),
+  };
+}
+
+function runtimeObservationIds(observations) {
+  const ids = new Set();
+  for (const observation of observations) {
+    if (!observation || typeof observation !== 'object' || Array.isArray(observation) ||
+        typeof observation.id !== 'string' || !observation.id || ids.has(observation.id)) {
+      throw new TypeError('Runtime observations require unique non-empty ids.');
+    }
+    ids.add(observation.id);
+  }
+  return ids;
+}
+
+function validateSynthesizedClaimBatch(raw, {
+  taskContract,
+  observationIds,
+  usedClaimIds,
+}) {
+  const response = validateClaimSynthesisResponse(raw);
+  const subgoalIds = new Set(taskContract.subgoals.map(goal => goal.id));
+  const batchClaimIds = new Set();
+  const claims = response.claims.map((candidate, index) => {
+    if (!subgoalIds.has(candidate.subgoalId)) {
+      throw new TypeError(`Claim synthesis returned an out-of-batch sub-goal: ${candidate.subgoalId}.`);
+    }
+    if (usedClaimIds.has(candidate.id) || batchClaimIds.has(candidate.id)) {
+      throw new TypeError(`Claim synthesis returned a duplicate claim id: ${candidate.id}.`);
+    }
+    if (new Set(candidate.evidenceRefs).size !== candidate.evidenceRefs.length ||
+        candidate.evidenceRefs.some(ref => !observationIds.has(ref))) {
+      throw new TypeError(`Claim synthesis returned invalid evidence refs at claims[${index}].`);
+    }
+    batchClaimIds.add(candidate.id);
+    return createAtomicClaim(candidate);
+  });
+  for (const claimId of batchClaimIds) usedClaimIds.add(claimId);
+  return claims;
+}
+
+function validateSemanticVerdictBatch(raw, { claims, observations }) {
+  const normalizedRaw = raw && typeof raw === 'object' && !Array.isArray(raw)
+    ? {
+        ...raw,
+        ...(Array.isArray(raw.verdicts) ? {
+          verdicts: raw.verdicts.map(verdict => {
+            if (!verdict || typeof verdict !== 'object' || Array.isArray(verdict) ||
+                verdict.result === 'supported' || verdict.resolution !== null) {
+              return verdict;
+            }
+            const normalized = { ...verdict };
+            delete normalized.resolution;
+            return normalized;
+          }),
+        } : {}),
+      }
+    : raw;
+  const response = validateSemanticVerifierResponse(normalizedRaw);
+  const claimById = new Map(claims.map(claim => [claim.id, claim]));
+  const verdictByClaim = new Map();
+  for (const verdict of response.verdicts) {
+    if (!claimById.has(verdict.claimId) || verdictByClaim.has(verdict.claimId)) {
+      throw new TypeError(`Semantic verifier returned an unknown or duplicate claim: ${verdict.claimId}.`);
+    }
+    verdictByClaim.set(verdict.claimId, verdict);
+  }
+  if (verdictByClaim.size !== claims.length) {
+    throw new TypeError('Semantic verifier must return exactly one verdict for every supplied claim.');
+  }
+  return {
+    verdicts: claims.map(claim => applyClaimEvidenceGate({
+      claim,
+      semanticVerdict: verdictByClaim.get(claim.id),
+      observations,
+    })),
+    uncoveredRequestParts: response.uncoveredRequestParts,
+  };
+}
+
+function prepareCandidateSubgoals(taskContract, claims) {
+  const claimIdsBySubgoal = new Map();
+  for (const claim of claims) {
+    const ids = claimIdsBySubgoal.get(claim.subgoalId) ?? [];
+    ids.push(claim.id);
+    claimIdsBySubgoal.set(claim.subgoalId, ids);
+  }
+  return taskContract.subgoals.map(subgoal => {
+    const claimRefs = claimIdsBySubgoal.get(subgoal.id) ?? [];
+    if (claimRefs.length === 0 || subgoal.state === 'blocked') {
+      return {
+        ...subgoal,
+        originRefs: [...subgoal.originRefs],
+        constraints: [...subgoal.constraints],
+        claimRefs: [...subgoal.claimRefs],
+      };
+    }
+    const exploring = subgoal.state === 'audited'
+      ? transitionSubgoal(subgoal, 'exploring')
+      : subgoal;
+    if (exploring.state !== 'exploring') {
+      throw new TypeError(`Sub-goal ${subgoal.id} cannot accept initial semantic claims from ${subgoal.state}.`);
+    }
+    return transitionSubgoal(exploring, 'candidate', { claimRefs });
+  });
+}
+
+function runtimeAllowedEvidenceBySubgoal(taskContract, observations) {
+  const evidenceRefs = observations.map(observation => observation.id).sort();
+  return taskContract.subgoals
+    .filter(subgoal => subgoal.state !== 'blocked')
+    .map(subgoal => ({ subgoalId: subgoal.id, evidenceRefs: [...evidenceRefs] }));
+}
+
 function wrapperToolForTaskMode(taskMode) {
   return WRAPPER_BY_TASK_MODE[taskMode] ?? 'explore_repo';
 }
@@ -2549,6 +2693,125 @@ export class ExplorerRuntime {
     }
   }
 
+  async _runSemanticVerificationPass({
+    chatClient,
+    taskContract,
+    observations,
+    existingGaps = [],
+    wrapperTool = 'explore_repo',
+    reasoningEffort,
+    temperature,
+    topP,
+    maxCompletionTokens,
+    abortSignal,
+    onCompletion,
+  }) {
+    const safeObservations = Array.isArray(observations) ? observations : [];
+    const observationIds = runtimeObservationIds(safeObservations);
+    const activeSubgoals = taskContract.subgoals.filter(subgoal => subgoal.state !== 'blocked');
+    if (activeSubgoals.length === 0) return null;
+
+    const claims = [];
+    const usedClaimIds = new Set();
+    for (const subgoalBatch of safeObservations.length > 0
+      ? controlBatches(activeSubgoals)
+      : []) {
+      const batchContract = semanticBatchContract(taskContract, subgoalBatch);
+      const batchClaims = await requestValidatedGoalControl({
+        chatClient,
+        messages: buildClaimSynthesisMessages({
+          taskContract: batchContract,
+          observations: safeObservations,
+        }),
+        schemaName: 'claim_synthesis',
+        schema: CLAIM_SYNTHESIS_SCHEMA,
+        stage: 'claim_synthesis',
+        reasoningEffort,
+        temperature,
+        topP,
+        maxCompletionTokens,
+        abortSignal,
+        onCompletion,
+        validate: raw => validateSynthesizedClaimBatch(raw, {
+          taskContract: batchContract,
+          observationIds,
+          usedClaimIds,
+        }),
+      });
+      claims.push(...batchClaims);
+    }
+
+    const candidateSubgoals = prepareCandidateSubgoals(taskContract, claims);
+    const candidateContract = semanticBatchContract(taskContract, candidateSubgoals);
+    const semanticVerdicts = [];
+    const uncoveredRequestParts = [];
+    const candidateBatches = controlBatches(candidateSubgoals.filter(subgoal =>
+      claims.some(claim => claim.subgoalId === subgoal.id)));
+    for (const subgoalBatch of candidateBatches) {
+      const subgoalIds = new Set(subgoalBatch.map(subgoal => subgoal.id));
+      const batchClaims = claims.filter(claim => subgoalIds.has(claim.subgoalId));
+      const batchObservations = safeObservations;
+      const batchContract = semanticBatchContract(candidateContract, subgoalBatch);
+      const verified = await requestValidatedGoalControl({
+        chatClient,
+        messages: buildSemanticVerifierMessages({
+          taskContract: batchContract,
+          claims: batchClaims,
+          observations: batchObservations,
+          absenceCertificates: [],
+          criticDecisions: [],
+          wrapperTool,
+        }),
+        schemaName: 'semantic_verifier_response',
+        schema: SEMANTIC_VERIFIER_RESPONSE_SCHEMA,
+        stage: 'semantic_verifier',
+        reasoningEffort,
+        temperature,
+        topP,
+        maxCompletionTokens,
+        abortSignal,
+        onCompletion,
+        validate: raw => validateSemanticVerdictBatch(raw, {
+          claims: batchClaims,
+          observations: batchObservations,
+        }),
+      });
+      if (verified.uncoveredRequestParts.length > 0) {
+        throw invalidGoalControl(
+          'semantic_verifier_uncovered',
+          new TypeError('Verifier uncovered proposals require the T031 isolated goal audit.'),
+        );
+      }
+      semanticVerdicts.push(...verified.verdicts);
+    }
+
+    const runtimeAllowedEvidenceRefsBySubgoal = runtimeAllowedEvidenceBySubgoal(
+      candidateContract,
+      safeObservations,
+    );
+    const reduced = reduceSemanticClaims({
+      requiredSubgoals: candidateSubgoals,
+      existingGaps,
+      claims,
+      semanticVerdicts,
+      evidenceBySubgoal: runtimeAllowedEvidenceRefsBySubgoal.map(item => ({
+        subgoalId: item.subgoalId,
+        evidenceRefs: [...item.evidenceRefs],
+      })),
+    });
+    return {
+      taskContract: {
+        ...taskContract,
+        subgoals: reduced.requiredSubgoals,
+      },
+      coverageGaps: reduced.gaps,
+      claims: reduced.claims,
+      semanticVerdicts,
+      uncoveredRequestParts,
+      runtimeAllowedEvidenceRefsBySubgoal,
+    };
+  }
+
   async _createAuditedTaskPlan({
     chatClient,
     task,
@@ -3004,6 +3267,7 @@ export class ExplorerRuntime {
     const usageCrossCheck = { grepPatterns: new Set(), referenceSymbols: new Set() };
     const toolTrace = createCompactToolTrace();
     let auditedPlan = null;
+    let semanticVerification = null;
 
     // Checkpoint interval: inject a self-assessment message every N turns.
     // Only active when the fixed turn limit leaves enough room to benefit (>6).
@@ -3051,6 +3315,14 @@ export class ExplorerRuntime {
       if (auditedPlan.taskContract.subgoals.every(goal => goal.state === 'blocked')) {
         finalObject = buildAllBlockedExploreObject(auditedPlan.coverageGaps);
       } else {
+        auditedPlan = {
+          ...auditedPlan,
+          taskContract: {
+            ...auditedPlan.taskContract,
+            subgoals: auditedPlan.taskContract.subgoals.map(goal =>
+              goal.state === 'audited' ? transitionSubgoal(goal, 'exploring') : goal),
+          },
+        };
         messages.push({
           role: 'user',
           content: auditedGoalLedgerMessage(auditedPlan.taskContract.subgoals),
@@ -3457,6 +3729,43 @@ export class ExplorerRuntime {
       recordCompletionStats(stats, finalized);
     }
 
+    if (!stats.stoppedByAbort && auditedPlan &&
+        auditedPlan.taskContract.subgoals.some(goal => goal.state !== 'blocked')) {
+      const affectedSubgoalIds = auditedPlan.taskContract.subgoals
+        .filter(goal => goal.state !== 'blocked')
+        .map(goal => goal.id);
+      semanticVerification = await this._runSemanticVerificationPass({
+        chatClient,
+        taskContract: auditedPlan.taskContract,
+        observations,
+        existingGaps: auditedPlan.coverageGaps,
+        wrapperTool: wrapperToolForTaskMode(args.taskMode),
+        reasoningEffort,
+        temperature,
+        topP,
+        maxCompletionTokens: runtimeConfig.maxCompletionTokens,
+        abortSignal,
+        onCompletion: (completion, stage) => {
+          recordCompletionStats(stats, completion);
+          if (completion.finishReason === 'length') {
+            recordSafetyLimit(stats, {
+              name: 'generation_output_limit',
+              stage: stage === 'semantic_verifier' ? 'verification' : 'synthesis',
+              affectedSubgoalIds,
+              truncated: true,
+            });
+          }
+        },
+      });
+      if (semanticVerification) {
+        auditedPlan = {
+          ...auditedPlan,
+          taskContract: semanticVerification.taskContract,
+          coverageGaps: semanticVerification.coverageGaps,
+        };
+      }
+    }
+
     stats.elapsedMs = nowMs() - startedAt;
     Object.assign(stats, globalRepoCache.stats());
 
@@ -3555,6 +3864,15 @@ export class ExplorerRuntime {
       normalized.taskContract = safePlan.taskContract;
       normalized.coverageGaps = safePlan.coverageGaps;
       normalized.rejectedGoals = safePlan.rejectedGoals;
+    }
+    if (semanticVerification) {
+      normalized.semanticVerification = redactValue({
+        claims: semanticVerification.claims,
+        verdicts: semanticVerification.semanticVerdicts,
+        uncoveredRequestParts: semanticVerification.uncoveredRequestParts,
+        runtimeAllowedEvidenceRefsBySubgoal:
+          semanticVerification.runtimeAllowedEvidenceRefsBySubgoal,
+      }).value;
     }
     normalized.observations = redactValue(observations).value;
 

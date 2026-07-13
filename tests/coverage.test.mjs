@@ -977,12 +977,7 @@ const contractTest = test;
     assert.equal(reduceTrustState({ requiredSubgoals: afterRevision.requiredSubgoals }), 'incomplete');
   });
 
-  const claimReductionTest =
-    typeof coverageModule.reduceSemanticClaims === 'function'
-      ? test
-      : test.todo;
-  // T030 must replace this feature gate with ordinary tests when the pure
-  // claim-to-goal reducer lands. Until then these callbacks are expected-red.
+  const claimReductionTest = test;
 
   function candidateGoal(id, claimRefs, claimType = 'positive') {
     const audited = createAuditedSubgoal({
@@ -1257,4 +1252,17 @@ const contractTest = test;
       ['S3', 'scope_blocked'],
     ]);
     assert.equal(reduceTrustState({ requiredSubgoals: forward.requiredSubgoals }), 'incomplete');
+  });
+
+  test('Spec 028 T030 — an active goal with no claims becomes a missing-evidence gap', () => {
+    const audited = createAuditedSubgoal({ id: 'S-empty' });
+    const result = reduceClaims({
+      requiredSubgoals: [audited],
+      claims: [],
+      semanticVerdicts: [],
+      evidenceBySubgoal: [{ subgoalId: audited.id, evidenceRefs: [] }],
+    });
+
+    assert.deepEqual(goalStates(result), [['S-empty', 'gap', undefined]]);
+    assert.deepEqual(gapStates(result), [['S-empty', 'missing_evidence']]);
   });

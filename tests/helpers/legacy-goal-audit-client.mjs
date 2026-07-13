@@ -11,6 +11,10 @@ function controlKind(request) {
   const required = Array.isArray(schema?.required) ? schema.required : [];
   if (required.includes('taskSummary') && required.includes('subgoals')) return 'planner';
   if (required.includes('goals') && required.includes('uncoveredRequestParts')) return 'goal_audit';
+  if (required.includes('claims')) return 'claim_synthesis';
+  if (required.includes('verdicts') && required.includes('uncoveredRequestParts')) {
+    return 'semantic_verifier';
+  }
   return null;
 }
 
@@ -72,6 +76,22 @@ export function adaptLegacyGoalAuditClient(chatClient, { rejectedGoal = null } =
               reason: goal.id === rejectedGoal?.id
                 ? rejectedGoal.reason
                 : 'Retained for the legacy behavior test.',
+            })),
+            uncoveredRequestParts: [],
+          });
+        }
+        if (kind === 'claim_synthesis') {
+          return controlCompletion({ claims: [] });
+        }
+        if (kind === 'semantic_verifier') {
+          const packet = parseControlPacket(request.messages);
+          return controlCompletion({
+            verdicts: (packet?.claims ?? []).map(claim => ({
+              claimId: claim.id,
+              result: 'insufficient',
+              supportingEvidenceRefs: [],
+              reasonCode: 'semantic_mismatch',
+              note: 'Legacy loop fixtures do not exercise semantic support.',
             })),
             uncoveredRequestParts: [],
           });
