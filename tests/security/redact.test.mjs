@@ -7,7 +7,7 @@ import { execFile, execFileSync } from 'node:child_process';
 import { promisify } from 'node:util';
 
 import { createMcpRequestHandler } from '../../src/mcp/server.mjs';
-import { getBudgetConfig } from '../../src/explorer/config.mjs';
+import { getRuntimeConfig } from '../../src/explorer/config.mjs';
 import { RepoToolkit } from '../../src/explorer/repo-tools.mjs';
 import { redactText, redactValue } from '../../src/explorer/redact.mjs';
 
@@ -263,7 +263,7 @@ test('git diff and show patches are redacted', { skip: !hasGit() }, async () => 
   await execFileAsync('git', ['add', 'config.js'], { cwd: repoRoot });
   await execFileAsync('git', ['commit', '-m', `add ${OPENAI_KEY}`], { cwd: repoRoot });
 
-  const toolkit = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig() });
+  const toolkit = new RepoToolkit({ repoRoot, runtimeConfig: getRuntimeConfig() });
   await toolkit.initialize();
 
   const diff = await toolkit.gitDiff({ from: 'HEAD~1', to: 'HEAD' });

@@ -4,26 +4,16 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import * as configExports from '../src/explorer/config.mjs';
 import {
   getExploreMaxCompactions,
   getExploreMaxExtraTurns,
   getExploreTurnMultiplier,
   getRepoRoot,
+  getRuntimeConfig,
   loadProjectConfig,
   normalizeProjectConfig,
   resolveRepoRoot,
 } from '../src/explorer/config.mjs';
-
-function runtimeConfigTest(name, callback) {
-  const getRuntimeConfig = configExports.getRuntimeConfig;
-  const register = getRuntimeConfig === undefined ? test.todo : test;
-  register(name, () => {
-    assert.equal(typeof getRuntimeConfig, 'function', 'getRuntimeConfig is not implemented');
-    return callback(getRuntimeConfig);
-  });
-}
-// T012 must replace this expected-red guard with a named import and an ordinary test.
 
 async function makeTempDir() {
   return fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-explorer-config-'));
@@ -53,7 +43,7 @@ async function withEnv(overrides, fn) {
   }
 }
 
-runtimeConfigTest('Spec 028 T008 — structured runtime limits are fixed, unlabeled, and not effort controls', async getRuntimeConfig => {
+test('Spec 028 T008 — structured runtime limits are fixed, unlabeled, and not effort controls', async () => {
   const baseline = getRuntimeConfig();
   const fixedLimitKeys = [
     'maxTurns',

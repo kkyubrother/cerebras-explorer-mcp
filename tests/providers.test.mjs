@@ -393,7 +393,8 @@ test('spec 023 — config exports no budget routing compatibility helpers', () =
   }
 
   assert.equal(typeof explorerConfig.getReasoningEffortForModel, 'function');
-  assert.equal(explorerConfig.getBudgetConfig().label, 'deep');
+  assert.equal(typeof explorerConfig.getRuntimeConfig, 'function');
+  assert.equal(Object.hasOwn(explorerConfig.getRuntimeConfig(), 'label'), false);
 });
 
 test('spec 023 — provider factory source has no budget routing path', async () => {

@@ -7,7 +7,7 @@ import path from 'node:path';
 
 import { ExplorerRuntime, estimateTokens } from '../src/explorer/runtime.mjs';
 import { buildExplorerSystemPrompt, buildFreeExploreSystemPrompt, buildFinalizePrompt, detectStrategy, buildExplorerUserPrompt, STRATEGY_DESCRIPTIONS } from '../src/explorer/prompt.mjs';
-import { getBudgetConfig } from '../src/explorer/config.mjs';
+import { getRuntimeConfig } from '../src/explorer/config.mjs';
 import { RepoToolkit } from '../src/explorer/repo-tools.mjs';
 
 function hasGit() {
@@ -2154,7 +2154,7 @@ test('Phase 5 — unknown tool validation stays in sync with current tool defini
   const runtime = new ExplorerRuntime({ chatClient: client });
   await runtime.explore({ task: 'unknown tool sync test', repo_root: root });
 
-  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig() });
+  const toolkit = new RepoToolkit({ repoRoot: root, runtimeConfig: getRuntimeConfig() });
   await toolkit.initialize();
   const definedNames = toolkit.buildToolDefinitions().map(tool => tool.function.name).sort();
 
@@ -2318,7 +2318,7 @@ test('Phase 4 — freeExplore respects turn multiplier override', async () => {
     async createChatCompletion() {
       this.calls += 1;
 
-      if (this.calls <= getBudgetConfig().maxTurns) {
+      if (this.calls <= getRuntimeConfig().maxTurns) {
         return {
           usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
           message: {
@@ -2358,11 +2358,11 @@ test('Phase 4 — freeExplore respects turn multiplier override', async () => {
       repo_root: root,
     });
 
-    assert.equal(result.stats.turns, getBudgetConfig().maxTurns, 'turn multiplier override must keep the base runtime config');
+    assert.equal(result.stats.turns, getRuntimeConfig().maxTurns, 'turn multiplier override must keep the base runtime config');
     assert.equal(result.stats.stoppedByBudget, true, 'result must stop by budget when the override removes extra turns');
     assert.equal(result.searchCoverage.stoppedByBudget, true);
     assert.ok(result.searchCoverage.warnings.some(warning => /budget/i.test(warning)));
-    assert.equal(client.calls, getBudgetConfig().maxTurns + 1, 'one finalization call should follow the bounded tool loop');
+    assert.equal(client.calls, getRuntimeConfig().maxTurns + 1, 'one finalization call should follow the bounded tool loop');
   });
 });
 
@@ -2376,7 +2376,7 @@ test('freeExplore recovers from finishReason=length finalize and increments outp
     async createChatCompletion() {
       this.calls += 1;
 
-      if (this.calls <= getBudgetConfig().maxTurns) {
+      if (this.calls <= getRuntimeConfig().maxTurns) {
         return {
           usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
           message: {
@@ -2392,7 +2392,7 @@ test('freeExplore recovers from finishReason=length finalize and increments outp
         };
       }
 
-      if (this.calls === getBudgetConfig().maxTurns + 1) {
+      if (this.calls === getRuntimeConfig().maxTurns + 1) {
         return {
           usage: { prompt_tokens: 30, completion_tokens: 20, total_tokens: 50 },
           finishReason: 'length',
@@ -2434,7 +2434,7 @@ test('freeExplore recovers from finishReason=length finalize and increments outp
     );
     assert.equal(
       client.calls,
-      getBudgetConfig().maxTurns + 2,
+      getRuntimeConfig().maxTurns + 2,
       'main loop + finalize + one recovery continuation call',
     );
     assert.match(result.report, /cut off before/);
@@ -2447,7 +2447,7 @@ test('freeExplore recovers from finishReason=length finalize and increments outp
 test('Phase 3 — system prompt has HARD REQUIREMENTS within first 30 lines', () => {
   const prompt = buildExplorerSystemPrompt({
     repoRoot: '/tmp/repo',
-    budgetConfig: getBudgetConfig(),
+    runtimeConfig: getRuntimeConfig(),
   });
   const lines = prompt.split('\n');
   const first30 = lines.slice(0, 30).join('\n');
@@ -2457,10 +2457,28 @@ test('Phase 3 — system prompt has HARD REQUIREMENTS within first 30 lines', ()
   );
 });
 
+test('Spec 028 T012 — structured prompts expose exact fixed-limit names without an effort profile', () => {
+  const runtimeConfig = getRuntimeConfig();
+  const systemPrompt = buildExplorerSystemPrompt({
+    repoRoot: '/tmp/repo',
+    runtimeConfig,
+  });
+  const userPrompt = buildExplorerUserPrompt({
+    task: 'Find the authentication entry point',
+    scope: [],
+  });
+
+  assert.match(
+    systemPrompt,
+    new RegExp(`Fixed runtime limits: maxTurns=${runtimeConfig.maxTurns}, maxReadLines=${runtimeConfig.maxReadLines}, maxSearchResults=${runtimeConfig.maxSearchResults}\\.`),
+  );
+  assert.doesNotMatch(`${systemPrompt}\n${userPrompt}`, /Runtime profile|\bdeep\b|\bbudget\b/i);
+});
+
 test('Spec 023 — explorer system prompt has UNTRUSTED CONTENT rule and candidate-edit-target wording', () => {
   const prompt = buildExplorerSystemPrompt({
     repoRoot: '/tmp/repo',
-    budgetConfig: getBudgetConfig(),
+    runtimeConfig: getRuntimeConfig(),
   });
   assert.ok(
     prompt.includes('UNTRUSTED CONTENT'),
@@ -2475,7 +2493,7 @@ test('Spec 023 — explorer system prompt has UNTRUSTED CONTENT rule and candida
 test('Spec 023 — freeExplore system prompt has UNTRUSTED CONTENT rule and candidate-edit-target wording', () => {
   const prompt = buildFreeExploreSystemPrompt({
     repoRoot: '/tmp/repo',
-    budgetConfig: getBudgetConfig(),
+    budgetConfig: getRuntimeConfig(),
   });
   assert.doesNotMatch(
     prompt,
@@ -2495,7 +2513,7 @@ test('Spec 023 — freeExplore system prompt has UNTRUSTED CONTENT rule and cand
 test('spec 024 FR-005 — freeExplore system prompt no longer overstates truncation-marker preservation', () => {
   const prompt = buildFreeExploreSystemPrompt({
     repoRoot: '/tmp/repo',
-    budgetConfig: getBudgetConfig(),
+    budgetConfig: getRuntimeConfig(),
   });
   assert.doesNotMatch(
     prompt,
@@ -2533,7 +2551,7 @@ test('Phase 3 — Korean task produces Korean answer/summary language (language 
   // We verify the system prompt contains the expected language rule text.
   const prompt = buildExplorerSystemPrompt({
     repoRoot: '/tmp/repo',
-    budgetConfig: getBudgetConfig(),
+    runtimeConfig: getRuntimeConfig(),
   });
   assert.ok(
     prompt.includes('LANGUAGE RULE'),
@@ -2548,7 +2566,7 @@ test('Phase 3 — Korean task produces Korean answer/summary language (language 
 test('Phase 3 — explicit language is reflected in system prompt language rule', () => {
   const prompt = buildExplorerSystemPrompt({
     repoRoot: '/tmp/repo',
-    budgetConfig: getBudgetConfig(),
+    runtimeConfig: getRuntimeConfig(),
     language: 'Korean',
   });
   assert.ok(
@@ -2565,7 +2583,7 @@ test('Phase 3 — system prompt does not expose the absolute repo root path', ()
   const repoRoot = path.resolve('fixtures', 'demo-repo');
   const prompt = buildExplorerSystemPrompt({
     repoRoot,
-    budgetConfig: getBudgetConfig(),
+    runtimeConfig: getRuntimeConfig(),
   });
 
   assert.ok(
@@ -2645,8 +2663,7 @@ test('Phase 0 metric — JSON parse success: model content parsed into correct f
 });
 
 test('Phase 0 metric — strict schema compliance: required fields present under the single runtime config', async () => {
-  // spec 011: every call runs against the single deep runtime config. The
-  // previous matrix across budget labels collapses to a single scenario.
+  // Every structured call runs against the same fixed, unlabeled runtime config.
   class MinimalClient {
     constructor() { this.model = 'zai-glm-4.7'; }
     async createChatCompletion() {
@@ -2668,8 +2685,8 @@ test('Phase 0 metric — strict schema compliance: required fields present under
   const runtime = new ExplorerRuntime({ chatClient: new MinimalClient() });
   const result = await runtime.explore({ task: '테스트', repo_root: root });
   assertStrictSchema(result);
-  assert.equal(result.stats.budget, 'deep',
-    'stats.budget should report the single deep runtime config');
+  assert.equal('budget' in result.stats, false,
+    'structured stats must not expose a runtime effort label');
 });
 
 test('011 US2 — explore_repo rejects budget input as unknown property', async () => {
@@ -2700,8 +2717,8 @@ test('ExplorerRuntime forwards assistant reasoning into the next turn when avail
       this.calls += 1;
 
       if (this.calls === 1) {
-        // spec 011: single deep runtime config. For glm-4.7, deep label leaves
-        // reasoningEffort undefined and uses temperature: 1.0, topP: 0.95.
+        // The fixed runtime config leaves GLM 4.7 reasoningEffort undefined and
+        // uses temperature: 1.0, topP: 0.95.
         assert.equal(reasoningEffort, undefined);
         assert.equal(temperature, 1.0);
         assert.equal(topP, 0.95);
@@ -3230,8 +3247,8 @@ test('finalizeAfterToolLoop gives repair pass the full finalize token budget', a
   const result = await runtime.explore({ task: 'find auth', repo_root: root });
 
   assert.deepEqual(seenFinalizeBudgets, [
-    getBudgetConfig().finalizeMaxCompletionTokens,
-    getBudgetConfig().finalizeMaxCompletionTokens,
+    getRuntimeConfig().finalizeMaxCompletionTokens,
+    getRuntimeConfig().finalizeMaxCompletionTokens,
   ]);
   assert.equal(result.directAnswer, 'repaired with full budget');
 });
@@ -4233,7 +4250,6 @@ test('spec 026 T015: buildExplorerUserPrompt symbol-first approach includes cros
   const prompt = buildExplorerUserPrompt({
     task: 'Find where requireAuth is defined',
     hints: { strategy: 'symbol-first', symbols: ['requireAuth'] },
-    runtimeProfile: 'compact',
     scope: [],
   });
 
@@ -4266,7 +4282,7 @@ test('spec 026 T015: STRATEGY_DESCRIPTIONS symbol-first mentions cross-check', (
 test('spec 026 T015: system prompt strategy catalog symbol-first line mentions cross-check', () => {
   const systemPrompt = buildExplorerSystemPrompt({
     repoRoot: '/tmp/repo',
-    budgetConfig: getBudgetConfig(),
+    runtimeConfig: getRuntimeConfig(),
   });
   // Find the strategy catalog line for symbol-first
   const lines = systemPrompt.split('\n');

@@ -149,10 +149,9 @@ export const DEFAULT_TEXT_FILE_MAX_BYTES = 512 * 1024;
 export const DEFAULT_GREP_FILE_MAX_BYTES = 256 * 1024;
 export const DEFAULT_WALK_FILE_LIMIT = 5000;
 
-// spec 011: every call uses the single deep runtime config. The user-facing
-// `budget` input and quick/normal routing labels were removed.
-const DEEP_RUNTIME_CONFIG = {
-  label: 'deep',
+// Fixed provider, context, and repository-tool ceilings. These values protect
+// process correctness; callers cannot select or mutate an effort profile.
+const RUNTIME_CONFIG = Object.freeze({
   maxTurns: 30,
   maxSearchResults: 80,
   maxReadLines: 320,
@@ -160,7 +159,7 @@ const DEEP_RUNTIME_CONFIG = {
   maxWalkFiles: 6000,
   maxCompletionTokens: 32000,
   finalizeMaxCompletionTokens: 3000,
-  // Working input budget, held under the Cerebras zai-glm-4.7 paid-tier context
+  // Working input limit, held under the Cerebras zai-glm-4.7 paid-tier context
   // window (131k tokens, max output 40k —
   // https://inference-docs.cerebras.ai/models/zai-glm-47). ~21k headroom is left
   // for the model's output/reasoning (finalize caps at 3k). Proactive compaction
@@ -168,10 +167,10 @@ const DEEP_RUNTIME_CONFIG = {
   maxContextTokens: 110_000,
   temperature: 1.0,
   topP: 0.95,
-};
+});
 
-export function getBudgetConfig() {
-  return DEEP_RUNTIME_CONFIG;
+export function getRuntimeConfig() {
+  return RUNTIME_CONFIG;
 }
 
 function getPathModule(platform = process.platform) {

@@ -583,7 +583,7 @@ const DEFAULT_GIT_OUTPUT_MAX_BYTES = 100 * 1024;
 export class RepoToolkit {
   constructor({
     repoRoot,
-    budgetConfig,
+    runtimeConfig,
     logger = () => {},
     cache = null,
     extraIgnoreDirs = [],
@@ -591,7 +591,7 @@ export class RepoToolkit {
   }) {
     this.repoRoot = repoRoot;
     this.repoRootReal = null;
-    this.budgetConfig = budgetConfig;
+    this.runtimeConfig = runtimeConfig;
     this.logger = logger;
     this.cache = cache;
     this.baseScopeRules = createScopeRules([]);
@@ -645,7 +645,7 @@ export class RepoToolkit {
     return combineScopeRules(this.baseScopeRules, createScopeRules(scope));
   }
 
-  async walkFiles({ scope = [], maxFiles = this.budgetConfig.maxWalkFiles ?? DEFAULT_WALK_FILE_LIMIT } = {}) {
+  async walkFiles({ scope = [], maxFiles = this.runtimeConfig.maxWalkFiles ?? DEFAULT_WALK_FILE_LIMIT } = {}) {
     const effectiveScope = this.buildEffectiveScopeRules(scope);
     const files = [];
     const queue = ['.'];
@@ -696,7 +696,7 @@ export class RepoToolkit {
     return { files, truncated: false };
   }
 
-  async listDirectory({ dirPath = '.', depth = 2, maxEntries = this.budgetConfig.maxDirectoryEntries } = {}) {
+  async listDirectory({ dirPath = '.', depth = 2, maxEntries = this.runtimeConfig.maxDirectoryEntries } = {}) {
     const relativeDir = sanitizeRelativePath(dirPath);
     const effectiveScope = this.baseScopeRules;
     if (!effectiveScope.mayContain(relativeDir)) {
@@ -764,7 +764,7 @@ export class RepoToolkit {
     };
   }
 
-  async findFiles({ pattern, scope = [], maxResults = this.budgetConfig.maxSearchResults } = {}) {
+  async findFiles({ pattern, scope = [], maxResults = this.runtimeConfig.maxSearchResults } = {}) {
     if (typeof pattern !== 'string' || !pattern.trim()) {
       throw new Error('pattern is required');
     }
@@ -875,7 +875,7 @@ export class RepoToolkit {
     };
   }
 
-  async grep({ pattern, scope = [], caseSensitive = false, maxResults = this.budgetConfig.maxSearchResults } = {}) {
+  async grep({ pattern, scope = [], caseSensitive = false, maxResults = this.runtimeConfig.maxSearchResults } = {}) {
     if (typeof pattern !== 'string' || !pattern.trim()) {
       throw new Error('pattern is required');
     }
@@ -956,7 +956,7 @@ export class RepoToolkit {
     };
   }
 
-  async readFile({ path: requestedPath, startLine = 1, endLine = this.budgetConfig.maxReadLines } = {}) {
+  async readFile({ path: requestedPath, startLine = 1, endLine = this.runtimeConfig.maxReadLines } = {}) {
     if (typeof requestedPath !== 'string' || !requestedPath.trim()) {
       throw new Error('path is required');
     }
@@ -978,7 +978,7 @@ export class RepoToolkit {
 
     const lines = buffer.toString('utf8').split(/\r?\n/);
     const safeStart = Math.max(1, Number(startLine) || 1);
-    const maxSpan = this.budgetConfig.maxReadLines;
+    const maxSpan = this.runtimeConfig.maxReadLines;
     const requestedEnd = Math.max(safeStart, Number(endLine) || safeStart);
     const safeEnd = Math.min(lines.length, safeStart + maxSpan - 1, requestedEnd);
 
@@ -1082,7 +1082,7 @@ export class RepoToolkit {
     const sym = symbol.trim();
 
     // Step 1: grep for all occurrences (escape special regex chars in symbol name)
-    const grepResult = await this.grep({ pattern: symbolSearchPattern(sym), scope, caseSensitive: true, maxResults: this.budgetConfig?.maxSearchResults ?? 80 });
+    const grepResult = await this.grep({ pattern: symbolSearchPattern(sym), scope, caseSensitive: true, maxResults: this.runtimeConfig?.maxSearchResults ?? 80 });
 
     let definition = null;
     const callers = [];
@@ -1735,7 +1735,7 @@ export class RepoToolkit {
         cacheKey = this._scopedCacheKey('list_dir', {
           dirPath: args?.dirPath ?? '.',
           depth: args?.depth ?? 2,
-          maxEntries: args?.maxEntries ?? this.budgetConfig.maxDirectoryEntries,
+          maxEntries: args?.maxEntries ?? this.runtimeConfig.maxDirectoryEntries,
         });
         const cached = this._cacheGet(cacheKey);
         if (cached !== undefined) return cached;
@@ -1747,7 +1747,7 @@ export class RepoToolkit {
         cacheKey = this._scopedCacheKey('find_files', {
           pattern: args?.pattern ?? '',
           scope: Array.isArray(args?.scope) ? [...args.scope].sort() : [],
-          maxResults: args?.maxResults ?? this.budgetConfig.maxSearchResults,
+          maxResults: args?.maxResults ?? this.runtimeConfig.maxSearchResults,
         });
         const cached = this._cacheGet(cacheKey);
         if (cached !== undefined) return cached;
@@ -1761,7 +1761,7 @@ export class RepoToolkit {
           pattern: args?.pattern ?? '',
           caseSensitive: args?.caseSensitive ?? false,
           scope: Array.isArray(args?.scope) ? [...args.scope].sort() : [],
-          maxResults: args?.maxResults ?? this.budgetConfig.maxSearchResults,
+          maxResults: args?.maxResults ?? this.runtimeConfig.maxSearchResults,
           ctxLines,
         });
         const cached = this._cacheGet(cacheKey);
@@ -1786,7 +1786,7 @@ export class RepoToolkit {
         cacheKey = this._scopedCacheKey('read_file', {
           path: args?.path ?? '',
           startLine: args?.startLine ?? 1,
-          endLine: args?.endLine ?? this.budgetConfig.maxReadLines,
+          endLine: args?.endLine ?? this.runtimeConfig.maxReadLines,
           mtime: Math.floor(mtimeMs),
         });
         const cached = this._cacheGet(cacheKey);

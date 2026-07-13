@@ -7,7 +7,7 @@ import path from 'node:path';
 import { isIntentOnlyFreeExploreReport } from '../src/explorer/runtime.mjs';
 import { RepoToolkit, isCatastrophicRegexPattern, statPathDenied } from '../src/explorer/repo-tools.mjs';
 import { buildFreeExploreSystemPrompt } from '../src/explorer/prompt.mjs';
-import { getBudgetConfig } from '../src/explorer/config.mjs';
+import { getRuntimeConfig } from '../src/explorer/config.mjs';
 
 // ── F2: intent-only report detection must cover CJK/Korean preambles ──────────
 test('F2 — isIntentOnlyFreeExploreReport detects Korean intent-only preambles', () => {
@@ -50,7 +50,7 @@ test('F3 — grep rejects a catastrophic pattern on the base-scope fallback path
   // is the only place a model-supplied catastrophic pattern can block the event loop.
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-f3-'));
   await fs.writeFile(path.join(root, 'evil.txt'), `${'a'.repeat(45)}!\n`);
-  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig() });
+  const toolkit = new RepoToolkit({ repoRoot: root, runtimeConfig: getRuntimeConfig() });
   await toolkit.initialize(['evil.txt']);
 
   await assert.rejects(
@@ -88,7 +88,7 @@ test('F6 — statPathDenied reconstructs git brace-rename paths so secrets are n
 test('F4 — freeExplore system prompt references real truncation markers (no stale literals)', () => {
   const prompt = buildFreeExploreSystemPrompt({
     repoRoot: '/tmp/example',
-    budgetConfig: getBudgetConfig(),
+    budgetConfig: getRuntimeConfig(),
     language: undefined,
     projectContext: undefined,
     previousSummaries: [],

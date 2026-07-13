@@ -271,7 +271,7 @@ spec 017 (v0.6.0) 이전에는 multi-call 세션 연결을 위해 `session` 입�
 - 기본 모델: `zai-glm-4.7`
 - override: `CEREBRAS_EXPLORER_MODEL` (단일 source of truth)
 
-spec 011에서 `CEREBRAS_MODEL` alias와 budget별 모델 지정(`CEREBRAS_EXPLORER_MODEL_QUICK`/`_NORMAL`/`_DEEP`)은 영구 제거되었다. 모든 explore 호출이 동일한 단일 deep runtime config로 실행되므로 budget별 모델 분리가 필요하면 server 인스턴스를 두 개 띄워 각각 다른 `CEREBRAS_EXPLORER_MODEL`을 지정하는 방식으로 우회한다.
+spec 011에서 `CEREBRAS_MODEL` alias와 budget별 모델 지정(`CEREBRAS_EXPLORER_MODEL_QUICK`/`_NORMAL`/`_DEEP`)은 영구 제거되었다. Structured explore는 동일한 라벨 없는 고정 runtime config로 실행된다. 서로 다른 모델이 필요하면 server 인스턴스를 두 개 띄워 각각 다른 `CEREBRAS_EXPLORER_MODEL`을 지정한다.
 
 이 프로젝트의 문서화된 계약은 Cerebras provider 기준이다. 모델 이름은 바꿀 수 있지만, 부모 모델이 아닌 explorer 내부 모델만 교체한다.
 
@@ -606,9 +606,9 @@ spec 025에서 `_meta.ops` 사이드채널이 `explore`뿐 아니라 `explore_re
 
 ---
 
-## 13. Runtime config (spec 011 이후 단일화)
+## 13. Runtime config
 
-spec 011 이후 사용자가 선택할 수 있는 budget label은 없다. 모든 explore 호출은 단일 deep runtime config로 실행된다.
+Structured explore는 라벨 없는 단일 고정 runtime config로 실행된다. 이 값들은 task effort 정책이 아니라 provider/context/process 보호 한계이며, 사용자가 선택하거나 덮어쓸 수 없다.
 
 | 항목 | 값 |
 | --- | --- |
@@ -623,9 +623,9 @@ spec 011 이후 사용자가 선택할 수 있는 budget label은 없다. 모든
 | `temperature` | 1.0 |
 | `top_p` | 0.95 |
 
-> `maxContextTokens`(110000)는 Cerebras zai-glm-4.7 **paid 티어** 컨텍스트 윈도우(131k 토큰, max output 40k — [Cerebras 문서](https://inference-docs.cerebras.ai/models/zai-glm-47)) **아래로 잡은 작업 예산**이다. ~21k는 출력/추론 여유분이며, 압축은 70%(≈77k)에서 선제 발동한다(spec 024).
+> `maxContextTokens`(110000)는 Cerebras zai-glm-4.7 **paid 티어** 컨텍스트 윈도우(131k 토큰, max output 40k — [Cerebras 문서](https://inference-docs.cerebras.ai/models/zai-glm-47)) **아래로 잡은 입력 한계**다. ~21k는 출력/추론 여유분이며, 압축은 70%(≈77k)에서 선제 발동한다(spec 024).
 
-`EXPLORE_REPO_INPUT_SCHEMA`에서 `budget` 키는 제거되었고, 모든 호출은 위 값으로 실행된다. `getBudgetConfig()`는 인자를 받지 않고 이 단일 runtime config를 반환한다.
+`EXPLORE_REPO_INPUT_SCHEMA`에서 `budget` 키는 제거되었고, structured 호출은 위 값으로 실행된다. `getRuntimeConfig()`는 동결된 단일 runtime config를 반환한다.
 
 Report-mode turn 확장은 `CEREBRAS_EXPLORER_TURN_MULTIPLIER`, `CEREBRAS_EXPLORER_MAX_EXTRA_TURNS`, `CEREBRAS_EXPLORER_MAX_COMPACTIONS`로만 조정한다. spec 023 이후 `CEREBRAS_EXPLORER_V2_*` tuning envvar 이름은 인식하지 않는다.
 

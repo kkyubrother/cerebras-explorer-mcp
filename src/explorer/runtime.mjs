@@ -3,7 +3,7 @@ import path from 'node:path';
 
 import { CerebrasChatClient, extractFirstJsonObject } from './cerebras-client.mjs';
 import {
-  getBudgetConfig,
+  getRuntimeConfig,
   getExplorerTemperature,
   getExplorerTopP,
   getExploreMaxCompactions,
@@ -1356,7 +1356,7 @@ export class ExplorerRuntime {
 
   /**
    * Shared setup for explore() and freeExplore().
-   * Returns all the common infrastructure: budgetConfig, repoRoot, projectConfig,
+   * Returns all the common infrastructure: runtimeConfig, repoRoot, projectConfig,
    * session data, repoToolkit, chatClient, tools, and timing helpers.
    */
   async _initExploreContext({ repoRootArg, scope, taskText }) {
@@ -1365,8 +1365,7 @@ export class ExplorerRuntime {
     const rawProjectConfig = await loadProjectConfig(repoRoot);
     const projectConfig = normalizeProjectConfig(rawProjectConfig);
 
-    // spec 011: single runtime config — no user-facing budget knob.
-    const budgetConfig = getBudgetConfig();
+    const runtimeConfig = getRuntimeConfig();
     const effectiveScope = scope ?? projectConfig.defaultScope ?? [];
     const projectContext = projectConfig.projectContext ?? null;
     const keyFiles = projectConfig.keyFiles ?? [];
@@ -1377,7 +1376,7 @@ export class ExplorerRuntime {
 
     const repoToolkit = new RepoToolkit({
       repoRoot,
-      budgetConfig,
+      runtimeConfig,
       logger: this.logger,
       cache: globalRepoCache,
       extraIgnoreDirs,
@@ -1387,11 +1386,11 @@ export class ExplorerRuntime {
 
     const tools = repoToolkit.buildToolDefinitions();
     const reasoningEffort = getReasoningEffortForModel(chatClient.model);
-    const temperature = budgetConfig.temperature ?? getExplorerTemperature();
-    const topP = budgetConfig.topP ?? getExplorerTopP();
+    const temperature = runtimeConfig.temperature ?? getExplorerTemperature();
+    const topP = runtimeConfig.topP ?? getExplorerTopP();
 
     return {
-      budgetConfig, repoRoot, projectConfig, effectiveScope, projectContext, keyFiles,
+      runtimeConfig, repoRoot, projectConfig, effectiveScope, projectContext, keyFiles,
       chatClient,
       repoToolkit, tools, reasoningEffort, temperature, topP,
     };
@@ -1407,7 +1406,7 @@ export class ExplorerRuntime {
     validateExploreRepoArgs(args, { allowInternal: true });
 
     const {
-      budgetConfig, repoRoot, projectConfig, effectiveScope, projectContext, keyFiles,
+      runtimeConfig, repoRoot, projectConfig, effectiveScope, projectContext, keyFiles,
       chatClient,
       repoToolkit, tools, reasoningEffort, temperature, topP,
     } = await this._initExploreContext({
@@ -1424,7 +1423,7 @@ export class ExplorerRuntime {
         role: 'system',
         content: buildExplorerSystemPrompt({
           repoRoot,
-          budgetConfig,
+          runtimeConfig,
           language: args.language,
           projectContext,
           keyFiles,
@@ -1436,7 +1435,6 @@ export class ExplorerRuntime {
         content: buildExplorerUserPrompt({
           task: args.task,
           scope: effectiveScope,
-          runtimeProfile: budgetConfig.label,
           hints: args.hints,
           sessionTargetPaths: [],
           language: args.language,
@@ -1446,7 +1444,6 @@ export class ExplorerRuntime {
 
     const stats = {
       model: chatClient.model,
-      budget: budgetConfig.label,
       turns: 0,
       toolCalls: 0,
       listDirCalls: 0,
@@ -1485,13 +1482,13 @@ export class ExplorerRuntime {
     const toolTrace = createCompactToolTrace();
 
     // Checkpoint interval: inject a self-assessment message every N turns.
-    // Only active for budgets with enough turns to benefit (>6).
+    // Only active when the fixed turn limit leaves enough room to benefit (>6).
     const CHECKPOINT_INTERVAL = 4;
-    const checkpointEnabled = budgetConfig.maxTurns > 6;
+    const checkpointEnabled = runtimeConfig.maxTurns > 6;
 
     // Proactive context compaction (FR-002): trigger at 70% of the context window,
     // mirroring the report loop, instead of only truncating at the 100% hard limit.
-    const compactionThreshold = Math.floor((budgetConfig.maxContextTokens ?? 100_000) * 0.70);
+    const compactionThreshold = Math.floor((runtimeConfig.maxContextTokens ?? 100_000) * 0.70);
 
     // Stagnation tracking: detect repeated identical tool plans
     let lastFingerprint = null;
@@ -1499,7 +1496,7 @@ export class ExplorerRuntime {
     let consecutiveAllErrorTurns = 0;
 
     try {
-    for (let turnIndex = 0; turnIndex < budgetConfig.maxTurns; turnIndex += 1) {
+    for (let turnIndex = 0; turnIndex < runtimeConfig.maxTurns; turnIndex += 1) {
       // Abort check: gracefully stop if signal was triggered
       if (abortSignal?.aborted) {
         stats.stoppedByAbort = true;
@@ -1535,10 +1532,10 @@ export class ExplorerRuntime {
       if (onProgress) {
         onProgress({
           progress: turnIndex,
-          total: budgetConfig.maxTurns,
+          total: runtimeConfig.maxTurns,
           message: turnIndex === 0
             ? 'Starting exploration...'
-            : `Turn ${turnIndex + 1}/${budgetConfig.maxTurns}: continuing...`,
+            : `Turn ${turnIndex + 1}/${runtimeConfig.maxTurns}: continuing...`,
         });
       }
 
@@ -1550,7 +1547,7 @@ export class ExplorerRuntime {
           reasoningEffort,
           temperature,
           topP,
-          maxCompletionTokens: budgetConfig.maxCompletionTokens,
+          maxCompletionTokens: runtimeConfig.maxCompletionTokens,
           parallelToolCalls: true,
           signal: abortSignal,
         });
@@ -1578,8 +1575,8 @@ export class ExplorerRuntime {
         // validation always runs, regardless of exit path.
         if (onProgress) {
           onProgress({
-            progress: budgetConfig.maxTurns - 1,
-            total: budgetConfig.maxTurns,
+            progress: runtimeConfig.maxTurns - 1,
+            total: runtimeConfig.maxTurns,
             message: 'Synthesizing findings...',
           });
         }
@@ -1592,7 +1589,7 @@ export class ExplorerRuntime {
             reasoningEffort,
             temperature,
             topP,
-            budgetConfig,
+            runtimeConfig,
             abortSignal,
           });
         } catch (error) {
@@ -1624,8 +1621,8 @@ export class ExplorerRuntime {
         const toolDesc = describePendingTools(completion.message.toolCalls);
         onProgress({
           progress: turnIndex + 1,
-          total: budgetConfig.maxTurns,
-          message: `Turn ${turnIndex + 1}/${budgetConfig.maxTurns}: ${toolDesc}`,
+          total: runtimeConfig.maxTurns,
+          message: `Turn ${turnIndex + 1}/${runtimeConfig.maxTurns}: ${toolDesc}`,
         });
       }
 
@@ -1815,8 +1812,8 @@ export class ExplorerRuntime {
       stats.stoppedByBudget = !stats.stoppedByErrors && !stats.stoppedByAbort;
       if (onProgress) {
         onProgress({
-          progress: budgetConfig.maxTurns,
-          total: budgetConfig.maxTurns,
+          progress: runtimeConfig.maxTurns,
+          total: runtimeConfig.maxTurns,
           message: 'Budget exhausted — synthesizing partial answer...',
         });
       }
@@ -1826,7 +1823,7 @@ export class ExplorerRuntime {
         reasoningEffort,
         temperature,
         topP,
-        budgetConfig,
+        runtimeConfig,
         abortSignal,
       });
       finalObject = finalized.result;
@@ -1961,7 +1958,7 @@ export class ExplorerRuntime {
     }
 
     const {
-      budgetConfig: baseBudgetConfig, repoRoot, effectiveScope, projectContext, keyFiles,
+      runtimeConfig: baseRuntimeConfig, repoRoot, effectiveScope, projectContext, keyFiles,
       chatClient,
       tools, reasoningEffort, temperature, topP, repoToolkit,
     } = await this._initExploreContext({
@@ -1972,12 +1969,13 @@ export class ExplorerRuntime {
 
     // Report mode extends the turn budget, but keeps it bounded by configurable caps.
     const requestedTurns = Math.max(
-      baseBudgetConfig.maxTurns,
-      Math.round(baseBudgetConfig.maxTurns * getExploreTurnMultiplier()),
+      baseRuntimeConfig.maxTurns,
+      Math.round(baseRuntimeConfig.maxTurns * getExploreTurnMultiplier()),
     );
-    const maxAllowedTurns = baseBudgetConfig.maxTurns + getExploreMaxExtraTurns();
+    const maxAllowedTurns = baseRuntimeConfig.maxTurns + getExploreMaxExtraTurns();
     const budgetConfig = {
-      ...baseBudgetConfig,
+      ...baseRuntimeConfig,
+      label: 'deep',
       maxTurns: Math.min(requestedTurns, maxAllowedTurns),
     };
 
@@ -2453,8 +2451,8 @@ export class ExplorerRuntime {
     };
   }
 
-  async finalizeAfterToolLoop({ chatClient, messages, reasoningEffort, temperature, topP, budgetConfig, abortSignal = null }) {
-    const maxCompletionTokens = budgetConfig?.finalizeMaxCompletionTokens ?? 2000;
+  async finalizeAfterToolLoop({ chatClient, messages, reasoningEffort, temperature, topP, runtimeConfig, abortSignal = null }) {
+    const maxCompletionTokens = runtimeConfig?.finalizeMaxCompletionTokens ?? 2000;
     const completion = await chatClient.createChatCompletion({
       messages: [
         ...messages,

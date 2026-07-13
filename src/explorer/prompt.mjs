@@ -105,13 +105,13 @@ function formatRepoLabel(repoRoot) {
  *
  * @param {object} opts
  * @param {string}   opts.repoRoot
- * @param {object}   opts.budgetConfig
+ * @param {object}   opts.runtimeConfig
  * @param {string}   [opts.language]        - Task response language (passed through for explicit rule)
  * @param {string}   [opts.projectContext]  - Injected from .cerebras-explorer.json
  * @param {string[]} [opts.previousSummaries] - Summaries from prior session calls
  * @param {string[]} [opts.keyFiles]        - Key files from project config (prioritise these)
  */
-export function buildExplorerSystemPrompt({ repoRoot, budgetConfig, language, projectContext, previousSummaries, keyFiles }) {
+export function buildExplorerSystemPrompt({ repoRoot, runtimeConfig, language, projectContext, previousSummaries, keyFiles }) {
   const parts = [
     'You are Cerebras Explorer, an autonomous READ-ONLY repository exploration agent.',
     '',
@@ -233,7 +233,7 @@ export function buildExplorerSystemPrompt({ repoRoot, budgetConfig, language, pr
   parts.push(
     '',
     `Repository: ${formatRepoLabel(repoRoot)} (tool paths are relative to the repo root).`,
-    `Runtime profile: ${budgetConfig.label} (maxTurns=${budgetConfig.maxTurns}, maxReadLinesPerCall=${budgetConfig.maxReadLines}, maxSearchResults=${budgetConfig.maxSearchResults}).`,
+    `Fixed runtime limits: maxTurns=${runtimeConfig.maxTurns}, maxReadLines=${runtimeConfig.maxReadLines}, maxSearchResults=${runtimeConfig.maxSearchResults}.`,
   );
 
   return parts.join('\n');
@@ -251,14 +251,13 @@ function formatStrategyLine(strategy) {
   return `Strategy: ${strategy} — ${STRATEGY_DESCRIPTIONS[strategy] ?? strategy}`;
 }
 
-export function buildExplorerUserPrompt({ task, scope, runtimeProfile, hints, sessionTargetPaths, language }) {
+export function buildExplorerUserPrompt({ task, scope, hints, sessionTargetPaths, language }) {
   const strategy = hints?.strategy ?? detectStrategy(task);
 
   const lines = [
     'Delegated exploration request:',
     task.trim(),
     '',
-    `Runtime profile: ${runtimeProfile}`,
     `Scope: ${formatScope(scope)}`,
     formatStrategyLine(strategy),
     'Hints:',
