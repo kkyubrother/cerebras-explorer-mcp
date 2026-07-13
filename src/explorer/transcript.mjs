@@ -340,7 +340,7 @@ export function createTranscriptRecorder({ repoRoot, tool, task, logger = () => 
 
   /**
    * Record a message or event to the transcript.
-   * @param {string} type - Message type: 'system', 'user', 'assistant', 'tool', 'meta'
+   * @param {string} type - Message type: 'system', 'user', 'assistant', 'tool', 'safety_limit', 'meta'
    * @param {object} data - Message data
    */
   function record(type, data) {
@@ -374,6 +374,17 @@ export function createTranscriptRecorder({ repoRoot, tool, task, logger = () => 
    */
   async function finalize(stats) {
     if (stats) {
+      for (const limit of Array.isArray(stats.safetyLimits) ? stats.safetyLimits : []) {
+        if (!limit || typeof limit !== 'object') continue;
+        record('safety_limit', {
+          name: limit.name,
+          stage: limit.stage,
+          affectedSubgoalIds: Array.isArray(limit.affectedSubgoalIds)
+            ? limit.affectedSubgoalIds
+            : [],
+          truncated: limit.truncated === true,
+        });
+      }
       record('meta', {
         finishedAt: new Date().toISOString(),
         stats,

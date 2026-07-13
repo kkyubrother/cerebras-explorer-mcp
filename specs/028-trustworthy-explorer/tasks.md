@@ -44,7 +44,7 @@
 - [x] T011 [P] Normalize source/git/search observations and preserve scope, omission, denial, truncation, error, and enumeration facts in `src/explorer/repo-tools.mjs`
 - [x] T012 After T011, replace the structured path's labeled deep/budget configuration with one unlabeled fixed runtime configuration and exact limit names in `src/explorer/config.mjs`, `src/explorer/prompt.mjs`, and `src/explorer/repo-tools.mjs`
 - [x] T013 Integrate safety-limit observations and valid-partial-limit versus invalid-control-output fault precedence in `src/explorer/runtime.mjs`, `src/explorer/critic.mjs`, and `src/explorer/coverage.mjs`
-- [ ] T014 Migrate structured-path operational events and record-only metrics to exact safety-limit terminology in `src/explorer/transcript.mjs`, `src/benchmark/transcript-metrics.mjs`, and `scripts/run-benchmark.mjs`, then pass the Phase 2 tests and `npm test`
+- [x] T014 Migrate structured-path operational events and record-only metrics to exact safety-limit terminology in `src/explorer/transcript.mjs`, `src/benchmark/transcript-metrics.mjs`, and `scripts/run-benchmark.mjs`, then pass the Phase 2 tests and `npm test`
 
 **Checkpoint**: Shared trust types are deterministic, observations retain all boundary facts, and no structured completion decision depends on a budget label or evidence count.
 

@@ -12,7 +12,7 @@ function createEmptyMetrics() {
     readCalls: 0,
     toolErrorCalls: 0,
     repeatedToolPlanTurns: 0,
-    stoppedByBudget: false,
+    safetyLimitCount: 0,
   };
 }
 
@@ -61,8 +61,8 @@ export function analyzeTranscriptEntries(entries) {
       continue;
     }
 
-    if (entry.type === 'meta' && entry.stats) {
-      metrics.stoppedByBudget = Boolean(entry.stats.stoppedByBudget);
+    if (entry.type === 'safety_limit') {
+      metrics.safetyLimitCount += 1;
     }
   }
 

@@ -7,12 +7,7 @@ import path from 'node:path';
 import { analyzeTranscriptEntries, analyzeTranscriptFile } from '../src/benchmark/transcript-metrics.mjs';
 import { computeExtendedMetrics } from '../scripts/run-benchmark.mjs';
 
-const safetyLimitMetricTest = Object.hasOwn(analyzeTranscriptEntries([]), 'safetyLimitCount')
-  ? test
-  : test.todo;
-// T014 must make these ordinary tests once the record-only metric is implemented.
-
-safetyLimitMetricTest('analyzeTranscriptEntries summarizes tools and record-only safety-limit signals', () => {
+test('analyzeTranscriptEntries summarizes tools and record-only safety-limit signals', () => {
   const metrics = analyzeTranscriptEntries([
     { type: 'assistant', turn: 1, toolCalls: ['repo_grep'] },
     { type: 'tool', turn: 1, tool: 'repo_grep', error: false },
@@ -43,7 +38,7 @@ test('analyzeTranscriptEntries detects repeated tool plans and tool errors', () 
   assert.equal(metrics.toolErrorCalls, 1);
 });
 
-safetyLimitMetricTest('analyzeTranscriptEntries counts exact safety-limit events and ignores legacy budget stats', () => {
+test('analyzeTranscriptEntries counts exact safety-limit events and ignores legacy budget stats', () => {
   const metrics = analyzeTranscriptEntries([
     { type: 'meta', stats: { stoppedByBudget: true } },
     {
@@ -66,7 +61,7 @@ safetyLimitMetricTest('analyzeTranscriptEntries counts exact safety-limit events
   assert.equal('stoppedByBudget' in metrics, false);
 });
 
-safetyLimitMetricTest('analyzeTranscriptFile returns null for missing paths and parses safety-limit JSONL events', async () => {
+test('analyzeTranscriptFile returns null for missing paths and parses safety-limit JSONL events', async () => {
   assert.equal(await analyzeTranscriptFile(null), null);
 
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'transcript-metrics-'));
@@ -132,7 +127,7 @@ test('computeExtendedMetrics reads ops stats and reports n/a (null) when ops are
   assert.equal(withoutOps.noToolExitRate, 0, 'searchCoverage fallback sees 1 file read');
 });
 
-safetyLimitMetricTest('computeExtendedMetrics reports record-only safety-limit incidence without budget exhaustion', () => {
+test('computeExtendedMetrics reports record-only safety-limit incidence without budget exhaustion', () => {
   const metrics = computeExtendedMetrics([
     syntheticCase({ transcriptMetrics: { safetyLimitCount: 1 } }),
     syntheticCase({ transcriptMetrics: { safetyLimitCount: 0 } }),

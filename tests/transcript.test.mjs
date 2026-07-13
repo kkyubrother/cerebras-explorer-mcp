@@ -119,6 +119,44 @@ test('LOG_PATH transcript metadata records execution provenance when supplied', 
   });
 });
 
+test('structured safety limits are emitted as exact record-only transcript events', async () => {
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-transcript-limit-repo-'));
+  const logDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-transcript-limit-log-'));
+
+  await withEnvPatch({
+    ...TRANSCRIPT_ENV_OFF,
+    CEREBRAS_EXPLORER_LOG_PATH: logDir,
+  }, async () => {
+    const recorder = createTranscriptRecorder({
+      repoRoot,
+      tool: 'explore_repo',
+      task: 'inspect a bounded repository',
+    });
+    const limit = {
+      name: 'context_limit',
+      stage: 'verification',
+      affectedSubgoalIds: ['S1'],
+      truncated: true,
+    };
+
+    await recorder.finalize({ turns: 1, toolCalls: 0, safetyLimits: [limit] });
+
+    const entries = await readJsonl(recorder.filePath);
+    const safetyEvents = entries.filter(entry => entry.type === 'safety_limit');
+    assert.equal(safetyEvents.length, 1);
+    assert.deepEqual(
+      {
+        name: safetyEvents[0].name,
+        stage: safetyEvents[0].stage,
+        affectedSubgoalIds: safetyEvents[0].affectedSubgoalIds,
+        truncated: safetyEvents[0].truncated,
+      },
+      limit,
+    );
+    assert.equal(entries.at(-1).type, 'meta', 'final summary stays the last transcript record');
+  });
+});
+
 test('LOG_RAW truthy mode preserves raw transcript record data and marks final meta', async () => {
   const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-transcript-raw-repo-'));
   const logDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-transcript-raw-log-'));

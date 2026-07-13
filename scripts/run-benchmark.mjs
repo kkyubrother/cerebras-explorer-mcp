@@ -142,12 +142,12 @@ function getConfidenceScore(result) {
  * Compute extended benchmark metrics beyond pass/fail scoring. All metrics are
  * record-only (spec 021: never a gate). Sources (spec 025):
  *   - _meta.ops side-channel  : avgToolTurns, avgInternalTokens, noToolExitRate (primary)
- *   - structuredContent       : budgetExhaustionRate, noToolExitRate (fallback),
- *                               avgGroundedEvidence, avgTargets, evidenceSnippetRate,
- *                               targetedVerificationRate
+ *   - structuredContent       : noToolExitRate (fallback), avgGroundedEvidence,
+ *                               avgTargets, evidenceSnippetRate, targetedVerificationRate
  *   - effect-metrics harness  : avgResponsePayloadTokens, avgCitedSourceTokens,
  *                               avgContextSavingsRatio, citationAccuracy, weakCitationChecks
- *   - transcript analysis     : avgBroadSearchCalls, avgRepeatedToolPlanTurns
+ *   - transcript analysis     : avgBroadSearchCalls, avgRepeatedToolPlanTurns,
+ *                               safetyLimitIncidenceRate
  * A metric with no available source is null (printed as "n/a") — never a
  * fabricated 0/100%.
  */
@@ -168,9 +168,6 @@ export function computeExtendedMetrics(caseResults) {
 
   const avgToolTurns = round1(avgOf(opsStats.map(stats => stats.turns).filter(value => typeof value === 'number')));
   const avgInternalTokensRaw = avgOf(opsStats.map(stats => stats.totalTokens).filter(value => typeof value === 'number'));
-
-  const budgetExhaustionRate =
-    successCases.filter(cr => cr.result.searchCoverage?.stoppedByBudget === true).length / count;
 
   const noToolExitRate = successCases.filter(cr => {
     const stats = cr.ops?.stats;
@@ -208,6 +205,11 @@ export function computeExtendedMetrics(caseResults) {
   const avgRepeatedToolPlanTurns = transcriptCases.length > 0
     ? transcriptCases.reduce((sum, cr) => sum + Number(cr.transcriptMetrics.repeatedToolPlanTurns ?? 0), 0) / transcriptCases.length
     : null;
+  const safetyLimitCases = transcriptCases.filter(cr =>
+    typeof cr.transcriptMetrics.safetyLimitCount === 'number');
+  const safetyLimitIncidenceRate = safetyLimitCases.length > 0
+    ? safetyLimitCases.filter(cr => cr.transcriptMetrics.safetyLimitCount > 0).length / safetyLimitCases.length
+    : null;
 
   const effectCases = successCases.map(cr => cr.effectMetrics).filter(Boolean);
   const avgResponsePayloadTokens = avgOf(effectCases.map(m => m.responsePayloadTokens));
@@ -229,7 +231,7 @@ export function computeExtendedMetrics(caseResults) {
   return {
     avgToolTurns,
     avgInternalTokens: avgInternalTokensRaw === null ? null : Math.round(avgInternalTokensRaw),
-    budgetExhaustionRate: round3(budgetExhaustionRate),
+    safetyLimitIncidenceRate: round3(safetyLimitIncidenceRate),
     noToolExitRate: round3(noToolExitRate),
     avgGroundedEvidence: round1(avgGroundedEvidence),
     avgTargets: round1(avgTargets),
@@ -384,7 +386,7 @@ async function main() {
     if (metrics) {
       console.log(`  avg tool turns     : ${formatMetric(metrics.avgToolTurns)}`);
       console.log(`  avg internal tokens: ${formatMetric(metrics.avgInternalTokens)}`);
-      console.log(`  budget exhaustion  : ${formatPercent(metrics.budgetExhaustionRate)}`);
+      console.log(`  safety-limit incid.: ${formatMetric(metrics.safetyLimitIncidenceRate, formatPercent)}`);
       console.log(`  no-tool exit rate  : ${formatPercent(metrics.noToolExitRate)}`);
       console.log(`  avg grounded evid. : ${metrics.avgGroundedEvidence}`);
       console.log(`  avg targets        : ${metrics.avgTargets}`);
