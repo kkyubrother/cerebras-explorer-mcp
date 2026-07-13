@@ -310,12 +310,12 @@ const PUBLIC_FAILURE_REASONS = new Set([
   'internal_error',
 ]);
 export const RETRY_TOOLS = [
-  'explore_repo',
   'find_relevant_code',
-  'collect_evidence',
   'trace_symbol',
   'map_change_impact',
   'explain_code_path',
+  'collect_evidence',
+  'explore_repo',
 ];
 
 const RETRY_TEXT_MAX = 500;

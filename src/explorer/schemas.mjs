@@ -129,12 +129,12 @@ export const RETRY_SCHEMA = {
     tool: {
       type: 'string',
       enum: [
-        'explore_repo',
         'find_relevant_code',
-        'collect_evidence',
         'trace_symbol',
         'map_change_impact',
         'explain_code_path',
+        'collect_evidence',
+        'explore_repo',
       ],
     },
     hints: { type: 'array', items: { type: 'string' } },

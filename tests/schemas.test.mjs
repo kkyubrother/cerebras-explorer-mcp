@@ -32,7 +32,7 @@ import {
 import { RETRY_TOOLS } from '../src/explorer/runtime.mjs';
 
 // Test-first activation point for T055's retry/provenance vocabulary cleanup.
-const T055_RETRY_VOCABULARY_LANDED = false;
+const T055_RETRY_VOCABULARY_LANDED = true;
 
 test('Spec 028 T049 — removed report tool is absent from retry schema and runtime', () => {
   assert.equal(RETRY_SCHEMA.properties.tool.enum.includes('explore'), false);

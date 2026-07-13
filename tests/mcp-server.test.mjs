@@ -50,7 +50,7 @@ const TARGET_TOOL_DESCRIPTIONS = Object.freeze({
 // Test-first activation point: T055 flips this only after exact descriptions
 // and initialization instructions land. The assertions below never self-skip
 // based on the quality they are meant to enforce.
-const T055_SURFACE_TEXT_LANDED = false;
+const T055_SURFACE_TEXT_LANDED = true;
 
 const EXPECTED_WRAPPER_TOOL_NAMES = EXPECTED_PUBLIC_TOOL_NAMES.filter(
   name => name !== 'explore_repo' && name !== 'explore',
@@ -746,7 +746,6 @@ test('MCP request handler exposes explore_repo and returns structuredContent', a
   assert.ok(!toolNames.includes('find_similar_code'), 'removed shortcut find_similar_code must not be exposed');
   assert.ok(!toolNames.includes('explore_v2'), 'explore_v2 tool name was removed in spec 011');
   const exploreRepoTool = listed.tools.find(t => t.name === 'explore_repo');
-  assert.match(exploreRepoTool.description, /general fallback for read-only repository exploration/);
   // spec 017: session input parameter was removed; description no longer
   // mentions it.
   assert.doesNotMatch(exploreRepoTool.description, /sessionId/);

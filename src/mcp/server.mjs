@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
-import { DEFAULT_PROTOCOL_VERSION, getExplorerModel } from '../explorer/config.mjs';
+import { DEFAULT_PROTOCOL_VERSION } from '../explorer/config.mjs';
 import { exploreRepository } from '../explorer/runtime.mjs';
 import {
   EXPLORE_REPO_INPUT_SCHEMA,
@@ -41,12 +41,7 @@ const EXPLORE_REPO_TOOL = {
   name: 'explore_repo',
   title: 'Autonomous repository explorer',
   description:
-    'Use as the general fallback for read-only repository exploration when no purpose-specific tool fits, or when you need programmable structured JSON spanning multiple files: ' +
-    'architecture, symbol usage, dependency/call tracing, bug root-cause hypotheses, change impact, config origin, or evidence collection. ' +
-    'Prefer the specialized tools when intent matches (find_relevant_code to locate code, trace_symbol for a known symbol, map_change_impact for blast radius, explain_code_path for a flow, collect_evidence to verify a claim). ' +
-    'Do not use for edits, running tests/builds, or single known-file inspection. ' +
-    'Returns structured JSON with directAnswer, status, targets, grounded file:line evidence with snippets, and nextAction. ' +
-    'After this tool, avoid broad grep/read; only read cited targets needed for verification or edits.',
+    'Use for repository investigations not clearly covered by another tool. Do not use it to control search tactics or effort.',
   inputSchema: EXPLORE_REPO_INPUT_SCHEMA,
   outputSchema: EXPLORE_REPO_OUTPUT_SCHEMA,
   annotations: readOnlyToolAnnotations('Autonomous repository explorer'),
@@ -58,10 +53,7 @@ const FIND_RELEVANT_CODE_TOOL = {
   name: 'find_relevant_code',
   title: 'Find relevant code targets',
   description:
-    'Use first when you need to locate the files and line ranges relevant to a feature, bug, config, route, or behavior before deciding what to read or edit. ' +
-    'Give the natural-language query plus any known anchors via knownFiles, knownSymbols, or knownText to narrow the search. ' +
-    'Do not use when the exact file/range is already known, a single grep would suffice, or a sibling tool fits the intent better (trace_symbol for a known symbol, explain_code_path for a request/event/job flow, map_change_impact for blast radius). ' +
-    'Returns targets and cited evidence; read only returned edit/read targets afterward.',
+    'Use when locating unknown implementation, configuration, test, or route positions. Do not use when the exact location is already known.',
   inputSchema: {
     type: 'object',
     additionalProperties: false,
@@ -83,9 +75,7 @@ const TRACE_SYMBOL_TOOL = {
   name: 'trace_symbol',
   title: 'Trace a symbol',
   description:
-    'Use when a known function, class, variable, or type needs definition plus usage/callsite context. ' +
-    'Returns grounded targets and evidence without requiring a manual grep-then-read loop. ' +
-    'Do not use when the symbol is unknown (use find_relevant_code) or you need a runtime flow (use explain_code_path).',
+    'Use when explaining a known function, class, type, or variable and its usages. Do not use for unknown-symbol discovery or execution-flow tracing.',
   inputSchema: {
     type: 'object',
     additionalProperties: false,
@@ -107,9 +97,7 @@ const MAP_CHANGE_IMPACT_TOOL = {
   name: 'map_change_impact',
   title: 'Map change impact',
   description:
-    'Use before editing when you know the intended change but need blast-radius context: likely edit files, callers, tests, config, and risky dependent paths. ' +
-    'Coverage of documentation and example fixtures is best-effort; mention docs/examples in the change description if their impact must be included. ' +
-    'Do not use for a one-line known-file edit.',
+    'Use before a planned change to identify its blast radius. Do not use for a one-line edit in a known file.',
   inputSchema: {
     type: 'object',
     additionalProperties: false,
@@ -130,9 +118,7 @@ const EXPLAIN_CODE_PATH_TOOL = {
   name: 'explain_code_path',
   title: 'Explain a code path',
   description:
-    'Use for route, middleware, request, event, job, or CLI flow tracing across files. ' +
-    'Returns the verified path through the code and the targets worth reading next. ' +
-    'Do not use for a single symbol (use trace_symbol) or a static blast-radius map (use map_change_impact).',
+    'Use when tracing an ordered request, event, job, CLI, or data flow. Do not use for static single-symbol usage.',
   inputSchema: {
     type: 'object',
     additionalProperties: false,
@@ -154,8 +140,7 @@ const COLLECT_EVIDENCE_TOOL = {
   name: 'collect_evidence',
   title: 'Collect cited evidence',
   description:
-    'Use when you already have a claim, hypothesis, or review point and need a compact bundle of grounded file:line evidence with snippets. ' +
-    'Best for verifying specific facts or a single review point before replying; for whole-PR/diff scoping use explore_repo.',
+    'Use when supporting or refuting an existing claim or hypothesis. Do not use for broad discovery without a claim.',
   inputSchema: {
     type: 'object',
     additionalProperties: false,
@@ -185,6 +170,11 @@ function buildToolList() {
     EXPLORE_REPO_TOOL,
   ];
 }
+
+const TOOL_DISPATCH_RULE =
+  'Need locations → find_relevant_code; Know the symbol → trace_symbol; ' +
+  'Plan a change → map_change_impact; Need an execution/data path → explain_code_path; ' +
+  'Need to verify one claim → collect_evidence; Anything else → explore_repo.';
 
 let memoizedGitSha;
 let memoizedPackageVersion;
@@ -535,19 +525,15 @@ export function createMcpRequestHandler({
         if (typeof requestedVersion === 'string' && requestedVersion.trim()) {
           negotiatedProtocolVersion = requestedVersion;
         }
-        const toolCount = buildToolList().length;
         return {
           protocolVersion: negotiatedProtocolVersion,
           capabilities: { tools: { listChanged: false } },
           serverInfo: SERVER_INFO,
           instructions:
-            `Cerebras Explorer provides autonomous codebase exploration (${toolCount} tools, powered by ${getExplorerModel()}). ` +
-            'PREFER these tools over manual file search (Grep/Glob/Read) whenever you would otherwise run a grep-then-read loop — including for a single known symbol or claim — and especially for multi-file or cross-file understanding. ' +
-            'All tools return the same strict structured parent handoff with grounded evidence. ' +
-            'Purpose shortcuts: find_relevant_code, trace_symbol, map_change_impact, explain_code_path, collect_evidence. ' +
-            'Pass _meta.progressToken for heavy calls (broad reports / path / impact) to receive turn-by-turn progress updates. ' +
-            'When summarizing or handing off a result to another agent, preserve these control-plane fields verbatim: ' +
-            'status.verification, status.complete, evidenceQuality, searchCoverage, failure, and any critic.warnings.',
+            'Cerebras Explorer provides read-only repository exploration with grounded schema-v3 handoffs. ' +
+            `${TOOL_DISPATCH_RULE} ` +
+            'Repository scope is a hard boundary. Pass known file, symbol, or text anchors when available. ' +
+            'Use _meta.progressToken for long path or impact calls.',
         };
       }
       case 'ping':
