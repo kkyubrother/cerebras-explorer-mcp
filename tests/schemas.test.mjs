@@ -1,27 +1,32 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import * as schemaExports from '../src/explorer/schemas.mjs';
 import {
+  ABSENCE_CERTIFICATE_SCHEMA,
+  ATOMIC_CLAIM_SCHEMA,
   EXPLORE_REPO_INPUT_SCHEMA,
   EXPLORE_REPO_OUTPUT_SCHEMA,
   EXPLORE_RESULT_JSON_SCHEMA,
+  GOAL_AUDIT_RECORD_SCHEMA,
   RETRY_SCHEMA,
+  SAFETY_LIMIT_SCHEMA,
+  SEMANTIC_VERDICT_SCHEMA,
+  TASK_CONTRACT_SCHEMA,
   computeConfidenceScore,
   normalizeExploreResult,
   reconcileConfidence,
+  validateAbsenceCertificate,
+  validateAtomicClaim,
   validateExploreRepoArgs,
+  validateGoalAuditRecord,
+  validateSafetyLimit,
+  validateSemanticVerdict,
+  validateTaskContract,
 } from '../src/explorer/schemas.mjs';
 import { RETRY_TOOLS } from '../src/explorer/runtime.mjs';
 
-function internalSchemaTest(schemaExportName, validatorExportName, name, callback) {
-  const schema = schemaExports[schemaExportName];
-  const validate = schemaExports[validatorExportName];
-  const partiallyImplemented = schema !== undefined || validate !== undefined;
-  const register = partiallyImplemented ? test : test.todo;
-  register(name, () => {
-    assert.ok(schema, `${schemaExportName} is not implemented`);
-    assert.equal(typeof validate, 'function', `${validatorExportName} is not implemented`);
+function internalSchemaTest(schema, validate, name, callback) {
+  test(name, () => {
     callback(schema, validate);
   });
 }
@@ -255,8 +260,8 @@ test('agent-facing strategy hint stays advanced only and budget input was remove
   );
 });
 
-// T006 is committed before T010. Missing schema/validator pairs run as
-// expected-red TODOs; a partial implementation becomes an ordinary failure.
+// Named T010 imports keep these trust-plane contracts fail-closed if an export
+// is removed or renamed later.
 function makeValidRequiredSubgoal(overrides = {}) {
   return {
     id: 'S1',
@@ -293,8 +298,8 @@ function makeValidTaskContract() {
 }
 
 internalSchemaTest(
-  'TASK_CONTRACT_SCHEMA',
-  'validateTaskContract',
+  TASK_CONTRACT_SCHEMA,
+  validateTaskContract,
   'Spec 028 T006 — TaskContract and runtime-owned nested entities are strict',
   (schema, validate) => {
     assertStrictObjectTree(schema, 'TASK_CONTRACT_SCHEMA');
@@ -427,12 +432,24 @@ internalSchemaTest(
     const capabilityExtra = structuredClone(valid);
     capabilityExtra.capabilities.networkRead = true;
     assert.throws(() => validate(capabilityExtra));
+    const capabilityEscalation = structuredClone(valid);
+    capabilityEscalation.capabilities.repositoryWrite = true;
+    assert.throws(() => validate(capabilityEscalation));
+    const emptyOrigin = structuredClone(valid);
+    emptyOrigin.subgoals[0].originRefs = [];
+    assert.throws(() => validate(emptyOrigin));
+    const invalidConstraint = structuredClone(valid);
+    invalidConstraint.constraints = [null];
+    assert.throws(() => validate(invalidConstraint));
+    const emptyTask = structuredClone(valid);
+    emptyTask.task = '';
+    assert.throws(() => validate(emptyTask));
   },
 );
 
 internalSchemaTest(
-  'GOAL_AUDIT_RECORD_SCHEMA',
-  'validateGoalAuditRecord',
+  GOAL_AUDIT_RECORD_SCHEMA,
+  validateGoalAuditRecord,
   'Spec 028 T006 — goal-audit records are strict and categorical',
   (schema, validate) => {
     assertStrictObjectTree(schema, 'GOAL_AUDIT_RECORD_SCHEMA');
@@ -477,8 +494,8 @@ internalSchemaTest(
 );
 
 internalSchemaTest(
-  'ATOMIC_CLAIM_SCHEMA',
-  'validateAtomicClaim',
+  ATOMIC_CLAIM_SCHEMA,
+  validateAtomicClaim,
   'Spec 028 T006 — atomic claims are strict and carry one runtime verdict',
   (schema, validate) => {
     assertStrictObjectTree(schema, 'ATOMIC_CLAIM_SCHEMA');
@@ -515,8 +532,8 @@ internalSchemaTest(
 );
 
 internalSchemaTest(
-  'SEMANTIC_VERDICT_SCHEMA',
-  'validateSemanticVerdict',
+  SEMANTIC_VERDICT_SCHEMA,
+  validateSemanticVerdict,
   'Spec 028 T006 — semantic verdicts are strict and cannot rewrite claims',
   (schema, validate) => {
     assertStrictObjectTree(schema, 'SEMANTIC_VERDICT_SCHEMA');
@@ -563,8 +580,8 @@ internalSchemaTest(
 );
 
 internalSchemaTest(
-  'ABSENCE_CERTIFICATE_SCHEMA',
-  'validateAbsenceCertificate',
+  ABSENCE_CERTIFICATE_SCHEMA,
+  validateAbsenceCertificate,
   'Spec 028 T006 — absence certificates are strict runtime-owned proof objects',
   (schema, validate) => {
     assertStrictObjectTree(schema, 'ABSENCE_CERTIFICATE_SCHEMA');
@@ -604,12 +621,20 @@ internalSchemaTest(
       missingKey: 'id',
       makeInvalid: value => { value.complete = 'yes'; },
     });
+    assert.doesNotThrow(() => validate({
+      id: 'A2',
+      subgoalId: 'S2',
+      claimBoundary: [],
+      searchRefs: [],
+      searchSummary: [],
+      complete: false,
+    }), 'an incomplete certificate may preserve an empty repository boundary and no searches');
   },
 );
 
 internalSchemaTest(
-  'SAFETY_LIMIT_SCHEMA',
-  'validateSafetyLimit',
+  SAFETY_LIMIT_SCHEMA,
+  validateSafetyLimit,
   'Spec 028 T006 — safety limits use exact strict ceiling and stage enums',
   (schema, validate) => {
     assertStrictObjectTree(schema, 'SAFETY_LIMIT_SCHEMA');

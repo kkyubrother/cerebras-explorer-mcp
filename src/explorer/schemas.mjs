@@ -542,3 +542,321 @@ export function normalizeExploreResult(raw, stats) {
     stats,
   };
 }
+
+// Internal trust-plane schemas are strict runtime contracts. They are kept
+// separate from the parent-facing MCP schemas above and are never exposed as
+// tool input or output fields.
+function internalString(enumValues) {
+  return {
+    type: 'string',
+    minLength: 1,
+    ...(enumValues ? { enum: [...enumValues] } : {}),
+  };
+}
+
+function internalStringArray({ minItems } = {}) {
+  return {
+    type: 'array',
+    items: internalString(),
+    ...(minItems === undefined ? {} : { minItems }),
+  };
+}
+
+function strictInternalObject(properties, required) {
+  return {
+    type: 'object',
+    additionalProperties: false,
+    properties,
+    required,
+  };
+}
+
+const CAPABILITY_MANIFEST_SCHEMA = strictInternalObject({
+  repositoryRead: { type: 'boolean', const: true },
+  gitRead: { type: 'boolean', const: true },
+  repositoryWrite: { type: 'boolean', const: false },
+  liveRuntimeState: { type: 'boolean', const: false },
+  scopeWidening: { type: 'boolean', const: false },
+  secretPathRead: { type: 'boolean', const: false },
+}, [
+  'repositoryRead',
+  'gitRead',
+  'repositoryWrite',
+  'liveRuntimeState',
+  'scopeWidening',
+  'secretPathRead',
+]);
+
+const REQUIRED_SUBGOAL_SCHEMA = strictInternalObject({
+  id: internalString(),
+  question: internalString(),
+  originRefs: internalStringArray({ minItems: 1 }),
+  claimType: internalString([
+    'positive',
+    'absence',
+    'count',
+    'symbol_definition',
+    'symbol_usage',
+    'flow',
+    'impact',
+    'comparison',
+    'claim_verification',
+  ]),
+  proofPolicy: internalString([
+    'direct_source',
+    'bounded_absence',
+    'deterministic_count',
+    'symbol_definition',
+    'bounded_usage_cross_check',
+    'ordered_handoffs',
+    'impact_categories',
+    'distinct_policy_paths',
+    'support_or_refute',
+  ]),
+  proofCondition: internalString(),
+  constraints: internalStringArray(),
+  auditVerdict: internalString([
+    'ready',
+    'blocked_scope',
+    'blocked_capability',
+    'requires_external_state',
+    'missing_input',
+    'contradictory',
+    'unverifiable',
+    'planning_incomplete',
+  ]),
+  state: internalString([
+    'audited',
+    'blocked',
+    'exploring',
+    'candidate',
+    'supported',
+    'gap',
+    'contradicted',
+  ]),
+  resolution: internalString(['affirmed', 'refuted']),
+  claimRefs: internalStringArray(),
+  blockerRef: internalString(),
+  gapRef: internalString(),
+}, [
+  'id',
+  'question',
+  'originRefs',
+  'claimType',
+  'proofPolicy',
+  'proofCondition',
+  'constraints',
+  'auditVerdict',
+  'state',
+  'claimRefs',
+]);
+
+export const TASK_CONTRACT_SCHEMA = strictInternalObject({
+  task: internalString(),
+  effectiveScope: internalStringArray(),
+  constraints: internalStringArray(),
+  capabilities: CAPABILITY_MANIFEST_SCHEMA,
+  subgoals: {
+    type: 'array',
+    items: REQUIRED_SUBGOAL_SCHEMA,
+    minItems: 1,
+  },
+  plannerVersion: internalString(),
+  goalAuditVersion: internalString(),
+}, [
+  'task',
+  'effectiveScope',
+  'constraints',
+  'capabilities',
+  'subgoals',
+  'plannerVersion',
+  'goalAuditVersion',
+]);
+
+export const GOAL_AUDIT_RECORD_SCHEMA = strictInternalObject({
+  proposedGoalId: internalString(),
+  verdict: internalString([
+    'ready',
+    'merge_duplicate',
+    'needs_decomposition',
+    'reject_untraceable',
+    'blocked_scope',
+    'blocked_capability',
+    'requires_external_state',
+    'missing_input',
+    'contradictory',
+    'unverifiable',
+  ]),
+  originRefs: internalStringArray(),
+  mergeInto: internalString(),
+  missingRequestParts: internalStringArray(),
+  reason: internalString(),
+}, [
+  'proposedGoalId',
+  'verdict',
+  'originRefs',
+  'missingRequestParts',
+  'reason',
+]);
+
+export const ATOMIC_CLAIM_SCHEMA = strictInternalObject({
+  id: internalString(),
+  subgoalId: internalString(),
+  text: internalString(),
+  evidenceRefs: internalStringArray({ minItems: 1 }),
+  verdict: internalString([
+    'pending',
+    'supported',
+    'insufficient',
+    'contradicted',
+  ]),
+}, ['id', 'subgoalId', 'text', 'evidenceRefs', 'verdict']);
+
+export const SEMANTIC_VERDICT_SCHEMA = strictInternalObject({
+  claimId: internalString(),
+  result: internalString(['supported', 'insufficient', 'contradicted']),
+  supportingEvidenceRefs: internalStringArray(),
+  reasonCode: internalString([
+    'entailed',
+    'semantic_mismatch',
+    'overgeneralized',
+    'missing_transition',
+    'missing_category',
+    'boundary_mismatch',
+    'contradiction',
+    'uncovered_request',
+  ]),
+  note: internalString(),
+}, ['claimId', 'result', 'supportingEvidenceRefs', 'reasonCode', 'note']);
+
+export const ABSENCE_CERTIFICATE_SCHEMA = strictInternalObject({
+  id: internalString(),
+  subgoalId: internalString(),
+  claimBoundary: internalStringArray(),
+  searchRefs: internalStringArray(),
+  searchSummary: internalStringArray(),
+  complete: { type: 'boolean' },
+  qualification: internalString(),
+}, [
+  'id',
+  'subgoalId',
+  'claimBoundary',
+  'searchRefs',
+  'searchSummary',
+  'complete',
+]);
+
+export const SAFETY_LIMIT_SCHEMA = strictInternalObject({
+  name: internalString([
+    'turn_limit',
+    'context_limit',
+    'generation_output_limit',
+    'walk_limit',
+    'tool_result_limit',
+  ]),
+  stage: internalString([
+    'planner',
+    'goal_audit',
+    'plan_revision',
+    'exploration',
+    'synthesis',
+    'verification',
+    'repair',
+  ]),
+  affectedSubgoalIds: internalStringArray(),
+  truncated: { type: 'boolean' },
+}, ['name', 'stage', 'affectedSubgoalIds', 'truncated']);
+
+function failInternalValidation(path, message) {
+  throw new TypeError(`${path}: ${message}`);
+}
+
+function validateInternalValue(schema, value, path) {
+  switch (schema.type) {
+    case 'object': {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        failInternalValidation(path, 'expected an object');
+      }
+      const prototype = Object.getPrototypeOf(value);
+      if (prototype !== Object.prototype && prototype !== null) {
+        failInternalValidation(path, 'expected a plain object');
+      }
+      for (const key of schema.required ?? []) {
+        if (!Object.prototype.hasOwnProperty.call(value, key)) {
+          failInternalValidation(path, `missing required property ${key}`);
+        }
+      }
+      const allowedKeys = new Set(Object.keys(schema.properties ?? {}));
+      for (const key of Reflect.ownKeys(value)) {
+        if (typeof key !== 'string' || !allowedKeys.has(key)) {
+          failInternalValidation(path, `unexpected property ${String(key)}`);
+        }
+      }
+      for (const [key, child] of Object.entries(schema.properties ?? {})) {
+        if (Object.prototype.hasOwnProperty.call(value, key)) {
+          validateInternalValue(child, value[key], `${path}.${key}`);
+        }
+      }
+      break;
+    }
+    case 'array':
+      if (!Array.isArray(value)) failInternalValidation(path, 'expected an array');
+      if (schema.minItems !== undefined && value.length < schema.minItems) {
+        failInternalValidation(path, `expected at least ${schema.minItems} item(s)`);
+      }
+      for (let index = 0; index < value.length; index += 1) {
+        validateInternalValue(schema.items, value[index], `${path}[${index}]`);
+      }
+      break;
+    case 'string':
+      if (typeof value !== 'string') failInternalValidation(path, 'expected a string');
+      if (schema.minLength !== undefined && value.length < schema.minLength) {
+        failInternalValidation(path, `expected at least ${schema.minLength} character(s)`);
+      }
+      break;
+    case 'boolean':
+      if (typeof value !== 'boolean') failInternalValidation(path, 'expected a boolean');
+      break;
+    case 'integer':
+      if (!Number.isSafeInteger(value)) failInternalValidation(path, 'expected a safe integer');
+      break;
+    default:
+      failInternalValidation(path, `unsupported schema type ${schema.type}`);
+  }
+
+  if (schema.const !== undefined && !Object.is(value, schema.const)) {
+    failInternalValidation(path, `expected constant ${String(schema.const)}`);
+  }
+  if (schema.enum && !schema.enum.includes(value)) {
+    failInternalValidation(path, 'value is not in the allowed enum');
+  }
+  return value;
+}
+
+function validateInternalEntity(schema, label, value) {
+  return validateInternalValue(schema, value, label);
+}
+
+export function validateTaskContract(value) {
+  return validateInternalEntity(TASK_CONTRACT_SCHEMA, 'TaskContract', value);
+}
+
+export function validateGoalAuditRecord(value) {
+  return validateInternalEntity(GOAL_AUDIT_RECORD_SCHEMA, 'GoalAuditRecord', value);
+}
+
+export function validateAtomicClaim(value) {
+  return validateInternalEntity(ATOMIC_CLAIM_SCHEMA, 'AtomicClaim', value);
+}
+
+export function validateSemanticVerdict(value) {
+  return validateInternalEntity(SEMANTIC_VERDICT_SCHEMA, 'SemanticVerdict', value);
+}
+
+export function validateAbsenceCertificate(value) {
+  return validateInternalEntity(ABSENCE_CERTIFICATE_SCHEMA, 'AbsenceCertificate', value);
+}
+
+export function validateSafetyLimit(value) {
+  return validateInternalEntity(SAFETY_LIMIT_SCHEMA, 'SafetyLimit', value);
+}
