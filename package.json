@@ -45,7 +45,6 @@
     "start": "node ./src/index.mjs",
     "test": "node --test \"tests/**/*.test.mjs\"",
     "benchmark": "node ./scripts/run-benchmark.mjs --suite ./benchmarks/adoption.json",
-    "benchmark:evidence": "node ./scripts/run-benchmark.mjs --suite ./benchmarks/evidence-preservation.json",
     "prepublishOnly": "npm test"
   },
   "engines": {

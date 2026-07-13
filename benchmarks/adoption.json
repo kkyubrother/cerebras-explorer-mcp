@@ -54,7 +54,7 @@
         }
       ],
       "checks": [
-        { "label": "Grounded evidence", "type": "min_grounded_evidence_count", "value": 2, "weight": 0.2 },
+        { "label": "Structured evidence retained", "type": "min_evidence_count", "value": 2, "weight": 0.2 },
         { "label": "Snippet present", "type": "min_evidence_snippet_count", "value": 1, "weight": 0.1 }
       ]
     },
@@ -63,14 +63,14 @@
       "description": "Trace a symbol's definition and callsites; the usage cross-check must be satisfied.",
       "tool": "trace_symbol",
       "args": {
-        "symbol": "buildReportCritic",
+        "symbol": "buildParentPayload",
         "scope": ["src/**", "tests/**"]
       },
       "expectations": [
         {
           "label": "Combined text describes definition and production callsite",
           "source": "combined_text",
-          "groups": [["critic.mjs"], ["runtime.mjs"]],
+          "groups": [["parent-payload.mjs"], ["runtime.mjs", "server.mjs"]],
           "weight": 0.4
         },
         {
@@ -81,8 +81,8 @@
         }
       ],
       "checks": [
-        { "label": "Grounded evidence", "type": "min_grounded_evidence_count", "value": 2, "weight": 0.2 },
-        { "label": "No usage cross-check warning", "type": "critic_warning_absent", "warningType": "usage_cross_check_missing", "weight": 0.1 }
+        { "label": "Structured evidence retained", "type": "min_evidence_count", "value": 2, "weight": 0.2 },
+        { "label": "Source snippet retained", "type": "min_evidence_snippet_count", "value": 1, "weight": 0.1 }
       ]
     },
     {
@@ -136,7 +136,7 @@
         }
       ],
       "checks": [
-        { "label": "Grounded evidence", "type": "min_grounded_evidence_count", "value": 2, "weight": 0.15 },
+        { "label": "Structured evidence retained", "type": "min_evidence_count", "value": 2, "weight": 0.15 },
         { "label": "Snippet present", "type": "min_evidence_snippet_count", "value": 1, "weight": 0.1 }
       ]
     },
@@ -164,17 +164,16 @@
       ],
       "checks": [
         { "label": "Has direct answer", "type": "has_direct_answer", "value": true, "weight": 0.1 },
-        { "label": "Grounded evidence", "type": "min_grounded_evidence_count", "value": 2, "weight": 0.1 },
+        { "label": "Structured evidence retained", "type": "min_evidence_count", "value": 2, "weight": 0.1 },
         { "label": "Snippet present", "type": "min_evidence_snippet_count", "value": 1, "weight": 0.1 }
       ]
     },
     {
-      "id": "review-change-context",
-      "description": "Review recent changes with git-guided context.",
-      "tool": "review_change_context",
+      "id": "explore-recent-change-context",
+      "description": "Use the general explorer for recent changes that need git-guided context.",
+      "tool": "explore_repo",
       "args": {
-        "reviewGoal": "What changed recently around MCP tool metadata and what should be reviewed?",
-        "since": "2 weeks ago",
+        "task": "What changed recently around MCP tool metadata and what should be reviewed?",
         "scope": ["src/**", "tests/**"]
       },
       "expectations": [
@@ -207,9 +206,9 @@
           "weight": 0.45
         },
         {
-          "label": "Status narrows verification",
-          "source": "status_verification",
-          "groups": [["targeted_read_needed", "verified", "follow_up_needed"]],
+          "label": "State is actionable",
+          "source": "result_state",
+          "groups": [["complete", "verify_targets", "incomplete"]],
           "weight": 0.15
         }
       ],
@@ -235,9 +234,9 @@
           "weight": 0.45
         },
         {
-          "label": "Next action is targeted",
-          "source": "next_action",
-          "groups": [["read_target", "stop"]],
+          "label": "State permits a narrow handoff",
+          "source": "result_state",
+          "groups": [["complete", "verify_targets"]],
           "weight": 0.2,
           "minCoverage": 0.5
         }

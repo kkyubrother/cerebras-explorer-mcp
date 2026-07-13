@@ -55,6 +55,10 @@
       "fx-supported-refutation",
       "fx-cancellation",
       "fx-provider-failure"
+    ],
+    "structuredEvidenceIntegrity": [
+      "fx-semantic-mismatch",
+      "fx-truncated-enumeration"
     ]
   },
   "sources": {
@@ -1350,7 +1354,7 @@
     {
       "id": "fx-semantic-mismatch",
       "kind": "fixture",
-      "description": "A line number is proposed as a deterministic array count.",
+      "description": "Structured semantic verification rejects a line number proposed as a deterministic array count.",
       "sourceRef": "fixture-semantic-mismatch",
       "fixtureExecution": "direct",
       "providerFixture": {
@@ -1867,7 +1871,7 @@
     {
       "id": "fx-truncated-enumeration",
       "kind": "fixture",
-      "description": "A capped search cannot certify exhaustive absence.",
+      "description": "Structured source-integrity coverage treats a capped search as insufficient to certify exhaustive absence.",
       "sourceRef": "fixture-scoped-truncated-search",
       "fixtureExecution": "direct",
       "invocation": {

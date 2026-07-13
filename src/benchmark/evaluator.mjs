@@ -177,40 +177,6 @@ function joinLines(values) {
   return values.filter(Boolean).join('\n');
 }
 
-function getStats(result) {
-  // spec 017: MCP structuredContent no longer exposes _debug.stats. Raw runtime
-  // results still carry result.stats for benchmark/transcript use.
-  return result?.stats ?? {};
-}
-
-function getCitations(result) {
-  return Array.isArray(result?.citations) ? result.citations : [];
-}
-
-function countCitationFiles(result) {
-  return new Set(
-    getCitations(result)
-      .map(item => item?.path)
-      .filter(Boolean),
-  ).size;
-}
-
-function hasCitationGapWarning(result) {
-  const warnings = result?.critic?.warnings;
-  return Array.isArray(warnings) && warnings.some(warning => warning?.type === 'citation_gap');
-}
-
-function hasCriticWarningType(result, type) {
-  const warnings = result?.critic?.warnings;
-  return Array.isArray(warnings) && warnings.some(warning => warning?.type === type);
-}
-
-function toolResultsWereTruncated(result) {
-  const coverageCount = Number(result?.searchCoverage?.toolResultsTruncated ?? 0);
-  const statsCount = Number(getStats(result).toolResultsTruncated ?? 0);
-  return coverageCount > 0 || statsCount > 0;
-}
-
 function getSourceText(result, source) {
   switch (source) {
     case 'direct_answer':
@@ -218,31 +184,27 @@ function getSourceText(result, source) {
     case 'combined_text':
       return joinLines([
         result.directAnswer,
-        result.status?.verification,
-        result.nextAction?.reason,
-        result.nextAction?.query,
+        result.state,
         ...(result.targets ?? []).map(item => item.reason),
-        ...(result.evidence ?? []).map(item => item.why),
-        ...(result.uncertainties ?? []),
+        ...(result.evidence ?? []).map(item => item.supports),
+        ...(result.gaps ?? []).flatMap(item => [item.need, item.blocker]),
+        result.followUp?.action,
+        result.followUp?.reason,
+        result.retry?.action,
+        result.retry?.reason,
       ]);
     case 'evidence_paths':
       return joinLines((result.evidence ?? []).map(item => item.path));
-    case 'evidence_why':
-      return joinLines((result.evidence ?? []).map(item => item.why));
+    case 'evidence_supports':
+      return joinLines((result.evidence ?? []).map(item => item.supports));
     case 'target_paths':
       return joinLines((result.targets ?? []).map(item => item.path));
     case 'target_reasons':
       return joinLines((result.targets ?? []).map(item => item.reason));
     case 'evidence_snippets':
       return joinLines((result.evidence ?? []).map(item => item.snippet));
-    case 'followup_descriptions':
-      return joinLines([result.nextAction?.reason, result.nextAction?.query]);
-    case 'status_verification':
-      return result.status?.verification ?? '';
-    case 'next_action':
-      return joinLines([result.nextAction?.type, result.nextAction?.reason, result.nextAction?.query]);
-    case 'confidence':
-      return result.status?.confidence ?? '';
+    case 'result_state':
+      return result.state ?? '';
     default:
       throw new Error(`Unknown benchmark source: ${source}`);
   }
@@ -267,12 +229,6 @@ function evaluateKeywordGroups(haystack, groups) {
   };
 }
 
-function countGroundedEvidence(result) {
-  return (result.evidence ?? []).filter(item =>
-    item.groundingStatus === 'exact' || item.groundingStatus === 'partial'
-  ).length;
-}
-
 function evaluateCheck(result, check) {
   let passed = false;
   let actual;
@@ -280,10 +236,6 @@ function evaluateCheck(result, check) {
   switch (check.type) {
     case 'min_evidence_count':
       actual = (result.evidence ?? []).length;
-      passed = actual >= Number(check.value ?? 0);
-      break;
-    case 'min_grounded_evidence_count':
-      actual = countGroundedEvidence(result);
       passed = actual >= Number(check.value ?? 0);
       break;
     case 'min_target_count':
@@ -294,34 +246,9 @@ function evaluateCheck(result, check) {
       actual = (result.evidence ?? []).filter(item => typeof item.snippet === 'string' && item.snippet.trim()).length;
       passed = actual >= Number(check.value ?? 0);
       break;
-    case 'min_citation_count':
-      actual = getCitations(result).length;
-      passed = actual >= Number(check.value ?? 0);
-      break;
-    case 'min_citation_file_count':
-      actual = countCitationFiles(result);
-      passed = actual >= Number(check.value ?? 0);
-      break;
-    case 'tool_results_truncated_equals':
-      actual = toolResultsWereTruncated(result);
-      passed = actual === Boolean(check.value);
-      break;
-    case 'citation_gap_warning_equals':
-      actual = hasCitationGapWarning(result);
-      passed = actual === Boolean(check.value);
-      break;
-    case 'critic_warning_absent':
-      expected = check.warningType;
-      actual = !hasCriticWarningType(result, check.warningType);
-      passed = actual;
-      break;
     case 'has_direct_answer':
       actual = typeof result.directAnswer === 'string' && result.directAnswer.trim().length > 0;
       passed = actual === Boolean(check.value);
-      break;
-    case 'status_verification_equals':
-      actual = result.status?.verification ?? null;
-      passed = actual === check.value;
       break;
     default:
       throw new Error(`Unknown benchmark check type: ${check.type}`);

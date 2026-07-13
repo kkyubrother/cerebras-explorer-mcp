@@ -1242,8 +1242,8 @@ test('evaluateBenchmarkCase scores keyword expectations and checks', () => {
     ],
     checks: [
       {
-        label: 'Has grounded evidence',
-        type: 'min_grounded_evidence_count',
+        label: 'Has structured evidence',
+        type: 'min_evidence_count',
         value: 1,
         weight: 0.2,
       },
@@ -1255,7 +1255,7 @@ test('evaluateBenchmarkCase scores keyword expectations and checks', () => {
     evidence: [
       {
         path: 'src/explorer/runtime.mjs',
-        groundingStatus: 'exact',
+        kind: 'source',
       },
     ],
     targets: [
@@ -1326,186 +1326,38 @@ test('evaluateBenchmarkCase scores adoption fields', () => {
   assert.equal(evaluation.passed, true);
 });
 
-test('evaluateBenchmarkCase checks minimum citation count', () => {
-  const caseDefinition = {
-    id: 'citation-count',
-    checks: [
-      { label: 'Citation count', type: 'min_citation_count', value: 2, weight: 1 },
-    ],
-  };
-
-  const passing = evaluateBenchmarkCase(caseDefinition, {
-    citations: [
-      { path: 'src/explorer/runtime.mjs' },
-      { path: 'src/mcp/server.mjs' },
-    ],
-  });
-  assert.equal(passing.checks[0].actual, 2);
-  assert.equal(passing.checks[0].passed, true);
-
-  const failing = evaluateBenchmarkCase(caseDefinition, {
-    citations: [
-      { path: 'src/explorer/runtime.mjs' },
-    ],
-  });
-  assert.equal(failing.checks[0].actual, 1);
-  assert.equal(failing.checks[0].passed, false);
-
-  const nullCitations = evaluateBenchmarkCase(caseDefinition, { citations: null });
-  assert.equal(nullCitations.checks[0].actual, 0);
-  assert.equal(nullCitations.checks[0].passed, false);
-
-  const nonArrayCitations = evaluateBenchmarkCase(caseDefinition, { citations: 'src/explorer/runtime.mjs' });
-  assert.equal(nonArrayCitations.checks[0].actual, 0);
-  assert.equal(nonArrayCitations.checks[0].passed, false);
-});
-
-test('evaluateBenchmarkCase checks minimum unique citation file count', () => {
-  const caseDefinition = {
-    id: 'citation-file-count',
-    checks: [
-      { label: 'Citation files', type: 'min_citation_file_count', value: 2, weight: 1 },
-    ],
-  };
-
-  const passing = evaluateBenchmarkCase(caseDefinition, {
-    citations: [
-      { path: 'src/explorer/runtime.mjs' },
-      { path: 'src/mcp/server.mjs' },
-    ],
-  });
-  assert.equal(passing.checks[0].actual, 2);
-  assert.equal(passing.checks[0].passed, true);
-
-  const duplicatePath = evaluateBenchmarkCase(caseDefinition, {
-    citations: [
-      { path: 'src/explorer/runtime.mjs' },
-      { path: 'src/explorer/runtime.mjs' },
-      { path: '' },
-      {},
-    ],
-  });
-  assert.equal(duplicatePath.checks[0].actual, 1);
-  assert.equal(duplicatePath.checks[0].passed, false);
-});
-
-test('evaluateBenchmarkCase checks tool result truncation equality', () => {
-  const expectedTruncated = {
-    id: 'tool-truncated-true',
-    checks: [
-      { label: 'Tool results truncated', type: 'tool_results_truncated_equals', value: true, weight: 1 },
-    ],
-  };
-  const expectedNotTruncated = {
-    id: 'tool-truncated-false',
-    checks: [
-      { label: 'Tool results truncated', type: 'tool_results_truncated_equals', value: false, weight: 1 },
-    ],
-  };
-
-  const fromCoverage = evaluateBenchmarkCase(expectedTruncated, {
-    searchCoverage: { toolResultsTruncated: 1 },
-  });
-  assert.equal(fromCoverage.checks[0].actual, true);
-  assert.equal(fromCoverage.checks[0].passed, true);
-
-  const fromStats = evaluateBenchmarkCase(expectedTruncated, {
-    stats: { toolResultsTruncated: 1 },
-  });
-  assert.equal(fromStats.checks[0].actual, true);
-  assert.equal(fromStats.checks[0].passed, true);
-
-  const missingSignals = evaluateBenchmarkCase(expectedNotTruncated, {});
-  assert.equal(missingSignals.checks[0].actual, false);
-  assert.equal(missingSignals.checks[0].passed, true);
-
-  const unexpectedTruncation = evaluateBenchmarkCase(expectedNotTruncated, {
-    searchCoverage: { toolResultsTruncated: 2 },
-  });
-  assert.equal(unexpectedTruncation.checks[0].actual, true);
-  assert.equal(unexpectedTruncation.checks[0].passed, false);
-});
-
-test('evaluateBenchmarkCase checks citation gap warning equality', () => {
-  const expectedGap = {
-    id: 'citation-gap-true',
-    checks: [
-      { label: 'Citation gap warning', type: 'citation_gap_warning_equals', value: true, weight: 1 },
-    ],
-  };
-  const expectedNoGap = {
-    id: 'citation-gap-false',
-    checks: [
-      { label: 'Citation gap warning', type: 'citation_gap_warning_equals', value: false, weight: 1 },
-    ],
-  };
-
-  const gapWarning = evaluateBenchmarkCase(expectedGap, {
-    critic: { warnings: [{ type: 'citation_gap' }] },
-  });
-  assert.equal(gapWarning.checks[0].actual, true);
-  assert.equal(gapWarning.checks[0].passed, true);
-
-  const otherWarning = evaluateBenchmarkCase(expectedNoGap, {
-    critic: { warnings: [{ type: 'truncation' }] },
-  });
-  assert.equal(otherWarning.checks[0].actual, false);
-  assert.equal(otherWarning.checks[0].passed, true);
-
-  const missingWarnings = evaluateBenchmarkCase(expectedNoGap, {});
-  assert.equal(missingWarnings.checks[0].actual, false);
-  assert.equal(missingWarnings.checks[0].passed, true);
-
-  const unexpectedGap = evaluateBenchmarkCase(expectedNoGap, {
-    critic: { warnings: [{ type: 'citation_gap' }] },
-  });
-  assert.equal(unexpectedGap.checks[0].actual, true);
-  assert.equal(unexpectedGap.checks[0].passed, false);
-});
-
-test('evaluateBenchmarkCase checks critic_warning_absent — warning absent passes, present fails', () => {
-  const absentCheck = {
-    id: 'usage-cross-check-absent',
-    checks: [
-      { label: 'No usage cross-check warning', type: 'critic_warning_absent', warningType: 'usage_cross_check_missing', weight: 0.1 },
-    ],
-  };
-
-  // Warning absent → pass
-  const warningAbsent = evaluateBenchmarkCase(absentCheck, {});
-  assert.equal(warningAbsent.checks[0].actual, true);
-  assert.equal(warningAbsent.checks[0].passed, true);
-  assert.equal(warningAbsent.checks[0].expected, 'usage_cross_check_missing');
-
-  // Other warning type present → still absent → pass
-  const otherWarning = evaluateBenchmarkCase(absentCheck, {
-    critic: { warnings: [{ type: 'citation_gap' }] },
-  });
-  assert.equal(otherWarning.checks[0].actual, true);
-  assert.equal(otherWarning.checks[0].passed, true);
-
-  // Target warning present → fail
-  const warningPresent = evaluateBenchmarkCase(absentCheck, {
-    critic: { warnings: [{ type: 'usage_cross_check_missing' }] },
-  });
-  assert.equal(warningPresent.checks[0].actual, false);
-  assert.equal(warningPresent.checks[0].passed, false);
-
-  // Multiple warnings including target → fail
-  const multipleWarnings = evaluateBenchmarkCase(absentCheck, {
-    critic: { warnings: [{ type: 'citation_gap' }, { type: 'usage_cross_check_missing' }] },
-  });
-  assert.equal(multipleWarnings.checks[0].actual, false);
-  assert.equal(multipleWarnings.checks[0].passed, false);
-
-  // null/non-array warnings → absent → pass
-  const nullWarnings = evaluateBenchmarkCase(absentCheck, { critic: { warnings: null } });
-  assert.equal(nullWarnings.checks[0].actual, true);
-  assert.equal(nullWarnings.checks[0].passed, true);
+test('Spec 028 T052 — non-v3 evaluator checks stay removed', () => {
+  for (const checkType of [
+    'min_grounded_evidence_count',
+    'min_citation_count',
+    'min_citation_file_count',
+    'tool_results_truncated_equals',
+    'citation_gap_warning_equals',
+    'critic_warning_absent',
+    'status_verification_equals',
+  ]) {
+    assert.throws(
+      () => evaluateBenchmarkCase({
+        id: `removed-${checkType}`,
+        checks: [{ label: checkType, type: checkType, value: 1 }],
+      }, {}),
+      new RegExp(`Unknown benchmark check type: ${checkType}`),
+    );
+  }
 });
 
 test('evaluateBenchmarkCase rejects removed legacy benchmark aliases', () => {
-  for (const source of ['answer', 'summary', 'candidate_paths', 'confidence_level']) {
+  for (const source of [
+    'answer',
+    'summary',
+    'candidate_paths',
+    'confidence_level',
+    'evidence_why',
+    'followup_descriptions',
+    'status_verification',
+    'next_action',
+    'confidence',
+  ]) {
     assert.throws(
       () => evaluateBenchmarkCase({
         id: `removed-${source}`,
@@ -1538,7 +1390,7 @@ test('evaluateBenchmarkCase rejects removed legacy benchmark aliases', () => {
   );
 });
 
-test('evaluateBenchmarkCase reads compact MCP results', () => {
+test('evaluateBenchmarkCase reads schema-v3 MCP results', () => {
   const caseDefinition = {
     id: 'compact',
     passScore: 0.9,
@@ -1556,15 +1408,9 @@ test('evaluateBenchmarkCase reads compact MCP results', () => {
         weight: 0.15,
       },
       {
-        label: 'Next action',
-        source: 'next_action',
-        groups: [['explore_followup']],
-        weight: 0.15,
-      },
-      {
-        label: 'Confidence comes from status',
-        source: 'confidence',
-        groups: [['high']],
+        label: 'Result state',
+        source: 'result_state',
+        groups: [['verify_targets']],
         weight: 0.15,
       },
     ],
@@ -1575,17 +1421,12 @@ test('evaluateBenchmarkCase reads compact MCP results', () => {
 
   const result = {
     directAnswer: 'Direct answer from compact result.',
-    status: {
-      confidence: 'high',
-      verification: 'follow_up_needed',
-      complete: false,
-      warnings: [],
-    },
+    state: 'verify_targets',
     targets: [
       { path: 'src/mcp/server.mjs', role: 'read', reason: 'Target reason for compact output.', evidenceRefs: [] },
     ],
     evidence: [],
-    nextAction: { type: 'explore_followup', reason: 'Followup needed.' },
+    followUp: { action: 'read_target', reason: 'Followup needed.' },
   };
 
   const evaluation = evaluateBenchmarkCase(caseDefinition, result);
@@ -1628,45 +1469,49 @@ test('evaluateBenchmarkCase rejects removed recentActivity benchmark sources and
   );
 });
 
-test('evidence preservation benchmark suite is parseable and non-empty', async () => {
-  const suiteUrl = new URL('../benchmarks/evidence-preservation.json', import.meta.url);
-  const raw = await fs.readFile(suiteUrl, 'utf8');
-  const suite = JSON.parse(raw);
+test('Spec 028 T052 — report benchmark entry points migrate to structured suites', async () => {
+  const packageManifest = JSON.parse(await fs.readFile(new URL('../package.json', import.meta.url), 'utf8'));
+  assert.equal(packageManifest.scripts['benchmark:evidence'], undefined);
+  await assert.rejects(
+    fs.access(new URL('../benchmarks/evidence-preservation.json', import.meta.url)),
+    error => error?.code === 'ENOENT',
+  );
 
-  assert.equal(typeof suite.name, 'string');
-  assert.ok(Array.isArray(suite.cases));
-  assert.ok(suite.cases.length >= 1);
+  const adoption = JSON.parse(await fs.readFile(new URL('../benchmarks/adoption.json', import.meta.url), 'utf8'));
+  const traceCase = adoption.cases.find(item => item.id === 'trace-symbol-cross-check');
+  assert.equal(traceCase?.args?.symbol, 'buildParentPayload');
+  assert.deepEqual(traceCase?.checks?.map(item => item.type), [
+    'min_evidence_count',
+    'min_evidence_snippet_count',
+  ]);
+  const fallbackCase = adoption.cases.find(item => item.id === 'explore-recent-change-context');
+  assert.equal(fallbackCase?.tool, 'explore_repo');
+  assert.equal(typeof fallbackCase?.args?.task, 'string');
+  assert.doesNotMatch(JSON.stringify(adoption), /buildReportCritic|review_change_context/);
 });
 
-test('evaluateBenchmarkCase defaults missing evidence preservation signals safely', () => {
-  const caseDefinition = {
-    id: 'missing-evidence-preservation-signals',
-    checks: [
-      { label: 'Citation count', type: 'min_citation_count', value: 1, weight: 0.25 },
-      { label: 'Citation files', type: 'min_citation_file_count', value: 1, weight: 0.25 },
-      { label: 'Tool results truncated', type: 'tool_results_truncated_equals', value: false, weight: 0.25 },
-      { label: 'Citation gap warning', type: 'citation_gap_warning_equals', value: false, weight: 0.25 },
-    ],
-  };
+test('Spec 028 T052 — report evidence preservation migrates to independent structured integrity cases', async () => {
+  const manifest = await loadTrustManifest();
+  assert.deepEqual(manifest.fixtureSubsets?.structuredEvidenceIntegrity, [
+    'fx-semantic-mismatch',
+    'fx-truncated-enumeration',
+  ]);
 
-  const nullCitations = evaluateBenchmarkCase(caseDefinition, {
-    citations: null,
-  });
-  assert.equal(nullCitations.checks[0].actual, 0);
-  assert.equal(nullCitations.checks[0].passed, false);
-  assert.equal(nullCitations.checks[1].actual, 0);
-  assert.equal(nullCitations.checks[1].passed, false);
-  assert.equal(nullCitations.checks[2].actual, false);
-  assert.equal(nullCitations.checks[2].passed, true);
-  assert.equal(nullCitations.checks[3].actual, false);
-  assert.equal(nullCitations.checks[3].passed, true);
+  for (const caseId of manifest.fixtureSubsets.structuredEvidenceIntegrity) {
+    const caseDefinition = manifest.cases.find(item => item.id === caseId);
+    assert.ok(caseDefinition, `${caseId} must reference a registered trust case`);
+    assert.equal(caseDefinition.kind, 'fixture');
+    assert.equal(caseDefinition.invocation?.tool, 'explore_repo');
+    assert.equal(caseDefinition.oracle?.expectedState, 'incomplete');
+    assert.deepEqual(caseDefinition.oracle?.allowedClaims, []);
+    assert.ok(caseDefinition.oracle?.forbiddenClaims?.length > 0);
+    assert.ok(caseDefinition.oracle?.evidenceAnchors?.length > 0);
+    assert.ok(caseDefinition.oracle.evidenceAnchors.every(anchor =>
+      anchor.kind === 'source' && anchor.temporalRole === 'current'));
+  }
 
-  const nonArrayCitations = evaluateBenchmarkCase(caseDefinition, {
-    citations: { path: 'src/explorer/runtime.mjs' },
-    critic: {},
-  });
-  assert.equal(nonArrayCitations.checks[0].actual, 0);
-  assert.equal(nonArrayCitations.checks[1].actual, 0);
-  assert.equal(nonArrayCitations.checks[2].actual, false);
-  assert.equal(nonArrayCitations.checks[3].actual, false);
+  const semanticCase = manifest.cases.find(item => item.id === 'fx-semantic-mismatch');
+  assert.match(semanticCase.oracle.forbiddenClaims[0].text, /117 configured secret patterns/);
+  const truncatedCase = manifest.cases.find(item => item.id === 'fx-truncated-enumeration');
+  assert.equal(truncatedCase.oracle.expectedGoals[0].anchorPolicy, 'all');
 });
