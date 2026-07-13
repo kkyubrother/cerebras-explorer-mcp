@@ -7,31 +7,6 @@ import path from 'node:path';
 import { RepoToolkit, isCatastrophicRegexPattern, statPathDenied } from '../src/explorer/repo-tools.mjs';
 import { getRuntimeConfig } from '../src/explorer/config.mjs';
 
-const legacyReportSafeguardTest = test.skip;
-
-// ── F2: intent-only report detection must cover CJK/Korean preambles ──────────
-legacyReportSafeguardTest('F2 — isIntentOnlyFreeExploreReport detects Korean intent-only preambles', () => {
-  const intentOnly = [
-    '보고서를 작성하겠습니다. 충분한 정보를 수집했습니다.',
-    '충분한 정보를 수집했습니다.',
-    '이제 보고서를 정리하겠습니다.',
-    '필요한 증거를 모두 확보했습니다. 보고서를 작성하겠습니다.',
-  ];
-  for (const text of intentOnly) {
-    assert.equal(isIntentOnlyFreeExploreReport(text), true, `must flag intent-only: ${text}`);
-  }
-});
-
-legacyReportSafeguardTest('F2 — isIntentOnlyFreeExploreReport keeps English detection and does not flag real reports', () => {
-  assert.equal(isIntentOnlyFreeExploreReport('I have enough evidence; let me write the report.'), true);
-  // A real (short) Korean report with substantive content + a citation must NOT be flagged.
-  assert.equal(
-    isIntentOnlyFreeExploreReport('이 프로젝트는 PostgreSQL을 사용합니다 (prisma/schema.prisma:5-8). 모델은 User, Company 등입니다.'),
-    false,
-    'a grounded report with citations must not be treated as intent-only',
-  );
-});
-
 // ── F3: ReDoS-prone patterns are detected before the JS grep fallback runs ────
 test('F3 — isCatastrophicRegexPattern flags nested-quantifier ReDoS patterns', () => {
   for (const pattern of ['(a+)+$', '(a*)*', '(.*)*', '(a+)*', '([a-z]+)+$']) {
@@ -82,21 +57,4 @@ test('F6 — statPathDenied reconstructs git brace-rename paths so secrets are n
   // Ordinary renames must still be allowed.
   assert.equal(statPathDenied('src/{a.ts => b.ts}'), false);
   assert.equal(statPathDenied('README.md'), false);
-});
-
-// ── F4: truncation-marker prompt names the markers the runtime actually emits ─
-legacyReportSafeguardTest('F4 — freeExplore system prompt references real truncation markers (no stale literals)', () => {
-  const prompt = buildFreeExploreSystemPrompt({
-    repoRoot: '/tmp/example',
-    budgetConfig: getRuntimeConfig(),
-    language: undefined,
-    projectContext: undefined,
-    previousSummaries: [],
-    keyFiles: [],
-  });
-  // The runtime never emits a bare "[summarized]" token; do not name it.
-  assert.ok(!prompt.includes('"[summarized]"'), 'prompt must not name the non-existent "[summarized]" literal');
-  // The runtime DOES emit "[truncated ...]" markers and a "summarized to save context" recovery note.
-  assert.ok(prompt.includes('[truncated'), 'prompt should reference the real "[truncated...]" marker');
-  assert.ok(prompt.includes('summarized to save context'), 'prompt should reference the real summary-recovery wording');
 });

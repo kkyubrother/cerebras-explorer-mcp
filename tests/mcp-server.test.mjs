@@ -18,10 +18,6 @@ const EXPECTED_PUBLIC_TOOL_NAMES = [
   'explore_repo',
 ];
 
-// T049 removes the report-only public surface. These tests remain skipped
-// until T051 removes their obsolete fixtures and assertions.
-const legacyPublicReportTest = test.skip;
-
 const TARGET_SIX_TOOL_NAMES = [
   'find_relevant_code',
   'trace_symbol',
@@ -191,24 +187,6 @@ class MockChatClient {
           uncertainties: [],
           nextAction: { type: 'stop', reason: 'Complete.' },
         }),
-        toolCalls: [],
-      },
-    };
-  }
-}
-
-class MarkdownReportClient {
-  constructor(report) {
-    this.model = 'mock';
-    this.report = report;
-  }
-
-  async createChatCompletion() {
-    return {
-      usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
-      finishReason: 'stop',
-      message: {
-        content: this.report,
         toolCalls: [],
       },
     };
@@ -722,9 +700,6 @@ parentHandoffMcpTest(
   },
 );
 
-// spec 011: the report-mode router was removed. All explore calls use one
-// backend unconditionally, so the previous routing tests are no longer applicable.
-
 test('MCP request handler exposes explore_repo and returns structuredContent', async () => {
   const repoRoot = await makeRepoFixture();
   const rejectedSentinel = {
@@ -1025,42 +1000,6 @@ test('explore_repo stderr ops summary marks LOG_RAW mode after log path', async 
   }
 });
 
-legacyPublicReportTest('explore MCP call writes stderr ops summary for free-form reports', async () => {
-  const repoRoot = await makeRepoFixture();
-  const report = 'Summary cites `src/auth.js:L1-L3`.';
-  const restore = applyEnvPatch({
-    CEREBRAS_EXPLORER_LOG_PATH: undefined,
-    CEREBRAS_EXPLORER_LOG_RAW: undefined,
-    CEREBRAS_EXPLORER_TRANSCRIPT: undefined,
-    CEREBRAS_EXPLORER_TRANSCRIPT_DIR: undefined,
-  });
-
-  try {
-    const { handleRequest } = createMcpRequestHandler({
-      runtimeOptions: {
-        chatClient: new MarkdownReportClient(report),
-      },
-    });
-
-    const { stderr } = await captureStderr(() => handleRequest({
-      jsonrpc: '2.0',
-      id: 34,
-      method: 'tools/call',
-      params: {
-        name: 'explore',
-        arguments: {
-          prompt: 'explain auth flow',
-          repo_root: repoRoot,
-        },
-      },
-    }));
-
-    assert.match(stderr.trim(), /^\[cerebras-explorer\] tool=explore turns=\d+ toolCalls=\d+ stoppedByBudget=(true|false) elapsed=\d+s$/);
-  } finally {
-    restore();
-  }
-});
-
 test('explore_repo MCP call writes stderr ops summary when execution fails', async () => {
   const repoRoot = await makeRepoFixture();
   const restore = applyEnvPatch({
@@ -1098,126 +1037,12 @@ test('explore_repo MCP call writes stderr ops summary when execution fails', asy
   }
 });
 
-legacyPublicReportTest('explore provider-error retry recipe matches the explore input schema', async () => {
-  const repoRoot = await makeRepoFixture();
-  const { handleRequest } = createMcpRequestHandler({
-    runtimeOptions: { chatClient: new ThrowingChatClient() },
-  });
-
-  const failed = await handleRequest({
-    jsonrpc: '2.0',
-    id: 70,
-    method: 'tools/call',
-    params: {
-      name: 'explore',
-      arguments: { prompt: 'explain the auth flow', repo_root: repoRoot, scope: ['src/**'] },
-    },
-  });
-
-  const retry = failed.structuredContent.failure.retry;
-  assert.equal(retry.tool, 'explore', 'retry recipe targets the explore tool');
-  // explore requires `prompt` and rejects unknown keys, so a recipe using
-  // explore_repo's `task` key would be unusable by the parent agent.
-  assert.equal(retry.args.task, undefined, 'retry args must not use the explore_repo `task` key for explore');
-  assert.equal(typeof retry.args.prompt, 'string', 'retry args must carry a `prompt` for explore');
-
-  // Replaying the suggested retry must not be rejected as invalid input.
-  const replay = await handleRequest({
-    jsonrpc: '2.0',
-    id: 71,
-    method: 'tools/call',
-    params: { name: retry.tool, arguments: { ...retry.args, repo_root: repoRoot } },
-  });
-  assert.notEqual(
-    replay.structuredContent.failure?.reason,
-    'invalid_arguments',
-    'the suggested retry args must be accepted by the explore schema',
-  );
-});
-
-legacyPublicReportTest('explore returns Markdown text plus structured citations', async () => {
-  const repoRoot = await makeRepoFixture();
-  const report = 'Summary cites `src/auth.js:L1-L3` and `src/routes/user.js:L2`.';
-  const { handleRequest } = createMcpRequestHandler({
-    runtimeOptions: {
-      chatClient: new MarkdownReportClient(report),
-    },
-  });
-
-  const called = await handleRequest({
-    jsonrpc: '2.0',
-    id: 30,
-    method: 'tools/call',
-    params: {
-      name: 'explore',
-      arguments: {
-        prompt: 'explain auth flow with citations',
-        repo_root: repoRoot,
-      },
-    },
-  });
-
-  assert.equal(called.content[0].text, report);
-  assert.equal(called.structuredContent.report, report);
-  assert.deepEqual(called.structuredContent.citations.map(item => ({
-    type: item.type,
-    path: item.path,
-    startLine: item.startLine,
-    endLine: item.endLine,
-  })), [
-    { type: 'file_range', path: 'src/auth.js', startLine: 1, endLine: 3 },
-    { type: 'file_range', path: 'src/routes/user.js', startLine: 2, endLine: 2 },
-  ]);
-  assert.equal(called.structuredContent.targets[0].role, 'reference');
-  assert.ok(called.structuredContent.searchCoverage);
-  assert.ok(called.structuredContent.critic);
-  assert.equal(called.structuredContent.failure, null);
-  assert.equal(called.structuredContent.filesRead, undefined);
-  assert.equal(called.structuredContent.toolsUsed, undefined);
-  assert.equal(called.structuredContent.stats, undefined);
-  assert.equal(called.structuredContent.transcriptPath, undefined);
-  assert.equal(called.structuredContent.toolTrace, undefined);
-  assert.equal(called._meta, undefined,
-    'operational diagnostics stay in stderr/transcripts, not the parent response');
-});
-
-legacyPublicReportTest('explore rejects removed thoroughness input', async () => {
-  const repoRoot = await makeRepoFixture();
-  const { handleRequest } = createMcpRequestHandler({
-    runtimeOptions: {
-      chatClient: new MarkdownReportClient('No call should be made.'),
-    },
-  });
-
-  const called = await handleRequest({
-    jsonrpc: '2.0',
-    id: 31,
-    method: 'tools/call',
-    params: {
-      name: 'explore',
-      arguments: {
-        prompt: 'explain auth flow',
-        repo_root: repoRoot,
-        thoroughness: 'quick',
-      },
-    },
-  });
-
-  assert.equal(called.isError, true);
-  assert.match(called.content[0].text, /Unknown explore argument: thoroughness/);
-  assert.equal(called.structuredContent.failure.category, 'input');
-  assert.equal(called.structuredContent.failure.reason, 'invalid_arguments');
-});
-
 test('011 US1 — explore tool name explore_v2 is not exposed under any env', async () => {
   const repoRoot = await makeRepoFixture();
-  const report = 'Summary cites `src/auth.js:L1-L3`.';
   // Even with the legacy opt-in envvar set, the explore_v2 tool name must not appear.
   const restore = applyEnvPatch({ CEREBRAS_EXPLORER_ENABLE_EXPLORE_V2: 'true' });
   try {
-    const { handleRequest } = createMcpRequestHandler({
-      runtimeOptions: { chatClient: new MarkdownReportClient(report) },
-    });
+    const { handleRequest } = createMcpRequestHandler();
     const listed = await handleRequest({ jsonrpc: '2.0', id: 1, method: 'tools/list' });
     const toolNames = listed.tools.map(t => t.name);
     assert.ok(!toolNames.includes('explore_v2'), `explore_v2 must not be exposed (got ${toolNames.join(',')})`);
@@ -1292,62 +1117,6 @@ test('Spec 028 T049 — report-only explore is neither listed nor callable', asy
     }),
     /Unknown tool: explore/,
   );
-});
-
-legacyPublicReportTest('explore redacts deny-listed paths consistently in both surfaces', async () => {
-  const repoRoot = await makeRepoFixture();
-  const report = 'Secret `secrets/.env.production:L1` and public `src/auth.js:L1`.';
-  const { handleRequest } = createMcpRequestHandler({
-    runtimeOptions: {
-      chatClient: new MarkdownReportClient(report),
-    },
-  });
-
-  const called = await handleRequest({
-    jsonrpc: '2.0',
-    id: 32,
-    method: 'tools/call',
-    params: {
-      name: 'explore',
-      arguments: {
-        prompt: 'explain auth flow with secret citation',
-        repo_root: repoRoot,
-      },
-    },
-  });
-
-  assert.doesNotMatch(called.content[0].text, /secrets\/\.env\.production/);
-  assert.match(called.content[0].text, /\[REDACTED:secret-path\]/);
-  assert.equal(called.structuredContent.citations[0].path, '[REDACTED:secret-path]');
-  assert.equal(called.structuredContent.citations[1].path, 'src/auth.js');
-});
-
-legacyPublicReportTest('explore with empty-citation report exposes citations: [] in structuredContent', async () => {
-  const repoRoot = await makeRepoFixture();
-  const report = 'No file references here.';
-  const { handleRequest } = createMcpRequestHandler({
-    runtimeOptions: {
-      chatClient: new MarkdownReportClient(report),
-    },
-  });
-
-  const called = await handleRequest({
-    jsonrpc: '2.0',
-    id: 33,
-    method: 'tools/call',
-    params: {
-      name: 'explore',
-      arguments: {
-        prompt: 'write a report without citations',
-        repo_root: repoRoot,
-      },
-    },
-  });
-
-  assert.equal(called.content[0].text, report);
-  assert.deepEqual(called.structuredContent.citations, []);
-  assert.equal(Array.isArray(called.structuredContent.targets), true);
-  assert.deepEqual(called.structuredContent.targets, []);
 });
 
 test('collect_evidence wrapper uses evidence verification mode instead of edit regex fallback', async () => {

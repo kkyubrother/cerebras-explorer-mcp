@@ -431,41 +431,6 @@ test('MCP explore_repo redacts provider-facing messages and strict v3 output wit
   assert.equal(called._meta, undefined);
 });
 
-test.skip('MCP explore Markdown reports are redacted', async () => {
-  class MarkdownClient {
-    constructor() {
-      this.model = 'mock';
-    }
-
-    async createChatCompletion() {
-      return {
-        message: {
-          content: `Report mentions ${OPENAI_KEY}`,
-          toolCalls: [],
-        },
-      };
-    }
-  }
-
-  const repoRoot = await makeRepoFixture();
-  // spec 011: explore_v2 tool name was removed; only `explore` is exercised here.
-  const { handleRequest } = createMcpRequestHandler({ runtimeOptions: { chatClient: new MarkdownClient() } });
-  const called = await handleRequest({
-    jsonrpc: '2.0',
-    id: 'explore',
-    method: 'tools/call',
-    params: {
-      name: 'explore',
-      arguments: {
-        prompt: 'Produce a report.',
-        repo_root: repoRoot,
-      },
-    },
-  });
-  assert.ok(!JSON.stringify(called).includes(OPENAI_KEY), 'explore must redact Markdown output');
-  assert.match(JSON.stringify(called), /\[REDACTED:openai-api-key\]/);
-});
-
 test('git diff and show patches are redacted', { skip: !hasGit() }, async () => {
   const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-redact-git-'));
   await execFileAsync('git', ['init'], { cwd: repoRoot });
