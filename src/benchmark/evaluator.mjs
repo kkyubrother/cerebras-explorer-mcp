@@ -843,7 +843,8 @@ function liveAnchorDispositions(expectedGoals, anchorsById, publicEvidence, part
         claimTexts: surfacedClaims.map(item => normalizeText(item.claim.text)),
       };
     }
-    const unresolved = ['blocked', 'gap', 'contradicted'].includes(actual.state);
+    const unresolved = ['blocked', 'gap', 'contradicted'].includes(actual.state) ||
+      (internalGapIds.has(actual.id) && surfacedClaims.length === 0);
     if (unresolved && internalGapIds.has(actual.id) &&
         publicGaps.has(normalizeText(actual.question))) {
       return { goalId: expected.id, disposition: 'explicit_gap', claimTexts: [] };

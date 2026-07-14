@@ -987,7 +987,11 @@ export class RepoToolkit {
     }
 
     const regex = tryBuildRegex(pattern, caseSensitive);
-    const walkResult = await this.walkFiles({ scope });
+    const normalizedScope = normalizeScope(scope);
+    const exactFileScope = normalizedScope.length === 1 && !hasGlobSyntax(normalizedScope[0])
+      ? normalizedScope[0]
+      : null;
+    const walkResult = await this.walkFiles({ scope: normalizedScope });
     const walkTelemetry = inheritedSearchTelemetry(walkResult);
     const captureLimit = maxResults + 1;
     const matches = [];
@@ -1011,7 +1015,10 @@ export class RepoToolkit {
         continue;
       }
 
-      if (safePath.stat.size > DEFAULT_GREP_FILE_MAX_BYTES) {
+      const maxFileBytes = relPath === exactFileScope
+        ? DEFAULT_TEXT_FILE_MAX_BYTES
+        : DEFAULT_GREP_FILE_MAX_BYTES;
+      if (safePath.stat.size > maxFileBytes) {
         skipped.largeFiles++;
         continue;
       }
@@ -2477,6 +2484,32 @@ function normalizedCountItemIds(tool, result, boundary) {
   return itemIds;
 }
 
+function normalizedCountItemAnchors(tool, result, boundary) {
+  if (tool !== 'repo_grep' || !isPlainObservationObject(result) ||
+      !Array.isArray(ownValue(result, 'matches'))) {
+    return null;
+  }
+  const anchors = [];
+  try {
+    const boundaryRules = createScopeRules(boundary);
+    for (const item of ownValue(result, 'matches')) {
+      if (!isPlainObservationObject(item) || typeof item.path !== 'string' || !item.path ||
+          !Number.isSafeInteger(item.line) || item.line < 1) {
+        return null;
+      }
+      const relativePath = sanitizeRelativePath(item.path);
+      if (relativePath === '.' || isSecretPath(relativePath).matched ||
+          !boundaryRules.matches(relativePath)) {
+        return null;
+      }
+      anchors.push({ path: relativePath, line: item.line });
+    }
+  } catch {
+    return null;
+  }
+  return anchors;
+}
+
 function canonicalObservationScope(scope) {
   if (!Array.isArray(scope)) {
     throw new TypeError('Effective repository observation scope must be an array.');
@@ -2727,6 +2760,11 @@ export function normalizeRepositoryObservation({
   const reportedErrors = readNonNegativeCount(safeResult, 'errors');
   const matchCount = countObservationMatches(tool, safeResult, { policyDenied, executionError });
   const normalizedItemIds = normalizedCountItemIds(tool, safeResult, normalizedBoundary);
+  const normalizedItemAnchors = normalizedCountItemAnchors(
+    tool,
+    safeResult,
+    normalizedBoundary,
+  );
   const countIdentitiesValid = !['repo_find_files', 'repo_grep'].includes(tool) ||
     normalizedItemIds !== null;
 
@@ -2768,6 +2806,7 @@ export function normalizeRepositoryObservation({
     errors,
     enumerationComplete,
     ...(normalizedItemIds === null ? {} : { normalizedItemIds }),
+    ...(normalizedItemAnchors === null ? {} : { normalizedItemAnchors }),
     ...(tool === 'repo_symbol_context' && normalizedItemIds !== null ? {
       deterministicMeasurement: {
         kind: 'count',

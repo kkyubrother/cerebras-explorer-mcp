@@ -100,7 +100,7 @@ test('fetchWithTimeoutAndRetry: retries on 429 and succeeds on second attempt', 
   const retryFetch = async () => {
     callCount += 1;
     if (callCount === 1) {
-      return { ok: false, status: 429, statusText: 'Too Many Requests', headers: { get: () => null }, text: async () => JSON.stringify({ error: { message: 'rate limited' } }) };
+      return { ok: false, status: 429, statusText: 'Too Many Requests', headers: { get: h => h === 'retry-after' ? '0.001' : null }, text: async () => JSON.stringify({ error: { message: 'rate limited' } }) };
     }
     return { ok: true, status: 200, statusText: 'OK', headers: { get: () => null }, text: async () => JSON.stringify({ ok: true }) };
   };
@@ -152,7 +152,7 @@ test('fetchWithTimeoutAndRetry: succeeds after retry regardless of delay strateg
     if (callCount === 1) {
       return {
         ok: false, status: 429, statusText: 'Too Many Requests',
-        headers: { get: (h) => h === 'retry-after' ? '0' : null },
+        headers: { get: (h) => h === 'retry-after' ? '0.001' : null },
         text: async () => JSON.stringify({ error: { message: 'rate limited' } }),
       };
     }
@@ -161,6 +161,54 @@ test('fetchWithTimeoutAndRetry: succeeds after retry regardless of delay strateg
   const result = await fetchWithTimeoutAndRetry(retryAfterFetch, 'http://x', {}, { maxRetries: 2 });
   assert.deepEqual(result, {});
   assert.equal(callCount, 2);
+});
+
+test('fetchWithTimeoutAndRetry: cancellation interrupts a rate-limit backoff', async () => {
+  let callCount = 0;
+  const alwaysRateLimited = async () => {
+    callCount += 1;
+    return {
+      ok: false,
+      status: 429,
+      statusText: 'Too Many Requests',
+      headers: { get: () => null },
+      text: async () => JSON.stringify({ error: { message: 'rate limited' } }),
+    };
+  };
+  const controller = new AbortController();
+  const pending = fetchWithTimeoutAndRetry(alwaysRateLimited, 'http://x', {}, {
+    externalSignal: controller.signal,
+  });
+  setTimeout(() => controller.abort(), 10);
+
+  await assert.rejects(pending, error => error?.name === 'AbortError');
+  assert.equal(callCount, 1, 'cancellation must stop before another provider attempt');
+});
+
+test('fetchWithTimeoutAndRetry: does not retry beyond the bounded wait window', async () => {
+  let callCount = 0;
+  const dailyRateLimit = async () => {
+    callCount += 1;
+    return {
+      ok: false,
+      status: 429,
+      statusText: 'Too Many Requests',
+      headers: { get: header => header === 'retry-after' ? '86400' : null },
+      text: async () => JSON.stringify({ error: { message: 'daily token limit reached' } }),
+    };
+  };
+
+  await assert.rejects(
+    () => fetchWithTimeoutAndRetry(dailyRateLimit, 'http://x', {}, { maxRetries: 2 }),
+    error => {
+      assert.equal(error.httpStatus, 429);
+      assert.equal(error.retryable, true);
+      assert.equal(error.attemptCount, 1);
+      assert.equal(error.retryAfterSeconds, 86400);
+      return true;
+    },
+  );
+  assert.equal(callCount, 1, 'a day-scale Retry-After must not cause futile retries');
 });
 
 // ── timeout ───────────────────────────────────────────────────────────────────

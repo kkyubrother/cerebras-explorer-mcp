@@ -193,6 +193,10 @@ walk_limit
 tool_result_limit
 ```
 
+Runtime 한계값은 `maxTurns=30`, `maxSearchResults=80`, `maxReadLines=320`,
+`maxDirectoryEntries=300`, `maxWalkFiles=6000`, `maxCompletionTokens=16384`,
+`finalizeMaxCompletionTokens=3000`, `maxContextTokens=110000`으로 고정됩니다.
+
 Test는 한계 도달만으로 성공이나 실패가 되지 않는지 확인해야 합니다. 실제로 evidence 수집이 끊긴 required goal만 `safety_limit_reached` gap이 되고, 영향을 받지 않은 goal은 기존 verdict를 유지합니다. Invalid planner/auditor/verifier/final control response가 bounded recovery 뒤에도 남으면 coverage gap이 아니라 해당 fault로 처리합니다.
 
 ## Transcript 검증
@@ -213,7 +217,7 @@ node scripts/integration-test.mjs
 
 ## HTTP recovery
 
-`tests/http-client.test.mjs`는 retry 가능한 timeout, connection reset, 408, 429, 5xx와 retry하지 않는 authentication/input 오류를 가드합니다. 기본 timeout은 `CEREBRAS_EXPLORER_HTTP_TIMEOUT_MS`로 조정할 수 있습니다.
+`tests/http-client.test.mjs`는 retry 가능한 timeout, connection reset, 408, 429, 5xx와 retry하지 않는 authentication/input 오류를 가드합니다. 짧은 `Retry-After`는 따르되 parent call의 bounded wait를 넘는 값은 transcript에 남기고 즉시 실패하므로 하루 단위 한도에서 같은 요청을 반복하지 않습니다. 기본 timeout은 `CEREBRAS_EXPLORER_HTTP_TIMEOUT_MS`로 조정할 수 있습니다.
 
 Cerebras API reference: <https://inference-docs.cerebras.ai/api-reference/error-codes>
 

@@ -2879,6 +2879,19 @@ function livePartialGapArtifact(gapIndex) {
   return artifact;
 }
 
+test('Spec 028 T069 — live profile accepts an explicit parent-projection gap', () => {
+  const caseDefinition = liveTrustOracleCase();
+  const options = { mode: 'live', profile: LIVE_TRUST_EVALUATION_PROFILE };
+  const artifact = livePartialGapArtifact(0);
+  const internallySupported = artifact.result.taskContract.subgoals[0];
+  internallySupported.state = 'supported';
+  internallySupported.resolution = 'affirmed';
+  artifact.result.coverageGaps[0].reason = 'missing_evidence';
+
+  const evaluation = evaluateTrustCase(caseDefinition, artifact, options);
+  assert.equal(evaluation.passed, true, JSON.stringify(evaluation.violations));
+});
+
 test('Spec 028 T068 — live repeatability includes which required goal remained unresolved', () => {
   const caseDefinition = liveTrustOracleCase();
   const options = { mode: 'live', profile: LIVE_TRUST_EVALUATION_PROFILE };

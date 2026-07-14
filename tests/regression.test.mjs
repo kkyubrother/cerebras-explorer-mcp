@@ -330,6 +330,44 @@ auditedPromptBoundaryTest('Spec 028 T018 — planner policy is invariant under u
     /every explicit request part[\s\S]{0,160}request originRef[\s\S]{0,180}one origin kind never substitutes/i);
   assert.match(attacked.system,
     /never copy a request originRef[\s\S]{0,180}wrapper-only goal[\s\S]{0,220}usage cross-check/i);
+  assert.match(attacked.system,
+    /surface or category[\s\S]{0,160}independently decidable leaf goals/i);
+  assert.match(attacked.system,
+    /do not add[\s\S]{0,120}(?:inventory|umbrella)[\s\S]{0,180}leaf goals/i);
+  assert.match(attacked.system,
+    /flow:[\s\S]{0,80}implementation, execution, data, control, or pipeline path/i);
+  assert.match(attacked.system,
+    /single bounded model, definition, frontend guard, test surface[\s\S]{0,120}positive/i);
+  assert.match(attacked.system,
+    /comparison:[\s\S]{0,100}explicitly compared, classified, distinguished/i);
+  assert.match(attacked.system,
+    /governing phrase[\s\S]{0,180}(?:all|both|every)[\s\S]{0,180}(?:classify|distinguish|cite)/i);
+  assert.match(attacked.system,
+    /effectiveScope[\s\S]{0,160}runtime hard boundary[\s\S]{0,180}constraints:\[\]/i);
+  assert.match(attacked.system,
+    /classification request[\s\S]{0,160}one leaf for each named class[\s\S]{0,180}global inventory/i);
+  assert.match(attacked.system,
+    /all UI pages[\s\S]{0,120}impact[\s\S]{0,120}two prefixes=comparison[\s\S]{0,120}model=positive/i);
+  assert.match(attacked.system,
+    /exactly three leaves[\s\S]{0,180}SURFACE_A enforces ACTOR_A[\s\S]{0,180}SURFACE_B checks[\s\S]{0,180}ACTOR_B-specific access/i);
+  assert.match(attacked.system,
+    /separate minimal origins[\s\S]{0,180}ACTOR_A and ACTOR_B access policy[\s\S]{0,180}across SURFACE_A/i);
+  assert.match(attacked.system,
+    /never stretch one origin across both surfaces/i);
+  assert.match(attacked.system,
+    /never add a fourth SURFACE_A\/ACTOR_B leaf/i);
+  assert.match(attacked.system,
+    /never cross-product actors and surfaces beyond a canonical leaf set/i);
+  assert.match(attacked.system,
+    /outside a matching canonical decision-table pattern[\s\S]{0,180}independently decidable leaf goals/i);
+  assert.match(attacked.system,
+    /pipeline implementation[\s\S]{0,140}implementation path=flow[\s\S]{0,140}test coverage=positive[\s\S]{0,140}input category=impact/i);
+  assert.match(attacked.system,
+    /positive test leaf[\s\S]{0,180}one exact entry-path test source[\s\S]{0,180}not an exhaustive suite inventory/i);
+  assert.match(attacked.system,
+    /impact leaf[\s\S]{0,160}source, docs, agent config, and dependencies[\s\S]{0,120}required proof categories/i);
+  assert.match(attacked.system,
+    /direct invocation sites=count[\s\S]{0,120}wrapper membership=comparison[\s\S]{0,120}configuration-only membership=comparison/i);
   assertRuntimeOwnedProofPolicy(attacked.system, 'planner');
 
   const wholeRepository = assertTwoMessageBoundary(promptModule.buildPlannerMessages(plannerArgs({
@@ -399,6 +437,8 @@ auditedPromptBoundaryTest('Spec 028 T018 — corrected planner receives one boun
   assert.match(attacked.data, /DIAGNOSTIC_DATA_NOT_POLICY/);
   assert.match(attacked.system, /one|single|final/i);
   assert.match(attacked.system, /no (?:further|additional|recursive)|must not re.?plan/i);
+  assert.match(attacked.system,
+    /do not recreate a decomposition defect[\s\S]{0,180}independently decidable leaf goals/i);
   assertRawArtifactsExcluded(attacked.all);
   assert.doesNotMatch(attacked.all,
     /EXPLORER_DRAFT_OVERRIDE_POLICY|CANDIDATE_CLAIM_OVERRIDE_POLICY/);
@@ -455,7 +495,52 @@ auditedPromptBoundaryTest('Spec 028 T018 — goal auditor sees only request cont
     /confirm each originRef[\s\S]{0,220}entire question, claimType, proofCondition, and every constraint[\s\S]{0,180}omit an unentailed ref/i);
   assert.match(attacked.system,
     /invented constraint[\s\S]{0,240}needs_decomposition/i);
+  assert.match(attacked.system,
+    /one requested facet[\s\S]{0,140}another remains unresolved[\s\S]{0,100}needs_decomposition|needs_decomposition[\s\S]{0,140}one requested facet/i);
+  assert.match(attacked.system,
+    /redundant aggregate[\s\S]{0,180}leaf goals[\s\S]{0,120}not ready/i);
+  assert.match(attacked.system,
+    /every verdict except reject_untraceable[\s\S]{0,180}at least one proposal origin/i);
+  assert.match(attacked.system,
+    /source, docs, agent config, and dependency manifests[\s\S]{0,180}one requested input\/configuration category/i);
+  assert.match(attacked.system, /never return an empty goals array/i);
+  assert.match(attacked.system,
+    /never replace[\s\S]{0,120}proposed originRef[\s\S]{0,180}copied verbatim/i);
+  assert.match(attacked.system,
+    /missingRequestParts entry[\s\S]{0,180}structured uncoveredRequestParts entry/i);
+  assert.match(attacked.system,
+    /category leaf is not mixed[\s\S]{0,180}sibling categories/i);
   assertRuntimeOwnedProofPolicy(attacked.system, 'goal auditor');
+});
+
+auditedPromptBoundaryTest('Spec 028 T069 — late goal auditor receives an immutable merge ledger', () => {
+  const proposal = proposedPromptGoal();
+  const existing = {
+    ...proposal,
+    id: 'existing-goal',
+    question: 'Locate the requireAuth definition.',
+  };
+  const prompt = assertTwoMessageBoundary(promptModule.buildGoalAuditorMessages({
+    task: PROMPT_TASK,
+    effectiveScope: ['src/**'],
+    wrapperTool: 'trace_symbol',
+    proposals: [proposal],
+    existingGoalLedger: [{ ...existing, auditVerdict: 'ready', state: 'supported' }],
+    preflightDiagnostics: [],
+    revisionCount: 1,
+  }), 'late goal auditor');
+
+  assert.match(prompt.data, /"existingGoalLedger":\[\{/u);
+  assert.match(prompt.data, /"id":"existing-goal"/u);
+  assert.doesNotMatch(prompt.data, /"auditVerdict"|"state"/u);
+  assert.match(prompt.system,
+    /already audited immutable reference targets[\s\S]{0,180}never emit audit records/i);
+  assert.match(prompt.system,
+    /shared words, origin, or claim type alone are insufficient/i);
+  assert.match(prompt.system,
+    /do not restate an existing ledger obligation in uncoveredRequestParts/i);
+  assert.match(prompt.system,
+    /existingGoalLedger never removes a supplied proposal[\s\S]{0,180}merge_duplicate[\s\S]{0,120}omitting it/i);
 });
 
 auditedPromptBoundaryTest('Spec 028 T022 — coverage reconciliation uses opaque obligations and audited control only', () => {
@@ -545,6 +630,7 @@ test('Spec 028 T028 — claim synthesis receives bounded observations and cannot
         value: 70,
       },
       normalizedItemIds: ['DO_NOT_EXPOSE_RUNTIME_ITEM_HASH'],
+      normalizedItemAnchors: [{ path: 'src/security.mjs', line: 10 }],
     }],
     exploratoryProse: 'PRIVATE_EXPLORER_REASONING',
     confidence: 'high',
@@ -557,6 +643,18 @@ test('Spec 028 T028 — claim synthesis receives bounded observations and cannot
   assert.match(prompt.system, /atomic claim/i);
   assert.match(prompt.system, /do not (?:output|assign|author)[\s\S]{0,120}verdict/i);
   assert.match(prompt.system, /do not (?:create|author|output)[\s\S]{0,160}(?:snippet|count|truncation|scope fact)/i);
+  assert.match(prompt.system,
+    /one minimal aggregate claim[\s\S]{0,160}(?:flow|comparison|impact) proof shape/i);
+  assert.match(prompt.system,
+    /at most one claim for each sub-goal[\s\S]{0,100}support_or_refute/i);
+  assert.match(prompt.system,
+    /comparison claim[\s\S]{0,120}distinct source paths/i);
+  assert.match(prompt.system,
+    /do not cite search\/list telemetry in an impact claim/i);
+  assert.match(prompt.system,
+    /positive direct-source test claim[\s\S]{0,180}one exactly observed test/i);
+  assert.match(prompt.system,
+    /all\/every\/exhaustive impact goal[\s\S]{0,200}source, docs, agent config, and dependencies[\s\S]{0,120}all four/i);
   assert.match(prompt.data, /"id":"S1"/);
   assert.match(prompt.data, /"id":"E1"/);
   assert.match(prompt.data, /"id":"E2"/);
@@ -567,7 +665,8 @@ test('Spec 028 T028 — claim synthesis receives bounded observations and cannot
   assert.doesNotMatch(prompt.all,
     /PRIVATE_EXPLORER_REASONING|MODEL_AUTHORED_EVIDENCE|tokenStatistics|"confidence"/);
   assert.doesNotMatch(prompt.data, /"auditVerdict"|"state"|"claimRefs"/);
-  assert.doesNotMatch(prompt.data, /normalizedItemIds|DO_NOT_EXPOSE_RUNTIME_ITEM_HASH/);
+  assert.doesNotMatch(prompt.data,
+    /normalizedItemIds|normalizedItemAnchors|DO_NOT_EXPOSE_RUNTIME_ITEM_HASH/);
 });
 
 test('Spec 028 T028 — semantic verifier sees isolated rebuilt facts and cannot rewrite claims', () => {
@@ -644,6 +743,7 @@ test('Spec 028 T028 — semantic verifier sees isolated rebuilt facts and cannot
         value: 70,
       },
       normalizedItemIds: ['DO_NOT_EXPOSE_RUNTIME_ITEM_HASH'],
+      normalizedItemAnchors: [{ path: 'src/security.mjs', line: 10 }],
     }],
     absenceCertificates: [],
     criticDecisions: [{
@@ -664,6 +764,18 @@ test('Spec 028 T028 — semantic verifier sees isolated rebuilt facts and cannot
   assert.match(prompt.system, /isolated semantic verifier/i);
   assert.match(prompt.system, /never (?:rewrite|replace|add)[\s\S]{0,140}claim/i);
   assert.match(prompt.system, /supportingEvidenceRefs[\s\S]{0,180}subset/i);
+  assert.match(prompt.system,
+    /never restate, paraphrase, refine[\s\S]{0,180}mark its claim insufficient/i);
+  assert.match(prompt.system,
+    /true but belongs to a different requested category[\s\S]{0,160}insufficient/i);
+  assert.match(prompt.system,
+    /positive direct_source claim[\s\S]{0,180}not an exhaustive inventory/i);
+  assert.match(prompt.system,
+    /all\/every\/exhaustive impact claim[\s\S]{0,220}omission of any one is missing_category/i);
+  assert.match(prompt.system,
+    /definition together with[\s\S]{0,180}invocation or enforcement site/i);
+  assert.match(prompt.system,
+    /every, exhaustive, or inventory classification[\s\S]{0,180}complete cited enumeration[\s\S]{0,180}every enumerated member/i);
   assert.match(prompt.data, /Locate requireAuth/);
   assert.match(prompt.data, /"id":"S1"/);
   assert.match(prompt.data, /"id":"C1"/);
@@ -680,7 +792,8 @@ test('Spec 028 T028 — semantic verifier sees isolated rebuilt facts and cannot
     `"start":${requireAuthStart},"end":${requireAuthStart + 'requireAuth'.length},"text":"requireAuth"`,
   ));
   assert.doesNotMatch(prompt.data, /"verdict":"pending"|"auditVerdict"|"state"|"claimRefs"/);
-  assert.doesNotMatch(prompt.data, /normalizedItemIds|DO_NOT_EXPOSE_RUNTIME_ITEM_HASH/);
+  assert.doesNotMatch(prompt.data,
+    /normalizedItemIds|normalizedItemAnchors|DO_NOT_EXPOSE_RUNTIME_ITEM_HASH/);
   assert.doesNotMatch(prompt.all,
     /PRIVATE_VERIFIER_REASONING|PRIVATE_DRAFT_ANSWER|PRIVATE_CANDIDATE_PATH|totalTokens|"confidence"/);
 });

@@ -219,7 +219,7 @@ Provider, context, process, repository traversal을 보호하는 한계는 runti
 | lines per file read | 320 |
 | directory entries | 300 |
 | walked files | 6000 |
-| generation output tokens | 32000 |
+| generation output tokens | 16384 |
 | final projection tokens | 3000 |
 | working context tokens | 110000 |
 

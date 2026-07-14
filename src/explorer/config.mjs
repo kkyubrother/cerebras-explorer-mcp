@@ -126,12 +126,13 @@ const RUNTIME_CONFIG = Object.freeze({
   maxReadLines: 320,
   maxDirectoryEntries: 300,
   maxWalkFiles: 6000,
-  maxCompletionTokens: 32000,
+  maxCompletionTokens: 16_384,
   finalizeMaxCompletionTokens: 3000,
   // Working input limit, held under the Cerebras zai-glm-4.7 paid-tier context
   // window (131k tokens, max output 40k —
   // https://inference-docs.cerebras.ai/models/zai-glm-47). ~21k headroom is left
-  // for the model's output/reasoning (finalize caps at 3k). Proactive compaction
+  // for the model's output/reasoning (agentic turns cap at 16,384; finalize at 3k).
+  // Proactive compaction
   // fires at 70% (≈77k); see spec 024. Calibrated to the paid tier, not arbitrary.
   maxContextTokens: 110_000,
   temperature: 1.0,

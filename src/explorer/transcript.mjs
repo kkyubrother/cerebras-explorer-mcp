@@ -202,6 +202,9 @@ function summarizeProviderFailure(data = {}) {
     ...(Number.isInteger(data.attemptCount) && data.attemptCount > 0
       ? { attemptCount: data.attemptCount }
       : {}),
+    ...(Number.isInteger(data.retryAfterSeconds) && data.retryAfterSeconds > 0
+      ? { retryAfterSeconds: data.retryAfterSeconds }
+      : {}),
     ...(code ? { code } : {}),
   };
 }

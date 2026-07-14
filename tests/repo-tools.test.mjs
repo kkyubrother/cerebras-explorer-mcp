@@ -215,6 +215,7 @@ repositoryObservationTest('repository observations preserve the authoritative bo
     'kind',
     'matchCount',
     'normalizedArgs',
+    'normalizedItemAnchors',
     'normalizedItemIds',
     'omittedOutOfScopeFiles',
     'tool',
@@ -229,6 +230,10 @@ repositoryObservationTest('repository observations preserve the authoritative bo
   assert.equal(observation.normalizedItemIds.length, 2);
   assert.ok(observation.normalizedItemIds.every(item => /^sha256:[0-9a-f]{64}$/.test(item)));
   assert.notEqual(observation.normalizedItemIds[0], observation.normalizedItemIds[1]);
+  assert.deepEqual(observation.normalizedItemAnchors, [
+    { path: 'src/auth.js', line: 1 },
+    { path: 'src/routes/user.js', line: 2 },
+  ]);
   assert.equal(observation.toolTruncated, false);
   assert.equal(observation.contextTruncated, false);
   assert.equal(observation.omittedOutOfScopeFiles, 0);
@@ -253,6 +258,8 @@ repositoryObservationTest('count identities come only from valid grep and file-s
   assert.ok(files.normalizedItemIds.every(item => /^sha256:[0-9a-f]{64}$/.test(item)));
   assert.equal(files.normalizedItemIds[0], files.normalizedItemIds[2]);
   assert.notEqual(files.normalizedItemIds[0], files.normalizedItemIds[1]);
+  assert.equal(Object.hasOwn(files, 'normalizedItemAnchors'), false,
+    'file counts do not expose line anchors');
 
   const secretPath = normalize({
     id: 'search-secret-file',
@@ -281,6 +288,7 @@ repositoryObservationTest('count identities come only from valid grep and file-s
       result: { matches, truncated: false },
     });
     assert.equal(Object.hasOwn(outOfBoundary, 'normalizedItemIds'), false);
+    assert.equal(Object.hasOwn(outOfBoundary, 'normalizedItemAnchors'), false);
     assert.equal(outOfBoundary.enumerationComplete, false,
       'an out-of-boundary result can never certify an exact count');
     assert.doesNotMatch(JSON.stringify(outOfBoundary), /outside|escape/u,
@@ -1053,6 +1061,47 @@ test('RepoToolkit finds files, greps, reads ranges, and respects gitignore', asy
   const listing = await toolkit.listDirectory({ dirPath: '.', depth: 2 });
   assert.equal(listing.entries.some(entry => entry.path === 'ignored/secret.txt'), false);
   assert.equal(listing.entries.some(entry => entry.path === 'src/auth.js'), true);
+});
+
+test('RepoToolkit fallback grep scans a medium exact file without widening broad search limits', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-exact-grep-'));
+  try {
+    await fs.mkdir(path.join(root, 'prisma'), { recursive: true });
+    const mediumContent = `${'// filler\n'.repeat(35_000)}model mkt_source {\n  id Int @id\n}\n`;
+    const oversizedContent = `${'// filler\n'.repeat(60_000)}model oversized {\n  id Int @id\n}\n`;
+    await fs.writeFile(path.join(root, 'prisma', 'schema.prisma'), mediumContent);
+    await fs.writeFile(path.join(root, 'prisma', 'oversized.prisma'), oversizedContent);
+
+    const toolkit = new RepoToolkit({ repoRoot: root, runtimeConfig: getRuntimeConfig() });
+    await toolkit.initialize(['prisma/**']);
+    toolkit._hasRipgrep = false;
+
+    const exact = await toolkit.grep({
+      pattern: '^model mkt_source',
+      scope: ['prisma/schema.prisma'],
+    });
+    assert.deepEqual(exact.matches.map(match => match.path), ['prisma/schema.prisma']);
+    assert.equal(exact.skipped.largeFiles, 0);
+    assert.equal(exact.truncated, false);
+
+    const broad = await toolkit.grep({
+      pattern: '^model mkt_source',
+      scope: ['prisma/**'],
+    });
+    assert.deepEqual(broad.matches, []);
+    assert.equal(broad.skipped.largeFiles, 2);
+    assert.equal(broad.truncated, true);
+
+    const oversized = await toolkit.grep({
+      pattern: '^model oversized',
+      scope: ['prisma/oversized.prisma'],
+    });
+    assert.deepEqual(oversized.matches, []);
+    assert.equal(oversized.skipped.largeFiles, 1);
+    assert.equal(oversized.truncated, true);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
 });
 
 test('RepoToolkit enforces the initial scope as a hard boundary', async () => {

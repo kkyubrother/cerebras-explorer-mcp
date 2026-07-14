@@ -1829,6 +1829,7 @@ const MULTI_ITEM_PARENT_PROOF_POLICIES = new Set([
   'deterministic_count',
   'bounded_usage_cross_check',
   'ordered_handoffs',
+  'impact_categories',
   'distinct_policy_paths',
 ]);
 

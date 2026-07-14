@@ -309,7 +309,7 @@ Runtime config는 `getRuntimeConfig()`가 반환하는 frozen object다.
 | `maxReadLines` | 320 |
 | `maxDirectoryEntries` | 300 |
 | `maxWalkFiles` | 6000 |
-| `maxCompletionTokens` | 32000 |
+| `maxCompletionTokens` | 16384 |
 | `finalizeMaxCompletionTokens` | 3000 |
 | `maxContextTokens` | 110000 |
 | `temperature` | 1.0 |

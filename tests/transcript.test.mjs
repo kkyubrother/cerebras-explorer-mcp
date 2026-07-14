@@ -257,6 +257,7 @@ test('Spec 028 T034 — trust events are allowlisted and forced-redacted in raw 
       httpStatus: 429,
       retryable: true,
       attemptCount: 3,
+      retryAfterSeconds: 86400,
       providerCode: 'rate_limit_exceeded',
       message: `${sentinel} ${fakeKey}`,
     });
@@ -327,6 +328,7 @@ test('Spec 028 T034 — trust events are allowlisted and forced-redacted in raw 
       httpStatus: 429,
       retryable: true,
       attemptCount: 3,
+      retryAfterSeconds: 86400,
       code: 'rate_limit_exceeded',
       t: entries[5].t,
       type: 'provider_failure',

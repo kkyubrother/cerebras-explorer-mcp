@@ -318,6 +318,7 @@ test('CerebrasChatClient retries on 429 and then succeeds', async () => {
         ok: false,
         status: 429,
         statusText: 'Too Many Requests',
+        headers: { get: h => h === 'retry-after' ? '0.001' : null },
         text: async () => JSON.stringify({ error: { message: 'rate limited' } }),
       };
     }

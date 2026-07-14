@@ -99,7 +99,7 @@ The fixed runtime configuration is exactly:
 | `maxReadLines` | 320 | `tool_result_limit` when a requested existing range is actually truncated |
 | `maxDirectoryEntries` | 300 | `tool_result_limit` when the result is actually truncated |
 | `maxWalkFiles` | 6000 | `walk_limit` |
-| `maxCompletionTokens` | 32000 | `generation_output_limit` |
+| `maxCompletionTokens` | 16384 | `generation_output_limit` |
 | `finalizeMaxCompletionTokens` | 3000 | `generation_output_limit` |
 | `maxContextTokens` | 110000 | `context_limit` |
 

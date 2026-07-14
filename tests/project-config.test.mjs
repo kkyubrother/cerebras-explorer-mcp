@@ -43,6 +43,18 @@ async function withEnv(overrides, fn) {
 
 test('Spec 028 T008 — structured runtime limits are fixed, unlabeled, and not effort controls', async () => {
   const baseline = getRuntimeConfig();
+  assert.deepEqual(baseline, {
+    maxTurns: 30,
+    maxSearchResults: 80,
+    maxReadLines: 320,
+    maxDirectoryEntries: 300,
+    maxWalkFiles: 6000,
+    maxCompletionTokens: 16_384,
+    finalizeMaxCompletionTokens: 3000,
+    maxContextTokens: 110_000,
+    temperature: 1.0,
+    topP: 0.95,
+  });
   const fixedLimitKeys = [
     'maxTurns',
     'maxSearchResults',

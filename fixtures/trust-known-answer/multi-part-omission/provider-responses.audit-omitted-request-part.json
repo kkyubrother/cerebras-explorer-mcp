@@ -107,13 +107,6 @@
           "content": {
             "goals": [
               {
-                "proposedGoalId": "S1",
-                "verdict": "ready",
-                "originRefs": ["request:12-26"],
-                "missingRequestParts": [],
-                "reason": "The implementation return value is independently observable."
-              },
-              {
                 "proposedGoalId": "S2",
                 "verdict": "ready",
                 "originRefs": ["request:28-32"],

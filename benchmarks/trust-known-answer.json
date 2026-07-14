@@ -2353,7 +2353,7 @@
       "fixtureExecution": "direct",
       "providerFixture": {
         "path": "fixtures/trust-known-answer/multi-part-omission/provider-responses.us1.json",
-        "sha256": "c538dc3bcfcc9fd33245844b2354b18e0103409eeaf88cf4f4c808ddbfed2513"
+        "sha256": "2013f3f6a226dcc69af0b3db41c1425edabd940f3d8198edf3708a3c8b6aa85b"
       },
       "invocation": {
         "tool": "explore_repo",
@@ -2648,7 +2648,7 @@
       "fixtureExecution": "direct",
       "providerFixture": {
         "path": "fixtures/trust-known-answer/scoped-truncated-search/provider-responses.fx-scope-limited-absence.json",
-        "sha256": "147723e5c8a47138281d4befd25db8aeedb6fe7739c89744d7a4c3e8569d18c1"
+        "sha256": "8bb05bd9335bd51a8aa347a53014fc163ae95d948109a3e242f71f9ab0264f25"
       },
       "invocation": {
         "tool": "explore_repo",
@@ -3646,7 +3646,7 @@
       "fixtureExecution": "direct",
       "providerFixture": {
         "path": "fixtures/trust-known-answer/multi-part-omission/provider-responses.audit-omitted-request-part.json",
-        "sha256": "2c4f15c805badef6f81321f80a5a955f1d722a2ead2cfada85a220a633049f5f"
+        "sha256": "267dcbf14d09f9c1aa83a993c6148b9c8168496448deb792fd597d0e68696bda"
       },
       "invocation": {
         "tool": "explore_repo",

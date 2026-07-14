@@ -4743,10 +4743,6 @@ auditedPlanningRuntimeTest('Spec 028 T022 — corrected planning cannot drop rev
       stage: 'planner:2',
       value: plannerControl([definition, invented], { constraints: [unauditedConstraint] }),
     },
-    {
-      stage: 'goal_audit:2',
-      value: auditorControl([auditControlRecord(definition)]),
-    },
     { stage: 'exploration:1', content: 'Only the retained audited goal is explored.' },
     { stage: 'synthesis:1', value: readyExplorationResult() },
   ]);
@@ -4758,7 +4754,6 @@ auditedPlanningRuntimeTest('Spec 028 T022 — corrected planning cannot drop rev
     'planner:1',
     'goal_audit:1',
     'planner:2',
-    'goal_audit:2',
     'exploration:1',
     'synthesis:1',
     'exploration:2',
@@ -4772,9 +4767,9 @@ auditedPlanningRuntimeTest('Spec 028 T022 — corrected planning cannot drop rev
   assert.ok(result.coverageGaps.some(gap => gap.subgoalId === carried.id));
   assert.deepEqual(result.taskContract.constraints, [],
     'unaudited planner-level constraints must not enter the task contract');
+  assert.equal(client.stageCounts.get('goal_audit'), 1,
+    'a preserved goal is carried forward without a second audit');
   assert.doesNotMatch(JSON.stringify(client.requests[3].messages), /S-invented/,
-    'a terminally rejected goal must be filtered before the corrected audit');
-  assert.doesNotMatch(JSON.stringify(client.requests[4].messages), /S-invented/,
     'a terminally rejected goal must not leak into exploration');
 });
 
@@ -4806,7 +4801,6 @@ auditedPlanningRuntimeTest('Spec 028 T022 — one audited rephrase can satisfy a
     {
       stage: 'goal_audit:2',
       value: auditorControl([
-        auditControlRecord(definition),
         auditControlRecord(replacement),
       ]),
     },
@@ -4928,7 +4922,6 @@ auditedPlanningRuntimeTest('Spec 028 T022 — opaque coverage mapping preserves 
     {
       stage: 'goal_audit:2',
       value: auditorControl([
-        auditControlRecord(forward),
         auditControlRecord(wrongReplacement),
       ]),
     },
@@ -5174,7 +5167,7 @@ auditedPlanningRuntimeTest('Spec 028 T022 — a corrected plan filtered to zero 
   assert.deepEqual(result.rejectedGoals.map(goal => goal.proposedGoalId), ['S-invented']);
 });
 
-auditedPlanningRuntimeTest('Spec 028 T022 — a corrected audit cannot reclassify a preserved goal silently', async () => {
+auditedPlanningRuntimeTest('Spec 028 T069 — corrected audit excludes preserved goals from reclassification', async () => {
   const definition = proposedRuntimeGoal();
   const broad = proposedRuntimeGoal({
     id: 'S-broad',
@@ -5196,22 +5189,119 @@ auditedPlanningRuntimeTest('Spec 028 T022 — a corrected audit cannot reclassif
     { stage: 'planner:2', value: plannerControl([definition, absence]) },
     {
       stage: 'goal_audit:2',
-      value: auditorControl([
-        auditControlRecord(definition, 'blocked_scope'),
-        auditControlRecord(absence),
-      ]),
+      run(request) {
+        const packet = parseControlPacket(request);
+        assert.deepEqual(packet.proposals.map(goal => goal.id), [absence.id]);
+        assert.deepEqual(packet.existingGoalLedger.map(goal => goal.id), [definition.id]);
+        return controlCompletion(auditorControl([auditControlRecord(absence)]));
+      },
     },
+    { stage: 'exploration:1', content: 'The preserved and corrected goals remain auditable.' },
+    { stage: 'synthesis:1', value: readyExplorationResult() },
   ]);
   const root = await makeRepoFixture();
   const runtime = new RuntimeImplementation({ chatClient: client });
   const result = await runtime.explore({ task: GOAL_AUDIT_TASK, repo_root: root });
 
-  assert.deepEqual(client.stageLabels, [
-    'planner:1', 'goal_audit:1', 'planner:2', 'goal_audit:2',
-  ]);
-  assert.ok(result.failure, 'inconsistent second-pass control must fail closed');
+    assert.deepEqual(client.stageLabels, [
+      'planner:1', 'goal_audit:1', 'planner:2', 'goal_audit:2',
+      'exploration:1', 'synthesis:1', 'exploration:2',
+    ]);
+  assert.equal(result.failure, null);
+  assert.deepEqual(result.taskContract.subgoals
+    .filter(goal => goal.auditVerdict === 'ready')
+    .map(goal => goal.id), [definition.id, absence.id]);
+  assert.equal(result.taskContract.subgoals.find(goal => goal.id === definition.id)?.auditVerdict,
+    'ready');
   assert.equal(result.status.complete, false);
 });
+
+auditedPlanningRuntimeTest('Spec 028 T069 — corrected planning cannot rename a decomposition defect', async () => {
+  const definition = proposedRuntimeGoal();
+  const broad = proposedRuntimeGoal({
+    id: 'S-broad-original',
+    question: 'Inspect all requested authentication facets together.',
+    originRefs: [`request:0-${GOAL_AUDIT_TASK.length}`],
+    claimType: 'positive',
+    proofCondition: 'Observe every requested authentication facet in one aggregate proof.',
+  });
+  const renamedBroad = { ...broad, id: 'S-broad-renamed' };
+  const client = new ScriptedGoalAuditClient([
+    { stage: 'planner:1', value: plannerControl([definition, broad]) },
+    {
+      stage: 'goal_audit:1',
+      value: auditorControl([
+        auditControlRecord(definition),
+        auditControlRecord(broad, 'needs_decomposition'),
+      ]),
+    },
+    { stage: 'planner:2', value: plannerControl([definition, renamedBroad]) },
+    { stage: 'exploration:1', content: 'Only the preserved leaf remains explorable.' },
+    { stage: 'synthesis:1', value: readyExplorationResult() },
+  ]);
+  const root = await makeRepoFixture();
+  const result = await new RuntimeImplementation({ chatClient: client }).explore({
+    task: GOAL_AUDIT_TASK,
+    repo_root: root,
+  });
+
+  assert.equal(result.failure, null);
+  assert.equal(client.stageCounts.get('goal_audit'), 1);
+  assert.equal(result.taskContract.subgoals.some(goal => goal.id === renamedBroad.id), false);
+  assert.ok(result.taskContract.subgoals.some(goal =>
+    goal.auditVerdict === 'planning_incomplete' && goal.question === broad.question));
+  assert.ok(result.coverageGaps.some(gap => gap.reason === 'planning_incomplete'));
+});
+
+auditedPlanningRuntimeTest(
+  'Spec 028 T069 — one narrowed origin cannot satisfy a decomposition obligation',
+  async () => {
+    const broad = proposedRuntimeGoal({
+      id: 'S-origin-correction',
+      originRefs: [`request:0-${GOAL_AUDIT_TASK.length}`],
+    });
+    const corrected = {
+      ...broad,
+      originRefs: [requestOrigin(GOAL_AUDIT_TASK, 'Locate requireAuth')],
+    };
+    const client = new ScriptedGoalAuditClient([
+      { stage: 'planner:1', value: plannerControl([broad]) },
+      {
+        stage: 'goal_audit:1',
+        value: auditorControl([auditControlRecord(broad, 'needs_decomposition')]),
+      },
+      { stage: 'planner:2', value: plannerControl([corrected]) },
+      {
+        stage: 'goal_audit:2',
+        run(request) {
+          const packet = parseControlPacket(request);
+          assert.deepEqual(packet.proposals.map(goal => goal.id), [corrected.id]);
+          return controlCompletion(auditorControl([auditControlRecord(corrected)]));
+        },
+      },
+      { stage: 'exploration:1', content: 'The corrected requested goal is explored conservatively.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+    ]);
+    const root = await makeRepoFixture();
+    const result = await new RuntimeImplementation({ chatClient: client }).explore({
+      task: GOAL_AUDIT_TASK,
+      repo_root: root,
+    });
+
+    assert.equal(result.failure, null);
+    assert.equal(client.stageCounts.get('goal_audit'), 2);
+    assert.equal(client.stageCounts.get('goal_coverage') ?? 0, 0,
+      'fewer than two descendants fail decomposition without another model call');
+    const retained = result.taskContract.subgoals.find(goal => goal.id === corrected.id);
+    assert.deepEqual(retained?.originRefs, corrected.originRefs);
+    assert.equal(retained?.auditVerdict, 'ready');
+    assert.equal(result.coverageGaps.some(gap => gap.reason === 'planning_incomplete'), true);
+    assert.equal(result.status.complete, false);
+    assert.equal(result.parentHandoff.state, 'incomplete');
+    assert.match(JSON.stringify(client.requests[4].messages),
+      /cover every listed goal separately[\s\S]*impact_categories/i);
+  },
+);
 
 auditedPlanningRuntimeTest('Spec 028 T022 — preserved origin and constraint sets may be reordered', async () => {
   const kept = proposedRuntimeGoal({
@@ -5244,10 +5334,6 @@ auditedPlanningRuntimeTest('Spec 028 T022 — preserved origin and constraint se
       ]),
     },
     { stage: 'planner:2', value: plannerControl([reordered]) },
-    {
-      stage: 'goal_audit:2',
-      value: auditorControl([auditControlRecord(reordered)]),
-    },
     { stage: 'exploration:1', content: 'The preserved goal remains auditable.' },
     { stage: 'synthesis:1', value: readyExplorationResult() },
   ]);
@@ -5355,9 +5441,13 @@ auditedPlanningRuntimeTest('Spec 028 T017 — malformed goal-audit control outpu
   }
 
   const root = await makeRepoFixture();
+  const logDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-invalid-goal-audit-'));
   const client = new MalformedAuditClient();
   const runtime = new RuntimeImplementation({ chatClient: client });
-  const result = await runtime.explore({ task: GOAL_AUDIT_TASK, repo_root: root });
+  let result;
+  await withEnv({ CEREBRAS_EXPLORER_LOG_PATH: logDir }, async () => {
+    result = await runtime.explore({ task: GOAL_AUDIT_TASK, repo_root: root });
+  });
 
   assert.ok(client.auditCalls >= 1 && client.auditCalls <= 2,
     'invalid required control output may receive at most one bounded recovery');
@@ -5367,6 +5457,16 @@ auditedPlanningRuntimeTest('Spec 028 T017 — malformed goal-audit control outpu
   assert.equal(result.status.complete, false);
   assert.equal(/Where is requireAuth defined/.test(result.directAnswer ?? ''), false,
     'planner content must never become a stale parent answer');
+  const entries = await readJsonl(result.transcriptPath);
+  const invalid = entries.find(entry => entry.type === 'control_invalid');
+  assert.equal(invalid?.stage, 'goal_audit');
+  assert.match(invalid?.reason ?? '', /GoalAuditorResponse/u);
+  assert.equal(invalid?.attempts?.length, 2);
+  assert.deepEqual(invalid?.attempts?.map(item => item.attempt), [1, 2]);
+  assert.ok(invalid?.attempts?.every(item =>
+    typeof item.reason === 'string' && item.reason.length > 0));
+  assert.equal(JSON.stringify(result.parentHandoff).includes('attempts'), false,
+    'bounded control diagnostics remain transcript-only');
 });
 
 auditedPlanningRuntimeTest('Spec 028 T017 — an all-blocked audited plan returns without futile exploration', async () => {
@@ -5984,6 +6084,94 @@ auditedPlanningRuntimeTest('Spec 028 T022 — a genuine late uncovered part beco
   assert.equal(result.revisionRequest, null);
 });
 
+auditedPlanningRuntimeTest('Spec 028 T069 — a stronger late obligation cannot disappear through an external merge', async () => {
+  const task = 'Inspect the requested authentication facet.';
+  const originRefs = [`request:0-${task.length}`];
+  const existing = createRequiredSubgoal({
+    id: 'S-existing-auth',
+    question: 'Inspect the requested authentication facet.',
+    originRefs,
+    claimType: 'positive',
+    proofCondition: 'Observe bounded authentication evidence.',
+    constraints: [],
+    auditVerdict: 'ready',
+  });
+  const proposal = {
+    id: 'L-stronger-auth',
+    question: existing.question,
+    originRefs,
+    claimType: existing.claimType,
+    proofCondition: existing.proofCondition,
+    constraints: ['Also prove an additional export boundary.'],
+  };
+  let calls = 0;
+  const client = {
+    model: 'zai-glm-4.7',
+    async createChatCompletion(request) {
+      calls += 1;
+      const packet = parseControlPacket(request);
+      return controlCompletion(auditorControl([{
+        ...auditControlRecord(packet.proposals[0], 'merge_duplicate'),
+        mergeInto: existing.id,
+      }]));
+    },
+  };
+
+  await assert.rejects(new RuntimeImplementation({ chatClient: client }).auditLateGoalProposals({
+    task,
+    effectiveScope: ['src/**'],
+    wrapperTool: 'find_relevant_code',
+    proposals: [proposal],
+    existingGoalLedger: [existing],
+  }), error => error?.code === 'ERR_INVALID_GOAL_CONTROL' &&
+    /strengthened the constraints/.test(error.cause?.message ?? ''));
+  assert.equal(calls, 2, 'an invalid external merge gets only one bounded correction');
+});
+
+auditedPlanningRuntimeTest('Spec 028 T069 — a distinct late acceptance core cannot disappear through an external merge', async () => {
+  const task = 'Locate requireAuth and inspect its export boundary.';
+  const originRefs = [`request:0-${task.length}`];
+  const existing = createRequiredSubgoal({
+    id: 'S-existing-definition',
+    question: 'Where is requireAuth defined?',
+    originRefs,
+    claimType: 'symbol_definition',
+    proofCondition: 'Observe the in-scope requireAuth definition.',
+    constraints: [],
+    auditVerdict: 'ready',
+  });
+  const proposal = {
+    id: 'L-export-boundary',
+    question: 'Which exported API exposes requireAuth?',
+    originRefs,
+    claimType: existing.claimType,
+    proofCondition: 'Observe the export boundary that exposes requireAuth.',
+    constraints: [],
+  };
+  let calls = 0;
+  const client = {
+    model: 'zai-glm-4.7',
+    async createChatCompletion(request) {
+      calls += 1;
+      const packet = parseControlPacket(request);
+      return controlCompletion(auditorControl([{
+        ...auditControlRecord(packet.proposals[0], 'merge_duplicate'),
+        mergeInto: existing.id,
+      }]));
+    },
+  };
+
+  await assert.rejects(new RuntimeImplementation({ chatClient: client }).auditLateGoalProposals({
+    task,
+    effectiveScope: ['src/**'],
+    wrapperTool: 'find_relevant_code',
+    proposals: [proposal],
+    existingGoalLedger: [existing],
+  }), error => error?.code === 'ERR_INVALID_GOAL_CONTROL' &&
+    /changed the acceptance core/.test(error.cause?.message ?? ''));
+  assert.equal(calls, 2, 'an invalid external merge gets only one bounded correction');
+});
+
 auditedPlanningRuntimeTest('Spec 028 T017 — late goal audit forwards cancellation without registering goals', async () => {
   const task = 'Inspect the requested authentication facet.';
   const proposal = {
@@ -6394,11 +6582,16 @@ test('Spec 028 T059 — runtime enforces negative and critical proof boundaries'
         id: 'complete-route-count',
       }],
       initialEvidenceRefs: ['E1'],
+      repairTools: [{
+        tool: 'repo_grep',
+        args: { pattern: 'requireAuth', scope: ['src/routes/**'] },
+        id: 'duplicate-complete-route-count',
+      }],
+      repairEvidenceRefs: ['E1'],
       assertImplemented({ result, goal, claim }) {
-        assert.equal(result.taskContract.subgoals.find(item => item.id === goal.id).state,
-          'supported');
+        assertInternalProofGap(result, goal.id);
         assert.equal(result.semanticVerification.claims.find(item => item.id === claim.id).verdict,
-          'supported');
+          'insufficient');
         const count = result.semanticVerification.deterministicCounts.find(item =>
           item.subgoalId === goal.id);
         assert.deepEqual(count, {
@@ -6414,9 +6607,87 @@ test('Spec 028 T059 — runtime enforces negative and critical proof boundaries'
         assert.equal(result.observations.find(item => item.id === 'E1')
           .normalizedItemIds.length, 2);
         assert.equal(result.parentHandoff.state, 'incomplete',
-          'a nonzero search count has no schema-v3 evidence representation');
+          'a nonzero search count is not supported until exact sources cover every match');
         assert.equal(result.parentHandoff.directAnswer, undefined,
-          'an internally certified count must not become an unsupported parent claim');
+          'a search-only count must not become an unsupported parent claim');
+      },
+    },
+    {
+      name: 'source-covered nonzero search count is safe for schema-v3 projection',
+      task: 'Count the lines containing requireAuth in src/routes/**.',
+      scope: ['src/routes/**'],
+      goal: {
+        id: 'S-source-covered-route-count',
+        question: 'How many lines contain requireAuth in src/routes/**?',
+        originText: 'Count the lines containing requireAuth in src/routes/**',
+        claimType: 'count',
+        proofCondition: 'Completely search src/routes/** and source-ground every counted line.',
+        constraints: ['Keep the count qualified to src/routes/**.'],
+      },
+      claimText: 'There are exactly 2 lines containing requireAuth in src/routes/**.',
+      countMeasurement: { kind: 'count', unit: 'matching_lines', value: 2 },
+      initialTools: [{
+        tool: 'repo_grep',
+        args: { pattern: 'requireAuth', scope: ['src/routes/**'] },
+        id: 'source-covered-route-count',
+      }, {
+        tool: 'repo_read_file',
+        args: { path: 'src/routes/user.js', startLine: 1, endLine: 7 },
+        id: 'read-source-covered-route-count',
+      }],
+      initialEvidenceRefs: ['E1', 'E2'],
+      assertImplemented({ result, goal, claim }) {
+        assert.equal(result.taskContract.subgoals.find(item => item.id === goal.id).state,
+          'supported');
+        assert.equal(result.semanticVerification.claims.find(item => item.id === claim.id).verdict,
+          'supported');
+        assert.deepEqual(result.observations.find(item => item.id === 'E1')
+          .normalizedItemAnchors, [
+          { path: 'src/routes/user.js', line: 1 },
+          { path: 'src/routes/user.js', line: 4 },
+        ]);
+        const projectedClaim = result.semanticVerification.claims.find(item => item.id === claim.id);
+        assertMinimalCompleteParentHandoff(result, {
+          answer: projectedClaim.text,
+          evidenceCount: 1,
+          evidenceKinds: ['source'],
+        });
+        assert.equal(result.parentHandoff.evidence[0].path, 'src/routes/user.js');
+      },
+    },
+    {
+      name: 'source-covered grep lines cannot become a semantic invocation-site count',
+      task: 'Count direct SDK invocation sites in src/routes/**.',
+      scope: ['src/routes/**'],
+      goal: {
+        id: 'S-semantic-invocation-count',
+        question: 'How many direct SDK invocation sites are in src/routes/**?',
+        originText: 'Count direct SDK invocation sites in src/routes/**',
+        claimType: 'count',
+        proofCondition: 'Enumerate and verify each direct SDK invocation site.',
+        constraints: ['Do not substitute matching source lines for semantic invocation sites.'],
+      },
+      claimText: 'There are exactly 2 direct SDK invocation sites in src/routes/**.',
+      countMeasurement: { kind: 'count', unit: 'matching_lines', value: 2 },
+      initialTools: [{
+        tool: 'repo_grep',
+        args: { pattern: 'requireAuth', scope: ['src/routes/**'] },
+        id: 'grep-semantic-invocation-count',
+      }, {
+        tool: 'repo_read_file',
+        args: { path: 'src/routes/user.js', startLine: 1, endLine: 7 },
+        id: 'read-semantic-invocation-count',
+      }],
+      initialEvidenceRefs: ['E1', 'E2'],
+      repairTools: [{
+        tool: 'repo_read_file',
+        args: { path: 'src/routes/user.js', startLine: 1, endLine: 7 },
+        id: 'repair-semantic-invocation-count',
+      }],
+      repairEvidenceRefs: ['E1', 'E2', 'E3'],
+      assertImplemented({ result, goal }) {
+        assertInternalProofGap(result, goal.id);
+        assertMinimalIncompleteParentHandoff(result, goal.question);
       },
     },
     {
@@ -6431,8 +6702,8 @@ test('Spec 028 T059 — runtime enforces negative and critical proof boundaries'
         proofCondition: 'Read the complete static array definition and count its entries.',
         constraints: ['Keep the count bound to the cited definition.'],
       },
-      claimText: 'DEFAULT_SECRET_DENY_PATTERNS contains exactly 3 entries.',
-      countMeasurement: { kind: 'count', unit: 'array_entries', value: 3 },
+      claimText: 'DEFAULT_SECRET_DENY_PATTERNS contains exactly 13 entries.',
+      countMeasurement: { kind: 'count', unit: 'array_entries', value: 13 },
       initialTools: [{
         tool: 'repo_symbol_context',
         args: {
@@ -6448,12 +6719,12 @@ test('Spec 028 T059 — runtime enforces negative and critical proof boundaries'
         assert.deepEqual(countObservation?.deterministicMeasurement, {
           kind: 'count',
           unit: 'array_entries',
-          value: 3,
+          value: 13,
         });
         assert.deepEqual(packet.claims[0].measurement, {
           kind: 'count',
           unit: 'array_entries',
-          value: 3,
+          value: 13,
         });
       },
       async setup(root) {
@@ -6462,6 +6733,16 @@ test('Spec 028 T059 — runtime enforces negative and critical proof boundaries'
           "  '.env',",
           "  '**/.env',",
           "  '*.pem',",
+          "  '*.key',",
+          "  '*.p12',",
+          "  '*.pfx',",
+          "  'credentials.json',",
+          "  'secrets.json',",
+          "  '.npmrc',",
+          "  '.pypirc',",
+          "  '.netrc',",
+          "  '.aws/credentials',",
+          "  '.ssh/id_*',",
           ']);',
           '',
         ].join('\n'));
@@ -6474,13 +6755,13 @@ test('Spec 028 T059 — runtime enforces negative and critical proof boundaries'
         assert.deepEqual(countObservation.deterministicMeasurement, {
           kind: 'count',
           unit: 'array_entries',
-          value: 3,
+          value: 13,
         });
         const count = result.semanticVerification.deterministicCounts.find(item =>
           item.claimId === claim.id);
         assert.equal(count.complete, true);
         assert.equal(count.unit, 'array_entries');
-        assert.equal(count.count, 3);
+        assert.equal(count.count, 13);
         assert.equal(result.taskContract.subgoals.find(item => item.id === goal.id).state,
           'supported');
         assert.equal(result.parentHandoff.state, 'complete', JSON.stringify({
@@ -6492,7 +6773,7 @@ test('Spec 028 T059 — runtime enforces negative and critical proof boundaries'
         }, null, 2));
         assert.doesNotThrow(() => validateParentHandoffV3(result.parentHandoff));
         assert.match(result.parentHandoff.directAnswer,
-          /deterministic count of array entries.* is 3\./u);
+          /deterministic count of array entries.* is 13\./u);
         assert.deepEqual(result.parentHandoff.evidence.map(item => item.kind), ['source']);
         assert.deepEqual(result.semanticVerification.runtimeAllowedEvidenceRefsBySubgoal, [{
           subgoalId: goal.id,
@@ -6782,6 +7063,99 @@ test('Spec 028 T059 — runtime enforces negative and critical proof boundaries'
       },
     },
     {
+      name: 'exhaustive classification cannot pass from two paths without an enumeration',
+      task: 'Inventory route authorization mechanisms and classify user and admin guards.',
+      goal: {
+        id: 'S-exhaustive-route-policy',
+        question: 'Which user and admin guards are in the exhaustive route inventory?',
+        originText: 'Inventory route authorization mechanisms and classify user and admin guards',
+        claimType: 'comparison',
+        proofCondition: 'Enumerate every matching route guard and distinguish user from admin policy.',
+        constraints: ['Do not infer exhaustive membership from two example files.'],
+      },
+      setup: async root => {
+        await fs.writeFile(
+          path.join(root, 'src', 'routes', 'admin.js'),
+          [
+            'import { requireAdmin } from "../admin-auth.js";',
+            'export function registerAdminRoutes(app) {',
+            '  app.get("/admin", requireAdmin, (_req, res) => res.end());',
+            '}',
+          ].join('\n'),
+        );
+      },
+      claimText: 'The exhaustive inventory contains requireAuth and requireAdmin route guards.',
+      initialTools: [
+        {
+          tool: 'repo_read_file',
+          args: { path: 'src/routes/user.js', startLine: 1, endLine: 6 },
+          id: 'read-user-policy-without-enumeration',
+        },
+        {
+          tool: 'repo_read_file',
+          args: { path: 'src/routes/admin.js', startLine: 1, endLine: 4 },
+          id: 'read-admin-policy-without-enumeration',
+        },
+      ],
+      initialEvidenceRefs: ['E1', 'E2'],
+      assertImplemented({ client, result, goal }) {
+        assertInternalProofGap(result, goal.id);
+        assert.equal(result.coverageGaps.find(gap => gap.subgoalId === goal.id)?.repairable, false);
+        assert.equal(providerToolActions(client).length, 2,
+          'an unavailable runtime category artifact must not trigger a futile repair call');
+        assertMinimalIncompleteParentHandoff(result, goal.question);
+      },
+    },
+    {
+      name: 'source-backed grep lines cannot self-certify an exhaustive classification predicate',
+      task: 'Inventory every route authorization mechanism and classify user and admin guards.',
+      goal: {
+        id: 'S-source-backed-exhaustive-route-policy',
+        question: 'Which user and admin guards are in the exhaustive route inventory?',
+        originText: 'classify user and admin guards',
+        claimType: 'comparison',
+        proofCondition: 'Enumerate every matching route guard and distinguish user from admin policy.',
+        constraints: ['A grep predicate for route registration names cannot certify guard categories.'],
+      },
+      setup: async root => {
+        await fs.writeFile(
+          path.join(root, 'src', 'routes', 'admin.js'),
+          [
+            'import { requireAdmin } from "../admin-auth.js";',
+            'export function registerAdminRoutes(app) {',
+            '  app.get("/admin", requireAdmin, (_req, res) => res.end());',
+            '}',
+          ].join('\n'),
+        );
+      },
+      claimText: 'The exhaustive inventory contains requireAuth on the user route and requireAdmin on the admin route.',
+      initialTools: [
+        {
+          tool: 'repo_grep',
+          args: { pattern: 'registerUserRoutes|registerAdminRoutes', scope: ['src/routes/**'] },
+          id: 'enumerate-route-policies',
+        },
+        {
+          tool: 'repo_read_file',
+          args: { path: 'src/routes/user.js', startLine: 1, endLine: 6 },
+          id: 'read-enumerated-user-policy',
+        },
+        {
+          tool: 'repo_read_file',
+          args: { path: 'src/routes/admin.js', startLine: 1, endLine: 4 },
+          id: 'read-enumerated-admin-policy',
+        },
+      ],
+      initialEvidenceRefs: ['E1', 'E2', 'E3'],
+      assertImplemented({ client, result, goal }) {
+        assertInternalProofGap(result, goal.id);
+        assert.equal(result.coverageGaps.find(gap => gap.subgoalId === goal.id)?.repairable, false);
+        assert.equal(providerToolActions(client).length, 3,
+          'more model-selected evidence cannot create a runtime-owned category predicate');
+        assertMinimalIncompleteParentHandoff(result, goal.question);
+      },
+    },
+    {
       name: 'route-policy comparison preserves both distinct current paths',
       task: 'Compare the authorization policies of the user and admin routes.',
       goal: {
@@ -6977,6 +7351,296 @@ test('Spec 028 T059 — runtime enforces negative and critical proof boundaries'
     });
   }
 });
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — bounded file reads preserve source evidence beyond line twelve',
+  async () => {
+    const task = 'Verify the terminal marker in the bounded long source file.';
+    const goal = trustGoal(task, {
+      id: 'S-long-source-range',
+      question: task,
+      originText: task,
+      proofCondition: 'Read the bounded source range through the terminal marker.',
+    });
+    const claim = candidateClaim(
+      'C-long-source-range',
+      goal.id,
+      'The bounded source range ends with TERMINAL_MARKER.',
+      ['E1'],
+    );
+    const steps = buildTrustSteps({
+      goals: [goal],
+      initial: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/long-source.js', startLine: 1, endLine: 20 },
+          id: 'read-long-source',
+        }],
+        claims: [claim],
+        verdicts: [semanticVerdict(claim.id, 'supported', ['E1'])],
+        assertVerifier(request) {
+          const source = parseControlPacket(request).observations.find(item => item.id === 'E1');
+          assert.equal(source?.endLine, 20);
+          assert.match(source?.snippet ?? '', /20: export const TERMINAL_MARKER = true;/u);
+        },
+      },
+    });
+    const { result } = await runTrustScript(steps, {
+      task,
+      setup: async root => {
+        const lines = Array.from({ length: 19 }, (_, index) =>
+          `export const filler${index + 1} = ${index + 1};`);
+        lines.push('export const TERMINAL_MARKER = true;');
+        await fs.writeFile(path.join(root, 'src', 'long-source.js'), `${lines.join('\n')}\n`);
+      },
+    });
+
+    assert.equal(result.failure, null);
+    assert.equal(result.observations.find(item => item.id === 'E1')?.endLine, 20);
+    assert.equal(result.parentHandoff.state, 'complete');
+    assert.deepEqual(result.parentHandoff.evidence.map(item => [
+      item.path,
+      item.startLine,
+      item.endLine,
+    ]), [['src/long-source.js', 1, 20]]);
+  },
+);
+
+test('Spec 028 T069 — generic claims cannot define their own structural proof obligations', () => {
+  const flow = createRequiredSubgoal({
+    id: 'S-generic-flow',
+    question: 'Trace the generic execution path.',
+    originRefs: ['request:0-10'],
+    claimType: 'flow',
+    proofCondition: 'Observe the entry and handoff source ranges.',
+    constraints: [],
+    auditVerdict: 'ready',
+  });
+  const impact = createRequiredSubgoal({
+    id: 'S-generic-impact',
+    question: 'Map the generic impact categories.',
+    originRefs: ['request:11-20'],
+    claimType: 'impact',
+    proofCondition: 'Observe every requested impact category.',
+    constraints: [],
+    auditVerdict: 'ready',
+  });
+  const claims = [
+    candidateClaim('C-generic-flow', flow.id, 'The execution path spans two sources.', ['E1', 'E2']),
+    candidateClaim('C-generic-impact', impact.id, 'The impact spans source and docs.', ['E1', 'E3']),
+  ];
+  const observations = [
+    {
+      id: 'E1', kind: 'source', path: 'src/entry.js', startLine: 1, endLine: 4,
+      sourceRole: 'implementation', temporalRole: 'current',
+    },
+    {
+      id: 'E2', kind: 'source', path: 'src/handoff.js', startLine: 5, endLine: 9,
+      sourceRole: 'implementation', temporalRole: 'current',
+    },
+    {
+      id: 'E3', kind: 'source', path: 'docs/runtime.md', startLine: 1, endLine: 3,
+      sourceRole: 'documentation', temporalRole: 'current',
+    },
+  ];
+  const artifacts = buildRuntimeWrapperPolicyArtifacts({
+    wrapperTool: 'explore_repo',
+    subgoals: [flow, impact],
+    claims,
+    semanticVerdicts: [
+      semanticVerdict(claims[0].id, 'supported', ['E1']),
+      semanticVerdict(claims[1].id, 'supported', ['E1', 'E3']),
+    ],
+    observations,
+  });
+
+  assert.equal(artifacts.size, 0,
+    'explore_repo has no runtime-owned transition or impact-category seed');
+});
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — generic flow remains incomplete without runtime-owned transitions',
+  async t => {
+    for (const fixture of [
+      { name: 'all cited sources supported', supportingRefs: ['E1', 'E2'], expectedState: 'incomplete' },
+      { name: 'missing handoff support', supportingRefs: ['E1'], expectedState: 'incomplete' },
+    ]) {
+      await t.test(fixture.name, async () => {
+        const task = 'Trace the implementation entry and handoff.';
+        const goal = trustGoal(task, {
+          id: 'S-generic-flow-e2e',
+          question: task,
+          originText: task,
+          claimType: 'flow',
+          proofCondition: 'Observe the implementation entry and adjacent handoff.',
+        });
+        const claim = candidateClaim(
+          'C-generic-flow-e2e', goal.id, 'The path runs from auth to the route.', ['E1', 'E2']);
+        const initial = {
+          tools: [
+            {
+              tool: 'repo_read_file',
+              args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+              id: 'read-generic-flow-entry',
+            },
+            {
+              tool: 'repo_read_file',
+              args: { path: 'src/routes/user.js', startLine: 1, endLine: 7 },
+              id: 'read-generic-flow-handoff',
+            },
+          ],
+          claims: [claim],
+          verdicts: [semanticVerdict(claim.id, 'supported', fixture.supportingRefs)],
+        };
+        const { result } = await runTrustScript(buildTrustSteps({
+          goals: [goal],
+          initial,
+          repair: fixture.expectedState === 'incomplete' ? {
+            tools: [],
+            claims: [claim],
+            verdicts: [semanticVerdict(claim.id, 'supported', fixture.supportingRefs)],
+          } : null,
+        }), { task });
+
+        assert.equal(result.failure, null);
+        assert.equal(result.parentHandoff.state, fixture.expectedState);
+        assertInternalProofGap(result, goal.id);
+        assertMinimalIncompleteParentHandoff(result, goal.question);
+        assert.equal(Object.hasOwn(result.parentHandoff, 'policyArtifacts'), false);
+      });
+    }
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — generic impact cannot infer omitted requested categories from its own citations',
+  async () => {
+    const task = 'Map change impact across source, documentation, agent configuration, and dependencies.';
+    const goal = trustGoal(task, {
+      id: 'S-generic-impact-e2e',
+      question: task,
+      originText: task,
+      claimType: 'impact',
+      proofCondition: 'Observe all four requested impact categories independently.',
+      constraints: ['Do not treat one cited category as the required set.'],
+    });
+    const claim = candidateClaim(
+      'C-generic-impact-e2e', goal.id, 'The requested impact is fully covered.', ['E1']);
+    const { result } = await runTrustScript(buildTrustSteps({
+      goals: [goal],
+      initial: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+          id: 'read-generic-impact-source',
+        }],
+        claims: [claim],
+        verdicts: [semanticVerdict(claim.id, 'supported', ['E1'])],
+      },
+      repair: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+          id: 'repair-generic-impact-source',
+        }],
+        claims: [{ ...claim, evidenceRefs: ['E1', 'E2'] }],
+        verdicts: [semanticVerdict(claim.id, 'supported', ['E1', 'E2'])],
+      },
+    }), { task });
+
+    assert.equal(result.failure, null);
+    assertInternalProofGap(result, goal.id);
+    assertMinimalIncompleteParentHandoff(result, goal.question);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — an unrelated claim cannot borrow a sibling absence certificate',
+  async () => {
+    const task = 'Inventory every route guard and determine whether any additional guarded route exists.';
+    const inventoryGoal = trustGoal(task, {
+      id: 'S-claim-bound-inventory',
+      question: 'Which route guards are in the exhaustive inventory?',
+      originText: 'Inventory every route guard',
+      claimType: 'comparison',
+      proofCondition: 'Enumerate and compare every route guard.',
+      constraints: ['A separate absence claim is not inventory evidence unless this claim cites it.'],
+    });
+    const absenceGoal = trustGoal(task, {
+      id: 'S-claim-bound-absence',
+      question: 'Does any additional guarded route exist?',
+      originText: 'whether any additional guarded route exists',
+      claimType: 'absence',
+      proofCondition: 'Completely search the fixed scope for another guarded route.',
+      constraints: ['Keep the absence qualified to src/**.'],
+    });
+    const inventoryClaim = candidateClaim(
+      'C-claim-bound-inventory',
+      inventoryGoal.id,
+      'The exhaustive inventory contains the user and admin guards.',
+      ['E1', 'E2'],
+    );
+    const absenceClaim = candidateClaim(
+      'C-claim-bound-absence',
+      absenceGoal.id,
+      'No additional guarded route exists within src/**.',
+      ['E3'],
+    );
+    const steps = buildTrustSteps({
+      goals: [inventoryGoal, absenceGoal],
+      initial: {
+        tools: [
+          {
+            tool: 'repo_read_file',
+            args: { path: 'src/routes/user.js', startLine: 1, endLine: 6 },
+            id: 'read-claim-bound-user-route',
+          },
+          {
+            tool: 'repo_read_file',
+            args: { path: 'src/routes/admin.js', startLine: 1, endLine: 4 },
+            id: 'read-claim-bound-admin-route',
+          },
+          {
+            tool: 'repo_grep',
+            args: { pattern: 'guardedRouteThatDoesNotExist', scope: ['src/**'] },
+            id: 'search-claim-bound-additional-route',
+          },
+        ],
+        claims: [inventoryClaim, absenceClaim],
+        verdicts: [
+          semanticVerdict(inventoryClaim.id, 'supported', ['E1', 'E2']),
+          semanticVerdict(absenceClaim.id, 'supported', ['E3']),
+        ],
+      },
+    });
+    const { client, result } = await runTrustScript(steps, {
+      task,
+      async setup(root) {
+        await fs.writeFile(path.join(root, 'src', 'routes', 'admin.js'), [
+          'import { requireAdmin } from "../admin-auth.js";',
+          'export function registerAdminRoutes(app) {',
+          '  app.get("/admin", requireAdmin, (_req, res) => res.end());',
+          '}',
+        ].join('\n'));
+      },
+    });
+
+    assert.equal(result.failure, null);
+    assert.equal(result.taskContract.subgoals.find(goal => goal.id === inventoryGoal.id)?.state,
+      'gap');
+    assert.equal(result.taskContract.subgoals.find(goal => goal.id === absenceGoal.id)?.state,
+      'supported');
+    assert.equal(result.coverageGaps.find(gap => gap.subgoalId === inventoryGoal.id)?.repairable,
+      false);
+    assert.equal(providerToolActions(client).length, 3,
+      'a sibling certificate must not trigger a futile repair or certify an uncited claim');
+    assert.doesNotThrow(() => validateParentHandoffV3(result.parentHandoff));
+    assert.equal(result.parentHandoff.state, 'incomplete');
+    assert.equal(result.parentHandoff.directAnswer, absenceClaim.text);
+    assert.equal(result.parentHandoff.evidence[0].kind, 'absence');
+    assert.equal(result.parentHandoff.gaps[0].question, inventoryGoal.question);
+  },
+);
 
 semanticPipelineRuntimeTest(
   'Spec 028 T062 — audited historical verification projects an exact sha-only git commit',
@@ -7664,6 +8328,113 @@ semanticPipelineRuntimeTest(
 );
 
 semanticPipelineRuntimeTest(
+  'Spec 028 T069 — one leaf goal cannot fan out into noisy parent claims',
+  async () => {
+    const task = 'Identify the bounded requireAuth implementation.';
+    const goal = trustGoal(task, {
+      id: 'S-quiet-leaf',
+      question: task,
+      originText: task,
+      proofCondition: 'Observe the bounded requireAuth implementation source.',
+    });
+    const fragmentOne = candidateClaim(
+      'C-quiet-fragment-one', goal.id, 'requireAuth is exported.', ['E1']);
+    const fragmentTwo = candidateClaim(
+      'C-quiet-fragment-two', goal.id, 'requireAuth returns true.', ['E1']);
+    const aggregate = candidateClaim(
+      'C-quiet-aggregate', goal.id, 'requireAuth is the bounded authentication implementation.', ['E1']);
+    const steps = [
+      { stage: 'planner:1', value: plannerControl([goal]) },
+      { stage: 'goal_audit:1', value: auditorControl([auditControlRecord(goal)]) },
+      {
+        stage: 'exploration:1',
+        run: () => toolControlCompletion(
+          'repo_read_file',
+          { path: 'src/auth.js', startLine: 1, endLine: 4 },
+          'read-quiet-leaf',
+        ),
+      },
+      { stage: 'exploration:2', content: 'The bounded evidence pass is complete.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+      { stage: 'claim_synthesis:1', value: { claims: [fragmentOne, fragmentTwo] } },
+      {
+        stage: 'claim_synthesis:2',
+        run(request) {
+          const retryText = JSON.stringify(request.messages);
+          assert.match(retryText, /at most one aggregate claim/u);
+          assert.match(retryText, /zero or one aggregate claim/u);
+          return controlCompletion({ claims: [aggregate] });
+        },
+      },
+      {
+        stage: 'semantic_verifier:1',
+        value: verifierResponse([semanticVerdict(aggregate.id, 'supported', ['E1'])]),
+      },
+    ];
+
+    const { client, result } = await runTrustScript(steps, { task });
+
+    assert.equal(client.stageCounts.get('claim_synthesis'), 2);
+    assert.equal(result.failure, null);
+    assert.equal(result.parentHandoff.state, 'complete');
+    assert.equal(result.parentHandoff.directAnswer, aggregate.text);
+    assert.deepEqual(result.semanticVerification.claims.map(claim => claim.id), [aggregate.id]);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — an unprojectable supported claim records an internal parent gap',
+  async () => {
+    const task = 'Compare the bounded requireAuth definition and route usage.';
+    const goal = trustGoal(task, {
+      id: 'S-parent-gap-ledger',
+      question: task,
+      originText: task,
+      claimType: 'comparison',
+      proofCondition: 'Observe distinct bounded definition and route-usage sources.',
+    });
+    const claim = candidateClaim(
+      'C-parent-gap-ledger',
+      goal.id,
+      'requireAuth is defined in src/auth.js and used by src/routes/user.js.',
+      ['E1', 'E2', 'E3'],
+    );
+    const { result } = await runTrustScript(buildTrustSteps({
+      goals: [goal],
+      initial: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+          id: 'read-parent-gap-ledger',
+        }, {
+          tool: 'repo_read_file',
+          args: { path: 'src/routes/user.js', startLine: 1, endLine: 7 },
+          id: 'read-route-parent-gap-ledger',
+        }, {
+          tool: 'repo_grep',
+          args: { pattern: 'requireAuth', scope: ['src/**'] },
+          id: 'search-parent-gap-ledger',
+        }],
+        claims: [claim],
+        verdicts: [semanticVerdict(claim.id, 'supported', ['E1', 'E2', 'E3'])],
+      },
+    }), { task });
+
+    assert.equal(result.failure, null, JSON.stringify({
+      failure: result.failure,
+      parentHandoff: result.parentHandoff,
+      observations: result.observations,
+    }));
+    assert.equal(result.taskContract.subgoals[0].state, 'supported');
+    assert.equal(result.parentHandoff.state, 'incomplete');
+    assert.equal(result.parentHandoff.directAnswer, undefined);
+    assert.ok(result.coverageGaps.some(gap =>
+      gap.id === `parent-projection:${goal.id}` &&
+      gap.subgoalId === goal.id && gap.reason === 'missing_evidence'));
+  },
+);
+
+semanticPipelineRuntimeTest(
   'Spec 028 T069 — post-repair non-count claims also ignore measurement noise',
   async () => {
     const goal = definitionAndAbsenceGoals()[0];
@@ -7828,6 +8599,133 @@ test('Spec 028 T031 — verifier proposals are audited once without re-planning 
     });
   }
 });
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — invalid late audit preserves verified claims and blocks only the late goal',
+  async () => {
+    const task = 'Locate requireAuth and inspect middleware registration.';
+    const goal = trustGoal(task, {
+      id: 'S-late-audit-preserve',
+      question: 'Where is requireAuth defined?',
+      originText: 'Locate requireAuth',
+      claimType: 'symbol_definition',
+      proofCondition: 'Observe the in-scope requireAuth definition.',
+    });
+    const claim = candidateClaim(
+      'C-late-audit-preserve', goal.id, 'requireAuth is defined in src/auth.js.', ['E1']);
+    const proposal = {
+      question: 'Which requested middleware registration still needs evidence?',
+      originRefs: [requestOrigin(task, 'inspect middleware registration')],
+      claimType: 'positive',
+      proofCondition: 'Observe the requested middleware registration.',
+      constraints: [],
+    };
+    const steps = [
+      { stage: 'planner:1', value: plannerControl([goal]) },
+      {
+        stage: 'goal_audit:1',
+        value: auditorControl([auditControlRecord(goal)]),
+      },
+      {
+        stage: 'exploration:1',
+        run: () => toolControlCompletion(
+          'repo_read_file',
+          { path: 'src/auth.js', startLine: 1, endLine: 4 },
+          'read-auth-before-late-audit',
+        ),
+      },
+      { stage: 'exploration:2', content: 'The initial evidence pass is complete.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+      { stage: 'claim_synthesis:1', value: { claims: [claim] } },
+      {
+        stage: 'semantic_verifier:1',
+        value: verifierResponse([semanticVerdict(claim.id, 'supported', ['E1'])], [proposal]),
+      },
+      { stage: 'goal_audit:2', value: {} },
+      { stage: 'goal_audit:3', value: {} },
+    ];
+
+    const { client, result } = await runTrustScript(steps, { task });
+
+    assert.equal(client.stageCounts.get('goal_audit'), 3,
+      'late audit receives only one bounded correction attempt');
+    assert.equal(result.failure, null);
+    assert.equal(result.taskContract.subgoals.find(item => item.id === goal.id)?.state,
+      'supported');
+    const lateGoal = result.taskContract.subgoals.find(item =>
+      item.id === 'late-uncovered:initial:1');
+    assert.equal(lateGoal?.state, 'blocked');
+    assert.equal(lateGoal?.auditVerdict, 'planning_incomplete');
+    assert.ok(result.coverageGaps.some(gap =>
+      gap.subgoalId === lateGoal.id && gap.reason === 'planning_incomplete'));
+    assert.equal(result.parentHandoff.state, 'incomplete');
+    assert.match(result.parentHandoff.directAnswer ?? '', /requireAuth is defined/u);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — an audited late duplicate merges into the immutable existing goal',
+  async () => {
+    const task = 'Locate requireAuth.';
+    const goal = trustGoal(task, {
+      id: 'S-existing-late-merge',
+      question: 'Where is requireAuth defined?',
+      originText: task,
+      claimType: 'symbol_definition',
+      proofCondition: 'Observe the in-scope requireAuth definition.',
+    });
+    const claim = candidateClaim(
+      'C-existing-late-merge', goal.id, 'requireAuth is defined in src/auth.js.', ['E1']);
+    const duplicate = {
+      question: goal.question,
+      originRefs: [...goal.originRefs],
+      claimType: goal.claimType,
+      proofCondition: goal.proofCondition,
+      constraints: [...goal.constraints],
+    };
+    const steps = [
+      { stage: 'planner:1', value: plannerControl([goal]) },
+      { stage: 'goal_audit:1', value: auditorControl([auditControlRecord(goal)]) },
+      {
+        stage: 'exploration:1',
+        run: () => toolControlCompletion(
+          'repo_read_file',
+          { path: 'src/auth.js', startLine: 1, endLine: 4 },
+          'read-existing-late-merge',
+        ),
+      },
+      { stage: 'exploration:2', content: 'The bounded evidence pass is complete.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+      { stage: 'claim_synthesis:1', value: { claims: [claim] } },
+      {
+        stage: 'semantic_verifier:1',
+        value: verifierResponse([semanticVerdict(claim.id, 'supported', ['E1'])], [duplicate]),
+      },
+      {
+        stage: 'goal_audit:2',
+        run(request) {
+          const packet = parseControlPacket(request);
+          assert.deepEqual(packet.proposals.map(item => item.id), ['late-uncovered:initial:1']);
+          assert.deepEqual(packet.existingGoalLedger.map(item => item.id), [goal.id]);
+          assert.equal(JSON.stringify(packet.existingGoalLedger).includes('supported'), false,
+            'runtime state is not part of the immutable semantic ledger');
+          return controlCompletion(auditorControl([{
+            ...auditControlRecord(packet.proposals[0], 'merge_duplicate'),
+            mergeInto: goal.id,
+          }]));
+        },
+      },
+    ];
+
+    const { client, result } = await runTrustScript(steps, { task });
+    assert.equal(client.stageCounts.get('goal_audit'), 2);
+    assert.deepEqual(result.taskContract.subgoals.map(item => item.id), [goal.id]);
+    assert.deepEqual(result.coverageGaps, []);
+    assert.equal(result.parentHandoff.state, 'complete');
+    assert.equal(JSON.stringify(result.parentHandoff).includes('existingGoalLedger'), false);
+    assert.equal(JSON.stringify(result.parentHandoff).includes('mergeInto'), false);
+  },
+);
 
 semanticPipelineRuntimeTest(
   'Spec 028 T069 — a distinct late obligation sharing origin and claim type is still audited',
@@ -8343,10 +9241,24 @@ test('Spec 028 T032 — repair never re-executes an equivalent initial action', 
     },
     repair: {
       tools: [{ tool: action.tool, args: { endLine: 4, path: 'src/auth.js', startLine: 1 }, id: 'repeat-read' }],
-      assertRequest: request => assertRepairRequest(request, {
-        question: goal.question,
-        anchors: ['src/auth.js'],
-      }),
+      assertRequest(request) {
+        assertRepairRequest(request, {
+          question: goal.question,
+          anchors: ['src/auth.js'],
+        });
+        const content = request.messages.find(message =>
+          message.role === 'user' && message.content.includes('BEGIN_EVIDENCE_REPAIR_JSON'))
+          ?.content ?? '';
+        const match = /BEGIN_EVIDENCE_REPAIR_JSON\n([\s\S]*?)\nEND_EVIDENCE_REPAIR_JSON/.exec(content);
+        const packet = JSON.parse(match?.[1] ?? 'null');
+        assert.deepEqual(packet.history.sourceRanges, [{
+          path: 'src/auth.js', startLine: 1, endLine: 4,
+        }]);
+        assert.ok(packet.history.searches.some(item =>
+          item.tool === 'repo_read_file' && item.arguments.path === 'src/auth.js' &&
+          item.arguments.startLine === 1 && item.arguments.endLine === 4));
+        assert.match(request.messages[0].content, /Do not repeat an exact or equivalent prior action/u);
+      },
       claims: [{ ...claim }],
       verdicts: [semanticVerdict(claim.id, 'insufficient')],
     },
@@ -8364,7 +9276,7 @@ test('Spec 028 T032 — repair never re-executes an equivalent initial action', 
   assert.deepEqual(gap.attemptedActionFingerprints, [fingerprintAction(action)]);
 });
 
-test('Spec 028 T032 — post-repair synthesis cannot omit a prior claim', async () => {
+test('Spec 028 T069 — runtime carries an omitted post-repair prior claim without stale success', async () => {
   const task = 'Determine whether requireAuth protects the inspected route.';
   const goal = trustGoal(task, {
     id: 'S-preserve',
@@ -8391,21 +9303,16 @@ test('Spec 028 T032 — post-repair synthesis cannot omit a prior claim', async 
         id: 'repair-route',
       }],
       claims: [],
-      verdicts: [],
+      verdicts: [semanticVerdict(claim.id, 'insufficient')],
     },
   });
-  const omittedClaimIndex = steps.findIndex(step => step.stage === 'claim_synthesis:2');
-  steps.splice(omittedClaimIndex + 1, 0, {
-    stage: 'claim_synthesis:3',
-    value: { claims: [] },
-  });
 
-  const { result } = await runTrustScript(steps, { task });
-  assert.equal(result.failure?.category, 'internal');
-  assert.equal(result.failure?.reason, 'invalid_final_response');
-  assert.equal(result.status.complete, false);
-  assert.deepEqual(result.targets, []);
-  assert.deepEqual(result.evidence, []);
+  const { client, result } = await runTrustScript(steps, { task });
+  assert.equal(client.stageCounts.get('claim_synthesis'), 2);
+  assert.equal(result.failure, null);
+  assert.equal(result.parentHandoff.state, 'incomplete');
+  assert.deepEqual(result.semanticVerification.claims.map(item => item.id), [claim.id]);
+  assert.equal(result.semanticVerification.claims[0].verdict, 'insufficient');
   assert.doesNotMatch(result.directAnswer, /requireAuth protects the inspected route/);
 });
 
@@ -8952,6 +9859,115 @@ semanticPipelineRuntimeTest('Spec 028 T033 — invalid final control never promo
     });
   }
 });
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — verifier evidence cannot cross claim boundaries and receives one correction',
+  async () => {
+    const task = 'Locate requireAuth and locate registerUserRoutes.';
+    const goals = [
+      trustGoal(task, {
+        id: 'S-auth-definition',
+        question: 'Where is requireAuth defined?',
+        originText: 'Locate requireAuth',
+      }),
+      trustGoal(task, {
+        id: 'S-route-definition',
+        question: 'Where is registerUserRoutes defined?',
+        originText: 'locate registerUserRoutes',
+      }),
+    ];
+    const claims = [
+      candidateClaim('C-auth-definition', goals[0].id,
+        'requireAuth is defined in src/auth.js.', ['E1']),
+      candidateClaim('C-route-definition', goals[1].id,
+        'registerUserRoutes is defined in src/routes/user.js.', ['E2']),
+    ];
+    const invalidVerdicts = [
+      semanticVerdict(claims[0].id, 'supported', ['E2']),
+      semanticVerdict(claims[1].id, 'supported', ['E2']),
+    ];
+    const correctedVerdicts = [
+      semanticVerdict(claims[0].id, 'supported', ['E1']),
+      semanticVerdict(claims[1].id, 'supported', ['E2']),
+    ];
+    const steps = buildTrustSteps({
+      goals,
+      initial: {
+        tools: [
+          {
+            tool: 'repo_read_file',
+            args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+            id: 'read-auth-for-verifier-boundary',
+          },
+          {
+            tool: 'repo_read_file',
+            args: { path: 'src/routes/user.js', startLine: 1, endLine: 6 },
+            id: 'read-route-for-verifier-boundary',
+          },
+        ],
+        claims,
+        verifierSteps: [
+          { verdicts: invalidVerdicts },
+          {
+            verdicts: correctedVerdicts,
+            assertRequest(request) {
+              assert.match(JSON.stringify(request.messages),
+                /supportingEvidenceRef must come from that same claim evidenceRefs/u);
+            },
+          },
+        ],
+      },
+    });
+
+    const { client, result } = await runTrustScript(steps, { task });
+
+    assert.equal(client.stageCounts.get('semantic_verifier'), 2);
+    assert.equal(result.failure, null);
+    assert.deepEqual(result.taskContract.subgoals.map(goal => goal.state),
+      ['supported', 'supported']);
+    assert.equal(result.parentHandoff.state, 'complete');
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — repeated cross-claim verifier evidence fails as verifier_error',
+  async () => {
+    const task = 'Locate requireAuth.';
+    const goal = trustGoal(task, {
+      id: 'S-verifier-boundary-failure',
+      question: task,
+      originText: task,
+    });
+    const claim = candidateClaim(
+      'C-verifier-boundary-failure',
+      goal.id,
+      'requireAuth is defined in src/auth.js.',
+      ['E1'],
+    );
+    const invalid = semanticVerdict(claim.id, 'supported', ['E-outside-claim']);
+    const steps = buildTrustSteps({
+      goals: [goal],
+      initial: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+          id: 'read-auth-for-repeated-verifier-boundary',
+        }],
+        claims: [claim],
+        verifierSteps: [{ verdicts: [invalid] }, { verdicts: [invalid] }],
+      },
+    });
+
+    const { client, result } = await runTrustScript(steps, { task });
+
+    assert.equal(client.stageCounts.get('semantic_verifier'), 2);
+    assert.equal(result.failure?.reason, 'invalid_final_response');
+    assert.equal(result.failure?.publicReason, 'verifier_error');
+    assert.equal(result.parentHandoff.state, 'failed');
+    assert.equal(result.parentHandoff.failure.reason, 'verifier_error');
+    assert.doesNotMatch(result.directAnswer, /requireAuth is defined/u);
+  },
+);
 
 semanticPipelineRuntimeTest('Spec 028 T026 — invalid verifier and provider faults fail closed', async t => {
   const goal = definitionAndAbsenceGoals()[0];

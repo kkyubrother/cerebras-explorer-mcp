@@ -1277,6 +1277,11 @@ export function validateGoalAuditorResponse(value, context = {}) {
     proposalById.set(proposal.id, proposal);
   }
   const auditedGoalIds = new Set();
+  const externalMergeTargetIds = new Set(
+    Array.isArray(context.externalMergeTargetIds)
+      ? context.externalMergeTargetIds.filter(id => typeof id === 'string' && id)
+      : [],
+  );
 
   for (let index = 0; index < validated.goals.length; index += 1) {
     const record = validated.goals[index];
@@ -1300,7 +1305,8 @@ export function validateGoalAuditorResponse(value, context = {}) {
     }
 
     if (record.verdict === 'merge_duplicate') {
-      if (record.mergeInto === record.proposedGoalId || !proposalById.has(record.mergeInto)) {
+      if (record.mergeInto === record.proposedGoalId ||
+          (!proposalById.has(record.mergeInto) && !externalMergeTargetIds.has(record.mergeInto))) {
         failInternalValidation(path, `invalid merge target ${record.mergeInto}`);
       }
     }

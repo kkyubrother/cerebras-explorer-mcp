@@ -794,24 +794,29 @@ proofPolicyCoverageTest(
         { id: 'S1', proofPolicy: 'direct_source', state: 'supported' },
         { id: 'S2', proofPolicy: 'ordered_handoffs', state: 'supported' },
         { id: 'S3', proofPolicy: 'deterministic_count', state: 'supported' },
+        { id: 'S4', proofPolicy: 'impact_categories', state: 'supported' },
       ],
       claims: [
         { id: 'C1', subgoalId: 'S1', verdict: 'supported', evidenceRefs: ['E1', 'E2'] },
         { id: 'C2', subgoalId: 'S2', verdict: 'supported', evidenceRefs: ['E2', 'E3'] },
         { id: 'C3', subgoalId: 'S3', verdict: 'supported', evidenceRefs: ['E4', 'E5'] },
+        { id: 'C4', subgoalId: 'S4', verdict: 'supported', evidenceRefs: ['E6', 'E7', 'E8'] },
       ],
       verdicts: [
         { claimId: 'C1', result: 'supported', supportingEvidenceRefs: ['E2', 'E1'] },
         { claimId: 'C2', result: 'supported', supportingEvidenceRefs: ['E2', 'E3'] },
         { claimId: 'C3', result: 'supported', supportingEvidenceRefs: ['E4', 'E5'] },
+        { claimId: 'C4', result: 'supported', supportingEvidenceRefs: ['E6', 'E7', 'E8'] },
       ],
     });
 
-    assert.deepEqual(cover.evidenceRefs, ['E1', 'E2', 'E3', 'E4', 'E5']);
+    assert.deepEqual(cover.evidenceRefs, ['E1', 'E2', 'E3', 'E4', 'E5', 'E6', 'E7', 'E8']);
     assert.deepEqual(cover.evidenceRefsByClaimId.get('C1'), ['E1']);
     assert.deepEqual(cover.evidenceRefsByClaimId.get('C2'), ['E2', 'E3']);
     assert.deepEqual(cover.evidenceRefsByClaimId.get('C3'), ['E4', 'E5'],
       'count claims cannot discard the enumeration evidence behind the computed value');
+    assert.deepEqual(cover.evidenceRefsByClaimId.get('C4'), ['E6', 'E7', 'E8'],
+      'impact claims retain every approved category source');
   });
 
   test('Spec 028 T041 — parent follow-up uses gap priority and suppresses repeated tools', () => {

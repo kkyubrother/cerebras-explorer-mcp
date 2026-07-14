@@ -8,6 +8,8 @@
 export const DEFAULT_HTTP_TIMEOUT_MS = 60000;
 export const BASE_RETRY_DELAY_MS = 500;
 export const MAX_RETRY_DELAY_MS = 32000;
+const RATE_LIMIT_RETRY_DELAY_MS = 15000;
+const MAX_RETRY_AFTER_SECONDS = 120;
 
 // Cerebras docs: 408, 429, >=500 are retried by default.
 // See: https://inference-docs.cerebras.ai/api-reference/error-codes
@@ -39,6 +41,7 @@ function annotateProviderFailure(error, {
   retryable = false,
   attemptCount = 1,
   code = null,
+  retryAfterSeconds = null,
 } = {}) {
   if (!error || typeof error !== 'object') return error;
   error.httpStatus = Number.isInteger(httpStatus) ? httpStatus : null;
@@ -46,7 +49,24 @@ function annotateProviderFailure(error, {
   error.attemptCount = Number.isInteger(attemptCount) && attemptCount > 0 ? attemptCount : 1;
   const safeCode = providerErrorCode(code);
   if (safeCode) error.providerCode = safeCode;
+  if (Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0) {
+    error.retryAfterSeconds = Math.ceil(retryAfterSeconds);
+  }
   return error;
+}
+
+function getRetryAfterSeconds(response) {
+  if (!response?.headers) return null;
+  const retryAfter = response.headers.get('retry-after');
+  if (!retryAfter) return null;
+
+  const seconds = Number(retryAfter);
+  if (Number.isFinite(seconds) && seconds > 0) return seconds;
+
+  const retryAt = Date.parse(retryAfter);
+  if (!Number.isFinite(retryAt)) return null;
+  const remainingSeconds = (retryAt - Date.now()) / 1000;
+  return remainingSeconds > 0 ? remainingSeconds : null;
 }
 
 /**
@@ -59,14 +79,13 @@ function annotateProviderFailure(error, {
  */
 function getRetryDelay(attempt, response) {
   // Honor Retry-After header if present
-  if (response?.headers) {
-    const retryAfter = response.headers.get('retry-after');
-    if (retryAfter) {
-      const seconds = Number(retryAfter);
-      if (Number.isFinite(seconds) && seconds > 0 && seconds <= 120) {
-        return seconds * 1000;
-      }
-    }
+  const retryAfterSeconds = getRetryAfterSeconds(response);
+  if (retryAfterSeconds !== null && retryAfterSeconds <= MAX_RETRY_AFTER_SECONDS) {
+    return retryAfterSeconds * 1000;
+  }
+
+  if (response?.status === 429) {
+    return Math.min(RATE_LIMIT_RETRY_DELAY_MS * Math.pow(2, attempt), MAX_RETRY_DELAY_MS);
   }
 
   // Exponential backoff: 500ms, 1s, 2s, 4s, ... capped at 32s
@@ -74,6 +93,28 @@ function getRetryDelay(attempt, response) {
   // Add 0-25% jitter to prevent thundering herd
   const jitter = baseDelay * Math.random() * 0.25;
   return Math.round(baseDelay + jitter);
+}
+
+function waitForRetryDelay(delay, externalSignal, errorPrefix) {
+  if (externalSignal?.aborted) {
+    const error = new Error(`${errorPrefix} request cancelled`);
+    error.name = 'AbortError';
+    return Promise.reject(error);
+  }
+  if (!externalSignal) return new Promise(resolve => setTimeout(resolve, delay));
+  return new Promise((resolve, reject) => {
+    const timeoutId = setTimeout(() => {
+      externalSignal.removeEventListener('abort', onAbort);
+      resolve();
+    }, delay);
+    const onAbort = () => {
+      clearTimeout(timeoutId);
+      const error = new Error(`${errorPrefix} request cancelled`);
+      error.name = 'AbortError';
+      reject(error);
+    };
+    externalSignal.addEventListener('abort', onAbort, { once: true });
+  });
 }
 
 /**
@@ -162,7 +203,7 @@ export async function fetchWithTimeoutAndRetry(fetchImpl, url, init, {
           { retryable: true, attemptCount: attempt + 1 },
         );
         const delay = getRetryDelay(attempt);
-        await new Promise(resolve => setTimeout(resolve, delay));
+        await waitForRetryDelay(delay, externalSignal, errorPrefix);
         continue;
       }
       if (error.name === 'AbortError' || timedOut) {
@@ -208,10 +249,12 @@ export async function fetchWithTimeoutAndRetry(fetchImpl, url, init, {
       retryable: true,
       attemptCount: attempt + 1,
       code: errorCode,
+      retryAfterSeconds: getRetryAfterSeconds(response),
     });
     if (attempt < maxRetries) {
+      if (lastError.retryAfterSeconds > MAX_RETRY_AFTER_SECONDS) break;
       const delay = getRetryDelay(attempt, response);
-      await new Promise(resolve => setTimeout(resolve, delay));
+      await waitForRetryDelay(delay, externalSignal, errorPrefix);
     }
   }
 

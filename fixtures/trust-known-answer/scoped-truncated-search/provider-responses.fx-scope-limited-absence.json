@@ -160,7 +160,7 @@
                 "id": "C1",
                 "subgoalId": "S1",
                 "text": "The bounded scope registers /primary and /secondary.",
-                "evidenceRefs": ["E1", "E2"]
+                "evidenceRefs": ["E1", "E2", "E3"]
               },
               {
                 "id": "C2",
@@ -184,7 +184,7 @@
                 "claimId": "C1",
                 "result": "supported",
                 "resolution": "affirmed",
-                "supportingEvidenceRefs": ["E1", "E2"],
+                "supportingEvidenceRefs": ["E1", "E2", "E3"],
                 "reasonCode": "entailed",
                 "note": "The two current source files independently show the primary and secondary route registrations."
               },

@@ -1797,6 +1797,14 @@ test('Spec 028 T016 — auditor verdicts are categorical and merge rules are str
   assert.throws(() => validateAuditor(auditorResponse([
     goalAudit(second, 'merge_duplicate', { mergeInto: 'missing-goal' }),
   ]), proposal), 'the merge target must be an existing proposal');
+  assert.doesNotThrow(() => validateAuditor(auditorResponse([
+    goalAudit(second, 'merge_duplicate', { mergeInto: 'existing-audited-goal' }),
+  ]), proposal, { externalMergeTargetIds: ['existing-audited-goal'] }),
+  'late audit may explicitly merge into an allow-listed immutable goal');
+  assert.throws(() => validateAuditor(auditorResponse([
+    goalAudit(second, 'merge_duplicate', { mergeInto: 'other-existing-goal' }),
+  ]), proposal, { externalMergeTargetIds: ['existing-audited-goal'] }),
+  'an external merge target must be explicitly allow-listed');
   assert.throws(() => validateAuditor(auditorResponse([
     goalAudit(first, 'ready'),
     goalAudit(first, 'blocked_scope'),

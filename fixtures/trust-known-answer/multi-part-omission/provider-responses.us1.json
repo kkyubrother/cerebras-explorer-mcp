@@ -107,13 +107,6 @@
           "content": {
             "goals": [
               {
-                "proposedGoalId": "S1",
-                "verdict": "ready",
-                "originRefs": ["request:12-34"],
-                "missingRequestParts": [],
-                "reason": "The implementation is directly observable."
-              },
-              {
                 "proposedGoalId": "S2",
                 "verdict": "ready",
                 "originRefs": ["request:36-44"],
