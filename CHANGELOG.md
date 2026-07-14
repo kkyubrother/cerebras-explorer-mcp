@@ -62,7 +62,9 @@ compatibility aliases or selectable effort controls are retained.
   before execution, so a mistaken grep `path` cannot silently widen into a
   repository-wide search. Cancellation interrupts retry waits, and day-scale
   `Retry-After` responses are recorded without repeating a request that cannot
-  succeed inside the bounded parent call.
+  succeed inside the bounded parent call. Live trust batches stop after the
+  first provider failure while retaining every remaining case and repeat as an
+  explicit `provider_unavailable` non-run in the report denominator.
 - **Independent acceptance**: pinned known-answer fixtures and repositories,
   an oracle independent of Explorer output, three-run repeatability, portable
   parent-observation records, payload measurement, and live Cerebras checks

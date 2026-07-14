@@ -14,6 +14,7 @@ import {
   fixtureTreeSha256,
   parseArgs,
   prepareFixtureRepository,
+  printCase,
   repeatCountForCase,
   runTrustSuite,
   sanitizeTrustArtifact,
@@ -205,4 +206,129 @@ test('Spec 028 T068 — portable fixture results replay and payload metrics bind
       );
     }
   }
+});
+
+test('Spec 028 T069 — live provider failure stops the remaining batch without hiding its denominator', async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'trust-provider-stop-'));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const repoRoot = path.join(root, 'repo');
+  await fs.mkdir(repoRoot);
+  const git = (...args) => execFileAsync('git', ['-C', repoRoot, ...args], { windowsHide: true });
+  await git('init', '--quiet');
+  await git('config', 'user.email', 'trust@example.invalid');
+  await git('config', 'user.name', 'Trust Runner');
+  await git('config', 'commit.gpgsign', 'false');
+  await fs.writeFile(path.join(repoRoot, 'tracked.txt'), 'pinned\n');
+  await git('add', 'tracked.txt');
+  await git('commit', '--quiet', '-m', 'fixture');
+  const { stdout } = await git('rev-parse', 'HEAD');
+  const repoSha = stdout.trim();
+
+  const oracle = {
+    expectedGoals: [],
+    allowedClaims: [],
+    forbiddenClaims: [],
+    evidenceAnchors: [],
+    boundary: { claimScope: ['.'] },
+  };
+  const manifest = {
+    name: 'provider-stop-fixture',
+    sources: {
+      repo: {
+        kind: 'repository',
+        repoId: 'provider-stop-repo',
+        gitSha: repoSha,
+        dirtyTreeSha256: EMPTY_SHA256,
+      },
+    },
+    cases: ['provider-first', 'must-not-start'].map(id => ({
+      id,
+      sourceRef: 'repo',
+      repeatCount: 3,
+      livePolicy: { profile: 'fail_closed_anchor_or_gap_v1' },
+      invocation: { tool: 'explore_repo', args: { task: `Run ${id}` } },
+      oracle,
+    })),
+  };
+  const suitePath = path.join(root, 'suite.json');
+  const repoMapPath = path.join(root, 'repo-map.json');
+  await fs.writeFile(suitePath, JSON.stringify(manifest));
+  await fs.writeFile(repoMapPath, JSON.stringify({ 'provider-stop-repo': repoRoot }));
+
+  const calls = [];
+  const report = await runTrustSuite({
+    suite: suitePath,
+    mode: 'live',
+    repoMap: repoMapPath,
+    output: null,
+    repeats: 3,
+    verbose: false,
+    measurePayload: false,
+    help: false,
+  }, {
+    runLiveCase: async caseDefinition => {
+      calls.push(caseDefinition.id);
+      return {
+        failure: {
+          category: 'provider',
+          reason: 'provider_error',
+          message: 'sensitive upstream detail must not reach verbose output',
+        },
+        parentHandoff: {
+          schemaVersion: 3,
+          state: 'failed',
+          directAnswer: 'The provider request failed.',
+          failure: { reason: 'provider_error' },
+        },
+        stats: {},
+      };
+    },
+  });
+
+  assert.deepEqual(calls, ['provider-first']);
+  assert.deepEqual(report.cases[0].providerFailure, {
+    category: 'provider',
+    reason: 'provider_error',
+  });
+  assert.equal(report.cases[0].runs.length, 3);
+  assert.equal(report.cases[0].runs[0].notRun, undefined);
+  assert.deepEqual(report.cases[0].runs.slice(1).map(run => run.notRun?.reason), [
+    'provider_unavailable',
+    'provider_unavailable',
+  ]);
+  assert.equal(report.cases[1].notRun.reason, 'provider_unavailable');
+  assert.deepEqual(report.cases[1].runs.map(run => run.notRun?.reason), [
+    'provider_unavailable',
+    'provider_unavailable',
+    'provider_unavailable',
+  ]);
+  assert.deepEqual({
+    selectedCaseCount: report.summary.selectedCaseCount,
+    executedCaseCount: report.summary.executedCaseCount,
+    notRunCaseCount: report.summary.notRunCaseCount,
+    plannedRunCount: report.summary.plannedRunCount,
+    executedRunCount: report.summary.executedRunCount,
+    notRunRunCount: report.summary.notRunRunCount,
+  }, {
+    selectedCaseCount: 2,
+    executedCaseCount: 1,
+    notRunCaseCount: 1,
+    plannedRunCount: 6,
+    executedRunCount: 1,
+    notRunRunCount: 5,
+  });
+  assert.equal(report.summary.failedCaseCount, 1);
+  assert.equal(report.summary.passed, false);
+
+  const verboseLines = [];
+  const originalLog = console.log;
+  try {
+    console.log = (...values) => verboseLines.push(values.join(' '));
+    printCase(report.cases[0], true);
+    printCase(report.cases[1], true);
+  } finally {
+    console.log = originalLog;
+  }
+  assert.equal(verboseLines.some(line => line.includes('provider=provider/provider_error')), true);
+  assert.equal(verboseLines.some(line => line.includes('sensitive upstream detail')), false);
 });

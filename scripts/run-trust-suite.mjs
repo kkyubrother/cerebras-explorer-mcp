@@ -691,11 +691,56 @@ function median(values) {
     : (sorted[middle - 1] + sorted[middle]) / 2;
 }
 
-async function runCase({ manifest, caseDefinition, source, mode, repoRoot, pinData, options }) {
+function providerFailureSummary(result) {
+  if (result?.failure?.category !== 'provider') return null;
+  return {
+    category: 'provider',
+    reason: typeof result.failure.reason === 'string' && result.failure.reason
+      ? result.failure.reason
+      : 'provider_error',
+  };
+}
+
+function providerUnavailableRun(run) {
+  return {
+    run,
+    notRun: { reason: 'provider_unavailable' },
+  };
+}
+
+function providerUnavailableCase(caseDefinition, source, options, providerFailure) {
+  const runCount = repeatCountForCase(caseDefinition, options.repeats);
+  return {
+    id: caseDefinition.id,
+    repoId: source.repoId,
+    tool: caseDefinition.invocation?.tool,
+    evaluationProfile: evaluationOptionsForCase('live', caseDefinition).profile,
+    passed: false,
+    runCount,
+    executedRunCount: 0,
+    notRun: {
+      reason: 'provider_unavailable',
+      provider: providerFailure,
+    },
+    runs: Array.from({ length: runCount }, (_, index) => providerUnavailableRun(index + 1)),
+  };
+}
+
+async function runCase({
+  manifest,
+  caseDefinition,
+  source,
+  mode,
+  repoRoot,
+  pinData,
+  options,
+  runLiveCase,
+}) {
   const runCount = repeatCountForCase(caseDefinition, options.repeats);
   const evaluationOptions = evaluationOptionsForCase(mode, caseDefinition);
   const artifacts = [];
   const runs = [];
+  let providerFailure = null;
   for (let index = 0; index < runCount; index += 1) {
     const startedAt = Date.now();
     let result;
@@ -703,7 +748,7 @@ async function runCase({ manifest, caseDefinition, source, mode, repoRoot, pinDa
     try {
       result = mode === 'fixture'
         ? await runFixture(caseDefinition, repoRoot, pinData.providerDocument)
-        : await runLive(caseDefinition, repoRoot);
+        : await runLiveCase(caseDefinition, repoRoot);
     } catch (error) {
       runnerError = error;
       result = {};
@@ -726,6 +771,11 @@ async function runCase({ manifest, caseDefinition, source, mode, repoRoot, pinDa
       } : {}),
       artifact: sanitizeTrustArtifact(result, { repoRoot, repoId: source.repoId }),
     });
+    if (mode === 'live') providerFailure = providerFailureSummary(result);
+    if (providerFailure) break;
+  }
+  for (let index = runs.length; index < runCount; index += 1) {
+    runs.push(providerUnavailableRun(index + 1));
   }
 
   const repeatability = evaluateTrustRepeatability(
@@ -741,23 +791,41 @@ async function runCase({ manifest, caseDefinition, source, mode, repoRoot, pinDa
     evaluationProfile: evaluationOptions.profile,
     pin: pinData.pin,
     runCount,
-    passed: pinData.pin.matched && repeatability.passed && !hasHarnessFailure,
+    executedRunCount: artifacts.length,
+    passed: pinData.pin.matched && repeatability.passed && !hasHarnessFailure && !providerFailure,
     repeatability: withoutRepeatedRuns(repeatability),
     runs,
+    ...(providerFailure ? { providerFailure } : {}),
   };
 }
 
-function printCase(caseResult, verbose) {
-  const status = caseResult.passed ? 'PASS' : caseResult.skipped ? 'SKIP' : 'FAIL';
+export function printCase(caseResult, verbose) {
+  const status = caseResult.passed
+    ? 'PASS'
+    : caseResult.skipped
+      ? 'SKIP'
+      : caseResult.notRun
+        ? 'NOT_RUN'
+        : 'FAIL';
   console.log(`${status} ${caseResult.id}  repo=${caseResult.repoId ?? 'unmapped'}${
-    caseResult.runCount ? `  runs=${caseResult.runCount}` : ''}`);
+    caseResult.runCount ? `  runs=${caseResult.runCount}` : ''}${
+    Number.isInteger(caseResult.executedRunCount)
+      ? `  attempted=${caseResult.executedRunCount}`
+      : ''}`);
   if (!verbose) return;
   if (caseResult.reason) console.log(`  ${caseResult.reason}`);
+  if (caseResult.notRun) console.log(`  not_run=${caseResult.notRun.reason}`);
+  if (caseResult.providerFailure) {
+    console.log(`  provider=${caseResult.providerFailure.category}/${caseResult.providerFailure.reason}`);
+  } else if (caseResult.notRun?.provider) {
+    console.log(`  provider=${caseResult.notRun.provider.category}/${caseResult.notRun.provider.reason}`);
+  }
   if (caseResult.pin && !caseResult.pin.matched) console.log('  source pin mismatch');
   for (const violation of caseResult.repeatability?.violations ?? []) {
     console.log(`  ${violation.code}`);
   }
   for (const run of caseResult.runs ?? []) {
+    if (run.notRun) continue;
     const usage = run.recordOnly.usage;
     console.log(`  run=${run.run} state=${run.evaluation.observedState} ` +
       `latency=${run.recordOnly.latencyMs}ms tokens=${usage.totalTokens}`);
@@ -769,17 +837,26 @@ function printCase(caseResult, verbose) {
 }
 
 function summarize(caseResults) {
-  const executed = caseResults.filter(item => !item.skipped);
-  const reductions = executed.flatMap(item => item.runs ?? [])
+  const skipped = caseResults.filter(item => item.skipped);
+  const notRun = caseResults.filter(item => item.notRun);
+  const executed = caseResults.filter(item => !item.skipped && !item.notRun);
+  const runs = caseResults.flatMap(item => item.runs ?? []);
+  const executedRuns = runs.filter(run => !run.notRun);
+  const notRunRuns = runs.filter(run => run.notRun);
+  const reductions = executedRuns
     .map(run => run.payload?.reductionRatio)
     .filter(Number.isFinite);
   return {
     selectedCaseCount: caseResults.length,
     executedCaseCount: executed.length,
-    skippedCaseCount: caseResults.length - executed.length,
+    skippedCaseCount: skipped.length,
+    notRunCaseCount: notRun.length,
     passedCaseCount: executed.filter(item => item.passed).length,
     failedCaseCount: executed.filter(item => !item.passed).length,
-    passed: executed.length > 0 && executed.every(item => item.passed),
+    plannedRunCount: runs.length,
+    executedRunCount: executedRuns.length,
+    notRunRunCount: notRunRuns.length,
+    passed: executed.length > 0 && notRun.length === 0 && executed.every(item => item.passed),
     ...(reductions.length > 0 ? {
       payload: {
         comparedRunCount: reductions.length,
@@ -787,23 +864,35 @@ function summarize(caseResults) {
       },
     } : {}),
     recordOnly: {
-      latencyMs: executed.flatMap(item => item.runs ?? [])
+      latencyMs: executedRuns
         .reduce((sum, run) => sum + run.recordOnly.latencyMs, 0),
-      totalTokens: executed.flatMap(item => item.runs ?? [])
+      totalTokens: executedRuns
         .reduce((sum, run) => sum + run.recordOnly.usage.totalTokens, 0),
     },
   };
 }
 
-export async function runTrustSuite(options) {
+export async function runTrustSuite(options, { runLiveCase = runLive } = {}) {
   const manifest = await loadManifest(options.suite);
   const repoMap = options.mode === 'live' ? await loadRepoMap(options.repoMap) : null;
   const selected = selectCases(manifest, options.mode);
   if (selected.length === 0) throw new Error(`No ${options.mode} cases are runnable.`);
 
   const caseResults = [];
+  let providerUnavailable = null;
   for (const caseDefinition of selected) {
     const source = manifest.sources[caseDefinition.sourceRef];
+    if (options.mode === 'live' && providerUnavailable) {
+      const notRun = providerUnavailableCase(
+        caseDefinition,
+        source,
+        options,
+        providerUnavailable,
+      );
+      caseResults.push(notRun);
+      printCase(notRun, options.verbose);
+      continue;
+    }
     let repoRoot = null;
     if (options.mode === 'live') {
       repoRoot = mappedRepoRoot(source, repoMap);
@@ -880,9 +969,13 @@ export async function runTrustSuite(options) {
         repoRoot: prepared.repoRoot,
         pinData,
         options,
+        runLiveCase,
       });
       caseResults.push(caseResult);
       printCase(caseResult, options.verbose);
+      if (options.mode === 'live' && caseResult.providerFailure) {
+        providerUnavailable = caseResult.providerFailure;
+      }
     } catch (error) {
       const failed = {
         id: caseDefinition.id,
@@ -945,7 +1038,9 @@ async function main() {
   }
   const summary = report.summary;
   console.log(`${summary.passed ? 'PASS' : 'FAIL'} ${report.suite} (${report.mode}) ` +
-    `${summary.passedCaseCount}/${summary.executedCaseCount} cases; ${summary.skippedCaseCount} skipped`);
+    `${summary.passedCaseCount}/${summary.selectedCaseCount} selected cases; ` +
+    `${summary.executedCaseCount} executed; ${summary.skippedCaseCount} skipped; ` +
+    `${summary.notRunCaseCount} not run`);
   if (summary.payload) {
     console.log(`Payload median reduction: ${Math.round(summary.payload.medianReductionRatio * 100)}%`);
   }
