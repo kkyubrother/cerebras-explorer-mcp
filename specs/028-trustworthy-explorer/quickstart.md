@@ -142,6 +142,7 @@ Expected:
 - No successful payload includes empty arrays/objects, candidate inventories, search counters, critic details, confidence summaries, provider/model, token usage, or timing.
 - Each retained wrapper passes its distinct proof-policy case.
 - Removed review/report cases are replaced by general structured fallback cases rather than silently deleted from behavioral coverage.
+- If an adoption case fails with `provider_error`, no later case calls the unavailable provider; every remaining case stays in the denominator as `notRun.reason=provider_unavailable`, and the run remains non-zero.
 
 ## 7. Run the parent-observation harness
 

@@ -75,7 +75,9 @@ compatibility aliases or selectable effort controls are retained.
   `Retry-After` responses are recorded without repeating a request that cannot
   succeed inside the bounded parent call. Live trust batches stop after the
   first provider failure while retaining every remaining case and repeat as an
-  explicit `provider_unavailable` non-run in the report denominator.
+  explicit `provider_unavailable` non-run in the report denominator. The
+  adoption benchmark applies the same stop policy instead of spending more
+  provider calls on cases that cannot start.
 - **Independent acceptance**: pinned known-answer fixtures and repositories,
   an oracle independent of Explorer output, three-run fixture repeatability,
   portable parent-observation records, and payload measurement cover false

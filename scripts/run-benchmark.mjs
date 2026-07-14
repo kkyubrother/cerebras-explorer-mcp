@@ -116,7 +116,11 @@ async function runCase(handleRequest, caseDefinition, repoRoot) {
 
   if (response?.isError) {
     const message = response.content?.map(item => item.text).join('\n') || 'Unknown tool error';
-    throw new Error(message);
+    const error = new Error(message);
+    error.failureReason = response.structuredContent?.state === 'failed'
+      ? response.structuredContent.failure?.reason
+      : undefined;
+    throw error;
   }
 
   const ops = response._meta?.ops ?? null;
@@ -296,6 +300,31 @@ export function computeExtendedMetrics(caseResults) {
   };
 }
 
+function failedCaseResult(caseDefinition, { error, notRun } = {}) {
+  const result = {
+    caseDefinition,
+    elapsedMs: 0,
+    result: null,
+    evaluation: {
+      id: caseDefinition.id,
+      description: caseDefinition.description ?? '',
+      score: 0,
+      passScore: caseDefinition.passScore,
+      passed: false,
+      expectations: [],
+      checks: [],
+    },
+    transcriptMetrics: null,
+    ops: null,
+    effectMetrics: null,
+    citation: null,
+    targetRead: null,
+  };
+  if (error) result.error = error;
+  if (notRun) result.notRun = notRun;
+  return result;
+}
+
 function printCaseResult(caseResult, verbose) {
   const { caseDefinition, evaluation, elapsedMs, result } = caseResult;
   const status = evaluation.passed ? 'PASS' : 'FAIL';
@@ -373,6 +402,7 @@ async function main() {
     const handleRequest = await createHandler(() => {});
     const provenance = options.output ? buildExecutionProvenance() : null;
     const caseResults = [];
+    let providerUnavailable = false;
     const displayRepoRoot = sanitizePathForReport(repoRoot, { repoRoot });
     const displaySuitePath = sanitizePathForReport(suitePath, { repoRoot });
 
@@ -386,6 +416,14 @@ async function main() {
         ...suiteCase,
         passScore: suiteCase.passScore ?? suite.defaultPassScore ?? 0.7,
       };
+      if (providerUnavailable) {
+        const notRun = failedCaseResult(caseDefinition, {
+          notRun: { reason: 'provider_unavailable' },
+        });
+        caseResults.push(notRun);
+        console.log(`NOT_RUN ${caseDefinition.id}  reason=provider_unavailable`);
+        continue;
+      }
       try {
         const {
           result,
@@ -420,30 +458,12 @@ async function main() {
         caseResults.push(caseResult);
         printCaseResult(caseResult, options.verbose);
       } catch (error) {
-        const failed = {
-          caseDefinition,
-          elapsedMs: 0,
-          result: null,
-          evaluation: {
-            id: caseDefinition.id,
-            description: caseDefinition.description ?? '',
-            score: 0,
-            passScore: caseDefinition.passScore,
-            passed: false,
-            expectations: [],
-            checks: [],
-          },
-          transcriptMetrics: null,
-          ops: null,
-          effectMetrics: null,
-          citation: null,
-          targetRead: null,
-          error: error.message,
-        };
+        const failed = failedCaseResult(caseDefinition, { error: error.message });
         caseResults.push(failed);
         console.log(`FAIL ${caseDefinition.id}  score=0%  elapsed=0ms`);
         console.log(`  ${caseDefinition.description}`);
         console.log(`  error=${error.message}`);
+        if (error.failureReason === 'provider_error') providerUnavailable = true;
       }
     }
 
