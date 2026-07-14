@@ -183,7 +183,7 @@
 
 **Purpose**: Prove the feature independently, synchronize the breaking release, and close the plan without weakening gates.
 
-- [ ] T064 Extend independent oracle evaluation for goal audit, required coverage, semantic support, state, absence boundary, source/temporal role, rejected-goal leakage, and repeatability in `src/benchmark/evaluator.mjs` and `tests/benchmark-evaluator.test.mjs`
+- [x] T064 Extend independent oracle evaluation for goal audit, required coverage, semantic support, state, absence boundary, source/temporal role, rejected-goal leakage, and repeatability in `src/benchmark/evaluator.mjs` and `tests/benchmark-evaluator.test.mjs`
 - [ ] T065 [P] Implement the pinned fixture/live repeat driver with logical repo ids, SHA/dirty hashes, redacted result paths, and record-only usage/latency in `scripts/run-trust-suite.mjs`
 - [ ] T066 [P] Implement the parent-observation harness and fixed broad-native-research denominator/allowance metrics in `scripts/run-parent-observation.mjs`
 - [ ] T067 Update payload, citation, target-read, wrapper-distinctness, safety-limit incidence, and parent-effect metrics without self-reported trust scoring in `src/benchmark/effect-metrics.mjs`, `src/benchmark/transcript-metrics.mjs`, `scripts/run-benchmark.mjs`, and `tests/effect-metrics.test.mjs`

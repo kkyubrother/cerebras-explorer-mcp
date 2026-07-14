@@ -8,6 +8,8 @@ import { fileURLToPath } from 'node:url';
 import {
   evaluateBenchmarkCase,
   evaluateKnownBadBaseline,
+  evaluateTrustCase,
+  evaluateTrustRepeatability,
   summarizeBenchmarkSuite,
 } from '../src/benchmark/evaluator.mjs';
 
@@ -1478,6 +1480,314 @@ test('Spec 028 T052 — report benchmark entry points migrate to structured suit
   assert.equal(fallbackCase?.tool, 'explore_repo');
   assert.equal(typeof fallbackCase?.args?.task, 'string');
   assert.doesNotMatch(JSON.stringify(adoption), /buildReportCritic|review_change_context/);
+});
+
+function trustOracleCase() {
+  return {
+    id: 'independent-trust-case',
+    repeatCount: 3,
+    oracle: {
+      expectedState: 'complete',
+      expectedGoals: [
+        {
+          id: 'G1',
+          question: 'How is access checked?',
+          claimType: 'positive',
+          expectedResolution: 'supported',
+          evidenceAnchorRefs: ['A-source'],
+          anchorPolicy: 'all',
+        },
+        {
+          id: 'G2',
+          question: 'Are there any other checks in scope?',
+          claimType: 'absence',
+          expectedResolution: 'supported',
+          evidenceAnchorRefs: ['A-source'],
+          anchorPolicy: 'all',
+        },
+      ],
+      expectedGoalAudits: [
+        { proposalRef: 'S1', verdict: 'ready', required: true },
+        {
+          proposalRef: 'S-invented',
+          verdict: 'reject_untraceable',
+          required: false,
+          mustNotLeak: true,
+        },
+      ],
+      allowedClaims: [
+        {
+          id: 'C-allowed-1',
+          goalId: 'G1',
+          text: 'Access is checked by requireUser.',
+          evidenceAnchorRefs: ['A-source'],
+        },
+        {
+          id: 'C-allowed-2',
+          goalId: 'G2',
+          text: 'No other access check exists within src/**.',
+          evidenceAnchorRefs: ['A-source'],
+        },
+      ],
+      forbiddenClaims: [{
+        id: 'C-forbidden',
+        goalId: 'G2',
+        text: 'No other access check exists in the repository.',
+      }],
+      evidenceAnchors: [{
+        id: 'A-source',
+        kind: 'source',
+        path: 'src/auth.mjs',
+        startLine: 4,
+        endLine: 6,
+        sourceRole: 'implementation',
+        temporalRole: 'current',
+      }],
+      boundary: {
+        repoId: 'fixture-auth',
+        scope: ['src/**'],
+        claimScope: ['src/**'],
+      },
+    },
+  };
+}
+
+function passingTrustArtifact() {
+  const directAnswer = [
+    'Access is checked by requireUser.',
+    'No other access check exists within src/**.',
+  ].join('\n');
+  const source = {
+    id: 'E-source',
+    kind: 'source',
+    path: 'src/auth.mjs',
+    startLine: 4,
+    endLine: 6,
+    snippet: '4: export function requireUser() {\n5:   return true;\n6: }',
+    rangeGrounding: 'exact',
+    sourceRole: 'implementation',
+    temporalRole: 'current',
+  };
+  const search = {
+    id: 'E-search',
+    kind: 'search',
+    tool: 'repo_grep',
+    boundary: ['src/**'],
+    matchCount: 0,
+    toolTruncated: false,
+    contextTruncated: false,
+    omittedOutOfScopeFiles: 0,
+    deniedPaths: 0,
+    errors: 0,
+    enumerationComplete: true,
+  };
+  return {
+    goalAuditRecords: [
+      { proposedGoalId: 'S1', verdict: 'ready' },
+      { proposedGoalId: 'S-invented', verdict: 'reject_untraceable' },
+    ],
+    result: {
+      parentHandoff: {
+        schemaVersion: 3,
+        state: 'complete',
+        directAnswer,
+        evidence: [
+          {
+            id: 'P-source',
+            kind: 'source',
+            path: 'src/auth.mjs',
+            startLine: 4,
+            endLine: 6,
+            snippet: source.snippet,
+            supports: 'Access check.',
+          },
+          {
+            id: 'P-absence',
+            kind: 'absence',
+            boundary: ['src/**'],
+            searches: ['access check'],
+            supports: 'Bounded absence.',
+          },
+        ],
+      },
+      taskContract: {
+        subgoals: [
+          {
+            id: 'S1',
+            question: 'How is access checked?',
+            claimType: 'positive',
+            auditVerdict: 'ready',
+            state: 'supported',
+            resolution: 'affirmed',
+          },
+          {
+            id: 'S2',
+            question: 'Are there any other checks in scope?',
+            claimType: 'absence',
+            auditVerdict: 'ready',
+            state: 'supported',
+            resolution: 'affirmed',
+          },
+        ],
+      },
+      observations: [source, search],
+      rejectedGoals: [{
+        proposedGoalId: 'S-invented',
+        verdict: 'reject_untraceable',
+        question: 'Invent a migration plan.',
+      }],
+      semanticVerification: {
+        score: 1,
+        claims: [
+          {
+            id: 'C1',
+            subgoalId: 'S1',
+            text: 'Access is checked by requireUser.',
+            evidenceRefs: ['E-source'],
+            verdict: 'supported',
+          },
+          {
+            id: 'C2',
+            subgoalId: 'S2',
+            text: 'No other access check exists within src/**.',
+            evidenceRefs: ['E-source', 'E-search'],
+            verdict: 'supported',
+          },
+        ],
+        verdicts: [
+          {
+            claimId: 'C1',
+            result: 'supported',
+            resolution: 'affirmed',
+            supportingEvidenceRefs: ['E-source'],
+          },
+          {
+            claimId: 'C2',
+            result: 'supported',
+            resolution: 'affirmed',
+            supportingEvidenceRefs: ['E-source', 'E-search'],
+          },
+        ],
+        absenceCertificates: [{
+          id: 'P-absence',
+          subgoalId: 'S2',
+          claimBoundary: ['src/**'],
+          searchRefs: ['E-search'],
+          searchSummary: ['access check'],
+          complete: true,
+          zeroMatches: true,
+        }],
+      },
+    },
+  };
+}
+
+function violationCodes(evaluation) {
+  return evaluation.violations.map(item => item.code);
+}
+
+test('Spec 028 T064 — independent trust evaluator covers audits, goals, claims, state, absence, and roles', () => {
+  const evaluation = evaluateTrustCase(trustOracleCase(), passingTrustArtifact());
+  assert.equal(evaluation.passed, true);
+  assert.equal(evaluation.observedState, 'complete');
+  assert.deepEqual(evaluation.violations, []);
+  assert.equal(typeof evaluation.repeatabilitySignature, 'string');
+});
+
+test('Spec 028 T064 — goal audit and required-goal coverage use the external oracle', () => {
+  const artifact = passingTrustArtifact();
+  artifact.goalAuditRecords[0].verdict = 'blocked_scope';
+  artifact.result.taskContract.subgoals.pop();
+
+  const codes = violationCodes(evaluateTrustCase(trustOracleCase(), artifact));
+  assert.ok(codes.includes('GOAL_AUDIT_MISMATCH'));
+  assert.ok(codes.includes('REQUIRED_GOAL_MISSING'));
+});
+
+test('Spec 028 T064 — semantic support never trusts explorer scores or grounding labels', () => {
+  for (const mutation of [
+    observation => { observation.sourceRole = 'documentation'; },
+    observation => { observation.temporalRole = 'historical'; },
+  ]) {
+    const artifact = passingTrustArtifact();
+    mutation(artifact.result.observations[0]);
+    artifact.result.observations[0].rangeGrounding = 'exact';
+    artifact.result.semanticVerification.score = 1;
+
+    const evaluation = evaluateTrustCase(trustOracleCase(), artifact);
+    assert.equal(evaluation.passed, false);
+    assert.ok(violationCodes(evaluation).includes('CLAIM_EVIDENCE_UNSUPPORTED'));
+  }
+});
+
+test('Spec 028 T064 — absence certification is recomputed from boundary and search facts', () => {
+  const boundaryMismatch = passingTrustArtifact();
+  boundaryMismatch.result.semanticVerification.absenceCertificates[0].claimBoundary = ['src/auth.mjs'];
+  assert.ok(violationCodes(evaluateTrustCase(trustOracleCase(), boundaryMismatch))
+    .includes('ABSENCE_BOUNDARY_MISMATCH'));
+
+  const truncated = passingTrustArtifact();
+  truncated.result.observations.find(item => item.kind === 'search').toolTruncated = true;
+  assert.ok(violationCodes(evaluateTrustCase(trustOracleCase(), truncated))
+    .includes('ABSENCE_SEARCH_INCOMPLETE'));
+
+  const nonzero = passingTrustArtifact();
+  nonzero.result.observations.find(item => item.kind === 'search').matchCount = 1;
+  assert.ok(violationCodes(evaluateTrustCase(trustOracleCase(), nonzero))
+    .includes('ABSENCE_SEARCH_INCOMPLETE'));
+});
+
+test('Spec 028 T064 — rejected goals may remain diagnostic but cannot leak into required/public state', () => {
+  const artifact = passingTrustArtifact();
+  artifact.result.taskContract.subgoals.push({
+    id: 'S-invented',
+    question: 'Invent a migration plan.',
+    claimType: 'impact',
+    auditVerdict: 'ready',
+    state: 'supported',
+    resolution: 'affirmed',
+  });
+  artifact.result.parentHandoff.directAnswer += '\nInvent a migration plan.';
+
+  const codes = violationCodes(evaluateTrustCase(trustOracleCase(), artifact));
+  assert.ok(codes.includes('UNEXPECTED_REQUIRED_GOAL'));
+  assert.ok(codes.includes('REJECTED_GOAL_LEAKED'));
+});
+
+test('Spec 028 T064 — public state is checked against both oracle and required-goal reduction', () => {
+  const artifact = passingTrustArtifact();
+  artifact.result.taskContract.subgoals[1].state = 'gap';
+  delete artifact.result.taskContract.subgoals[1].resolution;
+
+  const codes = violationCodes(evaluateTrustCase(trustOracleCase(), artifact));
+  assert.ok(codes.includes('REQUIRED_GOAL_RESOLUTION_MISMATCH'));
+  assert.ok(codes.includes('STATE_REDUCTION_MISMATCH'));
+});
+
+test('Spec 028 T064 — repeatability ignores optional evidence but pins state, goal resolution, and claims', () => {
+  const runs = [passingTrustArtifact(), passingTrustArtifact(), passingTrustArtifact()];
+  runs[1].result.observations.reverse();
+  runs[1].result.parentHandoff.evidence.reverse();
+  runs[2].result.observations.push({
+    id: 'E-optional',
+    kind: 'source',
+    path: 'src/optional.mjs',
+    startLine: 1,
+    endLine: 1,
+    sourceRole: 'implementation',
+    temporalRole: 'current',
+  });
+
+  const stable = evaluateTrustRepeatability(trustOracleCase(), runs);
+  assert.equal(stable.passed, true);
+  assert.equal(new Set(stable.signatures).size, 1);
+
+  runs[2].result.taskContract.subgoals[1].state = 'gap';
+  delete runs[2].result.taskContract.subgoals[1].resolution;
+  runs[2].result.parentHandoff.state = 'incomplete';
+  const unstable = evaluateTrustRepeatability(trustOracleCase(), runs);
+  assert.equal(unstable.passed, false);
+  assert.ok(violationCodes(unstable).includes('REPEATABILITY_MISMATCH'));
 });
 
 test('Spec 028 T052 — report evidence preservation migrates to independent structured integrity cases', async () => {
