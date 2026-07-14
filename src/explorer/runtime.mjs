@@ -3469,6 +3469,17 @@ function originSignatureCovers(outerRefs, innerRefs) {
     innerRefs.every(inner => outerRefs.some(outer => originDescendsFrom(inner, outer)));
 }
 
+function originSignatureFitsCoverageObligation(candidateRefs, obligation) {
+  const originalRefs = obligation.goal.originRefs;
+  const strictDescendant = candidateRefs.every(candidate =>
+    originalRefs.some(original => originDescendsFrom(candidate, original)));
+  if (obligation.kind !== 'uncovered') return strictDescendant;
+
+  return originSignatureCovers(candidateRefs, originalRefs) &&
+    candidateRefs.every(candidate => originalRefs.some(original =>
+      originDescendsFrom(candidate, original) || originDescendsFrom(original, candidate)));
+}
+
 const COVERAGE_ELIGIBLE_VERDICTS = new Set([
   'ready',
   'needs_decomposition',
@@ -3647,8 +3658,7 @@ function validateCoverageReconciliation(value, {
             !COVERAGE_ELIGIBLE_VERDICTS.has(record.verdict)) {
           throw new TypeError(`Coverage obligation ${raw.obligationId} maps to an ineligible goal.`);
         }
-        if (record.originRefs.some(originRef =>
-          !obligation.goal.originRefs.some(original => originDescendsFrom(originRef, original))) ||
+        if (!originSignatureFitsCoverageObligation(record.originRefs, obligation) ||
             obligation.goal.constraints.some(constraint => !goal.constraints.includes(constraint))) {
           throw new TypeError(`Coverage obligation ${raw.obligationId} widened its origin or constraints.`);
         }
@@ -3720,8 +3730,7 @@ function coverageCandidateIds({ obligations, proposal, auditRecords, eligibleGoa
       return false;
     }
     return obligations.some(obligation =>
-      record.originRefs.every(originRef =>
-        obligation.goal.originRefs.some(original => originDescendsFrom(originRef, original))) &&
+      originSignatureFitsCoverageObligation(record.originRefs, obligation) &&
       obligation.goal.constraints.every(constraint => goal.constraints.includes(constraint)) &&
       (obligation.kind === 'decompose' || goal.claimType === obligation.goal.claimType));
   }).map(goal => goal.id);

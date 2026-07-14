@@ -5253,6 +5253,141 @@ auditedPlanningRuntimeTest('Spec 028 T022 — one audited rephrase can satisfy a
     'preserved goals that cannot discharge a revision obligation stay out of the coverage prompt');
 });
 
+auditedPlanningRuntimeTest(
+  'Spec 028 T071 — uncovered reconciliation accepts a governing-phrase origin expansion',
+  async () => {
+    const task = 'Map every user-facing page that uses the Prisma model.';
+    const preserved = {
+      id: 'S-prisma-model',
+      question: 'Which Prisma model is requested?',
+      originRefs: [requestOrigin(task, 'Prisma model')],
+      claimType: 'symbol_definition',
+      proofCondition: 'Observe the requested Prisma model definition.',
+      constraints: [],
+    };
+    const uncovered = {
+      question: 'Which user-facing pages use the model?',
+      originRefs: [requestOrigin(task, 'user-facing page')],
+      claimType: 'impact',
+      proofCondition: 'Enumerate the bounded user-facing page surface and observe every model use.',
+      constraints: [],
+    };
+    const replacement = {
+      id: 'S-user-facing-pages',
+      question: 'Which user-facing pages use the requested model?',
+      originRefs: [requestOrigin(task, 'every user-facing page')],
+      claimType: 'impact',
+      proofCondition: 'Enumerate the bounded user-facing page surface and observe every model use.',
+      constraints: [],
+    };
+    const client = new ScriptedGoalAuditClient([
+      { stage: 'planner:1', value: plannerControl([preserved]) },
+      {
+        stage: 'goal_audit:1',
+        value: auditorControl([
+          auditControlRecord(preserved, 'ready', { missingRequestParts: [uncovered.question] }),
+        ], [uncovered]),
+      },
+      { stage: 'planner:2', value: plannerControl([preserved, replacement]) },
+      {
+        stage: 'goal_audit:2',
+        value: auditorControl([auditControlRecord(replacement)]),
+      },
+      {
+        stage: 'goal_coverage:1',
+        value: coverageControl([
+          coveredObligation('revision-obligation-1', [replacement.id]),
+        ]),
+      },
+      { stage: 'exploration:1', content: 'The clarified page goal is ready.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+    ]);
+    const root = await makeRepoFixture();
+    const result = await new RuntimeImplementation({ chatClient: client }).explore({
+      task,
+      repo_root: root,
+    });
+
+    assert.equal(result.failure, null, JSON.stringify({
+      failure: result.failure,
+      stages: client.stageLabels,
+    }));
+    assert.equal(client.stageCounts.get('goal_coverage'), 1,
+      JSON.stringify(client.stageLabels));
+    assert.deepEqual(result.taskContract.subgoals.map(goal => goal.id), [
+      preserved.id,
+      replacement.id,
+    ]);
+    assert.equal(result.taskContract.subgoals.some(goal =>
+      goal.auditVerdict === 'planning_incomplete'), false);
+    assert.equal(result.coverageGaps.some(gap => gap.reason === 'planning_incomplete'), false);
+  },
+);
+
+auditedPlanningRuntimeTest(
+  'Spec 028 T071 — uncovered reconciliation rejects an unrelated extra origin',
+  async () => {
+    const task = 'Map every user-facing page that uses the Prisma model.';
+    const preserved = {
+      id: 'S-prisma-model',
+      question: 'Which Prisma model is requested?',
+      originRefs: [requestOrigin(task, 'Prisma model')],
+      claimType: 'symbol_definition',
+      proofCondition: 'Observe the requested Prisma model definition.',
+      constraints: [],
+    };
+    const uncovered = {
+      question: 'Which user-facing pages use the model?',
+      originRefs: [requestOrigin(task, 'user-facing page')],
+      claimType: 'impact',
+      proofCondition: 'Enumerate the bounded user-facing page surface and observe every model use.',
+      constraints: [],
+    };
+    const widened = {
+      id: 'S-pages-and-unrelated-model',
+      question: 'Which user-facing pages use the requested model?',
+      originRefs: [
+        requestOrigin(task, 'every user-facing page'),
+        requestOrigin(task, 'Prisma model'),
+      ],
+      claimType: 'impact',
+      proofCondition: 'Enumerate the bounded user-facing page surface and observe every model use.',
+      constraints: [],
+    };
+    const client = new ScriptedGoalAuditClient([
+      { stage: 'planner:1', value: plannerControl([preserved]) },
+      {
+        stage: 'goal_audit:1',
+        value: auditorControl([
+          auditControlRecord(preserved, 'ready', { missingRequestParts: [uncovered.question] }),
+        ], [uncovered]),
+      },
+      { stage: 'planner:2', value: plannerControl([preserved, widened]) },
+      {
+        stage: 'goal_audit:2',
+        value: auditorControl([auditControlRecord(widened)]),
+      },
+      { stage: 'exploration:1', content: 'Only the audited goals are explored.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+    ]);
+    const root = await makeRepoFixture();
+    const result = await new RuntimeImplementation({ chatClient: client }).explore({
+      task,
+      repo_root: root,
+    });
+
+    assert.equal(client.stageCounts.get('goal_coverage') ?? 0, 0,
+      'an unrelated origin must be rejected before another model call');
+    assert.equal(result.taskContract.subgoals.some(goal => goal.id === widened.id), true);
+    const carried = result.taskContract.subgoals.find(goal =>
+      goal.auditVerdict === 'planning_incomplete');
+    assert.ok(carried);
+    assert.equal(carried.question, uncovered.question);
+    assert.equal(result.coverageGaps.some(gap =>
+      gap.subgoalId === carried.id && gap.reason === 'planning_incomplete'), true);
+  },
+);
+
 auditedPlanningRuntimeTest('Spec 028 T022 — range-only decomposition cannot erase a missing request distinction', async () => {
   const broad = proposedRuntimeGoal({
     id: 'S-broad',
