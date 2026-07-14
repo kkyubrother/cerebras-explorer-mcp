@@ -13,6 +13,7 @@ import {
   evaluationOptionsForCase,
   fixtureTreeSha256,
   parseArgs,
+  payloadComparisonRecord,
   prepareFixtureRepository,
   printCase,
   repeatCountForCase,
@@ -176,6 +177,12 @@ test('Spec 028 T068 — portable fixture results replay and payload metrics bind
   assert.equal(report.summary.passed, true);
   assert.equal(report.summary.failedCaseCount, 0);
   assert.equal(report.summary.skippedCaseCount, 0);
+  assert.deepEqual(report.summary.payload, {
+    metric: manifest.offlineResults.payloadComparison.metric,
+    comparedRunCount: 5,
+    medianReductionRatio: 0.881,
+    minimumMedianReduction: 0.4,
+  });
   assert.deepEqual(
     report.cases.map(item => item.id).sort(),
     [...manifest.offlineResults.fixtureTrust.acceptedCaseIds].sort(),
@@ -206,6 +213,17 @@ test('Spec 028 T068 — portable fixture results replay and payload metrics bind
       );
     }
   }
+});
+
+test('Spec 028 T069 — payload gate rebuilds every independent oracle sample and fails closed on drift', async () => {
+  const manifest = JSON.parse(await fs.readFile('benchmarks/trust-known-answer.json', 'utf8'));
+  assert.equal(payloadComparisonRecord(manifest).comparedRunCount, 5);
+
+  manifest.offlineResults.payloadComparison.samples[0].currentParentPayloadBytes += 1;
+  assert.throws(
+    () => payloadComparisonRecord(manifest),
+    /Portable payload sample obs-deny-list-count-range is invalid/,
+  );
 });
 
 test('Spec 028 T069 — live provider failure stops the remaining batch without hiding its denominator', async t => {

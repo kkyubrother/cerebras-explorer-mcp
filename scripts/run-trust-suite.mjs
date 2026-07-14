@@ -13,6 +13,7 @@ import {
   evaluateTrustCase,
   evaluateTrustRepeatability,
 } from '../src/benchmark/evaluator.mjs';
+import { buildOracleParentHandoff } from '../src/benchmark/oracle-parent-handoff.mjs';
 import { buildParentPayload, measureParentPayload } from '../src/explorer/parent-payload.mjs';
 import { ExplorerRuntime } from '../src/explorer/runtime.mjs';
 import { sanitizeBenchmarkReport } from '../src/benchmark/report.mjs';
@@ -691,6 +692,68 @@ function median(values) {
     : (sorted[middle - 1] + sorted[middle]) / 2;
 }
 
+function hasExactKeys(value, expectedKeys) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const actualKeys = Object.keys(value).sort();
+  return actualKeys.length === expectedKeys.length &&
+    actualKeys.every((key, index) => key === [...expectedKeys].sort()[index]);
+}
+
+function sameStringSet(left, right) {
+  return left.length === right.length &&
+    [...new Set(left)].length === left.length &&
+    [...left].sort().every((value, index) => value === [...right].sort()[index]);
+}
+
+export function payloadComparisonRecord(manifest) {
+  const comparison = manifest.offlineResults?.payloadComparison;
+  const responseBaselineCaseIds = (manifest.cases ?? [])
+    .filter(item => {
+      const baselineRef = item?.schemaV2Baseline?.baselineRef;
+      return Number.isInteger(manifest.baselines?.[baselineRef]?.parentPayloadBytes) &&
+        manifest.baselines[baselineRef].parentPayloadBytes > 0;
+    })
+    .map(item => item.id);
+  const samples = comparison?.samples;
+  const sampleIds = Array.isArray(samples) ? samples.map(item => item?.caseId) : [];
+  if (!hasExactKeys(comparison, ['metric', 'minimumMedianReduction', 'samples']) ||
+      comparison.metric !== manifest.payloadMetric?.id ||
+      !Number.isFinite(comparison.minimumMedianReduction) ||
+      !sameStringSet(sampleIds, responseBaselineCaseIds)) {
+    throw new Error('Portable payload comparison has an invalid denominator or metric.');
+  }
+
+  const caseById = new Map((manifest.cases ?? []).map(item => [item.id, item]));
+  const reductions = samples.map(sample => {
+    const caseDefinition = caseById.get(sample?.caseId);
+    const baseline = manifest.baselines?.[sample?.baselineRef];
+    const measurement = measureParentPayload(buildParentPayload(
+      buildOracleParentHandoff(caseDefinition),
+    ));
+    if (!hasExactKeys(sample, [
+      'caseId', 'baselineRef', 'currentParentPayloadBytes', 'currentPayloadSha256',
+    ]) || caseDefinition?.schemaV2Baseline?.baselineRef !== sample.baselineRef ||
+        sample.currentParentPayloadBytes !== measurement.parentPayloadBytes ||
+        sample.currentPayloadSha256 !== measurement.sha256 ||
+        !Number.isInteger(baseline?.parentPayloadBytes) ||
+        sample.currentParentPayloadBytes >= baseline.parentPayloadBytes) {
+      throw new Error(`Portable payload sample ${String(sample?.caseId)} is invalid.`);
+    }
+    return (baseline.parentPayloadBytes - sample.currentParentPayloadBytes) /
+      baseline.parentPayloadBytes;
+  });
+  const medianReductionRatio = median(reductions);
+  if (medianReductionRatio === null || medianReductionRatio < comparison.minimumMedianReduction) {
+    throw new Error('Portable payload comparison misses the median reduction gate.');
+  }
+  return {
+    metric: comparison.metric,
+    comparedRunCount: reductions.length,
+    medianReductionRatio: Math.round(medianReductionRatio * 1000) / 1000,
+    minimumMedianReduction: comparison.minimumMedianReduction,
+  };
+}
+
 function providerFailureSummary(result) {
   if (result?.failure?.category !== 'provider') return null;
   return {
@@ -1000,6 +1063,7 @@ export async function runTrustSuite(options, { runLiveCase = runLive } = {}) {
   }
 
   const summary = summarize(caseResults);
+  if (options.measurePayload) summary.payload = payloadComparisonRecord(manifest);
   return {
     schemaVersion: 1,
     suite: manifest.name ?? path.basename(options.suite),

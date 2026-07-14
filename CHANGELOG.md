@@ -85,7 +85,10 @@ compatibility aliases or selectable effort controls are retained.
   an oracle independent of Explorer output, three-run fixture repeatability,
   portable parent-observation records, and payload measurement cover false
   completion, semantic mismatch, negative boundaries, redaction, scope,
-  cancellation, and provider failure. The adoption impact case includes the
+  cancellation, and provider failure. The documented fixture payload command
+  rebuilds the fixed schema-v2 comparison denominator from independent oracle
+  handoffs and fails closed on byte, digest, sample-set, or median-gate drift.
+  The adoption impact case includes the
   public contract documents its wrapper is required to assess instead of
   blocking them with an implementation-only scope. Shared-anchor atomic claims
   are evaluated together without forcing duplicate parent prose, while
