@@ -210,6 +210,8 @@ Verifier는 원래 request, audited sub-goals, candidate atomic claims, rebuilt 
 
 두 개 이상의 current source path를 묶는 comparison claim은 해당 claim과 bounded semantic batch의 observation으로 focused corroboration을 한 번 더 수행한다. Claim이 인용하지 않은 current source도 audited sub-goal boundary 안의 독립적인 route/predicate 변형을 보이는지 검토한다. Focused verifier에는 sibling goal의 관련 없는 observation을 omission으로 취급하지 말라고 지시한다. Supporting evidence는 결과와 무관하게 claim이 직접 인용한 ref의 subset으로 강제하며, 두 verifier가 primary verifier가 지지한 모든 source path와 전체 관계에 동의할 때만 support를 유지한다. 하나의 route/predicate라도 누락되거나 잘못 연결되면 기존 repair 또는 gap 경로로 fail-closed 한다. 이 내부 확인은 parent schema에 진단 필드를 추가하지 않는다.
 
+`support_or_refute` claim을 direct source/git counterexample 없이 zero-match search certificate만으로 refute하려면 focused corroboration을 한 번 더 수행한다. Filename glob은 bounded filename absence만, grep은 해당 regex/text의 bounded absence만 증명한다. Exact textual/path premise는 정확한 boundary의 complete search로 닫을 수 있지만 behavior, registration, function existence, mechanism premise는 가능한 repository 표현을 모두 포괄하는 search predicate가 필요하다. 두 verifier가 같은 complete certificate의 전체 search ref와 `refuted` resolution에 동의해야만 내부 corroboration artifact가 생기며, 이 artifact가 없으면 proof gate는 fail-closed 한다. Direct source/git counterexample은 이 추가 pass 없이 기존 gate를 통과한다. Artifact와 verifier diagnostics는 parent payload에 노출하지 않는다.
+
 Verifier가 새로운 request part를 제안하면 원래 request에 추적 가능한지 다시 audit한다. Verifier invention도 required goal로 바로 승격하지 않는다.
 
 ### 5.6 One-round repair

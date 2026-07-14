@@ -33,6 +33,7 @@ import {
   buildClaimSynthesisMessages,
   buildSemanticVerifierMessages,
   buildComparisonCorroboratorMessages,
+  buildAbsenceRefutationCorroboratorMessages,
 } from './prompt.mjs';
 import {
   CLAIM_SYNTHESIS_SCHEMA,
@@ -2449,6 +2450,90 @@ function mergeComparisonCorroboration(primary, corroborated, {
   };
 }
 
+const DIRECT_REFUTATION_OBSERVATION_KINDS = new Set([
+  'source',
+  'git_commit',
+  'git_blame',
+  'git_diff_hunk',
+]);
+
+function certificateOnlyRefutationContext({
+  subgoal,
+  claim,
+  primaryVerdict,
+  observations,
+  absenceCertificates,
+}) {
+  if (subgoal?.proofPolicy !== 'support_or_refute' ||
+      primaryVerdict?.result !== 'supported' || primaryVerdict.resolution !== 'refuted') {
+    return null;
+  }
+  const claimRefs = new Set(Array.isArray(claim?.evidenceRefs) ? claim.evidenceRefs : []);
+  const primaryRefs = new Set(Array.isArray(primaryVerdict.supportingEvidenceRefs)
+    ? primaryVerdict.supportingEvidenceRefs
+    : []);
+  const observationById = new Map((observations ?? [])
+    .filter(observation => typeof observation?.id === 'string' && observation.id)
+    .map(observation => [observation.id, observation]));
+  if ([...primaryRefs].some(ref =>
+    DIRECT_REFUTATION_OBSERVATION_KINDS.has(observationById.get(ref)?.kind))) {
+    return null;
+  }
+  const certificates = (absenceCertificates ?? []).filter(certificate =>
+    certificate?.subgoalId === subgoal.id && certificate.complete === true &&
+    certificate.zeroMatches === true && Array.isArray(certificate.searchRefs) &&
+    certificate.searchRefs.length > 0 && certificate.searchRefs.every(ref =>
+      claimRefs.has(ref) && primaryRefs.has(ref) && observationById.get(ref)?.kind === 'search'));
+  if (certificates.length === 0) return null;
+  const searchRefs = new Set(certificates.flatMap(certificate => certificate.searchRefs));
+  return {
+    certificates,
+    observations: [...searchRefs].map(ref => observationById.get(ref)),
+  };
+}
+
+function mergeAbsenceRefutationCorroboration(primary, corroborated, { certificates }) {
+  if (primary?.result !== 'supported' || primary.resolution !== 'refuted') {
+    return { verdict: primary, corroborated: false };
+  }
+  if (corroborated?.result !== 'supported' || corroborated.resolution !== 'refuted') {
+    return {
+      verdict: corroborated?.result === 'contradicted'
+        ? corroborated
+        : {
+            claimId: primary.claimId,
+            result: 'insufficient',
+            supportingEvidenceRefs: corroborated?.supportingEvidenceRefs ?? [],
+            reasonCode: corroborated?.reasonCode ?? 'semantic_mismatch',
+            note: corroborated?.note ??
+              'Focused certificate-only refutation corroboration did not support the claim.',
+          },
+      corroborated: false,
+    };
+  }
+  const corroboratedRefs = new Set(corroborated.supportingEvidenceRefs);
+  const agreedRefs = primary.supportingEvidenceRefs.filter(ref => corroboratedRefs.has(ref));
+  const agreedRefSet = new Set(agreedRefs);
+  const completeAgreement = certificates.some(certificate =>
+    certificate.searchRefs.every(ref => agreedRefSet.has(ref)));
+  if (!completeAgreement) {
+    return {
+      verdict: {
+        claimId: primary.claimId,
+        result: 'insufficient',
+        supportingEvidenceRefs: agreedRefs,
+        reasonCode: 'semantic_mismatch',
+        note: 'The two independent refutation checks did not agree on one complete search certificate.',
+      },
+      corroborated: false,
+    };
+  }
+  return {
+    verdict: { ...primary, supportingEvidenceRefs: agreedRefs },
+    corroborated: true,
+  };
+}
+
 function prepareCandidateSubgoals(taskContract, claims, {
   phase = 'initial',
   freshEvidenceRefs = [],
@@ -4608,6 +4693,7 @@ export class ExplorerRuntime {
     const semanticVerdicts = [];
     const uncoveredRequestParts = [];
     const verificationBatches = [];
+    const corroboratedAbsenceRefutationClaimIds = new Set();
     const candidateBatches = controlBatches(candidateSubgoals.filter(subgoal =>
       claims.some(claim => claim.subgoalId === subgoal.id)));
     for (const subgoalBatch of candidateBatches) {
@@ -4711,6 +4797,53 @@ export class ExplorerRuntime {
           },
         );
       }
+      for (const [index, claim] of batchClaims.entries()) {
+        const subgoal = subgoalBatch.find(item => item.id === claim.subgoalId);
+        const primaryVerdict = corroboratedVerdicts[index];
+        const context = certificateOnlyRefutationContext({
+          subgoal,
+          claim,
+          primaryVerdict,
+          observations: batchObservations,
+          absenceCertificates: batchAbsenceCertificates,
+        });
+        if (!context) continue;
+        const corroborated = await requestValidatedGoalControl({
+          chatClient,
+          messages: buildAbsenceRefutationCorroboratorMessages({
+            taskContract: semanticBatchContract(candidateContract, [subgoal]),
+            claims: [claim],
+            observations: context.observations,
+            absenceCertificates: context.certificates,
+            wrapperTool,
+          }),
+          schemaName: 'semantic_verifier_response',
+          schema: SEMANTIC_VERIFIER_RESPONSE_SCHEMA,
+          stage: 'semantic_verifier',
+          reasoningEffort,
+          temperature,
+          topP,
+          maxCompletionTokens,
+          abortSignal,
+          onCompletion,
+          validate: raw => {
+            const response = validateSemanticVerdictBatch(raw, { claims: [claim] });
+            if (response.uncoveredRequestParts.length > 0) {
+              throw new TypeError(
+                'Focused absence refutation corroboration cannot add request obligations.',
+              );
+            }
+            return response;
+          },
+        });
+        const merged = mergeAbsenceRefutationCorroboration(
+          primaryVerdict,
+          corroborated.verdicts[0],
+          { certificates: context.certificates },
+        );
+        corroboratedVerdicts[index] = merged.verdict;
+        if (merged.corroborated) corroboratedAbsenceRefutationClaimIds.add(claim.id);
+      }
       verified = { ...verified, verdicts: corroboratedVerdicts };
       verificationBatches.push({
         subgoalBatch,
@@ -4782,7 +4915,12 @@ export class ExplorerRuntime {
           observations: batchObservations,
           absenceCertificates: batchAbsenceCertificates,
           deterministicCounts: batchDeterministicCounts,
-          policyArtifacts: wrapperPolicyArtifacts.get(batchClaims[index].id),
+          policyArtifacts: corroboratedAbsenceRefutationClaimIds.has(batchClaims[index].id)
+            ? {
+                ...(wrapperPolicyArtifacts.get(batchClaims[index].id) ?? {}),
+                absenceRefutationCorroborated: true,
+              }
+            : wrapperPolicyArtifacts.get(batchClaims[index].id),
           exhaustiveCompanionCertified: subgoal?.proofPolicy === 'distinct_policy_paths' &&
             verdict.supportingEvidenceRefs.some(ref => certifiedAbsenceCompanionRefs.has(ref)),
         });

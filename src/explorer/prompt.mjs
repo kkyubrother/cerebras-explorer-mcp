@@ -404,6 +404,7 @@ const SEMANTIC_VERIFIER_SYSTEM_PROMPT = [
   '- For an every, exhaustive, or inventory classification, supported requires a complete cited enumeration plus exact cited source ranges covering every enumerated member. Two distinct files alone prove only a bounded comparison, not exhaustive membership.',
   '- A positive direct_source claim needs exact support for the stated test or fact, not an exhaustive inventory, unless its question or proof condition explicitly says all, every, exhaustive, or only.',
   '- For an all/every/exhaustive impact claim, supported requires both claim text and cited source observations to cover every category named by the sub-goal proof condition. If source, docs, agent config, and dependencies are named, omission of any one is missing_category.',
+  '- A complete zero-match filename glob proves only bounded filename absence; a complete grep proves only bounded absence of its exact regex or text pattern. Do not use either to refute broader behavior, registration, function existence, or mechanism claims unless the search predicates cover every plausible repository representation within the stated boundary.',
   '- For request:<start>-<end> origins, use the runtime-computed control.taskOffsetGuide boundaries. Never estimate offsets, especially for Unicode task text.',
   '',
   'OUTPUT: {"verdicts":[{"claimId":string,"result":string,"resolution":"affirmed|refuted (supported only)","supportingEvidenceRefs":string[],"reasonCode":string,"note":string}],"uncoveredRequestParts":[{"question":string,"originRefs":string[],"claimType":string,"proofCondition":string,"constraints":string[]}]}',
@@ -419,6 +420,18 @@ const COMPARISON_CORROBORATOR_SYSTEM_PROMPT = [
   '- Match every named route, helper, data field, membership predicate, existence predicate, boolean predicate, exception, and comparison side to the exact code that implements it. Similar table or helper names are not interchangeable mechanisms.',
   '- If any asserted side is absent, attached to the wrong path, contradicted, or semantically narrower or broader than the source, return insufficient or contradicted for the entire atomic claim.',
   '- supportingEvidenceRefs may include only observations that directly establish the exact asserted mechanisms. Additional cited files do not compensate for a wrong predicate.',
+  '- This focused pass cannot discover request obligations. uncoveredRequestParts must be an empty array.',
+].join('\n');
+
+const ABSENCE_REFUTATION_CORROBORATOR_SYSTEM_PROMPT = [
+  SEMANTIC_VERIFIER_SYSTEM_PROMPT,
+  '',
+  'FOCUSED CERTIFICATE-ONLY REFUTATION CORROBORATION:',
+  '- This packet contains exactly one support_or_refute claim whose proposed refutation relies only on complete zero-match search evidence. Independently re-check whether those searches semantically cover the exact premise and boundary; do not defer to an earlier verdict.',
+  '- A filename glob proves only bounded filename absence. A grep proves only bounded absence of its exact regex or text pattern.',
+  '- An exact literal, path, or glob premise may be refuted by a complete matching search over the exact stated boundary.',
+  '- A behavior or mechanism premise, including registration or function existence, requires complete searches whose predicates cover every plausible repository representation named by the premise. Unrelated filenames, language syntax, or naming conventions are insufficient.',
+  '- Return supported with resolution refuted only when supportingEvidenceRefs contains the complete searchRefs set of at least one supplied complete zero-match certificate and that full set is semantically adequate for the premise.',
   '- This focused pass cannot discover request obligations. uncoveredRequestParts must be an empty array.',
 ].join('\n');
 
@@ -775,6 +788,36 @@ export function buildComparisonCorroboratorMessages({
     {
       role: 'user',
       content: controlDataMessage('Corroborate this one multi-path comparison against bounded batch observations', {
+        control: {
+          ...normalizeVerificationContract(taskContract),
+          taskOffsetGuide: taskOffsetGuide(taskContract?.task),
+          wrapper: fixedWrapperInput(wrapperTool),
+        },
+        claims: Array.isArray(claims) ? claims.map(normalizeCandidateClaim) : [],
+        observations: Array.isArray(observations)
+          ? observations.map(item => pickDefined(item, VERIFIER_OBSERVATION_FIELDS))
+          : [],
+        absenceCertificates: Array.isArray(absenceCertificates)
+          ? absenceCertificates.map(item => pickDefined(item, ABSENCE_CERTIFICATE_FIELDS))
+          : [],
+        criticDecisions: [],
+      }),
+    },
+  ];
+}
+
+export function buildAbsenceRefutationCorroboratorMessages({
+  taskContract,
+  claims,
+  observations,
+  absenceCertificates,
+  wrapperTool,
+}) {
+  return [
+    { role: 'system', content: ABSENCE_REFUTATION_CORROBORATOR_SYSTEM_PROMPT },
+    {
+      role: 'user',
+      content: controlDataMessage('Corroborate this one certificate-only refutation against its bounded searches', {
         control: {
           ...normalizeVerificationContract(taskContract),
           taskOffsetGuide: taskOffsetGuide(taskContract?.task),

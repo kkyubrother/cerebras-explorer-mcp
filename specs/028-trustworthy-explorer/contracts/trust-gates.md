@@ -76,6 +76,9 @@ The detailed contract is [goal-audit.md](./goal-audit.md).
 
 - The verifier returns supported, contradicted, or unresolved for each candidate claim.
 - A conclusive supported claim that refutes the caller's premise satisfies the required goal with `resolution=refuted`; candidate contradiction alone does not.
+- A refutation backed only by a complete zero-match search certificate receives one focused independent corroboration pass. Both checks must return `supported/refuted` and agree on every search ref in one complete certificate.
+- A filename glob proves only bounded filename absence, and grep proves only bounded absence of its exact regex or text. Exact textual/path premises may close under an exact complete boundary; behavior, registration, function-existence, or mechanism premises require searches covering every plausible repository representation.
+- A direct current-source or git counterexample remains sufficient without the focused absence pass. The corroboration artifact is internal and never expands the parent handoff.
 - Relevant counterevidence search is required when the claim is broad or critical.
 - One exact line range is not enough unless its content entails the entire bounded claim.
 
@@ -169,7 +172,7 @@ else:
 | Explicit goals contradict each other | `incomplete`; one focused clarification may be offered |
 | Every requested goal is outside immutable scope | `incomplete`; no invented answer and no automatic scope widening |
 | Feasible goal remains unsupported after the repair round | `incomplete`; no second repair or re-plan |
-| Caller premise is conclusively refuted by sufficient bounded evidence | `complete` with a supported refutation claim |
+| Caller premise is conclusively refuted by direct counterexample or independently corroborated complete search evidence | `complete` with a supported refutation claim |
 | Caller premise appears false but absence/counterevidence coverage is insufficient | `incomplete` |
 | Repair discovers counterevidence against an earlier supported broad claim | Earlier goal reopens and must reverify; `incomplete` unless the revised resolution is supported |
 | Two unrelated exact citations, claim mismatch | `incomplete` |

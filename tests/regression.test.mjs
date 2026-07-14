@@ -903,3 +903,73 @@ test('Spec 028 T069 — focused comparison corroborator receives one cited multi
   assert.match(prompt.data, /app\/api\/three\/route\.ts/u);
   assert.doesNotMatch(prompt.data, /auditVerdict|claimRefs|"state"/u);
 });
+
+test('Spec 028 T071 — focused absence corroborator receives one certificate-only refutation', () => {
+  const task = 'Verify whether legacyGuard exists in src/routes/**.';
+  const taskContract = {
+    task,
+    effectiveScope: ['src/routes/**'],
+    constraints: [],
+    subgoals: [{
+      id: 'S1',
+      question: 'Does legacyGuard exist in src/routes/**?',
+      originRefs: [`request:0-${task.length}`],
+      claimType: 'claim_verification',
+      proofPolicy: 'support_or_refute',
+      proofCondition: 'Support or refute the exact textual premise within src/routes/**.',
+      constraints: ['boundary:src/routes/**'],
+      auditVerdict: 'ready',
+      state: 'candidate',
+      claimRefs: ['C1'],
+    }],
+  };
+  const claim = {
+    id: 'C1',
+    subgoalId: 'S1',
+    text: 'The exact literal legacyGuard is absent from src/routes/**.',
+    evidenceRefs: ['Q1'],
+  };
+  const observation = {
+    id: 'Q1',
+    kind: 'search',
+    tool: 'repo_grep',
+    normalizedArgs: { pattern: 'legacyGuard', include: ['src/routes/**'] },
+    boundary: ['src/routes/**'],
+    matchCount: 0,
+    toolTruncated: false,
+    contextTruncated: false,
+    omittedOutOfScopeFiles: 0,
+    deniedPaths: [],
+    errors: [],
+    enumerationComplete: true,
+  };
+  const certificate = {
+    id: 'A1',
+    subgoalId: 'S1',
+    claimBoundary: ['src/routes/**'],
+    searchRefs: ['Q1'],
+    searchSummary: ['repo_grep legacyGuard within src/routes/**'],
+    complete: true,
+    zeroMatches: true,
+    qualification: 'Static repository text within src/routes/**.',
+  };
+  const prompt = assertTwoMessageBoundary(
+    promptModule.buildAbsenceRefutationCorroboratorMessages({
+      taskContract,
+      claims: [claim],
+      observations: [observation],
+      absenceCertificates: [certificate],
+      wrapperTool: 'collect_evidence',
+    }),
+    'absence refutation corroborator',
+  );
+
+  assert.match(prompt.system, /FOCUSED CERTIFICATE-ONLY REFUTATION CORROBORATION/u);
+  assert.match(prompt.system, /filename glob proves only bounded filename absence/u);
+  assert.match(prompt.system, /behavior or mechanism premise/u);
+  assert.match(prompt.system, /uncoveredRequestParts must be an empty array/u);
+  assert.match(prompt.data, /"id":"C1"/u);
+  assert.match(prompt.data, /"searchRefs":\["Q1"\]/u);
+  assert.match(prompt.data, /"pattern":"legacyGuard"/u);
+  assert.doesNotMatch(prompt.data, /auditVerdict|claimRefs|"state"/u);
+});

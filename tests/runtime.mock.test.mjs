@@ -7863,6 +7863,194 @@ semanticPipelineRuntimeTest(
 );
 
 semanticPipelineRuntimeTest(
+  'Spec 028 T071 — an irrelevant certificate-only refutation requires focused verifier agreement',
+  async () => {
+    const task = 'Verify whether explore_repo validates evidence against observed file ranges before returning.';
+    const goal = trustGoal(task, {
+      id: 'S-focused-absence-refutation',
+      question: task,
+      originText: task,
+      claimType: 'claim_verification',
+      proofCondition: 'Support or refute the behavior claim with semantically appropriate bounded evidence.',
+      constraints: ['A filename glob or another language definition form cannot refute JavaScript behavior.'],
+    });
+    const claim = candidateClaim(
+      'C-focused-absence-refutation',
+      goal.id,
+      'The claim is refuted because no explore_repo implementation validates observed file ranges in src/**.',
+      ['E1', 'E2'],
+    );
+    const primaryVerdict = semanticVerdict(claim.id, 'supported', ['E1', 'E2']);
+    primaryVerdict.resolution = 'refuted';
+    let focusedRequest = null;
+    const repairClaim = { ...claim, evidenceRefs: ['E1', 'E2', 'E3'] };
+    const steps = buildTrustSteps({
+      goals: [goal],
+      initial: {
+        tools: [
+          {
+            tool: 'repo_find_files',
+            args: { pattern: '**/explore_repo*', scope: ['src/**'] },
+            id: 'irrelevant-explore-repo-filename-search',
+          },
+          {
+            tool: 'repo_grep',
+            args: { pattern: 'def explore_repo', scope: ['src/**'] },
+            id: 'irrelevant-python-definition-search',
+          },
+        ],
+        claims: [claim],
+        verifierSteps: [
+          { verdicts: [primaryVerdict] },
+          {
+            verdicts: [semanticVerdict(claim.id, 'insufficient')],
+            assertRequest(request) {
+              focusedRequest = parseControlPacket(request);
+            },
+          },
+        ],
+      },
+      repair: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/explorer.js', startLine: 1, endLine: 5 },
+          id: 'read-actual-explorer-implementation',
+        }],
+        claims: [repairClaim],
+        verdicts: [semanticVerdict(claim.id, 'contradicted')],
+      },
+    });
+    const { client, result } = await runTrustScript(steps, {
+      task,
+      async setup(root) {
+        await fs.writeFile(path.join(root, 'src', 'explorer.js'), [
+          'export function explore_repo(evidence, observedRanges) {',
+          '  return evidence.every(item => observedRanges.has(item.range));',
+          '}',
+          '',
+        ].join('\n'));
+      },
+    });
+
+    assert.equal(result.failure, null, JSON.stringify(result.failure));
+    assert.ok(focusedRequest,
+      'certificate-only refutation must receive an independent focused check');
+    assert.deepEqual(focusedRequest.claims.map(item => item.id), [claim.id]);
+    assert.equal(client.stageCounts.get('semantic_verifier') >= 2, true);
+    assert.equal(result.parentHandoff.state, 'incomplete');
+    assert.equal(result.parentHandoff.directAnswer, undefined);
+    assert.equal(result.parentHandoff.evidence, undefined);
+    assert.doesNotMatch(JSON.stringify(result.parentHandoff), /no explore_repo implementation/u);
+    assertMinimalIncompleteParentHandoff(result, goal.question);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T071 — exact textual absence can complete after two verifier checks agree',
+  async () => {
+    const task = 'Verify the premise that the literal text legacyGuard occurs in src/routes/**.';
+    const goal = trustGoal(task, {
+      id: 'S-focused-exact-text-absence',
+      question: task,
+      originText: task,
+      claimType: 'claim_verification',
+      proofCondition: 'Completely search the bounded scope for the exact literal text.',
+      constraints: ['Keep the conclusion qualified to the exact text and src/routes/**.'],
+    });
+    const claim = candidateClaim(
+      'C-focused-exact-text-absence',
+      goal.id,
+      'The premise is refuted: the literal text legacyGuard has no static occurrence in src/routes/**.',
+      ['E1'],
+    );
+    const primaryVerdict = semanticVerdict(claim.id, 'supported', ['E1']);
+    primaryVerdict.resolution = 'refuted';
+    const focusedVerdict = semanticVerdict(claim.id, 'supported', ['E1']);
+    focusedVerdict.resolution = 'refuted';
+    let focusedRequest = null;
+    const steps = buildTrustSteps({
+      goals: [goal],
+      initial: {
+        tools: [{
+          tool: 'repo_grep',
+          args: { pattern: 'legacyGuard', scope: ['src/routes/**'] },
+          id: 'exact-literal-absence-search',
+        }],
+        claims: [claim],
+        verifierSteps: [
+          { verdicts: [primaryVerdict] },
+          {
+            verdicts: [focusedVerdict],
+            assertRequest(request) {
+              focusedRequest = parseControlPacket(request);
+            },
+          },
+        ],
+      },
+    });
+    const { client, result } = await runTrustScript(steps, {
+      task,
+      scope: ['src/routes/**'],
+    });
+
+    assert.equal(result.failure, null, JSON.stringify(result.failure));
+    assert.ok(focusedRequest,
+      'an absence-only refutation must be corroborated before completion');
+    assert.deepEqual(focusedRequest.claims.map(item => item.id), [claim.id]);
+    assert.equal(client.stageCounts.get('semantic_verifier'), 2);
+    assertMinimalCompleteParentHandoff(result, {
+      answer: claim.text,
+      evidenceCount: 1,
+      evidenceKinds: ['absence'],
+    });
+    assert.deepEqual(result.parentHandoff.evidence[0].boundary, ['src/routes/**']);
+    assert.doesNotMatch(JSON.stringify(result.parentHandoff), /corroborat|proofPolicy/u);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T071 — a direct source counterexample does not trigger an extra verifier call',
+  async () => {
+    const task = 'Verify the premise that the user route does not call requireAuth.';
+    const goal = trustGoal(task, {
+      id: 'S-direct-source-refutation',
+      question: task,
+      originText: task,
+      claimType: 'claim_verification',
+      proofCondition: 'Read the current route and support or refute the premise directly.',
+    });
+    const claim = candidateClaim(
+      'C-direct-source-refutation',
+      goal.id,
+      'The premise is refuted: src/routes/user.js calls requireAuth.',
+      ['E1'],
+    );
+    const verdict = semanticVerdict(claim.id, 'supported', ['E1']);
+    verdict.resolution = 'refuted';
+    const { client, result } = await runTrustScript(buildTrustSteps({
+      goals: [goal],
+      initial: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/routes/user.js', startLine: 1, endLine: 7 },
+          id: 'read-direct-route-counterexample',
+        }],
+        claims: [claim],
+        verdicts: [verdict],
+      },
+    }), { task });
+
+    assert.equal(result.failure, null, JSON.stringify(result.failure));
+    assert.equal(client.stageCounts.get('semantic_verifier'), 1);
+    assert.equal(result.parentHandoff.state, 'complete');
+    assert.equal(result.parentHandoff.directAnswer, claim.text);
+    assert.deepEqual(result.parentHandoff.evidence.map(item => item.kind), ['source']);
+    assert.equal(result.parentHandoff.evidence[0].path, 'src/routes/user.js');
+    assert.doesNotMatch(JSON.stringify(result.parentHandoff), /corroborat|proofPolicy/u);
+  },
+);
+
+semanticPipelineRuntimeTest(
   'Spec 028 T069 — multi-path comparison requires focused verifier agreement',
   async () => {
     const task = 'Compare administrator and developer access across frontend and backend routes.';

@@ -447,7 +447,14 @@ proofPolicyCoverageTest(
       absenceCertificates: [refutationCertificate],
       deterministicCounts: [],
     };
-    assert.equal(evaluateProofPolicy(refutationInput).passed, true);
+    const uncorroboratedRefutation = evaluateProofPolicy(refutationInput);
+    assertFailedProof(uncorroboratedRefutation,
+      'a certificate-only refutation requires independent corroboration');
+    assert.equal(uncorroboratedRefutation.reason, 'uncorroborated_refutation');
+    assert.equal(evaluateProofPolicy({
+      ...refutationInput,
+      policyArtifacts: { absenceRefutationCorroborated: true },
+    }).passed, true);
     assertFailedProof(evaluateProofPolicy({
       ...refutationInput,
       semanticVerdict: {
@@ -460,6 +467,7 @@ proofPolicyCoverageTest(
     assertFailedProof(evaluateProofPolicy({
       ...refutationInput,
       absenceCertificates: [{ ...refutationCertificate, complete: false }],
+      policyArtifacts: { absenceRefutationCorroborated: true },
     }), 'unsupported refutation boundary');
 
     assert.equal(evaluateProofPolicy({

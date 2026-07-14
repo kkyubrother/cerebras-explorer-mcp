@@ -22,8 +22,11 @@ compatibility aliases or selectable effort controls are retained.
   runtime-owned proof gates. Invalid or cross-claim verifier evidence fails
   closed. Focused comparison corroboration also inspects bounded uncited source
   context for an omitted in-boundary policy variant without promoting that
-  context to supporting evidence. Planning has at most one revision and
-  evidence repair at most one round, with equivalent actions suppressed.
+  context to supporting evidence. A refutation backed only by zero-match search
+  evidence also requires focused agreement on one complete certificate; direct
+  source/git counterexamples remain sufficient without that extra pass.
+  Planning has at most one revision and evidence repair at most one round, with
+  equivalent actions suppressed.
 - **Quiet schema v3**: normal MCP output contains only `schemaVersion`, `state`,
   and the state-relevant subset of `directAnswer`, `targets`, `evidence`,
   `gaps`, `followUp`, and `failure`. Goals, verdicts, counters, usage, timing,

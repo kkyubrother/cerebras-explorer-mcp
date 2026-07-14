@@ -204,6 +204,8 @@ Certificate rules:
 - `claimBoundary` must be no broader than every effective search boundary.
 - `toolTruncated`, `contextTruncated`, relevant `omittedOutOfScopeFiles`, relevant denied paths, errors, or incomplete enumeration make `complete=false` for repository-wide claims.
 - Zero-match literal grep alone certifies only that literal's bounded textual absence.
+- A zero-match filename glob certifies only bounded filename absence. It cannot by itself refute behavior, registration, function existence, or another mechanism premise.
+- For `support_or_refute`, a complete certificate is necessary but not sufficient when no direct source/git counterexample exists. An independent focused verifier must agree on `supported/refuted` and every `searchRef` of one complete certificate. Runtime retains that agreement as an ephemeral proof artifact and does not expose it to the parent.
 - Counts are calculated by runtime from complete normalized results, never copied from model prose.
 
 ## 7. Semantic Verdict
@@ -220,6 +222,8 @@ Output of the isolated verifier, retained internally.
 | `note` | string | Compact internal diagnostic, recorded in transcript. |
 
 Every supported verdict must carry exactly one resolution. Non-supported verdicts must not carry one. If supported claims for the same required goal disagree on resolution, the goal remains contradicted and incomplete rather than selecting a result by model or array order.
+
+Certificate-only refutations are accepted only when the primary and focused verdicts agree on `supported/refuted` and one complete certificate's full search-ref set. Direct source/git counterexamples do not need the focused pass. The agreement marker is runtime-only and is not part of `SemanticVerdict` or schema-v3 parent output.
 
 The verifier may also return `uncoveredRequestParts[]`. Each proposed part contains a question, exact original-request/wrapper origin references, claim type, proof condition, and constraints. It is not registered directly. Runtime sends the batch through the same deterministic traceability/scope/capability checks and isolated goal-audit rules without another planner revision:
 
