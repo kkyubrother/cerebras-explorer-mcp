@@ -1033,15 +1033,39 @@ function claimMeetsRequiredAssociations(claimText, associations) {
   return associations.every(association => matched.has(association.id));
 }
 
-function liveClaimMeetsAllowedSemantics(expected, claimText, allowedClaims) {
+function liveClaimMeetsAllowedSemantics(
+  expected,
+  claimText,
+  allowedClaims,
+  semanticContext = claimText,
+) {
   const constrained = asArray(allowedClaims).filter(claim =>
     claim?.goalId === expected?.id &&
     ((Array.isArray(claim.requiredTextGroups) && claim.requiredTextGroups.length > 0) ||
       (Array.isArray(claim.requiredTextAssociations) &&
         claim.requiredTextAssociations.length > 0)));
-  return constrained.length === 0 || constrained.some(claim =>
-    claimMeetsRequiredTextGroups(claimText, claim.requiredTextGroups) &&
-    claimMeetsRequiredAssociations(claimText, claim.requiredTextAssociations));
+  return constrained.length === 0 || constrained.some(claim => {
+    const groups = asArray(claim.requiredTextGroups);
+    const associations = asArray(claim.requiredTextAssociations);
+    if (associations.length > 0) {
+      return claimMeetsRequiredTextGroups(claimText, groups) &&
+        claimMeetsRequiredAssociations(claimText, associations);
+    }
+    return groups.some(group => claimMeetsRequiredTextGroups(claimText, [group])) &&
+      claimMeetsRequiredTextGroups(semanticContext, groups);
+  });
+}
+
+function liveAnchorSemanticContext(expected, accepted, anchorsById, parts) {
+  const publicClaimTexts = new Set(publicStatements(parts.publicResult));
+  const anchors = asArray(expected.evidenceAnchorRefs)
+    .map(ref => anchorsById.get(ref))
+    .filter(Boolean);
+  return accepted.filter(item =>
+    publicClaimTexts.has(normalizeText(item.claim?.text)) &&
+    anchors.some(anchor => liveClaimSupportsAnchor(item, anchor, parts)))
+    .map(item => item.claim.text)
+    .join('\n');
 }
 
 function liveClaimSupportsAnchor(item, anchor, parts) {
@@ -1063,9 +1087,20 @@ function liveGoalHasAnchorAffinity(expected, actual, {
     : expected.expectedResolution === 'supported' &&
       actual?.state === 'supported' && actual?.resolution === 'affirmed';
   if (!resolutionSupported) return false;
+  const semanticContext = liveAnchorSemanticContext(
+    expected,
+    accepted,
+    anchorsById,
+    parts,
+  );
   const claims = accepted.filter(item =>
     item.claim?.subgoalId === actual?.id &&
-    liveClaimMeetsAllowedSemantics(expected, item.claim?.text, allowedClaims));
+    liveClaimMeetsAllowedSemantics(
+      expected,
+      item.claim?.text,
+      allowedClaims,
+      semanticContext,
+    ));
   const anchorRefs = asArray(expected.evidenceAnchorRefs);
   const covered = anchorRefs.filter(ref => {
     const anchor = anchorsById.get(ref);
@@ -1138,6 +1173,12 @@ function liveAnchorDispositions(
       };
     }
     const claims = accepted.filter(item => item.claim?.subgoalId === actual.id);
+    const semanticContext = liveAnchorSemanticContext(
+      expected,
+      accepted,
+      anchorsById,
+      parts,
+    );
     const anchorRefs = asArray(expected.evidenceAnchorRefs);
     const covered = anchorRefs.filter(ref => {
       const anchor = anchorsById.get(ref);
@@ -1150,7 +1191,12 @@ function liveAnchorDispositions(
       : Math.min(anchorRefs.length, 1);
     const surfacedClaims = claims.filter(item =>
       publicClaimTexts.has(normalizeText(item.claim?.text)) &&
-      liveClaimMeetsAllowedSemantics(expected, item.claim?.text, allowedClaims) &&
+      liveClaimMeetsAllowedSemantics(
+        expected,
+        item.claim?.text,
+        allowedClaims,
+        semanticContext,
+      ) &&
       anchorRefs.some(ref => {
         const anchor = anchorsById.get(ref);
         return anchor && liveClaimSupportsAnchor(item, anchor, parts);
@@ -1270,13 +1316,15 @@ function evaluateLiveTrustCase(caseDefinition, artifact, profile) {
     parts,
     allowedClaims,
   );
-  const allowedParentStatements = new Set([
-    ...dispositions.flatMap(item => item.claimTexts),
-    ...liveSupplementalClaimTexts(expectedGoals, anchorsById, parts, allowedClaims),
-  ]);
-  for (const statement of publicClaimStatements(parts.publicResult)) {
-    if (!allowedParentStatements.has(statement)) {
-      violations.push({ code: 'LIVE_UNSUPPORTED_PARENT_CLAIM' });
+  if (observedState !== 'failed') {
+    const allowedParentStatements = new Set([
+      ...dispositions.flatMap(item => item.claimTexts),
+      ...liveSupplementalClaimTexts(expectedGoals, anchorsById, parts, allowedClaims),
+    ]);
+    for (const statement of publicClaimStatements(parts.publicResult)) {
+      if (!allowedParentStatements.has(statement)) {
+        violations.push({ code: 'LIVE_UNSUPPORTED_PARENT_CLAIM' });
+      }
     }
   }
   if (observedState === 'complete' || observedState === 'verify_targets') {

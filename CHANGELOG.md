@@ -65,7 +65,9 @@ compatibility aliases or selectable effort controls are retained.
   an oracle independent of Explorer output, three-run repeatability, portable
   parent-observation records, payload measurement, and live Cerebras checks
   cover false completion, semantic mismatch, negative boundaries, redaction,
-  scope, cancellation, and provider failure.
+  scope, cancellation, and provider failure. Shared-anchor atomic claims are
+  evaluated together without forcing duplicate parent prose, while provider
+  failure messages remain execution failures rather than repository claims.
 
 Migration:
 

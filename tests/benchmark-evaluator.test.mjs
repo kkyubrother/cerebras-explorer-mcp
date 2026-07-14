@@ -2979,8 +2979,10 @@ test('Spec 028 T068 — live profile rejects unsafe states, false completion, ba
     failure: { reason: 'provider_error' },
   };
   failed.result.failure = { category: 'provider', reason: 'provider_error' };
-  assert.ok(violationCodes(evaluateTrustCase(caseDefinition, failed, options))
-    .includes('LIVE_STATE_REJECTED'));
+  const failedCodes = violationCodes(evaluateTrustCase(caseDefinition, failed, options));
+  assert.ok(failedCodes.includes('LIVE_STATE_REJECTED'));
+  assert.equal(failedCodes.includes('LIVE_UNSUPPORTED_PARENT_CLAIM'), false,
+    'a provider failure message is not a repository claim');
 
   const falseComplete = liveCompleteArtifact();
   falseComplete.result.taskContract.subgoals[0].state = 'gap';
@@ -3080,6 +3082,26 @@ test('Spec 028 T069 — live semantic markers require token boundaries', () => {
   });
   assert.equal(evaluation.passed, false);
   assert.ok(violationCodes(evaluation).includes('LIVE_REQUIRED_GOAL_UNSUPPORTED'));
+});
+
+test('Spec 028 T069 — live atomic claims may jointly satisfy one shared source oracle', () => {
+  const caseDefinition = liveTrustOracleCase();
+  caseDefinition.oracle.allowedClaims[0].requiredTextGroups.push([
+    'independently observed source',
+  ]);
+  const options = { mode: 'live', profile: LIVE_TRUST_EVALUATION_PROFILE };
+  const complete = liveCompleteArtifact();
+
+  assert.equal(evaluateTrustCase(caseDefinition, complete, options).passed, true);
+
+  const missing = structuredClone(complete);
+  missing.result.semanticVerification.claims[1].text =
+    'The bounded check is resolved by another cited source.';
+  missing.result.parentHandoff.directAnswer = missing.result.semanticVerification.claims
+    .map(claim => claim.text)
+    .join('\n');
+  assert.ok(violationCodes(evaluateTrustCase(caseDefinition, missing, options))
+    .includes('LIVE_REQUIRED_GOAL_UNSUPPORTED'));
 });
 
 test('Spec 028 T069 — live explicit gaps bind the required claim type', () => {

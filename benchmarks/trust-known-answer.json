@@ -1130,7 +1130,7 @@
             "requestOriginRefs": [
               "request:51-70"
             ],
-            "claimType": "positive",
+            "claimType": "symbol_definition",
             "expectedResolution": "supported",
             "evidenceAnchorRefs": [
               "E1"
