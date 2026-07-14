@@ -364,7 +364,7 @@ function buildCollectEvidenceArgs(args) {
   if (!claim || typeof claim !== 'string' || !claim.trim()) {
     throw makeInvalidArgsError('collect_evidence requires a non-empty "claim" argument.');
   }
-  const task = `Verify this claim and collect a compact evidence bundle with snippets: ${claim.trim()}. Mark uncertainties and avoid unsupported facts.`;
+  const task = `Verify this claim with repository evidence: ${claim.trim()}`;
   return {
     task,
     repo_root,

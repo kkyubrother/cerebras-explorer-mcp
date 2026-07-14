@@ -1120,8 +1120,18 @@ test('Spec 028 T049 — report-only explore is neither listed nor callable', asy
 
 test('collect_evidence wrapper uses evidence verification mode instead of edit regex fallback', async () => {
   const repoRoot = await makeRepoFixture();
+  const baseClient = new MockChatClient();
+  const providerRequests = [];
   const { handleRequest } = createMcpRequestHandler({
-    runtimeOptions: { chatClient: new MockChatClient() },
+    runtimeOptions: {
+      chatClient: {
+        model: baseClient.model,
+        async createChatCompletion(request) {
+          providerRequests.push(request);
+          return baseClient.createChatCompletion(request);
+        },
+      },
+    },
   });
 
   const called = await handleRequest({
@@ -1141,6 +1151,13 @@ test('collect_evidence wrapper uses evidence verification mode instead of edit r
   assert.equal(called.structuredContent.schemaVersion, 3);
   assert.equal(called.structuredContent.state, 'complete');
   assert.notEqual(called.structuredContent.state, 'verify_targets');
+  const providerText = providerRequests
+    .flatMap(request => request.messages ?? [])
+    .map(message => typeof message.content === 'string' ? message.content : '')
+    .join('\n');
+  assert.match(providerText,
+    /Verify this claim with repository evidence: update code behavior is already documented/u);
+  assert.doesNotMatch(providerText, /compact evidence bundle|with snippets|Mark uncertainties/u);
 });
 
 test('MCP request handler declares read-only annotations for the current public surface', async () => {

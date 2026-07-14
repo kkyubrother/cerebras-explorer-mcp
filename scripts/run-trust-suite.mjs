@@ -524,7 +524,7 @@ function directRuntimeArgs(invocation) {
     case 'collect_evidence': {
       const claim = requireText(args.claim, 'collect_evidence.claim');
       return {
-        task: `Verify this claim and collect a compact evidence bundle with snippets: ${claim}. Mark uncertainties and avoid unsupported facts.`,
+        task: `Verify this claim with repository evidence: ${claim}`,
         scope: args.scope,
         taskMode: 'evidence_verification',
         hints: anchorHints(args),

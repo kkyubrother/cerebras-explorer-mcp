@@ -35,6 +35,19 @@ test('project keeps zero runtime and development dependencies', async () => {
   assert.deepEqual(packageJson.devDependencies, {});
 });
 
+test('collect_evidence keeps one quiet wrapper task in MCP and trust execution', async () => {
+  const server = await read('src/mcp/server.mjs');
+  const trustRunner = await read('scripts/run-trust-suite.mjs');
+  const expectedServer = /Verify this claim with repository evidence: \$\{claim\.trim\(\)\}/u;
+  const expectedRunner = /Verify this claim with repository evidence: \$\{claim\}/u;
+  const staleNoise = /compact evidence bundle|with snippets|Mark uncertainties/u;
+
+  assert.match(server, expectedServer);
+  assert.match(trustRunner, expectedRunner);
+  assert.doesNotMatch(server, staleNoise);
+  assert.doesNotMatch(trustRunner, staleNoise);
+});
+
 function extractFirstTomlStringArray(source, key) {
   const match = source.match(new RegExp(`^\\s*${key}\\s*=\\s*\\[([\\s\\S]*?)^\\s*\\]`, 'm'));
   assert.ok(match, `${key} array should exist`);
