@@ -7,7 +7,14 @@ import path from 'node:path';
 
 import * as effectMetricsModule from '../src/benchmark/effect-metrics.mjs';
 import * as coverageModule from '../src/explorer/coverage.mjs';
-import { computeCaseEffectMetrics, verifyCitations } from '../src/benchmark/effect-metrics.mjs';
+import {
+  computeCaseEffectMetrics,
+  computeWrapperDistinctnessMetrics,
+  verifyCitations,
+  verifyTargetReads,
+} from '../src/benchmark/effect-metrics.mjs';
+import { analyzeTranscriptEntries } from '../src/benchmark/transcript-metrics.mjs';
+import { computeExtendedMetrics } from '../scripts/run-benchmark.mjs';
 
 function pendingExportTest(module, exportName, name, callback) {
   const exported = module[exportName];
@@ -346,6 +353,190 @@ test('computeCaseEffectMetrics measures payload vs cited source tokens', async (
   assert.ok(metrics.citedSourceTokens > 0);
   assert.equal(metrics.citedFileCount, 1, 'evidence and target paths deduplicate');
   assert.equal(typeof metrics.contextSavingsRatio, 'number');
+});
+
+test('computeCaseEffectMetrics includes only required target reads in parent effect', async () => {
+  const repoRoot = await makeFixtureRepo();
+  const structuredContent = {
+    schemaVersion: 3,
+    directAnswer: 'Read requireAuth before editing it.',
+    state: 'verify_targets',
+    targets: [{ path: 'src/auth.js', startLine: 1, endLine: 2, reason: 'Edit target.' }],
+    evidence: [{
+      kind: 'source',
+      path: 'src/auth.js',
+      startLine: 1,
+      endLine: 2,
+      supports: 'requireAuth checks req.user.',
+    }],
+  };
+  const parentPayload = {
+    content: [{ type: 'text', text: 'Read requireAuth before editing it.' }],
+    structuredContent,
+  };
+  const metrics = await computeCaseEffectMetrics({ parentPayload, repoRoot });
+
+  assert.equal(metrics.targetReadRequired, true);
+  assert.equal(metrics.targetReadFileCount, 1);
+  assert.ok(metrics.targetReadTokens > 0);
+  assert.equal(
+    metrics.parentContextTokens,
+    metrics.responsePayloadTokens + metrics.targetReadTokens,
+  );
+  assert.equal(
+    metrics.parentEffectRatio,
+    Math.round((metrics.citedSourceTokens / metrics.parentContextTokens) * 100) / 100,
+  );
+
+  const navigationOnly = await computeCaseEffectMetrics({
+    parentPayload: {
+      content: parentPayload.content,
+      structuredContent: { ...structuredContent, state: 'complete' },
+    },
+    repoRoot,
+  });
+  assert.equal(navigationOnly.targetReadRequired, false);
+  assert.equal(navigationOnly.targetReadTokens, 0);
+  assert.equal(navigationOnly.parentContextTokens, navigationOnly.responsePayloadTokens);
+});
+
+test('verifyTargetReads validates repository paths and ranges independently', async () => {
+  const repoRoot = await makeFixtureRepo();
+  const { checks, targetReadAccuracy } = await verifyTargetReads({
+    result: {
+      targets: [
+        { path: 'src/auth.js', startLine: 1, endLine: 2, reason: 'valid range' },
+        { path: 'src/auth.js', startLine: 1, endLine: 99, reason: 'invalid range' },
+        { path: '../escape.js', reason: 'outside root' },
+        { path: 'src/missing.js', reason: 'missing' },
+      ],
+    },
+    repoRoot,
+  });
+
+  assert.deepEqual(checks.map(check => check.status), [
+    'match', 'range_invalid', 'out_of_root', 'file_missing',
+  ]);
+  assert.equal(targetReadAccuracy, 0.25);
+  assert.equal(checks[0].readScope, 'range');
+});
+
+test('wrapper distinctness uses independent case outcomes for all six public tools', () => {
+  const toolResults = [
+    ['find_relevant_code', true],
+    ['trace_symbol', true],
+    ['map_change_impact', true],
+    ['explain_code_path', true],
+    ['collect_evidence', false],
+    ['explore_repo', true],
+  ].map(([tool, passed], index) => ({
+    caseDefinition: { id: `case-${index}`, tool },
+    evaluation: { passed },
+  }));
+  // Result-authored confidence and grounding labels are deliberately irrelevant.
+  toolResults[0].result = { confidence: 'high', evidence: [{ groundingStatus: 'exact' }] };
+
+  const metrics = computeWrapperDistinctnessMetrics(toolResults);
+  assert.equal(metrics.totalWrapperCount, 6);
+  assert.equal(metrics.coveredWrapperCount, 6);
+  assert.equal(metrics.passedWrapperCount, 5);
+  assert.equal(metrics.wrapperCoverageRate, 1);
+  assert.equal(metrics.wrapperDistinctnessRate, 0.833);
+  assert.equal(metrics.wrapperScenarioPassRate, 0.833);
+  assert.equal(metrics.wrappers.find(item => item.tool === 'collect_evidence').passed, false);
+});
+
+test('extended metrics aggregate independent payload, citation, target-read, wrapper, and parent effect', () => {
+  const caseResult = (tool, passed, overrides = {}) => ({
+    caseDefinition: { id: tool, tool },
+    evaluation: { passed },
+    result: {
+      schemaVersion: 3,
+      directAnswer: 'Supported answer.',
+      state: 'complete',
+      evidence: [],
+      ...overrides.result,
+    },
+    transcriptMetrics: overrides.transcriptMetrics ?? { safetyLimitCount: 0 },
+    effectMetrics: overrides.effectMetrics ?? {
+      parentPayloadBytes: 200,
+      responsePayloadTokens: 50,
+      citedSourceTokens: 500,
+      citedFileCount: 1,
+      targetReadRequired: false,
+      targetReadTokens: 0,
+      targetReadFileCount: 0,
+      parentContextTokens: 50,
+      contextSavingsRatio: 10,
+      parentEffectRatio: 10,
+    },
+    citation: overrides.citation ?? { checks: [{ status: 'match' }] },
+    targetRead: overrides.targetRead ?? { checks: [] },
+  });
+  const results = [
+    caseResult('find_relevant_code', true),
+    caseResult('trace_symbol', true, {
+      result: { state: 'verify_targets', targets: [{ path: 'src/auth.js' }] },
+      transcriptMetrics: { safetyLimitCount: 1 },
+      effectMetrics: {
+        parentPayloadBytes: 400,
+        responsePayloadTokens: 100,
+        citedSourceTokens: 800,
+        citedFileCount: 1,
+        targetReadRequired: true,
+        targetReadTokens: 100,
+        targetReadFileCount: 1,
+        parentContextTokens: 200,
+        contextSavingsRatio: 8,
+        parentEffectRatio: 4,
+      },
+      citation: { checks: [{ status: 'mismatch' }] },
+      targetRead: { checks: [{ status: 'match' }] },
+    }),
+  ];
+
+  const metrics = computeExtendedMetrics(results);
+  assert.equal(metrics.avgParentPayloadBytes, 300);
+  assert.equal(metrics.medianParentPayloadBytes, 300);
+  assert.equal(metrics.avgTargetReadTokens, 50);
+  assert.equal(metrics.targetReadCaseRate, 0.5);
+  assert.equal(metrics.targetReadAccuracy, 1);
+  assert.equal(metrics.avgParentContextTokens, 125);
+  assert.equal(metrics.avgParentEffectRatio, 7);
+  assert.equal(metrics.citationAccuracy, 0.5);
+  assert.equal(metrics.safetyLimitIncidenceRate, 0.5);
+  assert.equal(metrics.wrapperCoverageRate, 0.333);
+  assert.equal(metrics.wrapperDistinctnessRate, 0.333);
+  assert.equal(Object.hasOwn(metrics, 'avgGroundedEvidence'), false);
+  assert.equal(Object.hasOwn(metrics, 'targetedVerificationRate'), false);
+});
+
+test('transcript metrics count only exact runtime safety-limit observations', () => {
+  const metrics = analyzeTranscriptEntries([
+    {
+      type: 'safety_limit',
+      name: 'turn_limit',
+      stage: 'exploration',
+      affectedSubgoalIds: ['S1'],
+      truncated: false,
+    },
+    {
+      type: 'safety_limit',
+      name: 'invented_limit',
+      stage: 'exploration',
+      affectedSubgoalIds: ['S1'],
+      truncated: false,
+    },
+    {
+      type: 'safety_limit',
+      name: 'context_limit',
+      stage: 'invented_stage',
+      affectedSubgoalIds: ['S1'],
+      truncated: true,
+    },
+    { type: 'safety_limit', name: 'context_limit' },
+  ]);
+  assert.equal(metrics.safetyLimitCount, 1);
 });
 
 test('computeCaseEffectMetrics returns null ratio when nothing is cited', async () => {

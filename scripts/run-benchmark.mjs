@@ -10,7 +10,9 @@ import { sanitizeBenchmarkReport, sanitizePathForReport } from '../src/benchmark
 import { analyzeTranscriptFile } from '../src/benchmark/transcript-metrics.mjs';
 import {
   computeCaseEffectMetrics,
+  computeWrapperDistinctnessMetrics,
   verifyCitations,
+  verifyTargetReads,
   NEUTRAL_CITATION_STATUSES,
   MATCH_CITATION_STATUSES,
 } from '../src/benchmark/effect-metrics.mjs';
@@ -83,8 +85,22 @@ async function createHandler(logger) {
   return handleRequest;
 }
 
+async function listTranscriptFiles() {
+  const transcriptDir = process.env.CEREBRAS_EXPLORER_LOG_PATH;
+  if (!transcriptDir) return new Set();
+  try {
+    const entries = await fs.readdir(transcriptDir, { withFileTypes: true });
+    return new Set(entries
+      .filter(entry => entry.isFile() && entry.name.endsWith('.jsonl'))
+      .map(entry => path.resolve(transcriptDir, entry.name)));
+  } catch {
+    return new Set();
+  }
+}
+
 async function runCase(handleRequest, caseDefinition, repoRoot) {
   const startedAt = Date.now();
+  const transcriptsBefore = await listTranscriptFiles();
   const response = await handleRequest({
     jsonrpc: '2.0',
     id: caseDefinition.id,
@@ -104,13 +120,22 @@ async function runCase(handleRequest, caseDefinition, repoRoot) {
   }
 
   const ops = response._meta?.ops ?? null;
+  const transcriptsAfter = await listTranscriptFiles();
+  const newTranscriptPaths = [...transcriptsAfter]
+    .filter(filePath => !transcriptsBefore.has(filePath))
+    .sort();
+  const parentPayload = {
+    content: Array.isArray(response.content) ? response.content : [],
+    structuredContent: response.structuredContent,
+  };
   return {
     elapsedMs: Date.now() - startedAt,
     result: response.structuredContent,
+    parentPayload,
     // Keep stats for metrics; do not persist transcriptPath on the case
     // result so temp paths never reach the saved JSON report.
     ops: ops ? { stats: ops.stats ?? null } : null,
-    transcriptPath: ops?.transcriptPath ?? null,
+    transcriptPath: ops?.transcriptPath ?? newTranscriptPaths.at(-1) ?? null,
   };
 }
 
@@ -130,26 +155,10 @@ function warnHarnessFault(label, error) {
   return null;
 }
 
-function getConfidence(result) {
-  return result?.status?.confidence ?? result?.confidence ?? 'n/a';
-}
-
-function getConfidenceScore(result) {
-  return result?.confidenceScore ?? 'n/a';
-}
-
 /**
- * Compute extended benchmark metrics beyond pass/fail scoring. All metrics are
- * record-only (spec 021: never a gate). Sources (spec 025):
- *   - _meta.ops side-channel  : avgToolTurns, avgInternalTokens, noToolExitRate (primary)
- *   - structuredContent       : noToolExitRate (fallback), avgGroundedEvidence,
- *                               avgTargets, evidenceSnippetRate, targetedVerificationRate
- *   - effect-metrics harness  : avgResponsePayloadTokens, avgCitedSourceTokens,
- *                               avgContextSavingsRatio, citationAccuracy, weakCitationChecks
- *   - transcript analysis     : avgBroadSearchCalls, avgRepeatedToolPlanTurns,
- *                               safetyLimitIncidenceRate
- * A metric with no available source is null (printed as "n/a") — never a
- * fabricated 0/100%.
+ * Record-only operator metrics. Trust is evaluated elsewhere against the
+ * independently authored known-answer oracle; confidence, groundingStatus,
+ * and evidence quantity are deliberately not acceptance inputs here.
  */
 export function computeExtendedMetrics(caseResults) {
   const successCases = caseResults.filter(cr => cr.result != null);
@@ -161,31 +170,40 @@ export function computeExtendedMetrics(caseResults) {
     : null);
   const round1 = value => (value === null ? null : Math.round(value * 10) / 10);
   const round3 = value => (value === null ? null : Math.round(value * 1000) / 1000);
+  const medianOf = values => {
+    if (values.length === 0) return null;
+    const sorted = [...values].sort((left, right) => left - right);
+    const middle = Math.floor(sorted.length / 2);
+    return sorted.length % 2 === 1
+      ? sorted[middle]
+      : (sorted[middle - 1] + sorted[middle]) / 2;
+  };
 
   const opsStats = successCases
     .map(cr => cr.ops?.stats)
     .filter(stats => stats && typeof stats === 'object');
 
-  const avgToolTurns = round1(avgOf(opsStats.map(stats => stats.turns).filter(value => typeof value === 'number')));
+  const transcriptCases = successCases.filter(cr => cr.transcriptMetrics);
+  const avgToolTurns = round1(avgOf(successCases
+    .map(cr => typeof cr.ops?.stats?.turns === 'number'
+      ? cr.ops.stats.turns
+      : typeof cr.transcriptMetrics?.assistantTurns === 'number'
+        ? cr.transcriptMetrics.assistantTurns
+        : null)
+    .filter(value => value !== null)));
   const avgInternalTokensRaw = avgOf(opsStats.map(stats => stats.totalTokens).filter(value => typeof value === 'number'));
 
-  const noToolExitRate = successCases.filter(cr => {
-    const stats = cr.ops?.stats;
-    if (stats && typeof stats.toolCalls === 'number') return stats.toolCalls === 0;
-    // Fallback caveat: searchCoverage has no git-call counter, so a
-    // git-tools-only exploration can be misread as a no-tool exit here.
-    if (!cr.result.searchCoverage) return false; // an absent source must not fabricate a positive
-    const sc = cr.result.searchCoverage;
-    return ((sc.filesRead ?? 0) + (sc.grepCalls ?? 0) + (sc.listDirCalls ?? 0) + (sc.symbolCalls ?? 0)) === 0;
-  }).length / count;
-
-  const avgGroundedEvidence =
-    successCases.reduce((sum, cr) => {
-      const grounded = (cr.result.evidence ?? []).filter(
-        e => e.groundingStatus === 'exact' || e.groundingStatus === 'partial',
-      ).length;
-      return sum + grounded;
-    }, 0) / count;
+  const toolActivityCases = successCases.map(cr => {
+    if (typeof cr.ops?.stats?.toolCalls === 'number') return cr.ops.stats.toolCalls;
+    if (typeof cr.transcriptMetrics?.toolCalls === 'number') return cr.transcriptMetrics.toolCalls;
+    if (!cr.result.searchCoverage) return null;
+    const coverage = cr.result.searchCoverage;
+    return (coverage.filesRead ?? 0) + (coverage.grepCalls ?? 0) +
+      (coverage.listDirCalls ?? 0) + (coverage.symbolCalls ?? 0);
+  }).filter(value => value !== null);
+  const noToolExitRate = toolActivityCases.length > 0
+    ? toolActivityCases.filter(value => value === 0).length / toolActivityCases.length
+    : null;
 
   const evidenceCount = successCases.reduce((sum, cr) => sum + (cr.result.evidence?.length ?? 0), 0);
   const snippetCount = successCases.reduce((sum, cr) => {
@@ -195,10 +213,6 @@ export function computeExtendedMetrics(caseResults) {
   const avgTargets =
     successCases.reduce((sum, cr) => sum + (cr.result.targets?.length ?? 0), 0) / count;
 
-  const targetedVerificationRate =
-    successCases.filter(cr => cr.result.status?.verification === 'targeted_read_needed').length / count;
-
-  const transcriptCases = successCases.filter(cr => cr.transcriptMetrics);
   const avgBroadSearchCalls = transcriptCases.length > 0
     ? transcriptCases.reduce((sum, cr) => sum + Number(cr.transcriptMetrics.broadSearchCalls ?? 0), 0) / transcriptCases.length
     : null;
@@ -212,12 +226,28 @@ export function computeExtendedMetrics(caseResults) {
     : null;
 
   const effectCases = successCases.map(cr => cr.effectMetrics).filter(Boolean);
-  const avgResponsePayloadTokens = avgOf(effectCases.map(m => m.responsePayloadTokens));
-  const avgCitedSourceTokens = avgOf(effectCases.map(m => m.citedSourceTokens));
+  const numericEffectValues = key => effectCases
+    .map(metrics => metrics[key])
+    .filter(value => typeof value === 'number' && Number.isFinite(value));
+  const parentPayloadBytes = numericEffectValues('parentPayloadBytes');
+  const avgParentPayloadBytes = avgOf(parentPayloadBytes);
+  const medianParentPayloadBytes = medianOf(parentPayloadBytes);
+  const avgResponsePayloadTokens = avgOf(numericEffectValues('responsePayloadTokens'));
+  const avgCitedSourceTokens = avgOf(numericEffectValues('citedSourceTokens'));
+  const avgTargetReadTokens = avgOf(numericEffectValues('targetReadTokens'));
+  const avgParentContextTokens = avgOf(numericEffectValues('parentContextTokens'));
+  const targetReadCases = effectCases.filter(metrics =>
+    typeof metrics.targetReadRequired === 'boolean');
+  const targetReadCaseRate = targetReadCases.length > 0
+    ? targetReadCases.filter(metrics => metrics.targetReadRequired).length / targetReadCases.length
+    : null;
   // Mean of per-case ratios (each case = one delegation decision), NOT pooled
   // avgCitedSourceTokens / avgResponsePayloadTokens — the two can differ.
   const avgContextSavingsRatio = avgOf(
-    effectCases.map(m => m.contextSavingsRatio).filter(value => typeof value === 'number'),
+    numericEffectValues('contextSavingsRatio'),
+  );
+  const avgParentEffectRatio = avgOf(
+    numericEffectValues('parentEffectRatio'),
   );
 
   const allChecks = successCases.flatMap(cr => cr.citation?.checks ?? []);
@@ -227,25 +257,42 @@ export function computeExtendedMetrics(caseResults) {
     ? round3(matchedChecks.length / countedChecks.length)
     : null;
   const weakCitationChecks = allChecks.filter(check => check.status === 'weak_match').length;
+  const targetReadChecks = successCases.flatMap(cr => cr.targetRead?.checks ?? []);
+  const matchedTargetReads = targetReadChecks.filter(check => check.status === 'match').length;
+  const targetReadAccuracy = targetReadChecks.length > 0
+    ? round3(matchedTargetReads / targetReadChecks.length)
+    : null;
+  const wrapperMetrics = computeWrapperDistinctnessMetrics(caseResults);
 
   return {
     avgToolTurns,
     avgInternalTokens: avgInternalTokensRaw === null ? null : Math.round(avgInternalTokensRaw),
     safetyLimitIncidenceRate: round3(safetyLimitIncidenceRate),
     noToolExitRate: round3(noToolExitRate),
-    avgGroundedEvidence: round1(avgGroundedEvidence),
     avgTargets: round1(avgTargets),
     evidenceSnippetRate: evidenceCount > 0
       ? round3(snippetCount / evidenceCount)
       : null,
-    targetedVerificationRate: round3(targetedVerificationRate),
     avgBroadSearchCalls: round1(avgBroadSearchCalls),
     avgRepeatedToolPlanTurns: round1(avgRepeatedToolPlanTurns),
+    avgParentPayloadBytes: avgParentPayloadBytes === null ? null : Math.round(avgParentPayloadBytes),
+    medianParentPayloadBytes: medianParentPayloadBytes === null
+      ? null
+      : Math.round(medianParentPayloadBytes),
     avgResponsePayloadTokens: avgResponsePayloadTokens === null ? null : Math.round(avgResponsePayloadTokens),
     avgCitedSourceTokens: avgCitedSourceTokens === null ? null : Math.round(avgCitedSourceTokens),
+    avgTargetReadTokens: avgTargetReadTokens === null ? null : Math.round(avgTargetReadTokens),
+    targetReadCaseRate: round3(targetReadCaseRate),
+    targetReadAccuracy,
+    avgParentContextTokens: avgParentContextTokens === null ? null : Math.round(avgParentContextTokens),
     avgContextSavingsRatio: avgContextSavingsRatio === null ? null : Math.round(avgContextSavingsRatio * 100) / 100,
+    avgParentEffectRatio: avgParentEffectRatio === null ? null : Math.round(avgParentEffectRatio * 100) / 100,
     citationAccuracy,
     weakCitationChecks,
+    wrapperCoverageRate: wrapperMetrics.wrapperCoverageRate,
+    wrapperDistinctnessRate: wrapperMetrics.wrapperDistinctnessRate,
+    wrapperScenarioPassRate: wrapperMetrics.wrapperScenarioPassRate,
+    wrapperResults: wrapperMetrics.wrappers,
   };
 }
 
@@ -254,7 +301,7 @@ function printCaseResult(caseResult, verbose) {
   const status = evaluation.passed ? 'PASS' : 'FAIL';
   console.log(`${status} ${caseDefinition.id}  score=${formatPercent(evaluation.score)}  elapsed=${elapsedMs}ms`);
   console.log(`  ${caseDefinition.description}`);
-  console.log(`  confidence=${getConfidence(result)} confidenceScore=${getConfidenceScore(result)} evidence=${result.evidence?.length ?? 0}`);
+  console.log(`  state=${result.state ?? 'n/a'} targets=${result.targets?.length ?? 0} evidence=${result.evidence?.length ?? 0}`);
 
   if (!verbose) return;
 
@@ -340,14 +387,36 @@ async function main() {
         passScore: suiteCase.passScore ?? suite.defaultPassScore ?? 0.7,
       };
       try {
-        const { result, elapsedMs, ops, transcriptPath } = await runCase(handleRequest, caseDefinition, repoRoot);
+        const {
+          result,
+          parentPayload,
+          elapsedMs,
+          ops,
+          transcriptPath,
+        } = await runCase(handleRequest, caseDefinition, repoRoot);
         const transcriptMetrics = transcriptPath
           ? await analyzeTranscriptFile(transcriptPath).catch(error => warnHarnessFault('transcript-metrics', error))
           : null;
-        const effectMetrics = await computeCaseEffectMetrics({ result, repoRoot }).catch(error => warnHarnessFault('effect-metrics', error));
+        const effectMetrics = await computeCaseEffectMetrics({
+          result,
+          parentPayload,
+          repoRoot,
+        }).catch(error => warnHarnessFault('effect-metrics', error));
         const citation = await verifyCitations({ result, repoRoot }).catch(error => warnHarnessFault('citation-verification', error));
+        const targetRead = await verifyTargetReads({ result, repoRoot })
+          .catch(error => warnHarnessFault('target-read-verification', error));
         const evaluation = evaluateBenchmarkCase(caseDefinition, result);
-        const caseResult = { caseDefinition, evaluation, result, elapsedMs, ops, transcriptMetrics, effectMetrics, citation };
+        const caseResult = {
+          caseDefinition,
+          evaluation,
+          result,
+          elapsedMs,
+          ops,
+          transcriptMetrics,
+          effectMetrics,
+          citation,
+          targetRead,
+        };
         caseResults.push(caseResult);
         printCaseResult(caseResult, options.verbose);
       } catch (error) {
@@ -368,6 +437,7 @@ async function main() {
           ops: null,
           effectMetrics: null,
           citation: null,
+          targetRead: null,
           error: error.message,
         };
         caseResults.push(failed);
@@ -387,17 +457,21 @@ async function main() {
       console.log(`  avg tool turns     : ${formatMetric(metrics.avgToolTurns)}`);
       console.log(`  avg internal tokens: ${formatMetric(metrics.avgInternalTokens)}`);
       console.log(`  safety-limit incid.: ${formatMetric(metrics.safetyLimitIncidenceRate, formatPercent)}`);
-      console.log(`  no-tool exit rate  : ${formatPercent(metrics.noToolExitRate)}`);
-      console.log(`  avg grounded evid. : ${metrics.avgGroundedEvidence}`);
+      console.log(`  no-tool exit rate  : ${formatMetric(metrics.noToolExitRate, formatPercent)}`);
       console.log(`  avg targets        : ${metrics.avgTargets}`);
       console.log(`  evidence snippets  : ${formatMetric(metrics.evidenceSnippetRate, formatPercent)}`);
-      console.log(`  targeted verify    : ${formatPercent(metrics.targetedVerificationRate)}`);
       console.log(`  avg broad searches : ${formatMetric(metrics.avgBroadSearchCalls)}`);
       console.log(`  avg repeated plans : ${formatMetric(metrics.avgRepeatedToolPlanTurns)}`);
+      console.log(`  parent payload     : ${formatMetric(metrics.avgParentPayloadBytes)} bytes avg; ${formatMetric(metrics.medianParentPayloadBytes)} median`);
       console.log(`  payload tokens     : ${formatMetric(metrics.avgResponsePayloadTokens)} avg/case`);
       console.log(`  cited source tokens: ${formatMetric(metrics.avgCitedSourceTokens)} avg/case (conservative native-read lower bound)`);
+      console.log(`  target-read tokens : ${formatMetric(metrics.avgTargetReadTokens)} avg/case (${formatMetric(metrics.targetReadCaseRate, formatPercent)} required)`);
+      console.log(`  target-read valid  : ${formatMetric(metrics.targetReadAccuracy, formatPercent)}`);
       console.log(`  context savings    : ${formatMetric(metrics.avgContextSavingsRatio, v => `${v}x`)}`);
+      console.log(`  parent effect      : ${formatMetric(metrics.avgParentEffectRatio, v => `${v}x`)} after required target reads`);
       console.log(`  citation accuracy  : ${formatMetric(metrics.citationAccuracy, formatPercent)} (${metrics.weakCitationChecks} weak checks)`);
+      console.log(`  wrapper coverage   : ${formatMetric(metrics.wrapperCoverageRate, formatPercent)}`);
+      console.log(`  wrapper distinct   : ${formatMetric(metrics.wrapperDistinctnessRate, formatPercent)}`);
     }
 
     if (options.output) {

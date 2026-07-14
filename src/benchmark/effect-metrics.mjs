@@ -12,6 +12,15 @@ import { measureParentPayload } from '../explorer/parent-payload.mjs';
 const NEUTRAL_STATUSES = new Set(['redacted', 'skipped']);
 const MATCH_STATUSES = new Set(['match', 'weak_match']);
 
+const WRAPPER_PROOF_POLICIES = Object.freeze([
+  ['find_relevant_code', 'smallest_relevant_location_set'],
+  ['trace_symbol', 'definition_and_usage_cross_check'],
+  ['map_change_impact', 'requested_impact_categories'],
+  ['explain_code_path', 'ordered_handoffs'],
+  ['collect_evidence', 'support_or_refute'],
+  ['explore_repo', 'audited_subgoal_policies'],
+]);
+
 // Mirror of the runtime snippet reader's file guards (runtime.mjs
 // readEvidenceSnippet): regular files only, no symlinks, 512 KiB cap.
 const MAX_READ_BYTES = 512 * 1024;
@@ -35,6 +44,86 @@ function uniqueCitedPaths(result) {
   return [...paths];
 }
 
+function roundRatio(value) {
+  return Math.round(value * 100) / 100;
+}
+
+async function readSafeText(repoRoot, relPath) {
+  const resolved = resolveInsideRoot(repoRoot, relPath);
+  if (!resolved) return { status: 'out_of_root' };
+  try {
+    const stat = await fs.lstat(resolved);
+    if (!stat.isFile() || stat.isSymbolicLink() || stat.size > MAX_READ_BYTES) {
+      return { status: 'file_missing' };
+    }
+    const content = await fs.readFile(resolved, 'utf8');
+    return {
+      content,
+      lines: content.split('\n').map(line => line.replace(/\r$/, '')),
+    };
+  } catch {
+    return { status: 'file_missing' };
+  }
+}
+
+function mergeLineRanges(ranges) {
+  const sorted = [...ranges].sort((left, right) =>
+    left.startLine - right.startLine || left.endLine - right.endLine);
+  const merged = [];
+  for (const range of sorted) {
+    const previous = merged.at(-1);
+    if (!previous || range.startLine > previous.endLine + 1) {
+      merged.push({ ...range });
+    } else {
+      previous.endLine = Math.max(previous.endLine, range.endLine);
+    }
+  }
+  return merged;
+}
+
+async function computeRequiredTargetRead({ result, repoRoot }) {
+  if (result?.state !== 'verify_targets') {
+    return { targetReadRequired: false, targetReadTokens: 0, targetReadFileCount: 0 };
+  }
+
+  const byPath = new Map();
+  for (const target of result.targets ?? []) {
+    if (typeof target?.path !== 'string' || !target.path.trim()) continue;
+    const relPath = target.path.trim();
+    const record = byPath.get(relPath) ?? { wholeFile: false, ranges: [] };
+    const hasStart = Number.isInteger(target.startLine);
+    const hasEnd = Number.isInteger(target.endLine);
+    if (!hasStart && !hasEnd) {
+      record.wholeFile = true;
+    } else if (hasStart && hasEnd) {
+      record.ranges.push({ startLine: target.startLine, endLine: target.endLine });
+    }
+    byPath.set(relPath, record);
+  }
+
+  let targetReadTokens = 0;
+  let targetReadFileCount = 0;
+  for (const [relPath, selection] of byPath) {
+    const file = await readSafeText(repoRoot, relPath);
+    if (file.status) continue;
+    if (selection.wholeFile) {
+      targetReadTokens += estimateStringTokens(file.content);
+      targetReadFileCount += 1;
+      continue;
+    }
+    const validRanges = selection.ranges.filter(range =>
+      validRange(range.startLine, range.endLine, file.lines.length));
+    if (validRanges.length === 0) continue;
+    const selectedText = mergeLineRanges(validRanges)
+      .map(range => file.lines.slice(range.startLine - 1, range.endLine).join('\n'))
+      .join('\n');
+    targetReadTokens += estimateStringTokens(selectedText);
+    targetReadFileCount += 1;
+  }
+
+  return { targetReadRequired: true, targetReadTokens, targetReadFileCount };
+}
+
 export async function computeCaseEffectMetrics({ result, parentPayload, repoRoot }) {
   const measuredPayload = parentPayload ? measureParentPayload(parentPayload) : null;
   const measuredResult = parentPayload?.structuredContent ?? result;
@@ -46,25 +135,25 @@ export async function computeCaseEffectMetrics({ result, parentPayload, repoRoot
   let citedSourceTokens = 0;
   let citedFileCount = 0;
   for (const relPath of uniqueCitedPaths(measuredResult)) {
-    const resolved = resolveInsideRoot(repoRoot, relPath);
-    if (!resolved) continue;
-    try {
-      const stat = await fs.lstat(resolved);
-      if (!stat.isFile() || stat.isSymbolicLink() || stat.size > MAX_READ_BYTES) continue;
-      const content = await fs.readFile(resolved, 'utf8');
-      citedSourceTokens += estimateStringTokens(content);
-      citedFileCount += 1;
-    } catch {
-      // Missing files are classified by verifyCitations; they add no tokens.
-    }
+    const file = await readSafeText(repoRoot, relPath);
+    if (file.status) continue;
+    citedSourceTokens += estimateStringTokens(file.content);
+    citedFileCount += 1;
   }
+  const targetRead = await computeRequiredTargetRead({ result: measuredResult, repoRoot });
+  const parentContextTokens = responsePayloadTokens + targetRead.targetReadTokens;
   return {
     ...(measuredPayload ? { parentPayloadBytes: measuredPayload.parentPayloadBytes } : {}),
     responsePayloadTokens,
     citedSourceTokens,
     citedFileCount,
+    ...targetRead,
+    parentContextTokens,
     contextSavingsRatio: citedFileCount > 0 && responsePayloadTokens > 0
-      ? Math.round((citedSourceTokens / responsePayloadTokens) * 100) / 100
+      ? roundRatio(citedSourceTokens / responsePayloadTokens)
+      : null,
+    parentEffectRatio: citedFileCount > 0 && parentContextTokens > 0
+      ? roundRatio(citedSourceTokens / parentContextTokens)
       : null,
   };
 }
@@ -86,19 +175,7 @@ function parseSnippetLines(snippet) {
 }
 
 async function readFileLines(repoRoot, relPath) {
-  const resolved = resolveInsideRoot(repoRoot, relPath);
-  if (!resolved) return { status: 'out_of_root' };
-  try {
-    const stat = await fs.lstat(resolved);
-    if (!stat.isFile() || stat.isSymbolicLink() || stat.size > MAX_READ_BYTES) {
-      return { status: 'file_missing' };
-    }
-    const content = await fs.readFile(resolved, 'utf8');
-    // Strip '\r' residue for the same CRLF reason as parseSnippetLines.
-    return { lines: content.split('\n').map(line => line.replace(/\r$/, '')) };
-  } catch {
-    return { status: 'file_missing' };
-  }
+  return readSafeText(repoRoot, relPath);
 }
 
 function validRange(startLine, endLine, totalLines) {
@@ -169,6 +246,75 @@ export async function verifyCitations({ result, repoRoot }) {
     citationAccuracy: counted.length > 0
       ? Math.round((matched.length / counted.length) * 1000) / 1000
       : null,
+  };
+}
+
+/** Independently verify that every parent target is a readable in-root file/range. */
+export async function verifyTargetReads({ result, repoRoot }) {
+  const checks = [];
+  for (const item of result?.targets ?? []) {
+    const target = `${item?.path}:${item?.startLine ?? ''}-${item?.endLine ?? ''}`;
+    const file = await readFileLines(repoRoot, item?.path);
+    if (file.status) {
+      checks.push({ target, status: file.status });
+      continue;
+    }
+    const hasStart = Number.isInteger(item?.startLine);
+    const hasEnd = Number.isInteger(item?.endLine);
+    if (hasStart !== hasEnd ||
+        (hasStart && !validRange(item.startLine, item.endLine, file.lines.length))) {
+      checks.push({ target, status: 'range_invalid' });
+      continue;
+    }
+    checks.push({
+      target,
+      status: 'match',
+      readScope: hasStart ? 'range' : 'file',
+    });
+  }
+  const matched = checks.filter(check => check.status === 'match').length;
+  return {
+    checks,
+    targetReadAccuracy: checks.length > 0
+      ? Math.round((matched / checks.length) * 1000) / 1000
+      : null,
+  };
+}
+
+/**
+ * Group external benchmark-case outcomes by the six runtime-owned proof
+ * policies. Explorer confidence, evidence counts, and grounding labels are
+ * deliberately not inputs.
+ */
+export function computeWrapperDistinctnessMetrics(caseResults) {
+  const normalizedCases = Array.isArray(caseResults) ? caseResults : [];
+  const wrappers = WRAPPER_PROOF_POLICIES.map(([tool, proofPolicy]) => {
+    const scenarios = normalizedCases.filter(item => item?.caseDefinition?.tool === tool);
+    const passedScenarioCount = scenarios.filter(item => item?.evaluation?.passed === true).length;
+    return {
+      tool,
+      proofPolicy,
+      scenarioCount: scenarios.length,
+      passedScenarioCount,
+      passed: passedScenarioCount > 0,
+    };
+  });
+  const scenarioCount = wrappers.reduce((sum, item) => sum + item.scenarioCount, 0);
+  const passedScenarioCount = wrappers.reduce((sum, item) => sum + item.passedScenarioCount, 0);
+  const coveredWrapperCount = wrappers.filter(item => item.scenarioCount > 0).length;
+  const passedWrapperCount = wrappers.filter(item => item.passed).length;
+  const totalWrapperCount = wrappers.length;
+  const round3 = value => Math.round(value * 1000) / 1000;
+  return {
+    totalWrapperCount,
+    coveredWrapperCount,
+    passedWrapperCount,
+    wrapperCoverageRate: round3(coveredWrapperCount / totalWrapperCount),
+    wrapperDistinctnessRate: round3(passedWrapperCount / totalWrapperCount),
+    wrapperScenarioPassRate: scenarioCount > 0
+      ? round3(passedScenarioCount / scenarioCount)
+      : null,
+    wrappers,
   };
 }
 

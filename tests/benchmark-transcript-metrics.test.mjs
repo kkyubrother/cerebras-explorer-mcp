@@ -183,7 +183,8 @@ test('computeExtendedMetrics does not fabricate a no-tool exit from an absent se
   const bare = syntheticCase();
   delete bare.result.searchCoverage;
   const metrics = computeExtendedMetrics([bare]);
-  assert.equal(metrics.noToolExitRate, 0);
+  assert.equal(metrics.noToolExitRate, null,
+    'absence of an activity source must remain unknown rather than fabricate zero');
   assert.equal(metrics.evidenceSnippetRate, null, 'empty evidence denominator degrades to null, not 0');
 });
 
