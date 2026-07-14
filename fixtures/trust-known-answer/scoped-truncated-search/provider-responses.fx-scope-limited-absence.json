@@ -202,6 +202,27 @@
           "toolCalls": []
         }
       }
+    },
+    {
+      "stage": "semantic_verifier",
+      "result": {
+        "message": {
+          "content": {
+            "verdicts": [
+              {
+                "claimId": "C1",
+                "result": "supported",
+                "resolution": "affirmed",
+                "supportingEvidenceRefs": ["E1", "E2", "E3"],
+                "reasonCode": "entailed",
+                "note": "The focused comparison confirms both route declarations within the certified bounded scope."
+              }
+            ],
+            "uncoveredRequestParts": []
+          },
+          "toolCalls": []
+        }
+      }
     }
   ]
 }

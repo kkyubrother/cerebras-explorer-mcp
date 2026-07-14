@@ -1327,9 +1327,10 @@ function requestTextForSubgoal(task, subgoal) {
 
 function requiresSourceBackedExhaustiveClassification(task, subgoal) {
   if (subgoal?.proofPolicy !== 'distinct_policy_paths') return false;
-  const requestText = `${requestTextForSubgoal(task, subgoal)} ${task ?? ''}`;
-  return /\b(?:every|exhaustive|all|inventory|enumerate|enumeration|catalog)\b|모든|모두|전부|전체\s*(?:목록|분류)|목록화|열거|인벤토리/iu
-    .test(requestText);
+  const exhaustiveMarker = /\b(?:every|exhaustive|all|inventory|enumerate|enumeration|catalog)\b|모든|모두|전부|전체\s*(?:목록|분류)|목록화|열거|인벤토리/iu;
+  const requestText = requestTextForSubgoal(task, subgoal);
+  const auditedGoalText = `${subgoal.question ?? ''} ${subgoal.proofCondition ?? ''}`;
+  return exhaustiveMarker.test(requestText) && exhaustiveMarker.test(auditedGoalText);
 }
 
 function explicitlyRequestsMatchingLineCount(task, subgoal) {
@@ -4653,7 +4654,7 @@ export class ExplorerRuntime {
           claim.evidenceRefs,
           batchObservations,
         );
-        if (requiredSourcePaths.size < 3) continue;
+        if (requiredSourcePaths.size < 2) continue;
         const primarySourcePaths = currentSourcePathsForRefs(
           primaryVerdict.supportingEvidenceRefs,
           batchObservations,

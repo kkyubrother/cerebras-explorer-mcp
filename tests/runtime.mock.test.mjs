@@ -7851,7 +7851,7 @@ semanticPipelineRuntimeTest(
     const wrongBackendClaim = candidateClaim(
       'C-focused-backend', backendGoal.id,
       'Backend routes use ADMIN_USERS membership and an admin_user_info row-existence check.',
-      ['E2', 'E3', 'E7']);
+      ['E2', 'E3']);
     const developerClaim = candidateClaim(
       'C-focused-developer', developerGoal.id,
       'The case and draft routes both map the development department to dyhan7301.',
@@ -7881,7 +7881,7 @@ semanticPipelineRuntimeTest(
     };
     const primaryVerdicts = [
       semanticVerdict(frontendClaim.id, 'supported', ['E1']),
-      semanticVerdict(wrongBackendClaim.id, 'supported', ['E2', 'E3', 'E7']),
+      semanticVerdict(wrongBackendClaim.id, 'supported', ['E2', 'E3']),
       semanticVerdict(developerClaim.id, 'supported', ['E5', 'E6']),
     ];
     let focusedPacket = null;
@@ -7892,7 +7892,7 @@ semanticPipelineRuntimeTest(
         claims: [frontendClaim, wrongBackendClaim, developerClaim],
         verifierSteps: [{ verdicts: primaryVerdicts }, {
           verdicts: [{
-            ...semanticVerdict(wrongBackendClaim.id, 'insufficient', ['E2', 'E3', 'E7']),
+            ...semanticVerdict(wrongBackendClaim.id, 'insufficient', ['E2', 'E3']),
             reasonCode: 'missing_category',
             note: 'The uncited is_admin source is another in-boundary administrator variant.',
           }],
@@ -7902,6 +7902,8 @@ semanticPipelineRuntimeTest(
               system: request.messages[0].content,
             };
           },
+        }, {
+          verdicts: [semanticVerdict(developerClaim.id, 'supported', ['E5', 'E6'])],
         }],
       },
       repair: {
@@ -7914,7 +7916,7 @@ semanticPipelineRuntimeTest(
     const { client, result } = await runTrustScript(steps, { task, setup });
 
     assert.equal(result.failure, null, JSON.stringify(result.failure));
-    assert.equal(client.stageCounts.get('semantic_verifier'), 2);
+    assert.equal(client.stageCounts.get('semantic_verifier'), 3);
     assert.deepEqual(focusedPacket.control.claims.map(claim => claim.id),
       [wrongBackendClaim.id]);
     assert.deepEqual(focusedPacket.control.control.requiredSubgoals.map(goal => goal.id),
@@ -7946,16 +7948,24 @@ semanticPipelineRuntimeTest(
     assert.equal(result.parentHandoff.gaps.some(gap =>
       gap.question === expectedParentGapQuestion(result, backendGoal)), true);
 
+    const partiallySupportedBackendClaim = {
+      ...wrongBackendClaim,
+      evidenceRefs: ['E2', 'E3', 'E7'],
+    };
     const primaryPartialSteps = buildTrustSteps({
       goals: [frontendGoal, backendGoal, developerGoal],
       initial: {
         tools: sourceTools,
-        claims: [frontendClaim, wrongBackendClaim, developerClaim],
-        verdicts: [
-          semanticVerdict(frontendClaim.id, 'supported', ['E1']),
-          semanticVerdict(wrongBackendClaim.id, 'supported', ['E2', 'E3']),
-          semanticVerdict(developerClaim.id, 'supported', ['E5', 'E6']),
-        ],
+        claims: [frontendClaim, partiallySupportedBackendClaim, developerClaim],
+        verifierSteps: [{
+          verdicts: [
+            semanticVerdict(frontendClaim.id, 'supported', ['E1']),
+            semanticVerdict(partiallySupportedBackendClaim.id, 'supported', ['E2', 'E3']),
+            semanticVerdict(developerClaim.id, 'supported', ['E5', 'E6']),
+          ],
+        }, {
+          verdicts: [semanticVerdict(developerClaim.id, 'supported', ['E5', 'E6'])],
+        }],
       },
       repair: {
         tools: [],
@@ -7965,8 +7975,8 @@ semanticPipelineRuntimeTest(
       },
     });
     const primaryPartial = await runTrustScript(primaryPartialSteps, { task, setup });
-    assert.equal(primaryPartial.client.stageCounts.get('semantic_verifier'), 1,
-      'a partial primary verdict fails closed before focused corroboration');
+    assert.equal(primaryPartial.client.stageCounts.get('semantic_verifier'), 2,
+      'a partial primary verdict fails closed before its focused corroboration');
     assert.equal(primaryPartial.result.taskContract.subgoals.find(goal =>
       goal.id === backendGoal.id)?.state, 'gap');
 
@@ -7988,11 +7998,13 @@ semanticPipelineRuntimeTest(
         }, {
           verdicts: [semanticVerdict(
             correctBackendClaim.id, 'supported', ['E2', 'E3', 'E4', 'E7'])],
+        }, {
+          verdicts: [semanticVerdict(developerClaim.id, 'supported', ['E5', 'E6'])],
         }],
       },
     });
     const positive = await runTrustScript(positiveSteps, { task, setup });
-    assert.equal(positive.client.stageCounts.get('semantic_verifier'), 2);
+    assert.equal(positive.client.stageCounts.get('semantic_verifier'), 3);
     assert.equal(positive.result.taskContract.subgoals.find(goal =>
       goal.id === backendGoal.id)?.state, 'supported');
     assert.equal(positive.result.semanticVerification.claims.find(claim =>
@@ -8002,6 +8014,91 @@ semanticPipelineRuntimeTest(
       evidenceCount: 7,
       evidenceKinds: ['source', 'source', 'source', 'source', 'source', 'source', 'source'],
     });
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — an exhaustive sibling request cannot contaminate a comparison goal',
+  async () => {
+    const task = 'Confirm every frontend page named by the fixed anchor, and compare the two API prefix policies.';
+    const frontendGoal = trustGoal(task, {
+      id: 'S-sibling-exhaustive-ui',
+      question: 'Which frontend pages are named by the fixed anchor?',
+      originText: 'Confirm every frontend page named by the fixed anchor',
+      proofCondition: 'Read the fixed frontend-page anchor.',
+    });
+    const comparisonGoal = trustGoal(task, {
+      id: 'S-sibling-api-comparison',
+      question: 'How do the two API prefix policies differ?',
+      originText: 'compare the two API prefix policies',
+      claimType: 'comparison',
+      proofCondition: 'Compare the two explicitly requested API prefix policies.',
+    });
+    const frontendClaim = candidateClaim(
+      'C-sibling-exhaustive-ui',
+      frontendGoal.id,
+      'The fixed anchor names the inquiry frontend page.',
+      ['E1'],
+    );
+    const comparisonClaim = candidateClaim(
+      'C-sibling-api-comparison',
+      comparisonGoal.id,
+      'The internal prefix requires an admin flag while the public prefix does not.',
+      ['E2', 'E3'],
+    );
+    const { result } = await runTrustScript(buildTrustSteps({
+      goals: [frontendGoal, comparisonGoal],
+      initial: {
+        tools: [
+          {
+            tool: 'repo_read_file',
+            args: { path: 'src/frontend-pages.js', startLine: 1, endLine: 1 },
+            id: 'read-sibling-ui-anchor',
+          },
+          {
+            tool: 'repo_read_file',
+            args: { path: 'src/internal-policy.js', startLine: 1, endLine: 1 },
+            id: 'read-sibling-internal-policy',
+          },
+          {
+            tool: 'repo_read_file',
+            args: { path: 'src/public-policy.js', startLine: 1, endLine: 1 },
+            id: 'read-sibling-public-policy',
+          },
+        ],
+        claims: [frontendClaim, comparisonClaim],
+        verifierSteps: [{
+          verdicts: [
+            semanticVerdict(frontendClaim.id, 'supported', ['E1']),
+            semanticVerdict(comparisonClaim.id, 'supported', ['E2', 'E3']),
+          ],
+        }, {
+          verdicts: [semanticVerdict(comparisonClaim.id, 'supported', ['E2', 'E3'])],
+        }],
+      },
+    }), {
+      task,
+      async setup(root) {
+        await fs.writeFile(
+          path.join(root, 'src', 'frontend-pages.js'),
+          "export const pages = ['inquiry'];\n",
+        );
+        await fs.writeFile(
+          path.join(root, 'src', 'internal-policy.js'),
+          'export const internalPolicy = user => user?.is_admin === true;\n',
+        );
+        await fs.writeFile(
+          path.join(root, 'src', 'public-policy.js'),
+          'export const publicPolicy = () => true;\n',
+        );
+      },
+    });
+
+    assert.equal(result.failure, null);
+    assert.equal(result.taskContract.subgoals.find(goal =>
+      goal.id === comparisonGoal.id)?.state, 'supported');
+    assert.equal(result.parentHandoff.state, 'complete');
+    assert.match(result.parentHandoff.directAnswer, /internal prefix requires an admin flag/u);
   },
 );
 
@@ -8058,10 +8155,14 @@ semanticPipelineRuntimeTest(
           },
         ],
         claims: [inventoryClaim, absenceClaim],
-        verdicts: [
-          semanticVerdict(inventoryClaim.id, 'supported', ['E1', 'E2']),
-          semanticVerdict(absenceClaim.id, 'supported', ['E3']),
-        ],
+        verifierSteps: [{
+          verdicts: [
+            semanticVerdict(inventoryClaim.id, 'supported', ['E1', 'E2']),
+            semanticVerdict(absenceClaim.id, 'supported', ['E3']),
+          ],
+        }, {
+          verdicts: [semanticVerdict(inventoryClaim.id, 'supported', ['E1', 'E2'])],
+        }],
       },
     });
     const { client, result } = await runTrustScript(steps, {
@@ -8868,7 +8969,11 @@ semanticPipelineRuntimeTest(
           id: 'search-parent-gap-ledger',
         }],
         claims: [claim],
-        verdicts: [semanticVerdict(claim.id, 'supported', ['E1', 'E2', 'E3'])],
+        verifierSteps: [{
+          verdicts: [semanticVerdict(claim.id, 'supported', ['E1', 'E2', 'E3'])],
+        }, {
+          verdicts: [semanticVerdict(claim.id, 'supported', ['E1', 'E2', 'E3'])],
+        }],
       },
     }), { task });
 

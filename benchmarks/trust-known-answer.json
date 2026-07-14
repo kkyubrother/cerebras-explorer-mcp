@@ -2770,7 +2770,7 @@
       "fixtureExecution": "direct",
       "providerFixture": {
         "path": "fixtures/trust-known-answer/scoped-truncated-search/provider-responses.fx-scope-limited-absence.json",
-        "sha256": "8bb05bd9335bd51a8aa347a53014fc163ae95d948109a3e242f71f9ab0264f25"
+        "sha256": "09fc5cc977f2fcfd80fb1c70a5a62d3f00b3899cf31e1eb5f7f4659799eb187b"
       },
       "invocation": {
         "tool": "explore_repo",
@@ -5134,7 +5134,7 @@
       "fixtureExecution": "direct",
       "providerFixture": {
         "path": "fixtures/trust-known-answer/route-policy-divergence/provider-responses.us5-route-divergence.json",
-        "sha256": "1777897a4ace1acd21d3c82853b90e43814a8a3dc720341abfcfdd1f3d592b96"
+        "sha256": "ac22ee2a636911402ff2eabae1b5d04b2e3bb63445e28bbcf6b30a6b51fe89f9"
       },
       "invocation": {
         "tool": "explore_repo",
