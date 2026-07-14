@@ -29,6 +29,14 @@ compatibility aliases or selectable effort controls are retained.
   context to supporting evidence. A refutation backed only by zero-match search
   evidence also requires focused agreement on one complete certificate; direct
   source/git counterexamples remain sufficient without that extra pass.
+  `collect_evidence` now plans exactly one full-task-bound verdict goal. An
+  affirmation requires both direct source/git evidence and a verifier-approved
+  complete zero-match search for a plausible counterexample, while that search
+  stays internal and only the direct evidence is handed to the parent. A second
+  focused verifier must independently approve the same complete search. Only an
+  explicit complete grep, file-pattern, or symbol predicate can serve as that
+  counter-search; any verifier-reported missing facet keeps the same verdict
+  incomplete instead of creating another goal.
   Planning has at most one revision and evidence repair at most one round, with
   equivalent actions suppressed.
 - **Quiet schema v3**: normal MCP output contains only `schemaVersion`, `state`,

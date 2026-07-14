@@ -557,6 +557,41 @@ auditedPromptBoundaryTest('Spec 028 T071 — map impact categories remain one bo
   assert.match(planner.data, /"requested_categories":"impact"/u);
 });
 
+auditedPromptBoundaryTest('Spec 028 T071 — collect evidence remains one request-bound verdict', () => {
+  const task = 'Verify that every user route requires authentication.';
+  const planner = assertTwoMessageBoundary(promptModule.buildPlannerMessages({
+    task,
+    effectiveScope: ['src/**'],
+    wrapperTool: 'collect_evidence',
+    knownAnchors: { files: [], symbols: [], text: [] },
+    projectContext: '',
+  }), 'collect evidence planner');
+  const auditor = assertTwoMessageBoundary(promptModule.buildGoalAuditorMessages({
+    task,
+    effectiveScope: ['src/**'],
+    wrapperTool: 'collect_evidence',
+    proposals: [{
+      id: 'S-verdict',
+      question: task,
+      originRefs: [`request:0-${task.length}`, 'wrapper:collect_evidence:verdict'],
+      claimType: 'claim_verification',
+      proofCondition: 'Support or refute the claim from direct evidence and counterevidence search.',
+      constraints: [],
+    }],
+    preflightDiagnostics: [],
+    revisionCount: 0,
+  }), 'collect evidence auditor');
+
+  for (const system of [planner.system, auditor.system]) {
+    assert.match(system,
+      /wrapper:collect_evidence:verdict[\s\S]{0,220}exactly one claim_verification goal/i);
+    assert.match(system,
+      /direct evidence and relevant counterevidence search[\s\S]{0,180}never sibling goals/i);
+  }
+  assert.match(planner.data, /"verdict":"claim_verification"/u);
+  assert.doesNotMatch(planner.data, /direct_evidence|counterevidence/u);
+});
+
 auditedPromptBoundaryTest('Spec 028 T069 — late goal auditor receives an immutable merge ledger', () => {
   const proposal = proposedPromptGoal();
   const existing = {
@@ -700,6 +735,10 @@ test('Spec 028 T028 — claim synthesis receives bounded observations and cannot
   assert.match(prompt.system,
     /positive direct-source test claim[\s\S]{0,180}one exactly observed test/i);
   assert.match(prompt.system,
+    /wrapper:collect_evidence:verdict[\s\S]{0,220}complete zero-match search[\s\S]{0,180}confirming lookup[\s\S]{0,100}not a counterevidence search/i);
+  assert.match(prompt.system,
+    /collect_evidence claim text[\s\S]{0,180}requested repository conclusion[\s\S]{0,180}do not add[\s\S]{0,180}(?:search pattern|match count|certificate summary|tool detail)[\s\S]{0,180}only through evidenceRefs/i);
+  assert.match(prompt.system,
     /all\/every\/exhaustive impact goal[\s\S]{0,200}source, docs, agent config, and dependencies[\s\S]{0,120}all four/i);
   assert.match(prompt.data, /"id":"S1"/);
   assert.match(prompt.data, /"id":"E1"/);
@@ -824,6 +863,10 @@ test('Spec 028 T028 — semantic verifier sees isolated rebuilt facts and cannot
     /every asserted comparison side and enforcement predicate[\s\S]{0,180}one correct side never compensates[\s\S]{0,220}row-existence check[\s\S]{0,180}selected boolean field check/i);
   assert.match(prompt.system,
     /every, exhaustive, or inventory classification[\s\S]{0,180}complete cited enumeration[\s\S]{0,180}every enumerated member/i);
+  assert.match(prompt.system,
+    /wrapper:collect_evidence:verdict[\s\S]{0,260}every ref of one complete zero-match search[\s\S]{0,180}confirming lookup[\s\S]{0,180}not counterevidence/i);
+  assert.match(prompt.system,
+    /wrapper:collect_evidence:verdict[\s\S]{0,220}requested proof facet remains uncovered[\s\S]{0,180}insufficient[\s\S]{0,120}uncovered_request[\s\S]{0,180}uncoveredRequestParts empty[\s\S]{0,160}never create a sibling goal/i);
   assert.match(prompt.data, /Locate requireAuth/);
   assert.match(prompt.data, /"id":"S1"/);
   assert.match(prompt.data, /"id":"C1"/);
@@ -972,4 +1015,48 @@ test('Spec 028 T071 — focused absence corroborator receives one certificate-on
   assert.match(prompt.data, /"searchRefs":\["Q1"\]/u);
   assert.match(prompt.data, /"pattern":"legacyGuard"/u);
   assert.doesNotMatch(prompt.data, /auditVerdict|claimRefs|"state"/u);
+
+  const affirmationPrompt = assertTwoMessageBoundary(
+    promptModule.buildCollectAffirmationCorroboratorMessages({
+      taskContract: {
+        ...taskContract,
+        subgoals: [{
+          ...taskContract.subgoals[0],
+          originRefs: [
+            ...taskContract.subgoals[0].originRefs,
+            'wrapper:collect_evidence:verdict',
+          ],
+        }],
+      },
+      claims: [{
+        ...claim,
+        text: 'The requested route uses requireAuth.',
+        evidenceRefs: ['E1', 'Q1'],
+      }],
+      observations: [{
+        id: 'E1',
+        kind: 'source',
+        path: 'src/routes/user.js',
+        startLine: 1,
+        endLine: 3,
+        snippet: 'router.use(requireAuth);',
+        rangeGrounding: 'exact',
+        sourceRole: 'implementation',
+        temporalRole: 'current',
+        redacted: false,
+      }, observation],
+      absenceCertificates: [certificate],
+      wrapperTool: 'collect_evidence',
+    }),
+    'collect affirmation corroborator',
+  );
+
+  assert.match(affirmationPrompt.system, /FOCUSED COLLECT AFFIRMATION CORROBORATION/u);
+  assert.match(affirmationPrompt.system,
+    /confirming lookup[\s\S]{0,100}unrelated pattern[\s\S]{0,100}not a counterevidence check/u);
+  assert.match(affirmationPrompt.system,
+    /direct source or git evidence[\s\S]{0,180}complete searchRefs/u);
+  assert.match(affirmationPrompt.data, /src\/routes\/user\.js/u);
+  assert.match(affirmationPrompt.data, /"searchRefs":\["Q1"\]/u);
+  assert.doesNotMatch(affirmationPrompt.data, /auditVerdict|claimRefs|"state"/u);
 });

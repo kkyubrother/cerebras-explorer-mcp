@@ -822,7 +822,7 @@ const WRAPPER_GOAL_SEEDS = Object.freeze({
     'risk_boundary',
   ]),
   explain_code_path: Object.freeze(['entry', 'handoffs', 'terminal_effect', 'transitions']),
-  collect_evidence: Object.freeze(['verdict', 'direct_evidence', 'counterevidence']),
+  collect_evidence: Object.freeze(['verdict']),
   explore_repo: Object.freeze([]),
 });
 

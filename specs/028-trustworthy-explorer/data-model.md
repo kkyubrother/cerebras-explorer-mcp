@@ -206,6 +206,7 @@ Certificate rules:
 - Zero-match literal grep alone certifies only that literal's bounded textual absence.
 - A zero-match filename glob certifies only bounded filename absence. It cannot by itself refute behavior, registration, function existence, or another mechanism premise.
 - For `support_or_refute`, a complete certificate is necessary but not sufficient when no direct source/git counterexample exists. An independent focused verifier must agree on `supported/refuted` and every `searchRef` of one complete certificate. Runtime retains that agreement as an ephemeral proof artifact and does not expose it to the parent.
+- For an affirmed `collect_evidence` verdict, one complete zero-match certificate for a plausible disconfirming predicate is required alongside direct source/git evidence. Its searches must be complete `repo_grep`/`repo_find_files`/`repo_symbol_context` observations with a non-empty runtime-normalized `pattern` or `symbol`; generic zero-result repository operations are insufficient. Every certificate search ref must appear in the claim and both independent verifiers' supporting refs, and both verifiers must agree on `affirmed`; the certificate and agreement are retained internally rather than projected as parent evidence. An uncovered verifier facet normalizes any result to `insufficient/uncovered_request` on the same verdict goal rather than expanding the ledger.
 - Counts are calculated by runtime from complete normalized results, never copied from model prose.
 
 ## 7. Semantic Verdict
@@ -318,5 +319,5 @@ Implementation staging: T034 records the `final` state-reduction inputs first. T
 | `trace_symbol` | Definition/meaning plus usage cross-check inside boundary. |
 | `map_change_impact` | Edit/read targets, dependent paths, requested tests/config/docs categories, risk boundaries. |
 | `explain_code_path` | Entry point, ordered handoffs, terminal effect; every transition supported. |
-| `collect_evidence` | Claim is supported, contradicted, or unresolved; semantic entailment required. |
+| `collect_evidence` | One full-task-bound verdict goal; affirmation requires direct evidence plus independently corroborated complete counterevidence search, while direct source/git refutation remains sufficient. |
 | `explore_repo` | Planner-derived required sub-goals for all other repository investigations. |

@@ -1149,8 +1149,9 @@ test('collect_evidence wrapper uses evidence verification mode instead of edit r
   });
 
   assert.equal(called.structuredContent.schemaVersion, 3);
-  assert.equal(called.structuredContent.state, 'complete');
+  assert.equal(called.structuredContent.state, 'incomplete');
   assert.notEqual(called.structuredContent.state, 'verify_targets');
+  assert.ok(called.structuredContent.gaps.length > 0);
   const providerText = providerRequests
     .flatMap(request => request.messages ?? [])
     .map(message => typeof message.content === 'string' ? message.content : '')

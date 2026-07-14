@@ -1186,7 +1186,7 @@ test('ExplorerRuntime still treats code changes as edit planning', async () => {
   assert.equal(result.nextAction.type, 'read_target');
 });
 
-test('ExplorerRuntime uses internal taskMode before regex edit intent fallback', async () => {
+test('ExplorerRuntime uses evidence taskMode before edit fallback and fails closed without counter-search', async () => {
   class EvidenceClient {
     constructor() { this.model = 'zai-glm-4.7'; this.calls = 0; }
     async createChatCompletion() {
@@ -1238,7 +1238,8 @@ test('ExplorerRuntime uses internal taskMode before regex edit intent fallback',
     taskMode: 'evidence_verification',
   });
 
-  assert.equal(result.status.verification, 'verified');
+  assert.equal(result.status.verification, 'broad_search_needed');
+  assert.notEqual(result.status.verification, 'targeted_read_needed');
 });
 
 test('ExplorerRuntime taskMode marks edit planning as targeted read needed', async () => {
@@ -4649,6 +4650,57 @@ auditedPlanningRuntimeTest('Spec 028 T071 — repeated fixed wrapper seed omissi
   assert.deepEqual(client.stageLabels, ['planner:1', 'planner:2']);
   assert.ok(result.failure);
   assert.equal(result.parentHandoff.state, 'failed');
+});
+
+auditedPlanningRuntimeTest('Spec 028 T071 — collect_evidence split goals get one planner correction', async () => {
+  const task = 'Verify that every user route requires authentication.';
+  const requestRef = `request:0-${task.length}`;
+  const verdictGoal = {
+    id: 'S-collect-verdict',
+    question: task,
+    originRefs: [requestRef, 'wrapper:collect_evidence:verdict'],
+    claimType: 'claim_verification',
+    proofCondition: 'Support or refute the claim from direct evidence and counterevidence search.',
+    constraints: [],
+  };
+  const splitGoal = {
+    ...verdictGoal,
+    id: 'S-collect-direct-evidence',
+    question: 'Find direct evidence for the claim.',
+    originRefs: [requestRef],
+  };
+  const client = new ScriptedGoalAuditClient([
+    { stage: 'planner:1', value: plannerControl([verdictGoal, splitGoal]) },
+    {
+      stage: 'planner:2',
+      run(request) {
+        assert.match(JSON.stringify(request.messages), /requires exactly one verdict goal/u);
+        return controlCompletion(plannerControl([verdictGoal]));
+      },
+    },
+    {
+      stage: 'goal_audit:1',
+      value: auditorControl([auditControlRecord(verdictGoal)]),
+    },
+    { stage: 'exploration:1', content: 'The canonical collect verdict is audited.' },
+    { stage: 'synthesis:1', value: readyExplorationResult() },
+  ]);
+  const root = await makeRepoFixture();
+  const result = await new RuntimeImplementation({ chatClient: client }).explore({
+    task,
+    repo_root: root,
+    scope: ['src/**'],
+    taskMode: 'evidence_verification',
+  });
+
+  assert.equal(result.failure, null);
+  assert.deepEqual(client.stageLabels.slice(0, 4), [
+    'planner:1',
+    'planner:2',
+    'goal_audit:1',
+    'exploration:1',
+  ]);
+  assert.deepEqual(result.taskContract.subgoals.map(goal => goal.id), [verdictGoal.id]);
 });
 
 auditedPlanningRuntimeTest('Spec 028 T071 — an auditor cannot silently discard a fixed wrapper seed', async () => {
@@ -8091,6 +8143,11 @@ semanticPipelineRuntimeTest(
     const steps = buildTrustSteps({
       goals: [goal],
       initial: {
+        assertRequest(request) {
+          assert.doesNotMatch(JSON.stringify(request.messages),
+            /plausible counterexample, exception, or alternative/u,
+            'generic support_or_refute goals must not inherit collect-only search work');
+        },
         tools: [{
           tool: 'repo_grep',
           args: { pattern: 'legacyGuard', scope: ['src/routes/**'] },
@@ -8129,16 +8186,332 @@ semanticPipelineRuntimeTest(
 );
 
 semanticPipelineRuntimeTest(
+  'Spec 028 T071 — collect_evidence affirmation stays incomplete without counterevidence search',
+  async () => {
+    const task = 'Verify that every user route requires authentication.';
+    const proposedGoal = trustGoal(task, {
+      id: 'S-collect-direct-only',
+      question: task,
+      originText: task,
+      claimType: 'claim_verification',
+      proofCondition: 'Support or refute the claim from current source and a bounded counterevidence search.',
+    });
+    const goal = {
+      ...proposedGoal,
+      originRefs: [...proposedGoal.originRefs, 'wrapper:collect_evidence:verdict'],
+    };
+    const claim = candidateClaim(
+      'C-collect-direct-only', goal.id, 'The user route requires authentication.', ['E1']);
+    const repairedClaim = { ...claim, evidenceRefs: ['E1', 'E2'] };
+    const { result } = await runTrustScript(buildTrustSteps({
+      goals: [goal],
+      initial: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+          id: 'read-collect-auth',
+        }],
+        claims: [claim],
+        verdicts: [semanticVerdict(claim.id, 'supported', ['E1'])],
+      },
+      repair: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/routes/user.js', startLine: 1, endLine: 7 },
+          id: 'read-collect-route',
+        }],
+        claims: [repairedClaim],
+        verdicts: [semanticVerdict(claim.id, 'supported', ['E1', 'E2'])],
+      },
+    }), { task, taskMode: 'evidence_verification' });
+
+    assert.equal(result.failure, null, JSON.stringify(result.failure));
+    assertInternalProofGap(result, goal.id);
+    assertMinimalIncompleteParentHandoff(result, goal.question);
+    assert.equal(result.parentHandoff.directAnswer, undefined);
+    assert.equal(result.parentHandoff.evidence, undefined);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T071 — collect_evidence folds uncovered verifier facets into its one verdict',
+  async () => {
+    const task = 'Verify that every user route requires authentication.';
+    const proposedGoal = trustGoal(task, {
+      id: 'S-collect-uncovered-facet',
+      question: task,
+      originText: task,
+      claimType: 'claim_verification',
+      proofCondition: 'Support or refute the claim from current source and bounded counter-search.',
+    });
+    const goal = {
+      ...proposedGoal,
+      originRefs: [...proposedGoal.originRefs, 'wrapper:collect_evidence:verdict'],
+    };
+    const claim = candidateClaim(
+      'C-collect-uncovered-facet',
+      goal.id,
+      'The user route requires authentication.',
+      ['E1', 'E2'],
+    );
+    const repairedClaim = { ...claim, evidenceRefs: ['E1', 'E2', 'E3'] };
+    const uncovered = [{
+      question: 'Could another requested route registration refute the claim?',
+      originRefs: [requestOrigin(task, task)],
+      claimType: 'positive',
+      proofCondition: 'Inspect the remaining requested route facet.',
+      constraints: [],
+    }];
+    const { client, result } = await runTrustScript(buildTrustSteps({
+      goals: [goal],
+      initial: {
+        assertRequest(request) {
+          assert.match(JSON.stringify(request.messages),
+            /wrapper:collect_evidence:verdict[\s\S]{0,260}plausible counterexample/u);
+        },
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/routes/user.js', startLine: 1, endLine: 7 },
+          id: 'read-collect-route',
+        }, {
+          tool: 'repo_grep',
+          args: { pattern: 'skipAuth|allowAnonymous', scope: ['src/**'] },
+          id: 'grep-collect-counterevidence',
+        }],
+        claims: [claim],
+        verdicts: [semanticVerdict(claim.id, 'contradicted')],
+        uncovered,
+      },
+      repair: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+          id: 'read-collect-repair',
+        }],
+        claims: [repairedClaim],
+        verdicts: [semanticVerdict(claim.id, 'contradicted')],
+        uncovered,
+      },
+    }), { task, taskMode: 'evidence_verification' });
+
+    assert.equal(result.failure, null, JSON.stringify(result.failure));
+    assert.equal(client.stageCounts.get('goal_audit'), 1,
+      'uncovered collect facets must not trigger a late goal audit');
+    assert.equal(client.stageCounts.get('semantic_verifier'), 2);
+    assert.deepEqual(result.taskContract.subgoals.map(item => item.id), [goal.id]);
+    assert.equal(result.taskContract.subgoals[0].state, 'gap');
+    assert.equal(result.coverageGaps.length, 1);
+    assert.equal(result.coverageGaps[0].reason, 'uncovered_request');
+    assert.equal(result.coverageGaps[0].repairable, false);
+    assert.equal(result.taskContract.subgoals.some(item =>
+      item.id.startsWith('late-uncovered:')), false);
+    assertMinimalIncompleteParentHandoff(result, goal.question);
+    assert.equal(result.parentHandoff.directAnswer, undefined);
+    assert.equal(result.parentHandoff.evidence, undefined);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T071 — collect_evidence ignores an unapproved counterevidence search',
+  async () => {
+    const task = 'Verify that every user route requires authentication.';
+    const proposedGoal = trustGoal(task, {
+      id: 'S-collect-unapproved-search',
+      question: task,
+      originText: task,
+      claimType: 'claim_verification',
+      proofCondition: 'Support or refute the claim from current source and a bounded counterevidence search.',
+    });
+    const goal = {
+      ...proposedGoal,
+      originRefs: [...proposedGoal.originRefs, 'wrapper:collect_evidence:verdict'],
+    };
+    const claim = candidateClaim(
+      'C-collect-unapproved-search', goal.id, 'The user route requires authentication.', ['E1', 'E2']);
+    const repairedClaim = { ...claim, evidenceRefs: ['E1', 'E2', 'E3'] };
+    const { result } = await runTrustScript(buildTrustSteps({
+      goals: [goal],
+      initial: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/routes/user.js', startLine: 1, endLine: 7 },
+          id: 'read-collect-user-route',
+        }, {
+          tool: 'repo_grep',
+          args: { pattern: 'skipAuth|allowAnonymous', scope: ['src/**'] },
+          id: 'search-collect-counterevidence',
+        }],
+        claims: [claim],
+        verdicts: [semanticVerdict(claim.id, 'supported', ['E1'])],
+      },
+      repair: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+          id: 'read-collect-auth-repair',
+        }],
+        claims: [repairedClaim],
+        verdicts: [semanticVerdict(claim.id, 'supported', ['E1', 'E3'])],
+      },
+    }), { task, taskMode: 'evidence_verification' });
+
+    assert.equal(result.failure, null, JSON.stringify(result.failure));
+    assert.equal(result.semanticVerification.absenceCertificates.some(certificate =>
+      certificate.subgoalId === goal.id && certificate.complete === true &&
+      certificate.searchRefs.includes('E2')), true);
+    assertInternalProofGap(result, goal.id);
+    assertMinimalIncompleteParentHandoff(result, goal.question);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T071 — extra approved search telemetry cannot erase a valid collect answer',
+  async () => {
+    const task = 'Verify that the user route requires authentication.';
+    const proposedGoal = trustGoal(task, {
+      id: 'S-collect-extra-search',
+      question: task,
+      originText: task,
+      claimType: 'claim_verification',
+      proofCondition: 'Support or refute the claim from current source and bounded counter-search.',
+    });
+    const goal = {
+      ...proposedGoal,
+      originRefs: [...proposedGoal.originRefs, 'wrapper:collect_evidence:verdict'],
+    };
+    const claim = candidateClaim(
+      'C-collect-extra-search',
+      goal.id,
+      'The user route requires authentication.',
+      ['E1', 'E2', 'E3'],
+    );
+    const primaryVerdict = semanticVerdict(claim.id, 'supported', ['E1', 'E2', 'E3']);
+    const corroboratedVerdict = semanticVerdict(claim.id, 'supported', ['E1', 'E2']);
+    const { result } = await runTrustScript(buildTrustSteps({
+      goals: [goal],
+      initial: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/routes/user.js', startLine: 1, endLine: 7 },
+          id: 'read-collect-extra-search-route',
+        }, {
+          tool: 'repo_grep',
+          args: { pattern: 'skipAuth|allowAnonymous', scope: ['src/**'] },
+          id: 'grep-collect-disconfirming',
+        }, {
+          tool: 'repo_grep',
+          args: { pattern: 'requireAuth', scope: ['src/**'] },
+          id: 'grep-collect-confirming',
+        }],
+        claims: [claim],
+        verifierSteps: [
+          { verdicts: [primaryVerdict] },
+          { verdicts: [corroboratedVerdict] },
+        ],
+      },
+    }), { task, taskMode: 'evidence_verification' });
+
+    assert.equal(result.failure, null, JSON.stringify(result.failure));
+    assertMinimalCompleteParentHandoff(result, {
+      answer: claim.text,
+      evidenceCount: 1,
+      evidenceKinds: ['source'],
+    });
+    assert.equal(result.parentHandoff.evidence[0].path, 'src/routes/user.js');
+    assert.doesNotMatch(JSON.stringify(result.parentHandoff),
+      /skipAuth|allowAnonymous|repo_grep|matchCount|certificate/u);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T071 — an approved but unrelated collect counter-search cannot complete',
+  async () => {
+    const task = 'Verify that every user route requires authentication.';
+    const proposedGoal = trustGoal(task, {
+      id: 'S-collect-unrelated-search',
+      question: task,
+      originText: task,
+      claimType: 'claim_verification',
+      proofCondition: 'Support or refute the claim from current source and bounded counter-search.',
+    });
+    const goal = {
+      ...proposedGoal,
+      originRefs: [...proposedGoal.originRefs, 'wrapper:collect_evidence:verdict'],
+    };
+    const claim = candidateClaim(
+      'C-collect-unrelated-search',
+      goal.id,
+      'Every user route requires authentication.',
+      ['E1', 'E2'],
+    );
+    const repairedClaim = { ...claim, evidenceRefs: ['E1', 'E2', 'E3'] };
+    const initialPrimary = semanticVerdict(claim.id, 'supported', ['E1', 'E2']);
+    const repairPrimary = semanticVerdict(claim.id, 'supported', ['E1', 'E2', 'E3']);
+    const focusedInsufficient = semanticVerdict(claim.id, 'insufficient', ['E1']);
+    let focusedChecks = 0;
+    const assertFocused = request => {
+      focusedChecks += 1;
+      const packet = JSON.stringify(request.messages);
+      assert.match(packet, /FOCUSED COLLECT AFFIRMATION CORROBORATION/u);
+      assert.match(packet, /definitelyUnrelatedBuildBanner/u);
+    };
+    const { client, result } = await runTrustScript(buildTrustSteps({
+      goals: [goal],
+      initial: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/routes/user.js', startLine: 1, endLine: 7 },
+          id: 'read-collect-unrelated-route',
+        }, {
+          tool: 'repo_grep',
+          args: { pattern: 'definitelyUnrelatedBuildBanner', scope: ['src/**'] },
+          id: 'grep-collect-unrelated-counterevidence',
+        }],
+        claims: [claim],
+        verifierSteps: [
+          { verdicts: [initialPrimary] },
+          { verdicts: [focusedInsufficient], assertRequest: assertFocused },
+        ],
+      },
+      repair: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+          id: 'read-collect-unrelated-repair',
+        }],
+        claims: [repairedClaim],
+        verifierSteps: [
+          { verdicts: [repairPrimary] },
+          { verdicts: [focusedInsufficient], assertRequest: assertFocused },
+        ],
+      },
+    }), { task, taskMode: 'evidence_verification' });
+
+    assert.equal(result.failure, null, JSON.stringify(result.failure));
+    assert.equal(client.stageCounts.get('semantic_verifier'), 4);
+    assert.equal(focusedChecks, 2);
+    assertInternalProofGap(result, goal.id);
+    assertMinimalIncompleteParentHandoff(result, goal.question);
+    assert.equal(result.parentHandoff.directAnswer, undefined);
+    assert.equal(result.parentHandoff.evidence, undefined);
+  },
+);
+
+semanticPipelineRuntimeTest(
   'Spec 028 T071 — a direct source counterexample does not trigger an extra verifier call',
   async () => {
     const task = 'Verify the premise that the user route does not call requireAuth.';
-    const goal = trustGoal(task, {
+    const proposedGoal = trustGoal(task, {
       id: 'S-direct-source-refutation',
       question: task,
       originText: task,
       claimType: 'claim_verification',
       proofCondition: 'Read the current route and support or refute the premise directly.',
     });
+    const goal = {
+      ...proposedGoal,
+      originRefs: [...proposedGoal.originRefs, 'wrapper:collect_evidence:verdict'],
+    };
     const claim = candidateClaim(
       'C-direct-source-refutation',
       goal.id,
@@ -8150,6 +8523,11 @@ semanticPipelineRuntimeTest(
     const { client, result } = await runTrustScript(buildTrustSteps({
       goals: [goal],
       initial: {
+        assertRequest(request) {
+          const ledger = JSON.stringify(request.messages);
+          assert.match(ledger,
+            /direct source\/git counterexample may instead refute the claim without that search/u);
+        },
         tools: [{
           tool: 'repo_read_file',
           args: { path: 'src/routes/user.js', startLine: 1, endLine: 7 },
@@ -8158,10 +8536,13 @@ semanticPipelineRuntimeTest(
         claims: [claim],
         verdicts: [verdict],
       },
-    }), { task });
+    }), { task, taskMode: 'evidence_verification' });
 
     assert.equal(result.failure, null, JSON.stringify(result.failure));
     assert.equal(client.stageCounts.get('semantic_verifier'), 1);
+    assert.deepEqual(providerToolActions(client).map(action => action.tool), [
+      'repo_read_file',
+    ]);
     assert.equal(result.parentHandoff.state, 'complete');
     assert.equal(result.parentHandoff.directAnswer, claim.text);
     assert.deepEqual(result.parentHandoff.evidence.map(item => item.kind), ['source']);
@@ -8719,9 +9100,7 @@ semanticPipelineRuntimeTest(
         taskMode: 'evidence_verification',
         expectedState: 'complete',
         seeds: [
-          ['verdict', 'claim_verification', ['E1']],
-          ['direct_evidence', 'claim_verification', ['E1']],
-          ['counterevidence', 'claim_verification', ['E2']],
+          ['verdict', 'claim_verification', ['E1', 'E2']],
         ],
         tools: [
           {
@@ -8730,12 +9109,11 @@ semanticPipelineRuntimeTest(
             id: 'verify-direct',
           },
           {
-            tool: 'repo_read_file',
-            args: { path: 'src/routes/user.js', startLine: 1, endLine: 7 },
-            id: 'verify-counterexample',
+            tool: 'repo_grep',
+            args: { pattern: 'skipAuth|allowAnonymous', scope: ['src/**'] },
+            id: 'verify-counterevidence',
           },
         ],
-        refutedSeed: 'counterevidence',
       },
       {
         tool: 'explore_repo',
@@ -8757,7 +9135,9 @@ semanticPipelineRuntimeTest(
           question: `Verify ${seed} for ${wrapperCase.tool}.`,
           originRefs: wrapperCase.tool === 'explore_repo'
             ? [`request:0-${task.length}`]
-            : [`wrapper:${wrapperCase.tool}:${seed}`],
+            : wrapperCase.tool === 'collect_evidence'
+              ? [`request:0-${task.length}`, `wrapper:${wrapperCase.tool}:${seed}`]
+              : [`wrapper:${wrapperCase.tool}:${seed}`],
           claimType,
           proofCondition: `Observe bounded evidence for ${seed}.`,
           constraints: [],
@@ -8777,7 +9157,14 @@ semanticPipelineRuntimeTest(
         });
         const { client, result } = await runTrustScript(buildTrustSteps({
           goals,
-          initial: { tools: wrapperCase.tools, claims, verdicts },
+          initial: {
+            tools: wrapperCase.tools,
+            claims,
+            verdicts,
+            ...(wrapperCase.tool === 'collect_evidence'
+              ? { verifierSteps: [{ verdicts }, { verdicts }] }
+              : {}),
+          },
         }), {
           task,
           taskMode: wrapperCase.taskMode,
@@ -9883,6 +10270,55 @@ test('Spec 028 T031 — post-repair verifier proposals use the same audit and st
   assert.deepEqual(result.rejectedGoals.map(goal => goal.proposedGoalId), [
     'late-uncovered:post-repair:1',
   ]);
+});
+
+test('Spec 028 T071 — collect_evidence rejects any late-goal integration bypass', async () => {
+  const task = 'Verify whether requireAuth protects the requested route.';
+  const audited = createRequiredSubgoal({
+    id: 'S-collect-verdict',
+    question: 'Is the supplied repository claim supported or refuted?',
+    originRefs: [requestOrigin(task, task), 'wrapper:collect_evidence:verdict'],
+    claimType: 'claim_verification',
+    proofCondition: 'Reach one evidence-backed verdict for the supplied claim.',
+    constraints: [],
+    auditVerdict: 'ready',
+  });
+  const taskContract = createTaskContract({
+    task,
+    effectiveScope: ['src/**'],
+    constraints: [],
+    subgoals: [audited],
+    plannerVersion: 'planner-v1',
+    goalAuditVersion: 'goal-audit-v1',
+  });
+  const stages = [];
+  const client = {
+    model: 'zai-glm-4.7',
+    async createChatCompletion(request) {
+      stages.push(classifyControlRequest(request));
+      return lateAuditResponse(request, 'ready');
+    },
+  };
+  const runtime = new RuntimeImplementation({ chatClient: client });
+  await assert.rejects(runtime._auditVerifierGoalProposals({
+    task,
+    effectiveScope: ['src/**'],
+    wrapperTool: 'collect_evidence',
+    taskContract,
+    coverageGaps: [],
+    rejectedGoals: [],
+    uncoveredRequestParts: [{
+      question: 'Could a different requested route refute the claim?',
+      originRefs: [requestOrigin(task, 'requested route')],
+      claimType: 'positive',
+      proofCondition: 'Inspect the other requested route facet.',
+      constraints: [],
+    }],
+    phase: 'initial',
+  }), /single verdict goal/u);
+
+  assert.deepEqual(stages, []);
+  assert.deepEqual(taskContract.subgoals.map(goal => goal.id), [audited.id]);
 });
 
 semanticPipelineRuntimeTest('Spec 028 T026 — verifier input is isolated and gates semantic mismatch', async () => {

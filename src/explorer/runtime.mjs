@@ -34,6 +34,7 @@ import {
   buildSemanticVerifierMessages,
   buildComparisonCorroboratorMessages,
   buildAbsenceRefutationCorroboratorMessages,
+  buildCollectAffirmationCorroboratorMessages,
 } from './prompt.mjs';
 import {
   CLAIM_SYNTHESIS_SCHEMA,
@@ -80,6 +81,7 @@ import {
   selectClaimCover,
   selectParentFollowUp,
   transitionSubgoal,
+  validateCollectEvidenceGoalPlan,
 } from './coverage.mjs';
 import { createChatClient } from './providers/index.mjs';
 import {
@@ -1362,6 +1364,12 @@ function buildSemanticParentProjection({ semanticVerification, observations }) {
   const deterministicCounts = Array.isArray(semanticVerification?.deterministicCounts)
     ? semanticVerification.deterministicCounts
     : [];
+  const claimCover = selectClaimCover({
+    subgoals: semanticVerification?.taskContract?.subgoals ?? [],
+    claims: semanticVerification?.claims ?? [],
+    verdicts: semanticVerification?.semanticVerdicts ?? [],
+    observations,
+  });
 
   for (const claim of semanticVerification?.claims ?? []) {
     const subgoal = subgoalById.get(claim.subgoalId);
@@ -1374,9 +1382,14 @@ function buildSemanticParentProjection({ semanticVerification, observations }) {
       ? verdict.supportingEvidenceRefs
       : [];
     if (supportingRefs.length === 0) continue;
-    const projectionRefs = subgoal.proofPolicy === 'bounded_usage_cross_check'
-      ? supportingRefs.filter(ref => observationById.get(ref)?.kind !== 'search')
+    const collectEvidenceVerdict = Array.isArray(subgoal.originRefs) &&
+      subgoal.originRefs.includes('wrapper:collect_evidence:verdict');
+    const parentRelevantRefs = collectEvidenceVerdict
+      ? claimCover.evidenceRefsByClaimId.get(claim.id) ?? []
       : supportingRefs;
+    const projectionRefs = subgoal.proofPolicy === 'bounded_usage_cross_check'
+      ? parentRelevantRefs.filter(ref => observationById.get(ref)?.kind !== 'search')
+      : parentRelevantRefs;
     if (projectionRefs.length === 0) continue;
     const certifiedCount = selectCertifiedDeterministicCount({
       subgoal,
@@ -2360,7 +2373,7 @@ function validateSynthesizedClaimBatch(raw, {
   return claims;
 }
 
-function validateSemanticVerdictBatch(raw, { claims }) {
+function validateSemanticVerdictBatch(raw, { claims, wrapperTool = 'explore_repo' }) {
   const normalizedRaw = raw && typeof raw === 'object' && !Array.isArray(raw)
     ? {
         ...raw,
@@ -2395,8 +2408,24 @@ function validateSemanticVerdictBatch(raw, { claims }) {
   if (verdictByClaim.size !== claims.length) {
     throw new TypeError('Semantic verifier must return exactly one verdict for every supplied claim.');
   }
+  const orderedVerdicts = claims.map(claim => verdictByClaim.get(claim.id));
+  if (wrapperTool === 'collect_evidence' && response.uncoveredRequestParts.length > 0) {
+    return {
+      verdicts: orderedVerdicts.map(verdict => {
+        const downgraded = {
+          ...verdict,
+          result: 'insufficient',
+          reasonCode: 'uncovered_request',
+          note: 'The single verification verdict still has an uncovered requested proof facet.',
+        };
+        delete downgraded.resolution;
+        return downgraded;
+      }),
+      uncoveredRequestParts: [],
+    };
+  }
   return {
-    verdicts: claims.map(claim => verdictByClaim.get(claim.id)),
+    verdicts: orderedVerdicts,
     uncoveredRequestParts: response.uncoveredRequestParts,
   };
 }
@@ -2494,11 +2523,54 @@ function certificateOnlyRefutationContext({
   };
 }
 
-function mergeAbsenceRefutationCorroboration(primary, corroborated, { certificates }) {
-  if (primary?.result !== 'supported' || primary.resolution !== 'refuted') {
+function collectAffirmationCorroborationContext({
+  subgoal,
+  claim,
+  primaryVerdict,
+  observations,
+  absenceCertificates,
+}) {
+  const collectEvidenceVerdict = Array.isArray(subgoal?.originRefs) &&
+    subgoal.originRefs.includes('wrapper:collect_evidence:verdict');
+  if (!collectEvidenceVerdict || subgoal?.proofPolicy !== 'support_or_refute' ||
+      primaryVerdict?.result !== 'supported' || primaryVerdict.resolution !== 'affirmed') {
+    return null;
+  }
+  const claimRefs = new Set(Array.isArray(claim?.evidenceRefs) ? claim.evidenceRefs : []);
+  const primaryRefs = new Set(Array.isArray(primaryVerdict.supportingEvidenceRefs)
+    ? primaryVerdict.supportingEvidenceRefs
+    : []);
+  const observationById = new Map((observations ?? [])
+    .filter(observation => typeof observation?.id === 'string' && observation.id)
+    .map(observation => [observation.id, observation]));
+  const directRefs = [...primaryRefs].filter(ref =>
+    claimRefs.has(ref) && DIRECT_REFUTATION_OBSERVATION_KINDS.has(observationById.get(ref)?.kind));
+  if (directRefs.length === 0) return null;
+  const certificates = (absenceCertificates ?? []).filter(certificate =>
+    certificate?.subgoalId === subgoal.id && certificate.complete === true &&
+    certificate.zeroMatches === true && Array.isArray(certificate.searchRefs) &&
+    certificate.searchRefs.length > 0 && certificate.searchRefs.every(ref =>
+      claimRefs.has(ref) && primaryRefs.has(ref) && observationById.get(ref)?.kind === 'search'));
+  if (certificates.length === 0) return null;
+  const focusedRefs = new Set([
+    ...directRefs,
+    ...certificates.flatMap(certificate => certificate.searchRefs),
+  ]);
+  return {
+    certificates,
+    observations: [...focusedRefs].map(ref => observationById.get(ref)),
+  };
+}
+
+function mergeCompleteSearchCorroboration(primary, corroborated, {
+  certificates,
+  resolution,
+  label,
+}) {
+  if (primary?.result !== 'supported' || primary.resolution !== resolution) {
     return { verdict: primary, corroborated: false };
   }
-  if (corroborated?.result !== 'supported' || corroborated.resolution !== 'refuted') {
+  if (corroborated?.result !== 'supported' || corroborated.resolution !== resolution) {
     return {
       verdict: corroborated?.result === 'contradicted'
         ? corroborated
@@ -2508,7 +2580,7 @@ function mergeAbsenceRefutationCorroboration(primary, corroborated, { certificat
             supportingEvidenceRefs: corroborated?.supportingEvidenceRefs ?? [],
             reasonCode: corroborated?.reasonCode ?? 'semantic_mismatch',
             note: corroborated?.note ??
-              'Focused certificate-only refutation corroboration did not support the claim.',
+              `Focused ${label} corroboration did not support the claim.`,
           },
       corroborated: false,
     };
@@ -2525,7 +2597,7 @@ function mergeAbsenceRefutationCorroboration(primary, corroborated, { certificat
         result: 'insufficient',
         supportingEvidenceRefs: agreedRefs,
         reasonCode: 'semantic_mismatch',
-        note: 'The two independent refutation checks did not agree on one complete search certificate.',
+        note: `The two independent ${label} checks did not agree on one complete search certificate.`,
       },
       corroborated: false,
     };
@@ -2534,6 +2606,22 @@ function mergeAbsenceRefutationCorroboration(primary, corroborated, { certificat
     verdict: { ...primary, supportingEvidenceRefs: agreedRefs },
     corroborated: true,
   };
+}
+
+function mergeAbsenceRefutationCorroboration(primary, corroborated, { certificates }) {
+  return mergeCompleteSearchCorroboration(primary, corroborated, {
+    certificates,
+    resolution: 'refuted',
+    label: 'refutation',
+  });
+}
+
+function mergeCollectAffirmationCorroboration(primary, corroborated, { certificates }) {
+  return mergeCompleteSearchCorroboration(primary, corroborated, {
+    certificates,
+    resolution: 'affirmed',
+    label: 'collect affirmation',
+  });
 }
 
 function prepareCandidateSubgoals(taskContract, claims, {
@@ -3763,8 +3851,13 @@ function materializeUnresolvedRevision({
 }
 
 function auditedGoalLedgerMessage(requiredSubgoals) {
-  const goals = requiredSubgoals
-    .filter(goal => goal.state === 'audited' || goal.state === 'exploring')
+  const activeGoals = requiredSubgoals
+    .filter(goal => goal.state === 'audited' || goal.state === 'exploring');
+  const collectEvidenceVerdict = activeGoals.some(goal =>
+    goal.proofPolicy === 'support_or_refute' &&
+    Array.isArray(goal.originRefs) &&
+    goal.originRefs.includes('wrapper:collect_evidence:verdict'));
+  const goals = activeGoals
     .map(goal => ({
       id: goal.id,
       question: goal.question,
@@ -3775,7 +3868,11 @@ function auditedGoalLedgerMessage(requiredSubgoals) {
     }));
   return [
     'The following runtime-audited goals are the complete exploration ledger. Investigate and answer only these goals. Other request parts are runtime-blocked or rejected and must not be investigated or answered. Do not add, remove, or weaken obligations.',
-    'Before stopping, cover every listed goal separately. One answered goal never substitutes for another. For direct_source, collect an exact source for the stated fact. For ordered_handoffs, observe the required adjacent path. For impact_categories, collect exact source observations for every category named by the proof condition, including source, documentation, agent configuration, and dependencies when named. If a required category cannot be observed, leave that goal unresolved instead of claiming completeness.',
+    'Before stopping, cover every listed goal separately. One answered goal never substitutes for another. For direct_source, collect an exact source for the stated fact. For ordered_handoffs, observe the required adjacent path. For impact_categories, collect exact source observations for every category named by the proof condition, including source, documentation, agent configuration, and dependencies when named.' +
+      (collectEvidenceVerdict
+        ? ' To affirm the wrapper:collect_evidence:verdict goal, collect exact direct source/git evidence and run a complete zero-match search for a plausible counterexample, exception, or alternative over the claim boundary; a confirming lookup for the same symbol is not counterevidence. An exact direct source/git counterexample may instead refute the claim without that search.'
+        : '') +
+      ' If a required proof facet or category cannot be observed, leave that goal unresolved instead of claiming completeness.',
     'BEGIN_AUDITED_GOALS_JSON',
     JSON.stringify(goals),
     'END_AUDITED_GOALS_JSON',
@@ -4414,6 +4511,13 @@ export class ExplorerRuntime {
             reduction.revisionRequest === null) {
           throw new TypeError('Goal audit discarded every requested obligation.');
         }
+        if (requireWrapperGoalOrigins) {
+          validateCollectEvidenceGoalPlan({
+            task,
+            wrapperTool,
+            goals: reduction.requiredSubgoals,
+          });
+        }
         return {
           response: partitioned.response,
           reduction,
@@ -4727,6 +4831,7 @@ export class ExplorerRuntime {
     const uncoveredRequestParts = [];
     const verificationBatches = [];
     const corroboratedAbsenceRefutationClaimIds = new Set();
+    const corroboratedCollectAffirmationClaimIds = new Set();
     const candidateBatches = controlBatches(candidateSubgoals.filter(subgoal =>
       claims.some(claim => claim.subgoalId === subgoal.id)));
     for (const subgoalBatch of candidateBatches) {
@@ -4759,6 +4864,7 @@ export class ExplorerRuntime {
         onCompletion,
         validate: raw => validateSemanticVerdictBatch(raw, {
           claims: batchClaims,
+          wrapperTool,
         }),
       });
       const corroboratedVerdicts = [...verified.verdicts];
@@ -4829,6 +4935,53 @@ export class ExplorerRuntime {
             observations: focusedObservations,
           },
         );
+      }
+      for (const [index, claim] of batchClaims.entries()) {
+        const subgoal = subgoalBatch.find(item => item.id === claim.subgoalId);
+        const primaryVerdict = corroboratedVerdicts[index];
+        const context = collectAffirmationCorroborationContext({
+          subgoal,
+          claim,
+          primaryVerdict,
+          observations: batchObservations,
+          absenceCertificates: batchAbsenceCertificates,
+        });
+        if (!context) continue;
+        const corroborated = await requestValidatedGoalControl({
+          chatClient,
+          messages: buildCollectAffirmationCorroboratorMessages({
+            taskContract: semanticBatchContract(candidateContract, [subgoal]),
+            claims: [claim],
+            observations: context.observations,
+            absenceCertificates: context.certificates,
+            wrapperTool,
+          }),
+          schemaName: 'semantic_verifier_response',
+          schema: SEMANTIC_VERIFIER_RESPONSE_SCHEMA,
+          stage: 'semantic_verifier',
+          reasoningEffort,
+          temperature,
+          topP,
+          maxCompletionTokens,
+          abortSignal,
+          onCompletion,
+          validate: raw => {
+            const response = validateSemanticVerdictBatch(raw, { claims: [claim] });
+            if (response.uncoveredRequestParts.length > 0) {
+              throw new TypeError(
+                'Focused collect affirmation corroboration cannot add request obligations.',
+              );
+            }
+            return response;
+          },
+        });
+        const merged = mergeCollectAffirmationCorroboration(
+          primaryVerdict,
+          corroborated.verdicts[0],
+          { certificates: context.certificates },
+        );
+        corroboratedVerdicts[index] = merged.verdict;
+        if (merged.corroborated) corroboratedCollectAffirmationClaimIds.add(claim.id);
       }
       for (const [index, claim] of batchClaims.entries()) {
         const subgoal = subgoalBatch.find(item => item.id === claim.subgoalId);
@@ -4940,6 +5093,15 @@ export class ExplorerRuntime {
       const batchSubgoalById = new Map(subgoalBatch.map(subgoal => [subgoal.id, subgoal]));
       const gatedVerdicts = verified.verdicts.map((verdict, index) => {
         const subgoal = batchSubgoalById.get(batchClaims[index].subgoalId);
+        const policyArtifacts = {
+          ...(wrapperPolicyArtifacts.get(batchClaims[index].id) ?? {}),
+          ...(corroboratedAbsenceRefutationClaimIds.has(batchClaims[index].id)
+            ? { absenceRefutationCorroborated: true }
+            : {}),
+          ...(corroboratedCollectAffirmationClaimIds.has(batchClaims[index].id)
+            ? { collectCounterevidenceCorroborated: true }
+            : {}),
+        };
         const gated = applyRuntimeProofGate({
           task: candidateContract.task,
           subgoal,
@@ -4948,12 +5110,7 @@ export class ExplorerRuntime {
           observations: batchObservations,
           absenceCertificates: batchAbsenceCertificates,
           deterministicCounts: batchDeterministicCounts,
-          policyArtifacts: corroboratedAbsenceRefutationClaimIds.has(batchClaims[index].id)
-            ? {
-                ...(wrapperPolicyArtifacts.get(batchClaims[index].id) ?? {}),
-                absenceRefutationCorroborated: true,
-              }
-            : wrapperPolicyArtifacts.get(batchClaims[index].id),
+          policyArtifacts,
           exhaustiveCompanionCertified: subgoal?.proofPolicy === 'distinct_policy_paths' &&
             verdict.supportingEvidenceRefs.some(ref => certifiedAbsenceCompanionRefs.has(ref)),
         });
@@ -5090,6 +5247,11 @@ export class ExplorerRuntime {
             wrapperTool,
             goals: [...preservedGoals, ...preflight.auditCandidates],
             label: 'Planner',
+          });
+          validateCollectEvidenceGoalPlan({
+            task,
+            wrapperTool,
+            goals: preflight.auditCandidates,
           });
           const validatedPlan = {
             proposal: { ...proposal, subgoals: preflight.auditCandidates },
@@ -5324,6 +5486,11 @@ export class ExplorerRuntime {
         goals: finalReduction.requiredSubgoals,
         label: 'Audited task plan',
       });
+      validateCollectEvidenceGoalPlan({
+        task,
+        wrapperTool,
+        goals: finalReduction.requiredSubgoals,
+      });
     } catch (error) {
       throw invalidGoalControl(revisionCount === 0 ? 'goal_audit' : 'plan_revision', error);
     }
@@ -5501,6 +5668,11 @@ export class ExplorerRuntime {
     }
     if (uncoveredRequestParts.length === 0) {
       return { taskContract, coverageGaps, rejectedGoals };
+    }
+    if (wrapperTool === 'collect_evidence') {
+      throw new TypeError(
+        'collect_evidence verifier facets must remain inside its single verdict goal.',
+      );
     }
     const lateGoalProposals = createRuntimeLateGoalProposals(uncoveredRequestParts, {
       phase,

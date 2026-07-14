@@ -94,7 +94,7 @@ const WRAPPER_GOAL_SEEDS = Object.freeze({
     'risk_boundary',
   ]),
   explain_code_path: Object.freeze(['entry', 'handoffs', 'terminal_effect', 'transitions']),
-  collect_evidence: Object.freeze(['verdict', 'direct_evidence', 'counterevidence']),
+  collect_evidence: Object.freeze(['verdict']),
   explore_repo: Object.freeze([]),
 });
 
@@ -282,6 +282,24 @@ function cleanSearchObservation(search) {
     search.omittedOutOfScopeFiles === 0 &&
     search.deniedPaths === 0 &&
     search.errors === 0;
+}
+
+const COUNTEREVIDENCE_PREDICATE_BY_TOOL = Object.freeze({
+  repo_find_files: 'pattern',
+  repo_grep: 'pattern',
+  repo_symbol_context: 'symbol',
+});
+
+function isExplicitAbsencePredicateSearch(search) {
+  const predicateKey = COUNTEREVIDENCE_PREDICATE_BY_TOOL[search?.tool];
+  const normalizedArgs = search?.normalizedArgs;
+  return cleanSearchObservation(search) &&
+    search.enumerationComplete === true &&
+    search.matchCount === 0 &&
+    typeof predicateKey === 'string' &&
+    normalizedArgs && typeof normalizedArgs === 'object' && !Array.isArray(normalizedArgs) &&
+    typeof normalizedArgs[predicateKey] === 'string' &&
+    normalizedArgs[predicateKey].trim().length > 0;
 }
 
 /**
@@ -482,13 +500,6 @@ function structuredPolicyComplete(policy, artifacts = {}, supportingRefs = new S
   return false;
 }
 
-function certificateSupportsClaim(certificate, claimRefs, supportingRefs) {
-  return certificate?.complete === true &&
-    Array.isArray(certificate.searchRefs) && certificate.searchRefs.length > 0 &&
-    certificate.searchRefs.every(ref => claimRefs.has(ref)) &&
-    certificate.searchRefs.some(ref => supportingRefs.has(ref));
-}
-
 /** Select the one runtime count artifact bound to the verifier-supported search. */
 export function selectCertifiedDeterministicCount({
   subgoal,
@@ -571,15 +582,23 @@ export function evaluateProofPolicy({
 
   const supportingRefSet = new Set(supportingRefs);
   const supporting = supportingObservations({ claim, semanticVerdict, observations });
-  const certificate = matchingCompleteCertificate(
+  const observationById = new Map((Array.isArray(observations) ? observations : [])
+    .filter(observation => typeof observation?.id === 'string' && observation.id)
+    .map(observation => [observation.id, observation]));
+  const explicitAbsenceCertificate = matchingCompleteCertificate(
     absenceCertificates,
     subgoal.id,
-    candidate => certificateSupportsClaim(candidate, claimRefs, supportingRefSet),
+    candidate => candidate.zeroMatches === true &&
+      Array.isArray(candidate.searchRefs) && candidate.searchRefs.length > 0 &&
+      candidate.searchRefs.every(ref => {
+        const search = observationById.get(ref);
+        return claimRefs.has(ref) && supportingRefSet.has(ref) &&
+          isExplicitAbsencePredicateSearch(search) &&
+          boundaryCovers(search.boundary, candidate.claimBoundary);
+      }),
   );
-  const certifiedClaim = certificate !== null;
-  const certifiedAbsence = certificate?.zeroMatches === true;
   if (expectedPolicy === 'bounded_absence') {
-    return certifiedAbsence ? passedProof(subgoal, claim) :
+    return explicitAbsenceCertificate ? passedProof(subgoal, claim) :
       failedProof('incomplete_enumeration', subgoal, claim);
   }
   if (expectedPolicy === 'deterministic_count') {
@@ -597,10 +616,11 @@ export function evaluateProofPolicy({
       observation?.kind === 'source' ||
       ['git_commit', 'git_blame', 'git_diff_hunk'].includes(observation?.kind));
     if (directCounterexample ||
-        (certifiedAbsence && policyArtifacts.absenceRefutationCorroborated === true)) {
+        (explicitAbsenceCertificate &&
+          policyArtifacts.absenceRefutationCorroborated === true)) {
       return passedProof(subgoal, claim);
     }
-    return failedProof(certifiedAbsence
+    return failedProof(explicitAbsenceCertificate
       ? 'uncorroborated_refutation'
       : 'uncertified_refutation', subgoal, claim);
   }
@@ -608,8 +628,16 @@ export function evaluateProofPolicy({
     const directSupport = supporting.some(observation =>
       observation?.kind === 'source' ||
       ['git_commit', 'git_blame', 'git_diff_hunk'].includes(observation?.kind));
-    return directSupport ? passedProof(subgoal, claim) :
-      failedProof('direct_evidence_missing', subgoal, claim);
+    if (!directSupport) return failedProof('direct_evidence_missing', subgoal, claim);
+    const collectEvidenceVerdict = Array.isArray(subgoal.originRefs) &&
+      subgoal.originRefs.includes('wrapper:collect_evidence:verdict');
+    if (!collectEvidenceVerdict) return passedProof(subgoal, claim);
+    if (!explicitAbsenceCertificate) {
+      return failedProof('counterevidence_search_missing', subgoal, claim);
+    }
+    return policyArtifacts.collectCounterevidenceCorroborated === true
+      ? passedProof(subgoal, claim)
+      : failedProof('uncorroborated_counterevidence', subgoal, claim);
   }
 
   if (expectedPolicy === 'symbol_definition') {
@@ -980,6 +1008,33 @@ export function missingWrapperGoalOriginRefs(input) {
   return WRAPPER_GOAL_SEEDS[wrapperTool]
     .map(seed => `wrapper:${wrapperTool}:${seed}`)
     .filter(originRef => !observedOrigins.has(originRef));
+}
+
+export function validateCollectEvidenceGoalPlan(input) {
+  const value = requireObject(input, 'Collect evidence goal plan');
+  const wrapperTool = requireString(value.wrapperTool, 'Collect evidence goal plan.wrapperTool');
+  if (!Object.hasOwn(WRAPPER_GOAL_SEEDS, wrapperTool)) {
+    throw new TypeError(`Unsupported planning wrapper: ${wrapperTool}.`);
+  }
+  if (!Array.isArray(value.goals)) {
+    throw new TypeError('Collect evidence goal plan.goals must be an array.');
+  }
+  if (wrapperTool !== 'collect_evidence') return true;
+  const task = requireString(value.task, 'Collect evidence goal plan.task');
+  if (value.goals.length !== 1) {
+    throw new TypeError('collect_evidence requires exactly one verdict goal.');
+  }
+  const [goal] = value.goals;
+  const fullTaskOrigin = `request:0-${task.length}`;
+  if (goal?.claimType !== 'claim_verification' ||
+      !Array.isArray(goal.originRefs) ||
+      !goal.originRefs.includes('wrapper:collect_evidence:verdict') ||
+      !goal.originRefs.some(originRef => originRefCovers(originRef, fullTaskOrigin))) {
+    throw new TypeError(
+      'collect_evidence verdict goal requires claim_verification plus full-task and wrapper origins.',
+    );
+  }
+  return true;
 }
 
 export function preflightGoalProposals(input) {
@@ -1807,8 +1862,10 @@ export function reduceSemanticClaims(input) {
   }
 
   const freshlySupportedClaimIds = new Set();
+  const normalizedVerdictByClaimId = new Map();
   const reducedClaims = claims.map(claim => {
     const verdict = normalizeSemanticVerdict(verdictByClaim.get(claim.id), claim);
+    normalizedVerdictByClaimId.set(claim.id, verdict);
     const boundary = evidenceBySubgoal.get(claim.subgoalId) ?? new Set();
     const boundaryValid = new Set(claim.evidenceRefs).size === claim.evidenceRefs.length &&
       claim.evidenceRefs.every(ref => boundary.has(ref));
@@ -1906,7 +1963,11 @@ export function reduceSemanticClaims(input) {
 
     const contradicted = supportedResolutions.size > 1 ||
       goalClaims.some(claim => claim?.verdict === 'contradicted');
-    const reason = contradicted ? 'contradicted' : 'semantic_mismatch';
+    const uncoveredRequest = subgoal.claimRefs.some(ref =>
+      normalizedVerdictByClaimId.get(ref)?.reasonCode === 'uncovered_request');
+    const reason = contradicted
+      ? 'contradicted'
+      : uncoveredRequest ? 'uncovered_request' : 'semantic_mismatch';
     const gap = buildSemanticGap({
       subgoal,
       requestOrder,
@@ -1943,14 +2004,27 @@ const MULTI_ITEM_PARENT_PROOF_POLICIES = new Set([
   'distinct_policy_paths',
 ]);
 
-function selectDirectClaimCover(claim, orderedApproved, observationById) {
+function selectDirectClaimCover(
+  claim,
+  orderedApproved,
+  observationById,
+  { preferDirect = false } = {},
+) {
   const selected = [];
   const selectedPaths = new Set();
   const normalizedClaim = typeof claim?.text === 'string'
     ? claim.text.replaceAll('\\', '/').toLowerCase()
     : '';
 
-  for (const ref of orderedApproved) {
+  const directApproved = orderedApproved.filter(ref => {
+    const kind = observationById.get(ref)?.kind;
+    return kind === 'source' || ['git_commit', 'git_blame', 'git_diff_hunk'].includes(kind);
+  });
+  const parentCandidates = preferDirect && directApproved.length > 0
+    ? directApproved
+    : orderedApproved;
+
+  for (const ref of parentCandidates) {
     const observation = observationById.get(ref);
     const normalizedPath = observation?.kind === 'source' && typeof observation.path === 'string'
       ? observation.path.replaceAll('\\', '/').toLowerCase()
@@ -2013,9 +2087,12 @@ export function selectClaimCover({
     );
     const orderedApproved = (Array.isArray(claim.evidenceRefs) ? claim.evidenceRefs : [])
       .filter(ref => typeof ref === 'string' && ref && approved.has(ref));
+    const preferDirect = subgoal.proofPolicy === 'support_or_refute' &&
+      Array.isArray(subgoal.originRefs) &&
+      subgoal.originRefs.includes('wrapper:collect_evidence:verdict');
     const claimSelection = MULTI_ITEM_PARENT_PROOF_POLICIES.has(subgoal.proofPolicy)
       ? orderedApproved
-      : selectDirectClaimCover(claim, orderedApproved, observationById);
+      : selectDirectClaimCover(claim, orderedApproved, observationById, { preferDirect });
     evidenceRefsByClaimId.set(claim.id, [...new Set(claimSelection)]);
     for (const ref of claimSelection) {
       if (seen.has(ref)) continue;

@@ -115,7 +115,7 @@ const FIXED_WRAPPER_GOAL_SEEDS = Object.freeze({
     'risk_boundary',
   ]),
   explain_code_path: Object.freeze(['entry', 'handoffs', 'terminal_effect', 'transitions']),
-  collect_evidence: Object.freeze(['verdict', 'direct_evidence', 'counterevidence']),
+  collect_evidence: Object.freeze(['verdict']),
   explore_repo: Object.freeze([]),
 });
 
@@ -143,8 +143,6 @@ const FIXED_WRAPPER_SEED_CLAIM_TYPES = Object.freeze({
   }),
   collect_evidence: Object.freeze({
     verdict: 'claim_verification',
-    direct_evidence: 'claim_verification',
-    counterevidence: 'claim_verification',
   }),
   explore_repo: Object.freeze({}),
 });
@@ -186,6 +184,7 @@ const CANONICAL_DECOMPOSITION_PATTERNS = Object.freeze([
   '- "Inventory every service invocation and classify direct SDK calls, wrappers, and configuration-only references" has exactly the named class leaves: direct invocation sites=count; wrapper membership=comparison; configuration-only membership=comparison. Do not emit a total union inventory. For each class origin, use one contiguous request range spanning the shared classification action through that class, not a tail noun alone.',
   '- A category leaf is not mixed merely because its proof condition distinguishes that category from sibling categories. Decompose only when the leaf itself contains two independently decidable acceptance outcomes.',
   '- For wrapper:map_change_impact:requested_categories, affected test, configuration, and documentation items are one multi-item impact leaf. Keep every category named by the task in that leaf\'s proof condition; do not split it solely because categories are independently searchable or have different source roles. This exception does not permit mixing targets, dependents, or risk_boundary into the leaf, or omitting any named category.',
+  '- For wrapper:collect_evidence:verdict, create exactly one claim_verification goal carrying one request origin that covers the full supplied task span plus the wrapper verdict origin. Direct evidence and relevant counterevidence search are proof facets of that one goal, never sibling goals or a decomposition reason.',
 ]);
 
 const ORIGIN_REFERENCE_RULES = Object.freeze([
@@ -364,6 +363,8 @@ const CLAIM_SYNTHESIS_SYSTEM_PROMPT = [
   '- For a comparison spanning three or more source paths, state each path or helper and its exact predicate in a separate semicolon-delimited clause. Do not use "respectively" or leave path-to-predicate pairing implicit.',
   '- Do not cite search/list telemetry in an impact claim; cite the source observations that establish every requested category. A count claim cites its complete search plus every supplied source observation covering its counted items.',
   '- A positive direct-source test claim may identify one exactly observed test and what it verifies. Do not imply that it inventories the whole suite unless the sub-goal explicitly requires every test.',
+  '- For the wrapper:collect_evidence:verdict goal, an affirmed claim must cite both exact direct source/git evidence and a complete zero-match search that tests a plausible disconfirming predicate. A confirming lookup for the same symbol is not a counterevidence search.',
+  '- Keep a collect_evidence claim text to the requested repository conclusion. Do not add an internal search pattern, match count, certificate summary, or tool detail to the claim text; carry those proof facts only through evidenceRefs.',
   '- For an all/every/exhaustive impact goal, emit a claim only when its text and cited source observations represent every category named by the proof condition. If source, docs, agent config, and dependencies are named, all four must be present; one config file cannot stand in for the other categories.',
   '- Omit optional implementation details, adjacent facts, and observations that the sub-goal did not request.',
   '- Every id, subgoalId, claim text, and evidence reference must be a non-empty string.',
@@ -403,6 +404,8 @@ const SEMANTIC_VERIFIER_SYSTEM_PROMPT = [
   '- Verify every asserted comparison side and enforcement predicate independently against its exact cited source. One correct side never compensates for a misstated side. A row-existence check, a selected boolean field check, a hardcoded identity list, and a helper invocation are distinct mechanisms unless the cited source proves otherwise.',
   '- For an every, exhaustive, or inventory classification, supported requires a complete cited enumeration plus exact cited source ranges covering every enumerated member. Two distinct files alone prove only a bounded comparison, not exhaustive membership.',
   '- A positive direct_source claim needs exact support for the stated test or fact, not an exhaustive inventory, unless its question or proof condition explicitly says all, every, exhaustive, or only.',
+  '- For wrapper:collect_evidence:verdict, affirm only when supportingEvidenceRefs includes exact direct source/git evidence and every ref of one complete zero-match search for a plausible disconfirming predicate over the claim boundary. A confirming lookup for the same symbol, an unrelated pattern, or a narrower boundary is not counterevidence.',
+  '- For wrapper:collect_evidence:verdict, if any requested proof facet remains uncovered, mark the existing claim insufficient with reasonCode uncovered_request and keep uncoveredRequestParts empty. Never create a sibling goal for that facet.',
   '- For an all/every/exhaustive impact claim, supported requires both claim text and cited source observations to cover every category named by the sub-goal proof condition. If source, docs, agent config, and dependencies are named, omission of any one is missing_category.',
   '- A complete zero-match filename glob proves only bounded filename absence; a complete grep proves only bounded absence of its exact regex or text pattern. Do not use either to refute broader behavior, registration, function existence, or mechanism claims unless the search predicates cover every plausible repository representation within the stated boundary.',
   '- For request:<start>-<end> origins, use the runtime-computed control.taskOffsetGuide boundaries. Never estimate offsets, especially for Unicode task text.',
@@ -432,6 +435,17 @@ const ABSENCE_REFUTATION_CORROBORATOR_SYSTEM_PROMPT = [
   '- An exact literal, path, or glob premise may be refuted by a complete matching search over the exact stated boundary.',
   '- A behavior or mechanism premise, including registration or function existence, requires complete searches whose predicates cover every plausible repository representation named by the premise. Unrelated filenames, language syntax, or naming conventions are insufficient.',
   '- Return supported with resolution refuted only when supportingEvidenceRefs contains the complete searchRefs set of at least one supplied complete zero-match certificate and that full set is semantically adequate for the premise.',
+  '- This focused pass cannot discover request obligations. uncoveredRequestParts must be an empty array.',
+].join('\n');
+
+const COLLECT_AFFIRMATION_CORROBORATOR_SYSTEM_PROMPT = [
+  SEMANTIC_VERIFIER_SYSTEM_PROMPT,
+  '',
+  'FOCUSED COLLECT AFFIRMATION CORROBORATION:',
+  '- This packet contains exactly one collect_evidence affirmation with direct evidence and one or more complete zero-match searches proposed as counterevidence checks. Independently re-check the whole claim and whether at least one complete search targets a plausible disconfirming predicate over the full claim boundary; do not defer to an earlier verdict.',
+  '- A confirming lookup for the asserted symbol, an unrelated pattern, or a narrower boundary is not a counterevidence check even when it returns zero matches.',
+  '- Return supported with resolution affirmed only when supportingEvidenceRefs contains exact direct source or git evidence plus the complete searchRefs set of at least one supplied certificate that is semantically adequate to challenge the claim.',
+  '- If the direct evidence does not entail the whole claim or no complete certificate searches for a plausible counterexample, exception, or alternative representation, return insufficient or contradicted.',
   '- This focused pass cannot discover request obligations. uncoveredRequestParts must be an empty array.',
 ].join('\n');
 
@@ -818,6 +832,36 @@ export function buildAbsenceRefutationCorroboratorMessages({
     {
       role: 'user',
       content: controlDataMessage('Corroborate this one certificate-only refutation against its bounded searches', {
+        control: {
+          ...normalizeVerificationContract(taskContract),
+          taskOffsetGuide: taskOffsetGuide(taskContract?.task),
+          wrapper: fixedWrapperInput(wrapperTool),
+        },
+        claims: Array.isArray(claims) ? claims.map(normalizeCandidateClaim) : [],
+        observations: Array.isArray(observations)
+          ? observations.map(item => pickDefined(item, VERIFIER_OBSERVATION_FIELDS))
+          : [],
+        absenceCertificates: Array.isArray(absenceCertificates)
+          ? absenceCertificates.map(item => pickDefined(item, ABSENCE_CERTIFICATE_FIELDS))
+          : [],
+        criticDecisions: [],
+      }),
+    },
+  ];
+}
+
+export function buildCollectAffirmationCorroboratorMessages({
+  taskContract,
+  claims,
+  observations,
+  absenceCertificates,
+  wrapperTool,
+}) {
+  return [
+    { role: 'system', content: COLLECT_AFFIRMATION_CORROBORATOR_SYSTEM_PROMPT },
+    {
+      role: 'user',
+      content: controlDataMessage('Corroborate this collect affirmation and its bounded counterevidence searches', {
         control: {
           ...normalizeVerificationContract(taskContract),
           taskOffsetGuide: taskOffsetGuide(taskContract?.task),

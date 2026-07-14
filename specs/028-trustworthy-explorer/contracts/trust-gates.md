@@ -74,12 +74,16 @@ The detailed contract is [goal-audit.md](./goal-audit.md).
 
 ### Claim support/refutation
 
+- `collect_evidence` always carries exactly one verdict goal whose request origin covers the full supplied task. Direct evidence and counterevidence search are proof facets of that goal, never independently completable sibling goals.
 - The verifier returns supported, contradicted, or unresolved for each candidate claim.
 - A conclusive supported claim that refutes the caller's premise satisfies the required goal with `resolution=refuted`; candidate contradiction alone does not.
+- An affirmed `collect_evidence` verdict requires exact direct source/git evidence plus one complete zero-match search for a plausible counterexample, exception, or alternative over the claim boundary. Only complete `repo_grep`/`repo_find_files`/`repo_symbol_context` observations with a non-empty predicate qualify; zero-result diff/read/history operations do not. The claim, primary verifier, and focused affirmation verifier must include every search ref from that certificate and agree on `affirmed`.
+- A confirming lookup for the same symbol, an unrelated predicate, or a narrower boundary is not counterevidence. The search certificate remains internal; the parent handoff projects only the minimal direct source/git evidence.
+- A verifier-reported uncovered facet deterministically normalizes any result on the same canonical verdict to `insufficient/uncovered_request`; it cannot create a sibling goal or late goal-audit batch.
 - A refutation backed only by a complete zero-match search certificate receives one focused independent corroboration pass. Both checks must return `supported/refuted` and agree on every search ref in one complete certificate.
 - A filename glob proves only bounded filename absence, and grep proves only bounded absence of its exact regex or text. Exact textual/path premises may close under an exact complete boundary; behavior, registration, function-existence, or mechanism premises require searches covering every plausible repository representation.
 - A direct current-source or git counterexample remains sufficient without the focused absence pass. The corroboration artifact is internal and never expands the parent handoff.
-- Relevant counterevidence search is required when the claim is broad or critical.
+- Outside `collect_evidence`, relevant counterevidence search is required when the claim is broad or critical.
 - One exact line range is not enough unless its content entails the entire bounded claim.
 
 ## Negative and exhaustive claims

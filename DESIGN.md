@@ -149,6 +149,7 @@ Planner input은 원래 task, wrapper seed, effective scope, known anchor, repos
 
 Planner는 명시된 요청 부분마다 독립 관찰 가능한 proof condition을 가진 proposed sub-goal을 만든다. Runtime이 claim type을 고정 proof policy로 변환한다.
 Runtime은 initial/corrected plan과 isolated audit에서 active wrapper의 fixed seed origin이 모두 유지되는지 기계적으로 확인한다. 누락은 한 번의 bounded control correction 대상이며, 다시 누락되면 repository exploration 전에 fail-closed한다.
+`collect_evidence`는 예외 없이 supplied task 전체를 덮는 request origin과 `wrapper:collect_evidence:verdict`를 함께 가진 하나의 `claim_verification` goal로 계획한다. Direct evidence와 counterevidence search는 별도 sibling goal이 아니라 같은 verdict의 내부 proof facet이다.
 
 | Claim type | Proof policy |
 | --- | --- |
@@ -212,6 +213,8 @@ Verifier는 원래 request, audited sub-goals, candidate atomic claims, rebuilt 
 두 개 이상의 current source path를 묶는 comparison claim은 해당 claim과 bounded semantic batch의 observation으로 focused corroboration을 한 번 더 수행한다. Claim이 인용하지 않은 current source도 audited sub-goal boundary 안의 독립적인 route/predicate 변형을 보이는지 검토한다. Focused verifier에는 sibling goal의 관련 없는 observation을 omission으로 취급하지 말라고 지시한다. Supporting evidence는 결과와 무관하게 claim이 직접 인용한 ref의 subset으로 강제하며, 두 verifier가 primary verifier가 지지한 모든 source path와 전체 관계에 동의할 때만 support를 유지한다. 하나의 route/predicate라도 누락되거나 잘못 연결되면 기존 repair 또는 gap 경로로 fail-closed 한다. 이 내부 확인은 parent schema에 진단 필드를 추가하지 않는다.
 
 `support_or_refute` claim을 direct source/git counterexample 없이 zero-match search certificate만으로 refute하려면 focused corroboration을 한 번 더 수행한다. Filename glob은 bounded filename absence만, grep은 해당 regex/text의 bounded absence만 증명한다. Exact textual/path premise는 정확한 boundary의 complete search로 닫을 수 있지만 behavior, registration, function existence, mechanism premise는 가능한 repository 표현을 모두 포괄하는 search predicate가 필요하다. 두 verifier가 같은 complete certificate의 전체 search ref와 `refuted` resolution에 동의해야만 내부 corroboration artifact가 생기며, 이 artifact가 없으면 proof gate는 fail-closed 한다. Direct source/git counterexample은 이 추가 pass 없이 기존 gate를 통과한다. Artifact와 verifier diagnostics는 parent payload에 노출하지 않는다.
+
+`collect_evidence`가 claim을 affirm하려면 exact direct source/git evidence와 claim boundary 안의 plausible counterexample, exception, alternative를 찾는 complete zero-match search가 모두 필요하다. Runtime은 non-empty `pattern` 또는 `symbol`을 가진 complete `repo_grep`/`repo_find_files`/`repo_symbol_context` observation만 이 counter-search로 인정한다. `repo_git_diff`처럼 zero-result일 수 있지만 disconfirming predicate를 표현하지 않는 operation, 같은 symbol을 다시 찾는 confirming lookup, unrelated/narrower search는 counterevidence가 아니다. Primary verifier와 focused affirmation verifier가 같은 complete certificate의 모든 search ref 및 `affirmed` resolution에 독립적으로 동의해야 한다. Search certificate와 이 agreement는 내부 proof에만 남고 parent handoff에는 verdict를 직접 뒷받침하는 최소 source/git evidence만 투영한다. Verifier가 아직 uncovered proof facet을 보고하면 원래 verdict가 supported, contradicted, insufficient 중 무엇이든 runtime은 `insufficient/uncovered_request`로 낮추고 같은 canonical goal의 repair/terminal gap으로 보존한다. Sibling goal이나 late goal audit은 만들지 않는다.
 
 Verifier가 새로운 request part를 제안하면 원래 request에 추적 가능한지 다시 audit한다. Verifier invention도 required goal로 바로 승격하지 않는다.
 

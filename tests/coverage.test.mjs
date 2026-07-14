@@ -328,6 +328,7 @@ proofPolicyCoverageTest(
       },
       absenceCertificates: [certificate],
       deterministicCounts: [],
+      observations: [t057SearchObservation()],
     }));
 
     assert.ok(outcomes.every(outcome => outcome?.passed === true));
@@ -353,6 +354,7 @@ proofPolicyCoverageTest(
       },
       absenceCertificates: [{ ...certificate, complete: false }],
       deterministicCounts: [],
+      observations: [t057SearchObservation()],
     });
     assertFailedProof(incomplete, 'uncertified exhaustive claim');
   },
@@ -446,6 +448,7 @@ proofPolicyCoverageTest(
       },
       absenceCertificates: [refutationCertificate],
       deterministicCounts: [],
+      observations: [t057SearchObservation()],
     };
     const uncorroboratedRefutation = evaluateProofPolicy(refutationInput);
     assertFailedProof(uncorroboratedRefutation,
@@ -455,6 +458,39 @@ proofPolicyCoverageTest(
       ...refutationInput,
       policyArtifacts: { absenceRefutationCorroborated: true },
     }).passed, true);
+    assertFailedProof(evaluateProofPolicy({
+      ...refutationInput,
+      observations: [t057SearchObservation({
+        tool: 'repo_git_diff',
+        normalizedArgs: { from: 'HEAD~1', to: 'HEAD' },
+      })],
+      policyArtifacts: { absenceRefutationCorroborated: true },
+    }), 'corroboration cannot turn a predicate-free zero-result operation into refutation proof');
+    const invalidRefutationSearch = t057SearchObservation({
+      id: 'Q-invalid-refutation',
+      tool: 'repo_git_diff',
+      normalizedArgs: { from: 'HEAD~1', to: 'HEAD' },
+    });
+    const invalidRefutationCertificate = buildAbsenceCertificate(t057CertificateInput({
+      id: 'A-invalid-refutation',
+      subgoalId: refutationInput.subgoal.id,
+      searches: [invalidRefutationSearch],
+    }));
+    assert.equal(evaluateProofPolicy({
+      ...refutationInput,
+      claim: {
+        ...refutationInput.claim,
+        evidenceRefs: ['Q-invalid-refutation', 'Q1'],
+      },
+      semanticVerdict: {
+        ...refutationInput.semanticVerdict,
+        supportingEvidenceRefs: ['Q-invalid-refutation', 'Q1'],
+      },
+      absenceCertificates: [invalidRefutationCertificate, refutationCertificate],
+      observations: [invalidRefutationSearch, t057SearchObservation()],
+      policyArtifacts: { absenceRefutationCorroborated: true },
+    }).passed, true,
+    'an invalid first certificate must not hide a later explicit predicate certificate');
     assertFailedProof(evaluateProofPolicy({
       ...refutationInput,
       semanticVerdict: {
@@ -485,6 +521,88 @@ proofPolicyCoverageTest(
       }],
     }).passed, true,
     'a direct source counterexample can support a refutation without absence proof');
+
+    const affirmedCollectInput = {
+      subgoal: {
+        id: 'S-collect-verdict',
+        originRefs: ['request:0-20', 'wrapper:collect_evidence:verdict'],
+        claimType: 'claim_verification',
+        proofPolicy: 'support_or_refute',
+        constraints: [],
+      },
+      claim: {
+        id: 'C-collect-verdict',
+        subgoalId: 'S-collect-verdict',
+        text: 'The supplied claim is supported.',
+        evidenceRefs: ['E-direct', 'Q-countercheck'],
+      },
+      semanticVerdict: {
+        claimId: 'C-collect-verdict',
+        result: 'supported',
+        resolution: 'affirmed',
+        supportingEvidenceRefs: ['E-direct', 'Q-countercheck'],
+      },
+      observations: [{
+        id: 'E-direct',
+        kind: 'source',
+        path: 'src/auth.js',
+      }, t057SearchObservation({ id: 'Q-countercheck' })],
+    };
+    const uncorroboratedAffirmation = evaluateProofPolicy(affirmedCollectInput);
+    assertFailedProof(uncorroboratedAffirmation,
+      'collect_evidence affirmation requires a runtime-bound counterevidence search');
+    assert.equal(uncorroboratedAffirmation.reason, 'counterevidence_search_missing');
+    const uncorroboratedCountercheck = evaluateProofPolicy({
+      ...affirmedCollectInput,
+      absenceCertificates: [buildAbsenceCertificate(t057CertificateInput({
+        id: 'A-countercheck',
+        subgoalId: affirmedCollectInput.subgoal.id,
+        searches: [t057SearchObservation({ id: 'Q-countercheck' })],
+      }))],
+    });
+    assertFailedProof(uncorroboratedCountercheck,
+      'one verifier cannot approve its own collect counterevidence search');
+    assert.equal(uncorroboratedCountercheck.reason, 'uncorroborated_counterevidence');
+    assert.equal(evaluateProofPolicy({
+      ...affirmedCollectInput,
+      absenceCertificates: [buildAbsenceCertificate(t057CertificateInput({
+        id: 'A-countercheck',
+        subgoalId: affirmedCollectInput.subgoal.id,
+        searches: [t057SearchObservation({ id: 'Q-countercheck' })],
+      }))],
+      policyArtifacts: { collectCounterevidenceCorroborated: true },
+    }).passed, true);
+    for (const invalidSearch of [
+      t057SearchObservation({
+        id: 'Q-countercheck',
+        tool: 'repo_git_diff',
+        normalizedArgs: { from: 'HEAD~1', to: 'HEAD' },
+      }),
+      t057SearchObservation({
+        id: 'Q-countercheck',
+        tool: 'repo_grep',
+        normalizedArgs: {},
+      }),
+    ]) {
+      assertFailedProof(evaluateProofPolicy({
+        ...affirmedCollectInput,
+        observations: [affirmedCollectInput.observations[0], invalidSearch],
+        absenceCertificates: [buildAbsenceCertificate(t057CertificateInput({
+          id: 'A-invalid-countercheck',
+          subgoalId: affirmedCollectInput.subgoal.id,
+          searches: [invalidSearch],
+        }))],
+        policyArtifacts: { collectCounterevidenceCorroborated: true },
+      }), 'a zero-result operation without an explicit current-source predicate is not counter-search');
+    }
+    assertFailedProof(evaluateProofPolicy({
+      ...affirmedCollectInput,
+      absenceCertificates: [buildAbsenceCertificate(t057CertificateInput({
+        id: 'A-unrelated-countercheck',
+        subgoalId: affirmedCollectInput.subgoal.id,
+        searches: [t057SearchObservation({ id: 'Q-unrelated' })],
+      }))],
+    }), 'an unrelated counterevidence ref cannot satisfy collect_evidence');
 
     assertFailedProof(evaluateProofPolicy({
       ...refutationInput,
@@ -530,6 +648,7 @@ proofPolicyCoverageTest(
         id: 'unrelated',
         searchRefs: ['Q-unrelated'],
       }, validCertificate],
+      observations: [t057SearchObservation()],
     };
     assert.equal(evaluateProofPolicy(absenceInput).passed, true,
       'a later claim-bound certificate must not be hidden by an unrelated first record');
@@ -537,6 +656,25 @@ proofPolicyCoverageTest(
       ...absenceInput,
       absenceCertificates: [absenceInput.absenceCertificates[0]],
     }), 'an unrelated same-subgoal certificate');
+    const invalidAbsenceSearch = t057SearchObservation({
+      id: 'Q-invalid-absence',
+      tool: 'repo_git_diff',
+      normalizedArgs: { from: 'HEAD~1', to: 'HEAD' },
+    });
+    assertFailedProof(evaluateProofPolicy({
+      ...absenceInput,
+      claim: { ...absenceInput.claim, evidenceRefs: [invalidAbsenceSearch.id] },
+      semanticVerdict: {
+        ...absenceInput.semanticVerdict,
+        supportingEvidenceRefs: [invalidAbsenceSearch.id],
+      },
+      absenceCertificates: [buildAbsenceCertificate(t057CertificateInput({
+        id: 'A-invalid-absence',
+        subgoalId: absenceInput.subgoal.id,
+        searches: [invalidAbsenceSearch],
+      }))],
+      observations: [invalidAbsenceSearch],
+    }), 'bounded absence requires an explicit repository predicate');
 
     const missingIdentities = computeDeterministicCount({
       subgoalId: 'S-absence',
@@ -872,6 +1010,100 @@ proofPolicyCoverageTest(
 
     assert.deepEqual(cover.evidenceRefs, ['E1', 'E3']);
     assert.deepEqual(cover.evidenceRefsByClaimId.get('C1'), ['E1', 'E3']);
+  });
+
+  test('Spec 028 T071 — affirmative counter-search telemetry stays out of parent claim cover', () => {
+    const cover = selectClaimCover({
+      subgoals: [{
+        id: 'S1',
+        originRefs: ['request:0-42', 'wrapper:collect_evidence:verdict'],
+        proofPolicy: 'support_or_refute',
+        state: 'supported',
+      }],
+      claims: [{
+        id: 'C1',
+        subgoalId: 'S1',
+        verdict: 'supported',
+        text: 'The current source enforces authentication.',
+        evidenceRefs: ['Q-countercheck', 'E-source'],
+      }],
+      verdicts: [{
+        claimId: 'C1',
+        result: 'supported',
+        resolution: 'affirmed',
+        supportingEvidenceRefs: ['Q-countercheck', 'E-source'],
+      }],
+      observations: [
+        t057SearchObservation({ id: 'Q-countercheck' }),
+        { id: 'E-source', kind: 'source', path: 'src/auth.js', startLine: 1, endLine: 4 },
+      ],
+    });
+
+    assert.deepEqual(cover.evidenceRefs, ['E-source']);
+    assert.deepEqual(cover.evidenceRefsByClaimId.get('C1'), ['E-source']);
+  });
+
+  test('Spec 028 T071 — direct collect refutation outranks search-first telemetry', () => {
+    const cover = selectClaimCover({
+      subgoals: [{
+        id: 'S1',
+        originRefs: ['request:0-42', 'wrapper:collect_evidence:verdict'],
+        proofPolicy: 'support_or_refute',
+        state: 'supported',
+      }],
+      claims: [{
+        id: 'C1',
+        subgoalId: 'S1',
+        verdict: 'supported',
+        text: 'The premise is refuted by the current route source.',
+        evidenceRefs: ['Q-search', 'E-counterexample'],
+      }],
+      verdicts: [{
+        claimId: 'C1',
+        result: 'supported',
+        resolution: 'refuted',
+        supportingEvidenceRefs: ['Q-search', 'E-counterexample'],
+      }],
+      observations: [
+        t057SearchObservation({ id: 'Q-search' }),
+        {
+          id: 'E-counterexample',
+          kind: 'source',
+          path: 'src/routes/user.js',
+          startLine: 1,
+          endLine: 7,
+        },
+      ],
+    });
+
+    assert.deepEqual(cover.evidenceRefs, ['E-counterexample']);
+    assert.deepEqual(cover.evidenceRefsByClaimId.get('C1'), ['E-counterexample']);
+  });
+
+  test('Spec 028 T071 — bounded absence keeps its search certificate in the parent cover', () => {
+    const cover = selectClaimCover({
+      subgoals: [{ id: 'S1', proofPolicy: 'bounded_absence', state: 'supported' }],
+      claims: [{
+        id: 'C1',
+        subgoalId: 'S1',
+        verdict: 'supported',
+        text: 'The legacy guard is absent within the requested boundary.',
+        evidenceRefs: ['Q-absence', 'E-context'],
+      }],
+      verdicts: [{
+        claimId: 'C1',
+        result: 'supported',
+        resolution: 'affirmed',
+        supportingEvidenceRefs: ['Q-absence', 'E-context'],
+      }],
+      observations: [
+        t057SearchObservation({ id: 'Q-absence' }),
+        { id: 'E-context', kind: 'source', path: 'src/auth.js', startLine: 1, endLine: 4 },
+      ],
+    });
+
+    assert.deepEqual(cover.evidenceRefs, ['Q-absence']);
+    assert.deepEqual(cover.evidenceRefsByClaimId.get('C1'), ['Q-absence']);
   });
 
   test('Spec 028 T041 — parent follow-up uses gap priority and suppresses repeated tools', () => {
@@ -1552,7 +1784,7 @@ proofPolicyCoverageTest(
     ['trace_symbol', ['definition', 'usage']],
     ['map_change_impact', ['targets', 'dependents', 'requested_categories', 'risk_boundary']],
     ['explain_code_path', ['entry', 'handoffs', 'terminal_effect', 'transitions']],
-    ['collect_evidence', ['verdict', 'direct_evidence', 'counterevidence']],
+    ['collect_evidence', ['verdict']],
     ['explore_repo', []],
   ]);
 
@@ -1676,6 +1908,45 @@ proofPolicyCoverageTest(
       wrapperTool: 'explore_repo',
       goals: [],
     }), []);
+  });
+
+  goalAuditTest('Spec 028 T071 — collect_evidence has one request-bound verdict goal', () => {
+    assert.equal(typeof coverageModule.validateCollectEvidenceGoalPlan, 'function');
+    const canonical = goalProposal({
+      id: 'collect-verdict',
+      question: 'Support or refute the supplied claim.',
+      originRefs: [FULL_ORIGIN, 'wrapper:collect_evidence:verdict'],
+      claimType: 'claim_verification',
+      proofCondition: 'Resolve one verdict from direct evidence and relevant counterevidence search.',
+    });
+    assert.doesNotThrow(() => coverageModule.validateCollectEvidenceGoalPlan({
+      task: GOAL_AUDIT_TASK,
+      wrapperTool: 'collect_evidence',
+      goals: [canonical],
+    }));
+    for (const goals of [
+      [canonical, { ...canonical, id: 'collect-duplicate' }],
+      [{ ...canonical, originRefs: ['wrapper:collect_evidence:verdict'] }],
+      [{ ...canonical, originRefs: [AUTH_ORIGIN, 'wrapper:collect_evidence:verdict'] }],
+      [{ ...canonical, claimType: 'positive' }],
+    ]) {
+      assert.throws(() => coverageModule.validateCollectEvidenceGoalPlan({
+        task: GOAL_AUDIT_TASK,
+        wrapperTool: 'collect_evidence',
+        goals,
+      }));
+    }
+
+    for (const staleOrigin of [
+      'wrapper:collect_evidence:direct_evidence',
+      'wrapper:collect_evidence:counterevidence',
+    ]) {
+      const checked = preflight([goalProposal({ originRefs: [staleOrigin] })], {
+        wrapperTool: 'collect_evidence',
+      });
+      assert.deepEqual(checked.auditCandidates, [], staleOrigin);
+      assert.ok(checked.diagnostics.some(item => item.code === 'invalid_origin_ref'));
+    }
   });
 
   goalAuditTest('Spec 028 T015 — malformed offsets and duplicate ids fail deterministic preflight', () => {

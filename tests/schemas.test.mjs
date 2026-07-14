@@ -1764,6 +1764,24 @@ test('Spec 028 T016 — origin references are bounded and auditor-confirmed', ()
     'removed wrappers cannot become an origin authority');
 });
 
+test('Spec 028 T071 — removed collect_evidence proof facets are invalid origin refs', () => {
+  const task = 'Verify the supplied repository claim.';
+  for (const originRef of [
+    'wrapper:collect_evidence:direct_evidence',
+    'wrapper:collect_evidence:counterevidence',
+  ]) {
+    assert.throws(() => schemaModule.validatePlannerProposal(plannerProposal([
+      plannerGoal({
+        originRefs: [originRef],
+        claimType: 'claim_verification',
+      }),
+    ]), {
+      task,
+      wrapperTool: 'collect_evidence',
+    }), originRef);
+  }
+});
+
 test('Spec 028 T016 — claim types map to one runtime-owned proof policy', () => {
   const policyByClaimType = new Map([
     ['positive', 'direct_source'],

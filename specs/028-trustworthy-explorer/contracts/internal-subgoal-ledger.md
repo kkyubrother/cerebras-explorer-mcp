@@ -82,7 +82,7 @@ Only audited/blocked required goals enter the ledger. Runtime seals each accepte
 | `trace_symbol` | definition/meaning; usage or explicit bounded no-usage result |
 | `map_change_impact` | edit/read targets; dependent callers/consumers; requested tests/config/docs categories; unresolved risk boundary |
 | `explain_code_path` | entry point; ordered handoffs; terminal effect; every transition supported |
-| `collect_evidence` | support/refute/unresolved verdict; direct semantic evidence; relevant counterevidence search |
+| `collect_evidence` | exactly one full-task-bound `claim_verification` verdict goal; direct semantic evidence and relevant counterevidence search are internal proof facets, not sibling goals |
 | `explore_repo` | no fixed seed beyond request-complete decomposition |
 
 ## Runtime updates
@@ -162,6 +162,8 @@ Verifier output uses one bounded control object:
 It cannot add evidence or new answer claims. An uncovered suggestion includes exact request/wrapper origin references and a proof condition, then passes [goal-audit.md](./goal-audit.md) before registration. Only audited `ready` goals may enter the remaining repair round; audited blockers become required gaps, and untraceable suggestions are discarded/logged.
 
 A `contradicted` verdict applies to the candidate claim, not automatically to the required goal. A `supported` verdict carries `resolution=affirmed|refuted`; runtime never derives this classification from claim prose. If another existing atomic claim is a semantically supported refutation, the goal becomes `supported` with `resolution=refuted`. Without a supported resolution, or when supported claims disagree on resolution, the goal remains a gap/contradiction.
+
+For `collect_evidence`, an affirmed verdict additionally requires exact direct source/git evidence and one complete zero-match search for a plausible disconfirming predicate over the claim boundary. Runtime accepts only a complete `repo_grep`/`repo_find_files`/`repo_symbol_context` observation with a non-empty `pattern` or `symbol`; zero-result diff/read/history operations are not counter-search. The claim, primary verifier, and focused affirmation verifier must agree on every search ref in that certificate and on `affirmed`. A confirming same-symbol lookup, unrelated pattern, or narrower boundary does not satisfy this facet. The search and agreement remain internal proof telemetry; the parent receives only the smallest direct source/git cover. If either verifier identifies an uncovered facet, runtime normalizes any verdict result to `insufficient/uncovered_request`; it never appends a sibling goal.
 
 ## Deterministic reduction
 
