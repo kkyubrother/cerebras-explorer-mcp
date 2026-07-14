@@ -9,6 +9,226 @@ function normalizeRepoPath(value) {
   return String(value ?? '').replace(/\\/g, '/');
 }
 
+export const FIXTURE_TRUST_EVALUATION_PROFILE = 'fixture_strict_v1';
+export const LIVE_TRUST_EVALUATION_PROFILE = 'fail_closed_anchor_or_gap_v1';
+export const PORTABLE_PARENT_OBSERVATION_PROFILE = 'parent-native-research-v3';
+export const PORTABLE_PARENT_OBSERVATION_PENDING = 'pending_actual_harness';
+
+const SHA256_HEX = /^[0-9a-f]{64}$/u;
+const GIT_SHA_HEX = /^[0-9a-f]{40}$/u;
+
+function isPlainRecord(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function hasOnlyRecordKeys(value, expectedKeys) {
+  return isPlainRecord(value) && sameStringSet(Object.keys(value), expectedKeys);
+}
+
+function validPortableAllowance(value) {
+  return hasOnlyRecordKeys(value, [
+    'citedTargetReads', 'citedPathSearches', 'allowedFollowUps',
+  ]) && Object.values(value).every(item => Number.isInteger(item) && item >= 0);
+}
+
+function validPortableSourcePin(value) {
+  const commonValid = isPlainRecord(value) &&
+    typeof value.caseId === 'string' && value.caseId.length > 0 &&
+    typeof value.sourceRef === 'string' && value.sourceRef.length > 0 &&
+    typeof value.repoId === 'string' && value.repoId.length > 0 &&
+    SHA256_HEX.test(value.handoffSha256 ?? '');
+  if (!commonValid) return false;
+  if (value.kind === 'repository') {
+    return hasOnlyRecordKeys(value, [
+      'caseId', 'sourceRef', 'repoId', 'kind', 'gitSha',
+      'dirtyTreeSha256', 'promptSha256', 'handoffSha256',
+    ]) && GIT_SHA_HEX.test(value.gitSha ?? '') &&
+      SHA256_HEX.test(value.dirtyTreeSha256 ?? '') &&
+      SHA256_HEX.test(value.promptSha256 ?? '');
+  }
+  return value.kind === 'fixture' && hasOnlyRecordKeys(value, [
+    'caseId', 'sourceRef', 'repoId', 'kind', 'repoTreeSha256',
+    'promptSha256', 'handoffSha256',
+  ]) && SHA256_HEX.test(value.repoTreeSha256 ?? '') &&
+    SHA256_HEX.test(value.promptSha256 ?? '');
+}
+
+function roundSix(value) {
+  return Math.round(value * 1_000_000) / 1_000_000;
+}
+
+/** Project the portable, hash-bound subset of a schema-v3 harness report. */
+export function projectPortableParentObservationReport(report, {
+  denominatorCaseIds = [],
+  sourcePins = [],
+  reportSha256 = null,
+} = {}) {
+  const metrics = report?.metrics;
+  return {
+    profile: report?.policy?.id ?? null,
+    status: 'recorded',
+    denominatorCaseIds: [...denominatorCaseIds],
+    minimumRate: report?.policy?.passThreshold ?? null,
+    reportSha256,
+    sourcePins: sourcePins.map(item => ({ ...item })),
+    metrics: isPlainRecord(metrics) ? {
+      denominatorCaseCount: metrics.denominatorCaseCount,
+      observedCaseCount: metrics.observedCaseCount,
+      invalidObservationCaseCount: metrics.invalidObservationCaseCount,
+      noBroadNativeResearchCaseCount: metrics.noBroadNativeResearchCaseCount,
+      broadNativeResearchCaseCount: metrics.broadNativeResearchCaseCount,
+      noBroadNativeResearchRate: metrics.noBroadNativeResearchRate,
+      allowance: isPlainRecord(metrics.allowance) ? { ...metrics.allowance } : metrics.allowance,
+    } : null,
+    cases: Array.isArray(report?.cases) ? report.cases.map(item => ({
+      id: item?.id,
+      repoId: item?.repoId,
+      sourcePin: isPlainRecord(item?.sourcePin) ? { ...item.sourcePin } : item?.sourcePin,
+      promptSha256: item?.promptSha256,
+      handoffSha256: item?.handoffSha256,
+      traceSha256: item?.traceSha256,
+      observed: item?.observed,
+      noBroad: item?.noBroad,
+      broadActionCount: item?.broadActionCount,
+      allowance: isPlainRecord(item?.allowance) ? { ...item.allowance } : item?.allowance,
+      violations: Array.isArray(item?.violations) ? [...item.violations] : item?.violations,
+    })) : [],
+  };
+}
+
+/**
+ * Validate the portable projection of an actual parent-observation harness run.
+ * Raw Codex JSONL remains external; report and trace hashes bind this record to
+ * those artifacts without copying machine paths, commands, prose, or usage.
+ */
+export function evaluatePortableParentObservationRecord(record, {
+  expectedCaseIds = [],
+  expectedMinimumRate = 0.9,
+  expectedSourcePins = [],
+} = {}) {
+  const problems = [];
+  const expectedTopKeys = [
+    'profile', 'status', 'denominatorCaseIds', 'minimumRate', 'reportSha256',
+    'sourcePins', 'metrics', 'cases',
+  ];
+  if (!hasOnlyRecordKeys(record, expectedTopKeys)) {
+    return { valid: false, problems: ['portable parent-observation record has an invalid shape'] };
+  }
+  if (record.profile !== PORTABLE_PARENT_OBSERVATION_PROFILE) {
+    problems.push('portable parent-observation record has an invalid profile');
+  }
+  if (!sameStringSet(record.denominatorCaseIds, expectedCaseIds) ||
+      expectedCaseIds.length !== 14) {
+    problems.push('portable parent-observation denominator drifted from the fixed 14 cases');
+  }
+  if (record.minimumRate !== expectedMinimumRate) {
+    problems.push('portable parent-observation minimum rate drifted');
+  }
+
+  const sourcePins = Array.isArray(record.sourcePins) ? record.sourcePins : [];
+  if (!sameStringSet(
+    sourcePins.map(item => JSON.stringify(item)),
+    expectedSourcePins.map(item => JSON.stringify(item)),
+  ) || sourcePins.some(item => !validPortableSourcePin(item))) {
+    problems.push('portable parent-observation source pins or handoff hashes do not match');
+  }
+
+  if (record.status === PORTABLE_PARENT_OBSERVATION_PENDING) {
+    if (record.reportSha256 !== null || record.metrics !== null ||
+        !Array.isArray(record.cases) || record.cases.length !== 0) {
+      problems.push('pending parent-observation placeholder contains unobserved result data');
+    }
+    problems.push('portable parent-observation record is pending the actual harness');
+    return { valid: false, problems };
+  }
+  if (record.status !== 'recorded') {
+    problems.push('portable parent-observation record has an invalid status');
+  }
+  if (!SHA256_HEX.test(record.reportSha256 ?? '')) {
+    problems.push('portable parent-observation report hash is missing');
+  }
+
+  const cases = Array.isArray(record.cases) ? record.cases : [];
+  const sourcePinByCase = new Map(sourcePins.map(item => [item.caseId, item]));
+  if (!sameStringSet(cases.map(item => item?.id), expectedCaseIds)) {
+    problems.push('portable parent-observation cases do not cover the fixed denominator');
+  }
+  for (const item of cases) {
+    const exactShape = hasOnlyRecordKeys(item, [
+      'id', 'repoId', 'sourcePin', 'promptSha256', 'handoffSha256',
+      'traceSha256', 'observed', 'noBroad', 'broadActionCount',
+      'allowance', 'violations',
+    ]);
+    const expectedPin = sourcePinByCase.get(item?.id);
+    const expectedCaseSourcePin = expectedPin?.kind === 'repository'
+      ? {
+          kind: 'repository',
+          gitSha: expectedPin.gitSha,
+          dirtyTreeSha256: expectedPin.dirtyTreeSha256,
+        }
+      : {
+          kind: 'fixture',
+          repoTreeSha256: expectedPin?.repoTreeSha256,
+        };
+    const codes = Array.isArray(item?.violations) ? item.violations : [];
+    if (!exactShape || expectedPin?.repoId !== item.repoId ||
+        JSON.stringify(item.sourcePin) !== JSON.stringify(expectedCaseSourcePin) ||
+        item.promptSha256 !== expectedPin?.promptSha256 ||
+        item.handoffSha256 !== expectedPin?.handoffSha256 ||
+        !SHA256_HEX.test(item.promptSha256 ?? '') ||
+        !SHA256_HEX.test(item.handoffSha256 ?? '') ||
+        typeof item.observed !== 'boolean' ||
+        typeof item.noBroad !== 'boolean' ||
+        !Number.isInteger(item.broadActionCount) || item.broadActionCount < 0 ||
+        !validPortableAllowance(item.allowance) ||
+        !SHA256_HEX.test(item.traceSha256 ?? '') ||
+        new Set(codes).size !== codes.length ||
+        codes.some(code => typeof code !== 'string' || !/^[a-z0-9_]+$/u.test(code)) ||
+        (item.noBroad && (!item.observed || item.broadActionCount !== 0))) {
+      problems.push(`portable parent-observation case ${String(item?.id)} is invalid`);
+    }
+  }
+
+  const denominatorCaseCount = cases.length;
+  const observedCaseCount = cases.filter(item => item?.observed === true).length;
+  const invalidObservationCaseCount = cases.filter(item => item?.observed === false).length;
+  const noBroadNativeResearchCaseCount = cases
+    .filter(item => item?.noBroad === true).length;
+  const broadNativeResearchCaseCount = cases
+    .filter(item => Number.isInteger(item?.broadActionCount) && item.broadActionCount > 0).length;
+  const noBroadNativeResearchRate = denominatorCaseCount === 0
+    ? null
+    : roundSix(noBroadNativeResearchCaseCount / denominatorCaseCount);
+  const allowance = {
+    citedTargetReads: cases.reduce(
+      (sum, item) => sum + (item?.allowance?.citedTargetReads ?? 0), 0,
+    ),
+    citedPathSearches: cases.reduce(
+      (sum, item) => sum + (item?.allowance?.citedPathSearches ?? 0), 0,
+    ),
+    allowedFollowUps: cases.reduce(
+      (sum, item) => sum + (item?.allowance?.allowedFollowUps ?? 0), 0,
+    ),
+  };
+  const expectedMetrics = {
+    denominatorCaseCount,
+    observedCaseCount,
+    invalidObservationCaseCount,
+    noBroadNativeResearchCaseCount,
+    broadNativeResearchCaseCount,
+    noBroadNativeResearchRate,
+    allowance,
+  };
+  if (!hasOnlyRecordKeys(record.metrics, Object.keys(expectedMetrics)) ||
+      JSON.stringify(record.metrics) !== JSON.stringify(expectedMetrics)) {
+    problems.push('portable parent-observation metrics do not match the case records');
+  }
+  if (noBroadNativeResearchRate === null || noBroadNativeResearchRate < record.minimumRate) {
+    problems.push('portable parent-observation record misses the no-broad-research gate');
+  }
+  return { valid: problems.length === 0, problems };
+}
+
 function invalidKnownBadEvaluation(problems) {
   return {
     passed: false,
@@ -400,12 +620,375 @@ function trustSignature({ observedState, expectedGoals, matchedGoals, allowedCla
   });
 }
 
+function invalidEvaluationProfile(caseDefinition, mode, profile) {
+  return {
+    id: caseDefinition?.id ?? null,
+    passed: false,
+    observedState: 'invalid',
+    evaluationProfile: profile ?? null,
+    repeatabilitySignature: JSON.stringify({ state: 'invalid' }),
+    violations: [{ code: 'INVALID_EVALUATION_PROFILE', mode, profile: profile ?? null }],
+  };
+}
+
+function liveEvaluationProfile(caseDefinition, options) {
+  const mode = options?.mode ?? 'fixture';
+  const profile = options?.profile ?? (
+    mode === 'fixture' ? FIXTURE_TRUST_EVALUATION_PROFILE : null
+  );
+  if (mode === 'fixture') {
+    return profile === FIXTURE_TRUST_EVALUATION_PROFILE
+      ? { mode, profile }
+      : null;
+  }
+  if (mode !== 'live' || profile !== LIVE_TRUST_EVALUATION_PROFILE) return null;
+  const policy = caseDefinition?.livePolicy;
+  if (!policy || Object.keys(policy).length !== 1 || policy.profile !== profile) return null;
+  return { mode, profile };
+}
+
+function liveForbiddenClaimPresent(parts, forbiddenClaim) {
+  const forbidden = normalizeText(forbiddenClaim?.text);
+  if (!forbidden) return false;
+  const parentStatements = splitDirectAnswerStatements(parts.publicResult?.directAnswer);
+  const supportedClaims = acceptedClaims(parts.semantic)
+    .map(item => normalizeText(item.claim?.text));
+  return parentStatements.includes(forbidden) || supportedClaims.includes(forbidden);
+}
+
+function publicEvidenceInBoundary(evidence, claimScope) {
+  if (evidence?.kind === 'source') {
+    return typeof evidence.path === 'string' && boundaryCovers(claimScope, [evidence.path]);
+  }
+  if (evidence?.kind === 'git') {
+    return evidence.path === undefined || boundaryCovers(claimScope, [evidence.path]);
+  }
+  if (evidence?.kind === 'absence') {
+    return boundaryCovers(claimScope, evidence.boundary);
+  }
+  return false;
+}
+
+function publicEvidenceIsGrounded(evidence, parts) {
+  if (evidence?.kind === 'source') {
+    return parts.observations.some(observation =>
+      observation?.kind === 'source' &&
+      normalizeRepoPath(observation.path) === normalizeRepoPath(evidence.path) &&
+      rangeCovers(observation, evidence));
+  }
+  if (evidence?.kind === 'git') {
+    return parts.observations.some(observation =>
+      ['git_commit', 'git_blame', 'git_diff_hunk'].includes(observation?.kind) &&
+      observation.sha === evidence.sha &&
+      (evidence.path === undefined ||
+        normalizeRepoPath(observation.path) === normalizeRepoPath(evidence.path)) &&
+      rangeCovers(observation, evidence));
+  }
+  if (evidence?.kind !== 'absence') return false;
+  return asArray(parts.semantic.absenceCertificates).some(certificate => {
+    if (certificate?.complete !== true || certificate?.zeroMatches !== true ||
+        !sameStringSet(certificate.claimBoundary, evidence.boundary) ||
+        !sameStringSet(certificate.searchSummary, evidence.searches)) return false;
+    const searches = asArray(certificate.searchRefs)
+      .map(ref => parts.observations.find(observation => observation?.id === ref));
+    return searches.length > 0 && searches.every(search =>
+      searchIndependentlyComplete(search, certificate.claimBoundary));
+  });
+}
+
+function publicEvidenceSupportsLiveAnchor(evidence, anchor, parts) {
+  if (!publicEvidenceSupportsAnchor(evidence, anchor)) return false;
+  return parts.observations.some(observation => observationSupportsAnchor(observation, anchor));
+}
+
+function parseRequestOriginRef(value) {
+  const match = /^request:(\d+)-(\d+)$/u.exec(String(value ?? ''));
+  if (!match) return null;
+  const start = Number(match[1]);
+  const end = Number(match[2]);
+  return Number.isSafeInteger(start) && Number.isSafeInteger(end) && start < end
+    ? { start, end }
+    : null;
+}
+
+function originsCoverExpected(actualRefs, expectedRefs) {
+  const actual = asArray(actualRefs).map(parseRequestOriginRef).filter(Boolean)
+    .sort((left, right) => left.start - right.start || left.end - right.end);
+  const expected = asArray(expectedRefs).map(parseRequestOriginRef).filter(Boolean);
+  if (actual.length === 0 || expected.length !== asArray(expectedRefs).length ||
+      expected.length === 0) return false;
+  return expected.every(target => {
+    let cursor = target.start;
+    for (const interval of actual) {
+      if (interval.end <= cursor || interval.start > cursor) continue;
+      cursor = Math.max(cursor, interval.end);
+      if (cursor >= target.end) return true;
+    }
+    return false;
+  });
+}
+
+function liveGoalMatches(expectedGoals, actualGoals) {
+  const candidates = expectedGoals.map(expected => actualGoals
+    .map((actual, index) => ({ actual, index }))
+    .filter(({ actual }) => originsCoverExpected(actual?.originRefs, expected.requestOriginRefs))
+    .sort((left, right) => {
+      const leftExact = left.actual?.claimType === expected.claimType ? 0 : 1;
+      const rightExact = right.actual?.claimType === expected.claimType ? 0 : 1;
+      return leftExact - rightExact || left.index - right.index;
+    }));
+  const expectedOrder = expectedGoals.map((_, index) => index)
+    .sort((left, right) => candidates[left].length - candidates[right].length || left - right);
+  const ownerByActual = new Map();
+  const actualByExpected = new Map();
+
+  const assign = (expectedIndex, visited) => {
+    for (const candidate of candidates[expectedIndex]) {
+      if (visited.has(candidate.index)) continue;
+      visited.add(candidate.index);
+      const previousExpected = ownerByActual.get(candidate.index);
+      if (previousExpected === undefined || assign(previousExpected, visited)) {
+        ownerByActual.set(candidate.index, expectedIndex);
+        actualByExpected.set(expectedIndex, candidate.actual);
+        return true;
+      }
+    }
+    return false;
+  };
+  for (const expectedIndex of expectedOrder) assign(expectedIndex, new Set());
+  return new Map(expectedGoals.flatMap((goal, index) =>
+    actualByExpected.has(index) ? [[goal.id, actualByExpected.get(index)]] : []));
+}
+
+function liveClaimTypeCompatible(expectedType, actualType) {
+  return expectedType === actualType ||
+    (expectedType === 'positive' && actualType === 'symbol_definition');
+}
+
+function liveClaimHasCertifiedStaticArrayAnchor(item, anchor, parts) {
+  const measurement = item?.claim?.measurement;
+  if (measurement?.kind !== 'count' || measurement.unit !== 'array_entries' ||
+      !Number.isSafeInteger(measurement.value) || measurement.value < 0) return false;
+  const supportingRefs = new Set(asArray(item?.verdict?.supportingEvidenceRefs));
+  return asArray(item?.claim?.evidenceRefs).some(ref => {
+    if (!supportingRefs.has(ref) || !String(ref).endsWith(':search')) return false;
+    const search = parts.observations.find(observation => observation?.id === ref);
+    const identities = asArray(search?.normalizedItemIds);
+    const deterministicCount = asArray(parts.semantic?.deterministicCounts).find(count =>
+      count?.claimId === item.claim.id && count?.observationRef === ref &&
+      count?.complete === true && count?.unit === 'array_entries' &&
+      count?.count === measurement.value);
+    if (search?.kind !== 'search' || search.tool !== 'repo_symbol_context' ||
+        search.enumerationComplete !== true ||
+        search.deterministicMeasurement?.kind !== 'count' ||
+        search.deterministicMeasurement?.unit !== 'array_entries' ||
+        search.deterministicMeasurement?.value !== measurement.value ||
+        identities.length !== measurement.value ||
+        new Set(identities).size !== identities.length || !deterministicCount) {
+      return false;
+    }
+    const source = parts.observations.find(observation =>
+      observation?.id === ref.slice(0, -':search'.length));
+    return observationSupportsAnchor(source, anchor) &&
+      boundaryCovers(search.boundary, [anchor.path]);
+  });
+}
+
+function liveClaimSupportsAnchor(item, anchor, parts) {
+  const supportingRefs = new Set(asArray(item?.verdict?.supportingEvidenceRefs));
+  return asArray(item?.claim?.evidenceRefs).some(ref => supportingRefs.has(ref) &&
+    parts.observations.some(observation =>
+      observation?.id === ref && observationSupportsAnchor(observation, anchor))) ||
+    liveClaimHasCertifiedStaticArrayAnchor(item, anchor, parts);
+}
+
+function liveAnchorDispositions(expectedGoals, anchorsById, publicEvidence, parts) {
+  const matchedGoals = liveGoalMatches(expectedGoals, parts.subgoals);
+  const accepted = acceptedClaims(parts.semantic);
+  const publicClaimTexts = new Set(publicStatements(parts.publicResult));
+  const publicGaps = new Set(asArray(parts.publicResult?.gaps)
+    .map(gap => normalizeText(gap?.question)).filter(Boolean));
+  const internalGapIds = new Set(parts.coverageGaps
+    .filter(gap => typeof gap?.subgoalId === 'string' && gap.subgoalId)
+    .map(gap => gap.subgoalId));
+
+  return expectedGoals.map(expected => {
+    const actual = matchedGoals.get(expected.id);
+    if (!actual) return { goalId: expected.id, disposition: 'missing', claimTexts: [] };
+    const claims = accepted.filter(item => item.claim?.subgoalId === actual.id);
+    const anchorRefs = asArray(expected.evidenceAnchorRefs);
+    const covered = anchorRefs.filter(ref => {
+      const anchor = anchorsById.get(ref);
+      return anchor && publicEvidence.some(evidence =>
+        publicEvidenceSupportsLiveAnchor(evidence, anchor, parts)) &&
+        claims.some(item => liveClaimSupportsAnchor(item, anchor, parts));
+    });
+    const required = expected.anchorPolicy === 'all'
+      ? anchorRefs.length
+      : Math.min(anchorRefs.length, 1);
+    const surfacedClaims = claims.filter(item =>
+      publicClaimTexts.has(normalizeText(item.claim?.text)) &&
+      anchorRefs.some(ref => {
+        const anchor = anchorsById.get(ref);
+        return anchor && liveClaimSupportsAnchor(item, anchor, parts);
+      }));
+    const resolutionSupported = expected.expectedResolution === 'refuted'
+      ? actual.state === 'supported' && actual.resolution === 'refuted'
+      : actual.state === 'supported' && actual.resolution === 'affirmed';
+    if (resolutionSupported && liveClaimTypeCompatible(expected.claimType, actual.claimType) &&
+        required > 0 && covered.length >= required && surfacedClaims.length > 0) {
+      return {
+        goalId: expected.id,
+        disposition: 'anchor_supported',
+        claimTexts: surfacedClaims.map(item => normalizeText(item.claim.text)),
+      };
+    }
+    const unresolved = ['blocked', 'gap', 'contradicted'].includes(actual.state);
+    if (unresolved && internalGapIds.has(actual.id) &&
+        publicGaps.has(normalizeText(actual.question))) {
+      return { goalId: expected.id, disposition: 'explicit_gap', claimTexts: [] };
+    }
+    return { goalId: expected.id, disposition: 'unresolved', claimTexts: [] };
+  });
+}
+
+function originRefsFitWithinExpected(actualRefs, expectedRefs) {
+  const actual = asArray(actualRefs).map(parseRequestOriginRef).filter(Boolean);
+  const expected = asArray(expectedRefs).map(parseRequestOriginRef).filter(Boolean);
+  return actual.length > 0 && actual.length === asArray(actualRefs).length &&
+    expected.length > 0 && expected.length === asArray(expectedRefs).length &&
+    actual.every(inner => expected.some(outer =>
+      inner.start >= outer.start && inner.end <= outer.end));
+}
+
+function liveSupplementalClaimTexts(expectedGoals, anchorsById, parts) {
+  const publicClaimTexts = new Set(publicStatements(parts.publicResult));
+  const subgoalById = new Map(parts.subgoals.map(subgoal => [subgoal?.id, subgoal]));
+  return acceptedClaims(parts.semantic).flatMap(item => {
+    const subgoal = subgoalById.get(item.claim?.subgoalId);
+    if (subgoal?.state !== 'supported' || !publicClaimTexts.has(normalizeText(item.claim?.text))) {
+      return [];
+    }
+    const refinesComparison = expectedGoals.some(expected =>
+      expected.claimType === 'comparison' &&
+      ['positive', 'count', 'symbol_definition', 'comparison'].includes(subgoal.claimType) &&
+      originRefsFitWithinExpected(subgoal.originRefs, expected.requestOriginRefs) &&
+      asArray(expected.evidenceAnchorRefs).some(ref => {
+        const anchor = anchorsById.get(ref);
+        return anchor && liveClaimSupportsAnchor(item, anchor, parts);
+      }));
+    return refinesComparison ? [normalizeText(item.claim.text)] : [];
+  });
+}
+
+function evaluateLiveTrustCase(caseDefinition, artifact, profile) {
+  const oracle = caseDefinition.oracle;
+  const parts = trustArtifactParts(artifact);
+  const violations = [];
+  const observedState = typeof parts.publicResult?.state === 'string'
+    ? parts.publicResult.state
+    : 'invalid';
+  const expectedGoals = asArray(oracle.expectedGoals);
+  const publicEvidence = asArray(parts.publicResult?.evidence);
+  const claimScope = asArray(oracle.boundary?.claimScope);
+  const anchorsById = new Map(asArray(oracle.evidenceAnchors)
+    .map(anchor => [anchor?.id, anchor]));
+
+  if (!['complete', 'verify_targets', 'incomplete'].includes(observedState)) {
+    violations.push({ code: 'LIVE_STATE_REJECTED', actual: observedState });
+  }
+
+  const unresolved = parts.subgoals.some(goal => goal?.state !== 'supported');
+  if ((observedState === 'complete' || observedState === 'verify_targets') &&
+      (parts.subgoals.length === 0 || unresolved || asArray(parts.publicResult?.gaps).length > 0)) {
+    violations.push({ code: 'STATE_REDUCTION_MISMATCH', actual: observedState });
+  }
+
+  if (observedState === 'incomplete') {
+    const gaps = asArray(parts.publicResult?.gaps);
+    if (gaps.length === 0 || gaps.some(gap =>
+      typeof gap?.question !== 'string' || !gap.question.trim() ||
+      typeof gap?.reason !== 'string' || !gap.reason.trim())) {
+      violations.push({ code: 'LIVE_EXPLICIT_GAP_MISSING' });
+    }
+  }
+
+  for (const forbidden of asArray(oracle.forbiddenClaims)) {
+    if (liveForbiddenClaimPresent(parts, forbidden)) {
+      violations.push({ code: 'FORBIDDEN_CLAIM_PRESENT', claimId: forbidden.id });
+    }
+  }
+
+  for (const evidence of publicEvidence) {
+    if (!publicEvidenceInBoundary(evidence, claimScope)) {
+      violations.push({ code: 'PARENT_EVIDENCE_OUT_OF_BOUNDARY' });
+    }
+    if (!publicEvidenceIsGrounded(evidence, parts)) {
+      violations.push({ code: 'PARENT_EVIDENCE_UNGROUNDED' });
+    }
+  }
+
+  const dispositions = liveAnchorDispositions(
+    expectedGoals,
+    anchorsById,
+    publicEvidence,
+    parts,
+  );
+  const allowedParentStatements = new Set([
+    ...dispositions.flatMap(item => item.claimTexts),
+    ...liveSupplementalClaimTexts(expectedGoals, anchorsById, parts),
+  ]);
+  for (const statement of publicStatements(parts.publicResult)) {
+    if (!allowedParentStatements.has(statement)) {
+      violations.push({ code: 'LIVE_UNSUPPORTED_PARENT_CLAIM' });
+    }
+  }
+  if (observedState === 'complete' || observedState === 'verify_targets') {
+    if (typeof parts.publicResult?.directAnswer !== 'string' ||
+        !parts.publicResult.directAnswer.trim()) {
+      violations.push({ code: 'LIVE_DIRECT_ANSWER_MISSING' });
+    }
+    for (const disposition of dispositions.filter(item =>
+      item.disposition !== 'anchor_supported')) {
+      violations.push({
+        code: 'LIVE_REQUIRED_GOAL_UNSUPPORTED',
+        goalId: disposition.goalId,
+      });
+    }
+  } else if (observedState === 'incomplete') {
+    if (!dispositions.some(item => item.disposition === 'explicit_gap')) {
+      violations.push({ code: 'LIVE_REQUIRED_GOAL_GAP_MISSING' });
+    }
+    for (const disposition of dispositions.filter(item =>
+      !['anchor_supported', 'explicit_gap'].includes(item.disposition))) {
+      violations.push({
+        code: disposition.disposition === 'missing'
+          ? 'LIVE_REQUIRED_GOAL_MISSING'
+          : 'LIVE_REQUIRED_GOAL_UNRESOLVED',
+        goalId: disposition.goalId,
+      });
+    }
+  }
+
+  return {
+    id: caseDefinition.id,
+    passed: violations.length === 0,
+    observedState,
+    evaluationProfile: profile,
+    repeatabilitySignature: JSON.stringify({
+      state: observedState,
+      dispositions: dispositions.map(({ goalId, disposition }) => ({ goalId, disposition })),
+    }),
+    violations,
+  };
+}
+
 /**
  * Evaluate one direct-runtime trust artifact against an independently authored
  * case oracle. Model confidence, self-scores, and grounding labels are never
  * acceptance inputs.
  */
-export function evaluateTrustCase(caseDefinition, artifact) {
+export function evaluateTrustCase(caseDefinition, artifact, options = {}) {
   const oracle = caseDefinition?.oracle;
   if (!oracle || typeof oracle !== 'object' || !artifact || typeof artifact !== 'object') {
     return {
@@ -415,6 +998,14 @@ export function evaluateTrustCase(caseDefinition, artifact) {
       repeatabilitySignature: '',
       violations: [{ code: 'INVALID_TRUST_ARTIFACT' }],
     };
+  }
+
+  const evaluationProfile = liveEvaluationProfile(caseDefinition, options);
+  if (!evaluationProfile) {
+    return invalidEvaluationProfile(caseDefinition, options?.mode ?? 'fixture', options?.profile);
+  }
+  if (evaluationProfile.mode === 'live') {
+    return evaluateLiveTrustCase(caseDefinition, artifact, evaluationProfile.profile);
   }
 
   const parts = trustArtifactParts(artifact);
@@ -432,6 +1023,34 @@ export function evaluateTrustCase(caseDefinition, artifact) {
       expected: oracle.expectedState,
       actual: observedState,
     });
+  }
+
+  if (oracle.expectedFailure) {
+    const actualFailure = parts.result?.failure ?? parts.publicResult?.failure ?? null;
+    if (actualFailure?.category !== oracle.expectedFailure.category ||
+        actualFailure?.reason !== oracle.expectedFailure.reason) {
+      violations.push({
+        code: 'EXPECTED_FAILURE_MISMATCH',
+        expected: oracle.expectedFailure,
+        actual: actualFailure ? {
+          category: actualFailure.category ?? null,
+          reason: actualFailure.reason ?? null,
+        } : null,
+      });
+    }
+  }
+
+  const actualSafetyLimits = asArray(parts.result?.stats?.safetyLimits);
+  for (const expectedLimit of asArray(oracle.expectedSafetyLimits)) {
+    if (!actualSafetyLimits.some(actual =>
+      actual?.name === expectedLimit.name &&
+      actual?.stage === expectedLimit.stage &&
+      actual?.truncated === expectedLimit.truncated)) {
+      violations.push({
+        code: 'EXPECTED_SAFETY_LIMIT_MISSING',
+        expected: expectedLimit,
+      });
+    }
   }
 
   const unresolved = parts.subgoals.some(goal => goal?.state !== 'supported');
@@ -593,14 +1212,16 @@ export function evaluateTrustCase(caseDefinition, artifact) {
     id: caseDefinition.id,
     passed: violations.length === 0,
     observedState,
+    evaluationProfile: evaluationProfile.profile,
     repeatabilitySignature,
     violations,
   };
 }
 
 /** Evaluate repeated runs while deliberately ignoring optional evidence choice. */
-export function evaluateTrustRepeatability(caseDefinition, artifacts) {
-  const runs = asArray(artifacts).map(artifact => evaluateTrustCase(caseDefinition, artifact));
+export function evaluateTrustRepeatability(caseDefinition, artifacts, options = {}) {
+  const runs = asArray(artifacts)
+    .map(artifact => evaluateTrustCase(caseDefinition, artifact, options));
   const signatures = runs.map(run => run.repeatabilitySignature);
   const violations = [];
   const expectedRunCount = Number.isInteger(caseDefinition?.repeatCount)

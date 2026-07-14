@@ -7,15 +7,15 @@
       "result": {
         "message": {
           "content": {
-            "taskSummary": "Prove a permanent future guarantee about deployment configuration freshness.",
+            "taskSummary": "Assess whether current repository evidence can prove permanent future freshness.",
             "constraints": [],
             "subgoals": [
               {
                 "id": "S1",
-                "question": "Can the deployment configuration be proven never to become stale?",
+                "question": "Can future non-staleness be proven?",
                 "originRefs": ["request:0-64"],
                 "claimType": "positive",
-                "proofCondition": "Observe every future configuration and deployment change to prove that staleness never occurs.",
+                "proofCondition": "Observe every future configuration and deployment change to prove staleness never occurs.",
                 "constraints": []
               }
             ]
@@ -31,9 +31,10 @@
           "content": {
             "goals": [
               {
-                "id": "S1",
+                "proposedGoalId": "S1",
                 "verdict": "unverifiable",
-                "confirmedOriginRefs": ["request:0-64"],
+                "originRefs": ["request:0-64"],
+                "missingRequestParts": [],
                 "reason": "Current repository evidence cannot observe every future change required by the permanent guarantee."
               }
             ],

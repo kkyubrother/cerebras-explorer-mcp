@@ -968,6 +968,12 @@ export const GOAL_AUDITOR_RESPONSE_SCHEMA = strictInternalObject({
   },
 }, ['goals', 'uncoveredRequestParts']);
 
+const COUNT_MEASUREMENT_SCHEMA = strictInternalObject({
+  kind: internalString(['count']),
+  unit: internalString(['matching_lines', 'files', 'array_entries']),
+  value: { type: 'integer', minimum: 0 },
+}, ['kind', 'unit', 'value']);
+
 export const ATOMIC_CLAIM_SCHEMA = strictInternalObject({
   id: internalString(),
   subgoalId: internalString(),
@@ -979,6 +985,7 @@ export const ATOMIC_CLAIM_SCHEMA = strictInternalObject({
     'insufficient',
     'contradicted',
   ]),
+  measurement: COUNT_MEASUREMENT_SCHEMA,
 }, ['id', 'subgoalId', 'text', 'evidenceRefs', 'verdict']);
 
 const SYNTHESIZED_CLAIM_SCHEMA = strictInternalObject({
@@ -986,6 +993,7 @@ const SYNTHESIZED_CLAIM_SCHEMA = strictInternalObject({
   subgoalId: internalString(),
   text: internalString(),
   evidenceRefs: internalStringArray(),
+  measurement: COUNT_MEASUREMENT_SCHEMA,
 }, ['id', 'subgoalId', 'text', 'evidenceRefs']);
 
 export const CLAIM_SYNTHESIS_SCHEMA = strictInternalObject({
@@ -1119,6 +1127,9 @@ function validateInternalValue(schema, value, path) {
       break;
     case 'integer':
       if (!Number.isSafeInteger(value)) failInternalValidation(path, 'expected a safe integer');
+      if (schema.minimum !== undefined && value < schema.minimum) {
+        failInternalValidation(path, `expected a value >= ${schema.minimum}`);
+      }
       break;
     default:
       failInternalValidation(path, `unsupported schema type ${schema.type}`);

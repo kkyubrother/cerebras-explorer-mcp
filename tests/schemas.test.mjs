@@ -1038,6 +1038,7 @@ internalSchemaTest(
     assertStrictObjectTree(schema, 'ATOMIC_CLAIM_SCHEMA');
     assertSchemaKeys(schema, {
       required: ['id', 'subgoalId', 'text', 'evidenceRefs', 'verdict'],
+      optional: ['measurement'],
     }, 'ATOMIC_CLAIM_SCHEMA');
     assertStringArraySchema(schema.properties.evidenceRefs,
       'ATOMIC_CLAIM_SCHEMA.evidenceRefs');
@@ -1054,6 +1055,12 @@ internalSchemaTest(
       'insufficient',
       'contradicted',
     ]);
+    assertSchemaKeys(schema.properties.measurement, {
+      required: ['kind', 'unit', 'value'],
+    }, 'ATOMIC_CLAIM_SCHEMA.measurement');
+    assert.deepEqual(schema.properties.measurement.properties.unit.enum,
+      ['matching_lines', 'files', 'array_entries']);
+    assert.equal(schema.properties.measurement.properties.value.minimum, 0);
 
     assertStrictValidator(validate, {
       id: 'C1',
@@ -1147,6 +1154,7 @@ internalSchemaTest(
     const claimSchema = schema.properties.claims.items;
     assertSchemaKeys(claimSchema, {
       required: ['id', 'subgoalId', 'text', 'evidenceRefs'],
+      optional: ['measurement'],
     }, 'CLAIM_SYNTHESIS_SCHEMA.claims.items');
     assertStringArraySchema(claimSchema.properties.evidenceRefs,
       'CLAIM_SYNTHESIS_SCHEMA.claims.items.evidenceRefs');
@@ -1174,6 +1182,18 @@ internalSchemaTest(
     assert.throws(() => validate({
       claims: [{ ...valid.claims[0], evidenceRefs: [] }],
     }), 'local validation must reject empty evidence references');
+    assert.doesNotThrow(() => validate({
+      claims: [{
+        ...valid.claims[0],
+        measurement: { kind: 'count', unit: 'matching_lines', value: 2 },
+      }],
+    }));
+    assert.throws(() => validate({
+      claims: [{
+        ...valid.claims[0],
+        measurement: { kind: 'count', unit: 'matching_lines', value: -1 },
+      }],
+    }));
   },
 );
 

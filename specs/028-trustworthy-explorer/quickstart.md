@@ -137,6 +137,7 @@ node scripts/run-trust-suite.mjs --suite benchmarks/trust-known-answer.json --mo
 Expected:
 
 - Median schema v3 parent payload is at least 40% smaller than the recorded schema v2 baseline, measured as UTF-8 bytes of all parent-visible MCP `content` plus `structuredContent`.
+- The five payload samples are rebuilt from the independent oracle's deterministic schema-v3 handoff with `buildOracleParentHandoff`, `buildParentPayload`, and `measureParentPayload`; failed or partial live Explorer output is not payload evidence.
 - No successful payload includes empty arrays/objects, candidate inventories, search counters, critic details, confidence summaries, provider/model, token usage, or timing.
 - Each retained wrapper passes its distinct proof-policy case.
 - Removed review/report cases are replaced by general structured fallback cases rather than silently deleted from behavioral coverage.
@@ -148,15 +149,30 @@ Create machine-specific repository mapping and output paths outside the checkout
 ```powershell
 $trustRoot = Join-Path $env:TEMP 'cerebras-explorer-trust'
 New-Item -ItemType Directory -Force -Path $trustRoot | Out-Null
+$pinnedRoot = Join-Path $trustRoot 'pinned-repositories'
+New-Item -ItemType Directory -Force -Path $pinnedRoot | Out-Null
+
+# Create dedicated clean detached worktrees at the five manifest-pinned commits.
+git worktree add --detach (Join-Path $pinnedRoot 'cerebras-explorer-mcp') b3a7e75d39ff3f89d53de75bbcdf6e9f2bc4900e
+git -C (Join-Path $env:USERPROFILE 'IdeaProjects\lawfirm') worktree add --detach (Join-Path $pinnedRoot 'lawfirm') fe7a5ca1cb7e279ae1eee5a931b60b69d93020b4
+git -C (Join-Path $env:USERPROFILE 'IdeaProjects\AEGIS-AI-Agent') worktree add --detach (Join-Path $pinnedRoot 'AEGIS-AI-Agent') 492fa0a6c083c7d83302792b14b19da0b2953e67
+git -C (Join-Path $env:USERPROFILE 'ClaudeProjects\translate') worktree add --detach (Join-Path $pinnedRoot 'translate') b9288a7b7532d9d90ea0f05228206b64cfe8e719
+git -C (Join-Path $env:USERPROFILE 'PycharmProjects\Daeryun-AI-Backend') worktree add --detach (Join-Path $pinnedRoot 'Daeryun-AI-Backend') bbef2ff41b1b4ea93c97192edd355824ea4e5317
+
 $repoMap = Join-Path $trustRoot 'repo-map.json'
 @{
-  self = (Resolve-Path .).Path
-  lawfirm = (Join-Path $env:USERPROFILE 'IdeaProjects\lawfirm')
-  translate = (Join-Path $env:USERPROFILE 'ClaudeProjects\translate')
+  'cerebras-explorer-mcp' = (Join-Path $pinnedRoot 'cerebras-explorer-mcp')
+  lawfirm = (Join-Path $pinnedRoot 'lawfirm')
+  'AEGIS-AI-Agent' = (Join-Path $pinnedRoot 'AEGIS-AI-Agent')
+  translate = (Join-Path $pinnedRoot 'translate')
+  'Daeryun-AI-Backend' = (Join-Path $pinnedRoot 'Daeryun-AI-Backend')
 } | ConvertTo-Json | Set-Content -LiteralPath $repoMap
 
-node scripts/run-parent-observation.mjs --suite benchmarks/trust-known-answer.json --repo-map $repoMap --output (Join-Path $trustRoot 'parent-observation.json')
+$traceDir = Join-Path $trustRoot 'parent-traces'
+node scripts/run-parent-observation.mjs --suite benchmarks/trust-known-answer.json --repo-map $repoMap --output (Join-Path $trustRoot 'parent-observation.json') --trace-dir $traceDir
 ```
+
+Every mapped repository must remain at the exact `gitSha` with the manifest's clean dirty-tree hash. Do not point the map at a development checkout with staged, unstaged, or untracked files. Fixture repositories are resolved and hash-checked from the suite automatically.
 
 Metric definition:
 
@@ -165,7 +181,7 @@ Metric definition:
 - Allowed verification: reads of returned targets and exact searches restricted to cited paths/ranges.
 - Pass: at least 90% of eligible runs contain no broad native re-search.
 
-The repo map and observation artifacts remain under `%TEMP%`; never commit local absolute paths.
+This controlled replay measures how a real Codex parent consumes an independently constructed oracle schema-v3 handoff. It proves SC-008 parent behavior; it does not prove that the live Explorer can produce the same handoff. The portable manifest record retains only the policy profile, fixed denominator, source/prompt/handoff/report/trace hashes, observed/no-broad/broad metrics, allowances, and violation codes. The repo map, raw JSONL traces, commands, prose, usage, and absolute paths remain under `%TEMP%` and are never committed.
 
 ## 8. Run live Cerebras API verification
 
@@ -182,6 +198,8 @@ Use approved real repositories under locations such as:
 - `C:\Users\daeryun\ClaudeProjects`
 
 The live suite writes redacted transcripts and results under `$trustRoot`. It records tokens and latency but does not fail because they increased. The committed manifest stores logical repo ids only; the temp repo map resolves local absolute paths.
+
+Unlike the controlled parent replay in section 7, this T069 run evaluates the actual Explorer output. A controlled oracle handoff or parent-observation pass cannot substitute for a useful live answer, precise real blocker, or the live trust oracle.
 
 Required live gates:
 

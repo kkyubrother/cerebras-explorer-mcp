@@ -8,6 +8,7 @@ import path from 'node:path';
 import {
   ExplorerRuntime as RuntimeImplementation,
   buildParentHandoffV3,
+  buildRuntimeWrapperPolicyArtifacts,
   estimateTokens,
 } from '../src/explorer/runtime.mjs';
 import { buildExplorerSystemPrompt, buildFinalizePrompt, detectStrategy, buildExplorerUserPrompt, STRATEGY_DESCRIPTIONS } from '../src/explorer/prompt.mjs';
@@ -4215,18 +4216,17 @@ test('spec 026 T003(i): symbol_trace where the ONLY grep attempt errors → targ
 });
 
 test('spec 026 T003(h): symbol_trace with all evidence ungrounded → broad_search_needed or follow_up_needed, NO usage_cross_check_missing', async () => {
-  // Model returns evidence items but none get grounded (no reads, no observed ranges) →
+  // Model returns evidence items but none get grounded (no source reads or observed ranges) →
   // grounding.evidence drops to 0 → precedence route fires in buildResultStatus →
   // gate must NOT emit usage_cross_check_missing
   const client = makeSymbolTraceClient({
     toolSequence: [
-      // Only a symbol_context call (does not create observed ranges for evidence lines)
-      { name: 'repo_symbol_context', arguments: { symbol: 'requireAuth' } },
+      // A directory listing is a valid exploration action but cannot ground source evidence.
+      { name: 'repo_list_dir', arguments: { dirPath: 'src' } },
     ],
     finalResult: {
-      // Model claims evidence but the tool call did NOT produce a file read for those lines
+      // Model claims evidence but the tool call did NOT produce source for those lines,
       // so groundEvidenceList will drop them as ungrounded.
-      // Use a path that was NOT read so observedRanges won't cover it.
       evidence: [
         { path: 'src/unread_file.js', startLine: 1, endLine: 5, why: 'symbol usage', evidenceType: 'file_range', groundingStatus: 'exact' },
       ],
@@ -4535,6 +4535,93 @@ auditedPlanningRuntimeTest('Spec 028 T017 — initial plan and isolated audit fi
     'rejected goals must not leak into exploration');
 });
 
+auditedPlanningRuntimeTest('Spec 028 T068 — invalid control retries receive only bounded validator feedback', async () => {
+  const goal = proposedRuntimeGoal();
+  const invalidOrigin = requestOrigin(GOAL_AUDIT_TASK, 'verify legacyGuard is absent');
+  const invalidMarker = 'INVALID_MODEL_OUTPUT_SHOULD_NOT_REAPPEAR';
+  const client = new ScriptedGoalAuditClient([
+    { stage: 'planner:1', value: plannerControl([goal]) },
+    {
+      stage: 'goal_audit:1',
+      value: auditorControl([
+        auditControlRecord(goal, 'ready', {
+          originRefs: [invalidOrigin],
+          reason: invalidMarker,
+        }),
+      ]),
+    },
+    {
+      stage: 'goal_audit:2',
+      run(request) {
+        const retryPacket = JSON.stringify(request.messages);
+        assert.match(retryPacket, /failed runtime validation/i);
+        assert.match(retryPacket, /unproposed origin/);
+        assert.match(retryPacket, new RegExp(invalidOrigin.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+        assert.doesNotMatch(retryPacket, new RegExp(invalidMarker));
+        return controlCompletion(auditorControl([auditControlRecord(goal)]));
+      },
+    },
+    { stage: 'exploration:1', content: 'The corrected audited goal is ready.' },
+    { stage: 'synthesis:1', value: readyExplorationResult() },
+  ]);
+  const root = await makeRepoFixture();
+
+  const result = await new RuntimeImplementation({ chatClient: client }).explore({
+    task: GOAL_AUDIT_TASK,
+    repo_root: root,
+    scope: ['src/**'],
+  });
+
+  assert.deepEqual(client.stageLabels.slice(0, 3), [
+    'planner:1',
+    'goal_audit:1',
+    'goal_audit:2',
+  ]);
+  assert.deepEqual(result.taskContract.subgoals.map(subgoal => subgoal.id), [goal.id]);
+});
+
+auditedPlanningRuntimeTest('Spec 028 T068 — consumed duplicate audits remain internal diagnostics', async () => {
+  const retained = proposedRuntimeGoal();
+  const duplicate = proposedRuntimeGoal({
+    id: 'S-definition-rephrased',
+    question: 'Which declaration provides requireAuth?',
+  });
+  const client = new ScriptedGoalAuditClient([
+    { stage: 'planner:1', value: plannerControl([retained, duplicate]) },
+    {
+      stage: 'goal_audit:1',
+      value: auditorControl([
+        auditControlRecord(retained),
+        auditControlRecord(duplicate, 'merge_duplicate', { mergeInto: retained.id }),
+      ]),
+    },
+    { stage: 'exploration:1', content: 'The merged audited goal is ready.' },
+    { stage: 'synthesis:1', value: readyExplorationResult() },
+  ]);
+  const root = await makeRepoFixture();
+  const result = await new RuntimeImplementation({ chatClient: client }).explore({
+    task: GOAL_AUDIT_TASK,
+    repo_root: root,
+    scope: ['src/**'],
+  });
+
+  assert.deepEqual(result.taskContract.subgoals.map(goal => goal.id), [retained.id]);
+  assert.deepEqual(result.goalAuditRecords.map(record => ({
+    proposedGoalId: record.proposedGoalId,
+    verdict: record.verdict,
+    ...(record.mergeInto ? { mergeInto: record.mergeInto } : {}),
+  })), [
+    { proposedGoalId: retained.id, verdict: 'ready' },
+    {
+      proposedGoalId: duplicate.id,
+      verdict: 'merge_duplicate',
+      mergeInto: retained.id,
+    },
+  ]);
+  assert.equal(result.parentHandoff.goalAuditRecords, undefined);
+  assert.doesNotMatch(JSON.stringify(result.parentHandoff), /goalAuditRecords|merge_duplicate/);
+});
+
 auditedPlanningRuntimeTest('Spec 028 T017 — one corrected plan is re-audited and recursion is impossible', async () => {
   const broad = proposedRuntimeGoal({
     id: 'S-broad',
@@ -4610,6 +4697,17 @@ auditedPlanningRuntimeTest('Spec 028 T017 — one corrected plan is re-audited a
   assert.match(revisionPrompt, /legacyGuard/);
   assert.equal(client.stageCounts.get('planner'), 2, 'a third planner pass is forbidden');
   assert.equal(client.stageCounts.get('goal_audit'), 2, 'the corrected plan is audited once');
+  assert.deepEqual(result.goalAuditRecords.map(record => [
+    record.proposedGoalId,
+    record.verdict,
+  ]), [
+    ['S-broad', 'needs_decomposition'],
+    ['S-definition', 'ready'],
+    ['S-absence', 'needs_decomposition'],
+  ], 'direct-runtime diagnostics retain both consumed audit rounds');
+  assert.equal(result.parentHandoff.goalAuditRecords, undefined);
+  assert.doesNotMatch(JSON.stringify(result.parentHandoff),
+    /goalAuditRecords|needs_decomposition/);
 });
 
 auditedPlanningRuntimeTest('Spec 028 T022 — corrected planning cannot drop revision obligations or revive rejected goals', async () => {
@@ -5958,15 +6056,19 @@ function semanticVerdict(claimId, result, evidenceRefs = []) {
 }
 
 function toolControlCompletion(tool, args, id) {
+  return toolBatchControlCompletion([{ tool, args, id }]);
+}
+
+function toolBatchControlCompletion(calls) {
   return {
     usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
     finishReason: 'tool_calls',
     message: {
       content: '',
-      toolCalls: [{
-        id,
-        function: { name: tool, arguments: JSON.stringify(args) },
-      }],
+      toolCalls: calls.map(call => ({
+        id: call.id,
+        function: { name: call.tool, arguments: JSON.stringify(call.args) },
+      })),
     },
   };
 }
@@ -6018,7 +6120,7 @@ function buildTrustSteps({ goals, initial, repair }) {
   let verification = 0;
   let audit = 1;
 
-  const addPass = (pass, { includeFinalSynthesis = false } = {}) => {
+  const addPass = (pass, { includeFinalSynthesis = false, repairPass = false } = {}) => {
     if (pass.providerError) {
       exploration += 1;
       steps.push({
@@ -6032,18 +6134,32 @@ function buildTrustSteps({ goals, initial, repair }) {
       });
       return;
     }
-    for (const call of pass.tools ?? []) {
+    if (repairPass) {
       exploration += 1;
       steps.push({
         stage: `exploration:${exploration}`,
         run(request) {
           pass.assertRequest?.(request);
-          return toolControlCompletion(call.tool, call.args, call.id);
+          const calls = pass.tools ?? [];
+          return calls.length > 0
+            ? toolBatchControlCompletion(calls)
+            : controlCompletion(pass.prose ?? 'Evidence repair completed without a tool action.');
         },
       });
+    } else {
+      for (const call of pass.tools ?? []) {
+        exploration += 1;
+        steps.push({
+          stage: `exploration:${exploration}`,
+          run(request) {
+            pass.assertRequest?.(request);
+            return toolControlCompletion(call.tool, call.args, call.id);
+          },
+        });
+      }
+      exploration += 1;
+      steps.push({ stage: `exploration:${exploration}`, content: pass.prose ?? 'Evidence pass complete.' });
     }
-    exploration += 1;
-    steps.push({ stage: `exploration:${exploration}`, content: pass.prose ?? 'Evidence pass complete.' });
     if (includeFinalSynthesis) {
       steps.push({ stage: 'synthesis:1', value: readyExplorationResult() });
     }
@@ -6089,7 +6205,7 @@ function buildTrustSteps({ goals, initial, repair }) {
   };
 
   addPass(initial, { includeFinalSynthesis: true });
-  if (repair) addPass(repair);
+  if (repair) addPass(repair, { repairPass: true });
   return steps;
 }
 
@@ -6256,6 +6372,382 @@ test('Spec 028 T059 — runtime enforces negative and critical proof boundaries'
         assert.equal(result.parentHandoff.directAnswer, undefined);
         assert.equal(result.semanticVerification.absenceCertificates.some(item =>
           item.subgoalId === goal.id && item.complete === true), false);
+      },
+    },
+    {
+      name: 'complete nonzero search produces a deterministic runtime count',
+      task: 'Count the lines containing requireAuth in src/routes/**.',
+      scope: ['src/routes/**'],
+      goal: {
+        id: 'S-route-count',
+        question: 'How many lines contain requireAuth in src/routes/**?',
+        originText: 'Count the lines containing requireAuth in src/routes/**',
+        claimType: 'count',
+        proofCondition: 'Completely search src/routes/** and count unique matching locations.',
+        constraints: ['Keep the count qualified to src/routes/**.'],
+      },
+      claimText: 'There are exactly 2 lines containing requireAuth in src/routes/**.',
+      countMeasurement: { kind: 'count', unit: 'matching_lines', value: 2 },
+      initialTools: [{
+        tool: 'repo_grep',
+        args: { pattern: 'requireAuth', scope: ['src/routes/**'] },
+        id: 'complete-route-count',
+      }],
+      initialEvidenceRefs: ['E1'],
+      assertImplemented({ result, goal, claim }) {
+        assert.equal(result.taskContract.subgoals.find(item => item.id === goal.id).state,
+          'supported');
+        assert.equal(result.semanticVerification.claims.find(item => item.id === claim.id).verdict,
+          'supported');
+        const count = result.semanticVerification.deterministicCounts.find(item =>
+          item.subgoalId === goal.id);
+        assert.deepEqual(count, {
+          subgoalId: goal.id,
+          claimId: claim.id,
+          observationRef: 'E1',
+          unit: 'matching_lines',
+          claimBoundary: ['src/routes/**'],
+          certificateRef: `absence:${claim.id}:E1`,
+          complete: true,
+          count: 2,
+        });
+        assert.equal(result.observations.find(item => item.id === 'E1')
+          .normalizedItemIds.length, 2);
+        assert.equal(result.parentHandoff.state, 'incomplete',
+          'a nonzero search count has no schema-v3 evidence representation');
+        assert.equal(result.parentHandoff.directAnswer, undefined,
+          'an internally certified count must not become an unsupported parent claim');
+      },
+    },
+    {
+      name: 'static string-array symbol context produces an exact array-entry count',
+      task: 'Count the entries in DEFAULT_SECRET_DENY_PATTERNS and cite its definition.',
+      scope: ['src/patterns.mjs'],
+      goal: {
+        id: 'S-static-array-count',
+        question: 'How many entries are in DEFAULT_SECRET_DENY_PATTERNS?',
+        originText: 'Count the entries in DEFAULT_SECRET_DENY_PATTERNS',
+        claimType: 'count',
+        proofCondition: 'Read the complete static array definition and count its entries.',
+        constraints: ['Keep the count bound to the cited definition.'],
+      },
+      claimText: 'DEFAULT_SECRET_DENY_PATTERNS contains exactly 3 entries.',
+      countMeasurement: { kind: 'count', unit: 'array_entries', value: 3 },
+      initialTools: [{
+        tool: 'repo_symbol_context',
+        args: {
+          symbol: 'DEFAULT_SECRET_DENY_PATTERNS',
+          scope: ['src/patterns.mjs'],
+        },
+        id: 'static-array-symbol',
+      }],
+      initialEvidenceRefs: ['E1:search'],
+      assertVerifier(request) {
+        const packet = parseControlPacket(request);
+        const countObservation = packet.observations.find(item => item.id === 'E1:search');
+        assert.deepEqual(countObservation?.deterministicMeasurement, {
+          kind: 'count',
+          unit: 'array_entries',
+          value: 3,
+        });
+        assert.deepEqual(packet.claims[0].measurement, {
+          kind: 'count',
+          unit: 'array_entries',
+          value: 3,
+        });
+      },
+      async setup(root) {
+        await fs.writeFile(path.join(root, 'src', 'patterns.mjs'), [
+          'export const DEFAULT_SECRET_DENY_PATTERNS = Object.freeze([',
+          "  '.env',",
+          "  '**/.env',",
+          "  '*.pem',",
+          ']);',
+          '',
+        ].join('\n'));
+      },
+      assertImplemented({ result, goal, claim }) {
+        const source = result.observations.find(item => item.id === 'E1');
+        const countObservation = result.observations.find(item => item.id === 'E1:search');
+        assert.equal(source.kind, 'source');
+        assert.match(source.snippet, /DEFAULT_SECRET_DENY_PATTERNS/u);
+        assert.deepEqual(countObservation.deterministicMeasurement, {
+          kind: 'count',
+          unit: 'array_entries',
+          value: 3,
+        });
+        const count = result.semanticVerification.deterministicCounts.find(item =>
+          item.claimId === claim.id);
+        assert.equal(count.complete, true);
+        assert.equal(count.unit, 'array_entries');
+        assert.equal(count.count, 3);
+        assert.equal(result.taskContract.subgoals.find(item => item.id === goal.id).state,
+          'supported');
+        assert.equal(result.parentHandoff.state, 'complete', JSON.stringify({
+          handoff: result.parentHandoff,
+          resultState: result.state,
+          directAnswer: result.directAnswer,
+          claims: result.semanticVerification.claims,
+          allowed: result.semanticVerification.runtimeAllowedEvidenceRefsBySubgoal,
+        }, null, 2));
+        assert.doesNotThrow(() => validateParentHandoffV3(result.parentHandoff));
+        assert.match(result.parentHandoff.directAnswer,
+          /deterministic count of array entries.* is 3\./u);
+        assert.deepEqual(result.parentHandoff.evidence.map(item => item.kind), ['source']);
+        assert.deepEqual(result.semanticVerification.runtimeAllowedEvidenceRefsBySubgoal, [{
+          subgoalId: goal.id,
+          evidenceRefs: ['E1:search'],
+        }]);
+        assert.equal(result.parentHandoff.targets.length, 1);
+        assert.equal(result.parentHandoff.targets[0].path, 'src/patterns.mjs');
+      },
+    },
+    {
+      name: 'static array count and closing line comparison shares one bounded definition',
+      task: 'Distinguish the 3 static array entries from the ending source line 5.',
+      scope: ['src/patterns.mjs'],
+      goal: {
+        id: 'S-static-array-comparison',
+        question: 'How do the static array entry count and ending source line differ?',
+        originText: 'Distinguish the 3 static array entries from the ending source line 5',
+        claimType: 'comparison',
+        proofCondition: 'Compare the runtime-owned array count with the exact definition range.',
+        constraints: ['Do not treat the ending source line as the entry count.'],
+      },
+      claimText: 'The static array has 3 entries and its definition ends on source line 5.',
+      initialTools: [{
+        tool: 'repo_symbol_context',
+        args: {
+          symbol: 'DEFAULT_SECRET_DENY_PATTERNS',
+          scope: ['src/patterns.mjs'],
+        },
+        id: 'static-array-comparison',
+      }],
+      initialEvidenceRefs: ['E1', 'E1:search'],
+      async setup(root) {
+        await fs.writeFile(path.join(root, 'src', 'patterns.mjs'), [
+          'export const DEFAULT_SECRET_DENY_PATTERNS = Object.freeze([',
+          "  '.env',",
+          "  '**/.env',",
+          "  '*.pem',",
+          ']);',
+          '',
+        ].join('\n'));
+      },
+      assertImplemented({ result, goal, claim }) {
+        assert.equal(result.semanticVerification.deterministicCounts.length, 0,
+          'comparison reuses the runtime observation without inventing a count certificate');
+        assert.equal(result.semanticVerification.claims.find(item => item.id === claim.id).verdict,
+          'supported');
+        assert.equal(result.taskContract.subgoals.find(item => item.id === goal.id).state,
+          'supported');
+        assert.equal(result.parentHandoff.state, 'complete');
+        assert.match(result.parentHandoff.directAnswer, /3 entries.*line 5/u);
+        assert.deepEqual(result.parentHandoff.evidence.map(item => item.kind), ['source']);
+      },
+    },
+    {
+      name: 'zero count replaces a model-invented number with the runtime count',
+      task: 'Count the lines containing legacyGuard in src/routes/**.',
+      scope: ['src/routes/**'],
+      goal: {
+        id: 'S-zero-route-count',
+        question: 'How many lines contain legacyGuard in src/routes/**?',
+        originText: 'Count the lines containing legacyGuard in src/routes/**',
+        claimType: 'count',
+        proofCondition: 'Completely search src/routes/** and count unique matching locations.',
+        constraints: ['Keep the count qualified to src/routes/**.'],
+      },
+      claimText: 'There are exactly 999 lines containing legacyGuard in src/routes/**.',
+      countMeasurement: { kind: 'count', unit: 'matching_lines', value: 0 },
+      initialTools: [{
+        tool: 'repo_grep',
+        args: { pattern: 'legacyGuard', scope: ['src/routes/**'] },
+        id: 'complete-zero-route-count',
+      }],
+      initialEvidenceRefs: ['E1'],
+      assertImplemented({ result, goal, claim }) {
+        const verifiedClaim = result.semanticVerification.claims.find(item =>
+          item.id === claim.id);
+        const count = result.semanticVerification.deterministicCounts.find(item =>
+          item.claimId === claim.id);
+        assert.equal(count.count, 0);
+        assert.match(verifiedClaim.text, /deterministic count.* is 0\./u);
+        assert.doesNotMatch(verifiedClaim.text, /999/u);
+        assert.doesNotMatch(result.directAnswer ?? '', /999/u);
+        assert.equal(result.parentHandoff.state, 'complete');
+        assert.match(result.parentHandoff.directAnswer, /deterministic count.* is 0\./u);
+        assert.doesNotMatch(JSON.stringify(result.parentHandoff), /999/u);
+        assert.equal(result.parentHandoff.evidence[0].kind, 'absence');
+        assert.equal(result.taskContract.subgoals.find(item => item.id === goal.id).state,
+          'supported');
+      },
+    },
+    {
+      name: 'source-first evidence cannot project a model-invented nonzero count',
+      task: 'Count the lines containing requireAuth in src/routes/** and cite the route source.',
+      scope: ['src/routes/**'],
+      goal: {
+        id: 'S-source-first-route-count',
+        question: 'How many lines contain requireAuth in src/routes/**?',
+        originText: 'Count the lines containing requireAuth in src/routes/**',
+        claimType: 'count',
+        proofCondition: 'Completely search src/routes/** and count unique matching locations.',
+        constraints: ['Keep the count qualified to src/routes/**.'],
+      },
+      claimText: 'There are exactly 999 lines containing requireAuth in src/routes/**.',
+      countMeasurement: { kind: 'count', unit: 'matching_lines', value: 999 },
+      initialTools: [
+        {
+          tool: 'repo_read_file',
+          args: { path: 'src/routes/user.js', startLine: 1, endLine: 7 },
+          id: 'read-source-before-count',
+        },
+        {
+          tool: 'repo_grep',
+          args: { pattern: 'requireAuth', scope: ['src/routes/**'] },
+          id: 'complete-source-first-route-count',
+        },
+      ],
+      initialEvidenceRefs: ['E1', 'E2'],
+      repairTools: [
+        {
+          tool: 'repo_read_file',
+          args: { path: 'src/routes/user.js', startLine: 1, endLine: 7 },
+          id: 'repair-read-source-before-count',
+        },
+        {
+          tool: 'repo_grep',
+          args: { pattern: 'requireAuth', scope: ['src/routes/**'] },
+          id: 'repair-complete-source-first-route-count',
+        },
+      ],
+      repairEvidenceRefs: ['E1', 'E2', 'E3', 'E4'],
+      assertImplemented({ result, goal, claim }) {
+        const verifiedClaim = result.semanticVerification.claims.find(item =>
+          item.id === claim.id);
+        const count = result.semanticVerification.deterministicCounts.find(item =>
+          item.claimId === claim.id);
+        assert.equal(count.count, 2);
+        assert.equal(verifiedClaim.verdict, 'insufficient');
+        assert.doesNotMatch(result.directAnswer ?? '', /999/u);
+        assert.notEqual(result.taskContract.subgoals.find(item => item.id === goal.id).state,
+          'supported');
+        assert.equal(result.parentHandoff.state, 'incomplete');
+        assert.equal(result.parentHandoff.directAnswer, undefined);
+        assert.doesNotMatch(JSON.stringify(result.parentHandoff), /999/u);
+      },
+    },
+    {
+      name: 'count canonicalization follows the exact verifier-supported search observation',
+      task: 'Count the lines containing legacyGuard in src/routes/**.',
+      scope: ['src/routes/**'],
+      goal: {
+        id: 'S-bound-route-count',
+        question: 'How many lines contain legacyGuard in src/routes/**?',
+        originText: 'Count the lines containing legacyGuard in src/routes/**',
+        claimType: 'count',
+        proofCondition: 'Completely search src/routes/** and count unique matching locations.',
+        constraints: ['Bind the count to the verifier-supported search.'],
+      },
+      claimText: 'There are exactly 999 lines containing legacyGuard in src/routes/**.',
+      countMeasurement: { kind: 'count', unit: 'matching_lines', value: 0 },
+      initialTools: [
+        {
+          tool: 'repo_grep',
+          args: { pattern: 'requireAuth', scope: ['src/routes/**'] },
+          id: 'complete-unrelated-route-count',
+        },
+        {
+          tool: 'repo_grep',
+          args: { pattern: 'legacyGuard', scope: ['src/routes/**'] },
+          id: 'complete-supported-route-count',
+        },
+      ],
+      initialEvidenceRefs: ['E1', 'E2'],
+      verifierEvidenceRefs: ['E2'],
+      assertImplemented({ result, goal, claim }) {
+        const verifiedClaim = result.semanticVerification.claims.find(item =>
+          item.id === claim.id);
+        assert.equal(verifiedClaim.verdict, 'supported');
+        assert.match(verifiedClaim.text, /deterministic count.* is 0\./u);
+        assert.doesNotMatch(verifiedClaim.text, / is 2\.|999/u);
+        const counts = result.semanticVerification.deterministicCounts.filter(item =>
+          item.claimId === claim.id);
+        assert.deepEqual(counts.map(item => [item.observationRef, item.count]), [
+          ['E1', 2],
+          ['E2', 0],
+        ]);
+        assert.equal(result.parentHandoff.state, 'complete');
+        assert.match(result.parentHandoff.directAnswer, /deterministic count.* is 0\./u);
+        assert.equal(result.taskContract.subgoals.find(item => item.id === goal.id).state,
+          'supported');
+      },
+    },
+    {
+      name: 'complete file search produces a deterministic runtime count',
+      task: 'Count JavaScript files in src/routes/**.',
+      scope: ['src/routes/**'],
+      goal: {
+        id: 'S-route-file-count',
+        question: 'How many JavaScript files exist in src/routes/**?',
+        originText: 'Count JavaScript files in src/routes/**',
+        claimType: 'count',
+        proofCondition: 'Completely enumerate JavaScript files in src/routes/**.',
+        constraints: ['Keep the count qualified to src/routes/**.'],
+      },
+      claimText: 'There is exactly 1 JavaScript file in src/routes/**.',
+      countMeasurement: { kind: 'count', unit: 'files', value: 1 },
+      initialTools: [{
+        tool: 'repo_find_files',
+        args: { pattern: '**/*.js', scope: ['src/routes/**'] },
+        id: 'complete-route-file-count',
+      }],
+      initialEvidenceRefs: ['E1'],
+      assertImplemented({ result, goal }) {
+        const count = result.semanticVerification.deterministicCounts.find(item =>
+          item.subgoalId === goal.id);
+        assert.equal(result.taskContract.subgoals.find(item => item.id === goal.id).state,
+          'supported');
+        assert.equal(count.complete, true);
+        assert.equal(count.count, 1);
+        const itemIds = result.observations.find(item => item.id === 'E1').normalizedItemIds;
+        assert.equal(itemIds.length, 1);
+        assert.match(itemIds[0], /^sha256:[0-9a-f]{64}$/);
+      },
+    },
+    {
+      name: 'truncated nonzero search cannot produce a deterministic count',
+      task: 'Count the lines containing requireAuth in src/routes/**.',
+      scope: ['src/routes/**'],
+      goal: {
+        id: 'S-truncated-route-count',
+        question: 'How many lines contain requireAuth in src/routes/**?',
+        originText: 'Count the lines containing requireAuth in src/routes/**',
+        claimType: 'count',
+        proofCondition: 'Completely search src/routes/** and count unique matching locations.',
+        constraints: ['Do not treat truncated matches as an exact count.'],
+      },
+      claimText: 'There are exactly 1 lines containing requireAuth in src/routes/**.',
+      countMeasurement: { kind: 'count', unit: 'matching_lines', value: 1 },
+      initialTools: [{
+        tool: 'repo_grep',
+        args: { pattern: 'requireAuth', scope: ['src/routes/**'], maxResults: 1 },
+        id: 'truncated-route-count',
+      }],
+      initialEvidenceRefs: ['E1'],
+      repairTools: [{
+        tool: 'repo_grep',
+        args: { pattern: 'requireAuth', scope: ['src/routes/**'], maxResults: 1 },
+        id: 'still-truncated-route-count',
+      }],
+      repairEvidenceRefs: ['E1', 'E2'],
+      assertImplemented({ result, goal }) {
+        assert.ok(result.semanticVerification.deterministicCounts.length > 0);
+        assert.ok(result.semanticVerification.deterministicCounts.every(item =>
+          item.subgoalId !== goal.id || (item.complete === false && item.count === null)));
+        assertInternalProofGap(result, goal.id);
+        assertMinimalIncompleteParentHandoff(result, goal.question);
       },
     },
     {
@@ -6438,6 +6930,7 @@ test('Spec 028 T059 — runtime enforces negative and critical proof boundaries'
         fixture.claimText,
         fixture.initialEvidenceRefs,
       );
+      if (fixture.countMeasurement) claim.measurement = { ...fixture.countMeasurement };
       const repairClaim = fixture.repairTools
         ? { ...claim, evidenceRefs: fixture.repairEvidenceRefs }
         : null;
@@ -6446,7 +6939,12 @@ test('Spec 028 T059 — runtime enforces negative and critical proof boundaries'
         initial: {
           tools: fixture.initialTools,
           claims: [claim],
-          verdicts: [semanticVerdict(claim.id, 'supported', fixture.initialEvidenceRefs)],
+          verdicts: [semanticVerdict(
+            claim.id,
+            'supported',
+            fixture.verifierEvidenceRefs ?? fixture.initialEvidenceRefs,
+          )],
+          assertVerifier: fixture.assertVerifier,
         },
         repair: fixture.repairTools ? {
           tools: fixture.repairTools,
@@ -6466,6 +6964,14 @@ test('Spec 028 T059 — runtime enforces negative and critical proof boundaries'
       });
       assert.equal(client.stageCounts.get('planner'), 1);
       assert.equal(client.stageCounts.get('goal_audit'), 1);
+      if (fixture.name === 'static string-array symbol context produces an exact array-entry count') {
+        assert.equal(hasRuntimeProofPolicyIntegration(result), true,
+          JSON.stringify({
+            failure: result.failure,
+            observations: result.observations,
+            stages: client.stageLabels,
+          }, null, 2));
+      }
       if (!requireRuntimeProofPolicyIntegration(t, result)) return;
       fixture.assertImplemented({ client, result, goal, claim });
     });
@@ -6533,6 +7039,459 @@ semanticPipelineRuntimeTest(
   },
 );
 
+semanticPipelineRuntimeTest(
+  'Spec 028 T068 — every retained wrapper has a distinct end-to-end proof-policy acceptance',
+  async t => {
+    const wrapperCases = [
+      {
+        tool: 'find_relevant_code',
+        taskMode: 'locate',
+        expectedState: 'complete',
+        seeds: [
+          ['locations', 'positive', ['E1']],
+          ['relevance', 'positive', ['E1']],
+          ['smallest_set', 'positive', ['E1']],
+        ],
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+          id: 'locate-auth',
+        }],
+      },
+      {
+        tool: 'trace_symbol',
+        taskMode: 'symbol_trace',
+        expectedState: 'complete',
+        seeds: [
+          ['definition', 'symbol_definition', ['E1']],
+          ['usage', 'symbol_usage', ['E2', 'E3']],
+        ],
+        tools: [
+          {
+            tool: 'repo_read_file',
+            args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+            id: 'trace-definition',
+          },
+          {
+            tool: 'repo_read_file',
+            args: { path: 'src/routes/user.js', startLine: 1, endLine: 7 },
+            id: 'trace-usage',
+          },
+          {
+            tool: 'repo_grep',
+            args: { pattern: 'requireAuth', scope: ['src/**'] },
+            id: 'trace-cross-check',
+          },
+        ],
+      },
+      {
+        tool: 'map_change_impact',
+        taskMode: 'edit_planning',
+        expectedState: 'verify_targets',
+        scope: ['**'],
+        seeds: [
+          ['targets', 'impact', ['E1']],
+          ['dependents', 'impact', ['E2']],
+          ['requested_categories', 'impact', ['E3']],
+          ['risk_boundary', 'impact', ['E4']],
+        ],
+        tools: [
+          {
+            tool: 'repo_read_file',
+            args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+            id: 'impact-target',
+          },
+          {
+            tool: 'repo_read_file',
+            args: { path: 'src/routes/user.js', startLine: 1, endLine: 7 },
+            id: 'impact-dependent',
+          },
+          {
+            tool: 'repo_read_file',
+            args: { path: 'tests/auth.test.js', startLine: 1, endLine: 1 },
+            id: 'impact-test',
+          },
+          {
+            tool: 'repo_read_file',
+            args: { path: 'config/auth.json', startLine: 1, endLine: 1 },
+            id: 'impact-config',
+          },
+        ],
+        async setup(root) {
+          await fs.mkdir(path.join(root, 'tests'), { recursive: true });
+          await fs.mkdir(path.join(root, 'config'), { recursive: true });
+          await fs.writeFile(path.join(root, 'tests', 'auth.test.js'), 'test("auth", () => {});\n');
+          await fs.writeFile(path.join(root, 'config', 'auth.json'), '{"required":true}\n');
+        },
+      },
+      {
+        tool: 'explain_code_path',
+        taskMode: 'path_explanation',
+        expectedState: 'complete',
+        seeds: [
+          ['entry', 'flow', ['E1']],
+          ['handoffs', 'flow', ['E2']],
+          ['terminal_effect', 'flow', ['E3']],
+          ['transitions', 'flow', ['E4']],
+        ],
+        tools: ['entry', 'handoff', 'terminal', 'transition'].map((name, index) => ({
+          tool: 'repo_read_file',
+          args: { path: `src/flow/${name}.js`, startLine: 1, endLine: 1 },
+          id: `flow-${index + 1}`,
+        })),
+        async setup(root) {
+          await fs.mkdir(path.join(root, 'src', 'flow'), { recursive: true });
+          for (const name of ['entry', 'handoff', 'terminal', 'transition']) {
+            await fs.writeFile(path.join(root, 'src', 'flow', `${name}.js`),
+              `export const ${name} = true;\n`);
+          }
+        },
+      },
+      {
+        tool: 'collect_evidence',
+        taskMode: 'evidence_verification',
+        expectedState: 'complete',
+        seeds: [
+          ['verdict', 'claim_verification', ['E1']],
+          ['direct_evidence', 'claim_verification', ['E1']],
+          ['counterevidence', 'claim_verification', ['E2']],
+        ],
+        tools: [
+          {
+            tool: 'repo_read_file',
+            args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+            id: 'verify-direct',
+          },
+          {
+            tool: 'repo_read_file',
+            args: { path: 'src/routes/user.js', startLine: 1, endLine: 7 },
+            id: 'verify-counterexample',
+          },
+        ],
+        refutedSeed: 'counterevidence',
+      },
+      {
+        tool: 'explore_repo',
+        expectedState: 'complete',
+        seeds: [['request', 'positive', ['E1']]],
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+          id: 'explore-auth',
+        }],
+      },
+    ];
+
+    for (const wrapperCase of wrapperCases) {
+      await t.test(wrapperCase.tool, async () => {
+        const task = `Verify the ${wrapperCase.tool} proof-policy contract.`;
+        const goals = wrapperCase.seeds.map(([seed, claimType], index) => ({
+          id: `${wrapperCase.tool}-goal-${index + 1}`,
+          question: `Verify ${seed} for ${wrapperCase.tool}.`,
+          originRefs: wrapperCase.tool === 'explore_repo'
+            ? [`request:0-${task.length}`]
+            : [`wrapper:${wrapperCase.tool}:${seed}`],
+          claimType,
+          proofCondition: `Observe bounded evidence for ${seed}.`,
+          constraints: [],
+        }));
+        const claims = goals.map((goal, index) => candidateClaim(
+          `${wrapperCase.tool}-claim-${index + 1}`,
+          goal.id,
+          `${wrapperCase.tool} verified ${wrapperCase.seeds[index][0]}.`,
+          wrapperCase.seeds[index][2],
+        ));
+        const verdicts = claims.map((claim, index) => {
+          const verdict = semanticVerdict(claim.id, 'supported', claim.evidenceRefs);
+          if (wrapperCase.seeds[index][0] === wrapperCase.refutedSeed) {
+            verdict.resolution = 'refuted';
+          }
+          return verdict;
+        });
+        const { client, result } = await runTrustScript(buildTrustSteps({
+          goals,
+          initial: { tools: wrapperCase.tools, claims, verdicts },
+        }), {
+          task,
+          taskMode: wrapperCase.taskMode,
+          setup: wrapperCase.setup,
+          scope: wrapperCase.scope ?? ['src/**'],
+        });
+
+        assert.equal(result.failure, null, JSON.stringify({
+          stages: client.stageLabels,
+          failure: result.failure,
+          goals: result.taskContract?.subgoals,
+          claims: result.semanticVerification?.claims,
+          verdicts: result.semanticVerification?.verdicts,
+        }));
+        assert.deepEqual(result.taskContract.subgoals.map(goal => goal.state),
+          goals.map(() => 'supported'), JSON.stringify({
+            goals: result.taskContract.subgoals,
+            claims: result.semanticVerification?.claims,
+            verdicts: result.semanticVerification?.verdicts,
+            observations: result.observations?.map(item => ({
+              id: item.id,
+              kind: item.kind,
+              path: item.path,
+              sourceRole: item.sourceRole,
+            })),
+          }));
+        assert.equal(result.parentHandoff.state, wrapperCase.expectedState,
+          JSON.stringify(result.parentHandoff));
+        assert.equal(result.parentHandoff.directAnswer.split('\n').length, goals.length);
+        assert.doesNotMatch(JSON.stringify(result.parentHandoff),
+          /taskContract|semanticVerification|proofPolicy|toolCalls|deterministicCounts/u);
+      });
+    }
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T068 — wrapper proofs accept shared implementation evidence and reject missing or incompatible evidence',
+  async t => {
+    const sharedCases = [
+      {
+        name: 'explain_code_path can reuse one source for related flow seeds',
+        tool: 'explain_code_path',
+        taskMode: 'path_explanation',
+        expectedState: 'complete',
+        seeds: ['entry', 'handoffs', 'terminal_effect', 'transitions'],
+      },
+      {
+        name: 'map_change_impact can reuse one source for related impact seeds',
+        tool: 'map_change_impact',
+        taskMode: 'edit_planning',
+        expectedState: 'verify_targets',
+        seeds: ['targets', 'dependents', 'requested_categories', 'risk_boundary'],
+      },
+    ];
+    for (const wrapperCase of sharedCases) {
+      await t.test(wrapperCase.name, async () => {
+        const task = `Verify shared evidence for ${wrapperCase.tool}.`;
+        const goals = wrapperCase.seeds.map((seed, index) => ({
+          id: `${wrapperCase.tool}-shared-goal-${index + 1}`,
+          question: `Verify ${seed}.`,
+          originRefs: [`wrapper:${wrapperCase.tool}:${seed}`],
+          claimType: wrapperCase.tool === 'explain_code_path' ? 'flow' : 'impact',
+          proofCondition: `Observe bounded evidence for ${seed}.`,
+          constraints: [],
+        }));
+        const claims = goals.map((goal, index) => candidateClaim(
+          `${wrapperCase.tool}-shared-claim-${index + 1}`,
+          goal.id,
+          `${wrapperCase.tool} verified ${wrapperCase.seeds[index]}.`,
+          ['E1'],
+        ));
+        const { result } = await runTrustScript(buildTrustSteps({
+          goals,
+          initial: {
+            tools: [{
+              tool: 'repo_read_file',
+              args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+              id: `${wrapperCase.tool}-shared-initial`,
+            }],
+            claims,
+            verdicts: claims.map(claim => semanticVerdict(claim.id, 'supported', ['E1'])),
+          },
+        }), { task, taskMode: wrapperCase.taskMode });
+
+        assert.equal(result.failure, null);
+        assert.deepEqual(result.taskContract.subgoals.map(goal => goal.state),
+          goals.map(() => 'supported'));
+        assert.equal(result.parentHandoff.state, wrapperCase.expectedState);
+        assert.equal(result.parentHandoff.directAnswer.split('\n').length, goals.length);
+      });
+    }
+
+    await t.test('requested impact categories accept implementation evidence', async () => {
+      const tool = 'map_change_impact';
+      const task = 'Verify implementation evidence for requested impact categories.';
+      const seeds = ['targets', 'dependents', 'requested_categories', 'risk_boundary'];
+      const goals = seeds.map((seed, index) => ({
+        id: `impact-role-goal-${index + 1}`,
+        question: `Verify ${seed}.`,
+        originRefs: [`wrapper:${tool}:${seed}`],
+        claimType: 'impact',
+        proofCondition: `Observe independent evidence for ${seed}.`,
+        constraints: [],
+      }));
+      const claims = goals.map((goal, index) => candidateClaim(
+        `impact-role-claim-${index + 1}`,
+        goal.id,
+        `Impact verified ${seeds[index]}.`,
+        [`E${index + 1}`],
+      ));
+      const { client, result } = await runTrustScript(buildTrustSteps({
+        goals,
+        initial: {
+          tools: seeds.map((seed, index) => ({
+            tool: 'repo_read_file',
+            args: { path: `src/impact/${seed}.js`, startLine: 1, endLine: 1 },
+            id: `impact-role-${index + 1}`,
+          })),
+          claims,
+          verdicts: claims.map((claim, index) =>
+            semanticVerdict(claim.id, 'supported', [`E${index + 1}`])),
+        },
+      }), {
+        task,
+        taskMode: 'edit_planning',
+        async setup(root) {
+          await fs.mkdir(path.join(root, 'src', 'impact'), { recursive: true });
+          for (const name of seeds) {
+            await fs.writeFile(path.join(root, 'src', 'impact', `${name}.js`),
+              `export const ${name.replaceAll('-', '_')} = true;\n`);
+          }
+        },
+      });
+
+      assert.equal(result.failure, null, JSON.stringify(client.stageLabels));
+      assert.deepEqual(result.taskContract.subgoals.map(goal => goal.state),
+        goals.map(() => 'supported'));
+      assert.equal(result.parentHandoff.state, 'verify_targets');
+    });
+
+    await t.test('missing and incompatible evidence cannot fabricate flow artifacts', async () => {
+      const tool = 'explain_code_path';
+      const seeds = ['entry', 'handoffs', 'terminal_effect', 'transitions'];
+      const goals = seeds.map((seed, index) => ({
+        id: `flow-location-goal-${index + 1}`,
+        question: `Verify ${seed}.`,
+        originRefs: [`wrapper:${tool}:${seed}`],
+        claimType: 'flow',
+        proofCondition: `Observe bounded evidence for ${seed}.`,
+        constraints: [],
+      }));
+      const claims = goals.map((goal, index) => candidateClaim(
+        `flow-location-claim-${index + 1}`,
+        goal.id,
+        `Flow verified ${seeds[index]}.`,
+        [`E${index + 1}`],
+      ));
+      const verdicts = claims.map((claim, index) =>
+        semanticVerdict(claim.id, 'supported', [`E${index + 1}`]));
+      const observations = [
+        ...['E1', 'E2'].map(id => ({
+          id,
+          kind: 'source',
+          path: 'src/flow/single.js',
+          startLine: 1,
+          endLine: 1,
+          snippet: 'export const single = true;',
+          rangeGrounding: 'exact',
+          sourceRole: 'implementation',
+          temporalRole: 'current',
+          redacted: false,
+        })),
+        {
+          id: 'E4',
+          kind: 'source',
+          path: 'docs/flow.md',
+          startLine: 1,
+          endLine: 1,
+          snippet: 'Documented transition only.',
+          rangeGrounding: 'exact',
+          sourceRole: 'documentation',
+          temporalRole: 'current',
+          redacted: false,
+        },
+      ];
+      const artifacts = buildRuntimeWrapperPolicyArtifacts({
+        wrapperTool: tool,
+        subgoals: goals,
+        claims,
+        semanticVerdicts: verdicts,
+        observations,
+      });
+
+      assert.equal(artifacts.size, seeds.length);
+      assert.deepEqual(artifacts.get(claims[0].id)?.observedTransitions, ['entry']);
+      assert.deepEqual(artifacts.get(claims[1].id)?.observedTransitions, ['handoffs']);
+      assert.deepEqual(artifacts.get(claims[2].id)?.observedTransitions, []);
+      assert.deepEqual(artifacts.get(claims[3].id)?.observedTransitions, []);
+      assert.deepEqual(artifacts.get(claims[2].id)?.transitionEvidenceRefs,
+        { terminal_effect: [] });
+      assert.deepEqual(artifacts.get(claims[3].id)?.transitionEvidenceRefs,
+        { transitions: [] });
+    });
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — bounded usage projection retains source evidence after a search-first cross-check',
+  async () => {
+    const task = 'Trace the requireAuth definition and every in-scope usage.';
+    const goals = [
+      {
+        id: 'trace-reversed-definition',
+        question: 'Where is requireAuth defined?',
+        originRefs: ['wrapper:trace_symbol:definition'],
+        claimType: 'symbol_definition',
+        proofCondition: 'Observe the requireAuth definition source.',
+        constraints: [],
+      },
+      {
+        id: 'trace-reversed-usage',
+        question: 'Where is requireAuth used?',
+        originRefs: ['wrapper:trace_symbol:usage'],
+        claimType: 'symbol_usage',
+        proofCondition: 'Cross-check every in-scope usage and read the usage source.',
+        constraints: [],
+      },
+    ];
+    const claims = [
+      candidateClaim(
+        'trace-reversed-definition-claim',
+        goals[0].id,
+        'requireAuth is defined in src/auth.js.',
+        ['E1'],
+      ),
+      candidateClaim(
+        'trace-reversed-usage-claim',
+        goals[1].id,
+        'requireAuth is used by src/routes/user.js.',
+        ['E2', 'E3'],
+      ),
+    ];
+    const { result } = await runTrustScript(buildTrustSteps({
+      goals,
+      initial: {
+        tools: [
+          {
+            tool: 'repo_read_file',
+            args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+            id: 'trace-reversed-definition-read',
+          },
+          {
+            tool: 'repo_grep',
+            args: { pattern: 'requireAuth', scope: ['src/**'] },
+            id: 'trace-reversed-usage-cross-check',
+          },
+          {
+            tool: 'repo_read_file',
+            args: { path: 'src/routes/user.js', startLine: 1, endLine: 7 },
+            id: 'trace-reversed-usage-read',
+          },
+        ],
+        claims,
+        verdicts: [
+          semanticVerdict(claims[0].id, 'supported', ['E1']),
+          semanticVerdict(claims[1].id, 'supported', ['E2', 'E3']),
+        ],
+      },
+    }), { task, taskMode: 'symbol_trace' });
+
+    assert.equal(result.failure, null);
+    assert.deepEqual(result.taskContract.subgoals.map(goal => goal.state),
+      goals.map(() => 'supported'));
+    assert.equal(result.parentHandoff.state, 'complete');
+    assert.match(result.parentHandoff.directAnswer, /src\/routes\/user\.js/u);
+    assert.ok(result.parentHandoff.evidence.some(item =>
+      item.kind === 'source' && item.path === 'src/routes/user.js'));
+  },
+);
+
 test('Spec 028 T030 — isolated semantic controls reduce claims without trusting exploration prose', async () => {
   const goals = definitionAndAbsenceGoals();
   const supported = candidateClaim(
@@ -6587,7 +7546,6 @@ test('Spec 028 T030 — isolated semantic controls reduce claims without trustin
     'claim_synthesis:1',
     'semantic_verifier:1',
     'exploration:4',
-    'exploration:5',
     'claim_synthesis:2',
     'semantic_verifier:2',
   ]);
@@ -6630,6 +7588,129 @@ test('Spec 028 T030 — isolated semantic controls reduce claims without trustin
   ]);
 });
 
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — irrelevant model measurement cannot break or influence a non-count claim',
+  async () => {
+    const goal = definitionAndAbsenceGoals()[0];
+    const claim = {
+      ...candidateClaim(
+        'C-non-count-measurement',
+        goal.id,
+        'requireAuth is defined in src/auth.js.',
+        ['E1'],
+      ),
+      measurement: { kind: 'count', unit: 'matching_lines', value: 999 },
+    };
+    const steps = buildTrustSteps({
+      goals: [goal],
+      initial: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+          id: 'read-auth-for-non-count',
+        }],
+        claims: [claim],
+        verdicts: [semanticVerdict(claim.id, 'supported', ['E1'])],
+      },
+    });
+
+    const { result } = await runTrustScript(steps);
+    assert.equal(result.parentHandoff.state, 'complete');
+    assert.equal(result.semanticVerification.claims[0].measurement, undefined);
+    assert.equal(JSON.stringify(result.parentHandoff).includes('999'), false);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — nullable and malformed measurement noise is stripped from non-count claims',
+  async t => {
+    for (const fixture of [
+      { name: 'nullable strict-schema field', measurement: null },
+      {
+        name: 'malformed measurement object',
+        measurement: { kind: 'unsupported', unit: 42, value: 'not-a-number' },
+      },
+    ]) {
+      await t.test(fixture.name, async () => {
+        const goal = definitionAndAbsenceGoals()[0];
+        const claim = {
+          ...candidateClaim(
+            `C-non-count-${fixture.name.replaceAll(' ', '-')}`,
+            goal.id,
+            'requireAuth is defined in src/auth.js.',
+            ['E1'],
+          ),
+          measurement: fixture.measurement,
+        };
+        const { result } = await runTrustScript(buildTrustSteps({
+          goals: [goal],
+          initial: {
+            tools: [{
+              tool: 'repo_read_file',
+              args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+              id: `read-auth-${fixture.name.replaceAll(' ', '-')}`,
+            }],
+            claims: [claim],
+            verdicts: [semanticVerdict(claim.id, 'supported', ['E1'])],
+          },
+        }));
+
+        assert.equal(result.failure, null);
+        assert.equal(result.parentHandoff.state, 'complete');
+        assert.equal(result.semanticVerification.claims[0].measurement, undefined);
+      });
+    }
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — post-repair non-count claims also ignore measurement noise',
+  async () => {
+    const goal = definitionAndAbsenceGoals()[0];
+    const claim = {
+      ...candidateClaim(
+        'C-post-repair-measurement',
+        goal.id,
+        'requireAuth is defined in src/auth.js.',
+        ['E1'],
+      ),
+      measurement: null,
+    };
+    const repairedClaim = {
+      ...claim,
+      evidenceRefs: ['E1', 'E2'],
+      measurement: { kind: 'unsupported', unit: false, value: 'still-not-a-number' },
+    };
+    const { client, result } = await runTrustScript(buildTrustSteps({
+      goals: [goal],
+      initial: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+          id: 'read-auth-before-measurement-repair',
+        }],
+        claims: [claim],
+        verdicts: [semanticVerdict(claim.id, 'insufficient')],
+      },
+      repair: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/routes/user.js', startLine: 1, endLine: 7 },
+          id: 'read-route-for-measurement-repair',
+        }],
+        claims: [repairedClaim],
+        verdicts: [semanticVerdict(claim.id, 'supported', ['E2'])],
+      },
+    }));
+
+    assert.equal(result.failure, null);
+    assert.equal(client.stageCounts.get('claim_synthesis'), 2);
+    assert.equal(result.parentHandoff.state, 'complete');
+    assert.equal(result.semanticVerification.claims[0].measurement, undefined);
+    assert.doesNotMatch(JSON.stringify(result.parentHandoff), /not-a-number/u);
+  },
+);
+
 test('Spec 028 T031 — verifier proposals are audited once without re-planning or parent leakage', async t => {
   const fixtures = [
     {
@@ -6661,14 +7742,21 @@ test('Spec 028 T031 — verifier proposals are audited once without re-planning 
 
   for (const fixture of fixtures) {
     await t.test(fixture.name, async () => {
-      const goal = definitionAndAbsenceGoals()[0];
+      const task = 'Locate requireAuth and verify legacyGuard is absent and inspect middleware registration.';
+      const goal = trustGoal(task, {
+        id: 'S-definition',
+        question: 'Where is requireAuth defined?',
+        originText: 'Locate requireAuth',
+        claimType: 'symbol_definition',
+        proofCondition: 'Observe the in-scope requireAuth definition and source body.',
+      });
       const claim = candidateClaim(
         'C-definition', goal.id, 'requireAuth is defined in src/auth.js.', ['E1']);
       const proposal = {
         question: fixture.verdict === 'reject_untraceable'
           ? 'Which unrelated cache should be rewritten?'
           : 'Which requested authentication check still needs repository evidence?',
-        originRefs: [requestOrigin(GOAL_AUDIT_TASK, 'Locate requireAuth')],
+        originRefs: [requestOrigin(task, 'inspect middleware registration')],
         claimType: 'positive',
         proofCondition: 'Observe the requested authentication evidence.',
         constraints: [],
@@ -6711,7 +7799,7 @@ test('Spec 028 T031 — verifier proposals are audited once without re-planning 
           ],
         } : null,
       });
-      const { client, result } = await runTrustScript(steps);
+      const { client, result } = await runTrustScript(steps, { task });
 
       assert.equal(client.stageCounts.get('planner'), 1);
       assert.equal(client.stageCounts.get('goal_audit'), 2);
@@ -6740,6 +7828,72 @@ test('Spec 028 T031 — verifier proposals are audited once without re-planning 
     });
   }
 });
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — a distinct late obligation sharing origin and claim type is still audited',
+  async () => {
+    const goal = definitionAndAbsenceGoals()[0];
+    const claim = candidateClaim(
+      'C-covered-origin', goal.id, 'requireAuth is defined in src/auth.js.', ['E1']);
+    const proposal = {
+      question: 'Which exported API exposes requireAuth?',
+      originRefs: [...goal.originRefs],
+      claimType: goal.claimType,
+      proofCondition: 'Observe the export boundary that exposes requireAuth.',
+      constraints: [],
+    };
+    const steps = buildTrustSteps({
+      goals: [goal],
+      initial: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+          id: 'read-covered-origin',
+        }],
+        claims: [claim],
+        verdicts: [semanticVerdict(claim.id, 'supported', ['E1'])],
+        uncovered: [proposal],
+        auditVerdict: 'ready',
+      },
+      repair: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/routes/user.js', startLine: 1, endLine: 7 },
+          id: 'inspect-require-auth-export-boundary',
+        }],
+        claims: [
+          { ...claim, evidenceRefs: ['E1', 'E2'] },
+          candidateClaim(
+            'C-export-boundary',
+            'late-uncovered:initial:1',
+            'The export boundary for requireAuth is not yet established.',
+            ['E2'],
+          ),
+        ],
+        verdicts: [
+          semanticVerdict(claim.id, 'supported', ['E1', 'E2']),
+          semanticVerdict('C-export-boundary', 'insufficient'),
+        ],
+      },
+    });
+
+    const { client, result } = await runTrustScript(steps);
+    assert.equal(client.stageCounts.get('planner'), 1);
+    assert.equal(client.stageCounts.get('goal_audit'), 2);
+    assert.equal(client.stageCounts.get('semantic_verifier'), 2);
+    const lateAuditRequest = client.requests[client.stageLabels.indexOf('goal_audit:2')];
+    assert.deepEqual(parseControlPacket(lateAuditRequest).proposals.map(item => item.id), [
+      'late-uncovered:initial:1',
+    ]);
+    const lateGoal = result.taskContract.subgoals.find(item =>
+      item.id === 'late-uncovered:initial:1');
+    assert.ok(lateGoal);
+    assert.equal(lateGoal.state, 'gap');
+    assert.deepEqual(result.rejectedGoals, []);
+    assert.equal(result.parentHandoff.state, 'incomplete');
+    assert.ok(result.parentHandoff.gaps.some(gap => gap.question === proposal.question));
+  },
+);
 
 test('Spec 028 T031 — proposals from every verifier batch enter one late audit ledger', async () => {
   const task = 'Inspect every requested authentication facet in the repository.';
@@ -7287,7 +8441,6 @@ test('Spec 028 T032 — a zero-observation gap still receives the one repair rou
         }, 'anchorless-repair');
       },
     },
-    { stage: 'exploration:3', content: 'Anchorless repair complete.' },
     { stage: 'claim_synthesis:1', value: { claims: [claim] } },
     {
       stage: 'semantic_verifier:1',
@@ -7297,7 +8450,7 @@ test('Spec 028 T032 — a zero-observation gap still receives the one repair rou
 
   const { client, result } = await runTrustScript(steps, { task });
 
-  assert.equal(client.stageCounts.get('exploration'), 3);
+  assert.equal(client.stageCounts.get('exploration'), 2);
   assert.equal(client.stageCounts.get('claim_synthesis'), 1);
   assert.equal(result.taskContract.subgoals.find(item => item.id === goal.id).state,
     'supported');
@@ -7657,11 +8810,24 @@ semanticPipelineRuntimeTest('Spec 028 T034 — failed repair records one termina
   });
 });
 
-semanticPipelineRuntimeTest('Spec 028 T034 — closing repair failure preserves opening usage', async () => {
-  const logDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-trust-closing-failure-'));
+semanticPipelineRuntimeTest('Spec 028 T069 — repair executes one bounded parallel tool batch', async () => {
+  const logDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-trust-repair-batch-'));
   const goal = definitionAndAbsenceGoals()[0];
   const claim = candidateClaim(
-    'C-closing-failure', goal.id, 'Closing failure candidate.', ['E1']);
+    'C-repair-batch', goal.id, 'requireAuth is defined in src/auth.js.', ['E1']);
+  const repairCalls = [
+    {
+      tool: 'repo_read_file',
+      args: { path: 'src/routes/user.js', startLine: 1, endLine: 4 },
+      id: 'repair-route-opening',
+    },
+    {
+      tool: 'repo_read_file',
+      args: { path: 'src/routes/user.js', startLine: 5, endLine: 7 },
+      id: 'repair-route-closing',
+    },
+  ];
+  const repairedClaim = { ...claim, evidenceRefs: ['E1', 'E2', 'E3'] };
   const steps = buildTrustSteps({
     goals: [goal],
     initial: {
@@ -7674,25 +8840,11 @@ semanticPipelineRuntimeTest('Spec 028 T034 — closing repair failure preserves 
       verdicts: [semanticVerdict(claim.id, 'insufficient')],
     },
     repair: {
-      tools: [{
-        tool: 'repo_read_file',
-        args: { path: 'src/routes/user.js', startLine: 1, endLine: 8 },
-        id: 'read-route-before-closing-failure',
-      }],
-      claims: [claim],
-      verdicts: [semanticVerdict(claim.id, 'supported', ['E2'])],
+      tools: repairCalls,
+      claims: [repairedClaim],
+      verdicts: [semanticVerdict(claim.id, 'supported', ['E2', 'E3'])],
     },
   });
-  const closingIndex = steps.findIndex(step => step.stage === 'exploration:4');
-  assert.notEqual(closingIndex, -1);
-  steps[closingIndex] = {
-    stage: 'exploration:4',
-    run() {
-      const error = new Error('closing repair provider outage sentinel');
-      error.retryable = false;
-      throw error;
-    },
-  };
 
   await withEnv({
     CEREBRAS_EXPLORER_LOG_PATH: logDir,
@@ -7701,18 +8853,43 @@ semanticPipelineRuntimeTest('Spec 028 T034 — closing repair failure preserves 
     const { client, result } = await runTrustScript(steps);
     const entries = await readJsonl(result.transcriptPath);
     const repairs = entries.filter(entry => entry.type === 'repair');
+    const repairTools = entries.filter(entry => entry.type === 'tool' && entry.stage === 'repair');
     const usage = entries.find(entry => entry.type === 'usage');
-    const completedTokens = client.completions.reduce(
-      (total, completion) => total + (completion.usage?.total_tokens ?? 0),
-      0,
-    );
+    const repairRequestIndexes = client.requests.flatMap((request, index) =>
+      JSON.stringify(request.messages).includes('BEGIN_EVIDENCE_REPAIR_JSON') ? [index] : []);
+    const repairCompletion = client.completions[repairRequestIndexes[0]];
+    const repairFingerprints = repairCalls.map(call => fingerprintAction({
+      type: 'tool',
+      tool: call.tool,
+      arguments: call.args,
+    }));
 
-    assert.equal(result.failure?.reason, 'provider_error');
+    assert.equal(result.failure, null);
+    assert.deepEqual(repairRequestIndexes.length, 1);
+    assert.deepEqual(repairCompletion.message.toolCalls.map(call => call.id),
+      repairCalls.map(call => call.id));
+    assert.deepEqual(client.stageLabels, [
+      'planner:1',
+      'goal_audit:1',
+      'exploration:1',
+      'exploration:2',
+      'synthesis:1',
+      'claim_synthesis:1',
+      'semantic_verifier:1',
+      'exploration:3',
+      'claim_synthesis:2',
+      'semantic_verifier:2',
+    ]);
     assert.deepEqual(repairs.map(entry => entry.status), ['started', 'finished']);
-    assert.equal(repairs[1].outcome, 'failed');
+    assert.equal(repairs[1].outcome, 'completed');
+    assert.equal(repairTools.length, repairCalls.length);
+    for (const fingerprint of repairFingerprints) {
+      assert.equal(providerToolActions(client).filter(action =>
+        fingerprintAction(action) === fingerprint).length, 1);
+      assert.equal(repairTools.filter(entry => entry.actionFingerprint === fingerprint).length, 1);
+    }
+    assert.equal(entries.some(entry => entry.type === 'provider_failure'), false);
     assert.equal(usage.providerCalls, client.requests.length);
-    assert.equal(usage.totalTokens, completedTokens);
-    assert.equal(JSON.stringify(entries).includes('closing repair provider outage sentinel'), false);
   });
 });
 

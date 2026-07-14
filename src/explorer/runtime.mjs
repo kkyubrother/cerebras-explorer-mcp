@@ -58,17 +58,20 @@ import {
 import {
   applyEvidenceRepairRound,
   buildAbsenceCertificate,
+  computeDeterministicCount,
   createCapabilityManifest,
   createAtomicClaim,
   createTaskContract,
   evaluateProofPolicy,
   fingerprintAction,
   integrateAuditedLateGoals,
+  isCertifiedStaticArrayObservation,
   mergeSafetyLimit,
   preflightGoalProposals,
   reduceGoalAudit,
   reduceSemanticClaims,
   reduceTrustState,
+  selectCertifiedDeterministicCount,
   selectClaimCover,
   selectParentFollowUp,
   transitionSubgoal,
@@ -1065,6 +1068,15 @@ function markProviderFault(error) {
 function recordFailedProviderRequest(error, transcript, chatClient) {
   if (!error?.[PROVIDER_REQUEST_FAILED] || error[PROVIDER_FAILURE_USAGE_RECORDED]) return;
   transcript?.observeUsage?.({ model: chatClient?.model });
+  const failure = error.cause && typeof error.cause === 'object' ? error.cause : error;
+  transcript?.recordTrust?.('provider_failure', {
+    ...(Number.isInteger(failure.httpStatus) ? { httpStatus: failure.httpStatus } : {}),
+    ...(typeof failure.retryable === 'boolean' ? { retryable: failure.retryable } : {}),
+    ...(Number.isInteger(failure.attemptCount) ? { attemptCount: failure.attemptCount } : {}),
+    ...(typeof failure.providerCode === 'string'
+      ? { providerCode: failure.providerCode }
+      : {}),
+  });
   error[PROVIDER_FAILURE_USAGE_RECORDED] = true;
 }
 
@@ -1185,6 +1197,43 @@ function certifiedSearchEvidence(certificates, { subgoal, verdict, ref }) {
     certificate?.searchRefs?.includes(ref)) ?? null;
 }
 
+function observationBoundaryContainsPath(observation, sourcePath) {
+  const normalizedPath = normalizeTargetPath(sourcePath);
+  if (!normalizedPath || !Array.isArray(observation?.boundary)) return false;
+  return observation.boundary.some(rawBoundary => {
+    const boundary = normalizeTargetPath(rawBoundary);
+    if (!boundary) return false;
+    if (boundary === '**' || boundary === normalizedPath) return true;
+    if (!boundary.endsWith('/**')) return false;
+    const prefix = boundary.slice(0, -3);
+    return normalizedPath === prefix || normalizedPath.startsWith(`${prefix}/`);
+  });
+}
+
+function boundStaticComparisonSearchRefs({ subgoal, supportingRefs, observationById }) {
+  if (subgoal?.proofPolicy !== 'distinct_policy_paths') return new Set();
+  const sources = supportingRefs
+    .map(ref => observationById.get(ref))
+    .filter(observation => observation?.kind === 'source' &&
+      typeof observation.path === 'string');
+  return new Set(supportingRefs.filter(ref => {
+    const observation = observationById.get(ref);
+    return isCertifiedStaticArrayObservation(observation) &&
+      sources.some(source => observationBoundaryContainsPath(observation, source.path));
+  }));
+}
+
+function pairedStaticArraySourceObservation(ref, observationById) {
+  const count = observationById.get(ref);
+  if (!isCertifiedStaticArrayObservation(count) || !ref.endsWith(':search')) return null;
+  const source = observationById.get(ref.slice(0, -':search'.length));
+  return source?.kind === 'source' && typeof source.path === 'string' &&
+      source.rangeGrounding === 'exact' &&
+      observationBoundaryContainsPath(count, source.path)
+    ? source
+    : null;
+}
+
 function buildSemanticParentProjection({ semanticVerification, observations }) {
   const subgoalById = new Map(
     (semanticVerification?.taskContract?.subgoals ?? []).map(goal => [goal.id, goal]),
@@ -1203,6 +1252,9 @@ function buildSemanticParentProjection({ semanticVerification, observations }) {
   const certificates = Array.isArray(semanticVerification?.absenceCertificates)
     ? semanticVerification.absenceCertificates
     : [];
+  const deterministicCounts = Array.isArray(semanticVerification?.deterministicCounts)
+    ? semanticVerification.deterministicCounts
+    : [];
 
   for (const claim of semanticVerification?.claims ?? []) {
     const subgoal = subgoalById.get(claim.subgoalId);
@@ -1215,9 +1267,25 @@ function buildSemanticParentProjection({ semanticVerification, observations }) {
       ? verdict.supportingEvidenceRefs
       : [];
     if (supportingRefs.length === 0) continue;
-    let hasCertifiedSearch = false;
+    const projectionRefs = subgoal.proofPolicy === 'bounded_usage_cross_check'
+      ? supportingRefs.filter(ref => observationById.get(ref)?.kind !== 'search')
+      : supportingRefs;
+    if (projectionRefs.length === 0) continue;
+    const certifiedCount = selectCertifiedDeterministicCount({
+      subgoal,
+      claim,
+      semanticVerdict: verdict,
+      absenceCertificates: certificates,
+      deterministicCounts,
+    });
+    const comparisonCountRefs = boundStaticComparisonSearchRefs({
+      subgoal,
+      supportingRefs,
+      observationById,
+    });
+    let hasCertifiedAbsence = false;
     let hasPathlessGit = false;
-    const projectedEvidence = supportingRefs.map(ref => {
+    const projectedEvidence = projectionRefs.map(ref => {
       if (!(claim.evidenceRefs ?? []).includes(ref)) return null;
       const observation = observationById.get(ref);
       const direct = parentEvidenceFromObservation(observation);
@@ -1231,7 +1299,14 @@ function buildSemanticParentProjection({ semanticVerification, observations }) {
         verdict,
         ref,
       })) {
-        hasCertifiedSearch = true;
+        hasCertifiedAbsence = true;
+        return undefined;
+      }
+      if (observation?.kind === 'search' && certifiedCount?.observationRef === ref) {
+        const pairedSource = pairedStaticArraySourceObservation(ref, observationById);
+        return pairedSource ? parentEvidenceFromObservation(pairedSource) : null;
+      }
+      if (observation?.kind === 'search' && comparisonCountRefs.has(ref)) {
         return undefined;
       }
       return null;
@@ -1240,7 +1315,7 @@ function buildSemanticParentProjection({ semanticVerification, observations }) {
     claimIds.add(claim.id);
     supportingRefsByClaimId.set(claim.id, projectedEvidence
       .filter(Boolean).map(item => item.id));
-    if (hasCertifiedSearch) certificateClaimIds.add(claim.id);
+    if (hasCertifiedAbsence) certificateClaimIds.add(claim.id);
     if (hasPathlessGit) pathlessGitClaimIds.add(claim.id);
     for (const item of projectedEvidence.filter(Boolean)) evidenceById.set(item.id, item);
   }
@@ -1377,6 +1452,9 @@ function buildParentEvidenceProjection({ result, semanticVerification, observati
   const certificates = Array.isArray(semanticVerification?.absenceCertificates)
     ? semanticVerification.absenceCertificates
     : [];
+  const deterministicCounts = Array.isArray(semanticVerification?.deterministicCounts)
+    ? semanticVerification.deterministicCounts
+    : [];
   const baseEvidenceByRef = new Map();
 
   for (const ref of selectedRefs) {
@@ -1419,9 +1497,25 @@ function buildParentEvidenceProjection({ result, semanticVerification, observati
   const evidenceForClaimRef = (claim, ref) => {
     const direct = baseEvidenceByRef.get(ref);
     if (direct) return { key: `ref:${ref}`, evidence: direct };
-    if (observationById.get(ref)?.kind !== 'search') return null;
+    const observation = observationById.get(ref);
+    if (observation?.kind !== 'search') return null;
     const subgoal = subgoalById.get(claim.subgoalId);
     const verdict = verdictByClaimId.get(claim.id);
+    const comparisonCountRefs = boundStaticComparisonSearchRefs({
+      subgoal,
+      supportingRefs: Array.isArray(verdict?.supportingEvidenceRefs)
+        ? verdict.supportingEvidenceRefs
+        : [],
+      observationById,
+    });
+    if (comparisonCountRefs.has(ref)) {
+      return { key: `count:${claim.id}:${ref}`, evidence: null, internal: true };
+    }
+    if (subgoal?.proofPolicy === 'bounded_usage_cross_check' &&
+        verdict?.supportingEvidenceRefs?.includes(ref) &&
+        observation.enumerationComplete === true) {
+      return { key: `usage:${claim.id}:${ref}`, evidence: null, internal: true };
+    }
     if (!certificateMaySurfaceForClaim(subgoal, verdict)) return null;
     const key = `${claim.subgoalId}\0${ref}`;
     if (!absenceEvidenceByClaimRef.has(key)) {
@@ -1438,7 +1532,34 @@ function buildParentEvidenceProjection({ result, semanticVerification, observati
         : null);
     }
     const evidence = absenceEvidenceByClaimRef.get(key);
-    return evidence ? { key: `absence:${key}`, evidence } : null;
+    if (evidence) return { key: `absence:${key}`, evidence };
+    const certifiedCount = selectCertifiedDeterministicCount({
+      subgoal,
+      claim,
+      semanticVerdict: verdict,
+      absenceCertificates: certificates,
+      deterministicCounts,
+    });
+    if (certifiedCount?.observationRef !== ref) return null;
+    const pairedSource = pairedStaticArraySourceObservation(ref, observationById);
+    if (!pairedSource) return null;
+    const grounded = groundedById.get(pairedSource.id);
+    const evidencePath = normalizeTargetPath(grounded?.path);
+    const validRange = Number.isInteger(grounded?.startLine) &&
+      Number.isInteger(grounded?.endLine) && grounded.startLine >= 1 &&
+      grounded.endLine >= grounded.startLine;
+    return evidencePath && validRange
+      ? {
+          key: `ref:${pairedSource.id}`,
+          evidence: {
+            id: pairedSource.id,
+            kind: 'source',
+            path: evidencePath,
+            startLine: grounded.startLine,
+            endLine: grounded.endLine,
+          },
+        }
+      : null;
   };
   const acceptedClaims = [];
   const refsByClaimId = new Map();
@@ -1448,7 +1569,9 @@ function buildParentEvidenceProjection({ result, semanticVerification, observati
     if (claim?.verdict !== 'supported' || subgoal?.state !== 'supported' ||
         verdict?.result !== 'supported') continue;
     const refs = claimCover.evidenceRefsByClaimId.get(claim.id) ?? [];
-    if (refs.length === 0 || refs.some(ref => !evidenceForClaimRef(claim, ref))) continue;
+    const projectedRefs = refs.map(ref => evidenceForClaimRef(claim, ref));
+    if (refs.length === 0 || projectedRefs.some(projected => !projected) ||
+        !projectedRefs.some(projected => projected.evidence)) continue;
     const text = typeof claim.text === 'string' ? claim.text.trim() : '';
     if (!text) continue;
     acceptedClaims.push(claim);
@@ -1459,6 +1582,7 @@ function buildParentEvidenceProjection({ result, semanticVerification, observati
   for (const claim of acceptedClaims) {
     for (const ref of refsByClaimId.get(claim.id) ?? []) {
       const projected = evidenceForClaimRef(claim, ref);
+      if (projected.internal) continue;
       const existing = projectedEvidence.get(projected.key);
       if (!existing) {
         projectedEvidence.set(projected.key, {
@@ -1868,15 +1992,17 @@ async function requestValidatedGoalControl({
     } catch (error) {
       validationError = error;
       if (attempt === 1) break;
+      const validationSummary = redactText(
+        String(error?.message ?? error).replace(/\s+/g, ' ').slice(0, 800),
+      ).text;
       requestMessages = [
         ...messages,
         {
-          role: 'assistant',
-          content: redactText(String(content).slice(0, 4000)).text,
-        },
-        {
           role: 'user',
-          content: 'Your previous control object was invalid. Return exactly one JSON object matching the supplied schema. Do not call tools, answer the repository task, add requirements, or change scope.',
+          content: `The previous control object failed runtime validation: ${validationSummary} ` +
+            'Return exactly one corrected JSON object matching the supplied schema. ' +
+            'Use only ids, origin references, evidence references, and scope already supplied in the original packet. ' +
+            'Do not copy the invalid object, call tools, answer the repository task, add requirements, or change scope.',
         },
       ];
     }
@@ -1925,7 +2051,24 @@ function validateSynthesizedClaimBatch(raw, {
   usedClaimIds,
   priorClaims = [],
 }) {
-  const response = validateClaimSynthesisResponse(raw);
+  const subgoalById = new Map(taskContract.subgoals.map(goal => [goal.id, goal]));
+  const normalizedRaw = raw && typeof raw === 'object' && !Array.isArray(raw)
+    ? {
+        ...raw,
+        ...(Array.isArray(raw.claims) ? {
+          claims: raw.claims.map(candidate => {
+            if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate) ||
+                subgoalById.get(candidate.subgoalId)?.claimType === 'count' ||
+                candidate.measurement === undefined) {
+              return candidate;
+            }
+            const { measurement: _ignoredMeasurement, ...withoutMeasurement } = candidate;
+            return withoutMeasurement;
+          }),
+        } : {}),
+      }
+    : raw;
+  const response = validateClaimSynthesisResponse(normalizedRaw);
   const subgoalIds = new Set(taskContract.subgoals.map(goal => goal.id));
   const priorClaimById = new Map(priorClaims.map(claim => [claim.id, claim]));
   if (priorClaimById.size !== priorClaims.length) {
@@ -1943,10 +2086,16 @@ function validateSynthesizedClaimBatch(raw, {
         candidate.evidenceRefs.some(ref => !observationIds.has(ref))) {
       throw new TypeError(`Claim synthesis returned invalid evidence refs at claims[${index}].`);
     }
+    const subgoal = subgoalById.get(candidate.subgoalId);
+    if (subgoal?.claimType === 'count' && candidate.measurement === undefined) {
+      throw new TypeError(`Count claim ${candidate.id} requires a structured measurement.`);
+    }
     const priorClaim = priorClaimById.get(candidate.id);
     if (priorClaim && (candidate.subgoalId !== priorClaim.subgoalId ||
         candidate.text !== priorClaim.text ||
-        priorClaim.evidenceRefs.some(ref => !candidate.evidenceRefs.includes(ref)))) {
+        priorClaim.evidenceRefs.some(ref => !candidate.evidenceRefs.includes(ref)) ||
+        JSON.stringify(candidate.measurement ?? null) !==
+          JSON.stringify(priorClaim.measurement ?? null))) {
       throw new TypeError(`Post-repair claim synthesis changed prior claim ${candidate.id}.`);
     }
     batchClaimIds.add(candidate.id);
@@ -2098,12 +2247,85 @@ function buildRuntimeAbsenceCertificates({ taskContract, claims, observations })
   return certificates;
 }
 
+function buildRuntimeDeterministicCounts({
+  taskContract,
+  claims,
+  observations,
+  absenceCertificates,
+}) {
+  const subgoalById = new Map(taskContract.subgoals.map(subgoal => [subgoal.id, subgoal]));
+  const searchById = new Map(observations
+    .filter(observation => observation?.kind === 'search')
+    .map(observation => [observation.id, observation]));
+  const claimBoundary = taskClaimBoundary(taskContract);
+  const counts = [];
+
+  for (const claim of claims) {
+    const subgoal = subgoalById.get(claim.subgoalId);
+    if (subgoal?.proofPolicy !== 'deterministic_count') continue;
+    for (const ref of claim.evidenceRefs) {
+      const observation = searchById.get(ref);
+      const certificate = absenceCertificates.find(candidate =>
+        candidate?.subgoalId === subgoal.id && candidate.searchRefs?.includes(ref));
+      if (!observation || !certificate ||
+          !['repo_grep', 'repo_find_files', 'repo_symbol_context'].includes(observation.tool)) {
+        continue;
+      }
+      const unit = observation.tool === 'repo_grep'
+        ? 'matching_lines'
+        : observation.tool === 'repo_find_files'
+          ? 'files'
+          : observation.deterministicMeasurement?.unit;
+      if (!['matching_lines', 'files', 'array_entries'].includes(unit)) continue;
+      if (observation.tool === 'repo_symbol_context' &&
+          (observation.deterministicMeasurement?.kind !== 'count' ||
+            observation.deterministicMeasurement.value !== observation.normalizedItemIds?.length)) {
+        continue;
+      }
+      counts.push(computeDeterministicCount({
+        subgoalId: subgoal.id,
+        claimId: claim.id,
+        observationRef: ref,
+        unit,
+        claimBoundary,
+        certificate,
+        ...(Array.isArray(observation.normalizedItemIds)
+          ? { normalizedItemIds: observation.normalizedItemIds }
+          : {}),
+      }));
+    }
+  }
+  return counts;
+}
+
+function wrapperPartForSubgoal(subgoal, wrapperTool) {
+  if (typeof wrapperTool !== 'string') return null;
+  const prefix = `wrapper:${wrapperTool}:`;
+  const parts = (subgoal?.originRefs ?? [])
+    .filter(ref => typeof ref === 'string' && ref.startsWith(prefix))
+    .map(ref => ref.slice(prefix.length));
+  return parts.length === 1 ? parts[0] : null;
+}
+
 function runtimeRoleRequirement(subgoal) {
-  if (['bounded_absence', 'deterministic_count', 'bounded_usage_cross_check']
-    .includes(subgoal.proofPolicy)) {
+  if (subgoal.proofPolicy === 'bounded_absence') {
     return {
       observationKinds: ['search'],
       sourceRoles: [],
+      temporalRole: 'current',
+    };
+  }
+  if (subgoal.proofPolicy === 'deterministic_count') {
+    return {
+      observationKinds: ['source', 'search'],
+      sourceRoles: ['implementation', 'config', 'test', 'documentation', 'fixture'],
+      temporalRole: 'current',
+    };
+  }
+  if (subgoal.proofPolicy === 'bounded_usage_cross_check') {
+    return {
+      observationKinds: ['source', 'search'],
+      sourceRoles: ['implementation', 'config', 'test', 'fixture'],
       temporalRole: 'current',
     };
   }
@@ -2112,6 +2334,20 @@ function runtimeRoleRequirement(subgoal) {
       observationKinds: ['source', 'search', 'git_commit', 'git_blame', 'git_diff_hunk'],
       sourceRoles: ['implementation', 'config', 'test', 'documentation', 'fixture'],
       temporalRoles: ['current', 'historical'],
+    };
+  }
+  if (subgoal.proofPolicy === 'distinct_policy_paths') {
+    return {
+      observationKinds: ['source', 'search'],
+      sourceRoles: ['implementation', 'config'],
+      temporalRole: 'current',
+    };
+  }
+  if (subgoal.proofPolicy === 'impact_categories') {
+    return {
+      observationKinds: ['source'],
+      sourceRoles: ['implementation', 'config', 'test', 'documentation'],
+      temporalRole: 'current',
     };
   }
   if (subgoal.proofPolicy === 'direct_source') {
@@ -2128,21 +2364,85 @@ function runtimeRoleRequirement(subgoal) {
   };
 }
 
+function wrapperSourceLocation(observation) {
+  if (observation?.kind !== 'source' || observation.temporalRole !== 'current' ||
+      typeof observation.path !== 'string' || !observation.path ||
+      !Number.isInteger(observation.startLine) ||
+      !Number.isInteger(observation.endLine) ||
+      observation.startLine < 1 || observation.endLine < observation.startLine) {
+    return null;
+  }
+  return `${observation.path.replaceAll('\\', '/').toLowerCase()}:` +
+    `${observation.startLine}:${observation.endLine}`;
+}
+
+export function buildRuntimeWrapperPolicyArtifacts({
+  wrapperTool,
+  subgoals,
+  claims,
+  semanticVerdicts,
+  observations,
+}) {
+  if (!['explain_code_path', 'map_change_impact'].includes(wrapperTool)) return new Map();
+  const subgoalById = new Map(subgoals.map(subgoal => [subgoal.id, subgoal]));
+  const verdictByClaimId = new Map(semanticVerdicts.map(verdict => [verdict.claimId, verdict]));
+  const observationById = new Map(observations.map(observation => [observation.id, observation]));
+  const entries = [];
+
+  for (const claim of claims) {
+    const subgoal = subgoalById.get(claim.subgoalId);
+    const verdict = verdictByClaimId.get(claim.id);
+    const wrapperPart = wrapperPartForSubgoal(subgoal, wrapperTool);
+    if (!wrapperPart || verdict?.result !== 'supported') continue;
+    const requirement = runtimeRoleRequirement(subgoal);
+    const claimRefs = new Set(Array.isArray(claim.evidenceRefs) ? claim.evidenceRefs : []);
+    const allowedRoles = new Set(requirement.sourceRoles);
+    const evidence = (Array.isArray(verdict.supportingEvidenceRefs)
+      ? verdict.supportingEvidenceRefs
+      : [])
+      .filter(ref => claimRefs.has(ref))
+      .map(ref => ({ ref, observation: observationById.get(ref) }))
+      .filter(item => wrapperSourceLocation(item.observation) &&
+        allowedRoles.has(item.observation.sourceRole));
+    const entry = { claimId: claim.id, wrapperPart, evidence };
+    entries.push(entry);
+  }
+
+  return new Map(entries.map(entry => {
+    const evidenceRefs = [...new Set(entry.evidence.map(item => item.ref))];
+    const observed = evidenceRefs.length > 0 ? [entry.wrapperPart] : [];
+    const artifacts = wrapperTool === 'explain_code_path'
+      ? {
+          requiredTransitions: [entry.wrapperPart],
+          observedTransitions: observed,
+          transitionEvidenceRefs: { [entry.wrapperPart]: evidenceRefs },
+        }
+      : {
+          requiredImpactCategories: [entry.wrapperPart],
+          coveredImpactCategories: observed,
+          impactCategoryEvidenceRefs: { [entry.wrapperPart]: evidenceRefs },
+        };
+    return [entry.claimId, artifacts];
+  }));
+}
+
 function applyRuntimeProofGate({
   subgoal,
   claim,
   semanticVerdict,
   observations,
   absenceCertificates,
+  deterministicCounts,
+  policyArtifacts = {},
 }) {
   let proofPolicyResult = evaluateProofPolicy({
     subgoal,
     claim,
     semanticVerdict,
     absenceCertificates,
-    deterministicCounts: [],
+    deterministicCounts,
     observations,
-    policyArtifacts: {},
+    policyArtifacts,
   });
   if (proofPolicyResult.passed === true &&
       subgoal.proofPolicy === 'bounded_usage_cross_check') {
@@ -2166,6 +2466,39 @@ function applyRuntimeProofGate({
     proofPolicyResult,
     roleRequirement: runtimeRoleRequirement(subgoal),
   });
+}
+
+function canonicalizeDeterministicCountClaim({
+  subgoal,
+  claim,
+  verdict,
+  absenceCertificates,
+  deterministicCounts,
+}) {
+  if (subgoal?.proofPolicy !== 'deterministic_count' || verdict?.result !== 'supported') {
+    return claim;
+  }
+  const count = selectCertifiedDeterministicCount({
+    subgoal,
+    claim,
+    semanticVerdict: verdict,
+    absenceCertificates,
+    deterministicCounts,
+  });
+  if (!count) return claim;
+  const question = typeof subgoal.question === 'string'
+    ? subgoal.question.replace(/\s+/gu, ' ').trim().replaceAll('"', "'")
+    : 'the requested repository items';
+  const boundary = count.claimBoundary.join(', ');
+  const subject = count.unit === 'files'
+    ? 'unique files'
+    : count.unit === 'array_entries'
+      ? 'array entries'
+      : 'unique matching lines';
+  return {
+    ...claim,
+    text: `Within [${boundary}], the deterministic count of ${subject} for "${question}" is ${count.count}.`,
+  };
 }
 
 function wrapperToolForTaskMode(taskMode) {
@@ -2379,11 +2712,6 @@ async function runEvidenceRepairToolBatch({
     });
   }
 
-  if (toolCalls.length > 0) {
-    const closingCompletion = await request();
-    onCompletion?.(closingCompletion, 'repair');
-    messages.push(buildAssistantMessage(closingCompletion.message));
-  }
   return {
     messages,
     executions: executed,
@@ -3165,6 +3493,30 @@ async function buildRuntimeToolObservations({
       });
     }
   }
+  if (toolName === 'repo_symbol_context' && !toolResult?.error &&
+      toolResult?.definition?.path && Number.isInteger(toolResult.definition.line)) {
+    const rebuilt = await readRuntimeSourceRange(repoRoot, {
+      path: toolResult.definition.path,
+      startLine: toolResult.definition.line,
+      endLine: Number.isInteger(toolResult.definition.endLine)
+        ? toolResult.definition.endLine
+        : toolResult.definition.line,
+    }, { maxLines: 200, maxChars: 24_000 });
+    if (rebuilt) {
+      sourceObservations.push({
+        id,
+        kind: 'source',
+        path: rebuilt.path,
+        startLine: rebuilt.startLine,
+        endLine: rebuilt.endLine,
+        snippet: rebuilt.snippet,
+        rangeGrounding: rebuilt.rangeGrounding,
+        sourceRole: classifySourceRole(toolResult.definition.path),
+        temporalRole: 'current',
+        redacted: rebuilt.redacted,
+      });
+    }
+  }
 
   const gitObservations = buildGitRuntimeObservations({ id, toolName, toolArgs, toolResult });
   const directObservations = [...sourceObservations, ...gitObservations];
@@ -3581,6 +3933,7 @@ export class ExplorerRuntime {
       subgoalId: claim?.subgoalId,
       text: claim?.text,
       evidenceRefs: Array.isArray(claim?.evidenceRefs) ? [...claim.evidenceRefs] : [],
+      ...(claim?.measurement ? { measurement: { ...claim.measurement } } : {}),
     })) : [];
     const priorSubgoalIds = new Set(safePriorClaims.map(claim => claim.subgoalId));
     const activeSubgoals = taskContract.subgoals.filter(subgoal =>
@@ -3641,8 +3994,15 @@ export class ExplorerRuntime {
       claims,
       observations: safeObservations,
     });
+    const deterministicCounts = buildRuntimeDeterministicCounts({
+      taskContract: candidateContract,
+      claims,
+      observations: safeObservations,
+      absenceCertificates,
+    });
     const semanticVerdicts = [];
     const uncoveredRequestParts = [];
+    const verificationBatches = [];
     const candidateBatches = controlBatches(candidateSubgoals.filter(subgoal =>
       claims.some(claim => claim.subgoalId === subgoal.id)));
     for (const subgoalBatch of candidateBatches) {
@@ -3652,6 +4012,8 @@ export class ExplorerRuntime {
       const batchContract = semanticBatchContract(candidateContract, subgoalBatch);
       const batchAbsenceCertificates = absenceCertificates.filter(certificate =>
         subgoalIds.has(certificate.subgoalId));
+      const batchDeterministicCounts = deterministicCounts.filter(count =>
+        subgoalIds.has(count.subgoalId));
       const verified = await requestValidatedGoalControl({
         chatClient,
         messages: buildSemanticVerifierMessages({
@@ -3675,6 +4037,32 @@ export class ExplorerRuntime {
           claims: batchClaims,
         }),
       });
+      verificationBatches.push({
+        subgoalBatch,
+        batchClaims,
+        batchObservations,
+        batchAbsenceCertificates,
+        batchDeterministicCounts,
+        verified,
+      });
+      uncoveredRequestParts.push(...verified.uncoveredRequestParts);
+    }
+
+    const wrapperPolicyArtifacts = buildRuntimeWrapperPolicyArtifacts({
+      wrapperTool,
+      subgoals: candidateSubgoals,
+      claims,
+      semanticVerdicts: verificationBatches.flatMap(batch => batch.verified.verdicts),
+      observations: safeObservations,
+    });
+    for (const {
+      subgoalBatch,
+      batchClaims,
+      batchObservations,
+      batchAbsenceCertificates,
+      batchDeterministicCounts,
+      verified,
+    } of verificationBatches) {
       const batchSubgoalById = new Map(subgoalBatch.map(subgoal => [subgoal.id, subgoal]));
       const gatedVerdicts = verified.verdicts.map((verdict, index) => applyRuntimeProofGate({
         subgoal: batchSubgoalById.get(batchClaims[index].subgoalId),
@@ -3682,9 +4070,21 @@ export class ExplorerRuntime {
         semanticVerdict: verdict,
         observations: batchObservations,
         absenceCertificates: batchAbsenceCertificates,
+        deterministicCounts: batchDeterministicCounts,
+        policyArtifacts: wrapperPolicyArtifacts.get(batchClaims[index].id),
       }));
+      for (const [index, verdict] of gatedVerdicts.entries()) {
+        const claimIndex = claims.findIndex(claim => claim.id === batchClaims[index].id);
+        if (claimIndex < 0) continue;
+        claims[claimIndex] = canonicalizeDeterministicCountClaim({
+          subgoal: batchSubgoalById.get(batchClaims[index].subgoalId),
+          claim: claims[claimIndex],
+          verdict,
+          absenceCertificates: batchAbsenceCertificates,
+          deterministicCounts: batchDeterministicCounts,
+        });
+      }
       semanticVerdicts.push(...gatedVerdicts);
-      uncoveredRequestParts.push(...verified.uncoveredRequestParts);
       onTrustEvent?.('verdict', {
         phase,
         claims: batchClaims,
@@ -3718,6 +4118,7 @@ export class ExplorerRuntime {
       claims: reduced.claims,
       semanticVerdicts,
       absenceCertificates,
+      deterministicCounts,
       uncoveredRequestParts,
       runtimeAllowedEvidenceRefsBySubgoal,
     };
@@ -3827,6 +4228,7 @@ export class ExplorerRuntime {
       abortSignal,
       onCompletion,
     });
+    const goalAuditRecords = [...initialAudit.response.goals];
     emitGoalAuditEvents(onPlanningEvent, {
       phase: 'initial',
       revisionCount: 0,
@@ -3909,6 +4311,7 @@ export class ExplorerRuntime {
           onCompletion,
           allowEmptyRequired: true,
         });
+      goalAuditRecords.push(...revisedAudit.response.goals);
       emitGoalAuditEvents(onPlanningEvent, {
         phase: 'revision',
         revisionCount: 1,
@@ -4003,6 +4406,7 @@ export class ExplorerRuntime {
       taskContract,
       coverageGaps: finalReduction.gaps,
       rejectedGoals: finalReduction.rejectedGoals,
+      goalAuditRecords,
       revisionCount,
     };
   }
@@ -5132,12 +5536,14 @@ export class ExplorerRuntime {
       normalized.taskContract = safePlan.taskContract;
       normalized.coverageGaps = safePlan.coverageGaps;
       normalized.rejectedGoals = safePlan.rejectedGoals;
+      normalized.goalAuditRecords = safePlan.goalAuditRecords;
     }
     if (semanticVerification) {
       normalized.semanticVerification = redactValue({
         claims: semanticVerification.claims,
         verdicts: semanticVerification.semanticVerdicts,
         absenceCertificates: semanticVerification.absenceCertificates,
+        deterministicCounts: semanticVerification.deterministicCounts,
         uncoveredRequestParts: semanticVerification.uncoveredRequestParts,
         runtimeAllowedEvidenceRefsBySubgoal:
           semanticVerification.runtimeAllowedEvidenceRefsBySubgoal,
@@ -5171,6 +5577,12 @@ export class ExplorerRuntime {
         finalObject = buildCancelledExploreObject();
       } else if (error?.code === INVALID_GOAL_CONTROL) {
         stats.invalidGoalControl = true;
+        recordPlanningEvent(transcript, 'control_invalid', {
+          stage: error.stage,
+          reason: String(error.cause?.message ?? 'invalid_control_output')
+            .replace(/\s+/g, ' ')
+            .slice(0, 240),
+        });
         const verifierStage = error.stage === 'claim_synthesis' || error.stage === 'semantic_verifier';
         const finalStage = error.stage === 'final_synthesis';
         const message = verifierStage

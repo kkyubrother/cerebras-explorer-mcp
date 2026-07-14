@@ -2,11 +2,14 @@
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 
 import {
+  FIXTURE_TRUST_EVALUATION_PROFILE,
+  LIVE_TRUST_EVALUATION_PROFILE,
   evaluateTrustCase,
   evaluateTrustRepeatability,
 } from '../src/benchmark/evaluator.mjs';
@@ -136,13 +139,103 @@ export async function fixtureTreeSha256(root) {
   return hash.digest('hex');
 }
 
-async function runGit(repoRoot, args) {
+function sanitizedGitEnvironment(overrides = {}) {
+  const environment = { ...process.env, ...overrides };
+  for (const key of Object.keys(environment)) {
+    if (/^GIT_CONFIG_(?:KEY|VALUE)_\d+$/u.test(key) || [
+      'GIT_DIR',
+      'GIT_WORK_TREE',
+      'GIT_INDEX_FILE',
+      'GIT_OBJECT_DIRECTORY',
+      'GIT_ALTERNATE_OBJECT_DIRECTORIES',
+      'GIT_COMMON_DIR',
+      'GIT_CEILING_DIRECTORIES',
+      'GIT_TEMPLATE_DIR',
+      'GIT_CONFIG_COUNT',
+      'GIT_CONFIG_SYSTEM',
+      'GIT_CONFIG_GLOBAL',
+    ].includes(key)) delete environment[key];
+  }
+  environment.GIT_CONFIG_NOSYSTEM = '1';
+  environment.GIT_CONFIG_GLOBAL = process.platform === 'win32' ? 'NUL' : '/dev/null';
+  return environment;
+}
+
+async function runGit(repoRoot, args, options = {}) {
+  const { env, ...rest } = options;
   const { stdout } = await execFileAsync('git', ['-C', repoRoot, ...args], {
     encoding: null,
     maxBuffer: MAX_GIT_OUTPUT_BYTES,
     windowsHide: true,
+    ...rest,
+    env: sanitizedGitEnvironment(env),
   });
   return Buffer.isBuffer(stdout) ? stdout : Buffer.from(stdout);
+}
+
+export async function prepareFixtureRepository(repoRoot, fixtureSetup) {
+  if (fixtureSetup === undefined) {
+    return { repoRoot, cleanup: async () => {} };
+  }
+  if (!fixtureSetup || fixtureSetup.kind !== 'deterministic_git_commit') {
+    throw new Error('Unsupported fixture setup.');
+  }
+
+  const requiredText = ['message', 'name', 'email', 'date', 'headSha'];
+  const setupKeys = Object.keys(fixtureSetup).sort();
+  const expectedKeys = ['date', 'email', 'headSha', 'kind', 'message', 'name'];
+  if (setupKeys.length !== expectedKeys.length ||
+      setupKeys.some((key, index) => key !== expectedKeys[index]) ||
+      requiredText.some(key => typeof fixtureSetup[key] !== 'string' || !fixtureSetup[key])) {
+    throw new Error('Deterministic Git fixture setup is incomplete.');
+  }
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(fixtureSetup.date) ||
+      !/^[0-9a-f]{40}$/.test(fixtureSetup.headSha)) {
+    throw new Error('Deterministic Git fixture setup has an invalid pin.');
+  }
+
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-trust-git-'));
+  const preparedRoot = path.join(tempRoot, 'repo');
+  const hooksRoot = path.join(tempRoot, 'hooks');
+  try {
+    await fs.cp(repoRoot, preparedRoot, { recursive: true });
+    await fs.mkdir(hooksRoot);
+    await runGit(preparedRoot, ['init', '--quiet', '--object-format=sha1']);
+    await runGit(preparedRoot, ['config', 'core.autocrlf', 'false']);
+    await runGit(preparedRoot, ['config', 'core.filemode', 'false']);
+    await runGit(preparedRoot, ['config', 'core.hooksPath', hooksRoot]);
+    await runGit(preparedRoot, ['config', 'commit.gpgsign', 'false']);
+    await runGit(preparedRoot, ['config', 'user.name', fixtureSetup.name]);
+    await runGit(preparedRoot, ['config', 'user.email', fixtureSetup.email]);
+    await runGit(preparedRoot, ['add', '--', '.']);
+    const commitEnvironment = {
+      GIT_AUTHOR_NAME: fixtureSetup.name,
+      GIT_AUTHOR_EMAIL: fixtureSetup.email,
+      GIT_AUTHOR_DATE: fixtureSetup.date,
+      GIT_COMMITTER_NAME: fixtureSetup.name,
+      GIT_COMMITTER_EMAIL: fixtureSetup.email,
+      GIT_COMMITTER_DATE: fixtureSetup.date,
+    };
+    await runGit(preparedRoot, ['commit', '--quiet', '-m', fixtureSetup.message], {
+      env: commitEnvironment,
+    });
+    const headSha = (await runGit(preparedRoot, ['rev-parse', 'HEAD'])).toString('utf8').trim();
+    if (headSha !== fixtureSetup.headSha) {
+      throw new Error('Deterministic Git fixture setup did not reproduce its manifest pin.');
+    }
+    const status = (await runGit(preparedRoot, [
+      'status', '--porcelain=v1', '--untracked-files=all',
+    ])).toString('utf8');
+    if (status !== '') throw new Error('Deterministic Git fixture setup is not clean.');
+    return {
+      repoRoot: preparedRoot,
+      fixtureSetupHeadSha: headSha,
+      cleanup: () => fs.rm(tempRoot, { recursive: true, force: true }),
+    };
+  } catch (error) {
+    await fs.rm(tempRoot, { recursive: true, force: true });
+    throw error;
+  }
 }
 
 function splitNullTerminated(buffer) {
@@ -252,6 +345,13 @@ function selectCases(manifest, mode) {
 export function repeatCountForCase(caseDefinition, override) {
   if (override === null || override === undefined) return caseDefinition.repeatCount ?? 1;
   return (caseDefinition.repeatCount ?? 1) > 1 ? override : 1;
+}
+
+export function evaluationOptionsForCase(mode, caseDefinition) {
+  if (mode === 'fixture') {
+    return { mode, profile: FIXTURE_TRUST_EVALUATION_PROFILE };
+  }
+  return { mode, profile: caseDefinition?.livePolicy?.profile ?? null };
 }
 
 function responseSchemaRequired(request) {
@@ -593,6 +693,7 @@ function median(values) {
 
 async function runCase({ manifest, caseDefinition, source, mode, repoRoot, pinData, options }) {
   const runCount = repeatCountForCase(caseDefinition, options.repeats);
+  const evaluationOptions = evaluationOptionsForCase(mode, caseDefinition);
   const artifacts = [];
   const runs = [];
   for (let index = 0; index < runCount; index += 1) {
@@ -609,7 +710,7 @@ async function runCase({ manifest, caseDefinition, source, mode, repoRoot, pinDa
     }
     const latencyMs = Date.now() - startedAt;
     artifacts.push(result);
-    const evaluation = evaluateTrustCase(caseDefinition, result);
+    const evaluation = evaluateTrustCase(caseDefinition, result, evaluationOptions);
     runs.push({
       run: index + 1,
       evaluation,
@@ -630,12 +731,14 @@ async function runCase({ manifest, caseDefinition, source, mode, repoRoot, pinDa
   const repeatability = evaluateTrustRepeatability(
     { ...caseDefinition, repeatCount: runCount },
     artifacts,
+    evaluationOptions,
   );
   const hasHarnessFailure = runs.some(run => run.harnessFailure);
   return {
     id: caseDefinition.id,
     repoId: source.repoId,
     tool: caseDefinition.invocation?.tool,
+    evaluationProfile: evaluationOptions.profile,
     pin: pinData.pin,
     runCount,
     passed: pinData.pin.matched && repeatability.passed && !hasHarnessFailure,
@@ -752,17 +855,55 @@ export async function runTrustSuite(options) {
       continue;
     }
 
-    const caseResult = await runCase({
-      manifest,
-      caseDefinition,
-      source,
-      mode: options.mode,
-      repoRoot,
-      pinData,
-      options,
-    });
-    caseResults.push(caseResult);
-    printCase(caseResult, options.verbose);
+    let prepared = { repoRoot, cleanup: async () => {} };
+    try {
+      if (options.mode === 'fixture') {
+        prepared = await prepareFixtureRepository(repoRoot, caseDefinition.fixtureSetup);
+        if (prepared.fixtureSetupHeadSha) {
+          pinData = {
+            ...pinData,
+            pin: {
+              ...pinData.pin,
+              fixtureSetupHeadSha: {
+                expected: caseDefinition.fixtureSetup.headSha,
+                actual: prepared.fixtureSetupHeadSha,
+              },
+            },
+          };
+        }
+      }
+      const caseResult = await runCase({
+        manifest,
+        caseDefinition,
+        source,
+        mode: options.mode,
+        repoRoot: prepared.repoRoot,
+        pinData,
+        options,
+      });
+      caseResults.push(caseResult);
+      printCase(caseResult, options.verbose);
+    } catch (error) {
+      const failed = {
+        id: caseDefinition.id,
+        repoId: source.repoId,
+        skipped: false,
+        passed: false,
+        pin: pinData.pin,
+        reason: logicalizeString(
+          String(error.message ?? error),
+          prepared.repoRoot ?? repoRoot,
+          source.repoId,
+        ),
+        violations: [{
+          code: options.mode === 'fixture' ? 'FIXTURE_SETUP_FAILED' : 'CASE_EXECUTION_FAILED',
+        }],
+      };
+      caseResults.push(failed);
+      printCase(failed, options.verbose);
+    } finally {
+      await prepared.cleanup();
+    }
   }
 
   const summary = summarize(caseResults);
@@ -775,7 +916,13 @@ export async function runTrustSuite(options) {
       : 'git SHA + sha256-dirty-tree-v1',
     acceptancePolicy: {
       oracle: 'independent manifest oracle',
-      repeatability: 'required-goal state and accepted-claim signature',
+      profiles: {
+        fixture: FIXTURE_TRUST_EVALUATION_PROFILE,
+        live: LIVE_TRUST_EVALUATION_PROFILE,
+      },
+      repeatability: options.mode === 'live'
+        ? 'completion state and independently anchored dispositions'
+        : 'required-goal state and accepted-claim signature',
       recordOnly: ['usage', 'latency'],
     },
     cases: caseResults,

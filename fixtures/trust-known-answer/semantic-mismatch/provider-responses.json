@@ -34,7 +34,8 @@
                 "id": "C1",
                 "subgoalId": "S1",
                 "text": "There are 117 configured secret patterns.",
-                "evidenceRefs": ["E1"]
+                "evidenceRefs": ["E1"],
+                "measurement": { "kind": "count", "unit": "array_entries", "value": 117 }
               }
             ]
           },

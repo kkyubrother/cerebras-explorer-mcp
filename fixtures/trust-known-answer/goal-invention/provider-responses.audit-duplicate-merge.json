@@ -39,16 +39,18 @@
           "content": {
             "goals": [
               {
-                "id": "S1",
+                "proposedGoalId": "S1",
                 "verdict": "ready",
-                "confirmedOriginRefs": ["request:0-36"],
+                "originRefs": ["request:0-36"],
+                "missingRequestParts": [],
                 "reason": "The requested predicate is directly observable in current source."
               },
               {
-                "id": "S2",
+                "proposedGoalId": "S2",
                 "verdict": "merge_duplicate",
                 "mergeInto": "S1",
-                "confirmedOriginRefs": ["request:0-36"],
+                "originRefs": ["request:0-36"],
+                "missingRequestParts": [],
                 "reason": "This is the same authentication obligation as S1 with different wording."
               }
             ],
@@ -65,7 +67,7 @@
           "content": "",
           "toolCalls": [
             {
-              "id": "call-read-auth",
+              "id": "read-auth",
               "function": {
                 "name": "repo_read_file",
                 "arguments": {
@@ -80,7 +82,48 @@
       }
     },
     {
+      "stage": "exploration",
+      "result": {
+        "message": {
+          "content": "The session authentication predicate was inspected.",
+          "toolCalls": []
+        }
+      }
+    },
+    {
       "stage": "synthesis",
+      "result": {
+        "message": {
+          "content": {
+            "directAnswer": "The authentication predicate requires isolated verification.",
+            "status": {
+              "confidence": "high",
+              "verification": "verified",
+              "complete": true,
+              "warnings": []
+            },
+            "targets": [],
+            "evidence": [
+              {
+                "id": "E1",
+                "path": "src/auth.mjs",
+                "startLine": 1,
+                "endLine": 3,
+                "why": "The function directly returns the session authentication predicate."
+              }
+            ],
+            "uncertainties": [],
+            "nextAction": {
+              "type": "stop",
+              "reason": "The duplicate proposal was merged before exploration."
+            }
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "claim_synthesis",
       "result": {
         "message": {
           "content": {
@@ -98,7 +141,7 @@
       }
     },
     {
-      "stage": "verification",
+      "stage": "semantic_verifier",
       "result": {
         "message": {
           "content": {
@@ -106,9 +149,10 @@
               {
                 "claimId": "C1",
                 "result": "supported",
+                "resolution": "affirmed",
                 "supportingEvidenceRefs": ["E1"],
-                "reasonCode": "direct_source",
-                "note": "The current function returns Boolean(session?.userId)."
+                "reasonCode": "entailed",
+                "note": "The current function directly returns Boolean(session?.userId)."
               }
             ],
             "uncoveredRequestParts": []

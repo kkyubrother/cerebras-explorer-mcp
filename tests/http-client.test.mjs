@@ -70,7 +70,16 @@ test('fetchWithTimeoutAndRetry: throws immediately on 400', async () => {
     callCount += 1;
     return { ok: false, status: 400, statusText: 'Bad Request', headers: { get: () => null }, text: async () => JSON.stringify({ error: { message: 'bad input' } }) };
   };
-  await assert.rejects(() => fetchWithTimeoutAndRetry(fetch400, 'http://x', {}, { errorPrefix: 'Test' }), /bad input/);
+  await assert.rejects(
+    () => fetchWithTimeoutAndRetry(fetch400, 'http://x', {}, { errorPrefix: 'Test' }),
+    error => {
+      assert.match(error.message, /bad input/);
+      assert.equal(error.httpStatus, 400);
+      assert.equal(error.retryable, false);
+      assert.equal(error.attemptCount, 1);
+      return true;
+    },
+  );
   assert.equal(callCount, 1, '400 must not be retried');
 });
 
@@ -106,7 +115,16 @@ test('fetchWithTimeoutAndRetry: retries on 500 up to maxRetries then throws', as
     callCount += 1;
     return { ok: false, status: 500, statusText: 'Internal Server Error', headers: { get: () => null }, text: async () => JSON.stringify({ error: { message: 'server error' } }) };
   };
-  await assert.rejects(() => fetchWithTimeoutAndRetry(alwaysFail, 'http://x', {}, { maxRetries: 2 }), /server error/);
+  await assert.rejects(
+    () => fetchWithTimeoutAndRetry(alwaysFail, 'http://x', {}, { maxRetries: 2 }),
+    error => {
+      assert.match(error.message, /server error/);
+      assert.equal(error.httpStatus, 500);
+      assert.equal(error.retryable, true);
+      assert.equal(error.attemptCount, 3);
+      return true;
+    },
+  );
   assert.equal(callCount, 3, 'should have tried 1 + 2 retries = 3 total');
 });
 

@@ -31,9 +31,10 @@
           "content": {
             "goals": [
               {
-                "id": "S1",
+                "proposedGoalId": "S1",
                 "verdict": "blocked_scope",
-                "confirmedOriginRefs": ["request:0-78"],
+                "originRefs": ["request:0-78"],
+                "missingRequestParts": [],
                 "reason": "The requested legacy-route evidence lies outside the immutable src/in-scope/** boundary."
               }
             ],

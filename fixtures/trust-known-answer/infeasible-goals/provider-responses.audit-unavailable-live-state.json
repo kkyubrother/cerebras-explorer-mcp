@@ -1,0 +1,48 @@
+{
+  "fixtureVersion": 1,
+  "scenario": "audit_unavailable_live_state",
+  "responses": [
+    {
+      "stage": "planner",
+      "result": {
+        "message": {
+          "content": {
+            "taskSummary": "Determine whether service:v2 is currently deployed from repository-only evidence.",
+            "constraints": ["Do not equate desired configuration with mutable live state."],
+            "subgoals": [
+              {
+                "id": "S1",
+                "question": "Is service:v2 currently deployed?",
+                "originRefs": ["request:0-51"],
+                "claimType": "positive",
+                "proofCondition": "Observe the mutable live deployment state.",
+                "constraints": ["Repository configuration alone is not live-state proof."]
+              }
+            ]
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "goal_audit",
+      "result": {
+        "message": {
+          "content": {
+            "goals": [
+              {
+                "proposedGoalId": "S1",
+                "verdict": "requires_external_state",
+                "originRefs": ["request:0-51"],
+                "missingRequestParts": [],
+                "reason": "Repository configuration cannot establish mutable live deployment state."
+              }
+            ],
+            "uncoveredRequestParts": []
+          },
+          "toolCalls": []
+        }
+      }
+    }
+  ]
+}

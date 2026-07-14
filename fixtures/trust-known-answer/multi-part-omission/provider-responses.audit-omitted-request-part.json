@@ -1,21 +1,21 @@
 {
   "fixtureVersion": 1,
-  "scenario": "audit_overbroad_decomposition",
+  "scenario": "audit_omitted_request_part",
   "responses": [
     {
       "stage": "planner",
       "result": {
         "message": {
           "content": {
-            "taskSummary": "Explain implementation, test, and configured default as separate facts.",
-            "constraints": ["Keep the three requested facts independently verifiable."],
+            "taskSummary": "Explain the implementation, test, and configured default.",
+            "constraints": [],
             "subgoals": [
               {
-                "id": "S-broad",
-                "question": "What do the implementation, its test, and the configured default collectively establish?",
-                "originRefs": ["request:0-75"],
+                "id": "S1",
+                "question": "What does serviceMode return?",
+                "originRefs": ["request:12-26"],
                 "claimType": "positive",
-                "proofCondition": "Use one combined observation to establish implementation behavior, test coverage, and the configured default.",
+                "proofCondition": "Read the current serviceMode return value.",
                 "constraints": []
               }
             ]
@@ -31,14 +31,32 @@
           "content": {
             "goals": [
               {
-                "proposedGoalId": "S-broad",
-                "verdict": "needs_decomposition",
-                "originRefs": ["request:0-75"],
-                "missingRequestParts": [],
-                "reason": "Implementation behavior, test coverage, and configuration default require distinct observations and verdicts."
+                "proposedGoalId": "S1",
+                "verdict": "ready",
+                "originRefs": ["request:12-26"],
+                "missingRequestParts": [
+                  "Which test verifies it?",
+                  "What is the default?"
+                ],
+                "reason": "The implementation is observable, but the requested test and default are omitted."
               }
             ],
-            "uncoveredRequestParts": []
+            "uncoveredRequestParts": [
+              {
+                "question": "Which test verifies it?",
+                "originRefs": ["request:28-32"],
+                "claimType": "positive",
+                "proofCondition": "Read the test assertion that invokes serviceMode.",
+                "constraints": []
+              },
+              {
+                "question": "What is the default?",
+                "originRefs": ["request:38-56"],
+                "claimType": "positive",
+                "proofCondition": "Read the current DEFAULT_SERVICE_MODE declaration.",
+                "constraints": []
+              }
+            ]
           },
           "toolCalls": []
         }
@@ -49,29 +67,29 @@
       "result": {
         "message": {
           "content": {
-            "taskSummary": "Explain implementation, test, and configured default as separate facts.",
-            "constraints": ["Keep the three requested facts independently verifiable."],
+            "taskSummary": "Explain the implementation, test, and configured default as separate facts.",
+            "constraints": [],
             "subgoals": [
               {
                 "id": "S1",
                 "question": "What does serviceMode return?",
-                "originRefs": ["request:0-75"],
+                "originRefs": ["request:12-26"],
                 "claimType": "positive",
-                "proofCondition": "Read the current serviceMode implementation and observe its return value.",
+                "proofCondition": "Read the current serviceMode return value.",
                 "constraints": []
               },
               {
                 "id": "S2",
                 "question": "Which test verifies it?",
-                "originRefs": ["request:0-75"],
+                "originRefs": ["request:28-32"],
                 "claimType": "positive",
-                "proofCondition": "Read the current test assertion that invokes serviceMode.",
+                "proofCondition": "Read the test assertion that invokes serviceMode.",
                 "constraints": []
               },
               {
                 "id": "S3",
                 "question": "What is the default?",
-                "originRefs": ["request:0-75"],
+                "originRefs": ["request:38-56"],
                 "claimType": "positive",
                 "proofCondition": "Read the current DEFAULT_SERVICE_MODE declaration.",
                 "constraints": []
@@ -91,21 +109,21 @@
               {
                 "proposedGoalId": "S1",
                 "verdict": "ready",
-                "originRefs": ["request:0-75"],
+                "originRefs": ["request:12-26"],
                 "missingRequestParts": [],
                 "reason": "The implementation return value is independently observable."
               },
               {
                 "proposedGoalId": "S2",
                 "verdict": "ready",
-                "originRefs": ["request:0-75"],
+                "originRefs": ["request:28-32"],
                 "missingRequestParts": [],
                 "reason": "The test assertion is independently observable."
               },
               {
                 "proposedGoalId": "S3",
                 "verdict": "ready",
-                "originRefs": ["request:0-75"],
+                "originRefs": ["request:38-56"],
                 "missingRequestParts": [],
                 "reason": "The configured default is independently observable."
               }
@@ -125,8 +143,14 @@
               {
                 "obligationId": "revision-obligation-1",
                 "disposition": "covered",
-                "coveredByGoalIds": ["S1", "S2", "S3"],
-                "reason": "S1, S2, and S3 jointly preserve the decomposed implementation, test, and default obligations."
+                "coveredByGoalIds": ["S2"],
+                "reason": "S2 preserves the omitted test obligation."
+              },
+              {
+                "obligationId": "revision-obligation-2",
+                "disposition": "covered",
+                "coveredByGoalIds": ["S3"],
+                "reason": "S3 preserves the omitted default obligation."
               }
             ],
             "uncoveredRequestParts": []
@@ -192,7 +216,7 @@
       "result": {
         "message": {
           "content": {
-            "directAnswer": "The three independent facts require isolated verification.",
+            "directAnswer": "The three requested facts require isolated verification.",
             "status": {
               "confidence": "high",
               "verification": "verified",
@@ -283,7 +307,7 @@
                 "resolution": "affirmed",
                 "supportingEvidenceRefs": ["E2"],
                 "reasonCode": "entailed",
-                "note": "The test directly asserts serviceMode() equals 'safe'."
+                "note": "The test directly asserts that serviceMode() equals 'safe'."
               },
               {
                 "claimId": "C3",

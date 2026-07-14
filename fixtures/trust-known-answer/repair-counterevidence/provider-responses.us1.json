@@ -184,15 +184,6 @@
       }
     },
     {
-      "stage": "repair",
-      "result": {
-        "message": {
-          "content": "The route exception was inspected.",
-          "toolCalls": []
-        }
-      }
-    },
-    {
       "stage": "claim_synthesis",
       "result": {
         "message": {

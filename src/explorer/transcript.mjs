@@ -189,6 +189,23 @@ function summarizeUsage(data = {}) {
   };
 }
 
+function summarizeProviderFailure(data = {}) {
+  const code = typeof data.providerCode === 'string' &&
+    /^[A-Za-z0-9._-]{1,80}$/.test(data.providerCode)
+    ? data.providerCode
+    : null;
+  return {
+    ...(Number.isInteger(data.httpStatus) && data.httpStatus >= 100 && data.httpStatus <= 599
+      ? { httpStatus: data.httpStatus }
+      : {}),
+    ...(typeof data.retryable === 'boolean' ? { retryable: data.retryable } : {}),
+    ...(Number.isInteger(data.attemptCount) && data.attemptCount > 0
+      ? { attemptCount: data.attemptCount }
+      : {}),
+    ...(code ? { code } : {}),
+  };
+}
+
 function buildTrustEventData(type, data = {}) {
   switch (type) {
     case 'claim':
@@ -217,6 +234,8 @@ function buildTrustEventData(type, data = {}) {
       return summarizeFinal(data);
     case 'usage':
       return summarizeUsage(data);
+    case 'provider_failure':
+      return summarizeProviderFailure(data);
     default:
       throw new TypeError(`Unsupported trust transcript event: ${type}`);
   }

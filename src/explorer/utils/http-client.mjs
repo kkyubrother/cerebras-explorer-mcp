@@ -28,6 +28,27 @@ function isRetryableNetworkError(error) {
   return RETRYABLE_NETWORK_ERRORS.has(code);
 }
 
+function providerErrorCode(value) {
+  return typeof value === 'string' && /^[A-Za-z0-9._-]{1,80}$/.test(value)
+    ? value
+    : null;
+}
+
+function annotateProviderFailure(error, {
+  httpStatus = null,
+  retryable = false,
+  attemptCount = 1,
+  code = null,
+} = {}) {
+  if (!error || typeof error !== 'object') return error;
+  error.httpStatus = Number.isInteger(httpStatus) ? httpStatus : null;
+  error.retryable = retryable === true;
+  error.attemptCount = Number.isInteger(attemptCount) && attemptCount > 0 ? attemptCount : 1;
+  const safeCode = providerErrorCode(code);
+  if (safeCode) error.providerCode = safeCode;
+  return error;
+}
+
 /**
  * Compute retry delay with exponential backoff and jitter.
  * Honors Retry-After header when available.
@@ -136,16 +157,25 @@ export async function fetchWithTimeoutAndRetry(fetchImpl, url, init, {
       if (error.name === 'AbortError' && externalSignal?.aborted) throw error;
       // Network errors and timeouts are retryable
       if (retryNetworkErrors && (timedOut || isRetryableNetworkError(error)) && attempt < maxRetries) {
-        lastError = new Error(`${errorPrefix} network error: ${error.message}`);
+        lastError = annotateProviderFailure(
+          new Error(`${errorPrefix} network error: ${error.message}`),
+          { retryable: true, attemptCount: attempt + 1 },
+        );
         const delay = getRetryDelay(attempt);
         await new Promise(resolve => setTimeout(resolve, delay));
         continue;
       }
       if (error.name === 'AbortError' || timedOut) {
         // Internal timeout (externalSignal not aborted).
-        throw new Error(`${errorPrefix} timed out after ${effectiveTimeout}ms (${attempt + 1} attempt(s))`);
+        throw annotateProviderFailure(
+          new Error(`${errorPrefix} timed out after ${effectiveTimeout}ms (${attempt + 1} attempt(s))`),
+          { retryable: true, attemptCount: attempt + 1 },
+        );
       }
-      throw error;
+      throw annotateProviderFailure(error, {
+        retryable: retryNetworkErrors && isRetryableNetworkError(error),
+        attemptCount: attempt + 1,
+      });
     } finally {
       clearTimeout(timeoutId);
       if (externalListener) externalSignal.removeEventListener('abort', externalListener);
@@ -162,12 +192,23 @@ export async function fetchWithTimeoutAndRetry(fetchImpl, url, init, {
     }
 
     const errorMessage = parsed?.error?.message || `${response.status} ${response.statusText}`;
+    const errorCode = parsed?.error?.code;
     if (!retryableStatuses.has(response.status)) {
       // Non-retryable (400, 401, 403, 404, …)
-      throw new Error(`${errorPrefix} error: ${errorMessage}`);
+      throw annotateProviderFailure(new Error(`${errorPrefix} error: ${errorMessage}`), {
+        httpStatus: response.status,
+        retryable: false,
+        attemptCount: attempt + 1,
+        code: errorCode,
+      });
     }
 
-    lastError = new Error(`${errorPrefix} error: ${errorMessage}`);
+    lastError = annotateProviderFailure(new Error(`${errorPrefix} error: ${errorMessage}`), {
+      httpStatus: response.status,
+      retryable: true,
+      attemptCount: attempt + 1,
+      code: errorCode,
+    });
     if (attempt < maxRetries) {
       const delay = getRetryDelay(attempt, response);
       await new Promise(resolve => setTimeout(resolve, delay));

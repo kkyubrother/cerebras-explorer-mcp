@@ -115,6 +115,7 @@ const contractTest = test;
 const T061_COVERAGE_PROOF_EXPORTS = [
   'buildAbsenceCertificate',
   'computeDeterministicCount',
+  'selectCertifiedDeterministicCount',
   'evaluateProofPolicy',
 ];
 
@@ -237,6 +238,9 @@ proofPolicyCoverageTest(
     }));
     const input = {
       subgoalId: 'S-count',
+      claimId: 'C-count',
+      observationRef: 'Q-count',
+      unit: 'matching_lines',
       claimBoundary: ['src/routes/**'],
       certificate,
       normalizedItemIds: ['route:/users', 'route:/users', 'route:/admin'],
@@ -250,6 +254,8 @@ proofPolicyCoverageTest(
     assert.equal(count.complete, true);
     assert.equal(count.count, 2, 'duplicate normalized identities count once');
     assert.equal(count.subgoalId, 'S-count');
+    assert.equal(count.claimId, 'C-count');
+    assert.equal(count.unit, 'matching_lines');
     assert.equal(certificate.zeroMatches, false,
       'a complete non-empty enumeration is valid for counting, not absence proof');
 
@@ -350,6 +356,9 @@ proofPolicyCoverageTest(
     }));
     const deterministicCount = computeDeterministicCount({
       subgoalId: 'S-count',
+      claimId: 'C-count',
+      observationRef: 'Q1',
+      unit: 'matching_lines',
       claimBoundary: ['src/auth/**'],
       certificate: countCertificate,
       normalizedItemIds: ['registration:primary'],
@@ -361,7 +370,13 @@ proofPolicyCoverageTest(
         proofPolicy: 'deterministic_count',
         constraints: ['boundary:src/auth/**'],
       },
-      claim: { id: 'C-count', subgoalId: 'S-count', text: 'opaque', evidenceRefs: ['Q1'] },
+      claim: {
+        id: 'C-count',
+        subgoalId: 'S-count',
+        text: 'opaque',
+        evidenceRefs: ['Q1'],
+        measurement: { kind: 'count', unit: 'matching_lines', value: 1 },
+      },
       semanticVerdict: {
         claimId: 'C-count',
         result: 'supported',
@@ -372,6 +387,24 @@ proofPolicyCoverageTest(
       deterministicCounts: [deterministicCount],
     };
     assert.equal(evaluateProofPolicy(countInput).passed, true);
+    assertFailedProof(evaluateProofPolicy({
+      ...countInput,
+      deterministicCounts: [{ ...deterministicCount, claimId: 'C-unrelated' }],
+    }), 'a deterministic count computed for another claim');
+    assertFailedProof(evaluateProofPolicy({
+      ...countInput,
+      claim: {
+        ...countInput.claim,
+        measurement: { kind: 'count', unit: 'matching_lines', value: 999 },
+      },
+    }), 'a model-authored count value that differs from the runtime count');
+    assertFailedProof(evaluateProofPolicy({
+      ...countInput,
+      claim: {
+        ...countInput.claim,
+        measurement: { kind: 'count', unit: 'array_entries', value: 1 },
+      },
+    }), 'an array-entry count that repository search tools did not compute');
     assertFailedProof(evaluateProofPolicy({
       ...countInput,
       deterministicCounts: [{ ...deterministicCount, complete: false, count: null }],
@@ -448,7 +481,12 @@ proofPolicyCoverageTest(
 
 proofPolicyCoverageTest(
   'Spec 028 T061 — proof artifacts stay bound to the accepted claim and runtime evidence',
-  ({ buildAbsenceCertificate, computeDeterministicCount, evaluateProofPolicy }) => {
+  ({
+    buildAbsenceCertificate,
+    computeDeterministicCount,
+    evaluateProofPolicy,
+    selectCertifiedDeterministicCount,
+  }) => {
     const validCertificate = buildAbsenceCertificate(t057CertificateInput());
     assert.match(validCertificate.searchSummary[0], /legacyRoute/);
     assert.doesNotMatch(validCertificate.searchSummary[0], /matches=/,
@@ -483,11 +521,69 @@ proofPolicyCoverageTest(
 
     const missingIdentities = computeDeterministicCount({
       subgoalId: 'S-absence',
+      claimId: 'C1',
+      observationRef: 'Q1',
+      unit: 'matching_lines',
       claimBoundary: ['src/auth/**'],
       certificate: validCertificate,
     });
     assert.equal(missingIdentities.complete, false);
     assert.equal(missingIdentities.count, null);
+
+    const countCertificate = buildAbsenceCertificate(t057CertificateInput({
+      id: 'A-count-bound',
+      subgoalId: 'S-count-bound',
+      searches: [t057SearchObservation({ id: 'Q-count-bound', matchCount: 0 })],
+    }));
+    const boundCount = computeDeterministicCount({
+      subgoalId: 'S-count-bound',
+      claimId: 'C-count-bound',
+      observationRef: 'Q-count-bound',
+      unit: 'matching_lines',
+      claimBoundary: ['src/auth/**'],
+      certificate: countCertificate,
+      normalizedItemIds: [],
+    });
+    const boundInput = {
+      subgoal: {
+        id: 'S-count-bound',
+        claimType: 'count',
+        proofPolicy: 'deterministic_count',
+      },
+      claim: {
+        id: 'C-count-bound',
+        subgoalId: 'S-count-bound',
+        evidenceRefs: ['Q-unrelated', 'Q-count-bound'],
+        measurement: { kind: 'count', unit: 'matching_lines', value: 0 },
+      },
+      semanticVerdict: {
+        claimId: 'C-count-bound',
+        result: 'supported',
+        resolution: 'affirmed',
+        supportingEvidenceRefs: ['Q-count-bound'],
+      },
+      absenceCertificates: [countCertificate],
+      deterministicCounts: [boundCount],
+    };
+    assert.equal(selectCertifiedDeterministicCount(boundInput), boundCount);
+    assert.equal(selectCertifiedDeterministicCount({
+      ...boundInput,
+      semanticVerdict: {
+        ...boundInput.semanticVerdict,
+        supportingEvidenceRefs: ['Q-unrelated'],
+      },
+    }), null, 'the model cannot bind a count to an unsupported search');
+    assert.equal(selectCertifiedDeterministicCount({
+      ...boundInput,
+      deterministicCounts: [boundCount, { ...boundCount }],
+    }), null, 'duplicate eligible count artifacts fail closed');
+    assert.equal(selectCertifiedDeterministicCount({
+      ...boundInput,
+      absenceCertificates: [{
+        ...countCertificate,
+        searchRefs: ['Q-unrelated', 'Q-count-bound'],
+      }],
+    }), null, 'a multi-search certificate cannot ambiguously bind one normalized count');
 
     const usageSubgoal = {
       id: 'S-usage',
@@ -527,6 +623,78 @@ proofPolicyCoverageTest(
       observations: [{ id: 'E1', kind: 'source', path: 'src/entry.js' }],
       policyArtifacts: { transitionsComplete: true },
     }), 'a model-like completion boolean cannot prove transitions');
+  },
+);
+
+proofPolicyCoverageTest(
+  'Spec 028 T068 — a same-definition comparison accepts only a certified static-array count pair',
+  ({ evaluateProofPolicy }) => {
+    const source = {
+      id: 'E-source',
+      kind: 'source',
+      path: 'src/security.mjs',
+      startLine: 43,
+      endLine: 117,
+      rangeGrounding: 'exact',
+    };
+    const count = t057SearchObservation({
+      id: 'E-source:search',
+      tool: 'repo_symbol_context',
+      normalizedArgs: { symbol: 'DEFAULT_SECRET_DENY_PATTERNS' },
+      boundary: ['src/security.mjs'],
+      matchCount: 2,
+      deterministicMeasurement: { kind: 'count', unit: 'array_entries', value: 2 },
+      normalizedItemIds: [
+        `sha256:${'1'.repeat(64)}`,
+        `sha256:${'2'.repeat(64)}`,
+      ],
+    });
+    const input = {
+      subgoal: {
+        id: 'S-compare',
+        claimType: 'comparison',
+        proofPolicy: 'distinct_policy_paths',
+        constraints: [],
+      },
+      claim: {
+        id: 'C-compare',
+        subgoalId: 'S-compare',
+        text: 'opaque',
+        evidenceRefs: ['E-source', 'E-source:search'],
+      },
+      semanticVerdict: {
+        claimId: 'C-compare',
+        result: 'supported',
+        resolution: 'affirmed',
+        supportingEvidenceRefs: ['E-source', 'E-source:search'],
+      },
+      observations: [source, count],
+    };
+
+    assert.equal(evaluateProofPolicy(input).passed, true);
+    assertFailedProof(evaluateProofPolicy({
+      ...input,
+      observations: [source, { ...count, enumerationComplete: false }],
+    }), 'an incomplete array observation cannot prove a same-source comparison');
+    assertFailedProof(evaluateProofPolicy({
+      ...input,
+      observations: [source, {
+        ...count,
+        normalizedItemIds: count.normalizedItemIds.slice(0, 1),
+      }],
+    }), 'a model count without matching runtime identities cannot prove a comparison');
+    assertFailedProof(evaluateProofPolicy({
+      ...input,
+      observations: [source, { ...count, boundary: ['src/other.mjs'] }],
+    }), 'the static count and cited definition must share a bounded source');
+    assertFailedProof(evaluateProofPolicy({
+      ...input,
+      observations: [source, { ...count, id: 'E-other:search' }],
+    }), 'a static count must be paired with the exact source observation id');
+    assertFailedProof(evaluateProofPolicy({
+      ...input,
+      observations: [{ ...source, rangeGrounding: 'partial' }, count],
+    }), 'a partial definition range cannot prove a complete static-array comparison');
   },
 );
 
@@ -625,20 +793,25 @@ proofPolicyCoverageTest(
       subgoals: [
         { id: 'S1', proofPolicy: 'direct_source', state: 'supported' },
         { id: 'S2', proofPolicy: 'ordered_handoffs', state: 'supported' },
+        { id: 'S3', proofPolicy: 'deterministic_count', state: 'supported' },
       ],
       claims: [
         { id: 'C1', subgoalId: 'S1', verdict: 'supported', evidenceRefs: ['E1', 'E2'] },
         { id: 'C2', subgoalId: 'S2', verdict: 'supported', evidenceRefs: ['E2', 'E3'] },
+        { id: 'C3', subgoalId: 'S3', verdict: 'supported', evidenceRefs: ['E4', 'E5'] },
       ],
       verdicts: [
         { claimId: 'C1', result: 'supported', supportingEvidenceRefs: ['E2', 'E1'] },
         { claimId: 'C2', result: 'supported', supportingEvidenceRefs: ['E2', 'E3'] },
+        { claimId: 'C3', result: 'supported', supportingEvidenceRefs: ['E4', 'E5'] },
       ],
     });
 
-    assert.deepEqual(cover.evidenceRefs, ['E1', 'E2', 'E3']);
+    assert.deepEqual(cover.evidenceRefs, ['E1', 'E2', 'E3', 'E4', 'E5']);
     assert.deepEqual(cover.evidenceRefsByClaimId.get('C1'), ['E1']);
     assert.deepEqual(cover.evidenceRefsByClaimId.get('C2'), ['E2', 'E3']);
+    assert.deepEqual(cover.evidenceRefsByClaimId.get('C3'), ['E4', 'E5'],
+      'count claims cannot discard the enumeration evidence behind the computed value');
   });
 
   test('Spec 028 T041 — parent follow-up uses gap priority and suppresses repeated tools', () => {

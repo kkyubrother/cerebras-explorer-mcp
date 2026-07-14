@@ -584,6 +584,29 @@ test('Spec 028 T063 — US5 known-answer fixtures enforce bounded and temporal p
   }
 });
 
+test('Spec 028 T068 — output-capped invalid control JSON fails closed without a stale claim', async () => {
+  const manifest = JSON.parse(await fs.readFile(MANIFEST_URL, 'utf8'));
+  const caseDefinition = manifest.cases.find(item =>
+    item.id === 'fx-generation-output-cap-invalid-control');
+  assert.ok(caseDefinition);
+  assert.equal(caseDefinition.fixtureExecution, 'direct');
+
+  const { result, stages } = await runFixtureCase(manifest, caseDefinition);
+  assert.deepEqual({
+    category: result.failure?.category,
+    reason: result.failure?.reason,
+  }, caseDefinition.oracle.expectedFailure);
+  assert.equal(result.parentHandoff.state, 'failed');
+  assert.equal(result.parentHandoff.failure.reason, 'internal_error');
+  assert.equal(JSON.stringify(result.parentHandoff).includes('available-in-repository'), false);
+  assert.equal(stages.filter(stage => stage === 'synthesis').length, 2);
+  assert.ok(result.stats.safetyLimits.some(limit =>
+    limit.name === 'generation_output_limit'
+      && limit.stage === 'synthesis'
+      && limit.truncated === true));
+  assert.deepEqual(evaluateTrustCase(caseDefinition, { result }).violations, []);
+});
+
 test('Spec 028 T035 — parent evidence is rebuilt when final evidence is remapped', async () => {
   const manifest = JSON.parse(await fs.readFile(MANIFEST_URL, 'utf8'));
   const caseDefinition = manifest.cases.find(item => item.id === 'fx-supported-refutation');

@@ -309,6 +309,8 @@ const CLAIM_SYNTHESIS_SYSTEM_PROMPT = [
   '',
   'CLAIM RULES:',
   '- Emit concise atomic claims only. Every claim belongs to exactly one supplied sub-goal and must be independently accepted or dropped as a unit.',
+  '- Emit the smallest claim set that directly answers each sub-goal. Do not inventory observations or restate directory, file, or match counts unless that sub-goal asks for a count.',
+  '- A comparison, flow, impact, or usage claim is atomic only when it states the required relationship, difference, transition, category set, or usage boundary and cites all observations needed for that one assertion. Do not split it into fragments that cannot answer the sub-goal alone.',
   '- Every id, subgoalId, claim text, and evidence reference must be a non-empty string.',
   '- Preserve the observed meaning and boundary. Split mixed facts instead of combining claims with different support.',
   '- evidenceRefs may contain only supplied runtime observation ids that directly support that claim.',
@@ -316,7 +318,9 @@ const CLAIM_SYNTHESIS_SYSTEM_PROMPT = [
   '- Do not create or output evidence snippets, counts, truncation flags, completeness judgments, scope facts, source roles, temporal roles, or other model-authored evidence facts.',
   '- Do not turn an observation id into a broader claim than its exact observed content supports.',
   '',
-  'OUTPUT: {"claims":[{"id":string,"subgoalId":string,"text":string,"evidenceRefs":string[]}]}',
+  '- Every count claim must include measurement={kind:"count",unit:"matching_lines"|"files"|"array_entries",value:non-negative integer}. Use matching_lines only for repo_grep results, files only for repo_find_files results, and array_entries only when a supplied runtime observation has the exact matching deterministicMeasurement.',
+  '- Non-count claims must omit measurement. Runtime rejects a count whose value or unit differs from its complete normalized enumeration.',
+  'OUTPUT: {"claims":[{"id":string,"subgoalId":string,"text":string,"evidenceRefs":string[],"measurement"?:{"kind":"count","unit":"matching_lines"|"files"|"array_entries","value":integer}}]}',
 ].join('\n');
 
 const SEMANTIC_VERIFIER_SYSTEM_PROMPT = [
@@ -471,6 +475,9 @@ function normalizeCandidateClaim(claim = {}) {
     subgoalId: claim.subgoalId,
     text: claim.text,
     evidenceRefs: strings(claim.evidenceRefs),
+    ...(claim.measurement && typeof claim.measurement === 'object'
+      ? { measurement: { ...claim.measurement } }
+      : {}),
   };
 }
 
@@ -479,7 +486,7 @@ const VERIFIER_OBSERVATION_FIELDS = Object.freeze([
   'sourceRole', 'temporalRole', 'redacted', 'sha', 'content', 'tool',
   'normalizedArgs', 'boundary', 'matchCount', 'toolTruncated',
   'contextTruncated', 'omittedOutOfScopeFiles', 'deniedPaths', 'errors',
-  'enumerationComplete',
+  'enumerationComplete', 'deterministicMeasurement',
 ]);
 
 const ABSENCE_CERTIFICATE_FIELDS = Object.freeze([

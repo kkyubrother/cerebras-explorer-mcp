@@ -1,0 +1,97 @@
+{
+  "fixtureVersion": 1,
+  "scenario": "generation_output_cap_invalid_control",
+  "responses": [
+    {
+      "stage": "planner",
+      "result": {
+        "message": {
+          "content": {
+            "taskSummary": "Inspect STABLE_VALUE.",
+            "constraints": [],
+            "subgoals": [
+              {
+                "id": "S1",
+                "question": "What is STABLE_VALUE?",
+                "originRefs": ["request:0-21"],
+                "claimType": "positive",
+                "proofCondition": "Read the current STABLE_VALUE declaration.",
+                "constraints": []
+              }
+            ]
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "goal_audit",
+      "result": {
+        "message": {
+          "content": {
+            "goals": [
+              {
+                "proposedGoalId": "S1",
+                "verdict": "ready",
+                "originRefs": ["request:0-21"],
+                "missingRequestParts": [],
+                "reason": "The requested declaration is directly observable in current source."
+              }
+            ],
+            "uncoveredRequestParts": []
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "exploration",
+      "result": {
+        "message": {
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "read-stable",
+              "function": {
+                "name": "repo_read_file",
+                "arguments": {
+                  "path": "src/stable.mjs",
+                  "startLine": 1,
+                  "endLine": 1
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "stage": "exploration",
+      "result": {
+        "message": {
+          "content": "STABLE_VALUE was inspected.",
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "synthesis",
+      "result": {
+        "finishReason": "length",
+        "message": {
+          "content": "{}",
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "synthesis",
+      "result": {
+        "message": {
+          "content": "{}",
+          "toolCalls": []
+        }
+      }
+    }
+  ]
+}

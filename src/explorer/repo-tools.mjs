@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { promisify } from 'node:util';
 
 import {
@@ -2317,6 +2318,165 @@ function countObservationMatches(tool, result, { policyDenied, executionError })
   }
 }
 
+function skipStaticArrayTrivia(source, start) {
+  let index = start;
+  while (index < source.length) {
+    if (/\s/u.test(source[index])) {
+      index += 1;
+      continue;
+    }
+    if (source[index] === '/' && source[index + 1] === '/') {
+      index += 2;
+      while (index < source.length && source[index] !== '\n') index += 1;
+      continue;
+    }
+    if (source[index] === '/' && source[index + 1] === '*') {
+      const end = source.indexOf('*/', index + 2);
+      if (end < 0) return -1;
+      index = end + 2;
+      continue;
+    }
+    break;
+  }
+  return index;
+}
+
+function scanStaticStringLiteral(source, start) {
+  const quote = source[start];
+  if (!['\'', '"', '`'].includes(quote)) return -1;
+  let escaped = false;
+  for (let index = start + 1; index < source.length; index += 1) {
+    const char = source[index];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === '\\') {
+      escaped = true;
+      continue;
+    }
+    if (quote === '`' && char === '$' && source[index + 1] === '{') return -1;
+    if (char === quote) return index + 1;
+    if ((quote === '\'' || quote === '"') && (char === '\n' || char === '\r')) return -1;
+  }
+  return -1;
+}
+
+function staticStringArrayItems(result) {
+  if (!isPlainObservationObject(result) || ownValue(result, 'truncated') !== false) return null;
+  const definition = ownValue(result, 'definition');
+  const symbol = ownValue(result, 'symbol');
+  if (!isPlainObservationObject(definition) || typeof symbol !== 'string' || !symbol ||
+      typeof ownValue(definition, 'path') !== 'string' ||
+      !Number.isSafeInteger(ownValue(definition, 'line')) ||
+      !Number.isSafeInteger(ownValue(definition, 'endLine')) ||
+      typeof ownValue(definition, 'content') !== 'string') return null;
+
+  const contentLines = definition.content.split(/\r?\n/u);
+  if (definition.endLine - definition.line + 1 !== contentLines.length) return null;
+  const numberedLines = contentLines.map((line, offset) => {
+    const match = line.match(/^(\d+) \| (.*)$/u);
+    return match && Number(match[1]) === definition.line + offset ? match[2] : null;
+  });
+  if (numberedLines.some(line => line === null) && numberedLines.some(line => line !== null)) {
+    return null;
+  }
+  const source = numberedLines.every(line => line !== null)
+    ? numberedLines.join('\n')
+    : contentLines.join('\n');
+  const escapedSymbol = symbol.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const assignment = source.indexOf('=');
+  if (assignment < 0 || !new RegExp(`\\b${escapedSymbol}\\b`, 'u').test(source.slice(0, assignment))) {
+    return null;
+  }
+
+  let index = skipStaticArrayTrivia(source, assignment + 1);
+  if (index < 0) return null;
+  let frozen = false;
+  if (source.startsWith('Object.freeze', index)) {
+    index = skipStaticArrayTrivia(source, index + 'Object.freeze'.length);
+    if (index < 0 || source[index] !== '(') return null;
+    frozen = true;
+    index = skipStaticArrayTrivia(source, index + 1);
+  }
+  if (index < 0 || source[index] !== '[') return null;
+  index += 1;
+
+  const items = [];
+  while (index < source.length) {
+    index = skipStaticArrayTrivia(source, index);
+    if (index < 0) return null;
+    if (source[index] === ']') {
+      index += 1;
+      break;
+    }
+    const itemStart = index;
+    const itemEnd = scanStaticStringLiteral(source, itemStart);
+    if (itemEnd < 0) return null;
+    items.push(source.slice(itemStart, itemEnd));
+    index = skipStaticArrayTrivia(source, itemEnd);
+    if (index < 0) return null;
+    if (source[index] === ',') {
+      index += 1;
+      continue;
+    }
+    if (source[index] !== ']') return null;
+  }
+  if (source[index - 1] !== ']') return null;
+
+  index = skipStaticArrayTrivia(source, index);
+  if (index < 0) return null;
+  if (frozen) {
+    if (source[index] !== ')') return null;
+    index = skipStaticArrayTrivia(source, index + 1);
+    if (index < 0) return null;
+  }
+  if (source[index] === ';') index = skipStaticArrayTrivia(source, index + 1);
+  if (index < 0 || index !== source.length) return null;
+
+  return items.map((item, itemIndex) => `sha256:${createHash('sha256')
+    .update(`${definition.path}\0${itemIndex}\0${item}`)
+    .digest('hex')}`);
+}
+
+function normalizedCountItemIds(tool, result, boundary) {
+  if (!isPlainObservationObject(result)) return null;
+  if (tool === 'repo_symbol_context') return staticStringArrayItems(result);
+  const rawItems = ownValue(result, 'matches');
+  if (!Array.isArray(rawItems) || !['repo_find_files', 'repo_grep'].includes(tool)) {
+    return null;
+  }
+
+  const itemIds = [];
+  try {
+    const boundaryRules = createScopeRules(boundary);
+    for (const item of rawItems) {
+      if (tool === 'repo_find_files') {
+        if (typeof item !== 'string' || !item) return null;
+        const relativePath = sanitizeRelativePath(item);
+        if (relativePath === '.' || isSecretPath(relativePath).matched ||
+            !boundaryRules.matches(relativePath)) return null;
+        itemIds.push(`sha256:${createHash('sha256').update(`file\0${relativePath}`).digest('hex')}`);
+        continue;
+      }
+      if (!isPlainObservationObject(item) ||
+          !hasOwn(item, 'path') || typeof item.path !== 'string' || !item.path ||
+          !hasOwn(item, 'line') || !Number.isSafeInteger(item.line) || item.line < 1) {
+        return null;
+      }
+      const relativePath = sanitizeRelativePath(item.path);
+      if (relativePath === '.' || isSecretPath(relativePath).matched ||
+          !boundaryRules.matches(relativePath)) return null;
+      itemIds.push(`sha256:${createHash('sha256')
+        .update(`line\0${relativePath}\0${item.line}`)
+        .digest('hex')}`);
+    }
+  } catch {
+    return null;
+  }
+  return itemIds;
+}
+
 function canonicalObservationScope(scope) {
   if (!Array.isArray(scope)) {
     throw new TypeError('Effective repository observation scope must be an array.');
@@ -2566,6 +2726,9 @@ export function normalizeRepositoryObservation({
   const denied = readAliasedCount(safeResult, ['deniedPaths', 'omittedSecretPaths']);
   const reportedErrors = readNonNegativeCount(safeResult, 'errors');
   const matchCount = countObservationMatches(tool, safeResult, { policyDenied, executionError });
+  const normalizedItemIds = normalizedCountItemIds(tool, safeResult, normalizedBoundary);
+  const countIdentitiesValid = !['repo_find_files', 'repo_grep'].includes(tool) ||
+    normalizedItemIds !== null;
 
   const omittedOutOfScopeFiles = omitted.value;
   const deniedPaths = Math.max(denied.value, policyDenied ? 1 : 0);
@@ -2579,6 +2742,7 @@ export function normalizeRepositoryObservation({
   const enumerationComplete = enumerationCandidate === true &&
     resultIsObject &&
     matchCount.valid &&
+    countIdentitiesValid &&
     omitted.valid &&
     denied.valid &&
     reportedErrors.valid &&
@@ -2603,6 +2767,14 @@ export function normalizeRepositoryObservation({
     deniedPaths,
     errors,
     enumerationComplete,
+    ...(normalizedItemIds === null ? {} : { normalizedItemIds }),
+    ...(tool === 'repo_symbol_context' && normalizedItemIds !== null ? {
+      deterministicMeasurement: {
+        kind: 'count',
+        unit: 'array_entries',
+        value: normalizedItemIds.length,
+      },
+    } : {}),
   };
 }
 

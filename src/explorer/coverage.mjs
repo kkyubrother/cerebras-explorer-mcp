@@ -210,13 +210,27 @@ export function createRequiredSubgoal(input) {
 
 export function createAtomicClaim(input) {
   const value = requireObject(input, 'AtomicClaim');
-  return {
+  const claim = {
     id: requireString(value.id, 'AtomicClaim.id'),
     subgoalId: requireString(value.subgoalId, 'AtomicClaim.subgoalId'),
     text: requireString(value.text, 'AtomicClaim.text'),
     evidenceRefs: requireStringArray(value.evidenceRefs, 'AtomicClaim.evidenceRefs', { allowEmpty: false }),
     verdict: 'pending',
   };
+  if (value.measurement !== undefined) {
+    const measurement = requireObject(value.measurement, 'AtomicClaim.measurement');
+    if (measurement.kind !== 'count' ||
+        !['matching_lines', 'files', 'array_entries'].includes(measurement.unit) ||
+        !Number.isSafeInteger(measurement.value) || measurement.value < 0) {
+      throw new TypeError('AtomicClaim.measurement must be a supported non-negative count.');
+    }
+    claim.measurement = {
+      kind: 'count',
+      unit: measurement.unit,
+      value: measurement.value,
+    };
+  }
+  return claim;
 }
 
 function normalizeProofBoundary(value) {
@@ -254,6 +268,38 @@ function cleanSearchObservation(search) {
     search.omittedOutOfScopeFiles === 0 &&
     search.deniedPaths === 0 &&
     search.errors === 0;
+}
+
+/**
+ * Recognize only the runtime-owned, complete static-array measurement emitted
+ * by repo_symbol_context. Model-authored measurements and dynamic arrays never
+ * carry the normalized identities required here.
+ */
+export function isCertifiedStaticArrayObservation(observation) {
+  const measurement = observation?.deterministicMeasurement;
+  const identities = observation?.normalizedItemIds;
+  return cleanSearchObservation(observation) &&
+    observation.tool === 'repo_symbol_context' &&
+    observation.enumerationComplete === true &&
+    measurement?.kind === 'count' &&
+    measurement.unit === 'array_entries' &&
+    Number.isSafeInteger(measurement.value) && measurement.value >= 0 &&
+    Array.isArray(identities) && identities.length === measurement.value &&
+    new Set(identities).size === identities.length &&
+    identities.every(identity => /^sha256:[0-9a-f]{64}$/u.test(identity));
+}
+
+function hasBoundStaticArrayComparison(supporting) {
+  const sources = supporting.filter(observation =>
+    observation?.kind === 'source' && typeof observation.path === 'string' &&
+      observation.path.length > 0 && Number.isSafeInteger(observation.startLine) &&
+      Number.isSafeInteger(observation.endLine) && observation.startLine >= 1 &&
+      observation.endLine >= observation.startLine &&
+      observation.rangeGrounding === 'exact');
+  const counts = supporting.filter(isCertifiedStaticArrayObservation);
+  return counts.some(count => typeof count.id === 'string' && count.id.endsWith(':search') &&
+    sources.some(source => source.id === count.id.slice(0, -':search'.length) &&
+      boundaryCovers(count.boundary, [source.path])));
 }
 
 function summarizeSearch(search) {
@@ -314,6 +360,15 @@ export function buildAbsenceCertificate(input) {
 export function computeDeterministicCount(input) {
   const value = requireObject(input, 'Deterministic count input');
   const subgoalId = requireString(value.subgoalId, 'DeterministicCount.subgoalId');
+  const claimId = requireString(value.claimId, 'DeterministicCount.claimId');
+  const observationRef = requireString(
+    value.observationRef,
+    'DeterministicCount.observationRef',
+  );
+  const unit = requireString(value.unit, 'DeterministicCount.unit');
+  if (!['matching_lines', 'files', 'array_entries'].includes(unit)) {
+    throw new TypeError('DeterministicCount.unit must be runtime-computable.');
+  }
   const claimBoundary = normalizeProofBoundary(value.claimBoundary);
   const certificate = value.certificate;
   const itemIdsPresent = Object.hasOwn(value, 'normalizedItemIds') &&
@@ -324,11 +379,16 @@ export function computeDeterministicCount(input) {
   const complete = certificate?.complete === true &&
     typeof certificate.id === 'string' && certificate.id.length > 0 &&
     certificate.subgoalId === subgoalId &&
+    Array.isArray(certificate.searchRefs) && certificate.searchRefs.length === 1 &&
+    certificate.searchRefs[0] === observationRef &&
     boundaryCovers(certificate.claimBoundary, claimBoundary) &&
     boundaryCovers(claimBoundary, certificate.claimBoundary) &&
     identitiesValid;
   return {
     subgoalId,
+    claimId,
+    observationRef,
+    unit,
     claimBoundary,
     certificateRef: typeof certificate?.id === 'string' ? certificate.id : '',
     complete,
@@ -415,6 +475,54 @@ function certificateSupportsClaim(certificate, claimRefs, supportingRefs) {
     certificate.searchRefs.some(ref => supportingRefs.has(ref));
 }
 
+/** Select the one runtime count artifact bound to the verifier-supported search. */
+export function selectCertifiedDeterministicCount({
+  subgoal,
+  claim,
+  semanticVerdict,
+  absenceCertificates = [],
+  deterministicCounts = [],
+} = {}) {
+  const measurement = claim?.measurement;
+  if (subgoal?.proofPolicy !== 'deterministic_count' ||
+      claim?.subgoalId !== subgoal.id || semanticVerdict?.claimId !== claim?.id ||
+      semanticVerdict?.result !== 'supported' || measurement?.kind !== 'count' ||
+      !['matching_lines', 'files', 'array_entries'].includes(measurement.unit) ||
+      !Number.isSafeInteger(measurement.value) || measurement.value < 0) {
+    return null;
+  }
+  const claimRefs = new Set(Array.isArray(claim.evidenceRefs) ? claim.evidenceRefs : []);
+  const supportingRefs = Array.isArray(semanticVerdict.supportingEvidenceRefs)
+    ? semanticVerdict.supportingEvidenceRefs
+    : [];
+  if (supportingRefs.length === 0 || new Set(supportingRefs).size !== supportingRefs.length ||
+      !supportingRefs.every(ref => typeof ref === 'string' && claimRefs.has(ref))) {
+    return null;
+  }
+  const supportingRefSet = new Set(supportingRefs);
+  const certificates = Array.isArray(absenceCertificates) ? absenceCertificates : [];
+  const candidates = (Array.isArray(deterministicCounts) ? deterministicCounts : [])
+    .filter(count => {
+      if (count?.subgoalId !== subgoal.id || count?.claimId !== claim.id ||
+          count.complete !== true || count.unit !== measurement.unit ||
+          count.count !== measurement.value || !Number.isSafeInteger(count.count) ||
+          count.count < 0 || typeof count.observationRef !== 'string' ||
+          !supportingRefSet.has(count.observationRef)) {
+        return false;
+      }
+      const matchingCertificates = certificates.filter(certificate =>
+        certificate?.id === count.certificateRef && certificate.complete === true &&
+        certificate.subgoalId === subgoal.id &&
+        Array.isArray(certificate.searchRefs) && certificate.searchRefs.length === 1 &&
+        certificate.searchRefs[0] === count.observationRef &&
+        claimRefs.has(count.observationRef) &&
+        boundaryCovers(certificate.claimBoundary, count.claimBoundary) &&
+        boundaryCovers(count.claimBoundary, certificate.claimBoundary));
+      return matchingCertificates.length === 1;
+    });
+  return candidates.length === 1 ? candidates[0] : null;
+}
+
 /**
  * Apply the claim-type-derived structural proof policy. This function never
  * reads claim prose and can only approve an already-supported semantic verdict.
@@ -461,10 +569,13 @@ export function evaluateProofPolicy({
       failedProof('incomplete_enumeration', subgoal, claim);
   }
   if (expectedPolicy === 'deterministic_count') {
-    const count = (Array.isArray(deterministicCounts) ? deterministicCounts : []).find(item =>
-      item?.subgoalId === subgoal.id && item.complete === true &&
-      item.certificateRef === certificate?.id && certifiedClaim &&
-      Number.isInteger(item.count) && item.count >= 0);
+    const count = selectCertifiedDeterministicCount({
+      subgoal,
+      claim,
+      semanticVerdict,
+      absenceCertificates,
+      deterministicCounts,
+    });
     return count ? passedProof(subgoal, claim) : failedProof('uncertified_count', subgoal, claim);
   }
   if (expectedPolicy === 'support_or_refute' && semanticVerdict.resolution === 'refuted') {
@@ -505,7 +616,7 @@ export function evaluateProofPolicy({
     const distinctPaths = new Set(supporting.flatMap(observation =>
       typeof observation?.path === 'string' && observation.path ? [observation.path] : []));
     return structuredPolicyComplete(expectedPolicy, policyArtifacts, supportingRefSet) ||
-        distinctPaths.size >= 2
+        distinctPaths.size >= 2 || hasBoundStaticArrayComparison(supporting)
       ? passedProof(subgoal, claim)
       : failedProof('missing_comparison_path', subgoal, claim);
   }
@@ -1715,6 +1826,7 @@ export function reduceSemanticClaims(input) {
 }
 
 const MULTI_ITEM_PARENT_PROOF_POLICIES = new Set([
+  'deterministic_count',
   'bounded_usage_cross_check',
   'ordered_handoffs',
   'distinct_policy_paths',
@@ -1723,8 +1835,9 @@ const MULTI_ITEM_PARENT_PROOF_POLICIES = new Set([
 /**
  * Select the smallest verifier-approved evidence-reference set that still
  * preserves the proof shape of every supported claim. Direct claims keep the
- * first approved reference in claim order; flow, comparison, and independent
- * cross-check claims retain every approved part. The returned order is stable
+ * first approved reference in claim order; flow, comparison, and count claims
+ * retain every parent-relevant part. Search cross-check telemetry stays internal.
+ * The returned order is stable
  * and globally deduplicated.
  */
 export function selectClaimCover({ subgoals = [], claims = [], verdicts = [] } = {}) {

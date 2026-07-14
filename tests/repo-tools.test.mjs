@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
 import { getRuntimeConfig } from '../src/explorer/config.mjs';
 import * as repoToolExports from '../src/explorer/repo-tools.mjs';
@@ -214,6 +215,7 @@ repositoryObservationTest('repository observations preserve the authoritative bo
     'kind',
     'matchCount',
     'normalizedArgs',
+    'normalizedItemIds',
     'omittedOutOfScopeFiles',
     'tool',
     'toolTruncated',
@@ -224,12 +226,161 @@ repositoryObservationTest('repository observations preserve the authoritative bo
   assert.equal(observation.normalizedArgs.pattern, 'requireAuth');
   assert.deepEqual(observation.boundary, ['src/**']);
   assert.equal(observation.matchCount, 2);
+  assert.equal(observation.normalizedItemIds.length, 2);
+  assert.ok(observation.normalizedItemIds.every(item => /^sha256:[0-9a-f]{64}$/.test(item)));
+  assert.notEqual(observation.normalizedItemIds[0], observation.normalizedItemIds[1]);
   assert.equal(observation.toolTruncated, false);
   assert.equal(observation.contextTruncated, false);
   assert.equal(observation.omittedOutOfScopeFiles, 0);
   assert.equal(observation.deniedPaths, 0);
   assert.equal(observation.errors, 0);
   assert.equal(observation.enumerationComplete, true);
+});
+
+repositoryObservationTest('count identities come only from valid grep and file-search results', normalize => {
+  const files = normalize({
+    id: 'search-files',
+    tool: 'repo_find_files',
+    args: { pattern: '**/*.mjs' },
+    boundary: ['src/**'],
+    enumerationCandidate: true,
+    result: {
+      matches: ['src/a.mjs', 'src/b.mjs', 'src/a.mjs'],
+      truncated: false,
+    },
+  });
+  assert.equal(files.normalizedItemIds.length, 3);
+  assert.ok(files.normalizedItemIds.every(item => /^sha256:[0-9a-f]{64}$/.test(item)));
+  assert.equal(files.normalizedItemIds[0], files.normalizedItemIds[2]);
+  assert.notEqual(files.normalizedItemIds[0], files.normalizedItemIds[1]);
+
+  const secretPath = normalize({
+    id: 'search-secret-file',
+    tool: 'repo_find_files',
+    args: { pattern: '**/*' },
+    boundary: ['**'],
+    enumerationCandidate: true,
+    result: { matches: ['.env'], truncated: false },
+  });
+  assert.equal(Object.hasOwn(secretPath, 'normalizedItemIds'), false,
+    'a deny-listed result path must never become a count identity');
+  assert.doesNotMatch(JSON.stringify(secretPath), /\.env/);
+
+  for (const [tool, matches] of [
+    ['repo_find_files', ['outside/escape.mjs']],
+    ['repo_grep', [{ path: 'outside/escape.mjs', line: 1 }]],
+  ]) {
+    const outOfBoundary = normalize({
+      id: `search-out-of-boundary-${tool}`,
+      tool,
+      args: tool === 'repo_grep'
+        ? { pattern: 'needle', scope: ['src/**'] }
+        : { pattern: '**/*.mjs', scope: ['src/**'] },
+      boundary: ['src/**'],
+      enumerationCandidate: true,
+      result: { matches, truncated: false },
+    });
+    assert.equal(Object.hasOwn(outOfBoundary, 'normalizedItemIds'), false);
+    assert.equal(outOfBoundary.enumerationComplete, false,
+      'an out-of-boundary result can never certify an exact count');
+    assert.doesNotMatch(JSON.stringify(outOfBoundary), /outside|escape/u,
+      'invalid result paths stay out of normalized observations');
+  }
+});
+
+repositoryObservationTest('static string-array definitions expose a runtime-owned exact count', normalize => {
+  const result = {
+    symbol: 'DEFAULT_SECRET_DENY_PATTERNS',
+    definition: {
+      path: 'src/security.mjs',
+      line: 10,
+      endLine: 15,
+      content: [
+        'export const DEFAULT_SECRET_DENY_PATTERNS = Object.freeze([',
+        "  '.env',",
+        "  'comma,inside',",
+        '  // comments and escaped delimiters are not entries',
+        "  'quote\\\'inside',",
+        ']);',
+      ].join('\n'),
+    },
+    callers: [],
+    callerCount: 0,
+    truncated: false,
+  };
+  const observation = normalize({
+    id: 'symbol-array',
+    tool: 'repo_symbol_context',
+    args: { symbol: 'DEFAULT_SECRET_DENY_PATTERNS', scope: ['src/security.mjs'] },
+    boundary: ['src/security.mjs'],
+    enumerationCandidate: true,
+    result,
+  });
+
+  assert.equal(observation.enumerationComplete, true);
+  assert.deepEqual(observation.deterministicMeasurement, {
+    kind: 'count',
+    unit: 'array_entries',
+    value: 3,
+  });
+  assert.equal(observation.normalizedItemIds.length, 3);
+  assert.ok(observation.normalizedItemIds.every(item => /^sha256:[0-9a-f]{64}$/.test(item)));
+
+  for (const content of [
+    "export const ITEMS = ['safe', ...dynamicItems];",
+    "export const ITEMS = ['safe' + getValue()];",
+    "export const ITEMS = ['unterminated'",
+  ]) {
+    const rejected = normalize({
+      id: `rejected-${content.length}`,
+      tool: 'repo_symbol_context',
+      args: { symbol: 'ITEMS', scope: ['src/items.mjs'] },
+      boundary: ['src/items.mjs'],
+      enumerationCandidate: true,
+      result: {
+        symbol: 'ITEMS',
+        definition: { path: 'src/items.mjs', line: 1, endLine: 1, content },
+        callers: [],
+        callerCount: 0,
+        truncated: false,
+      },
+    });
+    assert.equal(Object.hasOwn(rejected, 'deterministicMeasurement'), false);
+    assert.equal(Object.hasOwn(rejected, 'normalizedItemIds'), false);
+  }
+});
+
+test('Spec 028 T068 — the pinned current secret policy has 70 statically provable entries', async () => {
+  const repoRoot = fileURLToPath(new URL('..', import.meta.url));
+  const toolkit = new RepoToolkit({ repoRoot, runtimeConfig: getRuntimeConfig() });
+  await toolkit.initialize(['src/explorer/security.mjs']);
+
+  const result = await toolkit.symbolContext({
+    symbol: 'DEFAULT_SECRET_DENY_PATTERNS',
+    path: 'src/explorer/security.mjs',
+  });
+  const observation = normalizeRepositoryObservation({
+    id: 'current-secret-policy',
+    tool: 'repo_symbol_context',
+    args: {
+      symbol: 'DEFAULT_SECRET_DENY_PATTERNS',
+      path: 'src/explorer/security.mjs',
+    },
+    boundary: ['src/explorer/security.mjs'],
+    enumerationCandidate: true,
+    result,
+  });
+
+  assert.equal(result.definition.path, 'src/explorer/security.mjs');
+  assert.equal(result.definition.line, 43);
+  assert.equal(result.definition.endLine, 117);
+  assert.deepEqual(observation.deterministicMeasurement, {
+    kind: 'count',
+    unit: 'array_entries',
+    value: 70,
+  });
+  assert.equal(observation.normalizedItemIds.length, 70);
+  assert.equal(new Set(observation.normalizedItemIds).size, 70);
 });
 
 repositoryObservationTest('repository observations distinguish tool truncation from runtime context truncation', normalize => {

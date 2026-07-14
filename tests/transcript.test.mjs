@@ -253,6 +253,16 @@ test('Spec 028 T034 — trust events are allowlisted and forced-redacted in raw 
       outcomes: [{ id: 'S1', state: 'supported', resolution: 'affirmed' }],
       completion: sentinel,
     });
+    recordTrustEvent(recorder, 'provider_failure', {
+      httpStatus: 429,
+      retryable: true,
+      attemptCount: 3,
+      providerCode: 'rate_limit_exceeded',
+      message: `${sentinel} ${fakeKey}`,
+    });
+    recordTrustEvent(recorder, 'provider_failure', {
+      message: `${sentinel} ${fakeKey}`,
+    });
     recorder.observeUsage({
       providerIndex: 1,
       model: 'trust-model',
@@ -296,6 +306,8 @@ test('Spec 028 T034 — trust events are allowlisted and forced-redacted in raw 
       'verdict',
       'repair',
       'repair',
+      'provider_failure',
+      'provider_failure',
       'safety_limit',
       'final',
       'usage',
@@ -311,16 +323,30 @@ test('Spec 028 T034 — trust events are allowlisted and forced-redacted in raw 
     assert.equal(entries[3].status, 'started');
     assert.equal(entries[4].status, 'finished');
     assert.equal(entries[4].outcome, 'completed');
-    assert.equal(entries[5].stage, 'repair');
-    assert.deepEqual(entries[6].acceptedClaimIds, ['C1']);
-    assert.deepEqual(entries[6].parentPayload, {
+    assert.deepEqual(entries[5], {
+      httpStatus: 429,
+      retryable: true,
+      attemptCount: 3,
+      code: 'rate_limit_exceeded',
+      t: entries[5].t,
+      type: 'provider_failure',
+      callId: recorder.callId,
+    });
+    assert.deepEqual(entries[6], {
+      t: entries[6].t,
+      type: 'provider_failure',
+      callId: recorder.callId,
+    });
+    assert.equal(entries[7].stage, 'repair');
+    assert.deepEqual(entries[8].acceptedClaimIds, ['C1']);
+    assert.deepEqual(entries[8].parentPayload, {
       encoding: 'utf8',
       contentBytes: 11,
       structuredContentBytes: 17,
       parentPayloadBytes: 28,
       sha256: 'a'.repeat(64),
     });
-    assert.deepEqual(entries[7], {
+    assert.deepEqual(entries[9], {
       providerIndex: 1,
       model: 'trust-model',
       providerCalls: 2,
@@ -329,7 +355,7 @@ test('Spec 028 T034 — trust events are allowlisted and forced-redacted in raw 
       outputTokens: 10,
       totalTokens: 26,
       elapsedMs: 25,
-      t: entries[7].t,
+      t: entries[9].t,
       type: 'usage',
       callId: recorder.callId,
     });

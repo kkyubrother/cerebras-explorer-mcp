@@ -130,7 +130,7 @@ test('loadProjectConfig returns {} for an empty object', async () => {
 // T047_ACTIVE_SURFACE_GUARD_FIXTURE_START
 const T054_LEGACY_CONFIG_SURFACE_REMOVED = true;
 
-test('Spec 028 T047 — project config drops case-insensitive budget-shaped keys', () => {
+test('Spec 028 T047 — project config drops case-insensitive legacy policy keys', () => {
   const config = normalizeProjectConfig({
     budget: 'deep',
     BudgetTier: 'deep',

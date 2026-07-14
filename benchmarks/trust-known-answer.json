@@ -68,6 +68,762 @@
       "fx-truncated-enumeration"
     ]
   },
+  "offlineResults": {
+    "profile": "portable-offline-v1",
+    "fixtureTrust": {
+      "acceptedCaseIds": [
+        "obs-external-process-inference",
+        "fx-semantic-mismatch",
+        "fx-incomplete-multipart",
+        "fx-contradictory-policies",
+        "fx-scope-limited-absence",
+        "fx-truncated-enumeration",
+        "fx-cancellation",
+        "fx-provider-failure",
+        "fx-generation-output-cap-invalid-control",
+        "audit-untraceable-invention",
+        "audit-duplicate-merge",
+        "audit-overbroad-decomposition",
+        "audit-omitted-request-part",
+        "audit-immutable-scope-block",
+        "audit-readonly-capability-block",
+        "audit-unavailable-live-state",
+        "audit-missing-input",
+        "audit-contradictory-requirements",
+        "audit-unobservable-proof",
+        "audit-feasible-unsupported",
+        "fx-supported-refutation",
+        "fx-partial-multipart",
+        "fx-scoped-zero-match",
+        "fx-truncated-all-usages",
+        "fx-route-policy-divergence",
+        "fx-historical-source-role"
+      ],
+      "repeatableCaseIds": [
+        "fx-semantic-mismatch",
+        "fx-incomplete-multipart",
+        "fx-contradictory-policies",
+        "fx-cancellation",
+        "fx-provider-failure",
+        "audit-feasible-unsupported",
+        "fx-supported-refutation",
+        "fx-partial-multipart"
+      ],
+      "repeatCount": 3
+    },
+    "guardAcceptances": [
+      {
+        "id": "minimal_parent_handoff",
+        "tests": [
+          {
+            "path": "tests/schemas.test.mjs",
+            "name": "Spec 028 T036 — schema v3 exposes only the strict minimal parent fields"
+          },
+          {
+            "path": "tests/mcp-server.test.mjs",
+            "name": "explore_repo and wrappers keep operational diagnostics out of the parent response"
+          }
+        ]
+      },
+      {
+        "id": "no_parent_policy_controls",
+        "tests": [
+          {
+            "path": "tests/schemas.test.mjs",
+            "name": "Spec 028 T045 — explore_repo rejects public hints.strategy but keeps anchors"
+          },
+          {
+            "path": "tests/mcp-server.test.mjs",
+            "name": "Spec 028 T045 — tools/list and provenance use one stable six-tool order"
+          }
+        ]
+      },
+      {
+        "id": "safety_invariants",
+        "tests": [
+          {
+            "path": "tests/integrations.test.mjs",
+            "name": "project keeps zero runtime and development dependencies"
+          },
+          {
+            "path": "tests/mcp-server.test.mjs",
+            "name": "MCP request handler declares read-only annotations for the current public surface"
+          },
+          {
+            "path": "tests/repo-tools.test.mjs",
+            "name": "RepoToolkit enforces the initial scope as a hard boundary"
+          },
+          {
+            "path": "tests/mcp-server.test.mjs",
+            "name": "Spec 028 T027 — MCP cancellation reaches planner, auditor, explorer, verifier, and repair"
+          },
+          {
+            "path": "tests/security/secret-deny-list.test.mjs",
+            "name": "RepoToolkit excludes secret files from traversal, read, grep, symbols, and context enrichment"
+          },
+          {
+            "path": "tests/security/redact.test.mjs",
+            "name": "Spec 028 T038 — v3 source, git, absence, gap, and failure values share one redaction boundary"
+          }
+        ]
+      },
+      {
+        "id": "no_internal_budget_surface",
+        "tests": [
+          {
+            "path": "tests/integrations.test.mjs",
+            "name": "Spec 028 T047 — executable active surface has no selectable effort abstraction"
+          },
+          {
+            "path": "tests/integrations.test.mjs",
+            "name": "Spec 028 T047 — public docs and examples have no selectable effort surface"
+          },
+          {
+            "path": "tests/project-config.test.mjs",
+            "name": "Spec 028 T047 — project config drops case-insensitive legacy policy keys"
+          }
+        ]
+      }
+    ],
+    "parentObservation": {
+      "profile": "parent-native-research-v3",
+      "status": "recorded",
+      "denominatorCaseIds": [
+        "obs-deny-list-count-range",
+        "obs-large-route-ui-api-mismatch",
+        "obs-route-admin-divergence",
+        "obs-repeat-tests-environment",
+        "obs-aws-inventory-classification",
+        "fx-incomplete-multipart",
+        "fx-scope-limited-absence",
+        "audit-untraceable-invention",
+        "audit-duplicate-merge",
+        "audit-overbroad-decomposition",
+        "audit-omitted-request-part",
+        "fx-supported-refutation",
+        "fx-scoped-zero-match",
+        "fx-route-policy-divergence"
+      ],
+      "minimumRate": 0.9,
+      "reportSha256": "b5da42784850ce9c551c96ea3fdf966d0b63e0e7ef3f0830538a8a82ad2c2841",
+      "sourcePins": [
+        {
+          "caseId": "obs-deny-list-count-range",
+          "sourceRef": "repo-cerebras-explorer-mcp-b3a7e75",
+          "repoId": "cerebras-explorer-mcp",
+          "kind": "repository",
+          "gitSha": "b3a7e75d39ff3f89d53de75bbcdf6e9f2bc4900e",
+          "dirtyTreeSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "promptSha256": "5f4ee92df9a81622e6f7f11cfb781d66e97e63790ef7e0ae08e895ecfc40e2d7",
+          "handoffSha256": "e2c2afbda0e2bed47e46a7750e127badef1664094cae533411cae8ca38be3fcc"
+        },
+        {
+          "caseId": "obs-large-route-ui-api-mismatch",
+          "sourceRef": "repo-lawfirm-fe7a5ca",
+          "repoId": "lawfirm",
+          "kind": "repository",
+          "gitSha": "fe7a5ca1cb7e279ae1eee5a931b60b69d93020b4",
+          "dirtyTreeSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "promptSha256": "0e0384117b0eab2d6e268daf9834b34bdcf9365d65f1d39e771e4b2213fdfa15",
+          "handoffSha256": "296af1eddb9363b84ad787e2c2fe384855ef8087ad939d47918b975780b18c00"
+        },
+        {
+          "caseId": "obs-route-admin-divergence",
+          "sourceRef": "repo-aegis-492fa0a",
+          "repoId": "AEGIS-AI-Agent",
+          "kind": "repository",
+          "gitSha": "492fa0a6c083c7d83302792b14b19da0b2953e67",
+          "dirtyTreeSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "promptSha256": "07e9b2d412a76f7c3278ec99f4ffc1257f2d78bab82d8be8d4e5e4fba8188d12",
+          "handoffSha256": "11c667c5e727f8a9ce8da3a2a7d3d4357a0c3f52867ebf41e1a596b35ec82f28"
+        },
+        {
+          "caseId": "obs-repeat-tests-environment",
+          "sourceRef": "repo-translate-b9288a7",
+          "repoId": "translate",
+          "kind": "repository",
+          "gitSha": "b9288a7b7532d9d90ea0f05228206b64cfe8e719",
+          "dirtyTreeSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "promptSha256": "30c9905103fe258603e6e6091a3d9f5848c280562fb5cf63729fa2ec3254a463",
+          "handoffSha256": "2febfb0865ffc2f31883c97c5a62deb929a4db88d239590270c41d9b9bd41dc1"
+        },
+        {
+          "caseId": "obs-aws-inventory-classification",
+          "sourceRef": "repo-daeryun-backend-bbef2ff",
+          "repoId": "Daeryun-AI-Backend",
+          "kind": "repository",
+          "gitSha": "bbef2ff41b1b4ea93c97192edd355824ea4e5317",
+          "dirtyTreeSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "promptSha256": "969d2f04b71269e5027077f500463598c4ec5a5f2a34c1814f6be6a7d2cd9e33",
+          "handoffSha256": "c4ebf8ce9ab83653396711dd6b56b5668bbd52dbfad27648086a7a67d1ee8838"
+        },
+        {
+          "caseId": "fx-incomplete-multipart",
+          "sourceRef": "fixture-multi-part-omission",
+          "repoId": "fixture-multi-part-omission",
+          "kind": "fixture",
+          "repoTreeSha256": "6d0bc67a94b4e9f5029cc5ca81c183371e8dd7128c50905f4727c77d26065265",
+          "promptSha256": "b4e3463bb8d16f28282d5b39b7ee81a3bbce7e04ff9a483b435b1f8e10a57c49",
+          "handoffSha256": "4e3b60ad82348d03a5d287c068a5fb24ae628451ca74c3aa3f7e2a8514bc209b"
+        },
+        {
+          "caseId": "fx-scope-limited-absence",
+          "sourceRef": "fixture-scoped-truncated-search",
+          "repoId": "fixture-scoped-truncated-search",
+          "kind": "fixture",
+          "repoTreeSha256": "9e410c3ee4e7f8aa7da11d96874531d52e8f7a5a5670a08b4780239248305b4c",
+          "promptSha256": "9e207f77d7fb497e348925522807900f6b1da871e45c72da450f2eef011b3e70",
+          "handoffSha256": "0e461268cad4c695c34c01790b2ed218ba590f5a0ccbdd97c160045e68d1b538"
+        },
+        {
+          "caseId": "audit-untraceable-invention",
+          "sourceRef": "fixture-goal-invention",
+          "repoId": "fixture-goal-invention",
+          "kind": "fixture",
+          "repoTreeSha256": "66058d1dd6ff447641bd191aa9110d50c215a379dcfc6724bded99f9eb9b0b90",
+          "promptSha256": "d763864099c2fe4c14cce9882ca8aed575e891576b3c072253db3ced4c980f28",
+          "handoffSha256": "7ee291891f05f4f60ffbb14b39c08b45372e159ffe1ac1129136ff8aeb8aa738"
+        },
+        {
+          "caseId": "audit-duplicate-merge",
+          "sourceRef": "fixture-goal-invention",
+          "repoId": "fixture-goal-invention",
+          "kind": "fixture",
+          "repoTreeSha256": "66058d1dd6ff447641bd191aa9110d50c215a379dcfc6724bded99f9eb9b0b90",
+          "promptSha256": "481b199811afd2f01117686c441fb21cd9b8136eb182a8e21d811dc407d4a7be",
+          "handoffSha256": "7ee291891f05f4f60ffbb14b39c08b45372e159ffe1ac1129136ff8aeb8aa738"
+        },
+        {
+          "caseId": "audit-overbroad-decomposition",
+          "sourceRef": "fixture-multi-part-omission",
+          "repoId": "fixture-multi-part-omission",
+          "kind": "fixture",
+          "repoTreeSha256": "6d0bc67a94b4e9f5029cc5ca81c183371e8dd7128c50905f4727c77d26065265",
+          "promptSha256": "a377e0b31f3b86ae4d9ba3b6b941a87ef31d08f30cbf2ff3b4b8c3e1782cd67a",
+          "handoffSha256": "076040a933aa107d4602fa344f8cecb2907cb3001d4b4146b9447792fae5bc6a"
+        },
+        {
+          "caseId": "audit-omitted-request-part",
+          "sourceRef": "fixture-multi-part-omission",
+          "repoId": "fixture-multi-part-omission",
+          "kind": "fixture",
+          "repoTreeSha256": "6d0bc67a94b4e9f5029cc5ca81c183371e8dd7128c50905f4727c77d26065265",
+          "promptSha256": "6c4ee101ddc234a454e84f9259e1a3d12fd0d3f7497c769c44c8024f5cbb014e",
+          "handoffSha256": "076040a933aa107d4602fa344f8cecb2907cb3001d4b4146b9447792fae5bc6a"
+        },
+        {
+          "caseId": "fx-supported-refutation",
+          "sourceRef": "fixture-repair-counterevidence",
+          "repoId": "fixture-repair-counterevidence",
+          "kind": "fixture",
+          "repoTreeSha256": "722f65ec61a39436b3bcec03f5fef7d1db648557a3de311b43696772ea892e45",
+          "promptSha256": "5ca3e9f06dd1620f819fe5363ffb0bf9da627ad5a2b155271a23ee03f16b2012",
+          "handoffSha256": "908f7e718cf6b76335dd7ab9a9f6986ea586e9f1a4c7b24911fde620c778a382"
+        },
+        {
+          "caseId": "fx-scoped-zero-match",
+          "sourceRef": "fixture-scoped-truncated-search",
+          "repoId": "fixture-scoped-truncated-search",
+          "kind": "fixture",
+          "repoTreeSha256": "9e410c3ee4e7f8aa7da11d96874531d52e8f7a5a5670a08b4780239248305b4c",
+          "promptSha256": "53b0fe1a779264880a16e9d85d0a1a37d0e3e4a66ba92570ae681d3fa77cdc5a",
+          "handoffSha256": "44ed6eaa03bc09038e7815ef30509158c43eb2595b666805d31a63d114af9cc8"
+        },
+        {
+          "caseId": "fx-route-policy-divergence",
+          "sourceRef": "fixture-route-policy-divergence",
+          "repoId": "fixture-route-policy-divergence",
+          "kind": "fixture",
+          "repoTreeSha256": "e39e6fb4c6f899f242cf7295420de2dd4746a28ef0b2d0035da8b395a330d464",
+          "promptSha256": "07962cc63b1dd7ad30521a3d796863d270670307e3409943109bf0d04cdda802",
+          "handoffSha256": "0e6a069d1a42d06880abbc51975f8b5dc4a5a01671cb8e5fffcfd4b03195fee3"
+        }
+      ],
+      "metrics": {
+        "denominatorCaseCount": 14,
+        "observedCaseCount": 14,
+        "invalidObservationCaseCount": 0,
+        "noBroadNativeResearchCaseCount": 14,
+        "broadNativeResearchCaseCount": 0,
+        "noBroadNativeResearchRate": 1,
+        "allowance": {
+          "citedTargetReads": 0,
+          "citedPathSearches": 0,
+          "allowedFollowUps": 0
+        }
+      },
+      "cases": [
+        {
+          "id": "obs-deny-list-count-range",
+          "repoId": "cerebras-explorer-mcp",
+          "sourcePin": {
+            "kind": "repository",
+            "gitSha": "b3a7e75d39ff3f89d53de75bbcdf6e9f2bc4900e",
+            "dirtyTreeSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          "promptSha256": "5f4ee92df9a81622e6f7f11cfb781d66e97e63790ef7e0ae08e895ecfc40e2d7",
+          "handoffSha256": "e2c2afbda0e2bed47e46a7750e127badef1664094cae533411cae8ca38be3fcc",
+          "traceSha256": "85451126631117e31227136538ff52e60254b40c3f95d324fd2b8f8360206cb8",
+          "observed": true,
+          "noBroad": true,
+          "broadActionCount": 0,
+          "allowance": {
+            "citedTargetReads": 0,
+            "citedPathSearches": 0,
+            "allowedFollowUps": 0
+          },
+          "violations": []
+        },
+        {
+          "id": "obs-large-route-ui-api-mismatch",
+          "repoId": "lawfirm",
+          "sourcePin": {
+            "kind": "repository",
+            "gitSha": "fe7a5ca1cb7e279ae1eee5a931b60b69d93020b4",
+            "dirtyTreeSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          "promptSha256": "0e0384117b0eab2d6e268daf9834b34bdcf9365d65f1d39e771e4b2213fdfa15",
+          "handoffSha256": "296af1eddb9363b84ad787e2c2fe384855ef8087ad939d47918b975780b18c00",
+          "traceSha256": "c1e24c7d344a6f55d9ca02aaa8f4e5e13d8550388dc8d08c34df73433a44bb7d",
+          "observed": true,
+          "noBroad": true,
+          "broadActionCount": 0,
+          "allowance": {
+            "citedTargetReads": 0,
+            "citedPathSearches": 0,
+            "allowedFollowUps": 0
+          },
+          "violations": []
+        },
+        {
+          "id": "obs-route-admin-divergence",
+          "repoId": "AEGIS-AI-Agent",
+          "sourcePin": {
+            "kind": "repository",
+            "gitSha": "492fa0a6c083c7d83302792b14b19da0b2953e67",
+            "dirtyTreeSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          "promptSha256": "07e9b2d412a76f7c3278ec99f4ffc1257f2d78bab82d8be8d4e5e4fba8188d12",
+          "handoffSha256": "11c667c5e727f8a9ce8da3a2a7d3d4357a0c3f52867ebf41e1a596b35ec82f28",
+          "traceSha256": "3cf61f26ddb18921bc0d0bb4cec90cdb73673a15f7c6fea442ee1c7514f9c379",
+          "observed": true,
+          "noBroad": true,
+          "broadActionCount": 0,
+          "allowance": {
+            "citedTargetReads": 0,
+            "citedPathSearches": 0,
+            "allowedFollowUps": 0
+          },
+          "violations": []
+        },
+        {
+          "id": "obs-repeat-tests-environment",
+          "repoId": "translate",
+          "sourcePin": {
+            "kind": "repository",
+            "gitSha": "b9288a7b7532d9d90ea0f05228206b64cfe8e719",
+            "dirtyTreeSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          "promptSha256": "30c9905103fe258603e6e6091a3d9f5848c280562fb5cf63729fa2ec3254a463",
+          "handoffSha256": "2febfb0865ffc2f31883c97c5a62deb929a4db88d239590270c41d9b9bd41dc1",
+          "traceSha256": "ee67f76fa6f31b8c09c936d7eb392989033c743f4565df84ca22a480320e370a",
+          "observed": true,
+          "noBroad": true,
+          "broadActionCount": 0,
+          "allowance": {
+            "citedTargetReads": 0,
+            "citedPathSearches": 0,
+            "allowedFollowUps": 0
+          },
+          "violations": []
+        },
+        {
+          "id": "obs-aws-inventory-classification",
+          "repoId": "Daeryun-AI-Backend",
+          "sourcePin": {
+            "kind": "repository",
+            "gitSha": "bbef2ff41b1b4ea93c97192edd355824ea4e5317",
+            "dirtyTreeSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          "promptSha256": "969d2f04b71269e5027077f500463598c4ec5a5f2a34c1814f6be6a7d2cd9e33",
+          "handoffSha256": "c4ebf8ce9ab83653396711dd6b56b5668bbd52dbfad27648086a7a67d1ee8838",
+          "traceSha256": "b619a65ee41fa74f738fe313948ce2bb58194fff1c8fc0aa3ba7e9858014a2dd",
+          "observed": true,
+          "noBroad": true,
+          "broadActionCount": 0,
+          "allowance": {
+            "citedTargetReads": 0,
+            "citedPathSearches": 0,
+            "allowedFollowUps": 0
+          },
+          "violations": []
+        },
+        {
+          "id": "fx-incomplete-multipart",
+          "repoId": "fixture-multi-part-omission",
+          "sourcePin": {
+            "kind": "fixture",
+            "repoTreeSha256": "6d0bc67a94b4e9f5029cc5ca81c183371e8dd7128c50905f4727c77d26065265"
+          },
+          "promptSha256": "b4e3463bb8d16f28282d5b39b7ee81a3bbce7e04ff9a483b435b1f8e10a57c49",
+          "handoffSha256": "4e3b60ad82348d03a5d287c068a5fb24ae628451ca74c3aa3f7e2a8514bc209b",
+          "traceSha256": "e56da2b9ac92fd495ca207d35e5abbfea2ae040997d96b862535edf7e4fed9d4",
+          "observed": true,
+          "noBroad": true,
+          "broadActionCount": 0,
+          "allowance": {
+            "citedTargetReads": 0,
+            "citedPathSearches": 0,
+            "allowedFollowUps": 0
+          },
+          "violations": []
+        },
+        {
+          "id": "fx-scope-limited-absence",
+          "repoId": "fixture-scoped-truncated-search",
+          "sourcePin": {
+            "kind": "fixture",
+            "repoTreeSha256": "9e410c3ee4e7f8aa7da11d96874531d52e8f7a5a5670a08b4780239248305b4c"
+          },
+          "promptSha256": "9e207f77d7fb497e348925522807900f6b1da871e45c72da450f2eef011b3e70",
+          "handoffSha256": "0e461268cad4c695c34c01790b2ed218ba590f5a0ccbdd97c160045e68d1b538",
+          "traceSha256": "dd55ed30bcc1855c3763585954b877155e9f9f119e2bc3494e50ed2bb33a3efd",
+          "observed": true,
+          "noBroad": true,
+          "broadActionCount": 0,
+          "allowance": {
+            "citedTargetReads": 0,
+            "citedPathSearches": 0,
+            "allowedFollowUps": 0
+          },
+          "violations": []
+        },
+        {
+          "id": "audit-untraceable-invention",
+          "repoId": "fixture-goal-invention",
+          "sourcePin": {
+            "kind": "fixture",
+            "repoTreeSha256": "66058d1dd6ff447641bd191aa9110d50c215a379dcfc6724bded99f9eb9b0b90"
+          },
+          "promptSha256": "d763864099c2fe4c14cce9882ca8aed575e891576b3c072253db3ced4c980f28",
+          "handoffSha256": "7ee291891f05f4f60ffbb14b39c08b45372e159ffe1ac1129136ff8aeb8aa738",
+          "traceSha256": "b820c4e1dddf1e7e716f1525c300461a6be7559b7c911584861432d844020116",
+          "observed": true,
+          "noBroad": true,
+          "broadActionCount": 0,
+          "allowance": {
+            "citedTargetReads": 0,
+            "citedPathSearches": 0,
+            "allowedFollowUps": 0
+          },
+          "violations": []
+        },
+        {
+          "id": "audit-duplicate-merge",
+          "repoId": "fixture-goal-invention",
+          "sourcePin": {
+            "kind": "fixture",
+            "repoTreeSha256": "66058d1dd6ff447641bd191aa9110d50c215a379dcfc6724bded99f9eb9b0b90"
+          },
+          "promptSha256": "481b199811afd2f01117686c441fb21cd9b8136eb182a8e21d811dc407d4a7be",
+          "handoffSha256": "7ee291891f05f4f60ffbb14b39c08b45372e159ffe1ac1129136ff8aeb8aa738",
+          "traceSha256": "c36e9afd2ed9934353db39bfbb69958297000a3a8ba6dc57db1e5b3f8d22ed0c",
+          "observed": true,
+          "noBroad": true,
+          "broadActionCount": 0,
+          "allowance": {
+            "citedTargetReads": 0,
+            "citedPathSearches": 0,
+            "allowedFollowUps": 0
+          },
+          "violations": []
+        },
+        {
+          "id": "audit-overbroad-decomposition",
+          "repoId": "fixture-multi-part-omission",
+          "sourcePin": {
+            "kind": "fixture",
+            "repoTreeSha256": "6d0bc67a94b4e9f5029cc5ca81c183371e8dd7128c50905f4727c77d26065265"
+          },
+          "promptSha256": "a377e0b31f3b86ae4d9ba3b6b941a87ef31d08f30cbf2ff3b4b8c3e1782cd67a",
+          "handoffSha256": "076040a933aa107d4602fa344f8cecb2907cb3001d4b4146b9447792fae5bc6a",
+          "traceSha256": "cf753aabeae122ad05d06ec7b274ad2da0dae6106426b45934403f0c1d4ccfe0",
+          "observed": true,
+          "noBroad": true,
+          "broadActionCount": 0,
+          "allowance": {
+            "citedTargetReads": 0,
+            "citedPathSearches": 0,
+            "allowedFollowUps": 0
+          },
+          "violations": []
+        },
+        {
+          "id": "audit-omitted-request-part",
+          "repoId": "fixture-multi-part-omission",
+          "sourcePin": {
+            "kind": "fixture",
+            "repoTreeSha256": "6d0bc67a94b4e9f5029cc5ca81c183371e8dd7128c50905f4727c77d26065265"
+          },
+          "promptSha256": "6c4ee101ddc234a454e84f9259e1a3d12fd0d3f7497c769c44c8024f5cbb014e",
+          "handoffSha256": "076040a933aa107d4602fa344f8cecb2907cb3001d4b4146b9447792fae5bc6a",
+          "traceSha256": "b66a3da1a6a183e11757703d2b0d2599d78189cc9728aa7e1cfac867220442d9",
+          "observed": true,
+          "noBroad": true,
+          "broadActionCount": 0,
+          "allowance": {
+            "citedTargetReads": 0,
+            "citedPathSearches": 0,
+            "allowedFollowUps": 0
+          },
+          "violations": []
+        },
+        {
+          "id": "fx-supported-refutation",
+          "repoId": "fixture-repair-counterevidence",
+          "sourcePin": {
+            "kind": "fixture",
+            "repoTreeSha256": "722f65ec61a39436b3bcec03f5fef7d1db648557a3de311b43696772ea892e45"
+          },
+          "promptSha256": "5ca3e9f06dd1620f819fe5363ffb0bf9da627ad5a2b155271a23ee03f16b2012",
+          "handoffSha256": "908f7e718cf6b76335dd7ab9a9f6986ea586e9f1a4c7b24911fde620c778a382",
+          "traceSha256": "e4ee006f7210f9a7cefb24e078f2a3a630343333096a922cc1e928a34afb7db9",
+          "observed": true,
+          "noBroad": true,
+          "broadActionCount": 0,
+          "allowance": {
+            "citedTargetReads": 0,
+            "citedPathSearches": 0,
+            "allowedFollowUps": 0
+          },
+          "violations": []
+        },
+        {
+          "id": "fx-scoped-zero-match",
+          "repoId": "fixture-scoped-truncated-search",
+          "sourcePin": {
+            "kind": "fixture",
+            "repoTreeSha256": "9e410c3ee4e7f8aa7da11d96874531d52e8f7a5a5670a08b4780239248305b4c"
+          },
+          "promptSha256": "53b0fe1a779264880a16e9d85d0a1a37d0e3e4a66ba92570ae681d3fa77cdc5a",
+          "handoffSha256": "44ed6eaa03bc09038e7815ef30509158c43eb2595b666805d31a63d114af9cc8",
+          "traceSha256": "b8e7baeaa8df2f09e47d0b7c7798f4188797f2c759edbf2471506f5398af178c",
+          "observed": true,
+          "noBroad": true,
+          "broadActionCount": 0,
+          "allowance": {
+            "citedTargetReads": 0,
+            "citedPathSearches": 0,
+            "allowedFollowUps": 0
+          },
+          "violations": []
+        },
+        {
+          "id": "fx-route-policy-divergence",
+          "repoId": "fixture-route-policy-divergence",
+          "sourcePin": {
+            "kind": "fixture",
+            "repoTreeSha256": "e39e6fb4c6f899f242cf7295420de2dd4746a28ef0b2d0035da8b395a330d464"
+          },
+          "promptSha256": "07962cc63b1dd7ad30521a3d796863d270670307e3409943109bf0d04cdda802",
+          "handoffSha256": "0e6a069d1a42d06880abbc51975f8b5dc4a5a01671cb8e5fffcfd4b03195fee3",
+          "traceSha256": "87e298d569959f9c669f0aadaf5249d658c40a8225e4772a88fce18a1883e4ae",
+          "observed": true,
+          "noBroad": true,
+          "broadActionCount": 0,
+          "allowance": {
+            "citedTargetReads": 0,
+            "citedPathSearches": 0,
+            "allowedFollowUps": 0
+          },
+          "violations": []
+        }
+      ]
+    },
+    "wrapperAcceptances": [
+      {
+        "tool": "find_relevant_code",
+        "proofPolicy": "smallest_relevant_location_set",
+        "scenarioRef": "locate-relevant-code",
+        "runtimeTest": {
+          "path": "tests/runtime.mock.test.mjs",
+          "name": "Spec 028 T068 — every retained wrapper has a distinct end-to-end proof-policy acceptance",
+          "subtest": "find_relevant_code"
+        }
+      },
+      {
+        "tool": "trace_symbol",
+        "proofPolicy": "definition_and_usage_cross_check",
+        "scenarioRef": "trace-symbol-cross-check",
+        "runtimeTest": {
+          "path": "tests/runtime.mock.test.mjs",
+          "name": "Spec 028 T068 — every retained wrapper has a distinct end-to-end proof-policy acceptance",
+          "subtest": "trace_symbol"
+        }
+      },
+      {
+        "tool": "map_change_impact",
+        "proofPolicy": "requested_impact_categories",
+        "scenarioRef": "map-change-impact",
+        "runtimeTest": {
+          "path": "tests/runtime.mock.test.mjs",
+          "name": "Spec 028 T068 — every retained wrapper has a distinct end-to-end proof-policy acceptance",
+          "subtest": "map_change_impact"
+        }
+      },
+      {
+        "tool": "explain_code_path",
+        "proofPolicy": "ordered_handoffs",
+        "scenarioRef": "explain-code-path",
+        "runtimeTest": {
+          "path": "tests/runtime.mock.test.mjs",
+          "name": "Spec 028 T068 — every retained wrapper has a distinct end-to-end proof-policy acceptance",
+          "subtest": "explain_code_path"
+        }
+      },
+      {
+        "tool": "collect_evidence",
+        "proofPolicy": "support_or_refute",
+        "scenarioRef": "collect-evidence",
+        "runtimeTest": {
+          "path": "tests/runtime.mock.test.mjs",
+          "name": "Spec 028 T068 — every retained wrapper has a distinct end-to-end proof-policy acceptance",
+          "subtest": "collect_evidence"
+        }
+      },
+      {
+        "tool": "explore_repo",
+        "proofPolicy": "audited_subgoal_policies",
+        "scenarioRef": "explore-recent-change-context",
+        "runtimeTest": {
+          "path": "tests/runtime.mock.test.mjs",
+          "name": "Spec 028 T068 — every retained wrapper has a distinct end-to-end proof-policy acceptance",
+          "subtest": "explore_repo"
+        }
+      }
+    ],
+    "payloadComparison": {
+      "metric": "utf8-json-content-plus-structured-content-v1",
+      "minimumMedianReduction": 0.4,
+      "samples": [
+        {
+          "caseId": "obs-deny-list-count-range",
+          "baselineRef": "v2-obs-deny-list-count-range",
+          "currentParentPayloadBytes": 866,
+          "currentPayloadSha256": "7a45b2841944195b37324f2747a1b50082aada6707d26876d2d77f11629f41be"
+        },
+        {
+          "caseId": "obs-large-route-ui-api-mismatch",
+          "baselineRef": "v2-obs-large-route-ui-api-mismatch",
+          "currentParentPayloadBytes": 1499,
+          "currentPayloadSha256": "0c09feb932e478b2c511a66db711942db2b726ad2e9d91c88edb5e81ae8df63c"
+        },
+        {
+          "caseId": "obs-route-admin-divergence",
+          "baselineRef": "v2-obs-route-admin-divergence",
+          "currentParentPayloadBytes": 1786,
+          "currentPayloadSha256": "7da2b9bac9c1c2ca349988ab43c3d88894cba19e2c99230d6bf9547ba4568078"
+        },
+        {
+          "caseId": "obs-repeat-tests-environment",
+          "baselineRef": "v2-obs-repeat-tests-environment",
+          "currentParentPayloadBytes": 1764,
+          "currentPayloadSha256": "4afa0f1a9157d9b2f383b2921975315e04f6373f14a7571bd5f4165699fb3878"
+        },
+        {
+          "caseId": "obs-aws-inventory-classification",
+          "baselineRef": "v2-obs-aws-inventory-classification",
+          "currentParentPayloadBytes": 2615,
+          "currentPayloadSha256": "1954922fd87c6769a5d453f6652b507e8c51d226b2ac6f9575970253428cb86c"
+        }
+      ]
+    },
+    "criteria": {
+      "SC-001": [
+        "fixture:fx-partial-multipart",
+        "fixture:audit-feasible-unsupported"
+      ],
+      "SC-002": [
+        "fixture:fx-semantic-mismatch",
+        "fixture:fx-supported-refutation",
+        "fixture:fx-route-policy-divergence"
+      ],
+      "SC-003": [
+        "case:obs-deny-list-count-range",
+        "case:obs-large-route-ui-api-mismatch",
+        "case:obs-route-admin-divergence",
+        "case:obs-external-process-inference",
+        "case:obs-repeat-tests-environment"
+      ],
+      "SC-004": [
+        "fixture:fx-scope-limited-absence",
+        "fixture:fx-scoped-zero-match",
+        "fixture:fx-truncated-all-usages"
+      ],
+      "SC-005": [
+        "guard:minimal_parent_handoff"
+      ],
+      "SC-006": [
+        "metric:payload_reduction"
+      ],
+      "SC-007": [
+        "wrapper:find_relevant_code",
+        "wrapper:trace_symbol",
+        "wrapper:map_change_impact",
+        "wrapper:explain_code_path",
+        "wrapper:collect_evidence",
+        "wrapper:explore_repo"
+      ],
+      "SC-008": [
+        "metric:parent_observation"
+      ],
+      "SC-009": [
+        "metric:fixture_repeatability"
+      ],
+      "SC-010": [
+        "fixture:fx-cancellation",
+        "fixture:fx-provider-failure",
+        "fixture:fx-generation-output-cap-invalid-control",
+        "fixture:fx-scope-limited-absence",
+        "fixture:fx-truncated-enumeration"
+      ],
+      "SC-011": [
+        "guard:no_parent_policy_controls"
+      ],
+      "SC-012": [
+        "guard:safety_invariants"
+      ],
+      "SC-013": [
+        "guard:no_internal_budget_surface"
+      ],
+      "SC-014": [
+        "fixture:audit-untraceable-invention",
+        "fixture:audit-duplicate-merge",
+        "fixture:audit-overbroad-decomposition",
+        "fixture:audit-omitted-request-part",
+        "fixture:audit-immutable-scope-block",
+        "fixture:audit-readonly-capability-block",
+        "fixture:audit-unavailable-live-state",
+        "fixture:audit-missing-input",
+        "fixture:audit-contradictory-requirements",
+        "fixture:audit-unobservable-proof",
+        "fixture:audit-feasible-unsupported"
+      ],
+      "SC-015": [
+        "fixture:audit-untraceable-invention"
+      ],
+      "SC-016": [
+        "fixture:audit-immutable-scope-block",
+        "fixture:audit-readonly-capability-block",
+        "fixture:audit-unavailable-live-state",
+        "fixture:audit-missing-input",
+        "fixture:audit-contradictory-requirements",
+        "fixture:audit-unobservable-proof",
+        "fixture:audit-feasible-unsupported",
+        "fixture:fx-generation-output-cap-invalid-control"
+      ]
+    }
+  },
   "sources": {
     "repo-cerebras-explorer-mcp-b3a7e75": {
       "kind": "repository",
@@ -130,7 +886,7 @@
       "repoPath": "fixtures/trust-known-answer/infeasible-goals/repo",
       "repoTreeSha256": "b24d83e8cc77be98097cb05ad916e025dca5fe270ee1e06e47cd2429acfd8406",
       "providerPath": "fixtures/trust-known-answer/infeasible-goals/provider-responses.json",
-      "providerSha256": "6293d4197c8f583ed46b149ae5874f61bd1ed1aa2c3589f33b0fa6fd21853d84"
+      "providerSha256": "a974a2f17a3ff34a548d0a634b9a707abb42a9a4fca00caa937fd548b492818b"
     },
     "fixture-multi-part-omission": {
       "kind": "fixture",
@@ -175,7 +931,7 @@
       "repoPath": "fixtures/trust-known-answer/scoped-truncated-search/repo",
       "repoTreeSha256": "9e410c3ee4e7f8aa7da11d96874531d52e8f7a5a5670a08b4780239248305b4c",
       "providerPath": "fixtures/trust-known-answer/scoped-truncated-search/provider-responses.json",
-      "providerSha256": "7380b92508762e8e8a2439a0ec65a720cc695ff274fe47e440382a582c551b99"
+      "providerSha256": "e63b649edf5b8e7225b540a7a21d1fa72ccae49ca400fd028b1a40d539dded83"
     },
     "fixture-semantic-mismatch": {
       "kind": "fixture",
@@ -184,7 +940,7 @@
       "repoPath": "fixtures/trust-known-answer/semantic-mismatch/repo",
       "repoTreeSha256": "41e9331fb64db6503879e18024a478321080f6a80ddb855e1dc98c0bea4b1a5d",
       "providerPath": "fixtures/trust-known-answer/semantic-mismatch/provider-responses.json",
-      "providerSha256": "fe8533a98eec89fe29ae910a63187c68f8ee491b4c73f409b919a0a745840b95"
+      "providerSha256": "560d633de915da4ff63f9a2823146a75c80ca6d6717446a00ff2b23480519fed"
     },
     "fixture-external-process-inference": {
       "kind": "fixture",
@@ -193,7 +949,7 @@
       "repoPath": "fixtures/trust-known-answer/external-process-inference/repo",
       "repoTreeSha256": "5c2bbbd7bff1aac877048f78641d6d002849224728d92ae04f7ec672638c8518",
       "providerPath": "fixtures/trust-known-answer/external-process-inference/provider-responses.json",
-      "providerSha256": "04b380c0beea3a836cd776eda742e422a9be054c490977a29a4c8618d6a47faf"
+      "providerSha256": "4f55e0b85377bede57d2e0daa30cbe807baa29fbd1117e0efe40fd5f90ed1add"
     }
   },
   "baselines": {
@@ -302,6 +1058,9 @@
     {
       "id": "obs-deny-list-count-range",
       "kind": "observed",
+      "livePolicy": {
+        "profile": "fail_closed_anchor_or_gap_v1"
+      },
       "description": "A grounded line range was converted into an incorrect array count.",
       "sourceRef": "repo-cerebras-explorer-mcp-b3a7e75",
       "invocation": {
@@ -310,7 +1069,15 @@
           "task": "Count the entries in DEFAULT_SECRET_DENY_PATTERNS. Cite the definition and distinguish the number of array entries from the ending source line number.",
           "scope": [
             "src/explorer/security.mjs"
-          ]
+          ],
+          "hints": {
+            "files": [
+              "src/explorer/security.mjs"
+            ],
+            "symbols": [
+              "DEFAULT_SECRET_DENY_PATTERNS"
+            ]
+          }
         }
       },
       "request": {
@@ -342,6 +1109,9 @@
             "originRefs": [
               "P1"
             ],
+            "requestOriginRefs": [
+              "request:0-50"
+            ],
             "claimType": "count",
             "expectedResolution": "supported",
             "evidenceAnchorRefs": [
@@ -355,7 +1125,26 @@
             "originRefs": [
               "P2"
             ],
+            "requestOriginRefs": [
+              "request:51-70"
+            ],
             "claimType": "positive",
+            "expectedResolution": "supported",
+            "evidenceAnchorRefs": [
+              "E1"
+            ],
+            "anchorPolicy": "any"
+          },
+          {
+            "id": "G3",
+            "question": "How do the entry count and ending source line differ?",
+            "originRefs": [
+              "P2"
+            ],
+            "requestOriginRefs": [
+              "request:75-150"
+            ],
+            "claimType": "comparison",
             "expectedResolution": "supported",
             "evidenceAnchorRefs": [
               "E1"
@@ -376,6 +1165,14 @@
         "id": "A2",
         "goalId": "G2",
         "text": "DEFAULT_SECRET_DENY_PATTERNS is defined in src/explorer/security.mjs at lines 43 through 117.",
+        "evidenceAnchorRefs": [
+          "E1"
+        ]
+      },
+      {
+        "id": "A3",
+        "goalId": "G3",
+        "text": "The array contains 70 entries, while its definition ends at source line 117.",
         "evidenceAnchorRefs": [
           "E1"
         ]
@@ -421,6 +1218,9 @@
     {
       "id": "obs-large-route-ui-api-mismatch",
       "kind": "observed",
+      "livePolicy": {
+        "profile": "fail_closed_anchor_or_gap_v1"
+      },
       "description": "A large-repository answer claimed three UI pages while grounding only two.",
       "sourceRef": "repo-lawfirm-fe7a5ca",
       "invocation": {
@@ -432,7 +1232,17 @@
             "pages/api/mkt/source/**",
             "pages/api/external/skyz/marketing/source/**",
             "prisma/schema.prisma"
-          ]
+          ],
+          "hints": {
+            "files": [
+              "pages/mkt/source/index.tsx",
+              "pages/mkt/source/form.tsx",
+              "pages/mkt/source/[idx].tsx",
+              "pages/api/mkt/source/index.ts",
+              "pages/api/external/skyz/marketing/source/index.ts",
+              "prisma/schema.prisma"
+            ]
+          }
         }
       },
       "request": {
@@ -468,6 +1278,9 @@
             "originRefs": [
               "P1"
             ],
+            "requestOriginRefs": [
+              "request:44-61"
+            ],
             "claimType": "impact",
             "expectedResolution": "supported",
             "evidenceAnchorRefs": [
@@ -483,6 +1296,9 @@
             "originRefs": [
               "P2"
             ],
+            "requestOriginRefs": [
+              "request:62-80"
+            ],
             "claimType": "comparison",
             "expectedResolution": "supported",
             "evidenceAnchorRefs": [
@@ -496,6 +1312,9 @@
             "question": "Which Prisma model stores it?",
             "originRefs": [
               "P3"
+            ],
+            "requestOriginRefs": [
+              "request:85-102"
             ],
             "claimType": "positive",
             "expectedResolution": "supported",
@@ -619,6 +1438,9 @@
     {
       "id": "obs-route-admin-divergence",
       "kind": "observed",
+      "livePolicy": {
+        "profile": "fail_closed_anchor_or_gap_v1"
+      },
       "description": "Route-specific administrator and developer behavior was incompletely generalized.",
       "sourceRef": "repo-aegis-492fa0a",
       "invocation": {
@@ -633,7 +1455,17 @@
             "app/api/cases/**",
             "app/api/draft/**",
             "prisma/schema.prisma"
-          ]
+          ],
+          "hints": {
+            "files": [
+              "components/auth/AdminProtectedRoute.tsx",
+              "lib/admin-auth.ts",
+              "app/api/admin/feedback/route.ts",
+              "app/api/inquiry/route.ts",
+              "app/api/cases/route.ts",
+              "app/api/draft/save/route.ts"
+            ]
+          }
         }
       },
       "request": {
@@ -669,6 +1501,9 @@
             "originRefs": [
               "P1"
             ],
+            "requestOriginRefs": [
+              "request:50-72"
+            ],
             "claimType": "positive",
             "expectedResolution": "supported",
             "evidenceAnchorRefs": [
@@ -681,6 +1516,9 @@
             "question": "Which distinct backend admin checks exist?",
             "originRefs": [
               "P2"
+            ],
+            "requestOriginRefs": [
+              "request:76-100"
             ],
             "claimType": "comparison",
             "expectedResolution": "supported",
@@ -696,6 +1534,9 @@
             "question": "Which routes give the development department special access mapping?",
             "originRefs": [
               "P3"
+            ],
+            "requestOriginRefs": [
+              "request:14-44"
             ],
             "claimType": "comparison",
             "expectedResolution": "supported",
@@ -869,10 +1710,23 @@
             "id": "G1",
             "question": "What transitions are directly observed?",
             "originRefs": [
-              "P1",
+              "P1"
+            ],
+            "claimType": "positive",
+            "expectedResolution": "supported",
+            "evidenceAnchorRefs": [
+              "E1",
+              "E2"
+            ],
+            "anchorPolicy": "any"
+          },
+          {
+            "id": "G2",
+            "question": "Can an external process be established from flow/**?",
+            "originRefs": [
               "P2"
             ],
-            "claimType": "flow",
+            "claimType": "positive",
             "expectedResolution": "gap",
             "evidenceAnchorRefs": [
               "E1",
@@ -887,15 +1741,14 @@
             "goalId": "G1",
             "text": "handle passes the payload to normalize_payload, which returns a locally normalized value.",
             "evidenceAnchorRefs": [
-              "E1",
-              "E2"
+              "E1"
             ]
           }
         ],
         "forbiddenClaims": [
           {
             "id": "F1",
-            "goalId": "G1",
+            "goalId": "G2",
             "text": "The flow launches an external process.",
             "reason": "The research record says this inference was unsupported."
           }
@@ -935,6 +1788,9 @@
     {
       "id": "obs-repeat-tests-environment",
       "kind": "observed",
+      "livePolicy": {
+        "profile": "fail_closed_anchor_or_gap_v1"
+      },
       "description": "Repeated complete responses varied and omitted required runtime configuration sources.",
       "sourceRef": "repo-translate-b9288a7",
       "invocation": {
@@ -948,7 +1804,17 @@
             "docs/local-e2e-test.md",
             "docs/kiro-agent-setup.md",
             "requirements.txt"
-          ]
+          ],
+          "hints": {
+            "files": [
+              "pipeline/cli.py",
+              "tests/test_cli.py",
+              "pipeline/config.py",
+              "docs/local-e2e-test.md",
+              "kiro/pipeline-runner.json",
+              "requirements.txt"
+            ]
+          }
         }
       },
       "request": {
@@ -984,6 +1850,9 @@
             "originRefs": [
               "P1"
             ],
+            "requestOriginRefs": [
+              "request:0-44"
+            ],
             "claimType": "flow",
             "expectedResolution": "supported",
             "evidenceAnchorRefs": [
@@ -997,6 +1866,9 @@
             "originRefs": [
               "P2"
             ],
+            "requestOriginRefs": [
+              "request:45-51"
+            ],
             "claimType": "positive",
             "expectedResolution": "supported",
             "evidenceAnchorRefs": [
@@ -1009,6 +1881,9 @@
             "question": "Which source, docs, agent config, and dependencies define runtime inputs?",
             "originRefs": [
               "P3"
+            ],
+            "requestOriginRefs": [
+              "request:56-111"
             ],
         "claimType": "impact",
             "expectedResolution": "supported",
@@ -1139,6 +2014,9 @@
     {
       "id": "obs-aws-inventory-classification",
       "kind": "observed",
+      "livePolicy": {
+        "profile": "fail_closed_anchor_or_gap_v1"
+      },
       "description": "An exhaustive Bedrock inventory included an uncited direct invocation.",
       "sourceRef": "repo-daeryun-backend-bbef2ff",
       "invocation": {
@@ -1147,7 +2025,18 @@
           "task": "Inventory every Amazon Bedrock invocation and classify direct SDK calls, wrappers, and configuration-only references.",
           "scope": [
             "app/my_lib/**"
-          ]
+          ],
+          "hints": {
+            "files": [
+              "app/my_lib/bedrock_client.py",
+              "app/my_lib/my_bedrock_file_agent.py",
+              "app/my_lib/upgrade_v2__internal_ai_process/invoke_model_helper/get_json_format_text.py",
+              "app/my_lib/my_tools/my_knowledgebase_tool.py",
+              "app/my_lib/upgrade_v2__internal_ai_process/context_engineering/legal_information/retrieve_knowledge_base.py",
+              "app/my_lib/process_prompt.py",
+              "app/my_lib/config.py"
+            ]
+          }
         }
       },
       "request": {
@@ -1183,6 +2072,9 @@
             "originRefs": [
               "P1"
             ],
+            "requestOriginRefs": [
+              "request:50-71"
+            ],
             "claimType": "count",
             "expectedResolution": "supported",
             "evidenceAnchorRefs": [
@@ -1200,6 +2092,9 @@
             "originRefs": [
               "P2"
             ],
+            "requestOriginRefs": [
+              "request:73-81"
+            ],
             "claimType": "comparison",
             "expectedResolution": "supported",
             "evidenceAnchorRefs": [
@@ -1214,6 +2109,9 @@
             "question": "Which references are configuration-only?",
             "originRefs": [
               "P3"
+            ],
+            "requestOriginRefs": [
+              "request:83-117"
             ],
             "claimType": "comparison",
             "expectedResolution": "supported",
@@ -1366,7 +2264,7 @@
       "fixtureExecution": "direct",
       "providerFixture": {
         "path": "fixtures/trust-known-answer/semantic-mismatch/provider-responses.us1.json",
-        "sha256": "7a3339abe1c89d6a2bcf32355caba76396009e51388fb277d9f0157ac935315c"
+        "sha256": "a1cf7910e714beec68780625500c9dcc8f90beb7171273f9537280ab5515209c"
       },
       "invocation": {
         "tool": "explore_repo",
@@ -1750,7 +2648,7 @@
       "fixtureExecution": "direct",
       "providerFixture": {
         "path": "fixtures/trust-known-answer/scoped-truncated-search/provider-responses.fx-scope-limited-absence.json",
-        "sha256": "775c6a7105cd378d47600153904c413fa586ea4fd9f138f0d6037fd9e9451394"
+        "sha256": "147723e5c8a47138281d4befd25db8aeedb6fe7739c89744d7a4c3e8569d18c1"
       },
       "invocation": {
         "tool": "explore_repo",
@@ -1792,7 +2690,7 @@
             "originRefs": [
               "P1"
             ],
-            "claimType": "count",
+            "claimType": "comparison",
             "expectedResolution": "supported",
             "evidenceAnchorRefs": [
               "E1",
@@ -1809,29 +2707,27 @@
             "claimType": "absence",
             "expectedResolution": "supported",
             "evidenceAnchorRefs": [
-              "E1",
-              "E2"
+              "E3"
             ],
-            "anchorPolicy": "all"
+            "anchorPolicy": "any"
           }
         ],
-    "allowedClaims": [
-      {
-        "id": "A1",
-        "goalId": "G1",
-        "text": "The bounded scope registers /primary and /secondary.",
-        "evidenceAnchorRefs": [
-          "E1",
-          "E2"
-        ]
-      },
-      {
-        "id": "A2",
-        "goalId": "G2",
-        "text": "No additional route registration exists within src/in-scope/**.",
+        "allowedClaims": [
+          {
+            "id": "A1",
+            "goalId": "G1",
+            "text": "The bounded scope registers /primary and /secondary.",
             "evidenceAnchorRefs": [
               "E1",
               "E2"
+            ]
+          },
+          {
+            "id": "A2",
+            "goalId": "G2",
+            "text": "No additional route registration exists within src/in-scope/**.",
+            "evidenceAnchorRefs": [
+              "E3"
             ]
           }
         ],
@@ -1861,6 +2757,21 @@
             "endLine": 3,
             "sourceRole": "implementation",
             "temporalRole": "current"
+          },
+          {
+            "id": "E3",
+            "kind": "search",
+            "tool": "repo_grep",
+            "boundary": [
+              "src/in-scope/**"
+            ],
+            "matchCount": 0,
+            "toolTruncated": false,
+            "contextTruncated": false,
+            "omittedOutOfScopeFiles": 0,
+            "deniedPaths": 0,
+            "errors": 0,
+            "enumerationComplete": true
           }
         ],
         "boundary": {
@@ -2146,6 +3057,106 @@
       }
     },
     {
+      "id": "fx-generation-output-cap-invalid-control",
+      "kind": "fixture",
+      "description": "An output-capped invalid required control response fails closed without promoting inspected content.",
+      "sourceRef": "fixture-provider-failure",
+      "fixtureExecution": "direct",
+      "providerFixture": {
+        "path": "fixtures/trust-known-answer/provider-failure/provider-responses.generation-output-cap.json",
+        "sha256": "d0eedd36bc3132af37149c8a4bb7b39476d4a7421792b6efbe643067754c8d98"
+      },
+      "invocation": {
+        "tool": "explore_repo",
+        "args": {
+          "task": "Inspect STABLE_VALUE.",
+          "scope": [
+            "src/**"
+          ]
+        }
+      },
+      "request": {
+        "text": "Inspect STABLE_VALUE.",
+        "parts": [
+          {
+            "id": "P1",
+            "text": "Inspect STABLE_VALUE."
+          }
+        ]
+      },
+      "repeatCount": 1,
+      "schemaV2Baseline": {
+        "outcome": "not_recorded",
+        "schemaVersion": 2,
+        "reason": "This schema-v3 control case had no trustworthy schema-v2 parent payload captured before implementation."
+      },
+      "oracle": {
+        "provenance": {
+          "kind": "fixture_assertion",
+          "sourceRef": "fixture-provider-failure"
+        },
+        "expectedGoals": [
+          {
+            "id": "G1",
+            "question": "What is STABLE_VALUE?",
+            "originRefs": [
+              "P1"
+            ],
+            "requestOriginRefs": [
+              "request:0-21"
+            ],
+            "claimType": "positive",
+            "expectedResolution": "failed",
+            "evidenceAnchorRefs": [
+              "E1"
+            ],
+            "anchorPolicy": "any"
+          }
+        ],
+        "allowedClaims": [],
+        "forbiddenClaims": [
+          {
+            "id": "F1",
+            "goalId": "G1",
+            "text": "STABLE_VALUE is 'available-in-repository'.",
+            "reason": "Inspected repository content cannot be promoted after required control JSON remains invalid."
+          }
+        ],
+        "evidenceAnchors": [
+          {
+            "id": "E1",
+            "kind": "source",
+            "path": "src/stable.mjs",
+            "startLine": 1,
+            "endLine": 1,
+            "sourceRole": "implementation",
+            "temporalRole": "current"
+          }
+        ],
+        "boundary": {
+          "repoId": "fixture-provider-failure",
+          "scope": [
+            "src/**"
+          ],
+          "claimScope": [
+            "src/**"
+          ]
+        },
+        "expectedState": "failed",
+        "expectedFailure": {
+          "category": "internal",
+          "reason": "invalid_final_response"
+        },
+        "expectedSafetyLimits": [
+          {
+            "name": "generation_output_limit",
+            "stage": "synthesis",
+            "truncated": true
+          }
+        ]
+      }
+    },
+    {
       "id": "fx-jsonrpc-id-zero-cancellation",
       "kind": "fixture",
       "description": "Valid JSON-RPC id 0 was skipped by truthiness-based cancellation tracking.",
@@ -2239,7 +3250,11 @@
       "kind": "goal_audit",
       "description": "An invented throughput goal is rejected and cannot leak or block completion.",
       "sourceRef": "fixture-goal-invention",
-      "fixtureExecution": "partial",
+      "fixtureExecution": "direct",
+      "providerFixture": {
+        "path": "fixtures/trust-known-answer/goal-invention/provider-responses.audit-untraceable-invention.json",
+        "sha256": "d06318d788cd1352471e60a8280eeafcf89ec23004e13916640b0dcd30dd9ff4"
+      },
       "invocation": {
         "tool": "explore_repo",
         "args": {
@@ -2345,7 +3360,7 @@
       "fixtureExecution": "direct",
       "providerFixture": {
         "path": "fixtures/trust-known-answer/goal-invention/provider-responses.audit-duplicate-merge.json",
-        "sha256": "61681d7a462e86ca05ae62fa366a83fe498fc599ac5ef0fc3e5735537f935de6"
+        "sha256": "c90603782d6202b5cbb1f8b9f5e5b6b2a741aa077f7ec9c2be5a32527ac31ab6"
       },
       "invocation": {
         "tool": "explore_repo",
@@ -2453,7 +3468,7 @@
       "fixtureExecution": "direct",
       "providerFixture": {
         "path": "fixtures/trust-known-answer/multi-part-omission/provider-responses.audit-overbroad-decomposition.json",
-        "sha256": "13f0fd29d33d3b20b466b9f4832b4e065a861c29b5b7865a5f5d3890657c0bad"
+        "sha256": "55cc67527f7e15b03cebc95633a85323a82d559817d1b47c4752837ae7bcb51d"
       },
       "invocation": {
         "tool": "explore_repo",
@@ -2628,7 +3643,11 @@
       "kind": "goal_audit",
       "description": "Omitted test and default parts are inserted in the one allowed revision.",
       "sourceRef": "fixture-multi-part-omission",
-      "fixtureExecution": "partial",
+      "fixtureExecution": "direct",
+      "providerFixture": {
+        "path": "fixtures/trust-known-answer/multi-part-omission/provider-responses.audit-omitted-request-part.json",
+        "sha256": "2c4f15c805badef6f81321f80a5a955f1d722a2ead2cfada85a220a633049f5f"
+      },
       "invocation": {
         "tool": "explore_repo",
         "args": {
@@ -2809,7 +3828,7 @@
       "fixtureExecution": "direct",
       "providerFixture": {
         "path": "fixtures/trust-known-answer/scoped-truncated-search/provider-responses.audit-immutable-scope-block.json",
-        "sha256": "0495e9a29134c77616be2c3bf99f7f92a328858f88efe51f7e4725c5120ec03f"
+        "sha256": "108348947147c6a5486b404d8b85b6d414fa91a6ee5cea71c374402f05c90151"
       },
       "invocation": {
         "tool": "explore_repo",
@@ -2996,6 +4015,10 @@
       "description": "Desired repository config cannot prove mutable deployed state.",
       "sourceRef": "fixture-infeasible-goals",
       "fixtureExecution": "direct",
+      "providerFixture": {
+        "path": "fixtures/trust-known-answer/infeasible-goals/provider-responses.audit-unavailable-live-state.json",
+        "sha256": "f0ee97c79bbfdc5452bec5a61af200957c39dac5c8e5efd1e795bb65f2d8da5c"
+      },
       "invocation": {
         "tool": "explore_repo",
         "args": {
@@ -3090,7 +4113,7 @@
       "fixtureExecution": "direct",
       "providerFixture": {
         "path": "fixtures/trust-known-answer/infeasible-goals/provider-responses.audit-missing-input.json",
-        "sha256": "408092e0a7629294fd07dd780f2694b697470559a810c82fe47099af5997fdda"
+        "sha256": "c24670bb8ac2d5021e438cd9081f7a454f99924136755680c24dbf0265c7d8f4"
       },
       "invocation": {
         "tool": "explore_repo",
@@ -3186,7 +4209,7 @@
       "fixtureExecution": "direct",
       "providerFixture": {
         "path": "fixtures/trust-known-answer/route-policy-divergence/provider-responses.audit-contradictory-requirements.json",
-        "sha256": "26e56045a6a03687bd160a7449fff1a87b6763bce2c535f2c2d88b608233961e"
+        "sha256": "408ab32c3333668c9310d1141dbe68f9456913515f716427999785592c60101e"
       },
       "invocation": {
         "tool": "explore_repo",
@@ -3297,7 +4320,7 @@
       "fixtureExecution": "direct",
       "providerFixture": {
         "path": "fixtures/trust-known-answer/infeasible-goals/provider-responses.audit-unobservable-proof.json",
-        "sha256": "4b0ca55c1010ca5307e4364fe38185aa6d851451af320a6d4456c484ad49a45b"
+        "sha256": "e3ae0e83527b3c478694cd5f3c926b0bb7f0dc6e0cf9b6a7aa3fabb2afc0ac5b"
       },
       "invocation": {
         "tool": "explore_repo",
@@ -3393,7 +4416,7 @@
       "fixtureExecution": "direct",
       "providerFixture": {
         "path": "fixtures/trust-known-answer/repair-counterevidence/provider-responses.us1.json",
-        "sha256": "fa957d5b9c1c969ca06e6b7b3da63a22be12d2782cd57d51b0f293f845f58310"
+        "sha256": "8660276314e673dc1f8c2f885d5768332bd0eacee09ef709722d0a01eba5800f"
       },
       "invocation": {
         "tool": "explore_repo",

@@ -372,6 +372,8 @@ test('Spec 028 T045 — initialization contains one concise six-way dispatch rul
     params: { protocolVersion: '2025-06-18', capabilities: {} },
   });
   assert.ok(initialized.instructions.includes(TARGET_DISPATCH_RULE));
+  assert.match(initialized.instructions, /use complete directly/);
+  assert.match(initialized.instructions, /inspect only targets for verify_targets/);
   assert.ok(initialized.instructions.length <= 800);
   assert.doesNotMatch(initialized.instructions, /review_change_context|Markdown report|status\.verification/);
   for (const name of TARGET_SIX_TOOL_NAMES) {
@@ -793,6 +795,8 @@ test('MCP request handler exposes explore_repo and returns structuredContent', a
   assert.equal(called.structuredContent.taskContract, undefined);
   assert.equal(called.structuredContent.coverageGaps, undefined);
   assert.equal(called.structuredContent.rejectedGoals, undefined);
+  assert.equal(called.structuredContent.goalAuditRecords, undefined);
+  assert.equal(called.structuredContent.deterministicCounts, undefined);
   assert.equal(called.structuredContent.observations, undefined);
   assert.equal(called.structuredContent.semanticVerification, undefined);
   assert.equal(called.structuredContent.plan_proposed, undefined);
@@ -809,7 +813,7 @@ test('MCP request handler exposes explore_repo and returns structuredContent', a
       `rejected planning sentinel leaked through MCP: ${sentinel}`);
   }
   assert.doesNotMatch(serializedMcpResult,
-    /taskContract|coverageGaps|rejectedGoals|observations|semanticVerification|runtimeAllowedEvidenceRefsBySubgoal|plan_proposed|goal_audit|plan_revised|goal_rejected|subgoal_state/);
+    /taskContract|coverageGaps|rejectedGoals|goalAuditRecords|deterministicCounts|normalizedItemIds|observations|semanticVerification|runtimeAllowedEvidenceRefsBySubgoal|plan_proposed|goal_audit|plan_revised|goal_rejected|subgoal_state/);
   assert.match(called.content[0].text, /requireAuth/);
   assert.equal(called.content[0].text, called.structuredContent.directAnswer);
   assert.doesNotMatch(called.content[0].text, /Evidence Quality/);

@@ -116,7 +116,7 @@ pendingExportTest(
 pendingExportTest(
   coverageModule,
   'selectClaimCoverEvidenceRefs',
-  'Spec 028 T039 — simple claims keep one direct item while flow and comparison keep required parts',
+  'Spec 028 T039 — simple claims stay narrow while flow, comparison, and count keep required parts',
   (selectClaimCoverEvidenceRefs) => {
     const selected = selectClaimCoverEvidenceRefs({
       subgoals: [
@@ -124,22 +124,25 @@ pendingExportTest(
         { id: 'S2', proofPolicy: 'ordered_handoffs' },
         { id: 'S3', proofPolicy: 'distinct_policy_paths' },
         { id: 'S4', proofPolicy: 'direct_source' },
+        { id: 'S5', proofPolicy: 'deterministic_count' },
       ],
       claims: [
         { id: 'C1', subgoalId: 'S1', verdict: 'supported', evidenceRefs: ['E1', 'E2'] },
         { id: 'C2', subgoalId: 'S2', verdict: 'supported', evidenceRefs: ['E3', 'E4'] },
         { id: 'C3', subgoalId: 'S3', verdict: 'supported', evidenceRefs: ['E5', 'E6'] },
         { id: 'C4', subgoalId: 'S4', verdict: 'insufficient', evidenceRefs: ['E7'] },
+        { id: 'C5', subgoalId: 'S5', verdict: 'supported', evidenceRefs: ['E8', 'E9'] },
       ],
       verdicts: [
         { claimId: 'C1', result: 'supported', supportingEvidenceRefs: ['E1', 'E2'] },
         { claimId: 'C2', result: 'supported', supportingEvidenceRefs: ['E3', 'E4'] },
         { claimId: 'C3', result: 'supported', supportingEvidenceRefs: ['E5', 'E6'] },
         { claimId: 'C4', result: 'insufficient', supportingEvidenceRefs: [] },
+        { claimId: 'C5', result: 'supported', supportingEvidenceRefs: ['E8', 'E9'] },
       ],
     });
 
-    assert.deepEqual(selected, ['E1', 'E3', 'E4', 'E5', 'E6']);
+    assert.deepEqual(selected, ['E1', 'E3', 'E4', 'E5', 'E6', 'E8', 'E9']);
   },
 );
 
@@ -163,7 +166,7 @@ pendingExportTest(
       ],
     });
     assert.deepEqual(selected, ['E1', 'E2', 'E3'],
-      'simple proof follows claim ref order; structural proof keeps approved refs once');
+      'bounded usage claims preserve every approved proof part before projection filters telemetry');
   },
 );
 

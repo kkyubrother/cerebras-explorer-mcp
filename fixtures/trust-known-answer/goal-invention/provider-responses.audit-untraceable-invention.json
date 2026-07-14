@@ -1,22 +1,30 @@
 {
   "fixtureVersion": 1,
-  "scenario": "semantic_mismatch_us1",
+  "scenario": "audit_untraceable_invention",
   "responses": [
     {
       "stage": "planner",
       "result": {
         "message": {
           "content": {
-            "taskSummary": "Count the configured SECRET_PATTERNS entries.",
-            "constraints": ["Use the array item count, not a line number."],
+            "taskSummary": "Explain how a session is authenticated without adding unrelated goals.",
+            "constraints": [],
             "subgoals": [
               {
                 "id": "S1",
-                "question": "How many patterns are configured?",
-                "originRefs": ["request:0-75"],
-                "claimType": "count",
-                "proofCondition": "Count every element in SECRET_PATTERNS from the complete array declaration.",
-                "constraints": ["Do not infer the count from a line number."]
+                "question": "How is a session authenticated?",
+                "originRefs": ["request:0-39"],
+                "claimType": "positive",
+                "proofCondition": "Read the current session authentication predicate.",
+                "constraints": []
+              },
+              {
+                "id": "S2",
+                "question": "What throughput does session authentication achieve?",
+                "originRefs": ["request:0-39"],
+                "claimType": "positive",
+                "proofCondition": "Find a throughput benchmark for session authentication.",
+                "constraints": []
               }
             ]
           },
@@ -33,9 +41,16 @@
               {
                 "proposedGoalId": "S1",
                 "verdict": "ready",
-                "originRefs": ["request:0-75"],
+                "originRefs": ["request:0-39"],
                 "missingRequestParts": [],
-                "reason": "The array declaration is observable inside the requested scope."
+                "reason": "The requested authentication predicate is directly observable in current source."
+              },
+              {
+                "proposedGoalId": "S2",
+                "verdict": "reject_untraceable",
+                "originRefs": [],
+                "missingRequestParts": [],
+                "reason": "The request does not ask for a throughput benchmark."
               }
             ],
             "uncoveredRequestParts": []
@@ -51,13 +66,13 @@
           "content": "",
           "toolCalls": [
             {
-              "id": "read-security",
+              "id": "read-auth",
               "function": {
                 "name": "repo_read_file",
                 "arguments": {
-                  "path": "src/security.mjs",
+                  "path": "src/auth.mjs",
                   "startLine": 1,
-                  "endLine": 5
+                  "endLine": 3
                 }
               }
             }
@@ -69,7 +84,7 @@
       "stage": "exploration",
       "result": {
         "message": {
-          "content": "Evidence collection is complete.",
+          "content": "The requested authentication predicate was inspected.",
           "toolCalls": []
         }
       }
@@ -79,27 +94,27 @@
       "result": {
         "message": {
           "content": {
-            "directAnswer": "The proposed count still requires semantic verification.",
+            "directAnswer": "The authentication predicate requires isolated verification.",
             "status": {
-              "confidence": "low",
-              "verification": "follow_up_needed",
-              "complete": false,
+              "confidence": "high",
+              "verification": "verified",
+              "complete": true,
               "warnings": []
             },
             "targets": [],
             "evidence": [
               {
                 "id": "E1",
-                "path": "src/security.mjs",
+                "path": "src/auth.mjs",
                 "startLine": 1,
-                "endLine": 5,
-                "why": "The complete SECRET_PATTERNS declaration is visible here."
+                "endLine": 3,
+                "why": "The function directly returns the session authentication predicate."
               }
             ],
             "uncertainties": [],
             "nextAction": {
               "type": "stop",
-              "reason": "The isolated verifier decides whether the proposed count is supported."
+              "reason": "The requested predicate has direct source evidence."
             }
           },
           "toolCalls": []
@@ -115,9 +130,8 @@
               {
                 "id": "C1",
                 "subgoalId": "S1",
-                "text": "There are 117 configured secret patterns.",
-                "evidenceRefs": ["E1"],
-                "measurement": { "kind": "count", "unit": "array_entries", "value": 117 }
+                "text": "Authentication is Boolean(session?.userId).",
+                "evidenceRefs": ["E1"]
               }
             ]
           },
@@ -133,23 +147,15 @@
             "verdicts": [
               {
                 "claimId": "C1",
-                "result": "insufficient",
-                "supportingEvidenceRefs": [],
-                "reasonCode": "semantic_mismatch",
-                "note": "The observed array has three elements; line 117 is not an item count."
+                "result": "supported",
+                "resolution": "affirmed",
+                "supportingEvidenceRefs": ["E1"],
+                "reasonCode": "entailed",
+                "note": "The function directly returns Boolean(session?.userId)."
               }
             ],
             "uncoveredRequestParts": []
           },
-          "toolCalls": []
-        }
-      }
-    },
-    {
-      "stage": "repair",
-      "result": {
-        "message": {
-          "content": "The observed array is already complete, so no additional read can support the proposed count.",
           "toolCalls": []
         }
       }

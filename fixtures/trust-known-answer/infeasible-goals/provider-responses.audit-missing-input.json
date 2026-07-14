@@ -7,15 +7,15 @@
       "result": {
         "message": {
           "content": {
-            "taskSummary": "Check the deployment state for an unspecified deployment target.",
+            "taskSummary": "Check deployment state for an unspecified target.",
             "constraints": [],
             "subgoals": [
               {
                 "id": "S1",
-                "question": "What is the deployment state for the caller-selected environment and deployment identifier?",
+                "question": "Which deployment target should be checked?",
                 "originRefs": ["request:0-80"],
                 "claimType": "positive",
-                "proofCondition": "Use a caller-supplied environment and deployment identifier to select the exact target whose state must be checked.",
+                "proofCondition": "Use a caller-supplied environment and deployment identifier to select the exact target.",
                 "constraints": []
               }
             ]
@@ -31,9 +31,10 @@
           "content": {
             "goals": [
               {
-                "id": "S1",
+                "proposedGoalId": "S1",
                 "verdict": "missing_input",
-                "confirmedOriginRefs": ["request:0-80"],
+                "originRefs": ["request:0-80"],
+                "missingRequestParts": [],
                 "reason": "No environment or deployment identifier was supplied, so the requested target cannot be selected."
               }
             ],

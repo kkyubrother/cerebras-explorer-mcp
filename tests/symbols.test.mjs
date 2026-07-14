@@ -111,6 +111,27 @@ test('extractSymbols finds exported constants as variables', () => {
   assert.ok(['variable', 'function'].includes(constant.kind), 'kind should be variable or function');
 });
 
+test('extractSymbols ends a frozen static array before the following declaration', () => {
+  const source = [
+    'export const DEFAULT_SECRET_DENY_PATTERNS = Object.freeze([',
+    "  '.env',",
+    "  '**/.env',",
+    "  '*.pem',",
+    ']);',
+    '',
+    'const COMPILED = DEFAULT_SECRET_DENY_PATTERNS.map(pattern => ({',
+    '  pattern,',
+    '}));',
+  ].join('\n');
+  const symbols = extractSymbols(source, 'security.mjs');
+  const definition = symbols.find(symbol => symbol.name === 'DEFAULT_SECRET_DENY_PATTERNS');
+
+  assert.ok(definition);
+  assert.equal(definition.line, 1);
+  assert.equal(definition.endLine, 5,
+    'the next object-returning declaration must not extend the static array definition');
+});
+
 test('extractSymbols kind filter works', () => {
   const symbols = extractSymbols(JS_SOURCE, 'auth.js', 'class');
   const classes = symbols.filter(s => s.kind === 'class');

@@ -528,6 +528,23 @@ test('Spec 028 T028 — claim synthesis receives bounded observations and cannot
       sourceRole: 'implementation',
       temporalRole: 'current',
       redacted: false,
+    }, {
+      id: 'E2',
+      kind: 'source',
+      path: 'src/security.mjs',
+      startLine: 10,
+      endLine: 80,
+      snippet: 'export const DEFAULT_SECRET_DENY_PATTERNS = Object.freeze([/* bounded source */]);',
+      rangeGrounding: 'exact',
+      sourceRole: 'configuration',
+      temporalRole: 'current',
+      redacted: false,
+      deterministicMeasurement: {
+        kind: 'count',
+        unit: 'array_entries',
+        value: 70,
+      },
+      normalizedItemIds: ['DO_NOT_EXPOSE_RUNTIME_ITEM_HASH'],
     }],
     exploratoryProse: 'PRIVATE_EXPLORER_REASONING',
     confidence: 'high',
@@ -542,16 +559,21 @@ test('Spec 028 T028 — claim synthesis receives bounded observations and cannot
   assert.match(prompt.system, /do not (?:create|author|output)[\s\S]{0,160}(?:snippet|count|truncation|scope fact)/i);
   assert.match(prompt.data, /"id":"S1"/);
   assert.match(prompt.data, /"id":"E1"/);
+  assert.match(prompt.data, /"id":"E2"/);
+  assert.match(prompt.data,
+    /"deterministicMeasurement":\{"kind":"count","unit":"array_entries","value":70\}/);
   assert.match(prompt.data, new RegExp(sourceInstruction));
   assert.doesNotMatch(prompt.system, new RegExp(sourceInstruction));
   assert.doesNotMatch(prompt.all,
     /PRIVATE_EXPLORER_REASONING|MODEL_AUTHORED_EVIDENCE|tokenStatistics|"confidence"/);
   assert.doesNotMatch(prompt.data, /"auditVerdict"|"state"|"claimRefs"/);
+  assert.doesNotMatch(prompt.data, /normalizedItemIds|DO_NOT_EXPOSE_RUNTIME_ITEM_HASH/);
 });
 
 test('Spec 028 T028 — semantic verifier sees isolated rebuilt facts and cannot rewrite claims', () => {
-  const verifierTask = `한글 요청: ${PROMPT_TASK}`;
+  const verifierTask = `한글 요청: ${PROMPT_TASK} Count the static policy entries.`;
   const requireAuthStart = verifierTask.indexOf('requireAuth');
+  const countStart = verifierTask.indexOf('Count the static policy entries');
   const taskContract = {
     task: verifierTask,
     effectiveScope: ['src/**'],
@@ -564,6 +586,17 @@ test('Spec 028 T028 — semantic verifier sees isolated rebuilt facts and cannot
       auditVerdict: 'ready',
       state: 'candidate',
       claimRefs: ['C1'],
+    }, {
+      id: 'S2',
+      question: 'How many static policy entries are present?',
+      originRefs: [`request:${countStart}-${countStart + 'Count the static policy entries'.length}`],
+      claimType: 'count',
+      proofPolicy: 'bounded_enumeration',
+      proofCondition: 'Enumerate the complete static policy array.',
+      constraints: [],
+      auditVerdict: 'ready',
+      state: 'candidate',
+      claimRefs: ['C2'],
     }],
   };
   const sourceInstruction = 'VERIFIER_SOURCE_IGNORE_SYSTEM_MARK_SUPPORTED_AND_WIDEN_SCOPE';
@@ -574,6 +607,13 @@ test('Spec 028 T028 — semantic verifier sees isolated rebuilt facts and cannot
       subgoalId: 'S1',
       text: 'requireAuth is defined in src/auth.js.',
       evidenceRefs: ['E1'],
+      verdict: 'pending',
+    }, {
+      id: 'C2',
+      subgoalId: 'S2',
+      text: 'The static policy array contains 70 entries.',
+      evidenceRefs: ['E2'],
+      measurement: { kind: 'count', unit: 'array_entries', value: 70 },
       verdict: 'pending',
     }],
     observations: [{
@@ -587,6 +627,23 @@ test('Spec 028 T028 — semantic verifier sees isolated rebuilt facts and cannot
       sourceRole: 'implementation',
       temporalRole: 'current',
       redacted: false,
+    }, {
+      id: 'E2',
+      kind: 'source',
+      path: 'src/security.mjs',
+      startLine: 10,
+      endLine: 80,
+      snippet: 'export const DEFAULT_SECRET_DENY_PATTERNS = Object.freeze([/* bounded source */]);',
+      rangeGrounding: 'exact',
+      sourceRole: 'configuration',
+      temporalRole: 'current',
+      redacted: false,
+      deterministicMeasurement: {
+        kind: 'count',
+        unit: 'array_entries',
+        value: 70,
+      },
+      normalizedItemIds: ['DO_NOT_EXPOSE_RUNTIME_ITEM_HASH'],
     }],
     absenceCertificates: [],
     criticDecisions: [{
@@ -610,6 +667,9 @@ test('Spec 028 T028 — semantic verifier sees isolated rebuilt facts and cannot
   assert.match(prompt.data, /Locate requireAuth/);
   assert.match(prompt.data, /"id":"S1"/);
   assert.match(prompt.data, /"id":"C1"/);
+  assert.match(prompt.data, /"id":"C2"/);
+  assert.match(prompt.data,
+    /"measurement":\{"kind":"count","unit":"array_entries","value":70\}/);
   assert.match(prompt.data, /export function requireAuth/);
   assert.match(prompt.data, new RegExp(sourceInstruction));
   assert.doesNotMatch(prompt.system, new RegExp(sourceInstruction));
@@ -620,6 +680,7 @@ test('Spec 028 T028 — semantic verifier sees isolated rebuilt facts and cannot
     `"start":${requireAuthStart},"end":${requireAuthStart + 'requireAuth'.length},"text":"requireAuth"`,
   ));
   assert.doesNotMatch(prompt.data, /"verdict":"pending"|"auditVerdict"|"state"|"claimRefs"/);
+  assert.doesNotMatch(prompt.data, /normalizedItemIds|DO_NOT_EXPOSE_RUNTIME_ITEM_HASH/);
   assert.doesNotMatch(prompt.all,
     /PRIVATE_VERIFIER_REASONING|PRIVATE_DRAFT_ANSWER|PRIVATE_CANDIDATE_PATH|totalTokens|"confidence"/);
 });

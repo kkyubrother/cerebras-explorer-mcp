@@ -29,6 +29,12 @@ async function listTextFiles(relDir) {
   return output;
 }
 
+test('project keeps zero runtime and development dependencies', async () => {
+  const packageJson = JSON.parse(await read('package.json'));
+  assert.deepEqual(packageJson.dependencies, {});
+  assert.deepEqual(packageJson.devDependencies, {});
+});
+
 function extractFirstTomlStringArray(source, key) {
   const match = source.match(new RegExp(`^\\s*${key}\\s*=\\s*\\[([\\s\\S]*?)^\\s*\\]`, 'm'));
   assert.ok(match, `${key} array should exist`);
@@ -223,7 +229,7 @@ async function scanEffortSurface(relPaths) {
   return violations;
 }
 
-test('Spec 028 T047 — executable active surface has no budget or effort abstraction', async t => {
+test('Spec 028 T047 — executable active surface has no selectable effort abstraction', async t => {
   if (!T054_ACTIVE_EFFORT_STATE_REMOVED) {
     t.todo('T054 activates the executable active-surface guard');
     return;
@@ -232,7 +238,7 @@ test('Spec 028 T047 — executable active surface has no budget or effort abstra
   assert.deepEqual(await scanEffortSurface(files), []);
 });
 
-test('Spec 028 T047 — public docs and examples have no selectable budget or effort surface', async t => {
+test('Spec 028 T047 — public docs and examples have no selectable effort surface', async t => {
   if (!T056_USER_SURFACE_MIGRATED) {
     t.todo('T056 activates the public active-surface guard');
     return;
