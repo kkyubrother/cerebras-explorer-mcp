@@ -205,7 +205,7 @@
         "fx-route-policy-divergence"
       ],
       "minimumRate": 0.9,
-      "reportSha256": "b5da42784850ce9c551c96ea3fdf966d0b63e0e7ef3f0830538a8a82ad2c2841",
+      "reportSha256": "1fd756650acde82cfb05609af021c79dc41a3d16d188927afefefe5b7226c0d5",
       "sourcePins": [
         {
           "caseId": "obs-deny-list-count-range",
@@ -234,8 +234,8 @@
           "kind": "repository",
           "gitSha": "492fa0a6c083c7d83302792b14b19da0b2953e67",
           "dirtyTreeSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-          "promptSha256": "07e9b2d412a76f7c3278ec99f4ffc1257f2d78bab82d8be8d4e5e4fba8188d12",
-          "handoffSha256": "11c667c5e727f8a9ce8da3a2a7d3d4357a0c3f52867ebf41e1a596b35ec82f28"
+          "promptSha256": "9e6317895bc21fc72bd8c5d5c7f5d58db02d06507513589cd8e98073f157a9bb",
+          "handoffSha256": "c733d5f3cd8138353a979dd9e178a1fecdc3ec5153a57ab596c99afdf3765f7d"
         },
         {
           "caseId": "obs-repeat-tests-environment",
@@ -347,8 +347,8 @@
         "broadNativeResearchCaseCount": 0,
         "noBroadNativeResearchRate": 1,
         "allowance": {
-          "citedTargetReads": 0,
-          "citedPathSearches": 0,
+          "citedTargetReads": 9,
+          "citedPathSearches": 1,
           "allowedFollowUps": 0
         }
       },
@@ -363,7 +363,7 @@
           },
           "promptSha256": "5f4ee92df9a81622e6f7f11cfb781d66e97e63790ef7e0ae08e895ecfc40e2d7",
           "handoffSha256": "e2c2afbda0e2bed47e46a7750e127badef1664094cae533411cae8ca38be3fcc",
-          "traceSha256": "85451126631117e31227136538ff52e60254b40c3f95d324fd2b8f8360206cb8",
+          "traceSha256": "259a8b388c81349bb538b0cf0383b2dcc36d1637e63ccb89b91749aeed376058",
           "observed": true,
           "noBroad": true,
           "broadActionCount": 0,
@@ -384,7 +384,7 @@
           },
           "promptSha256": "0e0384117b0eab2d6e268daf9834b34bdcf9365d65f1d39e771e4b2213fdfa15",
           "handoffSha256": "296af1eddb9363b84ad787e2c2fe384855ef8087ad939d47918b975780b18c00",
-          "traceSha256": "c1e24c7d344a6f55d9ca02aaa8f4e5e13d8550388dc8d08c34df73433a44bb7d",
+          "traceSha256": "10d36384037316e086cd1896a6f71b8d0a2e2988b9cd139446b8d3a9c76d04bc",
           "observed": true,
           "noBroad": true,
           "broadActionCount": 0,
@@ -403,9 +403,9 @@
             "gitSha": "492fa0a6c083c7d83302792b14b19da0b2953e67",
             "dirtyTreeSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
           },
-          "promptSha256": "07e9b2d412a76f7c3278ec99f4ffc1257f2d78bab82d8be8d4e5e4fba8188d12",
-          "handoffSha256": "11c667c5e727f8a9ce8da3a2a7d3d4357a0c3f52867ebf41e1a596b35ec82f28",
-          "traceSha256": "3cf61f26ddb18921bc0d0bb4cec90cdb73673a15f7c6fea442ee1c7514f9c379",
+          "promptSha256": "9e6317895bc21fc72bd8c5d5c7f5d58db02d06507513589cd8e98073f157a9bb",
+          "handoffSha256": "c733d5f3cd8138353a979dd9e178a1fecdc3ec5153a57ab596c99afdf3765f7d",
+          "traceSha256": "72f18826aacefe54ab0c9280743c41df6db37fdea90a651e283847833c83faef",
           "observed": true,
           "noBroad": true,
           "broadActionCount": 0,
@@ -426,7 +426,7 @@
           },
           "promptSha256": "30c9905103fe258603e6e6091a3d9f5848c280562fb5cf63729fa2ec3254a463",
           "handoffSha256": "2febfb0865ffc2f31883c97c5a62deb929a4db88d239590270c41d9b9bd41dc1",
-          "traceSha256": "ee67f76fa6f31b8c09c936d7eb392989033c743f4565df84ca22a480320e370a",
+          "traceSha256": "8692841d87660c52bc1a92a3d53c089c89ea246ec2995a388f624e5c56cb7cd7",
           "observed": true,
           "noBroad": true,
           "broadActionCount": 0,
@@ -447,16 +447,18 @@
           },
           "promptSha256": "969d2f04b71269e5027077f500463598c4ec5a5f2a34c1814f6be6a7d2cd9e33",
           "handoffSha256": "c4ebf8ce9ab83653396711dd6b56b5668bbd52dbfad27648086a7a67d1ee8838",
-          "traceSha256": "b619a65ee41fa74f738fe313948ce2bb58194fff1c8fc0aa3ba7e9858014a2dd",
+          "traceSha256": "be5cc3a42a20cacd989491ad299114fb14491e16e9846ad83610cdf069507dcf",
           "observed": true,
           "noBroad": true,
           "broadActionCount": 0,
           "allowance": {
-            "citedTargetReads": 0,
-            "citedPathSearches": 0,
+            "citedTargetReads": 9,
+            "citedPathSearches": 1,
             "allowedFollowUps": 0
           },
-          "violations": []
+          "violations": [
+            "command_execution_failed"
+          ]
         },
         {
           "id": "fx-incomplete-multipart",
@@ -467,7 +469,7 @@
           },
           "promptSha256": "b4e3463bb8d16f28282d5b39b7ee81a3bbce7e04ff9a483b435b1f8e10a57c49",
           "handoffSha256": "4e3b60ad82348d03a5d287c068a5fb24ae628451ca74c3aa3f7e2a8514bc209b",
-          "traceSha256": "e56da2b9ac92fd495ca207d35e5abbfea2ae040997d96b862535edf7e4fed9d4",
+          "traceSha256": "a803abc1edf1ed2174e5229c1a3dedf7b8414a6fdbbc693fb2f2eb79647b89b9",
           "observed": true,
           "noBroad": true,
           "broadActionCount": 0,
@@ -487,7 +489,7 @@
           },
           "promptSha256": "9e207f77d7fb497e348925522807900f6b1da871e45c72da450f2eef011b3e70",
           "handoffSha256": "0e461268cad4c695c34c01790b2ed218ba590f5a0ccbdd97c160045e68d1b538",
-          "traceSha256": "dd55ed30bcc1855c3763585954b877155e9f9f119e2bc3494e50ed2bb33a3efd",
+          "traceSha256": "f8dbe763e0179bced24e54a0ec9453ed3f0709b2334d2f01f259742c7207082f",
           "observed": true,
           "noBroad": true,
           "broadActionCount": 0,
@@ -507,7 +509,7 @@
           },
           "promptSha256": "d763864099c2fe4c14cce9882ca8aed575e891576b3c072253db3ced4c980f28",
           "handoffSha256": "7ee291891f05f4f60ffbb14b39c08b45372e159ffe1ac1129136ff8aeb8aa738",
-          "traceSha256": "b820c4e1dddf1e7e716f1525c300461a6be7559b7c911584861432d844020116",
+          "traceSha256": "1ee69056d911def934804c5ff57b3f6145693538e7daf044fe8bbce1d4450117",
           "observed": true,
           "noBroad": true,
           "broadActionCount": 0,
@@ -527,7 +529,7 @@
           },
           "promptSha256": "481b199811afd2f01117686c441fb21cd9b8136eb182a8e21d811dc407d4a7be",
           "handoffSha256": "7ee291891f05f4f60ffbb14b39c08b45372e159ffe1ac1129136ff8aeb8aa738",
-          "traceSha256": "c36e9afd2ed9934353db39bfbb69958297000a3a8ba6dc57db1e5b3f8d22ed0c",
+          "traceSha256": "3dba5a4616f4544581a8b0f349ef10d2c0766a8599b1a9d9c4e3fca24cff348d",
           "observed": true,
           "noBroad": true,
           "broadActionCount": 0,
@@ -547,7 +549,7 @@
           },
           "promptSha256": "a377e0b31f3b86ae4d9ba3b6b941a87ef31d08f30cbf2ff3b4b8c3e1782cd67a",
           "handoffSha256": "076040a933aa107d4602fa344f8cecb2907cb3001d4b4146b9447792fae5bc6a",
-          "traceSha256": "cf753aabeae122ad05d06ec7b274ad2da0dae6106426b45934403f0c1d4ccfe0",
+          "traceSha256": "22b55b442be41a2f99a5306994a4c003a3605e5008dd2af36c18aa0f410d0bac",
           "observed": true,
           "noBroad": true,
           "broadActionCount": 0,
@@ -567,7 +569,7 @@
           },
           "promptSha256": "6c4ee101ddc234a454e84f9259e1a3d12fd0d3f7497c769c44c8024f5cbb014e",
           "handoffSha256": "076040a933aa107d4602fa344f8cecb2907cb3001d4b4146b9447792fae5bc6a",
-          "traceSha256": "b66a3da1a6a183e11757703d2b0d2599d78189cc9728aa7e1cfac867220442d9",
+          "traceSha256": "a59f0a96b0c02ebeaee9fec1b8e7c1c76dc37045674f6eca551b27772dc78116",
           "observed": true,
           "noBroad": true,
           "broadActionCount": 0,
@@ -587,7 +589,7 @@
           },
           "promptSha256": "5ca3e9f06dd1620f819fe5363ffb0bf9da627ad5a2b155271a23ee03f16b2012",
           "handoffSha256": "908f7e718cf6b76335dd7ab9a9f6986ea586e9f1a4c7b24911fde620c778a382",
-          "traceSha256": "e4ee006f7210f9a7cefb24e078f2a3a630343333096a922cc1e928a34afb7db9",
+          "traceSha256": "d27f7833d3ff8406c895cd6b13171ce0ef92093c438fe07a6e741f4294c628f0",
           "observed": true,
           "noBroad": true,
           "broadActionCount": 0,
@@ -607,7 +609,7 @@
           },
           "promptSha256": "53b0fe1a779264880a16e9d85d0a1a37d0e3e4a66ba92570ae681d3fa77cdc5a",
           "handoffSha256": "44ed6eaa03bc09038e7815ef30509158c43eb2595b666805d31a63d114af9cc8",
-          "traceSha256": "b8e7baeaa8df2f09e47d0b7c7798f4188797f2c759edbf2471506f5398af178c",
+          "traceSha256": "901c961aad670aaec8294b689b732f3a31a71ff1361d87e923de05dbdbc1507e",
           "observed": true,
           "noBroad": true,
           "broadActionCount": 0,
@@ -627,7 +629,7 @@
           },
           "promptSha256": "07962cc63b1dd7ad30521a3d796863d270670307e3409943109bf0d04cdda802",
           "handoffSha256": "0e6a069d1a42d06880abbc51975f8b5dc4a5a01671cb8e5fffcfd4b03195fee3",
-          "traceSha256": "87e298d569959f9c669f0aadaf5249d658c40a8225e4772a88fce18a1883e4ae",
+          "traceSha256": "dc33f36674ffd33cce2ebce7ae2c58b2246d9ee0b07f29f58fca806f13581b13",
           "observed": true,
           "noBroad": true,
           "broadActionCount": 0,
@@ -721,8 +723,8 @@
         {
           "caseId": "obs-route-admin-divergence",
           "baselineRef": "v2-obs-route-admin-divergence",
-          "currentParentPayloadBytes": 1786,
-          "currentPayloadSha256": "7da2b9bac9c1c2ca349988ab43c3d88894cba19e2c99230d6bf9547ba4568078"
+          "currentParentPayloadBytes": 2016,
+          "currentPayloadSha256": "3788c87088f0ec7ac4eb391bb3b2de746d0a7a99373cc947be70aa731a98e0f4"
         },
         {
           "caseId": "obs-repeat-tests-environment",
@@ -1485,7 +1487,7 @@
               "components/auth/AdminProtectedRoute.tsx",
               "lib/admin-auth.ts",
               "app/api/admin/feedback/route.ts",
-              "app/api/inquiry/route.ts",
+              "app/api/inquiry/[id]/route.ts",
               "app/api/cases/route.ts",
               "app/api/draft/save/route.ts"
             ]
@@ -1551,7 +1553,8 @@
             "evidenceAnchorRefs": [
               "E2",
               "E3",
-              "E4"
+              "E4",
+              "E7"
             ],
             "anchorPolicy": "all"
           },
@@ -1595,7 +1598,7 @@
       {
         "id": "A2",
         "goalId": "G2",
-        "text": "Backend routes use distinct ADMIN_USERS, admin_user_info existence, and is_admin policies.",
+        "text": "Backend routes enforce distinct ADMIN_USERS, admin_user_info existence, and is_admin policies.",
         "requiredTextGroups": [
           [
             "ADMIN_USERS"
@@ -1648,10 +1651,10 @@
           {
             "id": "inquiry-boolean-flag",
             "subjectAlternatives": [
-              "app/api/inquiry",
-              "inquiry route",
-              "inquiry",
-              "isAdmin"
+              "app/api/inquiry/[id]",
+              "inquiry detail route",
+              "inquiry status update",
+              "inquiry PUT"
             ],
             "predicateGroups": [
               [
@@ -1668,7 +1671,8 @@
         "evidenceAnchorRefs": [
           "E2",
           "E3",
-          "E4"
+          "E4",
+          "E7"
         ]
       },
       {
@@ -1737,8 +1741,8 @@
           {
             "id": "E4",
             "kind": "source",
-            "path": "app/api/inquiry/route.ts",
-            "startLine": 39,
+            "path": "app/api/inquiry/[id]/route.ts",
+            "startLine": 35,
             "endLine": 41,
             "sourceRole": "implementation",
             "temporalRole": "current"
@@ -1758,6 +1762,15 @@
             "path": "app/api/draft/save/route.ts",
             "startLine": 31,
             "endLine": 33,
+            "sourceRole": "implementation",
+            "temporalRole": "current"
+          },
+          {
+            "id": "E7",
+            "kind": "source",
+            "path": "app/api/inquiry/[id]/route.ts",
+            "startLine": 156,
+            "endLine": 165,
             "sourceRole": "implementation",
             "temporalRole": "current"
           }
