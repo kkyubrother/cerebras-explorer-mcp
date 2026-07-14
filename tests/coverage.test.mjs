@@ -190,6 +190,7 @@ proofPolicyCoverageTest(
     assert.deepEqual(certificate.claimBoundary, ['src/auth/**']);
     assert.deepEqual(certificate.searchRefs, ['Q1']);
     assert.equal(certificate.complete, true);
+    assert.equal(certificate.zeroMatches, true);
     assert.equal(certificate.qualification, input.qualification);
     assert.ok(Array.isArray(certificate.searchSummary) && certificate.searchSummary.length > 0);
     assert.ok(certificate.searchSummary.every(item => typeof item === 'string' && item.length > 0));
@@ -222,7 +223,7 @@ proofPolicyCoverageTest(
 
 proofPolicyCoverageTest(
   'Spec 028 T057 — deterministic counts use complete normalized identities, never prose or line numbers',
-  ({ buildAbsenceCertificate, computeDeterministicCount }) => {
+  ({ buildAbsenceCertificate, computeDeterministicCount, evaluateProofPolicy }) => {
     const certificate = buildAbsenceCertificate(t057CertificateInput({
       id: 'A-count',
       subgoalId: 'S-count',
@@ -249,6 +250,8 @@ proofPolicyCoverageTest(
     assert.equal(count.complete, true);
     assert.equal(count.count, 2, 'duplicate normalized identities count once');
     assert.equal(count.subgoalId, 'S-count');
+    assert.equal(certificate.zeroMatches, false,
+      'a complete non-empty enumeration is valid for counting, not absence proof');
 
     const incomplete = computeDeterministicCount({
       ...input,
@@ -257,6 +260,28 @@ proofPolicyCoverageTest(
     assert.equal(incomplete.complete, false);
     assert.equal(incomplete.count, null,
       'an incomplete boundary must not leak a plausible numeric answer');
+
+    assertFailedProof(evaluateProofPolicy({
+      subgoal: {
+        id: 'S-count-as-absence',
+        claimType: 'absence',
+        proofPolicy: 'bounded_absence',
+        constraints: ['boundary:src/routes/**'],
+      },
+      claim: {
+        id: 'C-count-as-absence',
+        subgoalId: 'S-count-as-absence',
+        text: 'opaque',
+        evidenceRefs: ['Q-count'],
+      },
+      semanticVerdict: {
+        claimId: 'C-count-as-absence',
+        result: 'supported',
+        resolution: 'affirmed',
+        supportingEvidenceRefs: ['Q-count'],
+      },
+      absenceCertificates: [{ ...certificate, subgoalId: 'S-count-as-absence' }],
+    }), 'a non-empty complete search cannot certify absence');
   },
 );
 
@@ -408,6 +433,16 @@ proofPolicyCoverageTest(
       }],
     }).passed, true,
     'a direct source counterexample can support a refutation without absence proof');
+
+    assertFailedProof(evaluateProofPolicy({
+      ...refutationInput,
+      semanticVerdict: {
+        ...refutationInput.semanticVerdict,
+        resolution: 'affirmed',
+      },
+      absenceCertificates: [],
+      observations: [t057SearchObservation()],
+    }), 'an affirmed verification cannot rely on search metadata alone');
   },
 );
 

@@ -302,6 +302,7 @@ export function buildAbsenceCertificate(input) {
       .map(summarizeSearch)
       .sort(),
     complete,
+    zeroMatches: complete && searches.every(search => search.matchCount === 0),
   };
   if (typeof value.qualification === 'string' && value.qualification.trim()) {
     certificate.qualification = value.qualification.trim();
@@ -454,8 +455,9 @@ export function evaluateProofPolicy({
     candidate => certificateSupportsClaim(candidate, claimRefs, supportingRefSet),
   );
   const certifiedClaim = certificate !== null;
+  const certifiedAbsence = certificate?.zeroMatches === true;
   if (expectedPolicy === 'bounded_absence') {
-    return certifiedClaim ? passedProof(subgoal, claim) :
+    return certifiedAbsence ? passedProof(subgoal, claim) :
       failedProof('incomplete_enumeration', subgoal, claim);
   }
   if (expectedPolicy === 'deterministic_count') {
@@ -469,8 +471,15 @@ export function evaluateProofPolicy({
     const directCounterexample = supporting.some(observation =>
       observation?.kind === 'source' ||
       ['git_commit', 'git_blame', 'git_diff_hunk'].includes(observation?.kind));
-    return certifiedClaim || directCounterexample ? passedProof(subgoal, claim) :
+    return certifiedAbsence || directCounterexample ? passedProof(subgoal, claim) :
       failedProof('uncertified_refutation', subgoal, claim);
+  }
+  if (expectedPolicy === 'support_or_refute') {
+    const directSupport = supporting.some(observation =>
+      observation?.kind === 'source' ||
+      ['git_commit', 'git_blame', 'git_diff_hunk'].includes(observation?.kind));
+    return directSupport ? passedProof(subgoal, claim) :
+      failedProof('direct_evidence_missing', subgoal, claim);
   }
 
   if (expectedPolicy === 'symbol_definition') {
