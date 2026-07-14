@@ -8454,6 +8454,9 @@ semanticPipelineRuntimeTest(
       const packet = JSON.stringify(request.messages);
       assert.match(packet, /FOCUSED COLLECT AFFIRMATION CORROBORATION/u);
       assert.match(packet, /definitelyUnrelatedBuildBanner/u);
+      assert.equal(request.temperature, 0,
+        'the high-risk focused verdict must use deterministic sampling');
+      assert.equal(request.topP, 1);
     };
     const { client, result } = await runTrustScript(buildTrustSteps({
       goals: [goal],

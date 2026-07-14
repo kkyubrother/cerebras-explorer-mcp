@@ -1274,6 +1274,28 @@ internalSchemaTest(
       ...valid,
       verdicts: [{ ...valid.verdicts[0], text: 'A rewritten claim.' }],
     }));
+    assert.doesNotThrow(() => validate({
+      ...valid,
+      verdicts: [{
+        claimId: 'C1',
+        result: 'insufficient',
+        supportingEvidenceRefs: [],
+        reasonCode: 'uncovered_request',
+        note: 'A requested proof facet remains uncovered.',
+      }],
+    }));
+    for (const result of ['supported', 'contradicted']) {
+      const invalidVerdict = {
+        ...valid.verdicts[0],
+        result,
+        reasonCode: 'uncovered_request',
+      };
+      if (result !== 'supported') delete invalidVerdict.resolution;
+      assert.throws(() => validate({
+        ...valid,
+        verdicts: [invalidVerdict],
+      }), `uncovered_request cannot be ${result}`);
+    }
   },
 );
 

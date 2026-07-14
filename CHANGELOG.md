@@ -33,7 +33,8 @@ compatibility aliases or selectable effort controls are retained.
   affirmation requires both direct source/git evidence and a verifier-approved
   complete zero-match search for a plausible counterexample, while that search
   stays internal and only the direct evidence is handed to the parent. A second
-  focused verifier must independently approve the same complete search. Only an
+  focused verifier must independently approve the same complete search under
+  deterministic sampling. Only an
   explicit complete grep, file-pattern, or symbol predicate can serve as that
   counter-search; any verifier-reported missing facet keeps the same verdict
   incomplete instead of creating another goal.

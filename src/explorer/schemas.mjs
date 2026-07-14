@@ -1416,6 +1416,9 @@ function validateSemanticVerdictRules(value, path) {
   if (value.result !== 'supported' && hasResolution) {
     failInternalValidation(path, 'resolution is allowed only for supported verdicts');
   }
+  if (value.reasonCode === 'uncovered_request' && value.result !== 'insufficient') {
+    failInternalValidation(path, 'uncovered_request requires an insufficient verdict');
+  }
 }
 
 export function validateSemanticVerdict(value) {
