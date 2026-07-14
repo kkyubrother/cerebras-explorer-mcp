@@ -3812,7 +3812,7 @@ test('010 US2#1 — listDir entries land in discoveredPaths[], not targets[]', a
             content: '',
             toolCalls: [{
               id: 'list-1',
-              function: { name: 'repo_list_dir', arguments: JSON.stringify({ path: '.' }) },
+              function: { name: 'repo_list_dir', arguments: JSON.stringify({ dirPath: '.' }) },
             }],
           },
         };

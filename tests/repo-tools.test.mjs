@@ -1565,6 +1565,20 @@ test('repo_grep returns line-level observations via runtime integration', async 
   }
 });
 
+test('RepoToolkit rejects undeclared repo_grep fields instead of widening the search', async () => {
+  const repoRoot = await makeRepoFixture();
+  const toolkit = new RepoToolkit({ repoRoot, runtimeConfig: getRuntimeConfig() });
+  await toolkit.initialize([]);
+
+  await assert.rejects(
+    toolkit.callTool('repo_grep', {
+      pattern: 'requireAuth',
+      path: 'src/auth.js',
+    }),
+    /Invalid tool arguments for repo_grep: unexpected field "path".*scope/u,
+  );
+});
+
 // --- Phase 2: Scope Hard Boundary Tests ---
 
 test('RepoToolkit grep with ripgrep respects initialize base scope', { skip: !hasRipgrep() }, async () => {

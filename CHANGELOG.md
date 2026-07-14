@@ -58,7 +58,9 @@ compatibility aliases or selectable effort controls are retained.
   and top-p `0.95`.
 - **Repository and provider reliability**: exact-file grep can inspect text
   files up to the existing 512 KiB read ceiling while broad grep keeps the
-  256 KiB protection. Cancellation interrupts retry waits, and day-scale
+  256 KiB protection. Internal repository tools reject undeclared arguments
+  before execution, so a mistaken grep `path` cannot silently widen into a
+  repository-wide search. Cancellation interrupts retry waits, and day-scale
   `Retry-After` responses are recorded without repeating a request that cannot
   succeed inside the bounded parent call.
 - **Independent acceptance**: pinned known-answer fixtures and repositories,

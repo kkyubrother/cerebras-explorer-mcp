@@ -1708,7 +1708,7 @@ export class RepoToolkit {
         function: {
           name: 'repo_grep',
           description:
-            'Search file contents with a regular expression. Use this to trace symbols, routes, config keys, or keywords. Set contextLines to include surrounding lines in each match.',
+            'Search file contents with a regular expression. Use this to trace symbols, routes, config keys, or keywords. To search one file, pass scope:["relative/path"]; repo_grep has no path argument. Set contextLines to include surrounding lines in each match.',
           parameters: {
             type: 'object',
             additionalProperties: false,
@@ -1914,6 +1914,7 @@ export class RepoToolkit {
   }
 
   async callTool(name, args) {
+    validateRepoToolArguments(name, args);
     let cacheKey;
     let ttlMs = null;
 
@@ -2079,6 +2080,26 @@ const OBSERVATION_ARG_KEYS = Object.freeze({
   repo_git_diff: ['from', 'to', 'path', 'stat'],
   repo_git_show: ['ref'],
 });
+
+function validateRepoToolArguments(name, args) {
+  if (args === undefined || args === null) return;
+  if (typeof args !== 'object' || Array.isArray(args)) {
+    throw new TypeError(`Invalid tool arguments for ${name}: expected an object.`);
+  }
+
+  const allowed = OBSERVATION_ARG_KEYS[name];
+  if (!allowed) return;
+  const allowedSet = new Set(allowed);
+  const unexpected = Object.keys(args).filter(key => !allowedSet.has(key));
+  if (unexpected.length === 0) return;
+
+  const label = unexpected.length === 1 ? 'field' : 'fields';
+  const names = unexpected.map(key => `"${key}"`).join(', ');
+  throw new TypeError(
+    `Invalid tool arguments for ${name}: unexpected ${label} ${names}. ` +
+    `Allowed fields: ${allowed.join(', ')}.`,
+  );
+}
 
 const GENERATED_SOURCE_SEGMENTS = new Set([
   'build', 'coverage', 'dist', 'gen', 'generated', 'out', '.next',
