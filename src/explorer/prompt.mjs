@@ -484,7 +484,7 @@ const VERIFIER_OBSERVATION_FIELDS = Object.freeze([
 
 const ABSENCE_CERTIFICATE_FIELDS = Object.freeze([
   'id', 'subgoalId', 'claimBoundary', 'searchRefs', 'searchSummary',
-  'complete', 'qualification',
+  'complete', 'zeroMatches', 'qualification',
 ]);
 
 const CRITIC_DECISION_FIELDS = Object.freeze([

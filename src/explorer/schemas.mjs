@@ -1031,6 +1031,7 @@ export const ABSENCE_CERTIFICATE_SCHEMA = strictInternalObject({
   searchRefs: internalStringArray(),
   searchSummary: internalStringArray(),
   complete: { type: 'boolean' },
+  zeroMatches: { type: 'boolean' },
   qualification: internalString(),
 }, [
   'id',
@@ -1039,6 +1040,7 @@ export const ABSENCE_CERTIFICATE_SCHEMA = strictInternalObject({
   'searchRefs',
   'searchSummary',
   'complete',
+  'zeroMatches',
 ]);
 
 export const SAFETY_LIMIT_SCHEMA = strictInternalObject({

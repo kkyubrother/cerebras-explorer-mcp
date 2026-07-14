@@ -16,6 +16,7 @@ import {
 import {
   classifySourceRole,
   collectDiscoveredPathsFromToolResult,
+  deriveRepositoryObservationCoverage,
   normalizeRepositoryObservation,
   RepoToolkit,
 } from './repo-tools.mjs';
@@ -50,15 +51,17 @@ import {
   validateParentHandoffV3,
 } from './schemas.mjs';
 import {
-  applyClaimEvidenceGate,
+  applyClaimProofPolicyGate,
   deriveTaskKindFromTaskMode,
   runDeterministicCriticPass,
 } from './critic.mjs';
 import {
   applyEvidenceRepairRound,
+  buildAbsenceCertificate,
   createCapabilityManifest,
   createAtomicClaim,
   createTaskContract,
+  evaluateProofPolicy,
   fingerprintAction,
   integrateAuditedLateGoals,
   mergeSafetyLimit,
@@ -1130,11 +1133,21 @@ function buildVerifiedDirectAnswer(semanticVerification, allowedClaimIds = null)
 }
 
 function parentEvidenceFromObservation(observation) {
+  if (typeof observation?.id !== 'string' || !observation.id) return null;
+  if (observation.kind === 'git_commit' &&
+      typeof observation.sha === 'string' && observation.sha) {
+    return {
+      id: observation.id,
+      evidenceType: 'git_commit',
+      sha: observation.sha,
+      why: 'Runtime-observed commit used by semantic verification.',
+    };
+  }
   const path = normalizeTargetPath(observation?.path);
   const hasRange = Number.isInteger(observation?.startLine) &&
     Number.isInteger(observation?.endLine) &&
     observation.startLine >= 1 && observation.endLine >= observation.startLine;
-  if (!path || !hasRange || typeof observation?.id !== 'string' || !observation.id) return null;
+  if (!path || !hasRange) return null;
   const base = {
     id: observation.id,
     path,
@@ -1160,9 +1173,21 @@ function parentEvidenceFromObservation(observation) {
   return null;
 }
 
+function certificateMaySurfaceForClaim(subgoal, verdict) {
+  return ['bounded_absence', 'deterministic_count'].includes(subgoal?.proofPolicy) ||
+    (subgoal?.proofPolicy === 'support_or_refute' && verdict?.resolution === 'refuted');
+}
+
+function certifiedSearchEvidence(certificates, { subgoal, verdict, ref }) {
+  if (!certificateMaySurfaceForClaim(subgoal, verdict)) return null;
+  return certificates.find(certificate => certificate?.complete === true &&
+    certificate?.zeroMatches === true && certificate?.subgoalId === subgoal.id &&
+    certificate?.searchRefs?.includes(ref)) ?? null;
+}
+
 function buildSemanticParentProjection({ semanticVerification, observations }) {
-  const subgoalStateById = new Map(
-    (semanticVerification?.taskContract?.subgoals ?? []).map(goal => [goal.id, goal.state]),
+  const subgoalById = new Map(
+    (semanticVerification?.taskContract?.subgoals ?? []).map(goal => [goal.id, goal]),
   );
   const verdictByClaimId = new Map(
     (semanticVerification?.semanticVerdicts ?? []).map(verdict => [verdict.claimId, verdict]),
@@ -1173,9 +1198,15 @@ function buildSemanticParentProjection({ semanticVerification, observations }) {
   const claimIds = new Set();
   const supportingRefsByClaimId = new Map();
   const evidenceById = new Map();
+  const certificateClaimIds = new Set();
+  const pathlessGitClaimIds = new Set();
+  const certificates = Array.isArray(semanticVerification?.absenceCertificates)
+    ? semanticVerification.absenceCertificates
+    : [];
 
   for (const claim of semanticVerification?.claims ?? []) {
-    if (claim.verdict !== 'supported' || subgoalStateById.get(claim.subgoalId) !== 'supported') {
+    const subgoal = subgoalById.get(claim.subgoalId);
+    if (claim.verdict !== 'supported' || subgoal?.state !== 'supported') {
       continue;
     }
     const verdict = verdictByClaimId.get(claim.id);
@@ -1184,27 +1215,52 @@ function buildSemanticParentProjection({ semanticVerification, observations }) {
       ? verdict.supportingEvidenceRefs
       : [];
     if (supportingRefs.length === 0) continue;
+    let hasCertifiedSearch = false;
+    let hasPathlessGit = false;
     const projectedEvidence = supportingRefs.map(ref => {
       if (!(claim.evidenceRefs ?? []).includes(ref)) return null;
-      return parentEvidenceFromObservation(observationById.get(ref));
+      const observation = observationById.get(ref);
+      const direct = parentEvidenceFromObservation(observation);
+      if (direct && observation?.kind === 'git_commit') {
+        hasPathlessGit = true;
+        return undefined;
+      }
+      if (direct) return direct;
+      if (observation?.kind === 'search' && certifiedSearchEvidence(certificates, {
+        subgoal,
+        verdict,
+        ref,
+      })) {
+        hasCertifiedSearch = true;
+        return undefined;
+      }
+      return null;
     });
     if (projectedEvidence.some(item => item === null)) continue;
     claimIds.add(claim.id);
-    supportingRefsByClaimId.set(claim.id, [...supportingRefs]);
-    for (const item of projectedEvidence) evidenceById.set(item.id, item);
+    supportingRefsByClaimId.set(claim.id, projectedEvidence
+      .filter(Boolean).map(item => item.id));
+    if (hasCertifiedSearch) certificateClaimIds.add(claim.id);
+    if (hasPathlessGit) pathlessGitClaimIds.add(claim.id);
+    for (const item of projectedEvidence.filter(Boolean)) evidenceById.set(item.id, item);
   }
   return {
     claimIds,
     supportingRefsByClaimId,
+    certificateClaimIds,
+    pathlessGitClaimIds,
     evidence: [...evidenceById.values()],
   };
 }
 
 function retainedProjectedClaimIds(projection, evidence) {
   const retainedEvidenceIds = new Set((evidence ?? []).map(item => item?.id).filter(Boolean));
-  return new Set([...projection.claimIds].filter(claimId =>
-    projection.supportingRefsByClaimId.get(claimId)
-      ?.every(ref => retainedEvidenceIds.has(ref))));
+  return new Set([...projection.claimIds].filter(claimId => {
+    const directRefs = projection.supportingRefsByClaimId.get(claimId) ?? [];
+    return directRefs.every(ref => retainedEvidenceIds.has(ref)) &&
+      (directRefs.length > 0 || projection.certificateClaimIds.has(claimId) ||
+        projection.pathlessGitClaimIds.has(claimId));
+  }));
 }
 
 function supportedClaimsAreFullyProjected(semanticVerification, projectedClaimIds) {
@@ -1364,10 +1420,12 @@ function buildParentEvidenceProjection({ result, semanticVerification, observati
     const direct = baseEvidenceByRef.get(ref);
     if (direct) return { key: `ref:${ref}`, evidence: direct };
     if (observationById.get(ref)?.kind !== 'search') return null;
+    const subgoal = subgoalById.get(claim.subgoalId);
+    const verdict = verdictByClaimId.get(claim.id);
+    if (!certificateMaySurfaceForClaim(subgoal, verdict)) return null;
     const key = `${claim.subgoalId}\0${ref}`;
     if (!absenceEvidenceByClaimRef.has(key)) {
-      const certificate = certificates.find(item => item?.complete === true &&
-        item?.subgoalId === claim.subgoalId && item?.searchRefs?.includes(ref));
+      const certificate = certifiedSearchEvidence(certificates, { subgoal, verdict, ref });
       const boundary = compactParentStrings(certificate?.claimBoundary);
       const searches = compactParentStrings(certificate?.searchSummary);
       absenceEvidenceByClaimRef.set(key, boundary.length > 0 && searches.length > 0
@@ -1903,7 +1961,7 @@ function validateSynthesizedClaimBatch(raw, {
   return claims;
 }
 
-function validateSemanticVerdictBatch(raw, { claims, observations }) {
+function validateSemanticVerdictBatch(raw, { claims }) {
   const normalizedRaw = raw && typeof raw === 'object' && !Array.isArray(raw)
     ? {
         ...raw,
@@ -1933,11 +1991,7 @@ function validateSemanticVerdictBatch(raw, { claims, observations }) {
     throw new TypeError('Semantic verifier must return exactly one verdict for every supplied claim.');
   }
   return {
-    verdicts: claims.map(claim => applyClaimEvidenceGate({
-      claim,
-      semanticVerdict: verdictByClaim.get(claim.id),
-      observations,
-    })),
+    verdicts: claims.map(claim => verdictByClaim.get(claim.id)),
     uncoveredRequestParts: response.uncoveredRequestParts,
   };
 }
@@ -1989,11 +2043,129 @@ function prepareCandidateSubgoals(taskContract, claims, {
   });
 }
 
-function runtimeAllowedEvidenceBySubgoal(taskContract, observations) {
-  const evidenceRefs = observations.map(observation => observation.id).sort();
+function runtimeAllowedEvidenceBySubgoal(taskContract, claims) {
   return taskContract.subgoals
     .filter(subgoal => subgoal.state !== 'blocked')
-    .map(subgoal => ({ subgoalId: subgoal.id, evidenceRefs: [...evidenceRefs] }));
+    .map(subgoal => ({
+      subgoalId: subgoal.id,
+      evidenceRefs: [...new Set(claims
+        .filter(claim => claim.subgoalId === subgoal.id)
+        .flatMap(claim => claim.evidenceRefs))].sort(),
+    }));
+}
+
+const CERTIFICATE_PROOF_POLICIES = new Set([
+  'bounded_absence',
+  'deterministic_count',
+  'support_or_refute',
+]);
+
+function taskClaimBoundary(taskContract) {
+  const effectiveScope = Array.isArray(taskContract?.effectiveScope)
+    ? taskContract.effectiveScope
+      .filter(item => typeof item === 'string' && item.trim())
+      .map(item => item.trim() === '.' ? '**' : item.trim())
+    : [];
+  return effectiveScope.length > 0 ? [...new Set(effectiveScope)] : ['**'];
+}
+
+function buildRuntimeAbsenceCertificates({ taskContract, claims, observations }) {
+  const subgoalById = new Map(taskContract.subgoals.map(subgoal => [subgoal.id, subgoal]));
+  const searchById = new Map(observations
+    .filter(observation => observation?.kind === 'search')
+    .map(observation => [observation.id, observation]));
+  const claimBoundary = taskClaimBoundary(taskContract);
+  const certificates = [];
+
+  for (const claim of claims) {
+    const subgoal = subgoalById.get(claim.subgoalId);
+    if (!CERTIFICATE_PROOF_POLICIES.has(subgoal?.proofPolicy)) continue;
+    for (const ref of claim.evidenceRefs) {
+      const observedSearch = searchById.get(ref);
+      if (!observedSearch) continue;
+      const permitsMatches = subgoal.proofPolicy === 'deterministic_count';
+      const search = permitsMatches || observedSearch.matchCount === 0
+        ? observedSearch
+        : { ...observedSearch, enumerationComplete: false };
+      certificates.push(buildAbsenceCertificate({
+        id: `absence:${claim.id}:${ref}`,
+        subgoalId: subgoal.id,
+        claimBoundary,
+        searches: [search],
+      }));
+    }
+  }
+  return certificates;
+}
+
+function runtimeRoleRequirement(subgoal) {
+  if (['bounded_absence', 'deterministic_count', 'bounded_usage_cross_check']
+    .includes(subgoal.proofPolicy)) {
+    return {
+      observationKinds: ['search'],
+      sourceRoles: [],
+      temporalRole: 'current',
+    };
+  }
+  if (subgoal.proofPolicy === 'support_or_refute') {
+    return {
+      observationKinds: ['source', 'search', 'git_commit', 'git_blame', 'git_diff_hunk'],
+      sourceRoles: ['implementation', 'config', 'test', 'documentation', 'fixture'],
+      temporalRoles: ['current', 'historical'],
+    };
+  }
+  if (subgoal.proofPolicy === 'direct_source') {
+    return {
+      observationKinds: ['source'],
+      sourceRoles: ['implementation', 'config', 'test', 'documentation', 'fixture'],
+      temporalRole: 'current',
+    };
+  }
+  return {
+    observationKinds: ['source'],
+    sourceRoles: ['implementation', 'config'],
+    temporalRole: 'current',
+  };
+}
+
+function applyRuntimeProofGate({
+  subgoal,
+  claim,
+  semanticVerdict,
+  observations,
+  absenceCertificates,
+}) {
+  let proofPolicyResult = evaluateProofPolicy({
+    subgoal,
+    claim,
+    semanticVerdict,
+    absenceCertificates,
+    deterministicCounts: [],
+    observations,
+    policyArtifacts: {},
+  });
+  if (proofPolicyResult.passed === true &&
+      subgoal.proofPolicy === 'bounded_usage_cross_check') {
+    const supportingRefs = new Set(semanticVerdict.supportingEvidenceRefs);
+    const completeUsageSearch = observations.some(observation =>
+      supportingRefs.has(observation?.id) && observation?.kind === 'search' &&
+      observation.enumerationComplete === true);
+    if (!completeUsageSearch) {
+      proofPolicyResult = {
+        ...proofPolicyResult,
+        passed: false,
+        reason: 'incomplete_enumeration',
+      };
+    }
+  }
+  return applyClaimProofPolicyGate({
+    subgoal,
+    claim,
+    semanticVerdict,
+    observations,
+    proofPolicyResult,
+    roleRequirement: runtimeRoleRequirement(subgoal),
+  });
 }
 
 function wrapperToolForTaskMode(taskMode) {
@@ -2834,83 +3006,6 @@ function recordObservedRange(observedRanges, targetPath, startLine, endLine, sou
   observedRanges.set(targetPath, current);
 }
 
-function normalizeObservationScope(scope) {
-  return [...new Set((Array.isArray(scope) ? scope : [])
-    .filter(item => typeof item === 'string' && item.trim())
-    .map(item => item.replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/$/, ''))
-    .filter(Boolean))];
-}
-
-function scopeContainsPattern(broadPattern, narrowPattern) {
-  if (broadPattern === narrowPattern || broadPattern === '**' || broadPattern === '**/*') return true;
-  if (!broadPattern.endsWith('/**')) return false;
-  const prefix = broadPattern.slice(0, -3).replace(/\/$/, '');
-  return narrowPattern === prefix || narrowPattern.startsWith(`${prefix}/`);
-}
-
-function literalScopePrefix(pattern) {
-  const wildcardIndex = pattern.search(/[?*\[]/);
-  return pattern.slice(0, wildcardIndex === -1 ? pattern.length : wildcardIndex).replace(/\/$/, '');
-}
-
-function scopePatternsAreDisjoint(left, right) {
-  const leftPrefix = literalScopePrefix(left);
-  const rightPrefix = literalScopePrefix(right);
-  if (!leftPrefix || !rightPrefix) return false;
-  return !(leftPrefix === rightPrefix ||
-    leftPrefix.startsWith(`${rightPrefix}/`) ||
-    rightPrefix.startsWith(`${leftPrefix}/`));
-}
-
-function intersectObservationScopes(baseScope, localScope) {
-  const base = normalizeObservationScope(baseScope);
-  const local = normalizeObservationScope(localScope);
-  if (base.length === 0) return local;
-  if (local.length === 0) return base;
-
-  const intersections = [];
-  for (const basePattern of base) {
-    for (const localPattern of local) {
-      if (scopeContainsPattern(basePattern, localPattern)) intersections.push(localPattern);
-      else if (scopeContainsPattern(localPattern, basePattern)) intersections.push(basePattern);
-      else if (!scopePatternsAreDisjoint(basePattern, localPattern)) {
-        intersections.push(`intersection:${JSON.stringify([basePattern, localPattern])}`);
-      }
-    }
-  }
-  return [...new Set(intersections.length > 0 ? intersections : ['empty-intersection'])];
-}
-
-function listDirectoryObservationScope(toolArgs) {
-  const rawDir = typeof toolArgs?.dirPath === 'string' && toolArgs.dirPath.trim()
-    ? toolArgs.dirPath
-    : '.';
-  const dirPath = rawDir.replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/$/, '');
-  const depth = Math.min(4, Math.max(1, Number.isInteger(toolArgs?.depth) ? toolArgs.depth : 2));
-  const prefix = dirPath === '.' ? '' : `${dirPath}/`;
-  return Array.from({ length: depth }, (_, index) => `${prefix}${'*/'.repeat(index)}*`);
-}
-
-function runtimeObservationBoundary({ effectiveScope, toolName, toolArgs, toolResult }) {
-  const baseScope = normalizeObservationScope(effectiveScope);
-  const successfulPath = !toolResult?.error && typeof toolResult?.path === 'string'
-    ? toolResult.path
-    : '';
-  if (successfulPath && ['repo_read_file', 'repo_symbols'].includes(toolName)) {
-    return [successfulPath];
-  }
-  const requestedPath = typeof toolArgs?.path === 'string' && !isSecretPath(toolArgs.path).matched
-    ? toolArgs.path
-    : '';
-  if (requestedPath && ['repo_git_log', 'repo_git_blame', 'repo_git_diff'].includes(toolName)) {
-    return [requestedPath];
-  }
-  if (toolName === 'repo_list_dir') {
-    return intersectObservationScopes(baseScope, listDirectoryObservationScope(toolArgs));
-  }
-  return intersectObservationScopes(baseScope, toolArgs?.scope);
-}
-
 function compactGitObservationContent(parts, maxChars = 1200) {
   const raw = parts
     .filter(part => typeof part === 'string' && part.trim())
@@ -3075,16 +3170,23 @@ async function buildRuntimeToolObservations({
   const directObservations = [...sourceObservations, ...gitObservations];
   const searchId = directObservations.length > 0 ? `${id}:search` : id;
   try {
+    const coverage = deriveRepositoryObservationCoverage({
+      tool: toolName,
+      args: toolArgs && typeof toolArgs === 'object' && !Array.isArray(toolArgs) ? toolArgs : {},
+      result: toolResult,
+      effectiveScope,
+      contextTruncated: false,
+    });
     const searchObservation = normalizeRepositoryObservation({
       id: searchId,
       tool: toolName,
       args: toolArgs && typeof toolArgs === 'object' && !Array.isArray(toolArgs) ? toolArgs : {},
-      boundary: runtimeObservationBoundary({ effectiveScope, toolName, toolArgs, toolResult }),
-      enumerationCandidate: false,
+      boundary: coverage.boundary,
+      enumerationCandidate: coverage.enumerationComplete,
       result: toolResult,
       contextTruncated: false,
     });
-    return [...directObservations, searchObservation];
+    return [...directObservations, { ...searchObservation, ...coverage }];
   } catch {
     return directObservations;
   }
@@ -3534,6 +3636,11 @@ export class ExplorerRuntime {
       freshEvidenceRefs,
     });
     const candidateContract = semanticBatchContract(taskContract, candidateSubgoals);
+    const absenceCertificates = buildRuntimeAbsenceCertificates({
+      taskContract: candidateContract,
+      claims,
+      observations: safeObservations,
+    });
     const semanticVerdicts = [];
     const uncoveredRequestParts = [];
     const candidateBatches = controlBatches(candidateSubgoals.filter(subgoal =>
@@ -3543,13 +3650,15 @@ export class ExplorerRuntime {
       const batchClaims = claims.filter(claim => subgoalIds.has(claim.subgoalId));
       const batchObservations = safeObservations;
       const batchContract = semanticBatchContract(candidateContract, subgoalBatch);
+      const batchAbsenceCertificates = absenceCertificates.filter(certificate =>
+        subgoalIds.has(certificate.subgoalId));
       const verified = await requestValidatedGoalControl({
         chatClient,
         messages: buildSemanticVerifierMessages({
           taskContract: batchContract,
           claims: batchClaims,
           observations: batchObservations,
-          absenceCertificates: [],
+          absenceCertificates: batchAbsenceCertificates,
           criticDecisions: [],
           wrapperTool,
         }),
@@ -3564,22 +3673,29 @@ export class ExplorerRuntime {
         onCompletion,
         validate: raw => validateSemanticVerdictBatch(raw, {
           claims: batchClaims,
-          observations: batchObservations,
         }),
       });
-      semanticVerdicts.push(...verified.verdicts);
+      const batchSubgoalById = new Map(subgoalBatch.map(subgoal => [subgoal.id, subgoal]));
+      const gatedVerdicts = verified.verdicts.map((verdict, index) => applyRuntimeProofGate({
+        subgoal: batchSubgoalById.get(batchClaims[index].subgoalId),
+        claim: batchClaims[index],
+        semanticVerdict: verdict,
+        observations: batchObservations,
+        absenceCertificates: batchAbsenceCertificates,
+      }));
+      semanticVerdicts.push(...gatedVerdicts);
       uncoveredRequestParts.push(...verified.uncoveredRequestParts);
       onTrustEvent?.('verdict', {
         phase,
         claims: batchClaims,
-        verdicts: verified.verdicts,
+        verdicts: gatedVerdicts,
         uncoveredRequestParts: verified.uncoveredRequestParts,
       });
     }
 
     const runtimeAllowedEvidenceRefsBySubgoal = runtimeAllowedEvidenceBySubgoal(
       candidateContract,
-      safeObservations,
+      claims,
     );
     const reduced = reduceSemanticClaims({
       phase,
@@ -3601,6 +3717,7 @@ export class ExplorerRuntime {
       coverageGaps: reduced.gaps,
       claims: reduced.claims,
       semanticVerdicts,
+      absenceCertificates,
       uncoveredRequestParts,
       runtimeAllowedEvidenceRefsBySubgoal,
     };
@@ -5020,6 +5137,7 @@ export class ExplorerRuntime {
       normalized.semanticVerification = redactValue({
         claims: semanticVerification.claims,
         verdicts: semanticVerification.semanticVerdicts,
+        absenceCertificates: semanticVerification.absenceCertificates,
         uncoveredRequestParts: semanticVerification.uncoveredRequestParts,
         runtimeAllowedEvidenceRefsBySubgoal:
           semanticVerification.runtimeAllowedEvidenceRefsBySubgoal,

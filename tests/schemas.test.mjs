@@ -1228,6 +1228,7 @@ internalSchemaTest(
         'searchRefs',
         'searchSummary',
         'complete',
+        'zeroMatches',
       ],
       optional: ['qualification'],
     }, 'ABSENCE_CERTIFICATE_SCHEMA');
@@ -1243,6 +1244,7 @@ internalSchemaTest(
       'qualification',
     ], 'ABSENCE_CERTIFICATE_SCHEMA');
     assert.equal(schema.properties.complete.type, 'boolean');
+    assert.equal(schema.properties.zeroMatches.type, 'boolean');
 
     assertStrictValidator(validate, {
       id: 'A1',
@@ -1251,6 +1253,7 @@ internalSchemaTest(
       searchRefs: ['O1'],
       searchSummary: ['legacy route registration'],
       complete: true,
+      zeroMatches: true,
       qualification: 'Static in-scope source only.',
     }, {
       missingKey: 'id',
@@ -1263,6 +1266,7 @@ internalSchemaTest(
       searchRefs: [],
       searchSummary: [],
       complete: false,
+      zeroMatches: false,
     }), 'an incomplete certificate may preserve an empty repository boundary and no searches');
   },
 );

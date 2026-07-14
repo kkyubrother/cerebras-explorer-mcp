@@ -355,6 +355,7 @@ test('Spec 028 T041 — shared search refs require claim-local absence certifica
         searchRefs: ['E1'],
         searchSummary: ['Searched legacyAuth across src/** with no matches.'],
         complete: true,
+        zeroMatches: true,
       }],
     },
     observations: [{ id: 'E1', kind: 'search' }],
@@ -2905,8 +2906,8 @@ test('Spec 028 T029 — runtime ledger assigns stable ids and rebuilds redacted 
   assert.deepEqual(result.observations[2].boundary, ['src/routes/**'],
     'the local scope narrows the hard scope instead of being unioned with it');
   assert.equal(result.observations[2].matchCount, 0);
-  assert.equal(result.observations[2].enumerationComplete, false,
-    'T029 must not preempt the tool-specific completeness policy in T060');
+  assert.equal(result.observations[2].enumerationComplete, true,
+    'T062 must consume the tool-specific completeness policy implemented in T060');
   assert.equal(result.observations[3].tool, 'repo_list_dir');
   assert.deepEqual(result.observations[3].boundary, ['src/routes/*']);
   assert.equal(result.observations[4].kind, 'source');
@@ -6212,6 +6213,8 @@ test('Spec 028 T059 — runtime enforces negative and critical proof boundaries'
         assert.equal(certificate.complete, true);
         assert.deepEqual(certificate.claimBoundary, ['src/routes/**']);
         assert.ok(certificate.searchRefs.includes('E1'));
+        assert.equal(result.directAnswer, claim.text,
+          'the direct runtime result must retain a certified search-backed claim');
         assertMinimalCompleteParentHandoff(result, {
           answer: claim.text,
           evidenceCount: 1,
@@ -6469,6 +6472,67 @@ test('Spec 028 T059 — runtime enforces negative and critical proof boundaries'
   }
 });
 
+semanticPipelineRuntimeTest(
+  'Spec 028 T062 — audited historical verification projects an exact sha-only git commit',
+  { skip: !hasGit() },
+  async () => {
+    const task = 'Which inspected commit introduced requireAuth?';
+    const goal = trustGoal(task, {
+      id: 'S-historical-commit',
+      question: task,
+      originText: task,
+      claimType: 'claim_verification',
+      proofCondition: 'Verify the requested historical change from an observed commit.',
+    });
+    const claim = candidateClaim(
+      'C-historical-commit',
+      goal.id,
+      'The inspected commit introduced requireAuth.',
+      ['E1'],
+    );
+    const steps = buildTrustSteps({
+      goals: [goal],
+      initial: {
+        tools: [{
+          tool: 'repo_git_log',
+          args: { path: 'src/auth.js', maxCount: 5 },
+          id: 'historical-auth-log',
+        }],
+        claims: [claim],
+        verdicts: [semanticVerdict(claim.id, 'supported', ['E1'])],
+      },
+    });
+    const { result } = await runTrustScript(steps, {
+      task,
+      async setup(root) {
+        const git = args => execFileSync('git', args, {
+          cwd: root,
+          stdio: 'pipe',
+          encoding: 'utf8',
+        });
+        git(['init']);
+        git(['config', 'user.email', 'explorer@example.invalid']);
+        git(['config', 'user.name', 'Explorer Test']);
+        git(['add', '.']);
+        git(['commit', '-m', 'introduce requireAuth']);
+      },
+    });
+
+    assert.equal(result.semanticVerification.claims[0].verdict, 'supported');
+    assert.equal(result.directAnswer, claim.text);
+    assertMinimalCompleteParentHandoff(result, {
+      answer: claim.text,
+      evidenceCount: 1,
+      evidenceKinds: ['git'],
+    });
+    const evidence = result.parentHandoff.evidence[0];
+    assert.match(evidence.sha, /^[0-9a-f]{40}$/);
+    assert.equal(evidence.path, undefined);
+    assert.equal(evidence.startLine, undefined);
+    assert.equal(evidence.endLine, undefined);
+  },
+);
+
 test('Spec 028 T030 — isolated semantic controls reduce claims without trusting exploration prose', async () => {
   const goals = definitionAndAbsenceGoals();
   const supported = candidateClaim(
@@ -6561,8 +6625,8 @@ test('Spec 028 T030 — isolated semantic controls reduce claims without trustin
   ]);
   assert.deepEqual(result.semanticVerification.runtimeAllowedEvidenceRefsBySubgoal
     .map(item => [item.subgoalId, item.evidenceRefs]), [
-    ['S-definition', ['E1', 'E1:search', 'E2', 'E3', 'E3:search']],
-    ['S-absence', ['E1', 'E1:search', 'E2', 'E3', 'E3:search']],
+    ['S-definition', ['E1', 'E3']],
+    ['S-absence', ['E2', 'E3']],
   ]);
 });
 
@@ -7416,6 +7480,15 @@ semanticPipelineRuntimeTest('Spec 028 T041 — transcript records only claims ac
       claims: [claim],
       verdicts: [semanticVerdict(claim.id, 'supported', ['E1'])],
     },
+    repair: {
+      tools: [{
+        tool: 'repo_git_show',
+        args: { ref: 'HEAD' },
+        id: 'show-auth-repair',
+      }],
+      claims: [{ ...claim, evidenceRefs: ['E1', 'E2'] }],
+      verdicts: [semanticVerdict(claim.id, 'supported', ['E2'])],
+    },
   });
 
   await withEnv({
@@ -7443,7 +7516,7 @@ semanticPipelineRuntimeTest('Spec 028 T041 — transcript records only claims ac
     const entries = await readJsonl(result.transcriptPath);
     const final = entries.find(entry => entry.type === 'final');
 
-    assert.equal(result.semanticVerification.claims[0].verdict, 'supported');
+    assert.equal(result.semanticVerification.claims[0].verdict, 'insufficient');
     assert.equal(result.parentHandoff.state, 'incomplete',
       'a diff hunk without a commit sha cannot be parent-facing git proof');
     assert.deepEqual(final.acceptedClaimIds, []);
