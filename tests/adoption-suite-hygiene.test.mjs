@@ -149,3 +149,9 @@ test('adoption suite: v3 and wrapper scenarios keep objective source anchors', (
   assert.doesNotMatch(serialized('structured-output-contract'), /formatExploreResult/);
   assert.match(serialized('direct-vs-explorer-boundary'), /max_target_count/);
 });
+
+test('adoption suite: quiet schema-v3 does not require optional evidence snippets', () => {
+  const serializedSuite = JSON.stringify(suite);
+  assert.doesNotMatch(serializedSuite, /min_evidence_snippet_count/);
+  assert.doesNotMatch(serializedSuite, /"source":"evidence_snippets"/);
+});

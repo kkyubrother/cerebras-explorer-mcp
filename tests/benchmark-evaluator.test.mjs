@@ -2452,10 +2452,10 @@ test('Spec 028 T052 — report benchmark entry points migrate to structured suit
 
   const adoption = JSON.parse(await fs.readFile(new URL('../benchmarks/adoption.json', import.meta.url), 'utf8'));
   const traceCase = adoption.cases.find(item => item.id === 'trace-symbol-cross-check');
-  assert.equal(traceCase?.args?.symbol, 'buildParentPayload');
+  assert.equal(traceCase?.args?.symbol, 'buildParentHandoffResponse');
+  assert.deepEqual(traceCase?.args?.scope, ['src/**']);
   assert.deepEqual(traceCase?.checks?.map(item => item.type), [
     'min_evidence_count',
-    'min_evidence_snippet_count',
   ]);
   const fallbackCase = adoption.cases.find(item => item.id === 'explore-recent-change-context');
   assert.equal(fallbackCase?.tool, 'explore_repo');

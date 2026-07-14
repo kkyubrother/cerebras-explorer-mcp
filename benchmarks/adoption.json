@@ -1,6 +1,6 @@
 {
   "name": "agent-adoption-readonly-exploration",
-  "description": "Benchmarks focused on whether explorer output lets parent coding agents avoid broad native re-search: direct answer, targets, snippets, status, and next action quality.",
+  "description": "Benchmarks focused on whether explorer output lets parent coding agents avoid broad native re-search: direct answer, minimal evidence or targets, state, and next-action quality.",
   "defaultPassScore": 0.72,
   "cases": [
     {
@@ -27,8 +27,7 @@
       ],
       "checks": [
         { "label": "Has direct answer", "type": "has_direct_answer", "value": true, "weight": 0.1 },
-        { "label": "Returns targets", "type": "min_target_count", "value": 2, "weight": 0.15 },
-        { "label": "Evidence includes snippets", "type": "min_evidence_snippet_count", "value": 1, "weight": 0.1 }
+        { "label": "Returns targets", "type": "min_target_count", "value": 2, "weight": 0.15 }
       ]
     },
     {
@@ -36,26 +35,25 @@
       "description": "Trace a known symbol without manual grep/read.",
       "tool": "trace_symbol",
       "args": {
-        "symbol": "normalizeExploreResult",
-        "scope": ["src/**", "tests/**"]
+        "symbol": "formatParentHandoffText",
+        "scope": ["src/**"]
       },
       "expectations": [
         {
-          "label": "Answer explains schema normalization",
+          "label": "Answer explains parent text formatting and its consumer",
           "source": "combined_text",
-          "groups": [["schemas.mjs"], ["evidence", "targets"]],
+          "groups": [["src/explorer/parent-payload.mjs"], ["buildParentPayload"]],
           "weight": 0.45
         },
         {
-          "label": "Targets point to schema code",
-          "source": "target_paths",
-          "groups": [["src/explorer/schemas.mjs"]],
+          "label": "Evidence points to parent payload code",
+          "source": "evidence_paths",
+          "groups": [["src/explorer/parent-payload.mjs"]],
           "weight": 0.25
         }
       ],
       "checks": [
-        { "label": "Structured evidence retained", "type": "min_evidence_count", "value": 2, "weight": 0.2 },
-        { "label": "Snippet present", "type": "min_evidence_snippet_count", "value": 1, "weight": 0.1 }
+        { "label": "Structured evidence retained", "type": "min_evidence_count", "value": 1, "weight": 0.2 }
       ]
     },
     {
@@ -63,26 +61,25 @@
       "description": "Trace a symbol's definition and callsites; the usage cross-check must be satisfied.",
       "tool": "trace_symbol",
       "args": {
-        "symbol": "buildParentPayload",
-        "scope": ["src/**", "tests/**"]
+        "symbol": "buildParentHandoffResponse",
+        "scope": ["src/**"]
       },
       "expectations": [
         {
-          "label": "Combined text describes definition and production callsite",
+          "label": "Combined text describes the response builder and production callers",
           "source": "combined_text",
-          "groups": [["parent-payload.mjs"], ["runtime.mjs", "server.mjs"]],
+          "groups": [["src/mcp/server.mjs"], ["callTool", "handleRequest"]],
           "weight": 0.4
         },
         {
-          "label": "Targets include production callsite",
-          "source": "target_paths",
-          "groups": [["src/mcp/server.mjs", "src/explorer/runtime.mjs"]],
+          "label": "Evidence includes the response builder and callers",
+          "source": "evidence_paths",
+          "groups": [["src/mcp/server.mjs"]],
           "weight": 0.3
         }
       ],
       "checks": [
-        { "label": "Structured evidence retained", "type": "min_evidence_count", "value": 2, "weight": 0.2 },
-        { "label": "Source snippet retained", "type": "min_evidence_snippet_count", "value": 1, "weight": 0.1 }
+        { "label": "Structured evidence retained", "type": "min_evidence_count", "value": 2, "weight": 0.2 }
       ]
     },
     {
@@ -114,8 +111,7 @@
         }
       ],
       "checks": [
-        { "label": "Returns at least four targets", "type": "min_target_count", "value": 4, "weight": 0.2 },
-        { "label": "Citations or evidence snippets present", "type": "min_evidence_snippet_count", "value": 1, "weight": 0.1 }
+        { "label": "Returns at least four targets", "type": "min_target_count", "value": 4, "weight": 0.2 }
       ]
     },
     {
@@ -131,19 +127,18 @@
         {
           "label": "Flow covers transport, dispatch, runtime, and response",
           "source": "combined_text",
-          "groups": [["dispatchMessage"], ["handleRequest"], ["callTool"], ["buildParentHandoffResponse"]],
+          "groups": [["dispatchMessage"], ["handleRequest"], ["callTool"], ["ExplorerRuntime"]],
           "weight": 0.4
         },
         {
-          "label": "Targets include transport and runtime beyond the known server anchor",
-          "source": "target_paths",
+          "label": "Evidence includes transport and runtime beyond the known server anchor",
+          "source": "evidence_paths",
           "groups": [["src/mcp/jsonrpc-stdio.mjs"], ["src/explorer/runtime.mjs"]],
           "weight": 0.3
         }
       ],
       "checks": [
-        { "label": "Structured evidence retained", "type": "min_evidence_count", "value": 3, "weight": 0.2 },
-        { "label": "Snippet present", "type": "min_evidence_snippet_count", "value": 1, "weight": 0.1 }
+        { "label": "Structured evidence retained", "type": "min_evidence_count", "value": 3, "weight": 0.2 }
       ]
     },
     {
@@ -162,16 +157,15 @@
           "weight": 0.5
         },
         {
-          "label": "Evidence snippets show code",
-          "source": "evidence_snippets",
-          "groups": [["runDeterministicCriticPass"], ["observedRanges"]],
+          "label": "Evidence points to the critic and runtime grounding flow",
+          "source": "evidence_paths",
+          "groups": [["src/explorer/critic.mjs"], ["src/explorer/runtime.mjs"]],
           "weight": 0.2
         }
       ],
       "checks": [
         { "label": "Has direct answer", "type": "has_direct_answer", "value": true, "weight": 0.1 },
-        { "label": "Structured evidence retained", "type": "min_evidence_count", "value": 2, "weight": 0.1 },
-        { "label": "Snippet present", "type": "min_evidence_snippet_count", "value": 1, "weight": 0.1 }
+        { "label": "Structured evidence retained", "type": "min_evidence_count", "value": 2, "weight": 0.1 }
       ]
     },
     {
@@ -192,8 +186,7 @@
       ],
       "checks": [
         { "label": "Targets present", "type": "min_target_count", "value": 1, "weight": 0.15 },
-        { "label": "Git evidence retained", "type": "min_git_evidence_count", "value": 1, "weight": 0.2 },
-        { "label": "Citations or evidence snippets present", "type": "min_evidence_snippet_count", "value": 1, "weight": 0.1 }
+        { "label": "Git evidence retained", "type": "min_git_evidence_count", "value": 1, "weight": 0.2 }
       ]
     },
     {
@@ -221,8 +214,7 @@
       ],
       "checks": [
         { "label": "Has direct answer", "type": "has_direct_answer", "value": true, "weight": 0.1 },
-        { "label": "Targets present", "type": "min_target_count", "value": 3, "weight": 0.2 },
-        { "label": "Snippet present", "type": "min_evidence_snippet_count", "value": 1, "weight": 0.1 }
+        { "label": "Targets present", "type": "min_target_count", "value": 3, "weight": 0.2 }
       ]
     },
     {
@@ -251,8 +243,7 @@
       "checks": [
         { "label": "Has direct answer", "type": "has_direct_answer", "value": true, "weight": 0.1 },
         { "label": "Targets present", "type": "min_target_count", "value": 1, "weight": 0.1 },
-        { "label": "Target set stays narrow", "type": "max_target_count", "value": 4, "weight": 0.1 },
-        { "label": "Snippet present", "type": "min_evidence_snippet_count", "value": 1, "weight": 0.05 }
+        { "label": "Target set stays narrow", "type": "max_target_count", "value": 4, "weight": 0.1 }
       ]
     }
   ]
