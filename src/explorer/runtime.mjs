@@ -1735,14 +1735,17 @@ function buildParentEvidenceProjection({ result, semanticVerification, observati
       }
     }
   }
-  const evidence = [...projectedEvidence.values()].map(item => ({
-    ...item,
-    supports: item.supports.join(' '),
-  }));
-  return { acceptedClaims, refsByClaimId, evidence };
+  const targetReasonByEvidenceId = new Map();
+  const evidence = [...projectedEvidence.values()].map(item => {
+    if (typeof item.id === 'string' && item.id && item.supports.length > 0) {
+      targetReasonByEvidenceId.set(item.id, item.supports[0]);
+    }
+    return { ...item, supports: item.supports.join(' ') };
+  });
+  return { acceptedClaims, refsByClaimId, evidence, targetReasonByEvidenceId };
 }
 
-function buildParentTargets(resultTargets, evidence) {
+function buildParentTargets(resultTargets, evidence, targetReasonByEvidenceId) {
   const sourceEvidence = evidence.filter(item => item.kind === 'source' && item.id);
   const evidenceByPath = new Map();
   for (const item of sourceEvidence) {
@@ -1751,7 +1754,7 @@ function buildParentTargets(resultTargets, evidence) {
   }
   const targets = [];
   const seen = new Set();
-  const add = (pathValue, roleValue, reasonValue, preferredEvidence = null) => {
+  const add = (pathValue, roleValue, preferredEvidence = null) => {
     const targetPath = normalizeTargetPath(pathValue);
     const candidates = evidenceByPath.get(targetPath) ?? [];
     const evidenceItem = preferredEvidence ?? candidates[0];
@@ -1765,9 +1768,7 @@ function buildParentTargets(resultTargets, evidence) {
       startLine: evidenceItem.startLine,
       endLine: evidenceItem.endLine,
       role,
-      reason: typeof reasonValue === 'string' && reasonValue.trim()
-        ? reasonValue.trim()
-        : evidenceItem.supports,
+      reason: targetReasonByEvidenceId.get(evidenceItem.id) ?? evidenceItem.supports,
       evidenceRefs: [evidenceItem.id],
     });
   };
@@ -1778,12 +1779,12 @@ function buildParentTargets(resultTargets, evidence) {
     const matching = candidates.find(item =>
       Number.isInteger(target?.startLine) && Number.isInteger(target?.endLine) &&
       target.startLine === item.startLine && target.endLine === item.endLine) ?? candidates[0];
-    add(targetPath, target?.role, target?.reason, matching);
+    add(targetPath, target?.role, matching);
   }
   for (const item of sourceEvidence) {
     const alreadyTargeted = targets.some(target => target.path === item.path &&
       target.startLine === item.startLine && target.endLine === item.endLine);
-    if (!alreadyTargeted) add(item.path, 'read', item.supports, item);
+    if (!alreadyTargeted) add(item.path, 'read', item);
   }
   return targets.slice(0, 8);
 }
@@ -1929,7 +1930,11 @@ function buildParentHandoffProjection({
     for (const subgoalId of limit?.affectedSubgoalIds ?? []) unresolvedGoalIds.add(subgoalId);
   }
 
-  const candidateTargets = buildParentTargets(result?.targets, projection.evidence);
+  const candidateTargets = buildParentTargets(
+    result?.targets,
+    projection.evidence,
+    projection.targetReasonByEvidenceId,
+  );
   const editIntent = isEditPlanningMode({ taskMode, task });
   let state = reduceTrustState({
     requiredSubgoals,

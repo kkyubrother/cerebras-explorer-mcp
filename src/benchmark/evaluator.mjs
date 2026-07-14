@@ -489,6 +489,24 @@ function publicStatements(publicResult) {
     .filter(Boolean);
 }
 
+function publicClaimStatements(publicResult) {
+  return [
+    ...publicStatements(publicResult),
+    ...asArray(publicResult?.targets)
+      .flatMap(target => typeof target?.reason === 'string'
+        ? target.reason.split(/\r?\n+/u).map(normalizeText).filter(Boolean)
+        : []),
+  ];
+}
+
+function publicSentenceStatements(publicResult) {
+  return [
+    ...splitDirectAnswerStatements(publicResult?.directAnswer),
+    ...asArray(publicResult?.targets)
+      .flatMap(target => splitDirectAnswerStatements(target?.reason)),
+  ];
+}
+
 function rangeCovers(item, anchor) {
   if (!Number.isInteger(anchor?.startLine) || !Number.isInteger(anchor?.endLine)) return true;
   return Number.isInteger(item?.startLine) && Number.isInteger(item?.endLine) &&
@@ -654,7 +672,7 @@ function liveEvaluationProfile(caseDefinition, options) {
 function liveForbiddenClaimPresent(parts, forbiddenClaim) {
   const forbidden = normalizeText(forbiddenClaim?.text);
   if (!forbidden) return false;
-  const parentStatements = splitDirectAnswerStatements(parts.publicResult?.directAnswer);
+  const parentStatements = publicSentenceStatements(parts.publicResult);
   const supportedClaims = acceptedClaims(parts.semantic)
     .map(item => normalizeText(item.claim?.text));
   return parentStatements.includes(forbidden) || supportedClaims.includes(forbidden);
@@ -1256,7 +1274,7 @@ function evaluateLiveTrustCase(caseDefinition, artifact, profile) {
     ...dispositions.flatMap(item => item.claimTexts),
     ...liveSupplementalClaimTexts(expectedGoals, anchorsById, parts, allowedClaims),
   ]);
-  for (const statement of publicStatements(parts.publicResult)) {
+  for (const statement of publicClaimStatements(parts.publicResult)) {
     if (!allowedParentStatements.has(statement)) {
       violations.push({ code: 'LIVE_UNSUPPORTED_PARENT_CLAIM' });
     }

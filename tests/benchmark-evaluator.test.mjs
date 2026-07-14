@@ -2994,6 +2994,27 @@ test('Spec 028 T068 — live profile rejects unsafe states, false completion, ba
   assert.ok(violationCodes(evaluateTrustCase(caseDefinition, forbidden, options))
     .includes('FORBIDDEN_CLAIM_PRESENT'));
 
+  const targetOverclaim = liveCompleteArtifact();
+  const contradictoryCount = 'The verified collection contains 53 entries.';
+  caseDefinition.oracle.forbiddenClaims.push({
+    id: 'C-forbidden-target-count',
+    goalId: 'G1',
+    text: contradictoryCount,
+  });
+  targetOverclaim.result.parentHandoff.targets = [{
+    path: 'src/auth.mjs',
+    startLine: 4,
+    endLine: 6,
+    role: 'read',
+    reason: contradictoryCount,
+    evidenceRefs: ['P-source'],
+  }];
+  const targetOverclaimCodes = violationCodes(
+    evaluateTrustCase(caseDefinition, targetOverclaim, options),
+  );
+  assert.ok(targetOverclaimCodes.includes('FORBIDDEN_CLAIM_PRESENT'));
+  assert.ok(targetOverclaimCodes.includes('LIVE_UNSUPPORTED_PARENT_CLAIM'));
+
   const outOfBoundary = liveCompleteArtifact();
   outOfBoundary.result.parentHandoff.evidence.push({
     kind: 'source',

@@ -178,11 +178,30 @@ test('Spec 028 T041 — edit intent deterministically becomes verify_targets', (
     startLine: 1,
     endLine: 4,
     role: 'edit',
-    reason: 'Change token validation here.',
+    reason: 'Token validation is implemented in src/auth.js.',
     evidenceRefs: ['E1'],
   }]);
   assert.equal(handoff.evidence.length, 1);
   assert.equal(handoff.evidence[0].id, 'E1');
+  assert.doesNotThrow(() => validateParentHandoffV3(handoff));
+});
+
+test('Spec 028 T069 — parent target reasons contain only accepted evidence support', () => {
+  const fixture = parentHandoffFixture();
+  const verified = 'The verified static collection contains 70 entries.';
+  fixture.semanticVerification.claims[0].text = verified;
+  fixture.result.targets[0].reason = 'The static collection contains 53 entries.';
+
+  const handoff = buildParentHandoffV3({
+    ...fixture,
+    task: 'Modify the static collection after confirming its entry count.',
+    taskMode: 'edit_planning',
+  });
+
+  assert.equal(handoff.state, 'verify_targets');
+  assert.equal(handoff.targets[0].reason, verified);
+  assert.equal(handoff.evidence[0].supports, verified);
+  assert.doesNotMatch(JSON.stringify(handoff), /53 entries/u);
   assert.doesNotThrow(() => validateParentHandoffV3(handoff));
 });
 
