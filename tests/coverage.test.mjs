@@ -395,6 +395,90 @@ proofPolicyCoverageTest(
   },
 );
 
+proofPolicyCoverageTest(
+  'Spec 028 T061 — proof artifacts stay bound to the accepted claim and runtime evidence',
+  ({ buildAbsenceCertificate, computeDeterministicCount, evaluateProofPolicy }) => {
+    const validCertificate = buildAbsenceCertificate(t057CertificateInput());
+    assert.match(validCertificate.searchSummary[0], /legacyRoute/);
+    assert.doesNotMatch(validCertificate.searchSummary[0], /matches=/,
+      'public absence concepts must not expose raw search counters');
+
+    const absenceInput = {
+      subgoal: {
+        id: 'S-absence',
+        claimType: 'absence',
+        proofPolicy: 'bounded_absence',
+        constraints: [],
+      },
+      claim: { id: 'C1', subgoalId: 'S-absence', text: 'opaque', evidenceRefs: ['Q1'] },
+      semanticVerdict: {
+        claimId: 'C1',
+        result: 'supported',
+        resolution: 'affirmed',
+        supportingEvidenceRefs: ['Q1'],
+      },
+      absenceCertificates: [{
+        ...validCertificate,
+        id: 'unrelated',
+        searchRefs: ['Q-unrelated'],
+      }, validCertificate],
+    };
+    assert.equal(evaluateProofPolicy(absenceInput).passed, true,
+      'a later claim-bound certificate must not be hidden by an unrelated first record');
+    assertFailedProof(evaluateProofPolicy({
+      ...absenceInput,
+      absenceCertificates: [absenceInput.absenceCertificates[0]],
+    }), 'an unrelated same-subgoal certificate');
+
+    const missingIdentities = computeDeterministicCount({
+      subgoalId: 'S-absence',
+      claimBoundary: ['src/auth/**'],
+      certificate: validCertificate,
+    });
+    assert.equal(missingIdentities.complete, false);
+    assert.equal(missingIdentities.count, null);
+
+    const usageSubgoal = {
+      id: 'S-usage',
+      claimType: 'symbol_usage',
+      proofPolicy: 'bounded_usage_cross_check',
+      constraints: [],
+    };
+    assertFailedProof(evaluateProofPolicy({
+      subgoal: usageSubgoal,
+      claim: { id: 'C-usage', subgoalId: 'S-usage', text: 'opaque', evidenceRefs: ['E1'] },
+      semanticVerdict: {
+        claimId: 'C-usage',
+        result: 'supported',
+        resolution: 'affirmed',
+        supportingEvidenceRefs: ['E1'],
+      },
+      observations: [
+        { id: 'E1', kind: 'source', path: 'src/auth.js' },
+        t057SearchObservation({ id: 'Q-unrelated' }),
+      ],
+    }), 'an unrelated clean search cannot satisfy usage cross-check');
+
+    assertFailedProof(evaluateProofPolicy({
+      subgoal: {
+        id: 'S-flow',
+        claimType: 'flow',
+        proofPolicy: 'ordered_handoffs',
+        constraints: [],
+      },
+      claim: { id: 'C-flow', subgoalId: 'S-flow', text: 'opaque', evidenceRefs: ['E1'] },
+      semanticVerdict: {
+        claimId: 'C-flow',
+        result: 'supported',
+        resolution: 'affirmed',
+        supportingEvidenceRefs: ['E1'],
+      },
+      observations: [{ id: 'E1', kind: 'source', path: 'src/entry.js' }],
+      policyArtifacts: { transitionsComplete: true },
+    }), 'a model-like completion boolean cannot prove transitions');
+  },
+);
+
   contractTest('Spec 028 T005 — RequiredSubgoal derives proof policy and initial state at runtime', () => {
     for (const [claimType, proofPolicy] of Object.entries(CLAIM_TYPE_POLICIES)) {
       const subgoal = createAuditedSubgoal({

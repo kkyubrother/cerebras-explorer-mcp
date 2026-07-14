@@ -278,6 +278,120 @@ function downgradeUnsupportedEvidence(verdict) {
   return downgraded;
 }
 
+function downgradeProofPolicy(verdict, reason = 'proof_policy_failed') {
+  const reasonCode = reason === 'missing_transition'
+    ? 'missing_transition'
+    : reason === 'missing_category'
+      ? 'missing_category'
+      : 'boundary_mismatch';
+  const downgraded = {
+    ...verdict,
+    result: 'insufficient',
+    supportingEvidenceRefs: [],
+    reasonCode,
+    note: 'Claim support was downgraded because its runtime proof policy did not pass.',
+  };
+  delete downgraded.resolution;
+  return downgraded;
+}
+
+function observedTemporalRole(observation) {
+  if (observation?.kind === 'search') {
+    return typeof observation.tool === 'string' && observation.tool.startsWith('repo_git_')
+      ? 'historical'
+      : 'current';
+  }
+  return observation?.temporalRole;
+}
+
+function structurallyValidObservation(observation) {
+  if (observation?.kind === 'source') return isValidSourceObservation(observation);
+  if (GIT_OBSERVATION_KINDS.has(observation?.kind)) return isValidGitObservation(observation);
+  return observation?.kind === 'search' &&
+    typeof observation.id === 'string' && observation.id.length > 0 &&
+    typeof observation.tool === 'string' && observation.tool.length > 0 &&
+    Array.isArray(observation.boundary) && observation.boundary.length > 0 &&
+    observation.boundary.every(item => typeof item === 'string' && item.length > 0) &&
+    Number.isInteger(observation.matchCount) && observation.matchCount >= 0 &&
+    typeof observation.toolTruncated === 'boolean' &&
+    typeof observation.contextTruncated === 'boolean' &&
+    Number.isInteger(observation.omittedOutOfScopeFiles) &&
+    observation.omittedOutOfScopeFiles >= 0 &&
+    Number.isInteger(observation.deniedPaths) && observation.deniedPaths >= 0 &&
+    Number.isInteger(observation.errors) && observation.errors >= 0 &&
+    typeof observation.enumerationComplete === 'boolean';
+}
+
+/**
+ * Combined downgrade-only gate for semantic support, structural proof policy,
+ * and runtime-declared source/temporal roles. Claim wording is never inspected.
+ */
+export function applyClaimProofPolicyGate({
+  subgoal,
+  claim,
+  semanticVerdict,
+  observations,
+  proofPolicyResult,
+  roleRequirement,
+} = {}) {
+  const verdict = cloneSemanticVerdict(semanticVerdict);
+  if (verdict.result !== 'supported') return verdict;
+  if (proofPolicyResult?.passed !== true) {
+    return downgradeProofPolicy(verdict, proofPolicyResult?.reason);
+  }
+  const proofBindingPresent = ['subgoalId', 'claimId', 'proofPolicy'].some(key =>
+    Object.hasOwn(proofPolicyResult, key));
+  if (proofBindingPresent && (
+    proofPolicyResult.subgoalId !== subgoal?.id ||
+    proofPolicyResult.claimId !== claim?.id ||
+    proofPolicyResult.proofPolicy !== subgoal?.proofPolicy
+  )) {
+    return downgradeProofPolicy(verdict, 'proof_binding_mismatch');
+  }
+  if (!subgoal || !claim || verdict.claimId !== claim.id || claim.subgoalId !== subgoal.id ||
+      !Array.isArray(claim.evidenceRefs) || !Array.isArray(verdict.supportingEvidenceRefs) ||
+      verdict.supportingEvidenceRefs.length === 0 || !Array.isArray(observations) ||
+      !roleRequirement || typeof roleRequirement !== 'object' ||
+      !Array.isArray(roleRequirement.observationKinds) ||
+      roleRequirement.observationKinds.length === 0 ||
+      !Array.isArray(roleRequirement.sourceRoles)) {
+    return downgradeProofPolicy(verdict, 'invalid_role_requirement');
+  }
+
+  const allowedTemporalRoles = Array.isArray(roleRequirement.temporalRoles)
+    ? roleRequirement.temporalRoles
+    : [roleRequirement.temporalRole];
+  if (allowedTemporalRoles.length === 0 ||
+      allowedTemporalRoles.some(role => !['current', 'historical'].includes(role))) {
+    return downgradeProofPolicy(verdict, 'invalid_role_requirement');
+  }
+
+  const claimRefs = new Set(claim.evidenceRefs);
+  const observationById = new Map();
+  const duplicates = new Set();
+  for (const observation of observations) {
+    const id = typeof observation?.id === 'string' ? observation.id : '';
+    if (!id) continue;
+    if (observationById.has(id)) duplicates.add(id);
+    else observationById.set(id, observation);
+  }
+  const allowedKinds = new Set(roleRequirement.observationKinds);
+  const allowedSourceRoles = new Set(roleRequirement.sourceRoles);
+  const valid = new Set(verdict.supportingEvidenceRefs).size ===
+      verdict.supportingEvidenceRefs.length &&
+    verdict.supportingEvidenceRefs.every(ref => {
+      if (typeof ref !== 'string' || !claimRefs.has(ref) || duplicates.has(ref)) return false;
+      const observation = observationById.get(ref);
+      if (!structurallyValidObservation(observation) || !allowedKinds.has(observation.kind)) {
+        return false;
+      }
+      if (!allowedTemporalRoles.includes(observedTemporalRole(observation))) return false;
+      return observation.kind !== 'source' || allowedSourceRoles.has(observation.sourceRole);
+    });
+
+  return valid ? verdict : downgradeProofPolicy(verdict, 'source_role_mismatch');
+}
+
 /**
  * Downgrade-only structural gate after isolated semantic verification. It does
  * not interpret claim prose and can never promote a verifier result.

@@ -171,7 +171,7 @@
 ### Implementation for User Story 5
 
 - [x] T060 [US5] Compute tool-specific enumeration completeness and normalized search boundaries from actual traversal/result metadata in `src/explorer/repo-tools.mjs`
-- [ ] T061 [US5] Implement absence certificates, deterministic counts, strong negative/exhaustive gates, symbol definition/usage separation, flow transitions, impact categories, and comparison policy in `src/explorer/coverage.mjs` and `src/explorer/critic.mjs`
+- [x] T061 [US5] Implement absence certificates, deterministic counts, strong negative/exhaustive gates, symbol definition/usage separation, flow transitions, impact categories, and comparison policy in `src/explorer/coverage.mjs` and `src/explorer/critic.mjs`
 - [ ] T062 [US5] Integrate certified bounded negative/refutation claims and compact public absence evidence while turning uncertified claims into gaps in `src/explorer/runtime.mjs` and `src/explorer/schemas.mjs`
 - [ ] T063 [US5] Add scoped-negative, truncated-all-usages, route-divergence, count/range, and historical-source cases—including exact path/range-free `git_commit` projection without fabricated locations—to `benchmarks/trust-known-answer.json`, run the US5 independent fixture subset, and pass `npm test`
 

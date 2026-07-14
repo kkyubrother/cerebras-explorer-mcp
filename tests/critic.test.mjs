@@ -1022,3 +1022,62 @@ proofPolicyCriticTest(
     'candidate contradiction remains unresolved and is never promoted to refuted support');
   },
 );
+
+proofPolicyCriticTest(
+  'Spec 028 T061 — proof bindings and search provenance fail closed',
+  ({ applyClaimProofPolicyGate }) => {
+    const allowedReasonCodes = new Set([
+      'entailed', 'semantic_mismatch', 'overgeneralized', 'missing_transition',
+      'missing_category', 'boundary_mismatch', 'contradiction', 'uncovered_request',
+    ]);
+    const mismatchedBinding = applyClaimProofPolicyGate(t057GateInput({
+      proofPolicyResult: {
+        passed: true,
+        reason: null,
+        subgoalId: 'S-other',
+        claimId: 'C1',
+        proofPolicy: 'direct_source',
+      },
+    }));
+    assertProofDowngrade(mismatchedBinding, 'proof result reused across sub-goals');
+    assert.ok(allowedReasonCodes.has(mismatchedBinding.reasonCode));
+
+    const searchClaim = atomicClaim({ evidenceRefs: ['Q1'] });
+    const searchVerdict = semanticVerdict('supported', { supportingEvidenceRefs: ['Q1'] });
+    const currentSearchRequirement = {
+      observationKinds: ['search'],
+      sourceRoles: [],
+      temporalRole: 'current',
+    };
+    const gitSearch = t057GateInput({
+      claim: searchClaim,
+      semanticVerdict: searchVerdict,
+      observations: [{
+        id: 'Q1',
+        kind: 'search',
+        tool: 'repo_git_log',
+        boundary: ['src/auth.js'],
+        matchCount: 1,
+        toolTruncated: false,
+        contextTruncated: false,
+        omittedOutOfScopeFiles: 0,
+        deniedPaths: 0,
+        errors: 0,
+        enumerationComplete: true,
+      }],
+      roleRequirement: currentSearchRequirement,
+    });
+    assertProofDowngrade(applyClaimProofPolicyGate(gitSearch),
+      'historical git search used as current evidence');
+
+    assertProofDowngrade(applyClaimProofPolicyGate({
+      ...gitSearch,
+      observations: [{
+        ...gitSearch.observations[0],
+        tool: 'repo_grep',
+        boundary: [],
+        errors: -1,
+      }],
+    }), 'malformed search telemetry');
+  },
+);

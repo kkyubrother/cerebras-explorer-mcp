@@ -219,6 +219,288 @@ export function createAtomicClaim(input) {
   };
 }
 
+function normalizeProofBoundary(value) {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.flatMap(item => {
+    if (typeof item !== 'string') return [];
+    const normalized = item.trim().replaceAll('\\', '/').replace(/^\.\//, '')
+      .replace(/\/{2,}/g, '/').replace(/\/$/, '');
+    return normalized ? [normalized] : [];
+  }))].sort();
+}
+
+function boundaryPatternCovers(outer, inner) {
+  if (outer === inner || outer === '**') return true;
+  if (!outer.endsWith('/**')) return false;
+  const prefix = outer.slice(0, -3);
+  const innerBase = inner.endsWith('/**') ? inner.slice(0, -3) : inner;
+  return innerBase === prefix || innerBase.startsWith(`${prefix}/`);
+}
+
+function boundaryCovers(searchBoundary, claimBoundary) {
+  const search = normalizeProofBoundary(searchBoundary);
+  const claim = normalizeProofBoundary(claimBoundary);
+  return search.length > 0 && claim.length > 0 && claim.every(inner =>
+    search.some(outer => boundaryPatternCovers(outer, inner)));
+}
+
+function cleanSearchObservation(search) {
+  return search?.kind === 'search' &&
+    typeof search.id === 'string' && search.id.length > 0 &&
+    typeof search.tool === 'string' && search.tool.length > 0 &&
+    Number.isInteger(search.matchCount) && search.matchCount >= 0 &&
+    search.toolTruncated === false &&
+    search.contextTruncated === false &&
+    search.omittedOutOfScopeFiles === 0 &&
+    search.deniedPaths === 0 &&
+    search.errors === 0;
+}
+
+function summarizeSearch(search) {
+  const normalizedArgs = search?.normalizedArgs && typeof search.normalizedArgs === 'object' &&
+      !Array.isArray(search.normalizedArgs)
+    ? search.normalizedArgs
+    : {};
+  const concepts = ['pattern', 'symbol', 'path', 'scope', 'ref', 'from', 'to']
+    .flatMap(key => {
+      const raw = normalizedArgs[key];
+      const values = Array.isArray(raw) ? raw : [raw];
+      const normalized = values.filter(value => typeof value === 'string' && value.length > 0);
+      return normalized.length > 0 ? [`${key}=${normalized.join(',')}`] : [];
+    });
+  return concepts.length > 0 ? `${search.tool} ${concepts.join(' ')}` : search.tool;
+}
+
+/**
+ * Build a deterministic internal certificate for one explicit repository
+ * boundary. The certificate records unsuccessful attempts as auditable refs,
+ * but only complete runtime-owned search observations can certify the claim.
+ */
+export function buildAbsenceCertificate(input) {
+  const value = requireObject(input, 'AbsenceCertificate input');
+  const id = requireString(value.id, 'AbsenceCertificate.id');
+  const subgoalId = requireString(value.subgoalId, 'AbsenceCertificate.subgoalId');
+  const claimBoundary = normalizeProofBoundary(value.claimBoundary);
+  const searches = Array.isArray(value.searches) ? value.searches : [];
+  const searchRefs = [...new Set(searches.flatMap(search =>
+    typeof search?.id === 'string' && search.id ? [search.id] : []))].sort();
+  const uniqueSearchIds = searchRefs.length === searches.length;
+  const complete = claimBoundary.length > 0 && searches.length > 0 &&
+    uniqueSearchIds && searches.every(search =>
+      cleanSearchObservation(search) &&
+      search.enumerationComplete === true &&
+      boundaryCovers(search.boundary, claimBoundary));
+
+  const certificate = {
+    id,
+    subgoalId,
+    claimBoundary,
+    searchRefs,
+    searchSummary: searches
+      .filter(search => typeof search?.tool === 'string' && search.tool &&
+        Number.isInteger(search.matchCount) && search.matchCount >= 0)
+      .map(summarizeSearch)
+      .sort(),
+    complete,
+  };
+  if (typeof value.qualification === 'string' && value.qualification.trim()) {
+    certificate.qualification = value.qualification.trim();
+  }
+  return certificate;
+}
+
+/** Compute an exact count only from unique normalized identities in a certified boundary. */
+export function computeDeterministicCount(input) {
+  const value = requireObject(input, 'Deterministic count input');
+  const subgoalId = requireString(value.subgoalId, 'DeterministicCount.subgoalId');
+  const claimBoundary = normalizeProofBoundary(value.claimBoundary);
+  const certificate = value.certificate;
+  const itemIdsPresent = Object.hasOwn(value, 'normalizedItemIds') &&
+    Array.isArray(value.normalizedItemIds);
+  const itemIds = itemIdsPresent ? value.normalizedItemIds : [];
+  const identitiesValid = itemIdsPresent && itemIds.every(item =>
+    typeof item === 'string' && item.length > 0 && item === item.trim());
+  const complete = certificate?.complete === true &&
+    typeof certificate.id === 'string' && certificate.id.length > 0 &&
+    certificate.subgoalId === subgoalId &&
+    boundaryCovers(certificate.claimBoundary, claimBoundary) &&
+    boundaryCovers(claimBoundary, certificate.claimBoundary) &&
+    identitiesValid;
+  return {
+    subgoalId,
+    claimBoundary,
+    certificateRef: typeof certificate?.id === 'string' ? certificate.id : '',
+    complete,
+    count: complete ? new Set(itemIds).size : null,
+  };
+}
+
+function proofResult(passed, reason, subgoal, claim) {
+  return {
+    passed,
+    reason,
+    subgoalId: typeof subgoal?.id === 'string' ? subgoal.id : '',
+    claimId: typeof claim?.id === 'string' ? claim.id : '',
+    proofPolicy: typeof subgoal?.proofPolicy === 'string' ? subgoal.proofPolicy : '',
+  };
+}
+
+function failedProof(reason, subgoal, claim) {
+  return proofResult(false, reason, subgoal, claim);
+}
+
+function passedProof(subgoal, claim) {
+  return proofResult(true, null, subgoal, claim);
+}
+
+function matchingCompleteCertificate(certificates, subgoalId, predicate = () => true) {
+  return (Array.isArray(certificates) ? certificates : []).find(certificate =>
+    certificate?.subgoalId === subgoalId && certificate.complete === true &&
+    predicate(certificate)) ?? null;
+}
+
+function supportingObservations({ claim, semanticVerdict, observations }) {
+  const claimRefs = new Set(Array.isArray(claim?.evidenceRefs) ? claim.evidenceRefs : []);
+  const refs = Array.isArray(semanticVerdict?.supportingEvidenceRefs)
+    ? semanticVerdict.supportingEvidenceRefs
+    : [];
+  const byId = new Map((Array.isArray(observations) ? observations : [])
+    .filter(observation => typeof observation?.id === 'string' && observation.id)
+    .map(observation => [observation.id, observation]));
+  return refs.filter(ref => claimRefs.has(ref)).map(ref => byId.get(ref)).filter(Boolean);
+}
+
+function setCovers(required, observed) {
+  if (!Array.isArray(required) || required.length === 0 || !Array.isArray(observed)) return false;
+  const observedSet = new Set(observed.filter(item => typeof item === 'string' && item));
+  return required.every(item => typeof item === 'string' && item && observedSet.has(item));
+}
+
+function structuredPolicyComplete(policy, artifacts = {}, supportingRefs = new Set()) {
+  if (!artifacts || typeof artifacts !== 'object' || Array.isArray(artifacts)) return false;
+  const coversWithEvidence = (required, observed, evidenceByItem) =>
+    setCovers(required, observed) && evidenceByItem &&
+    typeof evidenceByItem === 'object' && !Array.isArray(evidenceByItem) &&
+    required.every(item => Array.isArray(evidenceByItem[item]) &&
+      evidenceByItem[item].some(ref => supportingRefs.has(ref)));
+  if (policy === 'ordered_handoffs') {
+    return coversWithEvidence(
+      artifacts.requiredTransitions,
+      artifacts.observedTransitions,
+      artifacts.transitionEvidenceRefs,
+    );
+  }
+  if (policy === 'impact_categories') {
+    return coversWithEvidence(
+      artifacts.requiredImpactCategories,
+      artifacts.coveredImpactCategories,
+      artifacts.impactCategoryEvidenceRefs,
+    );
+  }
+  if (policy === 'distinct_policy_paths') {
+    return coversWithEvidence(
+      artifacts.requiredComparisonPaths,
+      artifacts.coveredComparisonPaths,
+      artifacts.comparisonPathEvidenceRefs,
+    );
+  }
+  return false;
+}
+
+function certificateSupportsClaim(certificate, claimRefs, supportingRefs) {
+  return certificate?.complete === true &&
+    Array.isArray(certificate.searchRefs) && certificate.searchRefs.length > 0 &&
+    certificate.searchRefs.every(ref => claimRefs.has(ref)) &&
+    certificate.searchRefs.some(ref => supportingRefs.has(ref));
+}
+
+/**
+ * Apply the claim-type-derived structural proof policy. This function never
+ * reads claim prose and can only approve an already-supported semantic verdict.
+ */
+export function evaluateProofPolicy({
+  subgoal,
+  claim,
+  semanticVerdict,
+  absenceCertificates = [],
+  deterministicCounts = [],
+  observations = [],
+  policyArtifacts = {},
+} = {}) {
+  if (!subgoal || !claim || !semanticVerdict || semanticVerdict.result !== 'supported') {
+    return failedProof('semantic_not_supported', subgoal, claim);
+  }
+  const expectedPolicy = CLAIM_TYPE_TO_PROOF_POLICY[subgoal.claimType];
+  if (!expectedPolicy || subgoal.proofPolicy !== expectedPolicy) {
+    return failedProof('invalid_proof_policy', subgoal, claim);
+  }
+  if (claim.subgoalId !== subgoal.id || semanticVerdict.claimId !== claim.id) {
+    return failedProof('claim_relationship_mismatch', subgoal, claim);
+  }
+  const claimRefs = new Set(Array.isArray(claim.evidenceRefs) ? claim.evidenceRefs : []);
+  const supportingRefs = Array.isArray(semanticVerdict.supportingEvidenceRefs)
+    ? semanticVerdict.supportingEvidenceRefs
+    : [];
+  if (supportingRefs.length === 0 || new Set(supportingRefs).size !== supportingRefs.length ||
+      !supportingRefs.every(ref => typeof ref === 'string' && claimRefs.has(ref))) {
+    return failedProof('invalid_supporting_evidence', subgoal, claim);
+  }
+
+  const supportingRefSet = new Set(supportingRefs);
+  const certificate = matchingCompleteCertificate(
+    absenceCertificates,
+    subgoal.id,
+    candidate => certificateSupportsClaim(candidate, claimRefs, supportingRefSet),
+  );
+  const certifiedClaim = certificate !== null;
+  if (expectedPolicy === 'bounded_absence') {
+    return certifiedClaim ? passedProof(subgoal, claim) :
+      failedProof('incomplete_enumeration', subgoal, claim);
+  }
+  if (expectedPolicy === 'deterministic_count') {
+    const count = (Array.isArray(deterministicCounts) ? deterministicCounts : []).find(item =>
+      item?.subgoalId === subgoal.id && item.complete === true &&
+      item.certificateRef === certificate?.id && certifiedClaim &&
+      Number.isInteger(item.count) && item.count >= 0);
+    return count ? passedProof(subgoal, claim) : failedProof('uncertified_count', subgoal, claim);
+  }
+  if (expectedPolicy === 'support_or_refute' && semanticVerdict.resolution === 'refuted') {
+    return certifiedClaim ? passedProof(subgoal, claim) :
+      failedProof('uncertified_refutation', subgoal, claim);
+  }
+
+  const supporting = supportingObservations({ claim, semanticVerdict, observations });
+  if (expectedPolicy === 'symbol_definition') {
+    return supporting.some(observation => observation?.kind === 'source')
+      ? passedProof(subgoal, claim)
+      : failedProof('definition_source_missing', subgoal, claim);
+  }
+  if (expectedPolicy === 'bounded_usage_cross_check') {
+    const searches = supporting.filter(observation =>
+      observation?.kind === 'search' && cleanSearchObservation(observation));
+    return searches.length > 0
+      ? passedProof(subgoal, claim)
+      : failedProof('usage_cross_check_missing', subgoal, claim);
+  }
+  if (expectedPolicy === 'ordered_handoffs' || expectedPolicy === 'impact_categories') {
+    return structuredPolicyComplete(expectedPolicy, policyArtifacts, supportingRefSet)
+      ? passedProof(subgoal, claim)
+      : failedProof(expectedPolicy === 'ordered_handoffs'
+          ? 'missing_transition'
+          : 'missing_category', subgoal, claim);
+  }
+  if (expectedPolicy === 'distinct_policy_paths') {
+    const distinctPaths = new Set(supporting.flatMap(observation =>
+      typeof observation?.path === 'string' && observation.path ? [observation.path] : []));
+    return structuredPolicyComplete(expectedPolicy, policyArtifacts, supportingRefSet) ||
+        distinctPaths.size >= 2
+      ? passedProof(subgoal, claim)
+      : failedProof('missing_comparison_path', subgoal, claim);
+  }
+
+  return passedProof(subgoal, claim);
+}
+
 export function deriveGapPriority({ requestOrder, proofPolicy } = {}) {
   if (!Number.isInteger(requestOrder) || requestOrder < 0) {
     throw new TypeError('requestOrder must be a non-negative integer.');
