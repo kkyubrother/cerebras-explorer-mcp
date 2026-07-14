@@ -141,7 +141,13 @@ test('adoption suite: v3 and wrapper scenarios keep objective source anchors', (
   const byId = new Map(suite.cases.map(testCase => [testCase.id, testCase]));
   const serialized = testCase => JSON.stringify(byId.get(testCase));
 
+  assert.deepEqual(byId.get('map-change-impact')?.args?.scope,
+    ['src/**', 'tests/**', '*.md', 'examples/**']);
   assert.match(serialized('map-change-impact'), /tests\/(schemas|runtime\.mock|mcp-server)\.test\.mjs/);
+  assert.match(serialized('map-change-impact'), /README\.md/);
+  assert.match(serialized('map-change-impact'), /DESIGN\.md/);
+  assert.match(serialized('map-change-impact'), /examples\/expected-response\.json/);
+  assert.match(serialized('map-change-impact'), /"type":"min_target_count","value":7/);
   assert.match(serialized('explain-code-path'), /src\/mcp\/jsonrpc-stdio\.mjs/);
   assert.match(serialized('explore-recent-change-context'), /min_git_evidence_count/);
   assert.match(serialized('structured-output-contract'), /src\/explorer\/parent-payload\.mjs/);

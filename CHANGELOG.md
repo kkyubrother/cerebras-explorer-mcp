@@ -85,9 +85,12 @@ compatibility aliases or selectable effort controls are retained.
   an oracle independent of Explorer output, three-run fixture repeatability,
   portable parent-observation records, and payload measurement cover false
   completion, semantic mismatch, negative boundaries, redaction, scope,
-  cancellation, and provider failure. Shared-anchor atomic claims are evaluated
-  together without forcing duplicate parent prose, while provider failure
-  messages remain execution failures rather than repository claims. Live
+  cancellation, and provider failure. The adoption impact case includes the
+  public contract documents its wrapper is required to assess instead of
+  blocking them with an implementation-only scope. Shared-anchor atomic claims
+  are evaluated together without forcing duplicate parent prose, while
+  provider failure messages remain execution failures rather than repository
+  claims. Live
   Cerebras revalidation and the full quickstart remain release gates.
 
 Migration:

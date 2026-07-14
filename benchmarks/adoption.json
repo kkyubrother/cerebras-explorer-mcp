@@ -88,30 +88,30 @@
       "tool": "map_change_impact",
       "args": {
         "change": "Add a new top-level field to explore_repo structured output",
-        "scope": ["src/**", "tests/**"]
+        "scope": ["src/**", "tests/**", "*.md", "examples/**"]
       },
       "expectations": [
         {
-          "label": "Answer covers runtime, schema, server, tests",
+          "label": "Answer covers runtime, schema, server, tests, and public contract docs",
           "source": "combined_text",
-          "groups": [["schemas.mjs"], ["runtime.mjs"], ["server.mjs"], ["schemas.test.mjs", "runtime.mock.test.mjs", "mcp-server.test.mjs"]],
+          "groups": [["schemas.mjs"], ["runtime.mjs"], ["server.mjs"], ["schemas.test.mjs", "runtime.mock.test.mjs", "mcp-server.test.mjs"], ["README.md"], ["DESIGN.md"], ["expected-response.json"]],
           "weight": 0.3
         },
         {
           "label": "Targets include each required impact category",
           "source": "target_paths",
-          "groups": [["src/explorer/schemas.mjs"], ["src/explorer/runtime.mjs"], ["src/mcp/server.mjs"], ["tests/schemas.test.mjs", "tests/runtime.mock.test.mjs", "tests/mcp-server.test.mjs"]],
+          "groups": [["src/explorer/schemas.mjs"], ["src/explorer/runtime.mjs"], ["src/mcp/server.mjs"], ["tests/schemas.test.mjs", "tests/runtime.mock.test.mjs", "tests/mcp-server.test.mjs"], ["README.md"], ["DESIGN.md"], ["examples/expected-response.json"]],
           "weight": 0.25
         },
         {
           "label": "Targets describe actionability",
           "source": "target_reasons",
-          "groups": [["schema"], ["runtime", "normaliz"], ["regression", "validation"]],
+          "groups": [["schema"], ["runtime", "normaliz"], ["regression", "validation"], ["documentation", "contract"]],
           "weight": 0.15
         }
       ],
       "checks": [
-        { "label": "Returns at least four targets", "type": "min_target_count", "value": 4, "weight": 0.2 }
+        { "label": "Returns at least seven targets", "type": "min_target_count", "value": 7, "weight": 0.2 }
       ]
     },
     {
