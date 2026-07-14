@@ -1,10 +1,11 @@
 # Changelog
 
-## v0.9.0 - 2026-07-14
+## v0.9.0 - Unreleased
 
 ### trustworthy explorer and schema-v3 parent handoff (spec 028)
 
-This is an intentional pre-1.0 breaking release. It replaces overlapping
+This is an intentional pre-1.0 breaking change pending the live release gates.
+It replaces overlapping
 schema-v2 status and diagnostic structures with one fail-closed schema-v3
 handoff, and reduces the public MCP registry from eight tools to six. No
 compatibility aliases or selectable effort controls are retained.
@@ -76,12 +77,13 @@ compatibility aliases or selectable effort controls are retained.
   first provider failure while retaining every remaining case and repeat as an
   explicit `provider_unavailable` non-run in the report denominator.
 - **Independent acceptance**: pinned known-answer fixtures and repositories,
-  an oracle independent of Explorer output, three-run repeatability, portable
-  parent-observation records, payload measurement, and live Cerebras checks
-  cover false completion, semantic mismatch, negative boundaries, redaction,
-  scope, cancellation, and provider failure. Shared-anchor atomic claims are
-  evaluated together without forcing duplicate parent prose, while provider
-  failure messages remain execution failures rather than repository claims.
+  an oracle independent of Explorer output, three-run fixture repeatability,
+  portable parent-observation records, and payload measurement cover false
+  completion, semantic mismatch, negative boundaries, redaction, scope,
+  cancellation, and provider failure. Shared-anchor atomic claims are evaluated
+  together without forcing duplicate parent prose, while provider failure
+  messages remain execution failures rather than repository claims. Live
+  Cerebras revalidation and the full quickstart remain release gates.
 
 Migration:
 

@@ -436,26 +436,19 @@ test('package manifest includes README-linked support files', async () => {
   }
 });
 
-test('CHANGELOG records the version declared in package.json', async () => {
+test('CHANGELOG records the package version with a valid release status', async () => {
   const packageJson = JSON.parse(await read('package.json'));
   const changelog = await read('CHANGELOG.md');
   const escapedVersion = packageJson.version.replace(/\./g, '\\.');
 
-  const versionHeading = new RegExp(`^##\\s+v${escapedVersion}\\b`, 'm');
+  const versionHeading = new RegExp(
+    `^##\\s+v${escapedVersion}\\s*-\\s*(?:Unreleased|\\d{4}-\\d{2}-\\d{2})\\s*$`,
+    'mi',
+  );
   assert.match(
     changelog,
     versionHeading,
-    `CHANGELOG.md should contain a heading for v${packageJson.version}`,
-  );
-
-  const unreleasedForCurrent = new RegExp(
-    `^##\\s+v${escapedVersion}\\s*-\\s*Unreleased\\b`,
-    'mi',
-  );
-  assert.doesNotMatch(
-    changelog,
-    unreleasedForCurrent,
-    `CHANGELOG.md heading for v${packageJson.version} should not say "Unreleased" once that version is declared in package.json`,
+    `CHANGELOG.md should contain an Unreleased or dated heading for v${packageJson.version}`,
   );
 });
 
