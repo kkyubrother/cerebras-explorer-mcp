@@ -45,8 +45,14 @@ function escapeRegex(input) {
   return input.replace(/[|\\{}()[\]^$+?.]/g, '\\$&');
 }
 
-function isCallableUsage(reference) {
+function isCallableUsage(reference, line = '', symbol = '') {
   if (reference.type !== 'usage') return false;
+  // A source line may both begin with `export` and call the searched symbol
+  // later in the declaration body. The line classifier intentionally returns
+  // one primary relation, so recover this unambiguous call shape here.
+  if (reference.relation === 'export' && symbol) {
+    return new RegExp(`(?:^|[^.\\w$#])${escapeRegex(symbol)}\\s*(?:<[^>]+>)?\\s*\\(`).test(line);
+  }
   return !['export', 'type_reference', 'property'].includes(reference.relation);
 }
 
@@ -505,14 +511,15 @@ function parseDiffOutput(diffText) {
   }
   if (current) files.push(current);
   for (const f of files) {
-    if (f.patch.length > 8000) {
-      f.patch = f.patch.slice(0, 8000) + '\n... (truncated)';
-    }
     const redactedPatch = redactText(f.patch);
+    f.patch = redactedPatch.text;
     if (redactedPatch.redacted) {
-      f.patch = redactedPatch.text;
       f.redacted = true;
       f.redactions = redactedPatch.redactions;
+    }
+    if (f.patch.length > 8000) {
+      f.patch = f.patch.slice(0, 8000) + '\n... (truncated)';
+      f.truncated = true;
     }
   }
   return files;
@@ -559,6 +566,31 @@ function formatLineWindow(lines, startLine, endLine) {
 
 function dedupeArray(values) {
   return [...new Set(values)];
+}
+
+function inheritedRuntimeCount(result, key) {
+  return result && Object.prototype.hasOwnProperty.call(result, key) ? result[key] : 0;
+}
+
+function inheritedSearchTelemetry(result) {
+  const walkTruncated = typeof result?.walkTruncated === 'boolean'
+    ? result.walkTruncated
+    : false;
+  const resultTruncated = typeof result?.resultTruncated === 'boolean'
+    ? result.resultTruncated
+    : result?.truncated === true;
+  return {
+    walkTruncated,
+    resultTruncated,
+    enumerationProven: result?.enumerationProven === true,
+    errors: inheritedRuntimeCount(result, 'errors'),
+    omittedSecretPaths: inheritedRuntimeCount(result, 'omittedSecretPaths'),
+    omittedOutOfScopeFiles: inheritedRuntimeCount(result, 'omittedOutOfScopeFiles'),
+  };
+}
+
+function addRuntimeErrorCount(value, increment) {
+  return Number.isSafeInteger(value) && value >= 0 ? value + increment : value;
 }
 
 function isSafeGitRef(ref) {
@@ -649,6 +681,8 @@ export class RepoToolkit {
     const effectiveScope = this.buildEffectiveScopeRules(scope);
     const files = [];
     const queue = ['.'];
+    let errors = 0;
+    let omittedSecretPaths = 0;
 
     while (queue.length > 0) {
       const current = queue.shift();
@@ -659,6 +693,7 @@ export class RepoToolkit {
         absoluteDir = absolute;
         entries = await fs.readdir(absolute, { withFileTypes: true });
       } catch {
+        errors += 1;
         continue;
       }
 
@@ -670,6 +705,20 @@ export class RepoToolkit {
       for (const entry of entries) {
         const rel = current === '.' ? entry.name : path.join(current, entry.name);
         const relPosix = sanitizeRelativePath(rel);
+        const secretMatch = isSecretPath(relPosix);
+        if (secretMatch.matched) {
+          const relevantToBoundary = entry.isDirectory()
+            ? effectiveScope.mayContain(relPosix)
+            : effectiveScope.matches(relPosix);
+          if (relevantToBoundary) omittedSecretPaths += 1;
+          continue;
+        }
+        if (entry.isSymbolicLink()) {
+          const relevantToBoundary = effectiveScope.matches(relPosix) ||
+            effectiveScope.mayContain(relPosix);
+          if (relevantToBoundary) errors += 1;
+          continue;
+        }
         if (shouldIgnorePath(relPosix, entry, this.gitignoreMatcher, this.ignoreDirs, this.nestedGitignoreMatchers, this.extraPatternMatcher)) {
           continue;
         }
@@ -687,13 +736,27 @@ export class RepoToolkit {
         }
 
         files.push(relPosix);
-        if (files.length >= maxFiles) {
-          return { files, truncated: true };
+        if (files.length > maxFiles) {
+          return {
+            files: files.slice(0, maxFiles),
+            truncated: true,
+            walkTruncated: true,
+            errors,
+            omittedSecretPaths,
+            omittedOutOfScopeFiles: 0,
+          };
         }
       }
     }
 
-    return { files, truncated: false };
+    return {
+      files,
+      truncated: false,
+      walkTruncated: false,
+      errors,
+      omittedSecretPaths,
+      omittedOutOfScopeFiles: 0,
+    };
   }
 
   async listDirectory({ dirPath = '.', depth = 2, maxEntries = this.runtimeConfig.maxDirectoryEntries } = {}) {
@@ -704,9 +767,10 @@ export class RepoToolkit {
     }
 
     const visited = [];
+    const visitLimit = maxEntries + 1;
 
     const walk = async (currentRel, currentDepth) => {
-      if (visited.length >= maxEntries) {
+      if (visited.length >= visitLimit) {
         return;
       }
 
@@ -726,7 +790,7 @@ export class RepoToolkit {
       }
 
       for (const entry of entries) {
-        if (visited.length >= maxEntries) {
+        if (visited.length >= visitLimit) {
           return;
         }
 
@@ -759,8 +823,8 @@ export class RepoToolkit {
 
     return {
       dirPath: relativeDir,
-      entries: visited,
-      truncated: visited.length >= maxEntries,
+      entries: visited.slice(0, maxEntries),
+      truncated: visited.length > maxEntries,
     };
   }
 
@@ -769,12 +833,18 @@ export class RepoToolkit {
       throw new Error('pattern is required');
     }
     const regex = globToRegExp(sanitizeRelativePath(pattern));
-    const { files, truncated } = await this.walkFiles({ scope });
-    const matches = files.filter(relPath => regex.test(relPath)).slice(0, maxResults);
+    const walkResult = await this.walkFiles({ scope });
+    const telemetry = inheritedSearchTelemetry(walkResult);
+    const allMatches = walkResult.files.filter(relPath => regex.test(relPath));
+    const resultTruncated = allMatches.length > maxResults;
+    const matches = allMatches.slice(0, maxResults);
     return {
       pattern,
       matches,
-      truncated: truncated || matches.length >= maxResults,
+      ...telemetry,
+      enumerationProven: true,
+      resultTruncated,
+      truncated: telemetry.walkTruncated || resultTruncated,
     };
   }
 
@@ -786,6 +856,12 @@ export class RepoToolkit {
     if (this.baseScopeRules.patterns?.length > 0) {
       return null;
     }
+
+    // ripgrep does not report traversal denials or partial filesystem errors.
+    // Preserve a runtime-owned walk observation so a fast-path search cannot
+    // claim complete enumeration merely because rg itself returned successfully.
+    const walkTelemetry = inheritedSearchTelemetry(await this.walkFiles({ scope }));
+    const captureLimit = maxResults + 1;
 
     const rgArgs = [
       '--json',
@@ -810,7 +886,7 @@ export class RepoToolkit {
       rgArgs.push('--glob', `!${ignorePattern}`);
     }
     if (!caseSensitive) rgArgs.push('--ignore-case');
-    const perFileMax = Math.min(maxResults, 50);
+    const perFileMax = captureLimit;
     rgArgs.push('--max-count', String(perFileMax));
     rgArgs.push('--', pattern);
 
@@ -840,7 +916,15 @@ export class RepoToolkit {
     } catch (err) {
       // exit code 1 = no matches (not an error), stderr contains real errors
       if (err.code === 1 && !err.stderr?.trim()) {
-        return { pattern, caseSensitive, matches: [], truncated: false };
+        return {
+          pattern,
+          caseSensitive,
+          matches: [],
+          ...walkTelemetry,
+          enumerationProven: false,
+          resultTruncated: false,
+          truncated: walkTelemetry.walkTruncated,
+        };
       }
       // ripgrep failed for another reason — surface via null to trigger fallback
       return null;
@@ -864,14 +948,19 @@ export class RepoToolkit {
       if (isSecretPath(relPath).matched) continue;
       if (this.extraPatternMatcher && this.extraPatternMatcher(relPath)) continue;
       matches.push({ path: relPath, line: lineNum, text: text.slice(0, 300).replace(/\n$/, '') });
-      if (matches.length >= maxResults) break;
+      if (matches.length >= captureLimit) break;
     }
+
+    const resultTruncated = matches.length > maxResults;
 
     return {
       pattern,
       caseSensitive,
-      matches,
-      truncated: matches.length >= maxResults,
+      matches: matches.slice(0, maxResults),
+      ...walkTelemetry,
+      enumerationProven: false,
+      resultTruncated,
+      truncated: walkTelemetry.walkTruncated || resultTruncated,
     };
   }
 
@@ -897,12 +986,15 @@ export class RepoToolkit {
     }
 
     const regex = tryBuildRegex(pattern, caseSensitive);
-    const { files, truncated: walkTruncated } = await this.walkFiles({ scope });
+    const walkResult = await this.walkFiles({ scope });
+    const walkTelemetry = inheritedSearchTelemetry(walkResult);
+    const captureLimit = maxResults + 1;
     const matches = [];
-    const skipped = { largeFiles: 0, binaryFiles: 0, walkLimitReached: walkTruncated };
+    const skipped = { largeFiles: 0, binaryFiles: 0, walkLimitReached: walkTelemetry.walkTruncated };
+    let searchErrors = 0;
 
-    for (const relPath of files) {
-      if (matches.length >= maxResults) {
+    for (const relPath of walkResult.files) {
+      if (matches.length >= captureLimit) {
         break;
       }
 
@@ -914,6 +1006,7 @@ export class RepoToolkit {
       try {
         safePath = await resolveSafePath(this.repoRootReal, relPath, { kind: 'file' });
       } catch {
+        searchErrors += 1;
         continue;
       }
 
@@ -926,6 +1019,7 @@ export class RepoToolkit {
       try {
         buffer = await fs.readFile(safePath.absolute);
       } catch {
+        searchErrors += 1;
         continue;
       }
       if (!isProbablyText(buffer)) {
@@ -940,18 +1034,25 @@ export class RepoToolkit {
         regex.lastIndex = 0;
         if (regex.test(line)) {
           matches.push({ path: relPath, line: index + 1, text: line.slice(0, 300) });
-          if (matches.length >= maxResults) {
+          if (matches.length >= captureLimit) {
             break;
           }
         }
       }
     }
 
+    const resultTruncated = matches.length > maxResults ||
+      skipped.largeFiles > 0 || skipped.binaryFiles > 0;
+
     return {
       pattern,
       caseSensitive,
-      matches,
-      truncated: walkTruncated || matches.length >= maxResults,
+      matches: matches.slice(0, maxResults),
+      ...walkTelemetry,
+      enumerationProven: true,
+      resultTruncated,
+      errors: addRuntimeErrorCount(walkTelemetry.errors, searchErrors),
+      truncated: walkTelemetry.walkTruncated || resultTruncated,
       skipped,
     };
   }
@@ -1061,11 +1162,14 @@ export class RepoToolkit {
       }
     }
 
+    const telemetry = inheritedSearchTelemetry(grepResult);
+
     return {
       symbol: sym,
       definition,
       references,
-      truncated: grepResult.truncated,
+      ...telemetry,
+      truncated: telemetry.walkTruncated || telemetry.resultTruncated,
     };
   }
 
@@ -1091,7 +1195,7 @@ export class RepoToolkit {
       const reference = classifyReference(match.text ?? '', sym, match.path);
       if (reference.type === 'definition' && definition === null) {
         definition = { path: match.path, line: match.line, kind: 'unknown', endLine: null };
-      } else if (isCallableUsage(reference)) {
+      } else if (isCallableUsage(reference, match.text ?? '', sym)) {
         callers.push({
           path: match.path,
           line: match.line,
@@ -1186,6 +1290,9 @@ export class RepoToolkit {
       }
     }
 
+    const telemetry = inheritedSearchTelemetry(grepResult);
+    const macroTruncated = selectedCallers.length < callers.length;
+
     const observedRanges = [];
 
     if (definition?.path && Number.isInteger(definition.line)) {
@@ -1213,7 +1320,9 @@ export class RepoToolkit {
       definition,
       callers: selectedCallers,
       callerCount: callers.length,
-      truncated: grepResult.truncated || selectedCallers.length < callers.length,
+      ...telemetry,
+      macroTruncated,
+      truncated: telemetry.walkTruncated || telemetry.resultTruncated || macroTruncated,
       effectiveDepth,
       observedRanges,
     };
@@ -1293,6 +1402,29 @@ export class RepoToolkit {
     return rel;
   }
 
+  _gitScopePathspecs() {
+    const patterns = this.baseScopeRules.patterns ?? [];
+    return dedupeArray(patterns.flatMap(pattern => {
+      if (hasGlobSyntax(pattern)) return [`:(glob)${pattern}`];
+      const normalized = pattern.replace(/\/$/, '');
+      return [`:(glob)${normalized}`, `:(glob)${normalized}/**`];
+    }));
+  }
+
+  _countGitPathOmissions(rawNames) {
+    let omittedOutOfScopeFiles = 0;
+    let omittedSecretPaths = 0;
+    for (const rawPath of String(rawNames ?? '').split('\0').filter(Boolean)) {
+      const relPath = toPosix(rawPath);
+      if (isSecretPath(relPath).matched) {
+        omittedSecretPaths += 1;
+      } else if (!this.baseScopeRules.matches(relPath)) {
+        omittedOutOfScopeFiles += 1;
+      }
+    }
+    return { omittedOutOfScopeFiles, omittedSecretPaths };
+  }
+
   _filterGitDiffFiles(files, { enforceScope = true } = {}) {
     let omittedOutOfScopeFiles = 0;
     let omittedSecretPaths = 0;
@@ -1316,16 +1448,20 @@ export class RepoToolkit {
   }
 
   async gitLog({ path: filePath, maxCount = 20, since, author, grep: grepFilter } = {}) {
-    const count = Math.min(Number(maxCount) || 20, 100);
-    const args = ['log', `--format=%H|%an|%ai|%s`, `-n`, String(count)];
+    const count = Math.max(1, Math.min(Number(maxCount) || 20, 100));
+    const args = ['log', `--format=%H|%an|%ai|%s`, `-n`, String(count + 1)];
     if (since) args.push(`--since=${since}`);
     if (author) args.push(`--author=${author}`);
     if (grepFilter) args.push(`--grep=${grepFilter}`);
     const rel = this._validateGitPath(filePath);
     if (rel) args.push('--', rel);
+    else {
+      const scopePathspecs = this._gitScopePathspecs();
+      if (scopePathspecs.length > 0) args.push('--', ...scopePathspecs);
+    }
 
     const output = await this._runGit(args);
-    const commits = output
+    const observedCommits = output
       .trim()
       .split('\n')
       .filter(Boolean)
@@ -1340,7 +1476,12 @@ export class RepoToolkit {
           message: line.slice(p3 + 1),
         };
       });
-    return { commits };
+    const resultTruncated = observedCommits.length > count;
+    return {
+      commits: observedCommits.slice(0, count),
+      resultTruncated,
+      truncated: resultTruncated,
+    };
   }
 
   async gitBlame({ path: filePath, startLine, endLine } = {}) {
@@ -1354,7 +1495,11 @@ export class RepoToolkit {
     args.push('--', rel);
 
     const output = await this._runGit(args);
-    return this._parseBlamePorcelain(output);
+    return {
+      ...this._parseBlamePorcelain(output),
+      resultTruncated: false,
+      truncated: false,
+    };
   }
 
   _parseBlamePorcelain(output) {
@@ -1410,7 +1555,18 @@ export class RepoToolkit {
     }
     args.push(`${safeFrom}..${safeTo}`);
     const rel = this._validateGitPath(filePath);
-    if (rel) args.push('--', rel);
+    const scopePathspecs = rel ? [] : this._gitScopePathspecs();
+    let scopedOmissions = { omittedOutOfScopeFiles: 0, omittedSecretPaths: 0 };
+    if (rel) {
+      args.push('--', rel);
+    } else if (scopePathspecs.length > 0) {
+      const names = await this._runGit([
+        '-c', 'diff.external=', 'diff', '--name-only', '-z', '--no-ext-diff', '--no-textconv', '--no-renames',
+        `${safeFrom}..${safeTo}`,
+      ], { env: withUnsetEnv(SAFE_GIT_DIFF_ENV_UNSET) });
+      scopedOmissions = this._countGitPathOmissions(names);
+      args.push('--', ...scopePathspecs);
+    }
 
     const output = await this._runGit(args, { env: withUnsetEnv(SAFE_GIT_DIFF_ENV_UNSET) });
 
@@ -1418,23 +1574,32 @@ export class RepoToolkit {
       const filteredStat = filterGitStatOutput(output.trim());
       const scopedStat = filterGitStatByScope(filteredStat.text, this.baseScopeRules);
       const redactedStat = redactText(scopedStat.text);
+      const omittedSecretPaths = Math.max(filteredStat.omittedSecretPaths, scopedOmissions.omittedSecretPaths);
+      const omittedOutOfScopeFiles = Math.max(scopedStat.omittedOutOfScopeFiles, scopedOmissions.omittedOutOfScopeFiles);
       return {
         from: safeFrom,
         to: safeTo,
         stat: redactedStat.text,
-        ...(filteredStat.omittedSecretPaths > 0 ? { omittedSecretPaths: filteredStat.omittedSecretPaths } : {}),
-        ...(scopedStat.omittedOutOfScopeFiles > 0 ? { omittedOutOfScopeFiles: scopedStat.omittedOutOfScopeFiles } : {}),
+        resultTruncated: false,
+        truncated: false,
+        ...(omittedSecretPaths > 0 ? { omittedSecretPaths } : {}),
+        ...(omittedOutOfScopeFiles > 0 ? { omittedOutOfScopeFiles } : {}),
         ...(redactedStat.redacted ? { redacted: true, redactions: redactedStat.redactions } : {}),
       };
     }
 
     const filtered = this._filterGitDiffFiles(parseDiffOutput(output), { enforceScope: true });
+    const resultTruncated = filtered.files.some(file => file.truncated === true);
+    const omittedOutOfScopeFiles = Math.max(filtered.omittedOutOfScopeFiles, scopedOmissions.omittedOutOfScopeFiles);
+    const omittedSecretPaths = Math.max(filtered.omittedSecretPaths, scopedOmissions.omittedSecretPaths);
     return {
       from: safeFrom,
       to: safeTo,
       files: filtered.files,
-      ...(filtered.omittedOutOfScopeFiles > 0 ? { omittedOutOfScopeFiles: filtered.omittedOutOfScopeFiles } : {}),
-      ...(filtered.omittedSecretPaths > 0 ? { omittedSecretPaths: filtered.omittedSecretPaths } : {}),
+      resultTruncated,
+      truncated: resultTruncated,
+      ...(omittedOutOfScopeFiles > 0 ? { omittedOutOfScopeFiles } : {}),
+      ...(omittedSecretPaths > 0 ? { omittedSecretPaths } : {}),
     };
   }
 
@@ -1463,8 +1628,20 @@ export class RepoToolkit {
       // leaking through `rename from <old>` metadata when the new path is in scope.
       'show', '--no-ext-diff', '--no-textconv', '--no-renames', '--format=', '--unified=3', safeRef,
     ];
+    const scopePathspecs = this._gitScopePathspecs();
+    let scopedOmissions = { omittedOutOfScopeFiles: 0, omittedSecretPaths: 0 };
+    if (scopePathspecs.length > 0) {
+      const names = await this._runGit([
+        '-c', 'diff.external=', 'show', '--name-only', '-z', '--no-ext-diff', '--no-textconv', '--no-renames', '--format=', safeRef,
+      ], { env: withUnsetEnv(SAFE_GIT_DIFF_ENV_UNSET) });
+      scopedOmissions = this._countGitPathOmissions(names);
+      patchArgs.push('--', ...scopePathspecs);
+    }
     const patchOutput = await this._runGit(patchArgs, { env: withUnsetEnv(SAFE_GIT_DIFF_ENV_UNSET) });
     const filtered = this._filterGitDiffFiles(parseDiffOutput(patchOutput), { enforceScope: true });
+    const resultTruncated = filtered.files.some(file => file.truncated === true);
+    const omittedOutOfScopeFiles = Math.max(filtered.omittedOutOfScopeFiles, scopedOmissions.omittedOutOfScopeFiles);
+    const omittedSecretPaths = Math.max(filtered.omittedSecretPaths, scopedOmissions.omittedSecretPaths);
 
     return {
       hash,
@@ -1472,8 +1649,10 @@ export class RepoToolkit {
       date,
       message: redactedMessage.text,
       files: filtered.files,
-      ...(filtered.omittedOutOfScopeFiles > 0 ? { omittedOutOfScopeFiles: filtered.omittedOutOfScopeFiles } : {}),
-      ...(filtered.omittedSecretPaths > 0 ? { omittedSecretPaths: filtered.omittedSecretPaths } : {}),
+      resultTruncated,
+      truncated: resultTruncated,
+      ...(omittedOutOfScopeFiles > 0 ? { omittedOutOfScopeFiles } : {}),
+      ...(omittedSecretPaths > 0 ? { omittedSecretPaths } : {}),
       ...(redactedMessage.redacted ? { redacted: true, redactions: redactedMessage.redactions } : {}),
     };
   }
@@ -2136,6 +2315,226 @@ function countObservationMatches(tool, result, { policyDenied, executionError })
     default:
       return { value: 0, valid: false };
   }
+}
+
+function canonicalObservationScope(scope) {
+  if (!Array.isArray(scope)) {
+    throw new TypeError('Effective repository observation scope must be an array.');
+  }
+  const normalized = normalizeScope(scope)
+    .map(item => item === '.' ? '**' : item);
+  return dedupeArray(normalized.length > 0 ? normalized : ['**']);
+}
+
+function observationScopeContains(broadPattern, narrowPattern) {
+  if (broadPattern === narrowPattern || broadPattern === '**' || broadPattern === '**/*') return true;
+  if (!broadPattern.endsWith('/**')) return false;
+  const prefix = broadPattern.slice(0, -3).replace(/\/$/, '');
+  return narrowPattern === prefix || narrowPattern.startsWith(`${prefix}/`);
+}
+
+function observationLiteralPrefix(pattern) {
+  const wildcardIndex = pattern.search(/[?*\[]/);
+  return pattern.slice(0, wildcardIndex === -1 ? pattern.length : wildcardIndex).replace(/\/$/, '');
+}
+
+function observationScopesAreDisjoint(left, right) {
+  const leftPrefix = observationLiteralPrefix(left);
+  const rightPrefix = observationLiteralPrefix(right);
+  if (!leftPrefix || !rightPrefix) return false;
+  return !(leftPrefix === rightPrefix ||
+    leftPrefix.startsWith(`${rightPrefix}/`) ||
+    rightPrefix.startsWith(`${leftPrefix}/`));
+}
+
+function intersectObservationBoundaries(effectiveScope, localScope) {
+  const base = canonicalObservationScope(effectiveScope);
+  if (localScope !== undefined && !Array.isArray(localScope)) {
+    throw new TypeError('Local repository observation scope must be an array.');
+  }
+  const local = normalizeScope(localScope).map(item => item === '.' ? '**' : item);
+  if (local.length === 0) return base;
+
+  const intersections = [];
+  for (const basePattern of base) {
+    for (const localPattern of local) {
+      if (observationScopeContains(basePattern, localPattern)) intersections.push(localPattern);
+      else if (observationScopeContains(localPattern, basePattern)) intersections.push(basePattern);
+      else if (!observationScopesAreDisjoint(basePattern, localPattern)) {
+        intersections.push(`intersection:${JSON.stringify([basePattern, localPattern])}`);
+      }
+    }
+  }
+  return dedupeArray(intersections.length > 0 ? intersections : ['empty-intersection']);
+}
+
+function pathObservationBoundary(requestedPath, effectiveScope) {
+  const relativePath = sanitizeRelativePath(requestedPath);
+  if (isSecretPath(relativePath).matched) return ['[REDACTED:secret-path]'];
+  const effectiveRules = createScopeRules(canonicalObservationScope(effectiveScope));
+  return effectiveRules.matches(relativePath) ? [relativePath] : ['empty-intersection'];
+}
+
+function listDirectoryObservationBoundary(args, effectiveScope) {
+  const relativeDir = sanitizeRelativePath(args?.dirPath ?? '.');
+  const depth = Math.min(4, Math.max(1, Number.isInteger(args?.depth) ? args.depth : 2));
+  const prefix = relativeDir === '.' ? '' : `${relativeDir.replace(/\/$/, '')}/`;
+  const patterns = Array.from({ length: depth }, (_, index) => `${prefix}${'*/'.repeat(index)}*`);
+  return intersectObservationBoundaries(effectiveScope, patterns);
+}
+
+function deriveObservationBoundary(tool, args, effectiveScope) {
+  if (tool === 'repo_list_dir') return listDirectoryObservationBoundary(args, effectiveScope);
+  if (['repo_read_file', 'repo_symbols', 'repo_git_log', 'repo_git_blame', 'repo_git_diff'].includes(tool) &&
+      typeof args?.path === 'string' && args.path.trim()) {
+    return pathObservationBoundary(args.path, effectiveScope);
+  }
+  if (['repo_find_files', 'repo_grep', 'repo_references', 'repo_symbol_context'].includes(tool)) {
+    return intersectObservationBoundaries(effectiveScope, args?.scope);
+  }
+  return canonicalObservationScope(effectiveScope);
+}
+
+function booleanTelemetry(result, key) {
+  const value = ownValue(result, key);
+  return { value: value === true, valid: typeof value === 'boolean' };
+}
+
+function deriveToolTruncation(tool, result) {
+  const walk = booleanTelemetry(result, 'walkTruncated');
+  const output = booleanTelemetry(result, 'resultTruncated');
+  const macro = booleanTelemetry(result, 'macroTruncated');
+  const legacy = booleanTelemetry(result, 'truncated');
+  const callers = ownValue(result, 'callers');
+  const callerCount = ownValue(result, 'callerCount');
+  const macroCountValid = Array.isArray(callers) &&
+    Number.isSafeInteger(callerCount) && callerCount >= callers.length;
+  const observedMacroTruncated = macroCountValid && callerCount > callers.length;
+  const macroTelemetryConsistent = macroCountValid && macro.value === observedMacroTruncated;
+  const toolTruncated = walk.value || output.value || macro.value ||
+    observedMacroTruncated || legacy.value;
+
+  switch (tool) {
+    case 'repo_find_files':
+    case 'repo_grep':
+      return { toolTruncated, valid: walk.valid && output.valid };
+    case 'repo_symbol_context':
+      return {
+        toolTruncated,
+        valid: walk.valid && output.valid && macro.valid && macroTelemetryConsistent,
+      };
+    case 'repo_git_log':
+    case 'repo_git_blame':
+    case 'repo_git_diff':
+    case 'repo_git_show':
+      return { toolTruncated, valid: output.valid };
+    case 'repo_list_dir':
+    case 'repo_read_file':
+      return { toolTruncated, valid: legacy.valid };
+    default:
+      return { toolTruncated, valid: false };
+  }
+}
+
+function toolSupportsCompleteEnumeration(tool, args) {
+  switch (tool) {
+    case 'repo_find_files':
+    case 'repo_grep':
+    case 'repo_read_file':
+    case 'repo_symbol_context':
+      return true;
+    case 'repo_git_diff':
+      return Boolean((args?.from ?? 'HEAD~1') && (args?.to ?? 'HEAD'));
+    case 'repo_git_show':
+      return typeof args?.ref === 'string' && Boolean(args.ref.trim());
+    case 'repo_git_blame':
+      return typeof args?.path === 'string' && Boolean(args.path.trim());
+    case 'repo_git_log':
+      // Without a path, git log runs across the repository even when the
+      // explorer has a narrower base scope, so it cannot certify that scope.
+      return typeof args?.path === 'string' && Boolean(args.path.trim());
+    // Symbol extraction is heuristic, and textual references cannot prove
+    // dynamic/aliased semantic exhaustiveness on their own.
+    case 'repo_symbols':
+    case 'repo_references':
+    // listDirectory currently returns a compact capped view without the
+    // traversal denial/error telemetry required for negative certification.
+    case 'repo_list_dir':
+    default:
+      return false;
+  }
+}
+
+/**
+ * Derive the runtime-owned coverage facts for one repository tool result.
+ * Result-authored boundary/completeness fields are intentionally ignored.
+ */
+export function deriveRepositoryObservationCoverage({
+  tool,
+  args = {},
+  result,
+  effectiveScope = [],
+  contextTruncated = false,
+} = {}) {
+  if (typeof tool !== 'string' || !tool) {
+    throw new TypeError('Repository observation tool must be a non-empty string.');
+  }
+  normalizeObservationArgs(tool, args);
+
+  const boundary = normalizeObservationBoundary(deriveObservationBoundary(tool, args, effectiveScope));
+  const resultIsObject = isPlainObservationObject(result);
+  const safeResult = resultIsObject ? result : {};
+  const resultError = ownValue(safeResult, 'error');
+  const policyDenied = resultError === 'redacted_by_policy' &&
+    ownValue(safeResult, 'reason') === 'secret-deny-list';
+  const executionError = !policyDenied && Boolean(resultError);
+  const omitted = readNonNegativeCount(safeResult, 'omittedOutOfScopeFiles');
+  const denied = readAliasedCount(safeResult, ['deniedPaths', 'omittedSecretPaths']);
+  const reportedErrors = readNonNegativeCount(safeResult, 'errors');
+  const matches = countObservationMatches(tool, safeResult, { policyDenied, executionError });
+  const truncation = deriveToolTruncation(tool, safeResult);
+  const contextTruncationKnown = typeof contextTruncated === 'boolean';
+  const normalizedContextTruncated = contextTruncated === true;
+  const omittedOutOfScopeFiles = omitted.value;
+  const deniedPaths = Math.max(denied.value, policyDenied ? 1 : 0);
+  const errors = Math.max(reportedErrors.value, executionError || !resultIsObject ? 1 : 0);
+  const boundaryUsable = boundary.every(item =>
+    item !== 'empty-intersection' &&
+    !item.startsWith('intersection:') &&
+    item !== '[REDACTED:secret-path]');
+  const methodEnumerationProven = !['repo_find_files', 'repo_grep', 'repo_symbol_context'].includes(tool) ||
+    ownValue(safeResult, 'enumerationProven') === true;
+  const requestedMacroDepth = Number.isInteger(args?.depth) ? Math.max(1, args.depth) : 1;
+  const macroDepthProven = tool !== 'repo_symbol_context' ||
+    (Number.isSafeInteger(ownValue(safeResult, 'effectiveDepth')) &&
+      ownValue(safeResult, 'effectiveDepth') >= requestedMacroDepth);
+
+  const enumerationComplete = toolSupportsCompleteEnumeration(tool, args) &&
+    boundaryUsable &&
+    methodEnumerationProven &&
+    macroDepthProven &&
+    resultIsObject &&
+    matches.valid &&
+    omitted.valid &&
+    denied.valid &&
+    reportedErrors.valid &&
+    truncation.valid &&
+    contextTruncationKnown &&
+    !truncation.toolTruncated &&
+    !normalizedContextTruncated &&
+    omittedOutOfScopeFiles === 0 &&
+    deniedPaths === 0 &&
+    errors === 0;
+
+  return {
+    boundary,
+    toolTruncated: truncation.toolTruncated,
+    contextTruncated: normalizedContextTruncated,
+    omittedOutOfScopeFiles,
+    deniedPaths,
+    errors,
+    enumerationComplete,
+  };
 }
 
 export function normalizeRepositoryObservation({
