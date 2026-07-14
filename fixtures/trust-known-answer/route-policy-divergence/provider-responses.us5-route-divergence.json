@@ -1,0 +1,152 @@
+{
+  "fixtureVersion": 1,
+  "scenario": "us5_route_policy_divergence",
+  "responses": [
+    {
+      "stage": "planner",
+      "result": {
+        "message": {
+          "content": {
+            "taskSummary": "Compare the admin and team route authorization policies.",
+            "constraints": ["Preserve the route-specific role difference."],
+            "subgoals": [
+              {
+                "id": "S1",
+                "question": "How do the admin and team route authorization roles differ?",
+                "originRefs": ["request:0-79"],
+                "claimType": "comparison",
+                "proofCondition": "Observe and compare both current route declarations independently.",
+                "constraints": ["Do not generalize either route policy."]
+              }
+            ]
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "goal_audit",
+      "result": {
+        "message": {
+          "content": {
+            "goals": [
+              {
+                "proposedGoalId": "S1",
+                "verdict": "ready",
+                "originRefs": ["request:0-79"],
+                "missingRequestParts": [],
+                "reason": "Both current route declarations are observable inside scope."
+              }
+            ],
+            "uncoveredRequestParts": []
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "exploration",
+      "result": {
+        "message": {
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "read-admin-route-us5",
+              "function": {
+                "name": "repo_read_file",
+                "arguments": {
+                  "path": "src/routes/admin.mjs",
+                  "startLine": 1,
+                  "endLine": 3
+                }
+              }
+            },
+            {
+              "id": "read-team-route-us5",
+              "function": {
+                "name": "repo_read_file",
+                "arguments": {
+                  "path": "src/routes/team.mjs",
+                  "startLine": 1,
+                  "endLine": 3
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "stage": "exploration",
+      "result": {
+        "message": {
+          "content": "Both current route policies were inspected.",
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "synthesis",
+      "result": {
+        "message": {
+          "content": {
+            "directAnswer": "The two route policies differ.",
+            "status": {
+              "confidence": "high",
+              "verification": "verified",
+              "complete": true,
+              "warnings": []
+            },
+            "targets": [],
+            "evidence": [],
+            "uncertainties": [],
+            "nextAction": {
+              "type": "stop",
+              "reason": "Both comparison paths were observed."
+            }
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "claim_synthesis",
+      "result": {
+        "message": {
+          "content": {
+            "claims": [
+              {
+                "id": "C1",
+                "subgoalId": "S1",
+                "text": "The admin route requires super_admin, while the team route accepts admin or manager.",
+                "evidenceRefs": ["E1", "E2"]
+              }
+            ]
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "semantic_verifier",
+      "result": {
+        "message": {
+          "content": {
+            "verdicts": [
+              {
+                "claimId": "C1",
+                "result": "supported",
+                "resolution": "affirmed",
+                "supportingEvidenceRefs": ["E1", "E2"],
+                "reasonCode": "entailed",
+                "note": "The two current route declarations directly establish distinct role lists."
+              }
+            ],
+            "uncoveredRequestParts": []
+          },
+          "toolCalls": []
+        }
+      }
+    }
+  ]
+}

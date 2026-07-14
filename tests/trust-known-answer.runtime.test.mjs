@@ -1,10 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { evaluateTrustCase } from '../src/benchmark/evaluator.mjs';
 import { ExplorerRuntime } from '../src/explorer/runtime.mjs';
 
 const PROJECT_ROOT = fileURLToPath(new URL('../', import.meta.url));
@@ -18,6 +20,13 @@ const EXPECTED_US1_FIXTURE_IDS = Object.freeze([
   'fx-supported-refutation',
   'fx-cancellation',
   'fx-provider-failure',
+]);
+const EXPECTED_US5_FIXTURE_IDS = Object.freeze([
+  'fx-scoped-zero-match',
+  'fx-truncated-all-usages',
+  'fx-route-policy-divergence',
+  'fx-semantic-mismatch',
+  'fx-historical-source-role',
 ]);
 
 function projectPath(relativePath) {
@@ -240,6 +249,44 @@ function sourceRangeCovers(item, anchor) {
     && item.endLine >= anchor.endLine;
 }
 
+function observationSupportsAnchor(observation, anchor) {
+  if (observation?.kind !== anchor?.kind) return false;
+  if (anchor.kind === 'source') {
+    return sourceRangeCovers(observation, anchor)
+      && observation.sourceRole === anchor.sourceRole
+      && observation.temporalRole === anchor.temporalRole;
+  }
+  if (anchor.kind === 'search') {
+    return observation.tool === anchor.tool
+      && sameStringSet(observation.boundary ?? [], anchor.boundary)
+      && observation.matchCount === anchor.matchCount
+      && observation.toolTruncated === anchor.toolTruncated
+      && observation.contextTruncated === anchor.contextTruncated
+      && observation.omittedOutOfScopeFiles === anchor.omittedOutOfScopeFiles
+      && observation.deniedPaths === anchor.deniedPaths
+      && observation.errors === anchor.errors
+      && observation.enumerationComplete === anchor.enumerationComplete;
+  }
+  return anchor.kind === 'git_commit'
+    && observation.sha === anchor.sha
+    && observation.temporalRole === anchor.temporalRole;
+}
+
+function parentEvidenceSupportsAnchor(evidence, anchor) {
+  if (anchor.kind === 'source') return evidence?.kind === 'source'
+    && sourceRangeCovers(evidence, anchor);
+  if (anchor.kind === 'search') return evidence?.kind === 'absence'
+    && sameStringSet(evidence.boundary ?? [], anchor.boundary)
+    && Array.isArray(evidence.searches)
+    && evidence.searches.length > 0;
+  return anchor.kind === 'git_commit'
+    && evidence?.kind === 'git'
+    && evidence.sha === anchor.sha
+    && evidence.path === undefined
+    && evidence.startLine === undefined
+    && evidence.endLine === undefined;
+}
+
 async function assertClaimOracle(manifest, caseDefinition, result, accepted, runtimeGoalByOracleId) {
   const expected = caseDefinition.oracle.allowedClaims;
   assert.deepEqual(accepted.map(claim => claim.text),
@@ -262,27 +309,36 @@ async function assertClaimOracle(manifest, caseDefinition, result, accepted, run
     for (const anchorRef of allowed.evidenceAnchorRefs) {
       const anchor = anchorById.get(anchorRef);
       assert.ok(anchor, `missing oracle evidence anchor ${anchorRef}`);
-      assert.equal(anchor.kind, 'source', 'US1 runtime anchors must be source ranges');
       const supportingObservation = claim.supportingEvidenceRefs
         .map(ref => observationById.get(ref))
-        .find(observation => sourceRangeCovers(observation, anchor));
+        .find(observation => observationSupportsAnchor(observation, anchor));
       assert.ok(supportingObservation,
         `allowed claim ${allowed.id} lacks runtime observation for ${anchorRef}`);
-      const parentEvidence = (result.evidence ?? []).find(item =>
-        sourceRangeCovers(item, anchor) && sourceRangeCovers(item, supportingObservation));
+      const parentEvidence = (result.parentHandoff?.evidence ?? result.evidence ?? [])
+        .find(item => parentEvidenceSupportsAnchor(item, anchor));
       assert.ok(parentEvidence,
         `parent evidence for ${allowed.id} is not aligned with ${supportingObservation.id}`);
-      const source = manifest.sources[caseDefinition.sourceRef];
-      const sourceLines = (await fs.readFile(
-        path.join(projectPath(source.repoPath), ...anchor.path.split('/')),
-        'utf8',
-      )).split(/\r?\n/);
-      const expectedSnippet = sourceLines
-        .slice(anchor.startLine - 1, anchor.endLine)
-        .map((line, index) => `${anchor.startLine + index}: ${line}`)
-        .join('\n');
-      assert.ok(String(parentEvidence.snippet ?? '').includes(expectedSnippet),
-        `parent evidence for ${allowed.id} does not match the pinned fixture source`);
+      assert.equal(normalizeStatement(parentEvidence.supports), claim.text,
+        `parent evidence for ${allowed.id} must support the accepted claim exactly`);
+      if (anchor.kind === 'source') {
+        assert.equal(sourceRangeCovers(parentEvidence, supportingObservation), true,
+          `parent source evidence for ${allowed.id} must cover its observation`);
+        const groundedEvidence = (result.evidence ?? []).find(item =>
+          sourceRangeCovers(item, anchor) && sourceRangeCovers(item, supportingObservation));
+        assert.ok(groundedEvidence,
+          `grounded source evidence for ${allowed.id} must cover its observation`);
+        const source = manifest.sources[caseDefinition.sourceRef];
+        const sourceLines = (await fs.readFile(
+          path.join(projectPath(source.repoPath), ...anchor.path.split('/')),
+          'utf8',
+        )).split(/\r?\n/);
+        const expectedSnippet = sourceLines
+          .slice(anchor.startLine - 1, anchor.endLine)
+          .map((line, index) => `${anchor.startLine + index}: ${line}`)
+          .join('\n');
+        assert.ok(String(groundedEvidence.snippet ?? '').includes(expectedSnippet),
+          `parent evidence for ${allowed.id} does not match the pinned fixture source`);
+      }
     }
   }
 
@@ -304,6 +360,71 @@ async function assertClaimOracle(manifest, caseDefinition, result, accepted, run
     assert.equal(acceptedTextSet.has(statement), false, `forbidden claim accepted: ${statement}`);
     assert.equal(directStatements.includes(statement), false, `forbidden claim returned: ${statement}`);
   }
+}
+
+function assertGoalAnchorObservations(caseDefinition, result) {
+  const observationById = new Map((result.observations ?? []).map(observation =>
+    [observation.id, observation]));
+  const anchorById = new Map(caseDefinition.oracle.evidenceAnchors.map(anchor =>
+    [anchor.id, anchor]));
+  for (const goal of caseDefinition.oracle.expectedGoals) {
+    const covered = goal.evidenceAnchorRefs.filter(anchorRef => {
+      const anchor = anchorById.get(anchorRef);
+      return anchor && [...observationById.values()].some(observation =>
+        observationSupportsAnchor(observation, anchor));
+    });
+    const required = goal.anchorPolicy === 'all'
+      ? goal.evidenceAnchorRefs.length
+      : Math.min(goal.evidenceAnchorRefs.length, 1);
+    assert.ok(covered.length >= required,
+      `${caseDefinition.id}:${goal.id} lacks independently matching runtime anchors`);
+  }
+}
+
+function runGit(repoRoot, args, options = {}) {
+  return execFileSync('git', args, {
+    cwd: repoRoot,
+    encoding: 'utf8',
+    windowsHide: true,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    ...options,
+  }).trim();
+}
+
+async function prepareFixtureRepository(manifest, caseDefinition) {
+  const source = manifest.sources[caseDefinition.sourceRef];
+  if (!caseDefinition.fixtureSetup) {
+    return { repoRoot: projectPath(source.repoPath), cleanup: async () => {} };
+  }
+
+  const setup = caseDefinition.fixtureSetup;
+  assert.equal(setup.kind, 'deterministic_git_commit');
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-us5-git-'));
+  const repoRoot = path.join(tempRoot, 'repo');
+  await fs.cp(projectPath(source.repoPath), repoRoot, { recursive: true });
+  runGit(repoRoot, ['init', '--quiet']);
+  runGit(repoRoot, ['config', 'core.autocrlf', 'false']);
+  runGit(repoRoot, ['config', 'user.name', setup.name]);
+  runGit(repoRoot, ['config', 'user.email', setup.email]);
+  runGit(repoRoot, ['add', '--', '.']);
+  const commitEnvironment = {
+    ...process.env,
+    GIT_AUTHOR_NAME: setup.name,
+    GIT_AUTHOR_EMAIL: setup.email,
+    GIT_AUTHOR_DATE: setup.date,
+    GIT_COMMITTER_NAME: setup.name,
+    GIT_COMMITTER_EMAIL: setup.email,
+    GIT_COMMITTER_DATE: setup.date,
+  };
+  runGit(repoRoot, ['commit', '--quiet', '-m', setup.message], {
+    env: commitEnvironment,
+  });
+  assert.equal(runGit(repoRoot, ['rev-parse', 'HEAD']), setup.headSha,
+    'portable deterministic Git setup must reproduce its manifest pin');
+  return {
+    repoRoot,
+    cleanup: () => fs.rm(tempRoot, { recursive: true, force: true }),
+  };
 }
 
 async function runFixtureCase(manifest, caseDefinition, providerOverride = null, options = {}) {
@@ -376,6 +497,89 @@ test('Spec 028 T035 — US1 known-answer fixtures agree on state and claims acro
 
       assert.equal(new Set(signatures).size, 1,
         'state, goal resolution, and accepted claims must be stable across repeats');
+    });
+  }
+});
+
+test('Spec 028 T063 — US5 known-answer fixtures enforce bounded and temporal proof', {
+  timeout: 30_000,
+}, async t => {
+  const manifest = JSON.parse(await fs.readFile(MANIFEST_URL, 'utf8'));
+  const caseById = new Map(manifest.cases.map(caseDefinition => [caseDefinition.id, caseDefinition]));
+  assert.deepEqual(manifest.fixtureSubsets.US5, EXPECTED_US5_FIXTURE_IDS);
+
+  for (const caseId of manifest.fixtureSubsets.US5) {
+    await t.test(caseId, async () => {
+      const caseDefinition = caseById.get(caseId);
+      assert.ok(caseDefinition);
+      assert.equal(caseDefinition.fixtureExecution, 'direct');
+      const signatures = [];
+
+      for (let run = 0; run < caseDefinition.repeatCount; run += 1) {
+        const prepared = await prepareFixtureRepository(manifest, caseDefinition);
+        try {
+          const { result } = await runFixtureCase(manifest, caseDefinition, null, {
+            repoRoot: prepared.repoRoot,
+          });
+          const state = deriveTrustState(result);
+          assert.equal(state, caseDefinition.oracle.expectedState);
+          assert.equal(result.parentHandoff.state, state);
+          const { signature: goals, runtimeGoalByOracleId } =
+            assertGoalOracle(caseDefinition, result, state);
+          assertGoalAnchorObservations(caseDefinition, result);
+          const accepted = acceptedClaims(result);
+          await assertClaimOracle(manifest, caseDefinition, result, accepted, runtimeGoalByOracleId);
+          const independentEvaluation = evaluateTrustCase(caseDefinition, { result });
+          assert.deepEqual(independentEvaluation.violations, [],
+            'the external evaluator must independently accept the US5 runtime artifact');
+
+          if (caseId === 'fx-scoped-zero-match') {
+            assert.equal(result.semanticVerification.absenceCertificates.length, 1);
+            assert.deepEqual(result.parentHandoff.evidence[0], {
+              kind: 'absence',
+              boundary: ['src/in-scope/**'],
+              searches: ['repo_grep pattern=legacyGuard scope=src/in-scope/**'],
+              supports: 'No static reference to legacyGuard exists within src/in-scope/**.',
+            });
+          }
+          if (caseId === 'fx-truncated-all-usages') {
+            const search = result.observations.find(item => item.kind === 'search');
+            assert.equal(search.toolTruncated, true);
+            assert.equal(search.enumerationComplete, false);
+            assert.equal(result.parentHandoff.directAnswer, undefined);
+            assert.equal(result.parentHandoff.evidence, undefined);
+          }
+          if (caseId === 'fx-route-policy-divergence') {
+            assert.deepEqual(result.parentHandoff.evidence.map(item => item.path).sort(), [
+              'src/routes/admin.mjs',
+              'src/routes/team.mjs',
+            ]);
+          }
+          if (caseId === 'fx-semantic-mismatch') {
+            assert.equal(result.parentHandoff.state, 'incomplete');
+            assert.equal(result.parentHandoff.directAnswer, undefined);
+          }
+          if (caseId === 'fx-historical-source-role') {
+            const historicalClaim = accepted.find(item =>
+              item.text === 'The inspected commit introduced serviceMode.');
+            assert.ok(historicalClaim);
+            assert.equal(accepted.some(item =>
+              item.text === "Current src/service.mjs returns 'safe'."), false);
+            assert.deepEqual(result.parentHandoff.evidence, [{
+              kind: 'git',
+              sha: caseDefinition.fixtureSetup.headSha,
+              supports: 'The inspected commit introduced serviceMode.',
+            }]);
+          }
+
+          signatures.push(JSON.stringify({ state, goals, accepted }));
+        } finally {
+          await prepared.cleanup();
+        }
+      }
+
+      assert.equal(new Set(signatures).size, 1,
+        'US5 state, goal resolution, and accepted claims must be repeatable');
     });
   }
 });

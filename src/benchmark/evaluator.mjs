@@ -273,6 +273,18 @@ function rangeCovers(item, anchor) {
 
 function observationSupportsAnchor(observation, anchor) {
   if (observation?.kind !== anchor?.kind) return false;
+  if (anchor.kind === 'search') {
+    return observation?.tool === anchor.tool &&
+      sameStringSet(observation?.boundary, anchor.boundary) &&
+      observation?.matchCount === anchor.matchCount &&
+      observation?.toolTruncated === anchor.toolTruncated &&
+      observation?.contextTruncated === anchor.contextTruncated &&
+      countObservationIssue(observation?.omittedOutOfScopeFiles) ===
+        anchor.omittedOutOfScopeFiles &&
+      countObservationIssue(observation?.deniedPaths) === anchor.deniedPaths &&
+      countObservationIssue(observation?.errors) === anchor.errors &&
+      observation?.enumerationComplete === anchor.enumerationComplete;
+  }
   if (anchor.path !== undefined &&
       normalizeRepoPath(observation?.path) !== normalizeRepoPath(anchor.path)) return false;
   if (anchor.sha !== undefined && observation?.sha !== anchor.sha) return false;
@@ -283,10 +295,19 @@ function observationSupportsAnchor(observation, anchor) {
 }
 
 function publicEvidenceSupportsAnchor(evidence, anchor) {
-  const kind = evidence?.kind ?? (
+  const publicKind = evidence?.kind ?? (
     evidence?.evidenceType === 'file_range' ? 'source' : evidence?.evidenceType
   );
+  const kind = publicKind === 'git' && anchor?.kind === 'git_commit'
+    ? 'git_commit'
+    : publicKind === 'absence' && anchor?.kind === 'search'
+      ? 'search'
+      : publicKind;
   if (kind !== anchor?.kind) return false;
+  if (anchor.kind === 'search') {
+    return sameStringSet(evidence?.boundary, anchor.boundary) &&
+      asArray(evidence?.searches).length > 0;
+  }
   if (anchor.path !== undefined &&
       normalizeRepoPath(evidence?.path) !== normalizeRepoPath(anchor.path)) return false;
   if (anchor.sha !== undefined && evidence?.sha !== anchor.sha) return false;
@@ -523,8 +544,7 @@ export function evaluateTrustCase(caseDefinition, artifact) {
           anchorRef,
         });
       }
-      if (actualGoal.claimType !== 'absence' && anchor &&
-          !publicEvidence.some(item => publicEvidenceSupportsAnchor(item, anchor))) {
+      if (anchor && !publicEvidence.some(item => publicEvidenceSupportsAnchor(item, anchor))) {
         violations.push({
           code: 'PARENT_EVIDENCE_UNSUPPORTED',
           claimId: allowed.id,

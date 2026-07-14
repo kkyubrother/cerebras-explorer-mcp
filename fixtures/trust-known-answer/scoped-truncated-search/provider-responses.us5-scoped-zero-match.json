@@ -1,0 +1,140 @@
+{
+  "fixtureVersion": 1,
+  "scenario": "us5_scoped_zero_match",
+  "responses": [
+    {
+      "stage": "planner",
+      "result": {
+        "message": {
+          "content": {
+            "taskSummary": "Check for legacyGuard only within src/in-scope/**.",
+            "constraints": ["Keep the negative conclusion qualified to the hard scope."],
+            "subgoals": [
+              {
+                "id": "S1",
+                "question": "Is legacyGuard absent from src/in-scope/**?",
+                "originRefs": ["request:0-51"],
+                "claimType": "absence",
+                "proofCondition": "Completely search src/in-scope/** for legacyGuard and certify the zero-match boundary.",
+                "constraints": ["Do not claim repository-wide absence."]
+              }
+            ]
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "goal_audit",
+      "result": {
+        "message": {
+          "content": {
+            "goals": [
+              {
+                "proposedGoalId": "S1",
+                "verdict": "ready",
+                "originRefs": ["request:0-51"],
+                "missingRequestParts": [],
+                "reason": "The requested bounded textual absence is observable within the hard scope."
+              }
+            ],
+            "uncoveredRequestParts": []
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "exploration",
+      "result": {
+        "message": {
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "grep-scoped-legacy-guard",
+              "function": {
+                "name": "repo_grep",
+                "arguments": {
+                  "pattern": "legacyGuard",
+                  "scope": ["src/in-scope/**"]
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "stage": "exploration",
+      "result": {
+        "message": {
+          "content": "The bounded search returned zero matches.",
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "synthesis",
+      "result": {
+        "message": {
+          "content": {
+            "directAnswer": "The bounded negative claim requires independent certification.",
+            "status": {
+              "confidence": "high",
+              "verification": "verified",
+              "complete": true,
+              "warnings": []
+            },
+            "targets": [],
+            "evidence": [],
+            "uncertainties": [],
+            "nextAction": {
+              "type": "stop",
+              "reason": "The runtime owns the search-boundary certificate."
+            }
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "claim_synthesis",
+      "result": {
+        "message": {
+          "content": {
+            "claims": [
+              {
+                "id": "C1",
+                "subgoalId": "S1",
+                "text": "No static reference to legacyGuard exists within src/in-scope/**.",
+                "evidenceRefs": ["E1"]
+              }
+            ]
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "semantic_verifier",
+      "result": {
+        "message": {
+          "content": {
+            "verdicts": [
+              {
+                "claimId": "C1",
+                "result": "supported",
+                "resolution": "affirmed",
+                "supportingEvidenceRefs": ["E1"],
+                "reasonCode": "entailed",
+                "note": "The complete zero-match search supports only the stated bounded static absence."
+              }
+            ],
+            "uncoveredRequestParts": []
+          },
+          "toolCalls": []
+        }
+      }
+    }
+  ]
+}

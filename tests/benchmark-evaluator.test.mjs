@@ -51,6 +51,16 @@ const ORACLE_FAILURE_REASONS = new Set([
   'access_denied',
   'invalid_final_response',
 ]);
+const ORACLE_SOURCE_ROLES = new Set([
+  'implementation',
+  'test',
+  'config',
+  'documentation',
+  'fixture',
+  'generated',
+  'unknown',
+]);
+const ORACLE_TEMPORAL_ROLES = new Set(['current', 'historical']);
 const EXPECTED_US1_FIXTURE_IDS = Object.freeze([
   'fx-semantic-mismatch',
   'fx-incomplete-multipart',
@@ -60,6 +70,13 @@ const EXPECTED_US1_FIXTURE_IDS = Object.freeze([
   'fx-supported-refutation',
   'fx-cancellation',
   'fx-provider-failure',
+]);
+const EXPECTED_US5_FIXTURE_IDS = Object.freeze([
+  'fx-scoped-zero-match',
+  'fx-truncated-all-usages',
+  'fx-route-policy-divergence',
+  'fx-semantic-mismatch',
+  'fx-historical-source-role',
 ]);
 
 const EXPECTED_KNOWN_BAD_VIOLATIONS = {
@@ -192,6 +209,10 @@ function sameStringSet(left, right) {
     && new Set(right).size === right.length
     && left.length === right.length
     && left.every(value => right.includes(value));
+}
+
+function isNonNegativeInteger(value) {
+  return Number.isInteger(value) && value >= 0;
 }
 
 function projectPath(relativePath) {
@@ -574,16 +595,60 @@ async function collectTrustManifestProblems(manifest, options = {}) {
       if (!isObject(anchor)
           || typeof anchor.id !== 'string'
           || anchorIds.has(anchor.id)
-          || !isSafeRelativePath(anchor.path)
-          || !pathInScope(anchor.path, claimScope)
-          || !Number.isInteger(anchor.startLine)
-          || !Number.isInteger(anchor.endLine)
-          || anchor.startLine < 1
-          || anchor.endLine < anchor.startLine) {
+          || !['source', 'search', 'git_commit'].includes(anchor.kind)) {
         problems.push(label + ' has an invalid evidence boundary');
         continue;
       }
       anchorIds.add(anchor.id);
+
+      if (anchor.kind === 'source') {
+        if (!isSafeRelativePath(anchor.path)
+            || !pathInScope(anchor.path, claimScope)
+            || !Number.isInteger(anchor.startLine)
+            || !Number.isInteger(anchor.endLine)
+            || anchor.startLine < 1
+            || anchor.endLine < anchor.startLine
+            || !ORACLE_SOURCE_ROLES.has(anchor.sourceRole)
+            || !ORACLE_TEMPORAL_ROLES.has(anchor.temporalRole)
+            || anchor.sha !== undefined
+            || anchor.boundary !== undefined
+            || anchor.tool !== undefined) {
+          problems.push(label + ' has an invalid evidence boundary: source');
+          continue;
+        }
+      } else if (anchor.kind === 'search') {
+        if (typeof anchor.tool !== 'string' || !anchor.tool
+            || !sameStringSet(anchor.boundary, claimScope)
+            || !isNonNegativeInteger(anchor.matchCount)
+            || typeof anchor.toolTruncated !== 'boolean'
+            || typeof anchor.contextTruncated !== 'boolean'
+            || !isNonNegativeInteger(anchor.omittedOutOfScopeFiles)
+            || !isNonNegativeInteger(anchor.deniedPaths)
+            || !isNonNegativeInteger(anchor.errors)
+            || typeof anchor.enumerationComplete !== 'boolean'
+            || anchor.path !== undefined
+            || anchor.startLine !== undefined
+            || anchor.endLine !== undefined
+            || anchor.sha !== undefined
+            || anchor.sourceRole !== undefined
+            || anchor.temporalRole !== undefined) {
+          problems.push(label + ' has an invalid evidence boundary: search');
+        }
+        continue;
+      } else {
+        if (!GIT_SHA_PATTERN.test(anchor.sha ?? '')
+            || anchor.temporalRole !== 'historical'
+            || anchor.path !== undefined
+            || anchor.startLine !== undefined
+            || anchor.endLine !== undefined
+            || anchor.boundary !== undefined
+            || anchor.tool !== undefined
+            || anchor.sourceRole !== undefined) {
+          problems.push(label + ' has an invalid evidence boundary: git_commit');
+        }
+        continue;
+      }
+
       if (source.kind === 'fixture') {
         try {
           const raw = normalizeLfBytes(await context.readFile(
@@ -597,6 +662,25 @@ async function collectTrustManifestProblems(manifest, options = {}) {
         } catch (error) {
           problems.push(label + ' evidence file cannot be read: ' + error.code);
         }
+      }
+    }
+
+    if (caseDefinition.fixtureSetup !== undefined) {
+      const setup = caseDefinition.fixtureSetup;
+      const setupKeys = isObject(setup) ? Object.keys(setup).sort() : [];
+      if (!isObject(setup)
+          || setup.kind !== 'deterministic_git_commit'
+          || !sameStringSet(setupKeys, [
+            'date', 'email', 'headSha', 'kind', 'message', 'name',
+          ])
+          || typeof setup.message !== 'string' || !setup.message
+          || typeof setup.name !== 'string' || !setup.name
+          || typeof setup.email !== 'string' || !setup.email
+          || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(setup.date ?? '')
+          || !GIT_SHA_PATTERN.test(setup.headSha ?? '')
+          || !anchors.some(anchor =>
+            anchor.kind === 'git_commit' && anchor.sha === setup.headSha)) {
+        problems.push(label + ' has an invalid deterministic Git fixture setup');
       }
     }
     for (const ref of referencedAnchors) {
@@ -669,6 +753,34 @@ async function collectTrustManifestProblems(manifest, options = {}) {
       const providerSha256 = caseDefinition.providerFixture?.sha256 ?? source?.providerSha256;
       if (!isSafeRelativePath(providerPath) || !SHA256_PATTERN.test(providerSha256 ?? '')) {
         problems.push('US1 fixture case ' + caseId + ' lacks a pinned provider sequence');
+      }
+    }
+  }
+
+  const us5Subset = manifest.fixtureSubsets?.US5;
+  if (!Array.isArray(us5Subset)
+      || us5Subset.length === 0
+      || new Set(us5Subset).size !== us5Subset.length
+      || us5Subset.some(id => typeof id !== 'string' || id.length === 0)) {
+    problems.push('US5 fixture subset must contain unique case ids');
+  } else {
+    if (!sameStringSet(us5Subset, EXPECTED_US5_FIXTURE_IDS)) {
+      problems.push('US5 fixture subset does not match the required scenario ids');
+    }
+    for (const caseId of us5Subset) {
+      const caseDefinition = caseById.get(caseId);
+      const source = sources[caseDefinition?.sourceRef];
+      if (!caseDefinition) {
+        problems.push('US5 fixture subset references unknown case ' + caseId);
+        continue;
+      }
+      if (source?.kind !== 'fixture' || caseDefinition.fixtureExecution !== 'direct') {
+        problems.push('US5 fixture case ' + caseId + ' is not a direct fixture');
+      }
+      const providerPath = caseDefinition.providerFixture?.path ?? source?.providerPath;
+      const providerSha256 = caseDefinition.providerFixture?.sha256 ?? source?.providerSha256;
+      if (!isSafeRelativePath(providerPath) || !SHA256_PATTERN.test(providerSha256 ?? '')) {
+        problems.push('US5 fixture case ' + caseId + ' lacks a pinned provider sequence');
       }
     }
   }
@@ -751,6 +863,70 @@ test('trust manifest integrity rejects invalid US1 fixture subset entries', asyn
     ['missing failure oracle', 'lacks a failure oracle', manifest => {
       delete manifest.cases.find(item => item.id === 'fx-provider-failure')
         .oracle.expectedFailure;
+    }],
+  ];
+  for (const [name, expected, mutate] of mutations) {
+    await t.test(name, async () => {
+      const manifest = structuredClone(canonical);
+      mutate(manifest);
+      await expectIntegrityProblem(manifest, expected);
+    });
+  }
+});
+
+test('Spec 028 T063 — trust manifest pins the exact US5 fixture subset', async t => {
+  const canonical = await loadTrustManifest();
+  assert.deepEqual(canonical.fixtureSubsets.US5, EXPECTED_US5_FIXTURE_IDS);
+  const mutations = [
+    ['duplicate', 'unique case ids', manifest => {
+      manifest.fixtureSubsets.US5.push(manifest.fixtureSubsets.US5[0]);
+    }],
+    ['unknown', 'references unknown case', manifest => {
+      manifest.fixtureSubsets.US5[0] = 'missing-us5-case';
+    }],
+    ['scenario replacement', 'does not match the required scenario ids', manifest => {
+      manifest.fixtureSubsets.US5[0] = 'fx-supported-refutation';
+    }],
+  ];
+  for (const [name, expected, mutate] of mutations) {
+    await t.test(name, async () => {
+      const manifest = structuredClone(canonical);
+      mutate(manifest);
+      await expectIntegrityProblem(manifest, expected);
+    });
+  }
+});
+
+test('Spec 028 T063 — evidence anchors are a strict source/search/git_commit union', async t => {
+  const canonical = await loadTrustManifest();
+  const mutations = [
+    ['unknown kind', 'invalid evidence boundary', manifest => {
+      manifest.cases.find(item => item.id === 'fx-route-policy-divergence')
+        .oracle.evidenceAnchors[0].kind = 'model_assertion';
+    }],
+    ['source without range', 'invalid evidence boundary: source', manifest => {
+      delete manifest.cases.find(item => item.id === 'fx-route-policy-divergence')
+        .oracle.evidenceAnchors[0].startLine;
+    }],
+    ['search with fabricated path', 'invalid evidence boundary: search', manifest => {
+      manifest.cases.find(item => item.id === 'fx-scoped-zero-match')
+        .oracle.evidenceAnchors[0].path = 'src/in-scope/primary.mjs';
+    }],
+    ['search boundary mismatch', 'invalid evidence boundary: search', manifest => {
+      manifest.cases.find(item => item.id === 'fx-scoped-zero-match')
+        .oracle.evidenceAnchors[0].boundary = ['src/**'];
+    }],
+    ['git commit with fabricated path', 'invalid evidence boundary: git_commit', manifest => {
+      manifest.cases.find(item => item.id === 'fx-historical-source-role')
+        .oracle.evidenceAnchors[0].path = 'src/service.mjs';
+    }],
+    ['git commit with invalid sha', 'invalid evidence boundary: git_commit', manifest => {
+      manifest.cases.find(item => item.id === 'fx-historical-source-role')
+        .oracle.evidenceAnchors[0].sha = 'abc1234';
+    }],
+    ['Git setup pin mismatch', 'invalid deterministic Git fixture setup', manifest => {
+      manifest.cases.find(item => item.id === 'fx-historical-source-role')
+        .fixtureSetup.headSha = '0'.repeat(40);
     }],
   ];
   for (const [name, expected, mutate] of mutations) {

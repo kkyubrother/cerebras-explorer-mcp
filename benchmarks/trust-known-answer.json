@@ -56,6 +56,13 @@
       "fx-cancellation",
       "fx-provider-failure"
     ],
+    "US5": [
+      "fx-scoped-zero-match",
+      "fx-truncated-all-usages",
+      "fx-route-policy-divergence",
+      "fx-semantic-mismatch",
+      "fx-historical-source-role"
+    ],
     "structuredEvidenceIntegrity": [
       "fx-semantic-mismatch",
       "fx-truncated-enumeration"
@@ -3767,6 +3774,440 @@
             "src/**",
             "tests/**",
             "config/**"
+          ]
+        },
+        "expectedState": "incomplete"
+      }
+    },
+    {
+      "id": "fx-scoped-zero-match",
+      "kind": "fixture",
+      "description": "A pure zero-match search supports only the exact fully inspected fixture scope.",
+      "sourceRef": "fixture-scoped-truncated-search",
+      "fixtureExecution": "direct",
+      "providerFixture": {
+        "path": "fixtures/trust-known-answer/scoped-truncated-search/provider-responses.us5-scoped-zero-match.json",
+        "sha256": "93f5626692afb99886f0d4ccc10528be0093761c3fd55cd440d8250ec01f079c"
+      },
+      "invocation": {
+        "tool": "explore_repo",
+        "args": {
+          "task": "Confirm legacyGuard is absent from src/in-scope/**.",
+          "scope": [
+            "src/in-scope/**"
+          ]
+        }
+      },
+      "request": {
+        "text": "Confirm legacyGuard is absent from src/in-scope/**.",
+        "parts": [
+          {
+            "id": "P1",
+            "text": "Determine whether legacyGuard is absent from the bounded scope."
+          }
+        ]
+      },
+      "repeatCount": 1,
+      "schemaV2Baseline": {
+        "outcome": "not_recorded",
+        "schemaVersion": 2,
+        "reason": "This schema-v3 negative-proof case had no trustworthy schema-v2 parent payload captured before implementation."
+      },
+      "oracle": {
+        "provenance": {
+          "kind": "fixture_assertion",
+          "sourceRef": "fixture-scoped-truncated-search"
+        },
+        "expectedGoals": [
+          {
+            "id": "G1",
+            "question": "Is legacyGuard absent from src/in-scope/**?",
+            "originRefs": [
+              "P1"
+            ],
+            "requestOriginRefs": [
+              "request:0-51"
+            ],
+            "claimType": "absence",
+            "expectedResolution": "supported",
+            "claimBoundary": [
+              "src/in-scope/**"
+            ],
+            "evidenceAnchorRefs": [
+              "E1"
+            ],
+            "anchorPolicy": "all"
+          }
+        ],
+        "allowedClaims": [
+          {
+            "id": "A1",
+            "goalId": "G1",
+            "text": "No static reference to legacyGuard exists within src/in-scope/**.",
+            "evidenceAnchorRefs": [
+              "E1"
+            ]
+          }
+        ],
+        "forbiddenClaims": [
+          {
+            "id": "F1",
+            "goalId": "G1",
+            "text": "No static reference to legacyGuard exists anywhere in the repository.",
+            "reason": "The complete certificate covers only src/in-scope/**."
+          }
+        ],
+        "evidenceAnchors": [
+          {
+            "id": "E1",
+            "kind": "search",
+            "tool": "repo_grep",
+            "boundary": [
+              "src/in-scope/**"
+            ],
+            "matchCount": 0,
+            "toolTruncated": false,
+            "contextTruncated": false,
+            "omittedOutOfScopeFiles": 0,
+            "deniedPaths": 0,
+            "errors": 0,
+            "enumerationComplete": true
+          }
+        ],
+        "boundary": {
+          "repoId": "fixture-scoped-truncated-search",
+          "scope": [
+            "src/in-scope/**"
+          ],
+          "claimScope": [
+            "src/in-scope/**"
+          ]
+        },
+        "expectedState": "complete"
+      }
+    },
+    {
+      "id": "fx-truncated-all-usages",
+      "kind": "fixture",
+      "description": "A one-result cap cannot establish that the visible app.get match is every in-scope usage.",
+      "sourceRef": "fixture-scoped-truncated-search",
+      "fixtureExecution": "direct",
+      "providerFixture": {
+        "path": "fixtures/trust-known-answer/scoped-truncated-search/provider-responses.us5-truncated-usages.json",
+        "sha256": "f9a63e30a26d597ef6c8a8388bba8ca36397e46fbf17b37e29360766cfdb4e91"
+      },
+      "invocation": {
+        "tool": "explore_repo",
+        "args": {
+          "task": "List all app.get usages within src/in-scope/**.",
+          "scope": [
+            "src/in-scope/**"
+          ]
+        }
+      },
+      "request": {
+        "text": "List all app.get usages within src/in-scope/**.",
+        "parts": [
+          {
+            "id": "P1",
+            "text": "List every app.get usage in the bounded scope."
+          }
+        ]
+      },
+      "repeatCount": 1,
+      "schemaV2Baseline": {
+        "outcome": "not_recorded",
+        "schemaVersion": 2,
+        "reason": "This schema-v3 exhaustive-usage case had no trustworthy schema-v2 parent payload captured before implementation."
+      },
+      "oracle": {
+        "provenance": {
+          "kind": "fixture_assertion",
+          "sourceRef": "fixture-scoped-truncated-search"
+        },
+        "expectedGoals": [
+          {
+            "id": "G1",
+            "question": "What are all app.get usages within src/in-scope/**?",
+            "originRefs": [
+              "P1"
+            ],
+            "requestOriginRefs": [
+              "request:0-47"
+            ],
+            "claimType": "symbol_usage",
+            "expectedResolution": "gap",
+            "evidenceAnchorRefs": [
+              "E1"
+            ],
+            "anchorPolicy": "all"
+          }
+        ],
+        "allowedClaims": [],
+        "forbiddenClaims": [
+          {
+            "id": "F1",
+            "goalId": "G1",
+            "text": "The returned match represents every app.get usage within src/in-scope/**.",
+            "reason": "The fixture contains two matches but the search result is capped at one."
+          }
+        ],
+        "evidenceAnchors": [
+          {
+            "id": "E1",
+            "kind": "search",
+            "tool": "repo_grep",
+            "boundary": [
+              "src/in-scope/**"
+            ],
+            "matchCount": 1,
+            "toolTruncated": true,
+            "contextTruncated": false,
+            "omittedOutOfScopeFiles": 0,
+            "deniedPaths": 0,
+            "errors": 0,
+            "enumerationComplete": false
+          }
+        ],
+        "boundary": {
+          "repoId": "fixture-scoped-truncated-search",
+          "scope": [
+            "src/in-scope/**"
+          ],
+          "claimScope": [
+            "src/in-scope/**"
+          ]
+        },
+        "expectedState": "incomplete"
+      }
+    },
+    {
+      "id": "fx-route-policy-divergence",
+      "kind": "fixture",
+      "description": "Two current route declarations support an exact route-specific authorization comparison.",
+      "sourceRef": "fixture-route-policy-divergence",
+      "fixtureExecution": "direct",
+      "providerFixture": {
+        "path": "fixtures/trust-known-answer/route-policy-divergence/provider-responses.us5-route-divergence.json",
+        "sha256": "1777897a4ace1acd21d3c82853b90e43814a8a3dc720341abfcfdd1f3d592b96"
+      },
+      "invocation": {
+        "tool": "explore_repo",
+        "args": {
+          "task": "Compare authorization roles for the admin and team routes without generalizing.",
+          "scope": [
+            "src/**"
+          ]
+        }
+      },
+      "request": {
+        "text": "Compare authorization roles for the admin and team routes without generalizing.",
+        "parts": [
+          {
+            "id": "P1",
+            "text": "Compare the admin and team route roles."
+          }
+        ]
+      },
+      "repeatCount": 1,
+      "schemaV2Baseline": {
+        "outcome": "not_recorded",
+        "schemaVersion": 2,
+        "reason": "This schema-v3 comparison case had no trustworthy schema-v2 parent payload captured before implementation."
+      },
+      "oracle": {
+        "provenance": {
+          "kind": "fixture_assertion",
+          "sourceRef": "fixture-route-policy-divergence"
+        },
+        "expectedGoals": [
+          {
+            "id": "G1",
+            "question": "How do the admin and team route authorization roles differ?",
+            "originRefs": [
+              "P1"
+            ],
+            "requestOriginRefs": [
+              "request:0-79"
+            ],
+            "claimType": "comparison",
+            "expectedResolution": "supported",
+            "evidenceAnchorRefs": [
+              "E1",
+              "E2"
+            ],
+            "anchorPolicy": "all"
+          }
+        ],
+        "allowedClaims": [
+          {
+            "id": "A1",
+            "goalId": "G1",
+            "text": "The admin route requires super_admin, while the team route accepts admin or manager.",
+            "evidenceAnchorRefs": [
+              "E1",
+              "E2"
+            ]
+          }
+        ],
+        "forbiddenClaims": [
+          {
+            "id": "F1",
+            "goalId": "G1",
+            "text": "All protected routes require super_admin.",
+            "reason": "The team route accepts admin or manager instead."
+          }
+        ],
+        "evidenceAnchors": [
+          {
+            "id": "E1",
+            "kind": "source",
+            "path": "src/routes/admin.mjs",
+            "startLine": 1,
+            "endLine": 3,
+            "sourceRole": "implementation",
+            "temporalRole": "current"
+          },
+          {
+            "id": "E2",
+            "kind": "source",
+            "path": "src/routes/team.mjs",
+            "startLine": 1,
+            "endLine": 3,
+            "sourceRole": "implementation",
+            "temporalRole": "current"
+          }
+        ],
+        "boundary": {
+          "repoId": "fixture-route-policy-divergence",
+          "scope": [
+            "src/**"
+          ],
+          "claimScope": [
+            "src/**"
+          ]
+        },
+        "expectedState": "complete"
+      }
+    },
+    {
+      "id": "fx-historical-source-role",
+      "kind": "fixture",
+      "description": "One historical commit may prove the requested history but cannot prove current source behavior.",
+      "sourceRef": "fixture-multi-part-omission",
+      "fixtureExecution": "direct",
+      "fixtureSetup": {
+        "kind": "deterministic_git_commit",
+        "message": "introduce serviceMode",
+        "name": "Explorer Fixture",
+        "email": "explorer@example.invalid",
+        "date": "2000-01-01T00:00:00Z",
+        "headSha": "1dfe057a6fcd56c83d4a2b9b991accd12dc96ac8"
+      },
+      "providerFixture": {
+        "path": "fixtures/trust-known-answer/multi-part-omission/provider-responses.us5-historical-source.json",
+        "sha256": "8dee3d20c127d8393d3e6e015e0c144d43c7231cd9af4a95348242323ae5131e"
+      },
+      "invocation": {
+        "tool": "explore_repo",
+        "args": {
+          "task": "Which inspected commit introduced serviceMode, and what does current src/service.mjs return?",
+          "scope": [
+            "src/service.mjs"
+          ]
+        }
+      },
+      "request": {
+        "text": "Which inspected commit introduced serviceMode, and what does current src/service.mjs return?",
+        "parts": [
+          {
+            "id": "P1",
+            "text": "Identify the inspected historical commit."
+          },
+          {
+            "id": "P2",
+            "text": "Establish the current serviceMode return value."
+          }
+        ]
+      },
+      "repeatCount": 1,
+      "schemaV2Baseline": {
+        "outcome": "not_recorded",
+        "schemaVersion": 2,
+        "reason": "This schema-v3 temporal-role case had no trustworthy schema-v2 parent payload captured before implementation."
+      },
+      "oracle": {
+        "provenance": {
+          "kind": "fixture_assertion",
+          "sourceRef": "fixture-multi-part-omission"
+        },
+        "expectedGoals": [
+          {
+            "id": "G1",
+            "question": "Which inspected commit introduced serviceMode?",
+            "originRefs": [
+              "P1"
+            ],
+            "requestOriginRefs": [
+              "request:0-92"
+            ],
+            "claimType": "claim_verification",
+            "expectedResolution": "supported",
+            "evidenceAnchorRefs": [
+              "E1"
+            ],
+            "anchorPolicy": "all"
+          },
+          {
+            "id": "G2",
+            "question": "What does current src/service.mjs return?",
+            "originRefs": [
+              "P2"
+            ],
+            "requestOriginRefs": [
+              "request:0-92"
+            ],
+            "claimType": "positive",
+            "expectedResolution": "gap",
+            "evidenceAnchorRefs": [
+              "E1"
+            ],
+            "anchorPolicy": "all"
+          }
+        ],
+        "allowedClaims": [
+          {
+            "id": "A1",
+            "goalId": "G1",
+            "text": "The inspected commit introduced serviceMode.",
+            "evidenceAnchorRefs": [
+              "E1"
+            ]
+          }
+        ],
+        "forbiddenClaims": [
+          {
+            "id": "F1",
+            "goalId": "G2",
+            "text": "Current src/service.mjs returns 'safe'.",
+            "reason": "The provider supplied only historical Git evidence, not current source."
+          }
+        ],
+        "evidenceAnchors": [
+          {
+            "id": "E1",
+            "kind": "git_commit",
+            "sha": "1dfe057a6fcd56c83d4a2b9b991accd12dc96ac8",
+            "temporalRole": "historical"
+          }
+        ],
+        "boundary": {
+          "repoId": "fixture-multi-part-omission",
+          "scope": [
+            "src/service.mjs"
+          ],
+          "claimScope": [
+            "src/service.mjs"
           ]
         },
         "expectedState": "incomplete"

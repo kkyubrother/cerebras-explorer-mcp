@@ -1,0 +1,141 @@
+{
+  "fixtureVersion": 1,
+  "scenario": "us5_truncated_all_usages",
+  "responses": [
+    {
+      "stage": "planner",
+      "result": {
+        "message": {
+          "content": {
+            "taskSummary": "List every app.get usage within src/in-scope/**.",
+            "constraints": ["Do not call a capped result exhaustive."],
+            "subgoals": [
+              {
+                "id": "S1",
+                "question": "What are all app.get usages within src/in-scope/**?",
+                "originRefs": ["request:0-47"],
+                "claimType": "symbol_usage",
+                "proofCondition": "Cross-check every in-scope app.get usage without a truncated result.",
+                "constraints": ["The answer must be exhaustive."]
+              }
+            ]
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "goal_audit",
+      "result": {
+        "message": {
+          "content": {
+            "goals": [
+              {
+                "proposedGoalId": "S1",
+                "verdict": "ready",
+                "originRefs": ["request:0-47"],
+                "missingRequestParts": [],
+                "reason": "The requested usage search is observable within the hard scope."
+              }
+            ],
+            "uncoveredRequestParts": []
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "exploration",
+      "result": {
+        "message": {
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "grep-capped-app-get",
+              "function": {
+                "name": "repo_grep",
+                "arguments": {
+                  "pattern": "app\\.get\\(",
+                  "scope": ["src/in-scope/**"],
+                  "maxResults": 1
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "stage": "exploration",
+      "result": {
+        "message": {
+          "content": "The capped search returned one visible match.",
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "synthesis",
+      "result": {
+        "message": {
+          "content": {
+            "directAnswer": "The capped result appears exhaustive but requires deterministic verification.",
+            "status": {
+              "confidence": "high",
+              "verification": "verified",
+              "complete": true,
+              "warnings": []
+            },
+            "targets": [],
+            "evidence": [],
+            "uncertainties": [],
+            "nextAction": {
+              "type": "stop",
+              "reason": "The runtime owns truncation gating."
+            }
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "claim_synthesis",
+      "result": {
+        "message": {
+          "content": {
+            "claims": [
+              {
+                "id": "C1",
+                "subgoalId": "S1",
+                "text": "The returned match represents every app.get usage within src/in-scope/**.",
+                "evidenceRefs": ["E1"]
+              }
+            ]
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "semantic_verifier",
+      "result": {
+        "message": {
+          "content": {
+            "verdicts": [
+              {
+                "claimId": "C1",
+                "result": "supported",
+                "resolution": "affirmed",
+                "supportingEvidenceRefs": ["E1"],
+                "reasonCode": "entailed",
+                "note": "The visible match was returned by the requested search."
+              }
+            ],
+            "uncoveredRequestParts": []
+          },
+          "toolCalls": []
+        }
+      }
+    }
+  ]
+}
