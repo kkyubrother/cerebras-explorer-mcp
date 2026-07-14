@@ -10,17 +10,17 @@ Cerebras 모델이 저장소를 읽기 전용으로 탐색하고, Claude Code·C
 
 ```bash
 export CEREBRAS_API_KEY="..."
-npx -y github:kkyubrother/cerebras-explorer-mcp#v0.8.9
+npx -y github:kkyubrother/cerebras-explorer-mcp#v0.9.0
 ```
 
-`npx`는 spec(URL + ref)을 캐시 키로 사용하므로 `#v0.8.9` 같은 tag를 권장합니다. 개발 브랜치를 추적해야 하면 `#master`, 특정 상태가 필요하면 `#<commit-sha>`를 명시하세요.
+`npx`는 spec(URL + ref)을 캐시 키로 사용하므로 `#v0.9.0` 같은 tag를 권장합니다. 개발 브랜치를 추적해야 하면 `#master`, 특정 상태가 필요하면 `#<commit-sha>`를 명시하세요.
 
 ### Claude Code
 
 ```bash
 claude mcp add -s user cerebras-explorer \
   -e CEREBRAS_API_KEY="$CEREBRAS_API_KEY" \
-  -- npx -y github:kkyubrother/cerebras-explorer-mcp#v0.8.9
+  -- npx -y github:kkyubrother/cerebras-explorer-mcp#v0.9.0
 ```
 
 ### Codex CLI
@@ -28,7 +28,7 @@ claude mcp add -s user cerebras-explorer \
 ```toml
 [mcp_servers.cerebras-explorer]
 command = "npx"
-args = ["-y", "github:kkyubrother/cerebras-explorer-mcp#v0.8.9"]
+args = ["-y", "github:kkyubrother/cerebras-explorer-mcp#v0.9.0"]
 enabled = true
 startup_timeout_sec = 60
 tool_timeout_sec = 180
@@ -61,7 +61,7 @@ Auto-approval은 provider egress를 이미 수용한 trusted local coding sessio
   "mcp": {
     "cerebras-explorer": {
       "type": "local",
-      "command": ["npx", "-y", "github:kkyubrother/cerebras-explorer-mcp#v0.8.9"],
+      "command": ["npx", "-y", "github:kkyubrother/cerebras-explorer-mcp#v0.9.0"],
       "environment": { "CEREBRAS_API_KEY": "${CEREBRAS_API_KEY}" }
     }
   }
@@ -73,7 +73,7 @@ Auto-approval은 provider egress를 이미 수용한 trusted local coding sessio
 ```bash
 gemini mcp add -e CEREBRAS_API_KEY="$CEREBRAS_API_KEY" \
   cerebras-explorer npx -- \
-  -y github:kkyubrother/cerebras-explorer-mcp#v0.8.9
+  -y github:kkyubrother/cerebras-explorer-mcp#v0.9.0
 ```
 
 Gemini CLI는 `*KEY*`, `*SECRET*`, `*TOKEN*`, `*PASSWORD*`, `*AUTH*`, `*CREDENTIAL*` 패턴의 환경변수를 기본 차단합니다. `CEREBRAS_API_KEY`는 서버 설정의 `env` 블록 또는 위 `-e` 옵션으로 명시해야 전달됩니다.

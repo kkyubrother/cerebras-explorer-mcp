@@ -16,7 +16,7 @@
   "mcpServers": {
     "cerebras-explorer": {
       "command": "npx",
-      "args": ["-y", "github:kkyubrother/cerebras-explorer-mcp#v0.8.9"],
+      "args": ["-y", "github:kkyubrother/cerebras-explorer-mcp#v0.9.0"],
       "env": {
         "CEREBRAS_API_KEY": "$CEREBRAS_API_KEY"
       },
@@ -50,7 +50,7 @@ location, symbol, change-impact, path, and evidence work plus one general fallba
 ```bash
 gemini mcp add -e CEREBRAS_API_KEY="$CEREBRAS_API_KEY" \
   cerebras-explorer npx -- \
-  -y github:kkyubrother/cerebras-explorer-mcp#v0.8.9
+  -y github:kkyubrother/cerebras-explorer-mcp#v0.9.0
 ```
 
 ## 검증

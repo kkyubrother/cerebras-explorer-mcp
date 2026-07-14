@@ -75,8 +75,8 @@ test('spec 022 execution provenance describes the live public registry', () => {
     'toolRegistryHash',
   ].sort());
   assert.equal(provenance.serverName, 'cerebras-explorer-mcp');
-  assert.equal(provenance.serverVersion, '0.8.9');
-  assert.equal(provenance.packageVersion, '0.8.9');
+  assert.equal(provenance.serverVersion, '0.9.0');
+  assert.equal(provenance.packageVersion, '0.9.0');
   assert.equal(provenance.schemaVersion, 2);
   assert.equal(provenance.gitSha, 'abc1234');
   assert.equal(provenance.exposedToolCount, EXPECTED_PUBLIC_TOOL_NAMES.length);
@@ -720,7 +720,7 @@ test('MCP request handler exposes explore_repo and returns structuredContent', a
     params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'test', version: '0.0.1' } },
   });
   assert.equal(initialized.serverInfo.name, 'cerebras-explorer-mcp');
-  assert.equal(initialized.serverInfo.version, '0.8.9');
+  assert.equal(initialized.serverInfo.version, '0.9.0');
 
   const listed = await handleRequest({
     jsonrpc: '2.0',

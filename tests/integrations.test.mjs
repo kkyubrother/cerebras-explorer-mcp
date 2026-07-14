@@ -309,7 +309,7 @@ test('Gemini example documents required env and the full six-tool allowlist', as
     'collect_evidence',
     'explore_repo',
   ]);
-  assert.deepEqual(server.args, ['-y', 'github:kkyubrother/cerebras-explorer-mcp#v0.8.9']);
+  assert.deepEqual(server.args, ['-y', 'github:kkyubrother/cerebras-explorer-mcp#v0.9.0']);
 
   const readme = await read('integrations/gemini/README.md');
   assert.match(readme, /full six-tool/i);
@@ -338,7 +338,7 @@ test('Codex example uses npx, trusted auto-approval, and tool allowlist controls
     'collect_evidence',
     'explore_repo',
   ]);
-  assert.match(toml, /github:kkyubrother\/cerebras-explorer-mcp#v0.8.9/);
+  assert.match(toml, /github:kkyubrother\/cerebras-explorer-mcp#v0.9.0/);
   assert.match(toml, /full six-tool/i);
   assert.doesNotMatch(toml, /minimal 4-tool/i);
   // spec 011: explore_v2 tool name is gone; the disabled_tools example just
@@ -439,7 +439,7 @@ test('Continue YAML example keeps the expected MCP shape', async () => {
   assert.match(yaml, /^mcpServers:/m);
   assert.match(yaml, /name: cerebras-explorer/);
   assert.match(yaml, /command: npx/);
-  assert.match(yaml, /github:kkyubrother\/cerebras-explorer-mcp#v0.8.9/);
+  assert.match(yaml, /github:kkyubrother\/cerebras-explorer-mcp#v0.9.0/);
   assert.match(yaml, /CEREBRAS_API_KEY/);
 });
 

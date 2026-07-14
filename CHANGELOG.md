@@ -1,5 +1,62 @@
 # Changelog
 
+## v0.9.0 - 2026-07-14
+
+### trustworthy explorer and schema-v3 parent handoff (spec 028)
+
+This is an intentional pre-1.0 breaking release. It replaces overlapping
+schema-v2 status and diagnostic structures with one fail-closed schema-v3
+handoff, and reduces the public MCP registry from eight tools to six. No
+compatibility aliases or selectable effort controls are retained.
+
+- **Trusted goal and claim reduction**: every requested sub-goal is traced to
+  the request or wrapper, audited for feasibility and granularity, and verified
+  against runtime-reconstructed observations. Planner inventions are discarded;
+  user-required blockers remain concise `incomplete` gaps. `complete` and
+  `verify_targets` require every valid required goal to be verified.
+- **Bounded proof and repair**: absence, count, exhaustive classification,
+  route-policy comparison, flow, impact, and historical claims use
+  runtime-owned proof gates. Invalid or cross-claim verifier evidence fails
+  closed. Planning has at most one revision and evidence repair at most one
+  round, with equivalent actions suppressed.
+- **Quiet schema v3**: normal MCP output contains only `schemaVersion`, `state`,
+  and the state-relevant subset of `directAnswer`, `targets`, `evidence`,
+  `gaps`, `followUp`, and `failure`. Goals, verdicts, counters, usage, timing,
+  tool traces, and transcript paths remain operational diagnostics and are not
+  copied into the parent payload.
+- **Smaller tool surface**: the registry is now exactly
+  `find_relevant_code`, `trace_symbol`, `map_change_impact`,
+  `explain_code_path`, `collect_evidence`, and `explore_repo`, in that order.
+  `review_change_context` and the Markdown `explore` tool are removed.
+- **Runtime-owned policy**: public `hints.strategy`, the internal budget
+  abstraction, and report effort controls are removed. Fixed turn, context,
+  output, walk, and tool-result limits protect process correctness but cannot
+  establish completion or be selected by the parent. Agentic completions use
+  the fixed 16,384-token ceiling with preserved thinking, temperature `1.0`,
+  and top-p `0.95`.
+- **Repository and provider reliability**: exact-file grep can inspect text
+  files up to the existing 512 KiB read ceiling while broad grep keeps the
+  256 KiB protection. Cancellation interrupts retry waits, and day-scale
+  `Retry-After` responses are recorded without repeating a request that cannot
+  succeed inside the bounded parent call.
+- **Independent acceptance**: pinned known-answer fixtures and repositories,
+  an oracle independent of Explorer output, three-run repeatability, portable
+  parent-observation records, payload measurement, and live Cerebras checks
+  cover false completion, semantic mismatch, negative boundaries, redaction,
+  scope, cancellation, and provider failure.
+
+Migration:
+
+| v0.8.x surface | v0.9.0 replacement |
+| --- | --- |
+| Schema-v2 `status`, `nextAction`, uncertainty/quality/coverage summaries, and diagnostic fields | Schema-v3 `state` plus only applicable `gaps`, `followUp`, or `failure`; operational detail stays in logs/direct-runtime evaluation |
+| `review_change_context` MCP tool | `explore_repo`; git/change intent is selected internally |
+| Markdown `explore` MCP tool | `explore_repo`; the parent renders prose when needed |
+| `freeExploreRepository` | `exploreRepository` |
+| `ExplorerRuntime.freeExplore` | `ExplorerRuntime.explore` |
+| Public `explore_repo.hints.strategy` | Removed; keep immutable scope and known anchors, while strategy remains internal |
+| `CEREBRAS_EXPLORER_TURN_MULTIPLIER`, `CEREBRAS_EXPLORER_MAX_EXTRA_TURNS`, `CEREBRAS_EXPLORER_MAX_COMPACTIONS` | Removed without replacement; fixed safety limits are not operator effort controls |
+
 ## v0.8.9 - 2026-06-14
 
 ### fix: scope / retry / schema corrections from an external source audit (gpt-5.5-pro)
