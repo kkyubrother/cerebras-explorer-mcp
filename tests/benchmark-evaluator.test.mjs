@@ -58,6 +58,32 @@ const ORACLE_CLAIM_TYPES = new Set([
 ]);
 const ORACLE_RESOLUTIONS = new Set(['supported', 'refuted', 'gap', 'failed']);
 const ORACLE_STATES = new Set(['complete', 'incomplete', 'failed']);
+
+function validRequiredTextAssociations(value) {
+  if (value === undefined) return true;
+  if (!Array.isArray(value) || value.length === 0 || value.length > 8) return false;
+  const ids = new Set();
+  const validAlternatives = alternatives => {
+    if (!Array.isArray(alternatives) || alternatives.length === 0 || alternatives.length > 8 ||
+        alternatives.some(token => typeof token !== 'string' || !token.trim() ||
+          token.length > 128)) return false;
+    const normalized = alternatives.map(token => token.normalize('NFKC').toLowerCase().trim());
+    return new Set(normalized).size === normalized.length;
+  };
+  return value.every(association => {
+    if (!isObject(association) ||
+        Object.keys(association).sort().join(',') !==
+          'id,predicateGroups,subjectAlternatives' ||
+        typeof association.id !== 'string' || !association.id.trim() ||
+        ids.has(association.id) ||
+        !validAlternatives(association.subjectAlternatives) ||
+        !Array.isArray(association.predicateGroups) ||
+        association.predicateGroups.length === 0 || association.predicateGroups.length > 4 ||
+        association.predicateGroups.some(group => !validAlternatives(group))) return false;
+    ids.add(association.id);
+    return true;
+  });
+}
 const ORACLE_FAILURE_CATEGORIES = new Set(['execution', 'input', 'provider', 'internal']);
 const ORACLE_FAILURE_REASONS = new Set([
   'tool_errors',
@@ -1058,12 +1084,21 @@ async function collectTrustManifestProblems(manifest, options = {}) {
       const evidenceAnchorRefs = Array.isArray(claim?.evidenceAnchorRefs)
         ? claim.evidenceAnchorRefs
         : [];
+      const requiredTextGroups = claim?.requiredTextGroups;
+      const invalidRequiredTextGroups = requiredTextGroups !== undefined &&
+        (!Array.isArray(requiredTextGroups) || requiredTextGroups.length === 0 ||
+          requiredTextGroups.some(group => !Array.isArray(group) || group.length === 0 ||
+            group.some(token => typeof token !== 'string' || !token.trim())));
+      const invalidRequiredTextAssociations =
+        !validRequiredTextAssociations(claim?.requiredTextAssociations);
       if (!isObject(claim)
           || typeof claim.id !== 'string'
           || typeof claim.text !== 'string'
           || claimIds.has(claim.id)
           || !goalIds.has(claim.goalId)
-          || evidenceAnchorRefs.length === 0) {
+          || evidenceAnchorRefs.length === 0
+          || invalidRequiredTextGroups
+          || invalidRequiredTextAssociations) {
         problems.push(label + ' allowed claim has an unknown goal or invalid shape');
       }
       if (typeof claim?.id === 'string') claimIds.add(claim.id);
@@ -1738,6 +1773,16 @@ test('trust manifest integrity rejects missing goals and dangling references', a
     }],
     ['allowed claim without anchors', 'allowed claim has an unknown goal or invalid shape', caseDefinition => {
       delete caseDefinition.oracle.allowedClaims[0].evidenceAnchorRefs;
+    }],
+    ['invalid allowed claim semantic groups', 'allowed claim has an unknown goal or invalid shape', caseDefinition => {
+      caseDefinition.oracle.allowedClaims[0].requiredTextGroups = [['']];
+    }],
+    ['invalid allowed claim semantic association', 'allowed claim has an unknown goal or invalid shape', caseDefinition => {
+      caseDefinition.oracle.allowedClaims[0].requiredTextAssociations = [{
+        id: 'route-policy',
+        subjectAlternatives: ['route'],
+        predicateGroups: [[]],
+      }];
     }],
     ['duplicate claim id', 'allowed claim has an unknown goal or invalid shape', caseDefinition => {
       caseDefinition.oracle.allowedClaims[1].id = 'A1';
@@ -2516,6 +2561,14 @@ function liveTrustOracleCase() {
   caseDefinition.request = { text: 'guard bounded' };
   caseDefinition.oracle.expectedGoals[0].requestOriginRefs = ['request:0-5'];
   caseDefinition.oracle.expectedGoals[1].requestOriginRefs = ['request:6-13'];
+  caseDefinition.oracle.allowedClaims[0].requiredTextGroups = [
+    ['repository evidence'],
+    ['request guard'],
+  ];
+  caseDefinition.oracle.allowedClaims[1].requiredTextGroups = [
+    ['bounded check'],
+    ['independently observed source'],
+  ];
   caseDefinition.livePolicy = { profile: LIVE_TRUST_EVALUATION_PROFILE };
   return caseDefinition;
 }
@@ -2819,6 +2872,147 @@ test('Spec 028 T068 — live profile rejects unsafe states, false completion, ba
   delete noGap.result.parentHandoff.gaps;
   assert.ok(violationCodes(evaluateTrustCase(caseDefinition, noGap, options))
     .includes('LIVE_EXPLICIT_GAP_MISSING'));
+});
+
+test('Spec 028 T069 — live profile rejects an anchored claim missing oracle semantics', () => {
+  const caseDefinition = liveTrustOracleCase();
+  const artifact = liveCompleteArtifact();
+  const wrong = 'Repository evidence shows an unrelated cache at the cited source range.';
+  artifact.result.semanticVerification.claims[0].text = wrong;
+  artifact.result.parentHandoff.directAnswer = [
+    wrong,
+    artifact.result.semanticVerification.claims[1].text,
+  ].join('\n');
+
+  const evaluation = evaluateTrustCase(caseDefinition, artifact, {
+    mode: 'live',
+    profile: LIVE_TRUST_EVALUATION_PROFILE,
+  });
+  const codes = violationCodes(evaluation);
+  assert.ok(codes.includes('LIVE_REQUIRED_GOAL_UNSUPPORTED'));
+  assert.ok(codes.includes('LIVE_UNSUPPORTED_PARENT_CLAIM'));
+});
+
+test('Spec 028 T069 — live semantic markers require token boundaries', () => {
+  const caseDefinition = liveTrustOracleCase();
+  caseDefinition.oracle.allowedClaims[0].requiredTextGroups = [['117']];
+  const artifact = liveCompleteArtifact();
+  const wrong = 'The cited definition ends at line 1170.';
+  artifact.result.semanticVerification.claims[0].text = wrong;
+  artifact.result.parentHandoff.directAnswer = [
+    wrong,
+    artifact.result.semanticVerification.claims[1].text,
+  ].join('\n');
+
+  const evaluation = evaluateTrustCase(caseDefinition, artifact, {
+    mode: 'live',
+    profile: LIVE_TRUST_EVALUATION_PROFILE,
+  });
+  assert.equal(evaluation.passed, false);
+  assert.ok(violationCodes(evaluation).includes('LIVE_REQUIRED_GOAL_UNSUPPORTED'));
+});
+
+test('Spec 028 T069 — live semantic associations bind each predicate to its route', () => {
+  const cases = [
+    {
+      name: 'direct clauses',
+      passed: true,
+      text: 'The admin helper uses ADMIN_USERS membership; the feedback route checks admin_user_info row existence; the inquiry route requires the is_admin boolean flag to be true.',
+    },
+    {
+      name: 'swapped direct clauses',
+      passed: false,
+      text: 'The admin helper checks the is_admin boolean flag; the feedback route uses ADMIN_USERS membership; the inquiry route checks admin_user_info row existence.',
+    },
+    {
+      name: 'comma-qualified direct clause',
+      passed: true,
+      text: 'The admin helper uses ADMIN_USERS membership; the feedback route checks admin_user_info and, when the row is absent, rejects access; the inquiry route requires the is_admin boolean flag to be true.',
+    },
+    {
+      name: 'negated mechanisms',
+      passed: false,
+      text: 'The admin helper does not use ADMIN_USERS membership; the feedback route never checks admin_user_info row existence; the inquiry route does not check the is_admin boolean flag.',
+    },
+    {
+      name: 'cannot mechanisms',
+      passed: false,
+      text: 'The admin helper cannot use ADMIN_USERS membership; the feedback route cannot check admin_user_info row existence; the inquiry route cannot check the is_admin boolean flag.',
+    },
+    {
+      name: 'without mechanisms',
+      passed: false,
+      text: 'The admin helper operates without ADMIN_USERS membership; the feedback route allows access without checking admin_user_info row existence; the inquiry route works without requiring the is_admin boolean flag.',
+    },
+    {
+      name: 'Korean negated mechanisms',
+      passed: false,
+      text: 'admin helper는 ADMIN_USERS membership을 사용하지 않는다; feedback route는 admin_user_info row를 검사하지 않는다; inquiry route는 is_admin boolean flag를 확인하지 않는다.',
+    },
+    {
+      name: 'distant unrelated predicate words',
+      passed: false,
+      text: 'The admin helper uses ADMIN_USERS membership; the feedback route logs admin_user_info metadata ' +
+        'x'.repeat(160) +
+        ' row is a UI label; the inquiry route requires the is_admin boolean flag to be true.',
+    },
+    {
+      name: 'respectively ordered',
+      passed: true,
+      text: 'The admin helper, feedback route, and inquiry route use ADMIN_USERS membership, admin_user_info row existence, and the is_admin boolean flag, respectively.',
+    },
+    {
+      name: 'respectively swapped',
+      passed: false,
+      text: 'The admin helper, feedback route, and inquiry route use the is_admin boolean flag, ADMIN_USERS membership, and admin_user_info row existence, respectively.',
+    },
+    {
+      name: 'respectively swapped after a correct introductory inventory',
+      passed: false,
+      text: 'Given ADMIN_USERS membership, admin_user_info row existence, and is_admin boolean as the three mechanisms, the admin helper, feedback route, and inquiry route use is_admin boolean, ADMIN_USERS membership, and admin_user_info row existence, respectively.',
+    },
+  ];
+  for (const fixture of cases) {
+    const caseDefinition = liveTrustOracleCase();
+    caseDefinition.oracle.allowedClaims[0].requiredTextGroups = [
+      ['ADMIN_USERS'], ['admin_user_info'], ['is_admin'],
+    ];
+    caseDefinition.oracle.allowedClaims[0].requiredTextAssociations = [
+      {
+        id: 'admin-helper-membership',
+        subjectAlternatives: ['admin helper'],
+        predicateGroups: [['ADMIN_USERS']],
+      },
+      {
+        id: 'feedback-row-existence',
+        subjectAlternatives: ['feedback route'],
+        predicateGroups: [['admin_user_info'], ['row', 'existence']],
+      },
+      {
+        id: 'inquiry-boolean-flag',
+        subjectAlternatives: ['inquiry route'],
+        predicateGroups: [['is_admin'], ['boolean', 'flag', 'true']],
+      },
+    ];
+    const artifact = liveCompleteArtifact();
+    artifact.result.semanticVerification.claims[0].text = fixture.text;
+    artifact.result.parentHandoff.directAnswer = [
+      fixture.text,
+      artifact.result.semanticVerification.claims[1].text,
+    ].join('\n');
+
+    const evaluation = evaluateTrustCase(caseDefinition, artifact, {
+      mode: 'live',
+      profile: LIVE_TRUST_EVALUATION_PROFILE,
+    });
+    assert.equal(evaluation.passed, fixture.passed, fixture.name);
+    if (!fixture.passed) {
+      assert.ok(violationCodes(evaluation).includes('LIVE_REQUIRED_GOAL_UNSUPPORTED'),
+        fixture.name);
+      assert.ok(violationCodes(evaluation).includes('LIVE_UNSUPPORTED_PARENT_CLAIM'),
+        fixture.name);
+    }
+  }
 });
 
 test('Spec 028 T068 — live profile rejects generic gaps and evidence-bag completions', () => {

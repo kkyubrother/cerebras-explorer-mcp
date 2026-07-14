@@ -178,6 +178,7 @@ const CLAIM_TYPE_RULES = Object.freeze([
 const CANONICAL_DECOMPOSITION_PATTERNS = Object.freeze([
   'PRIMARY DECOMPOSITION DECISION TABLE (apply by meaning before generic lexical rules):',
   '- Claim type follows the leaf acceptance shape, not the top-level request verb. A top-level "compare", "map", or "inventory" does not make every leaf comparison, impact, or count.',
+  '- "Count the entries in STATIC_ARRAY. Cite the definition and distinguish the number of array entries from the ending source line number" has exactly three leaves: deterministic entry count=count; definition location=symbol_definition; count-versus-ending-line distinction=comparison. The definition origin includes the complete "Cite the definition" clause, and the comparison origin includes the complete "distinguish ... from ..." clause. The comparison is one atomic relationship over the bounded definition; never replace it with a standalone ending-line fact or a tail-noun origin.',
   '- "Map a feature across all UI pages, both API prefixes, and one data model" has three leaves: UI-page coverage=impact; the two prefixes=comparison; the one model=positive.',
   '- "Compare ACTOR_A and ACTOR_B access policy across SURFACE_A and SURFACE_B" must produce exactly three leaves: how SURFACE_A enforces ACTOR_A access=positive; which distinct SURFACE_B checks enforce ACTOR_A access=comparison; which SURFACE_B entries give ACTOR_B-specific access behavior=comparison. This canonical leaf set is already independently decidable: never add a fourth SURFACE_A/ACTOR_B leaf, replace it with a SURFACE_A actor comparison, or combine the two SURFACE_B actor leaves.',
   '- For that access pattern, preserve actor and surface as separate minimal origins when they are non-contiguous: cite the exact ACTOR_A or "ACTOR_A and ACTOR_B access policy" phrase plus the exact "across SURFACE_A" or SURFACE_B clause needed by that leaf. Never stretch one origin across both surfaces merely to include the actor, use the full request as a fallback, or rely on a role name or surface noun alone.',
@@ -357,6 +358,7 @@ const CLAIM_SYNTHESIS_SYSTEM_PROMPT = [
   '- A comparison, flow, impact, or usage claim is atomic only when it states the required relationship, difference, transition, category set, or usage boundary and cites all observations needed for that one assertion. Do not split it into fragments that cannot answer the sub-goal alone.',
   '- Prefer one minimal aggregate claim that completes a flow, comparison, or impact proof shape over one claim per file, module, match, or observation.',
   '- A comparison claim must cite the distinct source paths that establish its sides. A one-path fragment is not a comparison claim.',
+  '- For a comparison spanning three or more source paths, state each path or helper and its exact predicate in a separate semicolon-delimited clause. Do not use "respectively" or leave path-to-predicate pairing implicit.',
   '- Do not cite search/list telemetry in an impact claim; cite the source observations that establish every requested category. A count claim cites its complete search plus every supplied source observation covering its counted items.',
   '- A positive direct-source test claim may identify one exactly observed test and what it verifies. Do not imply that it inventories the whole suite unless the sub-goal explicitly requires every test.',
   '- For an all/every/exhaustive impact goal, emit a claim only when its text and cited source observations represent every category named by the proof condition. If source, docs, agent config, and dependencies are named, all four must be present; one config file cannot stand in for the other categories.',
@@ -395,12 +397,24 @@ const SEMANTIC_VERIFIER_SYSTEM_PROMPT = [
   '- Before proposing an uncovered request part, compare it with every supplied required sub-goal. Never restate, paraphrase, refine, or request missing evidence for an existing goal; mark its claim insufficient instead.',
   '- A fact that is true but belongs to a different requested category is insufficient for this sub-goal (for example, a client factory is not configuration-only evidence).',
   '- Evaluate a named helper or policy mechanism from its definition together with any separately cited invocation or enforcement site. If the invocation is present in the claim evidence, do not treat a definition-only excerpt as the whole packet; conversely, a file name or a different unread range cannot establish invocation.',
+  '- Verify every asserted comparison side and enforcement predicate independently against its exact cited source. One correct side never compensates for a misstated side. A row-existence check, a selected boolean field check, a hardcoded identity list, and a helper invocation are distinct mechanisms unless the cited source proves otherwise.',
   '- For an every, exhaustive, or inventory classification, supported requires a complete cited enumeration plus exact cited source ranges covering every enumerated member. Two distinct files alone prove only a bounded comparison, not exhaustive membership.',
   '- A positive direct_source claim needs exact support for the stated test or fact, not an exhaustive inventory, unless its question or proof condition explicitly says all, every, exhaustive, or only.',
   '- For an all/every/exhaustive impact claim, supported requires both claim text and cited source observations to cover every category named by the sub-goal proof condition. If source, docs, agent config, and dependencies are named, omission of any one is missing_category.',
   '- For request:<start>-<end> origins, use the runtime-computed control.taskOffsetGuide boundaries. Never estimate offsets, especially for Unicode task text.',
   '',
   'OUTPUT: {"verdicts":[{"claimId":string,"result":string,"resolution":"affirmed|refuted (supported only)","supportingEvidenceRefs":string[],"reasonCode":string,"note":string}],"uncoveredRequestParts":[{"question":string,"originRefs":string[],"claimType":string,"proofCondition":string,"constraints":string[]}]}',
+].join('\n');
+
+const COMPARISON_CORROBORATOR_SYSTEM_PROMPT = [
+  SEMANTIC_VERIFIER_SYSTEM_PROMPT,
+  '',
+  'FOCUSED MULTI-PATH COMPARISON CORROBORATION:',
+  '- This packet contains exactly one high-risk comparison claim spanning at least three current source paths. Independently re-check the whole claim from the supplied cited observations; do not defer to an earlier verdict.',
+  '- Match every named route, helper, data field, membership predicate, existence predicate, boolean predicate, exception, and comparison side to the exact code that implements it. Similar table or helper names are not interchangeable mechanisms.',
+  '- If any asserted side is absent, attached to the wrong path, contradicted, or semantically narrower or broader than the source, return insufficient or contradicted for the entire atomic claim.',
+  '- supportingEvidenceRefs may include only observations that directly establish the exact asserted mechanisms. Additional cited files do not compensate for a wrong predicate.',
+  '- This focused pass cannot discover request obligations. uncoveredRequestParts must be an empty array.',
 ].join('\n');
 
 function strings(value) {
@@ -738,6 +752,36 @@ export function buildSemanticVerifierMessages({
         criticDecisions: Array.isArray(criticDecisions)
           ? criticDecisions.map(item => pickDefined(item, CRITIC_DECISION_FIELDS))
           : [],
+      }),
+    },
+  ];
+}
+
+export function buildComparisonCorroboratorMessages({
+  taskContract,
+  claims,
+  observations,
+  absenceCertificates,
+  wrapperTool,
+}) {
+  return [
+    { role: 'system', content: COMPARISON_CORROBORATOR_SYSTEM_PROMPT },
+    {
+      role: 'user',
+      content: controlDataMessage('Corroborate this one multi-path comparison against only its cited observations', {
+        control: {
+          ...normalizeVerificationContract(taskContract),
+          taskOffsetGuide: taskOffsetGuide(taskContract?.task),
+          wrapper: fixedWrapperInput(wrapperTool),
+        },
+        claims: Array.isArray(claims) ? claims.map(normalizeCandidateClaim) : [],
+        observations: Array.isArray(observations)
+          ? observations.map(item => pickDefined(item, VERIFIER_OBSERVATION_FIELDS))
+          : [],
+        absenceCertificates: Array.isArray(absenceCertificates)
+          ? absenceCertificates.map(item => pickDefined(item, ABSENCE_CERTIFICATE_FIELDS))
+          : [],
+        criticDecisions: [],
       }),
     },
   ];

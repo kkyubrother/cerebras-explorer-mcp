@@ -1157,6 +1157,11 @@
         "id": "A1",
         "goalId": "G1",
         "text": "DEFAULT_SECRET_DENY_PATTERNS contains 70 entries.",
+        "requiredTextGroups": [
+          [
+            "70"
+          ]
+        ],
         "evidenceAnchorRefs": [
           "E1"
         ]
@@ -1165,6 +1170,17 @@
         "id": "A2",
         "goalId": "G2",
         "text": "DEFAULT_SECRET_DENY_PATTERNS is defined in src/explorer/security.mjs at lines 43 through 117.",
+        "requiredTextGroups": [
+          [
+            "src/explorer/security.mjs"
+          ],
+          [
+            "43"
+          ],
+          [
+            "117"
+          ]
+        ],
         "evidenceAnchorRefs": [
           "E1"
         ]
@@ -1173,6 +1189,14 @@
         "id": "A3",
         "goalId": "G3",
         "text": "The array contains 70 entries, while its definition ends at source line 117.",
+        "requiredTextGroups": [
+          [
+            "70"
+          ],
+          [
+            "117"
+          ]
+        ],
         "evidenceAnchorRefs": [
           "E1"
         ]
@@ -1502,7 +1526,8 @@
               "P1"
             ],
             "requestOriginRefs": [
-              "request:50-72"
+              "request:8-21",
+              "request:57-72"
             ],
             "claimType": "positive",
             "expectedResolution": "supported",
@@ -1518,7 +1543,8 @@
               "P2"
             ],
             "requestOriginRefs": [
-              "request:76-100"
+              "request:8-21",
+              "request:77-100"
             ],
             "claimType": "comparison",
             "expectedResolution": "supported",
@@ -1536,7 +1562,8 @@
               "P3"
             ],
             "requestOriginRefs": [
-              "request:14-44"
+              "request:26-35",
+              "request:77-100"
             ],
             "claimType": "comparison",
             "expectedResolution": "supported",
@@ -1552,6 +1579,14 @@
         "id": "A1",
         "goalId": "G1",
         "text": "AdminProtectedRoute admits only user ids listed in ADMIN_USERS and redirects other users to /ai.",
+        "requiredTextGroups": [
+          [
+            "ADMIN_USERS"
+          ],
+          [
+            "/ai"
+          ]
+        ],
         "evidenceAnchorRefs": [
           "E1"
         ]
@@ -1560,6 +1595,75 @@
         "id": "A2",
         "goalId": "G2",
         "text": "Backend routes use distinct ADMIN_USERS, admin_user_info existence, and is_admin policies.",
+        "requiredTextGroups": [
+          [
+            "ADMIN_USERS"
+          ],
+          [
+            "admin_user_info"
+          ],
+          [
+            "is_admin"
+          ]
+        ],
+        "requiredTextAssociations": [
+          {
+            "id": "admin-helper-membership",
+            "subjectAlternatives": [
+              "lib/admin-auth",
+              "admin-auth.ts",
+              "requireAdminAuth",
+              "checkAdminPermission",
+              "admin helper"
+            ],
+            "predicateGroups": [
+              [
+                "ADMIN_USERS"
+              ]
+            ]
+          },
+          {
+            "id": "feedback-row-existence",
+            "subjectAlternatives": [
+              "app/api/admin/feedback",
+              "feedback route",
+              "feedback"
+            ],
+            "predicateGroups": [
+              [
+                "admin_user_info"
+              ],
+              [
+                "existence",
+                "exists",
+                "row",
+                "record",
+                "findUnique",
+                "present",
+                "absent"
+              ]
+            ]
+          },
+          {
+            "id": "inquiry-boolean-flag",
+            "subjectAlternatives": [
+              "app/api/inquiry",
+              "inquiry route",
+              "inquiry",
+              "isAdmin"
+            ],
+            "predicateGroups": [
+              [
+                "is_admin"
+              ],
+              [
+                "true",
+                "boolean",
+                "flag"
+              ]
+            ]
+          }
+        ],
         "evidenceAnchorRefs": [
           "E2",
           "E3",
@@ -1570,12 +1674,29 @@
         "id": "A3",
         "goalId": "G3",
         "text": "Case and draft routes map the development department to a dedicated user id.",
-            "evidenceAnchorRefs": [
-              "E5",
-              "E6"
-            ]
-          }
+        "requiredTextGroups": [
+          [
+            "case",
+            "cases"
+          ],
+          [
+            "draft"
+          ],
+          [
+            "development",
+            "개발"
+          ],
+          [
+            "dyhan7301",
+            "dedicated user id"
+          ]
         ],
+        "evidenceAnchorRefs": [
+          "E5",
+          "E6"
+        ]
+      }
+    ],
         "forbiddenClaims": [
           {
             "id": "F1",

@@ -794,6 +794,164 @@ function liveClaimHasCertifiedStaticArrayAnchor(item, anchor, parts) {
   });
 }
 
+function associationTextUnits(value) {
+  return String(value ?? '')
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/\\/g, '/')
+    .split(/(?:[;\n]+|[.!?](?=\s|$))/u)
+    .map(unit => unit.replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+}
+
+function alternativeSpans(text, alternatives) {
+  const spans = [];
+  for (const alternative of asArray(alternatives)) {
+    const token = String(alternative ?? '')
+      .normalize('NFKC')
+      .toLowerCase()
+      .replace(/\\/g, '/')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!token) continue;
+    const startsWithWord = /[a-z0-9_]/u.test(token[0]);
+    const endsWithWord = /[a-z0-9_]/u.test(token[token.length - 1]);
+    let start = 0;
+    while (start <= text.length - token.length) {
+      const index = text.indexOf(token, start);
+      if (index < 0) break;
+      const end = index + token.length;
+      const leftBoundary = !startsWithWord || index === 0 ||
+        !/[a-z0-9_]/u.test(text[index - 1]);
+      const rightBoundary = !endsWithWord || end === text.length ||
+        !/[a-z0-9_]/u.test(text[end]);
+      if (leftBoundary && rightBoundary) spans.push({ start: index, end });
+      start = index + Math.max(token.length, 1);
+    }
+  }
+  return spans;
+}
+
+function claimMeetsRequiredTextGroups(claimText, groups) {
+  if (!Array.isArray(groups) || groups.length === 0) return true;
+  const normalized = String(claimText ?? '')
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/\\/g, '/')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return groups.every(group => alternativeSpans(normalized, group).length > 0);
+}
+
+function spanDistance(left, right) {
+  if (left.end < right.start) return right.start - left.end;
+  if (right.end < left.start) return left.start - right.end;
+  return 0;
+}
+
+function associationPredicateStarts(text, association) {
+  const groups = asArray(association.predicateGroups);
+  if (groups.length === 0) return [];
+  const groupSpans = groups.map(group => alternativeSpans(text, group));
+  if (groupSpans.some(spans => spans.length === 0)) return [];
+  const starts = [];
+  for (const anchor of [...groupSpans[0]].sort((left, right) => left.start - right.start)) {
+    const selected = [anchor];
+    for (const spans of groupSpans.slice(1)) {
+      selected.push([...spans].sort((left, right) =>
+        spanDistance(anchor, left) - spanDistance(anchor, right))[0]);
+    }
+    const start = Math.min(...selected.map(span => span.start));
+    const end = Math.max(...selected.map(span => span.end));
+    if (end - start <= 96) starts.push(anchor.start);
+  }
+  return starts;
+}
+
+function associationPredicateStart(text, association) {
+  return associationPredicateStarts(text, association)[0] ?? -1;
+}
+
+function relationIsNegated(unit) {
+  const withoutExemptions = unit.replace(/\bnot\s+(?:only|merely)\b/gu, '');
+  return /\b(?:does|do|did|is|are|was|were|has|have|had|can|could|will|would|should|must)\s+not\b/u
+    .test(withoutExemptions) ||
+    /\b(?:doesn|isn|aren|wasn|weren|hasn|haven|hadn|can|couldn|won|wouldn|shouldn|mustn)['’]t\b/u
+      .test(withoutExemptions) ||
+    /\bnever\b|\bcannot\b|\bunrelated\b|\bnot\s+related\b/u.test(withoutExemptions) ||
+    /\b(?:omit(?:s|ted|ting)?|ignor(?:e|es|ed|ing)|bypass(?:es|ed|ing)?|skip(?:s|ped|ping)?|lack(?:s|ed|ing)?)\b/u
+      .test(withoutExemptions) ||
+    /\bfail(?:s|ed)?\s+to\b/u.test(withoutExemptions) ||
+    /\b(?:operate|operates|work|works|allow|allows|authorize|authorizes|admit|admits)\b[^.;]{0,80}\bwithout\b/u
+      .test(withoutExemptions) ||
+    /\bwithout\s+(?:using|checking|requiring|querying|consulting|reading|selecting|verifying)\b/u
+      .test(withoutExemptions) ||
+    /(?:사용|검사|확인|요구|검증|조회)\s*(?:하지\s*(?:않|못)|할\s*수\s*없)/u
+      .test(withoutExemptions);
+}
+
+function directAssociationMatches(unit, associations) {
+  if (relationIsNegated(unit)) return new Set();
+  const subjectIds = associations.filter(association =>
+    alternativeSpans(unit, association.subjectAlternatives).length > 0)
+    .map(association => association.id);
+  const predicateIds = associations.filter(association =>
+    associationPredicateStart(unit, association) >= 0)
+    .map(association => association.id);
+  return subjectIds.length === 1 && predicateIds.length === 1 &&
+      subjectIds[0] === predicateIds[0]
+    ? new Set(subjectIds)
+    : new Set();
+}
+
+function respectivelyAssociationMatches(unit, associations) {
+  if (relationIsNegated(unit)) return new Set();
+  const markerStart = unit.search(/\brespectively\b|각각/u);
+  if (markerStart < 0) return new Set();
+  const orderedPredicates = associations.flatMap(association => {
+    const starts = associationPredicateStarts(unit, association)
+      .filter(start => start < markerStart);
+    return starts.length > 0 ? [{ id: association.id, start: starts.at(-1) }] : [];
+  }).sort((left, right) => left.start - right.start);
+  if (orderedPredicates.length < 2) return new Set();
+  const firstPredicateStart = orderedPredicates[0].start;
+  const orderedSubjects = associations.flatMap(association => {
+    const spans = alternativeSpans(unit, association.subjectAlternatives)
+      .filter(span => span.end <= firstPredicateStart)
+      .sort((left, right) => left.start - right.start);
+    return spans.length > 0 ? [{ id: association.id, start: spans.at(-1).start }] : [];
+  }).sort((left, right) => left.start - right.start);
+  if (orderedSubjects.length < 2 || orderedSubjects.length !== orderedPredicates.length ||
+      orderedSubjects.some((subject, index) => subject.id !== orderedPredicates[index].id)) {
+    return new Set();
+  }
+  return new Set(orderedSubjects.map(item => item.id));
+}
+
+function claimMeetsRequiredAssociations(claimText, associations) {
+  if (!Array.isArray(associations) || associations.length === 0) return true;
+  const matched = new Set();
+  for (const sentence of associationTextUnits(claimText)) {
+    if (/\brespectively\b|각각/u.test(sentence)) {
+      for (const id of respectivelyAssociationMatches(sentence, associations)) matched.add(id);
+      continue;
+    }
+    for (const id of directAssociationMatches(sentence, associations)) matched.add(id);
+  }
+  return associations.every(association => matched.has(association.id));
+}
+
+function liveClaimMeetsAllowedSemantics(expected, claimText, allowedClaims) {
+  const constrained = asArray(allowedClaims).filter(claim =>
+    claim?.goalId === expected?.id &&
+    ((Array.isArray(claim.requiredTextGroups) && claim.requiredTextGroups.length > 0) ||
+      (Array.isArray(claim.requiredTextAssociations) &&
+        claim.requiredTextAssociations.length > 0)));
+  return constrained.length === 0 || constrained.some(claim =>
+    claimMeetsRequiredTextGroups(claimText, claim.requiredTextGroups) &&
+    claimMeetsRequiredAssociations(claimText, claim.requiredTextAssociations));
+}
+
 function liveClaimSupportsAnchor(item, anchor, parts) {
   const supportingRefs = new Set(asArray(item?.verdict?.supportingEvidenceRefs));
   return asArray(item?.claim?.evidenceRefs).some(ref => supportingRefs.has(ref) &&
@@ -802,7 +960,13 @@ function liveClaimSupportsAnchor(item, anchor, parts) {
     liveClaimHasCertifiedStaticArrayAnchor(item, anchor, parts);
 }
 
-function liveAnchorDispositions(expectedGoals, anchorsById, publicEvidence, parts) {
+function liveAnchorDispositions(
+  expectedGoals,
+  anchorsById,
+  publicEvidence,
+  parts,
+  allowedClaims,
+) {
   const matchedGoals = liveGoalMatches(expectedGoals, parts.subgoals);
   const accepted = acceptedClaims(parts.semantic);
   const publicClaimTexts = new Set(publicStatements(parts.publicResult));
@@ -828,6 +992,7 @@ function liveAnchorDispositions(expectedGoals, anchorsById, publicEvidence, part
       : Math.min(anchorRefs.length, 1);
     const surfacedClaims = claims.filter(item =>
       publicClaimTexts.has(normalizeText(item.claim?.text)) &&
+      liveClaimMeetsAllowedSemantics(expected, item.claim?.text, allowedClaims) &&
       anchorRefs.some(ref => {
         const anchor = anchorsById.get(ref);
         return anchor && liveClaimSupportsAnchor(item, anchor, parts);
@@ -862,7 +1027,7 @@ function originRefsFitWithinExpected(actualRefs, expectedRefs) {
       inner.start >= outer.start && inner.end <= outer.end));
 }
 
-function liveSupplementalClaimTexts(expectedGoals, anchorsById, parts) {
+function liveSupplementalClaimTexts(expectedGoals, anchorsById, parts, allowedClaims) {
   const publicClaimTexts = new Set(publicStatements(parts.publicResult));
   const subgoalById = new Map(parts.subgoals.map(subgoal => [subgoal?.id, subgoal]));
   return acceptedClaims(parts.semantic).flatMap(item => {
@@ -874,6 +1039,7 @@ function liveSupplementalClaimTexts(expectedGoals, anchorsById, parts) {
       expected.claimType === 'comparison' &&
       ['positive', 'count', 'symbol_definition', 'comparison'].includes(subgoal.claimType) &&
       originRefsFitWithinExpected(subgoal.originRefs, expected.requestOriginRefs) &&
+      liveClaimMeetsAllowedSemantics(expected, item.claim?.text, allowedClaims) &&
       asArray(expected.evidenceAnchorRefs).some(ref => {
         const anchor = anchorsById.get(ref);
         return anchor && liveClaimSupportsAnchor(item, anchor, parts);
@@ -890,6 +1056,7 @@ function evaluateLiveTrustCase(caseDefinition, artifact, profile) {
     ? parts.publicResult.state
     : 'invalid';
   const expectedGoals = asArray(oracle.expectedGoals);
+  const allowedClaims = asArray(oracle.allowedClaims);
   const publicEvidence = asArray(parts.publicResult?.evidence);
   const claimScope = asArray(oracle.boundary?.claimScope);
   const anchorsById = new Map(asArray(oracle.evidenceAnchors)
@@ -934,10 +1101,11 @@ function evaluateLiveTrustCase(caseDefinition, artifact, profile) {
     anchorsById,
     publicEvidence,
     parts,
+    allowedClaims,
   );
   const allowedParentStatements = new Set([
     ...dispositions.flatMap(item => item.claimTexts),
-    ...liveSupplementalClaimTexts(expectedGoals, anchorsById, parts),
+    ...liveSupplementalClaimTexts(expectedGoals, anchorsById, parts, allowedClaims),
   ]);
   for (const statement of publicStatements(parts.publicResult)) {
     if (!allowedParentStatements.has(statement)) {

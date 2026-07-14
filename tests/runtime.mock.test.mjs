@@ -7191,7 +7191,9 @@ test('Spec 028 T059 — runtime enforces negative and critical proof boundaries'
         },
       ],
       initialEvidenceRefs: ['E1', 'E2'],
-      assertImplemented({ result, goal, claim }) {
+      assertImplemented({ client, result, goal, claim }) {
+        assert.equal(client.stageCounts.get('semantic_verifier'), 1,
+          'a two-path comparison does not trigger focused corroboration');
         assert.equal(result.taskContract.subgoals.find(item => item.id === goal.id).state,
           'supported');
         assert.equal(result.coverageGaps.length, 0);
@@ -7551,6 +7553,169 @@ semanticPipelineRuntimeTest(
     assert.equal(result.failure, null);
     assertInternalProofGap(result, goal.id);
     assertMinimalIncompleteParentHandoff(result, goal.question);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — multi-path comparison requires focused verifier agreement',
+  async () => {
+    const task = 'Compare administrator and developer access across frontend and backend routes.';
+    const frontendGoal = trustGoal(task, {
+      id: 'S-focused-frontend',
+      question: 'How does the frontend administrator guard work?',
+      originText: task,
+      claimType: 'positive',
+      proofCondition: 'Observe the frontend administrator predicate.',
+    });
+    const backendGoal = trustGoal(task, {
+      id: 'S-focused-backend',
+      question: 'Which distinct backend administrator checks exist?',
+      originText: task,
+      claimType: 'comparison',
+      proofCondition: 'Compare each distinct backend administrator predicate.',
+    });
+    const developerGoal = trustGoal(task, {
+      id: 'S-focused-developer',
+      question: 'Which backend routes provide developer-specific access?',
+      originText: task,
+      claimType: 'comparison',
+      proofCondition: 'Compare the two developer-specific backend mappings.',
+    });
+    const frontendClaim = candidateClaim(
+      'C-focused-frontend', frontendGoal.id,
+      'The frontend guard checks ADMIN_USERS membership.', ['E1']);
+    const wrongBackendClaim = candidateClaim(
+      'C-focused-backend', backendGoal.id,
+      'Backend routes use ADMIN_USERS membership and two admin_user_info existence checks.',
+      ['E2', 'E3', 'E4']);
+    const developerClaim = candidateClaim(
+      'C-focused-developer', developerGoal.id,
+      'The case and draft routes both map the development department to dyhan7301.',
+      ['E5', 'E6']);
+    const sourceTools = [
+      { tool: 'repo_read_file', args: { path: 'src/frontend.js' }, id: 'focused-front' },
+      { tool: 'repo_read_file', args: { path: 'src/backend-list.js' }, id: 'focused-list' },
+      { tool: 'repo_read_file', args: { path: 'src/backend-existence.js' }, id: 'focused-existence' },
+      { tool: 'repo_read_file', args: { path: 'src/backend-flag.js' }, id: 'focused-flag' },
+      { tool: 'repo_read_file', args: { path: 'src/cases.js' }, id: 'focused-cases' },
+      { tool: 'repo_read_file', args: { path: 'src/draft.js' }, id: 'focused-draft' },
+    ];
+    const setup = async root => {
+      const files = new Map([
+        ['frontend.js', 'export const frontendAdmin = id => ADMIN_USERS.includes(id);\n'],
+        ['backend-list.js', 'export const listAdmin = id => ADMIN_USERS.includes(id);\n'],
+        ['backend-existence.js', 'export const rowAdmin = adminUser => Boolean(adminUser);\n'],
+        ['backend-flag.js', 'export const flagAdmin = user => user?.is_admin === true;\n'],
+        ['cases.js', "export const caseUser = department => department === 'development' ? 'dyhan7301' : null;\n"],
+        ['draft.js', "export const draftUser = department => department === 'development' ? 'dyhan7301' : null;\n"],
+      ]);
+      for (const [name, content] of files) {
+        await fs.writeFile(path.join(root, 'src', name), content);
+      }
+    };
+    const primaryVerdicts = [
+      semanticVerdict(frontendClaim.id, 'supported', ['E1']),
+      semanticVerdict(wrongBackendClaim.id, 'supported', ['E2', 'E3', 'E4']),
+      semanticVerdict(developerClaim.id, 'supported', ['E5', 'E6']),
+    ];
+    const steps = buildTrustSteps({
+      goals: [frontendGoal, backendGoal, developerGoal],
+      initial: {
+        tools: sourceTools,
+        claims: [frontendClaim, wrongBackendClaim, developerClaim],
+        verifierSteps: [{ verdicts: primaryVerdicts }, {
+          verdicts: [semanticVerdict(wrongBackendClaim.id, 'supported', ['E2', 'E3'])],
+          assertRequest(request) {
+            const packet = parseControlPacket(request);
+            assert.deepEqual(packet.claims.map(claim => claim.id), [wrongBackendClaim.id]);
+            assert.deepEqual(packet.control.requiredSubgoals.map(goal => goal.id), [backendGoal.id]);
+            assert.deepEqual(packet.observations.map(item => item.id), ['E2', 'E3', 'E4']);
+            assert.match(request.messages[0].content,
+              /FOCUSED MULTI-PATH COMPARISON CORROBORATION/u);
+          },
+        }],
+      },
+      repair: {
+        tools: [],
+        prose: 'No materially new repository action is available.',
+        claims: [],
+        verdicts: [],
+      },
+    });
+    const { client, result } = await runTrustScript(steps, { task, setup });
+
+    assert.equal(client.stageCounts.get('semantic_verifier'), 2);
+    assert.equal(result.taskContract.subgoals.find(goal => goal.id === frontendGoal.id)?.state,
+      'supported');
+    assert.equal(result.taskContract.subgoals.find(goal => goal.id === backendGoal.id)?.state,
+      'gap');
+    assert.equal(result.taskContract.subgoals.find(goal => goal.id === developerGoal.id)?.state,
+      'supported');
+    assert.equal(result.semanticVerification.claims.find(claim =>
+      claim.id === wrongBackendClaim.id)?.verdict, 'insufficient');
+    assert.equal(result.parentHandoff.state, 'incomplete');
+    assert.match(result.parentHandoff.directAnswer, /frontend guard checks ADMIN_USERS/u);
+    assert.match(result.parentHandoff.directAnswer, /case and draft routes/u);
+    assert.doesNotMatch(result.parentHandoff.directAnswer, /two admin_user_info existence checks/u);
+    assert.equal(result.parentHandoff.gaps.some(gap =>
+      gap.question === backendGoal.question), true);
+
+    const primaryPartialSteps = buildTrustSteps({
+      goals: [frontendGoal, backendGoal, developerGoal],
+      initial: {
+        tools: sourceTools,
+        claims: [frontendClaim, wrongBackendClaim, developerClaim],
+        verdicts: [
+          semanticVerdict(frontendClaim.id, 'supported', ['E1']),
+          semanticVerdict(wrongBackendClaim.id, 'supported', ['E2', 'E3']),
+          semanticVerdict(developerClaim.id, 'supported', ['E5', 'E6']),
+        ],
+      },
+      repair: {
+        tools: [],
+        prose: 'No materially new repository action is available.',
+        claims: [],
+        verdicts: [],
+      },
+    });
+    const primaryPartial = await runTrustScript(primaryPartialSteps, { task, setup });
+    assert.equal(primaryPartial.client.stageCounts.get('semantic_verifier'), 1,
+      'a partial primary verdict fails closed before focused corroboration');
+    assert.equal(primaryPartial.result.taskContract.subgoals.find(goal =>
+      goal.id === backendGoal.id)?.state, 'gap');
+
+    const correctBackendClaim = candidateClaim(
+      'C-focused-backend-correct', backendGoal.id,
+      'The admin helper uses ADMIN_USERS; feedback checks admin_user_info row existence; inquiry requires the is_admin boolean flag to be true.',
+      ['E2', 'E3', 'E4']);
+    const positiveSteps = buildTrustSteps({
+      goals: [frontendGoal, backendGoal, developerGoal],
+      initial: {
+        tools: sourceTools,
+        claims: [frontendClaim, correctBackendClaim, developerClaim],
+        verifierSteps: [{
+          verdicts: [
+            semanticVerdict(frontendClaim.id, 'supported', ['E1']),
+            semanticVerdict(correctBackendClaim.id, 'supported', ['E2', 'E3', 'E4']),
+            semanticVerdict(developerClaim.id, 'supported', ['E5', 'E6']),
+          ],
+        }, {
+          verdicts: [semanticVerdict(
+            correctBackendClaim.id, 'supported', ['E2', 'E3', 'E4'])],
+        }],
+      },
+    });
+    const positive = await runTrustScript(positiveSteps, { task, setup });
+    assert.equal(positive.client.stageCounts.get('semantic_verifier'), 2);
+    assert.equal(positive.result.taskContract.subgoals.find(goal =>
+      goal.id === backendGoal.id)?.state, 'supported');
+    assert.equal(positive.result.semanticVerification.claims.find(claim =>
+      claim.id === correctBackendClaim.id)?.verdict, 'supported');
+    assertMinimalCompleteParentHandoff(positive.result, {
+      answer: [frontendClaim.text, correctBackendClaim.text, developerClaim.text].join('\n'),
+      evidenceCount: 6,
+      evidenceKinds: ['source', 'source', 'source', 'source', 'source', 'source'],
+    });
   },
 );
 

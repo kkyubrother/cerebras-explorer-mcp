@@ -161,6 +161,7 @@ Repository 밖 mutable state나 일부러 scope 밖 evidence가 필요한 질문
 ## Trust fixture 원칙
 
 Known-answer fixture는 explorer output과 분리된 oracle을 가집니다.
+Live oracle은 source anchor뿐 아니라 필요한 경우 allowed claim의 독립 semantic marker group과 path-to-predicate association도 검사합니다. Association은 일반 절에서 하나의 명시적 subject와 가까운 predicate group을 결합하고 `respectively`/`각각` 절에서는 두 목록의 순서를 결합합니다. 명시적 부정·무관 표현은 거부합니다. 따라서 올바른 파일과 단어를 모두 포함하더라도 `ADMIN_USERS` membership, row existence, `is_admin` boolean predicate를 route 사이에서 바꿔 쓰거나 무관한 단어 묶음으로 채운 claim은 통과하지 않습니다.
 
 - Expected required questions
 - Allowed/forbidden claims

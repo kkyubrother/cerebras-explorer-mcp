@@ -32,6 +32,7 @@ import {
   buildGoalCoverageReconciliationMessages,
   buildClaimSynthesisMessages,
   buildSemanticVerifierMessages,
+  buildComparisonCorroboratorMessages,
 } from './prompt.mjs';
 import {
   CLAIM_SYNTHESIS_SCHEMA,
@@ -2361,6 +2362,57 @@ function validateSemanticVerdictBatch(raw, { claims }) {
   };
 }
 
+function currentSourcePathsForRefs(refs, observations) {
+  const selectedRefs = new Set(Array.isArray(refs) ? refs : []);
+  return new Set((observations ?? []).flatMap(observation =>
+    selectedRefs.has(observation?.id) && observation?.kind === 'source' &&
+        observation.temporalRole === 'current' && typeof observation.path === 'string' &&
+        observation.path
+      ? [normalizeTargetPath(observation.path)]
+      : []));
+}
+
+function mergeComparisonCorroboration(primary, corroborated, {
+  requiredSourcePaths,
+  observations,
+}) {
+  if (primary?.result !== 'supported') return primary;
+  if (corroborated?.result !== 'supported' ||
+      corroborated.resolution !== primary.resolution) {
+    return corroborated?.result === 'contradicted'
+      ? corroborated
+      : {
+          claimId: primary.claimId,
+          result: 'insufficient',
+          supportingEvidenceRefs: corroborated?.supportingEvidenceRefs ?? [],
+          reasonCode: corroborated?.reasonCode ?? 'semantic_mismatch',
+          note: corroborated?.note ??
+            'Focused multi-path comparison corroboration did not support the whole claim.',
+        };
+  }
+  const corroboratedRefs = new Set(corroborated.supportingEvidenceRefs);
+  const agreedRefs = primary.supportingEvidenceRefs.filter(ref => corroboratedRefs.has(ref));
+  const agreedSourcePaths = new Set((observations ?? []).flatMap(observation =>
+    agreedRefs.includes(observation?.id) && observation?.kind === 'source' &&
+        observation.temporalRole === 'current' && typeof observation.path === 'string' &&
+        observation.path
+      ? [normalizeTargetPath(observation.path)]
+      : []));
+  if ([...requiredSourcePaths].some(path => !agreedSourcePaths.has(path))) {
+    return {
+      claimId: primary.claimId,
+      result: 'insufficient',
+      supportingEvidenceRefs: agreedRefs,
+      reasonCode: 'semantic_mismatch',
+      note: 'The two independent comparison checks did not agree on every supporting source path.',
+    };
+  }
+  return {
+    ...primary,
+    supportingEvidenceRefs: agreedRefs,
+  };
+}
+
 function prepareCandidateSubgoals(taskContract, claims, {
   phase = 'initial',
   freshEvidenceRefs = [],
@@ -4479,7 +4531,7 @@ export class ExplorerRuntime {
         subgoalIds.has(certificate.subgoalId));
       const batchDeterministicCounts = deterministicCounts.filter(count =>
         subgoalIds.has(count.subgoalId));
-      const verified = await requestValidatedGoalControl({
+      let verified = await requestValidatedGoalControl({
         chatClient,
         messages: buildSemanticVerifierMessages({
           taskContract: batchContract,
@@ -4502,6 +4554,77 @@ export class ExplorerRuntime {
           claims: batchClaims,
         }),
       });
+      const corroboratedVerdicts = [...verified.verdicts];
+      for (const [index, claim] of batchClaims.entries()) {
+        const subgoal = subgoalBatch.find(item => item.id === claim.subgoalId);
+        const primaryVerdict = corroboratedVerdicts[index];
+        if (subgoal?.proofPolicy !== 'distinct_policy_paths' ||
+            primaryVerdict?.result !== 'supported') {
+          continue;
+        }
+        const requiredSourcePaths = currentSourcePathsForRefs(
+          claim.evidenceRefs,
+          batchObservations,
+        );
+        if (requiredSourcePaths.size < 3) continue;
+        const primarySourcePaths = currentSourcePathsForRefs(
+          primaryVerdict.supportingEvidenceRefs,
+          batchObservations,
+        );
+        if ([...requiredSourcePaths].some(path => !primarySourcePaths.has(path))) {
+          corroboratedVerdicts[index] = {
+            claimId: primaryVerdict.claimId,
+            result: 'insufficient',
+            supportingEvidenceRefs: primaryVerdict.supportingEvidenceRefs,
+            reasonCode: 'semantic_mismatch',
+            note: 'The primary comparison check did not support every cited source path.',
+          };
+          continue;
+        }
+        const claimEvidenceRefs = new Set(claim.evidenceRefs);
+        const focusedObservations = batchObservations.filter(observation =>
+          claimEvidenceRefs.has(observation?.id));
+        const focusedCertificates = batchAbsenceCertificates.filter(certificate =>
+          certificate?.subgoalId === subgoal.id &&
+          certificate.searchRefs?.every(ref => claimEvidenceRefs.has(ref)));
+        const corroborated = await requestValidatedGoalControl({
+          chatClient,
+          messages: buildComparisonCorroboratorMessages({
+            taskContract: semanticBatchContract(candidateContract, [subgoal]),
+            claims: [claim],
+            observations: focusedObservations,
+            absenceCertificates: focusedCertificates,
+            wrapperTool,
+          }),
+          schemaName: 'semantic_verifier_response',
+          schema: SEMANTIC_VERIFIER_RESPONSE_SCHEMA,
+          stage: 'semantic_verifier',
+          reasoningEffort,
+          temperature,
+          topP,
+          maxCompletionTokens,
+          abortSignal,
+          onCompletion,
+          validate: raw => {
+            const response = validateSemanticVerdictBatch(raw, { claims: [claim] });
+            if (response.uncoveredRequestParts.length > 0) {
+              throw new TypeError(
+                'Focused comparison corroboration cannot add request obligations.',
+              );
+            }
+            return response;
+          },
+        });
+        corroboratedVerdicts[index] = mergeComparisonCorroboration(
+          primaryVerdict,
+          corroborated.verdicts[0],
+          {
+            requiredSourcePaths,
+            observations: focusedObservations,
+          },
+        );
+      }
+      verified = { ...verified, verdicts: corroboratedVerdicts };
       verificationBatches.push({
         subgoalBatch,
         batchClaims,

@@ -368,6 +368,10 @@ auditedPromptBoundaryTest('Spec 028 T018 — planner policy is invariant under u
     /impact leaf[\s\S]{0,160}source, docs, agent config, and dependencies[\s\S]{0,120}required proof categories/i);
   assert.match(attacked.system,
     /direct invocation sites=count[\s\S]{0,120}wrapper membership=comparison[\s\S]{0,120}configuration-only membership=comparison/i);
+  assert.match(attacked.system,
+    /Count the entries in STATIC_ARRAY[\s\S]{0,220}exactly three leaves[\s\S]{0,220}entry count=count[\s\S]{0,180}definition location=symbol_definition[\s\S]{0,180}distinction=comparison/i);
+  assert.match(attacked.system,
+    /complete "Cite the definition" clause[\s\S]{0,180}complete "distinguish \.\.\. from \.\.\." clause[\s\S]{0,220}never replace it with a standalone ending-line fact/i);
   assertRuntimeOwnedProofPolicy(attacked.system, 'planner');
 
   const wholeRepository = assertTwoMessageBoundary(promptModule.buildPlannerMessages(plannerArgs({
@@ -439,6 +443,8 @@ auditedPromptBoundaryTest('Spec 028 T018 — corrected planner receives one boun
   assert.match(attacked.system, /no (?:further|additional|recursive)|must not re.?plan/i);
   assert.match(attacked.system,
     /do not recreate a decomposition defect[\s\S]{0,180}independently decidable leaf goals/i);
+  assert.match(attacked.system,
+    /Count the entries in STATIC_ARRAY[\s\S]{0,220}count-versus-ending-line distinction=comparison/i);
   assertRawArtifactsExcluded(attacked.all);
   assert.doesNotMatch(attacked.all,
     /EXPLORER_DRAFT_OVERRIDE_POLICY|CANDIDATE_CLAIM_OVERRIDE_POLICY/);
@@ -510,6 +516,8 @@ auditedPromptBoundaryTest('Spec 028 T018 — goal auditor sees only request cont
     /missingRequestParts entry[\s\S]{0,180}structured uncoveredRequestParts entry/i);
   assert.match(attacked.system,
     /category leaf is not mixed[\s\S]{0,180}sibling categories/i);
+  assert.match(attacked.system,
+    /Count the entries in STATIC_ARRAY[\s\S]{0,520}comparison is one atomic relationship[\s\S]{0,180}tail-noun origin/i);
   assertRuntimeOwnedProofPolicy(attacked.system, 'goal auditor');
 });
 
@@ -650,6 +658,8 @@ test('Spec 028 T028 — claim synthesis receives bounded observations and cannot
   assert.match(prompt.system,
     /comparison claim[\s\S]{0,120}distinct source paths/i);
   assert.match(prompt.system,
+    /three or more source paths[\s\S]{0,180}separate semicolon-delimited clause[\s\S]{0,160}path-to-predicate pairing/i);
+  assert.match(prompt.system,
     /do not cite search\/list telemetry in an impact claim/i);
   assert.match(prompt.system,
     /positive direct-source test claim[\s\S]{0,180}one exactly observed test/i);
@@ -775,6 +785,8 @@ test('Spec 028 T028 — semantic verifier sees isolated rebuilt facts and cannot
   assert.match(prompt.system,
     /definition together with[\s\S]{0,180}invocation or enforcement site/i);
   assert.match(prompt.system,
+    /every asserted comparison side and enforcement predicate[\s\S]{0,180}one correct side never compensates[\s\S]{0,220}row-existence check[\s\S]{0,180}selected boolean field check/i);
+  assert.match(prompt.system,
     /every, exhaustive, or inventory classification[\s\S]{0,180}complete cited enumeration[\s\S]{0,180}every enumerated member/i);
   assert.match(prompt.data, /Locate requireAuth/);
   assert.match(prompt.data, /"id":"S1"/);
@@ -796,4 +808,62 @@ test('Spec 028 T028 — semantic verifier sees isolated rebuilt facts and cannot
     /normalizedItemIds|normalizedItemAnchors|DO_NOT_EXPOSE_RUNTIME_ITEM_HASH/);
   assert.doesNotMatch(prompt.all,
     /PRIVATE_VERIFIER_REASONING|PRIVATE_DRAFT_ANSWER|PRIVATE_CANDIDATE_PATH|totalTokens|"confidence"/);
+});
+
+test('Spec 028 T069 — focused comparison corroborator receives one cited multi-path claim', () => {
+  const task = 'Compare backend administrator checks.';
+  const taskContract = {
+    task,
+    effectiveScope: ['app/api/**'],
+    constraints: [],
+    subgoals: [{
+      id: 'S1',
+      question: 'Which backend checks differ?',
+      originRefs: [`request:0-${task.length}`],
+      claimType: 'comparison',
+      proofPolicy: 'distinct_policy_paths',
+      proofCondition: 'Compare each backend enforcement predicate.',
+      constraints: [],
+      auditVerdict: 'ready',
+      state: 'candidate',
+      claimRefs: ['C1'],
+    }],
+  };
+  const claim = {
+    id: 'C1',
+    subgoalId: 'S1',
+    text: 'The three routes use distinct administrator predicates.',
+    evidenceRefs: ['E1', 'E2', 'E3'],
+  };
+  const observations = ['one', 'two', 'three'].map((name, index) => ({
+    id: `E${index + 1}`,
+    kind: 'source',
+    path: `app/api/${name}/route.ts`,
+    startLine: 1,
+    endLine: 10,
+    snippet: `export const ${name} = true;`,
+    rangeGrounding: 'exact',
+    sourceRole: 'implementation',
+    temporalRole: 'current',
+    redacted: false,
+  }));
+  const prompt = assertTwoMessageBoundary(
+    promptModule.buildComparisonCorroboratorMessages({
+      taskContract,
+      claims: [claim],
+      observations,
+      absenceCertificates: [],
+      wrapperTool: 'explore_repo',
+    }),
+    'comparison corroborator',
+  );
+
+  assert.match(prompt.system, /FOCUSED MULTI-PATH COMPARISON CORROBORATION/u);
+  assert.match(prompt.system, /exactly one high-risk comparison claim/u);
+  assert.match(prompt.system, /uncoveredRequestParts must be an empty array/u);
+  assert.match(prompt.data, /"id":"C1"/u);
+  assert.match(prompt.data, /app\/api\/one\/route\.ts/u);
+  assert.match(prompt.data, /app\/api\/two\/route\.ts/u);
+  assert.match(prompt.data, /app\/api\/three\/route\.ts/u);
+  assert.doesNotMatch(prompt.data, /auditVerdict|claimRefs|"state"/u);
 });
