@@ -2106,6 +2106,7 @@ test('evaluateBenchmarkCase scores keyword expectations and checks', () => {
         label: 'Answer groups',
         source: 'direct_answer',
         groups: [['sessionstore'], ['target paths'], ['missing-token']],
+        minCoverage: 2 / 3,
         weight: 0.6,
       },
       {
@@ -2126,7 +2127,9 @@ test('evaluateBenchmarkCase scores keyword expectations and checks', () => {
   };
 
   const result = {
+    schemaVersion: 3,
     directAnswer: 'SessionStore updates target paths after each call.',
+    state: 'complete',
     evidence: [
       {
         path: 'src/explorer/runtime.mjs',
@@ -2192,7 +2195,9 @@ test('evaluateBenchmarkCase scores adoption fields', () => {
   };
 
   const result = {
+    schemaVersion: 3,
     directAnswer: 'requireAuth is defined in auth.js',
+    state: 'complete',
     targets: [{ path: 'src/auth.js', role: 'read', reason: 'definition', evidenceRefs: ['E1'] }],
     evidence: [{ path: 'src/auth.js', snippet: '1: export function requireAuth() {}' }],
   };
@@ -2273,7 +2278,7 @@ test('evaluateBenchmarkCase reads schema-v3 MCP results', () => {
       {
         label: 'Combined text includes compact fields',
         source: 'combined_text',
-        groups: [['direct answer'], ['target reason'], ['followup']],
+        groups: [['direct answer'], ['target reason']],
         weight: 0.25,
       },
       {
@@ -2295,17 +2300,119 @@ test('evaluateBenchmarkCase reads schema-v3 MCP results', () => {
   };
 
   const result = {
+    schemaVersion: 3,
     directAnswer: 'Direct answer from compact result.',
     state: 'verify_targets',
     targets: [
-      { path: 'src/mcp/server.mjs', role: 'read', reason: 'Target reason for compact output.', evidenceRefs: [] },
+      { path: 'src/mcp/server.mjs', role: 'read', reason: 'Target reason for compact output.' },
     ],
-    evidence: [],
-    followUp: { action: 'read_target', reason: 'Followup needed.' },
+    evidence: [
+      {
+        kind: 'source',
+        path: 'src/mcp/server.mjs',
+        startLine: 1,
+        endLine: 1,
+        supports: 'The compact output is assembled by the MCP server.',
+      },
+    ],
   };
 
   const evaluation = evaluateBenchmarkCase(caseDefinition, result);
   assert.equal(evaluation.passed, true);
+});
+
+test('evaluateBenchmarkCase requires every expectation and check', () => {
+  const result = { schemaVersion: 3, state: 'complete', directAnswer: 'Primary signal.' };
+  const expectation = (token, weight) => ({
+    label: token, source: 'direct_answer', groups: [[token]], weight,
+  });
+  const failedExpectation = evaluateBenchmarkCase({
+    id: 'mandatory-expectation', passScore: 0.5,
+    expectations: [expectation('primary signal', 0.9), expectation('missing signal', 0.1)],
+  }, result);
+  assert.equal(failedExpectation.score, 0.9);
+  assert.equal(failedExpectation.passed, false);
+
+  const failedCheck = evaluateBenchmarkCase({
+    id: 'mandatory-check', passScore: 0.5,
+    expectations: [expectation('primary signal', 0.9)],
+    checks: [{ label: 'Missing target', type: 'min_target_count', value: 1, weight: 0.1 }],
+  }, result);
+  assert.equal(failedCheck.score, 0.9);
+  assert.equal(failedCheck.passed, false);
+});
+
+test('evaluateBenchmarkCase enforces git evidence and target-count bounds', () => {
+  const definition = {
+    id: 'bounds', passScore: 1,
+    checks: [
+      { label: 'Git', type: 'min_git_evidence_count', value: 1 },
+      { label: 'Quiet', type: 'max_target_count', value: 1 },
+    ],
+  };
+  const result = {
+    schemaVersion: 3, state: 'complete', targets: [{ path: 'src/one.mjs' }],
+    evidence: [{ kind: 'git', sha: 'abc1234', supports: 'Registry change.' }],
+  };
+  assert.equal(evaluateBenchmarkCase(definition, result).passed, true);
+  assert.equal(evaluateBenchmarkCase(definition, { ...result, evidence: [] }).passed, false);
+  assert.equal(evaluateBenchmarkCase(definition, {
+    ...result, targets: [...result.targets, { path: 'src/two.mjs' }],
+  }).passed, false);
+});
+
+test('Spec 028 T071 — adoption fails closed for incomplete and aborted results', () => {
+  const definition = {
+    id: 'state-gate', passScore: 1,
+    expectations: [{ label: 'Answer', source: 'direct_answer', groups: [['matched answer']] }],
+  };
+  const results = [
+    {
+      schemaVersion: 3, state: 'incomplete', directAnswer: 'Matched answer.',
+      evidence: [{ kind: 'source', path: 'src/a.mjs', startLine: 1, endLine: 1, supports: 'Matched answer.' }],
+      gaps: [{ question: 'What remains?', reason: 'Search incomplete.' }],
+    },
+    { schemaVersion: 3, state: 'failed', directAnswer: 'Matched answer.', failure: { reason: 'aborted' } },
+  ];
+  for (const result of results) {
+    const evaluation = evaluateBenchmarkCase(definition, result);
+    assert.equal(evaluation.score, 1);
+    assert.equal(evaluation.passed, false);
+  }
+});
+
+test('Spec 028 T071 — combined text uses schema-v3 gap and action fields only', () => {
+  const combined = (result, groups) => evaluateBenchmarkCase({
+    id: 'combined-v3', expectations: [{ label: 'Text', source: 'combined_text', groups }],
+  }, result).expectations[0];
+  const base = {
+    schemaVersion: 3, state: 'incomplete',
+    gaps: [{ question: 'Current question', reason: 'Current reason' }],
+  };
+  const gapText = combined({
+    ...base,
+    gaps: [{ ...base.gaps[0], need: 'Legacy need', blocker: 'Legacy blocker' }],
+    retry: { action: 'Legacy retry' },
+  }, [['current question'], ['current reason'], ['legacy need'], ['legacy blocker'], ['legacy retry']]);
+  assert.deepEqual(gapText.details.map(item => item.matched), [true, true, false, false, false]);
+
+  for (const [followUp, token] of [
+    [{ type: 'tool', tool: 'collect_evidence', arguments: { claim: 'Tool claim' } }, 'tool claim'],
+    [{ type: 'ask_user', question: 'Which deployment?' }, 'which deployment'],
+    [{ type: 'external_verification', requirement: 'Inspect deployed routes.' }, 'inspect deployed routes'],
+  ]) {
+    assert.equal(combined({ ...base, followUp }, [[followUp.type], [token]]).passed, true);
+  }
+
+  const retryText = combined({
+    schemaVersion: 3, state: 'failed', directAnswer: 'Provider failed.',
+    failure: {
+      reason: 'provider_error',
+      retry: { type: 'tool', tool: 'collect_evidence', arguments: { claim: 'Current retry' } },
+    },
+    retry: { action: 'Legacy retry' },
+  }, [['provider_error'], ['collect_evidence'], ['current retry'], ['legacy retry']]);
+  assert.deepEqual(retryText.details.map(item => item.matched), [true, true, true, false]);
 });
 
 test('evaluateBenchmarkCase rejects removed recentActivity benchmark sources and checks', () => {

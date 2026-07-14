@@ -62,6 +62,10 @@ function scoredExpectations(testCase) {
     .filter(expectation => Number(expectation.weight ?? 1) > 0);
 }
 
+function containsHangul(value) {
+  return /[\uac00-\ud7a3]/u.test(String(value));
+}
+
 test('adoption suite: no scored expectation group is echo-earnable', () => {
   const violations = [];
   for (const testCase of suite.cases) {
@@ -111,4 +115,37 @@ test('adoption suite: every scored expectation keeps >=1 group and >=1 discovery
     [],
     `expectations missing a discovery anchor:\n${violations.join('\n')}`,
   );
+});
+
+test('adoption suite: English tasks do not require language-incompatible keywords', () => {
+  const violations = [];
+  for (const testCase of suite.cases) {
+    const taskText = collectArgValues(testCase.args ?? {}, []).join(' ');
+    if (containsHangul(taskText)) continue;
+    for (const expectation of scoredExpectations(testCase)) {
+      for (const group of expectation.groups ?? []) {
+        if (group.some(containsHangul)) {
+          violations.push(`${testCase.id} / "${expectation.label}": ${JSON.stringify(group)}`);
+        }
+      }
+    }
+  }
+  assert.deepEqual(
+    violations,
+    [],
+    `English tasks contain language-incompatible scored keywords:\n${violations.join('\n')}`,
+  );
+});
+
+test('adoption suite: v3 and wrapper scenarios keep objective source anchors', () => {
+  const byId = new Map(suite.cases.map(testCase => [testCase.id, testCase]));
+  const serialized = testCase => JSON.stringify(byId.get(testCase));
+
+  assert.match(serialized('map-change-impact'), /tests\/(schemas|runtime\.mock|mcp-server)\.test\.mjs/);
+  assert.match(serialized('explain-code-path'), /src\/mcp\/jsonrpc-stdio\.mjs/);
+  assert.match(serialized('explore-recent-change-context'), /min_git_evidence_count/);
+  assert.match(serialized('structured-output-contract'), /src\/explorer\/parent-payload\.mjs/);
+  assert.match(serialized('structured-output-contract'), /buildParentPayload/);
+  assert.doesNotMatch(serialized('structured-output-contract'), /formatExploreResult/);
+  assert.match(serialized('direct-vs-explorer-boundary'), /max_target_count/);
 });

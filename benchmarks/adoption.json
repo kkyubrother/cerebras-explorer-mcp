@@ -76,7 +76,7 @@
         {
           "label": "Targets include production callsite",
           "source": "target_paths",
-          "groups": [["src/explorer/runtime.mjs"]],
+          "groups": [["src/mcp/server.mjs", "src/explorer/runtime.mjs"]],
           "weight": 0.3
         }
       ],
@@ -97,18 +97,24 @@
         {
           "label": "Answer covers runtime, schema, server, tests",
           "source": "combined_text",
-          "groups": [["schemas.mjs"], ["runtime.mjs"], ["server.mjs"]],
-          "weight": 0.4
+          "groups": [["schemas.mjs"], ["runtime.mjs"], ["server.mjs"], ["schemas.test.mjs", "runtime.mock.test.mjs", "mcp-server.test.mjs"]],
+          "weight": 0.3
+        },
+        {
+          "label": "Targets include each required impact category",
+          "source": "target_paths",
+          "groups": [["src/explorer/schemas.mjs"], ["src/explorer/runtime.mjs"], ["src/mcp/server.mjs"], ["tests/schemas.test.mjs", "tests/runtime.mock.test.mjs", "tests/mcp-server.test.mjs"]],
+          "weight": 0.25
         },
         {
           "label": "Targets describe actionability",
           "source": "target_reasons",
-          "groups": [["schema"], ["runtime", "normaliz"], ["검증"]],
-          "weight": 0.2
+          "groups": [["schema"], ["runtime", "normaliz"], ["regression", "validation"]],
+          "weight": 0.15
         }
       ],
       "checks": [
-        { "label": "Returns at least three targets", "type": "min_target_count", "value": 3, "weight": 0.2 },
+        { "label": "Returns at least four targets", "type": "min_target_count", "value": 4, "weight": 0.2 },
         { "label": "Citations or evidence snippets present", "type": "min_evidence_snippet_count", "value": 1, "weight": 0.1 }
       ]
     },
@@ -123,20 +129,20 @@
       },
       "expectations": [
         {
-          "label": "Flow mentions handler and runtime",
+          "label": "Flow covers transport, dispatch, runtime, and response",
           "source": "combined_text",
-          "groups": [["handleRequest"]],
-          "weight": 0.5
+          "groups": [["dispatchMessage"], ["handleRequest"], ["callTool"], ["buildParentHandoffResponse"]],
+          "weight": 0.4
         },
         {
-          "label": "Targets include server and runtime",
+          "label": "Targets include transport and runtime beyond the known server anchor",
           "source": "target_paths",
-          "groups": [["src/explorer/runtime.mjs"]],
-          "weight": 0.25
+          "groups": [["src/mcp/jsonrpc-stdio.mjs"], ["src/explorer/runtime.mjs"]],
+          "weight": 0.3
         }
       ],
       "checks": [
-        { "label": "Structured evidence retained", "type": "min_evidence_count", "value": 2, "weight": 0.15 },
+        { "label": "Structured evidence retained", "type": "min_evidence_count", "value": 3, "weight": 0.2 },
         { "label": "Snippet present", "type": "min_evidence_snippet_count", "value": 1, "weight": 0.1 }
       ]
     },
@@ -180,12 +186,13 @@
         {
           "label": "Answer discusses change context",
           "source": "combined_text",
-          "groups": [["server.mjs"], ["검토"]],
-          "weight": 0.6
+          "groups": [["server.mjs"], ["buildToolList"]],
+          "weight": 0.55
         }
       ],
       "checks": [
-        { "label": "Targets present", "type": "min_target_count", "value": 1, "weight": 0.3 },
+        { "label": "Targets present", "type": "min_target_count", "value": 1, "weight": 0.15 },
+        { "label": "Git evidence retained", "type": "min_git_evidence_count", "value": 1, "weight": 0.2 },
         { "label": "Citations or evidence snippets present", "type": "min_evidence_snippet_count", "value": 1, "weight": 0.1 }
       ]
     },
@@ -195,26 +202,26 @@
       "tool": "find_relevant_code",
       "args": {
         "query": "Which code controls explore_repo output formatting and structuredContent fields?",
-        "knownSymbols": ["formatExploreResult", "normalizeExploreResult"],
+        "knownSymbols": ["formatParentHandoffText", "buildParentPayload", "normalizeExploreResult"],
         "scope": ["src/**", "tests/**"]
       },
       "expectations": [
         {
           "label": "Answer mentions formatting and normalization",
           "source": "combined_text",
-          "groups": [["src/explorer/schemas.mjs"], ["src/mcp/server.mjs"]],
+          "groups": [["src/explorer/parent-payload.mjs"], ["src/explorer/schemas.mjs"], ["src/mcp/server.mjs", "src/explorer/runtime.mjs"]],
           "weight": 0.45
         },
         {
           "label": "State is actionable",
           "source": "result_state",
-          "groups": [["complete", "verify_targets", "incomplete"]],
+          "groups": [["complete", "verify_targets"]],
           "weight": 0.15
         }
       ],
       "checks": [
         { "label": "Has direct answer", "type": "has_direct_answer", "value": true, "weight": 0.1 },
-        { "label": "Targets present", "type": "min_target_count", "value": 2, "weight": 0.2 },
+        { "label": "Targets present", "type": "min_target_count", "value": 3, "weight": 0.2 },
         { "label": "Snippet present", "type": "min_evidence_snippet_count", "value": 1, "weight": 0.1 }
       ]
     },
@@ -228,9 +235,9 @@
       },
       "expectations": [
         {
-          "label": "Answer stays narrow",
+          "label": "Answer identifies the schema-v3 handoff fields",
           "source": "combined_text",
-          "groups": [["반환"]],
+          "groups": [["schemaVersion"], ["directAnswer"]],
           "weight": 0.45
         },
         {
@@ -243,8 +250,9 @@
       ],
       "checks": [
         { "label": "Has direct answer", "type": "has_direct_answer", "value": true, "weight": 0.1 },
-        { "label": "Targets present", "type": "min_target_count", "value": 1, "weight": 0.15 },
-        { "label": "Snippet present", "type": "min_evidence_snippet_count", "value": 1, "weight": 0.1 }
+        { "label": "Targets present", "type": "min_target_count", "value": 1, "weight": 0.1 },
+        { "label": "Target set stays narrow", "type": "max_target_count", "value": 4, "weight": 0.1 },
+        { "label": "Snippet present", "type": "min_evidence_snippet_count", "value": 1, "weight": 0.05 }
       ]
     }
   ]

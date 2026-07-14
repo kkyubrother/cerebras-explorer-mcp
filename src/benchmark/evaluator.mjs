@@ -1579,6 +1579,31 @@ function joinLines(values) {
   return values.filter(Boolean).join('\n');
 }
 
+function nestedStringValues(value) {
+  if (typeof value === 'string') return [value];
+  if (Array.isArray(value)) return value.flatMap(nestedStringValues);
+  if (isPlainRecord(value)) return Object.values(value).flatMap(nestedStringValues);
+  return [];
+}
+
+function toolActionText(action) {
+  if (action?.type !== 'tool') return [];
+  return [action.type, action.tool, ...nestedStringValues(action.arguments)];
+}
+
+function followUpText(followUp) {
+  switch (followUp?.type) {
+    case 'tool':
+      return toolActionText(followUp);
+    case 'ask_user':
+      return [followUp.type, followUp.question];
+    case 'external_verification':
+      return [followUp.type, followUp.requirement];
+    default:
+      return [];
+  }
+}
+
 function getSourceText(result, source) {
   switch (source) {
     case 'direct_answer':
@@ -1589,11 +1614,10 @@ function getSourceText(result, source) {
         result.state,
         ...(result.targets ?? []).map(item => item.reason),
         ...(result.evidence ?? []).map(item => item.supports),
-        ...(result.gaps ?? []).flatMap(item => [item.need, item.blocker]),
-        result.followUp?.action,
-        result.followUp?.reason,
-        result.retry?.action,
-        result.retry?.reason,
+        ...(result.gaps ?? []).flatMap(item => [item.question, item.reason]),
+        ...followUpText(result.followUp),
+        result.failure?.reason,
+        ...toolActionText(result.failure?.retry),
       ]);
     case 'evidence_paths':
       return joinLines((result.evidence ?? []).map(item => item.path));
@@ -1642,6 +1666,14 @@ function evaluateCheck(result, check) {
       break;
     case 'min_target_count':
       actual = (result.targets ?? []).length;
+      passed = actual >= Number(check.value ?? 0);
+      break;
+    case 'max_target_count':
+      actual = (result.targets ?? []).length;
+      passed = actual <= Number(check.value ?? 0);
+      break;
+    case 'min_git_evidence_count':
+      actual = (result.evidence ?? []).filter(item => item?.kind === 'git').length;
       passed = actual >= Number(check.value ?? 0);
       break;
     case 'min_evidence_snippet_count':
@@ -1697,13 +1729,18 @@ export function evaluateBenchmarkCase(caseDefinition, result) {
     scoredChecks.reduce((sum, item) => sum + item.pointsEarned, 0);
   const normalizedScore = totalWeight > 0 ? earnedWeight / totalWeight : 0;
   const passScore = Number(caseDefinition.passScore ?? 0.7);
+  const stateUsable = result?.state === 'complete' || result?.state === 'verify_targets';
+  const allRequirementsPassed = scoredExpectations.every(item => item.passed) &&
+    scoredChecks.every(item => item.passed);
 
   return {
     id: caseDefinition.id,
     description: caseDefinition.description ?? '',
     score: Math.round(normalizedScore * 1000) / 1000,
     passScore,
-    passed: normalizedScore >= passScore,
+    observedState: typeof result?.state === 'string' ? result.state : null,
+    stateUsable,
+    passed: stateUsable && allRequirementsPassed && normalizedScore >= passScore,
     expectations: scoredExpectations,
     checks: scoredChecks,
   };
