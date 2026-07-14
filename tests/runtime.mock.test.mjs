@@ -10396,7 +10396,7 @@ test('Spec 028 T031 — verifier proposals are audited once without re-planning 
 });
 
 semanticPipelineRuntimeTest(
-  'Spec 028 T069 — invalid late audit preserves verified claims and blocks only the late goal',
+  'Spec 028 T069 — invalid late audit fails closed without materializing verifier proposals',
   async () => {
     const task = 'Locate requireAuth and inspect middleware registration.';
     const goal = trustGoal(task, {
@@ -10408,12 +10408,13 @@ semanticPipelineRuntimeTest(
     });
     const claim = candidateClaim(
       'C-late-audit-preserve', goal.id, 'requireAuth is defined in src/auth.js.', ['E1']);
+    const inventedConstraint = 'VERIFIER_ONLY_LATE_CONSTRAINT';
     const proposal = {
       question: 'Which requested middleware registration still needs evidence?',
       originRefs: [requestOrigin(task, 'inspect middleware registration')],
       claimType: 'positive',
       proofCondition: 'Observe the requested middleware registration.',
-      constraints: [],
+      constraints: [inventedConstraint],
     };
     const steps = [
       { stage: 'planner:1', value: plannerControl([goal]) },
@@ -10440,21 +10441,30 @@ semanticPipelineRuntimeTest(
       { stage: 'goal_audit:3', value: {} },
     ];
 
-    const { client, result } = await runTrustScript(steps, { task });
+    const logDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-invalid-late-audit-'));
+    let client;
+    let result;
+    await withEnv({ CEREBRAS_EXPLORER_LOG_PATH: logDir }, async () => {
+      ({ client, result } = await runTrustScript(steps, { task }));
+    });
 
     assert.equal(client.stageCounts.get('goal_audit'), 3,
       'late audit receives only one bounded correction attempt');
-    assert.equal(result.failure, null);
-    assert.equal(result.taskContract.subgoals.find(item => item.id === goal.id)?.state,
-      'supported');
-    const lateGoal = result.taskContract.subgoals.find(item =>
-      item.id === 'late-uncovered:initial:1');
-    assert.equal(lateGoal?.state, 'blocked');
-    assert.equal(lateGoal?.auditVerdict, 'planning_incomplete');
-    assert.ok(result.coverageGaps.some(gap =>
-      gap.subgoalId === lateGoal.id && gap.reason === 'planning_incomplete'));
-    assert.equal(result.parentHandoff.state, 'incomplete');
-    assert.match(result.parentHandoff.directAnswer ?? '', /requireAuth is defined/u);
+    assert.equal(result.failure?.reason, 'invalid_final_response');
+    assert.equal(result.failure?.publicReason, 'verifier_error');
+    assert.equal(result.parentHandoff.state, 'failed');
+    assert.equal(result.parentHandoff.failure.reason, 'verifier_error');
+    assert.doesNotMatch(result.directAnswer ?? '', /requireAuth is defined/u);
+    assert.doesNotMatch(JSON.stringify({
+      taskContract: result.taskContract,
+      coverageGaps: result.coverageGaps,
+      parentHandoff: result.parentHandoff,
+    }), /late-uncovered|VERIFIER_ONLY_LATE_CONSTRAINT|middleware registration still needs/u);
+    const invalidEvents = (await readJsonl(result.transcriptPath))
+      .filter(entry => entry.type === 'control_invalid');
+    assert.equal(invalidEvents.length, 1);
+    assert.equal(invalidEvents[0].stage, 'late_goal_audit');
+    assert.deepEqual(invalidEvents[0].attempts?.map(item => item.attempt), [1, 2]);
   },
 );
 

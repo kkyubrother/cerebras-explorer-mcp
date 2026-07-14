@@ -3778,36 +3778,6 @@ function createRuntimeLateGoalProposals(parts, {
   });
 }
 
-function materializeInvalidLateGoalAudit({ task, effectiveScope, wrapperTool, proposals }) {
-  const preflight = preflightGoalProposals({
-    task,
-    effectiveScope,
-    wrapperTool,
-    proposals,
-  });
-  if (preflight.controlFault || preflight.auditCandidates.length === 0) {
-    throw new TypeError('Invalid late goal audit could not preserve its requested obligations.');
-  }
-  const reduction = reduceGoalAudit({
-    preflight,
-    auditRecords: preflight.auditCandidates.map(goal => ({
-      proposedGoalId: goal.id,
-      verdict: 'needs_decomposition',
-      originRefs: [...goal.originRefs],
-      missingRequestParts: [],
-      reason: 'The late goal audit remained invalid after one bounded correction attempt.',
-    })),
-    uncoveredRequestParts: [],
-    revisionCount: 1,
-  });
-  return {
-    requiredSubgoals: reduction.requiredSubgoals,
-    gaps: reduction.gaps,
-    rejectedGoals: reduction.rejectedGoals,
-    revisionRequest: null,
-  };
-}
-
 function validateCoverageReconciliation(value, {
   task,
   wrapperTool,
@@ -5953,7 +5923,6 @@ export class ExplorerRuntime {
   }, {
     abortSignal = null,
     onCompletion = null,
-    onPlanningEvent = null,
     chatClient = null,
   } = {}) {
     if (!Array.isArray(uncoveredRequestParts)) {
@@ -5974,42 +5943,19 @@ export class ExplorerRuntime {
         ...rejectedGoals.map(goal => goal.proposedGoalId),
       ],
     });
-    let lateAudit;
-    try {
-      lateAudit = await this.auditLateGoalProposals({
-        task,
-        effectiveScope,
-        wrapperTool,
-        proposals: lateGoalProposals,
-        existingGoalLedger: taskContract.subgoals,
-      }, {
-        chatClient,
-        abortSignal,
-        onCompletion: (completion, stage) => onCompletion?.(completion, stage, {
-          affectedSubgoalIds: lateGoalProposals.map(goal => goal.id),
-        }),
-      });
-    } catch (error) {
-      if (isAbortError(error) || error?.explorerFailureKind === 'provider' ||
-          error?.code !== INVALID_GOAL_CONTROL) {
-        throw error;
-      }
-      onPlanningEvent?.('control_invalid', {
-        stage: error.stage,
-        reason: String(error.cause?.message ?? 'invalid_control_output')
-          .replace(/\s+/g, ' ')
-          .slice(0, 240),
-        ...(Array.isArray(error.validationAttempts)
-          ? { attempts: error.validationAttempts.slice(0, 2) }
-          : {}),
-      });
-      lateAudit = materializeInvalidLateGoalAudit({
-        task,
-        effectiveScope,
-        wrapperTool,
-        proposals: lateGoalProposals,
-      });
-    }
+    const lateAudit = await this.auditLateGoalProposals({
+      task,
+      effectiveScope,
+      wrapperTool,
+      proposals: lateGoalProposals,
+      existingGoalLedger: taskContract.subgoals,
+    }, {
+      chatClient,
+      abortSignal,
+      onCompletion: (completion, stage) => onCompletion?.(completion, stage, {
+        affectedSubgoalIds: lateGoalProposals.map(goal => goal.id),
+      }),
+    });
     return integrateAuditedLateGoals({
       taskContract,
       coverageGaps,
@@ -6669,9 +6615,6 @@ export class ExplorerRuntime {
           }, {
             chatClient,
             abortSignal,
-            onPlanningEvent: transcript.filePath
-              ? (type, data) => recordPlanningEvent(transcript, type, data)
-              : null,
             onCompletion: (completion, stage, context) => {
               recordCompletionStats(stats, completion, transcript);
               if (completion.finishReason === 'length') {
@@ -6845,9 +6788,6 @@ export class ExplorerRuntime {
               }, {
                 chatClient,
                 abortSignal,
-                onPlanningEvent: transcript.filePath
-                  ? (type, data) => recordPlanningEvent(transcript, type, data)
-                  : null,
                 onCompletion: (completion, stage, context) => {
                   recordCompletionStats(stats, completion, transcript);
                   if (completion.finishReason === 'length') {
@@ -7081,7 +7021,8 @@ export class ExplorerRuntime {
             ? { attempts: error.validationAttempts.slice(0, 2) }
             : {}),
         });
-        const verifierStage = error.stage === 'claim_synthesis' || error.stage === 'semantic_verifier';
+        const verifierStage = error.stage === 'claim_synthesis' ||
+          error.stage === 'semantic_verifier' || error.stage === 'late_goal_audit';
         const finalStage = error.stage === 'final_synthesis';
         const message = verifierStage
           ? 'The explorer could not validate the required verifier output.'

@@ -24,6 +24,8 @@ compatibility aliases or selectable effort controls are retained.
   so repository search is guided by the same obligations that completion uses.
   Fixed wrapper seed origins are now mechanically required across both planning
   and isolated audit; repeated omission fails before repository exploration.
+  An invalid late-goal audit now fails as one verifier error instead of turning
+  unverified proposals or their constraints into parent-visible planning gaps.
 - **Bounded proof and repair**: absence, count, exhaustive classification,
   route-policy comparison, flow, impact, and historical claims use
   runtime-owned proof gates. Invalid or cross-claim verifier evidence fails
