@@ -777,12 +777,15 @@ function liveInjectiveGoalAssignment(candidates, forbiddenEdge = null) {
   return candidateByExpected;
 }
 
-function liveGoalMatches(expectedGoals, actualGoals, context) {
-  const baseCandidates = expectedGoals.map(expected => actualGoals
+function liveGoalCandidates(expectedGoals, actualGoals) {
+  return expectedGoals.map(expected => actualGoals
     .map((actual, index) => ({ actual, index }))
     .filter(({ actual }) =>
       originsCoverExpected(actual?.originRefs, expected.requestOriginRefs) &&
       liveClaimTypeCompatible(expected.claimType, actual?.claimType)));
+}
+
+function liveGoalMatches(expectedGoals, baseCandidates, context) {
   const candidates = baseCandidates.map((items, expectedIndex) => {
     if (items.length <= 1) return items;
     const affinity = items.filter(candidate =>
@@ -1056,6 +1059,21 @@ function liveGoalHasAnchorAffinity(expected, actual, {
   return required > 0 && covered.length >= required;
 }
 
+function liveCandidateSetIsExplicitGap(candidates, candidateUseCounts, {
+  internalGapIds,
+  publicGaps,
+  task,
+}) {
+  if (candidates.length < 2 || candidates.some(candidate =>
+    candidateUseCounts.get(candidate.index) !== 1 ||
+    !['blocked', 'gap', 'contradicted'].includes(candidate.actual?.state) ||
+    !internalGapIds.has(candidate.actual?.id))) return false;
+  const questions = new Set(candidates.map(candidate => normalizeText(
+    liveRequestDerivedQuestion(task, candidate.actual.originRefs),
+  )));
+  return questions.size === 1 && publicGaps.has([...questions][0]);
+}
+
 function liveAnchorDispositions(
   expectedGoals,
   anchorsById,
@@ -1064,7 +1082,8 @@ function liveAnchorDispositions(
   allowedClaims,
 ) {
   const accepted = acceptedClaims(parts.semantic);
-  const matchedGoals = liveGoalMatches(expectedGoals, parts.subgoals, {
+  const baseCandidates = liveGoalCandidates(expectedGoals, parts.subgoals);
+  const matchedGoals = liveGoalMatches(expectedGoals, baseCandidates, {
     accepted,
     anchorsById,
     parts,
@@ -1076,10 +1095,30 @@ function liveAnchorDispositions(
   const internalGapIds = new Set(parts.coverageGaps
     .filter(gap => typeof gap?.subgoalId === 'string' && gap.subgoalId)
     .map(gap => gap.subgoalId));
+  const candidateUseCounts = new Map();
+  for (const candidates of baseCandidates) {
+    for (const candidate of candidates) {
+      candidateUseCounts.set(
+        candidate.index,
+        (candidateUseCounts.get(candidate.index) ?? 0) + 1,
+      );
+    }
+  }
 
-  return expectedGoals.map(expected => {
+  return expectedGoals.map((expected, expectedIndex) => {
     const actual = matchedGoals.get(expected.id);
-    if (!actual) return { goalId: expected.id, disposition: 'missing', claimTexts: [] };
+    if (!actual) {
+      const explicitGap = liveCandidateSetIsExplicitGap(
+        baseCandidates[expectedIndex],
+        candidateUseCounts,
+        { internalGapIds, publicGaps, task: parts.task },
+      );
+      return {
+        goalId: expected.id,
+        disposition: explicitGap ? 'explicit_gap' : 'missing',
+        claimTexts: [],
+      };
+    }
     const claims = accepted.filter(item => item.claim?.subgoalId === actual.id);
     const anchorRefs = asArray(expected.evidenceAnchorRefs);
     const covered = anchorRefs.filter(ref => {

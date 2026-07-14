@@ -7831,8 +7831,8 @@ semanticPipelineRuntimeTest(
       'The frontend guard checks ADMIN_USERS membership.', ['E1']);
     const wrongBackendClaim = candidateClaim(
       'C-focused-backend', backendGoal.id,
-      'Backend routes use ADMIN_USERS membership and two admin_user_info existence checks.',
-      ['E2', 'E3', 'E4']);
+      'Backend routes use ADMIN_USERS membership and an admin_user_info row-existence check.',
+      ['E2', 'E3', 'E7']);
     const developerClaim = candidateClaim(
       'C-focused-developer', developerGoal.id,
       'The case and draft routes both map the development department to dyhan7301.',
@@ -7844,6 +7844,7 @@ semanticPipelineRuntimeTest(
       { tool: 'repo_read_file', args: { path: 'src/backend-flag.js' }, id: 'focused-flag' },
       { tool: 'repo_read_file', args: { path: 'src/cases.js' }, id: 'focused-cases' },
       { tool: 'repo_read_file', args: { path: 'src/draft.js' }, id: 'focused-draft' },
+      { tool: 'repo_read_file', args: { path: 'src/backend-list-secondary.js' }, id: 'focused-list-secondary' },
     ];
     const setup = async root => {
       const files = new Map([
@@ -7853,6 +7854,7 @@ semanticPipelineRuntimeTest(
         ['backend-flag.js', 'export const flagAdmin = user => user?.is_admin === true;\n'],
         ['cases.js', "export const caseUser = department => department === 'development' ? 'dyhan7301' : null;\n"],
         ['draft.js', "export const draftUser = department => department === 'development' ? 'dyhan7301' : null;\n"],
+        ['backend-list-secondary.js', 'export const secondaryAdmin = id => ADMIN_USERS.includes(id);\n'],
       ]);
       for (const [name, content] of files) {
         await fs.writeFile(path.join(root, 'src', name), content);
@@ -7860,23 +7862,26 @@ semanticPipelineRuntimeTest(
     };
     const primaryVerdicts = [
       semanticVerdict(frontendClaim.id, 'supported', ['E1']),
-      semanticVerdict(wrongBackendClaim.id, 'supported', ['E2', 'E3', 'E4']),
+      semanticVerdict(wrongBackendClaim.id, 'supported', ['E2', 'E3', 'E7']),
       semanticVerdict(developerClaim.id, 'supported', ['E5', 'E6']),
     ];
+    let focusedPacket = null;
     const steps = buildTrustSteps({
       goals: [frontendGoal, backendGoal, developerGoal],
       initial: {
         tools: sourceTools,
         claims: [frontendClaim, wrongBackendClaim, developerClaim],
         verifierSteps: [{ verdicts: primaryVerdicts }, {
-          verdicts: [semanticVerdict(wrongBackendClaim.id, 'supported', ['E2', 'E3'])],
+          verdicts: [{
+            ...semanticVerdict(wrongBackendClaim.id, 'insufficient', ['E2', 'E3', 'E7']),
+            reasonCode: 'missing_category',
+            note: 'The uncited is_admin source is another in-boundary administrator variant.',
+          }],
           assertRequest(request) {
-            const packet = parseControlPacket(request);
-            assert.deepEqual(packet.claims.map(claim => claim.id), [wrongBackendClaim.id]);
-            assert.deepEqual(packet.control.requiredSubgoals.map(goal => goal.id), [backendGoal.id]);
-            assert.deepEqual(packet.observations.map(item => item.id), ['E2', 'E3', 'E4']);
-            assert.match(request.messages[0].content,
-              /FOCUSED MULTI-PATH COMPARISON CORROBORATION/u);
+            focusedPacket = {
+              control: parseControlPacket(request),
+              system: request.messages[0].content,
+            };
           },
         }],
       },
@@ -7889,7 +7894,24 @@ semanticPipelineRuntimeTest(
     });
     const { client, result } = await runTrustScript(steps, { task, setup });
 
+    assert.equal(result.failure, null, JSON.stringify(result.failure));
     assert.equal(client.stageCounts.get('semantic_verifier'), 2);
+    assert.deepEqual(focusedPacket.control.claims.map(claim => claim.id),
+      [wrongBackendClaim.id]);
+    assert.deepEqual(focusedPacket.control.control.requiredSubgoals.map(goal => goal.id),
+      [backendGoal.id]);
+    assert.deepEqual(focusedPacket.control.observations.map(item => item.id),
+      [
+        'E1', 'E1:search', 'E2', 'E2:search', 'E3', 'E3:search',
+        'E4', 'E4:search', 'E5', 'E5:search', 'E6', 'E6:search',
+        'E7', 'E7:search',
+      ]);
+    assert.equal(focusedPacket.control.claims[0].evidenceRefs.includes('E4'), false,
+      'the omitted policy source remains outside the claim evidence subset');
+    assert.match(focusedPacket.system, /FOCUSED MULTI-PATH COMPARISON CORROBORATION/u);
+    assert.match(focusedPacket.system, /Do not require every observation/u);
+    assert.match(focusedPacket.system,
+      /uncited current-source observations as omission candidates/u);
     assert.equal(result.taskContract.subgoals.find(goal => goal.id === frontendGoal.id)?.state,
       'supported');
     assert.equal(result.taskContract.subgoals.find(goal => goal.id === backendGoal.id)?.state,
@@ -7901,7 +7923,7 @@ semanticPipelineRuntimeTest(
     assert.equal(result.parentHandoff.state, 'incomplete');
     assert.match(result.parentHandoff.directAnswer, /frontend guard checks ADMIN_USERS/u);
     assert.match(result.parentHandoff.directAnswer, /case and draft routes/u);
-    assert.doesNotMatch(result.parentHandoff.directAnswer, /two admin_user_info existence checks/u);
+    assert.doesNotMatch(result.parentHandoff.directAnswer, /admin_user_info row-existence check/u);
     assert.equal(result.parentHandoff.gaps.some(gap =>
       gap.question === expectedParentGapQuestion(result, backendGoal)), true);
 
@@ -7931,8 +7953,8 @@ semanticPipelineRuntimeTest(
 
     const correctBackendClaim = candidateClaim(
       'C-focused-backend-correct', backendGoal.id,
-      'The admin helper uses ADMIN_USERS; feedback checks admin_user_info row existence; inquiry requires the is_admin boolean flag to be true.',
-      ['E2', 'E3', 'E4']);
+      'The admin helper uses ADMIN_USERS; feedback checks admin_user_info row existence; inquiry requires the is_admin boolean flag to be true; the secondary admin route also uses ADMIN_USERS.',
+      ['E2', 'E3', 'E4', 'E7']);
     const positiveSteps = buildTrustSteps({
       goals: [frontendGoal, backendGoal, developerGoal],
       initial: {
@@ -7941,12 +7963,12 @@ semanticPipelineRuntimeTest(
         verifierSteps: [{
           verdicts: [
             semanticVerdict(frontendClaim.id, 'supported', ['E1']),
-            semanticVerdict(correctBackendClaim.id, 'supported', ['E2', 'E3', 'E4']),
+            semanticVerdict(correctBackendClaim.id, 'supported', ['E2', 'E3', 'E4', 'E7']),
             semanticVerdict(developerClaim.id, 'supported', ['E5', 'E6']),
           ],
         }, {
           verdicts: [semanticVerdict(
-            correctBackendClaim.id, 'supported', ['E2', 'E3', 'E4'])],
+            correctBackendClaim.id, 'supported', ['E2', 'E3', 'E4', 'E7'])],
         }],
       },
     });
@@ -7958,8 +7980,8 @@ semanticPipelineRuntimeTest(
       claim.id === correctBackendClaim.id)?.verdict, 'supported');
     assertMinimalCompleteParentHandoff(positive.result, {
       answer: [frontendClaim.text, correctBackendClaim.text, developerClaim.text].join('\n'),
-      evidenceCount: 6,
-      evidenceKinds: ['source', 'source', 'source', 'source', 'source', 'source'],
+      evidenceCount: 7,
+      evidenceKinds: ['source', 'source', 'source', 'source', 'source', 'source', 'source'],
     });
   },
 );

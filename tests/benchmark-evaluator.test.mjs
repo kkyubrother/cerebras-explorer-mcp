@@ -2982,6 +2982,83 @@ test('Spec 028 T069 — live explicit gaps use request-derived questions', () =>
   );
 });
 
+test('Spec 028 T069 — live explicit gaps accept exclusive unresolved refinement sets', () => {
+  const caseDefinition = liveTrustOracleCase();
+  caseDefinition.oracle.expectedGoals = [{
+    ...caseDefinition.oracle.expectedGoals[0],
+    id: 'G-impact',
+    claimType: 'impact',
+    requestOriginRefs: ['request:0-13'],
+  }];
+  caseDefinition.oracle.allowedClaims = [];
+  const artifact = liveIncompleteArtifact();
+  artifact.result.taskContract.subgoals = [
+    {
+      id: 'model-impact-code',
+      question: 'Determine the implementation impact.',
+      originRefs: ['request:0-13'],
+      claimType: 'impact',
+      state: 'gap',
+    },
+    {
+      id: 'model-impact-tests',
+      question: 'Determine the test impact.',
+      originRefs: ['request:0-13'],
+      claimType: 'impact',
+      state: 'gap',
+    },
+  ];
+  artifact.result.coverageGaps = artifact.result.taskContract.subgoals.map(goal => ({
+    subgoalId: goal.id,
+    question: goal.question,
+  }));
+  artifact.result.parentHandoff.gaps = [{
+    question: 'guard bounded',
+    reason: 'The available repository observations do not prove the impact.',
+  }];
+  bindLiveGoalAudits(artifact);
+
+  const evaluation = evaluateTrustCase(caseDefinition, artifact, {
+    mode: 'live',
+    profile: LIVE_TRUST_EVALUATION_PROFILE,
+  });
+  assert.equal(evaluation.passed, true, JSON.stringify(evaluation.violations));
+});
+
+test('Spec 028 T069 — live explicit gaps reject one broad unresolved goal shared by obligations', () => {
+  const caseDefinition = liveTrustOracleCase();
+  caseDefinition.oracle.expectedGoals = caseDefinition.oracle.expectedGoals.map((goal, index) => ({
+    ...goal,
+    id: `G-impact-${index + 1}`,
+    claimType: 'impact',
+  }));
+  caseDefinition.oracle.allowedClaims = [];
+  const artifact = liveIncompleteArtifact();
+  artifact.result.taskContract.subgoals = [{
+    id: 'model-broad-impact',
+    question: 'Determine every requested impact.',
+    originRefs: ['request:0-13'],
+    claimType: 'impact',
+    state: 'gap',
+  }];
+  artifact.result.coverageGaps = [{
+    subgoalId: 'model-broad-impact',
+    question: 'Determine every requested impact.',
+  }];
+  artifact.result.parentHandoff.gaps = [{
+    question: 'guard bounded',
+    reason: 'The available repository observations do not prove the impact.',
+  }];
+  bindLiveGoalAudits(artifact);
+
+  const evaluation = evaluateTrustCase(caseDefinition, artifact, {
+    mode: 'live',
+    profile: LIVE_TRUST_EVALUATION_PROFILE,
+  });
+  assert.equal(evaluation.passed, false);
+  assert.ok(violationCodes(evaluation).includes('LIVE_REQUIRED_GOAL_MISSING'));
+});
+
 test('Spec 028 T069 — live goals require an intact audit binding', () => {
   const caseDefinition = liveTrustOracleCase();
   const options = { mode: 'live', profile: LIVE_TRUST_EVALUATION_PROFILE };

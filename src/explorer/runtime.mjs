@@ -4664,8 +4664,7 @@ export class ExplorerRuntime {
           continue;
         }
         const claimEvidenceRefs = new Set(claim.evidenceRefs);
-        const focusedObservations = batchObservations.filter(observation =>
-          claimEvidenceRefs.has(observation?.id));
+        const focusedObservations = batchObservations;
         const focusedCertificates = batchAbsenceCertificates.filter(certificate =>
           certificate?.subgoalId === subgoal.id &&
           certificate.searchRefs?.every(ref => claimEvidenceRefs.has(ref)));

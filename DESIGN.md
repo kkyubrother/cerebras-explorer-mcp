@@ -208,7 +208,7 @@ Verifier는 원래 request, audited sub-goals, candidate atomic claims, rebuilt 
 
 각 claim은 `supported`, `insufficient`, `contradicted` 중 하나가 된다. Accepted claim만 direct answer와 evidence에 사용한다. Unsupported claim을 자연스러운 문장으로 완화해 성공처럼 반환하지 않는다.
 
-세 개 이상의 current source path를 묶는 comparison claim은 해당 claim과 그 claim이 직접 인용한 observation만으로 focused corroboration을 한 번 더 수행한다. 두 verifier가 primary verifier가 지지한 모든 source path와 전체 관계에 동의할 때만 support를 유지하며, 하나의 route/predicate라도 잘못 연결되면 기존 repair 또는 gap 경로로 fail-closed 한다. 이 내부 확인은 parent schema에 진단 필드를 추가하지 않는다.
+세 개 이상의 current source path를 묶는 comparison claim은 해당 claim과 bounded semantic batch의 observation으로 focused corroboration을 한 번 더 수행한다. Claim이 인용하지 않은 current source도 audited sub-goal boundary 안의 독립적인 route/predicate 변형을 보이면 omission으로 거부하지만, sibling goal의 관련 없는 observation을 claim의 필수 evidence로 승격하지는 않는다. Supporting evidence는 여전히 claim이 직접 인용한 ref의 subset이어야 하며, 두 verifier가 primary verifier가 지지한 모든 source path와 전체 관계에 동의할 때만 support를 유지한다. 하나의 route/predicate라도 누락되거나 잘못 연결되면 기존 repair 또는 gap 경로로 fail-closed 한다. 이 내부 확인은 parent schema에 진단 필드를 추가하지 않는다.
 
 Verifier가 새로운 request part를 제안하면 원래 request에 추적 가능한지 다시 audit한다. Verifier invention도 required goal로 바로 승격하지 않는다.
 
