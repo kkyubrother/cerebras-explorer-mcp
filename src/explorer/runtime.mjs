@@ -3735,7 +3735,7 @@ function materializeUnresolvedRevision({
 
 function auditedGoalLedgerMessage(requiredSubgoals) {
   const goals = requiredSubgoals
-    .filter(goal => goal.state === 'audited')
+    .filter(goal => goal.state === 'audited' || goal.state === 'exploring')
     .map(goal => ({
       id: goal.id,
       question: goal.question,

@@ -16,7 +16,9 @@ compatibility aliases or selectable effort controls are retained.
   `verify_targets` require every valid required goal to be verified. A
   runtime-owned audit binding rejects post-audit acceptance-core mutation, and
   strict same-type origin containment receives one uniquely reconciled
-  refinement instead of allowing sibling goals to be reassigned.
+  refinement instead of allowing sibling goals to be reassigned. Accepted
+  goals remain in the exploration ledger after entering the `exploring` state,
+  so repository search is guided by the same obligations that completion uses.
 - **Bounded proof and repair**: absence, count, exhaustive classification,
   route-policy comparison, flow, impact, and historical claims use
   runtime-owned proof gates. Invalid or cross-claim verifier evidence fails

@@ -4575,6 +4575,10 @@ auditedPlanningRuntimeTest('Spec 028 T017 — initial plan and isolated audit fi
     ['ready', 'ready']);
   assert.deepEqual(result.taskContract.subgoals.map(goal => goal.proofPolicy),
     ['symbol_definition', 'bounded_absence']);
+  assert.match(JSON.stringify(client.requests[2].messages), /S-definition/,
+    'accepted required goals must reach the exploration model');
+  assert.match(JSON.stringify(client.requests[2].messages), /S-absence/,
+    'every accepted required goal must remain in the exploration ledger');
   assert.doesNotMatch(JSON.stringify(client.requests[2].messages), /S-invented/,
     'rejected goals must not leak into exploration');
 });
