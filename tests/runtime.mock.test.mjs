@@ -14,7 +14,11 @@ import {
 } from '../src/explorer/runtime.mjs';
 import { buildExplorerSystemPrompt, buildFinalizePrompt, detectStrategy, buildExplorerUserPrompt, STRATEGY_DESCRIPTIONS } from '../src/explorer/prompt.mjs';
 import { getRuntimeConfig } from '../src/explorer/config.mjs';
-import { normalizedRepositoryFileIdentity, RepoToolkit } from '../src/explorer/repo-tools.mjs';
+import {
+  deriveRepositoryObservationCoverage,
+  normalizedRepositoryFileIdentity,
+  RepoToolkit,
+} from '../src/explorer/repo-tools.mjs';
 import {
   createRequiredSubgoal,
   createTaskContract,
@@ -58,6 +62,34 @@ async function makeRepoFixture() {
   );
   return root;
 }
+
+test('Spec 028 T069 — omitted public scope keeps trace enumeration certifiable', async () => {
+  const root = await makeRepoFixture();
+  try {
+    const runtime = new RuntimeImplementation({ chatClient: { model: 'zai-glm-4.7' } });
+    const context = await runtime._initExploreContext({
+      repoRootArg: root,
+      scope: undefined,
+      taskText: 'Trace requireAuth.',
+    });
+    assert.deepEqual(context.effectiveScope, [],
+      'the internal repository boundary must not add noise to the parent contract');
+
+    const args = { symbol: 'requireAuth' };
+    const result = await context.repoToolkit.symbolContext(args);
+    const coverage = deriveRepositoryObservationCoverage({
+      tool: 'repo_symbol_context',
+      args,
+      result,
+      effectiveScope: context.effectiveScope,
+      contextTruncated: false,
+    });
+    assert.equal(coverage.enumerationComplete, true,
+      'the optional public scope must not force an uncertifiable fast path');
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
 
 function compactResult({
   directAnswer = 'analysis complete',

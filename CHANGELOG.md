@@ -67,11 +67,12 @@ compatibility aliases or selectable effort controls are retained.
   establish completion or be selected by the parent. Agentic completions use
   the fixed 16,384-token ceiling with preserved thinking, temperature `1.0`,
   and top-p `0.95`.
-- **Repository and provider reliability**: exact-file grep can inspect text
-  files up to the existing 512 KiB read ceiling while broad grep keeps the
-  256 KiB protection. Internal repository tools reject undeclared arguments
-  before execution, so a mistaken grep `path` cannot silently widen into a
-  repository-wide search. Cancellation interrupts retry waits, and day-scale
+- **Repository and provider reliability**: exact-file and scope-wide grep can
+  inspect text files up to the existing 512 KiB read ceiling, so a readable
+  source file cannot silently make symbol enumeration incomplete. Internal
+  repository tools reject undeclared arguments before execution, so a mistaken
+  grep `path` cannot silently widen into a repository-wide search. Cancellation
+  interrupts retry waits, and day-scale
   `Retry-After` responses are recorded without repeating a request that cannot
   succeed inside the bounded parent call. Live trust batches stop after the
   first provider failure while retaining every remaining case and repeat as an

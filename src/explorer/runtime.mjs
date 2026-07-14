@@ -4614,6 +4614,7 @@ export class ExplorerRuntime {
 
     const runtimeConfig = getRuntimeConfig();
     const effectiveScope = scope ?? projectConfig.defaultScope ?? [];
+    const repositoryScope = canonicalizeRepositoryObservationScope(effectiveScope);
     const projectContext = projectConfig.projectContext ?? null;
     const keyFiles = projectConfig.keyFiles ?? [];
     const extraIgnoreDirs = projectConfig.extraIgnoreDirs ?? [];
@@ -4629,7 +4630,7 @@ export class ExplorerRuntime {
       extraIgnoreDirs,
       extraIgnorePatterns,
     });
-    await repoToolkit.initialize(effectiveScope);
+    await repoToolkit.initialize(repositoryScope);
 
     const tools = repoToolkit.buildToolDefinitions();
     const reasoningEffort = getReasoningEffortForModel(chatClient.model);

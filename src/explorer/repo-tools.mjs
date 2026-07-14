@@ -877,7 +877,7 @@ export class RepoToolkit {
     const rgArgs = [
       '--json',
       '--no-binary',
-      '--max-filesize', '256K',
+      '--max-filesize', String(DEFAULT_GREP_FILE_MAX_BYTES),
     ];
     // Keep the ripgrep fast path aligned with walkFiles() default directory ignores.
     for (const dir of this.ignoreDirs) {

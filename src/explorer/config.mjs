@@ -115,7 +115,7 @@ export const DEFAULT_IGNORE_FILE_SUFFIXES = [
 ];
 
 export const DEFAULT_TEXT_FILE_MAX_BYTES = 512 * 1024;
-export const DEFAULT_GREP_FILE_MAX_BYTES = 256 * 1024;
+export const DEFAULT_GREP_FILE_MAX_BYTES = DEFAULT_TEXT_FILE_MAX_BYTES;
 export const DEFAULT_WALK_FILE_LIMIT = 5000;
 
 // Fixed provider, context, and repository-tool ceilings. These values protect

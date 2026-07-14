@@ -860,6 +860,28 @@ toolSpecificEnumerationTest(
       assert.deepEqual(completeCoverage.boundary, ['src/**']);
       assert.equal(completeCoverage.enumerationComplete, true);
 
+      const largeCallerPath = path.join(root, 'src', 'large-caller.js');
+      await fs.writeFile(
+        largeCallerPath,
+        `${'// filler\n'.repeat(35_000)}export function largeCaller() { return requireAuth(); }\n`,
+      );
+      const largeCallerSize = (await fs.stat(largeCallerPath)).size;
+      assert.ok(largeCallerSize > 256 * 1024 && largeCallerSize < 512 * 1024,
+        'the regression fixture must remain between the former grep and read ceilings');
+      const largeFileContext = await toolkit.symbolContext(args);
+      assert.equal(largeFileContext.resultTruncated, false,
+        'a readable source file must not make a base-scope symbol search incomplete');
+      assert.ok(largeFileContext.callers.some(caller => caller.path === 'src/large-caller.js'));
+      const largeFileCoverage = deriveCoverage({
+        tool: 'repo_symbol_context',
+        args,
+        result: largeFileContext,
+        effectiveScope: ['src/**'],
+        contextTruncated: false,
+      });
+      assert.equal(largeFileCoverage.enumerationComplete, true);
+      await fs.rm(largeCallerPath);
+
       const manyCallers = Array.from({ length: 25 }, (_, index) =>
         `export function caller${index}() { requireAuth(); }`).join('\n');
       await fs.writeFile(path.join(root, 'src', 'many-callers.js'), `${manyCallers}\n`);
@@ -1086,7 +1108,7 @@ test('RepoToolkit finds files, greps, reads ranges, and respects gitignore', asy
   assert.equal(listing.entries.some(entry => entry.path === 'src/auth.js'), true);
 });
 
-test('RepoToolkit fallback grep scans a medium exact file without widening broad search limits', async () => {
+test('RepoToolkit fallback grep shares the readable text ceiling for exact and broad scopes', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-exact-grep-'));
   try {
     await fs.mkdir(path.join(root, 'prisma'), { recursive: true });
@@ -1111,8 +1133,8 @@ test('RepoToolkit fallback grep scans a medium exact file without widening broad
       pattern: '^model mkt_source',
       scope: ['prisma/**'],
     });
-    assert.deepEqual(broad.matches, []);
-    assert.equal(broad.skipped.largeFiles, 2);
+    assert.deepEqual(broad.matches.map(match => match.path), ['prisma/schema.prisma']);
+    assert.equal(broad.skipped.largeFiles, 1);
     assert.equal(broad.truncated, true);
 
     const oversized = await toolkit.grep({
