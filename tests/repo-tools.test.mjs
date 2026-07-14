@@ -6,6 +6,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 
 import { getRuntimeConfig } from '../src/explorer/config.mjs';
+import * as repoToolExports from '../src/explorer/repo-tools.mjs';
 import {
   RepoToolkit,
   classifySourceRole,
@@ -17,6 +18,22 @@ import { LruCache, globalRepoCache } from '../src/explorer/cache.mjs';
 function repositoryObservationTest(name, callback) {
   test(name, () => {
     callback(normalizeRepositoryObservation);
+  });
+}
+
+function toolSpecificEnumerationTest(name, optionsOrCallback, maybeCallback) {
+  const options = typeof optionsOrCallback === 'function' ? {} : optionsOrCallback;
+  const callback = typeof optionsOrCallback === 'function' ? optionsOrCallback : maybeCallback;
+
+  test(name, options, async t => {
+    const deriveCoverage = repoToolExports.deriveRepositoryObservationCoverage;
+    if (deriveCoverage === undefined) {
+      t.todo('Spec 028 T060 repository coverage derivation is not implemented yet');
+      return;
+    }
+    assert.equal(typeof deriveCoverage, 'function',
+      'a partially exported T060 capability must fail instead of silently skipping');
+    await callback(t, deriveCoverage);
   });
 }
 
@@ -99,6 +116,68 @@ async function makeRepoFixture() {
   await fs.writeFile(path.join(root, 'ignored', 'secret.txt'), 'do not index');
   await fs.writeFile(path.join(root, 'logo.png'), Buffer.from([0, 1, 2, 3, 4]));
   return root;
+}
+
+async function makeEnumerationGitFixture() {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-enumeration-git-'));
+  const git = args => execFileSync('git', args, { cwd: root, stdio: 'pipe', encoding: 'utf8' });
+  git(['init', '-b', 'main']);
+  git(['config', 'user.email', 'test@example.com']);
+  git(['config', 'user.name', 'Test User']);
+  await fs.mkdir(path.join(root, 'src'), { recursive: true });
+  await fs.mkdir(path.join(root, 'docs'), { recursive: true });
+  await fs.writeFile(path.join(root, 'src', 'app.js'), 'export const value = 1;\n');
+  await fs.writeFile(path.join(root, 'src', 'large.js'), 'export const lines = [];\n');
+  await fs.writeFile(path.join(root, 'docs', 'guide.md'), '# Guide\n');
+  await fs.writeFile(path.join(root, '.env'), 'TOKEN=placeholder\n');
+  git(['add', '.']);
+  git(['commit', '-m', 'initial enumeration fixture']);
+
+  await fs.writeFile(path.join(root, 'src', 'app.js'), 'export const value = 2;\n');
+  const largePatch = Array.from({ length: 500 }, (_, index) =>
+    `export const item${index} = "${'x'.repeat(24)}";`).join('\n');
+  await fs.writeFile(path.join(root, 'src', 'large.js'), `${largePatch}\n`);
+  await fs.writeFile(path.join(root, 'docs', 'guide.md'), '# Updated guide\n');
+  await fs.writeFile(path.join(root, '.env'), 'TOKEN=changed-placeholder\n');
+  git(['add', '.']);
+  git(['commit', '-m', 'change scoped and filtered paths']);
+
+  await fs.writeFile(path.join(root, 'src', 'app.js'), 'export const value = 3;\n');
+  git(['add', 'src/app.js']);
+  git(['commit', '-m', 'change one scoped path']);
+  return root;
+}
+
+class WalkTelemetryToolkit extends RepoToolkit {
+  constructor(options, telemetry = {}) {
+    super(options);
+    this.injectedWalkTelemetry = telemetry;
+  }
+
+  async walkFiles(args = {}) {
+    const result = await super.walkFiles(args);
+    return {
+      ...result,
+      ...this.injectedWalkTelemetry,
+      truncated: Boolean(result.truncated || this.injectedWalkTelemetry.truncated),
+    };
+  }
+}
+
+class GrepTelemetryToolkit extends RepoToolkit {
+  constructor(options, telemetry = {}) {
+    super(options);
+    this.injectedGrepTelemetry = telemetry;
+  }
+
+  async grep(args = {}) {
+    const result = await super.grep(args);
+    return {
+      ...result,
+      ...this.injectedGrepTelemetry,
+      truncated: Boolean(result.truncated || this.injectedGrepTelemetry.truncated),
+    };
+  }
 }
 
 repositoryObservationTest('repository observations preserve the authoritative boundary and compute result counts', normalize => {
@@ -343,6 +422,435 @@ repositoryObservationTest('enumeration completeness requires a runtime candidate
     result: { matches: [], truncated: false },
   }), /boundary|string array/i, 'a malformed boundary must not widen to repository scope');
 });
+
+toolSpecificEnumerationTest(
+  'Spec 028 T058 — grep/find preserve distinct walk and result limits plus omission telemetry',
+  async (t, deriveCoverage) => {
+    const root = await makeRepoFixture();
+    try {
+      const runtimeConfig = getRuntimeConfig();
+      const toolkit = new RepoToolkit({ repoRoot: root, runtimeConfig });
+      await toolkit.initialize(['src/**']);
+      toolkit._hasRipgrep = false;
+
+      const walk = await toolkit.walkFiles({ scope: ['src/routes/**'] });
+      assert.equal(walk.walkTruncated, false,
+        'walk telemetry must explicitly distinguish a complete traversal');
+
+      const findArgs = { pattern: '**/*.js', scope: ['src/routes/**'] };
+      const found = await toolkit.findFiles(findArgs);
+      assert.equal(found.walkTruncated, false);
+      assert.equal(found.resultTruncated, false);
+      const findCoverage = deriveCoverage({
+        tool: 'repo_find_files',
+        args: findArgs,
+        result: { ...found, boundary: ['**'], enumerationComplete: false },
+        effectiveScope: ['src/routes/**'],
+        contextTruncated: false,
+      });
+      assert.deepEqual(findCoverage.boundary, ['src/routes/**'],
+        'the runtime boundary must win over a result self-report');
+      assert.equal(findCoverage.toolTruncated, false);
+      assert.equal(findCoverage.enumerationComplete, true);
+
+      const grepArgs = { pattern: 'requireAuth', scope: ['src/routes/**'] };
+      const grepped = await toolkit.grep(grepArgs);
+      assert.equal(grepped.walkTruncated, false);
+      assert.equal(grepped.resultTruncated, false);
+      const grepCoverage = deriveCoverage({
+        tool: 'repo_grep',
+        args: grepArgs,
+        result: grepped,
+        effectiveScope: ['src/routes/**'],
+        contextTruncated: false,
+      });
+      assert.deepEqual(grepCoverage.boundary, ['src/routes/**']);
+      assert.equal(grepCoverage.enumerationComplete, true);
+
+      const walkLimitedConfig = { ...runtimeConfig, maxWalkFiles: 1 };
+      const walkLimited = new RepoToolkit({ repoRoot: root, runtimeConfig: walkLimitedConfig });
+      await walkLimited.initialize(['src/**']);
+      walkLimited._hasRipgrep = false;
+      const limitedWalk = await walkLimited.walkFiles();
+      assert.equal(limitedWalk.walkTruncated, true);
+
+      for (const [tool, args, result] of [
+        ['repo_find_files', { pattern: '**/*.js' }, await walkLimited.findFiles({ pattern: '**/*.js' })],
+        ['repo_grep', { pattern: 'requireAuth' }, await walkLimited.grep({ pattern: 'requireAuth' })],
+      ]) {
+        assert.equal(result.walkTruncated, true, `${tool} must preserve the underlying walk limit`);
+        assert.equal(result.resultTruncated, false,
+          `${tool} must not mislabel an underlying walk limit as a result cap`);
+        const coverage = deriveCoverage({
+          tool,
+          args,
+          result,
+          effectiveScope: ['src/**'],
+          contextTruncated: false,
+        });
+        assert.equal(coverage.toolTruncated, true);
+        assert.equal(coverage.enumerationComplete, false);
+      }
+
+      const resultLimitedConfig = { ...runtimeConfig, maxSearchResults: 1 };
+      const resultLimited = new RepoToolkit({ repoRoot: root, runtimeConfig: resultLimitedConfig });
+      await resultLimited.initialize(['src/**']);
+      resultLimited._hasRipgrep = false;
+      for (const [tool, args, result] of [
+        ['repo_find_files', { pattern: '**/*.js' }, await resultLimited.findFiles({ pattern: '**/*.js' })],
+        ['repo_grep', { pattern: 'requireAuth' }, await resultLimited.grep({ pattern: 'requireAuth' })],
+      ]) {
+        assert.equal(result.walkTruncated, false,
+          `${tool} must preserve that the traversal itself completed`);
+        assert.equal(result.resultTruncated, true, `${tool} must expose its own result cap`);
+        const coverage = deriveCoverage({
+          tool,
+          args,
+          result,
+          effectiveScope: ['src/**'],
+          contextTruncated: false,
+        });
+        assert.equal(coverage.toolTruncated, true);
+        assert.equal(coverage.enumerationComplete, false);
+      }
+
+      const omissionCases = [
+        { telemetry: { errors: 1 }, resultField: 'errors', coverageField: 'errors' },
+        { telemetry: { omittedSecretPaths: 1 }, resultField: 'omittedSecretPaths', coverageField: 'deniedPaths' },
+        { telemetry: { omittedOutOfScopeFiles: 1 }, resultField: 'omittedOutOfScopeFiles', coverageField: 'omittedOutOfScopeFiles' },
+      ];
+      for (const { telemetry, resultField, coverageField } of omissionCases) {
+        const affected = new WalkTelemetryToolkit({ repoRoot: root, runtimeConfig }, telemetry);
+        await affected.initialize(['src/**']);
+        affected._hasRipgrep = false;
+        for (const [tool, args, result] of [
+          ['repo_find_files', { pattern: '**/*.js' }, await affected.findFiles({ pattern: '**/*.js' })],
+          ['repo_grep', { pattern: 'requireAuth' }, await affected.grep({ pattern: 'requireAuth' })],
+        ]) {
+          assert.equal(result[resultField], 1, `${tool} must retain ${resultField} from traversal`);
+          const coverage = deriveCoverage({
+            tool,
+            args,
+            result,
+            effectiveScope: ['src/**'],
+            contextTruncated: false,
+          });
+          assert.equal(coverage[coverageField], 1);
+          assert.equal(coverage.enumerationComplete, false);
+        }
+      }
+
+      await fs.writeFile(path.join(root, '.env'), 'TOKEN=denied-marker\n');
+      const denied = new RepoToolkit({ repoRoot: root, runtimeConfig });
+      await denied.initialize(['**']);
+      denied._hasRipgrep = false;
+      const deniedWalk = await denied.walkFiles();
+      assert.equal(deniedWalk.omittedSecretPaths, 1,
+        'the traversal must count a denied path without exposing its name');
+      for (const [tool, args, result] of [
+        ['repo_find_files', { pattern: '**/*' }, await denied.findFiles({ pattern: '**/*' })],
+        ['repo_grep', { pattern: 'denied-marker' }, await denied.grep({ pattern: 'denied-marker' })],
+      ]) {
+        assert.equal(result.omittedSecretPaths, 1, `${tool} must preserve traversal denials`);
+        const coverage = deriveCoverage({
+          tool,
+          args,
+          result,
+          effectiveScope: ['**'],
+          contextTruncated: false,
+        });
+        assert.equal(coverage.deniedPaths, 1);
+        assert.equal(coverage.enumerationComplete, false);
+        assert.doesNotMatch(JSON.stringify(coverage), /\.env|denied-marker/);
+      }
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  },
+);
+
+toolSpecificEnumerationTest(
+  'Spec 028 T058 — symbol and reference operations stay conservative and propagate search failures',
+  async (t, deriveCoverage) => {
+    const root = await makeRepoFixture();
+    try {
+      const runtimeConfig = getRuntimeConfig();
+      const toolkit = new RepoToolkit({ repoRoot: root, runtimeConfig });
+      await toolkit.initialize(['src/**']);
+      toolkit._hasRipgrep = false;
+
+      const symbolArgs = { path: 'src/auth.js' };
+      const symbols = await toolkit.symbols(symbolArgs);
+      const symbolCoverage = deriveCoverage({
+        tool: 'repo_symbols',
+        args: symbolArgs,
+        result: { ...symbols, boundary: ['**'], enumerationComplete: true },
+        effectiveScope: ['src/**'],
+        contextTruncated: false,
+      });
+      assert.deepEqual(symbolCoverage.boundary, ['src/auth.js']);
+      assert.equal(symbolCoverage.enumerationComplete, false,
+        'heuristic symbol extraction must not certify semantic exhaustiveness');
+
+      const referenceArgs = { symbol: 'requireAuth' };
+      const references = await toolkit.references(referenceArgs);
+      assert.equal(references.walkTruncated, false);
+      assert.equal(references.resultTruncated, false);
+      const referenceCoverage = deriveCoverage({
+        tool: 'repo_references',
+        args: referenceArgs,
+        result: { ...references, boundary: ['**'], enumerationComplete: true },
+        effectiveScope: ['src/**'],
+        contextTruncated: false,
+      });
+      assert.deepEqual(referenceCoverage.boundary, ['src/**']);
+      assert.equal(referenceCoverage.enumerationComplete, false,
+        'reference search alone cannot prove semantic or dynamic-call exhaustiveness');
+
+      const searchFailureCases = [
+        { telemetry: { walkTruncated: true, truncated: true }, resultField: 'walkTruncated', coverageField: 'toolTruncated' },
+        { telemetry: { resultTruncated: true, truncated: true }, resultField: 'resultTruncated', coverageField: 'toolTruncated' },
+        { telemetry: { errors: 1 }, resultField: 'errors', coverageField: 'errors' },
+        { telemetry: { omittedSecretPaths: 1 }, resultField: 'omittedSecretPaths', coverageField: 'deniedPaths' },
+        { telemetry: { omittedOutOfScopeFiles: 1 }, resultField: 'omittedOutOfScopeFiles', coverageField: 'omittedOutOfScopeFiles' },
+      ];
+      for (const { telemetry, resultField, coverageField } of searchFailureCases) {
+        const affected = new GrepTelemetryToolkit({ repoRoot: root, runtimeConfig }, telemetry);
+        await affected.initialize(['src/**']);
+        affected._hasRipgrep = false;
+        const result = await affected.references(referenceArgs);
+        assert.equal(result[resultField], telemetry[resultField],
+          `repo_references must retain underlying ${resultField}`);
+        const coverage = deriveCoverage({
+          tool: 'repo_references',
+          args: referenceArgs,
+          result,
+          effectiveScope: ['src/**'],
+          contextTruncated: false,
+        });
+        assert.equal(coverage[coverageField], coverageField === 'toolTruncated' ? true : 1);
+        assert.equal(coverage.enumerationComplete, false);
+      }
+
+      await fs.writeFile(path.join(root, '.env'), 'TOKEN=placeholder\n');
+      const unrestricted = new RepoToolkit({ repoRoot: root, runtimeConfig });
+      await unrestricted.initialize(['**']);
+      const deniedResult = await unrestricted.symbols({ path: '.env' });
+      const deniedCoverage = deriveCoverage({
+        tool: 'repo_symbols',
+        args: { path: '.env' },
+        result: deniedResult,
+        effectiveScope: ['**'],
+        contextTruncated: false,
+      });
+      assert.equal(deniedCoverage.deniedPaths, 1);
+      assert.equal(deniedCoverage.enumerationComplete, false);
+      assert.doesNotMatch(JSON.stringify(deniedCoverage), /\.env/,
+        'coverage telemetry must count a denial without leaking the denied path');
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  },
+);
+
+toolSpecificEnumerationTest(
+  'Spec 028 T058 — macros certify only explicitly complete underlying expansion',
+  async (t, deriveCoverage) => {
+    const root = await makeRepoFixture();
+    try {
+      const runtimeConfig = getRuntimeConfig();
+      const args = { symbol: 'requireAuth' };
+      const toolkit = new RepoToolkit({ repoRoot: root, runtimeConfig });
+      await toolkit.initialize(['src/**']);
+      toolkit._hasRipgrep = false;
+
+      const complete = await toolkit.symbolContext(args);
+      assert.equal(complete.walkTruncated, false);
+      assert.equal(complete.resultTruncated, false);
+      assert.equal(complete.macroTruncated, false);
+      const completeCoverage = deriveCoverage({
+        tool: 'repo_symbol_context',
+        args,
+        result: complete,
+        effectiveScope: ['src/**'],
+        contextTruncated: false,
+      });
+      assert.deepEqual(completeCoverage.boundary, ['src/**']);
+      assert.equal(completeCoverage.enumerationComplete, true);
+
+      const manyCallers = Array.from({ length: 25 }, (_, index) =>
+        `export function caller${index}() { requireAuth(); }`).join('\n');
+      await fs.writeFile(path.join(root, 'src', 'many-callers.js'), `${manyCallers}\n`);
+      const cappedToolkit = new RepoToolkit({ repoRoot: root, runtimeConfig });
+      await cappedToolkit.initialize(['src/**']);
+      cappedToolkit._hasRipgrep = false;
+      const capped = await cappedToolkit.symbolContext(args);
+      assert.equal(capped.walkTruncated, false);
+      assert.equal(capped.resultTruncated, false);
+      assert.equal(capped.macroTruncated, true,
+        'macro-local caller caps must remain distinct from underlying search caps');
+      const cappedCoverage = deriveCoverage({
+        tool: 'repo_symbol_context',
+        args,
+        result: { ...capped, truncated: false, boundary: ['**'], enumerationComplete: true },
+        effectiveScope: ['src/**'],
+        contextTruncated: false,
+      });
+      assert.deepEqual(cappedCoverage.boundary, ['src/**']);
+      assert.equal(cappedCoverage.toolTruncated, true);
+      assert.equal(cappedCoverage.enumerationComplete, false,
+        'a macro self-report cannot override its runtime-observed caller cap');
+
+      const underlyingFailureCases = [
+        { telemetry: { walkTruncated: true, truncated: true }, resultField: 'walkTruncated', coverageField: 'toolTruncated' },
+        { telemetry: { resultTruncated: true, truncated: true }, resultField: 'resultTruncated', coverageField: 'toolTruncated' },
+        { telemetry: { errors: 1 }, resultField: 'errors', coverageField: 'errors' },
+        { telemetry: { omittedSecretPaths: 1 }, resultField: 'omittedSecretPaths', coverageField: 'deniedPaths' },
+        { telemetry: { omittedOutOfScopeFiles: 1 }, resultField: 'omittedOutOfScopeFiles', coverageField: 'omittedOutOfScopeFiles' },
+      ];
+      for (const { telemetry, resultField, coverageField } of underlyingFailureCases) {
+        const affected = new GrepTelemetryToolkit({ repoRoot: root, runtimeConfig }, telemetry);
+        await affected.initialize(['src/**']);
+        affected._hasRipgrep = false;
+        const result = await affected.symbolContext(args);
+        assert.equal(result[resultField], telemetry[resultField],
+          `repo_symbol_context must retain underlying ${resultField}`);
+        const coverage = deriveCoverage({
+          tool: 'repo_symbol_context',
+          args,
+          result,
+          effectiveScope: ['src/**'],
+          contextTruncated: false,
+        });
+        assert.equal(coverage[coverageField], coverageField === 'toolTruncated' ? true : 1);
+        assert.equal(coverage.enumerationComplete, false);
+      }
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  },
+);
+
+toolSpecificEnumerationTest(
+  'Spec 028 T058 — scoped git completeness is limited to the exact historical slice',
+  { skip: !hasGit() },
+  async (t, deriveCoverage) => {
+    const root = await makeEnumerationGitFixture();
+    try {
+      const runtimeConfig = getRuntimeConfig();
+      const toolkit = new RepoToolkit({ repoRoot: root, runtimeConfig });
+      await toolkit.initialize(['src/**']);
+
+      const gitSlices = [
+        {
+          tool: 'repo_git_diff',
+          args: { from: 'HEAD~1', to: 'HEAD', path: 'src/app.js' },
+          result: await toolkit.gitDiff({ from: 'HEAD~1', to: 'HEAD', path: 'src/app.js' }),
+          boundary: ['src/app.js'],
+        },
+        {
+          tool: 'repo_git_show',
+          args: { ref: 'HEAD' },
+          result: await toolkit.gitShow({ ref: 'HEAD' }),
+          boundary: ['src/**'],
+        },
+        {
+          tool: 'repo_git_blame',
+          args: { path: 'src/app.js', startLine: 1, endLine: 1 },
+          result: await toolkit.gitBlame({ path: 'src/app.js', startLine: 1, endLine: 1 }),
+          boundary: ['src/app.js'],
+        },
+        {
+          tool: 'repo_git_log',
+          args: { path: 'src/app.js', maxCount: 10 },
+          result: await toolkit.gitLog({ path: 'src/app.js', maxCount: 10 }),
+          boundary: ['src/app.js'],
+        },
+      ];
+      for (const { tool, args, result, boundary } of gitSlices) {
+        assert.equal(result.resultTruncated, false, `${tool} must expose a complete result slice`);
+        const coverage = deriveCoverage({
+          tool,
+          args,
+          result: { ...result, boundary: ['**'], enumerationComplete: false },
+          effectiveScope: ['src/**'],
+          contextTruncated: false,
+        });
+        assert.deepEqual(coverage.boundary, boundary);
+        assert.equal(coverage.enumerationComplete, true,
+          `${tool} may certify only its explicit historical slice`);
+      }
+
+      const broadArgs = { from: 'HEAD~2', to: 'HEAD~1' };
+      const filtered = await toolkit.gitDiff(broadArgs);
+      assert.ok(filtered.omittedOutOfScopeFiles > 0);
+      assert.ok(filtered.omittedSecretPaths > 0);
+      const filteredCoverage = deriveCoverage({
+        tool: 'repo_git_diff',
+        args: broadArgs,
+        result: filtered,
+        effectiveScope: ['src/**'],
+        contextTruncated: false,
+      });
+      assert.ok(filteredCoverage.omittedOutOfScopeFiles > 0);
+      assert.ok(filteredCoverage.deniedPaths > 0);
+      assert.equal(filteredCoverage.enumerationComplete, false);
+
+      const largeArgs = { from: 'HEAD~2', to: 'HEAD~1', path: 'src/large.js' };
+      const limited = await toolkit.gitDiff(largeArgs);
+      assert.equal(limited.resultTruncated, true,
+        'per-file patch clipping must be retained as explicit result telemetry');
+      const limitedCoverage = deriveCoverage({
+        tool: 'repo_git_diff',
+        args: largeArgs,
+        result: limited,
+        effectiveScope: ['src/**'],
+        contextTruncated: false,
+      });
+      assert.equal(limitedCoverage.toolTruncated, true);
+      assert.equal(limitedCoverage.enumerationComplete, false);
+
+      const limitedLogArgs = { path: 'src/app.js', maxCount: 1 };
+      const limitedLog = await toolkit.gitLog(limitedLogArgs);
+      assert.equal(limitedLog.resultTruncated, true,
+        'git log must query enough metadata to distinguish a full slice from its maxCount cap');
+      const limitedLogCoverage = deriveCoverage({
+        tool: 'repo_git_log',
+        args: limitedLogArgs,
+        result: limitedLog,
+        effectiveScope: ['src/**'],
+        contextTruncated: false,
+      });
+      assert.equal(limitedLogCoverage.toolTruncated, true);
+      assert.equal(limitedLogCoverage.enumerationComplete, false);
+
+      let errorResult;
+      try {
+        await toolkit.gitDiff({ from: 'missing-ref', to: 'HEAD', path: 'src/app.js' });
+        assert.fail('invalid git history lookup should fail');
+      } catch (error) {
+        errorResult = {
+          error: true,
+          stage: 'parse_or_exec',
+          type: 'tool_execution_error',
+          message: error.message,
+          tool: 'repo_git_diff',
+        };
+      }
+      const errorCoverage = deriveCoverage({
+        tool: 'repo_git_diff',
+        args: { from: 'missing-ref', to: 'HEAD', path: 'src/app.js' },
+        result: errorResult,
+        effectiveScope: ['src/**'],
+        contextTruncated: false,
+      });
+      assert.equal(errorCoverage.errors, 1);
+      assert.equal(errorCoverage.enumerationComplete, false);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  },
+);
 
 test('Spec 028 T029 — source roles use conservative path segments and suffixes', () => {
   const fixtures = new Map([
