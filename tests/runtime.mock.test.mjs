@@ -7376,7 +7376,7 @@ test('Spec 028 T059 — runtime enforces negative and critical proof boundaries'
       goal: {
         id: 'S-source-backed-exhaustive-route-policy',
         question: 'Which user and admin guards are in the exhaustive route inventory?',
-        originText: 'classify user and admin guards',
+        originText: 'Inventory every route authorization mechanism and classify user and admin guards',
         claimType: 'comparison',
         proofCondition: 'Enumerate every matching route guard and distinguish user from admin policy.',
         constraints: ['A grep predicate for route registration names cannot certify guard categories.'],
@@ -7456,8 +7456,8 @@ test('Spec 028 T059 — runtime enforces negative and critical proof boundaries'
       ],
       initialEvidenceRefs: ['E1', 'E2'],
       assertImplemented({ client, result, goal, claim }) {
-        assert.equal(client.stageCounts.get('semantic_verifier'), 1,
-          'a two-path comparison does not trigger focused corroboration');
+        assert.equal(client.stageCounts.get('semantic_verifier'), 2,
+          'a two-path comparison receives focused corroboration');
         assert.equal(result.taskContract.subgoals.find(item => item.id === goal.id).state,
           'supported');
         assert.equal(result.coverageGaps.length, 0);
@@ -7579,12 +7579,31 @@ test('Spec 028 T059 — runtime enforces negative and critical proof boundaries'
         initial: {
           tools: fixture.initialTools,
           claims: [claim],
-          verdicts: [semanticVerdict(
-            claim.id,
-            'supported',
-            fixture.verifierEvidenceRefs ?? fixture.initialEvidenceRefs,
-          )],
-          assertVerifier: fixture.assertVerifier,
+          ...(fixture.goal.claimType === 'comparison'
+            ? {
+                verifierSteps: [{
+                  verdicts: [semanticVerdict(
+                    claim.id,
+                    'supported',
+                    fixture.verifierEvidenceRefs ?? fixture.initialEvidenceRefs,
+                  )],
+                  assertRequest: fixture.assertVerifier,
+                }, {
+                  verdicts: [semanticVerdict(
+                    claim.id,
+                    'supported',
+                    fixture.verifierEvidenceRefs ?? fixture.initialEvidenceRefs,
+                  )],
+                }],
+              }
+            : {
+                verdicts: [semanticVerdict(
+                  claim.id,
+                  'supported',
+                  fixture.verifierEvidenceRefs ?? fixture.initialEvidenceRefs,
+                )],
+                assertVerifier: fixture.assertVerifier,
+              }),
         },
         repair: fixture.repairTools ? {
           tools: fixture.repairTools,

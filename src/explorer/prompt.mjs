@@ -412,7 +412,7 @@ const COMPARISON_CORROBORATOR_SYSTEM_PROMPT = [
   SEMANTIC_VERIFIER_SYSTEM_PROMPT,
   '',
   'FOCUSED MULTI-PATH COMPARISON CORROBORATION:',
-  '- This packet contains exactly one high-risk comparison claim spanning at least three current source paths. Independently re-check the whole claim from the bounded batch observations; do not defer to an earlier verdict.',
+  '- This packet contains exactly one high-risk comparison claim spanning at least two current source paths. Independently re-check the whole claim from the bounded batch observations; do not defer to an earlier verdict.',
   '- The packet may include observations used by sibling goals. Do not require every observation and ignore sources outside this audited sub-goal boundary.',
   '- Inspect uncited current-source observations as omission candidates. If one falls inside the audited comparison boundary and establishes an independent policy, route, helper, field, predicate, exception, or comparison variant that the claim omits, return insufficient with missing_category or boundary_mismatch. Never add that observation to supportingEvidenceRefs.',
   '- Match every named route, helper, data field, membership predicate, existence predicate, boolean predicate, exception, and comparison side to the exact code that implements it. Similar table or helper names are not interchangeable mechanisms.',
