@@ -20,7 +20,7 @@ import {
   fingerprintAction,
 } from '../src/explorer/coverage.mjs';
 import { adaptLegacyGoalAuditClient } from './helpers/legacy-goal-audit-client.mjs';
-import { validateParentHandoffV3 } from '../src/explorer/schemas.mjs';
+import { validateParentHandoffV3, validateTaskContract } from '../src/explorer/schemas.mjs';
 
 function hasGit() {
   try {
@@ -212,7 +212,7 @@ test('Spec 028 T041 — partial and all-blocked handoffs expose only actionable 
     'Token validation is implemented in src/auth.js.');
   assert.equal(partialHandoff.evidence.length, 1);
   assert.deepEqual(partialHandoff.gaps, [{
-    question: blockedGoal.question,
+    question: 'Explain token validation and check every alternate bootstrap.',
     reason: 'The required repository boundary was not completely enumerated.',
   }]);
   assert.equal(partialHandoff.followUp, undefined);
@@ -224,7 +224,8 @@ test('Spec 028 T041 — partial and all-blocked handoffs expose only actionable 
       effectiveScope: ['src/**'],
       subgoals: [{
         id: 'S-live',
-        question: 'Which token validation revision is deployed?',
+        question: 'INTERNAL_GOAL_SENTINEL',
+        auditBinding: 'INTERNAL_BINDING_SENTINEL',
         proofPolicy: 'direct_source',
         state: 'blocked',
       }],
@@ -232,7 +233,7 @@ test('Spec 028 T041 — partial and all-blocked handoffs expose only actionable 
     coverageGaps: [{
       id: 'G-live',
       subgoalId: 'S-live',
-      question: 'Which token validation revision is deployed?',
+      question: 'INTERNAL_GOAL_SENTINEL',
       reason: 'external_state_required',
       repairable: false,
       priority: 0,
@@ -242,16 +243,17 @@ test('Spec 028 T041 — partial and all-blocked handoffs expose only actionable 
     schemaVersion: 3,
     state: 'incomplete',
     gaps: [{
-      question: 'Which token validation revision is deployed?',
+      question: 'Report the deployed token validation revision.',
       reason: 'This depends on live or external state unavailable to the repository explorer.',
     }],
     followUp: {
       type: 'external_verification',
-      requirement: 'Which token validation revision is deployed?',
+      requirement: 'Report the deployed token validation revision.',
     },
   });
   assert.doesNotThrow(() => validateParentHandoffV3(partialHandoff));
   assert.doesNotThrow(() => validateParentHandoffV3(allBlocked));
+  assert.doesNotMatch(JSON.stringify(allBlocked), /INTERNAL_(?:GOAL|BINDING)_SENTINEL/);
 });
 
 test('Spec 028 T041 — failed handoff maps reasons and drops stale success data', () => {
@@ -301,7 +303,7 @@ test('Spec 028 T041 — plan-level gaps prevent a false complete handoff', () =>
   assert.equal(handoff.directAnswer,
     'Token validation is implemented in src/auth.js.');
   assert.deepEqual(handoff.gaps, [{
-    question: 'Resolve the uncovered request obligation.',
+    question: 'Explain token validation behavior.',
     reason: 'This requested part could not be reduced to a complete verifiable repository goal.',
   }]);
   assert.doesNotThrow(() => validateParentHandoffV3(handoff));
@@ -372,7 +374,7 @@ test('Spec 028 T041 — shared search refs require claim-local absence certifica
     supports: 'legacyAuth is absent from the enumerated src boundary.',
   }]);
   assert.deepEqual(handoff.gaps, [{
-    question: 'Is debugAuth absent from src?',
+    question: 'Check bounded absence for legacyAuth and debugAuth.',
     reason: 'Required repository evidence was not found.',
   }]);
   assert.doesNotThrow(() => validateParentHandoffV3(handoff));
@@ -4710,6 +4712,178 @@ auditedPlanningRuntimeTest('Spec 028 T017 — one corrected plan is re-audited a
     /goalAuditRecords|needs_decomposition/);
 });
 
+auditedPlanningRuntimeTest('Spec 028 T069 — strict origin containment gets one uniquely bound refinement', async () => {
+  const task = 'Compare frontend administrator policy with backend administrator and developer access policies.';
+  const preserved = proposedRuntimeGoal({
+    id: 'S-frontend-policy',
+    question: 'Which frontend administrator policy is enforced?',
+    originRefs: [requestOrigin(task, 'frontend administrator policy')],
+    claimType: 'positive',
+    proofCondition: 'Observe the frontend administrator predicate.',
+  });
+  const broad = proposedRuntimeGoal({
+    id: 'S-backend-broad',
+    question: 'Which backend administrator and developer policies apply?',
+    originRefs: [requestOrigin(task, 'backend administrator and developer access policies')],
+    claimType: 'comparison',
+    proofCondition: 'Compare the backend administrator and developer policy paths.',
+  });
+  const nested = proposedRuntimeGoal({
+    id: 'S-developer-nested',
+    question: 'Which developer access policy applies?',
+    originRefs: [requestOrigin(task, 'developer access policies')],
+    claimType: 'comparison',
+    proofCondition: 'Compare the developer-specific access paths.',
+  });
+  const correctedAdmin = {
+    ...broad,
+    question: 'Which backend administrator policy applies?',
+    originRefs: [requestOrigin(task, 'backend administrator')],
+    proofCondition: 'Compare the backend administrator policy paths.',
+  };
+  const correctedDeveloper = {
+    ...nested,
+    question: 'Which developer access path applies?',
+    originRefs: [requestOrigin(task, 'developer access')],
+    proofCondition: 'Compare the developer-specific access path independently.',
+  };
+  const client = new ScriptedGoalAuditClient([
+    { stage: 'planner:1', value: plannerControl([preserved, broad, nested]) },
+    {
+      stage: 'goal_audit:1',
+      value: auditorControl([preserved, broad, nested].map(goal => auditControlRecord(goal))),
+    },
+    {
+      stage: 'planner:2',
+      run(request) {
+        const packet = parseControlPacket(request);
+        assert.deepEqual(new Set(packet.revisionRequest.refineGoalIds),
+          new Set([broad.id, nested.id]));
+        assert.deepEqual(packet.revisionRequest.decomposeGoalIds, []);
+        assert.match(request.messages[0].content, /exactly one same-type descendant goal/u);
+        return controlCompletion(plannerControl([
+          preserved,
+          correctedAdmin,
+          correctedDeveloper,
+        ]));
+      },
+    },
+    {
+      stage: 'goal_audit:2',
+      value: auditorControl([
+        auditControlRecord(correctedAdmin),
+        auditControlRecord(correctedDeveloper),
+      ]),
+    },
+    {
+      stage: 'goal_coverage:1',
+      run(request) {
+        assert.match(request.messages[0].content,
+          /refine obligation requires exactly one coveredByGoalId/u);
+        assert.match(request.messages[0].content,
+          /same-type refined goals must not retain equal or containing confirmed origin signatures/u);
+        return controlCompletion(coverageControl([
+          coveredObligation('revision-obligation-1', [correctedDeveloper.id]),
+          coveredObligation('revision-obligation-2', [correctedDeveloper.id]),
+        ]));
+      },
+    },
+    {
+      stage: 'goal_coverage:2',
+      value: coverageControl([
+        coveredObligation('revision-obligation-1', [correctedAdmin.id]),
+        coveredObligation('revision-obligation-2', [correctedDeveloper.id]),
+      ]),
+    },
+    { stage: 'exploration:1', content: 'The uniquely refined goals are ready.' },
+    { stage: 'synthesis:1', value: readyExplorationResult() },
+  ]);
+  const root = await makeRepoFixture();
+  const result = await new RuntimeImplementation({ chatClient: client }).explore({
+    task,
+    repo_root: root,
+    scope: ['src/**'],
+  });
+
+  assert.equal(result.failure, null, JSON.stringify({
+    stages: client.stageLabels,
+    failure: result.failure,
+  }));
+  assert.equal(client.stageCounts.get('planner'), 2);
+  assert.equal(client.stageCounts.get('goal_audit'), 2);
+  assert.equal(client.stageCounts.get('goal_coverage'), 2,
+    'one invalid duplicate binding receives only the bounded correction attempt');
+  assert.deepEqual(result.taskContract.subgoals.map(goal => goal.id),
+    [preserved.id, correctedAdmin.id, correctedDeveloper.id]);
+  assert.equal(result.coverageGaps.some(gap => gap.reason === 'planning_incomplete'), false);
+  assert.ok(result.taskContract.subgoals.every(goal =>
+    /^audit-v1:/.test(goal.auditBinding)));
+});
+
+auditedPlanningRuntimeTest('Spec 028 T069 — distinct refine ids cannot retain equal confirmed origins', async () => {
+  const task = 'Compare frontend administrator policy with backend administrator and developer access policies.';
+  const broad = proposedRuntimeGoal({
+    id: 'S-backend-broad-equal',
+    question: 'Which backend administrator and developer policies apply?',
+    originRefs: [requestOrigin(task, 'backend administrator and developer access policies')],
+    claimType: 'comparison',
+    proofCondition: 'Compare the backend administrator and developer policy paths.',
+  });
+  const nested = proposedRuntimeGoal({
+    id: 'S-developer-nested-equal',
+    question: 'Which developer access policy applies?',
+    originRefs: [requestOrigin(task, 'developer access policies')],
+    claimType: 'comparison',
+    proofCondition: 'Compare the developer-specific access paths.',
+  });
+  const equalOrigin = requestOrigin(task, 'developer access');
+  const corrected = [
+    {
+      ...broad,
+      id: 'S-equal-admin',
+      question: 'Which administrator policy applies?',
+      originRefs: [equalOrigin],
+      proofCondition: 'Compare the administrator policy paths.',
+    },
+    {
+      ...nested,
+      id: 'S-equal-developer',
+      question: 'Which developer policy applies?',
+      originRefs: [equalOrigin],
+      proofCondition: 'Compare the developer policy paths.',
+    },
+  ];
+  const invalidCoverage = coverageControl([
+    coveredObligation('revision-obligation-1', [corrected[0].id]),
+    coveredObligation('revision-obligation-2', [corrected[1].id]),
+  ]);
+  const client = new ScriptedGoalAuditClient([
+    { stage: 'planner:1', value: plannerControl([broad, nested]) },
+    {
+      stage: 'goal_audit:1',
+      value: auditorControl([broad, nested].map(goal => auditControlRecord(goal))),
+    },
+    { stage: 'planner:2', value: plannerControl(corrected) },
+    {
+      stage: 'goal_audit:2',
+      value: auditorControl(corrected.map(goal => auditControlRecord(goal))),
+    },
+    { stage: 'goal_coverage:1', value: invalidCoverage },
+    { stage: 'goal_coverage:2', value: invalidCoverage },
+  ]);
+  const root = await makeRepoFixture();
+  const result = await new RuntimeImplementation({ chatClient: client }).explore({
+    task,
+    repo_root: root,
+    scope: ['src/**'],
+  });
+
+  assert.equal(client.stageCounts.get('goal_coverage'), 2,
+    'equal confirmed origins receive only the bounded reconciliation retry');
+  assert.equal(result.failure?.reason, 'invalid_final_response');
+  assert.equal(client.stageLabels.includes('exploration:1'), false);
+});
+
 auditedPlanningRuntimeTest('Spec 028 T022 — corrected planning cannot drop revision obligations or revive rejected goals', async () => {
   const definition = proposedRuntimeGoal();
   const invented = proposedRuntimeGoal({
@@ -4771,6 +4945,49 @@ auditedPlanningRuntimeTest('Spec 028 T022 — corrected planning cannot drop rev
     'a preserved goal is carried forward without a second audit');
   assert.doesNotMatch(JSON.stringify(client.requests[3].messages), /S-invented/,
     'a terminally rejected goal must not leak into exploration');
+});
+
+auditedPlanningRuntimeTest('Spec 028 T069 — revision carry ids reserve preserved goal identities', async () => {
+  const broadId = 'S-carry-collision';
+  const preserved = proposedRuntimeGoal({
+    id: `planning-carry:${broadId}`,
+    question: 'Where is the retained requireAuth definition?',
+    proofCondition: 'Observe the retained in-scope requireAuth definition.',
+  });
+  const broad = proposedRuntimeGoal({
+    id: broadId,
+    question: 'Inspect all requested authentication facets together.',
+    originRefs: [`request:0-${GOAL_AUDIT_TASK.length}`],
+    claimType: 'positive',
+    proofCondition: 'Observe every requested authentication facet in one aggregate proof.',
+  });
+  const client = new ScriptedGoalAuditClient([
+    { stage: 'planner:1', value: plannerControl([preserved, broad]) },
+    {
+      stage: 'goal_audit:1',
+      value: auditorControl([
+        auditControlRecord(preserved),
+        auditControlRecord(broad, 'needs_decomposition'),
+      ]),
+    },
+    { stage: 'planner:2', value: plannerControl([preserved]) },
+    { stage: 'exploration:1', content: 'Only the preserved goal can be explored.' },
+    { stage: 'synthesis:1', value: readyExplorationResult() },
+  ]);
+  const root = await makeRepoFixture();
+  const result = await new RuntimeImplementation({ chatClient: client }).explore({
+    task: GOAL_AUDIT_TASK,
+    repo_root: root,
+  });
+
+  assert.equal(result.failure, null, JSON.stringify(result.failure));
+  assert.deepEqual(result.taskContract.subgoals.map(goal => goal.id), [
+    preserved.id,
+    `planning-carry:${broadId}:2`,
+  ]);
+  assert.equal(new Set(result.taskContract.subgoals.map(goal => goal.id)).size,
+    result.taskContract.subgoals.length);
+  assert.equal(result.taskContract.subgoals[1].auditVerdict, 'planning_incomplete');
 });
 
 auditedPlanningRuntimeTest('Spec 028 T022 — one audited rephrase can satisfy an uncovered revision obligation', async () => {
@@ -5649,6 +5866,8 @@ auditedPlanningRuntimeTest('Spec 028 T022 — control prompts and returned trust
 
   assert.doesNotMatch(JSON.stringify(result), new RegExp(secret));
   assert.match(result.taskContract.task, /\[REDACTED:openai-api-key\]/);
+  assert.doesNotThrow(() => validateTaskContract(result.taskContract),
+    'the runtime-owned redacted diagnostic projection is resealed');
 
   const lateProposal = {
     ...goal,
@@ -5673,6 +5892,15 @@ auditedPlanningRuntimeTest('Spec 028 T022 — control prompts and returned trust
   });
   assert.doesNotMatch(JSON.stringify(lateResult), new RegExp(secret));
   assert.match(lateResult.requiredSubgoals[0].question, /\[REDACTED:openai-api-key\]/);
+  const [safeLateGoal] = lateResult.requiredSubgoals;
+  assert.doesNotThrow(() => createTaskContract({
+    task,
+    effectiveScope: ['src/**'],
+    constraints: [],
+    subgoals: [safeLateGoal],
+    plannerVersion: 'planner-v1',
+    goalAuditVersion: 'goal-audit-v1',
+  }));
 });
 
 auditedPlanningRuntimeTest('Spec 028 T017 — cancellation is honored at every planning and audit stage', async () => {
@@ -6463,6 +6691,16 @@ function assertMinimalCompleteParentHandoff(result, {
   assert.deepEqual(handoff.evidence.map(item => item.kind).sort(), [...evidenceKinds].sort());
 }
 
+function expectedParentGapQuestion(result, goal) {
+  const task = result.taskContract.task;
+  const requestSlices = (goal?.originRefs ?? []).flatMap(originRef => {
+    const match = /^request:(\d+)-(\d+)$/.exec(originRef);
+    if (!match) return [];
+    return [task.slice(Number(match[1]), Number(match[2])).trim()];
+  }).filter(Boolean);
+  return [...new Set(requestSlices)].join(' / ') || task.trim();
+}
+
 function assertMinimalIncompleteParentHandoff(result, question) {
   const handoff = result.parentHandoff;
   assert.doesNotThrow(() => validateParentHandoffV3(handoff));
@@ -6470,7 +6708,14 @@ function assertMinimalIncompleteParentHandoff(result, question) {
   assert.equal(handoff.schemaVersion, 3);
   assert.equal(handoff.state, 'incomplete');
   assert.equal(handoff.gaps.length, 1);
-  assert.equal(handoff.gaps[0].question, question);
+  const gap = result.coverageGaps.find(item => item.subgoalId) ?? null;
+  const goal = result.taskContract.subgoals.find(item => item.id === gap?.subgoalId) ?? null;
+  const requestQuestion = expectedParentGapQuestion(result, goal);
+  assert.equal(handoff.gaps[0].question, requestQuestion);
+  if (question !== requestQuestion) {
+    assert.notEqual(handoff.gaps[0].question, question,
+      'model-authored goal text must not leak into the parent gap');
+  }
   assert.ok(handoff.gaps[0].reason.length > 0);
 }
 
@@ -7658,7 +7903,7 @@ semanticPipelineRuntimeTest(
     assert.match(result.parentHandoff.directAnswer, /case and draft routes/u);
     assert.doesNotMatch(result.parentHandoff.directAnswer, /two admin_user_info existence checks/u);
     assert.equal(result.parentHandoff.gaps.some(gap =>
-      gap.question === backendGoal.question), true);
+      gap.question === expectedParentGapQuestion(result, backendGoal)), true);
 
     const primaryPartialSteps = buildTrustSteps({
       goals: [frontendGoal, backendGoal, developerGoal],
@@ -7803,7 +8048,8 @@ semanticPipelineRuntimeTest(
     assert.equal(result.parentHandoff.state, 'incomplete');
     assert.equal(result.parentHandoff.directAnswer, absenceClaim.text);
     assert.equal(result.parentHandoff.evidence[0].kind, 'absence');
-    assert.equal(result.parentHandoff.gaps[0].question, inventoryGoal.question);
+    assert.equal(result.parentHandoff.gaps[0].question,
+      expectedParentGapQuestion(result, inventoryGoal));
   },
 );
 
@@ -8954,7 +9200,10 @@ semanticPipelineRuntimeTest(
     assert.equal(lateGoal.state, 'gap');
     assert.deepEqual(result.rejectedGoals, []);
     assert.equal(result.parentHandoff.state, 'incomplete');
-    assert.ok(result.parentHandoff.gaps.some(gap => gap.question === proposal.question));
+    assert.ok(result.parentHandoff.gaps.some(gap =>
+      gap.question === expectedParentGapQuestion(result, lateGoal)));
+    assert.equal(JSON.stringify(result.parentHandoff).includes(proposal.question), false,
+      'the parent gap is derived from the immutable request rather than verifier prose');
   },
 );
 

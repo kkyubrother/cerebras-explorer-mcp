@@ -13,7 +13,10 @@ compatibility aliases or selectable effort controls are retained.
   the request or wrapper, audited for feasibility and granularity, and verified
   against runtime-reconstructed observations. Planner inventions are discarded;
   user-required blockers remain concise `incomplete` gaps. `complete` and
-  `verify_targets` require every valid required goal to be verified.
+  `verify_targets` require every valid required goal to be verified. A
+  runtime-owned audit binding rejects post-audit acceptance-core mutation, and
+  strict same-type origin containment receives one uniquely reconciled
+  refinement instead of allowing sibling goals to be reassigned.
 - **Bounded proof and repair**: absence, count, exhaustive classification,
   route-policy comparison, flow, impact, and historical claims use
   runtime-owned proof gates. Invalid or cross-claim verifier evidence fails
@@ -23,7 +26,8 @@ compatibility aliases or selectable effort controls are retained.
   and the state-relevant subset of `directAnswer`, `targets`, `evidence`,
   `gaps`, `followUp`, and `failure`. Goals, verdicts, counters, usage, timing,
   tool traces, and transcript paths remain operational diagnostics and are not
-  copied into the parent payload.
+  copied into the parent payload. Incomplete questions come from immutable
+  request slices rather than model-authored goal or audit prose.
 - **Smaller tool surface**: the registry is now exactly
   `find_relevant_code`, `trace_symbol`, `map_change_impact`,
   `explain_code_path`, `collect_evidence`, and `explore_repo`, in that order.

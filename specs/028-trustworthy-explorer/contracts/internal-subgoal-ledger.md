@@ -69,10 +69,10 @@ The runtime applies [goal-audit.md](./goal-audit.md) before any repository explo
 
 1. deterministic schema/origin/scope/capability checks;
 2. isolated request-coverage, traceability, consistency, and granularity audit;
-3. at most one corrected planner pass for missing or decomposable obligations;
-4. final separation into audited goals, blocked required goals, and rejected planner inventions.
+3. at most one corrected planner pass for missing/decomposable obligations or strict one-way containment between same-type auditor-confirmed origin signatures;
+4. unique reconciliation of each refinement to one same-type descendant, followed by final separation into audited goals, blocked required goals, and rejected planner inventions.
 
-Only audited/blocked required goals enter the ledger. A rejected untraceable goal is logged but cannot become a gap or block completion. A valid user-required blocker enters the ledger in terminal `blocked` state and cannot enter the evidence repair round.
+Only audited/blocked required goals enter the ledger. Runtime seals each accepted goal's immutable post-audit acceptance core with `auditBinding`, rejects duplicate ledger ids, and revalidates the binding at transitions and TaskContract boundaries. Equal-origin shared facets remain valid outside a refinement batch, while refined same-type descendants must not retain equal or containing confirmed signatures. A rejected untraceable goal is logged but cannot become a gap or block completion. A valid user-required blocker enters the ledger in terminal `blocked` state and cannot enter the evidence repair round. Neither goal/audit wording nor `auditBinding` is parent-facing.
 
 ## Wrapper seeds
 

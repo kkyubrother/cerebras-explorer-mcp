@@ -248,8 +248,9 @@ const CORRECTED_PLANNER_SYSTEM_PROMPT = [
   'FINAL REVISION RULES:',
   '- This is the one and final corrected planner pass. No further, additional, or recursive planning is allowed.',
   '- Preserve every accepted or blocked goal in preservedGoals.',
-  '- Correct only the named decomposition defects and uncovered request parts in revisionRequest.',
+  '- Correct only the named decomposition defects, origin refinements, and uncovered request parts in revisionRequest.',
   '- Every revisionRequest.obligations entry is mandatory runtime control data. Preserve its full direction, polarity, boundaries, distinctions, proof condition, origins, and constraints in one or more corrected subgoals.',
+  '- A refine obligation requires exactly one same-type descendant goal with origins narrow enough to distinguish it from sibling obligations; refinement is not decomposition.',
   '- Do not create unrelated goals, implementation work, feasibility scores, priorities, effort choices, repair choices, or revision decisions.',
   '- Each new subgoal must remain request/wrapper-traceable and independently observable.',
   '- Do not recreate a decomposition defect as a renamed aggregate; replace it with independently decidable leaf goals only.',
@@ -331,6 +332,7 @@ const GOAL_COVERAGE_RECONCILIATION_SYSTEM_PROMPT = [
   '- covered means coveredByGoalIds collectively preserve the entire obligation, including direction, polarity, comparison sides, boundaries, distinctions, proof condition, and constraints.',
   '- remaining means no supplied audited goal set fully preserves the obligation; coveredByGoalIds must then be empty.',
   '- A decompose obligation requires at least two independently auditable coveredByGoalIds. An uncovered obligation requires at least one goal with the same claim type.',
+  '- A refine obligation requires exactly one coveredByGoalId. The same goal cannot cover two refine obligations, and same-type refined goals must not retain equal or containing confirmed origin signatures.',
   '- Do not infer equivalence from shared words, origin overlap, or similar ids. Directional reversals and different request facets remain distinct.',
   '- You may only reconcile supplied obligation ids. You cannot add request obligations; uncoveredRequestParts must be an empty array.',
   '- Do not add implementation work, scope, capabilities, priorities, effort choices, repair choices, or another revision.',
@@ -632,6 +634,7 @@ export function buildCorrectedPlannerMessages({
           : [],
         revisionRequest: {
           decomposeGoalIds: strings(revision.decomposeGoalIds),
+          refineGoalIds: strings(revision.refineGoalIds),
           uncoveredRequestParts: Array.isArray(revision.uncoveredRequestParts)
             ? revision.uncoveredRequestParts.map(normalizeUncoveredPart)
             : [],

@@ -153,8 +153,8 @@ The evidence list is claim-cover-minimized: retain one direct item per claim whe
 }
 ```
 
-- `gaps` contains every unresolved requested part, but no successful sub-goal or diagnostic history. Gaps sharing one cause/follow-up may be grouped only when each original question remains named.
-- Do not expose sub-goal ids, state history, goal-audit verdicts, rejected planner goals, verifier reason codes, or successful sub-goals.
+- `gaps` contains every unresolved requested part, but no successful sub-goal or diagnostic history. Each `question` is rebuilt from the required goal's confirmed original `request:<start>-<end>` slices; wrapper-only or plan-level gaps fall back to the original task. Gaps sharing one request-derived question and cause may be grouped only when no requested distinction is lost.
+- Do not expose model-authored goal/audit wording, `auditBinding`, sub-goal ids, state history, goal-audit verdicts, rejected planner goals, verifier reason codes, or successful sub-goals.
 - `followUp` is one narrow action for the runtime-selected highest-priority remaining gap; priority derives from original request order and proof policy, not model preference.
 - It is exactly one of:
 

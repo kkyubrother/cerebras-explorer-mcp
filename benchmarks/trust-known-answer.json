@@ -1584,7 +1584,8 @@
             "ADMIN_USERS"
           ],
           [
-            "/ai"
+            "/ai",
+            "AI page"
           ]
         ],
         "evidenceAnchorRefs": [

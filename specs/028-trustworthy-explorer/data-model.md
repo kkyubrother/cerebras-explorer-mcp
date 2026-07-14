@@ -20,7 +20,8 @@ Validation:
 
 - Every explicit requested part must map to at least one accepted or blocked required sub-goal.
 - Every constraint must be attached to one or more sub-goals or to the whole task.
-- A missing requested part found by initial goal audit is inserted through at most one plan revision. A later uncovered part is inserted as a required goal/gap and blocks completion without recursive planning.
+- Required sub-goal ids are unique. Every accepted goal carries a runtime-owned audit binding over its immutable post-audit acceptance core; TaskContract creation and validation both fail closed on duplicate ids or a binding mismatch.
+- A missing requested part, decomposable goal, or same-type goal whose auditor-confirmed origin signature strictly contains a sibling signature is corrected through at most one plan revision. A later uncovered or still-ambiguous part is inserted as a required goal/gap and blocks completion without recursive planning.
 - Rejected planner-invented goals are retained only in the operational audit record and are not members of `subgoals`.
 - The plan is internal; the parent does not receive it.
 
@@ -38,6 +39,7 @@ One independently verifiable part of the request.
 | `proofCondition` | string | Independently observable completion condition; cannot be circular or rely on model confidence. |
 | `constraints` | string[] | Relevant user constraints and claim boundary. |
 | `auditVerdict` | enum | `ready`, a valid blocker verdict, or runtime-derived `planning_incomplete` after the one revision. Rejected/merge candidates never enter the required ledger. |
+| `auditBinding` | string | Runtime-owned checksum over `id`, `question`, confirmed `originRefs`, `claimType`, `proofPolicy`, `proofCondition`, `constraints`, and `auditVerdict`. Recomputed at transitions and TaskContract boundaries; never parent-facing. |
 | `state` | enum | `audited`, `blocked`, `exploring`, `candidate`, `supported`, `gap`, `contradicted`. |
 | `resolution` | enum? | `affirmed` or `refuted`, present only for `supported`. A proven false premise is a supported refutation, not a contradicted goal. |
 | `claimRefs` | string[] | Atomic candidate claims intended to satisfy this sub-goal. |
@@ -93,8 +95,9 @@ Rules:
 - The isolated auditor sees the original request, wrapper seed, scope, capability manifest, and proposed goals only. It does not see repository content or exploratory prose.
 - A goal with no confirmed origin reference is rejected even when it appears useful.
 - A goal traceable to the user cannot be rejected merely because it is hard. A certain infeasibility becomes a blocker; uncertainty remains `ready` for evidence collection.
-- `needs_decomposition` or uncovered request parts may trigger exactly one corrected planner output. The corrected output is audited once; remaining defects become required gaps.
+- `needs_decomposition`, uncovered request parts, or strict one-way containment between same-type auditor-confirmed origin signatures may trigger exactly one corrected planner output. Each refinement obligation maps to exactly one same-type descendant, one corrected goal cannot satisfy two refinement obligations, and equal/containing refined signatures fail closed. The corrected output is audited once; remaining defects become required gaps.
 - After that revision, every still-uncovered or still-decomposable request part is materialized as a blocked required goal with its origin references, `auditVerdict=planning_incomplete`, and a `planning_incomplete` gap. It therefore participates in state reduction and cannot disappear as a free-floating diagnostic.
+- Every accepted/blocked required goal is sealed only after audit. The checksum detects post-audit acceptance-core mutation; exploration state, resolution, and claim references remain outside the binding so legal state transitions can proceed.
 - Rejected and merged proposal records stay in logs. Only accepted/blocked required goals enter the task contract.
 
 ## 4. Atomic Claim
@@ -233,14 +236,14 @@ Minimal unresolved requirement.
 |---|---|---|
 | `id` | string | Internal stable id. |
 | `subgoalId` | string? | Missing-plan gaps may not have an original id. |
-| `question` | string | What remains unresolved, suitable for optional parent display. |
+| `question` | string | Internal unresolved-goal wording for logs and reconciliation. Parent display is reconstructed from confirmed original-request slices instead of copying this model-authored text. |
 | `reason` | enum | `missing_evidence`, `semantic_mismatch`, `contradicted`, `planning_incomplete`, `scope_blocked`, `capability_blocked`, `external_state_required`, `missing_input`, `contradictory_request`, `unverifiable`, `truncated`, `enumeration_incomplete`, `safety_limit_reached`, `denied_evidence`, or `uncovered_request`. |
 | `repairable` | boolean | True only when one narrow internal evidence action can plausibly close it. Known scope/capability/input/contradiction/external-state blockers are false. |
 | `followUp` | object? | Narrow task, scope, and existing anchors. No budget/strategy/depth. |
 | `priority` | integer | Runtime-owned ordering derived from original request order and proof-policy criticality; the model cannot set it. |
 | `attemptedActionFingerprints` | string[] | Internal normalized tool/action fingerprints already tried for this gap, including the repair round. Never parent-facing. |
 
-Every unresolved required part is represented by a concise parent gap. Gaps with the same reason and follow-up may be grouped only when each original question remains named. Exactly one top-level follow-up may be exposed, selected from the highest-priority unresolved gap. Planner-rejected goals never create coverage gaps. Fatal execution observations are failures, not coverage gaps.
+Every unresolved required part is represented by a concise parent gap whose question is rebuilt from its confirmed `request:<start>-<end>` slices; wrapper-only or plan-level gaps fall back to the original task. Gaps with the same request-derived question and reason may be grouped only when no requested distinction is lost. Exactly one top-level follow-up may be exposed, selected from the highest-priority unresolved gap. Planner-rejected goals, audit prose, and `auditBinding` never create or enter parent gaps. Fatal execution observations are failures, not coverage gaps.
 
 ## 9. Parent Handoff v3
 

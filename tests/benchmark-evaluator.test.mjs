@@ -2573,6 +2573,46 @@ function liveTrustOracleCase() {
   return caseDefinition;
 }
 
+function liveGoalAuditBinding(goal) {
+  const core = {
+    id: goal.id,
+    question: goal.question,
+    originRefs: [...new Set(goal.originRefs ?? [])].sort(),
+    claimType: goal.claimType,
+    proofPolicy: goal.proofPolicy,
+    proofCondition: goal.proofCondition,
+    constraints: [...new Set(goal.constraints ?? [])].sort(),
+    auditVerdict: goal.auditVerdict,
+  };
+  const digest = createHash('sha256')
+    .update(JSON.stringify(['required-subgoal-audit-binding-v1', core]))
+    .digest('hex');
+  return `audit-v1:${digest.match(/.{16}/gu).join('-')}`;
+}
+
+function bindLiveGoalAudits(artifact) {
+  const proofPolicyByClaimType = {
+    positive: 'direct_source',
+    absence: 'bounded_absence',
+    count: 'deterministic_count',
+    symbol_definition: 'symbol_definition',
+    symbol_usage: 'bounded_usage_cross_check',
+    flow: 'ordered_handoffs',
+    impact: 'impact_categories',
+    comparison: 'distinct_policy_paths',
+    claim_verification: 'support_or_refute',
+  };
+  artifact.result.taskContract.task ??= 'guard bounded';
+  for (const goal of artifact.result.taskContract.subgoals) {
+    goal.proofPolicy = proofPolicyByClaimType[goal.claimType];
+    goal.proofCondition ??= 'Observe direct evidence for the required request part.';
+    goal.constraints ??= [];
+    goal.auditVerdict ??= 'ready';
+    goal.auditBinding = liveGoalAuditBinding(goal);
+  }
+  return artifact;
+}
+
 function liveCompleteArtifact() {
   const artifact = passingTrustArtifact();
   artifact.result.parentHandoff.directAnswer = [
@@ -2604,7 +2644,7 @@ function liveCompleteArtifact() {
     'The bounded check is resolved by the independently observed source.';
   artifact.result.semanticVerification.claims[1].subgoalId = 'model-goal-beta';
   artifact.result.semanticVerification.absenceCertificates[0].subgoalId = 'model-goal-beta';
-  return artifact;
+  return bindLiveGoalAudits(artifact);
 }
 
 function liveIncompleteArtifact() {
@@ -2614,11 +2654,11 @@ function liveIncompleteArtifact() {
     state: 'incomplete',
     gaps: [
       {
-        question: 'Resolve the guard request.',
+        question: 'guard',
         reason: 'The available repository observations do not prove it.',
       },
       {
-        question: 'Resolve the bounded request.',
+        question: 'bounded',
         reason: 'The available repository observations do not prove it.',
       },
     ],
@@ -2648,7 +2688,7 @@ function liveIncompleteArtifact() {
     verdicts: [],
     absenceCertificates: [],
   };
-  return artifact;
+  return bindLiveGoalAudits(artifact);
 }
 
 function violationCodes(evaluation) {
@@ -2812,6 +2852,8 @@ test('Spec 028 T068 — live count claims bind a complete static measurement to 
   };
   const options = { mode: 'live', profile: LIVE_TRUST_EVALUATION_PROFILE };
 
+  bindLiveGoalAudits(artifact);
+
   assert.equal(evaluateTrustCase(caseDefinition, artifact, options).passed, true);
   artifact.result.observations[1].normalizedItemIds.pop();
   assert.ok(violationCodes(evaluateTrustCase(caseDefinition, artifact, options))
@@ -2903,6 +2945,131 @@ test('Spec 028 T069 — live semantic markers require token boundaries', () => {
     wrong,
     artifact.result.semanticVerification.claims[1].text,
   ].join('\n');
+
+  const evaluation = evaluateTrustCase(caseDefinition, artifact, {
+    mode: 'live',
+    profile: LIVE_TRUST_EVALUATION_PROFILE,
+  });
+  assert.equal(evaluation.passed, false);
+  assert.ok(violationCodes(evaluation).includes('LIVE_REQUIRED_GOAL_UNSUPPORTED'));
+});
+
+test('Spec 028 T069 — live explicit gaps bind the required claim type', () => {
+  const caseDefinition = liveTrustOracleCase();
+  const options = { mode: 'live', profile: LIVE_TRUST_EVALUATION_PROFILE };
+  const artifact = livePartialGapArtifact(0);
+  assert.equal(evaluateTrustCase(caseDefinition, artifact, options).passed, true);
+
+  const wrongType = structuredClone(artifact);
+  wrongType.result.taskContract.subgoals[0].claimType = 'absence';
+  bindLiveGoalAudits(wrongType);
+  const wrongTypeCodes = violationCodes(evaluateTrustCase(caseDefinition, wrongType, options));
+  assert.ok(wrongTypeCodes.includes('LIVE_REQUIRED_GOAL_MISSING'));
+});
+
+test('Spec 028 T069 — live explicit gaps use request-derived questions', () => {
+  const caseDefinition = liveTrustOracleCase();
+  const options = { mode: 'live', profile: LIVE_TRUST_EVALUATION_PROFILE };
+  const artifact = liveIncompleteArtifact();
+
+  assert.notEqual(
+    artifact.result.parentHandoff.gaps[0].question,
+    artifact.result.taskContract.subgoals[0].question,
+  );
+  assert.equal(
+    evaluateTrustCase(caseDefinition, artifact, options).passed,
+    true,
+  );
+});
+
+test('Spec 028 T069 — live goals require an intact audit binding', () => {
+  const caseDefinition = liveTrustOracleCase();
+  const options = { mode: 'live', profile: LIVE_TRUST_EVALUATION_PROFILE };
+
+  const missing = liveCompleteArtifact();
+  delete missing.result.taskContract.subgoals[0].auditBinding;
+  assert.ok(violationCodes(evaluateTrustCase(caseDefinition, missing, options))
+    .includes('LIVE_GOAL_AUDIT_BINDING_INVALID'));
+
+  const malformed = liveCompleteArtifact();
+  malformed.result.taskContract.subgoals[0].auditBinding = 'audit-v1:not-a-binding';
+  assert.ok(violationCodes(evaluateTrustCase(caseDefinition, malformed, options))
+    .includes('LIVE_GOAL_AUDIT_BINDING_INVALID'));
+
+  const mutated = liveCompleteArtifact();
+  mutated.result.taskContract.subgoals[0].question = 'A different unaudited obligation.';
+  assert.ok(violationCodes(evaluateTrustCase(caseDefinition, mutated, options))
+    .includes('LIVE_GOAL_AUDIT_BINDING_INVALID'));
+});
+
+test('Spec 028 T069 — live goal binding rejects ambiguous origins and accepts exclusive origins', () => {
+  const caseDefinition = liveTrustOracleCase();
+  caseDefinition.oracle.expectedGoals[1].claimType = 'positive';
+  const options = { mode: 'live', profile: LIVE_TRUST_EVALUATION_PROFILE };
+
+  const exact = liveIncompleteArtifact();
+  exact.result.taskContract.subgoals[0].claimType = 'positive';
+  exact.result.taskContract.subgoals[1].claimType = 'positive';
+  bindLiveGoalAudits(exact);
+  assert.equal(evaluateTrustCase(caseDefinition, exact, options).passed, true);
+
+  const ambiguous = structuredClone(exact);
+  for (const goal of ambiguous.result.taskContract.subgoals) {
+    goal.originRefs = ['request:0-13'];
+  }
+  bindLiveGoalAudits(ambiguous);
+  const codes = violationCodes(evaluateTrustCase(caseDefinition, ambiguous, options));
+  assert.ok(codes.includes('LIVE_REQUIRED_GOAL_MISSING'));
+});
+
+test('Spec 028 T069 — live goal binding accepts equal origins with distinct anchors', () => {
+  const caseDefinition = liveTrustOracleCase();
+  caseDefinition.oracle.expectedGoals[0].requestOriginRefs = ['request:0-13'];
+  caseDefinition.oracle.expectedGoals[1].requestOriginRefs = ['request:0-13'];
+  caseDefinition.oracle.expectedGoals[1].claimType = 'positive';
+  caseDefinition.oracle.expectedGoals[1].evidenceAnchorRefs = ['A-search'];
+  caseDefinition.oracle.evidenceAnchors.push({
+    id: 'A-search',
+    kind: 'search',
+    tool: 'repo_grep',
+    boundary: ['src/**'],
+    matchCount: 0,
+    toolTruncated: false,
+    contextTruncated: false,
+    omittedOutOfScopeFiles: 0,
+    deniedPaths: 0,
+    errors: 0,
+    enumerationComplete: true,
+  });
+  const artifact = liveCompleteArtifact();
+  for (const goal of artifact.result.taskContract.subgoals) {
+    goal.originRefs = ['request:0-13'];
+    goal.claimType = 'positive';
+  }
+  bindLiveGoalAudits(artifact);
+
+  const evaluation = evaluateTrustCase(caseDefinition, artifact, {
+    mode: 'live',
+    profile: LIVE_TRUST_EVALUATION_PROFILE,
+  });
+  assert.equal(evaluation.passed, true, JSON.stringify(evaluation.violations));
+});
+
+test('Spec 028 T069 — live goal binding rejects equal origins with indistinguishable anchors', () => {
+  const caseDefinition = liveTrustOracleCase();
+  caseDefinition.oracle.expectedGoals[0].requestOriginRefs = ['request:0-13'];
+  caseDefinition.oracle.expectedGoals[1].requestOriginRefs = ['request:0-13'];
+  caseDefinition.oracle.expectedGoals[1].claimType = 'positive';
+  caseDefinition.oracle.expectedGoals[1].evidenceAnchorRefs = ['A-source'];
+  for (const allowedClaim of caseDefinition.oracle.allowedClaims) {
+    delete allowedClaim.requiredTextGroups;
+  }
+  const artifact = liveCompleteArtifact();
+  for (const goal of artifact.result.taskContract.subgoals) {
+    goal.originRefs = ['request:0-13'];
+    goal.claimType = 'positive';
+  }
+  bindLiveGoalAudits(artifact);
 
   const evaluation = evaluateTrustCase(caseDefinition, artifact, {
     mode: 'live',
@@ -3049,9 +3216,10 @@ test('Spec 028 T068 — live profile rejects generic gaps and evidence-bag compl
     question: 'Resolve every request part.',
   }];
   broadGap.result.parentHandoff.gaps = [{
-    question: 'Resolve every request part.',
+    question: 'guard bounded',
     reason: 'The available repository observations do not prove it.',
   }];
+  bindLiveGoalAudits(broadGap);
   assert.ok(violationCodes(evaluateTrustCase(caseDefinition, broadGap, options))
     .includes('LIVE_REQUIRED_GOAL_MISSING'),
   'one broad model goal cannot satisfy two independent oracle goals');
@@ -3064,7 +3232,7 @@ function livePartialGapArtifact(gapIndex) {
   delete gapGoal.resolution;
   artifact.result.parentHandoff.state = 'incomplete';
   artifact.result.parentHandoff.gaps = [{
-    question: gapGoal.question,
+    question: gapIndex === 0 ? 'guard' : 'bounded',
     reason: 'The available repository observations do not prove it.',
   }];
   artifact.result.coverageGaps = [{ subgoalId: gapGoal.id, question: gapGoal.question }];

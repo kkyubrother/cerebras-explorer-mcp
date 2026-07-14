@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 export function normalizeText(value) {
   return String(value ?? '')
     .toLowerCase()
@@ -16,6 +18,7 @@ export const PORTABLE_PARENT_OBSERVATION_PENDING = 'pending_actual_harness';
 
 const SHA256_HEX = /^[0-9a-f]{64}$/u;
 const GIT_SHA_HEX = /^[0-9a-f]{40}$/u;
+const AUDIT_BINDING = /^audit-v1:(?:[0-9a-f]{16}-){3}[0-9a-f]{16}$/u;
 
 function isPlainRecord(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -423,6 +426,7 @@ function trustArtifactParts(artifact) {
     result,
     publicResult,
     semantic,
+    task: typeof taskContract.task === 'string' ? taskContract.task : '',
     subgoals: asArray(taskContract.subgoals),
     observations: asArray(result.observations),
     coverageGaps: asArray(result.coverageGaps ?? semantic.coverageGaps),
@@ -728,36 +732,103 @@ function originsCoverExpected(actualRefs, expectedRefs) {
   });
 }
 
-function liveGoalMatches(expectedGoals, actualGoals) {
-  const candidates = expectedGoals.map(expected => actualGoals
-    .map((actual, index) => ({ actual, index }))
-    .filter(({ actual }) => originsCoverExpected(actual?.originRefs, expected.requestOriginRefs))
-    .sort((left, right) => {
-      const leftExact = left.actual?.claimType === expected.claimType ? 0 : 1;
-      const rightExact = right.actual?.claimType === expected.claimType ? 0 : 1;
-      return leftExact - rightExact || left.index - right.index;
-    }));
-  const expectedOrder = expectedGoals.map((_, index) => index)
+function liveRequestDerivedQuestion(task, originRefs) {
+  const ranges = asArray(originRefs).flatMap(originRef => {
+    const range = parseRequestOriginRef(originRef);
+    return range && typeof task === 'string' && range.start >= 0 && range.end <= task.length
+      ? [range]
+      : [];
+  }).sort((left, right) => left.start - right.start || left.end - right.end);
+  const slices = [...new Set(ranges
+    .map(({ start, end }) => task.slice(start, end).trim())
+    .filter(Boolean))];
+  const fallback = typeof task === 'string' && task.trim()
+    ? task.trim()
+    : 'Complete the requested repository investigation.';
+  return slices.length > 0 ? slices.join(' / ') : fallback;
+}
+
+function liveInjectiveGoalAssignment(candidates, forbiddenEdge = null) {
+  if (candidates.some(items => items.length === 0)) return null;
+  const expectedOrder = candidates.map((_, index) => index)
     .sort((left, right) => candidates[left].length - candidates[right].length || left - right);
   const ownerByActual = new Map();
-  const actualByExpected = new Map();
+  const candidateByExpected = new Map();
 
-  const assign = (expectedIndex, visited) => {
+  const assign = (expectedIndex, visitedActuals) => {
     for (const candidate of candidates[expectedIndex]) {
-      if (visited.has(candidate.index)) continue;
-      visited.add(candidate.index);
+      if (forbiddenEdge?.expectedIndex === expectedIndex &&
+          forbiddenEdge.actualIndex === candidate.index) continue;
+      if (visitedActuals.has(candidate.index)) continue;
+      visitedActuals.add(candidate.index);
       const previousExpected = ownerByActual.get(candidate.index);
-      if (previousExpected === undefined || assign(previousExpected, visited)) {
+      if (previousExpected === undefined || assign(previousExpected, visitedActuals)) {
         ownerByActual.set(candidate.index, expectedIndex);
-        actualByExpected.set(expectedIndex, candidate.actual);
+        candidateByExpected.set(expectedIndex, candidate);
         return true;
       }
     }
     return false;
   };
-  for (const expectedIndex of expectedOrder) assign(expectedIndex, new Set());
-  return new Map(expectedGoals.flatMap((goal, index) =>
-    actualByExpected.has(index) ? [[goal.id, actualByExpected.get(index)]] : []));
+
+  for (const expectedIndex of expectedOrder) {
+    if (!assign(expectedIndex, new Set())) return null;
+  }
+  return candidateByExpected;
+}
+
+function liveGoalMatches(expectedGoals, actualGoals, context) {
+  const baseCandidates = expectedGoals.map(expected => actualGoals
+    .map((actual, index) => ({ actual, index }))
+    .filter(({ actual }) =>
+      originsCoverExpected(actual?.originRefs, expected.requestOriginRefs) &&
+      liveClaimTypeCompatible(expected.claimType, actual?.claimType)));
+  const candidates = baseCandidates.map((items, expectedIndex) => {
+    if (items.length <= 1) return items;
+    const affinity = items.filter(candidate =>
+      liveGoalHasAnchorAffinity(
+        expectedGoals[expectedIndex],
+        candidate.actual,
+        context,
+      ));
+    return affinity.length > 0 ? affinity : items;
+  });
+  const assignment = liveInjectiveGoalAssignment(candidates);
+  if (!assignment) return new Map();
+
+  const forced = new Map();
+  for (const [expectedIndex, candidate] of assignment) {
+    const alternative = liveInjectiveGoalAssignment(candidates, {
+      expectedIndex,
+      actualIndex: candidate.index,
+    });
+    if (!alternative) {
+      forced.set(expectedGoals[expectedIndex].id, candidate.actual);
+    }
+  }
+  return forced;
+}
+
+function liveGoalAuditBinding(goal) {
+  const core = {
+    id: goal?.id,
+    question: goal?.question,
+    originRefs: [...new Set(asArray(goal?.originRefs))].sort(),
+    claimType: goal?.claimType,
+    proofPolicy: goal?.proofPolicy,
+    proofCondition: goal?.proofCondition,
+    constraints: [...new Set(asArray(goal?.constraints))].sort(),
+    auditVerdict: goal?.auditVerdict,
+  };
+  const digest = createHash('sha256')
+    .update(JSON.stringify(['required-subgoal-audit-binding-v1', core]))
+    .digest('hex');
+  return `audit-v1:${digest.match(/.{16}/gu).join('-')}`;
+}
+
+function liveGoalAuditBindingValid(goal) {
+  return AUDIT_BINDING.test(goal?.auditBinding ?? '') &&
+    goal.auditBinding === liveGoalAuditBinding(goal);
 }
 
 function liveClaimTypeCompatible(expectedType, actualType) {
@@ -960,6 +1031,31 @@ function liveClaimSupportsAnchor(item, anchor, parts) {
     liveClaimHasCertifiedStaticArrayAnchor(item, anchor, parts);
 }
 
+function liveGoalHasAnchorAffinity(expected, actual, {
+  accepted,
+  anchorsById,
+  parts,
+  allowedClaims,
+}) {
+  const resolutionSupported = expected.expectedResolution === 'refuted'
+    ? actual?.state === 'supported' && actual?.resolution === 'refuted'
+    : expected.expectedResolution === 'supported' &&
+      actual?.state === 'supported' && actual?.resolution === 'affirmed';
+  if (!resolutionSupported) return false;
+  const claims = accepted.filter(item =>
+    item.claim?.subgoalId === actual?.id &&
+    liveClaimMeetsAllowedSemantics(expected, item.claim?.text, allowedClaims));
+  const anchorRefs = asArray(expected.evidenceAnchorRefs);
+  const covered = anchorRefs.filter(ref => {
+    const anchor = anchorsById.get(ref);
+    return anchor && claims.some(item => liveClaimSupportsAnchor(item, anchor, parts));
+  });
+  const required = expected.anchorPolicy === 'all'
+    ? anchorRefs.length
+    : Math.min(anchorRefs.length, 1);
+  return required > 0 && covered.length >= required;
+}
+
 function liveAnchorDispositions(
   expectedGoals,
   anchorsById,
@@ -967,8 +1063,13 @@ function liveAnchorDispositions(
   parts,
   allowedClaims,
 ) {
-  const matchedGoals = liveGoalMatches(expectedGoals, parts.subgoals);
   const accepted = acceptedClaims(parts.semantic);
+  const matchedGoals = liveGoalMatches(expectedGoals, parts.subgoals, {
+    accepted,
+    anchorsById,
+    parts,
+    allowedClaims,
+  });
   const publicClaimTexts = new Set(publicStatements(parts.publicResult));
   const publicGaps = new Set(asArray(parts.publicResult?.gaps)
     .map(gap => normalizeText(gap?.question)).filter(Boolean));
@@ -1011,7 +1112,9 @@ function liveAnchorDispositions(
     const unresolved = ['blocked', 'gap', 'contradicted'].includes(actual.state) ||
       (internalGapIds.has(actual.id) && surfacedClaims.length === 0);
     if (unresolved && internalGapIds.has(actual.id) &&
-        publicGaps.has(normalizeText(actual.question))) {
+        publicGaps.has(normalizeText(
+          liveRequestDerivedQuestion(parts.task, actual.originRefs),
+        ))) {
       return { goalId: expected.id, disposition: 'explicit_gap', claimTexts: [] };
     }
     return { goalId: expected.id, disposition: 'unresolved', claimTexts: [] };
@@ -1061,6 +1164,13 @@ function evaluateLiveTrustCase(caseDefinition, artifact, profile) {
   const claimScope = asArray(oracle.boundary?.claimScope);
   const anchorsById = new Map(asArray(oracle.evidenceAnchors)
     .map(anchor => [anchor?.id, anchor]));
+
+  for (const goal of parts.subgoals.filter(item => !liveGoalAuditBindingValid(item))) {
+    violations.push({
+      code: 'LIVE_GOAL_AUDIT_BINDING_INVALID',
+      subgoalId: typeof goal?.id === 'string' ? goal.id : null,
+    });
+  }
 
   if (!['complete', 'verify_targets', 'incomplete'].includes(observedState)) {
     violations.push({ code: 'LIVE_STATE_REJECTED', actual: observedState });

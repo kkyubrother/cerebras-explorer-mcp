@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto';
 
+import { computeGoalAuditBinding } from './schemas.mjs';
+
 const CLAIM_TYPE_TO_PROOF_POLICY = Object.freeze({
   positive: 'direct_source',
   absence: 'bounded_absence',
@@ -168,6 +170,17 @@ export function createTaskContract(input) {
     throw new TypeError('TaskContract.subgoals must be an array.');
   }
 
+  const subgoalIds = new Set();
+  for (const [index, subgoal] of value.subgoals.entries()) {
+    if (subgoalIds.has(subgoal?.id)) {
+      throw new TypeError(`TaskContract.subgoals[${index}] has a duplicate subgoal id.`);
+    }
+    subgoalIds.add(subgoal?.id);
+    if (subgoal?.auditBinding !== computeGoalAuditBinding(subgoal)) {
+      throw new TypeError(`TaskContract.subgoals[${index}] has an invalid audit binding.`);
+    }
+  }
+
   return {
     task: requireString(value.task, 'TaskContract.task'),
     effectiveScope: requireStringArray(value.effectiveScope, 'TaskContract.effectiveScope'),
@@ -205,6 +218,7 @@ export function createRequiredSubgoal(input) {
   if (blocked && typeof value.blockerRef === 'string' && value.blockerRef) {
     subgoal.blockerRef = value.blockerRef;
   }
+  subgoal.auditBinding = computeGoalAuditBinding(subgoal);
   return subgoal;
 }
 
@@ -754,6 +768,9 @@ function illegalTransition(from, to, detail = '') {
 
 export function transitionSubgoal(input, nextState, metadata = {}) {
   const subgoal = requireObject(input, 'RequiredSubgoal');
+  if (subgoal.auditBinding !== computeGoalAuditBinding(subgoal)) {
+    throw new TypeError('RequiredSubgoal audit binding does not match its acceptance core.');
+  }
   const currentState = subgoal.state;
   const next = {
     ...subgoal,
@@ -871,6 +888,44 @@ function isValidOriginRef(originRef, task, wrapperTool) {
   const wrapperMatch = /^wrapper:([^:]+):([^:]+)$/.exec(originRef);
   return Boolean(wrapperMatch && wrapperMatch[1] === wrapperTool &&
     WRAPPER_GOAL_SEEDS[wrapperTool]?.includes(wrapperMatch[2]));
+}
+
+function originRefCovers(outer, inner) {
+  if (outer === inner) return true;
+  const outerRange = /^request:(\d+)-(\d+)$/.exec(outer);
+  const innerRange = /^request:(\d+)-(\d+)$/.exec(inner);
+  return Boolean(outerRange && innerRange &&
+    Number(outerRange[1]) <= Number(innerRange[1]) &&
+    Number(outerRange[2]) >= Number(innerRange[2]));
+}
+
+function originSignatureCovers(outerRefs, innerRefs) {
+  return Array.isArray(outerRefs) && Array.isArray(innerRefs) && innerRefs.length > 0 &&
+    innerRefs.every(inner => outerRefs.some(outer => originRefCovers(outer, inner)));
+}
+
+function ambiguousReadyGoalIds(currentGoals, existingGoals = []) {
+  const current = currentGoals.filter(goal => goal.auditVerdict === 'ready');
+  const existing = existingGoals.filter(goal => goal.auditVerdict === 'ready');
+  const ambiguous = new Set();
+  const overlaps = (left, right) => {
+    if (left.id === right.id || left.claimType !== right.claimType) return false;
+    const leftCovers = originSignatureCovers(left.originRefs, right.originRefs);
+    const rightCovers = originSignatureCovers(right.originRefs, left.originRefs);
+    return leftCovers !== rightCovers;
+  };
+
+  for (let leftIndex = 0; leftIndex < current.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < current.length; rightIndex += 1) {
+      if (!overlaps(current[leftIndex], current[rightIndex])) continue;
+      ambiguous.add(current[leftIndex].id);
+      ambiguous.add(current[rightIndex].id);
+    }
+  }
+  for (const goal of current) {
+    if (existing.some(existingGoal => overlaps(goal, existingGoal))) ambiguous.add(goal.id);
+  }
+  return ambiguous;
 }
 
 function hasCircularProofCondition(proofCondition) {
@@ -1106,6 +1161,15 @@ export function reduceGoalAudit(input) {
   if (value.revisionCount !== 0 && value.revisionCount !== 1) {
     throw new TypeError('Goal audit reduction.revisionCount must be 0 or 1.');
   }
+  const existingRequiredSubgoals = value.existingRequiredSubgoals ?? [];
+  if (!Array.isArray(existingRequiredSubgoals)) {
+    throw new TypeError('Goal audit reduction.existingRequiredSubgoals must be an array.');
+  }
+  for (const [index, goal] of existingRequiredSubgoals.entries()) {
+    if (goal?.auditBinding !== computeGoalAuditBinding(goal)) {
+      throw new TypeError(`Existing required subgoal ${index} has an invalid audit binding.`);
+    }
+  }
 
   const proposals = preflight.auditCandidates.map(cloneGoalProposal);
   const proposalById = new Map(proposals.map(proposal => [proposal.id, proposal]));
@@ -1154,6 +1218,7 @@ export function reduceGoalAudit(input) {
   const rejectedGoals = [];
   const planningDefects = [];
   const usedIds = new Set();
+  const readyOrderById = new Map();
   const ineligibleIds = new Set(preflight.ineligibleGoalIds ?? []);
   let groupOrder = 0;
   for (const [rootId, memberIds] of groups) {
@@ -1187,6 +1252,7 @@ export function reduceGoalAudit(input) {
       const required = createRequiredSubgoal({ ...merged, auditVerdict: 'ready' });
       usedIds.add(required.id);
       requiredSubgoals.push(required);
+      readyOrderById.set(required.id, groupOrder);
       groupOrder += 1;
       continue;
     }
@@ -1202,6 +1268,23 @@ export function reduceGoalAudit(input) {
     requiredSubgoals.push(blocked.required);
     gaps.push(blocked.gap);
     groupOrder += 1;
+  }
+
+  const ambiguousIds = ambiguousReadyGoalIds(requiredSubgoals, existingRequiredSubgoals);
+  const refinementDefects = requiredSubgoals
+    .filter(goal => ambiguousIds.has(goal.id))
+    .map(goal => ({
+      proposal: cloneGoalProposal(goal),
+      code: 'ambiguous_origin_binding',
+      reason: 'The audited origin signature does not uniquely identify this same-type obligation.',
+      order: readyOrderById.get(goal.id) ?? groupOrder,
+    }));
+  if (ambiguousIds.size > 0) {
+    for (let index = requiredSubgoals.length - 1; index >= 0; index -= 1) {
+      if (!ambiguousIds.has(requiredSubgoals[index].id)) continue;
+      usedIds.delete(requiredSubgoals[index].id);
+      requiredSubgoals.splice(index, 1);
+    }
   }
 
   const uncoveredRequestParts = value.uncoveredRequestParts.map((part, index) => {
@@ -1227,21 +1310,27 @@ export function reduceGoalAudit(input) {
   }
 
   let revisionRequest = null;
-  if (planningDefects.length > 0 || uncoveredRequestParts.length > 0) {
+  if (planningDefects.length > 0 || refinementDefects.length > 0 ||
+      uncoveredRequestParts.length > 0) {
     if (value.revisionCount === 0) {
       revisionRequest = {
         decomposeGoalIds: planningDefects.map(defect => defect.proposal.id),
+        refineGoalIds: refinementDefects.map(defect => defect.proposal.id),
+        refineGoals: refinementDefects.map(defect => cloneGoalProposal(defect.proposal)),
         uncoveredRequestParts,
         diagnostics: [
           ...(preflight.diagnostics ?? []),
           ...planningDefects
             .filter(defect => defect.code === 'needs_decomposition')
             .map(defect => preflightDiagnostic(defect.proposal.id, defect.code, defect.reason)),
+          ...refinementDefects.map(defect =>
+            preflightDiagnostic(defect.proposal.id, defect.code, defect.reason)),
         ],
       };
     } else {
       const remaining = [
         ...planningDefects.map(defect => ({ proposal: defect.proposal, order: defect.order })),
+        ...refinementDefects.map(defect => ({ proposal: defect.proposal, order: defect.order })),
         ...uncoveredRequestParts.map((proposal, index) => ({
           proposal,
           order: proposals.length + index,

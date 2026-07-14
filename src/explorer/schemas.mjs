@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 export const EXPLORE_REPO_INPUT_SCHEMA = {
   type: 'object',
   additionalProperties: false,
@@ -808,6 +810,7 @@ const CLAIM_TYPE_TO_PROOF_POLICY = Object.freeze({
 
 const CLAIM_TYPES = Object.freeze(Object.keys(CLAIM_TYPE_TO_PROOF_POLICY));
 const PROOF_POLICIES = Object.freeze(Object.values(CLAIM_TYPE_TO_PROOF_POLICY));
+const GOAL_AUDIT_BINDING_DOMAIN = 'required-subgoal-audit-binding-v1';
 
 const WRAPPER_GOAL_SEEDS = Object.freeze({
   find_relevant_code: Object.freeze(['locations', 'relevance', 'smallest_set']),
@@ -883,6 +886,7 @@ const REQUIRED_SUBGOAL_SCHEMA = strictInternalObject({
     'unverifiable',
     'planning_incomplete',
   ]),
+  auditBinding: internalString(),
   state: internalString([
     'audited',
     'blocked',
@@ -905,6 +909,7 @@ const REQUIRED_SUBGOAL_SCHEMA = strictInternalObject({
   'proofCondition',
   'constraints',
   'auditVerdict',
+  'auditBinding',
   'state',
   'claimRefs',
 ]);
@@ -1148,6 +1153,52 @@ function validateInternalEntity(schema, label, value) {
   return validateInternalValue(schema, value, label);
 }
 
+function sortedUniqueStrings(value, label) {
+  if (!Array.isArray(value) ||
+      value.some(item => typeof item !== 'string' || item.length === 0)) {
+    throw new TypeError(`${label} must be a non-empty string array.`);
+  }
+  return [...new Set(value)].sort();
+}
+
+/**
+ * Seal the immutable, runtime-audited acceptance core of one required goal.
+ * Mutable exploration state is intentionally excluded. The grouped digest
+ * remains stable when optional generic-hex redaction is enabled.
+ */
+export function computeGoalAuditBinding(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new TypeError('Required subgoal audit binding input must be an object.');
+  }
+  const scalarKeys = [
+    'id',
+    'question',
+    'claimType',
+    'proofPolicy',
+    'proofCondition',
+    'auditVerdict',
+  ];
+  for (const key of scalarKeys) {
+    if (typeof value[key] !== 'string' || value[key].length === 0) {
+      throw new TypeError(`Required subgoal audit binding ${key} must be a non-empty string.`);
+    }
+  }
+  const core = {
+    id: value.id,
+    question: value.question,
+    originRefs: sortedUniqueStrings(value.originRefs, 'Required subgoal originRefs'),
+    claimType: value.claimType,
+    proofPolicy: value.proofPolicy,
+    proofCondition: value.proofCondition,
+    constraints: sortedUniqueStrings(value.constraints, 'Required subgoal constraints'),
+    auditVerdict: value.auditVerdict,
+  };
+  const digest = createHash('sha256')
+    .update(JSON.stringify([GOAL_AUDIT_BINDING_DOMAIN, core]))
+    .digest('hex');
+  return `audit-v1:${digest.match(/.{16}/g).join('-')}`;
+}
+
 function validateOriginContext({ task, wrapperTool } = {}, label) {
   if (typeof task !== 'string' || task.length === 0) {
     failInternalValidation(`${label}.task`, 'expected the original non-empty task string');
@@ -1214,13 +1265,27 @@ export function validateExploreControlResult(value) {
 
 export function validateTaskContract(value) {
   const validated = validateInternalEntity(TASK_CONTRACT_SCHEMA, 'TaskContract', value);
+  const subgoalIds = new Set();
   for (let index = 0; index < validated.subgoals.length; index += 1) {
     const subgoal = validated.subgoals[index];
+    if (subgoalIds.has(subgoal.id)) {
+      failInternalValidation(
+        `TaskContract.subgoals[${index}].id`,
+        `duplicate subgoal id ${subgoal.id}`,
+      );
+    }
+    subgoalIds.add(subgoal.id);
     const expectedPolicy = CLAIM_TYPE_TO_PROOF_POLICY[subgoal.claimType];
     if (subgoal.proofPolicy !== expectedPolicy) {
       failInternalValidation(
         `TaskContract.subgoals[${index}].proofPolicy`,
         `expected runtime-derived policy ${expectedPolicy}`,
+      );
+    }
+    if (subgoal.auditBinding !== computeGoalAuditBinding(subgoal)) {
+      failInternalValidation(
+        `TaskContract.subgoals[${index}].auditBinding`,
+        'does not match the runtime-audited acceptance core',
       );
     }
   }

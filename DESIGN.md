@@ -173,6 +173,8 @@ Goal auditor는 repository content나 exploratory prose를 보지 않는다. 원
 
 Request coverage가 빠졌거나 goal이 너무 넓으면 planner revision을 한 번만 허용한다. Revision 뒤에도 남은 명시적 요구는 `planning_incomplete` required goal로 materialize한다. Planner invention은 로그에만 남기고 completion을 막지 않는다.
 
+Auditor가 ready로 확정한 goal은 immutable acceptance core의 runtime-owned `auditBinding`으로 봉인한다. 이 binding은 의미 판정이나 서명이 아니라 audit 이후 `id`, 질문, confirmed origin, claim/proof policy, proof condition, constraints, verdict가 바뀌는 것을 막는 내부 checksum이다. Exploration state와 claim reference는 binding 밖에 있으며, transition과 TaskContract 검증 때 다시 확인한다. 같은 claim type의 confirmed origin signature가 형제 signature를 일방향으로 엄격히 포함하면 기존 한 번의 revision에서 각각 하나의 구분 가능한 descendant goal로 정제한다. 동일 origin이나 단순 overlap은 정상적인 shared request facet일 수 있으므로 그 자체로 revision을 만들지 않는다.
+
 ### 5.3 Evidence collection
 
 Explorer model은 audited ready goal을 대상으로 RepoToolkit을 호출한다. Runtime은 관측을 goal에 연결하고 다음을 기록한다.
@@ -243,6 +245,8 @@ Top-level public object는 strict하고 다음 필드만 허용한다.
 | `gaps` | `incomplete`에서 필수 |
 | `followUp` | `incomplete`에서 결과를 실제 개선할 수 있는 한 action만 |
 | `failure` | `failed`에서만 |
+
+`incomplete.gaps[].question`과 `followUp` requirement는 required goal의 확인된 `request:<start>-<end>` slice에서 runtime이 재구성한다. Wrapper-only 또는 plan-level gap은 원래 task로 돌아간다. Model-authored goal/audit 문구와 `auditBinding`은 parent payload에 포함하지 않는다.
 
 ### 7.1 Targets
 

@@ -40,6 +40,7 @@ import {
   GOAL_AUDITOR_RESPONSE_SCHEMA,
   PLANNER_PROPOSAL_SCHEMA,
   SEMANTIC_VERIFIER_RESPONSE_SCHEMA,
+  computeGoalAuditBinding,
   normalizeExploreResult,
   validateClaimSynthesisResponse,
   validateGoalAuditorResponse,
@@ -1789,8 +1790,32 @@ function buildParentTargets(resultTargets, evidence) {
 
 function buildParentGaps({ requiredSubgoals, coverageGaps, unresolvedGoalIds, task }) {
   const unresolved = new Set(unresolvedGoalIds);
+  const subgoalById = new Map(requiredSubgoals.map(goal => [goal?.id, goal]));
+  const requestDerivedQuestion = subgoal => {
+    const ranges = (subgoal?.originRefs ?? []).flatMap(originRef => {
+      const match = /^request:(\d+)-(\d+)$/.exec(originRef);
+      if (!match) return [];
+      const start = Number(match[1]);
+      const end = Number(match[2]);
+      return Number.isSafeInteger(start) && Number.isSafeInteger(end) &&
+        typeof task === 'string' && start >= 0 && end > start && end <= task.length
+        ? [{ start, end }]
+        : [];
+    }).sort((left, right) => left.start - right.start || left.end - right.end);
+    const slices = [...new Set(ranges
+      .map(({ start, end }) => task.slice(start, end).trim())
+      .filter(Boolean))];
+    const fallback = typeof task === 'string' && task.trim()
+      ? task.trim()
+      : 'Complete the requested repository investigation.';
+    return slices.length > 0 ? slices.join(' / ') : fallback;
+  };
   const internalGaps = (Array.isArray(coverageGaps) ? coverageGaps : [])
     .filter(gap => !gap?.subgoalId || unresolved.has(gap.subgoalId))
+    .map(gap => ({
+      ...gap,
+      question: requestDerivedQuestion(subgoalById.get(gap?.subgoalId)),
+    }))
     .slice()
     .sort((left, right) => {
       const leftPriority = Number.isInteger(left?.priority) ? left.priority : Number.MAX_SAFE_INTEGER;
@@ -1803,7 +1828,7 @@ function buildParentGaps({ requiredSubgoals, coverageGaps, unresolvedGoalIds, ta
     internalGaps.push({
       id: `parent-gap:${subgoal.id}`,
       subgoalId: subgoal.id,
-      question: subgoal.question,
+      question: requestDerivedQuestion(subgoal),
       reason: 'missing_evidence',
       repairable: false,
       priority: Number.MAX_SAFE_INTEGER - requiredSubgoals.length + index,
@@ -1813,9 +1838,7 @@ function buildParentGaps({ requiredSubgoals, coverageGaps, unresolvedGoalIds, ta
   if (internalGaps.length === 0) {
     internalGaps.push({
       id: 'parent-gap:unresolved',
-      question: typeof task === 'string' && task.trim()
-        ? task.trim()
-        : 'Complete the requested repository investigation.',
+      question: requestDerivedQuestion(null),
       reason: 'missing_evidence',
       repairable: false,
       priority: Number.MAX_SAFE_INTEGER,
@@ -2212,6 +2235,13 @@ function semanticBatchContract(taskContract, subgoals) {
       claimRefs: Array.isArray(goal.claimRefs) ? [...goal.claimRefs] : [],
     })),
   };
+}
+
+function resealRedactedSubgoals(subgoals) {
+  return (Array.isArray(subgoals) ? subgoals : []).map(goal => ({
+    ...goal,
+    auditBinding: computeGoalAuditBinding(goal),
+  }));
 }
 
 function runtimeObservationIds(observations) {
@@ -3226,6 +3256,11 @@ function originDescendsFrom(candidate, original) {
     Number(candidateRange[2]) <= Number(originalRange[2]);
 }
 
+function originSignatureCovers(outerRefs, innerRefs) {
+  return Array.isArray(outerRefs) && Array.isArray(innerRefs) && innerRefs.length > 0 &&
+    innerRefs.every(inner => outerRefs.some(outer => originDescendsFrom(inner, outer)));
+}
+
 const COVERAGE_ELIGIBLE_VERDICTS = new Set([
   'ready',
   'needs_decomposition',
@@ -3239,6 +3274,8 @@ const COVERAGE_ELIGIBLE_VERDICTS = new Set([
 
 function buildRevisionObligations(initialProposal, revisionRequest) {
   const initialById = new Map(initialProposal.subgoals.map(goal => [goal.id, goal]));
+  const confirmedRefineById = new Map((revisionRequest.refineGoals ?? [])
+    .map(goal => [goal.id, goal]));
   const obligations = [];
   for (const id of revisionRequest.decomposeGoalIds) {
     const goal = initialById.get(id);
@@ -3246,6 +3283,15 @@ function buildRevisionObligations(initialProposal, revisionRequest) {
       obligationId: `revision-obligation-${obligations.length + 1}`,
       sourceId: id,
       kind: 'decompose',
+      goal,
+    });
+  }
+  for (const id of revisionRequest.refineGoalIds ?? []) {
+    const goal = confirmedRefineById.get(id) ?? initialById.get(id);
+    if (goal) obligations.push({
+      obligationId: `revision-obligation-${obligations.length + 1}`,
+      sourceId: id,
+      kind: 'refine',
       goal,
     });
   }
@@ -3353,6 +3399,8 @@ function validateCoverageReconciliation(value, {
   const allowedIds = eligibleGoalIds ? new Set(eligibleGoalIds) : new Set(goalById.keys());
   const findings = [];
   const seenIds = new Set();
+  const refineOwnerByGoalId = new Map();
+  const readyRefineAssignments = [];
 
   for (const raw of value.findings) {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw) ||
@@ -3380,7 +3428,8 @@ function validateCoverageReconciliation(value, {
       }
     } else {
       const minimum = obligation.kind === 'decompose' ? 2 : 1;
-      if (coveredByGoalIds.length < minimum) {
+      if (coveredByGoalIds.length < minimum ||
+          (obligation.kind === 'refine' && coveredByGoalIds.length !== 1)) {
         throw new TypeError(`Covered obligation ${raw.obligationId} requires ${minimum} goal(s).`);
       }
       const mapped = coveredByGoalIds.map(id => {
@@ -3400,6 +3449,33 @@ function validateCoverageReconciliation(value, {
       if (obligation.kind !== 'decompose') {
         if (mapped.some(({ goal }) => goal.claimType !== obligation.goal.claimType)) {
           throw new TypeError(`Coverage obligation ${raw.obligationId} weakened proof or origin.`);
+        }
+      }
+      if (obligation.kind === 'refine') {
+        const [goalId] = coveredByGoalIds;
+        const previousOwner = refineOwnerByGoalId.get(goalId);
+        if (previousOwner) {
+          throw new TypeError(
+            `Corrected goal ${goalId} cannot satisfy both ${previousOwner} and ${raw.obligationId}.`,
+          );
+        }
+        refineOwnerByGoalId.set(goalId, raw.obligationId);
+        const [assignment] = mapped;
+        if (assignment.record.verdict === 'ready') {
+          const ambiguousWith = readyRefineAssignments.find(previous =>
+            previous.goal.claimType === assignment.goal.claimType &&
+            (originSignatureCovers(previous.record.originRefs, assignment.record.originRefs) ||
+              originSignatureCovers(assignment.record.originRefs, previous.record.originRefs)));
+          if (ambiguousWith) {
+            throw new TypeError(
+              `Refined goals ${ambiguousWith.goal.id} and ${assignment.goal.id} ` +
+              'retain ambiguous confirmed origins.',
+            );
+          }
+          readyRefineAssignments.push({
+            goal: assignment.goal,
+            record: assignment.record,
+          });
         }
       }
     }
@@ -3507,6 +3583,7 @@ function materializeUnresolvedRevision({
   revisionObligations,
   revisionCoverage,
   revisedReduction,
+  reservedGoalIds = [],
 }) {
   const findingById = new Map(revisionCoverage.findings.map(finding => [
     finding.obligationId,
@@ -3530,7 +3607,10 @@ function materializeUnresolvedRevision({
     return { requiredSubgoals: [], gaps: [], rejectedGoals: [] };
   }
 
-  const usedIds = new Set(revisedReduction.requiredSubgoals.map(goal => goal.id));
+  const usedIds = new Set([
+    ...reservedGoalIds,
+    ...revisedReduction.requiredSubgoals.map(goal => goal.id),
+  ]);
   const proposals = unresolved.map(({ sourceId, goal }) => ({
     ...goal,
     id: uniquePlanningCarryId(sourceId, usedIds),
@@ -4201,6 +4281,7 @@ export class ExplorerRuntime {
           auditRecords: partitioned.response.goals,
           uncoveredRequestParts: partitioned.response.uncoveredRequestParts,
           revisionCount,
+          existingRequiredSubgoals: existingGoalLedger,
         });
         if (reduction.controlFault) {
           throw new TypeError(`Goal audit control fault: ${reduction.controlFault.code}.`);
@@ -4400,6 +4481,7 @@ export class ExplorerRuntime {
         auditRecords: reconciledRecords,
         uncoveredRequestParts: reconciledUncovered,
         revisionCount: options.revisionCount,
+        existingRequiredSubgoals: options.existingGoalLedger ?? [],
       });
       if (reduction.controlFault) {
         throw new TypeError(`Goal audit control fault: ${reduction.controlFault.code}.`);
@@ -4900,6 +4982,9 @@ export class ExplorerRuntime {
       const decompositionExcludedGoals = initialAudit.reduction.revisionRequest.decomposeGoalIds
         .map(id => initialById.get(id))
         .filter(Boolean);
+      const refinementExcludedGoals = initialAudit.reduction.revisionRequest.refineGoalIds
+        .map(id => initialById.get(id))
+        .filter(Boolean);
       const revised = await requestPlan({
         messages: buildCorrectedPlannerMessages({
           task,
@@ -4911,7 +4996,7 @@ export class ExplorerRuntime {
         stage: 'plan_revision',
         preservedGoals,
         rejectedGoals: rejectedExcludedGoals,
-        decompositionGoals: decompositionExcludedGoals,
+        decompositionGoals: [...decompositionExcludedGoals, ...refinementExcludedGoals],
         allowEmptyPlan: preservedGoals.length === 0,
       });
       if (typeof onPlanningEvent === 'function') {
@@ -5029,6 +5114,7 @@ export class ExplorerRuntime {
           revisionObligations,
           revisionCoverage,
           revisedReduction: revisedAudit.reduction,
+          reservedGoalIds: finalReduction.requiredSubgoals.map(goal => goal.id),
         });
         finalReduction = {
           ...finalReduction,
@@ -5129,9 +5215,13 @@ export class ExplorerRuntime {
         proofCondition: goal.proofCondition,
         constraints: goal.constraints,
       }, { task, wrapperTool });
-      return { id: goal.id, ...validated, ...(typeof goal.proofPolicy === 'string'
-        ? { proofPolicy: goal.proofPolicy }
-        : {}) };
+      return {
+        id: goal.id,
+        ...validated,
+        ...(typeof goal.proofPolicy === 'string' ? { proofPolicy: goal.proofPolicy } : {}),
+        ...(typeof goal.auditVerdict === 'string' ? { auditVerdict: goal.auditVerdict } : {}),
+        ...(typeof goal.auditBinding === 'string' ? { auditBinding: goal.auditBinding } : {}),
+      };
     });
     if (validatedProposals.some(goal => existingIds.has(goal.id))) {
       throw new TypeError('Late goal proposal ids cannot shadow the existing goal ledger.');
@@ -5189,12 +5279,14 @@ export class ExplorerRuntime {
       }
       throw invalid;
     }
-    return redactValue({
+    const safeAudit = redactValue({
       requiredSubgoals: audited.reduction.requiredSubgoals,
       gaps: audited.reduction.gaps,
       rejectedGoals: audited.reduction.rejectedGoals,
       revisionRequest: null,
     }).value;
+    safeAudit.requiredSubgoals = resealRedactedSubgoals(safeAudit.requiredSubgoals);
+    return safeAudit;
   }
 
   async _auditVerifierGoalProposals({
@@ -6272,6 +6364,10 @@ export class ExplorerRuntime {
     attachAgentFacingContract(normalized, stats, criticPass.grounding);
     if (auditedPlan) {
       const safePlan = redactValue(auditedPlan).value;
+      safePlan.taskContract.subgoals = resealRedactedSubgoals(
+        safePlan.taskContract.subgoals,
+      );
+      validateTaskContract(safePlan.taskContract);
       normalized.taskContract = safePlan.taskContract;
       normalized.coverageGaps = safePlan.coverageGaps;
       normalized.rejectedGoals = safePlan.rejectedGoals;
@@ -6396,19 +6492,22 @@ export class ExplorerRuntime {
       }
       let parentAcceptedClaimIds = [];
       try {
+        const parentTaskContract = semanticVerification?.taskContract ??
+          auditedPlan?.taskContract ?? outcome?.taskContract ?? null;
+        if (parentTaskContract) validateTaskContract(parentTaskContract);
         const parentProjection = buildParentHandoffProjection({
           result: outcome,
           task: args.task,
           taskMode: args.taskMode,
           semanticVerification,
           observations: outcome?.observations ?? observations,
-          taskContract: outcome?.taskContract ?? auditedPlan?.taskContract ?? null,
+          taskContract: parentTaskContract,
           coverageGaps: outcome?.coverageGaps ?? auditedPlan?.coverageGaps ?? [],
           safetyLimits: stats.safetyLimits ?? [],
         });
         if (parentProjection.projectionGapGoalIds.length > 0) {
           const projectionGaps = appendParentProjectionCoverageGaps({
-            taskContract: outcome?.taskContract ?? auditedPlan?.taskContract ?? null,
+            taskContract: parentTaskContract,
             coverageGaps: outcome?.coverageGaps ?? auditedPlan?.coverageGaps ?? [],
             goalIds: parentProjection.projectionGapGoalIds,
           });

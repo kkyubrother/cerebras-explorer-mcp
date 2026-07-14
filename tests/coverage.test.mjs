@@ -17,6 +17,7 @@ import {
   selectParentFollowUp,
   transitionSubgoal,
 } from '../src/explorer/coverage.mjs';
+import { redactValue } from '../src/explorer/redact.mjs';
 
 const contractTest = test;
 
@@ -106,6 +107,16 @@ const contractTest = test;
       scopeWidening: false,
       secretPathRead: false,
     });
+
+    assert.throws(() => createTaskContract({
+      task,
+      effectiveScope: ['src/explorer'],
+      constraints: [],
+      subgoals: [subgoals[0], { ...subgoals[0] }],
+      plannerVersion: 'planner-v1',
+      goalAuditVersion: 'goal-audit-v1',
+    }), /duplicate subgoal id/i,
+    'runtime contract construction must reject duplicate goal identities');
   });
 
 // T057 is intentionally test-first. T061 owns these three pure proof-policy
@@ -719,6 +730,16 @@ proofPolicyCoverageTest(
     });
     assert.equal(blocked.state, 'blocked');
     assert.equal(blocked.blockerRef, 'G1');
+
+    const suppliedBinding = createAuditedSubgoal({ auditBinding: 'model-authored-binding' });
+    assert.notEqual(suppliedBinding.auditBinding, 'model-authored-binding');
+    assert.match(suppliedBinding.auditBinding,
+      /^audit-v1:(?:[0-9a-f]{16}-){3}[0-9a-f]{16}$/);
+    assert.doesNotMatch(suppliedBinding.auditBinding, /[0-9a-f]{32}/,
+      'the seal must survive optional generic-hex redaction');
+    assert.equal(redactValue(suppliedBinding.auditBinding, {
+      includeGenericHex: true,
+    }).value, suppliedBinding.auditBinding);
   });
 
   contractTest('Spec 028 T005 — AtomicClaim starts pending and cannot self-promote', () => {
@@ -1143,6 +1164,11 @@ proofPolicyCoverageTest(
     assert.deepEqual(candidate.claimRefs, ['C1']);
     assert.equal(supported.state, 'supported');
     assert.equal(supported.resolution, 'refuted');
+    assert.ok([exploring, candidate, supported].every(goal =>
+      goal.auditBinding === audited.auditBinding));
+
+    const mutated = { ...audited, question: 'A post-audit mutation.' };
+    assert.throws(() => transitionSubgoal(mutated, 'exploring'), /audit binding/i);
   });
 
   contractTest('Spec 028 T005 — candidate goals may become gaps or contradictions', () => {
@@ -1535,6 +1561,7 @@ proofPolicyCoverageTest(
     auditRecords,
     uncoveredRequestParts = [],
     revisionCount = 0,
+    existingRequiredSubgoals = [],
   }) {
     assert.equal(typeof coverageModule.reduceGoalAudit, 'function');
     return coverageModule.reduceGoalAudit({
@@ -1542,6 +1569,7 @@ proofPolicyCoverageTest(
       auditRecords,
       uncoveredRequestParts,
       revisionCount,
+      existingRequiredSubgoals,
     });
   }
 
@@ -1760,6 +1788,139 @@ proofPolicyCoverageTest(
     assert.equal(reduced.requiredSubgoals[0].originRefs.includes(FULL_ORIGIN), false,
       'only auditor-confirmed origins enter the required ledger');
     assert.ok(reduced.requiredSubgoals[0].constraints.includes('Preserve the requested boundary.'));
+  });
+
+  goalAuditTest('Spec 028 T069 — same-type origin containment gets one fail-closed refinement', () => {
+    const broad = goalProposal({
+      id: 'S-broad-origin',
+      question: 'Compare the frontend and backend policy.',
+      originRefs: [FULL_ORIGIN, TRACE_DEFINITION_SEED],
+      claimType: 'comparison',
+      proofCondition: 'Observe the frontend and backend policy paths.',
+    });
+    const nested = goalProposal({
+      id: 'S-nested-origin',
+      question: 'Compare the developer and admin policy.',
+      originRefs: [AUTH_ORIGIN],
+      claimType: 'comparison',
+      proofCondition: 'Observe the developer and admin policy paths.',
+    });
+    const checked = preflight([broad, nested]);
+    const records = [
+      auditRecord(broad, 'ready', { originRefs: [FULL_ORIGIN] }),
+      auditRecord(nested),
+    ];
+
+    const initial = reduceAudit({
+      preflightResult: checked,
+      auditRecords: records,
+    });
+    assert.deepEqual(initial.requiredSubgoals, []);
+    assert.deepEqual(initial.gaps, []);
+    assert.deepEqual(new Set(initial.revisionRequest.refineGoalIds),
+      new Set([broad.id, nested.id]));
+    assert.deepEqual(new Set(initial.revisionRequest.refineGoals.map(goal => goal.id)),
+      new Set([broad.id, nested.id]));
+    assert.deepEqual(initial.revisionRequest.refineGoals
+      .find(goal => goal.id === broad.id).originRefs, [FULL_ORIGIN],
+    'the refinement obligation uses auditor-confirmed rather than proposed origins');
+    assert.deepEqual(initial.revisionRequest.decomposeGoalIds, []);
+    assert.ok(initial.revisionRequest.diagnostics.every(item =>
+      item.code === 'ambiguous_origin_binding'));
+
+    const repeated = reduceAudit({
+      preflightResult: checked,
+      auditRecords: records,
+      revisionCount: 1,
+    });
+    assert.equal(repeated.revisionRequest, null);
+    assert.deepEqual(new Set(repeated.requiredSubgoals.map(goal => goal.id)),
+      new Set([broad.id, nested.id]));
+    assert.ok(repeated.requiredSubgoals.every(goal =>
+      goal.auditVerdict === 'planning_incomplete' && goal.state === 'blocked'));
+    assert.ok(repeated.gaps.every(gap => gap.reason === 'planning_incomplete'));
+  });
+
+  goalAuditTest('Spec 028 T069 — distinct facets and claim types do not trigger origin refinement', () => {
+    const sharedDefinition = goalProposal({
+      id: 'S-shared-definition',
+      originRefs: [AUTH_ORIGIN, TRACE_DEFINITION_SEED],
+      claimType: 'positive',
+      question: 'Which shared definition governs the first surface?',
+      proofCondition: 'Observe the first surface and shared definition.',
+    });
+    const sharedUsage = goalProposal({
+      id: 'S-shared-usage',
+      originRefs: [AUTH_ORIGIN, TRACE_USAGE_SEED],
+      claimType: 'positive',
+      question: 'Which shared definition governs the second surface?',
+      proofCondition: 'Observe the second surface and shared definition.',
+    });
+    const differentType = goalProposal({
+      id: 'S-different-type',
+      originRefs: [AUTH_ORIGIN],
+      claimType: 'absence',
+      question: 'Is a legacy definition absent from this surface?',
+      proofCondition: 'Enumerate the bounded surface and certify absence.',
+    });
+    const proposals = [sharedDefinition, sharedUsage, differentType];
+    const reduced = reduceAudit({
+      preflightResult: preflight(proposals),
+      auditRecords: proposals.map(goal => auditRecord(goal)),
+    });
+
+    assert.deepEqual(reduced.requiredSubgoals.map(goal => goal.id),
+      proposals.map(goal => goal.id));
+    assert.equal(reduced.revisionRequest, null);
+
+    const equalOrigins = [
+      goalProposal({
+        id: 'S-equal-one',
+        originRefs: [AUTH_ORIGIN],
+        claimType: 'positive',
+        question: 'Which first fact is requested by this atomic phrase?',
+        proofCondition: 'Observe the separately audited first fact.',
+      }),
+      goalProposal({
+        id: 'S-equal-two',
+        originRefs: [AUTH_ORIGIN],
+        claimType: 'positive',
+        question: 'Which second fact is requested by this atomic phrase?',
+        proofCondition: 'Observe the separately audited second fact.',
+      }),
+    ];
+    const equalReduced = reduceAudit({
+      preflightResult: preflight(equalOrigins),
+      auditRecords: equalOrigins.map(goal => auditRecord(goal)),
+    });
+    assert.deepEqual(equalReduced.requiredSubgoals.map(goal => goal.id),
+      equalOrigins.map(goal => goal.id));
+    assert.equal(equalReduced.revisionRequest, null,
+      'equal audited origins do not create a noisy or impossible refinement');
+  });
+
+  goalAuditTest('Spec 028 T069 — a corrected goal cannot remain ambiguous with the preserved ledger', () => {
+    const preserved = createRequiredSubgoal({
+      ...goalProposal({ id: 'S-preserved', originRefs: [FULL_ORIGIN], claimType: 'comparison' }),
+      auditVerdict: 'ready',
+    });
+    const corrected = goalProposal({
+      id: 'S-corrected',
+      originRefs: [AUTH_ORIGIN],
+      claimType: 'comparison',
+      question: 'Compare the corrected policy surface.',
+      proofCondition: 'Observe the corrected policy surface independently.',
+    });
+    const reduced = reduceAudit({
+      preflightResult: preflight([corrected]),
+      auditRecords: [auditRecord(corrected)],
+      revisionCount: 1,
+      existingRequiredSubgoals: [preserved],
+    });
+
+    assert.equal(reduced.requiredSubgoals[0].id, corrected.id);
+    assert.equal(reduced.requiredSubgoals[0].auditVerdict, 'planning_incomplete');
+    assert.equal(reduced.gaps[0].reason, 'planning_incomplete');
   });
 
   goalAuditTest('Spec 028 T015 — circular proof conditions cannot be promoted by a ready audit verdict', () => {

@@ -25,8 +25,8 @@ node --test tests/schemas.test.mjs
 Required cases:
 
 1. A goal with no valid request/wrapper origin is rejected and cannot block completion.
-2. A duplicate goal merges without losing origins/constraints; a too-broad goal is decomposed through one revision.
-3. An omitted explicit request part is recovered through one revision; a second planning defect is materialized as a blocked required goal and prevents false completion.
+2. A duplicate goal merges without losing origins/constraints; duplicate required ids fail closed; a too-broad goal is decomposed through one revision.
+3. An omitted explicit request part or strict same-type origin containment is corrected through the same single revision; refinements map uniquely to distinct descendants, while a second or still-ambiguous planning defect is materialized as a blocked required goal and prevents false completion.
 4. Scope, read-only capability, unavailable live state, missing input, contradiction, and unverifiable proof conditions become non-repairable required gaps.
 5. Difficulty alone does not classify a goal as infeasible; a checkable false premise with sufficient bounded evidence completes as a supported refutation, while insufficient absence/counterevidence remains `incomplete`.
 6. Two unrelated exact evidence items do not complete a semantically unsupported claim.
@@ -41,6 +41,7 @@ Required cases:
 15. A verifier-invented uncovered part is audited before registration and cannot block completion when untraceable.
 16. Repair counterevidence reopens every affected previously supported claim, and final verification cannot leave stale support.
 17. Model confidence and evidence count do not affect final state.
+18. Post-audit acceptance-core mutation breaks `auditBinding`; legal state/claim-reference transitions remain valid, and an unresolved public gap is rebuilt from confirmed original-request slices instead of exposing the binding or model-authored goal/audit prose.
 
 ## 3. Run runtime and MCP contract tests
 

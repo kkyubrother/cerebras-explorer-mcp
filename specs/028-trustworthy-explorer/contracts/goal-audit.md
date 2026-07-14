@@ -87,7 +87,8 @@ Auditor rules:
 - A blocker verdict requires a concrete conflict with scope, capability, supplied input, or observability. Otherwise use `ready`.
 - A traceable user requirement cannot receive `reject_untraceable`.
 - The auditor cannot add new task requirements, modify hard scope, relax a proof policy, or suggest implementation work.
-- Runtime derives whether revision is required from uncovered request parts and `needs_decomposition` verdicts. The auditor cannot request extra passes or set the revision count.
+- Runtime derives whether revision is required from uncovered request parts, `needs_decomposition` verdicts, and strict one-way containment between same-type auditor-confirmed origin signatures. The auditor cannot request extra passes or set the revision count.
+- After audit, runtime seals each accepted required goal's immutable acceptance core with `auditBinding`. This is an integrity checksum, not a semantic judge or signature; duplicate goal ids or later core mutation fail closed.
 
 ## One revision
 
@@ -97,9 +98,10 @@ When runtime derives `revisionRequired=true` and `revisionCount=0`, the planner 
 - accepted and blocked goals that must be preserved;
 - uncovered request parts;
 - goals requiring decomposition;
+- same-type goals requiring origin refinement, with auditor-confirmed origins;
 - deterministic/auditor defect reasons.
 
-The corrected plan is audited once with `revisionCount=1`. No further planner call is allowed. For every remaining uncovered or still-decomposable request part, runtime creates a blocked required goal carrying the original request references, `auditVerdict=planning_incomplete`, and a `planning_incomplete` gap. These synthetic required goals participate in completion reduction; silently keeping a free-floating diagnostic would permit false completion.
+The corrected plan is audited once with `revisionCount=1`. No further planner call is allowed. A refinement obligation requires exactly one same-type descendant, the same corrected goal cannot satisfy two refinements, and corrected ready goals for different refinements cannot retain equal or containing confirmed origin signatures. For every remaining uncovered, still-decomposable, or still-ambiguous request part, runtime creates a blocked required goal carrying the original request references, `auditVerdict=planning_incomplete`, and a `planning_incomplete` gap. These synthetic required goals participate in completion reduction; silently keeping a free-floating diagnostic would permit false completion.
 
 ## Late uncovered suggestions
 
@@ -123,9 +125,9 @@ The corrected plan is audited once with `revisionCount=1`. No further planner ca
 
 ## Parent boundary
 
-The parent never receives goal ids, audit verdict names, rejected goals, capability manifests, revision history, or audit explanations. It receives only:
+The parent never receives goal ids, audit verdict names, audit bindings, model-authored goal wording, rejected goals, capability manifests, revision history, or audit explanations. It receives only:
 
 - supported requested facts, if any;
-- one concise gap per unresolved requested part (grouped only when no distinction is lost);
+- one concise gap per unresolved requested part, reconstructed from confirmed original-request slices (grouped only when no distinction is lost);
 - at most one action that could materially change the result;
 - `state=incomplete` for valid blockers, or `state=failed` only for an execution fault.

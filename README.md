@@ -187,7 +187,7 @@ MCP `structuredContent`는 parent가 다음 행동을 고르는 데 필요한 �
 
 - `targets`: parent가 읽거나 수정해야 할 위치만 포함합니다.
 - `evidence`: `source`, `git`, `absence` 중 검증된 직접 근거만 포함합니다.
-- `gaps`: `incomplete`에서 해결되지 않은 원래 질문을 빠짐없이 보존합니다.
+- `gaps`: `incomplete`에서 해결되지 않은 원래 request slice를 보존하며, planner/auditor가 만든 내부 질문 문구는 전달하지 않습니다.
 - `followUp`: 실제로 결과를 개선할 수 있는 한 가지 좁은 행동만 제시합니다.
 - `failure`: `failed`에서만 나타나며 기계 판독 가능한 이유와 선택적 retry를 담습니다.
 

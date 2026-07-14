@@ -22,6 +22,7 @@ npm test
 - Public registry 순서와 각 tool description/dispatch
 - Strict input schema와 schema-v3 parent handoff
 - Required sub-goal planning, audit, revision, blocker classification
+- Goal audit binding mutation rejection과 strict origin-containment refinement
 - Source range reconstruction과 secret redaction
 - Atomic claim semantic verification과 unsupported claim 제거
 - Bounded absence/count proof와 truncation 처리
@@ -132,7 +133,7 @@ Repository 밖 mutable state나 일부러 scope 밖 evidence가 필요한 질문
 기대:
 
 - 검증된 partial fact만 answer에 포함
-- 해결되지 않은 원래 질문이 `gaps`에 남음
+- 해결되지 않은 원래 request slice가 `gaps`에 남고 model-authored goal/audit 문구는 노출되지 않음
 - Scope를 자동으로 넓히지 않음
 - External fact가 필요하면 최소 `external_verification`만 제시
 - 결과를 개선할 행동이 없으면 `followUp`을 생략

@@ -24,8 +24,9 @@ The detailed contract is [goal-audit.md](./goal-audit.md).
 
 - Every accepted goal has an origin in the original request or a fixed wrapper proof seed and an independently observable proof condition.
 - Runtime performs deterministic schema/scope/capability checks; an isolated auditor checks request coverage, semantic traceability, consistency, and granularity.
-- Missing request parts and decomposable goals may cause one corrected planner pass. The corrected plan is audited once; there is no recursive planning.
-- Any request part still uncovered or undecomposed after that pass becomes a blocked required `planning_incomplete` goal and therefore participates in completion reduction.
+- Missing request parts, decomposable goals, and strict one-way containment between same-type auditor-confirmed origin signatures may cause one corrected planner pass. Each origin refinement must reconcile to one distinct same-type descendant; the corrected plan is audited once and there is no recursive planning.
+- Any request part still uncovered, undecomposed, or ambiguously refined after that pass becomes a blocked required `planning_incomplete` goal and therefore participates in completion reduction.
+- Runtime seals every accepted goal's immutable post-audit acceptance core with `auditBinding`; duplicate ids or mutation at a transition/TaskContract boundary fail closed. The binding and audit details remain internal.
 - `reject_untraceable` and merged duplicate proposals do not enter the required ledger, do not create parent gaps, and cannot block completion.
 - Scope, capability, external-state, missing-input, contradiction, and unverifiable verdicts remain valid required goals in terminal blocker state. They skip exploration/repair and force `incomplete`.
 - Difficulty or repository size alone is not a blocker. When feasibility is uncertain, the goal remains ready and evidence collection determines the outcome.

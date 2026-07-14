@@ -16,6 +16,7 @@ import {
   SEMANTIC_VERIFIER_RESPONSE_SCHEMA,
   SEMANTIC_VERDICT_SCHEMA,
   TASK_CONTRACT_SCHEMA,
+  computeGoalAuditBinding,
   computeConfidenceScore,
   normalizeExploreResult,
   reconcileConfidence,
@@ -800,7 +801,7 @@ test('public strategy input stays removed', () => {
 // Named T010 imports keep these trust-plane contracts fail-closed if an export
 // is removed or renamed later.
 function makeValidRequiredSubgoal(overrides = {}) {
-  return {
+  const subgoal = {
     id: 'S1',
     question: 'Where is the auth policy defined?',
     originRefs: ['request:0-32'],
@@ -813,6 +814,8 @@ function makeValidRequiredSubgoal(overrides = {}) {
     claimRefs: [],
     ...overrides,
   };
+  subgoal.auditBinding = computeGoalAuditBinding(subgoal);
+  return subgoal;
 }
 
 function makeValidTaskContract() {
@@ -891,6 +894,7 @@ internalSchemaTest(
         'proofCondition',
         'constraints',
         'auditVerdict',
+        'auditBinding',
         'state',
         'claimRefs',
       ],
@@ -903,6 +907,7 @@ internalSchemaTest(
       'proofPolicy',
       'proofCondition',
       'auditVerdict',
+      'auditBinding',
       'state',
       'resolution',
       'blockerRef',
@@ -915,6 +920,44 @@ internalSchemaTest(
       'TASK_CONTRACT_SCHEMA.subgoals[].constraints');
     assertStringArraySchema(subgoalSchema.properties.claimRefs,
       'TASK_CONTRACT_SCHEMA.subgoals[].claimRefs');
+
+    const validContract = makeValidTaskContract();
+    for (const mutate of [
+      goal => { goal.id = 'S2'; },
+      goal => { goal.question = 'Where is the changed auth policy defined?'; },
+      goal => { goal.originRefs = ['request:1-32']; },
+      goal => { goal.claimType = 'claim_verification'; goal.proofPolicy = 'support_or_refute'; },
+      goal => { goal.proofPolicy = 'bounded_absence'; goal.claimType = 'absence'; },
+      goal => { goal.proofCondition = 'Observe a different acceptance condition.'; },
+      goal => { goal.constraints = ['A new immutable constraint.']; },
+      goal => { goal.auditVerdict = 'unverifiable'; },
+    ]) {
+      const mutated = structuredClone(validContract);
+      mutate(mutated.subgoals[0]);
+      assert.throws(() => validate(mutated), /auditBinding/,
+        'every immutable acceptance-core mutation must invalidate the audit binding');
+    }
+
+    const reordered = makeValidTaskContract();
+    reordered.subgoals[0] = makeValidRequiredSubgoal({
+      originRefs: ['request:0-32', 'request:0-10'],
+      constraints: ['second', 'first'],
+    });
+    reordered.subgoals[0].originRefs.reverse();
+    reordered.subgoals[0].constraints.reverse();
+    assert.doesNotThrow(() => validate(reordered),
+      'origin and constraint order is not part of the immutable binding');
+
+    const mutableState = makeValidTaskContract();
+    mutableState.subgoals[0].state = 'exploring';
+    mutableState.subgoals[0].claimRefs = ['C1'];
+    assert.doesNotThrow(() => validate(mutableState),
+      'runtime exploration state is intentionally outside the audit binding');
+
+    const duplicateIds = makeValidTaskContract();
+    duplicateIds.subgoals.push(structuredClone(duplicateIds.subgoals[0]));
+    assert.throws(() => validate(duplicateIds), /duplicate subgoal id/i,
+      'schema validation must independently reject duplicate goal identities');
     assert.deepEqual(subgoalSchema.properties.claimType.enum, [
       'positive',
       'absence',
@@ -1612,6 +1655,7 @@ test('Spec 028 T016 — planner and auditor schemas are strict control-plane obj
   assert.equal(auditorSchema.properties.uncoveredRequestParts.items,
     schemaModule.LATE_UNCOVERED_PROPOSAL_SCHEMA);
   assert.equal('proofPolicy' in plannerSchema.properties.subgoals.items.properties, false);
+  assert.equal('auditBinding' in plannerSchema.properties.subgoals.items.properties, false);
   for (const runtimeOwned of ['revisionRequired', 'revisionCount', 'requestRevision']) {
     assert.equal(runtimeOwned in plannerSchema.properties, false);
     assert.equal(runtimeOwned in auditorSchema.properties, false);
@@ -1741,6 +1785,7 @@ test('Spec 028 T016 — claim types map to one runtime-owned proof policy', () =
     const contract = makeValidTaskContract();
     contract.subgoals[0].claimType = claimType;
     contract.subgoals[0].proofPolicy = proofPolicy;
+    contract.subgoals[0].auditBinding = computeGoalAuditBinding(contract.subgoals[0]);
     assert.doesNotThrow(() => validateTaskContract(contract), claimType);
     contract.subgoals[0].proofPolicy = proofPolicy === 'direct_source'
       ? 'bounded_absence'
@@ -1752,6 +1797,10 @@ test('Spec 028 T016 — claim types map to one runtime-owned proof policy', () =
   const modelPolicy = plannerProposal();
   modelPolicy.subgoals[0].proofPolicy = 'direct_source';
   assert.throws(() => validatePlanner(modelPolicy), 'the planner cannot author proofPolicy');
+  const modelBinding = plannerProposal();
+  modelBinding.subgoals[0].auditBinding = 'audit-v1:model-authored';
+  assert.throws(() => validatePlanner(modelBinding),
+    'the planner cannot author the runtime audit binding');
   const unknownType = plannerProposal([plannerGoal({ claimType: 'security_review' })]);
   assert.throws(() => validatePlanner(unknownType));
 });
