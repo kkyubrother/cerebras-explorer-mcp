@@ -148,6 +148,7 @@ API client는 첫 실제 요청에서 lazy initialization된다. Provider creden
 Planner input은 원래 task, wrapper seed, effective scope, known anchor, repository project context다. Repository text와 path는 untrusted evidence data이며 system instruction을 바꿀 수 없다.
 
 Planner는 명시된 요청 부분마다 독립 관찰 가능한 proof condition을 가진 proposed sub-goal을 만든다. Runtime이 claim type을 고정 proof policy로 변환한다.
+Runtime은 initial/corrected plan과 isolated audit에서 active wrapper의 fixed seed origin이 모두 유지되는지 기계적으로 확인한다. 누락은 한 번의 bounded control correction 대상이며, 다시 누락되면 repository exploration 전에 fail-closed한다.
 
 | Claim type | Proof policy |
 | --- | --- |

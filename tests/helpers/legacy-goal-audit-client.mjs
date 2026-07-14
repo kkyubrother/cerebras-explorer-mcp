@@ -90,6 +90,10 @@ export function adaptLegacyGoalAuditClient(chatClient, { rejectedGoal = null } =
         if (kind === 'planner') {
           const packet = parseControlPacket(request.messages);
           const task = packet?.control?.task ?? '';
+          const wrapper = packet?.control?.wrapper;
+          const wrapperOrigins = Array.isArray(wrapper?.seeds)
+            ? wrapper.seeds.map(seed => `wrapper:${wrapper.tool}:${seed}`)
+            : [];
           return controlCompletion({
             taskSummary: 'Legacy runtime behavior under test.',
             constraints: [],
@@ -97,8 +101,10 @@ export function adaptLegacyGoalAuditClient(chatClient, { rejectedGoal = null } =
               {
                 id: 'legacy-test-goal',
                 question: 'Complete the requested repository investigation.',
-                originRefs: [`request:0-${task.length}`],
-                claimType: 'positive',
+                originRefs: [`request:0-${task.length}`, ...wrapperOrigins],
+                claimType: wrapper?.tool === 'collect_evidence'
+                  ? 'claim_verification'
+                  : 'positive',
                 proofCondition: 'Observe repository evidence that answers the requested investigation.',
                 constraints: [],
               },

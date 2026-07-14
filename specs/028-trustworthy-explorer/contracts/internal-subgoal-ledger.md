@@ -46,7 +46,7 @@ Rules:
 1. Produce one required sub-goal for every explicit requested part. Do not drop or silently merge requirements to meet a count; runtime may process large ledgers in batches of at most 12.
 2. Preserve every explicit “and”, comparison, boundary, completeness request, and “do not speculate” constraint.
 3. Attach each goal to exact request offsets or a fixed wrapper seed and give it an independently observable proof condition. Do not create implementation work or suggested features not requested.
-4. Wrapper templates seed required proof conditions, but the task text can add required sub-goals.
+4. Wrapper templates seed required proof conditions, but the task text can add required sub-goals. Runtime checks the complete active seed set after planning and checks that the isolated audit did not discard any proposed seed; one invalid-control correction is allowed before exploration fails closed.
 5. Duplicate or semantically identical sub-goals are merged before exploration.
 6. Runtime derives proof policy from claim type using the fixed matrix below; invalid/unknown claim types reject the proposal rather than guessing.
 7. The planner does not assign feasibility, priority, effort, or repair policy.

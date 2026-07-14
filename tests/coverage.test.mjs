@@ -1656,6 +1656,28 @@ proofPolicyCoverageTest(
     assert.deepEqual(fallbackSeed.auditCandidates, [], 'explore_repo has no fixed seed beyond the request');
   });
 
+  goalAuditTest('Spec 028 T071 — fixed wrapper seed omissions are detected mechanically', () => {
+    assert.equal(typeof coverageModule.missingWrapperGoalOriginRefs, 'function');
+    const goals = ['locations', 'relevance', 'smallest_set'].map((seed, index) =>
+      goalProposal({
+        id: `locate-${index + 1}`,
+        originRefs: [`wrapper:find_relevant_code:${seed}`],
+      }));
+
+    assert.deepEqual(coverageModule.missingWrapperGoalOriginRefs({
+      wrapperTool: 'find_relevant_code',
+      goals,
+    }), []);
+    assert.deepEqual(coverageModule.missingWrapperGoalOriginRefs({
+      wrapperTool: 'find_relevant_code',
+      goals: goals.slice(0, 2),
+    }), ['wrapper:find_relevant_code:smallest_set']);
+    assert.deepEqual(coverageModule.missingWrapperGoalOriginRefs({
+      wrapperTool: 'explore_repo',
+      goals: [],
+    }), []);
+  });
+
   goalAuditTest('Spec 028 T015 — malformed offsets and duplicate ids fail deterministic preflight', () => {
     const invalidOrigins = [
       'request:-1-4',

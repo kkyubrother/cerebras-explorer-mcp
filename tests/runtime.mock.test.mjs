@@ -4530,6 +4530,17 @@ function definitionAndAbsenceGoals() {
   ];
 }
 
+function locateWrapperGoals() {
+  return ['locations', 'relevance', 'smallest_set'].map((seed, index) => ({
+    id: `S-locate-${seed}`,
+    question: `Resolve the find_relevant_code ${seed} obligation.`,
+    originRefs: [`wrapper:find_relevant_code:${seed}`],
+    claimType: 'positive',
+    proofCondition: `Observe direct repository evidence for ${seed}.`,
+    constraints: [],
+  }));
+}
+
 auditedPlanningRuntimeTest('Spec 028 T017 — initial plan and isolated audit finish before exploration', async () => {
   const goals = definitionAndAbsenceGoals();
   const invented = proposedRuntimeGoal({
@@ -4581,6 +4592,102 @@ auditedPlanningRuntimeTest('Spec 028 T017 — initial plan and isolated audit fi
     'every accepted required goal must remain in the exploration ledger');
   assert.doesNotMatch(JSON.stringify(client.requests[2].messages), /S-invented/,
     'rejected goals must not leak into exploration');
+});
+
+auditedPlanningRuntimeTest('Spec 028 T071 — an omitted fixed wrapper seed gets one planner correction before exploration', async () => {
+  const goals = locateWrapperGoals();
+  const omitted = goals.slice(0, 2);
+  const client = new ScriptedGoalAuditClient([
+    { stage: 'planner:1', value: plannerControl(omitted) },
+    {
+      stage: 'planner:2',
+      run(request) {
+        assert.match(JSON.stringify(request.messages), /wrapper:find_relevant_code:smallest_set/u);
+        return controlCompletion(plannerControl(goals));
+      },
+    },
+    {
+      stage: 'goal_audit:1',
+      value: auditorControl(goals.map(goal => auditControlRecord(goal))),
+    },
+    { stage: 'exploration:1', content: 'All fixed locate obligations are audited.' },
+    { stage: 'synthesis:1', value: readyExplorationResult() },
+  ]);
+  const root = await makeRepoFixture();
+  const result = await new RuntimeImplementation({ chatClient: client }).explore({
+    task: GOAL_AUDIT_TASK,
+    repo_root: root,
+    scope: ['src/**'],
+    taskMode: 'locate',
+  });
+
+  assert.equal(result.failure, null);
+  assert.deepEqual(client.stageLabels.slice(0, 4), [
+    'planner:1',
+    'planner:2',
+    'goal_audit:1',
+    'exploration:1',
+  ]);
+  assert.deepEqual(result.taskContract.subgoals.flatMap(goal => goal.originRefs),
+    goals.flatMap(goal => goal.originRefs));
+});
+
+auditedPlanningRuntimeTest('Spec 028 T071 — repeated fixed wrapper seed omission fails before audit or exploration', async () => {
+  const omitted = locateWrapperGoals().slice(0, 2);
+  const client = new ScriptedGoalAuditClient([
+    { stage: 'planner:1', value: plannerControl(omitted) },
+    { stage: 'planner:2', value: plannerControl(omitted) },
+  ]);
+  const root = await makeRepoFixture();
+  const result = await new RuntimeImplementation({ chatClient: client }).explore({
+    task: GOAL_AUDIT_TASK,
+    repo_root: root,
+    scope: ['src/**'],
+    taskMode: 'locate',
+  });
+
+  assert.deepEqual(client.stageLabels, ['planner:1', 'planner:2']);
+  assert.ok(result.failure);
+  assert.equal(result.parentHandoff.state, 'failed');
+});
+
+auditedPlanningRuntimeTest('Spec 028 T071 — an auditor cannot silently discard a fixed wrapper seed', async () => {
+  const goals = locateWrapperGoals();
+  const requestRef = requestOrigin(GOAL_AUDIT_TASK, 'Locate requireAuth');
+  goals.at(-1).originRefs.unshift(requestRef);
+  const client = new ScriptedGoalAuditClient([
+    { stage: 'planner:1', value: plannerControl(goals) },
+    {
+      stage: 'goal_audit:1',
+      value: auditorControl(goals.map((goal, index) => index === goals.length - 1
+        ? auditControlRecord(goal, 'ready', { originRefs: [requestRef] })
+        : auditControlRecord(goal))),
+    },
+    {
+      stage: 'goal_audit:2',
+      run(request) {
+        assert.match(JSON.stringify(request.messages), /fixed wrapper origin/u);
+        return controlCompletion(auditorControl(goals.map(goal => auditControlRecord(goal))));
+      },
+    },
+    { stage: 'exploration:1', content: 'All fixed locate obligations survived audit.' },
+    { stage: 'synthesis:1', value: readyExplorationResult() },
+  ]);
+  const root = await makeRepoFixture();
+  const result = await new RuntimeImplementation({ chatClient: client }).explore({
+    task: GOAL_AUDIT_TASK,
+    repo_root: root,
+    scope: ['src/**'],
+    taskMode: 'locate',
+  });
+
+  assert.equal(result.failure, null);
+  assert.deepEqual(client.stageLabels.slice(0, 4), [
+    'planner:1',
+    'goal_audit:1',
+    'goal_audit:2',
+    'exploration:1',
+  ]);
 });
 
 auditedPlanningRuntimeTest('Spec 028 T068 — invalid control retries receive only bounded validator feedback', async () => {
@@ -5572,6 +5679,7 @@ auditedPlanningRuntimeTest('Spec 028 T022 — preserved origin and constraint se
     originRefs: [
       requestOrigin(GOAL_AUDIT_TASK, 'Locate requireAuth'),
       'wrapper:trace_symbol:definition',
+      'wrapper:trace_symbol:usage',
     ],
     constraints: ['Stay in scope.', 'Use source evidence.'],
   });
@@ -7591,6 +7699,14 @@ test('Spec 028 T059 — runtime enforces negative and critical proof boundaries'
         return;
       }
       const goal = trustGoal(fixture.task, fixture.goal);
+      if (fixture.taskMode === 'edit_planning') {
+        goal.originRefs.push(
+          'wrapper:map_change_impact:targets',
+          'wrapper:map_change_impact:dependents',
+          'wrapper:map_change_impact:requested_categories',
+          'wrapper:map_change_impact:risk_boundary',
+        );
+      }
       const claim = candidateClaim(
         `C-${goal.id}`,
         goal.id,

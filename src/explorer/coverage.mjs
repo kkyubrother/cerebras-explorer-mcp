@@ -966,6 +966,22 @@ function preflightDiagnostic(proposedGoalId, code, reason) {
   return { proposedGoalId, code, reason };
 }
 
+export function missingWrapperGoalOriginRefs(input) {
+  const value = requireObject(input, 'Wrapper goal coverage');
+  const wrapperTool = requireString(value.wrapperTool, 'Wrapper goal coverage.wrapperTool');
+  if (!Object.hasOwn(WRAPPER_GOAL_SEEDS, wrapperTool)) {
+    throw new TypeError(`Unsupported planning wrapper: ${wrapperTool}.`);
+  }
+  if (!Array.isArray(value.goals)) {
+    throw new TypeError('Wrapper goal coverage.goals must be an array.');
+  }
+  const observedOrigins = new Set(value.goals.flatMap(goal =>
+    Array.isArray(goal?.originRefs) ? goal.originRefs : []));
+  return WRAPPER_GOAL_SEEDS[wrapperTool]
+    .map(seed => `wrapper:${wrapperTool}:${seed}`)
+    .filter(originRef => !observedOrigins.has(originRef));
+}
+
 export function preflightGoalProposals(input) {
   const value = requireObject(input, 'Goal preflight');
   const task = requireString(value.task, 'Goal preflight.task');

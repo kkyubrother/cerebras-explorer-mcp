@@ -19,6 +19,8 @@ compatibility aliases or selectable effort controls are retained.
   refinement instead of allowing sibling goals to be reassigned. Accepted
   goals remain in the exploration ledger after entering the `exploring` state,
   so repository search is guided by the same obligations that completion uses.
+  Fixed wrapper seed origins are now mechanically required across both planning
+  and isolated audit; repeated omission fails before repository exploration.
 - **Bounded proof and repair**: absence, count, exhaustive classification,
   route-policy comparison, flow, impact, and historical claims use
   runtime-owned proof gates. Invalid or cross-claim verifier evidence fails

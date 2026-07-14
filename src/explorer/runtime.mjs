@@ -71,6 +71,7 @@ import {
   integrateAuditedLateGoals,
   isCertifiedStaticArrayObservation,
   mergeSafetyLimit,
+  missingWrapperGoalOriginRefs,
   preflightGoalProposals,
   reduceGoalAudit,
   reduceSemanticClaims,
@@ -2201,6 +2202,7 @@ async function requestValidatedGoalControl({
             ? 'For goal audit records, every non-reject verdict must retain at least one proposed origin; ' +
               'needs_decomposition must preserve the traceable caller-required core origin. ' +
               'Copy origin refs only from that proposal. Return exactly one audit record for every supplied proposals item, even when an existing goal ledger is present; use merge_duplicate rather than omission when appropriate. ' +
+              'Every fixed wrapper origin present in a proposal must remain in a non-reject audit record or one structured uncoveredRequestParts item. ' +
               'Pair every missingRequestParts entry with one structured uncoveredRequestParts item.'
             : '';
       requestMessages = [
@@ -3319,6 +3321,33 @@ function requirePreservedGoals(proposal, preservedGoals) {
   }
 }
 
+function requireCompleteWrapperGoalOrigins({ wrapperTool, goals, label }) {
+  const missingOrigins = missingWrapperGoalOriginRefs({ wrapperTool, goals });
+  if (missingOrigins.length > 0) {
+    throw new TypeError(`${label} omitted fixed wrapper origins: ${missingOrigins.join(', ')}.`);
+  }
+}
+
+function requireAuditedWrapperGoalOrigins({ wrapperTool, proposal, response }) {
+  const missingFromProposal = new Set(missingWrapperGoalOriginRefs({
+    wrapperTool,
+    goals: proposal.subgoals,
+  }));
+  const acknowledgedGoals = [
+    ...response.goals.filter(record => record.verdict !== 'reject_untraceable'),
+    ...response.uncoveredRequestParts,
+  ];
+  const lostOrigins = missingWrapperGoalOriginRefs({
+    wrapperTool,
+    goals: acknowledgedGoals,
+  }).filter(originRef => !missingFromProposal.has(originRef));
+  if (lostOrigins.length > 0) {
+    throw new TypeError(
+      `Goal audit discarded fixed wrapper origins: ${lostOrigins.join(', ')}.`,
+    );
+  }
+}
+
 function mergeRevisedGoalAudit(initial, revised, preservedGoals) {
   const preservedIds = new Set(preservedGoals.map(goal => goal.id));
   return {
@@ -4331,6 +4360,7 @@ export class ExplorerRuntime {
     onCompletion,
     allowEmptyRequired = false,
     existingGoalLedger = [],
+    requireWrapperGoalOrigins = false,
   }) {
     const messages = buildGoalAuditorMessages({
       task,
@@ -4361,6 +4391,9 @@ export class ExplorerRuntime {
           externalMergeTargetIds: existingGoalLedger.map(goal => goal.id),
         });
         validateGoalAuditConsistency(response, proposal);
+        if (requireWrapperGoalOrigins) {
+          requireAuditedWrapperGoalOrigins({ wrapperTool, proposal, response });
+        }
         const partitioned = partitionExternalGoalMerges({
           response,
           proposal,
@@ -5053,6 +5086,11 @@ export class ExplorerRuntime {
           if (!allowEmptyPlan && preflight.auditCandidates.length === 0) {
             throw new TypeError('Planner produced no auditable requested goal.');
           }
+          requireCompleteWrapperGoalOrigins({
+            wrapperTool,
+            goals: [...preservedGoals, ...preflight.auditCandidates],
+            label: 'Planner',
+          });
           const validatedPlan = {
             proposal: { ...proposal, subgoals: preflight.auditCandidates },
             preflight,
@@ -5097,6 +5135,7 @@ export class ExplorerRuntime {
       maxCompletionTokens,
       abortSignal,
       onCompletion,
+      requireWrapperGoalOrigins: true,
     });
     const goalAuditRecords = [...initialAudit.response.goals];
     emitGoalAuditEvents(onPlanningEvent, {
@@ -5209,6 +5248,7 @@ export class ExplorerRuntime {
           onCompletion,
           allowEmptyRequired: true,
           existingGoalLedger: preservedGoals,
+          requireWrapperGoalOrigins: true,
         });
       goalAuditRecords.push(...revisedAudit.response.goals);
       emitGoalAuditEvents(onPlanningEvent, {
@@ -5277,6 +5317,15 @@ export class ExplorerRuntime {
 
     if (finalReduction.requiredSubgoals.length === 0) {
       throw invalidGoalControl('goal_audit', new TypeError('No requested obligations survived goal audit.'));
+    }
+    try {
+      requireCompleteWrapperGoalOrigins({
+        wrapperTool,
+        goals: finalReduction.requiredSubgoals,
+        label: 'Audited task plan',
+      });
+    } catch (error) {
+      throw invalidGoalControl(revisionCount === 0 ? 'goal_audit' : 'plan_revision', error);
     }
     let taskContract;
     try {
