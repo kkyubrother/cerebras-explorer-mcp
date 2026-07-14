@@ -361,7 +361,7 @@ const CLAIM_SYNTHESIS_SYSTEM_PROMPT = [
   '- Prefer one minimal aggregate claim that completes a flow, comparison, or impact proof shape over one claim per file, module, match, or observation.',
   '- A comparison claim must cite the distinct source paths that establish its sides. A one-path fragment is not a comparison claim.',
   '- For a comparison spanning three or more source paths, state each path or helper and its exact predicate in a separate semicolon-delimited clause. Do not use "respectively" or leave path-to-predicate pairing implicit.',
-  '- Do not cite search/list telemetry in an impact claim; cite the source observations that establish every requested category. A count claim cites its complete search plus every supplied source observation covering its counted items.',
+  '- Cite exact source observations that establish every requested impact category. Only when control.wrapper.tool is explore_repo and either control.effectiveScope.mode is repository or its paths reduce to one distinct canonical entry, a generic impact claim may additionally cite exactly one complete repo_find_files **/* search over that entire immutable scope when exact current source observations cover every enumerated file; keep that internal inventory detail out of claim text. A count claim cites its complete search plus every supplied source observation covering its counted items.',
   '- A positive direct-source test claim may identify one exactly observed test and what it verifies. Do not imply that it inventories the whole suite unless the sub-goal explicitly requires every test.',
   '- For the wrapper:collect_evidence:verdict goal, an affirmed claim must cite both exact direct source/git evidence and a complete zero-match search that tests a plausible disconfirming predicate. A confirming lookup for the same symbol is not a counterevidence search.',
   '- Keep a collect_evidence claim text to the requested repository conclusion. Do not add an internal search pattern, match count, certificate summary, or tool detail to the claim text; carry those proof facts only through evidenceRefs.',
@@ -423,6 +423,18 @@ const COMPARISON_CORROBORATOR_SYSTEM_PROMPT = [
   '- Match every named route, helper, data field, membership predicate, existence predicate, boolean predicate, exception, and comparison side to the exact code that implements it. Similar table or helper names are not interchangeable mechanisms.',
   '- If any asserted side is absent, attached to the wrong path, contradicted, or semantically narrower or broader than the source, return insufficient or contradicted for the entire atomic claim.',
   '- supportingEvidenceRefs may include only observations that directly establish the exact asserted mechanisms. Additional cited files do not compensate for a wrong predicate.',
+  '- This focused pass cannot discover request obligations. uncoveredRequestParts must be an empty array.',
+].join('\n');
+
+const GENERIC_IMPACT_INVENTORY_CORROBORATOR_SYSTEM_PROMPT = [
+  SEMANTIC_VERIFIER_SYSTEM_PROMPT,
+  '',
+  'FOCUSED GENERIC IMPACT INVENTORY CORROBORATION:',
+  '- This packet contains exactly one generic impact claim backed by one complete file inventory and exact current source for every enumerated file. Independently re-check the whole claim; do not defer to an earlier verdict.',
+  '- The repo_find_files search must use pattern **/*, have a nonzero complete result, and have a boundary equal to exactly one immutable effectiveScope entry: the entire effectiveScope after canonicalization. More than one distinct canonical scope entry is insufficient.',
+  '- Support only when every enumerated file itself belongs to the impact surface asserted by the claim. A complete inventory of an unrelated scope is insufficient with boundary_mismatch.',
+  '- Return supported with resolution affirmed only when supportingEvidenceRefs contains the complete search ref plus every supplied exact current-source ref and those sources jointly entail the whole claim.',
+  '- A grep, a narrower or intersected boundary, a zero or truncated search, a missing file source, or a source outside the inventory is insufficient.',
   '- This focused pass cannot discover request obligations. uncoveredRequestParts must be an empty array.',
 ].join('\n');
 
@@ -742,13 +754,16 @@ export function buildGoalCoverageReconciliationMessages({
   ];
 }
 
-export function buildClaimSynthesisMessages({ taskContract, observations }) {
+export function buildClaimSynthesisMessages({ taskContract, observations, wrapperTool }) {
   return [
     { role: 'system', content: CLAIM_SYNTHESIS_SYSTEM_PROMPT },
     {
       role: 'user',
       content: controlDataMessage('Create candidate atomic claims from this bounded runtime packet', {
-        control: normalizeVerificationContract(taskContract),
+        control: {
+          ...normalizeVerificationContract(taskContract),
+          wrapper: fixedWrapperInput(wrapperTool),
+        },
         observations: Array.isArray(observations)
           ? observations.map(item => pickDefined(item, VERIFIER_OBSERVATION_FIELDS))
           : [],
@@ -814,6 +829,33 @@ export function buildComparisonCorroboratorMessages({
         absenceCertificates: Array.isArray(absenceCertificates)
           ? absenceCertificates.map(item => pickDefined(item, ABSENCE_CERTIFICATE_FIELDS))
           : [],
+        criticDecisions: [],
+      }),
+    },
+  ];
+}
+
+export function buildGenericImpactInventoryCorroboratorMessages({
+  taskContract,
+  claims,
+  observations,
+  wrapperTool,
+}) {
+  return [
+    { role: 'system', content: GENERIC_IMPACT_INVENTORY_CORROBORATOR_SYSTEM_PROMPT },
+    {
+      role: 'user',
+      content: controlDataMessage('Corroborate this one generic impact claim against its exact bounded file inventory', {
+        control: {
+          ...normalizeVerificationContract(taskContract),
+          taskOffsetGuide: taskOffsetGuide(taskContract?.task),
+          wrapper: fixedWrapperInput(wrapperTool),
+        },
+        claims: Array.isArray(claims) ? claims.map(normalizeCandidateClaim) : [],
+        observations: Array.isArray(observations)
+          ? observations.map(item => pickDefined(item, VERIFIER_OBSERVATION_FIELDS))
+          : [],
+        absenceCertificates: [],
         criticDecisions: [],
       }),
     },

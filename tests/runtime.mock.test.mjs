@@ -8,12 +8,13 @@ import path from 'node:path';
 import {
   ExplorerRuntime as RuntimeImplementation,
   buildParentHandoffV3,
+  buildRuntimeGenericImpactPolicyArtifacts,
   buildRuntimeWrapperPolicyArtifacts,
   estimateTokens,
 } from '../src/explorer/runtime.mjs';
 import { buildExplorerSystemPrompt, buildFinalizePrompt, detectStrategy, buildExplorerUserPrompt, STRATEGY_DESCRIPTIONS } from '../src/explorer/prompt.mjs';
 import { getRuntimeConfig } from '../src/explorer/config.mjs';
-import { RepoToolkit } from '../src/explorer/repo-tools.mjs';
+import { normalizedRepositoryFileIdentity, RepoToolkit } from '../src/explorer/repo-tools.mjs';
 import {
   createRequiredSubgoal,
   createTaskContract,
@@ -8073,6 +8074,151 @@ test('Spec 028 T069 — generic claims cannot define their own structural proof 
     'explore_repo has no runtime-owned transition or impact-category seed');
 });
 
+test('Spec 028 T069 — generic impact inventory artifacts fail closed on structural variants', async t => {
+  const effectiveScope = ['ui/pages/marketing/**'];
+  const impact = createRequiredSubgoal({
+    id: 'S-generic-impact-inventory-artifact',
+    question: 'Map the bounded marketing UI file surface.',
+    originRefs: ['request:0-42'],
+    claimType: 'impact',
+    proofCondition: 'Use the exact bounded file inventory and current source for every member.',
+    constraints: [],
+    auditVerdict: 'ready',
+  });
+  const fileA = normalizedRepositoryFileIdentity('ui/pages/marketing/a.js');
+  const fileB = normalizedRepositoryFileIdentity('ui/pages/marketing/b.js');
+  const fixture = () => {
+    const claim = candidateClaim(
+      'C-generic-impact-inventory-artifact', impact.id,
+      'The bounded surface contains the two observed marketing pages.',
+      ['E-search', 'E-a', 'E-b']);
+    const verdict = semanticVerdict(claim.id, 'supported', [...claim.evidenceRefs]);
+    return {
+      claim,
+      verdict,
+      observations: [
+        {
+          id: 'E-search', kind: 'search', tool: 'repo_find_files',
+          normalizedArgs: { pattern: '**/*', scope: ['ui/pages/marketing/**'] },
+          boundary: ['ui/pages/marketing/**'], matchCount: 2,
+          normalizedItemIds: [fileA, fileB], enumerationComplete: true,
+        },
+        {
+          id: 'E-a', kind: 'source', path: 'ui/pages/marketing/a.js',
+          startLine: 1, endLine: 2, rangeGrounding: 'exact',
+          sourceRole: 'implementation', temporalRole: 'current',
+        },
+        {
+          id: 'E-b', kind: 'source', path: 'ui/pages/marketing/b.js',
+          startLine: 1, endLine: 2, rangeGrounding: 'exact',
+          sourceRole: 'implementation', temporalRole: 'current',
+        },
+      ],
+    };
+  };
+  const build = (
+    value,
+    corroboratedClaimIds = new Set([value.claim.id]),
+    scope = effectiveScope,
+  ) =>
+    buildRuntimeGenericImpactPolicyArtifacts({
+      wrapperTool: 'explore_repo',
+      effectiveScope: scope,
+      subgoals: [impact],
+      claims: [value.claim],
+      semanticVerdicts: [value.verdict],
+      observations: value.observations,
+      corroboratedClaimIds,
+    });
+
+  const complete = fixture();
+  const completeArtifact = build(complete).get(complete.claim.id);
+  assert.deepEqual(completeArtifact, {
+    genericImpactCertification: {
+      marker: 'generic-impact-file-surface-v1',
+      boundary: 'ui/pages/marketing/**',
+    },
+    requiredImpactCategories: ['ui/pages/marketing/**'],
+    coveredImpactCategories: ['ui/pages/marketing/**'],
+    impactCategoryEvidenceRefs: { 'ui/pages/marketing/**': ['E-a', 'E-b'] },
+  });
+
+  const cases = [
+    ['source only', value => {
+      value.claim.evidenceRefs = ['E-a', 'E-b'];
+      value.verdict.supportingEvidenceRefs = ['E-a', 'E-b'];
+    }],
+    ['grep instead of file inventory', value => {
+      value.observations[0].tool = 'repo_grep';
+    }],
+    ['wrong file pattern', value => {
+      value.observations[0].normalizedArgs.pattern = '**/*.js';
+    }],
+    ['narrower boundary', value => {
+      value.observations[0].boundary = ['ui/pages/marketing/a.js'];
+    }],
+    ['truncated inventory', value => {
+      value.observations[0].enumerationComplete = false;
+    }],
+    ['zero matches', value => {
+      value.observations[0].matchCount = 0;
+      value.observations[0].normalizedItemIds = [];
+      value.claim.evidenceRefs = ['E-search'];
+      value.verdict.supportingEvidenceRefs = ['E-search'];
+    }],
+    ['duplicate file identities', value => {
+      value.observations[0].normalizedItemIds = [fileA, fileA];
+    }],
+    ['missing source for one file', value => {
+      value.observations = value.observations.filter(item => item.id !== 'E-b');
+    }],
+    ['source outside the inventory', value => {
+      value.observations[0].matchCount = 1;
+      value.observations[0].normalizedItemIds = [fileA];
+    }],
+    ['multiple supported searches', value => {
+      value.observations.push({ ...value.observations[0], id: 'E-search-2' });
+      value.claim.evidenceRefs.push('E-search-2');
+      value.verdict.supportingEvidenceRefs.push('E-search-2');
+    }],
+  ];
+  for (const [name, mutate] of cases) {
+    await t.test(name, () => {
+      const value = fixture();
+      mutate(value);
+      assert.equal(build(value).size, 0);
+    });
+  }
+  assert.equal(build(fixture(), new Set()).size, 0,
+    'a structurally valid inventory without focused corroboration remains incomplete');
+  assert.equal(build(fixture(), undefined, [
+    'ui/pages/marketing/**',
+    'docs/**',
+  ]).size, 0, 'multiple distinct effective-scope entries cannot certify one generic surface');
+  for (const scope of [[], ['.']]) {
+    const value = fixture();
+    value.observations[0].boundary = ['**'];
+    const artifact = build(value, undefined, scope).get(value.claim.id);
+    assert.equal(artifact?.genericImpactCertification?.boundary, '**');
+    assert.deepEqual(artifact?.requiredImpactCategories, ['**']);
+  }
+  const canonicalPathScope = fixture();
+  assert.equal(build(canonicalPathScope, undefined, [
+    'ui\\pages\\marketing\\**\\',
+    'ui/pages/marketing/**',
+  ]).get(canonicalPathScope.claim.id)?.genericImpactCertification?.boundary,
+  'ui/pages/marketing/**');
+  assert.equal(buildRuntimeGenericImpactPolicyArtifacts({
+    wrapperTool: 'map_change_impact',
+    effectiveScope,
+    subgoals: [impact],
+    claims: [complete.claim],
+    semanticVerdicts: [complete.verdict],
+    observations: complete.observations,
+    corroboratedClaimIds: new Set([complete.claim.id]),
+  }).size, 0, 'fixed wrapper artifacts stay on their existing path');
+});
+
 semanticPipelineRuntimeTest(
   'Spec 028 T069 — generic flow remains incomplete without runtime-owned transitions',
   async t => {
@@ -8166,6 +8312,170 @@ semanticPipelineRuntimeTest(
     assert.equal(result.failure, null);
     assertInternalProofGap(result, goal.id);
     assertMinimalIncompleteParentHandoff(result, goal.question);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — generic impact completes from one exact scoped file inventory with source coverage',
+  async () => {
+    const task = 'Map every UI page affected by the shared marketing API route.';
+    const goal = trustGoal(task, {
+      id: 'S-generic-impact-bounded-inventory',
+      question: task,
+      originText: task,
+      claimType: 'impact',
+      proofCondition: 'Enumerate every file in the exact UI scope entry and read exact current source for every enumerated file.',
+    });
+    const claim = candidateClaim(
+      'C-generic-impact-bounded-inventory',
+      goal.id,
+      'The shared marketing API route impacts the list, detail, and settings UI pages.',
+      ['E1', 'E2', 'E3', 'E4'],
+    );
+    let focusedPacket = null;
+    const { client, result } = await runTrustScript(buildTrustSteps({
+      goals: [goal],
+      initial: {
+        tools: [
+          {
+            tool: 'repo_find_files',
+            args: { pattern: '**/*', scope: ['ui/pages/marketing/**'] },
+            id: 'enumerate-generic-impact-pages',
+          },
+          {
+            tool: 'repo_read_file',
+            args: { path: 'ui/pages/marketing/detail.js' },
+            id: 'read-generic-impact-detail',
+          },
+          {
+            tool: 'repo_read_file',
+            args: { path: 'ui/pages/marketing/list.js' },
+            id: 'read-generic-impact-list',
+          },
+          {
+            tool: 'repo_read_file',
+            args: { path: 'ui/pages/marketing/settings.js' },
+            id: 'read-generic-impact-settings',
+          },
+        ],
+        claims: [claim],
+        verifierSteps: [
+          { verdicts: [semanticVerdict(claim.id, 'supported', claim.evidenceRefs)] },
+          {
+            verdicts: [semanticVerdict(claim.id, 'supported', claim.evidenceRefs)],
+            assertRequest(request) {
+              focusedPacket = {
+                control: parseControlPacket(request),
+                system: request.messages[0].content,
+              };
+            },
+          },
+        ],
+      },
+    }), {
+      task,
+      scope: ['ui/pages/marketing/**'],
+      setup: async root => {
+        const directory = path.join(root, 'ui', 'pages', 'marketing');
+        await fs.mkdir(directory, { recursive: true });
+        await Promise.all([
+          fs.writeFile(path.join(directory, 'detail.js'), "export const detailApi = '/api/marketing/detail';\n"),
+          fs.writeFile(path.join(directory, 'list.js'), "export const listApi = '/api/marketing/list';\n"),
+          fs.writeFile(path.join(directory, 'settings.js'), "export const settingsApi = '/api/marketing/settings';\n"),
+        ]);
+      },
+    });
+
+    assert.equal(result.failure, null, JSON.stringify(result.failure));
+    assert.equal(client.stageCounts.get('semantic_verifier'), 2);
+    assert.ok(focusedPacket, 'generic impact inventory needs an independent focused check');
+    assert.match(focusedPacket.system, /FOCUSED GENERIC IMPACT INVENTORY CORROBORATION/u);
+    assert.deepEqual(focusedPacket.control.control.effectiveScope, {
+      mode: 'paths',
+      paths: ['ui/pages/marketing/**'],
+    });
+    assert.deepEqual(focusedPacket.control.observations.map(item => item.id),
+      ['E1', 'E2', 'E3', 'E4']);
+    assertMinimalCompleteParentHandoff(result, {
+      answer: claim.text,
+      evidenceCount: 3,
+      evidenceKinds: ['source', 'source', 'source'],
+    });
+    assert.deepEqual(result.parentHandoff.evidence.map(item => item.path), [
+      'ui/pages/marketing/detail.js',
+      'ui/pages/marketing/list.js',
+      'ui/pages/marketing/settings.js',
+    ]);
+    assert.doesNotMatch(JSON.stringify(result.parentHandoff),
+      /repo_find_files|normalizedItemIds|policyArtifacts|corroborat/u);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — generic impact remains incomplete when focused inventory verification disagrees',
+  async () => {
+    const task = 'Map every UI page affected by the shared marketing API route.';
+    const goal = trustGoal(task, {
+      id: 'S-generic-impact-focused-disagreement',
+      question: task,
+      originText: task,
+      claimType: 'impact',
+      proofCondition: 'Enumerate the exact UI scope and verify every enumerated file from current source.',
+    });
+    const claim = candidateClaim(
+      'C-generic-impact-focused-disagreement', goal.id,
+      'The route affects both bounded marketing pages.', ['E1', 'E2', 'E3']);
+    const focusedVerdict = semanticVerdict(claim.id, 'insufficient', ['E1', 'E2']);
+    focusedVerdict.reasonCode = 'boundary_mismatch';
+    focusedVerdict.note = 'The selected scope does not answer the whole audited impact goal.';
+    const { client, result } = await runTrustScript(buildTrustSteps({
+      goals: [goal],
+      initial: {
+        tools: [
+          {
+            tool: 'repo_find_files',
+            args: { pattern: '**/*', scope: ['docs/**'] },
+            id: 'enumerate-focused-disagreement',
+          },
+          {
+            tool: 'repo_read_file', args: { path: 'docs/marketing/a.md' },
+            id: 'read-focused-disagreement-a',
+          },
+          {
+            tool: 'repo_read_file', args: { path: 'docs/marketing/b.md' },
+            id: 'read-focused-disagreement-b',
+          },
+        ],
+        claims: [claim],
+        verifierSteps: [
+          { verdicts: [semanticVerdict(claim.id, 'supported', claim.evidenceRefs)] },
+          { verdicts: [focusedVerdict] },
+        ],
+      },
+      repair: {
+        tools: [],
+        prose: 'No materially new repository action is available.',
+        claims: [],
+        verdicts: [],
+      },
+    }), {
+      task,
+      scope: ['docs/**'],
+      setup: async root => {
+        const directory = path.join(root, 'docs', 'marketing');
+        await fs.mkdir(directory, { recursive: true });
+        await Promise.all([
+          fs.writeFile(path.join(directory, 'a.md'), '# Marketing API A\n'),
+          fs.writeFile(path.join(directory, 'b.md'), '# Marketing API B\n'),
+        ]);
+      },
+    });
+
+    assert.equal(result.failure, null, JSON.stringify(result.failure));
+    assert.equal(client.stageCounts.get('semantic_verifier'), 2);
+    assertInternalProofGap(result, goal.id);
+    assertMinimalIncompleteParentHandoff(result, goal.question);
+    assert.doesNotMatch(JSON.stringify(result.parentHandoff), /repo_find_files|corroborat/u);
   },
 );
 
@@ -9442,6 +9752,59 @@ semanticPipelineRuntimeTest(
       assert.deepEqual(result.taskContract.subgoals.map(goal => goal.state),
         goals.map(() => 'supported'));
       assert.equal(result.parentHandoff.state, 'verify_targets');
+    });
+
+    await t.test('map_change_impact keeps search evidence outside its source-only role', async () => {
+      const tool = 'map_change_impact';
+      const task = 'Verify fixed impact wrapper evidence roles.';
+      const seeds = ['targets', 'dependents', 'requested_categories', 'risk_boundary'];
+      const goals = seeds.map((seed, index) => ({
+        id: `fixed-impact-source-role-${index + 1}`,
+        question: `Verify ${seed}.`,
+        originRefs: [`wrapper:${tool}:${seed}`],
+        claimType: 'impact',
+        proofCondition: `Observe source evidence for ${seed}.`,
+        constraints: [],
+      }));
+      const claims = goals.map((goal, index) => candidateClaim(
+        `fixed-impact-source-role-claim-${index + 1}`,
+        goal.id,
+        `Fixed impact wrapper verified ${seeds[index]}.`,
+        index === 0 ? ['E1', 'E2'] : ['E1'],
+      ));
+      const verdicts = claims.map(claim =>
+        semanticVerdict(claim.id, 'supported', claim.evidenceRefs));
+      const { client, result } = await runTrustScript(buildTrustSteps({
+        goals,
+        initial: {
+          tools: [{
+            tool: 'repo_read_file',
+            args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+            id: 'fixed-impact-source',
+          }, {
+            tool: 'repo_find_files',
+            args: { pattern: '**/*', scope: ['src/**'] },
+            id: 'fixed-impact-search',
+          }],
+          claims,
+          verdicts,
+        },
+        repair: {
+          tools: [],
+          prose: 'No materially new repository action is available.',
+          claims: [],
+          verdicts: [],
+        },
+      }), { task, taskMode: 'edit_planning' });
+
+      assert.equal(result.failure, null, JSON.stringify(client.stageLabels));
+      assert.equal(result.taskContract.subgoals[0].state, 'gap');
+      assert.deepEqual(result.taskContract.subgoals.slice(1).map(goal => goal.state),
+        ['supported', 'supported', 'supported']);
+      assert.equal(result.semanticVerification.verdicts[0].result, 'insufficient');
+      assert.equal(client.stageCounts.get('semantic_verifier'), 1,
+        'fixed impact claims must not enter generic focused corroboration');
+      assert.equal(result.parentHandoff.state, 'incomplete');
     });
 
     await t.test('missing and incompatible evidence cannot fabricate flow artifacts', async () => {

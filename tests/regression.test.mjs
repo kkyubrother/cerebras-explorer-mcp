@@ -731,7 +731,9 @@ test('Spec 028 T028 — claim synthesis receives bounded observations and cannot
   assert.match(prompt.system,
     /three or more source paths[\s\S]{0,180}separate semicolon-delimited clause[\s\S]{0,160}path-to-predicate pairing/i);
   assert.match(prompt.system,
-    /do not cite search\/list telemetry in an impact claim/i);
+    /only when control\.wrapper\.tool is explore_repo[\s\S]{0,120}mode is repository[\s\S]{0,140}one distinct canonical entry[\s\S]{0,180}exactly one complete repo_find_files \*\*\/\* search/i);
+  assert.match(prompt.system,
+    /keep that internal inventory detail out of claim text/i);
   assert.match(prompt.system,
     /positive direct-source test claim[\s\S]{0,180}one exactly observed test/i);
   assert.match(prompt.system,
@@ -741,6 +743,7 @@ test('Spec 028 T028 — claim synthesis receives bounded observations and cannot
   assert.match(prompt.system,
     /all\/every\/exhaustive impact goal[\s\S]{0,200}source, docs, agent config, and dependencies[\s\S]{0,120}all four/i);
   assert.match(prompt.data, /"id":"S1"/);
+  assert.match(prompt.data, /"wrapper":\{"tool":"explore_repo"/);
   assert.match(prompt.data, /"id":"E1"/);
   assert.match(prompt.data, /"id":"E2"/);
   assert.match(prompt.data,
@@ -945,6 +948,58 @@ test('Spec 028 T069 — focused comparison corroborator receives one cited multi
   assert.match(prompt.data, /app\/api\/two\/route\.ts/u);
   assert.match(prompt.data, /app\/api\/three\/route\.ts/u);
   assert.doesNotMatch(prompt.data, /auditVerdict|claimRefs|"state"/u);
+});
+
+test('Spec 028 T069 — focused generic impact corroborator sees one bounded inventory packet', () => {
+  const task = 'Map every UI page affected by the shared marketing API route.';
+  const taskContract = {
+    task,
+    effectiveScope: ['src/**', 'ui/pages/marketing/**', 'docs/**'],
+    constraints: [],
+    subgoals: [{
+      id: 'S1',
+      question: task,
+      originRefs: [`request:0-${task.length}`],
+      claimType: 'impact',
+      proofPolicy: 'impact_categories',
+      proofCondition: 'Enumerate the exact UI scope and read every file.',
+      constraints: [],
+    }],
+  };
+  const prompt = assertTwoMessageBoundary(
+    promptModule.buildGenericImpactInventoryCorroboratorMessages({
+      taskContract,
+      claims: [{
+        id: 'C1', subgoalId: 'S1',
+        text: 'The route affects both bounded UI pages.',
+        evidenceRefs: ['Q1', 'E1', 'E2'],
+      }],
+      observations: [{
+        id: 'Q1', kind: 'search', tool: 'repo_find_files',
+        normalizedArgs: { pattern: '**/*', scope: ['ui/pages/marketing/**'] },
+        boundary: ['ui/pages/marketing/**'], matchCount: 2,
+        enumerationComplete: true,
+        normalizedItemIds: ['PRIVATE_FILE_HASH_1', 'PRIVATE_FILE_HASH_2'],
+      }, ...['a', 'b'].map((name, index) => ({
+        id: `E${index + 1}`, kind: 'source',
+        path: `ui/pages/marketing/${name}.js`, startLine: 1, endLine: 2,
+        snippet: `export const ${name} = true;`, rangeGrounding: 'exact',
+        sourceRole: 'implementation', temporalRole: 'current', redacted: false,
+      }))],
+      wrapperTool: 'explore_repo',
+    }),
+    'generic impact inventory corroborator',
+  );
+
+  assert.match(prompt.system, /FOCUSED GENERIC IMPACT INVENTORY CORROBORATION/u);
+  assert.match(prompt.system, /boundary equal to exactly one immutable effectiveScope entry/u);
+  assert.match(prompt.system,
+    /every enumerated file itself belongs to the impact surface asserted by the claim/u);
+  assert.match(prompt.system, /uncoveredRequestParts must be an empty array/u);
+  assert.match(prompt.data, /"pattern":"\*\*\/\*"/u);
+  assert.match(prompt.data, /ui\/pages\/marketing\/a\.js/u);
+  assert.match(prompt.data, /ui\/pages\/marketing\/b\.js/u);
+  assert.doesNotMatch(prompt.data, /normalizedItemIds|PRIVATE_FILE_HASH/u);
 });
 
 test('Spec 028 T071 — focused absence corroborator receives one certificate-only refutation', () => {

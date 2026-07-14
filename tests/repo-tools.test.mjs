@@ -10,8 +10,10 @@ import { getRuntimeConfig } from '../src/explorer/config.mjs';
 import * as repoToolExports from '../src/explorer/repo-tools.mjs';
 import {
   RepoToolkit,
+  canonicalizeRepositoryObservationScope,
   classifySourceRole,
   collectTargetPathsFromToolResult,
+  normalizedRepositoryFileIdentity,
   normalizeRepositoryObservation,
 } from '../src/explorer/repo-tools.mjs';
 import { LruCache, globalRepoCache } from '../src/explorer/cache.mjs';
@@ -258,6 +260,7 @@ repositoryObservationTest('count identities come only from valid grep and file-s
   assert.ok(files.normalizedItemIds.every(item => /^sha256:[0-9a-f]{64}$/.test(item)));
   assert.equal(files.normalizedItemIds[0], files.normalizedItemIds[2]);
   assert.notEqual(files.normalizedItemIds[0], files.normalizedItemIds[1]);
+  assert.equal(files.normalizedItemIds[0], normalizedRepositoryFileIdentity('src/a.mjs'));
   assert.equal(Object.hasOwn(files, 'normalizedItemAnchors'), false,
     'file counts do not expose line anchors');
 
@@ -294,6 +297,26 @@ repositoryObservationTest('count identities come only from valid grep and file-s
     assert.doesNotMatch(JSON.stringify(outOfBoundary), /outside|escape/u,
       'invalid result paths stay out of normalized observations');
   }
+});
+
+test('repository file identities canonicalize safe relative paths and reject unsafe paths', () => {
+  assert.equal(
+    normalizedRepositoryFileIdentity('.\\src\\routes\\user.js'),
+    normalizedRepositoryFileIdentity('src/routes/user.js'),
+  );
+  assert.match(normalizedRepositoryFileIdentity('src/routes/user.js'), /^sha256:[0-9a-f]{64}$/u);
+  assert.equal(normalizedRepositoryFileIdentity('../outside.js'), null);
+  assert.equal(normalizedRepositoryFileIdentity('.env'), null);
+});
+
+test('repository observation scopes canonicalize repository-wide and equivalent path forms', () => {
+  assert.deepEqual(canonicalizeRepositoryObservationScope([]), ['**']);
+  assert.deepEqual(canonicalizeRepositoryObservationScope(['.']), ['**']);
+  assert.deepEqual(canonicalizeRepositoryObservationScope([
+    'ui\\pages\\marketing\\**\\',
+    'ui/pages/marketing/**/',
+    'ui/pages/marketing/**',
+  ]), ['ui/pages/marketing/**']);
 });
 
 repositoryObservationTest('static string-array definitions expose a runtime-owned exact count', normalize => {

@@ -16,8 +16,10 @@ import {
 import {
   classifySourceRole,
   collectDiscoveredPathsFromToolResult,
+  canonicalizeRepositoryObservationScope,
   deriveRepositoryObservationCoverage,
   normalizeRepositoryObservation,
+  normalizedRepositoryFileIdentity,
   RepoToolkit,
 } from './repo-tools.mjs';
 import { redactText, redactValue } from './redact.mjs';
@@ -33,6 +35,7 @@ import {
   buildClaimSynthesisMessages,
   buildSemanticVerifierMessages,
   buildComparisonCorroboratorMessages,
+  buildGenericImpactInventoryCorroboratorMessages,
   buildAbsenceRefutationCorroboratorMessages,
   buildCollectAffirmationCorroboratorMessages,
 } from './prompt.mjs';
@@ -1364,6 +1367,10 @@ function buildSemanticParentProjection({ semanticVerification, observations }) {
   const deterministicCounts = Array.isArray(semanticVerification?.deterministicCounts)
     ? semanticVerification.deterministicCounts
     : [];
+  const genericImpactInventoryClaimIds = semanticVerification?.genericImpactInventoryClaimIds
+    instanceof Set
+    ? semanticVerification.genericImpactInventoryClaimIds
+    : new Set();
   const claimCover = selectClaimCover({
     subgoals: semanticVerification?.taskContract?.subgoals ?? [],
     claims: semanticVerification?.claims ?? [],
@@ -1387,7 +1394,10 @@ function buildSemanticParentProjection({ semanticVerification, observations }) {
     const parentRelevantRefs = collectEvidenceVerdict
       ? claimCover.evidenceRefsByClaimId.get(claim.id) ?? []
       : supportingRefs;
-    const projectionRefs = subgoal.proofPolicy === 'bounded_usage_cross_check'
+    const hidesInternalSearch = subgoal.proofPolicy === 'bounded_usage_cross_check' ||
+      (subgoal.proofPolicy === 'impact_categories' &&
+        genericImpactInventoryClaimIds.has(claim.id));
+    const projectionRefs = hidesInternalSearch
       ? parentRelevantRefs.filter(ref => observationById.get(ref)?.kind !== 'search')
       : parentRelevantRefs;
     if (projectionRefs.length === 0) continue;
@@ -1590,6 +1600,10 @@ function buildParentEvidenceProjection({ result, semanticVerification, observati
   const deterministicCounts = Array.isArray(semanticVerification?.deterministicCounts)
     ? semanticVerification.deterministicCounts
     : [];
+  const genericImpactInventoryClaimIds = semanticVerification?.genericImpactInventoryClaimIds
+    instanceof Set
+    ? semanticVerification.genericImpactInventoryClaimIds
+    : new Set();
   const baseEvidenceByRef = new Map();
 
   for (const ref of selectedRefs) {
@@ -1661,6 +1675,20 @@ function buildParentEvidenceProjection({ result, semanticVerification, observati
         verdict?.supportingEvidenceRefs?.includes(ref) &&
         observation.enumerationComplete === true) {
       return { key: `usage:${claim.id}:${ref}`, evidence: null, internal: true };
+    }
+    if (subgoal?.proofPolicy === 'impact_categories' &&
+        genericImpactInventoryClaimIds.has(claim.id)) {
+      const context = genericImpactInventoryContext({
+        wrapperTool: 'explore_repo',
+        effectiveScope: semanticVerification?.taskContract?.effectiveScope,
+        subgoal,
+        claim,
+        primaryVerdict: verdict,
+        observations,
+      });
+      if (context?.requiredRefs.includes(ref)) {
+        return { key: `impact-inventory:${claim.id}:${ref}`, evidence: null, internal: true };
+      }
     }
     if (!certificateMaySurfaceForClaim(subgoal, verdict)) return null;
     const key = `${claim.subgoalId}\0${ref}`;
@@ -2481,6 +2509,141 @@ function mergeComparisonCorroboration(primary, corroborated, {
   };
 }
 
+const GENERIC_IMPACT_SOURCE_ROLES = new Set([
+  'implementation',
+  'config',
+  'test',
+  'documentation',
+]);
+const GENERIC_IMPACT_CERTIFICATION_MARKER = 'generic-impact-file-surface-v1';
+
+function canonicalGenericImpactBoundary(effectiveScope, searchBoundary) {
+  if (!Array.isArray(searchBoundary) || searchBoundary.length === 0) return null;
+  try {
+    const scope = canonicalizeRepositoryObservationScope(effectiveScope);
+    const boundary = canonicalizeRepositoryObservationScope(searchBoundary);
+    return scope.length === 1 && boundary.length === 1 && boundary[0] === scope[0]
+      ? scope[0]
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function hasGenericImpactCertification(policyArtifacts) {
+  const certification = policyArtifacts?.genericImpactCertification;
+  if (certification?.marker !== GENERIC_IMPACT_CERTIFICATION_MARKER ||
+      typeof certification.boundary !== 'string' || !certification.boundary) {
+    return false;
+  }
+  const boundary = certification.boundary;
+  return Array.isArray(policyArtifacts.requiredImpactCategories) &&
+    policyArtifacts.requiredImpactCategories.length === 1 &&
+    policyArtifacts.requiredImpactCategories[0] === boundary &&
+    Array.isArray(policyArtifacts.coveredImpactCategories) &&
+    policyArtifacts.coveredImpactCategories.length === 1 &&
+    policyArtifacts.coveredImpactCategories[0] === boundary &&
+    Array.isArray(policyArtifacts.impactCategoryEvidenceRefs?.[boundary]);
+}
+
+function genericImpactInventoryContext({
+  wrapperTool,
+  effectiveScope,
+  subgoal,
+  claim,
+  primaryVerdict,
+  observations,
+}) {
+  if (wrapperTool !== 'explore_repo' || subgoal?.proofPolicy !== 'impact_categories' ||
+      primaryVerdict?.result !== 'supported' || primaryVerdict.resolution !== 'affirmed') {
+    return null;
+  }
+  const claimRefs = new Set(Array.isArray(claim?.evidenceRefs) ? claim.evidenceRefs : []);
+  const primaryRefs = new Set(Array.isArray(primaryVerdict.supportingEvidenceRefs)
+    ? primaryVerdict.supportingEvidenceRefs
+    : []);
+  const supportedObservations = (observations ?? []).filter(observation =>
+    claimRefs.has(observation?.id) && primaryRefs.has(observation.id));
+  const searches = supportedObservations.filter(observation => observation?.kind === 'search');
+  if (searches.length !== 1) return null;
+  const [search] = searches;
+  const boundary = canonicalGenericImpactBoundary(effectiveScope, search.boundary);
+  if (search.tool !== 'repo_find_files' || search.normalizedArgs?.pattern !== '**/*' ||
+      search.enumerationComplete !== true || !boundary ||
+      !Number.isSafeInteger(search.matchCount) || search.matchCount <= 0 ||
+      !Array.isArray(search.normalizedItemIds) ||
+      search.normalizedItemIds.length !== search.matchCount) {
+    return null;
+  }
+  const enumeratedIdentities = new Set(search.normalizedItemIds);
+  if (enumeratedIdentities.size !== search.matchCount) return null;
+
+  const sources = supportedObservations.filter(observation => observation?.kind === 'source');
+  if (sources.length === 0 || supportedObservations.length !== sources.length + 1) return null;
+  const sourceIdentities = new Set();
+  for (const source of sources) {
+    if (source.temporalRole !== 'current' || source.rangeGrounding !== 'exact' ||
+        !wrapperSourceLocation(source) || !GENERIC_IMPACT_SOURCE_ROLES.has(source.sourceRole)) {
+      return null;
+    }
+    const identity = normalizedRepositoryFileIdentity(source.path);
+    if (!identity || !enumeratedIdentities.has(identity)) return null;
+    sourceIdentities.add(identity);
+  }
+  if (sourceIdentities.size !== enumeratedIdentities.size ||
+      [...enumeratedIdentities].some(identity => !sourceIdentities.has(identity))) {
+    return null;
+  }
+  const requiredRefs = [search.id, ...sources.map(source => source.id)];
+  if (primaryRefs.size !== requiredRefs.length ||
+      requiredRefs.some(ref => !primaryRefs.has(ref))) {
+    return null;
+  }
+  return {
+    boundary,
+    observations: [search, ...sources],
+    requiredRefs,
+    sourceRefs: sources.map(source => source.id),
+  };
+}
+
+function mergeGenericImpactInventoryCorroboration(primary, corroborated, context) {
+  if (primary?.result !== 'supported') return { verdict: primary, corroborated: false };
+  if (corroborated?.result !== 'supported' || corroborated.resolution !== 'affirmed') {
+    return {
+      verdict: corroborated?.result === 'contradicted'
+        ? corroborated
+        : {
+            claimId: primary.claimId,
+            result: 'insufficient',
+            supportingEvidenceRefs: corroborated?.supportingEvidenceRefs ?? [],
+            reasonCode: corroborated?.reasonCode ?? 'semantic_mismatch',
+            note: corroborated?.note ??
+              'Focused generic impact inventory corroboration did not support the whole claim.',
+          },
+      corroborated: false,
+    };
+  }
+  const focusedRefs = new Set(corroborated.supportingEvidenceRefs);
+  if (focusedRefs.size !== context.requiredRefs.length ||
+      context.requiredRefs.some(ref => !focusedRefs.has(ref))) {
+    return {
+      verdict: {
+        claimId: primary.claimId,
+        result: 'insufficient',
+        supportingEvidenceRefs: context.requiredRefs.filter(ref => focusedRefs.has(ref)),
+        reasonCode: 'semantic_mismatch',
+        note: 'The two independent impact checks did not agree on the complete search and every source file.',
+      },
+      corroborated: false,
+    };
+  }
+  return {
+    verdict: { ...primary, supportingEvidenceRefs: [...context.requiredRefs] },
+    corroborated: true,
+  };
+}
+
 const DIRECT_REFUTATION_OBSERVATION_KINDS = new Set([
   'source',
   'git_commit',
@@ -2786,7 +2949,7 @@ function wrapperPartForSubgoal(subgoal, wrapperTool) {
   return parts.length === 1 ? parts[0] : null;
 }
 
-function runtimeRoleRequirement(subgoal) {
+function runtimeRoleRequirement(subgoal, policyArtifacts = {}) {
   if (subgoal.proofPolicy === 'bounded_absence') {
     return {
       observationKinds: ['search'],
@@ -2824,7 +2987,9 @@ function runtimeRoleRequirement(subgoal) {
   }
   if (subgoal.proofPolicy === 'impact_categories') {
     return {
-      observationKinds: ['source'],
+      observationKinds: hasGenericImpactCertification(policyArtifacts)
+        ? ['source', 'search']
+        : ['source'],
       sourceRoles: ['implementation', 'config', 'test', 'documentation'],
       temporalRole: 'current',
     };
@@ -2904,6 +3069,47 @@ export function buildRuntimeWrapperPolicyArtifacts({
         };
     return [entry.claimId, artifacts];
   }));
+}
+
+export function buildRuntimeGenericImpactPolicyArtifacts({
+  wrapperTool,
+  effectiveScope,
+  subgoals,
+  claims,
+  semanticVerdicts,
+  observations,
+  corroboratedClaimIds,
+}) {
+  if (wrapperTool !== 'explore_repo') return new Map();
+  const corroborated = corroboratedClaimIds instanceof Set
+    ? corroboratedClaimIds
+    : new Set(Array.isArray(corroboratedClaimIds) ? corroboratedClaimIds : []);
+  const subgoalById = new Map(subgoals.map(subgoal => [subgoal.id, subgoal]));
+  const verdictByClaimId = new Map(semanticVerdicts.map(verdict => [verdict.claimId, verdict]));
+  const entries = [];
+  for (const claim of claims) {
+    if (!corroborated.has(claim.id)) continue;
+    const subgoal = subgoalById.get(claim.subgoalId);
+    const context = genericImpactInventoryContext({
+      wrapperTool,
+      effectiveScope,
+      subgoal,
+      claim,
+      primaryVerdict: verdictByClaimId.get(claim.id),
+      observations,
+    });
+    if (!context) continue;
+    entries.push([claim.id, {
+      genericImpactCertification: {
+        marker: GENERIC_IMPACT_CERTIFICATION_MARKER,
+        boundary: context.boundary,
+      },
+      requiredImpactCategories: [context.boundary],
+      coveredImpactCategories: [context.boundary],
+      impactCategoryEvidenceRefs: { [context.boundary]: [...context.sourceRefs] },
+    }]);
+  }
+  return new Map(entries);
 }
 
 function applyRuntimeProofGate({
@@ -2989,7 +3195,7 @@ function applyRuntimeProofGate({
     semanticVerdict,
     observations,
     proofPolicyResult,
-    roleRequirement: runtimeRoleRequirement(subgoal),
+    roleRequirement: runtimeRoleRequirement(subgoal, policyArtifacts),
   });
 }
 
@@ -3143,9 +3349,15 @@ function buildEvidenceRepairMessages({ gaps, effectiveScope, anchors, history })
   ]).value;
 }
 
-function buildPostRepairClaimMessages({ taskContract, observations, priorClaims, freshEvidenceRefs }) {
+function buildPostRepairClaimMessages({
+  taskContract,
+  observations,
+  priorClaims,
+  freshEvidenceRefs,
+  wrapperTool,
+}) {
   return redactValue([
-    ...buildClaimSynthesisMessages({ taskContract, observations }),
+    ...buildClaimSynthesisMessages({ taskContract, observations, wrapperTool }),
     {
       role: 'user',
       content: [
@@ -3859,13 +4071,21 @@ function materializeUnresolvedRevision({
   return reduction;
 }
 
-function auditedGoalLedgerMessage(requiredSubgoals) {
+function auditedGoalLedgerMessage(requiredSubgoals, { wrapperTool, effectiveScope } = {}) {
   const activeGoals = requiredSubgoals
     .filter(goal => goal.state === 'audited' || goal.state === 'exploring');
   const collectEvidenceVerdict = activeGoals.some(goal =>
     goal.proofPolicy === 'support_or_refute' &&
     Array.isArray(goal.originRefs) &&
     goal.originRefs.includes('wrapper:collect_evidence:verdict'));
+  let singleCanonicalScope = false;
+  try {
+    singleCanonicalScope = canonicalizeRepositoryObservationScope(effectiveScope ?? []).length === 1;
+  } catch {
+    singleCanonicalScope = false;
+  }
+  const genericImpactInventory = wrapperTool === 'explore_repo' && singleCanonicalScope &&
+    activeGoals.some(goal => goal.proofPolicy === 'impact_categories');
   const goals = activeGoals
     .map(goal => ({
       id: goal.id,
@@ -3878,6 +4098,9 @@ function auditedGoalLedgerMessage(requiredSubgoals) {
   return [
     'The following runtime-audited goals are the complete exploration ledger. Investigate and answer only these goals. Other request parts are runtime-blocked or rejected and must not be investigated or answered. Do not add, remove, or weaken obligations.',
     'Before stopping, cover every listed goal separately. One answered goal never substitutes for another. For direct_source, collect an exact source for the stated fact. For ordered_handoffs, observe the required adjacent path. For impact_categories, collect exact source observations for every category named by the proof condition, including source, documentation, agent configuration, and dependencies when named.' +
+      (genericImpactInventory
+        ? ' For an explore_repo impact goal whose answer is one bounded file surface, run exactly one repo_find_files search with pattern **/* scoped to exactly one immutable effectiveScope entry that directly answers the goal, require a nonzero complete result, and read exact current source for every enumerated file. Do not use a grep, narrower boundary, or partial file set as that inventory.'
+        : '') +
       (collectEvidenceVerdict
         ? ' To affirm the wrapper:collect_evidence:verdict goal, collect exact direct source/git evidence and run a complete zero-match search for a plausible counterexample, exception, or alternative over the claim boundary; a confirming lookup for the same symbol is not counterevidence. An exact direct source/git counterexample may instead refute the claim without that search.'
         : '') +
@@ -4794,10 +5017,12 @@ export class ExplorerRuntime {
               observations: safeObservations,
               priorClaims: batchPriorClaims,
               freshEvidenceRefs,
+              wrapperTool,
             })
           : buildClaimSynthesisMessages({
               taskContract: batchContract,
               observations: safeObservations,
+              wrapperTool,
             }),
         schemaName: 'claim_synthesis',
         schema: CLAIM_SYNTHESIS_SCHEMA,
@@ -4839,6 +5064,7 @@ export class ExplorerRuntime {
     const semanticVerdicts = [];
     const uncoveredRequestParts = [];
     const verificationBatches = [];
+    const corroboratedGenericImpactClaimIds = new Set();
     const corroboratedAbsenceRefutationClaimIds = new Set();
     const corroboratedCollectAffirmationClaimIds = new Set();
     const candidateBatches = controlBatches(candidateSubgoals.filter(subgoal =>
@@ -4877,6 +5103,53 @@ export class ExplorerRuntime {
         }),
       });
       const corroboratedVerdicts = [...verified.verdicts];
+      for (const [index, claim] of batchClaims.entries()) {
+        const subgoal = subgoalBatch.find(item => item.id === claim.subgoalId);
+        const primaryVerdict = corroboratedVerdicts[index];
+        const context = genericImpactInventoryContext({
+          wrapperTool,
+          effectiveScope: candidateContract.effectiveScope,
+          subgoal,
+          claim,
+          primaryVerdict,
+          observations: batchObservations,
+        });
+        if (!context) continue;
+        const corroborated = await requestValidatedGoalControl({
+          chatClient,
+          messages: buildGenericImpactInventoryCorroboratorMessages({
+            taskContract: semanticBatchContract(candidateContract, [subgoal]),
+            claims: [claim],
+            observations: context.observations,
+            wrapperTool,
+          }),
+          schemaName: 'semantic_verifier_response',
+          schema: SEMANTIC_VERIFIER_RESPONSE_SCHEMA,
+          stage: 'semantic_verifier',
+          reasoningEffort,
+          temperature: 0,
+          topP: 1,
+          maxCompletionTokens,
+          abortSignal,
+          onCompletion,
+          validate: raw => {
+            const response = validateSemanticVerdictBatch(raw, { claims: [claim] });
+            if (response.uncoveredRequestParts.length > 0) {
+              throw new TypeError(
+                'Focused generic impact inventory corroboration cannot add request obligations.',
+              );
+            }
+            return response;
+          },
+        });
+        const merged = mergeGenericImpactInventoryCorroboration(
+          primaryVerdict,
+          corroborated.verdicts[0],
+          context,
+        );
+        corroboratedVerdicts[index] = merged.verdict;
+        if (merged.corroborated) corroboratedGenericImpactClaimIds.add(claim.id);
+      }
       for (const [index, claim] of batchClaims.entries()) {
         const subgoal = subgoalBatch.find(item => item.id === claim.subgoalId);
         const primaryVerdict = corroboratedVerdicts[index];
@@ -5058,6 +5331,15 @@ export class ExplorerRuntime {
       semanticVerdicts: verificationBatches.flatMap(batch => batch.verified.verdicts),
       observations: safeObservations,
     });
+    const genericImpactPolicyArtifacts = buildRuntimeGenericImpactPolicyArtifacts({
+      wrapperTool,
+      effectiveScope: candidateContract.effectiveScope,
+      subgoals: candidateSubgoals,
+      claims,
+      semanticVerdicts: verificationBatches.flatMap(batch => batch.verified.verdicts),
+      observations: safeObservations,
+      corroboratedClaimIds: corroboratedGenericImpactClaimIds,
+    });
     const rawVerdictByClaimId = new Map(verificationBatches.flatMap(batch =>
       batch.verified.verdicts.map(verdict => [verdict.claimId, verdict])));
     const candidateSubgoalById = new Map(candidateSubgoals.map(subgoal => [
@@ -5104,6 +5386,7 @@ export class ExplorerRuntime {
         const subgoal = batchSubgoalById.get(batchClaims[index].subgoalId);
         const policyArtifacts = {
           ...(wrapperPolicyArtifacts.get(batchClaims[index].id) ?? {}),
+          ...(genericImpactPolicyArtifacts.get(batchClaims[index].id) ?? {}),
           ...(corroboratedAbsenceRefutationClaimIds.has(batchClaims[index].id)
             ? { absenceRefutationCorroborated: true }
             : {}),
@@ -5186,6 +5469,7 @@ export class ExplorerRuntime {
       deterministicCounts,
       uncoveredRequestParts,
       runtimeAllowedEvidenceRefsBySubgoal,
+      genericImpactInventoryClaimIds: new Set(corroboratedGenericImpactClaimIds),
     };
   }
 
@@ -6028,7 +6312,10 @@ export class ExplorerRuntime {
         };
         messages.push({
           role: 'user',
-          content: auditedGoalLedgerMessage(auditedPlan.taskContract.subgoals),
+          content: auditedGoalLedgerMessage(auditedPlan.taskContract.subgoals, {
+            wrapperTool: wrapperToolForTaskMode(args.taskMode),
+            effectiveScope: auditedPlan.taskContract.effectiveScope,
+          }),
         });
       }
     } catch (error) {

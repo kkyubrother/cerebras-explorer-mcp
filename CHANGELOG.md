@@ -27,7 +27,12 @@ compatibility aliases or selectable effort controls are retained.
 - **Bounded proof and repair**: absence, count, exhaustive classification,
   route-policy comparison, flow, impact, and historical claims use
   runtime-owned proof gates. Invalid or cross-claim verifier evidence fails
-  closed. Focused comparison corroboration also inspects bounded uncited source
+  closed. A generic impact claim can complete only when the canonical effective
+  scope has one immutable entry and a complete `repo_find_files("**/*")`
+  inventory is paired with exact
+  current source for every enumerated file and a second verifier independently
+  affirms the same full evidence set; the inventory stays out of the parent
+  payload. Focused comparison corroboration also inspects bounded uncited source
   context for an omitted in-boundary policy variant without promoting that
   context to supporting evidence. A refutation backed only by zero-match search
   evidence also requires focused agreement on one complete certificate; direct

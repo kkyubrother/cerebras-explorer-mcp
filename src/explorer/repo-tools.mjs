@@ -214,6 +214,16 @@ function sanitizeRelativePath(inputPath) {
   return normalized === '' ? '.' : normalized;
 }
 
+export function normalizedRepositoryFileIdentity(filePath) {
+  try {
+    const relativePath = sanitizeRelativePath(filePath);
+    if (relativePath === '.' || isSecretPath(relativePath).matched) return null;
+    return `sha256:${createHash('sha256').update(`file\0${relativePath}`).digest('hex')}`;
+  } catch {
+    return null;
+  }
+}
+
 function isOutsideRoot(root, targetPath) {
   const relative = path.relative(root, targetPath);
   return relative.startsWith('..') || path.isAbsolute(relative);
@@ -2482,9 +2492,9 @@ function normalizedCountItemIds(tool, result, boundary) {
       if (tool === 'repo_find_files') {
         if (typeof item !== 'string' || !item) return null;
         const relativePath = sanitizeRelativePath(item);
-        if (relativePath === '.' || isSecretPath(relativePath).matched ||
-            !boundaryRules.matches(relativePath)) return null;
-        itemIds.push(`sha256:${createHash('sha256').update(`file\0${relativePath}`).digest('hex')}`);
+        const identity = normalizedRepositoryFileIdentity(relativePath);
+        if (!identity || !boundaryRules.matches(relativePath)) return null;
+        itemIds.push(identity);
         continue;
       }
       if (!isPlainObservationObject(item) ||
@@ -2531,7 +2541,7 @@ function normalizedCountItemAnchors(tool, result, boundary) {
   return anchors;
 }
 
-function canonicalObservationScope(scope) {
+export function canonicalizeRepositoryObservationScope(scope) {
   if (!Array.isArray(scope)) {
     throw new TypeError('Effective repository observation scope must be an array.');
   }
@@ -2562,7 +2572,7 @@ function observationScopesAreDisjoint(left, right) {
 }
 
 function intersectObservationBoundaries(effectiveScope, localScope) {
-  const base = canonicalObservationScope(effectiveScope);
+  const base = canonicalizeRepositoryObservationScope(effectiveScope);
   if (localScope !== undefined && !Array.isArray(localScope)) {
     throw new TypeError('Local repository observation scope must be an array.');
   }
@@ -2585,7 +2595,7 @@ function intersectObservationBoundaries(effectiveScope, localScope) {
 function pathObservationBoundary(requestedPath, effectiveScope) {
   const relativePath = sanitizeRelativePath(requestedPath);
   if (isSecretPath(relativePath).matched) return ['[REDACTED:secret-path]'];
-  const effectiveRules = createScopeRules(canonicalObservationScope(effectiveScope));
+  const effectiveRules = createScopeRules(canonicalizeRepositoryObservationScope(effectiveScope));
   return effectiveRules.matches(relativePath) ? [relativePath] : ['empty-intersection'];
 }
 
@@ -2606,7 +2616,7 @@ function deriveObservationBoundary(tool, args, effectiveScope) {
   if (['repo_find_files', 'repo_grep', 'repo_references', 'repo_symbol_context'].includes(tool)) {
     return intersectObservationBoundaries(effectiveScope, args?.scope);
   }
-  return canonicalObservationScope(effectiveScope);
+  return canonicalizeRepositoryObservationScope(effectiveScope);
 }
 
 function booleanTelemetry(result, key) {
