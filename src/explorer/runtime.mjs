@@ -1564,7 +1564,7 @@ function buildParentEvidenceProjection({ result, semanticVerification, observati
   const subgoals = semanticVerification?.taskContract?.subgoals ?? [];
   const claims = semanticVerification?.claims ?? [];
   const verdicts = semanticVerification?.semanticVerdicts ?? [];
-  const claimCover = selectClaimCover({ subgoals, claims, verdicts });
+  const claimCover = selectClaimCover({ subgoals, claims, verdicts, observations });
   const selectedRefs = claimCover.evidenceRefs;
   const verdictByClaimId = new Map(verdicts.map(verdict => [verdict.claimId, verdict]));
   const observationById = new Map((observations ?? []).map(observation => [observation.id, observation]));

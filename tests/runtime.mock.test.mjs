@@ -164,6 +164,29 @@ test('Spec 028 T041 — v3 handoff minimizes direct evidence and omits irrelevan
   assert.doesNotThrow(() => validateParentHandoffV3(selectedEvidenceDropped));
 });
 
+test('Spec 028 T071 — v3 handoff preserves every verifier-approved path named by a location claim', () => {
+  const fixture = parentHandoffFixture();
+  fixture.semanticVerification.claims[0].text =
+    'src/auth.js defines validation and src/routes/user.js invokes it.';
+
+  const handoff = buildParentHandoffV3({
+    ...fixture,
+    task: 'Locate token validation and its route usage.',
+    taskMode: 'locate',
+  });
+
+  assert.equal(handoff.state, 'complete');
+  assert.deepEqual(handoff.evidence.map(item => item.path), [
+    'src/auth.js',
+    'src/routes/user.js',
+  ]);
+  assert.deepEqual(new Set(handoff.targets.map(item => item.path)), new Set([
+    'src/auth.js',
+    'src/routes/user.js',
+  ]));
+  assert.doesNotThrow(() => validateParentHandoffV3(handoff));
+});
+
 test('Spec 028 T041 — edit intent deterministically becomes verify_targets', () => {
   const fixture = parentHandoffFixture();
   const handoff = buildParentHandoffV3({

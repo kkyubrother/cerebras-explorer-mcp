@@ -840,6 +840,32 @@ proofPolicyCoverageTest(
       'impact claims retain every approved category source');
   });
 
+  test('Spec 028 T071 — direct claims retain each explicitly named source path without duplicate ranges', () => {
+    const cover = selectClaimCover({
+      subgoals: [{ id: 'S1', proofPolicy: 'direct_source', state: 'supported' }],
+      claims: [{
+        id: 'C1',
+        subgoalId: 'S1',
+        verdict: 'supported',
+        text: 'src/auth.js defines validation and tests/auth.test.js verifies it.',
+        evidenceRefs: ['E1', 'E2', 'E3'],
+      }],
+      verdicts: [{
+        claimId: 'C1',
+        result: 'supported',
+        supportingEvidenceRefs: ['E3', 'E2', 'E1'],
+      }],
+      observations: [
+        { id: 'E1', kind: 'source', path: 'src/auth.js', startLine: 1, endLine: 4 },
+        { id: 'E2', kind: 'source', path: 'src/auth.js', startLine: 8, endLine: 12 },
+        { id: 'E3', kind: 'source', path: 'tests/auth.test.js', startLine: 1, endLine: 9 },
+      ],
+    });
+
+    assert.deepEqual(cover.evidenceRefs, ['E1', 'E3']);
+    assert.deepEqual(cover.evidenceRefsByClaimId.get('C1'), ['E1', 'E3']);
+  });
+
   test('Spec 028 T041 — parent follow-up uses gap priority and suppresses repeated tools', () => {
     const askUser = selectParentFollowUp({
       effectiveScope: ['src/**'],

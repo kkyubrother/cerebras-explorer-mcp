@@ -1922,15 +1922,43 @@ const MULTI_ITEM_PARENT_PROOF_POLICIES = new Set([
   'distinct_policy_paths',
 ]);
 
+function selectDirectClaimCover(claim, orderedApproved, observationById) {
+  const selected = [];
+  const selectedPaths = new Set();
+  const normalizedClaim = typeof claim?.text === 'string'
+    ? claim.text.replaceAll('\\', '/').toLowerCase()
+    : '';
+
+  for (const ref of orderedApproved) {
+    const observation = observationById.get(ref);
+    const normalizedPath = observation?.kind === 'source' && typeof observation.path === 'string'
+      ? observation.path.replaceAll('\\', '/').toLowerCase()
+      : '';
+    const firstRef = selected.length === 0;
+    const namesNewSourcePath = normalizedPath &&
+      normalizedClaim.includes(normalizedPath) && !selectedPaths.has(normalizedPath);
+    if (!firstRef && !namesNewSourcePath) continue;
+    selected.push(ref);
+    if (normalizedPath) selectedPaths.add(normalizedPath);
+  }
+  return selected;
+}
+
 /**
  * Select the smallest verifier-approved evidence-reference set that still
  * preserves the proof shape of every supported claim. Direct claims keep the
- * first approved reference in claim order; flow, comparison, and count claims
- * retain every parent-relevant part. Search cross-check telemetry stays internal.
+ * first approved reference plus one approved reference for every distinct source
+ * path explicitly named by the claim; flow, comparison, and count claims retain
+ * every parent-relevant part. Search cross-check telemetry stays internal.
  * The returned order is stable
  * and globally deduplicated.
  */
-export function selectClaimCover({ subgoals = [], claims = [], verdicts = [] } = {}) {
+export function selectClaimCover({
+  subgoals = [],
+  claims = [],
+  verdicts = [],
+  observations = [],
+} = {}) {
   const subgoalById = new Map(
     (Array.isArray(subgoals) ? subgoals : [])
       .filter(subgoal => typeof subgoal?.id === 'string' && subgoal.id)
@@ -1940,6 +1968,11 @@ export function selectClaimCover({ subgoals = [], claims = [], verdicts = [] } =
     (Array.isArray(verdicts) ? verdicts : [])
       .filter(verdict => typeof verdict?.claimId === 'string' && verdict.claimId)
       .map(verdict => [verdict.claimId, verdict]),
+  );
+  const observationById = new Map(
+    (Array.isArray(observations) ? observations : [])
+      .filter(observation => typeof observation?.id === 'string' && observation.id)
+      .map(observation => [observation.id, observation]),
   );
   const selected = [];
   const seen = new Set();
@@ -1961,7 +1994,7 @@ export function selectClaimCover({ subgoals = [], claims = [], verdicts = [] } =
       .filter(ref => typeof ref === 'string' && ref && approved.has(ref));
     const claimSelection = MULTI_ITEM_PARENT_PROOF_POLICIES.has(subgoal.proofPolicy)
       ? orderedApproved
-      : orderedApproved.slice(0, 1);
+      : selectDirectClaimCover(claim, orderedApproved, observationById);
     evidenceRefsByClaimId.set(claim.id, [...new Set(claimSelection)]);
     for (const ref of claimSelection) {
       if (seen.has(ref)) continue;

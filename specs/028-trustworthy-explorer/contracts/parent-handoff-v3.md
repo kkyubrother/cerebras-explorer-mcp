@@ -127,7 +127,7 @@ Evidence is a discriminated union.
 - The accepted claim must use the same boundary/qualification.
 - Raw counters, candidate files, ignored secret paths, and tool traces stay internal.
 
-The evidence list is claim-cover-minimized: retain one direct item per claim where possible and retain multiple items only for comparisons, ordered transitions, or independent cross-checks. Every `complete` or `verify_targets` result contains at least one evidence item; an `incomplete` result contains evidence whenever it surfaces supported partial claims.
+The evidence list is claim-cover-minimized: retain one direct item per claim where possible, but retain one verifier-approved item for every distinct source path explicitly named by an accepted claim. Comparisons, ordered transitions, and independent cross-checks retain their required proof parts. Every `complete` or `verify_targets` result contains at least one evidence item; an `incomplete` result contains evidence whenever it surfaces supported partial claims.
 
 ## Gap and follow-up
 
