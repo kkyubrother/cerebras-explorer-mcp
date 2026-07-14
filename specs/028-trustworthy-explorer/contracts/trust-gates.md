@@ -68,7 +68,7 @@ The detailed contract is [goal-audit.md](./goal-audit.md).
 
 - Each compared path/policy has its own evidence.
 - The accepted claim states the difference rather than generalizing one side.
-- A supported comparison spanning at least three current source paths receives one focused corroboration pass containing only that claim plus the bounded semantic-batch observations. Uncited current sources may reveal an omitted in-boundary policy variant but can never be added to the claim's supporting evidence; unrelated sibling-goal observations are ignored. Both checks must support the whole atomic relationship and agree on every source path supported by the primary check.
+- A supported comparison spanning at least three current source paths receives one focused corroboration pass containing only that claim plus the bounded semantic-batch observations. Uncited current sources may reveal an omitted in-boundary policy variant, and the focused verifier is instructed to disregard unrelated sibling-goal observations. Regardless of its verdict, uncited refs can never be added to the claim's supporting evidence. Both checks must support the whole atomic relationship and agree on every source path supported by the primary check.
 - Row existence, selected boolean fields, identity-list membership, and helper invocation are distinct predicates; one correctly cited side cannot compensate for another side attached to the wrong route or mechanism.
 - Contradictory current code and docs are surfaced as a distinction/gap; current code is not silently merged with documentation.
 
