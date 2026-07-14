@@ -265,7 +265,7 @@ function boundaryPatternCovers(outer, inner) {
   return innerBase === prefix || innerBase.startsWith(`${prefix}/`);
 }
 
-function boundaryCovers(searchBoundary, claimBoundary) {
+export function boundaryCovers(searchBoundary, claimBoundary) {
   const search = normalizeProofBoundary(searchBoundary);
   const claim = normalizeProofBoundary(claimBoundary);
   return search.length > 0 && claim.length > 0 && claim.every(inner =>

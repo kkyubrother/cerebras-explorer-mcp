@@ -71,8 +71,10 @@ compatibility aliases or selectable effort controls are retained.
   inspect text files up to the existing 512 KiB read ceiling, so a readable
   source file cannot silently make symbol enumeration incomplete. Internal
   repository tools reject undeclared arguments before execution, so a mistaken
-  grep `path` cannot silently widen into a repository-wide search. Cancellation
-  interrupts retry waits, and day-scale
+  grep `path` cannot silently widen into a repository-wide search. Usage claims
+  also require a complete search that covers the immutable task scope rather
+  than a narrower subdirectory. Cancellation interrupts retry waits, and
+  day-scale
   `Retry-After` responses are recorded without repeating a request that cannot
   succeed inside the bounded parent call. Live trust batches stop after the
   first provider failure while retaining every remaining case and repeat as an

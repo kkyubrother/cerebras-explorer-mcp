@@ -7682,6 +7682,56 @@ test('Spec 028 T059 — runtime enforces negative and critical proof boundaries'
       },
     },
     {
+      name: 'narrow symbol search cannot prove all usages in a broader task scope',
+      task: 'List all usages of requireAuth in src/**.',
+      scope: ['src/**'],
+      goal: {
+        id: 'S-narrow-all-usages',
+        question: 'What are all usages of requireAuth in src/**?',
+        originText: 'all usages of requireAuth in src/**',
+        claimType: 'symbol_usage',
+        proofCondition: 'Cross-check every in-scope usage across src/**.',
+        constraints: ['Do not generalize from a narrower route-only search.'],
+      },
+      claimText: 'src/routes/user.js contains every requireAuth usage in src/**.',
+      initialTools: [
+        {
+          tool: 'repo_grep',
+          args: { pattern: 'requireAuth', scope: ['src/routes/**'] },
+          id: 'narrow-usage-search',
+        },
+        {
+          tool: 'repo_read_file',
+          args: { path: 'src/routes/user.js', startLine: 1, endLine: 7 },
+          id: 'narrow-usage-source',
+        },
+      ],
+      initialEvidenceRefs: ['E1', 'E2'],
+      repairTools: [
+        {
+          tool: 'repo_grep',
+          args: { pattern: 'requireAuth', scope: ['src/routes/**'] },
+          id: 'still-narrow-usage-search',
+        },
+        {
+          tool: 'repo_read_file',
+          args: { path: 'src/routes/user.js', startLine: 1, endLine: 7 },
+          id: 'still-narrow-usage-source',
+        },
+      ],
+      repairEvidenceRefs: ['E1', 'E2', 'E3', 'E4'],
+      assertImplemented({ result, goal }) {
+        const searches = result.observations.filter(observation =>
+          observation.kind === 'search' && observation.tool === 'repo_grep');
+        assert.ok(searches.length > 0 && searches.every(observation =>
+          observation.enumerationComplete === true &&
+          observation.boundary.length === 1 &&
+          observation.boundary[0] === 'src/routes/**'), JSON.stringify(searches, null, 2));
+        assertInternalProofGap(result, goal.id);
+        assertMinimalIncompleteParentHandoff(result, goal.question);
+      },
+    },
+    {
       name: 'exhaustive classification cannot pass from two paths without an enumeration',
       task: 'Inventory route authorization mechanisms and classify user and admin guards.',
       goal: {

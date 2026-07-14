@@ -64,6 +64,7 @@ import {
 } from './critic.mjs';
 import {
   applyEvidenceRepairRound,
+  boundaryCovers,
   buildAbsenceCertificate,
   computeDeterministicCount,
   createCapabilityManifest,
@@ -3114,6 +3115,7 @@ export function buildRuntimeGenericImpactPolicyArtifacts({
 
 function applyRuntimeProofGate({
   task,
+  claimBoundary,
   subgoal,
   claim,
   semanticVerdict,
@@ -3180,7 +3182,8 @@ function applyRuntimeProofGate({
     const supportingRefs = new Set(semanticVerdict.supportingEvidenceRefs);
     const completeUsageSearch = observations.some(observation =>
       supportingRefs.has(observation?.id) && observation?.kind === 'search' &&
-      observation.enumerationComplete === true);
+      observation.enumerationComplete === true &&
+      boundaryCovers(observation.boundary, claimBoundary));
     if (!completeUsageSearch) {
       proofPolicyResult = {
         ...proofPolicyResult,
@@ -5317,6 +5320,7 @@ export class ExplorerRuntime {
       subgoal.id,
       subgoal,
     ]));
+    const claimBoundary = taskClaimBoundary(candidateContract);
     const certifiedAbsenceCompanionRefs = new Set();
     for (const claim of claims) {
       const subgoal = candidateSubgoalById.get(claim.subgoalId);
@@ -5326,6 +5330,7 @@ export class ExplorerRuntime {
       }
       const gated = applyRuntimeProofGate({
         task: candidateContract.task,
+        claimBoundary,
         subgoal,
         claim,
         semanticVerdict: rawVerdict,
@@ -5367,6 +5372,7 @@ export class ExplorerRuntime {
         };
         const gated = applyRuntimeProofGate({
           task: candidateContract.task,
+          claimBoundary,
           subgoal,
           claim: batchClaims[index],
           semanticVerdict: verdict,
