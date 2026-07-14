@@ -521,6 +521,42 @@ auditedPromptBoundaryTest('Spec 028 T018 — goal auditor sees only request cont
   assertRuntimeOwnedProofPolicy(attacked.system, 'goal auditor');
 });
 
+auditedPromptBoundaryTest('Spec 028 T071 — map impact categories remain one bounded wrapper leaf', () => {
+  const task = 'Map the change impact across tests, configuration, and documentation.';
+  const planner = assertTwoMessageBoundary(promptModule.buildPlannerMessages({
+    task,
+    effectiveScope: ['src/**', 'tests/**'],
+    wrapperTool: 'map_change_impact',
+    knownAnchors: { files: [], symbols: [], text: [] },
+    projectContext: '',
+  }), 'map impact planner');
+  const auditor = assertTwoMessageBoundary(promptModule.buildGoalAuditorMessages({
+    task,
+    effectiveScope: ['src/**', 'tests/**'],
+    wrapperTool: 'map_change_impact',
+    proposals: [{
+      id: 'S-categories',
+      question: 'Which tests, configuration, and documentation are affected?',
+      originRefs: ['wrapper:map_change_impact:requested_categories'],
+      claimType: 'impact',
+      proofCondition: 'Observe every affected test, configuration, and documentation category.',
+      constraints: [],
+    }],
+    preflightDiagnostics: [],
+    revisionCount: 0,
+  }), 'map impact auditor');
+
+  for (const system of [planner.system, auditor.system]) {
+    assert.match(system,
+      /wrapper:map_change_impact:requested_categories[\s\S]{0,220}one multi-item impact leaf/i);
+    assert.match(system,
+      /do not split[\s\S]{0,160}independently searchable[\s\S]{0,120}source roles/i);
+    assert.match(system,
+      /does not permit mixing targets, dependents, or risk_boundary[\s\S]{0,160}omitting any named category/i);
+  }
+  assert.match(planner.data, /"requested_categories":"impact"/u);
+});
+
 auditedPromptBoundaryTest('Spec 028 T069 — late goal auditor receives an immutable merge ledger', () => {
   const proposal = proposedPromptGoal();
   const existing = {

@@ -502,7 +502,7 @@ function directRuntimeArgs(invocation) {
     case 'map_change_impact': {
       const change = requireText(args.change, 'map_change_impact.change');
       return {
-        task: `Map the likely impact of this intended change before editing: ${change}. Identify likely edit targets, read targets, callers, tests, configuration, and risky dependent paths.`,
+        task: `Map the likely impact of this intended change before editing: ${change}. Identify actionable targets, dependent callers/consumers, affected tests/configuration/documentation, and the remaining risk boundary.`,
         scope: args.scope,
         taskMode: 'edit_planning',
         hints: anchorHints(args),
