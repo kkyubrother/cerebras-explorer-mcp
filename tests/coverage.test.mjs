@@ -392,6 +392,22 @@ proofPolicyCoverageTest(
       ...refutationInput,
       absenceCertificates: [{ ...refutationCertificate, complete: false }],
     }), 'unsupported refutation boundary');
+
+    assert.equal(evaluateProofPolicy({
+      ...refutationInput,
+      claim: { ...refutationInput.claim, evidenceRefs: ['E-counterexample'] },
+      semanticVerdict: {
+        ...refutationInput.semanticVerdict,
+        supportingEvidenceRefs: ['E-counterexample'],
+      },
+      absenceCertificates: [],
+      observations: [{
+        id: 'E-counterexample',
+        kind: 'source',
+        path: 'src/routes/public.mjs',
+      }],
+    }).passed, true,
+    'a direct source counterexample can support a refutation without absence proof');
   },
 );
 

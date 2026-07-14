@@ -447,6 +447,7 @@ export function evaluateProofPolicy({
   }
 
   const supportingRefSet = new Set(supportingRefs);
+  const supporting = supportingObservations({ claim, semanticVerdict, observations });
   const certificate = matchingCompleteCertificate(
     absenceCertificates,
     subgoal.id,
@@ -465,11 +466,13 @@ export function evaluateProofPolicy({
     return count ? passedProof(subgoal, claim) : failedProof('uncertified_count', subgoal, claim);
   }
   if (expectedPolicy === 'support_or_refute' && semanticVerdict.resolution === 'refuted') {
-    return certifiedClaim ? passedProof(subgoal, claim) :
+    const directCounterexample = supporting.some(observation =>
+      observation?.kind === 'source' ||
+      ['git_commit', 'git_blame', 'git_diff_hunk'].includes(observation?.kind));
+    return certifiedClaim || directCounterexample ? passedProof(subgoal, claim) :
       failedProof('uncertified_refutation', subgoal, claim);
   }
 
-  const supporting = supportingObservations({ claim, semanticVerdict, observations });
   if (expectedPolicy === 'symbol_definition') {
     return supporting.some(observation => observation?.kind === 'source')
       ? passedProof(subgoal, claim)
