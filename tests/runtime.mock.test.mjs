@@ -6155,7 +6155,16 @@ auditedPlanningRuntimeTest(
     }));
     const client = new ScriptedGoalAuditClient([
       { stage: 'planner:1', value: plannerControl(invalid) },
-      { stage: 'planner:2', value: plannerControl(canonical) },
+      {
+        stage: 'planner:2',
+        run(request) {
+          const correction = request.messages.at(-1)?.content ?? '';
+          assert.match(correction, /implementation=request:0-44/u);
+          assert.match(correction, /tests=request:0-51/u);
+          assert.match(correction, new RegExp(`inputs=request:0-${task.length}`, 'u'));
+          return controlCompletion(plannerControl(canonical));
+        },
+      },
       {
         stage: 'goal_audit:1',
         run(request) {
@@ -6301,7 +6310,25 @@ auditedPlanningRuntimeTest(
     };
     const client = new ScriptedGoalAuditClient([
       { stage: 'planner:1', value: plannerControl(submittedGoals) },
-      { stage: 'planner:2', value: plannerControl(goals) },
+      {
+        stage: 'planner:2',
+        run(request) {
+          const correction = request.messages.at(-1)?.content ?? '';
+          assert.match(correction, new RegExp(
+            `frontend_actor_a=\\[${administrator},${frontend}\\]`,
+            'u',
+          ));
+          assert.match(correction, new RegExp(
+            `backend_actor_a=\\[${administrator},${backend}\\]`,
+            'u',
+          ));
+          assert.match(correction, new RegExp(
+            `backend_actor_b=\\[${developer},${backend}\\]`,
+            'u',
+          ));
+          return controlCompletion(plannerControl(goals));
+        },
+      },
       {
         stage: 'goal_audit:1',
         run(request) {

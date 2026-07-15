@@ -3892,9 +3892,15 @@ function requireCanonicalPipelineMapOrigins({ task, wrapperTool, goals }) {
       new Set(matched.map(candidates => candidates[0].id)).size !== kinds.length) {
     const originMismatch = matched.some((exact, index) =>
       exact.length === 0 && candidates[index].length > 0);
+    const exactOrigins = kinds.map(kind => {
+      const leaf = pattern[kind];
+      const end = includeTrailingRequestDelimiter(task, leaf.end);
+      return `${kind}=request:${pattern.action.start}-${end}`;
+    }).join(', ');
     throw new TypeError(
       originMismatch
-        ? 'Pipeline category origins must bind the shared action and exact requested leaf.'
+        ? 'Pipeline category origins must bind the shared action and exact requested leaf. ' +
+          `Use these exact one-range bindings: ${exactOrigins}.`
         : 'Pipeline mapping requires exactly one implementation, tests, and runtime-input goal.',
     );
   }
@@ -3991,9 +3997,13 @@ function requireCanonicalAccessPolicyOrigins({ task, wrapperTool, goals }) {
       new Set(matched.map(candidates => candidates[0].id)).size !== requirements.length) {
     const originMismatch = matched.some((exact, index) =>
       exact.length === 0 && candidates[index].length > 0);
+    const correctionLabels = ['frontend_actor_a', 'backend_actor_a', 'backend_actor_b'];
+    const exactOrigins = requirements.map(([, actor, surface], index) =>
+      `${correctionLabels[index]}=[${exactOriginRef(actor)},${exactOriginRef(surface)}]`).join(', ');
     throw new TypeError(
       originMismatch
-        ? 'Access comparison goal origins must bind one exact actor and surface.'
+        ? 'Access comparison goal origins must bind one exact actor and surface. ' +
+          `Use these exact origin sets: ${exactOrigins}.`
         : 'Access comparison requires one frontend actor-A, backend actor-A, and backend actor-B goal.',
     );
   }

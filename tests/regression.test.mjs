@@ -351,9 +351,9 @@ auditedPromptBoundaryTest('Spec 028 T018 — planner policy is invariant under u
   assert.match(attacked.system,
     /exactly three leaves[\s\S]{0,180}SURFACE_A enforces ACTOR_A[\s\S]{0,180}SURFACE_B checks[\s\S]{0,180}ACTOR_B-specific access/i);
   assert.match(attacked.system,
-    /separate minimal origins[\s\S]{0,180}ACTOR_A and ACTOR_B access policy[\s\S]{0,180}across SURFACE_A/i);
+    /separate minimal origins[\s\S]{0,180}exact single ACTOR_A or ACTOR_B phrase[\s\S]{0,180}exact SURFACE_A or SURFACE_B phrase/i);
   assert.match(attacked.system,
-    /never stretch one origin across both surfaces/i);
+    /never cite the combined actor list[\s\S]{0,180}never stretch one origin across both surfaces/i);
   assert.match(attacked.system,
     /never add a fourth SURFACE_A\/ACTOR_B leaf/i);
   assert.match(attacked.system,
@@ -366,6 +366,8 @@ auditedPromptBoundaryTest('Spec 028 T018 — planner policy is invariant under u
     /positive test leaf[\s\S]{0,180}one exact entry-path test source[\s\S]{0,180}not an exhaustive suite inventory/i);
   assert.match(attacked.system,
     /impact leaf[\s\S]{0,160}source, docs, agent config, and dependencies[\s\S]{0,120}required proof categories/i);
+  assert.match(attacked.system,
+    /Each leaf uses one contiguous origin[\s\S]{0,160}shared "Map" action[\s\S]{0,160}tail-only tests or inputs origin is invalid/i);
   assert.match(attacked.system,
     /direct invocation sites=count[\s\S]{0,120}wrapper membership=comparison[\s\S]{0,120}configuration-only membership=comparison/i);
   assert.match(attacked.system,
