@@ -6492,6 +6492,128 @@ auditedPlanningRuntimeTest(
 );
 
 auditedPlanningRuntimeTest(
+  'Spec 028 T069 — repeated canonical access origin drift restores request-derived origins',
+  async () => {
+    const task = 'Compare administrator and developer access policy across frontend guards and backend route families.';
+    const administrator = requestOrigin(task, 'administrator');
+    const developer = requestOrigin(task, 'developer');
+    const frontend = requestOrigin(task, 'frontend guards');
+    const backend = requestOrigin(task, 'backend route families.');
+    const corrected = [
+      {
+        id: 'S-access-recovery-frontend-admin',
+        question: 'How do frontend guards enforce administrator access?',
+        originRefs: [administrator, frontend],
+        claimType: 'positive',
+        proofCondition: 'Observe the frontend guard enforcing administrator access.',
+        constraints: [],
+      },
+      {
+        id: 'S-access-recovery-backend-admin',
+        question: 'Which backend route families use administrator checks?',
+        originRefs: [administrator, backend],
+        claimType: 'comparison',
+        proofCondition: 'Compare administrator predicates across backend route families.',
+        constraints: [],
+      },
+      {
+        id: 'S-access-recovery-backend-developer',
+        question: 'Which backend route families give developer-specific access?',
+        originRefs: [developer, backend],
+        claimType: 'comparison',
+        proofCondition: 'Compare developer behavior across backend route families.',
+        constraints: [],
+      },
+    ];
+    const invalid = corrected.map((goal, index) => ({
+      ...goal,
+      originRefs: [`request:0-${task.length}`, index === 0 ? frontend : backend],
+    }));
+    const ambiguousRetry = [
+      invalid[0],
+      invalid[1],
+      { ...invalid[1], id: 'S-access-recovery-duplicate-backend-admin' },
+    ];
+    const client = new ScriptedGoalAuditClient([
+      { stage: 'planner:1', value: plannerControl(invalid) },
+      { stage: 'planner:2', value: plannerControl(ambiguousRetry) },
+      {
+        stage: 'goal_audit:1',
+        run(request) {
+          const packet = parseControlPacket(request);
+          assert.deepEqual(packet.proposals, corrected);
+          return controlCompletion(auditorControl(
+            corrected.map(goal => auditControlRecord(goal)),
+          ));
+        },
+      },
+      { stage: 'exploration:1', content: 'The restored access leaves are ready.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+    ]);
+    const root = await makeRepoFixture();
+    const result = await new RuntimeImplementation({ chatClient: client }).explore({
+      task,
+      repo_root: root,
+    });
+
+    assert.equal(result.failure, null, JSON.stringify({
+      failure: result.failure,
+      stages: client.stageLabels,
+    }));
+    assert.equal(client.stageCounts.get('planner'), 2);
+    assert.equal(client.stageCounts.get('goal_audit'), 1);
+    assert.deepEqual(result.taskContract.subgoals.map(goal => goal.originRefs),
+      corrected.map(goal => goal.originRefs));
+  },
+);
+
+auditedPlanningRuntimeTest(
+  'Spec 028 T069 — ambiguous access leaves remain fail-closed across retries',
+  async () => {
+    const task = 'Compare administrator and developer access policy across frontend guards and backend route families.';
+    const administrator = requestOrigin(task, 'administrator');
+    const frontend = requestOrigin(task, 'frontend guards');
+    const backend = requestOrigin(task, 'backend route families.');
+    const frontendAdministrator = {
+      id: 'S-ambiguous-access-frontend-admin',
+      question: 'How do frontend guards enforce administrator access?',
+      originRefs: [administrator, frontend],
+      claimType: 'positive',
+      proofCondition: 'Observe the frontend guard enforcing administrator access.',
+      constraints: [],
+    };
+    const backendAdministrator = {
+      id: 'S-ambiguous-access-backend-admin',
+      question: 'Which backend route families use administrator checks?',
+      originRefs: [administrator, backend],
+      claimType: 'comparison',
+      proofCondition: 'Compare administrator predicates across backend route families.',
+      constraints: [],
+    };
+    const ambiguous = [
+      frontendAdministrator,
+      backendAdministrator,
+      { ...backendAdministrator, id: 'S-ambiguous-access-duplicate-backend-admin' },
+    ];
+    const client = new ScriptedGoalAuditClient([
+      { stage: 'planner:1', value: plannerControl(ambiguous) },
+      { stage: 'planner:2', value: plannerControl(ambiguous) },
+    ]);
+    const root = await makeRepoFixture();
+    const result = await new RuntimeImplementation({ chatClient: client }).explore({
+      task,
+      repo_root: root,
+    });
+
+    assert.deepEqual(client.stageLabels, ['planner:1', 'planner:2']);
+    assert.ok(result.failure);
+    assert.equal(result.parentHandoff.state, 'failed');
+    assert.match(JSON.stringify(client.requests[1].messages),
+      /Required canonical leaf contract: exactly one of each/iu);
+  },
+);
+
+auditedPlanningRuntimeTest(
   'Spec 028 T069 — invocation classification leaves require one contiguous action origin',
   async () => {
     const task = 'Inventory every Amazon Bedrock invocation and classify direct SDK calls, wrappers, and configuration-only references.';
@@ -6541,7 +6663,7 @@ auditedPlanningRuntimeTest(
     }));
     const client = new ScriptedGoalAuditClient([
       { stage: 'planner:1', value: plannerControl(invalid) },
-      { stage: 'planner:2', value: plannerControl(corrected) },
+      { stage: 'planner:2', value: plannerControl(invalid) },
       {
         stage: 'goal_audit:1',
         value: auditorControl(corrected.map(goal => auditControlRecord(goal)), []),

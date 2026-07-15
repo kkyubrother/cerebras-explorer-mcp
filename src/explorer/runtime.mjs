@@ -4135,6 +4135,47 @@ function requireCanonicalInvocationClassificationOrigins({ task, wrapperTool, go
   return matched.map(candidates => candidates[0].id);
 }
 
+function restoreCanonicalPlannerOrigins({ task, wrapperTool, goals }) {
+  if (wrapperTool !== 'explore_repo') return null;
+  const restorations = [];
+  const accessPattern = canonicalAccessPolicyPattern(task);
+  if (accessPattern) {
+    const requirements = [
+      ['surface_a_actor_a', accessPattern.actorA, accessPattern.surfaceA],
+      ['surface_b_actor_a', accessPattern.actorA, accessPattern.surfaceB],
+      ['surface_b_actor_b', accessPattern.actorB, accessPattern.surfaceB],
+    ];
+    restorations.push(requirements.map(([kind, actor, surface]) => ({
+      candidates: goals.filter(goal =>
+        canonicalAccessPlannerGoalKind(accessPattern, goal) === kind),
+      originRefs: [exactOriginRef(actor), exactOriginRef(surface)],
+    })));
+  }
+  const invocationPattern = invocationClassificationPattern(task);
+  if (invocationPattern) {
+    const kinds = ['direct', 'wrappers', 'configuration'];
+    restorations.push(kinds.map(kind => ({
+      candidates: goals.filter(goal => invocationClassificationGoalKind(goal) === kind),
+      originRefs: [
+        `request:${invocationPattern.actionStart}-${invocationPattern[kind].end}`,
+      ],
+    })));
+  }
+  if (restorations.length !== 1) return null;
+  const restoration = restorations[0];
+  if (restoration.some(item => item.candidates.length !== 1)) return null;
+  const goalsById = new Map(restoration.map(item => [item.candidates[0].id, item.originRefs]));
+  if (goalsById.size !== restoration.length) return null;
+  let restored = false;
+  const restoredGoals = goals.map(goal => {
+    const originRefs = goalsById.get(goal.id);
+    if (!originRefs || sameStringSet(goal.originRefs, originRefs)) return goal;
+    restored = true;
+    return { ...goal, originRefs };
+  });
+  return restored ? restoredGoals : null;
+}
+
 function requireCanonicalPlannerPolicy({ task, wrapperTool, goals }) {
   const pipelineGoalIds = requireCanonicalPipelineMapOrigins({ task, wrapperTool, goals });
   const accessGoalIds = requireCanonicalAccessPolicyOrigins({ task, wrapperTool, goals });
@@ -6338,8 +6379,83 @@ export class ExplorerRuntime {
       revisionCorrections = [],
       revisionReservedGoals = [],
       allowEmptyPlan = false,
-    }) =>
-      requestValidatedGoalControl({
+    }) => {
+      let recoverablePlannerControl = null;
+      const validatePlannerControl = raw => {
+        const validated = validatePlannerProposal(raw, { task, wrapperTool });
+        const normalized = normalizeAuditorCorrectionIds(validated.subgoals, {
+          rejectedGoals,
+          correctionGoals: revisionCorrections,
+          reservedGoals: revisionReservedGoals,
+        });
+        if (recoverablePlannerControl === null) {
+          const restoredGoals = restoreCanonicalPlannerOrigins({
+            task,
+            wrapperTool,
+            goals: normalized.goals,
+          });
+          if (restoredGoals) {
+            recoverablePlannerControl = { ...validated, subgoals: restoredGoals };
+          }
+        }
+        const canonicalPolicy = requireCanonicalPlannerPolicy({
+          task,
+          wrapperTool,
+          goals: normalized.goals,
+        });
+        const traceExcludedGoals = typeof onPlanningEvent === 'function' ? [] : null;
+        const proposal = {
+          ...validated,
+          subgoals: canonicalPolicy.goals.filter(goal => {
+            const rejectedByRevision = rejectedGoals.some(excluded =>
+              goal.id === excluded.id || samePlannerGoalContent(goal, excluded));
+            const unchangedDecomposition = decompositionGoals.some(excluded =>
+              samePlannerGoalContent(goal, excluded));
+            const excludedByRevision = rejectedByRevision || unchangedDecomposition;
+            if (excludedByRevision && traceExcludedGoals) traceExcludedGoals.push(goal);
+            return !excludedByRevision;
+          }),
+        };
+        requirePreservedGoals(proposal, preservedGoals);
+        const preflight = preflightGoalProposals({
+          task,
+          effectiveScope,
+          wrapperTool,
+          proposals: proposal.subgoals,
+        });
+        const auditableIds = new Set(preflight.auditCandidates.map(goal => goal.id));
+        preflight.distinctOriginGoalIds = canonicalPolicy.distinctOriginGoalIds.filter(id =>
+          auditableIds.has(id));
+        preflight.canonicalIndependentGoalIds = canonicalPolicy.independentGoalIds.filter(id =>
+          auditableIds.has(id));
+        if (preflight.controlFault) {
+          throw new TypeError(`Planner control fault: ${preflight.controlFault.code}.`);
+        }
+        if (!allowEmptyPlan && preflight.auditCandidates.length === 0) {
+          throw new TypeError('Planner produced no auditable requested goal.');
+        }
+        requireCompleteWrapperGoalOrigins({
+          wrapperTool,
+          goals: [...preservedGoals, ...preflight.auditCandidates],
+          label: 'Planner',
+        });
+        validateCollectEvidenceGoalPlan({
+          task,
+          wrapperTool,
+          goals: preflight.auditCandidates,
+        });
+        const validatedPlan = {
+          proposal: { ...proposal, subgoals: preflight.auditCandidates },
+          preflight,
+          correctionGoalIds: normalized.correctionGoalIds,
+        };
+        if (traceExcludedGoals) {
+          validatedPlan.submittedProposal = validated;
+          validatedPlan.excludedByRevision = traceExcludedGoals;
+        }
+        return validatedPlan;
+      };
+      return requestValidatedGoalControl({
         chatClient,
         messages,
         schemaName: 'planner_proposal',
@@ -6351,71 +6467,12 @@ export class ExplorerRuntime {
         maxCompletionTokens,
         abortSignal,
         onCompletion,
-        validate: raw => {
-          const validated = validatePlannerProposal(raw, { task, wrapperTool });
-          const normalized = normalizeAuditorCorrectionIds(validated.subgoals, {
-            rejectedGoals,
-            correctionGoals: revisionCorrections,
-            reservedGoals: revisionReservedGoals,
-          });
-          const canonicalPolicy = requireCanonicalPlannerPolicy({
-            task,
-            wrapperTool,
-            goals: normalized.goals,
-          });
-          const traceExcludedGoals = typeof onPlanningEvent === 'function' ? [] : null;
-          const proposal = {
-            ...validated,
-            subgoals: canonicalPolicy.goals.filter(goal => {
-              const rejectedByRevision = rejectedGoals.some(excluded =>
-                goal.id === excluded.id || samePlannerGoalContent(goal, excluded));
-              const unchangedDecomposition = decompositionGoals.some(excluded =>
-                samePlannerGoalContent(goal, excluded));
-              const excludedByRevision = rejectedByRevision || unchangedDecomposition;
-              if (excludedByRevision && traceExcludedGoals) traceExcludedGoals.push(goal);
-              return !excludedByRevision;
-            }),
-          };
-          requirePreservedGoals(proposal, preservedGoals);
-          const preflight = preflightGoalProposals({
-            task,
-            effectiveScope,
-            wrapperTool,
-            proposals: proposal.subgoals,
-          });
-          const auditableIds = new Set(preflight.auditCandidates.map(goal => goal.id));
-          preflight.distinctOriginGoalIds = canonicalPolicy.distinctOriginGoalIds.filter(id =>
-            auditableIds.has(id));
-          preflight.canonicalIndependentGoalIds = canonicalPolicy.independentGoalIds.filter(id =>
-            auditableIds.has(id));
-          if (preflight.controlFault) {
-            throw new TypeError(`Planner control fault: ${preflight.controlFault.code}.`);
-          }
-          if (!allowEmptyPlan && preflight.auditCandidates.length === 0) {
-            throw new TypeError('Planner produced no auditable requested goal.');
-          }
-          requireCompleteWrapperGoalOrigins({
-            wrapperTool,
-            goals: [...preservedGoals, ...preflight.auditCandidates],
-            label: 'Planner',
-          });
-          validateCollectEvidenceGoalPlan({
-            task,
-            wrapperTool,
-            goals: preflight.auditCandidates,
-          });
-          const validatedPlan = {
-            proposal: { ...proposal, subgoals: preflight.auditCandidates },
-            preflight,
-            correctionGoalIds: normalized.correctionGoalIds,
-          };
-          if (traceExcludedGoals) {
-            validatedPlan.submittedProposal = validated;
-            validatedPlan.excludedByRevision = traceExcludedGoals;
-          }
-          return validatedPlan;
-        },
+        validate: validatePlannerControl,
+        recoverFinalValidation: () => recoverablePlannerControl
+          ? { accepted: true, value: validatePlannerControl(recoverablePlannerControl) }
+          : null,
       });
+    };
 
     const initial = await requestPlan({
       messages: buildPlannerMessages({
