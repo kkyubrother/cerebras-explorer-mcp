@@ -6886,6 +6886,16 @@ function verifierResponse(verdicts, uncoveredRequestParts = []) {
   return { verdicts, uncoveredRequestParts };
 }
 
+function parseRepairPacket(request) {
+  const content = request.messages.findLast(message =>
+    message.role === 'user' && typeof message.content === 'string' &&
+    message.content.includes('BEGIN_EVIDENCE_REPAIR_JSON'))?.content ?? '';
+  const match = /BEGIN_EVIDENCE_REPAIR_JSON\n([\s\S]*?)\nEND_EVIDENCE_REPAIR_JSON/
+    .exec(content);
+  assert.ok(match, 'repair request must contain structured evidence-repair data');
+  return JSON.parse(match[1]);
+}
+
 function assertRepairRequest(request, { question, anchors }) {
   const packet = JSON.stringify(request.messages);
   assert.ok(packet.includes(question));
@@ -6895,6 +6905,7 @@ function assertRepairRequest(request, { question, anchors }) {
     'repair must remain a scoped repository-tool pass');
   assert.equal(request.responseFormat, undefined,
     'repair input is a gap task, not a second planner/control response');
+  return parseRepairPacket(request);
 }
 
 function buildTrustSteps({ goals, initial, repair }) {
@@ -8747,6 +8758,28 @@ semanticPipelineRuntimeTest(
           args: { path: 'src/routes/user.js', startLine: 1, endLine: 7 },
           id: 'read-collect-route',
         }],
+        assertRequest(request) {
+          const packet = assertRepairRequest(request, {
+            question: goal.question,
+            anchors: ['src/auth.js'],
+          });
+          assert.deepEqual(packet.questions, [{
+            id: `semantic-gap:${goal.id}`,
+            subgoalId: goal.id,
+            question: goal.question,
+            gapReason: 'semantic_mismatch',
+            proofPolicy: 'support_or_refute',
+            proofCondition: goal.proofCondition,
+            wrapperPart: 'verdict',
+            claimDiagnostics: [{
+              claimId: claim.id,
+              text: claim.text,
+              reasonCode: 'boundary_mismatch',
+            }],
+          }]);
+          assert.match(request.messages[0].content,
+            /support_or_refute[\s\S]*plausible disconfirming exception/u);
+        },
         claims: [repairedClaim],
         verdicts: [semanticVerdict(claim.id, 'supported', ['E1', 'E2'])],
       },
