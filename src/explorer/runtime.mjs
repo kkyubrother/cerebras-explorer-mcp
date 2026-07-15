@@ -2433,6 +2433,17 @@ function validateSynthesizedClaimBatch(raw, {
     if (subgoal?.claimType === 'count' && candidate.measurement === undefined) {
       throw new TypeError(`Count claim ${candidate.id} requires a structured measurement.`);
     }
+    const inventoryCountPattern = /\b\d[\d,_]*\s+(?:tests?|test\s+(?:functions?|cases?)|files?|classes?|matches?|entries?|occurrences?|routes?|modules?)\b/iu;
+    const requestText = requestTextForSubgoal(taskContract.task, subgoal);
+    if (subgoal?.claimType !== 'count' && inventoryCountPattern.test(candidate.text) &&
+        !inventoryCountPattern.test(requestText) &&
+        !/\b(?:count|how many|number of)\b|개수|몇\s*개|수량/iu.test(requestText)) {
+      throw new TypeError(
+        `Claim synthesis added an unrequested inventory count to sub-goal ${candidate.subgoalId}. ` +
+        'Remove suite, file, match, entry, route, and module counts and return only the narrow ' +
+        'requested fact.',
+      );
+    }
     batchClaimIds.add(candidate.id);
     return createAtomicClaim(candidate);
   });

@@ -11516,6 +11516,81 @@ semanticPipelineRuntimeTest(
 );
 
 semanticPipelineRuntimeTest(
+  'Spec 028 T069 — unrequested inventory counts get one bounded claim correction',
+  async () => {
+    const task = 'Identify the test that covers the pipeline entry path.';
+    const goal = trustGoal(task, {
+      id: 'S-entry-path-test',
+      question: task,
+      originText: task,
+      proofCondition: 'Identify one exactly observed entry-path test and what it verifies.',
+    });
+    const noisy = candidateClaim(
+      'C-entry-path-test',
+      goal.id,
+      'tests/test_cli.py verifies worker fan-out, and the broader suite contains 61 test functions.',
+      ['E1'],
+    );
+    const corrected = candidateClaim(
+      noisy.id,
+      goal.id,
+      'tests/test_cli.py verifies worker fan-out for the pipeline entry path.',
+      ['E1'],
+    );
+    const steps = [
+      { stage: 'planner:1', value: plannerControl([goal]) },
+      { stage: 'goal_audit:1', value: auditorControl([auditControlRecord(goal)]) },
+      {
+        stage: 'exploration:1',
+        run: () => toolControlCompletion(
+          'repo_read_file',
+          { path: 'tests/test_cli.py', startLine: 1, endLine: 6 },
+          'read-entry-path-test',
+        ),
+      },
+      { stage: 'exploration:2', content: 'The bounded test evidence pass is complete.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+      { stage: 'claim_synthesis:1', value: { claims: [noisy] } },
+      {
+        stage: 'claim_synthesis:2',
+        run(request) {
+          const correction = JSON.stringify(request.messages);
+          assert.match(correction, /unrequested inventory count/u);
+          assert.match(correction, new RegExp(goal.id, 'u'));
+          assert.match(correction, /return only the narrow requested fact/u);
+          return controlCompletion({ claims: [corrected] });
+        },
+      },
+      {
+        stage: 'semantic_verifier:1',
+        value: verifierResponse([semanticVerdict(corrected.id, 'supported', ['E1'])]),
+      },
+    ];
+
+    const { client, result } = await runTrustScript(steps, {
+      task,
+      scope: ['tests/**'],
+      async setup(root) {
+        await fs.mkdir(path.join(root, 'tests'), { recursive: true });
+        await fs.writeFile(path.join(root, 'tests', 'test_cli.py'), [
+          'from pipeline import cli',
+          '',
+          'def test_worker_fan_out(monkeypatch):',
+          '    calls = []',
+          '    cli.main(["run", "--workers", "3"])',
+          '    assert len(calls) == 3',
+        ].join('\n'));
+      },
+    });
+
+    assert.equal(client.stageCounts.get('claim_synthesis'), 2);
+    assert.equal(result.failure, null);
+    assert.equal(result.parentHandoff.state, 'complete');
+    assert.equal(result.parentHandoff.directAnswer, corrected.text);
+  },
+);
+
+semanticPipelineRuntimeTest(
   'Spec 028 T069 — repeated claim fanout quarantines only the noisy sub-goal',
   async () => {
     const task = 'Locate requireAuth and map the environment configuration impact.';
