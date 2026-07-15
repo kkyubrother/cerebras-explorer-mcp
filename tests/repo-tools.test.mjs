@@ -649,6 +649,19 @@ toolSpecificEnumerationTest(
       assert.deepEqual(grepCoverage.boundary, ['src/routes/**']);
       assert.equal(grepCoverage.enumerationComplete, true);
 
+      const baseAliasArgs = { pattern: 'requireAuth', scope: ['src'] };
+      const baseAlias = await toolkit.grep(baseAliasArgs);
+      const baseAliasCoverage = deriveCoverage({
+        tool: 'repo_grep',
+        args: baseAliasArgs,
+        result: baseAlias,
+        effectiveScope: ['src/**'],
+        contextTruncated: false,
+      });
+      assert.deepEqual(baseAliasCoverage.boundary, ['src/**'],
+        'a literal local scope equal to the effective glob prefix is the same boundary');
+      assert.equal(baseAliasCoverage.enumerationComplete, true);
+
       const walkLimitedConfig = { ...runtimeConfig, maxWalkFiles: 1 };
       const walkLimited = new RepoToolkit({ repoRoot: root, runtimeConfig: walkLimitedConfig });
       await walkLimited.initialize(['src/**']);

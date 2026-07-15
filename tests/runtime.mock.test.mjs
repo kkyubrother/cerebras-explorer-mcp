@@ -9956,7 +9956,7 @@ semanticPipelineRuntimeTest(
 );
 
 semanticPipelineRuntimeTest(
-  'Spec 028 T069 — bounded usage projection retains source evidence after a search-first cross-check',
+  'Spec 028 T069 — bounded usage accepts a literal alias for the full effective scope',
   async () => {
     const task = 'Trace the requireAuth definition and every in-scope usage.';
     const goals = [
@@ -10002,7 +10002,7 @@ semanticPipelineRuntimeTest(
           },
           {
             tool: 'repo_grep',
-            args: { pattern: 'requireAuth', scope: ['src/**'] },
+            args: { pattern: 'requireAuth', scope: ['src'] },
             id: 'trace-reversed-usage-cross-check',
           },
           {
@@ -10024,6 +10024,10 @@ semanticPipelineRuntimeTest(
       goals.map(() => 'supported'));
     assert.equal(result.parentHandoff.state, 'complete');
     assert.match(result.parentHandoff.directAnswer, /src\/routes\/user\.js/u);
+    const usageSearch = result.observations.find(observation =>
+      observation.kind === 'search' && observation.normalizedArgs?.scope?.[0] === 'src');
+    assert.deepEqual(usageSearch?.boundary, ['src/**']);
+    assert.equal(usageSearch?.enumerationComplete, true);
     assert.ok(result.parentHandoff.evidence.some(item =>
       item.kind === 'source' && item.path === 'src/routes/user.js'));
   },

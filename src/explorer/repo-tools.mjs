@@ -2582,7 +2582,12 @@ function intersectObservationBoundaries(effectiveScope, localScope) {
   const intersections = [];
   for (const basePattern of base) {
     for (const localPattern of local) {
-      if (observationScopeContains(basePattern, localPattern)) intersections.push(localPattern);
+      if (observationScopeContains(basePattern, localPattern)) {
+        const basePrefix = basePattern.endsWith('/**')
+          ? basePattern.slice(0, -3).replace(/\/$/, '')
+          : null;
+        intersections.push(localPattern === basePrefix ? basePattern : localPattern);
+      }
       else if (observationScopeContains(localPattern, basePattern)) intersections.push(basePattern);
       else if (!observationScopesAreDisjoint(basePattern, localPattern)) {
         intersections.push(`intersection:${JSON.stringify([basePattern, localPattern])}`);
