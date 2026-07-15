@@ -3034,6 +3034,24 @@ function runtimeRoleRequirement(subgoal, policyArtifacts = {}) {
   };
 }
 
+function filterDirectSourceClaimEvidence({ taskContract, claims, observations }) {
+  const subgoalById = new Map(taskContract.subgoals.map(subgoal => [subgoal.id, subgoal]));
+  const observationById = new Map(observations.map(observation => [observation.id, observation]));
+  return claims.map(claim => {
+    const subgoal = subgoalById.get(claim.subgoalId);
+    if (subgoal?.proofPolicy !== 'direct_source') return claim;
+    const requirement = runtimeRoleRequirement(subgoal);
+    const allowedRoles = new Set(requirement.sourceRoles);
+    const evidenceRefs = claim.evidenceRefs.filter(ref => {
+      const observation = observationById.get(ref);
+      return observation?.kind === 'source' &&
+        allowedRoles.has(observation.sourceRole) &&
+        observation.temporalRole === requirement.temporalRole;
+    });
+    return evidenceRefs.length > 0 ? { ...claim, evidenceRefs } : claim;
+  });
+}
+
 function wrapperSourceLocation(observation) {
   if (observation?.kind !== 'source' || observation.temporalRole !== 'current' ||
       typeof observation.path !== 'string' || !observation.path ||
@@ -5191,8 +5209,13 @@ export class ExplorerRuntime {
           };
         },
       });
-      claims.push(...batchClaims);
-      onTrustEvent?.('claim', { phase, claims: batchClaims });
+      const proofCompatibleBatchClaims = filterDirectSourceClaimEvidence({
+        taskContract: batchContract,
+        claims: batchClaims,
+        observations: safeObservations,
+      });
+      claims.push(...proofCompatibleBatchClaims);
+      onTrustEvent?.('claim', { phase, claims: proofCompatibleBatchClaims });
     }
 
     const candidateSubgoals = prepareCandidateSubgoals(taskContract, claims, {

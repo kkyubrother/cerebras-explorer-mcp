@@ -10482,6 +10482,131 @@ semanticPipelineRuntimeTest(
 );
 
 semanticPipelineRuntimeTest(
+  'Spec 028 T069 — direct-source claims discard proof-incompatible search evidence',
+  async () => {
+    const task = 'Explain what requireAuth does when req.user is missing.';
+    const goal = trustGoal(task, {
+      id: 'S-direct-source-filter',
+      question: task,
+      originText: task,
+      proofCondition: 'Observe the current requireAuth implementation source.',
+    });
+    const claim = candidateClaim(
+      'C-direct-source-filter',
+      goal.id,
+      'requireAuth throws unauthorized when req.user is missing.',
+      ['E1', 'E2'],
+    );
+    let verifierPacket;
+    const steps = [
+      { stage: 'planner:1', value: plannerControl([goal]) },
+      {
+        stage: 'goal_audit:1',
+        value: auditorControl([auditControlRecord(goal)]),
+      },
+      {
+        stage: 'exploration:1',
+        run: () => toolControlCompletion(
+          'repo_read_file',
+          { path: 'src/auth.js', startLine: 1, endLine: 4 },
+          'read-require-auth-definition',
+        ),
+      },
+      {
+        stage: 'exploration:2',
+        run: () => toolControlCompletion(
+          'repo_grep',
+          { pattern: 'requireAuth', scope: ['src/**'] },
+          'grep-require-auth',
+        ),
+      },
+      { stage: 'exploration:3', content: 'The bounded evidence pass is complete.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+      { stage: 'claim_synthesis:1', value: { claims: [claim] } },
+      {
+        stage: 'semantic_verifier:1',
+        run(request) {
+          verifierPacket = parseControlPacket(request);
+          return controlCompletion(verifierResponse([
+            semanticVerdict(claim.id, 'supported', ['E1']),
+          ]));
+        },
+      },
+    ];
+
+    const { client, result } = await runTrustScript(steps, { task });
+
+    assert.equal(result.failure, null, JSON.stringify(client.stageLabels));
+    assert.deepEqual(verifierPacket.claims[0].evidenceRefs, ['E1']);
+    assert.ok(verifierPacket.observations.some(item => item.id === 'E2' && item.kind === 'search'));
+    assert.equal(result.parentHandoff.state, 'complete');
+    assert.equal(result.parentHandoff.directAnswer, claim.text);
+    assert.deepEqual(result.semanticVerification.claims[0].evidenceRefs, ['E1']);
+    assert.deepEqual(result.semanticVerification.runtimeAllowedEvidenceRefsBySubgoal, [{
+      subgoalId: goal.id,
+      evidenceRefs: ['E1'],
+    }]);
+    assert.deepEqual(result.parentHandoff.evidence.map(item => item.kind), ['source']);
+    assert.doesNotMatch(JSON.stringify(result.parentHandoff), /repo_grep|E2/u);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — a direct-source claim with only search evidence remains a gap',
+  async () => {
+    const task = 'Explain what requireAuth does when req.user is missing.';
+    const goal = trustGoal(task, {
+      id: 'S-direct-source-search-only',
+      question: task,
+      originText: task,
+      proofCondition: 'Observe the current requireAuth implementation source.',
+    });
+    const claim = candidateClaim(
+      'C-direct-source-search-only',
+      goal.id,
+      'requireAuth throws unauthorized when req.user is missing.',
+      ['E1'],
+    );
+    const steps = [
+      { stage: 'planner:1', value: plannerControl([goal]) },
+      {
+        stage: 'goal_audit:1',
+        value: auditorControl([auditControlRecord(goal)]),
+      },
+      {
+        stage: 'exploration:1',
+        run: () => toolControlCompletion(
+          'repo_grep',
+          { pattern: 'requireAuth', scope: ['src/**'] },
+          'grep-require-auth-only',
+        ),
+      },
+      { stage: 'exploration:2', content: 'The bounded search pass is complete.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+      { stage: 'claim_synthesis:1', value: { claims: [claim] } },
+      {
+        stage: 'semantic_verifier:1',
+        value: verifierResponse([
+          semanticVerdict(claim.id, 'supported', ['E1']),
+        ]),
+      },
+      { stage: 'exploration:3', content: 'No direct source evidence was read.' },
+    ];
+
+    const { client, result } = await runTrustScript(steps, { task });
+
+    assert.equal(result.failure, null, JSON.stringify(client.stageLabels));
+    assert.equal(client.stageCounts.get('semantic_verifier'), 1);
+    assert.equal(result.parentHandoff.state, 'incomplete');
+    assert.equal(result.semanticVerification.claims[0].verdict, 'insufficient');
+    assert.ok(result.coverageGaps.some(gap => gap.subgoalId === goal.id),
+      JSON.stringify(result.coverageGaps));
+    assert.doesNotMatch(JSON.stringify(result.parentHandoff),
+      /C-direct-source-search-only|repo_grep|E1/u);
+  },
+);
+
+semanticPipelineRuntimeTest(
   'Spec 028 T069 — an unprojectable supported claim records an internal parent gap',
   async () => {
     const task = 'Compare the bounded requireAuth definition and route usage.';
