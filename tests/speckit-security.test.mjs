@@ -14,27 +14,9 @@ async function read(relPath) {
   return fs.readFile(path.join(ROOT, relPath), 'utf8');
 }
 
-async function normalizeShellScripts(dir) {
-  const entries = await fs.readdir(dir, { withFileTypes: true });
-
-  for (const entry of entries) {
-    const entryPath = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      await normalizeShellScripts(entryPath);
-    } else if (entry.isFile() && entry.name.endsWith('.sh')) {
-      const content = await fs.readFile(entryPath, 'utf8');
-      const normalized = content.replace(/\r\n?/g, '\n');
-      if (normalized !== content) {
-        await fs.writeFile(entryPath, normalized);
-      }
-    }
-  }
-}
-
 async function makeRepoWithSpeckit() {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'speckit-security-'));
   await fs.cp(path.join(ROOT, '.specify'), path.join(tempDir, '.specify'), { recursive: true });
-  await normalizeShellScripts(path.join(tempDir, '.specify'));
 
   await execFileAsync('git', ['init', '-q'], { cwd: tempDir });
   await execFileAsync('git', ['config', 'user.email', 'test@example.invalid'], { cwd: tempDir });
@@ -56,6 +38,16 @@ async function makeRepoWithSpeckit() {
 
   return { tempDir, marker };
 }
+
+test('tracked shell scripts declare and use LF checkout normalization', async () => {
+  assert.match(await read('.gitattributes'), /^\*\.sh text eol=lf$/mu);
+  const { stdout } = await execFileAsync('git', ['ls-files', '*.sh'], { cwd: ROOT });
+  const scripts = stdout.trim().split(/\r?\n/u).filter(Boolean);
+  assert.ok(scripts.length > 0);
+  for (const relPath of scripts) {
+    assert.doesNotMatch(await read(relPath), /\r/u, `${relPath} must use LF line endings`);
+  }
+});
 
 function isRetryableRmError(error) {
   return error?.code === 'EBUSY' || error?.code === 'ENOTEMPTY' || error?.code === 'EPERM';
