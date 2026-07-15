@@ -4845,6 +4845,31 @@ auditedPlanningRuntimeTest('Spec 028 T068 — invalid control retries receive on
   assert.deepEqual(result.taskContract.subgoals.map(subgoal => subgoal.id), goals.map(item => item.id));
 });
 
+auditedPlanningRuntimeTest('Spec 028 T069 — repeated cross-goal auditor origins still fail closed', async () => {
+  const goals = definitionAndAbsenceGoals();
+  const crossGoalOrigin = goals[1].originRefs[0];
+  const invalidAudit = () => auditorControl(goals.map((goal, index) =>
+    auditControlRecord(goal, 'ready', {
+      originRefs: index === 0 ? [crossGoalOrigin] : goal.originRefs,
+    })));
+  const client = new ScriptedGoalAuditClient([
+    { stage: 'planner:1', value: plannerControl(goals) },
+    { stage: 'goal_audit:1', value: invalidAudit() },
+    { stage: 'goal_audit:2', value: invalidAudit() },
+  ]);
+  const root = await makeRepoFixture();
+  const result = await new RuntimeImplementation({ chatClient: client }).explore({
+    task: GOAL_AUDIT_TASK,
+    repo_root: root,
+    scope: ['src/**'],
+  });
+
+  assert.equal(client.stageCounts.get('goal_audit'), 2);
+  assert.equal(client.stageCounts.get('exploration') ?? 0, 0);
+  assert.equal(result.failure?.reason, 'invalid_final_response');
+  assert.equal(result.parentHandoff.state, 'failed');
+});
+
 auditedPlanningRuntimeTest('Spec 028 T068 — consumed duplicate audits remain internal diagnostics', async () => {
   const retained = proposedRuntimeGoal();
   const duplicate = proposedRuntimeGoal({
@@ -6220,6 +6245,69 @@ auditedPlanningRuntimeTest(
     assert.deepEqual(result.taskContract.subgoals.map(goal => goal.originRefs),
       canonical.map(goal => goal.originRefs));
     assert.equal(result.coverageGaps.some(gap => gap.reason === 'planning_incomplete'), false);
+  },
+);
+
+auditedPlanningRuntimeTest(
+  'Spec 028 T069 — a repeatedly narrowed auditor origin restores the immutable planner origin',
+  async () => {
+    const task = 'Map the translation pipeline implementation, tests, and every environment/configuration input needed to run it.';
+    const goals = [
+      {
+        id: 'S-pipeline-flow-audit-recovery',
+        question: 'What is the implementation flow of the translation pipeline?',
+        originRefs: ['request:0-44'],
+        claimType: 'flow',
+        proofCondition: 'Identify the translation pipeline implementation flow.',
+        constraints: [],
+      },
+      {
+        id: 'S-pipeline-tests-audit-recovery',
+        question: 'Which tests cover the translation pipeline?',
+        originRefs: ['request:0-51'],
+        claimType: 'positive',
+        proofCondition: 'Identify tests that cover the translation pipeline.',
+        constraints: [],
+      },
+      {
+        id: 'S-pipeline-inputs-audit-recovery',
+        question: 'Which environment and configuration inputs are required?',
+        originRefs: [`request:0-${task.length}`],
+        claimType: 'impact',
+        proofCondition: 'Identify every environment and configuration input needed to run the pipeline.',
+        constraints: [],
+      },
+    ];
+    const narrowedAudit = () => auditorControl(goals.map((goal, index) =>
+      auditControlRecord(goal, 'ready', {
+        originRefs: index === 1 ? ['request:45-51'] : goal.originRefs,
+      })));
+    const client = new ScriptedGoalAuditClient([
+      { stage: 'planner:1', value: plannerControl(goals) },
+      { stage: 'goal_audit:1', value: narrowedAudit() },
+      {
+        stage: 'goal_audit:2',
+        run(request) {
+          assert.match(JSON.stringify(request.messages), /unproposed origin request:45-51/u);
+          return controlCompletion(narrowedAudit());
+        },
+      },
+      { stage: 'exploration:1', content: 'The restored pipeline goals are ready.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+    ]);
+    const root = await makeRepoFixture();
+    const result = await new RuntimeImplementation({ chatClient: client }).explore({
+      task,
+      repo_root: root,
+    });
+
+    assert.equal(result.failure, null, JSON.stringify({
+      failure: result.failure,
+      stages: client.stageLabels,
+    }));
+    assert.equal(client.stageCounts.get('goal_audit'), 2);
+    assert.deepEqual(result.taskContract.subgoals.map(goal => goal.originRefs),
+      goals.map(goal => goal.originRefs));
   },
 );
 

@@ -4229,6 +4229,39 @@ function requestOriginRange(originRef) {
   return match ? { start: Number(match[1]), end: Number(match[2]) } : null;
 }
 
+function restoreNarrowedGoalAuditOrigins(value, proposal) {
+  const normalized = normalizeGoalAuditorControl(value);
+  if (!normalized || typeof normalized !== 'object' || Array.isArray(normalized) ||
+      !Array.isArray(normalized.goals) || !Array.isArray(proposal?.subgoals)) {
+    return null;
+  }
+  const proposalById = new Map(proposal.subgoals.map(goal => [goal.id, goal]));
+  let restored = false;
+  const goals = [];
+  for (const record of normalized.goals) {
+    const proposed = proposalById.get(record?.proposedGoalId);
+    if (!proposed || !Array.isArray(record.originRefs) ||
+        !Array.isArray(proposed.originRefs)) {
+      return null;
+    }
+    if (sameStringSet(record.originRefs, proposed.originRefs)) {
+      goals.push(record);
+      continue;
+    }
+    if (record.originRefs.length !== 1 || proposed.originRefs.length !== 1) return null;
+    const supplied = requestOriginRange(record.originRefs[0]);
+    const immutable = requestOriginRange(proposed.originRefs[0]);
+    if (!supplied || !immutable || supplied.start < immutable.start ||
+        supplied.end > immutable.end || supplied.end <= supplied.start ||
+        (supplied.start === immutable.start && supplied.end === immutable.end)) {
+      return null;
+    }
+    restored = true;
+    goals.push({ ...record, originRefs: [...proposed.originRefs] });
+  }
+  return restored ? { ...normalized, goals } : null;
+}
+
 function existingOriginCoversProposalOrigin(existingOrigin, proposalOrigin) {
   if (existingOrigin === proposalOrigin) return true;
   const existingRange = requestOriginRange(existingOrigin);
@@ -5423,6 +5456,55 @@ export class ExplorerRuntime {
       preflightDiagnostics: preflight.diagnostics,
       revisionCount,
     });
+    const validateAuditControl = raw => {
+      const response = validateGoalAuditorResponse(normalizeGoalAuditorControl(raw), {
+        task,
+        wrapperTool,
+        plannerProposal: proposal,
+        externalMergeTargetIds: existingGoalLedger.map(goal => goal.id),
+      });
+      validateGoalAuditConsistency(response, proposal);
+      requireCanonicalGoalAudit(
+        response,
+        preflight.canonicalIndependentGoalIds ?? [],
+      );
+      if (requireWrapperGoalOrigins) {
+        requireAuditedWrapperGoalOrigins({ wrapperTool, proposal, response });
+      }
+      const partitioned = partitionExternalGoalMerges({
+        response,
+        proposal,
+        preflight,
+        existingGoalLedger,
+      });
+      const reduction = reduceGoalAudit({
+        preflight: partitioned.preflight,
+        auditRecords: partitioned.response.goals,
+        uncoveredRequestParts: partitioned.response.uncoveredRequestParts,
+        revisionCount,
+        existingRequiredSubgoals: existingGoalLedger,
+        distinctOriginGoalIds: partitioned.preflight.distinctOriginGoalIds ?? [],
+      });
+      if (reduction.controlFault) {
+        throw new TypeError(`Goal audit control fault: ${reduction.controlFault.code}.`);
+      }
+      if (!allowEmptyRequired && reduction.requiredSubgoals.length === 0 &&
+          reduction.revisionRequest === null) {
+        throw new TypeError('Goal audit discarded every requested obligation.');
+      }
+      if (requireWrapperGoalOrigins) {
+        validateCollectEvidenceGoalPlan({
+          task,
+          wrapperTool,
+          goals: reduction.requiredSubgoals,
+        });
+      }
+      return {
+        response: partitioned.response,
+        reduction,
+        externalMerges: partitioned.externalMerges,
+      };
+    };
     return requestValidatedGoalControl({
       chatClient,
       messages,
@@ -5435,54 +5517,12 @@ export class ExplorerRuntime {
       maxCompletionTokens,
       abortSignal,
       onCompletion,
-      validate: raw => {
-        const response = validateGoalAuditorResponse(normalizeGoalAuditorControl(raw), {
-          task,
-          wrapperTool,
-          plannerProposal: proposal,
-          externalMergeTargetIds: existingGoalLedger.map(goal => goal.id),
-        });
-        validateGoalAuditConsistency(response, proposal);
-        requireCanonicalGoalAudit(
-          response,
-          preflight.canonicalIndependentGoalIds ?? [],
-        );
-        if (requireWrapperGoalOrigins) {
-          requireAuditedWrapperGoalOrigins({ wrapperTool, proposal, response });
-        }
-        const partitioned = partitionExternalGoalMerges({
-          response,
-          proposal,
-          preflight,
-          existingGoalLedger,
-        });
-        const reduction = reduceGoalAudit({
-          preflight: partitioned.preflight,
-          auditRecords: partitioned.response.goals,
-          uncoveredRequestParts: partitioned.response.uncoveredRequestParts,
-          revisionCount,
-          existingRequiredSubgoals: existingGoalLedger,
-          distinctOriginGoalIds: partitioned.preflight.distinctOriginGoalIds ?? [],
-        });
-        if (reduction.controlFault) {
-          throw new TypeError(`Goal audit control fault: ${reduction.controlFault.code}.`);
-        }
-        if (!allowEmptyRequired && reduction.requiredSubgoals.length === 0 &&
-            reduction.revisionRequest === null) {
-          throw new TypeError('Goal audit discarded every requested obligation.');
-        }
-        if (requireWrapperGoalOrigins) {
-          validateCollectEvidenceGoalPlan({
-            task,
-            wrapperTool,
-            goals: reduction.requiredSubgoals,
-          });
-        }
-        return {
-          response: partitioned.response,
-          reduction,
-          externalMerges: partitioned.externalMerges,
-        };
+      validate: validateAuditControl,
+      recoverFinalValidation: ({ parsed }) => {
+        const restored = restoreNarrowedGoalAuditOrigins(parsed, proposal);
+        return restored
+          ? { accepted: true, value: validateAuditControl(restored) }
+          : null;
       },
     });
   }
