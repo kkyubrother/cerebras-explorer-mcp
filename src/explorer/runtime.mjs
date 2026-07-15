@@ -3769,6 +3769,55 @@ function originSignatureFitsCoverageObligation(candidateRefs, obligation) {
       originDescendsFrom(candidate, original) || originDescendsFrom(original, candidate)));
 }
 
+function sameGoalAcceptanceCore(left, right) {
+  return left?.question === right?.question &&
+    left?.claimType === right?.claimType &&
+    left?.proofCondition === right?.proofCondition &&
+    sameStringSet(left?.constraints, right?.constraints);
+}
+
+function originSignatureStrictlyExpands(candidateRefs, originalRefs) {
+  return !sameStringSet(candidateRefs, originalRefs) &&
+    originSignatureCovers(candidateRefs, originalRefs) &&
+    candidateRefs.every(candidate => originalRefs.some(original =>
+      originDescendsFrom(candidate, original) || originDescendsFrom(original, candidate)));
+}
+
+function exactOriginCorrectionFindings({
+  obligations,
+  proposal,
+  auditRecords,
+  eligibleGoalIds = null,
+}) {
+  const allowedIds = eligibleGoalIds ? new Set(eligibleGoalIds) : null;
+  const recordById = new Map(auditRecords.map(record => [record.proposedGoalId, record]));
+  const matchesByObligationId = new Map();
+  const matchCountByGoalId = new Map();
+  for (const obligation of obligations) {
+    if (obligation.kind !== 'decompose') continue;
+    const matches = proposal.subgoals.filter(goal => {
+      const record = recordById.get(goal.id);
+      return record?.verdict === 'ready' && (!allowedIds || allowedIds.has(goal.id)) &&
+        sameGoalAcceptanceCore(goal, obligation.goal) &&
+        originSignatureStrictlyExpands(record.originRefs, obligation.goal.originRefs);
+    });
+    matchesByObligationId.set(obligation.obligationId, matches);
+    for (const goal of matches) {
+      matchCountByGoalId.set(goal.id, (matchCountByGoalId.get(goal.id) ?? 0) + 1);
+    }
+  }
+  return obligations.flatMap(obligation => {
+    const matches = matchesByObligationId.get(obligation.obligationId) ?? [];
+    if (matches.length !== 1 || matchCountByGoalId.get(matches[0].id) !== 1) return [];
+    return [{
+      obligationId: obligation.obligationId,
+      disposition: 'covered',
+      coveredByGoalIds: [matches[0].id],
+      reason: 'One uniquely audited goal preserved the acceptance core and corrected only its origin boundary.',
+    }];
+  });
+}
+
 const COVERAGE_ELIGIBLE_VERDICTS = new Set([
   'ready',
   'needs_decomposition',
@@ -4824,21 +4873,32 @@ export class ExplorerRuntime {
     onCompletion,
   }) {
     const recordById = new Map(auditRecords.map(record => [record.proposedGoalId, record]));
-    const deterministicFindings = obligations.flatMap(obligation => {
-      if (obligation.kind !== 'decompose') return [];
-      const eligible = coverageCandidateIds({
-        obligations: [obligation],
-        proposal,
-        auditRecords,
-        eligibleGoalIds,
-      });
-      return eligible.length < 2 ? [{
-        obligationId: obligation.obligationId,
-        disposition: 'remaining',
-        coveredByGoalIds: [],
-        reason: 'A decomposition obligation requires at least two audited descendant goals.',
-      }] : [];
+    const correctionFindings = exactOriginCorrectionFindings({
+      obligations,
+      proposal,
+      auditRecords,
+      eligibleGoalIds,
     });
+    const correctionIds = new Set(correctionFindings.map(finding => finding.obligationId));
+    const deterministicFindings = [
+      ...correctionFindings,
+      ...obligations.flatMap(obligation => {
+        if (correctionIds.has(obligation.obligationId)) return [];
+        if (obligation.kind !== 'decompose') return [];
+        const eligible = coverageCandidateIds({
+          obligations: [obligation],
+          proposal,
+          auditRecords,
+          eligibleGoalIds,
+        });
+        return eligible.length < 2 ? [{
+          obligationId: obligation.obligationId,
+          disposition: 'remaining',
+          coveredByGoalIds: [],
+          reason: 'A decomposition obligation requires at least two audited descendant goals.',
+        }] : [];
+      }),
+    ];
     const deterministicIds = new Set(
       deterministicFindings.map(finding => finding.obligationId),
     );

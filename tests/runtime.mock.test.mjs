@@ -5893,6 +5893,100 @@ auditedPlanningRuntimeTest(
   },
 );
 
+auditedPlanningRuntimeTest(
+  'Spec 028 T069 — one exact acceptance-core origin correction replaces a false decomposition blocker',
+  async () => {
+    const task = 'Map pipeline flow, tests, and environment configuration impact.';
+    const original = {
+      id: 'S-config-impact-original',
+      question: 'Which environment configuration inputs affect the pipeline?',
+      originRefs: [requestOrigin(task, 'environment configuration impact')],
+      claimType: 'impact',
+      proofCondition: 'Observe the environment configuration inputs and their pipeline effect.',
+      constraints: ['Keep the answer within the requested pipeline.'],
+    };
+    const corrected = {
+      ...original,
+      id: 'S-config-impact-corrected',
+      originRefs: [`request:0-${task.length}`],
+    };
+    const client = new ScriptedGoalAuditClient([
+      { stage: 'planner:1', value: plannerControl([original]) },
+      {
+        stage: 'goal_audit:1',
+        value: auditorControl([auditControlRecord(original, 'needs_decomposition')]),
+      },
+      { stage: 'planner:2', value: plannerControl([corrected]) },
+      {
+        stage: 'goal_audit:2',
+        value: auditorControl([auditControlRecord(corrected)]),
+      },
+      { stage: 'exploration:1', content: 'The corrected config goal is ready.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+    ]);
+    const root = await makeRepoFixture();
+    const result = await new RuntimeImplementation({ chatClient: client }).explore({
+      task,
+      repo_root: root,
+    });
+
+    assert.equal(result.failure, null);
+    assert.equal(client.stageCounts.get('goal_coverage') ?? 0, 0);
+    assert.deepEqual(result.taskContract.subgoals.map(goal => goal.id), [corrected.id]);
+    assert.equal(result.taskContract.subgoals[0].auditVerdict, 'ready');
+    assert.equal(result.coverageGaps.some(gap => gap.reason === 'planning_incomplete'), false);
+    assert.doesNotMatch(JSON.stringify(result.parentHandoff),
+      /planning-carry|planning_incomplete|goal_coverage|auditVerdict/u);
+  },
+);
+
+test('Spec 028 T069 — ambiguous origin corrections remain fail-closed', async () => {
+  const task = 'Map pipeline environment configuration impact.';
+  const original = {
+    id: 'S-config-original',
+    question: 'Which environment configuration inputs affect the pipeline?',
+    originRefs: [requestOrigin(task, 'environment configuration')],
+    claimType: 'impact',
+    proofCondition: 'Observe the environment configuration inputs and their pipeline effect.',
+    constraints: [],
+  };
+  const corrected = ['A', 'B'].map(suffix => ({
+    ...original,
+    id: `S-config-corrected-${suffix}`,
+    originRefs: [`request:0-${task.length}`],
+  }));
+  const runtime = new RuntimeImplementation({
+    chatClient: {
+      model: 'zai-glm-4.7',
+      async createChatCompletion() {
+        assert.fail('ambiguous correction must fail closed without another model call');
+      },
+    },
+  });
+  const result = await runtime._reconcileGoalCoverage({
+    chatClient: runtime._explicitChatClient,
+    task,
+    effectiveScope: ['src/**'],
+    wrapperTool: 'explore_repo',
+    obligations: [{
+      obligationId: 'revision-obligation-1',
+      sourceId: original.id,
+      kind: 'decompose',
+      goal: original,
+    }],
+    proposal: plannerControl(corrected),
+    auditRecords: corrected.map(goal => auditControlRecord(goal)),
+    eligibleGoalIds: corrected.map(goal => goal.id),
+  });
+
+  assert.deepEqual(result.findings, [{
+    obligationId: 'revision-obligation-1',
+    disposition: 'remaining',
+    coveredByGoalIds: [],
+    reason: 'A decomposition obligation requires at least two audited descendant goals.',
+  }]);
+});
+
 auditedPlanningRuntimeTest('Spec 028 T022 — preserved origin and constraint sets may be reordered', async () => {
   const kept = proposedRuntimeGoal({
     id: 'S-kept',
