@@ -2325,6 +2325,23 @@ function controlBatches(values, size = SEMANTIC_CONTROL_BATCH_SIZE) {
   return batches;
 }
 
+function claimSynthesisBatches(subgoals) {
+  const batches = [];
+  let run = [];
+  let directSource = null;
+  for (const subgoal of subgoals) {
+    const nextDirectSource = subgoal.proofPolicy === 'direct_source';
+    if (run.length > 0 && nextDirectSource !== directSource) {
+      batches.push(...controlBatches(run));
+      run = [];
+    }
+    directSource = nextDirectSource;
+    run.push(subgoal);
+  }
+  batches.push(...controlBatches(run));
+  return batches;
+}
+
 function semanticBatchContract(taskContract, subgoals) {
   return {
     ...taskContract,
@@ -3087,19 +3104,28 @@ function runtimeRoleRequirement(subgoal, policyArtifacts = {}) {
   };
 }
 
+function isDirectSourceSynthesisObservation(observation) {
+  const requirement = runtimeRoleRequirement({ proofPolicy: 'direct_source' });
+  return requirement.observationKinds.includes(observation?.kind) &&
+    requirement.sourceRoles.includes(observation?.sourceRole) &&
+    observation?.temporalRole === requirement.temporalRole;
+}
+
+function claimSynthesisObservations(subgoals, observations) {
+  return subgoals.every(subgoal => subgoal.proofPolicy === 'direct_source')
+    ? observations.filter(isDirectSourceSynthesisObservation)
+    : observations;
+}
+
 function filterDirectSourceClaimEvidence({ taskContract, claims, observations }) {
   const subgoalById = new Map(taskContract.subgoals.map(subgoal => [subgoal.id, subgoal]));
   const observationById = new Map(observations.map(observation => [observation.id, observation]));
   return claims.map(claim => {
     const subgoal = subgoalById.get(claim.subgoalId);
     if (subgoal?.proofPolicy !== 'direct_source') return claim;
-    const requirement = runtimeRoleRequirement(subgoal);
-    const allowedRoles = new Set(requirement.sourceRoles);
     const evidenceRefs = claim.evidenceRefs.filter(ref => {
       const observation = observationById.get(ref);
-      return observation?.kind === 'source' &&
-        allowedRoles.has(observation.sourceRole) &&
-        observation.temporalRole === requirement.temporalRole;
+      return isDirectSourceSynthesisObservation(observation);
     });
     return evidenceRefs.length > 0 ? { ...claim, evidenceRefs } : claim;
   });
@@ -5709,7 +5735,6 @@ export class ExplorerRuntime {
     onTrustEvent,
   }) {
     const safeObservations = Array.isArray(observations) ? observations : [];
-    const observationIds = runtimeObservationIds(safeObservations);
     if (phase !== 'initial' && phase !== 'post-repair') {
       throw new TypeError('Semantic verification phase must be initial or post-repair.');
     }
@@ -5730,25 +5755,33 @@ export class ExplorerRuntime {
     const claims = [];
     const usedClaimIds = new Set();
     for (const subgoalBatch of safeObservations.length > 0
-      ? controlBatches(activeSubgoals)
+      ? claimSynthesisBatches(activeSubgoals)
       : []) {
       const batchContract = semanticBatchContract(taskContract, subgoalBatch);
       const batchSubgoalIds = new Set(subgoalBatch.map(subgoal => subgoal.id));
       const batchPriorClaims = safePriorClaims.filter(claim =>
         batchSubgoalIds.has(claim.subgoalId));
+      const synthesisObservations = claimSynthesisObservations(
+        subgoalBatch,
+        safeObservations,
+      );
+      const synthesisObservationIds = runtimeObservationIds(synthesisObservations);
+      const synthesisFreshEvidenceRefs = freshEvidenceRefs.filter(ref =>
+        synthesisObservationIds.has(ref));
+      if (synthesisObservations.length === 0 && batchPriorClaims.length === 0) continue;
       const batchClaims = await requestValidatedGoalControl({
         chatClient,
         messages: phase === 'post-repair'
           ? buildPostRepairClaimMessages({
               taskContract: batchContract,
-              observations: safeObservations,
+              observations: synthesisObservations,
               priorClaims: batchPriorClaims,
-              freshEvidenceRefs,
+              freshEvidenceRefs: synthesisFreshEvidenceRefs,
               wrapperTool,
             })
           : buildClaimSynthesisMessages({
               taskContract: batchContract,
-              observations: safeObservations,
+              observations: synthesisObservations,
               wrapperTool,
             }),
         schemaName: 'claim_synthesis',
@@ -5762,10 +5795,10 @@ export class ExplorerRuntime {
         onCompletion,
         validate: raw => validateSynthesizedClaimBatch(raw, {
           taskContract: batchContract,
-          observationIds,
+          observationIds: synthesisObservationIds,
           usedClaimIds,
           priorClaims: batchPriorClaims,
-          freshEvidenceRefs,
+          freshEvidenceRefs: synthesisFreshEvidenceRefs,
         }),
         recoverFinalValidation: ({ parsed, error }) => {
           if (error?.claimSynthesisFailure !== 'aggregate_claim_fanout' ||
@@ -5776,10 +5809,10 @@ export class ExplorerRuntime {
             accepted: true,
             value: validateSynthesizedClaimBatch(parsed, {
               taskContract: batchContract,
-              observationIds,
+              observationIds: synthesisObservationIds,
               usedClaimIds,
               priorClaims: batchPriorClaims,
-              freshEvidenceRefs,
+              freshEvidenceRefs: synthesisFreshEvidenceRefs,
               quarantineNoisySubgoalIds: error.noisySubgoalIds,
             }),
           };
@@ -5788,18 +5821,22 @@ export class ExplorerRuntime {
       const proofCompatibleBatchClaims = filterDirectSourceClaimEvidence({
         taskContract: batchContract,
         claims: batchClaims,
-        observations: safeObservations,
+        observations: synthesisObservations,
       });
       const subgoalById = new Map(subgoalBatch.map(subgoal => [subgoal.id, subgoal]));
       const groundedBatchClaims = proofCompatibleBatchClaims.map(claim =>
         canonicalizeSymbolDefinitionRangeClaim({
           subgoal: subgoalById.get(claim.subgoalId),
           claim,
-          observations: safeObservations,
+          observations: synthesisObservations,
         }));
       claims.push(...groundedBatchClaims);
       onTrustEvent?.('claim', { phase, claims: groundedBatchClaims });
     }
+
+    const subgoalOrder = new Map(activeSubgoals.map((subgoal, index) => [subgoal.id, index]));
+    claims.sort((left, right) =>
+      subgoalOrder.get(left.subgoalId) - subgoalOrder.get(right.subgoalId));
 
     const candidateSubgoals = prepareCandidateSubgoals(taskContract, claims, {
       phase,

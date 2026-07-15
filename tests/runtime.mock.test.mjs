@@ -4527,13 +4527,21 @@ class ScriptedGoalAuditClient {
     this.requests.push(request);
 
     let step = this.steps[this.stepCursor];
+    while (step?.repeatStage && step.repeatStage !== stage) {
+      this.stepCursor += 1;
+      step = this.steps[this.stepCursor];
+    }
     while (step?.optional && step.stage !== label) {
       this.stepCursor += 1;
       step = this.steps[this.stepCursor];
     }
     assert.ok(step, `unexpected provider call ${label}`);
-    assert.equal(label, step.stage);
-    this.stepCursor += 1;
+    if (step.repeatStage) {
+      assert.equal(stage, step.repeatStage);
+    } else {
+      assert.equal(label, step.stage);
+      this.stepCursor += 1;
+    }
     const completion = step.run
       ? await step.run(request, this)
       : controlCompletion(step.content ?? step.value);
@@ -7649,9 +7657,10 @@ function buildTrustSteps({ goals, initial, repair }) {
     },
   ];
   let exploration = 0;
-  let claimSynthesis = 0;
   let verification = 0;
   let audit = 1;
+  let hasRuntimeObservation = false;
+  let hasDirectSourceObservation = false;
 
   const addPass = (pass, { includeFinalSynthesis = false, repairPass = false } = {}) => {
     if (pass.providerError) {
@@ -7693,47 +7702,71 @@ function buildTrustSteps({ goals, initial, repair }) {
       exploration += 1;
       steps.push({ stage: `exploration:${exploration}`, content: pass.prose ?? 'Evidence pass complete.' });
     }
+    const passTools = pass.tools ?? [];
+    hasRuntimeObservation ||= passTools.length > 0;
+    hasDirectSourceObservation ||= passTools.some(call =>
+      call.tool === 'repo_read_file' || call.tool === 'repo_symbol_context');
     if (includeFinalSynthesis) {
       steps.push({ stage: 'synthesis:1', value: readyExplorationResult() });
     }
-    claimSynthesis += 1;
-    steps.push({
-      stage: `claim_synthesis:${claimSynthesis}`,
-      value: { claims: pass.claims },
-    });
 
-    const verifierSteps = pass.verifierSteps ?? [{
-      verdicts: pass.verdicts,
-      uncovered: pass.uncovered,
-      assertRequest: pass.assertVerifier,
-    }];
-    for (const verifier of verifierSteps) {
-      verification += 1;
+    const activeSubgoalIds = repairPass
+      ? new Set([...(initial.claims ?? []), ...(pass.claims ?? [])]
+        .map(claim => claim.subgoalId))
+      : new Set(goals.map(goal => goal.id));
+    const activeGoals = goals.filter(goal => activeSubgoalIds.has(goal.id));
+    const hasPotentialClaimBatch =
+      (hasRuntimeObservation && activeGoals.some(goal => goal.claimType !== 'positive')) ||
+      (hasDirectSourceObservation && activeGoals.some(goal => goal.claimType === 'positive'));
+    if (hasPotentialClaimBatch) {
       steps.push({
-        stage: `semantic_verifier:${verification}`,
+        stage: 'claim_synthesis:*',
+        repeatStage: 'claim_synthesis',
         run(request) {
-          verifier.assertRequest?.(request);
-          if (verifier.error) {
-            const error = new Error(verifier.error);
-            error.retryable = false;
-            throw error;
-          }
-          if (verifier.raw !== undefined) {
-            return controlCompletion(verifier.raw, { finishReason: verifier.finishReason });
-          }
-          return controlCompletion(verifierResponse(
-            verifier.verdicts,
-            verifier.uncovered ?? [],
-          ));
+          const subgoalIds = new Set(parseControlPacket(request).control.requiredSubgoals
+            .map(goal => goal.id));
+          return controlCompletion({
+            claims: (pass.claims ?? []).filter(claim => subgoalIds.has(claim.subgoalId)),
+          });
         },
       });
     }
-    if (pass.auditVerdict) {
-      audit += 1;
-      steps.push({
-        stage: `goal_audit:${audit}`,
-        run: request => lateAuditResponse(request, pass.auditVerdict),
-      });
+
+    const carriesPriorClaims = repairPass && (initial.claims?.length ?? 0) > 0;
+    if (hasPotentialClaimBatch && ((pass.claims?.length ?? 0) > 0 || carriesPriorClaims)) {
+      const verifierSteps = pass.verifierSteps ?? [{
+        verdicts: pass.verdicts,
+        uncovered: pass.uncovered,
+        assertRequest: pass.assertVerifier,
+      }];
+      for (const verifier of verifierSteps) {
+        verification += 1;
+        steps.push({
+          stage: `semantic_verifier:${verification}`,
+          run(request) {
+            verifier.assertRequest?.(request);
+            if (verifier.error) {
+              const error = new Error(verifier.error);
+              error.retryable = false;
+              throw error;
+            }
+            if (verifier.raw !== undefined) {
+              return controlCompletion(verifier.raw, { finishReason: verifier.finishReason });
+            }
+            return controlCompletion(verifierResponse(
+              verifier.verdicts,
+              verifier.uncovered ?? [],
+            ));
+          },
+        });
+      }
+      if (pass.auditVerdict) {
+        audit += 1;
+        steps.push({
+          stage: `goal_audit:${audit}`,
+          run: request => lateAuditResponse(request, pass.auditVerdict),
+        });
+      }
     }
   };
 
@@ -8677,7 +8710,9 @@ test('Spec 028 T059 — runtime enforces negative and critical proof boundaries'
         assert.ok(directObservations.length > 0);
         assert.ok(directObservations.every(observation =>
           observation.temporalRole === 'historical'));
-        assertInternalProofGap(result, goal.id);
+        assert.deepEqual(result.semanticVerification?.claims ?? [], []);
+        assert.ok(result.coverageGaps.some(gap =>
+          gap.subgoalId === goal.id && gap.reason === 'missing_evidence'));
         assertMinimalIncompleteParentHandoff(result, goal.question);
       },
     },
@@ -11686,7 +11721,7 @@ semanticPipelineRuntimeTest(
 );
 
 semanticPipelineRuntimeTest(
-  'Spec 028 T069 — direct-source claims discard proof-incompatible search evidence',
+  'Spec 028 T069 — direct-source synthesis hides search evidence from claims but not verification',
   async () => {
     const task = 'Explain what requireAuth does when req.user is missing.';
     const goal = trustGoal(task, {
@@ -11699,7 +11734,7 @@ semanticPipelineRuntimeTest(
       'C-direct-source-filter',
       goal.id,
       'requireAuth throws unauthorized when req.user is missing.',
-      ['E1', 'E2'],
+      ['E1'],
     );
     let verifierPacket;
     const steps = [
@@ -11726,7 +11761,15 @@ semanticPipelineRuntimeTest(
       },
       { stage: 'exploration:3', content: 'The bounded evidence pass is complete.' },
       { stage: 'synthesis:1', value: readyExplorationResult() },
-      { stage: 'claim_synthesis:1', value: { claims: [claim] } },
+      {
+        stage: 'claim_synthesis:1',
+        run(request) {
+          const packet = parseControlPacket(request);
+          assert.deepEqual(packet.observations.map(item => item.id), ['E1']);
+          assert.ok(packet.observations.every(item => item.kind === 'source'));
+          return controlCompletion({ claims: [claim] });
+        },
+      },
       {
         stage: 'semantic_verifier:1',
         run(request) {
@@ -11756,6 +11799,136 @@ semanticPipelineRuntimeTest(
 );
 
 semanticPipelineRuntimeTest(
+  'Spec 028 T069 — mixed claim synthesis isolates one direct-source goal and restores goal order',
+  async () => {
+    const task = 'Identify the test that covers the entry path and locate requireAuth.';
+    const goals = [
+      trustGoal(task, {
+        id: 'S-mixed-entry-test',
+        question: 'Which test covers the entry path?',
+        originText: 'Identify the test that covers the entry path',
+        proofCondition: 'Identify one exactly observed entry-path test and what it verifies.',
+      }),
+      trustGoal(task, {
+        id: 'S-mixed-auth-definition',
+        question: 'Where is requireAuth defined?',
+        originText: 'locate requireAuth',
+        claimType: 'symbol_definition',
+        proofCondition: 'Observe the requireAuth definition source.',
+      }),
+    ];
+    const claims = [
+      candidateClaim(
+        'C-mixed-entry-test',
+        goals[0].id,
+        'tests/test_cli.py verifies worker fan-out for the entry path.',
+        ['E1'],
+      ),
+      candidateClaim(
+        'C-mixed-auth-definition',
+        goals[1].id,
+        'requireAuth is defined in src/auth.js.',
+        ['E2'],
+      ),
+    ];
+    let nonDirectPacket;
+    let directPacket;
+    let verifierPacket;
+    const steps = [
+      { stage: 'planner:1', value: plannerControl(goals) },
+      {
+        stage: 'goal_audit:1',
+        value: auditorControl(goals.map(goal => auditControlRecord(goal))),
+      },
+      {
+        stage: 'exploration:1',
+        run: () => toolControlCompletion(
+          'repo_read_file',
+          { path: 'tests/test_cli.py', startLine: 1, endLine: 4 },
+          'read-mixed-entry-test',
+        ),
+      },
+      {
+        stage: 'exploration:2',
+        run: () => toolControlCompletion(
+          'repo_read_file',
+          { path: 'src/auth.js', startLine: 1, endLine: 4 },
+          'read-mixed-auth-definition',
+        ),
+      },
+      {
+        stage: 'exploration:3',
+        run: () => toolControlCompletion(
+          'repo_grep',
+          { pattern: '^def test_', scope: ['tests/**'] },
+          'grep-mixed-test-inventory',
+        ),
+      },
+      { stage: 'exploration:4', content: 'The mixed evidence pass is complete.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+      {
+        stage: 'claim_synthesis:1',
+        run(request) {
+          directPacket = parseControlPacket(request);
+          return controlCompletion({ claims: [claims[0]] });
+        },
+      },
+      {
+        stage: 'claim_synthesis:2',
+        run(request) {
+          nonDirectPacket = parseControlPacket(request);
+          return controlCompletion({ claims: [claims[1]] });
+        },
+      },
+      {
+        stage: 'semantic_verifier:1',
+        run(request) {
+          verifierPacket = parseControlPacket(request);
+          return controlCompletion(verifierResponse([
+            semanticVerdict(claims[0].id, 'supported', ['E1']),
+            semanticVerdict(claims[1].id, 'supported', ['E2']),
+          ]));
+        },
+      },
+    ];
+
+    const { client, result } = await runTrustScript(steps, {
+      task,
+      scope: ['src/**', 'tests/**'],
+      async setup(root) {
+        await fs.mkdir(path.join(root, 'tests'), { recursive: true });
+        const extraTests = Array.from(
+          { length: 60 },
+          (_, index) => `def test_generated_${index + 2}(): pass`,
+        );
+        await fs.writeFile(path.join(root, 'tests', 'test_cli.py'), [
+          'from pipeline import cli',
+          '',
+          'def test_worker_fan_out():',
+          '    assert cli is not None',
+          ...extraTests,
+        ].join('\n'));
+      },
+    });
+
+    assert.equal(client.stageCounts.get('claim_synthesis'), 2);
+    assert.equal(result.failure, null, JSON.stringify(client.stageLabels));
+    assert.deepEqual(nonDirectPacket.control.requiredSubgoals.map(goal => goal.id), [goals[1].id]);
+    const inventory = nonDirectPacket.observations.find(item => item.id === 'E3');
+    assert.equal(inventory?.kind, 'search');
+    assert.equal(inventory?.matchCount, 61);
+    assert.deepEqual(directPacket.control.requiredSubgoals.map(goal => goal.id), [goals[0].id]);
+    assert.deepEqual(directPacket.observations.map(item => item.id), ['E1', 'E2']);
+    assert.ok(directPacket.observations.every(item => item.kind === 'source'));
+    assert.deepEqual(verifierPacket.claims.map(claim => claim.id), claims.map(claim => claim.id));
+    assert.ok(verifierPacket.observations.some(item => item.id === 'E3' && item.kind === 'search'));
+    assert.equal(result.parentHandoff.state, 'complete');
+    assert.deepEqual(result.semanticVerification.claims.map(claim => claim.id),
+      claims.map(claim => claim.id));
+  },
+);
+
+semanticPipelineRuntimeTest(
   'Spec 028 T069 — a direct-source claim with only search evidence remains a gap',
   async () => {
     const task = 'Explain what requireAuth does when req.user is missing.';
@@ -11765,12 +11938,6 @@ semanticPipelineRuntimeTest(
       originText: task,
       proofCondition: 'Observe the current requireAuth implementation source.',
     });
-    const claim = candidateClaim(
-      'C-direct-source-search-only',
-      goal.id,
-      'requireAuth throws unauthorized when req.user is missing.',
-      ['E1'],
-    );
     const steps = [
       { stage: 'planner:1', value: plannerControl([goal]) },
       {
@@ -11787,22 +11954,16 @@ semanticPipelineRuntimeTest(
       },
       { stage: 'exploration:2', content: 'The bounded search pass is complete.' },
       { stage: 'synthesis:1', value: readyExplorationResult() },
-      { stage: 'claim_synthesis:1', value: { claims: [claim] } },
-      {
-        stage: 'semantic_verifier:1',
-        value: verifierResponse([
-          semanticVerdict(claim.id, 'supported', ['E1']),
-        ]),
-      },
       { stage: 'exploration:3', content: 'No direct source evidence was read.' },
     ];
 
     const { client, result } = await runTrustScript(steps, { task });
 
     assert.equal(result.failure, null, JSON.stringify(client.stageLabels));
-    assert.equal(client.stageCounts.get('semantic_verifier'), 1);
+    assert.equal(client.stageCounts.get('claim_synthesis') ?? 0, 0);
+    assert.equal(client.stageCounts.get('semantic_verifier') ?? 0, 0);
     assert.equal(result.parentHandoff.state, 'incomplete');
-    assert.equal(result.semanticVerification.claims[0].verdict, 'insufficient');
+    assert.deepEqual(result.semanticVerification.claims, []);
     assert.ok(result.coverageGaps.some(gap => gap.subgoalId === goal.id),
       JSON.stringify(result.coverageGaps));
     assert.doesNotMatch(JSON.stringify(result.parentHandoff),
@@ -12004,6 +12165,7 @@ test('Spec 028 T031 — verifier proposals are audited once without re-planning 
       });
       const { client, result } = await runTrustScript(steps, { task });
 
+      assert.equal(result.failure, null, JSON.stringify(client.stageLabels));
       assert.equal(client.stageCounts.get('planner'), 1);
       assert.equal(client.stageCounts.get('goal_audit'), 2);
       assert.equal(client.stageCounts.get('semantic_verifier'),
@@ -12301,15 +12463,17 @@ test('Spec 028 T031 — proposals from every verifier batch enter one late audit
       }
       if (stage === 'synthesis') return controlCompletion(readyExplorationResult());
       if (stage === 'claim_synthesis') {
-        const batchGoals = parseControlPacket(request).control.requiredSubgoals;
+        const packet = parseControlPacket(request);
+        const batchGoals = packet.control.requiredSubgoals;
+        const evidenceRefs = packet.observations
+          .filter(observation => observation.kind === 'source')
+          .map(observation => observation.id);
         return controlCompletion({
           claims: batchGoals.map(goal => candidateClaim(
             `C-${goal.id}`,
             goal.id,
             `Observed source evidence for ${goal.question}`,
-            count <= 2
-              ? ['E1']
-              : goal.id.startsWith('late-uncovered:') ? ['E2'] : ['E1', 'E2'],
+            evidenceRefs,
           )),
         });
       }
@@ -12318,8 +12482,7 @@ test('Spec 028 T031 — proposals from every verifier batch enter one late audit
         return controlCompletion(verifierResponse(
           claims.map(claim => claim.subgoalId.startsWith('late-uncovered:')
             ? semanticVerdict(claim.id, 'insufficient')
-            : semanticVerdict(claim.id, 'supported',
-                count <= 2 ? ['E1'] : ['E1', 'E2'])),
+            : semanticVerdict(claim.id, 'supported', claim.evidenceRefs)),
           count <= 2 ? [{
             question: `Inspect verifier batch ${count} follow-up requirement.`,
             originRefs: [`request:0-${task.length}`],
@@ -12691,7 +12854,7 @@ test('Spec 028 T032 — one repair reopens claims and suppresses equivalent foll
   });
 
   assert.equal(client.stageCounts.get('semantic_verifier'), 2);
-  assert.equal(client.stageCounts.get('claim_synthesis'), 2);
+  assert.equal(client.stageCounts.get('claim_synthesis'), 4);
   assert.equal(client.stageCounts.get('planner'), 1);
   assert.equal(providerToolActions(client).filter(action =>
     fingerprintAction(action) === repairFingerprint).length, 1);
@@ -12791,17 +12954,44 @@ test('Spec 028 T069 — runtime carries an omitted post-repair prior claim witho
       verdicts: [semanticVerdict(claim.id, 'insufficient')],
     },
     repair: {
-      tools: [{
-        tool: 'repo_read_file',
-        args: { path: 'src/routes/user.js', startLine: 1, endLine: 20 },
-        id: 'repair-route',
-      }],
+      tools: [
+        {
+          tool: 'repo_read_file',
+          args: { path: 'src/routes/user.js', startLine: 1, endLine: 20 },
+          id: 'repair-route',
+        },
+        {
+          tool: 'repo_grep',
+          args: { pattern: 'requireAuth', scope: ['src/**'] },
+          id: 'repair-auth-search',
+        },
+      ],
       claims: [],
       verdicts: [semanticVerdict(claim.id, 'insufficient')],
     },
   });
 
   const { client, result } = await runTrustScript(steps, { task });
+  const postClaimRequest = client.requests[
+    client.stageLabels.indexOf('claim_synthesis:2')
+  ];
+  const postClaimPacket = parseControlPacket(postClaimRequest);
+  assert.deepEqual(postClaimPacket.observations.map(item => item.id), ['E1', 'E2']);
+  assert.ok(postClaimPacket.observations.every(item => item.kind === 'source'));
+  const priorPacketText = postClaimRequest.messages.findLast(message =>
+    typeof message.content === 'string' &&
+    message.content.includes('BEGIN_REQUIRED_PRIOR_CLAIMS_JSON'))?.content ?? '';
+  const priorPacketMatch = /BEGIN_REQUIRED_PRIOR_CLAIMS_JSON\n([\s\S]*?)\nEND_REQUIRED_PRIOR_CLAIMS_JSON/
+    .exec(priorPacketText);
+  assert.ok(priorPacketMatch);
+  const priorPacket = JSON.parse(priorPacketMatch[1]);
+  assert.deepEqual(priorPacket.freshEvidenceRefs, ['E2']);
+  assert.deepEqual(priorPacket.priorClaims, [claim]);
+  const postVerifierPacket = parseControlPacket(client.requests[
+    client.stageLabels.indexOf('semantic_verifier:2')
+  ]);
+  assert.ok(postVerifierPacket.observations.some(item =>
+    item.id === 'E3' && item.kind === 'search'));
   assert.equal(client.stageCounts.get('claim_synthesis'), 2);
   assert.equal(result.failure, null);
   assert.equal(result.parentHandoff.state, 'incomplete');
@@ -13070,7 +13260,7 @@ semanticPipelineRuntimeTest('Spec 028 T041 — transcript records only claims ac
     const entries = await readJsonl(result.transcriptPath);
     const final = entries.find(entry => entry.type === 'final');
 
-    assert.equal(result.semanticVerification.claims[0].verdict, 'insufficient');
+    assert.deepEqual(result.semanticVerification?.claims ?? [], []);
     assert.equal(result.parentHandoff.state, 'incomplete',
       'a diff hunk without a commit sha cannot be parent-facing git proof');
     assert.deepEqual(final.acceptedClaimIds, []);

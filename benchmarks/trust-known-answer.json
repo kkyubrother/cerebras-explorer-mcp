@@ -5264,7 +5264,7 @@
       },
       "providerFixture": {
         "path": "fixtures/trust-known-answer/multi-part-omission/provider-responses.us5-historical-source.json",
-        "sha256": "8dee3d20c127d8393d3e6e015e0c144d43c7231cd9af4a95348242323ae5131e"
+        "sha256": "6b2b7269e83bfd60f42c271b80888d5771d8a87a7399ab2f933ec898a0295b5b"
       },
       "invocation": {
         "tool": "explore_repo",

@@ -123,12 +123,6 @@
                 "subgoalId": "S1",
                 "text": "The inspected commit introduced serviceMode.",
                 "evidenceRefs": ["E1"]
-              },
-              {
-                "id": "C2",
-                "subgoalId": "S2",
-                "text": "Current src/service.mjs returns 'safe'.",
-                "evidenceRefs": ["E1"]
               }
             ]
           },
@@ -149,14 +143,6 @@
                 "supportingEvidenceRefs": ["E1"],
                 "reasonCode": "entailed",
                 "note": "The observed commit records the requested historical change."
-              },
-              {
-                "claimId": "C2",
-                "result": "supported",
-                "resolution": "affirmed",
-                "supportingEvidenceRefs": ["E1"],
-                "reasonCode": "entailed",
-                "note": "The same historical observation names serviceMode."
               }
             ],
             "uncoveredRequestParts": []
