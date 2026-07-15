@@ -733,7 +733,7 @@ function parseRequestOriginRef(value) {
     : null;
 }
 
-function originsCoverExpected(actualRefs, expectedRefs) {
+function originsCoverExpected(actualRefs, expectedRefs, task) {
   const actual = asArray(actualRefs).map(parseRequestOriginRef).filter(Boolean)
     .sort((left, right) => left.start - right.start || left.end - right.end);
   const expected = asArray(expectedRefs).map(parseRequestOriginRef).filter(Boolean);
@@ -742,7 +742,14 @@ function originsCoverExpected(actualRefs, expectedRefs) {
   return expected.every(target => {
     let cursor = target.start;
     for (const interval of actual) {
-      if (interval.end <= cursor || interval.start > cursor) continue;
+      if (interval.end <= cursor) continue;
+      if (interval.start > cursor) {
+        const whitespaceOnlyGap = cursor > target.start && interval.start < target.end &&
+          typeof task === 'string' && target.end <= task.length &&
+          task.slice(cursor, interval.start).trim() === '';
+        if (!whitespaceOnlyGap) continue;
+        cursor = interval.start;
+      }
       cursor = Math.max(cursor, interval.end);
       if (cursor >= target.end) return true;
     }
@@ -795,11 +802,11 @@ function liveInjectiveGoalAssignment(candidates, forbiddenEdge = null) {
   return candidateByExpected;
 }
 
-function liveGoalCandidates(expectedGoals, actualGoals) {
+function liveGoalCandidates(expectedGoals, actualGoals, task) {
   return expectedGoals.map(expected => actualGoals
     .map((actual, index) => ({ actual, index }))
     .filter(({ actual }) =>
-      originsCoverExpected(actual?.originRefs, expected.requestOriginRefs) &&
+      originsCoverExpected(actual?.originRefs, expected.requestOriginRefs, task) &&
       liveClaimTypeCompatible(expected.claimType, actual?.claimType)));
 }
 
@@ -1135,7 +1142,7 @@ function liveAnchorDispositions(
   allowedClaims,
 ) {
   const accepted = acceptedClaims(parts.semantic);
-  const baseCandidates = liveGoalCandidates(expectedGoals, parts.subgoals);
+  const baseCandidates = liveGoalCandidates(expectedGoals, parts.subgoals, parts.task);
   const matchedGoals = liveGoalMatches(expectedGoals, baseCandidates, {
     accepted,
     anchorsById,

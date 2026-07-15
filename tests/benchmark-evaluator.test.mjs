@@ -3132,6 +3132,41 @@ test('Spec 028 T069 — live explicit gaps use request-derived questions', () =>
   );
 });
 
+test('Spec 028 T069 — live origin matching bridges only internal whitespace gaps', () => {
+  const options = { mode: 'live', profile: LIVE_TRUST_EVALUATION_PROFILE };
+  const build = task => {
+    const caseDefinition = liveTrustOracleCase();
+    caseDefinition.request.text = task;
+    caseDefinition.oracle.expectedGoals[0].requestOriginRefs = ['request:0-13'];
+    const artifact = liveCompleteArtifact();
+    artifact.result.taskContract.task = task;
+    artifact.result.taskContract.subgoals[0].originRefs = [
+      'request:0-5',
+      'request:6-13',
+    ];
+    bindLiveGoalAudits(artifact);
+    return { caseDefinition, artifact };
+  };
+
+  const whitespace = build('guard bounded');
+  assert.equal(evaluateTrustCase(
+    whitespace.caseDefinition,
+    whitespace.artifact,
+    options,
+  ).passed, true);
+
+  const punctuation = build('guard/bounded');
+  const punctuationEvaluation = evaluateTrustCase(
+    punctuation.caseDefinition,
+    punctuation.artifact,
+    options,
+  );
+  const punctuationCodes = violationCodes(punctuationEvaluation);
+  assert.equal(punctuationEvaluation.passed, false);
+  assert.ok(punctuationCodes.includes('LIVE_REQUIRED_GOAL_UNSUPPORTED'),
+    JSON.stringify(punctuationCodes));
+});
+
 test('Spec 028 T069 — live explicit gaps accept exclusive unresolved refinement sets', () => {
   const caseDefinition = liveTrustOracleCase();
   caseDefinition.oracle.expectedGoals = [{
