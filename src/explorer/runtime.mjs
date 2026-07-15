@@ -1348,9 +1348,13 @@ function requestTextForSubgoal(task, subgoal) {
 function isNonExhaustiveDirectTestGoal(task, subgoal) {
   if (subgoal?.claimType !== 'positive' || subgoal.proofPolicy !== 'direct_source') return false;
   const requestText = requestTextForSubgoal(task, subgoal);
-  const requestsTests = /\btests?\b|테스트/iu.test(requestText);
+  const facetText = `${subgoal.question ?? ''} ${subgoal.proofCondition ?? ''}`;
+  const requestsTests = /\btests?\b|테스트/iu.test(requestText) &&
+    /\b(?:(?:which|what|identify|find|locate|name|show)\b[^.?!]*\btests?\b|tests?\b[^.?!]*\b(?:cover|verify|exercise|reproduce|assert))|(?:어떤|어느|무슨)[^.?!]*테스트|테스트[^.?!]*(?:찾|식별|어디|검증|커버|재현|필요)|(?:찾|식별|어디|검증|커버|재현)[^.?!]*테스트/iu
+      .test(facetText);
   const requestsEveryTest =
-    /\b(?:every|all|each|exhaustive|entire)\b|모든|모두|전부|전체/iu.test(requestText);
+    /\b(?:every|all|each|exhaustive|entire)\b|모든|모두|전부|전체/iu
+      .test(`${requestText} ${facetText}`);
   return requestsTests && !requestsEveryTest;
 }
 
@@ -2472,6 +2476,7 @@ function validateSynthesizedClaimBatch(raw, {
     }),
   ];
   const batchClaimIds = new Set();
+  const missingTestSourceSubgoalIds = new Set();
   const partialTestInventorySubgoalIds = new Set();
   const claims = candidateClaims.map((candidate, index) => {
     if (!subgoalIds.has(candidate.subgoalId)) {
@@ -2499,9 +2504,13 @@ function validateSynthesizedClaimBatch(raw, {
         'requested fact.',
       );
     }
-    if (isNonExhaustiveDirectTestGoal(taskContract.task, subgoal) &&
-        citedCurrentTestPaths(candidate, observationById).size > 1) {
-      partialTestInventorySubgoalIds.add(candidate.subgoalId);
+    if (isNonExhaustiveDirectTestGoal(taskContract.task, subgoal)) {
+      const currentTestPathCount = citedCurrentTestPaths(candidate, observationById).size;
+      if (currentTestPathCount === 0) {
+        missingTestSourceSubgoalIds.add(candidate.subgoalId);
+      } else if (currentTestPathCount > 1) {
+        partialTestInventorySubgoalIds.add(candidate.subgoalId);
+      }
     }
     batchClaimIds.add(candidate.id);
     return createAtomicClaim(preserveBoundedTestPathInClaim(
@@ -2522,6 +2531,7 @@ function validateSynthesizedClaimBatch(raw, {
     .map(([subgoalId]) => subgoalId);
   const invalidSubgoalIds = [...new Set([
     ...noisySubgoalIds,
+    ...missingTestSourceSubgoalIds,
     ...partialTestInventorySubgoalIds,
   ])];
   if (invalidSubgoalIds.length > 0) {
@@ -2533,6 +2543,13 @@ function validateSynthesizedClaimBatch(raw, {
       return retainedClaims;
     }
     const failures = [];
+    if (missingTestSourceSubgoalIds.size > 0) {
+      failures.push(
+        'Claim synthesis cited no current test path for non-exhaustive test sub-goals: ' +
+        `${[...missingTestSourceSubgoalIds].join(', ')}. Cite exactly one observed current test path ` +
+        'for each listed sub-goal before describing what that test verifies.',
+      );
+    }
     if (partialTestInventorySubgoalIds.size > 0) {
       failures.push(
         'Claim synthesis cited multiple test paths as a partial suite inventory for non-exhaustive ' +

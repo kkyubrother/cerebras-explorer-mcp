@@ -11913,6 +11913,86 @@ semanticPipelineRuntimeTest(
 );
 
 semanticPipelineRuntimeTest(
+  'Spec 028 T069 — a test claim without a current test source gets one bounded correction',
+  async () => {
+    const task = 'Identify the test that covers the pipeline entry path.';
+    const goal = trustGoal(task, {
+      id: 'S-missing-test-source',
+      question: task,
+      originText: task,
+      proofCondition: 'Identify one exactly observed entry-path test and what it verifies.',
+    });
+    const unsupported = candidateClaim(
+      'C-missing-test-source',
+      goal.id,
+      'The pipeline entry path forwards the configured worker count.',
+      ['E1'],
+    );
+    const corrected = candidateClaim(
+      unsupported.id,
+      goal.id,
+      'tests/test_cli.py verifies worker-count forwarding for the pipeline entry path.',
+      ['E2'],
+    );
+    const steps = [
+      { stage: 'planner:1', value: plannerControl([goal]) },
+      { stage: 'goal_audit:1', value: auditorControl([auditControlRecord(goal)]) },
+      {
+        stage: 'exploration:1',
+        run: () => toolControlCompletion(
+          'repo_read_file',
+          { path: 'pipeline/cli.py', startLine: 1, endLine: 3 },
+          'read-missing-test-source-implementation',
+        ),
+      },
+      {
+        stage: 'exploration:2',
+        run: () => toolControlCompletion(
+          'repo_read_file',
+          { path: 'tests/test_cli.py', startLine: 1, endLine: 3 },
+          'read-missing-test-source-test',
+        ),
+      },
+      { stage: 'exploration:3', content: 'The bounded test evidence pass is complete.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+      { stage: 'claim_synthesis:1', value: { claims: [unsupported] } },
+      {
+        stage: 'claim_synthesis:2',
+        run(request) {
+          const correction = JSON.stringify(request.messages);
+          assert.match(correction, /no current test path/u);
+          assert.match(correction, /exactly one observed current test path/u);
+          return controlCompletion({ claims: [corrected] });
+        },
+      },
+      {
+        stage: 'semantic_verifier:1',
+        value: verifierResponse([semanticVerdict(corrected.id, 'supported', ['E2'])]),
+      },
+    ];
+
+    const { client, result } = await runTrustScript(steps, {
+      task,
+      scope: ['pipeline/**', 'tests/**'],
+      async setup(root) {
+        await fs.mkdir(path.join(root, 'pipeline'), { recursive: true });
+        await fs.mkdir(path.join(root, 'tests'), { recursive: true });
+        await fs.writeFile(path.join(root, 'pipeline', 'cli.py'),
+          'def main():\n    return run_worker()\n');
+        await fs.writeFile(path.join(root, 'tests', 'test_cli.py'),
+          'def test_worker_count():\n    assert main() == 0\n');
+      },
+    });
+
+    assert.equal(client.stageCounts.get('claim_synthesis'), 2);
+    assert.equal(result.failure, null, JSON.stringify(client.stageLabels));
+    assert.equal(result.parentHandoff.state, 'complete');
+    assert.equal(result.parentHandoff.directAnswer, corrected.text);
+    assert.deepEqual(result.parentHandoff.evidence.map(item => item.path), ['tests/test_cli.py']);
+  },
+);
+
+semanticPipelineRuntimeTest(
   'Spec 028 T069 — a bounded test claim preserves its cited test path for the parent',
   async () => {
     const task = 'Identify the test that covers the pipeline entry path.';
@@ -12151,6 +12231,117 @@ semanticPipelineRuntimeTest(
     ]);
     assert.doesNotMatch(JSON.stringify(result.parentHandoff),
       /C-repeated-partial|Three test files|claim_synthesis/u);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — repeated missing test-source evidence quarantines only that sub-goal',
+  async () => {
+    const task = 'Locate requireAuth and identify the test that covers the pipeline entry path.';
+    const goals = [
+      trustGoal(task, {
+        id: 'S-stable-missing-test-source-definition',
+        question: 'Where is requireAuth defined?',
+        originText: 'Locate requireAuth',
+        claimType: 'symbol_definition',
+        proofCondition: 'Observe the requireAuth definition source.',
+      }),
+      trustGoal(task, {
+        id: 'S-repeated-missing-test-source',
+        question: 'Which test covers the pipeline entry path?',
+        originText: 'identify the test that covers the pipeline entry path',
+        proofCondition: 'Identify one exactly observed entry-path test and what it verifies.',
+      }),
+    ];
+    const stable = candidateClaim(
+      'C-stable-missing-test-source-definition',
+      goals[0].id,
+      'requireAuth is defined in src/auth.js.',
+      ['E1'],
+    );
+    const unsupported = candidateClaim(
+      'C-repeated-missing-test-source',
+      goals[1].id,
+      'The pipeline entry path forwards the configured worker count.',
+      ['E2'],
+    );
+    const repeatedMissingTestSource = { claims: [unsupported] };
+    const steps = [
+      { stage: 'planner:1', value: plannerControl(goals) },
+      { stage: 'goal_audit:1', value: auditorControl(
+        goals.map(goal => auditControlRecord(goal))) },
+      {
+        stage: 'exploration:1',
+        run: () => toolControlCompletion(
+          'repo_read_file',
+          { path: 'src/auth.js', startLine: 1, endLine: 4 },
+          'read-stable-missing-test-source-definition',
+        ),
+      },
+      {
+        stage: 'exploration:2',
+        run: () => toolControlCompletion(
+          'repo_read_file',
+          { path: 'pipeline/cli.py', startLine: 1, endLine: 3 },
+          'read-repeated-missing-test-source-implementation',
+        ),
+      },
+      {
+        stage: 'exploration:3',
+        run: () => toolControlCompletion(
+          'repo_read_file',
+          { path: 'tests/test_cli.py', startLine: 1, endLine: 3 },
+          'read-repeated-missing-test-source-test',
+        ),
+      },
+      { stage: 'exploration:4', content: 'The bounded evidence pass is complete.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+      { stage: 'claim_synthesis:1', value: { claims: [stable] } },
+      { stage: 'claim_synthesis:2', value: repeatedMissingTestSource },
+      {
+        stage: 'claim_synthesis:3',
+        run(request) {
+          assert.match(JSON.stringify(request.messages), /no current test path/u);
+          return controlCompletion(repeatedMissingTestSource);
+        },
+      },
+      {
+        stage: 'semantic_verifier:1',
+        run(request) {
+          const packet = parseControlPacket(request);
+          assert.deepEqual(packet.claims.map(claim => claim.id), [stable.id]);
+          return controlCompletion(verifierResponse([
+            semanticVerdict(stable.id, 'supported', ['E1']),
+          ]));
+        },
+      },
+      { stage: 'exploration:5', content: 'No materially new repair action remains.' },
+    ];
+
+    const { client, result } = await runTrustScript(steps, {
+      task,
+      scope: ['src/**', 'pipeline/**', 'tests/**'],
+      async setup(root) {
+        await fs.mkdir(path.join(root, 'pipeline'), { recursive: true });
+        await fs.mkdir(path.join(root, 'tests'), { recursive: true });
+        await fs.writeFile(path.join(root, 'pipeline', 'cli.py'),
+          'def main():\n    return run_worker()\n');
+        await fs.writeFile(path.join(root, 'tests', 'test_cli.py'),
+          'def test_worker_count():\n    assert main() == 0\n');
+      },
+    });
+
+    assert.equal(result.failure, null, JSON.stringify(client.stageLabels));
+    assert.equal(client.stageCounts.get('claim_synthesis'), 3);
+    assert.equal(result.parentHandoff.state, 'incomplete');
+    assert.equal(result.parentHandoff.directAnswer, stable.text);
+    assert.deepEqual(result.semanticVerification.claims.map(claim => claim.id), [stable.id]);
+    assert.deepEqual(result.taskContract.subgoals.map(goal => [goal.id, goal.state]), [
+      [goals[0].id, 'supported'],
+      [goals[1].id, 'gap'],
+    ]);
+    assert.doesNotMatch(JSON.stringify(result.parentHandoff),
+      /C-repeated-missing-test-source|worker count|claim_synthesis/u);
   },
 );
 
