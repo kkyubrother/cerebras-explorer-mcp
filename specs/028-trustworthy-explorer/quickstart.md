@@ -204,8 +204,8 @@ Resume is fail-closed. It accepts only a trust-report schema-v2 `live-resume-v1`
 
 Use approved real repositories under locations such as:
 
-- `C:\Users\daeryun\IdeaProjects`
-- `C:\Users\daeryun\ClaudeProjects`
+- `Join-Path $env:USERPROFILE 'IdeaProjects'`
+- `Join-Path $env:USERPROFILE 'ClaudeProjects'`
 
 The live suite writes redacted transcripts and results under `$trustRoot`. It records tokens and latency but does not fail because they increased. The committed manifest stores logical repo ids only; the temp repo map resolves local absolute paths.
 
