@@ -10387,6 +10387,101 @@ semanticPipelineRuntimeTest(
 );
 
 semanticPipelineRuntimeTest(
+  'Spec 028 T069 — repeated claim fanout quarantines only the noisy sub-goal',
+  async () => {
+    const task = 'Locate requireAuth and map the environment configuration impact.';
+    const goals = [
+      trustGoal(task, {
+        id: 'S-stable-definition',
+        question: 'Where is requireAuth defined?',
+        originText: 'Locate requireAuth',
+        claimType: 'symbol_definition',
+        proofCondition: 'Observe the requireAuth definition source.',
+      }),
+      trustGoal(task, {
+        id: 'S-noisy-config-impact',
+        question: 'What is the environment configuration impact?',
+        originText: 'environment configuration impact',
+        claimType: 'impact',
+        proofCondition: 'Observe the configuration input and its affected pipeline path.',
+      }),
+    ];
+    const stable = candidateClaim(
+      'C-stable-definition', goals[0].id, 'requireAuth is defined in src/auth.js.', ['E1']);
+    const noisy = [
+      candidateClaim(
+        'C-noisy-config-input', goals[1].id, 'AUTH_MODE is read from config.', ['E2']),
+      candidateClaim(
+        'C-noisy-config-effect', goals[1].id, 'AUTH_MODE affects route setup.', ['E2']),
+    ];
+    const repeatedFanout = { claims: [stable, ...noisy] };
+    const steps = [
+      { stage: 'planner:1', value: plannerControl(goals) },
+      {
+        stage: 'goal_audit:1',
+        value: auditorControl(goals.map(goal => auditControlRecord(goal))),
+      },
+      {
+        stage: 'exploration:1',
+        run: () => toolControlCompletion(
+          'repo_read_file',
+          { path: 'src/auth.js', startLine: 1, endLine: 4 },
+          'read-stable-definition',
+        ),
+      },
+      {
+        stage: 'exploration:2',
+        run: () => toolControlCompletion(
+          'repo_read_file',
+          { path: 'src/config.js', startLine: 1, endLine: 4 },
+          'read-noisy-config',
+        ),
+      },
+      { stage: 'exploration:3', content: 'The bounded evidence pass is complete.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+      { stage: 'claim_synthesis:1', value: repeatedFanout },
+      {
+        stage: 'claim_synthesis:2',
+        run(request) {
+          assert.match(JSON.stringify(request.messages), /zero or one aggregate claim/u);
+          return controlCompletion(repeatedFanout);
+        },
+      },
+      {
+        stage: 'semantic_verifier:1',
+        run(request) {
+          const packet = parseControlPacket(request);
+          assert.deepEqual(packet.claims.map(claim => claim.id), [stable.id]);
+          return controlCompletion(verifierResponse([
+            semanticVerdict(stable.id, 'supported', ['E1']),
+          ]));
+        },
+      },
+      { stage: 'exploration:4', content: 'No materially new repair action remains.' },
+    ];
+
+    const { client, result } = await runTrustScript(steps, { task });
+
+    assert.equal(client.stageCounts.get('claim_synthesis'), 2);
+    assert.equal(client.stageCounts.get('semantic_verifier'), 1);
+    assert.equal(result.failure, null);
+    assert.equal(result.parentHandoff.state, 'incomplete');
+    assert.equal(result.parentHandoff.directAnswer, stable.text);
+    assert.deepEqual(result.semanticVerification.claims.map(claim => claim.id), [stable.id]);
+    assert.deepEqual(result.taskContract.subgoals.map(goal => [goal.id, goal.state]), [
+      [goals[0].id, 'supported'],
+      [goals[1].id, 'gap'],
+    ]);
+    assert.ok(result.coverageGaps.some(gap =>
+      gap.subgoalId === goals[1].id && gap.reason === 'missing_evidence' &&
+      gap.repairable === false));
+    assert.match(JSON.stringify(result.parentHandoff), /environment configuration impact/u);
+    assert.doesNotMatch(JSON.stringify(result.parentHandoff),
+      /C-noisy|AUTH_MODE|claim_synthesis|aggregate claim/u);
+  },
+);
+
+semanticPipelineRuntimeTest(
   'Spec 028 T069 — an unprojectable supported claim records an internal parent gap',
   async () => {
     const task = 'Compare the bounded requireAuth definition and route usage.';

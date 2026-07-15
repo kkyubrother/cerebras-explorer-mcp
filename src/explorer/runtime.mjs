@@ -2199,6 +2199,7 @@ async function requestValidatedGoalControl({
   maxCompletionTokens,
   abortSignal,
   onCompletion,
+  recoverFinalValidation,
 }) {
   let requestMessages = messages;
   let validationError = null;
@@ -2233,7 +2234,20 @@ async function requestValidatedGoalControl({
         String(error?.message ?? error).replace(/\s+/g, ' ').slice(0, 800),
       ).text;
       validationAttempts.push({ attempt: attempt + 1, reason: validationSummary.slice(0, 240) });
-      if (attempt === 1) break;
+      if (attempt === 1) {
+        if (typeof recoverFinalValidation === 'function') {
+          try {
+            const recovered = recoverFinalValidation({ parsed, error });
+            if (recovered?.accepted === true) return recovered.value;
+          } catch (recoveryError) {
+            validationError = recoveryError;
+            validationAttempts[validationAttempts.length - 1].reason = redactText(
+              String(recoveryError?.message ?? recoveryError).replace(/\s+/g, ' ').slice(0, 240),
+            ).text;
+          }
+        }
+        break;
+      }
       const stageCorrection = stage === 'claim_synthesis'
         ? 'For every supplied sub-goal except support_or_refute, return zero or one aggregate claim only. ' +
           'On a post-repair pass, preserve every prior claim id, subgoalId, text, measurement, and prior evidence reference exactly while adding only fresh supplied evidence refs.'
@@ -2313,6 +2327,7 @@ function validateSynthesizedClaimBatch(raw, {
   usedClaimIds,
   priorClaims = [],
   freshEvidenceRefs = [],
+  quarantineNoisySubgoalIds = [],
 }) {
   const subgoalById = new Map(taskContract.subgoals.map(goal => [goal.id, goal]));
   const normalizedRaw = raw && typeof raw === 'object' && !Array.isArray(raw)
@@ -2394,9 +2409,19 @@ function validateSynthesizedClaimBatch(raw, {
       subgoalById.get(subgoalId)?.proofPolicy !== 'support_or_refute')
     .map(([subgoalId]) => subgoalId);
   if (noisySubgoalIds.length > 0) {
-    throw new TypeError(
+    const quarantineSet = new Set(quarantineNoisySubgoalIds);
+    if (quarantineSet.size === noisySubgoalIds.length &&
+        noisySubgoalIds.every(subgoalId => quarantineSet.has(subgoalId))) {
+      const retainedClaims = claims.filter(claim => !quarantineSet.has(claim.subgoalId));
+      for (const claim of retainedClaims) usedClaimIds.add(claim.id);
+      return retainedClaims;
+    }
+    const error = new TypeError(
       `Claim synthesis must return at most one aggregate claim for sub-goals: ${noisySubgoalIds.join(', ')}.`,
     );
+    error.claimSynthesisFailure = 'aggregate_claim_fanout';
+    error.noisySubgoalIds = noisySubgoalIds;
+    throw error;
   }
   for (const claimId of batchClaimIds) usedClaimIds.add(claimId);
   return claims;
@@ -5148,6 +5173,23 @@ export class ExplorerRuntime {
           priorClaims: batchPriorClaims,
           freshEvidenceRefs,
         }),
+        recoverFinalValidation: ({ parsed, error }) => {
+          if (error?.claimSynthesisFailure !== 'aggregate_claim_fanout' ||
+              !Array.isArray(error.noisySubgoalIds) || error.noisySubgoalIds.length === 0) {
+            return null;
+          }
+          return {
+            accepted: true,
+            value: validateSynthesizedClaimBatch(parsed, {
+              taskContract: batchContract,
+              observationIds,
+              usedClaimIds,
+              priorClaims: batchPriorClaims,
+              freshEvidenceRefs,
+              quarantineNoisySubgoalIds: error.noisySubgoalIds,
+            }),
+          };
+        },
       });
       claims.push(...batchClaims);
       onTrustEvent?.('claim', { phase, claims: batchClaims });
