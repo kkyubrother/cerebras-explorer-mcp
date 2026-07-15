@@ -9003,7 +9003,7 @@ semanticPipelineRuntimeTest(
       candidateClaim(
         'C-static-array-definition-combined',
         goals[1].id,
-        'DEFAULT_SECRET_DENY_PATTERNS is defined in src/patterns.mjs starting at line 1.',
+        'DEFAULT_SECRET_DENY_PATTERNS is defined in src/patterns.mjs as a frozen array.',
         ['E1', 'E2'],
       ),
       candidateClaim(

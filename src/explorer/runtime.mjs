@@ -3486,15 +3486,9 @@ function canonicalizeSymbolDefinitionRangeClaim({ subgoal, claim, observations }
   }
   if (uniqueSources.size !== 1) return claim;
   const [source] = uniqueSources.values();
-  const citedStartLine = new RegExp(`\\b(?:line|lines)\\s+${source.startLine}\\b`, 'iu');
-  if (!citedStartLine.test(claim.text)) return claim;
-  const numbers = new Set((claim.text.match(/\d+/gu) ?? []));
-  if (!numbers.has(String(source.startLine)) || numbers.has(String(source.endLine))) {
-    return claim;
-  }
   return {
     ...claim,
-    text: `${claim.text.trim()} Definition evidence: ${source.path}, lines ${source.startLine} through ${source.endLine}.`,
+    text: `${symbol} is defined in ${source.path}, lines ${source.startLine} through ${source.endLine}.`,
   };
 }
 
