@@ -1366,6 +1366,17 @@ function citedCurrentTestPaths(candidate, observationById) {
   }));
 }
 
+function preserveBoundedTestPathInClaim(task, subgoal, candidate, observationById) {
+  if (!isNonExhaustiveDirectTestGoal(task, subgoal)) return candidate;
+  const testPaths = [...citedCurrentTestPaths(candidate, observationById)];
+  if (testPaths.length !== 1) return candidate;
+  const [testPath] = testPaths;
+  const normalizedText = candidate.text.replaceAll('\\', '/').toLowerCase();
+  return normalizedText.includes(testPath.toLowerCase())
+    ? candidate
+    : { ...candidate, text: `${testPath}: ${candidate.text}` };
+}
+
 function requiresSourceBackedExhaustiveClassification(task, subgoal) {
   if (subgoal?.proofPolicy !== 'distinct_policy_paths') return false;
   const classifyStart = invocationClassificationActionStart(task);
@@ -2493,7 +2504,12 @@ function validateSynthesizedClaimBatch(raw, {
       partialTestInventorySubgoalIds.add(candidate.subgoalId);
     }
     batchClaimIds.add(candidate.id);
-    return createAtomicClaim(candidate);
+    return createAtomicClaim(preserveBoundedTestPathInClaim(
+      taskContract.task,
+      subgoal,
+      candidate,
+      observationById,
+    ));
   });
   const claimCountBySubgoal = new Map();
   for (const claim of claims) {

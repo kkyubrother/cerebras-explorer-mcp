@@ -11913,6 +11913,80 @@ semanticPipelineRuntimeTest(
 );
 
 semanticPipelineRuntimeTest(
+  'Spec 028 T069 — a bounded test claim preserves its cited test path for the parent',
+  async () => {
+    const task = 'Identify the test that covers the pipeline entry path.';
+    const goal = trustGoal(task, {
+      id: 'S-bounded-test-path',
+      question: task,
+      originText: task,
+      proofCondition: 'Identify one exactly observed entry-path test and what it verifies.',
+    });
+    const claim = candidateClaim(
+      'C-bounded-test-path',
+      goal.id,
+      'The CLI tests verify worker fan-out and limit forwarding for the pipeline entry path.',
+      ['E1', 'E2'],
+    );
+    const expectedText = `tests/test_cli.py: ${claim.text}`;
+    const steps = [
+      { stage: 'planner:1', value: plannerControl([goal]) },
+      { stage: 'goal_audit:1', value: auditorControl([auditControlRecord(goal)]) },
+      {
+        stage: 'exploration:1',
+        run: () => toolControlCompletion(
+          'repo_read_file',
+          { path: 'pipeline/cli.py', startLine: 1, endLine: 3 },
+          'read-bounded-test-implementation',
+        ),
+      },
+      {
+        stage: 'exploration:2',
+        run: () => toolControlCompletion(
+          'repo_read_file',
+          { path: 'tests/test_cli.py', startLine: 1, endLine: 3 },
+          'read-bounded-test-source',
+        ),
+      },
+      { stage: 'exploration:3', content: 'The bounded test evidence pass is complete.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+      { stage: 'claim_synthesis:1', value: { claims: [claim] } },
+      {
+        stage: 'semantic_verifier:1',
+        run(request) {
+          const [candidate] = parseControlPacket(request).claims;
+          assert.equal(candidate.text, expectedText);
+          return controlCompletion(verifierResponse([
+            semanticVerdict(claim.id, 'supported', ['E1', 'E2']),
+          ]));
+        },
+      },
+    ];
+
+    const { result } = await runTrustScript(steps, {
+      task,
+      scope: ['pipeline/**', 'tests/**'],
+      async setup(root) {
+        await fs.mkdir(path.join(root, 'pipeline'), { recursive: true });
+        await fs.mkdir(path.join(root, 'tests'), { recursive: true });
+        await fs.writeFile(path.join(root, 'pipeline', 'cli.py'),
+          'def main():\n    return run_worker()\n');
+        await fs.writeFile(path.join(root, 'tests', 'test_cli.py'),
+          'def test_worker_fan_out():\n    assert main() == 0\n');
+      },
+    });
+
+    assert.equal(result.failure, null);
+    assert.equal(result.parentHandoff.state, 'complete');
+    assert.equal(result.parentHandoff.directAnswer, expectedText);
+    assert.deepEqual(result.parentHandoff.evidence.map(item => item.path), [
+      'pipeline/cli.py',
+      'tests/test_cli.py',
+    ]);
+  },
+);
+
+semanticPipelineRuntimeTest(
   'Spec 028 T069 — an explicit every-test goal remains verifier-gated',
   async () => {
     const task = 'Inventory every test file that covers the pipeline entry path.';
