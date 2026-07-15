@@ -194,6 +194,14 @@ node scripts/integration-test.mjs
 node scripts/run-trust-suite.mjs --suite benchmarks/trust-known-answer.json --mode live --repo-map $repoMap --output (Join-Path $trustRoot 'live-results.json') --repeats 3 --verbose
 ```
 
+If the report ends with a provider failure and `provider_unavailable` slots, continue after the provider recovers by writing a new report file:
+
+```powershell
+node scripts/run-trust-suite.mjs --suite benchmarks/trust-known-answer.json --mode live --repo-map $repoMap --resume-from (Join-Path $trustRoot 'live-results.json') --output (Join-Path $trustRoot 'live-results-resumed.json') --repeats 3 --verbose
+```
+
+Resume is fail-closed. It accepts only a trust-report schema-v2 `live-resume-v1` checkpoint from the same manifest, committed runner plus dirty-tree state, non-secret behavior configuration, selected case/run denominator, payload mode, and current repository pins. It discards the provider-failed slot, preserves every earlier completed run including semantic or harness failures, and re-evaluates preserved artifacts against the current oracle. Use a different external output file on each attempt; a changed checkout, checkpoint-bound denominator or payload option, checkpoint mismatch, accidental report corruption, or repository pin drift requires a fresh full run. The cases hash detects corruption but does not authenticate hostile local edits, so resume only a trusted report written directly by this runner. A server-side model revision behind an unchanged model id cannot be pinned by this local checkpoint.
+
 Use approved real repositories under locations such as:
 
 - `C:\Users\daeryun\IdeaProjects`

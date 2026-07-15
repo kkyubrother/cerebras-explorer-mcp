@@ -15,6 +15,7 @@ import {
 } from '../src/benchmark/evaluator.mjs';
 import { buildOracleParentHandoff } from '../src/benchmark/oracle-parent-handoff.mjs';
 import { buildParentPayload, measureParentPayload } from '../src/explorer/parent-payload.mjs';
+import { redactText } from '../src/explorer/redact.mjs';
 import { ExplorerRuntime } from '../src/explorer/runtime.mjs';
 import { sanitizeBenchmarkReport } from '../src/benchmark/report.mjs';
 
@@ -22,6 +23,26 @@ const execFileAsync = promisify(execFile);
 const PROJECT_ROOT = fileURLToPath(new URL('../', import.meta.url));
 const EMPTY_SHA256 = createHash('sha256').digest('hex');
 const MAX_GIT_OUTPUT_BYTES = 256 * 1024 * 1024;
+const LIVE_RESUME_PROFILE = 'live-resume-v1';
+const RUNTIME_PROJECT_CONFIG = '.cerebras-explorer.json';
+const SHA256_PATTERN = /^[0-9a-f]{64}$/u;
+const BEHAVIOR_ENV_NAMES = Object.freeze([
+  'CEREBRAS_API_BASE_URL',
+  'CEREBRAS_EXPLORER_CLEAR_THINKING',
+  'CEREBRAS_EXPLORER_DISABLE_SECRET_DENY_LIST',
+  'CEREBRAS_EXPLORER_HTTP_TIMEOUT_MS',
+  'CEREBRAS_EXPLORER_MODEL',
+  'CEREBRAS_EXPLORER_REASONING_FORMAT',
+  'CEREBRAS_EXPLORER_REDACT_ENV_VAR_NAMES',
+  'CEREBRAS_EXPLORER_REDACT_GENERIC_HEX',
+  'CEREBRAS_EXPLORER_TEMPERATURE',
+  'CEREBRAS_EXPLORER_TOP_P',
+  'EXPLORER_FAILOVER',
+  'EXPLORER_FAILOVER_TIMEOUT_MS',
+  'EXPLORER_OPENAI_BASE_URL',
+  'EXPLORER_OPENAI_MODEL',
+  'EXPLORER_PROVIDER',
+]);
 
 function requireOptionValue(argv, index, option) {
   const value = argv[index + 1];
@@ -37,6 +58,7 @@ export function parseArgs(argv) {
     mode: 'fixture',
     repoMap: null,
     output: null,
+    resumeFrom: null,
     repeats: null,
     verbose: false,
     measurePayload: false,
@@ -49,6 +71,9 @@ export function parseArgs(argv) {
     else if (arg === '--mode') options.mode = requireOptionValue(argv, index++, arg);
     else if (arg === '--repo-map') options.repoMap = requireOptionValue(argv, index++, arg);
     else if (arg === '--output') options.output = requireOptionValue(argv, index++, arg);
+    else if (arg === '--resume-from') {
+      options.resumeFrom = requireOptionValue(argv, index++, arg);
+    }
     else if (arg === '--repeats') {
       const value = requireOptionValue(argv, index++, arg);
       options.repeats = Number(value);
@@ -67,6 +92,17 @@ export function parseArgs(argv) {
   if (options.mode === 'live' && !options.repoMap && !options.help) {
     throw new Error('--repo-map is required in live mode.');
   }
+  if (options.resumeFrom && options.mode !== 'live') {
+    throw new Error('--resume-from is available only in live mode.');
+  }
+  if (options.resumeFrom && options.output) {
+    const resumePath = path.resolve(options.resumeFrom);
+    const outputPath = path.resolve(options.output);
+    const samePath = process.platform === 'win32'
+      ? resumePath.toLocaleLowerCase('en') === outputPath.toLocaleLowerCase('en')
+      : resumePath === outputPath;
+    if (samePath) throw new Error('--resume-from and --output must use different files.');
+  }
   return options;
 }
 
@@ -79,6 +115,7 @@ function printHelp() {
     '  --mode fixture|live     Run pinned fixtures or mapped live repositories. Default: fixture',
     '  --repo-map <path>       JSON object mapping logical repo ids to roots (required for live)',
     '  --output <path>         Write the redacted JSON report',
+    '  --resume-from <path>    Resume live run slots from a compatible prior report',
     '  --repeats <count>       Repeat cases declared repeatable this many times',
     '  --verbose               Print per-case violations and record-only measurements',
     '  --measure-payload       Record schema-v3 payload size and available v2 reduction',
@@ -102,6 +139,17 @@ export function normalizeLfBytes(input) {
 
 export function canonicalFileSha256(input) {
   return createHash('sha256').update(normalizeLfBytes(input)).digest('hex');
+}
+
+function jsonSha256(value) {
+  return createHash('sha256').update(JSON.stringify(value)).digest('hex');
+}
+
+export function runtimeConfigSha256(env = process.env) {
+  return jsonSha256(BEHAVIOR_ENV_NAMES.map(name => [
+    name,
+    Object.hasOwn(env, name) ? String(env[name]) : null,
+  ]));
 }
 
 async function walkRegularFiles(root, relativeRoot = '') {
@@ -256,10 +304,18 @@ export async function dirtyTreeSha256(repoRoot) {
     repoRoot,
     ['diff', '--binary', '--no-ext-diff', 'HEAD', '--', '.'],
   ));
-  const untrackedPaths = splitNullTerminated(await runGit(
+  const ordinaryUntrackedPaths = splitNullTerminated(await runGit(
     repoRoot,
     ['ls-files', '--others', '--exclude-standard', '-z'],
-  )).sort(Buffer.compare);
+  ));
+  const ignoredRuntimeConfigPaths = splitNullTerminated(await runGit(
+    repoRoot,
+    ['ls-files', '--others', '--ignored', '--exclude-standard', '-z', '--', RUNTIME_PROJECT_CONFIG],
+  ));
+  const untrackedPaths = [...new Map([
+    ...ordinaryUntrackedPaths,
+    ...ignoredRuntimeConfigPaths,
+  ].map(value => [value.toString('hex'), value])).values()].sort(Buffer.compare);
 
   if (trackedDiff.length === 0 && untrackedPaths.length === 0) return EMPTY_SHA256;
 
@@ -298,13 +354,14 @@ function safeProjectPath(relativePath) {
 
 async function loadManifest(suitePath) {
   const resolved = path.resolve(suitePath);
-  const manifest = JSON.parse(await fs.readFile(resolved, 'utf8'));
+  const bytes = await fs.readFile(resolved);
+  const manifest = JSON.parse(bytes.toString('utf8'));
   if (!manifest || typeof manifest !== 'object' || !Array.isArray(manifest.cases) ||
       !manifest.sources || typeof manifest.sources !== 'object') {
     throw new Error('Trust suite requires sources and a non-empty cases array.');
   }
   if (manifest.cases.length === 0) throw new Error('Trust suite has no cases.');
-  return manifest;
+  return { manifest, sha256: canonicalFileSha256(bytes) };
 }
 
 async function loadRepoMap(repoMapPath) {
@@ -353,6 +410,86 @@ export function evaluationOptionsForCase(mode, caseDefinition) {
     return { mode, profile: FIXTURE_TRUST_EVALUATION_PROFILE };
   }
   return { mode, profile: caseDefinition?.livePolicy?.profile ?? null };
+}
+
+function selectedCasePlan(manifest, selected, options) {
+  const plan = selected.map(caseDefinition => ({
+    id: caseDefinition.id,
+    sourceRef: caseDefinition.sourceRef,
+    repoId: manifest.sources[caseDefinition.sourceRef]?.repoId,
+    runCount: repeatCountForCase(caseDefinition, options.repeats),
+  }));
+  if (plan.some(item => typeof item.id !== 'string' || !item.id) ||
+      new Set(plan.map(item => item.id)).size !== plan.length) {
+    throw new Error('Selected trust cases require unique non-empty ids.');
+  }
+  if (plan.some(item => !Number.isSafeInteger(item.runCount) || item.runCount < 1)) {
+    throw new Error('Selected trust cases require a positive integer run count.');
+  }
+  return plan;
+}
+
+async function buildLiveCheckpointBase({ manifestSha256, selectedCases, measurePayload }) {
+  const gitSha = (await runGit(PROJECT_ROOT, ['rev-parse', 'HEAD']))
+    .toString('utf8').trim();
+  return {
+    profile: LIVE_RESUME_PROFILE,
+    manifestSha256,
+    runnerPin: {
+      gitSha,
+      dirtyTreeSha256: await dirtyTreeSha256(PROJECT_ROOT),
+    },
+    runtimeConfigSha256: runtimeConfigSha256(),
+    selectedCases,
+    measurePayload: Boolean(measurePayload),
+  };
+}
+
+function sameJson(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+async function loadResumeReport(resumePath) {
+  try {
+    const parsed = JSON.parse(await fs.readFile(path.resolve(resumePath), 'utf8'));
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error();
+    return parsed;
+  } catch {
+    throw new Error('Resume report could not be read as JSON.');
+  }
+}
+
+function validateResumeCheckpoint(report, checkpointBase, suiteName) {
+  const checkpoint = report?.checkpoint;
+  const expectedCheckpointKeys = [
+    'casesSha256',
+    'manifestSha256',
+    'measurePayload',
+    'profile',
+    'runnerPin',
+    'runtimeConfigSha256',
+    'selectedCases',
+  ];
+  if (report?.schemaVersion !== 2 || report.mode !== 'live' || report.suite !== suiteName ||
+      !Array.isArray(report.cases) || !hasExactKeys(checkpoint, expectedCheckpointKeys) ||
+      checkpoint.profile !== LIVE_RESUME_PROFILE ||
+      !hasExactKeys(checkpoint.runnerPin, ['dirtyTreeSha256', 'gitSha']) ||
+      !SHA256_PATTERN.test(checkpoint.casesSha256) ||
+      !SHA256_PATTERN.test(checkpoint.manifestSha256) ||
+      !SHA256_PATTERN.test(checkpoint.runnerPin.dirtyTreeSha256) ||
+      !/^[0-9a-f]{40,64}$/u.test(checkpoint.runnerPin.gitSha) ||
+      !SHA256_PATTERN.test(checkpoint.runtimeConfigSha256)) {
+    throw new Error('Resume report does not contain a valid live checkpoint.');
+  }
+  if (checkpoint.casesSha256 !== jsonSha256(report.cases)) {
+    // This is corruption detection for a trusted local report, not authentication.
+    throw new Error('Resume report case data does not match its checkpoint.');
+  }
+  for (const [key, value] of Object.entries(checkpointBase)) {
+    if (!sameJson(checkpoint[key], value)) {
+      throw new Error('Resume checkpoint is incompatible with the current live run.');
+    }
+  }
 }
 
 function responseSchemaRequired(request) {
@@ -611,6 +748,69 @@ async function livePin(source, repoRoot) {
   };
 }
 
+async function assertLiveSourcePin(source, repoRoot, expectedPin) {
+  const current = await livePin(source, repoRoot);
+  if (!current.pin.matched || !sameJson(current.pin, expectedPin)) {
+    throw new Error('Live repository changed after source preflight.');
+  }
+}
+
+function observedSourcePaths(result) {
+  const runtimeResult = result?.result && typeof result.result === 'object'
+    ? result.result
+    : result;
+  const paths = new Set();
+  for (const observation of runtimeResult?.observations ?? []) {
+    const value = observation?.kind === 'source' ? observation.path : null;
+    if (typeof value !== 'string' || !value || path.isAbsolute(value) || value.includes('\0')) {
+      continue;
+    }
+    const parts = value.replaceAll('\\', '/').split('/');
+    if (parts.some(part => !part || part === '.' || part === '..')) continue;
+    paths.add(parts.join('/'));
+  }
+  return [...paths].sort();
+}
+
+async function assertObservedSourcesArePinned(result, repoRoot) {
+  const sourcePaths = observedSourcePaths(result);
+  for (const sourcePath of sourcePaths) {
+    if (sourcePath === RUNTIME_PROJECT_CONFIG) continue;
+    let ignored = false;
+    try {
+      await runGit(repoRoot, ['check-ignore', '-q', '--', sourcePath]);
+      ignored = true;
+    } catch (error) {
+      if (error?.code !== 1) throw error;
+    }
+    if (ignored) throw new Error('Live result used an ignored source outside the source pin.');
+  }
+}
+
+async function preflightLiveSources(manifest, selected, repoMap) {
+  const results = new Map();
+  for (const caseDefinition of selected) {
+    const sourceRef = caseDefinition.sourceRef;
+    if (results.has(sourceRef)) continue;
+    const source = manifest.sources[sourceRef];
+    const repoRoot = mappedRepoRoot(source, repoMap);
+    if (!repoRoot) {
+      results.set(sourceRef, { repoRoot: null, pinData: null, error: null });
+      continue;
+    }
+    try {
+      results.set(sourceRef, {
+        repoRoot,
+        pinData: await livePin(source, repoRoot),
+        error: null,
+      });
+    } catch (error) {
+      results.set(sourceRef, { repoRoot, pinData: null, error });
+    }
+  }
+  return results;
+}
+
 function escapeRegex(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -627,9 +827,15 @@ function logicalizeString(value, repoRoot, repoId) {
   }
   safe = safe.replace(/[A-Za-z]:[\\/][^\s"'<>|]+/g, '<redacted-absolute-path>');
   safe = safe.replace(/\\\\[^\\\s]+\\[^\s"'<>|]+/g, '<redacted-absolute-path>');
-  safe = safe.replace(/\/(?:home|Users|tmp|var\/tmp|private|mnt|workspace)\/[^\s"'<>]+/g,
-    '<redacted-absolute-path>');
+  safe = safe.replace(
+    /(^|[\s"'=(:,;\[])(\/(?:home|Users|tmp|var|private|mnt|workspace|opt|srv|etc|root|usr|data|app|run|build|code|project)\/[^\s"'<>|]+)/g,
+    (_raw, prefix) => `${prefix}<redacted-absolute-path>`,
+  );
   return safe;
+}
+
+function sanitizeHarnessMessage(value, repoRoot, repoId) {
+  return redactText(logicalizeString(String(value ?? ''), repoRoot, repoId)).text;
 }
 
 function logicalizePaths(value, repoRoot, repoId) {
@@ -764,6 +970,112 @@ function providerFailureSummary(result) {
   };
 }
 
+function resumeRunPrefixes(report, selectedCases) {
+  if (report.cases.length !== selectedCases.length) {
+    throw new Error('Resume report does not preserve the selected case denominator.');
+  }
+  const prefixes = new Map();
+  let providerBoundary = false;
+  for (let caseIndex = 0; caseIndex < selectedCases.length; caseIndex += 1) {
+    const selectedCase = selectedCases[caseIndex];
+    const priorCase = report.cases[caseIndex];
+    if (priorCase?.id !== selectedCase.id || priorCase.repoId !== selectedCase.repoId ||
+        priorCase.runCount !== selectedCase.runCount ||
+        !Array.isArray(priorCase.runs) || priorCase.runs.length !== selectedCase.runCount) {
+      throw new Error('Resume report does not preserve the selected case denominator.');
+    }
+
+    const runs = [];
+    let attempted = false;
+    for (let runIndex = 0; runIndex < selectedCase.runCount; runIndex += 1) {
+      const priorRun = priorCase.runs[runIndex];
+      if (priorRun?.run !== runIndex + 1) {
+        throw new Error('Resume report has an invalid run-slot sequence.');
+      }
+      if (priorRun.notRun !== undefined) {
+        if (!providerBoundary || !hasExactKeys(priorRun, ['notRun', 'run']) ||
+            !hasExactKeys(priorRun.notRun, ['reason']) ||
+            priorRun.notRun.reason !== 'provider_unavailable') {
+          throw new Error('Resume report has an invalid provider-unavailable suffix.');
+        }
+        continue;
+      }
+      if (providerBoundary || !priorRun.artifact || typeof priorRun.artifact !== 'object' ||
+          Array.isArray(priorRun.artifact) || !priorRun.evaluation ||
+          typeof priorRun.evaluation !== 'object' || !priorRun.recordOnly ||
+          typeof priorRun.recordOnly !== 'object') {
+        throw new Error('Resume report has an invalid completed run slot.');
+      }
+      attempted = true;
+      if (providerFailureSummary(priorRun.artifact)) {
+        providerBoundary = true;
+        continue;
+      }
+      runs.push(priorRun);
+    }
+    prefixes.set(selectedCase.id, { runs, priorCase, attempted });
+  }
+  return prefixes;
+}
+
+function rebuildResumedRun({
+  priorRun,
+  manifest,
+  caseDefinition,
+  source,
+  repoRoot,
+  evaluationOptions,
+  measurePayload,
+}) {
+  const latencyMs = priorRun.recordOnly?.latencyMs;
+  const usage = priorRun.recordOnly?.usage;
+  if (!hasExactKeys(priorRun.recordOnly, ['latencyMs', 'usage']) ||
+      !Number.isSafeInteger(latencyMs) || latencyMs < 0 ||
+      !hasExactKeys(usage, ['inputTokens', 'outputTokens', 'toolCalls', 'totalTokens', 'turns']) ||
+      Object.values(usage).some(value => !Number.isFinite(value) || value < 0)) {
+    throw new Error('Resume report has invalid record-only measurements.');
+  }
+  if (priorRun.harnessFailure !== undefined &&
+      (!hasExactKeys(priorRun.harnessFailure, ['code', 'message']) ||
+       priorRun.harnessFailure.code !== 'RUNNER_EXECUTION_FAILED' ||
+       typeof priorRun.harnessFailure.message !== 'string')) {
+    throw new Error('Resume report has an invalid harness failure record.');
+  }
+
+  const artifact = sanitizeTrustArtifact(priorRun.artifact, {
+    repoRoot,
+    repoId: source.repoId,
+  });
+  const recordOnly = recordOnlyMetrics(artifact, latencyMs);
+  if (!sameJson(recordOnly, priorRun.recordOnly)) {
+    throw new Error('Resume report measurements do not match the preserved artifact.');
+  }
+  const harnessFailure = priorRun.harnessFailure
+    ? {
+      code: priorRun.harnessFailure.code,
+      message: sanitizeHarnessMessage(priorRun.harnessFailure.message, repoRoot, source.repoId),
+    }
+    : null;
+  return {
+    artifact,
+    run: {
+      run: priorRun.run,
+      evaluation: evaluateTrustCase(caseDefinition, artifact, evaluationOptions),
+      recordOnly,
+      ...(measurePayload && artifact.parentHandoff
+        ? {
+          payload: payloadRecord(manifest, caseDefinition, {
+            ...artifact,
+            parentPayloadMeasurement: null,
+          }),
+        }
+        : {}),
+      ...(harnessFailure ? { harnessFailure } : {}),
+      artifact,
+    },
+  };
+}
+
 function providerUnavailableRun(run) {
   return {
     run,
@@ -798,20 +1110,39 @@ async function runCase({
   pinData,
   options,
   runLiveCase,
+  resumedRuns = [],
 }) {
   const runCount = repeatCountForCase(caseDefinition, options.repeats);
   const evaluationOptions = evaluationOptionsForCase(mode, caseDefinition);
   const artifacts = [];
   const runs = [];
   let providerFailure = null;
-  for (let index = 0; index < runCount; index += 1) {
+  for (const priorRun of resumedRuns) {
+    const rebuilt = rebuildResumedRun({
+      priorRun,
+      manifest,
+      caseDefinition,
+      source,
+      repoRoot,
+      evaluationOptions,
+      measurePayload: options.measurePayload,
+    });
+    artifacts.push(rebuilt.artifact);
+    runs.push(rebuilt.run);
+  }
+  for (let index = runs.length; index < runCount; index += 1) {
     const startedAt = Date.now();
     let result;
     let runnerError = null;
     try {
-      result = mode === 'fixture'
-        ? await runFixture(caseDefinition, repoRoot, pinData.providerDocument)
-        : await runLiveCase(caseDefinition, repoRoot);
+      if (mode === 'fixture') {
+        result = await runFixture(caseDefinition, repoRoot, pinData.providerDocument);
+      } else {
+        await assertLiveSourcePin(source, repoRoot, pinData.pin);
+        result = await runLiveCase(caseDefinition, repoRoot);
+        await assertObservedSourcesArePinned(result, repoRoot);
+        await assertLiveSourcePin(source, repoRoot, pinData.pin);
+      }
     } catch (error) {
       runnerError = error;
       result = {};
@@ -829,7 +1160,11 @@ async function runCase({
       ...(runnerError ? {
         harnessFailure: {
           code: 'RUNNER_EXECUTION_FAILED',
-          message: logicalizeString(String(runnerError.message ?? runnerError), repoRoot, source.repoId),
+          message: sanitizeHarnessMessage(
+            runnerError.message ?? runnerError,
+            repoRoot,
+            source.repoId,
+          ),
         },
       } : {}),
       artifact: sanitizeTrustArtifact(result, { repoRoot, repoId: source.repoId }),
@@ -936,10 +1271,64 @@ function summarize(caseResults) {
 }
 
 export async function runTrustSuite(options, { runLiveCase = runLive } = {}) {
-  const manifest = await loadManifest(options.suite);
+  if (options.resumeFrom && options.mode !== 'live') {
+    throw new Error('Resume reports are accepted only in live mode.');
+  }
+  if (options.resumeFrom && options.output) {
+    const resumePath = path.resolve(options.resumeFrom);
+    const outputPath = path.resolve(options.output);
+    const samePath = process.platform === 'win32'
+      ? resumePath.toLocaleLowerCase('en') === outputPath.toLocaleLowerCase('en')
+      : resumePath === outputPath;
+    if (samePath) throw new Error('Resume input and output must use different files.');
+  }
+
+  const loadedManifest = await loadManifest(options.suite);
+  const manifest = loadedManifest.manifest;
   const repoMap = options.mode === 'live' ? await loadRepoMap(options.repoMap) : null;
   const selected = selectCases(manifest, options.mode);
   if (selected.length === 0) throw new Error(`No ${options.mode} cases are runnable.`);
+  const suiteName = manifest.name ?? path.basename(options.suite);
+  const selectedCases = selectedCasePlan(manifest, selected, options);
+  const checkpointBase = options.mode === 'live'
+    ? await buildLiveCheckpointBase({
+      manifestSha256: loadedManifest.sha256,
+      selectedCases,
+      measurePayload: options.measurePayload,
+    })
+    : null;
+  let resumePrefixes = null;
+  if (options.resumeFrom) {
+    const resumeReport = await loadResumeReport(options.resumeFrom);
+    validateResumeCheckpoint(resumeReport, checkpointBase, suiteName);
+    resumePrefixes = resumeRunPrefixes(resumeReport, selectedCases);
+  }
+
+  const liveSources = options.mode === 'live'
+    ? await preflightLiveSources(manifest, selected, repoMap)
+    : null;
+  if (liveSources) {
+    for (const [sourceRef, sourceState] of liveSources) {
+      const source = manifest.sources[sourceRef];
+      if (!sourceState.repoRoot) {
+        throw new Error(`Live source mapping is missing for logical repository ${source.repoId}.`);
+      }
+      if (sourceState.error || !sourceState.pinData?.pin?.matched) {
+        throw new Error(`Live source preflight failed for logical repository ${source.repoId}.`);
+      }
+    }
+    if (resumePrefixes) {
+      for (const caseDefinition of selected) {
+        const resumeEntry = resumePrefixes.get(caseDefinition.id);
+        if (!resumeEntry?.attempted) continue;
+        const sourceState = liveSources.get(caseDefinition.sourceRef);
+        if (!sameJson(resumeEntry.priorCase.pin, sourceState.pinData.pin)) {
+          const source = manifest.sources[caseDefinition.sourceRef];
+          throw new Error(`Resume source pin changed for logical repository ${source.repoId}.`);
+        }
+      }
+    }
+  }
 
   const caseResults = [];
   let providerUnavailable = null;
@@ -956,28 +1345,15 @@ export async function runTrustSuite(options, { runLiveCase = runLive } = {}) {
       printCase(notRun, options.verbose);
       continue;
     }
-    let repoRoot = null;
-    if (options.mode === 'live') {
-      repoRoot = mappedRepoRoot(source, repoMap);
-      if (!repoRoot) {
-        const skipped = {
-          id: caseDefinition.id,
-          repoId: source.repoId,
-          skipped: true,
-          passed: false,
-          reason: 'No logical repository mapping was supplied.',
-        };
-        caseResults.push(skipped);
-        printCase(skipped, options.verbose);
-        continue;
-      }
-    }
+    let repoRoot = options.mode === 'live'
+      ? liveSources.get(caseDefinition.sourceRef).repoRoot
+      : null;
 
     let pinData;
     try {
       pinData = options.mode === 'fixture'
         ? await fixturePin(caseDefinition, source)
-        : await livePin(source, repoRoot);
+        : liveSources.get(caseDefinition.sourceRef).pinData;
     } catch (error) {
       const failed = {
         id: caseDefinition.id,
@@ -1024,6 +1400,9 @@ export async function runTrustSuite(options, { runLiveCase = runLive } = {}) {
           };
         }
       }
+      if (options.mode === 'live') {
+        await assertLiveSourcePin(source, prepared.repoRoot, pinData.pin);
+      }
       const caseResult = await runCase({
         manifest,
         caseDefinition,
@@ -1033,6 +1412,7 @@ export async function runTrustSuite(options, { runLiveCase = runLive } = {}) {
         pinData,
         options,
         runLiveCase,
+        resumedRuns: resumePrefixes?.get(caseDefinition.id)?.runs ?? [],
       });
       caseResults.push(caseResult);
       printCase(caseResult, options.verbose);
@@ -1064,9 +1444,9 @@ export async function runTrustSuite(options, { runLiveCase = runLive } = {}) {
 
   const summary = summarize(caseResults);
   if (options.measurePayload) summary.payload = payloadComparisonRecord(manifest);
-  return {
-    schemaVersion: 1,
-    suite: manifest.name ?? path.basename(options.suite),
+  const report = {
+    schemaVersion: 2,
+    suite: suiteName,
     mode: options.mode,
     sourcePolicy: options.mode === 'fixture'
       ? 'sha256-tree-lf-v1 + sha256-lf-v1'
@@ -1085,6 +1465,13 @@ export async function runTrustSuite(options, { runLiveCase = runLive } = {}) {
     cases: caseResults,
     summary,
   };
+  if (checkpointBase) {
+    report.checkpoint = {
+      ...checkpointBase,
+      casesSha256: jsonSha256(caseResults),
+    };
+  }
+  return report;
 }
 
 async function main() {
