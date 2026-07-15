@@ -2489,9 +2489,14 @@ function validateSemanticVerdictBatch(raw, { claims, wrapperTool = 'explore_repo
       throw new TypeError(`Semantic verifier returned an unknown or duplicate claim: ${verdict.claimId}.`);
     }
     const claimEvidenceRefs = new Set(claimById.get(verdict.claimId).evidenceRefs);
-    if (verdict.supportingEvidenceRefs.some(ref => !claimEvidenceRefs.has(ref))) {
+    const invalidEvidenceRefs = verdict.supportingEvidenceRefs.filter(
+      ref => !claimEvidenceRefs.has(ref),
+    );
+    if (invalidEvidenceRefs.length > 0) {
       throw new TypeError(
-        `Semantic verifier returned evidence outside claim ${verdict.claimId}.`,
+        `Semantic verifier returned evidence outside claim ${verdict.claimId}: ` +
+        `invalid=[${[...new Set(invalidEvidenceRefs)].join(',')}], ` +
+        `allowed=[${[...claimEvidenceRefs].join(',')}].`,
       );
     }
     verdictByClaim.set(verdict.claimId, verdict);
@@ -3998,13 +4003,28 @@ function requireCanonicalAccessPolicyOrigins({ task, wrapperTool, goals }) {
     const originMismatch = matched.some((exact, index) =>
       exact.length === 0 && candidates[index].length > 0);
     const correctionLabels = ['frontend_actor_a', 'backend_actor_a', 'backend_actor_b'];
+    const correctionTypes = ['positive', 'comparison', 'comparison'];
+    const correctionConcepts = [
+      [pattern.labels.actorA, pattern.labels.surfaceA],
+      [pattern.labels.actorA, pattern.labels.surfaceB],
+      [pattern.labels.actorB, pattern.labels.surfaceB],
+    ];
     const exactOrigins = requirements.map(([, actor, surface], index) =>
       `${correctionLabels[index]}=[${exactOriginRef(actor)},${exactOriginRef(surface)}]`).join(', ');
+    const exactLeafContract = requirements.map(([, actor, surface], index) =>
+      `${correctionLabels[index]}={claimType:${correctionTypes[index]},` +
+      `actor:${JSON.stringify(correctionConcepts[index][0])},` +
+      `surface:${JSON.stringify(correctionConcepts[index][1])},` +
+      `originRefs:[${exactOriginRef(actor)},${exactOriginRef(surface)}]}`).join('; ');
+    const failureReason = originMismatch
+      ? 'Access comparison goal origins must bind one exact actor and surface. ' +
+        `Use these exact origin sets: ${exactOrigins}. `
+      : 'Access comparison requires one frontend actor-A, backend actor-A, and backend actor-B goal. ';
     throw new TypeError(
-      originMismatch
-        ? 'Access comparison goal origins must bind one exact actor and surface. ' +
-          `Use these exact origin sets: ${exactOrigins}.`
-        : 'Access comparison requires one frontend actor-A, backend actor-A, and backend actor-B goal.',
+      failureReason +
+      'Required canonical leaf contract: exactly one of each; keep each exact actor and surface ' +
+      'concept in question or proofCondition; do not merge, duplicate, or add a fourth leaf: ' +
+      `${exactLeafContract}.`,
     );
   }
   return matched.map(candidates => candidates[0].id);

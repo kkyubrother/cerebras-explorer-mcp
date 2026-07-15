@@ -1341,6 +1341,9 @@ export function validateGoalAuditorResponse(value, context = {}) {
   for (const proposal of plannerProposal.subgoals) {
     proposalById.set(proposal.id, proposal);
   }
+  const allowedOriginsByProposal = plannerProposal.subgoals
+    .map(proposal => `${proposal.id}=[${proposal.originRefs.join(',')}]`)
+    .join('; ');
   const auditedGoalIds = new Set();
   const externalMergeTargetIds = new Set(
     Array.isArray(context.externalMergeTargetIds)
@@ -1365,7 +1368,11 @@ export function validateGoalAuditorResponse(value, context = {}) {
     validateOriginRefs(record.originRefs, context, `${path}.originRefs`);
     for (const originRef of record.originRefs) {
       if (!proposal.originRefs.includes(originRef)) {
-        failInternalValidation(path, `unproposed origin ${originRef}`);
+        failInternalValidation(
+          path,
+          `unproposed origin ${originRef}; allowed originRefs by proposal: ` +
+          allowedOriginsByProposal,
+        );
       }
     }
 

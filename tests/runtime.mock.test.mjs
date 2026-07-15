@@ -4777,10 +4777,19 @@ auditedPlanningRuntimeTest('Spec 028 T071 — an auditor cannot silently discard
 
 auditedPlanningRuntimeTest('Spec 028 T068 — invalid control retries receive only bounded validator feedback', async () => {
   const goal = proposedRuntimeGoal();
+  const absenceGoal = {
+    id: 'S-absence',
+    question: 'Is legacyGuard absent?',
+    originRefs: [requestOrigin(GOAL_AUDIT_TASK, 'verify legacyGuard is absent')],
+    claimType: 'absence',
+    proofCondition: 'Search the complete in-scope boundary for legacyGuard.',
+    constraints: [],
+  };
+  const goals = [goal, absenceGoal];
   const invalidOrigin = requestOrigin(GOAL_AUDIT_TASK, 'verify legacyGuard is absent');
   const invalidMarker = 'INVALID_MODEL_OUTPUT_SHOULD_NOT_REAPPEAR';
   const client = new ScriptedGoalAuditClient([
-    { stage: 'planner:1', value: plannerControl([goal]) },
+    { stage: 'planner:1', value: plannerControl(goals) },
     {
       stage: 'goal_audit:1',
       value: auditorControl([
@@ -4788,6 +4797,7 @@ auditedPlanningRuntimeTest('Spec 028 T068 — invalid control retries receive on
           originRefs: [invalidOrigin],
           reason: invalidMarker,
         }),
+        auditControlRecord(absenceGoal),
       ]),
     },
     {
@@ -4797,8 +4807,15 @@ auditedPlanningRuntimeTest('Spec 028 T068 — invalid control retries receive on
         assert.match(retryPacket, /failed runtime validation/i);
         assert.match(retryPacket, /unproposed origin/);
         assert.match(retryPacket, new RegExp(invalidOrigin.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+        assert.match(retryPacket, /allowed originRefs by proposal/u);
+        for (const proposed of goals) {
+          assert.match(retryPacket, new RegExp(
+            `${proposed.id}=\\[${proposed.originRefs.join(',')}\\]`,
+            'u',
+          ));
+        }
         assert.doesNotMatch(retryPacket, new RegExp(invalidMarker));
-        return controlCompletion(auditorControl([auditControlRecord(goal)]));
+        return controlCompletion(auditorControl(goals.map(proposed => auditControlRecord(proposed))));
       },
     },
     { stage: 'exploration:1', content: 'The corrected audited goal is ready.' },
@@ -4817,7 +4834,7 @@ auditedPlanningRuntimeTest('Spec 028 T068 — invalid control retries receive on
     'goal_audit:1',
     'goal_audit:2',
   ]);
-  assert.deepEqual(result.taskContract.subgoals.map(subgoal => subgoal.id), [goal.id]);
+  assert.deepEqual(result.taskContract.subgoals.map(subgoal => subgoal.id), goals.map(item => item.id));
 });
 
 auditedPlanningRuntimeTest('Spec 028 T068 — consumed duplicate audits remain internal diagnostics', async () => {
@@ -6326,6 +6343,18 @@ auditedPlanningRuntimeTest(
             `backend_actor_b=\\[${developer},${backend}\\]`,
             'u',
           ));
+          assert.match(correction,
+            /Required canonical leaf contract: exactly one of each/u);
+          assert.match(correction,
+            /frontend_actor_a=\{claimType:positive,actor:"administrator",surface:"frontend guards"/u);
+          assert.match(correction,
+            /backend_actor_a=\{claimType:comparison,actor:"administrator",surface:"backend route families"/u);
+          assert.match(correction,
+            /backend_actor_b=\{claimType:comparison,actor:"developer",surface:"backend route families"/u);
+          assert.match(correction,
+            /keep each exact actor and surface concept in question or proofCondition/u);
+          assert.match(correction,
+            /do not merge, duplicate, or add a fourth leaf/u);
           return controlCompletion(plannerControl(goals));
         },
       },
@@ -13301,8 +13330,11 @@ semanticPipelineRuntimeTest(
           {
             verdicts: correctedVerdicts,
             assertRequest(request) {
-              assert.match(JSON.stringify(request.messages),
+              const correction = JSON.stringify(request.messages);
+              assert.match(correction,
                 /supportingEvidenceRef must come from that same claim evidenceRefs/u);
+              assert.match(correction,
+                /outside claim C-auth-definition: invalid=\[E2\], allowed=\[E1\]/u);
             },
           },
         ],
