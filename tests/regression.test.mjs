@@ -731,6 +731,8 @@ test('Spec 028 T028 — claim synthesis receives bounded observations and cannot
   assert.match(prompt.system,
     /three or more source paths[\s\S]{0,180}separate semicolon-delimited clause[\s\S]{0,160}path-to-predicate pairing/i);
   assert.match(prompt.system,
+    /access-control comparisons[\s\S]{0,160}actual gating expression[\s\S]{0,180}query, read, or field selection[\s\S]{0,180}admits or rejects access/i);
+  assert.match(prompt.system,
     /only when control\.wrapper\.tool is explore_repo[\s\S]{0,120}mode is repository[\s\S]{0,140}one distinct canonical entry[\s\S]{0,180}exactly one complete repo_find_files \*\*\/\* search/i);
   assert.match(prompt.system,
     /keep that internal inventory detail out of claim text/i);
@@ -864,6 +866,8 @@ test('Spec 028 T028 — semantic verifier sees isolated rebuilt facts and cannot
     /definition together with[\s\S]{0,180}invocation or enforcement site/i);
   assert.match(prompt.system,
     /every asserted comparison side and enforcement predicate[\s\S]{0,180}one correct side never compensates[\s\S]{0,220}row-existence check[\s\S]{0,180}selected boolean field check/i);
+  assert.match(prompt.system,
+    /query or read proves retrieval only[\s\S]{0,220}controlling the allow\/deny decision[\s\S]{0,180}control-flow link/i);
   assert.match(prompt.system,
     /every, exhaustive, or inventory classification[\s\S]{0,180}complete cited enumeration[\s\S]{0,180}every enumerated member/i);
   assert.match(prompt.system,

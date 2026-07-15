@@ -9321,6 +9321,8 @@ semanticPipelineRuntimeTest(
     assert.match(focusedPacket.system, /Do not require every observation/u);
     assert.match(focusedPacket.system,
       /uncited current-source observations as omission candidates/u);
+    assert.match(focusedPacket.system,
+      /query or read proves retrieval only[\s\S]{0,220}controlling the allow\/deny decision/u);
     assert.equal(result.taskContract.subgoals.find(goal => goal.id === frontendGoal.id)?.state,
       'supported');
     assert.equal(result.taskContract.subgoals.find(goal => goal.id === backendGoal.id)?.state,
