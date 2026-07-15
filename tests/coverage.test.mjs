@@ -1828,6 +1828,7 @@ proofPolicyCoverageTest(
     uncoveredRequestParts = [],
     revisionCount = 0,
     existingRequiredSubgoals = [],
+    distinctOriginGoalIds = [],
   }) {
     assert.equal(typeof coverageModule.reduceGoalAudit, 'function');
     return coverageModule.reduceGoalAudit({
@@ -1836,6 +1837,7 @@ proofPolicyCoverageTest(
       uncoveredRequestParts,
       revisionCount,
       existingRequiredSubgoals,
+      distinctOriginGoalIds,
     });
   }
 
@@ -2154,6 +2156,21 @@ proofPolicyCoverageTest(
     assert.deepEqual(initial.revisionRequest.decomposeGoalIds, []);
     assert.ok(initial.revisionRequest.diagnostics.every(item =>
       item.code === 'ambiguous_origin_binding'));
+
+    const explicitlyDistinct = reduceAudit({
+      preflightResult: checked,
+      auditRecords: records,
+      distinctOriginGoalIds: [broad.id, nested.id],
+    });
+    assert.equal(explicitlyDistinct.revisionRequest, null);
+    assert.deepEqual(new Set(explicitlyDistinct.requiredSubgoals.map(goal => goal.id)),
+      new Set([broad.id, nested.id]));
+    assert.ok(explicitlyDistinct.requiredSubgoals.every(goal => goal.auditVerdict === 'ready'));
+    assert.throws(() => reduceAudit({
+      preflightResult: checked,
+      auditRecords: records,
+      distinctOriginGoalIds: ['unknown-goal'],
+    }), /unknown proposal/u);
 
     const repeated = reduceAudit({
       preflightResult: checked,

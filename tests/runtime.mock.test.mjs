@@ -5940,6 +5940,588 @@ auditedPlanningRuntimeTest(
   },
 );
 
+auditedPlanningRuntimeTest(
+  'Spec 028 T069 — auditor-requested corrections may reuse rejected planner ids',
+  async () => {
+    const task = 'Identify the translation pipeline implementation, tests, and every environment/configuration input needed to run it.';
+    const retained = {
+      id: 'S-flow',
+      question: 'What is the primary translation pipeline implementation path?',
+      originRefs: [requestOrigin(task, 'Identify the translation pipeline implementation')],
+      claimType: 'flow',
+      proofCondition: 'Observe the primary entry path and the implementation calls it makes.',
+      constraints: ['Keep the answer within the requested translation pipeline.'],
+    };
+    const originals = [
+      {
+        id: 'S-tests',
+        question: 'Which tests cover the translation pipeline entry path?',
+        originRefs: [requestOrigin(task, 'Identify'), requestOrigin(task, 'tests,')],
+        claimType: 'positive',
+        proofCondition: 'Observe the translation pipeline tests and the behavior they cover.',
+        constraints: ['Keep the answer within the requested translation pipeline.'],
+      },
+      {
+        id: 'S-config',
+        question: 'Which environment and configuration inputs are needed to run the pipeline?',
+        originRefs: [
+          requestOrigin(task, 'Identify'),
+          requestOrigin(task, 'every environment/configuration input needed to run it.'),
+        ],
+        claimType: 'impact',
+        proofCondition: 'Observe every requested runtime input and how it affects execution.',
+        constraints: ['Keep the answer within the requested translation pipeline.'],
+      },
+    ];
+    const testsEnd = task.indexOf('tests,') + 'tests,'.length;
+    const corrected = [
+      { ...originals[0], originRefs: [`request:0-${testsEnd}`] },
+      { ...originals[1], originRefs: [`request:0-${task.length}`] },
+    ];
+    const uncovered = corrected.map(goal => ({
+      question: goal.question,
+      originRefs: [...goal.originRefs],
+      claimType: goal.claimType,
+      proofCondition: goal.proofCondition,
+      constraints: [...goal.constraints],
+    }));
+    let normalizedIds = [];
+    const client = new ScriptedGoalAuditClient([
+      { stage: 'planner:1', value: plannerControl([retained, ...originals]) },
+      {
+        stage: 'goal_audit:1',
+        value: auditorControl([
+          auditControlRecord(retained),
+          ...originals.map(goal =>
+            auditControlRecord(goal, 'reject_untraceable', { originRefs: [] })),
+        ], uncovered),
+      },
+      { stage: 'planner:2', value: plannerControl([retained, ...corrected]) },
+      {
+        stage: 'goal_audit:2',
+        run(request) {
+          const packet = parseControlPacket(request);
+          assert.equal(packet.proposals.length, 2);
+          assert.deepEqual(packet.existingGoalLedger.map(goal => goal.id), [retained.id]);
+          normalizedIds = packet.proposals.map(goal => goal.id);
+          for (const [index, proposal] of packet.proposals.entries()) {
+            assert.notEqual(proposal.id, originals[index].id);
+            assert.match(proposal.id,
+              new RegExp(`^revision-corrected:${originals[index].id}(?::\\d+)?$`, 'u'));
+            assert.deepEqual({ ...proposal, id: originals[index].id }, corrected[index]);
+          }
+          return controlCompletion(auditorControl(
+            packet.proposals.map(goal => auditControlRecord(goal)),
+          ));
+        },
+      },
+      { stage: 'exploration:1', content: 'The corrected tests goal is ready.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+    ]);
+    const root = await makeRepoFixture();
+    const logDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-revision-ids-'));
+    let result;
+    await withEnv({ CEREBRAS_EXPLORER_LOG_PATH: logDir }, async () => {
+      result = await new RuntimeImplementation({ chatClient: client }).explore({
+        task,
+        repo_root: root,
+      });
+    });
+
+    assert.equal(result.failure, null, JSON.stringify({
+      failure: result.failure,
+      stages: client.stageLabels,
+    }));
+    assert.equal(normalizedIds.length, 2);
+    assert.equal(client.stageCounts.get('goal_coverage') ?? 0, 0);
+    assert.deepEqual(result.taskContract.subgoals.map(goal => goal.id),
+      [retained.id, ...normalizedIds]);
+    assert.ok(result.taskContract.subgoals.every(goal => goal.auditVerdict === 'ready'));
+    assert.deepEqual(result.goalAuditRecords.map(record => [
+      record.proposedGoalId,
+      record.verdict,
+    ]), [
+      [retained.id, 'ready'],
+      [originals[0].id, 'reject_untraceable'],
+      [originals[1].id, 'reject_untraceable'],
+      [normalizedIds[0], 'ready'],
+      [normalizedIds[1], 'ready'],
+    ]);
+    assert.deepEqual(result.rejectedGoals.map(goal => goal.proposedGoalId),
+      originals.map(goal => goal.id));
+    assert.equal(result.coverageGaps.some(gap => gap.reason === 'planning_incomplete'), false);
+    assert.doesNotMatch(JSON.stringify(result.parentHandoff),
+      /revision-corrected|reject_untraceable|planning-carry|planning_incomplete|goalAuditRecords/u);
+    const planningEntries = await readJsonl(result.transcriptPath);
+    const revisedPlan = planningEntries.find(entry => entry.type === 'plan_revised');
+    const revisedAudit = planningEntries.find(entry =>
+      entry.type === 'goal_audit' && entry.revisionCount === 1);
+    assert.deepEqual(revisedPlan.proposal.subgoals.map(goal => goal.id),
+      [retained.id, ...normalizedIds]);
+    assert.deepEqual(revisedAudit.auditRecords.map(record => record.proposedGoalId),
+      normalizedIds);
+  },
+);
+
+auditedPlanningRuntimeTest(
+  'Spec 028 T069 — a rejected id cannot authorize a different auditor request part',
+  async () => {
+    const task = 'Map the translation pipeline tests and environment inputs.';
+    const rejected = {
+      id: 'S-tests',
+      question: 'Which tests cover the translation pipeline?',
+      originRefs: [requestOrigin(task, 'tests')],
+      claimType: 'positive',
+      proofCondition: 'Observe the translation pipeline tests.',
+      constraints: [],
+    };
+    const differentPart = {
+      id: rejected.id,
+      question: 'Which environment inputs are needed to run the translation pipeline?',
+      originRefs: [`request:0-${task.length}`],
+      claimType: 'impact',
+      proofCondition: 'Observe the requested environment inputs and their runtime effect.',
+      constraints: [],
+    };
+    const uncovered = {
+      question: differentPart.question,
+      originRefs: [...differentPart.originRefs],
+      claimType: differentPart.claimType,
+      proofCondition: differentPart.proofCondition,
+      constraints: [],
+    };
+    const client = new ScriptedGoalAuditClient([
+      { stage: 'planner:1', value: plannerControl([rejected]) },
+      {
+        stage: 'goal_audit:1',
+        value: auditorControl([
+          auditControlRecord(rejected, 'reject_untraceable', { originRefs: [] }),
+        ], [uncovered]),
+      },
+      { stage: 'planner:2', value: plannerControl([differentPart]) },
+    ]);
+    const root = await makeRepoFixture();
+    const result = await new RuntimeImplementation({ chatClient: client }).explore({
+      task,
+      repo_root: root,
+    });
+
+    assert.equal(result.failure, null, JSON.stringify(result.failure));
+    assert.deepEqual(client.stageLabels, ['planner:1', 'goal_audit:1', 'planner:2']);
+    assert.equal(result.taskContract.subgoals.some(goal => goal.id === rejected.id), false);
+    assert.ok(result.taskContract.subgoals.some(goal =>
+      goal.auditVerdict === 'planning_incomplete' && goal.question === uncovered.question));
+    assert.deepEqual(result.rejectedGoals.map(goal => goal.proposedGoalId), [rejected.id]);
+  },
+);
+
+auditedPlanningRuntimeTest(
+  'Spec 028 T069 — canonical pipeline leaves are validated before audit',
+  async () => {
+    const task = 'Map the translation pipeline implementation, tests, and every environment/configuration input needed to run it.';
+    const invalid = [
+      {
+        id: 'S-pipeline-flow',
+        question: 'What is the implementation flow of the translation pipeline?',
+        originRefs: [requestOrigin(task, 'Map the translation pipeline implementation')],
+        claimType: 'flow',
+        proofCondition: 'Identify the translation pipeline implementation flow.',
+        constraints: [],
+      },
+      {
+        id: 'S-pipeline-tests',
+        question: 'Which tests cover the translation pipeline?',
+        originRefs: [requestOrigin(task, 'tests')],
+        claimType: 'positive',
+        proofCondition: 'Identify tests that cover the translation pipeline.',
+        constraints: [],
+      },
+      {
+        id: 'S-pipeline-inputs',
+        question: 'Which environment and configuration inputs are required?',
+        originRefs: [requestOrigin(task, 'every environment/configuration input needed to run it.')],
+        claimType: 'impact',
+        proofCondition: 'Identify every environment and configuration input needed to run the pipeline.',
+        constraints: [],
+      },
+    ];
+    const canonical = invalid.map((goal, index) => ({
+      ...goal,
+      originRefs: [
+        ['request:0-44'],
+        ['request:0-51'],
+        [`request:0-${task.length}`],
+      ][index],
+    }));
+    const client = new ScriptedGoalAuditClient([
+      { stage: 'planner:1', value: plannerControl(invalid) },
+      { stage: 'planner:2', value: plannerControl(canonical) },
+      {
+        stage: 'goal_audit:1',
+        run(request) {
+          const packet = parseControlPacket(request);
+          assert.deepEqual(packet.proposals, canonical);
+          return controlCompletion(auditorControl(
+            packet.proposals.map(goal => auditControlRecord(goal)),
+          ));
+        },
+      },
+      { stage: 'exploration:1', content: 'The canonical pipeline leaves are ready.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+    ]);
+    const root = await makeRepoFixture();
+    const result = await new RuntimeImplementation({ chatClient: client }).explore({
+      task,
+      repo_root: root,
+    });
+
+    assert.equal(result.failure, null, JSON.stringify({
+      failure: result.failure,
+      stages: client.stageLabels,
+    }));
+    assert.equal(client.stageCounts.get('planner'), 2);
+    assert.equal(client.stageCounts.get('goal_audit'), 1);
+    assert.equal(client.stageCounts.get('goal_coverage') ?? 0, 0);
+    assert.deepEqual(result.taskContract.subgoals.map(goal => goal.id), canonical.map(goal => goal.id));
+    assert.deepEqual(result.taskContract.subgoals.map(goal => goal.originRefs),
+      canonical.map(goal => goal.originRefs));
+    assert.equal(result.coverageGaps.some(gap => gap.reason === 'planning_incomplete'), false);
+  },
+);
+
+auditedPlanningRuntimeTest(
+  'Spec 028 T069 — pipeline validation preserves an additional same-category obligation',
+  async () => {
+    const task = 'Map the translation pipeline implementation, tests, and every environment/configuration input needed to run it, and separately map retry integration tests.';
+    const inputEnd = task.indexOf(', and separately map retry integration tests.');
+    const goals = [
+      {
+        id: 'S-pipeline-flow-with-extra',
+        question: 'What is the implementation flow of the translation pipeline?',
+        originRefs: ['request:0-44'],
+        claimType: 'flow',
+        proofCondition: 'Observe the translation pipeline implementation flow.',
+        constraints: [],
+      },
+      {
+        id: 'S-pipeline-tests-with-extra',
+        question: 'Which tests cover the translation pipeline?',
+        originRefs: ['request:0-51'],
+        claimType: 'positive',
+        proofCondition: 'Observe tests that cover the translation pipeline.',
+        constraints: [],
+      },
+      {
+        id: 'S-pipeline-inputs-with-extra',
+        question: 'Which environment and configuration inputs are required?',
+        originRefs: [`request:0-${inputEnd + 1}`],
+        claimType: 'impact',
+        proofCondition: 'Observe every environment and configuration input needed to run the pipeline.',
+        constraints: [],
+      },
+      {
+        id: 'S-pipeline-retry-tests-extra',
+        question: 'Which retry integration tests cover failure recovery?',
+        originRefs: [requestOrigin(task, 'separately map retry integration tests.')],
+        claimType: 'positive',
+        proofCondition: 'Observe the separately requested retry integration tests.',
+        constraints: [],
+      },
+    ];
+    const client = new ScriptedGoalAuditClient([
+      { stage: 'planner:1', value: plannerControl(goals) },
+      { stage: 'goal_audit:1', value: auditorControl(goals.map(goal => auditControlRecord(goal))) },
+      { stage: 'exploration:1', content: 'All requested pipeline obligations are retained.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+    ]);
+    const root = await makeRepoFixture();
+    const result = await new RuntimeImplementation({ chatClient: client }).explore({
+      task,
+      repo_root: root,
+    });
+
+    assert.equal(result.failure, null);
+    assert.equal(client.stageCounts.get('planner'), 1);
+    assert.deepEqual(result.taskContract.subgoals.map(goal => goal.id), goals.map(goal => goal.id));
+  },
+);
+
+auditedPlanningRuntimeTest(
+  'Spec 028 T069 — canonical access leaves reject an invented umbrella audit',
+  async () => {
+    const task = 'Compare administrator and developer access policy across frontend guards and backend route families.';
+    const administrator = requestOrigin(task, 'administrator');
+    const developer = requestOrigin(task, 'developer');
+    const frontend = requestOrigin(task, 'frontend guards');
+    const backend = requestOrigin(task, 'backend route families.');
+    const goals = [
+      {
+        id: 'canonical-access-frontend-actor-a',
+        question: 'How do frontend guards enforce administrator access?',
+        originRefs: [administrator, frontend],
+        claimType: 'positive',
+        proofCondition: 'Observe the frontend guard that enforces administrator access.',
+        constraints: [],
+      },
+      {
+        id: 'canonical-access-backend-actor-a',
+        question: 'Which backend route families use distinct administrator checks?',
+        originRefs: [administrator, backend],
+        claimType: 'comparison',
+        proofCondition: 'Compare the administrator gating predicates across backend route families.',
+        constraints: [],
+      },
+      {
+        id: 'canonical-access-backend-actor-b',
+        question: 'Which backend route families give developer-specific access?',
+        originRefs: [developer, backend],
+        claimType: 'comparison',
+        proofCondition: 'Compare developer-specific behavior across backend route families.',
+        constraints: [],
+      },
+      {
+        id: 'S-access-frontend-actor-b',
+        question: 'Do frontend guards define developer-specific access?',
+        originRefs: [developer, frontend],
+        claimType: 'positive',
+        proofCondition: 'Observe or refute developer-specific behavior in frontend guards.',
+        constraints: [],
+      },
+    ];
+    const submittedGoals = goals.map((goal, index) => ({
+      ...goal,
+      originRefs: [`request:0-${task.length}`, index === 0 || index === 3 ? frontend : backend],
+    }));
+    const umbrella = {
+      question: 'Compare administrator and developer access policy',
+      originRefs: [requestOrigin(task, 'Compare administrator and developer access policy')],
+      claimType: 'comparison',
+      proofCondition: 'Establish one global comparison across the already separate leaves.',
+      constraints: [],
+    };
+    const client = new ScriptedGoalAuditClient([
+      { stage: 'planner:1', value: plannerControl(submittedGoals) },
+      { stage: 'planner:2', value: plannerControl(goals) },
+      {
+        stage: 'goal_audit:1',
+        run(request) {
+          const packet = parseControlPacket(request);
+          assert.deepEqual(packet.proposals, goals);
+          return controlCompletion(auditorControl(goals.map((goal, index) =>
+            auditControlRecord(goal, index < 3 ? 'needs_decomposition' : 'ready')), [umbrella]));
+        },
+      },
+      {
+        stage: 'goal_audit:2',
+        value: auditorControl(goals.map(goal => auditControlRecord(goal))),
+      },
+      { stage: 'exploration:1', content: 'The three access leaves are ready.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+    ]);
+    const root = await makeRepoFixture();
+    const result = await new RuntimeImplementation({ chatClient: client }).explore({
+      task,
+      repo_root: root,
+    });
+
+    assert.equal(result.failure, null, JSON.stringify({
+      failure: result.failure,
+      stages: client.stageLabels,
+    }));
+    assert.equal(client.stageCounts.get('planner'), 2);
+    assert.equal(client.stageCounts.get('goal_audit'), 2);
+    assert.equal(client.stageCounts.get('goal_coverage') ?? 0, 0);
+    assert.deepEqual(result.taskContract.subgoals.map(goal => goal.id), goals.map(goal => goal.id));
+    assert.deepEqual(result.taskContract.subgoals.map(goal => goal.originRefs),
+      goals.map(goal => goal.originRefs));
+    assert.ok(result.taskContract.subgoals.every(goal => goal.auditVerdict === 'ready'));
+    assert.equal(result.coverageGaps.some(gap => gap.reason === 'planning_incomplete'), false);
+  },
+);
+
+auditedPlanningRuntimeTest(
+  'Spec 028 T069 — invocation classification leaves require one contiguous action origin',
+  async () => {
+    const task = 'Inventory every Amazon Bedrock invocation and classify direct SDK calls, wrappers, and configuration-only references.';
+    const classifyStart = task.indexOf('classify');
+    const invalid = [
+      {
+        id: 'S-direct',
+        question: 'Which direct Amazon Bedrock SDK invocation sites exist?',
+        originRefs: [
+          requestOrigin(task, 'Inventory every Amazon Bedrock invocation'),
+          requestOrigin(task, 'classify direct SDK calls,'),
+        ],
+        claimType: 'count',
+        proofCondition: 'Enumerate every direct SDK invocation site.',
+        constraints: [],
+      },
+      {
+        id: 'S-wrappers',
+        question: 'Which Amazon Bedrock wrapper entry points exist?',
+        originRefs: [
+          requestOrigin(task, 'Inventory every Amazon Bedrock invocation'),
+          requestOrigin(task, 'wrappers,'),
+        ],
+        claimType: 'comparison',
+        proofCondition: 'Classify every wrapper entry point separately from direct SDK calls.',
+        constraints: [],
+      },
+      {
+        id: 'S-config',
+        question: 'Which Amazon Bedrock references are configuration-only?',
+        originRefs: [
+          requestOrigin(task, 'Inventory every Amazon Bedrock invocation'),
+          requestOrigin(task, 'configuration-only references.'),
+        ],
+        claimType: 'comparison',
+        proofCondition: 'Classify configuration-only references separately from invocations.',
+        constraints: [],
+      },
+    ];
+    const corrected = invalid.map((goal, index) => ({
+      ...goal,
+      originRefs: [`request:${classifyStart}-${[
+        task.indexOf('wrappers,') - 1,
+        task.indexOf('wrappers,') + 'wrappers,'.length,
+        task.length,
+      ][index]}`],
+    }));
+    const client = new ScriptedGoalAuditClient([
+      { stage: 'planner:1', value: plannerControl(invalid) },
+      { stage: 'planner:2', value: plannerControl(corrected) },
+      {
+        stage: 'goal_audit:1',
+        value: auditorControl(corrected.map(goal => auditControlRecord(goal)), []),
+      },
+      { stage: 'exploration:1', content: 'The three classification leaves are explored.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+    ]);
+    const root = await makeRepoFixture();
+    const result = await new RuntimeImplementation({ chatClient: client }).explore({
+      task,
+      repo_root: root,
+    });
+
+    assert.equal(result.failure, null, JSON.stringify({
+      failure: result.failure,
+      stages: client.stageLabels,
+    }));
+    assert.equal(client.stageCounts.get('planner'), 2);
+    assert.equal(client.stageCounts.get('goal_audit'), 1);
+    assert.deepEqual(result.taskContract.subgoals.map(goal => goal.originRefs),
+      corrected.map(goal => goal.originRefs));
+    assert.match(JSON.stringify(client.requests[1].messages),
+      /one exact contiguous request origin.*shared classification action/iu);
+  },
+);
+
+auditedPlanningRuntimeTest(
+  'Spec 028 T069 — invocation validation preserves a trailing same-category obligation',
+  async () => {
+    const task = 'Inventory every Amazon Bedrock invocation and classify direct SDK calls, wrappers, and configuration-only references, and separately classify retry wrappers.';
+    const classifyStart = task.indexOf('classify');
+    const configurationEnd = task.indexOf(', and separately classify retry wrappers.') + 1;
+    const goals = [
+      {
+        id: 'S-direct-with-extra',
+        question: 'Which direct Amazon Bedrock SDK invocation sites exist?',
+        originRefs: [`request:${classifyStart}-${task.indexOf('wrappers,') - 1}`],
+        claimType: 'count',
+        proofCondition: 'Enumerate every direct SDK invocation site.',
+        constraints: [],
+      },
+      {
+        id: 'S-wrappers-with-extra',
+        question: 'Which Amazon Bedrock wrapper entry points exist?',
+        originRefs: [
+          `request:${classifyStart}-${task.indexOf('wrappers,') + 'wrappers,'.length}`,
+        ],
+        claimType: 'comparison',
+        proofCondition: 'Classify every wrapper entry point separately from direct SDK calls.',
+        constraints: [],
+      },
+      {
+        id: 'S-config-with-extra',
+        question: 'Which Amazon Bedrock references are configuration-only?',
+        originRefs: [`request:${classifyStart}-${configurationEnd}`],
+        claimType: 'comparison',
+        proofCondition: 'Classify configuration-only references separately from invocations.',
+        constraints: [],
+      },
+      {
+        id: 'S-retry-wrappers-extra',
+        question: 'Which retry wrappers need separate classification?',
+        originRefs: [requestOrigin(task, 'and separately classify retry wrappers.')],
+        claimType: 'comparison',
+        proofCondition: 'Classify the separately requested retry wrappers.',
+        constraints: [],
+      },
+    ];
+    const client = new ScriptedGoalAuditClient([
+      { stage: 'planner:1', value: plannerControl(goals) },
+      { stage: 'goal_audit:1', value: auditorControl(goals.map(goal => auditControlRecord(goal))) },
+      { stage: 'exploration:1', content: 'All requested classification obligations are retained.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+    ]);
+    const root = await makeRepoFixture();
+    const result = await new RuntimeImplementation({ chatClient: client }).explore({
+      task,
+      repo_root: root,
+    });
+
+    assert.equal(result.failure, null, JSON.stringify({
+      failure: result.failure,
+      stages: client.stageLabels,
+    }));
+    assert.equal(client.stageCounts.get('planner'), 1);
+    assert.equal(client.stageCounts.get('goal_audit'), 1);
+    assert.deepEqual(result.taskContract.subgoals.map(goal => goal.id), goals.map(goal => goal.id));
+    assert.deepEqual(result.taskContract.subgoals.map(goal => goal.originRefs),
+      goals.map(goal => goal.originRefs));
+  },
+);
+
+auditedPlanningRuntimeTest(
+  'Spec 028 T069 — invocation classification rejects missing and duplicate categories',
+  async () => {
+    const task = 'Inventory every Amazon Bedrock invocation and classify direct SDK calls, wrappers, and configuration-only references.';
+    const classifyStart = task.indexOf('classify');
+    const direct = {
+      id: 'S-direct-category',
+      question: 'Which direct Amazon Bedrock SDK invocation sites exist?',
+      originRefs: [`request:${classifyStart}-${task.indexOf('wrappers,') - 1}`],
+      claimType: 'count',
+      proofCondition: 'Enumerate every direct SDK invocation site.',
+      constraints: [],
+    };
+    const wrappers = {
+      id: 'S-wrapper-category',
+      question: 'Which Amazon Bedrock wrapper entry points exist?',
+      originRefs: [`request:${classifyStart}-${task.indexOf('wrappers,') + 'wrappers,'.length}`],
+      claimType: 'comparison',
+      proofCondition: 'Classify every wrapper entry point separately from direct SDK calls.',
+      constraints: [],
+    };
+    const invalid = [direct, wrappers, { ...direct, id: 'S-duplicate-direct-category' }];
+    const client = new ScriptedGoalAuditClient([
+      { stage: 'planner:1', value: plannerControl(invalid) },
+      { stage: 'planner:2', value: plannerControl(invalid) },
+    ]);
+    const root = await makeRepoFixture();
+    const result = await new RuntimeImplementation({ chatClient: client }).explore({
+      task,
+      repo_root: root,
+    });
+
+    assert.deepEqual(client.stageLabels, ['planner:1', 'planner:2']);
+    assert.ok(result.failure);
+    assert.equal(result.parentHandoff.state, 'failed');
+    assert.match(JSON.stringify(client.requests[1].messages),
+      /exactly one direct, wrapper, and configuration goal/iu);
+  },
+);
+
 test('Spec 028 T069 — ambiguous origin corrections remain fail-closed', async () => {
   const task = 'Map pipeline environment configuration impact.';
   const original = {
@@ -7435,8 +8017,12 @@ test('Spec 028 T059 — runtime enforces negative and critical proof boundaries'
           scope: ['src/patterns.mjs'],
         },
         id: 'static-array-symbol',
+      }, {
+        tool: 'repo_read_file',
+        args: { path: 'src/patterns.mjs', startLine: 1, endLine: 15 },
+        id: 'static-array-read',
       }],
-      initialEvidenceRefs: ['E1:search'],
+      initialEvidenceRefs: ['E1', 'E1:search', 'E2', 'E2:search'],
       assertVerifier(request) {
         const packet = parseControlPacket(request);
         const countObservation = packet.observations.find(item => item.id === 'E1:search');
@@ -7501,7 +8087,7 @@ test('Spec 028 T059 — runtime enforces negative and critical proof boundaries'
         assert.deepEqual(result.parentHandoff.evidence.map(item => item.kind), ['source']);
         assert.deepEqual(result.semanticVerification.runtimeAllowedEvidenceRefsBySubgoal, [{
           subgoalId: goal.id,
-          evidenceRefs: ['E1:search'],
+          evidenceRefs: ['E1', 'E1:search', 'E2', 'E2:search'],
         }]);
         assert.equal(result.parentHandoff.targets.length, 1);
         assert.equal(result.parentHandoff.targets[0].path, 'src/patterns.mjs');
@@ -7527,8 +8113,12 @@ test('Spec 028 T059 — runtime enforces negative and critical proof boundaries'
           scope: ['src/patterns.mjs'],
         },
         id: 'static-array-comparison',
+      }, {
+        tool: 'repo_read_file',
+        args: { path: 'src/patterns.mjs', startLine: 1, endLine: 5 },
+        id: 'static-array-comparison-read',
       }],
-      initialEvidenceRefs: ['E1', 'E1:search'],
+      initialEvidenceRefs: ['E1', 'E1:search', 'E2', 'E2:search'],
       async setup(root) {
         await fs.writeFile(path.join(root, 'src', 'patterns.mjs'), [
           'export const DEFAULT_SECRET_DENY_PATTERNS = Object.freeze([',
@@ -8154,6 +8744,371 @@ test('Spec 028 T059 — runtime enforces negative and critical proof boundaries'
     });
   }
 });
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — symbol definition claims retain the exact source end line',
+  async () => {
+    const task = 'Cite the helper definition and its exact source range.';
+    const goal = trustGoal(task, {
+      id: 'S-symbol-definition-range',
+      question: 'Where is helper defined?',
+      originText: task,
+      claimType: 'symbol_definition',
+      proofCondition: 'Observe the complete helper definition and its exact source range.',
+    });
+    const claim = candidateClaim(
+      'C-symbol-definition-range',
+      goal.id,
+      'helper is defined in src/helper.js starting at line 2.',
+      ['E1', 'E2'],
+    );
+    const { result } = await runTrustScript(buildTrustSteps({
+      goals: [goal],
+      initial: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/usage.js', startLine: 2, endLine: 3 },
+          id: 'read-helper-usage-range',
+        }, {
+          tool: 'repo_symbol_context',
+          args: { symbol: 'helper', scope: ['src/helper.js'] },
+          id: 'symbol-helper-definition-range',
+        }],
+        claims: [claim],
+        verdicts: [semanticVerdict(claim.id, 'supported', ['E2'])],
+        assertVerifier(request) {
+          assert.match(parseControlPacket(request).claims[0].text, /lines 2 through 5/u,
+            'the deterministic range must be verified before it can reach the parent');
+        },
+      },
+    }), {
+      task,
+      scope: ['src/**'],
+      async setup(root) {
+        await Promise.all([
+          fs.writeFile(path.join(root, 'src', 'usage.js'), [
+            '// unrelated usage',
+            'export const result = helper();',
+            '',
+          ].join('\n')),
+          fs.writeFile(path.join(root, 'src', 'helper.js'), [
+            '// helper implementation',
+            'export function helper() {',
+            '  const value = 1;',
+            '  return value;',
+            '}',
+            '',
+          ].join('\n')),
+        ]);
+      },
+    });
+
+    assert.equal(result.failure, null);
+    assert.equal(result.taskContract.subgoals[0].state, 'supported');
+    assert.equal(result.parentHandoff.state, 'complete');
+    assert.match(result.semanticVerification.claims[0].text, /lines 2 through 5/u);
+    assert.match(result.parentHandoff.directAnswer, /lines 2 through 5/u);
+    assert.deepEqual(result.parentHandoff.evidence.map(item => ({
+      path: item.path,
+      startLine: item.startLine,
+      endLine: item.endLine,
+    })), [{ path: 'src/helper.js', startLine: 2, endLine: 5 }]);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — plain file reads cannot author a symbol definition end line',
+  async () => {
+    const task = 'Cite the helper definition.';
+    const goal = trustGoal(task, {
+      id: 'S-symbol-read-range',
+      question: 'Where is helper defined?',
+      originText: task,
+      claimType: 'symbol_definition',
+      proofCondition: 'Observe the helper definition.',
+    });
+    const claim = candidateClaim(
+      'C-symbol-read-range',
+      goal.id,
+      'helper is defined in src/helper.js starting at line 2.',
+      ['E1'],
+    );
+    const { result } = await runTrustScript(buildTrustSteps({
+      goals: [goal],
+      initial: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/helper.js', startLine: 2, endLine: 200 },
+          id: 'broad-helper-definition-read',
+        }],
+        claims: [claim],
+        verdicts: [semanticVerdict(claim.id, 'supported', ['E1'])],
+      },
+    }), {
+      task,
+      scope: ['src/helper.js'],
+      async setup(root) {
+        await fs.writeFile(path.join(root, 'src', 'helper.js'), [
+          '// helper implementation',
+          'export function helper() {',
+          '  return 1;',
+          '}',
+          '// unrelated trailing content',
+          'export const later = true;',
+          '',
+        ].join('\n'));
+      },
+    });
+
+    assert.equal(result.failure, null);
+    assert.equal(result.parentHandoff.state, 'complete');
+    assert.doesNotMatch(result.semanticVerification.claims[0].text, /\bthrough\b/u);
+    assert.doesNotMatch(result.parentHandoff.directAnswer, /\bthrough\b/u);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — canonical invocation classes stay exhaustive without repeated markers',
+  async () => {
+    const task = 'Inventory every Amazon Bedrock invocation and classify direct SDK calls, wrappers, and configuration-only references.';
+    const classifyStart = task.indexOf('classify');
+    const directEnd = task.indexOf('wrappers,') - 1;
+    const wrappersEnd = task.indexOf('wrappers,') + 'wrappers,'.length;
+    const goals = [
+      {
+        id: 'S-bedrock-direct',
+        question: 'Which direct Amazon Bedrock SDK invocation sites exist?',
+        originRefs: [`request:${classifyStart}-${directEnd}`],
+        claimType: 'count',
+        proofCondition: 'Enumerate every direct SDK invocation site.',
+        constraints: [],
+      },
+      {
+        id: 'S-bedrock-wrappers',
+        question: 'Which Amazon Bedrock wrapper entry points exist?',
+        originRefs: [`request:${classifyStart}-${wrappersEnd}`],
+        claimType: 'comparison',
+        proofCondition: 'Classify wrapper entry points separately from direct SDK calls.',
+        constraints: [],
+      },
+      {
+        id: 'S-bedrock-config',
+        question: 'Which Amazon Bedrock references are configuration-only?',
+        originRefs: [`request:${classifyStart}-${task.length}`],
+        claimType: 'comparison',
+        proofCondition: 'Classify configuration-only references separately from invocations.',
+        constraints: [],
+      },
+    ];
+    const wrapperClaim = candidateClaim(
+      'C-bedrock-wrappers',
+      goals[1].id,
+      'src/wrapper-a.js is an Amazon Bedrock wrapper entry point.',
+      ['E1', 'E2'],
+    );
+    const steps = [
+      { stage: 'planner:1', value: plannerControl(goals) },
+      {
+        stage: 'goal_audit:1',
+        value: auditorControl([
+          auditControlRecord(goals[0], 'blocked_scope'),
+          auditControlRecord(goals[1]),
+          auditControlRecord(goals[2], 'blocked_scope'),
+        ]),
+      },
+      {
+        stage: 'exploration:1',
+        run: () => toolControlCompletion(
+          'repo_read_file',
+          { path: 'src/wrapper-a.js' },
+          'read-bedrock-wrapper-a',
+        ),
+      },
+      {
+        stage: 'exploration:2',
+        run: () => toolControlCompletion(
+          'repo_read_file',
+          { path: 'src/wrapper-b.js' },
+          'read-bedrock-wrapper-b',
+        ),
+      },
+      { stage: 'exploration:3', content: 'The in-scope wrapper sources were inspected.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+      { stage: 'claim_synthesis:1', value: { claims: [wrapperClaim] } },
+      {
+        stage: 'semantic_verifier:1',
+        value: verifierResponse([
+          semanticVerdict(wrapperClaim.id, 'supported', ['E1', 'E2']),
+        ]),
+      },
+      {
+        stage: 'semantic_verifier:2',
+        value: verifierResponse([
+          semanticVerdict(wrapperClaim.id, 'supported', ['E1', 'E2']),
+        ]),
+      },
+    ];
+    const { client, result } = await runTrustScript(steps, {
+      task,
+      setup: async root => {
+        await Promise.all([
+          fs.writeFile(
+            path.join(root, 'src', 'wrapper-a.js'),
+            'export const invokeViaWrapperA = client => client.invokeModel();\n',
+          ),
+          fs.writeFile(
+            path.join(root, 'src', 'wrapper-b.js'),
+            'export const invokeViaWrapperB = client => client.converse();\n',
+          ),
+        ]);
+      },
+    });
+
+    assert.equal(result.failure, null, JSON.stringify({
+      failure: result.failure,
+      stages: client.stageLabels,
+    }));
+    assert.equal(client.stageCounts.get('semantic_verifier'), 2);
+    assert.equal(providerToolActions(client).length, 2,
+      'a canonical unrepairable classification gap must not trigger a futile repair');
+    const wrapperGoal = result.taskContract.subgoals.find(goal => goal.id === goals[1].id);
+    assert.equal(wrapperGoal?.state, 'gap');
+    const wrapperGap = result.coverageGaps.find(gap => gap.subgoalId === goals[1].id);
+    assert.equal(wrapperGap?.reason, 'semantic_mismatch');
+    assert.equal(wrapperGap?.repairable, false);
+    const wrapperVerdict = result.semanticVerification.verdicts.find(verdict =>
+      verdict.claimId === wrapperClaim.id);
+    assert.equal(wrapperVerdict?.result, 'insufficient');
+    assert.equal(wrapperVerdict?.reasonCode, 'missing_category');
+    assert.equal(result.parentHandoff.state, 'incomplete');
+    assert.equal(result.parentHandoff.directAnswer, undefined);
+    assert.equal(result.parentHandoff.evidence, undefined);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — incomplete canonical access claims fail closed before parent handoff',
+  async () => {
+    const task = 'Compare administrator and developer access policy across frontend guards and backend route families.';
+    const administrator = requestOrigin(task, 'administrator');
+    const developer = requestOrigin(task, 'developer');
+    const frontend = requestOrigin(task, 'frontend guards');
+    const backend = requestOrigin(task, 'backend route families.');
+    const goals = [
+      {
+        id: 'canonical-access-frontend-actor-a',
+        question: 'How do frontend guards enforce administrator access?',
+        originRefs: [administrator, frontend],
+        claimType: 'positive',
+        proofCondition: 'Observe the frontend guard that enforces administrator access.',
+        constraints: [],
+      },
+      {
+        id: 'canonical-access-backend-actor-a',
+        question: 'Which backend route families use distinct administrator checks?',
+        originRefs: [administrator, backend],
+        claimType: 'comparison',
+        proofCondition: 'Compare the administrator gating predicates across backend route families.',
+        constraints: [],
+      },
+      {
+        id: 'canonical-access-backend-actor-b',
+        question: 'Which backend route families give developer-specific access?',
+        originRefs: [developer, backend],
+        claimType: 'comparison',
+        proofCondition: 'Compare developer-specific behavior across backend route families.',
+        constraints: [],
+      },
+    ];
+    const claims = [
+      candidateClaim(
+        'C-access-frontend-admin',
+        goals[0].id,
+        'The frontend administrator guard redirects unauthorized users.',
+        ['E1'],
+      ),
+      candidateClaim(
+        'C-access-backend-admin',
+        goals[1].id,
+        'The src/admin-auth ADMIN_USERS helper and src/feedback admin_user_info row-existence check are distinct administrator policies.',
+        ['E2', 'E3', 'E4'],
+      ),
+      candidateClaim(
+        'C-access-backend-developer',
+        goals[2].id,
+        'app/api/cases and app/api/draft routes map the development department to dyhan7301.',
+        ['E5', 'E6', 'E7'],
+      ),
+    ];
+    const tools = [
+      { tool: 'repo_read_file', args: { path: 'src/frontend.js' }, id: 'read-access-frontend' },
+      { tool: 'repo_read_file', args: { path: 'src/admin-auth.js' }, id: 'read-access-auth' },
+      { tool: 'repo_read_file', args: { path: 'src/feedback.js' }, id: 'read-access-feedback' },
+      { tool: 'repo_read_file', args: { path: 'src/inquiry.js' }, id: 'read-access-inquiry' },
+      { tool: 'repo_read_file', args: { path: 'app/api/cases/route.ts' }, id: 'read-access-cases' },
+      { tool: 'repo_read_file', args: { path: 'app/api/draft/save/route.ts' }, id: 'read-access-draft-save' },
+      { tool: 'repo_read_file', args: { path: 'app/api/draft/save/[id]/route.ts' }, id: 'read-access-draft-id' },
+    ];
+    const primaryVerdicts = claims.map((claim, index) =>
+      semanticVerdict(claim.id, 'supported', [
+        ['E1'],
+        ['E2', 'E3', 'E4'],
+        ['E5', 'E6', 'E7'],
+      ][index]));
+    const { client, result } = await runTrustScript(buildTrustSteps({
+      goals,
+      initial: {
+        tools,
+        claims,
+        verifierSteps: [
+          { verdicts: primaryVerdicts },
+          { verdicts: [semanticVerdict(claims[1].id, 'supported', ['E2', 'E3', 'E4'])] },
+          { verdicts: [semanticVerdict(claims[2].id, 'supported', ['E5', 'E6', 'E7'])] },
+        ],
+      },
+    }), {
+      task,
+      scope: ['src/**', 'app/api/**'],
+      setup: async root => {
+        const files = new Map([
+          ['src/frontend.js', "export const adminGuard = user => user ? true : redirect('/ai');\n"],
+          ['src/admin-auth.js', 'export const ADMIN_USERS = [\'admin\'];\n'],
+          ['src/feedback.js', 'export const feedbackAdmin = row => Boolean(row?.admin_user_info);\n'],
+          ['src/inquiry.js', 'export const inquiryAdmin = user => user?.is_admin === true;\n'],
+          ['app/api/cases/route.ts', "export const caseUser = department => department === 'development' ? 'dyhan7301' : null;\n"],
+          ['app/api/draft/save/route.ts', "export const draftUser = department => department === 'development' ? 'dyhan7301' : null;\n"],
+          ['app/api/draft/save/[id]/route.ts', "export const draftIdUser = department => department === 'development' ? 'dyhan7301' : null;\n"],
+        ]);
+        for (const [relativePath, content] of files) {
+          const absolutePath = path.join(root, ...relativePath.split('/'));
+          await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+          await fs.writeFile(absolutePath, content);
+        }
+      },
+    });
+
+    assert.equal(result.failure, null, JSON.stringify({
+      failure: result.failure,
+      stages: client.stageLabels,
+    }));
+    assert.equal(client.stageCounts.get('semantic_verifier'), 3);
+    assert.equal(providerToolActions(client).length, tools.length,
+      'canonical claim-shape failures are terminal and must not trigger a futile repair');
+    assert.deepEqual(result.taskContract.subgoals.map(goal => [goal.id, goal.state]), [
+      [goals[0].id, 'gap'],
+      [goals[1].id, 'gap'],
+      [goals[2].id, 'supported'],
+    ]);
+    assert.ok(result.coverageGaps.filter(gap =>
+      [goals[0].id, goals[1].id].includes(gap.subgoalId) &&
+      gap.reason === 'semantic_mismatch' && gap.repairable === false).length === 2);
+    assert.equal(result.parentHandoff.state, 'incomplete');
+    assert.equal(result.parentHandoff.directAnswer, claims[2].text);
+    assert.doesNotMatch(result.parentHandoff.directAnswer,
+      /redirects unauthorized|src\/admin-auth ADMIN_USERS/u);
+    assert.equal(result.parentHandoff.gaps.length, 2);
+  },
+);
 
 semanticPipelineRuntimeTest(
   'Spec 028 T069 — bounded file reads preserve source evidence beyond line twelve',

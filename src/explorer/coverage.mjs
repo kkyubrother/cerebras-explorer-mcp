@@ -937,12 +937,14 @@ function originSignatureCovers(outerRefs, innerRefs) {
     innerRefs.every(inner => outerRefs.some(outer => originRefCovers(outer, inner)));
 }
 
-function ambiguousReadyGoalIds(currentGoals, existingGoals = []) {
+function ambiguousReadyGoalIds(currentGoals, existingGoals = [], distinctOriginGoalIds = []) {
   const current = currentGoals.filter(goal => goal.auditVerdict === 'ready');
   const existing = existingGoals.filter(goal => goal.auditVerdict === 'ready');
+  const explicitlyDistinct = new Set(distinctOriginGoalIds);
   const ambiguous = new Set();
   const overlaps = (left, right) => {
     if (left.id === right.id || left.claimType !== right.claimType) return false;
+    if (explicitlyDistinct.has(left.id) && explicitlyDistinct.has(right.id)) return false;
     const leftCovers = originSignatureCovers(left.originRefs, right.originRefs);
     const rightCovers = originSignatureCovers(right.originRefs, left.originRefs);
     return leftCovers !== rightCovers;
@@ -1249,6 +1251,13 @@ export function reduceGoalAudit(input) {
 
   const proposals = preflight.auditCandidates.map(cloneGoalProposal);
   const proposalById = new Map(proposals.map(proposal => [proposal.id, proposal]));
+  const distinctOriginGoalIds = requireStringArray(
+    value.distinctOriginGoalIds ?? [],
+    'Goal audit reduction.distinctOriginGoalIds',
+  );
+  if (distinctOriginGoalIds.some(id => !proposalById.has(id))) {
+    throw new TypeError('Distinct origin authorization references an unknown proposal.');
+  }
   const ignoredIds = new Set([
     ...(preflight.excludedGoalIds ?? []),
     ...Object.keys(preflight.mechanicalMergeTargets ?? {}),
@@ -1346,7 +1355,11 @@ export function reduceGoalAudit(input) {
     groupOrder += 1;
   }
 
-  const ambiguousIds = ambiguousReadyGoalIds(requiredSubgoals, existingRequiredSubgoals);
+  const ambiguousIds = ambiguousReadyGoalIds(
+    requiredSubgoals,
+    existingRequiredSubgoals,
+    distinctOriginGoalIds,
+  );
   const refinementDefects = requiredSubgoals
     .filter(goal => ambiguousIds.has(goal.id))
     .map(goal => ({

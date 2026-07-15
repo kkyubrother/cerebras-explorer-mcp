@@ -1281,6 +1281,18 @@ function pairedStaticArraySourceObservation(ref, observationById) {
     : null;
 }
 
+function isRedundantReadFileSearchRef({ ref, supportingRefs, observationById }) {
+  const search = observationById.get(ref);
+  if (search?.kind !== 'search' || search.tool !== 'repo_read_file' ||
+      !ref.endsWith(':search')) {
+    return false;
+  }
+  const sourceRef = ref.slice(0, -':search'.length);
+  const source = observationById.get(sourceRef);
+  return supportingRefs.includes(sourceRef) && source?.kind === 'source' &&
+    source.rangeGrounding === 'exact' && source.temporalRole === 'current';
+}
+
 function sourceRefsCoverDeterministicSearchCount({
   count,
   supportingRefs,
@@ -1335,9 +1347,16 @@ function requestTextForSubgoal(task, subgoal) {
 
 function requiresSourceBackedExhaustiveClassification(task, subgoal) {
   if (subgoal?.proofPolicy !== 'distinct_policy_paths') return false;
+  const classifyStart = invocationClassificationActionStart(task);
+  const [canonicalOrigin] = subgoal.originRefs?.map(requestOriginRange).filter(Boolean) ?? [];
+  const auditedGoalText = `${subgoal.question ?? ''} ${subgoal.proofCondition ?? ''}`;
+  const canonicalInvocationClass = classifyStart !== null && subgoal.originRefs?.length === 1 &&
+    canonicalOrigin?.start === classifyStart &&
+    (/\bwrappers?\b/iu.test(auditedGoalText) ||
+      /\bconfiguration-only\b/iu.test(auditedGoalText));
+  if (canonicalInvocationClass) return true;
   const exhaustiveMarker = /\b(?:every|exhaustive|all|inventory|enumerate|enumeration|catalog)\b|모든|모두|전부|전체\s*(?:목록|분류)|목록화|열거|인벤토리/iu;
   const requestText = requestTextForSubgoal(task, subgoal);
-  const auditedGoalText = `${subgoal.question ?? ''} ${subgoal.proofCondition ?? ''}`;
   return exhaustiveMarker.test(requestText) && exhaustiveMarker.test(auditedGoalText);
 }
 
@@ -1395,13 +1414,6 @@ function buildSemanticParentProjection({ semanticVerification, observations }) {
     const parentRelevantRefs = collectEvidenceVerdict
       ? claimCover.evidenceRefsByClaimId.get(claim.id) ?? []
       : supportingRefs;
-    const hidesInternalSearch = subgoal.proofPolicy === 'bounded_usage_cross_check' ||
-      (subgoal.proofPolicy === 'impact_categories' &&
-        genericImpactInventoryClaimIds.has(claim.id));
-    const projectionRefs = hidesInternalSearch
-      ? parentRelevantRefs.filter(ref => observationById.get(ref)?.kind !== 'search')
-      : parentRelevantRefs;
-    if (projectionRefs.length === 0) continue;
     const certifiedCount = selectCertifiedDeterministicCount({
       subgoal,
       claim,
@@ -1425,6 +1437,18 @@ function buildSemanticParentProjection({ semanticVerification, observations }) {
       subgoalById,
       absenceCertificates: certificates,
     });
+    const hidesInternalSearch = subgoal.proofPolicy === 'bounded_usage_cross_check' ||
+      (subgoal.proofPolicy === 'impact_categories' &&
+        genericImpactInventoryClaimIds.has(claim.id));
+    const projectionRefs = parentRelevantRefs.filter(ref => {
+      if (observationById.get(ref)?.kind !== 'search') return true;
+      if (hidesInternalSearch) return false;
+      if (isRedundantReadFileSearchRef({ ref, supportingRefs, observationById })) return false;
+      if (certifiedCount) return ref === certifiedCount.observationRef;
+      if (comparisonCountRefs.size > 0) return comparisonCountRefs.has(ref);
+      return true;
+    });
+    if (projectionRefs.length === 0) continue;
     let hasCertifiedAbsence = false;
     let hasPathlessGit = false;
     const projectedEvidence = projectionRefs.map(ref => {
@@ -1586,6 +1610,12 @@ function buildParentFailureRetry(failure, { task, effectiveScope }) {
   return { type: 'tool', tool: 'explore_repo', arguments: argumentsValue };
 }
 
+function parentEvidenceProjectionKey(ref, evidence) {
+  return evidence?.kind === 'source'
+    ? `source:${evidence.path}:${evidence.startLine}-${evidence.endLine}`
+    : `ref:${ref}`;
+}
+
 function buildParentEvidenceProjection({ result, semanticVerification, observations }) {
   const subgoals = semanticVerification?.taskContract?.subgoals ?? [];
   const claims = semanticVerification?.claims ?? [];
@@ -1646,23 +1676,25 @@ function buildParentEvidenceProjection({ result, semanticVerification, observati
   const absenceEvidenceByClaimRef = new Map();
   const evidenceForClaimRef = (claim, ref) => {
     const direct = baseEvidenceByRef.get(ref);
-    if (direct) return { key: `ref:${ref}`, evidence: direct };
+    if (direct) return { key: parentEvidenceProjectionKey(ref, direct), evidence: direct };
     const observation = observationById.get(ref);
     if (observation?.kind !== 'search') return null;
     const subgoal = subgoalById.get(claim.subgoalId);
     const verdict = verdictByClaimId.get(claim.id);
+    const supportingRefs = Array.isArray(verdict?.supportingEvidenceRefs)
+      ? verdict.supportingEvidenceRefs
+      : [];
+    if (isRedundantReadFileSearchRef({ ref, supportingRefs, observationById })) {
+      return { key: `read:${claim.id}:${ref}`, evidence: null, internal: true };
+    }
     const comparisonCountRefs = boundStaticComparisonSearchRefs({
       subgoal,
-      supportingRefs: Array.isArray(verdict?.supportingEvidenceRefs)
-        ? verdict.supportingEvidenceRefs
-        : [],
+      supportingRefs,
       observationById,
     });
     const exhaustiveCompanionRefs = boundExhaustiveCompanionSearchRefs({
       subgoal,
-      supportingRefs: Array.isArray(verdict?.supportingEvidenceRefs)
-        ? verdict.supportingEvidenceRefs
-        : [],
+      supportingRefs,
       subgoalById,
       absenceCertificates: certificates,
     });
@@ -1736,7 +1768,12 @@ function buildParentEvidenceProjection({ result, semanticVerification, observati
       grounded.endLine >= grounded.startLine;
     return evidencePath && validRange
       ? {
-          key: `ref:${pairedSource.id}`,
+          key: parentEvidenceProjectionKey(pairedSource.id, {
+            kind: 'source',
+            path: evidencePath,
+            startLine: grounded.startLine,
+            endLine: grounded.endLine,
+          }),
           evidence: {
             id: pairedSource.id,
             kind: 'source',
@@ -3156,6 +3193,74 @@ export function buildRuntimeGenericImpactPolicyArtifacts({
   return new Map(entries);
 }
 
+function canonicalAccessGoalKind(task, subgoal) {
+  const pattern = canonicalAccessPolicyPattern(task);
+  if (!pattern) return null;
+  const acceptance = `${subgoal?.question ?? ''} ${subgoal?.proofCondition ?? ''}`;
+  if (subgoal?.proofPolicy === 'direct_source' &&
+      acceptanceMentionsConcept(acceptance, pattern.labels.actorA) &&
+      acceptanceMentionsConcept(acceptance, pattern.labels.surfaceA)) {
+    return 'frontend_actor_a';
+  }
+  if (subgoal?.proofPolicy !== 'distinct_policy_paths' ||
+      !acceptanceMentionsConcept(acceptance, pattern.labels.surfaceB)) {
+    return null;
+  }
+  if (acceptanceMentionsConcept(acceptance, pattern.labels.actorB)) return 'backend_actor_b';
+  return acceptanceMentionsConcept(acceptance, pattern.labels.actorA)
+    ? 'backend_actor_a'
+    : null;
+}
+
+function sourceObservationAliases(observation) {
+  const normalized = normalizeTargetPath(observation?.path ?? '').toLowerCase()
+    .replace(/\.[a-z0-9]+$/u, '');
+  const segments = normalized.split('/').filter(Boolean);
+  const aliases = new Set();
+  if (normalized) aliases.add(normalized);
+  if (segments.length > 0 && !['route', 'index'].includes(segments.at(-1))) {
+    aliases.add(segments.at(-1));
+  }
+  if (['route', 'index'].includes(segments.at(-1))) {
+    aliases.add(segments.slice(0, -1).join('/'));
+  }
+  if (segments[0] === 'app' && segments[1] === 'api' && segments.length >= 3) {
+    aliases.add(segments.slice(0, 3).join('/'));
+  }
+  const snippet = typeof observation?.snippet === 'string' ? observation.snippet : '';
+  for (const match of snippet.matchAll(
+    /\b(?:class|function|const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)/gu,
+  )) {
+    aliases.add(match[1].toLowerCase());
+  }
+  return [...aliases].filter(alias => alias && !['route', 'index'].includes(alias));
+}
+
+function claimMentionsSourceObservation(claimText, observation) {
+  const normalized = claimText.toLowerCase().replaceAll('\\', '/');
+  return sourceObservationAliases(observation).some(alias => normalized.includes(alias));
+}
+
+function canonicalAccessClaimShapeFailure({ task, subgoal, claim, semanticVerdict, observations }) {
+  const kind = canonicalAccessGoalKind(task, subgoal);
+  if (!kind || semanticVerdict?.result !== 'supported') return null;
+  const claimText = claim?.text ?? '';
+  if (kind === 'frontend_actor_a' && /\bredirect(?:s|ed|ing)?\b/iu.test(claimText) &&
+      !/\bredirect(?:s|ed|ing)?\b[^.;\n]{0,80}\bto\s+[`"']?\/[\p{L}\p{N}_-]/iu
+        .test(claimText)) {
+    return 'direct_evidence_missing';
+  }
+  if (kind === 'frontend_actor_a') return null;
+  const supportingRefs = new Set(semanticVerdict.supportingEvidenceRefs ?? []);
+  const sources = observations.filter(observation => supportingRefs.has(observation?.id) &&
+    observation?.kind === 'source' && observation.temporalRole === 'current');
+  if (sources.length >= 3 &&
+      sources.some(observation => !claimMentionsSourceObservation(claimText, observation))) {
+    return 'missing_category';
+  }
+  return null;
+}
+
 function applyRuntimeProofGate({
   task,
   claimBoundary,
@@ -3220,6 +3325,22 @@ function applyRuntimeProofGate({
       reason: 'missing_category',
     };
   }
+  if (proofPolicyResult.passed === true) {
+    const accessShapeFailure = canonicalAccessClaimShapeFailure({
+      task,
+      subgoal,
+      claim,
+      semanticVerdict,
+      observations,
+    });
+    if (accessShapeFailure) {
+      proofPolicyResult = {
+        ...proofPolicyResult,
+        passed: false,
+        reason: accessShapeFailure,
+      };
+    }
+  }
   if (proofPolicyResult.passed === true &&
       subgoal.proofPolicy === 'bounded_usage_cross_check') {
     const supportingRefs = new Set(semanticVerdict.supportingEvidenceRefs);
@@ -3275,6 +3396,63 @@ function canonicalizeDeterministicCountClaim({
   return {
     ...claim,
     text: `Within [${boundary}], the deterministic count of ${subject} for "${question}" is ${count.count}.`,
+  };
+}
+
+function sourceSnippetDefinesSymbol(snippet, symbol) {
+  const declarationKeywords = new Set([
+    'class', 'const', 'def', 'enum', 'function', 'interface', 'let', 'type', 'var',
+  ]);
+  return snippet.split(/\r?\n/u).some(line => {
+    const identifiers = line.match(/[A-Za-z_$][A-Za-z0-9_$]*/gu) ?? [];
+    const symbolIndex = identifiers.indexOf(symbol);
+    return symbolIndex > 0 && identifiers.slice(0, symbolIndex)
+      .some(identifier => declarationKeywords.has(identifier));
+  });
+}
+
+function canonicalizeSymbolDefinitionRangeClaim({ subgoal, claim, observations }) {
+  if (subgoal?.proofPolicy !== 'symbol_definition') return claim;
+  const symbolMatch = /\b([A-Za-z_$][A-Za-z0-9_$]*)\b\s+(?:is\s+)?defined\b/iu.exec(claim.text);
+  if (!symbolMatch) return claim;
+  const symbol = symbolMatch[1];
+  const normalizedClaim = claim.text.toLowerCase().replaceAll('\\', '/');
+  const evidenceRefs = new Set(claim.evidenceRefs ?? []);
+  const observationById = new Map(observations.map(observation => [
+    observation?.id,
+    observation,
+  ]));
+  const uniqueSources = new Map();
+  for (const observation of observations) {
+    const sourcePath = normalizeTargetPath(observation?.path);
+    const companion = observationById.get(`${observation?.id}:search`);
+    if (!evidenceRefs.has(observation?.id) || observation?.kind !== 'source' ||
+        observation.temporalRole !== 'current' || observation.rangeGrounding !== 'exact' ||
+        companion?.kind !== 'search' || companion.tool !== 'repo_symbol_context' ||
+        companion.normalizedArgs?.symbol !== symbol ||
+        !sourcePath || !normalizedClaim.includes(sourcePath.toLowerCase()) ||
+        typeof observation.snippet !== 'string' ||
+        !sourceSnippetDefinesSymbol(observation.snippet, symbol) ||
+        !Number.isInteger(observation.startLine) || !Number.isInteger(observation.endLine) ||
+        observation.endLine <= observation.startLine) {
+      continue;
+    }
+    uniqueSources.set(
+      `${sourcePath}:${observation.startLine}-${observation.endLine}`,
+      { ...observation, path: sourcePath },
+    );
+  }
+  if (uniqueSources.size !== 1) return claim;
+  const [source] = uniqueSources.values();
+  const citedStartLine = new RegExp(`\\b(?:line|lines)\\s+${source.startLine}\\b`, 'iu');
+  if (!citedStartLine.test(claim.text)) return claim;
+  const numbers = new Set((claim.text.match(/\d+/gu) ?? []));
+  if (!numbers.has(String(source.startLine)) || numbers.has(String(source.endLine))) {
+    return claim;
+  }
+  return {
+    ...claim,
+    text: `${claim.text.trim()} Definition evidence: ${source.path}, lines ${source.startLine} through ${source.endLine}.`,
   };
 }
 
@@ -3642,6 +3820,339 @@ function samePlannerGoal(left, right) {
   return left?.id === right?.id && samePlannerGoalContent(left, right);
 }
 
+function canonicalPipelineMapPattern(task) {
+  const normalized = task.toLowerCase();
+  if (!normalized.startsWith('map ')) return null;
+  const implementationStart = normalized.indexOf('pipeline implementation');
+  const implementationEnd = implementationStart < 0
+    ? -1
+    : implementationStart + 'pipeline implementation'.length;
+  const testsStart = normalized.indexOf('tests', implementationEnd);
+  const testsEnd = testsStart < 0 ? -1 : testsStart + 'tests'.length;
+  const inputsStart = normalized.indexOf('every ', testsEnd);
+  const inputsTail = inputsStart < 0 ? '' : normalized.slice(inputsStart);
+  const nextClause = inputsTail.match(/[,;]|\.(?=\s+\p{L})/u);
+  const inputsEnd = nextClause?.index >= 0 ? inputsStart + nextClause.index : task.length;
+  const inputsText = inputsStart < 0 ? '' : normalized.slice(inputsStart, inputsEnd);
+  if (implementationStart < 0 || testsStart < implementationEnd || inputsStart < testsEnd ||
+      !/environment|configuration/u.test(inputsText) || !/inputs?/u.test(inputsText)) {
+    return null;
+  }
+  return {
+    action: { start: 0, end: 3 },
+    implementation: { start: implementationStart, end: implementationEnd },
+    tests: { start: testsStart, end: testsEnd },
+    inputs: { start: inputsStart, end: inputsEnd },
+  };
+}
+
+function includeTrailingRequestDelimiter(task, end) {
+  return /[,;:]/u.test(task[end] ?? '') ? end + 1 : end;
+}
+
+function canonicalActionLeafOriginsMatch(task, originRefs, action, leaf) {
+  const normalizedLeaf = {
+    start: leaf.start,
+    end: includeTrailingRequestDelimiter(task, leaf.end),
+  };
+  const ranges = originRefs.map(requestOriginRange).filter(Boolean);
+  if (ranges.length !== originRefs.length) return false;
+  if (ranges.length === 1) {
+    return ranges[0].start === action.start && ranges[0].end === normalizedLeaf.end;
+  }
+  return ranges.length === 2 && ranges.some(range =>
+    range.start === action.start && range.end === action.end) && ranges.some(range =>
+    range.start === normalizedLeaf.start && range.end === normalizedLeaf.end);
+}
+
+function canonicalPipelineGoalKind(goal) {
+  const acceptance = `${goal?.question ?? ''} ${goal?.proofCondition ?? ''}`;
+  if (goal?.claimType === 'flow' && /\bpipeline\b/iu.test(acceptance) &&
+      /\bimplementation\b|\bentry\s+path\b/iu.test(acceptance)) {
+    return 'implementation';
+  }
+  if (goal?.claimType === 'positive' && /\btests?\b/iu.test(acceptance)) return 'tests';
+  if (goal?.claimType === 'impact' && /environment|configuration/iu.test(acceptance) &&
+      /\binputs?\b/iu.test(acceptance)) {
+    return 'inputs';
+  }
+  return null;
+}
+
+function requireCanonicalPipelineMapOrigins({ task, wrapperTool, goals }) {
+  if (wrapperTool !== 'explore_repo') return [];
+  const pattern = canonicalPipelineMapPattern(task);
+  if (!pattern) return [];
+  const kinds = ['implementation', 'tests', 'inputs'];
+  const candidates = kinds.map(kind =>
+    goals.filter(goal => canonicalPipelineGoalKind(goal) === kind));
+  const matched = candidates.map((kindGoals, index) => kindGoals.filter(goal =>
+    canonicalActionLeafOriginsMatch(task, goal.originRefs, pattern.action, pattern[kinds[index]])));
+  if (matched.some(candidates => candidates.length !== 1) ||
+      new Set(matched.map(candidates => candidates[0].id)).size !== kinds.length) {
+    const originMismatch = matched.some((exact, index) =>
+      exact.length === 0 && candidates[index].length > 0);
+    throw new TypeError(
+      originMismatch
+        ? 'Pipeline category origins must bind the shared action and exact requested leaf.'
+        : 'Pipeline mapping requires exactly one implementation, tests, and runtime-input goal.',
+    );
+  }
+  return matched.map(candidates => candidates[0].id);
+}
+
+function canonicalAccessPolicyPattern(task) {
+  const normalized = task.toLowerCase().replace(/[.!?]+$/u, '');
+  if (!normalized.startsWith('compare ')) return null;
+  const policyStart = normalized.indexOf(' access policy across ');
+  if (policyStart < 0) return null;
+  const actorsStart = 'compare '.length;
+  const actorSeparator = normalized.lastIndexOf(' and ', policyStart);
+  const surfacesStart = policyStart + ' access policy across '.length;
+  const surfaceSeparator = normalized.indexOf(' and ', surfacesStart);
+  if (actorSeparator <= actorsStart || surfaceSeparator <= surfacesStart) return null;
+  const actorA = { start: actorsStart, end: actorSeparator };
+  const actorB = { start: actorSeparator + ' and '.length, end: policyStart };
+  const surfaceA = { start: surfacesStart, end: surfaceSeparator };
+  const surfaceB = {
+    start: surfaceSeparator + ' and '.length,
+    end: task.length,
+  };
+  if ([actorA, actorB, surfaceA, surfaceB].some(range => range.end <= range.start)) return null;
+  if ([actorA, actorB, surfaceA, surfaceB].some(range =>
+    /[,;]/u.test(normalized.slice(range.start, range.end)))) {
+    return null;
+  }
+  return {
+    actorA,
+    actorB,
+    surfaceA,
+    surfaceB,
+    labels: {
+      actorA: normalized.slice(actorA.start, actorA.end),
+      actorB: normalized.slice(actorB.start, actorB.end),
+      surfaceA: normalized.slice(surfaceA.start, surfaceA.end),
+      surfaceB: normalized.slice(surfaceB.start, surfaceB.end),
+    },
+  };
+}
+
+function conceptWords(value) {
+  return (value.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).map(word => {
+    if (word.endsWith('ies') && word.length > 3) return `${word.slice(0, -3)}y`;
+    if (word.endsWith('s') && word.length > 3) return word.slice(0, -1);
+    return word;
+  });
+}
+
+function acceptanceMentionsConcept(acceptance, concept) {
+  const words = new Set(conceptWords(acceptance));
+  return conceptWords(concept).every(word => words.has(word));
+}
+
+function exactOriginRef(range) {
+  return `request:${range.start}-${range.end}`;
+}
+
+function canonicalAccessPlannerGoalKind(pattern, goal) {
+  const acceptance = `${goal?.question ?? ''} ${goal?.proofCondition ?? ''}`;
+  if (goal?.claimType === 'positive' &&
+      acceptanceMentionsConcept(acceptance, pattern.labels.actorA) &&
+      acceptanceMentionsConcept(acceptance, pattern.labels.surfaceA)) {
+    return 'surface_a_actor_a';
+  }
+  if (goal?.claimType !== 'comparison' ||
+      !acceptanceMentionsConcept(acceptance, pattern.labels.surfaceB)) {
+    return null;
+  }
+  if (acceptanceMentionsConcept(acceptance, pattern.labels.actorB)) return 'surface_b_actor_b';
+  return acceptanceMentionsConcept(acceptance, pattern.labels.actorA)
+    ? 'surface_b_actor_a'
+    : null;
+}
+
+function requireCanonicalAccessPolicyOrigins({ task, wrapperTool, goals }) {
+  if (wrapperTool !== 'explore_repo') return [];
+  const pattern = canonicalAccessPolicyPattern(task);
+  if (!pattern) return [];
+  const requirements = [
+    ['surface_a_actor_a', pattern.actorA, pattern.surfaceA],
+    ['surface_b_actor_a', pattern.actorA, pattern.surfaceB],
+    ['surface_b_actor_b', pattern.actorB, pattern.surfaceB],
+  ];
+  const candidates = requirements.map(([kind]) =>
+    goals.filter(goal => canonicalAccessPlannerGoalKind(pattern, goal) === kind));
+  const matched = candidates.map((kindGoals, index) => {
+    const [, actor, surface] = requirements[index];
+    const expectedOrigins = [exactOriginRef(actor), exactOriginRef(surface)];
+    return kindGoals.filter(goal => sameStringSet(goal.originRefs, expectedOrigins));
+  });
+  if (matched.some(candidates => candidates.length !== 1) ||
+      new Set(matched.map(candidates => candidates[0].id)).size !== requirements.length) {
+    const originMismatch = matched.some((exact, index) =>
+      exact.length === 0 && candidates[index].length > 0);
+    throw new TypeError(
+      originMismatch
+        ? 'Access comparison goal origins must bind one exact actor and surface.'
+        : 'Access comparison requires one frontend actor-A, backend actor-A, and backend actor-B goal.',
+    );
+  }
+  return matched.map(candidates => candidates[0].id);
+}
+
+function invocationClassificationPattern(task) {
+  const normalized = task.toLowerCase();
+  const classifyStart = normalized.indexOf('classify ');
+  if (classifyStart < 0) return null;
+  const prefix = normalized.slice(0, classifyStart);
+  const classification = normalized.slice(classifyStart);
+  if (!/\binventory\s+every\b/u.test(prefix) || !/\binvocation\b/u.test(prefix) ||
+      !/\bdirect\s+sdk\b/u.test(classification) || !/\bwrappers?\b/u.test(classification) ||
+      !/\bconfiguration-only\s+references?\b/u.test(classification)) {
+    return null;
+  }
+  const directStart = normalized.indexOf('direct sdk', classifyStart);
+  const wrapperStart = normalized.indexOf('wrapper', directStart);
+  const configStart = normalized.indexOf('configuration-only', wrapperStart);
+  const directEnd = wrapperStart - 1;
+  const wrapperWord = /^wrappers\b/u.test(normalized.slice(wrapperStart)) ? 'wrappers' : 'wrapper';
+  const wrapperEnd = includeTrailingRequestDelimiter(task, wrapperStart + wrapperWord.length);
+  const configurationTail = normalized.slice(configStart);
+  const nextClause = configurationTail.match(/[,;]|\.(?=\s+\p{L})/u);
+  const configurationEnd = nextClause?.index >= 0
+    ? includeTrailingRequestDelimiter(task, configStart + nextClause.index)
+    : task.length;
+  return {
+    actionStart: classifyStart,
+    direct: { start: directStart, end: directEnd },
+    wrappers: { start: wrapperStart, end: wrapperEnd },
+    configuration: { start: configStart, end: configurationEnd },
+  };
+}
+
+function invocationClassificationActionStart(task) {
+  return invocationClassificationPattern(task)?.actionStart ?? null;
+}
+
+function invocationClassificationGoalKind(goal) {
+  const question = `${goal?.question ?? ''}`.toLowerCase();
+  const matches = [
+    /\bdirect\b[^?\n]{0,48}\bsdk\b/u.test(question),
+    /\bwrappers?\b/u.test(question),
+    /\bconfiguration-only\b/u.test(question),
+  ];
+  if (matches.filter(Boolean).length !== 1) return null;
+  if (matches[0] && goal?.claimType === 'count') return 'direct';
+  if (matches[1] && goal?.claimType === 'comparison') return 'wrappers';
+  if (matches[2] && goal?.claimType === 'comparison') return 'configuration';
+  return null;
+}
+
+function requireCanonicalInvocationClassificationOrigins({ task, wrapperTool, goals }) {
+  if (wrapperTool !== 'explore_repo') return [];
+  const pattern = invocationClassificationPattern(task);
+  if (!pattern) return [];
+  const kinds = ['direct', 'wrappers', 'configuration'];
+  const candidates = kinds.map(kind =>
+    goals.filter(goal => invocationClassificationGoalKind(goal) === kind));
+  const matched = candidates.map((kindGoals, index) => kindGoals.filter(goal => {
+    const ranges = goal.originRefs.map(requestOriginRange).filter(Boolean);
+    return ranges.length === 1 && goal.originRefs.length === 1 &&
+      ranges[0].start === pattern.actionStart && ranges[0].end === pattern[kinds[index]].end;
+  }));
+  if (matched.some(candidates => candidates.length !== 1) ||
+      new Set(matched.map(candidates => candidates[0].id)).size !== kinds.length) {
+    const originMismatch = matched.some((exact, index) =>
+      exact.length === 0 && candidates[index].length > 0);
+    throw new TypeError(
+      originMismatch
+        ? 'Invocation classification leaves require one exact contiguous request origin ' +
+          'starting at the shared classification action.'
+        : 'Invocation classification requires exactly one direct, wrapper, and configuration goal.',
+    );
+  }
+  return matched.map(candidates => candidates[0].id);
+}
+
+function requireCanonicalPlannerPolicy({ task, wrapperTool, goals }) {
+  const pipelineGoalIds = requireCanonicalPipelineMapOrigins({ task, wrapperTool, goals });
+  const accessGoalIds = requireCanonicalAccessPolicyOrigins({ task, wrapperTool, goals });
+  const invocationGoalIds = requireCanonicalInvocationClassificationOrigins({
+    task,
+    wrapperTool,
+    goals,
+  });
+  return {
+    goals,
+    independentGoalIds: [...new Set([
+      ...pipelineGoalIds,
+      ...accessGoalIds,
+      ...invocationGoalIds,
+    ])],
+    distinctOriginGoalIds: invocationGoalIds,
+  };
+}
+
+function requireCanonicalGoalAudit(response, canonicalGoalIds = []) {
+  if (canonicalGoalIds.length === 0) return;
+  const canonical = new Set(canonicalGoalIds);
+  const invalid = response.goals.find(record => canonical.has(record.proposedGoalId) &&
+    ['needs_decomposition', 'reject_untraceable', 'merge_duplicate'].includes(record.verdict));
+  if (invalid) {
+    throw new TypeError(
+      'Validated atomic leaves must be audited directly without decomposition, rejection, or merge.',
+    );
+  }
+}
+
+function uniqueRevisionCorrectionId(base, usedIds) {
+  let id = `revision-corrected:${base}`;
+  let suffix = 2;
+  while (usedIds.has(id)) {
+    id = `revision-corrected:${base}:${suffix}`;
+    suffix += 1;
+  }
+  usedIds.add(id);
+  return id;
+}
+
+function normalizeAuditorCorrectionIds(goals, {
+  rejectedGoals = [],
+  correctionGoals = [],
+  reservedGoals = [],
+} = {}) {
+  if (rejectedGoals.length === 0 || correctionGoals.length === 0) {
+    return { goals, correctionGoalIds: [] };
+  }
+  const rejectedById = new Map(rejectedGoals.map(goal => [goal.id, goal]));
+  const usedIds = new Set([
+    ...goals.map(goal => goal.id),
+    ...reservedGoals.map(goal => goal.id),
+  ]);
+  const correctionGoalIds = [];
+  const normalizedGoals = goals.map(goal => {
+    const rejected = rejectedById.get(goal.id);
+    if (!rejected || samePlannerGoalContent(goal, rejected) ||
+        !sameGoalAcceptanceCore(goal, rejected) ||
+        !originSignatureStrictlyExpands(goal.originRefs, rejected.originRefs)) {
+      return goal;
+    }
+    const matchingCorrections = correctionGoals.filter(correction =>
+      samePlannerGoalContent(goal, correction));
+    if (matchingCorrections.length !== 1 || goals.filter(candidate =>
+      samePlannerGoalContent(candidate, matchingCorrections[0])).length !== 1) {
+      return goal;
+    }
+    const id = uniqueRevisionCorrectionId(goal.id, usedIds);
+    correctionGoalIds.push(id);
+    return {
+      ...goal,
+      id,
+    };
+  });
+  return { goals: normalizedGoals, correctionGoalIds };
+}
+
 function validateGoalAuditConsistency(response, proposal) {
   const recordById = new Map(response.goals.map(record => [record.proposedGoalId, record]));
   if (response.uncoveredRequestParts.some(part => proposal.subgoals.some(goal =>
@@ -3831,17 +4342,26 @@ function exactOriginCorrectionFindings({
   proposal,
   auditRecords,
   eligibleGoalIds = null,
+  deterministicUncoveredGoalIds = [],
 }) {
   const allowedIds = eligibleGoalIds ? new Set(eligibleGoalIds) : null;
+  const deterministicUncoveredIds = new Set(deterministicUncoveredGoalIds);
   const recordById = new Map(auditRecords.map(record => [record.proposedGoalId, record]));
   const matchesByObligationId = new Map();
   const matchCountByGoalId = new Map();
   for (const obligation of obligations) {
-    if (obligation.kind !== 'decompose') continue;
+    if (obligation.kind !== 'decompose' && obligation.kind !== 'uncovered') continue;
     const matches = proposal.subgoals.filter(goal => {
       const record = recordById.get(goal.id);
-      return record?.verdict === 'ready' && (!allowedIds || allowedIds.has(goal.id)) &&
-        sameGoalAcceptanceCore(goal, obligation.goal) &&
+      if (record?.verdict !== 'ready' || (allowedIds && !allowedIds.has(goal.id))) {
+        return false;
+      }
+      if (obligation.kind === 'uncovered') {
+        return deterministicUncoveredIds.has(goal.id) &&
+          samePlannerGoalContent(goal, obligation.goal) &&
+          sameStringSet(record.originRefs, obligation.goal.originRefs);
+      }
+      return sameGoalAcceptanceCore(goal, obligation.goal) &&
         originSignatureStrictlyExpands(record.originRefs, obligation.goal.originRefs);
     });
     matchesByObligationId.set(obligation.obligationId, matches);
@@ -3856,7 +4376,9 @@ function exactOriginCorrectionFindings({
       obligationId: obligation.obligationId,
       disposition: 'covered',
       coveredByGoalIds: [matches[0].id],
-      reason: 'One uniquely audited goal preserved the acceptance core and corrected only its origin boundary.',
+      reason: obligation.kind === 'uncovered'
+        ? 'One uniquely audited goal exactly preserved the auditor-authored request correction.'
+        : 'One uniquely audited goal preserved the acceptance core and corrected only its origin boundary.',
     }];
   });
 }
@@ -4860,6 +5382,10 @@ export class ExplorerRuntime {
           externalMergeTargetIds: existingGoalLedger.map(goal => goal.id),
         });
         validateGoalAuditConsistency(response, proposal);
+        requireCanonicalGoalAudit(
+          response,
+          preflight.canonicalIndependentGoalIds ?? [],
+        );
         if (requireWrapperGoalOrigins) {
           requireAuditedWrapperGoalOrigins({ wrapperTool, proposal, response });
         }
@@ -4875,6 +5401,7 @@ export class ExplorerRuntime {
           uncoveredRequestParts: partitioned.response.uncoveredRequestParts,
           revisionCount,
           existingRequiredSubgoals: existingGoalLedger,
+          distinctOriginGoalIds: partitioned.preflight.distinctOriginGoalIds ?? [],
         });
         if (reduction.controlFault) {
           throw new TypeError(`Goal audit control fault: ${reduction.controlFault.code}.`);
@@ -4908,6 +5435,7 @@ export class ExplorerRuntime {
     proposal,
     auditRecords,
     eligibleGoalIds = null,
+    deterministicUncoveredGoalIds = [],
     reasoningEffort,
     temperature,
     topP,
@@ -4921,6 +5449,7 @@ export class ExplorerRuntime {
       proposal,
       auditRecords,
       eligibleGoalIds,
+      deterministicUncoveredGoalIds,
     });
     const correctionIds = new Set(correctionFindings.map(finding => finding.obligationId));
     const deterministicFindings = [
@@ -5029,6 +5558,11 @@ export class ExplorerRuntime {
         wrapperTool: options.wrapperTool,
         proposals: batch,
       });
+      batchPreflight.distinctOriginGoalIds = (preflight.distinctOriginGoalIds ?? [])
+        .filter(id => batch.some(goal => goal.id === id));
+      batchPreflight.canonicalIndependentGoalIds =
+        (preflight.canonicalIndependentGoalIds ?? [])
+          .filter(id => batch.some(goal => goal.id === id));
       if (batchPreflight.controlFault || batchPreflight.auditCandidates.length !== batch.length) {
         throw invalidGoalControl('goal_audit', new TypeError('Goal audit batch changed after preflight.'));
       }
@@ -5093,6 +5627,7 @@ export class ExplorerRuntime {
         uncoveredRequestParts: reconciledUncovered,
         revisionCount: options.revisionCount,
         existingRequiredSubgoals: options.existingGoalLedger ?? [],
+        distinctOriginGoalIds: reductionPreflight.distinctOriginGoalIds ?? [],
       });
       if (reduction.controlFault) {
         throw new TypeError(`Goal audit control fault: ${reduction.controlFault.code}.`);
@@ -5214,8 +5749,15 @@ export class ExplorerRuntime {
         claims: batchClaims,
         observations: safeObservations,
       });
-      claims.push(...proofCompatibleBatchClaims);
-      onTrustEvent?.('claim', { phase, claims: proofCompatibleBatchClaims });
+      const subgoalById = new Map(subgoalBatch.map(subgoal => [subgoal.id, subgoal]));
+      const groundedBatchClaims = proofCompatibleBatchClaims.map(claim =>
+        canonicalizeSymbolDefinitionRangeClaim({
+          subgoal: subgoalById.get(claim.subgoalId),
+          claim,
+          observations: safeObservations,
+        }));
+      claims.push(...groundedBatchClaims);
+      onTrustEvent?.('claim', { phase, claims: groundedBatchClaims });
     }
 
     const candidateSubgoals = prepareCandidateSubgoals(taskContract, claims, {
@@ -5547,7 +6089,7 @@ export class ExplorerRuntime {
         }
       }
     }
-    const unrepairableExhaustiveGoalIds = new Set();
+    const unrepairableProofShapeGoalIds = new Set();
     for (const {
       subgoalBatch,
       batchClaims,
@@ -5585,15 +6127,26 @@ export class ExplorerRuntime {
         if (verdict.result === 'supported' && gated.result === 'insufficient' &&
             gated.reasonCode === 'missing_category' &&
             requiresSourceBackedExhaustiveClassification(candidateContract.task, subgoal)) {
-          unrepairableExhaustiveGoalIds.add(subgoal.id);
+          unrepairableProofShapeGoalIds.add(subgoal.id);
+        }
+        if (verdict.result === 'supported' && gated.result === 'insufficient' &&
+            canonicalAccessClaimShapeFailure({
+              task: candidateContract.task,
+              subgoal,
+              claim: batchClaims[index],
+              semanticVerdict: verdict,
+              observations: batchObservations,
+            })) {
+          unrepairableProofShapeGoalIds.add(subgoal.id);
         }
         return gated;
       });
       for (const [index, verdict] of gatedVerdicts.entries()) {
         const claimIndex = claims.findIndex(claim => claim.id === batchClaims[index].id);
         if (claimIndex < 0) continue;
+        const subgoal = batchSubgoalById.get(batchClaims[index].subgoalId);
         claims[claimIndex] = canonicalizeDeterministicCountClaim({
-          subgoal: batchSubgoalById.get(batchClaims[index].subgoalId),
+          subgoal,
           claim: claims[claimIndex],
           verdict,
           absenceCertificates: batchAbsenceCertificates,
@@ -5626,7 +6179,7 @@ export class ExplorerRuntime {
       })),
     });
     const reducedGaps = reduced.gaps.map(gap => {
-      if (!unrepairableExhaustiveGoalIds.has(gap.subgoalId) || gap.repairable !== true) {
+      if (!unrepairableProofShapeGoalIds.has(gap.subgoalId) || gap.repairable !== true) {
         return gap;
       }
       const terminalGap = { ...gap, repairable: false };
@@ -5670,6 +6223,8 @@ export class ExplorerRuntime {
       preservedGoals = [],
       rejectedGoals = [],
       decompositionGoals = [],
+      revisionCorrections = [],
+      revisionReservedGoals = [],
       allowEmptyPlan = false,
     }) =>
       requestValidatedGoalControl({
@@ -5686,10 +6241,20 @@ export class ExplorerRuntime {
         onCompletion,
         validate: raw => {
           const validated = validatePlannerProposal(raw, { task, wrapperTool });
+          const normalized = normalizeAuditorCorrectionIds(validated.subgoals, {
+            rejectedGoals,
+            correctionGoals: revisionCorrections,
+            reservedGoals: revisionReservedGoals,
+          });
+          const canonicalPolicy = requireCanonicalPlannerPolicy({
+            task,
+            wrapperTool,
+            goals: normalized.goals,
+          });
           const traceExcludedGoals = typeof onPlanningEvent === 'function' ? [] : null;
           const proposal = {
             ...validated,
-            subgoals: validated.subgoals.filter(goal => {
+            subgoals: canonicalPolicy.goals.filter(goal => {
               const rejectedByRevision = rejectedGoals.some(excluded =>
                 goal.id === excluded.id || samePlannerGoalContent(goal, excluded));
               const unchangedDecomposition = decompositionGoals.some(excluded =>
@@ -5706,6 +6271,11 @@ export class ExplorerRuntime {
             wrapperTool,
             proposals: proposal.subgoals,
           });
+          const auditableIds = new Set(preflight.auditCandidates.map(goal => goal.id));
+          preflight.distinctOriginGoalIds = canonicalPolicy.distinctOriginGoalIds.filter(id =>
+            auditableIds.has(id));
+          preflight.canonicalIndependentGoalIds = canonicalPolicy.independentGoalIds.filter(id =>
+            auditableIds.has(id));
           if (preflight.controlFault) {
             throw new TypeError(`Planner control fault: ${preflight.controlFault.code}.`);
           }
@@ -5725,6 +6295,7 @@ export class ExplorerRuntime {
           const validatedPlan = {
             proposal: { ...proposal, subgoals: preflight.auditCandidates },
             preflight,
+            correctionGoalIds: normalized.correctionGoalIds,
           };
           if (traceExcludedGoals) {
             validatedPlan.submittedProposal = validated;
@@ -5810,6 +6381,8 @@ export class ExplorerRuntime {
         preservedGoals,
         rejectedGoals: rejectedExcludedGoals,
         decompositionGoals: [...decompositionExcludedGoals, ...refinementExcludedGoals],
+        revisionCorrections: initialAudit.reduction.revisionRequest.uncoveredRequestParts,
+        revisionReservedGoals: initial.proposal.subgoals,
         allowEmptyPlan: preservedGoals.length === 0,
       });
       if (typeof onPlanningEvent === 'function') {
@@ -5817,8 +6390,8 @@ export class ExplorerRuntime {
           revisionCount: 1,
           plannerVersion: GOAL_PLANNER_VERSION,
           proposal: {
-            constraints: revised.submittedProposal.constraints,
-            subgoals: revised.submittedProposal.subgoals,
+            constraints: revised.proposal.constraints,
+            subgoals: revised.proposal.subgoals,
           },
         });
         for (const proposal of revised.excludedByRevision) {
@@ -5844,6 +6417,12 @@ export class ExplorerRuntime {
         wrapperTool,
         proposals: correctedProposals,
       });
+      const correctedIds = new Set(revisionPreflight.auditCandidates.map(goal => goal.id));
+      revisionPreflight.distinctOriginGoalIds = (revised.preflight.distinctOriginGoalIds ?? [])
+        .filter(id => correctedIds.has(id));
+      revisionPreflight.canonicalIndependentGoalIds =
+        (revised.preflight.canonicalIndependentGoalIds ?? [])
+          .filter(id => correctedIds.has(id));
       if (revisionPreflight.controlFault) {
         throw invalidGoalControl('plan_revision', new TypeError(
           `Corrected goal preflight fault: ${revisionPreflight.controlFault.code}.`,
@@ -5861,6 +6440,7 @@ export class ExplorerRuntime {
             auditRecords: [],
             uncoveredRequestParts: [],
             revisionCount: 1,
+            distinctOriginGoalIds: revisionPreflight.distinctOriginGoalIds,
           }),
         }
         : await this._auditGoalPlanBatched({
@@ -5914,6 +6494,7 @@ export class ExplorerRuntime {
             proposal: revisionProposal,
             auditRecords: revisedAudit.response.goals,
             eligibleGoalIds: correctedGoalIds,
+            deterministicUncoveredGoalIds: revised.correctionGoalIds,
             reasoningEffort,
             temperature,
             topP,
