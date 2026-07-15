@@ -1345,6 +1345,27 @@ function requestTextForSubgoal(task, subgoal) {
   }).join(' ');
 }
 
+function isNonExhaustiveDirectTestGoal(task, subgoal) {
+  if (subgoal?.claimType !== 'positive' || subgoal.proofPolicy !== 'direct_source') return false;
+  const requestText = requestTextForSubgoal(task, subgoal);
+  const requestsTests = /\btests?\b|테스트/iu.test(requestText);
+  const requestsEveryTest =
+    /\b(?:every|all|each|exhaustive|entire)\b|모든|모두|전부|전체/iu.test(requestText);
+  return requestsTests && !requestsEveryTest;
+}
+
+function citedCurrentTestPaths(candidate, observationById) {
+  return new Set(candidate.evidenceRefs.flatMap(ref => {
+    const observation = observationById.get(ref);
+    if (observation?.kind !== 'source' || observation.sourceRole !== 'test' ||
+        observation.temporalRole !== 'current') {
+      return [];
+    }
+    const normalizedPath = normalizeTargetPath(observation.path);
+    return normalizedPath ? [normalizedPath] : [];
+  }));
+}
+
 function requiresSourceBackedExhaustiveClassification(task, subgoal) {
   if (subgoal?.proofPolicy !== 'distinct_policy_paths') return false;
   const classifyStart = invocationClassificationActionStart(task);
@@ -2378,12 +2399,17 @@ function runtimeObservationIds(observations) {
 function validateSynthesizedClaimBatch(raw, {
   taskContract,
   observationIds,
+  observations = [],
   usedClaimIds,
   priorClaims = [],
   freshEvidenceRefs = [],
-  quarantineNoisySubgoalIds = [],
+  quarantineClaimSubgoalIds = [],
 }) {
   const subgoalById = new Map(taskContract.subgoals.map(goal => [goal.id, goal]));
+  const observationById = new Map(observations.map(observation => [
+    observation.id,
+    observation,
+  ]));
   const normalizedRaw = raw && typeof raw === 'object' && !Array.isArray(raw)
     ? {
         ...raw,
@@ -2435,6 +2461,7 @@ function validateSynthesizedClaimBatch(raw, {
     }),
   ];
   const batchClaimIds = new Set();
+  const partialTestInventorySubgoalIds = new Set();
   const claims = candidateClaims.map((candidate, index) => {
     if (!subgoalIds.has(candidate.subgoalId)) {
       throw new TypeError(`Claim synthesis returned an out-of-batch sub-goal: ${candidate.subgoalId}.`);
@@ -2461,6 +2488,10 @@ function validateSynthesizedClaimBatch(raw, {
         'requested fact.',
       );
     }
+    if (isNonExhaustiveDirectTestGoal(taskContract.task, subgoal) &&
+        citedCurrentTestPaths(candidate, observationById).size > 1) {
+      partialTestInventorySubgoalIds.add(candidate.subgoalId);
+    }
     batchClaimIds.add(candidate.id);
     return createAtomicClaim(candidate);
   });
@@ -2473,19 +2504,34 @@ function validateSynthesizedClaimBatch(raw, {
     .filter(([subgoalId, count]) => count > 1 &&
       subgoalById.get(subgoalId)?.proofPolicy !== 'support_or_refute')
     .map(([subgoalId]) => subgoalId);
-  if (noisySubgoalIds.length > 0) {
-    const quarantineSet = new Set(quarantineNoisySubgoalIds);
-    if (quarantineSet.size === noisySubgoalIds.length &&
-        noisySubgoalIds.every(subgoalId => quarantineSet.has(subgoalId))) {
+  const invalidSubgoalIds = [...new Set([
+    ...noisySubgoalIds,
+    ...partialTestInventorySubgoalIds,
+  ])];
+  if (invalidSubgoalIds.length > 0) {
+    const quarantineSet = new Set(quarantineClaimSubgoalIds);
+    if (quarantineSet.size === invalidSubgoalIds.length &&
+        invalidSubgoalIds.every(subgoalId => quarantineSet.has(subgoalId))) {
       const retainedClaims = claims.filter(claim => !quarantineSet.has(claim.subgoalId));
       for (const claim of retainedClaims) usedClaimIds.add(claim.id);
       return retainedClaims;
     }
-    const error = new TypeError(
-      `Claim synthesis must return at most one aggregate claim for sub-goals: ${noisySubgoalIds.join(', ')}.`,
-    );
-    error.claimSynthesisFailure = 'aggregate_claim_fanout';
-    error.noisySubgoalIds = noisySubgoalIds;
+    const failures = [];
+    if (partialTestInventorySubgoalIds.size > 0) {
+      failures.push(
+        'Claim synthesis cited multiple test paths as a partial suite inventory for non-exhaustive ' +
+        `sub-goals: ${[...partialTestInventorySubgoalIds].join(', ')}. Cite at most one exactly ` +
+        'observed test path for each listed sub-goal unless its request origin explicitly asks for every test.',
+      );
+    }
+    if (noisySubgoalIds.length > 0) {
+      failures.push(
+        `Claim synthesis must return at most one aggregate claim for sub-goals: ${noisySubgoalIds.join(', ')}.`,
+      );
+    }
+    const error = new TypeError(failures.join(' '));
+    error.claimSynthesisFailure = 'quarantinable_claims';
+    error.quarantineSubgoalIds = invalidSubgoalIds;
     throw error;
   }
   for (const claimId of batchClaimIds) usedClaimIds.add(claimId);
@@ -5871,13 +5917,15 @@ export class ExplorerRuntime {
         validate: raw => validateSynthesizedClaimBatch(raw, {
           taskContract: batchContract,
           observationIds: synthesisObservationIds,
+          observations: synthesisObservations,
           usedClaimIds,
           priorClaims: batchPriorClaims,
           freshEvidenceRefs: synthesisFreshEvidenceRefs,
         }),
         recoverFinalValidation: ({ parsed, error }) => {
-          if (error?.claimSynthesisFailure !== 'aggregate_claim_fanout' ||
-              !Array.isArray(error.noisySubgoalIds) || error.noisySubgoalIds.length === 0) {
+          if (error?.claimSynthesisFailure !== 'quarantinable_claims' ||
+              !Array.isArray(error.quarantineSubgoalIds) ||
+              error.quarantineSubgoalIds.length === 0) {
             return null;
           }
           return {
@@ -5885,10 +5933,11 @@ export class ExplorerRuntime {
             value: validateSynthesizedClaimBatch(parsed, {
               taskContract: batchContract,
               observationIds: synthesisObservationIds,
+              observations: synthesisObservations,
               usedClaimIds,
               priorClaims: batchPriorClaims,
               freshEvidenceRefs: synthesisFreshEvidenceRefs,
-              quarantineNoisySubgoalIds: error.noisySubgoalIds,
+              quarantineClaimSubgoalIds: error.quarantineSubgoalIds,
             }),
           };
         },

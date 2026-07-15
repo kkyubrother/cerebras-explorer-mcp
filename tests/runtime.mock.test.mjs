@@ -11836,6 +11836,251 @@ semanticPipelineRuntimeTest(
 );
 
 semanticPipelineRuntimeTest(
+  'Spec 028 T069 — partial test inventories get one bounded claim correction',
+  async () => {
+    const task = 'Identify the test that covers the pipeline entry path.';
+    const goal = trustGoal(task, {
+      id: 'S-partial-test-inventory',
+      question: task,
+      originText: task,
+      proofCondition: 'Identify one exactly observed entry-path test and what it verifies.',
+    });
+    const noisy = candidateClaim(
+      'C-partial-test-inventory',
+      goal.id,
+      'Four test files cover the entry path: test_cli, test_orchestrator, test_handlers, and test_db.',
+      ['E1', 'E2', 'E3', 'E4'],
+    );
+    const corrected = candidateClaim(
+      noisy.id,
+      goal.id,
+      'tests/test_cli.py verifies the pipeline entry path.',
+      ['E1'],
+    );
+    const testFiles = [
+      'test_cli.py',
+      'test_orchestrator.py',
+      'test_handlers.py',
+      'test_db.py',
+    ];
+    const steps = [
+      { stage: 'planner:1', value: plannerControl([goal]) },
+      { stage: 'goal_audit:1', value: auditorControl([auditControlRecord(goal)]) },
+      ...testFiles.map((file, index) => ({
+        stage: `exploration:${index + 1}`,
+        run: () => toolControlCompletion(
+          'repo_read_file',
+          { path: `tests/${file}`, startLine: 1, endLine: 3 },
+          `read-partial-inventory-${index + 1}`,
+        ),
+      })),
+      { stage: 'exploration:5', content: 'The bounded test evidence pass is complete.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+      { stage: 'claim_synthesis:1', value: { claims: [noisy] } },
+      {
+        stage: 'claim_synthesis:2',
+        run(request) {
+          const correction = JSON.stringify(request.messages);
+          assert.match(correction, /multiple test paths as a partial suite inventory/u);
+          assert.match(correction, /at most one exactly observed test path/u);
+          return controlCompletion({ claims: [corrected] });
+        },
+      },
+      {
+        stage: 'semantic_verifier:1',
+        value: verifierResponse([semanticVerdict(corrected.id, 'supported', ['E1'])]),
+      },
+    ];
+
+    const { client, result } = await runTrustScript(steps, {
+      task,
+      scope: ['tests/**'],
+      async setup(root) {
+        await fs.mkdir(path.join(root, 'tests'), { recursive: true });
+        await Promise.all(testFiles.map((file, index) => fs.writeFile(
+          path.join(root, 'tests', file),
+          `def test_pipeline_entry_${index + 1}():\n    assert True\n`,
+        )));
+      },
+    });
+
+    assert.equal(client.stageCounts.get('claim_synthesis'), 2);
+    assert.equal(result.failure, null, JSON.stringify(client.stageLabels));
+    assert.equal(result.parentHandoff.state, 'complete');
+    assert.equal(result.parentHandoff.directAnswer, corrected.text);
+    assert.deepEqual(result.semanticVerification.claims.map(claim => claim.evidenceRefs), [['E1']]);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — an explicit every-test goal remains verifier-gated',
+  async () => {
+    const task = 'Inventory every test file that covers the pipeline entry path.';
+    const goal = trustGoal(task, {
+      id: 'S-every-test-inventory',
+      question: task,
+      originText: task,
+      proofCondition: 'Observe every requested test file before accepting the inventory.',
+    });
+    const claim = candidateClaim(
+      'C-every-test-inventory',
+      goal.id,
+      'tests/test_cli.py and tests/test_orchestrator.py cover the pipeline entry path.',
+      ['E1', 'E2'],
+    );
+    let verifierPacket;
+    const testFiles = ['test_cli.py', 'test_orchestrator.py'];
+    const steps = [
+      { stage: 'planner:1', value: plannerControl([goal]) },
+      { stage: 'goal_audit:1', value: auditorControl([auditControlRecord(goal)]) },
+      ...testFiles.map((file, index) => ({
+        stage: `exploration:${index + 1}`,
+        run: () => toolControlCompletion(
+          'repo_read_file',
+          { path: `tests/${file}`, startLine: 1, endLine: 3 },
+          `read-every-test-${index + 1}`,
+        ),
+      })),
+      { stage: 'exploration:3', content: 'The bounded test evidence pass is complete.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+      { stage: 'claim_synthesis:1', value: { claims: [claim] } },
+      {
+        stage: 'semantic_verifier:1',
+        run(request) {
+          verifierPacket = parseControlPacket(request);
+          return controlCompletion(verifierResponse([
+            semanticVerdict(claim.id, 'insufficient', ['E1', 'E2']),
+          ]));
+        },
+      },
+      { stage: 'exploration:4', content: 'No materially new repair action remains.' },
+    ];
+
+    const { client, result } = await runTrustScript(steps, {
+      task,
+      scope: ['tests/**'],
+      async setup(root) {
+        await fs.mkdir(path.join(root, 'tests'), { recursive: true });
+        await Promise.all(testFiles.map((file, index) => fs.writeFile(
+          path.join(root, 'tests', file),
+          `def test_pipeline_entry_${index + 1}():\n    assert True\n`,
+        )));
+      },
+    });
+
+    assert.equal(result.failure, null, JSON.stringify(client.stageLabels));
+    assert.equal(client.stageCounts.get('claim_synthesis'), 1);
+    assert.deepEqual(verifierPacket.claims[0].evidenceRefs, ['E1', 'E2']);
+    assert.equal(result.parentHandoff.state, 'incomplete');
+    assert.equal(result.taskContract.subgoals[0].state, 'gap');
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — repeated partial test inventory quarantines only that sub-goal',
+  async () => {
+    const task = 'Locate requireAuth and identify the test that covers the pipeline entry path.';
+    const goals = [
+      trustGoal(task, {
+        id: 'S-stable-test-inventory-definition',
+        question: 'Where is requireAuth defined?',
+        originText: 'Locate requireAuth',
+        claimType: 'symbol_definition',
+        proofCondition: 'Observe the requireAuth definition source.',
+      }),
+      trustGoal(task, {
+        id: 'S-repeated-partial-test-inventory',
+        question: 'Which test covers the pipeline entry path?',
+        originText: 'identify the test that covers the pipeline entry path',
+        proofCondition: 'Identify one exactly observed entry-path test and what it verifies.',
+      }),
+    ];
+    const stable = candidateClaim(
+      'C-stable-test-inventory-definition',
+      goals[0].id,
+      'requireAuth is defined in src/auth.js.',
+      ['E1'],
+    );
+    const noisy = candidateClaim(
+      'C-repeated-partial-test-inventory',
+      goals[1].id,
+      'Three test files cover the entry path: test_cli, test_orchestrator, and test_handlers.',
+      ['E2', 'E3', 'E4'],
+    );
+    const repeatedPartialInventory = { claims: [noisy] };
+    const testFiles = ['test_cli.py', 'test_orchestrator.py', 'test_handlers.py'];
+    const steps = [
+      { stage: 'planner:1', value: plannerControl(goals) },
+      { stage: 'goal_audit:1', value: auditorControl(
+        goals.map(goal => auditControlRecord(goal))) },
+      {
+        stage: 'exploration:1',
+        run: () => toolControlCompletion(
+          'repo_read_file',
+          { path: 'src/auth.js', startLine: 1, endLine: 4 },
+          'read-stable-test-inventory-definition',
+        ),
+      },
+      ...testFiles.map((file, index) => ({
+        stage: `exploration:${index + 2}`,
+        run: () => toolControlCompletion(
+          'repo_read_file',
+          { path: `tests/${file}`, startLine: 1, endLine: 3 },
+          `read-repeated-partial-${index + 1}`,
+        ),
+      })),
+      { stage: 'exploration:5', content: 'The bounded evidence pass is complete.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+      { stage: 'claim_synthesis:1', value: { claims: [stable] } },
+      { stage: 'claim_synthesis:2', value: repeatedPartialInventory },
+      {
+        stage: 'claim_synthesis:3',
+        run(request) {
+          assert.match(JSON.stringify(request.messages),
+            /multiple test paths as a partial suite inventory/u);
+          return controlCompletion(repeatedPartialInventory);
+        },
+      },
+      {
+        stage: 'semantic_verifier:1',
+        run(request) {
+          const packet = parseControlPacket(request);
+          assert.deepEqual(packet.claims.map(claim => claim.id), [stable.id]);
+          return controlCompletion(verifierResponse([
+            semanticVerdict(stable.id, 'supported', ['E1']),
+          ]));
+        },
+      },
+      { stage: 'exploration:6', content: 'No materially new repair action remains.' },
+    ];
+
+    const { client, result } = await runTrustScript(steps, {
+      task,
+      scope: ['src/**', 'tests/**'],
+      async setup(root) {
+        await fs.mkdir(path.join(root, 'tests'), { recursive: true });
+        await Promise.all(testFiles.map((file, index) => fs.writeFile(
+          path.join(root, 'tests', file),
+          `def test_pipeline_entry_${index + 1}():\n    assert True\n`,
+        )));
+      },
+    });
+
+    assert.equal(result.failure, null, JSON.stringify(client.stageLabels));
+    assert.equal(client.stageCounts.get('claim_synthesis'), 3);
+    assert.equal(result.parentHandoff.state, 'incomplete');
+    assert.equal(result.parentHandoff.directAnswer, stable.text);
+    assert.deepEqual(result.semanticVerification.claims.map(claim => claim.id), [stable.id]);
+    assert.deepEqual(result.taskContract.subgoals.map(goal => [goal.id, goal.state]), [
+      [goals[0].id, 'supported'],
+      [goals[1].id, 'gap'],
+    ]);
+    assert.doesNotMatch(JSON.stringify(result.parentHandoff),
+      /C-repeated-partial|Three test files|claim_synthesis/u);
+  },
+);
+
+semanticPipelineRuntimeTest(
   'Spec 028 T069 — repeated claim fanout quarantines only the noisy sub-goal',
   async () => {
     const task = 'Locate requireAuth and map the environment configuration impact.';
