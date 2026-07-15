@@ -8868,6 +8868,122 @@ semanticPipelineRuntimeTest(
 );
 
 semanticPipelineRuntimeTest(
+  'Spec 028 T069 — one static-array request preserves count, definition range, and comparison',
+  async () => {
+    const task = [
+      'Count the entries in DEFAULT_SECRET_DENY_PATTERNS.',
+      'Cite the definition and distinguish the number of array entries from the ending source line number.',
+    ].join(' ');
+    const goals = [
+      trustGoal(task, {
+        id: 'S-static-array-count-combined',
+        question: 'How many entries are in DEFAULT_SECRET_DENY_PATTERNS?',
+        originText: 'Count the entries in DEFAULT_SECRET_DENY_PATTERNS',
+        claimType: 'count',
+        proofCondition: 'Read the complete static array definition and count its entries.',
+        constraints: ['Keep the count bound to the cited definition.'],
+      }),
+      trustGoal(task, {
+        id: 'S-static-array-definition-combined',
+        question: 'Where is DEFAULT_SECRET_DENY_PATTERNS defined?',
+        originText: 'Cite the definition',
+        claimType: 'symbol_definition',
+        proofCondition: 'Observe the complete symbol definition and its exact source range.',
+      }),
+      trustGoal(task, {
+        id: 'S-static-array-comparison-combined',
+        question: 'How do the array entry count and ending source line number differ?',
+        originText: 'distinguish the number of array entries from the ending source line number',
+        claimType: 'comparison',
+        proofCondition: 'Compare the runtime-owned array count with the exact definition range.',
+        constraints: ['Do not treat the ending source line as the entry count.'],
+      }),
+    ];
+    const claims = [
+      {
+        ...candidateClaim(
+          'C-static-array-count-combined',
+          goals[0].id,
+          'DEFAULT_SECRET_DENY_PATTERNS contains exactly 3 entries.',
+          ['E1', 'E1:search', 'E2', 'E2:search'],
+        ),
+        measurement: { kind: 'count', unit: 'array_entries', value: 3 },
+      },
+      candidateClaim(
+        'C-static-array-definition-combined',
+        goals[1].id,
+        'DEFAULT_SECRET_DENY_PATTERNS is defined in src/patterns.mjs starting at line 1.',
+        ['E1', 'E2'],
+      ),
+      candidateClaim(
+        'C-static-array-comparison-combined',
+        goals[2].id,
+        'The array entry count is 3, whereas the ending source line number of the definition is 5.',
+        ['E1', 'E1:search', 'E2', 'E2:search'],
+      ),
+    ];
+    const verdicts = [
+      semanticVerdict(claims[0].id, 'supported', ['E1', 'E1:search']),
+      semanticVerdict(claims[1].id, 'supported', ['E1']),
+      semanticVerdict(claims[2].id, 'supported', ['E1', 'E1:search']),
+    ];
+    const { result } = await runTrustScript(buildTrustSteps({
+      goals,
+      initial: {
+        tools: [{
+          tool: 'repo_symbol_context',
+          args: {
+            symbol: 'DEFAULT_SECRET_DENY_PATTERNS',
+            scope: ['src/patterns.mjs'],
+          },
+          id: 'static-array-combined-symbol',
+        }, {
+          tool: 'repo_read_file',
+          args: { path: 'src/patterns.mjs', startLine: 1, endLine: 6 },
+          id: 'static-array-combined-read',
+        }],
+        claims,
+        verifierSteps: [{ verdicts }, { verdicts }],
+      },
+    }), {
+      task,
+      scope: ['src/patterns.mjs'],
+      async setup(root) {
+        await fs.writeFile(path.join(root, 'src', 'patterns.mjs'), [
+          'export const DEFAULT_SECRET_DENY_PATTERNS = Object.freeze([',
+          "  '.env',",
+          "  '**/.env',",
+          "  '*.pem',",
+          ']);',
+          'export const unrelated = true;',
+          '',
+        ].join('\n'));
+      },
+    });
+
+    assert.equal(result.failure, null);
+    assert.deepEqual(result.taskContract.subgoals.map(goal => [goal.id, goal.state]), [
+      [goals[0].id, 'supported'],
+      [goals[1].id, 'supported'],
+      [goals[2].id, 'supported'],
+    ]);
+    assert.equal(result.parentHandoff.state, 'complete');
+    assert.match(result.parentHandoff.directAnswer,
+      /deterministic count of array entries.* is 3\./u);
+    assert.match(result.parentHandoff.directAnswer, /lines 1 through 5/u);
+    assert.match(result.parentHandoff.directAnswer, /entry count is 3.*line number.*5/u);
+    assert.equal(result.parentHandoff.gaps, undefined);
+    assert.deepEqual(result.parentHandoff.evidence.map(item => ({
+      path: item.path,
+      startLine: item.startLine,
+      endLine: item.endLine,
+    })), [{ path: 'src/patterns.mjs', startLine: 1, endLine: 5 }]);
+    assert.doesNotMatch(JSON.stringify(result.parentHandoff),
+      /:search|deterministicMeasurement|runtimeAllowedEvidenceRefs/u);
+  },
+);
+
+semanticPipelineRuntimeTest(
   'Spec 028 T069 — canonical invocation classes stay exhaustive without repeated markers',
   async () => {
     const task = 'Inventory every Amazon Bedrock invocation and classify direct SDK calls, wrappers, and configuration-only references.';
