@@ -1709,10 +1709,12 @@ function getSourceText(result, source) {
   }
 }
 
-function evaluateKeywordGroups(haystack, groups) {
+function evaluateKeywordGroups(haystack, groups, { exact = false } = {}) {
   const normalizedHaystack = normalizeText(haystack);
   const details = groups.map(group => {
-    const matchedToken = group.find(token => normalizedHaystack.includes(normalizeText(token))) ?? null;
+    const matchedToken = group.find(token => exact
+      ? normalizedHaystack === normalizeText(token)
+      : normalizedHaystack.includes(normalizeText(token))) ?? null;
     return {
       group,
       matched: Boolean(matchedToken),
@@ -1780,6 +1782,7 @@ export function evaluateBenchmarkCase(caseDefinition, result) {
     const evaluation = evaluateKeywordGroups(
       getSourceText(result, expectation.source),
       expectation.groups ?? [],
+      { exact: expectation.source === 'result_state' },
     );
     const weight = Number(expectation.weight ?? 1);
     return {

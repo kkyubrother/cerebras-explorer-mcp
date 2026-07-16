@@ -2321,6 +2321,24 @@ test('evaluateBenchmarkCase reads schema-v3 MCP results', () => {
   assert.equal(evaluation.passed, true);
 });
 
+test('evaluateBenchmarkCase matches result_state as an exact enum value', () => {
+  const evaluation = evaluateBenchmarkCase({
+    id: 'exact-state',
+    expectations: [{
+      label: 'Complete state',
+      source: 'result_state',
+      groups: [['complete']],
+    }],
+  }, {
+    schemaVersion: 3,
+    state: 'incomplete',
+  });
+
+  assert.equal(evaluation.expectations[0].passed, false);
+  assert.equal(evaluation.expectations[0].details[0].matched, false);
+  assert.equal(evaluation.expectations[0].details[0].matchedToken, null);
+});
+
 test('evaluateBenchmarkCase requires every expectation and check', () => {
   const result = { schemaVersion: 3, state: 'complete', directAnswer: 'Primary signal.' };
   const expectation = (token, weight) => ({
