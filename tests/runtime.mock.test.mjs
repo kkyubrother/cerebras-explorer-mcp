@@ -7680,6 +7680,62 @@ auditedPlanningRuntimeTest('Spec 028 T069 — a stronger late obligation cannot 
   assert.equal(calls, 2, 'an invalid external merge gets only one bounded correction');
 });
 
+auditedPlanningRuntimeTest('Spec 028 T069 — late audit retry keeps a distinct acceptance core independent', async () => {
+  const task = 'Locate requireAuth and inspect its export boundary.';
+  const originRefs = [`request:0-${task.length}`];
+  const existing = createRequiredSubgoal({
+    id: 'S-existing-definition',
+    question: 'Where is requireAuth defined?',
+    originRefs,
+    claimType: 'symbol_definition',
+    proofCondition: 'Observe the in-scope requireAuth definition.',
+    constraints: [],
+    auditVerdict: 'ready',
+  });
+  const proposal = {
+    id: 'L-export-boundary',
+    question: 'Which exported API exposes requireAuth?',
+    originRefs,
+    claimType: existing.claimType,
+    proofCondition: 'Observe the export boundary that exposes requireAuth.',
+    constraints: [],
+  };
+  let calls = 0;
+  const client = {
+    model: 'zai-glm-4.7',
+    async createChatCompletion(request) {
+      calls += 1;
+      const packet = parseControlPacket(request);
+      if (calls === 1) {
+        return controlCompletion(auditorControl([{
+          ...auditControlRecord(packet.proposals[0], 'merge_duplicate'),
+          mergeInto: existing.id,
+        }]));
+      }
+      assert.match(JSON.stringify(request.messages),
+        /Use merge_duplicate only when question, claimType, proofCondition, and constraints exactly match[\s\S]*audit it independently with a non-merge verdict/u);
+      return controlCompletion(auditorControl([
+        auditControlRecord(packet.proposals[0]),
+      ]));
+    },
+  };
+
+  const result = await new RuntimeImplementation({ chatClient: client }).auditLateGoalProposals({
+    task,
+    effectiveScope: ['src/**'],
+    wrapperTool: 'find_relevant_code',
+    proposals: [proposal],
+    existingGoalLedger: [existing],
+  });
+
+  assert.equal(calls, 2);
+  assert.deepEqual(result.requiredSubgoals.map(goal => goal.id), [proposal.id]);
+  assert.equal(result.requiredSubgoals[0].question, proposal.question);
+  assert.equal(result.requiredSubgoals[0].proofCondition, proposal.proofCondition);
+  assert.deepEqual(result.rejectedGoals, []);
+  assert.deepEqual(result.gaps, []);
+});
+
 auditedPlanningRuntimeTest('Spec 028 T069 — a distinct late acceptance core cannot disappear through an external merge', async () => {
   const task = 'Locate requireAuth and inspect its export boundary.';
   const originRefs = [`request:0-${task.length}`];

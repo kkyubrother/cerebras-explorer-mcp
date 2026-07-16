@@ -2355,7 +2355,8 @@ async function requestValidatedGoalControl({
           : stage === 'goal_audit'
             ? 'For goal audit records, every non-reject verdict must retain at least one proposed origin; ' +
               'needs_decomposition must preserve the traceable caller-required core origin. ' +
-              'Copy origin refs only from that proposal. Return exactly one audit record for every supplied proposals item, even when an existing goal ledger is present; use merge_duplicate rather than omission when appropriate. ' +
+              'Copy origin refs only from that proposal. Return exactly one audit record for every supplied proposals item, even when an existing goal ledger is present. ' +
+              'Use merge_duplicate only when question, claimType, proofCondition, and constraints exactly match an existing ledger goal and every proposal origin stays within that goal\'s origins. Otherwise preserve the proposal acceptance core and audit it independently with a non-merge verdict. ' +
               'Every fixed wrapper origin present in a proposal must remain in a non-reject audit record or one structured uncoveredRequestParts item. ' +
               'Pair every missingRequestParts entry with one structured uncoveredRequestParts item.'
             : '';
