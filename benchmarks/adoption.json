@@ -143,29 +143,29 @@
     },
     {
       "id": "collect-evidence",
-      "description": "Collect evidence for a specific claim.",
+      "description": "Refute a specific claim with direct source evidence.",
       "tool": "collect_evidence",
       "args": {
-        "claim": "explore_repo validates evidence against observed file ranges before returning structuredContent",
+        "claim": "The deterministic critic skips evidence grounding and never checks whether cited ranges were observed",
         "scope": ["src/**", "tests/**"]
       },
       "expectations": [
         {
-          "label": "Answer names grounding and critic flow",
+          "label": "Answer refutes the claim and names the actual grounding flow",
           "source": "combined_text",
-          "groups": [["runDeterministicCriticPass"], ["groundEvidence", "grounding"], ["observedRanges"]],
+          "groups": [["false", "refutes", "refuted", "contradicted", "does not skip"], ["checkEvidenceGrounding"], ["groundEvidenceList"]],
           "weight": 0.5
         },
         {
-          "label": "Evidence points to the critic and runtime grounding flow",
+          "label": "Evidence points to the critic grounding implementation",
           "source": "evidence_paths",
-          "groups": [["src/explorer/critic.mjs"], ["src/explorer/runtime.mjs"]],
+          "groups": [["src/explorer/critic.mjs"]],
           "weight": 0.2
         }
       ],
       "checks": [
         { "label": "Has direct answer", "type": "has_direct_answer", "value": true, "weight": 0.1 },
-        { "label": "Structured evidence retained", "type": "min_evidence_count", "value": 2, "weight": 0.1 }
+        { "label": "Structured evidence retained", "type": "min_evidence_count", "value": 1, "weight": 0.1 }
       ]
     },
     {
@@ -173,14 +173,14 @@
       "description": "Use the general explorer for recent changes that need git-guided context.",
       "tool": "explore_repo",
       "args": {
-        "task": "What changed recently around MCP tool metadata and what should be reviewed?",
+        "task": "What changed in commit ca99b4d4fef6bd8d252d4a2d66c1d8f647ba58c4 around MCP tool metadata and what should be reviewed?",
         "scope": ["src/**", "tests/**"]
       },
       "expectations": [
         {
           "label": "Answer discusses change context",
           "source": "combined_text",
-          "groups": [["server.mjs"], ["buildToolList"]],
+          "groups": [["server.mjs"], ["TOOL_DISPATCH_RULE"]],
           "weight": 0.55
         }
       ],
@@ -227,16 +227,22 @@
       },
       "expectations": [
         {
-          "label": "Answer identifies the schema-v3 handoff fields",
+          "label": "Answer identifies authoritative schema constants",
           "source": "combined_text",
-          "groups": [["schemaVersion"], ["directAnswer"]],
-          "weight": 0.45
+          "groups": [["PARENT_HANDOFF_V3_SCHEMA", "EXPLORE_REPO_OUTPUT_SCHEMA"]],
+          "weight": 0.3
+        },
+        {
+          "label": "Targets include the authoritative schema source",
+          "source": "target_paths",
+          "groups": [["src/explorer/schemas.mjs"]],
+          "weight": 0.25
         },
         {
           "label": "State permits a narrow handoff",
           "source": "result_state",
           "groups": [["complete", "verify_targets"]],
-          "weight": 0.2,
+          "weight": 0.15,
           "minCoverage": 0.5
         }
       ],

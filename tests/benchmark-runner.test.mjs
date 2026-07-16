@@ -86,6 +86,7 @@ test('adoption runner stops after a provider failure and records the remaining d
 
   assert.ok(failure, 'a provider failure keeps the benchmark exit non-zero');
   assert.match(failure.stdout, /FAIL provider-first/);
+  assert.match(failure.stdout, /failureReason=provider_error/);
   assert.match(failure.stdout, /NOT_RUN must-not-start\s+reason=provider_unavailable/);
   assert.doesNotMatch(failure.stdout, /sensitive upstream detail/);
   assert.equal(requestCount, 1, 'the unavailable provider is not called for later cases');
@@ -94,5 +95,8 @@ test('adoption runner stops after a provider failure and records the remaining d
   assert.equal(report.summary.caseCount, 2);
   assert.equal(report.summary.failedCount, 2);
   assert.equal(report.cases[0].notRun, undefined);
+  assert.equal(report.cases[0].failureReason, 'provider_error');
   assert.deepEqual(report.cases[1].notRun, { reason: 'provider_unavailable' });
+  assert.equal(report.cases[1].failureReason, undefined);
+  assert.doesNotMatch(JSON.stringify(report), /sensitive upstream detail/);
 });

@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -20,6 +21,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 const suite = JSON.parse(
   fs.readFileSync(path.join(repoRoot, 'benchmarks', 'adoption.json'), 'utf8'),
 );
+const RECENT_CHANGE_SHA = 'ca99b4d4fef6bd8d252d4a2d66c1d8f647ba58c4';
 
 // Deliberate, justified exceptions keyed `${caseId}::${expectationLabel}::${normalizedToken}`.
 // An entry is only defensible when the same expectation retains an independent
@@ -154,6 +156,33 @@ test('adoption suite: v3 and wrapper scenarios keep objective source anchors', (
   assert.match(serialized('structured-output-contract'), /buildParentPayload/);
   assert.doesNotMatch(serialized('structured-output-contract'), /formatExploreResult/);
   assert.match(serialized('direct-vs-explorer-boundary'), /max_target_count/);
+});
+
+test('adoption suite: schema and recent-change anchors are authoritative and immutable', () => {
+  const byId = new Map(suite.cases.map(testCase => [testCase.id, testCase]));
+  const boundary = byId.get('direct-vs-explorer-boundary');
+  const recent = byId.get('explore-recent-change-context');
+
+  assert.deepEqual(
+    boundary.expectations.find(expectation => expectation.source === 'target_paths')?.groups,
+    [['src/explorer/schemas.mjs']],
+  );
+  assert.deepEqual(
+    boundary.expectations.find(expectation => expectation.source === 'combined_text')?.groups,
+    [['PARENT_HANDOFF_V3_SCHEMA', 'EXPLORE_REPO_OUTPUT_SCHEMA']],
+  );
+  assert.match(recent.args.task, new RegExp(RECENT_CHANGE_SHA));
+
+  execFileSync('git', ['cat-file', '-e', `${RECENT_CHANGE_SHA}^{commit}`], {
+    cwd: repoRoot,
+    windowsHide: true,
+  });
+  const patch = execFileSync(
+    'git',
+    ['show', '--format=', '--no-ext-diff', '--no-textconv', RECENT_CHANGE_SHA, '--', 'src/mcp/server.mjs'],
+    { cwd: repoRoot, encoding: 'utf8', windowsHide: true },
+  );
+  assert.match(patch, /TOOL_DISPATCH_RULE/);
 });
 
 test('adoption suite: quiet schema-v3 does not require optional evidence snippets', () => {

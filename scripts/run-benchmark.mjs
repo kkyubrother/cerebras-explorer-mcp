@@ -300,7 +300,7 @@ export function computeExtendedMetrics(caseResults) {
   };
 }
 
-function failedCaseResult(caseDefinition, { error, notRun } = {}) {
+function failedCaseResult(caseDefinition, { error, failureReason, notRun } = {}) {
   const result = {
     caseDefinition,
     elapsedMs: 0,
@@ -321,6 +321,7 @@ function failedCaseResult(caseDefinition, { error, notRun } = {}) {
     targetRead: null,
   };
   if (error) result.error = error;
+  if (failureReason) result.failureReason = failureReason;
   if (notRun) result.notRun = notRun;
   return result;
 }
@@ -458,11 +459,15 @@ async function main() {
         caseResults.push(caseResult);
         printCaseResult(caseResult, options.verbose);
       } catch (error) {
-        const failed = failedCaseResult(caseDefinition, { error: error.message });
+        const failed = failedCaseResult(caseDefinition, {
+          error: error.message,
+          failureReason: error.failureReason,
+        });
         caseResults.push(failed);
         console.log(`FAIL ${caseDefinition.id}  score=0%  elapsed=0ms`);
         console.log(`  ${caseDefinition.description}`);
         console.log(`  error=${error.message}`);
+        if (error.failureReason) console.log(`  failureReason=${error.failureReason}`);
         if (error.failureReason === 'provider_error') providerUnavailable = true;
       }
     }

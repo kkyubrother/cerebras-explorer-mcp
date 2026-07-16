@@ -143,6 +143,7 @@ Expected:
 - Each retained wrapper passes its distinct proof-policy case.
 - Removed review/report cases are replaced by general structured fallback cases rather than silently deleted from behavioral coverage.
 - If an adoption case fails with `provider_error`, no later case calls the unavailable provider; every remaining case stays in the denominator as `notRun.reason=provider_unavailable`, and the run remains non-zero.
+- An executed failure keeps its machine-readable reason in the operator-only per-case `failureReason` report field; this is not a new parent payload field.
 
 ## 7. Run the parent-observation harness
 
