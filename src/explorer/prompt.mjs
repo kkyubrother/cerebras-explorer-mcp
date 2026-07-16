@@ -7,6 +7,7 @@ export const STRATEGY_DESCRIPTIONS = {
   'breadth-first':   'Understand project structure. Start with repo_list_dir(depth:3) → read key files.',
   'blame-guided':    'Trace a bug to its origin. Start with repo_grep → repo_git_blame → repo_git_show.',
   'pattern-scan':    'Analyze a pattern across the codebase. Start with repo_grep → read multiple files.',
+  'claim-check':     'Verify one claim. Read the strongest exact anchor, then run one complete search for a plausible disconfirming predicate.',
 };
 
 // Weighted strategy rules — each rule has patterns and a weight.
@@ -213,6 +214,7 @@ const PLANNER_SYSTEM_PROMPT = [
   '',
   'PLANNING RULES:',
   '- Produce one independently observable subgoal for every explicit requested part and every fixed wrapper seed.',
+  '- Represent each fixed wrapper seed exactly once. When a requested leaf has the same acceptance core, attach that wrapper origin to the requested leaf instead of creating a duplicate wrapper-only goal.',
   '- Outside a matching canonical decision-table pattern, if one requested surface or category can succeed while another fails, make them independently decidable leaf goals. Never cross-product actors and surfaces beyond a canonical leaf set.',
   '- Do not add an inventory, synthesis, or global umbrella goal that merely repeats the union or comparison already covered by leaf goals.',
   '- Keep one requested dependency/input-category boundary as one impact leaf; do not split it only by source role.',
@@ -253,6 +255,7 @@ const CORRECTED_PLANNER_SYSTEM_PROMPT = [
   '- A refine obligation requires exactly one same-type descendant goal with origins narrow enough to distinguish it from sibling obligations; refinement is not decomposition.',
   '- Do not create unrelated goals, implementation work, feasibility scores, priorities, effort choices, repair choices, or revision decisions.',
   '- Each new subgoal must remain request/wrapper-traceable and independently observable.',
+  '- Represent each fixed wrapper seed exactly once across preserved and corrected goals. When a corrected request leaf has the same acceptance core, attach that wrapper origin to the leaf instead of creating a duplicate wrapper-only goal.',
   '- Do not recreate a decomposition defect as a renamed aggregate; replace it with independently decidable leaf goals only.',
   '',
   ...ORIGIN_REFERENCE_RULES,
@@ -284,6 +287,7 @@ const GOAL_AUDITOR_SYSTEM_PROMPT = [
   '- For the canonical access pattern, a fourth SURFACE_A/ACTOR_B cross-product is planner invention: reject it when its origin does not entail that separate acceptance obligation, and never mark the canonical three leaves as needing another actor-by-surface split.',
   '- For the canonical access pattern, a leaf that stretches one request range across both surfaces instead of retaining separate minimal actor and surface origins needs_decomposition. A valid corrected leaf may carry multiple request origins; do not discard either the actor or surface obligation.',
   '- A redundant aggregate with no acceptance condition beyond its separately proposed leaf goals is not ready; use needs_decomposition or merge_duplicate as applicable.',
+  '- A proposal whose complete acceptance core exactly matches one fixed wrapper seed is a runtime-required leaf, even when that seed selects, relates, or minimizes evidence from sibling seeds. Do not decompose it for that reason alone; only an additional mixed acceptance obligation needs decomposition.',
   '- reject_untraceable: not entailed by a confirmed request/wrapper origin or circular planner invention; never use for a traceable caller requirement.',
   '- blocked_scope: required evidence lies outside the immutable scope.',
   '- blocked_capability: completion requires a prohibited write, secret-path read, or scope expansion.',
@@ -358,6 +362,7 @@ const CLAIM_SYNTHESIS_SYSTEM_PROMPT = [
   '- Emit concise atomic claims only. Every claim belongs to exactly one supplied sub-goal and must be independently accepted or dropped as a unit.',
   '- Emit the smallest claim set that directly answers each sub-goal. Do not inventory observations or restate directory, file, or match counts unless that sub-goal asks for a count.',
   '- Emit at most one claim for each sub-goal unless its proofPolicy is support_or_refute. If one claim cannot answer a leaf, omit the claim so runtime records an explicit gap; never emit one fragment per file or observation.',
+  '- Never emit a claim with evidenceRefs:[]. If no supplied observation directly supports the whole atomic claim, omit that claim entirely.',
   '- A comparison, flow, impact, or usage claim is atomic only when it states the required relationship, difference, transition, category set, or usage boundary and cites all observations needed for that one assertion. Do not split it into fragments that cannot answer the sub-goal alone.',
   '- For wrapper:trace_symbol:usage, cite exact current source for the stated usage sites plus the supplied complete repo_grep observation for the exact symbol over the full immutable boundary.',
   '- Prefer one minimal aggregate claim that completes a flow, comparison, or impact proof shape over one claim per file, module, match, or observation.',
@@ -397,6 +402,7 @@ const SEMANTIC_VERIFIER_SYSTEM_PROMPT = [
   '- Judge each existing claim against its associated sub-goal, proof policy, and cited runtime observations.',
   '- Never rewrite, replace, extend, or add claim text. Unsupported or over-broad claims receive insufficient or contradicted; they are not repaired with new prose.',
   '- supportingEvidenceRefs must be a subset of both the candidate claim evidenceRefs and the supplied runtime observation ids. Never add evidence or return snippets, counts, ranges, or source facts.',
+  '- When control.freshEvidenceRefs is present, this is post-repair verification. A supported verdict must cite at least one exact id from that list; otherwise return insufficient.',
   '- Evidence ids are opaque exact tokens. `E5` and `E5:search` are distinct: copy only ids present verbatim in that claim evidenceRefs, and never append, remove, or infer a suffix.',
   '- Exact range grounding alone is not semantic support. The cited content must entail the whole claim under its fixed proof policy.',
   '- supported requires semantic entailment and exactly one resolution: affirmed when the claim answers the required question affirmatively, or refuted when it is a supported refutation. Omit resolution for insufficient and contradicted.',
@@ -801,6 +807,7 @@ export function buildSemanticVerifierMessages({
   observations,
   absenceCertificates,
   criticDecisions,
+  freshEvidenceRefs,
   wrapperTool,
 }) {
   return [
@@ -812,6 +819,9 @@ export function buildSemanticVerifierMessages({
           ...normalizeVerificationContract(taskContract),
           taskOffsetGuide: taskOffsetGuide(taskContract?.task),
           wrapper: fixedWrapperInput(wrapperTool),
+          ...(Array.isArray(freshEvidenceRefs) && freshEvidenceRefs.length > 0
+            ? { freshEvidenceRefs: [...new Set(strings(freshEvidenceRefs))] }
+            : {}),
         },
         claims: Array.isArray(claims) ? claims.map(normalizeCandidateClaim) : [],
         observations: Array.isArray(observations)
@@ -1099,6 +1109,7 @@ function formatStrategyLine(strategy) {
 function strategyForTaskMode(taskMode) {
   if (taskMode === 'symbol_trace') return 'symbol-first';
   if (taskMode === 'edit_planning' || taskMode === 'path_explanation') return 'reference-chase';
+  if (taskMode === 'evidence_verification') return 'claim-check';
   return null;
 }
 
@@ -1144,6 +1155,7 @@ export function buildExplorerUserPrompt({ task, scope, hints, sessionTargetPaths
       'breadth-first': 'Start with repo_list_dir(depth:3) to understand project structure. Then read key files (entry points, config, README).',
       'blame-guided': 'Start with repo_grep to find the relevant code. Then repo_git_blame to identify who changed it and when. Use repo_git_show to understand the commit.',
       'pattern-scan': 'Start with repo_grep to find all occurrences. Then read representative files to understand the pattern. Compare similarities and differences.',
+      'claim-check': 'Start with the strongest exact file, symbol, or text anchor and read only the range needed for direct evidence. Then run one complete scope-wide repo_grep for a plausible counterexample, exception, or alternative representation. Do not serially try broad synonym searches. Stop once direct evidence and that counterevidence check are both observed.',
     };
     const singleStrategy = Array.isArray(strategy) ? strategy[0] : strategy;
     const approach = approaches[singleStrategy] ?? '';

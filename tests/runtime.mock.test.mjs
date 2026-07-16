@@ -2490,6 +2490,16 @@ test('Spec 028 T053 — wrapper task modes preserve internal strategy without a 
     });
     assert.match(prompt, /Strategy: reference-chase/);
   }
+
+  const evidencePrompt = buildExplorerUserPrompt({
+    task: 'Verify the delegated repository claim.',
+    scope: [],
+    hints: { files: ['src/auth.mjs'] },
+    taskMode: 'evidence_verification',
+  });
+  assert.match(evidencePrompt, /Strategy: claim-check/);
+  assert.match(evidencePrompt,
+    /one complete scope-wide repo_grep[\s\S]{0,180}Do not serially try broad synonym searches/u);
 });
 
 test('Phase 3 — Korean task produces Korean answer/summary language (language rule)', async () => {
@@ -5496,6 +5506,51 @@ auditedPlanningRuntimeTest(
     assert.equal(result.taskContract.subgoals.some(goal =>
       goal.auditVerdict === 'planning_incomplete'), false);
     assert.equal(result.coverageGaps.some(gap => gap.reason === 'planning_incomplete'), false);
+  },
+);
+
+auditedPlanningRuntimeTest(
+  'Spec 028 T071 — an omitted decomposed wrapper seed becomes a planning gap',
+  async () => {
+    const [locations, relevance, smallestSet] = locateWrapperGoals();
+    const client = new ScriptedGoalAuditClient([
+      { stage: 'planner:1', value: plannerControl([locations, relevance, smallestSet]) },
+      {
+        stage: 'goal_audit:1',
+        value: auditorControl([
+          auditControlRecord(locations),
+          auditControlRecord(relevance),
+          auditControlRecord(smallestSet, 'needs_decomposition'),
+        ]),
+      },
+      { stage: 'planner:2', value: plannerControl([locations, relevance]) },
+      { stage: 'exploration:1', content: 'The preserved locate goals are ready.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+    ]);
+    const root = await makeRepoFixture();
+    const result = await new RuntimeImplementation({ chatClient: client }).explore({
+      task: GOAL_AUDIT_TASK,
+      repo_root: root,
+      taskMode: 'locate',
+    });
+
+    assert.equal(result.failure, null, JSON.stringify({
+      failure: result.failure,
+      stages: client.stageLabels,
+    }));
+    assert.equal(client.stageCounts.get('goal_audit'), 1);
+    assert.equal(client.stageCounts.get('goal_coverage'), undefined);
+    assert.deepEqual(result.taskContract.subgoals.slice(0, 2).map(goal => goal.id), [
+      locations.id,
+      relevance.id,
+    ]);
+    const carried = result.taskContract.subgoals.find(goal =>
+      goal.originRefs.includes('wrapper:find_relevant_code:smallest_set'));
+    assert.ok(carried);
+    assert.equal(carried.auditVerdict, 'planning_incomplete');
+    assert.ok(result.coverageGaps.some(gap =>
+      gap.subgoalId === carried.id && gap.reason === 'planning_incomplete'));
+    assert.equal(result.parentHandoff.state, 'incomplete');
   },
 );
 
@@ -13632,6 +13687,127 @@ semanticPipelineRuntimeTest(
 );
 
 semanticPipelineRuntimeTest(
+  'Spec 028 T071 — repeated empty evidence quarantines only the known affected sub-goal',
+  async () => {
+    const task = 'Locate requireAuth and locate registerUserRoutes.';
+    const goals = [
+      trustGoal(task, {
+        id: 'S-empty-evidence-auth',
+        question: 'Where is requireAuth defined?',
+        originText: 'Locate requireAuth',
+      }),
+      trustGoal(task, {
+        id: 'S-empty-evidence-route',
+        question: 'Where is registerUserRoutes defined?',
+        originText: 'locate registerUserRoutes',
+      }),
+    ];
+    const supported = candidateClaim(
+      'C-empty-evidence-auth',
+      goals[0].id,
+      'requireAuth is defined in src/auth.js.',
+      ['E1'],
+    );
+    const empty = candidateClaim(
+      'C-empty-evidence-route',
+      goals[1].id,
+      'registerUserRoutes is defined in src/routes/user.js.',
+      [],
+    );
+    const steps = buildTrustSteps({
+      goals,
+      initial: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+          id: 'read-auth-for-empty-evidence',
+        }, {
+          tool: 'repo_read_file',
+          args: { path: 'src/routes/user.js', startLine: 1, endLine: 6 },
+          id: 'read-route-for-empty-evidence',
+        }],
+        claims: [supported, empty],
+        verdicts: [semanticVerdict(supported.id, 'supported', ['E1'])],
+      },
+      repair: { tools: [], claims: [], verdicts: [] },
+    });
+
+    const { client, result } = await runTrustScript(steps, { task });
+
+    assert.equal(client.stageCounts.get('claim_synthesis'), 2);
+    assert.equal(client.stageCounts.get('semantic_verifier'), 1);
+    assert.equal(result.failure, null);
+    assert.deepEqual(result.taskContract.subgoals.map(goal => goal.state), ['supported', 'gap']);
+    assert.equal(result.parentHandoff.state, 'incomplete');
+    assert.match(result.parentHandoff.directAnswer, /requireAuth is defined/u);
+    assert.doesNotMatch(result.parentHandoff.directAnswer, /registerUserRoutes is defined/u);
+    assert.deepEqual(result.parentHandoff.evidence.map(item => item.path), ['src/auth.js']);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T071 — empty-evidence recovery keeps unknown and duplicate claim controls fatal',
+  async () => {
+    const task = 'Locate requireAuth.';
+    const goal = trustGoal(task, {
+      id: 'S-empty-evidence-control',
+      question: task,
+      originText: task,
+    });
+    const cases = [
+      [candidateClaim(
+        'C-empty-evidence-unknown',
+        'S-unknown-empty-evidence',
+        'An unknown goal has a claim.',
+        [],
+      )],
+      [
+        candidateClaim(
+          'C-empty-evidence-duplicate',
+          goal.id,
+          'requireAuth is defined in src/auth.js.',
+          [],
+        ),
+        candidateClaim(
+          'C-empty-evidence-duplicate',
+          goal.id,
+          'requireAuth is also defined elsewhere.',
+          [],
+        ),
+      ],
+    ];
+
+    for (const claims of cases) {
+      const steps = [
+        { stage: 'planner:1', value: plannerControl([goal]) },
+        {
+          stage: 'goal_audit:1',
+          value: auditorControl([auditControlRecord(goal)]),
+        },
+        {
+          stage: 'exploration:1',
+          run: () => toolControlCompletion(
+            'repo_read_file',
+            { path: 'src/auth.js', startLine: 1, endLine: 4 },
+            'read-auth-for-empty-evidence-control',
+          ),
+        },
+        { stage: 'exploration:2', content: 'The source read is complete.' },
+        { stage: 'synthesis:1', value: readyExplorationResult() },
+        { stage: 'claim_synthesis:1', value: { claims } },
+        { stage: 'claim_synthesis:2', value: { claims } },
+      ];
+      const { client, result } = await runTrustScript(steps, { task });
+      assert.equal(client.stageCounts.get('claim_synthesis'), 2);
+      assert.equal(client.stageCounts.get('semantic_verifier'), undefined);
+      assert.equal(result.failure?.reason, 'invalid_final_response');
+      assert.equal(result.failure?.publicReason, 'verifier_error');
+      assert.equal(result.parentHandoff.state, 'failed');
+    }
+  },
+);
+
+semanticPipelineRuntimeTest(
   'Spec 028 T069 — mixed claim synthesis isolates one direct-source goal and restores goal order',
   async () => {
     const task = 'Identify the test that covers the entry path and locate requireAuth.';
@@ -14988,6 +15164,12 @@ semanticPipelineRuntimeTest('Spec 028 T034 — semantic repair lifecycle stays d
       }],
       prose: repairDraft,
       claims: [repairedClaim],
+      assertVerifier(request) {
+        const packet = parseControlPacket(request);
+        assert.deepEqual(packet.control.freshEvidenceRefs, ['E2']);
+        assert.match(request.messages[0].content,
+          /supported verdict must cite at least one exact id from that list/u);
+      },
       verdicts: [{
         ...semanticVerdict(repairedClaim.id, 'supported', ['E2']),
         note: verifierNote,

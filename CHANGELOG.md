@@ -24,7 +24,11 @@ compatibility aliases or selectable effort controls are retained.
   `exploring` state,
   so repository search is guided by the same obligations that completion uses.
   Fixed wrapper seed origins are now mechanically required across both planning
-  and isolated audit; repeated omission fails before repository exploration.
+  and isolated audit, and each seed is attached exactly once to the matching
+  request leaf. Repeated initial omission fails before repository exploration;
+  a final corrected plan that omits only a fixed origin owned by its named
+  decomposition/refinement obligation preserves that obligation as
+  `planning_incomplete` instead of losing it or reporting an internal error.
   A repeated external merge that would erase a distinct late acceptance core
   is preserved as one `planning_incomplete` required gap. Stronger constraints,
   widened origins, invalid targets, missing request parts, and malformed late
@@ -56,6 +60,12 @@ compatibility aliases or selectable effort controls are retained.
   incomplete instead of creating another goal.
   Planning has at most one revision and evidence repair at most one round, with
   equivalent actions suppressed.
+  Repeated structurally valid empty-evidence claims are also quarantined per
+  known sub-goal, while unknown sub-goals, duplicate claim ids, malformed
+  claims, and invalid non-empty refs remain fatal. Post-repair verifier packets
+  identify the exact fresh refs that a supported verdict must cite. The
+  internal evidence-verification strategy reads the strongest exact anchor and
+  performs one bounded disconfirming search instead of serial broad synonyms.
 - **Quiet schema v3**: normal MCP output contains only `schemaVersion`, `state`,
   and the state-relevant subset of `directAnswer`, `targets`, `evidence`,
   `gaps`, `followUp`, and `failure`. Goals, verdicts, counters, usage, timing,

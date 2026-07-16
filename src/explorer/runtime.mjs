@@ -2473,8 +2473,13 @@ function validateSynthesizedClaimBatch(raw, {
   priorClaims = [],
   freshEvidenceRefs = [],
   quarantineClaimSubgoalIds = [],
+  quarantineEmptyEvidenceClaims = false,
 }) {
   const subgoalById = new Map(taskContract.subgoals.map(goal => [goal.id, goal]));
+  const priorClaimById = new Map(priorClaims.map(claim => [claim.id, claim]));
+  if (priorClaimById.size !== priorClaims.length) {
+    throw new TypeError('Post-repair prior claims require unique ids.');
+  }
   const observationById = new Map(observations.map(observation => [
     observation.id,
     observation,
@@ -2495,12 +2500,37 @@ function validateSynthesizedClaimBatch(raw, {
         } : {}),
       }
     : raw;
-  const response = validateClaimSynthesisResponse(normalizedRaw);
-  const subgoalIds = new Set(taskContract.subgoals.map(goal => goal.id));
-  const priorClaimById = new Map(priorClaims.map(claim => [claim.id, claim]));
-  if (priorClaimById.size !== priorClaims.length) {
-    throw new TypeError('Post-repair prior claims require unique ids.');
+  let response;
+  if (quarantineEmptyEvidenceClaims && Array.isArray(normalizedRaw?.claims)) {
+    const probeEvidenceRef = '__runtime_empty_evidence_probe__';
+    const probed = validateClaimSynthesisResponse({
+      ...normalizedRaw,
+      claims: normalizedRaw.claims.map(candidate =>
+        candidate && typeof candidate === 'object' && !Array.isArray(candidate) &&
+          Array.isArray(candidate.evidenceRefs) && candidate.evidenceRefs.length === 0
+          ? { ...candidate, evidenceRefs: [probeEvidenceRef] }
+          : candidate),
+    });
+    const seenCandidateIds = new Set();
+    for (const candidate of probed.claims) {
+      if (!subgoalById.has(candidate.subgoalId)) {
+        throw new TypeError(`Claim synthesis returned an out-of-batch sub-goal: ${candidate.subgoalId}.`);
+      }
+      if (seenCandidateIds.has(candidate.id) ||
+          (usedClaimIds.has(candidate.id) && !priorClaimById.has(candidate.id))) {
+        throw new TypeError(`Claim synthesis returned a duplicate claim id: ${candidate.id}.`);
+      }
+      seenCandidateIds.add(candidate.id);
+    }
+    response = validateClaimSynthesisResponse({
+      ...normalizedRaw,
+      claims: normalizedRaw.claims.filter(candidate =>
+        !Array.isArray(candidate?.evidenceRefs) || candidate.evidenceRefs.length > 0),
+    });
+  } else {
+    response = validateClaimSynthesisResponse(normalizedRaw);
   }
+  const subgoalIds = new Set(taskContract.subgoals.map(goal => goal.id));
   const freshEvidenceRefSet = new Set(freshEvidenceRefs);
   const priorSubgoalIds = new Set(priorClaims.map(claim => claim.subgoalId));
   const returnedPriorClaimsById = new Map();
@@ -4958,10 +4988,19 @@ function requirePreservedGoals(proposal, preservedGoals) {
   }
 }
 
-function requireCompleteWrapperGoalOrigins({ wrapperTool, goals, label }) {
+function requireCompleteWrapperGoalOrigins({
+  wrapperTool,
+  goals,
+  label,
+  allowedMissingOrigins = [],
+}) {
   const missingOrigins = missingWrapperGoalOriginRefs({ wrapperTool, goals });
-  if (missingOrigins.length > 0) {
-    throw new TypeError(`${label} omitted fixed wrapper origins: ${missingOrigins.join(', ')}.`);
+  const allowed = new Set(allowedMissingOrigins);
+  const invalidMissingOrigins = missingOrigins.filter(originRef => !allowed.has(originRef));
+  if (invalidMissingOrigins.length > 0) {
+    throw new TypeError(
+      `${label} omitted fixed wrapper origins: ${invalidMissingOrigins.join(', ')}.`,
+    );
   }
 }
 
@@ -6535,24 +6574,49 @@ export class ExplorerRuntime {
           freshEvidenceRefs: synthesisFreshEvidenceRefs,
         }),
         recoverFinalValidation: ({ parsed, error }) => {
-          if (error?.claimSynthesisFailure !== 'quarantinable_claims' ||
-              !Array.isArray(error.quarantineSubgoalIds) ||
-              error.quarantineSubgoalIds.length === 0) {
-            return null;
-          }
-          return {
-            accepted: true,
-            value: validateSynthesizedClaimBatch(parsed, {
-              taskContract: batchContract,
-              observationIds: validationObservationIds,
-              observations: validationObservations,
-              knownTestAnchor,
-              usedClaimIds,
-              priorClaims: batchPriorClaims,
-              freshEvidenceRefs: synthesisFreshEvidenceRefs,
-              quarantineClaimSubgoalIds: error.quarantineSubgoalIds,
-            }),
+          const recoveryInput = {
+            taskContract: batchContract,
+            observationIds: validationObservationIds,
+            observations: validationObservations,
+            knownTestAnchor,
+            usedClaimIds,
+            priorClaims: batchPriorClaims,
+            freshEvidenceRefs: synthesisFreshEvidenceRefs,
           };
+          if (error?.claimSynthesisFailure === 'quarantinable_claims' &&
+              Array.isArray(error.quarantineSubgoalIds) &&
+              error.quarantineSubgoalIds.length > 0) {
+            return {
+              accepted: true,
+              value: validateSynthesizedClaimBatch(parsed, {
+                ...recoveryInput,
+                quarantineClaimSubgoalIds: error.quarantineSubgoalIds,
+              }),
+            };
+          }
+          try {
+            return {
+              accepted: true,
+              value: validateSynthesizedClaimBatch(parsed, {
+                ...recoveryInput,
+                quarantineEmptyEvidenceClaims: true,
+              }),
+            };
+          } catch (recoveryError) {
+            if (recoveryError?.claimSynthesisFailure !== 'quarantinable_claims' ||
+                !Array.isArray(recoveryError.quarantineSubgoalIds) ||
+                recoveryError.quarantineSubgoalIds.length === 0) {
+              throw recoveryError;
+            }
+            return {
+              accepted: true,
+              value: validateSynthesizedClaimBatch(parsed, {
+                ...recoveryInput,
+                quarantineEmptyEvidenceClaims: true,
+                quarantineClaimSubgoalIds: recoveryError.quarantineSubgoalIds,
+              }),
+            };
+          }
         },
       });
       const proofCompatibleBatchClaims = filterDirectSourceClaimEvidence({
@@ -6622,6 +6686,8 @@ export class ExplorerRuntime {
         subgoalIds.has(certificate.subgoalId));
       const batchDeterministicCounts = deterministicCounts.filter(count =>
         subgoalIds.has(count.subgoalId));
+      const batchFreshEvidenceRefs = freshEvidenceRefs.filter(ref =>
+        batchClaims.some(claim => claim.evidenceRefs.includes(ref)));
       let verified = await requestValidatedGoalControl({
         chatClient,
         messages: buildSemanticVerifierMessages({
@@ -6630,6 +6696,7 @@ export class ExplorerRuntime {
           observations: batchObservations,
           absenceCertificates: batchAbsenceCertificates,
           criticDecisions: [],
+          freshEvidenceRefs: batchFreshEvidenceRefs,
           wrapperTool,
         }),
         schemaName: 'semantic_verifier_response',
@@ -7136,12 +7203,16 @@ export class ExplorerRuntime {
           wrapperTool,
           goals: [...preservedGoals, ...preflight.auditCandidates],
           label: 'Planner',
+          allowedMissingOrigins: decompositionGoals.flatMap(goal =>
+            goal.originRefs.filter(originRef => originRef.startsWith(`wrapper:${wrapperTool}:`))),
         });
-        validateCollectEvidenceGoalPlan({
-          task,
-          wrapperTool,
-          goals: preflight.auditCandidates,
-        });
+        if (!allowEmptyPlan || preflight.auditCandidates.length > 0) {
+          validateCollectEvidenceGoalPlan({
+            task,
+            wrapperTool,
+            goals: preflight.auditCandidates,
+          });
+        }
         const validatedPlan = {
           proposal: { ...proposal, subgoals: preflight.auditCandidates },
           preflight,
@@ -7250,7 +7321,7 @@ export class ExplorerRuntime {
         decompositionGoals: [...decompositionExcludedGoals, ...refinementExcludedGoals],
         revisionCorrections: initialAudit.reduction.revisionRequest.uncoveredRequestParts,
         revisionReservedGoals: initial.proposal.subgoals,
-        allowEmptyPlan: preservedGoals.length === 0,
+        allowEmptyPlan: true,
       });
       if (typeof onPlanningEvent === 'function') {
         onPlanningEvent('plan_revised', {

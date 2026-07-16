@@ -335,6 +335,8 @@ auditedPromptBoundaryTest('Spec 028 T018 — planner policy is invariant under u
   assert.match(attacked.system,
     /do not add[\s\S]{0,120}(?:inventory|umbrella)[\s\S]{0,180}leaf goals/i);
   assert.match(attacked.system,
+    /fixed wrapper seed exactly once[\s\S]{0,180}attach that wrapper origin[\s\S]{0,180}duplicate wrapper-only goal/i);
+  assert.match(attacked.system,
     /flow:[\s\S]{0,80}implementation, execution, data, control, or pipeline path/i);
   assert.match(attacked.system,
     /single bounded model, definition, frontend guard, test surface[\s\S]{0,120}positive/i);
@@ -446,6 +448,8 @@ auditedPromptBoundaryTest('Spec 028 T018 — corrected planner receives one boun
   assert.match(attacked.system,
     /do not recreate a decomposition defect[\s\S]{0,180}independently decidable leaf goals/i);
   assert.match(attacked.system,
+    /fixed wrapper seed exactly once[\s\S]{0,220}attach that wrapper origin[\s\S]{0,180}duplicate wrapper-only goal/i);
+  assert.match(attacked.system,
     /Count the entries in STATIC_ARRAY[\s\S]{0,220}count-versus-ending-line distinction=comparison/i);
   assertRawArtifactsExcluded(attacked.all);
   assert.doesNotMatch(attacked.all,
@@ -507,6 +511,8 @@ auditedPromptBoundaryTest('Spec 028 T018 — goal auditor sees only request cont
     /one requested facet[\s\S]{0,140}another remains unresolved[\s\S]{0,100}needs_decomposition|needs_decomposition[\s\S]{0,140}one requested facet/i);
   assert.match(attacked.system,
     /redundant aggregate[\s\S]{0,180}leaf goals[\s\S]{0,120}not ready/i);
+  assert.match(attacked.system,
+    /complete acceptance core exactly matches one fixed wrapper seed[\s\S]{0,220}runtime-required leaf[\s\S]{0,180}do not decompose/i);
   assert.match(attacked.system,
     /every verdict except reject_untraceable[\s\S]{0,180}at least one proposal origin/i);
   assert.match(attacked.system,
@@ -729,6 +735,8 @@ test('Spec 028 T028 — claim synthesis receives bounded observations and cannot
   assert.match(prompt.system,
     /at most one claim for each sub-goal[\s\S]{0,100}support_or_refute/i);
   assert.match(prompt.system,
+    /never emit a claim with evidenceRefs:\[\][\s\S]{0,160}omit that claim entirely/i);
+  assert.match(prompt.system,
     /comparison claim[\s\S]{0,120}distinct source paths/i);
   assert.match(prompt.system,
     /three or more source paths[\s\S]{0,180}separate semicolon-delimited clause[\s\S]{0,160}path-to-predicate pairing/i);
@@ -843,6 +851,7 @@ test('Spec 028 T028 — semantic verifier sees isolated rebuilt facts and cannot
       disposition: 'retained',
       reasonCode: 'exact_reconstruction',
     }],
+    freshEvidenceRefs: ['E1'],
     wrapperTool: 'trace_symbol',
     exploratoryMessages: ['PRIVATE_VERIFIER_REASONING'],
     directAnswer: 'PRIVATE_DRAFT_ANSWER',
@@ -856,6 +865,8 @@ test('Spec 028 T028 — semantic verifier sees isolated rebuilt facts and cannot
   assert.match(prompt.system, /isolated semantic verifier/i);
   assert.match(prompt.system, /never (?:rewrite|replace|add)[\s\S]{0,140}claim/i);
   assert.match(prompt.system, /supportingEvidenceRefs[\s\S]{0,180}subset/i);
+  assert.match(prompt.system,
+    /control\.freshEvidenceRefs[\s\S]{0,180}supported verdict[\s\S]{0,160}at least one exact id/i);
   assert.match(prompt.system,
     /evidence ids are opaque exact tokens[\s\S]{0,120}E5[\s\S]{0,80}E5:search[\s\S]{0,180}never append, remove, or infer a suffix/i);
   assert.match(prompt.system,
@@ -890,6 +901,7 @@ test('Spec 028 T028 — semantic verifier sees isolated rebuilt facts and cannot
   assert.match(prompt.data, /"sourceRole":"implementation"/);
   assert.match(prompt.data, /"temporalRole":"current"/);
   assert.match(prompt.data, /"tool":"trace_symbol"/);
+  assert.match(prompt.data, /"freshEvidenceRefs":\["E1"\]/);
   assert.match(prompt.data, new RegExp(
     `"start":${requireAuthStart},"end":${requireAuthStart + 'requireAuth'.length},"text":"requireAuth"`,
   ));

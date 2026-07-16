@@ -148,7 +148,8 @@ API client는 첫 실제 요청에서 lazy initialization된다. Provider creden
 Planner input은 원래 task, wrapper seed, effective scope, known anchor, repository project context다. Repository text와 path는 untrusted evidence data이며 system instruction을 바꿀 수 없다.
 
 Planner는 명시된 요청 부분마다 독립 관찰 가능한 proof condition을 가진 proposed sub-goal을 만든다. Runtime이 claim type을 고정 proof policy로 변환한다.
-Runtime은 initial/corrected plan과 isolated audit에서 active wrapper의 fixed seed origin이 모두 유지되는지 기계적으로 확인한다. 누락은 한 번의 bounded control correction 대상이며, 다시 누락되면 repository exploration 전에 fail-closed한다.
+각 fixed wrapper seed는 정확히 한 goal에만 붙인다. 같은 acceptance core를 가진 request leaf가 있으면 별도 wrapper-only goal을 만들지 않고 그 leaf에 wrapper origin을 결합한다.
+Runtime은 initial plan과 isolated audit에서 active wrapper의 fixed seed origin이 모두 유지되는지 기계적으로 확인한다. Initial omission은 한 번의 bounded control correction 대상이며, 다시 누락되면 repository exploration 전에 fail-closed한다. Final corrected plan이 이번 revision에서 분해 또는 정제하도록 명시된 goal의 fixed origin만 빠뜨린 경우에는 그 obligation을 성공으로 간주하지 않고 `planning_incomplete` required gap으로 materialize한다. Preserved goal 변경, 이번 revision 대상이 아닌 origin 누락, malformed control은 계속 fault다.
 `collect_evidence`는 예외 없이 supplied task 전체를 덮는 request origin과 `wrapper:collect_evidence:verdict`를 함께 가진 하나의 `claim_verification` goal로 계획한다. Direct evidence와 counterevidence search는 별도 sibling goal이 아니라 같은 verdict의 내부 proof facet이다.
 
 | Claim type | Proof policy |
@@ -183,6 +184,8 @@ Auditor가 ready로 확정한 goal은 immutable acceptance core의 runtime-owned
 
 Explorer model은 audited ready goal을 대상으로 RepoToolkit을 호출한다. Runtime은 관측을 goal에 연결하고 다음을 기록한다.
 
+`collect_evidence`의 내부 `evidence_verification` mode는 가장 강한 exact anchor를 먼저 읽고 plausible counterexample/exception/alternative를 대상으로 complete search를 한 번 수행하도록 안내한다. 동일 claim에 대한 broad synonym search를 순차 반복하지 않는다.
+
 - 실제 읽은 path/range/content
 - Search boundary와 query
 - Git observation
@@ -211,6 +214,8 @@ Source range 검증과 semantic support는 별개다. 정확한 line을 인용�
 Verifier는 원래 request, audited sub-goals, candidate atomic claims, rebuilt evidence, bounded search certificate만 받는다. Exploratory prose나 model self-confidence는 받지 않는다.
 
 Evidence id는 opaque exact token이다. 예를 들어 `E5`와 `E5:search`는 서로 다른 ref이며 verifier가 suffix를 추론할 수 없다. 다른 claim의 ref를 반환하면 한 번만 교정을 요청하고, schema-valid 응답이 같은 경계를 다시 넘으면 해당 claim만 `insufficient`로 격리한다. Unknown/duplicate/missing claim, malformed control, 또는 구조 오류는 계속 verifier fault로 처리하므로 이 격리는 claim을 support로 승격하지 않는다.
+
+Claim synthesis가 두 번 모두 알려진 sub-goal에 `evidenceRefs:[]`인 구조적으로 유효한 claim을 반환하면 그 claim만 버리고 해당 goal을 unresolved로 둔다. Unknown sub-goal, duplicate claim id, malformed claim, invalid non-empty evidence ref는 이 복구 대상이 아니다. Post-repair verifier packet은 해당 claim에 실제로 추가된 fresh evidence id만 별도로 표시하며, fresh id를 하나도 인용하지 않은 supported verdict는 기존 reduction에서 support가 되지 않는다.
 
 각 claim은 `supported`, `insufficient`, `contradicted` 중 하나가 된다. Accepted claim만 direct answer와 evidence에 사용한다. Unsupported claim을 자연스러운 문장으로 완화해 성공처럼 반환하지 않는다.
 
