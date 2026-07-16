@@ -2600,6 +2600,20 @@ test('Spec 028 T053 — wrapper task modes preserve internal strategy without a 
 });
 
 test('Spec 028 T071 — unanchored impact mapping bounds candidate batches and recovery', () => {
+  const structuredImplementationPattern =
+    'OUTPUT_SCHEMA\\s*=|outputSchema\\s*:|structuredContent\\s*:|build[A-Za-z0-9_]*(?:Response|Payload|Handoff)[A-Za-z0-9_]*\\s*\\(';
+  const structuredCategoryPattern =
+    'outputSchema|"schemaVersion"|schema-v3 structuredContent';
+  const implementationRegex = new RegExp(structuredImplementationPattern, 'iu');
+  assert.equal(implementationRegex.test(
+    "import { buildParentPayload } from './parent-payload.mjs';"), false);
+  assert.equal(implementationRegex.test('function buildParentHandoffProjection({'), true);
+  assert.equal(implementationRegex.test('outputSchema: EXPLORE_REPO_OUTPUT_SCHEMA,'), true);
+  assert.equal(implementationRegex.test(
+    'export const EXPLORE_REPO_OUTPUT_SCHEMA = PARENT_HANDOFF_V3_SCHEMA;'), true);
+  const categoryRegex = new RegExp(structuredCategoryPattern, 'iu');
+  assert.equal(categoryRegex.test('called.structuredContent.state'), false);
+  assert.equal(categoryRegex.test('schema-v3 structuredContent + terse text parity'), true);
   const tools = ['repo_list_dir', 'repo_grep', 'repo_read_file'].map(name => ({
     function: { name },
   }));
@@ -2631,15 +2645,15 @@ test('Spec 028 T071 — unanchored impact mapping bounds candidate batches and r
     effectiveScope: ['src/**', 'tests/**', '*.md', 'examples/**'],
   });
   assert.equal(structuredInitial.tools[0].function.parameters.properties.pattern.const,
-    'structuredContent|schemaVersion|outputSchema');
+    structuredImplementationPattern);
   assert.deepEqual(structuredInitial.tools[0].function.parameters.properties.scope.const,
     ['src/**', 'tests/**', '*.md', 'examples/**']);
   assert.equal(structuredInitial.tools[0].function.parameters.properties.sourceRoles, undefined,
     'the runtime-only role filter must not become a model-selectable repository argument');
   assert.equal(structuredInitial.allowedPattern,
-    'structuredContent|schemaVersion|outputSchema');
+    structuredImplementationPattern);
   assert.deepEqual(structuredInitial.fixedToolArguments.repo_grep, {
-    pattern: 'structuredContent|schemaVersion|outputSchema',
+    pattern: structuredImplementationPattern,
     scope: ['src/**', 'tests/**', '*.md', 'examples/**'],
     sourceRoles: ['implementation'],
     maxResults: 80,
@@ -2652,7 +2666,7 @@ test('Spec 028 T071 — unanchored impact mapping bounds candidate batches and r
       matchCount: 6,
       boundary: ['src/**', 'tests/**', '*.md', 'examples/**'],
       normalizedArgs: {
-        pattern: 'structuredContent|schemaVersion|outputSchema',
+        pattern: structuredImplementationPattern,
         scope: ['src/**', 'tests/**', '*.md', 'examples/**'],
         sourceRoles: ['implementation'],
       },
@@ -2670,14 +2684,14 @@ test('Spec 028 T071 — unanchored impact mapping bounds candidate batches and r
   assert.deepEqual(structuredCategorySearch.tools.map(tool => tool.function.name), ['repo_grep']);
   assert.equal(structuredCategorySearch.requiredToolCallKey, 'impact_category_search');
   assert.deepEqual(structuredCategorySearch.fixedToolArguments.repo_grep, {
-    pattern: 'structuredContent|schemaVersion|outputSchema',
+    pattern: structuredCategoryPattern,
     scope: ['src/**', 'tests/**', '*.md', 'examples/**'],
     sourceRoles: ['test', 'documentation', 'config', 'fixture'],
     maxResults: 120,
     contextLines: 0,
   });
   assert.match(structuredCategorySearch.instruction,
-    /remaining in-scope test, documentation, configuration, and example paths/u);
+    /public-contract predicate[\s\S]{0,160}remaining in-scope test, documentation, configuration, and example paths/u);
 
   const defaultStructuredInitial = buildImpactMapToolPolicy({
     observations: [],
@@ -2687,7 +2701,7 @@ test('Spec 028 T071 — unanchored impact mapping bounds candidate batches and r
     effectiveScope: [],
   });
   assert.deepEqual(defaultStructuredInitial.fixedToolArguments.repo_grep, {
-    pattern: 'structuredContent|schemaVersion|outputSchema',
+    pattern: structuredImplementationPattern,
     scope: ['**'],
     sourceRoles: ['implementation'],
     maxResults: 80,
@@ -2700,7 +2714,7 @@ test('Spec 028 T071 — unanchored impact mapping bounds candidate batches and r
       matchCount: 80,
       boundary: ['**'],
       normalizedArgs: {
-        pattern: 'structuredContent|schemaVersion|outputSchema',
+        pattern: structuredImplementationPattern,
         scope: ['**'],
         sourceRoles: ['implementation'],
       },
@@ -2716,7 +2730,7 @@ test('Spec 028 T071 — unanchored impact mapping bounds candidate batches and r
     readRounds: 1,
   });
   assert.deepEqual(defaultCategorySearch.fixedToolArguments.repo_grep, {
-    pattern: 'structuredContent|schemaVersion|outputSchema',
+    pattern: structuredCategoryPattern,
     scope: ['**'],
     sourceRoles: ['test', 'documentation', 'config', 'fixture'],
     maxResults: 120,
@@ -12280,7 +12294,7 @@ semanticPipelineRuntimeTest(
         run(request) {
           const grep = request.tools.find(tool => tool.function?.name === 'repo_grep');
           assert.equal(grep?.function?.parameters?.properties?.pattern?.const,
-            'structuredContent|schemaVersion|outputSchema');
+            'OUTPUT_SCHEMA\\s*=|outputSchema\\s*:|structuredContent\\s*:|build[A-Za-z0-9_]*(?:Response|Payload|Handoff)[A-Za-z0-9_]*\\s*\\(');
           return toolControlCompletion(
             'repo_grep',
             { pattern: 'ignored', scope: ['ignored'] },
@@ -12312,6 +12326,8 @@ semanticPipelineRuntimeTest(
         stage: 'exploration:3',
         run(request) {
           const grep = request.tools.find(tool => tool.function?.name === 'repo_grep');
+          assert.equal(grep?.function?.parameters?.properties?.pattern?.const,
+            'outputSchema|"schemaVersion"|schema-v3 structuredContent');
           assert.deepEqual(
             new Set(grep?.function?.parameters?.properties?.scope?.const ?? []),
             new Set(['src/**', 'tests/**', '*.md', 'examples/**']),
@@ -12393,13 +12409,14 @@ semanticPipelineRuntimeTest(
         await fs.writeFile(path.join(root, 'src', 'mcp', 'server.mjs'),
           'export const outputSchema = { structuredContent: true };\n');
         await fs.writeFile(path.join(root, 'src', 'explorer', 'runtime.mjs'),
-          'export const runtimeResult = { schemaVersion: 3 };\n');
+          'export function buildParentPayload() { return { schemaVersion: 3 }; }\n');
         await fs.writeFile(path.join(root, 'src', 'explorer', 'schemas.mjs'),
           'export const schema = { structuredContent: true };\n');
         await fs.writeFile(path.join(root, 'tests', 'schemas.test.mjs'),
-          'const expected = { schemaVersion: 3 };\n');
-        await fs.writeFile(path.join(root, 'README.md'), 'structuredContent contract\n');
-        await fs.writeFile(path.join(root, 'DESIGN.md'), 'schemaVersion contract\n');
+          'const outputSchema = { structuredContent: { schemaVersion: 3 } };\n');
+        await fs.writeFile(path.join(root, 'README.md'), 'public "schemaVersion" contract\n');
+        await fs.writeFile(path.join(root, 'DESIGN.md'),
+          'schema-v3 structuredContent + terse text parity\n');
         await fs.writeFile(path.join(root, 'examples', 'expected-response.json'),
           '{"schemaVersion":3}\n');
       },
@@ -16922,6 +16939,86 @@ test('Spec 028 T069 — runtime carries an omitted post-repair prior claim witho
   assert.doesNotMatch(result.directAnswer, /requireAuth protects the inspected route/);
 });
 
+test('Spec 028 T032 — post-repair freshness stays local to the repaired claim', async () => {
+  const task = 'Locate requireAuth and confirm the route binding.';
+  const definitionGoal = trustGoal(task, {
+    id: 'S-definition-fresh',
+    question: 'Where is requireAuth defined and what does it do?',
+    originText: 'Locate requireAuth',
+  });
+  const usageGoal = trustGoal(task, {
+    id: 'S-usage-existing',
+    question: 'Which route uses requireAuth?',
+    originText: 'confirm the route binding',
+  });
+  const definitionClaim = candidateClaim(
+    'C-definition-fresh',
+    definitionGoal.id,
+    'requireAuth is defined in src/auth.js and rejects unauthenticated requests.',
+    ['E1'],
+  );
+  const usageClaim = candidateClaim(
+    'C-usage-existing',
+    usageGoal.id,
+    'registerUserRoutes binds requireAuth to GET /users/me.',
+    ['E2'],
+  );
+  const repairedDefinitionClaim = {
+    ...definitionClaim,
+    evidenceRefs: ['E1', 'E3'],
+  };
+  const steps = buildTrustSteps({
+    goals: [definitionGoal, usageGoal],
+    initial: {
+      tools: [{
+        tool: 'repo_read_file',
+        args: { path: 'src/auth.js', startLine: 1, endLine: 2 },
+        id: 'initial-definition',
+      }, {
+        tool: 'repo_read_file',
+        args: { path: 'src/routes/user.js', startLine: 1, endLine: 6 },
+        id: 'initial-usage',
+      }],
+      claims: [definitionClaim, usageClaim],
+      verdicts: [
+        semanticVerdict(definitionClaim.id, 'insufficient'),
+        semanticVerdict(usageClaim.id, 'supported', ['E2']),
+      ],
+    },
+    repair: {
+      tools: [{
+        tool: 'repo_read_file',
+        args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+        id: 'repair-definition',
+      }],
+      claims: [repairedDefinitionClaim],
+      assertVerifier(request) {
+        const packet = parseControlPacket(request);
+        assert.ok(packet.control.freshEvidenceRefs.includes('E3'));
+        const claimById = new Map(packet.claims.map(claim => [claim.id, claim]));
+        assert.ok(claimById.get(definitionClaim.id).evidenceRefs.includes('E3'));
+        assert.deepEqual(claimById.get(usageClaim.id).evidenceRefs, ['E2']);
+        assert.match(request.messages[0].content,
+          /every other claim[\s\S]{0,180}existing evidence[\s\S]{0,180}lack of a fresh evidence ref/u);
+      },
+      verdicts: [
+        semanticVerdict(definitionClaim.id, 'supported', ['E3']),
+        semanticVerdict(usageClaim.id, 'supported', ['E2']),
+      ],
+    },
+  });
+
+  const { result } = await runTrustScript(steps, { task });
+
+  assert.deepEqual(result.taskContract.subgoals.map(goal => [goal.id, goal.state]), [
+    [definitionGoal.id, 'supported'],
+    [usageGoal.id, 'supported'],
+  ]);
+  assert.equal(result.parentHandoff.state, 'complete');
+  assert.match(result.directAnswer, /requireAuth is defined/);
+  assert.match(result.directAnswer, /registerUserRoutes binds requireAuth/);
+});
+
 test('Spec 028 T032 — a zero-observation gap still receives the one repair round', async () => {
   const task = 'Determine whether requireAuth is defined.';
   const goal = trustGoal(task, {
@@ -17081,7 +17178,7 @@ semanticPipelineRuntimeTest('Spec 028 T034 — semantic repair lifecycle stays d
         const packet = parseControlPacket(request);
         assert.deepEqual(packet.control.freshEvidenceRefs, ['E2']);
         assert.match(request.messages[0].content,
-          /supported verdict must cite at least one exact id from that list/u);
+          /claim whose evidenceRefs includes[\s\S]{0,180}when supported[\s\S]{0,180}at least one exact id from that list/u);
       },
       verdicts: [{
         ...semanticVerdict(repairedClaim.id, 'supported', ['E2']),

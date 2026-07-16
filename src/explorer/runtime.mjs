@@ -6687,10 +6687,15 @@ function rankedImpactCandidates(discoveredPaths, searchObservations = [], task =
 
 const MAX_IMPACT_READ_ROUNDS = 2;
 
-function impactDiscoveryPattern(task) {
-  return /\bstructured\s+(?:output|response)|structuredContent|output\s+contract/iu.test(String(task))
-    ? 'structuredContent|schemaVersion|outputSchema'
-    : null;
+function impactDiscoveryPatterns(task) {
+  if (!/\bstructured\s+(?:output|response)|structuredContent|output\s+contract/iu.test(String(task))) {
+    return null;
+  }
+  return {
+    implementation:
+      'OUTPUT_SCHEMA\\s*=|outputSchema\\s*:|structuredContent\\s*:|build[A-Za-z0-9_]*(?:Response|Payload|Handoff)[A-Za-z0-9_]*\\s*\\(',
+    category: 'outputSchema|"schemaVersion"|schema-v3 structuredContent',
+  };
 }
 
 export function buildImpactMapToolPolicy({
@@ -6709,7 +6714,9 @@ export function buildImpactMapToolPolicy({
     observation?.kind === 'source');
   const searches = indexedObservations.filter(({ observation }) =>
     observation?.kind === 'search' && observation.tool === 'repo_grep');
-  const fixedPattern = impactDiscoveryPattern(task);
+  const fixedPatterns = impactDiscoveryPatterns(task);
+  const fixedPattern = fixedPatterns?.implementation ?? null;
+  const categoryPattern = fixedPatterns?.category ?? null;
   const fullScope = canonicalizeRepositoryObservationScope(effectiveScope);
   const implementationScope = fullScope;
   const categoryScope = fixedPattern ? fullScope : [];
@@ -6749,7 +6756,7 @@ export function buildImpactMapToolPolicy({
   if (fixedPattern && searches.length === 1 && sourcesAfterLastSearch.length > 0 &&
       categoryScope.length > 0) {
     const categoryArguments = {
-      pattern: fixedPattern,
+      pattern: categoryPattern,
       scope: categoryScope,
       sourceRoles: ['test', 'documentation', 'config', 'fixture'],
       maxResults: 120,
@@ -6759,10 +6766,10 @@ export function buildImpactMapToolPolicy({
       tools: toolsWithFixedArguments(tools, 'repo_grep', categoryArguments),
       parallelToolCalls: false,
       requiredToolCallKey: 'impact_category_search',
-      allowedPattern: fixedPattern,
+      allowedPattern: categoryPattern,
       allowedQueryScope: categoryScope,
       fixedToolArguments: { repo_grep: categoryArguments },
-      instruction: 'Impact-map category discovery: implementation targets are observed. Run exactly one final repo_grep with the same fixed predicate over only the remaining in-scope test, documentation, configuration, and example paths. Do not change the predicate or return to implementation scope.',
+      instruction: 'Impact-map category discovery: implementation targets are observed. Run exactly one final repo_grep with the fixed public-contract predicate over only the remaining in-scope test, documentation, configuration, and example paths. Do not change the predicate or return to implementation scope.',
     };
   }
   const readPaths = new Set(sources
