@@ -30,6 +30,7 @@ npm test
 - Bounded absence/count proof와 truncation 처리
 - One-round evidence repair와 repeated-action 억제
 - `complete`, `verify_targets`, `incomplete`, `failed` state reduction
+- Parent target의 path/range deduplication과 strongest-role 보존
 - Scope hard boundary와 git diff/show/stat filtering
 - Request id `0`을 포함한 cancellation
 - Fixed safety-limit observation과 affected-goal attribution

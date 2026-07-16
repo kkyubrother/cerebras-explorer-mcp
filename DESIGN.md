@@ -265,7 +265,7 @@ Top-level public object는 strict하고 다음 필드만 허용한다.
 
 ### 7.1 Targets
 
-Target은 `path`, `role`, `reason`을 갖고 optional line bounds와 evidence cross-reference를 가질 수 있다. Directory listing에 나타났다는 이유만으로 target이 되지 않는다. 같은 path/range/action은 deduplicate한다.
+Target은 `path`, `role`, `reason`을 갖고 optional line bounds와 evidence cross-reference를 가질 수 있다. Directory listing에 나타났다는 이유만으로 target이 되지 않는다. 같은 path/range는 하나로 합치고 `edit`, `test`, `config`, `read` 순서에서 가장 강한 role과 합쳐진 evidence refs만 남긴다.
 
 ### 7.2 Evidence
 

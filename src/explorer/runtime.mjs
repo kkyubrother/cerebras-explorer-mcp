@@ -1918,24 +1918,32 @@ function buildParentTargets(resultTargets, evidence, targetReasonByEvidenceId) {
     evidenceByPath.get(item.path).push(item);
   }
   const targets = [];
-  const seen = new Set();
+  const byRange = new Map();
   const add = (pathValue, roleValue, preferredEvidence = null) => {
     const targetPath = normalizeTargetPath(pathValue);
     const candidates = evidenceByPath.get(targetPath) ?? [];
     const evidenceItem = preferredEvidence ?? candidates[0];
     if (!targetPath || !evidenceItem) return;
     const role = ['read', 'edit', 'test', 'config'].includes(roleValue) ? roleValue : 'read';
-    const key = `${targetPath}:${evidenceItem.startLine}:${evidenceItem.endLine}:${role}`;
-    if (seen.has(key)) return;
-    seen.add(key);
-    targets.push({
+    const key = `${targetPath}:${evidenceItem.startLine}:${evidenceItem.endLine}`;
+    const existing = byRange.get(key);
+    if (existing) {
+      existing.evidenceRefs = [...new Set([...existing.evidenceRefs, evidenceItem.id])];
+      if (targetRolePriority(role) > targetRolePriority(existing.role)) {
+        existing.role = role;
+      }
+      return;
+    }
+    const target = {
       path: targetPath,
       startLine: evidenceItem.startLine,
       endLine: evidenceItem.endLine,
       role,
       reason: targetReasonByEvidenceId.get(evidenceItem.id) ?? evidenceItem.supports,
       evidenceRefs: [evidenceItem.id],
-    });
+    };
+    byRange.set(key, target);
+    targets.push(target);
   };
 
   for (const target of Array.isArray(resultTargets) ? resultTargets : []) {
@@ -1947,9 +1955,7 @@ function buildParentTargets(resultTargets, evidence, targetReasonByEvidenceId) {
     add(targetPath, target?.role, matching);
   }
   for (const item of sourceEvidence) {
-    const alreadyTargeted = targets.some(target => target.path === item.path &&
-      target.startLine === item.startLine && target.endLine === item.endLine);
-    if (!alreadyTargeted) add(item.path, 'read', item);
+    add(item.path, 'read', item);
   }
   return targets.slice(0, 8);
 }

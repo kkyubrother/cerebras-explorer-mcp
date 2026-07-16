@@ -71,7 +71,9 @@ compatibility aliases or selectable effort controls are retained.
   `gaps`, `followUp`, and `failure`. Goals, verdicts, counters, usage, timing,
   tool traces, and transcript paths remain operational diagnostics and are not
   copied into the parent payload. Incomplete questions come from immutable
-  request slices rather than model-authored goal or audit prose.
+  request slices rather than model-authored goal or audit prose. Targets that
+  point at the same path and range are emitted once with the strongest grounded
+  role and merged evidence refs.
 - **Smaller tool surface**: the registry is now exactly
   `find_relevant_code`, `trace_symbol`, `map_change_impact`,
   `explain_code_path`, `collect_evidence`, and `explore_repo`, in that order.

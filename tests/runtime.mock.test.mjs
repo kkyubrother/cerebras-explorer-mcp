@@ -242,6 +242,32 @@ test('Spec 028 T041 — edit intent deterministically becomes verify_targets', (
   assert.doesNotThrow(() => validateParentHandoffV3(handoff));
 });
 
+test('Spec 028 T071 — parent targets merge duplicate ranges into the strongest role', () => {
+  const fixture = parentHandoffFixture();
+  fixture.result.targets = [
+    { path: 'src/auth.js', startLine: 1, endLine: 4, role: 'read' },
+    { path: 'src/auth.js', startLine: 1, endLine: 4, role: 'config' },
+    { path: 'src/auth.js', startLine: 1, endLine: 4, role: 'edit' },
+  ];
+
+  const handoff = buildParentHandoffV3({
+    ...fixture,
+    task: 'Modify the token validation implementation.',
+    taskMode: 'edit_planning',
+  });
+
+  assert.equal(handoff.state, 'verify_targets');
+  assert.deepEqual(handoff.targets, [{
+    path: 'src/auth.js',
+    startLine: 1,
+    endLine: 4,
+    role: 'edit',
+    reason: 'Token validation is implemented in src/auth.js.',
+    evidenceRefs: ['E1'],
+  }]);
+  assert.doesNotThrow(() => validateParentHandoffV3(handoff));
+});
+
 test('Spec 028 T069 — parent target reasons contain only accepted evidence support', () => {
   const fixture = parentHandoffFixture();
   const verified = 'The verified static collection contains 70 entries.';
