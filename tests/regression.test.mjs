@@ -771,6 +771,8 @@ test('Spec 028 T028 — claim synthesis receives bounded observations and cannot
   assert.match(prompt.system,
     /wrapper:find_relevant_code:smallest_set[\s\S]{0,240}bounded useful target set[\s\S]{0,180}only, must, or exhaustive/i);
   assert.match(prompt.system,
+    /wrapper:map_change_impact:requested_categories[\s\S]{0,260}one aggregate claim[\s\S]{0,220}every selected current category source[\s\S]{0,180}risk_boundary/i);
+  assert.match(prompt.system,
     /wrapper:map_change_impact:risk_boundary[\s\S]{0,260}observed impact surface[\s\S]{0,180}remaining uncertainty[\s\S]{0,180}unaffected/i);
   assert.match(prompt.system,
     /wrapper:collect_evidence:verdict[\s\S]{0,220}complete zero-match search[\s\S]{0,180}confirming lookup[\s\S]{0,100}not a counterevidence search/i);

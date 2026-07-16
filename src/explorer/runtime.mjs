@@ -2660,6 +2660,16 @@ function validateSynthesizedClaimBatch(raw, {
   const missingKnownTestClaimSubgoalIds = new Set();
   const incompleteStructuredOutputRelevanceSubgoalIds = new Set();
   const incompleteStructuredImpactCategorySubgoalIds = new Set();
+  const missingStructuredImpactCategoryClaimSubgoalIds = new Set();
+  const structuredImpactCategoryRoles = new Set([
+    'test', 'documentation', 'config', 'fixture',
+  ]);
+  const structuredImpactCategorySubgoalIds = new Set(taskContract.subgoals
+    .filter(subgoal => Array.isArray(subgoal?.originRefs) &&
+      subgoal.originRefs.includes('wrapper:map_change_impact:requested_categories') &&
+      /\bstructured\s+(?:output|response)|structuredContent|output\s+contract/iu
+        .test(`${taskContract.task ?? ''} ${subgoal.question ?? ''} ${subgoal.proofCondition ?? ''}`))
+    .map(subgoal => subgoal.id));
   const knownTestAnchorSubgoalId = typeof knownTestAnchor?.subgoalId === 'string'
     ? knownTestAnchor.subgoalId
     : null;
@@ -2720,15 +2730,11 @@ function validateSynthesizedClaimBatch(raw, {
         incompleteStructuredOutputRelevanceSubgoalIds.add(candidate.subgoalId);
       }
     }
-    const structuredImpactCategory = Array.isArray(subgoal?.originRefs) &&
-      subgoal.originRefs.includes('wrapper:map_change_impact:requested_categories') &&
-      /\bstructured\s+(?:output|response)|structuredContent|output\s+contract/iu
-        .test(`${taskContract.task ?? ''} ${subgoal.question ?? ''} ${subgoal.proofCondition ?? ''}`);
-    if (structuredImpactCategory) {
-      const requiredRoles = new Set(['test', 'documentation', 'config', 'fixture']);
+    if (structuredImpactCategorySubgoalIds.has(candidate.subgoalId)) {
       const requiredRefs = observations
         .filter(observation => observation?.kind === 'source' &&
-          requiredRoles.has(observation.sourceRole) && observation.temporalRole === 'current')
+          structuredImpactCategoryRoles.has(observation.sourceRole) &&
+          observation.temporalRole === 'current')
         .map(observation => observation.id);
       const citedRefs = new Set(candidate.evidenceRefs);
       if (requiredRefs.some(ref => !citedRefs.has(ref))) {
@@ -2752,6 +2758,16 @@ function validateSynthesizedClaimBatch(raw, {
       !claimCountBySubgoal.has(knownTestAnchorSubgoalId)) {
     missingKnownTestClaimSubgoalIds.add(knownTestAnchorSubgoalId);
   }
+  const selectedImpactCategorySources = observations.filter(observation =>
+    observation?.kind === 'source' && observation.temporalRole === 'current' &&
+    structuredImpactCategoryRoles.has(observation.sourceRole));
+  if (selectedImpactCategorySources.length > 0) {
+    for (const subgoalId of structuredImpactCategorySubgoalIds) {
+      if (!claimCountBySubgoal.has(subgoalId)) {
+        missingStructuredImpactCategoryClaimSubgoalIds.add(subgoalId);
+      }
+    }
+  }
   const noisySubgoalIds = [...claimCountBySubgoal]
     .filter(([subgoalId, count]) => {
       const subgoal = subgoalById.get(subgoalId);
@@ -2769,6 +2785,7 @@ function validateSynthesizedClaimBatch(raw, {
     ...missingKnownTestClaimSubgoalIds,
     ...incompleteStructuredOutputRelevanceSubgoalIds,
     ...incompleteStructuredImpactCategorySubgoalIds,
+    ...missingStructuredImpactCategoryClaimSubgoalIds,
   ])];
   if (invalidSubgoalIds.length > 0) {
     const quarantineSet = new Set(quarantineClaimSubgoalIds);
@@ -2830,6 +2847,16 @@ function validateSynthesizedClaimBatch(raw, {
         `verification or public-contract source for sub-goals: ${[...incompleteStructuredImpactCategorySubgoalIds].join(', ')}. ` +
         'Retain the selected test, public documentation, and expected-response observations ' +
         'that were supplied in the bounded packet.',
+      );
+    }
+    if (missingStructuredImpactCategoryClaimSubgoalIds.size > 0) {
+      failures.push(
+        'Structured-output impact category synthesis returned no claim despite runtime-selected ' +
+        'current verification or public-contract sources for sub-goals: ' +
+        `${[...missingStructuredImpactCategoryClaimSubgoalIds].join(', ')}. ` +
+        'Return one aggregate claim citing every selected current test, documentation, configuration, ' +
+        'or fixture observation when they directly support the requested category surfaces; otherwise ' +
+        'leave the sub-goal without a claim on the bounded retry so it becomes an explicit gap.',
       );
     }
     const error = new TypeError(failures.join(' '));

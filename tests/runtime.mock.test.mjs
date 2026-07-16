@@ -12277,12 +12277,6 @@ semanticPipelineRuntimeTest(
         ['E2', 'E3', 'E4', 'E6', 'E7', 'E8', 'E9'],
       ),
     ];
-    const incompleteCategoryClaim = candidateClaim(
-      claims[2].id,
-      goals[2].id,
-      'README.md and DESIGN.md document the structured output contract.',
-      ['E7', 'E8'],
-    );
     const steps = [
       { stage: 'planner:1', value: plannerControl(goals) },
       {
@@ -12380,13 +12374,13 @@ semanticPipelineRuntimeTest(
       { stage: 'synthesis:1', value: readyExplorationResult() },
       {
         stage: 'claim_synthesis:1',
-        value: { claims: [claims[0], claims[1], incompleteCategoryClaim, claims[3]] },
+        value: { claims: [claims[0], claims[1], claims[3]] },
       },
       {
         stage: 'claim_synthesis:2',
         run(request) {
           assert.match(JSON.stringify(request.messages),
-            /must cite every runtime-selected current verification or public-contract source/u);
+            /returned no claim despite runtime-selected current verification or public-contract sources/u);
           return controlCompletion({ claims });
         },
       },
