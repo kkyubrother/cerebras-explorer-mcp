@@ -11555,7 +11555,7 @@ test('Spec 028 T030 — isolated semantic controls reduce claims without trustin
       verifierSteps: [{
         raw: verifierResponse([
           semanticVerdict(supported.id, 'supported', ['E1']),
-          { ...semanticVerdict(mismatch.id, 'insufficient'), resolution: null },
+          { ...semanticVerdict(mismatch.id, 'insufficient'), resolution: 'affirmed' },
         ]),
       }],
     },

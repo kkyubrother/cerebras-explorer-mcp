@@ -2641,10 +2641,16 @@ function validateSemanticVerdictBatch(raw, { claims, wrapperTool = 'explore_repo
         ...raw,
         ...(Array.isArray(raw.verdicts) ? {
           verdicts: raw.verdicts.map(verdict => {
-            if (!verdict || typeof verdict !== 'object' || Array.isArray(verdict) ||
-                verdict.result === 'supported' || verdict.resolution !== null) {
+            if (!verdict || typeof verdict !== 'object' || Array.isArray(verdict)) {
               return verdict;
             }
+            const nonSupportedResult =
+              verdict.result === 'insufficient' || verdict.result === 'contradicted';
+            const removableResolution = verdict.resolution === null ||
+              verdict.resolution === 'affirmed' || verdict.resolution === 'refuted';
+            if (!nonSupportedResult ||
+                !Object.prototype.hasOwnProperty.call(verdict, 'resolution') ||
+                !removableResolution) return verdict;
             const normalized = { ...verdict };
             delete normalized.resolution;
             return normalized;
