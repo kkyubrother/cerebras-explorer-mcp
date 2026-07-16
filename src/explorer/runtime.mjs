@@ -6331,7 +6331,7 @@ function taskPathScore(task, candidatePath) {
     .reduce((score, token) => score + token.length, 0);
 }
 
-function rankedLocateCandidates(discoveredPaths, searchObservations, task) {
+function locateRequestProfile(task) {
   const requestText = String(task).startsWith(FIND_RELEVANT_WRAPPER_TASK_PREFIX)
     ? String(task).slice(FIND_RELEVANT_WRAPPER_TASK_PREFIX.length)
     : String(task);
@@ -6339,21 +6339,29 @@ function rankedLocateCandidates(discoveredPaths, searchObservations, task) {
     .test(requestText);
   const requestsCompanionTest = /\b(?:before|change|changing|edit|editing|modify|modifying|update|updating)\b|변경|수정/iu
     .test(requestText);
-  const requestedRoles = new Map([
-    ['implementation', structuredOutputRequest ? 3 : 1],
-    ...(requestsCompanionTest || /\btests?\b|테스트/iu.test(requestText)
-      ? [['test', 1]]
-      : []),
-    ...(/\b(?:config|configuration|setting|settings)\b|설정/iu.test(requestText)
-      ? [['config', 1]]
-      : []),
-    ...(/\b(?:readme|docs?|documentation)\b|문서/iu.test(requestText)
-      ? [['documentation', 1]]
-      : []),
-    ...(/\b(?:fixture|example|snapshot)\b|예제/iu.test(requestText)
-      ? [['fixture', 1]]
-      : []),
-  ]);
+  return {
+    requestText,
+    structuredOutputRequest,
+    requestedRoles: new Map([
+      ['implementation', structuredOutputRequest ? 3 : 1],
+      ...(requestsCompanionTest || /\btests?\b|테스트/iu.test(requestText)
+        ? [['test', 1]]
+        : []),
+      ...(/\b(?:config|configuration|setting|settings)\b|설정/iu.test(requestText)
+        ? [['config', 1]]
+        : []),
+      ...(/\b(?:readme|docs?|documentation)\b|문서/iu.test(requestText)
+        ? [['documentation', 1]]
+        : []),
+      ...(/\b(?:fixture|example|snapshot)\b|예제/iu.test(requestText)
+        ? [['fixture', 1]]
+        : []),
+    ]),
+  };
+}
+
+function rankedLocateCandidates(discoveredPaths, searchObservations, task) {
+  const { structuredOutputRequest, requestedRoles } = locateRequestProfile(task);
   const lineByPath = impactAnchorLines(searchObservations);
   if (structuredOutputRequest) {
     for (const search of searchObservations) {
@@ -6430,6 +6438,7 @@ export function buildLocateToolPolicy({
   readRounds = 0,
 }) {
   const targetScope = canonicalizeRepositoryObservationScope(effectiveScope ?? []);
+  const sourceRoles = [...locateRequestProfile(task).requestedRoles.keys()];
   const knownSymbolPattern = [...new Set((Array.isArray(knownSymbols) ? knownSymbols : [])
     .filter(symbol => typeof symbol === 'string' && symbol)
     .map(escapeRegexLiteral))].join('|');
@@ -6441,7 +6450,9 @@ export function buildLocateToolPolicy({
     const fixedArguments = {
       scope: targetScope,
       ...(knownSymbolPattern ? { pattern: knownSymbolPattern } : {}),
-      ...(knownSymbolPattern ? { maxResults: 40, contextLines: 0 } : {}),
+      maxResults: 40,
+      contextLines: 0,
+      sourceRoles,
     };
     return {
       tools: toolsWithFixedArguments(tools, 'repo_grep', fixedArguments),

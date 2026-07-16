@@ -380,6 +380,8 @@ auditedPromptBoundaryTest('Spec 028 T018 — planner policy is invariant under u
     /wrapper:trace_symbol[\s\S]{0,100}exactly two leaves[\s\S]{0,180}what it does[\s\S]{0,180}parameters\/return behavior/i);
   assert.match(attacked.system,
     /wrapper:find_relevant_code[\s\S]{0,180}I need to update X[\s\S]{0,180}location relevance context[\s\S]{0,220}do not invent an outdated comparison/i);
+  assert.match(attacked.system,
+    /wrapper:find_relevant_code:smallest_set[\s\S]{0,220}bounded useful target set[\s\S]{0,180}only, must, or exhaustive/i);
   assertRuntimeOwnedProofPolicy(attacked.system, 'planner');
 
   const wholeRepository = assertTwoMessageBoundary(promptModule.buildPlannerMessages(plannerArgs({
@@ -759,6 +761,10 @@ test('Spec 028 T028 — claim synthesis receives bounded observations and cannot
   assert.match(prompt.system,
     /wrapper:find_relevant_code:relevance[\s\S]{0,220}public or structured output contract[\s\S]{0,220}production caller or adapter/i);
   assert.match(prompt.system,
+    /wrapper:find_relevant_code:locations[\s\S]{0,240}handler or registry line[\s\S]{0,180}callee body/i);
+  assert.match(prompt.system,
+    /wrapper:find_relevant_code:smallest_set[\s\S]{0,240}bounded useful target set[\s\S]{0,180}only, must, or exhaustive/i);
+  assert.match(prompt.system,
     /wrapper:collect_evidence:verdict[\s\S]{0,220}complete zero-match search[\s\S]{0,180}confirming lookup[\s\S]{0,100}not a counterevidence search/i);
   assert.match(prompt.system,
     /directly refutes[\s\S]{0,180}exact direct source\/git counterexample[\s\S]{0,180}without a zero-match search/i);
@@ -897,6 +903,10 @@ test('Spec 028 T028 — semantic verifier sees isolated rebuilt facts and cannot
     /trace_symbol usage claim[\s\S]{0,180}call lines is insufficient[\s\S]{0,180}caller\/function name/i);
   assert.match(prompt.system,
     /wrapper:find_relevant_code:relevance[\s\S]{0,220}public or structured output[\s\S]{0,220}production caller or adapter/i);
+  assert.match(prompt.system,
+    /wrapper:find_relevant_code:locations[\s\S]{0,260}handler or registry line[\s\S]{0,180}callee body[\s\S]{0,180}uncovered goal/i);
+  assert.match(prompt.system,
+    /wrapper:find_relevant_code:smallest_set[\s\S]{0,260}bounded useful target set[\s\S]{0,180}only, must, or exhaustive/i);
   assert.match(prompt.system,
     /all\/every\/exhaustive impact claim[\s\S]{0,220}omission of any one is missing_category/i);
   assert.match(prompt.system,

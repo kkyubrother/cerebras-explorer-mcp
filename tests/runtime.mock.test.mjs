@@ -2952,6 +2952,12 @@ test('Spec 028 T071 — public locate wrapper uses one scoped search and bounded
   assert.equal(initial.parallelToolCalls, false);
   assert.deepEqual(initial.tools[0].function.parameters.properties.scope.const,
     effectiveScope);
+  assert.deepEqual(initial.fixedToolArguments.repo_grep, {
+    scope: effectiveScope,
+    maxResults: 40,
+    contextLines: 0,
+    sourceRoles: ['implementation', 'test'],
+  });
   assert.match(initial.instruction, /exactly one narrow repo_grep[\s\S]{0,180}synonym/u);
 
   const symbolAnchored = buildLocateToolPolicy({
@@ -2971,6 +2977,7 @@ test('Spec 028 T071 — public locate wrapper uses one scoped search and bounded
     scope: effectiveScope,
     maxResults: 40,
     contextLines: 0,
+    sourceRoles: ['implementation'],
   });
 
   const narrowSearch = {
