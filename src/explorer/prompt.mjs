@@ -2,7 +2,9 @@ import path from 'node:path';
 
 export const STRATEGY_DESCRIPTIONS = {
   'symbol-first':    'Find where a symbol is defined. Start with repo_symbol_context(symbol); cross-check usages with repo_grep before finalizing; fall back to repo_grep → repo_read_file if no result or truncated.',
+  'locate-first':    'Find the smallest relevant location set. Preserve direct implementation and companion test or config matches before widening the search.',
   'reference-chase': 'Find all callers/usages. Start with repo_symbol_context(symbol); fall back to repo_references(symbol) → read each caller.',
+  'impact-map':      'Map a change across its concrete target, consumers, requested test/config/docs categories, and remaining risk boundary.',
   'git-guided':      'Understand recent changes. Start with repo_git_log → repo_git_diff → repo_read_file.',
   'breadth-first':   'Understand project structure. Start with repo_list_dir(depth:3) → read key files.',
   'blame-guided':    'Trace a bug to its origin. Start with repo_grep → repo_git_blame → repo_git_show.',
@@ -90,6 +92,25 @@ function formatHintBlock(hints = {}) {
     return '- none';
   }
   return lines.join('\n');
+}
+
+const DERIVED_ANCHOR_TASK_MODES = new Set(['locate']);
+
+function deriveRequestTextAnchor(task) {
+  const candidates = String(task ?? '').match(/[A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][A-Za-z0-9_$]*)*/g) ?? [];
+  return candidates
+    .filter(value => value.length >= 4 && value.length <= 80)
+    .filter(value => value.includes('_') || value.includes('.') || /[a-z][A-Z]/u.test(value) ||
+      /^[A-Z][A-Z0-9_]+$/u.test(value))
+    .sort((left, right) => right.length - left.length)[0] ?? null;
+}
+
+function promptHintsForTask(task, taskMode, hints = {}) {
+  const hasSuppliedAnchor = ['symbols', 'files', 'regex']
+    .some(key => Array.isArray(hints[key]) && hints[key].length > 0);
+  if (hasSuppliedAnchor || !DERIVED_ANCHOR_TASK_MODES.has(taskMode)) return hints;
+  const derived = deriveRequestTextAnchor(task);
+  return derived ? { ...hints, regex: [derived] } : hints;
 }
 
 function formatScope(scope = []) {
@@ -1107,14 +1128,17 @@ function formatStrategyLine(strategy) {
 }
 
 function strategyForTaskMode(taskMode) {
+  if (taskMode === 'locate') return 'locate-first';
   if (taskMode === 'symbol_trace') return 'symbol-first';
-  if (taskMode === 'edit_planning' || taskMode === 'path_explanation') return 'reference-chase';
+  if (taskMode === 'edit_planning') return 'impact-map';
+  if (taskMode === 'path_explanation') return 'reference-chase';
   if (taskMode === 'evidence_verification') return 'claim-check';
   return null;
 }
 
 export function buildExplorerUserPrompt({ task, scope, hints, sessionTargetPaths, language, taskMode }) {
   const strategy = strategyForTaskMode(taskMode) ?? detectStrategy(task);
+  const promptHints = promptHintsForTask(task, taskMode, hints);
 
   const lines = [
     'Delegated exploration request:',
@@ -1123,7 +1147,7 @@ export function buildExplorerUserPrompt({ task, scope, hints, sessionTargetPaths
     `Scope: ${formatScope(scope)}`,
     formatStrategyLine(strategy),
     'Hints:',
-    formatHintBlock(hints),
+    formatHintBlock(promptHints),
   ];
 
   if (typeof language === 'string' && language.trim()) {
@@ -1150,12 +1174,14 @@ export function buildExplorerUserPrompt({ task, scope, hints, sessionTargetPaths
     const label = Array.isArray(strategy) ? strategy.join('+') : strategy;
     const approaches = {
       'symbol-first': 'Start with repo_symbol_context(symbol). After confirming the definition and before finalizing, run one scope-wide repo_grep for the bare symbol name to cross-check usages. If no result or the result reports truncated: true, fall back to repo_grep(symbol) → repo_read_file for top matches.',
+      'locate-first': 'Start with the strongest known anchor or one narrow exact repo_grep; do not issue a parallel synonym grep. Preserve candidate paths returned by that result and batch-read the smallest directly relevant implementation set. For a change-oriented request, when a direct regression test or config companion is observed, treat it as a required location category and retain it in the synthesized claim evidence and parent targets. Do not enumerate sibling declarations unless the task asks for the full registry. While direct candidates remain unread, do not replace them with synonym searches. Widen only when the direct candidates cannot satisfy a required location category.',
       'reference-chase': 'Start with repo_symbol_context(symbol) or repo_references(symbol) to find all call sites. Then read key callers.',
+      'impact-map': 'Start with a supplied file hint or one exact scope-wide repo_grep for the most specific schema, type, field, API, or symbol name in the change. For an API or structured-output shape change, prefer the concrete schema/type/field vocabulary over a broad public tool or protocol name that is likely repeated in documentation. Do not begin with repo_list_dir, repo_find_files, or repo_symbol_context for a plain public tool or protocol name. Group the returned paths by each requested impact category such as implementation, runtime consumers, server adapters, tests, config, docs, integrations, and risk boundary, then batch-read the strongest direct candidate in every category. Use repo_references only after a concrete code symbol is established. Search again only for categories that remain uncovered. Preserve every grounded requested category in the synthesized claims and parent targets, then stop when all are grounded or recorded as gaps.',
       'git-guided': 'Start with repo_git_log to find relevant commits. Then repo_git_diff or repo_git_show to understand changes. Read affected files for context.',
       'breadth-first': 'Start with repo_list_dir(depth:3) to understand project structure. Then read key files (entry points, config, README).',
       'blame-guided': 'Start with repo_grep to find the relevant code. Then repo_git_blame to identify who changed it and when. Use repo_git_show to understand the commit.',
       'pattern-scan': 'Start with repo_grep to find all occurrences. Then read representative files to understand the pattern. Compare similarities and differences.',
-      'claim-check': 'Start with the strongest exact file, symbol, or text anchor and read only the range needed for direct evidence. Then run one complete scope-wide repo_grep for a plausible counterexample, exception, or alternative representation. Do not serially try broad synonym searches. Stop once direct evidence and that counterevidence check are both observed.',
+      'claim-check': 'If an exact file, symbol, or regex hint exists, use it for the first direct lookup; otherwise run one exact scope-wide repo_grep for the rarest implementation predicate in the claim, not its broad public subject name. Do not use repo_symbol_context, repo_symbols, repo_list_dir, or repo_find_files for unguided claim verification. Read only the strongest direct ranges. To affirm the claim, then run exactly one complete full-scope repo_grep for a concrete plausible bypass, exception, or alternative representation; formulate a meaningful disconfirming predicate for which zero matches would be evidence, and do not substitute a confirming lookup for the same subject. If that search has matches, read the strongest possible counterexample before deciding. Do not serially try broad synonym searches. If those bounded observations do not settle the claim, return a gap instead of widening. Stop once direct evidence and that counterevidence check are both observed.',
     };
     const singleStrategy = Array.isArray(strategy) ? strategy[0] : strategy;
     const approach = approaches[singleStrategy] ?? '';

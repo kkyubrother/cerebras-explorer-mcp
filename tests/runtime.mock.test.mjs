@@ -7,6 +7,7 @@ import path from 'node:path';
 
 import {
   ExplorerRuntime as RuntimeImplementation,
+  buildImpactMapToolPolicy,
   buildParentHandoffV3,
   buildRuntimeGenericImpactPolicyArtifacts,
   buildRuntimeWrapperPolicyArtifacts,
@@ -2499,6 +2500,20 @@ test('Phase 3 — detectStrategy returns single string for unambiguous task', ()
 });
 
 test('Spec 028 T053 — wrapper task modes preserve internal strategy without a public hint', () => {
+  const locatePrompt = buildExplorerUserPrompt({
+    task: 'Find the delegated implementation and its change-oriented companion.',
+    scope: [],
+    hints: {},
+    taskMode: 'locate',
+  });
+  assert.match(locatePrompt, /Strategy: locate-first/);
+  assert.match(locatePrompt,
+    /Preserve candidate paths[\s\S]{0,260}direct regression test or config companion/u);
+  assert.match(locatePrompt,
+    /direct candidates remain unread[\s\S]{0,100}do not replace them with synonym searches/u);
+  assert.match(locatePrompt,
+    /do not issue a parallel synonym grep[\s\S]{0,420}retain it in the synthesized claim evidence and parent targets/u);
+
   const tracePrompt = buildExplorerUserPrompt({
     task: 'Inspect this delegated target.',
     scope: [],
@@ -2507,25 +2522,159 @@ test('Spec 028 T053 — wrapper task modes preserve internal strategy without a 
   });
   assert.match(tracePrompt, /Strategy: symbol-first/);
 
-  for (const taskMode of ['edit_planning', 'path_explanation']) {
-    const prompt = buildExplorerUserPrompt({
-      task: 'Inspect this delegated target.',
-      scope: [],
-      hints: { files: ['src/auth.mjs'] },
-      taskMode,
-    });
-    assert.match(prompt, /Strategy: reference-chase/);
-  }
+  const impactPrompt = buildExplorerUserPrompt({
+    task: 'Inspect the explore_repo change target and its requested impact categories.',
+    scope: [],
+    hints: {},
+    taskMode: 'edit_planning',
+  });
+  assert.match(impactPrompt, /Strategy: impact-map/);
+  assert.match(impactPrompt, /Hints:\n- none/u);
+  assert.match(impactPrompt,
+    /one exact scope-wide repo_grep[\s\S]{0,760}every category/u);
+  assert.match(impactPrompt,
+    /structured-output shape change[\s\S]{0,180}schema\/type\/field vocabulary/u);
+  assert.match(impactPrompt,
+    /Do not begin with repo_list_dir, repo_find_files, or repo_symbol_context[\s\S]{0,700}Search again only for categories that remain uncovered/u);
+  assert.match(impactPrompt,
+    /Preserve every grounded requested category in the synthesized claims and parent targets/u);
 
-  const evidencePrompt = buildExplorerUserPrompt({
-    task: 'Verify the delegated repository claim.',
+  const pathPrompt = buildExplorerUserPrompt({
+    task: 'Inspect this delegated execution path.',
     scope: [],
     hints: { files: ['src/auth.mjs'] },
+    taskMode: 'path_explanation',
+  });
+  assert.match(pathPrompt, /Strategy: reference-chase/);
+
+  const evidencePrompt = buildExplorerUserPrompt({
+    task: 'Verify that explore_repo validates before returning structuredContent.',
+    scope: [],
+    hints: {},
     taskMode: 'evidence_verification',
   });
   assert.match(evidencePrompt, /Strategy: claim-check/);
+  assert.match(evidencePrompt, /Hints:\n- none/u);
   assert.match(evidencePrompt,
-    /one complete scope-wide repo_grep[\s\S]{0,180}Do not serially try broad synonym searches/u);
+    /exactly one complete full-scope repo_grep[\s\S]{0,420}Do not serially try broad synonym searches/u);
+  assert.match(evidencePrompt,
+    /rarest implementation predicate[\s\S]{0,240}Do not use repo_symbol_context, repo_symbols, repo_list_dir, or repo_find_files/u);
+  assert.match(evidencePrompt,
+    /meaningful disconfirming predicate[\s\S]{0,80}zero matches would be evidence/u);
+  assert.match(evidencePrompt,
+    /return a gap instead of widening/u);
+});
+
+test('Spec 028 T071 — unanchored impact mapping bounds candidate batches and recovery', () => {
+  const tools = ['repo_list_dir', 'repo_grep', 'repo_read_file'].map(name => ({
+    function: { name },
+  }));
+  const initial = buildImpactMapToolPolicy({ observations: [], tools, discoveredPaths: [] });
+  assert.deepEqual(initial.tools.map(tool => tool.function.name), ['repo_grep']);
+  assert.equal(initial.parallelToolCalls, false);
+
+  const discoveredPaths = [
+    'src/mcp/server.mjs',
+    'src/explorer/runtime.mjs',
+    'src/explorer/schemas.mjs',
+    'src/explorer/parent-payload.mjs',
+    'tests/mcp-server.test.mjs',
+    'tests/schemas.test.mjs',
+    'README.md',
+    'DESIGN.md',
+    'examples/expected-response.json',
+  ].map(candidatePath => ({ path: candidatePath }));
+  const readBatch = buildImpactMapToolPolicy({
+    observations: [{
+      kind: 'search',
+      tool: 'repo_grep',
+      matchCount: 9,
+      normalizedItemAnchors: discoveredPaths.map((candidate, index) => ({
+        path: candidate.path,
+        line: 10 + index,
+      })),
+    }],
+    tools,
+    discoveredPaths,
+  });
+  assert.deepEqual(readBatch.tools.map(tool => tool.function.name), ['repo_read_file']);
+  assert.equal(readBatch.parallelToolCalls, true);
+  for (const candidatePath of [
+    'src/mcp/server.mjs',
+    'src/explorer/runtime.mjs',
+    'src/explorer/schemas.mjs',
+    'tests/mcp-server.test.mjs',
+    'README.md',
+    'DESIGN.md',
+    'examples/expected-response.json',
+  ]) {
+    assert.match(readBatch.instruction, new RegExp(candidatePath.replaceAll('.', '\\.')));
+  }
+  assert.match(readBatch.instruction, /narrow range containing each stated match line/u);
+  assert.match(readBatch.instruction, /src\/mcp\/server\.mjs@line 10/u);
+
+  const finalize = buildImpactMapToolPolicy({
+    observations: [
+      { kind: 'search', tool: 'repo_grep', matchCount: 9 },
+      { kind: 'source', path: 'src/mcp/server.mjs', sourceRole: 'implementation' },
+    ],
+    tools,
+    discoveredPaths,
+  });
+  assert.deepEqual(finalize.tools, []);
+  assert.equal(finalize.parallelToolCalls, false);
+  assert.match(finalize.instruction, /Finalize now/u);
+
+  const implementationRecovery = buildImpactMapToolPolicy({
+    observations: [
+      { kind: 'search', tool: 'repo_grep', matchCount: 4 },
+      { kind: 'source', path: 'tests/mcp-server.test.mjs', sourceRole: 'test' },
+      { kind: 'source', path: 'README.md', sourceRole: 'documentation' },
+    ],
+    tools,
+    discoveredPaths,
+  });
+  assert.deepEqual(implementationRecovery.tools.map(tool => tool.function.name), ['repo_grep']);
+  assert.equal(implementationRecovery.parallelToolCalls, false);
+  assert.match(implementationRecovery.instruction,
+    /exactly one final repo_grep[\s\S]{0,160}implementation-bearing paths/u);
+
+  const recoveredRead = buildImpactMapToolPolicy({
+    observations: [
+      { kind: 'search', tool: 'repo_grep', matchCount: 4 },
+      { kind: 'source', path: 'tests/mcp-server.test.mjs', sourceRole: 'test' },
+      { kind: 'source', path: 'README.md', sourceRole: 'documentation' },
+      {
+        kind: 'search',
+        tool: 'repo_grep',
+        matchCount: 3,
+        normalizedItemAnchors: [
+          { path: 'src/mcp/server.mjs', line: 100 },
+          { path: 'src/explorer/runtime.mjs', line: 200 },
+          { path: 'src/explorer/schemas.mjs', line: 300 },
+        ],
+      },
+    ],
+    tools,
+    discoveredPaths,
+  });
+  assert.deepEqual(recoveredRead.tools.map(tool => tool.function.name), ['repo_read_file']);
+  assert.doesNotMatch(recoveredRead.instruction, /tests\/mcp-server\.test\.mjs/u);
+  assert.doesNotMatch(recoveredRead.instruction, /README\.md/u);
+  assert.match(recoveredRead.instruction, /src\/mcp\/server\.mjs/u);
+
+  const recoveredFinalize = buildImpactMapToolPolicy({
+    observations: [
+      { kind: 'search', tool: 'repo_grep', matchCount: 4 },
+      { kind: 'source', path: 'tests/mcp-server.test.mjs', sourceRole: 'test' },
+      { kind: 'search', tool: 'repo_grep', matchCount: 3 },
+      { kind: 'source', path: 'src/mcp/server.mjs', sourceRole: 'implementation' },
+    ],
+    tools,
+    discoveredPaths,
+  });
+  assert.deepEqual(recoveredFinalize.tools, []);
+  assert.match(recoveredFinalize.instruction, /Finalize now/u);
 });
 
 test('Phase 3 — Korean task produces Korean answer/summary language (language rule)', async () => {
@@ -9249,7 +9398,13 @@ test('Spec 028 T059 — runtime enforces negative and critical proof boundaries'
         id: 'read-impact-caller',
       }],
       repairEvidenceRefs: ['E1', 'E2'],
-      assertImplemented({ result, goal }) {
+      assertImplemented({ client, result, goal }) {
+        const repairRequests = client.requests.filter(request => request.messages.some(message =>
+          typeof message.content === 'string' &&
+          message.content.includes('BEGIN_EVIDENCE_REPAIR_JSON')));
+        assert.equal(repairRequests.length, 1);
+        assert.equal(repairRequests[0].parallelToolCalls, false,
+          'map_change_impact repair stays one sequential action');
         assertInternalProofGap(result, goal.id);
         assertMinimalIncompleteParentHandoff(result, goal.question);
       },
@@ -9929,6 +10084,45 @@ test('Spec 028 T069 — generic claims cannot define their own structural proof 
 
   assert.equal(artifacts.size, 0,
     'explore_repo has no runtime-owned transition or impact-category seed');
+});
+
+test('Spec 028 T071 — one supported claim cannot collapse merged wrapper impact seeds', () => {
+  const goal = createRequiredSubgoal({
+    id: 'S-merged-impact-seeds',
+    question: 'Map the target and its dependents.',
+    originRefs: [
+      'wrapper:map_change_impact:targets',
+      'wrapper:map_change_impact:dependents',
+    ],
+    claimType: 'impact',
+    proofCondition: 'Observe the target and dependent boundary.',
+    constraints: [],
+    auditVerdict: 'ready',
+  });
+  const claim = candidateClaim(
+    'C-merged-impact-seeds',
+    goal.id,
+    'src/mcp/server.mjs is both the change target and dependent adapter.',
+    ['E1'],
+  );
+  const artifacts = buildRuntimeWrapperPolicyArtifacts({
+    wrapperTool: 'map_change_impact',
+    subgoals: [goal],
+    claims: [claim],
+    semanticVerdicts: [semanticVerdict(claim.id, 'supported', ['E1'])],
+    observations: [{
+      id: 'E1',
+      kind: 'source',
+      path: 'src/mcp/server.mjs',
+      startLine: 1,
+      endLine: 4,
+      sourceRole: 'implementation',
+      temporalRole: 'current',
+    }],
+  });
+
+  assert.equal(artifacts.size, 0,
+    'one source cannot deterministically prove two distinct impact obligations');
 });
 
 test('Spec 028 T069 — generic impact inventory artifacts fail closed on structural variants', async t => {
@@ -10625,6 +10819,13 @@ semanticPipelineRuntimeTest(
     assert.equal(repairRequests, 1);
     assert.equal(focusedChecks, 1);
     assert.equal(client.stageCounts.get('semantic_verifier'), 3);
+    const explorationRequests = client.requests.filter(request =>
+      classifyControlRequest(request) === 'exploration');
+    assert.ok(explorationRequests.length >= 3);
+    assert.equal(explorationRequests.every(request => request.parallelToolCalls === false), true,
+      'collect_evidence exploration and repair stay sequential');
+    assert.match(JSON.stringify(explorationRequests),
+      /Claim-check (?:direct lookup|counter-search)/u);
     assert.deepEqual(providerToolActions(client).map(action => action.tool), [
       'repo_read_file',
       'repo_grep',
@@ -10749,6 +10950,111 @@ semanticPipelineRuntimeTest(
     assert.equal(result.parentHandoff.state, 'complete');
     assert.match(result.parentHandoff.directAnswer, /src\/mcp\/server\.js/u);
     assert.match(result.parentHandoff.directAnswer, /tests\/mcp-server\.test\.js/u);
+    assert.deepEqual(new Set(result.parentHandoff.evidence.map(item => item.path)),
+      new Set(['src/mcp/server.js', 'tests/mcp-server.test.js']));
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T071 — merged locate seeds still repair one certified companion test',
+  async () => {
+    const task =
+      'Where is MCP tools/list assembled and which files should be read before changing tool metadata?';
+    const [locations, relevance, smallestSet] = locateWrapperGoals();
+    const merged = {
+      ...relevance,
+      id: 'S-locate-relevance-smallest-set',
+      question: 'Explain relevance and preserve the smallest useful change set.',
+      originRefs: [...relevance.originRefs, ...smallestSet.originRefs],
+    };
+    const goals = [locations, merged];
+    const locationClaim = candidateClaim(
+      'C-merged-locate-location',
+      locations.id,
+      'MCP tools/list is assembled in src/mcp/server.js.',
+      ['E2'],
+    );
+    const omittedClaim = candidateClaim(
+      'C-merged-locate-smallest-set',
+      merged.id,
+      'src/mcp/server.js defines buildToolList and is the smallest useful target.',
+      ['E2'],
+    );
+    const repairedClaim = candidateClaim(
+      omittedClaim.id,
+      merged.id,
+      'src/mcp/server.js defines buildToolList; the smallest useful set also includes tests/mcp-server.test.js.',
+      ['E2', 'E3'],
+    );
+    let repairRequests = 0;
+    const { client, result } = await runTrustScript(buildTrustSteps({
+      goals,
+      initial: {
+        tools: [{
+          tool: 'repo_grep',
+          args: { pattern: 'buildToolList', scope: ['src/**', 'tests/**'] },
+          id: 'grep-merged-mcp-tool-list',
+        }, {
+          tool: 'repo_read_file',
+          args: { path: 'src/mcp/server.js', startLine: 1, endLine: 3 },
+          id: 'read-merged-mcp-tool-list',
+        }],
+        claims: [locationClaim, omittedClaim],
+        verifierSteps: [{
+          verdicts: [semanticVerdict(locationClaim.id, 'supported', ['E2'])],
+          assertRequest(request) {
+            assert.deepEqual(parseControlPacket(request).claims.map(claim => claim.id), [
+              locationClaim.id,
+            ]);
+          },
+        }],
+      },
+      repair: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'tests/mcp-server.test.js', startLine: 1, endLine: 3 },
+          id: 'read-merged-mcp-tool-list-test',
+        }],
+        assertRequest(request) {
+          repairRequests += 1;
+          assert.deepEqual(request.tools.map(tool => tool.function.name), ['repo_read_file']);
+          assert.equal(parseRepairPacket(request).candidateReadPath,
+            'tests/mcp-server.test.js');
+        },
+        claims: [locationClaim, repairedClaim],
+        verdicts: [
+          semanticVerdict(locationClaim.id, 'supported', ['E2']),
+          semanticVerdict(repairedClaim.id, 'supported', ['E2', 'E3']),
+        ],
+      },
+    }), {
+      task,
+      taskMode: 'locate',
+      scope: ['src/**', 'tests/**'],
+      async setup(root) {
+        await fs.mkdir(path.join(root, 'src', 'mcp'), { recursive: true });
+        await fs.mkdir(path.join(root, 'tests'), { recursive: true });
+        await fs.writeFile(
+          path.join(root, 'src', 'mcp', 'server.js'),
+          'export function buildToolList() {\n  return [{ name: "find_relevant_code" }];\n}\n',
+        );
+        await fs.writeFile(
+          path.join(root, 'tests', 'mcp-server.test.js'),
+          'import { buildToolList } from "../src/mcp/server.js";\n' +
+            'test("tools/list", () => buildToolList());\n',
+        );
+      },
+    });
+
+    assert.equal(result.failure, null, JSON.stringify(result.failure));
+    assert.equal(repairRequests, 1);
+    assert.equal(client.stageCounts.get('semantic_verifier'), 2);
+    assert.deepEqual(providerToolActions(client).map(action => action.tool), [
+      'repo_grep',
+      'repo_read_file',
+      'repo_read_file',
+    ]);
+    assert.equal(result.parentHandoff.state, 'complete');
     assert.deepEqual(new Set(result.parentHandoff.evidence.map(item => item.path)),
       new Set(['src/mcp/server.js', 'tests/mcp-server.test.js']));
   },

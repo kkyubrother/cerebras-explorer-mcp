@@ -3256,7 +3256,7 @@ function attachCertifiedUsageSearchCompanions({
   return claims.map(claim => {
     const subgoal = subgoalById.get(claim.subgoalId);
     if (subgoal?.proofPolicy !== 'bounded_usage_cross_check' ||
-        wrapperPartForSubgoal(subgoal, wrapperTool) !== 'usage') {
+        !subgoalHasWrapperPart(subgoal, wrapperTool, 'usage')) {
       return claim;
     }
     const sources = claim.evidenceRefs
@@ -3354,12 +3354,20 @@ function buildRuntimeDeterministicCounts({
 }
 
 function wrapperPartForSubgoal(subgoal, wrapperTool) {
-  if (typeof wrapperTool !== 'string') return null;
-  const prefix = `wrapper:${wrapperTool}:`;
-  const parts = (subgoal?.originRefs ?? [])
-    .filter(ref => typeof ref === 'string' && ref.startsWith(prefix))
-    .map(ref => ref.slice(prefix.length));
+  const parts = wrapperPartsForSubgoal(subgoal, wrapperTool);
   return parts.length === 1 ? parts[0] : null;
+}
+
+function wrapperPartsForSubgoal(subgoal, wrapperTool) {
+  if (typeof wrapperTool !== 'string') return [];
+  const prefix = `wrapper:${wrapperTool}:`;
+  return [...new Set((subgoal?.originRefs ?? [])
+    .filter(ref => typeof ref === 'string' && ref.startsWith(prefix))
+    .map(ref => ref.slice(prefix.length)))];
+}
+
+function subgoalHasWrapperPart(subgoal, wrapperTool, wrapperPart) {
+  return wrapperPartsForSubgoal(subgoal, wrapperTool).includes(wrapperPart);
 }
 
 function certifiedLocateCompanionTestPath({
@@ -3421,7 +3429,7 @@ function omitIncompleteLocateSmallestSetClaim({
     subgoal,
   ]));
   const smallestSetClaims = claims.filter(claim =>
-    wrapperPartForSubgoal(subgoalById.get(claim.subgoalId), wrapperTool) === 'smallest_set');
+    subgoalHasWrapperPart(subgoalById.get(claim.subgoalId), wrapperTool, 'smallest_set'));
   if (smallestSetClaims.length !== 1 || !certifiedLocateCompanionTestPath({
     taskContract,
     claims: smallestSetClaims,
@@ -4151,7 +4159,7 @@ function isCollectCountersearchOnlyRepair({
     const subgoal = subgoalById.get(claim.subgoalId);
     const verdict = verdictByClaimId.get(claim.id);
     return subgoal?.proofPolicy === 'support_or_refute' &&
-      wrapperPartForSubgoal(subgoal, wrapperTool) === 'verdict' &&
+      subgoalHasWrapperPart(subgoal, wrapperTool, 'verdict') &&
       verdict?.result === 'insufficient' && verdict.reasonCode === 'boundary_mismatch' &&
       claim.evidenceRefs.some(ref =>
         DIRECT_REFUTATION_OBSERVATION_KINDS.has(observationById.get(ref)?.kind));
@@ -4170,8 +4178,11 @@ function locateCompanionReadPathForRepair({
     subgoal.id,
     subgoal,
   ]));
-  if (wrapperPartForSubgoal(subgoalById.get(gaps[0].subgoalId), wrapperTool) !==
-      'smallest_set') {
+  if (!subgoalHasWrapperPart(
+    subgoalById.get(gaps[0].subgoalId),
+    wrapperTool,
+    'smallest_set',
+  )) {
     return null;
   }
   return certifiedLocateCompanionTestPath({
@@ -4257,7 +4268,11 @@ async function runEvidenceRepairToolBatch({
     ? tools.filter(tool => tool?.function?.name === restrictedToolName)
     : tools;
   const repairToolNames = restrictedToolName ? new Set([restrictedToolName]) : knownToolNames;
-  const repairBatchLimit = restrictedToolName ? 1 : TOOL_CONCURRENCY;
+  const singleActionRepair = Boolean(restrictedToolName) ||
+    ['collect_evidence', 'map_change_impact'].includes(wrapperTool);
+  const repairBatchLimit = singleActionRepair
+    ? 1
+    : TOOL_CONCURRENCY;
   const messages = buildEvidenceRepairMessages({
     gaps,
     taskContract,
@@ -4277,7 +4292,7 @@ async function runEvidenceRepairToolBatch({
     temperature,
     topP,
     maxCompletionTokens,
-    parallelToolCalls: true,
+    parallelToolCalls: !singleActionRepair,
     signal: abortSignal,
   });
   const firstCompletion = await request();
@@ -5682,6 +5697,227 @@ function recordCompletionStats(stats, completion, transcript = null) {
     model: completion?.usedProvider?.model ?? stats.model,
     usage: completion?.usage,
   });
+}
+
+function includesDetectedStrategy(strategy, label) {
+  return strategy === label || (Array.isArray(strategy) && strategy.includes(label));
+}
+
+function toolsNamed(tools, names) {
+  const allowed = new Set(names);
+  return tools.filter(tool => allowed.has(tool?.function?.name));
+}
+
+function sourceClaimCheckToolPolicy({ observations, tools, task, discoveredPaths }) {
+  const grepObservations = observations
+    .map((observation, index) => ({ observation, index }))
+    .filter(({ observation }) => observation?.kind === 'search' &&
+      observation.tool === 'repo_grep');
+  const testEvidenceRequested = /\btests?\b|테스트/iu.test(String(task ?? ''));
+  const allSourceObservations = observations
+    .map((observation, index) => ({ observation, index }))
+    .filter(({ observation }) => observation?.kind === 'source');
+  const sourceObservations = allSourceObservations
+    .filter(({ observation }) =>
+      (testEvidenceRequested || observation.sourceRole !== 'test'));
+  const observedOnlyTests = !testEvidenceRequested && sourceObservations.length === 0 &&
+    observations.some(observation => observation?.kind === 'source' &&
+      observation.sourceRole === 'test');
+  const implementationCandidates = [...new Set((discoveredPaths ?? [])
+    .map(candidate => candidate?.path)
+    .filter(candidatePath => typeof candidatePath === 'string' && candidatePath &&
+      classifySourceRole(candidatePath) === 'implementation'))]
+    .sort((left, right) => (left.length - right.length) || left.localeCompare(right))
+    .slice(0, 12);
+  const firstSourceIndex = sourceObservations[0]?.index ?? -1;
+
+  if (firstSourceIndex < 0) {
+    if (grepObservations.length === 0) {
+      return {
+        tools: toolsNamed(tools, ['repo_grep', 'repo_read_file']),
+        parallelToolCalls: false,
+        instruction: 'Claim-check direct lookup: issue one exact repo_grep, or read one supplied exact file anchor.',
+      };
+    }
+    const lastGrep = grepObservations.at(-1).observation;
+    if (Number(lastGrep.matchCount) > 0) {
+      if (observedOnlyTests && implementationCandidates.length === 0) {
+        return {
+          tools: [],
+          parallelToolCalls: false,
+          instruction: 'The direct lookup exposed only test corroboration and no implementation candidate. Finalize incomplete without inventing a path.',
+        };
+      }
+      const candidateInstruction = implementationCandidates.length > 0
+        ? ` Use only these observed implementation candidates before inventing another path: ${implementationCandidates.join(', ')}.`
+        : '';
+      return {
+        tools: toolsNamed(tools, ['repo_read_file']),
+        parallelToolCalls: true,
+        instruction: observedOnlyTests
+          ? `Claim-check direct read: tests are corroboration, not direct current-behavior evidence. Batch-read the smallest implementation source ranges from the existing grep result; do not search again.${candidateInstruction}`
+          : `Claim-check direct read: batch-read the smallest source ranges from the existing grep result. Do not search again.${candidateInstruction}`,
+      };
+    }
+    return {
+      tools: [],
+      parallelToolCalls: false,
+      instruction: 'The one direct lookup produced no source candidate. Finalize incomplete without widening.',
+    };
+  }
+
+  const postSourceGreps = grepObservations.filter(({ index }) => index > firstSourceIndex);
+  if (postSourceGreps.length === 0) {
+    return {
+      tools: toolsNamed(tools, ['repo_grep']),
+      parallelToolCalls: false,
+      instruction: 'Claim-check counter-search: run one complete full-scope repo_grep for a meaningful disconfirming bypass, exception, or alternative. Do not run another confirming lookup.',
+    };
+  }
+
+  const lastCounterSearch = postSourceGreps.at(-1);
+  const sourceAfterCounterSearch = allSourceObservations.some(({ index }) =>
+    index > lastCounterSearch.index);
+  if (Number(lastCounterSearch.observation.matchCount) > 0 && !sourceAfterCounterSearch) {
+    return {
+      tools: toolsNamed(tools, ['repo_read_file']),
+      parallelToolCalls: true,
+      instruction: 'The counter-search found a possible exception. Batch-read only its strongest source range, then finalize.',
+    };
+  }
+  if (postSourceGreps.length === 1 && Number(lastCounterSearch.observation.matchCount) === 0) {
+    return {
+      tools: toolsNamed(tools, ['repo_grep']),
+      parallelToolCalls: false,
+      instruction: 'The bounded counter-search is complete. Finalize now; at most one distinct confirming cross-check may be issued if it is essential to interpret the direct source.',
+    };
+  }
+  return {
+    tools: [],
+    parallelToolCalls: false,
+    instruction: 'The bounded direct and counterevidence observations are complete. Finalize now without another repository action.',
+  };
+}
+
+const MAP_CHANGE_WRAPPER_TASK_PREFIX =
+  'Map the likely impact of this intended change before editing:';
+
+function impactAnchorLines(searchObservations) {
+  const lineByPath = new Map();
+  for (const observation of searchObservations) {
+    const observedInSearch = new Set();
+    for (const anchor of observation?.normalizedItemAnchors ?? []) {
+      if (typeof anchor?.path !== 'string' || !anchor.path ||
+          !Number.isSafeInteger(anchor.line) || anchor.line < 1 ||
+          observedInSearch.has(anchor.path)) {
+        continue;
+      }
+      observedInSearch.add(anchor.path);
+      lineByPath.set(anchor.path, anchor.line);
+    }
+  }
+  return lineByPath;
+}
+
+function rankedImpactCandidates(discoveredPaths, searchObservations = []) {
+  const roleLimits = new Map([
+    ['implementation', 4],
+    ['test', 2],
+    ['documentation', 2],
+    ['config', 1],
+    ['fixture', 1],
+  ]);
+  const architecturePath = /server|runtime|schemas?|adapters?|handlers?|client|consumer|payload/iu;
+  const lineByPath = impactAnchorLines(searchObservations);
+  const grouped = new Map();
+  for (const candidatePath of [...new Set((discoveredPaths ?? [])
+    .map(candidate => candidate?.path)
+    .filter(candidatePath => typeof candidatePath === 'string' && candidatePath))]) {
+    const role = classifySourceRole(candidatePath);
+    if (!roleLimits.has(role)) continue;
+    const entries = grouped.get(role) ?? [];
+    entries.push(candidatePath);
+    grouped.set(role, entries);
+  }
+  return [...roleLimits.entries()].flatMap(([role, limit]) => (grouped.get(role) ?? [])
+    .sort((left, right) => {
+      const architectureDelta = Number(architecturePath.test(right)) -
+        Number(architecturePath.test(left));
+      return architectureDelta || (left.length - right.length) || left.localeCompare(right);
+    })
+    .slice(0, limit)
+    .map(candidatePath => ({
+      role,
+      path: candidatePath,
+      ...(lineByPath.has(candidatePath) ? { line: lineByPath.get(candidatePath) } : {}),
+    })));
+}
+
+export function buildImpactMapToolPolicy({ observations, tools, discoveredPaths }) {
+  const indexedObservations = observations.map((observation, index) => ({
+    observation,
+    index,
+  }));
+  const sources = indexedObservations.filter(({ observation }) =>
+    observation?.kind === 'source');
+  const searches = indexedObservations.filter(({ observation }) =>
+    observation?.kind === 'search' && observation.tool === 'repo_grep');
+  if (searches.length === 0) {
+    return {
+      tools: toolsNamed(tools, ['repo_grep']),
+      parallelToolCalls: false,
+      instruction: 'Impact-map discovery: run one exact full-scope repo_grep for the most specific API, schema, or symbol in the intended change.',
+    };
+  }
+  const lastSearch = searches.at(-1);
+  const sourcesAfterLastSearch = sources.filter(({ index }) => index > lastSearch.index);
+  if (Number(lastSearch.observation.matchCount) <= 0) {
+    return {
+      tools: [],
+      parallelToolCalls: false,
+      instruction: 'The exact impact lookup produced no candidate. Finalize incomplete without widening.',
+    };
+  }
+  if (sourcesAfterLastSearch.length > 0) {
+    const implementationObserved = sources.some(({ observation }) =>
+      observation.sourceRole === 'implementation');
+    if (searches.length === 1 && !implementationObserved) {
+      return {
+        tools: toolsNamed(tools, ['repo_grep']),
+        parallelToolCalls: false,
+        instruction: 'Impact-map implementation recovery: the first bounded batch contained no implementation source. Run exactly one final repo_grep using the same predicate but only the in-scope implementation-bearing paths. Do not change to a synonym or widen scope.',
+      };
+    }
+    return {
+      tools: [],
+      parallelToolCalls: false,
+      instruction: 'The bounded impact candidate read batch is complete. Finalize now; unresolved requested categories must remain gaps.',
+    };
+  }
+  const readPaths = new Set(sources
+    .map(({ observation }) => observation.path)
+    .filter(sourcePath => typeof sourcePath === 'string' && sourcePath));
+  const candidates = rankedImpactCandidates(
+    discoveredPaths,
+    searches.map(({ observation }) => observation),
+  )
+    .filter(candidate => !readPaths.has(candidate.path));
+  if (candidates.length === 0) {
+    return {
+      tools: [],
+      parallelToolCalls: false,
+      instruction: 'The exact impact lookup produced no readable role candidate. Finalize incomplete without inventing a path.',
+    };
+  }
+  const candidateSummary = candidates
+    .map(candidate => `${candidate.role}:${candidate.path}` +
+      (candidate.line ? `@line ${candidate.line}` : ''))
+    .join(', ');
+  return {
+    tools: toolsNamed(tools, ['repo_read_file']),
+    parallelToolCalls: true,
+    instruction: `Impact-map candidate read: batch-read the strongest observed path for every requested role. Use only these candidates and read a narrow range containing each stated match line instead of defaulting to the start of a file: ${candidateSummary}.`,
+  };
 }
 
 function incrementToolStats(stats, toolName, { countReadFiles = true } = {}) {
@@ -7935,6 +8171,13 @@ export class ExplorerRuntime {
     // Checkpoint interval: inject a self-assessment message every N turns.
     // Only active when the fixed turn limit leaves enough room to benefit (>6).
     const CHECKPOINT_INTERVAL = 4;
+    const claimCheckMode = args.taskMode === 'evidence_verification';
+    const sourceClaimCheckMode = claimCheckMode &&
+      !includesDetectedStrategy(detectStrategy(args.task), 'git-guided');
+    const hasKnownAnchor = ['files', 'symbols', 'regex'].some(key =>
+      Array.isArray(args.hints?.[key]) && args.hints[key].length > 0);
+    const impactMapWrapperMode = args.taskMode === 'edit_planning' && !hasKnownAnchor &&
+      args.task.startsWith(MAP_CHANGE_WRAPPER_TASK_PREFIX);
     const checkpointEnabled = runtimeConfig.maxTurns > 6;
 
     // Proactive context compaction (FR-002): trigger at 70% of the context window,
@@ -8053,12 +8296,35 @@ export class ExplorerRuntime {
       }
 
       // Checkpoint: every CHECKPOINT_INTERVAL turns, ask the model to self-assess.
-      if (checkpointEnabled && turnIndex > 0 && turnIndex % CHECKPOINT_INTERVAL === 0) {
+      if (checkpointEnabled && !sourceClaimCheckMode && turnIndex > 0 &&
+          turnIndex % CHECKPOINT_INTERVAL === 0) {
         messages.push({
           role: 'user',
           content: 'Checkpoint: If evidence is sufficient, finalize now. Otherwise choose the smallest next step (1–2 tool calls max) that closes a specific missing fact.',
         });
       }
+
+      const turnToolPolicy = sourceClaimCheckMode
+        ? sourceClaimCheckToolPolicy({
+            observations,
+            tools,
+            task: args.task,
+            discoveredPaths,
+          })
+        : impactMapWrapperMode
+          ? buildImpactMapToolPolicy({ observations, tools, discoveredPaths })
+        : {
+            tools,
+            parallelToolCalls: !claimCheckMode,
+            instruction: null,
+          };
+      if (turnToolPolicy.instruction &&
+          messages.at(-1)?.content !== turnToolPolicy.instruction) {
+        messages.push({ role: 'user', content: turnToolPolicy.instruction });
+      }
+      const turnKnownToolNames = new Set(turnToolPolicy.tools
+        .map(tool => tool.function?.name)
+        .filter(Boolean));
 
       // Progress: starting a new turn
       if (onProgress) {
@@ -8075,12 +8341,12 @@ export class ExplorerRuntime {
       try {
         completion = await requestProviderCompletion(chatClient, {
           messages,
-          tools,
+          tools: turnToolPolicy.tools,
           reasoningEffort,
           temperature,
           topP,
           maxCompletionTokens: runtimeConfig.maxCompletionTokens,
-          parallelToolCalls: true,
+          parallelToolCalls: turnToolPolicy.parallelToolCalls,
           signal: abortSignal,
         });
       } catch (error) {
@@ -8111,7 +8377,7 @@ export class ExplorerRuntime {
           : 0,
         toolCalls: completion.message.toolCalls.map(call => {
           const name = call.function?.name;
-          return knownToolNames.has(name) ? name : '(unknown)';
+          return turnKnownToolNames.has(name) ? name : '(unknown)';
         }),
         finishReason: transcriptFinishReason(completion.finishReason),
         turn: turnIndex,
@@ -8192,7 +8458,7 @@ export class ExplorerRuntime {
           let action = null;
 
           // Validate tool name first — catch hallucinated tools early
-          const validationError = validateToolName(toolName, knownToolNames);
+          const validationError = validateToolName(toolName, turnKnownToolNames);
           if (validationError) {
             return { toolCall, toolName, toolArgs, toolResult: validationError };
           }
