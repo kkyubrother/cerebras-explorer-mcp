@@ -3795,9 +3795,16 @@ function applyRuntimeProofGate({
   if (proofPolicyResult.passed === true &&
       requiresHistoricalGitEvidence(task, subgoal, wrapperTool)) {
     const supportingRefs = new Set(semanticVerdict.supportingEvidenceRefs);
+    const exactCommitRequestText = requestTextForSubgoal(task, subgoal) || task;
+    const exactCommitRef = exactCommitTaskRequiresDiffHunk(exactCommitRequestText)
+      ? exactCommitRefFromTask(task)
+      : null;
     const hasHistoricalGitEvidence = observations.some(observation =>
       supportingRefs.has(observation?.id) &&
-      isHistoricalGitSynthesisObservation(observation));
+      isHistoricalGitSynthesisObservation(observation) &&
+      (!exactCommitRef ||
+        (observation.kind === 'git_diff_hunk' &&
+          String(observation.sha ?? '').toLowerCase() === exactCommitRef)));
     if (!hasHistoricalGitEvidence) {
       proofPolicyResult = {
         ...proofPolicyResult,
@@ -4242,6 +4249,8 @@ async function runEvidenceRepairToolBatch({
   maxCompletionTokens,
   abortSignal,
   priorActionFingerprints = [],
+  forceSingleAction = false,
+  allowedReadPaths = null,
   onCompletion,
 }) {
   const countersearchOnly = isCollectCountersearchOnlyRepair({
@@ -4268,11 +4277,14 @@ async function runEvidenceRepairToolBatch({
     ? tools.filter(tool => tool?.function?.name === restrictedToolName)
     : tools;
   const repairToolNames = restrictedToolName ? new Set([restrictedToolName]) : knownToolNames;
-  const singleActionRepair = Boolean(restrictedToolName) ||
+  const singleActionRepair = forceSingleAction || Boolean(restrictedToolName) ||
     ['collect_evidence', 'map_change_impact'].includes(wrapperTool);
   const repairBatchLimit = singleActionRepair
     ? 1
     : TOOL_CONCURRENCY;
+  const allowedReadPathSet = Array.isArray(allowedReadPaths)
+    ? new Set(allowedReadPaths.map(normalizeTargetPath).filter(Boolean))
+    : null;
   const messages = buildEvidenceRepairMessages({
     gaps,
     taskContract,
@@ -4341,6 +4353,25 @@ async function runEvidenceRepairToolBatch({
           stage: 'repair',
           type: 'invalid_repair_target',
           message: 'The locate repair must read the certified companion path.',
+          tool: toolName,
+        },
+      });
+      continue;
+    }
+    const normalizedReadPath = toolName === 'repo_read_file'
+      ? normalizeTargetPath(toolArgs.path)
+      : null;
+    if (allowedReadPathSet &&
+        (!normalizedReadPath || !allowedReadPathSet.has(normalizedReadPath))) {
+      plans.push({
+        toolCall,
+        toolName,
+        toolArgs,
+        toolResult: {
+          error: true,
+          stage: 'repair',
+          type: 'invalid_repair_target',
+          message: 'The exact-commit repair must read an allowlisted changed path.',
           tool: toolName,
         },
       });
@@ -5706,6 +5737,179 @@ function includesDetectedStrategy(strategy, label) {
 function toolsNamed(tools, names) {
   const allowed = new Set(names);
   return tools.filter(tool => allowed.has(tool?.function?.name));
+}
+
+function exactCommitRefFromTask(task) {
+  const matches = [...String(task ?? '').matchAll(
+    /\bcommit\s+([0-9a-f]{40})(?![0-9a-z])/giu,
+  )];
+  return matches.length === 1 ? matches[0][1].toLowerCase() : null;
+}
+
+function exactCommitTaskRequiresDiffHunk(task) {
+  const text = String(task ?? '');
+  const requestsChange = /\b(?:add(?:ed|ition)?|chang(?:e|ed|es)|diff|introduc(?:e|ed|tion)|modif(?:y|ied|ication)|remov(?:e|ed|al)|refactor(?:ed|ing)?)\b|변경|수정|추가|제거|도입|리팩터/iu
+    .test(text);
+  if (requestsChange) return true;
+  const remainder = text
+    .replace(/\bcommit\s+[0-9a-f]{40}(?![0-9a-z])(?:['’]s|[을를의은는])?/giu, ' ')
+    .replace(/[?!.,:;]+/gu, ' ')
+    .replace(/\s+/gu, ' ')
+    .trim();
+  const metadataOnly = [
+    /^(?:(?:(?:what|which)\s+(?:is|was)\s+(?:the\s+)?)|(?:(?:please\s+)?(?:show|give|tell)(?:\s+me)?\s+(?:the\s+)?))?(?:author(?:ship)?|committer|commit\s+message|date|hash|sha|subject|timestamp|title)(?:\s+(?:of|for))?$/iu,
+    /^who\s+(?:authored|committed)$/iu,
+    /^who\s+(?:is|was)\s+(?:the\s+)?(?:author|committer)(?:\s+(?:of|for))?$/iu,
+    /^when\s+(?:was|is)\s+(?:it\s+)?(?:authored|committed|created)$/iu,
+    /^(?:(?:작성자|저자|커미터|날짜|메시지|제목|해시)(?:는|은|이|가)?(?:\s*(?:누구(?:인가요|입니까|야)?|언제(?:인가요|입니까|야)?|알려\s*줘|보여\s*줘|확인))?|누가\s+(?:작성|커밋)(?:했나요|했습니까|했어)?|언제\s+(?:작성|커밋)(?:됐나요|되었나요|됐습니까|됐어)?)$/u,
+  ].some((pattern) => pattern.test(remainder));
+  return !metadataOnly;
+}
+
+function exactCommitReadCandidates(observations, commitRef, task = '') {
+  const byPath = new Map();
+  for (const observation of observations) {
+    if (observation?.kind !== 'git_diff_hunk' ||
+        String(observation.sha ?? '').toLowerCase() !== commitRef ||
+        typeof observation.path !== 'string' || !observation.path) {
+      continue;
+    }
+    const candidate = {
+      path: observation.path,
+      ...(Number.isSafeInteger(observation.startLine) && observation.startLine > 0
+        ? { startLine: observation.startLine }
+        : {}),
+      ...(Number.isSafeInteger(observation.endLine) && observation.endLine > 0
+        ? { endLine: observation.endLine }
+        : {}),
+    };
+    const existing = byPath.get(observation.path);
+    const span = (candidate.endLine ?? 0) - (candidate.startLine ?? 0);
+    const existingSpan = (existing?.endLine ?? 0) - (existing?.startLine ?? 0);
+    if (!existing || span > existingSpan) byPath.set(observation.path, candidate);
+  }
+
+  const roleOrder = new Map([
+    ['implementation', 0],
+    ['test', 1],
+    ['config', 2],
+    ['documentation', 3],
+    ['fixture', 4],
+  ]);
+  const taskText = String(task).toLowerCase();
+  const taskPathScore = candidatePath => [...new Set(candidatePath.toLowerCase()
+    .split(/[^a-z0-9]+/u)
+    .filter(token => token.length >= 3 && taskText.includes(token)))]
+    .reduce((score, token) => score + token.length, 0);
+  const architecturePath = /server|runtime|schemas?|adapters?|handlers?|client|consumer|payload/iu;
+  const ranked = [...byPath.values()]
+    .sort((left, right) => {
+      const roleDelta = (roleOrder.get(classifySourceRole(left.path)) ?? 5) -
+        (roleOrder.get(classifySourceRole(right.path)) ?? 5);
+      const taskDelta = taskPathScore(right.path) - taskPathScore(left.path);
+      const architectureDelta = Number(architecturePath.test(right.path)) -
+        Number(architecturePath.test(left.path));
+      return roleDelta || taskDelta || architectureDelta ||
+        (left.path.length - right.path.length) || left.path.localeCompare(right.path);
+    });
+  const primary = ranked[0];
+  if (!primary) return [];
+  const primaryRole = classifySourceRole(primary.path);
+  const companion = ranked.find(candidate =>
+    candidate.path !== primary.path && classifySourceRole(candidate.path) !== primaryRole) ??
+    ranked[1];
+  return companion ? [primary, companion] : [primary];
+}
+
+function exactCommitReadTools(tools, candidates) {
+  const allowedPaths = candidates.map(candidate => candidate.path);
+  return toolsNamed(tools, ['repo_read_file']).map(tool => {
+    const parameters = tool.function?.parameters;
+    const pathSchema = parameters?.properties?.path;
+    if (!pathSchema) return tool;
+    return {
+      ...tool,
+      function: {
+        ...tool.function,
+        parameters: {
+          ...parameters,
+          properties: {
+            ...parameters.properties,
+            path: { ...pathSchema, enum: allowedPaths },
+          },
+        },
+      },
+    };
+  });
+}
+
+export function buildExactCommitToolPolicy({
+  task,
+  observations = [],
+  tools = [],
+  attemptedActions = [],
+}) {
+  const commitRef = exactCommitRefFromTask(task);
+  if (!commitRef) return null;
+
+  const showAttempts = attemptedActions.filter(action =>
+    action?.type === 'tool' && action.tool === 'repo_git_show');
+  const observedCommit = observations.some(observation =>
+    observation?.kind === 'git_commit' &&
+    String(observation.sha ?? '').toLowerCase() === commitRef);
+  if (!observedCommit) {
+    if (showAttempts.length > 0) {
+      return {
+        tools: [],
+        parallelToolCalls: false,
+        instruction: 'The exact commit was not observed after one bounded show attempt. Finalize incomplete without another repository action.',
+      };
+    }
+    return {
+      tools: toolsNamed(tools, ['repo_git_show']),
+      parallelToolCalls: false,
+      instruction: `Exact-commit lookup: call repo_git_show exactly once with ref ${commitRef}. Do not call repo_git_log or repo_git_diff.`,
+    };
+  }
+
+  if (!exactCommitTaskRequiresDiffHunk(task)) {
+    return {
+      tools: [],
+      parallelToolCalls: false,
+      instruction: 'The exact commit metadata is observed. Finalize from that bounded commit metadata without reading current source.',
+    };
+  }
+
+  if (observations.some(observation => observation?.kind === 'source')) {
+    return {
+      tools: [],
+      parallelToolCalls: false,
+      instruction: 'The exact commit and one bounded current-source batch are observed. Finalize now; preserve any unsupported requested part as a gap.',
+    };
+  }
+
+  const candidates = exactCommitReadCandidates(observations, commitRef, task);
+  if (candidates.length === 0) {
+    return {
+      tools: [],
+      parallelToolCalls: false,
+      instruction: exactCommitTaskRequiresDiffHunk(task)
+        ? 'The exact commit exposes no in-scope diff hunk. Commit metadata alone cannot establish the requested scoped change; finalize incomplete without another repository action.'
+        : 'The exact commit is observed but exposes no in-scope current-source range. Finalize from the bounded commit metadata and preserve any remaining gap.',
+    };
+  }
+  const candidateSummary = candidates.map(candidate => {
+    const range = candidate.startLine && candidate.endLine
+      ? `@${candidate.startLine}-${candidate.endLine}`
+      : '';
+    return `${candidate.path}${range}`;
+  }).join(', ');
+  return {
+    tools: exactCommitReadTools(tools, candidates),
+    parallelToolCalls: true,
+    allowedReadPaths: candidates.map(candidate => candidate.path),
+    instruction: `Exact-commit current-source check: issue at most one narrow repo_read_file call for each listed path, around its cited range, then finalize without another git call. Other paths are rejected. Qualify every conclusion as in-scope; scope-filtered git output must not be described as the whole commit: ${candidateSummary}.`,
+  };
 }
 
 function sourceClaimCheckToolPolicy({ observations, tools, task, discoveredPaths }) {
@@ -8171,13 +8375,19 @@ export class ExplorerRuntime {
     // Checkpoint interval: inject a self-assessment message every N turns.
     // Only active when the fixed turn limit leaves enough room to benefit (>6).
     const CHECKPOINT_INTERVAL = 4;
+    const detectedStrategy = detectStrategy(args.task);
     const claimCheckMode = args.taskMode === 'evidence_verification';
     const sourceClaimCheckMode = claimCheckMode &&
-      !includesDetectedStrategy(detectStrategy(args.task), 'git-guided');
+      !includesDetectedStrategy(detectedStrategy, 'git-guided');
     const hasKnownAnchor = ['files', 'symbols', 'regex'].some(key =>
       Array.isArray(args.hints?.[key]) && args.hints[key].length > 0);
     const impactMapWrapperMode = args.taskMode === 'edit_planning' && !hasKnownAnchor &&
       args.task.startsWith(MAP_CHANGE_WRAPPER_TASK_PREFIX);
+    const exactCommitRef = wrapperToolForTaskMode(args.taskMode) === 'explore_repo' &&
+      includesDetectedStrategy(detectedStrategy, 'git-guided')
+      ? exactCommitRefFromTask(args.task)
+      : null;
+    const exactCommitMode = Boolean(exactCommitRef);
     const checkpointEnabled = runtimeConfig.maxTurns > 6;
 
     // Proactive context compaction (FR-002): trigger at 70% of the context window,
@@ -8304,6 +8514,14 @@ export class ExplorerRuntime {
         });
       }
 
+      const exactCommitPolicy = exactCommitMode
+        ? buildExactCommitToolPolicy({
+            task: args.task,
+            observations,
+            tools,
+            attemptedActions: attemptedRepositoryActions,
+          })
+        : null;
       const turnToolPolicy = sourceClaimCheckMode
         ? sourceClaimCheckToolPolicy({
             observations,
@@ -8313,11 +8531,13 @@ export class ExplorerRuntime {
           })
         : impactMapWrapperMode
           ? buildImpactMapToolPolicy({ observations, tools, discoveredPaths })
-        : {
-            tools,
-            parallelToolCalls: !claimCheckMode,
-            instruction: null,
-          };
+        : exactCommitPolicy
+          ? exactCommitPolicy
+          : {
+              tools,
+              parallelToolCalls: !claimCheckMode,
+              instruction: null,
+            };
       if (turnToolPolicy.instruction &&
           messages.at(-1)?.content !== turnToolPolicy.instruction) {
         messages.push({ role: 'user', content: turnToolPolicy.instruction });
@@ -8448,6 +8668,10 @@ export class ExplorerRuntime {
       }
 
       // Execute up to TOOL_CONCURRENCY tool calls in parallel
+      const allowedReadPaths = Array.isArray(turnToolPolicy.allowedReadPaths)
+        ? new Set(turnToolPolicy.allowedReadPaths.map(normalizeTargetPath).filter(Boolean))
+        : null;
+      const selectedReadPaths = new Set();
       const toolCallResults = await runWithConcurrency(
         completion.message.toolCalls,
         TOOL_CONCURRENCY,
@@ -8466,7 +8690,23 @@ export class ExplorerRuntime {
           try {
             toolArgs = safeJsonParse(toolCall.function?.arguments ?? '{}');
             action = { type: 'tool', tool: toolName, arguments: toolArgs };
-            toolResult = await repoToolkit.callTool(toolName, toolArgs);
+            const normalizedReadPath = toolName === 'repo_read_file'
+              ? normalizeTargetPath(toolArgs.path)
+              : null;
+            if (allowedReadPaths &&
+                (!normalizedReadPath || !allowedReadPaths.has(normalizedReadPath) ||
+                  selectedReadPaths.has(normalizedReadPath))) {
+              toolResult = {
+                error: true,
+                stage: 'exploration',
+                type: 'tool_policy_rejected',
+                message: 'The exact-commit read must use each listed changed path at most once.',
+                tool: toolName,
+              };
+            } else {
+              if (allowedReadPaths) selectedReadPaths.add(normalizedReadPath);
+              toolResult = await repoToolkit.callTool(toolName, toolArgs);
+            }
           } catch (error) {
             toolResult = {
               error: true,
@@ -8664,6 +8904,12 @@ export class ExplorerRuntime {
           priorActionFingerprints,
         };
         traceTrustEvent('repair', activeRepairTrace);
+        const exactCommitRepairCandidates = exactCommitMode
+          ? exactCommitReadCandidates(observations, exactCommitRef, args.task)
+          : [];
+        const repairTools = exactCommitMode
+          ? exactCommitReadTools(tools, exactCommitRepairCandidates)
+          : tools;
         const repairRun = await runEvidenceRepairToolBatch({
           chatClient,
           gaps: repairGaps,
@@ -8674,8 +8920,10 @@ export class ExplorerRuntime {
           effectiveScope,
           anchors: repairAnchors,
           observations,
-          tools,
-          knownToolNames,
+          tools: repairTools,
+          knownToolNames: exactCommitMode
+            ? new Set(repairTools.map(tool => tool.function?.name).filter(Boolean))
+            : knownToolNames,
           repoToolkit,
           reasoningEffort,
           temperature,
@@ -8683,6 +8931,10 @@ export class ExplorerRuntime {
           maxCompletionTokens: runtimeConfig.maxCompletionTokens,
           abortSignal,
           priorActionFingerprints,
+          forceSingleAction: exactCommitMode,
+          allowedReadPaths: exactCommitMode
+            ? exactCommitRepairCandidates.map(candidate => candidate.path)
+            : null,
           onCompletion: completion => {
             stats.turns += 1;
             recordCompletionStats(stats, completion, transcript);

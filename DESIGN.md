@@ -188,6 +188,8 @@ Explorer model은 audited ready goal을 대상으로 RepoToolkit을 호출한다
 
 `collect_evidence`의 내부 `evidence_verification` mode는 가장 강한 exact anchor를 먼저 읽고 plausible counterexample/exception/alternative를 대상으로 complete search를 한 번 수행하도록 안내한다. 동일 claim에 대한 broad synonym search를 순차 반복하지 않는다.
 
+Generic `explore_repo`가 정확히 하나의 `commit <40-hex SHA>`를 받으면 recent log를 탐색하지 않고 그 ref의 scope-filtered `repo_git_show`를 한 번 수행한다. 성공 시 대표 implementation과 companion 경로를 최대 두 개의 allowlisted current-source read batch로 확인하고 종료한다. Show 실패나 무관측 상태에서는 같은 ref를 반복하지 않고, 남은 repair도 runtime-enforced allowlisted read 한 번으로 제한해 gap을 보존한다. Scope 안에 diff hunk가 없으면 commit metadata만으로 scoped change claim을 완료하지 않는다.
+
 - 실제 읽은 path/range/content
 - Search boundary와 query
 - Git observation

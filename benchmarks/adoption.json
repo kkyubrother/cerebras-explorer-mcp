@@ -173,19 +173,25 @@
       "description": "Use the general explorer for recent changes that need git-guided context.",
       "tool": "explore_repo",
       "args": {
-        "task": "What changed in commit ca99b4d4fef6bd8d252d4a2d66c1d8f647ba58c4 around MCP tool metadata and what should be reviewed?",
+        "task": "Within the supplied scope, what MCP tool metadata change did commit ca99b4d4fef6bd8d252d4a2d66c1d8f647ba58c4 make?",
         "scope": ["src/**", "tests/**"]
       },
       "expectations": [
         {
           "label": "Answer discusses change context",
           "source": "combined_text",
-          "groups": [["server.mjs"], ["TOOL_DISPATCH_RULE"]],
-          "weight": 0.55
+          "groups": [["TOOL_DISPATCH_RULE", "dispatch rule", "server initialization", "initialization instructions"], ["tool count", "model name", "six tools", "six MCP tools", "six-tool dispatch", "shorter summaries", "shorter descriptions"]],
+          "weight": 0.5
+        },
+        {
+          "label": "Git evidence identifies an in-scope changed metadata surface",
+          "source": "evidence_paths",
+          "groups": [["src/mcp/server.mjs", "src/explorer/runtime.mjs", "src/explorer/schemas.mjs", "tests/mcp-server.test.mjs", "tests/schemas.test.mjs"]],
+          "weight": 0.2
         }
       ],
       "checks": [
-        { "label": "Targets present", "type": "min_target_count", "value": 1, "weight": 0.15 },
+        { "label": "No redundant parent targets", "type": "max_target_count", "value": 0, "weight": 0.1 },
         { "label": "Git evidence retained", "type": "min_git_evidence_count", "value": 1, "weight": 0.2 }
       ]
     },

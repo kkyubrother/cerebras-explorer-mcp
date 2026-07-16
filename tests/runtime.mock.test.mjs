@@ -7,6 +7,7 @@ import path from 'node:path';
 
 import {
   ExplorerRuntime as RuntimeImplementation,
+  buildExactCommitToolPolicy,
   buildImpactMapToolPolicy,
   buildParentHandoffV3,
   buildRuntimeGenericImpactPolicyArtifacts,
@@ -2675,6 +2676,120 @@ test('Spec 028 T071 — unanchored impact mapping bounds candidate batches and r
   });
   assert.deepEqual(recoveredFinalize.tools, []);
   assert.match(recoveredFinalize.instruction, /Finalize now/u);
+});
+
+test('Spec 028 T071 — exact commit exploration uses one show and one bounded read batch', () => {
+  const commitRef = 'ca99b4d4fef6bd8d252d4a2d66c1d8f647ba58c4';
+  const task = `What changed in commit ${commitRef}?`;
+  const tools = ['repo_git_log', 'repo_git_diff', 'repo_git_show', 'repo_read_file']
+    .map(name => ({ function: { name } }));
+  const initial = buildExactCommitToolPolicy({ task, tools });
+  assert.deepEqual(initial.tools.map(tool => tool.function.name), ['repo_git_show']);
+  assert.equal(initial.parallelToolCalls, false);
+  assert.match(initial.instruction, new RegExp(commitRef));
+  assert.match(STRATEGY_DESCRIPTIONS['git-guided'],
+    /exact full commit SHA[\s\S]{0,80}repo_git_show/u);
+  assert.match(buildExplorerUserPrompt({ task, scope: [] }),
+    /call repo_git_show with that exact ref directly/u);
+  assert.match(buildExplorerSystemPrompt({
+    repoRoot: '/tmp/repo',
+    runtimeConfig: getRuntimeConfig(),
+  }), /Exact full commit SHA[^\n]+repo_git_show/u);
+
+  const attemptedActions = [{
+    type: 'tool',
+    tool: 'repo_git_show',
+    arguments: { ref: commitRef },
+  }];
+  const failed = buildExactCommitToolPolicy({ task, tools, attemptedActions });
+  assert.deepEqual(failed.tools, []);
+  assert.match(failed.instruction, /Finalize incomplete/u);
+
+  const noScopedHunk = buildExactCommitToolPolicy({
+    task,
+    tools,
+    attemptedActions,
+    observations: [{ kind: 'git_commit', sha: commitRef }],
+  });
+  assert.deepEqual(noScopedHunk.tools, []);
+  assert.match(noScopedHunk.instruction,
+    /no in-scope diff hunk[\s\S]*metadata alone[\s\S]*finalize incomplete/iu);
+
+  for (const ambiguousTask of [
+    `What did commit ${commitRef} do?`,
+    `Summarize commit ${commitRef}.`,
+    `What does commit ${commitRef} do to title rendering?`,
+    `Who does commit ${commitRef} affect?`,
+  ]) {
+    const ambiguous = buildExactCommitToolPolicy({
+      task: ambiguousTask,
+      tools,
+      attemptedActions,
+      observations: [{ kind: 'git_commit', sha: commitRef }],
+    });
+    assert.match(ambiguous.instruction, /no in-scope diff hunk[\s\S]*finalize incomplete/iu);
+  }
+
+  const metadataOnly = buildExactCommitToolPolicy({
+    task: `Who authored commit ${commitRef}?`,
+    tools,
+    attemptedActions,
+    observations: [{ kind: 'git_commit', sha: commitRef }],
+  });
+  assert.match(metadataOnly.instruction, /bounded commit metadata/u);
+  assert.deepEqual(metadataOnly.tools, []);
+
+  const gitObservations = [{
+    kind: 'git_commit',
+    sha: commitRef,
+  }, {
+    kind: 'git_diff_hunk',
+    sha: commitRef,
+    path: 'tests/mcp-server.test.mjs',
+    startLine: 50,
+    endLine: 60,
+  }, {
+    kind: 'git_diff_hunk',
+    sha: commitRef,
+    path: 'src/mcp/server.mjs',
+    startLine: 171,
+    endLine: 180,
+  }];
+  const read = buildExactCommitToolPolicy({
+    task,
+    tools,
+    attemptedActions,
+    observations: gitObservations,
+  });
+  assert.deepEqual(read.tools.map(tool => tool.function.name), ['repo_read_file']);
+  assert.equal(read.parallelToolCalls, true);
+  assert.match(read.instruction, /src\/mcp\/server\.mjs@171-180/u);
+  assert.match(read.instruction, /tests\/mcp-server\.test\.mjs@50-60/u);
+  assert.deepEqual(read.allowedReadPaths,
+    ['src/mcp/server.mjs', 'tests/mcp-server.test.mjs']);
+
+  const done = buildExactCommitToolPolicy({
+    task,
+    tools,
+    attemptedActions,
+    observations: [...gitObservations, {
+      kind: 'source',
+      path: 'src/mcp/server.mjs',
+      startLine: 171,
+      endLine: 180,
+    }],
+  });
+  assert.deepEqual(done.tools, []);
+  assert.match(done.instruction, /Finalize now/u);
+
+  assert.equal(buildExactCommitToolPolicy({
+    task: 'What changed recently around MCP metadata?',
+    tools,
+  }), null);
+  assert.equal(buildExactCommitToolPolicy({
+    task: `Compare commit ${commitRef} with commit ${'b'.repeat(40)}.`,
+    tools,
+  }), null);
 });
 
 test('Phase 3 — Korean task produces Korean answer/summary language (language rule)', async () => {
@@ -11898,6 +12013,335 @@ semanticPipelineRuntimeTest(
     assert.equal(result.parentHandoff.directAnswer, claim.text);
     assert.equal(result.parentHandoff.evidence.some(item => item.kind === 'git'), true);
     assert.equal(result.observations.some(item => item.kind === 'source'), true);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T071 — generic exact-commit requests activate the bounded turn policy',
+  { skip: !hasGit() },
+  async () => {
+    const root = await makeRepoFixture();
+    try {
+      const git = args => execFileSync('git', args, {
+        cwd: root,
+        stdio: 'pipe',
+        encoding: 'utf8',
+      }).trim();
+      git(['init']);
+      git(['config', 'user.email', 'explorer@example.invalid']);
+      git(['config', 'user.name', 'Explorer Test']);
+      git(['add', '.']);
+      git(['commit', '-m', 'introduce requireAuth']);
+      const commitRef = git(['rev-parse', 'HEAD']);
+      const task = `What changed in commit ${commitRef} around requireAuth?`;
+      const goal = trustGoal(task, {
+        id: 'S-exact-require-auth',
+        question: task,
+        originText: task,
+        proofCondition: 'Observe the requested change in repository history and current source.',
+      });
+      const claim = candidateClaim(
+        'C-exact-require-auth',
+        goal.id,
+        'The inspected commit introduced requireAuth, which remains in current source.',
+        ['E1:hunk:1', 'E2'],
+      );
+      let explorationRequest = 0;
+      const steps = buildTrustSteps({
+        goals: [goal],
+        initial: {
+          tools: [{
+            tool: 'repo_git_show',
+            args: { ref: commitRef },
+            id: 'exact-auth-show',
+          }, {
+            tool: 'repo_read_file',
+            args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+            id: 'exact-auth-source',
+          }],
+          claims: [claim],
+          verdicts: [semanticVerdict(claim.id, 'supported', ['E1:hunk:1', 'E2'])],
+          assertRequest(request) {
+            explorationRequest += 1;
+            const toolNames = request.tools.map(tool => tool.function.name);
+            if (explorationRequest === 1) {
+              assert.deepEqual(toolNames, ['repo_git_show']);
+              assert.match(JSON.stringify(request.messages), new RegExp(commitRef));
+            } else {
+              assert.deepEqual(toolNames, ['repo_read_file']);
+              assert.match(JSON.stringify(request.messages), /src\/auth\.js/u);
+            }
+          },
+        },
+      });
+      const client = new ScriptedGoalAuditClient(steps);
+      const runtime = new RuntimeImplementation({ chatClient: client });
+      const result = await runtime.explore({
+        task,
+        repo_root: root,
+        scope: ['src/**'],
+      });
+
+      const explorationRequests = client.requests.filter(request =>
+        classifyControlRequest(request) === 'exploration');
+      assert.equal(explorationRequests.length, 3);
+      assert.deepEqual(explorationRequests[2].tools, []);
+      assert.deepEqual(providerToolActions(client).map(action => action.tool),
+        ['repo_git_show', 'repo_read_file']);
+      assert.equal(result.parentHandoff.state, 'complete');
+      assert.equal(result.parentHandoff.evidence.some(item => item.kind === 'git'), true);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T071 — exact-commit metadata requests stop after one show',
+  { skip: !hasGit() },
+  async () => {
+    const root = await makeRepoFixture();
+    try {
+      const git = args => execFileSync('git', args, {
+        cwd: root,
+        stdio: 'pipe',
+        encoding: 'utf8',
+      }).trim();
+      git(['init']);
+      git(['config', 'user.email', 'explorer@example.invalid']);
+      git(['config', 'user.name', 'Explorer Test']);
+      git(['add', '.']);
+      git(['commit', '-m', 'introduce requireAuth']);
+      const commitRef = git(['rev-parse', 'HEAD']);
+      const task = `Who authored commit ${commitRef}?`;
+      const goal = trustGoal(task, {
+        id: 'S-exact-commit-author',
+        question: task,
+        originText: task,
+        proofCondition: 'Observe the requested author in exact commit metadata.',
+      });
+      const claim = candidateClaim(
+        'C-exact-commit-author',
+        goal.id,
+        `Commit ${commitRef} was authored by Explorer Test.`,
+        ['E1'],
+      );
+      const steps = [{
+        stage: 'planner:1',
+        value: plannerControl([goal]),
+      }, {
+        stage: 'goal_audit:1',
+        value: auditorControl([auditControlRecord(goal)]),
+      }, {
+        stage: 'exploration:1',
+        run(request) {
+          assert.deepEqual(request.tools.map(tool => tool.function.name), ['repo_git_show']);
+          return toolControlCompletion(
+            'repo_git_show',
+            { ref: commitRef },
+            'exact-author-show',
+          );
+        },
+      }, {
+        stage: 'exploration:2',
+        run(request) {
+          assert.deepEqual(request.tools, []);
+          assert.match(JSON.stringify(request.messages), /bounded commit metadata/iu);
+          return controlCompletion('The bounded commit metadata identifies the author.');
+        },
+      }, {
+        stage: 'synthesis:1',
+        value: readyExplorationResult(),
+      }, {
+        stage: 'claim_synthesis:1',
+        value: { claims: [claim] },
+      }, {
+        stage: 'semantic_verifier:1',
+        value: verifierResponse([semanticVerdict(claim.id, 'supported', ['E1'])]),
+      }];
+      const client = new ScriptedGoalAuditClient(steps);
+      const runtime = new RuntimeImplementation({ chatClient: client });
+      const result = await runtime.explore({
+        task,
+        repo_root: root,
+        scope: ['src/**'],
+      });
+
+      assert.deepEqual(providerToolActions(client).map(action => action.tool),
+        ['repo_git_show']);
+      assert.equal(result.parentHandoff.state, 'complete');
+      assert.equal(result.parentHandoff.evidence.some(item => item.kind === 'git'), true);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T071 — exact scoped change requires an in-scope diff hunk',
+  { skip: !hasGit() },
+  async () => {
+    const root = await makeRepoFixture();
+    try {
+      const git = args => execFileSync('git', args, {
+        cwd: root,
+        stdio: 'pipe',
+        encoding: 'utf8',
+      }).trim();
+      git(['init']);
+      git(['config', 'user.email', 'explorer@example.invalid']);
+      git(['config', 'user.name', 'Explorer Test']);
+      git(['add', '.']);
+      git(['commit', '-m', 'introduce requireAuth']);
+      const commitRef = git(['rev-parse', 'HEAD']);
+      const task = `What changed in commit ${commitRef} around requireAuth?`;
+      const goal = trustGoal(task, {
+        id: 'S-exact-out-of-scope-change',
+        question: task,
+        originText: task,
+        proofCondition: 'Observe the requested scoped change in repository history.',
+      });
+      const claim = candidateClaim(
+        'C-exact-out-of-scope-change',
+        goal.id,
+        'The inspected commit introduced requireAuth.',
+        ['E1'],
+      );
+      const steps = [{
+        stage: 'planner:1',
+        value: plannerControl([goal]),
+      }, {
+        stage: 'goal_audit:1',
+        value: auditorControl([auditControlRecord(goal)]),
+      }, {
+        stage: 'exploration:1',
+        run: () => toolControlCompletion(
+          'repo_git_show',
+          { ref: commitRef },
+          'exact-out-of-scope-show',
+        ),
+      }, {
+        stage: 'exploration:2',
+        content: 'The exact commit has no in-scope diff hunk.',
+      }, {
+        stage: 'synthesis:1',
+        value: readyExplorationResult(),
+      }, {
+        stage: 'claim_synthesis:1',
+        value: { claims: [claim] },
+      }, {
+        stage: 'semantic_verifier:1',
+        value: verifierResponse([semanticVerdict(claim.id, 'supported', ['E1'])]),
+      }, {
+        stage: 'exploration:3',
+        content: 'No in-scope diff hunk is available for repair.',
+      }, {
+        stage: 'claim_synthesis:2',
+        value: { claims: [claim] },
+      }, {
+        stage: 'semantic_verifier:2',
+        value: verifierResponse([semanticVerdict(claim.id, 'supported', ['E1'])]),
+      }];
+      const client = new ScriptedGoalAuditClient(steps);
+      const runtime = new RuntimeImplementation({ chatClient: client });
+      const result = await runtime.explore({
+        task,
+        repo_root: root,
+        scope: ['tests/**'],
+      });
+
+      assert.equal(result.observations.some(item => item.kind === 'git_commit'), true);
+      assert.equal(result.observations.some(item => item.kind === 'git_diff_hunk'), false);
+      assert.equal(result.taskContract.subgoals[0].state, 'gap');
+      assert.equal(result.parentHandoff.state, 'incomplete');
+      assert.equal(result.parentHandoff.directAnswer, undefined);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T071 — exact-commit repair rejects a path outside its runtime allowlist',
+  { skip: !hasGit() },
+  async () => {
+    const root = await makeRepoFixture();
+    try {
+      const git = args => execFileSync('git', args, {
+        cwd: root,
+        stdio: 'pipe',
+        encoding: 'utf8',
+      }).trim();
+      git(['init']);
+      git(['config', 'user.email', 'explorer@example.invalid']);
+      git(['config', 'user.name', 'Explorer Test']);
+      git(['add', '.']);
+      git(['commit', '-m', 'introduce requireAuth']);
+      const commitRef = git(['rev-parse', 'HEAD']);
+      await fs.writeFile(path.join(root, 'src', 'unrelated.js'), 'export const unrelated = true;\n');
+      const task = `What changed in commit ${commitRef} around requireAuth?`;
+      const goal = trustGoal(task, {
+        id: 'S-exact-repair-allowlist',
+        question: task,
+        originText: task,
+        proofCondition: 'Observe the requested change in repository history and current source.',
+      });
+      const claim = candidateClaim(
+        'C-exact-repair-allowlist',
+        goal.id,
+        'The inspected commit introduced requireAuth.',
+        ['E1:hunk:1', 'E2'],
+      );
+      const steps = buildTrustSteps({
+        goals: [goal],
+        initial: {
+          tools: [{
+            tool: 'repo_git_show',
+            args: { ref: commitRef },
+            id: 'exact-repair-show',
+          }, {
+            tool: 'repo_read_file',
+            args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+            id: 'exact-repair-source',
+          }],
+          claims: [claim],
+          verdicts: [semanticVerdict(claim.id, 'insufficient')],
+        },
+        repair: {
+          tools: [{
+            tool: 'repo_read_file',
+            args: { path: 'src/unrelated.js', startLine: 1, endLine: 1 },
+            id: 'exact-repair-unlisted-source',
+          }],
+          assertRequest(request) {
+            const pathEnum = request.tools[0]?.function?.parameters?.properties?.path?.enum;
+            assert.deepEqual(new Set(pathEnum), new Set([
+              'src/auth.js',
+              'src/routes/user.js',
+            ]));
+            assert.equal(pathEnum.includes('src/unrelated.js'), false);
+          },
+          claims: [],
+          verdicts: [],
+        },
+      });
+      const client = new ScriptedGoalAuditClient(steps);
+      const runtime = new RuntimeImplementation({ chatClient: client });
+      const result = await runtime.explore({
+        task,
+        repo_root: root,
+        scope: ['src/**'],
+      });
+
+      const sourcePaths = result.observations
+        .filter(item => item.kind === 'source')
+        .map(item => item.path);
+      assert.deepEqual(sourcePaths, ['src/auth.js']);
+      assert.equal(sourcePaths.includes('src/unrelated.js'), false);
+      assert.equal(result.parentHandoff.state, 'incomplete');
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
   },
 );
 
