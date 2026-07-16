@@ -12117,16 +12117,21 @@ semanticPipelineRuntimeTest(
         stage: 'claim_synthesis:1',
         run(request) {
           const packet = parseControlPacket(request);
+          assert.equal(request.temperature, 0);
+          assert.equal(request.topP, 1);
           assert.deepEqual(packet.control.knownTestAnchor, {
             subgoalId: goal.id,
             evidenceRefs: ['E1'],
           });
+          assert.deepEqual(packet.observations.map(observation => observation.id), ['E1']);
           return controlCompletion({ claims: [substituted] });
         },
       },
       {
         stage: 'claim_synthesis:2',
         run(request) {
+          assert.equal(request.temperature, 0);
+          assert.equal(request.topP, 1);
           const correction = request.messages
             .map(message => typeof message.content === 'string' ? message.content : '')
             .join('\n');
@@ -12235,6 +12240,121 @@ semanticPipelineRuntimeTest(
     assert.equal(result.failure, null, JSON.stringify(client.stageLabels));
     assert.equal(result.parentHandoff.state, 'complete');
     assert.equal(result.parentHandoff.directAnswer, corrected.text);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — a direct-source sibling keeps the shared known-anchor batch',
+  async () => {
+    const task = 'Identify the test that covers the pipeline entry path and identify the runtime config source.';
+    const goals = [
+      trustGoal(task, {
+        id: 'S-focused-entry-test',
+        question: 'Which test covers the pipeline entry path?',
+        originText: 'Identify the test that covers the pipeline entry path',
+        proofCondition: 'Identify one current entry-path test and what it verifies.',
+      }),
+      trustGoal(task, {
+        id: 'S-runtime-config-source',
+        question: 'Which source defines the runtime config?',
+        originText: 'identify the runtime config source',
+        proofCondition: 'Identify the current source that defines the runtime config.',
+      }),
+    ];
+    const claims = [
+      candidateClaim(
+        'C-focused-entry-test',
+        goals[0].id,
+        'tests/test_cli.py verifies worker fan-out for the pipeline entry path.',
+        ['E1'],
+      ),
+      candidateClaim(
+        'C-runtime-config-source',
+        goals[1].id,
+        'pipeline/config.py defines the runtime worker configuration.',
+        ['E2'],
+      ),
+    ];
+    const steps = [
+      { stage: 'planner:1', value: plannerControl(goals) },
+      {
+        stage: 'goal_audit:1',
+        value: auditorControl(goals.map(goal => auditControlRecord(goal))),
+      },
+      {
+        stage: 'exploration:1',
+        run: () => toolControlCompletion(
+          'repo_read_file',
+          { path: 'tests/test_cli.py', startLine: 1, endLine: 3 },
+          'read-focused-entry-test',
+        ),
+      },
+      {
+        stage: 'exploration:2',
+        run: () => toolControlCompletion(
+          'repo_read_file',
+          { path: 'pipeline/config.py', startLine: 1, endLine: 2 },
+          'read-runtime-config',
+        ),
+      },
+      {
+        stage: 'exploration:3',
+        run: () => toolControlCompletion(
+          'repo_read_file',
+          { path: 'tests/test_orchestrator.py', startLine: 1, endLine: 2 },
+          'read-unrelated-orchestrator-test',
+        ),
+      },
+      { stage: 'exploration:4', content: 'The bounded direct-source pass is complete.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+      {
+        stage: 'claim_synthesis:1',
+        run(request) {
+          const packet = parseControlPacket(request);
+          assert.deepEqual(packet.control.requiredSubgoals.map(goal => goal.id),
+            goals.map(goal => goal.id));
+          assert.ok(packet.observations.some(observation => observation.id === 'E1'));
+          assert.ok(packet.observations.some(observation => observation.id === 'E2'));
+          assert.ok(packet.observations.some(observation => observation.id === 'E3'));
+          assert.deepEqual(packet.control.knownTestAnchor, {
+            subgoalId: goals[0].id,
+            evidenceRefs: ['E1'],
+          });
+          assert.equal(request.temperature, 1);
+          assert.equal(request.topP, 0.95);
+          return controlCompletion({ claims });
+        },
+      },
+      {
+        stage: 'semantic_verifier:1',
+        value: verifierResponse(claims.map(claim =>
+          semanticVerdict(claim.id, 'supported', claim.evidenceRefs))),
+      },
+    ];
+
+    const { client, result } = await runTrustScript(steps, {
+      task,
+      scope: ['pipeline/**', 'tests/**'],
+      hints: { files: ['tests/test_cli.py', 'pipeline/config.py'] },
+      async setup(root) {
+        await fs.mkdir(path.join(root, 'pipeline'), { recursive: true });
+        await fs.mkdir(path.join(root, 'tests'), { recursive: true });
+        await fs.writeFile(path.join(root, 'pipeline', 'config.py'),
+          'WORKERS = 3\n');
+        await fs.writeFile(path.join(root, 'tests', 'test_cli.py'),
+          'def test_worker_fan_out():\n    assert main() == 0\n');
+        await fs.writeFile(path.join(root, 'tests', 'test_orchestrator.py'),
+          'def test_drain_queue():\n    assert drain() == 0\n');
+      },
+    });
+
+    assert.equal(client.stageCounts.get('claim_synthesis'), 1);
+    assert.equal(result.failure, null, JSON.stringify(client.stageLabels));
+    assert.equal(result.parentHandoff.state, 'complete');
+    assert.deepEqual(result.taskContract.subgoals.map(goal => [goal.id, goal.state]), [
+      [goals[0].id, 'supported'],
+      [goals[1].id, 'supported'],
+    ]);
   },
 );
 

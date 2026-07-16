@@ -5991,11 +5991,10 @@ export class ExplorerRuntime {
       const batchSubgoalIds = new Set(subgoalBatch.map(subgoal => subgoal.id));
       const batchPriorClaims = safePriorClaims.filter(claim =>
         batchSubgoalIds.has(claim.subgoalId));
-      const synthesisObservations = claimSynthesisObservations(
+      let synthesisObservations = claimSynthesisObservations(
         subgoalBatch,
         safeObservations,
       );
-      const synthesisObservationIds = runtimeObservationIds(synthesisObservations);
       const observedKnownTestAnchor = batchSubgoalIds.has(knownTestAnchorSubgoalId)
         ? singleObservedKnownTestAnchor(knownFileAnchors, synthesisObservations)
         : null;
@@ -6005,6 +6004,15 @@ export class ExplorerRuntime {
             ...observedKnownTestAnchor,
           }
         : null;
+      const focusedKnownTestAnchor = knownTestAnchor && subgoalBatch.length === 1;
+      const validationObservations = synthesisObservations;
+      if (focusedKnownTestAnchor) {
+        const anchorEvidenceRefs = new Set(knownTestAnchor.evidenceRefs);
+        synthesisObservations = synthesisObservations.filter(observation =>
+          anchorEvidenceRefs.has(observation.id));
+      }
+      const synthesisObservationIds = runtimeObservationIds(synthesisObservations);
+      const validationObservationIds = runtimeObservationIds(validationObservations);
       const synthesisFreshEvidenceRefs = freshEvidenceRefs.filter(ref =>
         synthesisObservationIds.has(ref));
       if (synthesisObservations.length === 0 && batchPriorClaims.length === 0) continue;
@@ -6029,15 +6037,15 @@ export class ExplorerRuntime {
         schema: CLAIM_SYNTHESIS_SCHEMA,
         stage: 'claim_synthesis',
         reasoningEffort,
-        temperature,
-        topP,
+        temperature: focusedKnownTestAnchor ? 0 : temperature,
+        topP: focusedKnownTestAnchor ? 1 : topP,
         maxCompletionTokens,
         abortSignal,
         onCompletion,
         validate: raw => validateSynthesizedClaimBatch(raw, {
           taskContract: batchContract,
-          observationIds: synthesisObservationIds,
-          observations: synthesisObservations,
+          observationIds: validationObservationIds,
+          observations: validationObservations,
           knownTestAnchor,
           usedClaimIds,
           priorClaims: batchPriorClaims,
@@ -6053,8 +6061,8 @@ export class ExplorerRuntime {
             accepted: true,
             value: validateSynthesizedClaimBatch(parsed, {
               taskContract: batchContract,
-              observationIds: synthesisObservationIds,
-              observations: synthesisObservations,
+              observationIds: validationObservationIds,
+              observations: validationObservations,
               knownTestAnchor,
               usedClaimIds,
               priorClaims: batchPriorClaims,
