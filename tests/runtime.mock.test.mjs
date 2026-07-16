@@ -11874,7 +11874,7 @@ semanticPipelineRuntimeTest(
         'trace-reversed-usage-claim',
         goals[1].id,
         'requireAuth is used by src/routes/user.js.',
-        ['E2', 'E3'],
+        ['E3'],
       ),
     ];
     const { result } = await runTrustScript(buildTrustSteps({
@@ -11903,7 +11903,11 @@ semanticPipelineRuntimeTest(
           semanticVerdict(claims[1].id, 'supported', ['E2', 'E3']),
         ],
       },
-    }), { task, taskMode: 'symbol_trace' });
+    }), {
+      task,
+      taskMode: 'symbol_trace',
+      hints: { symbols: ['requireAuth'] },
+    });
 
     assert.equal(result.failure, null);
     assert.deepEqual(result.taskContract.subgoals.map(goal => goal.state),
@@ -11914,8 +11918,101 @@ semanticPipelineRuntimeTest(
       observation.kind === 'search' && observation.normalizedArgs?.scope?.[0] === 'src');
     assert.deepEqual(usageSearch?.boundary, ['src/**']);
     assert.equal(usageSearch?.enumerationComplete, true);
+    assert.deepEqual(result.semanticVerification.claims
+      .find(item => item.id === claims[1].id)?.evidenceRefs, ['E3', 'E2']);
     assert.ok(result.parentHandoff.evidence.some(item =>
       item.kind === 'source' && item.path === 'src/routes/user.js'));
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — bounded usage does not bind an unrelated complete search',
+  async () => {
+    const task = 'Trace every in-scope requireAuth usage.';
+    const definitionGoal = {
+      id: 'trace-unrelated-search-definition',
+      question: 'Where is requireAuth defined?',
+      originRefs: ['wrapper:trace_symbol:definition'],
+      claimType: 'symbol_definition',
+      proofCondition: 'Observe the requireAuth definition source.',
+      constraints: [],
+    };
+    const usageGoal = {
+      id: 'trace-unrelated-search-usage',
+      question: 'Where is requireAuth used?',
+      originRefs: ['wrapper:trace_symbol:usage'],
+      claimType: 'symbol_usage',
+      proofCondition: 'Cross-check every in-scope requireAuth usage.',
+      constraints: [],
+    };
+    const definitionClaim = candidateClaim(
+      'trace-unrelated-definition-claim',
+      definitionGoal.id,
+      'requireAuth is defined in src/auth.js.',
+      ['E1'],
+    );
+    const usageClaim = candidateClaim(
+      'trace-unrelated-search-claim',
+      usageGoal.id,
+      'requireAuth is used by src/routes/user.js.',
+      ['E3'],
+    );
+    const { client, result } = await runTrustScript(buildTrustSteps({
+      goals: [definitionGoal, usageGoal],
+      initial: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+          id: 'trace-unrelated-definition-source',
+        }, {
+          tool: 'repo_grep',
+          args: { pattern: 'authorize', scope: ['src'] },
+          id: 'trace-unrelated-complete-search',
+        }, {
+          tool: 'repo_read_file',
+          args: { path: 'src/routes/user.js', startLine: 1, endLine: 1 },
+          id: 'trace-unrelated-usage-source',
+        }],
+        claims: [definitionClaim, usageClaim],
+        verdicts: [
+          semanticVerdict(definitionClaim.id, 'supported', ['E1']),
+          semanticVerdict(usageClaim.id, 'insufficient', ['E3']),
+        ],
+      },
+      repair: {
+        tools: [],
+        prose: 'No exact-symbol usage search was supplied.',
+        claims: [],
+        verdicts: [],
+      },
+    }), {
+      task,
+      taskMode: 'symbol_trace',
+      hints: { symbols: ['requireAuth'] },
+      async setup(root) {
+        await fs.writeFile(
+          path.join(root, 'src', 'routes', 'user.js'),
+          'export const user = authorize(requireAuth);\n',
+        );
+      },
+    });
+
+    const verifierRequest = client.requests.find(request =>
+      classifyControlRequest(request) === 'semantic_verifier');
+    assert.ok(verifierRequest, JSON.stringify({
+      requestKinds: client.requests.map(classifyControlRequest),
+      observations: result.observations,
+      claims: result.semanticVerification?.claims,
+      failure: result.failure,
+    }));
+    const verifierPacket = parseControlPacket(verifierRequest);
+    assert.deepEqual(verifierPacket.claims
+      .find(item => item.id === usageClaim.id)?.evidenceRefs, ['E3']);
+    assert.equal(result.taskContract.subgoals
+      .find(item => item.id === usageGoal.id)?.state, 'gap');
+    assert.equal(result.parentHandoff.state, 'incomplete');
+    assert.ok(result.parentHandoff.gaps.length > 0);
+    assert.doesNotMatch(result.parentHandoff.directAnswer ?? '', /used by/u);
   },
 );
 

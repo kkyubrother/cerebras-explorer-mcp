@@ -3129,6 +3129,77 @@ function taskClaimBoundary(taskContract) {
   return effectiveScope.length > 0 ? [...new Set(effectiveScope)] : ['**'];
 }
 
+function escapeRegexLiteral(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function exactUsageSearchForSymbol(observation, symbol, claimBoundary) {
+  const patterns = new Set([symbol, escapeRegexLiteral(symbol)]);
+  return observation?.kind === 'search' && observation.tool === 'repo_grep' &&
+    patterns.has(observation.normalizedArgs?.pattern) &&
+    observation.enumerationComplete === true && observation.matchCount > 0 &&
+    Array.isArray(observation.normalizedItemAnchors) &&
+    observation.normalizedItemAnchors.length === observation.matchCount &&
+    boundaryCovers(observation.boundary, claimBoundary);
+}
+
+function searchCoversSourceRange(search, source) {
+  const sourcePath = normalizeTargetPath(source?.path);
+  return Boolean(sourcePath && source?.kind === 'source' &&
+    source.temporalRole === 'current' && source.rangeGrounding === 'exact' &&
+    Number.isInteger(source.startLine) && Number.isInteger(source.endLine) &&
+    search.normalizedItemAnchors.some(anchor =>
+      normalizeTargetPath(anchor?.path) === sourcePath &&
+      Number.isInteger(anchor?.line) && anchor.line >= source.startLine &&
+      anchor.line <= source.endLine));
+}
+
+function attachCertifiedUsageSearchCompanions({
+  taskContract,
+  claims,
+  observations,
+  wrapperTool,
+  knownSymbolAnchors,
+}) {
+  const symbols = [...new Set((knownSymbolAnchors ?? [])
+    .filter(value => typeof value === 'string' && value.trim())
+    .map(value => value.trim()))];
+  if (wrapperTool !== 'trace_symbol' || symbols.length !== 1) return claims;
+
+  const [symbol] = symbols;
+  const claimBoundary = taskClaimBoundary(taskContract);
+  const observationById = new Map(observations.map(observation => [
+    observation?.id,
+    observation,
+  ]));
+  const searches = observations.filter(observation =>
+    exactUsageSearchForSymbol(observation, symbol, claimBoundary));
+  if (searches.length === 0) return claims;
+
+  const subgoalById = new Map(taskContract.subgoals.map(subgoal => [
+    subgoal.id,
+    subgoal,
+  ]));
+  return claims.map(claim => {
+    const subgoal = subgoalById.get(claim.subgoalId);
+    if (subgoal?.proofPolicy !== 'bounded_usage_cross_check' ||
+        wrapperPartForSubgoal(subgoal, wrapperTool) !== 'usage') {
+      return claim;
+    }
+    const sources = claim.evidenceRefs
+      .map(ref => observationById.get(ref))
+      .filter(observation => observation?.kind === 'source');
+    if (sources.length === 0) return claim;
+    const companion = searches.find(search =>
+      sources.every(source => searchCoversSourceRange(search, source)));
+    if (!companion || claim.evidenceRefs.includes(companion.id)) return claim;
+    return {
+      ...claim,
+      evidenceRefs: [...claim.evidenceRefs, companion.id],
+    };
+  });
+}
+
 function buildRuntimeAbsenceCertificates({ taskContract, claims, observations }) {
   const subgoalById = new Map(taskContract.subgoals.map(subgoal => [subgoal.id, subgoal]));
   const searchById = new Map(observations
@@ -6073,6 +6144,7 @@ export class ExplorerRuntime {
     taskContract,
     observations,
     knownFileAnchors = [],
+    knownSymbolAnchors = [],
     existingGaps = [],
     phase = 'initial',
     priorClaims = [],
@@ -6208,7 +6280,14 @@ export class ExplorerRuntime {
         wrapperTool,
       });
       const subgoalById = new Map(subgoalBatch.map(subgoal => [subgoal.id, subgoal]));
-      const groundedBatchClaims = proofCompatibleBatchClaims.map(claim =>
+      const usageBoundBatchClaims = attachCertifiedUsageSearchCompanions({
+        taskContract: batchContract,
+        claims: proofCompatibleBatchClaims,
+        observations: synthesisObservations,
+        wrapperTool,
+        knownSymbolAnchors,
+      });
+      const groundedBatchClaims = usageBoundBatchClaims.map(claim =>
         canonicalizeSymbolDefinitionRangeClaim({
           subgoal: subgoalById.get(claim.subgoalId),
           claim,
@@ -7844,6 +7923,7 @@ export class ExplorerRuntime {
         taskContract: auditedPlan.taskContract,
         observations,
         knownFileAnchors: args.hints?.files,
+        knownSymbolAnchors: args.hints?.symbols,
         existingGaps: auditedPlan.coverageGaps,
         wrapperTool: wrapperToolForTaskMode(args.taskMode),
         reasoningEffort,
@@ -8017,6 +8097,7 @@ export class ExplorerRuntime {
             taskContract: repaired.taskContract,
             observations,
             knownFileAnchors: args.hints?.files,
+            knownSymbolAnchors: args.hints?.symbols,
             existingGaps: repaired.coverageGaps,
             phase: 'post-repair',
             priorClaims: semanticVerification.claims,
