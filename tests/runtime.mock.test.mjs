@@ -11165,6 +11165,184 @@ semanticPipelineRuntimeTest(
 );
 
 semanticPipelineRuntimeTest(
+  'Spec 028 T062 — current source alone cannot prove a requested recent change',
+  async () => {
+    const task = 'What changed recently around requireAuth?';
+    const goal = trustGoal(task, {
+      id: 'S-recent-require-auth',
+      question: task,
+      originText: task,
+      proofCondition: 'Observe the requested change in repository history.',
+    });
+    const claim = candidateClaim(
+      'C-recent-require-auth',
+      goal.id,
+      'Recent changes around requireAuth are reflected in the current source.',
+      ['E1'],
+    );
+    const repairClaim = {
+      ...claim,
+      evidenceRefs: ['E1', 'E2'],
+    };
+    const { result } = await runTrustScript(buildTrustSteps({
+      goals: [goal],
+      initial: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+          id: 'read-current-auth-for-history',
+        }],
+        claims: [claim],
+        verdicts: [semanticVerdict(claim.id, 'supported', ['E1'])],
+      },
+      repair: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/routes/user.js', startLine: 1, endLine: 7 },
+          id: 'read-current-caller-for-history',
+        }],
+        claims: [repairClaim],
+        verdicts: [semanticVerdict(repairClaim.id, 'supported', ['E1', 'E2'])],
+      },
+    }), { task });
+
+    assertInternalProofGap(result, goal.id);
+    assert.equal(result.semanticVerification.claims.every(item =>
+      item.verdict !== 'supported'), true);
+    assertMinimalIncompleteParentHandoff(result, goal.question);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T062 — a recent-change goal accepts observed git and current source evidence',
+  { skip: !hasGit() },
+  async () => {
+    const task = 'What changed recently around requireAuth?';
+    const goal = trustGoal(task, {
+      id: 'S-recent-require-auth',
+      question: task,
+      originText: task,
+      proofCondition: 'Observe the requested change in repository history and current source.',
+    });
+    const claim = candidateClaim(
+      'C-recent-require-auth',
+      goal.id,
+      'The latest inspected change introduced requireAuth, which remains in current source.',
+      ['E1', 'E2'],
+    );
+    const { result } = await runTrustScript(buildTrustSteps({
+      goals: [goal],
+      initial: {
+        tools: [{
+          tool: 'repo_git_log',
+          args: { path: 'src/auth.js', maxCount: 5 },
+          id: 'recent-auth-log',
+        }, {
+          tool: 'repo_read_file',
+          args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+          id: 'recent-auth-source',
+        }],
+        claims: [claim],
+        verdicts: [semanticVerdict(claim.id, 'supported', ['E1', 'E2'])],
+      },
+    }), {
+      task,
+      async setup(root) {
+        const git = args => execFileSync('git', args, { cwd: root, stdio: 'ignore' });
+        git(['init']);
+        git(['config', 'user.email', 'explorer@example.invalid']);
+        git(['config', 'user.name', 'Explorer Test']);
+        git(['add', '.']);
+        git(['commit', '-m', 'introduce requireAuth']);
+      },
+    });
+
+    assert.equal(result.failure, null);
+    assert.equal(result.taskContract.subgoals[0].state, 'supported');
+    assert.equal(result.parentHandoff.state, 'complete');
+    assert.equal(result.parentHandoff.directAnswer, claim.text);
+    assert.equal(result.parentHandoff.evidence.some(item => item.kind === 'git'), true);
+    assert.equal(result.observations.some(item => item.kind === 'source'), true);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T062 — historical and ordinary direct-source goals use isolated evidence packets',
+  { skip: !hasGit() },
+  async () => {
+    const task = 'What changed recently around requireAuth, and what does current requireAuth return?';
+    const historicalGoal = trustGoal(task, {
+      id: 'S-recent-auth-change',
+      question: 'What changed recently around requireAuth?',
+      originText: 'What changed recently around requireAuth',
+      proofCondition: 'Observe the requested change in repository history.',
+    });
+    const currentGoal = trustGoal(task, {
+      id: 'S-current-auth-result',
+      question: 'What does current requireAuth return?',
+      originText: 'what does current requireAuth return',
+      proofCondition: 'Observe the current requireAuth return value in source.',
+    });
+    const historicalClaim = candidateClaim(
+      'C-recent-auth-change',
+      historicalGoal.id,
+      'The latest inspected change introduced requireAuth.',
+      ['E1', 'E2'],
+    );
+    const currentClaim = candidateClaim(
+      'C-current-auth-result',
+      currentGoal.id,
+      'Current requireAuth returns true.',
+      ['E2'],
+    );
+    const { client, result } = await runTrustScript(buildTrustSteps({
+      goals: [historicalGoal, currentGoal],
+      initial: {
+        tools: [{
+          tool: 'repo_git_log',
+          args: { path: 'src/auth.js', maxCount: 5 },
+          id: 'isolated-recent-auth-log',
+        }, {
+          tool: 'repo_read_file',
+          args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+          id: 'isolated-current-auth-source',
+        }],
+        claims: [historicalClaim, currentClaim],
+        verdicts: [
+          semanticVerdict(historicalClaim.id, 'supported', ['E1', 'E2']),
+          semanticVerdict(currentClaim.id, 'supported', ['E2']),
+        ],
+      },
+    }), {
+      task,
+      async setup(root) {
+        const git = args => execFileSync('git', args, { cwd: root, stdio: 'ignore' });
+        git(['init']);
+        git(['config', 'user.email', 'explorer@example.invalid']);
+        git(['config', 'user.name', 'Explorer Test']);
+        git(['add', '.']);
+        git(['commit', '-m', 'introduce requireAuth']);
+      },
+    });
+
+    const synthesisPackets = client.requests
+      .filter(request => classifyControlRequest(request) === 'claim_synthesis')
+      .map(parseControlPacket);
+    assert.equal(synthesisPackets.length, 2);
+    const packetByGoalId = new Map(synthesisPackets.map(packet => [
+      packet.control.requiredSubgoals[0].id,
+      packet,
+    ]));
+    assert.deepEqual(packetByGoalId.get(historicalGoal.id).observations.map(item => item.id),
+      ['E1', 'E2']);
+    assert.deepEqual(packetByGoalId.get(currentGoal.id).observations.map(item => item.id),
+      ['E2']);
+    assert.equal(result.taskContract.subgoals.every(goal => goal.state === 'supported'), true);
+    assert.equal(result.parentHandoff.state, 'complete');
+  },
+);
+
+semanticPipelineRuntimeTest(
   'Spec 028 T062 — audited historical verification projects an exact sha-only git commit',
   { skip: !hasGit() },
   async () => {
@@ -14535,13 +14713,10 @@ semanticPipelineRuntimeTest('Spec 028 T041 — transcript records only claims ac
       verdicts: [semanticVerdict(claim.id, 'supported', ['E1'])],
     },
     repair: {
-      tools: [{
-        tool: 'repo_git_show',
-        args: { ref: 'HEAD' },
-        id: 'show-auth-repair',
-      }],
-      claims: [{ ...claim, evidenceRefs: ['E1', 'E2'] }],
-      verdicts: [semanticVerdict(claim.id, 'supported', ['E2'])],
+      tools: [],
+      prose: 'No projectable commit evidence was supplied.',
+      claims: [],
+      verdicts: [],
     },
   });
 

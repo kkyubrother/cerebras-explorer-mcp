@@ -38,6 +38,7 @@ import {
   buildGenericImpactInventoryCorroboratorMessages,
   buildAbsenceRefutationCorroboratorMessages,
   buildCollectAffirmationCorroboratorMessages,
+  detectStrategy,
 } from './prompt.mjs';
 import {
   CLAIM_SYNTHESIS_SCHEMA,
@@ -1345,6 +1346,24 @@ function requestTextForSubgoal(task, subgoal) {
   }).join(' ');
 }
 
+function strategyIncludes(strategy, expected) {
+  return strategy === expected ||
+    (Array.isArray(strategy) && strategy.includes(expected));
+}
+
+function requiresHistoricalGitEvidence(task, subgoal, wrapperTool = 'explore_repo') {
+  if (wrapperTool !== 'explore_repo' || subgoal?.proofPolicy !== 'direct_source' ||
+      hasEditIntent(task)) {
+    return false;
+  }
+  const requestStrategy = detectStrategy(requestTextForSubgoal(task, subgoal));
+  const acceptanceStrategy = detectStrategy(
+    `${subgoal?.question ?? ''} ${subgoal?.proofCondition ?? ''}`,
+  );
+  return strategyIncludes(requestStrategy, 'git-guided') &&
+    strategyIncludes(acceptanceStrategy, 'git-guided');
+}
+
 function isNonExhaustiveDirectTestGoal(task, subgoal) {
   if (subgoal?.claimType !== 'positive' || subgoal.proofPolicy !== 'direct_source') return false;
   const requestText = requestTextForSubgoal(task, subgoal);
@@ -2387,17 +2406,21 @@ function controlBatches(values, size = SEMANTIC_CONTROL_BATCH_SIZE) {
   return batches;
 }
 
-function claimSynthesisBatches(subgoals) {
+function claimSynthesisBatches(task, subgoals, wrapperTool) {
   const batches = [];
   let run = [];
-  let directSource = null;
+  let mode = null;
   for (const subgoal of subgoals) {
-    const nextDirectSource = subgoal.proofPolicy === 'direct_source';
-    if (run.length > 0 && nextDirectSource !== directSource) {
+    const nextMode = subgoal.proofPolicy !== 'direct_source'
+      ? 'other'
+      : requiresHistoricalGitEvidence(task, subgoal, wrapperTool)
+        ? 'historical_direct_source'
+        : 'current_direct_source';
+    if (run.length > 0 && nextMode !== mode) {
       batches.push(...controlBatches(run));
       run = [];
     }
-    directSource = nextDirectSource;
+    mode = nextMode;
     run.push(subgoal);
   }
   batches.push(...controlBatches(run));
@@ -3261,21 +3284,49 @@ function isDirectSourceSynthesisObservation(observation) {
     observation?.temporalRole === requirement.temporalRole;
 }
 
-function claimSynthesisObservations(subgoals, observations) {
-  return subgoals.every(subgoal => subgoal.proofPolicy === 'direct_source')
-    ? observations.filter(isDirectSourceSynthesisObservation)
-    : observations;
+const HISTORICAL_GIT_OBSERVATION_KINDS = new Set([
+  'git_commit',
+  'git_blame',
+  'git_diff_hunk',
+]);
+
+function isHistoricalGitSynthesisObservation(observation) {
+  return HISTORICAL_GIT_OBSERVATION_KINDS.has(observation?.kind) &&
+    observation?.temporalRole === 'historical' &&
+    typeof observation?.sha === 'string' && observation.sha.trim().length > 0;
 }
 
-function filterDirectSourceClaimEvidence({ taskContract, claims, observations }) {
+function claimSynthesisObservations(task, subgoals, observations, wrapperTool) {
+  if (!subgoals.every(subgoal => subgoal.proofPolicy === 'direct_source')) {
+    return observations;
+  }
+  const historical = subgoals.every(subgoal =>
+    requiresHistoricalGitEvidence(task, subgoal, wrapperTool));
+  return observations.filter(observation =>
+    isDirectSourceSynthesisObservation(observation) ||
+    (historical && isHistoricalGitSynthesisObservation(observation)));
+}
+
+function filterDirectSourceClaimEvidence({
+  taskContract,
+  claims,
+  observations,
+  wrapperTool,
+}) {
   const subgoalById = new Map(taskContract.subgoals.map(subgoal => [subgoal.id, subgoal]));
   const observationById = new Map(observations.map(observation => [observation.id, observation]));
   return claims.map(claim => {
     const subgoal = subgoalById.get(claim.subgoalId);
     if (subgoal?.proofPolicy !== 'direct_source') return claim;
+    const historical = requiresHistoricalGitEvidence(
+      taskContract.task,
+      subgoal,
+      wrapperTool,
+    );
     const evidenceRefs = claim.evidenceRefs.filter(ref => {
       const observation = observationById.get(ref);
-      return isDirectSourceSynthesisObservation(observation);
+      return isDirectSourceSynthesisObservation(observation) ||
+        (historical && isHistoricalGitSynthesisObservation(observation));
     });
     return evidenceRefs.length > 0 ? { ...claim, evidenceRefs } : claim;
   });
@@ -3455,6 +3506,7 @@ function canonicalAccessClaimShapeFailure({ task, subgoal, claim, semanticVerdic
 
 function applyRuntimeProofGate({
   task,
+  wrapperTool,
   claimBoundary,
   subgoal,
   claim,
@@ -3517,6 +3569,20 @@ function applyRuntimeProofGate({
       reason: 'missing_category',
     };
   }
+  if (proofPolicyResult.passed === true &&
+      requiresHistoricalGitEvidence(task, subgoal, wrapperTool)) {
+    const supportingRefs = new Set(semanticVerdict.supportingEvidenceRefs);
+    const hasHistoricalGitEvidence = observations.some(observation =>
+      supportingRefs.has(observation?.id) &&
+      isHistoricalGitSynthesisObservation(observation));
+    if (!hasHistoricalGitEvidence) {
+      proofPolicyResult = {
+        ...proofPolicyResult,
+        passed: false,
+        reason: 'direct_evidence_missing',
+      };
+    }
+  }
   if (proofPolicyResult.passed === true) {
     const accessShapeFailure = canonicalAccessClaimShapeFailure({
       task,
@@ -3554,7 +3620,16 @@ function applyRuntimeProofGate({
     semanticVerdict,
     observations,
     proofPolicyResult,
-    roleRequirement: runtimeRoleRequirement(subgoal, policyArtifacts),
+    roleRequirement: requiresHistoricalGitEvidence(task, subgoal, wrapperTool)
+      ? {
+          observationKinds: [
+            'source',
+            ...HISTORICAL_GIT_OBSERVATION_KINDS,
+          ],
+          sourceRoles: ['implementation', 'config', 'test', 'documentation', 'fixture'],
+          temporalRoles: ['current', 'historical'],
+        }
+      : runtimeRoleRequirement(subgoal, policyArtifacts),
   });
 }
 
@@ -6037,15 +6112,17 @@ export class ExplorerRuntime {
     const claims = [];
     const usedClaimIds = new Set();
     for (const subgoalBatch of safeObservations.length > 0
-      ? claimSynthesisBatches(activeSubgoals)
+      ? claimSynthesisBatches(taskContract.task, activeSubgoals, wrapperTool)
       : []) {
       const batchContract = semanticBatchContract(taskContract, subgoalBatch);
       const batchSubgoalIds = new Set(subgoalBatch.map(subgoal => subgoal.id));
       const batchPriorClaims = safePriorClaims.filter(claim =>
         batchSubgoalIds.has(claim.subgoalId));
       let synthesisObservations = claimSynthesisObservations(
+        taskContract.task,
         subgoalBatch,
         safeObservations,
+        wrapperTool,
       );
       const observedKnownTestAnchor = batchSubgoalIds.has(knownTestAnchorSubgoalId)
         ? singleObservedKnownTestAnchor(knownFileAnchors, synthesisObservations)
@@ -6128,6 +6205,7 @@ export class ExplorerRuntime {
         taskContract: batchContract,
         claims: batchClaims,
         observations: synthesisObservations,
+        wrapperTool,
       });
       const subgoalById = new Map(subgoalBatch.map(subgoal => [subgoal.id, subgoal]));
       const groundedBatchClaims = proofCompatibleBatchClaims.map(claim =>
@@ -6455,6 +6533,7 @@ export class ExplorerRuntime {
       }
       const gated = applyRuntimeProofGate({
         task: candidateContract.task,
+        wrapperTool,
         claimBoundary,
         subgoal,
         claim,
@@ -6497,6 +6576,7 @@ export class ExplorerRuntime {
         };
         const gated = applyRuntimeProofGate({
           task: candidateContract.task,
+          wrapperTool,
           claimBoundary,
           subgoal,
           claim: batchClaims[index],
