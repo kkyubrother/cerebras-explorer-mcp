@@ -10436,6 +10436,7 @@ semanticPipelineRuntimeTest(
             question: goal.question,
             anchors: ['src/auth.js'],
           });
+          assert.deepEqual(request.tools.map(tool => tool.function.name), ['repo_grep']);
           assert.deepEqual(packet.questions, [{
             id: `semantic-gap:${goal.id}`,
             subgoalId: goal.id,
@@ -10451,7 +10452,7 @@ semanticPipelineRuntimeTest(
             }],
           }]);
           assert.match(request.messages[0].content,
-            /support_or_refute[\s\S]*plausible disconfirming exception/u);
+            /already has direct evidence[\s\S]*repo_grep exactly once/u);
         },
         claims: [repairedClaim],
         verdicts: [semanticVerdict(claim.id, 'supported', ['E1', 'E2'])],
@@ -10463,6 +10464,88 @@ semanticPipelineRuntimeTest(
     assertMinimalIncompleteParentHandoff(result, goal.question);
     assert.equal(result.parentHandoff.directAnswer, undefined);
     assert.equal(result.parentHandoff.evidence, undefined);
+    assert.equal(result.stats.filesRead, 1,
+      'an undeclared repair read must not execute through the restricted surface');
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T071 — collect_evidence routes a direct-only repair through one counter-search',
+  async () => {
+    const task = 'Verify that the user route requires authentication.';
+    const proposedGoal = trustGoal(task, {
+      id: 'S-collect-countersearch-repair',
+      question: task,
+      originText: task,
+      claimType: 'claim_verification',
+      proofCondition: 'Support or refute the claim from current source and a bounded counterevidence search.',
+    });
+    const goal = {
+      ...proposedGoal,
+      originRefs: [...proposedGoal.originRefs, 'wrapper:collect_evidence:verdict'],
+    };
+    const claim = candidateClaim(
+      'C-collect-countersearch-repair',
+      goal.id,
+      'The user route requires authentication.',
+      ['E1'],
+    );
+    const repairedClaim = { ...claim, evidenceRefs: ['E1', 'E2'] };
+    let repairRequests = 0;
+    let focusedChecks = 0;
+    const { client, result } = await runTrustScript(buildTrustSteps({
+      goals: [goal],
+      initial: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/routes/user.js', startLine: 1, endLine: 7 },
+          id: 'read-collect-countersearch-route',
+        }],
+        claims: [claim],
+        verdicts: [semanticVerdict(claim.id, 'supported', ['E1'])],
+      },
+      repair: {
+        tools: [{
+          tool: 'repo_grep',
+          args: { pattern: 'skipAuth|allowAnonymous', scope: ['src/**'] },
+          id: 'grep-collect-countersearch-repair',
+        }],
+        assertRequest(request) {
+          repairRequests += 1;
+          assert.deepEqual(request.tools.map(tool => tool.function.name), ['repo_grep']);
+          assert.match(request.messages[0].content,
+            /already has direct evidence[\s\S]*plausible disconfirming/u);
+        },
+        claims: [repairedClaim],
+        verifierSteps: [{
+          verdicts: [semanticVerdict(claim.id, 'supported', ['E1', 'E2'])],
+        }, {
+          verdicts: [semanticVerdict(claim.id, 'supported', ['E1', 'E2'])],
+          assertRequest(request) {
+            focusedChecks += 1;
+            assert.match(JSON.stringify(request.messages),
+              /FOCUSED COLLECT AFFIRMATION CORROBORATION/u);
+          },
+        }],
+      },
+    }), { task, taskMode: 'evidence_verification' });
+
+    assert.equal(result.failure, null, JSON.stringify(result.failure));
+    assert.equal(repairRequests, 1);
+    assert.equal(focusedChecks, 1);
+    assert.equal(client.stageCounts.get('semantic_verifier'), 3);
+    assert.deepEqual(providerToolActions(client).map(action => action.tool), [
+      'repo_read_file',
+      'repo_grep',
+    ]);
+    assertMinimalCompleteParentHandoff(result, {
+      answer: claim.text,
+      evidenceCount: 1,
+      evidenceKinds: ['source'],
+    });
+    assert.equal(result.parentHandoff.evidence[0].path, 'src/routes/user.js');
+    assert.doesNotMatch(JSON.stringify(result.parentHandoff),
+      /skipAuth|allowAnonymous|repo_grep|certificate/u);
   },
 );
 
