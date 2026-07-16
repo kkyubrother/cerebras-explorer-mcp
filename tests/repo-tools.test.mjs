@@ -1063,6 +1063,61 @@ toolSpecificEnumerationTest(
       });
       assert.equal(errorCoverage.errors, 1);
       assert.equal(errorCoverage.enumerationComplete, false);
+
+      await fs.writeFile(path.join(root, 'docs', 'guide.md'), '# Docs only\n');
+      const git = args => execFileSync('git', args, {
+        cwd: root,
+        stdio: 'pipe',
+        encoding: 'utf8',
+      });
+      git(['add', 'docs/guide.md']);
+      git(['commit', '-m', 'docs only change']);
+
+      const directoryLogArgs = { path: 'src', maxCount: 10 };
+      const directoryLog = await toolkit.gitLog(directoryLogArgs);
+      assert.equal(directoryLog.resultTruncated, false);
+      assert.equal(directoryLog.commits.some(commit => commit.message === 'docs only change'), false,
+        'a scope-root directory log must use the immutable scope pathspec');
+      const directoryLogCoverage = deriveCoverage({
+        tool: 'repo_git_log',
+        args: directoryLogArgs,
+        result: directoryLog,
+        effectiveScope: ['src/**'],
+        contextTruncated: false,
+      });
+      assert.deepEqual(directoryLogCoverage.boundary, ['src/**']);
+      assert.equal(directoryLogCoverage.enumerationComplete, true);
+      await assert.rejects(toolkit.gitLog({ path: 'docs', maxCount: 10 }),
+        /outside current scope/);
+
+      await fs.mkdir(path.join(root, 'src', 'private'), { recursive: true });
+      await fs.mkdir(path.join(root, 'src', 'public'), { recursive: true });
+      await fs.writeFile(path.join(root, 'src', 'private', 'inside.js'),
+        'export const inside = true;\n');
+      git(['add', 'src/private/inside.js']);
+      git(['commit', '-m', 'private scoped change']);
+      await fs.writeFile(path.join(root, 'src', 'public', 'outside.js'),
+        'export const outside = true;\n');
+      git(['add', 'src/public/outside.js']);
+      git(['commit', '-m', 'public sibling change']);
+
+      const privateToolkit = new RepoToolkit({ repoRoot: root, runtimeConfig });
+      await privateToolkit.initialize(['src/private/**']);
+      const privateDirectoryLog = await privateToolkit.gitLog({ path: 'src', maxCount: 10 });
+      assert.equal(privateDirectoryLog.commits.some(commit =>
+        commit.message === 'private scoped change'), true);
+      assert.equal(privateDirectoryLog.commits.some(commit =>
+        commit.message === 'public sibling change'), false,
+        'an ancestor directory request must not broaden a narrower immutable scope');
+      const privateDirectoryCoverage = deriveCoverage({
+        tool: 'repo_git_log',
+        args: { path: 'src', maxCount: 10 },
+        result: privateDirectoryLog,
+        effectiveScope: ['src/private/**'],
+        contextTruncated: false,
+      });
+      assert.deepEqual(privateDirectoryCoverage.boundary, ['src/private/**']);
+      assert.equal(privateDirectoryCoverage.enumerationComplete, true);
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }

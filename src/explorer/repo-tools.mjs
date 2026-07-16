@@ -1420,13 +1420,32 @@ export class RepoToolkit {
     return rel;
   }
 
-  _gitScopePathspecs() {
-    const patterns = this.baseScopeRules.patterns ?? [];
+  _gitScopePathspecs(patterns = this.baseScopeRules.patterns ?? []) {
     return dedupeArray(patterns.flatMap(pattern => {
       if (hasGlobSyntax(pattern)) return [`:(glob)${pattern}`];
       const normalized = pattern.replace(/\/$/, '');
       return [`:(glob)${normalized}`, `:(glob)${normalized}/**`];
     }));
+  }
+
+  _gitLogPathspecs(filePath) {
+    if (!filePath) return this._gitScopePathspecs();
+    const rel = sanitizeRelativePath(filePath);
+    ensureWithinRoot(this.repoRootReal, path.resolve(this.repoRootReal, rel));
+    if (isSecretPath(rel).matched) {
+      throw new Error(`Path is denied by secret policy: ${rel}`);
+    }
+    const patterns = this.baseScopeRules.patterns ?? [];
+    if (patterns.length === 0 || this.baseScopeRules.matches(rel)) return [rel];
+
+    const containedPatterns = patterns.filter(pattern => {
+      const prefix = scopePatternPrefix(pattern);
+      return rel === '.' || (prefix && (prefix === rel || prefix.startsWith(`${rel}/`)));
+    });
+    if (containedPatterns.length === 0) {
+      throw new Error(`Path is outside current scope: ${rel}`);
+    }
+    return this._gitScopePathspecs(containedPatterns);
   }
 
   _countGitPathOmissions(rawNames) {
@@ -1471,12 +1490,8 @@ export class RepoToolkit {
     if (since) args.push(`--since=${since}`);
     if (author) args.push(`--author=${author}`);
     if (grepFilter) args.push(`--grep=${grepFilter}`);
-    const rel = this._validateGitPath(filePath);
-    if (rel) args.push('--', rel);
-    else {
-      const scopePathspecs = this._gitScopePathspecs();
-      if (scopePathspecs.length > 0) args.push('--', ...scopePathspecs);
-    }
+    const pathspecs = this._gitLogPathspecs(filePath);
+    if (pathspecs.length > 0) args.push('--', ...pathspecs);
 
     const output = await this._runGit(args);
     const observedCommits = output
@@ -2604,6 +2619,24 @@ function pathObservationBoundary(requestedPath, effectiveScope) {
   return effectiveRules.matches(relativePath) ? [relativePath] : ['empty-intersection'];
 }
 
+function gitLogObservationBoundary(requestedPath, effectiveScope) {
+  const exactBoundary = pathObservationBoundary(requestedPath, effectiveScope);
+  if (!exactBoundary.includes('empty-intersection')) return exactBoundary;
+  const intersections = intersectObservationBoundaries(effectiveScope, [requestedPath]);
+  const usable = intersections.filter(item =>
+    item !== 'empty-intersection' && !item.startsWith('intersection:'));
+  if (usable.length > 0) return usable;
+
+  const relativePath = sanitizeRelativePath(requestedPath).replace(/\/$/, '');
+  const containedScope = canonicalizeRepositoryObservationScope(effectiveScope)
+    .filter(pattern => {
+      const prefix = scopePatternPrefix(pattern);
+      return relativePath === '.' ||
+        (prefix && (prefix === relativePath || prefix.startsWith(`${relativePath}/`)));
+    });
+  return containedScope.length > 0 ? containedScope : ['empty-intersection'];
+}
+
 function listDirectoryObservationBoundary(args, effectiveScope) {
   const relativeDir = sanitizeRelativePath(args?.dirPath ?? '.');
   const depth = Math.min(4, Math.max(1, Number.isInteger(args?.depth) ? args.depth : 2));
@@ -2614,7 +2647,10 @@ function listDirectoryObservationBoundary(args, effectiveScope) {
 
 function deriveObservationBoundary(tool, args, effectiveScope) {
   if (tool === 'repo_list_dir') return listDirectoryObservationBoundary(args, effectiveScope);
-  if (['repo_read_file', 'repo_symbols', 'repo_git_log', 'repo_git_blame', 'repo_git_diff'].includes(tool) &&
+  if (tool === 'repo_git_log' && typeof args?.path === 'string' && args.path.trim()) {
+    return gitLogObservationBoundary(args.path, effectiveScope);
+  }
+  if (['repo_read_file', 'repo_symbols', 'repo_git_blame', 'repo_git_diff'].includes(tool) &&
       typeof args?.path === 'string' && args.path.trim()) {
     return pathObservationBoundary(args.path, effectiveScope);
   }
