@@ -22,6 +22,21 @@ import { redactText } from './redact.mjs';
 
 const execFileAsync = promisify(execFile);
 
+const INTERNAL_GREP_SOURCE_ROLES = new Set([
+  'implementation', 'test', 'documentation', 'config', 'fixture', 'generated', 'unknown',
+]);
+const INTERNAL_GREP_PER_FILE_RESULT_CAP = 2;
+
+function normalizeGrepSourceRoles(sourceRoles) {
+  if (sourceRoles === undefined) return null;
+  if (!Array.isArray(sourceRoles) || sourceRoles.length === 0 ||
+      sourceRoles.some(role => typeof role !== 'string' ||
+        !INTERNAL_GREP_SOURCE_ROLES.has(role))) {
+    throw new TypeError('sourceRoles must be a non-empty array of known source roles.');
+  }
+  return [...new Set(sourceRoles)];
+}
+
 const SAFE_GIT_DIFF_ENV_UNSET = Object.freeze([
   'GIT_EXTERNAL_DIFF',
 ]);
@@ -859,7 +874,13 @@ export class RepoToolkit {
     };
   }
 
-  async _grepWithRipgrep({ pattern, scope = [], caseSensitive = false, maxResults }) {
+  async _grepWithRipgrep({
+    pattern,
+    scope = [],
+    caseSensitive = false,
+    maxResults,
+    sourceRoles = null,
+  }) {
     const effectiveScope = this.buildEffectiveScopeRules(scope);
     const normalizedScope = normalizeScope(scope);
 
@@ -942,6 +963,7 @@ export class RepoToolkit {
     }
 
     const matches = [];
+    const matchesPerFile = new Map();
     for (const line of rawOutput.split('\n')) {
       if (!line.trim()) continue;
       let obj;
@@ -958,7 +980,11 @@ export class RepoToolkit {
       if (!effectiveScope.matches(relPath)) continue;
       if (isSecretPath(relPath).matched) continue;
       if (this.extraPatternMatcher && this.extraPatternMatcher(relPath)) continue;
+      if (sourceRoles && !sourceRoles.includes(classifySourceRole(relPath))) continue;
+      const fileMatchCount = matchesPerFile.get(relPath) ?? 0;
+      if (sourceRoles && fileMatchCount >= INTERNAL_GREP_PER_FILE_RESULT_CAP) continue;
       matches.push({ path: relPath, line: lineNum, text: text.slice(0, 300).replace(/\n$/, '') });
+      matchesPerFile.set(relPath, fileMatchCount + 1);
       if (matches.length >= captureLimit) break;
     }
 
@@ -975,13 +1001,26 @@ export class RepoToolkit {
     };
   }
 
-  async grep({ pattern, scope = [], caseSensitive = false, maxResults = this.runtimeConfig.maxSearchResults } = {}) {
+  async grep({
+    pattern,
+    scope = [],
+    caseSensitive = false,
+    maxResults = this.runtimeConfig.maxSearchResults,
+    sourceRoles,
+  } = {}) {
     if (typeof pattern !== 'string' || !pattern.trim()) {
       throw new Error('pattern is required');
     }
+    const normalizedSourceRoles = normalizeGrepSourceRoles(sourceRoles);
 
     if (this._hasRipgrep) {
-      const result = await this._grepWithRipgrep({ pattern, scope, caseSensitive, maxResults });
+      const result = await this._grepWithRipgrep({
+        pattern,
+        scope,
+        caseSensitive,
+        maxResults,
+        sourceRoles: normalizedSourceRoles,
+      });
       if (result !== null) return result;
     }
 
@@ -1005,6 +1044,7 @@ export class RepoToolkit {
     const walkTelemetry = inheritedSearchTelemetry(walkResult);
     const captureLimit = maxResults + 1;
     const matches = [];
+    const matchesPerFile = new Map();
     const skipped = { largeFiles: 0, binaryFiles: 0, walkLimitReached: walkTelemetry.walkTruncated };
     let searchErrors = 0;
 
@@ -1014,6 +1054,10 @@ export class RepoToolkit {
       }
 
       if (isSecretPath(relPath).matched) {
+        continue;
+      }
+      if (normalizedSourceRoles &&
+          !normalizedSourceRoles.includes(classifySourceRole(relPath))) {
         continue;
       }
 
@@ -1051,7 +1095,13 @@ export class RepoToolkit {
         const line = lines[index];
         regex.lastIndex = 0;
         if (regex.test(line)) {
+          const fileMatchCount = matchesPerFile.get(relPath) ?? 0;
+          if (normalizedSourceRoles &&
+              fileMatchCount >= INTERNAL_GREP_PER_FILE_RESULT_CAP) {
+            continue;
+          }
           matches.push({ path: relPath, line: index + 1, text: line.slice(0, 300) });
+          matchesPerFile.set(relPath, fileMatchCount + 1);
           if (matches.length >= captureLimit) {
             break;
           }
@@ -1308,6 +1358,33 @@ export class RepoToolkit {
       }
     }
 
+    const symbolsByPath = new Map();
+    await Promise.all([...new Set(selectedCallers.map(caller => caller.path))].map(async callerPath => {
+      try {
+        const result = await this.symbols({ path: callerPath });
+        symbolsByPath.set(callerPath, Array.isArray(result?.symbols) ? result.symbols : []);
+      } catch {
+        symbolsByPath.set(callerPath, []);
+      }
+    }));
+    const enrichedCallers = await Promise.all(selectedCallers.map(async caller => {
+      const enclosing = (symbolsByPath.get(caller.path) ?? [])
+        .filter(candidate => candidate.name !== sym && Number.isInteger(candidate.line) &&
+          Number.isInteger(candidate.endLine) && candidate.line <= caller.line &&
+          candidate.endLine >= caller.line)
+        .sort((left, right) =>
+          (left.endLine - left.line) - (right.endLine - right.line) ||
+          right.line - left.line)[0];
+      if (enclosing) {
+        return {
+          ...caller,
+          enclosingSymbol: enclosing.qualifiedName ?? enclosing.name,
+          enclosingKind: enclosing.kind,
+        };
+      }
+      return caller;
+    }));
+
     const telemetry = inheritedSearchTelemetry(grepResult);
     const macroTruncated = selectedCallers.length < callers.length;
 
@@ -1336,7 +1413,7 @@ export class RepoToolkit {
     return {
       symbol: sym,
       definition,
-      callers: selectedCallers,
+      callers: enrichedCallers,
       callerCount: callers.length,
       ...telemetry,
       macroTruncated,
@@ -1970,17 +2047,25 @@ export class RepoToolkit {
       }
       case 'repo_grep': {
         const ctxLines = typeof args?.contextLines === 'number' ? Math.min(Math.max(0, args.contextLines), 5) : 0;
+        const sourceRoles = normalizeGrepSourceRoles(args?.sourceRoles);
         cacheKey = this._scopedCacheKey('grep', {
           pattern: args?.pattern ?? '',
           caseSensitive: args?.caseSensitive ?? false,
           scope: Array.isArray(args?.scope) ? [...args.scope].sort() : [],
           maxResults: args?.maxResults ?? this.runtimeConfig.maxSearchResults,
+          sourceRoles: sourceRoles === null ? null : [...sourceRoles].sort(),
           ctxLines,
         });
         const cached = this._cacheGet(cacheKey);
         let result = cached !== undefined
           ? cached
-          : await this.grep({ pattern: args?.pattern, scope: args?.scope, caseSensitive: args?.caseSensitive, maxResults: args?.maxResults });
+          : await this.grep({
+            pattern: args?.pattern,
+            scope: args?.scope,
+            caseSensitive: args?.caseSensitive,
+            maxResults: args?.maxResults,
+            sourceRoles: sourceRoles ?? undefined,
+          });
         if (cached === undefined) this._cacheSet(cacheKey, result);
         if (ctxLines > 0 && result.matches?.length > 0) {
           result = await this._enrichMatchesWithContext(result, ctxLines);
@@ -2095,7 +2180,7 @@ export class RepoToolkit {
 const OBSERVATION_ARG_KEYS = Object.freeze({
   repo_list_dir: ['dirPath', 'depth', 'maxEntries'],
   repo_find_files: ['pattern', 'scope', 'maxResults'],
-  repo_grep: ['pattern', 'scope', 'caseSensitive', 'maxResults', 'contextLines'],
+  repo_grep: ['pattern', 'scope', 'caseSensitive', 'maxResults', 'contextLines', 'sourceRoles'],
   repo_symbols: ['path', 'kind'],
   repo_references: ['symbol', 'scope'],
   repo_symbol_context: ['symbol', 'scope', 'depth'],
@@ -2704,10 +2789,11 @@ function deriveToolTruncation(tool, result) {
 function toolSupportsCompleteEnumeration(tool, args) {
   switch (tool) {
     case 'repo_find_files':
-    case 'repo_grep':
     case 'repo_read_file':
     case 'repo_symbol_context':
       return true;
+    case 'repo_grep':
+      return !Array.isArray(args?.sourceRoles);
     case 'repo_git_diff':
       return Boolean((args?.from ?? 'HEAD~1') && (args?.to ?? 'HEAD'));
     case 'repo_git_show':
@@ -2850,6 +2936,7 @@ export function normalizeRepositoryObservation({
   const normalizedContextTruncated = contextTruncated === true;
 
   const enumerationComplete = enumerationCandidate === true &&
+    !(tool === 'repo_grep' && Array.isArray(normalizedArgs.sourceRoles)) &&
     resultIsObject &&
     matchCount.valid &&
     countIdentitiesValid &&

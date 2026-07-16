@@ -105,7 +105,7 @@ Parent의 선택 규칙은 짧습니다.
 
 - 위치를 찾아야 함 → `find_relevant_code`
 - 알고 있는 symbol의 정의와 사용처가 필요함 → `trace_symbol`
-- 변경 전 영향 범위를 파악해야 함 → `map_change_impact`
+- 변경 전 구현·의존 caller·검증 및 public contract 영향 범위를 파악해야 함 → `map_change_impact`
 - request/event/job/CLI/data 흐름을 따라가야 함 → `explain_code_path`
 - 기존 주장이나 가설을 지지·반박해야 함 → `collect_evidence`
 - 어느 경우에도 명확히 해당하지 않음 → `explore_repo`

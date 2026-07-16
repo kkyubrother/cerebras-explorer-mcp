@@ -1392,6 +1392,36 @@ function citedCurrentTestPaths(candidate, observationById) {
   }));
 }
 
+function singleObservedLocateCompanionTest(candidate, observationById) {
+  const citedImplementationPaths = new Set(candidate.evidenceRefs.flatMap(ref => {
+    const observation = observationById.get(ref);
+    const sourcePath = normalizeTargetPath(observation?.path);
+    return observation?.kind === 'source' && observation.sourceRole === 'implementation' &&
+        observation.temporalRole === 'current' && sourcePath
+      ? [sourcePath]
+      : [];
+  }));
+  if (citedImplementationPaths.size === 0) return null;
+
+  const testsByPath = new Map();
+  for (const observation of observationById.values()) {
+    const sourcePath = normalizeTargetPath(observation?.path);
+    if (observation?.kind !== 'source' || observation.sourceRole !== 'test' ||
+        observation.temporalRole !== 'current' || observation.rangeGrounding !== 'exact' ||
+        !sourcePath) {
+      continue;
+    }
+    const refs = testsByPath.get(sourcePath) ?? [];
+    refs.push(observation.id);
+    testsByPath.set(sourcePath, refs);
+  }
+
+  const observedTestPaths = [...testsByPath.keys()];
+  if (observedTestPaths.length !== 1) return null;
+  const [path] = observedTestPaths;
+  return { path, evidenceRefs: testsByPath.get(path) };
+}
+
 function singleObservedKnownTestAnchor(knownFileAnchors = [], observations = []) {
   const knownTestPaths = new Set((Array.isArray(knownFileAnchors) ? knownFileAnchors : [])
     .map(normalizeTargetPath)
@@ -1418,14 +1448,51 @@ function singleObservedKnownTestAnchor(knownFileAnchors = [], observations = [])
 }
 
 function preserveBoundedTestPathInClaim(task, subgoal, candidate, observationById) {
-  if (!isNonExhaustiveDirectTestGoal(task, subgoal)) return candidate;
-  const testPaths = [...citedCurrentTestPaths(candidate, observationById)];
+  const locateSmallestSet =
+    (subgoal?.originRefs ?? []).includes('wrapper:find_relevant_code:smallest_set');
+  if (!isNonExhaustiveDirectTestGoal(task, subgoal) && !locateSmallestSet) return candidate;
+  const citedTestPaths = [...citedCurrentTestPaths(candidate, observationById)];
+  const companion = locateSmallestSet && citedTestPaths.length === 0
+    ? singleObservedLocateCompanionTest(candidate, observationById)
+    : null;
+  const testPaths = citedTestPaths.length > 0
+    ? citedTestPaths
+    : companion
+      ? [companion.path]
+      : [];
   if (testPaths.length !== 1) return candidate;
   const [testPath] = testPaths;
+  const withEvidence = companion
+    ? { ...candidate, evidenceRefs: [...new Set([...candidate.evidenceRefs, ...companion.evidenceRefs])] }
+    : candidate;
+  if (locateSmallestSet) {
+    const roleOrder = new Map([
+      ['implementation', 0],
+      ['test', 1],
+      ['config', 2],
+      ['documentation', 3],
+      ['fixture', 4],
+    ]);
+    const targetPaths = [...new Set(withEvidence.evidenceRefs.flatMap(ref => {
+      const observation = observationById.get(ref);
+      const sourcePath = normalizeTargetPath(observation?.path);
+      return observation?.kind === 'source' && observation.temporalRole === 'current' && sourcePath
+        ? [sourcePath]
+        : [];
+    }))].sort((left, right) =>
+      (roleOrder.get(classifySourceRole(left)) ?? 5) -
+        (roleOrder.get(classifySourceRole(right)) ?? 5) || left.localeCompare(right));
+    if (targetPaths.length >= 2 && targetPaths.includes(testPath)) {
+      return {
+        ...withEvidence,
+        text: `The smallest useful read target set is ${targetPaths.join(' and ')}.`,
+      };
+    }
+  }
   const normalizedText = candidate.text.replaceAll('\\', '/').toLowerCase();
   return normalizedText.includes(testPath.toLowerCase())
-    ? candidate
-    : { ...candidate, text: `${testPath}: ${candidate.text}` };
+    ? withEvidence
+    : { ...withEvidence, text: `${testPath}: ${candidate.text}` };
 }
 
 function requiresSourceBackedExhaustiveClassification(task, subgoal) {
@@ -1699,7 +1766,25 @@ function parentEvidenceProjectionKey(ref, evidence) {
     : `ref:${ref}`;
 }
 
-function buildParentEvidenceProjection({ result, semanticVerification, observations }) {
+function parentClaimPresentationText(claim, subgoal, verdict, language) {
+  const text = typeof claim?.text === 'string' ? claim.text.trim() : '';
+  const isCollectVerdict = subgoal?.proofPolicy === 'support_or_refute' &&
+    Array.isArray(subgoal.originRefs) &&
+    subgoal.originRefs.includes('wrapper:collect_evidence:verdict');
+  if (!text || !isCollectVerdict) return text;
+  const korean = String(language ?? '').toLowerCase().startsWith('ko') || /[가-힣]/u.test(text);
+  if (verdict?.resolution === 'refuted' &&
+      !/\b(?:the\s+)?(?:claim|premise)\s+(?:is|was|has\s+been)\s+(?:false|refuted|contradicted)\b|(?:주장|전제)(?:은|는|이|가)?\s*(?:거짓|반박(?:됨|되었|됐)?)/iu.test(text)) {
+    return korean ? `주장은 반박됨: ${text}` : `The claim is refuted: ${text}`;
+  }
+  if (verdict?.resolution === 'affirmed' &&
+      !/\b(?:the\s+)?(?:claim|premise)\s+(?:is|was|has\s+been)\s+(?:supported|affirmed|true)\b|(?:주장|전제)(?:은|는|이|가)?\s*(?:참|지지(?:됨|되었|됐)?)/iu.test(text)) {
+    return korean ? `주장은 지지됨: ${text}` : `The claim is supported: ${text}`;
+  }
+  return text;
+}
+
+function buildParentEvidenceProjection({ result, semanticVerification, observations, language }) {
   const subgoals = semanticVerification?.taskContract?.subgoals ?? [];
   const claims = semanticVerification?.claims ?? [];
   const verdicts = semanticVerification?.semanticVerdicts ?? [];
@@ -1878,9 +1963,9 @@ function buildParentEvidenceProjection({ result, semanticVerification, observati
     const projectedRefs = refs.map(ref => evidenceForClaimRef(claim, ref));
     if (refs.length === 0 || projectedRefs.some(projected => !projected) ||
         !projectedRefs.some(projected => projected.evidence)) continue;
-    const text = typeof claim.text === 'string' ? claim.text.trim() : '';
+    const text = parentClaimPresentationText(claim, subgoal, verdict, language);
     if (!text) continue;
-    acceptedClaims.push(claim);
+    acceptedClaims.push({ ...claim, text });
     refsByClaimId.set(claim.id, refs);
   }
 
@@ -2048,6 +2133,7 @@ function buildParentHandoffProjection({
   taskContract = null,
   coverageGaps = [],
   safetyLimits = [],
+  language = null,
 } = {}) {
   const effectiveTaskContract = taskContract ?? semanticVerification?.taskContract ??
     result?.taskContract ?? null;
@@ -2075,6 +2161,7 @@ function buildParentHandoffProjection({
     result,
     semanticVerification,
     observations,
+    language,
   });
   const acceptedClaimIds = new Set(projection.acceptedClaims.map(claim => claim.id));
   const supportedClaimsByGoal = new Map();
@@ -2375,7 +2462,8 @@ async function requestValidatedGoalControl({
         break;
       }
       const stageCorrection = stage === 'claim_synthesis'
-        ? 'For every supplied sub-goal except support_or_refute, return zero or one aggregate claim only. ' +
+        ? 'For every supplied sub-goal except generic support_or_refute, return zero or one aggregate claim only. ' +
+          'A wrapper:collect_evidence:verdict sub-goal is not generic: return zero or one aggregate verdict claim for its full requested premise and never split mechanisms or facets into sibling claims. ' +
           'On a post-repair pass, preserve every prior claim id, subgoalId, text, measurement, and prior evidence reference exactly while adding only fresh supplied evidence refs.'
         : stage === 'semantic_verifier'
           ? 'Return exactly one verdict for each supplied claim. Every supportingEvidenceRef must come from that same claim evidenceRefs. ' +
@@ -2570,6 +2658,8 @@ function validateSynthesizedClaimBatch(raw, {
   const partialTestInventorySubgoalIds = new Set();
   const substitutedKnownTestAnchorSubgoalIds = new Set();
   const missingKnownTestClaimSubgoalIds = new Set();
+  const incompleteStructuredOutputRelevanceSubgoalIds = new Set();
+  const incompleteStructuredImpactCategorySubgoalIds = new Set();
   const knownTestAnchorSubgoalId = typeof knownTestAnchor?.subgoalId === 'string'
     ? knownTestAnchor.subgoalId
     : null;
@@ -2616,6 +2706,35 @@ function validateSynthesizedClaimBatch(raw, {
         substitutedKnownTestAnchorSubgoalIds.add(candidate.subgoalId);
       }
     }
+    const structuredOutputRelevance = Array.isArray(subgoal?.originRefs) &&
+      subgoal.originRefs.includes('wrapper:find_relevant_code:relevance') &&
+      /\b(?:public|structured)\s+(?:output|response)|structuredContent|output\s+contract/iu
+        .test(`${taskContract.task ?? ''} ${subgoal.question ?? ''} ${subgoal.proofCondition ?? ''}`);
+    if (structuredOutputRelevance) {
+      const requiredRefs = observations
+        .filter(observation => observation?.kind === 'source' &&
+          observation.sourceRole === 'implementation' && observation.temporalRole === 'current')
+        .map(observation => observation.id);
+      const citedRefs = new Set(candidate.evidenceRefs);
+      if (requiredRefs.some(ref => !citedRefs.has(ref))) {
+        incompleteStructuredOutputRelevanceSubgoalIds.add(candidate.subgoalId);
+      }
+    }
+    const structuredImpactCategory = Array.isArray(subgoal?.originRefs) &&
+      subgoal.originRefs.includes('wrapper:map_change_impact:requested_categories') &&
+      /\bstructured\s+(?:output|response)|structuredContent|output\s+contract/iu
+        .test(`${taskContract.task ?? ''} ${subgoal.question ?? ''} ${subgoal.proofCondition ?? ''}`);
+    if (structuredImpactCategory) {
+      const requiredRoles = new Set(['test', 'documentation', 'config', 'fixture']);
+      const requiredRefs = observations
+        .filter(observation => observation?.kind === 'source' &&
+          requiredRoles.has(observation.sourceRole) && observation.temporalRole === 'current')
+        .map(observation => observation.id);
+      const citedRefs = new Set(candidate.evidenceRefs);
+      if (requiredRefs.some(ref => !citedRefs.has(ref))) {
+        incompleteStructuredImpactCategorySubgoalIds.add(candidate.subgoalId);
+      }
+    }
     batchClaimIds.add(candidate.id);
     return createAtomicClaim(preserveBoundedTestPathInClaim(
       taskContract.task,
@@ -2634,8 +2753,13 @@ function validateSynthesizedClaimBatch(raw, {
     missingKnownTestClaimSubgoalIds.add(knownTestAnchorSubgoalId);
   }
   const noisySubgoalIds = [...claimCountBySubgoal]
-    .filter(([subgoalId, count]) => count > 1 &&
-      subgoalById.get(subgoalId)?.proofPolicy !== 'support_or_refute')
+    .filter(([subgoalId, count]) => {
+      const subgoal = subgoalById.get(subgoalId);
+      const collectEvidenceVerdict = Array.isArray(subgoal?.originRefs) &&
+        subgoal.originRefs.includes('wrapper:collect_evidence:verdict');
+      return count > 1 &&
+        (subgoal?.proofPolicy !== 'support_or_refute' || collectEvidenceVerdict);
+    })
     .map(([subgoalId]) => subgoalId);
   const invalidSubgoalIds = [...new Set([
     ...noisySubgoalIds,
@@ -2643,6 +2767,8 @@ function validateSynthesizedClaimBatch(raw, {
     ...partialTestInventorySubgoalIds,
     ...substitutedKnownTestAnchorSubgoalIds,
     ...missingKnownTestClaimSubgoalIds,
+    ...incompleteStructuredOutputRelevanceSubgoalIds,
+    ...incompleteStructuredImpactCategorySubgoalIds,
   ])];
   if (invalidSubgoalIds.length > 0) {
     const quarantineSet = new Set(quarantineClaimSubgoalIds);
@@ -2688,6 +2814,22 @@ function validateSynthesizedClaimBatch(raw, {
     if (noisySubgoalIds.length > 0) {
       failures.push(
         `Claim synthesis must return at most one aggregate claim for sub-goals: ${noisySubgoalIds.join(', ')}.`,
+      );
+    }
+    if (incompleteStructuredOutputRelevanceSubgoalIds.size > 0) {
+      failures.push(
+        'Structured-output relevance claims must cite every runtime-selected current implementation ' +
+        `candidate for sub-goals: ${[...incompleteStructuredOutputRelevanceSubgoalIds].join(', ')}. ` +
+        'Retain the formatter or payload definition, schema or normalization source, and production ' +
+        'caller or adapter observations that were supplied in the bounded packet.',
+      );
+    }
+    if (incompleteStructuredImpactCategorySubgoalIds.size > 0) {
+      failures.push(
+        'Structured-output impact category claims must cite every runtime-selected current ' +
+        `verification or public-contract source for sub-goals: ${[...incompleteStructuredImpactCategorySubgoalIds].join(', ')}. ` +
+        'Retain the selected test, public documentation, and expected-response observations ' +
+        'that were supplied in the bounded packet.',
       );
     }
     const error = new TypeError(failures.join(' '));
@@ -3482,7 +3624,7 @@ function runtimeRoleRequirement(subgoal, policyArtifacts = {}) {
       observationKinds: hasGenericImpactCertification(policyArtifacts)
         ? ['source', 'search']
         : ['source'],
-      sourceRoles: ['implementation', 'config', 'test', 'documentation'],
+      sourceRoles: ['implementation', 'config', 'test', 'documentation', 'fixture'],
       temporalRole: 'current',
     };
   }
@@ -3941,6 +4083,24 @@ function canonicalizeSymbolDefinitionRangeClaim({ subgoal, claim, observations }
   }
   if (uniqueSources.size !== 1) return claim;
   const [source] = uniqueSources.values();
+  const sourceIndex = normalizedClaim.indexOf(source.path.toLowerCase());
+  const prefix = sourceIndex >= 0 ? claim.text.slice(0, sourceIndex) : '';
+  const preserveSuffix = sourceIndex >= 0 && new RegExp(
+    `${escapeRegexLiteral(symbol)}\\s+(?:is\\s+)?defined\\s+in\\s*$`,
+    'iu',
+  ).test(prefix);
+  if (preserveSuffix) {
+    const suffix = claim.text.slice(sourceIndex + source.path.length)
+      .replace(/^\s*[,;:]?\s*(?:(?:at|on|from|starting\s+at)\s+)?lines?\s+\d+(?:\s*(?:through|to|-)\s*\d+)?\s*/iu, '')
+      .replace(/^[\s,;:.]+/u, '')
+      .trim();
+    return {
+      ...claim,
+      text: suffix
+        ? `${prefix}${source.path}, lines ${source.startLine} through ${source.endLine}, ${suffix}`
+        : `${prefix}${source.path}, lines ${source.startLine} through ${source.endLine}.`,
+    };
+  }
   return {
     ...claim,
     text: `${symbol} is defined in ${source.path}, lines ${source.startLine} through ${source.endLine}.`,
@@ -5739,6 +5899,27 @@ function toolsNamed(tools, names) {
   return tools.filter(tool => allowed.has(tool?.function?.name));
 }
 
+function toolsWithFixedArguments(tools, toolName, fixedArguments = {}) {
+  return toolsNamed(tools, [toolName]).map(tool => {
+    const parameters = tool.function?.parameters;
+    if (!parameters?.properties) return tool;
+    const properties = { ...parameters.properties };
+    const required = new Set(Array.isArray(parameters.required) ? parameters.required : []);
+    for (const [name, value] of Object.entries(fixedArguments)) {
+      if (!properties[name]) continue;
+      properties[name] = { ...properties[name], const: value };
+      required.add(name);
+    }
+    return {
+      ...tool,
+      function: {
+        ...tool.function,
+        parameters: { ...parameters, properties, required: [...required] },
+      },
+    };
+  });
+}
+
 function exactCommitRefFromTask(task) {
   const matches = [...String(task ?? '').matchAll(
     /\bcommit\s+([0-9a-f]{40})(?![0-9a-z])/giu,
@@ -5821,7 +6002,7 @@ function exactCommitReadCandidates(observations, commitRef, task = '') {
   return companion ? [primary, companion] : [primary];
 }
 
-function exactCommitReadTools(tools, candidates) {
+function boundedReadTools(tools, candidates) {
   const allowedPaths = candidates.map(candidate => candidate.path);
   return toolsNamed(tools, ['repo_read_file']).map(tool => {
     const parameters = tool.function?.parameters;
@@ -5905,14 +6086,63 @@ export function buildExactCommitToolPolicy({
     return `${candidate.path}${range}`;
   }).join(', ');
   return {
-    tools: exactCommitReadTools(tools, candidates),
+    tools: boundedReadTools(tools, candidates),
     parallelToolCalls: true,
     allowedReadPaths: candidates.map(candidate => candidate.path),
     instruction: `Exact-commit current-source check: issue at most one narrow repo_read_file call for each listed path, around its cited range, then finalize without another git call. Other paths are rejected. Qualify every conclusion as in-scope; scope-filtered git output must not be described as the whole commit: ${candidateSummary}.`,
   };
 }
 
-function sourceClaimCheckToolPolicy({ observations, tools, task, discoveredPaths }) {
+function implementationLookupScope(effectiveScope = []) {
+  const canonicalScope = canonicalizeRepositoryObservationScope(effectiveScope);
+  const implementationScope = canonicalScope.filter(scopeEntry =>
+    !/(?:^|\/)(?:__tests__|examples?|fixtures?|specs?|tests?)(?:\/|\*|$)/iu.test(scopeEntry) &&
+    classifySourceRole(scopeEntry) !== 'documentation');
+  return implementationScope.length > 0 ? implementationScope : canonicalScope;
+}
+
+const CLAIM_LOOKUP_STOP_WORDS = new Set([
+  'and', 'are', 'claim', 'cited', 'code', 'does', 'evidence', 'for', 'from', 'has',
+  'have', 'into', 'never', 'not', 'repository', 'that', 'the', 'their', 'this', 'verify',
+  'was', 'were', 'whether', 'which', 'with', 'without',
+]);
+
+function claimLookupPattern(task) {
+  const tokens = String(task ?? '').match(/[\p{L}\p{N}_$]+/gu) ?? [];
+  const selected = [];
+  for (const token of tokens) {
+    const lower = token.toLowerCase();
+    if (lower.length < 4 || CLAIM_LOOKUP_STOP_WORDS.has(lower)) continue;
+    const stem = /^[a-z]+$/u.test(lower)
+      ? lower.endsWith('ing') && lower.length > 7
+        ? lower.slice(0, -3)
+        : lower.endsWith('ed') && lower.length > 6
+          ? lower.slice(0, -2)
+          : lower.endsWith('s') && lower.length > 5
+            ? lower.slice(0, -1)
+            : lower
+      : token;
+    if (!selected.includes(stem)) selected.push(stem);
+    if (selected.length >= 5) break;
+  }
+  const alternatives = selected.flatMap(token => {
+    const escaped = escapeRegexLiteral(token);
+    const capitalized = escapeRegexLiteral(token[0].toUpperCase() + token.slice(1));
+    return escaped === capitalized ? [escaped] : [escaped, capitalized];
+  });
+  if (alternatives.length === 0) return '';
+  if (alternatives.length === 1) return alternatives[0];
+  const group = `(?:${alternatives.join('|')})`;
+  return `${group}[A-Za-z0-9_$ ._-]{0,40}${group}`;
+}
+
+export function buildSourceClaimCheckToolPolicy({
+  observations,
+  tools,
+  task,
+  discoveredPaths,
+  effectiveScope = [],
+}) {
   const grepObservations = observations
     .map((observation, index) => ({ observation, index }))
     .filter(({ observation }) => observation?.kind === 'search' &&
@@ -5927,20 +6157,59 @@ function sourceClaimCheckToolPolicy({ observations, tools, task, discoveredPaths
   const observedOnlyTests = !testEvidenceRequested && sourceObservations.length === 0 &&
     observations.some(observation => observation?.kind === 'source' &&
       observation.sourceRole === 'test');
+  const anchorLinesByPath = new Map();
+  for (const { observation } of grepObservations) {
+    for (const anchor of observation?.normalizedItemAnchors ?? []) {
+      const anchorPath = normalizeTargetPath(anchor?.path);
+      if (!anchorPath || !Number.isSafeInteger(anchor.line) || anchor.line < 1) continue;
+      const lines = anchorLinesByPath.get(anchorPath) ?? [];
+      lines.push(anchor.line);
+      anchorLinesByPath.set(anchorPath, lines);
+    }
+  }
   const implementationCandidates = [...new Set((discoveredPaths ?? [])
     .map(candidate => candidate?.path)
     .filter(candidatePath => typeof candidatePath === 'string' && candidatePath &&
       classifySourceRole(candidatePath) === 'implementation'))]
-    .sort((left, right) => (left.length - right.length) || left.localeCompare(right))
-    .slice(0, 12);
+    .sort((left, right) => taskPathScore(task, right) - taskPathScore(task, left) ||
+      (left.length - right.length) || left.localeCompare(right))
+    .slice(0, 1)
+    .map(candidatePath => {
+      const lines = [...new Set(anchorLinesByPath.get(candidatePath) ?? [])]
+        .sort((left, right) => left - right);
+      if (lines.length === 0) return { path: candidatePath };
+      const startLine = Math.max(1, lines[0] - 4);
+      const includedLines = lines.filter(line => line <= startLine + 204);
+      return {
+        path: candidatePath,
+        line: lines[0],
+        startLine,
+        endLine: Math.min(startLine + 220, Math.max(...includedLines) + 20),
+      };
+    });
   const firstSourceIndex = sourceObservations[0]?.index ?? -1;
+  const directScope = implementationLookupScope(effectiveScope);
+  const fullScope = canonicalizeRepositoryObservationScope(effectiveScope);
+  const initialPattern = claimLookupPattern(task);
+  const directGrepTools = toolsWithFixedArguments(tools, 'repo_grep', {
+    scope: directScope,
+    ...(grepObservations.length === 0 && initialPattern ? { pattern: initialPattern } : {}),
+  });
 
   if (firstSourceIndex < 0) {
     if (grepObservations.length === 0) {
       return {
-        tools: toolsNamed(tools, ['repo_grep', 'repo_read_file']),
+        tools: [...directGrepTools, ...toolsNamed(tools, ['repo_read_file'])],
         parallelToolCalls: false,
-        instruction: 'Claim-check direct lookup: issue one exact repo_grep, or read one supplied exact file anchor.',
+        allowedQueryScope: directScope,
+        ...(initialPattern ? { allowedPattern: initialPattern } : {}),
+        fixedToolArguments: {
+          repo_grep: {
+            scope: directScope,
+            ...(initialPattern ? { pattern: initialPattern } : {}),
+          },
+        },
+        instruction: 'Claim-check direct lookup: issue one exact repo_grep for the rarest implementation mechanism or identifier in the premise, or read one supplied exact file anchor. Do not join generic subject labels with wildcard punctuation.',
       };
     }
     const lastGrep = grepObservations.at(-1).observation;
@@ -5952,30 +6221,58 @@ function sourceClaimCheckToolPolicy({ observations, tools, task, discoveredPaths
           instruction: 'The direct lookup exposed only test corroboration and no implementation candidate. Finalize incomplete without inventing a path.',
         };
       }
-      const candidateInstruction = implementationCandidates.length > 0
-        ? ` Use only these observed implementation candidates before inventing another path: ${implementationCandidates.join(', ')}.`
-        : '';
+      if (implementationCandidates.length === 0) {
+        return {
+          tools: [],
+          parallelToolCalls: false,
+          instruction: 'The bounded lookup found no implementation source candidate. Finalize incomplete without inventing a path.',
+        };
+      }
+      const candidateInstruction = implementationCandidates.map(candidate =>
+        `${candidate.path}${candidate.startLine && candidate.endLine
+          ? `@${candidate.startLine}-${candidate.endLine}`
+          : ''}`).join(', ');
+      const [candidate] = implementationCandidates;
+      const fixedReadArguments = {
+        path: candidate.path,
+        ...(candidate.startLine && candidate.endLine
+          ? { startLine: candidate.startLine, endLine: candidate.endLine }
+          : {}),
+      };
       return {
-        tools: toolsNamed(tools, ['repo_read_file']),
-        parallelToolCalls: true,
+        tools: toolsWithFixedArguments(tools, 'repo_read_file', fixedReadArguments),
+        parallelToolCalls: false,
+        allowedReadPaths: implementationCandidates.map(candidate => candidate.path),
+        fixedToolArguments: { repo_read_file: fixedReadArguments },
         instruction: observedOnlyTests
-          ? `Claim-check direct read: tests are corroboration, not direct current-behavior evidence. Batch-read the smallest implementation source ranges from the existing grep result; do not search again.${candidateInstruction}`
-          : `Claim-check direct read: batch-read the smallest source ranges from the existing grep result. Do not search again.${candidateInstruction}`,
+          ? `Claim-check direct read: tests are corroboration, not direct current-behavior evidence. Read exactly this one implementation source range; do not search again or split the range: ${candidateInstruction}.`
+          : `Claim-check direct read: read exactly this one source range; do not search again or split the range: ${candidateInstruction}.`,
+      };
+    }
+    if (grepObservations.length === 1) {
+      return {
+        tools: directGrepTools,
+        parallelToolCalls: false,
+        allowedQueryScope: directScope,
+        fixedToolArguments: { repo_grep: { scope: directScope } },
+        instruction: 'The first exact predicate found no source. Run exactly one distinct corrected repo_grep over the same bounded implementation scope, using the premise\'s mechanism, field, or function-like term rather than the component label. Do not repeat an equivalent predicate.',
       };
     }
     return {
       tools: [],
       parallelToolCalls: false,
-      instruction: 'The one direct lookup produced no source candidate. Finalize incomplete without widening.',
+      instruction: 'Two bounded direct lookups produced no source candidate. Finalize incomplete without widening or another synonym.',
     };
   }
 
   const postSourceGreps = grepObservations.filter(({ index }) => index > firstSourceIndex);
   if (postSourceGreps.length === 0) {
     return {
-      tools: toolsNamed(tools, ['repo_grep']),
+      tools: toolsWithFixedArguments(tools, 'repo_grep', { scope: fullScope }),
       parallelToolCalls: false,
-      instruction: 'Claim-check counter-search: run one complete full-scope repo_grep for a meaningful disconfirming bypass, exception, or alternative. Do not run another confirming lookup.',
+      allowedQueryScope: fullScope,
+      fixedToolArguments: { repo_grep: { scope: fullScope } },
+      instruction: 'Direct source is observed. If it directly refutes every facet of the requested premise, stop and synthesize that refutation without another repository action. Otherwise run one complete full-scope repo_grep for a meaningful disconfirming bypass, exception, or alternative; grammatical negation alone never proves which branch applies.',
     };
   }
 
@@ -6005,6 +6302,9 @@ function sourceClaimCheckToolPolicy({ observations, tools, task, discoveredPaths
 
 const MAP_CHANGE_WRAPPER_TASK_PREFIX =
   'Map the likely impact of this intended change before editing:';
+const FIND_RELEVANT_WRAPPER_TASK_PREFIX =
+  'Find the code most relevant to this task and return the smallest useful read/edit targets:';
+const TRACE_SYMBOL_WRAPPER_TASK_PREFIX = 'Explain the symbol "';
 
 function impactAnchorLines(searchObservations) {
   const lineByPath = new Map();
@@ -6023,15 +6323,324 @@ function impactAnchorLines(searchObservations) {
   return lineByPath;
 }
 
-function rankedImpactCandidates(discoveredPaths, searchObservations = []) {
+function taskPathScore(task, candidatePath) {
+  const taskText = String(task).toLowerCase();
+  return [...new Set(candidatePath.toLowerCase()
+    .split(/[^a-z0-9]+/u)
+    .filter(token => token.length >= 3 && taskText.includes(token)))]
+    .reduce((score, token) => score + token.length, 0);
+}
+
+function rankedLocateCandidates(discoveredPaths, searchObservations, task) {
+  const requestText = String(task).startsWith(FIND_RELEVANT_WRAPPER_TASK_PREFIX)
+    ? String(task).slice(FIND_RELEVANT_WRAPPER_TASK_PREFIX.length)
+    : String(task);
+  const structuredOutputRequest = /\b(?:public|structured)\s+(?:output|response)|structuredContent|output\s+contract/iu
+    .test(requestText);
+  const requestsCompanionTest = /\b(?:before|change|changing|edit|editing|modify|modifying|update|updating)\b|변경|수정/iu
+    .test(requestText);
+  const requestedRoles = new Map([
+    ['implementation', structuredOutputRequest ? 3 : 1],
+    ...(requestsCompanionTest || /\btests?\b|테스트/iu.test(requestText)
+      ? [['test', 1]]
+      : []),
+    ...(/\b(?:config|configuration|setting|settings)\b|설정/iu.test(requestText)
+      ? [['config', 1]]
+      : []),
+    ...(/\b(?:readme|docs?|documentation)\b|문서/iu.test(requestText)
+      ? [['documentation', 1]]
+      : []),
+    ...(/\b(?:fixture|example|snapshot)\b|예제/iu.test(requestText)
+      ? [['fixture', 1]]
+      : []),
+  ]);
+  const lineByPath = impactAnchorLines(searchObservations);
+  if (structuredOutputRequest) {
+    for (const search of searchObservations) {
+      for (const anchor of search?.normalizedItemAnchors ?? []) {
+        const anchorPath = normalizeTargetPath(anchor?.path);
+        if (anchorPath && Number.isSafeInteger(anchor.line) && anchor.line > 0 &&
+            /(?:^|\/)(?:server|runtime|adapter|handler|controller|route)[^/]*\.[^/]+$/iu.test(anchorPath)) {
+          lineByPath.set(anchorPath, anchor.line);
+        }
+      }
+    }
+  }
+  const anchorCountByPath = new Map();
+  for (const search of searchObservations) {
+    for (const anchor of search?.normalizedItemAnchors ?? []) {
+      const anchorPath = normalizeTargetPath(anchor?.path);
+      if (anchorPath) anchorCountByPath.set(anchorPath, (anchorCountByPath.get(anchorPath) ?? 0) + 1);
+    }
+  }
+  const grouped = new Map();
+  for (const candidatePath of [...new Set((discoveredPaths ?? [])
+    .map(candidate => candidate?.path)
+    .filter(candidatePath => typeof candidatePath === 'string' && candidatePath))]) {
+    const role = classifySourceRole(candidatePath);
+    if (!requestedRoles.has(role)) continue;
+    const entries = grouped.get(role) ?? [];
+    entries.push(candidatePath);
+    grouped.set(role, entries);
+  }
+  const architecturePath = /server|runtime|schemas?|adapters?|handlers?|client|consumer|payload/iu;
+  const structuredPathOrder = (candidatePath, role) => {
+    if (!structuredOutputRequest) return 0;
+    if (role === 'implementation') {
+      if (/(?:format|payload)/iu.test(candidatePath)) return 0;
+      if (/(?:schema|contract|types?)/iu.test(candidatePath)) return 1;
+      if (/(?:server|adapter|handler|controller|route)/iu.test(candidatePath)) return 2;
+      if (/runtime/iu.test(candidatePath)) return 3;
+    }
+    if (role === 'test') {
+      if (/(?:mcp-server|schemas?|runtime)(?:[._-].*)?test/iu.test(candidatePath)) return 0;
+      if (/integration/iu.test(candidatePath)) return 1;
+    }
+    if (role === 'config' || role === 'fixture') {
+      if (/expected[._-]?response/iu.test(candidatePath)) return 0;
+      if (/(?:schema|contract|output)/iu.test(candidatePath)) return 1;
+    }
+    return 4;
+  };
+  return [...requestedRoles.entries()].flatMap(([role, limit]) =>
+    (grouped.get(role) ?? [])
+      .sort((left, right) =>
+        structuredPathOrder(left, role) - structuredPathOrder(right, role) ||
+        taskPathScore(task, right) - taskPathScore(task, left) ||
+        (anchorCountByPath.get(right) ?? 0) - (anchorCountByPath.get(left) ?? 0) ||
+        Number(architecturePath.test(right)) - Number(architecturePath.test(left)) ||
+        left.length - right.length || left.localeCompare(right))
+      .slice(0, limit)
+      .map(candidatePath => ({
+        role,
+        path: candidatePath,
+        ...(lineByPath.has(candidatePath) ? { line: lineByPath.get(candidatePath) } : {}),
+      })));
+}
+
+const MAX_LOCATE_READ_ROUNDS = 2;
+
+export function buildLocateToolPolicy({
+  observations,
+  tools,
+  discoveredPaths,
+  task,
+  effectiveScope,
+  knownSymbols = [],
+  readRounds = 0,
+}) {
+  const targetScope = canonicalizeRepositoryObservationScope(effectiveScope ?? []);
+  const knownSymbolPattern = [...new Set((Array.isArray(knownSymbols) ? knownSymbols : [])
+    .filter(symbol => typeof symbol === 'string' && symbol)
+    .map(escapeRegexLiteral))].join('|');
+  const indexed = observations.map((observation, index) => ({ observation, index }));
+  const searches = indexed.filter(({ observation }) =>
+    observation?.kind === 'search' && observation.tool === 'repo_grep');
+  const sources = indexed.filter(({ observation }) => observation?.kind === 'source');
+  const grepPolicy = instruction => {
+    const fixedArguments = {
+      scope: targetScope,
+      ...(knownSymbolPattern ? { pattern: knownSymbolPattern } : {}),
+      ...(knownSymbolPattern ? { maxResults: 40, contextLines: 0 } : {}),
+    };
+    return {
+      tools: toolsWithFixedArguments(tools, 'repo_grep', fixedArguments),
+      parallelToolCalls: false,
+      allowedQueryScope: targetScope,
+      ...(knownSymbolPattern ? { allowedPattern: knownSymbolPattern } : {}),
+      fixedToolArguments: {
+        repo_grep: fixedArguments,
+      },
+      instruction,
+    };
+  };
+  if (searches.length === 0) {
+    return grepPolicy(
+      'Location discovery: run exactly one narrow repo_grep over the complete immutable scope for the strongest literal API, symbol, route, or metadata anchor. Do not issue a synonym search in parallel.',
+    );
+  }
+  const lastSearch = searches.at(-1);
+  if (!boundaryCovers(lastSearch.observation.boundary, targetScope)) {
+    return searches.length < 2
+      ? grepPolicy(
+          'The first location search used a narrower boundary. Run exactly one corrected repo_grep over the complete immutable scope with the same strongest predicate; do not add a synonym.',
+        )
+      : {
+          tools: [],
+          parallelToolCalls: false,
+          instruction: 'Two bounded location searches did not cover the immutable scope. Finalize incomplete without widening or another search.',
+        };
+  }
+  if (Number(lastSearch.observation.matchCount) <= 0) {
+    return {
+      tools: [],
+      parallelToolCalls: false,
+      instruction: 'The bounded location search found no candidate. Finalize incomplete without a synonym search.',
+    };
+  }
+  const readPaths = new Set(sources.map(({ observation }) => normalizeTargetPath(observation.path))
+    .filter(Boolean));
+  const candidates = rankedLocateCandidates(
+    discoveredPaths,
+    searches.map(({ observation }) => observation),
+    task,
+  ).filter(candidate => !readPaths.has(candidate.path));
+  if (candidates.length === 0 || readRounds >= MAX_LOCATE_READ_ROUNDS) {
+    return {
+      tools: [],
+      parallelToolCalls: false,
+      instruction: 'The bounded location candidate reads are complete. Finalize now and preserve every verified companion path in the smallest-set claim.',
+    };
+  }
+  const candidateSummary = candidates.map(candidate =>
+    `${candidate.role}:${candidate.path}${candidate.line ? `@line ${candidate.line}` : ''}`)
+    .join(', ');
+  return {
+    tools: boundedReadTools(tools, candidates),
+    parallelToolCalls: true,
+    allowedReadPaths: candidates.map(candidate => candidate.path),
+    instruction: `Location candidate read: issue at most one narrow repo_read_file for every listed path in one batch, then finalize. Other paths and another search are rejected: ${candidateSummary}.`,
+  };
+}
+
+function traceUsageReadCandidates(search, observations) {
+  const definitionRanges = observations.filter(observation =>
+    observation?.kind === 'source' && observation.rangeGrounding === 'exact');
+  const linesByPath = new Map();
+  for (const anchor of search?.normalizedItemAnchors ?? []) {
+    const anchorPath = normalizeTargetPath(anchor?.path);
+    if (!anchorPath || !Number.isSafeInteger(anchor.line) || anchor.line < 1 ||
+        definitionRanges.some(definition => normalizeTargetPath(definition.path) === anchorPath &&
+          definition.startLine <= anchor.line && definition.endLine >= anchor.line)) {
+      continue;
+    }
+    const lines = linesByPath.get(anchorPath) ?? [];
+    lines.push(anchor.line);
+    linesByPath.set(anchorPath, lines);
+  }
+  return [...linesByPath.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .slice(0, 4)
+    .map(([path, lines]) => ({ path, lines: [...new Set(lines)].sort((a, b) => a - b) }));
+}
+
+const MAX_TRACE_READ_ROUNDS = 2;
+
+export function buildTraceSymbolToolPolicy({
+  observations,
+  tools,
+  symbol,
+  effectiveScope,
+  readRounds = 0,
+}) {
+  const targetScope = canonicalizeRepositoryObservationScope(effectiveScope ?? []);
+  const usagePattern = escapeRegexLiteral(symbol);
+  const indexed = observations.map((observation, index) => ({ observation, index }));
+  const symbolSearches = indexed.filter(({ observation }) =>
+    observation?.kind === 'search' && observation.tool === 'repo_symbol_context' &&
+    observation.normalizedArgs?.symbol === symbol);
+  if (symbolSearches.length === 0) {
+    return {
+      tools: toolsWithFixedArguments(tools, 'repo_symbol_context', {
+        symbol,
+        scope: targetScope,
+      }),
+      parallelToolCalls: false,
+      allowedQueryScope: targetScope,
+      allowedSymbol: symbol,
+      fixedToolArguments: { repo_symbol_context: { symbol, scope: targetScope } },
+      instruction: `Symbol trace definition: call repo_symbol_context exactly once for ${symbol} over the complete immutable scope.`,
+    };
+  }
+  const exactGreps = indexed.filter(({ observation }) =>
+    observation?.kind === 'search' && observation.tool === 'repo_grep' &&
+    observation.normalizedArgs?.pattern === usagePattern);
+  if (exactGreps.length === 0 ||
+      !boundaryCovers(exactGreps.at(-1).observation.boundary, targetScope)) {
+    if (exactGreps.length >= 2) {
+      return {
+        tools: [],
+        parallelToolCalls: false,
+        instruction: 'Two exact symbol usage searches did not cover the immutable scope. Finalize incomplete without widening.',
+      };
+    }
+    return {
+      tools: toolsWithFixedArguments(tools, 'repo_grep', {
+        pattern: usagePattern,
+        scope: targetScope,
+      }),
+      parallelToolCalls: false,
+      allowedQueryScope: targetScope,
+      allowedPattern: usagePattern,
+      fixedToolArguments: { repo_grep: { pattern: usagePattern, scope: targetScope } },
+      instruction: `Symbol trace usage cross-check: call repo_grep exactly once for the runtime-escaped literal symbol ${symbol} over the complete immutable scope.`,
+    };
+  }
+  const lastGrep = exactGreps.at(-1);
+  if (Number(lastGrep.observation.matchCount) <= 0) {
+    return {
+      tools: [],
+      parallelToolCalls: false,
+      instruction: 'The exact symbol usage search found no call candidate. Finalize with the usage gap.',
+    };
+  }
+  const candidates = traceUsageReadCandidates(lastGrep.observation, observations);
+  const unread = candidates.filter(candidate => !indexed.some(({ observation, index }) =>
+    index > lastGrep.index && observation?.kind === 'source' &&
+      normalizeTargetPath(observation.path) === candidate.path &&
+      candidate.lines.every(line => observation.startLine <= line && observation.endLine >= line)));
+  if (unread.length === 0 || readRounds >= MAX_TRACE_READ_ROUNDS) {
+    return {
+      tools: [],
+      parallelToolCalls: false,
+      instruction: 'The exact definition, complete usage search, and bounded caller reads are observed. Finalize now and name the enclosing callers from the source ranges.',
+    };
+  }
+  const candidateSummary = unread.map(candidate =>
+    `${candidate.path}@lines ${candidate.lines.join(',')}`).join('; ');
+  return {
+    tools: boundedReadTools(tools, unread),
+    parallelToolCalls: true,
+    allowedReadPaths: unread.map(candidate => candidate.path),
+    instruction: `Symbol caller read: issue one repo_read_file per listed path with a single range spanning all listed call lines plus enough preceding context to include the enclosing function declaration, then finalize: ${candidateSummary}.`,
+  };
+}
+
+function rankedImpactCandidates(discoveredPaths, searchObservations = [], task = '') {
   const roleLimits = new Map([
-    ['implementation', 4],
-    ['test', 2],
+    ['implementation', 3],
+    ['test', 1],
     ['documentation', 2],
     ['config', 1],
     ['fixture', 1],
   ]);
   const architecturePath = /server|runtime|schemas?|adapters?|handlers?|client|consumer|payload/iu;
+  const publicDocumentationOrder = new Map([
+    ['README.md', 0],
+    ['DESIGN.md', 1],
+  ]);
+  const structuredOutputRequest = /\bstructured\s+(?:output|response)|structuredContent|output\s+contract/iu
+    .test(String(task));
+  const structuredPathOrder = (candidatePath, role) => {
+    if (!structuredOutputRequest) return 0;
+    if (role === 'implementation') {
+      if (/(?:schema|contract|types?)/iu.test(candidatePath)) return 0;
+      if (/(?:^|\/)(?:src|lib)\/.*runtime/iu.test(candidatePath)) return 1;
+      if (/(?:server|adapter|handler|controller|route)/iu.test(candidatePath)) return 2;
+      if (/(?:format|payload)/iu.test(candidatePath)) return 3;
+      if (/runtime/iu.test(candidatePath)) return 4;
+    }
+    if (role === 'test') {
+      if (/mcp-server(?:[._-].*)?test/iu.test(candidatePath)) return 0;
+      if (/schemas?(?:[._-].*)?test/iu.test(candidatePath)) return 1;
+      if (/runtime(?:[._-].*)?test/iu.test(candidatePath)) return 2;
+    }
+    if (role === 'config' || role === 'fixture') {
+      if (/expected[._-]?response/iu.test(candidatePath)) return 0;
+      if (/(?:schema|contract|output)/iu.test(candidatePath)) return 1;
+    }
+    return 5;
+  };
   const lineByPath = impactAnchorLines(searchObservations);
   const grouped = new Map();
   for (const candidatePath of [...new Set((discoveredPaths ?? [])
@@ -6045,9 +6654,17 @@ function rankedImpactCandidates(discoveredPaths, searchObservations = []) {
   }
   return [...roleLimits.entries()].flatMap(([role, limit]) => (grouped.get(role) ?? [])
     .sort((left, right) => {
+      const structuredDelta = structuredPathOrder(left, role) -
+        structuredPathOrder(right, role);
+      const documentationDelta = role === 'documentation'
+        ? (publicDocumentationOrder.get(left) ?? 2) -
+          (publicDocumentationOrder.get(right) ?? 2)
+        : 0;
+      const taskDelta = taskPathScore(task, right) - taskPathScore(task, left);
       const architectureDelta = Number(architecturePath.test(right)) -
         Number(architecturePath.test(left));
-      return architectureDelta || (left.length - right.length) || left.localeCompare(right);
+      return structuredDelta || documentationDelta || taskDelta || architectureDelta ||
+        (left.length - right.length) || left.localeCompare(right);
     })
     .slice(0, limit)
     .map(candidatePath => ({
@@ -6057,7 +6674,22 @@ function rankedImpactCandidates(discoveredPaths, searchObservations = []) {
     })));
 }
 
-export function buildImpactMapToolPolicy({ observations, tools, discoveredPaths }) {
+const MAX_IMPACT_READ_ROUNDS = 2;
+
+function impactDiscoveryPattern(task) {
+  return /\bstructured\s+(?:output|response)|structuredContent|output\s+contract/iu.test(String(task))
+    ? 'structuredContent|schemaVersion|outputSchema'
+    : null;
+}
+
+export function buildImpactMapToolPolicy({
+  observations,
+  tools,
+  discoveredPaths,
+  task = '',
+  effectiveScope = [],
+  readRounds = 0,
+}) {
   const indexedObservations = observations.map((observation, index) => ({
     observation,
     index,
@@ -6066,11 +6698,32 @@ export function buildImpactMapToolPolicy({ observations, tools, discoveredPaths 
     observation?.kind === 'source');
   const searches = indexedObservations.filter(({ observation }) =>
     observation?.kind === 'search' && observation.tool === 'repo_grep');
+  const fixedPattern = impactDiscoveryPattern(task);
+  const fullScope = canonicalizeRepositoryObservationScope(effectiveScope);
+  const implementationScope = fullScope;
+  const categoryScope = fixedPattern ? fullScope : [];
   if (searches.length === 0) {
+    const targetScope = fixedPattern ? implementationScope : fullScope;
+    const fixedArguments = fixedPattern ? {
+      pattern: fixedPattern,
+      scope: targetScope,
+      sourceRoles: ['implementation'],
+      maxResults: 80,
+      contextLines: 0,
+    } : null;
     return {
-      tools: toolsNamed(tools, ['repo_grep']),
+      tools: fixedPattern
+        ? toolsWithFixedArguments(tools, 'repo_grep', fixedArguments)
+        : toolsNamed(tools, ['repo_grep']),
       parallelToolCalls: false,
-      instruction: 'Impact-map discovery: run one exact full-scope repo_grep for the most specific API, schema, or symbol in the intended change.',
+      ...(fixedPattern ? {
+        allowedPattern: fixedPattern,
+        allowedQueryScope: targetScope,
+        fixedToolArguments: { repo_grep: fixedArguments },
+      } : {}),
+      instruction: fixedPattern
+        ? 'Impact-map implementation discovery: run one exact repo_grep over the immutable implementation-bearing scope for the fixed structured-output field predicate. Do not search the wrapper name or add a synonym.'
+        : 'Impact-map discovery: run one exact full-scope repo_grep for the most specific existing API, schema, field, or symbol in the intended change. For a public or structured output change, search an existing output-field or schema/formatter term rather than the wrapper name.',
     };
   }
   const lastSearch = searches.at(-1);
@@ -6082,30 +6735,57 @@ export function buildImpactMapToolPolicy({ observations, tools, discoveredPaths 
       instruction: 'The exact impact lookup produced no candidate. Finalize incomplete without widening.',
     };
   }
-  if (sourcesAfterLastSearch.length > 0) {
-    const implementationObserved = sources.some(({ observation }) =>
-      observation.sourceRole === 'implementation');
-    if (searches.length === 1 && !implementationObserved) {
-      return {
-        tools: toolsNamed(tools, ['repo_grep']),
-        parallelToolCalls: false,
-        instruction: 'Impact-map implementation recovery: the first bounded batch contained no implementation source. Run exactly one final repo_grep using the same predicate but only the in-scope implementation-bearing paths. Do not change to a synonym or widen scope.',
-      };
-    }
+  if (fixedPattern && searches.length === 1 && sourcesAfterLastSearch.length > 0 &&
+      categoryScope.length > 0) {
+    const categoryArguments = {
+      pattern: fixedPattern,
+      scope: categoryScope,
+      sourceRoles: ['test', 'documentation', 'config', 'fixture'],
+      maxResults: 120,
+      contextLines: 0,
+    };
     return {
-      tools: [],
+      tools: toolsWithFixedArguments(tools, 'repo_grep', categoryArguments),
       parallelToolCalls: false,
-      instruction: 'The bounded impact candidate read batch is complete. Finalize now; unresolved requested categories must remain gaps.',
+      requiredToolCallKey: 'impact_category_search',
+      allowedPattern: fixedPattern,
+      allowedQueryScope: categoryScope,
+      fixedToolArguments: { repo_grep: categoryArguments },
+      instruction: 'Impact-map category discovery: implementation targets are observed. Run exactly one final repo_grep with the same fixed predicate over only the remaining in-scope test, documentation, configuration, and example paths. Do not change the predicate or return to implementation scope.',
     };
   }
   const readPaths = new Set(sources
     .map(({ observation }) => observation.path)
     .filter(sourcePath => typeof sourcePath === 'string' && sourcePath));
+  const implementationObserved = sources.some(({ observation }) =>
+    observation.sourceRole === 'implementation');
+  const categoryReadPhase = Boolean(fixedPattern) && searches.length > 1 &&
+    implementationObserved;
   const candidates = rankedImpactCandidates(
     discoveredPaths,
     searches.map(({ observation }) => observation),
-  )
-    .filter(candidate => !readPaths.has(candidate.path));
+    task,
+  ).filter(candidate => !readPaths.has(candidate.path) &&
+    (!categoryReadPhase || candidate.role !== 'implementation'));
+  if (sourcesAfterLastSearch.length > 0) {
+    const implementationCandidate = candidates.some(candidate =>
+      candidate.role === 'implementation');
+    if (!implementationObserved && implementationCandidate && readRounds < MAX_IMPACT_READ_ROUNDS) {
+      // Continue below with the already discovered bounded implementation candidates.
+    } else if (searches.length === 1 && !implementationObserved) {
+      return {
+        tools: toolsNamed(tools, ['repo_grep']),
+        parallelToolCalls: false,
+        instruction: 'Impact-map implementation recovery: the first bounded batch contained no implementation source. Run exactly one final repo_grep using the same predicate but only the in-scope implementation-bearing paths. Do not change to a synonym or widen scope.',
+      };
+    } else if (candidates.length === 0 || readRounds >= MAX_IMPACT_READ_ROUNDS) {
+      return {
+        tools: [],
+        parallelToolCalls: false,
+        instruction: 'The bounded impact candidate read batches are complete. Finalize now; unresolved requested categories must remain gaps.',
+      };
+    }
+  }
   if (candidates.length === 0) {
     return {
       tools: [],
@@ -6118,8 +6798,12 @@ export function buildImpactMapToolPolicy({ observations, tools, discoveredPaths 
       (candidate.line ? `@line ${candidate.line}` : ''))
     .join(', ');
   return {
-    tools: toolsNamed(tools, ['repo_read_file']),
+    tools: boundedReadTools(tools, candidates),
     parallelToolCalls: true,
+    ...(fixedPattern && searches.length > 1
+      ? { requiredToolCallKey: 'impact_category_read' }
+      : {}),
+    allowedReadPaths: candidates.map(candidate => candidate.path),
     instruction: `Impact-map candidate read: batch-read the strongest observed path for every requested role. Use only these candidates and read a narrow range containing each stated match line instead of defaulting to the start of a file: ${candidateSummary}.`,
   };
 }
@@ -8259,6 +8943,16 @@ export class ExplorerRuntime {
         runtimeConfig,
       });
       if (toolSafetyLimit) {
+        const configuredResultLimit = Number.isSafeInteger(toolArgs?.maxResults)
+          ? toolArgs.maxResults
+          : runtimeConfig.maxSearchResults;
+        const boundedCandidateResultCap = toolSafetyLimit === 'tool_result_limit' &&
+          toolName === 'repo_grep' && Array.isArray(toolArgs?.sourceRoles) &&
+          toolResult.resultTruncated === true && Array.isArray(toolResult.matches) &&
+          toolResult.matches.length >= configuredResultLimit &&
+          toolResult.walkTruncated !== true &&
+          Number(toolResult.skipped?.largeFiles ?? 0) === 0 &&
+          Number(toolResult.skipped?.binaryFiles ?? 0) === 0;
         for (const observation of newObservations) {
           if (observation.kind === 'search') {
             observation.safetyLimit = { name: toolSafetyLimit, stage };
@@ -8267,7 +8961,7 @@ export class ExplorerRuntime {
         recordSafetyLimit(stats, {
           name: toolSafetyLimit,
           stage,
-          affectedSubgoalIds: [...affectedSubgoalIds],
+          affectedSubgoalIds: boundedCandidateResultCap ? [] : [...affectedSubgoalIds],
           truncated: true,
         });
       }
@@ -8383,6 +9077,14 @@ export class ExplorerRuntime {
       Array.isArray(args.hints?.[key]) && args.hints[key].length > 0);
     const impactMapWrapperMode = args.taskMode === 'edit_planning' && !hasKnownAnchor &&
       args.task.startsWith(MAP_CHANGE_WRAPPER_TASK_PREFIX);
+    const locateWrapperMode = args.taskMode === 'locate' &&
+      (!hasKnownAnchor || (args.hints?.symbols?.length ?? 0) > 0) &&
+      args.task.startsWith(FIND_RELEVANT_WRAPPER_TASK_PREFIX);
+    const traceWrapperSymbol = args.taskMode === 'symbol_trace' &&
+      args.task.startsWith(TRACE_SYMBOL_WRAPPER_TASK_PREFIX) &&
+      Array.isArray(args.hints?.symbols) && args.hints.symbols.length === 1
+      ? args.hints.symbols[0]
+      : null;
     const exactCommitRef = wrapperToolForTaskMode(args.taskMode) === 'explore_repo' &&
       includesDetectedStrategy(detectedStrategy, 'git-guided')
       ? exactCommitRefFromTask(args.task)
@@ -8398,6 +9100,10 @@ export class ExplorerRuntime {
     let lastFingerprint = null;
     let repeatedTurns = 0;
     let consecutiveAllErrorTurns = 0;
+    let impactReadRounds = 0;
+    let locateReadRounds = 0;
+    let traceReadRounds = 0;
+    const retriedRequiredToolPolicies = new Set();
     let outcome = null;
 
     try {
@@ -8523,14 +9229,40 @@ export class ExplorerRuntime {
           })
         : null;
       const turnToolPolicy = sourceClaimCheckMode
-        ? sourceClaimCheckToolPolicy({
+        ? buildSourceClaimCheckToolPolicy({
             observations,
             tools,
             task: args.task,
             discoveredPaths,
+            effectiveScope,
           })
         : impactMapWrapperMode
-          ? buildImpactMapToolPolicy({ observations, tools, discoveredPaths })
+          ? buildImpactMapToolPolicy({
+              observations,
+              tools,
+              discoveredPaths,
+              task: args.task,
+              effectiveScope,
+              readRounds: impactReadRounds,
+            })
+        : locateWrapperMode
+          ? buildLocateToolPolicy({
+              observations,
+              tools,
+              discoveredPaths,
+              task: args.task,
+              effectiveScope,
+              knownSymbols: args.hints?.symbols,
+              readRounds: locateReadRounds,
+            })
+        : traceWrapperSymbol
+          ? buildTraceSymbolToolPolicy({
+              observations,
+              tools,
+              symbol: traceWrapperSymbol,
+              effectiveScope,
+              readRounds: traceReadRounds,
+            })
         : exactCommitPolicy
           ? exactCommitPolicy
           : {
@@ -8590,6 +9322,18 @@ export class ExplorerRuntime {
       }
 
       const assistantMessage = buildAssistantMessage(completion.message);
+      if (impactMapWrapperMode && completion.message.toolCalls.some(call =>
+        call.function?.name === 'repo_read_file')) {
+        impactReadRounds += 1;
+      }
+      if (locateWrapperMode && completion.message.toolCalls.some(call =>
+        call.function?.name === 'repo_read_file')) {
+        locateReadRounds += 1;
+      }
+      if (traceWrapperSymbol && completion.message.toolCalls.some(call =>
+        call.function?.name === 'repo_read_file')) {
+        traceReadRounds += 1;
+      }
       messages.push(assistantMessage);
       transcript.record('assistant', {
         contentChars: typeof assistantMessage.content === 'string'
@@ -8604,6 +9348,16 @@ export class ExplorerRuntime {
       });
 
       if (completion.message.toolCalls.length === 0) {
+        const requiredToolCallKey = turnToolPolicy.requiredToolCallKey;
+        if (typeof requiredToolCallKey === 'string' && requiredToolCallKey &&
+            !retriedRequiredToolPolicies.has(requiredToolCallKey)) {
+          retriedRequiredToolPolicies.add(requiredToolCallKey);
+          messages.push({
+            role: 'user',
+            content: 'The runtime-required bounded repository step is still unresolved. Use one of the supplied tools exactly as constrained now; do not synthesize or broaden the task yet.',
+          });
+          continue;
+        }
         // No more tool calls — route through finalizeAfterToolLoop() so strict schema
         // validation always runs, regardless of exit path.
         if (onProgress) {
@@ -8689,18 +9443,51 @@ export class ExplorerRuntime {
 
           try {
             toolArgs = safeJsonParse(toolCall.function?.arguments ?? '{}');
+            const fixedArguments = turnToolPolicy.fixedToolArguments?.[toolName];
+            if (fixedArguments && typeof fixedArguments === 'object' &&
+                !Array.isArray(fixedArguments)) {
+              toolArgs = { ...toolArgs, ...fixedArguments };
+            }
             action = { type: 'tool', tool: toolName, arguments: toolArgs };
             const normalizedReadPath = toolName === 'repo_read_file'
               ? normalizeTargetPath(toolArgs.path)
               : null;
-            if (allowedReadPaths &&
+            let queryPolicyRejected = false;
+            if (Array.isArray(turnToolPolicy.allowedQueryScope) &&
+                ['repo_grep', 'repo_symbol_context'].includes(toolName)) {
+              try {
+                queryPolicyRejected = JSON.stringify(canonicalizeRepositoryObservationScope(
+                  Array.isArray(toolArgs.scope) ? toolArgs.scope : [],
+                )) !== JSON.stringify(turnToolPolicy.allowedQueryScope);
+              } catch {
+                queryPolicyRejected = true;
+              }
+            }
+            if (typeof turnToolPolicy.allowedPattern === 'string' &&
+                toolName === 'repo_grep' && toolArgs.pattern !== turnToolPolicy.allowedPattern) {
+              queryPolicyRejected = true;
+            }
+            if (typeof turnToolPolicy.allowedSymbol === 'string' &&
+                toolName === 'repo_symbol_context' &&
+                toolArgs.symbol !== turnToolPolicy.allowedSymbol) {
+              queryPolicyRejected = true;
+            }
+            if (queryPolicyRejected) {
+              toolResult = {
+                error: true,
+                stage: 'exploration',
+                type: 'tool_policy_rejected',
+                message: 'The bounded query must use the runtime-selected predicate and immutable scope.',
+                tool: toolName,
+              };
+            } else if (allowedReadPaths &&
                 (!normalizedReadPath || !allowedReadPaths.has(normalizedReadPath) ||
                   selectedReadPaths.has(normalizedReadPath))) {
               toolResult = {
                 error: true,
                 stage: 'exploration',
                 type: 'tool_policy_rejected',
-                message: 'The exact-commit read must use each listed changed path at most once.',
+                message: 'The bounded read must use each listed path at most once.',
                 tool: toolName,
               };
             } else {
@@ -8908,7 +9695,7 @@ export class ExplorerRuntime {
           ? exactCommitReadCandidates(observations, exactCommitRef, args.task)
           : [];
         const repairTools = exactCommitMode
-          ? exactCommitReadTools(tools, exactCommitRepairCandidates)
+          ? boundedReadTools(tools, exactCommitRepairCandidates)
           : tools;
         const repairRun = await runEvidenceRepairToolBatch({
           chatClient,
@@ -9362,6 +10149,7 @@ export class ExplorerRuntime {
           taskContract: parentTaskContract,
           coverageGaps: outcome?.coverageGaps ?? auditedPlan?.coverageGaps ?? [],
           safetyLimits: stats.safetyLimits ?? [],
+          language: args.language,
         });
         if (parentProjection.projectionGapGoalIds.length > 0) {
           const projectionGaps = appendParentProjectionCoverageGaps({

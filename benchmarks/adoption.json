@@ -106,7 +106,7 @@
         {
           "label": "Targets describe actionability",
           "source": "target_reasons",
-          "groups": [["schema"], ["runtime", "normaliz"], ["regression", "validation"], ["documentation", "contract"]],
+          "groups": [["schema"], ["runtime", "normaliz"], ["regression", "validation", "validat", "assert"], ["documentation", "contract", "document"]],
           "weight": 0.15
         }
       ],

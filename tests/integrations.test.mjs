@@ -51,11 +51,14 @@ test('collect_evidence keeps one quiet wrapper task in MCP and trust execution',
 test('map_change_impact task stays aligned with its four fixed goal seeds', async () => {
   const server = await read('src/mcp/server.mjs');
   const trustRunner = await read('scripts/run-trust-suite.mjs');
-  const expected = /Identify actionable targets, dependent callers\/consumers, affected tests\/configuration\/documentation, and the remaining risk boundary/u;
+  const expected = /Identify actionable targets, dependent callers\/consumers, affected verification or public-contract surfaces, and the remaining risk boundary/u;
+  const staleMandatoryCategories = /affected tests\/configuration\/documentation/u;
   const staleSixPartTask = /Identify likely edit targets, read targets, callers, tests, configuration, and risky dependent paths/u;
 
   assert.match(server, expected);
   assert.match(trustRunner, expected);
+  assert.doesNotMatch(server, staleMandatoryCategories);
+  assert.doesNotMatch(trustRunner, staleMandatoryCategories);
   assert.doesNotMatch(server, staleSixPartTask);
   assert.doesNotMatch(trustRunner, staleSixPartTask);
 });

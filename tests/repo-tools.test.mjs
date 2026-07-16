@@ -242,6 +242,25 @@ repositoryObservationTest('repository observations preserve the authoritative bo
   assert.equal(observation.deniedPaths, 0);
   assert.equal(observation.errors, 0);
   assert.equal(observation.enumerationComplete, true);
+
+  const roleFiltered = normalize({
+    id: 'search-role-filtered',
+    tool: 'repo_grep',
+    args: {
+      pattern: 'requireAuth',
+      scope: ['**'],
+      sourceRoles: ['implementation'],
+    },
+    boundary: ['**'],
+    enumerationCandidate: true,
+    result: {
+      matches: [{ path: 'src/auth.js', line: 1 }],
+      truncated: false,
+    },
+    contextTruncated: false,
+  });
+  assert.equal(roleFiltered.enumerationComplete, false,
+    'an internal source-role filter cannot certify an unfiltered absence or count');
 });
 
 repositoryObservationTest('count identities come only from valid grep and file-search results', normalize => {
@@ -1149,6 +1168,41 @@ test('Spec 028 T029 — source roles use conservative path segments and suffixes
   assert.equal(classifySourceRole(null), 'unknown');
 });
 
+test('Spec 028 T071 — internal grep source-role filtering happens before the result cap',
+  { skip: !hasRipgrep() }, async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-role-grep-'));
+    try {
+      await fs.mkdir(path.join(root, 'scripts'), { recursive: true });
+      await fs.mkdir(path.join(root, 'src'), { recursive: true });
+      const documentation = Array.from({ length: 100 }, (_, index) =>
+        `structuredContent documentation mention ${index}`).join('\n');
+      const noisyImplementation = Array.from({ length: 100 }, (_, index) =>
+        `export const structuredContent${index} = buildPayload();`).join('\n');
+      await fs.writeFile(path.join(root, '000-DESIGN.md'), `${documentation}\n`);
+      await fs.writeFile(path.join(root, 'scripts', '000-noisy.mjs'), `${noisyImplementation}\n`);
+      await fs.writeFile(path.join(root, 'src', 'zzz-runtime.mjs'),
+        'export const structuredContent = buildPayload();\n');
+      const toolkit = new RepoToolkit({ repoRoot: root, runtimeConfig: getRuntimeConfig() });
+      await toolkit.initialize([]);
+
+      const result = await toolkit.grep({
+        pattern: 'structuredContent',
+        maxResults: 3,
+        sourceRoles: ['implementation'],
+      });
+      assert.equal(result.matches.some(match => match.path === 'src/zzz-runtime.mjs'), true,
+        'one noisy implementation file must not hide a later implementation candidate');
+      assert.equal(result.matches.filter(match => match.path === 'scripts/000-noisy.mjs').length, 2,
+        'internal role-filtered discovery samples at most two matches per file');
+      await assert.rejects(
+        toolkit.grep({ pattern: 'structuredContent', sourceRoles: ['made-up'] }),
+        /known source roles/u,
+      );
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
 test('RepoToolkit finds files, greps, reads ranges, and respects gitignore', async () => {
   const repoRoot = await makeRepoFixture();
   const toolkit = new RepoToolkit({
@@ -1590,9 +1644,31 @@ test('grep cache key includes maxResults — different maxResults get different 
 
   const result1 = await toolkit.callTool('repo_grep', { pattern: 'requireAuth', maxResults: 1 });
   assert.equal(result1.matches.length, 1, 'maxResults:1 returns 1 match');
+  await assert.rejects(
+    toolkit.callTool('repo_grep', {
+      pattern: 'requireAuth',
+      maxResults: 1,
+      sourceRoles: [],
+    }),
+    /non-empty array of known source roles/u,
+    'an invalid role filter must not borrow an unfiltered cache entry',
+  );
 
   const result10 = await toolkit.callTool('repo_grep', { pattern: 'requireAuth', maxResults: 10 });
   assert.ok(result10.matches.length > 1, 'maxResults:10 returns more matches (not polluted by maxResults:1 cache)');
+
+  const implementation = await toolkit.callTool('repo_grep', {
+    pattern: 'requireAuth',
+    maxResults: 10,
+    sourceRoles: ['implementation'],
+  });
+  const documentation = await toolkit.callTool('repo_grep', {
+    pattern: 'requireAuth',
+    maxResults: 10,
+    sourceRoles: ['documentation'],
+  });
+  assert.equal(implementation.matches.every(match => match.path.startsWith('src/')), true);
+  assert.deepEqual(documentation.matches.map(match => match.path), ['docs/auth.md']);
 });
 
 test('find_files cache key includes maxResults', async () => {
@@ -1963,6 +2039,8 @@ test('spec-026 US2: symbolContext includes production callsite, is deterministic
   const mainCaller = result1.callers.find(c => c.path === 'app/main.js');
   assert.ok(mainCaller, 'production callsite app/main.js must be in callers');
   assert.equal(mainCaller.relation, 'call', 'app/main.js caller must have relation "call"');
+  assert.equal(mainCaller.enclosingSymbol, 'renderApp',
+    'symbolContext should name the enclosing production caller without another model turn');
 
   // ② two consecutive calls return deepEqual results (determinism)
   const result2 = await toolkit.symbolContext({ symbol: 'paintWidget', depth: 1 });
@@ -1988,6 +2066,32 @@ test('spec-026 US2: symbolContext includes production callsite, is deterministic
   // the selected set is smaller than total callers (selection cap, not grep cap)
   assert.equal(result1.truncated, true, 'truncated must be true when the selected set is smaller than total callers');
 });
+
+test('Spec 028 T071 — symbolContext never assigns a closed preceding function to a top-level call',
+  { skip: !hasRipgrep() }, async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-top-level-caller-'));
+    try {
+      await fs.writeFile(path.join(root, 'def.js'),
+        'export function paintWidget() { return true; }\n');
+      await fs.writeFile(path.join(root, 'main.js'), [
+        "import { paintWidget } from './def.js';",
+        'function previous() {',
+        '  return true;',
+        '}',
+        'paintWidget();',
+      ].join('\n') + '\n');
+      const toolkit = new RepoToolkit({ repoRoot: root, runtimeConfig: getRuntimeConfig() });
+      await toolkit.initialize([]);
+
+      const result = await toolkit.symbolContext({ symbol: 'paintWidget', depth: 1 });
+      const topLevelCall = result.callers.find(caller =>
+        caller.path === 'main.js' && caller.relation === 'call');
+      assert.ok(topLevelCall);
+      assert.equal(Object.hasOwn(topLevelCall, 'enclosingSymbol'), false);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
 
 async function makeMultiFileBreadthFixture() {
   // 8 code files, each containing 4 calls to 'myFunc' (32 candidates total, all same tier).

@@ -376,6 +376,10 @@ auditedPromptBoundaryTest('Spec 028 T018 — planner policy is invariant under u
     /Count the entries in STATIC_ARRAY[\s\S]{0,220}exactly three leaves[\s\S]{0,220}entry count=count[\s\S]{0,180}definition location=symbol_definition[\s\S]{0,180}distinction=comparison/i);
   assert.match(attacked.system,
     /complete "Cite the definition" clause[\s\S]{0,180}complete "distinguish \.\.\. from \.\.\." clause[\s\S]{0,220}never replace it with a standalone ending-line fact/i);
+  assert.match(attacked.system,
+    /wrapper:trace_symbol[\s\S]{0,100}exactly two leaves[\s\S]{0,180}what it does[\s\S]{0,180}parameters\/return behavior/i);
+  assert.match(attacked.system,
+    /wrapper:find_relevant_code[\s\S]{0,180}I need to update X[\s\S]{0,180}location relevance context[\s\S]{0,220}do not invent an outdated comparison/i);
   assertRuntimeOwnedProofPolicy(attacked.system, 'planner');
 
   const wholeRepository = assertTwoMessageBoundary(promptModule.buildPlannerMessages(plannerArgs({
@@ -560,7 +564,9 @@ auditedPromptBoundaryTest('Spec 028 T071 — map impact categories remain one bo
     assert.match(system,
       /do not split[\s\S]{0,160}independently searchable[\s\S]{0,120}source roles/i);
     assert.match(system,
-      /does not permit mixing targets, dependents, or risk_boundary[\s\S]{0,160}omitting any named category/i);
+      /does not permit mixing targets, dependents, or risk_boundary[\s\S]{0,160}omitting an explicitly named category/i);
+    assert.match(system,
+      /do not invent a mandatory category[\s\S]{0,100}common impact surface/i);
   }
   assert.match(planner.data, /"requested_categories":"impact"/u);
 });
@@ -749,7 +755,17 @@ test('Spec 028 T028 — claim synthesis receives bounded observations and cannot
   assert.match(prompt.system,
     /positive direct-source test claim[\s\S]{0,180}one exactly observed test/i);
   assert.match(prompt.system,
+    /trace_symbol usage claim[\s\S]{0,180}enclosing caller or function[\s\S]{0,160}line numbers alone/i);
+  assert.match(prompt.system,
+    /wrapper:find_relevant_code:relevance[\s\S]{0,220}public or structured output contract[\s\S]{0,220}production caller or adapter/i);
+  assert.match(prompt.system,
     /wrapper:collect_evidence:verdict[\s\S]{0,220}complete zero-match search[\s\S]{0,180}confirming lookup[\s\S]{0,100}not a counterevidence search/i);
+  assert.match(prompt.system,
+    /directly refutes[\s\S]{0,180}exact direct source\/git counterexample[\s\S]{0,180}without a zero-match search/i);
+  assert.match(prompt.system,
+    /collect_evidence verdict explicitly[\s\S]{0,180}claim is false, refuted, or contradicted/i);
+  assert.match(prompt.system,
+    /multiple conjunctive or universal negative facets[\s\S]{0,220}exact observed mechanism[\s\S]{0,180}each requested facet/i);
   assert.match(prompt.system,
     /collect_evidence claim text[\s\S]{0,180}requested repository conclusion[\s\S]{0,180}do not add[\s\S]{0,180}(?:search pattern|match count|certificate summary|tool detail)[\s\S]{0,180}only through evidenceRefs/i);
   assert.match(prompt.system,
@@ -866,6 +882,8 @@ test('Spec 028 T028 — semantic verifier sees isolated rebuilt facts and cannot
   assert.match(prompt.system, /never (?:rewrite|replace|add)[\s\S]{0,140}claim/i);
   assert.match(prompt.system, /supportingEvidenceRefs[\s\S]{0,180}subset/i);
   assert.match(prompt.system,
+    /every current source path explicitly named[\s\S]{0,180}supportingEvidenceRef[\s\S]{0,180}exact source observation/i);
+  assert.match(prompt.system,
     /control\.freshEvidenceRefs[\s\S]{0,180}supported verdict[\s\S]{0,160}at least one exact id/i);
   assert.match(prompt.system,
     /evidence ids are opaque exact tokens[\s\S]{0,120}E5[\s\S]{0,80}E5:search[\s\S]{0,180}never append, remove, or infer a suffix/i);
@@ -875,6 +893,10 @@ test('Spec 028 T028 — semantic verifier sees isolated rebuilt facts and cannot
     /true but belongs to a different requested category[\s\S]{0,160}insufficient/i);
   assert.match(prompt.system,
     /positive direct_source claim[\s\S]{0,180}not an exhaustive inventory/i);
+  assert.match(prompt.system,
+    /trace_symbol usage claim[\s\S]{0,180}call lines is insufficient[\s\S]{0,180}caller\/function name/i);
+  assert.match(prompt.system,
+    /wrapper:find_relevant_code:relevance[\s\S]{0,220}public or structured output[\s\S]{0,220}production caller or adapter/i);
   assert.match(prompt.system,
     /all\/every\/exhaustive impact claim[\s\S]{0,220}omission of any one is missing_category/i);
   assert.match(prompt.system,
@@ -887,6 +909,10 @@ test('Spec 028 T028 — semantic verifier sees isolated rebuilt facts and cannot
     /every, exhaustive, or inventory classification[\s\S]{0,180}complete cited enumeration[\s\S]{0,180}every enumerated member/i);
   assert.match(prompt.system,
     /wrapper:collect_evidence:verdict[\s\S]{0,260}every ref of one complete zero-match search[\s\S]{0,180}confirming lookup[\s\S]{0,180}not counterevidence/i);
+  assert.match(prompt.system,
+    /direct refutation[\s\S]{0,180}exact direct source\/git counterexample[\s\S]{0,180}without a zero-match search/i);
+  assert.match(prompt.system,
+    /whole-premise refutation[\s\S]{0,180}conjunctive or universal negative facets[\s\S]{0,220}exact observed mechanism/i);
   assert.match(prompt.system,
     /wrapper:collect_evidence:verdict[\s\S]{0,220}requested proof facet remains uncovered[\s\S]{0,180}insufficient[\s\S]{0,120}uncovered_request[\s\S]{0,180}uncoveredRequestParts empty[\s\S]{0,160}never create a sibling goal/i);
   assert.match(prompt.data, /Locate requireAuth/);

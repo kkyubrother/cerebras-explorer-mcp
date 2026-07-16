@@ -332,7 +332,7 @@ function buildMapChangeImpactArgs(args) {
   if (!change || typeof change !== 'string' || !change.trim()) {
     throw makeInvalidArgsError('map_change_impact requires a non-empty "change" argument.');
   }
-  const task = `Map the likely impact of this intended change before editing: ${change.trim()}. Identify actionable targets, dependent callers/consumers, affected tests/configuration/documentation, and the remaining risk boundary.`;
+  const task = `Map the likely impact of this intended change before editing: ${change.trim()}. Identify actionable targets, dependent callers/consumers, affected verification or public-contract surfaces, and the remaining risk boundary.`;
   return {
     task,
     repo_root,
