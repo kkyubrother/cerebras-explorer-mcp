@@ -3289,6 +3289,77 @@ function wrapperPartForSubgoal(subgoal, wrapperTool) {
   return parts.length === 1 ? parts[0] : null;
 }
 
+function certifiedLocateCompanionTestPath({
+  taskContract,
+  claims,
+  observations,
+  wrapperTool,
+}) {
+  if (wrapperTool !== 'find_relevant_code' || claims.length === 0) return null;
+  const observationById = new Map(observations.map(observation => [
+    observation?.id,
+    observation,
+  ]));
+  const citedPaths = new Set();
+  let citesImplementation = false;
+  for (const claim of claims) {
+    for (const ref of claim.evidenceRefs ?? []) {
+      const observation = observationById.get(ref);
+      const sourcePath = normalizeTargetPath(observation?.path);
+      if (observation?.kind !== 'source' || observation.temporalRole !== 'current' ||
+          observation.rangeGrounding !== 'exact' || !sourcePath) continue;
+      citedPaths.add(sourcePath);
+      if (observation.sourceRole === 'implementation') citesImplementation = true;
+    }
+  }
+  if (!citesImplementation) return null;
+
+  const claimBoundary = taskClaimBoundary(taskContract);
+  const candidates = new Set();
+  for (const observation of observations) {
+    if (observation?.kind !== 'search' || observation.tool !== 'repo_grep' ||
+        observation.enumerationComplete !== true || observation.errors !== 0 ||
+        observation.deniedPaths !== 0 || observation.matchCount <= 0 ||
+        !Array.isArray(observation.normalizedItemAnchors) ||
+        observation.normalizedItemAnchors.length !== observation.matchCount ||
+        !boundaryCovers(observation.boundary, claimBoundary)) {
+      continue;
+    }
+    const matchedPaths = [...new Set(observation.normalizedItemAnchors
+      .map(anchor => normalizeTargetPath(anchor?.path))
+      .filter(Boolean))];
+    if (!matchedPaths.some(sourcePath => citedPaths.has(sourcePath))) continue;
+    const omittedPaths = matchedPaths.filter(sourcePath => !citedPaths.has(sourcePath));
+    if (omittedPaths.length !== 1 || classifySourceRole(omittedPaths[0]) !== 'test') continue;
+    candidates.add(omittedPaths[0]);
+  }
+  return candidates.size === 1 ? [...candidates][0] : null;
+}
+
+function omitIncompleteLocateSmallestSetClaim({
+  taskContract,
+  claims,
+  observations,
+  wrapperTool,
+}) {
+  if (wrapperTool !== 'find_relevant_code') return claims;
+  const subgoalById = new Map(taskContract.subgoals.map(subgoal => [
+    subgoal.id,
+    subgoal,
+  ]));
+  const smallestSetClaims = claims.filter(claim =>
+    wrapperPartForSubgoal(subgoalById.get(claim.subgoalId), wrapperTool) === 'smallest_set');
+  if (smallestSetClaims.length !== 1 || !certifiedLocateCompanionTestPath({
+    taskContract,
+    claims: smallestSetClaims,
+    observations,
+    wrapperTool,
+  })) {
+    return claims;
+  }
+  return claims.filter(claim => claim !== smallestSetClaims[0]);
+}
+
 function runtimeRoleRequirement(subgoal, policyArtifacts = {}) {
   if (subgoal.proofPolicy === 'bounded_absence') {
     return {
@@ -3923,6 +3994,7 @@ function buildEvidenceRepairMessages({
   anchors,
   history,
   countersearchOnly = false,
+  locateCompanionReadPath = null,
 }) {
   return redactValue([
     {
@@ -3937,6 +4009,9 @@ function buildEvidenceRepairMessages({
         'Use each runtime-owned proofPolicy and reasonCode to repair only its missing proof facet.',
         ...(countersearchOnly
           ? ['This collect_evidence gap already has direct evidence. Call repo_grep exactly once for a plausible disconfirming exception, bypass, or alternative over the full immutable scope; do not request another source read.']
+          : []),
+        ...(locateCompanionReadPath
+          ? ['This find_relevant_code smallest-set gap has one certified companion test candidate. Call repo_read_file exactly once for the supplied candidate path; do not search or read another path.']
           : []),
         'For bounded_usage_cross_check, obtain exact usage source plus a complete search over the immutable scope.',
         'For ordered_handoffs, read the smallest missing adjacent transition or terminal source range.',
@@ -3965,6 +4040,7 @@ function buildEvidenceRepairMessages({
           }),
           scope: Array.isArray(effectiveScope) ? effectiveScope : [],
           anchors: Array.isArray(anchors) ? anchors : [],
+          ...(locateCompanionReadPath ? { candidateReadPath: locateCompanionReadPath } : {}),
           history: history && typeof history === 'object'
             ? history
             : { searches: [], sourceRanges: [] },
@@ -4006,6 +4082,30 @@ function isCollectCountersearchOnlyRepair({
       verdict?.result === 'insufficient' && verdict.reasonCode === 'boundary_mismatch' &&
       claim.evidenceRefs.some(ref =>
         DIRECT_REFUTATION_OBSERVATION_KINDS.has(observationById.get(ref)?.kind));
+  });
+}
+
+function locateCompanionReadPathForRepair({
+  gaps,
+  taskContract,
+  claims,
+  wrapperTool,
+  observations,
+}) {
+  if (wrapperTool !== 'find_relevant_code' || gaps.length !== 1) return null;
+  const subgoalById = new Map(taskContract.subgoals.map(subgoal => [
+    subgoal.id,
+    subgoal,
+  ]));
+  if (wrapperPartForSubgoal(subgoalById.get(gaps[0].subgoalId), wrapperTool) !==
+      'smallest_set') {
+    return null;
+  }
+  return certifiedLocateCompanionTestPath({
+    taskContract,
+    claims,
+    observations,
+    wrapperTool,
   });
 }
 
@@ -4068,11 +4168,23 @@ async function runEvidenceRepairToolBatch({
     wrapperTool,
     observations,
   });
-  const repairTools = countersearchOnly
-    ? tools.filter(tool => tool?.function?.name === 'repo_grep')
+  const locateCompanionReadPath = countersearchOnly ? null : locateCompanionReadPathForRepair({
+    gaps,
+    taskContract,
+    claims,
+    wrapperTool,
+    observations,
+  });
+  const restrictedToolName = countersearchOnly
+    ? 'repo_grep'
+    : locateCompanionReadPath
+      ? 'repo_read_file'
+      : null;
+  const repairTools = restrictedToolName
+    ? tools.filter(tool => tool?.function?.name === restrictedToolName)
     : tools;
-  const repairToolNames = countersearchOnly ? new Set(['repo_grep']) : knownToolNames;
-  const repairBatchLimit = countersearchOnly ? 1 : TOOL_CONCURRENCY;
+  const repairToolNames = restrictedToolName ? new Set([restrictedToolName]) : knownToolNames;
+  const repairBatchLimit = restrictedToolName ? 1 : TOOL_CONCURRENCY;
   const messages = buildEvidenceRepairMessages({
     gaps,
     taskContract,
@@ -4080,9 +4192,10 @@ async function runEvidenceRepairToolBatch({
     semanticVerdicts,
     wrapperTool,
     effectiveScope,
-    anchors,
+    anchors: locateCompanionReadPath ? [locateCompanionReadPath] : anchors,
     history: collectEvidenceRepairHistory(observations),
     countersearchOnly,
+    locateCompanionReadPath,
   });
   const request = async () => requestProviderCompletion(chatClient, {
     messages,
@@ -4124,6 +4237,22 @@ async function runEvidenceRepairToolBatch({
           stage: 'parse_or_exec',
           type: 'invalid_tool_arguments',
           message: error.message,
+          tool: toolName,
+        },
+      });
+      continue;
+    }
+    if (locateCompanionReadPath &&
+        normalizeTargetPath(toolArgs.path) !== locateCompanionReadPath) {
+      plans.push({
+        toolCall,
+        toolName,
+        toolArgs,
+        toolResult: {
+          error: true,
+          stage: 'repair',
+          type: 'invalid_repair_target',
+          message: 'The locate repair must read the certified companion path.',
           tool: toolName,
         },
       });
@@ -6339,7 +6468,13 @@ export class ExplorerRuntime {
         wrapperTool,
         knownSymbolAnchors,
       });
-      const groundedBatchClaims = usageBoundBatchClaims.map(claim =>
+      const locateBoundBatchClaims = omitIncompleteLocateSmallestSetClaim({
+        taskContract: batchContract,
+        claims: usageBoundBatchClaims,
+        observations: safeObservations,
+        wrapperTool,
+      });
+      const groundedBatchClaims = locateBoundBatchClaims.map(claim =>
         canonicalizeSymbolDefinitionRangeClaim({
           subgoal: subgoalById.get(claim.subgoalId),
           claim,

@@ -10550,6 +10550,161 @@ semanticPipelineRuntimeTest(
 );
 
 semanticPipelineRuntimeTest(
+  'Spec 028 T071 — find_relevant_code repairs one certified omitted companion test',
+  async () => {
+    const task =
+      'Where is MCP tools/list assembled and which files should be read before changing tool metadata?';
+    const goals = locateWrapperGoals();
+    const [locations, relevance, smallestSet] = goals;
+    const locationClaim = candidateClaim(
+      'C-locate-mcp-location',
+      locations.id,
+      'MCP tools/list is assembled in src/mcp/server.js.',
+      ['E2'],
+    );
+    const relevanceClaim = candidateClaim(
+      'C-locate-mcp-relevance',
+      relevance.id,
+      'src/mcp/server.js defines buildToolList.',
+      ['E2'],
+    );
+    const omittedClaim = candidateClaim(
+      'C-locate-mcp-smallest-set',
+      smallestSet.id,
+      'src/mcp/server.js is the smallest useful metadata target.',
+      ['E2'],
+    );
+    const repairedClaim = candidateClaim(
+      omittedClaim.id,
+      smallestSet.id,
+      'The smallest useful set is src/mcp/server.js and tests/mcp-server.test.js.',
+      ['E2', 'E3'],
+    );
+    const initialClaims = [locationClaim, relevanceClaim, omittedClaim];
+    const repairedClaims = [locationClaim, relevanceClaim, repairedClaim];
+    let repairRequests = 0;
+    const { client, result } = await runTrustScript(buildTrustSteps({
+      goals,
+      initial: {
+        tools: [{
+          tool: 'repo_grep',
+          args: { pattern: 'buildToolList', scope: ['src/**', 'tests/**'] },
+          id: 'grep-mcp-tool-list',
+        }, {
+          tool: 'repo_read_file',
+          args: { path: 'src/mcp/server.js', startLine: 1, endLine: 3 },
+          id: 'read-mcp-tool-list',
+        }],
+        claims: initialClaims,
+        verifierSteps: [{
+          verdicts: [
+            semanticVerdict(locationClaim.id, 'supported', ['E2']),
+            semanticVerdict(relevanceClaim.id, 'supported', ['E2']),
+          ],
+          assertRequest(request) {
+            assert.deepEqual(parseControlPacket(request).claims.map(claim => claim.id), [
+              locationClaim.id,
+              relevanceClaim.id,
+            ]);
+          },
+        }],
+      },
+      repair: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'tests/mcp-server.test.js', startLine: 1, endLine: 3 },
+          id: 'read-mcp-tool-list-test',
+        }],
+        assertRequest(request) {
+          repairRequests += 1;
+          assert.deepEqual(request.tools.map(tool => tool.function.name), ['repo_read_file']);
+          const packet = parseRepairPacket(request);
+          assert.equal(packet.candidateReadPath, 'tests/mcp-server.test.js');
+          assert.deepEqual(packet.anchors, ['tests/mcp-server.test.js']);
+          assert.match(request.messages[0].content, /Call repo_read_file exactly once/u);
+        },
+        claims: repairedClaims,
+        verdicts: repairedClaims.map(claim =>
+          semanticVerdict(claim.id, 'supported', claim.evidenceRefs)),
+      },
+    }), {
+      task,
+      taskMode: 'locate',
+      scope: ['src/**', 'tests/**'],
+      async setup(root) {
+        await fs.mkdir(path.join(root, 'src', 'mcp'), { recursive: true });
+        await fs.mkdir(path.join(root, 'tests'), { recursive: true });
+        await fs.writeFile(
+          path.join(root, 'src', 'mcp', 'server.js'),
+          'export function buildToolList() {\n  return [{ name: "find_relevant_code" }];\n}\n',
+        );
+        await fs.writeFile(
+          path.join(root, 'tests', 'mcp-server.test.js'),
+          'import { buildToolList } from "../src/mcp/server.js";\n' +
+            'test("tools/list", () => buildToolList());\n',
+        );
+      },
+    });
+
+    assert.equal(result.failure, null, JSON.stringify(result.failure));
+    assert.equal(repairRequests, 1);
+    assert.equal(client.stageCounts.get('semantic_verifier'), 2);
+    assert.deepEqual(providerToolActions(client).map(action => action.tool), [
+      'repo_grep',
+      'repo_read_file',
+      'repo_read_file',
+    ]);
+    assert.equal(result.taskContract.subgoals.every(goal => goal.state === 'supported'), true);
+    assert.equal(result.parentHandoff.state, 'complete');
+    assert.match(result.parentHandoff.directAnswer, /src\/mcp\/server\.js/u);
+    assert.match(result.parentHandoff.directAnswer, /tests\/mcp-server\.test\.js/u);
+    assert.deepEqual(new Set(result.parentHandoff.evidence.map(item => item.path)),
+      new Set(['src/mcp/server.js', 'tests/mcp-server.test.js']));
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T071 — find_relevant_code does not promote another implementation search hit',
+  async () => {
+    const task = 'Where is requireAuth implemented?';
+    const goals = locateWrapperGoals();
+    const claims = goals.map((goal, index) => candidateClaim(
+      `C-locate-auth-${index + 1}`,
+      goal.id,
+      index === 2
+        ? 'src/auth.js is the smallest useful target.'
+        : 'requireAuth is implemented in src/auth.js.',
+      ['E2'],
+    ));
+    const { client, result } = await runTrustScript(buildTrustSteps({
+      goals,
+      initial: {
+        tools: [{
+          tool: 'repo_grep',
+          args: { pattern: 'requireAuth', scope: ['src/**'] },
+          id: 'grep-locate-auth',
+        }, {
+          tool: 'repo_read_file',
+          args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+          id: 'read-locate-auth',
+        }],
+        claims,
+        verdicts: claims.map(claim => semanticVerdict(claim.id, 'supported', ['E2'])),
+      },
+    }), { task, taskMode: 'locate' });
+
+    assert.equal(result.failure, null, JSON.stringify(result.failure));
+    assert.equal(client.stageCounts.get('semantic_verifier'), 1);
+    assert.deepEqual(providerToolActions(client).map(action => action.tool), [
+      'repo_grep',
+      'repo_read_file',
+    ]);
+    assert.equal(result.parentHandoff.state, 'complete');
+    assert.deepEqual(result.parentHandoff.evidence.map(item => item.path), ['src/auth.js']);
+  },
+);
+
+semanticPipelineRuntimeTest(
   'Spec 028 T071 — collect_evidence folds uncovered verifier facets into its one verdict',
   async () => {
     const task = 'Verify that every user route requires authentication.';
