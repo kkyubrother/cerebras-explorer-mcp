@@ -5408,6 +5408,155 @@ auditedPlanningRuntimeTest(
 );
 
 auditedPlanningRuntimeTest(
+  'Spec 028 T071 — fixed wrapper decomposition reconciles shared revision origins',
+  async () => {
+    const task = 'Update README examples for explore_repo return fields.';
+    const [locations, relevance, smallestSet] = locateWrapperGoals();
+    const uncovered = [
+      {
+        question: 'Identify the README file containing the examples to update.',
+        originRefs: [requestOrigin(task, 'README')],
+        claimType: 'positive',
+        proofCondition: 'Locate the README file containing the explore_repo examples.',
+        constraints: [],
+      },
+      {
+        question: 'Identify the source defining the explore_repo return fields.',
+        originRefs: [requestOrigin(task, 'explore_repo return fields')],
+        claimType: 'symbol_definition',
+        proofCondition: 'Locate the source definition of the explore_repo return fields.',
+        constraints: [],
+      },
+    ];
+    const revised = [
+      {
+        id: 'S-readme-location',
+        ...uncovered[0],
+        originRefs: [
+          ...uncovered[0].originRefs,
+          ...locations.originRefs,
+          ...relevance.originRefs,
+        ],
+      },
+      {
+        id: 'S-explore-repo-definition',
+        ...uncovered[1],
+        originRefs: [
+          ...uncovered[1].originRefs,
+          ...locations.originRefs,
+          ...relevance.originRefs,
+        ],
+      },
+    ];
+    const client = new ScriptedGoalAuditClient([
+      { stage: 'planner:1', value: plannerControl([locations, relevance, smallestSet]) },
+      {
+        stage: 'goal_audit:1',
+        value: auditorControl([
+          auditControlRecord(locations, 'needs_decomposition', {
+            missingRequestParts: uncovered.map(goal => goal.question),
+          }),
+          auditControlRecord(relevance, 'needs_decomposition'),
+          auditControlRecord(smallestSet),
+        ], uncovered),
+      },
+      { stage: 'planner:2', value: plannerControl([smallestSet, ...revised]) },
+      {
+        stage: 'goal_audit:2',
+        value: auditorControl(revised.map(goal => auditControlRecord(goal))),
+      },
+      {
+        stage: 'goal_coverage:1',
+        value: coverageControl([
+          coveredObligation('revision-obligation-1', revised.map(goal => goal.id)),
+          coveredObligation('revision-obligation-2', revised.map(goal => goal.id)),
+          coveredObligation('revision-obligation-3', [revised[0].id]),
+          coveredObligation('revision-obligation-4', [revised[1].id]),
+        ]),
+      },
+      { stage: 'exploration:1', content: 'The shared-origin goals are ready.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+    ]);
+    const root = await makeRepoFixture();
+    const result = await new RuntimeImplementation({ chatClient: client }).explore({
+      task,
+      repo_root: root,
+      taskMode: 'locate',
+    });
+
+    assert.equal(result.failure, null, JSON.stringify({
+      failure: result.failure,
+      stages: client.stageLabels,
+    }));
+    assert.equal(client.stageCounts.get('goal_coverage'), 1);
+    assert.deepEqual(result.taskContract.subgoals.map(goal => goal.id), [
+      smallestSet.id,
+      ...revised.map(goal => goal.id),
+    ]);
+    assert.equal(result.taskContract.subgoals.some(goal =>
+      goal.auditVerdict === 'planning_incomplete'), false);
+    assert.equal(result.coverageGaps.some(gap => gap.reason === 'planning_incomplete'), false);
+  },
+);
+
+test('Spec 028 T071 — shared-origin coverage must map every confirmed origin', async () => {
+  const task = 'Compare alpha and beta.';
+  const alpha = {
+    question: 'What does alpha do?',
+    originRefs: [requestOrigin(task, 'alpha')],
+    claimType: 'positive',
+    proofCondition: 'Observe the requested alpha behavior.',
+    constraints: [],
+  };
+  const beta = {
+    question: 'What does beta do?',
+    originRefs: [requestOrigin(task, 'beta')],
+    claimType: 'positive',
+    proofCondition: 'Observe the requested beta behavior.',
+    constraints: [],
+  };
+  const combined = {
+    id: 'S-alpha-beta',
+    question: 'What do alpha and beta do?',
+    originRefs: [...alpha.originRefs, ...beta.originRefs],
+    claimType: 'positive',
+    proofCondition: 'Observe the requested alpha and beta behaviors.',
+    constraints: [],
+  };
+  let calls = 0;
+  const runtime = new RuntimeImplementation({
+    chatClient: {
+      model: 'zai-glm-4.7',
+      async createChatCompletion() {
+        calls += 1;
+        return controlCompletion(coverageControl([
+          coveredObligation('revision-obligation-1', [combined.id]),
+          remainingObligation('revision-obligation-2'),
+        ]));
+      },
+    },
+  });
+
+  await assert.rejects(runtime._reconcileGoalCoverage({
+    chatClient: runtime._explicitChatClient,
+    task,
+    effectiveScope: ['src/**'],
+    wrapperTool: 'explore_repo',
+    obligations: [alpha, beta].map((goal, index) => ({
+      obligationId: `revision-obligation-${index + 1}`,
+      sourceId: `uncovered-${index + 1}`,
+      kind: 'uncovered',
+      goal,
+    })),
+    proposal: plannerControl([combined]),
+    auditRecords: [auditControlRecord(combined)],
+    eligibleGoalIds: [combined.id],
+  }), error => error?.code === 'ERR_INVALID_GOAL_CONTROL' &&
+    /left a confirmed origin unmapped/.test(error.cause?.message ?? ''));
+  assert.equal(calls, 2, 'an incomplete many-to-many mapping gets one bounded correction');
+});
+
+auditedPlanningRuntimeTest(
   'Spec 028 T071 — uncovered reconciliation rejects an unrelated extra origin',
   async () => {
     const task = 'Map every user-facing page that uses the Prisma model.';

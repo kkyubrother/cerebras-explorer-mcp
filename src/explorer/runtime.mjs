@@ -4614,6 +4614,24 @@ function originSignatureFitsCoverageObligation(candidateRefs, obligation) {
       originDescendsFrom(candidate, original) || originDescendsFrom(original, candidate)));
 }
 
+function projectOriginRefsForCoverageObligation(candidateRefs, obligation) {
+  const originalRefs = obligation.goal.originRefs;
+  return candidateRefs.filter(candidate => originalRefs.some(original =>
+    obligation.kind === 'uncovered'
+      ? originDescendsFrom(candidate, original) || originDescendsFrom(original, candidate)
+      : originDescendsFrom(candidate, original)));
+}
+
+function originSignatureFitsRevisionObligation(candidateRefs, obligation, obligations) {
+  const projectedRefs = projectOriginRefsForCoverageObligation(candidateRefs, obligation);
+  if (projectedRefs.length === 0 ||
+      !originSignatureFitsCoverageObligation(projectedRefs, obligation)) {
+    return false;
+  }
+  return candidateRefs.every(candidate => obligations.some(other =>
+    projectOriginRefsForCoverageObligation([candidate], other).length === 1));
+}
+
 function sameGoalAcceptanceCore(left, right) {
   return left?.question === right?.question &&
     left?.claimType === right?.claimType &&
@@ -4784,6 +4802,7 @@ function validateCoverageReconciliation(value, {
   const seenIds = new Set();
   const refineOwnerByGoalId = new Map();
   const readyRefineAssignments = [];
+  const coveredObligationsByGoalId = new Map();
 
   for (const raw of value.findings) {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw) ||
@@ -4822,10 +4841,17 @@ function validateCoverageReconciliation(value, {
             !COVERAGE_ELIGIBLE_VERDICTS.has(record.verdict)) {
           throw new TypeError(`Coverage obligation ${raw.obligationId} maps to an ineligible goal.`);
         }
-        if (!originSignatureFitsCoverageObligation(record.originRefs, obligation) ||
+        if (!originSignatureFitsRevisionObligation(
+          record.originRefs,
+          obligation,
+          obligations,
+        ) ||
             obligation.goal.constraints.some(constraint => !goal.constraints.includes(constraint))) {
           throw new TypeError(`Coverage obligation ${raw.obligationId} widened its origin or constraints.`);
         }
+        const assigned = coveredObligationsByGoalId.get(id) ?? [];
+        assigned.push(obligation);
+        coveredObligationsByGoalId.set(id, assigned);
         return { goal, record };
       });
       if (obligation.kind !== 'decompose') {
@@ -4871,6 +4897,14 @@ function validateCoverageReconciliation(value, {
   if (seenIds.size !== obligations.length) {
     throw new TypeError('Coverage reconciliation omitted a runtime obligation.');
   }
+  for (const [goalId, assignedObligations] of coveredObligationsByGoalId) {
+    const record = recordById.get(goalId);
+    const assignedOriginRefs = new Set(assignedObligations.flatMap(obligation =>
+      projectOriginRefsForCoverageObligation(record.originRefs, obligation)));
+    if (record.originRefs.some(originRef => !assignedOriginRefs.has(originRef))) {
+      throw new TypeError(`Coverage mapping left a confirmed origin unmapped for ${goalId}.`);
+    }
+  }
 
   const uncoveredRequestParts = value.uncoveredRequestParts.map(part =>
     validateLateUncoveredProposal(part, { task, wrapperTool }));
@@ -4884,7 +4918,13 @@ function validateCoverageReconciliation(value, {
   return { findings, uncoveredRequestParts };
 }
 
-function coverageCandidateIds({ obligations, proposal, auditRecords, eligibleGoalIds = null }) {
+function coverageCandidateIds({
+  obligations,
+  proposal,
+  auditRecords,
+  eligibleGoalIds = null,
+  originObligations = obligations,
+}) {
   const allowedIds = eligibleGoalIds ? new Set(eligibleGoalIds) : null;
   const recordById = new Map(auditRecords.map(record => [record.proposedGoalId, record]));
   return proposal.subgoals.filter(goal => {
@@ -4894,7 +4934,11 @@ function coverageCandidateIds({ obligations, proposal, auditRecords, eligibleGoa
       return false;
     }
     return obligations.some(obligation =>
-      originSignatureFitsCoverageObligation(record.originRefs, obligation) &&
+      originSignatureFitsRevisionObligation(
+        record.originRefs,
+        obligation,
+        originObligations,
+      ) &&
       obligation.goal.constraints.every(constraint => goal.constraints.includes(constraint)) &&
       (obligation.kind === 'decompose' || goal.claimType === obligation.goal.claimType));
   }).map(goal => goal.id);
@@ -5757,6 +5801,7 @@ export class ExplorerRuntime {
         if (obligation.kind !== 'decompose') return [];
         const eligible = coverageCandidateIds({
           obligations: [obligation],
+          originObligations: obligations,
           proposal,
           auditRecords,
           eligibleGoalIds,

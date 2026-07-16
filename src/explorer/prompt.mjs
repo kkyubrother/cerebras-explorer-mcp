@@ -333,6 +333,7 @@ const GOAL_COVERAGE_RECONCILIATION_SYSTEM_PROMPT = [
   '- remaining means no supplied audited goal set fully preserves the obligation; coveredByGoalIds must then be empty.',
   '- A decompose obligation requires at least two independently auditable coveredByGoalIds. An uncovered obligation requires at least one goal with the same claim type.',
   '- A refine obligation requires exactly one coveredByGoalId. The same goal cannot cover two refine obligations, and same-type refined goals must not retain equal or containing confirmed origin signatures.',
+  '- One audited goal may carry confirmed origins for multiple obligations. If you use it, map it to every covered obligation that owns any of those origins; every confirmed origin on that goal must be accounted for across its covered findings.',
   '- Do not infer equivalence from shared words, origin overlap, or similar ids. Directional reversals and different request facets remain distinct.',
   '- You may only reconcile supplied obligation ids. You cannot add request obligations; uncoveredRequestParts must be an empty array.',
   '- Do not add implementation work, scope, capabilities, priorities, effort choices, repair choices, or another revision.',
