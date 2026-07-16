@@ -364,6 +364,7 @@ const CLAIM_SYNTHESIS_SYSTEM_PROMPT = [
   '- For access-control comparisons, identify each route\'s actual gating expression. A query, read, or field selection is not itself an enforcement predicate; cite the branch, middleware binding, return, throw, redirect, or helper-result use that admits or rejects access.',
   '- Cite exact source observations that establish every requested impact category. Only when control.wrapper.tool is explore_repo and either control.effectiveScope.mode is repository or its paths reduce to one distinct canonical entry, a generic impact claim may additionally cite exactly one complete repo_find_files **/* search over that entire immutable scope when exact current source observations cover every enumerated file; keep that internal inventory detail out of claim text. A count claim cites its complete search plus every supplied source observation covering its counted items.',
   '- A positive direct-source test claim may identify one exactly observed test and what it verifies. Do not imply that it inventories the whole suite unless the sub-goal explicitly requires every test.',
+  '- When control.knownTestAnchor is present, it is runtime-owned selection data for exactly one sub-goal. Cite at least one listed evidenceRef for that sub-goal or omit its claim.',
   '- For the wrapper:collect_evidence:verdict goal, an affirmed claim must cite both exact direct source/git evidence and a complete zero-match search that tests a plausible disconfirming predicate. A confirming lookup for the same symbol is not a counterevidence search.',
   '- Keep a collect_evidence claim text to the requested repository conclusion. Do not add an internal search pattern, match count, certificate summary, or tool detail to the claim text; carry those proof facts only through evidenceRefs.',
   '- For an all/every/exhaustive impact goal, emit a claim only when its text and cited source observations represent every category named by the proof condition. If source, docs, agent config, and dependencies are named, all four must be present; one config file cannot stand in for the other categories.',
@@ -756,7 +757,12 @@ export function buildGoalCoverageReconciliationMessages({
   ];
 }
 
-export function buildClaimSynthesisMessages({ taskContract, observations, wrapperTool }) {
+export function buildClaimSynthesisMessages({
+  taskContract,
+  observations,
+  knownTestAnchor,
+  wrapperTool,
+}) {
   return [
     { role: 'system', content: CLAIM_SYNTHESIS_SYSTEM_PROMPT },
     {
@@ -765,6 +771,16 @@ export function buildClaimSynthesisMessages({ taskContract, observations, wrappe
         control: {
           ...normalizeVerificationContract(taskContract),
           wrapper: fixedWrapperInput(wrapperTool),
+          ...(knownTestAnchor && typeof knownTestAnchor.subgoalId === 'string'
+            ? {
+                knownTestAnchor: {
+                  subgoalId: knownTestAnchor.subgoalId,
+                  evidenceRefs: Array.isArray(knownTestAnchor.evidenceRefs)
+                    ? knownTestAnchor.evidenceRefs.filter(ref => typeof ref === 'string')
+                    : [],
+                },
+              }
+            : {}),
         },
         observations: Array.isArray(observations)
           ? observations.map(item => pickDefined(item, VERIFIER_OBSERVATION_FIELDS))

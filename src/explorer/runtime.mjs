@@ -1370,6 +1370,31 @@ function citedCurrentTestPaths(candidate, observationById) {
   }));
 }
 
+function singleObservedKnownTestAnchor(knownFileAnchors = [], observations = []) {
+  const knownTestPaths = new Set((Array.isArray(knownFileAnchors) ? knownFileAnchors : [])
+    .map(normalizeTargetPath)
+    .filter(filePath => filePath && classifySourceRole(filePath) === 'test'));
+  const observedKnownTests = observations.flatMap(observation => {
+    if (observation?.kind !== 'source' || observation.sourceRole !== 'test' ||
+        observation.temporalRole !== 'current' || observation.rangeGrounding !== 'exact') {
+      return [];
+    }
+    const observedPath = normalizeTargetPath(observation.path);
+    return observedPath && knownTestPaths.has(observedPath)
+      ? [{ path: observedPath, evidenceRef: observation.id }]
+      : [];
+  });
+  const observedKnownTestPaths = new Set(observedKnownTests.map(item => item.path));
+  if (observedKnownTestPaths.size !== 1) return null;
+  const [anchorPath] = observedKnownTestPaths;
+  return {
+    path: anchorPath,
+    evidenceRefs: observedKnownTests
+      .filter(item => item.path === anchorPath)
+      .map(item => item.evidenceRef),
+  };
+}
+
 function preserveBoundedTestPathInClaim(task, subgoal, candidate, observationById) {
   if (!isNonExhaustiveDirectTestGoal(task, subgoal)) return candidate;
   const testPaths = [...citedCurrentTestPaths(candidate, observationById)];
@@ -2415,6 +2440,7 @@ function validateSynthesizedClaimBatch(raw, {
   taskContract,
   observationIds,
   observations = [],
+  knownTestAnchor = null,
   usedClaimIds,
   priorClaims = [],
   freshEvidenceRefs = [],
@@ -2478,6 +2504,16 @@ function validateSynthesizedClaimBatch(raw, {
   const batchClaimIds = new Set();
   const missingTestSourceSubgoalIds = new Set();
   const partialTestInventorySubgoalIds = new Set();
+  const substitutedKnownTestAnchorSubgoalIds = new Set();
+  const missingKnownTestClaimSubgoalIds = new Set();
+  const knownTestAnchorSubgoalId = typeof knownTestAnchor?.subgoalId === 'string'
+    ? knownTestAnchor.subgoalId
+    : null;
+  const knownTestAnchorPath = normalizeTargetPath(knownTestAnchor?.path);
+  const knownTestAnchorEvidenceRefs = Array.isArray(knownTestAnchor?.evidenceRefs)
+    ? knownTestAnchor.evidenceRefs
+    : [];
+  const knownTestAnchorEvidenceRefSet = new Set(knownTestAnchorEvidenceRefs);
   const claims = candidateClaims.map((candidate, index) => {
     if (!subgoalIds.has(candidate.subgoalId)) {
       throw new TypeError(`Claim synthesis returned an out-of-batch sub-goal: ${candidate.subgoalId}.`);
@@ -2505,11 +2541,15 @@ function validateSynthesizedClaimBatch(raw, {
       );
     }
     if (isNonExhaustiveDirectTestGoal(taskContract.task, subgoal)) {
-      const currentTestPathCount = citedCurrentTestPaths(candidate, observationById).size;
+      const currentTestPaths = citedCurrentTestPaths(candidate, observationById);
+      const currentTestPathCount = currentTestPaths.size;
       if (currentTestPathCount === 0) {
         missingTestSourceSubgoalIds.add(candidate.subgoalId);
       } else if (currentTestPathCount > 1) {
         partialTestInventorySubgoalIds.add(candidate.subgoalId);
+      } else if (candidate.subgoalId === knownTestAnchorSubgoalId && knownTestAnchorPath &&
+          !candidate.evidenceRefs.some(ref => knownTestAnchorEvidenceRefSet.has(ref))) {
+        substitutedKnownTestAnchorSubgoalIds.add(candidate.subgoalId);
       }
     }
     batchClaimIds.add(candidate.id);
@@ -2525,6 +2565,10 @@ function validateSynthesizedClaimBatch(raw, {
     const count = (claimCountBySubgoal.get(claim.subgoalId) ?? 0) + 1;
     claimCountBySubgoal.set(claim.subgoalId, count);
   }
+  if (knownTestAnchorPath && subgoalById.has(knownTestAnchorSubgoalId) &&
+      !claimCountBySubgoal.has(knownTestAnchorSubgoalId)) {
+    missingKnownTestClaimSubgoalIds.add(knownTestAnchorSubgoalId);
+  }
   const noisySubgoalIds = [...claimCountBySubgoal]
     .filter(([subgoalId, count]) => count > 1 &&
       subgoalById.get(subgoalId)?.proofPolicy !== 'support_or_refute')
@@ -2533,6 +2577,8 @@ function validateSynthesizedClaimBatch(raw, {
     ...noisySubgoalIds,
     ...missingTestSourceSubgoalIds,
     ...partialTestInventorySubgoalIds,
+    ...substitutedKnownTestAnchorSubgoalIds,
+    ...missingKnownTestClaimSubgoalIds,
   ])];
   if (invalidSubgoalIds.length > 0) {
     const quarantineSet = new Set(quarantineClaimSubgoalIds);
@@ -2555,6 +2601,24 @@ function validateSynthesizedClaimBatch(raw, {
         'Claim synthesis cited multiple test paths as a partial suite inventory for non-exhaustive ' +
         `sub-goals: ${[...partialTestInventorySubgoalIds].join(', ')}. Cite at most one exactly ` +
         'observed test path for each listed sub-goal unless its request origin explicitly asks for every test.',
+      );
+    }
+    if (substitutedKnownTestAnchorSubgoalIds.size > 0) {
+      failures.push(
+        'Claim synthesis substituted a discovered test path for the single observed parent-provided known ' +
+        `test anchor for non-exhaustive sub-goals: ${[...substitutedKnownTestAnchorSubgoalIds].join(', ')}. ` +
+        `Known-anchor observation refs: ${JSON.stringify(knownTestAnchorEvidenceRefs)}. ` +
+        'Cite at least one listed observation or return no claim for that sub-goal; do not promote a ' +
+        'different test as the requested entry-path test.',
+      );
+    }
+    if (missingKnownTestClaimSubgoalIds.size > 0) {
+      failures.push(
+        'Claim synthesis returned no claim despite a single observed parent-provided known test ' +
+        `anchor for non-exhaustive sub-goals: ${[...missingKnownTestClaimSubgoalIds].join(', ')}. ` +
+        `Known-anchor observation refs: ${JSON.stringify(knownTestAnchorEvidenceRefs)}. ` +
+        'Return one claim grounded to a listed observation if the evidence supports it; otherwise ' +
+        'leave the sub-goal without a claim on the bounded retry so it becomes an explicit gap.',
       );
     }
     if (noisySubgoalIds.length > 0) {
@@ -3757,12 +3821,18 @@ function buildEvidenceRepairMessages({
 function buildPostRepairClaimMessages({
   taskContract,
   observations,
+  knownTestAnchor,
   priorClaims,
   freshEvidenceRefs,
   wrapperTool,
 }) {
   return redactValue([
-    ...buildClaimSynthesisMessages({ taskContract, observations, wrapperTool }),
+    ...buildClaimSynthesisMessages({
+      taskContract,
+      observations,
+      knownTestAnchor,
+      wrapperTool,
+    }),
     {
       role: 'user',
       content: [
@@ -5875,6 +5945,7 @@ export class ExplorerRuntime {
     chatClient,
     taskContract,
     observations,
+    knownFileAnchors = [],
     existingGaps = [],
     phase = 'initial',
     priorClaims = [],
@@ -5900,6 +5971,11 @@ export class ExplorerRuntime {
       ...(claim?.measurement ? { measurement: { ...claim.measurement } } : {}),
     })) : [];
     const priorSubgoalIds = new Set(safePriorClaims.map(claim => claim.subgoalId));
+    const eligibleKnownTestSubgoals = taskContract.subgoals.filter(subgoal =>
+      isNonExhaustiveDirectTestGoal(taskContract.task, subgoal));
+    const knownTestAnchorSubgoalId = eligibleKnownTestSubgoals.length === 1
+      ? eligibleKnownTestSubgoals[0].id
+      : null;
     const activeSubgoals = taskContract.subgoals.filter(subgoal =>
       subgoal.state !== 'blocked' && (phase === 'initial' ||
         subgoal.state === 'supported' || subgoal.state === 'exploring' ||
@@ -5920,6 +5996,15 @@ export class ExplorerRuntime {
         safeObservations,
       );
       const synthesisObservationIds = runtimeObservationIds(synthesisObservations);
+      const observedKnownTestAnchor = batchSubgoalIds.has(knownTestAnchorSubgoalId)
+        ? singleObservedKnownTestAnchor(knownFileAnchors, synthesisObservations)
+        : null;
+      const knownTestAnchor = observedKnownTestAnchor
+        ? {
+            subgoalId: knownTestAnchorSubgoalId,
+            ...observedKnownTestAnchor,
+          }
+        : null;
       const synthesisFreshEvidenceRefs = freshEvidenceRefs.filter(ref =>
         synthesisObservationIds.has(ref));
       if (synthesisObservations.length === 0 && batchPriorClaims.length === 0) continue;
@@ -5929,6 +6014,7 @@ export class ExplorerRuntime {
           ? buildPostRepairClaimMessages({
               taskContract: batchContract,
               observations: synthesisObservations,
+              knownTestAnchor,
               priorClaims: batchPriorClaims,
               freshEvidenceRefs: synthesisFreshEvidenceRefs,
               wrapperTool,
@@ -5936,6 +6022,7 @@ export class ExplorerRuntime {
           : buildClaimSynthesisMessages({
               taskContract: batchContract,
               observations: synthesisObservations,
+              knownTestAnchor,
               wrapperTool,
             }),
         schemaName: 'claim_synthesis',
@@ -5951,6 +6038,7 @@ export class ExplorerRuntime {
           taskContract: batchContract,
           observationIds: synthesisObservationIds,
           observations: synthesisObservations,
+          knownTestAnchor,
           usedClaimIds,
           priorClaims: batchPriorClaims,
           freshEvidenceRefs: synthesisFreshEvidenceRefs,
@@ -5967,6 +6055,7 @@ export class ExplorerRuntime {
               taskContract: batchContract,
               observationIds: synthesisObservationIds,
               observations: synthesisObservations,
+              knownTestAnchor,
               usedClaimIds,
               priorClaims: batchPriorClaims,
               freshEvidenceRefs: synthesisFreshEvidenceRefs,
@@ -7614,6 +7703,7 @@ export class ExplorerRuntime {
         chatClient,
         taskContract: auditedPlan.taskContract,
         observations,
+        knownFileAnchors: args.hints?.files,
         existingGaps: auditedPlan.coverageGaps,
         wrapperTool: wrapperToolForTaskMode(args.taskMode),
         reasoningEffort,
@@ -7786,6 +7876,7 @@ export class ExplorerRuntime {
             chatClient,
             taskContract: repaired.taskContract,
             observations,
+            knownFileAnchors: args.hints?.files,
             existingGaps: repaired.coverageGaps,
             phase: 'post-repair',
             priorClaims: semanticVerification.claims,

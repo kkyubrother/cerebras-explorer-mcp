@@ -7991,6 +7991,7 @@ async function runTrustScript(steps, {
   abortSignal,
   scope = ['src/**'],
   taskMode,
+  hints,
 } = {}) {
   const root = await makeRepoFixture();
   if (setup) await setup(root);
@@ -8001,6 +8002,7 @@ async function runTrustScript(steps, {
     repo_root: root,
     scope,
     ...(taskMode ? { taskMode } : {}),
+    ...(hints ? { hints } : {}),
   }, { abortSignal });
   return { client, result };
 }
@@ -11895,6 +11897,7 @@ semanticPipelineRuntimeTest(
     const { client, result } = await runTrustScript(steps, {
       task,
       scope: ['tests/**'],
+      hints: { files: testFiles.map(file => `tests/${file}`) },
       async setup(root) {
         await fs.mkdir(path.join(root, 'tests'), { recursive: true });
         await Promise.all(testFiles.map((file, index) => fs.writeFile(
@@ -12046,6 +12049,7 @@ semanticPipelineRuntimeTest(
     const { result } = await runTrustScript(steps, {
       task,
       scope: ['pipeline/**', 'tests/**'],
+      hints: { files: ['tests/stale.py'] },
       async setup(root) {
         await fs.mkdir(path.join(root, 'pipeline'), { recursive: true });
         await fs.mkdir(path.join(root, 'tests'), { recursive: true });
@@ -12062,6 +12066,266 @@ semanticPipelineRuntimeTest(
     assert.deepEqual(result.parentHandoff.evidence.map(item => item.path), [
       'pipeline/cli.py',
       'tests/test_cli.py',
+    ]);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — a single observed known test anchor rejects a discovered substitute once',
+  async () => {
+    const task = 'Identify the test that covers the pipeline entry path.';
+    const goal = trustGoal(task, {
+      id: 'S-known-entry-path-test',
+      question: task,
+      originText: task,
+      proofCondition: 'Identify one exactly observed entry-path test and what it verifies.',
+    });
+    const substituted = candidateClaim(
+      'C-known-entry-path-test',
+      goal.id,
+      'tests/test_orchestrator.py verifies the pipeline entry path.',
+      ['E2'],
+    );
+    const corrected = candidateClaim(
+      substituted.id,
+      goal.id,
+      'tests/test_cli.py verifies worker fan-out for the pipeline entry path.',
+      ['E1'],
+    );
+    const steps = [
+      { stage: 'planner:1', value: plannerControl([goal]) },
+      { stage: 'goal_audit:1', value: auditorControl([auditControlRecord(goal)]) },
+      {
+        stage: 'exploration:1',
+        run: () => toolControlCompletion(
+          'repo_read_file',
+          { path: 'tests/test_cli.py', startLine: 1, endLine: 3 },
+          'read-known-entry-path-test',
+        ),
+      },
+      {
+        stage: 'exploration:2',
+        run: () => toolControlCompletion(
+          'repo_read_file',
+          { path: 'tests/test_orchestrator.py', startLine: 1, endLine: 3 },
+          'read-discovered-orchestrator-test',
+        ),
+      },
+      { stage: 'exploration:3', content: 'The bounded test evidence pass is complete.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+      {
+        stage: 'claim_synthesis:1',
+        run(request) {
+          const packet = parseControlPacket(request);
+          assert.deepEqual(packet.control.knownTestAnchor, {
+            subgoalId: goal.id,
+            evidenceRefs: ['E1'],
+          });
+          return controlCompletion({ claims: [substituted] });
+        },
+      },
+      {
+        stage: 'claim_synthesis:2',
+        run(request) {
+          const correction = request.messages
+            .map(message => typeof message.content === 'string' ? message.content : '')
+            .join('\n');
+          assert.match(correction, /single observed parent-provided known test anchor/u);
+          assert.match(correction, /Known-anchor observation refs: \["E1"\]/u);
+          assert.match(correction, /do not promote a different test/u);
+          return controlCompletion({ claims: [corrected] });
+        },
+      },
+      {
+        stage: 'semantic_verifier:1',
+        value: verifierResponse([semanticVerdict(corrected.id, 'supported', ['E1'])]),
+      },
+    ];
+
+    const { client, result } = await runTrustScript(steps, {
+      task,
+      scope: ['pipeline/**', 'tests/**'],
+      hints: {
+        files: [
+          'pipeline/cli.py',
+          'tests/test_cli.py',
+          'tests/stale.py',
+          'pipeline/config.py',
+        ],
+      },
+      async setup(root) {
+        await fs.mkdir(path.join(root, 'pipeline'), { recursive: true });
+        await fs.mkdir(path.join(root, 'tests'), { recursive: true });
+        await fs.writeFile(path.join(root, 'pipeline', 'cli.py'),
+          'def main():\n    return run_worker()\n');
+        await fs.writeFile(path.join(root, 'pipeline', 'config.py'),
+          'WORKERS = 3\n');
+        await fs.writeFile(path.join(root, 'tests', 'test_cli.py'),
+          'def test_worker_fan_out():\n    assert main() == 0\n');
+        await fs.writeFile(path.join(root, 'tests', 'test_orchestrator.py'),
+          'def test_drain_queue():\n    assert drain() == 0\n');
+      },
+    });
+
+    assert.equal(client.stageCounts.get('claim_synthesis'), 2);
+    assert.equal(result.failure, null, JSON.stringify(client.stageLabels));
+    assert.equal(result.parentHandoff.state, 'complete');
+    assert.equal(result.parentHandoff.directAnswer, corrected.text);
+    assert.deepEqual(result.parentHandoff.evidence.map(item => item.path), ['tests/test_cli.py']);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — an observed single known test anchor gets one bounded omission correction',
+  async () => {
+    const task = 'Identify the test that covers the pipeline entry path.';
+    const goal = trustGoal(task, {
+      id: 'S-omitted-known-entry-path-test',
+      question: task,
+      originText: task,
+      proofCondition: 'Identify one exactly observed entry-path test and what it verifies.',
+    });
+    const corrected = candidateClaim(
+      'C-omitted-known-entry-path-test',
+      goal.id,
+      'tests/test_cli.py verifies worker fan-out for the pipeline entry path.',
+      ['E1'],
+    );
+    const steps = [
+      { stage: 'planner:1', value: plannerControl([goal]) },
+      { stage: 'goal_audit:1', value: auditorControl([auditControlRecord(goal)]) },
+      {
+        stage: 'exploration:1',
+        run: () => toolControlCompletion(
+          'repo_read_file',
+          { path: 'tests/test_cli.py', startLine: 1, endLine: 3 },
+          'read-omitted-known-entry-path-test',
+        ),
+      },
+      { stage: 'exploration:2', content: 'The bounded test evidence pass is complete.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+      { stage: 'claim_synthesis:1', value: { claims: [] } },
+      {
+        stage: 'claim_synthesis:2',
+        run(request) {
+          const correction = JSON.stringify(request.messages);
+          assert.match(correction, /returned no claim despite a single observed/u);
+          assert.match(correction, /otherwise[\s\S]*explicit gap/u);
+          return controlCompletion({ claims: [corrected] });
+        },
+      },
+      {
+        stage: 'semantic_verifier:1',
+        value: verifierResponse([semanticVerdict(corrected.id, 'supported', ['E1'])]),
+      },
+    ];
+
+    const { client, result } = await runTrustScript(steps, {
+      task,
+      scope: ['tests/**'],
+      hints: { files: ['tests/test_cli.py'] },
+      async setup(root) {
+        await fs.mkdir(path.join(root, 'tests'), { recursive: true });
+        await fs.writeFile(path.join(root, 'tests', 'test_cli.py'),
+          'def test_worker_fan_out():\n    assert main() == 0\n');
+      },
+    });
+
+    assert.equal(client.stageCounts.get('claim_synthesis'), 2);
+    assert.equal(result.failure, null, JSON.stringify(client.stageLabels));
+    assert.equal(result.parentHandoff.state, 'complete');
+    assert.equal(result.parentHandoff.directAnswer, corrected.text);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — one known test anchor is not forced across split test batches',
+  async () => {
+    const task = 'Identify the auth test, count config entries, and identify the billing test.';
+    const goals = [
+      trustGoal(task, {
+        id: 'S-auth-test',
+        question: 'Which test verifies auth?',
+        originText: 'Identify the auth test',
+        proofCondition: 'Identify the current test that verifies auth.',
+      }),
+      trustGoal(task, {
+        id: 'S-config-count',
+        question: 'How many config entries exist?',
+        originText: 'count config entries',
+        claimType: 'count',
+        proofCondition: 'Count complete current config entries.',
+      }),
+      trustGoal(task, {
+        id: 'S-billing-test',
+        question: 'Which test verifies billing?',
+        originText: 'identify the billing test',
+        proofCondition: 'Identify the current test that verifies billing.',
+      }),
+    ];
+    const claims = [
+      candidateClaim(
+        'C-auth-test', goals[0].id, 'tests/test_auth.py verifies auth.', ['E1']),
+      candidateClaim(
+        'C-billing-test', goals[2].id, 'tests/test_billing.py verifies billing.', ['E2']),
+    ];
+    const steps = [
+      { stage: 'planner:1', value: plannerControl(goals) },
+      { stage: 'goal_audit:1', value: auditorControl(
+        goals.map(goal => auditControlRecord(goal))) },
+      {
+        stage: 'exploration:1',
+        run: () => toolControlCompletion(
+          'repo_read_file',
+          { path: 'tests/test_auth.py', startLine: 1, endLine: 2 },
+          'read-known-auth-test',
+        ),
+      },
+      {
+        stage: 'exploration:2',
+        run: () => toolControlCompletion(
+          'repo_read_file',
+          { path: 'tests/test_billing.py', startLine: 1, endLine: 2 },
+          'read-discovered-billing-test',
+        ),
+      },
+      { stage: 'exploration:3', content: 'The bounded test evidence pass is complete.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+      { stage: 'claim_synthesis:1', value: { claims: [claims[0]] } },
+      { stage: 'claim_synthesis:2', value: { claims: [] } },
+      { stage: 'claim_synthesis:3', value: { claims: [claims[1]] } },
+      {
+        stage: 'semantic_verifier:1',
+        value: verifierResponse([
+          semanticVerdict(claims[0].id, 'supported', ['E1']),
+          semanticVerdict(claims[1].id, 'supported', ['E2']),
+        ]),
+      },
+      { stage: 'exploration:4', content: 'No materially new repair action remains.' },
+    ];
+
+    const { client, result } = await runTrustScript(steps, {
+      task,
+      scope: ['tests/**'],
+      hints: { files: ['tests/test_auth.py'] },
+      async setup(root) {
+        await fs.mkdir(path.join(root, 'tests'), { recursive: true });
+        await fs.writeFile(path.join(root, 'tests', 'test_auth.py'),
+          'def test_auth():\n    assert auth()\n');
+        await fs.writeFile(path.join(root, 'tests', 'test_billing.py'),
+          'def test_billing():\n    assert billing()\n');
+      },
+    });
+
+    assert.equal(client.stageCounts.get('claim_synthesis'), 3);
+    assert.equal(result.failure, null, JSON.stringify(client.stageLabels));
+    assert.equal(result.parentHandoff.state, 'incomplete');
+    assert.deepEqual(result.semanticVerification.claims.map(claim => claim.id),
+      claims.map(claim => claim.id));
+    assert.deepEqual(result.taskContract.subgoals.map(goal => [goal.id, goal.state]), [
+      [goals[0].id, 'supported'],
+      [goals[1].id, 'gap'],
+      [goals[2].id, 'supported'],
     ]);
   },
 );
@@ -12113,6 +12377,7 @@ semanticPipelineRuntimeTest(
     const { client, result } = await runTrustScript(steps, {
       task,
       scope: ['tests/**'],
+      hints: { files: ['tests/test_cli.py'] },
       async setup(root) {
         await fs.mkdir(path.join(root, 'tests'), { recursive: true });
         await Promise.all(testFiles.map((file, index) => fs.writeFile(
