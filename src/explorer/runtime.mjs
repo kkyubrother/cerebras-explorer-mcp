@@ -2370,6 +2370,7 @@ async function requestValidatedGoalControl({
           'On a post-repair pass, preserve every prior claim id, subgoalId, text, measurement, and prior evidence reference exactly while adding only fresh supplied evidence refs.'
         : stage === 'semantic_verifier'
           ? 'Return exactly one verdict for each supplied claim. Every supportingEvidenceRef must come from that same claim evidenceRefs. ' +
+            'Evidence ids are opaque exact tokens: E5 and E5:search are distinct, so never append, remove, or infer a suffix. ' +
             'Do not return a ref borrowed from another claim or a paraphrased or refined late goal for an existing required sub-goal.'
           : stage === 'goal_audit'
             ? 'For goal audit records, every non-reject verdict must retain at least one proposed origin; ' +
@@ -2659,7 +2660,11 @@ function validateSynthesizedClaimBatch(raw, {
   return claims;
 }
 
-function validateSemanticVerdictBatch(raw, { claims, wrapperTool = 'explore_repo' }) {
+function validateSemanticVerdictBatch(raw, {
+  claims,
+  wrapperTool = 'explore_repo',
+  quarantineOutOfClaimEvidence = false,
+}) {
   const normalizedRaw = raw && typeof raw === 'object' && !Array.isArray(raw)
     ? {
         ...raw,
@@ -2693,12 +2698,24 @@ function validateSemanticVerdictBatch(raw, { claims, wrapperTool = 'explore_repo
     const invalidEvidenceRefs = verdict.supportingEvidenceRefs.filter(
       ref => !claimEvidenceRefs.has(ref),
     );
-    if (invalidEvidenceRefs.length > 0) {
+    if (invalidEvidenceRefs.length > 0 && !quarantineOutOfClaimEvidence) {
       throw new TypeError(
         `Semantic verifier returned evidence outside claim ${verdict.claimId}: ` +
         `invalid=[${[...new Set(invalidEvidenceRefs)].join(',')}], ` +
         `allowed=[${[...claimEvidenceRefs].join(',')}].`,
       );
+    }
+    if (invalidEvidenceRefs.length > 0) {
+      const quarantined = {
+        ...verdict,
+        result: 'insufficient',
+        supportingEvidenceRefs: [],
+        reasonCode: 'semantic_mismatch',
+        note: 'The verifier returned evidence outside this claim boundary.',
+      };
+      delete quarantined.resolution;
+      verdictByClaim.set(verdict.claimId, quarantined);
+      continue;
     }
     verdictByClaim.set(verdict.claimId, verdict);
   }
@@ -2725,6 +2742,23 @@ function validateSemanticVerdictBatch(raw, { claims, wrapperTool = 'explore_repo
     verdicts: orderedVerdicts,
     uncoveredRequestParts: response.uncoveredRequestParts,
   };
+}
+
+function validateFocusedSemanticVerdictBatch(raw, {
+  claims,
+  wrapperTool = 'explore_repo',
+  label,
+  quarantineOutOfClaimEvidence = false,
+}) {
+  const response = validateSemanticVerdictBatch(raw, {
+    claims,
+    wrapperTool,
+    quarantineOutOfClaimEvidence,
+  });
+  if (response.uncoveredRequestParts.length > 0) {
+    throw new TypeError(`${label} cannot add request obligations.`);
+  }
+  return response;
 }
 
 function currentSourcePathsForRefs(refs, observations) {
@@ -6544,6 +6578,14 @@ export class ExplorerRuntime {
           claims: batchClaims,
           wrapperTool,
         }),
+        recoverFinalValidation: ({ parsed }) => ({
+          accepted: true,
+          value: validateSemanticVerdictBatch(parsed, {
+            claims: batchClaims,
+            wrapperTool,
+            quarantineOutOfClaimEvidence: true,
+          }),
+        }),
       });
       const corroboratedVerdicts = [...verified.verdicts];
       for (const [index, claim] of batchClaims.entries()) {
@@ -6575,15 +6617,18 @@ export class ExplorerRuntime {
           maxCompletionTokens,
           abortSignal,
           onCompletion,
-          validate: raw => {
-            const response = validateSemanticVerdictBatch(raw, { claims: [claim] });
-            if (response.uncoveredRequestParts.length > 0) {
-              throw new TypeError(
-                'Focused generic impact inventory corroboration cannot add request obligations.',
-              );
-            }
-            return response;
-          },
+          validate: raw => validateFocusedSemanticVerdictBatch(raw, {
+            claims: [claim],
+            label: 'Focused generic impact inventory corroboration',
+          }),
+          recoverFinalValidation: ({ parsed }) => ({
+            accepted: true,
+            value: validateFocusedSemanticVerdictBatch(parsed, {
+              claims: [claim],
+              label: 'Focused generic impact inventory corroboration',
+              quarantineOutOfClaimEvidence: true,
+            }),
+          }),
         });
         const merged = mergeGenericImpactInventoryCorroboration(
           primaryVerdict,
@@ -6642,15 +6687,18 @@ export class ExplorerRuntime {
           maxCompletionTokens,
           abortSignal,
           onCompletion,
-          validate: raw => {
-            const response = validateSemanticVerdictBatch(raw, { claims: [claim] });
-            if (response.uncoveredRequestParts.length > 0) {
-              throw new TypeError(
-                'Focused comparison corroboration cannot add request obligations.',
-              );
-            }
-            return response;
-          },
+          validate: raw => validateFocusedSemanticVerdictBatch(raw, {
+            claims: [claim],
+            label: 'Focused comparison corroboration',
+          }),
+          recoverFinalValidation: ({ parsed }) => ({
+            accepted: true,
+            value: validateFocusedSemanticVerdictBatch(parsed, {
+              claims: [claim],
+              label: 'Focused comparison corroboration',
+              quarantineOutOfClaimEvidence: true,
+            }),
+          }),
         });
         corroboratedVerdicts[index] = mergeComparisonCorroboration(
           primaryVerdict,
@@ -6690,15 +6738,18 @@ export class ExplorerRuntime {
           maxCompletionTokens,
           abortSignal,
           onCompletion,
-          validate: raw => {
-            const response = validateSemanticVerdictBatch(raw, { claims: [claim] });
-            if (response.uncoveredRequestParts.length > 0) {
-              throw new TypeError(
-                'Focused collect affirmation corroboration cannot add request obligations.',
-              );
-            }
-            return response;
-          },
+          validate: raw => validateFocusedSemanticVerdictBatch(raw, {
+            claims: [claim],
+            label: 'Focused collect affirmation corroboration',
+          }),
+          recoverFinalValidation: ({ parsed }) => ({
+            accepted: true,
+            value: validateFocusedSemanticVerdictBatch(parsed, {
+              claims: [claim],
+              label: 'Focused collect affirmation corroboration',
+              quarantineOutOfClaimEvidence: true,
+            }),
+          }),
         });
         const merged = mergeCollectAffirmationCorroboration(
           primaryVerdict,
@@ -6737,15 +6788,18 @@ export class ExplorerRuntime {
           maxCompletionTokens,
           abortSignal,
           onCompletion,
-          validate: raw => {
-            const response = validateSemanticVerdictBatch(raw, { claims: [claim] });
-            if (response.uncoveredRequestParts.length > 0) {
-              throw new TypeError(
-                'Focused absence refutation corroboration cannot add request obligations.',
-              );
-            }
-            return response;
-          },
+          validate: raw => validateFocusedSemanticVerdictBatch(raw, {
+            claims: [claim],
+            label: 'Focused absence refutation corroboration',
+          }),
+          recoverFinalValidation: ({ parsed }) => ({
+            accepted: true,
+            value: validateFocusedSemanticVerdictBatch(parsed, {
+              claims: [claim],
+              label: 'Focused absence refutation corroboration',
+              quarantineOutOfClaimEvidence: true,
+            }),
+          }),
         });
         const merged = mergeAbsenceRefutationCorroboration(
           primaryVerdict,

@@ -15437,31 +15437,101 @@ semanticPipelineRuntimeTest(
 );
 
 semanticPipelineRuntimeTest(
-  'Spec 028 T069 — repeated cross-claim verifier evidence fails as verifier_error',
+  'Spec 028 T069 — repeated cross-claim verifier evidence quarantines only that claim',
+  async () => {
+    const task = 'Locate requireAuth and locate registerUserRoutes.';
+    const goals = [
+      trustGoal(task, {
+        id: 'S-auth-definition',
+        question: 'Where is requireAuth defined?',
+        originText: 'Locate requireAuth',
+      }),
+      trustGoal(task, {
+        id: 'S-route-definition',
+        question: 'Where is registerUserRoutes defined?',
+        originText: 'locate registerUserRoutes',
+      }),
+    ];
+    const claims = [
+      candidateClaim('C-auth-definition', goals[0].id,
+        'requireAuth is defined in src/auth.js.', ['E1']),
+      candidateClaim('C-route-definition', goals[1].id,
+        'registerUserRoutes is defined in src/routes/user.js.', ['E2']),
+    ];
+    const invalidRepairVerdicts = [
+      semanticVerdict(claims[0].id, 'supported', ['E2']),
+      semanticVerdict(claims[1].id, 'supported', ['E2']),
+    ];
+    const steps = buildTrustSteps({
+      goals,
+      initial: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+          id: 'read-auth-for-verifier-quarantine',
+        }, {
+          tool: 'repo_read_file',
+          args: { path: 'src/routes/user.js', startLine: 1, endLine: 6 },
+          id: 'read-route-for-verifier-quarantine',
+        }],
+        claims,
+        verifierSteps: [
+          { verdicts: invalidRepairVerdicts },
+          { verdicts: invalidRepairVerdicts },
+        ],
+      },
+      repair: {
+        tools: [],
+        claims,
+        verifierSteps: [
+          { verdicts: invalidRepairVerdicts },
+          { verdicts: invalidRepairVerdicts },
+        ],
+      },
+    });
+
+    const { client, result } = await runTrustScript(steps, { task });
+
+    assert.equal(client.stageCounts.get('semantic_verifier'), 2);
+    assert.equal(result.failure, null);
+    assert.deepEqual(result.taskContract.subgoals.map(goal => goal.state),
+      ['gap', 'supported']);
+    assert.equal(result.parentHandoff.state, 'incomplete');
+    assert.match(result.parentHandoff.directAnswer, /registerUserRoutes is defined/u);
+    assert.doesNotMatch(result.parentHandoff.directAnswer, /requireAuth is defined/u);
+    assert.deepEqual(result.parentHandoff.evidence.map(item => item.path),
+      ['src/routes/user.js']);
+    assert.equal(result.parentHandoff.gaps.length, 1);
+    assert.equal(result.parentHandoff.failure, undefined);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — repeated unknown verifier claims remain verifier_error',
   async () => {
     const task = 'Locate requireAuth.';
     const goal = trustGoal(task, {
-      id: 'S-verifier-boundary-failure',
+      id: 'S-known-verifier-claim',
       question: task,
       originText: task,
     });
     const claim = candidateClaim(
-      'C-verifier-boundary-failure',
+      'C-known-verifier-claim',
       goal.id,
       'requireAuth is defined in src/auth.js.',
       ['E1'],
     );
-    const invalid = semanticVerdict(claim.id, 'supported', ['E-outside-claim']);
+    const unknown = semanticVerdict('C-unknown-verifier-claim', 'supported', ['E1']);
     const steps = buildTrustSteps({
       goals: [goal],
       initial: {
         tools: [{
           tool: 'repo_read_file',
           args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
-          id: 'read-auth-for-repeated-verifier-boundary',
+          id: 'read-auth-for-unknown-verifier-claim',
         }],
         claims: [claim],
-        verifierSteps: [{ verdicts: [invalid] }, { verdicts: [invalid] }],
+        verifierSteps: [{ verdicts: [unknown] }, { verdicts: [unknown] }],
       },
     });
 
@@ -15472,7 +15542,6 @@ semanticPipelineRuntimeTest(
     assert.equal(result.failure?.publicReason, 'verifier_error');
     assert.equal(result.parentHandoff.state, 'failed');
     assert.equal(result.parentHandoff.failure.reason, 'verifier_error');
-    assert.doesNotMatch(result.directAnswer, /requireAuth is defined/u);
   },
 );
 

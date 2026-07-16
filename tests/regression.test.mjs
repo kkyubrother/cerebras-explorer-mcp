@@ -857,6 +857,8 @@ test('Spec 028 T028 — semantic verifier sees isolated rebuilt facts and cannot
   assert.match(prompt.system, /never (?:rewrite|replace|add)[\s\S]{0,140}claim/i);
   assert.match(prompt.system, /supportingEvidenceRefs[\s\S]{0,180}subset/i);
   assert.match(prompt.system,
+    /evidence ids are opaque exact tokens[\s\S]{0,120}E5[\s\S]{0,80}E5:search[\s\S]{0,180}never append, remove, or infer a suffix/i);
+  assert.match(prompt.system,
     /never restate, paraphrase, refine[\s\S]{0,180}mark its claim insufficient/i);
   assert.match(prompt.system,
     /true but belongs to a different requested category[\s\S]{0,160}insufficient/i);

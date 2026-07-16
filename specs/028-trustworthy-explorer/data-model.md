@@ -222,6 +222,8 @@ Output of the isolated verifier, retained internally.
 | `reasonCode` | enum | `entailed`, `semantic_mismatch`, `overgeneralized`, `missing_transition`, `missing_category`, `boundary_mismatch`, `contradiction`, `uncovered_request`. |
 | `note` | string | Compact internal diagnostic, recorded in transcript. |
 
+Evidence ids are opaque exact tokens: `E5` and `E5:search` are distinct, and a verifier may use only ids present verbatim in that claim's `evidenceRefs`. One bounded correction is allowed. If an otherwise schema-valid final verifier response still cites evidence outside one claim, runtime deterministically downgrades only that verdict to `insufficient` with no supporting refs. Unknown, duplicate, or missing claims and structurally invalid control remain fatal verifier faults.
+
 Every supported verdict must carry exactly one resolution. Non-supported verdicts must not carry one. If supported claims for the same required goal disagree on resolution, the goal remains contradicted and incomplete rather than selecting a result by model or array order.
 
 Certificate-only refutations are accepted only when the primary and focused verdicts agree on `supported/refuted` and one complete certificate's full search-ref set. Direct source/git counterexamples do not need the focused pass. The agreement marker is runtime-only and is not part of `SemanticVerdict` or schema-v3 parent output.

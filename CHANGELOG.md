@@ -29,9 +29,12 @@ compatibility aliases or selectable effort controls are retained.
   unverified proposals or their constraints into parent-visible planning gaps.
 - **Bounded proof and repair**: absence, count, exhaustive classification,
   route-policy comparison, flow, impact, and historical claims use
-  runtime-owned proof gates. Invalid or cross-claim verifier evidence fails
-  closed. A generic impact claim can complete only when the canonical effective
-  scope has one immutable entry and a complete `repo_find_files("**/*")`
+  runtime-owned proof gates. Evidence ids are opaque exact tokens. Out-of-claim
+  verifier refs receive one bounded correction; if they recur, only the
+  contaminated claim is quarantined as insufficient while structurally invalid
+  verifier control still fails closed. A generic impact claim can complete only
+  when the canonical effective scope has one immutable entry and a complete
+  `repo_find_files("**/*")`
   inventory is paired with exact
   current source for every enumerated file and a second verifier independently
   affirms the same full evidence set; the inventory stays out of the parent

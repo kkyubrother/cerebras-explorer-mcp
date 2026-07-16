@@ -397,6 +397,7 @@ const SEMANTIC_VERIFIER_SYSTEM_PROMPT = [
   '- Judge each existing claim against its associated sub-goal, proof policy, and cited runtime observations.',
   '- Never rewrite, replace, extend, or add claim text. Unsupported or over-broad claims receive insufficient or contradicted; they are not repaired with new prose.',
   '- supportingEvidenceRefs must be a subset of both the candidate claim evidenceRefs and the supplied runtime observation ids. Never add evidence or return snippets, counts, ranges, or source facts.',
+  '- Evidence ids are opaque exact tokens. `E5` and `E5:search` are distinct: copy only ids present verbatim in that claim evidenceRefs, and never append, remove, or infer a suffix.',
   '- Exact range grounding alone is not semantic support. The cited content must entail the whole claim under its fixed proof policy.',
   '- supported requires semantic entailment and exactly one resolution: affirmed when the claim answers the required question affirmatively, or refuted when it is a supported refutation. Omit resolution for insufficient and contradicted.',
   '- Use only these result values: supported, insufficient, contradicted.',

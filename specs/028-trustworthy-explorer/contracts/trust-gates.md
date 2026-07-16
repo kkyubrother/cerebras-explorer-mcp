@@ -137,7 +137,7 @@ The verifier cannot invent a new narrowed answer after the fact.
 | Every explicit requested goal is blocked | `incomplete` with no invented answer and at most one useful action; not an execution failure. |
 | Cancellation at planner/explorer/verifier/repair | `failed`; reason `aborted`; no partial assistant content. |
 | Provider failure in required stage | `failed`; provider retry when useful. |
-| Verifier invalid/unavailable | `failed`; no unverified claim promotion. |
+| Verifier invalid/unavailable | `failed`; no unverified claim promotion. A schema-valid verdict that repeats an out-of-claim opaque evidence ref after one correction is localized instead: only that claim becomes `insufficient`; unknown/duplicate/missing claims and malformed control remain fatal. |
 | Tool errors limited to one required sub-goal | Repair once if useful, otherwise `incomplete`; fatal systemic errors become `failed`. |
 | Scope excludes required evidence | `incomplete` with a scope-bounded gap. |
 | Valid partial search/tool output or enumeration truncated | Positive claims may pass if independently supported; affected negative/exhaustive sub-goals remain `incomplete` gaps. |
