@@ -7918,15 +7918,25 @@ auditedPlanningRuntimeTest('Spec 028 T069 — a distinct late acceptance core ca
     },
   };
 
-  await assert.rejects(new RuntimeImplementation({ chatClient: client }).auditLateGoalProposals({
+  const result = await new RuntimeImplementation({ chatClient: client }).auditLateGoalProposals({
     task,
     effectiveScope: ['src/**'],
     wrapperTool: 'find_relevant_code',
     proposals: [proposal],
     existingGoalLedger: [existing],
-  }), error => error?.code === 'ERR_INVALID_GOAL_CONTROL' &&
-    /changed the acceptance core/.test(error.cause?.message ?? ''));
+  });
+
   assert.equal(calls, 2, 'an invalid external merge gets only one bounded correction');
+  assert.equal(result.requiredSubgoals.length, 1);
+  assert.equal(result.requiredSubgoals[0].id, proposal.id);
+  assert.equal(result.requiredSubgoals[0].state, 'blocked');
+  assert.equal(result.requiredSubgoals[0].auditVerdict, 'planning_incomplete');
+  assert.equal(result.requiredSubgoals[0].question, proposal.question);
+  assert.equal(result.requiredSubgoals[0].proofCondition, proposal.proofCondition);
+  assert.deepEqual(result.requiredSubgoals[0].constraints, proposal.constraints);
+  assert.deepEqual(result.gaps.map(gap => gap.reason), ['planning_incomplete']);
+  assert.deepEqual(result.rejectedGoals, []);
+  assert.equal(result.revisionRequest, null);
 });
 
 auditedPlanningRuntimeTest('Spec 028 T017 — late goal audit forwards cancellation without registering goals', async () => {

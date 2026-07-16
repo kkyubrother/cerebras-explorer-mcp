@@ -105,6 +105,9 @@ const SEMANTIC_CONTROL_BATCH_SIZE = 12;
 const GOAL_PLANNER_VERSION = 'planner-v1';
 const PROVIDER_REQUEST_FAILED = Symbol('providerRequestFailed');
 const PROVIDER_FAILURE_USAGE_RECORDED = Symbol('providerFailureUsageRecorded');
+const EXTERNAL_MERGE_ACCEPTANCE_CORE_MISMATCH = Symbol(
+  'externalMergeAcceptanceCoreMismatch',
+);
 const TRANSCRIPT_FINISH_REASONS = new Set([
   'stop',
   'length',
@@ -4843,14 +4846,65 @@ function validateExternalGoalMerge({ record, proposal, existingGoal }) {
   if (!proposal.constraints.every(constraint => existingGoal.constraints.includes(constraint))) {
     throw new TypeError(`External merge strengthened the constraints for ${proposal.id}.`);
   }
-  if (proposal.question !== existingGoal.question ||
-      proposal.proofCondition !== existingGoal.proofCondition ||
-      !sameStringSet(proposal.constraints, existingGoal.constraints)) {
-    throw new TypeError(`External merge changed the acceptance core for ${proposal.id}.`);
-  }
   if (record.missingRequestParts.length > 0) {
     throw new TypeError(`External merge reported missing request parts for ${proposal.id}.`);
   }
+  if (proposal.question !== existingGoal.question ||
+      proposal.proofCondition !== existingGoal.proofCondition ||
+      !sameStringSet(proposal.constraints, existingGoal.constraints)) {
+    const error = new TypeError(
+      `External merge changed the acceptance core for ${proposal.id}.`,
+    );
+    error[EXTERNAL_MERGE_ACCEPTANCE_CORE_MISMATCH] = true;
+    throw error;
+  }
+}
+
+function quarantineExternalMergeAcceptanceCore({
+  value,
+  proposal,
+  existingGoalLedger = [],
+}) {
+  const normalized = normalizeGoalAuditorControl(value);
+  if (!normalized || typeof normalized !== 'object' || Array.isArray(normalized) ||
+      !Array.isArray(normalized.goals) || !Array.isArray(normalized.uncoveredRequestParts)) {
+    return null;
+  }
+  const proposalById = new Map(proposal.subgoals.map(goal => [goal.id, goal]));
+  const existingById = new Map(existingGoalLedger.map(goal => [goal.id, goal]));
+  let quarantined = false;
+  const goals = [];
+
+  for (const record of normalized.goals) {
+    const existingGoal = record?.verdict === 'merge_duplicate'
+      ? existingById.get(record.mergeInto)
+      : null;
+    if (!existingGoal) {
+      goals.push(record);
+      continue;
+    }
+    const proposedGoal = proposalById.get(record.proposedGoalId);
+    if (!proposedGoal || normalized.uncoveredRequestParts.some(part =>
+      samePlannerGoalContent(part, proposedGoal))) {
+      return null;
+    }
+    try {
+      validateExternalGoalMerge({ record, proposal: proposedGoal, existingGoal });
+      goals.push(record);
+    } catch (error) {
+      if (error?.[EXTERNAL_MERGE_ACCEPTANCE_CORE_MISMATCH] !== true) return null;
+      quarantined = true;
+      goals.push({
+        proposedGoalId: record.proposedGoalId,
+        verdict: 'needs_decomposition',
+        originRefs: [...record.originRefs],
+        missingRequestParts: [],
+        reason: 'The late proposal has a distinct acceptance core that was not audited independently.',
+      });
+    }
+  }
+
+  return quarantined ? { ...normalized, goals } : null;
 }
 
 function partitionExternalGoalMerges({ response, proposal, preflight, existingGoalLedger = [] }) {
@@ -6122,8 +6176,21 @@ export class ExplorerRuntime {
       validate: validateAuditControl,
       recoverFinalValidation: ({ parsed }) => {
         const restored = restoreNarrowedGoalAuditOrigins(parsed, proposal);
-        return restored
-          ? { accepted: true, value: validateAuditControl(restored) }
+        const candidate = restored ?? parsed;
+        if (restored) {
+          try {
+            return { accepted: true, value: validateAuditControl(restored) };
+          } catch {
+            // A restored origin can still expose a distinct external merge below.
+          }
+        }
+        const quarantined = quarantineExternalMergeAcceptanceCore({
+          value: candidate,
+          proposal,
+          existingGoalLedger,
+        });
+        return quarantined
+          ? { accepted: true, value: validateAuditControl(quarantined) }
           : null;
       },
     });

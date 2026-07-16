@@ -175,6 +175,8 @@ Goal auditor는 repository content나 exploratory prose를 보지 않는다. 원
 
 Request coverage가 빠졌거나 goal이 너무 넓으면 planner revision을 한 번만 허용한다. Revision 뒤에도 남은 명시적 요구는 `planning_incomplete` required goal로 materialize한다. Planner invention은 로그에만 남기고 completion을 막지 않는다.
 
+Late audit가 기존 ledger goal과 acceptance core가 다른 proposal을 두 번 연속 `merge_duplicate`로 반환하면 runtime은 그 merge만 버리고 원래 proposal을 `needs_decomposition`으로 환원한다. Late audit에는 planner revision이 남아 있지 않으므로 해당 사용자 요구는 `planning_incomplete` required gap으로 보존된다. 이 복구는 target, claim type, origin containment, constraint subset, missing-request-part 검사가 모두 유효한 경우에만 적용한다. 더 강한 constraint, widened origin, 잘못된 target, malformed control은 계속 audit fault다.
+
 Auditor가 ready로 확정한 goal은 immutable acceptance core의 runtime-owned `auditBinding`으로 봉인한다. 이 binding은 의미 판정이나 서명이 아니라 audit 이후 `id`, 질문, confirmed origin, claim/proof policy, proof condition, constraints, verdict가 바뀌는 것을 막는 내부 checksum이다. Exploration state와 claim reference는 binding 밖에 있으며, transition과 TaskContract 검증 때 다시 확인한다. 같은 claim type의 confirmed origin signature가 형제 signature를 일방향으로 엄격히 포함하면 기존 한 번의 revision에서 각각 하나의 구분 가능한 descendant goal로 정제한다. 동일 origin이나 단순 overlap은 정상적인 shared request facet일 수 있으므로 그 자체로 revision을 만들지 않는다.
 
 ### 5.3 Evidence collection

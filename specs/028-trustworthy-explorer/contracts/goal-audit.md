@@ -113,6 +113,16 @@ The corrected plan is audited once with `revisionCount=1`. No further planner ca
 - still-decomposable suggestions become `planning_incomplete` blocked required goals because no plan revision remains;
 - suggestions found during post-repair verification may become required gaps after audit but cannot start another plan or repair loop.
 
+An external `merge_duplicate` is valid only when target, claim type, acceptance
+core, origins, constraints, and missing-part state all pass the runtime checks.
+If the auditor repeats a schema-valid merge whose only defect is a distinct
+question/proof-condition acceptance core after the bounded correction, runtime
+rewrites only that audit record to `needs_decomposition`. Because late audit has
+`revisionCount=1`, the original proposal becomes a `planning_incomplete`
+required gap instead of disappearing. Invalid targets, proof-policy changes,
+widened origins, stronger constraints, missing request parts, and malformed
+control remain fatal audit faults.
+
 ## Reduction and repair eligibility
 
 1. Discard `reject_untraceable` goals and store them only in the redacted operational trace.
