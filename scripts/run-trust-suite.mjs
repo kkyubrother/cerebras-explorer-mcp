@@ -653,7 +653,7 @@ function directRuntimeArgs(invocation) {
         knownFiles.unshift(args.entryPoint.trim());
       }
       return {
-        task: `Explain this code path across files with grounded citations: ${query}. Include the entry point, handoff points, and next read targets.`,
+        task: `Explain this code path across files with grounded citations: ${query}`,
         scope: args.scope,
         taskMode: 'path_explanation',
         hints: anchorHints({ knownFiles, knownSymbols: args.knownSymbols }),

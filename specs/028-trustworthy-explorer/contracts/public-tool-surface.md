@@ -100,7 +100,7 @@ The fixed runtime configuration is exactly:
 | `maxDirectoryEntries` | 300 | `tool_result_limit` when the result is actually truncated |
 | `maxWalkFiles` | 6000 | `walk_limit` |
 | `maxCompletionTokens` | 16384 | `generation_output_limit` |
-| `finalizeMaxCompletionTokens` | 3000 | `generation_output_limit` |
+| `finalizeMaxCompletionTokens` | 16384 | `generation_output_limit` |
 | `maxContextTokens` | 110000 | `context_limit` |
 
 The internal safety-limit vocabulary is exactly `turn_limit`, `context_limit`, `generation_output_limit`, `walk_limit`, and `tool_result_limit`. These observations belong to the direct-runtime/transcript diagnostics; normal v3 output exposes only the affected requested gap, not configuration or usage telemetry.

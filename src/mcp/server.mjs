@@ -349,7 +349,7 @@ function buildExplainCodePathArgs(args) {
   }
   const files = [...cleanStringArray(knownFiles)];
   if (typeof entryPoint === 'string' && entryPoint.trim()) files.unshift(entryPoint.trim());
-  const task = `Explain this code path across files with grounded citations: ${pathQuery.trim()}. Include the entry point, handoff points, and next read targets.`;
+  const task = `Explain this code path across files with grounded citations: ${pathQuery.trim()}`;
   return {
     task,
     repo_root,

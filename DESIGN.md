@@ -148,7 +148,8 @@ API client는 첫 실제 요청에서 lazy initialization된다. Provider creden
 Planner input은 원래 task, wrapper seed, effective scope, known anchor, repository project context다. Repository text와 path는 untrusted evidence data이며 system instruction을 바꿀 수 없다.
 
 Planner는 명시된 요청 부분마다 독립 관찰 가능한 proof condition을 가진 proposed sub-goal을 만든다. Runtime이 claim type을 고정 proof policy로 변환한다.
-각 fixed wrapper seed는 정확히 한 goal에만 붙인다. 같은 acceptance core를 가진 request leaf가 있으면 별도 wrapper-only goal을 만들지 않고 그 leaf에 wrapper origin을 결합한다.
+각 fixed wrapper seed는 정확히 한 goal에만 붙인다. `explain_code_path`와 `map_change_impact`에서는 한 goal에 fixed seed도 정확히 하나만 허용해 flow transition이나 impact category가 독립적으로 검증되게 한다. 같은 acceptance core를 가진 request leaf가 있으면 별도 wrapper-only goal을 만들지 않고 그 leaf에 wrapper origin을 결합한다. Proposal-time seed 결합이나 서로 다른 fixed wrapper seed를 가진 goal 사이의 `merge_duplicate`는 runtime이 거부하고 기존 bounded correction을 한 번만 허용한다.
+`explain_code_path`가 내부적으로 붙이는 task prefix는 caller request origin이 아니다. Entry, handoff, terminal effect, transition 의무는 task suffix가 아니라 runtime-owned fixed seeds로만 전달하므로 output guidance가 planner obligation으로 들어가지 않는다. Fixed flow goal은 하나의 전체 경로를 공유하며 request origin을 실제 `pathQuery` 전체 범위 하나와 fixed seed로 정규화한다. Public path wrapper의 네 fixed goal은 question, claim type, proof condition도 runtime-owned canonical contract로 바꾸며 auditor가 다시 decompose/merge/reject하지 못하게 한다. 다른 planner goal과 auditor uncovered part의 request range는 실제 `pathQuery` 구간으로만 잘라내며, generated prefix에만 걸친 항목은 버린다. 따라서 endpoint 단어를 잘게 나눈 planner origin이나 generated prefix가 새 caller obligation 또는 permanent planning gap을 만들 수 없다.
 Runtime은 initial plan과 isolated audit에서 active wrapper의 fixed seed origin이 모두 유지되는지 기계적으로 확인한다. Initial omission은 한 번의 bounded control correction 대상이며, 다시 누락되면 repository exploration 전에 fail-closed한다. Final corrected plan이 이번 revision에서 분해 또는 정제하도록 명시된 goal의 fixed origin만 빠뜨린 경우에는 그 obligation을 성공으로 간주하지 않고 `planning_incomplete` required gap으로 materialize한다. Preserved goal 변경, 이번 revision 대상이 아닌 origin 누락, malformed control은 계속 fault다.
 `map_change_impact:dependents` fixed seed는 관측된 caller/consumer boundary를 요구할 뿐 exhaustive inventory를 뜻하지 않는다. Goal의 question/proof/constraint에 있는 강한 완전성 한정어는 그 goal의 정확한 request origin에도 있어야 하며, 없으면 한 번의 bounded control correction 뒤 반복 시 audit와 repository exploration 전에 fail-closed한다.
 `collect_evidence`는 예외 없이 supplied task 전체를 덮는 request origin과 `wrapper:collect_evidence:verdict`를 함께 가진 하나의 `claim_verification` goal로 계획한다. Direct evidence와 counterevidence search는 별도 sibling goal이 아니라 같은 verdict의 내부 proof facet이다.
@@ -187,6 +188,9 @@ Explorer model은 audited ready goal을 대상으로 RepoToolkit을 호출한다
 
 `find_relevant_code`의 unanchored mode와 exact symbol anchor mode는 immutable scope의 grep 한 번에서 role별 최소 후보를 고른 뒤 최대 두 bounded read batch로 종료한다. Structured-output 위치 요청은 formatter/schema뿐 아니라 production caller/adapter를 포함하는 implementation 후보를 최대 세 개 보존한다. `trace_symbol`은 definition macro, runtime-escaped literal full-scope usage grep, bounded source read 순서를 고정하며 symbol range가 실제 call line을 포함할 때만 enclosing caller 이름을 전달한다.
 
+`explain_code_path` wrapper mode는 caller가 준 symbol 또는 path query의 concrete code/protocol/route anchor로 immutable-scope grep을 한 번 수행하고, match cluster 앞뒤 최대 40줄을 포함한 runtime-fixed range로 enclosing function과 adjacent caller/callee boundary를 최대 200줄의 bounded batch에서 함께 읽는다. 관측 source에서 고른 concrete boundary symbol은 scope 전체에서 한 번만 cross-check하고 새로 드러난 path만 읽은 뒤 종료한다. 각 search/read 단계는 model이 도구 없이 건너뛰면 같은 단계만 한 번 재촉하며, serial synonym, whole-file scan, 두 번째 handoff search를 허용하지 않는다. 남은 adjacent transition은 추가 탐색 대신 gap으로 보존한다.
+Flow claim synthesis와 semantic verification은 runtime-owned deterministic sampling(`temperature=0`, `top_p=1`)을 사용한다. Caller가 `from A to B`처럼 시작점을 명시하면 `entry`는 A의 실제 entry function과 source를 사용해야 하며 downstream dispatcher를 시작점으로 대체할 수 없다. Flow claim은 관측된 intermediate helper/component를 생략한 direct jump로 축약할 수 없다. `terminal_effect`의 endpoint가 explicit return을 사용하면 claim도 그 반환 표현식 또는 callee를 `return`으로 명시해야 하며, endpoint 도달이나 일반적인 호출 사실만으로 대체할 수 없다. 이 sampling 고정은 내부 proof control에만 적용되며 public input이나 parent payload를 늘리지 않는다.
+
 `map_change_impact`의 unanchored wrapper mode는 exact grep에서 역할별 후보와 match line을 골라 bounded read batch로 전환한다. Wrapper가 자동 생성하는 category leaf는 verification/public-contract surface를 묶되 흔한 category를 각각 필수 목표로 만들지 않으며, caller가 change에 구체적으로 명시한 category만 필수로 보존한다. Structured-output change는 wrapper 이름 대신 schema assignment, registry field, formatter/response-builder declaration or call을 찾는 고정 predicate를 먼저 implementation role에 적용해 schema/runtime/server 후보를 읽는다. 이어 같은 immutable scope에서 public `outputSchema`, quoted `"schemaVersion"`, 또는 exact `schema-v3 structuredContent` contract phrase를 찾는 저잡음 고정 predicate를 test/documentation/config/fixture role에 한 번만 적용한다. 이 internal role filter는 public repository argument가 아니며 result cap 전에 적용되고 absence/count completeness에는 사용할 수 없으므로, scope가 생략되어 `**`가 되더라도 documentation match가 implementation 후보를 밀어내지 않는다. 각 단계는 runtime-fixed argument를 사용하며, model이 두 번째 search 또는 category read를 도구 없이 건너뛰면 같은 단계만 한 번 재촉하고 다시 거부하면 gap으로 종료한다. Runtime-selected category source가 있는데 claim이 일부 source를 인용하지 않거나 통째로 생략되면 claim synthesis만 한 번 교정하고, 다시 누락되면 해당 goal을 gap으로 격리한다. 다른 impact query의 recovery와 repair는 기존처럼 한 repository action으로 제한한다.
 
 `collect_evidence`의 내부 `evidence_verification` mode는 claim의 bounded literal term을 안전한 compound predicate로 만든 direct lookup부터 시작하고 implementation scope에서 최대 두 번만 시도한다. 첫 predicate가 0건이면 component label이 아닌 mechanism/field/function term으로 한 번만 교정하고, 가장 강한 관찰 implementation path 하나의 allowlisted source read로 전환한다. Model은 exact source가 전체 premise를 의미상 직접 반박할 때만 추가 search 없이 synthesis로 넘어갈 수 있고, 그 밖의 affirmation은 plausible counterexample/exception/alternative의 complete full-boundary search를 요구한다. Runtime/entry point가 helper-backed mechanism을 수행·생략·검사하지 않는다는 실행 premise는 helper behavior와 실제 invocation/call path의 exact source를 함께 요구하며, definition-only packet은 `missing_transition`으로 fail-closed 한다. Runtime은 영어·한국어 부정어만으로 이 분기를 결정하지 않으며 verifier가 잘못된 선택을 fail-closed로 막는다. 동일 claim에 대한 broad synonym search를 더 반복하지 않는다. 이 단일 verdict goal의 claim synthesis는 전체 premise를 덮는 aggregate claim을 0개 또는 1개만 허용한다. 첫 fan-out은 한 번 교정하고 두 번째 fan-out은 해당 goal을 unresolved gap으로 격리한다.
@@ -216,6 +220,8 @@ Runtime은 model이 낸 path와 line range를 repository에서 다시 읽고 sni
 
 Source range 검증과 semantic support는 별개다. 정확한 line을 인용해도 claim이 그 line보다 과장되면 다음 단계에서 거부된다.
 
+`repo_read_file`과 symbol definition의 runtime source observation은 한 항목당 최대 200줄을 유지하되 fixed `maxReadLines=320` 범위의 후반부를 버리지 않도록 최대 두 개의 연속 chunk로 재구성한다. 첫 chunk는 원래 opaque evidence id를 유지하고 두 번째 chunk만 `:source:2` id를 사용한다. Character redaction/truncation으로 exact reconstruction이 불가능한 chunk는 기존처럼 partial로 남아 completion 근거가 되지 않는다.
+
 ### 5.5 Isolated semantic verifier
 
 Verifier는 원래 request, audited sub-goals, candidate atomic claims, rebuilt evidence, bounded search certificate만 받는다. Exploratory prose나 model self-confidence는 받지 않는다.
@@ -224,7 +230,9 @@ Verifier는 원래 request, audited sub-goals, candidate atomic claims, rebuilt 
 
 Evidence id는 opaque exact token이다. 예를 들어 `E5`와 `E5:search`는 서로 다른 ref이며 verifier가 suffix를 추론할 수 없다. 다른 claim의 ref를 반환하면 한 번만 교정을 요청하고, 이 교정은 supported verdict의 `affirmed|refuted` resolution 의무와 non-supported verdict의 resolution 금지를 다시 명시한다. Schema-valid 응답이 같은 경계를 다시 넘으면 해당 claim만 `insufficient`로 격리한다. Unknown/duplicate/missing claim, malformed control, 또는 구조 오류는 계속 verifier fault로 처리하므로 이 격리는 claim을 support로 승격하지 않는다.
 
-Claim synthesis가 두 번 모두 알려진 sub-goal에 `evidenceRefs:[]`인 구조적으로 유효한 claim을 반환하면 그 claim만 버리고 해당 goal을 unresolved로 둔다. Unknown sub-goal, duplicate claim id, malformed claim, invalid non-empty evidence ref는 이 복구 대상이 아니다. Post-repair verifier packet은 해당 claim에 실제로 추가된 fresh evidence id만 별도로 표시하며, fresh id를 하나도 인용하지 않은 supported verdict는 기존 reduction에서 support가 되지 않는다.
+Claim synthesis가 서로 다른 bounded batch에서 같은 opaque claim id를 한 번씩 재사용하면 runtime은 후속 batch id만 sub-goal 기반 내부 id로 결정론적으로 바꾼다. 같은 batch 안의 duplicate id와 prior-claim id 충돌은 의미 경계가 모호하므로 계속 invalid control이다. 이 정규화는 추가 provider retry나 parent field를 만들지 않는다.
+
+Claim synthesis가 두 번 모두 알려진 sub-goal에 `evidenceRefs:[]`인 구조적으로 유효한 claim을 반환하면 그 claim만 버리고 해당 goal을 unresolved로 둔다. Unknown sub-goal, same-batch duplicate claim id 또는 prior-claim id 충돌, malformed claim, invalid non-empty evidence ref는 이 복구 대상이 아니다. Post-repair verifier packet은 해당 claim에 실제로 추가된 fresh evidence id만 별도로 표시하며, fresh id를 하나도 인용하지 않은 supported verdict는 기존 reduction에서 support가 되지 않는다.
 
 각 claim은 `supported`, `insufficient`, `contradicted` 중 하나가 된다. Accepted claim만 direct answer와 evidence에 사용한다. Unsupported claim을 자연스러운 문장으로 완화해 성공처럼 반환하지 않는다.
 
@@ -240,7 +248,7 @@ Verifier가 새로운 request part를 제안하면 원래 request에 추적 가�
 
 Ready goal의 좁고 실행 가능한 evidence gap만 한 번의 repair 대상이다. Blocked goal, known-infeasible goal, 같은 action을 반복해야 하는 gap은 repair하지 않는다.
 
-Repair model이 반환한 tool argument는 그 repair request에 실제로 전달된 internal tool schema로 검증한다. Required/type/range/enum/const/additional-property 위반은 값 보정이나 추가 retry 없이 실행 전에 거부하며 fresh evidence로 취급하지 않는다.
+Repair model이 반환한 tool argument는 그 repair request에 실제로 전달된 internal tool schema로 검증한다. Required/type/range/enum/const/additional-property 위반은 값 보정이나 추가 retry 없이 실행 전에 거부하며 fresh evidence로 취급하지 않는다. 이미 exact current source observation이 완전히 덮는 `repo_read_file` 부분 범위도 fingerprint가 달라도 equivalent action으로 억제한다.
 
 Repair 뒤에도 required goal이 닫히지 않으면 `incomplete`다. 반복 loop를 만들지 않는다.
 
@@ -342,7 +350,7 @@ Runtime config는 `getRuntimeConfig()`가 반환하는 frozen object다.
 | `maxDirectoryEntries` | 300 |
 | `maxWalkFiles` | 6000 |
 | `maxCompletionTokens` | 16384 |
-| `finalizeMaxCompletionTokens` | 3000 |
+| `finalizeMaxCompletionTokens` | 16384 |
 | `maxContextTokens` | 110000 |
 | `temperature` | 1.0 |
 | `topP` | 0.95 |

@@ -11,6 +11,7 @@ import {
   buildImpactMapToolPolicy,
   buildLocateToolPolicy,
   buildParentHandoffV3,
+  buildPathExplanationToolPolicy,
   buildRuntimeGenericImpactPolicyArtifacts,
   buildRuntimeWrapperPolicyArtifacts,
   buildSourceClaimCheckToolPolicy,
@@ -1336,59 +1337,36 @@ test('ExplorerRuntime uses evidence taskMode before edit fallback and fails clos
   assert.notEqual(result.status.verification, 'targeted_read_needed');
 });
 
-test('ExplorerRuntime taskMode marks edit planning as targeted read needed', async () => {
-  class EditPlanningClient {
-    constructor() { this.model = 'zai-glm-4.7'; this.calls = 0; }
-    async createChatCompletion() {
-      this.calls += 1;
-      if (this.calls === 1) {
-        return {
-          usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 },
-          message: {
-            content: '',
-            toolCalls: [{
-              id: 'call-read-1',
-              function: {
-                name: 'repo_read_file',
-                arguments: JSON.stringify({ path: 'src/auth.js', startLine: 1, endLine: 8 }),
-              },
-            }, {
-              id: 'call-read-2',
-              function: {
-                name: 'repo_read_file',
-                arguments: JSON.stringify({ path: 'src/routes/user.js', startLine: 1, endLine: 8 }),
-              },
-            }],
-          },
-        };
-      }
-      return {
-        usage: { prompt_tokens: 30, completion_tokens: 20, total_tokens: 50 },
-        message: {
-          content: JSON.stringify(compactResult({
-            directAnswer: '변경 영향입니다.',
-            statusConfidence: 'high',
-            evidence: [
-              { path: 'src/auth.js', startLine: 1, endLine: 4, why: '변경 영향 근거' },
-              { path: 'src/routes/user.js', startLine: 1, endLine: 5, why: '호출 영향 근거' },
-            ],
-          })),
-          toolCalls: [],
-        },
-      };
-    }
-  }
-
-  const root = await makeRepoFixture();
-  const runtime = new ExplorerRuntime({ chatClient: new EditPlanningClient() });
-  const result = await runtime.explore({
-    task: 'Assess auth behavior',
-    repo_root: root,
-    scope: ['src/**'],
+test('ExplorerRuntime taskMode marks edit planning as verify_targets for the parent', async () => {
+  const task = 'Assess this intended change before editing: ' +
+    'Add a new top-level field to explore_repo structured output. Identify actionable targets, ' +
+    'dependent callers/consumers, affected verification or public-contract surfaces, and the remaining risk boundary.';
+  const goals = impactWrapperGoals(task);
+  const claims = goals.map((goal, index) => candidateClaim(
+    `C-edit-planning-${index + 1}`,
+    goal.id,
+    `The observed implementation source supports this bounded impact facet: ${goal.question}`,
+    ['E1'],
+  ));
+  const { result } = await runTrustScript(buildTrustSteps({
+    goals,
+    initial: {
+      tools: [{
+        tool: 'repo_read_file',
+        args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+        id: 'edit-planning-source',
+      }],
+      claims,
+      verdicts: claims.map(claim =>
+        semanticVerdict(claim.id, 'supported', claim.evidenceRefs)),
+    },
+  }), {
+    task,
     taskMode: 'edit_planning',
   });
 
-  assert.equal(result.status.verification, 'targeted_read_needed');
+  assert.equal(result.failure, null);
+  assert.equal(result.parentHandoff.state, 'verify_targets');
 });
 
 test('Phase 2 — codeMap remains available without generating Mermaid diagram output', async () => {
@@ -2580,6 +2558,10 @@ test('Spec 028 T053 — wrapper task modes preserve internal strategy without a 
     taskMode: 'path_explanation',
   });
   assert.match(pathPrompt, /Strategy: reference-chase/);
+  assert.match(pathPrompt,
+    /one exact immutable-scope lookup[\s\S]{0,520}at most one exact handoff-symbol cross-check/u);
+  assert.match(pathPrompt,
+    /unobserved adjacent transition as a gap[\s\S]{0,100}serial synonyms or whole-file scans/u);
 
   const evidencePrompt = buildExplorerUserPrompt({
     task: 'Verify that explore_repo validates before returning structuredContent.',
@@ -2934,6 +2916,292 @@ test('Spec 028 T071 — unanchored impact mapping bounds candidate batches and r
   });
   assert.deepEqual(recoveredFinalize.tools, []);
   assert.match(recoveredFinalize.instruction, /Finalize now/u);
+});
+
+test('Spec 028 T071 — public path wrapper bounds discovery, handoff search, and reads', () => {
+  const tools = ['repo_grep', 'repo_read_file'].map(name => ({
+    function: {
+      name,
+      parameters: {
+        type: 'object',
+        properties: {
+          pattern: { type: 'string' },
+          scope: { type: 'array', items: { type: 'string' } },
+          maxResults: { type: 'integer' },
+          contextLines: { type: 'integer' },
+          path: { type: 'string' },
+          startLine: { type: 'integer' },
+          endLine: { type: 'integer' },
+        },
+      },
+    },
+  }));
+  const task =
+    'Explain this code path across files with grounded citations: MCP tools/call request flow from JSON-RPC handler to exploreRepository';
+  const effectiveScope = ['src/**'];
+  const knownFiles = ['src/mcp/server.mjs'];
+  const initial = buildPathExplanationToolPolicy({
+    observations: [],
+    tools,
+    discoveredPaths: [],
+    task,
+    effectiveScope,
+    knownFiles,
+  });
+  assert.deepEqual(initial.tools.map(tool => tool.function.name), ['repo_grep']);
+  assert.equal(initial.parallelToolCalls, false);
+  assert.match(initial.allowedPattern, /exploreRepository/u);
+  assert.match(initial.allowedPattern, /tools\/call/u);
+  assert.match(initial.allowedPattern, /JSON-RPC/u);
+  assert.deepEqual(initial.fixedToolArguments.repo_grep, {
+    pattern: initial.allowedPattern,
+    scope: effectiveScope,
+    maxResults: 60,
+    contextLines: 0,
+  });
+
+  const knownAnchorTask =
+    'Explain this code path across files with grounded citations: flow';
+  const knownAnchorRead = buildPathExplanationToolPolicy({
+    observations: [],
+    tools,
+    discoveredPaths: [],
+    task: knownAnchorTask,
+    effectiveScope,
+    knownFiles,
+  });
+  assert.deepEqual(knownAnchorRead.allowedReadPaths, knownFiles);
+  const failedKnownAnchorRetry = buildPathExplanationToolPolicy({
+    observations: [{
+      id: 'E-known-error',
+      kind: 'tool_error',
+      tool: 'repo_read_file',
+      error: true,
+    }],
+    tools,
+    discoveredPaths: [],
+    task: knownAnchorTask,
+    effectiveScope,
+    knownFiles,
+    readRounds: 1,
+  });
+  assert.deepEqual(failedKnownAnchorRetry.tools, []);
+  assert.match(failedKnownAnchorRetry.instruction, /Finalize now/u);
+
+  const discovery = {
+    id: 'E1:search',
+    kind: 'search',
+    tool: 'repo_grep',
+    normalizedArgs: {
+      pattern: initial.allowedPattern,
+      scope: effectiveScope,
+    },
+    boundary: effectiveScope,
+    matchCount: 4,
+    normalizedItemAnchors: [
+      { path: 'src/mcp/server.mjs', line: 7 },
+      { path: 'src/mcp/server.mjs', line: 480 },
+      { path: 'src/mcp/server.mjs', line: 544 },
+      { path: 'src/explorer/runtime.mjs', line: 10528 },
+    ],
+  };
+  const discoveredPaths = discovery.normalizedItemAnchors.map(anchor => ({
+    path: anchor.path,
+  }));
+  const anchorReads = buildPathExplanationToolPolicy({
+    observations: [discovery],
+    tools,
+    discoveredPaths,
+    task,
+    effectiveScope,
+    knownFiles,
+  });
+  assert.deepEqual(new Set(anchorReads.allowedReadPaths), new Set([
+    'src/mcp/server.mjs',
+    'src/explorer/runtime.mjs',
+  ]));
+  assert.equal(anchorReads.parallelToolCalls, true);
+  assert.equal(anchorReads.maxReadSpan, 200);
+  assert.deepEqual(anchorReads.fixedReadRanges, {
+    'src/mcp/server.mjs': { startLine: 440, endLine: 584 },
+    'src/explorer/runtime.mjs': { startLine: 10488, endLine: 10568 },
+  });
+  assert.ok(Object.values(anchorReads.fixedReadRanges).every(range =>
+    range.endLine - range.startLine + 1 <= 200));
+  assert.match(anchorReads.instruction,
+    /enclosing function[\s\S]{0,160}adjacent caller\/callee boundary/u);
+  assert.match(anchorReads.instruction, /src\/mcp\/server\.mjs@lines 440-584/u);
+
+  const chainedAnchorReads = buildPathExplanationToolPolicy({
+    observations: [{
+      ...discovery,
+      matchCount: 3,
+      normalizedItemAnchors: [
+        { path: 'src/mcp/server.mjs', line: 100 },
+        { path: 'src/mcp/server.mjs', line: 200 },
+        { path: 'src/mcp/server.mjs', line: 300 },
+      ],
+    }],
+    tools,
+    discoveredPaths: [{ path: 'src/mcp/server.mjs' }],
+    task,
+    effectiveScope,
+    knownFiles,
+  });
+  assert.deepEqual(chainedAnchorReads.fixedReadRanges, {
+    'src/mcp/server.mjs': { startLine: 160, endLine: 340 },
+  });
+  assert.ok(Object.values(chainedAnchorReads.fixedReadRanges).every(range =>
+    range.endLine - range.startLine + 1 <= chainedAnchorReads.maxReadSpan));
+
+  const serverSource = {
+    id: 'E2',
+    kind: 'source',
+    path: 'src/mcp/server.mjs',
+    startLine: 450,
+    endLine: 580,
+    sourceRole: 'implementation',
+    temporalRole: 'current',
+    rangeGrounding: 'exact',
+    snippet: [
+      '472: async function callTool(exploreArgs) {',
+      '480:   return exploreRepository(exploreArgs);',
+      '521: async function handleRequest(request) {',
+      '560:   return callTool(exploreArgs);',
+    ].join('\n'),
+  };
+  const runtimeSource = {
+    id: 'E3',
+    kind: 'source',
+    path: 'src/explorer/runtime.mjs',
+    startLine: 10528,
+    endLine: 10533,
+    sourceRole: 'implementation',
+    temporalRole: 'current',
+    rangeGrounding: 'exact',
+    snippet: [
+      '10528: export async function exploreRepository(args, options = {}) {',
+      '10529:   const runtime = new ExplorerRuntime(options);',
+      '10531:   return runtime.explore(args);',
+    ].join('\n'),
+  };
+  const transportSource = {
+    id: 'E4',
+    kind: 'source',
+    path: 'src/mcp/jsonrpc-stdio.mjs',
+    startLine: 100,
+    endLine: 200,
+    sourceRole: 'implementation',
+    temporalRole: 'current',
+    rangeGrounding: 'exact',
+    snippet: [
+      '126: this.dispatchMessage(message).catch(handleError);',
+      '133: async dispatchMessage(message) {',
+      '136:   const result = await this.handleRequest(message);',
+    ].join('\n'),
+  };
+  const multiFileDiscovery = {
+    ...discovery,
+    matchCount: 6,
+    normalizedItemAnchors: [
+      ...discovery.normalizedItemAnchors,
+      { path: 'src/mcp/jsonrpc-stdio.mjs', line: 120 },
+      { path: 'src/mcp/jsonrpc-stdio.mjs', line: 190 },
+    ],
+  };
+  const boundedComplete = buildPathExplanationToolPolicy({
+    observations: [multiFileDiscovery, serverSource, runtimeSource, transportSource],
+    tools,
+    discoveredPaths: [
+      ...discoveredPaths,
+      { path: 'src/mcp/jsonrpc-stdio.mjs' },
+    ],
+    task,
+    effectiveScope,
+    knownFiles,
+    readRounds: 1,
+  });
+  assert.deepEqual(boundedComplete.tools, []);
+  assert.match(boundedComplete.instruction, /multi-file path boundary[\s\S]{0,100}Finalize now/u);
+
+  const handoffSearch = buildPathExplanationToolPolicy({
+    observations: [discovery, serverSource, runtimeSource],
+    tools,
+    discoveredPaths,
+    task,
+    effectiveScope,
+    knownFiles,
+    readRounds: 1,
+  });
+  assert.deepEqual(handoffSearch.tools.map(tool => tool.function.name), ['repo_grep']);
+  assert.equal(handoffSearch.parallelToolCalls, false);
+  assert.match(handoffSearch.allowedPattern, /handleRequest/u);
+  assert.match(handoffSearch.allowedPattern, /callTool/u);
+  assert.doesNotMatch(handoffSearch.allowedPattern, /exploreRepository/u);
+
+  const inboundSearch = {
+    id: 'E4:search',
+    kind: 'search',
+    tool: 'repo_grep',
+    normalizedArgs: {
+      pattern: handoffSearch.allowedPattern,
+      scope: effectiveScope,
+    },
+    boundary: effectiveScope,
+    matchCount: 5,
+    normalizedItemAnchors: [
+      { path: 'src/mcp/server.mjs', line: 521 },
+      { path: 'src/mcp/jsonrpc-stdio.mjs', line: 100 },
+    ],
+  };
+  const inboundRead = buildPathExplanationToolPolicy({
+    observations: [discovery, serverSource, runtimeSource, inboundSearch],
+    tools,
+    discoveredPaths: [
+      ...discoveredPaths,
+      { path: 'src/mcp/jsonrpc-stdio.mjs' },
+    ],
+    task,
+    effectiveScope,
+    knownFiles,
+    readRounds: 1,
+  });
+  assert.deepEqual(inboundRead.allowedReadPaths, ['src/mcp/jsonrpc-stdio.mjs']);
+  assert.deepEqual(inboundRead.fixedReadRanges, {
+    'src/mcp/jsonrpc-stdio.mjs': { startLine: 60, endLine: 140 },
+  });
+
+  const complete = buildPathExplanationToolPolicy({
+    observations: [
+      discovery,
+      serverSource,
+      runtimeSource,
+      inboundSearch,
+      {
+        id: 'E5',
+        kind: 'source',
+        path: 'src/mcp/jsonrpc-stdio.mjs',
+        startLine: 80,
+        endLine: 120,
+        sourceRole: 'implementation',
+        temporalRole: 'current',
+        rangeGrounding: 'exact',
+        snippet: '100: const response = await dispatchMessage(message);',
+      },
+    ],
+    tools,
+    discoveredPaths: [
+      ...discoveredPaths,
+      { path: 'src/mcp/jsonrpc-stdio.mjs' },
+    ],
+    task,
+    effectiveScope,
+    knownFiles,
+    readRounds: 2,
+  });
+  assert.deepEqual(complete.tools, []);
+  assert.equal(complete.parallelToolCalls, false);
+  assert.match(complete.instruction, /Finalize now/u);
 });
 
 test('Spec 028 T071 — public locate wrapper uses one scoped search and bounded companion reads', () => {
@@ -4603,158 +4871,54 @@ test('Spec 028 T035 — broad single-source proof stays incomplete without a saf
   assert.equal(result.failure, null);
 });
 
-test('010 US1#2 — path_explanation with one evidence stays incomplete after the turn limit', async () => {
-  // path_explanation requires exact >= 2 OR fileCount >= 2. One file/one exact item ⇒ insufficient.
-  class PathExplanationClient {
-    constructor() { this.model = 'zai-glm-4.7'; this.calls = 0; }
-    async createChatCompletion({ responseFormat }) {
-      this.calls += 1;
-      if (responseFormat) {
-        return {
-          usage: { prompt_tokens: 30, completion_tokens: 10, total_tokens: 40 },
-          message: {
-            content: JSON.stringify(compactResult({
-              directAnswer: 'Partial trace — only first hop found.',
-              statusConfidence: 'high',
-              verification: 'follow_up_needed',
-              complete: false,
-              evidence: [{
-                path: 'src/auth.js',
-                startLine: 1,
-                endLine: 4,
-                why: 'entry function',
-                evidenceType: 'file_range',
-                groundingStatus: 'exact',
-              }],
-            })),
-            toolCalls: [],
-          },
-        };
-      }
-      if (this.calls === 1) {
-        return {
-          usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
-          message: {
-            content: '',
-            toolCalls: [{
-              id: 'read-1',
-              function: {
-                name: 'repo_read_file',
-                arguments: JSON.stringify({ path: 'src/auth.js', startLine: 1, endLine: 4 }),
-              },
-            }],
-          },
-        };
-      }
-      return {
-        usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
-        message: {
-          content: '',
-          toolCalls: [{
-            id: `noop-${this.calls}`,
-            function: {
-              name: 'repo_grep',
-              arguments: JSON.stringify({ pattern: `nothing-${this.calls}`, scope: ['src/**'] }),
-            },
-          }],
-        },
-      };
-    }
-  }
-
-  const root = await makeRepoFixture();
-  const runtime = new ExplorerRuntime({ chatClient: new PathExplanationClient() });
-  const result = await runtime.explore({
-    task: 'Trace request flow from requireAuth to response',
+async function runSingleEvidenceFlowFixture() {
+  const task = 'Explain the JSON-RPC request path to the parent handoff.';
+  const goals = flowWrapperGoals();
+  const entryGoal = goals.find(goal => goal.id === 'S-flow-entry');
+  const entryClaim = candidateClaim(
+    'C-single-flow-entry',
+    entryGoal.id,
+    'The inspected source establishes only the first path entry.',
+    ['E1'],
+  );
+  return runTrustScript(buildTrustSteps({
+    goals,
+    initial: {
+      tools: [{
+        tool: 'repo_read_file',
+        args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+        id: 'single-flow-entry-read',
+      }],
+      claims: [entryClaim],
+      verdicts: [semanticVerdict(entryClaim.id, 'supported', entryClaim.evidenceRefs)],
+    },
+    repair: {
+      tools: [],
+      claims: [{ ...entryClaim }],
+      verdicts: [semanticVerdict(entryClaim.id, 'supported', entryClaim.evidenceRefs)],
+    },
+  }), {
+    task,
     taskMode: 'path_explanation',
-    repo_root: root,
   });
+}
 
-  assert.ok(result.stats.safetyLimits.some(limit => limit.name === 'turn_limit'));
-  assert.equal(result.status.complete, false, 'complex task with one evidence must stay incomplete');
-  assert.equal(result.status.verification, 'follow_up_needed');
-  assert.equal(result.failure, null, 'insufficient proof plus a valid limit must remain non-fatal');
+test('010 US1#2 — path_explanation with one evidence stays bounded and incomplete', async () => {
+  const { result } = await runSingleEvidenceFlowFixture();
+
+  assert.equal(result.stats.safetyLimits.some(limit => limit.name === 'turn_limit'), false);
+  assert.equal(result.status.complete, false, 'one observed entry cannot complete a multi-hop path');
+  assert.equal(result.parentHandoff.state, 'incomplete');
+  assert.equal(result.failure, null);
   assert.equal(result.stats?.evidenceSufficiency?.sufficient, false);
 });
 
-test('010 US1#3 — buildNextAction prefers explore_followup with a cited target over ask_user', async () => {
-  // Confidence:high but partial grounding so verification falls to follow_up_needed.
-  // Targets array carries a read target ⇒ nextAction should be explore_followup, not ask_user.
-  class FollowUpClient {
-    constructor() { this.model = 'zai-glm-4.7'; this.calls = 0; }
-    async createChatCompletion({ responseFormat }) {
-      this.calls += 1;
-      if (responseFormat) {
-        return {
-          usage: { prompt_tokens: 30, completion_tokens: 10, total_tokens: 40 },
-          message: {
-            content: JSON.stringify(compactResult({
-              directAnswer: 'partial answer with one grounded reference',
-              statusConfidence: 'high',
-              evidence: [{
-                path: 'src/auth.js',
-                startLine: 1,
-                endLine: 4,
-                why: 'reference',
-                evidenceType: 'file_range',
-                groundingStatus: 'exact',
-              }],
-              targets: [{
-                path: 'src/routes/user.js',
-                startLine: 1,
-                endLine: 6,
-                role: 'read',
-                reason: 'verify caller',
-                evidenceRefs: [],
-              }],
-            })),
-            toolCalls: [],
-          },
-        };
-      }
-      if (this.calls === 1) {
-        return {
-          usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
-          message: {
-            content: '',
-            toolCalls: [{
-              id: 'read-1',
-              function: {
-                name: 'repo_read_file',
-                arguments: JSON.stringify({ path: 'src/auth.js', startLine: 1, endLine: 4 }),
-              },
-            }],
-          },
-        };
-      }
-      return {
-        usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
-        message: {
-          content: '',
-          toolCalls: [{
-            id: `noop-${this.calls}`,
-            function: {
-              name: 'repo_grep',
-              arguments: JSON.stringify({ pattern: `nothing-${this.calls}` }),
-            },
-          }],
-        },
-      };
-    }
-  }
+test('010 US1#3 — exhausted path repair does not invent an ask_user follow-up', async () => {
+  const { result } = await runSingleEvidenceFlowFixture();
 
-  const root = await makeRepoFixture();
-  const runtime = new ExplorerRuntime({ chatClient: new FollowUpClient() });
-  const result = await runtime.explore({
-    task: 'Trace the request flow end-to-end',
-    taskMode: 'path_explanation',
-    repo_root: root,
-  });
-
-  if (result.status.verification === 'follow_up_needed' || result.status.verification === 'broad_search_needed') {
-    assert.notEqual(result.nextAction.type, 'ask_user',
-      'with a cited read target, nextAction should pick explore_followup over ask_user');
-  }
+  assert.equal(result.parentHandoff.state, 'incomplete');
+  assert.notEqual(result.parentHandoff.followUp?.type, 'ask_user');
+  assert.equal(result.parentHandoff.gaps.length > 0, true);
 });
 
 // spec 017: SessionStore was removed. The spec-011 regression check
@@ -5533,6 +5697,39 @@ function locateWrapperGoals() {
   }));
 }
 
+function flowWrapperGoals() {
+  const definitions = [
+    ['entry', 'Identify the request entry point.', 'Observe the first in-scope request entry.'],
+    ['handoffs', 'Identify each component handoff.', 'Observe each distinct component handoff.'],
+    ['terminal_effect', 'Identify the terminal parent handoff.', 'Observe the terminal parent-visible effect.'],
+    ['transitions', 'Explain arguments, returns, and intermediate transitions.', 'Observe the values crossing each component transition.'],
+  ];
+  return definitions.map(([seed, question, proofCondition]) => ({
+    id: `S-flow-${seed}`,
+    question,
+    originRefs: [`wrapper:explain_code_path:${seed}`],
+    claimType: 'flow',
+    proofCondition,
+    constraints: [],
+  }));
+}
+
+function combinedFlowWrapperGoals() {
+  const goals = flowWrapperGoals();
+  const handoffs = goals.find(goal => goal.id === 'S-flow-handoffs');
+  const transitions = goals.find(goal => goal.id === 'S-flow-transitions');
+  const combined = {
+    ...handoffs,
+    id: 'S-flow-handoffs-transitions',
+    question: 'Identify each component handoff and intermediate transition.',
+    originRefs: [...handoffs.originRefs, ...transitions.originRefs],
+    proofCondition: 'Observe each distinct component handoff and the values crossing it.',
+  };
+  return goals
+    .filter(goal => ![handoffs.id, transitions.id].includes(goal.id))
+    .toSpliced(1, 0, combined);
+}
+
 function impactWrapperGoals(task, { exhaustiveDependents = false } = {}) {
   const definitions = [
     {
@@ -5717,7 +5914,10 @@ auditedPlanningRuntimeTest(
       taskMode: 'edit_planning',
     });
 
-    assert.equal(result.failure, null, JSON.stringify(result.failure));
+    assert.equal(result.failure, null, JSON.stringify({
+      failure: result.failure,
+      stages: client.stageLabels,
+    }));
     assert.deepEqual(client.stageLabels.slice(0, 4), [
       'planner:1',
       'planner:2',
@@ -5845,6 +6045,499 @@ auditedPlanningRuntimeTest('Spec 028 T071 — an auditor cannot silently discard
     'exploration:1',
   ]);
 });
+
+auditedPlanningRuntimeTest(
+  'Spec 028 T071 — distinct fixed flow seeds cannot merge and receive one audit correction',
+  async () => {
+    const goals = flowWrapperGoals();
+    const handoffs = goals.find(goal => goal.id === 'S-flow-handoffs');
+    const transitions = goals.find(goal => goal.id === 'S-flow-transitions');
+    const invalidAudit = () => auditorControl(goals.map(goal =>
+      goal.id === transitions.id
+        ? auditControlRecord(goal, 'merge_duplicate', { mergeInto: handoffs.id })
+        : auditControlRecord(goal)));
+    const client = new ScriptedGoalAuditClient([
+      { stage: 'planner:1', value: plannerControl(goals) },
+      { stage: 'goal_audit:1', value: invalidAudit() },
+      {
+        stage: 'goal_audit:2',
+        run(request) {
+          assert.match(JSON.stringify(request.messages), /distinct fixed wrapper seeds/u);
+          return controlCompletion(auditorControl(
+            goals.map(goal => auditControlRecord(goal)),
+          ));
+        },
+      },
+      { stage: 'exploration:1', content: 'All four flow obligations remain distinct.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+    ]);
+    const root = await makeRepoFixture();
+    const result = await new RuntimeImplementation({ chatClient: client }).explore({
+      task: 'Explain the JSON-RPC request path to the parent handoff.',
+      repo_root: root,
+      scope: ['src/**'],
+      taskMode: 'path_explanation',
+    });
+
+    assert.equal(result.failure, null, JSON.stringify({
+      failure: result.failure,
+      stages: client.stageLabels,
+    }));
+    assert.deepEqual(client.stageLabels.slice(0, 4), [
+      'planner:1',
+      'goal_audit:1',
+      'goal_audit:2',
+      'exploration:1',
+    ]);
+    assert.deepEqual(result.taskContract.subgoals.map(goal => goal.id),
+      goals.map(goal => goal.id));
+  },
+);
+
+auditedPlanningRuntimeTest(
+  'Spec 028 T071 — repeated distinct fixed flow seed merge fails before exploration',
+  async () => {
+    const goals = flowWrapperGoals();
+    const handoffs = goals.find(goal => goal.id === 'S-flow-handoffs');
+    const transitions = goals.find(goal => goal.id === 'S-flow-transitions');
+    const invalidAudit = () => auditorControl(goals.map(goal =>
+      goal.id === transitions.id
+        ? auditControlRecord(goal, 'merge_duplicate', { mergeInto: handoffs.id })
+        : auditControlRecord(goal)));
+    const client = new ScriptedGoalAuditClient([
+      { stage: 'planner:1', value: plannerControl(goals) },
+      { stage: 'goal_audit:1', value: invalidAudit() },
+      { stage: 'goal_audit:2', value: invalidAudit() },
+    ]);
+    const root = await makeRepoFixture();
+    const result = await new RuntimeImplementation({ chatClient: client }).explore({
+      task: 'Explain the JSON-RPC request path to the parent handoff.',
+      repo_root: root,
+      scope: ['src/**'],
+      taskMode: 'path_explanation',
+    });
+
+    assert.equal(client.stageCounts.get('goal_audit'), 2);
+    assert.equal(client.stageCounts.get('exploration') ?? 0, 0);
+    assert.equal(result.parentHandoff.state, 'failed');
+    assert.equal(result.failure?.reason, 'invalid_final_response');
+  },
+);
+
+auditedPlanningRuntimeTest(
+  'Spec 028 T071 — combined fixed flow seeds get one planner correction before audit',
+  async () => {
+    const combined = combinedFlowWrapperGoals();
+    const corrected = flowWrapperGoals();
+    const client = new ScriptedGoalAuditClient([
+      { stage: 'planner:1', value: plannerControl(combined) },
+      {
+        stage: 'planner:2',
+        run(request) {
+          assert.match(JSON.stringify(request.messages), /exactly one fixed wrapper seed/u);
+          return controlCompletion(plannerControl(corrected));
+        },
+      },
+      {
+        stage: 'goal_audit:1',
+        value: auditorControl(corrected.map(goal => auditControlRecord(goal))),
+      },
+      { stage: 'exploration:1', content: 'All four flow obligations remain atomic.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+    ]);
+    const root = await makeRepoFixture();
+    const result = await new RuntimeImplementation({ chatClient: client }).explore({
+      task: 'Explain the JSON-RPC request path to the parent handoff.',
+      repo_root: root,
+      scope: ['src/**'],
+      taskMode: 'path_explanation',
+    });
+
+    assert.equal(result.failure, null, JSON.stringify(result.failure));
+    assert.deepEqual(client.stageLabels.slice(0, 4), [
+      'planner:1',
+      'planner:2',
+      'goal_audit:1',
+      'exploration:1',
+    ]);
+    assert.deepEqual(result.taskContract.subgoals.map(goal => goal.id),
+      corrected.map(goal => goal.id));
+  },
+);
+
+auditedPlanningRuntimeTest(
+  'Spec 028 T071 — repeated combined fixed flow seeds fail before audit or exploration',
+  async () => {
+    const combined = combinedFlowWrapperGoals();
+    const client = new ScriptedGoalAuditClient([
+      { stage: 'planner:1', value: plannerControl(combined) },
+      { stage: 'planner:2', value: plannerControl(combined) },
+    ]);
+    const root = await makeRepoFixture();
+    const result = await new RuntimeImplementation({ chatClient: client }).explore({
+      task: 'Explain the JSON-RPC request path to the parent handoff.',
+      repo_root: root,
+      scope: ['src/**'],
+      taskMode: 'path_explanation',
+    });
+
+    assert.deepEqual(client.stageLabels, ['planner:1', 'planner:2']);
+    assert.equal(client.stageCounts.get('goal_audit') ?? 0, 0);
+    assert.equal(client.stageCounts.get('exploration') ?? 0, 0);
+    assert.equal(result.parentHandoff.state, 'failed');
+    assert.equal(result.failure?.reason, 'invalid_final_response');
+  },
+);
+
+auditedPlanningRuntimeTest(
+  'Spec 028 T071 — duplicate fixed flow seed ownership gets one planner correction',
+  async () => {
+    const corrected = flowWrapperGoals();
+    const handoffs = corrected.find(goal => goal.id === 'S-flow-handoffs');
+    const duplicateOwner = {
+      ...handoffs,
+      id: 'S-flow-handoffs-duplicate',
+      question: 'Cross-check the component handoffs.',
+    };
+    const invalid = [...corrected, duplicateOwner];
+    const client = new ScriptedGoalAuditClient([
+      { stage: 'planner:1', value: plannerControl(invalid) },
+      {
+        stage: 'planner:2',
+        run(request) {
+          assert.match(JSON.stringify(request.messages), /assigned to multiple goals/u);
+          return controlCompletion(plannerControl(corrected));
+        },
+      },
+      {
+        stage: 'goal_audit:1',
+        value: auditorControl(corrected.map(goal => auditControlRecord(goal))),
+      },
+      { stage: 'exploration:1', content: 'Each fixed flow seed has one owner.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+    ]);
+    const root = await makeRepoFixture();
+    const result = await new RuntimeImplementation({ chatClient: client }).explore({
+      task: 'Explain the JSON-RPC request path to the parent handoff.',
+      repo_root: root,
+      scope: ['src/**'],
+      taskMode: 'path_explanation',
+    });
+
+    assert.equal(result.failure, null, JSON.stringify(result.failure));
+    assert.deepEqual(client.stageLabels.slice(0, 4), [
+      'planner:1',
+      'planner:2',
+      'goal_audit:1',
+      'exploration:1',
+    ]);
+  },
+);
+
+auditedPlanningRuntimeTest(
+  'Spec 028 T071 — generated path prefix origins cannot become flow obligations',
+  async () => {
+    const task =
+      'Explain this code path across files with grounded citations: MCP tools/call request flow from JSON-RPC handler to exploreRepository';
+    const goals = flowWrapperGoals();
+    const callerOrigin =
+      `request:${task.indexOf('MCP tools/call')}-${task.length}`;
+    const generatedPrefixOrigin = `request:0-${task.indexOf('MCP tools/call')}`;
+    const terminalIndex = goals.findIndex(goal => goal.id === 'S-flow-terminal_effect');
+    goals[terminalIndex] = {
+      ...goals[terminalIndex],
+      originRefs: [
+        generatedPrefixOrigin,
+        ...goals[terminalIndex].originRefs,
+      ],
+    };
+    goals.push({
+      id: 'S-generated-prefix',
+      question: 'What code path should be explained across files?',
+      originRefs: [generatedPrefixOrigin],
+      claimType: 'positive',
+      proofCondition: 'Repeat the generated path-wrapper instruction.',
+      constraints: [],
+    });
+    const normalizedGoals = goals
+      .filter(goal => goal.id !== 'S-generated-prefix')
+      .map(goal => ({
+        ...goal,
+        originRefs: [
+          callerOrigin,
+          ...goal.originRefs.filter(originRef =>
+            originRef.startsWith('wrapper:explain_code_path:')),
+        ],
+      }));
+    const generatedUncovered = [
+      {
+        question: 'Explain this code path across files.',
+        originRefs: [generatedPrefixOrigin],
+        claimType: 'positive',
+        proofCondition: 'Repeat the generated wrapper prefix.',
+        constraints: [],
+      },
+    ];
+    const client = new ScriptedGoalAuditClient([
+      { stage: 'planner:1', value: plannerControl(goals) },
+      {
+        stage: 'goal_audit:1',
+        run(request) {
+          const packet = parseControlPacket(request);
+          assert.deepEqual(
+            packet.proposals.find(goal => goal.id === 'S-flow-terminal_effect').originRefs,
+            [callerOrigin, 'wrapper:explain_code_path:terminal_effect'],
+          );
+          assert.deepEqual(
+            packet.proposals.find(goal => goal.id === 'S-flow-entry').originRefs,
+            [callerOrigin, 'wrapper:explain_code_path:entry'],
+          );
+          assert.match(
+            packet.proposals.find(goal =>
+              goal.id === 'S-flow-terminal_effect').question,
+            /immediate return, callee, emitted value, or state effect/u,
+          );
+          assert.equal(
+            packet.proposals.some(goal => goal.id === 'S-generated-prefix'),
+            false,
+          );
+          return controlCompletion(auditorControl(
+            normalizedGoals.map(goal => auditControlRecord(goal)),
+            generatedUncovered,
+          ));
+        },
+      },
+      { stage: 'exploration:1', content: 'The bounded path tool step is omitted.' },
+      { stage: 'exploration:2', content: 'Finalize the partial path result.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+    ]);
+    const root = await makeRepoFixture();
+    const result = await new RuntimeImplementation({ chatClient: client }).explore({
+      task,
+      repo_root: root,
+      scope: ['src/**'],
+      taskMode: 'path_explanation',
+    });
+
+    assert.equal(result.failure, null, JSON.stringify({
+      failure: result.failure,
+      stages: client.stageLabels,
+    }));
+    assert.equal(client.stageCounts.get('planner'), 1,
+      'redundant generated wrapper text must not trigger plan revision');
+    assert.equal(client.stageCounts.get('goal_audit'), 1);
+    assert.equal(
+      result.taskContract.subgoals.some(goal => goal.id === 'S-generated-prefix'),
+      false,
+    );
+    assert.deepEqual(
+      result.taskContract.subgoals
+        .find(goal => goal.id === 'S-flow-entry').originRefs,
+      [callerOrigin, 'wrapper:explain_code_path:entry'],
+    );
+    assert.deepEqual(
+      result.taskContract.subgoals
+        .find(goal => goal.id === 'S-flow-terminal_effect').originRefs,
+      [callerOrigin, 'wrapper:explain_code_path:terminal_effect'],
+    );
+  },
+);
+
+auditedPlanningRuntimeTest(
+  'Spec 028 T071 — caller-authored next-read requirements survive wrapper normalization',
+  async () => {
+    const task =
+      'Explain this code path across files with grounded citations: MCP tools/call request flow from JSON-RPC handler to exploreRepository and identify the next files to read';
+    const callerOrigin =
+      `request:${task.indexOf('MCP tools/call')}-${task.length}`;
+    const goals = [
+      ...flowWrapperGoals(),
+      {
+        id: 'S-caller-next-targets',
+        question: 'Which files should the caller read next?',
+        originRefs: [`request:0-${task.length}`],
+        claimType: 'positive',
+        proofCondition: 'Identify the next files requested by the caller.',
+        constraints: [],
+      },
+    ];
+    const normalizedGoals = goals.map(goal => ({
+      ...goal,
+      originRefs: [
+        callerOrigin,
+        ...goal.originRefs.filter(originRef =>
+          originRef.startsWith('wrapper:explain_code_path:')),
+      ],
+    }));
+    const client = new ScriptedGoalAuditClient([
+      { stage: 'planner:1', value: plannerControl(goals) },
+      {
+        stage: 'goal_audit:1',
+        run(request) {
+          const packet = parseControlPacket(request);
+          assert.deepEqual(
+            packet.proposals.find(goal => goal.id === 'S-caller-next-targets').originRefs,
+            [callerOrigin],
+          );
+          return controlCompletion(auditorControl(
+            normalizedGoals.map(goal => auditControlRecord(goal)),
+          ));
+        },
+      },
+      { stage: 'exploration:1', content: 'The bounded path tool step is omitted.' },
+      { stage: 'exploration:2', content: 'Finalize the partial path result.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+    ]);
+    const root = await makeRepoFixture();
+    const result = await new RuntimeImplementation({ chatClient: client }).explore({
+      task,
+      repo_root: root,
+      scope: ['src/**'],
+      taskMode: 'path_explanation',
+    });
+
+    assert.equal(result.failure, null, JSON.stringify(result.failure));
+    assert.deepEqual(
+      result.taskContract.subgoals
+        .find(goal => goal.id === 'S-caller-next-targets').originRefs,
+      [callerOrigin],
+    );
+  },
+);
+
+auditedPlanningRuntimeTest(
+  'Spec 028 T071 — canonical flow audit survives a request-only mechanical merge',
+  async () => {
+    const task =
+      'Explain this code path across files with grounded citations: MCP tools/call request flow from JSON-RPC handler to exploreRepository';
+    const callerOrigin =
+      `request:${task.indexOf('MCP tools/call')}-${task.length}`;
+    const requestEntry = {
+      id: 'S-request-entry',
+      question:
+        'What actual entry function receives or dispatches the caller-named origin of the requested path?',
+      originRefs: [callerOrigin],
+      claimType: 'flow',
+      proofCondition:
+        'Observe exact source at the caller-named path origin; a downstream dispatcher or handler cannot substitute for that entry.',
+      constraints: [],
+    };
+    const client = new ScriptedGoalAuditClient([
+      {
+        stage: 'planner:1',
+        value: plannerControl([requestEntry, ...flowWrapperGoals()]),
+      },
+      {
+        stage: 'goal_audit:1',
+        run(request) {
+          const packet = parseControlPacket(request);
+          const retained = packet.proposals.find(goal => goal.id === requestEntry.id);
+          assert.deepEqual(retained.originRefs, [
+            callerOrigin,
+            'wrapper:explain_code_path:entry',
+          ]);
+          return controlCompletion(auditorControl(packet.proposals.map(goal =>
+            auditControlRecord(
+              goal,
+              goal.id === requestEntry.id ? 'needs_decomposition' : 'ready',
+            ))));
+        },
+      },
+      {
+        stage: 'goal_audit:2',
+        run(request) {
+          assert.match(JSON.stringify(request.messages),
+            /without decomposition, rejection, or merge/u);
+          const packet = parseControlPacket(request);
+          return controlCompletion(auditorControl(
+            packet.proposals.map(goal => auditControlRecord(goal)),
+          ));
+        },
+      },
+      { stage: 'exploration:1', content: 'Canonical flow goals remain independent.' },
+      { stage: 'exploration:2', content: 'Finalize the planning-only path fixture.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+    ]);
+    const root = await makeRepoFixture();
+    const result = await new RuntimeImplementation({ chatClient: client }).explore({
+      task,
+      repo_root: root,
+      scope: ['src/**'],
+      taskMode: 'path_explanation',
+    });
+
+    assert.equal(result.failure, null, JSON.stringify({
+      failure: result.failure,
+      stages: client.stageLabels,
+    }));
+    assert.deepEqual(client.stageLabels.slice(0, 4), [
+      'planner:1',
+      'goal_audit:1',
+      'goal_audit:2',
+      'exploration:1',
+    ]);
+    assert.equal(client.stageCounts.get('planner'), 1);
+  },
+);
+
+auditedPlanningRuntimeTest(
+  'Spec 028 T071 — generated fixed flow goals reject audit decomposition once',
+  async () => {
+    const task =
+      'Explain this code path across files with grounded citations: MCP tools/call request flow from JSON-RPC handler to exploreRepository';
+    const callerOrigin =
+      `request:${task.indexOf('MCP tools/call')}-${task.length}`;
+    const goals = flowWrapperGoals();
+    const auditedGoals = goals.map(goal => ({
+      ...goal,
+      originRefs: [
+        callerOrigin,
+        ...goal.originRefs,
+      ],
+    }));
+    const invalidAudit = auditorControl(auditedGoals.map(goal =>
+      goal.id === 'S-flow-terminal_effect'
+        ? auditControlRecord(goal, 'needs_decomposition')
+        : auditControlRecord(goal)));
+    const client = new ScriptedGoalAuditClient([
+      { stage: 'planner:1', value: plannerControl(goals) },
+      { stage: 'goal_audit:1', value: invalidAudit },
+      {
+        stage: 'goal_audit:2',
+        run(request) {
+          assert.match(JSON.stringify(request.messages),
+            /without decomposition, rejection, or merge/u);
+          return controlCompletion(auditorControl(
+            auditedGoals.map(goal => auditControlRecord(goal)),
+          ));
+        },
+      },
+      { stage: 'exploration:1', content: 'All four canonical flow goals are ready.' },
+      { stage: 'exploration:2', content: 'Finalize the planning-only path fixture.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+    ]);
+    const root = await makeRepoFixture();
+    const result = await new RuntimeImplementation({ chatClient: client }).explore({
+      task,
+      repo_root: root,
+      scope: ['src/**'],
+      taskMode: 'path_explanation',
+    });
+
+    assert.equal(result.failure, null, JSON.stringify({
+      failure: result.failure,
+      stages: client.stageLabels,
+    }));
+    assert.deepEqual(client.stageLabels.slice(0, 4), [
+      'planner:1',
+      'goal_audit:1',
+      'goal_audit:2',
+      'exploration:1',
+    ]);
+    assert.equal(result.taskContract.subgoals.some(goal =>
+      goal.id.startsWith('planning-carry:')), false);
+  },
+);
 
 auditedPlanningRuntimeTest('Spec 028 T068 — invalid control retries receive only bounded validator feedback', async () => {
   const goal = proposedRuntimeGoal();
@@ -10254,7 +10947,6 @@ test('Spec 028 T059 — runtime enforces negative and critical proof boundaries'
     {
       name: 'impact result remains incomplete when requested categories are missing',
       task: 'Plan the impact of changing requireAuth, including callers, tests, configuration, and documentation.',
-      taskMode: 'edit_planning',
       goal: {
         id: 'S-impact-categories',
         question: 'What is the impact of changing requireAuth across callers, tests, configuration, and documentation?',
@@ -10281,8 +10973,8 @@ test('Spec 028 T059 — runtime enforces negative and critical proof boundaries'
           typeof message.content === 'string' &&
           message.content.includes('BEGIN_EVIDENCE_REPAIR_JSON')));
         assert.equal(repairRequests.length, 1);
-        assert.equal(repairRequests[0].parallelToolCalls, false,
-          'map_change_impact repair stays one sequential action');
+        assert.equal(repairRequests[0].parallelToolCalls, true,
+          'generic impact proof repair may use the default bounded batch');
         assertInternalProofGap(result, goal.id);
         assertMinimalIncompleteParentHandoff(result, goal.question);
       },
@@ -10500,6 +11192,156 @@ semanticPipelineRuntimeTest(
     assert.equal(result.parentHandoff.state, 'complete');
     assert.doesNotMatch(result.semanticVerification.claims[0].text, /\bthrough\b/u);
     assert.doesNotMatch(result.parentHandoff.directAnswer, /\bthrough\b/u);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T071 — a 320-line read preserves its tail as a second exact source observation',
+  async () => {
+    const task = 'Trace the entry marker through the terminal marker in the long path module.';
+    const goal = trustGoal(task, {
+      id: 'S-long-read-tail',
+      question: task,
+      originText: task,
+      claimType: 'positive',
+      proofCondition: 'Observe both the entry and terminal markers in the requested source range.',
+    });
+    const claim = candidateClaim(
+      'C-long-read-tail',
+      goal.id,
+      'src/long-path.js contains both entryMarker and terminalEffect in the inspected range.',
+      ['E1', 'E1:source:2'],
+    );
+    const { result } = await runTrustScript(buildTrustSteps({
+      goals: [goal],
+      initial: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/long-path.js', startLine: 1, endLine: 320 },
+          id: 'read-long-path',
+        }],
+        claims: [claim],
+        verdicts: [semanticVerdict(claim.id, 'supported', claim.evidenceRefs)],
+        assertVerifier(request) {
+          const packet = parseControlPacket(request);
+          assert.deepEqual(packet.observations
+            .filter(observation => observation.kind === 'source')
+            .map(observation => ({
+              id: observation.id,
+              startLine: observation.startLine,
+              endLine: observation.endLine,
+              rangeGrounding: observation.rangeGrounding,
+            })), [{
+            id: 'E1',
+            startLine: 1,
+            endLine: 200,
+            rangeGrounding: 'exact',
+          }, {
+            id: 'E1:source:2',
+            startLine: 201,
+            endLine: 320,
+            rangeGrounding: 'exact',
+          }]);
+          assert.match(packet.observations
+            .find(observation => observation.id === 'E1:source:2')?.snippet ?? '',
+          /320: export const terminalEffect/u);
+        },
+      },
+    }), {
+      task,
+      scope: ['src/long-path.js'],
+      async setup(root) {
+        const lines = ['export const entryMarker = true;'];
+        for (let line = 2; line < 320; line += 1) {
+          lines.push(`// path line ${line}`);
+        }
+        lines.push('export const terminalEffect = true;');
+        await fs.writeFile(path.join(root, 'src', 'long-path.js'), lines.join('\n'));
+      },
+    });
+
+    assert.equal(result.failure, null, JSON.stringify(result.failure));
+    assert.equal(result.parentHandoff.state, 'complete');
+    assert.deepEqual(result.semanticVerification.claims[0].evidenceRefs,
+      ['E1', 'E1:source:2']);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T071 — claim ids reused across synthesis batches are normalized without a retry',
+  { skip: !hasGit() },
+  async () => {
+    const task = 'What changed recently around requireAuth, and what does current requireAuth return?';
+    const historicalGoal = trustGoal(task, {
+      id: 'S-recent-auth-change',
+      question: 'What changed recently around requireAuth?',
+      originText: 'What changed recently around requireAuth',
+      proofCondition: 'Observe the requested recent change in repository history.',
+    });
+    const currentGoal = trustGoal(task, {
+      id: 'S-current-auth-result',
+      question: 'What does current requireAuth return?',
+      originText: 'what does current requireAuth return',
+      proofCondition: 'Observe the current requireAuth return value in source.',
+    });
+    const historicalClaim = candidateClaim(
+      '1',
+      historicalGoal.id,
+      'The latest inspected change introduced requireAuth.',
+      ['E1', 'E2'],
+    );
+    const currentClaim = candidateClaim(
+      '1',
+      currentGoal.id,
+      'Current requireAuth returns true.',
+      ['E2'],
+    );
+    const { client, result } = await runTrustScript(buildTrustSteps({
+      goals: [historicalGoal, currentGoal],
+      initial: {
+        tools: [{
+          tool: 'repo_git_log',
+          args: { path: 'src/auth.js', maxCount: 5 },
+          id: 'duplicate-id-history',
+        }, {
+          tool: 'repo_read_file',
+          args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+          id: 'duplicate-id-current-source',
+        }],
+        claims: [historicalClaim, currentClaim],
+        verdicts: [
+          semanticVerdict(historicalClaim.id, 'supported', historicalClaim.evidenceRefs),
+          semanticVerdict(
+            `claim:${currentGoal.id}`,
+            'supported',
+            currentClaim.evidenceRefs,
+          ),
+        ],
+      },
+    }), {
+      task,
+      async setup(root) {
+        const git = args => execFileSync('git', args, { cwd: root, stdio: 'ignore' });
+        git(['init']);
+        git(['config', 'user.email', 'explorer@example.invalid']);
+        git(['config', 'user.name', 'Explorer Test']);
+        git(['add', '.']);
+        git(['commit', '-m', 'introduce requireAuth']);
+      },
+    });
+
+    assert.equal(result.failure, null, JSON.stringify({
+      failure: result.failure,
+      stages: client.stageLabels,
+      gaps: result.coverageGaps,
+      claims: result.semanticVerification?.claims,
+      subgoals: result.taskContract?.subgoals,
+    }));
+    assert.equal(result.parentHandoff.state, 'complete');
+    assert.equal(client.stageCounts.get('claim_synthesis'), 2,
+      'two intentional batches must not become retry calls');
+    assert.deepEqual(result.semanticVerification.claims.map(claim => claim.id),
+      ['1', `claim:${currentGoal.id}`]);
   },
 );
 
@@ -16986,6 +17828,186 @@ test('Spec 028 T032 — repair never re-executes an equivalent initial action', 
   const gap = result.coverageGaps.find(item => item.subgoalId === goal.id);
   assert.equal(gap.repairable, false);
   assert.deepEqual(gap.attemptedActionFingerprints, [fingerprintAction(action)]);
+});
+
+test('Spec 028 T071 — repair suppresses a read covered by adjacent current ranges', async () => {
+  const task = 'Determine whether the inspected requireAuth ranges are sufficient.';
+  const goal = trustGoal(task, {
+    id: 'S-covered-repair',
+    question: task,
+    originText: task,
+  });
+  const claim = candidateClaim(
+    'C-covered-repair',
+    goal.id,
+    'The inspected ranges fully establish requireAuth.',
+    ['E1', 'E2'],
+  );
+  const { client, result } = await runTrustScript(buildTrustSteps({
+    goals: [goal],
+    initial: {
+      tools: [
+        {
+          tool: 'repo_read_file',
+          args: { path: 'src/auth.js', startLine: 1, endLine: 2 },
+          id: 'covered-read-one',
+        },
+        {
+          tool: 'repo_read_file',
+          args: { path: 'src/auth.js', startLine: 3, endLine: 4 },
+          id: 'covered-read-two',
+        },
+      ],
+      claims: [claim],
+      verdicts: [semanticVerdict(claim.id, 'insufficient')],
+    },
+    repair: {
+      tools: [{
+        tool: 'repo_read_file',
+        args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+        id: 'covered-repair-read',
+      }],
+      claims: [{ ...claim }],
+      verdicts: [semanticVerdict(claim.id, 'insufficient')],
+    },
+  }), { task });
+
+  assert.equal(client.stageCounts.get('claim_synthesis'), 1);
+  assert.equal(client.stageCounts.get('semantic_verifier'), 1);
+  assert.equal(result.stats.filesRead, 2);
+  assert.deepEqual(result.observations.map(observation => observation.id), [
+    'E1', 'E1:search', 'E2', 'E2:search',
+  ]);
+  assert.equal(result.parentHandoff.state, 'incomplete');
+  assert.equal(result.coverageGaps.find(item => item.subgoalId === goal.id)?.repairable,
+    false);
+});
+
+test('Spec 028 T071 — repair permits a read with a partially fresh range', async () => {
+  const task = 'Determine whether the remaining requireAuth lines establish the definition.';
+  const goal = trustGoal(task, {
+    id: 'S-partial-repair',
+    question: task,
+    originText: task,
+  });
+  const initialClaim = candidateClaim(
+    'C-partial-repair',
+    goal.id,
+    'The inspected range establishes requireAuth.',
+    ['E1'],
+  );
+  const repairedClaim = {
+    ...initialClaim,
+    evidenceRefs: ['E1', 'E2'],
+  };
+  const { client, result } = await runTrustScript(buildTrustSteps({
+    goals: [goal],
+    initial: {
+      tools: [{
+        tool: 'repo_read_file',
+        args: { path: 'src/auth.js', startLine: 1, endLine: 2 },
+        id: 'partial-initial-read',
+      }],
+      claims: [initialClaim],
+      verdicts: [semanticVerdict(initialClaim.id, 'insufficient')],
+    },
+    repair: {
+      tools: [{
+        tool: 'repo_read_file',
+        args: { path: 'src/auth.js', startLine: 2, endLine: 4 },
+        id: 'partial-repair-read',
+      }],
+      claims: [repairedClaim],
+      verdicts: [semanticVerdict(repairedClaim.id, 'supported', ['E2'])],
+    },
+  }), { task });
+
+  assert.equal(client.stageCounts.get('claim_synthesis'), 2);
+  assert.equal(client.stageCounts.get('semantic_verifier'), 2);
+  assert.equal(result.stats.filesRead, 2);
+  assert.equal(result.parentHandoff.state, 'complete');
+  assert.ok(result.evidence.some(item => item.path === 'src/auth.js' &&
+    item.startLine === 2 && item.endLine === 4));
+});
+
+test('Spec 028 T071 — public map repair remains one sequential action', async () => {
+  const task = 'Assess this intended change before editing: ' +
+    'Add a new top-level field to explore_repo structured output. Identify actionable targets, ' +
+    'dependent callers/consumers, affected verification or public-contract surfaces, and the remaining risk boundary.';
+  const goals = impactWrapperGoals(task);
+  const targetGoal = goals.find(goal => goal.id === 'targets');
+  const claim = candidateClaim(
+    'C-map-repair-target',
+    targetGoal.id,
+    'src/auth.js is one observed implementation target for the intended change.',
+    ['E1'],
+  );
+  const { client, result } = await runTrustScript(buildTrustSteps({
+    goals,
+    initial: {
+      tools: [{
+        tool: 'repo_read_file',
+        args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+        id: 'map-repair-initial-target',
+      }],
+      claims: [claim],
+      verdicts: [semanticVerdict(claim.id, 'supported', claim.evidenceRefs)],
+    },
+    repair: {
+      tools: [{
+        tool: 'repo_read_file',
+        args: { path: 'src/routes/user.js', startLine: 1, endLine: 6 },
+        id: 'map-repair-dependent',
+      }],
+      claims: [{ ...claim }],
+      verdicts: [semanticVerdict(claim.id, 'supported', claim.evidenceRefs)],
+    },
+  }), {
+    task,
+    taskMode: 'edit_planning',
+  });
+
+  const repairRequests = client.requests.filter(request => request.messages.some(message =>
+    typeof message.content === 'string' &&
+    message.content.includes('BEGIN_EVIDENCE_REPAIR_JSON')));
+  assert.equal(repairRequests.length, 1);
+  assert.equal(repairRequests[0].parallelToolCalls, false);
+  assert.equal(result.stats.filesRead, 2);
+  assert.equal(result.parentHandoff.state, 'incomplete');
+});
+
+test('Spec 028 T071 — fixed flow claim and verifier controls use deterministic sampling', async () => {
+  const task = 'Explain the JSON-RPC request path to the parent handoff.';
+  const goals = flowWrapperGoals();
+  const claims = goals.map((goal, index) => candidateClaim(
+    `C-flow-sampling-${index + 1}`,
+    goal.id,
+    `The observed source establishes ${goal.question.toLowerCase()}`,
+    ['E1'],
+  ));
+  const { client, result } = await runTrustScript(buildTrustSteps({
+    goals,
+    initial: {
+      tools: [{
+        tool: 'repo_read_file',
+        args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+        id: 'flow-sampling-read',
+      }],
+      claims,
+      verdicts: claims.map(claim =>
+        semanticVerdict(claim.id, 'supported', claim.evidenceRefs)),
+    },
+  }), {
+    task,
+    taskMode: 'path_explanation',
+  });
+
+  for (const stage of ['claim_synthesis:1', 'semantic_verifier:1']) {
+    const request = client.requests[client.stageLabels.indexOf(stage)];
+    assert.equal(request.temperature, 0, `${stage} must minimize fixed-flow variance`);
+    assert.equal(request.topP, 1, `${stage} must use deterministic top-p`);
+  }
+  assert.equal(result.failure, null);
 });
 
 test('Spec 028 T069 — runtime carries an omitted post-repair prior claim without stale success', async () => {

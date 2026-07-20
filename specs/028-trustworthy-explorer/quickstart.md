@@ -71,7 +71,7 @@ rg -n -e '\breview_change_context\b' -e '\bfreeExploreRepository\b' -e '\bfreeEx
 rg -n -e 'getBudgetConfig' -e '\bbudgetConfig\b' -e 'stoppedByBudget' -e 'budget_exhausted' -e 'TOOL_RESULT_CHAR_BUDGETS' -e 'budgetExhaustionRate' -e 'stats\.budget' -e 'CEREBRAS_EXPLORER_(TURN_MULTIPLIER|MAX_EXTRA_TURNS|MAX_COMPACTIONS)' src tests scripts benchmarks integrations README.md DESIGN.md TESTING.md package.json examples
 rg -ni '\bbudget[A-Za-z0-9_]*\b' src scripts benchmarks package.json
 rg -n -e 'hints\.strategy' -e 'CEREBRAS_EXPLORER_(TURN_MULTIPLIER|MAX_EXTRA_TURNS|MAX_COMPACTIONS)' integrations README.md DESIGN.md AGENTS.md TESTING.md examples
-node --input-type=module -e "import { getRuntimeConfig } from './src/explorer/config.mjs'; const expected={maxTurns:30,maxSearchResults:80,maxReadLines:320,maxDirectoryEntries:300,maxWalkFiles:6000,maxCompletionTokens:16384,finalizeMaxCompletionTokens:3000,maxContextTokens:110000}; const actual=getRuntimeConfig(); for (const [key,value] of Object.entries(expected)) if (actual[key] !== value) throw new Error(key + ': expected ' + value + ', got ' + actual[key]); console.log('fixed runtime limits: ok')"
+node --input-type=module -e "import { getRuntimeConfig } from './src/explorer/config.mjs'; const expected={maxTurns:30,maxSearchResults:80,maxReadLines:320,maxDirectoryEntries:300,maxWalkFiles:6000,maxCompletionTokens:16384,finalizeMaxCompletionTokens:16384,maxContextTokens:110000}; const actual=getRuntimeConfig(); for (const [key,value] of Object.entries(expected)) if (actual[key] !== value) throw new Error(key + ': expected ' + value + ', got ' + actual[key]); console.log('fixed runtime limits: ok')"
 npm test
 ```
 
@@ -83,7 +83,7 @@ Expected after migration:
 - Retry vocabulary and provenance list only the six current names.
 - Public `explore_repo` input rejects `hints.strategy`; normal calls require no effort-policy choice.
 - Active runtime/config/prompt/stats/benchmark/operator-config code has no budget label, object, completion/failure branch, effort envvar, or newly invented `budget*` identifier. The general scan returns no active matches; migration/history text and narrow negative assertions are explicitly allowlisted outside these active paths.
-- `getRuntimeConfig()` reports exactly `maxTurns=30`, `maxSearchResults=80`, `maxReadLines=320`, `maxDirectoryEntries=300`, `maxWalkFiles=6000`, `maxCompletionTokens=16384`, `finalizeMaxCompletionTokens=3000`, and `maxContextTokens=110000`; callers/operators cannot select or multiply them.
+- `getRuntimeConfig()` reports exactly `maxTurns=30`, `maxSearchResults=80`, `maxReadLines=320`, `maxDirectoryEntries=300`, `maxWalkFiles=6000`, `maxCompletionTokens=16384`, `finalizeMaxCompletionTokens=16384`, and `maxContextTokens=110000`; callers/operators cannot select or multiply them.
 - Internal limit observations use only `turn_limit`, `context_limit`, `generation_output_limit`, `walk_limit`, and `tool_result_limit`, and stay outside the normal v3 payload.
 - README, DESIGN, AGENTS, integration allowlists, and examples agree with schema v3.
 

@@ -2187,6 +2187,34 @@ proofPolicyCoverageTest(
     assert.ok(reduced.requiredSubgoals[0].constraints.includes('Preserve the requested boundary.'));
   });
 
+  goalAuditTest('Spec 028 T071 — distinct fixed wrapper seeds never mechanically merge', () => {
+    const targets = goalProposal({
+      id: 'S-targets',
+      originRefs: ['wrapper:map_change_impact:targets'],
+      claimType: 'impact',
+      question: 'What impact must be checked?',
+      proofCondition: 'Observe the bounded impact surface.',
+    });
+    const dependents = {
+      ...targets,
+      id: 'S-dependents',
+      originRefs: ['wrapper:map_change_impact:dependents'],
+    };
+    const checked = preflight([targets, dependents], {
+      wrapperTool: 'map_change_impact',
+    });
+
+    assert.deepEqual(checked.auditCandidates.map(goal => goal.id), [
+      'S-targets',
+      'S-dependents',
+    ]);
+    assert.deepEqual(checked.mechanicalMergeTargets, {});
+    assert.deepEqual(checked.auditCandidates.map(goal => goal.originRefs), [
+      ['wrapper:map_change_impact:targets'],
+      ['wrapper:map_change_impact:dependents'],
+    ]);
+  });
+
   goalAuditTest('Spec 028 T069 — same-type origin containment gets one fail-closed refinement', () => {
     const broad = goalProposal({
       id: 'S-broad-origin',

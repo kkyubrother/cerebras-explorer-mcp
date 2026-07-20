@@ -386,6 +386,8 @@ auditedPromptBoundaryTest('Spec 028 T018 — planner policy is invariant under u
     /wrapper:find_relevant_code:smallest_set[\s\S]{0,220}bounded useful target set[\s\S]{0,180}only, must, or exhaustive/i);
   assert.match(attacked.system,
     /wrapper:map_change_impact:risk_boundary[\s\S]{0,240}remaining uncertainty[\s\S]{0,180}unaffected/i);
+  assert.match(attacked.system,
+    /wrapper:explain_code_path:terminal_effect[\s\S]{0,240}immediate observable return[\s\S]{0,180}reaches or invokes/i);
   assertRuntimeOwnedProofPolicy(attacked.system, 'planner');
 
   const wholeRepository = assertTwoMessageBoundary(promptModule.buildPlannerMessages(plannerArgs({
@@ -792,6 +794,12 @@ test('Spec 028 T028 — claim synthesis receives bounded observations and cannot
   assert.match(prompt.system,
     /wrapper:map_change_impact:risk_boundary[\s\S]{0,260}observed impact surface[\s\S]{0,180}remaining uncertainty[\s\S]{0,180}unaffected/i);
   assert.match(prompt.system,
+    /wrapper:explain_code_path:entry[\s\S]{0,260}from A to B[\s\S]{0,200}downstream dispatcher or handler is not the requested entry/i);
+  assert.match(prompt.system,
+    /wrapper:explain_code_path:handoffs or transitions[\s\S]{0,240}every observed intermediate function[\s\S]{0,180}direct caller-to-terminal jump/i);
+  assert.match(prompt.system,
+    /wrapper:explain_code_path:terminal_effect[\s\S]{0,260}explicit return[\s\S]{0,220}returns the observed expression or callee/i);
+  assert.match(prompt.system,
     /wrapper:collect_evidence:verdict[\s\S]{0,220}complete zero-match search[\s\S]{0,180}confirming lookup[\s\S]{0,100}not a counterevidence search/i);
   assert.match(prompt.system,
     /directly refutes[\s\S]{0,180}exact direct source\/git counterexample[\s\S]{0,180}without a zero-match search/i);
@@ -946,6 +954,12 @@ test('Spec 028 T028 — semantic verifier sees isolated rebuilt facts and cannot
     /wrapper:map_change_impact:requested_categories[\s\S]{0,320}intended pre-edit change[\s\S]{0,220}conditional premise[\s\S]{0,260}affected review or update surface/i);
   assert.match(prompt.system,
     /wrapper:map_change_impact:requested_categories[\s\S]{0,520}do not require[\s\S]{0,220}field to already exist[\s\S]{0,220}before\/after or control-flow transition/i);
+  assert.match(prompt.system,
+    /wrapper:explain_code_path:entry[\s\S]{0,260}from A to B[\s\S]{0,220}downstream dispatcher or handler is insufficient/i);
+  assert.match(prompt.system,
+    /wrapper:explain_code_path:handoffs or transitions[\s\S]{0,240}missing_transition[\s\S]{0,180}intermediate helper or component/i);
+  assert.match(prompt.system,
+    /wrapper:explain_code_path:terminal_effect[\s\S]{0,300}explicit return[\s\S]{0,220}returns the observed expression or callee/i);
   assert.match(prompt.system,
     /all\/every\/exhaustive impact claim[\s\S]{0,220}omission of any one is missing_category/i);
   assert.match(prompt.system,

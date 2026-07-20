@@ -200,7 +200,7 @@ tool_result_limit
 
 Runtime 한계값은 `maxTurns=30`, `maxSearchResults=80`, `maxReadLines=320`,
 `maxDirectoryEntries=300`, `maxWalkFiles=6000`, `maxCompletionTokens=16384`,
-`finalizeMaxCompletionTokens=3000`, `maxContextTokens=110000`으로 고정됩니다.
+`finalizeMaxCompletionTokens=16384`, `maxContextTokens=110000`으로 고정됩니다.
 
 Test는 한계 도달만으로 성공이나 실패가 되지 않는지 확인해야 합니다. 실제로 evidence 수집이 끊긴 required goal만 `safety_limit_reached` gap이 되고, 영향을 받지 않은 goal은 기존 verdict를 유지합니다. Invalid planner/auditor/verifier/final control response가 bounded recovery 뒤에도 남으면 coverage gap이 아니라 해당 fault로 처리합니다. 단, schema-valid verifier가 다른 claim의 opaque evidence id를 반복 인용한 경우와 알려진 sub-goal의 구조적으로 유효한 empty-evidence claim에는 claim-local 격리를 적용합니다. Unknown/duplicate/missing claim, invalid non-empty evidence ref, malformed control은 계속 `verifier_error`여야 합니다. Final corrected planner가 빠뜨릴 수 있는 것은 이번 분해/정제 대상의 fixed wrapper origin뿐이며, 이 경우에도 completion이 아니라 `planning_incomplete` gap이어야 합니다.
 

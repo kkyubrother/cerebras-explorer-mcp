@@ -50,7 +50,7 @@ test('Spec 028 T008 — structured runtime limits are fixed, unlabeled, and not 
     maxDirectoryEntries: 300,
     maxWalkFiles: 6000,
     maxCompletionTokens: 16_384,
-    finalizeMaxCompletionTokens: 3000,
+    finalizeMaxCompletionTokens: 16_384,
     maxContextTokens: 110_000,
     temperature: 1.0,
     topP: 0.95,

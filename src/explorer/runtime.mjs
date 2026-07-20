@@ -2465,6 +2465,9 @@ async function requestValidatedGoalControl({
         ? 'For every supplied sub-goal except generic support_or_refute, return zero or one aggregate claim only. ' +
           'A wrapper:collect_evidence:verdict sub-goal is not generic: return zero or one aggregate verdict claim for its full requested premise and never split mechanisms or facets into sibling claims. ' +
           'On a post-repair pass, preserve every prior claim id, subgoalId, text, measurement, and prior evidence reference exactly while adding only fresh supplied evidence refs.'
+        : stage === 'planner' || stage === 'plan_revision'
+          ? 'For explain_code_path and map_change_impact, keep exactly one fixed wrapper seed on each goal. ' +
+            'Do not combine entry with handoffs or transitions, and do not combine impact targets, dependents, requested categories, or risk boundary.'
         : stage === 'semantic_verifier'
           ? 'Return exactly one verdict for each supplied claim. Every supportingEvidenceRef must come from that same claim evidenceRefs. ' +
             'Every supported verdict must include exactly one resolution: affirmed or refuted. Insufficient and contradicted verdicts must omit resolution. ' +
@@ -2559,6 +2562,42 @@ function runtimeObservationIds(observations) {
   return ids;
 }
 
+function normalizeCrossBatchClaimIds(value, usedClaimIds, priorClaimById) {
+  if (!value || typeof value !== 'object' || Array.isArray(value) ||
+      !Array.isArray(value.claims)) {
+    return value;
+  }
+  const idCounts = new Map();
+  for (const candidate of value.claims) {
+    if (typeof candidate?.id !== 'string' || !candidate.id) continue;
+    idCounts.set(candidate.id, (idCounts.get(candidate.id) ?? 0) + 1);
+  }
+  const reservedIds = new Set([
+    ...usedClaimIds,
+    ...priorClaimById.keys(),
+    ...idCounts.keys(),
+  ]);
+  let normalized = false;
+  const claims = value.claims.map(candidate => {
+    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate) ||
+        typeof candidate.id !== 'string' || idCounts.get(candidate.id) !== 1 ||
+        !usedClaimIds.has(candidate.id) || priorClaimById.has(candidate.id)) {
+      return candidate;
+    }
+    const base = `claim:${candidate.subgoalId}`;
+    let id = base;
+    let suffix = 2;
+    while (reservedIds.has(id)) {
+      id = `${base}:${suffix}`;
+      suffix += 1;
+    }
+    reservedIds.add(id);
+    normalized = true;
+    return { ...candidate, id };
+  });
+  return normalized ? { ...value, claims } : value;
+}
+
 function validateSynthesizedClaimBatch(raw, {
   taskContract,
   observationIds,
@@ -2579,7 +2618,7 @@ function validateSynthesizedClaimBatch(raw, {
     observation.id,
     observation,
   ]));
-  const normalizedRaw = raw && typeof raw === 'object' && !Array.isArray(raw)
+  const normalizedFields = raw && typeof raw === 'object' && !Array.isArray(raw)
     ? {
         ...raw,
         ...(Array.isArray(raw.claims) ? {
@@ -2595,6 +2634,11 @@ function validateSynthesizedClaimBatch(raw, {
         } : {}),
       }
     : raw;
+  const normalizedRaw = normalizeCrossBatchClaimIds(
+    normalizedFields,
+    usedClaimIds,
+    priorClaimById,
+  );
   let response;
   if (quarantineEmptyEvidenceClaims && Array.isArray(normalizedRaw?.claims)) {
     const probeEvidenceRef = '__runtime_empty_evidence_probe__';
@@ -4591,7 +4635,14 @@ async function runEvidenceRepairToolBatch({
     }
     const action = { type: 'tool', tool: toolName, arguments: toolArgs };
     const actionFingerprint = fingerprintAction(action);
-    if (seenFingerprints.has(actionFingerprint) || eligible.length >= repairBatchLimit) {
+    const alreadyObserved = toolName === 'repo_read_file' &&
+      currentSourceRangesCover(observations, {
+        path: normalizedReadPath,
+        startLine: toolArgs.startLine,
+        endLine: toolArgs.endLine,
+      });
+    const duplicateAction = seenFingerprints.has(actionFingerprint) || alreadyObserved;
+    if (duplicateAction || eligible.length >= repairBatchLimit) {
       plans.push({
         toolCall,
         toolName,
@@ -4599,11 +4650,11 @@ async function runEvidenceRepairToolBatch({
         toolResult: {
           error: true,
           stage: 'repair',
-          type: seenFingerprints.has(actionFingerprint)
+          type: duplicateAction
             ? 'duplicate_action_suppressed'
             : 'repair_batch_limit',
-          message: seenFingerprints.has(actionFingerprint)
-            ? 'Equivalent repair action already selected.'
+          message: duplicateAction
+            ? 'Equivalent repair action was already observed or selected.'
             : 'The fixed repair action batch is full.',
           tool: toolName,
         },
@@ -4649,6 +4700,35 @@ async function runEvidenceRepairToolBatch({
     executions: executed,
     attemptedActions: executed.map(item => item.action),
   };
+}
+
+function currentSourceRangesCover(observations, { path, startLine, endLine }) {
+  if (!path || !Number.isSafeInteger(startLine) || !Number.isSafeInteger(endLine) ||
+      startLine < 1 || endLine < startLine) {
+    return false;
+  }
+  const ranges = observations
+    .filter(observation =>
+      observation?.kind === 'source' &&
+      observation.temporalRole === 'current' &&
+      observation.rangeGrounding === 'exact' &&
+      normalizeTargetPath(observation.path) === path &&
+      Number.isSafeInteger(observation.startLine) &&
+      Number.isSafeInteger(observation.endLine))
+    .map(observation => ({
+      startLine: observation.startLine,
+      endLine: observation.endLine,
+    }))
+    .sort((left, right) =>
+      left.startLine - right.startLine || left.endLine - right.endLine);
+  let nextLine = startLine;
+  for (const range of ranges) {
+    if (range.endLine < nextLine) continue;
+    if (range.startLine > nextLine) return false;
+    nextLine = range.endLine + 1;
+    if (nextLine > endLine) return true;
+  }
+  return false;
 }
 
 function sameStringSet(left, right) {
@@ -4991,9 +5071,15 @@ function restoreCanonicalPlannerOrigins({ task, wrapperTool, goals }) {
 }
 
 function requireCanonicalPlannerPolicy({ task, wrapperTool, goals }) {
+  requireIndependentFixedWrapperSeedGoals({ wrapperTool, goals });
   const pipelineGoalIds = requireCanonicalPipelineMapOrigins({ task, wrapperTool, goals });
   const accessGoalIds = requireCanonicalAccessPolicyOrigins({ task, wrapperTool, goals });
   const invocationGoalIds = requireCanonicalInvocationClassificationOrigins({
+    task,
+    wrapperTool,
+    goals,
+  });
+  const generatedFlowGoalIds = canonicalGeneratedPathGoalIds({
     task,
     wrapperTool,
     goals,
@@ -5004,9 +5090,31 @@ function requireCanonicalPlannerPolicy({ task, wrapperTool, goals }) {
       ...pipelineGoalIds,
       ...accessGoalIds,
       ...invocationGoalIds,
+      ...generatedFlowGoalIds,
     ])],
     distinctOriginGoalIds: invocationGoalIds,
   };
+}
+
+function requireIndependentFixedWrapperSeedGoals({ wrapperTool, goals }) {
+  if (!['explain_code_path', 'map_change_impact'].includes(wrapperTool)) return;
+  const ownerByOrigin = new Map();
+  for (const goal of goals) {
+    const origins = fixedWrapperOrigins(goal, wrapperTool);
+    if (origins.length > 1) {
+      throw new TypeError(
+        `${wrapperTool} requires exactly one fixed wrapper seed per goal.`,
+      );
+    }
+    if (origins.length === 0) continue;
+    const [origin] = origins;
+    if (ownerByOrigin.has(origin)) {
+      throw new TypeError(
+        `${wrapperTool} fixed wrapper seed ${origin} is assigned to multiple goals.`,
+      );
+    }
+    ownerByOrigin.set(origin, goal.id);
+  }
 }
 
 function requireCanonicalGoalAudit(response, canonicalGoalIds = []) {
@@ -5069,12 +5177,30 @@ function normalizeAuditorCorrectionIds(goals, {
   return { goals: normalizedGoals, correctionGoalIds };
 }
 
-function validateGoalAuditConsistency(response, proposal) {
+function fixedWrapperOrigins(goal, wrapperTool) {
+  const prefix = `wrapper:${wrapperTool}:`;
+  return (goal?.originRefs ?? []).filter(originRef => originRef.startsWith(prefix));
+}
+
+function validateGoalAuditConsistency(response, proposal, wrapperTool) {
   const recordById = new Map(response.goals.map(record => [record.proposedGoalId, record]));
   if (response.uncoveredRequestParts.some(part => proposal.subgoals.some(goal =>
     recordById.get(goal.id)?.verdict === 'reject_untraceable' &&
     samePlannerGoalContent(goal, part)))) {
     throw new TypeError('Goal audit conflict: a rejected proposal was also reported as uncovered.');
+  }
+  const proposalById = new Map(proposal.subgoals.map(goal => [goal.id, goal]));
+  for (const record of response.goals) {
+    if (record.verdict !== 'merge_duplicate') continue;
+    const sourceOrigins = fixedWrapperOrigins(
+      proposalById.get(record.proposedGoalId),
+      wrapperTool,
+    );
+    const targetOrigins = fixedWrapperOrigins(proposalById.get(record.mergeInto), wrapperTool);
+    if (sourceOrigins.length > 0 && targetOrigins.length > 0 &&
+        !sameStringSet(sourceOrigins, targetOrigins)) {
+      throw new TypeError('Goal audit cannot merge distinct fixed wrapper seeds.');
+    }
   }
   return response;
 }
@@ -6433,6 +6559,116 @@ const MAP_CHANGE_WRAPPER_TASK_PREFIX =
 const FIND_RELEVANT_WRAPPER_TASK_PREFIX =
   'Find the code most relevant to this task and return the smallest useful read/edit targets:';
 const TRACE_SYMBOL_WRAPPER_TASK_PREFIX = 'Explain the symbol "';
+const EXPLAIN_CODE_PATH_WRAPPER_TASK_PREFIX =
+  'Explain this code path across files with grounded citations:';
+const EXPLAIN_CODE_PATH_GOAL_CONTRACTS = Object.freeze({
+  entry: Object.freeze({
+    question: 'What actual entry function receives or dispatches the caller-named origin of the requested path?',
+    proofCondition: 'Observe exact source at the caller-named path origin; a downstream dispatcher or handler cannot substitute for that entry.',
+  }),
+  handoffs: Object.freeze({
+    question: 'What adjacent function or component handoffs are observed along the requested path?',
+    proofCondition: 'Observe every adjacent handoff established by the bounded path sources without collapsing an intermediate helper.',
+  }),
+  terminal_effect: Object.freeze({
+    question: 'What immediate return, callee, emitted value, or state effect occurs inside the caller-named terminal endpoint?',
+    proofCondition: 'Observe the immediate effect inside the terminal endpoint; an explicit return must name its returned expression or callee.',
+  }),
+  transitions: Object.freeze({
+    question: 'How do control and values cross every observed adjacent transition in the requested path?',
+    proofCondition: 'Observe the ordered control or data transition across every bounded adjacent handoff from origin to endpoint.',
+  }),
+});
+
+function isGeneratedPathWrapperTask(task, wrapperTool) {
+  const prefix = `${EXPLAIN_CODE_PATH_WRAPPER_TASK_PREFIX} `;
+  return wrapperTool === 'explain_code_path' &&
+    String(task).startsWith(prefix) &&
+    String(task).length > prefix.length;
+}
+
+function normalizeGeneratedPathWrapperOrigins({ task, wrapperTool, goals }) {
+  const prefix = `${EXPLAIN_CODE_PATH_WRAPPER_TASK_PREFIX} `;
+  if (!isGeneratedPathWrapperTask(task, wrapperTool)) {
+    return goals;
+  }
+  const callerStart = prefix.length;
+  const callerEnd = task.length;
+  return goals.flatMap(goal => {
+    const fixedFlowGoal = goal.originRefs.some(originRef =>
+      originRef.startsWith('wrapper:explain_code_path:'));
+    if (fixedFlowGoal) {
+      const originRefs = [
+        `request:${callerStart}-${callerEnd}`,
+        ...goal.originRefs.filter(originRef => !requestOriginRange(originRef)),
+      ];
+      return [{
+        ...goal,
+        originRefs: [...new Set(originRefs)],
+      }];
+    }
+    let changed = false;
+    const originRefs = [];
+    for (const originRef of goal.originRefs) {
+      const range = requestOriginRange(originRef);
+      if (!range) {
+        originRefs.push(originRef);
+        continue;
+      }
+      const start = Math.max(range.start, callerStart);
+      const end = Math.min(range.end, callerEnd);
+      if (start !== range.start || end !== range.end) changed = true;
+      if (end > start) originRefs.push(`request:${start}-${end}`);
+    }
+    const normalizedOrigins = [...new Set(originRefs)];
+    if (normalizedOrigins.length === 0) return [];
+    return [changed || normalizedOrigins.length !== goal.originRefs.length
+      ? { ...goal, originRefs: normalizedOrigins }
+      : goal];
+  });
+}
+
+function normalizeGeneratedPathGoalContracts({ task, wrapperTool, goals }) {
+  if (!isGeneratedPathWrapperTask(task, wrapperTool)) return goals;
+  return goals.map(goal => {
+    const [origin] = fixedWrapperOrigins(goal, wrapperTool);
+    const seed = origin?.slice('wrapper:explain_code_path:'.length);
+    const contract = EXPLAIN_CODE_PATH_GOAL_CONTRACTS[seed];
+    return contract
+      ? {
+          ...goal,
+          question: contract.question,
+          claimType: 'flow',
+          proofCondition: contract.proofCondition,
+        }
+      : goal;
+  });
+}
+
+function canonicalGeneratedPathGoalIds({ task, wrapperTool, goals }) {
+  if (!isGeneratedPathWrapperTask(task, wrapperTool)) return [];
+  return goals
+    .filter(goal => fixedWrapperOrigins(goal, wrapperTool).length === 1)
+    .map(goal => goal.id);
+}
+
+function normalizeGeneratedPathAuditResponse({ task, wrapperTool, response }) {
+  const uncoveredRequestParts = normalizeGeneratedPathWrapperOrigins({
+    task,
+    wrapperTool,
+    goals: response.uncoveredRequestParts,
+  });
+  if (uncoveredRequestParts === response.uncoveredRequestParts) return response;
+  const retainedQuestions = new Set(uncoveredRequestParts.map(part => part.question));
+  return {
+    goals: response.goals.map(record => ({
+      ...record,
+      missingRequestParts: record.missingRequestParts.filter(question =>
+        retainedQuestions.has(question)),
+    })),
+    uncoveredRequestParts,
+  };
+}
 
 function impactAnchorLines(searchObservations) {
   const lineByPath = new Map();
@@ -6457,6 +6693,335 @@ function taskPathScore(task, candidatePath) {
     .split(/[^a-z0-9]+/u)
     .filter(token => token.length >= 3 && taskText.includes(token)))]
     .reduce((score, token) => score + token.length, 0);
+}
+
+const PATH_ANCHOR_STOP_WORDS = new Set([
+  'across', 'citations', 'code', 'entry', 'files', 'flow', 'grounded', 'handoff',
+  'include', 'next', 'path', 'points', 'read', 'request', 'targets', 'this', 'with',
+]);
+const PATH_SYMBOL_STOP_WORDS = new Set([
+  'Array', 'Boolean', 'Error', 'JSON', 'Map', 'Number', 'Object', 'Promise', 'Set',
+  'String', 'catch', 'constructor', 'else', 'false', 'finally', 'for', 'function',
+  'if', 'null', 'return', 'switch', 'true', 'undefined', 'while',
+]);
+
+function splitIdentifierWords(value) {
+  return String(value)
+    .replace(/([a-z0-9])([A-Z])/gu, '$1 $2')
+    .split(/[^A-Za-z0-9]+/u)
+    .map(word => word.toLowerCase().replace(/s$/u, ''))
+    .filter(word => word.length >= 3);
+}
+
+function pathTaskAnchorTokens(task, knownSymbols = []) {
+  const text = String(task ?? '');
+  const known = [...new Set((Array.isArray(knownSymbols) ? knownSymbols : [])
+    .filter(symbol => typeof symbol === 'string' && symbol.trim())
+    .map(symbol => symbol.trim()))];
+  const candidates = new Map(known.map(symbol => [symbol, 1_000]));
+  const addCandidate = (token, score) => {
+    if (!token || PATH_ANCHOR_STOP_WORDS.has(token.toLowerCase()) ||
+        /\.(?:c|cc|cpp|cs|go|java|jsx?|mjs|py|rb|rs|tsx?)$/iu.test(token)) {
+      return;
+    }
+    candidates.set(token, Math.max(score, candidates.get(token) ?? 0));
+  };
+  for (const match of text.matchAll(
+    /\b[A-Za-z_$][A-Za-z0-9_$]*(?:[./-][A-Za-z0-9_$]+)+\b/gu,
+  )) {
+    const token = match[0];
+    addCandidate(token, token.includes('/') ? 700 : /^[A-Z0-9]+-[A-Z0-9]+$/u.test(token)
+      ? 650
+      : 400);
+  }
+  for (const match of text.matchAll(/\b[A-Za-z_$][A-Za-z0-9_$]{3,}\b/gu)) {
+    const token = match[0];
+    if (/[a-z][A-Za-z0-9_$]*[A-Z]/u.test(token) || /[_$]/u.test(token)) {
+      addCandidate(token, 800);
+    }
+  }
+  return [...candidates.entries()]
+    .sort(([left, leftScore], [right, rightScore]) =>
+      rightScore - leftScore || right.length - left.length || left.localeCompare(right))
+    .slice(0, 3)
+    .map(([token]) => token);
+}
+
+function pathSearchPattern(tokens) {
+  const escaped = [...new Set(tokens.map(escapeRegexLiteral).filter(Boolean))];
+  if (escaped.length === 0) return '';
+  return escaped.length === 1 ? escaped[0] : `(?:${escaped.join('|')})`;
+}
+
+function boundedPathReadRange(startLine, endLine) {
+  const span = endLine - startLine + 1;
+  const availableContext = Math.max(0, 200 - span);
+  const before = Math.min(40, Math.floor(availableContext / 2));
+  const after = Math.min(40, availableContext - before);
+  return {
+    startLine: Math.max(1, startLine - before),
+    endLine: endLine + after,
+  };
+}
+
+function pathReadCandidates({
+  search,
+  discoveredPaths,
+  observations,
+  task,
+  knownFiles,
+}) {
+  const knownOrder = new Map((Array.isArray(knownFiles) ? knownFiles : [])
+    .map(normalizeTargetPath)
+    .filter(Boolean)
+    .map((candidatePath, index) => [candidatePath, index]));
+  const anchors = new Map();
+  for (const anchor of search?.normalizedItemAnchors ?? []) {
+    const anchorPath = normalizeTargetPath(anchor?.path);
+    if (!anchorPath || !Number.isSafeInteger(anchor.line) || anchor.line < 1) continue;
+    const current = anchors.get(anchorPath);
+    if (!current) anchors.set(anchorPath, { path: anchorPath, lines: [anchor.line] });
+    else current.lines.push(anchor.line);
+  }
+  for (const [anchorPath, anchor] of anchors) {
+    const lines = [...new Set(anchor.lines)].sort((left, right) => left - right);
+    let selected = [];
+    let windowStart = 0;
+    for (let windowEnd = 0; windowEnd < lines.length; windowEnd += 1) {
+      while (lines[windowEnd] - lines[windowStart] + 1 > 200) {
+        windowStart += 1;
+      }
+      const candidate = lines.slice(windowStart, windowEnd + 1);
+      const candidateSpan = candidate.at(-1) - candidate[0];
+      const selectedSpan = selected.length > 0 ? selected.at(-1) - selected[0] : -1;
+      if (candidate.length > selected.length ||
+          (candidate.length === selected.length && candidateSpan > selectedSpan) ||
+          (candidate.length === selected.length && candidateSpan === selectedSpan &&
+            candidate.at(-1) > selected.at(-1))) {
+        selected = candidate;
+      }
+    }
+    const readRange = boundedPathReadRange(selected[0], selected.at(-1));
+    anchors.set(anchorPath, {
+      path: anchorPath,
+      anchorStartLine: selected[0],
+      anchorEndLine: selected.at(-1),
+      ...readRange,
+      count: selected.length,
+    });
+  }
+  const candidatePaths = anchors.size > 0
+    ? [...anchors.keys()]
+    : [...new Set([
+        ...knownOrder.keys(),
+        ...(discoveredPaths ?? []).map(candidate => normalizeTargetPath(candidate?.path)),
+      ].filter(Boolean))];
+  const sourceObservations = (observations ?? []).filter(observation =>
+    observation?.kind === 'source' && observation.temporalRole === 'current' &&
+    observation.rangeGrounding === 'exact');
+  return candidatePaths
+    .map(candidatePath => anchors.get(candidatePath) ?? {
+      path: candidatePath,
+      count: 0,
+    })
+    .filter(candidate => classifySourceRole(candidate.path) === 'implementation' &&
+      !sourceObservations.some(observation =>
+        normalizeTargetPath(observation.path) === candidate.path &&
+        (!candidate.anchorStartLine ||
+          (observation.startLine <= candidate.anchorStartLine &&
+            observation.endLine >= candidate.anchorEndLine))))
+    .sort((left, right) =>
+      (knownOrder.get(left.path) ?? 1_000) - (knownOrder.get(right.path) ?? 1_000) ||
+      right.count - left.count ||
+      taskPathScore(task, right.path) - taskPathScore(task, left.path) ||
+      Number(/(?:dispatch|handler|jsonrpc|runtime|server|transport)/iu.test(right.path)) -
+        Number(/(?:dispatch|handler|jsonrpc|runtime|server|transport)/iu.test(left.path)) ||
+      left.path.length - right.path.length || left.path.localeCompare(right.path))
+    .slice(0, 4);
+}
+
+function pathHandoffSymbols({ observations, task, excludedTokens }) {
+  const taskWords = new Set(splitIdentifierWords(task));
+  const excluded = new Set(excludedTokens);
+  const candidates = new Map();
+  for (const observation of observations ?? []) {
+    if (observation?.kind !== 'source' || observation.temporalRole !== 'current' ||
+        observation.rangeGrounding !== 'exact' || typeof observation.snippet !== 'string') {
+      continue;
+    }
+    const declared = new Set([...observation.snippet.matchAll(
+      /\b(?:class|function)\s+([A-Za-z_$][A-Za-z0-9_$]*)|\b(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=/gu,
+    )].map(match => match[1] ?? match[2]).filter(Boolean));
+    const symbols = [
+      ...declared,
+      ...[...observation.snippet.matchAll(/\b([A-Za-z_$][A-Za-z0-9_$]*)\s*\(/gu)]
+        .map(match => match[1]),
+    ];
+    for (const symbol of symbols) {
+      if (symbol.length < 8 || excluded.has(symbol) || PATH_SYMBOL_STOP_WORDS.has(symbol)) {
+        continue;
+      }
+      const words = splitIdentifierWords(symbol);
+      const overlap = words.filter(word => taskWords.has(word)).length;
+      const boundary = /(?:call|dispatch|execute|handle|invoke|process|receive|request|response|route|send|transport)/iu
+        .test(symbol);
+      if (overlap === 0 && !boundary) continue;
+      const score = overlap * 50 + Number(boundary) * 30 +
+        Number(declared.has(symbol)) * 20 + (candidates.get(symbol) ?? 0);
+      candidates.set(symbol, score);
+    }
+  }
+  return [...candidates.entries()]
+    .sort(([left, leftScore], [right, rightScore]) =>
+      rightScore - leftScore || right.length - left.length || left.localeCompare(right))
+    .slice(0, 3)
+    .map(([symbol]) => symbol);
+}
+
+export function buildPathExplanationToolPolicy({
+  observations = [],
+  tools = [],
+  discoveredPaths = [],
+  task = '',
+  effectiveScope = [],
+  knownFiles = [],
+  knownSymbols = [],
+  readRounds = 0,
+}) {
+  const targetScope = canonicalizeRepositoryObservationScope(effectiveScope);
+  const indexed = observations.map((observation, index) => ({ observation, index }));
+  const searches = indexed.filter(({ observation }) =>
+    observation?.kind === 'search' && observation.tool === 'repo_grep');
+  const sources = indexed.filter(({ observation }) => observation?.kind === 'source');
+  const initialTokens = pathTaskAnchorTokens(task, knownSymbols);
+  const initialPattern = pathSearchPattern(initialTokens);
+  const grepPolicy = (pattern, instruction, requiredToolCallKey) => {
+    const fixedArguments = {
+      ...(pattern ? { pattern } : {}),
+      scope: targetScope,
+      maxResults: 60,
+      contextLines: 0,
+    };
+    return {
+      tools: toolsWithFixedArguments(tools, 'repo_grep', fixedArguments),
+      parallelToolCalls: false,
+      requiredToolCallKey,
+      allowedQueryScope: targetScope,
+      ...(pattern ? { allowedPattern: pattern } : {}),
+      fixedToolArguments: { repo_grep: fixedArguments },
+      instruction,
+    };
+  };
+  const readPolicy = (candidates, requiredToolCallKey) => {
+    const fixedReadRanges = Object.fromEntries(candidates.flatMap(candidate =>
+      candidate.startLine && candidate.endLine
+        ? [[candidate.path, {
+            startLine: candidate.startLine,
+            endLine: candidate.endLine,
+          }]]
+        : []));
+    return {
+      tools: boundedReadTools(tools, candidates),
+      parallelToolCalls: true,
+      requiredToolCallKey,
+      allowedReadPaths: candidates.map(candidate => candidate.path),
+      fixedReadRanges,
+      maxReadSpan: 200,
+      instruction:
+        'Path evidence read: issue one narrow repo_read_file per listed path in one batch. ' +
+        'Use each runtime-fixed range so the enclosing function and adjacent caller/callee boundary ' +
+        `remain together within 200 lines: ${candidates.map(candidate =>
+          `${candidate.path}${candidate.startLine
+            ? candidate.startLine === candidate.endLine
+              ? `@line ${candidate.startLine}`
+              : `@lines ${candidate.startLine}-${candidate.endLine}`
+            : ''}`).join(', ')}.`,
+    };
+  };
+  const finalize = reason => ({
+    tools: [],
+    parallelToolCalls: false,
+    instruction: `${reason} Finalize now; preserve any unobserved adjacent transition as a gap.`,
+  });
+
+  if (searches.length === 0 && sources.length === 0) {
+    if (initialPattern) {
+      return grepPolicy(
+        initialPattern,
+        'Path discovery: run exactly one immutable-scope repo_grep for the runtime-selected code, protocol, or route anchors. Do not read a whole file or try a synonym first.',
+        'path_initial_search',
+      );
+    }
+    const directCandidates = [...new Set((Array.isArray(knownFiles) ? knownFiles : [])
+      .map(normalizeTargetPath)
+      .filter(Boolean))]
+      .slice(0, 4)
+      .map(candidatePath => ({ path: candidatePath }));
+    if (directCandidates.length > 0) {
+      if (readRounds > 0) {
+        return finalize('The supplied path anchor was already attempted without readable source.');
+      }
+      return readPolicy(directCandidates, 'path_known_anchor_reads');
+    }
+    return grepPolicy(
+      '',
+      'Path discovery: run exactly one immutable-scope repo_grep for the strongest concrete identifier, route, event, or protocol literal in the requested path. Do not issue a parallel synonym.',
+      'path_initial_search',
+    );
+  }
+
+  const lastSearch = searches.at(-1);
+  if (lastSearch && Number(lastSearch.observation.matchCount) <= 0) {
+    return finalize('The bounded path lookup found no readable handoff candidate.');
+  }
+  if (lastSearch) {
+    const unread = pathReadCandidates({
+      search: lastSearch.observation,
+      discoveredPaths,
+      observations,
+      task,
+      knownFiles,
+    });
+    if (unread.length > 0 && readRounds < 3) {
+      return readPolicy(
+        unread,
+        searches.length === 1 ? 'path_anchor_reads' : 'path_handoff_reads',
+      );
+    }
+  }
+
+  const firstSearchIndex = searches[0]?.index ?? Number.POSITIVE_INFINITY;
+  const firstSourceIndex = sources[0]?.index ?? Number.POSITIVE_INFINITY;
+  const discoverySearchWasFirst = firstSearchIndex < firstSourceIndex;
+  const initialSourcePaths = new Set(sources
+    .filter(({ index }) => index > firstSearchIndex)
+    .map(({ observation }) => normalizeTargetPath(observation.path))
+    .filter(Boolean));
+  if (searches.length === 1 && discoverySearchWasFirst &&
+      initialTokens.length >= 2 && initialSourcePaths.size >= 3) {
+    return finalize(
+      'The initial concrete endpoint search and bounded reads cover a multi-file path boundary.',
+    );
+  }
+  const needsHandoffSearch = sources.length > 0 &&
+    (searches.length === 0 || (searches.length === 1 && discoverySearchWasFirst));
+  if (needsHandoffSearch) {
+    const handoffSymbols = pathHandoffSymbols({
+      observations,
+      task,
+      excludedTokens: initialTokens,
+    });
+    const handoffPattern = pathSearchPattern(handoffSymbols);
+    if (handoffPattern) {
+      return grepPolicy(
+        handoffPattern,
+        'Path handoff cross-check: run exactly one immutable-scope repo_grep for the runtime-selected concrete boundary symbols from the observed source. Do not search a generic path label or add a synonym.',
+        'path_handoff_search',
+      );
+    }
+  }
+
+  return finalize('The bounded path discovery, source reads, and handoff cross-check are complete.');
 }
 
 function locateRequestProfile(task) {
@@ -7183,50 +7748,54 @@ async function buildRuntimeToolObservations({
   repoRoot,
   effectiveScope,
 }) {
-  const sourceObservations = [];
-  if (toolName === 'repo_read_file' && !toolResult?.error) {
-    const rebuilt = await readRuntimeSourceRange(repoRoot, toolResult, {
-      maxLines: 200,
-      maxChars: 24_000,
-    });
-    if (rebuilt) {
-      sourceObservations.push({
-        id,
+  const buildSourceObservations = async (sourceRange, sourcePath) => {
+    const rebuiltObservations = [];
+    let startLine = sourceRange.startLine;
+    for (let chunk = 0; chunk < 2 && startLine <= sourceRange.endLine; chunk += 1) {
+      const rebuilt = await readRuntimeSourceRange(repoRoot, {
+        ...sourceRange,
+        startLine,
+        endLine: Math.min(sourceRange.endLine, startLine + 199),
+      }, {
+        maxLines: 200,
+        maxChars: 24_000,
+      });
+      if (!rebuilt) break;
+      rebuiltObservations.push({
+        id: chunk === 0 ? id : `${id}:source:${chunk + 1}`,
         kind: 'source',
         path: rebuilt.path,
         startLine: rebuilt.startLine,
         endLine: rebuilt.endLine,
         snippet: rebuilt.snippet,
         rangeGrounding: rebuilt.rangeGrounding,
-        sourceRole: classifySourceRole(toolResult.path),
+        sourceRole: classifySourceRole(sourcePath),
         temporalRole: 'current',
         redacted: rebuilt.redacted,
       });
+      if (rebuilt.endLine < startLine) break;
+      startLine = rebuilt.endLine + 1;
     }
+    return rebuiltObservations;
+  };
+
+  const sourceObservations = [];
+  if (toolName === 'repo_read_file' && !toolResult?.error) {
+    sourceObservations.push(...await buildSourceObservations(toolResult, toolResult.path));
   }
   if (toolName === 'repo_symbol_context' && !toolResult?.error &&
       toolResult?.definition?.path && Number.isInteger(toolResult.definition.line)) {
-    const rebuilt = await readRuntimeSourceRange(repoRoot, {
+    const sourceRange = {
       path: toolResult.definition.path,
       startLine: toolResult.definition.line,
       endLine: Number.isInteger(toolResult.definition.endLine)
         ? toolResult.definition.endLine
         : toolResult.definition.line,
-    }, { maxLines: 200, maxChars: 24_000 });
-    if (rebuilt) {
-      sourceObservations.push({
-        id,
-        kind: 'source',
-        path: rebuilt.path,
-        startLine: rebuilt.startLine,
-        endLine: rebuilt.endLine,
-        snippet: rebuilt.snippet,
-        rangeGrounding: rebuilt.rangeGrounding,
-        sourceRole: classifySourceRole(toolResult.definition.path),
-        temporalRole: 'current',
-        redacted: rebuilt.redacted,
-      });
-    }
+    };
+    sourceObservations.push(...await buildSourceObservations(
+      sourceRange,
+      toolResult.definition.path,
+    ));
   }
 
   const gitObservations = buildGitRuntimeObservations({ id, toolName, toolArgs, toolResult });
@@ -7428,13 +7997,18 @@ export class ExplorerRuntime {
       revisionCount,
     });
     const validateAuditControl = raw => {
-      const response = validateGoalAuditorResponse(normalizeGoalAuditorControl(raw), {
+      const validatedResponse = validateGoalAuditorResponse(normalizeGoalAuditorControl(raw), {
         task,
         wrapperTool,
         plannerProposal: proposal,
         externalMergeTargetIds: existingGoalLedger.map(goal => goal.id),
       });
-      validateGoalAuditConsistency(response, proposal);
+      const response = normalizeGeneratedPathAuditResponse({
+        task,
+        wrapperTool,
+        response: validatedResponse,
+      });
+      validateGoalAuditConsistency(response, proposal, wrapperTool);
       requireCanonicalGoalAudit(
         response,
         preflight.canonicalIndependentGoalIds ?? [],
@@ -7677,7 +8251,7 @@ export class ExplorerRuntime {
       validateGoalAuditConsistency({
         goals: auditRecords,
         uncoveredRequestParts,
-      }, reductionProposal);
+      }, reductionProposal, options.wrapperTool);
       const obligations = dedupeUncoveredParts(uncoveredRequestParts).map((goal, index) => ({
         obligationId: `batch-uncovered-${index + 1}`,
         sourceId: `batch-uncovered-${index + 1}`,
@@ -7756,6 +8330,7 @@ export class ExplorerRuntime {
     onTrustEvent,
   }) {
     const safeObservations = Array.isArray(observations) ? observations : [];
+    const deterministicFlowControl = wrapperTool === 'explain_code_path';
     if (phase !== 'initial' && phase !== 'post-repair') {
       throw new TypeError('Semantic verification phase must be initial or post-repair.');
     }
@@ -7835,8 +8410,8 @@ export class ExplorerRuntime {
         schema: CLAIM_SYNTHESIS_SCHEMA,
         stage: 'claim_synthesis',
         reasoningEffort,
-        temperature: focusedKnownTestAnchor ? 0 : temperature,
-        topP: focusedKnownTestAnchor ? 1 : topP,
+        temperature: focusedKnownTestAnchor || deterministicFlowControl ? 0 : temperature,
+        topP: focusedKnownTestAnchor || deterministicFlowControl ? 1 : topP,
         maxCompletionTokens,
         abortSignal,
         onCompletion,
@@ -7979,8 +8554,8 @@ export class ExplorerRuntime {
         schema: SEMANTIC_VERIFIER_RESPONSE_SCHEMA,
         stage: 'semantic_verifier',
         reasoningEffort,
-        temperature,
-        topP,
+        temperature: deterministicFlowControl ? 0 : temperature,
+        topP: deterministicFlowControl ? 1 : topP,
         maxCompletionTokens,
         abortSignal,
         onCompletion,
@@ -8429,11 +9004,21 @@ export class ExplorerRuntime {
           correctionGoals: revisionCorrections,
           reservedGoals: revisionReservedGoals,
         });
+        const normalizedOrigins = normalizeGeneratedPathWrapperOrigins({
+          task,
+          wrapperTool,
+          goals: normalized.goals,
+        });
+        const normalizedGoals = normalizeGeneratedPathGoalContracts({
+          task,
+          wrapperTool,
+          goals: normalizedOrigins,
+        });
         if (recoverablePlannerControl === null) {
           const restoredGoals = restoreCanonicalPlannerOrigins({
             task,
             wrapperTool,
-            goals: normalized.goals,
+            goals: normalizedGoals,
           });
           if (restoredGoals) {
             recoverablePlannerControl = { ...validated, subgoals: restoredGoals };
@@ -8442,7 +9027,7 @@ export class ExplorerRuntime {
         const canonicalPolicy = requireCanonicalPlannerPolicy({
           task,
           wrapperTool,
-          goals: normalized.goals,
+          goals: normalizedGoals,
         });
         const traceExcludedGoals = typeof onPlanningEvent === 'function' ? [] : null;
         const proposal = {
@@ -8465,10 +9050,15 @@ export class ExplorerRuntime {
           proposals: proposal.subgoals,
         });
         const auditableIds = new Set(preflight.auditCandidates.map(goal => goal.id));
-        preflight.distinctOriginGoalIds = canonicalPolicy.distinctOriginGoalIds.filter(id =>
-          auditableIds.has(id));
-        preflight.canonicalIndependentGoalIds = canonicalPolicy.independentGoalIds.filter(id =>
-          auditableIds.has(id));
+        const retainedCanonicalIds = goalIds => [...new Set(goalIds
+          .map(id => preflight.mechanicalMergeTargets[id] ?? id)
+          .filter(id => auditableIds.has(id)))];
+        preflight.distinctOriginGoalIds = retainedCanonicalIds(
+          canonicalPolicy.distinctOriginGoalIds,
+        );
+        preflight.canonicalIndependentGoalIds = retainedCanonicalIds(
+          canonicalPolicy.independentGoalIds,
+        );
         if (preflight.controlFault) {
           throw new TypeError(`Planner control fault: ${preflight.controlFault.code}.`);
         }
@@ -9231,6 +9821,8 @@ export class ExplorerRuntime {
       Array.isArray(args.hints?.symbols) && args.hints.symbols.length === 1
       ? args.hints.symbols[0]
       : null;
+    const pathWrapperMode = args.taskMode === 'path_explanation' &&
+      args.task.startsWith(EXPLAIN_CODE_PATH_WRAPPER_TASK_PREFIX);
     const exactCommitRef = wrapperToolForTaskMode(args.taskMode) === 'explore_repo' &&
       includesDetectedStrategy(detectedStrategy, 'git-guided')
       ? exactCommitRefFromTask(args.task)
@@ -9249,6 +9841,7 @@ export class ExplorerRuntime {
     let impactReadRounds = 0;
     let locateReadRounds = 0;
     let traceReadRounds = 0;
+    let pathReadRounds = 0;
     const retriedRequiredToolPolicies = new Set();
     let outcome = null;
 
@@ -9409,6 +10002,17 @@ export class ExplorerRuntime {
               effectiveScope,
               readRounds: traceReadRounds,
             })
+        : pathWrapperMode
+          ? buildPathExplanationToolPolicy({
+              observations,
+              tools,
+              discoveredPaths,
+              task: args.task,
+              effectiveScope,
+              knownFiles: args.hints?.files,
+              knownSymbols: args.hints?.symbols,
+              readRounds: pathReadRounds,
+            })
         : exactCommitPolicy
           ? exactCommitPolicy
           : {
@@ -9479,6 +10083,10 @@ export class ExplorerRuntime {
       if (traceWrapperSymbol && completion.message.toolCalls.some(call =>
         call.function?.name === 'repo_read_file')) {
         traceReadRounds += 1;
+      }
+      if (pathWrapperMode && completion.message.toolCalls.some(call =>
+        call.function?.name === 'repo_read_file')) {
+        pathReadRounds += 1;
       }
       messages.push(assistantMessage);
       transcript.record('assistant', {
@@ -9594,10 +10202,16 @@ export class ExplorerRuntime {
                 !Array.isArray(fixedArguments)) {
               toolArgs = { ...toolArgs, ...fixedArguments };
             }
-            action = { type: 'tool', tool: toolName, arguments: toolArgs };
             const normalizedReadPath = toolName === 'repo_read_file'
               ? normalizeTargetPath(toolArgs.path)
               : null;
+            const fixedReadRange = normalizedReadPath
+              ? turnToolPolicy.fixedReadRanges?.[normalizedReadPath]
+              : null;
+            if (fixedReadRange) {
+              toolArgs = { ...toolArgs, ...fixedReadRange };
+            }
+            action = { type: 'tool', tool: toolName, arguments: toolArgs };
             let queryPolicyRejected = false;
             if (Array.isArray(turnToolPolicy.allowedQueryScope) &&
                 ['repo_grep', 'repo_symbol_context'].includes(toolName)) {
@@ -9618,12 +10232,26 @@ export class ExplorerRuntime {
                 toolArgs.symbol !== turnToolPolicy.allowedSymbol) {
               queryPolicyRejected = true;
             }
+            const readSpanPolicyRejected = Number.isSafeInteger(turnToolPolicy.maxReadSpan) &&
+              toolName === 'repo_read_file' &&
+              (!Number.isSafeInteger(toolArgs.startLine) ||
+                !Number.isSafeInteger(toolArgs.endLine) ||
+                toolArgs.startLine < 1 || toolArgs.endLine < toolArgs.startLine ||
+                toolArgs.endLine - toolArgs.startLine + 1 > turnToolPolicy.maxReadSpan);
             if (queryPolicyRejected) {
               toolResult = {
                 error: true,
                 stage: 'exploration',
                 type: 'tool_policy_rejected',
                 message: 'The bounded query must use the runtime-selected predicate and immutable scope.',
+                tool: toolName,
+              };
+            } else if (readSpanPolicyRejected) {
+              toolResult = {
+                error: true,
+                stage: 'exploration',
+                type: 'tool_policy_rejected',
+                message: `The bounded path read must name a valid range of at most ${turnToolPolicy.maxReadSpan} lines.`,
                 tool: toolName,
               };
             } else if (allowedReadPaths &&
@@ -10351,7 +10979,7 @@ export class ExplorerRuntime {
     abortSignal = null,
     onCompletion = null,
   }) {
-    const maxCompletionTokens = runtimeConfig?.finalizeMaxCompletionTokens ?? 2000;
+    const maxCompletionTokens = runtimeConfig?.finalizeMaxCompletionTokens ?? 16_384;
     let safetyLimits = [];
     const observeOutputLimit = (completion) => {
       if (completion?.finishReason !== 'length') return;

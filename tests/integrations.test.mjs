@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { getRuntimeConfig } from '../src/explorer/config.mjs';
 import { validateParentHandoffV3 } from '../src/explorer/schemas.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -61,6 +62,24 @@ test('map_change_impact task stays aligned with its four fixed goal seeds', asyn
   assert.doesNotMatch(trustRunner, staleMandatoryCategories);
   assert.doesNotMatch(server, staleSixPartTask);
   assert.doesNotMatch(trustRunner, staleSixPartTask);
+});
+
+test('explain_code_path keeps runtime-owned output obligations out of the caller task', async () => {
+  const server = await read('src/mcp/server.mjs');
+  const trustRunner = await read('scripts/run-trust-suite.mjs');
+  const staleGeneratedSuffix =
+    /Include the entry point, handoff points, and next read targets/u;
+
+  assert.match(
+    server,
+    /const task = `Explain this code path across files with grounded citations: \$\{pathQuery\.trim\(\)\}`;/u,
+  );
+  assert.match(
+    trustRunner,
+    /task: `Explain this code path across files with grounded citations: \$\{query\}`/u,
+  );
+  assert.doesNotMatch(server, staleGeneratedSuffix);
+  assert.doesNotMatch(trustRunner, staleGeneratedSuffix);
 });
 
 function extractFirstTomlStringArray(source, key) {
@@ -586,6 +605,31 @@ test('Spec 028 T056 — quickstart uses executable Node option order and PowerSh
   assert.match(quickstart, /node\s+--test\s+--test-name-pattern(?:=|\s+)[^\r\n]+\s+tests\//);
   assert.match(quickstart, /```powershell[\s\S]*?\brg\s+-n/);
   assert.doesNotMatch(quickstart, /\bfind\s+\.\s+-name\b|\bxargs\b|\bgrep\s+-R\b/);
+});
+
+test('Spec 028 T071 — active fixed-limit documents track the final projection ceiling', async () => {
+  const finalProjectionLimit = getRuntimeConfig().finalizeMaxCompletionTokens;
+  assert.equal(finalProjectionLimit, 16_384);
+  const sources = await Promise.all([
+    read('README.md'),
+    read('DESIGN.md'),
+    read('TESTING.md'),
+    read('specs/028-trustworthy-explorer/quickstart.md'),
+    read('specs/028-trustworthy-explorer/contracts/public-tool-surface.md'),
+  ]);
+  const combined = sources.join('\n');
+
+  assert.doesNotMatch(
+    combined,
+    /finalizeMaxCompletionTokens[^\r\n]{0,80}\b3000\b|final projection tokens[^\r\n]{0,40}\b3000\b/u,
+  );
+  assert.match(sources[0], new RegExp(`final projection tokens\\s*\\|\\s*${finalProjectionLimit}`));
+  for (const source of sources.slice(1)) {
+    assert.match(
+      source,
+      new RegExp(`finalizeMaxCompletionTokens[^\\r\\n]{0,80}\\b${finalProjectionLimit}\\b`),
+    );
+  }
 });
 
 test('DESIGN evidence reliability does not describe explore_v2 as active report mode', async () => {

@@ -923,6 +923,15 @@ function isValidOriginRef(originRef, task, wrapperTool) {
     WRAPPER_GOAL_SEEDS[wrapperTool]?.includes(wrapperMatch[2]));
 }
 
+function canMechanicallyMergeGoalOrigins(left, right, wrapperTool) {
+  const prefix = `wrapper:${wrapperTool}:`;
+  const leftSeeds = left.originRefs.filter(originRef => originRef.startsWith(prefix));
+  const rightSeeds = right.originRefs.filter(originRef => originRef.startsWith(prefix));
+  return leftSeeds.length === 0 || rightSeeds.length === 0 ||
+    (leftSeeds.length === rightSeeds.length &&
+      leftSeeds.every(originRef => rightSeeds.includes(originRef)));
+}
+
 function originRefCovers(outer, inner) {
   if (outer === inner) return true;
   const outerRange = /^request:(\d+)-(\d+)$/.exec(outer);
@@ -1113,7 +1122,7 @@ export function preflightGoalProposals(input) {
   const excludedGoalIds = new Set();
   const ineligibleGoalIds = new Set();
   const mechanicalMergeTargets = Object.create(null);
-  const exactGoalIndex = new Map();
+  const exactGoalIndexes = new Map();
 
   for (let index = 0; index < value.proposals.length; index += 1) {
     const proposal = value.proposals[index];
@@ -1143,7 +1152,9 @@ export function preflightGoalProposals(input) {
 
     const cloned = cloneGoalProposal(proposal);
     const exactKey = JSON.stringify([cloned.question, cloned.claimType, cloned.proofCondition]);
-    const retainedIndex = exactGoalIndex.get(exactKey);
+    const matchingIndexes = exactGoalIndexes.get(exactKey) ?? [];
+    const retainedIndex = matchingIndexes.find(index =>
+      canMechanicallyMergeGoalOrigins(auditCandidates[index], cloned, wrapperTool));
     if (retainedIndex !== undefined) {
       const retained = auditCandidates[retainedIndex];
       retained.originRefs = uniqueStrings([...retained.originRefs, ...cloned.originRefs]);
@@ -1157,7 +1168,7 @@ export function preflightGoalProposals(input) {
       continue;
     }
 
-    exactGoalIndex.set(exactKey, auditCandidates.length);
+    exactGoalIndexes.set(exactKey, [...matchingIndexes, auditCandidates.length]);
     auditCandidates.push(cloned);
     if (hasCircularProofCondition(cloned.proofCondition)) {
       ineligibleGoalIds.add(cloned.id);

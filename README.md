@@ -220,7 +220,7 @@ Provider, context, process, repository traversal을 보호하는 한계는 runti
 | directory entries | 300 |
 | walked files | 6000 |
 | generation output tokens | 16384 |
-| final projection tokens | 3000 |
+| final projection tokens | 16384 |
 | working context tokens | 110000 |
 
 내부 관측 이름은 정확히 `turn_limit`, `context_limit`, `generation_output_limit`, `walk_limit`, `tool_result_limit`입니다. 한계 도달 자체는 완료 근거가 아니며, 실제로 방해받은 goal만 내부적으로 `safety_limit_reached`로 분류됩니다. Parent에는 미해결 질문과 간결한 이유만 전달합니다. 필수 control response가 bounded recovery 뒤에도 유효하지 않으면 해당 provider/verifier/internal fault로 `failed`가 됩니다. 사용량과 한계 세부값은 parent payload가 아니라 운영 기록에 남습니다.
