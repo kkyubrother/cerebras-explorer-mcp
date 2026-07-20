@@ -153,7 +153,8 @@ test('adoption suite: v3 and wrapper scenarios keep objective source anchors', (
   assert.match(serialized('explain-code-path'), /src\/mcp\/jsonrpc-stdio\.mjs/);
   assert.match(serialized('explore-recent-change-context'), /min_git_evidence_count/);
   assert.match(serialized('explore-recent-change-context'), /max_target_count/);
-  assert.match(serialized('explore-recent-change-context'), /src\/mcp\/server\.mjs/);
+  assert.match(serialized('explore-recent-change-context'), /TOOL_DISPATCH_RULE/);
+  assert.doesNotMatch(serialized('explore-recent-change-context'), /"source":"evidence_paths"/);
   assert.match(serialized('structured-output-contract'), /src\/explorer\/parent-payload\.mjs/);
   assert.match(serialized('structured-output-contract'), /buildParentPayload/);
   assert.doesNotMatch(serialized('structured-output-contract'), /formatExploreResult/);

@@ -182,12 +182,6 @@
           "source": "combined_text",
           "groups": [["TOOL_DISPATCH_RULE", "dispatch rule", "server initialization", "initialization instructions"], ["tool count", "model name", "six tools", "six MCP tools", "six-tool dispatch", "shorter summaries", "shorter descriptions"]],
           "weight": 0.5
-        },
-        {
-          "label": "Git evidence identifies an in-scope changed metadata surface",
-          "source": "evidence_paths",
-          "groups": [["src/mcp/server.mjs", "src/explorer/runtime.mjs", "src/explorer/schemas.mjs", "tests/mcp-server.test.mjs", "tests/schemas.test.mjs"]],
-          "weight": 0.2
         }
       ],
       "checks": [
