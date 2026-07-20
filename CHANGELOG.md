@@ -108,6 +108,9 @@ compatibility aliases or selectable effort controls are retained.
   cancellation, and provider failure. The documented fixture payload command
   rebuilds the fixed schema-v2 comparison denominator from independent oracle
   handoffs and fails closed on byte, digest, sample-set, or median-gate drift.
+  Parent observation ignores only the exact Codex CLI skill-description
+  context-budget notice as a non-action diagnostic; unknown item types and
+  unclassified commands still fail closed.
   The adoption impact case includes the
   public contract documents its wrapper is required to assess instead of
   blocking them with an implementation-only scope. Shared-anchor atomic claims

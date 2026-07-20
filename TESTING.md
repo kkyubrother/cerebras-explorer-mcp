@@ -104,6 +104,8 @@ Unknown tool이나 unknown input field는 provider call 전에 거부되어야 �
 
 다음은 실제 Claude Code/Codex 행동을 관찰해야 하는 adoption scenario입니다. 한 번의 관찰 결과는 빠르게 stale해지므로 이 문서에 고정 pass 숫자를 기록하지 않습니다.
 
+Parent-observation JSONL은 실제 completed/failed command event만 repository 행동으로 분류합니다. Codex CLI가 내는 정확히 알려진 skill-description shortening 안내는 비행동 diagnostic으로 건너뛰되, 다른 unknown item/error type과 분류할 수 없는 command는 계속 fail-closed 합니다.
+
 ### 1. 자발적 tool selection
 
 Parent에게 tool 이름 없이 repository 질문을 줍니다.

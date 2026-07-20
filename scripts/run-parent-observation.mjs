@@ -49,6 +49,8 @@ export const TRUST_PARENT_OBSERVATION_CASE_IDS = Object.freeze([
 const ELIGIBLE_STATES = new Set(PARENT_OBSERVATION_POLICY.eligibleStates);
 const SEARCH_OPERATIONS = new Set(['grep', 'glob', 'walk']);
 const PASSIVE_ITEM_TYPES = new Set(['agent_message', 'reasoning']);
+const BENIGN_SKILL_CONTEXT_NOTICE_SHA256 =
+  'ab4a4e7e16182afebbe24848add270e2d0b577e30d12ef830503e1f5d13c4a7f';
 const SAFE_CASE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 const OBSERVATION_KEYS = new Set(['repoId', 'citedTargets', 'allowedFollowUp', 'actions']);
 const TARGET_KEYS = new Set(['path', 'startLine', 'endLine']);
@@ -432,6 +434,12 @@ export function parseCodexParentTrace(rawJsonl, { repoId, handoff, processExitCo
     if (turnCompleted) {
       if (event?.type === 'turn.completed') failures.push('duplicate_turn_completion');
       else failures.push('event_after_turn_completion');
+      continue;
+    }
+    if (event.type === 'item.completed' && item?.type === 'error' &&
+        typeof item.message === 'string' &&
+        createHash('sha256').update(item.message, 'utf8').digest('hex') ===
+          BENIGN_SKILL_CONTEXT_NOTICE_SHA256) {
       continue;
     }
     if (isItemEvent && (typeof item?.type !== 'string' || !item.type ||

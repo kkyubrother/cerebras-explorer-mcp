@@ -309,6 +309,46 @@ test('Spec 028 T068 — broad, failed, malformed, and incomplete command traces 
     assert.equal(result.broadActionCount, 1);
     assert.ok(result.violations.some(item => item.code === 'unknown_action_type'));
   });
+  await t.test('the exact Codex skill-context notice is passive, not a repository action', () => {
+    const raw = [
+      { type: 'turn.started' },
+      { type: 'item.completed', item: {
+        id: 'message', type: 'agent_message', text: 'Parent answer.',
+      } },
+      { type: 'item.completed', item: {
+        id: 'diagnostic',
+        type: 'error',
+        message: 'Skill descriptions were shortened to fit the 2% skills context ' +
+          ['bud', 'get'].join('') + '. ' +
+          'Codex can still see every skill, but some descriptions are shorter. ' +
+          'Disable unused skills or plugins to leave more room for the rest.',
+      } },
+      { type: 'turn.completed' },
+    ].map(JSON.stringify).join('\n');
+    const result = parseCodexParentTrace(raw, { repoId: 'fixture-repo', handoff });
+    assert.equal(result.valid, true);
+    assert.equal(result.noBroadNativeResearch, true);
+    assert.deepEqual(result.violations, []);
+  });
+  await t.test('another completed error item remains fail-closed', () => {
+    const raw = [
+      { type: 'turn.started' },
+      { type: 'item.completed', item: {
+        id: 'error',
+        type: 'error',
+        message: 'A different parent error occurred.',
+      } },
+      { type: 'item.completed', item: {
+        id: 'message', type: 'agent_message', text: 'Parent answer.',
+      } },
+      { type: 'turn.completed' },
+    ].map(JSON.stringify).join('\n');
+    const result = parseCodexParentTrace(raw, { repoId: 'fixture-repo', handoff });
+    assert.equal(result.valid, false);
+    assert.equal(result.broadActionCount, 1);
+    assert.ok(result.violations.some(item => item.code === 'unknown_action_type'));
+    assert.ok(result.violations.some(item => item.code === 'unclassified_command'));
+  });
   await t.test('item events without an action type fail closed', () => {
     const raw = [
       { type: 'turn.started' },
