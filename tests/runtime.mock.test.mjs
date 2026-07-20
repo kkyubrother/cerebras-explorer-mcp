@@ -3645,6 +3645,8 @@ test('Spec 028 T071 — public trace wrapper fixes definition, usage search, and
           pattern: { type: 'string' },
           scope: { type: 'array', items: { type: 'string' } },
           path: { type: 'string' },
+          startLine: { type: 'integer' },
+          endLine: { type: 'integer' },
         },
       },
     },
@@ -3745,6 +3747,8 @@ test('Spec 028 T071 — collect claim checks retry once, then force a bounded so
           pattern: { type: 'string' },
           scope: { type: 'array', items: { type: 'string' } },
           path: { type: 'string' },
+          startLine: { type: 'integer' },
+          endLine: { type: 'integer' },
         },
       },
     },
@@ -3788,6 +3792,8 @@ test('Spec 028 T071 — collect claim checks retry once, then force a bounded so
       { path: 'src/explorer/critic.mjs', line: 28 },
       { path: 'src/explorer/critic.mjs', line: 173 },
       { path: 'src/explorer/critic.mjs', line: 196 },
+      { path: 'src/explorer/critic.mjs', line: 675 },
+      { path: 'src/explorer/critic.mjs', line: 685 },
       { path: 'src/explorer/runtime.mjs', line: 21 },
     ],
   };
@@ -3814,14 +3820,36 @@ test('Spec 028 T071 — collect claim checks retry once, then force a bounded so
   assert.match(read.instruction, /src\/explorer\/critic\.mjs@24-216/u);
 
   const source = {
+    id: 'E-source',
     kind: 'source',
     path: 'src/explorer/critic.mjs',
+    startLine: 24,
+    endLine: 216,
     sourceRole: 'implementation',
     temporalRole: 'current',
     rangeGrounding: 'exact',
   };
-  const directRefutation = buildSourceClaimCheckToolPolicy({
+  const linkageRead = buildSourceClaimCheckToolPolicy({
     observations: [zeroSearch, positiveSearch, source],
+    tools,
+    task,
+    discoveredPaths: [{ path: 'src/explorer/critic.mjs' }],
+    effectiveScope,
+  });
+  assert.deepEqual(linkageRead.tools.map(tool => tool.function.name), ['repo_read_file']);
+  assert.equal(linkageRead.requiredToolCallKey, 'claim_direct_linkage_read');
+  assert.deepEqual(linkageRead.fixedToolArguments.repo_read_file, {
+    path: 'src/explorer/critic.mjs',
+    startLine: 667,
+    endLine: 709,
+  });
+
+  const helperOnlySearch = {
+    ...positiveSearch,
+    normalizedItemAnchors: positiveSearch.normalizedItemAnchors.slice(0, 3),
+  };
+  const directRefutation = buildSourceClaimCheckToolPolicy({
+    observations: [zeroSearch, helperOnlySearch, source],
     tools,
     task,
     discoveredPaths: [],
@@ -3838,7 +3866,7 @@ test('Spec 028 T071 — collect claim checks retry once, then force a bounded so
     '인증 없이 들어온 요청을 거부한다는 주장을 검증해라.',
   ]) {
     const policy = buildSourceClaimCheckToolPolicy({
-      observations: [positiveSearch, source],
+      observations: [helperOnlySearch, source],
       tools,
       task: negatedAffirmation,
       discoveredPaths: [],
@@ -3858,7 +3886,7 @@ test('Spec 028 T071 — collect claim checks retry once, then force a bounded so
   assert.match(secondZero.instruction, /Two bounded direct lookups/u);
 
   const affirmation = buildSourceClaimCheckToolPolicy({
-    observations: [positiveSearch, source],
+    observations: [helperOnlySearch, source],
     tools,
     task: 'Verify this claim: the critic grounds every cited range.',
     discoveredPaths: [],
@@ -3866,6 +3894,38 @@ test('Spec 028 T071 — collect claim checks retry once, then force a bounded so
   });
   assert.deepEqual(affirmation.tools.map(tool => tool.function.name), ['repo_grep']);
   assert.deepEqual(affirmation.allowedQueryScope, effectiveScope);
+
+  const invocationSearch = {
+    kind: 'search',
+    tool: 'repo_grep',
+    matchCount: 2,
+    normalizedArgs: {
+      pattern: 'runDeterministicCriticPass|groundEvidenceList',
+      scope: effectiveScope,
+    },
+    boundary: effectiveScope,
+    normalizedItemAnchors: [
+      { path: 'src/explorer/critic.mjs', line: 675 },
+      { path: 'src/explorer/critic.mjs', line: 685 },
+    ],
+  };
+  const invocationRead = buildSourceClaimCheckToolPolicy({
+    observations: [helperOnlySearch, source, invocationSearch],
+    tools,
+    task,
+    discoveredPaths: [{ path: 'src/explorer/critic.mjs' }],
+    effectiveScope,
+  });
+  assert.deepEqual(invocationRead.tools.map(tool => tool.function.name), ['repo_read_file']);
+  assert.equal(invocationRead.parallelToolCalls, false);
+  assert.deepEqual(invocationRead.allowedReadPaths, ['src/explorer/critic.mjs']);
+  assert.deepEqual(invocationRead.fixedToolArguments.repo_read_file, {
+    path: 'src/explorer/critic.mjs',
+    startLine: 667,
+    endLine: 709,
+  });
+  assert.equal(invocationRead.tools[0].function.parameters.properties.startLine.const, 667);
+  assert.equal(invocationRead.tools[0].function.parameters.properties.endLine.const, 709);
 });
 
 test('Spec 028 T071 — exact commit exploration uses one show and one bounded read batch', () => {
@@ -14111,6 +14171,10 @@ semanticPipelineRuntimeTest(
         stage: 'semantic_verifier:1',
         value: verifierResponse([verdict]),
       },
+      {
+        stage: 'semantic_verifier:2',
+        value: verifierResponse([verdict]),
+      },
     ];
 
     const { client, result } = await runTrustScript(steps, {
@@ -14119,7 +14183,7 @@ semanticPipelineRuntimeTest(
     });
 
     assert.equal(client.stageCounts.get('claim_synthesis'), 2);
-    assert.equal(client.stageCounts.get('semantic_verifier'), 1);
+    assert.equal(client.stageCounts.get('semantic_verifier'), 2);
     assert.equal(result.failure, null, JSON.stringify(result.failure));
     assert.equal(result.parentHandoff.state, 'complete');
     assert.equal(result.parentHandoff.directAnswer, aggregate.text);
@@ -14128,7 +14192,7 @@ semanticPipelineRuntimeTest(
 );
 
 semanticPipelineRuntimeTest(
-  'Spec 028 T071 — a direct source counterexample does not trigger an extra verifier call',
+  'Spec 028 T071 — a direct source counterexample completes after focused verifier agreement',
   async () => {
     const task = 'Verify the premise that the user route does not call requireAuth.';
     const proposedGoal = trustGoal(task, {
@@ -14150,6 +14214,9 @@ semanticPipelineRuntimeTest(
     );
     const verdict = semanticVerdict(claim.id, 'supported', ['E1']);
     verdict.resolution = 'refuted';
+    const focusedVerdict = semanticVerdict(claim.id, 'supported', ['E1']);
+    focusedVerdict.resolution = 'refuted';
+    let focusedPacket = null;
     const { client, result } = await runTrustScript(buildTrustSteps({
       goals: [goal],
       initial: {
@@ -14164,12 +14231,23 @@ semanticPipelineRuntimeTest(
           id: 'read-direct-route-counterexample',
         }],
         claims: [claim],
-        verdicts: [verdict],
+        verifierSteps: [
+          { verdicts: [verdict] },
+          {
+            verdicts: [focusedVerdict],
+            assertRequest(request) {
+              focusedPacket = parseControlPacket(request);
+              assert.match(JSON.stringify(request.messages),
+                /FOCUSED COLLECT DIRECT-REFUTATION CORROBORATION/u);
+            },
+          },
+        ],
       },
     }), { task, taskMode: 'evidence_verification' });
 
     assert.equal(result.failure, null, JSON.stringify(result.failure));
-    assert.equal(client.stageCounts.get('semantic_verifier'), 1);
+    assert.equal(client.stageCounts.get('semantic_verifier'), 2);
+    assert.deepEqual(focusedPacket?.observations.map(observation => observation.id), ['E1']);
     assert.deepEqual(providerToolActions(client).map(action => action.tool), [
       'repo_read_file',
     ]);
@@ -14181,6 +14259,83 @@ semanticPipelineRuntimeTest(
     assert.deepEqual(result.parentHandoff.evidence.map(item => item.kind), ['source']);
     assert.equal(result.parentHandoff.evidence[0].path, 'src/routes/user.js');
     assert.doesNotMatch(JSON.stringify(result.parentHandoff), /corroborat|proofPolicy/u);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T071 — helper-only direct evidence cannot refute a runtime linkage premise',
+  async () => {
+    const task = 'Verify the premise that runDeterministicCriticPass skips evidence grounding and never calls groundEvidenceList.';
+    const proposedGoal = trustGoal(task, {
+      id: 'S-helper-only-refutation',
+      question: task,
+      originText: task,
+      claimType: 'claim_verification',
+      proofCondition: 'Read the critic implementation and support or refute the whole runtime linkage premise.',
+    });
+    const goal = {
+      ...proposedGoal,
+      originRefs: [...proposedGoal.originRefs, 'wrapper:collect_evidence:verdict'],
+    };
+    const claim = candidateClaim(
+      'C-helper-only-refutation',
+      goal.id,
+      'runDeterministicCriticPass grounds evidence through groundEvidenceList.',
+      ['E1'],
+    );
+    const primaryVerdict = semanticVerdict(claim.id, 'supported', ['E1']);
+    primaryVerdict.resolution = 'refuted';
+    const focusedVerdict = {
+      ...semanticVerdict(claim.id, 'insufficient', ['E1']),
+      reasonCode: 'missing_transition',
+      note: 'The helper definition does not establish an invocation from runDeterministicCriticPass.',
+    };
+    let focusedPacket = null;
+    const { client, result } = await runTrustScript(buildTrustSteps({
+      goals: [goal],
+      initial: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/critic.js', startLine: 1, endLine: 5 },
+          id: 'read-helper-only-grounding',
+        }],
+        claims: [claim],
+        verifierSteps: [
+          { verdicts: [primaryVerdict] },
+          {
+            verdicts: [focusedVerdict],
+            assertRequest(request) {
+              focusedPacket = parseControlPacket(request);
+            },
+          },
+        ],
+      },
+      repair: {
+        tools: [],
+        prose: 'No exact invocation source was supplied.',
+        claims: [],
+        verdicts: [],
+      },
+    }), {
+      task,
+      taskMode: 'evidence_verification',
+      async setup(root) {
+        await fs.writeFile(path.join(root, 'src', 'critic.js'), [
+          'export function groundEvidenceList(items) {',
+          '  return items.filter(item => item.observed === true);',
+          '}',
+          '',
+        ].join('\n'));
+      },
+    });
+
+    assert.equal(result.failure, null, JSON.stringify(result.failure));
+    assert.equal(client.stageCounts.get('semantic_verifier'), 2);
+    assert.deepEqual(focusedPacket?.observations.map(observation => observation.id), ['E1']);
+    assert.equal(result.parentHandoff.state, 'incomplete');
+    assert.equal(result.parentHandoff.directAnswer, undefined);
+    assert.equal(result.parentHandoff.evidence, undefined);
+    assertMinimalIncompleteParentHandoff(result, goal.question);
   },
 );
 
@@ -15666,6 +15821,281 @@ semanticPipelineRuntimeTest(
       .find(item => item.id === claims[1].id)?.evidenceRefs, ['E3', 'E2']);
     assert.ok(result.parentHandoff.evidence.some(item =>
       item.kind === 'source' && item.path === 'src/routes/user.js'));
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T071 — trace definition same-evidence repair is deterministic and one-shot',
+  async t => {
+    const task = 'Trace the requireAuth definition, behavior, and every in-scope usage.';
+    const definitionGoal = {
+      id: 'trace-repair-definition',
+      question: 'Where is requireAuth defined and what does it do?',
+      originRefs: ['wrapper:trace_symbol:definition'],
+      claimType: 'symbol_definition',
+      proofCondition: 'Observe the exact requireAuth definition source and visible behavior.',
+      constraints: [],
+    };
+    const usageGoal = {
+      id: 'trace-repair-usage',
+      question: 'Where is requireAuth used?',
+      originRefs: ['wrapper:trace_symbol:usage'],
+      claimType: 'symbol_usage',
+      proofCondition: 'Cross-check every in-scope requireAuth usage and read the caller.',
+      constraints: [],
+    };
+    const definitionClaim = candidateClaim(
+      'trace-repair-definition-claim',
+      definitionGoal.id,
+      'requireAuth is defined in src/auth.js and guarantees authentication for every route.',
+      ['E1'],
+    );
+    const narrowDefinitionClaim = candidateClaim(
+      definitionClaim.id,
+      definitionGoal.id,
+      'requireAuth is defined in src/auth.js and throws when req.user is absent; otherwise it calls next().',
+      ['E1'],
+    );
+    const usageClaim = candidateClaim(
+      'trace-repair-usage-claim',
+      usageGoal.id,
+      'registerUserRoutes uses requireAuth for GET /users/me in src/routes/user.js.',
+      ['E3'],
+    );
+    const initialTools = [{
+      tool: 'repo_symbol_context',
+      args: { symbol: 'requireAuth', scope: ['src/**'] },
+      id: 'E1',
+    }, {
+      tool: 'repo_grep',
+      args: { pattern: 'requireAuth', scope: ['src/**'] },
+      id: 'E2',
+    }, {
+      tool: 'repo_read_file',
+      args: { path: 'src/routes/user.js', startLine: 1, endLine: 7 },
+      id: 'E3',
+    }];
+    const rejectedDefinitionVerdict = {
+      claimId: definitionClaim.id,
+      result: 'insufficient',
+      supportingEvidenceRefs: ['E1'],
+      reasonCode: 'overgeneralized',
+      note: 'The claim extends beyond the observed function body.',
+    };
+    const usageVerdict = semanticVerdict(usageClaim.id, 'supported', ['E2', 'E3']);
+
+    const runCase = async ({ initialDefinitionClaim, initialDefinitionVerdict, retryVerdict }) => {
+      const steps = buildTrustSteps({
+        goals: [definitionGoal, usageGoal],
+        initial: {
+          tools: initialTools,
+          claims: [initialDefinitionClaim, usageClaim],
+          verdicts: [initialDefinitionVerdict, usageVerdict],
+        },
+      });
+      if (retryVerdict) {
+        steps.push({
+          stage: 'claim_synthesis:2',
+          run(request) {
+            const packet = parseControlPacket(request);
+            assert.deepEqual(
+              packet.control.requiredSubgoals.map(goal => goal.id),
+              [definitionGoal.id],
+            );
+            assert.deepEqual(packet.observations.map(observation => observation.id), ['E1']);
+            assert.equal(request.tools, undefined);
+            assert.match(JSON.stringify(request.messages),
+              /single runtime-selected same-evidence narrowing pass/u);
+            assert.match(JSON.stringify(request.messages), /guarantees authentication for every route/u);
+            return controlCompletion({ claims: [narrowDefinitionClaim] });
+          },
+        });
+        steps.push({
+          stage: 'semantic_verifier:2',
+          run(request) {
+            const packet = parseControlPacket(request);
+            assert.deepEqual(packet.claims.map(claim => claim.id), [definitionClaim.id]);
+            assert.deepEqual(packet.observations.map(observation => observation.id), ['E1']);
+            assert.doesNotMatch(JSON.stringify(packet.claims), /guarantees authentication/u);
+            return controlCompletion(verifierResponse([retryVerdict]));
+          },
+        });
+      }
+      return runTrustScript(steps, {
+        task,
+        taskMode: 'symbol_trace',
+        hints: { symbols: ['requireAuth'] },
+      });
+    };
+
+    await t.test('a supported narrow retry completes without another repository action', async () => {
+      const retryVerdict = semanticVerdict(
+        definitionClaim.id,
+        'supported',
+        ['E1'],
+      );
+      const { client, result } = await runCase({
+        initialDefinitionClaim: definitionClaim,
+        initialDefinitionVerdict: rejectedDefinitionVerdict,
+        retryVerdict,
+      });
+
+      assert.equal(result.failure, null);
+      assert.deepEqual(result.taskContract.subgoals.map(goal => goal.state),
+        ['supported', 'supported']);
+      assert.equal(result.parentHandoff.state, 'complete');
+      assert.match(result.parentHandoff.directAnswer, /throws when req\.user is absent/u);
+      assert.match(result.parentHandoff.directAnswer, /registerUserRoutes/u);
+      assert.doesNotMatch(result.parentHandoff.directAnswer, /guarantees authentication/u);
+      assert.deepEqual(providerToolActions(client).map(action => action.tool),
+        ['repo_symbol_context', 'repo_grep', 'repo_read_file']);
+      assert.deepEqual(client.stageLabels.slice(-4), [
+        'claim_synthesis:1',
+        'semantic_verifier:1',
+        'claim_synthesis:2',
+        'semantic_verifier:2',
+      ]);
+    });
+
+    await t.test('a second rejection terminates incomplete after exactly one retry', async () => {
+      const retryVerdict = {
+        ...rejectedDefinitionVerdict,
+        note: 'The narrowed definition claim is still not entailed.',
+      };
+      const { client, result } = await runCase({
+        initialDefinitionClaim: definitionClaim,
+        initialDefinitionVerdict: rejectedDefinitionVerdict,
+        retryVerdict,
+      });
+
+      assert.equal(result.failure, null);
+      assert.equal(client.stageCounts.get('claim_synthesis'), 2);
+      assert.equal(client.stageCounts.get('semantic_verifier'), 2);
+      assert.equal(client.stageCounts.get('exploration'), 4);
+      assert.deepEqual(providerToolActions(client).map(action => action.tool),
+        ['repo_symbol_context', 'repo_grep', 'repo_read_file']);
+      assert.equal(result.taskContract.subgoals[0].state, 'gap');
+      assert.equal(result.taskContract.subgoals[1].state, 'supported');
+      const definitionGap = result.coverageGaps.find(gap =>
+        gap.subgoalId === definitionGoal.id);
+      assert.equal(definitionGap?.repairable, false);
+      assert.equal(result.parentHandoff.state, 'incomplete');
+      assert.match(result.parentHandoff.directAnswer, /registerUserRoutes/u);
+      assert.doesNotMatch(result.parentHandoff.directAnswer, /guarantees authentication/u);
+    });
+
+    await t.test('a later proof-gate rejection terminates without repository repair', async () => {
+      const testDefinitionClaim = candidateClaim(
+        definitionClaim.id,
+        definitionGoal.id,
+        'requireAuth is defined in tests/auth.test.js and guarantees authentication for every route.',
+        ['E1'],
+      );
+      const testNarrowClaim = candidateClaim(
+        definitionClaim.id,
+        definitionGoal.id,
+        'requireAuth is defined in tests/auth.test.js and throws when req.user is absent; otherwise it calls next().',
+        ['E1'],
+      );
+      const testUsageClaim = candidateClaim(
+        usageClaim.id,
+        usageGoal.id,
+        'registerUserTestRoute uses requireAuth in tests/user.test.js.',
+        ['E3'],
+      );
+      const testUsageVerdict = semanticVerdict(
+        usageClaim.id,
+        'supported',
+        ['E2', 'E3'],
+      );
+      const retryVerdict = semanticVerdict(
+        definitionClaim.id,
+        'supported',
+        ['E1'],
+      );
+      const steps = buildTrustSteps({
+        goals: [definitionGoal, usageGoal],
+        initial: {
+          tools: [{
+            tool: 'repo_symbol_context',
+            args: { symbol: 'requireAuth', scope: ['tests/**'] },
+            id: 'test-role-definition',
+          }, {
+            tool: 'repo_grep',
+            args: { pattern: 'requireAuth', scope: ['tests/**'] },
+            id: 'test-role-usage-search',
+          }, {
+            tool: 'repo_read_file',
+            args: { path: 'tests/user.test.js', startLine: 1, endLine: 3 },
+            id: 'test-role-usage-read',
+          }],
+          claims: [testDefinitionClaim, testUsageClaim],
+          verdicts: [rejectedDefinitionVerdict, testUsageVerdict],
+        },
+      });
+      steps.push({
+        stage: 'claim_synthesis:2',
+        value: { claims: [testNarrowClaim] },
+      });
+      steps.push({
+        stage: 'semantic_verifier:2',
+        value: verifierResponse([retryVerdict]),
+      });
+      const { client, result } = await runTrustScript(steps, {
+        task,
+        taskMode: 'symbol_trace',
+        scope: ['tests/**'],
+        hints: { symbols: ['requireAuth'] },
+        async setup(root) {
+          await fs.mkdir(path.join(root, 'tests'), { recursive: true });
+          await fs.writeFile(path.join(root, 'tests', 'auth.test.js'), [
+            'export function requireAuth(req, res, next) {',
+            '  if (!req.user) throw new Error("unauthenticated");',
+            '  return next();',
+            '}',
+            '',
+          ].join('\n'));
+          await fs.writeFile(path.join(root, 'tests', 'user.test.js'), [
+            'import { requireAuth } from "./auth.test.js";',
+            'export const registerUserTestRoute = app => app.get("/users/me", requireAuth);',
+            '',
+          ].join('\n'));
+        },
+      });
+
+      assert.equal(result.failure, null, JSON.stringify(result.failure));
+      assert.equal(client.stageCounts.get('claim_synthesis'), 2);
+      assert.equal(client.stageCounts.get('semantic_verifier'), 2);
+      assert.deepEqual(providerToolActions(client).map(action => action.tool), [
+        'repo_symbol_context',
+        'repo_grep',
+        'repo_read_file',
+      ]);
+      assert.equal(result.taskContract.subgoals[0].state, 'gap');
+      assert.equal(result.coverageGaps.find(gap =>
+        gap.subgoalId === definitionGoal.id)?.repairable, false);
+      assert.equal(result.parentHandoff.state, 'incomplete');
+      assert.doesNotMatch(result.parentHandoff.directAnswer ?? '', /guarantees authentication/u);
+    });
+
+    await t.test('an initially supported definition does not trigger the retry', async () => {
+      const { client, result } = await runCase({
+        initialDefinitionClaim: narrowDefinitionClaim,
+        initialDefinitionVerdict: semanticVerdict(
+          definitionClaim.id,
+          'supported',
+          ['E1'],
+        ),
+        retryVerdict: null,
+      });
+
+      assert.equal(result.failure, null);
+      assert.equal(result.parentHandoff.state, 'complete');
+      assert.equal(client.stageCounts.get('claim_synthesis'), 1);
+      assert.equal(client.stageCounts.get('semantic_verifier'), 1);
+      assert.deepEqual(providerToolActions(client).map(action => action.tool),
+        ['repo_symbol_context', 'repo_grep', 'repo_read_file']);
+    });
   },
 );
 

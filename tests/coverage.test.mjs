@@ -1012,6 +1012,82 @@ proofPolicyCoverageTest(
     assert.deepEqual(cover.evidenceRefsByClaimId.get('C1'), ['E1', 'E3']);
   });
 
+  test('Spec 028 T071 — aggregate collect verdict retains non-overlapping direct ranges', () => {
+    const cover = selectClaimCover({
+      subgoals: [{
+        id: 'S1',
+        originRefs: ['request:0-42', 'wrapper:collect_evidence:verdict'],
+        proofPolicy: 'support_or_refute',
+        state: 'supported',
+      }],
+      claims: [{
+        id: 'C1',
+        subgoalId: 'S1',
+        verdict: 'supported',
+        text: 'The aggregate verdict follows from the current source and its history.',
+        evidenceRefs: ['Q-countercheck', 'E-first', 'E-second', 'E-history'],
+      }],
+      verdicts: [{
+        claimId: 'C1',
+        result: 'supported',
+        resolution: 'affirmed',
+        supportingEvidenceRefs: ['Q-countercheck', 'E-first', 'E-second', 'E-history'],
+      }],
+      observations: [
+        t057SearchObservation({ id: 'Q-countercheck' }),
+        { id: 'E-first', kind: 'source', path: 'src/auth.js', startLine: 1, endLine: 4 },
+        { id: 'E-second', kind: 'source', path: 'src/auth.js', startLine: 18, endLine: 22 },
+        {
+          id: 'E-history',
+          kind: 'git_diff_hunk',
+          sha: 'a'.repeat(40),
+          path: 'src/auth.js',
+          startLine: 30,
+          endLine: 35,
+        },
+      ],
+    });
+
+    assert.deepEqual(cover.evidenceRefs, ['E-first', 'E-second', 'E-history']);
+    assert.deepEqual(
+      cover.evidenceRefsByClaimId.get('C1'),
+      ['E-first', 'E-second', 'E-history'],
+    );
+  });
+
+  test('Spec 028 T071 — aggregate collect verdict compacts contained and duplicate source ranges', () => {
+    const cover = selectClaimCover({
+      subgoals: [{
+        id: 'S1',
+        originRefs: ['request:0-42', 'wrapper:collect_evidence:verdict'],
+        proofPolicy: 'support_or_refute',
+        state: 'supported',
+      }],
+      claims: [{
+        id: 'C1',
+        subgoalId: 'S1',
+        verdict: 'supported',
+        text: 'The aggregate verdict is grounded in the current source.',
+        evidenceRefs: ['E-contained', 'E-wide', 'E-duplicate', 'E-distinct'],
+      }],
+      verdicts: [{
+        claimId: 'C1',
+        result: 'supported',
+        resolution: 'affirmed',
+        supportingEvidenceRefs: ['E-contained', 'E-wide', 'E-duplicate', 'E-distinct'],
+      }],
+      observations: [
+        { id: 'E-contained', kind: 'source', path: 'src/auth.js', startLine: 4, endLine: 7 },
+        { id: 'E-wide', kind: 'source', path: 'src/auth.js', startLine: 1, endLine: 10 },
+        { id: 'E-duplicate', kind: 'source', path: 'src/auth.js', startLine: 1, endLine: 10 },
+        { id: 'E-distinct', kind: 'source', path: 'src/auth.js', startLine: 18, endLine: 22 },
+      ],
+    });
+
+    assert.deepEqual(cover.evidenceRefs, ['E-wide', 'E-distinct']);
+    assert.deepEqual(cover.evidenceRefsByClaimId.get('C1'), ['E-wide', 'E-distinct']);
+  });
+
   test('Spec 028 T071 — affirmative counter-search telemetry stays out of parent claim cover', () => {
     const cover = selectClaimCover({
       subgoals: [{

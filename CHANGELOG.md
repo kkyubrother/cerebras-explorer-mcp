@@ -47,8 +47,11 @@ compatibility aliases or selectable effort controls are retained.
   payload. Focused comparison corroboration also inspects bounded uncited source
   context for an omitted in-boundary policy variant without promoting that
   context to supporting evidence. A refutation backed only by zero-match search
-  evidence also requires focused agreement on one complete certificate; direct
-  source/git counterexamples remain sufficient without that extra pass.
+  evidence requires focused agreement on one complete certificate.
+  `collect_evidence` direct source/git counterexamples also require
+  deterministic focused agreement on the whole premise and every cited direct
+  observation; helper-backed runtime premises need both helper behavior and
+  invocation/call-path evidence.
   `collect_evidence` now plans exactly one full-task-bound verdict goal. An
   affirmation requires both direct source/git evidence and a verifier-approved
   complete zero-match search for a plausible counterexample, while that search

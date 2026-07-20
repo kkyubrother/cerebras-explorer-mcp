@@ -533,6 +533,17 @@ const COLLECT_AFFIRMATION_CORROBORATOR_SYSTEM_PROMPT = [
   '- This focused pass cannot discover request obligations. uncoveredRequestParts must be an empty array.',
 ].join('\n');
 
+const COLLECT_REFUTATION_CORROBORATOR_SYSTEM_PROMPT = [
+  SEMANTIC_VERIFIER_SYSTEM_PROMPT,
+  '',
+  'FOCUSED COLLECT DIRECT-REFUTATION CORROBORATION:',
+  '- This packet contains exactly one collect_evidence refutation proposed from direct source or git evidence. Independently re-check the whole requested premise; do not defer to an earlier verdict.',
+  '- Return supported with resolution refuted only when every supplied direct observation is necessary and jointly establishes the exact counterexample for the whole claim.',
+  '- For a premise that a runtime or entry point performs, skips, or never checks a helper-backed mechanism, a helper definition alone is insufficient with missing_transition. Require exact cited helper behavior together with its invocation or call path from that runtime or entry point.',
+  '- A matching filename, helper name, comment, or definition without the asserted execution linkage is insufficient. Do not infer a call path from repository layout or naming.',
+  '- This focused pass cannot discover request obligations. uncoveredRequestParts must be an empty array.',
+].join('\n');
+
 function strings(value) {
   return Array.isArray(value) ? value.filter(item => typeof item === 'string') : [];
 }
@@ -1007,6 +1018,33 @@ export function buildCollectAffirmationCorroboratorMessages({
         absenceCertificates: Array.isArray(absenceCertificates)
           ? absenceCertificates.map(item => pickDefined(item, ABSENCE_CERTIFICATE_FIELDS))
           : [],
+        criticDecisions: [],
+      }),
+    },
+  ];
+}
+
+export function buildCollectRefutationCorroboratorMessages({
+  taskContract,
+  claims,
+  observations,
+  wrapperTool,
+}) {
+  return [
+    { role: 'system', content: COLLECT_REFUTATION_CORROBORATOR_SYSTEM_PROMPT },
+    {
+      role: 'user',
+      content: controlDataMessage('Corroborate this collect direct refutation against the whole requested premise', {
+        control: {
+          ...normalizeVerificationContract(taskContract),
+          taskOffsetGuide: taskOffsetGuide(taskContract?.task),
+          wrapper: fixedWrapperInput(wrapperTool),
+        },
+        claims: Array.isArray(claims) ? claims.map(normalizeCandidateClaim) : [],
+        observations: Array.isArray(observations)
+          ? observations.map(item => pickDefined(item, VERIFIER_OBSERVATION_FIELDS))
+          : [],
+        absenceCertificates: [],
         criticDecisions: [],
       }),
     },

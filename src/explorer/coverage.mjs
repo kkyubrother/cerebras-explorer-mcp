@@ -2126,7 +2126,6 @@ function selectDirectClaimCover(
   claim,
   orderedApproved,
   observationById,
-  { preferDirect = false } = {},
 ) {
   const selected = [];
   const selectedPaths = new Set();
@@ -2134,15 +2133,7 @@ function selectDirectClaimCover(
     ? claim.text.replaceAll('\\', '/').toLowerCase()
     : '';
 
-  const directApproved = orderedApproved.filter(ref => {
-    const kind = observationById.get(ref)?.kind;
-    return kind === 'source' || ['git_commit', 'git_blame', 'git_diff_hunk'].includes(kind);
-  });
-  const parentCandidates = preferDirect && directApproved.length > 0
-    ? directApproved
-    : orderedApproved;
-
-  for (const ref of parentCandidates) {
+  for (const ref of orderedApproved) {
     const observation = observationById.get(ref);
     const normalizedPath = observation?.kind === 'source' && typeof observation.path === 'string'
       ? observation.path.replaceAll('\\', '/').toLowerCase()
@@ -2157,14 +2148,54 @@ function selectDirectClaimCover(
   return selected;
 }
 
+const DIRECT_OBSERVATION_KINDS = new Set([
+  'source',
+  'git_commit',
+  'git_blame',
+  'git_diff_hunk',
+]);
+
+function selectCollectEvidenceClaimCover(orderedApproved, observationById) {
+  const directApproved = [...new Set(orderedApproved)].filter(ref =>
+    DIRECT_OBSERVATION_KINDS.has(observationById.get(ref)?.kind));
+  const sourceRanges = directApproved.flatMap((ref, index) => {
+    const observation = observationById.get(ref);
+    const path = typeof observation?.path === 'string'
+      ? observation.path.replaceAll('\\', '/').toLowerCase()
+      : '';
+    const hasRange = Number.isInteger(observation?.startLine) &&
+      Number.isInteger(observation?.endLine) &&
+      observation.startLine >= 1 &&
+      observation.endLine >= observation.startLine;
+    return observation?.kind === 'source' && path && hasRange
+      ? [{ ref, index, path, startLine: observation.startLine, endLine: observation.endLine }]
+      : [];
+  });
+  const redundantSourceRefs = new Set();
+
+  for (const candidate of sourceRanges) {
+    const covered = sourceRanges.some(other =>
+      other.ref !== candidate.ref &&
+      other.path === candidate.path &&
+      other.startLine <= candidate.startLine &&
+      other.endLine >= candidate.endLine &&
+      (other.startLine < candidate.startLine ||
+        other.endLine > candidate.endLine ||
+        other.index < candidate.index));
+    if (covered) redundantSourceRefs.add(candidate.ref);
+  }
+
+  return directApproved.filter(ref => !redundantSourceRefs.has(ref));
+}
+
 /**
  * Select the smallest verifier-approved evidence-reference set that still
  * preserves the proof shape of every supported claim. Direct claims keep the
  * first approved reference plus one approved reference for every distinct source
- * path explicitly named by the claim; flow, comparison, and count claims retain
- * every parent-relevant part. Search cross-check telemetry stays internal.
- * The returned order is stable
- * and globally deduplicated.
+ * path explicitly named by the claim; collect-evidence verdicts keep every
+ * non-redundant direct source/git proof while their search cross-check telemetry
+ * stays internal. Flow, comparison, and count claims retain every parent-relevant
+ * part. The returned order is stable and globally deduplicated.
  */
 export function selectClaimCover({
   subgoals = [],
@@ -2205,12 +2236,14 @@ export function selectClaimCover({
     );
     const orderedApproved = (Array.isArray(claim.evidenceRefs) ? claim.evidenceRefs : [])
       .filter(ref => typeof ref === 'string' && ref && approved.has(ref));
-    const preferDirect = subgoal.proofPolicy === 'support_or_refute' &&
+    const collectEvidenceVerdict = subgoal.proofPolicy === 'support_or_refute' &&
       Array.isArray(subgoal.originRefs) &&
       subgoal.originRefs.includes('wrapper:collect_evidence:verdict');
     const claimSelection = MULTI_ITEM_PARENT_PROOF_POLICIES.has(subgoal.proofPolicy)
       ? orderedApproved
-      : selectDirectClaimCover(claim, orderedApproved, observationById, { preferDirect });
+      : collectEvidenceVerdict
+        ? selectCollectEvidenceClaimCover(orderedApproved, observationById)
+        : selectDirectClaimCover(claim, orderedApproved, observationById);
     evidenceRefsByClaimId.set(claim.id, [...new Set(claimSelection)]);
     for (const ref of claimSelection) {
       if (seen.has(ref)) continue;
