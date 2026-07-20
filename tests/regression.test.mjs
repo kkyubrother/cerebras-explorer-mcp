@@ -800,6 +800,8 @@ test('Spec 028 T028 — claim synthesis receives bounded observations and cannot
   assert.match(prompt.system,
     /multiple conjunctive or universal negative facets[\s\S]{0,220}exact observed mechanism[\s\S]{0,180}each requested facet/i);
   assert.match(prompt.system,
+    /runtime or entry point[\s\S]{0,180}performs, skips, or never checks[\s\S]{0,220}helper behavior[\s\S]{0,180}invocation or call path[\s\S]{0,180}definition alone/i);
+  assert.match(prompt.system,
     /collect_evidence claim text[\s\S]{0,180}requested repository conclusion[\s\S]{0,180}do not add[\s\S]{0,180}(?:search pattern|match count|certificate summary|tool detail)[\s\S]{0,180}only through evidenceRefs/i);
   assert.match(prompt.system,
     /all\/every\/exhaustive impact goal[\s\S]{0,200}source, docs, agent config, and dependencies[\s\S]{0,120}all four/i);
@@ -960,6 +962,8 @@ test('Spec 028 T028 — semantic verifier sees isolated rebuilt facts and cannot
     /direct refutation[\s\S]{0,180}exact direct source\/git counterexample[\s\S]{0,180}without a zero-match search/i);
   assert.match(prompt.system,
     /whole-premise refutation[\s\S]{0,180}conjunctive or universal negative facets[\s\S]{0,220}exact observed mechanism/i);
+  assert.match(prompt.system,
+    /runtime or entry point[\s\S]{0,180}performs, skips, or never checks[\s\S]{0,220}definition-only evidence[\s\S]{0,180}missing_transition[\s\S]{0,220}invocation or call path/i);
   assert.match(prompt.system,
     /wrapper:collect_evidence:verdict[\s\S]{0,220}requested proof facet remains uncovered[\s\S]{0,180}insufficient[\s\S]{0,120}uncovered_request[\s\S]{0,180}uncoveredRequestParts empty[\s\S]{0,160}never create a sibling goal/i);
   assert.match(prompt.data, /Locate requireAuth/);

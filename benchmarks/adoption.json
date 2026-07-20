@@ -153,7 +153,7 @@
         {
           "label": "Answer refutes the claim and names the actual grounding flow",
           "source": "combined_text",
-          "groups": [["false", "refutes", "refuted", "contradicted", "does not skip"], ["checkEvidenceGrounding"], ["groundEvidenceList"]],
+          "groups": [["false", "refutes", "refuted", "contradicted", "does not skip"], ["runDeterministicCriticPass"], ["groundEvidenceList"], ["checkEvidenceGrounding", "groundEvidenceItem"]],
           "weight": 0.5
         },
         {

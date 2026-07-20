@@ -3290,6 +3290,8 @@ test('Spec 028 T071 — collect claim checks retry once, then force a bounded so
   assert.deepEqual(directRefutation.tools.map(tool => tool.function.name), ['repo_grep']);
   assert.match(directRefutation.instruction,
     /directly refutes every facet[\s\S]{0,260}grammatical negation alone never proves/u);
+  assert.match(directRefutation.instruction,
+    /entry point[\s\S]{0,160}performs, skips, or never checks[\s\S]{0,220}helper definition alone[\s\S]{0,180}invocation or call path/u);
 
   for (const negatedAffirmation of [
     'Verify this claim: the route rejects requests without authentication.',

@@ -6400,7 +6400,7 @@ export function buildSourceClaimCheckToolPolicy({
       parallelToolCalls: false,
       allowedQueryScope: fullScope,
       fixedToolArguments: { repo_grep: { scope: fullScope } },
-      instruction: 'Direct source is observed. If it directly refutes every facet of the requested premise, stop and synthesize that refutation without another repository action. Otherwise run one complete full-scope repo_grep for a meaningful disconfirming bypass, exception, or alternative; grammatical negation alone never proves which branch applies.',
+      instruction: 'Direct source is observed. For a premise that an entry point performs, skips, or never checks a helper-backed mechanism, a helper definition alone is not a counterexample; without exact invocation or call path evidence, use this one full-scope grep to find it. If the observed source directly refutes every facet of the requested premise, stop and synthesize that refutation without another repository action. Otherwise run one complete full-scope repo_grep for a meaningful disconfirming bypass, exception, or alternative; grammatical negation alone never proves which branch applies.',
     };
   }
 
