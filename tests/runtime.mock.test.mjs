@@ -17143,6 +17143,68 @@ semanticPipelineRuntimeTest('Spec 028 T033 — cancellation after the final veri
   assert.doesNotMatch(result.directAnswer, /requireAuth is defined/);
 });
 
+semanticPipelineRuntimeTest(
+  'Spec 028 T071 — malformed repair tool arguments fail closed before repository execution',
+  async () => {
+    const task = 'Locate the current requireAuth definition.';
+    const goal = trustGoal(task, {
+      id: 'S-malformed-repair',
+      question: task,
+      originText: task,
+    });
+    const claim = candidateClaim(
+      'C-malformed-repair',
+      goal.id,
+      'requireAuth is defined in src/auth.js.',
+      ['E1'],
+    );
+    const malformedArgs = {
+      pattern: 'requireAuth',
+      scope: 'src/**,tests/**,*.md,examples/**',
+    };
+    const malformedFingerprint = fingerprintAction({
+      type: 'tool',
+      tool: 'repo_grep',
+      arguments: malformedArgs,
+    });
+    const { client, result } = await runTrustScript(buildTrustSteps({
+      goals: [goal],
+      initial: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+          id: 'read-auth-before-malformed-repair',
+        }],
+        claims: [claim],
+        verdicts: [semanticVerdict(claim.id, 'insufficient')],
+      },
+      repair: {
+        tools: [{
+          tool: 'repo_grep',
+          args: malformedArgs,
+          id: 'malformed-repair-grep',
+        }],
+        claims: [{ ...claim, evidenceRefs: ['E1', 'E2'] }],
+        verdicts: [semanticVerdict(claim.id, 'supported', ['E2'])],
+      },
+    }), { task });
+
+    assert.equal(result.failure, null);
+    assert.equal(result.parentHandoff.state, 'incomplete');
+    assert.equal(result.stats.grepCalls, 0);
+    assert.deepEqual(result.observations.map(observation => observation.id), [
+      'E1',
+      'E1:search',
+    ]);
+    assert.equal(client.stageCounts.get('semantic_verifier'), 1,
+      'invalid repair arguments cannot trigger post-repair verification');
+    const gap = result.coverageGaps.find(item => item.subgoalId === goal.id);
+    assert.ok(gap);
+    assert.equal(gap.repairable, false);
+    assert.equal(gap.attemptedActionFingerprints.includes(malformedFingerprint), false);
+  },
+);
+
 semanticPipelineRuntimeTest('Spec 028 T034 — semantic repair lifecycle stays diagnostic and prose-free', async () => {
   const logDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-trust-events-'));
   const goal = definitionAndAbsenceGoals()[0];

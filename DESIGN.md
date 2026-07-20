@@ -239,6 +239,8 @@ Verifier가 새로운 request part를 제안하면 원래 request에 추적 가�
 
 Ready goal의 좁고 실행 가능한 evidence gap만 한 번의 repair 대상이다. Blocked goal, known-infeasible goal, 같은 action을 반복해야 하는 gap은 repair하지 않는다.
 
+Repair model이 반환한 tool argument는 그 repair request에 실제로 전달된 internal tool schema로 검증한다. Required/type/range/enum/const/additional-property 위반은 값 보정이나 추가 retry 없이 실행 전에 거부하며 fresh evidence로 취급하지 않는다.
+
 Repair 뒤에도 required goal이 닫히지 않으면 `incomplete`다. 반복 loop를 만들지 않는다.
 
 ## 6. State reduction

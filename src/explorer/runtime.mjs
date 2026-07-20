@@ -4502,6 +4502,9 @@ async function runEvidenceRepairToolBatch({
   const toolCalls = Array.isArray(firstCompletion.message?.toolCalls)
     ? firstCompletion.message.toolCalls
     : [];
+  const repairToolByName = new Map(repairTools
+    .map(tool => [tool?.function?.name, tool])
+    .filter(([name]) => typeof name === 'string' && name));
   const plans = [];
   const eligible = [];
   const seenFingerprints = new Set(priorActionFingerprints);
@@ -4523,6 +4526,27 @@ async function runEvidenceRepairToolBatch({
         toolResult: {
           error: true,
           stage: 'parse_or_exec',
+          type: 'invalid_tool_arguments',
+          message: error.message,
+          tool: toolName,
+        },
+      });
+      continue;
+    }
+    try {
+      validateToolArgumentsAgainstDefinition(
+        toolName,
+        toolArgs,
+        repairToolByName.get(toolName),
+      );
+    } catch (error) {
+      plans.push({
+        toolCall,
+        toolName,
+        toolArgs: {},
+        toolResult: {
+          error: true,
+          stage: 'validation',
           type: 'invalid_tool_arguments',
           message: error.message,
           tool: toolName,
@@ -5858,6 +5882,82 @@ function validateToolName(toolName, knownToolNames) {
     message: `Tool "${toolName}" does not exist. Available tools: ${[...knownToolNames].join(', ')}. Choose one of these.`,
     tool: toolName,
   };
+}
+
+function validateToolSchemaValue(value, schema, pathLabel) {
+  if (!schema || typeof schema !== 'object' || Array.isArray(schema)) {
+    throw new TypeError(`${pathLabel} has no valid internal schema.`);
+  }
+  if (Object.prototype.hasOwnProperty.call(schema, 'const') &&
+      JSON.stringify(value) !== JSON.stringify(schema.const)) {
+    throw new TypeError(`${pathLabel} must match its runtime-fixed value.`);
+  }
+  if (Array.isArray(schema.enum) && !schema.enum.some(item =>
+    JSON.stringify(value) === JSON.stringify(item))) {
+    throw new TypeError(`${pathLabel} is not in the allowed enum.`);
+  }
+
+  if (schema.type === 'object') {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      throw new TypeError(`${pathLabel} must be an object.`);
+    }
+    const properties = schema.properties ?? {};
+    for (const key of schema.required ?? []) {
+      if (!Object.prototype.hasOwnProperty.call(value, key)) {
+        throw new TypeError(`${pathLabel}.${key} is required.`);
+      }
+    }
+    if (schema.additionalProperties === false) {
+      const unexpected = Object.keys(value).find(key =>
+        !Object.prototype.hasOwnProperty.call(properties, key));
+      if (unexpected) {
+        throw new TypeError(`${pathLabel}.${unexpected} is not allowed.`);
+      }
+    }
+    for (const [key, child] of Object.entries(properties)) {
+      if (Object.prototype.hasOwnProperty.call(value, key)) {
+        validateToolSchemaValue(value[key], child, `${pathLabel}.${key}`);
+      }
+    }
+    return;
+  }
+  if (schema.type === 'array') {
+    if (!Array.isArray(value)) throw new TypeError(`${pathLabel} must be an array.`);
+    if (schema.items) {
+      value.forEach((item, index) =>
+        validateToolSchemaValue(item, schema.items, `${pathLabel}[${index}]`));
+    }
+    return;
+  }
+  if (schema.type === 'string' && typeof value !== 'string') {
+    throw new TypeError(`${pathLabel} must be a string.`);
+  }
+  if (schema.type === 'boolean' && typeof value !== 'boolean') {
+    throw new TypeError(`${pathLabel} must be a boolean.`);
+  }
+  if (schema.type === 'integer' && !Number.isInteger(value)) {
+    throw new TypeError(`${pathLabel} must be an integer.`);
+  }
+  if (schema.type === 'number' &&
+      (typeof value !== 'number' || !Number.isFinite(value))) {
+    throw new TypeError(`${pathLabel} must be a finite number.`);
+  }
+  if ((schema.type === 'integer' || schema.type === 'number') &&
+      schema.minimum !== undefined && value < schema.minimum) {
+    throw new TypeError(`${pathLabel} must be at least ${schema.minimum}.`);
+  }
+  if ((schema.type === 'integer' || schema.type === 'number') &&
+      schema.maximum !== undefined && value > schema.maximum) {
+    throw new TypeError(`${pathLabel} must be at most ${schema.maximum}.`);
+  }
+}
+
+function validateToolArgumentsAgainstDefinition(toolName, args, definition) {
+  const parameters = definition?.function?.parameters;
+  if (!parameters) {
+    throw new TypeError(`Repair tool ${toolName} has no active internal schema.`);
+  }
+  validateToolSchemaValue(args, parameters, `${toolName} arguments`);
 }
 
 /** Max consecutive all-error turns before forcing early exit. */
