@@ -153,7 +153,7 @@ Planner는 명시된 요청 부분마다 독립 관찰 가능한 proof condition
 Runtime은 initial plan과 isolated audit에서 active wrapper의 fixed seed origin이 모두 유지되는지 기계적으로 확인한다. Initial omission은 한 번의 bounded control correction 대상이며, 다시 누락되면 repository exploration 전에 fail-closed한다. Final corrected plan이 이번 revision에서 분해 또는 정제하도록 명시된 goal의 fixed origin만 빠뜨린 경우에는 그 obligation을 성공으로 간주하지 않고 `planning_incomplete` required gap으로 materialize한다. Preserved goal 변경, 이번 revision 대상이 아닌 origin 누락, malformed control은 계속 fault다.
 `find_relevant_code`의 fixed seed는 `locations`와 `relevance` 둘뿐이다. Relevance는 bounded implementation target과 change-oriented 요청에서 직접 연결이 증명된 한 companion verification target의 이유를 같은 claim에서 설명한다. 두 fixed leaf는 해당 wrapper origin만으로 이미 traceable한 원자 의무이므로 auditor가 `request:*` origin 부재만을 이유로 분해·거부·병합할 수 없고, 잘못된 구조 verdict는 동일 audit의 한 번뿐인 bounded correction 뒤 반복 시 탐색 전에 fail-closed한다. Runtime은 전역 최소 집합을 암시하는 별도 goal이나 parent 문장을 만들지 않는다. Caller가 직접 globally smallest/minimal proof를 요구하면 그 request-derived goal을 버리거나 bounded 의미로 약화하지 않고 capability blocker로 남긴다.
 `map_change_impact:dependents` fixed seed는 관측된 caller/consumer boundary를 요구할 뿐 exhaustive inventory를 뜻하지 않는다. Goal의 question/proof/constraint에 있는 강한 완전성 한정어는 그 goal의 정확한 request origin에도 있어야 하며, 없으면 한 번의 bounded control correction 뒤 반복 시 audit와 repository exploration 전에 fail-closed한다.
-`map_change_impact:risk_boundary`는 runtime-owned bounded goal contract로 정규화한다. Caller가 정확한 unaffected/no-modification proof를 요구하면 그 request origin은 fixed risk leaf에 합치지 않고 별도 `absence` goal로 보존해야 하며, 결합된 plan은 한 번 교정한 뒤 반복 시 탐색 전에 fail-closed한다. Claim synthesis 뒤에는 risk 자신이 아니라 non-risk impact leaf가 인용한 exact current source만 모아 observed path boundary를 만들고, search/git ref와 model의 confined/unaffected 문구는 verifier packet에서 제거한다. 추가 in-scope impact는 항상 unverified로 남기며 semantic verifier는 이 canonical claim을 그대로 검증한다.
+`map_change_impact:risk_boundary`는 runtime-owned bounded goal contract로 정규화한다. Caller가 정확한 unaffected, unchanged, no-modification, not-impacted proof를 요구하면 그 request origin은 fixed risk leaf에 합치지 않고 별도 `absence` goal로 보존해야 하며, 결합된 plan은 한 번 교정한 뒤 반복 시 탐색 전에 fail-closed한다. Claim synthesis 뒤에는 risk 자신이 아니라 non-risk impact leaf가 인용한 exact current source만 모아 observed path boundary를 만들고, search/git ref와 model의 confined/unaffected 문구는 verifier packet에서 제거한다. 추가 in-scope impact는 항상 unverified로 남기며 semantic verifier는 이 canonical claim을 그대로 검증한다.
 `collect_evidence`는 예외 없이 supplied task 전체를 덮는 request origin과 `wrapper:collect_evidence:verdict`를 함께 가진 하나의 `claim_verification` goal로 계획한다. Direct evidence와 counterevidence search는 별도 sibling goal이 아니라 같은 verdict의 내부 proof facet이다.
 
 | Claim type | Proof policy |
@@ -460,7 +460,7 @@ Need to verify one claim -> collect_evidence
 Anything else -> explore_repo
 ```
 
-Parent는 결과를 받으면 `state` 하나로 routing하고, `verify_targets`가 아니면 같은 source를 습관적으로 다시 읽지 않는다. Conflict가 있으면 숨기지 말고 새 evidence나 gap으로 취급한다.
+Parent는 결과를 받으면 `state` 하나로 routing한다. `verify_targets`는 반환된 target만 읽고, `incomplete`는 supported partial fact를 사용하면서 partial target이 있으면 그 범위만 확인한 뒤 gap과 선택적 follow-up을 보존한다. Conflict가 있으면 숨기지 말고 새 evidence나 gap으로 취급한다.
 
 ## 14. Test and synchronization gates
 

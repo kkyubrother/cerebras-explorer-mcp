@@ -34,7 +34,7 @@ Escalate to native wide search only when the explorer result is thin, conflictin
 Read the schema-v3 parent handoff through its `state`:
 - `complete`: use the supported `directAnswer` and `evidence`.
 - `verify_targets`: read only the returned `targets`, then continue the requested work.
-- `incomplete`: use only supported partial facts, inspect `gaps`, and run `followUp` only when useful.
+- `incomplete`: use only supported partial facts, inspect only returned `targets` when present, preserve every `gap`, and run `followUp` only when useful.
 - `failed`: retry only when `failure.retry` is present; otherwise stop.
 
 Example calls:

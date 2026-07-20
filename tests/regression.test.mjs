@@ -598,7 +598,7 @@ auditedPromptBoundaryTest('Spec 028 T071 — map impact categories remain one bo
     assert.match(system,
       /do not invent a mandatory category[\s\S]{0,100}common impact surface/i);
     assert.match(system,
-      /explicitly requests an exact unaffected or no-modification proof[\s\S]{0,260}separate from the bounded wrapper:map_change_impact:risk_boundary leaf/i);
+      /explicitly requests an exact unaffected, unchanged, no-modification, or not-impacted proof[\s\S]{0,260}separate from the bounded wrapper:map_change_impact:risk_boundary leaf/i);
   }
   assert.match(planner.data, /"requested_categories":"impact"/u);
 });

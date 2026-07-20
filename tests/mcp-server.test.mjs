@@ -374,6 +374,10 @@ test('Spec 028 T045 — initialization contains one concise six-way dispatch rul
   assert.ok(initialized.instructions.includes(TARGET_DISPATCH_RULE));
   assert.match(initialized.instructions, /use complete directly/);
   assert.match(initialized.instructions, /inspect only targets for verify_targets/);
+  assert.match(
+    initialized.instructions,
+    /for incomplete, use supported partial facts, inspect only returned targets when present/iu,
+  );
   assert.ok(initialized.instructions.length <= 800);
   assert.doesNotMatch(initialized.instructions, /review_change_context|Markdown report|status\.verification/);
   for (const name of TARGET_SIX_TOOL_NAMES) {

@@ -7,7 +7,7 @@ Preferred flow:
 1. Use the narrowest `cerebras-explorer` tool that fits the question: `find_relevant_code`, `trace_symbol`, `map_change_impact`, `explain_code_path`, `collect_evidence`, or `explore_repo`.
 2. Use `explore_repo` as the fallback for open-ended, architecture, or git-history questions.
 3. Add `scope` and known file, symbol, or text anchors only when they are already implied by the task.
-4. For `state=verify_targets`, read only returned `targets` with role `read` or `edit`.
+4. For `state=verify_targets`, or `state=incomplete` when partial `targets` are present, read only those returned `targets` with role `read` or `edit`.
 5. Use one or two targeted `rg` checks to verify critical claims when local shell search is available.
 6. Keep native wide search as a fallback, not the default.
 7. If MCP findings and local evidence disagree, report the conflict instead of smoothing it over.
@@ -16,8 +16,9 @@ Recommended full six-tool exposure is `find_relevant_code`, `trace_symbol`,
 `map_change_impact`, `explain_code_path`, `collect_evidence`, and `explore_repo`.
 
 Read the schema-v3 parent handoff through `state`: use supported `directAnswer`
-and `evidence` for `complete`; read only `targets` for `verify_targets`; use
-supported partial facts and inspect `gaps`/`followUp` for `incomplete`; for
+and `evidence` for `complete`; read only `targets` for `verify_targets`; for
+`incomplete`, use supported partial facts, inspect only returned `targets` when
+present, and preserve `gaps`/`followUp`; for
 `failed`, retry only when `failure.retry` is present.
 
 Tool exposure is configured in `~/.codex/config.toml`.

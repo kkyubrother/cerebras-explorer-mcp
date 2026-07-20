@@ -6849,9 +6849,18 @@ const MAP_RISK_BOUNDARY_GOAL_CONTRACT = Object.freeze({
     'Cite the current source paths used for the observed impact surfaces and preserve any additional in-scope impact beyond those bounded observations as unverified.',
 });
 
+const EXACT_UNAFFECTED_MAP_PROOF_PATTERNS = Object.freeze([
+  /\bunaffected\b/iu,
+  /\b(?:needs?|requires?)\s+no\s+(?:changes?|modifications?)\b/iu,
+  /\bdoes\s+not\s+(?:need|require)\s+(?:(?:any|a)\s+)?(?:changes?|modifications?)\b/iu,
+  /\bno\s+(?:changes?|modifications?)\s+(?:(?:are|is)\s+)?(?:needed|required)\b/iu,
+  /\b(?:is|are|remains?|stays?|will\s+(?:be|remain))\s+(?:entirely\s+)?(?:unchanged|not\s+(?:affected|impacted|modified|changed))\b/iu,
+  /영향(?:이|은|는)?\s*없|수정(?:이|은|는)?\s*(?:불필요|필요\s*없)/iu,
+]);
+
 function requestsExactUnaffectedMapProof(task, goal) {
-  return /\bunaffected\b|\b(?:needs?|requires?)\s+no\s+(?:change|modification)\b|\bdoes\s+not\s+(?:need|require)\s+(?:a\s+)?(?:change|modification)\b|영향(?:이|은|는)?\s*없|수정(?:이|은|는)?\s*(?:불필요|필요\s*없)/iu
-    .test(requestTextForSubgoal(task, goal));
+  const requestText = requestTextForSubgoal(task, goal);
+  return EXACT_UNAFFECTED_MAP_PROOF_PATTERNS.some(pattern => pattern.test(requestText));
 }
 
 function isGeneratedPathWrapperTask(task, wrapperTool) {

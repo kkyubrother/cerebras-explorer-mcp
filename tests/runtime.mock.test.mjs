@@ -6306,6 +6306,104 @@ auditedPlanningRuntimeTest(
   },
 );
 
+auditedPlanningRuntimeTest(
+  'Spec 028 T071 — common exact-negative phrases stay separate from the bounded map risk leaf',
+  async () => {
+    const exactNegativePhrases = [
+      'prove src/legacy.mjs requires no changes',
+      'prove src/legacy.mjs remains unchanged',
+      'prove src/legacy.mjs is not impacted',
+    ];
+    for (const [index, exactNegativePhrase] of exactNegativePhrases.entries()) {
+      const task = 'Map the likely impact of this intended change before editing: ' +
+        'Add a new top-level field to explore_repo structured output. Identify actionable targets, ' +
+        'dependent callers/consumers, affected verification or public-contract surfaces, and the ' +
+        `remaining risk boundary; ${exactNegativePhrase}.`;
+      const negativeOrigin = requestOrigin(task, exactNegativePhrase);
+      const invented = impactWrapperGoals(task);
+      invented.find(goal => goal.id === 'risk_boundary').originRefs.push(negativeOrigin);
+      const absenceGoal = {
+        id: `legacy-exact-negative-${index + 1}`,
+        question: exactNegativePhrase,
+        originRefs: [negativeOrigin],
+        claimType: 'absence',
+        proofCondition:
+          'Certify from a complete bounded source/search boundary that the intended field cannot affect src/legacy.mjs.',
+        constraints: [],
+      };
+      const correctedGoals = [...impactWrapperGoals(task), absenceGoal];
+      const client = new ScriptedGoalAuditClient([
+        { stage: 'planner:1', value: plannerControl(invented) },
+        {
+          stage: 'planner:2',
+          run(request) {
+            assert.match(
+              JSON.stringify(request.messages),
+              /exact unaffected or no-modification request cannot be merged/iu,
+              exactNegativePhrase,
+            );
+            return controlCompletion(plannerControl(correctedGoals));
+          },
+        },
+        {
+          stage: 'goal_audit:1',
+          value: auditorControl(correctedGoals.map(goal => auditControlRecord(goal))),
+        },
+        { stage: 'exploration:1', content: 'The bounded impact and absence goals are audited.' },
+        { stage: 'synthesis:1', value: readyExplorationResult() },
+      ]);
+      const root = await makeRepoFixture();
+      const result = await new RuntimeImplementation({ chatClient: client }).explore({
+        task,
+        repo_root: root,
+        scope: ['src/**', 'tests/**', '*.md', 'examples/**'],
+        taskMode: 'edit_planning',
+      });
+
+      assert.equal(result.failure, null, exactNegativePhrase);
+      assert.deepEqual(
+        client.stageLabels.slice(0, 4),
+        ['planner:1', 'planner:2', 'goal_audit:1', 'exploration:1'],
+        exactNegativePhrase,
+      );
+      assert.equal(
+        result.taskContract.subgoals.find(goal => goal.id === absenceGoal.id)?.claimType,
+        'absence',
+        exactNegativePhrase,
+      );
+    }
+  },
+);
+
+auditedPlanningRuntimeTest(
+  'Spec 028 T071 — repeated exact-negative map merge fails before audit',
+  async () => {
+    const exactNegativePhrase = 'prove src/legacy.mjs remains unchanged';
+    const task = 'Map the likely impact of this intended change before editing: ' +
+      'Add a new top-level field to explore_repo structured output. Identify actionable targets, ' +
+      'dependent callers/consumers, affected verification or public-contract surfaces, and the ' +
+      `remaining risk boundary; ${exactNegativePhrase}.`;
+    const negativeOrigin = requestOrigin(task, exactNegativePhrase);
+    const invented = impactWrapperGoals(task);
+    invented.find(goal => goal.id === 'risk_boundary').originRefs.push(negativeOrigin);
+    const client = new ScriptedGoalAuditClient([
+      { stage: 'planner:1', value: plannerControl(invented) },
+      { stage: 'planner:2', value: plannerControl(invented) },
+    ]);
+    const root = await makeRepoFixture();
+    const result = await new RuntimeImplementation({ chatClient: client }).explore({
+      task,
+      repo_root: root,
+      scope: ['src/**', 'tests/**', '*.md', 'examples/**'],
+      taskMode: 'edit_planning',
+    });
+
+    assert.deepEqual(client.stageLabels, ['planner:1', 'planner:2']);
+    assert.ok(result.failure);
+    assert.equal(result.parentHandoff.state, 'failed');
+  },
+);
+
 auditedPlanningRuntimeTest('Spec 028 T071 — collect_evidence split goals get one planner correction', async () => {
   const task = 'Verify that every user route requires authentication.';
   const requestRef = `request:0-${task.length}`;

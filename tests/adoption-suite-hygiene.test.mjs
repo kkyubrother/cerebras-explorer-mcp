@@ -161,6 +161,24 @@ test('adoption suite: v3 and wrapper scenarios keep objective source anchors', (
   assert.match(serialized('direct-vs-explorer-boundary'), /max_target_count/);
 });
 
+test('adoption suite: map impact actionability accepts verification as validation language', () => {
+  const mapCase = suite.cases.find(testCase => testCase.id === 'map-change-impact');
+  const expectation = mapCase?.expectations?.find(item =>
+    item.label === 'Targets describe actionability');
+  const verificationGroup = expectation?.groups?.[2];
+
+  assert.deepEqual(
+    verificationGroup,
+    ['regression', 'validation', 'validat', 'assert', 'verif'],
+  );
+  assert.ok(
+    verificationGroup.some(token =>
+      normalizeText('Output structure verification is located in tests/mcp-server.test.mjs')
+        .includes(normalizeText(token))),
+  );
+  assert.equal(isEchoToken(echoCorpus(mapCase.args), 'verif'), false);
+});
+
 test('adoption suite: schema and recent-change anchors are authoritative and immutable', () => {
   const byId = new Map(suite.cases.map(testCase => [testCase.id, testCase]));
   const boundary = byId.get('direct-vs-explorer-boundary');

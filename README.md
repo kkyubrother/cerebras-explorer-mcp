@@ -180,7 +180,7 @@ MCP `structuredContent`는 parent가 다음 행동을 고르는 데 필요한 �
 | --- | --- | --- |
 | `complete` | 모든 유효한 필수 sub-goal이 검증됨 | `directAnswer`를 사용 |
 | `verify_targets` | 근거는 닫혔지만 편집 의도 때문에 명시된 source range 확인이 필요함 | `targets`만 읽고 진행 |
-| `incomplete` | 하나 이상의 필수 질문이 막혔거나 근거가 부족함 | 검증된 부분만 사용하고 `gaps`와 선택적 `followUp` 확인 |
+| `incomplete` | 하나 이상의 필수 질문이 막혔거나 근거가 부족함 | 검증된 부분만 사용하고, `targets`가 있으면 그 범위만 확인한 뒤 `gaps`와 선택적 `followUp` 확인 |
 | `failed` | input, cancellation, provider, tool, verifier 또는 internal fault로 정상 결과를 만들 수 없음 | `failure.retry`가 있을 때만 재시도 |
 
 조건부 필드는 필요한 경우에만 나타납니다.

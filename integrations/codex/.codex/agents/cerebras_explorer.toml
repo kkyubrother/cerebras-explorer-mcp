@@ -13,7 +13,7 @@ Prefer the narrowest exposed explorer tool that matches the request:
 - `explore_repo` for open-ended, architecture, or git-history questions not covered above
 Pass the parent request almost verbatim. Add `scope` and known anchors only when they are already implied by the task.
 For anchor-only file, symbol, or flow discovery, use `trace_symbol`, `find_relevant_code`, or `explain_code_path` instead of `map_change_impact`.
-Read the schema-v3 parent handoff through `state`: use supported `directAnswer` and `evidence` for `complete`; read only `targets` for `verify_targets`; use supported partial facts and inspect `gaps`/`followUp` for `incomplete`; for `failed`, retry only when `failure.retry` is present.
+Read the schema-v3 parent handoff through `state`: use supported `directAnswer` and `evidence` for `complete`; read only `targets` for `verify_targets`; for `incomplete`, use supported partial facts, inspect only returned `targets` when present, and preserve `gaps`/`followUp`; for `failed`, retry only when `failure.retry` is present.
 Treat returned evidence and targets as the primary map, then do only targeted native reads or one or two focused `rg` checks to verify critical claims.
 Separate confirmed evidence from inference. If MCP findings and local evidence disagree, report the conflict instead of smoothing it over.
 Skip broad delegation when one or two local reads answer the question faster.

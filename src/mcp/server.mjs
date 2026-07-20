@@ -532,7 +532,7 @@ export function createMcpRequestHandler({
           instructions:
             'Cerebras Explorer provides read-only repository exploration with grounded schema-v3 handoffs. ' +
             `${TOOL_DISPATCH_RULE} ` +
-            'For state: use complete directly; inspect only targets for verify_targets; preserve gaps and at most one followUp for incomplete; retry failed only when failure.retry exists. ' +
+            'For state: use complete directly; inspect only targets for verify_targets; for incomplete, use supported partial facts, inspect only returned targets when present, and preserve gaps and at most one followUp; retry failed only when failure.retry exists. ' +
             'Repository scope is a hard boundary. Pass known file, symbol, or text anchors when available. ' +
             'Use _meta.progressToken for long path or impact calls.',
         };

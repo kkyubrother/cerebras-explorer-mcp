@@ -547,6 +547,11 @@ test('LLM prose files mention the current schema-v3 state contract', async () =>
       `${relPath} should identify the schema-v3 handoff`,
     );
     assert.match(text, /\bstate\b/, `${relPath} should explain the state field`);
+    assert.match(
+      text,
+      /incomplete[\s\S]{0,240}returned `?targets`?/iu,
+      `${relPath} should preserve verified partial targets for incomplete handoffs`,
+    );
   }
 });
 
