@@ -12386,8 +12386,15 @@ semanticPipelineRuntimeTest(
       },
       {
         stage: 'semantic_verifier:1',
-        value: verifierResponse(claims.map(claim =>
-          semanticVerdict(claim.id, 'supported', claim.evidenceRefs))),
+        run(request) {
+          const system = request.messages.find(message => message.role === 'system')?.content ?? '';
+          assert.match(system,
+            /wrapper:map_change_impact:requested_categories[\s\S]{0,320}intended pre-edit change[\s\S]{0,220}conditional premise/u);
+          assert.match(system,
+            /do not require[\s\S]{0,220}field to already exist[\s\S]{0,220}before\/after or control-flow transition/iu);
+          return controlCompletion(verifierResponse(claims.map(claim =>
+            semanticVerdict(claim.id, 'supported', claim.evidenceRefs))));
+        },
       },
     ];
 
@@ -17616,6 +17623,10 @@ semanticPipelineRuntimeTest(
                 /supportingEvidenceRef must come from that same claim evidenceRefs/u);
               assert.match(correction,
                 /outside claim C-auth-definition: invalid=\[E2\], allowed=\[E1\]/u);
+              assert.match(correction,
+                /Every supported verdict must include exactly one resolution: affirmed or refuted/u);
+              assert.match(correction,
+                /Insufficient and contradicted verdicts must omit resolution/u);
             },
           },
         ],

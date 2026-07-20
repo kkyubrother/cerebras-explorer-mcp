@@ -2467,6 +2467,7 @@ async function requestValidatedGoalControl({
           'On a post-repair pass, preserve every prior claim id, subgoalId, text, measurement, and prior evidence reference exactly while adding only fresh supplied evidence refs.'
         : stage === 'semantic_verifier'
           ? 'Return exactly one verdict for each supplied claim. Every supportingEvidenceRef must come from that same claim evidenceRefs. ' +
+            'Every supported verdict must include exactly one resolution: affirmed or refuted. Insufficient and contradicted verdicts must omit resolution. ' +
             'Evidence ids are opaque exact tokens: E5 and E5:search are distinct, so never append, remove, or infer a suffix. ' +
             'Do not return a ref borrowed from another claim or a paraphrased or refined late goal for an existing required sub-goal.'
           : stage === 'goal_audit'

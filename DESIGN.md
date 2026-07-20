@@ -219,7 +219,9 @@ Source range 검증과 semantic support는 별개다. 정확한 line을 인용�
 
 Verifier는 원래 request, audited sub-goals, candidate atomic claims, rebuilt evidence, bounded search certificate만 받는다. Exploratory prose나 model self-confidence는 받지 않는다.
 
-Evidence id는 opaque exact token이다. 예를 들어 `E5`와 `E5:search`는 서로 다른 ref이며 verifier가 suffix를 추론할 수 없다. 다른 claim의 ref를 반환하면 한 번만 교정을 요청하고, schema-valid 응답이 같은 경계를 다시 넘으면 해당 claim만 `insufficient`로 격리한다. Unknown/duplicate/missing claim, malformed control, 또는 구조 오류는 계속 verifier fault로 처리하므로 이 격리는 claim을 support로 승격하지 않는다.
+`map_change_impact:requested_categories`는 아직 적용하지 않은 변경을 전제로 한 영향 예측이다. 따라서 현재 test/documentation/configuration/fixture가 해당 계약을 검증하거나 문서화한다는 exact evidence는 review/update surface를 support할 수 있으며, 제안된 field의 현재 존재나 before/after 또는 control-flow transition을 요구하지 않는다. Caller가 all/every/exhaustive category를 요구한 경우의 전체 category coverage와 이미 구현되었다는 주장, uncited path, concrete modification에 대한 검증은 계속 엄격하게 유지한다.
+
+Evidence id는 opaque exact token이다. 예를 들어 `E5`와 `E5:search`는 서로 다른 ref이며 verifier가 suffix를 추론할 수 없다. 다른 claim의 ref를 반환하면 한 번만 교정을 요청하고, 이 교정은 supported verdict의 `affirmed|refuted` resolution 의무와 non-supported verdict의 resolution 금지를 다시 명시한다. Schema-valid 응답이 같은 경계를 다시 넘으면 해당 claim만 `insufficient`로 격리한다. Unknown/duplicate/missing claim, malformed control, 또는 구조 오류는 계속 verifier fault로 처리하므로 이 격리는 claim을 support로 승격하지 않는다.
 
 Claim synthesis가 두 번 모두 알려진 sub-goal에 `evidenceRefs:[]`인 구조적으로 유효한 claim을 반환하면 그 claim만 버리고 해당 goal을 unresolved로 둔다. Unknown sub-goal, duplicate claim id, malformed claim, invalid non-empty evidence ref는 이 복구 대상이 아니다. Post-repair verifier packet은 해당 claim에 실제로 추가된 fresh evidence id만 별도로 표시하며, fresh id를 하나도 인용하지 않은 supported verdict는 기존 reduction에서 support가 되지 않는다.
 

@@ -924,6 +924,10 @@ test('Spec 028 T028 — semantic verifier sees isolated rebuilt facts and cannot
   assert.match(prompt.system,
     /wrapper:map_change_impact:risk_boundary[\s\S]{0,280}observed impact surface[\s\S]{0,180}remaining uncertainty[\s\S]{0,180}unaffected/i);
   assert.match(prompt.system,
+    /wrapper:map_change_impact:requested_categories[\s\S]{0,320}intended pre-edit change[\s\S]{0,220}conditional premise[\s\S]{0,260}affected review or update surface/i);
+  assert.match(prompt.system,
+    /wrapper:map_change_impact:requested_categories[\s\S]{0,520}do not require[\s\S]{0,220}field to already exist[\s\S]{0,220}before\/after or control-flow transition/i);
+  assert.match(prompt.system,
     /all\/every\/exhaustive impact claim[\s\S]{0,220}omission of any one is missing_category/i);
   assert.match(prompt.system,
     /definition together with[\s\S]{0,180}invocation or enforcement site/i);
