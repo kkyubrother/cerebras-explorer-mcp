@@ -317,7 +317,7 @@ Implementation staging: T034 records the `final` state-reduction inputs first. T
 
 | Tool | Internal baseline sub-goals/proof policy |
 |---|---|
-| `find_relevant_code` | Relevant location plus why it is relevant; minimal target set. |
+| `find_relevant_code` | Bounded relevant locations plus why every selected target matters. |
 | `trace_symbol` | Definition/meaning plus usage cross-check inside boundary. |
 | `map_change_impact` | Edit/read targets, dependent paths, requested tests/config/docs categories, risk boundaries. |
 | `explain_code_path` | Entry point, ordered handoffs, terminal effect; every transition supported. |

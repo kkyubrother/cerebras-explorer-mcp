@@ -383,7 +383,8 @@ auditedPromptBoundaryTest('Spec 028 T018 — planner policy is invariant under u
   assert.match(attacked.system,
     /wrapper:find_relevant_code[\s\S]{0,180}I need to update X[\s\S]{0,180}location relevance context[\s\S]{0,220}do not invent an outdated comparison/i);
   assert.match(attacked.system,
-    /wrapper:find_relevant_code:smallest_set[\s\S]{0,220}bounded useful target set[\s\S]{0,180}only, must, or exhaustive/i);
+    /wrapper:find_relevant_code:relevance[\s\S]{0,260}smallest, minimal, only, must, or exhaustive/i);
+  assert.doesNotMatch(attacked.system, /wrapper:find_relevant_code:smallest_set/i);
   assert.match(attacked.system,
     /wrapper:map_change_impact:risk_boundary[\s\S]{0,240}remaining uncertainty[\s\S]{0,180}unaffected/i);
   assert.match(attacked.system,
@@ -511,6 +512,8 @@ auditedPromptBoundaryTest('Spec 028 T018 — goal auditor sees only request cont
   assert.match(attacked.system, /wrapper/i);
   assert.match(attacked.system, /blocked_scope[\s\S]{0,100}outside the immutable scope/i);
   assert.match(attacked.system,
+    /blocked_capability[\s\S]{0,260}global optimality proof[\s\S]{0,320}do not weaken it into a bounded relevance claim/i);
+  assert.match(attacked.system,
     /contradictory[\s\S]{0,180}caller requirements[\s\S]{0,180}repository sources/i);
   assert.match(attacked.system, /weakened claim-type|weaker enum-valid claimType/i);
   assert.match(attacked.system,
@@ -525,6 +528,8 @@ auditedPromptBoundaryTest('Spec 028 T018 — goal auditor sees only request cont
     /redundant aggregate[\s\S]{0,180}leaf goals[\s\S]{0,120}not ready/i);
   assert.match(attacked.system,
     /complete acceptance core exactly matches one fixed wrapper seed[\s\S]{0,220}runtime-required leaf[\s\S]{0,180}do not decompose/i);
+  assert.match(attacked.system,
+    /fixed wrapper origin alone authorizes[\s\S]{0,180}do not require an additional request:\* origin/i);
   assert.match(attacked.system,
     /every verdict except reject_untraceable[\s\S]{0,180}at least one proposal origin/i);
   assert.match(attacked.system,
@@ -592,6 +597,8 @@ auditedPromptBoundaryTest('Spec 028 T071 — map impact categories remain one bo
       /does not permit mixing targets, dependents, or risk_boundary[\s\S]{0,160}omitting an explicitly named category/i);
     assert.match(system,
       /do not invent a mandatory category[\s\S]{0,100}common impact surface/i);
+    assert.match(system,
+      /explicitly requests an exact unaffected or no-modification proof[\s\S]{0,260}separate from the bounded wrapper:map_change_impact:risk_boundary leaf/i);
   }
   assert.match(planner.data, /"requested_categories":"impact"/u);
 });
@@ -788,7 +795,8 @@ test('Spec 028 T028 — claim synthesis receives bounded observations and cannot
   assert.match(prompt.system,
     /wrapper:find_relevant_code:locations[\s\S]{0,240}handler or registry line[\s\S]{0,180}callee body/i);
   assert.match(prompt.system,
-    /wrapper:find_relevant_code:smallest_set[\s\S]{0,240}bounded useful target set[\s\S]{0,180}only, must, or exhaustive/i);
+    /wrapper:find_relevant_code:relevance[\s\S]{0,520}companion test[\s\S]{0,260}smallest, minimal, only, must, or exhaustive/i);
+  assert.doesNotMatch(prompt.system, /wrapper:find_relevant_code:smallest_set/i);
   assert.match(prompt.system,
     /wrapper:map_change_impact:requested_categories[\s\S]{0,260}one aggregate claim[\s\S]{0,220}every selected current category source[\s\S]{0,180}risk_boundary/i);
   assert.match(prompt.system,
@@ -947,7 +955,8 @@ test('Spec 028 T028 — semantic verifier sees isolated rebuilt facts and cannot
   assert.match(prompt.system,
     /wrapper:find_relevant_code:locations[\s\S]{0,260}handler or registry line[\s\S]{0,180}callee body[\s\S]{0,180}uncovered goal/i);
   assert.match(prompt.system,
-    /wrapper:find_relevant_code:smallest_set[\s\S]{0,260}bounded useful target set[\s\S]{0,180}only, must, or exhaustive/i);
+    /wrapper:find_relevant_code:relevance[\s\S]{0,520}companion test[\s\S]{0,260}smallest, minimal, only, must, or exhaustive/i);
+  assert.doesNotMatch(prompt.system, /wrapper:find_relevant_code:smallest_set/i);
   assert.match(prompt.system,
     /wrapper:map_change_impact:risk_boundary[\s\S]{0,280}observed impact surface[\s\S]{0,180}remaining uncertainty[\s\S]{0,180}unaffected/i);
   assert.match(prompt.system,

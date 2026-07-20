@@ -622,7 +622,7 @@ function directRuntimeArgs(invocation) {
     case 'find_relevant_code': {
       const query = requireText(args.query, 'find_relevant_code.query');
       return {
-        task: `Find the code most relevant to this task and return the smallest useful read/edit targets: ${query}.`,
+        task: `Find the code most relevant to this task and return bounded useful targets: ${query}.`,
         scope: args.scope,
         taskMode: 'locate',
         hints: anchorHints(args),

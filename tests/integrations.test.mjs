@@ -64,6 +64,31 @@ test('map_change_impact task stays aligned with its four fixed goal seeds', asyn
   assert.doesNotMatch(trustRunner, staleSixPartTask);
 });
 
+test('find_relevant_code asks for a bounded useful set without claiming global minimality', async () => {
+  const server = await read('src/mcp/server.mjs');
+  const trustRunner = await read('scripts/run-trust-suite.mjs');
+  const runtime = await read('src/explorer/runtime.mjs');
+  const prompt = await read('src/explorer/prompt.mjs');
+  const schemas = await read('src/explorer/schemas.mjs');
+  const coverage = await read('src/explorer/coverage.mjs');
+  const metrics = await read('src/benchmark/effect-metrics.mjs');
+  const dataModel = await read('specs/028-trustworthy-explorer/data-model.md');
+  const expected = /return bounded useful targets/u;
+  const staleGlobalMinimum = /return the smallest useful read\/edit targets/u;
+
+  assert.match(server, expected);
+  assert.match(trustRunner, expected);
+  assert.match(runtime, expected);
+  assert.doesNotMatch(server, staleGlobalMinimum);
+  assert.doesNotMatch(trustRunner, staleGlobalMinimum);
+  assert.doesNotMatch(runtime, staleGlobalMinimum);
+  for (const activeSource of [prompt, schemas, coverage]) {
+    assert.doesNotMatch(activeSource, /smallest_set/u);
+  }
+  assert.doesNotMatch(metrics, /smallest_relevant_location_set/u);
+  assert.doesNotMatch(dataModel, /minimal target set/iu);
+});
+
 test('explain_code_path keeps runtime-owned output obligations out of the caller task', async () => {
   const server = await read('src/mcp/server.mjs');
   const trustRunner = await read('scripts/run-trust-suite.mjs');

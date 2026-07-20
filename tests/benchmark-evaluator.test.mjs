@@ -147,7 +147,7 @@ const wrapperRuntimeTest = subtest => Object.freeze({
 const EXPECTED_WRAPPER_ACCEPTANCES = Object.freeze([
   Object.freeze({
     tool: 'find_relevant_code',
-    proofPolicy: 'smallest_relevant_location_set',
+    proofPolicy: 'bounded_relevant_location_set',
     scenarioRef: 'locate-relevant-code',
     runtimeTest: wrapperRuntimeTest('find_relevant_code'),
   }),

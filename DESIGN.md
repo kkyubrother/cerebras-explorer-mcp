@@ -33,7 +33,7 @@ Registry 순서는 안정적인 계약이다.
 
 | 도구 | Positive trigger | 완료에 필요한 proof |
 | --- | --- | --- |
-| `find_relevant_code` | 구현/config/test/route 위치가 아직 불명확 | 각 위치의 relevance와 smallest useful set |
+| `find_relevant_code` | 구현/config/test/route 위치가 아직 불명확 | 각 위치의 relevance와 bounded useful target selection |
 | `trace_symbol` | 알고 있는 function/class/type/variable의 의미와 사용처 확인 | definition/meaning과 boundary 안 usage cross-check |
 | `map_change_impact` | 변경 전에 blast radius 파악 | actionable target, dependent caller/consumer, 영향받는 verification/public-contract surface, caller가 명시한 category, 남은 risk boundary |
 | `explain_code_path` | request/event/job/CLI/data flow 추적 | entry, ordered handoff, terminal effect, 각 transition의 evidence |
@@ -151,7 +151,9 @@ Planner는 명시된 요청 부분마다 독립 관찰 가능한 proof condition
 각 fixed wrapper seed는 정확히 한 goal에만 붙인다. `explain_code_path`와 `map_change_impact`에서는 한 goal에 fixed seed도 정확히 하나만 허용해 flow transition이나 impact category가 독립적으로 검증되게 한다. 같은 acceptance core를 가진 request leaf가 있으면 별도 wrapper-only goal을 만들지 않고 그 leaf에 wrapper origin을 결합한다. Proposal-time seed 결합이나 서로 다른 fixed wrapper seed를 가진 goal 사이의 `merge_duplicate`는 runtime이 거부하고 기존 bounded correction을 한 번만 허용한다.
 `explain_code_path`가 내부적으로 붙이는 task prefix는 caller request origin이 아니다. Entry, handoff, terminal effect, transition 의무는 task suffix가 아니라 runtime-owned fixed seeds로만 전달하므로 output guidance가 planner obligation으로 들어가지 않는다. Fixed flow goal은 하나의 전체 경로를 공유하며 request origin을 실제 `pathQuery` 전체 범위 하나와 fixed seed로 정규화한다. Public path wrapper의 네 fixed goal은 question, claim type, proof condition도 runtime-owned canonical contract로 바꾸며 auditor가 다시 decompose/merge/reject하지 못하게 한다. 다른 planner goal과 auditor uncovered part의 request range는 실제 `pathQuery` 구간으로만 잘라내며, generated prefix에만 걸친 항목은 버린다. 따라서 endpoint 단어를 잘게 나눈 planner origin이나 generated prefix가 새 caller obligation 또는 permanent planning gap을 만들 수 없다.
 Runtime은 initial plan과 isolated audit에서 active wrapper의 fixed seed origin이 모두 유지되는지 기계적으로 확인한다. Initial omission은 한 번의 bounded control correction 대상이며, 다시 누락되면 repository exploration 전에 fail-closed한다. Final corrected plan이 이번 revision에서 분해 또는 정제하도록 명시된 goal의 fixed origin만 빠뜨린 경우에는 그 obligation을 성공으로 간주하지 않고 `planning_incomplete` required gap으로 materialize한다. Preserved goal 변경, 이번 revision 대상이 아닌 origin 누락, malformed control은 계속 fault다.
+`find_relevant_code`의 fixed seed는 `locations`와 `relevance` 둘뿐이다. Relevance는 bounded implementation target과 change-oriented 요청에서 직접 연결이 증명된 한 companion verification target의 이유를 같은 claim에서 설명한다. 두 fixed leaf는 해당 wrapper origin만으로 이미 traceable한 원자 의무이므로 auditor가 `request:*` origin 부재만을 이유로 분해·거부·병합할 수 없고, 잘못된 구조 verdict는 동일 audit의 한 번뿐인 bounded correction 뒤 반복 시 탐색 전에 fail-closed한다. Runtime은 전역 최소 집합을 암시하는 별도 goal이나 parent 문장을 만들지 않는다. Caller가 직접 globally smallest/minimal proof를 요구하면 그 request-derived goal을 버리거나 bounded 의미로 약화하지 않고 capability blocker로 남긴다.
 `map_change_impact:dependents` fixed seed는 관측된 caller/consumer boundary를 요구할 뿐 exhaustive inventory를 뜻하지 않는다. Goal의 question/proof/constraint에 있는 강한 완전성 한정어는 그 goal의 정확한 request origin에도 있어야 하며, 없으면 한 번의 bounded control correction 뒤 반복 시 audit와 repository exploration 전에 fail-closed한다.
+`map_change_impact:risk_boundary`는 runtime-owned bounded goal contract로 정규화한다. Caller가 정확한 unaffected/no-modification proof를 요구하면 그 request origin은 fixed risk leaf에 합치지 않고 별도 `absence` goal로 보존해야 하며, 결합된 plan은 한 번 교정한 뒤 반복 시 탐색 전에 fail-closed한다. Claim synthesis 뒤에는 risk 자신이 아니라 non-risk impact leaf가 인용한 exact current source만 모아 observed path boundary를 만들고, search/git ref와 model의 confined/unaffected 문구는 verifier packet에서 제거한다. 추가 in-scope impact는 항상 unverified로 남기며 semantic verifier는 이 canonical claim을 그대로 검증한다.
 `collect_evidence`는 예외 없이 supplied task 전체를 덮는 request origin과 `wrapper:collect_evidence:verdict`를 함께 가진 하나의 `claim_verification` goal로 계획한다. Direct evidence와 counterevidence search는 별도 sibling goal이 아니라 같은 verdict의 내부 proof facet이다.
 
 | Claim type | Proof policy |
@@ -284,7 +286,9 @@ Top-level public object는 strict하고 다음 필드만 허용한다.
 
 ### 7.1 Targets
 
-Target은 `path`, `role`, `reason`을 갖고 optional line bounds와 evidence cross-reference를 가질 수 있다. Directory listing에 나타났다는 이유만으로 target이 되지 않는다. 같은 path/range는 하나로 합치고 `edit`, `test`, `config`, `read` 순서에서 가장 강한 role과 합쳐진 evidence refs만 남긴다.
+Target은 `path`, `role`, `reason`을 갖고 optional line bounds와 evidence cross-reference를 가질 수 있다. Directory listing에 나타났다는 이유만으로 target이 되지 않는다. 같은 exact path/range는 하나로 합치고 `edit`, `test`, `config`, `read` 순서에서 가장 강한 role과 합쳐진 evidence refs만 남긴다. Model target range가 verified source range와 일치하지 않아 path fallback을 쓰면 role은 `read`로 낮춘다.
+
+Edit-planning 결과가 `incomplete`여도 unaffected supported goal에서 나온 exact target은 evidence와 함께 보존한다. Goal-affecting safety limit에 걸린 claim은 projection 전에 제외하므로 stale partial target은 노출하지 않는다.
 
 ### 7.2 Evidence
 
@@ -295,6 +299,8 @@ Evidence는 discriminated union이다.
 - `absence`: complete boundary, 실제 searches, boundary-qualified claim
 
 Evidence list는 claim-cover-minimized한다. Comparison, ordered transition, independent cross-check에 필요하지 않은 중복 item은 parent에게 보내지 않는다.
+
+`map_change_impact:risk_boundary`의 model 문구는 parent에게 그대로 전달하지 않는다. Runtime은 synthesis 단계에서 current source만으로 canonical bounded claim을 만든 뒤, verifier-approved source path를 parent의 `Observed paths: ...`로 열거하고 추가 in-scope impact가 unverified임을 한 번만 밝힌다. 명시한 각 path의 evidence는 유지하되 각 evidence의 `supports`에는 그 local observed path만 넣어 aggregate caveat를 반복하지 않는다.
 
 ### 7.3 Gaps and follow-up
 

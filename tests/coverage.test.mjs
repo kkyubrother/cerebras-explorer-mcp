@@ -1780,7 +1780,7 @@ proofPolicyCoverageTest(
   const TRACE_DEFINITION_SEED = 'wrapper:trace_symbol:definition';
   const TRACE_USAGE_SEED = 'wrapper:trace_symbol:usage';
   const WRAPPER_SEEDS = new Map([
-    ['find_relevant_code', ['locations', 'relevance', 'smallest_set']],
+    ['find_relevant_code', ['locations', 'relevance']],
     ['trace_symbol', ['definition', 'usage']],
     ['map_change_impact', ['targets', 'dependents', 'requested_categories', 'risk_boundary']],
     ['explain_code_path', ['entry', 'handoffs', 'terminal_effect', 'transitions']],
@@ -1892,7 +1892,7 @@ proofPolicyCoverageTest(
 
   goalAuditTest('Spec 028 T071 — fixed wrapper seed omissions are detected mechanically', () => {
     assert.equal(typeof coverageModule.missingWrapperGoalOriginRefs, 'function');
-    const goals = ['locations', 'relevance', 'smallest_set'].map((seed, index) =>
+    const goals = ['locations', 'relevance'].map((seed, index) =>
       goalProposal({
         id: `locate-${index + 1}`,
         originRefs: [`wrapper:find_relevant_code:${seed}`],
@@ -1904,8 +1904,16 @@ proofPolicyCoverageTest(
     }), []);
     assert.deepEqual(coverageModule.missingWrapperGoalOriginRefs({
       wrapperTool: 'find_relevant_code',
-      goals: goals.slice(0, 2),
-    }), ['wrapper:find_relevant_code:smallest_set']);
+      goals: goals.slice(0, 1),
+    }), ['wrapper:find_relevant_code:relevance']);
+    const staleSeed = preflight([goalProposal({
+      id: 'stale-locate-seed',
+      originRefs: ['wrapper:find_relevant_code:smallest_set'],
+    })], { wrapperTool: 'find_relevant_code' });
+    assert.deepEqual(staleSeed.auditCandidates, []);
+    assert.ok(staleSeed.diagnostics.some(diagnostic =>
+      diagnostic.proposedGoalId === 'stale-locate-seed' &&
+      diagnostic.code === 'invalid_origin_ref'));
     assert.deepEqual(coverageModule.missingWrapperGoalOriginRefs({
       wrapperTool: 'explore_repo',
       goals: [],

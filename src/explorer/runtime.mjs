@@ -678,7 +678,7 @@ function hasEditIntent(task) {
     return false;
   }
   return /\b(fix|modify|implement|refactor|migrate|patch|edit|editing)\b/.test(text) ||
-    /\b(add|remove|update|change)\b.*\b(code|field|schema|behavior|implementation|tool|api|contract|output|input|config|metadata|dependency|dependencies|file|files|test|tests|doc|docs|readme)\b/.test(text) ||
+    /\b(add|remove|update|change|changing)\b.*\b(code|field|schema|behavior|implementation|tool|api|contract|output|input|config|metadata|dependency|dependencies|file|files|test|tests|doc|docs|readme)\b/.test(text) ||
     /수정|구현|추가|삭제|리팩터|마이그레이션|변경(해|하|되|해야|필요)/.test(text);
 }
 
@@ -1419,6 +1419,27 @@ function singleObservedLocateCompanionTest(candidate, observationById) {
   const observedTestPaths = [...testsByPath.keys()];
   if (observedTestPaths.length !== 1) return null;
   const [path] = observedTestPaths;
+  const connectedByBoundedSearch = [...observationById.values()].some(observation => {
+    if (observation?.kind !== 'search' || observation.tool !== 'repo_grep' ||
+        observation.enumerationComplete !== true || observation.errors !== 0 ||
+        observation.deniedPaths !== 0 || !Array.isArray(observation.normalizedItemAnchors)) {
+      return false;
+    }
+    const matchedPaths = new Set(observation.normalizedItemAnchors
+      .map(anchor => normalizeTargetPath(anchor?.path))
+      .filter(Boolean));
+    return matchedPaths.has(path) &&
+      [...citedImplementationPaths].some(implementationPath =>
+        matchedPaths.has(implementationPath));
+  });
+  const connectedByTestSource = (testsByPath.get(path) ?? []).some(ref => {
+    const snippet = String(observationById.get(ref)?.snippet ?? '')
+      .replaceAll('\\', '/')
+      .toLowerCase();
+    return [...citedImplementationPaths].some(implementationPath =>
+      snippet.includes(implementationPath.toLowerCase()));
+  });
+  if (!connectedByBoundedSearch && !connectedByTestSource) return null;
   return { path, evidenceRefs: testsByPath.get(path) };
 }
 
@@ -1448,11 +1469,14 @@ function singleObservedKnownTestAnchor(knownFileAnchors = [], observations = [])
 }
 
 function preserveBoundedTestPathInClaim(task, subgoal, candidate, observationById) {
-  const locateSmallestSet =
-    (subgoal?.originRefs ?? []).includes('wrapper:find_relevant_code:smallest_set');
-  if (!isNonExhaustiveDirectTestGoal(task, subgoal) && !locateSmallestSet) return candidate;
+  const locateRelevance =
+    (subgoal?.originRefs ?? []).includes('wrapper:find_relevant_code:relevance');
+  const changeOrientedLocateRelevance = locateRelevance && hasEditIntent(task);
+  if (!isNonExhaustiveDirectTestGoal(task, subgoal) && !changeOrientedLocateRelevance) {
+    return candidate;
+  }
   const citedTestPaths = [...citedCurrentTestPaths(candidate, observationById)];
-  const companion = locateSmallestSet && citedTestPaths.length === 0
+  const companion = changeOrientedLocateRelevance && citedTestPaths.length === 0
     ? singleObservedLocateCompanionTest(candidate, observationById)
     : null;
   const testPaths = citedTestPaths.length > 0
@@ -1465,34 +1489,12 @@ function preserveBoundedTestPathInClaim(task, subgoal, candidate, observationByI
   const withEvidence = companion
     ? { ...candidate, evidenceRefs: [...new Set([...candidate.evidenceRefs, ...companion.evidenceRefs])] }
     : candidate;
-  if (locateSmallestSet) {
-    const roleOrder = new Map([
-      ['implementation', 0],
-      ['test', 1],
-      ['config', 2],
-      ['documentation', 3],
-      ['fixture', 4],
-    ]);
-    const targetPaths = [...new Set(withEvidence.evidenceRefs.flatMap(ref => {
-      const observation = observationById.get(ref);
-      const sourcePath = normalizeTargetPath(observation?.path);
-      return observation?.kind === 'source' && observation.temporalRole === 'current' && sourcePath
-        ? [sourcePath]
-        : [];
-    }))].sort((left, right) =>
-      (roleOrder.get(classifySourceRole(left)) ?? 5) -
-        (roleOrder.get(classifySourceRole(right)) ?? 5) || left.localeCompare(right));
-    if (targetPaths.length >= 2 && targetPaths.includes(testPath)) {
-      return {
-        ...withEvidence,
-        text: `The smallest useful read target set is ${targetPaths.join(' and ')}.`,
-      };
-    }
-  }
   const normalizedText = candidate.text.replaceAll('\\', '/').toLowerCase();
   return normalizedText.includes(testPath.toLowerCase())
     ? withEvidence
-    : { ...withEvidence, text: `${testPath}: ${candidate.text}` };
+    : changeOrientedLocateRelevance
+      ? { ...withEvidence, text: `${candidate.text} Companion verification target: ${testPath}.` }
+      : { ...withEvidence, text: `${testPath}: ${candidate.text}` };
 }
 
 function requiresSourceBackedExhaustiveClassification(task, subgoal) {
@@ -1766,13 +1768,48 @@ function parentEvidenceProjectionKey(ref, evidence) {
     : `ref:${ref}`;
 }
 
-function parentClaimPresentationText(claim, subgoal, verdict, language) {
+function isMapRiskBoundarySubgoal(subgoal) {
+  return Array.isArray(subgoal?.originRefs) &&
+    subgoal.originRefs.includes('wrapper:map_change_impact:risk_boundary');
+}
+
+function isMapChangeImpactSubgoal(subgoal) {
+  return Array.isArray(subgoal?.originRefs) &&
+    subgoal.originRefs.some(ref => typeof ref === 'string' &&
+      ref.startsWith('wrapper:map_change_impact:'));
+}
+
+function isFindRelevanceSubgoal(subgoal) {
+  return Array.isArray(subgoal?.originRefs) &&
+    subgoal.originRefs.includes('wrapper:find_relevant_code:relevance');
+}
+
+function hasLocateGlobalityOverclaim(text) {
+  const targetNoun = String.raw`(?:targets?|sets?|locations?|files?|paths?|code)`;
+  const globalQualifier =
+    String.raw`(?:smallest|minimal|minimum|sole|exhaustive(?:ly)?|the\s+only)`;
+  return new RegExp(
+    String.raw`\b${globalQualifier}\b.{0,48}\b${targetNoun}\b|` +
+    String.raw`\b${targetNoun}\b.{0,48}\b${globalQualifier}\b|` +
+    String.raw`(?:전역|전체|완전|가장|유일|최소|오직).{0,32}(?:대상|집합|위치|파일|경로|코드)`,
+    'iu',
+  ).test(String(text ?? ''));
+}
+
+function parentClaimPresentationText(claim, subgoal, verdict, language, sourcePaths = []) {
   const text = typeof claim?.text === 'string' ? claim.text.trim() : '';
+  const korean = String(language ?? '').toLowerCase().startsWith('ko') || /[가-힣]/u.test(text);
+  if (text && isMapRiskBoundarySubgoal(subgoal)) {
+    const observedPaths = [...new Set(sourcePaths.filter(Boolean))];
+    if (observedPaths.length === 0) return '';
+    return korean
+      ? `관찰된 경로: ${observedPaths.join(', ')}. 미검증: 이 제한된 관찰 밖의 추가 범위 내 영향.`
+      : `Observed paths: ${observedPaths.join(', ')}. Unverified: additional in-scope impact beyond these bounded observations.`;
+  }
   const isCollectVerdict = subgoal?.proofPolicy === 'support_or_refute' &&
     Array.isArray(subgoal.originRefs) &&
     subgoal.originRefs.includes('wrapper:collect_evidence:verdict');
   if (!text || !isCollectVerdict) return text;
-  const korean = String(language ?? '').toLowerCase().startsWith('ko') || /[가-힣]/u.test(text);
   if (verdict?.resolution === 'refuted' &&
       !/\b(?:the\s+)?(?:claim|premise)\s+(?:is|was|has\s+been)\s+(?:false|refuted|contradicted)\b|(?:주장|전제)(?:은|는|이|가)?\s*(?:거짓|반박(?:됨|되었|됐)?)/iu.test(text)) {
     return korean ? `주장은 반박됨: ${text}` : `The claim is refuted: ${text}`;
@@ -1784,7 +1821,13 @@ function parentClaimPresentationText(claim, subgoal, verdict, language) {
   return text;
 }
 
-function buildParentEvidenceProjection({ result, semanticVerification, observations, language }) {
+function buildParentEvidenceProjection({
+  result,
+  semanticVerification,
+  observations,
+  language,
+  excludedSubgoalIds = new Set(),
+}) {
   const subgoals = semanticVerification?.taskContract?.subgoals ?? [];
   const claims = semanticVerification?.claims ?? [];
   const verdicts = semanticVerification?.semanticVerdicts ?? [];
@@ -1952,36 +1995,75 @@ function buildParentEvidenceProjection({ result, semanticVerification, observati
         }
       : null;
   };
-  const acceptedClaims = [];
-  const refsByClaimId = new Map();
+  const acceptedClaimCandidates = [];
   for (const claim of claims) {
     const subgoal = subgoalById.get(claim?.subgoalId);
     const verdict = verdictByClaimId.get(claim?.id);
     if (claim?.verdict !== 'supported' || subgoal?.state !== 'supported' ||
-        verdict?.result !== 'supported') continue;
+        verdict?.result !== 'supported' || excludedSubgoalIds.has(claim?.subgoalId)) continue;
     const refs = claimCover.evidenceRefsByClaimId.get(claim.id) ?? [];
     const projectedRefs = refs.map(ref => evidenceForClaimRef(claim, ref));
     if (refs.length === 0 || projectedRefs.some(projected => !projected) ||
-        !projectedRefs.some(projected => projected.evidence)) continue;
-    const text = parentClaimPresentationText(claim, subgoal, verdict, language);
+        !projectedRefs.some(projected => projected.evidence) ||
+        typeof claim?.text !== 'string' || !claim.text.trim()) continue;
+    if (isFindRelevanceSubgoal(subgoal) && hasLocateGlobalityOverclaim(claim.text)) {
+      continue;
+    }
+    acceptedClaimCandidates.push({ claim, subgoal, verdict, refs, projectedRefs });
+  }
+
+  const mapSourcePaths = [...new Set(acceptedClaimCandidates
+    .filter(candidate => isMapChangeImpactSubgoal(candidate.subgoal))
+    .flatMap(candidate => candidate.projectedRefs
+      .filter(projected => projected?.evidence?.kind === 'source')
+      .map(projected => projected.evidence.path)))];
+  const acceptedClaims = [];
+  const refsByClaimId = new Map();
+  for (const { claim, subgoal, verdict, refs, projectedRefs } of acceptedClaimCandidates) {
+    const sourcePaths = isMapRiskBoundarySubgoal(subgoal)
+      ? mapSourcePaths
+      : projectedRefs
+          .filter(projected => projected?.evidence?.kind === 'source')
+          .map(projected => projected.evidence.path);
+    const text = parentClaimPresentationText(
+      claim,
+      subgoal,
+      verdict,
+      language,
+      sourcePaths,
+    );
     if (!text) continue;
     acceptedClaims.push({ ...claim, text });
     refsByClaimId.set(claim.id, refs);
   }
 
   const projectedEvidence = new Map();
-  for (const claim of acceptedClaims) {
+  const evidenceClaims = [
+    ...acceptedClaims.filter(claim => !isMapRiskBoundarySubgoal(subgoalById.get(claim.subgoalId))),
+    ...acceptedClaims.filter(claim => isMapRiskBoundarySubgoal(subgoalById.get(claim.subgoalId))),
+  ];
+  for (const claim of evidenceClaims) {
     for (const ref of refsByClaimId.get(claim.id) ?? []) {
       const projected = evidenceForClaimRef(claim, ref);
       if (projected.internal) continue;
+      const subgoal = subgoalById.get(claim.subgoalId);
+      if (isMapRiskBoundarySubgoal(subgoal) && projected.evidence?.kind !== 'source') continue;
+      const korean = String(language ?? '').toLowerCase().startsWith('ko') ||
+        /[가-힣]/u.test(claim.text);
+      const supportText = isMapRiskBoundarySubgoal(subgoal) &&
+          projected.evidence?.kind === 'source'
+        ? (korean
+            ? `관찰된 경로: ${projected.evidence.path}.`
+            : `Observed path: ${projected.evidence.path}.`)
+        : claim.text.trim();
       const existing = projectedEvidence.get(projected.key);
       if (!existing) {
         projectedEvidence.set(projected.key, {
           ...projected.evidence,
-          supports: [claim.text.trim()],
+          supports: [supportText],
         });
-      } else if (!existing.supports.includes(claim.text.trim())) {
-        existing.supports.push(claim.text.trim());
+      } else if (!existing.supports.includes(supportText)) {
+        existing.supports.push(supportText);
       }
     }
   }
@@ -2034,10 +2116,11 @@ function buildParentTargets(resultTargets, evidence, targetReasonByEvidenceId) {
   for (const target of Array.isArray(resultTargets) ? resultTargets : []) {
     const targetPath = normalizeTargetPath(target?.path);
     const candidates = evidenceByPath.get(targetPath) ?? [];
-    const matching = candidates.find(item =>
+    const exactMatch = candidates.find(item =>
       Number.isInteger(target?.startLine) && Number.isInteger(target?.endLine) &&
-      target.startLine === item.startLine && target.endLine === item.endLine) ?? candidates[0];
-    add(targetPath, target?.role, matching);
+      target.startLine === item.startLine && target.endLine === item.endLine);
+    const matching = exactMatch ?? candidates[0];
+    add(targetPath, exactMatch ? target?.role : 'read', matching);
   }
   for (const item of sourceEvidence) {
     add(item.path, 'read', item);
@@ -2045,7 +2128,13 @@ function buildParentTargets(resultTargets, evidence, targetReasonByEvidenceId) {
   return targets.slice(0, 8);
 }
 
-function buildParentGaps({ requiredSubgoals, coverageGaps, unresolvedGoalIds, task }) {
+function buildParentGaps({
+  requiredSubgoals,
+  coverageGaps,
+  unresolvedGoalIds,
+  safetyLimitedSubgoalIds = new Set(),
+  task,
+}) {
   const unresolved = new Set(unresolvedGoalIds);
   const subgoalById = new Map(requiredSubgoals.map(goal => [goal?.id, goal]));
   const requestDerivedQuestion = subgoal => {
@@ -2072,6 +2161,9 @@ function buildParentGaps({ requiredSubgoals, coverageGaps, unresolvedGoalIds, ta
     .map(gap => ({
       ...gap,
       question: requestDerivedQuestion(subgoalById.get(gap?.subgoalId)),
+      reason: safetyLimitedSubgoalIds.has(gap?.subgoalId) && gap?.reason === 'missing_evidence'
+        ? 'safety_limit_reached'
+        : gap?.reason,
     }))
     .slice()
     .sort((left, right) => {
@@ -2086,7 +2178,9 @@ function buildParentGaps({ requiredSubgoals, coverageGaps, unresolvedGoalIds, ta
       id: `parent-gap:${subgoal.id}`,
       subgoalId: subgoal.id,
       question: requestDerivedQuestion(subgoal),
-      reason: 'missing_evidence',
+      reason: safetyLimitedSubgoalIds.has(subgoal.id)
+        ? 'safety_limit_reached'
+        : 'missing_evidence',
       repairable: false,
       priority: Number.MAX_SAFE_INTEGER - requiredSubgoals.length + index,
       attemptedActionFingerprints: [],
@@ -2157,11 +2251,17 @@ function buildParentHandoffProjection({
     return { handoff: failed, acceptedClaimIds: [], projectionGapGoalIds: [] };
   }
 
+  const excludedSubgoalIds = new Set((Array.isArray(safetyLimits) ? safetyLimits : [])
+    .flatMap(limit => Array.isArray(limit?.affectedSubgoalIds)
+      ? limit.affectedSubgoalIds
+      : [])
+    .filter(subgoalId => typeof subgoalId === 'string' && subgoalId));
   const projection = buildParentEvidenceProjection({
     result,
     semanticVerification,
     observations,
     language,
+    excludedSubgoalIds,
   });
   const acceptedClaimIds = new Set(projection.acceptedClaims.map(claim => claim.id));
   const supportedClaimsByGoal = new Map();
@@ -2211,6 +2311,7 @@ function buildParentHandoffProjection({
   if (directAnswer) handoff.directAnswer = directAnswer;
 
   const includeTargets = state === 'verify_targets' ||
+    (state === 'incomplete' && editIntent && candidateTargets.length > 0) ||
     (state === 'complete' && isSimpleCompletionMode({ taskMode, task }));
   const targets = includeTargets ? candidateTargets : [];
   if (targets.length > 0) handoff.targets = targets;
@@ -2221,6 +2322,7 @@ function buildParentHandoffProjection({
       requiredSubgoals,
       coverageGaps,
       unresolvedGoalIds,
+      safetyLimitedSubgoalIds: excludedSubgoalIds,
       task,
     });
     handoff.gaps = gaps.gaps;
@@ -2598,6 +2700,50 @@ function normalizeCrossBatchClaimIds(value, usedClaimIds, priorClaimById) {
   return normalized ? { ...value, claims } : value;
 }
 
+function normalizeMapRiskBoundaryClaims(claims, subgoalById, observationById) {
+  const mapClaims = claims.filter(claim =>
+    isMapChangeImpactSubgoal(subgoalById.get(claim.subgoalId)));
+  const canonicalRiskClaims = mapClaims.filter(claim => {
+    const subgoal = subgoalById.get(claim.subgoalId);
+    return isMapRiskBoundarySubgoal(subgoal) &&
+      subgoal.question === MAP_RISK_BOUNDARY_GOAL_CONTRACT.question &&
+      subgoal.proofCondition === MAP_RISK_BOUNDARY_GOAL_CONTRACT.proofCondition;
+  });
+  if (canonicalRiskClaims.length === 0) return claims;
+
+  const nonRiskClaims = mapClaims.filter(claim =>
+    !isMapRiskBoundarySubgoal(subgoalById.get(claim.subgoalId)));
+  const sourceEvidenceRefs = [...new Set(nonRiskClaims.flatMap(claim =>
+    claim.evidenceRefs.filter(ref => {
+      const observation = observationById.get(ref);
+      return observation?.kind === 'source' &&
+        observation.temporalRole === 'current' &&
+        observation.rangeGrounding === 'exact' &&
+        typeof observation.path === 'string' && observation.path.length > 0;
+    })))];
+  if (sourceEvidenceRefs.length === 0) return claims;
+  const observedPaths = [...new Set(sourceEvidenceRefs
+    .map(ref => observationById.get(ref)?.path)
+    .filter(Boolean))];
+  const text = `Observed impact paths: ${observedPaths.join(', ')}. ` +
+    'Unverified: additional in-scope impact beyond these bounded observations.';
+  const canonicalRiskIds = new Set(canonicalRiskClaims.map(claim => claim.id));
+  return claims.map(claim => canonicalRiskIds.has(claim.id)
+    ? { ...claim, text, evidenceRefs: sourceEvidenceRefs }
+    : claim);
+}
+
+const STRUCTURED_IMPACT_CATEGORY_ROLES = new Set([
+  'test', 'documentation', 'config', 'fixture',
+]);
+
+function isStructuredOutputImpactCategorySubgoal(task, subgoal) {
+  return Array.isArray(subgoal?.originRefs) &&
+    subgoal.originRefs.includes('wrapper:map_change_impact:requested_categories') &&
+    /\bstructured\s+(?:output|response)|structuredContent|output\s+contract/iu
+      .test(`${task ?? ''} ${subgoal.question ?? ''} ${subgoal.proofCondition ?? ''}`);
+}
+
 function validateSynthesizedClaimBatch(raw, {
   taskContract,
   observationIds,
@@ -2706,14 +2852,9 @@ function validateSynthesizedClaimBatch(raw, {
   const incompleteStructuredOutputRelevanceSubgoalIds = new Set();
   const incompleteStructuredImpactCategorySubgoalIds = new Set();
   const missingStructuredImpactCategoryClaimSubgoalIds = new Set();
-  const structuredImpactCategoryRoles = new Set([
-    'test', 'documentation', 'config', 'fixture',
-  ]);
   const structuredImpactCategorySubgoalIds = new Set(taskContract.subgoals
-    .filter(subgoal => Array.isArray(subgoal?.originRefs) &&
-      subgoal.originRefs.includes('wrapper:map_change_impact:requested_categories') &&
-      /\bstructured\s+(?:output|response)|structuredContent|output\s+contract/iu
-        .test(`${taskContract.task ?? ''} ${subgoal.question ?? ''} ${subgoal.proofCondition ?? ''}`))
+    .filter(subgoal =>
+      isStructuredOutputImpactCategorySubgoal(taskContract.task, subgoal))
     .map(subgoal => subgoal.id));
   const knownTestAnchorSubgoalId = typeof knownTestAnchor?.subgoalId === 'string'
     ? knownTestAnchor.subgoalId
@@ -2723,7 +2864,7 @@ function validateSynthesizedClaimBatch(raw, {
     ? knownTestAnchor.evidenceRefs
     : [];
   const knownTestAnchorEvidenceRefSet = new Set(knownTestAnchorEvidenceRefs);
-  const claims = candidateClaims.map((candidate, index) => {
+  let claims = candidateClaims.map((candidate, index) => {
     if (!subgoalIds.has(candidate.subgoalId)) {
       throw new TypeError(`Claim synthesis returned an out-of-batch sub-goal: ${candidate.subgoalId}.`);
     }
@@ -2778,8 +2919,9 @@ function validateSynthesizedClaimBatch(raw, {
     if (structuredImpactCategorySubgoalIds.has(candidate.subgoalId)) {
       const requiredRefs = observations
         .filter(observation => observation?.kind === 'source' &&
-          structuredImpactCategoryRoles.has(observation.sourceRole) &&
-          observation.temporalRole === 'current')
+          STRUCTURED_IMPACT_CATEGORY_ROLES.has(observation.sourceRole) &&
+          observation.temporalRole === 'current' &&
+          observation.rangeGrounding === 'exact')
         .map(observation => observation.id);
       const citedRefs = new Set(candidate.evidenceRefs);
       if (requiredRefs.some(ref => !citedRefs.has(ref))) {
@@ -2794,6 +2936,7 @@ function validateSynthesizedClaimBatch(raw, {
       observationById,
     ));
   });
+  claims = normalizeMapRiskBoundaryClaims(claims, subgoalById, observationById);
   const claimCountBySubgoal = new Map();
   for (const claim of claims) {
     const count = (claimCountBySubgoal.get(claim.subgoalId) ?? 0) + 1;
@@ -2805,7 +2948,8 @@ function validateSynthesizedClaimBatch(raw, {
   }
   const selectedImpactCategorySources = observations.filter(observation =>
     observation?.kind === 'source' && observation.temporalRole === 'current' &&
-    structuredImpactCategoryRoles.has(observation.sourceRole));
+    observation.rangeGrounding === 'exact' &&
+    STRUCTURED_IMPACT_CATEGORY_ROLES.has(observation.sourceRole));
   if (selectedImpactCategorySources.length > 0) {
     for (const subgoalId of structuredImpactCategorySubgoalIds) {
       if (!claimCountBySubgoal.has(subgoalId)) {
@@ -2917,6 +3061,8 @@ function validateSemanticVerdictBatch(raw, {
   claims,
   wrapperTool = 'explore_repo',
   quarantineOutOfClaimEvidence = false,
+  requiredSupportingEvidenceRefsByClaimId = new Map(),
+  quarantineMissingRequiredEvidence = false,
 }) {
   const normalizedRaw = raw && typeof raw === 'object' && !Array.isArray(raw)
     ? {
@@ -2970,6 +3116,30 @@ function validateSemanticVerdictBatch(raw, {
       verdictByClaim.set(verdict.claimId, quarantined);
       continue;
     }
+    const requiredSupportingRefs =
+      requiredSupportingEvidenceRefsByClaimId.get(verdict.claimId) ?? [];
+    const supportingRefSet = new Set(verdict.supportingEvidenceRefs);
+    const missingRequiredRefs = verdict.result === 'supported'
+      ? requiredSupportingRefs.filter(ref => !supportingRefSet.has(ref))
+      : [];
+    if (missingRequiredRefs.length > 0 && !quarantineMissingRequiredEvidence) {
+      throw new TypeError(
+        `Semantic verifier omitted runtime-selected current category evidence for ` +
+        `${verdict.claimId}: missing=[${missingRequiredRefs.join(',')}]. ` +
+        'Support every directly named category source or return insufficient.',
+      );
+    }
+    if (missingRequiredRefs.length > 0) {
+      const quarantined = {
+        ...verdict,
+        result: 'insufficient',
+        reasonCode: 'semantic_mismatch',
+        note: 'The verifier did not support every runtime-selected current category source.',
+      };
+      delete quarantined.resolution;
+      verdictByClaim.set(verdict.claimId, quarantined);
+      continue;
+    }
     verdictByClaim.set(verdict.claimId, verdict);
   }
   if (verdictByClaim.size !== claims.length) {
@@ -2995,6 +3165,84 @@ function validateSemanticVerdictBatch(raw, {
     verdicts: orderedVerdicts,
     uncoveredRequestParts: response.uncoveredRequestParts,
   };
+}
+
+function requiredStructuredImpactCategoryEvidenceRefs({
+  taskContract,
+  subgoals,
+  claims,
+  observations,
+}) {
+  const subgoalById = new Map(subgoals.map(subgoal => [subgoal.id, subgoal]));
+  const observationById = new Map(observations.map(observation => [
+    observation.id,
+    observation,
+  ]));
+  return new Map(claims.flatMap(claim => {
+    const subgoal = subgoalById.get(claim.subgoalId);
+    if (!isStructuredOutputImpactCategorySubgoal(taskContract.task, subgoal)) return [];
+    const refs = claim.evidenceRefs.filter(ref => {
+      const observation = observationById.get(ref);
+      return observation?.kind === 'source' &&
+        observation.temporalRole === 'current' &&
+        observation.rangeGrounding === 'exact' &&
+        STRUCTURED_IMPACT_CATEGORY_ROLES.has(observation.sourceRole);
+    });
+    return refs.length > 0 ? [[claim.id, refs]] : [];
+  }));
+}
+
+function restrictMapRiskBoundaryVerdicts({
+  wrapperTool,
+  subgoals,
+  claims,
+  verdicts,
+  observations,
+}) {
+  if (wrapperTool !== 'map_change_impact') return verdicts;
+  const subgoalById = new Map(subgoals.map(subgoal => [subgoal.id, subgoal]));
+  const verdictByClaimId = new Map(verdicts.map(verdict => [verdict.claimId, verdict]));
+  const observationById = new Map(observations.map(observation => [
+    observation.id,
+    observation,
+  ]));
+  const supportedSiblingRefs = new Set(claims.flatMap(claim => {
+    const subgoal = subgoalById.get(claim.subgoalId);
+    const verdict = verdictByClaimId.get(claim.id);
+    if (!isMapChangeImpactSubgoal(subgoal) || isMapRiskBoundarySubgoal(subgoal) ||
+        verdict?.result !== 'supported') {
+      return [];
+    }
+    const verifierRefs = new Set(verdict.supportingEvidenceRefs);
+    return claim.evidenceRefs.filter(ref => {
+      const observation = observationById.get(ref);
+      return verifierRefs.has(ref) &&
+        observation?.kind === 'source' &&
+        observation.temporalRole === 'current' &&
+        observation.rangeGrounding === 'exact';
+    });
+  }));
+  return verdicts.map(verdict => {
+    const claim = claims.find(candidate => candidate.id === verdict.claimId);
+    const subgoal = subgoalById.get(claim?.subgoalId);
+    if (!isMapRiskBoundarySubgoal(subgoal) || verdict.result !== 'supported') {
+      return verdict;
+    }
+    const supportingEvidenceRefs = verdict.supportingEvidenceRefs
+      .filter(ref => supportedSiblingRefs.has(ref));
+    if (supportingEvidenceRefs.length > 0) {
+      return { ...verdict, supportingEvidenceRefs };
+    }
+    const insufficient = {
+      ...verdict,
+      result: 'insufficient',
+      supportingEvidenceRefs: [],
+      reasonCode: 'semantic_mismatch',
+      note: 'No verifier-supported non-risk impact source remained for the risk boundary.',
+    };
+    delete insufficient.resolution;
+    return insufficient;
+  });
 }
 
 function validateFocusedSemanticVerdictBatch(raw, {
@@ -3590,7 +3838,10 @@ function certifiedLocateCompanionTestPath({
   observations,
   wrapperTool,
 }) {
-  if (wrapperTool !== 'find_relevant_code' || claims.length === 0) return null;
+  if (wrapperTool !== 'find_relevant_code' || claims.length === 0 ||
+      !hasEditIntent(taskContract?.task)) {
+    return null;
+  }
   const observationById = new Map(observations.map(observation => [
     observation?.id,
     observation,
@@ -3631,7 +3882,7 @@ function certifiedLocateCompanionTestPath({
   return candidates.size === 1 ? [...candidates][0] : null;
 }
 
-function omitIncompleteLocateSmallestSetClaim({
+function omitIncompleteLocateRelevanceClaim({
   taskContract,
   claims,
   observations,
@@ -3642,17 +3893,17 @@ function omitIncompleteLocateSmallestSetClaim({
     subgoal.id,
     subgoal,
   ]));
-  const smallestSetClaims = claims.filter(claim =>
-    subgoalHasWrapperPart(subgoalById.get(claim.subgoalId), wrapperTool, 'smallest_set'));
-  if (smallestSetClaims.length !== 1 || !certifiedLocateCompanionTestPath({
+  const relevanceClaims = claims.filter(claim =>
+    subgoalHasWrapperPart(subgoalById.get(claim.subgoalId), wrapperTool, 'relevance'));
+  if (relevanceClaims.length !== 1 || !certifiedLocateCompanionTestPath({
     taskContract,
-    claims: smallestSetClaims,
+    claims: relevanceClaims,
     observations,
     wrapperTool,
   })) {
     return claims;
   }
-  return claims.filter(claim => claim !== smallestSetClaims[0]);
+  return claims.filter(claim => claim !== relevanceClaims[0]);
 }
 
 function runtimeRoleRequirement(subgoal, policyArtifacts = {}) {
@@ -4331,7 +4582,7 @@ function buildEvidenceRepairMessages({
           ? ['This collect_evidence gap already has direct evidence. Call repo_grep exactly once for a plausible disconfirming exception, bypass, or alternative over the full immutable scope; do not request another source read.']
           : []),
         ...(locateCompanionReadPath
-          ? ['This find_relevant_code smallest-set gap has one certified companion test candidate. Call repo_read_file exactly once for the supplied candidate path; do not search or read another path.']
+          ? ['This find_relevant_code relevance gap has one certified companion test candidate. Call repo_read_file exactly once for the supplied candidate path; do not search or read another path.']
           : []),
         'For bounded_usage_cross_check, obtain exact usage source plus a complete search over the immutable scope.',
         'For ordered_handoffs, read the smallest missing adjacent transition or terminal source range.',
@@ -4420,7 +4671,7 @@ function locateCompanionReadPathForRepair({
   if (!subgoalHasWrapperPart(
     subgoalById.get(gaps[0].subgoalId),
     wrapperTool,
-    'smallest_set',
+    'relevance',
   )) {
     return null;
   }
@@ -5072,6 +5323,7 @@ function restoreCanonicalPlannerOrigins({ task, wrapperTool, goals }) {
 
 function requireCanonicalPlannerPolicy({ task, wrapperTool, goals }) {
   requireIndependentFixedWrapperSeedGoals({ wrapperTool, goals });
+  const findGoalIds = canonicalFindRelevantGoalIds({ wrapperTool, goals });
   const pipelineGoalIds = requireCanonicalPipelineMapOrigins({ task, wrapperTool, goals });
   const accessGoalIds = requireCanonicalAccessPolicyOrigins({ task, wrapperTool, goals });
   const invocationGoalIds = requireCanonicalInvocationClassificationOrigins({
@@ -5087,6 +5339,7 @@ function requireCanonicalPlannerPolicy({ task, wrapperTool, goals }) {
   return {
     goals,
     independentGoalIds: [...new Set([
+      ...findGoalIds,
       ...pipelineGoalIds,
       ...accessGoalIds,
       ...invocationGoalIds,
@@ -5096,8 +5349,17 @@ function requireCanonicalPlannerPolicy({ task, wrapperTool, goals }) {
   };
 }
 
+function canonicalFindRelevantGoalIds({ wrapperTool, goals }) {
+  if (wrapperTool !== 'find_relevant_code') return [];
+  return goals
+    .filter(goal => fixedWrapperOrigins(goal, wrapperTool).length === 1)
+    .map(goal => goal.id);
+}
+
 function requireIndependentFixedWrapperSeedGoals({ wrapperTool, goals }) {
-  if (!['explain_code_path', 'map_change_impact'].includes(wrapperTool)) return;
+  if (!['find_relevant_code', 'explain_code_path', 'map_change_impact'].includes(wrapperTool)) {
+    return;
+  }
   const ownerByOrigin = new Map();
   for (const goal of goals) {
     const origins = fixedWrapperOrigins(goal, wrapperTool);
@@ -5124,7 +5386,8 @@ function requireCanonicalGoalAudit(response, canonicalGoalIds = []) {
     ['needs_decomposition', 'reject_untraceable', 'merge_duplicate'].includes(record.verdict));
   if (invalid) {
     throw new TypeError(
-      'Validated atomic leaves must be audited directly without decomposition, rejection, or merge.',
+      'Validated atomic leaves must be audited directly without decomposition, rejection, or merge. ' +
+      'A fixed wrapper-only leaf does not require an additional request origin.',
     );
   }
 }
@@ -6557,7 +6820,7 @@ export function buildSourceClaimCheckToolPolicy({
 const MAP_CHANGE_WRAPPER_TASK_PREFIX =
   'Map the likely impact of this intended change before editing:';
 const FIND_RELEVANT_WRAPPER_TASK_PREFIX =
-  'Find the code most relevant to this task and return the smallest useful read/edit targets:';
+  'Find the code most relevant to this task and return bounded useful targets:';
 const TRACE_SYMBOL_WRAPPER_TASK_PREFIX = 'Explain the symbol "';
 const EXPLAIN_CODE_PATH_WRAPPER_TASK_PREFIX =
   'Explain this code path across files with grounded citations:';
@@ -6579,6 +6842,17 @@ const EXPLAIN_CODE_PATH_GOAL_CONTRACTS = Object.freeze({
     proofCondition: 'Observe the ordered control or data transition across every bounded adjacent handoff from origin to endpoint.',
   }),
 });
+const MAP_RISK_BOUNDARY_GOAL_CONTRACT = Object.freeze({
+  question:
+    'Which current repository paths form the observed impact boundary, and what additional in-scope impact remains unverified?',
+  proofCondition:
+    'Cite the current source paths used for the observed impact surfaces and preserve any additional in-scope impact beyond those bounded observations as unverified.',
+});
+
+function requestsExactUnaffectedMapProof(task, goal) {
+  return /\bunaffected\b|\b(?:needs?|requires?)\s+no\s+(?:change|modification)\b|\bdoes\s+not\s+(?:need|require)\s+(?:a\s+)?(?:change|modification)\b|영향(?:이|은|는)?\s*없|수정(?:이|은|는)?\s*(?:불필요|필요\s*없)/iu
+    .test(requestTextForSubgoal(task, goal));
+}
 
 function isGeneratedPathWrapperTask(task, wrapperTool) {
   const prefix = `${EXPLAIN_CODE_PATH_WRAPPER_TASK_PREFIX} `;
@@ -6642,6 +6916,29 @@ function normalizeGeneratedPathGoalContracts({ task, wrapperTool, goals }) {
           proofCondition: contract.proofCondition,
         }
       : goal;
+  });
+}
+
+function normalizeMapRiskBoundaryGoalContract({ task, wrapperTool, goals }) {
+  if (wrapperTool !== 'map_change_impact') return goals;
+  return goals.map(goal => {
+    if (!fixedWrapperOrigins(goal, wrapperTool)
+      .includes('wrapper:map_change_impact:risk_boundary')) {
+      return goal;
+    }
+    if (requestsExactUnaffectedMapProof(task, goal)) {
+      throw new TypeError(
+        'An exact unaffected or no-modification request cannot be merged into the bounded ' +
+        'map risk-boundary leaf. Keep risk_boundary wrapper-only and preserve the caller request ' +
+        'as a separate request-derived absence goal.',
+      );
+    }
+    return {
+      ...goal,
+      question: MAP_RISK_BOUNDARY_GOAL_CONTRACT.question,
+      claimType: 'impact',
+      proofCondition: MAP_RISK_BOUNDARY_GOAL_CONTRACT.proofCondition,
+    };
   });
 }
 
@@ -7193,7 +7490,7 @@ export function buildLocateToolPolicy({
     return {
       tools: [],
       parallelToolCalls: false,
-      instruction: 'The bounded location candidate reads are complete. Finalize now and preserve every verified companion path in the smallest-set claim.',
+      instruction: 'The bounded location candidate reads are complete. Finalize now and preserve every verified companion path in the relevance claim.',
     };
   }
   const candidateSummary = candidates.map(candidate =>
@@ -8484,7 +8781,7 @@ export class ExplorerRuntime {
         wrapperTool,
         knownSymbolAnchors,
       });
-      const locateBoundBatchClaims = omitIncompleteLocateSmallestSetClaim({
+      const locateBoundBatchClaims = omitIncompleteLocateRelevanceClaim({
         taskContract: batchContract,
         claims: usageBoundBatchClaims,
         observations: safeObservations,
@@ -8539,6 +8836,12 @@ export class ExplorerRuntime {
         subgoalIds.has(count.subgoalId));
       const batchFreshEvidenceRefs = freshEvidenceRefs.filter(ref =>
         batchClaims.some(claim => claim.evidenceRefs.includes(ref)));
+      const requiredCategoryEvidenceRefs = requiredStructuredImpactCategoryEvidenceRefs({
+        taskContract: candidateContract,
+        subgoals: subgoalBatch,
+        claims: batchClaims,
+        observations: batchObservations,
+      });
       let verified = await requestValidatedGoalControl({
         chatClient,
         messages: buildSemanticVerifierMessages({
@@ -8562,6 +8865,7 @@ export class ExplorerRuntime {
         validate: raw => validateSemanticVerdictBatch(raw, {
           claims: batchClaims,
           wrapperTool,
+          requiredSupportingEvidenceRefsByClaimId: requiredCategoryEvidenceRefs,
         }),
         recoverFinalValidation: ({ parsed }) => ({
           accepted: true,
@@ -8569,6 +8873,8 @@ export class ExplorerRuntime {
             claims: batchClaims,
             wrapperTool,
             quarantineOutOfClaimEvidence: true,
+            requiredSupportingEvidenceRefsByClaimId: requiredCategoryEvidenceRefs,
+            quarantineMissingRequiredEvidence: true,
           }),
         }),
       });
@@ -8806,6 +9112,23 @@ export class ExplorerRuntime {
       uncoveredRequestParts.push(...verified.uncoveredRequestParts);
     }
 
+    const restrictedMapRiskVerdicts = restrictMapRiskBoundaryVerdicts({
+      wrapperTool,
+      subgoals: candidateSubgoals,
+      claims,
+      verdicts: verificationBatches.flatMap(batch => batch.verified.verdicts),
+      observations: safeObservations,
+    });
+    const restrictedMapRiskVerdictById = new Map(restrictedMapRiskVerdicts
+      .map(verdict => [verdict.claimId, verdict]));
+    for (const batch of verificationBatches) {
+      batch.verified = {
+        ...batch.verified,
+        verdicts: batch.verified.verdicts.map(verdict =>
+          restrictedMapRiskVerdictById.get(verdict.claimId) ?? verdict),
+      };
+    }
+
     const wrapperPolicyArtifacts = buildRuntimeWrapperPolicyArtifacts({
       wrapperTool,
       subgoals: candidateSubgoals,
@@ -9009,10 +9332,15 @@ export class ExplorerRuntime {
           wrapperTool,
           goals: normalized.goals,
         });
-        const normalizedGoals = normalizeGeneratedPathGoalContracts({
+        const generatedPathGoals = normalizeGeneratedPathGoalContracts({
           task,
           wrapperTool,
           goals: normalizedOrigins,
+        });
+        const normalizedGoals = normalizeMapRiskBoundaryGoalContract({
+          task,
+          wrapperTool,
+          goals: generatedPathGoals,
         });
         if (recoverablePlannerControl === null) {
           const restoredGoals = restoreCanonicalPlannerOrigins({
@@ -9335,6 +9663,10 @@ export class ExplorerRuntime {
       throw invalidGoalControl('goal_audit', new TypeError('No requested obligations survived goal audit.'));
     }
     try {
+      requireIndependentFixedWrapperSeedGoals({
+        wrapperTool,
+        goals: finalReduction.requiredSubgoals,
+      });
       requireCompleteWrapperGoalOrigins({
         wrapperTool,
         goals: finalReduction.requiredSubgoals,

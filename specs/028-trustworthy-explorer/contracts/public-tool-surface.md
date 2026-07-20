@@ -28,7 +28,7 @@ The initialization instructions contain this short rule once. Individual tool de
 
 | Tool | Positive trigger | Distinct internal proof policy | Boundary |
 |---|---|---|---|
-| `find_relevant_code` | Locate unknown implementation/config/test/route positions. | Prove relevance and return the smallest useful location set; not repository completeness. | Do not use when the exact location is already known. |
+| `find_relevant_code` | Locate unknown implementation/config/test/route positions. | Prove why each bounded implementation target is relevant and include a companion verification target only for a change-oriented request with a directly observed connection; not repository completeness. | Do not use when the exact location is already known. |
 | `trace_symbol` | Explain a known function/class/type/variable and its usages. | Definition/meaning plus independent usage cross-check within the effective boundary. | Unknown symbol discovery belongs to locate/fallback. |
 | `map_change_impact` | Identify blast radius before a planned change. | Cover actionable edit/read targets and requested dependency/test/config/docs categories; missing categories are gaps. | Not for a one-line known-file edit. |
 | `explain_code_path` | Trace a request/event/job/CLI/data flow. | Ordered entry, every handoff, and terminal effect; a missing transition blocks completion. | Static single-symbol usage belongs to symbol trace. |

@@ -645,7 +645,7 @@
     "wrapperAcceptances": [
       {
         "tool": "find_relevant_code",
-        "proofPolicy": "smallest_relevant_location_set",
+        "proofPolicy": "bounded_relevant_location_set",
         "scenarioRef": "locate-relevant-code",
         "runtimeTest": {
           "path": "tests/runtime.mock.test.mjs",

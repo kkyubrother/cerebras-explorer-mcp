@@ -69,6 +69,8 @@ There is no separate `complete` boolean. `complete` and `verify_targets` mean in
 - Do not return targets that merely appeared in directory/find/git output.
 - Deduplicate the same path/range/action.
 - A `complete` answer should normally omit targets unless the user explicitly requested locations.
+- An `incomplete` edit-planning result may retain exact targets derived from supported partial claims. Claims affected by a goal-local safety limit contribute no answer, evidence, or target.
+- A model target role is retained only for an exact verified source range. Path-only fallback from a mismatched range is downgraded to `read`.
 
 ## Evidence
 
@@ -128,6 +130,8 @@ Evidence is a discriminated union.
 - Raw counters, candidate files, ignored secret paths, and tool traces stay internal.
 
 The evidence list is claim-cover-minimized: retain one direct item per claim where possible, but retain one verifier-approved item for every distinct source path explicitly named by an accepted claim. Comparisons, ordered transitions, and independent cross-checks retain their required proof parts. Every `complete` or `verify_targets` result contains at least one evidence item; an `incomplete` result contains evidence whenever it surfaces supported partial claims.
+
+For `map_change_impact`, the runtime replaces free-form risk-boundary prose with one parent-visible sentence that lists the verifier-approved observed source paths and marks additional in-scope impact as unverified. Every named path retains direct evidence; evidence-local `supports` text does not repeat the aggregate caveat.
 
 ## Gap and follow-up
 

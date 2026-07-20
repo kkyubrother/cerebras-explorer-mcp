@@ -85,7 +85,7 @@ const SAFETY_LIMIT_STAGES = new Set([
 ]);
 
 const WRAPPER_GOAL_SEEDS = Object.freeze({
-  find_relevant_code: Object.freeze(['locations', 'relevance', 'smallest_set']),
+  find_relevant_code: Object.freeze(['locations', 'relevance']),
   trace_symbol: Object.freeze(['definition', 'usage']),
   map_change_impact: Object.freeze([
     'targets',
@@ -1010,6 +1010,34 @@ function hasUnentailedMapDependentCompleteness(proposal, task, wrapperTool) {
   return !requestText.some(hasDependentCompletenessQualifier);
 }
 
+function hasGlobalMinimumTargetRequirement(text) {
+  const targetNoun = String.raw`(?:targets?|sets?|locations?|files?|paths?|code)`;
+  const globalMinimum =
+    String.raw`(?:(?:globally|global|absolute(?:ly)?|provably)\s+` +
+    String.raw`(?:smallest|minimal|minimum|optimal)|smallest\s+possible)`;
+  return new RegExp(
+    String.raw`\b${globalMinimum}\b.{0,48}\b${targetNoun}\b|` +
+    String.raw`\b${targetNoun}\b.{0,48}\b${globalMinimum}\b|` +
+    String.raw`(?:전역|전체|절대|증명).{0,24}(?:최소|가장\s*작|최적).{0,24}` +
+    String.raw`(?:대상|집합|위치|파일|경로|코드)`,
+    'iu',
+  ).test(String(text ?? ''));
+}
+
+function requiresUncertifiableLocateGlobalMinimum(proposal, task, wrapperTool) {
+  if (wrapperTool !== 'find_relevant_code' ||
+      !hasGlobalMinimumTargetRequirement(task)) {
+    return false;
+  }
+  const proposalText = [
+    proposal?.question,
+    proposal?.proofCondition,
+    ...(Array.isArray(proposal?.constraints) ? proposal.constraints : []),
+  ].join(' ');
+  return hasGlobalMinimumTargetRequirement(proposalText) ||
+    proposal?.originRefs?.includes('wrapper:find_relevant_code:relevance');
+}
+
 function proposalShapeError(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return 'expected an object';
   if ([...Object.keys(value)].some(key => !PLANNER_GOAL_KEYS.has(key))) {
@@ -1373,6 +1401,24 @@ export function reduceGoalAudit(input) {
       originRefs: uniqueStrings(memberIds.flatMap(id => recordById.get(id).originRefs)),
       constraints: uniqueStrings(memberIds.flatMap(id => proposalById.get(id).constraints)),
     };
+
+    if (requiresUncertifiableLocateGlobalMinimum(
+      merged,
+      preflight.task,
+      preflight.wrapperTool,
+    )) {
+      const blocked = materializeBlockedGoal(
+        merged,
+        'blocked_capability',
+        BLOCKER_GAP_REASON.blocked_capability,
+        groupOrder,
+        usedIds,
+      );
+      requiredSubgoals.push(blocked.required);
+      gaps.push(blocked.gap);
+      groupOrder += 1;
+      continue;
+    }
 
     if (record.verdict === 'reject_untraceable') {
       if (memberIds.length > 1) {

@@ -813,7 +813,7 @@ const PROOF_POLICIES = Object.freeze(Object.values(CLAIM_TYPE_TO_PROOF_POLICY));
 const GOAL_AUDIT_BINDING_DOMAIN = 'required-subgoal-audit-binding-v1';
 
 const WRAPPER_GOAL_SEEDS = Object.freeze({
-  find_relevant_code: Object.freeze(['locations', 'relevance', 'smallest_set']),
+  find_relevant_code: Object.freeze(['locations', 'relevance']),
   trace_symbol: Object.freeze(['definition', 'usage']),
   map_change_impact: Object.freeze([
     'targets',

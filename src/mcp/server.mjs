@@ -317,7 +317,7 @@ function buildFindRelevantCodeArgs(args) {
   if (!query || typeof query !== 'string' || !query.trim()) {
     throw makeInvalidArgsError('find_relevant_code requires a non-empty "query" argument.');
   }
-  const task = `Find the code most relevant to this task and return the smallest useful read/edit targets: ${query.trim()}.`;
+  const task = `Find the code most relevant to this task and return bounded useful targets: ${query.trim()}.`;
   return {
     task,
     repo_root,

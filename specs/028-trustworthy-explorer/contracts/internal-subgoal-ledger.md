@@ -78,12 +78,14 @@ Only audited/blocked required goals enter the ledger. Runtime seals each accepte
 
 | Wrapper | Required seed |
 |---|---|
-| `find_relevant_code` | relevant locations; why each location is relevant; smallest useful set |
+| `find_relevant_code` | relevant locations; why each bounded implementation target matters and, for change-oriented requests only, why one directly connected companion verification target matters |
 | `trace_symbol` | definition/meaning; usage or explicit bounded no-usage result |
 | `map_change_impact` | edit/read targets; dependent callers/consumers; requested tests/config/docs categories; unresolved risk boundary |
 | `explain_code_path` | entry point; ordered handoffs; terminal effect; every transition supported |
 | `collect_evidence` | exactly one full-task-bound `claim_verification` verdict goal; direct semantic evidence and relevant counterevidence search are internal proof facets, not sibling goals |
 | `explore_repo` | no fixed seed beyond request-complete decomposition |
+
+The map risk-boundary leaf always uses a runtime-owned bounded contract. An explicit exact unaffected or no-modification request remains a separate request-derived absence goal instead of being weakened or merged into that fixed leaf. Before semantic verification, runtime derives the bounded risk claim only from exact current source refs cited by non-risk map leaves, removes search/git refs and global unaffected language, and preserves additional in-scope impact as unverified.
 
 ## Runtime updates
 

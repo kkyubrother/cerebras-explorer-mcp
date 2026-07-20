@@ -30,7 +30,7 @@ npm test
 - Bounded absence/count proof와 truncation 처리
 - One-round evidence repair와 repeated-action 억제
 - `complete`, `verify_targets`, `incomplete`, `failed` state reduction
-- Parent target의 path/range deduplication과 strongest-role 보존
+- Parent target의 exact path/range deduplication, strongest-role 보존, mismatched-range role downgrade, incomplete partial-target safety
 - Scope hard boundary와 git diff/show/stat filtering
 - Request id `0`을 포함한 cancellation
 - Fixed safety-limit observation과 affected-goal attribution
@@ -126,7 +126,7 @@ Parent에게 tool 이름 없이 repository 질문을 줍니다.
 기대:
 
 - Parent가 `directAnswer`와 `evidence`를 사용
-- `state=verify_targets`일 때만 named `targets`를 읽고 편집 진행
+- Named `targets`가 있으면 그 범위만 읽는다. `verify_targets`는 모든 goal이 닫힌 편집 계획이고, `incomplete.targets`는 gap과 함께 제공된 검증된 부분 범위다.
 - `complete`인데 같은 file을 습관적으로 다시 search/read하지 않음
 
 ### 3. Incomplete honesty
@@ -202,7 +202,7 @@ Runtime 한계값은 `maxTurns=30`, `maxSearchResults=80`, `maxReadLines=320`,
 `maxDirectoryEntries=300`, `maxWalkFiles=6000`, `maxCompletionTokens=16384`,
 `finalizeMaxCompletionTokens=16384`, `maxContextTokens=110000`으로 고정됩니다.
 
-Test는 한계 도달만으로 성공이나 실패가 되지 않는지 확인해야 합니다. 실제로 evidence 수집이 끊긴 required goal만 `safety_limit_reached` gap이 되고, 영향을 받지 않은 goal은 기존 verdict를 유지합니다. Invalid planner/auditor/verifier/final control response가 bounded recovery 뒤에도 남으면 coverage gap이 아니라 해당 fault로 처리합니다. 단, schema-valid verifier가 다른 claim의 opaque evidence id를 반복 인용한 경우와 알려진 sub-goal의 구조적으로 유효한 empty-evidence claim에는 claim-local 격리를 적용합니다. Unknown/duplicate/missing claim, invalid non-empty evidence ref, malformed control은 계속 `verifier_error`여야 합니다. Final corrected planner가 빠뜨릴 수 있는 것은 이번 분해/정제 대상의 fixed wrapper origin뿐이며, 이 경우에도 completion이 아니라 `planning_incomplete` gap이어야 합니다.
+Test는 한계 도달만으로 성공이나 실패가 되지 않는지 확인해야 합니다. 실제로 evidence 수집이 끊긴 required goal만 `safety_limit_reached` gap이 되고, 영향을 받지 않은 goal은 기존 verdict를 유지합니다. Invalid planner/auditor/verifier/final control response가 bounded recovery 뒤에도 남으면 coverage gap이 아니라 해당 fault로 처리합니다. 단, schema-valid verifier가 다른 claim의 opaque evidence id를 반복 인용한 경우와 알려진 sub-goal의 구조적으로 유효한 empty-evidence claim에는 claim-local 격리를 적용합니다. Unknown/duplicate/missing claim, invalid non-empty evidence ref, malformed control은 계속 `verifier_error`여야 합니다. `find_relevant_code`의 두 fixed leaf를 request-origin 부재만으로 분해하는 audit은 한 번 교정하며, 반복되면 planner revision이나 exploration 없이 fail-closed해야 합니다. Map risk-boundary test는 broad search ref와 confined/unaffected 문구가 verifier packet에서 빠지고, verifier-supported non-risk sibling의 exact current source path와 unverified caveat만 남는지 검증해야 합니다. Structured-output category verifier가 claim이 직접 명명한 selected source를 누락하면 한 번 교정하고 반복 시 해당 claim을 gap으로 격리해야 합니다. Exact unaffected request는 fixed risk leaf와 별도 absence goal로 유지해야 합니다. Final corrected planner가 빠뜨릴 수 있는 것은 이번 분해/정제 대상의 fixed wrapper origin뿐이며, 이 경우에도 completion이 아니라 `planning_incomplete` gap이어야 합니다.
 
 ## Transcript 검증
 

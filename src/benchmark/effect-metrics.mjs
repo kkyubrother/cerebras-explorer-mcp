@@ -13,7 +13,7 @@ const NEUTRAL_STATUSES = new Set(['redacted', 'skipped']);
 const MATCH_STATUSES = new Set(['match', 'weak_match']);
 
 const WRAPPER_PROOF_POLICIES = Object.freeze([
-  ['find_relevant_code', 'smallest_relevant_location_set'],
+  ['find_relevant_code', 'bounded_relevant_location_set'],
   ['trace_symbol', 'definition_and_usage_cross_check'],
   ['map_change_impact', 'requested_impact_categories'],
   ['explain_code_path', 'ordered_handoffs'],

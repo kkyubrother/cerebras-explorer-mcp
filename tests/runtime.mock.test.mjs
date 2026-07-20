@@ -304,6 +304,35 @@ test('Spec 028 T071 — parent targets merge duplicate ranges into the strongest
   assert.doesNotThrow(() => validateParentHandoffV3(handoff));
 });
 
+test('Spec 028 T071 — a mismatched model target range is downgraded to read', () => {
+  const fixture = parentHandoffFixture();
+  fixture.result.targets = [{
+    path: 'src/auth.js',
+    startLine: 999,
+    endLine: 1000,
+    role: 'test',
+    reason: 'Treat an unrelated range as a test target.',
+  }];
+
+  const handoff = buildParentHandoffV3({
+    ...fixture,
+    task: 'Modify the token validation implementation.',
+    taskMode: 'edit_planning',
+  });
+
+  const target = handoff.targets.find(item => item.path === 'src/auth.js');
+  assert.deepEqual({
+    startLine: target.startLine,
+    endLine: target.endLine,
+    role: target.role,
+  }, {
+    startLine: 1,
+    endLine: 4,
+    role: 'read',
+  });
+  assert.doesNotThrow(() => validateParentHandoffV3(handoff));
+});
+
 test('Spec 028 T069 — parent target reasons contain only accepted evidence support', () => {
   const fixture = parentHandoffFixture();
   const verified = 'The verified static collection contains 70 entries.';
@@ -391,6 +420,249 @@ test('Spec 028 T041 — partial and all-blocked handoffs expose only actionable 
   assert.doesNotThrow(() => validateParentHandoffV3(partialHandoff));
   assert.doesNotThrow(() => validateParentHandoffV3(allBlocked));
   assert.doesNotMatch(JSON.stringify(allBlocked), /INTERNAL_(?:GOAL|BINDING)_SENTINEL/);
+});
+
+test('Spec 028 T071 — incomplete edit planning preserves supported partial targets', () => {
+  const fixture = parentHandoffFixture();
+  fixture.semanticVerification.taskContract.subgoals.push({
+    id: 'S2',
+    question: 'Which alternate consumer also needs the token change?',
+    proofPolicy: 'direct_source',
+    state: 'gap',
+  });
+
+  const handoff = buildParentHandoffV3({
+    ...fixture,
+    task: 'Modify token validation and identify every alternate consumer.',
+    taskMode: 'edit_planning',
+    coverageGaps: [{
+      id: 'G2',
+      subgoalId: 'S2',
+      question: 'Which alternate consumer also needs the token change?',
+      reason: 'missing_evidence',
+      repairable: false,
+      priority: 100,
+    }],
+  });
+
+  assert.equal(handoff.state, 'incomplete');
+  assert.deepEqual(handoff.targets, [{
+    path: 'src/auth.js',
+    startLine: 1,
+    endLine: 4,
+    role: 'edit',
+    reason: 'Token validation is implemented in src/auth.js.',
+    evidenceRefs: ['E1'],
+  }]);
+  assert.equal(handoff.evidence[0].id, 'E1');
+  assert.equal(handoff.gaps.length, 1);
+  assert.doesNotThrow(() => validateParentHandoffV3(handoff));
+});
+
+test('Spec 028 T071 — a goal-affecting safety limit suppresses stale parent proof', () => {
+  const fixture = parentHandoffFixture();
+  const handoff = buildParentHandoffV3({
+    ...fixture,
+    task: 'Modify the token validation implementation.',
+    taskMode: 'edit_planning',
+    safetyLimits: [{
+      name: 'tool_result_limit',
+      stage: 'exploration',
+      truncated: true,
+      affectedSubgoalIds: ['S1'],
+    }],
+  });
+
+  assert.equal(handoff.state, 'incomplete');
+  assert.equal(handoff.directAnswer, undefined);
+  assert.equal(handoff.targets, undefined);
+  assert.equal(handoff.evidence, undefined);
+  assert.deepEqual(handoff.gaps, [{
+    question: 'Modify the token validation implementation.',
+    reason: 'A fixed safety limit interrupted proof for this requested part.',
+  }]);
+  assert.doesNotThrow(() => validateParentHandoffV3(handoff));
+});
+
+test('Spec 028 T071 — a goal-affecting safety limit preserves only unaffected partial proof', () => {
+  const fixture = parentHandoffFixture();
+  fixture.semanticVerification.taskContract.subgoals.push({
+    id: 'S2',
+    question: 'Where is secondary token validation implemented?',
+    proofPolicy: 'direct_source',
+    state: 'supported',
+  });
+  fixture.semanticVerification.claims.push({
+    id: 'C2',
+    subgoalId: 'S2',
+    text: 'Secondary validation is implemented in src/secondary.js.',
+    verdict: 'supported',
+    evidenceRefs: ['E3'],
+  });
+  fixture.semanticVerification.semanticVerdicts.push({
+    claimId: 'C2',
+    result: 'supported',
+    supportingEvidenceRefs: ['E3'],
+  });
+  fixture.observations.push({
+    id: 'E3',
+    kind: 'source',
+    path: 'src/secondary.js',
+    startLine: 1,
+    endLine: 3,
+  });
+  fixture.result.evidence.push({
+    id: 'E3',
+    path: 'src/secondary.js',
+    startLine: 1,
+    endLine: 3,
+  });
+  fixture.result.targets.push({
+    path: 'src/secondary.js',
+    startLine: 1,
+    endLine: 3,
+    role: 'edit',
+    reason: 'Change secondary validation here.',
+  });
+
+  const handoff = buildParentHandoffV3({
+    ...fixture,
+    task: 'Modify both token validation implementations.',
+    taskMode: 'edit_planning',
+    safetyLimits: [{
+      name: 'tool_result_limit',
+      stage: 'exploration',
+      truncated: true,
+      affectedSubgoalIds: ['S2'],
+    }],
+  });
+
+  assert.equal(handoff.state, 'incomplete');
+  assert.equal(handoff.directAnswer, 'Token validation is implemented in src/auth.js.');
+  assert.ok(handoff.evidence.every(item => item.path !== 'src/secondary.js'));
+  assert.ok(handoff.targets.every(item => item.path !== 'src/secondary.js'));
+  assert.deepEqual(handoff.gaps, [{
+    question: 'Modify both token validation implementations.',
+    reason: 'A fixed safety limit interrupted proof for this requested part.',
+  }]);
+  assert.doesNotThrow(() => validateParentHandoffV3(handoff));
+});
+
+test('Spec 028 T071 — an operational context limit does not invalidate verified proof', () => {
+  const fixture = parentHandoffFixture();
+  const handoff = buildParentHandoffV3({
+    ...fixture,
+    task: 'Modify the token validation implementation.',
+    taskMode: 'edit_planning',
+    safetyLimits: [{
+      name: 'context_limit',
+      stage: 'exploration',
+      truncated: true,
+      affectedSubgoalIds: [],
+    }],
+  });
+
+  assert.equal(handoff.state, 'verify_targets');
+  assert.equal(handoff.directAnswer, 'Token validation is implemented in src/auth.js.');
+  assert.ok(handoff.targets.length > 0);
+  assert.ok(handoff.evidence.length > 0);
+  assert.equal(handoff.gaps, undefined);
+  assert.doesNotThrow(() => validateParentHandoffV3(handoff));
+});
+
+test('Spec 028 T071 — map risk caveat uses the accepted path union without degrading targets', () => {
+  const subgoals = [
+    {
+      id: 'S-risk',
+      question: 'What is the remaining risk boundary?',
+      originRefs: ['wrapper:map_change_impact:risk_boundary'],
+      proofPolicy: 'impact_categories',
+      state: 'supported',
+    },
+    {
+      id: 'S-targets',
+      question: 'Which implementation targets change?',
+      originRefs: ['wrapper:map_change_impact:targets'],
+      proofPolicy: 'impact_categories',
+      state: 'supported',
+    },
+    {
+      id: 'S-categories',
+      question: 'Which verification surface changes?',
+      originRefs: ['wrapper:map_change_impact:requested_categories'],
+      proofPolicy: 'impact_categories',
+      state: 'supported',
+    },
+  ];
+  const claims = [
+    {
+      id: 'C-risk',
+      subgoalId: 'S-risk',
+      text: 'The change is confined to src/a.mjs and everything else is unaffected.',
+      verdict: 'supported',
+      evidenceRefs: ['E1', 'G1'],
+    },
+    {
+      id: 'C-targets',
+      subgoalId: 'S-targets',
+      text: 'Change src/a.mjs and its consumer src/b.mjs.',
+      verdict: 'supported',
+      evidenceRefs: ['E1', 'E2'],
+    },
+    {
+      id: 'C-categories',
+      subgoalId: 'S-categories',
+      text: 'Update the contract assertion in tests/a.test.mjs.',
+      verdict: 'supported',
+      evidenceRefs: ['E3'],
+    },
+  ];
+  const semanticVerdicts = claims.map(claim => ({
+    claimId: claim.id,
+    result: 'supported',
+    supportingEvidenceRefs: claim.evidenceRefs,
+  }));
+  const observations = [
+    { id: 'E1', kind: 'source', path: 'src/a.mjs', startLine: 1, endLine: 3 },
+    { id: 'E2', kind: 'source', path: 'src/b.mjs', startLine: 4, endLine: 7 },
+    { id: 'E3', kind: 'source', path: 'tests/a.test.mjs', startLine: 8, endLine: 12 },
+    { id: 'G1', kind: 'git_commit', sha: 'a'.repeat(40) },
+  ];
+  const resultEvidence = observations
+    .filter(item => item.kind === 'source')
+    .map(({ id, path, startLine, endLine }) => ({ id, path, startLine, endLine }));
+  const handoff = buildParentHandoffV3({
+    task: 'Map the change impact before editing.',
+    taskMode: 'edit_planning',
+    semanticVerification: {
+      taskContract: { effectiveScope: ['src/**', 'tests/**'], subgoals },
+      claims,
+      semanticVerdicts,
+    },
+    observations,
+    result: {
+      evidence: resultEvidence,
+      targets: resultEvidence.map(item => ({
+        path: item.path,
+        startLine: item.startLine,
+        endLine: item.endLine,
+        role: item.path.startsWith('tests/') ? 'test' : 'edit',
+      })),
+    },
+  });
+
+  assert.equal(handoff.state, 'verify_targets');
+  assert.match(handoff.directAnswer,
+    /^Observed paths: src\/a\.mjs, src\/b\.mjs, tests\/a\.test\.mjs\. Unverified:/u);
+  assert.doesNotMatch(handoff.directAnswer, /\bconfined\b|\bunaffected\b/iu);
+  assert.deepEqual(handoff.evidence.map(item => item.kind), ['source', 'source', 'source']);
+  assert.ok(handoff.evidence.every(item =>
+    !/Unverified: additional in-scope impact/iu.test(item.supports)));
+  assert.equal(
+    handoff.targets.find(target => target.path === 'src/a.mjs').reason,
+    'Change src/a.mjs and its consumer src/b.mjs.',
+  );
+  assert.doesNotThrow(() => validateParentHandoffV3(handoff));
 });
 
 test('Spec 028 T041 — failed handoff maps reasons and drops stale success data', () => {
@@ -2524,7 +2796,7 @@ test('Spec 028 T053 — wrapper task modes preserve internal strategy without a 
   assert.match(locatePrompt,
     /direct candidates remain unread[\s\S]{0,100}do not replace them with synonym searches/u);
   assert.match(locatePrompt,
-    /do not issue a parallel synonym grep[\s\S]{0,420}retain it in the synthesized claim evidence and parent targets/u);
+    /do not issue a parallel synonym grep[\s\S]{0,440}retain it in the same relevance claim evidence and parent targets/u);
 
   const tracePrompt = buildExplorerUserPrompt({
     task: 'Inspect this delegated target.',
@@ -4731,7 +5003,7 @@ test('010 US1#1 — locate task with exact evidence stays complete when the turn
 });
 
 
-test('010 security — broad find vulnerability task remains incomplete when the turn limit is reached', async () => {
+test('010 security — broad find vulnerability task never becomes complete', async () => {
   class BroadSecurityFindClient {
     constructor() { this.model = 'zai-glm-4.7'; this.calls = 0; }
     async createChatCompletion({ responseFormat }) {
@@ -4798,6 +5070,13 @@ test('010 security — broad find vulnerability task remains incomplete when the
       repo_root: root,
     });
 
+    if (taskMode === 'locate') {
+      assert.equal(result.failure?.reason, 'invalid_final_response',
+        'malformed fixed locate planning must fail closed before exploration');
+      assert.equal(result.parentHandoff.state, 'failed');
+      assert.equal(result.status.complete, false);
+      continue;
+    }
     assert.ok(result.stats.safetyLimits.some(limit => limit.name === 'turn_limit'));
     assert.equal(result.status.complete, false, `broad security task must stay incomplete for taskMode=${taskMode}`);
     assert.equal(result.status.verification, 'follow_up_needed');
@@ -5687,7 +5966,7 @@ function definitionAndAbsenceGoals() {
 }
 
 function locateWrapperGoals() {
-  return ['locations', 'relevance', 'smallest_set'].map((seed, index) => ({
+  return ['locations', 'relevance'].map((seed, index) => ({
     id: `S-locate-${seed}`,
     question: `Resolve the find_relevant_code ${seed} obligation.`,
     originRefs: [`wrapper:find_relevant_code:${seed}`],
@@ -5827,13 +6106,13 @@ auditedPlanningRuntimeTest('Spec 028 T017 — initial plan and isolated audit fi
 
 auditedPlanningRuntimeTest('Spec 028 T071 — an omitted fixed wrapper seed gets one planner correction before exploration', async () => {
   const goals = locateWrapperGoals();
-  const omitted = goals.slice(0, 2);
+  const omitted = goals.slice(0, 1);
   const client = new ScriptedGoalAuditClient([
     { stage: 'planner:1', value: plannerControl(omitted) },
     {
       stage: 'planner:2',
       run(request) {
-        assert.match(JSON.stringify(request.messages), /wrapper:find_relevant_code:smallest_set/u);
+        assert.match(JSON.stringify(request.messages), /wrapper:find_relevant_code:relevance/u);
         return controlCompletion(plannerControl(goals));
       },
     },
@@ -5864,7 +6143,7 @@ auditedPlanningRuntimeTest('Spec 028 T071 — an omitted fixed wrapper seed gets
 });
 
 auditedPlanningRuntimeTest('Spec 028 T071 — repeated fixed wrapper seed omission fails before audit or exploration', async () => {
-  const omitted = locateWrapperGoals().slice(0, 2);
+  const omitted = locateWrapperGoals().slice(0, 1);
   const client = new ScriptedGoalAuditClient([
     { stage: 'planner:1', value: plannerControl(omitted) },
     { stage: 'planner:2', value: plannerControl(omitted) },
@@ -5916,7 +6195,6 @@ auditedPlanningRuntimeTest(
 
     assert.equal(result.failure, null, JSON.stringify({
       failure: result.failure,
-      stages: client.stageLabels,
     }));
     assert.deepEqual(client.stageLabels.slice(0, 4), [
       'planner:1',
@@ -5953,6 +6231,78 @@ auditedPlanningRuntimeTest(
     assert.deepEqual(client.stageLabels, ['planner:1', 'planner:2']);
     assert.ok(result.failure);
     assert.equal(result.parentHandoff.state, 'failed');
+  },
+);
+
+auditedPlanningRuntimeTest(
+  'Spec 028 T071 — exact unaffected proof stays separate from the bounded map risk leaf',
+  async () => {
+    const task = 'Map the likely impact of this intended change before editing: ' +
+      'Add a new top-level field to explore_repo structured output. Identify actionable targets, ' +
+      'dependent callers/consumers, affected verification or public-contract surfaces, and the ' +
+      'remaining risk boundary; prove src/legacy.mjs is unaffected and needs no modification.';
+    const negativeOrigin = requestOrigin(
+      task,
+      'prove src/legacy.mjs is unaffected and needs no modification',
+    );
+    const invented = impactWrapperGoals(task);
+    invented.find(goal => goal.id === 'risk_boundary').originRefs.push(negativeOrigin);
+    const corrected = impactWrapperGoals(task);
+    const absenceGoal = {
+      id: 'legacy-unaffected',
+      question: 'Is src/legacy.mjs unaffected and does it need no modification?',
+      originRefs: [negativeOrigin],
+      claimType: 'absence',
+      proofCondition:
+        'Certify from a complete bounded source/search boundary that the intended field cannot affect src/legacy.mjs.',
+      constraints: [],
+    };
+    const correctedGoals = [...corrected, absenceGoal];
+    const client = new ScriptedGoalAuditClient([
+      { stage: 'planner:1', value: plannerControl(invented) },
+      {
+        stage: 'planner:2',
+        run(request) {
+          assert.match(
+            JSON.stringify(request.messages),
+            /exact unaffected or no-modification request cannot be merged/iu,
+          );
+          return controlCompletion(plannerControl(correctedGoals));
+        },
+      },
+      {
+        stage: 'goal_audit:1',
+        value: auditorControl(correctedGoals.map(goal => auditControlRecord(goal))),
+      },
+      { stage: 'exploration:1', content: 'The bounded impact and absence goals are audited.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+    ]);
+    const root = await makeRepoFixture();
+    const result = await new RuntimeImplementation({ chatClient: client }).explore({
+      task,
+      repo_root: root,
+      scope: ['src/**', 'tests/**', '*.md', 'examples/**'],
+      taskMode: 'edit_planning',
+    });
+
+    assert.equal(result.failure, null, JSON.stringify({
+      failure: result.failure,
+      stages: client.stageLabels,
+    }));
+    assert.deepEqual(client.stageLabels.slice(0, 4), [
+      'planner:1',
+      'planner:2',
+      'goal_audit:1',
+      'exploration:1',
+    ]);
+    assert.match(
+      result.taskContract.subgoals.find(goal => goal.id === 'risk_boundary')?.proofCondition ?? '',
+      /additional in-scope impact beyond those bounded observations as unverified/iu,
+    );
+    assert.equal(
+      result.taskContract.subgoals.find(goal => goal.id === absenceGoal.id)?.claimType,
+      'absence',
+    );
   },
 );
 
@@ -6121,6 +6471,54 @@ auditedPlanningRuntimeTest(
     assert.equal(client.stageCounts.get('exploration') ?? 0, 0);
     assert.equal(result.parentHandoff.state, 'failed');
     assert.equal(result.failure?.reason, 'invalid_final_response');
+  },
+);
+
+auditedPlanningRuntimeTest(
+  'Spec 028 T071 — combined fixed locate seeds get one planner correction before audit',
+  async () => {
+    const [locations, relevance] = locateWrapperGoals();
+    const combined = {
+      ...locations,
+      id: 'S-locate-combined',
+      question: 'Identify relevant locations and explain why each target matters.',
+      originRefs: [...locations.originRefs, ...relevance.originRefs],
+      proofCondition: 'Observe bounded locations and their relevance.',
+    };
+    const corrected = locateWrapperGoals();
+    const client = new ScriptedGoalAuditClient([
+      { stage: 'planner:1', value: plannerControl([combined]) },
+      {
+        stage: 'planner:2',
+        run(request) {
+          assert.match(JSON.stringify(request.messages), /exactly one fixed wrapper seed/u);
+          return controlCompletion(plannerControl(corrected));
+        },
+      },
+      {
+        stage: 'goal_audit:1',
+        value: auditorControl(corrected.map(goal => auditControlRecord(goal))),
+      },
+      { stage: 'exploration:1', content: 'Both locate obligations remain atomic.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+    ]);
+    const root = await makeRepoFixture();
+    const result = await new RuntimeImplementation({ chatClient: client }).explore({
+      task: 'Locate requireAuth.',
+      repo_root: root,
+      scope: ['src/**'],
+      taskMode: 'locate',
+    });
+
+    assert.equal(result.failure, null, JSON.stringify(result.failure));
+    assert.deepEqual(client.stageLabels.slice(0, 4), [
+      'planner:1',
+      'planner:2',
+      'goal_audit:1',
+      'exploration:1',
+    ]);
+    assert.deepEqual(result.taskContract.subgoals.map(goal => goal.id),
+      corrected.map(goal => goal.id));
   },
 );
 
@@ -7164,10 +7562,10 @@ auditedPlanningRuntimeTest(
 );
 
 auditedPlanningRuntimeTest(
-  'Spec 028 T071 — fixed wrapper decomposition reconciles shared revision origins',
+  'Spec 028 T071 — fixed locate leaves reject duplicate request-origin decomposition',
   async () => {
     const task = 'Update README examples for explore_repo return fields.';
-    const [locations, relevance, smallestSet] = locateWrapperGoals();
+    const [locations, relevance] = locateWrapperGoals();
     const uncovered = [
       {
         question: 'Identify the README file containing the examples to update.',
@@ -7184,28 +7582,8 @@ auditedPlanningRuntimeTest(
         constraints: [],
       },
     ];
-    const revised = [
-      {
-        id: 'S-readme-location',
-        ...uncovered[0],
-        originRefs: [
-          ...uncovered[0].originRefs,
-          ...locations.originRefs,
-          ...relevance.originRefs,
-        ],
-      },
-      {
-        id: 'S-explore-repo-definition',
-        ...uncovered[1],
-        originRefs: [
-          ...uncovered[1].originRefs,
-          ...locations.originRefs,
-          ...relevance.originRefs,
-        ],
-      },
-    ];
     const client = new ScriptedGoalAuditClient([
-      { stage: 'planner:1', value: plannerControl([locations, relevance, smallestSet]) },
+      { stage: 'planner:1', value: plannerControl([locations, relevance]) },
       {
         stage: 'goal_audit:1',
         value: auditorControl([
@@ -7213,24 +7591,112 @@ auditedPlanningRuntimeTest(
             missingRequestParts: uncovered.map(goal => goal.question),
           }),
           auditControlRecord(relevance, 'needs_decomposition'),
-          auditControlRecord(smallestSet),
         ], uncovered),
       },
-      { stage: 'planner:2', value: plannerControl([smallestSet, ...revised]) },
       {
         stage: 'goal_audit:2',
-        value: auditorControl(revised.map(goal => auditControlRecord(goal))),
+        run(request) {
+          assert.match(
+            JSON.stringify(request.messages),
+            /fixed wrapper-only leaf does not require an additional request origin/iu,
+          );
+          return controlCompletion(auditorControl([
+            auditControlRecord(locations),
+            auditControlRecord(relevance),
+          ]));
+        },
+      },
+      { stage: 'exploration:1', content: 'The independent-origin goals are ready.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+    ]);
+    const root = await makeRepoFixture();
+    const result = await new RuntimeImplementation({ chatClient: client }).explore({
+      task,
+      repo_root: root,
+      taskMode: 'locate',
+    });
+
+    assert.equal(result.failure, null,
+      JSON.stringify({ failure: result.failure, stages: client.stageLabels }));
+    assert.deepEqual(client.stageLabels.slice(0, 4), [
+      'planner:1',
+      'goal_audit:1',
+      'goal_audit:2',
+      'exploration:1',
+    ]);
+    assert.equal(client.stageCounts.get('planner'), 1);
+    assert.equal(client.stageCounts.get('goal_coverage'), undefined);
+    assert.deepEqual(
+      result.taskContract.subgoals.map(goal => goal.id),
+      [locations.id, relevance.id],
+    );
+  },
+);
+
+auditedPlanningRuntimeTest(
+  'Spec 028 T071 — repeated fixed locate decomposition fails before exploration',
+  async () => {
+    const [locations, relevance] = locateWrapperGoals();
+    const invalidAudit = () => auditorControl([
+      auditControlRecord(locations),
+      auditControlRecord(relevance, 'needs_decomposition'),
+    ]);
+    const client = new ScriptedGoalAuditClient([
+      { stage: 'planner:1', value: plannerControl([locations, relevance]) },
+      { stage: 'goal_audit:1', value: invalidAudit() },
+      { stage: 'goal_audit:2', value: invalidAudit() },
+    ]);
+    const root = await makeRepoFixture();
+    const result = await new RuntimeImplementation({ chatClient: client }).explore({
+      task: GOAL_AUDIT_TASK,
+      repo_root: root,
+      taskMode: 'locate',
+    });
+
+    assert.equal(result.failure?.reason, 'invalid_final_response', JSON.stringify({
+      failure: result.failure,
+      stages: client.stageLabels,
+    }));
+    assert.equal(result.parentHandoff.state, 'failed');
+    assert.equal(client.stageCounts.get('goal_audit'), 2);
+    assert.equal(client.stageCounts.get('planner'), 1);
+    assert.equal(client.stageCounts.get('goal_coverage'), undefined);
+    assert.equal(client.stageCounts.get('exploration') ?? 0, 0);
+  },
+);
+
+auditedPlanningRuntimeTest(
+  'Spec 028 T071 — caller-requested global minimality remains an explicit gap',
+  async () => {
+    const task =
+      'Locate requireAuth and prove the globally smallest target set.';
+    const [locations, relevance] = locateWrapperGoals();
+    const strongRequirement = {
+      id: 'S-locate-global-minimum',
+      question: 'What is the globally smallest target set?',
+      originRefs: [requestOrigin(task, 'globally smallest target set')],
+      claimType: 'comparison',
+      proofCondition:
+        'Prove that no smaller target set can satisfy the request across the complete repository.',
+      constraints: [],
+    };
+    const client = new ScriptedGoalAuditClient([
+      {
+        stage: 'planner:1',
+        value: plannerControl([locations, relevance, strongRequirement]),
       },
       {
-        stage: 'goal_coverage:1',
-        value: coverageControl([
-          coveredObligation('revision-obligation-1', revised.map(goal => goal.id)),
-          coveredObligation('revision-obligation-2', revised.map(goal => goal.id)),
-          coveredObligation('revision-obligation-3', [revised[0].id]),
-          coveredObligation('revision-obligation-4', [revised[1].id]),
+        stage: 'goal_audit:1',
+        value: auditorControl([
+          auditControlRecord(locations),
+          auditControlRecord(relevance),
+          auditControlRecord(strongRequirement, 'ready'),
         ]),
       },
-      { stage: 'exploration:1', content: 'The shared-origin goals are ready.' },
+      {
+        stage: 'exploration:1',
+        content: 'The bounded locate goals remain available.',
+      },
       { stage: 'synthesis:1', value: readyExplorationResult() },
     ]);
     const root = await makeRepoFixture();
@@ -7244,59 +7710,13 @@ auditedPlanningRuntimeTest(
       failure: result.failure,
       stages: client.stageLabels,
     }));
-    assert.equal(client.stageCounts.get('goal_coverage'), 1);
-    assert.deepEqual(result.taskContract.subgoals.map(goal => goal.id), [
-      smallestSet.id,
-      ...revised.map(goal => goal.id),
-    ]);
-    assert.equal(result.taskContract.subgoals.some(goal =>
-      goal.auditVerdict === 'planning_incomplete'), false);
-    assert.equal(result.coverageGaps.some(gap => gap.reason === 'planning_incomplete'), false);
-  },
-);
-
-auditedPlanningRuntimeTest(
-  'Spec 028 T071 — an omitted decomposed wrapper seed becomes a planning gap',
-  async () => {
-    const [locations, relevance, smallestSet] = locateWrapperGoals();
-    const client = new ScriptedGoalAuditClient([
-      { stage: 'planner:1', value: plannerControl([locations, relevance, smallestSet]) },
-      {
-        stage: 'goal_audit:1',
-        value: auditorControl([
-          auditControlRecord(locations),
-          auditControlRecord(relevance),
-          auditControlRecord(smallestSet, 'needs_decomposition'),
-        ]),
-      },
-      { stage: 'planner:2', value: plannerControl([locations, relevance]) },
-      { stage: 'exploration:1', content: 'The preserved locate goals are ready.' },
-      { stage: 'synthesis:1', value: readyExplorationResult() },
-    ]);
-    const root = await makeRepoFixture();
-    const result = await new RuntimeImplementation({ chatClient: client }).explore({
-      task: GOAL_AUDIT_TASK,
-      repo_root: root,
-      taskMode: 'locate',
-    });
-
-    assert.equal(result.failure, null, JSON.stringify({
-      failure: result.failure,
-      stages: client.stageLabels,
-    }));
-    assert.equal(client.stageCounts.get('goal_audit'), 1);
-    assert.equal(client.stageCounts.get('goal_coverage'), undefined);
-    assert.deepEqual(result.taskContract.subgoals.slice(0, 2).map(goal => goal.id), [
-      locations.id,
-      relevance.id,
-    ]);
     const carried = result.taskContract.subgoals.find(goal =>
-      goal.originRefs.includes('wrapper:find_relevant_code:smallest_set'));
+      goal.id === strongRequirement.id);
     assert.ok(carried);
-    assert.equal(carried.auditVerdict, 'planning_incomplete');
-    assert.ok(result.coverageGaps.some(gap =>
-      gap.subgoalId === carried.id && gap.reason === 'planning_incomplete'));
+    assert.equal(carried.auditVerdict, 'blocked_capability');
     assert.equal(result.parentHandoff.state, 'incomplete');
+    assert.ok(result.parentHandoff.gaps.some(gap =>
+      gap.question === 'globally smallest target set'));
   },
 );
 
@@ -11086,7 +11506,7 @@ semanticPipelineRuntimeTest(
       'helper is defined in src/helper.js starting at line 2; it accepts no parameters and returns the local value.',
       ['E1', 'E2'],
     );
-    const { result } = await runTrustScript(buildTrustSteps({
+    const { client, result } = await runTrustScript(buildTrustSteps({
       goals: [goal],
       initial: {
         tools: [{
@@ -11161,7 +11581,7 @@ semanticPipelineRuntimeTest(
       'helper is defined in src/helper.js starting at line 2.',
       ['E1'],
     );
-    const { result } = await runTrustScript(buildTrustSteps({
+    const { client, result } = await runTrustScript(buildTrustSteps({
       goals: [goal],
       initial: {
         tools: [{
@@ -12161,7 +12581,10 @@ semanticPipelineRuntimeTest(
       },
     });
 
-    assert.equal(result.failure, null, JSON.stringify(result.failure));
+    assert.equal(result.failure, null, JSON.stringify({
+      failure: result.failure,
+      stages: client.stageLabels,
+    }));
     assert.equal(client.stageCounts.get('semantic_verifier'), 2);
     assert.ok(focusedPacket, 'generic impact inventory needs an independent focused check');
     assert.match(focusedPacket.system, /FOCUSED GENERIC IMPACT INVENTORY CORROBORATION/u);
@@ -12566,12 +12989,12 @@ semanticPipelineRuntimeTest(
 );
 
 semanticPipelineRuntimeTest(
-  'Spec 028 T071 — find_relevant_code preserves one cited companion test in the smallest set',
+  'Spec 028 T071 — find_relevant_code preserves one cited companion test in a bounded useful set',
   async () => {
     const task =
       'Where is MCP tools/list assembled and which files should be read before changing tool metadata?';
     const goals = locateWrapperGoals();
-    const [locations, relevance, smallestSet] = goals;
+    const [locations, relevance] = goals;
     const claims = [
       candidateClaim(
         'C-locate-cited-location',
@@ -12583,12 +13006,6 @@ semanticPipelineRuntimeTest(
         'C-locate-cited-relevance',
         relevance.id,
         'src/mcp/server.js defines buildToolList.',
-        ['E2'],
-      ),
-      candidateClaim(
-        'C-locate-cited-smallest-set',
-        smallestSet.id,
-        'src/mcp/server.js is the smallest useful metadata target.',
         ['E2'],
       ),
     ];
@@ -12610,13 +13027,13 @@ semanticPipelineRuntimeTest(
         }],
         claims,
         verdicts: claims.map((claim, index) =>
-          semanticVerdict(claim.id, 'supported', index === 2 ? ['E2', 'E3'] : claim.evidenceRefs)),
+          semanticVerdict(claim.id, 'supported', index === 1 ? ['E2', 'E3'] : claim.evidenceRefs)),
         assertVerifier(request) {
-          const smallestClaim = parseControlPacket(request).claims.find(claim =>
-            claim.id === 'C-locate-cited-smallest-set');
-          assert.equal(smallestClaim.text,
-            'The smallest useful read target set is src/mcp/server.js and tests/mcp-server.test.js.');
-          assert.deepEqual(new Set(smallestClaim.evidenceRefs), new Set(['E2', 'E3']));
+          const relevanceClaim = parseControlPacket(request).claims.find(claim =>
+            claim.id === 'C-locate-cited-relevance');
+          assert.equal(relevanceClaim.text,
+            'src/mcp/server.js defines buildToolList. Companion verification target: tests/mcp-server.test.js.');
+          assert.deepEqual(new Set(relevanceClaim.evidenceRefs), new Set(['E2', 'E3']));
         },
       },
     }), {
@@ -12641,6 +13058,9 @@ semanticPipelineRuntimeTest(
     assert.equal(result.failure, null, JSON.stringify(result.failure));
     assert.equal(result.parentHandoff.state, 'complete');
     assert.match(result.parentHandoff.directAnswer, /tests\/mcp-server\.test\.js/u);
+    assert.equal(result.parentHandoff.directAnswer.split('\n').length, 2);
+    assert.doesNotMatch(JSON.stringify(result.parentHandoff),
+      /\b(?:smallest|minimal|only|exhaustive)\b/iu);
     assert.deepEqual(new Set(result.parentHandoff.targets.map(item => item.path)),
       new Set(['src/mcp/server.js', 'tests/mcp-server.test.js']));
   },
@@ -12652,33 +13072,27 @@ semanticPipelineRuntimeTest(
     const task =
       'Where is MCP tools/list assembled and which files should be read before changing tool metadata?';
     const goals = locateWrapperGoals();
-    const [locations, relevance, smallestSet] = goals;
+    const [locations, relevance] = goals;
     const locationClaim = candidateClaim(
       'C-locate-mcp-location',
       locations.id,
       'MCP tools/list is assembled in src/mcp/server.js.',
       ['E2'],
     );
-    const relevanceClaim = candidateClaim(
+    const omittedRelevanceClaim = candidateClaim(
       'C-locate-mcp-relevance',
       relevance.id,
       'src/mcp/server.js defines buildToolList.',
       ['E2'],
     );
-    const omittedClaim = candidateClaim(
-      'C-locate-mcp-smallest-set',
-      smallestSet.id,
-      'src/mcp/server.js is the smallest useful metadata target.',
-      ['E2'],
-    );
-    const repairedClaim = candidateClaim(
-      omittedClaim.id,
-      smallestSet.id,
-      'The smallest useful set is src/mcp/server.js and tests/mcp-server.test.js.',
+    const repairedRelevanceClaim = candidateClaim(
+      omittedRelevanceClaim.id,
+      relevance.id,
+      'src/mcp/server.js defines buildToolList. Companion verification target: tests/mcp-server.test.js.',
       ['E2', 'E3'],
     );
-    const initialClaims = [locationClaim, relevanceClaim, omittedClaim];
-    const repairedClaims = [locationClaim, relevanceClaim, repairedClaim];
+    const initialClaims = [locationClaim, omittedRelevanceClaim];
+    const repairedClaims = [locationClaim, repairedRelevanceClaim];
     let repairRequests = 0;
     const { client, result } = await runTrustScript(buildTrustSteps({
       goals,
@@ -12696,12 +13110,10 @@ semanticPipelineRuntimeTest(
         verifierSteps: [{
           verdicts: [
             semanticVerdict(locationClaim.id, 'supported', ['E2']),
-            semanticVerdict(relevanceClaim.id, 'supported', ['E2']),
           ],
           assertRequest(request) {
             assert.deepEqual(parseControlPacket(request).claims.map(claim => claim.id), [
               locationClaim.id,
-              relevanceClaim.id,
             ]);
           },
         }],
@@ -12761,111 +13173,6 @@ semanticPipelineRuntimeTest(
 );
 
 semanticPipelineRuntimeTest(
-  'Spec 028 T071 — merged locate seeds still repair one certified companion test',
-  async () => {
-    const task =
-      'Where is MCP tools/list assembled and which files should be read before changing tool metadata?';
-    const [locations, relevance, smallestSet] = locateWrapperGoals();
-    const merged = {
-      ...relevance,
-      id: 'S-locate-relevance-smallest-set',
-      question: 'Explain relevance and preserve the smallest useful change set.',
-      originRefs: [...relevance.originRefs, ...smallestSet.originRefs],
-    };
-    const goals = [locations, merged];
-    const locationClaim = candidateClaim(
-      'C-merged-locate-location',
-      locations.id,
-      'MCP tools/list is assembled in src/mcp/server.js.',
-      ['E2'],
-    );
-    const omittedClaim = candidateClaim(
-      'C-merged-locate-smallest-set',
-      merged.id,
-      'src/mcp/server.js defines buildToolList and is the smallest useful target.',
-      ['E2'],
-    );
-    const repairedClaim = candidateClaim(
-      omittedClaim.id,
-      merged.id,
-      'src/mcp/server.js defines buildToolList; the smallest useful set also includes tests/mcp-server.test.js.',
-      ['E2', 'E3'],
-    );
-    let repairRequests = 0;
-    const { client, result } = await runTrustScript(buildTrustSteps({
-      goals,
-      initial: {
-        tools: [{
-          tool: 'repo_grep',
-          args: { pattern: 'buildToolList', scope: ['src/**', 'tests/**'] },
-          id: 'grep-merged-mcp-tool-list',
-        }, {
-          tool: 'repo_read_file',
-          args: { path: 'src/mcp/server.js', startLine: 1, endLine: 3 },
-          id: 'read-merged-mcp-tool-list',
-        }],
-        claims: [locationClaim, omittedClaim],
-        verifierSteps: [{
-          verdicts: [semanticVerdict(locationClaim.id, 'supported', ['E2'])],
-          assertRequest(request) {
-            assert.deepEqual(parseControlPacket(request).claims.map(claim => claim.id), [
-              locationClaim.id,
-            ]);
-          },
-        }],
-      },
-      repair: {
-        tools: [{
-          tool: 'repo_read_file',
-          args: { path: 'tests/mcp-server.test.js', startLine: 1, endLine: 3 },
-          id: 'read-merged-mcp-tool-list-test',
-        }],
-        assertRequest(request) {
-          repairRequests += 1;
-          assert.deepEqual(request.tools.map(tool => tool.function.name), ['repo_read_file']);
-          assert.equal(parseRepairPacket(request).candidateReadPath,
-            'tests/mcp-server.test.js');
-        },
-        claims: [locationClaim, repairedClaim],
-        verdicts: [
-          semanticVerdict(locationClaim.id, 'supported', ['E2']),
-          semanticVerdict(repairedClaim.id, 'supported', ['E2', 'E3']),
-        ],
-      },
-    }), {
-      task,
-      taskMode: 'locate',
-      scope: ['src/**', 'tests/**'],
-      async setup(root) {
-        await fs.mkdir(path.join(root, 'src', 'mcp'), { recursive: true });
-        await fs.mkdir(path.join(root, 'tests'), { recursive: true });
-        await fs.writeFile(
-          path.join(root, 'src', 'mcp', 'server.js'),
-          'export function buildToolList() {\n  return [{ name: "find_relevant_code" }];\n}\n',
-        );
-        await fs.writeFile(
-          path.join(root, 'tests', 'mcp-server.test.js'),
-          'import { buildToolList } from "../src/mcp/server.js";\n' +
-            'test("tools/list", () => buildToolList());\n',
-        );
-      },
-    });
-
-    assert.equal(result.failure, null, JSON.stringify(result.failure));
-    assert.equal(repairRequests, 1);
-    assert.equal(client.stageCounts.get('semantic_verifier'), 2);
-    assert.deepEqual(providerToolActions(client).map(action => action.tool), [
-      'repo_grep',
-      'repo_read_file',
-      'repo_read_file',
-    ]);
-    assert.equal(result.parentHandoff.state, 'complete');
-    assert.deepEqual(new Set(result.parentHandoff.evidence.map(item => item.path)),
-      new Set(['src/mcp/server.js', 'tests/mcp-server.test.js']));
-  },
-);
-
-semanticPipelineRuntimeTest(
   'Spec 028 T071 — find_relevant_code does not promote another implementation search hit',
   async () => {
     const task = 'Where is requireAuth implemented?';
@@ -12873,9 +13180,9 @@ semanticPipelineRuntimeTest(
     const claims = goals.map((goal, index) => candidateClaim(
       `C-locate-auth-${index + 1}`,
       goal.id,
-      index === 2
-        ? 'src/auth.js is the smallest useful target.'
-        : 'requireAuth is implemented in src/auth.js.',
+      index === 0
+        ? 'requireAuth is implemented in src/auth.js.'
+        : 'src/auth.js is relevant because it defines requireAuth.',
       ['E2'],
     ));
     const { client, result } = await runTrustScript(buildTrustSteps({
@@ -12903,6 +13210,99 @@ semanticPipelineRuntimeTest(
     ]);
     assert.equal(result.parentHandoff.state, 'complete');
     assert.deepEqual(result.parentHandoff.evidence.map(item => item.path), ['src/auth.js']);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T071 — a pure location query does not promote an unrelated observed test',
+  async () => {
+    const task = 'Where is requireAuth implemented?';
+    const goals = locateWrapperGoals();
+    const claims = goals.map((goal, index) => candidateClaim(
+      `C-locate-pure-${index + 1}`,
+      goal.id,
+      index === 0
+        ? 'requireAuth is implemented in src/auth.js.'
+        : 'src/auth.js matters because it defines requireAuth.',
+      ['E1'],
+    ));
+    const { result } = await runTrustScript(buildTrustSteps({
+      goals,
+      initial: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+          id: 'read-pure-location-auth',
+        }, {
+          tool: 'repo_read_file',
+          args: { path: 'tests/unrelated.test.js', startLine: 1, endLine: 1 },
+          id: 'read-unrelated-test',
+        }],
+        claims,
+        verdicts: claims.map(claim => semanticVerdict(claim.id, 'supported', ['E1'])),
+      },
+    }), {
+      task,
+      taskMode: 'locate',
+      scope: ['src/**', 'tests/**'],
+      async setup(root) {
+        await fs.mkdir(path.join(root, 'tests'), { recursive: true });
+        await fs.writeFile(
+          path.join(root, 'tests', 'unrelated.test.js'),
+          'test("unrelated", () => {});\n',
+        );
+      },
+    });
+
+    assert.equal(result.failure, null, JSON.stringify(result.failure));
+    assert.equal(result.parentHandoff.state, 'complete');
+    assert.deepEqual(result.parentHandoff.evidence.map(item => item.path), ['src/auth.js']);
+    assert.deepEqual(result.parentHandoff.targets.map(item => item.path), ['src/auth.js']);
+    assert.doesNotMatch(JSON.stringify(result.parentHandoff), /unrelated\.test\.js/u);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T071 — an approved locate globality overclaim is suppressed fail-closed',
+  async () => {
+    const task = 'Where is requireAuth implemented?';
+    const [locations, relevance] = locateWrapperGoals();
+    const claims = [
+      candidateClaim(
+        'C-locate-safe-location',
+        locations.id,
+        'requireAuth is implemented in src/auth.js.',
+        ['E1'],
+      ),
+      candidateClaim(
+        'C-locate-globality-overclaim',
+        relevance.id,
+        'src/auth.js is the only relevant target in the repository.',
+        ['E1'],
+      ),
+    ];
+    const { result } = await runTrustScript(buildTrustSteps({
+      goals: [locations, relevance],
+      initial: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+          id: 'read-locate-overclaim-auth',
+        }],
+        claims,
+        verdicts: claims.map(claim =>
+          semanticVerdict(claim.id, 'supported', claim.evidenceRefs)),
+      },
+    }), { task, taskMode: 'locate' });
+
+    assert.equal(result.failure, null, JSON.stringify(result.failure));
+    assert.equal(result.parentHandoff.state, 'incomplete');
+    assert.equal(result.parentHandoff.directAnswer,
+      'requireAuth is implemented in src/auth.js.');
+    assert.doesNotMatch(JSON.stringify(result.parentHandoff),
+      /\b(?:only|smallest|minimal|exhaustive)\b/iu);
+    assert.equal(result.parentHandoff.gaps.length, 1);
+    assert.doesNotThrow(() => validateParentHandoffV3(result.parentHandoff));
   },
 );
 
@@ -13206,7 +13606,8 @@ semanticPipelineRuntimeTest(
         question: 'What is the remaining risk boundary?',
         originText: task,
         claimType: 'impact',
-        proofCondition: 'Bound the remaining structured output compatibility risk.',
+        proofCondition:
+          'Distinguish every unaffected area that needs no modification from the observed impact.',
       }),
     ];
     ['targets', 'dependents', 'requested_categories', 'risk_boundary'].forEach((part, index) => {
@@ -13230,15 +13631,26 @@ semanticPipelineRuntimeTest(
       ),
       candidateClaim(
         'C-impact-risk', goals[3].id,
-        'Compatibility risk spans src/mcp/server.mjs, src/explorer/runtime.mjs, src/explorer/schemas.mjs, tests/schemas.test.mjs, README.md, DESIGN.md, and examples/expected-response.json.',
-        ['E2', 'E3', 'E4', 'E6', 'E7', 'E8', 'E9'],
+        'The change is confined to src/mcp/server.mjs, src/explorer/runtime.mjs, src/explorer/schemas.mjs, tests/schemas.test.mjs, README.md, DESIGN.md, and examples/expected-response.json; every other area is unaffected and needs no modification.',
+        ['E1', 'E2', 'E3', 'E4', 'E6', 'E7', 'E8', 'E9'],
       ),
     ];
     const steps = [
       { stage: 'planner:1', value: plannerControl(goals) },
       {
         stage: 'goal_audit:1',
-        value: auditorControl(goals.map(goal => auditControlRecord(goal))),
+        run(request) {
+          const serialized = JSON.stringify(request.messages);
+          assert.match(serialized,
+            /Which current repository paths form the observed impact boundary/iu);
+          assert.match(serialized,
+            /additional in-scope impact beyond those bounded observations as unverified/iu);
+          assert.doesNotMatch(serialized,
+            /Distinguish every unaffected area that needs no modification/iu);
+          return controlCompletion(auditorControl(
+            goals.map(goal => auditControlRecord(goal)),
+          ));
+        },
       },
       {
         stage: 'exploration:1',
@@ -13345,12 +13757,44 @@ semanticPipelineRuntimeTest(
         stage: 'semantic_verifier:1',
         run(request) {
           const system = request.messages.find(message => message.role === 'system')?.content ?? '';
+          const serialized = JSON.stringify(request.messages);
           assert.match(system,
             /wrapper:map_change_impact:requested_categories[\s\S]{0,320}intended pre-edit change[\s\S]{0,220}conditional premise/u);
           assert.match(system,
             /do not require[\s\S]{0,220}field to already exist[\s\S]{0,220}before\/after or control-flow transition/iu);
+          assert.match(serialized,
+            /Observed impact paths: src\/mcp\/server\.mjs,[\s\S]+Unverified: additional in-scope impact beyond these bounded observations/iu);
+          assert.doesNotMatch(serialized,
+            /The change is confined[\s\S]+every other area is unaffected/iu);
+          assert.doesNotMatch(serialized,
+            /"id":"C-impact-risk"[\s\S]{0,800}"evidenceRefs":\["E1"/u);
           return controlCompletion(verifierResponse(claims.map(claim =>
-            semanticVerdict(claim.id, 'supported', claim.evidenceRefs))));
+            semanticVerdict(
+              claim.id,
+              'supported',
+              claim.id === 'C-impact-categories'
+                ? ['E6', 'E7', 'E9']
+                : claim.id === 'C-impact-risk'
+                  ? ['E2', 'E3', 'E4', 'E6', 'E7', 'E8', 'E9']
+                  : claim.evidenceRefs,
+            ))));
+        },
+      },
+      {
+        stage: 'semantic_verifier:2',
+        run(request) {
+          assert.match(
+            JSON.stringify(request.messages),
+            /omitted runtime-selected current category evidence[\s\S]{0,220}missing=\[E8\]/iu,
+          );
+          return controlCompletion(verifierResponse(claims.map(claim =>
+            semanticVerdict(
+              claim.id,
+              'supported',
+              claim.id === 'C-impact-risk'
+                ? ['E2', 'E3', 'E4', 'E6', 'E7', 'E8', 'E9']
+                : claim.evidenceRefs,
+            ))));
         },
       },
     ];
@@ -13382,9 +13826,21 @@ semanticPipelineRuntimeTest(
 
     assert.equal(client.stageCounts.get('exploration'), 6, JSON.stringify(client.stageLabels));
     assert.equal(client.stageCounts.get('claim_synthesis'), 2);
+    assert.equal(client.stageCounts.get('semantic_verifier'), 2);
     assert.equal(result.failure, null, JSON.stringify(result.failure));
     assert.ok(['complete', 'verify_targets'].includes(result.parentHandoff.state));
     assert.equal(result.parentHandoff.targets.length, 7);
+    assert.match(result.parentHandoff.directAnswer,
+      /observed paths:[\s\S]+unverified: additional in-scope impact beyond these bounded observations/iu);
+    assert.doesNotMatch(result.parentHandoff.directAnswer,
+      /\bconfined\b|\bunaffected\b|needs no modification/iu);
+    assert.equal(result.parentHandoff.evidence.filter(item =>
+      /unverified: additional in-scope impact beyond these bounded observations/iu
+        .test(item.supports)).length, 0,
+    'the aggregate runtime-owned risk caveat should not be copied onto evidence items');
+    assert.equal(result.parentHandoff.evidence.filter(item =>
+      /observed path:/iu.test(item.supports)).length, 7,
+    'each exact path named by the aggregate caveat should retain direct evidence');
   },
 );
 
@@ -13405,16 +13861,9 @@ semanticPipelineRuntimeTest(
         originText: task,
         proofCondition: 'Connect the formatter, schema normalization, and production caller.',
       }),
-      trustGoal(task, {
-        id: 'S-structured-smallest-set',
-        question: task,
-        originText: task,
-        proofCondition: 'Return the smallest useful structured output target set.',
-      }),
     ];
     goals[0].originRefs.push('wrapper:find_relevant_code:locations');
     goals[1].originRefs.push('wrapper:find_relevant_code:relevance');
-    goals[2].originRefs.push('wrapper:find_relevant_code:smallest_set');
     const locations = candidateClaim(
       'C-structured-locations', goals[0].id, 'parent-payload.mjs formats the payload.', ['E1']);
     const incompleteRelevance = candidateClaim(
@@ -13426,9 +13875,6 @@ semanticPipelineRuntimeTest(
       'parent-payload.mjs formats the payload, schemas.mjs normalizes it, and server.mjs returns it.',
       ['E1', 'E2', 'E3'],
     );
-    const smallestSet = candidateClaim(
-      'C-structured-smallest-set', goals[2].id, 'The three files are the smallest useful set.',
-      ['E1', 'E2', 'E3']);
     const steps = [
       { stage: 'planner:1', value: plannerControl(goals) },
       {
@@ -13459,14 +13905,14 @@ semanticPipelineRuntimeTest(
       { stage: 'synthesis:1', value: readyExplorationResult() },
       {
         stage: 'claim_synthesis:1',
-        value: { claims: [locations, incompleteRelevance, smallestSet] },
+        value: { claims: [locations, incompleteRelevance] },
       },
       {
         stage: 'claim_synthesis:2',
         run(request) {
           assert.match(JSON.stringify(request.messages),
             /must cite every runtime-selected current implementation candidate/u);
-          return controlCompletion({ claims: [locations, completeRelevance, smallestSet] });
+          return controlCompletion({ claims: [locations, completeRelevance] });
         },
       },
       {
@@ -13505,7 +13951,6 @@ semanticPipelineRuntimeTest(
     assert.deepEqual(result.semanticVerification.claims.map(claim => claim.id), [
       locations.id,
       completeRelevance.id,
-      smallestSet.id,
     ]);
   },
 );
@@ -14597,7 +15042,6 @@ semanticPipelineRuntimeTest(
         seeds: [
           ['locations', 'positive', ['E1']],
           ['relevance', 'positive', ['E1']],
-          ['smallest_set', 'positive', ['E1']],
         ],
         tools: [{
           tool: 'repo_read_file',
@@ -14748,7 +15192,12 @@ semanticPipelineRuntimeTest(
           wrapperCase.seeds[index][2],
         ));
         const verdicts = claims.map((claim, index) => {
-          const verdict = semanticVerdict(claim.id, 'supported', claim.evidenceRefs);
+          const supportingEvidenceRefs =
+            wrapperCase.tool === 'map_change_impact' &&
+              wrapperCase.seeds[index][0] === 'risk_boundary'
+              ? claims.slice(0, index).flatMap(candidate => candidate.evidenceRefs)
+              : claim.evidenceRefs;
+          const verdict = semanticVerdict(claim.id, 'supported', supportingEvidenceRefs);
           if (wrapperCase.seeds[index][0] === wrapperCase.refutedSeed) {
             verdict.resolution = 'refuted';
           }
@@ -14888,7 +15337,13 @@ semanticPipelineRuntimeTest(
           })),
           claims,
           verdicts: claims.map((claim, index) =>
-            semanticVerdict(claim.id, 'supported', [`E${index + 1}`])),
+            semanticVerdict(
+              claim.id,
+              'supported',
+              seeds[index] === 'risk_boundary'
+                ? claims.slice(0, index).flatMap(candidate => candidate.evidenceRefs)
+                : [`E${index + 1}`],
+            )),
         },
       }), {
         task,
