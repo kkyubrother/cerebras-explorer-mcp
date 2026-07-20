@@ -150,6 +150,7 @@ Planner input은 원래 task, wrapper seed, effective scope, known anchor, repos
 Planner는 명시된 요청 부분마다 독립 관찰 가능한 proof condition을 가진 proposed sub-goal을 만든다. Runtime이 claim type을 고정 proof policy로 변환한다.
 각 fixed wrapper seed는 정확히 한 goal에만 붙인다. 같은 acceptance core를 가진 request leaf가 있으면 별도 wrapper-only goal을 만들지 않고 그 leaf에 wrapper origin을 결합한다.
 Runtime은 initial plan과 isolated audit에서 active wrapper의 fixed seed origin이 모두 유지되는지 기계적으로 확인한다. Initial omission은 한 번의 bounded control correction 대상이며, 다시 누락되면 repository exploration 전에 fail-closed한다. Final corrected plan이 이번 revision에서 분해 또는 정제하도록 명시된 goal의 fixed origin만 빠뜨린 경우에는 그 obligation을 성공으로 간주하지 않고 `planning_incomplete` required gap으로 materialize한다. Preserved goal 변경, 이번 revision 대상이 아닌 origin 누락, malformed control은 계속 fault다.
+`map_change_impact:dependents` fixed seed는 관측된 caller/consumer boundary를 요구할 뿐 exhaustive inventory를 뜻하지 않는다. Goal의 question/proof/constraint에 있는 강한 완전성 한정어는 그 goal의 정확한 request origin에도 있어야 하며, 없으면 한 번의 bounded control correction 뒤 반복 시 audit와 repository exploration 전에 fail-closed한다.
 `collect_evidence`는 예외 없이 supplied task 전체를 덮는 request origin과 `wrapper:collect_evidence:verdict`를 함께 가진 하나의 `claim_verification` goal로 계획한다. Direct evidence와 counterevidence search는 별도 sibling goal이 아니라 같은 verdict의 내부 proof facet이다.
 
 | Claim type | Proof policy |

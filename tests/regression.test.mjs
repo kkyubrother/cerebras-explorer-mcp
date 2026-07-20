@@ -563,8 +563,25 @@ auditedPromptBoundaryTest('Spec 028 T071 — map impact categories remain one bo
     preflightDiagnostics: [],
     revisionCount: 0,
   }), 'map impact auditor');
+  const correctedPlanner = assertTwoMessageBoundary(promptModule.buildCorrectedPlannerMessages({
+    task,
+    effectiveScope: ['src/**', 'tests/**'],
+    wrapperTool: 'map_change_impact',
+    preservedGoals: [],
+    revisionRequest: {
+      decomposeGoalIds: [],
+      refineGoalIds: [],
+      uncoveredRequestParts: [],
+      obligations: [],
+      diagnostics: [],
+    },
+  }), 'corrected map impact planner');
 
-  for (const system of [planner.system, auditor.system]) {
+  for (const system of [planner.system, correctedPlanner.system, auditor.system]) {
+    assert.match(system,
+      /wrapper:map_change_impact:dependents[\s\S]{0,260}bounded observed callers[\s\S]{0,220}fixed wrapper seed[\s\S]{0,180}(?:all|every|exhaustive|entire)/i);
+    assert.match(system,
+      /completeness qualifiers[\s\S]{0,180}confirmed request origin/i);
     assert.match(system,
       /wrapper:map_change_impact:requested_categories[\s\S]{0,220}one multi-item impact leaf/i);
     assert.match(system,

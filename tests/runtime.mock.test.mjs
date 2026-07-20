@@ -5531,6 +5531,48 @@ function locateWrapperGoals() {
   }));
 }
 
+function impactWrapperGoals(task, { exhaustiveDependents = false } = {}) {
+  const definitions = [
+    {
+      id: 'targets',
+      fragment: 'Identify actionable targets',
+      question: 'What are the actionable targets for adding a new top-level field to explore_repo structured output?',
+      proofCondition: 'Locate the implementation sites for explore_repo structured output where the new top-level field must be added.',
+    },
+    {
+      id: 'dependents',
+      fragment: 'dependent callers/consumers',
+      question: 'What are the dependent callers or consumers of explore_repo structured output?',
+      proofCondition: exhaustiveDependents
+        ? 'Identify all callers, consumers, or downstream dependencies that utilize or parse explore_repo structured output.'
+        : 'Identify observed callers, consumers, or downstream dependencies that utilize or parse explore_repo structured output.',
+    },
+    {
+      id: 'requested_categories',
+      fragment: 'affected verification or public-contract surfaces',
+      question: 'Which verification or public-contract surfaces are affected by adding a new top-level field to explore_repo structured output?',
+      proofCondition: 'Identify affected verification and public-contract surfaces that reference or validate explore_repo structured output.',
+    },
+    {
+      id: 'risk_boundary',
+      fragment: 'the remaining risk boundary',
+      question: 'What is the remaining risk boundary for this change?',
+      proofCondition: 'Define the observed impact boundary and any remaining uncertainty inside the immutable scope.',
+    },
+  ];
+  return definitions.map(definition => ({
+    id: definition.id,
+    question: definition.question,
+    originRefs: [
+      requestOrigin(task, definition.fragment),
+      `wrapper:map_change_impact:${definition.id}`,
+    ],
+    claimType: 'impact',
+    proofCondition: definition.proofCondition,
+    constraints: [],
+  }));
+}
+
 auditedPlanningRuntimeTest('Spec 028 T017 — initial plan and isolated audit finish before exploration', async () => {
   const goals = definitionAndAbsenceGoals();
   const invented = proposedRuntimeGoal({
@@ -5640,6 +5682,77 @@ auditedPlanningRuntimeTest('Spec 028 T071 — repeated fixed wrapper seed omissi
   assert.ok(result.failure);
   assert.equal(result.parentHandoff.state, 'failed');
 });
+
+auditedPlanningRuntimeTest(
+  'Spec 028 T071 — invented map-dependent completeness gets one bounded planner correction',
+  async () => {
+    const task = 'Map the likely impact of this intended change before editing: ' +
+      'Add a new top-level field to explore_repo structured output. Identify actionable targets, ' +
+      'dependent callers/consumers, affected verification or public-contract surfaces, and the remaining risk boundary.';
+    const invented = impactWrapperGoals(task, { exhaustiveDependents: true });
+    const corrected = impactWrapperGoals(task);
+    const client = new ScriptedGoalAuditClient([
+      { stage: 'planner:1', value: plannerControl(invented) },
+      {
+        stage: 'planner:2',
+        run(request) {
+          assert.match(JSON.stringify(request.messages), /unentailed_completeness_qualifier/u);
+          return controlCompletion(plannerControl(corrected));
+        },
+      },
+      {
+        stage: 'goal_audit:1',
+        value: auditorControl(corrected.map(goal => auditControlRecord(goal))),
+      },
+      { stage: 'exploration:1', content: 'The bounded impact goals are audited.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+    ]);
+    const root = await makeRepoFixture();
+    const result = await new RuntimeImplementation({ chatClient: client }).explore({
+      task,
+      repo_root: root,
+      scope: ['src/**', 'tests/**', '*.md', 'examples/**'],
+      taskMode: 'edit_planning',
+    });
+
+    assert.equal(result.failure, null, JSON.stringify(result.failure));
+    assert.deepEqual(client.stageLabels.slice(0, 4), [
+      'planner:1',
+      'planner:2',
+      'goal_audit:1',
+      'exploration:1',
+    ]);
+    assert.equal(
+      result.taskContract.subgoals.find(goal => goal.id === 'dependents')?.proofCondition,
+      corrected.find(goal => goal.id === 'dependents').proofCondition,
+    );
+  },
+);
+
+auditedPlanningRuntimeTest(
+  'Spec 028 T071 — repeated invented map-dependent completeness fails before audit',
+  async () => {
+    const task = 'Map the likely impact of this intended change before editing: ' +
+      'Add a new top-level field to explore_repo structured output. Identify actionable targets, ' +
+      'dependent callers/consumers, affected verification or public-contract surfaces, and the remaining risk boundary.';
+    const invented = impactWrapperGoals(task, { exhaustiveDependents: true });
+    const client = new ScriptedGoalAuditClient([
+      { stage: 'planner:1', value: plannerControl(invented) },
+      { stage: 'planner:2', value: plannerControl(invented) },
+    ]);
+    const root = await makeRepoFixture();
+    const result = await new RuntimeImplementation({ chatClient: client }).explore({
+      task,
+      repo_root: root,
+      scope: ['src/**', 'tests/**', '*.md', 'examples/**'],
+      taskMode: 'edit_planning',
+    });
+
+    assert.deepEqual(client.stageLabels, ['planner:1', 'planner:2']);
+    assert.ok(result.failure);
+    assert.equal(result.parentHandoff.state, 'failed');
+  },
+);
 
 auditedPlanningRuntimeTest('Spec 028 T071 — collect_evidence split goals get one planner correction', async () => {
   const task = 'Verify that every user route requires authentication.';

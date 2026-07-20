@@ -1912,6 +1912,74 @@ proofPolicyCoverageTest(
     }), []);
   });
 
+  goalAuditTest('Spec 028 T071 — map dependents completeness must come from an exact request origin', () => {
+    const boundedTask = 'Map dependent callers/consumers.';
+    const boundedFragment = 'dependent callers/consumers';
+    const boundedStart = boundedTask.indexOf(boundedFragment);
+    const invented = goalProposal({
+      id: 'impact-dependents',
+      question: 'Which callers or consumers depend on the changed output?',
+      originRefs: [
+        `request:${boundedStart}-${boundedStart + boundedFragment.length}`,
+        'wrapper:map_change_impact:dependents',
+      ],
+      claimType: 'impact',
+      proofCondition: 'Identify all callers, consumers, or downstream dependencies.',
+    });
+    const rejected = coverageModule.preflightGoalProposals({
+      task: boundedTask,
+      effectiveScope: ['src/**'],
+      wrapperTool: 'map_change_impact',
+      proposals: [invented],
+    });
+
+    assert.equal(rejected.controlFault?.code, 'unentailed_completeness_qualifier');
+    assert.deepEqual(rejected.controlFault?.proposedGoalIds, [invented.id]);
+    assert.ok(rejected.diagnostics.some(diagnostic =>
+      diagnostic.proposedGoalId === invented.id &&
+      diagnostic.code === 'unentailed_completeness_qualifier'));
+
+    const exhaustiveTask = 'Map all dependent callers/consumers.';
+    const exhaustiveFragment = 'all dependent callers/consumers';
+    const exhaustiveStart = exhaustiveTask.indexOf(exhaustiveFragment);
+    const requested = {
+      ...invented,
+      originRefs: [
+        `request:${exhaustiveStart}-${exhaustiveStart + exhaustiveFragment.length}`,
+        'wrapper:map_change_impact:dependents',
+      ],
+    };
+    const accepted = coverageModule.preflightGoalProposals({
+      task: exhaustiveTask,
+      effectiveScope: ['src/**'],
+      wrapperTool: 'map_change_impact',
+      proposals: [requested],
+    });
+
+    assert.equal(accepted.controlFault, null);
+    assert.deepEqual(accepted.diagnostics, []);
+    assert.deepEqual(accepted.auditCandidates.map(goal => goal.id), [requested.id]);
+
+    const categoryQualifier = {
+      ...invented,
+      question: 'Which callers or consumers depend on the changed output?',
+      proofCondition: 'Observe every requested impact category.',
+      originRefs: [
+        `request:${boundedStart}-${boundedStart + boundedFragment.length}`,
+        'wrapper:map_change_impact:dependents',
+        'wrapper:map_change_impact:requested_categories',
+      ],
+    };
+    const categoryAccepted = coverageModule.preflightGoalProposals({
+      task: boundedTask,
+      effectiveScope: ['src/**'],
+      wrapperTool: 'map_change_impact',
+      proposals: [categoryQualifier],
+    });
+    assert.equal(categoryAccepted.controlFault, null,
+      'a completeness qualifier for a sibling category is not a dependents qualifier');
+  });
+
   goalAuditTest('Spec 028 T071 — collect_evidence has one request-bound verdict goal', () => {
     assert.equal(typeof coverageModule.validateCollectEvidenceGoalPlan, 'function');
     const canonical = goalProposal({

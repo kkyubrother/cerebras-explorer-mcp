@@ -970,6 +970,37 @@ function hasCircularProofCondition(proofCondition) {
       .test(proofCondition);
 }
 
+function hasDependentCompletenessQualifier(text) {
+  const dependent = String.raw`(?:callers?|consumers?|dependents?|dependencies|downstream)`;
+  const qualifier = String.raw`(?:all|every|exhaustive(?:ly)?|entire)`;
+  return new RegExp(
+    String.raw`\b${qualifier}\b.{0,80}\b${dependent}\b|` +
+    String.raw`\b${dependent}\b.{0,48}\b${qualifier}\b|` +
+    String.raw`(?:모든|모두|전부|전체).{0,40}(?:호출자|호출부|소비자|의존|종속)|` +
+    String.raw`(?:호출자|호출부|소비자|의존|종속).{0,32}(?:모든|모두|전부|전체)`,
+    'iu',
+  ).test(text);
+}
+
+function hasUnentailedMapDependentCompleteness(proposal, task, wrapperTool) {
+  if (wrapperTool !== 'map_change_impact' ||
+      !proposal.originRefs.includes('wrapper:map_change_impact:dependents')) {
+    return false;
+  }
+  const proposedText = [
+    proposal.question,
+    proposal.proofCondition,
+    ...proposal.constraints,
+  ];
+  if (!proposedText.some(hasDependentCompletenessQualifier)) return false;
+
+  const requestText = proposal.originRefs.flatMap(originRef => {
+    const match = /^request:(\d+)-(\d+)$/.exec(originRef);
+    return match ? [task.slice(Number(match[1]), Number(match[2]))] : [];
+  });
+  return !requestText.some(hasDependentCompletenessQualifier);
+}
+
 function proposalShapeError(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return 'expected an object';
   if ([...Object.keys(value)].some(key => !PLANNER_GOAL_KEYS.has(key))) {
@@ -1138,6 +1169,18 @@ export function preflightGoalProposals(input) {
     }
   }
 
+  const unentailedCompletenessGoalIds = auditCandidates
+    .filter(proposal =>
+      hasUnentailedMapDependentCompleteness(proposal, task, wrapperTool))
+    .map(proposal => proposal.id);
+  for (const proposedGoalId of unentailedCompletenessGoalIds) {
+    diagnostics.push(preflightDiagnostic(
+      proposedGoalId,
+      'unentailed_completeness_qualifier',
+      'The map dependents seed does not authorize exhaustive coverage without an exact request origin.',
+    ));
+  }
+
   return {
     task,
     wrapperTool,
@@ -1149,6 +1192,11 @@ export function preflightGoalProposals(input) {
     mechanicalMergeTargets: { ...mechanicalMergeTargets },
     controlFault: duplicateIds.size > 0
       ? { code: 'duplicate_id', proposedGoalIds: [...duplicateIds] }
+      : unentailedCompletenessGoalIds.length > 0
+        ? {
+            code: 'unentailed_completeness_qualifier',
+            proposedGoalIds: unentailedCompletenessGoalIds,
+          }
       : null,
   };
 }
