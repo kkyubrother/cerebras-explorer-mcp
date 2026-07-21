@@ -2947,9 +2947,11 @@ function validateSynthesizedClaimBatch(raw, {
       missingCountMeasurementSubgoalIds.add(candidate.subgoalId);
     }
     const inventoryCountPattern = /\b\d[\d,_]*\s+(?:tests?|test\s+(?:functions?|cases?)|files?|classes?|matches?|entries?|occurrences?|routes?|modules?)\b/iu;
+    const requestedModifiedEntryCountPattern = /\b\d[\d,_]*\s+(?:(?:static|runtime-owned|bounded)\s+)?(?:array\s+)?entries?\b/iu;
     const requestText = requestTextForSubgoal(taskContract.task, subgoal);
     if (subgoal?.claimType !== 'count' && inventoryCountPattern.test(candidate.text) &&
         !inventoryCountPattern.test(requestText) &&
+        !requestedModifiedEntryCountPattern.test(requestText) &&
         !/\b(?:count|how many|number of)\b|개수|몇\s*개|수량/iu.test(requestText)) {
       throw new TypeError(
         `Claim synthesis added an unrequested inventory count to sub-goal ${candidate.subgoalId}. ` +

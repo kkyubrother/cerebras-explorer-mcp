@@ -1,10 +1,10 @@
 # Changelog
 
-## v0.9.0 - Unreleased
+## v0.9.0 - 2026-07-21
 
 ### trustworthy explorer and schema-v3 parent handoff (spec 028)
 
-This is an intentional pre-1.0 breaking change pending the live release gates.
+This is an intentional pre-1.0 breaking change.
 It replaces overlapping
 schema-v2 status and diagnostic structures with one fail-closed schema-v3
 handoff, and reduces the public MCP registry from eight tools to six. No
@@ -91,6 +91,9 @@ compatibility aliases or selectable effort controls are retained.
   instead of reaching the parent. The
   internal evidence-verification strategy reads the strongest exact anchor and
   performs one bounded disconfirming search instead of serial broad synonyms.
+  Explicit numeric comparison requests such as `3 static array entries` retain
+  their requested count when bounded modifiers appear between the number and
+  inventory unit, while deterministic proof still controls the accepted value.
 - **Quiet schema v3**: normal MCP output contains only `schemaVersion`, `state`,
   and the state-relevant subset of `directAnswer`, `targets`, `evidence`,
   `gaps`, `followUp`, and `failure`. Goals, verdicts, counters, usage, timing,
@@ -139,7 +142,7 @@ compatibility aliases or selectable effort controls are retained.
   are evaluated together without forcing duplicate parent prose, while
   provider failure messages remain execution failures rather than repository
   claims. Live
-  Cerebras revalidation and the full quickstart remain release gates.
+  Cerebras revalidation and the full quickstart were completed as release gates.
 
 Migration:
 

@@ -5,9 +5,9 @@
 ## 최근 확인 환경
 
 - 확인 일시: 2026-07-21 KST
-- Node.js: 22 이상
-- OS/셸: Windows 11 / PowerShell 7
-- 실제 API 검증: `CEREBRAS_API_KEY`가 설정된 상태
+- Node.js: 24.16.0 (지원 기준 22 이상)
+- OS/셸: Ubuntu 24.04.4 LTS / Bash
+- 실제 API 검증: `CEREBRAS_API_KEY`가 설정된 상태에서 `zai-glm-4.7`
 
 ## 필수 단위·계약 테스트
 

@@ -10676,18 +10676,11 @@ function assertNoRequiredLeak(result, text) {
   assert.doesNotMatch(result.directAnswer ?? '', new RegExp(text));
 }
 
-// T062 integrates proof-policy artifacts into the runtime result. Until that
-// direct-runtime diagnostic exists, execute the complete provider script but
-// report these T059 tests as TODO. Once even a partial integration exposes the
-// marker, every assertion below runs so an incomplete implementation stays red.
+// T062 integrates proof-policy artifacts into the runtime result. Keep the
+// explicit marker assertion for the count fixture, but run every fixture's
+// behavioral assertions now that the implementation task is complete.
 function hasRuntimeProofPolicyIntegration(result) {
   return Array.isArray(result?.semanticVerification?.absenceCertificates);
-}
-
-function requireRuntimeProofPolicyIntegration(t, result) {
-  if (hasRuntimeProofPolicyIntegration(result)) return true;
-  t.todo('T062 must expose runtime-computed absenceCertificates before T059 activates.');
-  return false;
 }
 
 function assertMinimalCompleteParentHandoff(result, {
@@ -11061,6 +11054,7 @@ test('Spec 028 T059 — runtime enforces negative and critical proof boundaries'
         constraints: ['Do not treat the ending source line as the entry count.'],
       },
       claimText: 'The static array has 3 entries and its definition ends on source line 5.',
+      requiresComparisonCorroboration: false,
       initialTools: [{
         tool: 'repo_symbol_context',
         args: {
@@ -11084,7 +11078,15 @@ test('Spec 028 T059 — runtime enforces negative and critical proof boundaries'
           '',
         ].join('\n'));
       },
-      assertImplemented({ result, goal, claim }) {
+      assertImplemented({ client, result, goal, claim }) {
+        assert.equal(client.stageCounts.get('claim_synthesis'), 1,
+          'an explicitly requested numeric comparison must not need claim correction');
+        assert.equal(client.stageCounts.get('semantic_verifier'), 1,
+          'a same-definition comparison needs only the primary verifier');
+        assert.ok(result.semanticVerification, JSON.stringify({
+          failure: result.failure,
+          stages: client.stageLabels,
+        }, null, 2));
         assert.equal(result.semanticVerification.deterministicCounts.length, 0,
           'comparison reuses the runtime observation without inventing a count certificate');
         assert.equal(result.semanticVerification.claims.find(item => item.id === claim.id).verdict,
@@ -11649,7 +11651,8 @@ test('Spec 028 T059 — runtime enforces negative and critical proof boundaries'
         initial: {
           tools: fixture.initialTools,
           claims: [claim],
-          ...(fixture.goal.claimType === 'comparison'
+          ...(fixture.goal.claimType === 'comparison' &&
+              fixture.requiresComparisonCorroboration !== false
             ? {
                 verifierSteps: [{
                   verdicts: [semanticVerdict(
@@ -11701,7 +11704,6 @@ test('Spec 028 T059 — runtime enforces negative and critical proof boundaries'
             stages: client.stageLabels,
           }, null, 2));
       }
-      if (!requireRuntimeProofPolicyIntegration(t, result)) return;
       fixture.assertImplemented({ client, result, goal, claim });
     });
   }
@@ -16818,7 +16820,7 @@ semanticPipelineRuntimeTest(
 semanticPipelineRuntimeTest(
   'Spec 028 T069 — unrequested inventory counts get one bounded claim correction',
   async () => {
-    const task = 'Identify the test that covers the pipeline entry path.';
+    const task = 'At line 3 compare the source with tests and identify the test that covers the pipeline entry path.';
     const goal = trustGoal(task, {
       id: 'S-entry-path-test',
       question: task,
