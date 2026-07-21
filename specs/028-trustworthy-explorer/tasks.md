@@ -190,7 +190,7 @@
 - [x] T068 Run the offline trust suite three times per repeatability case and the parent-observation harness, require every SC-001 through SC-016 offline gate plus one distinct proof-policy acceptance scenario for each retained wrapper, and record only portable results in `benchmarks/trust-known-answer.json`
 - [x] T069 Run live `scripts/integration-test.mjs` and `scripts/run-trust-suite.mjs` with `CEREBRAS_API_KEY`, `CEREBRAS_EXPLORER_LOG_PATH`, and an external logical repo map as specified in `specs/028-trustworthy-explorer/quickstart.md`; do not commit local absolute paths or transcripts
 - [x] T070 Bump the pre-1.0 minor version and synchronize the top release heading, v2-to-v3 migration, removed tools/APIs/envvars, install snippet, and all integration install refs in `package.json`, `CHANGELOG.md`, `README.md`, and `integrations/`
-- [ ] T071 Run the full `specs/028-trustworthy-explorer/quickstart.md`, `npm test`, dependency/secret/scope/redaction/cancellation/stale-name guards, `git diff --check`, and schema/example validation; then mark every completed item in `specs/028-trustworthy-explorer/tasks.md` and close/move any implementation plan required by `AGENTS.md`
+- [x] T071 Run the full `specs/028-trustworthy-explorer/quickstart.md`, `npm test`, dependency/secret/scope/redaction/cancellation/stale-name guards, `git diff --check`, and schema/example validation; then mark every completed item in `specs/028-trustworthy-explorer/tasks.md` and close/move any implementation plan required by `AGENTS.md`
 
 ---
 
