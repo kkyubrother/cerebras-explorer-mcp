@@ -2516,12 +2516,14 @@ async function requestValidatedGoalControl({
   abortSignal,
   onCompletion,
   recoverFinalValidation,
+  allowCorrection = true,
 }) {
   let requestMessages = messages;
   let validationError = null;
   const validationAttempts = [];
+  const validationAttemptLimit = allowCorrection ? 2 : 1;
 
-  for (let attempt = 0; attempt < 2; attempt += 1) {
+  for (let attempt = 0; attempt < validationAttemptLimit; attempt += 1) {
     if (abortSignal?.aborted) throw abortError(`${stage} was cancelled.`);
     const completion = await requestProviderCompletion(chatClient, {
       messages: redactValue(requestMessages).value,
@@ -2550,7 +2552,7 @@ async function requestValidatedGoalControl({
         String(error?.message ?? error).replace(/\s+/g, ' ').slice(0, 800),
       ).text;
       validationAttempts.push({ attempt: attempt + 1, reason: validationSummary.slice(0, 240) });
-      if (attempt === 1) {
+      if (attempt === validationAttemptLimit - 1) {
         if (typeof recoverFinalValidation === 'function') {
           try {
             const recovered = recoverFinalValidation({ parsed, error });
@@ -4652,6 +4654,136 @@ async function retryTraceDefinitionWithSameEvidence({
     claim: repairedClaim,
     verdict: verified.verdicts[0],
   };
+}
+
+function knownTestAnchorCategoryRetryContext({
+  subgoal,
+  claim,
+  verdict,
+  knownTestAnchor,
+  observations,
+}) {
+  if (subgoal?.proofPolicy !== 'direct_source' ||
+      claim?.subgoalId !== knownTestAnchor?.subgoalId ||
+      verdict?.result !== 'insufficient' || verdict.reasonCode !== 'missing_category') {
+    return null;
+  }
+  const claimRefs = new Set(claim.evidenceRefs ?? []);
+  const anchorRefs = new Set(knownTestAnchor.evidenceRefs ?? []);
+  const verifierRefs = new Set(verdict.supportingEvidenceRefs ?? []);
+  if (claimRefs.size === 0 || [...claimRefs].some(ref => !anchorRefs.has(ref)) ||
+      [...claimRefs].some(ref => !verifierRefs.has(ref))) {
+    return null;
+  }
+  const focusedObservations = observations.filter(observation =>
+    claimRefs.has(observation?.id) && anchorRefs.has(observation?.id) &&
+    observation?.kind === 'source' && observation.sourceRole === 'test' &&
+    observation.temporalRole === 'current' && observation.rangeGrounding === 'exact' &&
+    normalizeTargetPath(observation.path) === normalizeTargetPath(knownTestAnchor.path));
+  return focusedObservations.length > 0 ? { focusedObservations } : null;
+}
+
+function sameKnownTestAnchorClaim(left, right) {
+  if (!left || !right || left.id !== right.id || left.subgoalId !== right.subgoalId ||
+      left.text !== right.text) {
+    return false;
+  }
+  const leftRefs = Array.isArray(left.evidenceRefs) ? left.evidenceRefs : [];
+  const rightRefs = Array.isArray(right.evidenceRefs) ? right.evidenceRefs : [];
+  return leftRefs.length === rightRefs.length &&
+    leftRefs.every((ref, index) => ref === rightRefs[index]);
+}
+
+async function retryKnownTestAnchorCategoryVerdict({
+  chatClient,
+  taskContract,
+  subgoal,
+  claim,
+  verdict,
+  knownTestAnchor,
+  observations,
+  freshEvidenceRefs,
+  wrapperTool,
+  reasoningEffort,
+  maxCompletionTokens,
+  abortSignal,
+  onCompletion,
+  retryState,
+  onOptionalFailure,
+}) {
+  const context = knownTestAnchorCategoryRetryContext({
+    subgoal,
+    claim,
+    verdict,
+    knownTestAnchor,
+    observations,
+  });
+  if (!context) return null;
+  const cachedAffirmation = retryState?.knownTestAnchorCategoryAffirmation;
+  const claimEvidenceRefs = new Set(claim.evidenceRefs ?? []);
+  if (cachedAffirmation && sameKnownTestAnchorClaim(cachedAffirmation.claim, claim) &&
+      !freshEvidenceRefs.some(ref => claimEvidenceRefs.has(ref))) {
+    return {
+      ...cachedAffirmation.verdict,
+      supportingEvidenceRefs: [...cachedAffirmation.verdict.supportingEvidenceRefs],
+    };
+  }
+  if (retryState?.knownTestAnchorCategory === true) return null;
+  if (retryState) retryState.knownTestAnchorCategory = true;
+  const focusedEvidenceRefs = new Set(context.focusedObservations.map(item => item.id));
+  try {
+    const verified = await requestValidatedGoalControl({
+      chatClient,
+      messages: buildSemanticVerifierMessages({
+        taskContract: semanticBatchContract(taskContract, [subgoal]),
+        claims: [claim],
+        observations: context.focusedObservations,
+        absenceCertificates: [],
+        criticDecisions: [],
+        freshEvidenceRefs: freshEvidenceRefs.filter(ref => focusedEvidenceRefs.has(ref)),
+        wrapperTool,
+      }),
+      schemaName: 'semantic_verifier_response',
+      schema: SEMANTIC_VERIFIER_RESPONSE_SCHEMA,
+      stage: 'semantic_verifier',
+      reasoningEffort,
+      temperature: 0,
+      topP: 1,
+      maxCompletionTokens,
+      abortSignal,
+      onCompletion,
+      allowCorrection: false,
+      validate: raw => validateFocusedSemanticVerdictBatch(raw, {
+        claims: [claim],
+        wrapperTool,
+        label: 'Known test anchor category recheck',
+      }),
+    });
+    const retriedVerdict = verified.verdicts[0];
+    if (retryState && retriedVerdict.result === 'supported' &&
+        retriedVerdict.resolution === 'affirmed') {
+      retryState.knownTestAnchorCategoryAffirmation = {
+        claim: {
+          id: claim.id,
+          subgoalId: claim.subgoalId,
+          text: claim.text,
+          evidenceRefs: [...claim.evidenceRefs],
+        },
+        verdict: {
+          ...retriedVerdict,
+          supportingEvidenceRefs: [...retriedVerdict.supportingEvidenceRefs],
+        },
+      };
+    }
+    return retriedVerdict;
+  } catch (error) {
+    if (isAbortError(error)) throw error;
+    if (error?.code !== INVALID_GOAL_CONTROL && error?.explorerFailureKind !== 'provider') {
+      throw error;
+    }
+    onOptionalFailure?.(error);
+    return null;
+  }
 }
 
 function wrapperToolForTaskMode(taskMode) {
@@ -8943,8 +9075,14 @@ export class ExplorerRuntime {
     abortSignal,
     onCompletion,
     onTrustEvent,
+    sameEvidenceRetryState,
+    onOptionalControlFailure,
   }) {
     const safeObservations = Array.isArray(observations) ? observations : [];
+    const retryState = sameEvidenceRetryState &&
+        typeof sameEvidenceRetryState === 'object' && !Array.isArray(sameEvidenceRetryState)
+      ? sameEvidenceRetryState
+      : { knownTestAnchorCategory: false };
     const deterministicFlowControl = wrapperTool === 'explain_code_path';
     if (phase !== 'initial' && phase !== 'post-repair') {
       throw new TypeError('Semantic verification phase must be initial or post-repair.');
@@ -8961,6 +9099,15 @@ export class ExplorerRuntime {
       isNonExhaustiveDirectTestGoal(taskContract.task, subgoal));
     const knownTestAnchorSubgoalId = eligibleKnownTestSubgoals.length === 1
       ? eligibleKnownTestSubgoals[0].id
+      : null;
+    const observedVerifierKnownTestAnchor = knownTestAnchorSubgoalId
+      ? singleObservedKnownTestAnchor(knownFileAnchors, safeObservations)
+      : null;
+    const verifierKnownTestAnchor = observedVerifierKnownTestAnchor
+      ? {
+          subgoalId: knownTestAnchorSubgoalId,
+          ...observedVerifierKnownTestAnchor,
+        }
       : null;
     const activeSubgoals = taskContract.subgoals.filter(subgoal =>
       subgoal.state !== 'blocked' && (phase === 'initial' ||
@@ -9198,6 +9345,37 @@ export class ExplorerRuntime {
           }),
       });
       if (verified.uncoveredRequestParts.length === 0) {
+        if (new Set(subgoalBatch.map(item => item.proofPolicy)).size > 1) {
+          for (const [index, batchClaim] of batchClaims.entries()) {
+            const subgoal = subgoalBatch.find(item => item.id === batchClaim.subgoalId);
+            const retriedVerdict = await retryKnownTestAnchorCategoryVerdict({
+              chatClient,
+              taskContract: candidateContract,
+              subgoal,
+              claim: batchClaim,
+              verdict: verified.verdicts[index],
+              knownTestAnchor: verifierKnownTestAnchor,
+              observations: batchObservations,
+              freshEvidenceRefs: batchFreshEvidenceRefs,
+              wrapperTool,
+              reasoningEffort,
+              maxCompletionTokens,
+              abortSignal,
+              onCompletion,
+              retryState,
+              onOptionalFailure: onOptionalControlFailure,
+            });
+            if (retriedVerdict?.result !== 'supported' ||
+                retriedVerdict.resolution !== 'affirmed') {
+              continue;
+            }
+            verified = {
+              ...verified,
+              verdicts: verified.verdicts.map((item, verdictIndex) =>
+                verdictIndex === index ? retriedVerdict : item),
+            };
+          }
+        }
         for (const [index, batchClaim] of batchClaims.entries()) {
           const subgoal = subgoalBatch.find(item => item.id === batchClaim.subgoalId);
           const repaired = await retryTraceDefinitionWithSameEvidence({
@@ -10367,6 +10545,18 @@ export class ExplorerRuntime {
       provenance: this.provenance,
     });
     const traceTrustEvent = (type, data) => recordTrustEvent(transcript, type, data);
+    const recordOptionalControlFailure = error => {
+      if (error?.explorerFailureKind === 'provider') {
+        recordFailedProviderRequest(error, transcript, chatClient);
+        return;
+      }
+      recordPlanningEvent(transcript, 'control_invalid', {
+        stage: 'known_test_anchor_category_recheck',
+        reason: String(error?.cause?.message ?? 'invalid_control_output')
+          .replace(/\s+/g, ' ')
+          .slice(0, 240),
+      });
+    };
 
     let discoveredPaths = [];
     let finalObject = null;
@@ -10381,6 +10571,7 @@ export class ExplorerRuntime {
     let auditedPlan = null;
     let semanticVerification = null;
     let activeRepairTrace = null;
+    const sameEvidenceRetryState = { knownTestAnchorCategory: false };
 
     const recordRuntimeToolExecution = async ({
       toolCall,
@@ -11117,6 +11308,8 @@ export class ExplorerRuntime {
         maxCompletionTokens: runtimeConfig.maxCompletionTokens,
         abortSignal,
         onTrustEvent: traceTrustEvent,
+        sameEvidenceRetryState,
+        onOptionalControlFailure: recordOptionalControlFailure,
         onCompletion: (completion, stage) => {
           recordCompletionStats(stats, completion, transcript);
           if (completion.finishReason === 'length') {
@@ -11306,6 +11499,8 @@ export class ExplorerRuntime {
             maxCompletionTokens: runtimeConfig.maxCompletionTokens,
             abortSignal,
             onTrustEvent: traceTrustEvent,
+            sameEvidenceRetryState,
+            onOptionalControlFailure: recordOptionalControlFailure,
             onCompletion: (completion, stage) => {
               recordCompletionStats(stats, completion, transcript);
               if (completion.finishReason === 'length') {

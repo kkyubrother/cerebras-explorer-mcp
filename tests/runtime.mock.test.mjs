@@ -17013,6 +17013,447 @@ semanticPipelineRuntimeTest(
 );
 
 semanticPipelineRuntimeTest(
+  'Spec 028 T071 — a mixed known-test category anomaly gets one recheck per Explorer call',
+  async () => {
+    const task = 'Identify the entry-path test and map every runtime configuration input.';
+    const goals = [
+      trustGoal(task, {
+        id: 'S-entry-path-test',
+        question: 'Which test covers the entry path?',
+        originText: 'Identify the entry-path test',
+        proofCondition: 'Identify one current entry-path test and what it verifies.',
+      }),
+      trustGoal(task, {
+        id: 'S-runtime-inputs',
+        question: 'Which sources define every runtime configuration input?',
+        originText: 'map every runtime configuration input',
+        claimType: 'impact',
+        proofCondition: 'Identify every current configuration source required at runtime.',
+      }),
+    ];
+    const claims = [
+      candidateClaim(
+        'C-entry-path-test',
+        goals[0].id,
+        'tests/test_cli.py verifies worker fan-out for the pipeline entry path.',
+        ['E1'],
+      ),
+      candidateClaim(
+        'C-runtime-inputs',
+        goals[1].id,
+        'pipeline/config.py defines the runtime worker configuration.',
+        ['E2'],
+      ),
+    ];
+    const repairedClaims = [
+      { ...claims[0] },
+      { ...claims[1], evidenceRefs: ['E2', 'E3'] },
+    ];
+    const missingCategory = (claim, refs) => ({
+      ...semanticVerdict(claim.id, 'insufficient', refs),
+      reasonCode: 'missing_category',
+    });
+    const steps = buildTrustSteps({
+      goals,
+      initial: {
+        tools: [
+          {
+            tool: 'repo_read_file',
+            args: { path: 'tests/test_cli.py', startLine: 1, endLine: 3 },
+            id: 'read-entry-path-test',
+          },
+          {
+            tool: 'repo_read_file',
+            args: { path: 'pipeline/config.py', startLine: 1, endLine: 2 },
+            id: 'read-runtime-config',
+          },
+        ],
+        claims,
+        verifierSteps: [
+          {
+            verdicts: [
+              missingCategory(claims[0], ['E1']),
+              missingCategory(claims[1], ['E2']),
+            ],
+          },
+          {
+            verdicts: [semanticVerdict(claims[0].id, 'supported', ['E1'])],
+            assertRequest(request) {
+              const packet = parseControlPacket(request);
+              assert.deepEqual(packet.claims.map(claim => claim.id), [claims[0].id]);
+              assert.deepEqual(packet.observations.map(observation => observation.id), ['E1']);
+              assert.equal(request.temperature, 0);
+              assert.equal(request.topP, 1);
+            },
+          },
+        ],
+      },
+      repair: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'docs/runtime.md', startLine: 1, endLine: 2 },
+          id: 'read-runtime-doc',
+        }],
+        claims: repairedClaims,
+        verifierSteps: [{
+          verdicts: [
+            missingCategory(repairedClaims[0], ['E1']),
+            missingCategory(repairedClaims[1], ['E2', 'E3']),
+          ],
+          assertRequest(request) {
+            const packet = parseControlPacket(request);
+            assert.deepEqual(packet.claims.map(claim => claim.id), claims.map(claim => claim.id));
+            assert.deepEqual(packet.control.freshEvidenceRefs, ['E3']);
+          },
+        }],
+      },
+    });
+
+    const { client, result } = await runTrustScript(steps, {
+      task,
+      scope: ['pipeline/**', 'tests/**', 'docs/**'],
+      hints: { files: ['tests/test_cli.py', 'pipeline/config.py'] },
+      async setup(root) {
+        await fs.mkdir(path.join(root, 'pipeline'), { recursive: true });
+        await fs.mkdir(path.join(root, 'tests'), { recursive: true });
+        await fs.mkdir(path.join(root, 'docs'), { recursive: true });
+        await fs.writeFile(path.join(root, 'pipeline', 'config.py'),
+          'WORKERS = 3\n');
+        await fs.writeFile(path.join(root, 'tests', 'test_cli.py'),
+          'def test_worker_fan_out():\n    assert main() == 0\n');
+        await fs.writeFile(path.join(root, 'docs', 'runtime.md'),
+          '# Runtime\nUse the configured worker count.\n');
+      },
+    });
+
+    assert.equal(result.failure, null, JSON.stringify(client.stageLabels));
+    assert.equal(client.stageCounts.get('semantic_verifier'), 3,
+      'the unrelated repair pass must reuse the first focused affirmation without another call');
+    assert.equal(providerToolActions(client).length, 3);
+    assert.equal(result.parentHandoff.state, 'incomplete');
+    assert.deepEqual(result.taskContract.subgoals.map(goal => goal.state), ['supported', 'gap']);
+    assert.deepEqual(result.parentHandoff.evidence.map(item => item.path), ['tests/test_cli.py']);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T071 — optional known-test recheck failures preserve the primary gap',
+  async t => {
+    for (const scenario of [
+      { name: 'invalid focused output', kind: 'invalid', expectedVerifierCalls: 2 },
+      { name: 'focused provider failure', kind: 'provider', expectedVerifierCalls: 2 },
+    ]) {
+      await t.test(scenario.name, async () => {
+        const task = 'Identify the entry-path test and map its testing impact.';
+        const goals = [
+          trustGoal(task, {
+            id: 'S-fallback-entry-path-test',
+            question: 'Which test covers the entry path?',
+            originText: 'Identify the entry-path test',
+            proofCondition: 'Identify one current entry-path test and what it verifies.',
+          }),
+          trustGoal(task, {
+            id: 'S-fallback-testing-impact',
+            question: 'What is the testing impact?',
+            originText: 'map its testing impact',
+            claimType: 'impact',
+            proofCondition: 'Identify the current test impact surface.',
+          }),
+        ];
+        const claims = [
+          candidateClaim(
+            'C-fallback-entry-path-test',
+            goals[0].id,
+            'tests/test_cli.py verifies worker fan-out for the pipeline entry path.',
+            ['E1'],
+          ),
+          candidateClaim(
+            'C-fallback-testing-impact',
+            goals[1].id,
+            'tests/test_cli.py is the observed testing impact surface.',
+            ['E1'],
+          ),
+        ];
+        const missingCategory = claim => ({
+          ...semanticVerdict(claim.id, 'insufficient', ['E1']),
+          reasonCode: 'missing_category',
+        });
+        const focusedFailureSteps = scenario.kind === 'invalid'
+          ? [{ stage: 'semantic_verifier:2', value: {} }]
+          : [{
+              stage: 'semantic_verifier:2',
+              run() {
+                const error = new Error('focused verifier unavailable');
+                error.retryable = false;
+                throw error;
+              },
+            }];
+        const steps = [
+          { stage: 'planner:1', value: plannerControl(goals) },
+          {
+            stage: 'goal_audit:1',
+            value: auditorControl(goals.map(goal => auditControlRecord(goal))),
+          },
+          {
+            stage: 'exploration:1',
+            run: () => toolControlCompletion(
+              'repo_read_file',
+              { path: 'tests/test_cli.py', startLine: 1, endLine: 3 },
+              'read-fallback-entry-path-test',
+            ),
+          },
+          { stage: 'exploration:2', content: 'The bounded test pass is complete.' },
+          { stage: 'synthesis:1', value: readyExplorationResult() },
+          { stage: 'claim_synthesis:1', value: { claims: [claims[0]] } },
+          { stage: 'claim_synthesis:2', value: { claims: [claims[1]] } },
+          {
+            stage: 'semantic_verifier:1',
+            value: verifierResponse(claims.map(missingCategory)),
+          },
+          ...focusedFailureSteps,
+          { stage: 'exploration:3', content: 'No materially new repair action remains.' },
+        ];
+
+        const { client, result } = await runTrustScript(steps, {
+          task,
+          scope: ['tests/**'],
+          hints: { files: ['tests/test_cli.py'] },
+          async setup(root) {
+            await fs.mkdir(path.join(root, 'tests'), { recursive: true });
+            await fs.writeFile(path.join(root, 'tests', 'test_cli.py'),
+              'def test_worker_fan_out():\n    assert main() == 0\n');
+          },
+        });
+
+        assert.equal(result.failure, null, JSON.stringify(client.stageLabels));
+        assert.equal(client.stageCounts.get('semantic_verifier'), scenario.expectedVerifierCalls);
+        assert.equal(providerToolActions(client).length, 1);
+        assert.equal(result.parentHandoff.state, 'incomplete');
+        assert.deepEqual(result.taskContract.subgoals.map(goal => goal.state), ['gap', 'gap']);
+      });
+    }
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T071 — known test anchor rechecks are anomaly-only and fail closed',
+  async t => {
+    for (const scenario of [
+      {
+        name: 'a non-affirming focused recheck cannot promote the test claim',
+        primaryTestResult: 'insufficient',
+        focusResolution: 'refuted',
+        expectedVerifierCalls: 2,
+        expectedTestState: 'gap',
+      },
+      {
+        name: 'an affirmed primary verdict does not trigger a focused recheck',
+        primaryTestResult: 'supported',
+        focusResolution: null,
+        expectedVerifierCalls: 1,
+        expectedTestState: 'supported',
+      },
+    ]) {
+      await t.test(scenario.name, async () => {
+    const task = 'Identify the entry-path test and map its testing impact.';
+    const goals = [
+      trustGoal(task, {
+        id: 'S-rejected-entry-path-test',
+        question: 'Which test covers the entry path?',
+        originText: 'Identify the entry-path test',
+        proofCondition: 'Identify one current entry-path test and what it verifies.',
+      }),
+      trustGoal(task, {
+        id: 'S-testing-impact',
+        question: 'What is the testing impact?',
+        originText: 'map its testing impact',
+        claimType: 'impact',
+        proofCondition: 'Identify the current test impact surface.',
+      }),
+    ];
+    const claims = [
+      candidateClaim(
+        'C-rejected-entry-path-test',
+        goals[0].id,
+        'tests/test_cli.py verifies worker fan-out for the pipeline entry path.',
+        ['E1'],
+      ),
+      candidateClaim(
+        'C-testing-impact',
+        goals[1].id,
+        'tests/test_cli.py is the observed testing impact surface.',
+        ['E1'],
+      ),
+    ];
+    const steps = [
+      { stage: 'planner:1', value: plannerControl(goals) },
+      {
+        stage: 'goal_audit:1',
+        value: auditorControl(goals.map(goal => auditControlRecord(goal))),
+      },
+      {
+        stage: 'exploration:1',
+        run: () => toolControlCompletion(
+          'repo_read_file',
+          { path: 'tests/test_cli.py', startLine: 1, endLine: 3 },
+          'read-rejected-entry-path-test',
+        ),
+      },
+      { stage: 'exploration:2', content: 'The bounded test pass is complete.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+      { stage: 'claim_synthesis:1', value: { claims: [claims[0]] } },
+      { stage: 'claim_synthesis:2', value: { claims: [claims[1]] } },
+      {
+        stage: 'semantic_verifier:1', value: verifierResponse([
+          scenario.primaryTestResult === 'supported'
+            ? semanticVerdict(claims[0].id, 'supported', ['E1'])
+            : {
+                ...semanticVerdict(claims[0].id, 'insufficient', ['E1']),
+                reasonCode: 'missing_category',
+              },
+          {
+            ...semanticVerdict(claims[1].id, 'insufficient', ['E1']),
+            reasonCode: 'missing_category',
+          },
+        ]),
+      },
+      ...(scenario.focusResolution ? [{
+          stage: 'semantic_verifier:2',
+          run(request) {
+            const packet = parseControlPacket(request);
+            assert.deepEqual(packet.claims.map(item => item.id), [claims[0].id]);
+            assert.deepEqual(packet.observations.map(observation => observation.id), ['E1']);
+            assert.equal(request.temperature, 0);
+            assert.equal(request.topP, 1);
+            return controlCompletion(verifierResponse([{
+              ...semanticVerdict(claims[0].id, 'supported', ['E1']),
+              resolution: scenario.focusResolution,
+            }]));
+          },
+        },
+      ] : []),
+      { stage: 'exploration:3', content: 'No materially new repair action remains.' },
+    ];
+
+    const { client, result } = await runTrustScript(steps, {
+      task,
+      scope: ['tests/**'],
+      hints: { files: ['tests/test_cli.py'] },
+      async setup(root) {
+        await fs.mkdir(path.join(root, 'tests'), { recursive: true });
+        await fs.writeFile(path.join(root, 'tests', 'test_cli.py'),
+          'def test_worker_fan_out():\n    assert main() == 0\n');
+      },
+    });
+
+    assert.equal(result.failure, null, JSON.stringify(client.stageLabels));
+    assert.equal(client.stageCounts.get('semantic_verifier'), scenario.expectedVerifierCalls);
+    assert.equal(providerToolActions(client).length, 1);
+    assert.equal(result.parentHandoff.state, 'incomplete');
+    assert.equal(result.taskContract.subgoals[0].state, scenario.expectedTestState);
+    assert.equal(result.taskContract.subgoals[1].state, 'gap');
+    if (scenario.expectedTestState === 'gap') {
+      assert.equal(result.parentHandoff.directAnswer, undefined);
+      assert.equal(result.parentHandoff.evidence, undefined);
+    } else {
+      assert.deepEqual(result.parentHandoff.evidence.map(item => item.path), ['tests/test_cli.py']);
+    }
+      });
+    }
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T071 — partial primary support cannot trigger a known test anchor recheck',
+  async () => {
+    const task = 'Identify the entry-path test and map every runtime configuration input.';
+    const goals = [
+      trustGoal(task, {
+        id: 'S-partial-entry-path-test',
+        question: 'Which test covers the entry path?',
+        originText: 'Identify the entry-path test',
+        proofCondition: 'Identify one current entry-path test and what it verifies.',
+      }),
+      trustGoal(task, {
+        id: 'S-partial-runtime-inputs',
+        question: 'Which sources define every runtime configuration input?',
+        originText: 'map every runtime configuration input',
+        claimType: 'impact',
+        proofCondition: 'Identify every current configuration source required at runtime.',
+      }),
+    ];
+    const claims = [
+      candidateClaim(
+        'C-partial-entry-path-test',
+        goals[0].id,
+        'tests/test_cli.py verifies worker fan-out and limit forwarding.',
+        ['E1', 'E2'],
+      ),
+      candidateClaim(
+        'C-partial-runtime-inputs',
+        goals[1].id,
+        'pipeline/config.py defines the runtime worker configuration.',
+        ['E3'],
+      ),
+    ];
+    const steps = buildTrustSteps({
+      goals,
+      initial: {
+        tools: [
+          {
+            tool: 'repo_read_file',
+            args: { path: 'tests/test_cli.py', startLine: 1, endLine: 2 },
+            id: 'read-entry-test-head',
+          },
+          {
+            tool: 'repo_read_file',
+            args: { path: 'tests/test_cli.py', startLine: 3, endLine: 4 },
+            id: 'read-entry-test-tail',
+          },
+          {
+            tool: 'repo_read_file',
+            args: { path: 'pipeline/config.py', startLine: 1, endLine: 2 },
+            id: 'read-partial-runtime-config',
+          },
+        ],
+        claims,
+        verdicts: [
+          {
+            ...semanticVerdict(claims[0].id, 'insufficient', ['E1']),
+            reasonCode: 'missing_category',
+          },
+          {
+            ...semanticVerdict(claims[1].id, 'insufficient', ['E3']),
+            reasonCode: 'missing_category',
+          },
+        ],
+      },
+      repair: { tools: [], claims: [], verdicts: [] },
+    });
+
+    const { client, result } = await runTrustScript(steps, {
+      task,
+      scope: ['pipeline/**', 'tests/**'],
+      hints: { files: ['tests/test_cli.py', 'pipeline/config.py'] },
+      async setup(root) {
+        await fs.mkdir(path.join(root, 'pipeline'), { recursive: true });
+        await fs.mkdir(path.join(root, 'tests'), { recursive: true });
+        await fs.writeFile(path.join(root, 'pipeline', 'config.py'),
+          'WORKERS = 3\n');
+        await fs.writeFile(path.join(root, 'tests', 'test_cli.py'),
+          'def test_worker_fan_out():\n    assert main() == 0\n' +
+          'def test_limit_forwarding():\n    assert main() == 0\n');
+      },
+    });
+
+    assert.equal(result.failure, null, JSON.stringify(client.stageLabels));
+    assert.equal(client.stageCounts.get('semantic_verifier'), 1);
+    assert.equal(result.parentHandoff.state, 'incomplete');
+    assert.deepEqual(result.taskContract.subgoals.map(goal => goal.state), ['gap', 'gap']);
+  },
+);
+
+semanticPipelineRuntimeTest(
   'Spec 028 T069 — one known test anchor is not forced across split test batches',
   async () => {
     const task = 'Identify the auth test, count config entries, and identify the billing test.';

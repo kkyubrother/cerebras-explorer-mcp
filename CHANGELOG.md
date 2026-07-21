@@ -66,7 +66,16 @@ compatibility aliases or selectable effort controls are retained.
   Repeated structurally valid empty-evidence claims are also quarantined per
   known sub-goal, while unknown sub-goals, duplicate claim ids, malformed
   claims, and invalid non-empty refs remain fatal. Post-repair verifier packets
-  identify the exact fresh refs that a supported verdict must cite. The
+  identify the exact fresh refs that a supported verdict must cite. If one
+  non-exhaustive test goal cites only the exact parent-provided test anchor but
+  a mixed-policy primary verifier accepts every cited anchor ref while
+  misclassifying the claim as `missing_category`, the immutable claim and
+  anchor receive at most one deterministic focused recheck per Explorer call.
+  An affirmed result may be reused after unrelated repair only for the exact
+  unchanged claim and refs with no fresh claim-local evidence. Invalid or
+  unavailable optional rechecks retain the primary gap; anything other than an
+  affirmed support remains a gap, and post-repair promotion still requires
+  fresh support. The
   internal evidence-verification strategy reads the strongest exact anchor and
   performs one bounded disconfirming search instead of serial broad synonyms.
 - **Quiet schema v3**: normal MCP output contains only `schemaVersion`, `state`,
