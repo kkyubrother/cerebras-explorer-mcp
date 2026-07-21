@@ -2908,6 +2908,7 @@ function validateSynthesizedClaimBatch(raw, {
   const partialTestInventorySubgoalIds = new Set();
   const substitutedKnownTestAnchorSubgoalIds = new Set();
   const missingKnownTestClaimSubgoalIds = new Set();
+  const missingCountMeasurementSubgoalIds = new Set();
   const incompleteStructuredOutputRelevanceSubgoalIds = new Set();
   const incompleteStructuredImpactCategorySubgoalIds = new Set();
   const missingStructuredImpactCategoryClaimSubgoalIds = new Set();
@@ -2943,7 +2944,7 @@ function validateSynthesizedClaimBatch(raw, {
     }
     const subgoal = subgoalById.get(candidate.subgoalId);
     if (subgoal?.claimType === 'count' && candidate.measurement === undefined) {
-      throw new TypeError(`Count claim ${candidate.id} requires a structured measurement.`);
+      missingCountMeasurementSubgoalIds.add(candidate.subgoalId);
     }
     const inventoryCountPattern = /\b\d[\d,_]*\s+(?:tests?|test\s+(?:functions?|cases?)|files?|classes?|matches?|entries?|occurrences?|routes?|modules?)\b/iu;
     const requestText = requestTextForSubgoal(taskContract.task, subgoal);
@@ -3038,6 +3039,7 @@ function validateSynthesizedClaimBatch(raw, {
     ...partialTestInventorySubgoalIds,
     ...substitutedKnownTestAnchorSubgoalIds,
     ...missingKnownTestClaimSubgoalIds,
+    ...missingCountMeasurementSubgoalIds,
     ...incompleteStructuredOutputRelevanceSubgoalIds,
     ...incompleteStructuredImpactCategorySubgoalIds,
     ...missingStructuredImpactCategoryClaimSubgoalIds,
@@ -3088,6 +3090,12 @@ function validateSynthesizedClaimBatch(raw, {
         `Claim synthesis must return at most one aggregate claim for sub-goals: ${noisySubgoalIds.join(', ')}.`,
       );
     }
+    if (missingCountMeasurementSubgoalIds.size > 0) {
+      failures.push(
+        'Count claim synthesis requires one structured measurement for sub-goals: ' +
+        `${[...missingCountMeasurementSubgoalIds].join(', ')}.`,
+      );
+    }
     if (incompleteStructuredOutputRelevanceSubgoalIds.size > 0) {
       failures.push(
         'Structured-output relevance claims must cite every runtime-selected current implementation ' +
@@ -3117,6 +3125,15 @@ function validateSynthesizedClaimBatch(raw, {
     const error = new TypeError(failures.join(' '));
     error.claimSynthesisFailure = 'quarantinable_claims';
     error.quarantineSubgoalIds = invalidSubgoalIds;
+    error.recoverableCountMeasurementOnly = missingCountMeasurementSubgoalIds.size > 0 &&
+      noisySubgoalIds.length === 0 &&
+      missingTestSourceSubgoalIds.size === 0 &&
+      partialTestInventorySubgoalIds.size === 0 &&
+      substitutedKnownTestAnchorSubgoalIds.size === 0 &&
+      missingKnownTestClaimSubgoalIds.size === 0 &&
+      incompleteStructuredOutputRelevanceSubgoalIds.size === 0 &&
+      incompleteStructuredImpactCategorySubgoalIds.size === 0 &&
+      missingStructuredImpactCategoryClaimSubgoalIds.size === 0;
     throw error;
   }
   for (const claimId of batchClaimIds) usedClaimIds.add(claimId);
@@ -9507,6 +9524,31 @@ export class ExplorerRuntime {
       const synthesisFreshEvidenceRefs = freshEvidenceRefs.filter(ref =>
         synthesisObservationIds.has(ref));
       if (synthesisObservations.length === 0 && batchPriorClaims.length === 0) continue;
+      const claimValidationInput = {
+        taskContract: batchContract,
+        observationIds: validationObservationIds,
+        observations: validationObservations,
+        knownTestAnchor,
+        usedClaimIds,
+        priorClaims: batchPriorClaims,
+        freshEvidenceRefs: synthesisFreshEvidenceRefs,
+      };
+      let recoverableCountMeasurementControl = null;
+      const validateClaimControl = raw => {
+        try {
+          return validateSynthesizedClaimBatch(raw, claimValidationInput);
+        } catch (error) {
+          if (error?.recoverableCountMeasurementOnly === true &&
+              Array.isArray(error.quarantineSubgoalIds) &&
+              error.quarantineSubgoalIds.length > 0) {
+            recoverableCountMeasurementControl = {
+              raw,
+              quarantineSubgoalIds: [...error.quarantineSubgoalIds],
+            };
+          }
+          throw error;
+        }
+      };
       const batchClaims = await requestValidatedGoalControl({
         chatClient,
         messages: phase === 'post-repair'
@@ -9537,32 +9579,30 @@ export class ExplorerRuntime {
         maxCompletionTokens,
         abortSignal,
         onCompletion,
-        validate: raw => validateSynthesizedClaimBatch(raw, {
-          taskContract: batchContract,
-          observationIds: validationObservationIds,
-          observations: validationObservations,
-          knownTestAnchor,
-          usedClaimIds,
-          priorClaims: batchPriorClaims,
-          freshEvidenceRefs: synthesisFreshEvidenceRefs,
-        }),
+        validate: validateClaimControl,
         recoverFinalValidation: ({ parsed, error }) => {
-          const recoveryInput = {
-            taskContract: batchContract,
-            observationIds: validationObservationIds,
-            observations: validationObservations,
-            knownTestAnchor,
-            usedClaimIds,
-            priorClaims: batchPriorClaims,
-            freshEvidenceRefs: synthesisFreshEvidenceRefs,
-          };
+          if (error?.message !== 'Isolated control stages cannot return tool calls.' &&
+              (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) &&
+              recoverableCountMeasurementControl) {
+            return {
+              accepted: true,
+              value: validateSynthesizedClaimBatch(
+                recoverableCountMeasurementControl.raw,
+                {
+                  ...claimValidationInput,
+                  quarantineClaimSubgoalIds:
+                    recoverableCountMeasurementControl.quarantineSubgoalIds,
+                },
+              ),
+            };
+          }
           if (error?.claimSynthesisFailure === 'quarantinable_claims' &&
               Array.isArray(error.quarantineSubgoalIds) &&
               error.quarantineSubgoalIds.length > 0) {
             return {
               accepted: true,
               value: validateSynthesizedClaimBatch(parsed, {
-                ...recoveryInput,
+                ...claimValidationInput,
                 quarantineClaimSubgoalIds: error.quarantineSubgoalIds,
               }),
             };
@@ -9571,7 +9611,7 @@ export class ExplorerRuntime {
             return {
               accepted: true,
               value: validateSynthesizedClaimBatch(parsed, {
-                ...recoveryInput,
+                ...claimValidationInput,
                 quarantineEmptyEvidenceClaims: true,
               }),
             };
@@ -9584,7 +9624,7 @@ export class ExplorerRuntime {
             return {
               accepted: true,
               value: validateSynthesizedClaimBatch(parsed, {
-                ...recoveryInput,
+                ...claimValidationInput,
                 quarantineEmptyEvidenceClaims: true,
                 quarantineClaimSubgoalIds: recoveryError.quarantineSubgoalIds,
               }),

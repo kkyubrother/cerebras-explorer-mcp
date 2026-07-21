@@ -18519,6 +18519,154 @@ semanticPipelineRuntimeTest(
 );
 
 semanticPipelineRuntimeTest(
+  'Spec 028 T071 — malformed count correction isolates only a known measurement omission',
+  async t => {
+    const task = 'Count requireAuth lines in src/** and confirm legacyGuard is absent from src/**.';
+    const goals = [
+      trustGoal(task, {
+        id: 'S-count-measurement-omission',
+        question: 'How many requireAuth lines are in src/**?',
+        originText: 'Count requireAuth lines in src/**',
+        claimType: 'count',
+        proofCondition: 'Completely search src/** and count unique requireAuth lines.',
+      }),
+      trustGoal(task, {
+        id: 'S-count-measurement-sibling',
+        question: 'Is legacyGuard absent from src/**?',
+        originText: 'confirm legacyGuard is absent from src/**',
+        claimType: 'absence',
+        proofCondition: 'Certify a complete src/** search for legacyGuard.',
+      }),
+    ];
+    const missingMeasurement = candidateClaim(
+      'C-count-measurement-omission',
+      goals[0].id,
+      'There is one requireAuth line in src/**.',
+      ['E1'],
+    );
+    const supportedSibling = candidateClaim(
+      'C-count-measurement-sibling',
+      goals[1].id,
+      'No legacyGuard reference exists in src/**.',
+      ['E2'],
+    );
+    const unknown = candidateClaim(
+      'C-count-measurement-unknown',
+      'S-count-measurement-unknown',
+      'An unknown sub-goal has a claim.',
+      ['E2'],
+    );
+    const initialSteps = firstClaims => [
+      { stage: 'planner:1', value: plannerControl(goals) },
+      {
+        stage: 'goal_audit:1',
+        value: auditorControl(goals.map(goal => auditControlRecord(goal))),
+      },
+      {
+        stage: 'exploration:1',
+        run: () => toolControlCompletion(
+          'repo_grep',
+          { pattern: 'requireAuth', scope: ['src/**'] },
+          'grep-count-measurement-omission',
+        ),
+      },
+      {
+        stage: 'exploration:2',
+        run: () => toolControlCompletion(
+          'repo_grep',
+          { pattern: 'legacyGuard', scope: ['src/**'] },
+          'grep-count-measurement-sibling',
+        ),
+      },
+      { stage: 'exploration:3', content: 'The bounded searches are complete.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+      { stage: 'claim_synthesis:1', value: { claims: firstClaims } },
+    ];
+
+    await t.test('a non-object correction preserves a valid sibling and gaps the count', async () => {
+      const steps = [
+        ...initialSteps([missingMeasurement, supportedSibling]),
+        { stage: 'claim_synthesis:2', content: '[]' },
+        {
+          stage: 'semantic_verifier:1',
+          run(request) {
+            const packet = parseControlPacket(request);
+            assert.deepEqual(packet.claims.map(claim => claim.id), [supportedSibling.id]);
+            return controlCompletion(verifierResponse([
+              semanticVerdict(supportedSibling.id, 'supported', ['E2']),
+            ]));
+          },
+        },
+        { stage: 'exploration:4', content: 'No materially new repair action remains.' },
+      ];
+      const { client, result } = await runTrustScript(steps, { task });
+
+      assert.equal(client.stageCounts.get('claim_synthesis'), 2);
+      assert.equal(client.stageCounts.get('semantic_verifier'), 1);
+      assert.equal(result.failure, null);
+      assert.equal(result.parentHandoff.state, 'incomplete');
+      assert.deepEqual(result.semanticVerification.claims.map(claim => claim.id),
+        [supportedSibling.id]);
+      assert.deepEqual(result.taskContract.subgoals.map(goal => [goal.id, goal.state]), [
+        [goals[0].id, 'gap'],
+        [goals[1].id, 'supported'],
+      ]);
+      assert.ok(result.coverageGaps.some(gap =>
+        gap.subgoalId === goals[0].id && gap.reason === 'missing_evidence' &&
+        gap.repairable === false));
+      assert.match(result.parentHandoff.directAnswer, /No legacyGuard reference exists/u);
+      assert.doesNotMatch(JSON.stringify(result.parentHandoff), /one requireAuth line/u);
+    });
+
+    await t.test('an invalid object correction remains fatal', async () => {
+      const { client, result } = await runTrustScript([
+        ...initialSteps([missingMeasurement, supportedSibling]),
+        { stage: 'claim_synthesis:2', value: { claims: [unknown] } },
+      ], { task });
+
+      assert.equal(client.stageCounts.get('claim_synthesis'), 2);
+      assert.equal(client.stageCounts.get('semantic_verifier'), undefined);
+      assert.equal(result.failure?.reason, 'invalid_final_response');
+      assert.equal(result.failure?.publicReason, 'verifier_error');
+      assert.equal(result.parentHandoff.state, 'failed');
+    });
+
+    await t.test('a mixed first control cannot become a fallback candidate', async () => {
+      const { client, result } = await runTrustScript([
+        ...initialSteps([missingMeasurement, unknown]),
+        { stage: 'claim_synthesis:2', content: '[]' },
+      ], { task });
+
+      assert.equal(client.stageCounts.get('claim_synthesis'), 2);
+      assert.equal(client.stageCounts.get('semantic_verifier'), undefined);
+      assert.equal(result.failure?.reason, 'invalid_final_response');
+      assert.equal(result.failure?.publicReason, 'verifier_error');
+      assert.equal(result.parentHandoff.state, 'failed');
+    });
+
+    await t.test('a tool-call correction remains fatal', async () => {
+      const { client, result } = await runTrustScript([
+        ...initialSteps([missingMeasurement, supportedSibling]),
+        {
+          stage: 'claim_synthesis:2',
+          run: () => toolControlCompletion(
+            'repo_grep',
+            { pattern: 'legacyGuard', scope: ['src/**'] },
+            'invalid-count-correction-tool-call',
+          ),
+        },
+      ], { task });
+
+      assert.equal(client.stageCounts.get('claim_synthesis'), 2);
+      assert.equal(client.stageCounts.get('semantic_verifier'), undefined);
+      assert.equal(result.failure?.reason, 'invalid_final_response');
+      assert.equal(result.failure?.publicReason, 'verifier_error');
+      assert.equal(result.parentHandoff.state, 'failed');
+    });
+  },
+);
+
+semanticPipelineRuntimeTest(
   'Spec 028 T069 — mixed claim synthesis isolates one direct-source goal and restores goal order',
   async () => {
     const task = 'Identify the test that covers the entry path and locate requireAuth.';
