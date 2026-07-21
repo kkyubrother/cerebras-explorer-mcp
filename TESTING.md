@@ -4,7 +4,7 @@
 
 ## 최근 확인 환경
 
-- 확인 일시: 2026-07-20 KST
+- 확인 일시: 2026-07-21 KST
 - Node.js: 22 이상
 - OS/셸: Windows 11 / PowerShell 7
 - 실제 API 검증: `CEREBRAS_API_KEY`가 설정된 상태
@@ -26,6 +26,7 @@ npm test
 - Goal audit binding mutation rejection과 strict origin-containment refinement
 - Source range reconstruction과 secret redaction
 - Atomic claim semantic verification과 unsupported claim 제거
+- All-exact-source deterministic comparison corroboration, hint/sibling non-exclusion, one-shot same-evidence correction and optional-failure isolation, internal observation-ID prose cleanup, natural explicit-route redirect phrasing
 - Mixed-policy verifier의 known-test `missing_category` one-shot focused recheck, exact cross-phase 재사용, optional failure 격리, partial-primary 억제
 - Empty-evidence claim 격리와 unknown/duplicate/malformed control fail-closed
 - Bounded absence/count proof와 truncation 처리

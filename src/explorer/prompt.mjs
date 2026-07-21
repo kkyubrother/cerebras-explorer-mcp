@@ -401,6 +401,8 @@ const CLAIM_SYNTHESIS_SYSTEM_PROMPT = [
   '- A comparison claim must cite the distinct source paths that establish its sides. A one-path fragment is not a comparison claim.',
   '- For a comparison spanning three or more source paths, state each path or helper and its exact predicate in a separate semicolon-delimited clause. Do not use "respectively" or leave path-to-predicate pairing implicit.',
   '- For access-control comparisons, identify each route\'s actual gating expression. A query, read, or field selection is not itself an enforcement predicate; cite the branch, middleware binding, return, throw, redirect, or helper-result use that admits or rejects access.',
+  '- When a redirect or navigation claim cites an observed literal route, path, or URL, copy that exact destination literal into the claim. Do not replace `/path` with a prose page name.',
+  '- Never use runtime observation identifiers such as E1 as prose citations. Carry evidence ids only in evidenceRefs and name the source path, symbol, route, or predicate in prose. An identical token may appear in text only when the exact source itself uses it as the requested code identifier.',
   '- Cite exact source observations that establish every requested impact category. Only when control.wrapper.tool is explore_repo and either control.effectiveScope.mode is repository or its paths reduce to one distinct canonical entry, a generic impact claim may additionally cite exactly one complete repo_find_files **/* search over that entire immutable scope when exact current source observations cover every enumerated file; keep that internal inventory detail out of claim text. A count claim cites its complete search plus every supplied source observation covering its counted items.',
   '- A positive direct-source test claim may identify one exactly observed test and what it verifies. Do not imply that it inventories the whole suite unless the sub-goal explicitly requires every test.',
   '- For wrapper:find_relevant_code:relevance, cite why every selected bounded target matters. When the request asks which code controls a public or structured output contract, cite the formatter/schema definition and one exact current production caller or adapter that connects it to the returned output. When the request implies a change and a directly connected companion test is observed, cite that test in the same relevance claim. Never call the selection smallest, minimal, only, must, or exhaustive. Definitions alone do not establish the production boundary.',
@@ -445,6 +447,7 @@ const SEMANTIC_VERIFIER_SYSTEM_PROMPT = [
   '',
   'VERIFICATION RULES:',
   '- Judge each existing claim against its associated sub-goal, proof policy, and cited runtime observations.',
+  '- Keep sibling sub-goals independent. Never require one claim to absorb an actor, surface, mechanism, or request part that belongs only to another supplied sub-goal, even when both appear in the original task or the same source file.',
   '- Never rewrite, replace, extend, or add claim text. Unsupported or over-broad claims receive insufficient or contradicted; they are not repaired with new prose.',
   '- supportingEvidenceRefs must be a subset of both the candidate claim evidenceRefs and the supplied runtime observation ids. Never add evidence or return snippets, counts, ranges, or source facts.',
   '- Every current source path explicitly named in a supported claim must have at least one supportingEvidenceRef to an exact source observation at that path. If the claim names a path whose cited source is not supporting, mark the whole claim insufficient instead of silently dropping that path.',
@@ -491,7 +494,10 @@ const COMPARISON_CORROBORATOR_SYSTEM_PROMPT = [
   'FOCUSED MULTI-PATH COMPARISON CORROBORATION:',
   '- This packet contains exactly one high-risk comparison claim spanning at least two current source paths. Independently re-check the whole claim from the bounded batch observations; do not defer to an earlier verdict.',
   '- The packet may include observations used by sibling goals. Do not require every observation and ignore sources outside this audited sub-goal boundary.',
-  '- Inspect uncited current-source observations as omission candidates. If one falls inside the audited comparison boundary and establishes an independent policy, route, helper, field, predicate, exception, or comparison variant that the claim omits, return insufficient with missing_category or boundary_mismatch. Never add that observation to supportingEvidenceRefs.',
+  '- Treat control.auditedRequestText together with the one required sub-goal question, proofCondition, and constraints as the only omission boundary. The rest of control.task is context and must not expand this claim with sibling request slices.',
+  '- The original task may name sibling actors or surfaces that are intentionally absent from this one audited sub-goal. Never treat their separately requested mechanisms as an omission from this comparison.',
+  '- Inspect uncited current-source observations as omission candidates. A candidate must actually implement, bypass, or contradict an admit/reject predicate for the same actor and surface named by the audited boundary; a shared auth/user word or directory alone is not enough. If an in-boundary source establishes an independent policy, route, helper, field, predicate, exception, or comparison variant that the claim omits, return insufficient with missing_category or boundary_mismatch. Never add that observation to supportingEvidenceRefs.',
+  '- If the claim itself includes a true but unrequested sibling or adjacent mechanism outside that boundary, return insufficient with overgeneralized.',
   '- Match every named route, helper, data field, membership predicate, existence predicate, boolean predicate, exception, and comparison side to the exact code that implements it. Similar table or helper names are not interchangeable mechanisms.',
   '- If any asserted side is absent, attached to the wrong path, contradicted, or semantically narrower or broader than the source, return insufficient or contradicted for the entire atomic claim.',
   '- supportingEvidenceRefs may include only observations that directly establish the exact asserted mechanisms. Additional cited files do not compensate for a wrong predicate.',
@@ -578,6 +584,20 @@ function taskOffsetGuide(task) {
     end: match.index + match[0].length,
     text: match[0],
   }));
+}
+
+function requestTextForGoal(task, goal) {
+  if (typeof task !== 'string') return '';
+  return strings(goal?.originRefs).flatMap(originRef => {
+    const match = /^request:(\d+)-(\d+)$/u.exec(originRef);
+    if (!match) return [];
+    const start = Number(match[1]);
+    const end = Number(match[2]);
+    return Number.isInteger(start) && Number.isInteger(end) &&
+        start >= 0 && end > start && end <= task.length
+      ? [task.slice(start, end)]
+      : [];
+  }).join(' ');
 }
 
 function normalizeKnownAnchors(knownAnchors = {}) {
@@ -922,6 +942,10 @@ export function buildComparisonCorroboratorMessages({
         control: {
           ...normalizeVerificationContract(taskContract),
           taskOffsetGuide: taskOffsetGuide(taskContract?.task),
+          auditedRequestText: requestTextForGoal(
+            taskContract?.task,
+            taskContract?.subgoals?.[0],
+          ),
           wrapper: fixedWrapperInput(wrapperTool),
         },
         claims: Array.isArray(claims) ? claims.map(normalizeCandidateClaim) : [],

@@ -44,9 +44,11 @@ compatibility aliases or selectable effort controls are retained.
   inventory is paired with exact
   current source for every enumerated file and a second verifier independently
   affirms the same full evidence set; the inventory stays out of the parent
-  payload. Focused comparison corroboration also inspects bounded uncited source
-  context for an omitted in-boundary policy variant without promoting that
-  context to supporting evidence. A refutation backed only by zero-match search
+  payload. Focused comparison corroboration inspects claim-local evidence plus
+  every observed exact current implementation/config source; parent hints and
+  sibling claims never hide omission candidates. The audited request slices and
+  sub-goal contract define which candidates are relevant, and extra context
+  never becomes supporting evidence. A refutation backed only by zero-match search
   evidence requires focused agreement on one complete certificate.
   `collect_evidence` direct source/git counterexamples also require
   deterministic focused agreement on the whole premise and every cited direct
@@ -75,7 +77,18 @@ compatibility aliases or selectable effort controls are retained.
   unchanged claim and refs with no fresh claim-local evidence. Invalid or
   unavailable optional rechecks retain the primary gap; anything other than an
   affirmed support remains a gap, and post-repair promotion still requires
-  fresh support. The
+  fresh support. Focused multi-path comparison corroboration uses deterministic
+  sampling. When a primary or focused verifier rejects an already multi-path
+  comparison for a semantic/category mismatch, the runtime may perform one
+  same-evidence correction per Explorer call. The replacement is installed only
+  after deterministic claim-local primary verification and focused comparison
+  verification both affirm every cited path; invalid or unavailable optional
+  correction retains the original gap. Canonical frontend access synthesis also
+  uses deterministic sampling and preserves observed redirect literals, while
+  validation accepts natural route phrasing such as `to the /ai page`.
+  Citation-only runtime observation IDs are removed before verification, while
+  any remaining unobserved internal ID in claim prose invalidates the candidate
+  instead of reaching the parent. The
   internal evidence-verification strategy reads the strongest exact anchor and
   performs one bounded disconfirming search instead of serial broad synonyms.
 - **Quiet schema v3**: normal MCP output contains only `schemaVersion`, `state`,
