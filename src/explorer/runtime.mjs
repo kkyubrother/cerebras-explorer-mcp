@@ -9096,7 +9096,9 @@ export class ExplorerRuntime {
       revisionCount,
     });
     const validateAuditControl = raw => {
-      const validatedResponse = validateGoalAuditorResponse(normalizeGoalAuditorControl(raw), {
+      const normalized = restoreNarrowedGoalAuditOrigins(raw, proposal) ??
+        normalizeGoalAuditorControl(raw);
+      const validatedResponse = validateGoalAuditorResponse(normalized, {
         task,
         wrapperTool,
         plannerProposal: proposal,

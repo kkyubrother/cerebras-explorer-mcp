@@ -8813,14 +8813,74 @@ auditedPlanningRuntimeTest(
     const client = new ScriptedGoalAuditClient([
       { stage: 'planner:1', value: plannerControl(goals) },
       { stage: 'goal_audit:1', value: narrowedAudit() },
+      { stage: 'exploration:1', content: 'The restored pipeline goals are ready.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+    ]);
+    const root = await makeRepoFixture();
+    const result = await new RuntimeImplementation({ chatClient: client }).explore({
+      task,
+      repo_root: root,
+    });
+
+    assert.equal(result.failure, null, JSON.stringify({
+      failure: result.failure,
+      stages: client.stageLabels,
+    }));
+    assert.equal(client.stageCounts.get('goal_audit'), 1);
+    assert.deepEqual(result.taskContract.subgoals.map(goal => goal.originRefs),
+      goals.map(goal => goal.originRefs));
+  },
+);
+
+auditedPlanningRuntimeTest(
+  'Spec 028 T069 — origin normalization preserves correction for a real auditor defect',
+  async () => {
+    const task = 'Map the translation pipeline implementation, tests, and every environment/configuration input needed to run it.';
+    const goals = [
+      {
+        id: 'S-pipeline-flow-audit-masked',
+        question: 'What is the implementation flow of the translation pipeline?',
+        originRefs: ['request:0-44'],
+        claimType: 'flow',
+        proofCondition: 'Identify the translation pipeline implementation flow.',
+        constraints: [],
+      },
+      {
+        id: 'S-pipeline-tests-audit-masked',
+        question: 'Which tests cover the translation pipeline?',
+        originRefs: ['request:0-51'],
+        claimType: 'positive',
+        proofCondition: 'Identify tests that cover the translation pipeline.',
+        constraints: [],
+      },
+      {
+        id: 'S-pipeline-inputs-audit-masked',
+        question: 'Which environment and configuration inputs are required?',
+        originRefs: [`request:0-${task.length}`],
+        claimType: 'impact',
+        proofCondition: 'Identify every environment and configuration input needed to run the pipeline.',
+        constraints: [],
+      },
+    ];
+    const client = new ScriptedGoalAuditClient([
+      { stage: 'planner:1', value: plannerControl(goals) },
+      {
+        stage: 'goal_audit:1',
+        value: auditorControl(goals.map((goal, index) =>
+          auditControlRecord(goal, index === 1 ? 'needs_decomposition' : 'ready', {
+            originRefs: index === 1 ? ['request:45-51'] : goal.originRefs,
+          }))),
+      },
       {
         stage: 'goal_audit:2',
         run(request) {
-          assert.match(JSON.stringify(request.messages), /unproposed origin request:45-51/u);
-          return controlCompletion(narrowedAudit());
+          const correction = JSON.stringify(request.messages);
+          assert.match(correction, /Validated atomic leaves must be audited directly/u);
+          assert.doesNotMatch(correction, /unproposed origin request:45-51/u);
+          return controlCompletion(auditorControl(goals.map(goal => auditControlRecord(goal))));
         },
       },
-      { stage: 'exploration:1', content: 'The restored pipeline goals are ready.' },
+      { stage: 'exploration:1', content: 'The corrected pipeline goals are ready.' },
       { stage: 'synthesis:1', value: readyExplorationResult() },
     ]);
     const root = await makeRepoFixture();
