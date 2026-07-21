@@ -17,7 +17,7 @@
   "mcp": {
     "cerebras-explorer": {
       "type": "local",
-      "command": ["npx", "-y", "github:kkyubrother/cerebras-explorer-mcp#v0.8.9"],
+      "command": ["npx", "-y", "github:kkyubrother/cerebras-explorer-mcp#v0.9.0"],
       "enabled": true,
       "environment": {
         "CEREBRAS_API_KEY": "${CEREBRAS_API_KEY}"
@@ -32,13 +32,13 @@
 기본 브랜치 대신 tag/branch/commit으로 고정하려면 `command` 마지막 인자를 다음 중 하나로 교체합니다.
 
 ```json
-"command": ["npx", "-y", "github:kkyubrother/cerebras-explorer-mcp#v0.8.9"]
+"command": ["npx", "-y", "github:kkyubrother/cerebras-explorer-mcp#v0.9.0"]
 "command": ["npx", "-y", "github:kkyubrother/cerebras-explorer-mcp#<branch-name>"]
 "command": ["npx", "-y", "github:kkyubrother/cerebras-explorer-mcp#<commit-sha>"]
 ```
 
 ## 검증
 
-OpenCode를 재시작한 뒤 MCP 패널 또는 툴 목록에서 `cerebras-explorer` 도구가 노출되는지 확인합니다. 정상 부팅되면 stderr에 `[cerebras-explorer-mcp] stdio MCP server started` 라인이 한 번 출력됩니다.
+OpenCode를 재시작한 뒤 MCP 패널 또는 툴 목록에서 `find_relevant_code`, `trace_symbol`, `map_change_impact`, `explain_code_path`, `collect_evidence`, `explore_repo`가 이 순서로 노출되는지 확인합니다. 정상 부팅되면 stderr에 `[cerebras-explorer-mcp] stdio MCP server started` 라인이 한 번 출력됩니다.
 
 자세한 OpenCode 측 설정 스키마는 공식 문서를 참고하세요: <https://opencode.ai/docs/mcp-servers/>

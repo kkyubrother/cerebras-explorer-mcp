@@ -1,0 +1,61 @@
+{
+  "fixtureVersion": 1,
+  "scenario": "goal_invention",
+  "responses": [
+    {
+      "stage": "planner",
+      "result": {
+        "message": {
+          "content": {
+            "taskSummary": "Explain authentication behavior.",
+            "constraints": [],
+            "subgoals": [
+              {
+                "id": "S1",
+                "question": "How is a session authenticated?",
+                "originRefs": ["request:0-32"],
+                "claimType": "positive",
+                "proofCondition": "Read the current authentication predicate.",
+                "constraints": []
+              },
+              {
+                "id": "S2",
+                "question": "Benchmark authentication throughput.",
+                "originRefs": [],
+                "claimType": "positive",
+                "proofCondition": "The benchmark reports a high throughput.",
+                "constraints": []
+              }
+            ]
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "goal_audit",
+      "result": {
+        "message": {
+          "content": {
+            "goals": [
+              {
+                "id": "S1",
+                "verdict": "ready",
+                "confirmedOriginRefs": ["request:0-32"],
+                "reason": "The authentication predicate is requested and observable."
+              },
+              {
+                "id": "S2",
+                "verdict": "reject_untraceable",
+                "confirmedOriginRefs": [],
+                "reason": "The request does not ask for a performance benchmark."
+              }
+            ],
+            "uncoveredRequestParts": []
+          },
+          "toolCalls": []
+        }
+      }
+    }
+  ]
+}

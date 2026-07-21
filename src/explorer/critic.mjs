@@ -213,12 +213,236 @@ export function groundEvidenceList({ evidence, observedRanges, observedGit }) {
   };
 }
 
+const SOURCE_ROLES = new Set([
+  'implementation', 'test', 'config', 'documentation', 'fixture', 'generated', 'unknown',
+]);
+const GIT_OBSERVATION_KINDS = new Set([
+  'git_commit', 'git_blame', 'git_diff_hunk',
+]);
+
+function cloneSemanticVerdict(verdict) {
+  if (!verdict || typeof verdict !== 'object' || Array.isArray(verdict)) return {};
+  return {
+    ...verdict,
+    ...(Array.isArray(verdict.supportingEvidenceRefs)
+      ? { supportingEvidenceRefs: [...verdict.supportingEvidenceRefs] }
+      : {}),
+  };
+}
+
+function isValidSourceObservation(observation) {
+  return observation?.kind === 'source' &&
+    typeof observation.id === 'string' && observation.id.length > 0 &&
+    typeof observation.path === 'string' && observation.path.length > 0 &&
+    Number.isInteger(observation.startLine) && observation.startLine >= 1 &&
+    Number.isInteger(observation.endLine) && observation.endLine >= observation.startLine &&
+    typeof observation.snippet === 'string' && observation.snippet.trim().length > 0 &&
+    observation.rangeGrounding === 'exact' &&
+    SOURCE_ROLES.has(observation.sourceRole) &&
+    observation.temporalRole === 'current' &&
+    typeof observation.redacted === 'boolean';
+}
+
+function isValidGitObservation(observation) {
+  if (!GIT_OBSERVATION_KINDS.has(observation?.kind) ||
+      typeof observation.id !== 'string' || !observation.id ||
+      typeof observation.content !== 'string' || !observation.content.trim() ||
+      observation.temporalRole !== 'historical') {
+    return false;
+  }
+  if (observation.kind === 'git_commit') {
+    return typeof observation.sha === 'string' && observation.sha.length > 0;
+  }
+  if (observation.kind === 'git_blame') {
+    return typeof observation.sha === 'string' && observation.sha.length > 0 &&
+      typeof observation.path === 'string' && observation.path.length > 0 &&
+      Number.isInteger(observation.startLine) && observation.startLine >= 1 &&
+      observation.endLine === observation.startLine;
+  }
+  const hasAnyRange = observation.startLine !== undefined || observation.endLine !== undefined;
+  return !hasAnyRange || (
+    Number.isInteger(observation.startLine) && observation.startLine >= 1 &&
+    Number.isInteger(observation.endLine) && observation.endLine >= observation.startLine
+  );
+}
+
+function downgradeUnsupportedEvidence(verdict) {
+  const downgraded = {
+    ...verdict,
+    result: 'insufficient',
+    supportingEvidenceRefs: [],
+    reasonCode: 'boundary_mismatch',
+    note: 'Claim support was downgraded because its runtime evidence was incomplete or outside the verified boundary.',
+  };
+  delete downgraded.resolution;
+  return downgraded;
+}
+
+function downgradeProofPolicy(verdict, reason = 'proof_policy_failed') {
+  const reasonCode = reason === 'missing_transition'
+    ? 'missing_transition'
+    : reason === 'missing_category'
+      ? 'missing_category'
+      : 'boundary_mismatch';
+  const downgraded = {
+    ...verdict,
+    result: 'insufficient',
+    supportingEvidenceRefs: [],
+    reasonCode,
+    note: 'Claim support was downgraded because its runtime proof policy did not pass.',
+  };
+  delete downgraded.resolution;
+  return downgraded;
+}
+
+function observedTemporalRole(observation) {
+  if (observation?.kind === 'search') {
+    return typeof observation.tool === 'string' && observation.tool.startsWith('repo_git_')
+      ? 'historical'
+      : 'current';
+  }
+  return observation?.temporalRole;
+}
+
+function structurallyValidObservation(observation) {
+  if (observation?.kind === 'source') return isValidSourceObservation(observation);
+  if (GIT_OBSERVATION_KINDS.has(observation?.kind)) return isValidGitObservation(observation);
+  return observation?.kind === 'search' &&
+    typeof observation.id === 'string' && observation.id.length > 0 &&
+    typeof observation.tool === 'string' && observation.tool.length > 0 &&
+    Array.isArray(observation.boundary) && observation.boundary.length > 0 &&
+    observation.boundary.every(item => typeof item === 'string' && item.length > 0) &&
+    Number.isInteger(observation.matchCount) && observation.matchCount >= 0 &&
+    typeof observation.toolTruncated === 'boolean' &&
+    typeof observation.contextTruncated === 'boolean' &&
+    Number.isInteger(observation.omittedOutOfScopeFiles) &&
+    observation.omittedOutOfScopeFiles >= 0 &&
+    Number.isInteger(observation.deniedPaths) && observation.deniedPaths >= 0 &&
+    Number.isInteger(observation.errors) && observation.errors >= 0 &&
+    typeof observation.enumerationComplete === 'boolean';
+}
+
+/**
+ * Combined downgrade-only gate for semantic support, structural proof policy,
+ * and runtime-declared source/temporal roles. Claim wording is never inspected.
+ */
+export function applyClaimProofPolicyGate({
+  subgoal,
+  claim,
+  semanticVerdict,
+  observations,
+  proofPolicyResult,
+  roleRequirement,
+} = {}) {
+  const verdict = cloneSemanticVerdict(semanticVerdict);
+  if (verdict.result !== 'supported') return verdict;
+  if (proofPolicyResult?.passed !== true) {
+    return downgradeProofPolicy(verdict, proofPolicyResult?.reason);
+  }
+  const proofBindingPresent = ['subgoalId', 'claimId', 'proofPolicy'].some(key =>
+    Object.hasOwn(proofPolicyResult, key));
+  if (proofBindingPresent && (
+    proofPolicyResult.subgoalId !== subgoal?.id ||
+    proofPolicyResult.claimId !== claim?.id ||
+    proofPolicyResult.proofPolicy !== subgoal?.proofPolicy
+  )) {
+    return downgradeProofPolicy(verdict, 'proof_binding_mismatch');
+  }
+  if (!subgoal || !claim || verdict.claimId !== claim.id || claim.subgoalId !== subgoal.id ||
+      !Array.isArray(claim.evidenceRefs) || !Array.isArray(verdict.supportingEvidenceRefs) ||
+      verdict.supportingEvidenceRefs.length === 0 || !Array.isArray(observations) ||
+      !roleRequirement || typeof roleRequirement !== 'object' ||
+      !Array.isArray(roleRequirement.observationKinds) ||
+      roleRequirement.observationKinds.length === 0 ||
+      !Array.isArray(roleRequirement.sourceRoles)) {
+    return downgradeProofPolicy(verdict, 'invalid_role_requirement');
+  }
+
+  const allowedTemporalRoles = Array.isArray(roleRequirement.temporalRoles)
+    ? roleRequirement.temporalRoles
+    : [roleRequirement.temporalRole];
+  if (allowedTemporalRoles.length === 0 ||
+      allowedTemporalRoles.some(role => !['current', 'historical'].includes(role))) {
+    return downgradeProofPolicy(verdict, 'invalid_role_requirement');
+  }
+
+  const claimRefs = new Set(claim.evidenceRefs);
+  const observationById = new Map();
+  const duplicates = new Set();
+  for (const observation of observations) {
+    const id = typeof observation?.id === 'string' ? observation.id : '';
+    if (!id) continue;
+    if (observationById.has(id)) duplicates.add(id);
+    else observationById.set(id, observation);
+  }
+  const allowedKinds = new Set(roleRequirement.observationKinds);
+  const allowedSourceRoles = new Set(roleRequirement.sourceRoles);
+  const valid = new Set(verdict.supportingEvidenceRefs).size ===
+      verdict.supportingEvidenceRefs.length &&
+    verdict.supportingEvidenceRefs.every(ref => {
+      if (typeof ref !== 'string' || !claimRefs.has(ref) || duplicates.has(ref)) return false;
+      const observation = observationById.get(ref);
+      if (!structurallyValidObservation(observation) || !allowedKinds.has(observation.kind)) {
+        return false;
+      }
+      if (!allowedTemporalRoles.includes(observedTemporalRole(observation))) return false;
+      return observation.kind !== 'source' || allowedSourceRoles.has(observation.sourceRole);
+    });
+
+  return valid ? verdict : downgradeProofPolicy(verdict, 'source_role_mismatch');
+}
+
+/**
+ * Downgrade-only structural gate after isolated semantic verification. It does
+ * not interpret claim prose and can never promote a verifier result.
+ */
+export function applyClaimEvidenceGate({ claim, semanticVerdict, observations } = {}) {
+  const verdict = cloneSemanticVerdict(semanticVerdict);
+  if (verdict.result !== 'supported') return verdict;
+  if (!claim || typeof claim !== 'object' || Array.isArray(claim) ||
+      verdict.claimId !== claim.id ||
+      !Array.isArray(claim.evidenceRefs) ||
+      !Array.isArray(verdict.supportingEvidenceRefs) ||
+      verdict.supportingEvidenceRefs.length === 0 ||
+      !Array.isArray(observations)) {
+    return downgradeUnsupportedEvidence(verdict);
+  }
+
+  const claimRefs = new Set(claim.evidenceRefs.filter(ref => typeof ref === 'string' && ref));
+  const observationById = new Map();
+  const duplicateIds = new Set();
+  for (const observation of observations) {
+    const id = typeof observation?.id === 'string' ? observation.id : '';
+    if (!id) continue;
+    if (observationById.has(id)) duplicateIds.add(id);
+    else observationById.set(id, observation);
+  }
+
+  const supportingRefs = verdict.supportingEvidenceRefs;
+  const valid = new Set(supportingRefs).size === supportingRefs.length &&
+    supportingRefs.every(ref => {
+      if (typeof ref !== 'string' || !claimRefs.has(ref) || duplicateIds.has(ref)) return false;
+      const observation = observationById.get(ref);
+      return isValidSourceObservation(observation) || isValidGitObservation(observation);
+    });
+
+  return valid ? verdict : downgradeUnsupportedEvidence(verdict);
+}
+
 function hasValidEvidenceLineRange(item) {
   return Number.isSafeInteger(item.startLine) &&
     Number.isSafeInteger(item.endLine) &&
     item.startLine >= 1 &&
     item.endLine >= item.startLine &&
     item.endLine - item.startLine + 1 <= MAX_EVIDENCE_LINE_RANGE;
+}
+
+function affectedSafetyLimitNames(stats = {}) {
+  if (!Array.isArray(stats.safetyLimits)) return [];
+  return [...new Set(stats.safetyLimits
+    .filter(limit => Array.isArray(limit?.affectedSubgoalIds) && limit.affectedSubgoalIds.length > 0)
+    .map(limit => limit?.name)
+    .filter(name => typeof name === 'string' && name))];
 }
 
 /**
@@ -241,7 +465,6 @@ export function computeConfidenceScore(groundedEvidence, totalEvidenceBefore, st
     exactCount,
     crossVerified: distinctFiles >= 2,
     symbolSearchUsed: usedSearch,
-    stoppedByBudget: stats.stoppedByBudget ?? false,
     gitLogCalls,
     gitDiffCalls,
     gitBlameCalls,
@@ -273,11 +496,6 @@ export function computeConfidenceScore(groundedEvidence, totalEvidenceBefore, st
   if (gitActionCalls > 0) {
     score += 0.05;
     factors.adjustments.push('+0.05 (git blame/diff/show used - git evidence quality)');
-  }
-
-  if (factors.stoppedByBudget) {
-    score -= 0.10;
-    factors.adjustments.push('-0.10 (stopped by budget before completion)');
   }
 
   if (evidenceDropped > 0) {
@@ -315,8 +533,8 @@ export function computeConfidenceScore(groundedEvidence, totalEvidenceBefore, st
 /**
  * Reconcile the model-reported confidence level with the computed level.
  */
-export function reconcileConfidence({ modelConfidence, computedLevel, droppedEvidence, stoppedByBudget }) {
-  if (droppedEvidence > 0 || stoppedByBudget) return computedLevel;
+export function reconcileConfidence({ modelConfidence, computedLevel, droppedEvidence }) {
+  if (droppedEvidence > 0) return computedLevel;
   return lowerLevel(modelConfidence, computedLevel);
 }
 
@@ -333,7 +551,6 @@ export function evaluateConfidence({
     modelConfidence,
     computedLevel: level,
     droppedEvidence,
-    stoppedByBudget: stats.stoppedByBudget ?? false,
   });
 
   return {
@@ -346,9 +563,8 @@ export function evaluateConfidence({
   };
 }
 
-export function deriveTaskKindFromHints(hints = {}) {
-  const strategy = hints?.strategy ?? null;
-  return strategy === 'symbol-first' ? 'locate' : (strategy ?? 'default');
+export function deriveTaskKindFromTaskMode(taskMode) {
+  return taskMode === 'locate' || taskMode === 'symbol_trace' ? 'locate' : 'default';
 }
 
 function pushWarning(warnings, warning) {
@@ -364,6 +580,15 @@ export function buildCriticWarnings({
   gateSuppressed = false,
 }) {
   const warnings = [];
+  const safetyLimitNames = affectedSafetyLimitNames(stats);
+  if (safetyLimitNames.length > 0) {
+    pushWarning(warnings, {
+      type: 'safety_limit_reached',
+      severity: 'medium',
+      message: `A fixed safety limit affected required proof: ${safetyLimitNames.join(', ')}.`,
+      action: 'Use supported unaffected claims only; treat the affected requirement as incomplete.',
+    });
+  }
 
   if ((grounding.droppedMalformed ?? 0) > 0) {
     pushWarning(warnings, {
@@ -395,7 +620,7 @@ export function buildCriticWarnings({
   }
 
   // spec 026: usage cross-check gate warning — push BEFORE confidence_downgraded so it
-  // wins budget competition when both fire simultaneously (R5).
+  // wins the warning-cap competition when both fire simultaneously (R5).
   // Suppressed on all precedence routes (stoppedByErrors/stoppedByAbort/no-evidence/low-confidence)
   // that pre-empt 'verified' in buildResultStatus — no double warning on those paths.
   if (usageCrossCheck?.required && !usageCrossCheck.observed && !gateSuppressed) {
@@ -415,15 +640,6 @@ export function buildCriticWarnings({
       severity: 'medium',
       message: `Model confidence was capped from ${confidence.modelConfidence} to ${confidence.finalConfidence}.`,
       action: 'Use the capped confidence value.',
-    });
-  }
-
-  if (stats?.stoppedByBudget) {
-    pushWarning(warnings, {
-      type: 'budget_exhausted',
-      severity: 'medium',
-      message: 'Exploration stopped at the configured turn budget.',
-      action: 'Treat broad conclusions as incomplete unless supported by exact evidence.',
     });
   }
 
@@ -494,6 +710,7 @@ export function runDeterministicCriticPass({
   const gateSuppressed =
     Boolean(stats?.stoppedByErrors) ||
     Boolean(stats?.stoppedByAbort) ||
+    affectedSafetyLimitNames(stats).length > 0 ||
     (grounding.evidence?.length ?? 0) === 0 ||
     confidence.finalConfidence === 'low';
 
@@ -527,194 +744,5 @@ export function runDeterministicCriticPass({
     },
     grounding,
     confidence,
-  };
-}
-
-export function extractReportCitations(report) {
-  if (typeof report !== 'string' || !report.trim()) return [];
-  const citations = [];
-  const regex = /`?(\.?[A-Za-z0-9_][A-Za-z0-9_./\\-]*\/[A-Za-z0-9_./\\-]+\.[A-Za-z0-9]+):L?(\d+)(?:-L?(\d+))?`?/g;
-  let match;
-  while ((match = regex.exec(report)) !== null) {
-    citations.push({
-      path: match[1].replace(/\\/g, '/').replace(/^\.\//, ''),
-      startLine: Number(match[2]),
-      endLine: Number(match[3] ?? match[2]),
-      raw: match[0],
-    });
-  }
-  return citations;
-}
-
-export function extractGitCitations(report) {
-  if (typeof report !== 'string' || !report.trim()) return [];
-  const citations = [];
-  const commitRegex = /\b(?:commit|sha):([0-9a-f]{7,40})\b/gi;
-  const blameRegex = /\bblame:([A-Za-z0-9_./\\-]+):L?(\d+)\b/g;
-  let match;
-
-  while ((match = commitRegex.exec(report)) !== null) {
-    citations.push({
-      type: 'git_commit',
-      sha: match[1],
-      raw: match[0],
-    });
-  }
-
-  while ((match = blameRegex.exec(report)) !== null) {
-    citations.push({
-      type: 'git_blame',
-      path: match[1].replace(/\\/g, '/').replace(/^\.\//, ''),
-      line: Number(match[2]),
-      raw: match[0],
-    });
-  }
-
-  return citations;
-}
-
-export function buildReportCritic({
-  report,
-  filesRead = [],
-  observedRanges = new Map(),
-  observedGit = { commits: new Set(), blame: new Set() },
-  stats = {},
-  maxWarnings = 3,
-}) {
-  const warnings = [];
-  const citations = extractReportCitations(report);
-  const gitCitations = extractGitCitations(report);
-  const totalCitations = citations.length + gitCitations.length;
-  const filesReadSet = new Set(filesRead.map(path => String(path).replace(/\\/g, '/').replace(/^\.\//, '')));
-
-  // spec 024 FR-004: normalize observedRanges keys the same way as citation paths so
-  // line-range grounding survives path-format differences between tool results and the
-  // model's markdown citations.
-  const normalizedObserved = new Map();
-  for (const [observedPath, ranges] of observedRanges.entries()) {
-    const key = String(observedPath).replace(/\\/g, '/').replace(/^\.\//, '');
-    normalizedObserved.set(key, [...(normalizedObserved.get(key) ?? []), ...(ranges ?? [])]);
-  }
-
-  if (typeof report !== 'string' || !report.trim()) {
-    warnings.push({
-      type: 'citation_gap',
-      severity: 'high',
-      message: 'The report is empty.',
-      action: 'Treat this result as failed and rerun with a narrower task.',
-    });
-  } else if (totalCitations === 0 && filesRead.length === 0) {
-    warnings.push({
-      type: 'no_files_read',
-      severity: 'high',
-      message: 'The report contains no inline citations and no files were recorded as read.',
-      action: 'Treat this result as ungrounded unless the parent agent verifies the claim separately.',
-    });
-  } else if (totalCitations === 0) {
-    warnings.push({
-      type: 'citation_gap',
-      severity: 'medium',
-      message: 'The report does not include inline file citations.',
-      action: 'Treat broad claims as unverified unless the parent agent checks the cited files separately.',
-    });
-  }
-
-  const unknownCitations = citations.filter(citation => !filesReadSet.has(citation.path));
-  if (unknownCitations.length > 0) {
-    const sample = unknownCitations[0];
-    warnings.push({
-      type: 'citation_gap',
-      severity: 'medium',
-      message: `${unknownCitations.length} citation(s) reference paths that were not recorded as read.`,
-      target: sample.raw,
-      action: 'Verify that citation before relying on the related claim.',
-    });
-  }
-
-  // spec 024 FR-004: line-range grounding for citations whose file WAS read. Only
-  // check paths that have observed ranges; a path read by an un-instrumented tool
-  // falls back to the path-level check above and never double-warns.
-  const lineGapCitations = citations.filter(citation =>
-    filesReadSet.has(citation.path)
-    && normalizedObserved.has(citation.path)
-    && !checkEvidenceGrounding(normalizedObserved, citation).overlaps);
-  if (lineGapCitations.length > 0) {
-    const sample = lineGapCitations[0];
-    warnings.push({
-      type: 'citation_line_gap',
-      severity: 'medium',
-      message: `${lineGapCitations.length} citation(s) reference line ranges that were not in any inspected range.`,
-      target: sample.raw,
-      action: 'Verify the cited line range before relying on the related claim.',
-    });
-  }
-
-  // Report-path git-citation grounding: a commit:/blame: citation only counts as
-  // grounded when the same commit hash or blame line was actually observed via a git
-  // tool. Mirrors the evidence-path checks (isObservedCommit/hasObservedBlameLine);
-  // without it a fabricated commit:abc1234 would pass solely by being present, the same
-  // way an unread file path trips citation_gap above.
-  const ungroundedGitCitations = gitCitations.filter(citation => {
-    if (citation.type === 'git_commit') return !isObservedCommit(citation.sha, observedGit);
-    if (citation.type === 'git_blame') return !hasObservedBlameLine({ path: citation.path }, observedGit, citation.line);
-    return false;
-  });
-  if (ungroundedGitCitations.length > 0) {
-    const sample = ungroundedGitCitations[0];
-    warnings.push({
-      type: 'git_citation_gap',
-      severity: 'medium',
-      message: `${ungroundedGitCitations.length} git citation(s) reference commits or blame lines that were not inspected via git tools.`,
-      target: sample.raw,
-      action: 'Verify the cited commit or blame line before relying on the related claim.',
-    });
-  }
-
-  if (stats?.stoppedByBudget) {
-    warnings.push({
-      type: 'budget_exhausted',
-      severity: 'medium',
-      message: 'Exploration stopped at the configured turn budget.',
-      action: 'Treat broad conclusions as incomplete unless they have direct citations.',
-    });
-  }
-
-  if (stats?.stoppedByErrors) {
-    warnings.push({
-      type: 'tool_errors',
-      severity: 'high',
-      message: 'Exploration stopped after repeated tool errors.',
-      action: 'Treat the report as partial and consider a narrower follow-up task.',
-    });
-  }
-
-  if ((stats?.toolResultsTruncated ?? 0) > 0) {
-    warnings.push({
-      type: 'truncated_tool_results',
-      severity: 'low',
-      message: `${stats.toolResultsTruncated} tool result(s) were truncated before model synthesis; re-run with a narrower query or read specific ranges if expected evidence is missing.`,
-      action: 'Use a narrower follow-up query or read specific ranges before relying on missing evidence.',
-    });
-  }
-
-  if ((stats?.outputRecoveries ?? 0) > 0) {
-    warnings.push({
-      type: 'output_recovery',
-      severity: 'low',
-      message: `${stats.outputRecoveries} output recovery attempt(s) were needed after length truncation.`,
-      action: 'Check the report ending for repeated or incomplete text.',
-    });
-  }
-
-  const limitedWarnings = warnings
-    .sort((a, b) => {
-      const order = { high: 0, medium: 1, low: 2 };
-      return order[a.severity] - order[b.severity];
-    })
-    .slice(0, maxWarnings);
-
-  return {
-    status: buildCriticStatus(limitedWarnings),
-    warnings: limitedWarnings,
   };
 }

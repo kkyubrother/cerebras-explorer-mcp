@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   DEFAULT_EXPLORER_MODEL,
-  getBudgetConfig,
+  getRuntimeConfig,
   getReasoningEffortForModel,
 } from '../src/explorer/config.mjs';
 import { CerebrasChatClient } from '../src/explorer/cerebras-client.mjs';
@@ -182,13 +182,13 @@ test('CerebrasChatClient forwards structured response_format without OpenAI stri
 
 test('spec 011 — getReasoningEffortForModel returns the single-config hint per model', () => {
   assert.equal(getReasoningEffortForModel('zai-glm-4.7'), undefined,
-    'GLM 4.7 leaves reasoning_effort unset under the deep config');
+    'GLM 4.7 leaves reasoning_effort unset under the fixed runtime config');
 });
 
 // ── Phase 2 — single-config parameter alignment ───────────────────────────────
 
 test('Phase 2 — single runtime temperature is correctly reflected in payload', async () => {
-  const cfg = getBudgetConfig();
+  const cfg = getRuntimeConfig();
   let capturedPayload = null;
 
   const client = new CerebrasChatClient({
@@ -221,7 +221,7 @@ test('Phase 2 — single runtime temperature is correctly reflected in payload',
     'single runtime top_p must be sent unchanged');
 });
 
-test('spec 011 — GLM 4.7 payload omits reasoning_effort under the single deep config', async () => {
+test('GLM 4.7 payload omits reasoning_effort under the fixed runtime config', async () => {
   let capturedPayload = null;
   const client = new CerebrasChatClient({
     apiKey: 'test-key',
@@ -242,11 +242,11 @@ test('spec 011 — GLM 4.7 payload omits reasoning_effort under the single deep 
   await client.createChatCompletion({
     messages: [{ role: 'user', content: 'test' }],
     reasoningEffort: getReasoningEffortForModel('zai-glm-4.7'),
-    temperature: getBudgetConfig().temperature,
+    temperature: getRuntimeConfig().temperature,
   });
 
   assert.equal('reasoning_effort' in capturedPayload, false,
-    'GLM 4.7 under the single deep config must NOT include reasoning_effort');
+    'GLM 4.7 under the fixed runtime config must NOT include reasoning_effort');
   assert.equal(capturedPayload.clear_thinking, false,
     'GLM 4.7 must always include clear_thinking: false');
 });
@@ -272,7 +272,7 @@ test('Phase 2 — single config includes clear_thinking: false for GLM 4.7', asy
   await client.createChatCompletion({
     messages: [{ role: 'user', content: 'test' }],
     reasoningEffort: getReasoningEffortForModel('zai-glm-4.7'),
-    temperature: getBudgetConfig().temperature,
+    temperature: getRuntimeConfig().temperature,
   });
 
   assert.equal(capturedPayload.clear_thinking, false,
@@ -318,6 +318,7 @@ test('CerebrasChatClient retries on 429 and then succeeds', async () => {
         ok: false,
         status: 429,
         statusText: 'Too Many Requests',
+        headers: { get: h => h === 'retry-after' ? '0.001' : null },
         text: async () => JSON.stringify({ error: { message: 'rate limited' } }),
       };
     }

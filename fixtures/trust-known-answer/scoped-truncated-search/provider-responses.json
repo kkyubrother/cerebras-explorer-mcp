@@ -1,0 +1,141 @@
+{
+  "fixtureVersion": 1,
+  "scenario": "truncated_enumeration",
+  "responses": [
+    {
+      "stage": "planner",
+      "result": {
+        "message": {
+          "content": {
+            "taskSummary": "Determine bounded route absence under a capped search.",
+            "constraints": ["Do not call a capped result exhaustive."],
+            "subgoals": [
+              {
+                "id": "S1",
+                "question": "Is there another in-scope route?",
+                "originRefs": ["request:0-77"],
+                "claimType": "absence",
+                "proofCondition": "Completely enumerate every route registration in src/in-scope/** without truncation.",
+                "constraints": ["Keep the conclusion within src/in-scope/**."]
+              }
+            ]
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "goal_audit",
+      "result": {
+        "message": {
+          "content": {
+            "goals": [
+              {
+                "proposedGoalId": "S1",
+                "verdict": "ready",
+                "originRefs": ["request:0-77"],
+                "missingRequestParts": [],
+                "reason": "The bounded absence question is observable only through a complete in-scope search."
+              }
+            ],
+            "uncoveredRequestParts": []
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "exploration",
+      "result": {
+        "message": {
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "grep-capped-routes",
+              "function": {
+                "name": "repo_grep",
+                "arguments": {
+                  "pattern": "app\\.get\\(",
+                  "scope": ["src/in-scope/**"],
+                  "maxResults": 1
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "stage": "exploration",
+      "result": {
+        "message": {
+          "content": "The capped search returned one visible route registration.",
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "synthesis",
+      "result": {
+        "message": {
+          "content": {
+            "directAnswer": "The capped result cannot independently establish exhaustive absence.",
+            "status": {
+              "confidence": "low",
+              "verification": "follow_up_needed",
+              "complete": false,
+              "warnings": []
+            },
+            "targets": [],
+            "evidence": [],
+            "uncertainties": ["The route search was truncated after one match."],
+            "nextAction": {
+              "type": "stop",
+              "reason": "The runtime owns truncation gating."
+            }
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "claim_synthesis",
+      "result": {
+        "message": {
+          "content": {
+            "claims": [
+              {
+                "id": "C1",
+                "subgoalId": "S1",
+                "text": "No other route registration exists.",
+                "evidenceRefs": ["E1"]
+              }
+            ]
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "semantic_verifier",
+      "result": {
+        "message": {
+          "content": {
+            "verdicts": [
+              {
+                "claimId": "C1",
+                "result": "supported",
+                "resolution": "affirmed",
+                "supportingEvidenceRefs": ["E1"],
+                "reasonCode": "entailed",
+                "note": "The visible result is the only returned route match."
+              }
+            ],
+            "uncoveredRequestParts": []
+          },
+          "toolCalls": []
+        }
+      }
+    }
+  ]
+}

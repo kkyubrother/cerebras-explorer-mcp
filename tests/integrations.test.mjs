@@ -4,6 +4,9 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { getRuntimeConfig } from '../src/explorer/config.mjs';
+import { validateParentHandoffV3 } from '../src/explorer/schemas.mjs';
+
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 async function read(relPath) {
@@ -27,6 +30,83 @@ async function listTextFiles(relDir) {
   return output;
 }
 
+test('project keeps zero runtime and development dependencies', async () => {
+  const packageJson = JSON.parse(await read('package.json'));
+  assert.deepEqual(packageJson.dependencies, {});
+  assert.deepEqual(packageJson.devDependencies, {});
+});
+
+test('collect_evidence keeps one quiet wrapper task in MCP and trust execution', async () => {
+  const server = await read('src/mcp/server.mjs');
+  const trustRunner = await read('scripts/run-trust-suite.mjs');
+  const expectedServer = /Verify this claim with repository evidence: \$\{claim\.trim\(\)\}/u;
+  const expectedRunner = /Verify this claim with repository evidence: \$\{claim\}/u;
+  const staleNoise = /compact evidence bundle|with snippets|Mark uncertainties/u;
+
+  assert.match(server, expectedServer);
+  assert.match(trustRunner, expectedRunner);
+  assert.doesNotMatch(server, staleNoise);
+  assert.doesNotMatch(trustRunner, staleNoise);
+});
+
+test('map_change_impact task stays aligned with its four fixed goal seeds', async () => {
+  const server = await read('src/mcp/server.mjs');
+  const trustRunner = await read('scripts/run-trust-suite.mjs');
+  const expected = /Identify actionable targets, dependent callers\/consumers, affected verification or public-contract surfaces, and the remaining risk boundary/u;
+  const staleMandatoryCategories = /affected tests\/configuration\/documentation/u;
+  const staleSixPartTask = /Identify likely edit targets, read targets, callers, tests, configuration, and risky dependent paths/u;
+
+  assert.match(server, expected);
+  assert.match(trustRunner, expected);
+  assert.doesNotMatch(server, staleMandatoryCategories);
+  assert.doesNotMatch(trustRunner, staleMandatoryCategories);
+  assert.doesNotMatch(server, staleSixPartTask);
+  assert.doesNotMatch(trustRunner, staleSixPartTask);
+});
+
+test('find_relevant_code asks for a bounded useful set without claiming global minimality', async () => {
+  const server = await read('src/mcp/server.mjs');
+  const trustRunner = await read('scripts/run-trust-suite.mjs');
+  const runtime = await read('src/explorer/runtime.mjs');
+  const prompt = await read('src/explorer/prompt.mjs');
+  const schemas = await read('src/explorer/schemas.mjs');
+  const coverage = await read('src/explorer/coverage.mjs');
+  const metrics = await read('src/benchmark/effect-metrics.mjs');
+  const dataModel = await read('specs/028-trustworthy-explorer/data-model.md');
+  const expected = /return bounded useful targets/u;
+  const staleGlobalMinimum = /return the smallest useful read\/edit targets/u;
+
+  assert.match(server, expected);
+  assert.match(trustRunner, expected);
+  assert.match(runtime, expected);
+  assert.doesNotMatch(server, staleGlobalMinimum);
+  assert.doesNotMatch(trustRunner, staleGlobalMinimum);
+  assert.doesNotMatch(runtime, staleGlobalMinimum);
+  for (const activeSource of [prompt, schemas, coverage]) {
+    assert.doesNotMatch(activeSource, /smallest_set/u);
+  }
+  assert.doesNotMatch(metrics, /smallest_relevant_location_set/u);
+  assert.doesNotMatch(dataModel, /minimal target set/iu);
+});
+
+test('explain_code_path keeps runtime-owned output obligations out of the caller task', async () => {
+  const server = await read('src/mcp/server.mjs');
+  const trustRunner = await read('scripts/run-trust-suite.mjs');
+  const staleGeneratedSuffix =
+    /Include the entry point, handoff points, and next read targets/u;
+
+  assert.match(
+    server,
+    /const task = `Explain this code path across files with grounded citations: \$\{pathQuery\.trim\(\)\}`;/u,
+  );
+  assert.match(
+    trustRunner,
+    /task: `Explain this code path across files with grounded citations: \$\{query\}`/u,
+  );
+  assert.doesNotMatch(server, staleGeneratedSuffix);
+  assert.doesNotMatch(trustRunner, staleGeneratedSuffix);
+});
+
 function extractFirstTomlStringArray(source, key) {
   const match = source.match(new RegExp(`^\\s*${key}\\s*=\\s*\\[([\\s\\S]*?)^\\s*\\]`, 'm'));
   assert.ok(match, `${key} array should exist`);
@@ -48,27 +128,32 @@ test('JSON integration examples are parseable', async () => {
   }
 });
 
-test('expected response example matches compact explore_repo contract', async () => {
+test('expected response example matches the minimal v3 complete contract', async () => {
   const raw = await read('examples/expected-response.json');
   const example = JSON.parse(raw);
 
-  assert.equal(example.schemaVersion, 2);
+  assert.doesNotThrow(() => validateParentHandoffV3(example));
+  assert.equal(example.schemaVersion, 3);
   assert.equal(typeof example.directAnswer, 'string');
-  assert.ok(example.status);
-  assert.ok(Array.isArray(example.targets));
-  assert.ok(Array.isArray(example.evidence));
-  assert.ok(example.evidenceQuality);
-  assert.equal(example.failure, null);
-  assert.ok(example.critic);
-  assert.ok(Array.isArray(example.critic.warnings));
-  // spec 017: sessionId/session/_debug are no longer part of the contract.
-  assert.equal(example.sessionId, undefined);
-  assert.equal(example.session, undefined);
-  assert.equal(example._debug, undefined);
-  assert.ok(example.searchCoverage);
-  assert.equal(typeof example.searchCoverage.omittedDiscoveredPaths, 'number');
-  assert.ok(example.nextAction?.type);
-  assert.doesNotMatch(raw, /Discovered candidate path/);
+  assert.equal(example.state, 'complete');
+  assert.ok(Array.isArray(example.evidence) && example.evidence.length > 0);
+  assert.deepEqual(Object.keys(example).sort(), [
+    'directAnswer',
+    'evidence',
+    'schemaVersion',
+    'state',
+  ]);
+  for (const diagnostic of [
+    'status',
+    'evidenceQuality',
+    'searchCoverage',
+    'critic',
+    'stats',
+    'nextAction',
+    'failure',
+  ]) {
+    assert.equal(Object.hasOwn(example, diagnostic), false, diagnostic);
+  }
 });
 
 test('stdio example documents NDJSON and Content-Length framing modes', async () => {
@@ -85,6 +170,8 @@ test('direct runtime example warns that output is raw runtime, not MCP structure
 
   assert.match(source, /raw runtime result/i);
   assert.match(source, /MCP structuredContent/i);
+  assert.match(source, /parentHandoff/);
+  assert.match(source, /parentPayloadMeasurement/);
 });
 
 test('completed superpowers implementation plans are not left as unchecked active backlog', async () => {
@@ -109,6 +196,132 @@ test('regression tests do not reference removed feedback document', async () => 
   assert.doesNotMatch(source, /feedback_1\.md/);
   assert.match(source, /prior P0\/P1 fixes/);
 });
+
+// T047_ACTIVE_SURFACE_GUARD_FIXTURE_START
+// Test-first activation points. T054 removes executable effort/budget state;
+// T056 removes the remaining user-facing migration surface. This block is the
+// guard's own narrowly scoped negative-test allowlist and is stripped before
+// the repository scan, so its banned fixtures cannot satisfy themselves.
+const T054_ACTIVE_EFFORT_STATE_REMOVED = true;
+const T056_USER_SURFACE_MIGRATED = true;
+
+const ACTIVE_CODE_ROOTS = Object.freeze(['src', 'scripts', 'benchmarks', 'tests']);
+const ACTIVE_USER_ROOTS = Object.freeze(['integrations', 'examples']);
+const ACTIVE_USER_FILES = Object.freeze([
+  'package.json',
+  'README.md',
+  'DESIGN.md',
+  'TESTING.md',
+  'AGENTS.md',
+]);
+const GENERAL_IDENTIFIER = /[A-Za-z_$][A-Za-z0-9_$]*/g;
+const GENERAL_BUDGET_IDENTIFIER = /^budget[A-Za-z0-9_$]*$/i;
+const KNOWN_EFFORT_IDENTIFIERS = new Set([
+  'getBudgetConfig',
+  'budgetConfig',
+  'stoppedByBudget',
+  'budget_exhausted',
+  'TOOL_RESULT_CHAR_BUDGETS',
+  'applyToolResultCharBudget',
+  'budgetExhaustionRate',
+  'deepBudgetAvgTotalTokens',
+  'chooseAutoBudget',
+  'getModelForBudget',
+  'getReasoningEffortForBudget',
+  'BUDGETS',
+  'CEREBRAS_EXPLORER_TURN_MULTIPLIER',
+  'CEREBRAS_EXPLORER_MAX_EXTRA_TURNS',
+  'CEREBRAS_EXPLORER_MAX_COMPACTIONS',
+  'getExploreTurnMultiplier',
+  'getExploreMaxExtraTurns',
+  'getExploreMaxCompactions',
+  'DEEP_RUNTIME_CONFIG',
+].map(value => value.toLowerCase()));
+const T047_BLOCK_START = '// T047_ACTIVE_SURFACE_GUARD_FIXTURE_START';
+const T047_BLOCK_END = '// T047_ACTIVE_SURFACE_GUARD_FIXTURE_END';
+
+async function listActiveFiles(relDir) {
+  const files = [];
+  async function walk(current) {
+    for (const entry of await fs.readdir(path.join(ROOT, current), { withFileTypes: true })) {
+      const relPath = path.join(current, entry.name);
+      if (entry.isDirectory()) await walk(relPath);
+      else if (/\.(?:cjs|js|json|md|mjs|toml|txt|yaml|yml|example)$/.test(entry.name)) {
+        files.push(relPath.replaceAll('\\', '/'));
+      }
+    }
+  }
+  await walk(relDir);
+  return files;
+}
+
+function stripT047NegativeFixture(relPath, source) {
+  if (relPath !== 'tests/integrations.test.mjs' &&
+      relPath !== 'tests/project-config.test.mjs') return source;
+  const lines = source.split(/\r?\n/);
+  const output = [];
+  let insideFixture = false;
+  for (const line of lines) {
+    if (line.trim() === T047_BLOCK_START) {
+      insideFixture = true;
+      continue;
+    }
+    if (line.trim() === T047_BLOCK_END) {
+      insideFixture = false;
+      continue;
+    }
+    if (!insideFixture) output.push(line);
+  }
+  assert.equal(insideFixture, false, `${relPath} has an unterminated T047 fixture block`);
+  return output.join('\n');
+}
+
+function effortSurfaceViolations(relPath, source) {
+  const violations = [];
+  for (const [index, line] of stripT047NegativeFixture(relPath, source).split(/\r?\n/).entries()) {
+    const tokens = line.match(GENERAL_IDENTIFIER) ?? [];
+    for (const token of tokens) {
+      if (GENERAL_BUDGET_IDENTIFIER.test(token) ||
+          KNOWN_EFFORT_IDENTIFIERS.has(token.toLowerCase())) {
+        violations.push(`${relPath}:${index + 1}:${token}`);
+      }
+    }
+    if (/Runtime profile:\s*deep/i.test(line)) {
+      violations.push(`${relPath}:${index + 1}:Runtime profile: deep`);
+    }
+  }
+  return violations;
+}
+
+async function scanEffortSurface(relPaths) {
+  const violations = [];
+  for (const relPath of [...new Set(relPaths)].sort()) {
+    violations.push(...effortSurfaceViolations(relPath, await read(relPath)));
+  }
+  return violations;
+}
+
+test('Spec 028 T047 — executable active surface has no selectable effort abstraction', async t => {
+  if (!T054_ACTIVE_EFFORT_STATE_REMOVED) {
+    t.todo('T054 activates the executable active-surface guard');
+    return;
+  }
+  const files = (await Promise.all(ACTIVE_CODE_ROOTS.map(listActiveFiles))).flat();
+  assert.deepEqual(await scanEffortSurface(files), []);
+});
+
+test('Spec 028 T047 — public docs and examples have no selectable effort surface', async t => {
+  if (!T056_USER_SURFACE_MIGRATED) {
+    t.todo('T056 activates the public active-surface guard');
+    return;
+  }
+  const files = [
+    ...(await Promise.all(ACTIVE_USER_ROOTS.map(listActiveFiles))).flat(),
+    ...ACTIVE_USER_FILES,
+  ];
+  assert.deepEqual(await scanEffortSurface(files), []);
+});
+// T047_ACTIVE_SURFACE_GUARD_FIXTURE_END
 
 test('docs and benchmark fixtures do not advertise recentActivity as an output contract', async () => {
   const docs = [
@@ -154,26 +367,24 @@ test('CI workflows do not receive provider API keys', async () => {
   }
 });
 
-test('Gemini example documents required env and recommended full wrapper allowlist', async () => {
+test('Gemini example documents required env and the full six-tool allowlist', async () => {
   const settings = JSON.parse(await read('integrations/gemini/settings.json.example'));
   const server = settings.mcpServers?.['cerebras-explorer'];
   assert.ok(server, 'Gemini server alias should be cerebras-explorer');
   assert.equal(server.command, 'npx');
   assert.equal(server.env?.CEREBRAS_API_KEY, '$CEREBRAS_API_KEY');
   assert.deepEqual(server.includeTools, [
-    'explore_repo',
     'find_relevant_code',
     'trace_symbol',
     'map_change_impact',
     'explain_code_path',
     'collect_evidence',
-    'review_change_context',
-    'explore',
+    'explore_repo',
   ]);
-  assert.deepEqual(server.args, ['-y', 'github:kkyubrother/cerebras-explorer-mcp#v0.8.9']);
+  assert.deepEqual(server.args, ['-y', 'github:kkyubrother/cerebras-explorer-mcp#v0.9.0']);
 
   const readme = await read('integrations/gemini/README.md');
-  assert.match(readme, /recommended full wrapper/i);
+  assert.match(readme, /full six-tool/i);
   assert.match(readme, /\*KEY\*/);
   assert.match(readme, /CEREBRAS_API_KEY/);
   assert.match(readme, /excludeTools/);
@@ -192,17 +403,16 @@ test('Codex example uses npx, trusted auto-approval, and tool allowlist controls
   assert.match(toml, /trusted local coding sessions/);
   assert.match(toml, /external model provider/);
   assert.deepEqual(extractFirstTomlStringArray(toml, 'enabled_tools'), [
-    'explore_repo',
     'find_relevant_code',
     'trace_symbol',
     'map_change_impact',
     'explain_code_path',
     'collect_evidence',
-    'review_change_context',
-    'explore',
+    'explore_repo',
   ]);
-  assert.match(toml, /github:kkyubrother\/cerebras-explorer-mcp#v0.8.9/);
-  assert.match(toml, /minimal 4-tool/i);
+  assert.match(toml, /github:kkyubrother\/cerebras-explorer-mcp#v0.9.0/);
+  assert.match(toml, /full six-tool/i);
+  assert.doesNotMatch(toml, /minimal 4-tool/i);
   // spec 011: explore_v2 tool name is gone; the disabled_tools example just
   // demonstrates the syntax with any retained tool name.
   assert.match(toml, /disabled_tools = \["/);
@@ -212,8 +422,8 @@ test('Codex example uses npx, trusted auto-approval, and tool allowlist controls
   const agents = await read('integrations/codex/AGENTS.md.example');
   assert.match(agents, /enabled_tools/);
   assert.match(agents, /disabled_tools/);
-  assert.match(agents, /recommended full wrapper/i);
-  assert.match(agents, /minimal 4-tool/i);
+  assert.match(agents, /full six-tool/i);
+  assert.doesNotMatch(agents, /minimal 4-tool/i);
   assert.match(agents, /trusted\s+local coding sessions/);
 
   const readme = await read('README.md');
@@ -273,26 +483,19 @@ test('package manifest includes README-linked support files', async () => {
   }
 });
 
-test('CHANGELOG records the version declared in package.json', async () => {
+test('CHANGELOG records the package version with a valid release status', async () => {
   const packageJson = JSON.parse(await read('package.json'));
   const changelog = await read('CHANGELOG.md');
   const escapedVersion = packageJson.version.replace(/\./g, '\\.');
 
-  const versionHeading = new RegExp(`^##\\s+v${escapedVersion}\\b`, 'm');
+  const versionHeading = new RegExp(
+    `^##\\s+v${escapedVersion}\\s*-\\s*(?:Unreleased|\\d{4}-\\d{2}-\\d{2})\\s*$`,
+    'mi',
+  );
   assert.match(
     changelog,
     versionHeading,
-    `CHANGELOG.md should contain a heading for v${packageJson.version}`,
-  );
-
-  const unreleasedForCurrent = new RegExp(
-    `^##\\s+v${escapedVersion}\\s*-\\s*Unreleased\\b`,
-    'mi',
-  );
-  assert.doesNotMatch(
-    changelog,
-    unreleasedForCurrent,
-    `CHANGELOG.md heading for v${packageJson.version} should not say "Unreleased" once that version is declared in package.json`,
+    `CHANGELOG.md should contain an Unreleased or dated heading for v${packageJson.version}`,
   );
 });
 
@@ -301,7 +504,7 @@ test('Continue YAML example keeps the expected MCP shape', async () => {
   assert.match(yaml, /^mcpServers:/m);
   assert.match(yaml, /name: cerebras-explorer/);
   assert.match(yaml, /command: npx/);
-  assert.match(yaml, /github:kkyubrother\/cerebras-explorer-mcp#v0.8.9/);
+  assert.match(yaml, /github:kkyubrother\/cerebras-explorer-mcp#v0.9.0/);
   assert.match(yaml, /CEREBRAS_API_KEY/);
 });
 
@@ -314,10 +517,14 @@ const LLM_PROSE_FILES = [
 ];
 
 const REMOVED_PUBLIC_TOOL_NAME_PATTERN = new RegExp(
-  `\\b(${['map', 'impact'].join('_')}|${['find', 'entrypoints'].join('_')})\\b`,
+  `\\b(${[
+    ['map', 'impact'].join('_'),
+    ['find', 'entrypoints'].join('_'),
+    ['review', 'change', 'context'].join('_'),
+  ].join('|')})\\b|(?:\`explore\`|"explore"|'explore')`,
 );
 
-test('Gemini client timeout matches Codex tool_timeout_sec budget', async () => {
+test('Gemini client timeout matches Codex tool_timeout_sec limit', async () => {
   const gemini = JSON.parse(await read('integrations/gemini/settings.json.example'));
   const codex = await read('integrations/codex/config.toml.example');
   const codexMatch = codex.match(/tool_timeout_sec\s*=\s*(\d+)/);
@@ -331,18 +538,24 @@ test('Gemini client timeout matches Codex tool_timeout_sec budget', async () => 
   );
 });
 
-test('LLM prose files mention current compact contract fields', async () => {
+test('LLM prose files mention the current schema-v3 state contract', async () => {
   for (const relPath of LLM_PROSE_FILES) {
     const text = await read(relPath);
     assert.match(
       text,
-      /failure|evidenceQuality|searchCoverage|critic\.warnings/,
-      `${relPath} should mention at least one of failure/evidenceQuality/searchCoverage/critic.warnings`,
+      /schema[- ]?v3|schemaVersion[^\r\n]*3/i,
+      `${relPath} should identify the schema-v3 handoff`,
+    );
+    assert.match(text, /\bstate\b/, `${relPath} should explain the state field`);
+    assert.match(
+      text,
+      /incomplete[\s\S]{0,240}returned `?targets`?/iu,
+      `${relPath} should preserve verified partial targets for incomplete handoffs`,
     );
   }
 });
 
-test('Codex agent role TOML lists every public wrapper tool', async () => {
+test('Codex agent role TOML lists every public tool', async () => {
   const toml = await read('integrations/codex/.codex/agents/cerebras_explorer.toml');
   const expected = [
     'find_relevant_code',
@@ -350,9 +563,7 @@ test('Codex agent role TOML lists every public wrapper tool', async () => {
     'map_change_impact',
     'explain_code_path',
     'collect_evidence',
-    'review_change_context',
     'explore_repo',
-    'explore',
   ];
   for (const name of expected) {
     assert.match(toml, new RegExp(`\\b${name}\\b`), `${name} should appear in Codex agent role TOML`);
@@ -384,18 +595,16 @@ test('LLM prose files do not advertise removed top-level fields', async () => {
 });
 
 test('LLM prose files do not present removed inputs as settable parameters', async () => {
-  // `budget` (spec 011), `session` (spec 017), and `explore.thoroughness`
-  // (spec 023) are rejected inputs. Prose may mention them only as removed
-  // (e.g. "`budget` was removed in spec 011"), never as something an agent
-  // could set, choose, or tune — "Do not set `budget` ... unless an advanced
-  // workflow requires it" phrasing led agents into invalid_arguments failures.
+  // `session` (spec 017) and `explore.thoroughness` (spec 023) are rejected
+  // inputs. Prose may mention them only as removed, never as something an
+  // agent could set, choose, or tune.
   const settableRemovedInput =
-    /\b(?:set|sets|setting|choose|chooses|choosing|pass|passes|passing|specify|specifies|specifying|tune|tunes|tuning)\s+[`"']?(?:budget|thoroughness|session)\b/i;
+    /\b(?:set|sets|setting|choose|chooses|choosing|pass|passes|passing|specify|specifies|specifying|tune|tunes|tuning)\s+[`"']?(?:thoroughness|session)\b/i;
   for (const relPath of LLM_PROSE_FILES) {
     assert.doesNotMatch(
       await read(relPath),
       settableRemovedInput,
-      `${relPath} must describe budget/thoroughness/session as removed inputs, not settable ones`,
+      `${relPath} must describe thoroughness/session as removed inputs, not settable ones`,
     );
   }
 });
@@ -412,6 +621,43 @@ test('Codex AGENTS.md.example and agent TOML introduce find_relevant_code before
     assert.ok(
       idxFind < idxRepo,
       'find_relevant_code should appear before explore_repo in user-facing tool guidance',
+    );
+  }
+});
+
+test('Spec 028 T056 — quickstart uses executable Node option order and PowerShell-native search', async () => {
+  const quickstart = await read('specs/028-trustworthy-explorer/quickstart.md');
+  assert.doesNotMatch(
+    quickstart,
+    /node\s+--test\s+tests\/[^\r\n]+\s+--test-name-pattern/,
+    'Node test-runner options must precede positional test files',
+  );
+  assert.match(quickstart, /node\s+--test\s+--test-name-pattern(?:=|\s+)[^\r\n]+\s+tests\//);
+  assert.match(quickstart, /```powershell[\s\S]*?\brg\s+-n/);
+  assert.doesNotMatch(quickstart, /\bfind\s+\.\s+-name\b|\bxargs\b|\bgrep\s+-R\b/);
+});
+
+test('Spec 028 T071 — active fixed-limit documents track the final projection ceiling', async () => {
+  const finalProjectionLimit = getRuntimeConfig().finalizeMaxCompletionTokens;
+  assert.equal(finalProjectionLimit, 16_384);
+  const sources = await Promise.all([
+    read('README.md'),
+    read('DESIGN.md'),
+    read('TESTING.md'),
+    read('specs/028-trustworthy-explorer/quickstart.md'),
+    read('specs/028-trustworthy-explorer/contracts/public-tool-surface.md'),
+  ]);
+  const combined = sources.join('\n');
+
+  assert.doesNotMatch(
+    combined,
+    /finalizeMaxCompletionTokens[^\r\n]{0,80}\b3000\b|final projection tokens[^\r\n]{0,40}\b3000\b/u,
+  );
+  assert.match(sources[0], new RegExp(`final projection tokens\\s*\\|\\s*${finalProjectionLimit}`));
+  for (const source of sources.slice(1)) {
+    assert.match(
+      source,
+      new RegExp(`finalizeMaxCompletionTokens[^\\r\\n]{0,80}\\b${finalProjectionLimit}\\b`),
     );
   }
 });

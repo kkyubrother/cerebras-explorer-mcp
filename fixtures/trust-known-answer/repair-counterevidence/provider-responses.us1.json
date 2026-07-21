@@ -1,0 +1,225 @@
+{
+  "fixtureVersion": 1,
+  "scenario": "repair_counterevidence_us1",
+  "responses": [
+    {
+      "stage": "planner",
+      "result": {
+        "message": {
+          "content": {
+            "taskSummary": "Determine whether every route requires authentication and inspect exceptions.",
+            "constraints": ["Preserve any route-specific exception."],
+            "subgoals": [
+              {
+                "id": "S1",
+                "question": "Does every route require authentication?",
+                "originRefs": ["request:0-77"],
+                "claimType": "comparison",
+                "proofCondition": "Inspect the default policy and route-specific access declarations.",
+                "constraints": ["Inspect exceptions before accepting a universal claim."]
+              }
+            ]
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "goal_audit",
+      "result": {
+        "message": {
+          "content": {
+            "goals": [
+              {
+                "proposedGoalId": "S1",
+                "verdict": "ready",
+                "originRefs": ["request:0-77"],
+                "missingRequestParts": [],
+                "reason": "The default and route-specific access declarations are observable in scope."
+              }
+            ],
+            "uncoveredRequestParts": []
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "exploration",
+      "result": {
+        "message": {
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "read-default-policy",
+              "function": {
+                "name": "repo_read_file",
+                "arguments": {
+                  "path": "src/policy.mjs",
+                  "startLine": 1,
+                  "endLine": 1
+                }
+              }
+            },
+            {
+              "id": "read-current-route",
+              "function": {
+                "name": "repo_read_file",
+                "arguments": {
+                  "path": "src/routes/current.mjs",
+                  "startLine": 1,
+                  "endLine": 3
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "stage": "exploration",
+      "result": {
+        "message": {
+          "content": "The default and current route were inspected.",
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "synthesis",
+      "result": {
+        "message": {
+          "content": {
+            "directAnswer": "The universal authentication claim still requires exception checking.",
+            "status": {
+              "confidence": "low",
+              "verification": "follow_up_needed",
+              "complete": false,
+              "warnings": []
+            },
+            "targets": [],
+            "evidence": [
+              {
+                "id": "E1",
+                "path": "src/policy.mjs",
+                "startLine": 1,
+                "endLine": 1,
+                "why": "The default access policy is declared here."
+              },
+              {
+                "id": "E2",
+                "path": "src/routes/current.mjs",
+                "startLine": 1,
+                "endLine": 3,
+                "why": "The current route uses the default policy."
+              }
+            ],
+            "uncertainties": [],
+            "nextAction": {
+              "type": "stop",
+              "reason": "The bounded repair stage may inspect one missing route exception."
+            }
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "claim_synthesis",
+      "result": {
+        "message": {
+          "content": {
+            "claims": [
+              {
+                "id": "C1",
+                "subgoalId": "S1",
+                "text": "Every route requires authentication.",
+                "evidenceRefs": ["E1", "E2"]
+              }
+            ]
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "semantic_verifier",
+      "result": {
+        "message": {
+          "content": {
+            "verdicts": [
+              {
+                "claimId": "C1",
+                "result": "insufficient",
+                "supportingEvidenceRefs": ["E1", "E2"],
+                "reasonCode": "missing_category",
+                "note": "A route-specific exception remains uninspected."
+              }
+            ],
+            "uncoveredRequestParts": []
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "repair",
+      "result": {
+        "message": {
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "read-legacy-route",
+              "function": {
+                "name": "repo_read_file",
+                "arguments": {
+                  "path": "src/routes/legacy.mjs",
+                  "startLine": 1,
+                  "endLine": 1
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "stage": "claim_synthesis",
+      "result": {
+        "message": {
+          "content": {
+            "claims": [
+              {
+                "id": "C1",
+                "subgoalId": "S1",
+                "text": "Every route requires authentication.",
+                "evidenceRefs": ["E1", "E2", "E3"]
+              }
+            ]
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "semantic_verifier",
+      "result": {
+        "message": {
+          "content": {
+            "verdicts": [
+              {
+                "claimId": "C1",
+                "result": "contradicted",
+                "supportingEvidenceRefs": ["E3"],
+                "reasonCode": "contradiction",
+                "note": "legacyRouteAccess is public, contradicting the universal authentication claim."
+              }
+            ],
+            "uncoveredRequestParts": []
+          },
+          "toolCalls": []
+        }
+      }
+    }
+  ]
+}

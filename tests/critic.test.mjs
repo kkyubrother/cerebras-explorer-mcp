@@ -1,12 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import * as criticModule from '../src/explorer/critic.mjs';
 
 import {
   buildCriticWarnings,
-  buildReportCritic,
-  deriveTaskKindFromHints,
-  extractGitCitations,
-  extractReportCitations,
+  deriveTaskKindFromTaskMode,
   groundEvidenceList,
   runDeterministicCriticPass,
 } from '../src/explorer/critic.mjs';
@@ -15,7 +13,7 @@ function makeStats(overrides = {}) {
   return {
     grepCalls: 0,
     symbolCalls: 0,
-    stoppedByBudget: false,
+    safetyLimits: [],
     gitLogCalls: 0,
     gitDiffCalls: 0,
     gitBlameCalls: 0,
@@ -23,10 +21,11 @@ function makeStats(overrides = {}) {
   };
 }
 
-test('deriveTaskKindFromHints maps symbol-first to locate', () => {
-  assert.equal(deriveTaskKindFromHints({ strategy: 'symbol-first' }), 'locate');
-  assert.equal(deriveTaskKindFromHints({ strategy: 'reference-chase' }), 'reference-chase');
-  assert.equal(deriveTaskKindFromHints({}), 'default');
+test('deriveTaskKindFromTaskMode preserves runtime-owned locate classification', () => {
+  assert.equal(deriveTaskKindFromTaskMode('locate'), 'locate');
+  assert.equal(deriveTaskKindFromTaskMode('symbol_trace'), 'locate');
+  assert.equal(deriveTaskKindFromTaskMode('edit_planning'), 'default');
+  assert.equal(deriveTaskKindFromTaskMode(), 'default');
 });
 
 test('groundEvidenceList returns exact, partial, and dropped evidence counts without mutating input', () => {
@@ -217,12 +216,46 @@ test('buildCriticWarnings explains warning reasons and actions', () => {
       modelConfidence: 'high',
       finalConfidence: 'medium',
     },
-    stats: makeStats({ stoppedByBudget: true }),
+    stats: makeStats(),
   });
 
   assert.ok(warnings.length <= 3, 'default warning list must stay compact');
   assert.ok(warnings.every(w => w.message && w.action), 'warnings need reason and action');
   assert.ok(warnings.some(w => w.type === 'confidence_downgraded'));
+});
+
+test('Spec 028 T013 — critic reports only goal-affecting safety limits', () => {
+  const base = {
+    grounding: { droppedMalformed: 0, droppedUngrounded: 0, partialEvidence: 0 },
+    confidence: { modelConfidence: 'high', finalConfidence: 'high' },
+  };
+  const operationalOnly = buildCriticWarnings({
+    ...base,
+    stats: makeStats({
+      safetyLimits: [{
+        name: 'context_limit',
+        stage: 'exploration',
+        affectedSubgoalIds: [],
+        truncated: true,
+      }],
+    }),
+  });
+  const affected = buildCriticWarnings({
+    ...base,
+    stats: makeStats({
+      safetyLimits: [{
+        name: 'tool_result_limit',
+        stage: 'exploration',
+        affectedSubgoalIds: ['S1'],
+        truncated: true,
+      }],
+    }),
+  });
+
+  assert.equal(operationalOnly.some(warning => warning.type === 'safety_limit_reached'), false);
+  const warning = affected.find(item => item.type === 'safety_limit_reached');
+  assert.ok(warning);
+  assert.match(warning.message, /tool_result_limit/);
 });
 
 test('runDeterministicCriticPass returns compact critic warnings and capped confidence', () => {
@@ -287,176 +320,6 @@ test('runDeterministicCriticPass still caps overconfident locate tasks', () => {
   assert.ok(result.critic.warnings.some(w => w.type === 'confidence_downgraded'));
 });
 
-test('extractReportCitations finds inline file citations', () => {
-  const citations = extractReportCitations('See `src/auth.js:L1-L4` and src/routes/user.js:10-12.');
-  assert.deepEqual(citations.map(c => c.path), ['src/auth.js', 'src/routes/user.js']);
-  assert.equal(citations[0].startLine, 1);
-  assert.equal(citations[0].endLine, 4);
-});
-
-test('extractReportCitations ignores root filenames and non-path dotted values', () => {
-  const citations = extractReportCitations('Ignore README.md:L10, node.js:14, and 192.168.0.1:8080.');
-  assert.deepEqual(citations, []);
-});
-
-test('extractReportCitations preserves leading dot for dotfile paths', () => {
-  const citations = extractReportCitations(
-    'See `.github/PULL_REQUEST_TEMPLATE.md:L5` and .github/workflows/ci.yml:L10-L20 for CI rules.'
-  );
-  assert.deepEqual(citations.map(c => c.path), [
-    '.github/PULL_REQUEST_TEMPLATE.md',
-    '.github/workflows/ci.yml',
-  ]);
-  assert.equal(citations[0].startLine, 5);
-  assert.equal(citations[1].startLine, 10);
-  assert.equal(citations[1].endLine, 20);
-});
-
-test('extractGitCitations finds commit and blame citations', () => {
-  const citations = extractGitCitations('See commit:abc1234 and blame:src/auth.js:L5.');
-  assert.deepEqual(citations, [
-    { type: 'git_commit', sha: 'abc1234', raw: 'commit:abc1234' },
-    { type: 'git_blame', path: 'src/auth.js', line: 5, raw: 'blame:src/auth.js:L5' },
-  ]);
-});
-
-test('buildReportCritic warns when markdown report lacks citations', () => {
-  const critic = buildReportCritic({
-    report: 'This report has claims but no inline citations.',
-    filesRead: ['src/auth.js'],
-    stats: makeStats(),
-  });
-
-  assert.equal(critic.status, 'caution');
-  assert.equal(critic.warnings[0].type, 'citation_gap');
-  assert.ok(critic.warnings[0].message);
-  assert.ok(critic.warnings[0].action);
-});
-
-test('buildReportCritic warns when report has no citations and no files read', () => {
-  const critic = buildReportCritic({
-    report: 'This report has claims but no grounding.',
-    filesRead: [],
-    stats: makeStats(),
-  });
-
-  assert.equal(critic.status, 'fail');
-  assert.equal(critic.warnings[0].type, 'no_files_read');
-  assert.ok(critic.warnings[0].message);
-  assert.ok(critic.warnings[0].action);
-});
-
-test('buildReportCritic counts git citations but flags them when unverified', () => {
-  const critic = buildReportCritic({
-    report: 'Recent history points to commit:abc1234.',
-    filesRead: [],
-    stats: makeStats(),
-  });
-
-  // A git citation still counts as a citation, so the report does not trip no_files_read.
-  assert.ok(!critic.warnings.some(w => w.type === 'no_files_read'));
-  // But an uninspected commit must not be silently accepted as grounded.
-  assert.equal(critic.status, 'caution');
-  assert.ok(critic.warnings.some(w => w.type === 'git_citation_gap'));
-});
-
-test('buildReportCritic flags git commit citations not observed via git tools', () => {
-  const critic = buildReportCritic({
-    report: 'Introduced in commit:abc1234; commit:deadbee is unrelated.',
-    filesRead: [],
-    observedGit: { commits: new Set(['abc1234']), blame: new Set() },
-    stats: makeStats(),
-  });
-
-  const gap = critic.warnings.find(w => w.type === 'git_citation_gap');
-  assert.ok(gap, 'must flag a commit citation that was not observed via a git tool');
-  assert.match(gap.target, /deadbee/);
-  assert.match(gap.message, /1 git citation/);
-});
-
-test('buildReportCritic does not flag git citations grounded in observed git tools', () => {
-  const critic = buildReportCritic({
-    report: 'Origin at blame:src/auth.js:L5 and commit:abc1234.',
-    filesRead: [],
-    observedGit: { commits: new Set(['abc1234']), blame: new Set(['src/auth.js:5:abc1234']) },
-    stats: makeStats(),
-  });
-
-  assert.ok(!critic.warnings.some(w => w.type === 'git_citation_gap'));
-});
-
-test('buildReportCritic flags blame citations whose line was not blamed', () => {
-  const critic = buildReportCritic({
-    report: 'See blame:src/auth.js:L5 for the change.',
-    filesRead: [],
-    observedGit: { commits: new Set(), blame: new Set() },
-    stats: makeStats(),
-  });
-
-  assert.ok(critic.warnings.some(w => w.type === 'git_citation_gap'));
-});
-
-test('buildReportCritic warns for citations that were not read', () => {
-  const critic = buildReportCritic({
-    report: 'See `src/missing.js:L1-L2` and `src/other.js:L3`.',
-    filesRead: ['src/auth.js'],
-    stats: makeStats(),
-  });
-
-  assert.equal(critic.status, 'caution');
-  assert.equal(critic.warnings[0].target, '`src/missing.js:L1-L2`');
-  assert.match(critic.warnings[0].message, /2 citation\(s\)/);
-});
-
-test('buildReportCritic flags citations outside inspected line ranges (spec 024 FR-004)', () => {
-  const critic = buildReportCritic({
-    report: 'Auth at `src/auth.js:L1-L4`. Routing at `src/routes/user.js:50-60`.',
-    filesRead: ['src/auth.js', 'src/routes/user.js'],
-    observedRanges: new Map([
-      ['src/auth.js', [{ startLine: 1, endLine: 4, source: 'read' }]],
-      ['src/routes/user.js', [{ startLine: 1, endLine: 10, source: 'read' }]],
-    ]),
-    stats: makeStats(),
-  });
-
-  const lineGap = critic.warnings.find(warning => warning.type === 'citation_line_gap');
-  assert.ok(lineGap, 'must warn when a cited range is outside inspected ranges');
-  // auth.js:L1-4 is covered (1-4 read); user.js:50-60 is not (only 1-10 read).
-  assert.match(lineGap.target, /user\.js/);
-  assert.match(lineGap.message, /1 citation\(s\)/);
-});
-
-test('buildReportCritic does not flag citations within inspected line ranges (spec 024 FR-004)', () => {
-  const critic = buildReportCritic({
-    report: 'Auth at `src/auth.js:L1-L4`.',
-    filesRead: ['src/auth.js'],
-    observedRanges: new Map([
-      ['src/auth.js', [{ startLine: 1, endLine: 10, source: 'read' }]],
-    ]),
-    stats: makeStats(),
-  });
-
-  assert.ok(
-    !critic.warnings.some(warning => warning.type === 'citation_line_gap'),
-    'a citation covered by an inspected range must not warn',
-  );
-});
-
-test('buildReportCritic skips line-range grounding for paths without observed ranges (spec 024 FR-004)', () => {
-  // Path read but not range-instrumented → falls back to path-level check, no line gap.
-  const critic = buildReportCritic({
-    report: 'Auth at `src/auth.js:L99-L120`.',
-    filesRead: ['src/auth.js'],
-    observedRanges: new Map(), // no ranges recorded for this path
-    stats: makeStats(),
-  });
-
-  assert.ok(
-    !critic.warnings.some(warning => warning.type === 'citation_line_gap'),
-    'without observed ranges for the path, no line-gap warning is emitted (no false positive)',
-  );
-});
-
 // ── spec 026 US1 — usage cross-check gate ────────────────────────────────────
 
 test('spec 026 T002-①: buildCriticWarnings emits usage_cross_check_missing when required and not observed', () => {
@@ -486,21 +349,30 @@ test('spec 026 T002-①: buildCriticWarnings emits usage_cross_check_missing whe
   assert.equal(warnings.filter(w => w.type === 'usage_cross_check_missing').length, 1, 'exactly one warning');
 });
 
-test('spec 026 T002-②: budget competition — usage_cross_check_missing precedes confidence_downgraded in 3-warning budget', () => {
+test('spec 026 T002-②: warning cap — usage_cross_check_missing precedes confidence_downgraded', () => {
   // droppedMalformed triggers dropped_evidence (medium), usageCrossCheck fires (medium),
-  // confidence_downgraded fires (medium), stoppedByBudget fires (medium) → 4 medium warnings,
+  // confidence_downgraded and an affected safety limit also fire → 4 medium warnings,
   // slice(0,3) keeps first 3. The new warning must be pushed BEFORE confidence_downgraded.
   const warnings = buildCriticWarnings({
     grounding: { droppedMalformed: 2, droppedUngrounded: 0 },
     confidence: { modelConfidence: 'high', finalConfidence: 'medium' },
-    stats: makeStats({ stoppedByBudget: true }),
+    stats: makeStats({
+      safetyLimits: [{
+        name: 'turn_limit',
+        stage: 'exploration',
+        affectedSubgoalIds: ['S1'],
+        truncated: false,
+      }],
+    }),
     usageCrossCheck: { required: true, observed: false, symbol: 'mySym' },
   });
 
-  assert.ok(warnings.length <= 3, 'must not exceed 3-warning budget');
+  assert.ok(warnings.length <= 3, 'must not exceed the 3-warning cap');
+  assert.ok(warnings.some(w => w.type === 'safety_limit_reached'),
+    'a goal-affecting safety limit must survive the warning cap');
   const crossCheckIdx = warnings.findIndex(w => w.type === 'usage_cross_check_missing');
   const downgradedIdx = warnings.findIndex(w => w.type === 'confidence_downgraded');
-  assert.ok(crossCheckIdx !== -1, 'usage_cross_check_missing must be in budget');
+  assert.ok(crossCheckIdx !== -1, 'usage_cross_check_missing must fit within the warning cap');
   // If confidence_downgraded is also present, cross_check must come before it
   if (downgradedIdx !== -1) {
     assert.ok(crossCheckIdx < downgradedIdx, 'usage_cross_check_missing must precede confidence_downgraded');
@@ -531,7 +403,7 @@ test('spec 026 T002-③b: buildCriticWarnings with omitted usageCrossCheck (old 
       modelConfidence: 'high',
       finalConfidence: 'medium',
     },
-    stats: makeStats({ stoppedByBudget: true }),
+    stats: makeStats(),
   });
 
   assert.ok(!warnings.some(w => w.type === 'usage_cross_check_missing'), 'omitted param must not fire gate');
@@ -771,3 +643,441 @@ test('spec 026 invariant: usage_cross_check_missing must be absent from critic f
     'usage_cross_check_missing must be absent on critic fail (tool_errors) path',
   );
 });
+
+const claimEvidenceGateTest = test;
+
+function atomicClaim({
+  id = 'C1',
+  text = 'The current runtime enables authentication.',
+  evidenceRefs = ['E1'],
+} = {}) {
+  return {
+    id,
+    subgoalId: 'S1',
+    text,
+    evidenceRefs,
+    verdict: 'pending',
+  };
+}
+
+function semanticVerdict(result = 'supported', {
+  claimId = 'C1',
+  supportingEvidenceRefs = ['E1'],
+  reasonCode = result === 'supported' ? 'entailed' : 'semantic_mismatch',
+  resolution = result === 'supported' ? 'affirmed' : null,
+} = {}) {
+  return {
+    claimId,
+    result,
+    supportingEvidenceRefs,
+    reasonCode,
+    note: 'Isolated verifier result.',
+    ...(resolution ? { resolution } : {}),
+  };
+}
+
+function sourceObservation(id = 'E1', overrides = {}) {
+  return {
+    id,
+    kind: 'source',
+    path: `src/source-${id}.mjs`,
+    startLine: 1,
+    endLine: 1,
+    snippet: 'export const authenticationEnabled = true;',
+    rangeGrounding: 'exact',
+    sourceRole: 'implementation',
+    temporalRole: 'current',
+    redacted: false,
+    ...overrides,
+  };
+}
+
+function gitObservation(id = 'E1') {
+  return {
+    id,
+    kind: 'git_commit',
+    sha: 'abc1234',
+    content: 'Authentication was introduced in this observed commit.',
+    temporalRole: 'historical',
+  };
+}
+
+function applyClaimEvidenceGate(input) {
+  assert.equal(typeof criticModule.applyClaimEvidenceGate, 'function');
+  return criticModule.applyClaimEvidenceGate(input);
+}
+
+claimEvidenceGateTest('Spec 028 T025 — only exact reconstructed observations preserve support', () => {
+  const claim = atomicClaim();
+  const verdict = semanticVerdict();
+  const exact = sourceObservation();
+  assert.deepEqual(applyClaimEvidenceGate({
+    claim,
+    semanticVerdict: verdict,
+    observations: [exact],
+  }), verdict);
+
+  const missingSourceRole = { ...exact };
+  const missingTemporalRole = { ...exact };
+  delete missingSourceRole.sourceRole;
+  delete missingTemporalRole.temporalRole;
+  const invalidObservations = [
+    { ...exact, rangeGrounding: 'partial' },
+    { ...exact, snippet: '' },
+    missingSourceRole,
+    missingTemporalRole,
+  ];
+  for (const observation of invalidObservations) {
+    const effective = applyClaimEvidenceGate({
+      claim,
+      semanticVerdict: verdict,
+      observations: [observation],
+    });
+    assert.equal(effective.result, 'insufficient');
+    assert.equal(effective.reasonCode, 'boundary_mismatch');
+    assert.deepEqual(effective.supportingEvidenceRefs, []);
+    assert.equal(effective.resolution, undefined);
+  }
+});
+
+claimEvidenceGateTest('Spec 028 T025 — explicit source roles inform but never replace semantic verification', () => {
+  const roles = ['documentation', 'test', 'fixture'];
+  for (const sourceRole of roles) {
+    const observations = [sourceObservation('E1', { sourceRole })];
+    const roleClaim = atomicClaim({
+      text: `The observed ${sourceRole} source states authentication is enabled.`,
+    });
+    const supported = semanticVerdict();
+    assert.deepEqual(applyClaimEvidenceGate({
+      claim: roleClaim,
+      semanticVerdict: supported,
+      observations,
+    }), supported, 'a claim about the source itself may use its matching role');
+
+    const mismatch = semanticVerdict('insufficient', {
+      reasonCode: 'semantic_mismatch',
+    });
+    assert.deepEqual(applyClaimEvidenceGate({
+      claim: atomicClaim(),
+      semanticVerdict: mismatch,
+      observations,
+    }), mismatch, 'the same source role cannot be promoted into current behavior proof');
+  }
+});
+
+claimEvidenceGateTest('Spec 028 T025 — temporal provenance cannot be rewritten into current behavior', () => {
+  const currentClaim = atomicClaim();
+  const currentVerdict = semanticVerdict();
+  assert.deepEqual(applyClaimEvidenceGate({
+    claim: currentClaim,
+    semanticVerdict: currentVerdict,
+    observations: [sourceObservation()],
+  }), currentVerdict);
+
+  const historyClaim = atomicClaim({
+    text: 'The observed commit introduced authentication.',
+  });
+  const historyVerdict = semanticVerdict();
+  assert.deepEqual(applyClaimEvidenceGate({
+    claim: historyClaim,
+    semanticVerdict: historyVerdict,
+    observations: [gitObservation()],
+  }), historyVerdict);
+
+  const temporalMismatch = semanticVerdict('insufficient', {
+    reasonCode: 'boundary_mismatch',
+  });
+  assert.deepEqual(applyClaimEvidenceGate({
+    claim: currentClaim,
+    semanticVerdict: temporalMismatch,
+    observations: [gitObservation()],
+  }), temporalMismatch);
+});
+
+claimEvidenceGateTest('Spec 028 T025 — exact evidence count cannot override semantic mismatch', () => {
+  const claim = atomicClaim({ evidenceRefs: ['E1', 'E2'] });
+  const verdict = semanticVerdict('insufficient', {
+    supportingEvidenceRefs: ['E1', 'E2'],
+    reasonCode: 'semantic_mismatch',
+  });
+  const input = {
+    claim,
+    semanticVerdict: verdict,
+    observations: [sourceObservation('E1'), sourceObservation('E2')],
+  };
+  const snapshot = structuredClone(input);
+
+  assert.deepEqual(applyClaimEvidenceGate(input), verdict);
+  assert.deepEqual(input, snapshot);
+});
+
+claimEvidenceGateTest('Spec 028 T025 — cross-file evidence cannot outvote an overgeneralized verdict', () => {
+  const claim = atomicClaim({
+    text: 'Every registered route applies both authentication policies.',
+    evidenceRefs: ['E1', 'E2'],
+  });
+  const verdict = semanticVerdict('insufficient', {
+    supportingEvidenceRefs: ['E1'],
+    reasonCode: 'overgeneralized',
+  });
+  const observations = [
+    sourceObservation('E1', { path: 'src/routes/admin.mjs' }),
+    sourceObservation('E2', { path: 'src/routes/user.mjs' }),
+  ];
+  const forward = applyClaimEvidenceGate({ claim, semanticVerdict: verdict, observations });
+  const reversed = applyClaimEvidenceGate({
+    claim,
+    semanticVerdict: verdict,
+    observations: [...observations].reverse(),
+  });
+
+  assert.deepEqual(forward, verdict);
+  assert.deepEqual(reversed, verdict);
+});
+
+// T061 introduces the combined downgrade-only proof gate. Until the export is
+// present these remain visible test-first TODOs. A stub export activates every
+// assertion and therefore cannot make a partial implementation look complete.
+const T061_CRITIC_PROOF_EXPORTS = ['applyClaimProofPolicyGate'];
+
+function proofPolicyCriticTest(name, callback) {
+  const present = T061_CRITIC_PROOF_EXPORTS.filter(
+    exportName => typeof criticModule[exportName] === 'function',
+  );
+  if (present.length === 0) {
+    test.todo(name);
+    return;
+  }
+  test(name, () => {
+    const capabilities = {};
+    for (const exportName of T061_CRITIC_PROOF_EXPORTS) {
+      assert.equal(
+        typeof criticModule[exportName],
+        'function',
+        `T061 partially implemented the critic proof surface: ${exportName} is missing`,
+      );
+      capabilities[exportName] = criticModule[exportName];
+    }
+    return callback(capabilities);
+  });
+}
+
+function t057Subgoal(overrides = {}) {
+  return {
+    id: 'S1',
+    claimType: 'positive',
+    proofPolicy: 'direct_source',
+    constraints: ['boundary:src/**'],
+    ...overrides,
+  };
+}
+
+function t057RoleRequirement(overrides = {}) {
+  return {
+    observationKinds: ['source'],
+    sourceRoles: ['implementation', 'config'],
+    temporalRole: 'current',
+    ...overrides,
+  };
+}
+
+function t057GateInput(overrides = {}) {
+  return {
+    subgoal: t057Subgoal(),
+    claim: atomicClaim(),
+    semanticVerdict: semanticVerdict(),
+    observations: [sourceObservation()],
+    proofPolicyResult: { passed: true, reason: null },
+    roleRequirement: t057RoleRequirement(),
+    ...overrides,
+  };
+}
+
+function assertProofDowngrade(result, label) {
+  assert.equal(result.result, 'insufficient', label);
+  assert.deepEqual(result.supportingEvidenceRefs, [], `${label}: evidence refs must be cleared`);
+  assert.equal(result.resolution, undefined, `${label}: support resolution must be removed`);
+  assert.equal(typeof result.reasonCode, 'string', `${label}: a stable reason code is required`);
+  assert.ok(result.reasonCode.length > 0);
+}
+
+proofPolicyCriticTest(
+  'Spec 028 T057 — current behavior requires a runtime-declared current implementation/config role',
+  ({ applyClaimProofPolicyGate }) => {
+    const validRoles = ['implementation', 'config'];
+    for (const sourceRole of validRoles) {
+      const verdict = semanticVerdict();
+      assert.deepEqual(applyClaimProofPolicyGate(t057GateInput({
+        semanticVerdict: verdict,
+        observations: [sourceObservation('E1', { sourceRole })],
+      })), verdict, sourceRole);
+    }
+
+    for (const sourceRole of ['test', 'documentation', 'fixture', 'generated', 'unknown']) {
+      const downgraded = applyClaimProofPolicyGate(t057GateInput({
+        observations: [sourceObservation('E1', { sourceRole })],
+      }));
+      assertProofDowngrade(downgraded, sourceRole);
+    }
+
+    const documentationVerdict = semanticVerdict();
+    assert.deepEqual(applyClaimProofPolicyGate(t057GateInput({
+      claim: atomicClaim({ text: 'This document states that authentication is enabled.' }),
+      semanticVerdict: documentationVerdict,
+      observations: [sourceObservation('E1', { sourceRole: 'documentation' })],
+      roleRequirement: t057RoleRequirement({ sourceRoles: ['documentation'] }),
+    })), documentationVerdict,
+    'a claim specifically about documentation may use documentation as primary evidence');
+  },
+);
+
+proofPolicyCriticTest(
+  'Spec 028 T057 — temporal role is explicit and historical evidence cannot prove current behavior',
+  ({ applyClaimProofPolicyGate }) => {
+    const historicalVerdict = semanticVerdict();
+    assert.deepEqual(applyClaimProofPolicyGate(t057GateInput({
+      claim: atomicClaim({ text: 'The observed commit introduced authentication.' }),
+      semanticVerdict: historicalVerdict,
+      observations: [gitObservation()],
+      roleRequirement: {
+        observationKinds: ['git_commit'],
+        sourceRoles: [],
+        temporalRole: 'historical',
+      },
+    })), historicalVerdict);
+
+    const wrongTime = applyClaimProofPolicyGate(t057GateInput({
+      observations: [gitObservation()],
+      roleRequirement: {
+        observationKinds: ['git_commit'],
+        sourceRoles: [],
+        temporalRole: 'current',
+      },
+    }));
+    assertProofDowngrade(wrongTime, 'historical evidence for a current claim');
+
+    const sourceMarkedHistorical = applyClaimProofPolicyGate(t057GateInput({
+      observations: [sourceObservation('E1', { temporalRole: 'historical' })],
+    }));
+    assertProofDowngrade(sourceMarkedHistorical, 'historical source observation');
+  },
+);
+
+proofPolicyCriticTest(
+  'Spec 028 T057 — role gates use structured requirements rather than claim-language keywords',
+  ({ applyClaimProofPolicyGate }) => {
+    const texts = [
+      'Current authentication behavior is enabled.',
+      '현재 인증 동작이 활성화되어 있다.',
+      '現在の認証動作は有効です。',
+      'opaque-fact-token',
+    ];
+    const outcomes = texts.map(text => applyClaimProofPolicyGate(t057GateInput({
+      claim: atomicClaim({ text }),
+      observations: [sourceObservation('E1', { sourceRole: 'documentation' })],
+    })));
+
+    assert.ok(outcomes.every(result => result.result === 'insufficient'));
+    assert.deepEqual(
+      outcomes.map(result => result.reasonCode),
+      outcomes.map(() => outcomes[0].reasonCode),
+    );
+  },
+);
+
+proofPolicyCriticTest(
+  'Spec 028 T057 — only a proof-policy-approved supported refutation resolves the premise',
+  ({ applyClaimProofPolicyGate }) => {
+    const refutation = semanticVerdict('supported', { resolution: 'refuted' });
+    const input = t057GateInput({
+      subgoal: t057Subgoal({
+        claimType: 'claim_verification',
+        proofPolicy: 'support_or_refute',
+      }),
+      claim: atomicClaim({
+        text: 'The supplied registration premise is refuted within src/**.',
+      }),
+      semanticVerdict: refutation,
+    });
+    const snapshot = structuredClone(input);
+
+    assert.deepEqual(applyClaimProofPolicyGate(input), refutation);
+    assert.deepEqual(input, snapshot, 'the combined critic gate must be downgrade-only and pure');
+
+    const uncertified = applyClaimProofPolicyGate({
+      ...input,
+      proofPolicyResult: { passed: false, reason: 'incomplete_enumeration' },
+    });
+    assertProofDowngrade(uncertified, 'uncertified supported refutation');
+
+    const contradiction = semanticVerdict('contradicted', {
+      supportingEvidenceRefs: [],
+      resolution: null,
+      reasonCode: 'contradiction',
+    });
+    assert.deepEqual(applyClaimProofPolicyGate({
+      ...input,
+      semanticVerdict: contradiction,
+    }), contradiction,
+    'candidate contradiction remains unresolved and is never promoted to refuted support');
+  },
+);
+
+proofPolicyCriticTest(
+  'Spec 028 T061 — proof bindings and search provenance fail closed',
+  ({ applyClaimProofPolicyGate }) => {
+    const allowedReasonCodes = new Set([
+      'entailed', 'semantic_mismatch', 'overgeneralized', 'missing_transition',
+      'missing_category', 'boundary_mismatch', 'contradiction', 'uncovered_request',
+    ]);
+    const mismatchedBinding = applyClaimProofPolicyGate(t057GateInput({
+      proofPolicyResult: {
+        passed: true,
+        reason: null,
+        subgoalId: 'S-other',
+        claimId: 'C1',
+        proofPolicy: 'direct_source',
+      },
+    }));
+    assertProofDowngrade(mismatchedBinding, 'proof result reused across sub-goals');
+    assert.ok(allowedReasonCodes.has(mismatchedBinding.reasonCode));
+
+    const searchClaim = atomicClaim({ evidenceRefs: ['Q1'] });
+    const searchVerdict = semanticVerdict('supported', { supportingEvidenceRefs: ['Q1'] });
+    const currentSearchRequirement = {
+      observationKinds: ['search'],
+      sourceRoles: [],
+      temporalRole: 'current',
+    };
+    const gitSearch = t057GateInput({
+      claim: searchClaim,
+      semanticVerdict: searchVerdict,
+      observations: [{
+        id: 'Q1',
+        kind: 'search',
+        tool: 'repo_git_log',
+        boundary: ['src/auth.js'],
+        matchCount: 1,
+        toolTruncated: false,
+        contextTruncated: false,
+        omittedOutOfScopeFiles: 0,
+        deniedPaths: 0,
+        errors: 0,
+        enumerationComplete: true,
+      }],
+      roleRequirement: currentSearchRequirement,
+    });
+    assertProofDowngrade(applyClaimProofPolicyGate(gitSearch),
+      'historical git search used as current evidence');
+
+    assertProofDowngrade(applyClaimProofPolicyGate({
+      ...gitSearch,
+      observations: [{
+        ...gitSearch.observations[0],
+        tool: 'repo_grep',
+        boundary: [],
+        errors: -1,
+      }],
+    }), 'malformed search telemetry');
+  },
+);

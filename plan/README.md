@@ -1,10 +1,8 @@
 # Plan
 
-`plan/` 폴더에는 활성 backlog와 과거 계획/감사 스냅샷을 구분해 둡니다.
+`plan/` 폴더에는 과거 계획/감사 스냅샷을 보관합니다.
 
-활성 backlog:
-
-- `extension-backlog.md`: README "다음 확장 포인트" 4개 후보(`map_impact`, `find_entrypoints`, repo-specific ignore, symbol engine 정밀도)의 동작·입력·영향을 풀어쓴 문서. 다음 spec NNN을 끊을 때 입력으로 사용한다.
+현재 활성 backlog는 없습니다. 새 작업은 검증된 수요가 생겼을 때 `specs/NNN-slug/`로 시작합니다.
 
 과거 작업 기록:
 

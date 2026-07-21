@@ -10,6 +10,8 @@ import {
   createTranscriptRecorder,
   isTranscriptEnabled,
   isTranscriptRawMode,
+  recordPlanningEvent,
+  recordTrustEvent,
 } from '../src/explorer/transcript.mjs';
 
 function withEnvPatch(patch, fn) {
@@ -116,6 +118,263 @@ test('LOG_PATH transcript metadata records execution provenance when supplied', 
     assert.deepEqual(entries[0].provenance, FAKE_PROVENANCE);
     assert.equal(entries[0].type, 'meta');
     assert.equal(entries[0].tool, 'explore_repo');
+  });
+});
+
+test('Spec 028 T023 — planning events force redaction and immutable metadata in raw mode', async () => {
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-transcript-plan-repo-'));
+  const logDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-transcript-plan-log-'));
+  const fakeKey = `sk-proj-${'p'.repeat(32)}`;
+
+  await withEnvPatch({
+    ...TRANSCRIPT_ENV_OFF,
+    CEREBRAS_EXPLORER_LOG_PATH: logDir,
+    CEREBRAS_EXPLORER_LOG_RAW: 'true',
+  }, async () => {
+    const recorder = createTranscriptRecorder({
+      repoRoot,
+      tool: 'explore_repo',
+      task: 'inspect planning trace',
+    });
+    recordPlanningEvent(recorder, 'plan_proposed', {
+      t: 0,
+      type: 'assistant',
+      callId: 'attacker-controlled',
+      detail: `plan_proposed ${fakeKey}`,
+      path: 'config/.env',
+    });
+    await recorder.finalize({ turns: 0, toolCalls: 0 });
+
+    const entries = await readJsonl(recorder.filePath);
+    const planningEntry = entries.find(entry => entry.type === 'plan_proposed');
+    assert.equal(planningEntry.callId, recorder.callId);
+    assert.ok(planningEntry.t > 0);
+    const serialized = JSON.stringify(entries);
+    assert.equal(serialized.includes(fakeKey), false);
+    assert.match(serialized, /\[REDACTED:openai-api-key\]/);
+    assert.equal(serialized.includes('config/.env'), false);
+    assert.match(serialized, /\[REDACTED:secret-path\]/);
+  });
+});
+
+test('structured safety limits are emitted as exact record-only transcript events', async () => {
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-transcript-limit-repo-'));
+  const logDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-transcript-limit-log-'));
+
+  await withEnvPatch({
+    ...TRANSCRIPT_ENV_OFF,
+    CEREBRAS_EXPLORER_LOG_PATH: logDir,
+  }, async () => {
+    const recorder = createTranscriptRecorder({
+      repoRoot,
+      tool: 'explore_repo',
+      task: 'inspect a bounded repository',
+    });
+    const limit = {
+      name: 'context_limit',
+      stage: 'verification',
+      affectedSubgoalIds: ['S1'],
+      truncated: true,
+    };
+
+    await recorder.finalize({ turns: 1, toolCalls: 0, safetyLimits: [limit] });
+
+    const entries = await readJsonl(recorder.filePath);
+    const safetyEvents = entries.filter(entry => entry.type === 'safety_limit');
+    assert.equal(safetyEvents.length, 1);
+    assert.deepEqual(
+      {
+        name: safetyEvents[0].name,
+        stage: safetyEvents[0].stage,
+        affectedSubgoalIds: safetyEvents[0].affectedSubgoalIds,
+        truncated: safetyEvents[0].truncated,
+      },
+      limit,
+    );
+    assert.equal(entries.at(-1).type, 'meta', 'final summary stays the last transcript record');
+  });
+});
+
+test('Spec 028 T034 — trust events are allowlisted and forced-redacted in raw mode', async () => {
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-transcript-trust-repo-'));
+  const logDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-transcript-trust-log-'));
+  const sentinel = 'UNVERIFIED_TRANSCRIPT_PROSE_SENTINEL';
+  const fakeKey = `sk-proj-${'t'.repeat(32)}`;
+  const allowedSecretId = `AKIA${'A'.repeat(16)}`;
+
+  await withEnvPatch({
+    ...TRANSCRIPT_ENV_OFF,
+    CEREBRAS_EXPLORER_LOG_PATH: logDir,
+    CEREBRAS_EXPLORER_LOG_RAW: 'true',
+  }, async () => {
+    const recorder = createTranscriptRecorder({
+      repoRoot,
+      tool: 'explore_repo',
+      task: 'inspect trust events',
+    });
+    recordTrustEvent(recorder, 'claim', {
+      t: 0,
+      type: 'attacker-type',
+      callId: 'attacker-call-id',
+      phase: 'initial',
+      claims: [{
+        id: 'C1',
+        subgoalId: 'S1',
+        text: `${sentinel} ${fakeKey} config/.env`,
+        evidenceRefs: ['E1', fakeKey],
+        arbitrary: sentinel,
+      }],
+    });
+    recordTrustEvent(recorder, 'verdict', {
+      phase: 'initial',
+      claims: [{ id: 'C1', subgoalId: 'S1', evidenceRefs: ['E1'] }],
+      verdicts: [{
+        claimId: 'C1',
+        result: 'supported',
+        resolution: 'affirmed',
+        supportingEvidenceRefs: ['E1'],
+        reasonCode: 'entailed',
+        note: sentinel,
+      }],
+      uncoveredRequestParts: [{ question: sentinel, proofCondition: sentinel }],
+    });
+    recordTrustEvent(recorder, 'repair', {
+      status: 'started',
+      gaps: [{ id: 'G1', subgoalId: 'S1', question: sentinel, followUp: sentinel }],
+      priorActionFingerprints: ['tool:one'],
+    });
+    recordTrustEvent(recorder, 'repair', {
+      status: 'finished',
+      outcome: 'completed',
+      selectedGapIds: ['G1'],
+      affectedSubgoalIds: ['S1'],
+      actionFingerprints: ['tool:two'],
+      freshEvidenceRefs: ['E2'],
+      outcomes: [{ id: 'S1', state: 'supported', resolution: 'affirmed' }],
+      completion: sentinel,
+    });
+    recordTrustEvent(recorder, 'provider_failure', {
+      httpStatus: 429,
+      retryable: true,
+      attemptCount: 3,
+      retryAfterSeconds: 86400,
+      providerCode: 'rate_limit_exceeded',
+      message: `${sentinel} ${fakeKey}`,
+    });
+    recordTrustEvent(recorder, 'provider_failure', {
+      message: `${sentinel} ${fakeKey}`,
+    });
+    recorder.observeUsage({
+      providerIndex: 1,
+      model: 'trust-model',
+      usage: { prompt_tokens: 11, completion_tokens: 7, total_tokens: 18 },
+    });
+    recorder.observeUsage({
+      model: 'trust-model',
+      usage: { prompt_tokens: 5, completion_tokens: 3, total_tokens: 8 },
+    });
+    await recorder.finalize({
+      toolCalls: 2,
+      elapsedMs: 25,
+      safetyLimits: [{
+        name: 'tool_result_limit',
+        stage: 'repair',
+        affectedSubgoalIds: ['S1', allowedSecretId, 'config/.env'],
+        truncated: true,
+      }],
+    }, {
+      finalEvent: {
+        failureReason: null,
+        requiredSubgoals: [{ id: 'S1', state: 'supported', resolution: 'affirmed' }],
+        acceptedClaimIds: ['C1'],
+        gaps: [],
+        parentPayload: {
+          encoding: 'utf8',
+          contentBytes: 11,
+          structuredContentBytes: 17,
+          parentPayloadBytes: 28,
+          sha256: 'a'.repeat(64),
+          ignored: sentinel,
+        },
+        directAnswer: sentinel,
+      },
+    });
+
+    const entries = await readJsonl(recorder.filePath);
+    assert.deepEqual(entries.map(entry => entry.type), [
+      'meta',
+      'claim',
+      'verdict',
+      'repair',
+      'repair',
+      'provider_failure',
+      'provider_failure',
+      'safety_limit',
+      'final',
+      'usage',
+      'meta',
+    ]);
+    assert.deepEqual(entries[1].claims, [{
+      claimId: 'C1',
+      subgoalId: 'S1',
+      evidenceRefs: ['E1', '[REDACTED:openai-api-key]'],
+    }]);
+    assert.equal(entries[2].uncoveredProposalCount, 1);
+    assert.equal(entries[2].verdicts[0].subgoalId, 'S1');
+    assert.equal(entries[3].status, 'started');
+    assert.equal(entries[4].status, 'finished');
+    assert.equal(entries[4].outcome, 'completed');
+    assert.deepEqual(entries[5], {
+      httpStatus: 429,
+      retryable: true,
+      attemptCount: 3,
+      retryAfterSeconds: 86400,
+      code: 'rate_limit_exceeded',
+      t: entries[5].t,
+      type: 'provider_failure',
+      callId: recorder.callId,
+    });
+    assert.deepEqual(entries[6], {
+      t: entries[6].t,
+      type: 'provider_failure',
+      callId: recorder.callId,
+    });
+    assert.equal(entries[7].stage, 'repair');
+    assert.deepEqual(entries[8].acceptedClaimIds, ['C1']);
+    assert.deepEqual(entries[8].parentPayload, {
+      encoding: 'utf8',
+      contentBytes: 11,
+      structuredContentBytes: 17,
+      parentPayloadBytes: 28,
+      sha256: 'a'.repeat(64),
+    });
+    assert.deepEqual(entries[9], {
+      providerIndex: 1,
+      model: 'trust-model',
+      providerCalls: 2,
+      repositoryToolCalls: 2,
+      inputTokens: 16,
+      outputTokens: 10,
+      totalTokens: 26,
+      elapsedMs: 25,
+      t: entries[9].t,
+      type: 'usage',
+      callId: recorder.callId,
+    });
+    assert.ok(entries.every(entry => entry.callId === recorder.callId));
+    assert.equal(entries.at(-1).type, 'meta');
+    const serialized = JSON.stringify(entries);
+    assert.equal(serialized.includes(sentinel), false);
+    assert.equal(serialized.includes(fakeKey), false);
+    assert.doesNotMatch(serialized, /config\/\.env/);
+    assert.match(serialized, /\[REDACTED:aws-access-key\]/);
+    assert.match(serialized, /\[REDACTED:openai-api-key\]/);
+    assert.match(serialized, /\[REDACTED:secret-path\]/);
+    assert.deepEqual(entries.at(-1).stats.safetyLimits[0].affectedSubgoalIds, [
+      'S1',
+      '[REDACTED:aws-access-key]',
+      '[REDACTED:secret-path]',
+    ]);
   });
 });
 
@@ -347,8 +606,8 @@ test('finalize waits for in-flight threshold flushes so JSONL contains all recor
 
     const entries = await readJsonl(recorder.filePath);
 
-    // Must contain: 1 initial meta + 11 assistant records + 1 final meta = 13
-    assert.equal(entries.length, 13);
+    // Must contain: initial meta + 11 assistant records + usage + final meta.
+    assert.equal(entries.length, 14);
     // Every entry must carry the correct callId (proves no corruption)
     assert.ok(entries.every(entry => entry.callId === recorder.callId));
     // Initial meta record is first

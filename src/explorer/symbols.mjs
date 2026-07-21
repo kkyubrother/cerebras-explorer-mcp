@@ -247,6 +247,69 @@ function estimateEndLineBraces(lines, startIndex) {
   return startIndex + 1; // fallback: same line as start
 }
 
+function estimateEndLineStaticArray(lines, startIndex) {
+  const bounded = lines.slice(startIndex, Math.min(lines.length, startIndex + 600)).join('\n');
+  const assignment = bounded.indexOf('=');
+  if (assignment < 0) return null;
+  const initializer = bounded.slice(assignment + 1);
+  const prefix = initializer.match(/^\s*(?:Object\.freeze\s*\(\s*)?\[/u);
+  if (!prefix) return null;
+
+  let depth = 0;
+  let quote = null;
+  let escaped = false;
+  let blockComment = false;
+  let lineComment = false;
+  const arrayStart = assignment + 1 + prefix[0].lastIndexOf('[');
+  for (let index = arrayStart; index < bounded.length; index += 1) {
+    const char = bounded[index];
+    const next = bounded[index + 1];
+    if (lineComment) {
+      if (char === '\n') lineComment = false;
+      continue;
+    }
+    if (blockComment) {
+      if (char === '*' && next === '/') {
+        blockComment = false;
+        index += 1;
+      }
+      continue;
+    }
+    if (quote) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === '\\') {
+        escaped = true;
+      } else if (char === quote) {
+        quote = null;
+      }
+      continue;
+    }
+    if (char === '/' && next === '/') {
+      lineComment = true;
+      index += 1;
+      continue;
+    }
+    if (char === '/' && next === '*') {
+      blockComment = true;
+      index += 1;
+      continue;
+    }
+    if (char === '\'' || char === '"' || char === '`') {
+      quote = char;
+      continue;
+    }
+    if (char === '[') depth += 1;
+    if (char === ']') {
+      depth -= 1;
+      if (depth === 0) {
+        return startIndex + bounded.slice(0, index + 1).split('\n').length;
+      }
+    }
+  }
+  return null;
+}
+
 /**
  * Estimate end line of a Python def/class by tracking indentation.
  */
@@ -308,6 +371,8 @@ export function extractSymbols(content, filePath, kind = 'all') {
       let endLine;
       if (lang === 'python') {
         endLine = estimateEndLinePython(lines, i);
+      } else if ((lang === 'javascript' || lang === 'typescript') && pat.kind === 'variable') {
+        endLine = estimateEndLineStaticArray(lines, i) ?? estimateEndLineBraces(lines, i);
       } else {
         endLine = estimateEndLineBraces(lines, i);
       }

@@ -7,14 +7,13 @@ import path from 'node:path';
 import { analyzeTranscriptEntries, analyzeTranscriptFile } from '../src/benchmark/transcript-metrics.mjs';
 import { computeExtendedMetrics } from '../scripts/run-benchmark.mjs';
 
-test('analyzeTranscriptEntries summarizes assistant, broad search, read, and budget signals', () => {
+test('analyzeTranscriptEntries summarizes tools and record-only safety-limit signals', () => {
   const metrics = analyzeTranscriptEntries([
     { type: 'assistant', turn: 1, toolCalls: ['repo_grep'] },
     { type: 'tool', turn: 1, tool: 'repo_grep', error: false },
     { type: 'assistant', turn: 2, toolCalls: ['repo_read_file', 'repo_symbols'] },
     { type: 'tool', turn: 2, tool: 'repo_read_file', error: false },
     { type: 'tool', turn: 2, tool: 'repo_symbols', error: false },
-    { type: 'meta', stats: { stoppedByBudget: false } },
   ]);
 
   assert.deepEqual(metrics, {
@@ -24,7 +23,7 @@ test('analyzeTranscriptEntries summarizes assistant, broad search, read, and bud
     readCalls: 2,
     toolErrorCalls: 0,
     repeatedToolPlanTurns: 0,
-    stoppedByBudget: false,
+    safetyLimitCount: 0,
   });
 });
 
@@ -39,16 +38,28 @@ test('analyzeTranscriptEntries detects repeated tool plans and tool errors', () 
   assert.equal(metrics.toolErrorCalls, 1);
 });
 
-test('analyzeTranscriptEntries uses the final meta stats for stoppedByBudget', () => {
+test('analyzeTranscriptEntries counts exact safety-limit events', () => {
   const metrics = analyzeTranscriptEntries([
-    { type: 'meta', stats: { stoppedByBudget: true } },
-    { type: 'meta', stats: { stoppedByBudget: false } },
+    {
+      type: 'safety_limit',
+      name: 'turn_limit',
+      stage: 'exploration',
+      affectedSubgoalIds: ['S1'],
+      truncated: false,
+    },
+    {
+      type: 'safety_limit',
+      name: 'context_limit',
+      stage: 'verification',
+      affectedSubgoalIds: [],
+      truncated: true,
+    },
   ]);
 
-  assert.equal(metrics.stoppedByBudget, false);
+  assert.equal(metrics.safetyLimitCount, 2);
 });
 
-test('analyzeTranscriptFile returns null for missing paths and parses JSONL files', async () => {
+test('analyzeTranscriptFile returns null for missing paths and parses safety-limit JSONL events', async () => {
   assert.equal(await analyzeTranscriptFile(null), null);
 
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'transcript-metrics-'));
@@ -59,7 +70,13 @@ test('analyzeTranscriptFile returns null for missing paths and parses JSONL file
       JSON.stringify({ type: 'assistant', toolCalls: ['repo_find_files'] }),
       '',
       JSON.stringify({ type: 'tool', tool: 'repo_find_files', error: false }),
-      JSON.stringify({ type: 'meta', stats: { stoppedByBudget: true } }),
+      JSON.stringify({
+        type: 'safety_limit',
+        name: 'walk_limit',
+        stage: 'exploration',
+        affectedSubgoalIds: ['S1'],
+        truncated: true,
+      }),
       '',
     ].join('\n'),
     'utf8',
@@ -72,7 +89,7 @@ test('analyzeTranscriptFile returns null for missing paths and parses JSONL file
     readCalls: 0,
     toolErrorCalls: 0,
     repeatedToolPlanTurns: 0,
-    stoppedByBudget: true,
+    safetyLimitCount: 1,
   });
 });
 
@@ -83,7 +100,7 @@ function syntheticCase({ ops, searchCoverage, transcriptMetrics = null, effectMe
       evidence: [],
       targets: [],
       status: {},
-      searchCoverage: searchCoverage ?? { filesRead: 1, grepCalls: 0, listDirCalls: 0, symbolCalls: 0, stoppedByBudget: false },
+      searchCoverage: searchCoverage ?? { filesRead: 1, grepCalls: 0, listDirCalls: 0, symbolCalls: 0 },
     },
     ops: ops ?? null,
     transcriptMetrics,
@@ -100,7 +117,6 @@ test('computeExtendedMetrics reads ops stats and reports n/a (null) when ops are
   assert.equal(withOps.avgToolTurns, 3);
   assert.equal(withOps.avgInternalTokens, 1000);
   assert.equal(withOps.noToolExitRate, 0.5, 'ops.toolCalls === 0 marks a no-tool exit');
-  assert.equal('deepBudgetAvgTotalTokens' in withOps, false, 'dead spec-011 metric is deleted');
 
   const withoutOps = computeExtendedMetrics([syntheticCase()]);
   assert.equal(withoutOps.avgToolTurns, null, 'no fabricated 0 without a source');
@@ -108,12 +124,17 @@ test('computeExtendedMetrics reads ops stats and reports n/a (null) when ops are
   assert.equal(withoutOps.noToolExitRate, 0, 'searchCoverage fallback sees 1 file read');
 });
 
-test('computeExtendedMetrics sources budget exhaustion from searchCoverage (spec 025)', () => {
+test('computeExtendedMetrics reports record-only safety-limit incidence', () => {
   const metrics = computeExtendedMetrics([
-    syntheticCase({ searchCoverage: { filesRead: 2, grepCalls: 1, listDirCalls: 0, symbolCalls: 0, stoppedByBudget: true } }),
+    syntheticCase({ transcriptMetrics: { safetyLimitCount: 1 } }),
+    syntheticCase({ transcriptMetrics: { safetyLimitCount: 0 } }),
     syntheticCase(),
   ]);
-  assert.equal(metrics.budgetExhaustionRate, 0.5);
+  assert.equal(metrics.safetyLimitIncidenceRate, 0.5);
+
+  const withoutTrace = computeExtendedMetrics([syntheticCase()]);
+  assert.equal(withoutTrace.safetyLimitIncidenceRate, null,
+    'absence of an operational source must not fabricate zero incidence');
 });
 
 test('computeExtendedMetrics aggregates effect metrics and pools citation checks (spec 025)', () => {
@@ -162,13 +183,14 @@ test('computeExtendedMetrics does not fabricate a no-tool exit from an absent se
   const bare = syntheticCase();
   delete bare.result.searchCoverage;
   const metrics = computeExtendedMetrics([bare]);
-  assert.equal(metrics.noToolExitRate, 0);
+  assert.equal(metrics.noToolExitRate, null,
+    'absence of an activity source must remain unknown rather than fabricate zero');
   assert.equal(metrics.evidenceSnippetRate, null, 'empty evidence denominator degrades to null, not 0');
 });
 
 test('computeExtendedMetrics counts an all-zero searchCoverage as a no-tool exit via the fallback (spec 025)', () => {
   const metrics = computeExtendedMetrics([
-    syntheticCase({ searchCoverage: { filesRead: 0, grepCalls: 0, listDirCalls: 0, symbolCalls: 0, stoppedByBudget: false } }),
+    syntheticCase({ searchCoverage: { filesRead: 0, grepCalls: 0, listDirCalls: 0, symbolCalls: 0 } }),
   ]);
   assert.equal(metrics.noToolExitRate, 1);
 });

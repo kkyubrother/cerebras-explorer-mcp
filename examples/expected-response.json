@@ -1,92 +1,15 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "directAnswer": "registerUserRoutes는 /users/me 라우트에 requireAuth 미들웨어를 직접 연결한다.",
-  "status": {
-    "confidence": "high",
-    "verification": "verified",
-    "complete": true,
-    "warnings": []
-  },
-  "targets": [
-    {
-      "path": "src/routes/user.js",
-      "startLine": 1,
-      "endLine": 5,
-      "role": "read",
-      "reason": "라우트가 requireAuth를 import하고 /users/me에 연결한다.",
-      "evidenceRefs": ["E1"]
-    },
-    {
-      "path": "src/auth.js",
-      "startLine": 1,
-      "endLine": 4,
-      "role": "read",
-      "reason": "requireAuth의 실제 구현이 여기 있다.",
-      "evidenceRefs": ["E2"]
-    }
-  ],
-  "discoveredPaths": [
-    {
-      "path": "docs/auth.md",
-      "kind": "file",
-      "sourceTool": "repo_list_dir",
-      "reason": "Listed during repository discovery."
-    }
-  ],
+  "state": "complete",
   "evidence": [
     {
-      "id": "E1",
+      "kind": "source",
       "path": "src/routes/user.js",
       "startLine": 1,
       "endLine": 5,
-      "why": "라우트가 requireAuth를 import하고 /users/me에 연결한다.",
-      "evidenceType": "file_range",
-      "groundingStatus": "exact",
+      "supports": "registerUserRoutes가 /users/me 라우트에 requireAuth를 연결한다.",
       "snippet": "1: import { requireAuth } from \"../auth.js\";\n2: \n3: export function registerUserRoutes(app) {\n4:   app.get(\"/users/me\", requireAuth, (req, res) => {\n5:     res.json({ id: req.user.id });"
-    },
-    {
-      "id": "E2",
-      "path": "src/auth.js",
-      "startLine": 1,
-      "endLine": 4,
-      "why": "requireAuth의 실제 구현이 여기 있다.",
-      "evidenceType": "file_range",
-      "groundingStatus": "exact",
-      "snippet": "1: export function requireAuth(req, res, next) {\n2:   if (!req.user) throw new Error(\"unauthorized\");\n3:   next();\n4: }"
     }
-  ],
-  "uncertainties": [],
-  "nextAction": {
-    "type": "stop",
-    "reason": "Explorer result is complete for the requested read-only investigation."
-  },
-  "evidenceQuality": {
-    "level": "high",
-    "exactCount": 2,
-    "partialCount": 0,
-    "droppedCount": 0,
-    "fileCount": 2,
-    "warnings": [],
-    "summary": "Verified: 2 files read, 1 grep searches, 2/2 retained evidence items grounded, cross-verified across 2 files. All retained evidence grounded in inspected code."
-  },
-  "searchCoverage": {
-    "scope": ["src/**", "docs/**"],
-    "scopeLimited": true,
-    "filesRead": 2,
-    "grepCalls": 1,
-    "listDirCalls": 1,
-    "symbolCalls": 0,
-    "toolResultsTruncated": 0,
-    "stoppedByBudget": false,
-    "omittedDiscoveredPaths": 0,
-    "warnings": ["Result is limited to scope: src/**, docs/**"],
-    "summary": "scope-limited search across src/**, docs/**; 2 file read(s), 1 grep search(es)."
-  },
-  "critic": {
-    "status": "pass",
-    "warnings": [],
-    "droppedEvidence": 0,
-    "partialEvidence": 0
-  },
-  "failure": null
+  ]
 }

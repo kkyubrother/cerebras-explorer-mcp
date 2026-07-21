@@ -1,0 +1,198 @@
+{
+  "fixtureVersion": 1,
+  "scenario": "supported_refutation_us1",
+  "responses": [
+    {
+      "stage": "planner",
+      "result": {
+        "message": {
+          "content": {
+            "taskSummary": "Verify whether every route requires authentication.",
+            "constraints": ["A direct counterexample may refute the premise."],
+            "subgoals": [
+              {
+                "id": "S1",
+                "question": "Is the claim that every route requires authentication true?",
+                "originRefs": ["request:0-58"],
+                "claimType": "claim_verification",
+                "proofCondition": "Inspect the default policy and route-specific access declarations for support or a direct counterexample.",
+                "constraints": []
+              }
+            ]
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "goal_audit",
+      "result": {
+        "message": {
+          "content": {
+            "goals": [
+              {
+                "proposedGoalId": "S1",
+                "verdict": "ready",
+                "originRefs": ["request:0-58"],
+                "missingRequestParts": [],
+                "reason": "The caller's premise is repository-observable and can be supported or refuted."
+              }
+            ],
+            "uncoveredRequestParts": []
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "exploration",
+      "result": {
+        "message": {
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "read-refutation-policy",
+              "function": {
+                "name": "repo_read_file",
+                "arguments": {
+                  "path": "src/policy.mjs",
+                  "startLine": 1,
+                  "endLine": 1
+                }
+              }
+            },
+            {
+              "id": "read-refutation-current",
+              "function": {
+                "name": "repo_read_file",
+                "arguments": {
+                  "path": "src/routes/current.mjs",
+                  "startLine": 1,
+                  "endLine": 3
+                }
+              }
+            },
+            {
+              "id": "read-refutation-legacy",
+              "function": {
+                "name": "repo_read_file",
+                "arguments": {
+                  "path": "src/routes/legacy.mjs",
+                  "startLine": 1,
+                  "endLine": 1
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "stage": "exploration",
+      "result": {
+        "message": {
+          "content": "The default, current route, and legacy exception were inspected.",
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "synthesis",
+      "result": {
+        "message": {
+          "content": {
+            "directAnswer": "The premise was checked against the route declarations.",
+            "status": {
+              "confidence": "high",
+              "verification": "verified",
+              "complete": true,
+              "warnings": []
+            },
+            "targets": [],
+            "evidence": [
+              {
+                "id": "E1",
+                "path": "src/policy.mjs",
+                "startLine": 1,
+                "endLine": 1,
+                "why": "The default access policy is authenticated."
+              },
+              {
+                "id": "E2",
+                "path": "src/routes/current.mjs",
+                "startLine": 1,
+                "endLine": 3,
+                "why": "The current route uses the default policy."
+              },
+              {
+                "id": "E3",
+                "path": "src/routes/legacy.mjs",
+                "startLine": 1,
+                "endLine": 1,
+                "why": "The legacy route is a direct public counterexample."
+              }
+            ],
+            "uncertainties": [],
+            "nextAction": {
+              "type": "stop",
+              "reason": "A direct repository counterexample resolves the verification request."
+            }
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "claim_synthesis",
+      "result": {
+        "message": {
+          "content": {
+            "claims": [
+              {
+                "id": "C1",
+                "subgoalId": "S1",
+                "text": "Every route requires authentication.",
+                "evidenceRefs": ["E1", "E2", "E3"]
+              },
+              {
+                "id": "C2",
+                "subgoalId": "S1",
+                "text": "The claim is false: legacyRouteAccess is 'public', so not every route requires authentication.",
+                "evidenceRefs": ["E3"]
+              }
+            ]
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "semantic_verifier",
+      "result": {
+        "message": {
+          "content": {
+            "verdicts": [
+              {
+                "claimId": "C1",
+                "result": "contradicted",
+                "supportingEvidenceRefs": ["E3"],
+                "reasonCode": "contradiction",
+                "note": "The public legacy route contradicts the universal premise."
+              },
+              {
+                "claimId": "C2",
+                "result": "supported",
+                "resolution": "refuted",
+                "supportingEvidenceRefs": ["E3"],
+                "reasonCode": "entailed",
+                "note": "legacyRouteAccess is directly declared public."
+              }
+            ],
+            "uncoveredRequestParts": []
+          },
+          "toolCalls": []
+        }
+      }
+    }
+  ]
+}

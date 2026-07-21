@@ -1,0 +1,415 @@
+{
+  "formatVersion": 1,
+  "caseId": "obs-aws-inventory-classification",
+  "recordType": "known_bad_schema_v2_parent_payload",
+  "immutable": true,
+  "capture": {
+    "packageVersion": "0.8.9",
+    "schemaVersion": 2,
+    "capturedAt": "2026-07-13",
+    "fidelity": "live_api_reproduction",
+    "repoId": "Daeryun-AI-Backend",
+    "gitSha": "bbef2ff41b1b4ea93c97192edd355824ea4e5317",
+    "dirtyTreeSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "note": "The response names retrieve_knowledge_base.py as a direct invocation but omits its evidence while reporting the exhaustive inventory complete."
+  },
+  "request": {
+    "tool": "explore_repo",
+    "task": "Inventory every Amazon Bedrock invocation path and classify each as direct AWS SDK/CLI invocation, proxy or service wrapper, or configuration-only reference. Treat the three classes as separate required parts; do not infer runtime invocation from model IDs or environment settings alone."
+  },
+  "parentPayload": {
+    "content": [
+      {
+        "type": "text",
+        "text": "## Result\nConfidence: high\nVerification: verified\nEvidence Quality: high (8 exact, 0 partial, 0 dropped)\nSearch Coverage: repo-wide search; 14 file read(s), 7 grep search(es).\n\n## Answer\nInventory of all Amazon Bedrock invocation paths: Direct SDK invocations at bedrock_client.py:68, my_bedrock_file_agent.py:175, get_json_format_text.py:30, my_knowledgebase_tool.py:196, retrieve_knowledge_base.py:54. Proxy wrappers at bedrock_client.py:125, process_prompt.py:114, my_bedrock_file_agent.py:353. Configuration-only at config.py:20-29.\n\n## Targets\n- [read] `app/my_lib/bedrock_client.py:62-73` (E1) - Direct SDK wrapper - invoke_model_stream calls invoke_model_with_response_stream\n- [read] `app/my_lib/bedrock_client.py:125-150` (E2) - Proxy wrapper - generator_stream_anthropic wraps invoke_model_stream\n- [read] `app/my_lib/my_bedrock_file_agent.py:175-180` (E3) - Direct SDK invocation - bedrock.invoke_model_with_response_stream call\n- [read] `app/my_lib/my_bedrock_file_agent.py:353-380` (E4) - Proxy wrapper - invoke_bedrock_anthropic wraps stream_anthropic with tools\n- [read] `app/my_lib/process_prompt.py:114-160` (E5) - Proxy wrapper - invoke_bedrock_anthropic_v3 with retry logic\n- [read] `app/my_lib/upgrade_v2__internal_ai_process/invoke_model_helper/get_json_format_text.py:30-35` (E6) - Direct SDK invocation - bedrock_runtime_client.invoke_model_with_response_stream\n- [read] `app/my_lib/my_tools/my_knowledgebase_tool.py:196-196` (E7) - Direct SDK invocation - bedrock_agent_rt.retrieve for knowledge base\n- [config] `app/my_lib/config.py:20-29` (E8) - Configuration-only - env var getters without Bedrock invocations\n\n## Evidence (8 items, confidence: high)\n- E1 `app/my_lib/bedrock_client.py:62-73` - Shows invoke_model_stream wrapper calling bedrock.invoke_model_with_response_stream\n- E2 `app/my_lib/bedrock_client.py:125-150` - Shows generator_stream_anthropic proxy wrapper calling invoke_model_stream\n- E3 `app/my_lib/my_bedrock_file_agent.py:175-180` - Shows direct SDK invocation bedrock.invoke_model_with_response_stream\n- E4 `app/my_lib/my_bedrock_file_agent.py:353-380` - Shows invoke_bedrock_anthropic proxy wrapper with tool handling loop\n- E5 `app/my_lib/process_prompt.py:114-160` - Shows invoke_bedrock_anthropic_v3 proxy wrapper with retry logic\n- E6 `app/my_lib/upgrade_v2__internal_ai_process/invoke_model_helper/get_json_format_text.py:30-35` - Shows direct SDK invocation bedrock_runtime_client.invoke_model_with_response_stream\n- E7 `app/my_lib/my_tools/my_knowledgebase_tool.py:196-196` - Shows direct SDK invocation bedrock_agent_rt.retrieve for knowledge base\n- E8 `app/my_lib/config.py:20-29` - Shows configuration-only functions reading env vars without invocations"
+      }
+    ],
+    "structuredContent": {
+      "schemaVersion": 2,
+      "directAnswer": "Inventory of all Amazon Bedrock invocation paths: Direct SDK invocations at bedrock_client.py:68, my_bedrock_file_agent.py:175, get_json_format_text.py:30, my_knowledgebase_tool.py:196, retrieve_knowledge_base.py:54. Proxy wrappers at bedrock_client.py:125, process_prompt.py:114, my_bedrock_file_agent.py:353. Configuration-only at config.py:20-29.",
+      "status": {
+        "confidence": "high",
+        "verification": "verified",
+        "complete": true,
+        "warnings": []
+      },
+      "targets": [
+        {
+          "path": "app/my_lib/bedrock_client.py",
+          "role": "read",
+          "reason": "Direct SDK wrapper - invoke_model_stream calls invoke_model_with_response_stream",
+          "evidenceRefs": [
+            "E1"
+          ],
+          "startLine": 62,
+          "endLine": 73
+        },
+        {
+          "path": "app/my_lib/bedrock_client.py",
+          "role": "read",
+          "reason": "Proxy wrapper - generator_stream_anthropic wraps invoke_model_stream",
+          "evidenceRefs": [
+            "E2"
+          ],
+          "startLine": 125,
+          "endLine": 150
+        },
+        {
+          "path": "app/my_lib/my_bedrock_file_agent.py",
+          "role": "read",
+          "reason": "Direct SDK invocation - bedrock.invoke_model_with_response_stream call",
+          "evidenceRefs": [
+            "E3"
+          ],
+          "startLine": 175,
+          "endLine": 180
+        },
+        {
+          "path": "app/my_lib/my_bedrock_file_agent.py",
+          "role": "read",
+          "reason": "Proxy wrapper - invoke_bedrock_anthropic wraps stream_anthropic with tools",
+          "evidenceRefs": [
+            "E4"
+          ],
+          "startLine": 353,
+          "endLine": 380
+        },
+        {
+          "path": "app/my_lib/process_prompt.py",
+          "role": "read",
+          "reason": "Proxy wrapper - invoke_bedrock_anthropic_v3 with retry logic",
+          "evidenceRefs": [
+            "E5"
+          ],
+          "startLine": 114,
+          "endLine": 160
+        },
+        {
+          "path": "app/my_lib/upgrade_v2__internal_ai_process/invoke_model_helper/get_json_format_text.py",
+          "role": "read",
+          "reason": "Direct SDK invocation - bedrock_runtime_client.invoke_model_with_response_stream",
+          "evidenceRefs": [
+            "E6"
+          ],
+          "startLine": 30,
+          "endLine": 35
+        },
+        {
+          "path": "app/my_lib/my_tools/my_knowledgebase_tool.py",
+          "role": "read",
+          "reason": "Direct SDK invocation - bedrock_agent_rt.retrieve for knowledge base",
+          "evidenceRefs": [
+            "E7"
+          ],
+          "startLine": 196,
+          "endLine": 196
+        },
+        {
+          "path": "app/my_lib/config.py",
+          "role": "config",
+          "reason": "Configuration-only - env var getters without Bedrock invocations",
+          "evidenceRefs": [
+            "E8"
+          ],
+          "startLine": 20,
+          "endLine": 29
+        }
+      ],
+      "discoveredPaths": [
+        {
+          "path": "template.yaml",
+          "kind": "unknown",
+          "sourceTool": "repo_grep",
+          "reason": "Discovered from tool result."
+        },
+        {
+          "path": "requirements.txt",
+          "kind": "unknown",
+          "sourceTool": "repo_grep",
+          "reason": "Discovered from tool result."
+        },
+        {
+          "path": "README.md",
+          "kind": "unknown",
+          "sourceTool": "repo_grep",
+          "reason": "Discovered from tool result."
+        },
+        {
+          "path": "app/requirements.txt",
+          "kind": "unknown",
+          "sourceTool": "repo_grep",
+          "reason": "Discovered from tool result."
+        },
+        {
+          "path": "app/main.py",
+          "kind": "unknown",
+          "sourceTool": "repo_grep",
+          "reason": "Discovered from tool result."
+        },
+        {
+          "path": "app/my_lib/bedrock_client.py",
+          "kind": "unknown",
+          "sourceTool": "repo_grep",
+          "reason": "Discovered from tool result."
+        },
+        {
+          "path": "app/my_lib/file_assets.py",
+          "kind": "unknown",
+          "sourceTool": "repo_grep",
+          "reason": "Discovered from tool result."
+        },
+        {
+          "path": "app/my_lib/config.py",
+          "kind": "unknown",
+          "sourceTool": "repo_grep",
+          "reason": "Discovered from tool result."
+        },
+        {
+          "path": "app/my_lib/image_assets.py",
+          "kind": "unknown",
+          "sourceTool": "repo_grep",
+          "reason": "Discovered from tool result."
+        },
+        {
+          "path": "app/my_lib/document_assets.py",
+          "kind": "unknown",
+          "sourceTool": "repo_grep",
+          "reason": "Discovered from tool result."
+        },
+        {
+          "path": "app/my_lib/my_bedrock_file_agent.py",
+          "kind": "unknown",
+          "sourceTool": "repo_grep",
+          "reason": "Discovered from tool result."
+        },
+        {
+          "path": "app/my_lib/my_bedrock_message.py",
+          "kind": "unknown",
+          "sourceTool": "repo_grep",
+          "reason": "Discovered from tool result."
+        },
+        {
+          "path": "app/my_lib/my_bedrock_tool.py",
+          "kind": "unknown",
+          "sourceTool": "repo_grep",
+          "reason": "Discovered from tool result."
+        },
+        {
+          "path": "app/my_lib/process_prompt.py",
+          "kind": "unknown",
+          "sourceTool": "repo_grep",
+          "reason": "Discovered from tool result."
+        },
+        {
+          "path": "app/my_lib/my_tools/my_aegis_tool.py",
+          "kind": "unknown",
+          "sourceTool": "repo_grep",
+          "reason": "Discovered from tool result."
+        },
+        {
+          "path": "app/my_lib/my_tools/my_daeryuntop_tool.py",
+          "kind": "unknown",
+          "sourceTool": "repo_grep",
+          "reason": "Discovered from tool result."
+        },
+        {
+          "path": "app/my_lib/my_tools/my_knowledgebase_tool.py",
+          "kind": "unknown",
+          "sourceTool": "repo_grep",
+          "reason": "Discovered from tool result."
+        },
+        {
+          "path": "app/my_lib/my_bedrock_tool_anthropic.py",
+          "kind": "unknown",
+          "sourceTool": "repo_grep",
+          "reason": "Discovered from tool result."
+        },
+        {
+          "path": "app/my_lib/my_dynamo.py",
+          "kind": "unknown",
+          "sourceTool": "repo_grep",
+          "reason": "Discovered from tool result."
+        },
+        {
+          "path": "app/my_lib/pdf_utils.py",
+          "kind": "unknown",
+          "sourceTool": "repo_grep",
+          "reason": "Discovered from tool result."
+        },
+        {
+          "path": "app/my_lib/upgrade_v2__internal_ai_process/aws_boto3_clients.py",
+          "kind": "unknown",
+          "sourceTool": "repo_grep",
+          "reason": "Discovered from tool result."
+        },
+        {
+          "path": "app/my_lib/upgrade_v2__internal_ai_process/invoke_model_helper/get_json_format_text.py",
+          "kind": "unknown",
+          "sourceTool": "repo_grep",
+          "reason": "Discovered from tool result."
+        },
+        {
+          "path": "app/my_lib/upgrade_v2__internal_ai_process/context_engineering/legal_information/extract_legal_search_query.py",
+          "kind": "unknown",
+          "sourceTool": "repo_grep",
+          "reason": "Discovered from tool result."
+        },
+        {
+          "path": "app/my_lib/upgrade_v2__internal_ai_process/context_engineering/legal_information/is_citable_legal_content.py",
+          "kind": "unknown",
+          "sourceTool": "repo_grep",
+          "reason": "Discovered from tool result."
+        },
+        {
+          "path": "app/my_lib/upgrade_v2__internal_ai_process/context_engineering/legal_information/is_legal_inquiry.py",
+          "kind": "unknown",
+          "sourceTool": "repo_grep",
+          "reason": "Discovered from tool result."
+        },
+        {
+          "path": "app/my_lib/upgrade_v2__internal_ai_process/context_engineering/legal_information/select_knowledge_base_ids.py",
+          "kind": "unknown",
+          "sourceTool": "repo_grep",
+          "reason": "Discovered from tool result."
+        },
+        {
+          "path": "app/my_lib/upgrade_v2__internal_ai_process/context_engineering/legal_information/retrieve_knowledge_base.py",
+          "kind": "unknown",
+          "sourceTool": "repo_grep",
+          "reason": "Discovered from tool result."
+        }
+      ],
+      "evidence": [
+        {
+          "path": "app/my_lib/bedrock_client.py",
+          "startLine": 62,
+          "endLine": 73,
+          "why": "Shows invoke_model_stream wrapper calling bedrock.invoke_model_with_response_stream",
+          "evidenceType": "file_range",
+          "groundingStatus": "exact",
+          "id": "E1",
+          "snippet": "62: def invoke_model_stream(\r\n63:     model_id: str,\r\n64:     body: dict[str, Any],\r\n65:     region: str,\r\n66: ) -> dict[str, Any]:\r\n67:     bedrock = get_bedrock_runtime_client_region(region)\r\n68:     return bedrock.invoke_model_with_response_stream(\r\n69:         modelId=model_id,\r\n70:         body=json.dumps(body),\r\n71:         accept=\"application/json\",\r\n72:         contentType=\"application/json\",\r\n73:     )\r"
+        },
+        {
+          "path": "app/my_lib/bedrock_client.py",
+          "startLine": 125,
+          "endLine": 150,
+          "why": "Shows generator_stream_anthropic proxy wrapper calling invoke_model_stream",
+          "evidenceType": "file_range",
+          "groundingStatus": "exact",
+          "id": "E2",
+          "snippet": "125: def generator_stream_anthropic(model_id: str, messages, system=None, tools=None, max_tokens=64_000, stop_sequences=None, region: str = get_aws_region()):\r\n126:     body = build_anthropic_body(\r\n127:         messages,\r\n128:         system=system,\r\n129:         tools=tools,\r\n130:         max_tokens=max_tokens,\r\n131:         stop_sequences=stop_sequences,\r\n132:         thinking={\r\n133:             \"type\": \"enabled\",\r\n134:             \"budget_tokens\": 20480,\r\n135:         },\r\n136:         anthropic_beta=[\r\n... [snippet truncated]"
+        },
+        {
+          "path": "app/my_lib/my_bedrock_file_agent.py",
+          "startLine": 175,
+          "endLine": 180,
+          "why": "Shows direct SDK invocation bedrock.invoke_model_with_response_stream",
+          "evidenceType": "file_range",
+          "groundingStatus": "exact",
+          "id": "E3",
+          "snippet": "175:     resp = bedrock.invoke_model_with_response_stream(\r\n176:         modelId=MODEL_ID,\r\n177:         body=json.dumps(body),\r\n178:         accept=\"application/json\",\r\n179:         contentType=\"application/json\"\r\n180:     )\r"
+        },
+        {
+          "path": "app/my_lib/my_bedrock_file_agent.py",
+          "startLine": 353,
+          "endLine": 380,
+          "why": "Shows invoke_bedrock_anthropic proxy wrapper with tool handling loop",
+          "evidenceType": "file_range",
+          "groundingStatus": "exact",
+          "id": "E4",
+          "snippet": "353: def invoke_bedrock_anthropic(messages):\r\n354:     i = 0\r\n355:     while True:\r\n356:         i += 1\r\n357:         print(f\"=== {i}차 응답(스트리밍) ===\")\r\n358:         g = stream_anthropic(messages, system=SYSTEM_PROMPT, tools=tools, tool_choice=\"auto\", max_tokens=40960)\r\n359:         try:\r\n360:             while True:\r\n361:                 yield next(g)\r\n362:         except StopIteration as e:\r\n363:             first_text, tool_uses = e.value\r\n364:             # print(\"return value:\", e.value)  # 42\r\n... [snippet truncated]"
+        },
+        {
+          "path": "app/my_lib/process_prompt.py",
+          "startLine": 114,
+          "endLine": 160,
+          "why": "Shows invoke_bedrock_anthropic_v3 proxy wrapper with retry logic",
+          "evidenceType": "file_range",
+          "groundingStatus": "exact",
+          "id": "E5",
+          "snippet": "114: def invoke_bedrock_anthropic_v3(\r\n115:         user_id: str,\r\n116:         session_id: str,\r\n117:         messages: list[dict[str, Any]],\r\n118:         admin_id: str | None = None,\r\n119: ):\r\n120:     # [2025-10-13] 인용 압축 적용. 마지막 사용자 입력은 인용 제거 안함.\r\n121:     # [2025-10-14] 인용 압축을 주석으로 적용.\r\n122:     messages = clear_citations.clear_citations(messages)\r\n123:     for message in messages:\r\n124:         print(message_pretty_print(message))\r\n125: \r\n... [snippet truncated]"
+        },
+        {
+          "path": "app/my_lib/upgrade_v2__internal_ai_process/invoke_model_helper/get_json_format_text.py",
+          "startLine": 30,
+          "endLine": 35,
+          "why": "Shows direct SDK invocation bedrock_runtime_client.invoke_model_with_response_stream",
+          "evidenceType": "file_range",
+          "groundingStatus": "exact",
+          "id": "E6",
+          "snippet": "30:     resp = bedrock_runtime_client.invoke_model_with_response_stream(\r\n31:         modelId=model_id,\r\n32:         body=json.dumps(body),\r\n33:         accept=\"application/json\",\r\n34:         contentType=\"application/json\"\r\n35:     )\r"
+        },
+        {
+          "path": "app/my_lib/my_tools/my_knowledgebase_tool.py",
+          "startLine": 196,
+          "endLine": 196,
+          "why": "Shows direct SDK invocation bedrock_agent_rt.retrieve for knowledge base",
+          "evidenceType": "file_range",
+          "groundingStatus": "exact",
+          "id": "E7",
+          "snippet": "196:         retrieve_resp = bedrock_agent_rt.retrieve(**knowledge_base_params)\r"
+        },
+        {
+          "path": "app/my_lib/config.py",
+          "startLine": 20,
+          "endLine": 29,
+          "why": "Shows configuration-only functions reading env vars without invocations",
+          "evidenceType": "file_range",
+          "groundingStatus": "exact",
+          "id": "E8",
+          "snippet": "20: def get_bedrock_model_id() -> str:\r\n21:     return require_env(\"BEDROCK_MODEL_ID\")\r\n22: \r\n23: \r\n24: def get_bedrock_file_model_id() -> str:\r\n25:     return require_env(\"BEDROCK_FILE_MODEL_ID\")\r\n26: \r\n27: \r\n28: def get_bedrock_law_model_id() -> str:\r\n29:     return require_env(\"BEDROCK_LAW_MODEL_ID\")\r"
+        }
+      ],
+      "uncertainties": [],
+      "nextAction": {
+        "type": "stop",
+        "reason": "Explorer result is complete for the requested read-only investigation."
+      },
+      "evidenceQuality": {
+        "level": "high",
+        "exactCount": 8,
+        "partialCount": 0,
+        "droppedCount": 0,
+        "fileCount": 6,
+        "warnings": [],
+        "summary": "Verified: 14 files read, 7 grep searches, 8/8 retained evidence items grounded, cross-verified across 6 files. All retained evidence grounded in inspected code."
+      },
+      "searchCoverage": {
+        "scope": [],
+        "scopeLimited": false,
+        "filesRead": 14,
+        "grepCalls": 7,
+        "listDirCalls": 0,
+        "symbolCalls": 0,
+        "toolResultsTruncated": 0,
+        "stoppedByBudget": false,
+        "omittedDiscoveredPaths": 0,
+        "warnings": [],
+        "summary": "repo-wide search; 14 file read(s), 7 grep search(es)."
+      },
+      "critic": {
+        "status": "pass",
+        "warnings": [],
+        "droppedEvidence": 0,
+        "partialEvidence": 0
+      },
+      "failure": null
+    }
+  },
+  "operational": {
+    "model": "zai-glm-4.7",
+    "toolChoice": "explore_repo",
+    "turns": 8,
+    "toolCalls": 21,
+    "totalTokens": 156039,
+    "elapsedMs": 17422
+  },
+  "measurement": {
+    "encoding": "utf8",
+    "formula": "byteLength(JSON.stringify(content)) + byteLength(JSON.stringify(structuredContent))",
+    "contentBytes": 2766,
+    "structuredContentBytes": 11578,
+    "parentPayloadBytes": 14344
+  }
+}

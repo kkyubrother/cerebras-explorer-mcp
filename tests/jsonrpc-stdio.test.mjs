@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { StdioJsonRpcServer } from '../src/mcp/jsonrpc-stdio.mjs';
+import { createMcpRequestHandler } from '../src/mcp/server.mjs';
 
 function makeRequest(body, separator) {
   return Buffer.from(
@@ -139,3 +140,108 @@ test('concurrent requests are processed in parallel — slow request does not bl
   assert.ok(sent.some(s => s.id === 1));
   assert.ok(sent.some(s => s.id === 2));
 });
+
+// T033 changes this to `test` after request-id-zero controller tracking lands.
+const requestIdCancellationTest = test;
+
+class AbortProbeChatClient {
+  constructor() {
+    this.model = 'mock';
+    this.signal = null;
+    this.abortCount = 0;
+  }
+
+  createChatCompletion({ signal }) {
+    this.signal = signal;
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const finish = error => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        reject(error);
+      };
+      const abort = () => {
+        this.abortCount += 1;
+        const error = new Error('cancelled by JSON-RPC notification');
+        error.name = 'AbortError';
+        finish(error);
+      };
+      const timer = setTimeout(() =>
+        finish(new Error('cancellation notification was not delivered')), 2_000);
+      if (signal.aborted) abort();
+      else signal.addEventListener('abort', abort, { once: true });
+    });
+  }
+}
+
+requestIdCancellationTest(
+  'Spec 028 T027 — JSON-RPC id 0 is tracked, cancelled, and cleaned up like a nonzero id',
+  async () => {
+    const outcomes = [];
+
+    for (const requestId of [7, 0]) {
+      const sent = [];
+      const logs = [];
+      const client = new AbortProbeChatClient();
+      const handler = createMcpRequestHandler({
+        logger: line => logs.push(line),
+        runtimeOptions: { chatClient: client },
+      });
+      const server = new StdioJsonRpcServer(handler);
+      server.send = payload => { sent.push(payload); };
+
+      const request = JSON.stringify({
+        jsonrpc: '2.0',
+        id: requestId,
+        method: 'tools/call',
+        params: {
+          name: 'explore_repo',
+          arguments: {
+            task: 'Wait at planning until this request is cancelled.',
+            repo_root: process.cwd(),
+            scope: ['src/mcp/server.mjs'],
+          },
+        },
+      });
+      server.buffer = makeRequest(request, '\r\n');
+      server.processBuffer();
+      await waitFor(() => client.signal !== null);
+
+      const cancelled = JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'notifications/cancelled',
+        params: { requestId },
+      });
+      server.buffer = makeRequest(cancelled, '\r\n');
+      server.processBuffer();
+      await waitFor(() => sent.some(item => item.id === requestId), 3_000);
+
+      server.buffer = makeRequest(cancelled, '\r\n');
+      server.processBuffer();
+      await new Promise(resolve => setImmediate(resolve));
+
+      const response = sent.find(item => item.id === requestId);
+      const cancellationLogs = logs.filter(line =>
+        line.includes('Cancelled exploration for request')).length;
+      const outcome = {
+        abortCount: client.abortCount,
+        signalAborted: client.signal.aborted,
+        cancellationLogs,
+        failureReason: response.result?.structuredContent?.failure?.reason,
+        responseKind: response.error ? 'error' : 'result',
+      };
+      outcomes.push(outcome);
+
+      assert.equal(response.id, requestId);
+      assert.equal(client.abortCount, 1);
+      assert.equal(client.signal.aborted, true);
+      assert.equal(cancellationLogs, 1,
+        'a duplicate notification must not find a cleaned-up controller');
+      assert.equal(outcome.failureReason, 'aborted');
+      assert.equal(sent.length, 1, 'notifications must not receive JSON-RPC responses');
+    }
+
+    assert.deepEqual(outcomes[1], outcomes[0]);
+  },
+);

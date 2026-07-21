@@ -1,0 +1,228 @@
+{
+  "fixtureVersion": 1,
+  "scenario": "fx_scope_limited_absence",
+  "responses": [
+    {
+      "stage": "planner",
+      "result": {
+        "message": {
+          "content": {
+            "taskSummary": "Enumerate the two observed route registrations and separately certify that no additional route exists within src/in-scope/**.",
+            "constraints": ["Do not widen the hard scope or claim repository-wide absence."],
+            "subgoals": [
+              {
+                "id": "S1",
+                "question": "Which in-scope routes exist?",
+                "originRefs": ["request:0-52"],
+                "claimType": "comparison",
+                "proofCondition": "Read and compare both observed route-registration paths.",
+                "constraints": ["Report only registrations observed within src/in-scope/**."]
+              },
+              {
+                "id": "S2",
+                "question": "Is there another route within the same scope?",
+                "originRefs": ["request:57-112"],
+                "claimType": "absence",
+                "proofCondition": "Completely search src/in-scope/** for route names other than primary and secondary and require zero matches.",
+                "constraints": ["Qualify the absence to src/in-scope/**."]
+              }
+            ]
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "goal_audit",
+      "result": {
+        "message": {
+          "content": {
+            "goals": [
+              {
+                "proposedGoalId": "S1",
+                "verdict": "ready",
+                "originRefs": ["request:0-52"],
+                "missingRequestParts": [],
+                "reason": "Both observed route declarations are directly comparable within the hard scope."
+              },
+              {
+                "proposedGoalId": "S2",
+                "verdict": "ready",
+                "originRefs": ["request:57-112"],
+                "missingRequestParts": [],
+                "reason": "A scope-qualified complement search can independently certify that no additional route registration exists."
+              }
+            ],
+            "uncoveredRequestParts": []
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "exploration",
+      "result": {
+        "message": {
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "read-primary",
+              "function": {
+                "name": "repo_read_file",
+                "arguments": {
+                  "path": "src/in-scope/primary.mjs",
+                  "startLine": 1,
+                  "endLine": 3
+                }
+              }
+            },
+            {
+              "id": "read-secondary",
+              "function": {
+                "name": "repo_read_file",
+                "arguments": {
+                  "path": "src/in-scope/secondary.mjs",
+                  "startLine": 1,
+                  "endLine": 3
+                }
+              }
+            },
+            {
+              "id": "grep-additional-routes",
+              "function": {
+                "name": "repo_grep",
+                "arguments": {
+                  "pattern": "app\\.get\\(['\"]/(?:[^'\"]{0,6}|[^'\"]{8}|[^'\"]{10,}|[^p][^'\"]{6}|p[^r][^'\"]{5}|pr[^i][^'\"]{4}|pri[^m][^'\"]{3}|prim[^a][^'\"]{2}|prima[^r][^'\"]|primar[^y]|[^s][^'\"]{8}|s[^e][^'\"]{7}|se[^c][^'\"]{6}|sec[^o][^'\"]{5}|seco[^n][^'\"]{4}|secon[^d][^'\"]{3}|second[^a][^'\"]{2}|seconda[^r][^'\"]|secondar[^y])['\"]",
+                  "scope": ["src/in-scope/**"],
+                  "maxResults": 10
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "stage": "exploration",
+      "result": {
+        "message": {
+          "content": "Both observed route declarations were read and the complete complement search returned zero matches.",
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "synthesis",
+      "result": {
+        "message": {
+          "content": {
+            "directAnswer": "The bounded route list and complement search require independent runtime verification.",
+            "status": {
+              "confidence": "high",
+              "verification": "verified",
+              "complete": true,
+              "warnings": []
+            },
+            "targets": [],
+            "evidence": [
+              {
+                "id": "E1",
+                "path": "src/in-scope/primary.mjs",
+                "startLine": 1,
+                "endLine": 3,
+                "why": "The primary route is registered here."
+              },
+              {
+                "id": "E2",
+                "path": "src/in-scope/secondary.mjs",
+                "startLine": 1,
+                "endLine": 3,
+                "why": "The secondary route is registered here."
+              }
+            ],
+            "uncertainties": [],
+            "nextAction": {
+              "type": "stop",
+              "reason": "The runtime owns semantic and bounded-absence verification."
+            }
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "claim_synthesis",
+      "result": {
+        "message": {
+          "content": {
+            "claims": [
+              {
+                "id": "C1",
+                "subgoalId": "S1",
+                "text": "The bounded scope registers /primary and /secondary.",
+                "evidenceRefs": ["E1", "E2", "E3"]
+              },
+              {
+                "id": "C2",
+                "subgoalId": "S2",
+                "text": "No additional route registration exists within src/in-scope/**.",
+                "evidenceRefs": ["E3"]
+              }
+            ]
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "semantic_verifier",
+      "result": {
+        "message": {
+          "content": {
+            "verdicts": [
+              {
+                "claimId": "C1",
+                "result": "supported",
+                "resolution": "affirmed",
+                "supportingEvidenceRefs": ["E1", "E2", "E3"],
+                "reasonCode": "entailed",
+                "note": "The two current source files independently show the primary and secondary route registrations."
+              },
+              {
+                "claimId": "C2",
+                "result": "supported",
+                "resolution": "affirmed",
+                "supportingEvidenceRefs": ["E3"],
+                "reasonCode": "entailed",
+                "note": "The complete scope-qualified complement search returned zero matches."
+              }
+            ],
+            "uncoveredRequestParts": []
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "semantic_verifier",
+      "result": {
+        "message": {
+          "content": {
+            "verdicts": [
+              {
+                "claimId": "C1",
+                "result": "supported",
+                "resolution": "affirmed",
+                "supportingEvidenceRefs": ["E1", "E2", "E3"],
+                "reasonCode": "entailed",
+                "note": "The focused comparison confirms both route declarations within the certified bounded scope."
+              }
+            ],
+            "uncoveredRequestParts": []
+          },
+          "toolCalls": []
+        }
+      }
+    }
+  ]
+}

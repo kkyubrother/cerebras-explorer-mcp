@@ -9,64 +9,65 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SCRIPT_PATH = path.join(ROOT, 'scripts', 'integration-test.mjs');
 const SCRIPT_URL = pathToFileURL(path.join(ROOT, 'scripts', 'integration-test.mjs')).href;
 
-test('integration script uses current no-session no-budget explore contract', async () => {
+test('integration script uses only the structured v3 runtime contract', async () => {
   const source = await fs.readFile(SCRIPT_PATH, 'utf8');
 
   assert.doesNotMatch(source, /SessionStore/);
-  assert.doesNotMatch(source, /\n\s+budget:\s*['"]/);
+  assert.doesNotMatch(source, /freeExplore/);
+  assert.match(source, /runtime\.explore\(/);
   assert.match(source, /CEREBRAS_EXPLORER_LOG_PATH|transcript/i);
 });
 
-test('integration script compact checks do not require legacy explore result fields', () => {
+test('integration script validates complete, incomplete, and failed v3 handoffs', () => {
   const code = `
     delete process.env.CEREBRAS_API_KEY;
     const mod = await import(${JSON.stringify(SCRIPT_URL)});
-    const compactResult = {
-      directAnswer: 'SessionStore creates, validates, and updates exploration sessions.',
-      status: {
-        confidence: 'medium',
-        verification: 'verified',
-        complete: true,
-        warnings: [],
+    const cases = [{
+      expectedState: 'complete',
+      result: {
+        schemaVersion: 3,
+        directAnswer: 'measureParentPayload measures content and structuredContent.',
+        state: 'complete',
+        evidence: [{
+          kind: 'source',
+          path: 'src/explorer/parent-payload.mjs',
+          startLine: 1,
+          endLine: 2,
+          supports: 'Defines the parent payload measurement.',
+        }],
       },
-      targets: [{ path: 'src/explorer/session.mjs', role: 'context' }],
-      evidence: [],
-      evidenceQuality: {
-        level: 'medium',
-        exactCount: 0,
-        partialCount: 0,
-        droppedCount: 0,
-        fileCount: 0,
-        warnings: [],
-        summary: 'No evidence needed for helper validation.',
+    }, {
+      expectedState: 'incomplete',
+      expectedFollowUpType: 'external_verification',
+      result: {
+        schemaVersion: 3,
+        state: 'incomplete',
+        gaps: [{
+          question: 'Which revision is deployed?',
+          reason: 'Repository evidence cannot establish live process state.',
+        }],
+        followUp: {
+          type: 'external_verification',
+          requirement: 'Report the deployed revision.',
+        },
       },
-      searchCoverage: {
-        scope: [],
-        scopeLimited: false,
-        filesRead: 1,
-        grepCalls: 0,
-        listDirCalls: 0,
-        symbolCalls: 0,
-        toolResultsTruncated: 0,
-        stoppedByBudget: false,
-        warnings: [],
-        summary: 'repo-wide search; 1 file read(s), 0 grep search(es).',
+    }, {
+      expectedState: 'failed',
+      expectedFailureReason: 'aborted',
+      result: {
+        schemaVersion: 3,
+        directAnswer: 'The explorer was cancelled before a trustworthy answer was produced.',
+        state: 'failed',
+        failure: { reason: 'aborted' },
       },
-      failure: null,
-      stats: {
-        turns: 1,
-        elapsedMs: 10,
-        filesRead: 1,
-      },
-    };
-    const checks = mod.buildExploreRepoChecks(compactResult, {
-      answerLabel: 'directAnswer',
-      minFilesRead: 1,
-      answerIncludes: /sessionstore/i,
-    });
+    }];
+    const failures = cases.flatMap(item =>
+      mod.buildParentHandoffChecks(item.result, item)
+        .filter(([, ok]) => !ok)
+        .map(([name]) => item.expectedState + ': ' + name));
     console.log(JSON.stringify({
       exports: Object.keys(mod).sort(),
-      failures: checks.filter(([, ok]) => !ok).map(([name]) => name),
+      failures,
     }));
   `;
 
@@ -78,6 +79,6 @@ test('integration script compact checks do not require legacy explore result fie
 
   assert.equal(result.status, 0, result.stderr || result.stdout);
   const payload = JSON.parse(result.stdout.trim());
-  assert.ok(payload.exports.includes('buildExploreRepoChecks'));
+  assert.ok(payload.exports.includes('buildParentHandoffChecks'));
   assert.deepEqual(payload.failures, []);
 });

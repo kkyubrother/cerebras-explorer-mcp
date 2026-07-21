@@ -1,6 +1,6 @@
 {
   "name": "agent-adoption-readonly-exploration",
-  "description": "Benchmarks focused on whether explorer output lets parent coding agents avoid broad native re-search: direct answer, targets, snippets, status, and next action quality.",
+  "description": "Benchmarks focused on whether explorer output lets parent coding agents avoid broad native re-search: direct answer, minimal evidence or targets, state, and next-action quality.",
   "defaultPassScore": 0.72,
   "cases": [
     {
@@ -27,8 +27,7 @@
       ],
       "checks": [
         { "label": "Has direct answer", "type": "has_direct_answer", "value": true, "weight": 0.1 },
-        { "label": "Returns targets", "type": "min_target_count", "value": 2, "weight": 0.15 },
-        { "label": "Evidence includes snippets", "type": "min_evidence_snippet_count", "value": 1, "weight": 0.1 }
+        { "label": "Returns targets", "type": "min_target_count", "value": 2, "weight": 0.15 }
       ]
     },
     {
@@ -36,26 +35,25 @@
       "description": "Trace a known symbol without manual grep/read.",
       "tool": "trace_symbol",
       "args": {
-        "symbol": "normalizeExploreResult",
-        "scope": ["src/**", "tests/**"]
+        "symbol": "formatParentHandoffText",
+        "scope": ["src/**"]
       },
       "expectations": [
         {
-          "label": "Answer explains schema normalization",
+          "label": "Answer explains parent text formatting and its consumer",
           "source": "combined_text",
-          "groups": [["schemas.mjs"], ["evidence", "targets"]],
+          "groups": [["src/explorer/parent-payload.mjs"], ["buildParentPayload"]],
           "weight": 0.45
         },
         {
-          "label": "Targets point to schema code",
-          "source": "target_paths",
-          "groups": [["src/explorer/schemas.mjs"]],
+          "label": "Evidence points to parent payload code",
+          "source": "evidence_paths",
+          "groups": [["src/explorer/parent-payload.mjs"]],
           "weight": 0.25
         }
       ],
       "checks": [
-        { "label": "Grounded evidence", "type": "min_grounded_evidence_count", "value": 2, "weight": 0.2 },
-        { "label": "Snippet present", "type": "min_evidence_snippet_count", "value": 1, "weight": 0.1 }
+        { "label": "Structured evidence retained", "type": "min_evidence_count", "value": 1, "weight": 0.2 }
       ]
     },
     {
@@ -63,26 +61,25 @@
       "description": "Trace a symbol's definition and callsites; the usage cross-check must be satisfied.",
       "tool": "trace_symbol",
       "args": {
-        "symbol": "buildReportCritic",
-        "scope": ["src/**", "tests/**"]
+        "symbol": "buildParentHandoffResponse",
+        "scope": ["src/**"]
       },
       "expectations": [
         {
-          "label": "Combined text describes definition and production callsite",
+          "label": "Combined text describes the response builder and production callers",
           "source": "combined_text",
-          "groups": [["critic.mjs"], ["runtime.mjs"]],
+          "groups": [["src/mcp/server.mjs"], ["callTool", "handleRequest"]],
           "weight": 0.4
         },
         {
-          "label": "Targets include production callsite",
-          "source": "target_paths",
-          "groups": [["src/explorer/runtime.mjs"]],
+          "label": "Evidence includes the response builder and callers",
+          "source": "evidence_paths",
+          "groups": [["src/mcp/server.mjs"]],
           "weight": 0.3
         }
       ],
       "checks": [
-        { "label": "Grounded evidence", "type": "min_grounded_evidence_count", "value": 2, "weight": 0.2 },
-        { "label": "No usage cross-check warning", "type": "critic_warning_absent", "warningType": "usage_cross_check_missing", "weight": 0.1 }
+        { "label": "Structured evidence retained", "type": "min_evidence_count", "value": 2, "weight": 0.2 }
       ]
     },
     {
@@ -91,25 +88,30 @@
       "tool": "map_change_impact",
       "args": {
         "change": "Add a new top-level field to explore_repo structured output",
-        "scope": ["src/**", "tests/**"]
+        "scope": ["src/**", "tests/**", "*.md", "examples/**"]
       },
       "expectations": [
         {
-          "label": "Answer covers runtime, schema, server, tests",
+          "label": "Answer covers runtime, schema, server, tests, and public contract docs",
           "source": "combined_text",
-          "groups": [["schemas.mjs"], ["runtime.mjs"], ["server.mjs"]],
-          "weight": 0.4
+          "groups": [["schemas.mjs"], ["runtime.mjs"], ["server.mjs"], ["schemas.test.mjs", "runtime.mock.test.mjs", "mcp-server.test.mjs"], ["README.md"], ["DESIGN.md"], ["expected-response.json"]],
+          "weight": 0.3
+        },
+        {
+          "label": "Targets include each required impact category",
+          "source": "target_paths",
+          "groups": [["src/explorer/schemas.mjs"], ["src/explorer/runtime.mjs"], ["src/mcp/server.mjs"], ["tests/schemas.test.mjs", "tests/runtime.mock.test.mjs", "tests/mcp-server.test.mjs"], ["README.md"], ["DESIGN.md"], ["examples/expected-response.json"]],
+          "weight": 0.25
         },
         {
           "label": "Targets describe actionability",
           "source": "target_reasons",
-          "groups": [["schema"], ["runtime", "normaliz"], ["검증"]],
-          "weight": 0.2
+          "groups": [["schema"], ["runtime", "normaliz"], ["regression", "validation", "validat", "assert", "verif"], ["documentation", "contract", "document"]],
+          "weight": 0.15
         }
       ],
       "checks": [
-        { "label": "Returns at least three targets", "type": "min_target_count", "value": 3, "weight": 0.2 },
-        { "label": "Citations or evidence snippets present", "type": "min_evidence_snippet_count", "value": 1, "weight": 0.1 }
+        { "label": "Returns at least seven targets", "type": "min_target_count", "value": 7, "weight": 0.2 }
       ]
     },
     {
@@ -123,71 +125,68 @@
       },
       "expectations": [
         {
-          "label": "Flow mentions handler and runtime",
+          "label": "Flow covers transport, dispatch, runtime, and response",
           "source": "combined_text",
-          "groups": [["handleRequest"]],
-          "weight": 0.5
+          "groups": [["dispatchMessage"], ["handleRequest"], ["callTool"], ["ExplorerRuntime"]],
+          "weight": 0.4
         },
         {
-          "label": "Targets include server and runtime",
-          "source": "target_paths",
-          "groups": [["src/explorer/runtime.mjs"]],
-          "weight": 0.25
+          "label": "Evidence includes transport and runtime beyond the known server anchor",
+          "source": "evidence_paths",
+          "groups": [["src/mcp/jsonrpc-stdio.mjs"], ["src/explorer/runtime.mjs"]],
+          "weight": 0.3
         }
       ],
       "checks": [
-        { "label": "Grounded evidence", "type": "min_grounded_evidence_count", "value": 2, "weight": 0.15 },
-        { "label": "Snippet present", "type": "min_evidence_snippet_count", "value": 1, "weight": 0.1 }
+        { "label": "Structured evidence retained", "type": "min_evidence_count", "value": 3, "weight": 0.2 }
       ]
     },
     {
       "id": "collect-evidence",
-      "description": "Collect evidence for a specific claim.",
+      "description": "Refute a specific claim with direct source evidence.",
       "tool": "collect_evidence",
       "args": {
-        "claim": "explore_repo validates evidence against observed file ranges before returning structuredContent",
+        "claim": "The deterministic critic skips evidence grounding and never checks whether cited ranges were observed",
         "scope": ["src/**", "tests/**"]
       },
       "expectations": [
         {
-          "label": "Answer names grounding and critic flow",
+          "label": "Answer refutes the claim and names the actual grounding flow",
           "source": "combined_text",
-          "groups": [["runDeterministicCriticPass"], ["groundEvidence", "grounding"], ["observedRanges"]],
+          "groups": [["false", "refutes", "refuted", "contradicted", "does not skip"], ["runDeterministicCriticPass"], ["groundEvidenceList"], ["checkEvidenceGrounding", "groundEvidenceItem"]],
           "weight": 0.5
         },
         {
-          "label": "Evidence snippets show code",
-          "source": "evidence_snippets",
-          "groups": [["runDeterministicCriticPass"], ["observedRanges"]],
+          "label": "Evidence points to the critic grounding implementation",
+          "source": "evidence_paths",
+          "groups": [["src/explorer/critic.mjs"]],
           "weight": 0.2
         }
       ],
       "checks": [
         { "label": "Has direct answer", "type": "has_direct_answer", "value": true, "weight": 0.1 },
-        { "label": "Grounded evidence", "type": "min_grounded_evidence_count", "value": 2, "weight": 0.1 },
-        { "label": "Snippet present", "type": "min_evidence_snippet_count", "value": 1, "weight": 0.1 }
+        { "label": "Structured evidence retained", "type": "min_evidence_count", "value": 1, "weight": 0.1 }
       ]
     },
     {
-      "id": "review-change-context",
-      "description": "Review recent changes with git-guided context.",
-      "tool": "review_change_context",
+      "id": "explore-recent-change-context",
+      "description": "Use the general explorer for recent changes that need git-guided context.",
+      "tool": "explore_repo",
       "args": {
-        "reviewGoal": "What changed recently around MCP tool metadata and what should be reviewed?",
-        "since": "2 weeks ago",
+        "task": "Within the supplied scope, what MCP tool metadata change did commit ca99b4d4fef6bd8d252d4a2d66c1d8f647ba58c4 make?",
         "scope": ["src/**", "tests/**"]
       },
       "expectations": [
         {
           "label": "Answer discusses change context",
           "source": "combined_text",
-          "groups": [["server.mjs"], ["검토"]],
-          "weight": 0.6
+          "groups": [["TOOL_DISPATCH_RULE", "dispatch rule", "server initialization", "initialization instructions"], ["tool count", "model name", "six tools", "six MCP tools", "six-tool dispatch", "shorter summaries", "shorter descriptions"]],
+          "weight": 0.5
         }
       ],
       "checks": [
-        { "label": "Targets present", "type": "min_target_count", "value": 1, "weight": 0.3 },
-        { "label": "Citations or evidence snippets present", "type": "min_evidence_snippet_count", "value": 1, "weight": 0.1 }
+        { "label": "No redundant parent targets", "type": "max_target_count", "value": 0, "weight": 0.1 },
+        { "label": "Git evidence retained", "type": "min_git_evidence_count", "value": 1, "weight": 0.2 }
       ]
     },
     {
@@ -196,27 +195,26 @@
       "tool": "find_relevant_code",
       "args": {
         "query": "Which code controls explore_repo output formatting and structuredContent fields?",
-        "knownSymbols": ["formatExploreResult", "normalizeExploreResult"],
+        "knownSymbols": ["formatParentHandoffText", "buildParentPayload", "normalizeExploreResult"],
         "scope": ["src/**", "tests/**"]
       },
       "expectations": [
         {
           "label": "Answer mentions formatting and normalization",
           "source": "combined_text",
-          "groups": [["src/explorer/schemas.mjs"], ["src/mcp/server.mjs"]],
+          "groups": [["src/explorer/parent-payload.mjs"], ["src/explorer/schemas.mjs"], ["src/mcp/server.mjs", "src/explorer/runtime.mjs"]],
           "weight": 0.45
         },
         {
-          "label": "Status narrows verification",
-          "source": "status_verification",
-          "groups": [["targeted_read_needed", "verified", "follow_up_needed"]],
+          "label": "State is actionable",
+          "source": "result_state",
+          "groups": [["complete", "verify_targets"]],
           "weight": 0.15
         }
       ],
       "checks": [
         { "label": "Has direct answer", "type": "has_direct_answer", "value": true, "weight": 0.1 },
-        { "label": "Targets present", "type": "min_target_count", "value": 2, "weight": 0.2 },
-        { "label": "Snippet present", "type": "min_evidence_snippet_count", "value": 1, "weight": 0.1 }
+        { "label": "Targets present", "type": "min_target_count", "value": 3, "weight": 0.2 }
       ]
     },
     {
@@ -229,23 +227,29 @@
       },
       "expectations": [
         {
-          "label": "Answer stays narrow",
+          "label": "Answer identifies authoritative schema constants",
           "source": "combined_text",
-          "groups": [["반환"]],
-          "weight": 0.45
+          "groups": [["PARENT_HANDOFF_V3_SCHEMA", "EXPLORE_REPO_OUTPUT_SCHEMA"]],
+          "weight": 0.3
         },
         {
-          "label": "Next action is targeted",
-          "source": "next_action",
-          "groups": [["read_target", "stop"]],
-          "weight": 0.2,
+          "label": "Targets include the authoritative schema source",
+          "source": "target_paths",
+          "groups": [["src/explorer/schemas.mjs"]],
+          "weight": 0.25
+        },
+        {
+          "label": "State permits a narrow handoff",
+          "source": "result_state",
+          "groups": [["complete", "verify_targets"]],
+          "weight": 0.15,
           "minCoverage": 0.5
         }
       ],
       "checks": [
         { "label": "Has direct answer", "type": "has_direct_answer", "value": true, "weight": 0.1 },
-        { "label": "Targets present", "type": "min_target_count", "value": 1, "weight": 0.15 },
-        { "label": "Snippet present", "type": "min_evidence_snippet_count", "value": 1, "weight": 0.1 }
+        { "label": "Targets present", "type": "min_target_count", "value": 1, "weight": 0.1 },
+        { "label": "Target set stays narrow", "type": "max_target_count", "value": 4, "weight": 0.1 }
       ]
     }
   ]

@@ -2,15 +2,16 @@
 /**
  * Integration test against real Cerebras API.
  * Usage: CEREBRAS_API_KEY=<key> node scripts/integration-test.mjs
+ * Recommended: set CEREBRAS_EXPLORER_LOG_PATH to retain redacted transcripts.
  */
 
 import { ExplorerRuntime } from '../src/explorer/runtime.mjs';
 import { createChatClient } from '../src/explorer/providers/index.mjs';
+import { validateParentHandoffV3 } from '../src/explorer/schemas.mjs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..');
-const CONFIDENCE_LEVELS = ['low', 'medium', 'high'];
 
 function log(label, data) {
   console.log(`\n${'═'.repeat(70)}`);
@@ -33,44 +34,65 @@ function getDirectAnswer(result) {
   return typeof result?.directAnswer === 'string' ? result.directAnswer : '';
 }
 
-function getStatusConfidence(result) {
-  return result?.status?.confidence;
-}
-
-export function buildExploreRepoChecks(result, {
-  answerLabel = 'directAnswer',
-  minAnswerLength = 10,
-  minFilesRead = 0,
+export function buildParentHandoffChecks(result, {
+  expectedState,
+  expectedFailureReason = null,
+  expectedFollowUpType = null,
   answerIncludes = null,
 } = {}) {
-  const answer = getDirectAnswer(result);
-  const confidence = getStatusConfidence(result);
+  const handoff = result?.parentHandoff ?? result;
+  const answer = getDirectAnswer(handoff);
   const checks = [];
+  let schemaValid = true;
+  try {
+    validateParentHandoffV3(handoff);
+  } catch {
+    schemaValid = false;
+  }
 
-  checks.push([`${answerLabel} is non-empty`, answer.length > minAnswerLength]);
-  checks.push(['status.confidence is valid', CONFIDENCE_LEVELS.includes(confidence)]);
-  checks.push(['evidence array exists', Array.isArray(result?.evidence)]);
-  checks.push(['targets array exists', Array.isArray(result?.targets)]);
-  checks.push([
-    'targets have path strings',
-    Array.isArray(result?.targets) && result.targets.every(item => typeof item?.path === 'string' && item.path.trim()),
-  ]);
-  checks.push([
-    'evidenceQuality.level is valid',
-    CONFIDENCE_LEVELS.includes(result?.evidenceQuality?.level),
-  ]);
-  checks.push([
-    'searchCoverage summary exists',
-    typeof result?.searchCoverage?.summary === 'string' && result.searchCoverage.summary.length > 0,
-  ]);
-  checks.push(['failure is null', result?.failure === null]);
-  checks.push(['stats.turns > 0', result?.stats?.turns > 0]);
-  checks.push(['stats.elapsedMs > 0', result?.stats?.elapsedMs > 0]);
-  if (minFilesRead > 0) {
-    checks.push([`stats.filesRead >= ${minFilesRead}`, (result?.stats?.filesRead ?? 0) >= minFilesRead]);
+  checks.push(['schema v3 validates', schemaValid]);
+  checks.push([`state is ${expectedState}`, handoff?.state === expectedState]);
+  checks.push(['parent payload omits operational diagnostics', [
+    'status',
+    'evidenceQuality',
+    'searchCoverage',
+    'critic',
+    'stats',
+    'nextAction',
+  ].every(key => !Object.hasOwn(handoff ?? {}, key))]);
+
+  if (expectedState === 'complete') {
+    checks.push(['complete has a direct answer', answer.length > 10]);
+    checks.push(['complete has evidence', Array.isArray(handoff?.evidence) && handoff.evidence.length > 0]);
+  } else if (expectedState === 'incomplete') {
+    checks.push(['incomplete has actionable gaps', Array.isArray(handoff?.gaps) && handoff.gaps.length > 0]);
+    checks.push(['incomplete has no failure', !Object.hasOwn(handoff ?? {}, 'failure')]);
+    checks.push([
+      'partial answer has evidence when present',
+      !answer || (Array.isArray(handoff?.evidence) && handoff.evidence.length > 0),
+    ]);
+    if (expectedFollowUpType) {
+      checks.push([
+        `follow-up type is ${expectedFollowUpType}`,
+        handoff?.followUp?.type === expectedFollowUpType,
+      ]);
+    }
+  } else if (expectedState === 'failed') {
+    checks.push(['failed has a direct answer', answer.length > 10]);
+    checks.push(['failed has a failure reason', typeof handoff?.failure?.reason === 'string']);
+    checks.push([
+      'failed has no stale success fields',
+      ['targets', 'evidence', 'gaps', 'followUp'].every(key => !Object.hasOwn(handoff ?? {}, key)),
+    ]);
+    if (expectedFailureReason) {
+      checks.push([
+        `failure reason is ${expectedFailureReason}`,
+        handoff?.failure?.reason === expectedFailureReason,
+      ]);
+    }
   }
   if (answerIncludes instanceof RegExp) {
-    checks.push([`${answerLabel} matches expected topic`, answerIncludes.test(answer)]);
+    checks.push(['directAnswer matches expected topic', answerIncludes.test(answer)]);
   }
 
   return checks;
@@ -81,17 +103,15 @@ function formatChecks(checks) {
 }
 
 async function testExploreRepo() {
-  logSection('1. explore_repo — transcript ops contract');
+  logSection('1. explore_repo — schema-v3 complete');
 
   const client = createChatClient();
   const runtime = new ExplorerRuntime({ chatClient: client, logger: console.error });
   const result = await runtime.explore({
-    task: 'How does transcript ops logging work in this project? Explain createTranscriptRecorder, LOG_PATH, callId, and redaction behavior.',
+    task: 'What version string is declared in package.json?',
     repo_root: REPO_ROOT,
     hints: {
-      symbols: ['createTranscriptRecorder'],
-      files: ['src/explorer/transcript.mjs', 'src/explorer/runtime.mjs'],
-      strategy: 'symbol-first',
+      files: ['package.json'],
     },
   }, {
     onProgress: ({ progress, total, message }) => {
@@ -99,183 +119,66 @@ async function testExploreRepo() {
     },
   });
 
-  log('Direct Answer', getDirectAnswer(result));
-  log('Status Confidence', `${getStatusConfidence(result)} (evidenceQuality: ${result.evidenceQuality?.level})`);
-  log('Evidence Quality', result.evidenceQuality);
-  log('Search Coverage', result.searchCoverage);
-  log('Failure', result.failure);
-  log('Evidence count', `${result.evidence?.length ?? 0} items`);
-  if (result.evidence?.length > 0) {
-    log('Evidence sample', result.evidence.slice(0, 3));
-  }
-  log('Targets', result.targets?.slice(0, 5) ?? []);
-  log('Stats', {
-    model: result.stats?.model,
-    turns: result.stats?.turns,
-    toolCalls: result.stats?.toolCalls,
-    filesRead: result.stats?.filesRead,
-    elapsedMs: result.stats?.elapsedMs,
-    cacheHits: result.stats?.cacheHits,
-    cacheMisses: result.stats?.cacheMisses,
-  });
+  log('Parent Handoff', result.parentHandoff);
+  log('Parent Payload Measurement', result.parentPayloadMeasurement);
 
-  const checks = buildExploreRepoChecks(result, {
-    answerLabel: 'directAnswer',
-    minFilesRead: 1,
-    answerIncludes: /transcript|callId|redact|log/i,
+  const checks = buildParentHandoffChecks(result, {
+    expectedState: 'complete',
+    answerIncludes: /version/i,
   });
 
   log('Checks', formatChecks(checks));
   return checks.every(([, ok]) => ok);
 }
 
-async function testExploreRepoNormal() {
-  logSection('2. explore_repo — deeper analysis, confidence scoring');
+async function testExploreRepoIncomplete() {
+  logSection('2. schema-v3 incomplete external-state example');
 
-  const client = createChatClient();
-  const runtime = new ExplorerRuntime({ chatClient: client, logger: console.error });
-  const result = await runtime.explore({
-    task: 'Trace the full execution flow when the public explore tool is called from the MCP server. Start from server.mjs request handler, through runtime.mjs freeExplore(), and explain each advanced technique (LLM compaction, tool result budgeting, max output recovery).',
-    repo_root: REPO_ROOT,
-    hints: { symbols: ['freeExplore', 'callFreeExploreTool'], files: ['src/mcp/server.mjs', 'src/explorer/runtime.mjs'] },
-  }, {
-    onProgress: ({ progress, total, message }) => {
-      process.stderr.write(`  [explore_repo normal] ${message} (${progress}/${total})\n`);
+  const result = {
+    schemaVersion: 3,
+    state: 'incomplete',
+    gaps: [{
+      question: 'Whether the MCP server currently running at home is this exact checkout',
+      reason: 'Repository evidence cannot establish the state of a process on another computer.',
+    }],
+    followUp: {
+      type: 'external_verification',
+      requirement: 'Report the commit SHA loaded by the running home MCP server.',
     },
-  });
+  };
 
-  log('Direct Answer (first 500 chars)', getDirectAnswer(result).slice(0, 500));
-  log('Status Confidence', `${getStatusConfidence(result)} (evidenceQuality: ${result.evidenceQuality?.level})`);
-  log('Evidence Quality', result.evidenceQuality);
-  log('Search Coverage', result.searchCoverage);
-  log('Failure', result.failure);
-  log('Evidence count', `${result.evidence?.length ?? 0} items`);
-  log('Stats', {
-    turns: result.stats?.turns,
-    toolCalls: result.stats?.toolCalls,
-    filesRead: result.stats?.filesRead,
-    elapsedMs: result.stats?.elapsedMs,
-    symbolCalls: result.stats?.symbolCalls,
-    grepCalls: result.stats?.grepCalls,
-  });
+  log('Parent Handoff', result);
 
-  const checks = buildExploreRepoChecks(result, {
-    answerLabel: 'directAnswer',
-    minFilesRead: 3,
-    answerIncludes: /advanced|explore|compaction|budgeting/i,
+  const checks = buildParentHandoffChecks(result, {
+    expectedState: 'incomplete',
+    expectedFollowUpType: 'external_verification',
   });
 
   log('Checks', formatChecks(checks));
   return checks.every(([, ok]) => ok);
 }
 
-async function testFreeExplore() {
-  logSection('3. freeExplore (explore tool) — Markdown report');
+async function testFailedCancellation() {
+  logSection('3. explore_repo — schema-v3 failed cancellation');
 
   const client = createChatClient();
   const runtime = new ExplorerRuntime({ chatClient: client, logger: console.error });
 
-  const result = await runtime.freeExplore({
-    prompt: 'Explain the provider system in this project: how CerebrasChatClient, OpenAICompatChatClient, and FailoverChatClient work together.',
-    repo_root: REPO_ROOT,
-  }, {
-    onProgress: ({ progress, total, message }) => {
-      process.stderr.write(`  [freeExplore] ${message} (${progress}/${total})\n`);
-    },
-  });
-
-  log('Report (first 800 chars)', result.report?.slice(0, 800));
-  log('Stats', {
-    turns: result.stats?.turns,
-    toolCalls: result.stats?.toolCalls,
-    filesRead: result.stats?.filesRead,
-    elapsedMs: result.stats?.elapsedMs,
-  });
-  log('Files Read', result.filesRead);
-  log('Tools Used', result.toolsUsed);
-
-  const checks = [];
-  checks.push(['report is non-empty', !!result.report && result.report.length > 100]);
-  checks.push(['report mentions providers', result.report?.toLowerCase().includes('provider') || result.report?.toLowerCase().includes('cerebras')]);
-  checks.push(['filesRead is array', Array.isArray(result.filesRead)]);
-  checks.push(['toolsUsed is array', Array.isArray(result.toolsUsed)]);
-
-  log('Checks', checks.map(([name, ok]) => `${ok ? 'PASS' : 'FAIL'} — ${name}`).join('\n'));
-  return checks.every(([, ok]) => ok);
-}
-
-async function testFreeExploreAdvanced() {
-  logSection('4. freeExplore backend — advanced techniques');
-
-  const client = createChatClient();
-  const runtime = new ExplorerRuntime({ chatClient: client, logger: console.error });
-
-  const result = await runtime.freeExplore({
-    prompt: 'Produce a comprehensive architecture report of this project. Cover: MCP server structure, explorer runtime loop, prompt system, transcript ops logging, caching, symbol extraction, provider abstraction, and the three report-mode advanced techniques. Include file:line citations.',
-    repo_root: REPO_ROOT,
-    language: 'ko',
-  }, {
-    onProgress: ({ progress, total, message }) => {
-      process.stderr.write(`  [freeExplore] ${message} (${progress}/${total})\n`);
-    },
-  });
-
-  log('Report (first 1200 chars)', result.report?.slice(0, 1200));
-  log('Report length', `${result.report?.length ?? 0} chars`);
-  log('Stats', {
-    turns: result.stats?.turns,
-    toolCalls: result.stats?.toolCalls,
-    filesRead: result.stats?.filesRead,
-    elapsedMs: result.stats?.elapsedMs,
-    llmCompactions: result.stats?.llmCompactions,
-    toolResultsTruncated: result.stats?.toolResultsTruncated,
-    outputRecoveries: result.stats?.outputRecoveries,
-  });
-  log('Files Read', result.filesRead);
-  log('Transcript Path', result.transcriptPath ?? '(disabled)');
-
-  const checks = [];
-  checks.push(['report is substantial (>500 chars)', (result.report?.length ?? 0) > 500]);
-  checks.push(['report in Korean', /[가-힣]/.test(result.report ?? '')]);
-  checks.push(['report-mode stats tracked (llmCompactions field)', result.stats?.llmCompactions !== undefined]);
-  checks.push(['report-mode stats tracked (toolResultsTruncated field)', result.stats?.toolResultsTruncated !== undefined]);
-  checks.push(['report-mode stats tracked (outputRecoveries field)', result.stats?.outputRecoveries !== undefined]);
-  checks.push(['turns > 3 (actually explored)', (result.stats?.turns ?? 0) > 3]);
-  checks.push(['filesRead >= 3', (result.filesRead?.length ?? 0) >= 3]);
-
-  log('Checks', checks.map(([name, ok]) => `${ok ? 'PASS' : 'FAIL'} — ${name}`).join('\n'));
-  return checks.every(([, ok]) => ok);
-}
-
-async function testToolValidation() {
-  logSection('5. Tool name validation — hallucinated tool feedback');
-
-  const client = createChatClient();
-  const runtime = new ExplorerRuntime({ chatClient: client, logger: console.error });
-
-  // This test verifies that the system handles tool validation properly.
-  // We can't force the model to hallucinate, but we can verify the runtime starts and completes.
+  const controller = new AbortController();
+  controller.abort();
   const result = await runtime.explore({
-    task: 'What is the main entry point file of this project? Just find index.mjs and describe its contents.',
+    task: 'Find the package version.',
     repo_root: REPO_ROOT,
-    hints: { files: ['src/index.mjs'] },
   }, {
-    onProgress: ({ progress, total, message }) => {
-      process.stderr.write(`  [tool-validation] ${message} (${progress}/${total})\n`);
-    },
+    abortSignal: controller.signal,
   });
 
-  log('Direct Answer (first 300 chars)', getDirectAnswer(result).slice(0, 300));
-  log('Status Confidence', getStatusConfidence(result));
-  log('Evidence Quality', result.evidenceQuality);
-  log('Search Coverage', result.searchCoverage);
-  log('Failure', result.failure);
-  log('Stats', { turns: result.stats?.turns, toolCalls: result.stats?.toolCalls });
+  log('Parent Handoff', result.parentHandoff);
+  log('Parent Payload Measurement', result.parentPayloadMeasurement);
 
-  const checks = buildExploreRepoChecks(result, {
-    answerLabel: 'directAnswer',
-    minFilesRead: 1,
-    answerIncludes: /index|entry/i,
+  const checks = buildParentHandoffChecks(result, {
+    expectedState: 'failed',
+    expectedFailureReason: 'aborted',
   });
 
   log('Checks', formatChecks(checks));
@@ -298,38 +201,24 @@ async function main() {
   const results = [];
 
   try {
-    results.push(['explore_repo (quick)', await testExploreRepo()]);
+    results.push(['explore_repo (complete)', await testExploreRepo()]);
   } catch (err) {
     console.error('TEST 1 FAILED:', err.message);
-    results.push(['explore_repo (quick)', false]);
+    results.push(['explore_repo (complete)', false]);
   }
 
   try {
-    results.push(['explore_repo (normal)', await testExploreRepoNormal()]);
+    results.push(['v3 incomplete example', await testExploreRepoIncomplete()]);
   } catch (err) {
     console.error('TEST 2 FAILED:', err.message);
-    results.push(['explore_repo (normal)', false]);
+    results.push(['v3 incomplete example', false]);
   }
 
   try {
-    results.push(['freeExplore', await testFreeExplore()]);
+    results.push(['explore_repo (failed)', await testFailedCancellation()]);
   } catch (err) {
     console.error('TEST 3 FAILED:', err.message);
-    results.push(['freeExplore', false]);
-  }
-
-  try {
-    results.push(['freeExplore advanced', await testFreeExploreAdvanced()]);
-  } catch (err) {
-    console.error('TEST 4 FAILED:', err.message);
-    results.push(['freeExplore advanced', false]);
-  }
-
-  try {
-    results.push(['tool validation', await testToolValidation()]);
-  } catch (err) {
-    console.error('TEST 5 FAILED:', err.message);
-    results.push(['tool validation', false]);
+    results.push(['explore_repo (failed)', false]);
   }
 
   // Summary

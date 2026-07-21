@@ -6,10 +6,13 @@ import path from 'node:path';
 import { execFile, execFileSync } from 'node:child_process';
 import { promisify } from 'node:util';
 
+import * as mcpServerModule from '../../src/mcp/server.mjs';
 import { createMcpRequestHandler } from '../../src/mcp/server.mjs';
-import { getBudgetConfig } from '../../src/explorer/config.mjs';
+import { getRuntimeConfig } from '../../src/explorer/config.mjs';
 import { RepoToolkit } from '../../src/explorer/repo-tools.mjs';
 import { redactText, redactValue } from '../../src/explorer/redact.mjs';
+import { createTranscriptRecorder } from '../../src/explorer/transcript.mjs';
+import { adaptLegacyGoalAuditClient } from '../helpers/legacy-goal-audit-client.mjs';
 
 const execFileAsync = promisify(execFile);
 const joinSecretParts = (...parts) => parts.join('');
@@ -44,6 +47,33 @@ async function makeRepoFixture() {
   await fs.mkdir(path.join(root, 'src'), { recursive: true });
   await fs.writeFile(path.join(root, 'src', 'config.js'), `export const key = "${OPENAI_KEY}";\n`);
   return root;
+}
+
+function withEnvPatch(patch, fn) {
+  const previous = new Map();
+  for (const [key, value] of Object.entries(patch)) {
+    previous.set(key, process.env[key]);
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+  return Promise.resolve()
+    .then(fn)
+    .finally(() => {
+      for (const [key, value] of previous.entries()) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    });
+}
+
+function v3RedactionMcpTest(name, callback) {
+  const buildResponse = mcpServerModule.buildParentHandoffResponse;
+  const register = typeof buildResponse === 'function' ? test : test.todo;
+  register(name, () => {
+    assert.equal(typeof buildResponse, 'function',
+      'buildParentHandoffResponse is not implemented');
+    return callback(buildResponse);
+  });
 }
 
 test('redactText covers core secret patterns and leaves generic hex off by default', () => {
@@ -134,7 +164,192 @@ test('redactValue recursively redacts nested string fields', () => {
   assert.ok(!JSON.stringify(result.value).includes(GITHUB_PAT));
 });
 
-test('MCP explore_repo redacts provider-facing messages, content text, structuredContent, evidence, and debug', async () => {
+test('Spec 028 T038 — v3 source, git, absence, gap, and failure values share one redaction boundary', () => {
+  const raw = {
+    text: `Found ${OPENAI_KEY} in config/.env`,
+    source: {
+      kind: 'source',
+      path: '.env.production',
+      startLine: 1,
+      endLine: 1,
+      supports: `The source contains ${OPENAI_KEY}.`,
+      snippet: `1: token=${OPENAI_KEY}`,
+    },
+    git: {
+      kind: 'git',
+      sha: 'abc1234',
+      path: '.npmrc',
+      supports: `The commit mentions ${GITHUB_PAT}.`,
+    },
+    absence: {
+      kind: 'absence',
+      boundary: ['config/.env'],
+      searches: [`text: ${OPENAI_KEY}`],
+      supports: `No other ${OPENAI_KEY} was found.`,
+    },
+    gap: {
+      question: `Whether ${OPENAI_KEY} exists elsewhere`,
+      reason: 'The config/.env boundary was denied.',
+    },
+    failure: {
+      reason: 'provider_error',
+      retry: {
+        type: 'tool',
+        tool: 'explore_repo',
+        arguments: {
+          task: `Inspect ${OPENAI_KEY} without opening .env.production.`,
+          hints: { files: ['config/.env'] },
+        },
+      },
+    },
+  };
+
+  const redacted = redactValue(raw);
+  const serialized = JSON.stringify(redacted.value);
+  assert.equal(serialized.includes(OPENAI_KEY), false);
+  assert.equal(serialized.includes(GITHUB_PAT), false);
+  assert.equal(serialized.includes('.env.production'), false);
+  assert.equal(serialized.includes('config/.env'), false);
+  assert.match(serialized, /\[REDACTED:openai-api-key\]/);
+  assert.match(serialized, /\[REDACTED:github-token\]/);
+  assert.match(serialized, /\[REDACTED:secret-path\]/);
+  assert.deepEqual(new Set(redacted.redactions), new Set([
+    'openai-api-key',
+    'github-token',
+    'secret-path',
+  ]));
+});
+
+v3RedactionMcpTest(
+  'Spec 028 T046 — structured handoff redaction supersedes report-only redaction',
+  (buildResponse) => {
+    const handoff = {
+      schemaVersion: 3,
+      directAnswer: `The source, history, and bounded search mention ${OPENAI_KEY}.`,
+      state: 'complete',
+      evidence: [
+        {
+          kind: 'source',
+          path: '.env.production',
+          startLine: 1,
+          endLine: 1,
+          supports: `The source contains ${OPENAI_KEY}.`,
+          snippet: `1: token=${OPENAI_KEY}`,
+        },
+        {
+          kind: 'git',
+          sha: 'abc1234',
+          path: '.npmrc',
+          supports: `The commit contains ${GITHUB_PAT}.`,
+        },
+        {
+          kind: 'absence',
+          boundary: ['config/.env'],
+          searches: [`text: ${OPENAI_KEY}`],
+          supports: `No other ${OPENAI_KEY} was found in config/.env.`,
+        },
+      ],
+    };
+    const response = buildResponse(handoff);
+    const serialized = JSON.stringify(response);
+    assert.equal(serialized.includes(OPENAI_KEY), false);
+    assert.equal(serialized.includes(GITHUB_PAT), false);
+    assert.equal(serialized.includes('.env.production'), false);
+    assert.equal(serialized.includes('config/.env'), false);
+    assert.match(response.content[0].text, /\[REDACTED:openai-api-key\]/);
+    assert.match(serialized, /\[REDACTED:secret-path\]/);
+    assert.equal(Object.hasOwn(response.structuredContent, 'report'), false,
+      'the structured redaction contract must not depend on a Markdown report field');
+    assert.equal(serialized.includes('"redacted"'), false,
+      'redaction diagnostics stay outside the strict parent contract');
+    assert.equal(serialized.includes('"redactions"'), false,
+      'redaction diagnostics stay outside the strict parent contract');
+  },
+);
+
+v3RedactionMcpTest(
+  'Spec 028 T038 — v3 gaps, follow-ups, failures, and retries redact identically in MCP text and data',
+  (buildResponse) => {
+    const incomplete = buildResponse({
+      schemaVersion: 3,
+      state: 'incomplete',
+      gaps: [{
+        question: `Whether ${OPENAI_KEY} is active`,
+        reason: 'The config/.env boundary is unavailable.',
+      }],
+      followUp: {
+        type: 'external_verification',
+        requirement: `Check ${OPENAI_KEY} outside config/.env.`,
+      },
+    });
+    const failed = buildResponse({
+      schemaVersion: 3,
+      directAnswer: `Provider rejected ${OPENAI_KEY} before verification.`,
+      state: 'failed',
+      failure: {
+        reason: 'provider_error',
+        retry: {
+          type: 'tool',
+          tool: 'explore_repo',
+          arguments: {
+            task: `Retry without ${OPENAI_KEY}.`,
+            hints: { files: ['config/.env'] },
+          },
+        },
+      },
+    });
+
+    for (const response of [incomplete, failed]) {
+      const serialized = JSON.stringify(response);
+      assert.equal(serialized.includes(OPENAI_KEY), false);
+      assert.equal(serialized.includes('config/.env'), false);
+      assert.match(serialized, /\[REDACTED:openai-api-key\]/);
+      assert.match(serialized, /\[REDACTED:secret-path\]/);
+      assert.equal(response._meta, undefined);
+    }
+  },
+);
+
+test('Spec 028 T038 — operational JSONL redacts v3 payload-shaped diagnostics', async () => {
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-v3-redact-repo-'));
+  const logDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-v3-redact-log-'));
+
+  await withEnvPatch({
+    CEREBRAS_EXPLORER_LOG_PATH: logDir,
+    CEREBRAS_EXPLORER_LOG_RAW: undefined,
+  }, async () => {
+    const recorder = createTranscriptRecorder({
+      repoRoot,
+      tool: 'explore_repo',
+      task: 'verify v3 log redaction',
+    });
+    recorder.record('parent_handoff_diagnostic', {
+      contentText: `Answer contains ${OPENAI_KEY}.`,
+      structuredContent: {
+        schemaVersion: 3,
+        directAnswer: `Answer contains ${OPENAI_KEY}.`,
+        state: 'complete',
+        evidence: [{
+          kind: 'git',
+          sha: 'abc1234',
+          path: '.npmrc',
+          supports: `Commit contains ${GITHUB_PAT}.`,
+        }],
+      },
+    });
+    await recorder.finalize({ turns: 0, toolCalls: 0, elapsedMs: 0 });
+
+    const serialized = await fs.readFile(recorder.filePath, 'utf8');
+    assert.equal(serialized.includes(OPENAI_KEY), false);
+    assert.equal(serialized.includes(GITHUB_PAT), false);
+    assert.equal(serialized.includes('.npmrc'), false);
+    assert.match(serialized, /\[REDACTED:openai-api-key\]/);
+    assert.match(serialized, /\[REDACTED:github-token\]/);
+    assert.match(serialized, /\[REDACTED:secret-path\]/);
+  });
+});
+
+test('MCP explore_repo redacts provider-facing messages and strict v3 output without diagnostics', async () => {
   const repoRoot = await makeRepoFixture();
 
   class RedactionClient {
@@ -191,7 +406,7 @@ test('MCP explore_repo redacts provider-facing messages, content text, structure
     }
   }
 
-  const chatClient = new RedactionClient();
+  const chatClient = adaptLegacyGoalAuditClient(new RedactionClient());
   const { handleRequest } = createMcpRequestHandler({ runtimeOptions: { chatClient } });
   const called = await handleRequest({
     jsonrpc: '2.0',
@@ -210,43 +425,10 @@ test('MCP explore_repo redacts provider-facing messages, content text, structure
   const serialized = JSON.stringify(called);
   assert.ok(!serialized.includes(OPENAI_KEY), 'MCP result must not include raw secret');
   assert.match(serialized, /\[REDACTED:openai-api-key\]/);
-  assert.equal(called.structuredContent.evidence[0].redacted, true);
-  assert.deepEqual(called.structuredContent.evidence[0].redactions, ['openai-api-key']);
-});
-
-test('MCP explore Markdown reports are redacted', async () => {
-  class MarkdownClient {
-    constructor() {
-      this.model = 'mock';
-    }
-
-    async createChatCompletion() {
-      return {
-        message: {
-          content: `Report mentions ${OPENAI_KEY}`,
-          toolCalls: [],
-        },
-      };
-    }
-  }
-
-  const repoRoot = await makeRepoFixture();
-  // spec 011: explore_v2 tool name was removed; only `explore` is exercised here.
-  const { handleRequest } = createMcpRequestHandler({ runtimeOptions: { chatClient: new MarkdownClient() } });
-  const called = await handleRequest({
-    jsonrpc: '2.0',
-    id: 'explore',
-    method: 'tools/call',
-    params: {
-      name: 'explore',
-      arguments: {
-        prompt: 'Produce a report.',
-        repo_root: repoRoot,
-      },
-    },
-  });
-  assert.ok(!JSON.stringify(called).includes(OPENAI_KEY), 'explore must redact Markdown output');
-  assert.match(JSON.stringify(called), /\[REDACTED:openai-api-key\]/);
+  assert.equal(called.structuredContent.schemaVersion, 3);
+  assert.equal(called.structuredContent.evidence[0].redacted, undefined);
+  assert.equal(called.structuredContent.evidence[0].redactions, undefined);
+  assert.equal(called._meta, undefined);
 });
 
 test('git diff and show patches are redacted', { skip: !hasGit() }, async () => {
@@ -263,7 +445,7 @@ test('git diff and show patches are redacted', { skip: !hasGit() }, async () => 
   await execFileAsync('git', ['add', 'config.js'], { cwd: repoRoot });
   await execFileAsync('git', ['commit', '-m', `add ${OPENAI_KEY}`], { cwd: repoRoot });
 
-  const toolkit = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig() });
+  const toolkit = new RepoToolkit({ repoRoot, runtimeConfig: getRuntimeConfig() });
   await toolkit.initialize();
 
   const diff = await toolkit.gitDiff({ from: 'HEAD~1', to: 'HEAD' });

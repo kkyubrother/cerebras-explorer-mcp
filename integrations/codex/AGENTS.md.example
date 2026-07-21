@@ -4,31 +4,26 @@ impact mapping before edits, change summary, or similar-pattern hunting. This is
 the task spans more than 2-3 files.
 
 Preferred flow:
-1. Use the narrowest `cerebras-explorer` tool that fits the question: `find_relevant_code`, `trace_symbol`, `map_change_impact`, `explain_code_path`, `collect_evidence`, `review_change_context`, `explore_repo`, or `explore`.
-2. Prefer `explore_repo` when you want structured JSON findings for follow-up analysis or edits.
-3. Prefer `explore` when you want a cited Markdown report or architecture explanation to hand back to the user.
-4. Do not set `hints.strategy` or `language` unless an advanced workflow explicitly requires it. (`budget` was removed in spec 011, `session` was removed in spec 017, and `explore.thoroughness` was removed in spec 023; every call uses the deep runtime config and starts fresh.)
-5. Add `scope` and known anchors only when they are already implied by the task.
-6. After a passing result, read only returned `targets` with role `read` or `edit`.
-7. Use one or two targeted `rg` checks to verify critical claims when local shell search is available.
-8. Keep native wide search as a fallback, not the default.
-9. If MCP findings and local evidence disagree, report the conflict instead of smoothing it over.
+1. Use the narrowest `cerebras-explorer` tool that fits the question: `find_relevant_code`, `trace_symbol`, `map_change_impact`, `explain_code_path`, `collect_evidence`, or `explore_repo`.
+2. Use `explore_repo` as the fallback for open-ended, architecture, or git-history questions.
+3. Add `scope` and known file, symbol, or text anchors only when they are already implied by the task.
+4. For `state=verify_targets`, or `state=incomplete` when partial `targets` are present, read only those returned `targets` with role `read` or `edit`.
+5. Use one or two targeted `rg` checks to verify critical claims when local shell search is available.
+6. Keep native wide search as a fallback, not the default.
+7. If MCP findings and local evidence disagree, report the conflict instead of smoothing it over.
 
-Recommended full wrapper exposure is `explore_repo`, `find_relevant_code`,
-`trace_symbol`, `map_change_impact`, `explain_code_path`, `collect_evidence`,
-`review_change_context`, and `explore`. Use the minimal 4-tool allowlist only
-when the session needs a deliberately narrower trust boundary; it removes
-purpose-built evidence, path, review, and Markdown-report entry points.
+Recommended full six-tool exposure is `find_relevant_code`, `trace_symbol`,
+`map_change_impact`, `explain_code_path`, `collect_evidence`, and `explore_repo`.
 
-Read the compact response contract: `evidenceQuality.level` rates groundedness,
-`failure` is non-null with `failure.retry.tool`/`failure.retry.args` when the
-explorer cannot answer, and `searchCoverage` flags scope-limited or
-budget-capped searches. Preserve `critic.warnings` during handoff.
+Read the schema-v3 parent handoff through `state`: use supported `directAnswer`
+and `evidence` for `complete`; read only `targets` for `verify_targets`; for
+`incomplete`, use supported partial facts, inspect only returned `targets` when
+present, and preserve `gaps`/`followUp`; for
+`failed`, retry only when `failure.retry` is present.
 
 Tool exposure is configured in `~/.codex/config.toml`.
 The example config uses `default_tools_approval_mode = "approve"` for trusted
 local coding sessions because installing the explorer means accepting that calls
 may send selected repository evidence to the configured external model provider.
 Use `enabled_tools` to keep the server surface narrow for normal coding sessions.
-Use `disabled_tools` when you want to remove only a specific tool; if both are set,
-Codex applies the allowlist first and then removes disabled tools.
+Use `disabled_tools` only for a deliberate local exclusion from that allowlist.

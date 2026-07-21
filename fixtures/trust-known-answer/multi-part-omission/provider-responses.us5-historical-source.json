@@ -1,0 +1,164 @@
+{
+  "fixtureVersion": 1,
+  "scenario": "us5_historical_source_role",
+  "responses": [
+    {
+      "stage": "planner",
+      "result": {
+        "message": {
+          "content": {
+            "taskSummary": "Verify one historical serviceMode claim and one current serviceMode claim.",
+            "constraints": ["Do not use historical evidence alone to establish current behavior."],
+            "subgoals": [
+              {
+                "id": "S1",
+                "question": "Which inspected commit introduced serviceMode?",
+                "originRefs": ["request:0-92"],
+                "claimType": "claim_verification",
+                "proofCondition": "Verify the historical change from an observed commit.",
+                "constraints": ["Treat the commit as historical evidence."]
+              },
+              {
+                "id": "S2",
+                "question": "What does current src/service.mjs return?",
+                "originRefs": ["request:0-92"],
+                "claimType": "positive",
+                "proofCondition": "Observe current implementation source for src/service.mjs.",
+                "constraints": ["Historical evidence alone cannot prove current behavior."]
+              }
+            ]
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "goal_audit",
+      "result": {
+        "message": {
+          "content": {
+            "goals": [
+              {
+                "proposedGoalId": "S1",
+                "verdict": "ready",
+                "originRefs": ["request:0-92"],
+                "missingRequestParts": [],
+                "reason": "The requested historical commit is observable through scoped Git history."
+              },
+              {
+                "proposedGoalId": "S2",
+                "verdict": "ready",
+                "originRefs": ["request:0-92"],
+                "missingRequestParts": [],
+                "reason": "Current source behavior is observable if current implementation source is inspected."
+              }
+            ],
+            "uncoveredRequestParts": []
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "exploration",
+      "result": {
+        "message": {
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "log-service-mode",
+              "function": {
+                "name": "repo_git_log",
+                "arguments": {
+                  "path": "src/service.mjs",
+                  "maxCount": 1
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "stage": "exploration",
+      "result": {
+        "message": {
+          "content": "The scoped historical commit was inspected; current source was not read.",
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "synthesis",
+      "result": {
+        "message": {
+          "content": {
+            "directAnswer": "The commit and current behavior appear to be established by the same observation.",
+            "status": {
+              "confidence": "high",
+              "verification": "verified",
+              "complete": true,
+              "warnings": []
+            },
+            "targets": [],
+            "evidence": [],
+            "uncertainties": [],
+            "nextAction": {
+              "type": "stop",
+              "reason": "The runtime owns source and temporal role enforcement."
+            }
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "claim_synthesis",
+      "result": {
+        "message": {
+          "content": {
+            "claims": [
+              {
+                "id": "C1",
+                "subgoalId": "S1",
+                "text": "The inspected commit introduced serviceMode.",
+                "evidenceRefs": ["E1"]
+              }
+            ]
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "semantic_verifier",
+      "result": {
+        "message": {
+          "content": {
+            "verdicts": [
+              {
+                "claimId": "C1",
+                "result": "supported",
+                "resolution": "affirmed",
+                "supportingEvidenceRefs": ["E1"],
+                "reasonCode": "entailed",
+                "note": "The observed commit records the requested historical change."
+              }
+            ],
+            "uncoveredRequestParts": []
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "repair",
+      "result": {
+        "message": {
+          "content": "No current-source read is supplied by this fixture.",
+          "toolCalls": []
+        }
+      }
+    }
+  ]
+}

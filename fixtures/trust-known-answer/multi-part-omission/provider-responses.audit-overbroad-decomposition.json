@@ -1,0 +1,304 @@
+{
+  "fixtureVersion": 1,
+  "scenario": "audit_overbroad_decomposition",
+  "responses": [
+    {
+      "stage": "planner",
+      "result": {
+        "message": {
+          "content": {
+            "taskSummary": "Explain implementation, test, and configured default as separate facts.",
+            "constraints": ["Keep the three requested facts independently verifiable."],
+            "subgoals": [
+              {
+                "id": "S-broad",
+                "question": "What do the implementation, its test, and the configured default collectively establish?",
+                "originRefs": ["request:0-75"],
+                "claimType": "positive",
+                "proofCondition": "Use one combined observation to establish implementation behavior, test coverage, and the configured default.",
+                "constraints": []
+              }
+            ]
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "goal_audit",
+      "result": {
+        "message": {
+          "content": {
+            "goals": [
+              {
+                "proposedGoalId": "S-broad",
+                "verdict": "needs_decomposition",
+                "originRefs": ["request:0-75"],
+                "missingRequestParts": [],
+                "reason": "Implementation behavior, test coverage, and configuration default require distinct observations and verdicts."
+              }
+            ],
+            "uncoveredRequestParts": []
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "plan_revision",
+      "result": {
+        "message": {
+          "content": {
+            "taskSummary": "Explain implementation, test, and configured default as separate facts.",
+            "constraints": ["Keep the three requested facts independently verifiable."],
+            "subgoals": [
+              {
+                "id": "S1",
+                "question": "What does serviceMode return?",
+                "originRefs": ["request:0-75"],
+                "claimType": "positive",
+                "proofCondition": "Read the current serviceMode implementation and observe its return value.",
+                "constraints": []
+              },
+              {
+                "id": "S2",
+                "question": "Which test verifies it?",
+                "originRefs": ["request:0-75"],
+                "claimType": "positive",
+                "proofCondition": "Read the current test assertion that invokes serviceMode.",
+                "constraints": []
+              },
+              {
+                "id": "S3",
+                "question": "What is the default?",
+                "originRefs": ["request:0-75"],
+                "claimType": "positive",
+                "proofCondition": "Read the current DEFAULT_SERVICE_MODE declaration.",
+                "constraints": []
+              }
+            ]
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "goal_audit",
+      "result": {
+        "message": {
+          "content": {
+            "goals": [
+              {
+                "proposedGoalId": "S1",
+                "verdict": "ready",
+                "originRefs": ["request:0-75"],
+                "missingRequestParts": [],
+                "reason": "The implementation return value is independently observable."
+              },
+              {
+                "proposedGoalId": "S2",
+                "verdict": "ready",
+                "originRefs": ["request:0-75"],
+                "missingRequestParts": [],
+                "reason": "The test assertion is independently observable."
+              },
+              {
+                "proposedGoalId": "S3",
+                "verdict": "ready",
+                "originRefs": ["request:0-75"],
+                "missingRequestParts": [],
+                "reason": "The configured default is independently observable."
+              }
+            ],
+            "uncoveredRequestParts": []
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "goal_coverage",
+      "result": {
+        "message": {
+          "content": {
+            "findings": [
+              {
+                "obligationId": "revision-obligation-1",
+                "disposition": "covered",
+                "coveredByGoalIds": ["S1", "S2", "S3"],
+                "reason": "S1, S2, and S3 jointly preserve the decomposed implementation, test, and default obligations."
+              }
+            ],
+            "uncoveredRequestParts": []
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "exploration",
+      "result": {
+        "message": {
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "read-service",
+              "function": {
+                "name": "repo_read_file",
+                "arguments": {
+                  "path": "src/service.mjs",
+                  "startLine": 1,
+                  "endLine": 3
+                }
+              }
+            },
+            {
+              "id": "read-service-test",
+              "function": {
+                "name": "repo_read_file",
+                "arguments": {
+                  "path": "tests/service.test.mjs",
+                  "startLine": 1,
+                  "endLine": 4
+                }
+              }
+            },
+            {
+              "id": "read-default",
+              "function": {
+                "name": "repo_read_file",
+                "arguments": {
+                  "path": "config/defaults.mjs",
+                  "startLine": 1,
+                  "endLine": 1
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "stage": "exploration",
+      "result": {
+        "message": {
+          "content": "All three independently requested repository facts were inspected.",
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "synthesis",
+      "result": {
+        "message": {
+          "content": {
+            "directAnswer": "The three independent facts require isolated verification.",
+            "status": {
+              "confidence": "high",
+              "verification": "verified",
+              "complete": true,
+              "warnings": []
+            },
+            "targets": [],
+            "evidence": [
+              {
+                "id": "E1",
+                "path": "src/service.mjs",
+                "startLine": 1,
+                "endLine": 3,
+                "why": "The implementation return value is declared here."
+              },
+              {
+                "id": "E2",
+                "path": "tests/service.test.mjs",
+                "startLine": 1,
+                "endLine": 4,
+                "why": "The behavior is asserted here."
+              },
+              {
+                "id": "E3",
+                "path": "config/defaults.mjs",
+                "startLine": 1,
+                "endLine": 1,
+                "why": "The configured default is declared here."
+              }
+            ],
+            "uncertainties": [],
+            "nextAction": {
+              "type": "stop",
+              "reason": "Each revised goal has direct source evidence."
+            }
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "claim_synthesis",
+      "result": {
+        "message": {
+          "content": {
+            "claims": [
+              {
+                "id": "C1",
+                "subgoalId": "S1",
+                "text": "serviceMode returns 'safe'.",
+                "evidenceRefs": ["E1"]
+              },
+              {
+                "id": "C2",
+                "subgoalId": "S2",
+                "text": "tests/service.test.mjs asserts that serviceMode() equals 'safe'.",
+                "evidenceRefs": ["E2"]
+              },
+              {
+                "id": "C3",
+                "subgoalId": "S3",
+                "text": "DEFAULT_SERVICE_MODE is 'safe'.",
+                "evidenceRefs": ["E3"]
+              }
+            ]
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "semantic_verifier",
+      "result": {
+        "message": {
+          "content": {
+            "verdicts": [
+              {
+                "claimId": "C1",
+                "result": "supported",
+                "resolution": "affirmed",
+                "supportingEvidenceRefs": ["E1"],
+                "reasonCode": "entailed",
+                "note": "The implementation directly returns 'safe'."
+              },
+              {
+                "claimId": "C2",
+                "result": "supported",
+                "resolution": "affirmed",
+                "supportingEvidenceRefs": ["E2"],
+                "reasonCode": "entailed",
+                "note": "The test directly asserts serviceMode() equals 'safe'."
+              },
+              {
+                "claimId": "C3",
+                "result": "supported",
+                "resolution": "affirmed",
+                "supportingEvidenceRefs": ["E3"],
+                "reasonCode": "entailed",
+                "note": "The configuration directly declares DEFAULT_SERVICE_MODE as 'safe'."
+              }
+            ],
+            "uncoveredRequestParts": []
+          },
+          "toolCalls": []
+        }
+      }
+    }
+  ]
+}

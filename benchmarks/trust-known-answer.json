@@ -1,0 +1,5375 @@
+{
+  "schemaVersion": 1,
+  "name": "trust-known-answer",
+  "description": "Independent known-answer oracle for feature 028. Explorer, planner, auditor, and verifier outputs are observations only, never oracle sources.",
+  "hashSchemes": {
+    "file": {
+      "id": "sha256-lf-v1",
+      "definition": "SHA-256 over file bytes after CRLF and CR are normalized to LF."
+    },
+    "fixtureTree": {
+      "id": "sha256-tree-lf-v1",
+      "definition": "For sorted POSIX relative regular-file paths, hash path + NUL + LF-normalized byte length + NUL + content + NUL. Symlinks are rejected."
+    },
+    "dirtyTree": {
+      "id": "sha256-dirty-tree-v1",
+      "definition": "SHA-256 over the canonical tracked-diff and non-ignored untracked-file record; the empty digest denotes a clean pinned worktree."
+    }
+  },
+  "payloadMetric": {
+    "id": "utf8-json-content-plus-structured-content-v1",
+    "formula": "byteLength(JSON.stringify(content)) + byteLength(JSON.stringify(structuredContent))",
+    "excludes": [
+      "JSON-RPC envelope",
+      "_meta"
+    ]
+  },
+  "baselinePolicy": {
+    "rawParentPayloadRequiredForResponseBaselineRef": true,
+    "noResponseTransportObservationAllowed": true,
+    "reconstructionForbidden": true,
+    "unavailableOutcome": "not_recorded",
+    "documentedObservationsAreNotParentPayloadBaselines": true
+  },
+  "oraclePolicy": {
+    "allowedProvenance": [
+      "fixture_assertion",
+      "source_review",
+      "external_record"
+    ],
+    "forbiddenProvenance": [
+      "explorer_output",
+      "model_output",
+      "self_report"
+    ],
+    "modelConfidenceIsOracle": false,
+    "groundingStatusIsSemanticOracle": false
+  },
+  "fixtureSubsets": {
+    "US1": [
+      "fx-semantic-mismatch",
+      "fx-incomplete-multipart",
+      "fx-partial-multipart",
+      "fx-contradictory-policies",
+      "audit-feasible-unsupported",
+      "fx-supported-refutation",
+      "fx-cancellation",
+      "fx-provider-failure"
+    ],
+    "US5": [
+      "fx-scoped-zero-match",
+      "fx-truncated-all-usages",
+      "fx-route-policy-divergence",
+      "fx-semantic-mismatch",
+      "fx-historical-source-role"
+    ],
+    "structuredEvidenceIntegrity": [
+      "fx-semantic-mismatch",
+      "fx-truncated-enumeration"
+    ]
+  },
+  "offlineResults": {
+    "profile": "portable-offline-v1",
+    "fixtureTrust": {
+      "acceptedCaseIds": [
+        "obs-external-process-inference",
+        "fx-semantic-mismatch",
+        "fx-incomplete-multipart",
+        "fx-contradictory-policies",
+        "fx-scope-limited-absence",
+        "fx-truncated-enumeration",
+        "fx-cancellation",
+        "fx-provider-failure",
+        "fx-generation-output-cap-invalid-control",
+        "audit-untraceable-invention",
+        "audit-duplicate-merge",
+        "audit-overbroad-decomposition",
+        "audit-omitted-request-part",
+        "audit-immutable-scope-block",
+        "audit-readonly-capability-block",
+        "audit-unavailable-live-state",
+        "audit-missing-input",
+        "audit-contradictory-requirements",
+        "audit-unobservable-proof",
+        "audit-feasible-unsupported",
+        "fx-supported-refutation",
+        "fx-partial-multipart",
+        "fx-scoped-zero-match",
+        "fx-truncated-all-usages",
+        "fx-route-policy-divergence",
+        "fx-historical-source-role"
+      ],
+      "repeatableCaseIds": [
+        "fx-semantic-mismatch",
+        "fx-incomplete-multipart",
+        "fx-contradictory-policies",
+        "fx-cancellation",
+        "fx-provider-failure",
+        "audit-feasible-unsupported",
+        "fx-supported-refutation",
+        "fx-partial-multipart"
+      ],
+      "repeatCount": 3
+    },
+    "guardAcceptances": [
+      {
+        "id": "minimal_parent_handoff",
+        "tests": [
+          {
+            "path": "tests/schemas.test.mjs",
+            "name": "Spec 028 T036 — schema v3 exposes only the strict minimal parent fields"
+          },
+          {
+            "path": "tests/mcp-server.test.mjs",
+            "name": "explore_repo and wrappers keep operational diagnostics out of the parent response"
+          }
+        ]
+      },
+      {
+        "id": "no_parent_policy_controls",
+        "tests": [
+          {
+            "path": "tests/schemas.test.mjs",
+            "name": "Spec 028 T045 — explore_repo rejects public hints.strategy but keeps anchors"
+          },
+          {
+            "path": "tests/mcp-server.test.mjs",
+            "name": "Spec 028 T045 — tools/list and provenance use one stable six-tool order"
+          }
+        ]
+      },
+      {
+        "id": "safety_invariants",
+        "tests": [
+          {
+            "path": "tests/integrations.test.mjs",
+            "name": "project keeps zero runtime and development dependencies"
+          },
+          {
+            "path": "tests/mcp-server.test.mjs",
+            "name": "MCP request handler declares read-only annotations for the current public surface"
+          },
+          {
+            "path": "tests/repo-tools.test.mjs",
+            "name": "RepoToolkit enforces the initial scope as a hard boundary"
+          },
+          {
+            "path": "tests/mcp-server.test.mjs",
+            "name": "Spec 028 T027 — MCP cancellation reaches planner, auditor, explorer, verifier, and repair"
+          },
+          {
+            "path": "tests/security/secret-deny-list.test.mjs",
+            "name": "RepoToolkit excludes secret files from traversal, read, grep, symbols, and context enrichment"
+          },
+          {
+            "path": "tests/security/redact.test.mjs",
+            "name": "Spec 028 T038 — v3 source, git, absence, gap, and failure values share one redaction boundary"
+          }
+        ]
+      },
+      {
+        "id": "no_internal_budget_surface",
+        "tests": [
+          {
+            "path": "tests/integrations.test.mjs",
+            "name": "Spec 028 T047 — executable active surface has no selectable effort abstraction"
+          },
+          {
+            "path": "tests/integrations.test.mjs",
+            "name": "Spec 028 T047 — public docs and examples have no selectable effort surface"
+          },
+          {
+            "path": "tests/project-config.test.mjs",
+            "name": "Spec 028 T047 — project config drops case-insensitive legacy policy keys"
+          }
+        ]
+      }
+    ],
+    "parentObservation": {
+      "profile": "parent-native-research-v3",
+      "status": "recorded",
+      "denominatorCaseIds": [
+        "obs-deny-list-count-range",
+        "obs-large-route-ui-api-mismatch",
+        "obs-route-admin-divergence",
+        "obs-repeat-tests-environment",
+        "obs-aws-inventory-classification",
+        "fx-incomplete-multipart",
+        "fx-scope-limited-absence",
+        "audit-untraceable-invention",
+        "audit-duplicate-merge",
+        "audit-overbroad-decomposition",
+        "audit-omitted-request-part",
+        "fx-supported-refutation",
+        "fx-scoped-zero-match",
+        "fx-route-policy-divergence"
+      ],
+      "minimumRate": 0.9,
+      "reportSha256": "1fd756650acde82cfb05609af021c79dc41a3d16d188927afefefe5b7226c0d5",
+      "sourcePins": [
+        {
+          "caseId": "obs-deny-list-count-range",
+          "sourceRef": "repo-cerebras-explorer-mcp-b3a7e75",
+          "repoId": "cerebras-explorer-mcp",
+          "kind": "repository",
+          "gitSha": "b3a7e75d39ff3f89d53de75bbcdf6e9f2bc4900e",
+          "dirtyTreeSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "promptSha256": "5f4ee92df9a81622e6f7f11cfb781d66e97e63790ef7e0ae08e895ecfc40e2d7",
+          "handoffSha256": "e2c2afbda0e2bed47e46a7750e127badef1664094cae533411cae8ca38be3fcc"
+        },
+        {
+          "caseId": "obs-large-route-ui-api-mismatch",
+          "sourceRef": "repo-lawfirm-fe7a5ca",
+          "repoId": "lawfirm",
+          "kind": "repository",
+          "gitSha": "fe7a5ca1cb7e279ae1eee5a931b60b69d93020b4",
+          "dirtyTreeSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "promptSha256": "0e0384117b0eab2d6e268daf9834b34bdcf9365d65f1d39e771e4b2213fdfa15",
+          "handoffSha256": "296af1eddb9363b84ad787e2c2fe384855ef8087ad939d47918b975780b18c00"
+        },
+        {
+          "caseId": "obs-route-admin-divergence",
+          "sourceRef": "repo-aegis-492fa0a",
+          "repoId": "AEGIS-AI-Agent",
+          "kind": "repository",
+          "gitSha": "492fa0a6c083c7d83302792b14b19da0b2953e67",
+          "dirtyTreeSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "promptSha256": "9e6317895bc21fc72bd8c5d5c7f5d58db02d06507513589cd8e98073f157a9bb",
+          "handoffSha256": "c733d5f3cd8138353a979dd9e178a1fecdc3ec5153a57ab596c99afdf3765f7d"
+        },
+        {
+          "caseId": "obs-repeat-tests-environment",
+          "sourceRef": "repo-translate-b9288a7",
+          "repoId": "translate",
+          "kind": "repository",
+          "gitSha": "b9288a7b7532d9d90ea0f05228206b64cfe8e719",
+          "dirtyTreeSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "promptSha256": "30c9905103fe258603e6e6091a3d9f5848c280562fb5cf63729fa2ec3254a463",
+          "handoffSha256": "2febfb0865ffc2f31883c97c5a62deb929a4db88d239590270c41d9b9bd41dc1"
+        },
+        {
+          "caseId": "obs-aws-inventory-classification",
+          "sourceRef": "repo-daeryun-backend-bbef2ff",
+          "repoId": "Daeryun-AI-Backend",
+          "kind": "repository",
+          "gitSha": "bbef2ff41b1b4ea93c97192edd355824ea4e5317",
+          "dirtyTreeSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "promptSha256": "969d2f04b71269e5027077f500463598c4ec5a5f2a34c1814f6be6a7d2cd9e33",
+          "handoffSha256": "c4ebf8ce9ab83653396711dd6b56b5668bbd52dbfad27648086a7a67d1ee8838"
+        },
+        {
+          "caseId": "fx-incomplete-multipart",
+          "sourceRef": "fixture-multi-part-omission",
+          "repoId": "fixture-multi-part-omission",
+          "kind": "fixture",
+          "repoTreeSha256": "6d0bc67a94b4e9f5029cc5ca81c183371e8dd7128c50905f4727c77d26065265",
+          "promptSha256": "b4e3463bb8d16f28282d5b39b7ee81a3bbce7e04ff9a483b435b1f8e10a57c49",
+          "handoffSha256": "4e3b60ad82348d03a5d287c068a5fb24ae628451ca74c3aa3f7e2a8514bc209b"
+        },
+        {
+          "caseId": "fx-scope-limited-absence",
+          "sourceRef": "fixture-scoped-truncated-search",
+          "repoId": "fixture-scoped-truncated-search",
+          "kind": "fixture",
+          "repoTreeSha256": "9e410c3ee4e7f8aa7da11d96874531d52e8f7a5a5670a08b4780239248305b4c",
+          "promptSha256": "9e207f77d7fb497e348925522807900f6b1da871e45c72da450f2eef011b3e70",
+          "handoffSha256": "0e461268cad4c695c34c01790b2ed218ba590f5a0ccbdd97c160045e68d1b538"
+        },
+        {
+          "caseId": "audit-untraceable-invention",
+          "sourceRef": "fixture-goal-invention",
+          "repoId": "fixture-goal-invention",
+          "kind": "fixture",
+          "repoTreeSha256": "66058d1dd6ff447641bd191aa9110d50c215a379dcfc6724bded99f9eb9b0b90",
+          "promptSha256": "d763864099c2fe4c14cce9882ca8aed575e891576b3c072253db3ced4c980f28",
+          "handoffSha256": "7ee291891f05f4f60ffbb14b39c08b45372e159ffe1ac1129136ff8aeb8aa738"
+        },
+        {
+          "caseId": "audit-duplicate-merge",
+          "sourceRef": "fixture-goal-invention",
+          "repoId": "fixture-goal-invention",
+          "kind": "fixture",
+          "repoTreeSha256": "66058d1dd6ff447641bd191aa9110d50c215a379dcfc6724bded99f9eb9b0b90",
+          "promptSha256": "481b199811afd2f01117686c441fb21cd9b8136eb182a8e21d811dc407d4a7be",
+          "handoffSha256": "7ee291891f05f4f60ffbb14b39c08b45372e159ffe1ac1129136ff8aeb8aa738"
+        },
+        {
+          "caseId": "audit-overbroad-decomposition",
+          "sourceRef": "fixture-multi-part-omission",
+          "repoId": "fixture-multi-part-omission",
+          "kind": "fixture",
+          "repoTreeSha256": "6d0bc67a94b4e9f5029cc5ca81c183371e8dd7128c50905f4727c77d26065265",
+          "promptSha256": "a377e0b31f3b86ae4d9ba3b6b941a87ef31d08f30cbf2ff3b4b8c3e1782cd67a",
+          "handoffSha256": "076040a933aa107d4602fa344f8cecb2907cb3001d4b4146b9447792fae5bc6a"
+        },
+        {
+          "caseId": "audit-omitted-request-part",
+          "sourceRef": "fixture-multi-part-omission",
+          "repoId": "fixture-multi-part-omission",
+          "kind": "fixture",
+          "repoTreeSha256": "6d0bc67a94b4e9f5029cc5ca81c183371e8dd7128c50905f4727c77d26065265",
+          "promptSha256": "6c4ee101ddc234a454e84f9259e1a3d12fd0d3f7497c769c44c8024f5cbb014e",
+          "handoffSha256": "076040a933aa107d4602fa344f8cecb2907cb3001d4b4146b9447792fae5bc6a"
+        },
+        {
+          "caseId": "fx-supported-refutation",
+          "sourceRef": "fixture-repair-counterevidence",
+          "repoId": "fixture-repair-counterevidence",
+          "kind": "fixture",
+          "repoTreeSha256": "722f65ec61a39436b3bcec03f5fef7d1db648557a3de311b43696772ea892e45",
+          "promptSha256": "5ca3e9f06dd1620f819fe5363ffb0bf9da627ad5a2b155271a23ee03f16b2012",
+          "handoffSha256": "908f7e718cf6b76335dd7ab9a9f6986ea586e9f1a4c7b24911fde620c778a382"
+        },
+        {
+          "caseId": "fx-scoped-zero-match",
+          "sourceRef": "fixture-scoped-truncated-search",
+          "repoId": "fixture-scoped-truncated-search",
+          "kind": "fixture",
+          "repoTreeSha256": "9e410c3ee4e7f8aa7da11d96874531d52e8f7a5a5670a08b4780239248305b4c",
+          "promptSha256": "53b0fe1a779264880a16e9d85d0a1a37d0e3e4a66ba92570ae681d3fa77cdc5a",
+          "handoffSha256": "44ed6eaa03bc09038e7815ef30509158c43eb2595b666805d31a63d114af9cc8"
+        },
+        {
+          "caseId": "fx-route-policy-divergence",
+          "sourceRef": "fixture-route-policy-divergence",
+          "repoId": "fixture-route-policy-divergence",
+          "kind": "fixture",
+          "repoTreeSha256": "e39e6fb4c6f899f242cf7295420de2dd4746a28ef0b2d0035da8b395a330d464",
+          "promptSha256": "07962cc63b1dd7ad30521a3d796863d270670307e3409943109bf0d04cdda802",
+          "handoffSha256": "0e6a069d1a42d06880abbc51975f8b5dc4a5a01671cb8e5fffcfd4b03195fee3"
+        }
+      ],
+      "metrics": {
+        "denominatorCaseCount": 14,
+        "observedCaseCount": 14,
+        "invalidObservationCaseCount": 0,
+        "noBroadNativeResearchCaseCount": 14,
+        "broadNativeResearchCaseCount": 0,
+        "noBroadNativeResearchRate": 1,
+        "allowance": {
+          "citedTargetReads": 9,
+          "citedPathSearches": 1,
+          "allowedFollowUps": 0
+        }
+      },
+      "cases": [
+        {
+          "id": "obs-deny-list-count-range",
+          "repoId": "cerebras-explorer-mcp",
+          "sourcePin": {
+            "kind": "repository",
+            "gitSha": "b3a7e75d39ff3f89d53de75bbcdf6e9f2bc4900e",
+            "dirtyTreeSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          "promptSha256": "5f4ee92df9a81622e6f7f11cfb781d66e97e63790ef7e0ae08e895ecfc40e2d7",
+          "handoffSha256": "e2c2afbda0e2bed47e46a7750e127badef1664094cae533411cae8ca38be3fcc",
+          "traceSha256": "259a8b388c81349bb538b0cf0383b2dcc36d1637e63ccb89b91749aeed376058",
+          "observed": true,
+          "noBroad": true,
+          "broadActionCount": 0,
+          "allowance": {
+            "citedTargetReads": 0,
+            "citedPathSearches": 0,
+            "allowedFollowUps": 0
+          },
+          "violations": []
+        },
+        {
+          "id": "obs-large-route-ui-api-mismatch",
+          "repoId": "lawfirm",
+          "sourcePin": {
+            "kind": "repository",
+            "gitSha": "fe7a5ca1cb7e279ae1eee5a931b60b69d93020b4",
+            "dirtyTreeSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          "promptSha256": "0e0384117b0eab2d6e268daf9834b34bdcf9365d65f1d39e771e4b2213fdfa15",
+          "handoffSha256": "296af1eddb9363b84ad787e2c2fe384855ef8087ad939d47918b975780b18c00",
+          "traceSha256": "10d36384037316e086cd1896a6f71b8d0a2e2988b9cd139446b8d3a9c76d04bc",
+          "observed": true,
+          "noBroad": true,
+          "broadActionCount": 0,
+          "allowance": {
+            "citedTargetReads": 0,
+            "citedPathSearches": 0,
+            "allowedFollowUps": 0
+          },
+          "violations": []
+        },
+        {
+          "id": "obs-route-admin-divergence",
+          "repoId": "AEGIS-AI-Agent",
+          "sourcePin": {
+            "kind": "repository",
+            "gitSha": "492fa0a6c083c7d83302792b14b19da0b2953e67",
+            "dirtyTreeSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          "promptSha256": "9e6317895bc21fc72bd8c5d5c7f5d58db02d06507513589cd8e98073f157a9bb",
+          "handoffSha256": "c733d5f3cd8138353a979dd9e178a1fecdc3ec5153a57ab596c99afdf3765f7d",
+          "traceSha256": "72f18826aacefe54ab0c9280743c41df6db37fdea90a651e283847833c83faef",
+          "observed": true,
+          "noBroad": true,
+          "broadActionCount": 0,
+          "allowance": {
+            "citedTargetReads": 0,
+            "citedPathSearches": 0,
+            "allowedFollowUps": 0
+          },
+          "violations": []
+        },
+        {
+          "id": "obs-repeat-tests-environment",
+          "repoId": "translate",
+          "sourcePin": {
+            "kind": "repository",
+            "gitSha": "b9288a7b7532d9d90ea0f05228206b64cfe8e719",
+            "dirtyTreeSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          "promptSha256": "30c9905103fe258603e6e6091a3d9f5848c280562fb5cf63729fa2ec3254a463",
+          "handoffSha256": "2febfb0865ffc2f31883c97c5a62deb929a4db88d239590270c41d9b9bd41dc1",
+          "traceSha256": "8692841d87660c52bc1a92a3d53c089c89ea246ec2995a388f624e5c56cb7cd7",
+          "observed": true,
+          "noBroad": true,
+          "broadActionCount": 0,
+          "allowance": {
+            "citedTargetReads": 0,
+            "citedPathSearches": 0,
+            "allowedFollowUps": 0
+          },
+          "violations": []
+        },
+        {
+          "id": "obs-aws-inventory-classification",
+          "repoId": "Daeryun-AI-Backend",
+          "sourcePin": {
+            "kind": "repository",
+            "gitSha": "bbef2ff41b1b4ea93c97192edd355824ea4e5317",
+            "dirtyTreeSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          "promptSha256": "969d2f04b71269e5027077f500463598c4ec5a5f2a34c1814f6be6a7d2cd9e33",
+          "handoffSha256": "c4ebf8ce9ab83653396711dd6b56b5668bbd52dbfad27648086a7a67d1ee8838",
+          "traceSha256": "be5cc3a42a20cacd989491ad299114fb14491e16e9846ad83610cdf069507dcf",
+          "observed": true,
+          "noBroad": true,
+          "broadActionCount": 0,
+          "allowance": {
+            "citedTargetReads": 9,
+            "citedPathSearches": 1,
+            "allowedFollowUps": 0
+          },
+          "violations": [
+            "command_execution_failed"
+          ]
+        },
+        {
+          "id": "fx-incomplete-multipart",
+          "repoId": "fixture-multi-part-omission",
+          "sourcePin": {
+            "kind": "fixture",
+            "repoTreeSha256": "6d0bc67a94b4e9f5029cc5ca81c183371e8dd7128c50905f4727c77d26065265"
+          },
+          "promptSha256": "b4e3463bb8d16f28282d5b39b7ee81a3bbce7e04ff9a483b435b1f8e10a57c49",
+          "handoffSha256": "4e3b60ad82348d03a5d287c068a5fb24ae628451ca74c3aa3f7e2a8514bc209b",
+          "traceSha256": "a803abc1edf1ed2174e5229c1a3dedf7b8414a6fdbbc693fb2f2eb79647b89b9",
+          "observed": true,
+          "noBroad": true,
+          "broadActionCount": 0,
+          "allowance": {
+            "citedTargetReads": 0,
+            "citedPathSearches": 0,
+            "allowedFollowUps": 0
+          },
+          "violations": []
+        },
+        {
+          "id": "fx-scope-limited-absence",
+          "repoId": "fixture-scoped-truncated-search",
+          "sourcePin": {
+            "kind": "fixture",
+            "repoTreeSha256": "9e410c3ee4e7f8aa7da11d96874531d52e8f7a5a5670a08b4780239248305b4c"
+          },
+          "promptSha256": "9e207f77d7fb497e348925522807900f6b1da871e45c72da450f2eef011b3e70",
+          "handoffSha256": "0e461268cad4c695c34c01790b2ed218ba590f5a0ccbdd97c160045e68d1b538",
+          "traceSha256": "f8dbe763e0179bced24e54a0ec9453ed3f0709b2334d2f01f259742c7207082f",
+          "observed": true,
+          "noBroad": true,
+          "broadActionCount": 0,
+          "allowance": {
+            "citedTargetReads": 0,
+            "citedPathSearches": 0,
+            "allowedFollowUps": 0
+          },
+          "violations": []
+        },
+        {
+          "id": "audit-untraceable-invention",
+          "repoId": "fixture-goal-invention",
+          "sourcePin": {
+            "kind": "fixture",
+            "repoTreeSha256": "66058d1dd6ff447641bd191aa9110d50c215a379dcfc6724bded99f9eb9b0b90"
+          },
+          "promptSha256": "d763864099c2fe4c14cce9882ca8aed575e891576b3c072253db3ced4c980f28",
+          "handoffSha256": "7ee291891f05f4f60ffbb14b39c08b45372e159ffe1ac1129136ff8aeb8aa738",
+          "traceSha256": "1ee69056d911def934804c5ff57b3f6145693538e7daf044fe8bbce1d4450117",
+          "observed": true,
+          "noBroad": true,
+          "broadActionCount": 0,
+          "allowance": {
+            "citedTargetReads": 0,
+            "citedPathSearches": 0,
+            "allowedFollowUps": 0
+          },
+          "violations": []
+        },
+        {
+          "id": "audit-duplicate-merge",
+          "repoId": "fixture-goal-invention",
+          "sourcePin": {
+            "kind": "fixture",
+            "repoTreeSha256": "66058d1dd6ff447641bd191aa9110d50c215a379dcfc6724bded99f9eb9b0b90"
+          },
+          "promptSha256": "481b199811afd2f01117686c441fb21cd9b8136eb182a8e21d811dc407d4a7be",
+          "handoffSha256": "7ee291891f05f4f60ffbb14b39c08b45372e159ffe1ac1129136ff8aeb8aa738",
+          "traceSha256": "3dba5a4616f4544581a8b0f349ef10d2c0766a8599b1a9d9c4e3fca24cff348d",
+          "observed": true,
+          "noBroad": true,
+          "broadActionCount": 0,
+          "allowance": {
+            "citedTargetReads": 0,
+            "citedPathSearches": 0,
+            "allowedFollowUps": 0
+          },
+          "violations": []
+        },
+        {
+          "id": "audit-overbroad-decomposition",
+          "repoId": "fixture-multi-part-omission",
+          "sourcePin": {
+            "kind": "fixture",
+            "repoTreeSha256": "6d0bc67a94b4e9f5029cc5ca81c183371e8dd7128c50905f4727c77d26065265"
+          },
+          "promptSha256": "a377e0b31f3b86ae4d9ba3b6b941a87ef31d08f30cbf2ff3b4b8c3e1782cd67a",
+          "handoffSha256": "076040a933aa107d4602fa344f8cecb2907cb3001d4b4146b9447792fae5bc6a",
+          "traceSha256": "22b55b442be41a2f99a5306994a4c003a3605e5008dd2af36c18aa0f410d0bac",
+          "observed": true,
+          "noBroad": true,
+          "broadActionCount": 0,
+          "allowance": {
+            "citedTargetReads": 0,
+            "citedPathSearches": 0,
+            "allowedFollowUps": 0
+          },
+          "violations": []
+        },
+        {
+          "id": "audit-omitted-request-part",
+          "repoId": "fixture-multi-part-omission",
+          "sourcePin": {
+            "kind": "fixture",
+            "repoTreeSha256": "6d0bc67a94b4e9f5029cc5ca81c183371e8dd7128c50905f4727c77d26065265"
+          },
+          "promptSha256": "6c4ee101ddc234a454e84f9259e1a3d12fd0d3f7497c769c44c8024f5cbb014e",
+          "handoffSha256": "076040a933aa107d4602fa344f8cecb2907cb3001d4b4146b9447792fae5bc6a",
+          "traceSha256": "a59f0a96b0c02ebeaee9fec1b8e7c1c76dc37045674f6eca551b27772dc78116",
+          "observed": true,
+          "noBroad": true,
+          "broadActionCount": 0,
+          "allowance": {
+            "citedTargetReads": 0,
+            "citedPathSearches": 0,
+            "allowedFollowUps": 0
+          },
+          "violations": []
+        },
+        {
+          "id": "fx-supported-refutation",
+          "repoId": "fixture-repair-counterevidence",
+          "sourcePin": {
+            "kind": "fixture",
+            "repoTreeSha256": "722f65ec61a39436b3bcec03f5fef7d1db648557a3de311b43696772ea892e45"
+          },
+          "promptSha256": "5ca3e9f06dd1620f819fe5363ffb0bf9da627ad5a2b155271a23ee03f16b2012",
+          "handoffSha256": "908f7e718cf6b76335dd7ab9a9f6986ea586e9f1a4c7b24911fde620c778a382",
+          "traceSha256": "d27f7833d3ff8406c895cd6b13171ce0ef92093c438fe07a6e741f4294c628f0",
+          "observed": true,
+          "noBroad": true,
+          "broadActionCount": 0,
+          "allowance": {
+            "citedTargetReads": 0,
+            "citedPathSearches": 0,
+            "allowedFollowUps": 0
+          },
+          "violations": []
+        },
+        {
+          "id": "fx-scoped-zero-match",
+          "repoId": "fixture-scoped-truncated-search",
+          "sourcePin": {
+            "kind": "fixture",
+            "repoTreeSha256": "9e410c3ee4e7f8aa7da11d96874531d52e8f7a5a5670a08b4780239248305b4c"
+          },
+          "promptSha256": "53b0fe1a779264880a16e9d85d0a1a37d0e3e4a66ba92570ae681d3fa77cdc5a",
+          "handoffSha256": "44ed6eaa03bc09038e7815ef30509158c43eb2595b666805d31a63d114af9cc8",
+          "traceSha256": "901c961aad670aaec8294b689b732f3a31a71ff1361d87e923de05dbdbc1507e",
+          "observed": true,
+          "noBroad": true,
+          "broadActionCount": 0,
+          "allowance": {
+            "citedTargetReads": 0,
+            "citedPathSearches": 0,
+            "allowedFollowUps": 0
+          },
+          "violations": []
+        },
+        {
+          "id": "fx-route-policy-divergence",
+          "repoId": "fixture-route-policy-divergence",
+          "sourcePin": {
+            "kind": "fixture",
+            "repoTreeSha256": "e39e6fb4c6f899f242cf7295420de2dd4746a28ef0b2d0035da8b395a330d464"
+          },
+          "promptSha256": "07962cc63b1dd7ad30521a3d796863d270670307e3409943109bf0d04cdda802",
+          "handoffSha256": "0e6a069d1a42d06880abbc51975f8b5dc4a5a01671cb8e5fffcfd4b03195fee3",
+          "traceSha256": "dc33f36674ffd33cce2ebce7ae2c58b2246d9ee0b07f29f58fca806f13581b13",
+          "observed": true,
+          "noBroad": true,
+          "broadActionCount": 0,
+          "allowance": {
+            "citedTargetReads": 0,
+            "citedPathSearches": 0,
+            "allowedFollowUps": 0
+          },
+          "violations": []
+        }
+      ]
+    },
+    "wrapperAcceptances": [
+      {
+        "tool": "find_relevant_code",
+        "proofPolicy": "bounded_relevant_location_set",
+        "scenarioRef": "locate-relevant-code",
+        "runtimeTest": {
+          "path": "tests/runtime.mock.test.mjs",
+          "name": "Spec 028 T068 — every retained wrapper has a distinct end-to-end proof-policy acceptance",
+          "subtest": "find_relevant_code"
+        }
+      },
+      {
+        "tool": "trace_symbol",
+        "proofPolicy": "definition_and_usage_cross_check",
+        "scenarioRef": "trace-symbol-cross-check",
+        "runtimeTest": {
+          "path": "tests/runtime.mock.test.mjs",
+          "name": "Spec 028 T068 — every retained wrapper has a distinct end-to-end proof-policy acceptance",
+          "subtest": "trace_symbol"
+        }
+      },
+      {
+        "tool": "map_change_impact",
+        "proofPolicy": "requested_impact_categories",
+        "scenarioRef": "map-change-impact",
+        "runtimeTest": {
+          "path": "tests/runtime.mock.test.mjs",
+          "name": "Spec 028 T068 — every retained wrapper has a distinct end-to-end proof-policy acceptance",
+          "subtest": "map_change_impact"
+        }
+      },
+      {
+        "tool": "explain_code_path",
+        "proofPolicy": "ordered_handoffs",
+        "scenarioRef": "explain-code-path",
+        "runtimeTest": {
+          "path": "tests/runtime.mock.test.mjs",
+          "name": "Spec 028 T068 — every retained wrapper has a distinct end-to-end proof-policy acceptance",
+          "subtest": "explain_code_path"
+        }
+      },
+      {
+        "tool": "collect_evidence",
+        "proofPolicy": "support_or_refute",
+        "scenarioRef": "collect-evidence",
+        "runtimeTest": {
+          "path": "tests/runtime.mock.test.mjs",
+          "name": "Spec 028 T068 — every retained wrapper has a distinct end-to-end proof-policy acceptance",
+          "subtest": "collect_evidence"
+        }
+      },
+      {
+        "tool": "explore_repo",
+        "proofPolicy": "audited_subgoal_policies",
+        "scenarioRef": "explore-recent-change-context",
+        "runtimeTest": {
+          "path": "tests/runtime.mock.test.mjs",
+          "name": "Spec 028 T068 — every retained wrapper has a distinct end-to-end proof-policy acceptance",
+          "subtest": "explore_repo"
+        }
+      }
+    ],
+    "payloadComparison": {
+      "metric": "utf8-json-content-plus-structured-content-v1",
+      "minimumMedianReduction": 0.4,
+      "samples": [
+        {
+          "caseId": "obs-deny-list-count-range",
+          "baselineRef": "v2-obs-deny-list-count-range",
+          "currentParentPayloadBytes": 866,
+          "currentPayloadSha256": "7a45b2841944195b37324f2747a1b50082aada6707d26876d2d77f11629f41be"
+        },
+        {
+          "caseId": "obs-large-route-ui-api-mismatch",
+          "baselineRef": "v2-obs-large-route-ui-api-mismatch",
+          "currentParentPayloadBytes": 1499,
+          "currentPayloadSha256": "0c09feb932e478b2c511a66db711942db2b726ad2e9d91c88edb5e81ae8df63c"
+        },
+        {
+          "caseId": "obs-route-admin-divergence",
+          "baselineRef": "v2-obs-route-admin-divergence",
+          "currentParentPayloadBytes": 2016,
+          "currentPayloadSha256": "3788c87088f0ec7ac4eb391bb3b2de746d0a7a99373cc947be70aa731a98e0f4"
+        },
+        {
+          "caseId": "obs-repeat-tests-environment",
+          "baselineRef": "v2-obs-repeat-tests-environment",
+          "currentParentPayloadBytes": 1764,
+          "currentPayloadSha256": "4afa0f1a9157d9b2f383b2921975315e04f6373f14a7571bd5f4165699fb3878"
+        },
+        {
+          "caseId": "obs-aws-inventory-classification",
+          "baselineRef": "v2-obs-aws-inventory-classification",
+          "currentParentPayloadBytes": 2615,
+          "currentPayloadSha256": "1954922fd87c6769a5d453f6652b507e8c51d226b2ac6f9575970253428cb86c"
+        }
+      ]
+    },
+    "criteria": {
+      "SC-001": [
+        "fixture:fx-partial-multipart",
+        "fixture:audit-feasible-unsupported"
+      ],
+      "SC-002": [
+        "fixture:fx-semantic-mismatch",
+        "fixture:fx-supported-refutation",
+        "fixture:fx-route-policy-divergence"
+      ],
+      "SC-003": [
+        "case:obs-deny-list-count-range",
+        "case:obs-large-route-ui-api-mismatch",
+        "case:obs-route-admin-divergence",
+        "case:obs-external-process-inference",
+        "case:obs-repeat-tests-environment"
+      ],
+      "SC-004": [
+        "fixture:fx-scope-limited-absence",
+        "fixture:fx-scoped-zero-match",
+        "fixture:fx-truncated-all-usages"
+      ],
+      "SC-005": [
+        "guard:minimal_parent_handoff"
+      ],
+      "SC-006": [
+        "metric:payload_reduction"
+      ],
+      "SC-007": [
+        "wrapper:find_relevant_code",
+        "wrapper:trace_symbol",
+        "wrapper:map_change_impact",
+        "wrapper:explain_code_path",
+        "wrapper:collect_evidence",
+        "wrapper:explore_repo"
+      ],
+      "SC-008": [
+        "metric:parent_observation"
+      ],
+      "SC-009": [
+        "metric:fixture_repeatability"
+      ],
+      "SC-010": [
+        "fixture:fx-cancellation",
+        "fixture:fx-provider-failure",
+        "fixture:fx-generation-output-cap-invalid-control",
+        "fixture:fx-scope-limited-absence",
+        "fixture:fx-truncated-enumeration"
+      ],
+      "SC-011": [
+        "guard:no_parent_policy_controls"
+      ],
+      "SC-012": [
+        "guard:safety_invariants"
+      ],
+      "SC-013": [
+        "guard:no_internal_budget_surface"
+      ],
+      "SC-014": [
+        "fixture:audit-untraceable-invention",
+        "fixture:audit-duplicate-merge",
+        "fixture:audit-overbroad-decomposition",
+        "fixture:audit-omitted-request-part",
+        "fixture:audit-immutable-scope-block",
+        "fixture:audit-readonly-capability-block",
+        "fixture:audit-unavailable-live-state",
+        "fixture:audit-missing-input",
+        "fixture:audit-contradictory-requirements",
+        "fixture:audit-unobservable-proof",
+        "fixture:audit-feasible-unsupported"
+      ],
+      "SC-015": [
+        "fixture:audit-untraceable-invention"
+      ],
+      "SC-016": [
+        "fixture:audit-immutable-scope-block",
+        "fixture:audit-readonly-capability-block",
+        "fixture:audit-unavailable-live-state",
+        "fixture:audit-missing-input",
+        "fixture:audit-contradictory-requirements",
+        "fixture:audit-unobservable-proof",
+        "fixture:audit-feasible-unsupported",
+        "fixture:fx-generation-output-cap-invalid-control"
+      ]
+    }
+  },
+  "sources": {
+    "repo-cerebras-explorer-mcp-b3a7e75": {
+      "kind": "repository",
+      "repoId": "cerebras-explorer-mcp",
+      "gitSha": "b3a7e75d39ff3f89d53de75bbcdf6e9f2bc4900e",
+      "dirtyTreeSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "repo-lawfirm-fe7a5ca": {
+      "kind": "repository",
+      "repoId": "lawfirm",
+      "gitSha": "fe7a5ca1cb7e279ae1eee5a931b60b69d93020b4",
+      "dirtyTreeSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "repo-aegis-492fa0a": {
+      "kind": "repository",
+      "repoId": "AEGIS-AI-Agent",
+      "gitSha": "492fa0a6c083c7d83302792b14b19da0b2953e67",
+      "dirtyTreeSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "repo-translate-b9288a7": {
+      "kind": "repository",
+      "repoId": "translate",
+      "gitSha": "b9288a7b7532d9d90ea0f05228206b64cfe8e719",
+      "dirtyTreeSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "repo-daeryun-backend-bbef2ff": {
+      "kind": "repository",
+      "repoId": "Daeryun-AI-Backend",
+      "gitSha": "bbef2ff41b1b4ea93c97192edd355824ea4e5317",
+      "dirtyTreeSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "research-record": {
+      "kind": "record",
+      "path": "specs/028-trustworthy-explorer/research.md",
+      "sha256": "e15a4b8fbf23c8bc4495dbfb00d582d03655f2c4e701ca605a8f99b47c632899",
+      "rawPreserved": false
+    },
+    "fixture-cancellation": {
+      "kind": "fixture",
+      "repoId": "fixture-cancellation",
+      "root": "fixtures/trust-known-answer/cancellation",
+      "repoPath": "fixtures/trust-known-answer/cancellation/repo",
+      "repoTreeSha256": "881f1018aa1c95029ff3e50164a5fb50d53297f17c8d3cebe92c688c2180bb69",
+      "providerPath": "fixtures/trust-known-answer/cancellation/provider-responses.json",
+      "providerSha256": "f03545469c1a824b4c64f7244e3ca9c768a4491f47d82bdfd38a85a0f5d85953"
+    },
+    "fixture-goal-invention": {
+      "kind": "fixture",
+      "repoId": "fixture-goal-invention",
+      "root": "fixtures/trust-known-answer/goal-invention",
+      "repoPath": "fixtures/trust-known-answer/goal-invention/repo",
+      "repoTreeSha256": "66058d1dd6ff447641bd191aa9110d50c215a379dcfc6724bded99f9eb9b0b90",
+      "providerPath": "fixtures/trust-known-answer/goal-invention/provider-responses.json",
+      "providerSha256": "d6dd9fad23d6a16c2780553692ea51646bafcab64325a0a782dd6fd2a8dd7f7c"
+    },
+    "fixture-infeasible-goals": {
+      "kind": "fixture",
+      "repoId": "fixture-infeasible-goals",
+      "root": "fixtures/trust-known-answer/infeasible-goals",
+      "repoPath": "fixtures/trust-known-answer/infeasible-goals/repo",
+      "repoTreeSha256": "b24d83e8cc77be98097cb05ad916e025dca5fe270ee1e06e47cd2429acfd8406",
+      "providerPath": "fixtures/trust-known-answer/infeasible-goals/provider-responses.json",
+      "providerSha256": "a974a2f17a3ff34a548d0a634b9a707abb42a9a4fca00caa937fd548b492818b"
+    },
+    "fixture-multi-part-omission": {
+      "kind": "fixture",
+      "repoId": "fixture-multi-part-omission",
+      "root": "fixtures/trust-known-answer/multi-part-omission",
+      "repoPath": "fixtures/trust-known-answer/multi-part-omission/repo",
+      "repoTreeSha256": "6d0bc67a94b4e9f5029cc5ca81c183371e8dd7128c50905f4727c77d26065265",
+      "providerPath": "fixtures/trust-known-answer/multi-part-omission/provider-responses.json",
+      "providerSha256": "10e846f04706e6c2db82e3b4fd99b9ecbe278dac39fc570a0b5269cb3320b4f8"
+    },
+    "fixture-provider-failure": {
+      "kind": "fixture",
+      "repoId": "fixture-provider-failure",
+      "root": "fixtures/trust-known-answer/provider-failure",
+      "repoPath": "fixtures/trust-known-answer/provider-failure/repo",
+      "repoTreeSha256": "85608d6741eeb6a4afac2945fb22c0855b12bb36d6c72dc64f049a6f5e85c3b4",
+      "providerPath": "fixtures/trust-known-answer/provider-failure/provider-responses.json",
+      "providerSha256": "8b7f0e148da45e3074b6b7d072699c4c7f5561ee4872141342f5df21b170b73b"
+    },
+    "fixture-repair-counterevidence": {
+      "kind": "fixture",
+      "repoId": "fixture-repair-counterevidence",
+      "root": "fixtures/trust-known-answer/repair-counterevidence",
+      "repoPath": "fixtures/trust-known-answer/repair-counterevidence/repo",
+      "repoTreeSha256": "722f65ec61a39436b3bcec03f5fef7d1db648557a3de311b43696772ea892e45",
+      "providerPath": "fixtures/trust-known-answer/repair-counterevidence/provider-responses.json",
+      "providerSha256": "6a0f86d4d1b0ecd40b10066ec433040e8a0d53fa6105ef9e5f4bf293b6b31c50"
+    },
+    "fixture-route-policy-divergence": {
+      "kind": "fixture",
+      "repoId": "fixture-route-policy-divergence",
+      "root": "fixtures/trust-known-answer/route-policy-divergence",
+      "repoPath": "fixtures/trust-known-answer/route-policy-divergence/repo",
+      "repoTreeSha256": "e39e6fb4c6f899f242cf7295420de2dd4746a28ef0b2d0035da8b395a330d464",
+      "providerPath": "fixtures/trust-known-answer/route-policy-divergence/provider-responses.json",
+      "providerSha256": "8d04ba125bdfccf43d50f51ae3adda2dc2567714fb419d348877593e81e8f96e"
+    },
+    "fixture-scoped-truncated-search": {
+      "kind": "fixture",
+      "repoId": "fixture-scoped-truncated-search",
+      "root": "fixtures/trust-known-answer/scoped-truncated-search",
+      "repoPath": "fixtures/trust-known-answer/scoped-truncated-search/repo",
+      "repoTreeSha256": "9e410c3ee4e7f8aa7da11d96874531d52e8f7a5a5670a08b4780239248305b4c",
+      "providerPath": "fixtures/trust-known-answer/scoped-truncated-search/provider-responses.json",
+      "providerSha256": "e63b649edf5b8e7225b540a7a21d1fa72ccae49ca400fd028b1a40d539dded83"
+    },
+    "fixture-semantic-mismatch": {
+      "kind": "fixture",
+      "repoId": "fixture-semantic-mismatch",
+      "root": "fixtures/trust-known-answer/semantic-mismatch",
+      "repoPath": "fixtures/trust-known-answer/semantic-mismatch/repo",
+      "repoTreeSha256": "41e9331fb64db6503879e18024a478321080f6a80ddb855e1dc98c0bea4b1a5d",
+      "providerPath": "fixtures/trust-known-answer/semantic-mismatch/provider-responses.json",
+      "providerSha256": "560d633de915da4ff63f9a2823146a75c80ca6d6717446a00ff2b23480519fed"
+    },
+    "fixture-external-process-inference": {
+      "kind": "fixture",
+      "repoId": "fixture-external-process-inference",
+      "root": "fixtures/trust-known-answer/external-process-inference",
+      "repoPath": "fixtures/trust-known-answer/external-process-inference/repo",
+      "repoTreeSha256": "5c2bbbd7bff1aac877048f78641d6d002849224728d92ae04f7ec672638c8518",
+      "providerPath": "fixtures/trust-known-answer/external-process-inference/provider-responses.json",
+      "providerSha256": "4f55e0b85377bede57d2e0daa30cbe807baa29fbd1117e0efe40fd5f90ed1add"
+    }
+  },
+  "baselines": {
+    "v2-obs-deny-list-count-range": {
+      "schemaVersion": 2,
+      "outcome": "response",
+      "artifact": "fixtures/trust-known-answer/baseline-results/obs-deny-list-count-range.json",
+      "artifactSha256": "fe33bde83e6e62b3f1528a81d362158e49a071844306c247ebea2f9c32808ac9",
+      "observedState": {
+        "verification": "verified",
+        "complete": true
+      },
+      "contentBytes": 1268,
+      "structuredContentBytes": 3326,
+      "parentPayloadBytes": 4594,
+      "citationCount": 3,
+      "totalTokens": 29378,
+      "latencyMs": 5211
+    },
+    "v2-obs-large-route-ui-api-mismatch": {
+      "schemaVersion": 2,
+      "outcome": "response",
+      "artifact": "fixtures/trust-known-answer/baseline-results/obs-large-route-ui-api-mismatch.json",
+      "artifactSha256": "f393de9e8942ca588ff683b5c1780a2c065e2d1ab37b01af020ce3a518613b50",
+      "observedState": {
+        "verification": "verified",
+        "complete": true
+      },
+      "contentBytes": 2957,
+      "structuredContentBytes": 15261,
+      "parentPayloadBytes": 18218,
+      "citationCount": 8,
+      "totalTokens": 269813,
+      "latencyMs": 19184
+    },
+    "v2-obs-route-admin-divergence": {
+      "schemaVersion": 2,
+      "outcome": "response",
+      "artifact": "fixtures/trust-known-answer/baseline-results/obs-route-admin-divergence.json",
+      "artifactSha256": "aca3bd90b4484c7476ef9fc22ba3f8878cef140854e74ef46614f2eae68d7f6d",
+      "observedState": {
+        "verification": "verified",
+        "complete": true
+      },
+      "contentBytes": 2771,
+      "structuredContentBytes": 14102,
+      "parentPayloadBytes": 16873,
+      "citationCount": 8,
+      "totalTokens": 292010,
+      "latencyMs": 21579
+    },
+    "v2-obs-repeat-tests-environment": {
+      "schemaVersion": 2,
+      "outcome": "response",
+      "artifact": "fixtures/trust-known-answer/baseline-results/obs-repeat-tests-environment.json",
+      "artifactSha256": "a3b306d78a8a12a2dd23ded8bed9dd12625c57c61dfeb069a7dcc77e3832480c",
+      "observedState": {
+        "verification": "verified",
+        "complete": true
+      },
+      "contentBytes": 2229,
+      "structuredContentBytes": 14460,
+      "parentPayloadBytes": 16689,
+      "citationCount": 8,
+      "totalTokens": 185342,
+      "latencyMs": 15994
+    },
+    "v2-obs-aws-inventory-classification": {
+      "schemaVersion": 2,
+      "outcome": "response",
+      "artifact": "fixtures/trust-known-answer/baseline-results/obs-aws-inventory-classification.json",
+      "artifactSha256": "85fc669a6ce4532a121fa7a25e20271960376a14bc052d0d798e4c3c984a57b9",
+      "observedState": {
+        "verification": "verified",
+        "complete": true
+      },
+      "contentBytes": 2766,
+      "structuredContentBytes": 11578,
+      "parentPayloadBytes": 14344,
+      "citationCount": 8,
+      "totalTokens": 156039,
+      "latencyMs": 17422
+    },
+    "v2-fx-jsonrpc-id-zero-cancellation": {
+      "schemaVersion": 2,
+      "outcome": "no_response",
+      "artifact": "fixtures/trust-known-answer/baseline-results/fx-jsonrpc-id-zero-cancellation.json",
+      "artifactSha256": "db3b16f3898ed3e0e81e789f734b74e01433566e7429438107fda9c050ede807",
+      "observedState": "no_response",
+      "contentBytes": 0,
+      "structuredContentBytes": 0,
+      "parentPayloadBytes": 0,
+      "citationCount": 0
+    }
+  },
+  "observations": {
+    "research-obs-external-process-inference": {
+      "outcome": "documented_observation",
+      "sourceRef": "research-record",
+      "artifact": "fixtures/trust-known-answer/baseline-results/obs-external-process-inference.json",
+      "artifactSha256": "1cd500a531ae198e04d23383cfd3a4063fc9cd9c760b5e04aed34c7aa1a5f1a2",
+      "rawParentPayloadPreserved": false
+    }
+  },
+  "cases": [
+    {
+      "id": "obs-deny-list-count-range",
+      "kind": "observed",
+      "livePolicy": {
+        "profile": "fail_closed_anchor_or_gap_v1"
+      },
+      "description": "A grounded line range was converted into an incorrect array count.",
+      "sourceRef": "repo-cerebras-explorer-mcp-b3a7e75",
+      "invocation": {
+        "tool": "explore_repo",
+        "args": {
+          "task": "Count the entries in DEFAULT_SECRET_DENY_PATTERNS. Cite the definition and distinguish the number of array entries from the ending source line number.",
+          "scope": [
+            "src/explorer/security.mjs"
+          ],
+          "hints": {
+            "files": [
+              "src/explorer/security.mjs"
+            ],
+            "symbols": [
+              "DEFAULT_SECRET_DENY_PATTERNS"
+            ]
+          }
+        }
+      },
+      "request": {
+        "text": "Count the entries in DEFAULT_SECRET_DENY_PATTERNS. Cite the definition and distinguish the number of array entries from the ending source line number.",
+        "parts": [
+          {
+            "id": "P1",
+            "text": "Determine the exact array entry count."
+          },
+          {
+            "id": "P2",
+            "text": "Cite the definition without treating an ending line as the count."
+          }
+        ]
+      },
+      "repeatCount": 1,
+      "schemaV2Baseline": {
+        "baselineRef": "v2-obs-deny-list-count-range"
+      },
+      "oracle": {
+        "provenance": {
+          "kind": "source_review",
+          "sourceRef": "repo-cerebras-explorer-mcp-b3a7e75"
+        },
+        "expectedGoals": [
+          {
+            "id": "G1",
+            "question": "How many entries are in DEFAULT_SECRET_DENY_PATTERNS?",
+            "originRefs": [
+              "P1"
+            ],
+            "requestOriginRefs": [
+              "request:0-50"
+            ],
+            "claimType": "count",
+            "expectedResolution": "supported",
+            "evidenceAnchorRefs": [
+              "E1"
+            ],
+            "anchorPolicy": "any"
+          },
+          {
+            "id": "G2",
+            "question": "Where is the array definition?",
+            "originRefs": [
+              "P2"
+            ],
+            "requestOriginRefs": [
+              "request:51-70"
+            ],
+            "claimType": "symbol_definition",
+            "expectedResolution": "supported",
+            "evidenceAnchorRefs": [
+              "E1"
+            ],
+            "anchorPolicy": "any"
+          },
+          {
+            "id": "G3",
+            "question": "How do the entry count and ending source line differ?",
+            "originRefs": [
+              "P2"
+            ],
+            "requestOriginRefs": [
+              "request:75-150"
+            ],
+            "claimType": "comparison",
+            "expectedResolution": "supported",
+            "evidenceAnchorRefs": [
+              "E1"
+            ],
+            "anchorPolicy": "any"
+          }
+        ],
+    "allowedClaims": [
+      {
+        "id": "A1",
+        "goalId": "G1",
+        "text": "DEFAULT_SECRET_DENY_PATTERNS contains 70 entries.",
+        "requiredTextGroups": [
+          [
+            "70"
+          ]
+        ],
+        "evidenceAnchorRefs": [
+          "E1"
+        ]
+      },
+      {
+        "id": "A2",
+        "goalId": "G2",
+        "text": "DEFAULT_SECRET_DENY_PATTERNS is defined in src/explorer/security.mjs at lines 43 through 117.",
+        "requiredTextGroups": [
+          [
+            "src/explorer/security.mjs"
+          ],
+          [
+            "43"
+          ],
+          [
+            "117"
+          ]
+        ],
+        "evidenceAnchorRefs": [
+          "E1"
+        ]
+      },
+      {
+        "id": "A3",
+        "goalId": "G3",
+        "text": "The array contains 70 entries, while its definition ends at source line 117.",
+        "requiredTextGroups": [
+          [
+            "70"
+          ],
+          [
+            "117"
+          ]
+        ],
+        "evidenceAnchorRefs": [
+          "E1"
+        ]
+      }
+    ],
+        "forbiddenClaims": [
+          {
+            "id": "F1",
+            "goalId": "G1",
+            "text": "DEFAULT_SECRET_DENY_PATTERNS contains 64 array entries.",
+            "reason": "64 is not the exported array length."
+          },
+          {
+            "id": "F2",
+            "goalId": "G1",
+            "text": "DEFAULT_SECRET_DENY_PATTERNS contains 117 patterns.",
+            "reason": "117 is an ending line, not an entry count."
+          }
+        ],
+        "evidenceAnchors": [
+          {
+            "id": "E1",
+            "kind": "source",
+            "path": "src/explorer/security.mjs",
+            "startLine": 43,
+            "endLine": 117,
+            "sourceRole": "implementation",
+            "temporalRole": "current"
+          }
+        ],
+        "boundary": {
+          "repoId": "cerebras-explorer-mcp",
+          "scope": [
+            "src/explorer/security.mjs"
+          ],
+          "claimScope": [
+            "src/explorer/security.mjs"
+          ]
+        },
+        "expectedState": "complete"
+      }
+    },
+    {
+      "id": "obs-large-route-ui-api-mismatch",
+      "kind": "observed",
+      "livePolicy": {
+        "profile": "fail_closed_anchor_or_gap_v1"
+      },
+      "description": "A large-repository answer claimed three UI pages while grounding only two.",
+      "sourceRef": "repo-lawfirm-fe7a5ca",
+      "invocation": {
+        "tool": "explore_repo",
+        "args": {
+          "task": "Map the marketing/source feature across all current UI pages, both API prefixes, and the Prisma model.",
+          "scope": [
+            "pages/mkt/source/**",
+            "pages/api/mkt/source/**",
+            "pages/api/external/skyz/marketing/source/**",
+            "prisma/schema.prisma"
+          ],
+          "hints": {
+            "files": [
+              "pages/mkt/source/index.tsx",
+              "pages/mkt/source/form.tsx",
+              "pages/mkt/source/[idx].tsx",
+              "pages/api/mkt/source/index.ts",
+              "pages/api/external/skyz/marketing/source/index.ts",
+              "prisma/schema.prisma"
+            ]
+          }
+        }
+      },
+      "request": {
+        "text": "Map the marketing/source feature across all current UI pages, both API prefixes, and the Prisma model.",
+        "parts": [
+          {
+            "id": "P1",
+            "text": "Map all UI pages."
+          },
+          {
+            "id": "P2",
+            "text": "Map both API prefixes."
+          },
+          {
+            "id": "P3",
+            "text": "Map the Prisma model."
+          }
+        ]
+      },
+      "repeatCount": 1,
+      "schemaV2Baseline": {
+        "baselineRef": "v2-obs-large-route-ui-api-mismatch"
+      },
+      "oracle": {
+        "provenance": {
+          "kind": "source_review",
+          "sourceRef": "repo-lawfirm-fe7a5ca"
+        },
+        "expectedGoals": [
+          {
+            "id": "G1",
+            "question": "Which UI pages implement marketing/source?",
+            "originRefs": [
+              "P1"
+            ],
+            "requestOriginRefs": [
+              "request:44-61"
+            ],
+            "claimType": "impact",
+            "expectedResolution": "supported",
+            "evidenceAnchorRefs": [
+              "E1",
+              "E2",
+              "E3"
+            ],
+            "anchorPolicy": "all"
+          },
+          {
+            "id": "G2",
+            "question": "Which internal and external API prefixes implement it?",
+            "originRefs": [
+              "P2"
+            ],
+            "requestOriginRefs": [
+              "request:62-80"
+            ],
+            "claimType": "comparison",
+            "expectedResolution": "supported",
+            "evidenceAnchorRefs": [
+              "E4",
+              "E5"
+            ],
+            "anchorPolicy": "all"
+          },
+          {
+            "id": "G3",
+            "question": "Which Prisma model stores it?",
+            "originRefs": [
+              "P3"
+            ],
+            "requestOriginRefs": [
+              "request:85-102"
+            ],
+            "claimType": "positive",
+            "expectedResolution": "supported",
+            "evidenceAnchorRefs": [
+              "E6"
+            ],
+            "anchorPolicy": "any"
+          }
+        ],
+        "allowedClaims": [
+          {
+            "id": "A1",
+            "goalId": "G1",
+            "text": "The UI has list, create form, and detail/edit pages.",
+            "evidenceAnchorRefs": [
+              "E1",
+              "E2",
+              "E3"
+            ]
+          },
+          {
+            "id": "A2",
+            "goalId": "G2",
+            "text": "Internal routes use /api/mkt/source and external routes use /api/external/skyz/marketing/source.",
+            "evidenceAnchorRefs": [
+              "E4",
+              "E5"
+            ]
+          },
+          {
+            "id": "A3",
+            "goalId": "G3",
+            "text": "The Prisma model is mkt_source.",
+            "evidenceAnchorRefs": [
+              "E6"
+            ]
+          }
+        ],
+        "forbiddenClaims": [
+          {
+            "id": "F1",
+            "goalId": "G1",
+            "text": "The UI consists only of the list and form pages.",
+            "reason": "The detail/edit page is present."
+          }
+        ],
+        "evidenceAnchors": [
+          {
+            "id": "E1",
+            "kind": "source",
+            "path": "pages/mkt/source/index.tsx",
+            "startLine": 92,
+            "endLine": 92,
+            "sourceRole": "implementation",
+            "temporalRole": "current"
+          },
+          {
+            "id": "E2",
+            "kind": "source",
+            "path": "pages/mkt/source/form.tsx",
+            "startLine": 75,
+            "endLine": 76,
+            "sourceRole": "implementation",
+            "temporalRole": "current"
+          },
+          {
+            "id": "E3",
+            "kind": "source",
+            "path": "pages/mkt/source/[idx].tsx",
+            "startLine": 87,
+            "endLine": 88,
+            "sourceRole": "implementation",
+            "temporalRole": "current"
+          },
+          {
+            "id": "E4",
+            "kind": "source",
+            "path": "pages/api/mkt/source/index.ts",
+            "startLine": 11,
+            "endLine": 21,
+            "sourceRole": "implementation",
+            "temporalRole": "current"
+          },
+          {
+            "id": "E5",
+            "kind": "source",
+            "path": "pages/api/external/skyz/marketing/source/index.ts",
+            "startLine": 5,
+            "endLine": 17,
+            "sourceRole": "implementation",
+            "temporalRole": "current"
+          },
+          {
+            "id": "E6",
+            "kind": "source",
+            "path": "prisma/schema.prisma",
+            "startLine": 1397,
+            "endLine": 1409,
+            "sourceRole": "config",
+            "temporalRole": "current"
+          }
+        ],
+        "boundary": {
+          "repoId": "lawfirm",
+          "scope": [
+            "pages/mkt/source/**",
+            "pages/api/mkt/source/**",
+            "pages/api/external/skyz/marketing/source/**",
+            "prisma/schema.prisma"
+          ],
+          "claimScope": [
+            "pages/mkt/source/**",
+            "pages/api/mkt/source/**",
+            "pages/api/external/skyz/marketing/source/**",
+            "prisma/schema.prisma"
+          ]
+        },
+        "expectedState": "complete"
+      }
+    },
+    {
+      "id": "obs-route-admin-divergence",
+      "kind": "observed",
+      "livePolicy": {
+        "profile": "fail_closed_anchor_or_gap_v1"
+      },
+      "description": "Route-specific administrator and developer behavior was incompletely generalized.",
+      "sourceRef": "repo-aegis-492fa0a",
+      "invocation": {
+        "tool": "explore_repo",
+        "args": {
+          "task": "Compare administrator and developer access policy across frontend guards and backend route families.",
+          "scope": [
+            "components/auth/**",
+            "lib/admin-auth.ts",
+            "app/api/admin/**",
+            "app/api/inquiry/**",
+            "app/api/cases/**",
+            "app/api/draft/**",
+            "prisma/schema.prisma"
+          ],
+          "hints": {
+            "files": [
+              "components/auth/AdminProtectedRoute.tsx",
+              "lib/admin-auth.ts",
+              "app/api/admin/feedback/route.ts",
+              "app/api/inquiry/[id]/route.ts",
+              "app/api/cases/route.ts",
+              "app/api/draft/save/route.ts"
+            ]
+          }
+        }
+      },
+      "request": {
+        "text": "Compare administrator and developer access policy across frontend guards and backend route families.",
+        "parts": [
+          {
+            "id": "P1",
+            "text": "Compare frontend administrator guards."
+          },
+          {
+            "id": "P2",
+            "text": "Compare backend administrator policies."
+          },
+          {
+            "id": "P3",
+            "text": "Identify developer-department access behavior."
+          }
+        ]
+      },
+      "repeatCount": 1,
+      "schemaV2Baseline": {
+        "baselineRef": "v2-obs-route-admin-divergence"
+      },
+      "oracle": {
+        "provenance": {
+          "kind": "source_review",
+          "sourceRef": "repo-aegis-492fa0a"
+        },
+        "expectedGoals": [
+          {
+            "id": "G1",
+            "question": "How does the frontend admin guard work?",
+            "originRefs": [
+              "P1"
+            ],
+            "requestOriginRefs": [
+              "request:8-21",
+              "request:57-72"
+            ],
+            "claimType": "positive",
+            "expectedResolution": "supported",
+            "evidenceAnchorRefs": [
+              "E1"
+            ],
+            "anchorPolicy": "any"
+          },
+          {
+            "id": "G2",
+            "question": "Which distinct backend admin checks exist?",
+            "originRefs": [
+              "P2"
+            ],
+            "requestOriginRefs": [
+              "request:8-21",
+              "request:77-100"
+            ],
+            "claimType": "comparison",
+            "expectedResolution": "supported",
+            "evidenceAnchorRefs": [
+              "E2",
+              "E3",
+              "E4",
+              "E7"
+            ],
+            "anchorPolicy": "all"
+          },
+          {
+            "id": "G3",
+            "question": "Which routes give the development department special access mapping?",
+            "originRefs": [
+              "P3"
+            ],
+            "requestOriginRefs": [
+              "request:26-35",
+              "request:77-100"
+            ],
+            "claimType": "comparison",
+            "expectedResolution": "supported",
+            "evidenceAnchorRefs": [
+              "E5",
+              "E6"
+            ],
+            "anchorPolicy": "all"
+          }
+        ],
+    "allowedClaims": [
+      {
+        "id": "A1",
+        "goalId": "G1",
+        "text": "AdminProtectedRoute admits only user ids listed in ADMIN_USERS and redirects other users to /ai.",
+        "requiredTextGroups": [
+          [
+            "ADMIN_USERS"
+          ],
+          [
+            "/ai",
+            "AI page"
+          ]
+        ],
+        "evidenceAnchorRefs": [
+          "E1"
+        ]
+      },
+      {
+        "id": "A2",
+        "goalId": "G2",
+        "text": "Backend routes enforce distinct ADMIN_USERS, admin_user_info existence, and is_admin policies.",
+        "requiredTextGroups": [
+          [
+            "ADMIN_USERS"
+          ],
+          [
+            "admin_user_info"
+          ],
+          [
+            "is_admin"
+          ]
+        ],
+        "requiredTextAssociations": [
+          {
+            "id": "admin-helper-membership",
+            "subjectAlternatives": [
+              "lib/admin-auth",
+              "admin-auth.ts",
+              "requireAdminAuth",
+              "checkAdminPermission",
+              "admin helper"
+            ],
+            "predicateGroups": [
+              [
+                "ADMIN_USERS"
+              ]
+            ]
+          },
+          {
+            "id": "feedback-row-existence",
+            "subjectAlternatives": [
+              "app/api/admin/feedback",
+              "feedback route",
+              "feedback"
+            ],
+            "predicateGroups": [
+              [
+                "admin_user_info"
+              ],
+              [
+                "existence",
+                "exists",
+                "row",
+                "record",
+                "findUnique",
+                "present",
+                "absent"
+              ]
+            ]
+          },
+          {
+            "id": "inquiry-boolean-flag",
+            "subjectAlternatives": [
+              "app/api/inquiry/[id]",
+              "inquiry detail route",
+              "inquiry status update",
+              "inquiry PUT"
+            ],
+            "predicateGroups": [
+              [
+                "is_admin"
+              ],
+              [
+                "true",
+                "boolean",
+                "flag"
+              ]
+            ]
+          }
+        ],
+        "evidenceAnchorRefs": [
+          "E2",
+          "E3",
+          "E4",
+          "E7"
+        ]
+      },
+      {
+        "id": "A3",
+        "goalId": "G3",
+        "text": "Case and draft routes map the development department to a dedicated user id.",
+        "requiredTextGroups": [
+          [
+            "case",
+            "cases"
+          ],
+          [
+            "draft"
+          ],
+          [
+            "development",
+            "개발"
+          ],
+          [
+            "dyhan7301",
+            "dedicated user id"
+          ]
+        ],
+        "evidenceAnchorRefs": [
+          "E5",
+          "E6"
+        ]
+      }
+    ],
+        "forbiddenClaims": [
+          {
+            "id": "F1",
+            "goalId": "G2",
+            "text": "All backend administrator routes use the same administrator rule.",
+            "reason": "The pinned source contains multiple enforcement mechanisms."
+          }
+        ],
+        "evidenceAnchors": [
+          {
+            "id": "E1",
+            "kind": "source",
+            "path": "components/auth/AdminProtectedRoute.tsx",
+            "startLine": 34,
+            "endLine": 54,
+            "sourceRole": "implementation",
+            "temporalRole": "current"
+          },
+          {
+            "id": "E2",
+            "kind": "source",
+            "path": "lib/admin-auth.ts",
+            "startLine": 42,
+            "endLine": 44,
+            "sourceRole": "implementation",
+            "temporalRole": "current"
+          },
+          {
+            "id": "E3",
+            "kind": "source",
+            "path": "app/api/admin/feedback/route.ts",
+            "startLine": 29,
+            "endLine": 35,
+            "sourceRole": "implementation",
+            "temporalRole": "current"
+          },
+          {
+            "id": "E4",
+            "kind": "source",
+            "path": "app/api/inquiry/[id]/route.ts",
+            "startLine": 35,
+            "endLine": 41,
+            "sourceRole": "implementation",
+            "temporalRole": "current"
+          },
+          {
+            "id": "E5",
+            "kind": "source",
+            "path": "app/api/cases/route.ts",
+            "startLine": 39,
+            "endLine": 45,
+            "sourceRole": "implementation",
+            "temporalRole": "current"
+          },
+          {
+            "id": "E6",
+            "kind": "source",
+            "path": "app/api/draft/save/route.ts",
+            "startLine": 31,
+            "endLine": 33,
+            "sourceRole": "implementation",
+            "temporalRole": "current"
+          },
+          {
+            "id": "E7",
+            "kind": "source",
+            "path": "app/api/inquiry/[id]/route.ts",
+            "startLine": 156,
+            "endLine": 165,
+            "sourceRole": "implementation",
+            "temporalRole": "current"
+          }
+        ],
+        "boundary": {
+          "repoId": "AEGIS-AI-Agent",
+          "scope": [
+            "components/auth/**",
+            "lib/admin-auth.ts",
+            "app/api/admin/**",
+            "app/api/inquiry/**",
+            "app/api/cases/**",
+            "app/api/draft/**",
+            "prisma/schema.prisma"
+          ],
+          "claimScope": [
+            "components/auth/**",
+            "lib/admin-auth.ts",
+            "app/api/admin/**",
+            "app/api/inquiry/**",
+            "app/api/cases/**",
+            "app/api/draft/**",
+            "prisma/schema.prisma"
+          ]
+        },
+        "expectedState": "complete"
+      }
+    },
+    {
+      "id": "obs-external-process-inference",
+      "kind": "observed",
+      "description": "A documented historical inference is reproduced against a pinned local-only Python flow.",
+      "sourceRef": "fixture-external-process-inference",
+      "fixtureExecution": "direct",
+      "knownBadObservationRef": "research-obs-external-process-inference",
+      "invocation": {
+        "tool": "explore_repo",
+        "args": {
+          "task": "Trace the Python flow using only observed transitions; do not speculate about external processes.",
+          "scope": [
+            "flow/**"
+          ]
+        }
+      },
+      "request": {
+        "text": "Trace the Python flow using only observed transitions; do not speculate about external processes.",
+        "parts": [
+          {
+            "id": "P1",
+            "text": "Trace observed transitions."
+          },
+          {
+            "id": "P2",
+            "text": "Do not infer an external process without direct proof."
+          }
+        ]
+      },
+      "repeatCount": 1,
+      "schemaV2Baseline": {
+        "outcome": "not_recorded",
+        "schemaVersion": 2,
+        "reason": "The research record retained the failure class but not the original schema-v2 parent payload."
+      },
+      "oracle": {
+        "provenance": {
+          "kind": "fixture_assertion",
+          "sourceRef": "fixture-external-process-inference"
+        },
+        "documentedFailureClass": "unsupported_external_process_inference",
+        "expectedGoals": [
+          {
+            "id": "G1",
+            "question": "What transitions are directly observed?",
+            "originRefs": [
+              "P1"
+            ],
+            "claimType": "positive",
+            "expectedResolution": "supported",
+            "evidenceAnchorRefs": [
+              "E1",
+              "E2"
+            ],
+            "anchorPolicy": "any"
+          },
+          {
+            "id": "G2",
+            "question": "Can an external process be established from flow/**?",
+            "originRefs": [
+              "P2"
+            ],
+            "claimType": "positive",
+            "expectedResolution": "gap",
+            "evidenceAnchorRefs": [
+              "E1",
+              "E2"
+            ],
+            "anchorPolicy": "all"
+          }
+        ],
+        "allowedClaims": [
+          {
+            "id": "A1",
+            "goalId": "G1",
+            "text": "handle passes the payload to normalize_payload, which returns a locally normalized value.",
+            "evidenceAnchorRefs": [
+              "E1"
+            ]
+          }
+        ],
+        "forbiddenClaims": [
+          {
+            "id": "F1",
+            "goalId": "G2",
+            "text": "The flow launches an external process.",
+            "reason": "The research record says this inference was unsupported."
+          }
+        ],
+        "evidenceAnchors": [
+          {
+            "id": "E1",
+            "kind": "source",
+            "path": "flow/handler.py",
+            "startLine": 1,
+            "endLine": 5,
+            "sourceRole": "implementation",
+            "temporalRole": "current"
+          },
+          {
+            "id": "E2",
+            "kind": "source",
+            "path": "flow/worker.py",
+            "startLine": 1,
+            "endLine": 2,
+            "sourceRole": "implementation",
+            "temporalRole": "current"
+          }
+        ],
+        "boundary": {
+          "repoId": "fixture-external-process-inference",
+          "scope": [
+            "flow/**"
+          ],
+          "claimScope": [
+            "flow/**"
+          ]
+        },
+        "expectedState": "incomplete"
+      }
+    },
+    {
+      "id": "obs-repeat-tests-environment",
+      "kind": "observed",
+      "livePolicy": {
+        "profile": "fail_closed_anchor_or_gap_v1"
+      },
+      "description": "Repeated complete responses varied and omitted required runtime configuration sources.",
+      "sourceRef": "repo-translate-b9288a7",
+      "invocation": {
+        "tool": "explore_repo",
+        "args": {
+          "task": "Map the translation pipeline implementation, tests, and every environment/configuration input needed to run it.",
+          "scope": [
+            "pipeline/**",
+            "tests/**",
+            "kiro/**",
+            "docs/local-e2e-test.md",
+            "docs/kiro-agent-setup.md",
+            "requirements.txt"
+          ],
+          "hints": {
+            "files": [
+              "pipeline/cli.py",
+              "tests/test_cli.py",
+              "pipeline/config.py",
+              "docs/local-e2e-test.md",
+              "kiro/pipeline-runner.json",
+              "requirements.txt"
+            ]
+          }
+        }
+      },
+      "request": {
+        "text": "Map the translation pipeline implementation, tests, and every environment/configuration input needed to run it.",
+        "parts": [
+          {
+            "id": "P1",
+            "text": "Map the implementation."
+          },
+          {
+            "id": "P2",
+            "text": "Map its tests."
+          },
+          {
+            "id": "P3",
+            "text": "Map every required environment and configuration input."
+          }
+        ]
+      },
+      "repeatCount": 3,
+      "schemaV2Baseline": {
+        "baselineRef": "v2-obs-repeat-tests-environment"
+      },
+      "oracle": {
+        "provenance": {
+          "kind": "source_review",
+          "sourceRef": "repo-translate-b9288a7"
+        },
+        "expectedGoals": [
+          {
+            "id": "G1",
+            "question": "What is the primary implementation path?",
+            "originRefs": [
+              "P1"
+            ],
+            "requestOriginRefs": [
+              "request:0-44"
+            ],
+            "claimType": "flow",
+            "expectedResolution": "supported",
+            "evidenceAnchorRefs": [
+              "E1"
+            ],
+            "anchorPolicy": "any"
+          },
+          {
+            "id": "G2",
+            "question": "Which tests cover the entry path?",
+            "originRefs": [
+              "P2"
+            ],
+            "requestOriginRefs": [
+              "request:45-51"
+            ],
+            "claimType": "positive",
+            "expectedResolution": "supported",
+            "evidenceAnchorRefs": [
+              "E2"
+            ],
+            "anchorPolicy": "any"
+          },
+          {
+            "id": "G3",
+            "question": "Which source, docs, agent config, and dependencies define runtime inputs?",
+            "originRefs": [
+              "P3"
+            ],
+            "requestOriginRefs": [
+              "request:56-111"
+            ],
+        "claimType": "impact",
+            "expectedResolution": "supported",
+            "evidenceAnchorRefs": [
+              "E3",
+              "E4",
+              "E5",
+              "E6"
+            ],
+            "anchorPolicy": "all"
+          }
+        ],
+    "allowedClaims": [
+      {
+        "id": "A1",
+        "goalId": "G1",
+        "text": "The run command uses a ThreadPoolExecutor to invoke orchestrator.run_worker for each configured worker.",
+        "evidenceAnchorRefs": [
+          "E1"
+        ]
+      },
+      {
+        "id": "A2",
+        "goalId": "G2",
+        "text": "tests/test_cli.py verifies run-command worker fan-out and limit forwarding.",
+        "evidenceAnchorRefs": [
+          "E2"
+        ]
+      },
+      {
+        "id": "A3",
+        "goalId": "G3",
+        "text": "Runtime inputs span pipeline config, setup docs, the Kiro runner, and Python dependencies.",
+            "evidenceAnchorRefs": [
+              "E3",
+              "E4",
+              "E5",
+              "E6"
+            ]
+          }
+        ],
+        "forbiddenClaims": [
+          {
+            "id": "F1",
+            "goalId": "G3",
+            "text": "Environment coverage is comprehensive from pipeline/config.py alone.",
+            "reason": "Required setup and runner inputs are defined outside that file."
+          }
+        ],
+        "evidenceAnchors": [
+          {
+            "id": "E1",
+            "kind": "source",
+            "path": "pipeline/cli.py",
+            "startLine": 45,
+            "endLine": 53,
+            "sourceRole": "implementation",
+            "temporalRole": "current"
+          },
+          {
+            "id": "E2",
+            "kind": "source",
+            "path": "tests/test_cli.py",
+            "startLine": 4,
+            "endLine": 20,
+            "sourceRole": "test",
+            "temporalRole": "current"
+          },
+          {
+            "id": "E3",
+            "kind": "source",
+            "path": "pipeline/config.py",
+            "startLine": 53,
+            "endLine": 65,
+            "sourceRole": "config",
+            "temporalRole": "current"
+          },
+          {
+            "id": "E4",
+            "kind": "source",
+            "path": "docs/local-e2e-test.md",
+            "startLine": 3,
+            "endLine": 7,
+            "sourceRole": "documentation",
+            "temporalRole": "current"
+          },
+          {
+            "id": "E5",
+            "kind": "source",
+            "path": "kiro/pipeline-runner.json",
+            "startLine": 1,
+            "endLine": 4,
+            "sourceRole": "config",
+            "temporalRole": "current"
+          },
+          {
+            "id": "E6",
+            "kind": "source",
+            "path": "requirements.txt",
+            "startLine": 1,
+            "endLine": 4,
+            "sourceRole": "config",
+            "temporalRole": "current"
+          }
+        ],
+        "boundary": {
+          "repoId": "translate",
+          "scope": [
+            "pipeline/**",
+            "tests/**",
+            "kiro/**",
+            "docs/local-e2e-test.md",
+            "docs/kiro-agent-setup.md",
+            "requirements.txt"
+          ],
+          "claimScope": [
+            "pipeline/**",
+            "tests/**",
+            "kiro/**",
+            "docs/local-e2e-test.md",
+            "docs/kiro-agent-setup.md",
+            "requirements.txt"
+          ]
+        },
+        "expectedState": "complete"
+      }
+    },
+    {
+      "id": "obs-aws-inventory-classification",
+      "kind": "observed",
+      "livePolicy": {
+        "profile": "fail_closed_anchor_or_gap_v1"
+      },
+      "description": "An exhaustive Bedrock inventory included an uncited direct invocation.",
+      "sourceRef": "repo-daeryun-backend-bbef2ff",
+      "invocation": {
+        "tool": "explore_repo",
+        "args": {
+          "task": "Inventory every Amazon Bedrock invocation and classify direct SDK calls, wrappers, and configuration-only references.",
+          "scope": [
+            "app/my_lib/**"
+          ],
+          "hints": {
+            "files": [
+              "app/my_lib/bedrock_client.py",
+              "app/my_lib/my_bedrock_file_agent.py",
+              "app/my_lib/upgrade_v2__internal_ai_process/invoke_model_helper/get_json_format_text.py",
+              "app/my_lib/my_tools/my_knowledgebase_tool.py",
+              "app/my_lib/upgrade_v2__internal_ai_process/context_engineering/legal_information/retrieve_knowledge_base.py",
+              "app/my_lib/process_prompt.py",
+              "app/my_lib/config.py"
+            ]
+          }
+        }
+      },
+      "request": {
+        "text": "Inventory every Amazon Bedrock invocation and classify direct SDK calls, wrappers, and configuration-only references.",
+        "parts": [
+          {
+            "id": "P1",
+            "text": "Enumerate direct SDK calls."
+          },
+          {
+            "id": "P2",
+            "text": "Enumerate wrappers."
+          },
+          {
+            "id": "P3",
+            "text": "Enumerate configuration-only references."
+          }
+        ]
+      },
+      "repeatCount": 1,
+      "schemaV2Baseline": {
+        "baselineRef": "v2-obs-aws-inventory-classification"
+      },
+      "oracle": {
+        "provenance": {
+          "kind": "source_review",
+          "sourceRef": "repo-daeryun-backend-bbef2ff"
+        },
+        "expectedGoals": [
+          {
+            "id": "G1",
+            "question": "Which direct SDK invocation sites exist?",
+            "originRefs": [
+              "P1"
+            ],
+            "requestOriginRefs": [
+              "request:50-71"
+            ],
+            "claimType": "count",
+            "expectedResolution": "supported",
+            "evidenceAnchorRefs": [
+              "E1",
+              "E2",
+              "E3",
+              "E4",
+              "E5"
+            ],
+            "anchorPolicy": "all"
+          },
+          {
+            "id": "G2",
+            "question": "Which wrapper entry points exist?",
+            "originRefs": [
+              "P2"
+            ],
+            "requestOriginRefs": [
+              "request:73-81"
+            ],
+            "claimType": "comparison",
+            "expectedResolution": "supported",
+            "evidenceAnchorRefs": [
+              "E6",
+              "E7",
+              "E8"
+            ],
+            "anchorPolicy": "all"
+          },
+          {
+            "id": "G3",
+            "question": "Which references are configuration-only?",
+            "originRefs": [
+              "P3"
+            ],
+            "requestOriginRefs": [
+              "request:83-117"
+            ],
+            "claimType": "comparison",
+            "expectedResolution": "supported",
+            "evidenceAnchorRefs": [
+              "E9"
+            ],
+            "anchorPolicy": "any"
+          }
+        ],
+    "allowedClaims": [
+      {
+        "id": "A1",
+        "goalId": "G1",
+        "text": "Five direct SDK invocation sites are present in the pinned boundary.",
+            "evidenceAnchorRefs": [
+              "E1",
+              "E2",
+              "E3",
+          "E4",
+          "E5"
+        ]
+      },
+      {
+        "id": "A2",
+        "goalId": "G2",
+        "text": "The pinned boundary contains wrapper entry points in bedrock_client.py, my_bedrock_file_agent.py, and process_prompt.py.",
+        "evidenceAnchorRefs": [
+          "E6",
+          "E7",
+          "E8"
+        ]
+      },
+      {
+        "id": "A3",
+        "goalId": "G3",
+        "text": "config.py reads Bedrock model identifiers from environment configuration without invoking a model.",
+        "evidenceAnchorRefs": [
+          "E9"
+        ]
+      }
+    ],
+        "forbiddenClaims": [
+          {
+            "id": "F1",
+            "goalId": "G1",
+            "text": "All Bedrock invocations go through a proxy.",
+            "reason": "The pinned source contains direct SDK calls."
+          }
+        ],
+        "evidenceAnchors": [
+          {
+            "id": "E1",
+            "kind": "source",
+            "path": "app/my_lib/bedrock_client.py",
+            "startLine": 68,
+            "endLine": 68,
+            "sourceRole": "implementation",
+            "temporalRole": "current"
+          },
+          {
+            "id": "E2",
+            "kind": "source",
+            "path": "app/my_lib/my_bedrock_file_agent.py",
+            "startLine": 175,
+            "endLine": 175,
+            "sourceRole": "implementation",
+            "temporalRole": "current"
+          },
+          {
+            "id": "E3",
+            "kind": "source",
+            "path": "app/my_lib/upgrade_v2__internal_ai_process/invoke_model_helper/get_json_format_text.py",
+            "startLine": 30,
+            "endLine": 30,
+            "sourceRole": "implementation",
+            "temporalRole": "current"
+          },
+          {
+            "id": "E4",
+            "kind": "source",
+            "path": "app/my_lib/my_tools/my_knowledgebase_tool.py",
+            "startLine": 196,
+            "endLine": 196,
+            "sourceRole": "implementation",
+            "temporalRole": "current"
+          },
+          {
+            "id": "E5",
+            "kind": "source",
+            "path": "app/my_lib/upgrade_v2__internal_ai_process/context_engineering/legal_information/retrieve_knowledge_base.py",
+            "startLine": 54,
+            "endLine": 54,
+            "sourceRole": "implementation",
+            "temporalRole": "current"
+          },
+          {
+            "id": "E6",
+            "kind": "source",
+            "path": "app/my_lib/bedrock_client.py",
+            "startLine": 125,
+            "endLine": 150,
+            "sourceRole": "implementation",
+            "temporalRole": "current"
+          },
+          {
+            "id": "E7",
+            "kind": "source",
+            "path": "app/my_lib/my_bedrock_file_agent.py",
+            "startLine": 353,
+            "endLine": 380,
+            "sourceRole": "implementation",
+            "temporalRole": "current"
+          },
+          {
+            "id": "E8",
+            "kind": "source",
+            "path": "app/my_lib/process_prompt.py",
+            "startLine": 114,
+            "endLine": 160,
+            "sourceRole": "implementation",
+            "temporalRole": "current"
+          },
+          {
+            "id": "E9",
+            "kind": "source",
+            "path": "app/my_lib/config.py",
+            "startLine": 20,
+            "endLine": 29,
+            "sourceRole": "config",
+            "temporalRole": "current"
+          }
+        ],
+        "boundary": {
+          "repoId": "Daeryun-AI-Backend",
+          "scope": [
+            "app/my_lib/**"
+          ],
+          "claimScope": [
+            "app/my_lib/**"
+          ]
+        },
+        "expectedState": "complete"
+      }
+    },
+    {
+      "id": "fx-semantic-mismatch",
+      "kind": "fixture",
+      "description": "Structured semantic verification rejects a line number proposed as a deterministic array count.",
+      "sourceRef": "fixture-semantic-mismatch",
+      "fixtureExecution": "direct",
+      "providerFixture": {
+        "path": "fixtures/trust-known-answer/semantic-mismatch/provider-responses.us1.json",
+        "sha256": "a1cf7910e714beec68780625500c9dcc8f90beb7171273f9537280ab5515209c"
+      },
+      "invocation": {
+        "tool": "explore_repo",
+        "args": {
+          "task": "Count SECRET_PATTERNS entries; use the array item count, not a line number.",
+          "scope": [
+            "src/security.mjs"
+          ]
+        }
+      },
+      "request": {
+        "text": "Count SECRET_PATTERNS entries; use the array item count, not a line number.",
+        "parts": [
+          {
+            "id": "P1",
+            "text": "Determine the exact SECRET_PATTERNS count."
+          }
+        ]
+      },
+      "repeatCount": 3,
+      "schemaV2Baseline": {
+        "outcome": "not_recorded",
+        "schemaVersion": 2,
+        "reason": "This schema-v3 control case had no trustworthy schema-v2 parent payload captured before implementation."
+      },
+      "oracle": {
+        "provenance": {
+          "kind": "fixture_assertion",
+          "sourceRef": "fixture-semantic-mismatch"
+        },
+        "expectedGoals": [
+          {
+            "id": "G1",
+            "question": "How many patterns are configured?",
+            "originRefs": [
+              "P1"
+            ],
+            "requestOriginRefs": [
+              "request:0-75"
+            ],
+            "claimType": "count",
+            "expectedResolution": "gap",
+            "evidenceAnchorRefs": [
+              "E1"
+            ],
+            "anchorPolicy": "any"
+          }
+        ],
+        "allowedClaims": [],
+        "forbiddenClaims": [
+          {
+            "id": "F1",
+            "goalId": "G1",
+            "text": "There are 117 configured secret patterns.",
+            "reason": "The fixture array has three entries."
+          }
+        ],
+        "evidenceAnchors": [
+          {
+            "id": "E1",
+            "kind": "source",
+            "path": "src/security.mjs",
+            "startLine": 1,
+            "endLine": 5,
+            "sourceRole": "implementation",
+            "temporalRole": "current"
+          }
+        ],
+        "boundary": {
+          "repoId": "fixture-semantic-mismatch",
+          "scope": [
+            "src/security.mjs"
+          ],
+          "claimScope": [
+            "src/security.mjs"
+          ]
+        },
+        "expectedState": "incomplete"
+      }
+    },
+    {
+      "id": "fx-incomplete-multipart",
+      "kind": "fixture",
+      "description": "A planner initially omits tests and defaults from a three-part request.",
+      "sourceRef": "fixture-multi-part-omission",
+      "fixtureExecution": "direct",
+      "providerFixture": {
+        "path": "fixtures/trust-known-answer/multi-part-omission/provider-responses.us1.json",
+        "sha256": "2013f3f6a226dcc69af0b3db41c1425edabd940f3d8198edf3708a3c8b6aa85b"
+      },
+      "invocation": {
+        "tool": "explore_repo",
+        "args": {
+          "task": "Explain the service implementation, its test, and its configured default.",
+          "scope": [
+            "src/**",
+            "tests/**",
+            "config/**"
+          ]
+        }
+      },
+      "request": {
+        "text": "Explain the service implementation, its test, and its configured default.",
+        "parts": [
+          {
+            "id": "P1",
+            "text": "Explain the implementation."
+          },
+          {
+            "id": "P2",
+            "text": "Identify the test."
+          },
+          {
+            "id": "P3",
+            "text": "Identify the default."
+          }
+        ]
+      },
+      "repeatCount": 3,
+      "schemaV2Baseline": {
+        "outcome": "not_recorded",
+        "schemaVersion": 2,
+        "reason": "This schema-v3 control case had no trustworthy schema-v2 parent payload captured before implementation."
+      },
+      "oracle": {
+        "provenance": {
+          "kind": "fixture_assertion",
+          "sourceRef": "fixture-multi-part-omission"
+        },
+        "expectedGoals": [
+          {
+            "id": "G1",
+            "question": "What does serviceMode return?",
+            "originRefs": [
+              "P1"
+            ],
+            "requestOriginRefs": [
+              "request:12-34"
+            ],
+            "claimType": "positive",
+            "expectedResolution": "supported",
+            "evidenceAnchorRefs": [
+              "E1"
+            ],
+            "anchorPolicy": "any"
+          },
+          {
+            "id": "G2",
+            "question": "Which test verifies it?",
+            "originRefs": [
+              "P2"
+            ],
+            "requestOriginRefs": [
+              "request:36-44"
+            ],
+            "claimType": "positive",
+            "expectedResolution": "supported",
+            "evidenceAnchorRefs": [
+              "E2"
+            ],
+            "anchorPolicy": "any"
+          },
+          {
+            "id": "G3",
+            "question": "What is the configured default?",
+            "originRefs": [
+              "P3"
+            ],
+            "requestOriginRefs": [
+              "request:54-72"
+            ],
+            "claimType": "positive",
+            "expectedResolution": "supported",
+            "evidenceAnchorRefs": [
+              "E3"
+            ],
+            "anchorPolicy": "any"
+          }
+        ],
+        "allowedClaims": [
+          {
+            "id": "A1",
+            "goalId": "G1",
+            "text": "serviceMode returns 'safe'.",
+            "evidenceAnchorRefs": [
+              "E1"
+            ]
+          },
+          {
+            "id": "A2",
+            "goalId": "G2",
+            "text": "tests/service.test.mjs asserts 'safe'.",
+            "evidenceAnchorRefs": [
+              "E2"
+            ]
+          },
+          {
+            "id": "A3",
+            "goalId": "G3",
+            "text": "DEFAULT_SERVICE_MODE is 'safe'.",
+            "evidenceAnchorRefs": [
+              "E3"
+            ]
+          }
+        ],
+        "forbiddenClaims": [
+          {
+            "id": "F1",
+            "text": "The request is complete without checking tests or defaults.",
+            "reason": "All three request parts are required."
+          }
+        ],
+        "evidenceAnchors": [
+          {
+            "id": "E1",
+            "kind": "source",
+            "path": "src/service.mjs",
+            "startLine": 1,
+            "endLine": 3,
+            "sourceRole": "implementation",
+            "temporalRole": "current"
+          },
+          {
+            "id": "E2",
+            "kind": "source",
+            "path": "tests/service.test.mjs",
+            "startLine": 1,
+            "endLine": 4,
+            "sourceRole": "test",
+            "temporalRole": "current"
+          },
+          {
+            "id": "E3",
+            "kind": "source",
+            "path": "config/defaults.mjs",
+            "startLine": 1,
+            "endLine": 1,
+            "sourceRole": "config",
+            "temporalRole": "current"
+          }
+        ],
+        "boundary": {
+          "repoId": "fixture-multi-part-omission",
+          "scope": [
+            "src/**",
+            "tests/**",
+            "config/**"
+          ],
+          "claimScope": [
+            "src/**",
+            "tests/**",
+            "config/**"
+          ]
+        },
+        "expectedState": "complete",
+        "executionExpectations": {
+          "maxPlanRevisions": 1,
+          "uncoveredPartsAfterRevision": 0
+        }
+      }
+    },
+    {
+      "id": "fx-contradictory-policies",
+      "kind": "fixture",
+      "description": "A broad role claim contradicts two route-specific policies.",
+      "sourceRef": "fixture-route-policy-divergence",
+      "fixtureExecution": "direct",
+      "providerFixture": {
+        "path": "fixtures/trust-known-answer/route-policy-divergence/provider-responses.us1.json",
+        "sha256": "511663964d29b6c32a3f4dfa7758c21e5d11d33f65b727b7390da91162715f67"
+      },
+      "invocation": {
+        "tool": "explore_repo",
+        "args": {
+          "task": "Compare authorization roles for the admin and team routes without generalizing.",
+          "scope": [
+            "src/**"
+          ]
+        }
+      },
+      "request": {
+        "text": "Compare authorization roles for the admin and team routes without generalizing.",
+        "parts": [
+          {
+            "id": "P1",
+            "text": "Determine admin-route roles."
+          },
+          {
+            "id": "P2",
+            "text": "Determine team-route roles."
+          }
+        ]
+      },
+      "repeatCount": 3,
+      "schemaV2Baseline": {
+        "outcome": "not_recorded",
+        "schemaVersion": 2,
+        "reason": "This schema-v3 control case had no trustworthy schema-v2 parent payload captured before implementation."
+      },
+      "oracle": {
+        "provenance": {
+          "kind": "fixture_assertion",
+          "sourceRef": "fixture-route-policy-divergence"
+        },
+        "expectedGoals": [
+          {
+            "id": "G1",
+            "question": "How do the two route policies differ?",
+            "originRefs": [
+              "P1",
+              "P2"
+            ],
+            "requestOriginRefs": [
+              "request:0-79"
+            ],
+            "claimType": "comparison",
+            "expectedResolution": "gap",
+            "evidenceAnchorRefs": [
+              "E1",
+              "E2",
+              "E3"
+            ],
+            "anchorPolicy": "all"
+          }
+        ],
+        "allowedClaims": [],
+        "forbiddenClaims": [
+          {
+            "id": "F1",
+            "goalId": "G1",
+            "text": "All protected routes require the super_admin role.",
+            "reason": "The team route permits admin or manager."
+          }
+        ],
+        "evidenceAnchors": [
+          {
+            "id": "E1",
+            "kind": "source",
+            "path": "src/routes/admin.mjs",
+            "startLine": 1,
+            "endLine": 3,
+            "sourceRole": "implementation",
+            "temporalRole": "current"
+          },
+          {
+            "id": "E2",
+            "kind": "source",
+            "path": "src/routes/team.mjs",
+            "startLine": 1,
+            "endLine": 3,
+            "sourceRole": "implementation",
+            "temporalRole": "current"
+          },
+          {
+            "id": "E3",
+            "kind": "source",
+            "path": "src/policy.mjs",
+            "startLine": 1,
+            "endLine": 5,
+            "sourceRole": "implementation",
+            "temporalRole": "current"
+          }
+        ],
+        "boundary": {
+          "repoId": "fixture-route-policy-divergence",
+          "scope": [
+            "src/**"
+          ],
+          "claimScope": [
+            "src/**"
+          ]
+        },
+        "expectedState": "incomplete"
+      }
+    },
+    {
+      "id": "fx-scope-limited-absence",
+      "kind": "fixture",
+      "description": "A complete bounded search may support only a scope-qualified absence.",
+      "sourceRef": "fixture-scoped-truncated-search",
+      "fixtureExecution": "direct",
+      "providerFixture": {
+        "path": "fixtures/trust-known-answer/scoped-truncated-search/provider-responses.fx-scope-limited-absence.json",
+        "sha256": "09fc5cc977f2fcfd80fb1c70a5a62d3f00b3899cf31e1eb5f7f4659799eb187b"
+      },
+      "invocation": {
+        "tool": "explore_repo",
+        "args": {
+          "task": "Enumerate route registrations within src/in-scope/** and determine whether any additional in-scope route exists.",
+          "scope": [
+            "src/in-scope/**"
+          ]
+        }
+      },
+      "request": {
+        "text": "Enumerate route registrations within src/in-scope/** and determine whether any additional in-scope route exists.",
+        "parts": [
+          {
+            "id": "P1",
+            "text": "Enumerate in-scope routes."
+          },
+          {
+            "id": "P2",
+            "text": "Determine bounded in-scope absence."
+          }
+        ]
+      },
+      "repeatCount": 1,
+      "schemaV2Baseline": {
+        "outcome": "not_recorded",
+        "schemaVersion": 2,
+        "reason": "This schema-v3 control case had no trustworthy schema-v2 parent payload captured before implementation."
+      },
+      "oracle": {
+        "provenance": {
+          "kind": "fixture_assertion",
+          "sourceRef": "fixture-scoped-truncated-search"
+        },
+        "expectedGoals": [
+          {
+            "id": "G1",
+            "question": "Which in-scope routes exist?",
+            "originRefs": [
+              "P1"
+            ],
+            "claimType": "comparison",
+            "expectedResolution": "supported",
+            "evidenceAnchorRefs": [
+              "E1",
+              "E2"
+            ],
+            "anchorPolicy": "all"
+          },
+          {
+            "id": "G2",
+            "question": "Is there another route within the same scope?",
+            "originRefs": [
+              "P2"
+            ],
+            "claimType": "absence",
+            "expectedResolution": "supported",
+            "evidenceAnchorRefs": [
+              "E3"
+            ],
+            "anchorPolicy": "any"
+          }
+        ],
+        "allowedClaims": [
+          {
+            "id": "A1",
+            "goalId": "G1",
+            "text": "The bounded scope registers /primary and /secondary.",
+            "evidenceAnchorRefs": [
+              "E1",
+              "E2"
+            ]
+          },
+          {
+            "id": "A2",
+            "goalId": "G2",
+            "text": "No additional route registration exists within src/in-scope/**.",
+            "evidenceAnchorRefs": [
+              "E3"
+            ]
+          }
+        ],
+        "forbiddenClaims": [
+          {
+            "id": "F1",
+            "goalId": "G2",
+            "text": "No other route registration exists in the repository.",
+            "reason": "A legacy route exists outside scope."
+          }
+        ],
+        "evidenceAnchors": [
+          {
+            "id": "E1",
+            "kind": "source",
+            "path": "src/in-scope/primary.mjs",
+            "startLine": 1,
+            "endLine": 3,
+            "sourceRole": "implementation",
+            "temporalRole": "current"
+          },
+          {
+            "id": "E2",
+            "kind": "source",
+            "path": "src/in-scope/secondary.mjs",
+            "startLine": 1,
+            "endLine": 3,
+            "sourceRole": "implementation",
+            "temporalRole": "current"
+          },
+          {
+            "id": "E3",
+            "kind": "search",
+            "tool": "repo_grep",
+            "boundary": [
+              "src/in-scope/**"
+            ],
+            "matchCount": 0,
+            "toolTruncated": false,
+            "contextTruncated": false,
+            "omittedOutOfScopeFiles": 0,
+            "deniedPaths": 0,
+            "errors": 0,
+            "enumerationComplete": true
+          }
+        ],
+        "boundary": {
+          "repoId": "fixture-scoped-truncated-search",
+          "scope": [
+            "src/in-scope/**"
+          ],
+          "claimScope": [
+            "src/in-scope/**"
+          ]
+        },
+        "expectedState": "complete"
+      }
+    },
+    {
+      "id": "fx-truncated-enumeration",
+      "kind": "fixture",
+      "description": "Structured source-integrity coverage treats a capped search as insufficient to certify exhaustive absence.",
+      "sourceRef": "fixture-scoped-truncated-search",
+      "fixtureExecution": "direct",
+      "invocation": {
+        "tool": "explore_repo",
+        "args": {
+          "task": "Determine whether any other route registration exists within src/in-scope/**.",
+          "scope": [
+            "src/in-scope/**"
+          ]
+        }
+      },
+      "request": {
+        "text": "Determine whether any other route registration exists within src/in-scope/**.",
+        "parts": [
+          {
+            "id": "P1",
+            "text": "Determine bounded absence under a capped search."
+          }
+        ]
+      },
+      "repeatCount": 1,
+      "schemaV2Baseline": {
+        "outcome": "not_recorded",
+        "schemaVersion": 2,
+        "reason": "This schema-v3 control case had no trustworthy schema-v2 parent payload captured before implementation."
+      },
+      "oracle": {
+        "provenance": {
+          "kind": "fixture_assertion",
+          "sourceRef": "fixture-scoped-truncated-search"
+        },
+        "expectedGoals": [
+          {
+            "id": "G1",
+            "question": "Is there another in-scope route?",
+            "originRefs": [
+              "P1"
+            ],
+            "claimType": "absence",
+            "expectedResolution": "gap",
+            "evidenceAnchorRefs": [
+              "E1",
+              "E2"
+            ],
+            "anchorPolicy": "all"
+          }
+        ],
+        "allowedClaims": [],
+        "forbiddenClaims": [
+          {
+            "id": "F1",
+            "goalId": "G1",
+            "text": "No other route registration exists.",
+            "reason": "The fixture caps search output at one result."
+          }
+        ],
+        "evidenceAnchors": [
+          {
+            "id": "E1",
+            "kind": "source",
+            "path": "src/in-scope/primary.mjs",
+            "startLine": 1,
+            "endLine": 3,
+            "sourceRole": "implementation",
+            "temporalRole": "current"
+          },
+          {
+            "id": "E2",
+            "kind": "source",
+            "path": "src/in-scope/secondary.mjs",
+            "startLine": 1,
+            "endLine": 3,
+            "sourceRole": "implementation",
+            "temporalRole": "current"
+          }
+        ],
+        "boundary": {
+          "repoId": "fixture-scoped-truncated-search",
+          "scope": [
+            "src/in-scope/**"
+          ],
+          "claimScope": [
+            "src/in-scope/**"
+          ]
+        },
+        "expectedState": "incomplete"
+      }
+    },
+    {
+      "id": "fx-cancellation",
+      "kind": "fixture",
+      "description": "Cancellation during a required stage must suppress stale content.",
+      "sourceRef": "fixture-cancellation",
+      "fixtureExecution": "direct",
+      "invocation": {
+        "tool": "explore_repo",
+        "args": {
+          "task": "Inspect slowOperation and return only if exploration completes.",
+          "scope": [
+            "src/**"
+          ]
+        }
+      },
+      "request": {
+        "text": "Inspect slowOperation and return only if exploration completes.",
+        "parts": [
+          {
+            "id": "P1",
+            "text": "Inspect slowOperation."
+          }
+        ]
+      },
+      "repeatCount": 3,
+      "schemaV2Baseline": {
+        "outcome": "not_recorded",
+        "schemaVersion": 2,
+        "reason": "This schema-v3 control case had no trustworthy schema-v2 parent payload captured before implementation."
+      },
+      "oracle": {
+        "provenance": {
+          "kind": "fixture_assertion",
+          "sourceRef": "fixture-cancellation"
+        },
+        "expectedGoals": [
+          {
+            "id": "G1",
+            "question": "What does slowOperation do?",
+            "originRefs": [
+              "P1"
+            ],
+            "requestOriginRefs": [
+              "request:0-63"
+            ],
+            "claimType": "positive",
+            "expectedResolution": "failed",
+            "evidenceAnchorRefs": [
+              "E1"
+            ],
+            "anchorPolicy": "any"
+          }
+        ],
+        "allowedClaims": [],
+        "forbiddenClaims": [
+          {
+            "id": "F1",
+            "goalId": "G1",
+            "text": "slowOperation returns not-started.",
+            "reason": "No answer may be promoted after cancellation."
+          }
+        ],
+        "evidenceAnchors": [
+          {
+            "id": "E1",
+            "kind": "source",
+            "path": "src/slow.mjs",
+            "startLine": 1,
+            "endLine": 4,
+            "sourceRole": "implementation",
+            "temporalRole": "current"
+          }
+        ],
+        "boundary": {
+          "repoId": "fixture-cancellation",
+          "scope": [
+            "src/**"
+          ],
+          "claimScope": [
+            "src/**"
+          ]
+        },
+        "expectedState": "failed",
+        "expectedFailure": {
+          "category": "execution",
+          "reason": "aborted"
+        }
+      }
+    },
+    {
+      "id": "fx-provider-failure",
+      "kind": "fixture",
+      "description": "A provider fault must not promote a repository guess.",
+      "sourceRef": "fixture-provider-failure",
+      "fixtureExecution": "direct",
+      "invocation": {
+        "tool": "explore_repo",
+        "args": {
+          "task": "Inspect STABLE_VALUE.",
+          "scope": [
+            "src/**"
+          ]
+        }
+      },
+      "request": {
+        "text": "Inspect STABLE_VALUE.",
+        "parts": [
+          {
+            "id": "P1",
+            "text": "Inspect STABLE_VALUE."
+          }
+        ]
+      },
+      "repeatCount": 3,
+      "schemaV2Baseline": {
+        "outcome": "not_recorded",
+        "schemaVersion": 2,
+        "reason": "This schema-v3 control case had no trustworthy schema-v2 parent payload captured before implementation."
+      },
+      "oracle": {
+        "provenance": {
+          "kind": "fixture_assertion",
+          "sourceRef": "fixture-provider-failure"
+        },
+        "expectedGoals": [
+          {
+            "id": "G1",
+            "question": "What is STABLE_VALUE?",
+            "originRefs": [
+              "P1"
+            ],
+            "requestOriginRefs": [
+              "request:0-21"
+            ],
+            "claimType": "positive",
+            "expectedResolution": "failed",
+            "evidenceAnchorRefs": [
+              "E1"
+            ],
+            "anchorPolicy": "any"
+          }
+        ],
+        "allowedClaims": [],
+        "forbiddenClaims": [
+          {
+            "id": "F1",
+            "goalId": "G1",
+            "text": "STABLE_VALUE is available-in-repository.",
+            "reason": "The required provider stage failed before a verified answer."
+          }
+        ],
+        "evidenceAnchors": [
+          {
+            "id": "E1",
+            "kind": "source",
+            "path": "src/stable.mjs",
+            "startLine": 1,
+            "endLine": 1,
+            "sourceRole": "implementation",
+            "temporalRole": "current"
+          }
+        ],
+        "boundary": {
+          "repoId": "fixture-provider-failure",
+          "scope": [
+            "src/**"
+          ],
+          "claimScope": [
+            "src/**"
+          ]
+        },
+        "expectedState": "failed",
+        "expectedFailure": {
+          "category": "provider",
+          "reason": "provider_error"
+        }
+      }
+    },
+    {
+      "id": "fx-generation-output-cap-invalid-control",
+      "kind": "fixture",
+      "description": "An output-capped invalid required control response fails closed without promoting inspected content.",
+      "sourceRef": "fixture-provider-failure",
+      "fixtureExecution": "direct",
+      "providerFixture": {
+        "path": "fixtures/trust-known-answer/provider-failure/provider-responses.generation-output-cap.json",
+        "sha256": "d0eedd36bc3132af37149c8a4bb7b39476d4a7421792b6efbe643067754c8d98"
+      },
+      "invocation": {
+        "tool": "explore_repo",
+        "args": {
+          "task": "Inspect STABLE_VALUE.",
+          "scope": [
+            "src/**"
+          ]
+        }
+      },
+      "request": {
+        "text": "Inspect STABLE_VALUE.",
+        "parts": [
+          {
+            "id": "P1",
+            "text": "Inspect STABLE_VALUE."
+          }
+        ]
+      },
+      "repeatCount": 1,
+      "schemaV2Baseline": {
+        "outcome": "not_recorded",
+        "schemaVersion": 2,
+        "reason": "This schema-v3 control case had no trustworthy schema-v2 parent payload captured before implementation."
+      },
+      "oracle": {
+        "provenance": {
+          "kind": "fixture_assertion",
+          "sourceRef": "fixture-provider-failure"
+        },
+        "expectedGoals": [
+          {
+            "id": "G1",
+            "question": "What is STABLE_VALUE?",
+            "originRefs": [
+              "P1"
+            ],
+            "requestOriginRefs": [
+              "request:0-21"
+            ],
+            "claimType": "positive",
+            "expectedResolution": "failed",
+            "evidenceAnchorRefs": [
+              "E1"
+            ],
+            "anchorPolicy": "any"
+          }
+        ],
+        "allowedClaims": [],
+        "forbiddenClaims": [
+          {
+            "id": "F1",
+            "goalId": "G1",
+            "text": "STABLE_VALUE is 'available-in-repository'.",
+            "reason": "Inspected repository content cannot be promoted after required control JSON remains invalid."
+          }
+        ],
+        "evidenceAnchors": [
+          {
+            "id": "E1",
+            "kind": "source",
+            "path": "src/stable.mjs",
+            "startLine": 1,
+            "endLine": 1,
+            "sourceRole": "implementation",
+            "temporalRole": "current"
+          }
+        ],
+        "boundary": {
+          "repoId": "fixture-provider-failure",
+          "scope": [
+            "src/**"
+          ],
+          "claimScope": [
+            "src/**"
+          ]
+        },
+        "expectedState": "failed",
+        "expectedFailure": {
+          "category": "internal",
+          "reason": "invalid_final_response"
+        },
+        "expectedSafetyLimits": [
+          {
+            "name": "generation_output_limit",
+            "stage": "synthesis",
+            "truncated": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "fx-jsonrpc-id-zero-cancellation",
+      "kind": "fixture",
+      "description": "Valid JSON-RPC id 0 was skipped by truthiness-based cancellation tracking.",
+      "sourceRef": "repo-cerebras-explorer-mcp-b3a7e75",
+      "invocation": {
+        "tool": "explore_repo",
+        "args": {
+          "task": "Start a tools/call request with id 0 and cancel request id 0.",
+          "scope": [
+            "src/mcp/server.mjs"
+          ]
+        }
+      },
+      "request": {
+        "text": "Start a tools/call request with id 0 and cancel request id 0.",
+        "parts": [
+          {
+            "id": "P1",
+            "text": "Start request id 0."
+          },
+          {
+            "id": "P2",
+            "text": "Cancel request id 0."
+          }
+        ]
+      },
+      "repeatCount": 1,
+      "schemaV2Baseline": {
+        "baselineRef": "v2-fx-jsonrpc-id-zero-cancellation"
+      },
+      "oracle": {
+        "provenance": {
+          "kind": "source_review",
+          "sourceRef": "repo-cerebras-explorer-mcp-b3a7e75"
+        },
+        "transportExpectation": {
+          "requestId": 0,
+          "cancelNotificationSent": true,
+          "abortObserved": true
+        },
+        "expectedGoals": [
+          {
+            "id": "G1",
+            "question": "Does cancellation abort request id 0?",
+            "originRefs": [
+              "P1",
+              "P2"
+            ],
+            "claimType": "flow",
+            "expectedResolution": "failed",
+            "evidenceAnchorRefs": [
+              "E1"
+            ],
+            "anchorPolicy": "any"
+          }
+        ],
+        "allowedClaims": [],
+        "forbiddenClaims": [
+          {
+            "id": "F1",
+            "goalId": "G1",
+            "text": "Request id 0 remains pending until manual release.",
+            "reason": "A valid cancellation must abort it."
+          }
+        ],
+        "evidenceAnchors": [
+          {
+            "id": "E1",
+            "kind": "source",
+            "path": "src/mcp/server.mjs",
+            "startLine": 742,
+            "endLine": 779,
+            "sourceRole": "implementation",
+            "temporalRole": "current"
+          }
+        ],
+        "boundary": {
+          "repoId": "cerebras-explorer-mcp",
+          "scope": [
+            "src/mcp/server.mjs"
+          ],
+          "claimScope": [
+            "src/mcp/server.mjs"
+          ]
+        },
+        "expectedState": "failed"
+      }
+    },
+    {
+      "id": "audit-untraceable-invention",
+      "kind": "goal_audit",
+      "description": "An invented throughput goal is rejected and cannot leak or block completion.",
+      "sourceRef": "fixture-goal-invention",
+      "fixtureExecution": "direct",
+      "providerFixture": {
+        "path": "fixtures/trust-known-answer/goal-invention/provider-responses.audit-untraceable-invention.json",
+        "sha256": "d06318d788cd1352471e60a8280eeafcf89ec23004e13916640b0dcd30dd9ff4"
+      },
+      "invocation": {
+        "tool": "explore_repo",
+        "args": {
+          "task": "Explain how a session is authenticated.",
+          "scope": [
+            "src/**"
+          ]
+        }
+      },
+      "request": {
+        "text": "Explain how a session is authenticated.",
+        "parts": [
+          {
+            "id": "P1",
+            "text": "Explain session authentication."
+          }
+        ]
+      },
+      "repeatCount": 1,
+      "schemaV2Baseline": {
+        "outcome": "not_recorded",
+        "schemaVersion": 2,
+        "reason": "This schema-v3 control case had no trustworthy schema-v2 parent payload captured before implementation."
+      },
+      "oracle": {
+        "provenance": {
+          "kind": "fixture_assertion",
+          "sourceRef": "fixture-goal-invention"
+        },
+        "expectedGoals": [
+          {
+            "id": "G1",
+            "question": "How is a session authenticated?",
+            "originRefs": [
+              "P1"
+            ],
+            "claimType": "positive",
+            "expectedResolution": "supported",
+            "evidenceAnchorRefs": [
+              "E1"
+            ],
+            "anchorPolicy": "any"
+          }
+        ],
+        "allowedClaims": [
+          {
+            "id": "A1",
+            "goalId": "G1",
+            "text": "Authentication is Boolean(session?.userId).",
+            "evidenceAnchorRefs": [
+              "E1"
+            ]
+          }
+        ],
+        "forbiddenClaims": [
+          {
+            "id": "F1",
+            "text": "Authentication throughput is high.",
+            "reason": "Throughput was not requested."
+          }
+        ],
+        "evidenceAnchors": [
+          {
+            "id": "E1",
+            "kind": "source",
+            "path": "src/auth.mjs",
+            "startLine": 1,
+            "endLine": 3,
+            "sourceRole": "implementation",
+            "temporalRole": "current"
+          }
+        ],
+        "boundary": {
+          "repoId": "fixture-goal-invention",
+          "scope": [
+            "src/**"
+          ],
+          "claimScope": [
+            "src/**"
+          ]
+        },
+        "expectedState": "complete",
+        "expectedGoalAudits": [
+          {
+            "proposalRef": "S1",
+            "verdict": "ready",
+            "required": true
+          },
+          {
+            "proposalRef": "S2",
+            "verdict": "reject_untraceable",
+            "required": false,
+            "mustNotLeak": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "audit-duplicate-merge",
+      "kind": "goal_audit",
+      "description": "Duplicate authentication goals merge into one required obligation.",
+      "sourceRef": "fixture-goal-invention",
+      "fixtureExecution": "direct",
+      "providerFixture": {
+        "path": "fixtures/trust-known-answer/goal-invention/provider-responses.audit-duplicate-merge.json",
+        "sha256": "c90603782d6202b5cbb1f8b9f5e5b6b2a741aa077f7ec9c2be5a32527ac31ab6"
+      },
+      "invocation": {
+        "tool": "explore_repo",
+        "args": {
+          "task": "Explain session authentication once.",
+          "scope": [
+            "src/**"
+          ]
+        }
+      },
+      "request": {
+        "text": "Explain session authentication once.",
+        "parts": [
+          {
+            "id": "P1",
+            "text": "Explain session authentication once."
+          }
+        ]
+      },
+      "repeatCount": 1,
+      "schemaV2Baseline": {
+        "outcome": "not_recorded",
+        "schemaVersion": 2,
+        "reason": "This schema-v3 control case had no trustworthy schema-v2 parent payload captured before implementation."
+      },
+      "oracle": {
+        "provenance": {
+          "kind": "fixture_assertion",
+          "sourceRef": "fixture-goal-invention"
+        },
+        "expectedGoals": [
+          {
+            "id": "G1",
+            "question": "How is a session authenticated?",
+            "originRefs": [
+              "P1"
+            ],
+            "claimType": "positive",
+            "expectedResolution": "supported",
+            "evidenceAnchorRefs": [
+              "E1"
+            ],
+            "anchorPolicy": "any"
+          }
+        ],
+        "allowedClaims": [
+          {
+            "id": "A1",
+            "goalId": "G1",
+            "text": "Authentication is Boolean(session?.userId).",
+            "evidenceAnchorRefs": [
+              "E1"
+            ]
+          }
+        ],
+        "forbiddenClaims": [
+          {
+            "id": "F1",
+            "text": "Two authentication gaps remain.",
+            "reason": "Duplicate proposals must merge."
+          }
+        ],
+        "evidenceAnchors": [
+          {
+            "id": "E1",
+            "kind": "source",
+            "path": "src/auth.mjs",
+            "startLine": 1,
+            "endLine": 3,
+            "sourceRole": "implementation",
+            "temporalRole": "current"
+          }
+        ],
+        "boundary": {
+          "repoId": "fixture-goal-invention",
+          "scope": [
+            "src/**"
+          ],
+          "claimScope": [
+            "src/**"
+          ]
+        },
+        "expectedState": "complete",
+        "expectedGoalAudits": [
+          {
+            "proposalRef": "S1",
+            "verdict": "ready",
+            "required": true
+          },
+          {
+            "proposalRef": "S2",
+            "verdict": "merge_duplicate",
+            "mergedInto": "S1",
+            "required": false,
+            "mustNotLeak": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "audit-overbroad-decomposition",
+      "kind": "goal_audit",
+      "description": "A broad multipart goal is decomposed once into three observable goals.",
+      "sourceRef": "fixture-multi-part-omission",
+      "fixtureExecution": "direct",
+      "providerFixture": {
+        "path": "fixtures/trust-known-answer/multi-part-omission/provider-responses.audit-overbroad-decomposition.json",
+        "sha256": "55cc67527f7e15b03cebc95633a85323a82d559817d1b47c4752837ae7bcb51d"
+      },
+      "invocation": {
+        "tool": "explore_repo",
+        "args": {
+          "task": "Explain the implementation, test, and configured default as separate facts.",
+          "scope": [
+            "src/**",
+            "tests/**",
+            "config/**"
+          ]
+        }
+      },
+      "request": {
+        "text": "Explain the implementation, test, and configured default as separate facts.",
+        "parts": [
+          {
+            "id": "P1",
+            "text": "Explain implementation."
+          },
+          {
+            "id": "P2",
+            "text": "Explain test."
+          },
+          {
+            "id": "P3",
+            "text": "Explain default."
+          }
+        ]
+      },
+      "repeatCount": 1,
+      "schemaV2Baseline": {
+        "outcome": "not_recorded",
+        "schemaVersion": 2,
+        "reason": "This schema-v3 control case had no trustworthy schema-v2 parent payload captured before implementation."
+      },
+      "oracle": {
+        "provenance": {
+          "kind": "fixture_assertion",
+          "sourceRef": "fixture-multi-part-omission"
+        },
+        "expectedGoals": [
+          {
+            "id": "G1",
+            "question": "What does serviceMode return?",
+            "originRefs": [
+              "P1"
+            ],
+            "claimType": "positive",
+            "expectedResolution": "supported",
+            "evidenceAnchorRefs": [
+              "E1"
+            ],
+            "anchorPolicy": "any"
+          },
+          {
+            "id": "G2",
+            "question": "Which test verifies it?",
+            "originRefs": [
+              "P2"
+            ],
+            "claimType": "positive",
+            "expectedResolution": "supported",
+            "evidenceAnchorRefs": [
+              "E2"
+            ],
+            "anchorPolicy": "any"
+          },
+          {
+            "id": "G3",
+            "question": "What is the default?",
+            "originRefs": [
+              "P3"
+            ],
+            "claimType": "positive",
+            "expectedResolution": "supported",
+            "evidenceAnchorRefs": [
+              "E3"
+            ],
+            "anchorPolicy": "any"
+          }
+        ],
+    "allowedClaims": [
+      {
+        "id": "A1",
+        "goalId": "G1",
+        "text": "serviceMode returns 'safe'.",
+        "evidenceAnchorRefs": [
+          "E1"
+        ]
+      },
+      {
+        "id": "A2",
+        "goalId": "G2",
+        "text": "tests/service.test.mjs asserts that serviceMode() equals 'safe'.",
+        "evidenceAnchorRefs": [
+          "E2"
+        ]
+      },
+      {
+        "id": "A3",
+        "goalId": "G3",
+        "text": "DEFAULT_SERVICE_MODE is 'safe'.",
+        "evidenceAnchorRefs": [
+          "E3"
+        ]
+      }
+    ],
+        "forbiddenClaims": [
+          {
+            "id": "F1",
+            "text": "One indivisible goal proves implementation, test, and default.",
+            "reason": "The proof conditions are distinct."
+          }
+        ],
+        "evidenceAnchors": [
+          {
+            "id": "E1",
+            "kind": "source",
+            "path": "src/service.mjs",
+            "startLine": 1,
+            "endLine": 3,
+            "sourceRole": "implementation",
+            "temporalRole": "current"
+          },
+          {
+            "id": "E2",
+            "kind": "source",
+            "path": "tests/service.test.mjs",
+            "startLine": 1,
+            "endLine": 4,
+            "sourceRole": "test",
+            "temporalRole": "current"
+          },
+          {
+            "id": "E3",
+            "kind": "source",
+            "path": "config/defaults.mjs",
+            "startLine": 1,
+            "endLine": 1,
+            "sourceRole": "config",
+            "temporalRole": "current"
+          }
+        ],
+        "boundary": {
+          "repoId": "fixture-multi-part-omission",
+          "scope": [
+            "src/**",
+            "tests/**",
+            "config/**"
+          ],
+          "claimScope": [
+            "src/**",
+            "tests/**",
+            "config/**"
+          ]
+        },
+        "expectedState": "complete",
+        "expectedGoalAudits": [
+          {
+            "proposalRef": "S-broad",
+            "verdict": "needs_decomposition",
+            "required": false
+          }
+        ],
+        "executionExpectations": {
+          "maxPlanRevisions": 1
+        }
+      }
+    },
+    {
+      "id": "audit-omitted-request-part",
+      "kind": "goal_audit",
+      "description": "Omitted test and default parts are inserted in the one allowed revision.",
+      "sourceRef": "fixture-multi-part-omission",
+      "fixtureExecution": "direct",
+      "providerFixture": {
+        "path": "fixtures/trust-known-answer/multi-part-omission/provider-responses.audit-omitted-request-part.json",
+        "sha256": "267dcbf14d09f9c1aa83a993c6148b9c8168496448deb792fd597d0e68696bda"
+      },
+      "invocation": {
+        "tool": "explore_repo",
+        "args": {
+          "task": "Explain the implementation, test, and configured default.",
+          "scope": [
+            "src/**",
+            "tests/**",
+            "config/**"
+          ]
+        }
+      },
+      "request": {
+        "text": "Explain the implementation, test, and configured default.",
+        "parts": [
+          {
+            "id": "P1",
+            "text": "Explain implementation."
+          },
+          {
+            "id": "P2",
+            "text": "Explain test."
+          },
+          {
+            "id": "P3",
+            "text": "Explain default."
+          }
+        ]
+      },
+      "repeatCount": 1,
+      "schemaV2Baseline": {
+        "outcome": "not_recorded",
+        "schemaVersion": 2,
+        "reason": "This schema-v3 control case had no trustworthy schema-v2 parent payload captured before implementation."
+      },
+      "oracle": {
+        "provenance": {
+          "kind": "fixture_assertion",
+          "sourceRef": "fixture-multi-part-omission"
+        },
+        "expectedGoals": [
+          {
+            "id": "G1",
+            "question": "What does serviceMode return?",
+            "originRefs": [
+              "P1"
+            ],
+            "claimType": "positive",
+            "expectedResolution": "supported",
+            "evidenceAnchorRefs": [
+              "E1"
+            ],
+            "anchorPolicy": "any"
+          },
+          {
+            "id": "G2",
+            "question": "Which test verifies it?",
+            "originRefs": [
+              "P2"
+            ],
+            "claimType": "positive",
+            "expectedResolution": "supported",
+            "evidenceAnchorRefs": [
+              "E2"
+            ],
+            "anchorPolicy": "any"
+          },
+          {
+            "id": "G3",
+            "question": "What is the default?",
+            "originRefs": [
+              "P3"
+            ],
+            "claimType": "positive",
+            "expectedResolution": "supported",
+            "evidenceAnchorRefs": [
+              "E3"
+            ],
+            "anchorPolicy": "any"
+          }
+        ],
+    "allowedClaims": [
+      {
+        "id": "A1",
+        "goalId": "G1",
+        "text": "serviceMode returns 'safe'.",
+        "evidenceAnchorRefs": [
+          "E1"
+        ]
+      },
+      {
+        "id": "A2",
+        "goalId": "G2",
+        "text": "tests/service.test.mjs asserts that serviceMode() equals 'safe'.",
+        "evidenceAnchorRefs": [
+          "E2"
+        ]
+      },
+      {
+        "id": "A3",
+        "goalId": "G3",
+        "text": "DEFAULT_SERVICE_MODE is 'safe'.",
+        "evidenceAnchorRefs": [
+          "E3"
+            ]
+          }
+        ],
+        "forbiddenClaims": [
+          {
+            "id": "F1",
+            "text": "The implementation alone completes the request.",
+            "reason": "Tests and defaults are explicit request parts."
+          }
+        ],
+        "evidenceAnchors": [
+          {
+            "id": "E1",
+            "kind": "source",
+            "path": "src/service.mjs",
+            "startLine": 1,
+            "endLine": 3,
+            "sourceRole": "implementation",
+            "temporalRole": "current"
+          },
+          {
+            "id": "E2",
+            "kind": "source",
+            "path": "tests/service.test.mjs",
+            "startLine": 1,
+            "endLine": 4,
+            "sourceRole": "test",
+            "temporalRole": "current"
+          },
+          {
+            "id": "E3",
+            "kind": "source",
+            "path": "config/defaults.mjs",
+            "startLine": 1,
+            "endLine": 1,
+            "sourceRole": "config",
+            "temporalRole": "current"
+          }
+        ],
+        "boundary": {
+          "repoId": "fixture-multi-part-omission",
+          "scope": [
+            "src/**",
+            "tests/**",
+            "config/**"
+          ],
+          "claimScope": [
+            "src/**",
+            "tests/**",
+            "config/**"
+          ]
+        },
+        "expectedState": "complete",
+        "expectedGoalAudits": [
+          {
+            "proposalRef": "S1",
+            "verdict": "ready",
+            "required": true
+          }
+        ],
+        "executionExpectations": {
+          "maxPlanRevisions": 1,
+          "insertedRequestPartRefs": [
+            "P2",
+            "P3"
+          ]
+        }
+      }
+    },
+    {
+      "id": "audit-immutable-scope-block",
+      "kind": "goal_audit",
+      "description": "A requested outside-scope route remains a required scope blocker.",
+      "sourceRef": "fixture-scoped-truncated-search",
+      "fixtureExecution": "direct",
+      "providerFixture": {
+        "path": "fixtures/trust-known-answer/scoped-truncated-search/provider-responses.audit-immutable-scope-block.json",
+        "sha256": "108348947147c6a5486b404d8b85b6d414fa91a6ee5cea71c374402f05c90151"
+      },
+      "invocation": {
+        "tool": "explore_repo",
+        "args": {
+          "task": "Determine whether the legacy route exists while scope remains src/in-scope/**.",
+          "scope": [
+            "src/in-scope/**"
+          ]
+        }
+      },
+      "request": {
+        "text": "Determine whether the legacy route exists while scope remains src/in-scope/**.",
+        "parts": [
+          {
+            "id": "P1",
+            "text": "Determine whether the legacy route exists without widening scope."
+          }
+        ]
+      },
+      "repeatCount": 1,
+      "schemaV2Baseline": {
+        "outcome": "not_recorded",
+        "schemaVersion": 2,
+        "reason": "This schema-v3 control case had no trustworthy schema-v2 parent payload captured before implementation."
+      },
+      "oracle": {
+        "provenance": {
+          "kind": "fixture_assertion",
+          "sourceRef": "fixture-scoped-truncated-search"
+        },
+        "expectedGoals": [
+          {
+            "id": "G1",
+            "question": "Does the legacy route exist?",
+            "originRefs": [
+              "P1"
+            ],
+            "claimType": "positive",
+            "expectedResolution": "gap",
+            "evidenceAnchorRefs": [
+              "E1"
+            ],
+            "anchorPolicy": "any"
+          }
+        ],
+        "allowedClaims": [],
+        "forbiddenClaims": [
+          {
+            "id": "F1",
+            "goalId": "G1",
+            "text": "The legacy route does not exist.",
+            "reason": "Its source is outside the immutable scope."
+          }
+        ],
+        "evidenceAnchors": [
+          {
+            "id": "E1",
+            "kind": "source",
+            "path": "src/in-scope/primary.mjs",
+            "startLine": 1,
+            "endLine": 3,
+            "sourceRole": "implementation",
+            "temporalRole": "current"
+          }
+        ],
+        "boundary": {
+          "repoId": "fixture-scoped-truncated-search",
+          "scope": [
+            "src/in-scope/**"
+          ],
+          "claimScope": [
+            "src/in-scope/**"
+          ]
+        },
+        "expectedState": "incomplete",
+        "expectedGoalAudits": [
+          {
+            "proposalRef": "S1",
+            "verdict": "blocked_scope",
+            "required": true
+          }
+        ],
+        "executionExpectations": {
+          "repairRoundsForBlockedGoals": 0,
+          "scopeWidened": false
+        }
+      }
+    },
+    {
+      "id": "audit-readonly-capability-block",
+      "kind": "goal_audit",
+      "description": "A requested deployment write remains a required capability blocker.",
+      "sourceRef": "fixture-infeasible-goals",
+      "fixtureExecution": "direct",
+      "invocation": {
+        "tool": "explore_repo",
+        "args": {
+          "task": "Update the deployment if the configured image is stale.",
+          "scope": [
+            "config/**"
+          ]
+        }
+      },
+      "request": {
+        "text": "Update the deployment if the configured image is stale.",
+        "parts": [
+          {
+            "id": "P1",
+            "text": "Update the deployment when stale."
+          }
+        ]
+      },
+      "repeatCount": 1,
+      "schemaV2Baseline": {
+        "outcome": "not_recorded",
+        "schemaVersion": 2,
+        "reason": "This schema-v3 control case had no trustworthy schema-v2 parent payload captured before implementation."
+      },
+      "oracle": {
+        "provenance": {
+          "kind": "fixture_assertion",
+          "sourceRef": "fixture-infeasible-goals"
+        },
+        "expectedGoals": [
+          {
+            "id": "G1",
+            "question": "Can the deployment be updated?",
+            "originRefs": [
+              "P1"
+            ],
+            "claimType": "positive",
+            "expectedResolution": "gap",
+            "evidenceAnchorRefs": [
+              "E1"
+            ],
+            "anchorPolicy": "any"
+          }
+        ],
+        "allowedClaims": [],
+        "forbiddenClaims": [
+          {
+            "id": "F1",
+            "goalId": "G1",
+            "text": "The deployment was updated.",
+            "reason": "The explorer is read-only."
+          }
+        ],
+        "evidenceAnchors": [
+          {
+            "id": "E1",
+            "kind": "source",
+            "path": "config/deployment.mjs",
+            "startLine": 1,
+            "endLine": 2,
+            "sourceRole": "config",
+            "temporalRole": "current"
+          }
+        ],
+        "boundary": {
+          "repoId": "fixture-infeasible-goals",
+          "scope": [
+            "config/**"
+          ],
+          "claimScope": [
+            "config/**"
+          ]
+        },
+        "expectedState": "incomplete",
+        "expectedGoalAudits": [
+          {
+            "proposalRef": "S2",
+            "verdict": "blocked_capability",
+            "required": true
+          }
+        ],
+        "executionExpectations": {
+          "repairRoundsForBlockedGoals": 0
+        }
+      }
+    },
+    {
+      "id": "audit-unavailable-live-state",
+      "kind": "goal_audit",
+      "description": "Desired repository config cannot prove mutable deployed state.",
+      "sourceRef": "fixture-infeasible-goals",
+      "fixtureExecution": "direct",
+      "providerFixture": {
+        "path": "fixtures/trust-known-answer/infeasible-goals/provider-responses.audit-unavailable-live-state.json",
+        "sha256": "f0ee97c79bbfdc5452bec5a61af200957c39dac5c8e5efd1e795bb65f2d8da5c"
+      },
+      "invocation": {
+        "tool": "explore_repo",
+        "args": {
+          "task": "Determine whether service:v2 is currently deployed.",
+          "scope": [
+            "config/**"
+          ]
+        }
+      },
+      "request": {
+        "text": "Determine whether service:v2 is currently deployed.",
+        "parts": [
+          {
+            "id": "P1",
+            "text": "Determine current live deployment state."
+          }
+        ]
+      },
+      "repeatCount": 1,
+      "schemaV2Baseline": {
+        "outcome": "not_recorded",
+        "schemaVersion": 2,
+        "reason": "This schema-v3 control case had no trustworthy schema-v2 parent payload captured before implementation."
+      },
+      "oracle": {
+        "provenance": {
+          "kind": "fixture_assertion",
+          "sourceRef": "fixture-infeasible-goals"
+        },
+        "expectedGoals": [
+          {
+            "id": "G1",
+            "question": "Is service:v2 currently deployed?",
+            "originRefs": [
+              "P1"
+            ],
+            "claimType": "positive",
+            "expectedResolution": "gap",
+            "evidenceAnchorRefs": [
+              "E1"
+            ],
+            "anchorPolicy": "any"
+          }
+        ],
+        "allowedClaims": [],
+        "forbiddenClaims": [
+          {
+            "id": "F1",
+            "goalId": "G1",
+            "text": "service:v2 is currently deployed.",
+            "reason": "Desired config is not live-state proof."
+          }
+        ],
+        "evidenceAnchors": [
+          {
+            "id": "E1",
+            "kind": "source",
+            "path": "config/deployment.mjs",
+            "startLine": 1,
+            "endLine": 2,
+            "sourceRole": "config",
+            "temporalRole": "current"
+          }
+        ],
+        "boundary": {
+          "repoId": "fixture-infeasible-goals",
+          "scope": [
+            "config/**"
+          ],
+          "claimScope": [
+            "config/**"
+          ]
+        },
+        "expectedState": "incomplete",
+        "expectedGoalAudits": [
+          {
+            "proposalRef": "S1",
+            "verdict": "requires_external_state",
+            "required": true
+          }
+        ],
+        "executionExpectations": {
+          "repairRoundsForBlockedGoals": 0
+        }
+      }
+    },
+    {
+      "id": "audit-missing-input",
+      "kind": "goal_audit",
+      "description": "Deployment state cannot be checked without a target environment identifier.",
+      "sourceRef": "fixture-infeasible-goals",
+      "fixtureExecution": "direct",
+      "providerFixture": {
+        "path": "fixtures/trust-known-answer/infeasible-goals/provider-responses.audit-missing-input.json",
+        "sha256": "c24670bb8ac2d5021e438cd9081f7a454f99924136755680c24dbf0265c7d8f4"
+      },
+      "invocation": {
+        "tool": "explore_repo",
+        "args": {
+          "task": "Check deployment state, but no environment or deployment identifier is supplied.",
+          "scope": [
+            "config/**"
+          ]
+        }
+      },
+      "request": {
+        "text": "Check deployment state, but no environment or deployment identifier is supplied.",
+        "parts": [
+          {
+            "id": "P1",
+            "text": "Check the unspecified deployment target."
+          }
+        ]
+      },
+      "repeatCount": 1,
+      "schemaV2Baseline": {
+        "outcome": "not_recorded",
+        "schemaVersion": 2,
+        "reason": "This schema-v3 control case had no trustworthy schema-v2 parent payload captured before implementation."
+      },
+      "oracle": {
+        "provenance": {
+          "kind": "fixture_assertion",
+          "sourceRef": "fixture-infeasible-goals"
+        },
+        "expectedGoals": [
+          {
+            "id": "G1",
+            "question": "Which deployment target should be checked?",
+            "originRefs": [
+              "P1"
+            ],
+            "claimType": "positive",
+            "expectedResolution": "gap",
+            "evidenceAnchorRefs": [
+              "E1"
+            ],
+            "anchorPolicy": "any"
+          }
+        ],
+        "allowedClaims": [],
+        "forbiddenClaims": [
+          {
+            "id": "F1",
+            "goalId": "G1",
+            "text": "The production deployment is current.",
+            "reason": "The target environment was not supplied."
+          }
+        ],
+        "evidenceAnchors": [
+          {
+            "id": "E1",
+            "kind": "source",
+            "path": "config/deployment.mjs",
+            "startLine": 1,
+            "endLine": 2,
+            "sourceRole": "config",
+            "temporalRole": "current"
+          }
+        ],
+        "boundary": {
+          "repoId": "fixture-infeasible-goals",
+          "scope": [
+            "config/**"
+          ],
+          "claimScope": [
+            "config/**"
+          ]
+        },
+        "expectedState": "incomplete",
+        "expectedGoalAudits": [
+          {
+            "proposalRef": "S1",
+            "verdict": "missing_input",
+            "required": true
+          }
+        ],
+        "executionExpectations": {
+          "repairRoundsForBlockedGoals": 0
+        }
+      }
+    },
+    {
+      "id": "audit-contradictory-requirements",
+      "kind": "goal_audit",
+      "description": "Caller requirements that erase and preserve route differences conflict.",
+      "sourceRef": "fixture-route-policy-divergence",
+      "fixtureExecution": "direct",
+      "providerFixture": {
+        "path": "fixtures/trust-known-answer/route-policy-divergence/provider-responses.audit-contradictory-requirements.json",
+        "sha256": "408ab32c3333668c9310d1141dbe68f9456913515f716427999785592c60101e"
+      },
+      "invocation": {
+        "tool": "explore_repo",
+        "args": {
+          "task": "Report both routes as super_admin-only while also preserving their actual distinct role sets.",
+          "scope": [
+            "src/**"
+          ]
+        }
+      },
+      "request": {
+        "text": "Report both routes as super_admin-only while also preserving their actual distinct role sets.",
+        "parts": [
+          {
+            "id": "P1",
+            "text": "Report both routes as super_admin-only."
+          },
+          {
+            "id": "P2",
+            "text": "Preserve their actual distinct role sets."
+          }
+        ]
+      },
+      "repeatCount": 1,
+      "schemaV2Baseline": {
+        "outcome": "not_recorded",
+        "schemaVersion": 2,
+        "reason": "This schema-v3 control case had no trustworthy schema-v2 parent payload captured before implementation."
+      },
+      "oracle": {
+        "provenance": {
+          "kind": "fixture_assertion",
+          "sourceRef": "fixture-route-policy-divergence"
+        },
+        "expectedGoals": [
+          {
+            "id": "G1",
+            "question": "Can both requested constraints be satisfied?",
+            "originRefs": [
+              "P1",
+              "P2"
+            ],
+            "claimType": "comparison",
+            "expectedResolution": "gap",
+            "evidenceAnchorRefs": [
+              "E1",
+              "E2"
+            ],
+            "anchorPolicy": "all"
+          }
+        ],
+        "allowedClaims": [],
+        "forbiddenClaims": [
+          {
+            "id": "F1",
+            "goalId": "G1",
+            "text": "Both contradictory requirements were satisfied.",
+            "reason": "The route declarations differ."
+          }
+        ],
+        "evidenceAnchors": [
+          {
+            "id": "E1",
+            "kind": "source",
+            "path": "src/routes/admin.mjs",
+            "startLine": 1,
+            "endLine": 3,
+            "sourceRole": "implementation",
+            "temporalRole": "current"
+          },
+          {
+            "id": "E2",
+            "kind": "source",
+            "path": "src/routes/team.mjs",
+            "startLine": 1,
+            "endLine": 3,
+            "sourceRole": "implementation",
+            "temporalRole": "current"
+          }
+        ],
+        "boundary": {
+          "repoId": "fixture-route-policy-divergence",
+          "scope": [
+            "src/**"
+          ],
+          "claimScope": [
+            "src/**"
+          ]
+        },
+        "expectedState": "incomplete",
+        "expectedGoalAudits": [
+          {
+            "proposalRef": "S1",
+            "verdict": "contradictory",
+            "required": true
+          }
+        ],
+        "executionExpectations": {
+          "repairRoundsForBlockedGoals": 0
+        }
+      }
+    },
+    {
+      "id": "audit-unobservable-proof",
+      "kind": "goal_audit",
+      "description": "A permanent future guarantee has no repository-observable proof condition.",
+      "sourceRef": "fixture-infeasible-goals",
+      "fixtureExecution": "direct",
+      "providerFixture": {
+        "path": "fixtures/trust-known-answer/infeasible-goals/provider-responses.audit-unobservable-proof.json",
+        "sha256": "e3ae0e83527b3c478694cd5f3c926b0bb7f0dc6e0cf9b6a7aa3fabb2afc0ac5b"
+      },
+      "invocation": {
+        "tool": "explore_repo",
+        "args": {
+          "task": "Prove that the deployment configuration will never become stale.",
+          "scope": [
+            "config/**"
+          ]
+        }
+      },
+      "request": {
+        "text": "Prove that the deployment configuration will never become stale.",
+        "parts": [
+          {
+            "id": "P1",
+            "text": "Prove a permanent future guarantee."
+          }
+        ]
+      },
+      "repeatCount": 1,
+      "schemaV2Baseline": {
+        "outcome": "not_recorded",
+        "schemaVersion": 2,
+        "reason": "This schema-v3 control case had no trustworthy schema-v2 parent payload captured before implementation."
+      },
+      "oracle": {
+        "provenance": {
+          "kind": "fixture_assertion",
+          "sourceRef": "fixture-infeasible-goals"
+        },
+        "expectedGoals": [
+          {
+            "id": "G1",
+            "question": "Can future non-staleness be proven?",
+            "originRefs": [
+              "P1"
+            ],
+            "claimType": "positive",
+            "expectedResolution": "gap",
+            "evidenceAnchorRefs": [
+              "E1"
+            ],
+            "anchorPolicy": "any"
+          }
+        ],
+        "allowedClaims": [],
+        "forbiddenClaims": [
+          {
+            "id": "F1",
+            "goalId": "G1",
+            "text": "The deployment configuration will never become stale.",
+            "reason": "Current source cannot prove all future states."
+          }
+        ],
+        "evidenceAnchors": [
+          {
+            "id": "E1",
+            "kind": "source",
+            "path": "config/deployment.mjs",
+            "startLine": 1,
+            "endLine": 2,
+            "sourceRole": "config",
+            "temporalRole": "current"
+          }
+        ],
+        "boundary": {
+          "repoId": "fixture-infeasible-goals",
+          "scope": [
+            "config/**"
+          ],
+          "claimScope": [
+            "config/**"
+          ]
+        },
+        "expectedState": "incomplete",
+        "expectedGoalAudits": [
+          {
+            "proposalRef": "S1",
+            "verdict": "unverifiable",
+            "required": true
+          }
+        ],
+        "executionExpectations": {
+          "repairRoundsForBlockedGoals": 0
+        }
+      }
+    },
+    {
+      "id": "audit-feasible-unsupported",
+      "kind": "goal_audit",
+      "description": "A feasible broad policy goal remains unresolved after counterevidence repair.",
+      "sourceRef": "fixture-repair-counterevidence",
+      "fixtureExecution": "direct",
+      "providerFixture": {
+        "path": "fixtures/trust-known-answer/repair-counterevidence/provider-responses.us1.json",
+        "sha256": "8660276314e673dc1f8c2f885d5768332bd0eacee09ef709722d0a01eba5800f"
+      },
+      "invocation": {
+        "tool": "explore_repo",
+        "args": {
+          "task": "Determine whether every route requires authentication and inspect exceptions.",
+          "scope": [
+            "src/**"
+          ]
+        }
+      },
+      "request": {
+        "text": "Determine whether every route requires authentication and inspect exceptions.",
+        "parts": [
+          {
+            "id": "P1",
+            "text": "Determine whether every route requires authentication."
+          },
+          {
+            "id": "P2",
+            "text": "Inspect route-specific exceptions."
+          }
+        ]
+      },
+      "repeatCount": 3,
+      "schemaV2Baseline": {
+        "outcome": "not_recorded",
+        "schemaVersion": 2,
+        "reason": "This schema-v3 control case had no trustworthy schema-v2 parent payload captured before implementation."
+      },
+      "oracle": {
+        "provenance": {
+          "kind": "fixture_assertion",
+          "sourceRef": "fixture-repair-counterevidence"
+        },
+        "expectedGoals": [
+          {
+            "id": "G1",
+            "question": "Does every route require authentication?",
+            "originRefs": [
+              "P1",
+              "P2"
+            ],
+            "requestOriginRefs": [
+              "request:0-77"
+            ],
+            "claimType": "comparison",
+            "expectedResolution": "gap",
+            "evidenceAnchorRefs": [
+              "E1",
+              "E2",
+              "E3"
+            ],
+            "anchorPolicy": "all"
+          }
+        ],
+        "allowedClaims": [],
+        "forbiddenClaims": [
+          {
+            "id": "F1",
+            "goalId": "G1",
+            "text": "Every route requires authentication.",
+            "reason": "The legacy route is public."
+          }
+        ],
+        "evidenceAnchors": [
+          {
+            "id": "E1",
+            "kind": "source",
+            "path": "src/policy.mjs",
+            "startLine": 1,
+            "endLine": 1,
+            "sourceRole": "implementation",
+            "temporalRole": "current"
+          },
+          {
+            "id": "E2",
+            "kind": "source",
+            "path": "src/routes/current.mjs",
+            "startLine": 1,
+            "endLine": 3,
+            "sourceRole": "implementation",
+            "temporalRole": "current"
+          },
+          {
+            "id": "E3",
+            "kind": "source",
+            "path": "src/routes/legacy.mjs",
+            "startLine": 1,
+            "endLine": 1,
+            "sourceRole": "implementation",
+            "temporalRole": "current"
+          }
+        ],
+        "boundary": {
+          "repoId": "fixture-repair-counterevidence",
+          "scope": [
+            "src/**"
+          ],
+          "claimScope": [
+            "src/**"
+          ]
+        },
+        "expectedState": "incomplete",
+        "expectedGoalAudits": [
+          {
+            "proposalRef": "S1",
+            "verdict": "ready",
+            "required": true
+          }
+        ],
+        "executionExpectations": {
+          "maxPlanRevisions": 1,
+          "maxRepairRounds": 1,
+          "repeatEquivalentFollowUp": false
+        }
+      }
+    },
+    {
+      "id": "fx-supported-refutation",
+      "kind": "fixture",
+      "description": "A directly observed public route supports refuting the caller's universal authentication premise.",
+      "sourceRef": "fixture-repair-counterevidence",
+      "fixtureExecution": "direct",
+      "providerFixture": {
+        "path": "fixtures/trust-known-answer/repair-counterevidence/provider-responses.us1-refutation.json",
+        "sha256": "2f114ad5912af616ab6ca1c1db9545ffb73afc2a571c128bf7a63da3f012b4dc"
+      },
+      "invocation": {
+        "tool": "explore_repo",
+        "args": {
+          "task": "Verify the claim that every route requires authentication.",
+          "scope": [
+            "src/**"
+          ]
+        }
+      },
+      "request": {
+        "text": "Verify the claim that every route requires authentication.",
+        "parts": [
+          {
+            "id": "P1",
+            "text": "Verify whether every route requires authentication."
+          }
+        ]
+      },
+      "repeatCount": 3,
+      "schemaV2Baseline": {
+        "outcome": "not_recorded",
+        "schemaVersion": 2,
+        "reason": "This schema-v3 control case had no trustworthy schema-v2 parent payload captured before implementation."
+      },
+      "oracle": {
+        "provenance": {
+          "kind": "fixture_assertion",
+          "sourceRef": "fixture-repair-counterevidence"
+        },
+        "expectedGoals": [
+          {
+            "id": "G1",
+            "question": "Is the claim that every route requires authentication true?",
+            "originRefs": [
+              "P1"
+            ],
+            "requestOriginRefs": [
+              "request:0-58"
+            ],
+            "claimType": "claim_verification",
+            "expectedResolution": "refuted",
+            "evidenceAnchorRefs": [
+              "E1"
+            ],
+            "anchorPolicy": "any"
+          }
+        ],
+        "allowedClaims": [
+          {
+            "id": "A1",
+            "goalId": "G1",
+            "text": "The claim is false: legacyRouteAccess is 'public', so not every route requires authentication.",
+            "evidenceAnchorRefs": [
+              "E1"
+            ]
+          }
+        ],
+        "forbiddenClaims": [
+          {
+            "id": "F1",
+            "goalId": "G1",
+            "text": "Every route requires authentication.",
+            "reason": "legacyRouteAccess is directly declared public."
+          }
+        ],
+        "evidenceAnchors": [
+          {
+            "id": "E1",
+            "kind": "source",
+            "path": "src/routes/legacy.mjs",
+            "startLine": 1,
+            "endLine": 1,
+            "sourceRole": "implementation",
+            "temporalRole": "current"
+          }
+        ],
+        "boundary": {
+          "repoId": "fixture-repair-counterevidence",
+          "scope": [
+            "src/**"
+          ],
+          "claimScope": [
+            "src/**"
+          ]
+        },
+        "expectedState": "complete"
+      }
+    },
+    {
+      "id": "fx-partial-multipart",
+      "kind": "fixture",
+      "description": "Two supported request parts must remain usable while an uninspected third part prevents completion.",
+      "sourceRef": "fixture-multi-part-omission",
+      "fixtureExecution": "direct",
+      "providerFixture": {
+        "path": "fixtures/trust-known-answer/multi-part-omission/provider-responses.us1-partial.json",
+        "sha256": "923844a9ba79c880fdf2397b63ae9f40311898455729e1e5a9a90bd3cc9d5bce"
+      },
+      "invocation": {
+        "tool": "explore_repo",
+        "args": {
+          "task": "Explain the service implementation, its test, and its configured default.",
+          "scope": [
+            "src/**",
+            "tests/**",
+            "config/**"
+          ]
+        }
+      },
+      "request": {
+        "text": "Explain the service implementation, its test, and its configured default.",
+        "parts": [
+          {
+            "id": "P1",
+            "text": "Explain the implementation."
+          },
+          {
+            "id": "P2",
+            "text": "Identify the test."
+          },
+          {
+            "id": "P3",
+            "text": "Identify the default."
+          }
+        ]
+      },
+      "repeatCount": 3,
+      "schemaV2Baseline": {
+        "outcome": "not_recorded",
+        "schemaVersion": 2,
+        "reason": "This schema-v3 control case had no trustworthy schema-v2 parent payload captured before implementation."
+      },
+      "oracle": {
+        "provenance": {
+          "kind": "fixture_assertion",
+          "sourceRef": "fixture-multi-part-omission"
+        },
+        "expectedGoals": [
+          {
+            "id": "G1",
+            "question": "What does serviceMode return?",
+            "originRefs": [
+              "P1"
+            ],
+            "requestOriginRefs": [
+              "request:12-34"
+            ],
+            "claimType": "positive",
+            "expectedResolution": "supported",
+            "evidenceAnchorRefs": [
+              "E1"
+            ],
+            "anchorPolicy": "any"
+          },
+          {
+            "id": "G2",
+            "question": "Which test verifies it?",
+            "originRefs": [
+              "P2"
+            ],
+            "requestOriginRefs": [
+              "request:36-44"
+            ],
+            "claimType": "positive",
+            "expectedResolution": "supported",
+            "evidenceAnchorRefs": [
+              "E2"
+            ],
+            "anchorPolicy": "any"
+          },
+          {
+            "id": "G3",
+            "question": "What is the configured default?",
+            "originRefs": [
+              "P3"
+            ],
+            "requestOriginRefs": [
+              "request:54-72"
+            ],
+            "claimType": "positive",
+            "expectedResolution": "gap",
+            "evidenceAnchorRefs": [
+              "E3"
+            ],
+            "anchorPolicy": "any"
+          }
+        ],
+        "allowedClaims": [
+          {
+            "id": "A1",
+            "goalId": "G1",
+            "text": "serviceMode returns 'safe'.",
+            "evidenceAnchorRefs": [
+              "E1"
+            ]
+          },
+          {
+            "id": "A2",
+            "goalId": "G2",
+            "text": "tests/service.test.mjs asserts 'safe'.",
+            "evidenceAnchorRefs": [
+              "E2"
+            ]
+          }
+        ],
+        "forbiddenClaims": [
+          {
+            "id": "F1",
+            "goalId": "G3",
+            "text": "DEFAULT_SERVICE_MODE is 'safe'.",
+            "reason": "The default file was not inspected in this run."
+          }
+        ],
+        "evidenceAnchors": [
+          {
+            "id": "E1",
+            "kind": "source",
+            "path": "src/service.mjs",
+            "startLine": 1,
+            "endLine": 3,
+            "sourceRole": "implementation",
+            "temporalRole": "current"
+          },
+          {
+            "id": "E2",
+            "kind": "source",
+            "path": "tests/service.test.mjs",
+            "startLine": 1,
+            "endLine": 4,
+            "sourceRole": "test",
+            "temporalRole": "current"
+          },
+          {
+            "id": "E3",
+            "kind": "source",
+            "path": "config/defaults.mjs",
+            "startLine": 1,
+            "endLine": 1,
+            "sourceRole": "config",
+            "temporalRole": "current"
+          }
+        ],
+        "boundary": {
+          "repoId": "fixture-multi-part-omission",
+          "scope": [
+            "src/**",
+            "tests/**",
+            "config/**"
+          ],
+          "claimScope": [
+            "src/**",
+            "tests/**",
+            "config/**"
+          ]
+        },
+        "expectedState": "incomplete"
+      }
+    },
+    {
+      "id": "fx-scoped-zero-match",
+      "kind": "fixture",
+      "description": "A pure zero-match search supports only the exact fully inspected fixture scope.",
+      "sourceRef": "fixture-scoped-truncated-search",
+      "fixtureExecution": "direct",
+      "providerFixture": {
+        "path": "fixtures/trust-known-answer/scoped-truncated-search/provider-responses.us5-scoped-zero-match.json",
+        "sha256": "93f5626692afb99886f0d4ccc10528be0093761c3fd55cd440d8250ec01f079c"
+      },
+      "invocation": {
+        "tool": "explore_repo",
+        "args": {
+          "task": "Confirm legacyGuard is absent from src/in-scope/**.",
+          "scope": [
+            "src/in-scope/**"
+          ]
+        }
+      },
+      "request": {
+        "text": "Confirm legacyGuard is absent from src/in-scope/**.",
+        "parts": [
+          {
+            "id": "P1",
+            "text": "Determine whether legacyGuard is absent from the bounded scope."
+          }
+        ]
+      },
+      "repeatCount": 1,
+      "schemaV2Baseline": {
+        "outcome": "not_recorded",
+        "schemaVersion": 2,
+        "reason": "This schema-v3 negative-proof case had no trustworthy schema-v2 parent payload captured before implementation."
+      },
+      "oracle": {
+        "provenance": {
+          "kind": "fixture_assertion",
+          "sourceRef": "fixture-scoped-truncated-search"
+        },
+        "expectedGoals": [
+          {
+            "id": "G1",
+            "question": "Is legacyGuard absent from src/in-scope/**?",
+            "originRefs": [
+              "P1"
+            ],
+            "requestOriginRefs": [
+              "request:0-51"
+            ],
+            "claimType": "absence",
+            "expectedResolution": "supported",
+            "claimBoundary": [
+              "src/in-scope/**"
+            ],
+            "evidenceAnchorRefs": [
+              "E1"
+            ],
+            "anchorPolicy": "all"
+          }
+        ],
+        "allowedClaims": [
+          {
+            "id": "A1",
+            "goalId": "G1",
+            "text": "No static reference to legacyGuard exists within src/in-scope/**.",
+            "evidenceAnchorRefs": [
+              "E1"
+            ]
+          }
+        ],
+        "forbiddenClaims": [
+          {
+            "id": "F1",
+            "goalId": "G1",
+            "text": "No static reference to legacyGuard exists anywhere in the repository.",
+            "reason": "The complete certificate covers only src/in-scope/**."
+          }
+        ],
+        "evidenceAnchors": [
+          {
+            "id": "E1",
+            "kind": "search",
+            "tool": "repo_grep",
+            "boundary": [
+              "src/in-scope/**"
+            ],
+            "matchCount": 0,
+            "toolTruncated": false,
+            "contextTruncated": false,
+            "omittedOutOfScopeFiles": 0,
+            "deniedPaths": 0,
+            "errors": 0,
+            "enumerationComplete": true
+          }
+        ],
+        "boundary": {
+          "repoId": "fixture-scoped-truncated-search",
+          "scope": [
+            "src/in-scope/**"
+          ],
+          "claimScope": [
+            "src/in-scope/**"
+          ]
+        },
+        "expectedState": "complete"
+      }
+    },
+    {
+      "id": "fx-truncated-all-usages",
+      "kind": "fixture",
+      "description": "A one-result cap cannot establish that the visible app.get match is every in-scope usage.",
+      "sourceRef": "fixture-scoped-truncated-search",
+      "fixtureExecution": "direct",
+      "providerFixture": {
+        "path": "fixtures/trust-known-answer/scoped-truncated-search/provider-responses.us5-truncated-usages.json",
+        "sha256": "f9a63e30a26d597ef6c8a8388bba8ca36397e46fbf17b37e29360766cfdb4e91"
+      },
+      "invocation": {
+        "tool": "explore_repo",
+        "args": {
+          "task": "List all app.get usages within src/in-scope/**.",
+          "scope": [
+            "src/in-scope/**"
+          ]
+        }
+      },
+      "request": {
+        "text": "List all app.get usages within src/in-scope/**.",
+        "parts": [
+          {
+            "id": "P1",
+            "text": "List every app.get usage in the bounded scope."
+          }
+        ]
+      },
+      "repeatCount": 1,
+      "schemaV2Baseline": {
+        "outcome": "not_recorded",
+        "schemaVersion": 2,
+        "reason": "This schema-v3 exhaustive-usage case had no trustworthy schema-v2 parent payload captured before implementation."
+      },
+      "oracle": {
+        "provenance": {
+          "kind": "fixture_assertion",
+          "sourceRef": "fixture-scoped-truncated-search"
+        },
+        "expectedGoals": [
+          {
+            "id": "G1",
+            "question": "What are all app.get usages within src/in-scope/**?",
+            "originRefs": [
+              "P1"
+            ],
+            "requestOriginRefs": [
+              "request:0-47"
+            ],
+            "claimType": "symbol_usage",
+            "expectedResolution": "gap",
+            "evidenceAnchorRefs": [
+              "E1"
+            ],
+            "anchorPolicy": "all"
+          }
+        ],
+        "allowedClaims": [],
+        "forbiddenClaims": [
+          {
+            "id": "F1",
+            "goalId": "G1",
+            "text": "The returned match represents every app.get usage within src/in-scope/**.",
+            "reason": "The fixture contains two matches but the search result is capped at one."
+          }
+        ],
+        "evidenceAnchors": [
+          {
+            "id": "E1",
+            "kind": "search",
+            "tool": "repo_grep",
+            "boundary": [
+              "src/in-scope/**"
+            ],
+            "matchCount": 1,
+            "toolTruncated": true,
+            "contextTruncated": false,
+            "omittedOutOfScopeFiles": 0,
+            "deniedPaths": 0,
+            "errors": 0,
+            "enumerationComplete": false
+          }
+        ],
+        "boundary": {
+          "repoId": "fixture-scoped-truncated-search",
+          "scope": [
+            "src/in-scope/**"
+          ],
+          "claimScope": [
+            "src/in-scope/**"
+          ]
+        },
+        "expectedState": "incomplete"
+      }
+    },
+    {
+      "id": "fx-route-policy-divergence",
+      "kind": "fixture",
+      "description": "Two current route declarations support an exact route-specific authorization comparison.",
+      "sourceRef": "fixture-route-policy-divergence",
+      "fixtureExecution": "direct",
+      "providerFixture": {
+        "path": "fixtures/trust-known-answer/route-policy-divergence/provider-responses.us5-route-divergence.json",
+        "sha256": "ac22ee2a636911402ff2eabae1b5d04b2e3bb63445e28bbcf6b30a6b51fe89f9"
+      },
+      "invocation": {
+        "tool": "explore_repo",
+        "args": {
+          "task": "Compare authorization roles for the admin and team routes without generalizing.",
+          "scope": [
+            "src/**"
+          ]
+        }
+      },
+      "request": {
+        "text": "Compare authorization roles for the admin and team routes without generalizing.",
+        "parts": [
+          {
+            "id": "P1",
+            "text": "Compare the admin and team route roles."
+          }
+        ]
+      },
+      "repeatCount": 1,
+      "schemaV2Baseline": {
+        "outcome": "not_recorded",
+        "schemaVersion": 2,
+        "reason": "This schema-v3 comparison case had no trustworthy schema-v2 parent payload captured before implementation."
+      },
+      "oracle": {
+        "provenance": {
+          "kind": "fixture_assertion",
+          "sourceRef": "fixture-route-policy-divergence"
+        },
+        "expectedGoals": [
+          {
+            "id": "G1",
+            "question": "How do the admin and team route authorization roles differ?",
+            "originRefs": [
+              "P1"
+            ],
+            "requestOriginRefs": [
+              "request:0-79"
+            ],
+            "claimType": "comparison",
+            "expectedResolution": "supported",
+            "evidenceAnchorRefs": [
+              "E1",
+              "E2"
+            ],
+            "anchorPolicy": "all"
+          }
+        ],
+        "allowedClaims": [
+          {
+            "id": "A1",
+            "goalId": "G1",
+            "text": "The admin route requires super_admin, while the team route accepts admin or manager.",
+            "evidenceAnchorRefs": [
+              "E1",
+              "E2"
+            ]
+          }
+        ],
+        "forbiddenClaims": [
+          {
+            "id": "F1",
+            "goalId": "G1",
+            "text": "All protected routes require super_admin.",
+            "reason": "The team route accepts admin or manager instead."
+          }
+        ],
+        "evidenceAnchors": [
+          {
+            "id": "E1",
+            "kind": "source",
+            "path": "src/routes/admin.mjs",
+            "startLine": 1,
+            "endLine": 3,
+            "sourceRole": "implementation",
+            "temporalRole": "current"
+          },
+          {
+            "id": "E2",
+            "kind": "source",
+            "path": "src/routes/team.mjs",
+            "startLine": 1,
+            "endLine": 3,
+            "sourceRole": "implementation",
+            "temporalRole": "current"
+          }
+        ],
+        "boundary": {
+          "repoId": "fixture-route-policy-divergence",
+          "scope": [
+            "src/**"
+          ],
+          "claimScope": [
+            "src/**"
+          ]
+        },
+        "expectedState": "complete"
+      }
+    },
+    {
+      "id": "fx-historical-source-role",
+      "kind": "fixture",
+      "description": "One historical commit may prove the requested history but cannot prove current source behavior.",
+      "sourceRef": "fixture-multi-part-omission",
+      "fixtureExecution": "direct",
+      "fixtureSetup": {
+        "kind": "deterministic_git_commit",
+        "message": "introduce serviceMode",
+        "name": "Explorer Fixture",
+        "email": "explorer@example.invalid",
+        "date": "2000-01-01T00:00:00Z",
+        "headSha": "1dfe057a6fcd56c83d4a2b9b991accd12dc96ac8"
+      },
+      "providerFixture": {
+        "path": "fixtures/trust-known-answer/multi-part-omission/provider-responses.us5-historical-source.json",
+        "sha256": "6b2b7269e83bfd60f42c271b80888d5771d8a87a7399ab2f933ec898a0295b5b"
+      },
+      "invocation": {
+        "tool": "explore_repo",
+        "args": {
+          "task": "Which inspected commit introduced serviceMode, and what does current src/service.mjs return?",
+          "scope": [
+            "src/service.mjs"
+          ]
+        }
+      },
+      "request": {
+        "text": "Which inspected commit introduced serviceMode, and what does current src/service.mjs return?",
+        "parts": [
+          {
+            "id": "P1",
+            "text": "Identify the inspected historical commit."
+          },
+          {
+            "id": "P2",
+            "text": "Establish the current serviceMode return value."
+          }
+        ]
+      },
+      "repeatCount": 1,
+      "schemaV2Baseline": {
+        "outcome": "not_recorded",
+        "schemaVersion": 2,
+        "reason": "This schema-v3 temporal-role case had no trustworthy schema-v2 parent payload captured before implementation."
+      },
+      "oracle": {
+        "provenance": {
+          "kind": "fixture_assertion",
+          "sourceRef": "fixture-multi-part-omission"
+        },
+        "expectedGoals": [
+          {
+            "id": "G1",
+            "question": "Which inspected commit introduced serviceMode?",
+            "originRefs": [
+              "P1"
+            ],
+            "requestOriginRefs": [
+              "request:0-92"
+            ],
+            "claimType": "claim_verification",
+            "expectedResolution": "supported",
+            "evidenceAnchorRefs": [
+              "E1"
+            ],
+            "anchorPolicy": "all"
+          },
+          {
+            "id": "G2",
+            "question": "What does current src/service.mjs return?",
+            "originRefs": [
+              "P2"
+            ],
+            "requestOriginRefs": [
+              "request:0-92"
+            ],
+            "claimType": "positive",
+            "expectedResolution": "gap",
+            "evidenceAnchorRefs": [
+              "E1"
+            ],
+            "anchorPolicy": "all"
+          }
+        ],
+        "allowedClaims": [
+          {
+            "id": "A1",
+            "goalId": "G1",
+            "text": "The inspected commit introduced serviceMode.",
+            "evidenceAnchorRefs": [
+              "E1"
+            ]
+          }
+        ],
+        "forbiddenClaims": [
+          {
+            "id": "F1",
+            "goalId": "G2",
+            "text": "Current src/service.mjs returns 'safe'.",
+            "reason": "The provider supplied only historical Git evidence, not current source."
+          }
+        ],
+        "evidenceAnchors": [
+          {
+            "id": "E1",
+            "kind": "git_commit",
+            "sha": "1dfe057a6fcd56c83d4a2b9b991accd12dc96ac8",
+            "temporalRole": "historical"
+          }
+        ],
+        "boundary": {
+          "repoId": "fixture-multi-part-omission",
+          "scope": [
+            "src/service.mjs"
+          ],
+          "claimScope": [
+            "src/service.mjs"
+          ]
+        },
+        "expectedState": "incomplete"
+      }
+    }
+  ]
+}

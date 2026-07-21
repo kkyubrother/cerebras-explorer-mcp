@@ -1,0 +1,85 @@
+{
+  "fixtureVersion": 1,
+  "scenario": "multi_part_omission",
+  "responses": [
+    {
+      "stage": "planner",
+      "result": {
+        "message": {
+          "content": {
+            "taskSummary": "Explain implementation, tests, and defaults.",
+            "constraints": [],
+            "subgoals": [
+              {
+                "id": "S1",
+                "question": "What does the service implementation return?",
+                "originRefs": ["request:0-26"],
+                "claimType": "positive",
+                "proofCondition": "Read the current implementation return value.",
+                "constraints": []
+              }
+            ]
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "goal_audit",
+      "result": {
+        "message": {
+          "content": {
+            "goals": [
+              {
+                "id": "S1",
+                "verdict": "ready",
+                "confirmedOriginRefs": ["request:0-26"],
+                "reason": "The implementation question is observable."
+              }
+            ],
+            "uncoveredRequestParts": ["request:28-33", "request:35-43"]
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "plan_revision",
+      "result": {
+        "message": {
+          "content": {
+            "taskSummary": "Explain implementation, tests, and defaults.",
+            "constraints": [],
+            "subgoals": [
+              {
+                "id": "S1",
+                "question": "What does the service implementation return?",
+                "originRefs": ["request:0-26"],
+                "claimType": "positive",
+                "proofCondition": "Read the current implementation return value.",
+                "constraints": []
+              },
+              {
+                "id": "S2",
+                "question": "Which test verifies the behavior?",
+                "originRefs": ["request:28-33"],
+                "claimType": "positive",
+                "proofCondition": "Read the test assertion for serviceMode.",
+                "constraints": []
+              },
+              {
+                "id": "S3",
+                "question": "What is the configured default mode?",
+                "originRefs": ["request:35-43"],
+                "claimType": "positive",
+                "proofCondition": "Read the current default configuration value.",
+                "constraints": []
+              }
+            ]
+          },
+          "toolCalls": []
+        }
+      }
+    }
+  ]
+}

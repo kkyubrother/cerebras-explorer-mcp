@@ -6,9 +6,6 @@ export const DEFAULT_EXPLORER_MODEL = 'zai-glm-4.7';
 export const DEFAULT_PROTOCOL_VERSION = '2025-06-18';
 export const DEFAULT_EXPLORER_TEMPERATURE = 1;
 export const DEFAULT_EXPLORER_TOP_P = 0.95;
-export const DEFAULT_EXPLORE_TURN_MULTIPLIER = 2;
-export const DEFAULT_EXPLORE_MAX_EXTRA_TURNS = 30;
-export const DEFAULT_EXPLORE_MAX_COMPACTIONS = 3;
 
 function parseEnvNumber(name) {
   const raw = process.env[name];
@@ -17,10 +14,6 @@ function parseEnvNumber(name) {
   }
   const parsed = Number(raw);
   return Number.isFinite(parsed) ? parsed : null;
-}
-
-function clampNumber(value, min, max) {
-  return Math.min(max, Math.max(min, value));
 }
 
 export function normalizeModelId(model) {
@@ -46,30 +39,6 @@ export function getExplorerTemperature() {
 
 export function getExplorerTopP() {
   return parseEnvNumber('CEREBRAS_EXPLORER_TOP_P') ?? DEFAULT_EXPLORER_TOP_P;
-}
-
-export function getExploreTurnMultiplier() {
-  const parsed = parseEnvNumber('CEREBRAS_EXPLORER_TURN_MULTIPLIER');
-  if (parsed === null) {
-    return DEFAULT_EXPLORE_TURN_MULTIPLIER;
-  }
-  return clampNumber(Math.round(parsed), 1, 4);
-}
-
-export function getExploreMaxExtraTurns() {
-  const parsed = parseEnvNumber('CEREBRAS_EXPLORER_MAX_EXTRA_TURNS');
-  if (parsed === null) {
-    return DEFAULT_EXPLORE_MAX_EXTRA_TURNS;
-  }
-  return clampNumber(Math.round(parsed), 0, 200);
-}
-
-export function getExploreMaxCompactions() {
-  const parsed = parseEnvNumber('CEREBRAS_EXPLORER_MAX_COMPACTIONS');
-  if (parsed === null) {
-    return DEFAULT_EXPLORE_MAX_COMPACTIONS;
-  }
-  return clampNumber(Math.round(parsed), 0, 10);
 }
 
 export function getExplorerReasoningFormat(model = getExplorerModel()) {
@@ -146,32 +115,32 @@ export const DEFAULT_IGNORE_FILE_SUFFIXES = [
 ];
 
 export const DEFAULT_TEXT_FILE_MAX_BYTES = 512 * 1024;
-export const DEFAULT_GREP_FILE_MAX_BYTES = 256 * 1024;
+export const DEFAULT_GREP_FILE_MAX_BYTES = DEFAULT_TEXT_FILE_MAX_BYTES;
 export const DEFAULT_WALK_FILE_LIMIT = 5000;
 
-// spec 011: every call uses the single deep runtime config. The user-facing
-// `budget` input and quick/normal routing labels were removed.
-const DEEP_RUNTIME_CONFIG = {
-  label: 'deep',
+// Fixed provider, context, and repository-tool ceilings. These values protect
+// process correctness; callers cannot select or mutate an effort profile.
+const RUNTIME_CONFIG = Object.freeze({
   maxTurns: 30,
   maxSearchResults: 80,
   maxReadLines: 320,
   maxDirectoryEntries: 300,
   maxWalkFiles: 6000,
-  maxCompletionTokens: 32000,
-  finalizeMaxCompletionTokens: 3000,
-  // Working input budget, held under the Cerebras zai-glm-4.7 paid-tier context
+  maxCompletionTokens: 16_384,
+  finalizeMaxCompletionTokens: 16_384,
+  // Working input limit, held under the Cerebras zai-glm-4.7 paid-tier context
   // window (131k tokens, max output 40k —
   // https://inference-docs.cerebras.ai/models/zai-glm-47). ~21k headroom is left
-  // for the model's output/reasoning (finalize caps at 3k). Proactive compaction
+  // for the model's output/reasoning (agentic and finalize turns cap at 16,384).
+  // Proactive compaction
   // fires at 70% (≈77k); see spec 024. Calibrated to the paid tier, not arbitrary.
   maxContextTokens: 110_000,
   temperature: 1.0,
   topP: 0.95,
-};
+});
 
-export function getBudgetConfig() {
-  return DEEP_RUNTIME_CONFIG;
+export function getRuntimeConfig() {
+  return RUNTIME_CONFIG;
 }
 
 function getPathModule(platform = process.platform) {
@@ -253,7 +222,7 @@ export function isTruthyEnv(value) {
 
 /**
  * When set to a truthy value, the redaction layer masks environment-variable
- * identifiers (e.g. `process.env.X`, `import.meta.env.Y`) in snippet/report
+ * identifiers (e.g. `process.env.X`, `import.meta.env.Y`) in returned text
  * text in addition to secret values and secret paths. Default off — the
  * modern behavior preserves identifier names because they describe a public
  * code interface, not a secret value.

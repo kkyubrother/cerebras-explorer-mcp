@@ -1,5 +1,161 @@
 # Changelog
 
+## v0.9.0 - 2026-07-21
+
+### trustworthy explorer and schema-v3 parent handoff (spec 028)
+
+This is an intentional pre-1.0 breaking change.
+It replaces overlapping
+schema-v2 status and diagnostic structures with one fail-closed schema-v3
+handoff, and reduces the public MCP registry from eight tools to six. No
+compatibility aliases or selectable effort controls are retained.
+
+- **Trusted goal and claim reduction**: every requested sub-goal is traced to
+  the request or wrapper, audited for feasibility and granularity, and verified
+  against runtime-reconstructed observations. Planner inventions are discarded;
+  user-required blockers remain concise `incomplete` gaps. `complete` and
+  `verify_targets` require every valid required goal to be verified. A
+  runtime-owned audit binding rejects post-audit acceptance-core mutation, and
+  strict same-type origin containment receives one uniquely reconciled
+  refinement instead of allowing sibling goals to be reassigned. An uncovered
+  goal may clarify a request slice by adding containment-related governing
+  context, but cannot drop an original slice or add an unrelated one.
+  Accepted goals remain in the exploration ledger after entering the
+  `exploring` state,
+  so repository search is guided by the same obligations that completion uses.
+  Fixed wrapper seed origins are now mechanically required across both planning
+  and isolated audit, and each seed is attached exactly once to the matching
+  request leaf. Repeated initial omission fails before repository exploration;
+  a final corrected plan that omits only a fixed origin owned by its named
+  decomposition/refinement obligation preserves that obligation as
+  `planning_incomplete` instead of losing it or reporting an internal error.
+  A repeated external merge that would erase a distinct late acceptance core
+  is preserved as one `planning_incomplete` required gap. Stronger constraints,
+  widened origins, invalid targets, missing request parts, and malformed late
+  audit control still fail closed instead of becoming trusted planning gaps.
+- **Bounded proof and repair**: absence, count, exhaustive classification,
+  route-policy comparison, flow, impact, and historical claims use
+  runtime-owned proof gates. Evidence ids are opaque exact tokens. Out-of-claim
+  verifier refs receive one bounded correction; if they recur, only the
+  contaminated claim is quarantined as insufficient while structurally invalid
+  verifier control still fails closed. A generic impact claim can complete only
+  when the canonical effective scope has one immutable entry and a complete
+  `repo_find_files("**/*")`
+  inventory is paired with exact
+  current source for every enumerated file and a second verifier independently
+  affirms the same full evidence set; the inventory stays out of the parent
+  payload. Focused comparison corroboration inspects claim-local evidence plus
+  every observed exact current implementation/config source; parent hints and
+  sibling claims never hide omission candidates. The audited request slices and
+  sub-goal contract define which candidates are relevant, and extra context
+  never becomes supporting evidence. A refutation backed only by zero-match search
+  evidence requires focused agreement on one complete certificate.
+  `collect_evidence` direct source/git counterexamples also require
+  deterministic focused agreement on the whole premise and every cited direct
+  observation; helper-backed runtime premises need both helper behavior and
+  invocation/call-path evidence.
+  `collect_evidence` now plans exactly one full-task-bound verdict goal. An
+  affirmation requires both direct source/git evidence and a verifier-approved
+  complete zero-match search for a plausible counterexample, while that search
+  stays internal and only the direct evidence is handed to the parent. A second
+  focused verifier must independently approve the same complete search under
+  deterministic sampling. Only an
+  explicit complete grep, file-pattern, or symbol predicate can serve as that
+  counter-search; any verifier-reported missing facet keeps the same verdict
+  incomplete instead of creating another goal.
+  Planning has at most one revision and evidence repair at most one round, with
+  equivalent actions suppressed.
+  Repeated structurally valid empty-evidence claims are also quarantined per
+  known sub-goal, while unknown sub-goals, duplicate claim ids, malformed
+  claims, and invalid non-empty refs remain fatal. Post-repair verifier packets
+  identify the exact fresh refs that a supported verdict must cite. If one
+  non-exhaustive test goal cites only the exact parent-provided test anchor but
+  a mixed-policy primary verifier accepts every cited anchor ref while
+  misclassifying the claim as `missing_category`, the immutable claim and
+  anchor receive at most one deterministic focused recheck per Explorer call.
+  An affirmed result may be reused after unrelated repair only for the exact
+  unchanged claim and refs with no fresh claim-local evidence. Invalid or
+  unavailable optional rechecks retain the primary gap; anything other than an
+  affirmed support remains a gap, and post-repair promotion still requires
+  fresh support. Focused multi-path comparison corroboration uses deterministic
+  sampling. When a primary or focused verifier rejects an already multi-path
+  comparison for a semantic/category mismatch, the runtime may perform one
+  same-evidence correction per Explorer call. The replacement is installed only
+  after deterministic claim-local primary verification and focused comparison
+  verification both affirm every cited path; invalid or unavailable optional
+  correction retains the original gap. Canonical frontend access synthesis also
+  uses deterministic sampling and preserves observed redirect literals, while
+  validation accepts natural route phrasing such as `to the /ai page`.
+  Citation-only runtime observation IDs are removed before verification, while
+  any remaining unobserved internal ID in claim prose invalidates the candidate
+  instead of reaching the parent. The
+  internal evidence-verification strategy reads the strongest exact anchor and
+  performs one bounded disconfirming search instead of serial broad synonyms.
+  Explicit numeric comparison requests such as `3 static array entries` retain
+  their requested count when bounded modifiers appear between the number and
+  inventory unit, while deterministic proof still controls the accepted value.
+- **Quiet schema v3**: normal MCP output contains only `schemaVersion`, `state`,
+  and the state-relevant subset of `directAnswer`, `targets`, `evidence`,
+  `gaps`, `followUp`, and `failure`. Goals, verdicts, counters, usage, timing,
+  tool traces, and transcript paths remain operational diagnostics and are not
+  copied into the parent payload. Incomplete questions come from immutable
+  request slices rather than model-authored goal or audit prose. Targets that
+  point at the same path and range are emitted once with the strongest grounded
+  role and merged evidence refs.
+- **Smaller tool surface**: the registry is now exactly
+  `find_relevant_code`, `trace_symbol`, `map_change_impact`,
+  `explain_code_path`, `collect_evidence`, and `explore_repo`, in that order.
+  `review_change_context` and the Markdown `explore` tool are removed.
+- **Runtime-owned policy**: public `hints.strategy`, the internal budget
+  abstraction, and report effort controls are removed. Fixed turn, context,
+  output, walk, and tool-result limits protect process correctness but cannot
+  establish completion or be selected by the parent. Agentic completions use
+  the fixed 16,384-token ceiling with preserved thinking, temperature `1.0`,
+  and top-p `0.95`.
+- **Repository and provider reliability**: exact-file and scope-wide grep can
+  inspect text files up to the existing 512 KiB read ceiling, so a readable
+  source file cannot silently make symbol enumeration incomplete. Internal
+  repository tools reject undeclared arguments before execution, so a mistaken
+  grep `path` cannot silently widen into a repository-wide search. Usage claims
+  also require a complete search that covers the immutable task scope rather
+  than a narrower subdirectory. Cancellation interrupts retry waits, and
+  day-scale
+  `Retry-After` responses are recorded without repeating a request that cannot
+  succeed inside the bounded parent call. Live trust batches stop after the
+  first provider failure while retaining every remaining case and repeat as an
+  explicit `provider_unavailable` non-run in the report denominator. The
+  adoption benchmark applies the same stop policy instead of spending more
+  provider calls on cases that cannot start.
+- **Independent acceptance**: pinned known-answer fixtures and repositories,
+  an oracle independent of Explorer output, three-run fixture repeatability,
+  portable parent-observation records, and payload measurement cover false
+  completion, semantic mismatch, negative boundaries, redaction, scope,
+  cancellation, and provider failure. The documented fixture payload command
+  rebuilds the fixed schema-v2 comparison denominator from independent oracle
+  handoffs and fails closed on byte, digest, sample-set, or median-gate drift.
+  Parent observation ignores only the exact Codex CLI skill-description
+  context-budget notice as a non-action diagnostic; unknown item types and
+  unclassified commands still fail closed.
+  The adoption impact case includes the
+  public contract documents its wrapper is required to assess instead of
+  blocking them with an implementation-only scope. Shared-anchor atomic claims
+  are evaluated together without forcing duplicate parent prose, while
+  provider failure messages remain execution failures rather than repository
+  claims. Live
+  Cerebras revalidation and the full quickstart were completed as release gates.
+
+Migration:
+
+| v0.8.x surface | v0.9.0 replacement |
+| --- | --- |
+| Schema-v2 `status`, `nextAction`, uncertainty/quality/coverage summaries, and diagnostic fields | Schema-v3 `state` plus only applicable `gaps`, `followUp`, or `failure`; operational detail stays in logs/direct-runtime evaluation |
+| `review_change_context` MCP tool | `explore_repo`; git/change intent is selected internally |
+| Markdown `explore` MCP tool | `explore_repo`; the parent renders prose when needed |
+| `freeExploreRepository` | `exploreRepository` |
+| `ExplorerRuntime.freeExplore` | `ExplorerRuntime.explore` |
+| Public `explore_repo.hints.strategy` | Removed; keep immutable scope and known anchors, while strategy remains internal |
+| `CEREBRAS_EXPLORER_TURN_MULTIPLIER`, `CEREBRAS_EXPLORER_MAX_EXTRA_TURNS`, `CEREBRAS_EXPLORER_MAX_COMPACTIONS` | Removed without replacement; fixed safety limits are not operator effort controls |
+
 ## v0.8.9 - 2026-06-14
 
 ### fix: scope / retry / schema corrections from an external source audit (gpt-5.5-pro)

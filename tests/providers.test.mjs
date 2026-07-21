@@ -1,6 +1,5 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs/promises';
 
 import {
   OpenAICompatChatClient,
@@ -381,25 +380,10 @@ test('createChatClient: throws on unknown provider name', () => {
   }
 });
 
-test('spec 023 — config exports no budget routing compatibility helpers', () => {
-  for (const key of [
-    'chooseAutoBudget',
-    'classifyTaskComplexity',
-    'getModelForBudget',
-    'getReasoningEffortForBudget',
-    'BUDGETS',
-  ]) {
-    assert.equal(Object.hasOwn(explorerConfig, key), false, `${key} must not remain exported`);
-  }
-
+test('spec 023 — config exposes one unlabeled runtime path', () => {
   assert.equal(typeof explorerConfig.getReasoningEffortForModel, 'function');
-  assert.equal(explorerConfig.getBudgetConfig().label, 'deep');
-});
-
-test('spec 023 — provider factory source has no budget routing path', async () => {
-  const source = await fs.readFile(new URL('../src/explorer/providers/index.mjs', import.meta.url), 'utf8');
-  assert.doesNotMatch(source, /\bgetModelForBudget\b/);
-  assert.doesNotMatch(source, /\bbudget\b/i);
+  assert.equal(typeof explorerConfig.getRuntimeConfig, 'function');
+  assert.equal(Object.hasOwn(explorerConfig.getRuntimeConfig(), 'label'), false);
 });
 
 test('spec 011 — createChatClient uses the single CEREBRAS_EXPLORER_MODEL', () => {
@@ -596,6 +580,7 @@ test('OpenAICompatChatClient retries on 429 and succeeds', async () => {
         ok: false,
         status: 429,
         statusText: 'Too Many Requests',
+        headers: { get: h => h === 'retry-after' ? '0.001' : null },
         text: async () => JSON.stringify({ error: { message: 'rate limited' } }),
       };
     }

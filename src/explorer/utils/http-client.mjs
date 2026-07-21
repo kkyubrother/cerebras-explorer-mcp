@@ -8,6 +8,8 @@
 export const DEFAULT_HTTP_TIMEOUT_MS = 60000;
 export const BASE_RETRY_DELAY_MS = 500;
 export const MAX_RETRY_DELAY_MS = 32000;
+const RATE_LIMIT_RETRY_DELAY_MS = 15000;
+const MAX_RETRY_AFTER_SECONDS = 120;
 
 // Cerebras docs: 408, 429, >=500 are retried by default.
 // See: https://inference-docs.cerebras.ai/api-reference/error-codes
@@ -28,6 +30,45 @@ function isRetryableNetworkError(error) {
   return RETRYABLE_NETWORK_ERRORS.has(code);
 }
 
+function providerErrorCode(value) {
+  return typeof value === 'string' && /^[A-Za-z0-9._-]{1,80}$/.test(value)
+    ? value
+    : null;
+}
+
+function annotateProviderFailure(error, {
+  httpStatus = null,
+  retryable = false,
+  attemptCount = 1,
+  code = null,
+  retryAfterSeconds = null,
+} = {}) {
+  if (!error || typeof error !== 'object') return error;
+  error.httpStatus = Number.isInteger(httpStatus) ? httpStatus : null;
+  error.retryable = retryable === true;
+  error.attemptCount = Number.isInteger(attemptCount) && attemptCount > 0 ? attemptCount : 1;
+  const safeCode = providerErrorCode(code);
+  if (safeCode) error.providerCode = safeCode;
+  if (Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0) {
+    error.retryAfterSeconds = Math.ceil(retryAfterSeconds);
+  }
+  return error;
+}
+
+function getRetryAfterSeconds(response) {
+  if (!response?.headers) return null;
+  const retryAfter = response.headers.get('retry-after');
+  if (!retryAfter) return null;
+
+  const seconds = Number(retryAfter);
+  if (Number.isFinite(seconds) && seconds > 0) return seconds;
+
+  const retryAt = Date.parse(retryAfter);
+  if (!Number.isFinite(retryAt)) return null;
+  const remainingSeconds = (retryAt - Date.now()) / 1000;
+  return remainingSeconds > 0 ? remainingSeconds : null;
+}
+
 /**
  * Compute retry delay with exponential backoff and jitter.
  * Honors Retry-After header when available.
@@ -38,14 +79,13 @@ function isRetryableNetworkError(error) {
  */
 function getRetryDelay(attempt, response) {
   // Honor Retry-After header if present
-  if (response?.headers) {
-    const retryAfter = response.headers.get('retry-after');
-    if (retryAfter) {
-      const seconds = Number(retryAfter);
-      if (Number.isFinite(seconds) && seconds > 0 && seconds <= 120) {
-        return seconds * 1000;
-      }
-    }
+  const retryAfterSeconds = getRetryAfterSeconds(response);
+  if (retryAfterSeconds !== null && retryAfterSeconds <= MAX_RETRY_AFTER_SECONDS) {
+    return retryAfterSeconds * 1000;
+  }
+
+  if (response?.status === 429) {
+    return Math.min(RATE_LIMIT_RETRY_DELAY_MS * Math.pow(2, attempt), MAX_RETRY_DELAY_MS);
   }
 
   // Exponential backoff: 500ms, 1s, 2s, 4s, ... capped at 32s
@@ -53,6 +93,28 @@ function getRetryDelay(attempt, response) {
   // Add 0-25% jitter to prevent thundering herd
   const jitter = baseDelay * Math.random() * 0.25;
   return Math.round(baseDelay + jitter);
+}
+
+function waitForRetryDelay(delay, externalSignal, errorPrefix) {
+  if (externalSignal?.aborted) {
+    const error = new Error(`${errorPrefix} request cancelled`);
+    error.name = 'AbortError';
+    return Promise.reject(error);
+  }
+  if (!externalSignal) return new Promise(resolve => setTimeout(resolve, delay));
+  return new Promise((resolve, reject) => {
+    const timeoutId = setTimeout(() => {
+      externalSignal.removeEventListener('abort', onAbort);
+      resolve();
+    }, delay);
+    const onAbort = () => {
+      clearTimeout(timeoutId);
+      const error = new Error(`${errorPrefix} request cancelled`);
+      error.name = 'AbortError';
+      reject(error);
+    };
+    externalSignal.addEventListener('abort', onAbort, { once: true });
+  });
 }
 
 /**
@@ -136,16 +198,25 @@ export async function fetchWithTimeoutAndRetry(fetchImpl, url, init, {
       if (error.name === 'AbortError' && externalSignal?.aborted) throw error;
       // Network errors and timeouts are retryable
       if (retryNetworkErrors && (timedOut || isRetryableNetworkError(error)) && attempt < maxRetries) {
-        lastError = new Error(`${errorPrefix} network error: ${error.message}`);
+        lastError = annotateProviderFailure(
+          new Error(`${errorPrefix} network error: ${error.message}`),
+          { retryable: true, attemptCount: attempt + 1 },
+        );
         const delay = getRetryDelay(attempt);
-        await new Promise(resolve => setTimeout(resolve, delay));
+        await waitForRetryDelay(delay, externalSignal, errorPrefix);
         continue;
       }
       if (error.name === 'AbortError' || timedOut) {
         // Internal timeout (externalSignal not aborted).
-        throw new Error(`${errorPrefix} timed out after ${effectiveTimeout}ms (${attempt + 1} attempt(s))`);
+        throw annotateProviderFailure(
+          new Error(`${errorPrefix} timed out after ${effectiveTimeout}ms (${attempt + 1} attempt(s))`),
+          { retryable: true, attemptCount: attempt + 1 },
+        );
       }
-      throw error;
+      throw annotateProviderFailure(error, {
+        retryable: retryNetworkErrors && isRetryableNetworkError(error),
+        attemptCount: attempt + 1,
+      });
     } finally {
       clearTimeout(timeoutId);
       if (externalListener) externalSignal.removeEventListener('abort', externalListener);
@@ -162,15 +233,28 @@ export async function fetchWithTimeoutAndRetry(fetchImpl, url, init, {
     }
 
     const errorMessage = parsed?.error?.message || `${response.status} ${response.statusText}`;
+    const errorCode = parsed?.error?.code;
     if (!retryableStatuses.has(response.status)) {
       // Non-retryable (400, 401, 403, 404, …)
-      throw new Error(`${errorPrefix} error: ${errorMessage}`);
+      throw annotateProviderFailure(new Error(`${errorPrefix} error: ${errorMessage}`), {
+        httpStatus: response.status,
+        retryable: false,
+        attemptCount: attempt + 1,
+        code: errorCode,
+      });
     }
 
-    lastError = new Error(`${errorPrefix} error: ${errorMessage}`);
+    lastError = annotateProviderFailure(new Error(`${errorPrefix} error: ${errorMessage}`), {
+      httpStatus: response.status,
+      retryable: true,
+      attemptCount: attempt + 1,
+      code: errorCode,
+      retryAfterSeconds: getRetryAfterSeconds(response),
+    });
     if (attempt < maxRetries) {
+      if (lastError.retryAfterSeconds > MAX_RETRY_AFTER_SECONDS) break;
       const delay = getRetryDelay(attempt, response);
-      await new Promise(resolve => setTimeout(resolve, delay));
+      await waitForRetryDelay(delay, externalSignal, errorPrefix);
     }
   }
 

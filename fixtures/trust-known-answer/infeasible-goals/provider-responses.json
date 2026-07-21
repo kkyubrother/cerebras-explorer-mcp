@@ -1,0 +1,48 @@
+{
+  "fixtureVersion": 1,
+  "scenario": "audit_readonly_capability_block",
+  "responses": [
+    {
+      "stage": "planner",
+      "result": {
+        "message": {
+          "content": {
+            "taskSummary": "Assess whether the read-only explorer can update a deployment.",
+            "constraints": ["Repository and deployment writes are unavailable."],
+            "subgoals": [
+              {
+                "id": "S2",
+                "question": "Can the deployment be updated?",
+                "originRefs": ["request:0-55"],
+                "claimType": "positive",
+                "proofCondition": "Perform the requested deployment write if the configured image is stale.",
+                "constraints": ["Do not claim that a write occurred."]
+              }
+            ]
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "goal_audit",
+      "result": {
+        "message": {
+          "content": {
+            "goals": [
+              {
+                "proposedGoalId": "S2",
+                "verdict": "blocked_capability",
+                "originRefs": ["request:0-55"],
+                "missingRequestParts": [],
+                "reason": "The explorer is read-only and has no repository or deployment write capability."
+              }
+            ],
+            "uncoveredRequestParts": []
+          },
+          "toolCalls": []
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "formatVersion": 1,
+  "caseId": "fx-jsonrpc-id-zero-cancellation",
+  "recordType": "known_bad_transport_observation",
+  "immutable": true,
+  "capture": {
+    "packageVersion": "0.8.9",
+    "schemaVersion": 2,
+    "source": "src/mcp/server.mjs",
+    "fidelity": "source_inspection_reproduction",
+    "note": "Valid JSON-RPC id 0 was skipped by truthiness-based active-request registration and cancellation lookup."
+  },
+  "request": {
+    "method": "tools/call",
+    "requestId": 0,
+    "cancellationMethod": "notifications/cancelled"
+  },
+  "transport": {
+    "requestId": 0,
+    "cancelNotificationSent": true,
+    "activeRequestRegistered": false,
+    "abortObserved": false,
+    "outcome": "pending_until_manual_release"
+  },
+  "measurement": {
+    "encoding": "utf8",
+    "formula": "byteLength(JSON.stringify(content)) + byteLength(JSON.stringify(structuredContent))",
+    "contentBytes": 0,
+    "structuredContentBytes": 0,
+    "parentPayloadBytes": 0
+  }
+}

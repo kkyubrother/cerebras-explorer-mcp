@@ -1,0 +1,164 @@
+{
+  "fixtureVersion": 1,
+  "scenario": "audit_untraceable_invention",
+  "responses": [
+    {
+      "stage": "planner",
+      "result": {
+        "message": {
+          "content": {
+            "taskSummary": "Explain how a session is authenticated without adding unrelated goals.",
+            "constraints": [],
+            "subgoals": [
+              {
+                "id": "S1",
+                "question": "How is a session authenticated?",
+                "originRefs": ["request:0-39"],
+                "claimType": "positive",
+                "proofCondition": "Read the current session authentication predicate.",
+                "constraints": []
+              },
+              {
+                "id": "S2",
+                "question": "What throughput does session authentication achieve?",
+                "originRefs": ["request:0-39"],
+                "claimType": "positive",
+                "proofCondition": "Find a throughput benchmark for session authentication.",
+                "constraints": []
+              }
+            ]
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "goal_audit",
+      "result": {
+        "message": {
+          "content": {
+            "goals": [
+              {
+                "proposedGoalId": "S1",
+                "verdict": "ready",
+                "originRefs": ["request:0-39"],
+                "missingRequestParts": [],
+                "reason": "The requested authentication predicate is directly observable in current source."
+              },
+              {
+                "proposedGoalId": "S2",
+                "verdict": "reject_untraceable",
+                "originRefs": [],
+                "missingRequestParts": [],
+                "reason": "The request does not ask for a throughput benchmark."
+              }
+            ],
+            "uncoveredRequestParts": []
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "exploration",
+      "result": {
+        "message": {
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "read-auth",
+              "function": {
+                "name": "repo_read_file",
+                "arguments": {
+                  "path": "src/auth.mjs",
+                  "startLine": 1,
+                  "endLine": 3
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "stage": "exploration",
+      "result": {
+        "message": {
+          "content": "The requested authentication predicate was inspected.",
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "synthesis",
+      "result": {
+        "message": {
+          "content": {
+            "directAnswer": "The authentication predicate requires isolated verification.",
+            "status": {
+              "confidence": "high",
+              "verification": "verified",
+              "complete": true,
+              "warnings": []
+            },
+            "targets": [],
+            "evidence": [
+              {
+                "id": "E1",
+                "path": "src/auth.mjs",
+                "startLine": 1,
+                "endLine": 3,
+                "why": "The function directly returns the session authentication predicate."
+              }
+            ],
+            "uncertainties": [],
+            "nextAction": {
+              "type": "stop",
+              "reason": "The requested predicate has direct source evidence."
+            }
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "claim_synthesis",
+      "result": {
+        "message": {
+          "content": {
+            "claims": [
+              {
+                "id": "C1",
+                "subgoalId": "S1",
+                "text": "Authentication is Boolean(session?.userId).",
+                "evidenceRefs": ["E1"]
+              }
+            ]
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "semantic_verifier",
+      "result": {
+        "message": {
+          "content": {
+            "verdicts": [
+              {
+                "claimId": "C1",
+                "result": "supported",
+                "resolution": "affirmed",
+                "supportingEvidenceRefs": ["E1"],
+                "reasonCode": "entailed",
+                "note": "The function directly returns Boolean(session?.userId)."
+              }
+            ],
+            "uncoveredRequestParts": []
+          },
+          "toolCalls": []
+        }
+      }
+    }
+  ]
+}

@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -20,6 +21,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 const suite = JSON.parse(
   fs.readFileSync(path.join(repoRoot, 'benchmarks', 'adoption.json'), 'utf8'),
 );
+const RECENT_CHANGE_SHA = 'ca99b4d4fef6bd8d252d4a2d66c1d8f647ba58c4';
 
 // Deliberate, justified exceptions keyed `${caseId}::${expectationLabel}::${normalizedToken}`.
 // An entry is only defensible when the same expectation retains an independent
@@ -60,6 +62,10 @@ function allowKey(caseId, label, token) {
 function scoredExpectations(testCase) {
   return (Array.isArray(testCase.expectations) ? testCase.expectations : [])
     .filter(expectation => Number(expectation.weight ?? 1) > 0);
+}
+
+function containsHangul(value) {
+  return /[\uac00-\ud7a3]/u.test(String(value));
 }
 
 test('adoption suite: no scored expectation group is echo-earnable', () => {
@@ -111,4 +117,97 @@ test('adoption suite: every scored expectation keeps >=1 group and >=1 discovery
     [],
     `expectations missing a discovery anchor:\n${violations.join('\n')}`,
   );
+});
+
+test('adoption suite: English tasks do not require language-incompatible keywords', () => {
+  const violations = [];
+  for (const testCase of suite.cases) {
+    const taskText = collectArgValues(testCase.args ?? {}, []).join(' ');
+    if (containsHangul(taskText)) continue;
+    for (const expectation of scoredExpectations(testCase)) {
+      for (const group of expectation.groups ?? []) {
+        if (group.some(containsHangul)) {
+          violations.push(`${testCase.id} / "${expectation.label}": ${JSON.stringify(group)}`);
+        }
+      }
+    }
+  }
+  assert.deepEqual(
+    violations,
+    [],
+    `English tasks contain language-incompatible scored keywords:\n${violations.join('\n')}`,
+  );
+});
+
+test('adoption suite: v3 and wrapper scenarios keep objective source anchors', () => {
+  const byId = new Map(suite.cases.map(testCase => [testCase.id, testCase]));
+  const serialized = testCase => JSON.stringify(byId.get(testCase));
+
+  assert.deepEqual(byId.get('map-change-impact')?.args?.scope,
+    ['src/**', 'tests/**', '*.md', 'examples/**']);
+  assert.match(serialized('map-change-impact'), /tests\/(schemas|runtime\.mock|mcp-server)\.test\.mjs/);
+  assert.match(serialized('map-change-impact'), /README\.md/);
+  assert.match(serialized('map-change-impact'), /DESIGN\.md/);
+  assert.match(serialized('map-change-impact'), /examples\/expected-response\.json/);
+  assert.match(serialized('map-change-impact'), /"type":"min_target_count","value":7/);
+  assert.match(serialized('explain-code-path'), /src\/mcp\/jsonrpc-stdio\.mjs/);
+  assert.match(serialized('explore-recent-change-context'), /min_git_evidence_count/);
+  assert.match(serialized('explore-recent-change-context'), /max_target_count/);
+  assert.match(serialized('explore-recent-change-context'), /TOOL_DISPATCH_RULE/);
+  assert.doesNotMatch(serialized('explore-recent-change-context'), /"source":"evidence_paths"/);
+  assert.match(serialized('structured-output-contract'), /src\/explorer\/parent-payload\.mjs/);
+  assert.match(serialized('structured-output-contract'), /buildParentPayload/);
+  assert.doesNotMatch(serialized('structured-output-contract'), /formatExploreResult/);
+  assert.match(serialized('direct-vs-explorer-boundary'), /max_target_count/);
+});
+
+test('adoption suite: map impact actionability accepts verification as validation language', () => {
+  const mapCase = suite.cases.find(testCase => testCase.id === 'map-change-impact');
+  const expectation = mapCase?.expectations?.find(item =>
+    item.label === 'Targets describe actionability');
+  const verificationGroup = expectation?.groups?.[2];
+
+  assert.deepEqual(
+    verificationGroup,
+    ['regression', 'validation', 'validat', 'assert', 'verif'],
+  );
+  assert.ok(
+    verificationGroup.some(token =>
+      normalizeText('Output structure verification is located in tests/mcp-server.test.mjs')
+        .includes(normalizeText(token))),
+  );
+  assert.equal(isEchoToken(echoCorpus(mapCase.args), 'verif'), false);
+});
+
+test('adoption suite: schema and recent-change anchors are authoritative and immutable', () => {
+  const byId = new Map(suite.cases.map(testCase => [testCase.id, testCase]));
+  const boundary = byId.get('direct-vs-explorer-boundary');
+  const recent = byId.get('explore-recent-change-context');
+
+  assert.deepEqual(
+    boundary.expectations.find(expectation => expectation.source === 'target_paths')?.groups,
+    [['src/explorer/schemas.mjs']],
+  );
+  assert.deepEqual(
+    boundary.expectations.find(expectation => expectation.source === 'combined_text')?.groups,
+    [['PARENT_HANDOFF_V3_SCHEMA', 'EXPLORE_REPO_OUTPUT_SCHEMA']],
+  );
+  assert.match(recent.args.task, new RegExp(RECENT_CHANGE_SHA));
+
+  execFileSync('git', ['cat-file', '-e', `${RECENT_CHANGE_SHA}^{commit}`], {
+    cwd: repoRoot,
+    windowsHide: true,
+  });
+  const patch = execFileSync(
+    'git',
+    ['show', '--format=', '--no-ext-diff', '--no-textconv', RECENT_CHANGE_SHA, '--', 'src/mcp/server.mjs'],
+    { cwd: repoRoot, encoding: 'utf8', windowsHide: true },
+  );
+  assert.match(patch, /TOOL_DISPATCH_RULE/);
+});
+
+test('adoption suite: quiet schema-v3 does not require optional evidence snippets', () => {
+  const serializedSuite = JSON.stringify(suite);
+  assert.doesNotMatch(serializedSuite, /min_evidence_snippet_count/);
+  assert.doesNotMatch(serializedSuite, /"source":"evidence_snippets"/);
 });

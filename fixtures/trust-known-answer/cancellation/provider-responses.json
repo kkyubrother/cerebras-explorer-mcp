@@ -1,0 +1,10 @@
+{
+  "fixtureVersion": 1,
+  "scenario": "cancellation",
+  "responses": [
+    {
+      "stage": "planner",
+      "waitForAbort": true
+    }
+  ]
+}

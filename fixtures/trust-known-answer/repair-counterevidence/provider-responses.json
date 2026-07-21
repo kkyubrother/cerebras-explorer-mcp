@@ -1,0 +1,107 @@
+{
+  "fixtureVersion": 1,
+  "scenario": "repair_counterevidence",
+  "responses": [
+    {
+      "stage": "planner",
+      "result": {
+        "message": {
+          "content": {
+            "taskSummary": "Determine whether every route requires authentication.",
+            "constraints": ["Check for route-specific exceptions."],
+            "subgoals": [
+              {
+                "id": "S1",
+                "question": "Does every route require authentication?",
+                "originRefs": ["request:0-49"],
+                "claimType": "comparison",
+                "proofCondition": "Inspect every route policy and preserve any divergence.",
+                "constraints": []
+              }
+            ]
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "synthesis",
+      "result": {
+        "message": {
+          "content": {
+            "claims": [
+              {
+                "id": "C1",
+                "subgoalId": "S1",
+                "text": "Every route requires authentication.",
+                "evidenceRefs": ["E1", "E2"]
+              }
+            ]
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "verification",
+      "result": {
+        "message": {
+          "content": {
+            "verdicts": [
+              {
+                "claimId": "C1",
+                "result": "insufficient",
+                "supportingEvidenceRefs": ["E1", "E2"],
+                "reasonCode": "missing_category",
+                "note": "The legacy route policy has not been inspected."
+              }
+            ],
+            "uncoveredRequestParts": []
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "repair",
+      "result": {
+        "message": {
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "call-repair-1",
+              "function": {
+                "name": "repo_read_file",
+                "arguments": {
+                  "path": "src/routes/legacy.mjs",
+                  "startLine": 1,
+                  "endLine": 1
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "stage": "verification",
+      "result": {
+        "message": {
+          "content": {
+            "verdicts": [
+              {
+                "claimId": "C1",
+                "result": "contradicted",
+                "supportingEvidenceRefs": ["E1", "E2", "E3"],
+                "reasonCode": "contradiction",
+                "note": "The legacy route is public, so the prior broad claim must be reopened."
+              }
+            ],
+            "uncoveredRequestParts": []
+          },
+          "toolCalls": []
+        }
+      }
+    }
+  ]
+}

@@ -4,10 +4,41 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
-import { getBudgetConfig } from '../src/explorer/config.mjs';
-import { RepoToolkit, collectTargetPathsFromToolResult } from '../src/explorer/repo-tools.mjs';
+import { getRuntimeConfig } from '../src/explorer/config.mjs';
+import * as repoToolExports from '../src/explorer/repo-tools.mjs';
+import {
+  RepoToolkit,
+  canonicalizeRepositoryObservationScope,
+  classifySourceRole,
+  collectTargetPathsFromToolResult,
+  normalizedRepositoryFileIdentity,
+  normalizeRepositoryObservation,
+} from '../src/explorer/repo-tools.mjs';
 import { LruCache, globalRepoCache } from '../src/explorer/cache.mjs';
+
+function repositoryObservationTest(name, callback) {
+  test(name, () => {
+    callback(normalizeRepositoryObservation);
+  });
+}
+
+function toolSpecificEnumerationTest(name, optionsOrCallback, maybeCallback) {
+  const options = typeof optionsOrCallback === 'function' ? {} : optionsOrCallback;
+  const callback = typeof optionsOrCallback === 'function' ? optionsOrCallback : maybeCallback;
+
+  test(name, options, async t => {
+    const deriveCoverage = repoToolExports.deriveRepositoryObservationCoverage;
+    if (deriveCoverage === undefined) {
+      t.todo('Spec 028 T060 repository coverage derivation is not implemented yet');
+      return;
+    }
+    assert.equal(typeof deriveCoverage, 'function',
+      'a partially exported T060 capability must fail instead of silently skipping');
+    await callback(t, deriveCoverage);
+  });
+}
 
 function hasGit() {
   try { execFileSync('git', ['--version'], { stdio: 'pipe' }); return true; } catch { return false; }
@@ -90,11 +121,1093 @@ async function makeRepoFixture() {
   return root;
 }
 
+async function makeEnumerationGitFixture() {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-enumeration-git-'));
+  const git = args => execFileSync('git', args, { cwd: root, stdio: 'pipe', encoding: 'utf8' });
+  git(['init', '-b', 'main']);
+  git(['config', 'user.email', 'test@example.com']);
+  git(['config', 'user.name', 'Test User']);
+  await fs.mkdir(path.join(root, 'src'), { recursive: true });
+  await fs.mkdir(path.join(root, 'docs'), { recursive: true });
+  await fs.writeFile(path.join(root, 'src', 'app.js'), 'export const value = 1;\n');
+  await fs.writeFile(path.join(root, 'src', 'large.js'), 'export const lines = [];\n');
+  await fs.writeFile(path.join(root, 'docs', 'guide.md'), '# Guide\n');
+  await fs.writeFile(path.join(root, '.env'), 'TOKEN=placeholder\n');
+  git(['add', '.']);
+  git(['commit', '-m', 'initial enumeration fixture']);
+
+  await fs.writeFile(path.join(root, 'src', 'app.js'), 'export const value = 2;\n');
+  const largePatch = Array.from({ length: 500 }, (_, index) =>
+    `export const item${index} = "${'x'.repeat(24)}";`).join('\n');
+  await fs.writeFile(path.join(root, 'src', 'large.js'), `${largePatch}\n`);
+  await fs.writeFile(path.join(root, 'docs', 'guide.md'), '# Updated guide\n');
+  await fs.writeFile(path.join(root, '.env'), 'TOKEN=changed-placeholder\n');
+  git(['add', '.']);
+  git(['commit', '-m', 'change scoped and filtered paths']);
+
+  await fs.writeFile(path.join(root, 'src', 'app.js'), 'export const value = 3;\n');
+  git(['add', 'src/app.js']);
+  git(['commit', '-m', 'change one scoped path']);
+  return root;
+}
+
+class WalkTelemetryToolkit extends RepoToolkit {
+  constructor(options, telemetry = {}) {
+    super(options);
+    this.injectedWalkTelemetry = telemetry;
+  }
+
+  async walkFiles(args = {}) {
+    const result = await super.walkFiles(args);
+    return {
+      ...result,
+      ...this.injectedWalkTelemetry,
+      truncated: Boolean(result.truncated || this.injectedWalkTelemetry.truncated),
+    };
+  }
+}
+
+class GrepTelemetryToolkit extends RepoToolkit {
+  constructor(options, telemetry = {}) {
+    super(options);
+    this.injectedGrepTelemetry = telemetry;
+  }
+
+  async grep(args = {}) {
+    const result = await super.grep(args);
+    return {
+      ...result,
+      ...this.injectedGrepTelemetry,
+      truncated: Boolean(result.truncated || this.injectedGrepTelemetry.truncated),
+    };
+  }
+}
+
+repositoryObservationTest('repository observations preserve the authoritative boundary and compute result counts', normalize => {
+  const observation = normalize({
+    id: 'search-1',
+    tool: 'repo_grep',
+    args: {
+      pattern: 'requireAuth',
+      scope: ['**'],
+    },
+    boundary: ['src/**'],
+    enumerationCandidate: true,
+    result: {
+      matches: [
+        { path: 'src/auth.js', line: 1 },
+        { path: 'src/routes/user.js', line: 2 },
+      ],
+      truncated: false,
+      matchCount: 999,
+      enumerationComplete: false,
+      boundary: ['**'],
+      contextTruncated: true,
+    },
+    contextTruncated: false,
+  });
+
+  assert.deepEqual(Object.keys(observation).sort(), [
+    'boundary',
+    'contextTruncated',
+    'deniedPaths',
+    'enumerationComplete',
+    'errors',
+    'id',
+    'kind',
+    'matchCount',
+    'normalizedArgs',
+    'normalizedItemAnchors',
+    'normalizedItemIds',
+    'omittedOutOfScopeFiles',
+    'tool',
+    'toolTruncated',
+  ]);
+  assert.equal(observation.id, 'search-1');
+  assert.equal(observation.kind, 'search');
+  assert.equal(observation.tool, 'repo_grep');
+  assert.equal(observation.normalizedArgs.pattern, 'requireAuth');
+  assert.deepEqual(observation.boundary, ['src/**']);
+  assert.equal(observation.matchCount, 2);
+  assert.equal(observation.normalizedItemIds.length, 2);
+  assert.ok(observation.normalizedItemIds.every(item => /^sha256:[0-9a-f]{64}$/.test(item)));
+  assert.notEqual(observation.normalizedItemIds[0], observation.normalizedItemIds[1]);
+  assert.deepEqual(observation.normalizedItemAnchors, [
+    { path: 'src/auth.js', line: 1 },
+    { path: 'src/routes/user.js', line: 2 },
+  ]);
+  assert.equal(observation.toolTruncated, false);
+  assert.equal(observation.contextTruncated, false);
+  assert.equal(observation.omittedOutOfScopeFiles, 0);
+  assert.equal(observation.deniedPaths, 0);
+  assert.equal(observation.errors, 0);
+  assert.equal(observation.enumerationComplete, true);
+
+  const roleFiltered = normalize({
+    id: 'search-role-filtered',
+    tool: 'repo_grep',
+    args: {
+      pattern: 'requireAuth',
+      scope: ['**'],
+      sourceRoles: ['implementation'],
+    },
+    boundary: ['**'],
+    enumerationCandidate: true,
+    result: {
+      matches: [{ path: 'src/auth.js', line: 1 }],
+      truncated: false,
+    },
+    contextTruncated: false,
+  });
+  assert.equal(roleFiltered.enumerationComplete, false,
+    'an internal source-role filter cannot certify an unfiltered absence or count');
+});
+
+repositoryObservationTest('count identities come only from valid grep and file-search results', normalize => {
+  const files = normalize({
+    id: 'search-files',
+    tool: 'repo_find_files',
+    args: { pattern: '**/*.mjs' },
+    boundary: ['src/**'],
+    enumerationCandidate: true,
+    result: {
+      matches: ['src/a.mjs', 'src/b.mjs', 'src/a.mjs'],
+      truncated: false,
+    },
+  });
+  assert.equal(files.normalizedItemIds.length, 3);
+  assert.ok(files.normalizedItemIds.every(item => /^sha256:[0-9a-f]{64}$/.test(item)));
+  assert.equal(files.normalizedItemIds[0], files.normalizedItemIds[2]);
+  assert.notEqual(files.normalizedItemIds[0], files.normalizedItemIds[1]);
+  assert.equal(files.normalizedItemIds[0], normalizedRepositoryFileIdentity('src/a.mjs'));
+  assert.equal(Object.hasOwn(files, 'normalizedItemAnchors'), false,
+    'file counts do not expose line anchors');
+
+  const secretPath = normalize({
+    id: 'search-secret-file',
+    tool: 'repo_find_files',
+    args: { pattern: '**/*' },
+    boundary: ['**'],
+    enumerationCandidate: true,
+    result: { matches: ['.env'], truncated: false },
+  });
+  assert.equal(Object.hasOwn(secretPath, 'normalizedItemIds'), false,
+    'a deny-listed result path must never become a count identity');
+  assert.doesNotMatch(JSON.stringify(secretPath), /\.env/);
+
+  for (const [tool, matches] of [
+    ['repo_find_files', ['outside/escape.mjs']],
+    ['repo_grep', [{ path: 'outside/escape.mjs', line: 1 }]],
+  ]) {
+    const outOfBoundary = normalize({
+      id: `search-out-of-boundary-${tool}`,
+      tool,
+      args: tool === 'repo_grep'
+        ? { pattern: 'needle', scope: ['src/**'] }
+        : { pattern: '**/*.mjs', scope: ['src/**'] },
+      boundary: ['src/**'],
+      enumerationCandidate: true,
+      result: { matches, truncated: false },
+    });
+    assert.equal(Object.hasOwn(outOfBoundary, 'normalizedItemIds'), false);
+    assert.equal(Object.hasOwn(outOfBoundary, 'normalizedItemAnchors'), false);
+    assert.equal(outOfBoundary.enumerationComplete, false,
+      'an out-of-boundary result can never certify an exact count');
+    assert.doesNotMatch(JSON.stringify(outOfBoundary), /outside|escape/u,
+      'invalid result paths stay out of normalized observations');
+  }
+});
+
+test('repository file identities canonicalize safe relative paths and reject unsafe paths', () => {
+  assert.equal(
+    normalizedRepositoryFileIdentity('.\\src\\routes\\user.js'),
+    normalizedRepositoryFileIdentity('src/routes/user.js'),
+  );
+  assert.match(normalizedRepositoryFileIdentity('src/routes/user.js'), /^sha256:[0-9a-f]{64}$/u);
+  assert.equal(normalizedRepositoryFileIdentity('../outside.js'), null);
+  assert.equal(normalizedRepositoryFileIdentity('.env'), null);
+});
+
+test('repository observation scopes canonicalize repository-wide and equivalent path forms', () => {
+  assert.deepEqual(canonicalizeRepositoryObservationScope([]), ['**']);
+  assert.deepEqual(canonicalizeRepositoryObservationScope(['.']), ['**']);
+  assert.deepEqual(canonicalizeRepositoryObservationScope([
+    'ui\\pages\\marketing\\**\\',
+    'ui/pages/marketing/**/',
+    'ui/pages/marketing/**',
+  ]), ['ui/pages/marketing/**']);
+});
+
+repositoryObservationTest('static string-array definitions expose a runtime-owned exact count', normalize => {
+  const result = {
+    symbol: 'DEFAULT_SECRET_DENY_PATTERNS',
+    definition: {
+      path: 'src/security.mjs',
+      line: 10,
+      endLine: 15,
+      content: [
+        'export const DEFAULT_SECRET_DENY_PATTERNS = Object.freeze([',
+        "  '.env',",
+        "  'comma,inside',",
+        '  // comments and escaped delimiters are not entries',
+        "  'quote\\\'inside',",
+        ']);',
+      ].join('\n'),
+    },
+    callers: [],
+    callerCount: 0,
+    truncated: false,
+  };
+  const observation = normalize({
+    id: 'symbol-array',
+    tool: 'repo_symbol_context',
+    args: { symbol: 'DEFAULT_SECRET_DENY_PATTERNS', scope: ['src/security.mjs'] },
+    boundary: ['src/security.mjs'],
+    enumerationCandidate: true,
+    result,
+  });
+
+  assert.equal(observation.enumerationComplete, true);
+  assert.deepEqual(observation.deterministicMeasurement, {
+    kind: 'count',
+    unit: 'array_entries',
+    value: 3,
+  });
+  assert.equal(observation.normalizedItemIds.length, 3);
+  assert.ok(observation.normalizedItemIds.every(item => /^sha256:[0-9a-f]{64}$/.test(item)));
+
+  for (const content of [
+    "export const ITEMS = ['safe', ...dynamicItems];",
+    "export const ITEMS = ['safe' + getValue()];",
+    "export const ITEMS = ['unterminated'",
+  ]) {
+    const rejected = normalize({
+      id: `rejected-${content.length}`,
+      tool: 'repo_symbol_context',
+      args: { symbol: 'ITEMS', scope: ['src/items.mjs'] },
+      boundary: ['src/items.mjs'],
+      enumerationCandidate: true,
+      result: {
+        symbol: 'ITEMS',
+        definition: { path: 'src/items.mjs', line: 1, endLine: 1, content },
+        callers: [],
+        callerCount: 0,
+        truncated: false,
+      },
+    });
+    assert.equal(Object.hasOwn(rejected, 'deterministicMeasurement'), false);
+    assert.equal(Object.hasOwn(rejected, 'normalizedItemIds'), false);
+  }
+});
+
+test('Spec 028 T068 — the pinned current secret policy has 70 statically provable entries', async () => {
+  const repoRoot = fileURLToPath(new URL('..', import.meta.url));
+  const toolkit = new RepoToolkit({ repoRoot, runtimeConfig: getRuntimeConfig() });
+  await toolkit.initialize(['src/explorer/security.mjs']);
+
+  const result = await toolkit.symbolContext({
+    symbol: 'DEFAULT_SECRET_DENY_PATTERNS',
+    path: 'src/explorer/security.mjs',
+  });
+  const observation = normalizeRepositoryObservation({
+    id: 'current-secret-policy',
+    tool: 'repo_symbol_context',
+    args: {
+      symbol: 'DEFAULT_SECRET_DENY_PATTERNS',
+      path: 'src/explorer/security.mjs',
+    },
+    boundary: ['src/explorer/security.mjs'],
+    enumerationCandidate: true,
+    result,
+  });
+
+  assert.equal(result.definition.path, 'src/explorer/security.mjs');
+  assert.equal(result.definition.line, 43);
+  assert.equal(result.definition.endLine, 117);
+  assert.deepEqual(observation.deterministicMeasurement, {
+    kind: 'count',
+    unit: 'array_entries',
+    value: 70,
+  });
+  assert.equal(observation.normalizedItemIds.length, 70);
+  assert.equal(new Set(observation.normalizedItemIds).size, 70);
+});
+
+repositoryObservationTest('repository observations distinguish tool truncation from runtime context truncation', normalize => {
+  const toolLimited = normalize({
+    id: 'search-tool-limited',
+    tool: 'repo_find_files',
+    args: { pattern: '**/*.mjs' },
+    boundary: ['src/**'],
+    enumerationCandidate: true,
+    result: { matches: ['src/index.mjs'], truncated: true },
+    contextTruncated: false,
+  });
+  assert.equal(toolLimited.toolTruncated, true);
+  assert.equal(toolLimited.contextTruncated, false);
+  assert.equal(toolLimited.enumerationComplete, false);
+
+  const contextLimited = normalize({
+    id: 'search-context-limited',
+    tool: 'repo_find_files',
+    args: { pattern: '**/*.mjs' },
+    boundary: ['src/**'],
+    enumerationCandidate: true,
+    result: { matches: ['src/index.mjs'], truncated: false },
+    contextTruncated: true,
+  });
+  assert.equal(contextLimited.toolTruncated, false);
+  assert.equal(contextLimited.contextTruncated, true);
+  assert.equal(contextLimited.enumerationComplete, false);
+});
+
+repositoryObservationTest('repository observations retain omission, denial, and error counts without trusting invalid counts', normalize => {
+  const blocked = normalize({
+    id: 'search-blocked',
+    tool: 'repo_grep',
+    args: { pattern: 'token' },
+    boundary: ['src/**'],
+    enumerationCandidate: true,
+    result: {
+      matches: [],
+      truncated: false,
+      omittedOutOfScopeFiles: 2,
+      omittedSecretPaths: 3,
+      errors: 4,
+    },
+  });
+  assert.equal(blocked.omittedOutOfScopeFiles, 2);
+  assert.equal(blocked.deniedPaths, 3);
+  assert.equal(blocked.errors, 4);
+  assert.equal(blocked.enumerationComplete, false);
+
+  const invalidCounts = normalize({
+    id: 'search-invalid-counts',
+    tool: 'repo_grep',
+    args: { pattern: 'token' },
+    boundary: ['src/**'],
+    enumerationCandidate: true,
+    result: {
+      matches: [],
+      truncated: false,
+      omittedOutOfScopeFiles: -1,
+      omittedSecretPaths: 1.5,
+      errors: Number.NaN,
+    },
+  });
+  assert.equal(invalidCounts.omittedOutOfScopeFiles, 0);
+  assert.equal(invalidCounts.deniedPaths, 0);
+  assert.equal(invalidCounts.errors, 0);
+  assert.equal(invalidCounts.enumerationComplete, false);
+
+  const executionError = normalize({
+    id: 'search-execution-error',
+    tool: 'repo_grep',
+    args: { pattern: 'token' },
+    boundary: ['src/**'],
+    enumerationCandidate: true,
+    result: {
+      error: true,
+      stage: 'parse_or_exec',
+      type: 'tool_execution_error',
+      message: 'tool failed',
+      tool: 'repo_grep',
+    },
+  });
+  assert.equal(executionError.deniedPaths, 0);
+  assert.equal(executionError.errors, 1);
+  assert.equal(executionError.enumerationComplete, false);
+});
+
+repositoryObservationTest('policy-denied observations count the denial without leaking a path or double-counting an error', normalize => {
+  const observation = normalize({
+    id: 'search-secret-denied',
+    tool: 'repo_read_file',
+    args: { path: '.env', debugPath: '.env.local' },
+    boundary: ['**'],
+    result: {
+      error: 'redacted_by_policy',
+      reason: 'secret-deny-list',
+      path: '.env',
+      pattern: '**/.env',
+    },
+  });
+
+  assert.equal(observation.deniedPaths, 1);
+  assert.equal(observation.errors, 0);
+  assert.equal(observation.enumerationComplete, false);
+  assert.equal(observation.normalizedArgs.path, '[REDACTED:secret-path]');
+  assert.equal(observation.normalizedArgs.debugPath, undefined);
+  assert.doesNotMatch(JSON.stringify(observation), /\.env|secret-deny-list|redacted_by_policy/);
+});
+
+repositoryObservationTest('enumeration completeness requires a runtime candidate and never trusts result self-report', normalize => {
+  const runtimeCertified = normalize({
+    id: 'search-runtime-certified',
+    tool: 'repo_grep',
+    args: { pattern: 'needle' },
+    boundary: ['src/**'],
+    enumerationCandidate: true,
+    result: {
+      matches: [],
+      truncated: false,
+      enumerationComplete: false,
+    },
+  });
+  assert.equal(runtimeCertified.enumerationComplete, true);
+
+  const selfReportedOnly = normalize({
+    id: 'search-self-reported',
+    tool: 'repo_grep',
+    args: { pattern: 'needle' },
+    boundary: ['src/**'],
+    result: {
+      matches: [],
+      truncated: false,
+      enumerationComplete: true,
+    },
+  });
+  assert.equal(selfReportedOnly.enumerationComplete, false);
+
+  const inheritedResult = normalize({
+    id: 'search-inherited-result',
+    tool: 'repo_grep',
+    args: { pattern: 'needle' },
+    boundary: ['src/**'],
+    enumerationCandidate: true,
+    result: Object.create({ matches: [], truncated: false }),
+  });
+  assert.equal(inheritedResult.errors, 1);
+  assert.equal(inheritedResult.enumerationComplete, false,
+    'prototype-inherited result telemetry must never certify enumeration');
+
+  const inheritedMatch = Object.assign(Object.create({ line: 1 }), {
+    path: 'src/index.mjs',
+  });
+  const inheritedMatchResult = normalize({
+    id: 'search-inherited-match',
+    tool: 'repo_grep',
+    args: { pattern: 'needle' },
+    boundary: ['src/**'],
+    enumerationCandidate: true,
+    result: { matches: [inheritedMatch], truncated: false },
+  });
+  assert.equal(inheritedMatchResult.matchCount, 0);
+  assert.equal(inheritedMatchResult.enumerationComplete, false,
+    'prototype-inherited nested match fields must not certify enumeration');
+
+  const malformedRead = normalize({
+    id: 'search-malformed-read',
+    tool: 'repo_read_file',
+    args: { path: 'src/index.mjs' },
+    boundary: ['src/index.mjs'],
+    enumerationCandidate: true,
+    result: {
+      path: 'src/index.mjs',
+      startLine: -2,
+      endLine: -1,
+      content: 'not an observable range',
+      truncated: false,
+    },
+  });
+  assert.equal(malformedRead.matchCount, 0);
+  assert.equal(malformedRead.enumerationComplete, false,
+    'an invalid source range must not become a complete observation');
+
+  assert.throws(() => normalize({
+    id: 'search-invalid-boundary',
+    tool: 'repo_grep',
+    args: { pattern: 'needle' },
+    boundary: 'src/**',
+    enumerationCandidate: true,
+    result: { matches: [], truncated: false },
+  }), /boundary|string array/i, 'a malformed boundary must not widen to repository scope');
+});
+
+toolSpecificEnumerationTest(
+  'Spec 028 T058 — grep/find preserve distinct walk and result limits plus omission telemetry',
+  async (t, deriveCoverage) => {
+    const root = await makeRepoFixture();
+    try {
+      const runtimeConfig = getRuntimeConfig();
+      const toolkit = new RepoToolkit({ repoRoot: root, runtimeConfig });
+      await toolkit.initialize(['src/**']);
+      toolkit._hasRipgrep = false;
+
+      const walk = await toolkit.walkFiles({ scope: ['src/routes/**'] });
+      assert.equal(walk.walkTruncated, false,
+        'walk telemetry must explicitly distinguish a complete traversal');
+
+      const findArgs = { pattern: '**/*.js', scope: ['src/routes/**'] };
+      const found = await toolkit.findFiles(findArgs);
+      assert.equal(found.walkTruncated, false);
+      assert.equal(found.resultTruncated, false);
+      const findCoverage = deriveCoverage({
+        tool: 'repo_find_files',
+        args: findArgs,
+        result: { ...found, boundary: ['**'], enumerationComplete: false },
+        effectiveScope: ['src/routes/**'],
+        contextTruncated: false,
+      });
+      assert.deepEqual(findCoverage.boundary, ['src/routes/**'],
+        'the runtime boundary must win over a result self-report');
+      assert.equal(findCoverage.toolTruncated, false);
+      assert.equal(findCoverage.enumerationComplete, true);
+
+      const grepArgs = { pattern: 'requireAuth', scope: ['src/routes/**'] };
+      const grepped = await toolkit.grep(grepArgs);
+      assert.equal(grepped.walkTruncated, false);
+      assert.equal(grepped.resultTruncated, false);
+      const grepCoverage = deriveCoverage({
+        tool: 'repo_grep',
+        args: grepArgs,
+        result: grepped,
+        effectiveScope: ['src/routes/**'],
+        contextTruncated: false,
+      });
+      assert.deepEqual(grepCoverage.boundary, ['src/routes/**']);
+      assert.equal(grepCoverage.enumerationComplete, true);
+
+      const baseAliasArgs = { pattern: 'requireAuth', scope: ['src'] };
+      const baseAlias = await toolkit.grep(baseAliasArgs);
+      const baseAliasCoverage = deriveCoverage({
+        tool: 'repo_grep',
+        args: baseAliasArgs,
+        result: baseAlias,
+        effectiveScope: ['src/**'],
+        contextTruncated: false,
+      });
+      assert.deepEqual(baseAliasCoverage.boundary, ['src/**'],
+        'a literal local scope equal to the effective glob prefix is the same boundary');
+      assert.equal(baseAliasCoverage.enumerationComplete, true);
+
+      const walkLimitedConfig = { ...runtimeConfig, maxWalkFiles: 1 };
+      const walkLimited = new RepoToolkit({ repoRoot: root, runtimeConfig: walkLimitedConfig });
+      await walkLimited.initialize(['src/**']);
+      walkLimited._hasRipgrep = false;
+      const limitedWalk = await walkLimited.walkFiles();
+      assert.equal(limitedWalk.walkTruncated, true);
+
+      for (const [tool, args, result] of [
+        ['repo_find_files', { pattern: '**/*.js' }, await walkLimited.findFiles({ pattern: '**/*.js' })],
+        ['repo_grep', { pattern: 'requireAuth' }, await walkLimited.grep({ pattern: 'requireAuth' })],
+      ]) {
+        assert.equal(result.walkTruncated, true, `${tool} must preserve the underlying walk limit`);
+        assert.equal(result.resultTruncated, false,
+          `${tool} must not mislabel an underlying walk limit as a result cap`);
+        const coverage = deriveCoverage({
+          tool,
+          args,
+          result,
+          effectiveScope: ['src/**'],
+          contextTruncated: false,
+        });
+        assert.equal(coverage.toolTruncated, true);
+        assert.equal(coverage.enumerationComplete, false);
+      }
+
+      const resultLimitedConfig = { ...runtimeConfig, maxSearchResults: 1 };
+      const resultLimited = new RepoToolkit({ repoRoot: root, runtimeConfig: resultLimitedConfig });
+      await resultLimited.initialize(['src/**']);
+      resultLimited._hasRipgrep = false;
+      for (const [tool, args, result] of [
+        ['repo_find_files', { pattern: '**/*.js' }, await resultLimited.findFiles({ pattern: '**/*.js' })],
+        ['repo_grep', { pattern: 'requireAuth' }, await resultLimited.grep({ pattern: 'requireAuth' })],
+      ]) {
+        assert.equal(result.walkTruncated, false,
+          `${tool} must preserve that the traversal itself completed`);
+        assert.equal(result.resultTruncated, true, `${tool} must expose its own result cap`);
+        const coverage = deriveCoverage({
+          tool,
+          args,
+          result,
+          effectiveScope: ['src/**'],
+          contextTruncated: false,
+        });
+        assert.equal(coverage.toolTruncated, true);
+        assert.equal(coverage.enumerationComplete, false);
+      }
+
+      const omissionCases = [
+        { telemetry: { errors: 1 }, resultField: 'errors', coverageField: 'errors' },
+        { telemetry: { omittedSecretPaths: 1 }, resultField: 'omittedSecretPaths', coverageField: 'deniedPaths' },
+        { telemetry: { omittedOutOfScopeFiles: 1 }, resultField: 'omittedOutOfScopeFiles', coverageField: 'omittedOutOfScopeFiles' },
+      ];
+      for (const { telemetry, resultField, coverageField } of omissionCases) {
+        const affected = new WalkTelemetryToolkit({ repoRoot: root, runtimeConfig }, telemetry);
+        await affected.initialize(['src/**']);
+        affected._hasRipgrep = false;
+        for (const [tool, args, result] of [
+          ['repo_find_files', { pattern: '**/*.js' }, await affected.findFiles({ pattern: '**/*.js' })],
+          ['repo_grep', { pattern: 'requireAuth' }, await affected.grep({ pattern: 'requireAuth' })],
+        ]) {
+          assert.equal(result[resultField], 1, `${tool} must retain ${resultField} from traversal`);
+          const coverage = deriveCoverage({
+            tool,
+            args,
+            result,
+            effectiveScope: ['src/**'],
+            contextTruncated: false,
+          });
+          assert.equal(coverage[coverageField], 1);
+          assert.equal(coverage.enumerationComplete, false);
+        }
+      }
+
+      await fs.writeFile(path.join(root, '.env'), 'TOKEN=denied-marker\n');
+      const denied = new RepoToolkit({ repoRoot: root, runtimeConfig });
+      await denied.initialize(['**']);
+      denied._hasRipgrep = false;
+      const deniedWalk = await denied.walkFiles();
+      assert.equal(deniedWalk.omittedSecretPaths, 1,
+        'the traversal must count a denied path without exposing its name');
+      for (const [tool, args, result] of [
+        ['repo_find_files', { pattern: '**/*' }, await denied.findFiles({ pattern: '**/*' })],
+        ['repo_grep', { pattern: 'denied-marker' }, await denied.grep({ pattern: 'denied-marker' })],
+      ]) {
+        assert.equal(result.omittedSecretPaths, 1, `${tool} must preserve traversal denials`);
+        const coverage = deriveCoverage({
+          tool,
+          args,
+          result,
+          effectiveScope: ['**'],
+          contextTruncated: false,
+        });
+        assert.equal(coverage.deniedPaths, 1);
+        assert.equal(coverage.enumerationComplete, false);
+        assert.doesNotMatch(JSON.stringify(coverage), /\.env|denied-marker/);
+      }
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  },
+);
+
+toolSpecificEnumerationTest(
+  'Spec 028 T058 — symbol and reference operations stay conservative and propagate search failures',
+  async (t, deriveCoverage) => {
+    const root = await makeRepoFixture();
+    try {
+      const runtimeConfig = getRuntimeConfig();
+      const toolkit = new RepoToolkit({ repoRoot: root, runtimeConfig });
+      await toolkit.initialize(['src/**']);
+      toolkit._hasRipgrep = false;
+
+      const symbolArgs = { path: 'src/auth.js' };
+      const symbols = await toolkit.symbols(symbolArgs);
+      const symbolCoverage = deriveCoverage({
+        tool: 'repo_symbols',
+        args: symbolArgs,
+        result: { ...symbols, boundary: ['**'], enumerationComplete: true },
+        effectiveScope: ['src/**'],
+        contextTruncated: false,
+      });
+      assert.deepEqual(symbolCoverage.boundary, ['src/auth.js']);
+      assert.equal(symbolCoverage.enumerationComplete, false,
+        'heuristic symbol extraction must not certify semantic exhaustiveness');
+
+      const referenceArgs = { symbol: 'requireAuth' };
+      const references = await toolkit.references(referenceArgs);
+      assert.equal(references.walkTruncated, false);
+      assert.equal(references.resultTruncated, false);
+      const referenceCoverage = deriveCoverage({
+        tool: 'repo_references',
+        args: referenceArgs,
+        result: { ...references, boundary: ['**'], enumerationComplete: true },
+        effectiveScope: ['src/**'],
+        contextTruncated: false,
+      });
+      assert.deepEqual(referenceCoverage.boundary, ['src/**']);
+      assert.equal(referenceCoverage.enumerationComplete, false,
+        'reference search alone cannot prove semantic or dynamic-call exhaustiveness');
+
+      const searchFailureCases = [
+        { telemetry: { walkTruncated: true, truncated: true }, resultField: 'walkTruncated', coverageField: 'toolTruncated' },
+        { telemetry: { resultTruncated: true, truncated: true }, resultField: 'resultTruncated', coverageField: 'toolTruncated' },
+        { telemetry: { errors: 1 }, resultField: 'errors', coverageField: 'errors' },
+        { telemetry: { omittedSecretPaths: 1 }, resultField: 'omittedSecretPaths', coverageField: 'deniedPaths' },
+        { telemetry: { omittedOutOfScopeFiles: 1 }, resultField: 'omittedOutOfScopeFiles', coverageField: 'omittedOutOfScopeFiles' },
+      ];
+      for (const { telemetry, resultField, coverageField } of searchFailureCases) {
+        const affected = new GrepTelemetryToolkit({ repoRoot: root, runtimeConfig }, telemetry);
+        await affected.initialize(['src/**']);
+        affected._hasRipgrep = false;
+        const result = await affected.references(referenceArgs);
+        assert.equal(result[resultField], telemetry[resultField],
+          `repo_references must retain underlying ${resultField}`);
+        const coverage = deriveCoverage({
+          tool: 'repo_references',
+          args: referenceArgs,
+          result,
+          effectiveScope: ['src/**'],
+          contextTruncated: false,
+        });
+        assert.equal(coverage[coverageField], coverageField === 'toolTruncated' ? true : 1);
+        assert.equal(coverage.enumerationComplete, false);
+      }
+
+      await fs.writeFile(path.join(root, '.env'), 'TOKEN=placeholder\n');
+      const unrestricted = new RepoToolkit({ repoRoot: root, runtimeConfig });
+      await unrestricted.initialize(['**']);
+      const deniedResult = await unrestricted.symbols({ path: '.env' });
+      const deniedCoverage = deriveCoverage({
+        tool: 'repo_symbols',
+        args: { path: '.env' },
+        result: deniedResult,
+        effectiveScope: ['**'],
+        contextTruncated: false,
+      });
+      assert.equal(deniedCoverage.deniedPaths, 1);
+      assert.equal(deniedCoverage.enumerationComplete, false);
+      assert.doesNotMatch(JSON.stringify(deniedCoverage), /\.env/,
+        'coverage telemetry must count a denial without leaking the denied path');
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  },
+);
+
+toolSpecificEnumerationTest(
+  'Spec 028 T058 — macros certify only explicitly complete underlying expansion',
+  async (t, deriveCoverage) => {
+    const root = await makeRepoFixture();
+    try {
+      const runtimeConfig = getRuntimeConfig();
+      const args = { symbol: 'requireAuth' };
+      const toolkit = new RepoToolkit({ repoRoot: root, runtimeConfig });
+      await toolkit.initialize(['src/**']);
+      toolkit._hasRipgrep = false;
+
+      const complete = await toolkit.symbolContext(args);
+      assert.equal(complete.walkTruncated, false);
+      assert.equal(complete.resultTruncated, false);
+      assert.equal(complete.macroTruncated, false);
+      const completeCoverage = deriveCoverage({
+        tool: 'repo_symbol_context',
+        args,
+        result: complete,
+        effectiveScope: ['src/**'],
+        contextTruncated: false,
+      });
+      assert.deepEqual(completeCoverage.boundary, ['src/**']);
+      assert.equal(completeCoverage.enumerationComplete, true);
+
+      const largeCallerPath = path.join(root, 'src', 'large-caller.js');
+      await fs.writeFile(
+        largeCallerPath,
+        `${'// filler\n'.repeat(35_000)}export function largeCaller() { return requireAuth(); }\n`,
+      );
+      const largeCallerSize = (await fs.stat(largeCallerPath)).size;
+      assert.ok(largeCallerSize > 256 * 1024 && largeCallerSize < 512 * 1024,
+        'the regression fixture must remain between the former grep and read ceilings');
+      const largeFileContext = await toolkit.symbolContext(args);
+      assert.equal(largeFileContext.resultTruncated, false,
+        'a readable source file must not make a base-scope symbol search incomplete');
+      assert.ok(largeFileContext.callers.some(caller => caller.path === 'src/large-caller.js'));
+      const largeFileCoverage = deriveCoverage({
+        tool: 'repo_symbol_context',
+        args,
+        result: largeFileContext,
+        effectiveScope: ['src/**'],
+        contextTruncated: false,
+      });
+      assert.equal(largeFileCoverage.enumerationComplete, true);
+      await fs.rm(largeCallerPath);
+
+      const manyCallers = Array.from({ length: 25 }, (_, index) =>
+        `export function caller${index}() { requireAuth(); }`).join('\n');
+      await fs.writeFile(path.join(root, 'src', 'many-callers.js'), `${manyCallers}\n`);
+      const cappedToolkit = new RepoToolkit({ repoRoot: root, runtimeConfig });
+      await cappedToolkit.initialize(['src/**']);
+      cappedToolkit._hasRipgrep = false;
+      const capped = await cappedToolkit.symbolContext(args);
+      assert.equal(capped.walkTruncated, false);
+      assert.equal(capped.resultTruncated, false);
+      assert.equal(capped.macroTruncated, true,
+        'macro-local caller caps must remain distinct from underlying search caps');
+      const cappedCoverage = deriveCoverage({
+        tool: 'repo_symbol_context',
+        args,
+        result: { ...capped, truncated: false, boundary: ['**'], enumerationComplete: true },
+        effectiveScope: ['src/**'],
+        contextTruncated: false,
+      });
+      assert.deepEqual(cappedCoverage.boundary, ['src/**']);
+      assert.equal(cappedCoverage.toolTruncated, true);
+      assert.equal(cappedCoverage.enumerationComplete, false,
+        'a macro self-report cannot override its runtime-observed caller cap');
+
+      const underlyingFailureCases = [
+        { telemetry: { walkTruncated: true, truncated: true }, resultField: 'walkTruncated', coverageField: 'toolTruncated' },
+        { telemetry: { resultTruncated: true, truncated: true }, resultField: 'resultTruncated', coverageField: 'toolTruncated' },
+        { telemetry: { errors: 1 }, resultField: 'errors', coverageField: 'errors' },
+        { telemetry: { omittedSecretPaths: 1 }, resultField: 'omittedSecretPaths', coverageField: 'deniedPaths' },
+        { telemetry: { omittedOutOfScopeFiles: 1 }, resultField: 'omittedOutOfScopeFiles', coverageField: 'omittedOutOfScopeFiles' },
+      ];
+      for (const { telemetry, resultField, coverageField } of underlyingFailureCases) {
+        const affected = new GrepTelemetryToolkit({ repoRoot: root, runtimeConfig }, telemetry);
+        await affected.initialize(['src/**']);
+        affected._hasRipgrep = false;
+        const result = await affected.symbolContext(args);
+        assert.equal(result[resultField], telemetry[resultField],
+          `repo_symbol_context must retain underlying ${resultField}`);
+        const coverage = deriveCoverage({
+          tool: 'repo_symbol_context',
+          args,
+          result,
+          effectiveScope: ['src/**'],
+          contextTruncated: false,
+        });
+        assert.equal(coverage[coverageField], coverageField === 'toolTruncated' ? true : 1);
+        assert.equal(coverage.enumerationComplete, false);
+      }
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  },
+);
+
+toolSpecificEnumerationTest(
+  'Spec 028 T058 — scoped git completeness is limited to the exact historical slice',
+  { skip: !hasGit() },
+  async (t, deriveCoverage) => {
+    const root = await makeEnumerationGitFixture();
+    try {
+      const runtimeConfig = getRuntimeConfig();
+      const toolkit = new RepoToolkit({ repoRoot: root, runtimeConfig });
+      await toolkit.initialize(['src/**']);
+
+      const gitSlices = [
+        {
+          tool: 'repo_git_diff',
+          args: { from: 'HEAD~1', to: 'HEAD', path: 'src/app.js' },
+          result: await toolkit.gitDiff({ from: 'HEAD~1', to: 'HEAD', path: 'src/app.js' }),
+          boundary: ['src/app.js'],
+        },
+        {
+          tool: 'repo_git_show',
+          args: { ref: 'HEAD' },
+          result: await toolkit.gitShow({ ref: 'HEAD' }),
+          boundary: ['src/**'],
+        },
+        {
+          tool: 'repo_git_blame',
+          args: { path: 'src/app.js', startLine: 1, endLine: 1 },
+          result: await toolkit.gitBlame({ path: 'src/app.js', startLine: 1, endLine: 1 }),
+          boundary: ['src/app.js'],
+        },
+        {
+          tool: 'repo_git_log',
+          args: { path: 'src/app.js', maxCount: 10 },
+          result: await toolkit.gitLog({ path: 'src/app.js', maxCount: 10 }),
+          boundary: ['src/app.js'],
+        },
+      ];
+      for (const { tool, args, result, boundary } of gitSlices) {
+        assert.equal(result.resultTruncated, false, `${tool} must expose a complete result slice`);
+        const coverage = deriveCoverage({
+          tool,
+          args,
+          result: { ...result, boundary: ['**'], enumerationComplete: false },
+          effectiveScope: ['src/**'],
+          contextTruncated: false,
+        });
+        assert.deepEqual(coverage.boundary, boundary);
+        assert.equal(coverage.enumerationComplete, true,
+          `${tool} may certify only its explicit historical slice`);
+      }
+
+      const broadArgs = { from: 'HEAD~2', to: 'HEAD~1' };
+      const filtered = await toolkit.gitDiff(broadArgs);
+      assert.ok(filtered.omittedOutOfScopeFiles > 0);
+      assert.ok(filtered.omittedSecretPaths > 0);
+      const filteredCoverage = deriveCoverage({
+        tool: 'repo_git_diff',
+        args: broadArgs,
+        result: filtered,
+        effectiveScope: ['src/**'],
+        contextTruncated: false,
+      });
+      assert.ok(filteredCoverage.omittedOutOfScopeFiles > 0);
+      assert.ok(filteredCoverage.deniedPaths > 0);
+      assert.equal(filteredCoverage.enumerationComplete, false);
+
+      const largeArgs = { from: 'HEAD~2', to: 'HEAD~1', path: 'src/large.js' };
+      const limited = await toolkit.gitDiff(largeArgs);
+      assert.equal(limited.resultTruncated, true,
+        'per-file patch clipping must be retained as explicit result telemetry');
+      const limitedCoverage = deriveCoverage({
+        tool: 'repo_git_diff',
+        args: largeArgs,
+        result: limited,
+        effectiveScope: ['src/**'],
+        contextTruncated: false,
+      });
+      assert.equal(limitedCoverage.toolTruncated, true);
+      assert.equal(limitedCoverage.enumerationComplete, false);
+
+      const limitedLogArgs = { path: 'src/app.js', maxCount: 1 };
+      const limitedLog = await toolkit.gitLog(limitedLogArgs);
+      assert.equal(limitedLog.resultTruncated, true,
+        'git log must query enough metadata to distinguish a full slice from its maxCount cap');
+      const limitedLogCoverage = deriveCoverage({
+        tool: 'repo_git_log',
+        args: limitedLogArgs,
+        result: limitedLog,
+        effectiveScope: ['src/**'],
+        contextTruncated: false,
+      });
+      assert.equal(limitedLogCoverage.toolTruncated, true);
+      assert.equal(limitedLogCoverage.enumerationComplete, false);
+
+      let errorResult;
+      try {
+        await toolkit.gitDiff({ from: 'missing-ref', to: 'HEAD', path: 'src/app.js' });
+        assert.fail('invalid git history lookup should fail');
+      } catch (error) {
+        errorResult = {
+          error: true,
+          stage: 'parse_or_exec',
+          type: 'tool_execution_error',
+          message: error.message,
+          tool: 'repo_git_diff',
+        };
+      }
+      const errorCoverage = deriveCoverage({
+        tool: 'repo_git_diff',
+        args: { from: 'missing-ref', to: 'HEAD', path: 'src/app.js' },
+        result: errorResult,
+        effectiveScope: ['src/**'],
+        contextTruncated: false,
+      });
+      assert.equal(errorCoverage.errors, 1);
+      assert.equal(errorCoverage.enumerationComplete, false);
+
+      await fs.writeFile(path.join(root, 'docs', 'guide.md'), '# Docs only\n');
+      const git = args => execFileSync('git', args, {
+        cwd: root,
+        stdio: 'pipe',
+        encoding: 'utf8',
+      });
+      git(['add', 'docs/guide.md']);
+      git(['commit', '-m', 'docs only change']);
+
+      const directoryLogArgs = { path: 'src', maxCount: 10 };
+      const directoryLog = await toolkit.gitLog(directoryLogArgs);
+      assert.equal(directoryLog.resultTruncated, false);
+      assert.equal(directoryLog.commits.some(commit => commit.message === 'docs only change'), false,
+        'a scope-root directory log must use the immutable scope pathspec');
+      const directoryLogCoverage = deriveCoverage({
+        tool: 'repo_git_log',
+        args: directoryLogArgs,
+        result: directoryLog,
+        effectiveScope: ['src/**'],
+        contextTruncated: false,
+      });
+      assert.deepEqual(directoryLogCoverage.boundary, ['src/**']);
+      assert.equal(directoryLogCoverage.enumerationComplete, true);
+      await assert.rejects(toolkit.gitLog({ path: 'docs', maxCount: 10 }),
+        /outside current scope/);
+
+      await fs.mkdir(path.join(root, 'src', 'private'), { recursive: true });
+      await fs.mkdir(path.join(root, 'src', 'public'), { recursive: true });
+      await fs.writeFile(path.join(root, 'src', 'private', 'inside.js'),
+        'export const inside = true;\n');
+      git(['add', 'src/private/inside.js']);
+      git(['commit', '-m', 'private scoped change']);
+      await fs.writeFile(path.join(root, 'src', 'public', 'outside.js'),
+        'export const outside = true;\n');
+      git(['add', 'src/public/outside.js']);
+      git(['commit', '-m', 'public sibling change']);
+
+      const privateToolkit = new RepoToolkit({ repoRoot: root, runtimeConfig });
+      await privateToolkit.initialize(['src/private/**']);
+      const privateDirectoryLog = await privateToolkit.gitLog({ path: 'src', maxCount: 10 });
+      assert.equal(privateDirectoryLog.commits.some(commit =>
+        commit.message === 'private scoped change'), true);
+      assert.equal(privateDirectoryLog.commits.some(commit =>
+        commit.message === 'public sibling change'), false,
+        'an ancestor directory request must not broaden a narrower immutable scope');
+      const privateDirectoryCoverage = deriveCoverage({
+        tool: 'repo_git_log',
+        args: { path: 'src', maxCount: 10 },
+        result: privateDirectoryLog,
+        effectiveScope: ['src/private/**'],
+        contextTruncated: false,
+      });
+      assert.deepEqual(privateDirectoryCoverage.boundary, ['src/private/**']);
+      assert.equal(privateDirectoryCoverage.enumerationComplete, true);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  },
+);
+
+test('Spec 028 T029 — source roles use conservative path segments and suffixes', () => {
+  const fixtures = new Map([
+    ['generated/client/index.ts', 'generated'],
+    ['tests/fixtures/auth-response.json', 'fixture'],
+    ['docs/local-e2e-test.md', 'documentation'],
+    ['tests/test_cli.py', 'test'],
+    ['src/auth.spec.mjs', 'test'],
+    ['pipeline/config.py', 'config'],
+    ['app/my_lib/config.py', 'config'],
+    ['config/defaults.mjs', 'config'],
+    ['prisma/schema.prisma', 'config'],
+    ['requirements.txt', 'config'],
+    ['kiro/pipeline-runner.json', 'config'],
+    ['src/contest.mjs', 'implementation'],
+    ['src/specialist.ts', 'implementation'],
+    ['assets/logo.png', 'unknown'],
+  ]);
+
+  for (const [sourcePath, expected] of fixtures) {
+    assert.equal(classifySourceRole(sourcePath), expected, sourcePath);
+  }
+  assert.equal(classifySourceRole(''), 'unknown');
+  assert.equal(classifySourceRole(null), 'unknown');
+});
+
+test('Spec 028 T071 — internal grep source-role filtering happens before the result cap',
+  { skip: !hasRipgrep() }, async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-role-grep-'));
+    try {
+      await fs.mkdir(path.join(root, 'scripts'), { recursive: true });
+      await fs.mkdir(path.join(root, 'src'), { recursive: true });
+      const documentation = Array.from({ length: 100 }, (_, index) =>
+        `structuredContent documentation mention ${index}`).join('\n');
+      const noisyImplementation = Array.from({ length: 100 }, (_, index) =>
+        `export const structuredContent${index} = buildPayload();`).join('\n');
+      await fs.writeFile(path.join(root, '000-DESIGN.md'), `${documentation}\n`);
+      await fs.writeFile(path.join(root, 'scripts', '000-noisy.mjs'), `${noisyImplementation}\n`);
+      await fs.writeFile(path.join(root, 'src', 'zzz-runtime.mjs'),
+        'export const structuredContent = buildPayload();\n');
+      const toolkit = new RepoToolkit({ repoRoot: root, runtimeConfig: getRuntimeConfig() });
+      await toolkit.initialize([]);
+
+      const result = await toolkit.grep({
+        pattern: 'structuredContent',
+        maxResults: 3,
+        sourceRoles: ['implementation'],
+      });
+      assert.equal(result.matches.some(match => match.path === 'src/zzz-runtime.mjs'), true,
+        'one noisy implementation file must not hide a later implementation candidate');
+      assert.equal(result.matches.filter(match => match.path === 'scripts/000-noisy.mjs').length, 2,
+        'internal role-filtered discovery samples at most two matches per file');
+      await assert.rejects(
+        toolkit.grep({ pattern: 'structuredContent', sourceRoles: ['made-up'] }),
+        /known source roles/u,
+      );
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
 test('RepoToolkit finds files, greps, reads ranges, and respects gitignore', async () => {
   const repoRoot = await makeRepoFixture();
   const toolkit = new RepoToolkit({
     repoRoot,
-    budgetConfig: getBudgetConfig(),
+    runtimeConfig: getRuntimeConfig(),
   });
   await toolkit.initialize(['src/**', 'docs/**']);
 
@@ -117,11 +1230,52 @@ test('RepoToolkit finds files, greps, reads ranges, and respects gitignore', asy
   assert.equal(listing.entries.some(entry => entry.path === 'src/auth.js'), true);
 });
 
+test('RepoToolkit fallback grep shares the readable text ceiling for exact and broad scopes', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-exact-grep-'));
+  try {
+    await fs.mkdir(path.join(root, 'prisma'), { recursive: true });
+    const mediumContent = `${'// filler\n'.repeat(35_000)}model mkt_source {\n  id Int @id\n}\n`;
+    const oversizedContent = `${'// filler\n'.repeat(60_000)}model oversized {\n  id Int @id\n}\n`;
+    await fs.writeFile(path.join(root, 'prisma', 'schema.prisma'), mediumContent);
+    await fs.writeFile(path.join(root, 'prisma', 'oversized.prisma'), oversizedContent);
+
+    const toolkit = new RepoToolkit({ repoRoot: root, runtimeConfig: getRuntimeConfig() });
+    await toolkit.initialize(['prisma/**']);
+    toolkit._hasRipgrep = false;
+
+    const exact = await toolkit.grep({
+      pattern: '^model mkt_source',
+      scope: ['prisma/schema.prisma'],
+    });
+    assert.deepEqual(exact.matches.map(match => match.path), ['prisma/schema.prisma']);
+    assert.equal(exact.skipped.largeFiles, 0);
+    assert.equal(exact.truncated, false);
+
+    const broad = await toolkit.grep({
+      pattern: '^model mkt_source',
+      scope: ['prisma/**'],
+    });
+    assert.deepEqual(broad.matches.map(match => match.path), ['prisma/schema.prisma']);
+    assert.equal(broad.skipped.largeFiles, 1);
+    assert.equal(broad.truncated, true);
+
+    const oversized = await toolkit.grep({
+      pattern: '^model oversized',
+      scope: ['prisma/oversized.prisma'],
+    });
+    assert.deepEqual(oversized.matches, []);
+    assert.equal(oversized.skipped.largeFiles, 1);
+    assert.equal(oversized.truncated, true);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test('RepoToolkit enforces the initial scope as a hard boundary', async () => {
   const repoRoot = await makeRepoFixture();
   const toolkit = new RepoToolkit({
     repoRoot,
-    budgetConfig: getBudgetConfig(),
+    runtimeConfig: getRuntimeConfig(),
   });
   await toolkit.initialize(['src/**']);
 
@@ -174,7 +1328,7 @@ test('RepoToolkit blocks symlink reads and skips symlink entries during traversa
 
   const toolkit = new RepoToolkit({
     repoRoot,
-    budgetConfig: getBudgetConfig(),
+    runtimeConfig: getRuntimeConfig(),
   });
   await toolkit.initialize(['src/**']);
 
@@ -204,7 +1358,7 @@ test('collectTargetPathsFromToolResult handles git diff and show results', () =>
 
 test('RepoToolkit git tools: gitLog returns commits', { skip: !hasGit() }, async () => {
   const root = await makeGitRepoFixture();
-  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig() });
+  const toolkit = new RepoToolkit({ repoRoot: root, runtimeConfig: getRuntimeConfig() });
   await toolkit.initialize();
 
   const log = await toolkit.gitLog({ maxCount: 10 });
@@ -217,7 +1371,7 @@ test('RepoToolkit git tools: gitLog returns commits', { skip: !hasGit() }, async
 
 test('RepoToolkit git tools: gitLog filters by file path', { skip: !hasGit() }, async () => {
   const root = await makeGitRepoFixture();
-  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig() });
+  const toolkit = new RepoToolkit({ repoRoot: root, runtimeConfig: getRuntimeConfig() });
   await toolkit.initialize();
 
   const log = await toolkit.gitLog({ path: 'hello.js', maxCount: 5 });
@@ -227,7 +1381,7 @@ test('RepoToolkit git tools: gitLog filters by file path', { skip: !hasGit() }, 
 
 test('RepoToolkit git tools: gitBlame returns line authorship', { skip: !hasGit() }, async () => {
   const root = await makeGitRepoFixture();
-  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig() });
+  const toolkit = new RepoToolkit({ repoRoot: root, runtimeConfig: getRuntimeConfig() });
   await toolkit.initialize();
 
   const blame = await toolkit.gitBlame({ path: 'hello.js', startLine: 1, endLine: 1 });
@@ -240,7 +1394,7 @@ test('RepoToolkit git tools: gitBlame returns line authorship', { skip: !hasGit(
 
 test('RepoToolkit git tools: gitDiff returns file changes', { skip: !hasGit() }, async () => {
   const root = await makeGitRepoFixture();
-  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig() });
+  const toolkit = new RepoToolkit({ repoRoot: root, runtimeConfig: getRuntimeConfig() });
   await toolkit.initialize();
 
   const diff = await toolkit.gitDiff({ from: 'HEAD~1', to: 'HEAD' });
@@ -256,7 +1410,7 @@ test('RepoToolkit git tools: gitDiff returns file changes', { skip: !hasGit() },
 test('RepoToolkit gitShow ignores repository external diff commands', { skip: !hasGit() || process.platform === 'win32' }, async () => {
   const root = await makeGitRepoFixture();
   const markerPath = await configureExternalDiffMarker(root);
-  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig() });
+  const toolkit = new RepoToolkit({ repoRoot: root, runtimeConfig: getRuntimeConfig() });
   await toolkit.initialize();
 
   const show = await toolkit.gitShow({ ref: 'HEAD' });
@@ -267,7 +1421,7 @@ test('RepoToolkit gitShow ignores repository external diff commands', { skip: !h
 
 test('RepoToolkit git tools: gitShow returns commit details', { skip: !hasGit() }, async () => {
   const root = await makeGitRepoFixture();
-  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig() });
+  const toolkit = new RepoToolkit({ repoRoot: root, runtimeConfig: getRuntimeConfig() });
   await toolkit.initialize();
 
   const show = await toolkit.gitShow({ ref: 'HEAD' });
@@ -280,7 +1434,7 @@ test('RepoToolkit git tools: gitShow returns commit details', { skip: !hasGit() 
 
 test('RepoToolkit git tools: gitShow rejects invalid ref', { skip: !hasGit() }, async () => {
   const root = await makeGitRepoFixture();
-  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig() });
+  const toolkit = new RepoToolkit({ repoRoot: root, runtimeConfig: getRuntimeConfig() });
   await toolkit.initialize();
 
   await assert.rejects(
@@ -316,7 +1470,7 @@ const OUT_OF_SCOPE_OLD_PATH = 'internal/out-of-scope-name.js';
 
 test('RepoToolkit gitDiff does not leak out-of-scope old paths from a rename into scope', { skip: !hasGit() }, async () => {
   const root = await makeRenameAcrossScopeFixture();
-  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig() });
+  const toolkit = new RepoToolkit({ repoRoot: root, runtimeConfig: getRuntimeConfig() });
   await toolkit.initialize(['src/**']);
 
   const diff = await toolkit.gitDiff({ from: 'HEAD~1', to: 'HEAD' });
@@ -336,7 +1490,7 @@ test('RepoToolkit gitDiff does not leak out-of-scope old paths from a rename int
 
 test('RepoToolkit gitShow does not leak out-of-scope old paths from a rename into scope', { skip: !hasGit() }, async () => {
   const root = await makeRenameAcrossScopeFixture();
-  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig() });
+  const toolkit = new RepoToolkit({ repoRoot: root, runtimeConfig: getRuntimeConfig() });
   await toolkit.initialize(['src/**']);
 
   const show = await toolkit.gitShow({ ref: 'HEAD' });
@@ -349,7 +1503,7 @@ test('RepoToolkit gitShow does not leak out-of-scope old paths from a rename int
 
 test('RepoToolkit grep uses ripgrep when available', { skip: !hasRipgrep() }, async () => {
   const repoRoot = await makeRepoFixture();
-  const toolkit = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig() });
+  const toolkit = new RepoToolkit({ repoRoot, runtimeConfig: getRuntimeConfig() });
   await toolkit.initialize(['src/**', 'docs/**']);
 
   assert.equal(toolkit._hasRipgrep, true, 'ripgrep detected');
@@ -368,7 +1522,7 @@ test('RepoToolkit rejects traversal scopes before grep can escape the repo root'
   await fs.writeFile(path.join(repoRoot, 'inside.txt'), 'inside content\n');
   await fs.writeFile(path.join(outsideDir, 'secret.txt'), 'LEAK_MARKER outside repo secret\n');
 
-  const toolkit = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig() });
+  const toolkit = new RepoToolkit({ repoRoot, runtimeConfig: getRuntimeConfig() });
   await toolkit.initialize();
 
   await assert.rejects(
@@ -393,7 +1547,7 @@ test('RepoToolkit gitDiff validates refs and disables external diff helpers', { 
   await fs.chmod(helper, 0o755);
   execFileSync('git', ['config', 'diff.external', helper], { cwd: root, stdio: 'pipe' });
 
-  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig() });
+  const toolkit = new RepoToolkit({ repoRoot: root, runtimeConfig: getRuntimeConfig() });
   await toolkit.initialize();
 
   const diff = await toolkit.gitDiff({ from: 'HEAD~1', to: 'HEAD' });
@@ -429,7 +1583,7 @@ test('RepoToolkit gitShow disables textconv helpers', { skip: !hasGit() }, async
   await fs.chmod(helper, 0o755);
   git(['config', 'diff.evil.textconv', helper]);
 
-  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig() });
+  const toolkit = new RepoToolkit({ repoRoot: root, runtimeConfig: getRuntimeConfig() });
   await toolkit.initialize();
 
   const show = await toolkit.gitShow({ ref: 'HEAD' });
@@ -448,9 +1602,9 @@ test('cache isolates read_file results by repo root', async () => {
   await fs.writeFile(path.join(repoA, 'src', 'auth.js'), 'export const REPO = "A";\n');
   await fs.writeFile(path.join(repoB, 'src', 'auth.js'), 'export const REPO = "B";\n');
 
-  const toolkitA = new RepoToolkit({ repoRoot: repoA, budgetConfig: getBudgetConfig(), cache: globalRepoCache });
+  const toolkitA = new RepoToolkit({ repoRoot: repoA, runtimeConfig: getRuntimeConfig(), cache: globalRepoCache });
   await toolkitA.initialize(['src/**']);
-  const toolkitB = new RepoToolkit({ repoRoot: repoB, budgetConfig: getBudgetConfig(), cache: globalRepoCache });
+  const toolkitB = new RepoToolkit({ repoRoot: repoB, runtimeConfig: getRuntimeConfig(), cache: globalRepoCache });
   await toolkitB.initialize(['src/**']);
 
   const resultA = await toolkitA.callTool('repo_read_file', { path: 'src/auth.js' });
@@ -465,14 +1619,14 @@ test('cache does not reuse read_file across different base scopes', async () => 
   const repoRoot = await makeRepoFixture();
 
   // Toolkit with no scope restriction reads docs/auth.md
-  const toolkitFull = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig(), cache: globalRepoCache });
+  const toolkitFull = new RepoToolkit({ repoRoot, runtimeConfig: getRuntimeConfig(), cache: globalRepoCache });
   await toolkitFull.initialize([]);
 
   const fullResult = await toolkitFull.callTool('repo_read_file', { path: 'docs/auth.md' });
   assert.ok(fullResult.content.includes('Auth'), 'full toolkit reads docs/auth.md');
 
   // Toolkit with src/** scope should reject docs/auth.md even if it was cached
-  const toolkitSrc = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig(), cache: globalRepoCache });
+  const toolkitSrc = new RepoToolkit({ repoRoot, runtimeConfig: getRuntimeConfig(), cache: globalRepoCache });
   await toolkitSrc.initialize(['src/**']);
 
   await assert.rejects(
@@ -485,20 +1639,42 @@ test('cache does not reuse read_file across different base scopes', async () => 
 test('grep cache key includes maxResults — different maxResults get different cache entries', async () => {
   globalRepoCache.clear();
   const repoRoot = await makeRepoFixture();
-  const toolkit = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig(), cache: globalRepoCache });
+  const toolkit = new RepoToolkit({ repoRoot, runtimeConfig: getRuntimeConfig(), cache: globalRepoCache });
   await toolkit.initialize(['src/**', 'docs/**']);
 
   const result1 = await toolkit.callTool('repo_grep', { pattern: 'requireAuth', maxResults: 1 });
   assert.equal(result1.matches.length, 1, 'maxResults:1 returns 1 match');
+  await assert.rejects(
+    toolkit.callTool('repo_grep', {
+      pattern: 'requireAuth',
+      maxResults: 1,
+      sourceRoles: [],
+    }),
+    /non-empty array of known source roles/u,
+    'an invalid role filter must not borrow an unfiltered cache entry',
+  );
 
   const result10 = await toolkit.callTool('repo_grep', { pattern: 'requireAuth', maxResults: 10 });
   assert.ok(result10.matches.length > 1, 'maxResults:10 returns more matches (not polluted by maxResults:1 cache)');
+
+  const implementation = await toolkit.callTool('repo_grep', {
+    pattern: 'requireAuth',
+    maxResults: 10,
+    sourceRoles: ['implementation'],
+  });
+  const documentation = await toolkit.callTool('repo_grep', {
+    pattern: 'requireAuth',
+    maxResults: 10,
+    sourceRoles: ['documentation'],
+  });
+  assert.equal(implementation.matches.every(match => match.path.startsWith('src/')), true);
+  assert.deepEqual(documentation.matches.map(match => match.path), ['docs/auth.md']);
 });
 
 test('find_files cache key includes maxResults', async () => {
   globalRepoCache.clear();
   const repoRoot = await makeRepoFixture();
-  const toolkit = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig(), cache: globalRepoCache });
+  const toolkit = new RepoToolkit({ repoRoot, runtimeConfig: getRuntimeConfig(), cache: globalRepoCache });
   await toolkit.initialize(['src/**']);
 
   const result1 = await toolkit.callTool('repo_find_files', { pattern: 'src/**/*.js', maxResults: 1 });
@@ -517,9 +1693,9 @@ test('cache isolates repo_symbols results by repo root', async () => {
   await fs.writeFile(path.join(repoA, 'src', 'auth.js'), 'export function fromRepoA() {}\n');
   await fs.writeFile(path.join(repoB, 'src', 'auth.js'), 'export function fromRepoB() {}\n');
 
-  const toolkitA = new RepoToolkit({ repoRoot: repoA, budgetConfig: getBudgetConfig(), cache: globalRepoCache });
+  const toolkitA = new RepoToolkit({ repoRoot: repoA, runtimeConfig: getRuntimeConfig(), cache: globalRepoCache });
   await toolkitA.initialize(['src/**']);
-  const toolkitB = new RepoToolkit({ repoRoot: repoB, budgetConfig: getBudgetConfig(), cache: globalRepoCache });
+  const toolkitB = new RepoToolkit({ repoRoot: repoB, runtimeConfig: getRuntimeConfig(), cache: globalRepoCache });
   await toolkitB.initialize(['src/**']);
 
   const symA = await toolkitA.callTool('repo_symbols', { path: 'src/auth.js' });
@@ -545,7 +1721,7 @@ test('LruCache accepts precomputed serializedLength without breaking eviction', 
 
 test('repo_symbol_context returns observations with source for definition and callers', async () => {
   const repoRoot = await makeRepoFixture();
-  const toolkit = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig() });
+  const toolkit = new RepoToolkit({ repoRoot, runtimeConfig: getRuntimeConfig() });
   await toolkit.initialize(['src/**', 'docs/**']);
 
   const result = await toolkit.symbolContext({ symbol: 'requireAuth' });
@@ -564,7 +1740,7 @@ test('repo_symbol_context returns observations with source for definition and ca
 
 test('repo_grep returns line-level observations via runtime integration', async () => {
   const repoRoot = await makeRepoFixture();
-  const toolkit = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig() });
+  const toolkit = new RepoToolkit({ repoRoot, runtimeConfig: getRuntimeConfig() });
   await toolkit.initialize(['src/**', 'docs/**']);
 
   const result = await toolkit.grep({ pattern: 'requireAuth', maxResults: 10 });
@@ -578,11 +1754,25 @@ test('repo_grep returns line-level observations via runtime integration', async 
   }
 });
 
+test('RepoToolkit rejects undeclared repo_grep fields instead of widening the search', async () => {
+  const repoRoot = await makeRepoFixture();
+  const toolkit = new RepoToolkit({ repoRoot, runtimeConfig: getRuntimeConfig() });
+  await toolkit.initialize([]);
+
+  await assert.rejects(
+    toolkit.callTool('repo_grep', {
+      pattern: 'requireAuth',
+      path: 'src/auth.js',
+    }),
+    /Invalid tool arguments for repo_grep: unexpected field "path".*scope/u,
+  );
+});
+
 // --- Phase 2: Scope Hard Boundary Tests ---
 
 test('RepoToolkit grep with ripgrep respects initialize base scope', { skip: !hasRipgrep() }, async () => {
   const repoRoot = await makeRepoFixture();
-  const toolkit = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig() });
+  const toolkit = new RepoToolkit({ repoRoot, runtimeConfig: getRuntimeConfig() });
   await toolkit.initialize(['src/**']);
 
   assert.equal(toolkit._hasRipgrep, true, 'ripgrep is available');
@@ -598,7 +1788,7 @@ test('RepoToolkit grep with ripgrep respects extraIgnoreDirs', { skip: !hasRipgr
   await fs.mkdir(path.join(repoRoot, 'vendor'), { recursive: true });
   await fs.writeFile(path.join(repoRoot, 'vendor', 'lib.js'), 'function requireAuth() {} // vendor copy\n');
 
-  const toolkit = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig(), extraIgnoreDirs: ['vendor'] });
+  const toolkit = new RepoToolkit({ repoRoot, runtimeConfig: getRuntimeConfig(), extraIgnoreDirs: ['vendor'] });
   await toolkit.initialize([]);
 
   assert.equal(toolkit._hasRipgrep, true, 'ripgrep is available');
@@ -614,7 +1804,7 @@ test('RepoToolkit grep with ripgrep respects built-in ignore dirs', { skip: !has
     'function requireAuth() {} // dependency copy\n',
   );
 
-  const toolkit = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig() });
+  const toolkit = new RepoToolkit({ repoRoot, runtimeConfig: getRuntimeConfig() });
   await toolkit.initialize([]);
 
   assert.equal(toolkit._hasRipgrep, true, 'ripgrep is available');
@@ -627,7 +1817,7 @@ test('RepoToolkit grep with ripgrep respects built-in ignore dirs', { skip: !has
 
 test('RepoToolkit symbols rejects out-of-scope paths', async () => {
   const repoRoot = await makeRepoFixture();
-  const toolkit = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig() });
+  const toolkit = new RepoToolkit({ repoRoot, runtimeConfig: getRuntimeConfig() });
   await toolkit.initialize(['src/**']);
 
   await assert.rejects(
@@ -645,7 +1835,7 @@ test('RepoToolkit gitLog rejects out-of-scope path', { skip: !hasGit() }, async 
   git(['add', '.']);
   git(['commit', '-m', 'add docs']);
 
-  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig() });
+  const toolkit = new RepoToolkit({ repoRoot: root, runtimeConfig: getRuntimeConfig() });
   await toolkit.initialize(['docs/**']);
 
   await assert.rejects(
@@ -656,7 +1846,7 @@ test('RepoToolkit gitLog rejects out-of-scope path', { skip: !hasGit() }, async 
 
 test('RepoToolkit gitBlame rejects out-of-scope path', { skip: !hasGit() }, async () => {
   const root = await makeGitRepoFixture();
-  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig() });
+  const toolkit = new RepoToolkit({ repoRoot: root, runtimeConfig: getRuntimeConfig() });
   await toolkit.initialize(['docs/**']);
 
   await assert.rejects(
@@ -679,7 +1869,7 @@ test('RepoToolkit gitShow filters changed files to current scope', { skip: !hasG
   git(['add', '.']);
   git(['commit', '-m', 'touch both']);
 
-  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig() });
+  const toolkit = new RepoToolkit({ repoRoot: root, runtimeConfig: getRuntimeConfig() });
   await toolkit.initialize(['docs/**']);
 
   const show = await toolkit.gitShow({ ref: 'HEAD' });
@@ -701,7 +1891,7 @@ test('010 US4#1 — RepoToolkit gitDiff filters changed files to current scope',
   git(['add', '.']);
   git(['commit', '-m', 'touch both']);
 
-  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig() });
+  const toolkit = new RepoToolkit({ repoRoot: root, runtimeConfig: getRuntimeConfig() });
   await toolkit.initialize(['docs/**']);
 
   const diff = await toolkit.gitDiff({ from: 'HEAD~1', to: 'HEAD' });
@@ -728,7 +1918,7 @@ test('010 US4#2 — RepoToolkit gitDiff stat mode filters out-of-scope lines', {
   git(['add', '.']);
   git(['commit', '-m', 'touch both']);
 
-  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig() });
+  const toolkit = new RepoToolkit({ repoRoot: root, runtimeConfig: getRuntimeConfig() });
   await toolkit.initialize(['docs/**']);
 
   const diff = await toolkit.gitDiff({ from: 'HEAD~1', to: 'HEAD', stat: true });
@@ -750,7 +1940,7 @@ test('010 US4#4 — collectDiscoveredPathsFromToolResult only sees in-scope file
   git(['add', '.']);
   git(['commit', '-m', 'touch both']);
 
-  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig() });
+  const toolkit = new RepoToolkit({ repoRoot: root, runtimeConfig: getRuntimeConfig() });
   await toolkit.initialize(['docs/**']);
   const diff = await toolkit.gitDiff({ from: 'HEAD~1', to: 'HEAD' });
   const discovered = collectDiscoveredPathsFromToolResult('repo_git_diff', diff);
@@ -769,7 +1959,7 @@ test('callTool repo_read_file invalidates the cache when the file mtime changes'
   const filePath = path.join(root, 'demo.txt');
   await fs.writeFile(filePath, 'initial content\nline 2\nline 3\n');
 
-  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig() });
+  const toolkit = new RepoToolkit({ repoRoot: root, runtimeConfig: getRuntimeConfig() });
   await toolkit.initialize();
 
   const first = await toolkit.callTool('repo_read_file', { path: 'demo.txt', startLine: 1, endLine: 5 });
@@ -840,7 +2030,7 @@ async function makePaintWidgetFixture() {
 
 test('spec-026 US2: symbolContext includes production callsite, is deterministic, and caps per-file entries', { skip: !hasRipgrep() }, async () => {
   const repoRoot = await makePaintWidgetFixture();
-  const toolkit = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig() });
+  const toolkit = new RepoToolkit({ repoRoot, runtimeConfig: getRuntimeConfig() });
   await toolkit.initialize([]);
 
   const result1 = await toolkit.symbolContext({ symbol: 'paintWidget', depth: 1 });
@@ -849,6 +2039,8 @@ test('spec-026 US2: symbolContext includes production callsite, is deterministic
   const mainCaller = result1.callers.find(c => c.path === 'app/main.js');
   assert.ok(mainCaller, 'production callsite app/main.js must be in callers');
   assert.equal(mainCaller.relation, 'call', 'app/main.js caller must have relation "call"');
+  assert.equal(mainCaller.enclosingSymbol, 'renderApp',
+    'symbolContext should name the enclosing production caller without another model turn');
 
   // ② two consecutive calls return deepEqual results (determinism)
   const result2 = await toolkit.symbolContext({ symbol: 'paintWidget', depth: 1 });
@@ -874,6 +2066,32 @@ test('spec-026 US2: symbolContext includes production callsite, is deterministic
   // the selected set is smaller than total callers (selection cap, not grep cap)
   assert.equal(result1.truncated, true, 'truncated must be true when the selected set is smaller than total callers');
 });
+
+test('Spec 028 T071 — symbolContext never assigns a closed preceding function to a top-level call',
+  { skip: !hasRipgrep() }, async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-top-level-caller-'));
+    try {
+      await fs.writeFile(path.join(root, 'def.js'),
+        'export function paintWidget() { return true; }\n');
+      await fs.writeFile(path.join(root, 'main.js'), [
+        "import { paintWidget } from './def.js';",
+        'function previous() {',
+        '  return true;',
+        '}',
+        'paintWidget();',
+      ].join('\n') + '\n');
+      const toolkit = new RepoToolkit({ repoRoot: root, runtimeConfig: getRuntimeConfig() });
+      await toolkit.initialize([]);
+
+      const result = await toolkit.symbolContext({ symbol: 'paintWidget', depth: 1 });
+      const topLevelCall = result.callers.find(caller =>
+        caller.path === 'main.js' && caller.relation === 'call');
+      assert.ok(topLevelCall);
+      assert.equal(Object.hasOwn(topLevelCall, 'enclosingSymbol'), false);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
 
 async function makeMultiFileBreadthFixture() {
   // 8 code files, each containing 4 calls to 'myFunc' (32 candidates total, all same tier).
@@ -903,7 +2121,7 @@ async function makeMultiFileBreadthFixture() {
 
 test('spec-026 US2 round-robin breadth: all files represented before any file gets a 2nd slot', { skip: !hasRipgrep() }, async () => {
   const repoRoot = await makeMultiFileBreadthFixture();
-  const toolkit = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig() });
+  const toolkit = new RepoToolkit({ repoRoot, runtimeConfig: getRuntimeConfig() });
   await toolkit.initialize([]);
 
   const result = await toolkit.symbolContext({ symbol: 'myFunc', depth: 1 });
@@ -956,7 +2174,7 @@ async function makeNestedIgnoreFixture() {
 
 test('Spec 014 — nested .gitignore is prefix-bounded (foo/compiled excluded, bar/compiled kept)', async () => {
   const repoRoot = await makeNestedIgnoreFixture();
-  const toolkit = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig() });
+  const toolkit = new RepoToolkit({ repoRoot, runtimeConfig: getRuntimeConfig() });
   await toolkit.initialize();
 
   const found = await toolkit.findFiles({ pattern: '**/*' });
@@ -985,7 +2203,7 @@ test('Spec 014 — root .gitignore and nested .gitignore coexist', async () => {
   await fs.writeFile(path.join(root, 'app.log'), 'log');
   await fs.writeFile(path.join(root, 'pkg', 'index.js'), '// pkg entry\n');
 
-  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig() });
+  const toolkit = new RepoToolkit({ repoRoot: root, runtimeConfig: getRuntimeConfig() });
   await toolkit.initialize();
   const found = await toolkit.findFiles({ pattern: '**/*' });
   assert.ok(!found.matches.includes('app.log'), 'root .gitignore must exclude *.log');
@@ -1001,7 +2219,7 @@ test('Spec 014 — nested .gitignore negation rules (`!keep`) are silently dropp
   await fs.writeFile(path.join(root, 'pkg', 'compiled', 'output.bin'), 'art');
   await fs.writeFile(path.join(root, 'pkg', 'compiled', 'keep.js'), '// keep me');
 
-  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig() });
+  const toolkit = new RepoToolkit({ repoRoot: root, runtimeConfig: getRuntimeConfig() });
   await toolkit.initialize();
   const found = await toolkit.findFiles({ pattern: '**/*' });
   // compiled/ rule still excludes both — negation is dropped, no re-include happens.
@@ -1013,7 +2231,7 @@ test('Spec 014 — extraIgnorePatterns glob excludes directory prefix and deep m
   const repoRoot = await makeNestedIgnoreFixture();
   const toolkit = new RepoToolkit({
     repoRoot,
-    budgetConfig: getBudgetConfig(),
+    runtimeConfig: getRuntimeConfig(),
     extraIgnorePatterns: ['noisy/**', '**/*.snapshot.json'],
   });
   await toolkit.initialize();
@@ -1026,13 +2244,13 @@ test('Spec 014 — extraIgnorePatterns glob excludes directory prefix and deep m
 
 test('Spec 014 — extraIgnorePatterns empty is backwards-compatible', async () => {
   const repoRoot = await makeNestedIgnoreFixture();
-  const baseline = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig() });
+  const baseline = new RepoToolkit({ repoRoot, runtimeConfig: getRuntimeConfig() });
   await baseline.initialize();
   const baselineFiles = (await baseline.findFiles({ pattern: '**/*' })).matches.sort();
 
   const withEmpty = new RepoToolkit({
     repoRoot,
-    budgetConfig: getBudgetConfig(),
+    runtimeConfig: getRuntimeConfig(),
     extraIgnorePatterns: [],
   });
   await withEmpty.initialize();
@@ -1050,7 +2268,7 @@ test('Spec 014 — secret deny-list cannot be bypassed by extraIgnorePatterns', 
   // extraIgnorePatterns evaluation in shouldIgnorePath.
   const toolkit = new RepoToolkit({
     repoRoot: root,
-    budgetConfig: getBudgetConfig(),
+    runtimeConfig: getRuntimeConfig(),
     extraIgnorePatterns: ['!.env'],
   });
   await toolkit.initialize();
@@ -1066,7 +2284,7 @@ test('Spec 014 follow-up — ripgrep grep fast path excludes extraIgnorePatterns
 
   const toolkit = new RepoToolkit({
     repoRoot,
-    budgetConfig: getBudgetConfig(),
+    runtimeConfig: getRuntimeConfig(),
     extraIgnorePatterns: ['**/*.snapshot.json'],
   });
   await toolkit.initialize([]);
@@ -1087,7 +2305,7 @@ test('Spec 014 follow-up — grep cache keys partition by extraIgnorePatterns', 
   await fs.writeFile(path.join(repoRoot, 'normal.js'), 'const CACHE_MARKER = true;\n');
 
   // First toolkit has no extra ignores, so it both matches and caches the snapshot path.
-  const open = new RepoToolkit({ repoRoot, budgetConfig: getBudgetConfig(), cache: globalRepoCache });
+  const open = new RepoToolkit({ repoRoot, runtimeConfig: getRuntimeConfig(), cache: globalRepoCache });
   await open.initialize([]);
   const openResult = await open.callTool('repo_grep', { pattern: 'CACHE_MARKER' });
   assert.ok(
@@ -1099,7 +2317,7 @@ test('Spec 014 follow-up — grep cache keys partition by extraIgnorePatterns', 
   // in the cache key, it would collide with `open`'s entry and wrongly inherit the match.
   const ignored = new RepoToolkit({
     repoRoot,
-    budgetConfig: getBudgetConfig(),
+    runtimeConfig: getRuntimeConfig(),
     cache: globalRepoCache,
     extraIgnorePatterns: ['**/*.snapshot.json'],
   });

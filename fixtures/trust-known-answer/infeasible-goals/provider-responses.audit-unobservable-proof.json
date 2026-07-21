@@ -1,0 +1,48 @@
+{
+  "fixtureVersion": 1,
+  "scenario": "audit_unobservable_proof",
+  "responses": [
+    {
+      "stage": "planner",
+      "result": {
+        "message": {
+          "content": {
+            "taskSummary": "Assess whether current repository evidence can prove permanent future freshness.",
+            "constraints": [],
+            "subgoals": [
+              {
+                "id": "S1",
+                "question": "Can future non-staleness be proven?",
+                "originRefs": ["request:0-64"],
+                "claimType": "positive",
+                "proofCondition": "Observe every future configuration and deployment change to prove staleness never occurs.",
+                "constraints": []
+              }
+            ]
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "goal_audit",
+      "result": {
+        "message": {
+          "content": {
+            "goals": [
+              {
+                "proposedGoalId": "S1",
+                "verdict": "unverifiable",
+                "originRefs": ["request:0-64"],
+                "missingRequestParts": [],
+                "reason": "Current repository evidence cannot observe every future change required by the permanent guarantee."
+              }
+            ],
+            "uncoveredRequestParts": []
+          },
+          "toolCalls": []
+        }
+      }
+    }
+  ]
+}

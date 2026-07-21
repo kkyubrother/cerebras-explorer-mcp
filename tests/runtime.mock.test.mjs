@@ -5,10 +5,33 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { ExplorerRuntime, estimateTokens } from '../src/explorer/runtime.mjs';
-import { buildExplorerSystemPrompt, buildFreeExploreSystemPrompt, buildFinalizePrompt, detectStrategy, buildExplorerUserPrompt, STRATEGY_DESCRIPTIONS } from '../src/explorer/prompt.mjs';
-import { getBudgetConfig } from '../src/explorer/config.mjs';
-import { RepoToolkit } from '../src/explorer/repo-tools.mjs';
+import {
+  ExplorerRuntime as RuntimeImplementation,
+  buildExactCommitToolPolicy,
+  buildImpactMapToolPolicy,
+  buildLocateToolPolicy,
+  buildParentHandoffV3,
+  buildPathExplanationToolPolicy,
+  buildRuntimeGenericImpactPolicyArtifacts,
+  buildRuntimeWrapperPolicyArtifacts,
+  buildSourceClaimCheckToolPolicy,
+  buildTraceSymbolToolPolicy,
+  estimateTokens,
+} from '../src/explorer/runtime.mjs';
+import { buildExplorerSystemPrompt, buildFinalizePrompt, detectStrategy, buildExplorerUserPrompt, STRATEGY_DESCRIPTIONS } from '../src/explorer/prompt.mjs';
+import { getRuntimeConfig } from '../src/explorer/config.mjs';
+import {
+  deriveRepositoryObservationCoverage,
+  normalizedRepositoryFileIdentity,
+  RepoToolkit,
+} from '../src/explorer/repo-tools.mjs';
+import {
+  createRequiredSubgoal,
+  createTaskContract,
+  fingerprintAction,
+} from '../src/explorer/coverage.mjs';
+import { adaptLegacyGoalAuditClient } from './helpers/legacy-goal-audit-client.mjs';
+import { validateParentHandoffV3, validateTaskContract } from '../src/explorer/schemas.mjs';
 
 function hasGit() {
   try {
@@ -46,6 +69,34 @@ async function makeRepoFixture() {
   return root;
 }
 
+test('Spec 028 T069 — omitted public scope keeps trace enumeration certifiable', async () => {
+  const root = await makeRepoFixture();
+  try {
+    const runtime = new RuntimeImplementation({ chatClient: { model: 'zai-glm-4.7' } });
+    const context = await runtime._initExploreContext({
+      repoRootArg: root,
+      scope: undefined,
+      taskText: 'Trace requireAuth.',
+    });
+    assert.deepEqual(context.effectiveScope, [],
+      'the internal repository boundary must not add noise to the parent contract');
+
+    const args = { symbol: 'requireAuth' };
+    const result = await context.repoToolkit.symbolContext(args);
+    const coverage = deriveRepositoryObservationCoverage({
+      tool: 'repo_symbol_context',
+      args,
+      result,
+      effectiveScope: context.effectiveScope,
+      contextTruncated: false,
+    });
+    assert.equal(coverage.enumerationComplete, true,
+      'the optional public scope must not force an uncertifiable fast path');
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 function compactResult({
   directAnswer = 'analysis complete',
   statusConfidence = 'low',
@@ -70,6 +121,708 @@ function compactResult({
     uncertainties,
     nextAction,
   };
+}
+
+function parentHandoffFixture() {
+  const subgoal = {
+    id: 'S1',
+    question: 'Where is token validation implemented?',
+    proofPolicy: 'direct_source',
+    state: 'supported',
+  };
+  return {
+    semanticVerification: {
+      taskContract: { effectiveScope: ['src/**'], subgoals: [subgoal] },
+      claims: [{
+        id: 'C1',
+        subgoalId: 'S1',
+        text: 'Token validation is implemented in src/auth.js.',
+        verdict: 'supported',
+        evidenceRefs: ['E1', 'E2'],
+      }],
+      semanticVerdicts: [{
+        claimId: 'C1',
+        result: 'supported',
+        supportingEvidenceRefs: ['E2', 'E1'],
+      }],
+    },
+    observations: [
+      { id: 'E1', kind: 'source', path: 'src/auth.js', startLine: 1, endLine: 4 },
+      { id: 'E2', kind: 'source', path: 'src/routes/user.js', startLine: 1, endLine: 6 },
+    ],
+    result: {
+      evidence: [
+        { id: 'E1', path: 'src/auth.js', startLine: 1, endLine: 4 },
+        { id: 'E2', path: 'src/routes/user.js', startLine: 1, endLine: 6 },
+      ],
+      targets: [{
+        path: 'src/auth.js',
+        startLine: 1,
+        endLine: 4,
+        role: 'edit',
+        reason: 'Change token validation here.',
+      }],
+    },
+  };
+}
+
+test('Spec 028 T041 — v3 handoff minimizes direct evidence and omits irrelevant targets', () => {
+  const fixture = parentHandoffFixture();
+  const handoff = buildParentHandoffV3({
+    ...fixture,
+    task: 'Explain token validation behavior.',
+  });
+
+  assert.deepEqual(handoff, {
+    schemaVersion: 3,
+    state: 'complete',
+    directAnswer: 'Token validation is implemented in src/auth.js.',
+    evidence: [{
+      kind: 'source',
+      path: 'src/auth.js',
+      startLine: 1,
+      endLine: 4,
+      supports: 'Token validation is implemented in src/auth.js.',
+    }],
+  });
+  assert.doesNotThrow(() => validateParentHandoffV3(handoff));
+
+  const selectedEvidenceDropped = buildParentHandoffV3({
+    ...fixture,
+    result: {
+      ...fixture.result,
+      evidence: fixture.result.evidence.filter(item => item.id !== 'E1'),
+    },
+    task: 'Explain token validation behavior.',
+  });
+  assert.equal(selectedEvidenceDropped.state, 'incomplete');
+  assert.equal(selectedEvidenceDropped.directAnswer, undefined,
+    'a claim cannot switch to a redundant ref after its selected proof is dropped');
+  assert.equal(selectedEvidenceDropped.evidence, undefined);
+  assert.equal(selectedEvidenceDropped.gaps.length, 1);
+  assert.doesNotThrow(() => validateParentHandoffV3(selectedEvidenceDropped));
+});
+
+test('Spec 028 T071 — factual boolean words never suppress an explicit collect verdict', () => {
+  for (const fixtureCase of [{
+    text: 'The handler returns false for a missing token.',
+    resolution: 'refuted',
+    prefix: 'The claim is refuted: ',
+  }, {
+    text: 'The parser supports true and false literals.',
+    resolution: 'affirmed',
+    prefix: 'The claim is supported: ',
+  }]) {
+    const fixture = parentHandoffFixture();
+    fixture.semanticVerification.taskContract.subgoals[0] = {
+      ...fixture.semanticVerification.taskContract.subgoals[0],
+      proofPolicy: 'support_or_refute',
+      originRefs: ['wrapper:collect_evidence:verdict'],
+    };
+    fixture.semanticVerification.claims[0].text = fixtureCase.text;
+    fixture.semanticVerification.semanticVerdicts[0].resolution = fixtureCase.resolution;
+
+    const handoff = buildParentHandoffV3({
+      ...fixture,
+      task: 'Verify the supplied claim.',
+      language: 'en',
+    });
+    assert.equal(handoff.directAnswer, `${fixtureCase.prefix}${fixtureCase.text}`);
+    assert.equal(handoff.evidence[0].supports,
+      `${fixtureCase.prefix}${fixtureCase.text}`);
+  }
+});
+
+test('Spec 028 T071 — v3 handoff preserves every verifier-approved path named by a location claim', () => {
+  const fixture = parentHandoffFixture();
+  fixture.semanticVerification.claims[0].text =
+    'src/auth.js defines validation and src/routes/user.js invokes it.';
+
+  const handoff = buildParentHandoffV3({
+    ...fixture,
+    task: 'Locate token validation and its route usage.',
+    taskMode: 'locate',
+  });
+
+  assert.equal(handoff.state, 'complete');
+  assert.deepEqual(handoff.evidence.map(item => item.path), [
+    'src/auth.js',
+    'src/routes/user.js',
+  ]);
+  assert.deepEqual(new Set(handoff.targets.map(item => item.path)), new Set([
+    'src/auth.js',
+    'src/routes/user.js',
+  ]));
+  assert.doesNotThrow(() => validateParentHandoffV3(handoff));
+});
+
+test('Spec 028 T041 — edit intent deterministically becomes verify_targets', () => {
+  const fixture = parentHandoffFixture();
+  const handoff = buildParentHandoffV3({
+    ...fixture,
+    task: 'Modify the token validation implementation.',
+    taskMode: 'edit_planning',
+  });
+
+  assert.equal(handoff.state, 'verify_targets');
+  assert.deepEqual(handoff.targets, [{
+    path: 'src/auth.js',
+    startLine: 1,
+    endLine: 4,
+    role: 'edit',
+    reason: 'Token validation is implemented in src/auth.js.',
+    evidenceRefs: ['E1'],
+  }]);
+  assert.equal(handoff.evidence.length, 1);
+  assert.equal(handoff.evidence[0].id, 'E1');
+  assert.doesNotThrow(() => validateParentHandoffV3(handoff));
+});
+
+test('Spec 028 T071 — parent targets merge duplicate ranges into the strongest role', () => {
+  const fixture = parentHandoffFixture();
+  fixture.result.targets = [
+    { path: 'src/auth.js', startLine: 1, endLine: 4, role: 'read' },
+    { path: 'src/auth.js', startLine: 1, endLine: 4, role: 'config' },
+    { path: 'src/auth.js', startLine: 1, endLine: 4, role: 'edit' },
+  ];
+
+  const handoff = buildParentHandoffV3({
+    ...fixture,
+    task: 'Modify the token validation implementation.',
+    taskMode: 'edit_planning',
+  });
+
+  assert.equal(handoff.state, 'verify_targets');
+  assert.deepEqual(handoff.targets, [{
+    path: 'src/auth.js',
+    startLine: 1,
+    endLine: 4,
+    role: 'edit',
+    reason: 'Token validation is implemented in src/auth.js.',
+    evidenceRefs: ['E1'],
+  }]);
+  assert.doesNotThrow(() => validateParentHandoffV3(handoff));
+});
+
+test('Spec 028 T071 — a mismatched model target range is downgraded to read', () => {
+  const fixture = parentHandoffFixture();
+  fixture.result.targets = [{
+    path: 'src/auth.js',
+    startLine: 999,
+    endLine: 1000,
+    role: 'test',
+    reason: 'Treat an unrelated range as a test target.',
+  }];
+
+  const handoff = buildParentHandoffV3({
+    ...fixture,
+    task: 'Modify the token validation implementation.',
+    taskMode: 'edit_planning',
+  });
+
+  const target = handoff.targets.find(item => item.path === 'src/auth.js');
+  assert.deepEqual({
+    startLine: target.startLine,
+    endLine: target.endLine,
+    role: target.role,
+  }, {
+    startLine: 1,
+    endLine: 4,
+    role: 'read',
+  });
+  assert.doesNotThrow(() => validateParentHandoffV3(handoff));
+});
+
+test('Spec 028 T069 — parent target reasons contain only accepted evidence support', () => {
+  const fixture = parentHandoffFixture();
+  const verified = 'The verified static collection contains 70 entries.';
+  fixture.semanticVerification.claims[0].text = verified;
+  fixture.result.targets[0].reason = 'The static collection contains 53 entries.';
+
+  const handoff = buildParentHandoffV3({
+    ...fixture,
+    task: 'Modify the static collection after confirming its entry count.',
+    taskMode: 'edit_planning',
+  });
+
+  assert.equal(handoff.state, 'verify_targets');
+  assert.equal(handoff.targets[0].reason, verified);
+  assert.equal(handoff.evidence[0].supports, verified);
+  assert.doesNotMatch(JSON.stringify(handoff), /53 entries/u);
+  assert.doesNotThrow(() => validateParentHandoffV3(handoff));
+});
+
+test('Spec 028 T041 — partial and all-blocked handoffs expose only actionable gaps', () => {
+  const partial = parentHandoffFixture();
+  const blockedGoal = {
+    id: 'S2',
+    question: 'Whether every alternate bootstrap uses token validation',
+    proofPolicy: 'bounded_absence',
+    state: 'gap',
+  };
+  partial.semanticVerification.taskContract.subgoals.push(blockedGoal);
+  const partialHandoff = buildParentHandoffV3({
+    ...partial,
+    task: 'Explain token validation and check every alternate bootstrap.',
+    coverageGaps: [{
+      id: 'G2',
+      subgoalId: 'S2',
+      question: blockedGoal.question,
+      reason: 'enumeration_incomplete',
+      repairable: false,
+      priority: 100,
+    }],
+  });
+  assert.equal(partialHandoff.state, 'incomplete');
+  assert.equal(partialHandoff.directAnswer,
+    'Token validation is implemented in src/auth.js.');
+  assert.equal(partialHandoff.evidence.length, 1);
+  assert.deepEqual(partialHandoff.gaps, [{
+    question: 'Explain token validation and check every alternate bootstrap.',
+    reason: 'The required repository boundary was not completely enumerated.',
+  }]);
+  assert.equal(partialHandoff.followUp, undefined);
+
+  const allBlocked = buildParentHandoffV3({
+    result: {},
+    task: 'Report the deployed token validation revision.',
+    taskContract: {
+      effectiveScope: ['src/**'],
+      subgoals: [{
+        id: 'S-live',
+        question: 'INTERNAL_GOAL_SENTINEL',
+        auditBinding: 'INTERNAL_BINDING_SENTINEL',
+        proofPolicy: 'direct_source',
+        state: 'blocked',
+      }],
+    },
+    coverageGaps: [{
+      id: 'G-live',
+      subgoalId: 'S-live',
+      question: 'INTERNAL_GOAL_SENTINEL',
+      reason: 'external_state_required',
+      repairable: false,
+      priority: 0,
+    }],
+  });
+  assert.deepEqual(allBlocked, {
+    schemaVersion: 3,
+    state: 'incomplete',
+    gaps: [{
+      question: 'Report the deployed token validation revision.',
+      reason: 'This depends on live or external state unavailable to the repository explorer.',
+    }],
+    followUp: {
+      type: 'external_verification',
+      requirement: 'Report the deployed token validation revision.',
+    },
+  });
+  assert.doesNotThrow(() => validateParentHandoffV3(partialHandoff));
+  assert.doesNotThrow(() => validateParentHandoffV3(allBlocked));
+  assert.doesNotMatch(JSON.stringify(allBlocked), /INTERNAL_(?:GOAL|BINDING)_SENTINEL/);
+});
+
+test('Spec 028 T071 — incomplete edit planning preserves supported partial targets', () => {
+  const fixture = parentHandoffFixture();
+  fixture.semanticVerification.taskContract.subgoals.push({
+    id: 'S2',
+    question: 'Which alternate consumer also needs the token change?',
+    proofPolicy: 'direct_source',
+    state: 'gap',
+  });
+
+  const handoff = buildParentHandoffV3({
+    ...fixture,
+    task: 'Modify token validation and identify every alternate consumer.',
+    taskMode: 'edit_planning',
+    coverageGaps: [{
+      id: 'G2',
+      subgoalId: 'S2',
+      question: 'Which alternate consumer also needs the token change?',
+      reason: 'missing_evidence',
+      repairable: false,
+      priority: 100,
+    }],
+  });
+
+  assert.equal(handoff.state, 'incomplete');
+  assert.deepEqual(handoff.targets, [{
+    path: 'src/auth.js',
+    startLine: 1,
+    endLine: 4,
+    role: 'edit',
+    reason: 'Token validation is implemented in src/auth.js.',
+    evidenceRefs: ['E1'],
+  }]);
+  assert.equal(handoff.evidence[0].id, 'E1');
+  assert.equal(handoff.gaps.length, 1);
+  assert.doesNotThrow(() => validateParentHandoffV3(handoff));
+});
+
+test('Spec 028 T071 — a goal-affecting safety limit suppresses stale parent proof', () => {
+  const fixture = parentHandoffFixture();
+  const handoff = buildParentHandoffV3({
+    ...fixture,
+    task: 'Modify the token validation implementation.',
+    taskMode: 'edit_planning',
+    safetyLimits: [{
+      name: 'tool_result_limit',
+      stage: 'exploration',
+      truncated: true,
+      affectedSubgoalIds: ['S1'],
+    }],
+  });
+
+  assert.equal(handoff.state, 'incomplete');
+  assert.equal(handoff.directAnswer, undefined);
+  assert.equal(handoff.targets, undefined);
+  assert.equal(handoff.evidence, undefined);
+  assert.deepEqual(handoff.gaps, [{
+    question: 'Modify the token validation implementation.',
+    reason: 'A fixed safety limit interrupted proof for this requested part.',
+  }]);
+  assert.doesNotThrow(() => validateParentHandoffV3(handoff));
+});
+
+test('Spec 028 T071 — a goal-affecting safety limit preserves only unaffected partial proof', () => {
+  const fixture = parentHandoffFixture();
+  fixture.semanticVerification.taskContract.subgoals.push({
+    id: 'S2',
+    question: 'Where is secondary token validation implemented?',
+    proofPolicy: 'direct_source',
+    state: 'supported',
+  });
+  fixture.semanticVerification.claims.push({
+    id: 'C2',
+    subgoalId: 'S2',
+    text: 'Secondary validation is implemented in src/secondary.js.',
+    verdict: 'supported',
+    evidenceRefs: ['E3'],
+  });
+  fixture.semanticVerification.semanticVerdicts.push({
+    claimId: 'C2',
+    result: 'supported',
+    supportingEvidenceRefs: ['E3'],
+  });
+  fixture.observations.push({
+    id: 'E3',
+    kind: 'source',
+    path: 'src/secondary.js',
+    startLine: 1,
+    endLine: 3,
+  });
+  fixture.result.evidence.push({
+    id: 'E3',
+    path: 'src/secondary.js',
+    startLine: 1,
+    endLine: 3,
+  });
+  fixture.result.targets.push({
+    path: 'src/secondary.js',
+    startLine: 1,
+    endLine: 3,
+    role: 'edit',
+    reason: 'Change secondary validation here.',
+  });
+
+  const handoff = buildParentHandoffV3({
+    ...fixture,
+    task: 'Modify both token validation implementations.',
+    taskMode: 'edit_planning',
+    safetyLimits: [{
+      name: 'tool_result_limit',
+      stage: 'exploration',
+      truncated: true,
+      affectedSubgoalIds: ['S2'],
+    }],
+  });
+
+  assert.equal(handoff.state, 'incomplete');
+  assert.equal(handoff.directAnswer, 'Token validation is implemented in src/auth.js.');
+  assert.ok(handoff.evidence.every(item => item.path !== 'src/secondary.js'));
+  assert.ok(handoff.targets.every(item => item.path !== 'src/secondary.js'));
+  assert.deepEqual(handoff.gaps, [{
+    question: 'Modify both token validation implementations.',
+    reason: 'A fixed safety limit interrupted proof for this requested part.',
+  }]);
+  assert.doesNotThrow(() => validateParentHandoffV3(handoff));
+});
+
+test('Spec 028 T071 — an operational context limit does not invalidate verified proof', () => {
+  const fixture = parentHandoffFixture();
+  const handoff = buildParentHandoffV3({
+    ...fixture,
+    task: 'Modify the token validation implementation.',
+    taskMode: 'edit_planning',
+    safetyLimits: [{
+      name: 'context_limit',
+      stage: 'exploration',
+      truncated: true,
+      affectedSubgoalIds: [],
+    }],
+  });
+
+  assert.equal(handoff.state, 'verify_targets');
+  assert.equal(handoff.directAnswer, 'Token validation is implemented in src/auth.js.');
+  assert.ok(handoff.targets.length > 0);
+  assert.ok(handoff.evidence.length > 0);
+  assert.equal(handoff.gaps, undefined);
+  assert.doesNotThrow(() => validateParentHandoffV3(handoff));
+});
+
+test('Spec 028 T071 — map risk caveat uses the accepted path union without degrading targets', () => {
+  const subgoals = [
+    {
+      id: 'S-risk',
+      question: 'What is the remaining risk boundary?',
+      originRefs: ['wrapper:map_change_impact:risk_boundary'],
+      proofPolicy: 'impact_categories',
+      state: 'supported',
+    },
+    {
+      id: 'S-targets',
+      question: 'Which implementation targets change?',
+      originRefs: ['wrapper:map_change_impact:targets'],
+      proofPolicy: 'impact_categories',
+      state: 'supported',
+    },
+    {
+      id: 'S-categories',
+      question: 'Which verification surface changes?',
+      originRefs: ['wrapper:map_change_impact:requested_categories'],
+      proofPolicy: 'impact_categories',
+      state: 'supported',
+    },
+  ];
+  const claims = [
+    {
+      id: 'C-risk',
+      subgoalId: 'S-risk',
+      text: 'The change is confined to src/a.mjs and everything else is unaffected.',
+      verdict: 'supported',
+      evidenceRefs: ['E1', 'G1'],
+    },
+    {
+      id: 'C-targets',
+      subgoalId: 'S-targets',
+      text: 'Change src/a.mjs and its consumer src/b.mjs.',
+      verdict: 'supported',
+      evidenceRefs: ['E1', 'E2'],
+    },
+    {
+      id: 'C-categories',
+      subgoalId: 'S-categories',
+      text: 'Update the contract assertion in tests/a.test.mjs.',
+      verdict: 'supported',
+      evidenceRefs: ['E3'],
+    },
+  ];
+  const semanticVerdicts = claims.map(claim => ({
+    claimId: claim.id,
+    result: 'supported',
+    supportingEvidenceRefs: claim.evidenceRefs,
+  }));
+  const observations = [
+    { id: 'E1', kind: 'source', path: 'src/a.mjs', startLine: 1, endLine: 3 },
+    { id: 'E2', kind: 'source', path: 'src/b.mjs', startLine: 4, endLine: 7 },
+    { id: 'E3', kind: 'source', path: 'tests/a.test.mjs', startLine: 8, endLine: 12 },
+    { id: 'G1', kind: 'git_commit', sha: 'a'.repeat(40) },
+  ];
+  const resultEvidence = observations
+    .filter(item => item.kind === 'source')
+    .map(({ id, path, startLine, endLine }) => ({ id, path, startLine, endLine }));
+  const handoff = buildParentHandoffV3({
+    task: 'Map the change impact before editing.',
+    taskMode: 'edit_planning',
+    semanticVerification: {
+      taskContract: { effectiveScope: ['src/**', 'tests/**'], subgoals },
+      claims,
+      semanticVerdicts,
+    },
+    observations,
+    result: {
+      evidence: resultEvidence,
+      targets: resultEvidence.map(item => ({
+        path: item.path,
+        startLine: item.startLine,
+        endLine: item.endLine,
+        role: item.path.startsWith('tests/') ? 'test' : 'edit',
+      })),
+    },
+  });
+
+  assert.equal(handoff.state, 'verify_targets');
+  assert.match(handoff.directAnswer,
+    /^Observed paths: src\/a\.mjs, src\/b\.mjs, tests\/a\.test\.mjs\. Unverified:/u);
+  assert.doesNotMatch(handoff.directAnswer, /\bconfined\b|\bunaffected\b/iu);
+  assert.deepEqual(handoff.evidence.map(item => item.kind), ['source', 'source', 'source']);
+  assert.ok(handoff.evidence.every(item =>
+    !/Unverified: additional in-scope impact/iu.test(item.supports)));
+  assert.equal(
+    handoff.targets.find(target => target.path === 'src/a.mjs').reason,
+    'Change src/a.mjs and its consumer src/b.mjs.',
+  );
+  assert.doesNotThrow(() => validateParentHandoffV3(handoff));
+});
+
+test('Spec 028 T041 — failed handoff maps reasons and drops stale success data', () => {
+  const handoff = buildParentHandoffV3({
+    result: {
+      directAnswer: 'Stale unverified answer.',
+      evidence: [{ id: 'stale', path: 'src/stale.js', startLine: 1, endLine: 1 }],
+      failure: {
+        reason: 'tool_errors',
+        message: 'Repository tools failed before verification.',
+        retry: { args: { task: 'Retry the token trace.', scope: ['src/**'] } },
+      },
+    },
+    task: 'Trace token validation.',
+  });
+  assert.deepEqual(handoff, {
+    schemaVersion: 3,
+    directAnswer: 'Repository tools failed before verification.',
+    state: 'failed',
+    failure: {
+      reason: 'tool_failure',
+      retry: {
+        type: 'tool',
+        tool: 'explore_repo',
+        arguments: { task: 'Retry the token trace.', scope: ['src/**'] },
+      },
+    },
+  });
+  assert.doesNotThrow(() => validateParentHandoffV3(handoff));
+});
+
+test('Spec 028 T041 — plan-level gaps prevent a false complete handoff', () => {
+  const fixture = parentHandoffFixture();
+  const handoff = buildParentHandoffV3({
+    ...fixture,
+    task: 'Explain token validation behavior.',
+    coverageGaps: [{
+      id: 'G-plan',
+      question: 'Resolve the uncovered request obligation.',
+      reason: 'planning_incomplete',
+      repairable: false,
+      priority: 0,
+    }],
+  });
+
+  assert.equal(handoff.state, 'incomplete');
+  assert.equal(handoff.directAnswer,
+    'Token validation is implemented in src/auth.js.');
+  assert.deepEqual(handoff.gaps, [{
+    question: 'Explain token validation behavior.',
+    reason: 'This requested part could not be reduced to a complete verifiable repository goal.',
+  }]);
+  assert.doesNotThrow(() => validateParentHandoffV3(handoff));
+});
+
+test('Spec 028 T041 — shared search refs require claim-local absence certificates', () => {
+  const subgoals = [
+    {
+      id: 'S1',
+      question: 'Is legacyAuth absent from src?',
+      proofPolicy: 'bounded_absence',
+      state: 'supported',
+    },
+    {
+      id: 'S2',
+      question: 'Is debugAuth absent from src?',
+      proofPolicy: 'bounded_absence',
+      state: 'supported',
+    },
+  ];
+  const claims = [
+    {
+      id: 'C1',
+      subgoalId: 'S1',
+      text: 'legacyAuth is absent from the enumerated src boundary.',
+      verdict: 'supported',
+      evidenceRefs: ['E1'],
+    },
+    {
+      id: 'C2',
+      subgoalId: 'S2',
+      text: 'debugAuth is absent from the enumerated src boundary.',
+      verdict: 'supported',
+      evidenceRefs: ['E1'],
+    },
+  ];
+  const handoff = buildParentHandoffV3({
+    result: {},
+    task: 'Check bounded absence for legacyAuth and debugAuth.',
+    semanticVerification: {
+      taskContract: { effectiveScope: ['src/**'], subgoals },
+      claims,
+      semanticVerdicts: claims.map(claim => ({
+        claimId: claim.id,
+        result: 'supported',
+        supportingEvidenceRefs: ['E1'],
+      })),
+      absenceCertificates: [{
+        id: 'A1',
+        subgoalId: 'S1',
+        claimBoundary: ['src/**'],
+        searchRefs: ['E1'],
+        searchSummary: ['Searched legacyAuth across src/** with no matches.'],
+        complete: true,
+        zeroMatches: true,
+      }],
+    },
+    observations: [{ id: 'E1', kind: 'search' }],
+  });
+
+  assert.equal(handoff.state, 'incomplete');
+  assert.equal(handoff.directAnswer,
+    'legacyAuth is absent from the enumerated src boundary.');
+  assert.deepEqual(handoff.evidence, [{
+    kind: 'absence',
+    boundary: ['src/**'],
+    searches: ['Searched legacyAuth across src/** with no matches.'],
+    supports: 'legacyAuth is absent from the enumerated src boundary.',
+  }]);
+  assert.deepEqual(handoff.gaps, [{
+    question: 'Check bounded absence for legacyAuth and debugAuth.',
+    reason: 'Required repository evidence was not found.',
+  }]);
+  assert.doesNotThrow(() => validateParentHandoffV3(handoff));
+});
+
+test('Spec 028 T041 — verifier failure classification uses explicit provenance', () => {
+  const verifierFailure = buildParentHandoffV3({
+    result: {
+      failure: {
+        reason: 'invalid_final_response',
+        publicReason: 'verifier_error',
+        message: 'The isolated control output was invalid.',
+      },
+    },
+    task: 'Trace token validation.',
+  });
+  const unmarkedFailure = buildParentHandoffV3({
+    result: {
+      failure: {
+        reason: 'invalid_final_response',
+        message: 'A verifier-like phrase must not classify this failure.',
+      },
+    },
+    task: 'Trace token validation.',
+  });
+
+  assert.equal(verifierFailure.failure.reason, 'verifier_error');
+  assert.equal(unmarkedFailure.failure.reason, 'internal_error');
+  assert.doesNotThrow(() => validateParentHandoffV3(verifierFailure));
+  assert.doesNotThrow(() => validateParentHandoffV3(unmarkedFailure));
+});
+
+// Existing tests below isolate the pre-028 exploration loop. Their provider
+// scripts predate required planning, so this test-only adapter answers only the
+// isolated planner/auditor calls. T017 uses RuntimeImplementation directly.
+class ExplorerRuntime extends RuntimeImplementation {
+  constructor({ chatClient = null, ...options } = {}) {
+    super({ ...options, chatClient: adaptLegacyGoalAuditClient(chatClient) });
+  }
 }
 
 class MockChatClient {
@@ -265,6 +1018,22 @@ test('ExplorerRuntime performs an autonomous tool loop and returns structured fi
   assert.ok(result.targets.every(target => target.role !== 'edit'), 'read-only tracing must not mark all evidence targets as edit');
   assert.equal(result.schemaVersion, 2);
   assert.equal(result.failure, null);
+  assert.equal(result.parentHandoff.schemaVersion, 3);
+  assert.equal(result.parentHandoff.state, 'complete');
+  assert.equal(Object.hasOwn(result.parentHandoff, 'status'), false);
+  assert.doesNotThrow(() => validateParentHandoffV3(result.parentHandoff));
+  assert.deepEqual(Object.keys(result.parentPayloadMeasurement).sort(), [
+    'contentBytes',
+    'encoding',
+    'parentPayloadBytes',
+    'sha256',
+    'structuredContentBytes',
+  ]);
+  assert.equal(result.parentPayloadMeasurement.encoding, 'utf8');
+  assert.equal(result.parentPayloadMeasurement.parentPayloadBytes,
+    result.parentPayloadMeasurement.contentBytes +
+      result.parentPayloadMeasurement.structuredContentBytes);
+  assert.match(result.parentPayloadMeasurement.sha256, /^[a-f0-9]{64}$/);
   assert.equal(result.evidenceQuality.level, result.status.confidence);
   assert.equal(result.evidenceQuality.exactCount, 2);
   assert.equal(result.evidenceQuality.partialCount, 0);
@@ -276,7 +1045,6 @@ test('ExplorerRuntime performs an autonomous tool loop and returns structured fi
   assert.equal(result.searchCoverage.scopeLimited, true);
   assert.equal(result.searchCoverage.filesRead, result.stats.filesRead);
   assert.equal(result.searchCoverage.grepCalls, result.stats.grepCalls);
-  assert.equal(result.searchCoverage.stoppedByBudget, false);
   assert.ok(Array.isArray(result.searchCoverage.warnings));
   assert.match(result.searchCoverage.summary, /scope-limited|repo-wide/);
   assert.equal(result.evidence.length, 2);
@@ -356,7 +1124,7 @@ test('ExplorerRuntime explore writes LOG_PATH transcript with stable callId reco
   });
 });
 
-test('ExplorerRuntime trust summary mentions dropped evidence caveats', async () => {
+test('ExplorerRuntime semantic projection omits unverified model evidence', async () => {
   class DroppedEvidenceClient {
     constructor() { this.model = 'zai-glm-4.7'; this.calls = 0; }
     async createChatCompletion({ responseFormat }) {
@@ -407,10 +1175,12 @@ test('ExplorerRuntime trust summary mentions dropped evidence caveats', async ()
     taskMode: 'symbol_trace',
   });
 
-  assert.equal(result.evidenceQuality.droppedCount, 1);
-  assert.match(result.evidenceQuality.summary, /retained evidence/i);
-  assert.match(result.evidenceQuality.summary, /1 evidence item\(s\) dropped/i);
-  assert.doesNotMatch(result.evidenceQuality.summary, /^.*All evidence grounded in inspected code\.$/);
+  assert.ok(result.evidence.some(item =>
+    item.path === 'src/auth.js' && item.startLine === 1 && item.endLine === 4));
+  assert.ok(result.evidence.every(item => item.path !== 'src/missing.js'));
+  assert.equal(result.evidenceQuality.droppedCount, 0,
+    'unverified model evidence is excluded before the parent-facing critic pass');
+  assert.doesNotMatch(result.evidenceQuality.summary, /evidence item\(s\) dropped/i);
 });
 
 test('ExplorerRuntime drops target evidenceRefs that do not reference retained evidence ids', async () => {
@@ -747,18 +1517,26 @@ test('ExplorerRuntime drops model-provided edit targets outside grounded evidenc
   assert.notEqual(result.nextAction.target?.path, '../../.ssh/id_rsa');
 });
 
-test('ExplorerRuntime does not treat review-change context as edit planning', async () => {
+test('Spec 028 T048 — automatic PR and diff review intent stays read-only', async (t) => {
   const repoRoot = await makeRepoFixture();
-  const runtime = new ExplorerRuntime({ chatClient: new MockChatClient() });
-
-  const result = await runtime.explore({
-    task: 'Review change context: What changed recently around auth routing? Summarize what changed and return grounded read targets.',
-    repo_root: repoRoot,
-    scope: ['src/**'],
-  });
-
-  assert.equal(result.status.verification, 'verified');
-  assert.equal(result.nextAction.type, 'stop');
+  for (const task of [
+    'Review change context: What changed recently around auth routing?',
+    'Review this PR for auth risks.',
+    'Review the diff for auth risks.',
+    'Review this change to auth code for risks.',
+    '이 PR의 인증 변경을 검토해라.',
+  ]) {
+    await t.test(task, async () => {
+      const runtime = new ExplorerRuntime({ chatClient: new MockChatClient() });
+      const result = await runtime.explore({
+        task,
+        repo_root: repoRoot,
+        scope: ['src/**'],
+      });
+      assert.equal(result.status.verification, 'verified');
+      assert.equal(result.nextAction.type, 'stop');
+    });
+  }
 });
 
 test('ExplorerRuntime still treats code changes as edit planning', async () => {
@@ -775,7 +1553,7 @@ test('ExplorerRuntime still treats code changes as edit planning', async () => {
   assert.equal(result.nextAction.type, 'read_target');
 });
 
-test('ExplorerRuntime uses internal taskMode before regex edit intent fallback', async () => {
+test('ExplorerRuntime uses evidence taskMode before edit fallback and fails closed without counter-search', async () => {
   class EvidenceClient {
     constructor() { this.model = 'zai-glm-4.7'; this.calls = 0; }
     async createChatCompletion() {
@@ -827,62 +1605,40 @@ test('ExplorerRuntime uses internal taskMode before regex edit intent fallback',
     taskMode: 'evidence_verification',
   });
 
-  assert.equal(result.status.verification, 'verified');
+  assert.equal(result.status.verification, 'broad_search_needed');
+  assert.notEqual(result.status.verification, 'targeted_read_needed');
 });
 
-test('ExplorerRuntime taskMode marks edit planning as targeted read needed', async () => {
-  class EditPlanningClient {
-    constructor() { this.model = 'zai-glm-4.7'; this.calls = 0; }
-    async createChatCompletion() {
-      this.calls += 1;
-      if (this.calls === 1) {
-        return {
-          usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 },
-          message: {
-            content: '',
-            toolCalls: [{
-              id: 'call-read-1',
-              function: {
-                name: 'repo_read_file',
-                arguments: JSON.stringify({ path: 'src/auth.js', startLine: 1, endLine: 8 }),
-              },
-            }, {
-              id: 'call-read-2',
-              function: {
-                name: 'repo_read_file',
-                arguments: JSON.stringify({ path: 'src/routes/user.js', startLine: 1, endLine: 8 }),
-              },
-            }],
-          },
-        };
-      }
-      return {
-        usage: { prompt_tokens: 30, completion_tokens: 20, total_tokens: 50 },
-        message: {
-          content: JSON.stringify(compactResult({
-            directAnswer: '변경 영향입니다.',
-            statusConfidence: 'high',
-            evidence: [
-              { path: 'src/auth.js', startLine: 1, endLine: 4, why: '변경 영향 근거' },
-              { path: 'src/routes/user.js', startLine: 1, endLine: 5, why: '호출 영향 근거' },
-            ],
-          })),
-          toolCalls: [],
-        },
-      };
-    }
-  }
-
-  const root = await makeRepoFixture();
-  const runtime = new ExplorerRuntime({ chatClient: new EditPlanningClient() });
-  const result = await runtime.explore({
-    task: 'Assess auth behavior',
-    repo_root: root,
-    scope: ['src/**'],
+test('ExplorerRuntime taskMode marks edit planning as verify_targets for the parent', async () => {
+  const task = 'Assess this intended change before editing: ' +
+    'Add a new top-level field to explore_repo structured output. Identify actionable targets, ' +
+    'dependent callers/consumers, affected verification or public-contract surfaces, and the remaining risk boundary.';
+  const goals = impactWrapperGoals(task);
+  const claims = goals.map((goal, index) => candidateClaim(
+    `C-edit-planning-${index + 1}`,
+    goal.id,
+    `The observed implementation source supports this bounded impact facet: ${goal.question}`,
+    ['E1'],
+  ));
+  const { result } = await runTrustScript(buildTrustSteps({
+    goals,
+    initial: {
+      tools: [{
+        tool: 'repo_read_file',
+        args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+        id: 'edit-planning-source',
+      }],
+      claims,
+      verdicts: claims.map(claim =>
+        semanticVerdict(claim.id, 'supported', claim.evidenceRefs)),
+    },
+  }), {
+    task,
     taskMode: 'edit_planning',
   });
 
-  assert.equal(result.status.verification, 'targeted_read_needed');
+  assert.equal(result.failure, null);
+  assert.equal(result.parentHandoff.state, 'verify_targets');
 });
 
 test('Phase 2 — codeMap remains available without generating Mermaid diagram output', async () => {
@@ -953,8 +1709,8 @@ test('Phase 1 — explore circuit breaker trips after three all-error turns', as
 
   assert.equal(result.stats.turns, 3, 'tool loop must stop after the third all-error turn');
   assert.equal(result.stats.stoppedByErrors, true, 'circuit breaker must mark stoppedByErrors');
-  assert.equal(result.stats.stoppedByBudget, false, 'error stop must not be mislabeled as budget stop');
-  assert.equal(client.calls, 4, 'three tool-loop calls plus one finalization call');
+  assert.deepEqual(result.stats.safetyLimits, [], 'tool errors must not be mislabeled as safety-limit stops');
+  assert.equal(client.calls, 3, 'tool-error termination must not make an untrusted finalization call');
   assert.equal(result.schemaVersion, 2);
   assert.equal(result.failure.category, 'execution');
   assert.equal(result.failure.reason, 'tool_errors');
@@ -970,415 +1726,6 @@ test('Phase 1 — explore circuit breaker trips after three all-error turns', as
     thirdTurnMessages.some(m => m.role === 'user' && m.content?.includes('repeating the same failing')),
     'recovery guidance must be present before the third failing turn',
   );
-});
-
-test('Phase 1 — freeExplore circuit breaker trips after three all-error turns', async () => {
-  class AllErrorFreeExploreClient {
-    constructor() {
-      this.model = 'zai-glm-4.7';
-      this.calls = 0;
-      this.snapshots = [];
-    }
-
-    async createChatCompletion({ messages }) {
-      this.calls += 1;
-      this.snapshots.push(cloneMessages(messages));
-
-      if (this.calls <= 3) {
-        return {
-          usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
-          message: {
-            content: '',
-            toolCalls: [{
-              id: `invalid-v2-${this.calls}`,
-              function: { name: 'repo_missing_tool', arguments: '{}' },
-            }],
-          },
-        };
-      }
-
-      return {
-        usage: { prompt_tokens: 30, completion_tokens: 20, total_tokens: 50 },
-        finishReason: 'stop',
-        message: {
-          content: '# Partial report\n\nToo many tool errors.',
-          toolCalls: [],
-        },
-      };
-    }
-  }
-
-  const repoRoot = await makeRepoFixture();
-  const client = new AllErrorFreeExploreClient();
-  const runtime = new ExplorerRuntime({ chatClient: client });
-
-  const result = await runtime.freeExplore({
-    prompt: '반복적인 도구 실패 이후 보고서를 작성해라.',
-    repo_root: repoRoot,
-  });
-
-  assert.equal(result.stats.turns, 3, 'report-mode tool loop must stop after the third all-error turn');
-  assert.equal(result.stats.stoppedByErrors, true, 'report-mode circuit breaker must mark stoppedByErrors');
-  assert.equal(result.stats.stoppedByBudget, false, 'error stop must not be mislabeled as budget stop');
-  assert.equal(client.calls, 4, 'three tool-loop calls plus one finalization call');
-
-  const thirdTurnMessages = client.snapshots[2];
-  assert.ok(
-    thirdTurnMessages.some(m => m.role === 'user' && m.content?.includes('repeating the same failing')),
-    'report-mode recovery guidance must be present before the third failing turn',
-  );
-});
-
-test('freeExplore labels truncated tool results as incomplete before synthesis', async () => {
-  class TruncationClient {
-    constructor() {
-      this.model = 'zai-glm-4.7';
-      this.calls = 0;
-      this.snapshots = [];
-    }
-
-    async createChatCompletion({ messages }) {
-      this.calls += 1;
-      this.snapshots.push(cloneMessages(messages));
-
-      if (this.calls === 1) {
-        return {
-          usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
-          message: {
-            content: null,
-            toolCalls: [
-              {
-                id: 'read-large',
-                function: {
-                  name: 'repo_read_file',
-                  arguments: JSON.stringify({ path: 'src/large.js', startLine: 1, endLine: 700 }),
-                },
-              },
-            ],
-          },
-        };
-      }
-
-      return {
-        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
-        finishReason: 'stop',
-        message: {
-          content: 'Large report cites `src/large.js:L1-L2`.',
-          toolCalls: [],
-        },
-      };
-    }
-  }
-
-  class CompleteResultClient {
-    constructor() {
-      this.model = 'zai-glm-4.7';
-      this.calls = 0;
-    }
-
-    async createChatCompletion() {
-      this.calls += 1;
-
-      if (this.calls === 1) {
-        return {
-          usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
-          message: {
-            content: null,
-            toolCalls: [
-              {
-                id: 'read-small',
-                function: {
-                  name: 'repo_read_file',
-                  arguments: JSON.stringify({ path: 'src/auth.js', startLine: 1, endLine: 4 }),
-                },
-              },
-            ],
-          },
-        };
-      }
-
-      return {
-        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
-        finishReason: 'stop',
-        message: {
-          content: 'Small report cites `src/auth.js:L1-L2`.',
-          toolCalls: [],
-        },
-      };
-    }
-  }
-
-  const root = await makeRepoFixture();
-  const largeSource = Array.from(
-    { length: 700 },
-    (_, index) => `export const value${index} = '${'x'.repeat(60)}';`,
-  ).join('\n');
-  await fs.writeFile(path.join(root, 'src', 'large.js'), largeSource);
-
-  const client = new TruncationClient();
-  const runtime = new ExplorerRuntime({ chatClient: client });
-  const result = await runtime.freeExplore({
-    prompt: 'inspect a large file and produce a cited report',
-    repo_root: root,
-  });
-
-  const secondTurnMessages = client.snapshots[1] ?? [];
-  const toolMessage = secondTurnMessages.find(message => message.role === 'tool');
-  assert.ok(toolMessage, 'second model call must include the truncated tool result');
-  assert.match(toolMessage.content, /Result was truncated before model synthesis/);
-  const legacyFullInspectionPattern = new RegExp(['Full data', 'was inspected'].join(' '));
-  assert.doesNotMatch(toolMessage.content, legacyFullInspectionPattern);
-  assert.equal(result.searchCoverage.toolResultsTruncated, 1);
-  assert.ok(
-    result.searchCoverage.warnings.some(warning => /expected evidence is missing/i.test(warning)),
-    'searchCoverage warning must tell the parent agent how to recover missing evidence',
-  );
-  const criticTruncationWarning = result.critic.warnings.find(
-    warning => warning.type === 'truncated_tool_results',
-  );
-  assert.ok(criticTruncationWarning, 'critic must report truncated tool results');
-  assert.match(criticTruncationWarning.message, /expected evidence is missing/i);
-
-  const completeRuntime = new ExplorerRuntime({ chatClient: new CompleteResultClient() });
-  const completeResult = await completeRuntime.freeExplore({
-    prompt: 'inspect a small file and produce a cited report',
-    repo_root: root,
-  });
-  assert.equal(completeResult.searchCoverage.toolResultsTruncated, 0);
-  assert.equal(
-    completeResult.searchCoverage.warnings.some(warning => /expected evidence is missing/i.test(warning)),
-    false,
-    'complete tool results must not emit truncation recovery warnings',
-  );
-});
-
-test('freeExplore searchCoverage counts non-read tool calls', async () => {
-  class CoverageFreeExploreClient {
-    constructor() {
-      this.model = 'zai-glm-4.7';
-      this.calls = 0;
-    }
-
-    async createChatCompletion() {
-      this.calls += 1;
-      if (this.calls === 1) {
-        return {
-          usage: { prompt_tokens: 30, completion_tokens: 10, total_tokens: 40 },
-          message: {
-            content: '',
-            toolCalls: [
-              {
-                id: 'list-src',
-                function: {
-                  name: 'repo_list_dir',
-                  arguments: JSON.stringify({ dirPath: 'src', depth: 1 }),
-                },
-              },
-              {
-                id: 'symbols-auth',
-                function: {
-                  name: 'repo_symbols',
-                  arguments: JSON.stringify({ path: 'src/auth.js' }),
-                },
-              },
-              {
-                id: 'grep-auth',
-                function: {
-                  name: 'repo_grep',
-                  arguments: JSON.stringify({ pattern: 'requireAuth', scope: ['src/**'] }),
-                },
-              },
-            ],
-          },
-        };
-      }
-
-      return {
-        usage: { prompt_tokens: 30, completion_tokens: 10, total_tokens: 40 },
-        finishReason: 'stop',
-        message: {
-          content: '# Coverage report\n\nUsed list, symbol, and grep tools.',
-          toolCalls: [],
-        },
-      };
-    }
-  }
-
-  const repoRoot = await makeRepoFixture();
-  const runtime = new ExplorerRuntime({ chatClient: new CoverageFreeExploreClient() });
-
-  const result = await runtime.freeExplore({
-    prompt: 'auth surface coverage',
-    repo_root: repoRoot,
-  });
-
-  assert.equal(result.stats.listDirCalls, 1);
-  assert.equal(result.stats.symbolCalls, 1);
-  assert.equal(result.stats.grepCalls, 1);
-  assert.equal(result.searchCoverage.listDirCalls, 1);
-  assert.equal(result.searchCoverage.symbolCalls, 1);
-  assert.equal(result.searchCoverage.grepCalls, 1);
-});
-
-test('Phase 1 — freeExplore compaction preserves complete turns and valid tool sequencing', async () => {
-  class CompactionSequenceClient {
-    constructor() {
-      this.model = 'zai-glm-4.7';
-      this.calls = 0;
-      this.snapshots = [];
-    }
-
-    async createChatCompletion({ messages }) {
-      this.calls += 1;
-      this.snapshots.push(cloneMessages(messages));
-
-      if (this.calls <= 3) {
-        return {
-          usage: { prompt_tokens: 40, completion_tokens: 10, total_tokens: 50 },
-          message: {
-            content: '',
-            toolCalls: [{
-              id: `read-large-${this.calls}`,
-              function: {
-                name: 'repo_read_file',
-                arguments: JSON.stringify({ path: 'src/large.js', startLine: 1, endLine: 220 }),
-              },
-            }],
-          },
-        };
-      }
-
-      if (this.calls === 4) {
-        return {
-          usage: { prompt_tokens: 45, completion_tokens: 20, total_tokens: 65 },
-          finishReason: 'stop',
-          message: {
-            content: 'Compaction summary',
-            toolCalls: [],
-          },
-        };
-      }
-
-      if (this.calls === 5) {
-        const compactedMessages = this.snapshots[4];
-        assert.equal(compactedMessages[0].role, 'system');
-        assert.equal(compactedMessages[1].role, 'user');
-        assert.equal(compactedMessages[2].role, 'assistant');
-        assert.notEqual(compactedMessages[3]?.role, 'tool', 'compaction must preserve complete turns, not start with a tool');
-        assertNoOrphanedToolMessages(compactedMessages);
-      }
-
-      return {
-        usage: { prompt_tokens: 50, completion_tokens: 30, total_tokens: 80 },
-        finishReason: 'stop',
-        message: {
-          content: '# Final report\n\nCompaction kept valid turn boundaries.',
-          toolCalls: [],
-        },
-      };
-    }
-  }
-
-  const repoRoot = await makeRepoFixture();
-  const largeLines = Array.from({ length: 260 }, (_, index) => `export const line${index} = "${'x'.repeat(700)}";`);
-  await fs.writeFile(path.join(repoRoot, 'src', 'large.js'), largeLines.join('\n'));
-
-  const client = new CompactionSequenceClient();
-  const runtime = new ExplorerRuntime({ chatClient: client });
-
-  const result = await runtime.freeExplore({
-    prompt: '큰 파일을 반복적으로 읽으며 컨텍스트 컴팩션을 강제로 발생시켜라.',
-    context: 'context '.repeat(40000),
-    repo_root: repoRoot,
-  });
-
-  assert.match(result.report, /Compaction kept valid turn boundaries/);
-  assert.ok(result.stats.llmCompactions >= 1, 'LLM compaction must have occurred');
-  assert.equal(result.stats.inputTokens, 215, 'compaction usage must retain prompt token accounting');
-  assert.equal(result.stats.outputTokens, 80, 'compaction usage must retain completion token accounting');
-  assert.equal(result.stats.totalTokens, 295, 'compaction usage must retain total token accounting');
-  assert.equal(
-    result.stats.inputTokens + result.stats.outputTokens,
-    result.stats.totalTokens,
-    'inputTokens + outputTokens must equal totalTokens when compaction usage is counted normally',
-  );
-});
-
-test('freeExplore fallback compaction fires in the 70-100% band when LLM summary is unavailable (spec 024 FR-001)', async () => {
-  // The LLM-summary compaction call uses maxCompletionTokens: 1000. Throwing for it
-  // forces the runtime down the catch-branch fallback. Before FR-001 that fallback
-  // passed maxContextTokens (100%), so compactOldToolResults no-oped in the 70-100%
-  // band; now it passes compactionThreshold (70%) and actually truncates old tool results.
-  class SummaryFailsClient {
-    constructor() {
-      this.model = 'zai-glm-4.7';
-      this.calls = 0;
-      this.snapshots = [];
-    }
-
-    async createChatCompletion({ messages, maxCompletionTokens }) {
-      if (maxCompletionTokens === 1000) {
-        throw new Error('summary provider unavailable');
-      }
-      this.calls += 1;
-      this.snapshots.push(cloneMessages(messages));
-
-      if (this.calls <= 10) {
-        return {
-          usage: { prompt_tokens: 40, completion_tokens: 10, total_tokens: 50 },
-          message: {
-            content: '',
-            toolCalls: [{
-              id: `read-${this.calls}`,
-              function: {
-                name: 'repo_read_file',
-                arguments: JSON.stringify({ path: 'src/large.js', startLine: 1, endLine: 220 }),
-              },
-            }],
-          },
-        };
-      }
-
-      return {
-        usage: { prompt_tokens: 50, completion_tokens: 30, total_tokens: 80 },
-        finishReason: 'stop',
-        message: {
-          content: '# Final report\n\nFallback truncation kept the loop within budget.',
-          toolCalls: [],
-        },
-      };
-    }
-  }
-
-  const repoRoot = await makeRepoFixture();
-  const largeLines = Array.from({ length: 260 }, (_, index) => `export const line${index} = "${'x'.repeat(700)}";`);
-  await fs.writeFile(path.join(repoRoot, 'src', 'large.js'), largeLines.join('\n'));
-
-  const client = new SummaryFailsClient();
-  const runtime = new ExplorerRuntime({ chatClient: client });
-
-  const result = await runtime.freeExplore({
-    prompt: 'Force fallback compaction by exhausting the summary path.',
-    context: 'context '.repeat(40000), // ~80k tokens → inside the 70-100% band of 110k
-    repo_root: repoRoot,
-  });
-
-  const sawTruncatedToolResult = client.snapshots.some(snapshot =>
-    snapshot.some(message =>
-      message.role === 'tool'
-      && typeof message.content === 'string'
-      && message.content.includes('[truncated from'),
-    ),
-  );
-  assert.ok(
-    sawTruncatedToolResult,
-    'fallback compaction must truncate old tool results in the 70-100% band (FR-001)',
-  );
-
-  for (const snapshot of client.snapshots) {
-    assertNoOrphanedToolMessages(snapshot);
-  }
-  assert.ok(result.report.length > 0, 'a report must still be produced after fallback compaction');
 });
 
 test('estimateTokens weights non-ASCII higher than ASCII (spec 024 FR-003)', () => {
@@ -1460,7 +1807,7 @@ test('explore compacts proactively at 70% and injects a deterministic evidence l
   const client = new CompactExploreClient();
   const runtime = new ExplorerRuntime({ chatClient: client });
 
-  await runtime.explore({
+  const result = await runtime.explore({
     task: 'Force proactive compaction on the compact path.',
     repo_root: repoRoot,
     scope: ['src/**'],
@@ -1480,6 +1827,9 @@ test('explore compacts proactively at 70% and injects a deterministic evidence l
     ),
   );
   assert.ok(sawTruncatedToolResult, 'proactive compaction must truncate old tool results (FR-002)');
+  assert.ok(result.stats.safetyLimits.some(limit =>
+    limit.name === 'context_limit' && limit.stage === 'exploration' && limit.truncated),
+    'the compacted context must remain observable as an exact safety limit');
 
   // (b) a deterministic ledger was injected, lists the inspected range, and is never duplicated.
   const ledgerSnapshot = client.snapshots.find(snapshot => snapshot.some(isLedger));
@@ -1496,57 +1846,6 @@ test('explore compacts proactively at 70% and injects a deterministic evidence l
   for (const snapshot of client.snapshots) {
     assertNoOrphanedToolMessages(snapshot);
   }
-});
-
-test('freeExplore wires observedRanges into the report critic for line-range grounding (spec 024 FR-004)', async () => {
-  // Reads src/auth.js lines 1-4, then writes a report citing L50-L60 (outside the
-  // inspected range). End-to-end this must surface a citation_line_gap, proving the
-  // report loop records observedRanges and passes them to buildReportCritic.
-  class CiteOutOfRangeClient {
-    constructor() {
-      this.model = 'zai-glm-4.7';
-      this.calls = 0;
-    }
-
-    async createChatCompletion() {
-      this.calls += 1;
-      if (this.calls === 1) {
-        return {
-          usage: { prompt_tokens: 40, completion_tokens: 10, total_tokens: 50 },
-          message: {
-            content: '',
-            toolCalls: [{
-              id: 'read-1',
-              function: {
-                name: 'repo_read_file',
-                arguments: JSON.stringify({ path: 'src/auth.js', startLine: 1, endLine: 4 }),
-              },
-            }],
-          },
-        };
-      }
-      return {
-        usage: { prompt_tokens: 45, completion_tokens: 30, total_tokens: 75 },
-        finishReason: 'stop',
-        message: {
-          content: '# Report\n\nThe auth guard is defined at `src/auth.js:L50-L60` (claimed).',
-          toolCalls: [],
-        },
-      };
-    }
-  }
-
-  const repoRoot = await makeRepoFixture();
-  const runtime = new ExplorerRuntime({ chatClient: new CiteOutOfRangeClient() });
-
-  const result = await runtime.freeExplore({
-    prompt: 'Where is the auth guard defined?',
-    repo_root: repoRoot,
-  });
-
-  const lineGap = result.critic.warnings.find(warning => warning.type === 'citation_line_gap');
-  assert.ok(lineGap, 'freeExplore must wire observedRanges into buildReportCritic (FR-004)');
-  assert.match(lineGap.target, /auth\.js/);
 });
 
 test('ExplorerRuntime carries compact uncertainties instead of legacy followups', async () => {
@@ -1636,15 +1935,23 @@ test('ExplorerRuntime does not expose recentActivity when git_log tool is called
   const result = await runtime.explore({
     task: '최근에 어떤 파일이 변경되었나요?',
     repo_root: root,
-    hints: { strategy: 'git-guided' },
   });
 
   assert.equal(result.recentActivity, undefined);
   assert.equal(result._debug?.recentActivity, undefined);
   assert.equal(result.stats.gitLogCalls, 1);
+  const commitObservation = result.observations.find(item => item.kind === 'git_commit');
+  assert.ok(commitObservation, 'git log must produce a runtime-owned commit observation');
+  assert.equal(commitObservation.id, 'E1');
+  assert.equal(commitObservation.temporalRole, 'historical');
+  assert.match(commitObservation.sha, /^[0-9a-f]{40}$/);
+  assert.match(commitObservation.content, /add index/);
+  assert.ok(result.observations.some(item =>
+    item.id === 'E1:search' && item.kind === 'search' && item.tool === 'repo_git_log'),
+  'git history keeps its normalized search boundary separately from commit content');
 });
 
-test('ExplorerRuntime partial match evidence: evidence within tolerance lines is kept', async () => {
+test('ExplorerRuntime semantic projection rebuilds exact observed ranges', async () => {
   class PartialMatchClient {
     constructor() {
       this.model = 'zai-glm-4.7';
@@ -1695,11 +2002,15 @@ test('ExplorerRuntime partial match evidence: evidence within tolerance lines is
     scope: ['src/**'],
   });
 
-  // The evidence item at lines 5-6 should be kept as a partial match (read range was 1-4,
-  // and 5 is within EVIDENCE_LINE_TOLERANCE=2 of endLine=4)
-  assert.ok(result.evidence.length >= 1, 'partial-match evidence should be retained');
-  const partialItems = result.evidence.filter(e => e.groundingStatus === 'partial');
-  assert.ok(partialItems.length >= 1, 'at least one evidence item should have groundingStatus=partial');
+  assert.ok(result.evidence.some(item =>
+    item.path === 'src/auth.js' &&
+    item.startLine === 1 &&
+    item.endLine === 4 &&
+    item.groundingStatus === 'exact'),
+  'parent evidence is rebuilt from the runtime observation');
+  assert.ok(result.evidence.every(item =>
+    !(item.path === 'src/auth.js' && item.startLine === 5 && item.endLine === 6)),
+  'the nearby model-proposed range is not exposed to the parent');
 });
 
 test('ExplorerRuntime calls onProgress callback on each turn', async () => {
@@ -1877,8 +2188,227 @@ test('Phase 1 — malformed freeform content still produces strict-schema result
   assert.equal(result.evidenceQuality.level, 'low');
 });
 
-test('ExplorerRuntime budget retry args preserve scope boundary', async () => {
-  class BudgetRetryScopeClient {
+// T008 fixed the expected behavior before T013 changed runtime fault precedence.
+test('Spec 028 T008 — a valid partial tool-result limit is non-fatal and cannot establish completion', async () => {
+  class PartialToolLimitClient {
+    constructor() {
+      this.model = 'zai-glm-4.7';
+      this.calls = 0;
+    }
+
+    async createChatCompletion({ responseFormat }) {
+      this.calls += 1;
+      if (this.calls === 1) {
+        return {
+          usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+          message: {
+            content: '',
+            toolCalls: [{
+              id: 'read-long-file',
+              function: {
+                name: 'repo_read_file',
+                arguments: JSON.stringify({ path: 'src/long.js', startLine: 1, endLine: 10_000 }),
+              },
+            }],
+          },
+        };
+      }
+
+      if (!responseFormat) {
+        return {
+          usage: { prompt_tokens: 30, completion_tokens: 10, total_tokens: 40 },
+          message: { content: 'Ready to synthesize.', toolCalls: [] },
+        };
+      }
+
+      return {
+        usage: { prompt_tokens: 40, completion_tokens: 20, total_tokens: 60 },
+        message: {
+          content: JSON.stringify(compactResult({
+            directAnswer: 'The complete file could not be inspected within the fixed read limit.',
+            verification: 'follow_up_needed',
+            complete: false,
+            uncertainties: ['The requested exhaustive read is incomplete.'],
+            nextAction: { type: 'stop', reason: 'The bounded result is incomplete.' },
+          })),
+          toolCalls: [],
+        },
+      };
+    }
+  }
+
+  const root = await makeRepoFixture();
+  const longSource = Array.from({ length: 400 }, (_, index) => `export const line${index + 1} = ${index + 1};`).join('\n');
+  await fs.writeFile(path.join(root, 'src', 'long.js'), longSource);
+
+  const runtime = new ExplorerRuntime({ chatClient: new PartialToolLimitClient() });
+  const result = await runtime.explore({
+    task: 'Inspect every line in src/long.js and report whether any line was omitted.',
+    repo_root: root,
+    scope: ['src/**'],
+  });
+
+  assert.equal(result.status.complete, false);
+  assert.equal(result.failure, null, 'a valid partial result is an incomplete proof state, not execution failure');
+  assert.equal(result.nextAction.type, 'stop', 'a fixed limit must not create a pointless question for the parent');
+  assert.equal(Array.isArray(result.stats.safetyLimits), true);
+  const limit = result.stats.safetyLimits.find(item => item.name === 'tool_result_limit');
+  assert.ok(limit, 'the exact reached limit must be recorded');
+  assert.equal(limit.stage, 'exploration');
+  assert.equal(limit.truncated, true);
+  assert.equal(Array.isArray(limit.affectedSubgoalIds), true);
+});
+
+test('Spec 028 T008 — an output-capped invalid control response remains a fatal fault', async () => {
+  class InvalidControlOutputClient {
+    constructor() {
+      this.model = 'zai-glm-4.7';
+      this.calls = 0;
+    }
+
+    async createChatCompletion({ responseFormat }) {
+      this.calls += 1;
+      if (!responseFormat) {
+        return {
+          usage: { prompt_tokens: 20, completion_tokens: 5, total_tokens: 25 },
+          message: { content: '', toolCalls: [] },
+        };
+      }
+      return {
+        usage: { prompt_tokens: 30, completion_tokens: 5, total_tokens: 35 },
+        finishReason: 'length',
+        message: { content: '{}', toolCalls: [] },
+      };
+    }
+  }
+
+  const root = await makeRepoFixture();
+  const runtime = new ExplorerRuntime({ chatClient: new InvalidControlOutputClient() });
+  const result = await runtime.explore({ task: 'Locate the auth middleware.', repo_root: root });
+
+  assert.equal(result.status.complete, false);
+  assert.ok(result.failure, 'invalid required control JSON cannot be promoted as partial evidence');
+  assert.equal(result.failure.reason, 'invalid_final_response');
+  assert.equal(Array.isArray(result.stats.safetyLimits), true);
+  const limit = result.stats.safetyLimits.find(item => item.name === 'generation_output_limit');
+  assert.ok(limit, 'the provider output ceiling must remain observable alongside the fatal fault');
+  assert.equal(limit.stage, 'synthesis');
+  assert.equal(limit.truncated, true);
+});
+
+test('Spec 028 T013 — a recovered output cap remains observable but non-fatal', async () => {
+  class RecoveredControlOutputClient {
+    constructor() {
+      this.model = 'zai-glm-4.7';
+      this.calls = 0;
+    }
+
+    async createChatCompletion({ responseFormat }) {
+      this.calls += 1;
+      if (!responseFormat) {
+        return {
+          usage: { prompt_tokens: 20, completion_tokens: 5, total_tokens: 25 },
+          message: { content: '', toolCalls: [] },
+        };
+      }
+      if (this.calls === 2) {
+        return {
+          usage: { prompt_tokens: 30, completion_tokens: 5, total_tokens: 35 },
+          finishReason: 'length',
+          message: { content: '{"directAnswer":', toolCalls: [] },
+        };
+      }
+      return {
+        usage: { prompt_tokens: 35, completion_tokens: 10, total_tokens: 45 },
+        finishReason: 'stop',
+        message: {
+          content: JSON.stringify(compactResult({
+            directAnswer: 'The capped control response was repaired without adding facts.',
+            verification: 'follow_up_needed',
+            complete: false,
+          })),
+          toolCalls: [],
+        },
+      };
+    }
+  }
+
+  const root = await makeRepoFixture();
+  const runtime = new ExplorerRuntime({ chatClient: new RecoveredControlOutputClient() });
+  const result = await runtime.explore({ task: 'Locate the auth middleware.', repo_root: root });
+
+  assert.equal(result.failure, null, 'successful bounded recovery must not become an execution failure');
+  assert.equal(result.status.complete, false, 'recovery cannot establish proof without grounded evidence');
+  assert.ok(result.stats.safetyLimits.some(limit =>
+    limit.name === 'generation_output_limit' && limit.stage === 'synthesis' && limit.truncated));
+});
+
+test('Spec 028 T013 — an intentional short file range is not a tool-result limit', async () => {
+  class ShortRangeClient {
+    constructor() {
+      this.model = 'zai-glm-4.7';
+      this.calls = 0;
+    }
+
+    async createChatCompletion({ responseFormat }) {
+      this.calls += 1;
+      if (this.calls === 1) {
+        return {
+          usage: { prompt_tokens: 20, completion_tokens: 5, total_tokens: 25 },
+          message: {
+            content: '',
+            toolCalls: [{
+              id: 'short-read',
+              function: {
+                name: 'repo_read_file',
+                arguments: JSON.stringify({ path: 'src/long.js', startLine: 1, endLine: 4 }),
+              },
+            }],
+          },
+        };
+      }
+      if (!responseFormat) {
+        return {
+          usage: { prompt_tokens: 25, completion_tokens: 5, total_tokens: 30 },
+          message: { content: 'Ready to synthesize.', toolCalls: [] },
+        };
+      }
+      return {
+        usage: { prompt_tokens: 30, completion_tokens: 10, total_tokens: 40 },
+        message: {
+          content: JSON.stringify(compactResult({
+            directAnswer: 'The requested first four lines were inspected.',
+            statusConfidence: 'high',
+            evidence: [{
+              path: 'src/long.js',
+              startLine: 1,
+              endLine: 4,
+              why: 'requested bounded range',
+              evidenceType: 'file_range',
+              groundingStatus: 'exact',
+            }],
+          })),
+          toolCalls: [],
+        },
+      };
+    }
+  }
+
+  const root = await makeRepoFixture();
+  const longSource = Array.from({ length: 400 }, (_, index) => `export const line${index + 1} = ${index + 1};`).join('\n');
+  await fs.writeFile(path.join(root, 'src', 'long.js'), longSource);
+  const runtime = new ExplorerRuntime({ chatClient: new ShortRangeClient() });
+  const result = await runtime.explore({
+    task: 'Read only lines 1 through 4 of src/long.js.',
+    repo_root: root,
+    scope: ['src/**'],
+  });
+
+  assert.equal(result.stats.safetyLimits.some(limit => limit.name === 'tool_result_limit'), false);
+});
+
+test('ExplorerRuntime turn limit stays non-fatal and preserves the hard scope', async () => {
+  class TurnLimitScopeClient {
     constructor() {
       this.model = 'zai-glm-4.7';
       this.calls = 0;
@@ -1891,12 +2421,12 @@ test('ExplorerRuntime budget retry args preserve scope boundary', async () => {
           usage: { prompt_tokens: 50, completion_tokens: 20, total_tokens: 70 },
           message: {
             content: JSON.stringify(compactResult({
-              directAnswer: 'Budget exhausted before enough evidence was gathered.',
+              directAnswer: 'The turn limit was reached before enough evidence was gathered.',
               statusConfidence: 'low',
               verification: 'follow_up_needed',
               complete: false,
-              uncertainties: ['Budget exhausted before full follow-up.'],
-              nextAction: { type: 'continue', reason: 'Retry with a narrower task.' },
+              uncertainties: ['The turn limit was reached before full follow-up.'],
+              nextAction: { type: 'stop', reason: 'The bounded result is incomplete.' },
             })),
             toolCalls: [],
           },
@@ -1920,22 +2450,17 @@ test('ExplorerRuntime budget retry args preserve scope boundary', async () => {
   }
 
   const root = await makeRepoFixture();
-  const runtime = new ExplorerRuntime({ chatClient: new BudgetRetryScopeClient() });
+  const runtime = new ExplorerRuntime({ chatClient: new TurnLimitScopeClient() });
   const result = await runtime.explore({
-    task: 'Map auth behavior broadly enough to exhaust the configured turn budget.',
+    task: 'Map auth behavior broadly enough to reach the fixed turn limit.',
     repo_root: root,
     scope: ['src/**', 'tests/**'],
   });
 
-  assert.equal(result.stats.stoppedByBudget, true);
-  assert.equal(result.failure.reason, 'budget_exhausted');
-  assert.equal(result.failure.retry.args.task, 'Retry with a narrower scope or a more specific task.');
-  assert.deepEqual(result.failure.retry.args.scope, ['src/**', 'tests/**']);
-  assert.deepEqual(Object.keys(result.failure.retry.args).sort(), ['scope', 'task']);
-  assert.ok(
-    result.failure.retry.hints.every(hint => !/deep budget/i.test(hint)),
-    'budget exhaustion retry hints must not ask parent agents to select deep budget',
-  );
+  assert.equal(result.failure, null, 'a valid turn limit is a partial proof state, not an execution fault');
+  assert.deepEqual(result.stats.scope, ['src/**', 'tests/**']);
+  assert.ok(result.stats.safetyLimits.some(limit =>
+    limit.name === 'turn_limit' && limit.stage === 'exploration' && limit.truncated === false));
 });
 
 // ── Phase 5 — evidence/schema/context 고도화 ──────────────────────────────────
@@ -1989,11 +2514,13 @@ test('Phase 5 — git_commit evidence without verified SHA is dropped (strict va
   const result = await runtime.explore({
     task: '이 버그가 언제 도입됐나요?',
     repo_root: root,
-    hints: { strategy: 'git-guided' },
   });
 
-  // git_commit evidence with unverified SHA must be dropped (fabrication prevention)
-  assert.equal(result.evidence.length, 0, 'unverified git_commit evidence must be dropped');
+  // The semantic projection may retain separately verified source evidence, but it must
+  // never expose the model-proposed commit or SHA.
+  assert.ok(result.evidence.every(item =>
+    item.evidenceType !== 'git_commit' && item.sha !== 'abc1234'),
+  'unverified git_commit evidence must not reach the parent');
 });
 
 // spec 017: Phase 5 session reuse test removed alongside SessionStore module.
@@ -2042,7 +2569,7 @@ test('Phase 5 — unknown tool validation stays in sync with current tool defini
   const runtime = new ExplorerRuntime({ chatClient: client });
   await runtime.explore({ task: 'unknown tool sync test', repo_root: root });
 
-  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig() });
+  const toolkit = new RepoToolkit({ repoRoot: root, runtimeConfig: getRuntimeConfig() });
   await toolkit.initialize();
   const definedNames = toolkit.buildToolDefinitions().map(tool => tool.function.name).sort();
 
@@ -2196,146 +2723,10 @@ test('Phase 4 — critic-lite: confidence=high with only 1 evidence item is reco
   assert.ok(result.critic.warnings.every(w => w.message && w.action));
 });
 
-test('Phase 4 — freeExplore respects turn multiplier override', async () => {
-  class TurnBudgetClient {
-    constructor() {
-      this.model = 'zai-glm-4.7';
-      this.calls = 0;
-    }
-
-    async createChatCompletion() {
-      this.calls += 1;
-
-      if (this.calls <= getBudgetConfig().maxTurns) {
-        return {
-          usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
-          message: {
-            content: '',
-            toolCalls: [{
-              id: `budget-${this.calls}`,
-              function: {
-                name: 'repo_grep',
-                arguments: JSON.stringify({ pattern: 'requireAuth', maxResults: 1 }),
-              },
-            }],
-          },
-        };
-      }
-
-      return {
-        usage: { prompt_tokens: 30, completion_tokens: 20, total_tokens: 50 },
-        finishReason: 'stop',
-        message: {
-          content: '# Final report\n\nBudget override respected.',
-          toolCalls: [],
-        },
-      };
-    }
-  }
-
-  const root = await makeRepoFixture();
-
-  await withEnv({
-    CEREBRAS_EXPLORER_TURN_MULTIPLIER: '1',
-    CEREBRAS_EXPLORER_MAX_EXTRA_TURNS: '0',
-  }, async () => {
-    const client = new TurnBudgetClient();
-    const runtime = new ExplorerRuntime({ chatClient: client });
-    const result = await runtime.freeExplore({
-      prompt: 'turn override test',
-      repo_root: root,
-    });
-
-    assert.equal(result.stats.turns, getBudgetConfig().maxTurns, 'turn multiplier override must keep the base runtime config');
-    assert.equal(result.stats.stoppedByBudget, true, 'result must stop by budget when the override removes extra turns');
-    assert.equal(result.searchCoverage.stoppedByBudget, true);
-    assert.ok(result.searchCoverage.warnings.some(warning => /budget/i.test(warning)));
-    assert.equal(client.calls, getBudgetConfig().maxTurns + 1, 'one finalization call should follow the bounded tool loop');
-  });
-});
-
-test('freeExplore recovers from finishReason=length finalize and increments outputRecoveries', async () => {
-  class LengthRecoveryClient {
-    constructor() {
-      this.model = 'zai-glm-4.7';
-      this.calls = 0;
-    }
-
-    async createChatCompletion() {
-      this.calls += 1;
-
-      if (this.calls <= getBudgetConfig().maxTurns) {
-        return {
-          usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
-          message: {
-            content: '',
-            toolCalls: [{
-              id: `tool-${this.calls}`,
-              function: {
-                name: 'repo_grep',
-                arguments: JSON.stringify({ pattern: 'requireAuth', maxResults: 1 }),
-              },
-            }],
-          },
-        };
-      }
-
-      if (this.calls === getBudgetConfig().maxTurns + 1) {
-        return {
-          usage: { prompt_tokens: 30, completion_tokens: 20, total_tokens: 50 },
-          finishReason: 'length',
-          message: {
-            content: '# Final report\n\nThis sentence was cut off before',
-            toolCalls: [],
-          },
-        };
-      }
-
-      return {
-        usage: { prompt_tokens: 30, completion_tokens: 20, total_tokens: 50 },
-        finishReason: 'stop',
-        message: {
-          content: ' the model could finish it. The report is now complete.',
-          toolCalls: [],
-        },
-      };
-    }
-  }
-
-  const root = await makeRepoFixture();
-
-  await withEnv({
-    CEREBRAS_EXPLORER_TURN_MULTIPLIER: '1',
-    CEREBRAS_EXPLORER_MAX_EXTRA_TURNS: '0',
-  }, async () => {
-    const client = new LengthRecoveryClient();
-    const runtime = new ExplorerRuntime({ chatClient: client });
-    const result = await runtime.freeExplore({
-      prompt: 'output recovery test',
-      repo_root: root,
-    });
-
-    assert.equal(
-      result.stats.outputRecoveries,
-      1,
-      'one recovery attempt must run when finalize returns finishReason=length',
-    );
-    assert.equal(
-      client.calls,
-      getBudgetConfig().maxTurns + 2,
-      'main loop + finalize + one recovery continuation call',
-    );
-    assert.match(result.report, /cut off before/);
-    assert.match(result.report, /report is now complete/);
-  });
-});
-
-// ── Phase 3 — 프롬프트 구조 재배치 + 전략 유연화 ─────────────────────────────
-
 test('Phase 3 — system prompt has HARD REQUIREMENTS within first 30 lines', () => {
   const prompt = buildExplorerSystemPrompt({
     repoRoot: '/tmp/repo',
-    budgetConfig: getBudgetConfig(),
+    runtimeConfig: getRuntimeConfig(),
   });
   const lines = prompt.split('\n');
   const first30 = lines.slice(0, 30).join('\n');
@@ -2345,10 +2736,28 @@ test('Phase 3 — system prompt has HARD REQUIREMENTS within first 30 lines', ()
   );
 });
 
+test('Spec 028 T012 — structured prompts expose exact fixed-limit names without an effort profile', () => {
+  const runtimeConfig = getRuntimeConfig();
+  const systemPrompt = buildExplorerSystemPrompt({
+    repoRoot: '/tmp/repo',
+    runtimeConfig,
+  });
+  const userPrompt = buildExplorerUserPrompt({
+    task: 'Find the authentication entry point',
+    scope: [],
+  });
+
+  assert.match(
+    systemPrompt,
+    new RegExp(`Fixed runtime limits: maxTurns=${runtimeConfig.maxTurns}, maxReadLines=${runtimeConfig.maxReadLines}, maxSearchResults=${runtimeConfig.maxSearchResults}\\.`),
+  );
+  assert.doesNotMatch(`${systemPrompt}\n${userPrompt}`, /Runtime profile|\bdeep\b/i);
+});
+
 test('Spec 023 — explorer system prompt has UNTRUSTED CONTENT rule and candidate-edit-target wording', () => {
   const prompt = buildExplorerSystemPrompt({
     repoRoot: '/tmp/repo',
-    budgetConfig: getBudgetConfig(),
+    runtimeConfig: getRuntimeConfig(),
   });
   assert.ok(
     prompt.includes('UNTRUSTED CONTENT'),
@@ -2357,47 +2766,6 @@ test('Spec 023 — explorer system prompt has UNTRUSTED CONTENT rule and candida
   assert.ok(
     prompt.includes('candidate edit targets'),
     'explorer READ-ONLY rule must allow identifying candidate edit targets',
-  );
-});
-
-test('Spec 023 — freeExplore system prompt has UNTRUSTED CONTENT rule and candidate-edit-target wording', () => {
-  const prompt = buildFreeExploreSystemPrompt({
-    repoRoot: '/tmp/repo',
-    budgetConfig: getBudgetConfig(),
-  });
-  assert.doesNotMatch(
-    prompt,
-    /\bV2\b/,
-    'single explore backend prompt must not identify itself as V2',
-  );
-  assert.ok(
-    prompt.includes('UNTRUSTED CONTENT'),
-    'freeExplore system prompt must include the UNTRUSTED CONTENT hard requirement',
-  );
-  assert.ok(
-    prompt.includes('candidate edit targets'),
-    'freeExplore READ-ONLY rule must allow identifying candidate edit targets',
-  );
-});
-
-test('spec 024 FR-005 — freeExplore system prompt no longer overstates truncation-marker preservation', () => {
-  const prompt = buildFreeExploreSystemPrompt({
-    repoRoot: '/tmp/repo',
-    budgetConfig: getBudgetConfig(),
-  });
-  assert.doesNotMatch(
-    prompt,
-    /the key information is preserved/,
-    'truncation-marker line must not claim key information is preserved',
-  );
-  assert.ok(
-    prompt.includes('some content was omitted'),
-    'truncation-marker line must state content may be omitted',
-  );
-  assert.match(
-    prompt,
-    /re-read a narrower line range or re-run a narrower query/,
-    'truncation-marker line must advise re-reading when evidence seems missing',
   );
 });
 
@@ -2415,13 +2783,1272 @@ test('Phase 3 — detectStrategy returns single string for unambiguous task', ()
   assert.equal(strategy, 'symbol-first');
 });
 
+test('Spec 028 T053 — wrapper task modes preserve internal strategy without a public hint', () => {
+  const locatePrompt = buildExplorerUserPrompt({
+    task: 'Find the delegated implementation and its change-oriented companion.',
+    scope: [],
+    hints: {},
+    taskMode: 'locate',
+  });
+  assert.match(locatePrompt, /Strategy: locate-first/);
+  assert.match(locatePrompt,
+    /Preserve candidate paths[\s\S]{0,260}direct regression test or config companion/u);
+  assert.match(locatePrompt,
+    /direct candidates remain unread[\s\S]{0,100}do not replace them with synonym searches/u);
+  assert.match(locatePrompt,
+    /do not issue a parallel synonym grep[\s\S]{0,440}retain it in the same relevance claim evidence and parent targets/u);
+
+  const tracePrompt = buildExplorerUserPrompt({
+    task: 'Inspect this delegated target.',
+    scope: [],
+    hints: { symbols: ['requireAuth'] },
+    taskMode: 'symbol_trace',
+  });
+  assert.match(tracePrompt, /Strategy: symbol-first/);
+
+  const impactPrompt = buildExplorerUserPrompt({
+    task: 'Inspect the explore_repo change target and its requested impact categories.',
+    scope: [],
+    hints: {},
+    taskMode: 'edit_planning',
+  });
+  assert.match(impactPrompt, /Strategy: impact-map/);
+  assert.match(impactPrompt, /Hints:\n- none/u);
+  assert.match(impactPrompt,
+    /one exact scope-wide repo_grep[\s\S]{0,760}every category/u);
+  assert.match(impactPrompt,
+    /structured-output shape change[\s\S]{0,180}schema\/type\/field vocabulary/u);
+  assert.match(impactPrompt,
+    /Do not begin with repo_list_dir, repo_find_files, or repo_symbol_context[\s\S]{0,700}Search again only for categories that remain uncovered/u);
+  assert.match(impactPrompt,
+    /Preserve every grounded requested category in the synthesized claims and parent targets/u);
+
+  const pathPrompt = buildExplorerUserPrompt({
+    task: 'Inspect this delegated execution path.',
+    scope: [],
+    hints: { files: ['src/auth.mjs'] },
+    taskMode: 'path_explanation',
+  });
+  assert.match(pathPrompt, /Strategy: reference-chase/);
+  assert.match(pathPrompt,
+    /one exact immutable-scope lookup[\s\S]{0,520}at most one exact handoff-symbol cross-check/u);
+  assert.match(pathPrompt,
+    /unobserved adjacent transition as a gap[\s\S]{0,100}serial synonyms or whole-file scans/u);
+
+  const evidencePrompt = buildExplorerUserPrompt({
+    task: 'Verify that explore_repo validates before returning structuredContent.',
+    scope: [],
+    hints: {},
+    taskMode: 'evidence_verification',
+  });
+  assert.match(evidencePrompt, /Strategy: claim-check/);
+  assert.match(evidencePrompt, /Hints:\n- none/u);
+  assert.match(evidencePrompt,
+    /exactly one complete full-scope repo_grep[\s\S]{0,420}Do not serially try broad synonym searches/u);
+  assert.match(evidencePrompt,
+    /rarest implementation predicate[\s\S]{0,240}Do not use repo_symbol_context, repo_symbols, repo_list_dir, or repo_find_files/u);
+  assert.match(evidencePrompt,
+    /meaningful disconfirming predicate[\s\S]{0,80}zero matches would be evidence/u);
+  assert.match(evidencePrompt,
+    /return a gap instead of widening/u);
+});
+
+test('Spec 028 T071 — unanchored impact mapping bounds candidate batches and recovery', () => {
+  const structuredImplementationPattern =
+    'OUTPUT_SCHEMA\\s*=|outputSchema\\s*:|structuredContent\\s*:|build[A-Za-z0-9_]*(?:Response|Payload|Handoff)[A-Za-z0-9_]*\\s*\\(';
+  const structuredCategoryPattern =
+    'outputSchema|"schemaVersion"|schema-v3 structuredContent';
+  const implementationRegex = new RegExp(structuredImplementationPattern, 'iu');
+  assert.equal(implementationRegex.test(
+    "import { buildParentPayload } from './parent-payload.mjs';"), false);
+  assert.equal(implementationRegex.test('function buildParentHandoffProjection({'), true);
+  assert.equal(implementationRegex.test('outputSchema: EXPLORE_REPO_OUTPUT_SCHEMA,'), true);
+  assert.equal(implementationRegex.test(
+    'export const EXPLORE_REPO_OUTPUT_SCHEMA = PARENT_HANDOFF_V3_SCHEMA;'), true);
+  const categoryRegex = new RegExp(structuredCategoryPattern, 'iu');
+  assert.equal(categoryRegex.test('called.structuredContent.state'), false);
+  assert.equal(categoryRegex.test('schema-v3 structuredContent + terse text parity'), true);
+  const tools = ['repo_list_dir', 'repo_grep', 'repo_read_file'].map(name => ({
+    function: { name },
+  }));
+  const initial = buildImpactMapToolPolicy({ observations: [], tools, discoveredPaths: [] });
+  assert.deepEqual(initial.tools.map(tool => tool.function.name), ['repo_grep']);
+  assert.equal(initial.parallelToolCalls, false);
+  assert.match(initial.instruction, /output-field or schema\/formatter term[\s\S]{0,120}wrapper name/u);
+
+  const scopedTools = ['repo_grep', 'repo_read_file'].map(name => ({
+    function: {
+      name,
+      parameters: {
+        type: 'object',
+        properties: {
+          pattern: { type: 'string' },
+          scope: { type: 'array', items: { type: 'string' } },
+          maxResults: { type: 'integer' },
+          contextLines: { type: 'integer' },
+          path: { type: 'string' },
+        },
+      },
+    },
+  }));
+  const structuredInitial = buildImpactMapToolPolicy({
+    observations: [],
+    tools: scopedTools,
+    discoveredPaths: [],
+    task: 'Map adding a top-level field to structured output.',
+    effectiveScope: ['src/**', 'tests/**', '*.md', 'examples/**'],
+  });
+  assert.equal(structuredInitial.tools[0].function.parameters.properties.pattern.const,
+    structuredImplementationPattern);
+  assert.deepEqual(structuredInitial.tools[0].function.parameters.properties.scope.const,
+    ['src/**', 'tests/**', '*.md', 'examples/**']);
+  assert.equal(structuredInitial.tools[0].function.parameters.properties.sourceRoles, undefined,
+    'the runtime-only role filter must not become a model-selectable repository argument');
+  assert.equal(structuredInitial.allowedPattern,
+    structuredImplementationPattern);
+  assert.deepEqual(structuredInitial.fixedToolArguments.repo_grep, {
+    pattern: structuredImplementationPattern,
+    scope: ['src/**', 'tests/**', '*.md', 'examples/**'],
+    sourceRoles: ['implementation'],
+    maxResults: 80,
+    contextLines: 0,
+  });
+  const structuredCategorySearch = buildImpactMapToolPolicy({
+    observations: [{
+      kind: 'search',
+      tool: 'repo_grep',
+      matchCount: 6,
+      boundary: ['src/**', 'tests/**', '*.md', 'examples/**'],
+      normalizedArgs: {
+        pattern: structuredImplementationPattern,
+        scope: ['src/**', 'tests/**', '*.md', 'examples/**'],
+        sourceRoles: ['implementation'],
+      },
+    }, {
+      kind: 'source',
+      path: 'src/explorer/schemas.mjs',
+      sourceRole: 'implementation',
+    }],
+    tools: scopedTools,
+    discoveredPaths: [{ path: 'src/explorer/schemas.mjs' }],
+    task: 'Map adding a top-level field to structured output.',
+    effectiveScope: ['src/**', 'tests/**', '*.md', 'examples/**'],
+    readRounds: 1,
+  });
+  assert.deepEqual(structuredCategorySearch.tools.map(tool => tool.function.name), ['repo_grep']);
+  assert.equal(structuredCategorySearch.requiredToolCallKey, 'impact_category_search');
+  assert.deepEqual(structuredCategorySearch.fixedToolArguments.repo_grep, {
+    pattern: structuredCategoryPattern,
+    scope: ['src/**', 'tests/**', '*.md', 'examples/**'],
+    sourceRoles: ['test', 'documentation', 'config', 'fixture'],
+    maxResults: 120,
+    contextLines: 0,
+  });
+  assert.match(structuredCategorySearch.instruction,
+    /public-contract predicate[\s\S]{0,160}remaining in-scope test, documentation, configuration, and example paths/u);
+
+  const defaultStructuredInitial = buildImpactMapToolPolicy({
+    observations: [],
+    tools: scopedTools,
+    discoveredPaths: [],
+    task: 'Map adding a top-level field to structured output.',
+    effectiveScope: [],
+  });
+  assert.deepEqual(defaultStructuredInitial.fixedToolArguments.repo_grep, {
+    pattern: structuredImplementationPattern,
+    scope: ['**'],
+    sourceRoles: ['implementation'],
+    maxResults: 80,
+    contextLines: 0,
+  });
+  const defaultCategorySearch = buildImpactMapToolPolicy({
+    observations: [{
+      kind: 'search',
+      tool: 'repo_grep',
+      matchCount: 80,
+      boundary: ['**'],
+      normalizedArgs: {
+        pattern: structuredImplementationPattern,
+        scope: ['**'],
+        sourceRoles: ['implementation'],
+      },
+    }, {
+      kind: 'source',
+      path: 'src/explorer/schemas.mjs',
+      sourceRole: 'implementation',
+    }],
+    tools: scopedTools,
+    discoveredPaths: [{ path: 'src/explorer/schemas.mjs' }],
+    task: 'Map adding a top-level field to structured output.',
+    effectiveScope: [],
+    readRounds: 1,
+  });
+  assert.deepEqual(defaultCategorySearch.fixedToolArguments.repo_grep, {
+    pattern: structuredCategoryPattern,
+    scope: ['**'],
+    sourceRoles: ['test', 'documentation', 'config', 'fixture'],
+    maxResults: 120,
+    contextLines: 0,
+  });
+
+  const structuredCategoryPaths = [
+    'src/explorer/schemas.mjs',
+    'src/explorer/runtime.mjs',
+    'src/mcp/server.mjs',
+    'examples/direct-runtime.mjs',
+    'tests/repo-tools.test.mjs',
+    'tests/mcp-server.test.mjs',
+    'tests/schemas.test.mjs',
+    'README.md',
+    'DESIGN.md',
+    'benchmarks/adoption.json',
+    'examples/expected-response.json',
+  ];
+  const structuredCategoryRead = buildImpactMapToolPolicy({
+    observations: [{
+      kind: 'search',
+      tool: 'repo_grep',
+      matchCount: 12,
+      normalizedItemAnchors: structuredCategoryPaths.slice(0, 4)
+        .map((candidatePath, index) => ({ path: candidatePath, line: 20 + index })),
+    }, ...structuredCategoryPaths.slice(0, 3).map(candidatePath => ({
+      kind: 'source',
+      path: candidatePath,
+      sourceRole: 'implementation',
+    })), {
+      kind: 'search',
+      tool: 'repo_grep',
+      matchCount: 40,
+      normalizedItemAnchors: structuredCategoryPaths.slice(4)
+        .map((candidatePath, index) => ({ path: candidatePath, line: 30 + index })),
+    }],
+    tools: scopedTools,
+    discoveredPaths: structuredCategoryPaths.map(candidatePath => ({ path: candidatePath })),
+    task: 'Map adding a top-level field to structured output.',
+    effectiveScope: [],
+    readRounds: 1,
+  });
+  assert.deepEqual(new Set(structuredCategoryRead.allowedReadPaths), new Set([
+    'tests/mcp-server.test.mjs',
+    'README.md',
+    'DESIGN.md',
+    'examples/expected-response.json',
+  ]));
+
+  const structuredImplementationRead = buildImpactMapToolPolicy({
+    observations: [{
+      kind: 'search',
+      tool: 'repo_grep',
+      matchCount: 8,
+      normalizedItemAnchors: structuredCategoryPaths.slice(0, 4)
+        .map((candidatePath, index) => ({ path: candidatePath, line: 40 + index })),
+    }],
+    tools: scopedTools,
+    discoveredPaths: structuredCategoryPaths.slice(0, 4)
+      .map(candidatePath => ({ path: candidatePath })),
+    task: 'Map adding a top-level field to structured output.',
+    effectiveScope: [],
+  });
+  assert.deepEqual(new Set(structuredImplementationRead.allowedReadPaths), new Set([
+    'src/explorer/schemas.mjs',
+    'src/explorer/runtime.mjs',
+    'src/mcp/server.mjs',
+  ]));
+
+  const discoveredPaths = [
+    'src/mcp/server.mjs',
+    'src/explorer/runtime.mjs',
+    'src/explorer/schemas.mjs',
+    'src/explorer/parent-payload.mjs',
+    'tests/mcp-server.test.mjs',
+    'tests/schemas.test.mjs',
+    'AGENTS.md',
+    'README.md',
+    'DESIGN.md',
+    'examples/expected-response.json',
+  ].map(candidatePath => ({ path: candidatePath }));
+  const readBatch = buildImpactMapToolPolicy({
+    observations: [{
+      kind: 'search',
+      tool: 'repo_grep',
+      matchCount: 9,
+      normalizedItemAnchors: discoveredPaths.map((candidate, index) => ({
+        path: candidate.path,
+        line: 10 + index,
+      })),
+    }],
+    tools,
+    discoveredPaths,
+  });
+  assert.deepEqual(readBatch.tools.map(tool => tool.function.name), ['repo_read_file']);
+  assert.equal(readBatch.parallelToolCalls, true);
+  for (const candidatePath of [
+    'src/mcp/server.mjs',
+    'src/explorer/runtime.mjs',
+    'src/explorer/schemas.mjs',
+    'tests/schemas.test.mjs',
+    'README.md',
+    'DESIGN.md',
+    'examples/expected-response.json',
+  ]) {
+    assert.match(readBatch.instruction, new RegExp(candidatePath.replaceAll('.', '\\.')));
+  }
+  assert.doesNotMatch(readBatch.instruction, /AGENTS\.md/u);
+  assert.deepEqual(new Set(readBatch.allowedReadPaths), new Set([
+    'src/mcp/server.mjs',
+    'src/explorer/runtime.mjs',
+    'src/explorer/schemas.mjs',
+    'tests/schemas.test.mjs',
+    'README.md',
+    'DESIGN.md',
+    'examples/expected-response.json',
+  ]));
+  assert.match(readBatch.instruction, /narrow range containing each stated match line/u);
+  assert.match(readBatch.instruction, /src\/mcp\/server\.mjs@line 10/u);
+
+  const continueBatch = buildImpactMapToolPolicy({
+    observations: [
+      { kind: 'search', tool: 'repo_grep', matchCount: 9 },
+      { kind: 'source', path: 'src/mcp/server.mjs', sourceRole: 'implementation' },
+    ],
+    tools,
+    discoveredPaths,
+    readRounds: 1,
+  });
+  assert.deepEqual(continueBatch.tools.map(tool => tool.function.name), ['repo_read_file']);
+  assert.equal(continueBatch.parallelToolCalls, true);
+  assert.doesNotMatch(continueBatch.instruction, /src\/mcp\/server\.mjs/u);
+  assert.match(continueBatch.instruction, /src\/explorer\/runtime\.mjs/u);
+
+  const finalize = buildImpactMapToolPolicy({
+    observations: [
+      { kind: 'search', tool: 'repo_grep', matchCount: 9 },
+      { kind: 'source', path: 'src/mcp/server.mjs', sourceRole: 'implementation' },
+    ],
+    tools,
+    discoveredPaths,
+    readRounds: 2,
+  });
+  assert.deepEqual(finalize.tools, []);
+  assert.equal(finalize.parallelToolCalls, false);
+  assert.match(finalize.instruction, /Finalize now/u);
+
+  const nonImplementationPaths = discoveredPaths.filter(candidate =>
+    !candidate.path.startsWith('src/'));
+  const implementationRecovery = buildImpactMapToolPolicy({
+    observations: [
+      { kind: 'search', tool: 'repo_grep', matchCount: 4 },
+      { kind: 'source', path: 'tests/mcp-server.test.mjs', sourceRole: 'test' },
+      { kind: 'source', path: 'README.md', sourceRole: 'documentation' },
+    ],
+    tools,
+    discoveredPaths: nonImplementationPaths,
+    readRounds: 1,
+  });
+  assert.deepEqual(implementationRecovery.tools.map(tool => tool.function.name), ['repo_grep']);
+  assert.equal(implementationRecovery.parallelToolCalls, false);
+  assert.match(implementationRecovery.instruction,
+    /exactly one final repo_grep[\s\S]{0,160}implementation-bearing paths/u);
+
+  const recoveredRead = buildImpactMapToolPolicy({
+    observations: [
+      { kind: 'search', tool: 'repo_grep', matchCount: 4 },
+      { kind: 'source', path: 'tests/mcp-server.test.mjs', sourceRole: 'test' },
+      { kind: 'source', path: 'README.md', sourceRole: 'documentation' },
+      {
+        kind: 'search',
+        tool: 'repo_grep',
+        matchCount: 3,
+        normalizedItemAnchors: [
+          { path: 'src/mcp/server.mjs', line: 100 },
+          { path: 'src/explorer/runtime.mjs', line: 200 },
+          { path: 'src/explorer/schemas.mjs', line: 300 },
+        ],
+      },
+    ],
+    tools,
+    discoveredPaths,
+    readRounds: 1,
+  });
+  assert.deepEqual(recoveredRead.tools.map(tool => tool.function.name), ['repo_read_file']);
+  assert.doesNotMatch(recoveredRead.instruction, /tests\/mcp-server\.test\.mjs/u);
+  assert.doesNotMatch(recoveredRead.instruction, /README\.md/u);
+  assert.match(recoveredRead.instruction, /src\/mcp\/server\.mjs/u);
+
+  const recoveredFinalize = buildImpactMapToolPolicy({
+    observations: [
+      { kind: 'search', tool: 'repo_grep', matchCount: 4 },
+      { kind: 'source', path: 'tests/mcp-server.test.mjs', sourceRole: 'test' },
+      { kind: 'search', tool: 'repo_grep', matchCount: 3 },
+      { kind: 'source', path: 'src/mcp/server.mjs', sourceRole: 'implementation' },
+    ],
+    tools,
+    discoveredPaths,
+    readRounds: 2,
+  });
+  assert.deepEqual(recoveredFinalize.tools, []);
+  assert.match(recoveredFinalize.instruction, /Finalize now/u);
+});
+
+test('Spec 028 T071 — public path wrapper bounds discovery, handoff search, and reads', () => {
+  const tools = ['repo_grep', 'repo_read_file'].map(name => ({
+    function: {
+      name,
+      parameters: {
+        type: 'object',
+        properties: {
+          pattern: { type: 'string' },
+          scope: { type: 'array', items: { type: 'string' } },
+          maxResults: { type: 'integer' },
+          contextLines: { type: 'integer' },
+          path: { type: 'string' },
+          startLine: { type: 'integer' },
+          endLine: { type: 'integer' },
+        },
+      },
+    },
+  }));
+  const task =
+    'Explain this code path across files with grounded citations: MCP tools/call request flow from JSON-RPC handler to exploreRepository';
+  const effectiveScope = ['src/**'];
+  const knownFiles = ['src/mcp/server.mjs'];
+  const initial = buildPathExplanationToolPolicy({
+    observations: [],
+    tools,
+    discoveredPaths: [],
+    task,
+    effectiveScope,
+    knownFiles,
+  });
+  assert.deepEqual(initial.tools.map(tool => tool.function.name), ['repo_grep']);
+  assert.equal(initial.parallelToolCalls, false);
+  assert.match(initial.allowedPattern, /exploreRepository/u);
+  assert.match(initial.allowedPattern, /tools\/call/u);
+  assert.match(initial.allowedPattern, /JSON-RPC/u);
+  assert.deepEqual(initial.fixedToolArguments.repo_grep, {
+    pattern: initial.allowedPattern,
+    scope: effectiveScope,
+    maxResults: 60,
+    contextLines: 0,
+  });
+
+  const knownAnchorTask =
+    'Explain this code path across files with grounded citations: flow';
+  const knownAnchorRead = buildPathExplanationToolPolicy({
+    observations: [],
+    tools,
+    discoveredPaths: [],
+    task: knownAnchorTask,
+    effectiveScope,
+    knownFiles,
+  });
+  assert.deepEqual(knownAnchorRead.allowedReadPaths, knownFiles);
+  const failedKnownAnchorRetry = buildPathExplanationToolPolicy({
+    observations: [{
+      id: 'E-known-error',
+      kind: 'tool_error',
+      tool: 'repo_read_file',
+      error: true,
+    }],
+    tools,
+    discoveredPaths: [],
+    task: knownAnchorTask,
+    effectiveScope,
+    knownFiles,
+    readRounds: 1,
+  });
+  assert.deepEqual(failedKnownAnchorRetry.tools, []);
+  assert.match(failedKnownAnchorRetry.instruction, /Finalize now/u);
+
+  const discovery = {
+    id: 'E1:search',
+    kind: 'search',
+    tool: 'repo_grep',
+    normalizedArgs: {
+      pattern: initial.allowedPattern,
+      scope: effectiveScope,
+    },
+    boundary: effectiveScope,
+    matchCount: 4,
+    normalizedItemAnchors: [
+      { path: 'src/mcp/server.mjs', line: 7 },
+      { path: 'src/mcp/server.mjs', line: 480 },
+      { path: 'src/mcp/server.mjs', line: 544 },
+      { path: 'src/explorer/runtime.mjs', line: 10528 },
+    ],
+  };
+  const discoveredPaths = discovery.normalizedItemAnchors.map(anchor => ({
+    path: anchor.path,
+  }));
+  const anchorReads = buildPathExplanationToolPolicy({
+    observations: [discovery],
+    tools,
+    discoveredPaths,
+    task,
+    effectiveScope,
+    knownFiles,
+  });
+  assert.deepEqual(new Set(anchorReads.allowedReadPaths), new Set([
+    'src/mcp/server.mjs',
+    'src/explorer/runtime.mjs',
+  ]));
+  assert.equal(anchorReads.parallelToolCalls, true);
+  assert.equal(anchorReads.maxReadSpan, 200);
+  assert.deepEqual(anchorReads.fixedReadRanges, {
+    'src/mcp/server.mjs': { startLine: 440, endLine: 584 },
+    'src/explorer/runtime.mjs': { startLine: 10488, endLine: 10568 },
+  });
+  assert.ok(Object.values(anchorReads.fixedReadRanges).every(range =>
+    range.endLine - range.startLine + 1 <= 200));
+  assert.match(anchorReads.instruction,
+    /enclosing function[\s\S]{0,160}adjacent caller\/callee boundary/u);
+  assert.match(anchorReads.instruction, /src\/mcp\/server\.mjs@lines 440-584/u);
+
+  const chainedAnchorReads = buildPathExplanationToolPolicy({
+    observations: [{
+      ...discovery,
+      matchCount: 3,
+      normalizedItemAnchors: [
+        { path: 'src/mcp/server.mjs', line: 100 },
+        { path: 'src/mcp/server.mjs', line: 200 },
+        { path: 'src/mcp/server.mjs', line: 300 },
+      ],
+    }],
+    tools,
+    discoveredPaths: [{ path: 'src/mcp/server.mjs' }],
+    task,
+    effectiveScope,
+    knownFiles,
+  });
+  assert.deepEqual(chainedAnchorReads.fixedReadRanges, {
+    'src/mcp/server.mjs': { startLine: 160, endLine: 340 },
+  });
+  assert.ok(Object.values(chainedAnchorReads.fixedReadRanges).every(range =>
+    range.endLine - range.startLine + 1 <= chainedAnchorReads.maxReadSpan));
+
+  const serverSource = {
+    id: 'E2',
+    kind: 'source',
+    path: 'src/mcp/server.mjs',
+    startLine: 450,
+    endLine: 580,
+    sourceRole: 'implementation',
+    temporalRole: 'current',
+    rangeGrounding: 'exact',
+    snippet: [
+      '472: async function callTool(exploreArgs) {',
+      '480:   return exploreRepository(exploreArgs);',
+      '521: async function handleRequest(request) {',
+      '560:   return callTool(exploreArgs);',
+    ].join('\n'),
+  };
+  const runtimeSource = {
+    id: 'E3',
+    kind: 'source',
+    path: 'src/explorer/runtime.mjs',
+    startLine: 10528,
+    endLine: 10533,
+    sourceRole: 'implementation',
+    temporalRole: 'current',
+    rangeGrounding: 'exact',
+    snippet: [
+      '10528: export async function exploreRepository(args, options = {}) {',
+      '10529:   const runtime = new ExplorerRuntime(options);',
+      '10531:   return runtime.explore(args);',
+    ].join('\n'),
+  };
+  const transportSource = {
+    id: 'E4',
+    kind: 'source',
+    path: 'src/mcp/jsonrpc-stdio.mjs',
+    startLine: 100,
+    endLine: 200,
+    sourceRole: 'implementation',
+    temporalRole: 'current',
+    rangeGrounding: 'exact',
+    snippet: [
+      '126: this.dispatchMessage(message).catch(handleError);',
+      '133: async dispatchMessage(message) {',
+      '136:   const result = await this.handleRequest(message);',
+    ].join('\n'),
+  };
+  const multiFileDiscovery = {
+    ...discovery,
+    matchCount: 6,
+    normalizedItemAnchors: [
+      ...discovery.normalizedItemAnchors,
+      { path: 'src/mcp/jsonrpc-stdio.mjs', line: 120 },
+      { path: 'src/mcp/jsonrpc-stdio.mjs', line: 190 },
+    ],
+  };
+  const boundedComplete = buildPathExplanationToolPolicy({
+    observations: [multiFileDiscovery, serverSource, runtimeSource, transportSource],
+    tools,
+    discoveredPaths: [
+      ...discoveredPaths,
+      { path: 'src/mcp/jsonrpc-stdio.mjs' },
+    ],
+    task,
+    effectiveScope,
+    knownFiles,
+    readRounds: 1,
+  });
+  assert.deepEqual(boundedComplete.tools, []);
+  assert.match(boundedComplete.instruction, /multi-file path boundary[\s\S]{0,100}Finalize now/u);
+
+  const handoffSearch = buildPathExplanationToolPolicy({
+    observations: [discovery, serverSource, runtimeSource],
+    tools,
+    discoveredPaths,
+    task,
+    effectiveScope,
+    knownFiles,
+    readRounds: 1,
+  });
+  assert.deepEqual(handoffSearch.tools.map(tool => tool.function.name), ['repo_grep']);
+  assert.equal(handoffSearch.parallelToolCalls, false);
+  assert.match(handoffSearch.allowedPattern, /handleRequest/u);
+  assert.match(handoffSearch.allowedPattern, /callTool/u);
+  assert.doesNotMatch(handoffSearch.allowedPattern, /exploreRepository/u);
+
+  const inboundSearch = {
+    id: 'E4:search',
+    kind: 'search',
+    tool: 'repo_grep',
+    normalizedArgs: {
+      pattern: handoffSearch.allowedPattern,
+      scope: effectiveScope,
+    },
+    boundary: effectiveScope,
+    matchCount: 5,
+    normalizedItemAnchors: [
+      { path: 'src/mcp/server.mjs', line: 521 },
+      { path: 'src/mcp/jsonrpc-stdio.mjs', line: 100 },
+    ],
+  };
+  const inboundRead = buildPathExplanationToolPolicy({
+    observations: [discovery, serverSource, runtimeSource, inboundSearch],
+    tools,
+    discoveredPaths: [
+      ...discoveredPaths,
+      { path: 'src/mcp/jsonrpc-stdio.mjs' },
+    ],
+    task,
+    effectiveScope,
+    knownFiles,
+    readRounds: 1,
+  });
+  assert.deepEqual(inboundRead.allowedReadPaths, ['src/mcp/jsonrpc-stdio.mjs']);
+  assert.deepEqual(inboundRead.fixedReadRanges, {
+    'src/mcp/jsonrpc-stdio.mjs': { startLine: 60, endLine: 140 },
+  });
+
+  const complete = buildPathExplanationToolPolicy({
+    observations: [
+      discovery,
+      serverSource,
+      runtimeSource,
+      inboundSearch,
+      {
+        id: 'E5',
+        kind: 'source',
+        path: 'src/mcp/jsonrpc-stdio.mjs',
+        startLine: 80,
+        endLine: 120,
+        sourceRole: 'implementation',
+        temporalRole: 'current',
+        rangeGrounding: 'exact',
+        snippet: '100: const response = await dispatchMessage(message);',
+      },
+    ],
+    tools,
+    discoveredPaths: [
+      ...discoveredPaths,
+      { path: 'src/mcp/jsonrpc-stdio.mjs' },
+    ],
+    task,
+    effectiveScope,
+    knownFiles,
+    readRounds: 2,
+  });
+  assert.deepEqual(complete.tools, []);
+  assert.equal(complete.parallelToolCalls, false);
+  assert.match(complete.instruction, /Finalize now/u);
+});
+
+test('Spec 028 T071 — public locate wrapper uses one scoped search and bounded companion reads', () => {
+  const tools = [{
+    function: {
+      name: 'repo_grep',
+      parameters: {
+        type: 'object',
+        properties: {
+          pattern: { type: 'string' },
+          scope: { type: 'array', items: { type: 'string' } },
+        },
+      },
+    },
+  }, {
+    function: {
+      name: 'repo_read_file',
+      parameters: {
+        type: 'object',
+        properties: { path: { type: 'string' } },
+      },
+    },
+  }];
+  const task = 'Find the code before changing MCP tool metadata.';
+  const effectiveScope = ['src/**', 'tests/**'];
+  const initial = buildLocateToolPolicy({
+    observations: [], tools, discoveredPaths: [], task, effectiveScope,
+  });
+  assert.deepEqual(initial.tools.map(tool => tool.function.name), ['repo_grep']);
+  assert.equal(initial.parallelToolCalls, false);
+  assert.deepEqual(initial.tools[0].function.parameters.properties.scope.const,
+    effectiveScope);
+  assert.deepEqual(initial.fixedToolArguments.repo_grep, {
+    scope: effectiveScope,
+    maxResults: 40,
+    contextLines: 0,
+    sourceRoles: ['implementation', 'test'],
+  });
+  assert.match(initial.instruction, /exactly one narrow repo_grep[\s\S]{0,180}synonym/u);
+
+  const symbolAnchored = buildLocateToolPolicy({
+    observations: [],
+    tools,
+    discoveredPaths: [],
+    task: 'Which code controls structured output formatting?',
+    effectiveScope,
+    knownSymbols: ['formatParentHandoffText', 'buildParentPayload'],
+  });
+  assert.equal(symbolAnchored.tools[0].function.parameters.properties.pattern.const,
+    'formatParentHandoffText|buildParentPayload');
+  assert.equal(symbolAnchored.allowedPattern,
+    'formatParentHandoffText|buildParentPayload');
+  assert.deepEqual(symbolAnchored.fixedToolArguments.repo_grep, {
+    pattern: 'formatParentHandoffText|buildParentPayload',
+    scope: effectiveScope,
+    maxResults: 40,
+    contextLines: 0,
+    sourceRoles: ['implementation'],
+  });
+
+  const narrowSearch = {
+    kind: 'search',
+    tool: 'repo_grep',
+    normalizedArgs: { pattern: 'tools/list', scope: ['src/**'] },
+    boundary: ['src/**'],
+    matchCount: 1,
+    normalizedItemAnchors: [{ path: 'src/mcp/server.mjs', line: 542 }],
+  };
+  const correction = buildLocateToolPolicy({
+    observations: [narrowSearch], tools, discoveredPaths: [], task, effectiveScope,
+  });
+  assert.deepEqual(correction.tools.map(tool => tool.function.name), ['repo_grep']);
+  assert.match(correction.instruction, /narrower boundary[\s\S]{0,180}complete immutable scope/u);
+
+  const fullSearch = {
+    ...narrowSearch,
+    normalizedArgs: { pattern: 'tools/list', scope: effectiveScope },
+    boundary: effectiveScope,
+    matchCount: 3,
+    normalizedItemAnchors: [
+      { path: 'src/mcp/server.mjs', line: 542 },
+      { path: 'tests/mcp-server.test.mjs', line: 1048 },
+      { path: 'tests/integration/stdio-purity.test.mjs', line: 20 },
+    ],
+  };
+  const discoveredPaths = fullSearch.normalizedItemAnchors.map(anchor => ({ path: anchor.path }));
+  const reads = buildLocateToolPolicy({
+    observations: [fullSearch], tools, discoveredPaths, task, effectiveScope,
+  });
+  assert.deepEqual(new Set(reads.allowedReadPaths),
+    new Set(['src/mcp/server.mjs', 'tests/mcp-server.test.mjs']));
+  assert.deepEqual(new Set(reads.tools[0].function.parameters.properties.path.enum),
+    new Set(reads.allowedReadPaths));
+
+  const secondRead = buildLocateToolPolicy({
+    observations: [fullSearch, {
+      kind: 'source',
+      path: 'src/mcp/server.mjs',
+      sourceRole: 'implementation',
+    }],
+    tools,
+    discoveredPaths,
+    task,
+    effectiveScope,
+    readRounds: 1,
+  });
+  assert.deepEqual(secondRead.allowedReadPaths, ['tests/mcp-server.test.mjs']);
+
+  const finalize = buildLocateToolPolicy({
+    observations: [fullSearch, {
+      kind: 'source', path: 'src/mcp/server.mjs', sourceRole: 'implementation',
+    }, {
+      kind: 'source', path: 'tests/mcp-server.test.mjs', sourceRole: 'test',
+    }],
+    tools,
+    discoveredPaths,
+    task,
+    effectiveScope,
+    readRounds: 1,
+  });
+  assert.deepEqual(finalize.tools, []);
+  assert.match(finalize.instruction, /Finalize now/u);
+
+  const structuredPaths = [
+    'src/explorer/parent-payload.mjs',
+    'src/explorer/schemas.mjs',
+    'src/mcp/server.mjs',
+    'src/explorer/runtime.mjs',
+    'tests/schemas.test.mjs',
+  ];
+  const structuredSearch = {
+    ...fullSearch,
+    normalizedArgs: {
+      pattern: 'formatParentHandoffText|buildParentPayload|normalizeExploreResult',
+      scope: effectiveScope,
+    },
+    boundary: effectiveScope,
+    matchCount: 12,
+    normalizedItemAnchors: structuredPaths.flatMap((candidatePath, index) =>
+      Array.from({ length: index === 0 ? 3 : index === 1 ? 2 : 1 }, (_, offset) => ({
+        path: candidatePath,
+        line: 20 + index + offset,
+      }))),
+  };
+  const structuredReads = buildLocateToolPolicy({
+    observations: [structuredSearch],
+    tools,
+    discoveredPaths: structuredPaths.map(candidatePath => ({ path: candidatePath })),
+    task: 'Which code controls explore_repo structured output formatting?',
+    effectiveScope,
+    knownSymbols: ['formatParentHandoffText', 'buildParentPayload', 'normalizeExploreResult'],
+  });
+  assert.deepEqual(new Set(structuredReads.allowedReadPaths), new Set([
+    'src/explorer/parent-payload.mjs',
+    'src/explorer/schemas.mjs',
+    'src/mcp/server.mjs',
+  ]));
+  assert.match(structuredReads.instruction, /src\/mcp\/server\.mjs@line 22/u);
+});
+
+test('Spec 028 T071 — public trace wrapper fixes definition, usage search, and caller read order', () => {
+  const tools = ['repo_symbol_context', 'repo_grep', 'repo_read_file'].map(name => ({
+    function: {
+      name,
+      parameters: {
+        type: 'object',
+        properties: {
+          symbol: { type: 'string' },
+          pattern: { type: 'string' },
+          scope: { type: 'array', items: { type: 'string' } },
+          path: { type: 'string' },
+          startLine: { type: 'integer' },
+          endLine: { type: 'integer' },
+        },
+      },
+    },
+  }));
+  const symbol = 'buildParentHandoffResponse';
+  const effectiveScope = ['src/**'];
+  const initial = buildTraceSymbolToolPolicy({
+    observations: [], tools, symbol, effectiveScope,
+  });
+  assert.deepEqual(initial.tools.map(tool => tool.function.name), ['repo_symbol_context']);
+  assert.equal(initial.tools[0].function.parameters.properties.symbol.const, symbol);
+  assert.deepEqual(initial.tools[0].function.parameters.properties.scope.const, effectiveScope);
+
+  const definition = {
+    id: 'E1',
+    kind: 'source',
+    path: 'src/mcp/server.mjs',
+    startLine: 382,
+    endLine: 389,
+    rangeGrounding: 'exact',
+  };
+  const symbolSearch = {
+    id: 'E1:search',
+    kind: 'search',
+    tool: 'repo_symbol_context',
+    normalizedArgs: { symbol, scope: effectiveScope },
+    boundary: effectiveScope,
+    matchCount: 3,
+  };
+  const grep = buildTraceSymbolToolPolicy({
+    observations: [definition, symbolSearch], tools, symbol, effectiveScope,
+  });
+  assert.deepEqual(grep.tools.map(tool => tool.function.name), ['repo_grep']);
+  assert.equal(grep.tools[0].function.parameters.properties.pattern.const, symbol);
+
+  const metacharSymbol = '$handler.foo';
+  const escapedMetacharGrep = buildTraceSymbolToolPolicy({
+    observations: [{
+      ...symbolSearch,
+      normalizedArgs: { symbol: metacharSymbol, scope: effectiveScope },
+    }],
+    tools,
+    symbol: metacharSymbol,
+    effectiveScope,
+  });
+  assert.equal(escapedMetacharGrep.allowedPattern, '\\$handler\\.foo');
+  assert.equal(escapedMetacharGrep.fixedToolArguments.repo_grep.pattern,
+    '\\$handler\\.foo');
+
+  const usageSearch = {
+    id: 'E2',
+    kind: 'search',
+    tool: 'repo_grep',
+    normalizedArgs: { pattern: symbol, scope: effectiveScope },
+    boundary: effectiveScope,
+    matchCount: 3,
+    normalizedItemAnchors: [
+      { path: 'src/mcp/server.mjs', line: 382 },
+      { path: 'src/mcp/server.mjs', line: 464 },
+      { path: 'src/mcp/server.mjs', line: 491 },
+    ],
+  };
+  const reads = buildTraceSymbolToolPolicy({
+    observations: [definition, symbolSearch, usageSearch],
+    tools,
+    symbol,
+    effectiveScope,
+  });
+  assert.deepEqual(reads.allowedReadPaths, ['src/mcp/server.mjs']);
+  assert.match(reads.instruction,
+    /enclosing function declaration[\s\S]{0,180}lines 464,491/u);
+
+  const finalize = buildTraceSymbolToolPolicy({
+    observations: [definition, symbolSearch, usageSearch, {
+      id: 'E3',
+      kind: 'source',
+      path: 'src/mcp/server.mjs',
+      startLine: 450,
+      endLine: 500,
+      rangeGrounding: 'exact',
+    }],
+    tools,
+    symbol,
+    effectiveScope,
+    readRounds: 1,
+  });
+  assert.deepEqual(finalize.tools, []);
+  assert.match(finalize.instruction, /Finalize now[\s\S]{0,180}enclosing callers/u);
+});
+
+test('Spec 028 T071 — collect claim checks retry once, then force a bounded source read', () => {
+  const tools = ['repo_grep', 'repo_read_file'].map(name => ({
+    function: {
+      name,
+      parameters: {
+        type: 'object',
+        properties: {
+          pattern: { type: 'string' },
+          scope: { type: 'array', items: { type: 'string' } },
+          path: { type: 'string' },
+          startLine: { type: 'integer' },
+          endLine: { type: 'integer' },
+        },
+      },
+    },
+  }));
+  const task = 'Verify this claim: the deterministic critic skips evidence grounding and never checks cited ranges.';
+  const effectiveScope = ['src/**', 'tests/**'];
+  const initial = buildSourceClaimCheckToolPolicy({
+    observations: [], tools, task, discoveredPaths: [], effectiveScope,
+  });
+  assert.deepEqual(initial.tools.map(tool => tool.function.name),
+    ['repo_grep', 'repo_read_file']);
+  assert.deepEqual(initial.allowedQueryScope, ['src/**']);
+  assert.deepEqual(initial.tools[0].function.parameters.properties.scope.const, ['src/**']);
+  assert.match(initial.allowedPattern, /^\(\?:deterministic\|Deterministic/u);
+  assert.ok(initial.allowedPattern.includes('[A-Za-z0-9_$ ._-]{0,40}'));
+  assert.deepEqual(initial.fixedToolArguments.repo_grep, {
+    scope: ['src/**'],
+    pattern: initial.allowedPattern,
+  });
+
+  const zeroSearch = {
+    kind: 'search',
+    tool: 'repo_grep',
+    matchCount: 0,
+    normalizedArgs: { pattern: 'deterministic.critic', scope: ['src/**'] },
+    boundary: ['src/**'],
+  };
+  const retry = buildSourceClaimCheckToolPolicy({
+    observations: [zeroSearch], tools, task, discoveredPaths: [], effectiveScope,
+  });
+  assert.deepEqual(retry.tools.map(tool => tool.function.name), ['repo_grep']);
+  assert.match(retry.instruction, /exactly one distinct corrected repo_grep[\s\S]{0,220}mechanism/u);
+
+  const positiveSearch = {
+    kind: 'search',
+    tool: 'repo_grep',
+    matchCount: 4,
+    normalizedArgs: { pattern: 'groundEvidenceList|checkEvidenceGrounding', scope: ['src/**'] },
+    boundary: ['src/**'],
+    normalizedItemAnchors: [
+      { path: 'src/explorer/critic.mjs', line: 28 },
+      { path: 'src/explorer/critic.mjs', line: 173 },
+      { path: 'src/explorer/critic.mjs', line: 196 },
+      { path: 'src/explorer/critic.mjs', line: 675 },
+      { path: 'src/explorer/critic.mjs', line: 685 },
+      { path: 'src/explorer/runtime.mjs', line: 21 },
+    ],
+  };
+  const read = buildSourceClaimCheckToolPolicy({
+    observations: [zeroSearch, positiveSearch],
+    tools,
+    task,
+    discoveredPaths: [
+      { path: 'src/explorer/critic.mjs' },
+      { path: 'src/explorer/runtime.mjs' },
+    ],
+    effectiveScope,
+  });
+  assert.deepEqual(read.tools.map(tool => tool.function.name), ['repo_read_file']);
+  assert.equal(read.parallelToolCalls, false);
+  assert.deepEqual(read.allowedReadPaths, ['src/explorer/critic.mjs']);
+  assert.deepEqual(read.fixedToolArguments.repo_read_file, {
+    path: 'src/explorer/critic.mjs',
+    startLine: 24,
+    endLine: 216,
+  });
+  assert.equal(read.tools[0].function.parameters.properties.path.const,
+    'src/explorer/critic.mjs');
+  assert.match(read.instruction, /src\/explorer\/critic\.mjs@24-216/u);
+
+  const source = {
+    id: 'E-source',
+    kind: 'source',
+    path: 'src/explorer/critic.mjs',
+    startLine: 24,
+    endLine: 216,
+    sourceRole: 'implementation',
+    temporalRole: 'current',
+    rangeGrounding: 'exact',
+  };
+  const linkageRead = buildSourceClaimCheckToolPolicy({
+    observations: [zeroSearch, positiveSearch, source],
+    tools,
+    task,
+    discoveredPaths: [{ path: 'src/explorer/critic.mjs' }],
+    effectiveScope,
+  });
+  assert.deepEqual(linkageRead.tools.map(tool => tool.function.name), ['repo_read_file']);
+  assert.equal(linkageRead.requiredToolCallKey, 'claim_direct_linkage_read');
+  assert.deepEqual(linkageRead.fixedToolArguments.repo_read_file, {
+    path: 'src/explorer/critic.mjs',
+    startLine: 667,
+    endLine: 709,
+  });
+
+  const helperOnlySearch = {
+    ...positiveSearch,
+    normalizedItemAnchors: positiveSearch.normalizedItemAnchors.slice(0, 3),
+  };
+  const directRefutation = buildSourceClaimCheckToolPolicy({
+    observations: [zeroSearch, helperOnlySearch, source],
+    tools,
+    task,
+    discoveredPaths: [],
+    effectiveScope,
+  });
+  assert.deepEqual(directRefutation.tools.map(tool => tool.function.name), ['repo_grep']);
+  assert.match(directRefutation.instruction,
+    /directly refutes every facet[\s\S]{0,260}grammatical negation alone never proves/u);
+  assert.match(directRefutation.instruction,
+    /entry point[\s\S]{0,160}performs, skips, or never checks[\s\S]{0,220}helper definition alone[\s\S]{0,180}invocation or call path/u);
+
+  for (const negatedAffirmation of [
+    'Verify this claim: the route rejects requests without authentication.',
+    '인증 없이 들어온 요청을 거부한다는 주장을 검증해라.',
+  ]) {
+    const policy = buildSourceClaimCheckToolPolicy({
+      observations: [helperOnlySearch, source],
+      tools,
+      task: negatedAffirmation,
+      discoveredPaths: [],
+      effectiveScope,
+    });
+    assert.deepEqual(policy.tools.map(tool => tool.function.name), ['repo_grep']);
+  }
+
+  const secondZero = buildSourceClaimCheckToolPolicy({
+    observations: [zeroSearch, { ...zeroSearch, normalizedArgs: { pattern: 'grounding' } }],
+    tools,
+    task,
+    discoveredPaths: [],
+    effectiveScope,
+  });
+  assert.deepEqual(secondZero.tools, []);
+  assert.match(secondZero.instruction, /Two bounded direct lookups/u);
+
+  const affirmation = buildSourceClaimCheckToolPolicy({
+    observations: [helperOnlySearch, source],
+    tools,
+    task: 'Verify this claim: the critic grounds every cited range.',
+    discoveredPaths: [],
+    effectiveScope,
+  });
+  assert.deepEqual(affirmation.tools.map(tool => tool.function.name), ['repo_grep']);
+  assert.deepEqual(affirmation.allowedQueryScope, effectiveScope);
+
+  const invocationSearch = {
+    kind: 'search',
+    tool: 'repo_grep',
+    matchCount: 2,
+    normalizedArgs: {
+      pattern: 'runDeterministicCriticPass|groundEvidenceList',
+      scope: effectiveScope,
+    },
+    boundary: effectiveScope,
+    normalizedItemAnchors: [
+      { path: 'src/explorer/critic.mjs', line: 675 },
+      { path: 'src/explorer/critic.mjs', line: 685 },
+    ],
+  };
+  const invocationRead = buildSourceClaimCheckToolPolicy({
+    observations: [helperOnlySearch, source, invocationSearch],
+    tools,
+    task,
+    discoveredPaths: [{ path: 'src/explorer/critic.mjs' }],
+    effectiveScope,
+  });
+  assert.deepEqual(invocationRead.tools.map(tool => tool.function.name), ['repo_read_file']);
+  assert.equal(invocationRead.parallelToolCalls, false);
+  assert.deepEqual(invocationRead.allowedReadPaths, ['src/explorer/critic.mjs']);
+  assert.deepEqual(invocationRead.fixedToolArguments.repo_read_file, {
+    path: 'src/explorer/critic.mjs',
+    startLine: 667,
+    endLine: 709,
+  });
+  assert.equal(invocationRead.tools[0].function.parameters.properties.startLine.const, 667);
+  assert.equal(invocationRead.tools[0].function.parameters.properties.endLine.const, 709);
+});
+
+test('Spec 028 T071 — exact commit exploration uses one show and one bounded read batch', () => {
+  const commitRef = 'ca99b4d4fef6bd8d252d4a2d66c1d8f647ba58c4';
+  const task = `What changed in commit ${commitRef}?`;
+  const tools = ['repo_git_log', 'repo_git_diff', 'repo_git_show', 'repo_read_file']
+    .map(name => ({ function: { name } }));
+  const initial = buildExactCommitToolPolicy({ task, tools });
+  assert.deepEqual(initial.tools.map(tool => tool.function.name), ['repo_git_show']);
+  assert.equal(initial.parallelToolCalls, false);
+  assert.match(initial.instruction, new RegExp(commitRef));
+  assert.match(STRATEGY_DESCRIPTIONS['git-guided'],
+    /exact full commit SHA[\s\S]{0,80}repo_git_show/u);
+  assert.match(buildExplorerUserPrompt({ task, scope: [] }),
+    /call repo_git_show with that exact ref directly/u);
+  assert.match(buildExplorerSystemPrompt({
+    repoRoot: '/tmp/repo',
+    runtimeConfig: getRuntimeConfig(),
+  }), /Exact full commit SHA[^\n]+repo_git_show/u);
+
+  const attemptedActions = [{
+    type: 'tool',
+    tool: 'repo_git_show',
+    arguments: { ref: commitRef },
+  }];
+  const failed = buildExactCommitToolPolicy({ task, tools, attemptedActions });
+  assert.deepEqual(failed.tools, []);
+  assert.match(failed.instruction, /Finalize incomplete/u);
+
+  const noScopedHunk = buildExactCommitToolPolicy({
+    task,
+    tools,
+    attemptedActions,
+    observations: [{ kind: 'git_commit', sha: commitRef }],
+  });
+  assert.deepEqual(noScopedHunk.tools, []);
+  assert.match(noScopedHunk.instruction,
+    /no in-scope diff hunk[\s\S]*metadata alone[\s\S]*finalize incomplete/iu);
+
+  for (const ambiguousTask of [
+    `What did commit ${commitRef} do?`,
+    `Summarize commit ${commitRef}.`,
+    `What does commit ${commitRef} do to title rendering?`,
+    `Who does commit ${commitRef} affect?`,
+  ]) {
+    const ambiguous = buildExactCommitToolPolicy({
+      task: ambiguousTask,
+      tools,
+      attemptedActions,
+      observations: [{ kind: 'git_commit', sha: commitRef }],
+    });
+    assert.match(ambiguous.instruction, /no in-scope diff hunk[\s\S]*finalize incomplete/iu);
+  }
+
+  const metadataOnly = buildExactCommitToolPolicy({
+    task: `Who authored commit ${commitRef}?`,
+    tools,
+    attemptedActions,
+    observations: [{ kind: 'git_commit', sha: commitRef }],
+  });
+  assert.match(metadataOnly.instruction, /bounded commit metadata/u);
+  assert.deepEqual(metadataOnly.tools, []);
+
+  const gitObservations = [{
+    kind: 'git_commit',
+    sha: commitRef,
+  }, {
+    kind: 'git_diff_hunk',
+    sha: commitRef,
+    path: 'tests/mcp-server.test.mjs',
+    startLine: 50,
+    endLine: 60,
+  }, {
+    kind: 'git_diff_hunk',
+    sha: commitRef,
+    path: 'src/mcp/server.mjs',
+    startLine: 171,
+    endLine: 180,
+  }];
+  const read = buildExactCommitToolPolicy({
+    task,
+    tools,
+    attemptedActions,
+    observations: gitObservations,
+  });
+  assert.deepEqual(read.tools.map(tool => tool.function.name), ['repo_read_file']);
+  assert.equal(read.parallelToolCalls, true);
+  assert.match(read.instruction, /src\/mcp\/server\.mjs@171-180/u);
+  assert.match(read.instruction, /tests\/mcp-server\.test\.mjs@50-60/u);
+  assert.deepEqual(read.allowedReadPaths,
+    ['src/mcp/server.mjs', 'tests/mcp-server.test.mjs']);
+
+  const done = buildExactCommitToolPolicy({
+    task,
+    tools,
+    attemptedActions,
+    observations: [...gitObservations, {
+      kind: 'source',
+      path: 'src/mcp/server.mjs',
+      startLine: 171,
+      endLine: 180,
+    }],
+  });
+  assert.deepEqual(done.tools, []);
+  assert.match(done.instruction, /Finalize now/u);
+
+  assert.equal(buildExactCommitToolPolicy({
+    task: 'What changed recently around MCP metadata?',
+    tools,
+  }), null);
+  assert.equal(buildExactCommitToolPolicy({
+    task: `Compare commit ${commitRef} with commit ${'b'.repeat(40)}.`,
+    tools,
+  }), null);
+});
+
 test('Phase 3 — Korean task produces Korean answer/summary language (language rule)', async () => {
   // This test checks that when language is not specified the LANGUAGE RULE in the
   // system prompt mentions "same natural language as the delegated task".
   // We verify the system prompt contains the expected language rule text.
   const prompt = buildExplorerSystemPrompt({
     repoRoot: '/tmp/repo',
-    budgetConfig: getBudgetConfig(),
+    runtimeConfig: getRuntimeConfig(),
   });
   assert.ok(
     prompt.includes('LANGUAGE RULE'),
@@ -2436,7 +4063,7 @@ test('Phase 3 — Korean task produces Korean answer/summary language (language 
 test('Phase 3 — explicit language is reflected in system prompt language rule', () => {
   const prompt = buildExplorerSystemPrompt({
     repoRoot: '/tmp/repo',
-    budgetConfig: getBudgetConfig(),
+    runtimeConfig: getRuntimeConfig(),
     language: 'Korean',
   });
   assert.ok(
@@ -2453,7 +4080,7 @@ test('Phase 3 — system prompt does not expose the absolute repo root path', ()
   const repoRoot = path.resolve('fixtures', 'demo-repo');
   const prompt = buildExplorerSystemPrompt({
     repoRoot,
-    budgetConfig: getBudgetConfig(),
+    runtimeConfig: getRuntimeConfig(),
   });
 
   assert.ok(
@@ -2533,8 +4160,7 @@ test('Phase 0 metric — JSON parse success: model content parsed into correct f
 });
 
 test('Phase 0 metric — strict schema compliance: required fields present under the single runtime config', async () => {
-  // spec 011: every call runs against the single deep runtime config. The
-  // previous matrix across budget labels collapses to a single scenario.
+  // Every structured call runs against the same fixed, unlabeled runtime config.
   class MinimalClient {
     constructor() { this.model = 'zai-glm-4.7'; }
     async createChatCompletion() {
@@ -2556,23 +4182,6 @@ test('Phase 0 metric — strict schema compliance: required fields present under
   const runtime = new ExplorerRuntime({ chatClient: new MinimalClient() });
   const result = await runtime.explore({ task: '테스트', repo_root: root });
   assertStrictSchema(result);
-  assert.equal(result.stats.budget, 'deep',
-    'stats.budget should report the single deep runtime config');
-});
-
-test('011 US2 — explore_repo rejects budget input as unknown property', async () => {
-  class StubClient {
-    constructor() { this.model = 'zai-glm-4.7'; }
-    async createChatCompletion() {
-      return { usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }, message: { content: '', toolCalls: [] } };
-    }
-  }
-  const root = await makeRepoFixture();
-  const runtime = new ExplorerRuntime({ chatClient: new StubClient() });
-  await assert.rejects(
-    runtime.explore({ task: '테스트', repo_root: root, budget: 'quick' }),
-    /Unknown explore_repo argument: budget/,
-  );
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2588,8 +4197,8 @@ test('ExplorerRuntime forwards assistant reasoning into the next turn when avail
       this.calls += 1;
 
       if (this.calls === 1) {
-        // spec 011: single deep runtime config. For glm-4.7, deep label leaves
-        // reasoningEffort undefined and uses temperature: 1.0, topP: 0.95.
+        // The fixed runtime config leaves GLM 4.7 reasoningEffort undefined and
+        // uses temperature: 1.0, topP: 0.95.
         assert.equal(reasoningEffort, undefined);
         assert.equal(temperature, 1.0);
         assert.equal(topP, 0.95);
@@ -2773,7 +4382,7 @@ test('ExplorerRuntime records observations from macro tools (repo_symbol_context
             directAnswer: 'found requireAuth definition',
             statusConfidence: 'medium',
             evidence: [
-              { kind: 'file_range', path: 'src/auth.js', startLine: 1, endLine: 4, quote: 'export function requireAuth', why: 'definition of requireAuth', groundingStatus: 'exact' },
+              { path: 'src/auth.js', startLine: 1, endLine: 4, snippet: 'export function requireAuth', why: 'definition of requireAuth', groundingStatus: 'exact' },
             ],
           })),
           toolCalls: [],
@@ -2791,6 +4400,155 @@ test('ExplorerRuntime records observations from macro tools (repo_symbol_context
   // Evidence for src/auth.js should be retained (grounded via symbol_context observations)
   const authEvidence = result.evidence?.filter(e => e.path === 'src/auth.js') ?? [];
   assert.ok(authEvidence.length > 0, 'evidence for src/auth.js is retained via symbol_context observations');
+});
+
+test('Spec 028 T048 — PR and diff review text automatically selects git-guided exploration', () => {
+  for (const task of [
+    'Review this PR for auth risks.',
+    'Review the diff for auth risks.',
+    'Audit this pull request for regressions.',
+    '이 PR의 변경을 검토해라.',
+  ]) {
+    const strategy = detectStrategy(task);
+    assert.equal(
+      strategy === 'git-guided' ||
+        (Array.isArray(strategy) && strategy.includes('git-guided')),
+      true,
+      task,
+    );
+  }
+});
+
+test('Spec 028 T029 — runtime ledger assigns stable ids and rebuilds redacted current source', async () => {
+  const rawSecret = 'sk-proj-1234567890abcdefghijklmnop';
+  const rawPrivateBody = 'QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo=';
+  class ObservationLedgerClient {
+    constructor() { this.model = 'test'; this.calls = 0; }
+    async createChatCompletion() {
+      this.calls += 1;
+      if (this.calls === 1) {
+        return {
+          usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+          message: {
+            content: 'FORGED_EXPLORER_SNIPPET',
+            toolCalls: [
+              {
+                id: 'read-auth',
+                function: {
+                  name: 'repo_read_file',
+                  arguments: JSON.stringify({ path: 'src/auth.js', startLine: 1, endLine: 2 }),
+                },
+              },
+              {
+                id: 'grep-missing',
+                function: {
+                  name: 'repo_grep',
+                  arguments: JSON.stringify({ pattern: 'legacyGuard', scope: ['src/routes/**'] }),
+                },
+              },
+              {
+                id: 'list-routes',
+                function: {
+                  name: 'repo_list_dir',
+                  arguments: JSON.stringify({ dirPath: 'src/routes', depth: 1 }),
+                },
+              },
+            ],
+          },
+        };
+      }
+      if (this.calls === 2) {
+        return {
+          usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+          message: {
+            content: '',
+            toolCalls: [{
+              id: 'read-redaction',
+              function: {
+                name: 'repo_read_file',
+                arguments: JSON.stringify({ path: 'src/redaction.js', startLine: 1, endLine: 5 }),
+              },
+            }],
+          },
+        };
+      }
+      return {
+        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+        message: {
+          content: JSON.stringify(compactResult({
+            directAnswer: 'runtime observations recorded',
+            evidence: [],
+          })),
+          toolCalls: [],
+        },
+      };
+    }
+  }
+
+  const root = await makeRepoFixture();
+  await fs.writeFile(path.join(root, 'src', 'redaction.js'), [
+    `export const token = '${rawSecret}';`,
+    'export const key = `-----BEGIN PRIVATE KEY-----',
+    rawPrivateBody,
+    '-----END PRIVATE KEY-----`;',
+    'export const safe = true;',
+  ].join('\n'));
+  const runtime = new ExplorerRuntime({ chatClient: new ObservationLedgerClient() });
+  const result = await runtime.explore({
+    task: 'Locate authentication and check whether legacyGuard exists.',
+    repo_root: root,
+    scope: ['src/**'],
+  });
+
+  const observationIds = result.observations.map(item => item.id);
+  assert.deepEqual(observationIds.slice(0, 6), [
+    'E1', 'E1:search', 'E2', 'E3', 'E4', 'E4:search',
+  ]);
+  assert.equal(new Set(observationIds).size, observationIds.length,
+    'bounded repair observations must keep unique stable ids');
+  assert.deepEqual(result.observations[0], {
+    id: 'E1',
+    kind: 'source',
+    path: 'src/auth.js',
+    startLine: 1,
+    endLine: 2,
+    snippet: [
+      '1: export function requireAuth(req, res, next) {',
+      '2:   if (!req.user) throw new Error("unauthorized");',
+    ].join('\n'),
+    rangeGrounding: 'exact',
+    sourceRole: 'implementation',
+    temporalRole: 'current',
+    redacted: false,
+  });
+  assert.equal(result.observations[1].kind, 'search');
+  assert.equal(result.observations[1].tool, 'repo_read_file');
+  assert.equal(result.observations[1].toolTruncated, true,
+    'the exact rebuilt source range must not erase read-result truncation');
+  assert.deepEqual(result.observations[1].boundary, ['src/auth.js']);
+  assert.equal(result.observations[2].kind, 'search');
+  assert.equal(result.observations[2].tool, 'repo_grep');
+  assert.deepEqual(result.observations[2].normalizedArgs, {
+    pattern: 'legacyGuard',
+    scope: ['src/routes/**'],
+  });
+  assert.deepEqual(result.observations[2].boundary, ['src/routes/**'],
+    'the local scope narrows the hard scope instead of being unioned with it');
+  assert.equal(result.observations[2].matchCount, 0);
+  assert.equal(result.observations[2].enumerationComplete, true,
+    'T062 must consume the tool-specific completeness policy implemented in T060');
+  assert.equal(result.observations[3].tool, 'repo_list_dir');
+  assert.deepEqual(result.observations[3].boundary, ['src/routes/*']);
+  assert.equal(result.observations[4].kind, 'source');
+  assert.equal(result.observations[4].redacted, true);
+  assert.match(result.observations[4].snippet, /\[REDACTED:openai-api-key\]/);
+  assert.match(result.observations[4].snippet, /\[REDACTED:private-key-block\]/);
+  assert.equal(result.observations[4].rangeGrounding, 'partial');
+  assert.equal(result.observations[5].tool, 'repo_read_file');
+  assert.equal(result.observations[5].toolTruncated, false);
+  assert.doesNotMatch(JSON.stringify(result.observations), /FORGED_EXPLORER_SNIPPET/);
+  assert.doesNotMatch(JSON.stringify(result.observations), new RegExp(rawSecret));
+  assert.doesNotMatch(JSON.stringify(result.observations), new RegExp(rawPrivateBody));
 });
 
 // --- Phase 5: Source-aware Grounding + Git Evidence Validation Tests ---
@@ -3066,9 +4824,9 @@ test('finalize prompt bounds output size for compact JSON synthesis', () => {
   assert.match(prompt, /at most 8 evidence/i);
 });
 
-test('finalizeAfterToolLoop gives repair pass the full finalize token budget', async () => {
-  const seenFinalizeBudgets = [];
-  class TokenBudgetRepairClient {
+test('finalizeAfterToolLoop gives repair pass the full finalize output limit', async () => {
+  const seenFinalizeLimits = [];
+  class OutputLimitRepairClient {
     constructor() { this.model = 'test'; this.calls = 0; }
     async createChatCompletion({ messages, maxCompletionTokens }) {
       this.calls += 1;
@@ -3089,7 +4847,7 @@ test('finalizeAfterToolLoop gives repair pass the full finalize token budget', a
           message: { content: '', toolCalls: [] },
         };
       }
-      seenFinalizeBudgets.push(maxCompletionTokens);
+      seenFinalizeLimits.push(maxCompletionTokens);
       if (lastMessage.includes('Produce the final exploration result now.')) {
         return {
           usage: { prompt_tokens: 10, completion_tokens: maxCompletionTokens, total_tokens: 10 + maxCompletionTokens },
@@ -3103,7 +4861,7 @@ test('finalizeAfterToolLoop gives repair pass the full finalize token budget', a
         usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
         message: {
           content: JSON.stringify(compactResult({
-            directAnswer: 'repaired with full budget',
+            directAnswer: 'repaired with full output limit',
             statusConfidence: 'low',
             evidence: [],
           })),
@@ -3114,14 +4872,14 @@ test('finalizeAfterToolLoop gives repair pass the full finalize token budget', a
   }
 
   const root = await makeRepoFixture();
-  const runtime = new ExplorerRuntime({ chatClient: new TokenBudgetRepairClient() });
+  const runtime = new ExplorerRuntime({ chatClient: new OutputLimitRepairClient() });
   const result = await runtime.explore({ task: 'find auth', repo_root: root });
 
-  assert.deepEqual(seenFinalizeBudgets, [
-    getBudgetConfig().finalizeMaxCompletionTokens,
-    getBudgetConfig().finalizeMaxCompletionTokens,
+  assert.deepEqual(seenFinalizeLimits, [
+    getRuntimeConfig().finalizeMaxCompletionTokens,
+    getRuntimeConfig().finalizeMaxCompletionTokens,
   ]);
-  assert.equal(result.directAnswer, 'repaired with full budget');
+  assert.equal(result.directAnswer, 'repaired with full output limit');
 });
 
 // ── Phase 10 — Confidence Recalibration ──────────────────────────────────────
@@ -3225,11 +4983,11 @@ test('ExplorerRuntime forwards abortSignal into chat client requests', async () 
 
 // ── 010 — Spec-1: status contract on evidence sufficiency ───────────────────
 
-test('010 US1#1 — locate task with exact evidence stays complete even when budget exhausts', async () => {
+test('010 US1#1 — locate task with exact evidence stays complete when the turn limit is reached', async () => {
   // Mock client emits one read tool call to ground evidence, then loops on no-op tool calls
-  // until the budget runs out. The runtime must finalize with complete:true based on evidence
-  // sufficiency rather than failing because of stoppedByBudget.
-  class BudgetWithEvidenceClient {
+  // until the fixed turn limit is reached. The runtime must finalize with complete:true based
+  // on evidence sufficiency rather than treating the safety limit as a failure.
+  class TurnLimitWithEvidenceClient {
     constructor() { this.model = 'zai-glm-4.7'; this.calls = 0; }
     async createChatCompletion({ responseFormat }) {
       this.calls += 1;
@@ -3287,30 +5045,25 @@ test('010 US1#1 — locate task with exact evidence stays complete even when bud
   }
 
   const root = await makeRepoFixture();
-  const runtime = new ExplorerRuntime({ chatClient: new BudgetWithEvidenceClient() });
+  const runtime = new ExplorerRuntime({ chatClient: new TurnLimitWithEvidenceClient() });
   const result = await runtime.explore({
     task: 'find where requireAuth is defined',
     taskMode: 'symbol_trace',
     repo_root: root,
   });
 
-  assert.equal(result.stats.stoppedByBudget, true, 'fixture must exhaust the configured turn budget');
-  assert.equal(result.searchCoverage.stoppedByBudget, true, 'budget fact must remain visible');
+  assert.ok(result.stats.safetyLimits.some(limit => limit.name === 'turn_limit'));
   assert.equal(result.status.complete, true, 'sufficient locate evidence must yield complete:true');
   assert.ok(
     result.status.verification === 'verified' || result.status.verification === 'targeted_read_needed',
     `verification must reflect sufficiency, got ${result.status.verification}`,
   );
-  assert.equal(result.failure, null, 'budget exhaustion must not produce failure when sufficient');
+  assert.equal(result.failure, null, 'a turn limit must not produce failure when evidence is sufficient');
   assert.ok(result.stats?.evidenceSufficiency?.sufficient === true);
-  assert.ok(
-    (result.status.warnings ?? []).some(w => /budget/i.test(w)),
-    'budget warning should remain in status.warnings even when complete',
-  );
 });
 
 
-test('010 security — broad find vulnerability task remains incomplete when budget exhausts', async () => {
+test('010 security — broad find vulnerability task never becomes complete', async () => {
   class BroadSecurityFindClient {
     constructor() { this.model = 'zai-glm-4.7'; this.calls = 0; }
     async createChatCompletion({ responseFormat }) {
@@ -3377,53 +5130,36 @@ test('010 security — broad find vulnerability task remains incomplete when bud
       repo_root: root,
     });
 
-    assert.equal(result.stats.stoppedByBudget, true, 'fixture must exhaust the quick budget');
-    assert.equal(result.searchCoverage.stoppedByBudget, true, 'budget fact must remain visible');
+    if (taskMode === 'locate') {
+      assert.equal(result.failure?.reason, 'invalid_final_response',
+        'malformed fixed locate planning must fail closed before exploration');
+      assert.equal(result.parentHandoff.state, 'failed');
+      assert.equal(result.status.complete, false);
+      continue;
+    }
+    assert.ok(result.stats.safetyLimits.some(limit => limit.name === 'turn_limit'));
     assert.equal(result.status.complete, false, `broad security task must stay incomplete for taskMode=${taskMode}`);
     assert.equal(result.status.verification, 'follow_up_needed');
-    assert.equal(result.failure?.reason, 'budget_exhausted');
+    assert.equal(result.failure, null, 'a valid partial limit is not an execution failure');
     assert.deepEqual(result.stats?.evidenceSufficiency, {
       sufficient: false,
-      reason: 'broad_investigation_budget_exhausted',
+      reason: 'general_needs_more_evidence',
     });
   }
 });
 
-test('010 US1#2 — path_explanation with one evidence still incomplete after budget exhausts', async () => {
-  // path_explanation requires exact >= 2 OR fileCount >= 2. One file/one exact item ⇒ insufficient.
-  class PathExplanationClient {
+test('Spec 028 T035 — broad single-source proof stays incomplete without a safety limit', async () => {
+  class BroadSingleSourceClient {
     constructor() { this.model = 'zai-glm-4.7'; this.calls = 0; }
     async createChatCompletion({ responseFormat }) {
       this.calls += 1;
-      if (responseFormat) {
-        return {
-          usage: { prompt_tokens: 30, completion_tokens: 10, total_tokens: 40 },
-          message: {
-            content: JSON.stringify(compactResult({
-              directAnswer: 'Partial trace — only first hop found.',
-              statusConfidence: 'high',
-              verification: 'follow_up_needed',
-              complete: false,
-              evidence: [{
-                path: 'src/auth.js',
-                startLine: 1,
-                endLine: 4,
-                why: 'entry function',
-                evidenceType: 'file_range',
-                groundingStatus: 'exact',
-              }],
-            })),
-            toolCalls: [],
-          },
-        };
-      }
       if (this.calls === 1) {
         return {
           usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
           message: {
             content: '',
             toolCalls: [{
-              id: 'read-1',
+              id: 'read-auth',
               function: {
                 name: 'repo_read_file',
                 arguments: JSON.stringify({ path: 'src/auth.js', startLine: 1, endLine: 4 }),
@@ -3432,115 +5168,96 @@ test('010 US1#2 — path_explanation with one evidence still incomplete after bu
           },
         };
       }
+      if (responseFormat) {
+        return {
+          usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+          message: {
+            content: JSON.stringify(compactResult({
+              directAnswer: 'requireAuth rejects requests without req.user.',
+              statusConfidence: 'high',
+              evidence: [{
+                path: 'src/auth.js',
+                startLine: 1,
+                endLine: 4,
+                why: 'one observed authorization implementation',
+              }],
+            })),
+            toolCalls: [],
+          },
+        };
+      }
       return {
         usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
-        message: {
-          content: '',
-          toolCalls: [{
-            id: `noop-${this.calls}`,
-            function: {
-              name: 'repo_grep',
-              arguments: JSON.stringify({ pattern: `nothing-${this.calls}`, scope: ['src/**'] }),
-            },
-          }],
-        },
+        message: { content: '', toolCalls: [] },
       };
     }
   }
 
   const root = await makeRepoFixture();
-  const runtime = new ExplorerRuntime({ chatClient: new PathExplanationClient() });
+  const runtime = new ExplorerRuntime({ chatClient: new BroadSingleSourceClient() });
   const result = await runtime.explore({
-    task: 'Trace request flow from requireAuth to response',
-    taskMode: 'path_explanation',
+    task: 'Analyze authorization behavior across the repository.',
     repo_root: root,
   });
 
-  assert.equal(result.stats.stoppedByBudget, true);
-  assert.equal(result.status.complete, false, 'complex task with one evidence must stay incomplete');
+  assert.equal(result.stats.safetyLimits.some(limit => limit.affectedSubgoalIds?.length > 0), false);
+  assert.deepEqual(result.stats.evidenceSufficiency, {
+    sufficient: false,
+    reason: 'general_needs_more_evidence',
+  });
   assert.equal(result.status.verification, 'follow_up_needed');
-  assert.equal(result.failure?.reason, 'budget_exhausted', 'insufficient + budget exhaustion must emit failure');
+  assert.equal(result.status.complete, false);
+  assert.equal(result.failure, null);
+});
+
+async function runSingleEvidenceFlowFixture() {
+  const task = 'Explain the JSON-RPC request path to the parent handoff.';
+  const goals = flowWrapperGoals();
+  const entryGoal = goals.find(goal => goal.id === 'S-flow-entry');
+  const entryClaim = candidateClaim(
+    'C-single-flow-entry',
+    entryGoal.id,
+    'The inspected source establishes only the first path entry.',
+    ['E1'],
+  );
+  return runTrustScript(buildTrustSteps({
+    goals,
+    initial: {
+      tools: [{
+        tool: 'repo_read_file',
+        args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+        id: 'single-flow-entry-read',
+      }],
+      claims: [entryClaim],
+      verdicts: [semanticVerdict(entryClaim.id, 'supported', entryClaim.evidenceRefs)],
+    },
+    repair: {
+      tools: [],
+      claims: [{ ...entryClaim }],
+      verdicts: [semanticVerdict(entryClaim.id, 'supported', entryClaim.evidenceRefs)],
+    },
+  }), {
+    task,
+    taskMode: 'path_explanation',
+  });
+}
+
+test('010 US1#2 — path_explanation with one evidence stays bounded and incomplete', async () => {
+  const { result } = await runSingleEvidenceFlowFixture();
+
+  assert.equal(result.stats.safetyLimits.some(limit => limit.name === 'turn_limit'), false);
+  assert.equal(result.status.complete, false, 'one observed entry cannot complete a multi-hop path');
+  assert.equal(result.parentHandoff.state, 'incomplete');
+  assert.equal(result.failure, null);
   assert.equal(result.stats?.evidenceSufficiency?.sufficient, false);
 });
 
-test('010 US1#3 — buildNextAction prefers explore_followup with a cited target over ask_user', async () => {
-  // Confidence:high but partial grounding so verification falls to follow_up_needed.
-  // Targets array carries a read target ⇒ nextAction should be explore_followup, not ask_user.
-  class FollowUpClient {
-    constructor() { this.model = 'zai-glm-4.7'; this.calls = 0; }
-    async createChatCompletion({ responseFormat }) {
-      this.calls += 1;
-      if (responseFormat) {
-        return {
-          usage: { prompt_tokens: 30, completion_tokens: 10, total_tokens: 40 },
-          message: {
-            content: JSON.stringify(compactResult({
-              directAnswer: 'partial answer with one grounded reference',
-              statusConfidence: 'high',
-              evidence: [{
-                path: 'src/auth.js',
-                startLine: 1,
-                endLine: 4,
-                why: 'reference',
-                evidenceType: 'file_range',
-                groundingStatus: 'exact',
-              }],
-              targets: [{
-                path: 'src/routes/user.js',
-                startLine: 1,
-                endLine: 6,
-                role: 'read',
-                reason: 'verify caller',
-                evidenceRefs: [],
-              }],
-            })),
-            toolCalls: [],
-          },
-        };
-      }
-      if (this.calls === 1) {
-        return {
-          usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
-          message: {
-            content: '',
-            toolCalls: [{
-              id: 'read-1',
-              function: {
-                name: 'repo_read_file',
-                arguments: JSON.stringify({ path: 'src/auth.js', startLine: 1, endLine: 4 }),
-              },
-            }],
-          },
-        };
-      }
-      return {
-        usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
-        message: {
-          content: '',
-          toolCalls: [{
-            id: `noop-${this.calls}`,
-            function: {
-              name: 'repo_grep',
-              arguments: JSON.stringify({ pattern: `nothing-${this.calls}` }),
-            },
-          }],
-        },
-      };
-    }
-  }
+test('010 US1#3 — exhausted path repair does not invent an ask_user follow-up', async () => {
+  const { result } = await runSingleEvidenceFlowFixture();
 
-  const root = await makeRepoFixture();
-  const runtime = new ExplorerRuntime({ chatClient: new FollowUpClient() });
-  const result = await runtime.explore({
-    task: 'Trace the request flow end-to-end',
-    taskMode: 'path_explanation',
-    repo_root: root,
-  });
-
-  if (result.status.verification === 'follow_up_needed' || result.status.verification === 'broad_search_needed') {
-    assert.notEqual(result.nextAction.type, 'ask_user',
-      'with a cited read target, nextAction should pick explore_followup over ask_user');
-  }
+  assert.equal(result.parentHandoff.state, 'incomplete');
+  assert.notEqual(result.parentHandoff.followUp?.type, 'ask_user');
+  assert.equal(result.parentHandoff.gaps.length > 0, true);
 });
 
 // spec 017: SessionStore was removed. The spec-011 regression check
@@ -3581,7 +5298,7 @@ test('010 US2#1 — listDir entries land in discoveredPaths[], not targets[]', a
             content: '',
             toolCalls: [{
               id: 'list-1',
-              function: { name: 'repo_list_dir', arguments: JSON.stringify({ path: '.' }) },
+              function: { name: 'repo_list_dir', arguments: JSON.stringify({ dirPath: '.' }) },
             }],
           },
         };
@@ -3638,50 +5355,6 @@ test('010 US2#1 — listDir entries land in discoveredPaths[], not targets[]', a
 // spec 011: CEREBRAS_EXPLORER_LEGACY_DISCOVERED_TARGETS was removed. The
 // modern targets vs discoveredPaths split is permanent, so the opt-in
 // regression test from 010 is gone.
-
-test('010 US2#2 — buildReportCitationTargets merges same-file citations at file level', async () => {
-  const { buildReportCitationTargets } = await import('../src/explorer/runtime.mjs').then(async m => {
-    // The helper is not exported. Build a structurally equivalent test via the public route.
-    return { buildReportCitationTargets: null };
-  }).catch(() => ({ buildReportCitationTargets: null }));
-
-  // The helper is module-private. Validate via the runtime freeExplore path: emit a
-  // report with two citations of the same file and one citation of another file, and
-  // assert the resulting targets[] is file-merged.
-  class ReportCitationClient {
-    constructor() { this.model = 'zai-glm-4.7'; this.calls = 0; }
-    async createChatCompletion() {
-      this.calls += 1;
-      // Provide a finalized Markdown report directly.
-      return {
-        usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
-        message: {
-          content: [
-            '## Findings',
-            'See `src/auth.js:L1-L3` and `src/auth.js:L5-L8` and `src/routes/user.js:L2`.',
-          ].join('\n'),
-          toolCalls: [],
-        },
-      };
-    }
-  }
-
-  const root = await makeRepoFixture();
-  const runtime = new ExplorerRuntime({ chatClient: new ReportCitationClient() });
-  const reportResult = await runtime.freeExplore({
-    prompt: 'Summarize the auth wiring',
-    repo_root: root,
-  });
-
-  const targets = reportResult.targets ?? [];
-  const authTargets = targets.filter(t => t.path === 'src/auth.js');
-  assert.equal(authTargets.length, 1, `src/auth.js should be merged into a single target, got ${authTargets.length}`);
-  if (authTargets[0]) {
-    assert.equal(authTargets[0].startLine, 1, 'merged startLine must be the min');
-    assert.equal(authTargets[0].endLine, 8, 'merged endLine must be the max');
-    assert.match(authTargets[0].reason, /merged from 2 ranges/i, 'reason should record merge count');
-  }
-});
 
 test('010 US1#4 — critic fail forces broad_search_needed regardless of evidence count', async () => {
   // The model emits high confidence with multiple grounded items, but a synthetic critic
@@ -4074,18 +5747,17 @@ test('spec 026 T003(i): symbol_trace where the ONLY grep attempt errors → targ
 });
 
 test('spec 026 T003(h): symbol_trace with all evidence ungrounded → broad_search_needed or follow_up_needed, NO usage_cross_check_missing', async () => {
-  // Model returns evidence items but none get grounded (no reads, no observed ranges) →
+  // Model returns evidence items but none get grounded (no source reads or observed ranges) →
   // grounding.evidence drops to 0 → precedence route fires in buildResultStatus →
   // gate must NOT emit usage_cross_check_missing
   const client = makeSymbolTraceClient({
     toolSequence: [
-      // Only a symbol_context call (does not create observed ranges for evidence lines)
-      { name: 'repo_symbol_context', arguments: { symbol: 'requireAuth' } },
+      // A directory listing is a valid exploration action but cannot ground source evidence.
+      { name: 'repo_list_dir', arguments: { dirPath: 'src' } },
     ],
     finalResult: {
-      // Model claims evidence but the tool call did NOT produce a file read for those lines
+      // Model claims evidence but the tool call did NOT produce source for those lines,
       // so groundEvidenceList will drop them as ungrounded.
-      // Use a path that was NOT read so observedRanges won't cover it.
       evidence: [
         { path: 'src/unread_file.js', startLine: 1, endLine: 5, why: 'symbol usage', evidenceType: 'file_range', groundingStatus: 'exact' },
       ],
@@ -4120,8 +5792,7 @@ test('spec 026 T003(h): symbol_trace with all evidence ungrounded → broad_sear
 test('spec 026 T015: buildExplorerUserPrompt symbol-first approach includes cross-check instruction and truncated fallback', () => {
   const prompt = buildExplorerUserPrompt({
     task: 'Find where requireAuth is defined',
-    hints: { strategy: 'symbol-first', symbols: ['requireAuth'] },
-    runtimeProfile: 'compact',
+    hints: { symbols: ['requireAuth'] },
     scope: [],
   });
 
@@ -4154,7 +5825,7 @@ test('spec 026 T015: STRATEGY_DESCRIPTIONS symbol-first mentions cross-check', (
 test('spec 026 T015: system prompt strategy catalog symbol-first line mentions cross-check', () => {
   const systemPrompt = buildExplorerSystemPrompt({
     repoRoot: '/tmp/repo',
-    budgetConfig: getBudgetConfig(),
+    runtimeConfig: getRuntimeConfig(),
   });
   // Find the strategy catalog line for symbol-first
   const lines = systemPrompt.split('\n');
@@ -4164,4 +5835,15168 @@ test('spec 026 T015: system prompt strategy catalog symbol-first line mentions c
     /cross.check/i.test(symbolFirstLine),
     `system prompt symbol-first catalog line must mention cross-check; got: "${symbolFirstLine}"`,
   );
+});
+
+// T022 activates these expected-red orchestration tests by adding the late-goal
+// audit helper used by the semantic verifier. Until then Node executes the
+// callbacks as TODOs, so missing runtime behavior stays visible without making
+// the test-first commits unshippable.
+const auditedPlanningRuntimeTest =
+  typeof RuntimeImplementation.prototype.auditLateGoalProposals === 'function'
+    ? test
+    : test.todo;
+
+const GOAL_AUDIT_TASK = 'Locate requireAuth and verify legacyGuard is absent.';
+
+function requestOrigin(task, text) {
+  const start = task.indexOf(text);
+  assert.notEqual(start, -1, `request fragment not found: ${text}`);
+  return `request:${start}-${start + text.length}`;
+}
+
+function proposedRuntimeGoal(overrides = {}) {
+  return {
+    id: 'S-definition',
+    question: 'Where is requireAuth defined?',
+    originRefs: [requestOrigin(GOAL_AUDIT_TASK, 'Locate requireAuth')],
+    claimType: 'symbol_definition',
+    proofCondition: 'Observe the in-scope requireAuth definition and source body.',
+    constraints: [],
+    ...overrides,
+  };
+}
+
+function plannerControl(subgoals, overrides = {}) {
+  return {
+    taskSummary: 'Locate the symbol and check the requested absence.',
+    constraints: [],
+    subgoals,
+    ...overrides,
+  };
+}
+
+function auditControlRecord(goal, verdict = 'ready', overrides = {}) {
+  return {
+    proposedGoalId: goal.id,
+    verdict,
+    originRefs: [...goal.originRefs],
+    missingRequestParts: [],
+    reason: `Audited as ${verdict}.`,
+    ...overrides,
+  };
+}
+
+function auditorControl(goals, uncoveredRequestParts = []) {
+  return { goals, uncoveredRequestParts };
+}
+
+function coverageControl(findings, uncoveredRequestParts = []) {
+  return { findings, uncoveredRequestParts };
+}
+
+function coveredObligation(obligationId, coveredByGoalIds) {
+  return {
+    obligationId,
+    disposition: 'covered',
+    coveredByGoalIds,
+    reason: 'The audited goal mapping preserves this runtime obligation.',
+  };
+}
+
+function remainingObligation(obligationId) {
+  return {
+    obligationId,
+    disposition: 'remaining',
+    coveredByGoalIds: [],
+    reason: 'No audited corrected goal fully preserves this runtime obligation.',
+  };
+}
+
+function controlCompletion(content, { finishReason = 'stop' } = {}) {
+  return {
+    usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+    finishReason,
+    message: {
+      content: typeof content === 'string' ? content : JSON.stringify(content),
+      toolCalls: [],
+    },
+  };
+}
+
+function classifyControlRequest(request) {
+  const wrappedSchema = request.responseFormat?.json_schema;
+  const schema = wrappedSchema?.schema ?? wrappedSchema;
+  const required = Array.isArray(schema?.required) ? schema.required : [];
+  if (required.includes('taskSummary') && required.includes('subgoals')) return 'planner';
+  if (required.includes('goals') && required.includes('uncoveredRequestParts')) return 'goal_audit';
+  if (required.includes('findings') && required.includes('uncoveredRequestParts')) {
+    return 'goal_coverage';
+  }
+  if (required.includes('claims')) return 'claim_synthesis';
+  if (required.includes('verdicts') && required.includes('uncoveredRequestParts')) {
+    return 'semantic_verifier';
+  }
+  if (request.responseFormat) return 'synthesis';
+  return 'exploration';
+}
+
+class ScriptedGoalAuditClient {
+  constructor(steps) {
+    this.model = 'zai-glm-4.7';
+    const planningOnly = steps.some(step => step.stage.startsWith('synthesis:')) &&
+      !steps.some(step => step.stage.startsWith('claim_synthesis:') ||
+        step.stage.startsWith('semantic_verifier:'));
+    const explorationCount = steps.reduce((highest, step) => {
+      const match = /^exploration:(\d+)$/.exec(step.stage);
+      return match ? Math.max(highest, Number.parseInt(match[1], 10)) : highest;
+    }, 0);
+    this.steps = planningOnly
+      ? [
+          ...steps,
+          {
+            stage: `exploration:${explorationCount + 1}`,
+            content: 'Planning-only fixture closes the single evidence-repair round without a tool action.',
+          },
+        ]
+      : steps;
+    this.stepCursor = 0;
+    this.requests = [];
+    this.completions = [];
+    this.stageCounts = new Map();
+    this.stageLabels = [];
+  }
+
+  async createChatCompletion(request) {
+    const stage = classifyControlRequest(request);
+    if (stage === 'planner' || stage === 'goal_audit' || stage === 'goal_coverage' ||
+        stage === 'semantic_verifier') {
+      assert.equal((request.tools?.length ?? 0), 0,
+        `${stage} must not receive repository tools`);
+    }
+    const count = (this.stageCounts.get(stage) ?? 0) + 1;
+    this.stageCounts.set(stage, count);
+    const label = `${stage}:${count}`;
+    this.stageLabels.push(label);
+    this.requests.push(request);
+
+    let step = this.steps[this.stepCursor];
+    while (step?.repeatStage && step.repeatStage !== stage) {
+      this.stepCursor += 1;
+      step = this.steps[this.stepCursor];
+    }
+    while (step?.optional && step.stage !== label) {
+      this.stepCursor += 1;
+      step = this.steps[this.stepCursor];
+    }
+    assert.ok(step, `unexpected provider call ${label}`);
+    if (step.repeatStage) {
+      assert.equal(stage, step.repeatStage);
+    } else {
+      assert.equal(label, step.stage);
+      this.stepCursor += 1;
+    }
+    const completion = step.run
+      ? await step.run(request, this)
+      : controlCompletion(step.content ?? step.value);
+    this.completions.push(completion);
+    return completion;
+  }
+}
+
+function readyExplorationResult() {
+  return compactResult({
+    directAnswer: 'The audited goals are ready for evidence verification.',
+    verification: 'follow_up_needed',
+    complete: false,
+    evidence: [],
+  });
+}
+
+function definitionAndAbsenceGoals() {
+  return [
+    proposedRuntimeGoal(),
+    proposedRuntimeGoal({
+      id: 'S-absence',
+      question: 'Is legacyGuard absent from the in-scope registration surface?',
+      originRefs: [requestOrigin(GOAL_AUDIT_TASK, 'verify legacyGuard is absent')],
+      claimType: 'absence',
+      proofCondition: 'Enumerate the in-scope registration surface and certify bounded absence.',
+    }),
+  ];
+}
+
+function locateWrapperGoals() {
+  return ['locations', 'relevance'].map((seed, index) => ({
+    id: `S-locate-${seed}`,
+    question: `Resolve the find_relevant_code ${seed} obligation.`,
+    originRefs: [`wrapper:find_relevant_code:${seed}`],
+    claimType: 'positive',
+    proofCondition: `Observe direct repository evidence for ${seed}.`,
+    constraints: [],
+  }));
+}
+
+function flowWrapperGoals() {
+  const definitions = [
+    ['entry', 'Identify the request entry point.', 'Observe the first in-scope request entry.'],
+    ['handoffs', 'Identify each component handoff.', 'Observe each distinct component handoff.'],
+    ['terminal_effect', 'Identify the terminal parent handoff.', 'Observe the terminal parent-visible effect.'],
+    ['transitions', 'Explain arguments, returns, and intermediate transitions.', 'Observe the values crossing each component transition.'],
+  ];
+  return definitions.map(([seed, question, proofCondition]) => ({
+    id: `S-flow-${seed}`,
+    question,
+    originRefs: [`wrapper:explain_code_path:${seed}`],
+    claimType: 'flow',
+    proofCondition,
+    constraints: [],
+  }));
+}
+
+function combinedFlowWrapperGoals() {
+  const goals = flowWrapperGoals();
+  const handoffs = goals.find(goal => goal.id === 'S-flow-handoffs');
+  const transitions = goals.find(goal => goal.id === 'S-flow-transitions');
+  const combined = {
+    ...handoffs,
+    id: 'S-flow-handoffs-transitions',
+    question: 'Identify each component handoff and intermediate transition.',
+    originRefs: [...handoffs.originRefs, ...transitions.originRefs],
+    proofCondition: 'Observe each distinct component handoff and the values crossing it.',
+  };
+  return goals
+    .filter(goal => ![handoffs.id, transitions.id].includes(goal.id))
+    .toSpliced(1, 0, combined);
+}
+
+function impactWrapperGoals(task, { exhaustiveDependents = false } = {}) {
+  const definitions = [
+    {
+      id: 'targets',
+      fragment: 'Identify actionable targets',
+      question: 'What are the actionable targets for adding a new top-level field to explore_repo structured output?',
+      proofCondition: 'Locate the implementation sites for explore_repo structured output where the new top-level field must be added.',
+    },
+    {
+      id: 'dependents',
+      fragment: 'dependent callers/consumers',
+      question: 'What are the dependent callers or consumers of explore_repo structured output?',
+      proofCondition: exhaustiveDependents
+        ? 'Identify all callers, consumers, or downstream dependencies that utilize or parse explore_repo structured output.'
+        : 'Identify observed callers, consumers, or downstream dependencies that utilize or parse explore_repo structured output.',
+    },
+    {
+      id: 'requested_categories',
+      fragment: 'affected verification or public-contract surfaces',
+      question: 'Which verification or public-contract surfaces are affected by adding a new top-level field to explore_repo structured output?',
+      proofCondition: 'Identify affected verification and public-contract surfaces that reference or validate explore_repo structured output.',
+    },
+    {
+      id: 'risk_boundary',
+      fragment: 'the remaining risk boundary',
+      question: 'What is the remaining risk boundary for this change?',
+      proofCondition: 'Define the observed impact boundary and any remaining uncertainty inside the immutable scope.',
+    },
+  ];
+  return definitions.map(definition => ({
+    id: definition.id,
+    question: definition.question,
+    originRefs: [
+      requestOrigin(task, definition.fragment),
+      `wrapper:map_change_impact:${definition.id}`,
+    ],
+    claimType: 'impact',
+    proofCondition: definition.proofCondition,
+    constraints: [],
+  }));
+}
+
+auditedPlanningRuntimeTest('Spec 028 T017 — initial plan and isolated audit finish before exploration', async () => {
+  const goals = definitionAndAbsenceGoals();
+  const invented = proposedRuntimeGoal({
+    id: 'S-invented',
+    question: 'Which cache refactor should be implemented?',
+    originRefs: [`request:0-${GOAL_AUDIT_TASK.length}`],
+    claimType: 'positive',
+    proofCondition: 'Observe a repository location where a cache refactor could be added.',
+  });
+  const proposal = plannerControl([...goals, invented]);
+  const client = new ScriptedGoalAuditClient([
+    { stage: 'planner:1', value: proposal },
+    {
+      stage: 'goal_audit:1',
+      value: auditorControl([
+        auditControlRecord(goals[0], 'ready', { mergeInto: null }),
+        auditControlRecord(goals[1]),
+        auditControlRecord(invented, 'reject_untraceable', { originRefs: [] }),
+      ]),
+    },
+    { stage: 'exploration:1', content: 'Audited goals are ready for repository exploration.' },
+    { stage: 'synthesis:1', value: readyExplorationResult() },
+  ]);
+  const root = await makeRepoFixture();
+  const runtime = new RuntimeImplementation({ chatClient: client });
+
+  const result = await runtime.explore({
+    task: GOAL_AUDIT_TASK,
+    repo_root: root,
+    scope: ['src/**'],
+  });
+
+  assert.deepEqual(client.stageLabels, [
+    'planner:1',
+    'goal_audit:1',
+    'exploration:1',
+    'synthesis:1',
+    'exploration:2',
+  ]);
+  assert.deepEqual(result.taskContract.subgoals.map(goal => goal.id),
+    ['S-definition', 'S-absence']);
+  assert.deepEqual(result.taskContract.subgoals.map(goal => goal.auditVerdict),
+    ['ready', 'ready']);
+  assert.deepEqual(result.taskContract.subgoals.map(goal => goal.proofPolicy),
+    ['symbol_definition', 'bounded_absence']);
+  assert.match(JSON.stringify(client.requests[2].messages), /S-definition/,
+    'accepted required goals must reach the exploration model');
+  assert.match(JSON.stringify(client.requests[2].messages), /S-absence/,
+    'every accepted required goal must remain in the exploration ledger');
+  assert.doesNotMatch(JSON.stringify(client.requests[2].messages), /S-invented/,
+    'rejected goals must not leak into exploration');
+});
+
+auditedPlanningRuntimeTest('Spec 028 T071 — an omitted fixed wrapper seed gets one planner correction before exploration', async () => {
+  const goals = locateWrapperGoals();
+  const omitted = goals.slice(0, 1);
+  const client = new ScriptedGoalAuditClient([
+    { stage: 'planner:1', value: plannerControl(omitted) },
+    {
+      stage: 'planner:2',
+      run(request) {
+        assert.match(JSON.stringify(request.messages), /wrapper:find_relevant_code:relevance/u);
+        return controlCompletion(plannerControl(goals));
+      },
+    },
+    {
+      stage: 'goal_audit:1',
+      value: auditorControl(goals.map(goal => auditControlRecord(goal))),
+    },
+    { stage: 'exploration:1', content: 'All fixed locate obligations are audited.' },
+    { stage: 'synthesis:1', value: readyExplorationResult() },
+  ]);
+  const root = await makeRepoFixture();
+  const result = await new RuntimeImplementation({ chatClient: client }).explore({
+    task: GOAL_AUDIT_TASK,
+    repo_root: root,
+    scope: ['src/**'],
+    taskMode: 'locate',
+  });
+
+  assert.equal(result.failure, null);
+  assert.deepEqual(client.stageLabels.slice(0, 4), [
+    'planner:1',
+    'planner:2',
+    'goal_audit:1',
+    'exploration:1',
+  ]);
+  assert.deepEqual(result.taskContract.subgoals.flatMap(goal => goal.originRefs),
+    goals.flatMap(goal => goal.originRefs));
+});
+
+auditedPlanningRuntimeTest('Spec 028 T071 — repeated fixed wrapper seed omission fails before audit or exploration', async () => {
+  const omitted = locateWrapperGoals().slice(0, 1);
+  const client = new ScriptedGoalAuditClient([
+    { stage: 'planner:1', value: plannerControl(omitted) },
+    { stage: 'planner:2', value: plannerControl(omitted) },
+  ]);
+  const root = await makeRepoFixture();
+  const result = await new RuntimeImplementation({ chatClient: client }).explore({
+    task: GOAL_AUDIT_TASK,
+    repo_root: root,
+    scope: ['src/**'],
+    taskMode: 'locate',
+  });
+
+  assert.deepEqual(client.stageLabels, ['planner:1', 'planner:2']);
+  assert.ok(result.failure);
+  assert.equal(result.parentHandoff.state, 'failed');
+});
+
+auditedPlanningRuntimeTest(
+  'Spec 028 T071 — invented map-dependent completeness gets one bounded planner correction',
+  async () => {
+    const task = 'Map the likely impact of this intended change before editing: ' +
+      'Add a new top-level field to explore_repo structured output. Identify actionable targets, ' +
+      'dependent callers/consumers, affected verification or public-contract surfaces, and the remaining risk boundary.';
+    const invented = impactWrapperGoals(task, { exhaustiveDependents: true });
+    const corrected = impactWrapperGoals(task);
+    const client = new ScriptedGoalAuditClient([
+      { stage: 'planner:1', value: plannerControl(invented) },
+      {
+        stage: 'planner:2',
+        run(request) {
+          assert.match(JSON.stringify(request.messages), /unentailed_completeness_qualifier/u);
+          return controlCompletion(plannerControl(corrected));
+        },
+      },
+      {
+        stage: 'goal_audit:1',
+        value: auditorControl(corrected.map(goal => auditControlRecord(goal))),
+      },
+      { stage: 'exploration:1', content: 'The bounded impact goals are audited.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+    ]);
+    const root = await makeRepoFixture();
+    const result = await new RuntimeImplementation({ chatClient: client }).explore({
+      task,
+      repo_root: root,
+      scope: ['src/**', 'tests/**', '*.md', 'examples/**'],
+      taskMode: 'edit_planning',
+    });
+
+    assert.equal(result.failure, null, JSON.stringify({
+      failure: result.failure,
+    }));
+    assert.deepEqual(client.stageLabels.slice(0, 4), [
+      'planner:1',
+      'planner:2',
+      'goal_audit:1',
+      'exploration:1',
+    ]);
+    assert.equal(
+      result.taskContract.subgoals.find(goal => goal.id === 'dependents')?.proofCondition,
+      corrected.find(goal => goal.id === 'dependents').proofCondition,
+    );
+  },
+);
+
+auditedPlanningRuntimeTest(
+  'Spec 028 T071 — repeated invented map-dependent completeness fails before audit',
+  async () => {
+    const task = 'Map the likely impact of this intended change before editing: ' +
+      'Add a new top-level field to explore_repo structured output. Identify actionable targets, ' +
+      'dependent callers/consumers, affected verification or public-contract surfaces, and the remaining risk boundary.';
+    const invented = impactWrapperGoals(task, { exhaustiveDependents: true });
+    const client = new ScriptedGoalAuditClient([
+      { stage: 'planner:1', value: plannerControl(invented) },
+      { stage: 'planner:2', value: plannerControl(invented) },
+    ]);
+    const root = await makeRepoFixture();
+    const result = await new RuntimeImplementation({ chatClient: client }).explore({
+      task,
+      repo_root: root,
+      scope: ['src/**', 'tests/**', '*.md', 'examples/**'],
+      taskMode: 'edit_planning',
+    });
+
+    assert.deepEqual(client.stageLabels, ['planner:1', 'planner:2']);
+    assert.ok(result.failure);
+    assert.equal(result.parentHandoff.state, 'failed');
+  },
+);
+
+auditedPlanningRuntimeTest(
+  'Spec 028 T071 — exact unaffected proof stays separate from the bounded map risk leaf',
+  async () => {
+    const task = 'Map the likely impact of this intended change before editing: ' +
+      'Add a new top-level field to explore_repo structured output. Identify actionable targets, ' +
+      'dependent callers/consumers, affected verification or public-contract surfaces, and the ' +
+      'remaining risk boundary; prove src/legacy.mjs is unaffected and needs no modification.';
+    const negativeOrigin = requestOrigin(
+      task,
+      'prove src/legacy.mjs is unaffected and needs no modification',
+    );
+    const invented = impactWrapperGoals(task);
+    invented.find(goal => goal.id === 'risk_boundary').originRefs.push(negativeOrigin);
+    const corrected = impactWrapperGoals(task);
+    const absenceGoal = {
+      id: 'legacy-unaffected',
+      question: 'Is src/legacy.mjs unaffected and does it need no modification?',
+      originRefs: [negativeOrigin],
+      claimType: 'absence',
+      proofCondition:
+        'Certify from a complete bounded source/search boundary that the intended field cannot affect src/legacy.mjs.',
+      constraints: [],
+    };
+    const correctedGoals = [...corrected, absenceGoal];
+    const client = new ScriptedGoalAuditClient([
+      { stage: 'planner:1', value: plannerControl(invented) },
+      {
+        stage: 'planner:2',
+        run(request) {
+          assert.match(
+            JSON.stringify(request.messages),
+            /exact unaffected or no-modification request cannot be merged/iu,
+          );
+          return controlCompletion(plannerControl(correctedGoals));
+        },
+      },
+      {
+        stage: 'goal_audit:1',
+        value: auditorControl(correctedGoals.map(goal => auditControlRecord(goal))),
+      },
+      { stage: 'exploration:1', content: 'The bounded impact and absence goals are audited.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+    ]);
+    const root = await makeRepoFixture();
+    const result = await new RuntimeImplementation({ chatClient: client }).explore({
+      task,
+      repo_root: root,
+      scope: ['src/**', 'tests/**', '*.md', 'examples/**'],
+      taskMode: 'edit_planning',
+    });
+
+    assert.equal(result.failure, null, JSON.stringify({
+      failure: result.failure,
+      stages: client.stageLabels,
+    }));
+    assert.deepEqual(client.stageLabels.slice(0, 4), [
+      'planner:1',
+      'planner:2',
+      'goal_audit:1',
+      'exploration:1',
+    ]);
+    assert.match(
+      result.taskContract.subgoals.find(goal => goal.id === 'risk_boundary')?.proofCondition ?? '',
+      /additional in-scope impact beyond those bounded observations as unverified/iu,
+    );
+    assert.equal(
+      result.taskContract.subgoals.find(goal => goal.id === absenceGoal.id)?.claimType,
+      'absence',
+    );
+  },
+);
+
+auditedPlanningRuntimeTest(
+  'Spec 028 T071 — common exact-negative phrases stay separate from the bounded map risk leaf',
+  async () => {
+    const exactNegativePhrases = [
+      'prove src/legacy.mjs requires no changes',
+      'prove src/legacy.mjs remains unchanged',
+      'prove src/legacy.mjs is not impacted',
+    ];
+    for (const [index, exactNegativePhrase] of exactNegativePhrases.entries()) {
+      const task = 'Map the likely impact of this intended change before editing: ' +
+        'Add a new top-level field to explore_repo structured output. Identify actionable targets, ' +
+        'dependent callers/consumers, affected verification or public-contract surfaces, and the ' +
+        `remaining risk boundary; ${exactNegativePhrase}.`;
+      const negativeOrigin = requestOrigin(task, exactNegativePhrase);
+      const invented = impactWrapperGoals(task);
+      invented.find(goal => goal.id === 'risk_boundary').originRefs.push(negativeOrigin);
+      const absenceGoal = {
+        id: `legacy-exact-negative-${index + 1}`,
+        question: exactNegativePhrase,
+        originRefs: [negativeOrigin],
+        claimType: 'absence',
+        proofCondition:
+          'Certify from a complete bounded source/search boundary that the intended field cannot affect src/legacy.mjs.',
+        constraints: [],
+      };
+      const correctedGoals = [...impactWrapperGoals(task), absenceGoal];
+      const client = new ScriptedGoalAuditClient([
+        { stage: 'planner:1', value: plannerControl(invented) },
+        {
+          stage: 'planner:2',
+          run(request) {
+            assert.match(
+              JSON.stringify(request.messages),
+              /exact unaffected or no-modification request cannot be merged/iu,
+              exactNegativePhrase,
+            );
+            return controlCompletion(plannerControl(correctedGoals));
+          },
+        },
+        {
+          stage: 'goal_audit:1',
+          value: auditorControl(correctedGoals.map(goal => auditControlRecord(goal))),
+        },
+        { stage: 'exploration:1', content: 'The bounded impact and absence goals are audited.' },
+        { stage: 'synthesis:1', value: readyExplorationResult() },
+      ]);
+      const root = await makeRepoFixture();
+      const result = await new RuntimeImplementation({ chatClient: client }).explore({
+        task,
+        repo_root: root,
+        scope: ['src/**', 'tests/**', '*.md', 'examples/**'],
+        taskMode: 'edit_planning',
+      });
+
+      assert.equal(result.failure, null, exactNegativePhrase);
+      assert.deepEqual(
+        client.stageLabels.slice(0, 4),
+        ['planner:1', 'planner:2', 'goal_audit:1', 'exploration:1'],
+        exactNegativePhrase,
+      );
+      assert.equal(
+        result.taskContract.subgoals.find(goal => goal.id === absenceGoal.id)?.claimType,
+        'absence',
+        exactNegativePhrase,
+      );
+    }
+  },
+);
+
+auditedPlanningRuntimeTest(
+  'Spec 028 T071 — repeated exact-negative map merge fails before audit',
+  async () => {
+    const exactNegativePhrase = 'prove src/legacy.mjs remains unchanged';
+    const task = 'Map the likely impact of this intended change before editing: ' +
+      'Add a new top-level field to explore_repo structured output. Identify actionable targets, ' +
+      'dependent callers/consumers, affected verification or public-contract surfaces, and the ' +
+      `remaining risk boundary; ${exactNegativePhrase}.`;
+    const negativeOrigin = requestOrigin(task, exactNegativePhrase);
+    const invented = impactWrapperGoals(task);
+    invented.find(goal => goal.id === 'risk_boundary').originRefs.push(negativeOrigin);
+    const client = new ScriptedGoalAuditClient([
+      { stage: 'planner:1', value: plannerControl(invented) },
+      { stage: 'planner:2', value: plannerControl(invented) },
+    ]);
+    const root = await makeRepoFixture();
+    const result = await new RuntimeImplementation({ chatClient: client }).explore({
+      task,
+      repo_root: root,
+      scope: ['src/**', 'tests/**', '*.md', 'examples/**'],
+      taskMode: 'edit_planning',
+    });
+
+    assert.deepEqual(client.stageLabels, ['planner:1', 'planner:2']);
+    assert.ok(result.failure);
+    assert.equal(result.parentHandoff.state, 'failed');
+  },
+);
+
+auditedPlanningRuntimeTest('Spec 028 T071 — collect_evidence split goals get one planner correction', async () => {
+  const task = 'Verify that every user route requires authentication.';
+  const requestRef = `request:0-${task.length}`;
+  const verdictGoal = {
+    id: 'S-collect-verdict',
+    question: task,
+    originRefs: [requestRef, 'wrapper:collect_evidence:verdict'],
+    claimType: 'claim_verification',
+    proofCondition: 'Support or refute the claim from direct evidence and counterevidence search.',
+    constraints: [],
+  };
+  const splitGoal = {
+    ...verdictGoal,
+    id: 'S-collect-direct-evidence',
+    question: 'Find direct evidence for the claim.',
+    originRefs: [requestRef],
+  };
+  const client = new ScriptedGoalAuditClient([
+    { stage: 'planner:1', value: plannerControl([verdictGoal, splitGoal]) },
+    {
+      stage: 'planner:2',
+      run(request) {
+        assert.match(JSON.stringify(request.messages), /requires exactly one verdict goal/u);
+        return controlCompletion(plannerControl([verdictGoal]));
+      },
+    },
+    {
+      stage: 'goal_audit:1',
+      value: auditorControl([auditControlRecord(verdictGoal)]),
+    },
+    { stage: 'exploration:1', content: 'The canonical collect verdict is audited.' },
+    { stage: 'synthesis:1', value: readyExplorationResult() },
+  ]);
+  const root = await makeRepoFixture();
+  const result = await new RuntimeImplementation({ chatClient: client }).explore({
+    task,
+    repo_root: root,
+    scope: ['src/**'],
+    taskMode: 'evidence_verification',
+  });
+
+  assert.equal(result.failure, null);
+  assert.deepEqual(client.stageLabels.slice(0, 4), [
+    'planner:1',
+    'planner:2',
+    'goal_audit:1',
+    'exploration:1',
+  ]);
+  assert.deepEqual(result.taskContract.subgoals.map(goal => goal.id), [verdictGoal.id]);
+});
+
+auditedPlanningRuntimeTest('Spec 028 T071 — an auditor cannot silently discard a fixed wrapper seed', async () => {
+  const goals = locateWrapperGoals();
+  const requestRef = requestOrigin(GOAL_AUDIT_TASK, 'Locate requireAuth');
+  goals.at(-1).originRefs.unshift(requestRef);
+  const client = new ScriptedGoalAuditClient([
+    { stage: 'planner:1', value: plannerControl(goals) },
+    {
+      stage: 'goal_audit:1',
+      value: auditorControl(goals.map((goal, index) => index === goals.length - 1
+        ? auditControlRecord(goal, 'ready', { originRefs: [requestRef] })
+        : auditControlRecord(goal))),
+    },
+    {
+      stage: 'goal_audit:2',
+      run(request) {
+        assert.match(JSON.stringify(request.messages), /fixed wrapper origin/u);
+        return controlCompletion(auditorControl(goals.map(goal => auditControlRecord(goal))));
+      },
+    },
+    { stage: 'exploration:1', content: 'All fixed locate obligations survived audit.' },
+    { stage: 'synthesis:1', value: readyExplorationResult() },
+  ]);
+  const root = await makeRepoFixture();
+  const result = await new RuntimeImplementation({ chatClient: client }).explore({
+    task: GOAL_AUDIT_TASK,
+    repo_root: root,
+    scope: ['src/**'],
+    taskMode: 'locate',
+  });
+
+  assert.equal(result.failure, null);
+  assert.deepEqual(client.stageLabels.slice(0, 4), [
+    'planner:1',
+    'goal_audit:1',
+    'goal_audit:2',
+    'exploration:1',
+  ]);
+});
+
+auditedPlanningRuntimeTest(
+  'Spec 028 T071 — distinct fixed flow seeds cannot merge and receive one audit correction',
+  async () => {
+    const goals = flowWrapperGoals();
+    const handoffs = goals.find(goal => goal.id === 'S-flow-handoffs');
+    const transitions = goals.find(goal => goal.id === 'S-flow-transitions');
+    const invalidAudit = () => auditorControl(goals.map(goal =>
+      goal.id === transitions.id
+        ? auditControlRecord(goal, 'merge_duplicate', { mergeInto: handoffs.id })
+        : auditControlRecord(goal)));
+    const client = new ScriptedGoalAuditClient([
+      { stage: 'planner:1', value: plannerControl(goals) },
+      { stage: 'goal_audit:1', value: invalidAudit() },
+      {
+        stage: 'goal_audit:2',
+        run(request) {
+          assert.match(JSON.stringify(request.messages), /distinct fixed wrapper seeds/u);
+          return controlCompletion(auditorControl(
+            goals.map(goal => auditControlRecord(goal)),
+          ));
+        },
+      },
+      { stage: 'exploration:1', content: 'All four flow obligations remain distinct.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+    ]);
+    const root = await makeRepoFixture();
+    const result = await new RuntimeImplementation({ chatClient: client }).explore({
+      task: 'Explain the JSON-RPC request path to the parent handoff.',
+      repo_root: root,
+      scope: ['src/**'],
+      taskMode: 'path_explanation',
+    });
+
+    assert.equal(result.failure, null, JSON.stringify({
+      failure: result.failure,
+      stages: client.stageLabels,
+    }));
+    assert.deepEqual(client.stageLabels.slice(0, 4), [
+      'planner:1',
+      'goal_audit:1',
+      'goal_audit:2',
+      'exploration:1',
+    ]);
+    assert.deepEqual(result.taskContract.subgoals.map(goal => goal.id),
+      goals.map(goal => goal.id));
+  },
+);
+
+auditedPlanningRuntimeTest(
+  'Spec 028 T071 — repeated distinct fixed flow seed merge fails before exploration',
+  async () => {
+    const goals = flowWrapperGoals();
+    const handoffs = goals.find(goal => goal.id === 'S-flow-handoffs');
+    const transitions = goals.find(goal => goal.id === 'S-flow-transitions');
+    const invalidAudit = () => auditorControl(goals.map(goal =>
+      goal.id === transitions.id
+        ? auditControlRecord(goal, 'merge_duplicate', { mergeInto: handoffs.id })
+        : auditControlRecord(goal)));
+    const client = new ScriptedGoalAuditClient([
+      { stage: 'planner:1', value: plannerControl(goals) },
+      { stage: 'goal_audit:1', value: invalidAudit() },
+      { stage: 'goal_audit:2', value: invalidAudit() },
+    ]);
+    const root = await makeRepoFixture();
+    const result = await new RuntimeImplementation({ chatClient: client }).explore({
+      task: 'Explain the JSON-RPC request path to the parent handoff.',
+      repo_root: root,
+      scope: ['src/**'],
+      taskMode: 'path_explanation',
+    });
+
+    assert.equal(client.stageCounts.get('goal_audit'), 2);
+    assert.equal(client.stageCounts.get('exploration') ?? 0, 0);
+    assert.equal(result.parentHandoff.state, 'failed');
+    assert.equal(result.failure?.reason, 'invalid_final_response');
+  },
+);
+
+auditedPlanningRuntimeTest(
+  'Spec 028 T071 — combined fixed locate seeds get one planner correction before audit',
+  async () => {
+    const [locations, relevance] = locateWrapperGoals();
+    const combined = {
+      ...locations,
+      id: 'S-locate-combined',
+      question: 'Identify relevant locations and explain why each target matters.',
+      originRefs: [...locations.originRefs, ...relevance.originRefs],
+      proofCondition: 'Observe bounded locations and their relevance.',
+    };
+    const corrected = locateWrapperGoals();
+    const client = new ScriptedGoalAuditClient([
+      { stage: 'planner:1', value: plannerControl([combined]) },
+      {
+        stage: 'planner:2',
+        run(request) {
+          assert.match(JSON.stringify(request.messages), /exactly one fixed wrapper seed/u);
+          return controlCompletion(plannerControl(corrected));
+        },
+      },
+      {
+        stage: 'goal_audit:1',
+        value: auditorControl(corrected.map(goal => auditControlRecord(goal))),
+      },
+      { stage: 'exploration:1', content: 'Both locate obligations remain atomic.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+    ]);
+    const root = await makeRepoFixture();
+    const result = await new RuntimeImplementation({ chatClient: client }).explore({
+      task: 'Locate requireAuth.',
+      repo_root: root,
+      scope: ['src/**'],
+      taskMode: 'locate',
+    });
+
+    assert.equal(result.failure, null, JSON.stringify(result.failure));
+    assert.deepEqual(client.stageLabels.slice(0, 4), [
+      'planner:1',
+      'planner:2',
+      'goal_audit:1',
+      'exploration:1',
+    ]);
+    assert.deepEqual(result.taskContract.subgoals.map(goal => goal.id),
+      corrected.map(goal => goal.id));
+  },
+);
+
+auditedPlanningRuntimeTest(
+  'Spec 028 T071 — combined fixed flow seeds get one planner correction before audit',
+  async () => {
+    const combined = combinedFlowWrapperGoals();
+    const corrected = flowWrapperGoals();
+    const client = new ScriptedGoalAuditClient([
+      { stage: 'planner:1', value: plannerControl(combined) },
+      {
+        stage: 'planner:2',
+        run(request) {
+          assert.match(JSON.stringify(request.messages), /exactly one fixed wrapper seed/u);
+          return controlCompletion(plannerControl(corrected));
+        },
+      },
+      {
+        stage: 'goal_audit:1',
+        value: auditorControl(corrected.map(goal => auditControlRecord(goal))),
+      },
+      { stage: 'exploration:1', content: 'All four flow obligations remain atomic.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+    ]);
+    const root = await makeRepoFixture();
+    const result = await new RuntimeImplementation({ chatClient: client }).explore({
+      task: 'Explain the JSON-RPC request path to the parent handoff.',
+      repo_root: root,
+      scope: ['src/**'],
+      taskMode: 'path_explanation',
+    });
+
+    assert.equal(result.failure, null, JSON.stringify(result.failure));
+    assert.deepEqual(client.stageLabels.slice(0, 4), [
+      'planner:1',
+      'planner:2',
+      'goal_audit:1',
+      'exploration:1',
+    ]);
+    assert.deepEqual(result.taskContract.subgoals.map(goal => goal.id),
+      corrected.map(goal => goal.id));
+  },
+);
+
+auditedPlanningRuntimeTest(
+  'Spec 028 T071 — repeated combined fixed flow seeds fail before audit or exploration',
+  async () => {
+    const combined = combinedFlowWrapperGoals();
+    const client = new ScriptedGoalAuditClient([
+      { stage: 'planner:1', value: plannerControl(combined) },
+      { stage: 'planner:2', value: plannerControl(combined) },
+    ]);
+    const root = await makeRepoFixture();
+    const result = await new RuntimeImplementation({ chatClient: client }).explore({
+      task: 'Explain the JSON-RPC request path to the parent handoff.',
+      repo_root: root,
+      scope: ['src/**'],
+      taskMode: 'path_explanation',
+    });
+
+    assert.deepEqual(client.stageLabels, ['planner:1', 'planner:2']);
+    assert.equal(client.stageCounts.get('goal_audit') ?? 0, 0);
+    assert.equal(client.stageCounts.get('exploration') ?? 0, 0);
+    assert.equal(result.parentHandoff.state, 'failed');
+    assert.equal(result.failure?.reason, 'invalid_final_response');
+  },
+);
+
+auditedPlanningRuntimeTest(
+  'Spec 028 T071 — duplicate fixed flow seed ownership gets one planner correction',
+  async () => {
+    const corrected = flowWrapperGoals();
+    const handoffs = corrected.find(goal => goal.id === 'S-flow-handoffs');
+    const duplicateOwner = {
+      ...handoffs,
+      id: 'S-flow-handoffs-duplicate',
+      question: 'Cross-check the component handoffs.',
+    };
+    const invalid = [...corrected, duplicateOwner];
+    const client = new ScriptedGoalAuditClient([
+      { stage: 'planner:1', value: plannerControl(invalid) },
+      {
+        stage: 'planner:2',
+        run(request) {
+          assert.match(JSON.stringify(request.messages), /assigned to multiple goals/u);
+          return controlCompletion(plannerControl(corrected));
+        },
+      },
+      {
+        stage: 'goal_audit:1',
+        value: auditorControl(corrected.map(goal => auditControlRecord(goal))),
+      },
+      { stage: 'exploration:1', content: 'Each fixed flow seed has one owner.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+    ]);
+    const root = await makeRepoFixture();
+    const result = await new RuntimeImplementation({ chatClient: client }).explore({
+      task: 'Explain the JSON-RPC request path to the parent handoff.',
+      repo_root: root,
+      scope: ['src/**'],
+      taskMode: 'path_explanation',
+    });
+
+    assert.equal(result.failure, null, JSON.stringify(result.failure));
+    assert.deepEqual(client.stageLabels.slice(0, 4), [
+      'planner:1',
+      'planner:2',
+      'goal_audit:1',
+      'exploration:1',
+    ]);
+  },
+);
+
+auditedPlanningRuntimeTest(
+  'Spec 028 T071 — generated path prefix origins cannot become flow obligations',
+  async () => {
+    const task =
+      'Explain this code path across files with grounded citations: MCP tools/call request flow from JSON-RPC handler to exploreRepository';
+    const goals = flowWrapperGoals();
+    const callerOrigin =
+      `request:${task.indexOf('MCP tools/call')}-${task.length}`;
+    const generatedPrefixOrigin = `request:0-${task.indexOf('MCP tools/call')}`;
+    const terminalIndex = goals.findIndex(goal => goal.id === 'S-flow-terminal_effect');
+    goals[terminalIndex] = {
+      ...goals[terminalIndex],
+      originRefs: [
+        generatedPrefixOrigin,
+        ...goals[terminalIndex].originRefs,
+      ],
+    };
+    goals.push({
+      id: 'S-generated-prefix',
+      question: 'What code path should be explained across files?',
+      originRefs: [generatedPrefixOrigin],
+      claimType: 'positive',
+      proofCondition: 'Repeat the generated path-wrapper instruction.',
+      constraints: [],
+    });
+    const normalizedGoals = goals
+      .filter(goal => goal.id !== 'S-generated-prefix')
+      .map(goal => ({
+        ...goal,
+        originRefs: [
+          callerOrigin,
+          ...goal.originRefs.filter(originRef =>
+            originRef.startsWith('wrapper:explain_code_path:')),
+        ],
+      }));
+    const generatedUncovered = [
+      {
+        question: 'Explain this code path across files.',
+        originRefs: [generatedPrefixOrigin],
+        claimType: 'positive',
+        proofCondition: 'Repeat the generated wrapper prefix.',
+        constraints: [],
+      },
+    ];
+    const client = new ScriptedGoalAuditClient([
+      { stage: 'planner:1', value: plannerControl(goals) },
+      {
+        stage: 'goal_audit:1',
+        run(request) {
+          const packet = parseControlPacket(request);
+          assert.deepEqual(
+            packet.proposals.find(goal => goal.id === 'S-flow-terminal_effect').originRefs,
+            [callerOrigin, 'wrapper:explain_code_path:terminal_effect'],
+          );
+          assert.deepEqual(
+            packet.proposals.find(goal => goal.id === 'S-flow-entry').originRefs,
+            [callerOrigin, 'wrapper:explain_code_path:entry'],
+          );
+          assert.match(
+            packet.proposals.find(goal =>
+              goal.id === 'S-flow-terminal_effect').question,
+            /immediate return, callee, emitted value, or state effect/u,
+          );
+          assert.equal(
+            packet.proposals.some(goal => goal.id === 'S-generated-prefix'),
+            false,
+          );
+          return controlCompletion(auditorControl(
+            normalizedGoals.map(goal => auditControlRecord(goal)),
+            generatedUncovered,
+          ));
+        },
+      },
+      { stage: 'exploration:1', content: 'The bounded path tool step is omitted.' },
+      { stage: 'exploration:2', content: 'Finalize the partial path result.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+    ]);
+    const root = await makeRepoFixture();
+    const result = await new RuntimeImplementation({ chatClient: client }).explore({
+      task,
+      repo_root: root,
+      scope: ['src/**'],
+      taskMode: 'path_explanation',
+    });
+
+    assert.equal(result.failure, null, JSON.stringify({
+      failure: result.failure,
+      stages: client.stageLabels,
+    }));
+    assert.equal(client.stageCounts.get('planner'), 1,
+      'redundant generated wrapper text must not trigger plan revision');
+    assert.equal(client.stageCounts.get('goal_audit'), 1);
+    assert.equal(
+      result.taskContract.subgoals.some(goal => goal.id === 'S-generated-prefix'),
+      false,
+    );
+    assert.deepEqual(
+      result.taskContract.subgoals
+        .find(goal => goal.id === 'S-flow-entry').originRefs,
+      [callerOrigin, 'wrapper:explain_code_path:entry'],
+    );
+    assert.deepEqual(
+      result.taskContract.subgoals
+        .find(goal => goal.id === 'S-flow-terminal_effect').originRefs,
+      [callerOrigin, 'wrapper:explain_code_path:terminal_effect'],
+    );
+  },
+);
+
+auditedPlanningRuntimeTest(
+  'Spec 028 T071 — caller-authored next-read requirements survive wrapper normalization',
+  async () => {
+    const task =
+      'Explain this code path across files with grounded citations: MCP tools/call request flow from JSON-RPC handler to exploreRepository and identify the next files to read';
+    const callerOrigin =
+      `request:${task.indexOf('MCP tools/call')}-${task.length}`;
+    const goals = [
+      ...flowWrapperGoals(),
+      {
+        id: 'S-caller-next-targets',
+        question: 'Which files should the caller read next?',
+        originRefs: [`request:0-${task.length}`],
+        claimType: 'positive',
+        proofCondition: 'Identify the next files requested by the caller.',
+        constraints: [],
+      },
+    ];
+    const normalizedGoals = goals.map(goal => ({
+      ...goal,
+      originRefs: [
+        callerOrigin,
+        ...goal.originRefs.filter(originRef =>
+          originRef.startsWith('wrapper:explain_code_path:')),
+      ],
+    }));
+    const client = new ScriptedGoalAuditClient([
+      { stage: 'planner:1', value: plannerControl(goals) },
+      {
+        stage: 'goal_audit:1',
+        run(request) {
+          const packet = parseControlPacket(request);
+          assert.deepEqual(
+            packet.proposals.find(goal => goal.id === 'S-caller-next-targets').originRefs,
+            [callerOrigin],
+          );
+          return controlCompletion(auditorControl(
+            normalizedGoals.map(goal => auditControlRecord(goal)),
+          ));
+        },
+      },
+      { stage: 'exploration:1', content: 'The bounded path tool step is omitted.' },
+      { stage: 'exploration:2', content: 'Finalize the partial path result.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+    ]);
+    const root = await makeRepoFixture();
+    const result = await new RuntimeImplementation({ chatClient: client }).explore({
+      task,
+      repo_root: root,
+      scope: ['src/**'],
+      taskMode: 'path_explanation',
+    });
+
+    assert.equal(result.failure, null, JSON.stringify(result.failure));
+    assert.deepEqual(
+      result.taskContract.subgoals
+        .find(goal => goal.id === 'S-caller-next-targets').originRefs,
+      [callerOrigin],
+    );
+  },
+);
+
+auditedPlanningRuntimeTest(
+  'Spec 028 T071 — canonical flow audit survives a request-only mechanical merge',
+  async () => {
+    const task =
+      'Explain this code path across files with grounded citations: MCP tools/call request flow from JSON-RPC handler to exploreRepository';
+    const callerOrigin =
+      `request:${task.indexOf('MCP tools/call')}-${task.length}`;
+    const requestEntry = {
+      id: 'S-request-entry',
+      question:
+        'What actual entry function receives or dispatches the caller-named origin of the requested path?',
+      originRefs: [callerOrigin],
+      claimType: 'flow',
+      proofCondition:
+        'Observe exact source at the caller-named path origin; a downstream dispatcher or handler cannot substitute for that entry.',
+      constraints: [],
+    };
+    const client = new ScriptedGoalAuditClient([
+      {
+        stage: 'planner:1',
+        value: plannerControl([requestEntry, ...flowWrapperGoals()]),
+      },
+      {
+        stage: 'goal_audit:1',
+        run(request) {
+          const packet = parseControlPacket(request);
+          const retained = packet.proposals.find(goal => goal.id === requestEntry.id);
+          assert.deepEqual(retained.originRefs, [
+            callerOrigin,
+            'wrapper:explain_code_path:entry',
+          ]);
+          return controlCompletion(auditorControl(packet.proposals.map(goal =>
+            auditControlRecord(
+              goal,
+              goal.id === requestEntry.id ? 'needs_decomposition' : 'ready',
+            ))));
+        },
+      },
+      {
+        stage: 'goal_audit:2',
+        run(request) {
+          assert.match(JSON.stringify(request.messages),
+            /without decomposition, rejection, or merge/u);
+          const packet = parseControlPacket(request);
+          return controlCompletion(auditorControl(
+            packet.proposals.map(goal => auditControlRecord(goal)),
+          ));
+        },
+      },
+      { stage: 'exploration:1', content: 'Canonical flow goals remain independent.' },
+      { stage: 'exploration:2', content: 'Finalize the planning-only path fixture.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+    ]);
+    const root = await makeRepoFixture();
+    const result = await new RuntimeImplementation({ chatClient: client }).explore({
+      task,
+      repo_root: root,
+      scope: ['src/**'],
+      taskMode: 'path_explanation',
+    });
+
+    assert.equal(result.failure, null, JSON.stringify({
+      failure: result.failure,
+      stages: client.stageLabels,
+    }));
+    assert.deepEqual(client.stageLabels.slice(0, 4), [
+      'planner:1',
+      'goal_audit:1',
+      'goal_audit:2',
+      'exploration:1',
+    ]);
+    assert.equal(client.stageCounts.get('planner'), 1);
+  },
+);
+
+auditedPlanningRuntimeTest(
+  'Spec 028 T071 — generated fixed flow goals reject audit decomposition once',
+  async () => {
+    const task =
+      'Explain this code path across files with grounded citations: MCP tools/call request flow from JSON-RPC handler to exploreRepository';
+    const callerOrigin =
+      `request:${task.indexOf('MCP tools/call')}-${task.length}`;
+    const goals = flowWrapperGoals();
+    const auditedGoals = goals.map(goal => ({
+      ...goal,
+      originRefs: [
+        callerOrigin,
+        ...goal.originRefs,
+      ],
+    }));
+    const invalidAudit = auditorControl(auditedGoals.map(goal =>
+      goal.id === 'S-flow-terminal_effect'
+        ? auditControlRecord(goal, 'needs_decomposition')
+        : auditControlRecord(goal)));
+    const client = new ScriptedGoalAuditClient([
+      { stage: 'planner:1', value: plannerControl(goals) },
+      { stage: 'goal_audit:1', value: invalidAudit },
+      {
+        stage: 'goal_audit:2',
+        run(request) {
+          assert.match(JSON.stringify(request.messages),
+            /without decomposition, rejection, or merge/u);
+          return controlCompletion(auditorControl(
+            auditedGoals.map(goal => auditControlRecord(goal)),
+          ));
+        },
+      },
+      { stage: 'exploration:1', content: 'All four canonical flow goals are ready.' },
+      { stage: 'exploration:2', content: 'Finalize the planning-only path fixture.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+    ]);
+    const root = await makeRepoFixture();
+    const result = await new RuntimeImplementation({ chatClient: client }).explore({
+      task,
+      repo_root: root,
+      scope: ['src/**'],
+      taskMode: 'path_explanation',
+    });
+
+    assert.equal(result.failure, null, JSON.stringify({
+      failure: result.failure,
+      stages: client.stageLabels,
+    }));
+    assert.deepEqual(client.stageLabels.slice(0, 4), [
+      'planner:1',
+      'goal_audit:1',
+      'goal_audit:2',
+      'exploration:1',
+    ]);
+    assert.equal(result.taskContract.subgoals.some(goal =>
+      goal.id.startsWith('planning-carry:')), false);
+  },
+);
+
+auditedPlanningRuntimeTest('Spec 028 T068 — invalid control retries receive only bounded validator feedback', async () => {
+  const goal = proposedRuntimeGoal();
+  const absenceGoal = {
+    id: 'S-absence',
+    question: 'Is legacyGuard absent?',
+    originRefs: [requestOrigin(GOAL_AUDIT_TASK, 'verify legacyGuard is absent')],
+    claimType: 'absence',
+    proofCondition: 'Search the complete in-scope boundary for legacyGuard.',
+    constraints: [],
+  };
+  const goals = [goal, absenceGoal];
+  const invalidOrigin = requestOrigin(GOAL_AUDIT_TASK, 'verify legacyGuard is absent');
+  const invalidMarker = 'INVALID_MODEL_OUTPUT_SHOULD_NOT_REAPPEAR';
+  const client = new ScriptedGoalAuditClient([
+    { stage: 'planner:1', value: plannerControl(goals) },
+    {
+      stage: 'goal_audit:1',
+      value: auditorControl([
+        auditControlRecord(goal, 'ready', {
+          originRefs: [invalidOrigin],
+          reason: invalidMarker,
+        }),
+        auditControlRecord(absenceGoal),
+      ]),
+    },
+    {
+      stage: 'goal_audit:2',
+      run(request) {
+        const retryPacket = JSON.stringify(request.messages);
+        assert.match(retryPacket, /failed runtime validation/i);
+        assert.match(retryPacket, /unproposed origin/);
+        assert.match(retryPacket, new RegExp(invalidOrigin.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+        assert.match(retryPacket, /allowed originRefs by proposal/u);
+        for (const proposed of goals) {
+          assert.match(retryPacket, new RegExp(
+            `${proposed.id}=\\[${proposed.originRefs.join(',')}\\]`,
+            'u',
+          ));
+        }
+        assert.doesNotMatch(retryPacket, new RegExp(invalidMarker));
+        return controlCompletion(auditorControl(goals.map(proposed => auditControlRecord(proposed))));
+      },
+    },
+    { stage: 'exploration:1', content: 'The corrected audited goal is ready.' },
+    { stage: 'synthesis:1', value: readyExplorationResult() },
+  ]);
+  const root = await makeRepoFixture();
+
+  const result = await new RuntimeImplementation({ chatClient: client }).explore({
+    task: GOAL_AUDIT_TASK,
+    repo_root: root,
+    scope: ['src/**'],
+  });
+
+  assert.deepEqual(client.stageLabels.slice(0, 3), [
+    'planner:1',
+    'goal_audit:1',
+    'goal_audit:2',
+  ]);
+  assert.deepEqual(result.taskContract.subgoals.map(subgoal => subgoal.id), goals.map(item => item.id));
+});
+
+auditedPlanningRuntimeTest('Spec 028 T069 — repeated cross-goal auditor origins still fail closed', async () => {
+  const goals = definitionAndAbsenceGoals();
+  const crossGoalOrigin = goals[1].originRefs[0];
+  const invalidAudit = () => auditorControl(goals.map((goal, index) =>
+    auditControlRecord(goal, 'ready', {
+      originRefs: index === 0 ? [crossGoalOrigin] : goal.originRefs,
+    })));
+  const client = new ScriptedGoalAuditClient([
+    { stage: 'planner:1', value: plannerControl(goals) },
+    { stage: 'goal_audit:1', value: invalidAudit() },
+    { stage: 'goal_audit:2', value: invalidAudit() },
+  ]);
+  const root = await makeRepoFixture();
+  const result = await new RuntimeImplementation({ chatClient: client }).explore({
+    task: GOAL_AUDIT_TASK,
+    repo_root: root,
+    scope: ['src/**'],
+  });
+
+  assert.equal(client.stageCounts.get('goal_audit'), 2);
+  assert.equal(client.stageCounts.get('exploration') ?? 0, 0);
+  assert.equal(result.failure?.reason, 'invalid_final_response');
+  assert.equal(result.parentHandoff.state, 'failed');
+});
+
+auditedPlanningRuntimeTest('Spec 028 T068 — consumed duplicate audits remain internal diagnostics', async () => {
+  const retained = proposedRuntimeGoal();
+  const duplicate = proposedRuntimeGoal({
+    id: 'S-definition-rephrased',
+    question: 'Which declaration provides requireAuth?',
+  });
+  const client = new ScriptedGoalAuditClient([
+    { stage: 'planner:1', value: plannerControl([retained, duplicate]) },
+    {
+      stage: 'goal_audit:1',
+      value: auditorControl([
+        auditControlRecord(retained),
+        auditControlRecord(duplicate, 'merge_duplicate', { mergeInto: retained.id }),
+      ]),
+    },
+    { stage: 'exploration:1', content: 'The merged audited goal is ready.' },
+    { stage: 'synthesis:1', value: readyExplorationResult() },
+  ]);
+  const root = await makeRepoFixture();
+  const result = await new RuntimeImplementation({ chatClient: client }).explore({
+    task: GOAL_AUDIT_TASK,
+    repo_root: root,
+    scope: ['src/**'],
+  });
+
+  assert.deepEqual(result.taskContract.subgoals.map(goal => goal.id), [retained.id]);
+  assert.deepEqual(result.goalAuditRecords.map(record => ({
+    proposedGoalId: record.proposedGoalId,
+    verdict: record.verdict,
+    ...(record.mergeInto ? { mergeInto: record.mergeInto } : {}),
+  })), [
+    { proposedGoalId: retained.id, verdict: 'ready' },
+    {
+      proposedGoalId: duplicate.id,
+      verdict: 'merge_duplicate',
+      mergeInto: retained.id,
+    },
+  ]);
+  assert.equal(result.parentHandoff.goalAuditRecords, undefined);
+  assert.doesNotMatch(JSON.stringify(result.parentHandoff), /goalAuditRecords|merge_duplicate/);
+});
+
+auditedPlanningRuntimeTest('Spec 028 T017 — one corrected plan is re-audited and recursion is impossible', async () => {
+  const broad = proposedRuntimeGoal({
+    id: 'S-broad',
+    question: 'Locate requireAuth and prove every legacyGuard registration outcome.',
+    originRefs: [`request:0-${GOAL_AUDIT_TASK.length}`],
+    claimType: 'positive',
+    proofCondition: 'Observe the definition and separately enumerate the registration surface.',
+  });
+  const corrected = definitionAndAbsenceGoals();
+  const uncovered = {
+    question: corrected[1].question,
+    originRefs: [...corrected[1].originRefs],
+    claimType: corrected[1].claimType,
+    proofCondition: corrected[1].proofCondition,
+    constraints: [],
+  };
+  const client = new ScriptedGoalAuditClient([
+    { stage: 'planner:1', value: plannerControl([broad]) },
+    {
+      stage: 'goal_audit:1',
+      value: auditorControl([
+        auditControlRecord(broad, 'needs_decomposition'),
+      ], [uncovered]),
+    },
+    { stage: 'planner:2', value: plannerControl(corrected) },
+    {
+      stage: 'goal_audit:2',
+      value: auditorControl([
+        auditControlRecord(corrected[0]),
+        auditControlRecord(corrected[1], 'needs_decomposition'),
+      ]),
+    },
+    {
+      stage: 'goal_coverage:1',
+      value: coverageControl([
+        coveredObligation('revision-obligation-1', corrected.map(goal => goal.id)),
+        coveredObligation('revision-obligation-2', [corrected[1].id]),
+      ]),
+    },
+    { stage: 'exploration:1', content: 'Corrected audited goals are ready.' },
+    { stage: 'synthesis:1', value: readyExplorationResult() },
+  ]);
+  const root = await makeRepoFixture();
+  const runtime = new RuntimeImplementation({ chatClient: client });
+
+  const result = await runtime.explore({
+    task: GOAL_AUDIT_TASK,
+    repo_root: root,
+    scope: ['src/**'],
+  });
+
+  assert.deepEqual(client.stageLabels, [
+    'planner:1',
+    'goal_audit:1',
+    'planner:2',
+    'goal_audit:2',
+    'goal_coverage:1',
+    'exploration:1',
+    'synthesis:1',
+    'exploration:2',
+  ]);
+  assert.equal(result.taskContract.subgoals.length, 2);
+  assert.equal(result.taskContract.subgoals[0].id, 'S-definition');
+  const planningDefect = result.taskContract.subgoals.find(goal =>
+    goal.auditVerdict === 'planning_incomplete');
+  assert.ok(planningDefect, 'the second-pass decomposition must become a required blocker');
+  assert.equal(planningDefect.state, 'blocked');
+  assert.match(planningDefect.question, /legacyGuard/);
+  assert.ok(result.coverageGaps.some(gap => gap.reason === 'planning_incomplete'));
+  const revisionRequest = client.requests[2];
+  const revisionPrompt = JSON.stringify(revisionRequest.messages);
+  assert.match(revisionPrompt, /S-broad/);
+  assert.match(revisionPrompt, /legacyGuard/);
+  assert.equal(client.stageCounts.get('planner'), 2, 'a third planner pass is forbidden');
+  assert.equal(client.stageCounts.get('goal_audit'), 2, 'the corrected plan is audited once');
+  assert.deepEqual(result.goalAuditRecords.map(record => [
+    record.proposedGoalId,
+    record.verdict,
+  ]), [
+    ['S-broad', 'needs_decomposition'],
+    ['S-definition', 'ready'],
+    ['S-absence', 'needs_decomposition'],
+  ], 'direct-runtime diagnostics retain both consumed audit rounds');
+  assert.equal(result.parentHandoff.goalAuditRecords, undefined);
+  assert.doesNotMatch(JSON.stringify(result.parentHandoff),
+    /goalAuditRecords|needs_decomposition/);
+});
+
+auditedPlanningRuntimeTest('Spec 028 T069 — strict origin containment gets one uniquely bound refinement', async () => {
+  const task = 'Compare frontend administrator policy with backend administrator and developer access policies.';
+  const preserved = proposedRuntimeGoal({
+    id: 'S-frontend-policy',
+    question: 'Which frontend administrator policy is enforced?',
+    originRefs: [requestOrigin(task, 'frontend administrator policy')],
+    claimType: 'positive',
+    proofCondition: 'Observe the frontend administrator predicate.',
+  });
+  const broad = proposedRuntimeGoal({
+    id: 'S-backend-broad',
+    question: 'Which backend administrator and developer policies apply?',
+    originRefs: [requestOrigin(task, 'backend administrator and developer access policies')],
+    claimType: 'comparison',
+    proofCondition: 'Compare the backend administrator and developer policy paths.',
+  });
+  const nested = proposedRuntimeGoal({
+    id: 'S-developer-nested',
+    question: 'Which developer access policy applies?',
+    originRefs: [requestOrigin(task, 'developer access policies')],
+    claimType: 'comparison',
+    proofCondition: 'Compare the developer-specific access paths.',
+  });
+  const correctedAdmin = {
+    ...broad,
+    question: 'Which backend administrator policy applies?',
+    originRefs: [requestOrigin(task, 'backend administrator')],
+    proofCondition: 'Compare the backend administrator policy paths.',
+  };
+  const correctedDeveloper = {
+    ...nested,
+    question: 'Which developer access path applies?',
+    originRefs: [requestOrigin(task, 'developer access')],
+    proofCondition: 'Compare the developer-specific access path independently.',
+  };
+  const client = new ScriptedGoalAuditClient([
+    { stage: 'planner:1', value: plannerControl([preserved, broad, nested]) },
+    {
+      stage: 'goal_audit:1',
+      value: auditorControl([preserved, broad, nested].map(goal => auditControlRecord(goal))),
+    },
+    {
+      stage: 'planner:2',
+      run(request) {
+        const packet = parseControlPacket(request);
+        assert.deepEqual(new Set(packet.revisionRequest.refineGoalIds),
+          new Set([broad.id, nested.id]));
+        assert.deepEqual(packet.revisionRequest.decomposeGoalIds, []);
+        assert.match(request.messages[0].content, /exactly one same-type descendant goal/u);
+        return controlCompletion(plannerControl([
+          preserved,
+          correctedAdmin,
+          correctedDeveloper,
+        ]));
+      },
+    },
+    {
+      stage: 'goal_audit:2',
+      value: auditorControl([
+        auditControlRecord(correctedAdmin),
+        auditControlRecord(correctedDeveloper),
+      ]),
+    },
+    {
+      stage: 'goal_coverage:1',
+      run(request) {
+        assert.match(request.messages[0].content,
+          /refine obligation requires exactly one coveredByGoalId/u);
+        assert.match(request.messages[0].content,
+          /same-type refined goals must not retain equal or containing confirmed origin signatures/u);
+        return controlCompletion(coverageControl([
+          coveredObligation('revision-obligation-1', [correctedDeveloper.id]),
+          coveredObligation('revision-obligation-2', [correctedDeveloper.id]),
+        ]));
+      },
+    },
+    {
+      stage: 'goal_coverage:2',
+      value: coverageControl([
+        coveredObligation('revision-obligation-1', [correctedAdmin.id]),
+        coveredObligation('revision-obligation-2', [correctedDeveloper.id]),
+      ]),
+    },
+    { stage: 'exploration:1', content: 'The uniquely refined goals are ready.' },
+    { stage: 'synthesis:1', value: readyExplorationResult() },
+  ]);
+  const root = await makeRepoFixture();
+  const result = await new RuntimeImplementation({ chatClient: client }).explore({
+    task,
+    repo_root: root,
+    scope: ['src/**'],
+  });
+
+  assert.equal(result.failure, null, JSON.stringify({
+    stages: client.stageLabels,
+    failure: result.failure,
+  }));
+  assert.equal(client.stageCounts.get('planner'), 2);
+  assert.equal(client.stageCounts.get('goal_audit'), 2);
+  assert.equal(client.stageCounts.get('goal_coverage'), 2,
+    'one invalid duplicate binding receives only the bounded correction attempt');
+  assert.deepEqual(result.taskContract.subgoals.map(goal => goal.id),
+    [preserved.id, correctedAdmin.id, correctedDeveloper.id]);
+  assert.equal(result.coverageGaps.some(gap => gap.reason === 'planning_incomplete'), false);
+  assert.ok(result.taskContract.subgoals.every(goal =>
+    /^audit-v1:/.test(goal.auditBinding)));
+});
+
+auditedPlanningRuntimeTest('Spec 028 T069 — distinct refine ids cannot retain equal confirmed origins', async () => {
+  const task = 'Compare frontend administrator policy with backend administrator and developer access policies.';
+  const broad = proposedRuntimeGoal({
+    id: 'S-backend-broad-equal',
+    question: 'Which backend administrator and developer policies apply?',
+    originRefs: [requestOrigin(task, 'backend administrator and developer access policies')],
+    claimType: 'comparison',
+    proofCondition: 'Compare the backend administrator and developer policy paths.',
+  });
+  const nested = proposedRuntimeGoal({
+    id: 'S-developer-nested-equal',
+    question: 'Which developer access policy applies?',
+    originRefs: [requestOrigin(task, 'developer access policies')],
+    claimType: 'comparison',
+    proofCondition: 'Compare the developer-specific access paths.',
+  });
+  const equalOrigin = requestOrigin(task, 'developer access');
+  const corrected = [
+    {
+      ...broad,
+      id: 'S-equal-admin',
+      question: 'Which administrator policy applies?',
+      originRefs: [equalOrigin],
+      proofCondition: 'Compare the administrator policy paths.',
+    },
+    {
+      ...nested,
+      id: 'S-equal-developer',
+      question: 'Which developer policy applies?',
+      originRefs: [equalOrigin],
+      proofCondition: 'Compare the developer policy paths.',
+    },
+  ];
+  const invalidCoverage = coverageControl([
+    coveredObligation('revision-obligation-1', [corrected[0].id]),
+    coveredObligation('revision-obligation-2', [corrected[1].id]),
+  ]);
+  const client = new ScriptedGoalAuditClient([
+    { stage: 'planner:1', value: plannerControl([broad, nested]) },
+    {
+      stage: 'goal_audit:1',
+      value: auditorControl([broad, nested].map(goal => auditControlRecord(goal))),
+    },
+    { stage: 'planner:2', value: plannerControl(corrected) },
+    {
+      stage: 'goal_audit:2',
+      value: auditorControl(corrected.map(goal => auditControlRecord(goal))),
+    },
+    { stage: 'goal_coverage:1', value: invalidCoverage },
+    { stage: 'goal_coverage:2', value: invalidCoverage },
+  ]);
+  const root = await makeRepoFixture();
+  const result = await new RuntimeImplementation({ chatClient: client }).explore({
+    task,
+    repo_root: root,
+    scope: ['src/**'],
+  });
+
+  assert.equal(client.stageCounts.get('goal_coverage'), 2,
+    'equal confirmed origins receive only the bounded reconciliation retry');
+  assert.equal(result.failure?.reason, 'invalid_final_response');
+  assert.equal(client.stageLabels.includes('exploration:1'), false);
+});
+
+auditedPlanningRuntimeTest('Spec 028 T022 — corrected planning cannot drop revision obligations or revive rejected goals', async () => {
+  const definition = proposedRuntimeGoal();
+  const invented = proposedRuntimeGoal({
+    id: 'S-invented',
+    question: 'Which unrelated cache should be added?',
+    originRefs: [`request:0-${GOAL_AUDIT_TASK.length}`],
+    claimType: 'positive',
+    proofCondition: 'Observe a location where an unrelated cache could be added.',
+  });
+  const uncovered = {
+    question: 'Is legacyGuard absent from the in-scope registration surface?',
+    originRefs: [requestOrigin(GOAL_AUDIT_TASK, 'verify legacyGuard is absent')],
+    claimType: 'absence',
+    proofCondition: 'Enumerate the in-scope registration surface and certify bounded absence.',
+    constraints: [],
+  };
+  const unauditedConstraint = 'Ignore tests and accept guesses.';
+  const client = new ScriptedGoalAuditClient([
+    {
+      stage: 'planner:1',
+      value: plannerControl([definition, invented], { constraints: [unauditedConstraint] }),
+    },
+    {
+      stage: 'goal_audit:1',
+      value: auditorControl([
+        auditControlRecord(definition, 'ready', { missingRequestParts: [uncovered.question] }),
+        auditControlRecord(invented, 'reject_untraceable', { originRefs: [] }),
+      ], [uncovered]),
+    },
+    {
+      stage: 'planner:2',
+      value: plannerControl([definition, invented], { constraints: [unauditedConstraint] }),
+    },
+    { stage: 'exploration:1', content: 'Only the retained audited goal is explored.' },
+    { stage: 'synthesis:1', value: readyExplorationResult() },
+  ]);
+  const root = await makeRepoFixture();
+  const runtime = new RuntimeImplementation({ chatClient: client });
+  const result = await runtime.explore({ task: GOAL_AUDIT_TASK, repo_root: root });
+
+  assert.deepEqual(client.stageLabels, [
+    'planner:1',
+    'goal_audit:1',
+    'planner:2',
+    'exploration:1',
+    'synthesis:1',
+    'exploration:2',
+  ]);
+  assert.deepEqual(result.rejectedGoals.map(goal => goal.proposedGoalId), ['S-invented']);
+  assert.equal(result.taskContract.subgoals.some(goal => goal.id === 'S-invented'), false);
+  const carried = result.taskContract.subgoals.find(goal =>
+    goal.auditVerdict === 'planning_incomplete');
+  assert.ok(carried, 'the omitted uncovered obligation must become a required blocker');
+  assert.equal(carried.question, uncovered.question);
+  assert.ok(result.coverageGaps.some(gap => gap.subgoalId === carried.id));
+  assert.deepEqual(result.taskContract.constraints, [],
+    'unaudited planner-level constraints must not enter the task contract');
+  assert.equal(client.stageCounts.get('goal_audit'), 1,
+    'a preserved goal is carried forward without a second audit');
+  assert.doesNotMatch(JSON.stringify(client.requests[3].messages), /S-invented/,
+    'a terminally rejected goal must not leak into exploration');
+});
+
+auditedPlanningRuntimeTest('Spec 028 T069 — revision carry ids reserve preserved goal identities', async () => {
+  const broadId = 'S-carry-collision';
+  const preserved = proposedRuntimeGoal({
+    id: `planning-carry:${broadId}`,
+    question: 'Where is the retained requireAuth definition?',
+    proofCondition: 'Observe the retained in-scope requireAuth definition.',
+  });
+  const broad = proposedRuntimeGoal({
+    id: broadId,
+    question: 'Inspect all requested authentication facets together.',
+    originRefs: [`request:0-${GOAL_AUDIT_TASK.length}`],
+    claimType: 'positive',
+    proofCondition: 'Observe every requested authentication facet in one aggregate proof.',
+  });
+  const client = new ScriptedGoalAuditClient([
+    { stage: 'planner:1', value: plannerControl([preserved, broad]) },
+    {
+      stage: 'goal_audit:1',
+      value: auditorControl([
+        auditControlRecord(preserved),
+        auditControlRecord(broad, 'needs_decomposition'),
+      ]),
+    },
+    { stage: 'planner:2', value: plannerControl([preserved]) },
+    { stage: 'exploration:1', content: 'Only the preserved goal can be explored.' },
+    { stage: 'synthesis:1', value: readyExplorationResult() },
+  ]);
+  const root = await makeRepoFixture();
+  const result = await new RuntimeImplementation({ chatClient: client }).explore({
+    task: GOAL_AUDIT_TASK,
+    repo_root: root,
+  });
+
+  assert.equal(result.failure, null, JSON.stringify(result.failure));
+  assert.deepEqual(result.taskContract.subgoals.map(goal => goal.id), [
+    preserved.id,
+    `planning-carry:${broadId}:2`,
+  ]);
+  assert.equal(new Set(result.taskContract.subgoals.map(goal => goal.id)).size,
+    result.taskContract.subgoals.length);
+  assert.equal(result.taskContract.subgoals[1].auditVerdict, 'planning_incomplete');
+});
+
+auditedPlanningRuntimeTest('Spec 028 T022 — one audited rephrase can satisfy an uncovered revision obligation', async () => {
+  const definition = proposedRuntimeGoal();
+  const uncovered = {
+    question: 'Is legacyGuard absent from the in-scope registration surface?',
+    originRefs: [requestOrigin(GOAL_AUDIT_TASK, 'verify legacyGuard is absent')],
+    claimType: 'absence',
+    proofCondition: 'Enumerate the in-scope registration surface and certify bounded absence.',
+    constraints: [],
+  };
+  const replacement = proposedRuntimeGoal({
+    id: 'S-absence-rephrased',
+    question: 'Determine whether legacyGuard is absent in the in-scope registration surface.',
+    originRefs: [...uncovered.originRefs],
+    claimType: 'absence',
+    proofCondition: 'Completely enumerate the bounded registration surface and establish absence.',
+  });
+  const client = new ScriptedGoalAuditClient([
+    { stage: 'planner:1', value: plannerControl([definition]) },
+    {
+      stage: 'goal_audit:1',
+      value: auditorControl([
+        auditControlRecord(definition, 'ready', { missingRequestParts: [uncovered.question] }),
+      ], [uncovered]),
+    },
+    { stage: 'planner:2', value: plannerControl([definition, replacement]) },
+    {
+      stage: 'goal_audit:2',
+      value: auditorControl([
+        auditControlRecord(replacement),
+      ]),
+    },
+    {
+      stage: 'goal_coverage:1',
+      value: coverageControl([
+        coveredObligation('revision-obligation-1', [replacement.id]),
+      ]),
+    },
+    { stage: 'exploration:1', content: 'The audited replacement is ready.' },
+    { stage: 'synthesis:1', value: readyExplorationResult() },
+  ]);
+  const root = await makeRepoFixture();
+  const runtime = new RuntimeImplementation({ chatClient: client });
+  const result = await runtime.explore({ task: GOAL_AUDIT_TASK, repo_root: root });
+
+  assert.deepEqual(result.taskContract.subgoals.map(goal => goal.id),
+    ['S-definition', 'S-absence-rephrased']);
+  assert.equal(result.taskContract.subgoals.some(goal =>
+    goal.auditVerdict === 'planning_incomplete'), false);
+  assert.equal(result.coverageGaps.some(gap => gap.reason === 'planning_incomplete'), false);
+  assert.deepEqual(result.coverageGaps
+    .filter(gap => gap.reason === 'missing_evidence')
+    .map(gap => gap.subgoalId), ['S-definition', 'S-absence-rephrased']);
+  const coveragePrompt = JSON.stringify(client.requests[4].messages);
+  assert.match(coveragePrompt, /S-absence-rephrased/);
+  assert.doesNotMatch(coveragePrompt, /S-definition/,
+    'preserved goals that cannot discharge a revision obligation stay out of the coverage prompt');
+});
+
+auditedPlanningRuntimeTest(
+  'Spec 028 T071 — uncovered reconciliation accepts a governing-phrase origin expansion',
+  async () => {
+    const task = 'Map every user-facing page that uses the Prisma model.';
+    const preserved = {
+      id: 'S-prisma-model',
+      question: 'Which Prisma model is requested?',
+      originRefs: [requestOrigin(task, 'Prisma model')],
+      claimType: 'symbol_definition',
+      proofCondition: 'Observe the requested Prisma model definition.',
+      constraints: [],
+    };
+    const uncovered = {
+      question: 'Which user-facing pages use the model?',
+      originRefs: [requestOrigin(task, 'user-facing page')],
+      claimType: 'impact',
+      proofCondition: 'Enumerate the bounded user-facing page surface and observe every model use.',
+      constraints: [],
+    };
+    const replacement = {
+      id: 'S-user-facing-pages',
+      question: 'Which user-facing pages use the requested model?',
+      originRefs: [requestOrigin(task, 'every user-facing page')],
+      claimType: 'impact',
+      proofCondition: 'Enumerate the bounded user-facing page surface and observe every model use.',
+      constraints: [],
+    };
+    const client = new ScriptedGoalAuditClient([
+      { stage: 'planner:1', value: plannerControl([preserved]) },
+      {
+        stage: 'goal_audit:1',
+        value: auditorControl([
+          auditControlRecord(preserved, 'ready', { missingRequestParts: [uncovered.question] }),
+        ], [uncovered]),
+      },
+      { stage: 'planner:2', value: plannerControl([preserved, replacement]) },
+      {
+        stage: 'goal_audit:2',
+        value: auditorControl([auditControlRecord(replacement)]),
+      },
+      {
+        stage: 'goal_coverage:1',
+        value: coverageControl([
+          coveredObligation('revision-obligation-1', [replacement.id]),
+        ]),
+      },
+      { stage: 'exploration:1', content: 'The clarified page goal is ready.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+    ]);
+    const root = await makeRepoFixture();
+    const result = await new RuntimeImplementation({ chatClient: client }).explore({
+      task,
+      repo_root: root,
+    });
+
+    assert.equal(result.failure, null, JSON.stringify({
+      failure: result.failure,
+      stages: client.stageLabels,
+    }));
+    assert.equal(client.stageCounts.get('goal_coverage'), 1,
+      JSON.stringify(client.stageLabels));
+    assert.deepEqual(result.taskContract.subgoals.map(goal => goal.id), [
+      preserved.id,
+      replacement.id,
+    ]);
+    assert.equal(result.taskContract.subgoals.some(goal =>
+      goal.auditVerdict === 'planning_incomplete'), false);
+    assert.equal(result.coverageGaps.some(gap => gap.reason === 'planning_incomplete'), false);
+  },
+);
+
+auditedPlanningRuntimeTest(
+  'Spec 028 T071 — fixed locate leaves reject duplicate request-origin decomposition',
+  async () => {
+    const task = 'Update README examples for explore_repo return fields.';
+    const [locations, relevance] = locateWrapperGoals();
+    const uncovered = [
+      {
+        question: 'Identify the README file containing the examples to update.',
+        originRefs: [requestOrigin(task, 'README')],
+        claimType: 'positive',
+        proofCondition: 'Locate the README file containing the explore_repo examples.',
+        constraints: [],
+      },
+      {
+        question: 'Identify the source defining the explore_repo return fields.',
+        originRefs: [requestOrigin(task, 'explore_repo return fields')],
+        claimType: 'symbol_definition',
+        proofCondition: 'Locate the source definition of the explore_repo return fields.',
+        constraints: [],
+      },
+    ];
+    const client = new ScriptedGoalAuditClient([
+      { stage: 'planner:1', value: plannerControl([locations, relevance]) },
+      {
+        stage: 'goal_audit:1',
+        value: auditorControl([
+          auditControlRecord(locations, 'needs_decomposition', {
+            missingRequestParts: uncovered.map(goal => goal.question),
+          }),
+          auditControlRecord(relevance, 'needs_decomposition'),
+        ], uncovered),
+      },
+      {
+        stage: 'goal_audit:2',
+        run(request) {
+          assert.match(
+            JSON.stringify(request.messages),
+            /fixed wrapper-only leaf does not require an additional request origin/iu,
+          );
+          return controlCompletion(auditorControl([
+            auditControlRecord(locations),
+            auditControlRecord(relevance),
+          ]));
+        },
+      },
+      { stage: 'exploration:1', content: 'The independent-origin goals are ready.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+    ]);
+    const root = await makeRepoFixture();
+    const result = await new RuntimeImplementation({ chatClient: client }).explore({
+      task,
+      repo_root: root,
+      taskMode: 'locate',
+    });
+
+    assert.equal(result.failure, null,
+      JSON.stringify({ failure: result.failure, stages: client.stageLabels }));
+    assert.deepEqual(client.stageLabels.slice(0, 4), [
+      'planner:1',
+      'goal_audit:1',
+      'goal_audit:2',
+      'exploration:1',
+    ]);
+    assert.equal(client.stageCounts.get('planner'), 1);
+    assert.equal(client.stageCounts.get('goal_coverage'), undefined);
+    assert.deepEqual(
+      result.taskContract.subgoals.map(goal => goal.id),
+      [locations.id, relevance.id],
+    );
+  },
+);
+
+auditedPlanningRuntimeTest(
+  'Spec 028 T071 — repeated fixed locate decomposition fails before exploration',
+  async () => {
+    const [locations, relevance] = locateWrapperGoals();
+    const invalidAudit = () => auditorControl([
+      auditControlRecord(locations),
+      auditControlRecord(relevance, 'needs_decomposition'),
+    ]);
+    const client = new ScriptedGoalAuditClient([
+      { stage: 'planner:1', value: plannerControl([locations, relevance]) },
+      { stage: 'goal_audit:1', value: invalidAudit() },
+      { stage: 'goal_audit:2', value: invalidAudit() },
+    ]);
+    const root = await makeRepoFixture();
+    const result = await new RuntimeImplementation({ chatClient: client }).explore({
+      task: GOAL_AUDIT_TASK,
+      repo_root: root,
+      taskMode: 'locate',
+    });
+
+    assert.equal(result.failure?.reason, 'invalid_final_response', JSON.stringify({
+      failure: result.failure,
+      stages: client.stageLabels,
+    }));
+    assert.equal(result.parentHandoff.state, 'failed');
+    assert.equal(client.stageCounts.get('goal_audit'), 2);
+    assert.equal(client.stageCounts.get('planner'), 1);
+    assert.equal(client.stageCounts.get('goal_coverage'), undefined);
+    assert.equal(client.stageCounts.get('exploration') ?? 0, 0);
+  },
+);
+
+auditedPlanningRuntimeTest(
+  'Spec 028 T071 — caller-requested global minimality remains an explicit gap',
+  async () => {
+    const task =
+      'Locate requireAuth and prove the globally smallest target set.';
+    const [locations, relevance] = locateWrapperGoals();
+    const strongRequirement = {
+      id: 'S-locate-global-minimum',
+      question: 'What is the globally smallest target set?',
+      originRefs: [requestOrigin(task, 'globally smallest target set')],
+      claimType: 'comparison',
+      proofCondition:
+        'Prove that no smaller target set can satisfy the request across the complete repository.',
+      constraints: [],
+    };
+    const client = new ScriptedGoalAuditClient([
+      {
+        stage: 'planner:1',
+        value: plannerControl([locations, relevance, strongRequirement]),
+      },
+      {
+        stage: 'goal_audit:1',
+        value: auditorControl([
+          auditControlRecord(locations),
+          auditControlRecord(relevance),
+          auditControlRecord(strongRequirement, 'ready'),
+        ]),
+      },
+      {
+        stage: 'exploration:1',
+        content: 'The bounded locate goals remain available.',
+      },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+    ]);
+    const root = await makeRepoFixture();
+    const result = await new RuntimeImplementation({ chatClient: client }).explore({
+      task,
+      repo_root: root,
+      taskMode: 'locate',
+    });
+
+    assert.equal(result.failure, null, JSON.stringify({
+      failure: result.failure,
+      stages: client.stageLabels,
+    }));
+    const carried = result.taskContract.subgoals.find(goal =>
+      goal.id === strongRequirement.id);
+    assert.ok(carried);
+    assert.equal(carried.auditVerdict, 'blocked_capability');
+    assert.equal(result.parentHandoff.state, 'incomplete');
+    assert.ok(result.parentHandoff.gaps.some(gap =>
+      gap.question === 'globally smallest target set'));
+  },
+);
+
+test('Spec 028 T071 — shared-origin coverage must map every confirmed origin', async () => {
+  const task = 'Compare alpha and beta.';
+  const alpha = {
+    question: 'What does alpha do?',
+    originRefs: [requestOrigin(task, 'alpha')],
+    claimType: 'positive',
+    proofCondition: 'Observe the requested alpha behavior.',
+    constraints: [],
+  };
+  const beta = {
+    question: 'What does beta do?',
+    originRefs: [requestOrigin(task, 'beta')],
+    claimType: 'positive',
+    proofCondition: 'Observe the requested beta behavior.',
+    constraints: [],
+  };
+  const combined = {
+    id: 'S-alpha-beta',
+    question: 'What do alpha and beta do?',
+    originRefs: [...alpha.originRefs, ...beta.originRefs],
+    claimType: 'positive',
+    proofCondition: 'Observe the requested alpha and beta behaviors.',
+    constraints: [],
+  };
+  let calls = 0;
+  const runtime = new RuntimeImplementation({
+    chatClient: {
+      model: 'zai-glm-4.7',
+      async createChatCompletion() {
+        calls += 1;
+        return controlCompletion(coverageControl([
+          coveredObligation('revision-obligation-1', [combined.id]),
+          remainingObligation('revision-obligation-2'),
+        ]));
+      },
+    },
+  });
+
+  await assert.rejects(runtime._reconcileGoalCoverage({
+    chatClient: runtime._explicitChatClient,
+    task,
+    effectiveScope: ['src/**'],
+    wrapperTool: 'explore_repo',
+    obligations: [alpha, beta].map((goal, index) => ({
+      obligationId: `revision-obligation-${index + 1}`,
+      sourceId: `uncovered-${index + 1}`,
+      kind: 'uncovered',
+      goal,
+    })),
+    proposal: plannerControl([combined]),
+    auditRecords: [auditControlRecord(combined)],
+    eligibleGoalIds: [combined.id],
+  }), error => error?.code === 'ERR_INVALID_GOAL_CONTROL' &&
+    /left a confirmed origin unmapped/.test(error.cause?.message ?? ''));
+  assert.equal(calls, 2, 'an incomplete many-to-many mapping gets one bounded correction');
+});
+
+auditedPlanningRuntimeTest(
+  'Spec 028 T071 — uncovered reconciliation rejects an unrelated extra origin',
+  async () => {
+    const task = 'Map every user-facing page that uses the Prisma model.';
+    const preserved = {
+      id: 'S-prisma-model',
+      question: 'Which Prisma model is requested?',
+      originRefs: [requestOrigin(task, 'Prisma model')],
+      claimType: 'symbol_definition',
+      proofCondition: 'Observe the requested Prisma model definition.',
+      constraints: [],
+    };
+    const uncovered = {
+      question: 'Which user-facing pages use the model?',
+      originRefs: [requestOrigin(task, 'user-facing page')],
+      claimType: 'impact',
+      proofCondition: 'Enumerate the bounded user-facing page surface and observe every model use.',
+      constraints: [],
+    };
+    const widened = {
+      id: 'S-pages-and-unrelated-model',
+      question: 'Which user-facing pages use the requested model?',
+      originRefs: [
+        requestOrigin(task, 'every user-facing page'),
+        requestOrigin(task, 'Prisma model'),
+      ],
+      claimType: 'impact',
+      proofCondition: 'Enumerate the bounded user-facing page surface and observe every model use.',
+      constraints: [],
+    };
+    const client = new ScriptedGoalAuditClient([
+      { stage: 'planner:1', value: plannerControl([preserved]) },
+      {
+        stage: 'goal_audit:1',
+        value: auditorControl([
+          auditControlRecord(preserved, 'ready', { missingRequestParts: [uncovered.question] }),
+        ], [uncovered]),
+      },
+      { stage: 'planner:2', value: plannerControl([preserved, widened]) },
+      {
+        stage: 'goal_audit:2',
+        value: auditorControl([auditControlRecord(widened)]),
+      },
+      { stage: 'exploration:1', content: 'Only the audited goals are explored.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+    ]);
+    const root = await makeRepoFixture();
+    const result = await new RuntimeImplementation({ chatClient: client }).explore({
+      task,
+      repo_root: root,
+    });
+
+    assert.equal(client.stageCounts.get('goal_coverage') ?? 0, 0,
+      'an unrelated origin must be rejected before another model call');
+    assert.equal(result.taskContract.subgoals.some(goal => goal.id === widened.id), true);
+    const carried = result.taskContract.subgoals.find(goal =>
+      goal.auditVerdict === 'planning_incomplete');
+    assert.ok(carried);
+    assert.equal(carried.question, uncovered.question);
+    assert.equal(result.coverageGaps.some(gap =>
+      gap.subgoalId === carried.id && gap.reason === 'planning_incomplete'), true);
+  },
+);
+
+auditedPlanningRuntimeTest('Spec 028 T022 — range-only decomposition cannot erase a missing request distinction', async () => {
+  const broad = proposedRuntimeGoal({
+    id: 'S-broad',
+    question: GOAL_AUDIT_TASK,
+    originRefs: [`request:0-${GOAL_AUDIT_TASK.length}`],
+    claimType: 'positive',
+    proofCondition: 'Observe requireAuth definition and usage plus the legacyGuard absence outcome.',
+  });
+  const revised = [
+    proposedRuntimeGoal({
+      id: 'S-definition',
+      originRefs: [`request:0-${GOAL_AUDIT_TASK.length}`],
+    }),
+    proposedRuntimeGoal({
+      id: 'S-usage',
+      question: 'Where is requireAuth used?',
+      originRefs: [`request:0-${GOAL_AUDIT_TASK.length}`],
+      claimType: 'symbol_usage',
+      proofCondition: 'Observe bounded requireAuth usage sites.',
+    }),
+  ];
+  const client = new ScriptedGoalAuditClient([
+    { stage: 'planner:1', value: plannerControl([broad]) },
+    {
+      stage: 'goal_audit:1',
+      value: auditorControl([auditControlRecord(broad, 'needs_decomposition')]),
+    },
+    { stage: 'planner:2', value: plannerControl(revised) },
+    {
+      stage: 'goal_audit:2',
+      value: auditorControl(revised.map(goal => auditControlRecord(goal))),
+    },
+    {
+      stage: 'goal_coverage:1',
+      value: coverageControl([
+        remainingObligation('revision-obligation-1'),
+      ]),
+    },
+    { stage: 'exploration:1', content: 'Only audited revised goals are explored.' },
+    { stage: 'synthesis:1', value: readyExplorationResult() },
+  ]);
+  const root = await makeRepoFixture();
+  const runtime = new RuntimeImplementation({ chatClient: client });
+  const result = await runtime.explore({ task: GOAL_AUDIT_TASK, repo_root: root });
+
+  assert.deepEqual(result.taskContract.subgoals
+    .filter(goal => goal.auditVerdict === 'ready')
+    .map(goal => goal.id), ['S-definition', 'S-usage']);
+  const carried = result.taskContract.subgoals.find(goal =>
+    goal.auditVerdict === 'planning_incomplete');
+  assert.ok(carried, 'legacyGuard absence cannot be discharged by range-only positive goals');
+  assert.equal(carried.question, GOAL_AUDIT_TASK);
+  assert.deepEqual(result.coverageGaps
+    .filter(gap => gap.reason === 'planning_incomplete')
+    .map(gap => gap.reason), ['planning_incomplete']);
+});
+
+auditedPlanningRuntimeTest('Spec 028 T022 — opaque coverage mapping preserves directional distinctions', async () => {
+  const task = 'Check whether frontend calls backend and whether backend calls frontend.';
+  const forward = {
+    id: 'S-forward',
+    question: 'Does frontend call backend?',
+    originRefs: [`request:0-${task.length}`],
+    claimType: 'flow',
+    proofCondition: 'Observe the frontend-to-backend call path.',
+    constraints: [],
+  };
+  const reverse = {
+    question: 'Does backend call frontend?',
+    originRefs: [`request:0-${task.length}`],
+    claimType: 'flow',
+    proofCondition: 'Observe the backend-to-frontend call path.',
+    constraints: [],
+  };
+  const wrongReplacement = {
+    ...forward,
+    id: 'S-forward-again',
+    question: 'Can frontend call backend?',
+  };
+  const client = new ScriptedGoalAuditClient([
+    { stage: 'planner:1', value: plannerControl([forward]) },
+    {
+      stage: 'goal_audit:1',
+      value: auditorControl([
+        auditControlRecord(forward, 'ready', { missingRequestParts: [reverse.question] }),
+      ], [reverse]),
+    },
+    { stage: 'planner:2', value: plannerControl([forward, wrongReplacement]) },
+    {
+      stage: 'goal_audit:2',
+      value: auditorControl([
+        auditControlRecord(wrongReplacement),
+      ]),
+    },
+    {
+      stage: 'goal_coverage:1',
+      value: coverageControl([remainingObligation('revision-obligation-1')]),
+    },
+    { stage: 'exploration:1', content: 'Only forward goals are ready.' },
+    { stage: 'synthesis:1', value: readyExplorationResult() },
+  ]);
+  const root = await makeRepoFixture();
+  const runtime = new RuntimeImplementation({ chatClient: client });
+  const result = await runtime.explore({ task, repo_root: root });
+
+  const carried = result.taskContract.subgoals.find(goal =>
+    goal.auditVerdict === 'planning_incomplete');
+  assert.ok(carried);
+  assert.equal(carried.question, reverse.question);
+  assert.deepEqual(result.coverageGaps
+    .filter(gap => gap.reason === 'planning_incomplete')
+    .map(gap => gap.reason), ['planning_incomplete']);
+});
+
+auditedPlanningRuntimeTest('Spec 028 T022 — opaque coverage mapping accepts a valid Korean decomposition', async () => {
+  const task = '인증과 인가 흐름을 각각 분석해줘.';
+  const broad = {
+    id: 'K-broad',
+    question: task,
+    originRefs: [`request:0-${task.length}`],
+    claimType: 'flow',
+    proofCondition: '인증과 인가 흐름을 각각 관찰한다.',
+    constraints: [],
+  };
+  const corrected = [
+    {
+      id: 'K-authentication',
+      question: '인증 흐름을 분석한다.',
+      originRefs: [`request:0-${task.length}`],
+      claimType: 'flow',
+      proofCondition: '인증 진입점과 전이를 관찰한다.',
+      constraints: [],
+    },
+    {
+      id: 'K-authorization',
+      question: '인가 흐름을 분석한다.',
+      originRefs: [`request:0-${task.length}`],
+      claimType: 'flow',
+      proofCondition: '인가 진입점과 전이를 관찰한다.',
+      constraints: [],
+    },
+  ];
+  const client = new ScriptedGoalAuditClient([
+    { stage: 'planner:1', value: plannerControl([broad]) },
+    {
+      stage: 'goal_audit:1',
+      value: auditorControl([auditControlRecord(broad, 'needs_decomposition')]),
+    },
+    { stage: 'planner:2', value: plannerControl(corrected) },
+    {
+      stage: 'goal_audit:2',
+      value: auditorControl(corrected.map(goal => auditControlRecord(goal))),
+    },
+    {
+      stage: 'goal_coverage:1',
+      value: coverageControl([
+        coveredObligation('revision-obligation-1', corrected.map(goal => goal.id)),
+      ]),
+    },
+    { stage: 'exploration:1', content: '교정된 목표를 탐색합니다.' },
+    { stage: 'synthesis:1', value: readyExplorationResult() },
+  ]);
+  const root = await makeRepoFixture();
+  const runtime = new RuntimeImplementation({ chatClient: client });
+  const result = await runtime.explore({ task, repo_root: root, language: 'ko' });
+
+  assert.deepEqual(result.taskContract.subgoals.map(goal => goal.id),
+    corrected.map(goal => goal.id));
+  assert.equal(result.taskContract.subgoals.some(goal =>
+    goal.auditVerdict === 'planning_incomplete'), false);
+  assert.equal(result.coverageGaps.some(gap => gap.reason === 'planning_incomplete'), false);
+  assert.deepEqual(result.coverageGaps.map(gap => gap.reason),
+    ['missing_evidence', 'missing_evidence']);
+});
+
+auditedPlanningRuntimeTest('Spec 028 T022 — invalid coverage cardinality fails after one bounded retry', async () => {
+  const broad = proposedRuntimeGoal({
+    id: 'S-broad',
+    question: GOAL_AUDIT_TASK,
+    originRefs: [`request:0-${GOAL_AUDIT_TASK.length}`],
+    claimType: 'positive',
+    proofCondition: 'Observe each requested authentication distinction independently.',
+  });
+  const corrected = definitionAndAbsenceGoals();
+  const invalidCoverage = coverageControl([
+    coveredObligation('revision-obligation-1', [corrected[0].id]),
+  ]);
+  const client = new ScriptedGoalAuditClient([
+    { stage: 'planner:1', value: plannerControl([broad]) },
+    {
+      stage: 'goal_audit:1',
+      value: auditorControl([auditControlRecord(broad, 'needs_decomposition')]),
+    },
+    { stage: 'planner:2', value: plannerControl(corrected) },
+    {
+      stage: 'goal_audit:2',
+      value: auditorControl(corrected.map(goal => auditControlRecord(goal))),
+    },
+    { stage: 'goal_coverage:1', value: invalidCoverage },
+    { stage: 'goal_coverage:2', value: invalidCoverage },
+  ]);
+  const root = await makeRepoFixture();
+  const runtime = new RuntimeImplementation({ chatClient: client });
+  const result = await runtime.explore({ task: GOAL_AUDIT_TASK, repo_root: root });
+
+  assert.equal(client.stageCounts.get('goal_coverage'), 2);
+  assert.ok(result.failure);
+  assert.equal(result.failure.reason, 'invalid_final_response');
+  assert.equal(client.stageLabels.includes('exploration:1'), false);
+});
+
+auditedPlanningRuntimeTest('Spec 028 T022 — coverage reconciliation cannot invent new obligations', async () => {
+  const broad = proposedRuntimeGoal({
+    id: 'S-broad',
+    question: GOAL_AUDIT_TASK,
+    originRefs: [`request:0-${GOAL_AUDIT_TASK.length}`],
+    claimType: 'positive',
+    proofCondition: 'Observe each requested authentication distinction independently.',
+  });
+  const corrected = definitionAndAbsenceGoals();
+  const invented = {
+    question: 'Which unrelated cache should be implemented?',
+    originRefs: [`request:0-${GOAL_AUDIT_TASK.length}`],
+    claimType: 'positive',
+    proofCondition: 'Observe a location for an unrelated cache.',
+    constraints: [],
+  };
+  const invalidCoverage = coverageControl([
+    coveredObligation('revision-obligation-1', corrected.map(goal => goal.id)),
+  ], [invented]);
+  const client = new ScriptedGoalAuditClient([
+    { stage: 'planner:1', value: plannerControl([broad]) },
+    {
+      stage: 'goal_audit:1',
+      value: auditorControl([auditControlRecord(broad, 'needs_decomposition')]),
+    },
+    { stage: 'planner:2', value: plannerControl(corrected) },
+    {
+      stage: 'goal_audit:2',
+      value: auditorControl(corrected.map(goal => auditControlRecord(goal))),
+    },
+    { stage: 'goal_coverage:1', value: invalidCoverage },
+    { stage: 'goal_coverage:2', value: invalidCoverage },
+  ]);
+  const root = await makeRepoFixture();
+  const runtime = new RuntimeImplementation({ chatClient: client });
+  const result = await runtime.explore({ task: GOAL_AUDIT_TASK, repo_root: root });
+
+  assert.equal(client.stageCounts.get('goal_coverage'), 2);
+  assert.equal(result.failure?.reason, 'invalid_final_response');
+  assert.equal(client.stageLabels.includes('exploration:1'), false);
+});
+
+auditedPlanningRuntimeTest('Spec 028 T022 — rejected corrected goals leave the original obligation blocked', async () => {
+  const broad = proposedRuntimeGoal({
+    id: 'S-broad',
+    question: GOAL_AUDIT_TASK,
+    originRefs: [`request:0-${GOAL_AUDIT_TASK.length}`],
+    claimType: 'positive',
+    proofCondition: 'Observe each requested authentication distinction independently.',
+  });
+  const wrong = proposedRuntimeGoal({
+    id: 'S-wrong',
+    question: 'Which unrelated cache should be added?',
+    originRefs: [`request:0-${GOAL_AUDIT_TASK.length}`],
+    claimType: 'positive',
+    proofCondition: 'Observe a location for an unrelated cache.',
+  });
+  const client = new ScriptedGoalAuditClient([
+    { stage: 'planner:1', value: plannerControl([broad]) },
+    {
+      stage: 'goal_audit:1',
+      value: auditorControl([auditControlRecord(broad, 'needs_decomposition')]),
+    },
+    { stage: 'planner:2', value: plannerControl([wrong]) },
+    {
+      stage: 'goal_audit:2',
+      value: auditorControl([
+        auditControlRecord(wrong, 'reject_untraceable', { originRefs: [] }),
+      ]),
+    },
+    {
+      stage: 'goal_coverage:1',
+      value: coverageControl([remainingObligation('revision-obligation-1')]),
+    },
+  ]);
+  const root = await makeRepoFixture();
+  const runtime = new RuntimeImplementation({ chatClient: client });
+  const result = await runtime.explore({ task: GOAL_AUDIT_TASK, repo_root: root });
+
+  assert.equal(result.failure, null);
+  assert.equal(result.taskContract.subgoals.length, 1);
+  assert.equal(result.taskContract.subgoals[0].question, broad.question);
+  assert.equal(result.taskContract.subgoals[0].auditVerdict, 'planning_incomplete');
+  assert.deepEqual(result.rejectedGoals.map(goal => goal.proposedGoalId), ['S-wrong']);
+  assert.deepEqual(result.coverageGaps.map(gap => gap.reason), ['planning_incomplete']);
+});
+
+auditedPlanningRuntimeTest('Spec 028 T022 — a corrected plan filtered to zero goals carries the obligation', async () => {
+  const broad = proposedRuntimeGoal({
+    id: 'S-broad',
+    question: GOAL_AUDIT_TASK,
+    originRefs: [`request:0-${GOAL_AUDIT_TASK.length}`],
+    claimType: 'positive',
+    proofCondition: 'Observe each requested authentication distinction independently.',
+  });
+  const invented = proposedRuntimeGoal({
+    id: 'S-invented',
+    question: 'Which unrelated cache should be added?',
+    originRefs: [`request:0-${GOAL_AUDIT_TASK.length}`],
+    claimType: 'positive',
+    proofCondition: 'Observe a location for an unrelated cache.',
+  });
+  const client = new ScriptedGoalAuditClient([
+    { stage: 'planner:1', value: plannerControl([broad, invented]) },
+    {
+      stage: 'goal_audit:1',
+      value: auditorControl([
+        auditControlRecord(broad, 'needs_decomposition'),
+        auditControlRecord(invented, 'reject_untraceable', { originRefs: [] }),
+      ]),
+    },
+    { stage: 'planner:2', value: plannerControl([invented]) },
+  ]);
+  const root = await makeRepoFixture();
+  const runtime = new RuntimeImplementation({ chatClient: client });
+  const result = await runtime.explore({ task: GOAL_AUDIT_TASK, repo_root: root });
+
+  assert.deepEqual(client.stageLabels, ['planner:1', 'goal_audit:1', 'planner:2']);
+  assert.equal(result.failure, null);
+  assert.equal(result.taskContract.subgoals.length, 1);
+  assert.equal(result.taskContract.subgoals[0].auditVerdict, 'planning_incomplete');
+  assert.equal(result.taskContract.subgoals[0].question, broad.question);
+  assert.deepEqual(result.rejectedGoals.map(goal => goal.proposedGoalId), ['S-invented']);
+});
+
+auditedPlanningRuntimeTest('Spec 028 T069 — corrected audit excludes preserved goals from reclassification', async () => {
+  const definition = proposedRuntimeGoal();
+  const broad = proposedRuntimeGoal({
+    id: 'S-broad',
+    question: 'Independently inspect the requested authentication facets.',
+    originRefs: [`request:0-${GOAL_AUDIT_TASK.length}`],
+    claimType: 'positive',
+    proofCondition: 'Observe separate evidence for the requested authentication facets.',
+  });
+  const absence = definitionAndAbsenceGoals()[1];
+  const client = new ScriptedGoalAuditClient([
+    { stage: 'planner:1', value: plannerControl([definition, broad]) },
+    {
+      stage: 'goal_audit:1',
+      value: auditorControl([
+        auditControlRecord(definition),
+        auditControlRecord(broad, 'needs_decomposition'),
+      ]),
+    },
+    { stage: 'planner:2', value: plannerControl([definition, absence]) },
+    {
+      stage: 'goal_audit:2',
+      run(request) {
+        const packet = parseControlPacket(request);
+        assert.deepEqual(packet.proposals.map(goal => goal.id), [absence.id]);
+        assert.deepEqual(packet.existingGoalLedger.map(goal => goal.id), [definition.id]);
+        return controlCompletion(auditorControl([auditControlRecord(absence)]));
+      },
+    },
+    { stage: 'exploration:1', content: 'The preserved and corrected goals remain auditable.' },
+    { stage: 'synthesis:1', value: readyExplorationResult() },
+  ]);
+  const root = await makeRepoFixture();
+  const runtime = new RuntimeImplementation({ chatClient: client });
+  const result = await runtime.explore({ task: GOAL_AUDIT_TASK, repo_root: root });
+
+    assert.deepEqual(client.stageLabels, [
+      'planner:1', 'goal_audit:1', 'planner:2', 'goal_audit:2',
+      'exploration:1', 'synthesis:1', 'exploration:2',
+    ]);
+  assert.equal(result.failure, null);
+  assert.deepEqual(result.taskContract.subgoals
+    .filter(goal => goal.auditVerdict === 'ready')
+    .map(goal => goal.id), [definition.id, absence.id]);
+  assert.equal(result.taskContract.subgoals.find(goal => goal.id === definition.id)?.auditVerdict,
+    'ready');
+  assert.equal(result.status.complete, false);
+});
+
+auditedPlanningRuntimeTest('Spec 028 T069 — corrected planning cannot rename a decomposition defect', async () => {
+  const definition = proposedRuntimeGoal();
+  const broad = proposedRuntimeGoal({
+    id: 'S-broad-original',
+    question: 'Inspect all requested authentication facets together.',
+    originRefs: [`request:0-${GOAL_AUDIT_TASK.length}`],
+    claimType: 'positive',
+    proofCondition: 'Observe every requested authentication facet in one aggregate proof.',
+  });
+  const renamedBroad = { ...broad, id: 'S-broad-renamed' };
+  const client = new ScriptedGoalAuditClient([
+    { stage: 'planner:1', value: plannerControl([definition, broad]) },
+    {
+      stage: 'goal_audit:1',
+      value: auditorControl([
+        auditControlRecord(definition),
+        auditControlRecord(broad, 'needs_decomposition'),
+      ]),
+    },
+    { stage: 'planner:2', value: plannerControl([definition, renamedBroad]) },
+    { stage: 'exploration:1', content: 'Only the preserved leaf remains explorable.' },
+    { stage: 'synthesis:1', value: readyExplorationResult() },
+  ]);
+  const root = await makeRepoFixture();
+  const result = await new RuntimeImplementation({ chatClient: client }).explore({
+    task: GOAL_AUDIT_TASK,
+    repo_root: root,
+  });
+
+  assert.equal(result.failure, null);
+  assert.equal(client.stageCounts.get('goal_audit'), 1);
+  assert.equal(result.taskContract.subgoals.some(goal => goal.id === renamedBroad.id), false);
+  assert.ok(result.taskContract.subgoals.some(goal =>
+    goal.auditVerdict === 'planning_incomplete' && goal.question === broad.question));
+  assert.ok(result.coverageGaps.some(gap => gap.reason === 'planning_incomplete'));
+});
+
+auditedPlanningRuntimeTest(
+  'Spec 028 T069 — one narrowed origin cannot satisfy a decomposition obligation',
+  async () => {
+    const broad = proposedRuntimeGoal({
+      id: 'S-origin-correction',
+      originRefs: [`request:0-${GOAL_AUDIT_TASK.length}`],
+    });
+    const corrected = {
+      ...broad,
+      originRefs: [requestOrigin(GOAL_AUDIT_TASK, 'Locate requireAuth')],
+    };
+    const client = new ScriptedGoalAuditClient([
+      { stage: 'planner:1', value: plannerControl([broad]) },
+      {
+        stage: 'goal_audit:1',
+        value: auditorControl([auditControlRecord(broad, 'needs_decomposition')]),
+      },
+      { stage: 'planner:2', value: plannerControl([corrected]) },
+      {
+        stage: 'goal_audit:2',
+        run(request) {
+          const packet = parseControlPacket(request);
+          assert.deepEqual(packet.proposals.map(goal => goal.id), [corrected.id]);
+          return controlCompletion(auditorControl([auditControlRecord(corrected)]));
+        },
+      },
+      { stage: 'exploration:1', content: 'The corrected requested goal is explored conservatively.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+    ]);
+    const root = await makeRepoFixture();
+    const result = await new RuntimeImplementation({ chatClient: client }).explore({
+      task: GOAL_AUDIT_TASK,
+      repo_root: root,
+    });
+
+    assert.equal(result.failure, null);
+    assert.equal(client.stageCounts.get('goal_audit'), 2);
+    assert.equal(client.stageCounts.get('goal_coverage') ?? 0, 0,
+      'fewer than two descendants fail decomposition without another model call');
+    const retained = result.taskContract.subgoals.find(goal => goal.id === corrected.id);
+    assert.deepEqual(retained?.originRefs, corrected.originRefs);
+    assert.equal(retained?.auditVerdict, 'ready');
+    assert.equal(result.coverageGaps.some(gap => gap.reason === 'planning_incomplete'), true);
+    assert.equal(result.status.complete, false);
+    assert.equal(result.parentHandoff.state, 'incomplete');
+    assert.match(JSON.stringify(client.requests[4].messages),
+      /cover every listed goal separately[\s\S]*impact_categories/i);
+  },
+);
+
+auditedPlanningRuntimeTest(
+  'Spec 028 T069 — one exact acceptance-core origin correction replaces a false decomposition blocker',
+  async () => {
+    const task = 'Map pipeline flow, tests, and environment configuration impact.';
+    const original = {
+      id: 'S-config-impact-original',
+      question: 'Which environment configuration inputs affect the pipeline?',
+      originRefs: [requestOrigin(task, 'environment configuration impact')],
+      claimType: 'impact',
+      proofCondition: 'Observe the environment configuration inputs and their pipeline effect.',
+      constraints: ['Keep the answer within the requested pipeline.'],
+    };
+    const corrected = {
+      ...original,
+      id: 'S-config-impact-corrected',
+      originRefs: [`request:0-${task.length}`],
+    };
+    const client = new ScriptedGoalAuditClient([
+      { stage: 'planner:1', value: plannerControl([original]) },
+      {
+        stage: 'goal_audit:1',
+        value: auditorControl([auditControlRecord(original, 'needs_decomposition')]),
+      },
+      { stage: 'planner:2', value: plannerControl([corrected]) },
+      {
+        stage: 'goal_audit:2',
+        value: auditorControl([auditControlRecord(corrected)]),
+      },
+      { stage: 'exploration:1', content: 'The corrected config goal is ready.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+    ]);
+    const root = await makeRepoFixture();
+    const result = await new RuntimeImplementation({ chatClient: client }).explore({
+      task,
+      repo_root: root,
+    });
+
+    assert.equal(result.failure, null);
+    assert.equal(client.stageCounts.get('goal_coverage') ?? 0, 0);
+    assert.deepEqual(result.taskContract.subgoals.map(goal => goal.id), [corrected.id]);
+    assert.equal(result.taskContract.subgoals[0].auditVerdict, 'ready');
+    assert.equal(result.coverageGaps.some(gap => gap.reason === 'planning_incomplete'), false);
+    assert.doesNotMatch(JSON.stringify(result.parentHandoff),
+      /planning-carry|planning_incomplete|goal_coverage|auditVerdict/u);
+  },
+);
+
+auditedPlanningRuntimeTest(
+  'Spec 028 T069 — auditor-requested corrections may reuse rejected planner ids',
+  async () => {
+    const task = 'Identify the translation pipeline implementation, tests, and every environment/configuration input needed to run it.';
+    const retained = {
+      id: 'S-flow',
+      question: 'What is the primary translation pipeline implementation path?',
+      originRefs: [requestOrigin(task, 'Identify the translation pipeline implementation')],
+      claimType: 'flow',
+      proofCondition: 'Observe the primary entry path and the implementation calls it makes.',
+      constraints: ['Keep the answer within the requested translation pipeline.'],
+    };
+    const originals = [
+      {
+        id: 'S-tests',
+        question: 'Which tests cover the translation pipeline entry path?',
+        originRefs: [requestOrigin(task, 'Identify'), requestOrigin(task, 'tests,')],
+        claimType: 'positive',
+        proofCondition: 'Observe the translation pipeline tests and the behavior they cover.',
+        constraints: ['Keep the answer within the requested translation pipeline.'],
+      },
+      {
+        id: 'S-config',
+        question: 'Which environment and configuration inputs are needed to run the pipeline?',
+        originRefs: [
+          requestOrigin(task, 'Identify'),
+          requestOrigin(task, 'every environment/configuration input needed to run it.'),
+        ],
+        claimType: 'impact',
+        proofCondition: 'Observe every requested runtime input and how it affects execution.',
+        constraints: ['Keep the answer within the requested translation pipeline.'],
+      },
+    ];
+    const testsEnd = task.indexOf('tests,') + 'tests,'.length;
+    const corrected = [
+      { ...originals[0], originRefs: [`request:0-${testsEnd}`] },
+      { ...originals[1], originRefs: [`request:0-${task.length}`] },
+    ];
+    const uncovered = corrected.map(goal => ({
+      question: goal.question,
+      originRefs: [...goal.originRefs],
+      claimType: goal.claimType,
+      proofCondition: goal.proofCondition,
+      constraints: [...goal.constraints],
+    }));
+    let normalizedIds = [];
+    const client = new ScriptedGoalAuditClient([
+      { stage: 'planner:1', value: plannerControl([retained, ...originals]) },
+      {
+        stage: 'goal_audit:1',
+        value: auditorControl([
+          auditControlRecord(retained),
+          ...originals.map(goal =>
+            auditControlRecord(goal, 'reject_untraceable', { originRefs: [] })),
+        ], uncovered),
+      },
+      { stage: 'planner:2', value: plannerControl([retained, ...corrected]) },
+      {
+        stage: 'goal_audit:2',
+        run(request) {
+          const packet = parseControlPacket(request);
+          assert.equal(packet.proposals.length, 2);
+          assert.deepEqual(packet.existingGoalLedger.map(goal => goal.id), [retained.id]);
+          normalizedIds = packet.proposals.map(goal => goal.id);
+          for (const [index, proposal] of packet.proposals.entries()) {
+            assert.notEqual(proposal.id, originals[index].id);
+            assert.match(proposal.id,
+              new RegExp(`^revision-corrected:${originals[index].id}(?::\\d+)?$`, 'u'));
+            assert.deepEqual({ ...proposal, id: originals[index].id }, corrected[index]);
+          }
+          return controlCompletion(auditorControl(
+            packet.proposals.map(goal => auditControlRecord(goal)),
+          ));
+        },
+      },
+      { stage: 'exploration:1', content: 'The corrected tests goal is ready.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+    ]);
+    const root = await makeRepoFixture();
+    const logDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-revision-ids-'));
+    let result;
+    await withEnv({ CEREBRAS_EXPLORER_LOG_PATH: logDir }, async () => {
+      result = await new RuntimeImplementation({ chatClient: client }).explore({
+        task,
+        repo_root: root,
+      });
+    });
+
+    assert.equal(result.failure, null, JSON.stringify({
+      failure: result.failure,
+      stages: client.stageLabels,
+    }));
+    assert.equal(normalizedIds.length, 2);
+    assert.equal(client.stageCounts.get('goal_coverage') ?? 0, 0);
+    assert.deepEqual(result.taskContract.subgoals.map(goal => goal.id),
+      [retained.id, ...normalizedIds]);
+    assert.ok(result.taskContract.subgoals.every(goal => goal.auditVerdict === 'ready'));
+    assert.deepEqual(result.goalAuditRecords.map(record => [
+      record.proposedGoalId,
+      record.verdict,
+    ]), [
+      [retained.id, 'ready'],
+      [originals[0].id, 'reject_untraceable'],
+      [originals[1].id, 'reject_untraceable'],
+      [normalizedIds[0], 'ready'],
+      [normalizedIds[1], 'ready'],
+    ]);
+    assert.deepEqual(result.rejectedGoals.map(goal => goal.proposedGoalId),
+      originals.map(goal => goal.id));
+    assert.equal(result.coverageGaps.some(gap => gap.reason === 'planning_incomplete'), false);
+    assert.doesNotMatch(JSON.stringify(result.parentHandoff),
+      /revision-corrected|reject_untraceable|planning-carry|planning_incomplete|goalAuditRecords/u);
+    const planningEntries = await readJsonl(result.transcriptPath);
+    const revisedPlan = planningEntries.find(entry => entry.type === 'plan_revised');
+    const revisedAudit = planningEntries.find(entry =>
+      entry.type === 'goal_audit' && entry.revisionCount === 1);
+    assert.deepEqual(revisedPlan.proposal.subgoals.map(goal => goal.id),
+      [retained.id, ...normalizedIds]);
+    assert.deepEqual(revisedAudit.auditRecords.map(record => record.proposedGoalId),
+      normalizedIds);
+  },
+);
+
+auditedPlanningRuntimeTest(
+  'Spec 028 T069 — a rejected id cannot authorize a different auditor request part',
+  async () => {
+    const task = 'Map the translation pipeline tests and environment inputs.';
+    const rejected = {
+      id: 'S-tests',
+      question: 'Which tests cover the translation pipeline?',
+      originRefs: [requestOrigin(task, 'tests')],
+      claimType: 'positive',
+      proofCondition: 'Observe the translation pipeline tests.',
+      constraints: [],
+    };
+    const differentPart = {
+      id: rejected.id,
+      question: 'Which environment inputs are needed to run the translation pipeline?',
+      originRefs: [`request:0-${task.length}`],
+      claimType: 'impact',
+      proofCondition: 'Observe the requested environment inputs and their runtime effect.',
+      constraints: [],
+    };
+    const uncovered = {
+      question: differentPart.question,
+      originRefs: [...differentPart.originRefs],
+      claimType: differentPart.claimType,
+      proofCondition: differentPart.proofCondition,
+      constraints: [],
+    };
+    const client = new ScriptedGoalAuditClient([
+      { stage: 'planner:1', value: plannerControl([rejected]) },
+      {
+        stage: 'goal_audit:1',
+        value: auditorControl([
+          auditControlRecord(rejected, 'reject_untraceable', { originRefs: [] }),
+        ], [uncovered]),
+      },
+      { stage: 'planner:2', value: plannerControl([differentPart]) },
+    ]);
+    const root = await makeRepoFixture();
+    const result = await new RuntimeImplementation({ chatClient: client }).explore({
+      task,
+      repo_root: root,
+    });
+
+    assert.equal(result.failure, null, JSON.stringify(result.failure));
+    assert.deepEqual(client.stageLabels, ['planner:1', 'goal_audit:1', 'planner:2']);
+    assert.equal(result.taskContract.subgoals.some(goal => goal.id === rejected.id), false);
+    assert.ok(result.taskContract.subgoals.some(goal =>
+      goal.auditVerdict === 'planning_incomplete' && goal.question === uncovered.question));
+    assert.deepEqual(result.rejectedGoals.map(goal => goal.proposedGoalId), [rejected.id]);
+  },
+);
+
+auditedPlanningRuntimeTest(
+  'Spec 028 T069 — canonical pipeline leaves are validated before audit',
+  async () => {
+    const task = 'Map the translation pipeline implementation, tests, and every environment/configuration input needed to run it.';
+    const invalid = [
+      {
+        id: 'S-pipeline-flow',
+        question: 'What is the implementation flow of the translation pipeline?',
+        originRefs: [requestOrigin(task, 'Map the translation pipeline implementation')],
+        claimType: 'flow',
+        proofCondition: 'Identify the translation pipeline implementation flow.',
+        constraints: [],
+      },
+      {
+        id: 'S-pipeline-tests',
+        question: 'Which tests cover the translation pipeline?',
+        originRefs: [requestOrigin(task, 'tests')],
+        claimType: 'positive',
+        proofCondition: 'Identify tests that cover the translation pipeline.',
+        constraints: [],
+      },
+      {
+        id: 'S-pipeline-inputs',
+        question: 'Which environment and configuration inputs are required?',
+        originRefs: [requestOrigin(task, 'every environment/configuration input needed to run it.')],
+        claimType: 'impact',
+        proofCondition: 'Identify every environment and configuration input needed to run the pipeline.',
+        constraints: [],
+      },
+    ];
+    const canonical = invalid.map((goal, index) => ({
+      ...goal,
+      originRefs: [
+        ['request:0-44'],
+        ['request:0-51'],
+        [`request:0-${task.length}`],
+      ][index],
+    }));
+    const client = new ScriptedGoalAuditClient([
+      { stage: 'planner:1', value: plannerControl(invalid) },
+      {
+        stage: 'planner:2',
+        run(request) {
+          const correction = request.messages.at(-1)?.content ?? '';
+          assert.match(correction, /implementation=request:0-44/u);
+          assert.match(correction, /tests=request:0-51/u);
+          assert.match(correction, new RegExp(`inputs=request:0-${task.length}`, 'u'));
+          return controlCompletion(plannerControl(canonical));
+        },
+      },
+      {
+        stage: 'goal_audit:1',
+        run(request) {
+          const packet = parseControlPacket(request);
+          assert.deepEqual(packet.proposals, canonical);
+          return controlCompletion(auditorControl(
+            packet.proposals.map(goal => auditControlRecord(goal)),
+          ));
+        },
+      },
+      { stage: 'exploration:1', content: 'The canonical pipeline leaves are ready.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+    ]);
+    const root = await makeRepoFixture();
+    const result = await new RuntimeImplementation({ chatClient: client }).explore({
+      task,
+      repo_root: root,
+    });
+
+    assert.equal(result.failure, null, JSON.stringify({
+      failure: result.failure,
+      stages: client.stageLabels,
+    }));
+    assert.equal(client.stageCounts.get('planner'), 2);
+    assert.equal(client.stageCounts.get('goal_audit'), 1);
+    assert.equal(client.stageCounts.get('goal_coverage') ?? 0, 0);
+    assert.deepEqual(result.taskContract.subgoals.map(goal => goal.id), canonical.map(goal => goal.id));
+    assert.deepEqual(result.taskContract.subgoals.map(goal => goal.originRefs),
+      canonical.map(goal => goal.originRefs));
+    assert.equal(result.coverageGaps.some(gap => gap.reason === 'planning_incomplete'), false);
+  },
+);
+
+auditedPlanningRuntimeTest(
+  'Spec 028 T069 — a repeatedly narrowed auditor origin restores the immutable planner origin',
+  async () => {
+    const task = 'Map the translation pipeline implementation, tests, and every environment/configuration input needed to run it.';
+    const goals = [
+      {
+        id: 'S-pipeline-flow-audit-recovery',
+        question: 'What is the implementation flow of the translation pipeline?',
+        originRefs: ['request:0-44'],
+        claimType: 'flow',
+        proofCondition: 'Identify the translation pipeline implementation flow.',
+        constraints: [],
+      },
+      {
+        id: 'S-pipeline-tests-audit-recovery',
+        question: 'Which tests cover the translation pipeline?',
+        originRefs: ['request:0-51'],
+        claimType: 'positive',
+        proofCondition: 'Identify tests that cover the translation pipeline.',
+        constraints: [],
+      },
+      {
+        id: 'S-pipeline-inputs-audit-recovery',
+        question: 'Which environment and configuration inputs are required?',
+        originRefs: [`request:0-${task.length}`],
+        claimType: 'impact',
+        proofCondition: 'Identify every environment and configuration input needed to run the pipeline.',
+        constraints: [],
+      },
+    ];
+    const narrowedAudit = () => auditorControl(goals.map((goal, index) =>
+      auditControlRecord(goal, 'ready', {
+        originRefs: index === 1 ? ['request:45-51'] : goal.originRefs,
+      })));
+    const client = new ScriptedGoalAuditClient([
+      { stage: 'planner:1', value: plannerControl(goals) },
+      { stage: 'goal_audit:1', value: narrowedAudit() },
+      { stage: 'exploration:1', content: 'The restored pipeline goals are ready.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+    ]);
+    const root = await makeRepoFixture();
+    const result = await new RuntimeImplementation({ chatClient: client }).explore({
+      task,
+      repo_root: root,
+    });
+
+    assert.equal(result.failure, null, JSON.stringify({
+      failure: result.failure,
+      stages: client.stageLabels,
+    }));
+    assert.equal(client.stageCounts.get('goal_audit'), 1);
+    assert.deepEqual(result.taskContract.subgoals.map(goal => goal.originRefs),
+      goals.map(goal => goal.originRefs));
+  },
+);
+
+auditedPlanningRuntimeTest(
+  'Spec 028 T069 — origin normalization preserves correction for a real auditor defect',
+  async () => {
+    const task = 'Map the translation pipeline implementation, tests, and every environment/configuration input needed to run it.';
+    const goals = [
+      {
+        id: 'S-pipeline-flow-audit-masked',
+        question: 'What is the implementation flow of the translation pipeline?',
+        originRefs: ['request:0-44'],
+        claimType: 'flow',
+        proofCondition: 'Identify the translation pipeline implementation flow.',
+        constraints: [],
+      },
+      {
+        id: 'S-pipeline-tests-audit-masked',
+        question: 'Which tests cover the translation pipeline?',
+        originRefs: ['request:0-51'],
+        claimType: 'positive',
+        proofCondition: 'Identify tests that cover the translation pipeline.',
+        constraints: [],
+      },
+      {
+        id: 'S-pipeline-inputs-audit-masked',
+        question: 'Which environment and configuration inputs are required?',
+        originRefs: [`request:0-${task.length}`],
+        claimType: 'impact',
+        proofCondition: 'Identify every environment and configuration input needed to run the pipeline.',
+        constraints: [],
+      },
+    ];
+    const client = new ScriptedGoalAuditClient([
+      { stage: 'planner:1', value: plannerControl(goals) },
+      {
+        stage: 'goal_audit:1',
+        value: auditorControl(goals.map((goal, index) =>
+          auditControlRecord(goal, index === 1 ? 'needs_decomposition' : 'ready', {
+            originRefs: index === 1 ? ['request:45-51'] : goal.originRefs,
+          }))),
+      },
+      {
+        stage: 'goal_audit:2',
+        run(request) {
+          const correction = JSON.stringify(request.messages);
+          assert.match(correction, /Validated atomic leaves must be audited directly/u);
+          assert.doesNotMatch(correction, /unproposed origin request:45-51/u);
+          return controlCompletion(auditorControl(goals.map(goal => auditControlRecord(goal))));
+        },
+      },
+      { stage: 'exploration:1', content: 'The corrected pipeline goals are ready.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+    ]);
+    const root = await makeRepoFixture();
+    const result = await new RuntimeImplementation({ chatClient: client }).explore({
+      task,
+      repo_root: root,
+    });
+
+    assert.equal(result.failure, null, JSON.stringify({
+      failure: result.failure,
+      stages: client.stageLabels,
+    }));
+    assert.equal(client.stageCounts.get('goal_audit'), 2);
+    assert.deepEqual(result.taskContract.subgoals.map(goal => goal.originRefs),
+      goals.map(goal => goal.originRefs));
+  },
+);
+
+auditedPlanningRuntimeTest(
+  'Spec 028 T069 — pipeline validation preserves an additional same-category obligation',
+  async () => {
+    const task = 'Map the translation pipeline implementation, tests, and every environment/configuration input needed to run it, and separately map retry integration tests.';
+    const inputEnd = task.indexOf(', and separately map retry integration tests.');
+    const goals = [
+      {
+        id: 'S-pipeline-flow-with-extra',
+        question: 'What is the implementation flow of the translation pipeline?',
+        originRefs: ['request:0-44'],
+        claimType: 'flow',
+        proofCondition: 'Observe the translation pipeline implementation flow.',
+        constraints: [],
+      },
+      {
+        id: 'S-pipeline-tests-with-extra',
+        question: 'Which tests cover the translation pipeline?',
+        originRefs: ['request:0-51'],
+        claimType: 'positive',
+        proofCondition: 'Observe tests that cover the translation pipeline.',
+        constraints: [],
+      },
+      {
+        id: 'S-pipeline-inputs-with-extra',
+        question: 'Which environment and configuration inputs are required?',
+        originRefs: [`request:0-${inputEnd + 1}`],
+        claimType: 'impact',
+        proofCondition: 'Observe every environment and configuration input needed to run the pipeline.',
+        constraints: [],
+      },
+      {
+        id: 'S-pipeline-retry-tests-extra',
+        question: 'Which retry integration tests cover failure recovery?',
+        originRefs: [requestOrigin(task, 'separately map retry integration tests.')],
+        claimType: 'positive',
+        proofCondition: 'Observe the separately requested retry integration tests.',
+        constraints: [],
+      },
+    ];
+    const client = new ScriptedGoalAuditClient([
+      { stage: 'planner:1', value: plannerControl(goals) },
+      { stage: 'goal_audit:1', value: auditorControl(goals.map(goal => auditControlRecord(goal))) },
+      { stage: 'exploration:1', content: 'All requested pipeline obligations are retained.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+    ]);
+    const root = await makeRepoFixture();
+    const result = await new RuntimeImplementation({ chatClient: client }).explore({
+      task,
+      repo_root: root,
+    });
+
+    assert.equal(result.failure, null);
+    assert.equal(client.stageCounts.get('planner'), 1);
+    assert.deepEqual(result.taskContract.subgoals.map(goal => goal.id), goals.map(goal => goal.id));
+  },
+);
+
+auditedPlanningRuntimeTest(
+  'Spec 028 T069 — canonical access leaves reject an invented umbrella audit',
+  async () => {
+    const task = 'Compare administrator and developer access policy across frontend guards and backend route families.';
+    const administrator = requestOrigin(task, 'administrator');
+    const developer = requestOrigin(task, 'developer');
+    const frontend = requestOrigin(task, 'frontend guards');
+    const backend = requestOrigin(task, 'backend route families.');
+    const goals = [
+      {
+        id: 'canonical-access-frontend-actor-a',
+        question: 'How do frontend guards enforce administrator access?',
+        originRefs: [administrator, frontend],
+        claimType: 'positive',
+        proofCondition: 'Observe the frontend guard that enforces administrator access.',
+        constraints: [],
+      },
+      {
+        id: 'canonical-access-backend-actor-a',
+        question: 'Which backend route families use distinct administrator checks?',
+        originRefs: [administrator, backend],
+        claimType: 'comparison',
+        proofCondition: 'Compare the administrator gating predicates across backend route families.',
+        constraints: [],
+      },
+      {
+        id: 'canonical-access-backend-actor-b',
+        question: 'Which backend route families give developer-specific access?',
+        originRefs: [developer, backend],
+        claimType: 'comparison',
+        proofCondition: 'Compare developer-specific behavior across backend route families.',
+        constraints: [],
+      },
+      {
+        id: 'S-access-frontend-actor-b',
+        question: 'Do frontend guards define developer-specific access?',
+        originRefs: [developer, frontend],
+        claimType: 'positive',
+        proofCondition: 'Observe or refute developer-specific behavior in frontend guards.',
+        constraints: [],
+      },
+    ];
+    const submittedGoals = goals.map((goal, index) => ({
+      ...goal,
+      originRefs: [`request:0-${task.length}`, index === 0 || index === 3 ? frontend : backend],
+    }));
+    const umbrella = {
+      question: 'Compare administrator and developer access policy',
+      originRefs: [requestOrigin(task, 'Compare administrator and developer access policy')],
+      claimType: 'comparison',
+      proofCondition: 'Establish one global comparison across the already separate leaves.',
+      constraints: [],
+    };
+    const client = new ScriptedGoalAuditClient([
+      { stage: 'planner:1', value: plannerControl(submittedGoals) },
+      {
+        stage: 'planner:2',
+        run(request) {
+          const correction = request.messages.at(-1)?.content ?? '';
+          assert.match(correction, new RegExp(
+            `frontend_actor_a=\\[${administrator},${frontend}\\]`,
+            'u',
+          ));
+          assert.match(correction, new RegExp(
+            `backend_actor_a=\\[${administrator},${backend}\\]`,
+            'u',
+          ));
+          assert.match(correction, new RegExp(
+            `backend_actor_b=\\[${developer},${backend}\\]`,
+            'u',
+          ));
+          assert.match(correction,
+            /Required canonical leaf contract: exactly one of each/u);
+          assert.match(correction,
+            /frontend_actor_a=\{claimType:positive,actor:"administrator",surface:"frontend guards"/u);
+          assert.match(correction,
+            /backend_actor_a=\{claimType:comparison,actor:"administrator",surface:"backend route families"/u);
+          assert.match(correction,
+            /backend_actor_b=\{claimType:comparison,actor:"developer",surface:"backend route families"/u);
+          assert.match(correction,
+            /keep each exact actor and surface concept in question or proofCondition/u);
+          assert.match(correction,
+            /do not merge, duplicate, or add a fourth leaf/u);
+          return controlCompletion(plannerControl(goals));
+        },
+      },
+      {
+        stage: 'goal_audit:1',
+        run(request) {
+          const packet = parseControlPacket(request);
+          assert.deepEqual(packet.proposals, goals);
+          return controlCompletion(auditorControl(goals.map((goal, index) =>
+            auditControlRecord(goal, index < 3 ? 'needs_decomposition' : 'ready')), [umbrella]));
+        },
+      },
+      {
+        stage: 'goal_audit:2',
+        value: auditorControl(goals.map(goal => auditControlRecord(goal))),
+      },
+      { stage: 'exploration:1', content: 'The three access leaves are ready.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+    ]);
+    const root = await makeRepoFixture();
+    const result = await new RuntimeImplementation({ chatClient: client }).explore({
+      task,
+      repo_root: root,
+    });
+
+    assert.equal(result.failure, null, JSON.stringify({
+      failure: result.failure,
+      stages: client.stageLabels,
+    }));
+    assert.equal(client.stageCounts.get('planner'), 2);
+    assert.equal(client.stageCounts.get('goal_audit'), 2);
+    assert.equal(client.stageCounts.get('goal_coverage') ?? 0, 0);
+    assert.deepEqual(result.taskContract.subgoals.map(goal => goal.id), goals.map(goal => goal.id));
+    assert.deepEqual(result.taskContract.subgoals.map(goal => goal.originRefs),
+      goals.map(goal => goal.originRefs));
+    assert.ok(result.taskContract.subgoals.every(goal => goal.auditVerdict === 'ready'));
+    assert.equal(result.coverageGaps.some(gap => gap.reason === 'planning_incomplete'), false);
+  },
+);
+
+auditedPlanningRuntimeTest(
+  'Spec 028 T069 — repeated canonical access origin drift restores request-derived origins',
+  async () => {
+    const task = 'Compare administrator and developer access policy across frontend guards and backend route families.';
+    const administrator = requestOrigin(task, 'administrator');
+    const developer = requestOrigin(task, 'developer');
+    const frontend = requestOrigin(task, 'frontend guards');
+    const backend = requestOrigin(task, 'backend route families.');
+    const corrected = [
+      {
+        id: 'S-access-recovery-frontend-admin',
+        question: 'How do frontend guards enforce administrator access?',
+        originRefs: [administrator, frontend],
+        claimType: 'positive',
+        proofCondition: 'Observe the frontend guard enforcing administrator access.',
+        constraints: [],
+      },
+      {
+        id: 'S-access-recovery-backend-admin',
+        question: 'Which backend route families use administrator checks?',
+        originRefs: [administrator, backend],
+        claimType: 'comparison',
+        proofCondition: 'Compare administrator predicates across backend route families.',
+        constraints: [],
+      },
+      {
+        id: 'S-access-recovery-backend-developer',
+        question: 'Which backend route families give developer-specific access?',
+        originRefs: [developer, backend],
+        claimType: 'comparison',
+        proofCondition: 'Compare developer behavior across backend route families.',
+        constraints: [],
+      },
+    ];
+    const invalid = corrected.map((goal, index) => ({
+      ...goal,
+      originRefs: [`request:0-${task.length}`, index === 0 ? frontend : backend],
+    }));
+    const ambiguousRetry = [
+      invalid[0],
+      invalid[1],
+      { ...invalid[1], id: 'S-access-recovery-duplicate-backend-admin' },
+    ];
+    const client = new ScriptedGoalAuditClient([
+      { stage: 'planner:1', value: plannerControl(invalid) },
+      { stage: 'planner:2', value: plannerControl(ambiguousRetry) },
+      {
+        stage: 'goal_audit:1',
+        run(request) {
+          const packet = parseControlPacket(request);
+          assert.deepEqual(packet.proposals, corrected);
+          return controlCompletion(auditorControl(
+            corrected.map(goal => auditControlRecord(goal)),
+          ));
+        },
+      },
+      { stage: 'exploration:1', content: 'The restored access leaves are ready.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+    ]);
+    const root = await makeRepoFixture();
+    const result = await new RuntimeImplementation({ chatClient: client }).explore({
+      task,
+      repo_root: root,
+    });
+
+    assert.equal(result.failure, null, JSON.stringify({
+      failure: result.failure,
+      stages: client.stageLabels,
+    }));
+    assert.equal(client.stageCounts.get('planner'), 2);
+    assert.equal(client.stageCounts.get('goal_audit'), 1);
+    assert.deepEqual(result.taskContract.subgoals.map(goal => goal.originRefs),
+      corrected.map(goal => goal.originRefs));
+  },
+);
+
+auditedPlanningRuntimeTest(
+  'Spec 028 T069 — ambiguous access leaves remain fail-closed across retries',
+  async () => {
+    const task = 'Compare administrator and developer access policy across frontend guards and backend route families.';
+    const administrator = requestOrigin(task, 'administrator');
+    const frontend = requestOrigin(task, 'frontend guards');
+    const backend = requestOrigin(task, 'backend route families.');
+    const frontendAdministrator = {
+      id: 'S-ambiguous-access-frontend-admin',
+      question: 'How do frontend guards enforce administrator access?',
+      originRefs: [administrator, frontend],
+      claimType: 'positive',
+      proofCondition: 'Observe the frontend guard enforcing administrator access.',
+      constraints: [],
+    };
+    const backendAdministrator = {
+      id: 'S-ambiguous-access-backend-admin',
+      question: 'Which backend route families use administrator checks?',
+      originRefs: [administrator, backend],
+      claimType: 'comparison',
+      proofCondition: 'Compare administrator predicates across backend route families.',
+      constraints: [],
+    };
+    const ambiguous = [
+      frontendAdministrator,
+      backendAdministrator,
+      { ...backendAdministrator, id: 'S-ambiguous-access-duplicate-backend-admin' },
+    ];
+    const client = new ScriptedGoalAuditClient([
+      { stage: 'planner:1', value: plannerControl(ambiguous) },
+      { stage: 'planner:2', value: plannerControl(ambiguous) },
+    ]);
+    const root = await makeRepoFixture();
+    const result = await new RuntimeImplementation({ chatClient: client }).explore({
+      task,
+      repo_root: root,
+    });
+
+    assert.deepEqual(client.stageLabels, ['planner:1', 'planner:2']);
+    assert.ok(result.failure);
+    assert.equal(result.parentHandoff.state, 'failed');
+    assert.match(JSON.stringify(client.requests[1].messages),
+      /Required canonical leaf contract: exactly one of each/iu);
+  },
+);
+
+auditedPlanningRuntimeTest(
+  'Spec 028 T069 — invocation classification leaves require one contiguous action origin',
+  async () => {
+    const task = 'Inventory every Amazon Bedrock invocation and classify direct SDK calls, wrappers, and configuration-only references.';
+    const classifyStart = task.indexOf('classify');
+    const invalid = [
+      {
+        id: 'S-direct',
+        question: 'Which direct Amazon Bedrock SDK invocation sites exist?',
+        originRefs: [
+          requestOrigin(task, 'Inventory every Amazon Bedrock invocation'),
+          requestOrigin(task, 'classify direct SDK calls,'),
+        ],
+        claimType: 'count',
+        proofCondition: 'Enumerate every direct SDK invocation site.',
+        constraints: [],
+      },
+      {
+        id: 'S-wrappers',
+        question: 'Which Amazon Bedrock wrapper entry points exist?',
+        originRefs: [
+          requestOrigin(task, 'Inventory every Amazon Bedrock invocation'),
+          requestOrigin(task, 'wrappers,'),
+        ],
+        claimType: 'comparison',
+        proofCondition: 'Classify every wrapper entry point separately from direct SDK calls.',
+        constraints: [],
+      },
+      {
+        id: 'S-config',
+        question: 'Which Amazon Bedrock references are configuration-only?',
+        originRefs: [
+          requestOrigin(task, 'Inventory every Amazon Bedrock invocation'),
+          requestOrigin(task, 'configuration-only references.'),
+        ],
+        claimType: 'comparison',
+        proofCondition: 'Classify configuration-only references separately from invocations.',
+        constraints: [],
+      },
+    ];
+    const corrected = invalid.map((goal, index) => ({
+      ...goal,
+      originRefs: [`request:${classifyStart}-${[
+        task.indexOf('wrappers,') - 1,
+        task.indexOf('wrappers,') + 'wrappers,'.length,
+        task.length,
+      ][index]}`],
+    }));
+    const client = new ScriptedGoalAuditClient([
+      { stage: 'planner:1', value: plannerControl(invalid) },
+      { stage: 'planner:2', value: plannerControl(invalid) },
+      {
+        stage: 'goal_audit:1',
+        value: auditorControl(corrected.map(goal => auditControlRecord(goal)), []),
+      },
+      { stage: 'exploration:1', content: 'The three classification leaves are explored.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+    ]);
+    const root = await makeRepoFixture();
+    const result = await new RuntimeImplementation({ chatClient: client }).explore({
+      task,
+      repo_root: root,
+    });
+
+    assert.equal(result.failure, null, JSON.stringify({
+      failure: result.failure,
+      stages: client.stageLabels,
+    }));
+    assert.equal(client.stageCounts.get('planner'), 2);
+    assert.equal(client.stageCounts.get('goal_audit'), 1);
+    assert.deepEqual(result.taskContract.subgoals.map(goal => goal.originRefs),
+      corrected.map(goal => goal.originRefs));
+    assert.match(JSON.stringify(client.requests[1].messages),
+      /one exact contiguous request origin.*shared classification action/iu);
+  },
+);
+
+auditedPlanningRuntimeTest(
+  'Spec 028 T069 — invocation validation preserves a trailing same-category obligation',
+  async () => {
+    const task = 'Inventory every Amazon Bedrock invocation and classify direct SDK calls, wrappers, and configuration-only references, and separately classify retry wrappers.';
+    const classifyStart = task.indexOf('classify');
+    const configurationEnd = task.indexOf(', and separately classify retry wrappers.') + 1;
+    const goals = [
+      {
+        id: 'S-direct-with-extra',
+        question: 'Which direct Amazon Bedrock SDK invocation sites exist?',
+        originRefs: [`request:${classifyStart}-${task.indexOf('wrappers,') - 1}`],
+        claimType: 'count',
+        proofCondition: 'Enumerate every direct SDK invocation site.',
+        constraints: [],
+      },
+      {
+        id: 'S-wrappers-with-extra',
+        question: 'Which Amazon Bedrock wrapper entry points exist?',
+        originRefs: [
+          `request:${classifyStart}-${task.indexOf('wrappers,') + 'wrappers,'.length}`,
+        ],
+        claimType: 'comparison',
+        proofCondition: 'Classify every wrapper entry point separately from direct SDK calls.',
+        constraints: [],
+      },
+      {
+        id: 'S-config-with-extra',
+        question: 'Which Amazon Bedrock references are configuration-only?',
+        originRefs: [`request:${classifyStart}-${configurationEnd}`],
+        claimType: 'comparison',
+        proofCondition: 'Classify configuration-only references separately from invocations.',
+        constraints: [],
+      },
+      {
+        id: 'S-retry-wrappers-extra',
+        question: 'Which retry wrappers need separate classification?',
+        originRefs: [requestOrigin(task, 'and separately classify retry wrappers.')],
+        claimType: 'comparison',
+        proofCondition: 'Classify the separately requested retry wrappers.',
+        constraints: [],
+      },
+    ];
+    const client = new ScriptedGoalAuditClient([
+      { stage: 'planner:1', value: plannerControl(goals) },
+      { stage: 'goal_audit:1', value: auditorControl(goals.map(goal => auditControlRecord(goal))) },
+      { stage: 'exploration:1', content: 'All requested classification obligations are retained.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+    ]);
+    const root = await makeRepoFixture();
+    const result = await new RuntimeImplementation({ chatClient: client }).explore({
+      task,
+      repo_root: root,
+    });
+
+    assert.equal(result.failure, null, JSON.stringify({
+      failure: result.failure,
+      stages: client.stageLabels,
+    }));
+    assert.equal(client.stageCounts.get('planner'), 1);
+    assert.equal(client.stageCounts.get('goal_audit'), 1);
+    assert.deepEqual(result.taskContract.subgoals.map(goal => goal.id), goals.map(goal => goal.id));
+    assert.deepEqual(result.taskContract.subgoals.map(goal => goal.originRefs),
+      goals.map(goal => goal.originRefs));
+  },
+);
+
+auditedPlanningRuntimeTest(
+  'Spec 028 T069 — invocation classification rejects missing and duplicate categories',
+  async () => {
+    const task = 'Inventory every Amazon Bedrock invocation and classify direct SDK calls, wrappers, and configuration-only references.';
+    const classifyStart = task.indexOf('classify');
+    const direct = {
+      id: 'S-direct-category',
+      question: 'Which direct Amazon Bedrock SDK invocation sites exist?',
+      originRefs: [`request:${classifyStart}-${task.indexOf('wrappers,') - 1}`],
+      claimType: 'count',
+      proofCondition: 'Enumerate every direct SDK invocation site.',
+      constraints: [],
+    };
+    const wrappers = {
+      id: 'S-wrapper-category',
+      question: 'Which Amazon Bedrock wrapper entry points exist?',
+      originRefs: [`request:${classifyStart}-${task.indexOf('wrappers,') + 'wrappers,'.length}`],
+      claimType: 'comparison',
+      proofCondition: 'Classify every wrapper entry point separately from direct SDK calls.',
+      constraints: [],
+    };
+    const invalid = [direct, wrappers, { ...direct, id: 'S-duplicate-direct-category' }];
+    const client = new ScriptedGoalAuditClient([
+      { stage: 'planner:1', value: plannerControl(invalid) },
+      { stage: 'planner:2', value: plannerControl(invalid) },
+    ]);
+    const root = await makeRepoFixture();
+    const result = await new RuntimeImplementation({ chatClient: client }).explore({
+      task,
+      repo_root: root,
+    });
+
+    assert.deepEqual(client.stageLabels, ['planner:1', 'planner:2']);
+    assert.ok(result.failure);
+    assert.equal(result.parentHandoff.state, 'failed');
+    assert.match(JSON.stringify(client.requests[1].messages),
+      /exactly one direct, wrapper, and configuration goal/iu);
+  },
+);
+
+test('Spec 028 T069 — ambiguous origin corrections remain fail-closed', async () => {
+  const task = 'Map pipeline environment configuration impact.';
+  const original = {
+    id: 'S-config-original',
+    question: 'Which environment configuration inputs affect the pipeline?',
+    originRefs: [requestOrigin(task, 'environment configuration')],
+    claimType: 'impact',
+    proofCondition: 'Observe the environment configuration inputs and their pipeline effect.',
+    constraints: [],
+  };
+  const corrected = ['A', 'B'].map(suffix => ({
+    ...original,
+    id: `S-config-corrected-${suffix}`,
+    originRefs: [`request:0-${task.length}`],
+  }));
+  const runtime = new RuntimeImplementation({
+    chatClient: {
+      model: 'zai-glm-4.7',
+      async createChatCompletion() {
+        assert.fail('ambiguous correction must fail closed without another model call');
+      },
+    },
+  });
+  const result = await runtime._reconcileGoalCoverage({
+    chatClient: runtime._explicitChatClient,
+    task,
+    effectiveScope: ['src/**'],
+    wrapperTool: 'explore_repo',
+    obligations: [{
+      obligationId: 'revision-obligation-1',
+      sourceId: original.id,
+      kind: 'decompose',
+      goal: original,
+    }],
+    proposal: plannerControl(corrected),
+    auditRecords: corrected.map(goal => auditControlRecord(goal)),
+    eligibleGoalIds: corrected.map(goal => goal.id),
+  });
+
+  assert.deepEqual(result.findings, [{
+    obligationId: 'revision-obligation-1',
+    disposition: 'remaining',
+    coveredByGoalIds: [],
+    reason: 'A decomposition obligation requires at least two audited descendant goals.',
+  }]);
+});
+
+auditedPlanningRuntimeTest('Spec 028 T022 — preserved origin and constraint sets may be reordered', async () => {
+  const kept = proposedRuntimeGoal({
+    id: 'S-kept',
+    originRefs: [
+      requestOrigin(GOAL_AUDIT_TASK, 'Locate requireAuth'),
+      'wrapper:trace_symbol:definition',
+      'wrapper:trace_symbol:usage',
+    ],
+    constraints: ['Stay in scope.', 'Use source evidence.'],
+  });
+  const broad = proposedRuntimeGoal({
+    id: 'S-broad',
+    question: 'Inspect both authentication distinctions.',
+    originRefs: [`request:0-${GOAL_AUDIT_TASK.length}`],
+    claimType: 'positive',
+    proofCondition: 'Observe each requested distinction independently.',
+  });
+  const reordered = {
+    ...kept,
+    originRefs: [...kept.originRefs].reverse(),
+    constraints: [...kept.constraints].reverse(),
+  };
+  const client = new ScriptedGoalAuditClient([
+    { stage: 'planner:1', value: plannerControl([kept, broad]) },
+    {
+      stage: 'goal_audit:1',
+      value: auditorControl([
+        auditControlRecord(kept),
+        auditControlRecord(broad, 'needs_decomposition'),
+      ]),
+    },
+    { stage: 'planner:2', value: plannerControl([reordered]) },
+    { stage: 'exploration:1', content: 'The preserved goal remains auditable.' },
+    { stage: 'synthesis:1', value: readyExplorationResult() },
+  ]);
+  const root = await makeRepoFixture();
+  const runtime = new RuntimeImplementation({ chatClient: client });
+  const result = await runtime.explore({
+    task: GOAL_AUDIT_TASK,
+    repo_root: root,
+    taskMode: 'symbol_trace',
+  });
+
+  assert.equal(result.failure, null);
+  assert.equal(result.taskContract.subgoals[0].id, kept.id);
+  assert.ok(result.taskContract.subgoals.some(goal =>
+    goal.auditVerdict === 'planning_incomplete'));
+});
+
+auditedPlanningRuntimeTest('Spec 028 T022 — initial goal audit batches are bounded and reconcile cross-batch coverage', async () => {
+  const task = 'Inspect every requested authentication facet in the repository.';
+  const goals = Array.from({ length: 13 }, (_, index) => ({
+    id: `P${index + 1}`,
+    question: `Inspect authentication facet ${index + 1}.`,
+    originRefs: [`request:0-${task.length}`],
+    claimType: 'positive',
+    proofCondition: `Observe repository evidence for authentication facet ${index + 1}.`,
+    constraints: [],
+  }));
+  class BatchedInitialAuditClient {
+    constructor() {
+      this.model = 'zai-glm-4.7';
+      this.auditBatches = [];
+      this.stages = [];
+    }
+
+    async createChatCompletion(request) {
+      const stage = classifyControlRequest(request);
+      this.stages.push(stage);
+      if (stage === 'planner') return controlCompletion(plannerControl(goals));
+      if (stage === 'goal_audit') {
+        const prompt = JSON.stringify(request.messages);
+        const batch = goals.filter(goal => new RegExp(`\\b${goal.id}\\b`).test(prompt));
+        this.auditBatches.push(batch.map(goal => goal.id));
+        const uncovered = batch.some(goal => goal.id === 'P13')
+          ? []
+          : [{
+            ...goals[12],
+            id: undefined,
+            question: 'Review authentication facet 13.',
+            proofCondition: 'Observe repository evidence that resolves authentication facet 13.',
+          }];
+        delete uncovered[0]?.id;
+        const missingQuestion = uncovered[0]?.question;
+        return controlCompletion(auditorControl(
+          batch.map((goal, index) => auditControlRecord(goal, 'ready', {
+            missingRequestParts: index === 0 && missingQuestion ? [missingQuestion] : [],
+          })),
+          uncovered,
+        ));
+      }
+      if (stage === 'goal_coverage') {
+        return controlCompletion(coverageControl([
+          coveredObligation('batch-uncovered-1', ['P13']),
+        ]));
+      }
+      if (stage === 'exploration') return controlCompletion('Batched goals are ready.');
+      return controlCompletion(readyExplorationResult());
+    }
+  }
+
+  const client = new BatchedInitialAuditClient();
+  const root = await makeRepoFixture();
+  const runtime = new RuntimeImplementation({ chatClient: client });
+  const result = await runtime.explore({ task, repo_root: root });
+
+  assert.equal(client.auditBatches.length, 2);
+  assert.ok(client.auditBatches.every(batch => batch.length <= 12));
+  assert.deepEqual(client.auditBatches.flat(), goals.map(goal => goal.id));
+  assert.deepEqual(result.taskContract.subgoals.map(goal => goal.id), goals.map(goal => goal.id));
+  assert.deepEqual(result.coverageGaps
+    .filter(gap => gap.reason === 'planning_incomplete'), [],
+    'another batch must not create a false uncovered blocker for a ready goal');
+  assert.equal(result.coverageGaps.filter(gap => gap.reason === 'missing_evidence').length,
+    goals.length);
+});
+
+auditedPlanningRuntimeTest('Spec 028 T017 — malformed goal-audit control output fails before exploration', async () => {
+  const goals = definitionAndAbsenceGoals();
+  class MalformedAuditClient {
+    constructor() {
+      this.model = 'zai-glm-4.7';
+      this.stages = [];
+      this.auditCalls = 0;
+    }
+
+    async createChatCompletion(request) {
+      const stage = classifyControlRequest(request);
+      this.stages.push(stage);
+      if (stage === 'planner') return controlCompletion(plannerControl(goals));
+      if (stage === 'goal_audit') {
+        this.auditCalls += 1;
+        return controlCompletion({});
+      }
+      return controlCompletion(readyExplorationResult());
+    }
+  }
+
+  const root = await makeRepoFixture();
+  const logDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-invalid-goal-audit-'));
+  const client = new MalformedAuditClient();
+  const runtime = new RuntimeImplementation({ chatClient: client });
+  let result;
+  await withEnv({ CEREBRAS_EXPLORER_LOG_PATH: logDir }, async () => {
+    result = await runtime.explore({ task: GOAL_AUDIT_TASK, repo_root: root });
+  });
+
+  assert.ok(client.auditCalls >= 1 && client.auditCalls <= 2,
+    'invalid required control output may receive at most one bounded recovery');
+  assert.equal(client.stages.includes('exploration'), false);
+  assert.equal(client.stages.includes('synthesis'), false);
+  assert.ok(result.failure, 'invalid audit JSON is an execution fault, not a coverage gap');
+  assert.equal(result.status.complete, false);
+  assert.equal(/Where is requireAuth defined/.test(result.directAnswer ?? ''), false,
+    'planner content must never become a stale parent answer');
+  const entries = await readJsonl(result.transcriptPath);
+  const invalid = entries.find(entry => entry.type === 'control_invalid');
+  assert.equal(invalid?.stage, 'goal_audit');
+  assert.match(invalid?.reason ?? '', /GoalAuditorResponse/u);
+  assert.equal(invalid?.attempts?.length, 2);
+  assert.deepEqual(invalid?.attempts?.map(item => item.attempt), [1, 2]);
+  assert.ok(invalid?.attempts?.every(item =>
+    typeof item.reason === 'string' && item.reason.length > 0));
+  assert.equal(JSON.stringify(result.parentHandoff).includes('attempts'), false,
+    'bounded control diagnostics remain transcript-only');
+});
+
+auditedPlanningRuntimeTest('Spec 028 T017 — an all-blocked audited plan returns without futile exploration', async () => {
+  const blockedTask = 'Report which requireAuth revision is active in the deployed service.';
+  const blocked = {
+    id: 'S-live',
+    question: 'Which requireAuth revision is active in the deployed service?',
+    originRefs: [`request:0-${blockedTask.length}`],
+    claimType: 'positive',
+    proofCondition: 'Observe the active deployed revision.',
+    constraints: [],
+  };
+  const client = new ScriptedGoalAuditClient([
+    { stage: 'planner:1', value: plannerControl([blocked]) },
+    {
+      stage: 'goal_audit:1',
+      value: auditorControl([
+        auditControlRecord(blocked, 'requires_external_state'),
+      ]),
+    },
+  ]);
+  const root = await makeRepoFixture();
+  const runtime = new RuntimeImplementation({ chatClient: client });
+  const result = await runtime.explore({ task: blockedTask, repo_root: root });
+
+  assert.deepEqual(client.stageLabels, ['planner:1', 'goal_audit:1']);
+  assert.equal(result.failure, null, 'a valid blocker is incomplete, not failed');
+  assert.equal(result.status.complete, false);
+  assert.equal(result.taskContract.subgoals[0].state, 'blocked');
+  assert.equal(result.taskContract.subgoals[0].auditVerdict, 'requires_external_state');
+  assert.ok(result.coverageGaps.some(gap => gap.reason === 'external_state_required'));
+});
+
+auditedPlanningRuntimeTest('Spec 028 T023 — planning, rejection, and blocker transitions stay in redacted transcripts', async () => {
+  const root = await makeRepoFixture();
+  const logDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-planning-events-'));
+  const fakeKey = `sk-proj-${'q'.repeat(32)}`;
+  const broad = proposedRuntimeGoal({
+    id: 'T-broad',
+    question: GOAL_AUDIT_TASK,
+    originRefs: [`request:0-${GOAL_AUDIT_TASK.length}`],
+    claimType: 'positive',
+    proofCondition: 'Observe each requested authentication distinction independently.',
+  });
+  const invented = proposedRuntimeGoal({
+    id: 'T-invented',
+    question: `Inspect unrelated credential ${fakeKey}.`,
+    originRefs: [`request:0-${GOAL_AUDIT_TASK.length}`],
+    claimType: 'positive',
+    proofCondition: 'Observe an unrelated credential in repository content.',
+  });
+  const corrected = definitionAndAbsenceGoals();
+  const client = new ScriptedGoalAuditClient([
+    { stage: 'planner:1', value: plannerControl([broad, invented]) },
+    {
+      stage: 'goal_audit:1',
+      value: auditorControl([
+        auditControlRecord(broad, 'needs_decomposition'),
+        auditControlRecord(invented, 'reject_untraceable', { originRefs: [] }),
+      ]),
+    },
+    { stage: 'planner:2', value: plannerControl(corrected) },
+    {
+      stage: 'goal_audit:2',
+      value: auditorControl(corrected.map(goal =>
+        auditControlRecord(goal, 'needs_decomposition'))),
+    },
+    {
+      stage: 'goal_coverage:1',
+      value: coverageControl([
+        coveredObligation('revision-obligation-1', corrected.map(goal => goal.id)),
+      ]),
+    },
+  ]);
+
+  await withEnv({
+    CEREBRAS_EXPLORER_LOG_PATH: logDir,
+    CEREBRAS_EXPLORER_LOG_RAW: 'true',
+  }, async () => {
+    const runtime = new RuntimeImplementation({ chatClient: client });
+    const result = await runtime.explore({ task: GOAL_AUDIT_TASK, repo_root: root });
+    const entries = await readJsonl(result.transcriptPath);
+    const eventTypes = new Set([
+      'plan_proposed',
+      'goal_audit',
+      'plan_revised',
+      'goal_rejected',
+      'subgoal_state',
+    ]);
+    const planningEvents = entries.filter(entry => eventTypes.has(entry.type));
+
+    assert.deepEqual(planningEvents.map(entry => entry.type), [
+      'plan_proposed',
+      'goal_audit',
+      'goal_rejected',
+      'plan_revised',
+      'goal_audit',
+      'subgoal_state',
+      'subgoal_state',
+    ]);
+    assert.equal(planningEvents[0].revisionCount, 0);
+    assert.deepEqual(planningEvents[0].proposal.subgoals.map(goal => goal.id),
+      ['T-broad', 'T-invented']);
+    assert.equal(planningEvents[1].revisionCount, 0);
+    assert.deepEqual(planningEvents[1].auditRecords.map(record => record.proposedGoalId),
+      ['T-broad', 'T-invented']);
+    assert.deepEqual(planningEvents[1].capabilities, {
+      repositoryRead: true,
+      gitRead: true,
+      repositoryWrite: false,
+      liveRuntimeState: false,
+      scopeWidening: false,
+      secretPathRead: false,
+    });
+    assert.equal(planningEvents[2].proposedGoalId, 'T-invented');
+    assert.equal(planningEvents[2].verdict, 'reject_untraceable');
+    assert.equal(planningEvents[3].revisionCount, 1);
+    assert.equal(planningEvents[3].proposal.subgoals.some(goal => goal.id === 'T-invented'), false);
+    assert.equal(planningEvents[4].revisionCount, 1);
+    assert.deepEqual(planningEvents.slice(5).map(event => event.subgoalId),
+      corrected.map(goal => goal.id));
+    assert.ok(planningEvents.slice(5).every(event => event.from === 'audit'));
+    assert.ok(planningEvents.slice(5).every(event => event.to === 'blocked'));
+    assert.ok(planningEvents.slice(5).every(event => event.reason === 'planning_incomplete'));
+    assert.equal(entries.some(entry => entry.type === 'assistant'), false);
+    assert.equal(entries.some(entry => entry.type === 'tool'), false);
+    assert.equal(entries.at(-1).type, 'meta');
+
+    const serialized = JSON.stringify(entries);
+    assert.equal(serialized.includes(fakeKey), false);
+    assert.match(serialized, /\[REDACTED:openai-api-key\]/);
+  });
+});
+
+auditedPlanningRuntimeTest('Spec 028 T022 — control prompts and returned trust state redact secret values', async () => {
+  const secret = ['sk', '-proj-', 'a'.repeat(32)].join('');
+  const task = `Inspect ${secret} without exposing it.`;
+  const goal = {
+    id: 'S-secret',
+    question: 'Inspect the supplied token safely.',
+    originRefs: [`request:0-${task.length}`],
+    claimType: 'positive',
+    proofCondition: 'Observe whether the requested repository evidence can be inspected safely.',
+    constraints: [],
+  };
+  const client = new ScriptedGoalAuditClient([
+    {
+      stage: 'planner:1',
+      run(request) {
+        const serialized = JSON.stringify(request.messages);
+        assert.doesNotMatch(serialized, new RegExp(secret));
+        assert.match(serialized, /\[REDACTED:openai-api-key\]/);
+        return controlCompletion(plannerControl([goal]));
+      },
+    },
+    {
+      stage: 'goal_audit:1',
+      value: auditorControl([auditControlRecord(goal)]),
+    },
+    {
+      stage: 'exploration:1',
+      run(request) {
+        const serialized = JSON.stringify(request.messages);
+        assert.doesNotMatch(serialized, new RegExp(secret));
+        assert.match(serialized, /\[REDACTED:openai-api-key\]/);
+        return controlCompletion('The redacted audited goal is ready.');
+      },
+    },
+    {
+      stage: 'synthesis:1',
+      run(request) {
+        assert.doesNotMatch(JSON.stringify(request.messages), new RegExp(secret));
+        return controlCompletion(readyExplorationResult());
+      },
+    },
+  ]);
+  const root = await makeRepoFixture();
+  const runtime = new RuntimeImplementation({ chatClient: client });
+  const result = await runtime.explore({ task, repo_root: root });
+
+  assert.doesNotMatch(JSON.stringify(result), new RegExp(secret));
+  assert.match(result.taskContract.task, /\[REDACTED:openai-api-key\]/);
+  assert.doesNotThrow(() => validateTaskContract(result.taskContract),
+    'the runtime-owned redacted diagnostic projection is resealed');
+
+  const lateProposal = {
+    ...goal,
+    id: 'L-secret',
+    question: `Inspect ${secret} safely.`,
+  };
+  const lateClient = {
+    model: 'zai-glm-4.7',
+    async createChatCompletion(request) {
+      const serialized = JSON.stringify(request.messages);
+      assert.doesNotMatch(serialized, new RegExp(secret));
+      assert.match(serialized, /\[REDACTED:openai-api-key\]/);
+      return controlCompletion(auditorControl([auditControlRecord(lateProposal)]));
+    },
+  };
+  const lateRuntime = new RuntimeImplementation({ chatClient: lateClient });
+  const lateResult = await lateRuntime.auditLateGoalProposals({
+    task,
+    effectiveScope: ['src/**'],
+    wrapperTool: 'find_relevant_code',
+    proposals: [lateProposal],
+  });
+  assert.doesNotMatch(JSON.stringify(lateResult), new RegExp(secret));
+  assert.match(lateResult.requiredSubgoals[0].question, /\[REDACTED:openai-api-key\]/);
+  const [safeLateGoal] = lateResult.requiredSubgoals;
+  assert.doesNotThrow(() => createTaskContract({
+    task,
+    effectiveScope: ['src/**'],
+    constraints: [],
+    subgoals: [safeLateGoal],
+    plannerVersion: 'planner-v1',
+    goalAuditVersion: 'goal-audit-v1',
+  }));
+});
+
+auditedPlanningRuntimeTest('Spec 028 T017 — cancellation is honored at every planning and audit stage', async () => {
+  const broad = proposedRuntimeGoal({
+    id: 'S-broad',
+    question: 'Locate requireAuth and independently check legacyGuard.',
+    originRefs: [`request:0-${GOAL_AUDIT_TASK.length}`],
+    claimType: 'positive',
+    proofCondition: 'Observe the definition and enumerate the registration surface.',
+  });
+  const corrected = definitionAndAbsenceGoals();
+  const revisionAudit = auditorControl([
+    auditControlRecord(broad, 'needs_decomposition'),
+  ], [{
+    question: corrected[1].question,
+    originRefs: [...corrected[1].originRefs],
+    claimType: corrected[1].claimType,
+    proofCondition: corrected[1].proofCondition,
+    constraints: [],
+  }]);
+
+  for (const abortAt of [
+    'planner:1',
+    'goal_audit:1',
+    'planner:2',
+    'goal_audit:2',
+    'goal_coverage:1',
+  ]) {
+    const controller = new AbortController();
+    class AbortAtStageClient {
+      constructor() {
+        this.model = 'zai-glm-4.7';
+        this.counts = new Map();
+        this.labels = [];
+      }
+
+      async createChatCompletion(request) {
+        assert.equal(request.signal, controller.signal);
+        const stage = classifyControlRequest(request);
+        const count = (this.counts.get(stage) ?? 0) + 1;
+        this.counts.set(stage, count);
+        const label = `${stage}:${count}`;
+        this.labels.push(label);
+        if (label === abortAt) {
+          controller.abort();
+          const error = new Error(`cancelled at ${label}`);
+          error.name = 'AbortError';
+          throw error;
+        }
+        if (label === 'planner:1') return controlCompletion(plannerControl([broad]));
+        if (label === 'goal_audit:1') return controlCompletion(revisionAudit);
+        if (label === 'planner:2') return controlCompletion(plannerControl(corrected));
+        if (label === 'goal_audit:2') {
+          return controlCompletion(auditorControl(corrected.map(goal => auditControlRecord(goal))));
+        }
+        if (label === 'goal_coverage:1') {
+          return controlCompletion(coverageControl([
+            coveredObligation('revision-obligation-1', corrected.map(goal => goal.id)),
+            coveredObligation('revision-obligation-2', [corrected[1].id]),
+          ]));
+        }
+        assert.fail(`exploration must not start after cancellation target ${abortAt}`);
+      }
+    }
+
+    const root = await makeRepoFixture();
+    const client = new AbortAtStageClient();
+    const runtime = new RuntimeImplementation({ chatClient: client });
+    const result = await runtime.explore(
+      { task: GOAL_AUDIT_TASK, repo_root: root },
+      { abortSignal: controller.signal },
+    );
+
+    assert.equal(client.labels.at(-1), abortAt);
+    assert.equal(result.failure?.reason, 'aborted', abortAt);
+    assert.equal(result.status.complete, false, abortAt);
+    assert.equal(/requireAuth is defined/.test(result.directAnswer ?? ''), false,
+      `stale intermediate content leaked after ${abortAt}`);
+  }
+});
+
+auditedPlanningRuntimeTest('Spec 028 T033 — provider faults retain precedence through audit wrappers', async t => {
+  const initialGoal = proposedRuntimeGoal();
+  await t.test('initial batched audit', async () => {
+    const client = new ScriptedGoalAuditClient([
+      { stage: 'planner:1', value: plannerControl([initialGoal]) },
+      {
+        stage: 'goal_audit:1',
+        run() {
+          throw new Error('initial audit provider outage');
+        },
+      },
+    ]);
+    const root = await makeRepoFixture();
+    const result = await new RuntimeImplementation({ chatClient: client }).explore({
+      task: GOAL_AUDIT_TASK,
+      repo_root: root,
+    });
+    assert.equal(result.failure?.category, 'provider');
+    assert.equal(result.failure?.reason, 'provider_error');
+  });
+
+  await t.test('revision coverage reconciliation', async () => {
+    const broad = proposedRuntimeGoal({
+      id: 'S-broad-provider',
+      question: 'Locate requireAuth and independently check legacyGuard.',
+      originRefs: [`request:0-${GOAL_AUDIT_TASK.length}`],
+      claimType: 'positive',
+      proofCondition: 'Observe the definition and enumerate the registration surface.',
+    });
+    const corrected = definitionAndAbsenceGoals();
+    const client = new ScriptedGoalAuditClient([
+      { stage: 'planner:1', value: plannerControl([broad]) },
+      {
+        stage: 'goal_audit:1',
+        value: auditorControl([
+          auditControlRecord(broad, 'needs_decomposition'),
+        ], [{
+          question: corrected[1].question,
+          originRefs: [...corrected[1].originRefs],
+          claimType: corrected[1].claimType,
+          proofCondition: corrected[1].proofCondition,
+          constraints: [],
+        }]),
+      },
+      { stage: 'planner:2', value: plannerControl(corrected) },
+      {
+        stage: 'goal_audit:2',
+        value: auditorControl(corrected.map(goal => auditControlRecord(goal))),
+      },
+      {
+        stage: 'goal_coverage:1',
+        run() {
+          throw new Error('revision reconciliation provider outage');
+        },
+      },
+    ]);
+    const root = await makeRepoFixture();
+    const result = await new RuntimeImplementation({ chatClient: client }).explore({
+      task: GOAL_AUDIT_TASK,
+      repo_root: root,
+    });
+    assert.equal(result.failure?.category, 'provider');
+    assert.equal(result.failure?.reason, 'provider_error');
+  });
+
+  await t.test('late-goal audit wrapper', async () => {
+    const lateGoal = {
+      ...initialGoal,
+      id: 'L-provider',
+    };
+    const client = new ScriptedGoalAuditClient([{
+      stage: 'goal_audit:1',
+      run() {
+        throw new Error('late audit provider outage');
+      },
+    }]);
+    const runtime = new RuntimeImplementation({ chatClient: client });
+    await assert.rejects(runtime.auditLateGoalProposals({
+      task: GOAL_AUDIT_TASK,
+      effectiveScope: ['src/**'],
+      wrapperTool: 'find_relevant_code',
+      proposals: [lateGoal],
+    }), error => error?.explorerFailureKind === 'provider');
+  });
+});
+
+auditedPlanningRuntimeTest('Spec 028 T017 — late goal proposals are audited in bounded batches without re-planning', async () => {
+  const task = 'Inspect every requested authentication facet in the repository.';
+  const proposals = Array.from({ length: 13 }, (_, index) => ({
+    id: `L${index + 1}`,
+    question: `Inspect authentication facet ${index + 1}.`,
+    originRefs: [`request:0-${task.length}`],
+    claimType: 'positive',
+    proofCondition: `Observe repository evidence for authentication facet ${index + 1}.`,
+    constraints: [],
+  }));
+
+  class LateBatchAuditClient {
+    constructor() {
+      this.model = 'zai-glm-4.7';
+      this.requests = [];
+      this.seenGoalIds = [];
+    }
+
+    async createChatCompletion(request) {
+      const stage = classifyControlRequest(request);
+      assert.notEqual(stage, 'planner', 'late proposals must never invoke the planner');
+      this.requests.push(request);
+      if (stage === 'goal_coverage') {
+        return controlCompletion(coverageControl([
+          coveredObligation('batch-uncovered-1', ['L13']),
+        ]));
+      }
+      assert.equal(stage, 'goal_audit');
+      const prompt = JSON.stringify(request.messages);
+      const batch = proposals.filter(goal =>
+        new RegExp(`\\b${goal.id}\\b`).test(prompt));
+      assert.ok(batch.length > 0 && batch.length <= 12);
+      this.seenGoalIds.push(...batch.map(goal => goal.id));
+      const records = batch.map(goal => {
+        if (goal.id === 'L11') {
+          return auditControlRecord(goal, 'reject_untraceable', { originRefs: [] });
+        }
+        if (goal.id === 'L12') return auditControlRecord(goal, 'needs_decomposition');
+        return auditControlRecord(goal);
+      });
+      const { id: _ignoredId, ...otherBatchPart } = proposals[12];
+      if (!batch.some(goal => goal.id === 'L13')) {
+        records[0].missingRequestParts = [otherBatchPart.question];
+      }
+      return controlCompletion(auditorControl(
+        records,
+        batch.some(goal => goal.id === 'L13') ? [] : [otherBatchPart],
+      ));
+    }
+  }
+
+  const client = new LateBatchAuditClient();
+  const runtime = new RuntimeImplementation({ chatClient: client });
+  const result = await runtime.auditLateGoalProposals({
+    task,
+    effectiveScope: ['src/**'],
+    wrapperTool: 'find_relevant_code',
+    proposals,
+  });
+
+  assert.ok(client.requests.length >= 2, '13 goals cannot fit in one bounded audit batch');
+  assert.deepEqual(client.seenGoalIds, proposals.map(goal => goal.id),
+    'late proposals must be audited exactly once and in request order');
+  assert.deepEqual(result.requiredSubgoals
+    .filter(goal => goal.auditVerdict === 'ready')
+    .map(goal => goal.id), [
+    ...proposals.slice(0, 10).map(goal => goal.id),
+    proposals[12].id,
+  ]);
+  const latePlanningDefect = result.requiredSubgoals.find(goal =>
+    goal.auditVerdict === 'planning_incomplete');
+  assert.ok(latePlanningDefect);
+  assert.equal(latePlanningDefect.state, 'blocked');
+  assert.equal(latePlanningDefect.question, proposals[11].question);
+  assert.deepEqual(result.rejectedGoals.map(goal => goal.proposedGoalId), ['L11']);
+  assert.deepEqual(result.gaps.map(gap => gap.reason), ['planning_incomplete']);
+  assert.equal(result.revisionRequest, null, 'late goals can never trigger another planner pass');
+});
+
+auditedPlanningRuntimeTest('Spec 028 T022 — a clean large audit skips unnecessary coverage reconciliation', async () => {
+  const task = 'Inspect every requested authentication facet in the repository.';
+  const proposals = Array.from({ length: 25 }, (_, index) => ({
+    id: `Q${index + 1}`,
+    question: `Inspect authentication facet ${index + 1}.`,
+    originRefs: [`request:0-${task.length}`],
+    claimType: 'positive',
+    proofCondition: `Observe repository evidence for authentication facet ${index + 1}.`,
+    constraints: [],
+  }));
+  const stages = [];
+  const client = {
+    model: 'zai-glm-4.7',
+    async createChatCompletion(request) {
+      const stage = classifyControlRequest(request);
+      stages.push(stage);
+      assert.equal(stage, 'goal_audit',
+        'a clean batched audit must not trigger a holistic coverage provider call');
+      const prompt = JSON.stringify(request.messages);
+      const batch = proposals.filter(goal => new RegExp(`\\b${goal.id}\\b`).test(prompt));
+      assert.ok(batch.length > 0 && batch.length <= 12);
+      return controlCompletion(auditorControl(batch.map(goal => auditControlRecord(goal))));
+    },
+  };
+  const runtime = new RuntimeImplementation({ chatClient: client });
+  const result = await runtime.auditLateGoalProposals({
+    task,
+    effectiveScope: ['src/**'],
+    wrapperTool: 'find_relevant_code',
+    proposals,
+  });
+
+  assert.deepEqual(stages, ['goal_audit', 'goal_audit', 'goal_audit']);
+  assert.deepEqual(result.requiredSubgoals.map(goal => goal.id), proposals.map(goal => goal.id));
+  assert.deepEqual(result.gaps, []);
+});
+
+auditedPlanningRuntimeTest('Spec 028 T022 — rejected and uncovered batch conflict fails closed', async () => {
+  const task = 'Inspect every requested authentication facet in the repository.';
+  const proposals = Array.from({ length: 13 }, (_, index) => ({
+    id: `C${index + 1}`,
+    question: `Inspect authentication facet ${index + 1}.`,
+    originRefs: [`request:0-${task.length}`],
+    claimType: 'positive',
+    proofCondition: `Observe repository evidence for authentication facet ${index + 1}.`,
+    constraints: [],
+  }));
+  let auditCalls = 0;
+  let coverageCalls = 0;
+  const client = {
+    model: 'zai-glm-4.7',
+    async createChatCompletion(request) {
+      const stage = classifyControlRequest(request);
+      if (stage === 'goal_coverage') {
+        coverageCalls += 1;
+        return controlCompletion(coverageControl([remainingObligation('batch-uncovered-1')]));
+      }
+      assert.equal(stage, 'goal_audit');
+      auditCalls += 1;
+      const prompt = JSON.stringify(request.messages);
+      const batch = proposals.filter(goal => new RegExp(`\\b${goal.id}\\b`).test(prompt));
+      const records = batch.map(goal => goal.id === 'C13'
+        ? auditControlRecord(goal, 'reject_untraceable', { originRefs: [] })
+        : auditControlRecord(goal));
+      const { id: _ignored, ...conflict } = proposals[12];
+      if (!batch.some(goal => goal.id === 'C13')) {
+        records[0].missingRequestParts = [conflict.question];
+      }
+      return controlCompletion(auditorControl(
+        records,
+        batch.some(goal => goal.id === 'C13') ? [] : [conflict],
+      ));
+    },
+  };
+  const runtime = new RuntimeImplementation({ chatClient: client });
+
+  await assert.rejects(runtime.auditLateGoalProposals({
+    task,
+    effectiveScope: ['src/**'],
+    wrapperTool: 'find_relevant_code',
+    proposals,
+  }), error => error?.code === 'ERR_INVALID_GOAL_CONTROL' &&
+    /rejected proposal was also reported as uncovered/.test(error.cause?.message ?? ''));
+  assert.equal(auditCalls, 2);
+  assert.equal(coverageCalls, 0, 'the merged audit conflict must fail before reconciliation');
+});
+
+auditedPlanningRuntimeTest('Spec 028 T022 — rejected and uncovered direct conflict fails closed', async () => {
+  const task = 'Inspect the requested authentication facet.';
+  const proposal = {
+    id: 'C-direct',
+    question: 'Invent an unrelated cache change.',
+    originRefs: [`request:0-${task.length}`],
+    claimType: 'positive',
+    proofCondition: 'Observe a location for an unrelated cache change.',
+    constraints: [],
+  };
+  const { id: _ignored, ...conflict } = proposal;
+  let calls = 0;
+  const client = {
+    model: 'zai-glm-4.7',
+    async createChatCompletion(request) {
+      calls += 1;
+      assert.equal(classifyControlRequest(request), 'goal_audit');
+      return controlCompletion(auditorControl([
+        auditControlRecord(proposal, 'reject_untraceable', { originRefs: [] }),
+      ], [conflict]));
+    },
+  };
+  const runtime = new RuntimeImplementation({ chatClient: client });
+
+  await assert.rejects(runtime.auditLateGoalProposals({
+    task,
+    effectiveScope: ['src/**'],
+    wrapperTool: 'find_relevant_code',
+    proposals: [proposal],
+  }), error => error?.code === 'ERR_INVALID_GOAL_CONTROL' &&
+    /rejected proposal was also reported as uncovered/.test(error.cause?.message ?? ''));
+  assert.equal(calls, 2, 'the invalid direct audit receives only one bounded retry');
+});
+
+auditedPlanningRuntimeTest('Spec 028 T022 — a genuine late uncovered part becomes a terminal planning gap', async () => {
+  const task = 'Inspect authentication and authorization facets.';
+  const proposal = {
+    id: 'L-authentication',
+    question: 'Inspect the authentication facet.',
+    originRefs: [`request:0-${task.length}`],
+    claimType: 'positive',
+    proofCondition: 'Observe bounded repository evidence for authentication.',
+    constraints: [],
+  };
+  const uncovered = {
+    question: 'Inspect the authorization facet.',
+    originRefs: [`request:0-${task.length}`],
+    claimType: 'positive',
+    proofCondition: 'Observe bounded repository evidence for authorization.',
+    constraints: [],
+  };
+  const client = {
+    model: 'zai-glm-4.7',
+    async createChatCompletion(request) {
+      assert.equal(classifyControlRequest(request), 'goal_audit');
+      return controlCompletion(auditorControl([
+        auditControlRecord(proposal, 'ready', {
+          missingRequestParts: [uncovered.question],
+        }),
+      ], [uncovered]));
+    },
+  };
+  const runtime = new RuntimeImplementation({ chatClient: client });
+  const result = await runtime.auditLateGoalProposals({
+    task,
+    effectiveScope: ['src/**'],
+    wrapperTool: 'find_relevant_code',
+    proposals: [proposal],
+  });
+
+  assert.equal(result.requiredSubgoals.length, 2);
+  assert.equal(result.requiredSubgoals[0].id, 'L-authentication');
+  assert.equal(result.requiredSubgoals[1].auditVerdict, 'planning_incomplete');
+  assert.equal(result.requiredSubgoals[1].question, uncovered.question);
+  assert.deepEqual(result.gaps.map(gap => gap.reason), ['planning_incomplete']);
+  assert.equal(result.revisionRequest, null);
+});
+
+auditedPlanningRuntimeTest('Spec 028 T069 — a stronger late obligation cannot disappear through an external merge', async () => {
+  const task = 'Inspect the requested authentication facet.';
+  const originRefs = [`request:0-${task.length}`];
+  const existing = createRequiredSubgoal({
+    id: 'S-existing-auth',
+    question: 'Inspect the requested authentication facet.',
+    originRefs,
+    claimType: 'positive',
+    proofCondition: 'Observe bounded authentication evidence.',
+    constraints: [],
+    auditVerdict: 'ready',
+  });
+  const proposal = {
+    id: 'L-stronger-auth',
+    question: existing.question,
+    originRefs,
+    claimType: existing.claimType,
+    proofCondition: existing.proofCondition,
+    constraints: ['Also prove an additional export boundary.'],
+  };
+  let calls = 0;
+  const client = {
+    model: 'zai-glm-4.7',
+    async createChatCompletion(request) {
+      calls += 1;
+      const packet = parseControlPacket(request);
+      return controlCompletion(auditorControl([{
+        ...auditControlRecord(packet.proposals[0], 'merge_duplicate'),
+        mergeInto: existing.id,
+      }]));
+    },
+  };
+
+  await assert.rejects(new RuntimeImplementation({ chatClient: client }).auditLateGoalProposals({
+    task,
+    effectiveScope: ['src/**'],
+    wrapperTool: 'find_relevant_code',
+    proposals: [proposal],
+    existingGoalLedger: [existing],
+  }), error => error?.code === 'ERR_INVALID_GOAL_CONTROL' &&
+    /strengthened the constraints/.test(error.cause?.message ?? ''));
+  assert.equal(calls, 2, 'an invalid external merge gets only one bounded correction');
+});
+
+auditedPlanningRuntimeTest('Spec 028 T069 — late audit retry keeps a distinct acceptance core independent', async () => {
+  const task = 'Locate requireAuth and inspect its export boundary.';
+  const originRefs = [`request:0-${task.length}`];
+  const existing = createRequiredSubgoal({
+    id: 'S-existing-definition',
+    question: 'Where is requireAuth defined?',
+    originRefs,
+    claimType: 'symbol_definition',
+    proofCondition: 'Observe the in-scope requireAuth definition.',
+    constraints: [],
+    auditVerdict: 'ready',
+  });
+  const proposal = {
+    id: 'L-export-boundary',
+    question: 'Which exported API exposes requireAuth?',
+    originRefs,
+    claimType: existing.claimType,
+    proofCondition: 'Observe the export boundary that exposes requireAuth.',
+    constraints: [],
+  };
+  let calls = 0;
+  const client = {
+    model: 'zai-glm-4.7',
+    async createChatCompletion(request) {
+      calls += 1;
+      const packet = parseControlPacket(request);
+      if (calls === 1) {
+        return controlCompletion(auditorControl([{
+          ...auditControlRecord(packet.proposals[0], 'merge_duplicate'),
+          mergeInto: existing.id,
+        }]));
+      }
+      assert.match(JSON.stringify(request.messages),
+        /Use merge_duplicate only when question, claimType, proofCondition, and constraints exactly match[\s\S]*audit it independently with a non-merge verdict/u);
+      return controlCompletion(auditorControl([
+        auditControlRecord(packet.proposals[0]),
+      ]));
+    },
+  };
+
+  const result = await new RuntimeImplementation({ chatClient: client }).auditLateGoalProposals({
+    task,
+    effectiveScope: ['src/**'],
+    wrapperTool: 'find_relevant_code',
+    proposals: [proposal],
+    existingGoalLedger: [existing],
+  });
+
+  assert.equal(calls, 2);
+  assert.deepEqual(result.requiredSubgoals.map(goal => goal.id), [proposal.id]);
+  assert.equal(result.requiredSubgoals[0].question, proposal.question);
+  assert.equal(result.requiredSubgoals[0].proofCondition, proposal.proofCondition);
+  assert.deepEqual(result.rejectedGoals, []);
+  assert.deepEqual(result.gaps, []);
+});
+
+auditedPlanningRuntimeTest('Spec 028 T069 — a distinct late acceptance core cannot disappear through an external merge', async () => {
+  const task = 'Locate requireAuth and inspect its export boundary.';
+  const originRefs = [`request:0-${task.length}`];
+  const existing = createRequiredSubgoal({
+    id: 'S-existing-definition',
+    question: 'Where is requireAuth defined?',
+    originRefs,
+    claimType: 'symbol_definition',
+    proofCondition: 'Observe the in-scope requireAuth definition.',
+    constraints: [],
+    auditVerdict: 'ready',
+  });
+  const proposal = {
+    id: 'L-export-boundary',
+    question: 'Which exported API exposes requireAuth?',
+    originRefs,
+    claimType: existing.claimType,
+    proofCondition: 'Observe the export boundary that exposes requireAuth.',
+    constraints: [],
+  };
+  let calls = 0;
+  const client = {
+    model: 'zai-glm-4.7',
+    async createChatCompletion(request) {
+      calls += 1;
+      const packet = parseControlPacket(request);
+      return controlCompletion(auditorControl([{
+        ...auditControlRecord(packet.proposals[0], 'merge_duplicate'),
+        mergeInto: existing.id,
+      }]));
+    },
+  };
+
+  const result = await new RuntimeImplementation({ chatClient: client }).auditLateGoalProposals({
+    task,
+    effectiveScope: ['src/**'],
+    wrapperTool: 'find_relevant_code',
+    proposals: [proposal],
+    existingGoalLedger: [existing],
+  });
+
+  assert.equal(calls, 2, 'an invalid external merge gets only one bounded correction');
+  assert.equal(result.requiredSubgoals.length, 1);
+  assert.equal(result.requiredSubgoals[0].id, proposal.id);
+  assert.equal(result.requiredSubgoals[0].state, 'blocked');
+  assert.equal(result.requiredSubgoals[0].auditVerdict, 'planning_incomplete');
+  assert.equal(result.requiredSubgoals[0].question, proposal.question);
+  assert.equal(result.requiredSubgoals[0].proofCondition, proposal.proofCondition);
+  assert.deepEqual(result.requiredSubgoals[0].constraints, proposal.constraints);
+  assert.deepEqual(result.gaps.map(gap => gap.reason), ['planning_incomplete']);
+  assert.deepEqual(result.rejectedGoals, []);
+  assert.equal(result.revisionRequest, null);
+});
+
+auditedPlanningRuntimeTest('Spec 028 T017 — late goal audit forwards cancellation without registering goals', async () => {
+  const task = 'Inspect the requested authentication facet.';
+  const proposal = {
+    id: 'L1',
+    question: 'Inspect the requested authentication facet.',
+    originRefs: [`request:0-${task.length}`],
+    claimType: 'positive',
+    proofCondition: 'Observe the requested repository evidence.',
+    constraints: [],
+  };
+  const controller = new AbortController();
+  const client = {
+    model: 'zai-glm-4.7',
+    async createChatCompletion(request) {
+      assert.equal(classifyControlRequest(request), 'goal_audit');
+      assert.equal(request.signal, controller.signal);
+      controller.abort();
+      const error = new Error('late audit cancelled');
+      error.name = 'AbortError';
+      throw error;
+    },
+  };
+  const runtime = new RuntimeImplementation({ chatClient: client });
+
+  await assert.rejects(runtime.auditLateGoalProposals({
+    task,
+    effectiveScope: ['src/**'],
+    wrapperTool: 'find_relevant_code',
+    proposals: [proposal],
+  }, { abortSignal: controller.signal }), error => error?.name === 'AbortError');
+});
+
+// T030-T033 implement this pipeline in stages. T033 flips this alias after the
+// verifier, late-goal audit, repair, and fatal-fault paths have all landed.
+const semanticPipelineRuntimeTest = test;
+
+function trustGoal(task, {
+  id,
+  question,
+  originText,
+  claimType = 'positive',
+  proofCondition = `Observe current repository evidence for ${question}`,
+  constraints = [],
+}) {
+  return {
+    id,
+    question,
+    originRefs: [requestOrigin(task, originText)],
+    claimType,
+    proofCondition,
+    constraints,
+  };
+}
+
+function candidateClaim(id, subgoalId, text, evidenceRefs) {
+  return { id, subgoalId, text, evidenceRefs };
+}
+
+function semanticVerdict(claimId, result, evidenceRefs = []) {
+  return {
+    claimId,
+    result,
+    ...(result === 'supported' ? { resolution: 'affirmed' } : {}),
+    supportingEvidenceRefs: evidenceRefs,
+    reasonCode: result === 'supported'
+      ? 'entailed'
+      : result === 'contradicted' ? 'contradiction' : 'semantic_mismatch',
+    note: `${claimId} is ${result}.`,
+  };
+}
+
+function toolControlCompletion(tool, args, id) {
+  return toolBatchControlCompletion([{ tool, args, id }]);
+}
+
+function toolBatchControlCompletion(calls) {
+  return {
+    usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+    finishReason: 'tool_calls',
+    message: {
+      content: '',
+      toolCalls: calls.map(call => ({
+        id: call.id,
+        function: { name: call.tool, arguments: JSON.stringify(call.args) },
+      })),
+    },
+  };
+}
+
+function parseControlPacket(request) {
+  const content = request.messages.findLast(message =>
+    message.role === 'user' && typeof message.content === 'string' &&
+    message.content.includes('BEGIN_CONTROL_DATA_JSON'))?.content ?? '';
+  const match = /BEGIN_CONTROL_DATA_JSON\n([\s\S]*?)\nEND_CONTROL_DATA_JSON/.exec(content);
+  assert.ok(match, 'isolated control request must contain structured control data');
+  return JSON.parse(match[1]);
+}
+
+function lateAuditResponse(request, verdict) {
+  const packet = parseControlPacket(request);
+  const proposals = packet.proposals ?? [];
+  assert.ok(proposals.length > 0);
+  return controlCompletion(auditorControl(proposals.map(proposal =>
+    auditControlRecord(proposal, verdict, verdict === 'reject_untraceable'
+      ? { originRefs: [] }
+      : {}))));
+}
+
+function verifierResponse(verdicts, uncoveredRequestParts = []) {
+  return { verdicts, uncoveredRequestParts };
+}
+
+function parseRepairPacket(request) {
+  const content = request.messages.findLast(message =>
+    message.role === 'user' && typeof message.content === 'string' &&
+    message.content.includes('BEGIN_EVIDENCE_REPAIR_JSON'))?.content ?? '';
+  const match = /BEGIN_EVIDENCE_REPAIR_JSON\n([\s\S]*?)\nEND_EVIDENCE_REPAIR_JSON/
+    .exec(content);
+  assert.ok(match, 'repair request must contain structured evidence-repair data');
+  return JSON.parse(match[1]);
+}
+
+function assertRepairRequest(request, { question, anchors }) {
+  const packet = JSON.stringify(request.messages);
+  assert.ok(packet.includes(question));
+  assert.ok(packet.includes('src/**'));
+  for (const anchor of anchors) assert.ok(packet.includes(anchor));
+  assert.ok((request.tools?.length ?? 0) > 0,
+    'repair must remain a scoped repository-tool pass');
+  assert.equal(request.responseFormat, undefined,
+    'repair input is a gap task, not a second planner/control response');
+  return parseRepairPacket(request);
+}
+
+function buildTrustSteps({ goals, initial, repair }) {
+  const steps = [
+    { stage: 'planner:1', value: plannerControl(goals) },
+    {
+      stage: 'goal_audit:1',
+      value: auditorControl(goals.map(goal => auditControlRecord(goal))),
+    },
+  ];
+  let exploration = 0;
+  let verification = 0;
+  let audit = 1;
+  let hasRuntimeObservation = false;
+  let hasDirectSourceObservation = false;
+
+  const addPass = (pass, { includeFinalSynthesis = false, repairPass = false } = {}) => {
+    if (pass.providerError) {
+      exploration += 1;
+      steps.push({
+        stage: `exploration:${exploration}`,
+        run(request) {
+          pass.assertRequest?.(request);
+          const error = new Error(pass.providerError);
+          error.retryable = false;
+          throw error;
+        },
+      });
+      return;
+    }
+    if (repairPass) {
+      exploration += 1;
+      steps.push({
+        stage: `exploration:${exploration}`,
+        run(request) {
+          pass.assertRequest?.(request);
+          const calls = pass.tools ?? [];
+          return calls.length > 0
+            ? toolBatchControlCompletion(calls)
+            : controlCompletion(pass.prose ?? 'Evidence repair completed without a tool action.');
+        },
+      });
+    } else {
+      for (const call of pass.tools ?? []) {
+        exploration += 1;
+        steps.push({
+          stage: `exploration:${exploration}`,
+          run(request) {
+            pass.assertRequest?.(request);
+            return toolControlCompletion(call.tool, call.args, call.id);
+          },
+        });
+      }
+      exploration += 1;
+      steps.push({ stage: `exploration:${exploration}`, content: pass.prose ?? 'Evidence pass complete.' });
+    }
+    const passTools = pass.tools ?? [];
+    hasRuntimeObservation ||= passTools.length > 0;
+    hasDirectSourceObservation ||= passTools.some(call =>
+      call.tool === 'repo_read_file' || call.tool === 'repo_symbol_context');
+    if (includeFinalSynthesis) {
+      steps.push({ stage: 'synthesis:1', value: readyExplorationResult() });
+    }
+
+    const activeSubgoalIds = repairPass
+      ? new Set([...(initial.claims ?? []), ...(pass.claims ?? [])]
+        .map(claim => claim.subgoalId))
+      : new Set(goals.map(goal => goal.id));
+    const activeGoals = goals.filter(goal => activeSubgoalIds.has(goal.id));
+    const hasPotentialClaimBatch =
+      (hasRuntimeObservation && activeGoals.some(goal => goal.claimType !== 'positive')) ||
+      (hasDirectSourceObservation && activeGoals.some(goal => goal.claimType === 'positive'));
+    if (hasPotentialClaimBatch) {
+      steps.push({
+        stage: 'claim_synthesis:*',
+        repeatStage: 'claim_synthesis',
+        run(request) {
+          const subgoalIds = new Set(parseControlPacket(request).control.requiredSubgoals
+            .map(goal => goal.id));
+          return controlCompletion({
+            claims: (pass.claims ?? []).filter(claim => subgoalIds.has(claim.subgoalId)),
+          });
+        },
+      });
+    }
+
+    const carriesPriorClaims = repairPass && (initial.claims?.length ?? 0) > 0;
+    if (hasPotentialClaimBatch && ((pass.claims?.length ?? 0) > 0 || carriesPriorClaims)) {
+      const verifierSteps = pass.verifierSteps ?? [{
+        verdicts: pass.verdicts,
+        uncovered: pass.uncovered,
+        assertRequest: pass.assertVerifier,
+      }];
+      for (const verifier of verifierSteps) {
+        verification += 1;
+        steps.push({
+          stage: `semantic_verifier:${verification}`,
+          run(request) {
+            verifier.assertRequest?.(request);
+            if (verifier.error) {
+              const error = new Error(verifier.error);
+              error.retryable = false;
+              throw error;
+            }
+            if (verifier.raw !== undefined) {
+              return controlCompletion(verifier.raw, { finishReason: verifier.finishReason });
+            }
+            return controlCompletion(verifierResponse(
+              verifier.verdicts,
+              verifier.uncovered ?? [],
+            ));
+          },
+        });
+      }
+      if (pass.auditVerdict) {
+        audit += 1;
+        steps.push({
+          stage: `goal_audit:${audit}`,
+          run: request => lateAuditResponse(request, pass.auditVerdict),
+        });
+      }
+    }
+  };
+
+  addPass(initial, { includeFinalSynthesis: true });
+  if (repair) addPass(repair, { repairPass: true });
+  return steps;
+}
+
+async function runTrustScript(steps, {
+  task,
+  setup,
+  abortSignal,
+  scope = ['src/**'],
+  taskMode,
+  hints,
+} = {}) {
+  const root = await makeRepoFixture();
+  if (setup) await setup(root);
+  const client = new ScriptedGoalAuditClient(steps);
+  const runtime = new RuntimeImplementation({ chatClient: client });
+  const result = await runtime.explore({
+    task: task ?? GOAL_AUDIT_TASK,
+    repo_root: root,
+    scope,
+    ...(taskMode ? { taskMode } : {}),
+    ...(hints ? { hints } : {}),
+  }, { abortSignal });
+  return { client, result };
+}
+
+function providerToolActions(client) {
+  return client.completions.flatMap(completion => completion?.message?.toolCalls ?? [])
+    .map(call => ({
+      type: 'tool',
+      tool: call.function.name,
+      arguments: JSON.parse(call.function.arguments),
+    }));
+}
+
+function assertNoRequiredLeak(result, text) {
+  assert.equal(result.taskContract.subgoals.some(goal => goal.question === text), false);
+  assert.equal(result.coverageGaps.some(gap => gap.question === text), false);
+  assert.doesNotMatch(result.directAnswer ?? '', new RegExp(text));
+}
+
+// T062 integrates proof-policy artifacts into the runtime result. Keep the
+// explicit marker assertion for the count fixture, but run every fixture's
+// behavioral assertions now that the implementation task is complete.
+function hasRuntimeProofPolicyIntegration(result) {
+  return Array.isArray(result?.semanticVerification?.absenceCertificates);
+}
+
+function assertMinimalCompleteParentHandoff(result, {
+  answer,
+  evidenceCount,
+  evidenceKinds,
+}) {
+  const handoff = result.parentHandoff;
+  assert.doesNotThrow(() => validateParentHandoffV3(handoff));
+  assert.deepEqual(Object.keys(handoff).sort(), [
+    'directAnswer', 'evidence', 'schemaVersion', 'state',
+  ]);
+  assert.equal(handoff.schemaVersion, 3);
+  assert.equal(handoff.state, 'complete');
+  assert.equal(handoff.directAnswer, answer);
+  assert.equal(handoff.evidence.length, evidenceCount);
+  assert.deepEqual(handoff.evidence.map(item => item.kind).sort(), [...evidenceKinds].sort());
+}
+
+function expectedParentGapQuestion(result, goal) {
+  const task = result.taskContract.task;
+  const requestSlices = (goal?.originRefs ?? []).flatMap(originRef => {
+    const match = /^request:(\d+)-(\d+)$/.exec(originRef);
+    if (!match) return [];
+    return [task.slice(Number(match[1]), Number(match[2])).trim()];
+  }).filter(Boolean);
+  return [...new Set(requestSlices)].join(' / ') || task.trim();
+}
+
+function assertMinimalIncompleteParentHandoff(result, question) {
+  const handoff = result.parentHandoff;
+  assert.doesNotThrow(() => validateParentHandoffV3(handoff));
+  assert.deepEqual(Object.keys(handoff).sort(), ['gaps', 'schemaVersion', 'state']);
+  assert.equal(handoff.schemaVersion, 3);
+  assert.equal(handoff.state, 'incomplete');
+  assert.equal(handoff.gaps.length, 1);
+  const gap = result.coverageGaps.find(item => item.subgoalId) ?? null;
+  const goal = result.taskContract.subgoals.find(item => item.id === gap?.subgoalId) ?? null;
+  const requestQuestion = expectedParentGapQuestion(result, goal);
+  assert.equal(handoff.gaps[0].question, requestQuestion);
+  if (question !== requestQuestion) {
+    assert.notEqual(handoff.gaps[0].question, question,
+      'model-authored goal text must not leak into the parent gap');
+  }
+  assert.ok(handoff.gaps[0].reason.length > 0);
+}
+
+function assertInternalProofGap(result, goalId) {
+  const subgoal = result.taskContract.subgoals.find(item => item.id === goalId);
+  assert.ok(subgoal, `missing runtime sub-goal ${goalId}`);
+  assert.notEqual(subgoal.state, 'supported');
+  assert.ok(result.coverageGaps.some(gap => gap.subgoalId === goalId));
+  const claims = result.semanticVerification.claims.filter(claim => claim.subgoalId === goalId);
+  assert.ok(claims.length > 0);
+  assert.ok(claims.every(claim => claim.verdict !== 'supported'),
+    'deterministic proof policy must override a model-supported overclaim');
+}
+
+test('Spec 028 T059 — runtime enforces negative and critical proof boundaries', async t => {
+  const fixtures = [
+    {
+      name: 'scoped absence produces one certified public absence item',
+      task: 'Confirm legacyGuard is absent from src/routes/**.',
+      scope: ['src/routes/**'],
+      goal: {
+        id: 'S-scoped-absence',
+        question: 'Is legacyGuard absent from src/routes/**?',
+        originText: 'legacyGuard is absent from src/routes/**',
+        claimType: 'absence',
+        proofCondition: 'Completely search src/routes/** and certify the bounded static absence.',
+        constraints: ['Keep the conclusion qualified to src/routes/**.'],
+      },
+      claimText: 'No static reference to legacyGuard exists in src/routes/**.',
+      initialTools: [{
+        tool: 'repo_grep',
+        args: { pattern: 'legacyGuard', scope: ['src/routes/**'] },
+        id: 'scoped-absence-search',
+      }],
+      initialEvidenceRefs: ['E1'],
+      assertImplemented({ result, goal, claim }) {
+        assert.equal(result.taskContract.subgoals.find(item => item.id === goal.id).state,
+          'supported');
+        assert.equal(result.semanticVerification.claims.find(item => item.id === claim.id).verdict,
+          'supported');
+        const certificate = result.semanticVerification.absenceCertificates.find(item =>
+          item.subgoalId === goal.id);
+        assert.ok(certificate);
+        assert.equal(certificate.complete, true);
+        assert.deepEqual(certificate.claimBoundary, ['src/routes/**']);
+        assert.ok(certificate.searchRefs.includes('E1'));
+        assert.equal(result.directAnswer, claim.text,
+          'the direct runtime result must retain a certified search-backed claim');
+        assertMinimalCompleteParentHandoff(result, {
+          answer: claim.text,
+          evidenceCount: 1,
+          evidenceKinds: ['absence'],
+        });
+        assert.deepEqual(result.parentHandoff.evidence[0].boundary, ['src/routes/**']);
+        assert.ok(result.parentHandoff.evidence[0].searches.length > 0);
+      },
+    },
+    {
+      name: 'repository-wide absence cannot be inferred from narrower searches',
+      task: 'Confirm legacyGuard is absent from every path in the repository.',
+      scope: [],
+      goal: {
+        id: 'S-repository-absence',
+        question: 'Is legacyGuard absent from every path in the repository?',
+        originText: 'legacyGuard is absent from every path in the repository',
+        claimType: 'absence',
+        proofCondition: 'Certify a complete repository-wide static search boundary.',
+        constraints: ['Do not generalize from a narrower src/routes search.'],
+      },
+      claimText: 'No static reference to legacyGuard exists anywhere in the repository.',
+      initialTools: [{
+        tool: 'repo_grep',
+        args: { pattern: 'legacyGuard', scope: ['src/routes/**'] },
+        id: 'narrow-absence-search',
+      }],
+      initialEvidenceRefs: ['E1'],
+      repairTools: [{
+        tool: 'repo_grep',
+        args: { pattern: 'legacyGuard', scope: ['src/**'] },
+        id: 'still-narrow-absence-search',
+      }],
+      repairEvidenceRefs: ['E1', 'E2'],
+      assertImplemented({ result, goal }) {
+        assertInternalProofGap(result, goal.id);
+        assertMinimalIncompleteParentHandoff(result, goal.question);
+        assert.equal(result.parentHandoff.evidence, undefined);
+        assert.equal(result.parentHandoff.directAnswer, undefined);
+        assert.equal(result.semanticVerification.absenceCertificates.some(item =>
+          item.subgoalId === goal.id && item.complete === true), false);
+      },
+    },
+    {
+      name: 'complete nonzero search produces a deterministic runtime count',
+      task: 'Count the lines containing requireAuth in src/routes/**.',
+      scope: ['src/routes/**'],
+      goal: {
+        id: 'S-route-count',
+        question: 'How many lines contain requireAuth in src/routes/**?',
+        originText: 'Count the lines containing requireAuth in src/routes/**',
+        claimType: 'count',
+        proofCondition: 'Completely search src/routes/** and count unique matching locations.',
+        constraints: ['Keep the count qualified to src/routes/**.'],
+      },
+      claimText: 'There are exactly 2 lines containing requireAuth in src/routes/**.',
+      countMeasurement: { kind: 'count', unit: 'matching_lines', value: 2 },
+      initialTools: [{
+        tool: 'repo_grep',
+        args: { pattern: 'requireAuth', scope: ['src/routes/**'] },
+        id: 'complete-route-count',
+      }],
+      initialEvidenceRefs: ['E1'],
+      repairTools: [{
+        tool: 'repo_grep',
+        args: { pattern: 'requireAuth', scope: ['src/routes/**'] },
+        id: 'duplicate-complete-route-count',
+      }],
+      repairEvidenceRefs: ['E1'],
+      assertImplemented({ result, goal, claim }) {
+        assertInternalProofGap(result, goal.id);
+        assert.equal(result.semanticVerification.claims.find(item => item.id === claim.id).verdict,
+          'insufficient');
+        const count = result.semanticVerification.deterministicCounts.find(item =>
+          item.subgoalId === goal.id);
+        assert.deepEqual(count, {
+          subgoalId: goal.id,
+          claimId: claim.id,
+          observationRef: 'E1',
+          unit: 'matching_lines',
+          claimBoundary: ['src/routes/**'],
+          certificateRef: `absence:${claim.id}:E1`,
+          complete: true,
+          count: 2,
+        });
+        assert.equal(result.observations.find(item => item.id === 'E1')
+          .normalizedItemIds.length, 2);
+        assert.equal(result.parentHandoff.state, 'incomplete',
+          'a nonzero search count is not supported until exact sources cover every match');
+        assert.equal(result.parentHandoff.directAnswer, undefined,
+          'a search-only count must not become an unsupported parent claim');
+      },
+    },
+    {
+      name: 'source-covered nonzero search count is safe for schema-v3 projection',
+      task: 'Count the lines containing requireAuth in src/routes/**.',
+      scope: ['src/routes/**'],
+      goal: {
+        id: 'S-source-covered-route-count',
+        question: 'How many lines contain requireAuth in src/routes/**?',
+        originText: 'Count the lines containing requireAuth in src/routes/**',
+        claimType: 'count',
+        proofCondition: 'Completely search src/routes/** and source-ground every counted line.',
+        constraints: ['Keep the count qualified to src/routes/**.'],
+      },
+      claimText: 'There are exactly 2 lines containing requireAuth in src/routes/**.',
+      countMeasurement: { kind: 'count', unit: 'matching_lines', value: 2 },
+      initialTools: [{
+        tool: 'repo_grep',
+        args: { pattern: 'requireAuth', scope: ['src/routes/**'] },
+        id: 'source-covered-route-count',
+      }, {
+        tool: 'repo_read_file',
+        args: { path: 'src/routes/user.js', startLine: 1, endLine: 7 },
+        id: 'read-source-covered-route-count',
+      }],
+      initialEvidenceRefs: ['E1', 'E2'],
+      assertImplemented({ result, goal, claim }) {
+        assert.equal(result.taskContract.subgoals.find(item => item.id === goal.id).state,
+          'supported');
+        assert.equal(result.semanticVerification.claims.find(item => item.id === claim.id).verdict,
+          'supported');
+        assert.deepEqual(result.observations.find(item => item.id === 'E1')
+          .normalizedItemAnchors, [
+          { path: 'src/routes/user.js', line: 1 },
+          { path: 'src/routes/user.js', line: 4 },
+        ]);
+        const projectedClaim = result.semanticVerification.claims.find(item => item.id === claim.id);
+        assertMinimalCompleteParentHandoff(result, {
+          answer: projectedClaim.text,
+          evidenceCount: 1,
+          evidenceKinds: ['source'],
+        });
+        assert.equal(result.parentHandoff.evidence[0].path, 'src/routes/user.js');
+      },
+    },
+    {
+      name: 'source-covered grep lines cannot become a semantic invocation-site count',
+      task: 'Count direct SDK invocation sites in src/routes/**.',
+      scope: ['src/routes/**'],
+      goal: {
+        id: 'S-semantic-invocation-count',
+        question: 'How many direct SDK invocation sites are in src/routes/**?',
+        originText: 'Count direct SDK invocation sites in src/routes/**',
+        claimType: 'count',
+        proofCondition: 'Enumerate and verify each direct SDK invocation site.',
+        constraints: ['Do not substitute matching source lines for semantic invocation sites.'],
+      },
+      claimText: 'There are exactly 2 direct SDK invocation sites in src/routes/**.',
+      countMeasurement: { kind: 'count', unit: 'matching_lines', value: 2 },
+      initialTools: [{
+        tool: 'repo_grep',
+        args: { pattern: 'requireAuth', scope: ['src/routes/**'] },
+        id: 'grep-semantic-invocation-count',
+      }, {
+        tool: 'repo_read_file',
+        args: { path: 'src/routes/user.js', startLine: 1, endLine: 7 },
+        id: 'read-semantic-invocation-count',
+      }],
+      initialEvidenceRefs: ['E1', 'E2'],
+      repairTools: [{
+        tool: 'repo_read_file',
+        args: { path: 'src/routes/user.js', startLine: 1, endLine: 7 },
+        id: 'repair-semantic-invocation-count',
+      }],
+      repairEvidenceRefs: ['E1', 'E2', 'E3'],
+      assertImplemented({ result, goal }) {
+        assertInternalProofGap(result, goal.id);
+        assertMinimalIncompleteParentHandoff(result, goal.question);
+      },
+    },
+    {
+      name: 'static string-array symbol context produces an exact array-entry count',
+      task: 'Count the entries in DEFAULT_SECRET_DENY_PATTERNS and cite its definition.',
+      scope: ['src/patterns.mjs'],
+      goal: {
+        id: 'S-static-array-count',
+        question: 'How many entries are in DEFAULT_SECRET_DENY_PATTERNS?',
+        originText: 'Count the entries in DEFAULT_SECRET_DENY_PATTERNS',
+        claimType: 'count',
+        proofCondition: 'Read the complete static array definition and count its entries.',
+        constraints: ['Keep the count bound to the cited definition.'],
+      },
+      claimText: 'DEFAULT_SECRET_DENY_PATTERNS contains exactly 13 entries.',
+      countMeasurement: { kind: 'count', unit: 'array_entries', value: 13 },
+      initialTools: [{
+        tool: 'repo_symbol_context',
+        args: {
+          symbol: 'DEFAULT_SECRET_DENY_PATTERNS',
+          scope: ['src/patterns.mjs'],
+        },
+        id: 'static-array-symbol',
+      }, {
+        tool: 'repo_read_file',
+        args: { path: 'src/patterns.mjs', startLine: 1, endLine: 15 },
+        id: 'static-array-read',
+      }],
+      initialEvidenceRefs: ['E1', 'E1:search', 'E2', 'E2:search'],
+      assertVerifier(request) {
+        const packet = parseControlPacket(request);
+        const countObservation = packet.observations.find(item => item.id === 'E1:search');
+        assert.deepEqual(countObservation?.deterministicMeasurement, {
+          kind: 'count',
+          unit: 'array_entries',
+          value: 13,
+        });
+        assert.deepEqual(packet.claims[0].measurement, {
+          kind: 'count',
+          unit: 'array_entries',
+          value: 13,
+        });
+      },
+      async setup(root) {
+        await fs.writeFile(path.join(root, 'src', 'patterns.mjs'), [
+          'export const DEFAULT_SECRET_DENY_PATTERNS = Object.freeze([',
+          "  '.env',",
+          "  '**/.env',",
+          "  '*.pem',",
+          "  '*.key',",
+          "  '*.p12',",
+          "  '*.pfx',",
+          "  'credentials.json',",
+          "  'secrets.json',",
+          "  '.npmrc',",
+          "  '.pypirc',",
+          "  '.netrc',",
+          "  '.aws/credentials',",
+          "  '.ssh/id_*',",
+          ']);',
+          '',
+        ].join('\n'));
+      },
+      assertImplemented({ result, goal, claim }) {
+        const source = result.observations.find(item => item.id === 'E1');
+        const countObservation = result.observations.find(item => item.id === 'E1:search');
+        assert.equal(source.kind, 'source');
+        assert.match(source.snippet, /DEFAULT_SECRET_DENY_PATTERNS/u);
+        assert.deepEqual(countObservation.deterministicMeasurement, {
+          kind: 'count',
+          unit: 'array_entries',
+          value: 13,
+        });
+        const count = result.semanticVerification.deterministicCounts.find(item =>
+          item.claimId === claim.id);
+        assert.equal(count.complete, true);
+        assert.equal(count.unit, 'array_entries');
+        assert.equal(count.count, 13);
+        assert.equal(result.taskContract.subgoals.find(item => item.id === goal.id).state,
+          'supported');
+        assert.equal(result.parentHandoff.state, 'complete', JSON.stringify({
+          handoff: result.parentHandoff,
+          resultState: result.state,
+          directAnswer: result.directAnswer,
+          claims: result.semanticVerification.claims,
+          allowed: result.semanticVerification.runtimeAllowedEvidenceRefsBySubgoal,
+        }, null, 2));
+        assert.doesNotThrow(() => validateParentHandoffV3(result.parentHandoff));
+        assert.match(result.parentHandoff.directAnswer,
+          /deterministic count of array entries.* is 13\./u);
+        assert.deepEqual(result.parentHandoff.evidence.map(item => item.kind), ['source']);
+        assert.deepEqual(result.semanticVerification.runtimeAllowedEvidenceRefsBySubgoal, [{
+          subgoalId: goal.id,
+          evidenceRefs: ['E1', 'E1:search', 'E2', 'E2:search'],
+        }]);
+        assert.equal(result.parentHandoff.targets.length, 1);
+        assert.equal(result.parentHandoff.targets[0].path, 'src/patterns.mjs');
+      },
+    },
+    {
+      name: 'static array count and closing line comparison shares one bounded definition',
+      task: 'Distinguish the 3 static array entries from the ending source line 5.',
+      scope: ['src/patterns.mjs'],
+      goal: {
+        id: 'S-static-array-comparison',
+        question: 'How do the static array entry count and ending source line differ?',
+        originText: 'Distinguish the 3 static array entries from the ending source line 5',
+        claimType: 'comparison',
+        proofCondition: 'Compare the runtime-owned array count with the exact definition range.',
+        constraints: ['Do not treat the ending source line as the entry count.'],
+      },
+      claimText: 'The static array has 3 entries and its definition ends on source line 5.',
+      requiresComparisonCorroboration: false,
+      initialTools: [{
+        tool: 'repo_symbol_context',
+        args: {
+          symbol: 'DEFAULT_SECRET_DENY_PATTERNS',
+          scope: ['src/patterns.mjs'],
+        },
+        id: 'static-array-comparison',
+      }, {
+        tool: 'repo_read_file',
+        args: { path: 'src/patterns.mjs', startLine: 1, endLine: 5 },
+        id: 'static-array-comparison-read',
+      }],
+      initialEvidenceRefs: ['E1', 'E1:search', 'E2', 'E2:search'],
+      async setup(root) {
+        await fs.writeFile(path.join(root, 'src', 'patterns.mjs'), [
+          'export const DEFAULT_SECRET_DENY_PATTERNS = Object.freeze([',
+          "  '.env',",
+          "  '**/.env',",
+          "  '*.pem',",
+          ']);',
+          '',
+        ].join('\n'));
+      },
+      assertImplemented({ client, result, goal, claim }) {
+        assert.equal(client.stageCounts.get('claim_synthesis'), 1,
+          'an explicitly requested numeric comparison must not need claim correction');
+        assert.equal(client.stageCounts.get('semantic_verifier'), 1,
+          'a same-definition comparison needs only the primary verifier');
+        assert.ok(result.semanticVerification, JSON.stringify({
+          failure: result.failure,
+          stages: client.stageLabels,
+        }, null, 2));
+        assert.equal(result.semanticVerification.deterministicCounts.length, 0,
+          'comparison reuses the runtime observation without inventing a count certificate');
+        assert.equal(result.semanticVerification.claims.find(item => item.id === claim.id).verdict,
+          'supported');
+        assert.equal(result.taskContract.subgoals.find(item => item.id === goal.id).state,
+          'supported');
+        assert.equal(result.parentHandoff.state, 'complete');
+        assert.match(result.parentHandoff.directAnswer, /3 entries.*line 5/u);
+        assert.deepEqual(result.parentHandoff.evidence.map(item => item.kind), ['source']);
+      },
+    },
+    {
+      name: 'zero count replaces a model-invented number with the runtime count',
+      task: 'Count the lines containing legacyGuard in src/routes/**.',
+      scope: ['src/routes/**'],
+      goal: {
+        id: 'S-zero-route-count',
+        question: 'How many lines contain legacyGuard in src/routes/**?',
+        originText: 'Count the lines containing legacyGuard in src/routes/**',
+        claimType: 'count',
+        proofCondition: 'Completely search src/routes/** and count unique matching locations.',
+        constraints: ['Keep the count qualified to src/routes/**.'],
+      },
+      claimText: 'There are exactly 999 lines containing legacyGuard in src/routes/**.',
+      countMeasurement: { kind: 'count', unit: 'matching_lines', value: 0 },
+      initialTools: [{
+        tool: 'repo_grep',
+        args: { pattern: 'legacyGuard', scope: ['src/routes/**'] },
+        id: 'complete-zero-route-count',
+      }],
+      initialEvidenceRefs: ['E1'],
+      assertImplemented({ result, goal, claim }) {
+        const verifiedClaim = result.semanticVerification.claims.find(item =>
+          item.id === claim.id);
+        const count = result.semanticVerification.deterministicCounts.find(item =>
+          item.claimId === claim.id);
+        assert.equal(count.count, 0);
+        assert.match(verifiedClaim.text, /deterministic count.* is 0\./u);
+        assert.doesNotMatch(verifiedClaim.text, /999/u);
+        assert.doesNotMatch(result.directAnswer ?? '', /999/u);
+        assert.equal(result.parentHandoff.state, 'complete');
+        assert.match(result.parentHandoff.directAnswer, /deterministic count.* is 0\./u);
+        assert.doesNotMatch(JSON.stringify(result.parentHandoff), /999/u);
+        assert.equal(result.parentHandoff.evidence[0].kind, 'absence');
+        assert.equal(result.taskContract.subgoals.find(item => item.id === goal.id).state,
+          'supported');
+      },
+    },
+    {
+      name: 'source-first evidence cannot project a model-invented nonzero count',
+      task: 'Count the lines containing requireAuth in src/routes/** and cite the route source.',
+      scope: ['src/routes/**'],
+      goal: {
+        id: 'S-source-first-route-count',
+        question: 'How many lines contain requireAuth in src/routes/**?',
+        originText: 'Count the lines containing requireAuth in src/routes/**',
+        claimType: 'count',
+        proofCondition: 'Completely search src/routes/** and count unique matching locations.',
+        constraints: ['Keep the count qualified to src/routes/**.'],
+      },
+      claimText: 'There are exactly 999 lines containing requireAuth in src/routes/**.',
+      countMeasurement: { kind: 'count', unit: 'matching_lines', value: 999 },
+      initialTools: [
+        {
+          tool: 'repo_read_file',
+          args: { path: 'src/routes/user.js', startLine: 1, endLine: 7 },
+          id: 'read-source-before-count',
+        },
+        {
+          tool: 'repo_grep',
+          args: { pattern: 'requireAuth', scope: ['src/routes/**'] },
+          id: 'complete-source-first-route-count',
+        },
+      ],
+      initialEvidenceRefs: ['E1', 'E2'],
+      repairTools: [
+        {
+          tool: 'repo_read_file',
+          args: { path: 'src/routes/user.js', startLine: 1, endLine: 7 },
+          id: 'repair-read-source-before-count',
+        },
+        {
+          tool: 'repo_grep',
+          args: { pattern: 'requireAuth', scope: ['src/routes/**'] },
+          id: 'repair-complete-source-first-route-count',
+        },
+      ],
+      repairEvidenceRefs: ['E1', 'E2', 'E3', 'E4'],
+      assertImplemented({ result, goal, claim }) {
+        const verifiedClaim = result.semanticVerification.claims.find(item =>
+          item.id === claim.id);
+        const count = result.semanticVerification.deterministicCounts.find(item =>
+          item.claimId === claim.id);
+        assert.equal(count.count, 2);
+        assert.equal(verifiedClaim.verdict, 'insufficient');
+        assert.doesNotMatch(result.directAnswer ?? '', /999/u);
+        assert.notEqual(result.taskContract.subgoals.find(item => item.id === goal.id).state,
+          'supported');
+        assert.equal(result.parentHandoff.state, 'incomplete');
+        assert.equal(result.parentHandoff.directAnswer, undefined);
+        assert.doesNotMatch(JSON.stringify(result.parentHandoff), /999/u);
+      },
+    },
+    {
+      name: 'count canonicalization follows the exact verifier-supported search observation',
+      task: 'Count the lines containing legacyGuard in src/routes/**.',
+      scope: ['src/routes/**'],
+      goal: {
+        id: 'S-bound-route-count',
+        question: 'How many lines contain legacyGuard in src/routes/**?',
+        originText: 'Count the lines containing legacyGuard in src/routes/**',
+        claimType: 'count',
+        proofCondition: 'Completely search src/routes/** and count unique matching locations.',
+        constraints: ['Bind the count to the verifier-supported search.'],
+      },
+      claimText: 'There are exactly 999 lines containing legacyGuard in src/routes/**.',
+      countMeasurement: { kind: 'count', unit: 'matching_lines', value: 0 },
+      initialTools: [
+        {
+          tool: 'repo_grep',
+          args: { pattern: 'requireAuth', scope: ['src/routes/**'] },
+          id: 'complete-unrelated-route-count',
+        },
+        {
+          tool: 'repo_grep',
+          args: { pattern: 'legacyGuard', scope: ['src/routes/**'] },
+          id: 'complete-supported-route-count',
+        },
+      ],
+      initialEvidenceRefs: ['E1', 'E2'],
+      verifierEvidenceRefs: ['E2'],
+      assertImplemented({ result, goal, claim }) {
+        const verifiedClaim = result.semanticVerification.claims.find(item =>
+          item.id === claim.id);
+        assert.equal(verifiedClaim.verdict, 'supported');
+        assert.match(verifiedClaim.text, /deterministic count.* is 0\./u);
+        assert.doesNotMatch(verifiedClaim.text, / is 2\.|999/u);
+        const counts = result.semanticVerification.deterministicCounts.filter(item =>
+          item.claimId === claim.id);
+        assert.deepEqual(counts.map(item => [item.observationRef, item.count]), [
+          ['E1', 2],
+          ['E2', 0],
+        ]);
+        assert.equal(result.parentHandoff.state, 'complete');
+        assert.match(result.parentHandoff.directAnswer, /deterministic count.* is 0\./u);
+        assert.equal(result.taskContract.subgoals.find(item => item.id === goal.id).state,
+          'supported');
+      },
+    },
+    {
+      name: 'complete file search produces a deterministic runtime count',
+      task: 'Count JavaScript files in src/routes/**.',
+      scope: ['src/routes/**'],
+      goal: {
+        id: 'S-route-file-count',
+        question: 'How many JavaScript files exist in src/routes/**?',
+        originText: 'Count JavaScript files in src/routes/**',
+        claimType: 'count',
+        proofCondition: 'Completely enumerate JavaScript files in src/routes/**.',
+        constraints: ['Keep the count qualified to src/routes/**.'],
+      },
+      claimText: 'There is exactly 1 JavaScript file in src/routes/**.',
+      countMeasurement: { kind: 'count', unit: 'files', value: 1 },
+      initialTools: [{
+        tool: 'repo_find_files',
+        args: { pattern: '**/*.js', scope: ['src/routes/**'] },
+        id: 'complete-route-file-count',
+      }],
+      initialEvidenceRefs: ['E1'],
+      assertImplemented({ result, goal }) {
+        const count = result.semanticVerification.deterministicCounts.find(item =>
+          item.subgoalId === goal.id);
+        assert.equal(result.taskContract.subgoals.find(item => item.id === goal.id).state,
+          'supported');
+        assert.equal(count.complete, true);
+        assert.equal(count.count, 1);
+        const itemIds = result.observations.find(item => item.id === 'E1').normalizedItemIds;
+        assert.equal(itemIds.length, 1);
+        assert.match(itemIds[0], /^sha256:[0-9a-f]{64}$/);
+      },
+    },
+    {
+      name: 'truncated nonzero search cannot produce a deterministic count',
+      task: 'Count the lines containing requireAuth in src/routes/**.',
+      scope: ['src/routes/**'],
+      goal: {
+        id: 'S-truncated-route-count',
+        question: 'How many lines contain requireAuth in src/routes/**?',
+        originText: 'Count the lines containing requireAuth in src/routes/**',
+        claimType: 'count',
+        proofCondition: 'Completely search src/routes/** and count unique matching locations.',
+        constraints: ['Do not treat truncated matches as an exact count.'],
+      },
+      claimText: 'There are exactly 1 lines containing requireAuth in src/routes/**.',
+      countMeasurement: { kind: 'count', unit: 'matching_lines', value: 1 },
+      initialTools: [{
+        tool: 'repo_grep',
+        args: { pattern: 'requireAuth', scope: ['src/routes/**'], maxResults: 1 },
+        id: 'truncated-route-count',
+      }],
+      initialEvidenceRefs: ['E1'],
+      repairTools: [{
+        tool: 'repo_grep',
+        args: { pattern: 'requireAuth', scope: ['src/routes/**'], maxResults: 1 },
+        id: 'still-truncated-route-count',
+      }],
+      repairEvidenceRefs: ['E1', 'E2'],
+      assertImplemented({ result, goal }) {
+        assert.ok(result.semanticVerification.deterministicCounts.length > 0);
+        assert.ok(result.semanticVerification.deterministicCounts.every(item =>
+          item.subgoalId !== goal.id || (item.complete === false && item.count === null)));
+        assertInternalProofGap(result, goal.id);
+        assertMinimalIncompleteParentHandoff(result, goal.question);
+      },
+    },
+    {
+      name: 'truncated symbol search cannot prove all usages',
+      task: 'List all usages of requireAuth in src/**.',
+      goal: {
+        id: 'S-all-usages',
+        question: 'What are all usages of requireAuth in src/**?',
+        originText: 'all usages of requireAuth in src/**',
+        claimType: 'symbol_usage',
+        proofCondition: 'Cross-check every in-scope usage without truncated results.',
+        constraints: ['The answer must be exhaustive.'],
+      },
+      claimText: 'The returned matches represent all requireAuth usages in src/**.',
+      initialTools: [{
+        tool: 'repo_grep',
+        args: { pattern: 'requireAuth', scope: ['src/**'], maxResults: 1 },
+        id: 'truncated-usage-search',
+      }],
+      initialEvidenceRefs: ['E1'],
+      repairTools: [{
+        tool: 'repo_grep',
+        args: { pattern: 'requireAuth', scope: ['src/**'], maxResults: 2 },
+        id: 'still-truncated-usage-search',
+      }],
+      repairEvidenceRefs: ['E1', 'E2'],
+      assertImplemented({ result, goal }) {
+        assert.ok(result.observations.some(observation =>
+          observation.kind === 'search' && observation.toolTruncated === true));
+        assertInternalProofGap(result, goal.id);
+        assertMinimalIncompleteParentHandoff(result, goal.question);
+      },
+    },
+    {
+      name: 'narrow symbol search cannot prove all usages in a broader task scope',
+      task: 'List all usages of requireAuth in src/**.',
+      scope: ['src/**'],
+      goal: {
+        id: 'S-narrow-all-usages',
+        question: 'What are all usages of requireAuth in src/**?',
+        originText: 'all usages of requireAuth in src/**',
+        claimType: 'symbol_usage',
+        proofCondition: 'Cross-check every in-scope usage across src/**.',
+        constraints: ['Do not generalize from a narrower route-only search.'],
+      },
+      claimText: 'src/routes/user.js contains every requireAuth usage in src/**.',
+      initialTools: [
+        {
+          tool: 'repo_grep',
+          args: { pattern: 'requireAuth', scope: ['src/routes/**'] },
+          id: 'narrow-usage-search',
+        },
+        {
+          tool: 'repo_read_file',
+          args: { path: 'src/routes/user.js', startLine: 1, endLine: 7 },
+          id: 'narrow-usage-source',
+        },
+      ],
+      initialEvidenceRefs: ['E1', 'E2'],
+      repairTools: [
+        {
+          tool: 'repo_grep',
+          args: { pattern: 'requireAuth', scope: ['src/routes/**'] },
+          id: 'still-narrow-usage-search',
+        },
+        {
+          tool: 'repo_read_file',
+          args: { path: 'src/routes/user.js', startLine: 1, endLine: 7 },
+          id: 'still-narrow-usage-source',
+        },
+      ],
+      repairEvidenceRefs: ['E1', 'E2', 'E3', 'E4'],
+      assertImplemented({ result, goal }) {
+        const searches = result.observations.filter(observation =>
+          observation.kind === 'search' && observation.tool === 'repo_grep');
+        assert.ok(searches.length > 0 && searches.every(observation =>
+          observation.enumerationComplete === true &&
+          observation.boundary.length === 1 &&
+          observation.boundary[0] === 'src/routes/**'), JSON.stringify(searches, null, 2));
+        assertInternalProofGap(result, goal.id);
+        assertMinimalIncompleteParentHandoff(result, goal.question);
+      },
+    },
+    {
+      name: 'exhaustive classification cannot pass from two paths without an enumeration',
+      task: 'Inventory route authorization mechanisms and classify user and admin guards.',
+      goal: {
+        id: 'S-exhaustive-route-policy',
+        question: 'Which user and admin guards are in the exhaustive route inventory?',
+        originText: 'Inventory route authorization mechanisms and classify user and admin guards',
+        claimType: 'comparison',
+        proofCondition: 'Enumerate every matching route guard and distinguish user from admin policy.',
+        constraints: ['Do not infer exhaustive membership from two example files.'],
+      },
+      setup: async root => {
+        await fs.writeFile(
+          path.join(root, 'src', 'routes', 'admin.js'),
+          [
+            'import { requireAdmin } from "../admin-auth.js";',
+            'export function registerAdminRoutes(app) {',
+            '  app.get("/admin", requireAdmin, (_req, res) => res.end());',
+            '}',
+          ].join('\n'),
+        );
+      },
+      claimText: 'The exhaustive inventory contains requireAuth and requireAdmin route guards.',
+      initialTools: [
+        {
+          tool: 'repo_read_file',
+          args: { path: 'src/routes/user.js', startLine: 1, endLine: 6 },
+          id: 'read-user-policy-without-enumeration',
+        },
+        {
+          tool: 'repo_read_file',
+          args: { path: 'src/routes/admin.js', startLine: 1, endLine: 4 },
+          id: 'read-admin-policy-without-enumeration',
+        },
+      ],
+      initialEvidenceRefs: ['E1', 'E2'],
+      assertImplemented({ client, result, goal }) {
+        assertInternalProofGap(result, goal.id);
+        assert.equal(result.coverageGaps.find(gap => gap.subgoalId === goal.id)?.repairable, false);
+        assert.equal(providerToolActions(client).length, 2,
+          'an unavailable runtime category artifact must not trigger a futile repair call');
+        assertMinimalIncompleteParentHandoff(result, goal.question);
+      },
+    },
+    {
+      name: 'source-backed grep lines cannot self-certify an exhaustive classification predicate',
+      task: 'Inventory every route authorization mechanism and classify user and admin guards.',
+      goal: {
+        id: 'S-source-backed-exhaustive-route-policy',
+        question: 'Which user and admin guards are in the exhaustive route inventory?',
+        originText: 'Inventory every route authorization mechanism and classify user and admin guards',
+        claimType: 'comparison',
+        proofCondition: 'Enumerate every matching route guard and distinguish user from admin policy.',
+        constraints: ['A grep predicate for route registration names cannot certify guard categories.'],
+      },
+      setup: async root => {
+        await fs.writeFile(
+          path.join(root, 'src', 'routes', 'admin.js'),
+          [
+            'import { requireAdmin } from "../admin-auth.js";',
+            'export function registerAdminRoutes(app) {',
+            '  app.get("/admin", requireAdmin, (_req, res) => res.end());',
+            '}',
+          ].join('\n'),
+        );
+      },
+      claimText: 'The exhaustive inventory contains requireAuth on the user route and requireAdmin on the admin route.',
+      initialTools: [
+        {
+          tool: 'repo_grep',
+          args: { pattern: 'registerUserRoutes|registerAdminRoutes', scope: ['src/routes/**'] },
+          id: 'enumerate-route-policies',
+        },
+        {
+          tool: 'repo_read_file',
+          args: { path: 'src/routes/user.js', startLine: 1, endLine: 6 },
+          id: 'read-enumerated-user-policy',
+        },
+        {
+          tool: 'repo_read_file',
+          args: { path: 'src/routes/admin.js', startLine: 1, endLine: 4 },
+          id: 'read-enumerated-admin-policy',
+        },
+      ],
+      initialEvidenceRefs: ['E1', 'E2', 'E3'],
+      assertImplemented({ client, result, goal }) {
+        assertInternalProofGap(result, goal.id);
+        assert.equal(result.coverageGaps.find(gap => gap.subgoalId === goal.id)?.repairable, false);
+        assert.equal(providerToolActions(client).length, 3,
+          'more model-selected evidence cannot create a runtime-owned category predicate');
+        assertMinimalIncompleteParentHandoff(result, goal.question);
+      },
+    },
+    {
+      name: 'route-policy comparison preserves both distinct current paths',
+      task: 'Compare the authorization policies of the user and admin routes.',
+      goal: {
+        id: 'S-route-policy',
+        question: 'How do the user and admin route authorization policies differ?',
+        originText: 'authorization policies of the user and admin routes',
+        claimType: 'comparison',
+        proofCondition: 'Observe and compare each current route policy independently.',
+        constraints: ['Do not generalize one route policy to the other.'],
+      },
+      setup: async root => {
+        await fs.writeFile(
+          path.join(root, 'src', 'routes', 'admin.js'),
+          [
+            'import { requireAdmin } from "../admin-auth.js";',
+            'export function registerAdminRoutes(app) {',
+            '  app.get("/admin", requireAdmin, (_req, res) => res.end());',
+            '}',
+          ].join('\n'),
+        );
+      },
+      claimText: 'The user route uses requireAuth, while the admin route uses requireAdmin.',
+      initialTools: [
+        {
+          tool: 'repo_read_file',
+          args: { path: 'src/routes/user.js', startLine: 1, endLine: 6 },
+          id: 'read-user-policy',
+        },
+        {
+          tool: 'repo_read_file',
+          args: { path: 'src/routes/admin.js', startLine: 1, endLine: 4 },
+          id: 'read-admin-policy',
+        },
+      ],
+      initialEvidenceRefs: ['E1', 'E2'],
+      assertImplemented({ client, result, goal, claim }) {
+        assert.equal(client.stageCounts.get('semantic_verifier'), 2,
+          'a two-path comparison receives focused corroboration');
+        assert.equal(result.taskContract.subgoals.find(item => item.id === goal.id).state,
+          'supported');
+        assert.equal(result.coverageGaps.length, 0);
+        assertMinimalCompleteParentHandoff(result, {
+          answer: claim.text,
+          evidenceCount: 2,
+          evidenceKinds: ['source', 'source'],
+        });
+        assert.deepEqual(new Set(result.parentHandoff.evidence.map(item => item.path)),
+          new Set(['src/routes/user.js', 'src/routes/admin.js']));
+      },
+    },
+    {
+      name: 'historical git evidence alone cannot prove current behavior',
+      requiresGit: true,
+      task: 'Which authentication function does current src/auth.js export?',
+      goal: {
+        id: 'S-current-auth',
+        question: 'Which authentication function does current src/auth.js export?',
+        originText: 'authentication function does current src/auth.js export',
+        claimType: 'positive',
+        proofCondition: 'Observe current implementation source for src/auth.js.',
+        constraints: ['Historical evidence alone cannot establish current behavior.'],
+      },
+      setup: async root => {
+        execFileSync('git', ['init'], { cwd: root, stdio: 'ignore' });
+        execFileSync('git', ['config', 'user.email', 'test@example.com'], {
+          cwd: root,
+          stdio: 'ignore',
+        });
+        execFileSync('git', ['config', 'user.name', 'Test User'], {
+          cwd: root,
+          stdio: 'ignore',
+        });
+        await fs.writeFile(path.join(root, 'src', 'auth.js'),
+          'export function legacyAuth() { return true; }\n');
+        execFileSync('git', ['add', '.'], { cwd: root, stdio: 'ignore' });
+        execFileSync('git', ['commit', '-m', 'add legacy auth'], {
+          cwd: root,
+          stdio: 'ignore',
+        });
+        await fs.writeFile(path.join(root, 'src', 'auth.js'),
+          'export function requireAuth() { return true; }\n');
+      },
+      claimText: 'Current src/auth.js exports legacyAuth.',
+      initialTools: [{
+        tool: 'repo_git_log',
+        args: { path: 'src/auth.js', maxCount: 1 },
+        id: 'historical-auth-log',
+      }],
+      initialEvidenceRefs: ['E1'],
+      repairTools: [{
+        tool: 'repo_git_log',
+        args: { path: 'src/auth.js', maxCount: 5 },
+        id: 'more-historical-auth-log',
+      }],
+      repairEvidenceRefs: ['E1', 'E2'],
+      assertImplemented({ result, goal }) {
+        const directObservations = result.observations.filter(observation =>
+          observation.kind === 'git_commit');
+        assert.ok(directObservations.length > 0);
+        assert.ok(directObservations.every(observation =>
+          observation.temporalRole === 'historical'));
+        assert.deepEqual(result.semanticVerification?.claims ?? [], []);
+        assert.ok(result.coverageGaps.some(gap =>
+          gap.subgoalId === goal.id && gap.reason === 'missing_evidence'));
+        assertMinimalIncompleteParentHandoff(result, goal.question);
+      },
+    },
+    {
+      name: 'impact result remains incomplete when requested categories are missing',
+      task: 'Plan the impact of changing requireAuth, including callers, tests, configuration, and documentation.',
+      goal: {
+        id: 'S-impact-categories',
+        question: 'What is the impact of changing requireAuth across callers, tests, configuration, and documentation?',
+        originText: 'impact of changing requireAuth, including callers, tests, configuration, and documentation',
+        claimType: 'impact',
+        proofCondition: 'Observe or certify absence for every requested impact category.',
+        constraints: ['Cover callers, tests, configuration, and documentation independently.'],
+      },
+      claimText: 'Changing requireAuth is fully covered across callers, tests, configuration, and documentation.',
+      initialTools: [{
+        tool: 'repo_read_file',
+        args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+        id: 'read-impact-definition',
+      }],
+      initialEvidenceRefs: ['E1'],
+      repairTools: [{
+        tool: 'repo_read_file',
+        args: { path: 'src/routes/user.js', startLine: 1, endLine: 6 },
+        id: 'read-impact-caller',
+      }],
+      repairEvidenceRefs: ['E1', 'E2'],
+      assertImplemented({ client, result, goal }) {
+        const repairRequests = client.requests.filter(request => request.messages.some(message =>
+          typeof message.content === 'string' &&
+          message.content.includes('BEGIN_EVIDENCE_REPAIR_JSON')));
+        assert.equal(repairRequests.length, 1);
+        assert.equal(repairRequests[0].parallelToolCalls, true,
+          'generic impact proof repair may use the default bounded batch');
+        assertInternalProofGap(result, goal.id);
+        assertMinimalIncompleteParentHandoff(result, goal.question);
+      },
+    },
+  ];
+
+  for (const fixture of fixtures) {
+    await t.test(fixture.name, async t => {
+      if (fixture.requiresGit && !hasGit()) {
+        t.skip('git is required for temporal-role runtime coverage');
+        return;
+      }
+      const goal = trustGoal(fixture.task, fixture.goal);
+      if (fixture.taskMode === 'edit_planning') {
+        goal.originRefs.push(
+          'wrapper:map_change_impact:targets',
+          'wrapper:map_change_impact:dependents',
+          'wrapper:map_change_impact:requested_categories',
+          'wrapper:map_change_impact:risk_boundary',
+        );
+      }
+      const claim = candidateClaim(
+        `C-${goal.id}`,
+        goal.id,
+        fixture.claimText,
+        fixture.initialEvidenceRefs,
+      );
+      if (fixture.countMeasurement) claim.measurement = { ...fixture.countMeasurement };
+      const repairClaim = fixture.repairTools
+        ? { ...claim, evidenceRefs: fixture.repairEvidenceRefs }
+        : null;
+      const steps = buildTrustSteps({
+        goals: [goal],
+        initial: {
+          tools: fixture.initialTools,
+          claims: [claim],
+          ...(fixture.goal.claimType === 'comparison' &&
+              fixture.requiresComparisonCorroboration !== false
+            ? {
+                verifierSteps: [{
+                  verdicts: [semanticVerdict(
+                    claim.id,
+                    'supported',
+                    fixture.verifierEvidenceRefs ?? fixture.initialEvidenceRefs,
+                  )],
+                  assertRequest: fixture.assertVerifier,
+                }, {
+                  verdicts: [semanticVerdict(
+                    claim.id,
+                    'supported',
+                    fixture.verifierEvidenceRefs ?? fixture.initialEvidenceRefs,
+                  )],
+                }],
+              }
+            : {
+                verdicts: [semanticVerdict(
+                  claim.id,
+                  'supported',
+                  fixture.verifierEvidenceRefs ?? fixture.initialEvidenceRefs,
+                )],
+                assertVerifier: fixture.assertVerifier,
+              }),
+        },
+        repair: fixture.repairTools ? {
+          tools: fixture.repairTools,
+          claims: [repairClaim],
+          verdicts: [semanticVerdict(
+            repairClaim.id,
+            'supported',
+            fixture.repairEvidenceRefs,
+          )],
+        } : null,
+      });
+      const { client, result } = await runTrustScript(steps, {
+        task: fixture.task,
+        scope: fixture.scope ?? ['src/**'],
+        taskMode: fixture.taskMode,
+        setup: fixture.setup,
+      });
+      assert.equal(client.stageCounts.get('planner'), 1);
+      assert.equal(client.stageCounts.get('goal_audit'), 1);
+      if (fixture.name === 'static string-array symbol context produces an exact array-entry count') {
+        assert.equal(hasRuntimeProofPolicyIntegration(result), true,
+          JSON.stringify({
+            failure: result.failure,
+            observations: result.observations,
+            stages: client.stageLabels,
+          }, null, 2));
+      }
+      fixture.assertImplemented({ client, result, goal, claim });
+    });
+  }
+});
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — symbol definition claims retain the exact source end line',
+  async () => {
+    const task = 'Cite the helper definition and its exact source range.';
+    const goal = trustGoal(task, {
+      id: 'S-symbol-definition-range',
+      question: 'Where is helper defined?',
+      originText: task,
+      claimType: 'symbol_definition',
+      proofCondition: 'Observe the complete helper definition and its exact source range.',
+    });
+    const claim = candidateClaim(
+      'C-symbol-definition-range',
+      goal.id,
+      'helper is defined in src/helper.js starting at line 2; it accepts no parameters and returns the local value.',
+      ['E1', 'E2'],
+    );
+    const { client, result } = await runTrustScript(buildTrustSteps({
+      goals: [goal],
+      initial: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/usage.js', startLine: 2, endLine: 3 },
+          id: 'read-helper-usage-range',
+        }, {
+          tool: 'repo_symbol_context',
+          args: { symbol: 'helper', scope: ['src/helper.js'] },
+          id: 'symbol-helper-definition-range',
+        }],
+        claims: [claim],
+        verdicts: [semanticVerdict(claim.id, 'supported', ['E2'])],
+        assertVerifier(request) {
+          assert.match(parseControlPacket(request).claims[0].text, /lines 2 through 5/u,
+            'the deterministic range must be verified before it can reach the parent');
+        },
+      },
+    }), {
+      task,
+      scope: ['src/**'],
+      async setup(root) {
+        await Promise.all([
+          fs.writeFile(path.join(root, 'src', 'usage.js'), [
+            '// unrelated usage',
+            'export const result = helper();',
+            '',
+          ].join('\n')),
+          fs.writeFile(path.join(root, 'src', 'helper.js'), [
+            '// helper implementation',
+            'export function helper() {',
+            '  const value = 1;',
+            '  return value;',
+            '}',
+            '',
+          ].join('\n')),
+        ]);
+      },
+    });
+
+    assert.equal(result.failure, null);
+    assert.equal(result.taskContract.subgoals[0].state, 'supported');
+    assert.equal(result.parentHandoff.state, 'complete');
+    assert.match(result.semanticVerification.claims[0].text, /lines 2 through 5/u);
+    assert.match(result.semanticVerification.claims[0].text,
+      /accepts no parameters and returns the local value/u);
+    assert.match(result.parentHandoff.directAnswer, /lines 2 through 5/u);
+    assert.match(result.parentHandoff.directAnswer,
+      /accepts no parameters and returns the local value/u);
+    assert.deepEqual(result.parentHandoff.evidence.map(item => ({
+      path: item.path,
+      startLine: item.startLine,
+      endLine: item.endLine,
+    })), [{ path: 'src/helper.js', startLine: 2, endLine: 5 }]);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — plain file reads cannot author a symbol definition end line',
+  async () => {
+    const task = 'Cite the helper definition.';
+    const goal = trustGoal(task, {
+      id: 'S-symbol-read-range',
+      question: 'Where is helper defined?',
+      originText: task,
+      claimType: 'symbol_definition',
+      proofCondition: 'Observe the helper definition.',
+    });
+    const claim = candidateClaim(
+      'C-symbol-read-range',
+      goal.id,
+      'helper is defined in src/helper.js starting at line 2.',
+      ['E1'],
+    );
+    const { client, result } = await runTrustScript(buildTrustSteps({
+      goals: [goal],
+      initial: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/helper.js', startLine: 2, endLine: 200 },
+          id: 'broad-helper-definition-read',
+        }],
+        claims: [claim],
+        verdicts: [semanticVerdict(claim.id, 'supported', ['E1'])],
+      },
+    }), {
+      task,
+      scope: ['src/helper.js'],
+      async setup(root) {
+        await fs.writeFile(path.join(root, 'src', 'helper.js'), [
+          '// helper implementation',
+          'export function helper() {',
+          '  return 1;',
+          '}',
+          '// unrelated trailing content',
+          'export const later = true;',
+          '',
+        ].join('\n'));
+      },
+    });
+
+    assert.equal(result.failure, null);
+    assert.equal(result.parentHandoff.state, 'complete');
+    assert.doesNotMatch(result.semanticVerification.claims[0].text, /\bthrough\b/u);
+    assert.doesNotMatch(result.parentHandoff.directAnswer, /\bthrough\b/u);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T071 — a 320-line read preserves its tail as a second exact source observation',
+  async () => {
+    const task = 'Trace the entry marker through the terminal marker in the long path module.';
+    const goal = trustGoal(task, {
+      id: 'S-long-read-tail',
+      question: task,
+      originText: task,
+      claimType: 'positive',
+      proofCondition: 'Observe both the entry and terminal markers in the requested source range.',
+    });
+    const claim = candidateClaim(
+      'C-long-read-tail',
+      goal.id,
+      'src/long-path.js contains both entryMarker and terminalEffect in the inspected range.',
+      ['E1', 'E1:source:2'],
+    );
+    const { result } = await runTrustScript(buildTrustSteps({
+      goals: [goal],
+      initial: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/long-path.js', startLine: 1, endLine: 320 },
+          id: 'read-long-path',
+        }],
+        claims: [claim],
+        verdicts: [semanticVerdict(claim.id, 'supported', claim.evidenceRefs)],
+        assertVerifier(request) {
+          const packet = parseControlPacket(request);
+          assert.deepEqual(packet.observations
+            .filter(observation => observation.kind === 'source')
+            .map(observation => ({
+              id: observation.id,
+              startLine: observation.startLine,
+              endLine: observation.endLine,
+              rangeGrounding: observation.rangeGrounding,
+            })), [{
+            id: 'E1',
+            startLine: 1,
+            endLine: 200,
+            rangeGrounding: 'exact',
+          }, {
+            id: 'E1:source:2',
+            startLine: 201,
+            endLine: 320,
+            rangeGrounding: 'exact',
+          }]);
+          assert.match(packet.observations
+            .find(observation => observation.id === 'E1:source:2')?.snippet ?? '',
+          /320: export const terminalEffect/u);
+        },
+      },
+    }), {
+      task,
+      scope: ['src/long-path.js'],
+      async setup(root) {
+        const lines = ['export const entryMarker = true;'];
+        for (let line = 2; line < 320; line += 1) {
+          lines.push(`// path line ${line}`);
+        }
+        lines.push('export const terminalEffect = true;');
+        await fs.writeFile(path.join(root, 'src', 'long-path.js'), lines.join('\n'));
+      },
+    });
+
+    assert.equal(result.failure, null, JSON.stringify(result.failure));
+    assert.equal(result.parentHandoff.state, 'complete');
+    assert.deepEqual(result.semanticVerification.claims[0].evidenceRefs,
+      ['E1', 'E1:source:2']);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T071 — claim ids reused across synthesis batches are normalized without a retry',
+  { skip: !hasGit() },
+  async () => {
+    const task = 'What changed recently around requireAuth, and what does current requireAuth return?';
+    const historicalGoal = trustGoal(task, {
+      id: 'S-recent-auth-change',
+      question: 'What changed recently around requireAuth?',
+      originText: 'What changed recently around requireAuth',
+      proofCondition: 'Observe the requested recent change in repository history.',
+    });
+    const currentGoal = trustGoal(task, {
+      id: 'S-current-auth-result',
+      question: 'What does current requireAuth return?',
+      originText: 'what does current requireAuth return',
+      proofCondition: 'Observe the current requireAuth return value in source.',
+    });
+    const historicalClaim = candidateClaim(
+      '1',
+      historicalGoal.id,
+      'The latest inspected change introduced requireAuth.',
+      ['E1', 'E2'],
+    );
+    const currentClaim = candidateClaim(
+      '1',
+      currentGoal.id,
+      'Current requireAuth returns true.',
+      ['E2'],
+    );
+    const { client, result } = await runTrustScript(buildTrustSteps({
+      goals: [historicalGoal, currentGoal],
+      initial: {
+        tools: [{
+          tool: 'repo_git_log',
+          args: { path: 'src/auth.js', maxCount: 5 },
+          id: 'duplicate-id-history',
+        }, {
+          tool: 'repo_read_file',
+          args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+          id: 'duplicate-id-current-source',
+        }],
+        claims: [historicalClaim, currentClaim],
+        verdicts: [
+          semanticVerdict(historicalClaim.id, 'supported', historicalClaim.evidenceRefs),
+          semanticVerdict(
+            `claim:${currentGoal.id}`,
+            'supported',
+            currentClaim.evidenceRefs,
+          ),
+        ],
+      },
+    }), {
+      task,
+      async setup(root) {
+        const git = args => execFileSync('git', args, { cwd: root, stdio: 'ignore' });
+        git(['init']);
+        git(['config', 'user.email', 'explorer@example.invalid']);
+        git(['config', 'user.name', 'Explorer Test']);
+        git(['add', '.']);
+        git(['commit', '-m', 'introduce requireAuth']);
+      },
+    });
+
+    assert.equal(result.failure, null, JSON.stringify({
+      failure: result.failure,
+      stages: client.stageLabels,
+      gaps: result.coverageGaps,
+      claims: result.semanticVerification?.claims,
+      subgoals: result.taskContract?.subgoals,
+    }));
+    assert.equal(result.parentHandoff.state, 'complete');
+    assert.equal(client.stageCounts.get('claim_synthesis'), 2,
+      'two intentional batches must not become retry calls');
+    assert.deepEqual(result.semanticVerification.claims.map(claim => claim.id),
+      ['1', `claim:${currentGoal.id}`]);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — one static-array request preserves count, definition range, and comparison',
+  async () => {
+    const task = [
+      'Count the entries in DEFAULT_SECRET_DENY_PATTERNS.',
+      'Cite the definition and distinguish the number of array entries from the ending source line number.',
+    ].join(' ');
+    const goals = [
+      trustGoal(task, {
+        id: 'S-static-array-count-combined',
+        question: 'How many entries are in DEFAULT_SECRET_DENY_PATTERNS?',
+        originText: 'Count the entries in DEFAULT_SECRET_DENY_PATTERNS',
+        claimType: 'count',
+        proofCondition: 'Read the complete static array definition and count its entries.',
+        constraints: ['Keep the count bound to the cited definition.'],
+      }),
+      trustGoal(task, {
+        id: 'S-static-array-definition-combined',
+        question: 'Where is DEFAULT_SECRET_DENY_PATTERNS defined?',
+        originText: 'Cite the definition',
+        claimType: 'symbol_definition',
+        proofCondition: 'Observe the complete symbol definition and its exact source range.',
+      }),
+      trustGoal(task, {
+        id: 'S-static-array-comparison-combined',
+        question: 'How do the array entry count and ending source line number differ?',
+        originText: 'distinguish the number of array entries from the ending source line number',
+        claimType: 'comparison',
+        proofCondition: 'Compare the runtime-owned array count with the exact definition range.',
+        constraints: ['Do not treat the ending source line as the entry count.'],
+      }),
+    ];
+    const claims = [
+      {
+        ...candidateClaim(
+          'C-static-array-count-combined',
+          goals[0].id,
+          'DEFAULT_SECRET_DENY_PATTERNS contains exactly 3 entries.',
+          ['E1', 'E1:search', 'E2', 'E2:search'],
+        ),
+        measurement: { kind: 'count', unit: 'array_entries', value: 3 },
+      },
+      candidateClaim(
+        'C-static-array-definition-combined',
+        goals[1].id,
+        'DEFAULT_SECRET_DENY_PATTERNS is defined in src/patterns.mjs as a frozen array.',
+        ['E1', 'E2'],
+      ),
+      candidateClaim(
+        'C-static-array-comparison-combined',
+        goals[2].id,
+        'The array entry count is 3, whereas the ending source line number of the definition is 5.',
+        ['E1', 'E1:search', 'E2', 'E2:search'],
+      ),
+    ];
+    const verdicts = [
+      semanticVerdict(claims[0].id, 'supported', ['E1', 'E1:search']),
+      semanticVerdict(claims[1].id, 'supported', ['E1']),
+      semanticVerdict(claims[2].id, 'supported', ['E1', 'E1:search']),
+    ];
+    const { result } = await runTrustScript(buildTrustSteps({
+      goals,
+      initial: {
+        tools: [{
+          tool: 'repo_symbol_context',
+          args: {
+            symbol: 'DEFAULT_SECRET_DENY_PATTERNS',
+            scope: ['src/patterns.mjs'],
+          },
+          id: 'static-array-combined-symbol',
+        }, {
+          tool: 'repo_read_file',
+          args: { path: 'src/patterns.mjs', startLine: 1, endLine: 6 },
+          id: 'static-array-combined-read',
+        }],
+        claims,
+        verifierSteps: [{ verdicts }, { verdicts }],
+      },
+    }), {
+      task,
+      scope: ['src/patterns.mjs'],
+      async setup(root) {
+        await fs.writeFile(path.join(root, 'src', 'patterns.mjs'), [
+          'export const DEFAULT_SECRET_DENY_PATTERNS = Object.freeze([',
+          "  '.env',",
+          "  '**/.env',",
+          "  '*.pem',",
+          ']);',
+          'export const unrelated = true;',
+          '',
+        ].join('\n'));
+      },
+    });
+
+    assert.equal(result.failure, null);
+    assert.deepEqual(result.taskContract.subgoals.map(goal => [goal.id, goal.state]), [
+      [goals[0].id, 'supported'],
+      [goals[1].id, 'supported'],
+      [goals[2].id, 'supported'],
+    ]);
+    assert.equal(result.parentHandoff.state, 'complete');
+    assert.match(result.parentHandoff.directAnswer,
+      /deterministic count of array entries.* is 3\./u);
+    assert.match(result.parentHandoff.directAnswer, /lines 1 through 5/u);
+    assert.match(result.parentHandoff.directAnswer, /entry count is 3.*line number.*5/u);
+    assert.equal(result.parentHandoff.gaps, undefined);
+    assert.deepEqual(result.parentHandoff.evidence.map(item => ({
+      path: item.path,
+      startLine: item.startLine,
+      endLine: item.endLine,
+    })), [{ path: 'src/patterns.mjs', startLine: 1, endLine: 5 }]);
+    assert.doesNotMatch(JSON.stringify(result.parentHandoff),
+      /:search|deterministicMeasurement|runtimeAllowedEvidenceRefs/u);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — canonical invocation classes stay exhaustive without repeated markers',
+  async () => {
+    const task = 'Inventory every Amazon Bedrock invocation and classify direct SDK calls, wrappers, and configuration-only references.';
+    const classifyStart = task.indexOf('classify');
+    const directEnd = task.indexOf('wrappers,') - 1;
+    const wrappersEnd = task.indexOf('wrappers,') + 'wrappers,'.length;
+    const goals = [
+      {
+        id: 'S-bedrock-direct',
+        question: 'Which direct Amazon Bedrock SDK invocation sites exist?',
+        originRefs: [`request:${classifyStart}-${directEnd}`],
+        claimType: 'count',
+        proofCondition: 'Enumerate every direct SDK invocation site.',
+        constraints: [],
+      },
+      {
+        id: 'S-bedrock-wrappers',
+        question: 'Which Amazon Bedrock wrapper entry points exist?',
+        originRefs: [`request:${classifyStart}-${wrappersEnd}`],
+        claimType: 'comparison',
+        proofCondition: 'Classify wrapper entry points separately from direct SDK calls.',
+        constraints: [],
+      },
+      {
+        id: 'S-bedrock-config',
+        question: 'Which Amazon Bedrock references are configuration-only?',
+        originRefs: [`request:${classifyStart}-${task.length}`],
+        claimType: 'comparison',
+        proofCondition: 'Classify configuration-only references separately from invocations.',
+        constraints: [],
+      },
+    ];
+    const wrapperClaim = candidateClaim(
+      'C-bedrock-wrappers',
+      goals[1].id,
+      'src/wrapper-a.js is an Amazon Bedrock wrapper entry point.',
+      ['E1', 'E2'],
+    );
+    const steps = [
+      { stage: 'planner:1', value: plannerControl(goals) },
+      {
+        stage: 'goal_audit:1',
+        value: auditorControl([
+          auditControlRecord(goals[0], 'blocked_scope'),
+          auditControlRecord(goals[1]),
+          auditControlRecord(goals[2], 'blocked_scope'),
+        ]),
+      },
+      {
+        stage: 'exploration:1',
+        run: () => toolControlCompletion(
+          'repo_read_file',
+          { path: 'src/wrapper-a.js' },
+          'read-bedrock-wrapper-a',
+        ),
+      },
+      {
+        stage: 'exploration:2',
+        run: () => toolControlCompletion(
+          'repo_read_file',
+          { path: 'src/wrapper-b.js' },
+          'read-bedrock-wrapper-b',
+        ),
+      },
+      { stage: 'exploration:3', content: 'The in-scope wrapper sources were inspected.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+      { stage: 'claim_synthesis:1', value: { claims: [wrapperClaim] } },
+      {
+        stage: 'semantic_verifier:1',
+        value: verifierResponse([
+          semanticVerdict(wrapperClaim.id, 'supported', ['E1', 'E2']),
+        ]),
+      },
+      {
+        stage: 'semantic_verifier:2',
+        value: verifierResponse([
+          semanticVerdict(wrapperClaim.id, 'supported', ['E1', 'E2']),
+        ]),
+      },
+    ];
+    const { client, result } = await runTrustScript(steps, {
+      task,
+      setup: async root => {
+        await Promise.all([
+          fs.writeFile(
+            path.join(root, 'src', 'wrapper-a.js'),
+            'export const invokeViaWrapperA = client => client.invokeModel();\n',
+          ),
+          fs.writeFile(
+            path.join(root, 'src', 'wrapper-b.js'),
+            'export const invokeViaWrapperB = client => client.converse();\n',
+          ),
+        ]);
+      },
+    });
+
+    assert.equal(result.failure, null, JSON.stringify({
+      failure: result.failure,
+      stages: client.stageLabels,
+    }));
+    assert.equal(client.stageCounts.get('semantic_verifier'), 2);
+    assert.equal(providerToolActions(client).length, 2,
+      'a canonical unrepairable classification gap must not trigger a futile repair');
+    const wrapperGoal = result.taskContract.subgoals.find(goal => goal.id === goals[1].id);
+    assert.equal(wrapperGoal?.state, 'gap');
+    const wrapperGap = result.coverageGaps.find(gap => gap.subgoalId === goals[1].id);
+    assert.equal(wrapperGap?.reason, 'semantic_mismatch');
+    assert.equal(wrapperGap?.repairable, false);
+    const wrapperVerdict = result.semanticVerification.verdicts.find(verdict =>
+      verdict.claimId === wrapperClaim.id);
+    assert.equal(wrapperVerdict?.result, 'insufficient');
+    assert.equal(wrapperVerdict?.reasonCode, 'missing_category');
+    assert.equal(result.parentHandoff.state, 'incomplete');
+    assert.equal(result.parentHandoff.directAnswer, undefined);
+    assert.equal(result.parentHandoff.evidence, undefined);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — incomplete canonical access claims fail closed before parent handoff',
+  async () => {
+    const task = 'Compare administrator and developer access policy across frontend guards and backend route families.';
+    const administrator = requestOrigin(task, 'administrator');
+    const developer = requestOrigin(task, 'developer');
+    const frontend = requestOrigin(task, 'frontend guards');
+    const backend = requestOrigin(task, 'backend route families.');
+    const goals = [
+      {
+        id: 'canonical-access-frontend-actor-a',
+        question: 'How do frontend guards enforce administrator access?',
+        originRefs: [administrator, frontend],
+        claimType: 'positive',
+        proofCondition: 'Observe the frontend guard that enforces administrator access.',
+        constraints: [],
+      },
+      {
+        id: 'canonical-access-backend-actor-a',
+        question: 'Which backend route families use distinct administrator checks?',
+        originRefs: [administrator, backend],
+        claimType: 'comparison',
+        proofCondition: 'Compare the administrator gating predicates across backend route families.',
+        constraints: [],
+      },
+      {
+        id: 'canonical-access-backend-actor-b',
+        question: 'Which backend route families give developer-specific access?',
+        originRefs: [developer, backend],
+        claimType: 'comparison',
+        proofCondition: 'Compare developer-specific behavior across backend route families.',
+        constraints: [],
+      },
+    ];
+    const claims = [
+      candidateClaim(
+        'C-access-frontend-admin',
+        goals[0].id,
+        'The frontend administrator guard redirects unauthorized users.',
+        ['E1'],
+      ),
+      candidateClaim(
+        'C-access-backend-admin',
+        goals[1].id,
+        'The src/admin-auth ADMIN_USERS helper and src/feedback admin_user_info row-existence check are distinct administrator policies.',
+        ['E2', 'E3', 'E4'],
+      ),
+      candidateClaim(
+        'C-access-backend-developer',
+        goals[2].id,
+        'app/api/cases and app/api/draft routes map the development department to dyhan7301.',
+        ['E5', 'E6', 'E7'],
+      ),
+    ];
+    const tools = [
+      { tool: 'repo_read_file', args: { path: 'src/frontend.js' }, id: 'read-access-frontend' },
+      { tool: 'repo_read_file', args: { path: 'src/admin-auth.js' }, id: 'read-access-auth' },
+      { tool: 'repo_read_file', args: { path: 'src/feedback.js' }, id: 'read-access-feedback' },
+      { tool: 'repo_read_file', args: { path: 'src/inquiry.js' }, id: 'read-access-inquiry' },
+      { tool: 'repo_read_file', args: { path: 'app/api/cases/route.ts' }, id: 'read-access-cases' },
+      { tool: 'repo_read_file', args: { path: 'app/api/draft/save/route.ts' }, id: 'read-access-draft-save' },
+      { tool: 'repo_read_file', args: { path: 'app/api/draft/save/[id]/route.ts' }, id: 'read-access-draft-id' },
+    ];
+    const primaryVerdicts = claims.map((claim, index) =>
+      semanticVerdict(claim.id, 'supported', [
+        ['E1'],
+        ['E2', 'E3', 'E4'],
+        ['E5', 'E6', 'E7'],
+      ][index]));
+    const setupCanonicalAccess = async root => {
+      const files = new Map([
+        ['src/frontend.js', "export const adminGuard = user => user ? true : redirect('/ai');\n"],
+        ['src/admin-auth.js', 'export const ADMIN_USERS = [\'admin\'];\n'],
+        ['src/feedback.js', 'export const feedbackAdmin = row => Boolean(row?.admin_user_info);\n'],
+        ['src/inquiry.js', 'export const inquiryAdmin = user => user?.is_admin === true;\n'],
+        ['app/api/cases/route.ts', "export const caseUser = department => department === 'development' ? 'dyhan7301' : null;\n"],
+        ['app/api/draft/save/route.ts', "export const draftUser = department => department === 'development' ? 'dyhan7301' : null;\n"],
+        ['app/api/draft/save/[id]/route.ts', "export const draftIdUser = department => department === 'development' ? 'dyhan7301' : null;\n"],
+      ]);
+      for (const [relativePath, content] of files) {
+        const absolutePath = path.join(root, ...relativePath.split('/'));
+        await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+        await fs.writeFile(absolutePath, content);
+      }
+    };
+    const { client, result } = await runTrustScript(buildTrustSteps({
+      goals,
+      initial: {
+        tools,
+        claims,
+        verifierSteps: [
+          { verdicts: primaryVerdicts },
+          { verdicts: [semanticVerdict(claims[1].id, 'supported', ['E2', 'E3', 'E4'])] },
+          { verdicts: [semanticVerdict(claims[2].id, 'supported', ['E5', 'E6', 'E7'])] },
+        ],
+      },
+    }), {
+      task,
+      scope: ['src/**', 'app/api/**'],
+      setup: setupCanonicalAccess,
+    });
+
+    assert.equal(result.failure, null, JSON.stringify({
+      failure: result.failure,
+      stages: client.stageLabels,
+    }));
+    const frontendSynthesisRequest = client.requests.find(request =>
+      classifyControlRequest(request) === 'claim_synthesis' &&
+      parseControlPacket(request).control.requiredSubgoals.some(goal => goal.id === goals[0].id));
+    assert.equal(frontendSynthesisRequest?.temperature, 0);
+    assert.equal(frontendSynthesisRequest?.topP, 1);
+    assert.match(JSON.stringify(frontendSynthesisRequest?.messages),
+      /copy that exact destination literal/u);
+    assert.equal(client.stageCounts.get('semantic_verifier'), 3);
+    assert.equal(providerToolActions(client).length, tools.length,
+      'canonical claim-shape failures are terminal and must not trigger a futile repair');
+    assert.deepEqual(result.taskContract.subgoals.map(goal => [goal.id, goal.state]), [
+      [goals[0].id, 'gap'],
+      [goals[1].id, 'gap'],
+      [goals[2].id, 'supported'],
+    ]);
+    assert.ok(result.coverageGaps.filter(gap =>
+      [goals[0].id, goals[1].id].includes(gap.subgoalId) &&
+      gap.reason === 'semantic_mismatch' && gap.repairable === false).length === 2);
+    assert.equal(result.parentHandoff.state, 'incomplete');
+    assert.equal(result.parentHandoff.directAnswer, claims[2].text);
+    assert.doesNotMatch(result.parentHandoff.directAnswer,
+      /redirects unauthorized|src\/admin-auth ADMIN_USERS/u);
+    assert.equal(result.parentHandoff.gaps.length, 2);
+
+    const articleFrontendClaim = candidateClaim(
+      'C-access-frontend-admin-with-article',
+      goals[0].id,
+      'The frontend administrator guard redirects unauthorized users to the /ai page.',
+      ['E1'],
+    );
+    const articleClaims = [articleFrontendClaim, claims[1], claims[2]];
+    const articlePrimaryVerdicts = articleClaims.map((claim, index) =>
+      semanticVerdict(claim.id, 'supported', [
+        ['E1'],
+        ['E2', 'E3', 'E4'],
+        ['E5', 'E6', 'E7'],
+      ][index]));
+    const articleResult = await runTrustScript(buildTrustSteps({
+      goals,
+      initial: {
+        tools,
+        claims: articleClaims,
+        verifierSteps: [
+          { verdicts: articlePrimaryVerdicts },
+          { verdicts: [semanticVerdict(claims[1].id, 'supported', ['E2', 'E3', 'E4'])] },
+          { verdicts: [semanticVerdict(claims[2].id, 'supported', ['E5', 'E6', 'E7'])] },
+        ],
+      },
+    }), {
+      task,
+      scope: ['src/**', 'app/api/**'],
+      setup: setupCanonicalAccess,
+    });
+    assert.equal(articleResult.result.failure, null);
+    assert.equal(articleResult.result.taskContract.subgoals[0].state, 'supported');
+    assert.equal(articleResult.result.semanticVerification.verdicts.find(verdict =>
+      verdict.claimId === articleFrontendClaim.id)?.result, 'supported');
+    assert.match(articleResult.result.parentHandoff.directAnswer, /to the \/ai page/u);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — bounded file reads preserve source evidence beyond line twelve',
+  async () => {
+    const task = 'Verify the terminal marker in the bounded long source file.';
+    const goal = trustGoal(task, {
+      id: 'S-long-source-range',
+      question: task,
+      originText: task,
+      proofCondition: 'Read the bounded source range through the terminal marker.',
+    });
+    const claim = candidateClaim(
+      'C-long-source-range',
+      goal.id,
+      'The bounded source range ends with TERMINAL_MARKER.',
+      ['E1'],
+    );
+    const steps = buildTrustSteps({
+      goals: [goal],
+      initial: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/long-source.js', startLine: 1, endLine: 20 },
+          id: 'read-long-source',
+        }],
+        claims: [claim],
+        verdicts: [semanticVerdict(claim.id, 'supported', ['E1'])],
+        assertVerifier(request) {
+          const source = parseControlPacket(request).observations.find(item => item.id === 'E1');
+          assert.equal(source?.endLine, 20);
+          assert.match(source?.snippet ?? '', /20: export const TERMINAL_MARKER = true;/u);
+        },
+      },
+    });
+    const { result } = await runTrustScript(steps, {
+      task,
+      setup: async root => {
+        const lines = Array.from({ length: 19 }, (_, index) =>
+          `export const filler${index + 1} = ${index + 1};`);
+        lines.push('export const TERMINAL_MARKER = true;');
+        await fs.writeFile(path.join(root, 'src', 'long-source.js'), `${lines.join('\n')}\n`);
+      },
+    });
+
+    assert.equal(result.failure, null);
+    assert.equal(result.observations.find(item => item.id === 'E1')?.endLine, 20);
+    assert.equal(result.parentHandoff.state, 'complete');
+    assert.deepEqual(result.parentHandoff.evidence.map(item => [
+      item.path,
+      item.startLine,
+      item.endLine,
+    ]), [['src/long-source.js', 1, 20]]);
+  },
+);
+
+test('Spec 028 T069 — generic claims cannot define their own structural proof obligations', () => {
+  const flow = createRequiredSubgoal({
+    id: 'S-generic-flow',
+    question: 'Trace the generic execution path.',
+    originRefs: ['request:0-10'],
+    claimType: 'flow',
+    proofCondition: 'Observe the entry and handoff source ranges.',
+    constraints: [],
+    auditVerdict: 'ready',
+  });
+  const impact = createRequiredSubgoal({
+    id: 'S-generic-impact',
+    question: 'Map the generic impact categories.',
+    originRefs: ['request:11-20'],
+    claimType: 'impact',
+    proofCondition: 'Observe every requested impact category.',
+    constraints: [],
+    auditVerdict: 'ready',
+  });
+  const claims = [
+    candidateClaim('C-generic-flow', flow.id, 'The execution path spans two sources.', ['E1', 'E2']),
+    candidateClaim('C-generic-impact', impact.id, 'The impact spans source and docs.', ['E1', 'E3']),
+  ];
+  const observations = [
+    {
+      id: 'E1', kind: 'source', path: 'src/entry.js', startLine: 1, endLine: 4,
+      sourceRole: 'implementation', temporalRole: 'current',
+    },
+    {
+      id: 'E2', kind: 'source', path: 'src/handoff.js', startLine: 5, endLine: 9,
+      sourceRole: 'implementation', temporalRole: 'current',
+    },
+    {
+      id: 'E3', kind: 'source', path: 'docs/runtime.md', startLine: 1, endLine: 3,
+      sourceRole: 'documentation', temporalRole: 'current',
+    },
+  ];
+  const artifacts = buildRuntimeWrapperPolicyArtifacts({
+    wrapperTool: 'explore_repo',
+    subgoals: [flow, impact],
+    claims,
+    semanticVerdicts: [
+      semanticVerdict(claims[0].id, 'supported', ['E1']),
+      semanticVerdict(claims[1].id, 'supported', ['E1', 'E3']),
+    ],
+    observations,
+  });
+
+  assert.equal(artifacts.size, 0,
+    'explore_repo has no runtime-owned transition or impact-category seed');
+});
+
+test('Spec 028 T071 — one supported claim cannot collapse merged wrapper impact seeds', () => {
+  const goal = createRequiredSubgoal({
+    id: 'S-merged-impact-seeds',
+    question: 'Map the target and its dependents.',
+    originRefs: [
+      'wrapper:map_change_impact:targets',
+      'wrapper:map_change_impact:dependents',
+    ],
+    claimType: 'impact',
+    proofCondition: 'Observe the target and dependent boundary.',
+    constraints: [],
+    auditVerdict: 'ready',
+  });
+  const claim = candidateClaim(
+    'C-merged-impact-seeds',
+    goal.id,
+    'src/mcp/server.mjs is both the change target and dependent adapter.',
+    ['E1'],
+  );
+  const artifacts = buildRuntimeWrapperPolicyArtifacts({
+    wrapperTool: 'map_change_impact',
+    subgoals: [goal],
+    claims: [claim],
+    semanticVerdicts: [semanticVerdict(claim.id, 'supported', ['E1'])],
+    observations: [{
+      id: 'E1',
+      kind: 'source',
+      path: 'src/mcp/server.mjs',
+      startLine: 1,
+      endLine: 4,
+      sourceRole: 'implementation',
+      temporalRole: 'current',
+    }],
+  });
+
+  assert.equal(artifacts.size, 0,
+    'one source cannot deterministically prove two distinct impact obligations');
+});
+
+test('Spec 028 T069 — generic impact inventory artifacts fail closed on structural variants', async t => {
+  const effectiveScope = ['ui/pages/marketing/**'];
+  const impact = createRequiredSubgoal({
+    id: 'S-generic-impact-inventory-artifact',
+    question: 'Map the bounded marketing UI file surface.',
+    originRefs: ['request:0-42'],
+    claimType: 'impact',
+    proofCondition: 'Use the exact bounded file inventory and current source for every member.',
+    constraints: [],
+    auditVerdict: 'ready',
+  });
+  const fileA = normalizedRepositoryFileIdentity('ui/pages/marketing/a.js');
+  const fileB = normalizedRepositoryFileIdentity('ui/pages/marketing/b.js');
+  const fixture = () => {
+    const claim = candidateClaim(
+      'C-generic-impact-inventory-artifact', impact.id,
+      'The bounded surface contains the two observed marketing pages.',
+      ['E-search', 'E-a', 'E-b']);
+    const verdict = semanticVerdict(claim.id, 'supported', [...claim.evidenceRefs]);
+    return {
+      claim,
+      verdict,
+      observations: [
+        {
+          id: 'E-search', kind: 'search', tool: 'repo_find_files',
+          normalizedArgs: { pattern: '**/*', scope: ['ui/pages/marketing/**'] },
+          boundary: ['ui/pages/marketing/**'], matchCount: 2,
+          normalizedItemIds: [fileA, fileB], enumerationComplete: true,
+        },
+        {
+          id: 'E-a', kind: 'source', path: 'ui/pages/marketing/a.js',
+          startLine: 1, endLine: 2, rangeGrounding: 'exact',
+          sourceRole: 'implementation', temporalRole: 'current',
+        },
+        {
+          id: 'E-b', kind: 'source', path: 'ui/pages/marketing/b.js',
+          startLine: 1, endLine: 2, rangeGrounding: 'exact',
+          sourceRole: 'implementation', temporalRole: 'current',
+        },
+      ],
+    };
+  };
+  const build = (
+    value,
+    corroboratedClaimIds = new Set([value.claim.id]),
+    scope = effectiveScope,
+  ) =>
+    buildRuntimeGenericImpactPolicyArtifacts({
+      wrapperTool: 'explore_repo',
+      effectiveScope: scope,
+      subgoals: [impact],
+      claims: [value.claim],
+      semanticVerdicts: [value.verdict],
+      observations: value.observations,
+      corroboratedClaimIds,
+    });
+
+  const complete = fixture();
+  const completeArtifact = build(complete).get(complete.claim.id);
+  assert.deepEqual(completeArtifact, {
+    genericImpactCertification: {
+      marker: 'generic-impact-file-surface-v1',
+      boundary: 'ui/pages/marketing/**',
+    },
+    requiredImpactCategories: ['ui/pages/marketing/**'],
+    coveredImpactCategories: ['ui/pages/marketing/**'],
+    impactCategoryEvidenceRefs: { 'ui/pages/marketing/**': ['E-a', 'E-b'] },
+  });
+
+  const cases = [
+    ['source only', value => {
+      value.claim.evidenceRefs = ['E-a', 'E-b'];
+      value.verdict.supportingEvidenceRefs = ['E-a', 'E-b'];
+    }],
+    ['grep instead of file inventory', value => {
+      value.observations[0].tool = 'repo_grep';
+    }],
+    ['wrong file pattern', value => {
+      value.observations[0].normalizedArgs.pattern = '**/*.js';
+    }],
+    ['narrower boundary', value => {
+      value.observations[0].boundary = ['ui/pages/marketing/a.js'];
+    }],
+    ['truncated inventory', value => {
+      value.observations[0].enumerationComplete = false;
+    }],
+    ['zero matches', value => {
+      value.observations[0].matchCount = 0;
+      value.observations[0].normalizedItemIds = [];
+      value.claim.evidenceRefs = ['E-search'];
+      value.verdict.supportingEvidenceRefs = ['E-search'];
+    }],
+    ['duplicate file identities', value => {
+      value.observations[0].normalizedItemIds = [fileA, fileA];
+    }],
+    ['missing source for one file', value => {
+      value.observations = value.observations.filter(item => item.id !== 'E-b');
+    }],
+    ['source outside the inventory', value => {
+      value.observations[0].matchCount = 1;
+      value.observations[0].normalizedItemIds = [fileA];
+    }],
+    ['multiple supported searches', value => {
+      value.observations.push({ ...value.observations[0], id: 'E-search-2' });
+      value.claim.evidenceRefs.push('E-search-2');
+      value.verdict.supportingEvidenceRefs.push('E-search-2');
+    }],
+  ];
+  for (const [name, mutate] of cases) {
+    await t.test(name, () => {
+      const value = fixture();
+      mutate(value);
+      assert.equal(build(value).size, 0);
+    });
+  }
+  assert.equal(build(fixture(), new Set()).size, 0,
+    'a structurally valid inventory without focused corroboration remains incomplete');
+  assert.equal(build(fixture(), undefined, [
+    'ui/pages/marketing/**',
+    'docs/**',
+  ]).size, 0, 'multiple distinct effective-scope entries cannot certify one generic surface');
+  for (const scope of [[], ['.']]) {
+    const value = fixture();
+    value.observations[0].boundary = ['**'];
+    const artifact = build(value, undefined, scope).get(value.claim.id);
+    assert.equal(artifact?.genericImpactCertification?.boundary, '**');
+    assert.deepEqual(artifact?.requiredImpactCategories, ['**']);
+  }
+  const canonicalPathScope = fixture();
+  assert.equal(build(canonicalPathScope, undefined, [
+    'ui\\pages\\marketing\\**\\',
+    'ui/pages/marketing/**',
+  ]).get(canonicalPathScope.claim.id)?.genericImpactCertification?.boundary,
+  'ui/pages/marketing/**');
+  assert.equal(buildRuntimeGenericImpactPolicyArtifacts({
+    wrapperTool: 'map_change_impact',
+    effectiveScope,
+    subgoals: [impact],
+    claims: [complete.claim],
+    semanticVerdicts: [complete.verdict],
+    observations: complete.observations,
+    corroboratedClaimIds: new Set([complete.claim.id]),
+  }).size, 0, 'fixed wrapper artifacts stay on their existing path');
+});
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — generic flow remains incomplete without runtime-owned transitions',
+  async t => {
+    for (const fixture of [
+      { name: 'all cited sources supported', supportingRefs: ['E1', 'E2'], expectedState: 'incomplete' },
+      { name: 'missing handoff support', supportingRefs: ['E1'], expectedState: 'incomplete' },
+    ]) {
+      await t.test(fixture.name, async () => {
+        const task = 'Trace the implementation entry and handoff.';
+        const goal = trustGoal(task, {
+          id: 'S-generic-flow-e2e',
+          question: task,
+          originText: task,
+          claimType: 'flow',
+          proofCondition: 'Observe the implementation entry and adjacent handoff.',
+        });
+        const claim = candidateClaim(
+          'C-generic-flow-e2e', goal.id, 'The path runs from auth to the route.', ['E1', 'E2']);
+        const initial = {
+          tools: [
+            {
+              tool: 'repo_read_file',
+              args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+              id: 'read-generic-flow-entry',
+            },
+            {
+              tool: 'repo_read_file',
+              args: { path: 'src/routes/user.js', startLine: 1, endLine: 7 },
+              id: 'read-generic-flow-handoff',
+            },
+          ],
+          claims: [claim],
+          verdicts: [semanticVerdict(claim.id, 'supported', fixture.supportingRefs)],
+        };
+        const { result } = await runTrustScript(buildTrustSteps({
+          goals: [goal],
+          initial,
+          repair: fixture.expectedState === 'incomplete' ? {
+            tools: [],
+            claims: [claim],
+            verdicts: [semanticVerdict(claim.id, 'supported', fixture.supportingRefs)],
+          } : null,
+        }), { task });
+
+        assert.equal(result.failure, null);
+        assert.equal(result.parentHandoff.state, fixture.expectedState);
+        assertInternalProofGap(result, goal.id);
+        assertMinimalIncompleteParentHandoff(result, goal.question);
+        assert.equal(Object.hasOwn(result.parentHandoff, 'policyArtifacts'), false);
+      });
+    }
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — generic impact cannot infer omitted requested categories from its own citations',
+  async () => {
+    const task = 'Map change impact across source, documentation, agent configuration, and dependencies.';
+    const goal = trustGoal(task, {
+      id: 'S-generic-impact-e2e',
+      question: task,
+      originText: task,
+      claimType: 'impact',
+      proofCondition: 'Observe all four requested impact categories independently.',
+      constraints: ['Do not treat one cited category as the required set.'],
+    });
+    const claim = candidateClaim(
+      'C-generic-impact-e2e', goal.id, 'The requested impact is fully covered.', ['E1']);
+    const { result } = await runTrustScript(buildTrustSteps({
+      goals: [goal],
+      initial: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+          id: 'read-generic-impact-source',
+        }],
+        claims: [claim],
+        verdicts: [semanticVerdict(claim.id, 'supported', ['E1'])],
+      },
+      repair: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+          id: 'repair-generic-impact-source',
+        }],
+        claims: [{ ...claim, evidenceRefs: ['E1', 'E2'] }],
+        verdicts: [semanticVerdict(claim.id, 'supported', ['E1', 'E2'])],
+      },
+    }), { task });
+
+    assert.equal(result.failure, null);
+    assertInternalProofGap(result, goal.id);
+    assertMinimalIncompleteParentHandoff(result, goal.question);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — generic impact completes from one exact scoped file inventory with source coverage',
+  async () => {
+    const task = 'Map every UI page affected by the shared marketing API route.';
+    const goal = trustGoal(task, {
+      id: 'S-generic-impact-bounded-inventory',
+      question: task,
+      originText: task,
+      claimType: 'impact',
+      proofCondition: 'Enumerate every file in the exact UI scope entry and read exact current source for every enumerated file.',
+    });
+    const claim = candidateClaim(
+      'C-generic-impact-bounded-inventory',
+      goal.id,
+      'The shared marketing API route impacts the list, detail, and settings UI pages.',
+      ['E1', 'E2', 'E3', 'E4'],
+    );
+    let focusedPacket = null;
+    const { client, result } = await runTrustScript(buildTrustSteps({
+      goals: [goal],
+      initial: {
+        tools: [
+          {
+            tool: 'repo_find_files',
+            args: { pattern: '**/*', scope: ['ui/pages/marketing/**'] },
+            id: 'enumerate-generic-impact-pages',
+          },
+          {
+            tool: 'repo_read_file',
+            args: { path: 'ui/pages/marketing/detail.js' },
+            id: 'read-generic-impact-detail',
+          },
+          {
+            tool: 'repo_read_file',
+            args: { path: 'ui/pages/marketing/list.js' },
+            id: 'read-generic-impact-list',
+          },
+          {
+            tool: 'repo_read_file',
+            args: { path: 'ui/pages/marketing/settings.js' },
+            id: 'read-generic-impact-settings',
+          },
+        ],
+        claims: [claim],
+        verifierSteps: [
+          { verdicts: [semanticVerdict(claim.id, 'supported', claim.evidenceRefs)] },
+          {
+            verdicts: [semanticVerdict(claim.id, 'supported', claim.evidenceRefs)],
+            assertRequest(request) {
+              focusedPacket = {
+                control: parseControlPacket(request),
+                system: request.messages[0].content,
+              };
+            },
+          },
+        ],
+      },
+    }), {
+      task,
+      scope: ['ui/pages/marketing/**'],
+      setup: async root => {
+        const directory = path.join(root, 'ui', 'pages', 'marketing');
+        await fs.mkdir(directory, { recursive: true });
+        await Promise.all([
+          fs.writeFile(path.join(directory, 'detail.js'), "export const detailApi = '/api/marketing/detail';\n"),
+          fs.writeFile(path.join(directory, 'list.js'), "export const listApi = '/api/marketing/list';\n"),
+          fs.writeFile(path.join(directory, 'settings.js'), "export const settingsApi = '/api/marketing/settings';\n"),
+        ]);
+      },
+    });
+
+    assert.equal(result.failure, null, JSON.stringify({
+      failure: result.failure,
+      stages: client.stageLabels,
+    }));
+    assert.equal(client.stageCounts.get('semantic_verifier'), 2);
+    assert.ok(focusedPacket, 'generic impact inventory needs an independent focused check');
+    assert.match(focusedPacket.system, /FOCUSED GENERIC IMPACT INVENTORY CORROBORATION/u);
+    assert.deepEqual(focusedPacket.control.control.effectiveScope, {
+      mode: 'paths',
+      paths: ['ui/pages/marketing/**'],
+    });
+    assert.deepEqual(focusedPacket.control.observations.map(item => item.id),
+      ['E1', 'E2', 'E3', 'E4']);
+    assertMinimalCompleteParentHandoff(result, {
+      answer: claim.text,
+      evidenceCount: 3,
+      evidenceKinds: ['source', 'source', 'source'],
+    });
+    assert.deepEqual(result.parentHandoff.evidence.map(item => item.path), [
+      'ui/pages/marketing/detail.js',
+      'ui/pages/marketing/list.js',
+      'ui/pages/marketing/settings.js',
+    ]);
+    assert.doesNotMatch(JSON.stringify(result.parentHandoff),
+      /repo_find_files|normalizedItemIds|policyArtifacts|corroborat/u);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — generic impact remains incomplete when focused inventory verification disagrees',
+  async () => {
+    const task = 'Map every UI page affected by the shared marketing API route.';
+    const goal = trustGoal(task, {
+      id: 'S-generic-impact-focused-disagreement',
+      question: task,
+      originText: task,
+      claimType: 'impact',
+      proofCondition: 'Enumerate the exact UI scope and verify every enumerated file from current source.',
+    });
+    const claim = candidateClaim(
+      'C-generic-impact-focused-disagreement', goal.id,
+      'The route affects both bounded marketing pages.', ['E1', 'E2', 'E3']);
+    const focusedVerdict = semanticVerdict(claim.id, 'insufficient', ['E1', 'E2']);
+    focusedVerdict.reasonCode = 'boundary_mismatch';
+    focusedVerdict.note = 'The selected scope does not answer the whole audited impact goal.';
+    const { client, result } = await runTrustScript(buildTrustSteps({
+      goals: [goal],
+      initial: {
+        tools: [
+          {
+            tool: 'repo_find_files',
+            args: { pattern: '**/*', scope: ['docs/**'] },
+            id: 'enumerate-focused-disagreement',
+          },
+          {
+            tool: 'repo_read_file', args: { path: 'docs/marketing/a.md' },
+            id: 'read-focused-disagreement-a',
+          },
+          {
+            tool: 'repo_read_file', args: { path: 'docs/marketing/b.md' },
+            id: 'read-focused-disagreement-b',
+          },
+        ],
+        claims: [claim],
+        verifierSteps: [
+          { verdicts: [semanticVerdict(claim.id, 'supported', claim.evidenceRefs)] },
+          { verdicts: [focusedVerdict] },
+        ],
+      },
+      repair: {
+        tools: [],
+        prose: 'No materially new repository action is available.',
+        claims: [],
+        verdicts: [],
+      },
+    }), {
+      task,
+      scope: ['docs/**'],
+      setup: async root => {
+        const directory = path.join(root, 'docs', 'marketing');
+        await fs.mkdir(directory, { recursive: true });
+        await Promise.all([
+          fs.writeFile(path.join(directory, 'a.md'), '# Marketing API A\n'),
+          fs.writeFile(path.join(directory, 'b.md'), '# Marketing API B\n'),
+        ]);
+      },
+    });
+
+    assert.equal(result.failure, null, JSON.stringify(result.failure));
+    assert.equal(client.stageCounts.get('semantic_verifier'), 2);
+    assertInternalProofGap(result, goal.id);
+    assertMinimalIncompleteParentHandoff(result, goal.question);
+    assert.doesNotMatch(JSON.stringify(result.parentHandoff), /repo_find_files|corroborat/u);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T071 — an irrelevant certificate-only refutation requires focused verifier agreement',
+  async () => {
+    const task = 'Verify whether explore_repo validates evidence against observed file ranges before returning.';
+    const goal = trustGoal(task, {
+      id: 'S-focused-absence-refutation',
+      question: task,
+      originText: task,
+      claimType: 'claim_verification',
+      proofCondition: 'Support or refute the behavior claim with semantically appropriate bounded evidence.',
+      constraints: ['A filename glob or another language definition form cannot refute JavaScript behavior.'],
+    });
+    const claim = candidateClaim(
+      'C-focused-absence-refutation',
+      goal.id,
+      'The claim is refuted because no explore_repo implementation validates observed file ranges in src/**.',
+      ['E1', 'E2'],
+    );
+    const primaryVerdict = semanticVerdict(claim.id, 'supported', ['E1', 'E2']);
+    primaryVerdict.resolution = 'refuted';
+    let focusedRequest = null;
+    const repairClaim = { ...claim, evidenceRefs: ['E1', 'E2', 'E3'] };
+    const steps = buildTrustSteps({
+      goals: [goal],
+      initial: {
+        tools: [
+          {
+            tool: 'repo_find_files',
+            args: { pattern: '**/explore_repo*', scope: ['src/**'] },
+            id: 'irrelevant-explore-repo-filename-search',
+          },
+          {
+            tool: 'repo_grep',
+            args: { pattern: 'def explore_repo', scope: ['src/**'] },
+            id: 'irrelevant-python-definition-search',
+          },
+        ],
+        claims: [claim],
+        verifierSteps: [
+          { verdicts: [primaryVerdict] },
+          {
+            verdicts: [semanticVerdict(claim.id, 'insufficient')],
+            assertRequest(request) {
+              focusedRequest = parseControlPacket(request);
+            },
+          },
+        ],
+      },
+      repair: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/explorer.js', startLine: 1, endLine: 5 },
+          id: 'read-actual-explorer-implementation',
+        }],
+        claims: [repairClaim],
+        verdicts: [semanticVerdict(claim.id, 'contradicted')],
+      },
+    });
+    const { client, result } = await runTrustScript(steps, {
+      task,
+      async setup(root) {
+        await fs.writeFile(path.join(root, 'src', 'explorer.js'), [
+          'export function explore_repo(evidence, observedRanges) {',
+          '  return evidence.every(item => observedRanges.has(item.range));',
+          '}',
+          '',
+        ].join('\n'));
+      },
+    });
+
+    assert.equal(result.failure, null, JSON.stringify(result.failure));
+    assert.ok(focusedRequest,
+      'certificate-only refutation must receive an independent focused check');
+    assert.deepEqual(focusedRequest.claims.map(item => item.id), [claim.id]);
+    assert.equal(client.stageCounts.get('semantic_verifier') >= 2, true);
+    assert.equal(result.parentHandoff.state, 'incomplete');
+    assert.equal(result.parentHandoff.directAnswer, undefined);
+    assert.equal(result.parentHandoff.evidence, undefined);
+    assert.doesNotMatch(JSON.stringify(result.parentHandoff), /no explore_repo implementation/u);
+    assertMinimalIncompleteParentHandoff(result, goal.question);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T071 — exact textual absence can complete after two verifier checks agree',
+  async () => {
+    const task = 'Verify the premise that the literal text legacyGuard occurs in src/routes/**.';
+    const goal = trustGoal(task, {
+      id: 'S-focused-exact-text-absence',
+      question: task,
+      originText: task,
+      claimType: 'claim_verification',
+      proofCondition: 'Completely search the bounded scope for the exact literal text.',
+      constraints: ['Keep the conclusion qualified to the exact text and src/routes/**.'],
+    });
+    const claim = candidateClaim(
+      'C-focused-exact-text-absence',
+      goal.id,
+      'The premise is refuted: the literal text legacyGuard has no static occurrence in src/routes/**.',
+      ['E1'],
+    );
+    const primaryVerdict = semanticVerdict(claim.id, 'supported', ['E1']);
+    primaryVerdict.resolution = 'refuted';
+    const focusedVerdict = semanticVerdict(claim.id, 'supported', ['E1']);
+    focusedVerdict.resolution = 'refuted';
+    let focusedRequest = null;
+    const steps = buildTrustSteps({
+      goals: [goal],
+      initial: {
+        assertRequest(request) {
+          assert.doesNotMatch(JSON.stringify(request.messages),
+            /plausible counterexample, exception, or alternative/u,
+            'generic support_or_refute goals must not inherit collect-only search work');
+        },
+        tools: [{
+          tool: 'repo_grep',
+          args: { pattern: 'legacyGuard', scope: ['src/routes/**'] },
+          id: 'exact-literal-absence-search',
+        }],
+        claims: [claim],
+        verifierSteps: [
+          { verdicts: [primaryVerdict] },
+          {
+            verdicts: [focusedVerdict],
+            assertRequest(request) {
+              focusedRequest = parseControlPacket(request);
+            },
+          },
+        ],
+      },
+    });
+    const { client, result } = await runTrustScript(steps, {
+      task,
+      scope: ['src/routes/**'],
+    });
+
+    assert.equal(result.failure, null, JSON.stringify(result.failure));
+    assert.ok(focusedRequest,
+      'an absence-only refutation must be corroborated before completion');
+    assert.deepEqual(focusedRequest.claims.map(item => item.id), [claim.id]);
+    assert.equal(client.stageCounts.get('semantic_verifier'), 2);
+    assertMinimalCompleteParentHandoff(result, {
+      answer: claim.text,
+      evidenceCount: 1,
+      evidenceKinds: ['absence'],
+    });
+    assert.deepEqual(result.parentHandoff.evidence[0].boundary, ['src/routes/**']);
+    assert.doesNotMatch(JSON.stringify(result.parentHandoff), /corroborat|proofPolicy/u);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T071 — collect_evidence affirmation stays incomplete without counterevidence search',
+  async () => {
+    const task = 'Verify that every user route requires authentication.';
+    const proposedGoal = trustGoal(task, {
+      id: 'S-collect-direct-only',
+      question: task,
+      originText: task,
+      claimType: 'claim_verification',
+      proofCondition: 'Support or refute the claim from current source and a bounded counterevidence search.',
+    });
+    const goal = {
+      ...proposedGoal,
+      originRefs: [...proposedGoal.originRefs, 'wrapper:collect_evidence:verdict'],
+    };
+    const claim = candidateClaim(
+      'C-collect-direct-only', goal.id, 'The user route requires authentication.', ['E1']);
+    const repairedClaim = { ...claim, evidenceRefs: ['E1', 'E2'] };
+    const { result } = await runTrustScript(buildTrustSteps({
+      goals: [goal],
+      initial: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+          id: 'read-collect-auth',
+        }],
+        claims: [claim],
+        verdicts: [semanticVerdict(claim.id, 'supported', ['E1'])],
+      },
+      repair: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/routes/user.js', startLine: 1, endLine: 7 },
+          id: 'read-collect-route',
+        }],
+        assertRequest(request) {
+          const packet = assertRepairRequest(request, {
+            question: goal.question,
+            anchors: ['src/auth.js'],
+          });
+          assert.deepEqual(request.tools.map(tool => tool.function.name), ['repo_grep']);
+          assert.deepEqual(packet.questions, [{
+            id: `semantic-gap:${goal.id}`,
+            subgoalId: goal.id,
+            question: goal.question,
+            gapReason: 'semantic_mismatch',
+            proofPolicy: 'support_or_refute',
+            proofCondition: goal.proofCondition,
+            wrapperPart: 'verdict',
+            claimDiagnostics: [{
+              claimId: claim.id,
+              text: claim.text,
+              reasonCode: 'boundary_mismatch',
+            }],
+          }]);
+          assert.match(request.messages[0].content,
+            /already has direct evidence[\s\S]*repo_grep exactly once/u);
+        },
+        claims: [repairedClaim],
+        verdicts: [semanticVerdict(claim.id, 'supported', ['E1', 'E2'])],
+      },
+    }), { task, taskMode: 'evidence_verification' });
+
+    assert.equal(result.failure, null, JSON.stringify(result.failure));
+    assertInternalProofGap(result, goal.id);
+    assertMinimalIncompleteParentHandoff(result, goal.question);
+    assert.equal(result.parentHandoff.directAnswer, undefined);
+    assert.equal(result.parentHandoff.evidence, undefined);
+    assert.equal(result.stats.filesRead, 1,
+      'an undeclared repair read must not execute through the restricted surface');
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T071 — collect_evidence routes a direct-only repair through one counter-search',
+  async () => {
+    const task = 'Verify that the user route requires authentication.';
+    const proposedGoal = trustGoal(task, {
+      id: 'S-collect-countersearch-repair',
+      question: task,
+      originText: task,
+      claimType: 'claim_verification',
+      proofCondition: 'Support or refute the claim from current source and a bounded counterevidence search.',
+    });
+    const goal = {
+      ...proposedGoal,
+      originRefs: [...proposedGoal.originRefs, 'wrapper:collect_evidence:verdict'],
+    };
+    const claim = candidateClaim(
+      'C-collect-countersearch-repair',
+      goal.id,
+      'The user route requires authentication.',
+      ['E1'],
+    );
+    const repairedClaim = { ...claim, evidenceRefs: ['E1', 'E2'] };
+    let repairRequests = 0;
+    let focusedChecks = 0;
+    const { client, result } = await runTrustScript(buildTrustSteps({
+      goals: [goal],
+      initial: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/routes/user.js', startLine: 1, endLine: 7 },
+          id: 'read-collect-countersearch-route',
+        }],
+        claims: [claim],
+        verdicts: [semanticVerdict(claim.id, 'supported', ['E1'])],
+      },
+      repair: {
+        tools: [{
+          tool: 'repo_grep',
+          args: { pattern: 'skipAuth|allowAnonymous', scope: ['src/**'] },
+          id: 'grep-collect-countersearch-repair',
+        }],
+        assertRequest(request) {
+          repairRequests += 1;
+          assert.deepEqual(request.tools.map(tool => tool.function.name), ['repo_grep']);
+          assert.match(request.messages[0].content,
+            /already has direct evidence[\s\S]*plausible disconfirming/u);
+        },
+        claims: [repairedClaim],
+        verifierSteps: [{
+          verdicts: [semanticVerdict(claim.id, 'supported', ['E1', 'E2'])],
+        }, {
+          verdicts: [semanticVerdict(claim.id, 'supported', ['E1', 'E2'])],
+          assertRequest(request) {
+            focusedChecks += 1;
+            assert.match(JSON.stringify(request.messages),
+              /FOCUSED COLLECT AFFIRMATION CORROBORATION/u);
+          },
+        }],
+      },
+    }), { task, taskMode: 'evidence_verification' });
+
+    assert.equal(result.failure, null, JSON.stringify(result.failure));
+    assert.equal(repairRequests, 1);
+    assert.equal(focusedChecks, 1);
+    assert.equal(client.stageCounts.get('semantic_verifier'), 3);
+    const explorationRequests = client.requests.filter(request =>
+      classifyControlRequest(request) === 'exploration');
+    assert.ok(explorationRequests.length >= 3);
+    assert.equal(explorationRequests.every(request => request.parallelToolCalls === false), true,
+      'collect_evidence exploration and repair stay sequential');
+    assert.match(JSON.stringify(explorationRequests),
+      /Claim-check (?:direct lookup|counter-search)/u);
+    assert.deepEqual(providerToolActions(client).map(action => action.tool), [
+      'repo_read_file',
+      'repo_grep',
+    ]);
+    assertMinimalCompleteParentHandoff(result, {
+      answer: `The claim is supported: ${claim.text}`,
+      evidenceCount: 1,
+      evidenceKinds: ['source'],
+    });
+    assert.equal(result.parentHandoff.evidence[0].path, 'src/routes/user.js');
+    assert.doesNotMatch(JSON.stringify(result.parentHandoff),
+      /skipAuth|allowAnonymous|repo_grep|certificate/u);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T071 — find_relevant_code preserves one cited companion test in a bounded useful set',
+  async () => {
+    const task =
+      'Where is MCP tools/list assembled and which files should be read before changing tool metadata?';
+    const goals = locateWrapperGoals();
+    const [locations, relevance] = goals;
+    const claims = [
+      candidateClaim(
+        'C-locate-cited-location',
+        locations.id,
+        'MCP tools/list is assembled in src/mcp/server.js.',
+        ['E2'],
+      ),
+      candidateClaim(
+        'C-locate-cited-relevance',
+        relevance.id,
+        'src/mcp/server.js defines buildToolList.',
+        ['E2'],
+      ),
+    ];
+    const { result } = await runTrustScript(buildTrustSteps({
+      goals,
+      initial: {
+        tools: [{
+          tool: 'repo_grep',
+          args: { pattern: 'buildToolList', scope: ['src/**', 'tests/**'] },
+          id: 'grep-cited-mcp-tool-list',
+        }, {
+          tool: 'repo_read_file',
+          args: { path: 'src/mcp/server.js', startLine: 1, endLine: 3 },
+          id: 'read-cited-mcp-tool-list',
+        }, {
+          tool: 'repo_read_file',
+          args: { path: 'tests/mcp-server.test.js', startLine: 1, endLine: 3 },
+          id: 'read-cited-mcp-tool-list-test',
+        }],
+        claims,
+        verdicts: claims.map((claim, index) =>
+          semanticVerdict(claim.id, 'supported', index === 1 ? ['E2', 'E3'] : claim.evidenceRefs)),
+        assertVerifier(request) {
+          const relevanceClaim = parseControlPacket(request).claims.find(claim =>
+            claim.id === 'C-locate-cited-relevance');
+          assert.equal(relevanceClaim.text,
+            'src/mcp/server.js defines buildToolList. Companion verification target: tests/mcp-server.test.js.');
+          assert.deepEqual(new Set(relevanceClaim.evidenceRefs), new Set(['E2', 'E3']));
+        },
+      },
+    }), {
+      task,
+      taskMode: 'locate',
+      scope: ['src/**', 'tests/**'],
+      async setup(root) {
+        await fs.mkdir(path.join(root, 'src', 'mcp'), { recursive: true });
+        await fs.mkdir(path.join(root, 'tests'), { recursive: true });
+        await fs.writeFile(
+          path.join(root, 'src', 'mcp', 'server.js'),
+          'export function buildToolList() {\n  return [{ name: "find_relevant_code" }];\n}\n',
+        );
+        await fs.writeFile(
+          path.join(root, 'tests', 'mcp-server.test.js'),
+          'import { buildToolList } from "../src/mcp/server.js";\n' +
+            'test("tools/list", () => buildToolList());\n',
+        );
+      },
+    });
+
+    assert.equal(result.failure, null, JSON.stringify(result.failure));
+    assert.equal(result.parentHandoff.state, 'complete');
+    assert.match(result.parentHandoff.directAnswer, /tests\/mcp-server\.test\.js/u);
+    assert.equal(result.parentHandoff.directAnswer.split('\n').length, 2);
+    assert.doesNotMatch(JSON.stringify(result.parentHandoff),
+      /\b(?:smallest|minimal|only|exhaustive)\b/iu);
+    assert.deepEqual(new Set(result.parentHandoff.targets.map(item => item.path)),
+      new Set(['src/mcp/server.js', 'tests/mcp-server.test.js']));
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T071 — find_relevant_code repairs one certified omitted companion test',
+  async () => {
+    const task =
+      'Where is MCP tools/list assembled and which files should be read before changing tool metadata?';
+    const goals = locateWrapperGoals();
+    const [locations, relevance] = goals;
+    const locationClaim = candidateClaim(
+      'C-locate-mcp-location',
+      locations.id,
+      'MCP tools/list is assembled in src/mcp/server.js.',
+      ['E2'],
+    );
+    const omittedRelevanceClaim = candidateClaim(
+      'C-locate-mcp-relevance',
+      relevance.id,
+      'src/mcp/server.js defines buildToolList.',
+      ['E2'],
+    );
+    const repairedRelevanceClaim = candidateClaim(
+      omittedRelevanceClaim.id,
+      relevance.id,
+      'src/mcp/server.js defines buildToolList. Companion verification target: tests/mcp-server.test.js.',
+      ['E2', 'E3'],
+    );
+    const initialClaims = [locationClaim, omittedRelevanceClaim];
+    const repairedClaims = [locationClaim, repairedRelevanceClaim];
+    let repairRequests = 0;
+    const { client, result } = await runTrustScript(buildTrustSteps({
+      goals,
+      initial: {
+        tools: [{
+          tool: 'repo_grep',
+          args: { pattern: 'buildToolList', scope: ['src/**', 'tests/**'] },
+          id: 'grep-mcp-tool-list',
+        }, {
+          tool: 'repo_read_file',
+          args: { path: 'src/mcp/server.js', startLine: 1, endLine: 3 },
+          id: 'read-mcp-tool-list',
+        }],
+        claims: initialClaims,
+        verifierSteps: [{
+          verdicts: [
+            semanticVerdict(locationClaim.id, 'supported', ['E2']),
+          ],
+          assertRequest(request) {
+            assert.deepEqual(parseControlPacket(request).claims.map(claim => claim.id), [
+              locationClaim.id,
+            ]);
+          },
+        }],
+      },
+      repair: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'tests/mcp-server.test.js', startLine: 1, endLine: 3 },
+          id: 'read-mcp-tool-list-test',
+        }],
+        assertRequest(request) {
+          repairRequests += 1;
+          assert.deepEqual(request.tools.map(tool => tool.function.name), ['repo_read_file']);
+          const packet = parseRepairPacket(request);
+          assert.equal(packet.candidateReadPath, 'tests/mcp-server.test.js');
+          assert.deepEqual(packet.anchors, ['tests/mcp-server.test.js']);
+          assert.match(request.messages[0].content, /Call repo_read_file exactly once/u);
+        },
+        claims: repairedClaims,
+        verdicts: repairedClaims.map(claim =>
+          semanticVerdict(claim.id, 'supported', claim.evidenceRefs)),
+      },
+    }), {
+      task,
+      taskMode: 'locate',
+      scope: ['src/**', 'tests/**'],
+      async setup(root) {
+        await fs.mkdir(path.join(root, 'src', 'mcp'), { recursive: true });
+        await fs.mkdir(path.join(root, 'tests'), { recursive: true });
+        await fs.writeFile(
+          path.join(root, 'src', 'mcp', 'server.js'),
+          'export function buildToolList() {\n  return [{ name: "find_relevant_code" }];\n}\n',
+        );
+        await fs.writeFile(
+          path.join(root, 'tests', 'mcp-server.test.js'),
+          'import { buildToolList } from "../src/mcp/server.js";\n' +
+            'test("tools/list", () => buildToolList());\n',
+        );
+      },
+    });
+
+    assert.equal(result.failure, null, JSON.stringify(result.failure));
+    assert.equal(repairRequests, 1);
+    assert.equal(client.stageCounts.get('semantic_verifier'), 2);
+    assert.deepEqual(providerToolActions(client).map(action => action.tool), [
+      'repo_grep',
+      'repo_read_file',
+      'repo_read_file',
+    ]);
+    assert.equal(result.taskContract.subgoals.every(goal => goal.state === 'supported'), true);
+    assert.equal(result.parentHandoff.state, 'complete');
+    assert.match(result.parentHandoff.directAnswer, /src\/mcp\/server\.js/u);
+    assert.match(result.parentHandoff.directAnswer, /tests\/mcp-server\.test\.js/u);
+    assert.deepEqual(new Set(result.parentHandoff.evidence.map(item => item.path)),
+      new Set(['src/mcp/server.js', 'tests/mcp-server.test.js']));
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T071 — find_relevant_code does not promote another implementation search hit',
+  async () => {
+    const task = 'Where is requireAuth implemented?';
+    const goals = locateWrapperGoals();
+    const claims = goals.map((goal, index) => candidateClaim(
+      `C-locate-auth-${index + 1}`,
+      goal.id,
+      index === 0
+        ? 'requireAuth is implemented in src/auth.js.'
+        : 'src/auth.js is relevant because it defines requireAuth.',
+      ['E2'],
+    ));
+    const { client, result } = await runTrustScript(buildTrustSteps({
+      goals,
+      initial: {
+        tools: [{
+          tool: 'repo_grep',
+          args: { pattern: 'requireAuth', scope: ['src/**'] },
+          id: 'grep-locate-auth',
+        }, {
+          tool: 'repo_read_file',
+          args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+          id: 'read-locate-auth',
+        }],
+        claims,
+        verdicts: claims.map(claim => semanticVerdict(claim.id, 'supported', ['E2'])),
+      },
+    }), { task, taskMode: 'locate' });
+
+    assert.equal(result.failure, null, JSON.stringify(result.failure));
+    assert.equal(client.stageCounts.get('semantic_verifier'), 1);
+    assert.deepEqual(providerToolActions(client).map(action => action.tool), [
+      'repo_grep',
+      'repo_read_file',
+    ]);
+    assert.equal(result.parentHandoff.state, 'complete');
+    assert.deepEqual(result.parentHandoff.evidence.map(item => item.path), ['src/auth.js']);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T071 — a pure location query does not promote an unrelated observed test',
+  async () => {
+    const task = 'Where is requireAuth implemented?';
+    const goals = locateWrapperGoals();
+    const claims = goals.map((goal, index) => candidateClaim(
+      `C-locate-pure-${index + 1}`,
+      goal.id,
+      index === 0
+        ? 'requireAuth is implemented in src/auth.js.'
+        : 'src/auth.js matters because it defines requireAuth.',
+      ['E1'],
+    ));
+    const { result } = await runTrustScript(buildTrustSteps({
+      goals,
+      initial: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+          id: 'read-pure-location-auth',
+        }, {
+          tool: 'repo_read_file',
+          args: { path: 'tests/unrelated.test.js', startLine: 1, endLine: 1 },
+          id: 'read-unrelated-test',
+        }],
+        claims,
+        verdicts: claims.map(claim => semanticVerdict(claim.id, 'supported', ['E1'])),
+      },
+    }), {
+      task,
+      taskMode: 'locate',
+      scope: ['src/**', 'tests/**'],
+      async setup(root) {
+        await fs.mkdir(path.join(root, 'tests'), { recursive: true });
+        await fs.writeFile(
+          path.join(root, 'tests', 'unrelated.test.js'),
+          'test("unrelated", () => {});\n',
+        );
+      },
+    });
+
+    assert.equal(result.failure, null, JSON.stringify(result.failure));
+    assert.equal(result.parentHandoff.state, 'complete');
+    assert.deepEqual(result.parentHandoff.evidence.map(item => item.path), ['src/auth.js']);
+    assert.deepEqual(result.parentHandoff.targets.map(item => item.path), ['src/auth.js']);
+    assert.doesNotMatch(JSON.stringify(result.parentHandoff), /unrelated\.test\.js/u);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T071 — an approved locate globality overclaim is suppressed fail-closed',
+  async () => {
+    const task = 'Where is requireAuth implemented?';
+    const [locations, relevance] = locateWrapperGoals();
+    const claims = [
+      candidateClaim(
+        'C-locate-safe-location',
+        locations.id,
+        'requireAuth is implemented in src/auth.js.',
+        ['E1'],
+      ),
+      candidateClaim(
+        'C-locate-globality-overclaim',
+        relevance.id,
+        'src/auth.js is the only relevant target in the repository.',
+        ['E1'],
+      ),
+    ];
+    const { result } = await runTrustScript(buildTrustSteps({
+      goals: [locations, relevance],
+      initial: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+          id: 'read-locate-overclaim-auth',
+        }],
+        claims,
+        verdicts: claims.map(claim =>
+          semanticVerdict(claim.id, 'supported', claim.evidenceRefs)),
+      },
+    }), { task, taskMode: 'locate' });
+
+    assert.equal(result.failure, null, JSON.stringify(result.failure));
+    assert.equal(result.parentHandoff.state, 'incomplete');
+    assert.equal(result.parentHandoff.directAnswer,
+      'requireAuth is implemented in src/auth.js.');
+    assert.doesNotMatch(JSON.stringify(result.parentHandoff),
+      /\b(?:only|smallest|minimal|exhaustive)\b/iu);
+    assert.equal(result.parentHandoff.gaps.length, 1);
+    assert.doesNotThrow(() => validateParentHandoffV3(result.parentHandoff));
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T071 — collect_evidence folds uncovered verifier facets into its one verdict',
+  async () => {
+    const task = 'Verify that every user route requires authentication.';
+    const proposedGoal = trustGoal(task, {
+      id: 'S-collect-uncovered-facet',
+      question: task,
+      originText: task,
+      claimType: 'claim_verification',
+      proofCondition: 'Support or refute the claim from current source and bounded counter-search.',
+    });
+    const goal = {
+      ...proposedGoal,
+      originRefs: [...proposedGoal.originRefs, 'wrapper:collect_evidence:verdict'],
+    };
+    const claim = candidateClaim(
+      'C-collect-uncovered-facet',
+      goal.id,
+      'The user route requires authentication.',
+      ['E1', 'E2'],
+    );
+    const repairedClaim = { ...claim, evidenceRefs: ['E1', 'E2', 'E3'] };
+    const uncovered = [{
+      question: 'Could another requested route registration refute the claim?',
+      originRefs: [requestOrigin(task, task)],
+      claimType: 'positive',
+      proofCondition: 'Inspect the remaining requested route facet.',
+      constraints: [],
+    }];
+    const { client, result } = await runTrustScript(buildTrustSteps({
+      goals: [goal],
+      initial: {
+        assertRequest(request) {
+          assert.match(JSON.stringify(request.messages),
+            /wrapper:collect_evidence:verdict[\s\S]{0,260}plausible counterexample/u);
+        },
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/routes/user.js', startLine: 1, endLine: 7 },
+          id: 'read-collect-route',
+        }, {
+          tool: 'repo_grep',
+          args: { pattern: 'skipAuth|allowAnonymous', scope: ['src/**'] },
+          id: 'grep-collect-counterevidence',
+        }],
+        claims: [claim],
+        verdicts: [semanticVerdict(claim.id, 'contradicted')],
+        uncovered,
+      },
+      repair: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+          id: 'read-collect-repair',
+        }],
+        claims: [repairedClaim],
+        verdicts: [semanticVerdict(claim.id, 'contradicted')],
+        uncovered,
+      },
+    }), { task, taskMode: 'evidence_verification' });
+
+    assert.equal(result.failure, null, JSON.stringify(result.failure));
+    assert.equal(client.stageCounts.get('goal_audit'), 1,
+      'uncovered collect facets must not trigger a late goal audit');
+    assert.equal(client.stageCounts.get('semantic_verifier'), 2);
+    assert.deepEqual(result.taskContract.subgoals.map(item => item.id), [goal.id]);
+    assert.equal(result.taskContract.subgoals[0].state, 'gap');
+    assert.equal(result.coverageGaps.length, 1);
+    assert.equal(result.coverageGaps[0].reason, 'uncovered_request');
+    assert.equal(result.coverageGaps[0].repairable, false);
+    assert.equal(result.taskContract.subgoals.some(item =>
+      item.id.startsWith('late-uncovered:')), false);
+    assertMinimalIncompleteParentHandoff(result, goal.question);
+    assert.equal(result.parentHandoff.directAnswer, undefined);
+    assert.equal(result.parentHandoff.evidence, undefined);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T071 — collect_evidence ignores an unapproved counterevidence search',
+  async () => {
+    const task = 'Verify that every user route requires authentication.';
+    const proposedGoal = trustGoal(task, {
+      id: 'S-collect-unapproved-search',
+      question: task,
+      originText: task,
+      claimType: 'claim_verification',
+      proofCondition: 'Support or refute the claim from current source and a bounded counterevidence search.',
+    });
+    const goal = {
+      ...proposedGoal,
+      originRefs: [...proposedGoal.originRefs, 'wrapper:collect_evidence:verdict'],
+    };
+    const claim = candidateClaim(
+      'C-collect-unapproved-search', goal.id, 'The user route requires authentication.', ['E1', 'E2']);
+    const repairedClaim = { ...claim, evidenceRefs: ['E1', 'E2', 'E3'] };
+    const { result } = await runTrustScript(buildTrustSteps({
+      goals: [goal],
+      initial: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/routes/user.js', startLine: 1, endLine: 7 },
+          id: 'read-collect-user-route',
+        }, {
+          tool: 'repo_grep',
+          args: { pattern: 'skipAuth|allowAnonymous', scope: ['src/**'] },
+          id: 'search-collect-counterevidence',
+        }],
+        claims: [claim],
+        verdicts: [semanticVerdict(claim.id, 'supported', ['E1'])],
+      },
+      repair: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+          id: 'read-collect-auth-repair',
+        }],
+        claims: [repairedClaim],
+        verdicts: [semanticVerdict(claim.id, 'supported', ['E1', 'E3'])],
+      },
+    }), { task, taskMode: 'evidence_verification' });
+
+    assert.equal(result.failure, null, JSON.stringify(result.failure));
+    assert.equal(result.semanticVerification.absenceCertificates.some(certificate =>
+      certificate.subgoalId === goal.id && certificate.complete === true &&
+      certificate.searchRefs.includes('E2')), true);
+    assertInternalProofGap(result, goal.id);
+    assertMinimalIncompleteParentHandoff(result, goal.question);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T071 — extra approved search telemetry cannot erase a valid collect answer',
+  async () => {
+    const task = 'Verify that the user route requires authentication.';
+    const proposedGoal = trustGoal(task, {
+      id: 'S-collect-extra-search',
+      question: task,
+      originText: task,
+      claimType: 'claim_verification',
+      proofCondition: 'Support or refute the claim from current source and bounded counter-search.',
+    });
+    const goal = {
+      ...proposedGoal,
+      originRefs: [...proposedGoal.originRefs, 'wrapper:collect_evidence:verdict'],
+    };
+    const claim = candidateClaim(
+      'C-collect-extra-search',
+      goal.id,
+      'The user route requires authentication.',
+      ['E1', 'E2', 'E3'],
+    );
+    const primaryVerdict = semanticVerdict(claim.id, 'supported', ['E1', 'E2', 'E3']);
+    const corroboratedVerdict = semanticVerdict(claim.id, 'supported', ['E1', 'E2']);
+    const { result } = await runTrustScript(buildTrustSteps({
+      goals: [goal],
+      initial: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/routes/user.js', startLine: 1, endLine: 7 },
+          id: 'read-collect-extra-search-route',
+        }, {
+          tool: 'repo_grep',
+          args: { pattern: 'skipAuth|allowAnonymous', scope: ['src/**'] },
+          id: 'grep-collect-disconfirming',
+        }, {
+          tool: 'repo_grep',
+          args: { pattern: 'requireAuth', scope: ['src/**'] },
+          id: 'grep-collect-confirming',
+        }],
+        claims: [claim],
+        verifierSteps: [
+          { verdicts: [primaryVerdict] },
+          { verdicts: [corroboratedVerdict] },
+        ],
+      },
+    }), { task, taskMode: 'evidence_verification' });
+
+    assert.equal(result.failure, null, JSON.stringify(result.failure));
+    assertMinimalCompleteParentHandoff(result, {
+      answer: `The claim is supported: ${claim.text}`,
+      evidenceCount: 1,
+      evidenceKinds: ['source'],
+    });
+    assert.equal(result.parentHandoff.evidence[0].path, 'src/routes/user.js');
+    assert.doesNotMatch(JSON.stringify(result.parentHandoff),
+      /skipAuth|allowAnonymous|repo_grep|matchCount|certificate/u);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T071 — an approved but unrelated collect counter-search cannot complete',
+  async () => {
+    const task = 'Verify that every user route requires authentication.';
+    const proposedGoal = trustGoal(task, {
+      id: 'S-collect-unrelated-search',
+      question: task,
+      originText: task,
+      claimType: 'claim_verification',
+      proofCondition: 'Support or refute the claim from current source and bounded counter-search.',
+    });
+    const goal = {
+      ...proposedGoal,
+      originRefs: [...proposedGoal.originRefs, 'wrapper:collect_evidence:verdict'],
+    };
+    const claim = candidateClaim(
+      'C-collect-unrelated-search',
+      goal.id,
+      'Every user route requires authentication.',
+      ['E1', 'E2'],
+    );
+    const repairedClaim = { ...claim, evidenceRefs: ['E1', 'E2', 'E3'] };
+    const initialPrimary = semanticVerdict(claim.id, 'supported', ['E1', 'E2']);
+    const repairPrimary = semanticVerdict(claim.id, 'supported', ['E1', 'E2', 'E3']);
+    const focusedInsufficient = semanticVerdict(claim.id, 'insufficient', ['E1']);
+    let focusedChecks = 0;
+    const assertFocused = request => {
+      focusedChecks += 1;
+      const packet = JSON.stringify(request.messages);
+      assert.match(packet, /FOCUSED COLLECT AFFIRMATION CORROBORATION/u);
+      assert.match(packet, /definitelyUnrelatedBuildBanner/u);
+      assert.equal(request.temperature, 0,
+        'the high-risk focused verdict must use deterministic sampling');
+      assert.equal(request.topP, 1);
+    };
+    const { client, result } = await runTrustScript(buildTrustSteps({
+      goals: [goal],
+      initial: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/routes/user.js', startLine: 1, endLine: 7 },
+          id: 'read-collect-unrelated-route',
+        }, {
+          tool: 'repo_grep',
+          args: { pattern: 'definitelyUnrelatedBuildBanner', scope: ['src/**'] },
+          id: 'grep-collect-unrelated-counterevidence',
+        }],
+        claims: [claim],
+        verifierSteps: [
+          { verdicts: [initialPrimary] },
+          { verdicts: [focusedInsufficient], assertRequest: assertFocused },
+        ],
+      },
+      repair: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+          id: 'read-collect-unrelated-repair',
+        }],
+        claims: [repairedClaim],
+        verifierSteps: [
+          { verdicts: [repairPrimary] },
+          { verdicts: [focusedInsufficient], assertRequest: assertFocused },
+        ],
+      },
+    }), { task, taskMode: 'evidence_verification' });
+
+    assert.equal(result.failure, null, JSON.stringify(result.failure));
+    assert.equal(client.stageCounts.get('semantic_verifier'), 4);
+    assert.equal(focusedChecks, 2);
+    assertInternalProofGap(result, goal.id);
+    assertMinimalIncompleteParentHandoff(result, goal.question);
+    assert.equal(result.parentHandoff.directAnswer, undefined);
+    assert.equal(result.parentHandoff.evidence, undefined);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T071 — structured impact retries one ignored runtime-required category step',
+  async () => {
+    const task = 'Map the likely impact of this intended change before editing: ' +
+      'Add a new top-level field to explore_repo structured output. Identify actionable targets, ' +
+      'dependent callers/consumers, affected verification or public-contract surfaces, and the remaining risk boundary.';
+    const goals = [
+      trustGoal(task, {
+        id: 'S-impact-targets',
+        question: 'What source targets change?',
+        originText: task,
+        claimType: 'impact',
+        proofCondition: 'Identify the structured output source targets.',
+      }),
+      trustGoal(task, {
+        id: 'S-impact-dependents',
+        question: 'Which callers and consumers depend on the output?',
+        originText: task,
+        claimType: 'impact',
+        proofCondition: 'Identify the structured output callers and consumers.',
+      }),
+      trustGoal(task, {
+        id: 'S-impact-categories',
+        question: 'Which verification and public-contract surfaces change?',
+        originText: task,
+        claimType: 'impact',
+        proofCondition: 'Identify the affected test, documentation, and response example categories.',
+      }),
+      trustGoal(task, {
+        id: 'S-impact-risk',
+        question: 'What is the remaining risk boundary?',
+        originText: task,
+        claimType: 'impact',
+        proofCondition:
+          'Distinguish every unaffected area that needs no modification from the observed impact.',
+      }),
+    ];
+    ['targets', 'dependents', 'requested_categories', 'risk_boundary'].forEach((part, index) => {
+      goals[index].originRefs.push(`wrapper:map_change_impact:${part}`);
+    });
+    const claims = [
+      candidateClaim(
+        'C-impact-targets', goals[0].id,
+        'src/mcp/server.mjs, src/explorer/runtime.mjs, and src/explorer/schemas.mjs define and return the structured output.',
+        ['E2', 'E3', 'E4'],
+      ),
+      candidateClaim(
+        'C-impact-dependents', goals[1].id,
+        'src/mcp/server.mjs calls the output path implemented by src/explorer/runtime.mjs.',
+        ['E2', 'E3'],
+      ),
+      candidateClaim(
+        'C-impact-categories', goals[2].id,
+        'tests/schemas.test.mjs validates the schema; README.md and DESIGN.md document the contract; examples/expected-response.json records the response shape.',
+        ['E6', 'E7', 'E8', 'E9'],
+      ),
+      candidateClaim(
+        'C-impact-risk', goals[3].id,
+        'The change is confined to src/mcp/server.mjs, src/explorer/runtime.mjs, src/explorer/schemas.mjs, tests/schemas.test.mjs, README.md, DESIGN.md, and examples/expected-response.json; every other area is unaffected and needs no modification.',
+        ['E1', 'E2', 'E3', 'E4', 'E6', 'E7', 'E8', 'E9'],
+      ),
+    ];
+    const steps = [
+      { stage: 'planner:1', value: plannerControl(goals) },
+      {
+        stage: 'goal_audit:1',
+        run(request) {
+          const serialized = JSON.stringify(request.messages);
+          assert.match(serialized,
+            /Which current repository paths form the observed impact boundary/iu);
+          assert.match(serialized,
+            /additional in-scope impact beyond those bounded observations as unverified/iu);
+          assert.doesNotMatch(serialized,
+            /Distinguish every unaffected area that needs no modification/iu);
+          return controlCompletion(auditorControl(
+            goals.map(goal => auditControlRecord(goal)),
+          ));
+        },
+      },
+      {
+        stage: 'exploration:1',
+        run(request) {
+          const grep = request.tools.find(tool => tool.function?.name === 'repo_grep');
+          assert.equal(grep?.function?.parameters?.properties?.pattern?.const,
+            'OUTPUT_SCHEMA\\s*=|outputSchema\\s*:|structuredContent\\s*:|build[A-Za-z0-9_]*(?:Response|Payload|Handoff)[A-Za-z0-9_]*\\s*\\(');
+          return toolControlCompletion(
+            'repo_grep',
+            { pattern: 'ignored', scope: ['ignored'] },
+            'search-impact-implementation',
+          );
+        },
+      },
+      {
+        stage: 'exploration:2',
+        run: () => toolBatchControlCompletion([
+          {
+            tool: 'repo_read_file',
+            args: { path: 'src/mcp/server.mjs', startLine: 1, endLine: 1 },
+            id: 'read-impact-server',
+          },
+          {
+            tool: 'repo_read_file',
+            args: { path: 'src/explorer/runtime.mjs', startLine: 1, endLine: 1 },
+            id: 'read-impact-runtime',
+          },
+          {
+            tool: 'repo_read_file',
+            args: { path: 'src/explorer/schemas.mjs', startLine: 1, endLine: 1 },
+            id: 'read-impact-schemas',
+          },
+        ]),
+      },
+      {
+        stage: 'exploration:3',
+        run(request) {
+          const grep = request.tools.find(tool => tool.function?.name === 'repo_grep');
+          assert.equal(grep?.function?.parameters?.properties?.pattern?.const,
+            'outputSchema|"schemaVersion"|schema-v3 structuredContent');
+          assert.deepEqual(
+            new Set(grep?.function?.parameters?.properties?.scope?.const ?? []),
+            new Set(['src/**', 'tests/**', '*.md', 'examples/**']),
+          );
+          return {
+            usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+            finishReason: 'stop',
+            message: { content: 'The implementation evidence is enough.', toolCalls: [] },
+          };
+        },
+      },
+      {
+        stage: 'exploration:4',
+        run(request) {
+          assert.match(JSON.stringify(request.messages),
+            /runtime-required bounded repository step is still unresolved/u);
+          return toolControlCompletion(
+            'repo_grep',
+            { pattern: 'ignored', scope: ['ignored'] },
+            'search-impact-categories',
+          );
+        },
+      },
+      {
+        stage: 'exploration:5',
+        run: () => toolBatchControlCompletion([
+          {
+            tool: 'repo_read_file',
+            args: { path: 'tests/schemas.test.mjs', startLine: 1, endLine: 1 },
+            id: 'read-impact-test',
+          },
+          {
+            tool: 'repo_read_file',
+            args: { path: 'README.md', startLine: 1, endLine: 1 },
+            id: 'read-impact-readme',
+          },
+          {
+            tool: 'repo_read_file',
+            args: { path: 'DESIGN.md', startLine: 1, endLine: 1 },
+            id: 'read-impact-design',
+          },
+          {
+            tool: 'repo_read_file',
+            args: { path: 'examples/expected-response.json', startLine: 1, endLine: 1 },
+            id: 'read-impact-example',
+          },
+        ]),
+      },
+      { stage: 'exploration:6', content: 'The bounded impact evidence is complete.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+      {
+        stage: 'claim_synthesis:1',
+        value: { claims: [claims[0], claims[1], claims[3]] },
+      },
+      {
+        stage: 'claim_synthesis:2',
+        run(request) {
+          assert.match(JSON.stringify(request.messages),
+            /returned no claim despite runtime-selected current verification or public-contract sources/u);
+          return controlCompletion({ claims });
+        },
+      },
+      {
+        stage: 'semantic_verifier:1',
+        run(request) {
+          const system = request.messages.find(message => message.role === 'system')?.content ?? '';
+          const serialized = JSON.stringify(request.messages);
+          assert.match(system,
+            /wrapper:map_change_impact:requested_categories[\s\S]{0,320}intended pre-edit change[\s\S]{0,220}conditional premise/u);
+          assert.match(system,
+            /do not require[\s\S]{0,220}field to already exist[\s\S]{0,220}before\/after or control-flow transition/iu);
+          assert.match(serialized,
+            /Observed impact paths: src\/mcp\/server\.mjs,[\s\S]+Unverified: additional in-scope impact beyond these bounded observations/iu);
+          assert.doesNotMatch(serialized,
+            /The change is confined[\s\S]+every other area is unaffected/iu);
+          assert.doesNotMatch(serialized,
+            /"id":"C-impact-risk"[\s\S]{0,800}"evidenceRefs":\["E1"/u);
+          return controlCompletion(verifierResponse(claims.map(claim =>
+            semanticVerdict(
+              claim.id,
+              'supported',
+              claim.id === 'C-impact-categories'
+                ? ['E6', 'E7', 'E9']
+                : claim.id === 'C-impact-risk'
+                  ? ['E2', 'E3', 'E4', 'E6', 'E7', 'E8', 'E9']
+                  : claim.evidenceRefs,
+            ))));
+        },
+      },
+      {
+        stage: 'semantic_verifier:2',
+        run(request) {
+          assert.match(
+            JSON.stringify(request.messages),
+            /omitted runtime-selected current category evidence[\s\S]{0,220}missing=\[E8\]/iu,
+          );
+          return controlCompletion(verifierResponse(claims.map(claim =>
+            semanticVerdict(
+              claim.id,
+              'supported',
+              claim.id === 'C-impact-risk'
+                ? ['E2', 'E3', 'E4', 'E6', 'E7', 'E8', 'E9']
+                : claim.evidenceRefs,
+            ))));
+        },
+      },
+    ];
+
+    const { client, result } = await runTrustScript(steps, {
+      task,
+      taskMode: 'edit_planning',
+      scope: ['src/**', 'tests/**', '*.md', 'examples/**'],
+      async setup(root) {
+        await fs.mkdir(path.join(root, 'src', 'explorer'), { recursive: true });
+        await fs.mkdir(path.join(root, 'src', 'mcp'), { recursive: true });
+        await fs.mkdir(path.join(root, 'tests'), { recursive: true });
+        await fs.mkdir(path.join(root, 'examples'), { recursive: true });
+        await fs.writeFile(path.join(root, 'src', 'mcp', 'server.mjs'),
+          'export const outputSchema = { structuredContent: true };\n');
+        await fs.writeFile(path.join(root, 'src', 'explorer', 'runtime.mjs'),
+          'export function buildParentPayload() { return { schemaVersion: 3 }; }\n');
+        await fs.writeFile(path.join(root, 'src', 'explorer', 'schemas.mjs'),
+          'export const schema = { structuredContent: true };\n');
+        await fs.writeFile(path.join(root, 'tests', 'schemas.test.mjs'),
+          'const outputSchema = { structuredContent: { schemaVersion: 3 } };\n');
+        await fs.writeFile(path.join(root, 'README.md'), 'public "schemaVersion" contract\n');
+        await fs.writeFile(path.join(root, 'DESIGN.md'),
+          'schema-v3 structuredContent + terse text parity\n');
+        await fs.writeFile(path.join(root, 'examples', 'expected-response.json'),
+          '{"schemaVersion":3}\n');
+      },
+    });
+
+    assert.equal(client.stageCounts.get('exploration'), 6, JSON.stringify(client.stageLabels));
+    assert.equal(client.stageCounts.get('claim_synthesis'), 2);
+    assert.equal(client.stageCounts.get('semantic_verifier'), 2);
+    assert.equal(result.failure, null, JSON.stringify(result.failure));
+    assert.ok(['complete', 'verify_targets'].includes(result.parentHandoff.state));
+    assert.equal(result.parentHandoff.targets.length, 7);
+    assert.match(result.parentHandoff.directAnswer,
+      /observed paths:[\s\S]+unverified: additional in-scope impact beyond these bounded observations/iu);
+    assert.doesNotMatch(result.parentHandoff.directAnswer,
+      /\bconfined\b|\bunaffected\b|needs no modification/iu);
+    assert.equal(result.parentHandoff.evidence.filter(item =>
+      /unverified: additional in-scope impact beyond these bounded observations/iu
+        .test(item.supports)).length, 0,
+    'the aggregate runtime-owned risk caveat should not be copied onto evidence items');
+    assert.equal(result.parentHandoff.evidence.filter(item =>
+      /observed path:/iu.test(item.supports)).length, 7,
+    'each exact path named by the aggregate caveat should retain direct evidence');
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T071 — structured-output relevance repairs an omitted selected implementation source',
+  async () => {
+    const task = 'Which code controls structured output formatting and structuredContent fields?';
+    const goals = [
+      trustGoal(task, {
+        id: 'S-structured-locations',
+        question: task,
+        originText: task,
+        proofCondition: 'Identify the structured output implementation locations.',
+      }),
+      trustGoal(task, {
+        id: 'S-structured-relevance',
+        question: task,
+        originText: task,
+        proofCondition: 'Connect the formatter, schema normalization, and production caller.',
+      }),
+    ];
+    goals[0].originRefs.push('wrapper:find_relevant_code:locations');
+    goals[1].originRefs.push('wrapper:find_relevant_code:relevance');
+    const locations = candidateClaim(
+      'C-structured-locations', goals[0].id, 'parent-payload.mjs formats the payload.', ['E1']);
+    const incompleteRelevance = candidateClaim(
+      'C-structured-relevance', goals[1].id,
+      'parent-payload.mjs is called by server.mjs.', ['E1', 'E3']);
+    const completeRelevance = candidateClaim(
+      incompleteRelevance.id,
+      goals[1].id,
+      'parent-payload.mjs formats the payload, schemas.mjs normalizes it, and server.mjs returns it.',
+      ['E1', 'E2', 'E3'],
+    );
+    const steps = [
+      { stage: 'planner:1', value: plannerControl(goals) },
+      {
+        stage: 'goal_audit:1',
+        value: auditorControl(goals.map(goal => auditControlRecord(goal))),
+      },
+      {
+        stage: 'exploration:1',
+        run: () => toolBatchControlCompletion([
+          {
+            tool: 'repo_read_file',
+            args: { path: 'src/explorer/parent-payload.mjs', startLine: 1, endLine: 3 },
+            id: 'read-structured-payload',
+          },
+          {
+            tool: 'repo_read_file',
+            args: { path: 'src/explorer/schemas.mjs', startLine: 1, endLine: 3 },
+            id: 'read-structured-schema',
+          },
+          {
+            tool: 'repo_read_file',
+            args: { path: 'src/mcp/server.mjs', startLine: 1, endLine: 3 },
+            id: 'read-structured-caller',
+          },
+        ]),
+      },
+      { stage: 'exploration:2', content: 'The bounded evidence pass is complete.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+      {
+        stage: 'claim_synthesis:1',
+        value: { claims: [locations, incompleteRelevance] },
+      },
+      {
+        stage: 'claim_synthesis:2',
+        run(request) {
+          assert.match(JSON.stringify(request.messages),
+            /must cite every runtime-selected current implementation candidate/u);
+          return controlCompletion({ claims: [locations, completeRelevance] });
+        },
+      },
+      {
+        stage: 'semantic_verifier:1',
+        run(request) {
+          const packet = parseControlPacket(request);
+          assert.deepEqual(
+            packet.claims.find(claim => claim.id === completeRelevance.id).evidenceRefs,
+            ['E1', 'E2', 'E3'],
+          );
+          return controlCompletion(verifierResponse(packet.claims.map(claim =>
+            semanticVerdict(claim.id, 'supported', claim.evidenceRefs))));
+        },
+      },
+    ];
+
+    const { client, result } = await runTrustScript(steps, {
+      task,
+      taskMode: 'locate',
+      async setup(root) {
+        await fs.mkdir(path.join(root, 'src', 'explorer'), { recursive: true });
+        await fs.mkdir(path.join(root, 'src', 'mcp'), { recursive: true });
+        await fs.writeFile(path.join(root, 'src', 'explorer', 'parent-payload.mjs'),
+          'export function formatPayload(value) { return value; }\n');
+        await fs.writeFile(path.join(root, 'src', 'explorer', 'schemas.mjs'),
+          'export function normalizePayload(value) { return value; }\n');
+        await fs.writeFile(path.join(root, 'src', 'mcp', 'server.mjs'),
+          'export function handle() { return buildPayload(); }\n');
+      },
+    });
+
+    assert.equal(client.stageCounts.get('claim_synthesis'), 2);
+    assert.equal(result.failure, null, JSON.stringify(result.failure));
+    assert.equal(result.parentHandoff.state, 'complete');
+    assert.match(result.parentHandoff.directAnswer, /schemas\.mjs/u);
+    assert.deepEqual(result.semanticVerification.claims.map(claim => claim.id), [
+      locations.id,
+      completeRelevance.id,
+    ]);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T071 — collect_evidence fan-out gets one bounded aggregate-claim correction',
+  async () => {
+    const task = 'Verify the premise that the user route does not call requireAuth.';
+    const proposedGoal = trustGoal(task, {
+      id: 'S-collect-aggregate-verdict',
+      question: task,
+      originText: task,
+      claimType: 'claim_verification',
+      proofCondition: 'Read the current route and support or refute the full premise directly.',
+    });
+    const goal = {
+      ...proposedGoal,
+      originRefs: [...proposedGoal.originRefs, 'wrapper:collect_evidence:verdict'],
+    };
+    const fragments = [
+      candidateClaim(
+        'C-collect-route-fragment', goal.id, 'src/routes/user.js has a user route.', ['E1']),
+      candidateClaim(
+        'C-collect-auth-fragment', goal.id, 'The route calls requireAuth.', ['E1']),
+      candidateClaim(
+        'C-collect-premise-fragment', goal.id, 'The requested premise is false.', ['E1']),
+    ];
+    const aggregate = candidateClaim(
+      'C-collect-aggregate',
+      goal.id,
+      'The claim is refuted: src/routes/user.js calls requireAuth.',
+      ['E1'],
+    );
+    const verdict = semanticVerdict(aggregate.id, 'supported', ['E1']);
+    verdict.resolution = 'refuted';
+    const steps = [
+      { stage: 'planner:1', value: plannerControl([goal]) },
+      { stage: 'goal_audit:1', value: auditorControl([auditControlRecord(goal)]) },
+      {
+        stage: 'exploration:1',
+        run: () => toolControlCompletion(
+          'repo_read_file',
+          { path: 'src/routes/user.js', startLine: 1, endLine: 7 },
+          'read-collect-counterexample',
+        ),
+      },
+      { stage: 'exploration:2', content: 'The bounded evidence pass is complete.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+      { stage: 'claim_synthesis:1', value: { claims: fragments } },
+      {
+        stage: 'claim_synthesis:2',
+        run(request) {
+          const retryText = JSON.stringify(request.messages);
+          assert.match(retryText, /wrapper:collect_evidence:verdict/u);
+          assert.match(retryText, /zero or one aggregate verdict claim/u);
+          return controlCompletion({ claims: [aggregate] });
+        },
+      },
+      {
+        stage: 'semantic_verifier:1',
+        value: verifierResponse([verdict]),
+      },
+      {
+        stage: 'semantic_verifier:2',
+        value: verifierResponse([verdict]),
+      },
+    ];
+
+    const { client, result } = await runTrustScript(steps, {
+      task,
+      taskMode: 'evidence_verification',
+    });
+
+    assert.equal(client.stageCounts.get('claim_synthesis'), 2);
+    assert.equal(client.stageCounts.get('semantic_verifier'), 2);
+    assert.equal(result.failure, null, JSON.stringify(result.failure));
+    assert.equal(result.parentHandoff.state, 'complete');
+    assert.equal(result.parentHandoff.directAnswer, aggregate.text);
+    assert.deepEqual(result.semanticVerification.claims.map(claim => claim.id), [aggregate.id]);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T071 — a direct source counterexample completes after focused verifier agreement',
+  async () => {
+    const task = 'Verify the premise that the user route does not call requireAuth.';
+    const proposedGoal = trustGoal(task, {
+      id: 'S-direct-source-refutation',
+      question: task,
+      originText: task,
+      claimType: 'claim_verification',
+      proofCondition: 'Read the current route and support or refute the premise directly.',
+    });
+    const goal = {
+      ...proposedGoal,
+      originRefs: [...proposedGoal.originRefs, 'wrapper:collect_evidence:verdict'],
+    };
+    const claim = candidateClaim(
+      'C-direct-source-refutation',
+      goal.id,
+      'src/routes/user.js calls requireAuth.',
+      ['E1'],
+    );
+    const verdict = semanticVerdict(claim.id, 'supported', ['E1']);
+    verdict.resolution = 'refuted';
+    const focusedVerdict = semanticVerdict(claim.id, 'supported', ['E1']);
+    focusedVerdict.resolution = 'refuted';
+    let focusedPacket = null;
+    const { client, result } = await runTrustScript(buildTrustSteps({
+      goals: [goal],
+      initial: {
+        assertRequest(request) {
+          const ledger = JSON.stringify(request.messages);
+          assert.match(ledger,
+            /direct source\/git counterexample may instead refute the claim without that search/u);
+        },
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/routes/user.js', startLine: 1, endLine: 7 },
+          id: 'read-direct-route-counterexample',
+        }],
+        claims: [claim],
+        verifierSteps: [
+          { verdicts: [verdict] },
+          {
+            verdicts: [focusedVerdict],
+            assertRequest(request) {
+              focusedPacket = parseControlPacket(request);
+              assert.match(JSON.stringify(request.messages),
+                /FOCUSED COLLECT DIRECT-REFUTATION CORROBORATION/u);
+            },
+          },
+        ],
+      },
+    }), { task, taskMode: 'evidence_verification' });
+
+    assert.equal(result.failure, null, JSON.stringify(result.failure));
+    assert.equal(client.stageCounts.get('semantic_verifier'), 2);
+    assert.deepEqual(focusedPacket?.observations.map(observation => observation.id), ['E1']);
+    assert.deepEqual(providerToolActions(client).map(action => action.tool), [
+      'repo_read_file',
+    ]);
+    assert.equal(result.parentHandoff.state, 'complete');
+    assert.equal(result.parentHandoff.directAnswer,
+      `The claim is refuted: ${claim.text}`);
+    assert.equal(result.parentHandoff.evidence[0].supports,
+      `The claim is refuted: ${claim.text}`);
+    assert.deepEqual(result.parentHandoff.evidence.map(item => item.kind), ['source']);
+    assert.equal(result.parentHandoff.evidence[0].path, 'src/routes/user.js');
+    assert.doesNotMatch(JSON.stringify(result.parentHandoff), /corroborat|proofPolicy/u);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T071 — helper-only direct evidence cannot refute a runtime linkage premise',
+  async () => {
+    const task = 'Verify the premise that runDeterministicCriticPass skips evidence grounding and never calls groundEvidenceList.';
+    const proposedGoal = trustGoal(task, {
+      id: 'S-helper-only-refutation',
+      question: task,
+      originText: task,
+      claimType: 'claim_verification',
+      proofCondition: 'Read the critic implementation and support or refute the whole runtime linkage premise.',
+    });
+    const goal = {
+      ...proposedGoal,
+      originRefs: [...proposedGoal.originRefs, 'wrapper:collect_evidence:verdict'],
+    };
+    const claim = candidateClaim(
+      'C-helper-only-refutation',
+      goal.id,
+      'runDeterministicCriticPass grounds evidence through groundEvidenceList.',
+      ['E1'],
+    );
+    const primaryVerdict = semanticVerdict(claim.id, 'supported', ['E1']);
+    primaryVerdict.resolution = 'refuted';
+    const focusedVerdict = {
+      ...semanticVerdict(claim.id, 'insufficient', ['E1']),
+      reasonCode: 'missing_transition',
+      note: 'The helper definition does not establish an invocation from runDeterministicCriticPass.',
+    };
+    let focusedPacket = null;
+    const { client, result } = await runTrustScript(buildTrustSteps({
+      goals: [goal],
+      initial: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/critic.js', startLine: 1, endLine: 5 },
+          id: 'read-helper-only-grounding',
+        }],
+        claims: [claim],
+        verifierSteps: [
+          { verdicts: [primaryVerdict] },
+          {
+            verdicts: [focusedVerdict],
+            assertRequest(request) {
+              focusedPacket = parseControlPacket(request);
+            },
+          },
+        ],
+      },
+      repair: {
+        tools: [],
+        prose: 'No exact invocation source was supplied.',
+        claims: [],
+        verdicts: [],
+      },
+    }), {
+      task,
+      taskMode: 'evidence_verification',
+      async setup(root) {
+        await fs.writeFile(path.join(root, 'src', 'critic.js'), [
+          'export function groundEvidenceList(items) {',
+          '  return items.filter(item => item.observed === true);',
+          '}',
+          '',
+        ].join('\n'));
+      },
+    });
+
+    assert.equal(result.failure, null, JSON.stringify(result.failure));
+    assert.equal(client.stageCounts.get('semantic_verifier'), 2);
+    assert.deepEqual(focusedPacket?.observations.map(observation => observation.id), ['E1']);
+    assert.equal(result.parentHandoff.state, 'incomplete');
+    assert.equal(result.parentHandoff.directAnswer, undefined);
+    assert.equal(result.parentHandoff.evidence, undefined);
+    assertMinimalIncompleteParentHandoff(result, goal.question);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — multi-path comparison requires focused verifier agreement',
+  async () => {
+    const task = 'Compare administrator and developer access across frontend and backend routes.';
+    const frontendGoal = trustGoal(task, {
+      id: 'S-focused-frontend',
+      question: 'How does the frontend administrator guard work?',
+      originText: task,
+      claimType: 'positive',
+      proofCondition: 'Observe the frontend administrator predicate.',
+    });
+    const backendGoal = trustGoal(task, {
+      id: 'S-focused-backend',
+      question: 'Which distinct backend administrator checks exist?',
+      originText: task,
+      claimType: 'comparison',
+      proofCondition: 'Compare each distinct backend administrator predicate.',
+    });
+    const developerGoal = trustGoal(task, {
+      id: 'S-focused-developer',
+      question: 'Which backend routes provide developer-specific access?',
+      originText: task,
+      claimType: 'comparison',
+      proofCondition: 'Compare the two developer-specific backend mappings.',
+    });
+    frontendGoal.originRefs = [
+      requestOrigin(task, 'administrator'),
+      requestOrigin(task, 'frontend'),
+    ];
+    backendGoal.originRefs = [
+      requestOrigin(task, 'administrator'),
+      requestOrigin(task, 'backend routes'),
+    ];
+    developerGoal.originRefs = [
+      requestOrigin(task, 'developer'),
+      requestOrigin(task, 'backend routes'),
+    ];
+    const frontendClaim = candidateClaim(
+      'C-focused-frontend', frontendGoal.id,
+      'The frontend guard checks ADMIN_USERS membership.', ['E1']);
+    const wrongBackendClaim = candidateClaim(
+      'C-focused-backend', backendGoal.id,
+      'Backend routes use ADMIN_USERS membership and an admin_user_info row-existence check.',
+      ['E2', 'E3']);
+    const repairedBackendClaim = candidateClaim(
+      wrongBackendClaim.id, backendGoal.id,
+      'The admin helper uses ADMIN_USERS; feedback checks admin_user_info row existence; inquiry requires the is_admin boolean flag to be true; the secondary admin route also uses ADMIN_USERS.',
+      ['E2', 'E3', 'E4', 'E7']);
+    const annotatedRepairedBackendClaim = {
+      ...repairedBackendClaim,
+      text: `${repairedBackendClaim.text} (E2, E3, E4, E7)`,
+    };
+    const developerClaim = candidateClaim(
+      'C-focused-developer', developerGoal.id,
+      'The case and draft routes both map the development department to dyhan7301.',
+      ['E5', 'E6']);
+    const sourceTools = [
+      { tool: 'repo_read_file', args: { path: 'src/frontend.js' }, id: 'focused-front' },
+      { tool: 'repo_read_file', args: { path: 'src/backend-list.js' }, id: 'focused-list' },
+      { tool: 'repo_read_file', args: { path: 'src/backend-existence.js' }, id: 'focused-existence' },
+      { tool: 'repo_read_file', args: { path: 'src/backend-flag.js' }, id: 'focused-flag' },
+      { tool: 'repo_read_file', args: { path: 'src/cases.js' }, id: 'focused-cases' },
+      { tool: 'repo_read_file', args: { path: 'src/draft.js' }, id: 'focused-draft' },
+      { tool: 'repo_read_file', args: { path: 'src/backend-list-secondary.js' }, id: 'focused-list-secondary' },
+      { tool: 'repo_read_file', args: { path: 'src/unrelated-login.js' }, id: 'focused-unrelated-login' },
+    ];
+    const setup = async root => {
+      const files = new Map([
+        ['frontend.js', 'export const frontendAdmin = id => ADMIN_USERS.includes(id);\n'],
+        ['backend-list.js', 'export const listAdmin = id => ADMIN_USERS.includes(id);\n'],
+        ['backend-existence.js', 'export const rowAdmin = adminUser => Boolean(adminUser);\n'],
+        ['backend-flag.js', 'export const flagAdmin = user => user?.is_admin === true;\n'],
+        ['cases.js', "export const caseUser = department => department === 'development' ? 'dyhan7301' : null;\n"],
+        ['draft.js', "export const draftUser = department => department === 'development' ? 'dyhan7301' : null;\n"],
+        ['backend-list-secondary.js', 'export const secondaryAdmin = id => ADMIN_USERS.includes(id);\n'],
+        ['unrelated-login.js', 'export const loginHistory = user => getAuthenticatedUser(user);\n'],
+      ]);
+      for (const [name, content] of files) {
+        await fs.writeFile(path.join(root, 'src', name), content);
+      }
+    };
+    const primaryVerdicts = [
+      semanticVerdict(frontendClaim.id, 'supported', ['E1']),
+      semanticVerdict(wrongBackendClaim.id, 'supported', ['E2', 'E3']),
+      semanticVerdict(developerClaim.id, 'supported', ['E5', 'E6']),
+    ];
+    let focusedPacket = null;
+    const steps = buildTrustSteps({
+      goals: [frontendGoal, backendGoal, developerGoal],
+      initial: {
+        tools: sourceTools,
+        claims: [frontendClaim, wrongBackendClaim, developerClaim],
+        verifierSteps: [{ verdicts: primaryVerdicts }, {
+          verdicts: [{
+            ...semanticVerdict(wrongBackendClaim.id, 'insufficient', ['E2', 'E3']),
+            reasonCode: 'missing_category',
+            note: 'The uncited is_admin source is another in-boundary administrator variant.',
+          }],
+          assertRequest(request) {
+            focusedPacket = {
+              control: parseControlPacket(request),
+              system: request.messages[0].content,
+            };
+            assert.equal(request.temperature, 0);
+            assert.equal(request.topP, 1);
+          },
+        }, {
+          verdicts: [semanticVerdict(
+            repairedBackendClaim.id, 'supported', repairedBackendClaim.evidenceRefs)],
+          assertRequest(request) {
+            const packet = parseControlPacket(request);
+            assert.deepEqual(packet.observations.map(observation => observation.id),
+              repairedBackendClaim.evidenceRefs);
+            assert.equal(packet.claims[0].text, repairedBackendClaim.text,
+              'citation-only observation ids are removed before semantic verification');
+            assert.equal(request.temperature, 0);
+            assert.equal(request.topP, 1);
+          },
+        }, {
+          verdicts: [semanticVerdict(
+            repairedBackendClaim.id, 'supported', repairedBackendClaim.evidenceRefs)],
+          assertRequest(request) {
+            assert.match(JSON.stringify(request.messages),
+              /FOCUSED MULTI-PATH COMPARISON CORROBORATION/u);
+          },
+        }, {
+          verdicts: [semanticVerdict(developerClaim.id, 'supported', ['E5', 'E6'])],
+        }],
+      },
+    });
+    const firstFocusedIndex = steps.findIndex(step => step.stage === 'semantic_verifier:2');
+    assert.notEqual(firstFocusedIndex, -1);
+    steps.splice(firstFocusedIndex + 1, 0, {
+      stage: 'claim_synthesis:*',
+      repeatStage: 'claim_synthesis',
+      run(request) {
+        assert.equal(request.temperature, 0);
+        assert.equal(request.topP, 1);
+        assert.match(JSON.stringify(request.messages),
+          /single runtime-selected same-evidence correction/u);
+        assert.match(JSON.stringify(request.messages),
+          /Never use runtime observation identifiers such as E1 as prose citations/u);
+        assert.deepEqual(parseControlPacket(request).control.requiredSubgoals.map(goal => goal.id),
+          [backendGoal.id]);
+        return controlCompletion({ claims: [annotatedRepairedBackendClaim] });
+      },
+    });
+    const incompleteComparisonHints = {
+      files: [
+        'src/frontend.js',
+        'src/backend-list.js',
+        'src/backend-existence.js',
+        'src/backend-flag.js',
+        'src/cases.js',
+        'src/draft.js',
+        'src/backend-list-secondary.js',
+      ],
+    };
+    const comparisonLogDir = await fs.mkdtemp(path.join(
+      os.tmpdir(),
+      'cerebras-comparison-correction-',
+    ));
+    let mainRun;
+    await withEnv({
+      CEREBRAS_EXPLORER_LOG_PATH: comparisonLogDir,
+      CEREBRAS_EXPLORER_LOG_RAW: 'true',
+    }, async () => {
+      mainRun = await runTrustScript(steps, {
+        task,
+        setup,
+        hints: incompleteComparisonHints,
+      });
+    });
+    const { client, result } = mainRun;
+
+    assert.equal(result.failure, null, JSON.stringify(result.failure));
+    assert.equal(client.stageCounts.get('claim_synthesis'), 3);
+    assert.equal(client.stageCounts.get('semantic_verifier'), 5);
+    assert.deepEqual(focusedPacket.control.claims.map(claim => claim.id),
+      [wrongBackendClaim.id]);
+    assert.deepEqual(focusedPacket.control.control.requiredSubgoals.map(goal => goal.id),
+      [backendGoal.id]);
+    assert.equal(focusedPacket.control.control.auditedRequestText,
+      'administrator backend routes');
+    assert.deepEqual(focusedPacket.control.observations.map(item => item.id),
+      ['E1', 'E2', 'E3', 'E4', 'E5', 'E6', 'E7', 'E8']);
+    assert.equal(focusedPacket.control.observations.some(item => item.id === 'E8'), true,
+      'an incomplete parent hint cannot hide an exact current omission candidate');
+    assert.equal(focusedPacket.control.claims[0].evidenceRefs.includes('E4'), false,
+      'the omitted policy source remains outside the claim evidence subset');
+    assert.match(focusedPacket.system, /FOCUSED MULTI-PATH COMPARISON CORROBORATION/u);
+    assert.match(focusedPacket.system, /Do not require every observation/u);
+    assert.match(focusedPacket.system,
+      /uncited current-source observations as omission candidates/u);
+    assert.match(focusedPacket.system,
+      /query or read proves retrieval only[\s\S]{0,220}controlling the allow\/deny decision/u);
+    assert.equal(result.taskContract.subgoals.find(goal => goal.id === frontendGoal.id)?.state,
+      'supported');
+    assert.equal(result.taskContract.subgoals.find(goal => goal.id === backendGoal.id)?.state,
+      'supported');
+    assert.equal(result.taskContract.subgoals.find(goal => goal.id === developerGoal.id)?.state,
+      'supported');
+    assert.equal(result.semanticVerification.claims.find(claim =>
+      claim.id === wrongBackendClaim.id)?.verdict, 'supported');
+    assert.equal(result.semanticVerification.claims.find(claim =>
+      claim.id === wrongBackendClaim.id)?.text, repairedBackendClaim.text);
+    assert.equal(result.parentHandoff.state, 'complete');
+    assert.match(result.parentHandoff.directAnswer, /frontend guard checks ADMIN_USERS/u);
+    assert.match(result.parentHandoff.directAnswer, /case and draft routes/u);
+    assert.match(result.parentHandoff.directAnswer, /inquiry requires the is_admin boolean/u);
+    assert.doesNotMatch(result.parentHandoff.directAnswer,
+      /Backend routes use ADMIN_USERS membership and an admin_user_info row-existence check/u);
+    assert.doesNotMatch(result.parentHandoff.directAnswer, /\bE(?:2|3|4|7)\b/u);
+    assert.equal(result.parentHandoff.evidence.every(item =>
+      !/\bE(?:2|3|4|7)\b/u.test(item.supports)), true);
+    assert.doesNotMatch(result.directAnswer ?? '', /\bE(?:2|3|4|7)\b/u);
+    assert.equal(result.targets.every(target =>
+      !/\bE(?:2|3|4|7)\b/u.test(target.reason)), true);
+    assert.equal(result.parentHandoff.gaps, undefined);
+    const comparisonTranscript = await readJsonl(result.transcriptPath);
+    const backendClaimEvents = comparisonTranscript
+      .filter(entry => entry.type === 'claim')
+      .flatMap(entry => entry.claims)
+      .filter(entry => entry.claimId === wrongBackendClaim.id);
+    assert.deepEqual(backendClaimEvents.map(entry => entry.evidenceRefs), [
+      wrongBackendClaim.evidenceRefs,
+      repairedBackendClaim.evidenceRefs,
+    ], 'the transcript records the transactional replacement before its final verdict');
+
+    const partiallySupportedBackendClaim = {
+      ...wrongBackendClaim,
+      evidenceRefs: ['E2', 'E3', 'E7'],
+    };
+    const primaryPartialSteps = buildTrustSteps({
+      goals: [frontendGoal, backendGoal, developerGoal],
+      initial: {
+        tools: sourceTools,
+        claims: [frontendClaim, partiallySupportedBackendClaim, developerClaim],
+        verifierSteps: [{
+          verdicts: [
+            semanticVerdict(frontendClaim.id, 'supported', ['E1']),
+            semanticVerdict(partiallySupportedBackendClaim.id, 'supported', ['E2', 'E3']),
+            semanticVerdict(developerClaim.id, 'supported', ['E5', 'E6']),
+          ],
+        }, {
+          verdicts: [semanticVerdict(developerClaim.id, 'supported', ['E5', 'E6'])],
+        }],
+      },
+      repair: {
+        tools: [],
+        prose: 'No materially new repository action is available.',
+        claims: [],
+        verdicts: [],
+      },
+    });
+    const partialPrimaryIndex = primaryPartialSteps.findIndex(step =>
+      step.stage === 'semantic_verifier:1');
+    assert.notEqual(partialPrimaryIndex, -1);
+    primaryPartialSteps.splice(partialPrimaryIndex + 1, 0, {
+      stage: 'claim_synthesis:*',
+      repeatStage: 'claim_synthesis',
+      run(request) {
+        assert.equal(request.temperature, 0);
+        assert.equal(request.topP, 1);
+        assert.match(JSON.stringify(request.messages),
+          /single runtime-selected same-evidence correction/u);
+        return controlCompletion({ claims: [{
+          ...partiallySupportedBackendClaim,
+          text: 'E8 shows the list check while the row source shows existence.',
+        }] });
+      },
+    });
+    const primaryPartial = await runTrustScript(primaryPartialSteps, { task, setup });
+    assert.equal(primaryPartial.client.stageCounts.get('claim_synthesis'), 3,
+      'one invalid optional correction is not retried');
+    assert.equal(primaryPartial.client.stageCounts.get('semantic_verifier'), 2,
+      'a partial primary verdict fails closed before its focused corroboration');
+    assert.equal(primaryPartial.result.taskContract.subgoals.find(goal =>
+      goal.id === backendGoal.id)?.state, 'gap');
+    assert.doesNotMatch(primaryPartial.result.parentHandoff.directAnswer ?? '', /\bE8\b/u);
+
+    const optionalFocusedFailureSteps = buildTrustSteps({
+      goals: [frontendGoal, backendGoal, developerGoal],
+      initial: {
+        tools: sourceTools,
+        claims: [frontendClaim, wrongBackendClaim, developerClaim],
+        verifierSteps: [{ verdicts: primaryVerdicts }, {
+          verdicts: [{
+            ...semanticVerdict(wrongBackendClaim.id, 'insufficient', ['E2', 'E3']),
+            reasonCode: 'missing_category',
+            note: 'The uncited is_admin source is another in-boundary administrator variant.',
+          }],
+        }, {
+          verdicts: [semanticVerdict(
+            repairedBackendClaim.id,
+            'supported',
+            repairedBackendClaim.evidenceRefs,
+          )],
+        }, {
+          raw: '{"verdicts":[],"uncoveredRequestParts":[]}',
+          assertRequest(request) {
+            assert.match(JSON.stringify(request.messages),
+              /FOCUSED MULTI-PATH COMPARISON CORROBORATION/u);
+          },
+        }, {
+          verdicts: [semanticVerdict(developerClaim.id, 'supported', ['E5', 'E6'])],
+        }],
+      },
+      repair: {
+        tools: [],
+        prose: 'No materially new repository action is available.',
+        claims: [],
+        verdicts: [],
+      },
+    });
+    const optionalFocusedIndex = optionalFocusedFailureSteps.findIndex(step =>
+      step.stage === 'semantic_verifier:2');
+    assert.notEqual(optionalFocusedIndex, -1);
+    optionalFocusedFailureSteps.splice(optionalFocusedIndex + 1, 0, {
+      stage: 'claim_synthesis:*',
+      repeatStage: 'claim_synthesis',
+      run() {
+        return controlCompletion({ claims: [repairedBackendClaim] });
+      },
+    });
+    const optionalFocusedFailure = await runTrustScript(optionalFocusedFailureSteps, {
+      task,
+      setup,
+      hints: incompleteComparisonHints,
+    });
+    assert.equal(optionalFocusedFailure.result.failure, null,
+      JSON.stringify({
+        failure: optionalFocusedFailure.result.failure,
+        stages: optionalFocusedFailure.client.stageLabels,
+        counts: [...optionalFocusedFailure.client.stageCounts],
+        verifierClaims: optionalFocusedFailure.client.requests
+          .filter(request => classifyControlRequest(request) === 'semantic_verifier')
+          .map(request => parseControlPacket(request).claims.map(claim => claim.id)),
+      }));
+    assert.equal(optionalFocusedFailure.client.stageCounts.get('semantic_verifier'), 5,
+      'the invalid optional final corroboration is not retried');
+    assert.equal(optionalFocusedFailure.result.taskContract.subgoals.find(goal =>
+      goal.id === backendGoal.id)?.state, 'gap');
+    assert.equal(optionalFocusedFailure.result.parentHandoff.state, 'incomplete');
+    assert.doesNotMatch(optionalFocusedFailure.result.parentHandoff.directAnswer ?? '',
+      /inquiry requires the is_admin boolean/u);
+
+    const correctBackendClaim = candidateClaim(
+      'C-focused-backend-correct', backendGoal.id,
+      'The admin helper uses ADMIN_USERS; feedback checks admin_user_info row existence; inquiry requires the is_admin boolean flag to be true; the secondary admin route also uses ADMIN_USERS.',
+      ['E2', 'E3', 'E4', 'E7']);
+    const positiveSteps = buildTrustSteps({
+      goals: [frontendGoal, backendGoal, developerGoal],
+      initial: {
+        tools: sourceTools,
+        claims: [frontendClaim, correctBackendClaim, developerClaim],
+        verifierSteps: [{
+          verdicts: [
+            semanticVerdict(frontendClaim.id, 'supported', ['E1']),
+            semanticVerdict(correctBackendClaim.id, 'supported', ['E2', 'E3', 'E4', 'E7']),
+            semanticVerdict(developerClaim.id, 'supported', ['E5', 'E6']),
+          ],
+        }, {
+          verdicts: [semanticVerdict(
+            correctBackendClaim.id, 'supported', ['E2', 'E3', 'E4', 'E7'])],
+        }, {
+          verdicts: [semanticVerdict(developerClaim.id, 'supported', ['E5', 'E6'])],
+        }],
+      },
+    });
+    const positive = await runTrustScript(positiveSteps, { task, setup });
+    assert.equal(positive.client.stageCounts.get('semantic_verifier'), 3);
+    assert.equal(positive.result.taskContract.subgoals.find(goal =>
+      goal.id === backendGoal.id)?.state, 'supported');
+    assert.equal(positive.result.semanticVerification.claims.find(claim =>
+      claim.id === correctBackendClaim.id)?.verdict, 'supported');
+    assertMinimalCompleteParentHandoff(positive.result, {
+      answer: [frontendClaim.text, correctBackendClaim.text, developerClaim.text].join('\n'),
+      evidenceCount: 7,
+      evidenceKinds: ['source', 'source', 'source', 'source', 'source', 'source', 'source'],
+    });
+
+    const primaryFalseNegativeClaim = {
+      ...correctBackendClaim,
+      id: 'C-focused-backend-primary-false-negative',
+    };
+    const primaryFalseNegative = {
+      ...semanticVerdict(
+        primaryFalseNegativeClaim.id,
+        'insufficient',
+        primaryFalseNegativeClaim.evidenceRefs,
+      ),
+      reasonCode: 'semantic_mismatch',
+      note: 'A sibling developer mechanism was incorrectly treated as part of this admin sub-goal.',
+    };
+    const primaryRecoverySteps = buildTrustSteps({
+      goals: [frontendGoal, backendGoal, developerGoal],
+      initial: {
+        tools: sourceTools,
+        claims: [frontendClaim, primaryFalseNegativeClaim, developerClaim],
+        verifierSteps: [{
+          verdicts: [
+            semanticVerdict(frontendClaim.id, 'supported', ['E1']),
+            primaryFalseNegative,
+            semanticVerdict(developerClaim.id, 'supported', ['E5', 'E6']),
+          ],
+        }, {
+          verdicts: [semanticVerdict(
+            primaryFalseNegativeClaim.id,
+            'supported',
+            primaryFalseNegativeClaim.evidenceRefs,
+          )],
+          assertRequest(request) {
+            assert.deepEqual(parseControlPacket(request).observations.map(item => item.id),
+              primaryFalseNegativeClaim.evidenceRefs);
+          },
+        }, {
+          verdicts: [semanticVerdict(
+            primaryFalseNegativeClaim.id,
+            'supported',
+            primaryFalseNegativeClaim.evidenceRefs,
+          )],
+        }, {
+          verdicts: [semanticVerdict(developerClaim.id, 'supported', ['E5', 'E6'])],
+        }],
+      },
+    });
+    const primaryFalseNegativeIndex = primaryRecoverySteps.findIndex(step =>
+      step.stage === 'semantic_verifier:1');
+    assert.notEqual(primaryFalseNegativeIndex, -1);
+    primaryRecoverySteps.splice(primaryFalseNegativeIndex + 1, 0, {
+      stage: 'claim_synthesis:*',
+      repeatStage: 'claim_synthesis',
+      run(request) {
+        assert.equal(request.temperature, 0);
+        assert.equal(request.topP, 1);
+        assert.match(JSON.stringify(request.messages),
+          /Do not import a sibling obligation/u);
+        return controlCompletion({ claims: [primaryFalseNegativeClaim] });
+      },
+    });
+    const recoveredPrimary = await runTrustScript(primaryRecoverySteps, {
+      task,
+      setup,
+      hints: incompleteComparisonHints,
+    });
+    assert.equal(recoveredPrimary.result.failure, null);
+    assert.equal(recoveredPrimary.client.stageCounts.get('claim_synthesis'), 3);
+    assert.equal(recoveredPrimary.client.stageCounts.get('semantic_verifier'), 4);
+    assert.equal(recoveredPrimary.result.taskContract.subgoals.find(goal =>
+      goal.id === backendGoal.id)?.state, 'supported');
+    assert.equal(recoveredPrimary.result.parentHandoff.state, 'complete');
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — observation-id cleanup preserves an actually observed code token',
+  async () => {
+    const task = 'Explain the E1 enum member.';
+    const goal = trustGoal(task, {
+      id: 'S-code-token-e1',
+      question: task,
+      originText: task,
+    });
+    const claim = candidateClaim(
+      'C-code-token-e1',
+      goal.id,
+      'The active enum member is (E1).',
+      ['E1'],
+    );
+    const { result } = await runTrustScript(buildTrustSteps({
+      goals: [goal],
+      initial: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/mode.js', startLine: 1, endLine: 1 },
+          id: 'read-code-token-e1',
+        }],
+        claims: [claim],
+        verdicts: [semanticVerdict(claim.id, 'supported', ['E1'])],
+      },
+    }), {
+      task,
+      async setup(root) {
+        await fs.writeFile(path.join(root, 'src', 'mode.js'),
+          "export const E1 = 'enabled';\n");
+      },
+    });
+
+    assert.equal(result.failure, null, JSON.stringify(result.failure));
+    assert.equal(result.parentHandoff.state, 'complete');
+    assert.equal(result.parentHandoff.directAnswer, claim.text);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — an exhaustive sibling request cannot contaminate a comparison goal',
+  async () => {
+    const task = 'Confirm every frontend page named by the fixed anchor, and compare the two API prefix policies.';
+    const frontendGoal = trustGoal(task, {
+      id: 'S-sibling-exhaustive-ui',
+      question: 'Which frontend pages are named by the fixed anchor?',
+      originText: 'Confirm every frontend page named by the fixed anchor',
+      proofCondition: 'Read the fixed frontend-page anchor.',
+    });
+    const comparisonGoal = trustGoal(task, {
+      id: 'S-sibling-api-comparison',
+      question: 'How do the two API prefix policies differ?',
+      originText: 'compare the two API prefix policies',
+      claimType: 'comparison',
+      proofCondition: 'Compare the two explicitly requested API prefix policies.',
+    });
+    const frontendClaim = candidateClaim(
+      'C-sibling-exhaustive-ui',
+      frontendGoal.id,
+      'The fixed anchor names the inquiry frontend page.',
+      ['E1'],
+    );
+    const comparisonClaim = candidateClaim(
+      'C-sibling-api-comparison',
+      comparisonGoal.id,
+      'The internal prefix requires an admin flag while the public prefix does not.',
+      ['E2', 'E3'],
+    );
+    const { result } = await runTrustScript(buildTrustSteps({
+      goals: [frontendGoal, comparisonGoal],
+      initial: {
+        tools: [
+          {
+            tool: 'repo_read_file',
+            args: { path: 'src/frontend-pages.js', startLine: 1, endLine: 1 },
+            id: 'read-sibling-ui-anchor',
+          },
+          {
+            tool: 'repo_read_file',
+            args: { path: 'src/internal-policy.js', startLine: 1, endLine: 1 },
+            id: 'read-sibling-internal-policy',
+          },
+          {
+            tool: 'repo_read_file',
+            args: { path: 'src/public-policy.js', startLine: 1, endLine: 1 },
+            id: 'read-sibling-public-policy',
+          },
+        ],
+        claims: [frontendClaim, comparisonClaim],
+        verifierSteps: [{
+          verdicts: [
+            semanticVerdict(frontendClaim.id, 'supported', ['E1']),
+            semanticVerdict(comparisonClaim.id, 'supported', ['E2', 'E3']),
+          ],
+        }, {
+          verdicts: [semanticVerdict(comparisonClaim.id, 'supported', ['E2', 'E3'])],
+        }],
+      },
+    }), {
+      task,
+      async setup(root) {
+        await fs.writeFile(
+          path.join(root, 'src', 'frontend-pages.js'),
+          "export const pages = ['inquiry'];\n",
+        );
+        await fs.writeFile(
+          path.join(root, 'src', 'internal-policy.js'),
+          'export const internalPolicy = user => user?.is_admin === true;\n',
+        );
+        await fs.writeFile(
+          path.join(root, 'src', 'public-policy.js'),
+          'export const publicPolicy = () => true;\n',
+        );
+      },
+    });
+
+    assert.equal(result.failure, null);
+    assert.equal(result.taskContract.subgoals.find(goal =>
+      goal.id === comparisonGoal.id)?.state, 'supported');
+    assert.equal(result.parentHandoff.state, 'complete');
+    assert.match(result.parentHandoff.directAnswer, /internal prefix requires an admin flag/u);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — an unrelated claim cannot borrow a sibling absence certificate',
+  async () => {
+    const task = 'Inventory every route guard and determine whether any additional guarded route exists.';
+    const inventoryGoal = trustGoal(task, {
+      id: 'S-claim-bound-inventory',
+      question: 'Which route guards are in the exhaustive inventory?',
+      originText: 'Inventory every route guard',
+      claimType: 'comparison',
+      proofCondition: 'Enumerate and compare every route guard.',
+      constraints: ['A separate absence claim is not inventory evidence unless this claim cites it.'],
+    });
+    const absenceGoal = trustGoal(task, {
+      id: 'S-claim-bound-absence',
+      question: 'Does any additional guarded route exist?',
+      originText: 'whether any additional guarded route exists',
+      claimType: 'absence',
+      proofCondition: 'Completely search the fixed scope for another guarded route.',
+      constraints: ['Keep the absence qualified to src/**.'],
+    });
+    const inventoryClaim = candidateClaim(
+      'C-claim-bound-inventory',
+      inventoryGoal.id,
+      'The exhaustive inventory contains the user and admin guards.',
+      ['E1', 'E2'],
+    );
+    const absenceClaim = candidateClaim(
+      'C-claim-bound-absence',
+      absenceGoal.id,
+      'No additional guarded route exists within src/**.',
+      ['E3'],
+    );
+    const steps = buildTrustSteps({
+      goals: [inventoryGoal, absenceGoal],
+      initial: {
+        tools: [
+          {
+            tool: 'repo_read_file',
+            args: { path: 'src/routes/user.js', startLine: 1, endLine: 6 },
+            id: 'read-claim-bound-user-route',
+          },
+          {
+            tool: 'repo_read_file',
+            args: { path: 'src/routes/admin.js', startLine: 1, endLine: 4 },
+            id: 'read-claim-bound-admin-route',
+          },
+          {
+            tool: 'repo_grep',
+            args: { pattern: 'guardedRouteThatDoesNotExist', scope: ['src/**'] },
+            id: 'search-claim-bound-additional-route',
+          },
+        ],
+        claims: [inventoryClaim, absenceClaim],
+        verifierSteps: [{
+          verdicts: [
+            semanticVerdict(inventoryClaim.id, 'supported', ['E1', 'E2']),
+            semanticVerdict(absenceClaim.id, 'supported', ['E3']),
+          ],
+        }, {
+          verdicts: [semanticVerdict(inventoryClaim.id, 'supported', ['E1', 'E2'])],
+        }],
+      },
+    });
+    const { client, result } = await runTrustScript(steps, {
+      task,
+      async setup(root) {
+        await fs.writeFile(path.join(root, 'src', 'routes', 'admin.js'), [
+          'import { requireAdmin } from "../admin-auth.js";',
+          'export function registerAdminRoutes(app) {',
+          '  app.get("/admin", requireAdmin, (_req, res) => res.end());',
+          '}',
+        ].join('\n'));
+      },
+    });
+
+    assert.equal(result.failure, null);
+    assert.equal(result.taskContract.subgoals.find(goal => goal.id === inventoryGoal.id)?.state,
+      'gap');
+    assert.equal(result.taskContract.subgoals.find(goal => goal.id === absenceGoal.id)?.state,
+      'supported');
+    assert.equal(result.coverageGaps.find(gap => gap.subgoalId === inventoryGoal.id)?.repairable,
+      false);
+    assert.equal(providerToolActions(client).length, 3,
+      'a sibling certificate must not trigger a futile repair or certify an uncited claim');
+    assert.doesNotThrow(() => validateParentHandoffV3(result.parentHandoff));
+    assert.equal(result.parentHandoff.state, 'incomplete');
+    assert.equal(result.parentHandoff.directAnswer, absenceClaim.text);
+    assert.equal(result.parentHandoff.evidence[0].kind, 'absence');
+    assert.equal(result.parentHandoff.gaps[0].question,
+      expectedParentGapQuestion(result, inventoryGoal));
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T062 — current source alone cannot prove a requested recent change',
+  async () => {
+    const task = 'What changed recently around requireAuth?';
+    const goal = trustGoal(task, {
+      id: 'S-recent-require-auth',
+      question: task,
+      originText: task,
+      proofCondition: 'Observe the requested change in repository history.',
+    });
+    const claim = candidateClaim(
+      'C-recent-require-auth',
+      goal.id,
+      'Recent changes around requireAuth are reflected in the current source.',
+      ['E1'],
+    );
+    const repairClaim = {
+      ...claim,
+      evidenceRefs: ['E1', 'E2'],
+    };
+    const { result } = await runTrustScript(buildTrustSteps({
+      goals: [goal],
+      initial: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+          id: 'read-current-auth-for-history',
+        }],
+        claims: [claim],
+        verdicts: [semanticVerdict(claim.id, 'supported', ['E1'])],
+      },
+      repair: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/routes/user.js', startLine: 1, endLine: 7 },
+          id: 'read-current-caller-for-history',
+        }],
+        claims: [repairClaim],
+        verdicts: [semanticVerdict(repairClaim.id, 'supported', ['E1', 'E2'])],
+      },
+    }), { task });
+
+    assertInternalProofGap(result, goal.id);
+    assert.equal(result.semanticVerification.claims.every(item =>
+      item.verdict !== 'supported'), true);
+    assertMinimalIncompleteParentHandoff(result, goal.question);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T062 — a recent-change goal accepts observed git and current source evidence',
+  { skip: !hasGit() },
+  async () => {
+    const task = 'What changed recently around requireAuth?';
+    const goal = trustGoal(task, {
+      id: 'S-recent-require-auth',
+      question: task,
+      originText: task,
+      proofCondition: 'Observe the requested change in repository history and current source.',
+    });
+    const claim = candidateClaim(
+      'C-recent-require-auth',
+      goal.id,
+      'The latest inspected change introduced requireAuth, which remains in current source.',
+      ['E1', 'E2'],
+    );
+    const { result } = await runTrustScript(buildTrustSteps({
+      goals: [goal],
+      initial: {
+        tools: [{
+          tool: 'repo_git_log',
+          args: { path: 'src/auth.js', maxCount: 5 },
+          id: 'recent-auth-log',
+        }, {
+          tool: 'repo_read_file',
+          args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+          id: 'recent-auth-source',
+        }],
+        claims: [claim],
+        verdicts: [semanticVerdict(claim.id, 'supported', ['E1', 'E2'])],
+      },
+    }), {
+      task,
+      async setup(root) {
+        const git = args => execFileSync('git', args, { cwd: root, stdio: 'ignore' });
+        git(['init']);
+        git(['config', 'user.email', 'explorer@example.invalid']);
+        git(['config', 'user.name', 'Explorer Test']);
+        git(['add', '.']);
+        git(['commit', '-m', 'introduce requireAuth']);
+      },
+    });
+
+    assert.equal(result.failure, null);
+    assert.equal(result.taskContract.subgoals[0].state, 'supported');
+    assert.equal(result.parentHandoff.state, 'complete');
+    assert.equal(result.parentHandoff.directAnswer, claim.text);
+    assert.equal(result.parentHandoff.evidence.some(item => item.kind === 'git'), true);
+    assert.equal(result.observations.some(item => item.kind === 'source'), true);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T071 — generic exact-commit requests activate the bounded turn policy',
+  { skip: !hasGit() },
+  async () => {
+    const root = await makeRepoFixture();
+    try {
+      const git = args => execFileSync('git', args, {
+        cwd: root,
+        stdio: 'pipe',
+        encoding: 'utf8',
+      }).trim();
+      git(['init']);
+      git(['config', 'user.email', 'explorer@example.invalid']);
+      git(['config', 'user.name', 'Explorer Test']);
+      git(['add', '.']);
+      git(['commit', '-m', 'introduce requireAuth']);
+      const commitRef = git(['rev-parse', 'HEAD']);
+      const task = `What changed in commit ${commitRef} around requireAuth?`;
+      const goal = trustGoal(task, {
+        id: 'S-exact-require-auth',
+        question: task,
+        originText: task,
+        proofCondition: 'Observe the requested change in repository history and current source.',
+      });
+      const claim = candidateClaim(
+        'C-exact-require-auth',
+        goal.id,
+        'The inspected commit introduced requireAuth, which remains in current source.',
+        ['E1:hunk:1', 'E2'],
+      );
+      let explorationRequest = 0;
+      const steps = buildTrustSteps({
+        goals: [goal],
+        initial: {
+          tools: [{
+            tool: 'repo_git_show',
+            args: { ref: commitRef },
+            id: 'exact-auth-show',
+          }, {
+            tool: 'repo_read_file',
+            args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+            id: 'exact-auth-source',
+          }],
+          claims: [claim],
+          verdicts: [semanticVerdict(claim.id, 'supported', ['E1:hunk:1', 'E2'])],
+          assertRequest(request) {
+            explorationRequest += 1;
+            const toolNames = request.tools.map(tool => tool.function.name);
+            if (explorationRequest === 1) {
+              assert.deepEqual(toolNames, ['repo_git_show']);
+              assert.match(JSON.stringify(request.messages), new RegExp(commitRef));
+            } else {
+              assert.deepEqual(toolNames, ['repo_read_file']);
+              assert.match(JSON.stringify(request.messages), /src\/auth\.js/u);
+            }
+          },
+        },
+      });
+      const client = new ScriptedGoalAuditClient(steps);
+      const runtime = new RuntimeImplementation({ chatClient: client });
+      const result = await runtime.explore({
+        task,
+        repo_root: root,
+        scope: ['src/**'],
+      });
+
+      const explorationRequests = client.requests.filter(request =>
+        classifyControlRequest(request) === 'exploration');
+      assert.equal(explorationRequests.length, 3);
+      assert.deepEqual(explorationRequests[2].tools, []);
+      assert.deepEqual(providerToolActions(client).map(action => action.tool),
+        ['repo_git_show', 'repo_read_file']);
+      assert.equal(result.parentHandoff.state, 'complete');
+      assert.equal(result.parentHandoff.evidence.some(item => item.kind === 'git'), true);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T071 — exact-commit metadata requests stop after one show',
+  { skip: !hasGit() },
+  async () => {
+    const root = await makeRepoFixture();
+    try {
+      const git = args => execFileSync('git', args, {
+        cwd: root,
+        stdio: 'pipe',
+        encoding: 'utf8',
+      }).trim();
+      git(['init']);
+      git(['config', 'user.email', 'explorer@example.invalid']);
+      git(['config', 'user.name', 'Explorer Test']);
+      git(['add', '.']);
+      git(['commit', '-m', 'introduce requireAuth']);
+      const commitRef = git(['rev-parse', 'HEAD']);
+      const task = `Who authored commit ${commitRef}?`;
+      const goal = trustGoal(task, {
+        id: 'S-exact-commit-author',
+        question: task,
+        originText: task,
+        proofCondition: 'Observe the requested author in exact commit metadata.',
+      });
+      const claim = candidateClaim(
+        'C-exact-commit-author',
+        goal.id,
+        `Commit ${commitRef} was authored by Explorer Test.`,
+        ['E1'],
+      );
+      const steps = [{
+        stage: 'planner:1',
+        value: plannerControl([goal]),
+      }, {
+        stage: 'goal_audit:1',
+        value: auditorControl([auditControlRecord(goal)]),
+      }, {
+        stage: 'exploration:1',
+        run(request) {
+          assert.deepEqual(request.tools.map(tool => tool.function.name), ['repo_git_show']);
+          return toolControlCompletion(
+            'repo_git_show',
+            { ref: commitRef },
+            'exact-author-show',
+          );
+        },
+      }, {
+        stage: 'exploration:2',
+        run(request) {
+          assert.deepEqual(request.tools, []);
+          assert.match(JSON.stringify(request.messages), /bounded commit metadata/iu);
+          return controlCompletion('The bounded commit metadata identifies the author.');
+        },
+      }, {
+        stage: 'synthesis:1',
+        value: readyExplorationResult(),
+      }, {
+        stage: 'claim_synthesis:1',
+        value: { claims: [claim] },
+      }, {
+        stage: 'semantic_verifier:1',
+        value: verifierResponse([semanticVerdict(claim.id, 'supported', ['E1'])]),
+      }];
+      const client = new ScriptedGoalAuditClient(steps);
+      const runtime = new RuntimeImplementation({ chatClient: client });
+      const result = await runtime.explore({
+        task,
+        repo_root: root,
+        scope: ['src/**'],
+      });
+
+      assert.deepEqual(providerToolActions(client).map(action => action.tool),
+        ['repo_git_show']);
+      assert.equal(result.parentHandoff.state, 'complete');
+      assert.equal(result.parentHandoff.evidence.some(item => item.kind === 'git'), true);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T071 — exact scoped change requires an in-scope diff hunk',
+  { skip: !hasGit() },
+  async () => {
+    const root = await makeRepoFixture();
+    try {
+      const git = args => execFileSync('git', args, {
+        cwd: root,
+        stdio: 'pipe',
+        encoding: 'utf8',
+      }).trim();
+      git(['init']);
+      git(['config', 'user.email', 'explorer@example.invalid']);
+      git(['config', 'user.name', 'Explorer Test']);
+      git(['add', '.']);
+      git(['commit', '-m', 'introduce requireAuth']);
+      const commitRef = git(['rev-parse', 'HEAD']);
+      const task = `What changed in commit ${commitRef} around requireAuth?`;
+      const goal = trustGoal(task, {
+        id: 'S-exact-out-of-scope-change',
+        question: task,
+        originText: task,
+        proofCondition: 'Observe the requested scoped change in repository history.',
+      });
+      const claim = candidateClaim(
+        'C-exact-out-of-scope-change',
+        goal.id,
+        'The inspected commit introduced requireAuth.',
+        ['E1'],
+      );
+      const steps = [{
+        stage: 'planner:1',
+        value: plannerControl([goal]),
+      }, {
+        stage: 'goal_audit:1',
+        value: auditorControl([auditControlRecord(goal)]),
+      }, {
+        stage: 'exploration:1',
+        run: () => toolControlCompletion(
+          'repo_git_show',
+          { ref: commitRef },
+          'exact-out-of-scope-show',
+        ),
+      }, {
+        stage: 'exploration:2',
+        content: 'The exact commit has no in-scope diff hunk.',
+      }, {
+        stage: 'synthesis:1',
+        value: readyExplorationResult(),
+      }, {
+        stage: 'claim_synthesis:1',
+        value: { claims: [claim] },
+      }, {
+        stage: 'semantic_verifier:1',
+        value: verifierResponse([semanticVerdict(claim.id, 'supported', ['E1'])]),
+      }, {
+        stage: 'exploration:3',
+        content: 'No in-scope diff hunk is available for repair.',
+      }, {
+        stage: 'claim_synthesis:2',
+        value: { claims: [claim] },
+      }, {
+        stage: 'semantic_verifier:2',
+        value: verifierResponse([semanticVerdict(claim.id, 'supported', ['E1'])]),
+      }];
+      const client = new ScriptedGoalAuditClient(steps);
+      const runtime = new RuntimeImplementation({ chatClient: client });
+      const result = await runtime.explore({
+        task,
+        repo_root: root,
+        scope: ['tests/**'],
+      });
+
+      assert.equal(result.observations.some(item => item.kind === 'git_commit'), true);
+      assert.equal(result.observations.some(item => item.kind === 'git_diff_hunk'), false);
+      assert.equal(result.taskContract.subgoals[0].state, 'gap');
+      assert.equal(result.parentHandoff.state, 'incomplete');
+      assert.equal(result.parentHandoff.directAnswer, undefined);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T071 — exact-commit repair rejects a path outside its runtime allowlist',
+  { skip: !hasGit() },
+  async () => {
+    const root = await makeRepoFixture();
+    try {
+      const git = args => execFileSync('git', args, {
+        cwd: root,
+        stdio: 'pipe',
+        encoding: 'utf8',
+      }).trim();
+      git(['init']);
+      git(['config', 'user.email', 'explorer@example.invalid']);
+      git(['config', 'user.name', 'Explorer Test']);
+      git(['add', '.']);
+      git(['commit', '-m', 'introduce requireAuth']);
+      const commitRef = git(['rev-parse', 'HEAD']);
+      await fs.writeFile(path.join(root, 'src', 'unrelated.js'), 'export const unrelated = true;\n');
+      const task = `What changed in commit ${commitRef} around requireAuth?`;
+      const goal = trustGoal(task, {
+        id: 'S-exact-repair-allowlist',
+        question: task,
+        originText: task,
+        proofCondition: 'Observe the requested change in repository history and current source.',
+      });
+      const claim = candidateClaim(
+        'C-exact-repair-allowlist',
+        goal.id,
+        'The inspected commit introduced requireAuth.',
+        ['E1:hunk:1', 'E2'],
+      );
+      const steps = buildTrustSteps({
+        goals: [goal],
+        initial: {
+          tools: [{
+            tool: 'repo_git_show',
+            args: { ref: commitRef },
+            id: 'exact-repair-show',
+          }, {
+            tool: 'repo_read_file',
+            args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+            id: 'exact-repair-source',
+          }],
+          claims: [claim],
+          verdicts: [semanticVerdict(claim.id, 'insufficient')],
+        },
+        repair: {
+          tools: [{
+            tool: 'repo_read_file',
+            args: { path: 'src/unrelated.js', startLine: 1, endLine: 1 },
+            id: 'exact-repair-unlisted-source',
+          }],
+          assertRequest(request) {
+            const pathEnum = request.tools[0]?.function?.parameters?.properties?.path?.enum;
+            assert.deepEqual(new Set(pathEnum), new Set([
+              'src/auth.js',
+              'src/routes/user.js',
+            ]));
+            assert.equal(pathEnum.includes('src/unrelated.js'), false);
+          },
+          claims: [],
+          verdicts: [],
+        },
+      });
+      const client = new ScriptedGoalAuditClient(steps);
+      const runtime = new RuntimeImplementation({ chatClient: client });
+      const result = await runtime.explore({
+        task,
+        repo_root: root,
+        scope: ['src/**'],
+      });
+
+      const sourcePaths = result.observations
+        .filter(item => item.kind === 'source')
+        .map(item => item.path);
+      assert.deepEqual(sourcePaths, ['src/auth.js']);
+      assert.equal(sourcePaths.includes('src/unrelated.js'), false);
+      assert.equal(result.parentHandoff.state, 'incomplete');
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T062 — historical and ordinary direct-source goals use isolated evidence packets',
+  { skip: !hasGit() },
+  async () => {
+    const task = 'What changed recently around requireAuth, and what does current requireAuth return?';
+    const historicalGoal = trustGoal(task, {
+      id: 'S-recent-auth-change',
+      question: 'What changed recently around requireAuth?',
+      originText: 'What changed recently around requireAuth',
+      proofCondition: 'Observe the requested change in repository history.',
+    });
+    const currentGoal = trustGoal(task, {
+      id: 'S-current-auth-result',
+      question: 'What does current requireAuth return?',
+      originText: 'what does current requireAuth return',
+      proofCondition: 'Observe the current requireAuth return value in source.',
+    });
+    const historicalClaim = candidateClaim(
+      'C-recent-auth-change',
+      historicalGoal.id,
+      'The latest inspected change introduced requireAuth.',
+      ['E1', 'E2'],
+    );
+    const currentClaim = candidateClaim(
+      'C-current-auth-result',
+      currentGoal.id,
+      'Current requireAuth returns true.',
+      ['E2'],
+    );
+    const { client, result } = await runTrustScript(buildTrustSteps({
+      goals: [historicalGoal, currentGoal],
+      initial: {
+        tools: [{
+          tool: 'repo_git_log',
+          args: { path: 'src/auth.js', maxCount: 5 },
+          id: 'isolated-recent-auth-log',
+        }, {
+          tool: 'repo_read_file',
+          args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+          id: 'isolated-current-auth-source',
+        }],
+        claims: [historicalClaim, currentClaim],
+        verdicts: [
+          semanticVerdict(historicalClaim.id, 'supported', ['E1', 'E2']),
+          semanticVerdict(currentClaim.id, 'supported', ['E2']),
+        ],
+      },
+    }), {
+      task,
+      async setup(root) {
+        const git = args => execFileSync('git', args, { cwd: root, stdio: 'ignore' });
+        git(['init']);
+        git(['config', 'user.email', 'explorer@example.invalid']);
+        git(['config', 'user.name', 'Explorer Test']);
+        git(['add', '.']);
+        git(['commit', '-m', 'introduce requireAuth']);
+      },
+    });
+
+    const synthesisPackets = client.requests
+      .filter(request => classifyControlRequest(request) === 'claim_synthesis')
+      .map(parseControlPacket);
+    assert.equal(synthesisPackets.length, 2);
+    const packetByGoalId = new Map(synthesisPackets.map(packet => [
+      packet.control.requiredSubgoals[0].id,
+      packet,
+    ]));
+    assert.deepEqual(packetByGoalId.get(historicalGoal.id).observations.map(item => item.id),
+      ['E1', 'E2']);
+    assert.deepEqual(packetByGoalId.get(currentGoal.id).observations.map(item => item.id),
+      ['E2']);
+    assert.equal(result.taskContract.subgoals.every(goal => goal.state === 'supported'), true);
+    assert.equal(result.parentHandoff.state, 'complete');
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T062 — audited historical verification projects an exact sha-only git commit',
+  { skip: !hasGit() },
+  async () => {
+    const task = 'Which inspected commit introduced requireAuth?';
+    const goal = trustGoal(task, {
+      id: 'S-historical-commit',
+      question: task,
+      originText: task,
+      claimType: 'claim_verification',
+      proofCondition: 'Verify the requested historical change from an observed commit.',
+    });
+    const claim = candidateClaim(
+      'C-historical-commit',
+      goal.id,
+      'The inspected commit introduced requireAuth.',
+      ['E1'],
+    );
+    const steps = buildTrustSteps({
+      goals: [goal],
+      initial: {
+        tools: [{
+          tool: 'repo_git_log',
+          args: { path: 'src/auth.js', maxCount: 5 },
+          id: 'historical-auth-log',
+        }],
+        claims: [claim],
+        verdicts: [semanticVerdict(claim.id, 'supported', ['E1'])],
+      },
+    });
+    const { result } = await runTrustScript(steps, {
+      task,
+      async setup(root) {
+        const git = args => execFileSync('git', args, {
+          cwd: root,
+          stdio: 'pipe',
+          encoding: 'utf8',
+        });
+        git(['init']);
+        git(['config', 'user.email', 'explorer@example.invalid']);
+        git(['config', 'user.name', 'Explorer Test']);
+        git(['add', '.']);
+        git(['commit', '-m', 'introduce requireAuth']);
+      },
+    });
+
+    assert.equal(result.semanticVerification.claims[0].verdict, 'supported');
+    assert.equal(result.directAnswer, claim.text);
+    assertMinimalCompleteParentHandoff(result, {
+      answer: claim.text,
+      evidenceCount: 1,
+      evidenceKinds: ['git'],
+    });
+    const evidence = result.parentHandoff.evidence[0];
+    assert.match(evidence.sha, /^[0-9a-f]{40}$/);
+    assert.equal(evidence.path, undefined);
+    assert.equal(evidence.startLine, undefined);
+    assert.equal(evidence.endLine, undefined);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T068 — every retained wrapper has a distinct end-to-end proof-policy acceptance',
+  async t => {
+    const wrapperCases = [
+      {
+        tool: 'find_relevant_code',
+        taskMode: 'locate',
+        expectedState: 'complete',
+        seeds: [
+          ['locations', 'positive', ['E1']],
+          ['relevance', 'positive', ['E1']],
+        ],
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+          id: 'locate-auth',
+        }],
+      },
+      {
+        tool: 'trace_symbol',
+        taskMode: 'symbol_trace',
+        expectedState: 'complete',
+        seeds: [
+          ['definition', 'symbol_definition', ['E1']],
+          ['usage', 'symbol_usage', ['E2', 'E3']],
+        ],
+        tools: [
+          {
+            tool: 'repo_read_file',
+            args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+            id: 'trace-definition',
+          },
+          {
+            tool: 'repo_read_file',
+            args: { path: 'src/routes/user.js', startLine: 1, endLine: 7 },
+            id: 'trace-usage',
+          },
+          {
+            tool: 'repo_grep',
+            args: { pattern: 'requireAuth', scope: ['src/**'] },
+            id: 'trace-cross-check',
+          },
+        ],
+      },
+      {
+        tool: 'map_change_impact',
+        taskMode: 'edit_planning',
+        expectedState: 'verify_targets',
+        scope: ['**'],
+        seeds: [
+          ['targets', 'impact', ['E1']],
+          ['dependents', 'impact', ['E2']],
+          ['requested_categories', 'impact', ['E3']],
+          ['risk_boundary', 'impact', ['E4']],
+        ],
+        tools: [
+          {
+            tool: 'repo_read_file',
+            args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+            id: 'impact-target',
+          },
+          {
+            tool: 'repo_read_file',
+            args: { path: 'src/routes/user.js', startLine: 1, endLine: 7 },
+            id: 'impact-dependent',
+          },
+          {
+            tool: 'repo_read_file',
+            args: { path: 'tests/auth.test.js', startLine: 1, endLine: 1 },
+            id: 'impact-test',
+          },
+          {
+            tool: 'repo_read_file',
+            args: { path: 'config/auth.json', startLine: 1, endLine: 1 },
+            id: 'impact-config',
+          },
+        ],
+        async setup(root) {
+          await fs.mkdir(path.join(root, 'tests'), { recursive: true });
+          await fs.mkdir(path.join(root, 'config'), { recursive: true });
+          await fs.writeFile(path.join(root, 'tests', 'auth.test.js'), 'test("auth", () => {});\n');
+          await fs.writeFile(path.join(root, 'config', 'auth.json'), '{"required":true}\n');
+        },
+      },
+      {
+        tool: 'explain_code_path',
+        taskMode: 'path_explanation',
+        expectedState: 'complete',
+        seeds: [
+          ['entry', 'flow', ['E1']],
+          ['handoffs', 'flow', ['E2']],
+          ['terminal_effect', 'flow', ['E3']],
+          ['transitions', 'flow', ['E4']],
+        ],
+        tools: ['entry', 'handoff', 'terminal', 'transition'].map((name, index) => ({
+          tool: 'repo_read_file',
+          args: { path: `src/flow/${name}.js`, startLine: 1, endLine: 1 },
+          id: `flow-${index + 1}`,
+        })),
+        async setup(root) {
+          await fs.mkdir(path.join(root, 'src', 'flow'), { recursive: true });
+          for (const name of ['entry', 'handoff', 'terminal', 'transition']) {
+            await fs.writeFile(path.join(root, 'src', 'flow', `${name}.js`),
+              `export const ${name} = true;\n`);
+          }
+        },
+      },
+      {
+        tool: 'collect_evidence',
+        taskMode: 'evidence_verification',
+        expectedState: 'complete',
+        seeds: [
+          ['verdict', 'claim_verification', ['E1', 'E2']],
+        ],
+        tools: [
+          {
+            tool: 'repo_read_file',
+            args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+            id: 'verify-direct',
+          },
+          {
+            tool: 'repo_grep',
+            args: { pattern: 'skipAuth|allowAnonymous', scope: ['src/**'] },
+            id: 'verify-counterevidence',
+          },
+        ],
+      },
+      {
+        tool: 'explore_repo',
+        expectedState: 'complete',
+        seeds: [['request', 'positive', ['E1']]],
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+          id: 'explore-auth',
+        }],
+      },
+    ];
+
+    for (const wrapperCase of wrapperCases) {
+      await t.test(wrapperCase.tool, async () => {
+        const task = `Verify the ${wrapperCase.tool} proof-policy contract.`;
+        const goals = wrapperCase.seeds.map(([seed, claimType], index) => ({
+          id: `${wrapperCase.tool}-goal-${index + 1}`,
+          question: `Verify ${seed} for ${wrapperCase.tool}.`,
+          originRefs: wrapperCase.tool === 'explore_repo'
+            ? [`request:0-${task.length}`]
+            : wrapperCase.tool === 'collect_evidence'
+              ? [`request:0-${task.length}`, `wrapper:${wrapperCase.tool}:${seed}`]
+              : [`wrapper:${wrapperCase.tool}:${seed}`],
+          claimType,
+          proofCondition: `Observe bounded evidence for ${seed}.`,
+          constraints: [],
+        }));
+        const claims = goals.map((goal, index) => candidateClaim(
+          `${wrapperCase.tool}-claim-${index + 1}`,
+          goal.id,
+          `${wrapperCase.tool} verified ${wrapperCase.seeds[index][0]}.`,
+          wrapperCase.seeds[index][2],
+        ));
+        const verdicts = claims.map((claim, index) => {
+          const supportingEvidenceRefs =
+            wrapperCase.tool === 'map_change_impact' &&
+              wrapperCase.seeds[index][0] === 'risk_boundary'
+              ? claims.slice(0, index).flatMap(candidate => candidate.evidenceRefs)
+              : claim.evidenceRefs;
+          const verdict = semanticVerdict(claim.id, 'supported', supportingEvidenceRefs);
+          if (wrapperCase.seeds[index][0] === wrapperCase.refutedSeed) {
+            verdict.resolution = 'refuted';
+          }
+          return verdict;
+        });
+        const { client, result } = await runTrustScript(buildTrustSteps({
+          goals,
+          initial: {
+            tools: wrapperCase.tools,
+            claims,
+            verdicts,
+            ...(wrapperCase.tool === 'collect_evidence'
+              ? { verifierSteps: [{ verdicts }, { verdicts }] }
+              : {}),
+          },
+        }), {
+          task,
+          taskMode: wrapperCase.taskMode,
+          setup: wrapperCase.setup,
+          scope: wrapperCase.scope ?? ['src/**'],
+        });
+
+        assert.equal(result.failure, null, JSON.stringify({
+          stages: client.stageLabels,
+          failure: result.failure,
+          goals: result.taskContract?.subgoals,
+          claims: result.semanticVerification?.claims,
+          verdicts: result.semanticVerification?.verdicts,
+        }));
+        assert.deepEqual(result.taskContract.subgoals.map(goal => goal.state),
+          goals.map(() => 'supported'), JSON.stringify({
+            goals: result.taskContract.subgoals,
+            claims: result.semanticVerification?.claims,
+            verdicts: result.semanticVerification?.verdicts,
+            observations: result.observations?.map(item => ({
+              id: item.id,
+              kind: item.kind,
+              path: item.path,
+              sourceRole: item.sourceRole,
+            })),
+          }));
+        assert.equal(result.parentHandoff.state, wrapperCase.expectedState,
+          JSON.stringify(result.parentHandoff));
+        assert.equal(result.parentHandoff.directAnswer.split('\n').length, goals.length);
+        assert.doesNotMatch(JSON.stringify(result.parentHandoff),
+          /taskContract|semanticVerification|proofPolicy|toolCalls|deterministicCounts/u);
+      });
+    }
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T068 — wrapper proofs accept shared implementation evidence and reject missing or incompatible evidence',
+  async t => {
+    const sharedCases = [
+      {
+        name: 'explain_code_path can reuse one source for related flow seeds',
+        tool: 'explain_code_path',
+        taskMode: 'path_explanation',
+        expectedState: 'complete',
+        seeds: ['entry', 'handoffs', 'terminal_effect', 'transitions'],
+      },
+      {
+        name: 'map_change_impact can reuse one source for related impact seeds',
+        tool: 'map_change_impact',
+        taskMode: 'edit_planning',
+        expectedState: 'verify_targets',
+        seeds: ['targets', 'dependents', 'requested_categories', 'risk_boundary'],
+      },
+    ];
+    for (const wrapperCase of sharedCases) {
+      await t.test(wrapperCase.name, async () => {
+        const task = `Verify shared evidence for ${wrapperCase.tool}.`;
+        const goals = wrapperCase.seeds.map((seed, index) => ({
+          id: `${wrapperCase.tool}-shared-goal-${index + 1}`,
+          question: `Verify ${seed}.`,
+          originRefs: [`wrapper:${wrapperCase.tool}:${seed}`],
+          claimType: wrapperCase.tool === 'explain_code_path' ? 'flow' : 'impact',
+          proofCondition: `Observe bounded evidence for ${seed}.`,
+          constraints: [],
+        }));
+        const claims = goals.map((goal, index) => candidateClaim(
+          `${wrapperCase.tool}-shared-claim-${index + 1}`,
+          goal.id,
+          `${wrapperCase.tool} verified ${wrapperCase.seeds[index]}.`,
+          ['E1'],
+        ));
+        const { result } = await runTrustScript(buildTrustSteps({
+          goals,
+          initial: {
+            tools: [{
+              tool: 'repo_read_file',
+              args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+              id: `${wrapperCase.tool}-shared-initial`,
+            }],
+            claims,
+            verdicts: claims.map(claim => semanticVerdict(claim.id, 'supported', ['E1'])),
+          },
+        }), { task, taskMode: wrapperCase.taskMode });
+
+        assert.equal(result.failure, null);
+        assert.deepEqual(result.taskContract.subgoals.map(goal => goal.state),
+          goals.map(() => 'supported'));
+        assert.equal(result.parentHandoff.state, wrapperCase.expectedState);
+        assert.equal(result.parentHandoff.directAnswer.split('\n').length, goals.length);
+      });
+    }
+
+    await t.test('requested impact categories accept implementation and fixture evidence', async () => {
+      const tool = 'map_change_impact';
+      const task = 'Verify implementation evidence for requested impact categories.';
+      const seeds = ['targets', 'dependents', 'requested_categories', 'risk_boundary'];
+      const sourcePaths = seeds.map(seed => seed === 'requested_categories'
+        ? 'fixtures/expected-response.json'
+        : `src/impact/${seed}.js`);
+      const goals = seeds.map((seed, index) => ({
+        id: `impact-role-goal-${index + 1}`,
+        question: `Verify ${seed}.`,
+        originRefs: [`wrapper:${tool}:${seed}`],
+        claimType: 'impact',
+        proofCondition: `Observe independent evidence for ${seed}.`,
+        constraints: [],
+      }));
+      const claims = goals.map((goal, index) => candidateClaim(
+        `impact-role-claim-${index + 1}`,
+        goal.id,
+        `Impact verified ${seeds[index]}.`,
+        [`E${index + 1}`],
+      ));
+      const { client, result } = await runTrustScript(buildTrustSteps({
+        goals,
+        initial: {
+          tools: seeds.map((seed, index) => ({
+            tool: 'repo_read_file',
+            args: { path: sourcePaths[index], startLine: 1, endLine: 1 },
+            id: `impact-role-${index + 1}`,
+          })),
+          claims,
+          verdicts: claims.map((claim, index) =>
+            semanticVerdict(
+              claim.id,
+              'supported',
+              seeds[index] === 'risk_boundary'
+                ? claims.slice(0, index).flatMap(candidate => candidate.evidenceRefs)
+                : [`E${index + 1}`],
+            )),
+        },
+      }), {
+        task,
+        taskMode: 'edit_planning',
+        scope: ['src/**', 'fixtures/**'],
+        async setup(root) {
+          await fs.mkdir(path.join(root, 'src', 'impact'), { recursive: true });
+          await fs.mkdir(path.join(root, 'fixtures'), { recursive: true });
+          for (const [index, name] of seeds.entries()) {
+            const sourcePath = sourcePaths[index];
+            await fs.writeFile(path.join(root, ...sourcePath.split('/')),
+              sourcePath.endsWith('.json')
+                ? '{"schemaVersion":3}\n'
+                : `export const ${name.replaceAll('-', '_')} = true;\n`);
+          }
+        },
+      });
+
+      assert.equal(result.failure, null, JSON.stringify(client.stageLabels));
+      assert.deepEqual(result.taskContract.subgoals.map(goal => goal.state),
+        goals.map(() => 'supported'));
+      assert.equal(result.parentHandoff.state, 'verify_targets');
+    });
+
+    await t.test('map_change_impact keeps search evidence outside its source-only role', async () => {
+      const tool = 'map_change_impact';
+      const task = 'Verify fixed impact wrapper evidence roles.';
+      const seeds = ['targets', 'dependents', 'requested_categories', 'risk_boundary'];
+      const goals = seeds.map((seed, index) => ({
+        id: `fixed-impact-source-role-${index + 1}`,
+        question: `Verify ${seed}.`,
+        originRefs: [`wrapper:${tool}:${seed}`],
+        claimType: 'impact',
+        proofCondition: `Observe source evidence for ${seed}.`,
+        constraints: [],
+      }));
+      const claims = goals.map((goal, index) => candidateClaim(
+        `fixed-impact-source-role-claim-${index + 1}`,
+        goal.id,
+        `Fixed impact wrapper verified ${seeds[index]}.`,
+        index === 0 ? ['E1', 'E2'] : ['E1'],
+      ));
+      const verdicts = claims.map(claim =>
+        semanticVerdict(claim.id, 'supported', claim.evidenceRefs));
+      const { client, result } = await runTrustScript(buildTrustSteps({
+        goals,
+        initial: {
+          tools: [{
+            tool: 'repo_read_file',
+            args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+            id: 'fixed-impact-source',
+          }, {
+            tool: 'repo_find_files',
+            args: { pattern: '**/*', scope: ['src/**'] },
+            id: 'fixed-impact-search',
+          }],
+          claims,
+          verdicts,
+        },
+        repair: {
+          tools: [],
+          prose: 'No materially new repository action is available.',
+          claims: [],
+          verdicts: [],
+        },
+      }), { task, taskMode: 'edit_planning' });
+
+      assert.equal(result.failure, null, JSON.stringify(client.stageLabels));
+      assert.equal(result.taskContract.subgoals[0].state, 'gap');
+      assert.deepEqual(result.taskContract.subgoals.slice(1).map(goal => goal.state),
+        ['supported', 'supported', 'supported']);
+      assert.equal(result.semanticVerification.verdicts[0].result, 'insufficient');
+      assert.equal(client.stageCounts.get('semantic_verifier'), 1,
+        'fixed impact claims must not enter generic focused corroboration');
+      assert.equal(result.parentHandoff.state, 'incomplete');
+    });
+
+    await t.test('missing and incompatible evidence cannot fabricate flow artifacts', async () => {
+      const tool = 'explain_code_path';
+      const seeds = ['entry', 'handoffs', 'terminal_effect', 'transitions'];
+      const goals = seeds.map((seed, index) => ({
+        id: `flow-location-goal-${index + 1}`,
+        question: `Verify ${seed}.`,
+        originRefs: [`wrapper:${tool}:${seed}`],
+        claimType: 'flow',
+        proofCondition: `Observe bounded evidence for ${seed}.`,
+        constraints: [],
+      }));
+      const claims = goals.map((goal, index) => candidateClaim(
+        `flow-location-claim-${index + 1}`,
+        goal.id,
+        `Flow verified ${seeds[index]}.`,
+        [`E${index + 1}`],
+      ));
+      const verdicts = claims.map((claim, index) =>
+        semanticVerdict(claim.id, 'supported', [`E${index + 1}`]));
+      const observations = [
+        ...['E1', 'E2'].map(id => ({
+          id,
+          kind: 'source',
+          path: 'src/flow/single.js',
+          startLine: 1,
+          endLine: 1,
+          snippet: 'export const single = true;',
+          rangeGrounding: 'exact',
+          sourceRole: 'implementation',
+          temporalRole: 'current',
+          redacted: false,
+        })),
+        {
+          id: 'E4',
+          kind: 'source',
+          path: 'docs/flow.md',
+          startLine: 1,
+          endLine: 1,
+          snippet: 'Documented transition only.',
+          rangeGrounding: 'exact',
+          sourceRole: 'documentation',
+          temporalRole: 'current',
+          redacted: false,
+        },
+      ];
+      const artifacts = buildRuntimeWrapperPolicyArtifacts({
+        wrapperTool: tool,
+        subgoals: goals,
+        claims,
+        semanticVerdicts: verdicts,
+        observations,
+      });
+
+      assert.equal(artifacts.size, seeds.length);
+      assert.deepEqual(artifacts.get(claims[0].id)?.observedTransitions, ['entry']);
+      assert.deepEqual(artifacts.get(claims[1].id)?.observedTransitions, ['handoffs']);
+      assert.deepEqual(artifacts.get(claims[2].id)?.observedTransitions, []);
+      assert.deepEqual(artifacts.get(claims[3].id)?.observedTransitions, []);
+      assert.deepEqual(artifacts.get(claims[2].id)?.transitionEvidenceRefs,
+        { terminal_effect: [] });
+      assert.deepEqual(artifacts.get(claims[3].id)?.transitionEvidenceRefs,
+        { transitions: [] });
+    });
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — bounded usage accepts a literal alias for the full effective scope',
+  async () => {
+    const task = 'Trace the requireAuth definition and every in-scope usage.';
+    const goals = [
+      {
+        id: 'trace-reversed-definition',
+        question: 'Where is requireAuth defined?',
+        originRefs: ['wrapper:trace_symbol:definition'],
+        claimType: 'symbol_definition',
+        proofCondition: 'Observe the requireAuth definition source.',
+        constraints: [],
+      },
+      {
+        id: 'trace-reversed-usage',
+        question: 'Where is requireAuth used?',
+        originRefs: ['wrapper:trace_symbol:usage'],
+        claimType: 'symbol_usage',
+        proofCondition: 'Cross-check every in-scope usage and read the usage source.',
+        constraints: [],
+      },
+    ];
+    const claims = [
+      candidateClaim(
+        'trace-reversed-definition-claim',
+        goals[0].id,
+        'requireAuth is defined in src/auth.js.',
+        ['E1'],
+      ),
+      candidateClaim(
+        'trace-reversed-usage-claim',
+        goals[1].id,
+        'requireAuth is used by src/routes/user.js.',
+        ['E3'],
+      ),
+    ];
+    const { result } = await runTrustScript(buildTrustSteps({
+      goals,
+      initial: {
+        tools: [
+          {
+            tool: 'repo_read_file',
+            args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+            id: 'trace-reversed-definition-read',
+          },
+          {
+            tool: 'repo_grep',
+            args: { pattern: 'requireAuth', scope: ['src'] },
+            id: 'trace-reversed-usage-cross-check',
+          },
+          {
+            tool: 'repo_read_file',
+            args: { path: 'src/routes/user.js', startLine: 1, endLine: 7 },
+            id: 'trace-reversed-usage-read',
+          },
+        ],
+        claims,
+        verdicts: [
+          semanticVerdict(claims[0].id, 'supported', ['E1']),
+          semanticVerdict(claims[1].id, 'supported', ['E2', 'E3']),
+        ],
+      },
+    }), {
+      task,
+      taskMode: 'symbol_trace',
+      hints: { symbols: ['requireAuth'] },
+    });
+
+    assert.equal(result.failure, null);
+    assert.deepEqual(result.taskContract.subgoals.map(goal => goal.state),
+      goals.map(() => 'supported'));
+    assert.equal(result.parentHandoff.state, 'complete');
+    assert.match(result.parentHandoff.directAnswer, /src\/routes\/user\.js/u);
+    const usageSearch = result.observations.find(observation =>
+      observation.kind === 'search' && observation.normalizedArgs?.scope?.[0] === 'src');
+    assert.deepEqual(usageSearch?.boundary, ['src/**']);
+    assert.equal(usageSearch?.enumerationComplete, true);
+    assert.deepEqual(result.semanticVerification.claims
+      .find(item => item.id === claims[1].id)?.evidenceRefs, ['E3', 'E2']);
+    assert.ok(result.parentHandoff.evidence.some(item =>
+      item.kind === 'source' && item.path === 'src/routes/user.js'));
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T071 — trace definition same-evidence repair is deterministic and one-shot',
+  async t => {
+    const task = 'Trace the requireAuth definition, behavior, and every in-scope usage.';
+    const definitionGoal = {
+      id: 'trace-repair-definition',
+      question: 'Where is requireAuth defined and what does it do?',
+      originRefs: ['wrapper:trace_symbol:definition'],
+      claimType: 'symbol_definition',
+      proofCondition: 'Observe the exact requireAuth definition source and visible behavior.',
+      constraints: [],
+    };
+    const usageGoal = {
+      id: 'trace-repair-usage',
+      question: 'Where is requireAuth used?',
+      originRefs: ['wrapper:trace_symbol:usage'],
+      claimType: 'symbol_usage',
+      proofCondition: 'Cross-check every in-scope requireAuth usage and read the caller.',
+      constraints: [],
+    };
+    const definitionClaim = candidateClaim(
+      'trace-repair-definition-claim',
+      definitionGoal.id,
+      'requireAuth is defined in src/auth.js and guarantees authentication for every route.',
+      ['E1'],
+    );
+    const narrowDefinitionClaim = candidateClaim(
+      definitionClaim.id,
+      definitionGoal.id,
+      'requireAuth is defined in src/auth.js and throws when req.user is absent; otherwise it calls next().',
+      ['E1'],
+    );
+    const usageClaim = candidateClaim(
+      'trace-repair-usage-claim',
+      usageGoal.id,
+      'registerUserRoutes uses requireAuth for GET /users/me in src/routes/user.js.',
+      ['E3'],
+    );
+    const initialTools = [{
+      tool: 'repo_symbol_context',
+      args: { symbol: 'requireAuth', scope: ['src/**'] },
+      id: 'E1',
+    }, {
+      tool: 'repo_grep',
+      args: { pattern: 'requireAuth', scope: ['src/**'] },
+      id: 'E2',
+    }, {
+      tool: 'repo_read_file',
+      args: { path: 'src/routes/user.js', startLine: 1, endLine: 7 },
+      id: 'E3',
+    }];
+    const rejectedDefinitionVerdict = {
+      claimId: definitionClaim.id,
+      result: 'insufficient',
+      supportingEvidenceRefs: ['E1'],
+      reasonCode: 'overgeneralized',
+      note: 'The claim extends beyond the observed function body.',
+    };
+    const usageVerdict = semanticVerdict(usageClaim.id, 'supported', ['E2', 'E3']);
+
+    const runCase = async ({ initialDefinitionClaim, initialDefinitionVerdict, retryVerdict }) => {
+      const steps = buildTrustSteps({
+        goals: [definitionGoal, usageGoal],
+        initial: {
+          tools: initialTools,
+          claims: [initialDefinitionClaim, usageClaim],
+          verdicts: [initialDefinitionVerdict, usageVerdict],
+        },
+      });
+      if (retryVerdict) {
+        steps.push({
+          stage: 'claim_synthesis:2',
+          run(request) {
+            const packet = parseControlPacket(request);
+            assert.deepEqual(
+              packet.control.requiredSubgoals.map(goal => goal.id),
+              [definitionGoal.id],
+            );
+            assert.deepEqual(packet.observations.map(observation => observation.id), ['E1']);
+            assert.equal(request.tools, undefined);
+            assert.match(JSON.stringify(request.messages),
+              /single runtime-selected same-evidence narrowing pass/u);
+            assert.match(JSON.stringify(request.messages), /guarantees authentication for every route/u);
+            return controlCompletion({ claims: [narrowDefinitionClaim] });
+          },
+        });
+        steps.push({
+          stage: 'semantic_verifier:2',
+          run(request) {
+            const packet = parseControlPacket(request);
+            assert.deepEqual(packet.claims.map(claim => claim.id), [definitionClaim.id]);
+            assert.deepEqual(packet.observations.map(observation => observation.id), ['E1']);
+            assert.doesNotMatch(JSON.stringify(packet.claims), /guarantees authentication/u);
+            return controlCompletion(verifierResponse([retryVerdict]));
+          },
+        });
+      }
+      return runTrustScript(steps, {
+        task,
+        taskMode: 'symbol_trace',
+        hints: { symbols: ['requireAuth'] },
+      });
+    };
+
+    await t.test('a supported narrow retry completes without another repository action', async () => {
+      const retryVerdict = semanticVerdict(
+        definitionClaim.id,
+        'supported',
+        ['E1'],
+      );
+      const { client, result } = await runCase({
+        initialDefinitionClaim: definitionClaim,
+        initialDefinitionVerdict: rejectedDefinitionVerdict,
+        retryVerdict,
+      });
+
+      assert.equal(result.failure, null);
+      assert.deepEqual(result.taskContract.subgoals.map(goal => goal.state),
+        ['supported', 'supported']);
+      assert.equal(result.parentHandoff.state, 'complete');
+      assert.match(result.parentHandoff.directAnswer, /throws when req\.user is absent/u);
+      assert.match(result.parentHandoff.directAnswer, /registerUserRoutes/u);
+      assert.doesNotMatch(result.parentHandoff.directAnswer, /guarantees authentication/u);
+      assert.deepEqual(providerToolActions(client).map(action => action.tool),
+        ['repo_symbol_context', 'repo_grep', 'repo_read_file']);
+      assert.deepEqual(client.stageLabels.slice(-4), [
+        'claim_synthesis:1',
+        'semantic_verifier:1',
+        'claim_synthesis:2',
+        'semantic_verifier:2',
+      ]);
+    });
+
+    await t.test('a second rejection terminates incomplete after exactly one retry', async () => {
+      const retryVerdict = {
+        ...rejectedDefinitionVerdict,
+        note: 'The narrowed definition claim is still not entailed.',
+      };
+      const { client, result } = await runCase({
+        initialDefinitionClaim: definitionClaim,
+        initialDefinitionVerdict: rejectedDefinitionVerdict,
+        retryVerdict,
+      });
+
+      assert.equal(result.failure, null);
+      assert.equal(client.stageCounts.get('claim_synthesis'), 2);
+      assert.equal(client.stageCounts.get('semantic_verifier'), 2);
+      assert.equal(client.stageCounts.get('exploration'), 4);
+      assert.deepEqual(providerToolActions(client).map(action => action.tool),
+        ['repo_symbol_context', 'repo_grep', 'repo_read_file']);
+      assert.equal(result.taskContract.subgoals[0].state, 'gap');
+      assert.equal(result.taskContract.subgoals[1].state, 'supported');
+      const definitionGap = result.coverageGaps.find(gap =>
+        gap.subgoalId === definitionGoal.id);
+      assert.equal(definitionGap?.repairable, false);
+      assert.equal(result.parentHandoff.state, 'incomplete');
+      assert.match(result.parentHandoff.directAnswer, /registerUserRoutes/u);
+      assert.doesNotMatch(result.parentHandoff.directAnswer, /guarantees authentication/u);
+    });
+
+    await t.test('a later proof-gate rejection terminates without repository repair', async () => {
+      const testDefinitionClaim = candidateClaim(
+        definitionClaim.id,
+        definitionGoal.id,
+        'requireAuth is defined in tests/auth.test.js and guarantees authentication for every route.',
+        ['E1'],
+      );
+      const testNarrowClaim = candidateClaim(
+        definitionClaim.id,
+        definitionGoal.id,
+        'requireAuth is defined in tests/auth.test.js and throws when req.user is absent; otherwise it calls next().',
+        ['E1'],
+      );
+      const testUsageClaim = candidateClaim(
+        usageClaim.id,
+        usageGoal.id,
+        'registerUserTestRoute uses requireAuth in tests/user.test.js.',
+        ['E3'],
+      );
+      const testUsageVerdict = semanticVerdict(
+        usageClaim.id,
+        'supported',
+        ['E2', 'E3'],
+      );
+      const retryVerdict = semanticVerdict(
+        definitionClaim.id,
+        'supported',
+        ['E1'],
+      );
+      const steps = buildTrustSteps({
+        goals: [definitionGoal, usageGoal],
+        initial: {
+          tools: [{
+            tool: 'repo_symbol_context',
+            args: { symbol: 'requireAuth', scope: ['tests/**'] },
+            id: 'test-role-definition',
+          }, {
+            tool: 'repo_grep',
+            args: { pattern: 'requireAuth', scope: ['tests/**'] },
+            id: 'test-role-usage-search',
+          }, {
+            tool: 'repo_read_file',
+            args: { path: 'tests/user.test.js', startLine: 1, endLine: 3 },
+            id: 'test-role-usage-read',
+          }],
+          claims: [testDefinitionClaim, testUsageClaim],
+          verdicts: [rejectedDefinitionVerdict, testUsageVerdict],
+        },
+      });
+      steps.push({
+        stage: 'claim_synthesis:2',
+        value: { claims: [testNarrowClaim] },
+      });
+      steps.push({
+        stage: 'semantic_verifier:2',
+        value: verifierResponse([retryVerdict]),
+      });
+      const { client, result } = await runTrustScript(steps, {
+        task,
+        taskMode: 'symbol_trace',
+        scope: ['tests/**'],
+        hints: { symbols: ['requireAuth'] },
+        async setup(root) {
+          await fs.mkdir(path.join(root, 'tests'), { recursive: true });
+          await fs.writeFile(path.join(root, 'tests', 'auth.test.js'), [
+            'export function requireAuth(req, res, next) {',
+            '  if (!req.user) throw new Error("unauthenticated");',
+            '  return next();',
+            '}',
+            '',
+          ].join('\n'));
+          await fs.writeFile(path.join(root, 'tests', 'user.test.js'), [
+            'import { requireAuth } from "./auth.test.js";',
+            'export const registerUserTestRoute = app => app.get("/users/me", requireAuth);',
+            '',
+          ].join('\n'));
+        },
+      });
+
+      assert.equal(result.failure, null, JSON.stringify(result.failure));
+      assert.equal(client.stageCounts.get('claim_synthesis'), 2);
+      assert.equal(client.stageCounts.get('semantic_verifier'), 2);
+      assert.deepEqual(providerToolActions(client).map(action => action.tool), [
+        'repo_symbol_context',
+        'repo_grep',
+        'repo_read_file',
+      ]);
+      assert.equal(result.taskContract.subgoals[0].state, 'gap');
+      assert.equal(result.coverageGaps.find(gap =>
+        gap.subgoalId === definitionGoal.id)?.repairable, false);
+      assert.equal(result.parentHandoff.state, 'incomplete');
+      assert.doesNotMatch(result.parentHandoff.directAnswer ?? '', /guarantees authentication/u);
+    });
+
+    await t.test('an initially supported definition does not trigger the retry', async () => {
+      const { client, result } = await runCase({
+        initialDefinitionClaim: narrowDefinitionClaim,
+        initialDefinitionVerdict: semanticVerdict(
+          definitionClaim.id,
+          'supported',
+          ['E1'],
+        ),
+        retryVerdict: null,
+      });
+
+      assert.equal(result.failure, null);
+      assert.equal(result.parentHandoff.state, 'complete');
+      assert.equal(client.stageCounts.get('claim_synthesis'), 1);
+      assert.equal(client.stageCounts.get('semantic_verifier'), 1);
+      assert.deepEqual(providerToolActions(client).map(action => action.tool),
+        ['repo_symbol_context', 'repo_grep', 'repo_read_file']);
+    });
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — bounded usage does not bind an unrelated complete search',
+  async () => {
+    const task = 'Trace every in-scope requireAuth usage.';
+    const definitionGoal = {
+      id: 'trace-unrelated-search-definition',
+      question: 'Where is requireAuth defined?',
+      originRefs: ['wrapper:trace_symbol:definition'],
+      claimType: 'symbol_definition',
+      proofCondition: 'Observe the requireAuth definition source.',
+      constraints: [],
+    };
+    const usageGoal = {
+      id: 'trace-unrelated-search-usage',
+      question: 'Where is requireAuth used?',
+      originRefs: ['wrapper:trace_symbol:usage'],
+      claimType: 'symbol_usage',
+      proofCondition: 'Cross-check every in-scope requireAuth usage.',
+      constraints: [],
+    };
+    const definitionClaim = candidateClaim(
+      'trace-unrelated-definition-claim',
+      definitionGoal.id,
+      'requireAuth is defined in src/auth.js.',
+      ['E1'],
+    );
+    const usageClaim = candidateClaim(
+      'trace-unrelated-search-claim',
+      usageGoal.id,
+      'requireAuth is used by src/routes/user.js.',
+      ['E3'],
+    );
+    const { client, result } = await runTrustScript(buildTrustSteps({
+      goals: [definitionGoal, usageGoal],
+      initial: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+          id: 'trace-unrelated-definition-source',
+        }, {
+          tool: 'repo_grep',
+          args: { pattern: 'authorize', scope: ['src'] },
+          id: 'trace-unrelated-complete-search',
+        }, {
+          tool: 'repo_read_file',
+          args: { path: 'src/routes/user.js', startLine: 1, endLine: 1 },
+          id: 'trace-unrelated-usage-source',
+        }],
+        claims: [definitionClaim, usageClaim],
+        verdicts: [
+          semanticVerdict(definitionClaim.id, 'supported', ['E1']),
+          semanticVerdict(usageClaim.id, 'insufficient', ['E3']),
+        ],
+      },
+      repair: {
+        tools: [],
+        prose: 'No exact-symbol usage search was supplied.',
+        claims: [],
+        verdicts: [],
+      },
+    }), {
+      task,
+      taskMode: 'symbol_trace',
+      hints: { symbols: ['requireAuth'] },
+      async setup(root) {
+        await fs.writeFile(
+          path.join(root, 'src', 'routes', 'user.js'),
+          'export const user = authorize(requireAuth);\n',
+        );
+      },
+    });
+
+    const verifierRequest = client.requests.find(request =>
+      classifyControlRequest(request) === 'semantic_verifier');
+    assert.ok(verifierRequest, JSON.stringify({
+      requestKinds: client.requests.map(classifyControlRequest),
+      observations: result.observations,
+      claims: result.semanticVerification?.claims,
+      failure: result.failure,
+    }));
+    const verifierPacket = parseControlPacket(verifierRequest);
+    assert.deepEqual(verifierPacket.claims
+      .find(item => item.id === usageClaim.id)?.evidenceRefs, ['E3']);
+    assert.equal(result.taskContract.subgoals
+      .find(item => item.id === usageGoal.id)?.state, 'gap');
+    assert.equal(result.parentHandoff.state, 'incomplete');
+    assert.ok(result.parentHandoff.gaps.length > 0);
+    assert.doesNotMatch(result.parentHandoff.directAnswer ?? '', /used by/u);
+  },
+);
+
+test('Spec 028 T030 — isolated semantic controls reduce claims without trusting exploration prose', async () => {
+  const goals = definitionAndAbsenceGoals();
+  const supported = candidateClaim(
+    'C-definition', goals[0].id, 'requireAuth is defined in src/auth.js.', ['E1']);
+  const mismatch = candidateClaim(
+    'C-absence', goals[1].id, 'legacyGuard is absent from every repository path.', ['E2']);
+  const privateSentinel = 'PRIVATE_EXPLORER_REASONING';
+  const steps = buildTrustSteps({
+    goals,
+    initial: {
+      tools: [
+        { tool: 'repo_read_file', args: { path: 'src/auth.js', startLine: 1, endLine: 4 }, id: 'read-auth' },
+        { tool: 'repo_grep', args: { pattern: 'legacyGuard', scope: ['src/**'] }, id: 'grep-legacy' },
+      ],
+      prose: privateSentinel,
+      claims: [supported, mismatch],
+      verifierSteps: [{
+        raw: verifierResponse([
+          semanticVerdict(supported.id, 'supported', ['E1']),
+          { ...semanticVerdict(mismatch.id, 'insufficient'), resolution: 'affirmed' },
+        ]),
+      }],
+    },
+    repair: {
+      tools: [{
+        tool: 'repo_read_file',
+        args: { path: 'src/routes/user.js', startLine: 1, endLine: 20 },
+        id: 'repair-routes',
+      }],
+      assertRequest: request => assertRepairRequest(request, {
+        question: goals[1].question,
+        anchors: ['src/auth.js', 'legacyGuard'],
+      }),
+      claims: [
+        { ...supported, evidenceRefs: ['E1', 'E3'] },
+        { ...mismatch, evidenceRefs: ['E2', 'E3'] },
+      ],
+      verdicts: [
+        semanticVerdict(supported.id, 'supported', ['E1', 'E3']),
+        semanticVerdict(mismatch.id, 'insufficient'),
+      ],
+    },
+  });
+  const { client, result } = await runTrustScript(steps);
+  assert.deepEqual(client.stageLabels, [
+    'planner:1',
+    'goal_audit:1',
+    'exploration:1',
+    'exploration:2',
+    'exploration:3',
+    'synthesis:1',
+    'claim_synthesis:1',
+    'semantic_verifier:1',
+    'exploration:4',
+    'claim_synthesis:2',
+    'semantic_verifier:2',
+  ]);
+  for (const stage of [
+    'claim_synthesis:1', 'semantic_verifier:1',
+    'claim_synthesis:2', 'semantic_verifier:2',
+  ]) {
+    const request = client.requests[client.stageLabels.indexOf(stage)];
+    assert.equal((request.tools?.length ?? 0), 0);
+    assert.doesNotMatch(JSON.stringify(request.messages), new RegExp(privateSentinel));
+  }
+  const postClaimRequest = client.requests[
+    client.stageLabels.indexOf('claim_synthesis:2')
+  ];
+  const priorPacketText = postClaimRequest.messages.findLast(message =>
+    typeof message.content === 'string' &&
+    message.content.includes('BEGIN_REQUIRED_PRIOR_CLAIMS_JSON'))?.content ?? '';
+  const priorPacketMatch = /BEGIN_REQUIRED_PRIOR_CLAIMS_JSON\n([\s\S]*?)\nEND_REQUIRED_PRIOR_CLAIMS_JSON/
+    .exec(priorPacketText);
+  assert.ok(priorPacketMatch);
+  const priorPacket = JSON.parse(priorPacketMatch[1]);
+  assert.ok(priorPacket.priorClaims.every(claim =>
+    Object.keys(claim).sort().join(',') === 'evidenceRefs,id,subgoalId,text'));
+  assert.equal(result.taskContract.subgoals.find(goal =>
+    goal.id === goals[0].id).state, 'supported');
+  assert.equal(result.taskContract.subgoals.find(goal =>
+    goal.id === goals[1].id).state, 'gap');
+  assert.ok(result.coverageGaps.some(gap =>
+    gap.subgoalId === goals[1].id && gap.reason === 'semantic_mismatch' &&
+    gap.repairable === false));
+  assert.deepEqual(result.semanticVerification.verdicts.map(verdict =>
+    [verdict.claimId, verdict.result]), [
+    ['C-definition', 'supported'],
+    ['C-absence', 'insufficient'],
+  ]);
+  assert.deepEqual(result.semanticVerification.runtimeAllowedEvidenceRefsBySubgoal
+    .map(item => [item.subgoalId, item.evidenceRefs]), [
+    ['S-definition', ['E1', 'E3']],
+    ['S-absence', ['E2', 'E3']],
+  ]);
+});
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — irrelevant model measurement cannot break or influence a non-count claim',
+  async () => {
+    const goal = definitionAndAbsenceGoals()[0];
+    const claim = {
+      ...candidateClaim(
+        'C-non-count-measurement',
+        goal.id,
+        'requireAuth is defined in src/auth.js.',
+        ['E1'],
+      ),
+      measurement: { kind: 'count', unit: 'matching_lines', value: 999 },
+    };
+    const steps = buildTrustSteps({
+      goals: [goal],
+      initial: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+          id: 'read-auth-for-non-count',
+        }],
+        claims: [claim],
+        verdicts: [semanticVerdict(claim.id, 'supported', ['E1'])],
+      },
+    });
+
+    const { result } = await runTrustScript(steps);
+    assert.equal(result.parentHandoff.state, 'complete');
+    assert.equal(result.semanticVerification.claims[0].measurement, undefined);
+    assert.equal(JSON.stringify(result.parentHandoff).includes('999'), false);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — nullable and malformed measurement noise is stripped from non-count claims',
+  async t => {
+    for (const fixture of [
+      { name: 'nullable strict-schema field', measurement: null },
+      {
+        name: 'malformed measurement object',
+        measurement: { kind: 'unsupported', unit: 42, value: 'not-a-number' },
+      },
+    ]) {
+      await t.test(fixture.name, async () => {
+        const goal = definitionAndAbsenceGoals()[0];
+        const claim = {
+          ...candidateClaim(
+            `C-non-count-${fixture.name.replaceAll(' ', '-')}`,
+            goal.id,
+            'requireAuth is defined in src/auth.js.',
+            ['E1'],
+          ),
+          measurement: fixture.measurement,
+        };
+        const { result } = await runTrustScript(buildTrustSteps({
+          goals: [goal],
+          initial: {
+            tools: [{
+              tool: 'repo_read_file',
+              args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+              id: `read-auth-${fixture.name.replaceAll(' ', '-')}`,
+            }],
+            claims: [claim],
+            verdicts: [semanticVerdict(claim.id, 'supported', ['E1'])],
+          },
+        }));
+
+        assert.equal(result.failure, null);
+        assert.equal(result.parentHandoff.state, 'complete');
+        assert.equal(result.semanticVerification.claims[0].measurement, undefined);
+      });
+    }
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — one leaf goal cannot fan out into noisy parent claims',
+  async () => {
+    const task = 'Identify the bounded requireAuth implementation.';
+    const goal = trustGoal(task, {
+      id: 'S-quiet-leaf',
+      question: task,
+      originText: task,
+      proofCondition: 'Observe the bounded requireAuth implementation source.',
+    });
+    const fragmentOne = candidateClaim(
+      'C-quiet-fragment-one', goal.id, 'requireAuth is exported.', ['E1']);
+    const fragmentTwo = candidateClaim(
+      'C-quiet-fragment-two', goal.id, 'requireAuth returns true.', ['E1']);
+    const aggregate = candidateClaim(
+      'C-quiet-aggregate', goal.id, 'requireAuth is the bounded authentication implementation.', ['E1']);
+    const steps = [
+      { stage: 'planner:1', value: plannerControl([goal]) },
+      { stage: 'goal_audit:1', value: auditorControl([auditControlRecord(goal)]) },
+      {
+        stage: 'exploration:1',
+        run: () => toolControlCompletion(
+          'repo_read_file',
+          { path: 'src/auth.js', startLine: 1, endLine: 4 },
+          'read-quiet-leaf',
+        ),
+      },
+      { stage: 'exploration:2', content: 'The bounded evidence pass is complete.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+      { stage: 'claim_synthesis:1', value: { claims: [fragmentOne, fragmentTwo] } },
+      {
+        stage: 'claim_synthesis:2',
+        run(request) {
+          const retryText = JSON.stringify(request.messages);
+          assert.match(retryText, /at most one aggregate claim/u);
+          assert.match(retryText, /zero or one aggregate claim/u);
+          return controlCompletion({ claims: [aggregate] });
+        },
+      },
+      {
+        stage: 'semantic_verifier:1',
+        value: verifierResponse([semanticVerdict(aggregate.id, 'supported', ['E1'])]),
+      },
+    ];
+
+    const { client, result } = await runTrustScript(steps, { task });
+
+    assert.equal(client.stageCounts.get('claim_synthesis'), 2);
+    assert.equal(result.failure, null);
+    assert.equal(result.parentHandoff.state, 'complete');
+    assert.equal(result.parentHandoff.directAnswer, aggregate.text);
+    assert.deepEqual(result.semanticVerification.claims.map(claim => claim.id), [aggregate.id]);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — unrequested inventory counts get one bounded claim correction',
+  async () => {
+    const task = 'At line 3 compare the source with tests and identify the test that covers the pipeline entry path.';
+    const goal = trustGoal(task, {
+      id: 'S-entry-path-test',
+      question: task,
+      originText: task,
+      proofCondition: 'Identify one exactly observed entry-path test and what it verifies.',
+    });
+    const noisy = candidateClaim(
+      'C-entry-path-test',
+      goal.id,
+      'tests/test_cli.py verifies worker fan-out, and the broader suite contains 61 test functions.',
+      ['E1'],
+    );
+    const corrected = candidateClaim(
+      noisy.id,
+      goal.id,
+      'tests/test_cli.py verifies worker fan-out for the pipeline entry path.',
+      ['E1'],
+    );
+    const steps = [
+      { stage: 'planner:1', value: plannerControl([goal]) },
+      { stage: 'goal_audit:1', value: auditorControl([auditControlRecord(goal)]) },
+      {
+        stage: 'exploration:1',
+        run: () => toolControlCompletion(
+          'repo_read_file',
+          { path: 'tests/test_cli.py', startLine: 1, endLine: 6 },
+          'read-entry-path-test',
+        ),
+      },
+      { stage: 'exploration:2', content: 'The bounded test evidence pass is complete.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+      { stage: 'claim_synthesis:1', value: { claims: [noisy] } },
+      {
+        stage: 'claim_synthesis:2',
+        run(request) {
+          const correction = JSON.stringify(request.messages);
+          assert.match(correction, /unrequested inventory count/u);
+          assert.match(correction, new RegExp(goal.id, 'u'));
+          assert.match(correction, /return only the narrow requested fact/u);
+          return controlCompletion({ claims: [corrected] });
+        },
+      },
+      {
+        stage: 'semantic_verifier:1',
+        value: verifierResponse([semanticVerdict(corrected.id, 'supported', ['E1'])]),
+      },
+    ];
+
+    const { client, result } = await runTrustScript(steps, {
+      task,
+      scope: ['tests/**'],
+      async setup(root) {
+        await fs.mkdir(path.join(root, 'tests'), { recursive: true });
+        await fs.writeFile(path.join(root, 'tests', 'test_cli.py'), [
+          'from pipeline import cli',
+          '',
+          'def test_worker_fan_out(monkeypatch):',
+          '    calls = []',
+          '    cli.main(["run", "--workers", "3"])',
+          '    assert len(calls) == 3',
+        ].join('\n'));
+      },
+    });
+
+    assert.equal(client.stageCounts.get('claim_synthesis'), 2);
+    assert.equal(result.failure, null);
+    assert.equal(result.parentHandoff.state, 'complete');
+    assert.equal(result.parentHandoff.directAnswer, corrected.text);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — partial test inventories get one bounded claim correction',
+  async () => {
+    const task = 'Identify the test that covers the pipeline entry path.';
+    const goal = trustGoal(task, {
+      id: 'S-partial-test-inventory',
+      question: task,
+      originText: task,
+      proofCondition: 'Identify one exactly observed entry-path test and what it verifies.',
+    });
+    const noisy = candidateClaim(
+      'C-partial-test-inventory',
+      goal.id,
+      'Four test files cover the entry path: test_cli, test_orchestrator, test_handlers, and test_db.',
+      ['E1', 'E2', 'E3', 'E4'],
+    );
+    const corrected = candidateClaim(
+      noisy.id,
+      goal.id,
+      'tests/test_cli.py verifies the pipeline entry path.',
+      ['E1'],
+    );
+    const testFiles = [
+      'test_cli.py',
+      'test_orchestrator.py',
+      'test_handlers.py',
+      'test_db.py',
+    ];
+    const steps = [
+      { stage: 'planner:1', value: plannerControl([goal]) },
+      { stage: 'goal_audit:1', value: auditorControl([auditControlRecord(goal)]) },
+      ...testFiles.map((file, index) => ({
+        stage: `exploration:${index + 1}`,
+        run: () => toolControlCompletion(
+          'repo_read_file',
+          { path: `tests/${file}`, startLine: 1, endLine: 3 },
+          `read-partial-inventory-${index + 1}`,
+        ),
+      })),
+      { stage: 'exploration:5', content: 'The bounded test evidence pass is complete.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+      { stage: 'claim_synthesis:1', value: { claims: [noisy] } },
+      {
+        stage: 'claim_synthesis:2',
+        run(request) {
+          const correction = JSON.stringify(request.messages);
+          assert.match(correction, /multiple test paths as a partial suite inventory/u);
+          assert.match(correction, /at most one exactly observed test path/u);
+          return controlCompletion({ claims: [corrected] });
+        },
+      },
+      {
+        stage: 'semantic_verifier:1',
+        value: verifierResponse([semanticVerdict(corrected.id, 'supported', ['E1'])]),
+      },
+    ];
+
+    const { client, result } = await runTrustScript(steps, {
+      task,
+      scope: ['tests/**'],
+      hints: { files: testFiles.map(file => `tests/${file}`) },
+      async setup(root) {
+        await fs.mkdir(path.join(root, 'tests'), { recursive: true });
+        await Promise.all(testFiles.map((file, index) => fs.writeFile(
+          path.join(root, 'tests', file),
+          `def test_pipeline_entry_${index + 1}():\n    assert True\n`,
+        )));
+      },
+    });
+
+    assert.equal(client.stageCounts.get('claim_synthesis'), 2);
+    assert.equal(result.failure, null, JSON.stringify(client.stageLabels));
+    assert.equal(result.parentHandoff.state, 'complete');
+    assert.equal(result.parentHandoff.directAnswer, corrected.text);
+    assert.deepEqual(result.semanticVerification.claims.map(claim => claim.evidenceRefs), [['E1']]);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — a test claim without a current test source gets one bounded correction',
+  async () => {
+    const task = 'Identify the test that covers the pipeline entry path.';
+    const goal = trustGoal(task, {
+      id: 'S-missing-test-source',
+      question: task,
+      originText: task,
+      proofCondition: 'Identify one exactly observed entry-path test and what it verifies.',
+    });
+    const unsupported = candidateClaim(
+      'C-missing-test-source',
+      goal.id,
+      'The pipeline entry path forwards the configured worker count.',
+      ['E1'],
+    );
+    const corrected = candidateClaim(
+      unsupported.id,
+      goal.id,
+      'tests/test_cli.py verifies worker-count forwarding for the pipeline entry path.',
+      ['E2'],
+    );
+    const steps = [
+      { stage: 'planner:1', value: plannerControl([goal]) },
+      { stage: 'goal_audit:1', value: auditorControl([auditControlRecord(goal)]) },
+      {
+        stage: 'exploration:1',
+        run: () => toolControlCompletion(
+          'repo_read_file',
+          { path: 'pipeline/cli.py', startLine: 1, endLine: 3 },
+          'read-missing-test-source-implementation',
+        ),
+      },
+      {
+        stage: 'exploration:2',
+        run: () => toolControlCompletion(
+          'repo_read_file',
+          { path: 'tests/test_cli.py', startLine: 1, endLine: 3 },
+          'read-missing-test-source-test',
+        ),
+      },
+      { stage: 'exploration:3', content: 'The bounded test evidence pass is complete.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+      { stage: 'claim_synthesis:1', value: { claims: [unsupported] } },
+      {
+        stage: 'claim_synthesis:2',
+        run(request) {
+          const correction = JSON.stringify(request.messages);
+          assert.match(correction, /no current test path/u);
+          assert.match(correction, /exactly one observed current test path/u);
+          return controlCompletion({ claims: [corrected] });
+        },
+      },
+      {
+        stage: 'semantic_verifier:1',
+        value: verifierResponse([semanticVerdict(corrected.id, 'supported', ['E2'])]),
+      },
+    ];
+
+    const { client, result } = await runTrustScript(steps, {
+      task,
+      scope: ['pipeline/**', 'tests/**'],
+      async setup(root) {
+        await fs.mkdir(path.join(root, 'pipeline'), { recursive: true });
+        await fs.mkdir(path.join(root, 'tests'), { recursive: true });
+        await fs.writeFile(path.join(root, 'pipeline', 'cli.py'),
+          'def main():\n    return run_worker()\n');
+        await fs.writeFile(path.join(root, 'tests', 'test_cli.py'),
+          'def test_worker_count():\n    assert main() == 0\n');
+      },
+    });
+
+    assert.equal(client.stageCounts.get('claim_synthesis'), 2);
+    assert.equal(result.failure, null, JSON.stringify(client.stageLabels));
+    assert.equal(result.parentHandoff.state, 'complete');
+    assert.equal(result.parentHandoff.directAnswer, corrected.text);
+    assert.deepEqual(result.parentHandoff.evidence.map(item => item.path), ['tests/test_cli.py']);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — a bounded test claim preserves its cited test path for the parent',
+  async () => {
+    const task = 'Identify the test that covers the pipeline entry path.';
+    const goal = trustGoal(task, {
+      id: 'S-bounded-test-path',
+      question: task,
+      originText: task,
+      proofCondition: 'Identify one exactly observed entry-path test and what it verifies.',
+    });
+    const claim = candidateClaim(
+      'C-bounded-test-path',
+      goal.id,
+      'The CLI tests verify worker fan-out and limit forwarding for the pipeline entry path.',
+      ['E1', 'E2'],
+    );
+    const expectedText = `tests/test_cli.py: ${claim.text}`;
+    const steps = [
+      { stage: 'planner:1', value: plannerControl([goal]) },
+      { stage: 'goal_audit:1', value: auditorControl([auditControlRecord(goal)]) },
+      {
+        stage: 'exploration:1',
+        run: () => toolControlCompletion(
+          'repo_read_file',
+          { path: 'pipeline/cli.py', startLine: 1, endLine: 3 },
+          'read-bounded-test-implementation',
+        ),
+      },
+      {
+        stage: 'exploration:2',
+        run: () => toolControlCompletion(
+          'repo_read_file',
+          { path: 'tests/test_cli.py', startLine: 1, endLine: 3 },
+          'read-bounded-test-source',
+        ),
+      },
+      { stage: 'exploration:3', content: 'The bounded test evidence pass is complete.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+      { stage: 'claim_synthesis:1', value: { claims: [claim] } },
+      {
+        stage: 'semantic_verifier:1',
+        run(request) {
+          const [candidate] = parseControlPacket(request).claims;
+          assert.equal(candidate.text, expectedText);
+          return controlCompletion(verifierResponse([
+            semanticVerdict(claim.id, 'supported', ['E1', 'E2']),
+          ]));
+        },
+      },
+    ];
+
+    const { result } = await runTrustScript(steps, {
+      task,
+      scope: ['pipeline/**', 'tests/**'],
+      hints: { files: ['tests/stale.py'] },
+      async setup(root) {
+        await fs.mkdir(path.join(root, 'pipeline'), { recursive: true });
+        await fs.mkdir(path.join(root, 'tests'), { recursive: true });
+        await fs.writeFile(path.join(root, 'pipeline', 'cli.py'),
+          'def main():\n    return run_worker()\n');
+        await fs.writeFile(path.join(root, 'tests', 'test_cli.py'),
+          'def test_worker_fan_out():\n    assert main() == 0\n');
+      },
+    });
+
+    assert.equal(result.failure, null);
+    assert.equal(result.parentHandoff.state, 'complete');
+    assert.equal(result.parentHandoff.directAnswer, expectedText);
+    assert.deepEqual(result.parentHandoff.evidence.map(item => item.path), [
+      'pipeline/cli.py',
+      'tests/test_cli.py',
+    ]);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — a single observed known test anchor rejects a discovered substitute once',
+  async () => {
+    const task = 'Identify the test that covers the pipeline entry path.';
+    const goal = trustGoal(task, {
+      id: 'S-known-entry-path-test',
+      question: task,
+      originText: task,
+      proofCondition: 'Identify one exactly observed entry-path test and what it verifies.',
+    });
+    const substituted = candidateClaim(
+      'C-known-entry-path-test',
+      goal.id,
+      'tests/test_orchestrator.py verifies the pipeline entry path.',
+      ['E2'],
+    );
+    const corrected = candidateClaim(
+      substituted.id,
+      goal.id,
+      'tests/test_cli.py verifies worker fan-out for the pipeline entry path.',
+      ['E1'],
+    );
+    const steps = [
+      { stage: 'planner:1', value: plannerControl([goal]) },
+      { stage: 'goal_audit:1', value: auditorControl([auditControlRecord(goal)]) },
+      {
+        stage: 'exploration:1',
+        run: () => toolControlCompletion(
+          'repo_read_file',
+          { path: 'tests/test_cli.py', startLine: 1, endLine: 3 },
+          'read-known-entry-path-test',
+        ),
+      },
+      {
+        stage: 'exploration:2',
+        run: () => toolControlCompletion(
+          'repo_read_file',
+          { path: 'tests/test_orchestrator.py', startLine: 1, endLine: 3 },
+          'read-discovered-orchestrator-test',
+        ),
+      },
+      { stage: 'exploration:3', content: 'The bounded test evidence pass is complete.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+      {
+        stage: 'claim_synthesis:1',
+        run(request) {
+          const packet = parseControlPacket(request);
+          assert.equal(request.temperature, 0);
+          assert.equal(request.topP, 1);
+          assert.deepEqual(packet.control.knownTestAnchor, {
+            subgoalId: goal.id,
+            evidenceRefs: ['E1'],
+          });
+          assert.deepEqual(packet.observations.map(observation => observation.id), ['E1']);
+          return controlCompletion({ claims: [substituted] });
+        },
+      },
+      {
+        stage: 'claim_synthesis:2',
+        run(request) {
+          assert.equal(request.temperature, 0);
+          assert.equal(request.topP, 1);
+          const correction = request.messages
+            .map(message => typeof message.content === 'string' ? message.content : '')
+            .join('\n');
+          assert.match(correction, /single observed parent-provided known test anchor/u);
+          assert.match(correction, /Known-anchor observation refs: \["E1"\]/u);
+          assert.match(correction, /do not promote a different test/u);
+          return controlCompletion({ claims: [corrected] });
+        },
+      },
+      {
+        stage: 'semantic_verifier:1',
+        value: verifierResponse([semanticVerdict(corrected.id, 'supported', ['E1'])]),
+      },
+    ];
+
+    const { client, result } = await runTrustScript(steps, {
+      task,
+      scope: ['pipeline/**', 'tests/**'],
+      hints: {
+        files: [
+          'pipeline/cli.py',
+          'tests/test_cli.py',
+          'tests/stale.py',
+          'pipeline/config.py',
+        ],
+      },
+      async setup(root) {
+        await fs.mkdir(path.join(root, 'pipeline'), { recursive: true });
+        await fs.mkdir(path.join(root, 'tests'), { recursive: true });
+        await fs.writeFile(path.join(root, 'pipeline', 'cli.py'),
+          'def main():\n    return run_worker()\n');
+        await fs.writeFile(path.join(root, 'pipeline', 'config.py'),
+          'WORKERS = 3\n');
+        await fs.writeFile(path.join(root, 'tests', 'test_cli.py'),
+          'def test_worker_fan_out():\n    assert main() == 0\n');
+        await fs.writeFile(path.join(root, 'tests', 'test_orchestrator.py'),
+          'def test_drain_queue():\n    assert drain() == 0\n');
+      },
+    });
+
+    assert.equal(client.stageCounts.get('claim_synthesis'), 2);
+    assert.equal(result.failure, null, JSON.stringify(client.stageLabels));
+    assert.equal(result.parentHandoff.state, 'complete');
+    assert.equal(result.parentHandoff.directAnswer, corrected.text);
+    assert.deepEqual(result.parentHandoff.evidence.map(item => item.path), ['tests/test_cli.py']);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — an observed single known test anchor gets one bounded omission correction',
+  async () => {
+    const task = 'Identify the test that covers the pipeline entry path.';
+    const goal = trustGoal(task, {
+      id: 'S-omitted-known-entry-path-test',
+      question: task,
+      originText: task,
+      proofCondition: 'Identify one exactly observed entry-path test and what it verifies.',
+    });
+    const corrected = candidateClaim(
+      'C-omitted-known-entry-path-test',
+      goal.id,
+      'tests/test_cli.py verifies worker fan-out for the pipeline entry path.',
+      ['E1'],
+    );
+    const steps = [
+      { stage: 'planner:1', value: plannerControl([goal]) },
+      { stage: 'goal_audit:1', value: auditorControl([auditControlRecord(goal)]) },
+      {
+        stage: 'exploration:1',
+        run: () => toolControlCompletion(
+          'repo_read_file',
+          { path: 'tests/test_cli.py', startLine: 1, endLine: 3 },
+          'read-omitted-known-entry-path-test',
+        ),
+      },
+      { stage: 'exploration:2', content: 'The bounded test evidence pass is complete.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+      { stage: 'claim_synthesis:1', value: { claims: [] } },
+      {
+        stage: 'claim_synthesis:2',
+        run(request) {
+          const correction = JSON.stringify(request.messages);
+          assert.match(correction, /returned no claim despite a single observed/u);
+          assert.match(correction, /otherwise[\s\S]*explicit gap/u);
+          return controlCompletion({ claims: [corrected] });
+        },
+      },
+      {
+        stage: 'semantic_verifier:1',
+        value: verifierResponse([semanticVerdict(corrected.id, 'supported', ['E1'])]),
+      },
+    ];
+
+    const { client, result } = await runTrustScript(steps, {
+      task,
+      scope: ['tests/**'],
+      hints: { files: ['tests/test_cli.py'] },
+      async setup(root) {
+        await fs.mkdir(path.join(root, 'tests'), { recursive: true });
+        await fs.writeFile(path.join(root, 'tests', 'test_cli.py'),
+          'def test_worker_fan_out():\n    assert main() == 0\n');
+      },
+    });
+
+    assert.equal(client.stageCounts.get('claim_synthesis'), 2);
+    assert.equal(result.failure, null, JSON.stringify(client.stageLabels));
+    assert.equal(result.parentHandoff.state, 'complete');
+    assert.equal(result.parentHandoff.directAnswer, corrected.text);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — a direct-source sibling keeps the shared known-anchor batch',
+  async () => {
+    const task = 'Identify the test that covers the pipeline entry path and identify the runtime config source.';
+    const goals = [
+      trustGoal(task, {
+        id: 'S-focused-entry-test',
+        question: 'Which test covers the pipeline entry path?',
+        originText: 'Identify the test that covers the pipeline entry path',
+        proofCondition: 'Identify one current entry-path test and what it verifies.',
+      }),
+      trustGoal(task, {
+        id: 'S-runtime-config-source',
+        question: 'Which source defines the runtime config?',
+        originText: 'identify the runtime config source',
+        proofCondition: 'Identify the current source that defines the runtime config.',
+      }),
+    ];
+    const claims = [
+      candidateClaim(
+        'C-focused-entry-test',
+        goals[0].id,
+        'tests/test_cli.py verifies worker fan-out for the pipeline entry path.',
+        ['E1'],
+      ),
+      candidateClaim(
+        'C-runtime-config-source',
+        goals[1].id,
+        'pipeline/config.py defines the runtime worker configuration.',
+        ['E2'],
+      ),
+    ];
+    const steps = [
+      { stage: 'planner:1', value: plannerControl(goals) },
+      {
+        stage: 'goal_audit:1',
+        value: auditorControl(goals.map(goal => auditControlRecord(goal))),
+      },
+      {
+        stage: 'exploration:1',
+        run: () => toolControlCompletion(
+          'repo_read_file',
+          { path: 'tests/test_cli.py', startLine: 1, endLine: 3 },
+          'read-focused-entry-test',
+        ),
+      },
+      {
+        stage: 'exploration:2',
+        run: () => toolControlCompletion(
+          'repo_read_file',
+          { path: 'pipeline/config.py', startLine: 1, endLine: 2 },
+          'read-runtime-config',
+        ),
+      },
+      {
+        stage: 'exploration:3',
+        run: () => toolControlCompletion(
+          'repo_read_file',
+          { path: 'tests/test_orchestrator.py', startLine: 1, endLine: 2 },
+          'read-unrelated-orchestrator-test',
+        ),
+      },
+      { stage: 'exploration:4', content: 'The bounded direct-source pass is complete.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+      {
+        stage: 'claim_synthesis:1',
+        run(request) {
+          const packet = parseControlPacket(request);
+          assert.deepEqual(packet.control.requiredSubgoals.map(goal => goal.id),
+            goals.map(goal => goal.id));
+          assert.ok(packet.observations.some(observation => observation.id === 'E1'));
+          assert.ok(packet.observations.some(observation => observation.id === 'E2'));
+          assert.ok(packet.observations.some(observation => observation.id === 'E3'));
+          assert.deepEqual(packet.control.knownTestAnchor, {
+            subgoalId: goals[0].id,
+            evidenceRefs: ['E1'],
+          });
+          assert.equal(request.temperature, 1);
+          assert.equal(request.topP, 0.95);
+          return controlCompletion({ claims });
+        },
+      },
+      {
+        stage: 'semantic_verifier:1',
+        value: verifierResponse(claims.map(claim =>
+          semanticVerdict(claim.id, 'supported', claim.evidenceRefs))),
+      },
+    ];
+
+    const { client, result } = await runTrustScript(steps, {
+      task,
+      scope: ['pipeline/**', 'tests/**'],
+      hints: { files: ['tests/test_cli.py', 'pipeline/config.py'] },
+      async setup(root) {
+        await fs.mkdir(path.join(root, 'pipeline'), { recursive: true });
+        await fs.mkdir(path.join(root, 'tests'), { recursive: true });
+        await fs.writeFile(path.join(root, 'pipeline', 'config.py'),
+          'WORKERS = 3\n');
+        await fs.writeFile(path.join(root, 'tests', 'test_cli.py'),
+          'def test_worker_fan_out():\n    assert main() == 0\n');
+        await fs.writeFile(path.join(root, 'tests', 'test_orchestrator.py'),
+          'def test_drain_queue():\n    assert drain() == 0\n');
+      },
+    });
+
+    assert.equal(client.stageCounts.get('claim_synthesis'), 1);
+    assert.equal(result.failure, null, JSON.stringify(client.stageLabels));
+    assert.equal(result.parentHandoff.state, 'complete');
+    assert.deepEqual(result.taskContract.subgoals.map(goal => [goal.id, goal.state]), [
+      [goals[0].id, 'supported'],
+      [goals[1].id, 'supported'],
+    ]);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T071 — a mixed known-test category anomaly gets one recheck per Explorer call',
+  async () => {
+    const task = 'Identify the entry-path test and map every runtime configuration input.';
+    const goals = [
+      trustGoal(task, {
+        id: 'S-entry-path-test',
+        question: 'Which test covers the entry path?',
+        originText: 'Identify the entry-path test',
+        proofCondition: 'Identify one current entry-path test and what it verifies.',
+      }),
+      trustGoal(task, {
+        id: 'S-runtime-inputs',
+        question: 'Which sources define every runtime configuration input?',
+        originText: 'map every runtime configuration input',
+        claimType: 'impact',
+        proofCondition: 'Identify every current configuration source required at runtime.',
+      }),
+    ];
+    const claims = [
+      candidateClaim(
+        'C-entry-path-test',
+        goals[0].id,
+        'tests/test_cli.py verifies worker fan-out for the pipeline entry path.',
+        ['E1'],
+      ),
+      candidateClaim(
+        'C-runtime-inputs',
+        goals[1].id,
+        'pipeline/config.py defines the runtime worker configuration.',
+        ['E2'],
+      ),
+    ];
+    const repairedClaims = [
+      { ...claims[0] },
+      { ...claims[1], evidenceRefs: ['E2', 'E3'] },
+    ];
+    const missingCategory = (claim, refs) => ({
+      ...semanticVerdict(claim.id, 'insufficient', refs),
+      reasonCode: 'missing_category',
+    });
+    const steps = buildTrustSteps({
+      goals,
+      initial: {
+        tools: [
+          {
+            tool: 'repo_read_file',
+            args: { path: 'tests/test_cli.py', startLine: 1, endLine: 3 },
+            id: 'read-entry-path-test',
+          },
+          {
+            tool: 'repo_read_file',
+            args: { path: 'pipeline/config.py', startLine: 1, endLine: 2 },
+            id: 'read-runtime-config',
+          },
+        ],
+        claims,
+        verifierSteps: [
+          {
+            verdicts: [
+              missingCategory(claims[0], ['E1']),
+              missingCategory(claims[1], ['E2']),
+            ],
+          },
+          {
+            verdicts: [semanticVerdict(claims[0].id, 'supported', ['E1'])],
+            assertRequest(request) {
+              const packet = parseControlPacket(request);
+              assert.deepEqual(packet.claims.map(claim => claim.id), [claims[0].id]);
+              assert.deepEqual(packet.observations.map(observation => observation.id), ['E1']);
+              assert.equal(request.temperature, 0);
+              assert.equal(request.topP, 1);
+            },
+          },
+        ],
+      },
+      repair: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'docs/runtime.md', startLine: 1, endLine: 2 },
+          id: 'read-runtime-doc',
+        }],
+        claims: repairedClaims,
+        verifierSteps: [{
+          verdicts: [
+            missingCategory(repairedClaims[0], ['E1']),
+            missingCategory(repairedClaims[1], ['E2', 'E3']),
+          ],
+          assertRequest(request) {
+            const packet = parseControlPacket(request);
+            assert.deepEqual(packet.claims.map(claim => claim.id), claims.map(claim => claim.id));
+            assert.deepEqual(packet.control.freshEvidenceRefs, ['E3']);
+          },
+        }],
+      },
+    });
+
+    const { client, result } = await runTrustScript(steps, {
+      task,
+      scope: ['pipeline/**', 'tests/**', 'docs/**'],
+      hints: { files: ['tests/test_cli.py', 'pipeline/config.py'] },
+      async setup(root) {
+        await fs.mkdir(path.join(root, 'pipeline'), { recursive: true });
+        await fs.mkdir(path.join(root, 'tests'), { recursive: true });
+        await fs.mkdir(path.join(root, 'docs'), { recursive: true });
+        await fs.writeFile(path.join(root, 'pipeline', 'config.py'),
+          'WORKERS = 3\n');
+        await fs.writeFile(path.join(root, 'tests', 'test_cli.py'),
+          'def test_worker_fan_out():\n    assert main() == 0\n');
+        await fs.writeFile(path.join(root, 'docs', 'runtime.md'),
+          '# Runtime\nUse the configured worker count.\n');
+      },
+    });
+
+    assert.equal(result.failure, null, JSON.stringify(client.stageLabels));
+    assert.equal(client.stageCounts.get('semantic_verifier'), 3,
+      'the unrelated repair pass must reuse the first focused affirmation without another call');
+    assert.equal(providerToolActions(client).length, 3);
+    assert.equal(result.parentHandoff.state, 'incomplete');
+    assert.deepEqual(result.taskContract.subgoals.map(goal => goal.state), ['supported', 'gap']);
+    assert.deepEqual(result.parentHandoff.evidence.map(item => item.path), ['tests/test_cli.py']);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T071 — optional known-test recheck failures preserve the primary gap',
+  async t => {
+    for (const scenario of [
+      { name: 'invalid focused output', kind: 'invalid', expectedVerifierCalls: 2 },
+      { name: 'focused provider failure', kind: 'provider', expectedVerifierCalls: 2 },
+    ]) {
+      await t.test(scenario.name, async () => {
+        const task = 'Identify the entry-path test and map its testing impact.';
+        const goals = [
+          trustGoal(task, {
+            id: 'S-fallback-entry-path-test',
+            question: 'Which test covers the entry path?',
+            originText: 'Identify the entry-path test',
+            proofCondition: 'Identify one current entry-path test and what it verifies.',
+          }),
+          trustGoal(task, {
+            id: 'S-fallback-testing-impact',
+            question: 'What is the testing impact?',
+            originText: 'map its testing impact',
+            claimType: 'impact',
+            proofCondition: 'Identify the current test impact surface.',
+          }),
+        ];
+        const claims = [
+          candidateClaim(
+            'C-fallback-entry-path-test',
+            goals[0].id,
+            'tests/test_cli.py verifies worker fan-out for the pipeline entry path.',
+            ['E1'],
+          ),
+          candidateClaim(
+            'C-fallback-testing-impact',
+            goals[1].id,
+            'tests/test_cli.py is the observed testing impact surface.',
+            ['E1'],
+          ),
+        ];
+        const missingCategory = claim => ({
+          ...semanticVerdict(claim.id, 'insufficient', ['E1']),
+          reasonCode: 'missing_category',
+        });
+        const focusedFailureSteps = scenario.kind === 'invalid'
+          ? [{ stage: 'semantic_verifier:2', value: {} }]
+          : [{
+              stage: 'semantic_verifier:2',
+              run() {
+                const error = new Error('focused verifier unavailable');
+                error.retryable = false;
+                throw error;
+              },
+            }];
+        const steps = [
+          { stage: 'planner:1', value: plannerControl(goals) },
+          {
+            stage: 'goal_audit:1',
+            value: auditorControl(goals.map(goal => auditControlRecord(goal))),
+          },
+          {
+            stage: 'exploration:1',
+            run: () => toolControlCompletion(
+              'repo_read_file',
+              { path: 'tests/test_cli.py', startLine: 1, endLine: 3 },
+              'read-fallback-entry-path-test',
+            ),
+          },
+          { stage: 'exploration:2', content: 'The bounded test pass is complete.' },
+          { stage: 'synthesis:1', value: readyExplorationResult() },
+          { stage: 'claim_synthesis:1', value: { claims: [claims[0]] } },
+          { stage: 'claim_synthesis:2', value: { claims: [claims[1]] } },
+          {
+            stage: 'semantic_verifier:1',
+            value: verifierResponse(claims.map(missingCategory)),
+          },
+          ...focusedFailureSteps,
+          { stage: 'exploration:3', content: 'No materially new repair action remains.' },
+        ];
+
+        const { client, result } = await runTrustScript(steps, {
+          task,
+          scope: ['tests/**'],
+          hints: { files: ['tests/test_cli.py'] },
+          async setup(root) {
+            await fs.mkdir(path.join(root, 'tests'), { recursive: true });
+            await fs.writeFile(path.join(root, 'tests', 'test_cli.py'),
+              'def test_worker_fan_out():\n    assert main() == 0\n');
+          },
+        });
+
+        assert.equal(result.failure, null, JSON.stringify(client.stageLabels));
+        assert.equal(client.stageCounts.get('semantic_verifier'), scenario.expectedVerifierCalls);
+        assert.equal(providerToolActions(client).length, 1);
+        assert.equal(result.parentHandoff.state, 'incomplete');
+        assert.deepEqual(result.taskContract.subgoals.map(goal => goal.state), ['gap', 'gap']);
+      });
+    }
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T071 — known test anchor rechecks are anomaly-only and fail closed',
+  async t => {
+    for (const scenario of [
+      {
+        name: 'a non-affirming focused recheck cannot promote the test claim',
+        primaryTestResult: 'insufficient',
+        focusResolution: 'refuted',
+        expectedVerifierCalls: 2,
+        expectedTestState: 'gap',
+      },
+      {
+        name: 'an affirmed primary verdict does not trigger a focused recheck',
+        primaryTestResult: 'supported',
+        focusResolution: null,
+        expectedVerifierCalls: 1,
+        expectedTestState: 'supported',
+      },
+    ]) {
+      await t.test(scenario.name, async () => {
+    const task = 'Identify the entry-path test and map its testing impact.';
+    const goals = [
+      trustGoal(task, {
+        id: 'S-rejected-entry-path-test',
+        question: 'Which test covers the entry path?',
+        originText: 'Identify the entry-path test',
+        proofCondition: 'Identify one current entry-path test and what it verifies.',
+      }),
+      trustGoal(task, {
+        id: 'S-testing-impact',
+        question: 'What is the testing impact?',
+        originText: 'map its testing impact',
+        claimType: 'impact',
+        proofCondition: 'Identify the current test impact surface.',
+      }),
+    ];
+    const claims = [
+      candidateClaim(
+        'C-rejected-entry-path-test',
+        goals[0].id,
+        'tests/test_cli.py verifies worker fan-out for the pipeline entry path.',
+        ['E1'],
+      ),
+      candidateClaim(
+        'C-testing-impact',
+        goals[1].id,
+        'tests/test_cli.py is the observed testing impact surface.',
+        ['E1'],
+      ),
+    ];
+    const steps = [
+      { stage: 'planner:1', value: plannerControl(goals) },
+      {
+        stage: 'goal_audit:1',
+        value: auditorControl(goals.map(goal => auditControlRecord(goal))),
+      },
+      {
+        stage: 'exploration:1',
+        run: () => toolControlCompletion(
+          'repo_read_file',
+          { path: 'tests/test_cli.py', startLine: 1, endLine: 3 },
+          'read-rejected-entry-path-test',
+        ),
+      },
+      { stage: 'exploration:2', content: 'The bounded test pass is complete.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+      { stage: 'claim_synthesis:1', value: { claims: [claims[0]] } },
+      { stage: 'claim_synthesis:2', value: { claims: [claims[1]] } },
+      {
+        stage: 'semantic_verifier:1', value: verifierResponse([
+          scenario.primaryTestResult === 'supported'
+            ? semanticVerdict(claims[0].id, 'supported', ['E1'])
+            : {
+                ...semanticVerdict(claims[0].id, 'insufficient', ['E1']),
+                reasonCode: 'missing_category',
+              },
+          {
+            ...semanticVerdict(claims[1].id, 'insufficient', ['E1']),
+            reasonCode: 'missing_category',
+          },
+        ]),
+      },
+      ...(scenario.focusResolution ? [{
+          stage: 'semantic_verifier:2',
+          run(request) {
+            const packet = parseControlPacket(request);
+            assert.deepEqual(packet.claims.map(item => item.id), [claims[0].id]);
+            assert.deepEqual(packet.observations.map(observation => observation.id), ['E1']);
+            assert.equal(request.temperature, 0);
+            assert.equal(request.topP, 1);
+            return controlCompletion(verifierResponse([{
+              ...semanticVerdict(claims[0].id, 'supported', ['E1']),
+              resolution: scenario.focusResolution,
+            }]));
+          },
+        },
+      ] : []),
+      { stage: 'exploration:3', content: 'No materially new repair action remains.' },
+    ];
+
+    const { client, result } = await runTrustScript(steps, {
+      task,
+      scope: ['tests/**'],
+      hints: { files: ['tests/test_cli.py'] },
+      async setup(root) {
+        await fs.mkdir(path.join(root, 'tests'), { recursive: true });
+        await fs.writeFile(path.join(root, 'tests', 'test_cli.py'),
+          'def test_worker_fan_out():\n    assert main() == 0\n');
+      },
+    });
+
+    assert.equal(result.failure, null, JSON.stringify(client.stageLabels));
+    assert.equal(client.stageCounts.get('semantic_verifier'), scenario.expectedVerifierCalls);
+    assert.equal(providerToolActions(client).length, 1);
+    assert.equal(result.parentHandoff.state, 'incomplete');
+    assert.equal(result.taskContract.subgoals[0].state, scenario.expectedTestState);
+    assert.equal(result.taskContract.subgoals[1].state, 'gap');
+    if (scenario.expectedTestState === 'gap') {
+      assert.equal(result.parentHandoff.directAnswer, undefined);
+      assert.equal(result.parentHandoff.evidence, undefined);
+    } else {
+      assert.deepEqual(result.parentHandoff.evidence.map(item => item.path), ['tests/test_cli.py']);
+    }
+      });
+    }
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T071 — partial primary support cannot trigger a known test anchor recheck',
+  async () => {
+    const task = 'Identify the entry-path test and map every runtime configuration input.';
+    const goals = [
+      trustGoal(task, {
+        id: 'S-partial-entry-path-test',
+        question: 'Which test covers the entry path?',
+        originText: 'Identify the entry-path test',
+        proofCondition: 'Identify one current entry-path test and what it verifies.',
+      }),
+      trustGoal(task, {
+        id: 'S-partial-runtime-inputs',
+        question: 'Which sources define every runtime configuration input?',
+        originText: 'map every runtime configuration input',
+        claimType: 'impact',
+        proofCondition: 'Identify every current configuration source required at runtime.',
+      }),
+    ];
+    const claims = [
+      candidateClaim(
+        'C-partial-entry-path-test',
+        goals[0].id,
+        'tests/test_cli.py verifies worker fan-out and limit forwarding.',
+        ['E1', 'E2'],
+      ),
+      candidateClaim(
+        'C-partial-runtime-inputs',
+        goals[1].id,
+        'pipeline/config.py defines the runtime worker configuration.',
+        ['E3'],
+      ),
+    ];
+    const steps = buildTrustSteps({
+      goals,
+      initial: {
+        tools: [
+          {
+            tool: 'repo_read_file',
+            args: { path: 'tests/test_cli.py', startLine: 1, endLine: 2 },
+            id: 'read-entry-test-head',
+          },
+          {
+            tool: 'repo_read_file',
+            args: { path: 'tests/test_cli.py', startLine: 3, endLine: 4 },
+            id: 'read-entry-test-tail',
+          },
+          {
+            tool: 'repo_read_file',
+            args: { path: 'pipeline/config.py', startLine: 1, endLine: 2 },
+            id: 'read-partial-runtime-config',
+          },
+        ],
+        claims,
+        verdicts: [
+          {
+            ...semanticVerdict(claims[0].id, 'insufficient', ['E1']),
+            reasonCode: 'missing_category',
+          },
+          {
+            ...semanticVerdict(claims[1].id, 'insufficient', ['E3']),
+            reasonCode: 'missing_category',
+          },
+        ],
+      },
+      repair: { tools: [], claims: [], verdicts: [] },
+    });
+
+    const { client, result } = await runTrustScript(steps, {
+      task,
+      scope: ['pipeline/**', 'tests/**'],
+      hints: { files: ['tests/test_cli.py', 'pipeline/config.py'] },
+      async setup(root) {
+        await fs.mkdir(path.join(root, 'pipeline'), { recursive: true });
+        await fs.mkdir(path.join(root, 'tests'), { recursive: true });
+        await fs.writeFile(path.join(root, 'pipeline', 'config.py'),
+          'WORKERS = 3\n');
+        await fs.writeFile(path.join(root, 'tests', 'test_cli.py'),
+          'def test_worker_fan_out():\n    assert main() == 0\n' +
+          'def test_limit_forwarding():\n    assert main() == 0\n');
+      },
+    });
+
+    assert.equal(result.failure, null, JSON.stringify(client.stageLabels));
+    assert.equal(client.stageCounts.get('semantic_verifier'), 1);
+    assert.equal(result.parentHandoff.state, 'incomplete');
+    assert.deepEqual(result.taskContract.subgoals.map(goal => goal.state), ['gap', 'gap']);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — one known test anchor is not forced across split test batches',
+  async () => {
+    const task = 'Identify the auth test, count config entries, and identify the billing test.';
+    const goals = [
+      trustGoal(task, {
+        id: 'S-auth-test',
+        question: 'Which test verifies auth?',
+        originText: 'Identify the auth test',
+        proofCondition: 'Identify the current test that verifies auth.',
+      }),
+      trustGoal(task, {
+        id: 'S-config-count',
+        question: 'How many config entries exist?',
+        originText: 'count config entries',
+        claimType: 'count',
+        proofCondition: 'Count complete current config entries.',
+      }),
+      trustGoal(task, {
+        id: 'S-billing-test',
+        question: 'Which test verifies billing?',
+        originText: 'identify the billing test',
+        proofCondition: 'Identify the current test that verifies billing.',
+      }),
+    ];
+    const claims = [
+      candidateClaim(
+        'C-auth-test', goals[0].id, 'tests/test_auth.py verifies auth.', ['E1']),
+      candidateClaim(
+        'C-billing-test', goals[2].id, 'tests/test_billing.py verifies billing.', ['E2']),
+    ];
+    const steps = [
+      { stage: 'planner:1', value: plannerControl(goals) },
+      { stage: 'goal_audit:1', value: auditorControl(
+        goals.map(goal => auditControlRecord(goal))) },
+      {
+        stage: 'exploration:1',
+        run: () => toolControlCompletion(
+          'repo_read_file',
+          { path: 'tests/test_auth.py', startLine: 1, endLine: 2 },
+          'read-known-auth-test',
+        ),
+      },
+      {
+        stage: 'exploration:2',
+        run: () => toolControlCompletion(
+          'repo_read_file',
+          { path: 'tests/test_billing.py', startLine: 1, endLine: 2 },
+          'read-discovered-billing-test',
+        ),
+      },
+      { stage: 'exploration:3', content: 'The bounded test evidence pass is complete.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+      { stage: 'claim_synthesis:1', value: { claims: [claims[0]] } },
+      { stage: 'claim_synthesis:2', value: { claims: [] } },
+      { stage: 'claim_synthesis:3', value: { claims: [claims[1]] } },
+      {
+        stage: 'semantic_verifier:1',
+        value: verifierResponse([
+          semanticVerdict(claims[0].id, 'supported', ['E1']),
+          semanticVerdict(claims[1].id, 'supported', ['E2']),
+        ]),
+      },
+      { stage: 'exploration:4', content: 'No materially new repair action remains.' },
+    ];
+
+    const { client, result } = await runTrustScript(steps, {
+      task,
+      scope: ['tests/**'],
+      hints: { files: ['tests/test_auth.py'] },
+      async setup(root) {
+        await fs.mkdir(path.join(root, 'tests'), { recursive: true });
+        await fs.writeFile(path.join(root, 'tests', 'test_auth.py'),
+          'def test_auth():\n    assert auth()\n');
+        await fs.writeFile(path.join(root, 'tests', 'test_billing.py'),
+          'def test_billing():\n    assert billing()\n');
+      },
+    });
+
+    assert.equal(client.stageCounts.get('claim_synthesis'), 3);
+    assert.equal(result.failure, null, JSON.stringify(client.stageLabels));
+    assert.equal(result.parentHandoff.state, 'incomplete');
+    assert.deepEqual(result.semanticVerification.claims.map(claim => claim.id),
+      claims.map(claim => claim.id));
+    assert.deepEqual(result.taskContract.subgoals.map(goal => [goal.id, goal.state]), [
+      [goals[0].id, 'supported'],
+      [goals[1].id, 'gap'],
+      [goals[2].id, 'supported'],
+    ]);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — an explicit every-test goal remains verifier-gated',
+  async () => {
+    const task = 'Inventory every test file that covers the pipeline entry path.';
+    const goal = trustGoal(task, {
+      id: 'S-every-test-inventory',
+      question: task,
+      originText: task,
+      proofCondition: 'Observe every requested test file before accepting the inventory.',
+    });
+    const claim = candidateClaim(
+      'C-every-test-inventory',
+      goal.id,
+      'tests/test_cli.py and tests/test_orchestrator.py cover the pipeline entry path.',
+      ['E1', 'E2'],
+    );
+    let verifierPacket;
+    const testFiles = ['test_cli.py', 'test_orchestrator.py'];
+    const steps = [
+      { stage: 'planner:1', value: plannerControl([goal]) },
+      { stage: 'goal_audit:1', value: auditorControl([auditControlRecord(goal)]) },
+      ...testFiles.map((file, index) => ({
+        stage: `exploration:${index + 1}`,
+        run: () => toolControlCompletion(
+          'repo_read_file',
+          { path: `tests/${file}`, startLine: 1, endLine: 3 },
+          `read-every-test-${index + 1}`,
+        ),
+      })),
+      { stage: 'exploration:3', content: 'The bounded test evidence pass is complete.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+      { stage: 'claim_synthesis:1', value: { claims: [claim] } },
+      {
+        stage: 'semantic_verifier:1',
+        run(request) {
+          verifierPacket = parseControlPacket(request);
+          return controlCompletion(verifierResponse([
+            semanticVerdict(claim.id, 'insufficient', ['E1', 'E2']),
+          ]));
+        },
+      },
+      { stage: 'exploration:4', content: 'No materially new repair action remains.' },
+    ];
+
+    const { client, result } = await runTrustScript(steps, {
+      task,
+      scope: ['tests/**'],
+      hints: { files: ['tests/test_cli.py'] },
+      async setup(root) {
+        await fs.mkdir(path.join(root, 'tests'), { recursive: true });
+        await Promise.all(testFiles.map((file, index) => fs.writeFile(
+          path.join(root, 'tests', file),
+          `def test_pipeline_entry_${index + 1}():\n    assert True\n`,
+        )));
+      },
+    });
+
+    assert.equal(result.failure, null, JSON.stringify(client.stageLabels));
+    assert.equal(client.stageCounts.get('claim_synthesis'), 1);
+    assert.deepEqual(verifierPacket.claims[0].evidenceRefs, ['E1', 'E2']);
+    assert.equal(result.parentHandoff.state, 'incomplete');
+    assert.equal(result.taskContract.subgoals[0].state, 'gap');
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — repeated partial test inventory quarantines only that sub-goal',
+  async () => {
+    const task = 'Locate requireAuth and identify the test that covers the pipeline entry path.';
+    const goals = [
+      trustGoal(task, {
+        id: 'S-stable-test-inventory-definition',
+        question: 'Where is requireAuth defined?',
+        originText: 'Locate requireAuth',
+        claimType: 'symbol_definition',
+        proofCondition: 'Observe the requireAuth definition source.',
+      }),
+      trustGoal(task, {
+        id: 'S-repeated-partial-test-inventory',
+        question: 'Which test covers the pipeline entry path?',
+        originText: 'identify the test that covers the pipeline entry path',
+        proofCondition: 'Identify one exactly observed entry-path test and what it verifies.',
+      }),
+    ];
+    const stable = candidateClaim(
+      'C-stable-test-inventory-definition',
+      goals[0].id,
+      'requireAuth is defined in src/auth.js.',
+      ['E1'],
+    );
+    const noisy = candidateClaim(
+      'C-repeated-partial-test-inventory',
+      goals[1].id,
+      'Three test files cover the entry path: test_cli, test_orchestrator, and test_handlers.',
+      ['E2', 'E3', 'E4'],
+    );
+    const repeatedPartialInventory = { claims: [noisy] };
+    const testFiles = ['test_cli.py', 'test_orchestrator.py', 'test_handlers.py'];
+    const steps = [
+      { stage: 'planner:1', value: plannerControl(goals) },
+      { stage: 'goal_audit:1', value: auditorControl(
+        goals.map(goal => auditControlRecord(goal))) },
+      {
+        stage: 'exploration:1',
+        run: () => toolControlCompletion(
+          'repo_read_file',
+          { path: 'src/auth.js', startLine: 1, endLine: 4 },
+          'read-stable-test-inventory-definition',
+        ),
+      },
+      ...testFiles.map((file, index) => ({
+        stage: `exploration:${index + 2}`,
+        run: () => toolControlCompletion(
+          'repo_read_file',
+          { path: `tests/${file}`, startLine: 1, endLine: 3 },
+          `read-repeated-partial-${index + 1}`,
+        ),
+      })),
+      { stage: 'exploration:5', content: 'The bounded evidence pass is complete.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+      { stage: 'claim_synthesis:1', value: { claims: [stable] } },
+      { stage: 'claim_synthesis:2', value: repeatedPartialInventory },
+      {
+        stage: 'claim_synthesis:3',
+        run(request) {
+          assert.match(JSON.stringify(request.messages),
+            /multiple test paths as a partial suite inventory/u);
+          return controlCompletion(repeatedPartialInventory);
+        },
+      },
+      {
+        stage: 'semantic_verifier:1',
+        run(request) {
+          const packet = parseControlPacket(request);
+          assert.deepEqual(packet.claims.map(claim => claim.id), [stable.id]);
+          return controlCompletion(verifierResponse([
+            semanticVerdict(stable.id, 'supported', ['E1']),
+          ]));
+        },
+      },
+      { stage: 'exploration:6', content: 'No materially new repair action remains.' },
+    ];
+
+    const { client, result } = await runTrustScript(steps, {
+      task,
+      scope: ['src/**', 'tests/**'],
+      async setup(root) {
+        await fs.mkdir(path.join(root, 'tests'), { recursive: true });
+        await Promise.all(testFiles.map((file, index) => fs.writeFile(
+          path.join(root, 'tests', file),
+          `def test_pipeline_entry_${index + 1}():\n    assert True\n`,
+        )));
+      },
+    });
+
+    assert.equal(result.failure, null, JSON.stringify(client.stageLabels));
+    assert.equal(client.stageCounts.get('claim_synthesis'), 3);
+    assert.equal(result.parentHandoff.state, 'incomplete');
+    assert.equal(result.parentHandoff.directAnswer, stable.text);
+    assert.deepEqual(result.semanticVerification.claims.map(claim => claim.id), [stable.id]);
+    assert.deepEqual(result.taskContract.subgoals.map(goal => [goal.id, goal.state]), [
+      [goals[0].id, 'supported'],
+      [goals[1].id, 'gap'],
+    ]);
+    assert.doesNotMatch(JSON.stringify(result.parentHandoff),
+      /C-repeated-partial|Three test files|claim_synthesis/u);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — repeated missing test-source evidence quarantines only that sub-goal',
+  async () => {
+    const task = 'Locate requireAuth and identify the test that covers the pipeline entry path.';
+    const goals = [
+      trustGoal(task, {
+        id: 'S-stable-missing-test-source-definition',
+        question: 'Where is requireAuth defined?',
+        originText: 'Locate requireAuth',
+        claimType: 'symbol_definition',
+        proofCondition: 'Observe the requireAuth definition source.',
+      }),
+      trustGoal(task, {
+        id: 'S-repeated-missing-test-source',
+        question: 'Which test covers the pipeline entry path?',
+        originText: 'identify the test that covers the pipeline entry path',
+        proofCondition: 'Identify one exactly observed entry-path test and what it verifies.',
+      }),
+    ];
+    const stable = candidateClaim(
+      'C-stable-missing-test-source-definition',
+      goals[0].id,
+      'requireAuth is defined in src/auth.js.',
+      ['E1'],
+    );
+    const unsupported = candidateClaim(
+      'C-repeated-missing-test-source',
+      goals[1].id,
+      'The pipeline entry path forwards the configured worker count.',
+      ['E2'],
+    );
+    const repeatedMissingTestSource = { claims: [unsupported] };
+    const steps = [
+      { stage: 'planner:1', value: plannerControl(goals) },
+      { stage: 'goal_audit:1', value: auditorControl(
+        goals.map(goal => auditControlRecord(goal))) },
+      {
+        stage: 'exploration:1',
+        run: () => toolControlCompletion(
+          'repo_read_file',
+          { path: 'src/auth.js', startLine: 1, endLine: 4 },
+          'read-stable-missing-test-source-definition',
+        ),
+      },
+      {
+        stage: 'exploration:2',
+        run: () => toolControlCompletion(
+          'repo_read_file',
+          { path: 'pipeline/cli.py', startLine: 1, endLine: 3 },
+          'read-repeated-missing-test-source-implementation',
+        ),
+      },
+      {
+        stage: 'exploration:3',
+        run: () => toolControlCompletion(
+          'repo_read_file',
+          { path: 'tests/test_cli.py', startLine: 1, endLine: 3 },
+          'read-repeated-missing-test-source-test',
+        ),
+      },
+      { stage: 'exploration:4', content: 'The bounded evidence pass is complete.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+      { stage: 'claim_synthesis:1', value: { claims: [stable] } },
+      { stage: 'claim_synthesis:2', value: repeatedMissingTestSource },
+      {
+        stage: 'claim_synthesis:3',
+        run(request) {
+          assert.match(JSON.stringify(request.messages), /no current test path/u);
+          return controlCompletion(repeatedMissingTestSource);
+        },
+      },
+      {
+        stage: 'semantic_verifier:1',
+        run(request) {
+          const packet = parseControlPacket(request);
+          assert.deepEqual(packet.claims.map(claim => claim.id), [stable.id]);
+          return controlCompletion(verifierResponse([
+            semanticVerdict(stable.id, 'supported', ['E1']),
+          ]));
+        },
+      },
+      { stage: 'exploration:5', content: 'No materially new repair action remains.' },
+    ];
+
+    const { client, result } = await runTrustScript(steps, {
+      task,
+      scope: ['src/**', 'pipeline/**', 'tests/**'],
+      async setup(root) {
+        await fs.mkdir(path.join(root, 'pipeline'), { recursive: true });
+        await fs.mkdir(path.join(root, 'tests'), { recursive: true });
+        await fs.writeFile(path.join(root, 'pipeline', 'cli.py'),
+          'def main():\n    return run_worker()\n');
+        await fs.writeFile(path.join(root, 'tests', 'test_cli.py'),
+          'def test_worker_count():\n    assert main() == 0\n');
+      },
+    });
+
+    assert.equal(result.failure, null, JSON.stringify(client.stageLabels));
+    assert.equal(client.stageCounts.get('claim_synthesis'), 3);
+    assert.equal(result.parentHandoff.state, 'incomplete');
+    assert.equal(result.parentHandoff.directAnswer, stable.text);
+    assert.deepEqual(result.semanticVerification.claims.map(claim => claim.id), [stable.id]);
+    assert.deepEqual(result.taskContract.subgoals.map(goal => [goal.id, goal.state]), [
+      [goals[0].id, 'supported'],
+      [goals[1].id, 'gap'],
+    ]);
+    assert.doesNotMatch(JSON.stringify(result.parentHandoff),
+      /C-repeated-missing-test-source|worker count|claim_synthesis/u);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — repeated claim fanout quarantines only the noisy sub-goal',
+  async () => {
+    const task = 'Locate requireAuth and map the environment configuration impact.';
+    const goals = [
+      trustGoal(task, {
+        id: 'S-stable-definition',
+        question: 'Where is requireAuth defined?',
+        originText: 'Locate requireAuth',
+        claimType: 'symbol_definition',
+        proofCondition: 'Observe the requireAuth definition source.',
+      }),
+      trustGoal(task, {
+        id: 'S-noisy-config-impact',
+        question: 'What is the environment configuration impact?',
+        originText: 'environment configuration impact',
+        claimType: 'impact',
+        proofCondition: 'Observe the configuration input and its affected pipeline path.',
+      }),
+    ];
+    const stable = candidateClaim(
+      'C-stable-definition', goals[0].id, 'requireAuth is defined in src/auth.js.', ['E1']);
+    const noisy = [
+      candidateClaim(
+        'C-noisy-config-input', goals[1].id, 'AUTH_MODE is read from config.', ['E2']),
+      candidateClaim(
+        'C-noisy-config-effect', goals[1].id, 'AUTH_MODE affects route setup.', ['E2']),
+    ];
+    const repeatedFanout = { claims: [stable, ...noisy] };
+    const steps = [
+      { stage: 'planner:1', value: plannerControl(goals) },
+      {
+        stage: 'goal_audit:1',
+        value: auditorControl(goals.map(goal => auditControlRecord(goal))),
+      },
+      {
+        stage: 'exploration:1',
+        run: () => toolControlCompletion(
+          'repo_read_file',
+          { path: 'src/auth.js', startLine: 1, endLine: 4 },
+          'read-stable-definition',
+        ),
+      },
+      {
+        stage: 'exploration:2',
+        run: () => toolControlCompletion(
+          'repo_read_file',
+          { path: 'src/config.js', startLine: 1, endLine: 4 },
+          'read-noisy-config',
+        ),
+      },
+      { stage: 'exploration:3', content: 'The bounded evidence pass is complete.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+      { stage: 'claim_synthesis:1', value: repeatedFanout },
+      {
+        stage: 'claim_synthesis:2',
+        run(request) {
+          assert.match(JSON.stringify(request.messages), /zero or one aggregate claim/u);
+          return controlCompletion(repeatedFanout);
+        },
+      },
+      {
+        stage: 'semantic_verifier:1',
+        run(request) {
+          const packet = parseControlPacket(request);
+          assert.deepEqual(packet.claims.map(claim => claim.id), [stable.id]);
+          return controlCompletion(verifierResponse([
+            semanticVerdict(stable.id, 'supported', ['E1']),
+          ]));
+        },
+      },
+      { stage: 'exploration:4', content: 'No materially new repair action remains.' },
+    ];
+
+    const { client, result } = await runTrustScript(steps, { task });
+
+    assert.equal(client.stageCounts.get('claim_synthesis'), 2);
+    assert.equal(client.stageCounts.get('semantic_verifier'), 1);
+    assert.equal(result.failure, null);
+    assert.equal(result.parentHandoff.state, 'incomplete');
+    assert.equal(result.parentHandoff.directAnswer, stable.text);
+    assert.deepEqual(result.semanticVerification.claims.map(claim => claim.id), [stable.id]);
+    assert.deepEqual(result.taskContract.subgoals.map(goal => [goal.id, goal.state]), [
+      [goals[0].id, 'supported'],
+      [goals[1].id, 'gap'],
+    ]);
+    assert.ok(result.coverageGaps.some(gap =>
+      gap.subgoalId === goals[1].id && gap.reason === 'missing_evidence' &&
+      gap.repairable === false));
+    assert.match(JSON.stringify(result.parentHandoff), /environment configuration impact/u);
+    assert.doesNotMatch(JSON.stringify(result.parentHandoff),
+      /C-noisy|AUTH_MODE|claim_synthesis|aggregate claim/u);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — direct-source synthesis hides search evidence from claims but not verification',
+  async () => {
+    const task = 'Explain what requireAuth does when req.user is missing.';
+    const goal = trustGoal(task, {
+      id: 'S-direct-source-filter',
+      question: task,
+      originText: task,
+      proofCondition: 'Observe the current requireAuth implementation source.',
+    });
+    const claim = candidateClaim(
+      'C-direct-source-filter',
+      goal.id,
+      'requireAuth throws unauthorized when req.user is missing.',
+      ['E1'],
+    );
+    let verifierPacket;
+    const steps = [
+      { stage: 'planner:1', value: plannerControl([goal]) },
+      {
+        stage: 'goal_audit:1',
+        value: auditorControl([auditControlRecord(goal)]),
+      },
+      {
+        stage: 'exploration:1',
+        run: () => toolControlCompletion(
+          'repo_read_file',
+          { path: 'src/auth.js', startLine: 1, endLine: 4 },
+          'read-require-auth-definition',
+        ),
+      },
+      {
+        stage: 'exploration:2',
+        run: () => toolControlCompletion(
+          'repo_grep',
+          { pattern: 'requireAuth', scope: ['src/**'] },
+          'grep-require-auth',
+        ),
+      },
+      { stage: 'exploration:3', content: 'The bounded evidence pass is complete.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+      {
+        stage: 'claim_synthesis:1',
+        run(request) {
+          const packet = parseControlPacket(request);
+          assert.deepEqual(packet.observations.map(item => item.id), ['E1']);
+          assert.ok(packet.observations.every(item => item.kind === 'source'));
+          return controlCompletion({ claims: [claim] });
+        },
+      },
+      {
+        stage: 'semantic_verifier:1',
+        run(request) {
+          verifierPacket = parseControlPacket(request);
+          return controlCompletion(verifierResponse([
+            semanticVerdict(claim.id, 'supported', ['E1']),
+          ]));
+        },
+      },
+    ];
+
+    const { client, result } = await runTrustScript(steps, { task });
+
+    assert.equal(result.failure, null, JSON.stringify(client.stageLabels));
+    assert.deepEqual(verifierPacket.claims[0].evidenceRefs, ['E1']);
+    assert.ok(verifierPacket.observations.some(item => item.id === 'E2' && item.kind === 'search'));
+    assert.equal(result.parentHandoff.state, 'complete');
+    assert.equal(result.parentHandoff.directAnswer, claim.text);
+    assert.deepEqual(result.semanticVerification.claims[0].evidenceRefs, ['E1']);
+    assert.deepEqual(result.semanticVerification.runtimeAllowedEvidenceRefsBySubgoal, [{
+      subgoalId: goal.id,
+      evidenceRefs: ['E1'],
+    }]);
+    assert.deepEqual(result.parentHandoff.evidence.map(item => item.kind), ['source']);
+    assert.doesNotMatch(JSON.stringify(result.parentHandoff), /repo_grep|E2/u);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T071 — repeated empty evidence quarantines only the known affected sub-goal',
+  async () => {
+    const task = 'Locate requireAuth and locate registerUserRoutes.';
+    const goals = [
+      trustGoal(task, {
+        id: 'S-empty-evidence-auth',
+        question: 'Where is requireAuth defined?',
+        originText: 'Locate requireAuth',
+      }),
+      trustGoal(task, {
+        id: 'S-empty-evidence-route',
+        question: 'Where is registerUserRoutes defined?',
+        originText: 'locate registerUserRoutes',
+      }),
+    ];
+    const supported = candidateClaim(
+      'C-empty-evidence-auth',
+      goals[0].id,
+      'requireAuth is defined in src/auth.js.',
+      ['E1'],
+    );
+    const empty = candidateClaim(
+      'C-empty-evidence-route',
+      goals[1].id,
+      'registerUserRoutes is defined in src/routes/user.js.',
+      [],
+    );
+    const steps = buildTrustSteps({
+      goals,
+      initial: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+          id: 'read-auth-for-empty-evidence',
+        }, {
+          tool: 'repo_read_file',
+          args: { path: 'src/routes/user.js', startLine: 1, endLine: 6 },
+          id: 'read-route-for-empty-evidence',
+        }],
+        claims: [supported, empty],
+        verdicts: [semanticVerdict(supported.id, 'supported', ['E1'])],
+      },
+      repair: { tools: [], claims: [], verdicts: [] },
+    });
+
+    const { client, result } = await runTrustScript(steps, { task });
+
+    assert.equal(client.stageCounts.get('claim_synthesis'), 2);
+    assert.equal(client.stageCounts.get('semantic_verifier'), 1);
+    assert.equal(result.failure, null);
+    assert.deepEqual(result.taskContract.subgoals.map(goal => goal.state), ['supported', 'gap']);
+    assert.equal(result.parentHandoff.state, 'incomplete');
+    assert.match(result.parentHandoff.directAnswer, /requireAuth is defined/u);
+    assert.doesNotMatch(result.parentHandoff.directAnswer, /registerUserRoutes is defined/u);
+    assert.deepEqual(result.parentHandoff.evidence.map(item => item.path), ['src/auth.js']);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T071 — empty-evidence recovery keeps unknown and duplicate claim controls fatal',
+  async () => {
+    const task = 'Locate requireAuth.';
+    const goal = trustGoal(task, {
+      id: 'S-empty-evidence-control',
+      question: task,
+      originText: task,
+    });
+    const cases = [
+      [candidateClaim(
+        'C-empty-evidence-unknown',
+        'S-unknown-empty-evidence',
+        'An unknown goal has a claim.',
+        [],
+      )],
+      [
+        candidateClaim(
+          'C-empty-evidence-duplicate',
+          goal.id,
+          'requireAuth is defined in src/auth.js.',
+          [],
+        ),
+        candidateClaim(
+          'C-empty-evidence-duplicate',
+          goal.id,
+          'requireAuth is also defined elsewhere.',
+          [],
+        ),
+      ],
+    ];
+
+    for (const claims of cases) {
+      const steps = [
+        { stage: 'planner:1', value: plannerControl([goal]) },
+        {
+          stage: 'goal_audit:1',
+          value: auditorControl([auditControlRecord(goal)]),
+        },
+        {
+          stage: 'exploration:1',
+          run: () => toolControlCompletion(
+            'repo_read_file',
+            { path: 'src/auth.js', startLine: 1, endLine: 4 },
+            'read-auth-for-empty-evidence-control',
+          ),
+        },
+        { stage: 'exploration:2', content: 'The source read is complete.' },
+        { stage: 'synthesis:1', value: readyExplorationResult() },
+        { stage: 'claim_synthesis:1', value: { claims } },
+        { stage: 'claim_synthesis:2', value: { claims } },
+      ];
+      const { client, result } = await runTrustScript(steps, { task });
+      assert.equal(client.stageCounts.get('claim_synthesis'), 2);
+      assert.equal(client.stageCounts.get('semantic_verifier'), undefined);
+      assert.equal(result.failure?.reason, 'invalid_final_response');
+      assert.equal(result.failure?.publicReason, 'verifier_error');
+      assert.equal(result.parentHandoff.state, 'failed');
+    }
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T071 — malformed count correction isolates only a known measurement omission',
+  async t => {
+    const task = 'Count requireAuth lines in src/** and confirm legacyGuard is absent from src/**.';
+    const goals = [
+      trustGoal(task, {
+        id: 'S-count-measurement-omission',
+        question: 'How many requireAuth lines are in src/**?',
+        originText: 'Count requireAuth lines in src/**',
+        claimType: 'count',
+        proofCondition: 'Completely search src/** and count unique requireAuth lines.',
+      }),
+      trustGoal(task, {
+        id: 'S-count-measurement-sibling',
+        question: 'Is legacyGuard absent from src/**?',
+        originText: 'confirm legacyGuard is absent from src/**',
+        claimType: 'absence',
+        proofCondition: 'Certify a complete src/** search for legacyGuard.',
+      }),
+    ];
+    const missingMeasurement = candidateClaim(
+      'C-count-measurement-omission',
+      goals[0].id,
+      'There is one requireAuth line in src/**.',
+      ['E1'],
+    );
+    const supportedSibling = candidateClaim(
+      'C-count-measurement-sibling',
+      goals[1].id,
+      'No legacyGuard reference exists in src/**.',
+      ['E2'],
+    );
+    const unknown = candidateClaim(
+      'C-count-measurement-unknown',
+      'S-count-measurement-unknown',
+      'An unknown sub-goal has a claim.',
+      ['E2'],
+    );
+    const initialSteps = firstClaims => [
+      { stage: 'planner:1', value: plannerControl(goals) },
+      {
+        stage: 'goal_audit:1',
+        value: auditorControl(goals.map(goal => auditControlRecord(goal))),
+      },
+      {
+        stage: 'exploration:1',
+        run: () => toolControlCompletion(
+          'repo_grep',
+          { pattern: 'requireAuth', scope: ['src/**'] },
+          'grep-count-measurement-omission',
+        ),
+      },
+      {
+        stage: 'exploration:2',
+        run: () => toolControlCompletion(
+          'repo_grep',
+          { pattern: 'legacyGuard', scope: ['src/**'] },
+          'grep-count-measurement-sibling',
+        ),
+      },
+      { stage: 'exploration:3', content: 'The bounded searches are complete.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+      { stage: 'claim_synthesis:1', value: { claims: firstClaims } },
+    ];
+
+    await t.test('a non-object correction preserves a valid sibling and gaps the count', async () => {
+      const steps = [
+        ...initialSteps([missingMeasurement, supportedSibling]),
+        { stage: 'claim_synthesis:2', content: '[]' },
+        {
+          stage: 'semantic_verifier:1',
+          run(request) {
+            const packet = parseControlPacket(request);
+            assert.deepEqual(packet.claims.map(claim => claim.id), [supportedSibling.id]);
+            return controlCompletion(verifierResponse([
+              semanticVerdict(supportedSibling.id, 'supported', ['E2']),
+            ]));
+          },
+        },
+        { stage: 'exploration:4', content: 'No materially new repair action remains.' },
+      ];
+      const { client, result } = await runTrustScript(steps, { task });
+
+      assert.equal(client.stageCounts.get('claim_synthesis'), 2);
+      assert.equal(client.stageCounts.get('semantic_verifier'), 1);
+      assert.equal(result.failure, null);
+      assert.equal(result.parentHandoff.state, 'incomplete');
+      assert.deepEqual(result.semanticVerification.claims.map(claim => claim.id),
+        [supportedSibling.id]);
+      assert.deepEqual(result.taskContract.subgoals.map(goal => [goal.id, goal.state]), [
+        [goals[0].id, 'gap'],
+        [goals[1].id, 'supported'],
+      ]);
+      assert.ok(result.coverageGaps.some(gap =>
+        gap.subgoalId === goals[0].id && gap.reason === 'missing_evidence' &&
+        gap.repairable === false));
+      assert.match(result.parentHandoff.directAnswer, /No legacyGuard reference exists/u);
+      assert.doesNotMatch(JSON.stringify(result.parentHandoff), /one requireAuth line/u);
+    });
+
+    await t.test('an invalid object correction remains fatal', async () => {
+      const { client, result } = await runTrustScript([
+        ...initialSteps([missingMeasurement, supportedSibling]),
+        { stage: 'claim_synthesis:2', value: { claims: [unknown] } },
+      ], { task });
+
+      assert.equal(client.stageCounts.get('claim_synthesis'), 2);
+      assert.equal(client.stageCounts.get('semantic_verifier'), undefined);
+      assert.equal(result.failure?.reason, 'invalid_final_response');
+      assert.equal(result.failure?.publicReason, 'verifier_error');
+      assert.equal(result.parentHandoff.state, 'failed');
+    });
+
+    await t.test('a mixed first control cannot become a fallback candidate', async () => {
+      const { client, result } = await runTrustScript([
+        ...initialSteps([missingMeasurement, unknown]),
+        { stage: 'claim_synthesis:2', content: '[]' },
+      ], { task });
+
+      assert.equal(client.stageCounts.get('claim_synthesis'), 2);
+      assert.equal(client.stageCounts.get('semantic_verifier'), undefined);
+      assert.equal(result.failure?.reason, 'invalid_final_response');
+      assert.equal(result.failure?.publicReason, 'verifier_error');
+      assert.equal(result.parentHandoff.state, 'failed');
+    });
+
+    await t.test('a tool-call correction remains fatal', async () => {
+      const { client, result } = await runTrustScript([
+        ...initialSteps([missingMeasurement, supportedSibling]),
+        {
+          stage: 'claim_synthesis:2',
+          run: () => toolControlCompletion(
+            'repo_grep',
+            { pattern: 'legacyGuard', scope: ['src/**'] },
+            'invalid-count-correction-tool-call',
+          ),
+        },
+      ], { task });
+
+      assert.equal(client.stageCounts.get('claim_synthesis'), 2);
+      assert.equal(client.stageCounts.get('semantic_verifier'), undefined);
+      assert.equal(result.failure?.reason, 'invalid_final_response');
+      assert.equal(result.failure?.publicReason, 'verifier_error');
+      assert.equal(result.parentHandoff.state, 'failed');
+    });
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — mixed claim synthesis isolates one direct-source goal and restores goal order',
+  async () => {
+    const task = 'Identify the test that covers the entry path and locate requireAuth.';
+    const goals = [
+      trustGoal(task, {
+        id: 'S-mixed-entry-test',
+        question: 'Which test covers the entry path?',
+        originText: 'Identify the test that covers the entry path',
+        proofCondition: 'Identify one exactly observed entry-path test and what it verifies.',
+      }),
+      trustGoal(task, {
+        id: 'S-mixed-auth-definition',
+        question: 'Where is requireAuth defined?',
+        originText: 'locate requireAuth',
+        claimType: 'symbol_definition',
+        proofCondition: 'Observe the requireAuth definition source.',
+      }),
+    ];
+    const claims = [
+      candidateClaim(
+        'C-mixed-entry-test',
+        goals[0].id,
+        'tests/test_cli.py verifies worker fan-out for the entry path.',
+        ['E1'],
+      ),
+      candidateClaim(
+        'C-mixed-auth-definition',
+        goals[1].id,
+        'requireAuth is defined in src/auth.js.',
+        ['E2'],
+      ),
+    ];
+    let nonDirectPacket;
+    let directPacket;
+    let verifierPacket;
+    const steps = [
+      { stage: 'planner:1', value: plannerControl(goals) },
+      {
+        stage: 'goal_audit:1',
+        value: auditorControl(goals.map(goal => auditControlRecord(goal))),
+      },
+      {
+        stage: 'exploration:1',
+        run: () => toolControlCompletion(
+          'repo_read_file',
+          { path: 'tests/test_cli.py', startLine: 1, endLine: 4 },
+          'read-mixed-entry-test',
+        ),
+      },
+      {
+        stage: 'exploration:2',
+        run: () => toolControlCompletion(
+          'repo_read_file',
+          { path: 'src/auth.js', startLine: 1, endLine: 4 },
+          'read-mixed-auth-definition',
+        ),
+      },
+      {
+        stage: 'exploration:3',
+        run: () => toolControlCompletion(
+          'repo_grep',
+          { pattern: '^def test_', scope: ['tests/**'] },
+          'grep-mixed-test-inventory',
+        ),
+      },
+      { stage: 'exploration:4', content: 'The mixed evidence pass is complete.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+      {
+        stage: 'claim_synthesis:1',
+        run(request) {
+          directPacket = parseControlPacket(request);
+          return controlCompletion({ claims: [claims[0]] });
+        },
+      },
+      {
+        stage: 'claim_synthesis:2',
+        run(request) {
+          nonDirectPacket = parseControlPacket(request);
+          return controlCompletion({ claims: [claims[1]] });
+        },
+      },
+      {
+        stage: 'semantic_verifier:1',
+        run(request) {
+          verifierPacket = parseControlPacket(request);
+          return controlCompletion(verifierResponse([
+            semanticVerdict(claims[0].id, 'supported', ['E1']),
+            semanticVerdict(claims[1].id, 'supported', ['E2']),
+          ]));
+        },
+      },
+    ];
+
+    const { client, result } = await runTrustScript(steps, {
+      task,
+      scope: ['src/**', 'tests/**'],
+      async setup(root) {
+        await fs.mkdir(path.join(root, 'tests'), { recursive: true });
+        const extraTests = Array.from(
+          { length: 60 },
+          (_, index) => `def test_generated_${index + 2}(): pass`,
+        );
+        await fs.writeFile(path.join(root, 'tests', 'test_cli.py'), [
+          'from pipeline import cli',
+          '',
+          'def test_worker_fan_out():',
+          '    assert cli is not None',
+          ...extraTests,
+        ].join('\n'));
+      },
+    });
+
+    assert.equal(client.stageCounts.get('claim_synthesis'), 2);
+    assert.equal(result.failure, null, JSON.stringify(client.stageLabels));
+    assert.deepEqual(nonDirectPacket.control.requiredSubgoals.map(goal => goal.id), [goals[1].id]);
+    const inventory = nonDirectPacket.observations.find(item => item.id === 'E3');
+    assert.equal(inventory?.kind, 'search');
+    assert.equal(inventory?.matchCount, 61);
+    assert.deepEqual(directPacket.control.requiredSubgoals.map(goal => goal.id), [goals[0].id]);
+    assert.deepEqual(directPacket.observations.map(item => item.id), ['E1', 'E2']);
+    assert.ok(directPacket.observations.every(item => item.kind === 'source'));
+    assert.deepEqual(verifierPacket.claims.map(claim => claim.id), claims.map(claim => claim.id));
+    assert.ok(verifierPacket.observations.some(item => item.id === 'E3' && item.kind === 'search'));
+    assert.equal(result.parentHandoff.state, 'complete');
+    assert.deepEqual(result.semanticVerification.claims.map(claim => claim.id),
+      claims.map(claim => claim.id));
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — a direct-source claim with only search evidence remains a gap',
+  async () => {
+    const task = 'Explain what requireAuth does when req.user is missing.';
+    const goal = trustGoal(task, {
+      id: 'S-direct-source-search-only',
+      question: task,
+      originText: task,
+      proofCondition: 'Observe the current requireAuth implementation source.',
+    });
+    const steps = [
+      { stage: 'planner:1', value: plannerControl([goal]) },
+      {
+        stage: 'goal_audit:1',
+        value: auditorControl([auditControlRecord(goal)]),
+      },
+      {
+        stage: 'exploration:1',
+        run: () => toolControlCompletion(
+          'repo_grep',
+          { pattern: 'requireAuth', scope: ['src/**'] },
+          'grep-require-auth-only',
+        ),
+      },
+      { stage: 'exploration:2', content: 'The bounded search pass is complete.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+      { stage: 'exploration:3', content: 'No direct source evidence was read.' },
+    ];
+
+    const { client, result } = await runTrustScript(steps, { task });
+
+    assert.equal(result.failure, null, JSON.stringify(client.stageLabels));
+    assert.equal(client.stageCounts.get('claim_synthesis') ?? 0, 0);
+    assert.equal(client.stageCounts.get('semantic_verifier') ?? 0, 0);
+    assert.equal(result.parentHandoff.state, 'incomplete');
+    assert.deepEqual(result.semanticVerification.claims, []);
+    assert.ok(result.coverageGaps.some(gap => gap.subgoalId === goal.id),
+      JSON.stringify(result.coverageGaps));
+    assert.doesNotMatch(JSON.stringify(result.parentHandoff),
+      /C-direct-source-search-only|repo_grep|E1/u);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — an unprojectable supported claim records an internal parent gap',
+  async () => {
+    const task = 'Compare the bounded requireAuth definition and route usage.';
+    const goal = trustGoal(task, {
+      id: 'S-parent-gap-ledger',
+      question: task,
+      originText: task,
+      claimType: 'comparison',
+      proofCondition: 'Observe distinct bounded definition and route-usage sources.',
+    });
+    const claim = candidateClaim(
+      'C-parent-gap-ledger',
+      goal.id,
+      'requireAuth is defined in src/auth.js and used by src/routes/user.js.',
+      ['E1', 'E2', 'E3'],
+    );
+    const { result } = await runTrustScript(buildTrustSteps({
+      goals: [goal],
+      initial: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+          id: 'read-parent-gap-ledger',
+        }, {
+          tool: 'repo_read_file',
+          args: { path: 'src/routes/user.js', startLine: 1, endLine: 7 },
+          id: 'read-route-parent-gap-ledger',
+        }, {
+          tool: 'repo_grep',
+          args: { pattern: 'requireAuth', scope: ['src/**'] },
+          id: 'search-parent-gap-ledger',
+        }],
+        claims: [claim],
+        verifierSteps: [{
+          verdicts: [semanticVerdict(claim.id, 'supported', ['E1', 'E2', 'E3'])],
+        }, {
+          verdicts: [semanticVerdict(claim.id, 'supported', ['E1', 'E2', 'E3'])],
+        }],
+      },
+    }), { task });
+
+    assert.equal(result.failure, null, JSON.stringify({
+      failure: result.failure,
+      parentHandoff: result.parentHandoff,
+      observations: result.observations,
+    }));
+    assert.equal(result.taskContract.subgoals[0].state, 'supported');
+    assert.equal(result.parentHandoff.state, 'incomplete');
+    assert.equal(result.parentHandoff.directAnswer, undefined);
+    assert.ok(result.coverageGaps.some(gap =>
+      gap.id === `parent-projection:${goal.id}` &&
+      gap.subgoalId === goal.id && gap.reason === 'missing_evidence'));
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — post-repair non-count claims also ignore measurement noise',
+  async () => {
+    const goal = definitionAndAbsenceGoals()[0];
+    const claim = {
+      ...candidateClaim(
+        'C-post-repair-measurement',
+        goal.id,
+        'requireAuth is defined in src/auth.js.',
+        ['E1'],
+      ),
+      measurement: null,
+    };
+    const repairedClaim = {
+      ...claim,
+      evidenceRefs: ['E1', 'E2'],
+      measurement: { kind: 'unsupported', unit: false, value: 'still-not-a-number' },
+    };
+    const { client, result } = await runTrustScript(buildTrustSteps({
+      goals: [goal],
+      initial: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+          id: 'read-auth-before-measurement-repair',
+        }],
+        claims: [claim],
+        verdicts: [semanticVerdict(claim.id, 'insufficient')],
+      },
+      repair: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/routes/user.js', startLine: 1, endLine: 7 },
+          id: 'read-route-for-measurement-repair',
+        }],
+        claims: [repairedClaim],
+        verdicts: [semanticVerdict(claim.id, 'supported', ['E2'])],
+      },
+    }));
+
+    assert.equal(result.failure, null);
+    assert.equal(client.stageCounts.get('claim_synthesis'), 2);
+    assert.equal(result.parentHandoff.state, 'complete');
+    assert.equal(result.semanticVerification.claims[0].measurement, undefined);
+    assert.doesNotMatch(JSON.stringify(result.parentHandoff), /not-a-number/u);
+  },
+);
+
+test('Spec 028 T031 — verifier proposals are audited once without re-planning or parent leakage', async t => {
+  const fixtures = [
+    {
+      name: 'ready proposal enters one repair and ends terminal',
+      verdict: 'ready',
+      expectedReason: 'semantic_mismatch',
+      expectedState: 'gap',
+      repairable: false,
+    },
+    {
+      name: 'untraceable proposal is discarded',
+      verdict: 'reject_untraceable',
+    },
+    {
+      name: 'scope blocker becomes a terminal required gap',
+      verdict: 'blocked_scope',
+      expectedReason: 'scope_blocked',
+      expectedState: 'blocked',
+      repairable: false,
+    },
+    {
+      name: 'undecomposed proposal becomes a terminal planning gap',
+      verdict: 'needs_decomposition',
+      expectedReason: 'planning_incomplete',
+      expectedState: 'blocked',
+      repairable: false,
+    },
+  ];
+
+  for (const fixture of fixtures) {
+    await t.test(fixture.name, async () => {
+      const task = 'Locate requireAuth and verify legacyGuard is absent and inspect middleware registration.';
+      const goal = trustGoal(task, {
+        id: 'S-definition',
+        question: 'Where is requireAuth defined?',
+        originText: 'Locate requireAuth',
+        claimType: 'symbol_definition',
+        proofCondition: 'Observe the in-scope requireAuth definition and source body.',
+      });
+      const claim = candidateClaim(
+        'C-definition', goal.id, 'requireAuth is defined in src/auth.js.', ['E1']);
+      const proposal = {
+        question: fixture.verdict === 'reject_untraceable'
+          ? 'Which unrelated cache should be rewritten?'
+          : 'Which requested authentication check still needs repository evidence?',
+        originRefs: [requestOrigin(task, 'inspect middleware registration')],
+        claimType: 'positive',
+        proofCondition: 'Observe the requested authentication evidence.',
+        constraints: [],
+      };
+      const steps = buildTrustSteps({
+        goals: [goal],
+        initial: {
+          tools: [{
+            tool: 'repo_read_file',
+            args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+            id: 'read-auth',
+          }],
+          claims: [claim],
+          verdicts: [semanticVerdict(claim.id, 'supported', ['E1'])],
+          uncovered: [proposal],
+          auditVerdict: fixture.verdict,
+        },
+        repair: fixture.verdict === 'ready' ? {
+          tools: [{
+            tool: 'repo_read_file',
+            args: { path: 'src/routes/user.js', startLine: 1, endLine: 20 },
+            id: 'repair-auth-check',
+          }],
+          assertRequest: request => assertRepairRequest(request, {
+            question: proposal.question,
+            anchors: ['src/auth.js'],
+          }),
+          claims: [
+            { ...claim, evidenceRefs: ['E1', 'E2'] },
+            candidateClaim(
+              'C-late-auth-check',
+              'late-uncovered:initial:1',
+              'The requested additional authentication check is not yet established.',
+              ['E2'],
+            ),
+          ],
+          verdicts: [
+            semanticVerdict(claim.id, 'supported', ['E1', 'E2']),
+            semanticVerdict('C-late-auth-check', 'insufficient'),
+          ],
+        } : null,
+      });
+      const { client, result } = await runTrustScript(steps, { task });
+
+      assert.equal(result.failure, null, JSON.stringify(client.stageLabels));
+      assert.equal(client.stageCounts.get('planner'), 1);
+      assert.equal(client.stageCounts.get('goal_audit'), 2);
+      assert.equal(client.stageCounts.get('semantic_verifier'),
+        fixture.verdict === 'ready' ? 2 : 1);
+      const lateAuditRequest = client.requests[client.stageLabels.indexOf('goal_audit:2')];
+      assert.deepEqual(parseControlPacket(lateAuditRequest).proposals.map(item => item.id), [
+        'late-uncovered:initial:1',
+      ]);
+      if (fixture.verdict === 'reject_untraceable') {
+        assertNoRequiredLeak(result, proposal.question);
+        assert.deepEqual(result.rejectedGoals.map(item => item.proposedGoalId), [
+          'late-uncovered:initial:1',
+        ]);
+      } else {
+        const lateGoal = result.taskContract.subgoals.find(item =>
+          item.id === 'late-uncovered:initial:1');
+        const gap = result.coverageGaps.find(item => item.subgoalId === lateGoal?.id);
+        assert.ok(lateGoal);
+        assert.ok(gap);
+        assert.equal(lateGoal.state, fixture.expectedState);
+        assert.equal(gap.reason, fixture.expectedReason);
+        assert.equal(gap.repairable, fixture.repairable);
+      }
+      assert.equal(result.failure, null);
+    });
+  }
+});
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — invalid late audit fails closed without materializing verifier proposals',
+  async () => {
+    const task = 'Locate requireAuth and inspect middleware registration.';
+    const goal = trustGoal(task, {
+      id: 'S-late-audit-preserve',
+      question: 'Where is requireAuth defined?',
+      originText: 'Locate requireAuth',
+      claimType: 'symbol_definition',
+      proofCondition: 'Observe the in-scope requireAuth definition.',
+    });
+    const claim = candidateClaim(
+      'C-late-audit-preserve', goal.id, 'requireAuth is defined in src/auth.js.', ['E1']);
+    const inventedConstraint = 'VERIFIER_ONLY_LATE_CONSTRAINT';
+    const proposal = {
+      question: 'Which requested middleware registration still needs evidence?',
+      originRefs: [requestOrigin(task, 'inspect middleware registration')],
+      claimType: 'positive',
+      proofCondition: 'Observe the requested middleware registration.',
+      constraints: [inventedConstraint],
+    };
+    const steps = [
+      { stage: 'planner:1', value: plannerControl([goal]) },
+      {
+        stage: 'goal_audit:1',
+        value: auditorControl([auditControlRecord(goal)]),
+      },
+      {
+        stage: 'exploration:1',
+        run: () => toolControlCompletion(
+          'repo_read_file',
+          { path: 'src/auth.js', startLine: 1, endLine: 4 },
+          'read-auth-before-late-audit',
+        ),
+      },
+      { stage: 'exploration:2', content: 'The initial evidence pass is complete.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+      { stage: 'claim_synthesis:1', value: { claims: [claim] } },
+      {
+        stage: 'semantic_verifier:1',
+        value: verifierResponse([semanticVerdict(claim.id, 'supported', ['E1'])], [proposal]),
+      },
+      { stage: 'goal_audit:2', value: {} },
+      { stage: 'goal_audit:3', value: {} },
+    ];
+
+    const logDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-invalid-late-audit-'));
+    let client;
+    let result;
+    await withEnv({ CEREBRAS_EXPLORER_LOG_PATH: logDir }, async () => {
+      ({ client, result } = await runTrustScript(steps, { task }));
+    });
+
+    assert.equal(client.stageCounts.get('goal_audit'), 3,
+      'late audit receives only one bounded correction attempt');
+    assert.equal(result.failure?.reason, 'invalid_final_response');
+    assert.equal(result.failure?.publicReason, 'verifier_error');
+    assert.equal(result.parentHandoff.state, 'failed');
+    assert.equal(result.parentHandoff.failure.reason, 'verifier_error');
+    assert.doesNotMatch(result.directAnswer ?? '', /requireAuth is defined/u);
+    assert.doesNotMatch(JSON.stringify({
+      taskContract: result.taskContract,
+      coverageGaps: result.coverageGaps,
+      parentHandoff: result.parentHandoff,
+    }), /late-uncovered|VERIFIER_ONLY_LATE_CONSTRAINT|middleware registration still needs/u);
+    const invalidEvents = (await readJsonl(result.transcriptPath))
+      .filter(entry => entry.type === 'control_invalid');
+    assert.equal(invalidEvents.length, 1);
+    assert.equal(invalidEvents[0].stage, 'late_goal_audit');
+    assert.deepEqual(invalidEvents[0].attempts?.map(item => item.attempt), [1, 2]);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — an audited late duplicate merges into the immutable existing goal',
+  async () => {
+    const task = 'Locate requireAuth.';
+    const goal = trustGoal(task, {
+      id: 'S-existing-late-merge',
+      question: 'Where is requireAuth defined?',
+      originText: task,
+      claimType: 'symbol_definition',
+      proofCondition: 'Observe the in-scope requireAuth definition.',
+    });
+    const claim = candidateClaim(
+      'C-existing-late-merge', goal.id, 'requireAuth is defined in src/auth.js.', ['E1']);
+    const duplicate = {
+      question: goal.question,
+      originRefs: [...goal.originRefs],
+      claimType: goal.claimType,
+      proofCondition: goal.proofCondition,
+      constraints: [...goal.constraints],
+    };
+    const steps = [
+      { stage: 'planner:1', value: plannerControl([goal]) },
+      { stage: 'goal_audit:1', value: auditorControl([auditControlRecord(goal)]) },
+      {
+        stage: 'exploration:1',
+        run: () => toolControlCompletion(
+          'repo_read_file',
+          { path: 'src/auth.js', startLine: 1, endLine: 4 },
+          'read-existing-late-merge',
+        ),
+      },
+      { stage: 'exploration:2', content: 'The bounded evidence pass is complete.' },
+      { stage: 'synthesis:1', value: readyExplorationResult() },
+      { stage: 'claim_synthesis:1', value: { claims: [claim] } },
+      {
+        stage: 'semantic_verifier:1',
+        value: verifierResponse([semanticVerdict(claim.id, 'supported', ['E1'])], [duplicate]),
+      },
+      {
+        stage: 'goal_audit:2',
+        run(request) {
+          const packet = parseControlPacket(request);
+          assert.deepEqual(packet.proposals.map(item => item.id), ['late-uncovered:initial:1']);
+          assert.deepEqual(packet.existingGoalLedger.map(item => item.id), [goal.id]);
+          assert.equal(JSON.stringify(packet.existingGoalLedger).includes('supported'), false,
+            'runtime state is not part of the immutable semantic ledger');
+          return controlCompletion(auditorControl([{
+            ...auditControlRecord(packet.proposals[0], 'merge_duplicate'),
+            mergeInto: goal.id,
+          }]));
+        },
+      },
+    ];
+
+    const { client, result } = await runTrustScript(steps, { task });
+    assert.equal(client.stageCounts.get('goal_audit'), 2);
+    assert.deepEqual(result.taskContract.subgoals.map(item => item.id), [goal.id]);
+    assert.deepEqual(result.coverageGaps, []);
+    assert.equal(result.parentHandoff.state, 'complete');
+    assert.equal(JSON.stringify(result.parentHandoff).includes('existingGoalLedger'), false);
+    assert.equal(JSON.stringify(result.parentHandoff).includes('mergeInto'), false);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — a distinct late obligation sharing origin and claim type is still audited',
+  async () => {
+    const goal = definitionAndAbsenceGoals()[0];
+    const claim = candidateClaim(
+      'C-covered-origin', goal.id, 'requireAuth is defined in src/auth.js.', ['E1']);
+    const proposal = {
+      question: 'Which exported API exposes requireAuth?',
+      originRefs: [...goal.originRefs],
+      claimType: goal.claimType,
+      proofCondition: 'Observe the export boundary that exposes requireAuth.',
+      constraints: [],
+    };
+    const steps = buildTrustSteps({
+      goals: [goal],
+      initial: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+          id: 'read-covered-origin',
+        }],
+        claims: [claim],
+        verdicts: [semanticVerdict(claim.id, 'supported', ['E1'])],
+        uncovered: [proposal],
+        auditVerdict: 'ready',
+      },
+      repair: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/routes/user.js', startLine: 1, endLine: 7 },
+          id: 'inspect-require-auth-export-boundary',
+        }],
+        claims: [
+          { ...claim, evidenceRefs: ['E1', 'E2'] },
+          candidateClaim(
+            'C-export-boundary',
+            'late-uncovered:initial:1',
+            'The export boundary for requireAuth is not yet established.',
+            ['E2'],
+          ),
+        ],
+        verdicts: [
+          semanticVerdict(claim.id, 'supported', ['E1', 'E2']),
+          semanticVerdict('C-export-boundary', 'insufficient'),
+        ],
+      },
+    });
+
+    const { client, result } = await runTrustScript(steps);
+    assert.equal(client.stageCounts.get('planner'), 1);
+    assert.equal(client.stageCounts.get('goal_audit'), 2);
+    assert.equal(client.stageCounts.get('semantic_verifier'), 2);
+    const lateAuditRequest = client.requests[client.stageLabels.indexOf('goal_audit:2')];
+    assert.deepEqual(parseControlPacket(lateAuditRequest).proposals.map(item => item.id), [
+      'late-uncovered:initial:1',
+    ]);
+    const lateGoal = result.taskContract.subgoals.find(item =>
+      item.id === 'late-uncovered:initial:1');
+    assert.ok(lateGoal);
+    assert.equal(lateGoal.state, 'gap');
+    assert.deepEqual(result.rejectedGoals, []);
+    assert.equal(result.parentHandoff.state, 'incomplete');
+    assert.ok(result.parentHandoff.gaps.some(gap =>
+      gap.question === expectedParentGapQuestion(result, lateGoal)));
+    assert.equal(JSON.stringify(result.parentHandoff).includes(proposal.question), false,
+      'the parent gap is derived from the immutable request rather than verifier prose');
+  },
+);
+
+test('Spec 028 T031 — proposals from every verifier batch enter one late audit ledger', async () => {
+  const task = 'Inspect every requested authentication facet in the repository.';
+  const goals = Array.from({ length: 13 }, (_, index) => trustGoal(task, {
+    id: `S-batch-${index + 1}`,
+    question: `Inspect requested authentication facet ${index + 1}.`,
+    originText: task,
+  }));
+
+  class BatchedVerifierClient {
+    constructor() {
+      this.model = 'zai-glm-4.7';
+      this.stageCounts = new Map();
+      this.lateAuditBatches = [];
+    }
+
+    async createChatCompletion(request) {
+      const stage = classifyControlRequest(request);
+      const count = (this.stageCounts.get(stage) ?? 0) + 1;
+      this.stageCounts.set(stage, count);
+
+      if (stage === 'planner') return controlCompletion(plannerControl(goals));
+      if (stage === 'goal_audit') {
+        const proposals = parseControlPacket(request).proposals;
+        if (proposals.every(goal => goal.id.startsWith('late-uncovered:'))) {
+          this.lateAuditBatches.push(proposals.map(goal => goal.id));
+        }
+        return controlCompletion(auditorControl(
+          proposals.map(goal => auditControlRecord(goal)),
+        ));
+      }
+      if (stage === 'exploration') {
+        if (count === 1) {
+          return toolControlCompletion(
+            'repo_read_file',
+            { path: 'src/auth.js', startLine: 1, endLine: 4 },
+            'batch-read',
+          );
+        }
+        if (count === 3) {
+          assertRepairRequest(request, {
+            question: 'Inspect verifier batch 1 follow-up requirement.',
+            anchors: ['src/auth.js'],
+          });
+          const repairMessage = request.messages.findLast(message =>
+            typeof message.content === 'string' &&
+            message.content.includes('BEGIN_EVIDENCE_REPAIR_JSON'))?.content ?? '';
+          const repairMatch = /BEGIN_EVIDENCE_REPAIR_JSON\n([\s\S]*?)\nEND_EVIDENCE_REPAIR_JSON/
+            .exec(repairMessage);
+          assert.ok(repairMatch);
+          assert.deepEqual(JSON.parse(repairMatch[1]).questions.map(item => item.question), [
+            'Inspect verifier batch 1 follow-up requirement.',
+            'Inspect verifier batch 2 follow-up requirement.',
+          ]);
+          return toolControlCompletion(
+            'repo_read_file',
+            { path: 'src/routes/user.js', startLine: 1, endLine: 20 },
+            'batch-repair-read',
+          );
+        }
+        return controlCompletion('Evidence collection complete.');
+      }
+      if (stage === 'synthesis') return controlCompletion(readyExplorationResult());
+      if (stage === 'claim_synthesis') {
+        const packet = parseControlPacket(request);
+        const batchGoals = packet.control.requiredSubgoals;
+        const evidenceRefs = packet.observations
+          .filter(observation => observation.kind === 'source')
+          .map(observation => observation.id);
+        return controlCompletion({
+          claims: batchGoals.map(goal => candidateClaim(
+            `C-${goal.id}`,
+            goal.id,
+            `Observed source evidence for ${goal.question}`,
+            evidenceRefs,
+          )),
+        });
+      }
+      if (stage === 'semantic_verifier') {
+        const claims = parseControlPacket(request).claims;
+        return controlCompletion(verifierResponse(
+          claims.map(claim => claim.subgoalId.startsWith('late-uncovered:')
+            ? semanticVerdict(claim.id, 'insufficient')
+            : semanticVerdict(claim.id, 'supported', claim.evidenceRefs)),
+          count <= 2 ? [{
+            question: `Inspect verifier batch ${count} follow-up requirement.`,
+            originRefs: [`request:0-${task.length}`],
+            claimType: 'positive',
+            proofCondition: `Observe repository evidence for verifier batch ${count}.`,
+            constraints: [],
+          }] : [],
+        ));
+      }
+      assert.fail(`unexpected stage ${stage}`);
+    }
+  }
+
+  const root = await makeRepoFixture();
+  const client = new BatchedVerifierClient();
+  const runtime = new RuntimeImplementation({ chatClient: client });
+  const result = await runtime.explore({
+    task,
+    repo_root: root,
+    scope: ['src/**'],
+  });
+
+  assert.equal(client.stageCounts.get('planner'), 1);
+  assert.equal(client.stageCounts.get('semantic_verifier'), 4);
+  assert.deepEqual(client.lateAuditBatches, [[
+    'late-uncovered:initial:1',
+    'late-uncovered:initial:2',
+  ]], 'all verifier batches must be collected before one isolated late audit');
+  assert.deepEqual(result.taskContract.subgoals
+    .filter(goal => goal.id.startsWith('late-uncovered:'))
+    .map(goal => goal.state), ['gap', 'gap']);
+  assert.deepEqual(result.coverageGaps
+    .filter(gap => gap.subgoalId?.startsWith('late-uncovered:'))
+    .map(gap => gap.repairable), [false, false]);
+});
+
+test('Spec 028 T031 — post-repair verifier proposals use the same audit and stay terminal', async () => {
+  const task = 'Locate requireAuth and inspect its requested route registration.';
+  const existing = createRequiredSubgoal({
+    id: 'S-existing',
+    question: 'Where is requireAuth defined?',
+    originRefs: [requestOrigin(task, 'Locate requireAuth')],
+    claimType: 'symbol_definition',
+    proofCondition: 'Observe the in-scope definition and source body.',
+    constraints: [],
+    auditVerdict: 'ready',
+  });
+  const taskContract = createTaskContract({
+    task,
+    effectiveScope: ['src/**'],
+    constraints: [],
+    subgoals: [existing],
+    plannerVersion: 'planner-v1',
+    goalAuditVersion: 'goal-audit-v1',
+  });
+  const stages = [];
+  const client = {
+    model: 'zai-glm-4.7',
+    async createChatCompletion(request) {
+      stages.push(classifyControlRequest(request));
+      return lateAuditResponse(request, 'ready');
+    },
+  };
+  const runtime = new RuntimeImplementation({ chatClient: client });
+  const result = await runtime._auditVerifierGoalProposals({
+    task,
+    effectiveScope: ['src/**'],
+    wrapperTool: 'explore_repo',
+    taskContract,
+    coverageGaps: [],
+    rejectedGoals: [{
+      proposedGoalId: 'late-uncovered:post-repair:1',
+      verdict: 'reject_untraceable',
+      originRefs: [],
+      missingRequestParts: [],
+      reason: 'Previously rejected.',
+    }],
+    uncoveredRequestParts: [{
+      question: 'Which requested route registration still needs inspection?',
+      originRefs: [requestOrigin(task, 'inspect its requested route registration')],
+      claimType: 'positive',
+      proofCondition: 'Observe current route registration source.',
+      constraints: [],
+    }],
+    phase: 'post-repair',
+  });
+
+  assert.deepEqual(stages, ['goal_audit']);
+  const lateGoal = result.taskContract.subgoals.find(goal =>
+    goal.id === 'late-uncovered:post-repair:2');
+  assert.ok(lateGoal, 'runtime ids must avoid prior rejected-goal ids');
+  assert.equal(lateGoal.state, 'gap');
+  const gap = result.coverageGaps.find(item => item.subgoalId === lateGoal.id);
+  assert.equal(gap.reason, 'uncovered_request');
+  assert.equal(gap.repairable, false);
+  assert.deepEqual(result.rejectedGoals.map(goal => goal.proposedGoalId), [
+    'late-uncovered:post-repair:1',
+  ]);
+});
+
+test('Spec 028 T071 — collect_evidence rejects any late-goal integration bypass', async () => {
+  const task = 'Verify whether requireAuth protects the requested route.';
+  const audited = createRequiredSubgoal({
+    id: 'S-collect-verdict',
+    question: 'Is the supplied repository claim supported or refuted?',
+    originRefs: [requestOrigin(task, task), 'wrapper:collect_evidence:verdict'],
+    claimType: 'claim_verification',
+    proofCondition: 'Reach one evidence-backed verdict for the supplied claim.',
+    constraints: [],
+    auditVerdict: 'ready',
+  });
+  const taskContract = createTaskContract({
+    task,
+    effectiveScope: ['src/**'],
+    constraints: [],
+    subgoals: [audited],
+    plannerVersion: 'planner-v1',
+    goalAuditVersion: 'goal-audit-v1',
+  });
+  const stages = [];
+  const client = {
+    model: 'zai-glm-4.7',
+    async createChatCompletion(request) {
+      stages.push(classifyControlRequest(request));
+      return lateAuditResponse(request, 'ready');
+    },
+  };
+  const runtime = new RuntimeImplementation({ chatClient: client });
+  await assert.rejects(runtime._auditVerifierGoalProposals({
+    task,
+    effectiveScope: ['src/**'],
+    wrapperTool: 'collect_evidence',
+    taskContract,
+    coverageGaps: [],
+    rejectedGoals: [],
+    uncoveredRequestParts: [{
+      question: 'Could a different requested route refute the claim?',
+      originRefs: [requestOrigin(task, 'requested route')],
+      claimType: 'positive',
+      proofCondition: 'Inspect the other requested route facet.',
+      constraints: [],
+    }],
+    phase: 'initial',
+  }), /single verdict goal/u);
+
+  assert.deepEqual(stages, []);
+  assert.deepEqual(taskContract.subgoals.map(goal => goal.id), [audited.id]);
+});
+
+semanticPipelineRuntimeTest('Spec 028 T026 — verifier input is isolated and gates semantic mismatch', async () => {
+  const goals = definitionAndAbsenceGoals();
+  const supported = candidateClaim(
+    'C-definition', goals[0].id, 'requireAuth is defined in src/auth.js.', ['E1']);
+  const mismatch = candidateClaim(
+    'C-absence', goals[1].id, 'legacyGuard is absent from every repository path.', ['E2']);
+  const privateSentinels = [
+    'PRIVATE_EXPLORER_REASONING',
+    'MODEL_CONFIDENCE_099',
+  ];
+  const steps = buildTrustSteps({
+    goals,
+    initial: {
+      tools: [
+        { tool: 'repo_read_file', args: { path: 'src/auth.js', startLine: 1, endLine: 4 }, id: 'read-auth' },
+        { tool: 'repo_grep', args: { pattern: 'legacyGuard', scope: ['src/**'] }, id: 'grep-legacy' },
+      ],
+      prose: privateSentinels.join(' '),
+      claims: [supported, mismatch],
+      verdicts: [
+        semanticVerdict(supported.id, 'supported', ['E1']),
+        semanticVerdict(mismatch.id, 'insufficient'),
+      ],
+      assertVerifier(request) {
+        const packet = JSON.stringify(request.messages);
+        for (const expected of [
+          'Locate requireAuth', 'src/**', supported.id, mismatch.id,
+          'export function requireAuth', 'sourceRole', 'temporalRole', 'current',
+        ]) assert.match(packet, new RegExp(expected.replaceAll('*', '\\*')));
+        for (const sentinel of privateSentinels) {
+          assert.doesNotMatch(packet, new RegExp(sentinel));
+        }
+      },
+    },
+    repair: { tools: [], claims: [], verdicts: [] },
+  });
+  const { client, result } = await runTrustScript(steps);
+
+  assert.equal(client.stageCounts.get('semantic_verifier'), 1);
+  assert.equal(result.taskContract.subgoals.find(goal =>
+    goal.id === goals[0].id).state, 'supported');
+  assert.equal(result.taskContract.subgoals.find(goal =>
+    goal.id === goals[1].id).state, 'gap');
+  assert.match(result.directAnswer, /requireAuth is defined/);
+  assert.doesNotMatch(result.directAnswer, /absent from every repository path/);
+  assert.ok(result.coverageGaps.some(gap =>
+    gap.subgoalId === goals[1].id && gap.reason === 'semantic_mismatch'));
+  assert.equal(result.failure, null);
+});
+
+test('Spec 028 T032 — verifier inventions are audited without re-planning or leakage', async t => {
+  const task = 'Locate requireAuth and report whether route registration needs another authentication check.';
+  const goal = trustGoal(task, {
+    id: 'S-definition',
+    question: 'Where is requireAuth defined?',
+    originText: 'Locate requireAuth',
+    claimType: 'symbol_definition',
+  });
+  const claim = candidateClaim(
+    'C-definition', goal.id, 'requireAuth is defined in src/auth.js.', ['E1']);
+  const cases = [
+    {
+      name: 'initial untraceable proposal is discarded',
+      question: 'Which unrelated cache should be rewritten?',
+      initialVerdict: 'supported',
+      auditVerdict: 'reject_untraceable',
+      postRepair: false,
+    },
+    {
+      name: 'post-repair traceable proposal becomes a terminal gap',
+      question: 'Which route registration needs another authentication check?',
+      initialVerdict: 'insufficient',
+      auditVerdict: 'ready',
+      postRepair: true,
+    },
+    {
+      name: 'post-repair untraceable proposal is discarded',
+      question: 'Which unrelated cache should be rewritten?',
+      initialVerdict: 'insufficient',
+      auditVerdict: 'reject_untraceable',
+      postRepair: true,
+    },
+  ];
+
+  for (const fixture of cases) {
+    await t.test(fixture.name, async () => {
+      const proposal = {
+        question: fixture.question,
+        originRefs: [requestOrigin(task, fixture.postRepair
+          ? 'report whether route registration needs another authentication check'
+          : 'Locate requireAuth')],
+        claimType: 'positive',
+        proofCondition: `Observe evidence for ${fixture.question}`,
+        constraints: [],
+      };
+      const initial = {
+        tools: [{ tool: 'repo_read_file', args: { path: 'src/auth.js', startLine: 1, endLine: 1 }, id: 'read-partial' }],
+        claims: [claim],
+        verdicts: [semanticVerdict(claim.id, fixture.initialVerdict,
+          fixture.initialVerdict === 'supported' ? ['E1'] : [])],
+        ...(fixture.postRepair ? {} : {
+          uncovered: [proposal], auditVerdict: fixture.auditVerdict,
+        }),
+      };
+      const repair = fixture.postRepair ? {
+        tools: [{ tool: 'repo_read_file', args: { path: 'src/auth.js', startLine: 1, endLine: 4 }, id: 'repair-read' }],
+        assertRequest: request => assertRepairRequest(request, {
+          question: goal.question,
+          anchors: ['src/auth.js'],
+        }),
+        claims: [{ ...claim, evidenceRefs: ['E1', 'E2'] }],
+        verdicts: [semanticVerdict(claim.id, 'supported', ['E1', 'E2'])],
+        uncovered: [proposal],
+        auditVerdict: fixture.auditVerdict,
+      } : null;
+      const { client, result } = await runTrustScript(
+        buildTrustSteps({ goals: [goal], initial, repair }), { task });
+
+      assert.equal(client.stageCounts.get('planner'), 1);
+      assert.equal(client.stageCounts.get('goal_audit'), 2);
+      assert.equal(client.stageCounts.get('semantic_verifier'), fixture.postRepair ? 2 : 1);
+      assert.equal(providerToolActions(client).filter(action =>
+        action.arguments.path === 'src/auth.js' && action.arguments.endLine === 4).length,
+      fixture.postRepair ? 1 : 0);
+      if (fixture.auditVerdict === 'ready') {
+        const gap = result.coverageGaps.find(item => item.question === fixture.question);
+        assert.ok(gap);
+        assert.equal(gap.reason, 'uncovered_request');
+        assert.equal(gap.repairable, false);
+      } else {
+        assertNoRequiredLeak(result, fixture.question);
+      }
+      assert.equal(result.failure, null);
+    });
+  }
+});
+
+test('Spec 028 T032 — one repair reopens claims and suppresses equivalent follow-up', async () => {
+  const task = 'Verify every user route uses requireAuth and determine whether legacyGuard is registered.';
+  const goals = [
+    trustGoal(task, {
+      id: 'S-routes', question: 'Does every user route use requireAuth?',
+      originText: 'Verify every user route uses requireAuth', claimType: 'absence',
+    }),
+    trustGoal(task, {
+      id: 'S-legacy', question: 'Is legacyGuard registered?',
+      originText: 'determine whether legacyGuard is registered', claimType: 'absence',
+      proofCondition: 'Use the exact grep and complete route-registration read without repeating either action.',
+      constraints: ['Do not widen src/** or require external state.'],
+    }),
+    trustGoal(task, {
+      id: 'S-recovered', question: 'Does the public route use requireAuth?',
+      originText: 'Verify every user route uses requireAuth', claimType: 'positive',
+    }),
+  ];
+  const routeClaim = candidateClaim(
+    'C-routes', goals[0].id, 'Every observed user route uses requireAuth.', ['E1']);
+  const legacyClaim = candidateClaim(
+    'C-legacy', goals[1].id, 'legacyGuard is absent from src/**.', ['E2']);
+  const recoveredClaim = candidateClaim(
+    'C-recovered', goals[2].id, 'The public route uses requireAuth.', ['E1']);
+  const repairAction = {
+    type: 'tool',
+    tool: 'repo_read_file',
+    arguments: { path: 'src/routes/user.js', startLine: 1, endLine: 20 },
+  };
+  const repairFingerprint = fingerprintAction(repairAction);
+  const steps = buildTrustSteps({
+    goals,
+    initial: {
+      tools: [
+        { tool: 'repo_read_file', args: { path: 'src/routes/user.js', startLine: 1, endLine: 4 }, id: 'read-route' },
+        { tool: 'repo_grep', args: { pattern: 'legacyGuard', scope: ['src/**'] }, id: 'grep-legacy' },
+      ],
+      claims: [routeClaim, legacyClaim, recoveredClaim],
+      verdicts: [
+        semanticVerdict(routeClaim.id, 'supported', ['E1']),
+        semanticVerdict(legacyClaim.id, 'insufficient'),
+        semanticVerdict(recoveredClaim.id, 'contradicted'),
+      ],
+    },
+    repair: {
+      tools: [{
+        tool: repairAction.tool,
+        args: { endLine: 20, startLine: 1, path: 'src/routes/user.js' },
+        id: 'repair-routes',
+      }],
+      assertRequest: request => assertRepairRequest(request, {
+        question: goals[1].question,
+        anchors: ['src/routes/user.js', 'legacyGuard'],
+      }),
+      claims: [
+        { ...routeClaim, evidenceRefs: ['E1', 'E3'] },
+        { ...legacyClaim, evidenceRefs: ['E2', 'E3'] },
+        { ...recoveredClaim, evidenceRefs: ['E1', 'E3'] },
+      ],
+      verdicts: [
+        semanticVerdict(routeClaim.id, 'contradicted'),
+        semanticVerdict(legacyClaim.id, 'insufficient'),
+        semanticVerdict(recoveredClaim.id, 'supported', ['E3']),
+      ],
+      assertVerifier(request) {
+        const packet = JSON.stringify(request.messages);
+        for (const id of [
+          'S-routes', 'S-legacy', 'S-recovered',
+          'C-routes', 'C-legacy', 'C-recovered',
+        ]) {
+          assert.match(packet, new RegExp(id));
+        }
+        assert.match(packet, /\/users\/public/);
+      },
+    },
+  });
+  const { client, result } = await runTrustScript(steps, {
+    task,
+    setup: root => fs.appendFile(
+      path.join(root, 'src', 'routes', 'user.js'),
+      '\n\nexport const publicRoute = app => app.get("/users/public", publicHandler);',
+    ),
+  });
+
+  assert.equal(client.stageCounts.get('semantic_verifier'), 2);
+  assert.equal(client.stageCounts.get('claim_synthesis'), 4);
+  assert.equal(client.stageCounts.get('planner'), 1);
+  assert.equal(providerToolActions(client).filter(action =>
+    fingerprintAction(action) === repairFingerprint).length, 1);
+  assert.doesNotMatch(result.directAnswer ?? '', /Every observed user route uses requireAuth/);
+  assert.equal(result.taskContract.subgoals.find(goal =>
+    goal.id === goals[0].id).state, 'contradicted');
+  assert.equal(result.taskContract.subgoals.find(goal =>
+    goal.id === goals[2].id).state, 'supported',
+  'fresh repair evidence can resolve a previously contradicted goal');
+  const legacyGap = result.coverageGaps.find(gap => gap.subgoalId === goals[1].id);
+  assert.ok(legacyGap.attemptedActionFingerprints.includes(repairFingerprint));
+  assert.equal(legacyGap.repairable, false);
+  assert.equal(legacyGap.followUp, undefined,
+    'the only equivalent action was already attempted during repair');
+  assert.deepEqual(result.observations.map(observation => observation.id), [
+    'E1', 'E1:search', 'E2', 'E3', 'E3:search',
+  ]);
+  assert.equal(result.failure, null);
+});
+
+test('Spec 028 T032 — repair never re-executes an equivalent initial action', async () => {
+  const task = 'Determine whether requireAuth is fully established by the inspected range.';
+  const goal = trustGoal(task, {
+    id: 'S-repeat',
+    question: task,
+    originText: task,
+  });
+  const claim = candidateClaim(
+    'C-repeat', goal.id, 'The inspected range fully establishes requireAuth.', ['E1']);
+  const action = {
+    type: 'tool',
+    tool: 'repo_read_file',
+    arguments: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+  };
+  const { client, result } = await runTrustScript(buildTrustSteps({
+    goals: [goal],
+    initial: {
+      tools: [{ tool: action.tool, args: action.arguments, id: 'initial-read' }],
+      claims: [claim],
+      verdicts: [semanticVerdict(claim.id, 'insufficient')],
+    },
+    repair: {
+      tools: [{ tool: action.tool, args: { endLine: 4, path: 'src/auth.js', startLine: 1 }, id: 'repeat-read' }],
+      assertRequest(request) {
+        assertRepairRequest(request, {
+          question: goal.question,
+          anchors: ['src/auth.js'],
+        });
+        const content = request.messages.find(message =>
+          message.role === 'user' && message.content.includes('BEGIN_EVIDENCE_REPAIR_JSON'))
+          ?.content ?? '';
+        const match = /BEGIN_EVIDENCE_REPAIR_JSON\n([\s\S]*?)\nEND_EVIDENCE_REPAIR_JSON/.exec(content);
+        const packet = JSON.parse(match?.[1] ?? 'null');
+        assert.deepEqual(packet.history.sourceRanges, [{
+          path: 'src/auth.js', startLine: 1, endLine: 4,
+        }]);
+        assert.ok(packet.history.searches.some(item =>
+          item.tool === 'repo_read_file' && item.arguments.path === 'src/auth.js' &&
+          item.arguments.startLine === 1 && item.arguments.endLine === 4));
+        assert.match(request.messages[0].content, /Do not repeat an exact or equivalent prior action/u);
+      },
+      claims: [{ ...claim }],
+      verdicts: [semanticVerdict(claim.id, 'insufficient')],
+    },
+  }), { task });
+
+  assert.equal(client.stageCounts.get('claim_synthesis'), 1,
+    'no fresh observation means there is no post-repair synthesis');
+  assert.equal(client.stageCounts.get('semantic_verifier'), 1);
+  assert.deepEqual(result.observations.map(observation => observation.id), ['E1', 'E1:search']);
+  assert.equal(result.stats.filesRead, 1, 'the equivalent repair read was suppressed');
+  assert.equal(result.directAnswer, '',
+    'an unresolved claim must not fall back to pre-verifier exploration text');
+  const gap = result.coverageGaps.find(item => item.subgoalId === goal.id);
+  assert.equal(gap.repairable, false);
+  assert.deepEqual(gap.attemptedActionFingerprints, [fingerprintAction(action)]);
+});
+
+test('Spec 028 T071 — repair suppresses a read covered by adjacent current ranges', async () => {
+  const task = 'Determine whether the inspected requireAuth ranges are sufficient.';
+  const goal = trustGoal(task, {
+    id: 'S-covered-repair',
+    question: task,
+    originText: task,
+  });
+  const claim = candidateClaim(
+    'C-covered-repair',
+    goal.id,
+    'The inspected ranges fully establish requireAuth.',
+    ['E1', 'E2'],
+  );
+  const { client, result } = await runTrustScript(buildTrustSteps({
+    goals: [goal],
+    initial: {
+      tools: [
+        {
+          tool: 'repo_read_file',
+          args: { path: 'src/auth.js', startLine: 1, endLine: 2 },
+          id: 'covered-read-one',
+        },
+        {
+          tool: 'repo_read_file',
+          args: { path: 'src/auth.js', startLine: 3, endLine: 4 },
+          id: 'covered-read-two',
+        },
+      ],
+      claims: [claim],
+      verdicts: [semanticVerdict(claim.id, 'insufficient')],
+    },
+    repair: {
+      tools: [{
+        tool: 'repo_read_file',
+        args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+        id: 'covered-repair-read',
+      }],
+      claims: [{ ...claim }],
+      verdicts: [semanticVerdict(claim.id, 'insufficient')],
+    },
+  }), { task });
+
+  assert.equal(client.stageCounts.get('claim_synthesis'), 1);
+  assert.equal(client.stageCounts.get('semantic_verifier'), 1);
+  assert.equal(result.stats.filesRead, 2);
+  assert.deepEqual(result.observations.map(observation => observation.id), [
+    'E1', 'E1:search', 'E2', 'E2:search',
+  ]);
+  assert.equal(result.parentHandoff.state, 'incomplete');
+  assert.equal(result.coverageGaps.find(item => item.subgoalId === goal.id)?.repairable,
+    false);
+});
+
+test('Spec 028 T071 — repair permits a read with a partially fresh range', async () => {
+  const task = 'Determine whether the remaining requireAuth lines establish the definition.';
+  const goal = trustGoal(task, {
+    id: 'S-partial-repair',
+    question: task,
+    originText: task,
+  });
+  const initialClaim = candidateClaim(
+    'C-partial-repair',
+    goal.id,
+    'The inspected range establishes requireAuth.',
+    ['E1'],
+  );
+  const repairedClaim = {
+    ...initialClaim,
+    evidenceRefs: ['E1', 'E2'],
+  };
+  const { client, result } = await runTrustScript(buildTrustSteps({
+    goals: [goal],
+    initial: {
+      tools: [{
+        tool: 'repo_read_file',
+        args: { path: 'src/auth.js', startLine: 1, endLine: 2 },
+        id: 'partial-initial-read',
+      }],
+      claims: [initialClaim],
+      verdicts: [semanticVerdict(initialClaim.id, 'insufficient')],
+    },
+    repair: {
+      tools: [{
+        tool: 'repo_read_file',
+        args: { path: 'src/auth.js', startLine: 2, endLine: 4 },
+        id: 'partial-repair-read',
+      }],
+      claims: [repairedClaim],
+      verdicts: [semanticVerdict(repairedClaim.id, 'supported', ['E2'])],
+    },
+  }), { task });
+
+  assert.equal(client.stageCounts.get('claim_synthesis'), 2);
+  assert.equal(client.stageCounts.get('semantic_verifier'), 2);
+  assert.equal(result.stats.filesRead, 2);
+  assert.equal(result.parentHandoff.state, 'complete');
+  assert.ok(result.evidence.some(item => item.path === 'src/auth.js' &&
+    item.startLine === 2 && item.endLine === 4));
+});
+
+test('Spec 028 T071 — public map repair remains one sequential action', async () => {
+  const task = 'Assess this intended change before editing: ' +
+    'Add a new top-level field to explore_repo structured output. Identify actionable targets, ' +
+    'dependent callers/consumers, affected verification or public-contract surfaces, and the remaining risk boundary.';
+  const goals = impactWrapperGoals(task);
+  const targetGoal = goals.find(goal => goal.id === 'targets');
+  const claim = candidateClaim(
+    'C-map-repair-target',
+    targetGoal.id,
+    'src/auth.js is one observed implementation target for the intended change.',
+    ['E1'],
+  );
+  const { client, result } = await runTrustScript(buildTrustSteps({
+    goals,
+    initial: {
+      tools: [{
+        tool: 'repo_read_file',
+        args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+        id: 'map-repair-initial-target',
+      }],
+      claims: [claim],
+      verdicts: [semanticVerdict(claim.id, 'supported', claim.evidenceRefs)],
+    },
+    repair: {
+      tools: [{
+        tool: 'repo_read_file',
+        args: { path: 'src/routes/user.js', startLine: 1, endLine: 6 },
+        id: 'map-repair-dependent',
+      }],
+      claims: [{ ...claim }],
+      verdicts: [semanticVerdict(claim.id, 'supported', claim.evidenceRefs)],
+    },
+  }), {
+    task,
+    taskMode: 'edit_planning',
+  });
+
+  const repairRequests = client.requests.filter(request => request.messages.some(message =>
+    typeof message.content === 'string' &&
+    message.content.includes('BEGIN_EVIDENCE_REPAIR_JSON')));
+  assert.equal(repairRequests.length, 1);
+  assert.equal(repairRequests[0].parallelToolCalls, false);
+  assert.equal(result.stats.filesRead, 2);
+  assert.equal(result.parentHandoff.state, 'incomplete');
+});
+
+test('Spec 028 T071 — fixed flow claim and verifier controls use deterministic sampling', async () => {
+  const task = 'Explain the JSON-RPC request path to the parent handoff.';
+  const goals = flowWrapperGoals();
+  const claims = goals.map((goal, index) => candidateClaim(
+    `C-flow-sampling-${index + 1}`,
+    goal.id,
+    `The observed source establishes ${goal.question.toLowerCase()}`,
+    ['E1'],
+  ));
+  const { client, result } = await runTrustScript(buildTrustSteps({
+    goals,
+    initial: {
+      tools: [{
+        tool: 'repo_read_file',
+        args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+        id: 'flow-sampling-read',
+      }],
+      claims,
+      verdicts: claims.map(claim =>
+        semanticVerdict(claim.id, 'supported', claim.evidenceRefs)),
+    },
+  }), {
+    task,
+    taskMode: 'path_explanation',
+  });
+
+  for (const stage of ['claim_synthesis:1', 'semantic_verifier:1']) {
+    const request = client.requests[client.stageLabels.indexOf(stage)];
+    assert.equal(request.temperature, 0, `${stage} must minimize fixed-flow variance`);
+    assert.equal(request.topP, 1, `${stage} must use deterministic top-p`);
+  }
+  assert.equal(result.failure, null);
+});
+
+test('Spec 028 T069 — runtime carries an omitted post-repair prior claim without stale success', async () => {
+  const task = 'Determine whether requireAuth protects the inspected route.';
+  const goal = trustGoal(task, {
+    id: 'S-preserve',
+    question: task,
+    originText: task,
+  });
+  const claim = candidateClaim(
+    'C-preserve', goal.id, 'requireAuth protects the inspected route.', ['E1']);
+  const steps = buildTrustSteps({
+    goals: [goal],
+    initial: {
+      tools: [{
+        tool: 'repo_read_file',
+        args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+        id: 'initial-auth',
+      }],
+      claims: [claim],
+      verdicts: [semanticVerdict(claim.id, 'insufficient')],
+    },
+    repair: {
+      tools: [
+        {
+          tool: 'repo_read_file',
+          args: { path: 'src/routes/user.js', startLine: 1, endLine: 20 },
+          id: 'repair-route',
+        },
+        {
+          tool: 'repo_grep',
+          args: { pattern: 'requireAuth', scope: ['src/**'] },
+          id: 'repair-auth-search',
+        },
+      ],
+      claims: [],
+      verdicts: [semanticVerdict(claim.id, 'insufficient')],
+    },
+  });
+
+  const { client, result } = await runTrustScript(steps, { task });
+  const postClaimRequest = client.requests[
+    client.stageLabels.indexOf('claim_synthesis:2')
+  ];
+  const postClaimPacket = parseControlPacket(postClaimRequest);
+  assert.deepEqual(postClaimPacket.observations.map(item => item.id), ['E1', 'E2']);
+  assert.ok(postClaimPacket.observations.every(item => item.kind === 'source'));
+  const priorPacketText = postClaimRequest.messages.findLast(message =>
+    typeof message.content === 'string' &&
+    message.content.includes('BEGIN_REQUIRED_PRIOR_CLAIMS_JSON'))?.content ?? '';
+  const priorPacketMatch = /BEGIN_REQUIRED_PRIOR_CLAIMS_JSON\n([\s\S]*?)\nEND_REQUIRED_PRIOR_CLAIMS_JSON/
+    .exec(priorPacketText);
+  assert.ok(priorPacketMatch);
+  const priorPacket = JSON.parse(priorPacketMatch[1]);
+  assert.deepEqual(priorPacket.freshEvidenceRefs, ['E2']);
+  assert.deepEqual(priorPacket.priorClaims, [claim]);
+  const postVerifierPacket = parseControlPacket(client.requests[
+    client.stageLabels.indexOf('semantic_verifier:2')
+  ]);
+  assert.ok(postVerifierPacket.observations.some(item =>
+    item.id === 'E3' && item.kind === 'search'));
+  assert.equal(client.stageCounts.get('claim_synthesis'), 2);
+  assert.equal(result.failure, null);
+  assert.equal(result.parentHandoff.state, 'incomplete');
+  assert.deepEqual(result.semanticVerification.claims.map(item => item.id), [claim.id]);
+  assert.equal(result.semanticVerification.claims[0].verdict, 'insufficient');
+  assert.doesNotMatch(result.directAnswer, /requireAuth protects the inspected route/);
+});
+
+test('Spec 028 T032 — post-repair freshness stays local to the repaired claim', async () => {
+  const task = 'Locate requireAuth and confirm the route binding.';
+  const definitionGoal = trustGoal(task, {
+    id: 'S-definition-fresh',
+    question: 'Where is requireAuth defined and what does it do?',
+    originText: 'Locate requireAuth',
+  });
+  const usageGoal = trustGoal(task, {
+    id: 'S-usage-existing',
+    question: 'Which route uses requireAuth?',
+    originText: 'confirm the route binding',
+  });
+  const definitionClaim = candidateClaim(
+    'C-definition-fresh',
+    definitionGoal.id,
+    'requireAuth is defined in src/auth.js and rejects unauthenticated requests.',
+    ['E1'],
+  );
+  const usageClaim = candidateClaim(
+    'C-usage-existing',
+    usageGoal.id,
+    'registerUserRoutes binds requireAuth to GET /users/me.',
+    ['E2'],
+  );
+  const repairedDefinitionClaim = {
+    ...definitionClaim,
+    evidenceRefs: ['E1', 'E3'],
+  };
+  const steps = buildTrustSteps({
+    goals: [definitionGoal, usageGoal],
+    initial: {
+      tools: [{
+        tool: 'repo_read_file',
+        args: { path: 'src/auth.js', startLine: 1, endLine: 2 },
+        id: 'initial-definition',
+      }, {
+        tool: 'repo_read_file',
+        args: { path: 'src/routes/user.js', startLine: 1, endLine: 6 },
+        id: 'initial-usage',
+      }],
+      claims: [definitionClaim, usageClaim],
+      verdicts: [
+        semanticVerdict(definitionClaim.id, 'insufficient'),
+        semanticVerdict(usageClaim.id, 'supported', ['E2']),
+      ],
+    },
+    repair: {
+      tools: [{
+        tool: 'repo_read_file',
+        args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+        id: 'repair-definition',
+      }],
+      claims: [repairedDefinitionClaim],
+      assertVerifier(request) {
+        const packet = parseControlPacket(request);
+        assert.ok(packet.control.freshEvidenceRefs.includes('E3'));
+        const claimById = new Map(packet.claims.map(claim => [claim.id, claim]));
+        assert.ok(claimById.get(definitionClaim.id).evidenceRefs.includes('E3'));
+        assert.deepEqual(claimById.get(usageClaim.id).evidenceRefs, ['E2']);
+        assert.match(request.messages[0].content,
+          /every other claim[\s\S]{0,180}existing evidence[\s\S]{0,180}lack of a fresh evidence ref/u);
+      },
+      verdicts: [
+        semanticVerdict(definitionClaim.id, 'supported', ['E3']),
+        semanticVerdict(usageClaim.id, 'supported', ['E2']),
+      ],
+    },
+  });
+
+  const { result } = await runTrustScript(steps, { task });
+
+  assert.deepEqual(result.taskContract.subgoals.map(goal => [goal.id, goal.state]), [
+    [definitionGoal.id, 'supported'],
+    [usageGoal.id, 'supported'],
+  ]);
+  assert.equal(result.parentHandoff.state, 'complete');
+  assert.match(result.directAnswer, /requireAuth is defined/);
+  assert.match(result.directAnswer, /registerUserRoutes binds requireAuth/);
+});
+
+test('Spec 028 T032 — a zero-observation gap still receives the one repair round', async () => {
+  const task = 'Determine whether requireAuth is defined.';
+  const goal = trustGoal(task, {
+    id: 'S-anchorless',
+    question: task,
+    originText: task,
+  });
+  const claim = candidateClaim(
+    'C-anchorless', goal.id, 'requireAuth is defined in src/auth.js.', ['E1']);
+  const steps = [
+    { stage: 'planner:1', value: plannerControl([goal]) },
+    {
+      stage: 'goal_audit:1',
+      value: auditorControl([auditControlRecord(goal)]),
+    },
+    { stage: 'exploration:1', content: 'No initial repository action.' },
+    { stage: 'synthesis:1', value: readyExplorationResult() },
+    {
+      stage: 'exploration:2',
+      run(request) {
+        assertRepairRequest(request, { question: goal.question, anchors: [] });
+        const content = request.messages.find(message =>
+          message.role === 'user' && message.content.includes('BEGIN_EVIDENCE_REPAIR_JSON'))
+          ?.content ?? '';
+        const match = /BEGIN_EVIDENCE_REPAIR_JSON\n([\s\S]*?)\nEND_EVIDENCE_REPAIR_JSON/.exec(content);
+        assert.deepEqual(JSON.parse(match?.[1] ?? 'null').anchors, [],
+          'question and immutable scope bound an anchorless repair');
+        return toolControlCompletion('repo_read_file', {
+          path: 'src/auth.js', startLine: 1, endLine: 4,
+        }, 'anchorless-repair');
+      },
+    },
+    { stage: 'claim_synthesis:1', value: { claims: [claim] } },
+    {
+      stage: 'semantic_verifier:1',
+      value: verifierResponse([semanticVerdict(claim.id, 'supported', ['E1'])]),
+    },
+  ];
+
+  const { client, result } = await runTrustScript(steps, { task });
+
+  assert.equal(client.stageCounts.get('exploration'), 2);
+  assert.equal(client.stageCounts.get('claim_synthesis'), 1);
+  assert.equal(result.taskContract.subgoals.find(item => item.id === goal.id).state,
+    'supported');
+  assert.equal(result.coverageGaps.some(gap => gap.subgoalId === goal.id), false);
+  assert.deepEqual(result.observations.map(observation => observation.id), ['E1', 'E1:search']);
+});
+
+semanticPipelineRuntimeTest('Spec 028 T026 — valid partial limits are goal-local and non-fatal', async () => {
+  const goals = definitionAndAbsenceGoals();
+  const definition = candidateClaim(
+    'C-definition', goals[0].id, 'requireAuth is defined in src/auth.js.', ['E1']);
+  const exhaustive = candidateClaim(
+    'C-long', goals[1].id, 'legacyGuard is absent from every line of src/long.js.', ['E2']);
+  const steps = buildTrustSteps({
+    goals,
+    initial: {
+      tools: [
+        { tool: 'repo_read_file', args: { path: 'src/auth.js', startLine: 1, endLine: 4 }, id: 'read-auth' },
+        { tool: 'repo_read_file', args: { path: 'src/long.js', startLine: 1, endLine: 10_000 }, id: 'read-long' },
+      ],
+      claims: [definition, exhaustive],
+      verdicts: [
+        semanticVerdict(definition.id, 'supported', ['E1']),
+        semanticVerdict(exhaustive.id, 'insufficient'),
+      ],
+      assertVerifier(request) {
+        assert.match(JSON.stringify(request.messages),
+          /tool_result_limit|toolTruncated|contextTruncated/);
+      },
+    },
+  });
+  const { client, result } = await runTrustScript(steps, {
+    setup: root => fs.writeFile(
+      path.join(root, 'src', 'long.js'),
+      Array.from({ length: 400 }, (_, index) => `export const line${index} = ${index};`).join('\n'),
+    ),
+  });
+
+  assert.equal(client.stageCounts.get('semantic_verifier'), 1);
+  assert.equal(result.failure, null);
+  assert.match(result.directAnswer, /requireAuth is defined/);
+  assert.doesNotMatch(result.directAnswer, /legacyGuard is absent from every line/);
+  assert.ok(result.coverageGaps.some(gap =>
+    gap.subgoalId === goals[1].id && gap.reason === 'safety_limit_reached'));
+  const toolLimits = result.stats.safetyLimits.filter(limit =>
+    limit.name === 'tool_result_limit');
+  assert.deepEqual(toolLimits.map(limit => limit.stage), ['exploration']);
+  assert.ok(toolLimits[0].affectedSubgoalIds.includes(goals[1].id));
+});
+
+semanticPipelineRuntimeTest('Spec 028 T033 — cancellation after the final verifier response suppresses verified output', async () => {
+  const controller = new AbortController();
+  const goal = definitionAndAbsenceGoals()[0];
+  const claim = candidateClaim(
+    'C-late-cancel', goal.id, 'requireAuth is defined in src/auth.js.', ['E1']);
+  const steps = buildTrustSteps({
+    goals: [goal],
+    initial: {
+      tools: [{
+        tool: 'repo_read_file',
+        args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+        id: 'read-auth',
+      }],
+      claims: [claim],
+      verdicts: [semanticVerdict(claim.id, 'supported', ['E1'])],
+      assertVerifier() {
+        controller.abort();
+      },
+    },
+  });
+
+  const { result } = await runTrustScript(steps, { abortSignal: controller.signal });
+
+  assert.equal(controller.signal.aborted, true);
+  assert.equal(result.failure?.reason, 'aborted');
+  assert.equal(result.status.complete, false);
+  assert.deepEqual(result.targets, []);
+  assert.deepEqual(result.evidence, []);
+  assert.doesNotMatch(result.directAnswer, /requireAuth is defined/);
+});
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T071 — malformed repair tool arguments fail closed before repository execution',
+  async () => {
+    const task = 'Locate the current requireAuth definition.';
+    const goal = trustGoal(task, {
+      id: 'S-malformed-repair',
+      question: task,
+      originText: task,
+    });
+    const claim = candidateClaim(
+      'C-malformed-repair',
+      goal.id,
+      'requireAuth is defined in src/auth.js.',
+      ['E1'],
+    );
+    const malformedArgs = {
+      pattern: 'requireAuth',
+      scope: 'src/**,tests/**,*.md,examples/**',
+    };
+    const malformedFingerprint = fingerprintAction({
+      type: 'tool',
+      tool: 'repo_grep',
+      arguments: malformedArgs,
+    });
+    const { client, result } = await runTrustScript(buildTrustSteps({
+      goals: [goal],
+      initial: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+          id: 'read-auth-before-malformed-repair',
+        }],
+        claims: [claim],
+        verdicts: [semanticVerdict(claim.id, 'insufficient')],
+      },
+      repair: {
+        tools: [{
+          tool: 'repo_grep',
+          args: malformedArgs,
+          id: 'malformed-repair-grep',
+        }],
+        claims: [{ ...claim, evidenceRefs: ['E1', 'E2'] }],
+        verdicts: [semanticVerdict(claim.id, 'supported', ['E2'])],
+      },
+    }), { task });
+
+    assert.equal(result.failure, null);
+    assert.equal(result.parentHandoff.state, 'incomplete');
+    assert.equal(result.stats.grepCalls, 0);
+    assert.deepEqual(result.observations.map(observation => observation.id), [
+      'E1',
+      'E1:search',
+    ]);
+    assert.equal(client.stageCounts.get('semantic_verifier'), 1,
+      'invalid repair arguments cannot trigger post-repair verification');
+    const gap = result.coverageGaps.find(item => item.subgoalId === goal.id);
+    assert.ok(gap);
+    assert.equal(gap.repairable, false);
+    assert.equal(gap.attemptedActionFingerprints.includes(malformedFingerprint), false);
+  },
+);
+
+semanticPipelineRuntimeTest('Spec 028 T034 — semantic repair lifecycle stays diagnostic and prose-free', async () => {
+  const logDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-trust-events-'));
+  const goal = definitionAndAbsenceGoals()[0];
+  const claimText = 'UNVERIFIED_CLAIM_TRANSCRIPT_SENTINEL';
+  const explorationDraft = 'UNVERIFIED_EXPLORATION_TRANSCRIPT_SENTINEL';
+  const repairDraft = 'UNVERIFIED_REPAIR_TRANSCRIPT_SENTINEL';
+  const verifierNote = 'UNVERIFIED_VERIFIER_NOTE_SENTINEL';
+  const initialClaim = candidateClaim('C-transcript', goal.id, claimText, ['E1']);
+  const repairedClaim = candidateClaim('C-transcript', goal.id, claimText, ['E1', 'E2']);
+  const steps = buildTrustSteps({
+    goals: [goal],
+    initial: {
+      tools: [{
+        tool: 'repo_read_file',
+        args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+        id: 'read-auth',
+      }],
+      prose: explorationDraft,
+      claims: [initialClaim],
+      verdicts: [{
+        ...semanticVerdict(initialClaim.id, 'insufficient'),
+        note: verifierNote,
+      }],
+    },
+    repair: {
+      tools: [{
+        tool: 'repo_read_file',
+        args: { path: 'src/routes/user.js', startLine: 1, endLine: 8 },
+        id: 'read-route',
+      }],
+      prose: repairDraft,
+      claims: [repairedClaim],
+      assertVerifier(request) {
+        const packet = parseControlPacket(request);
+        assert.deepEqual(packet.control.freshEvidenceRefs, ['E2']);
+        assert.match(request.messages[0].content,
+          /claim whose evidenceRefs includes[\s\S]{0,180}when supported[\s\S]{0,180}at least one exact id from that list/u);
+      },
+      verdicts: [{
+        ...semanticVerdict(repairedClaim.id, 'supported', ['E2']),
+        note: verifierNote,
+      }],
+    },
+  });
+
+  await withEnv({
+    CEREBRAS_EXPLORER_LOG_PATH: logDir,
+    CEREBRAS_EXPLORER_LOG_RAW: 'true',
+  }, async () => {
+    const { client, result } = await runTrustScript(steps);
+    const entries = await readJsonl(result.transcriptPath);
+    const claims = entries.filter(entry => entry.type === 'claim');
+    const verdicts = entries.filter(entry => entry.type === 'verdict');
+    const repairs = entries.filter(entry => entry.type === 'repair');
+    const finals = entries.filter(entry => entry.type === 'final');
+    const usage = entries.filter(entry => entry.type === 'usage');
+
+    assert.deepEqual(claims.map(entry => entry.phase), ['initial', 'post-repair']);
+    assert.deepEqual(verdicts.map(entry => entry.phase), ['initial', 'post-repair']);
+    assert.deepEqual(repairs.map(entry => entry.status), ['started', 'finished']);
+    assert.equal(repairs[1].outcome, 'completed');
+    assert.equal(repairs[1].outcomes[0].state, 'supported');
+    assert.deepEqual(finals[0].acceptedClaimIds, [initialClaim.id]);
+    assert.equal(finals[0].requiredSubgoals[0].state, 'supported');
+    assert.deepEqual(finals[0].parentPayload, result.parentPayloadMeasurement);
+    assert.equal(usage.length, 1);
+    assert.equal(usage[0].providerCalls, client.requests.length);
+    assert.equal(usage[0].repositoryToolCalls, 2);
+    const repairTool = entries.find(entry => entry.type === 'tool' && entry.stage === 'repair');
+    assert.ok(repairTool);
+    assert.ok(repairs[1].actionFingerprints.includes(repairTool.actionFingerprint));
+    assert.equal(entries.at(-1).type, 'meta');
+    assert.ok(entries.filter(entry => entry.type === 'assistant')
+      .every(entry => !('content' in entry) && Number.isInteger(entry.contentChars)));
+    assert.ok(claims.every(entry => entry.claims.every(claim => !('text' in claim))));
+    assert.ok(verdicts.every(entry => entry.verdicts.every(verdict => !('note' in verdict))));
+
+    const serialized = JSON.stringify(entries);
+    for (const sentinel of [claimText, explorationDraft, repairDraft, verifierNote]) {
+      assert.equal(serialized.includes(sentinel), false);
+    }
+  });
+});
+
+semanticPipelineRuntimeTest('Spec 028 T041 — transcript records only claims accepted by the parent projection', {
+  skip: !hasGit(),
+}, async () => {
+  const logDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-parent-accepted-claims-'));
+  const task = 'Identify the committed requireAuth change.';
+  const goal = trustGoal(task, {
+    id: 'S-parent-projection',
+    question: task,
+    originText: task,
+  });
+  const claim = candidateClaim(
+    'C-parent-projection', goal.id, 'requireAuth changed in the inspected diff.', ['E1']);
+  const steps = buildTrustSteps({
+    goals: [goal],
+    initial: {
+      tools: [{
+        tool: 'repo_git_diff',
+        args: { from: 'HEAD~1', to: 'HEAD', path: 'src/auth.js' },
+        id: 'diff-auth',
+      }],
+      claims: [claim],
+      verdicts: [semanticVerdict(claim.id, 'supported', ['E1'])],
+    },
+    repair: {
+      tools: [],
+      prose: 'No projectable commit evidence was supplied.',
+      claims: [],
+      verdicts: [],
+    },
+  });
+
+  await withEnv({
+    CEREBRAS_EXPLORER_LOG_PATH: logDir,
+    CEREBRAS_EXPLORER_LOG_RAW: 'true',
+  }, async () => {
+    const { result } = await runTrustScript(steps, {
+      task,
+      async setup(root) {
+        const git = args => execFileSync('git', args, {
+          cwd: root,
+          stdio: 'pipe',
+          encoding: 'utf8',
+        });
+        git(['init']);
+        git(['config', 'user.email', 'explorer@example.invalid']);
+        git(['config', 'user.name', 'Explorer Test']);
+        git(['add', '.']);
+        git(['commit', '-m', 'base']);
+        await fs.appendFile(path.join(root, 'src', 'auth.js'), '\n// inspected change\n');
+        git(['add', 'src/auth.js']);
+        git(['commit', '-m', 'change auth']);
+      },
+    });
+    const entries = await readJsonl(result.transcriptPath);
+    const final = entries.find(entry => entry.type === 'final');
+
+    assert.deepEqual(result.semanticVerification?.claims ?? [], []);
+    assert.equal(result.parentHandoff.state, 'incomplete',
+      'a diff hunk without a commit sha cannot be parent-facing git proof');
+    assert.deepEqual(final.acceptedClaimIds, []);
+  });
+});
+
+semanticPipelineRuntimeTest('Spec 028 T034 — transcript persistence cannot change the committed terminal outcome', async () => {
+  const logDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-trust-terminal-cutoff-'));
+  const controller = new AbortController();
+  const goal = definitionAndAbsenceGoals()[0];
+  const claim = candidateClaim(
+    'C-terminal-cutoff', goal.id, 'requireAuth is defined in src/auth.js.', ['E1']);
+  const steps = buildTrustSteps({
+    goals: [goal],
+    initial: {
+      tools: [{
+        tool: 'repo_read_file',
+        args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+        id: 'read-auth-terminal-cutoff',
+      }],
+      claims: [claim],
+      verdicts: [semanticVerdict(claim.id, 'supported', ['E1'])],
+    },
+  });
+
+  await withEnv({
+    CEREBRAS_EXPLORER_LOG_PATH: logDir,
+    CEREBRAS_EXPLORER_LOG_RAW: 'true',
+  }, async () => {
+    const originalAppendFile = fs.appendFile;
+    let abortedDuringTerminalWrite = false;
+    fs.appendFile = async (file, data, ...rest) => {
+      if (!abortedDuringTerminalWrite && String(data).includes('"type":"final"')) {
+        abortedDuringTerminalWrite = true;
+        controller.abort();
+      }
+      return originalAppendFile.call(fs, file, data, ...rest);
+    };
+    let result;
+    try {
+      ({ result } = await runTrustScript(steps, { abortSignal: controller.signal }));
+    } finally {
+      fs.appendFile = originalAppendFile;
+    }
+
+    const entries = await readJsonl(result.transcriptPath);
+    const final = entries.find(entry => entry.type === 'final');
+    assert.equal(abortedDuringTerminalWrite, true);
+    assert.equal(controller.signal.aborted, true);
+    assert.equal(result.failure?.reason, undefined);
+    assert.equal(final.failureReason, undefined);
+    assert.deepEqual(final.acceptedClaimIds, [claim.id]);
+  });
+});
+
+semanticPipelineRuntimeTest('Spec 028 T034 — planner and auditor cancellation count the issued provider request', async () => {
+  const goal = definitionAndAbsenceGoals()[0];
+  for (const abortAt of ['planner:1', 'goal_audit:1']) {
+    const logDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-trust-planning-cancel-'));
+    const controller = new AbortController();
+    const labels = [];
+    const client = {
+      model: 'zai-glm-4.7',
+      async createChatCompletion(request) {
+        const stage = classifyControlRequest(request);
+        const label = `${stage}:1`;
+        labels.push(label);
+        if (label === abortAt) {
+          controller.abort();
+          const error = new Error(`cancelled at ${label}`);
+          error.name = 'AbortError';
+          throw error;
+        }
+        if (label === 'planner:1') return controlCompletion(plannerControl([goal]));
+        assert.fail(`unexpected request after ${abortAt}: ${label}`);
+      },
+    };
+
+    await withEnv({
+      CEREBRAS_EXPLORER_LOG_PATH: logDir,
+      CEREBRAS_EXPLORER_LOG_RAW: 'true',
+    }, async () => {
+      const root = await makeRepoFixture();
+      const result = await new RuntimeImplementation({ chatClient: client }).explore(
+        { task: GOAL_AUDIT_TASK, repo_root: root },
+        { abortSignal: controller.signal },
+      );
+      const entries = await readJsonl(result.transcriptPath);
+      const usage = entries.find(entry => entry.type === 'usage');
+
+      assert.equal(result.failure?.reason, 'aborted', abortAt);
+      assert.equal(labels.at(-1), abortAt);
+      assert.equal(usage.providerCalls, labels.length, abortAt);
+    });
+  }
+});
+
+semanticPipelineRuntimeTest('Spec 028 T034 — failed repair records one terminal failure without stale claims', async () => {
+  const logDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-trust-failure-events-'));
+  const goal = definitionAndAbsenceGoals()[0];
+  const staleText = 'UNVERIFIED_FAILED_REPAIR_CLAIM_SENTINEL';
+  const claim = candidateClaim('C-failed-repair', goal.id, staleText, ['E1']);
+  const steps = buildTrustSteps({
+    goals: [goal],
+    initial: {
+      tools: [{
+        tool: 'repo_read_file',
+        args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+        id: 'read-auth',
+      }],
+      claims: [claim],
+      verdicts: [semanticVerdict(claim.id, 'insufficient')],
+    },
+    repair: {
+      providerError: 'repair provider outage sentinel',
+    },
+  });
+
+  await withEnv({
+    CEREBRAS_EXPLORER_LOG_PATH: logDir,
+    CEREBRAS_EXPLORER_LOG_RAW: 'true',
+  }, async () => {
+    const { client, result } = await runTrustScript(steps);
+    const entries = await readJsonl(result.transcriptPath);
+    const repairs = entries.filter(entry => entry.type === 'repair');
+    const final = entries.find(entry => entry.type === 'final');
+    const usage = entries.find(entry => entry.type === 'usage');
+
+    assert.equal(result.failure?.reason, 'provider_error');
+    assert.deepEqual(repairs.map(entry => entry.status), ['started', 'finished']);
+    assert.equal(repairs[1].outcome, 'failed');
+    assert.equal(final.failureReason, 'provider_error');
+    assert.deepEqual(final.acceptedClaimIds, []);
+    assert.equal(usage.providerCalls, client.requests.length);
+    assert.equal(entries.at(-1).type, 'meta');
+    assert.equal(JSON.stringify(entries).includes(staleText), false);
+    assert.equal(JSON.stringify(entries).includes('repair provider outage sentinel'), false);
+  });
+});
+
+semanticPipelineRuntimeTest('Spec 028 T069 — repair executes one bounded parallel tool batch', async () => {
+  const logDir = await fs.mkdtemp(path.join(os.tmpdir(), 'cerebras-trust-repair-batch-'));
+  const goal = definitionAndAbsenceGoals()[0];
+  const claim = candidateClaim(
+    'C-repair-batch', goal.id, 'requireAuth is defined in src/auth.js.', ['E1']);
+  const repairCalls = [
+    {
+      tool: 'repo_read_file',
+      args: { path: 'src/routes/user.js', startLine: 1, endLine: 4 },
+      id: 'repair-route-opening',
+    },
+    {
+      tool: 'repo_read_file',
+      args: { path: 'src/routes/user.js', startLine: 5, endLine: 7 },
+      id: 'repair-route-closing',
+    },
+  ];
+  const repairedClaim = { ...claim, evidenceRefs: ['E1', 'E2', 'E3'] };
+  const steps = buildTrustSteps({
+    goals: [goal],
+    initial: {
+      tools: [{
+        tool: 'repo_read_file',
+        args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+        id: 'read-auth',
+      }],
+      claims: [claim],
+      verdicts: [semanticVerdict(claim.id, 'insufficient')],
+    },
+    repair: {
+      tools: repairCalls,
+      claims: [repairedClaim],
+      verdicts: [semanticVerdict(claim.id, 'supported', ['E2', 'E3'])],
+    },
+  });
+
+  await withEnv({
+    CEREBRAS_EXPLORER_LOG_PATH: logDir,
+    CEREBRAS_EXPLORER_LOG_RAW: 'true',
+  }, async () => {
+    const { client, result } = await runTrustScript(steps);
+    const entries = await readJsonl(result.transcriptPath);
+    const repairs = entries.filter(entry => entry.type === 'repair');
+    const repairTools = entries.filter(entry => entry.type === 'tool' && entry.stage === 'repair');
+    const usage = entries.find(entry => entry.type === 'usage');
+    const repairRequestIndexes = client.requests.flatMap((request, index) =>
+      JSON.stringify(request.messages).includes('BEGIN_EVIDENCE_REPAIR_JSON') ? [index] : []);
+    const repairCompletion = client.completions[repairRequestIndexes[0]];
+    const repairFingerprints = repairCalls.map(call => fingerprintAction({
+      type: 'tool',
+      tool: call.tool,
+      arguments: call.args,
+    }));
+
+    assert.equal(result.failure, null);
+    assert.deepEqual(repairRequestIndexes.length, 1);
+    assert.deepEqual(repairCompletion.message.toolCalls.map(call => call.id),
+      repairCalls.map(call => call.id));
+    assert.deepEqual(client.stageLabels, [
+      'planner:1',
+      'goal_audit:1',
+      'exploration:1',
+      'exploration:2',
+      'synthesis:1',
+      'claim_synthesis:1',
+      'semantic_verifier:1',
+      'exploration:3',
+      'claim_synthesis:2',
+      'semantic_verifier:2',
+    ]);
+    assert.deepEqual(repairs.map(entry => entry.status), ['started', 'finished']);
+    assert.equal(repairs[1].outcome, 'completed');
+    assert.equal(repairTools.length, repairCalls.length);
+    for (const fingerprint of repairFingerprints) {
+      assert.equal(providerToolActions(client).filter(action =>
+        fingerprintAction(action) === fingerprint).length, 1);
+      assert.equal(repairTools.filter(entry => entry.actionFingerprint === fingerprint).length, 1);
+    }
+    assert.equal(entries.some(entry => entry.type === 'provider_failure'), false);
+    assert.equal(usage.providerCalls, client.requests.length);
+  });
+});
+
+semanticPipelineRuntimeTest('Spec 028 T033 — invalid final control never promotes a stale draft', async t => {
+  const goal = definitionAndAbsenceGoals()[0];
+  const claim = candidateClaim(
+    'C-final-stale', goal.id, 'requireAuth is defined in src/auth.js.', ['E1']);
+  for (const fixture of [
+    {
+      name: 'bounded invalid responses become an internal control failure',
+      secondStep: { stage: 'synthesis:2', content: 'STALE_FINAL_REPAIR_SENTINEL' },
+      category: 'internal',
+      reason: 'invalid_final_response',
+    },
+    {
+      name: 'provider failure during final repair takes precedence',
+      secondStep: {
+        stage: 'synthesis:2',
+        run() {
+          const error = new Error('final repair provider outage');
+          error.retryable = false;
+          throw error;
+        },
+      },
+      category: 'provider',
+      reason: 'provider_error',
+    },
+  ]) {
+    await t.test(fixture.name, async () => {
+      const steps = buildTrustSteps({
+        goals: [goal],
+        initial: {
+          tools: [{
+            tool: 'repo_read_file',
+            args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+            id: 'read-auth',
+          }],
+          claims: [claim],
+          verdicts: [semanticVerdict(claim.id, 'supported', ['E1'])],
+        },
+      });
+      const synthesisIndex = steps.findIndex(step => step.stage === 'synthesis:1');
+      steps.splice(
+        synthesisIndex,
+        1,
+        { stage: 'synthesis:1', content: 'STALE_FINAL_PRIMARY_SENTINEL' },
+        fixture.secondStep,
+      );
+
+      const { client, result } = await runTrustScript(steps);
+
+      assert.equal(client.stageCounts.get('semantic_verifier') ?? 0, 0);
+      assert.equal(result.failure?.category, fixture.category);
+      assert.equal(result.failure?.reason, fixture.reason);
+      assert.equal(result.status.complete, false);
+      assert.deepEqual(result.targets, []);
+      assert.deepEqual(result.evidence, []);
+      assert.deepEqual(result.discoveredPaths, []);
+      assert.doesNotMatch(JSON.stringify(result), /STALE_FINAL_(?:PRIMARY|REPAIR)_SENTINEL/);
+    });
+  }
+});
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — verifier evidence cannot cross claim boundaries and receives one correction',
+  async () => {
+    const task = 'Locate requireAuth and locate registerUserRoutes.';
+    const goals = [
+      trustGoal(task, {
+        id: 'S-auth-definition',
+        question: 'Where is requireAuth defined?',
+        originText: 'Locate requireAuth',
+      }),
+      trustGoal(task, {
+        id: 'S-route-definition',
+        question: 'Where is registerUserRoutes defined?',
+        originText: 'locate registerUserRoutes',
+      }),
+    ];
+    const claims = [
+      candidateClaim('C-auth-definition', goals[0].id,
+        'requireAuth is defined in src/auth.js.', ['E1']),
+      candidateClaim('C-route-definition', goals[1].id,
+        'registerUserRoutes is defined in src/routes/user.js.', ['E2']),
+    ];
+    const invalidVerdicts = [
+      semanticVerdict(claims[0].id, 'supported', ['E2']),
+      semanticVerdict(claims[1].id, 'supported', ['E2']),
+    ];
+    const correctedVerdicts = [
+      semanticVerdict(claims[0].id, 'supported', ['E1']),
+      semanticVerdict(claims[1].id, 'supported', ['E2']),
+    ];
+    const steps = buildTrustSteps({
+      goals,
+      initial: {
+        tools: [
+          {
+            tool: 'repo_read_file',
+            args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+            id: 'read-auth-for-verifier-boundary',
+          },
+          {
+            tool: 'repo_read_file',
+            args: { path: 'src/routes/user.js', startLine: 1, endLine: 6 },
+            id: 'read-route-for-verifier-boundary',
+          },
+        ],
+        claims,
+        verifierSteps: [
+          { verdicts: invalidVerdicts },
+          {
+            verdicts: correctedVerdicts,
+            assertRequest(request) {
+              const correction = JSON.stringify(request.messages);
+              assert.match(correction,
+                /supportingEvidenceRef must come from that same claim evidenceRefs/u);
+              assert.match(correction,
+                /outside claim C-auth-definition: invalid=\[E2\], allowed=\[E1\]/u);
+              assert.match(correction,
+                /Every supported verdict must include exactly one resolution: affirmed or refuted/u);
+              assert.match(correction,
+                /Insufficient and contradicted verdicts must omit resolution/u);
+            },
+          },
+        ],
+      },
+    });
+
+    const { client, result } = await runTrustScript(steps, { task });
+
+    assert.equal(client.stageCounts.get('semantic_verifier'), 2);
+    assert.equal(result.failure, null);
+    assert.deepEqual(result.taskContract.subgoals.map(goal => goal.state),
+      ['supported', 'supported']);
+    assert.equal(result.parentHandoff.state, 'complete');
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — repeated cross-claim verifier evidence quarantines only that claim',
+  async () => {
+    const task = 'Locate requireAuth and locate registerUserRoutes.';
+    const goals = [
+      trustGoal(task, {
+        id: 'S-auth-definition',
+        question: 'Where is requireAuth defined?',
+        originText: 'Locate requireAuth',
+      }),
+      trustGoal(task, {
+        id: 'S-route-definition',
+        question: 'Where is registerUserRoutes defined?',
+        originText: 'locate registerUserRoutes',
+      }),
+    ];
+    const claims = [
+      candidateClaim('C-auth-definition', goals[0].id,
+        'requireAuth is defined in src/auth.js.', ['E1']),
+      candidateClaim('C-route-definition', goals[1].id,
+        'registerUserRoutes is defined in src/routes/user.js.', ['E2']),
+    ];
+    const invalidRepairVerdicts = [
+      semanticVerdict(claims[0].id, 'supported', ['E2']),
+      semanticVerdict(claims[1].id, 'supported', ['E2']),
+    ];
+    const steps = buildTrustSteps({
+      goals,
+      initial: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+          id: 'read-auth-for-verifier-quarantine',
+        }, {
+          tool: 'repo_read_file',
+          args: { path: 'src/routes/user.js', startLine: 1, endLine: 6 },
+          id: 'read-route-for-verifier-quarantine',
+        }],
+        claims,
+        verifierSteps: [
+          { verdicts: invalidRepairVerdicts },
+          { verdicts: invalidRepairVerdicts },
+        ],
+      },
+      repair: {
+        tools: [],
+        claims,
+        verifierSteps: [
+          { verdicts: invalidRepairVerdicts },
+          { verdicts: invalidRepairVerdicts },
+        ],
+      },
+    });
+
+    const { client, result } = await runTrustScript(steps, { task });
+
+    assert.equal(client.stageCounts.get('semantic_verifier'), 2);
+    assert.equal(result.failure, null);
+    assert.deepEqual(result.taskContract.subgoals.map(goal => goal.state),
+      ['gap', 'supported']);
+    assert.equal(result.parentHandoff.state, 'incomplete');
+    assert.match(result.parentHandoff.directAnswer, /registerUserRoutes is defined/u);
+    assert.doesNotMatch(result.parentHandoff.directAnswer, /requireAuth is defined/u);
+    assert.deepEqual(result.parentHandoff.evidence.map(item => item.path),
+      ['src/routes/user.js']);
+    assert.equal(result.parentHandoff.gaps.length, 1);
+    assert.equal(result.parentHandoff.failure, undefined);
+  },
+);
+
+semanticPipelineRuntimeTest(
+  'Spec 028 T069 — repeated unknown verifier claims remain verifier_error',
+  async () => {
+    const task = 'Locate requireAuth.';
+    const goal = trustGoal(task, {
+      id: 'S-known-verifier-claim',
+      question: task,
+      originText: task,
+    });
+    const claim = candidateClaim(
+      'C-known-verifier-claim',
+      goal.id,
+      'requireAuth is defined in src/auth.js.',
+      ['E1'],
+    );
+    const unknown = semanticVerdict('C-unknown-verifier-claim', 'supported', ['E1']);
+    const steps = buildTrustSteps({
+      goals: [goal],
+      initial: {
+        tools: [{
+          tool: 'repo_read_file',
+          args: { path: 'src/auth.js', startLine: 1, endLine: 4 },
+          id: 'read-auth-for-unknown-verifier-claim',
+        }],
+        claims: [claim],
+        verifierSteps: [{ verdicts: [unknown] }, { verdicts: [unknown] }],
+      },
+    });
+
+    const { client, result } = await runTrustScript(steps, { task });
+
+    assert.equal(client.stageCounts.get('semantic_verifier'), 2);
+    assert.equal(result.failure?.reason, 'invalid_final_response');
+    assert.equal(result.failure?.publicReason, 'verifier_error');
+    assert.equal(result.parentHandoff.state, 'failed');
+    assert.equal(result.parentHandoff.failure.reason, 'verifier_error');
+  },
+);
+
+semanticPipelineRuntimeTest('Spec 028 T026 — invalid verifier and provider faults fail closed', async t => {
+  const goal = definitionAndAbsenceGoals()[0];
+  const staleText = 'UNVERIFIED_FIRST_PASS_CLAIM';
+  const claim = candidateClaim('C-stale', goal.id, staleText, ['E1']);
+  const faultCases = [
+    {
+      name: 'malformed verifier JSON after bounded recovery',
+      verifierSteps: [{ raw: '{"verdicts":' }, { raw: '{"verdicts":' }],
+      verifierCalls: 2,
+      failureCategory: 'internal',
+      failureReason: 'invalid_final_response',
+    },
+    {
+      name: 'output-capped invalid verifier JSON',
+      verifierSteps: [
+        { raw: '{"verdicts":', finishReason: 'length' },
+        { raw: '{"verdicts":', finishReason: 'length' },
+      ],
+      verifierCalls: 2,
+      failureCategory: 'internal',
+      failureReason: 'invalid_final_response',
+      check(result) {
+        const limit = result.stats.safetyLimits.find(item =>
+          item.name === 'generation_output_limit');
+        assert.equal(limit.stage, 'verification');
+        assert.equal(limit.truncated, true);
+      },
+    },
+    {
+      name: 'provider fault at verifier',
+      verifierSteps: [{ error: 'non-retryable verifier outage' }],
+      verifierCalls: 1,
+      failureCategory: 'provider',
+      failureReason: 'provider_error',
+    },
+    {
+      name: 'provider fault during repair',
+      verifierSteps: [{ verdicts: [semanticVerdict(claim.id, 'insufficient')] }],
+      repairError: 'non-retryable repair outage',
+      verifierCalls: 1,
+      failureCategory: 'provider',
+      failureReason: 'provider_error',
+    },
+  ];
+
+  for (const fixture of faultCases) {
+    await t.test(fixture.name, async () => {
+      const initial = {
+        tools: [{ tool: 'repo_read_file', args: { path: 'src/auth.js', startLine: 1, endLine: 4 }, id: 'read-auth' }],
+        prose: staleText,
+        claims: [claim],
+        verifierSteps: fixture.verifierSteps,
+      };
+      const repair = fixture.repairError ? { providerError: fixture.repairError } : null;
+      if (repair) {
+        repair.assertRequest = request => assertRepairRequest(request, {
+          question: goal.question,
+          anchors: ['src/auth.js'],
+        });
+      }
+      const { client, result } = await runTrustScript(
+        buildTrustSteps({ goals: [goal], initial, repair }));
+
+      assert.ok(result.failure);
+      assert.equal(result.failure.category, fixture.failureCategory);
+      assert.equal(result.failure.reason, fixture.failureReason);
+      assert.doesNotMatch(result.directAnswer ?? '', new RegExp(staleText));
+      assert.equal(result.status.complete, false);
+      assert.deepEqual(result.targets, []);
+      assert.deepEqual(result.evidence, []);
+      assert.deepEqual(result.discoveredPaths, []);
+      assert.equal(client.stageCounts.get('semantic_verifier'), fixture.verifierCalls);
+      fixture.check?.(result);
+    });
+  }
 });

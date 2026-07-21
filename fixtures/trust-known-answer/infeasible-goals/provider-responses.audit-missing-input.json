@@ -1,0 +1,48 @@
+{
+  "fixtureVersion": 1,
+  "scenario": "audit_missing_input",
+  "responses": [
+    {
+      "stage": "planner",
+      "result": {
+        "message": {
+          "content": {
+            "taskSummary": "Check deployment state for an unspecified target.",
+            "constraints": [],
+            "subgoals": [
+              {
+                "id": "S1",
+                "question": "Which deployment target should be checked?",
+                "originRefs": ["request:0-80"],
+                "claimType": "positive",
+                "proofCondition": "Use a caller-supplied environment and deployment identifier to select the exact target.",
+                "constraints": []
+              }
+            ]
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "goal_audit",
+      "result": {
+        "message": {
+          "content": {
+            "goals": [
+              {
+                "proposedGoalId": "S1",
+                "verdict": "missing_input",
+                "originRefs": ["request:0-80"],
+                "missingRequestParts": [],
+                "reason": "No environment or deployment identifier was supplied, so the requested target cannot be selected."
+              }
+            ],
+            "uncoveredRequestParts": []
+          },
+          "toolCalls": []
+        }
+      }
+    }
+  ]
+}

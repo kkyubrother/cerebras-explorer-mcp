@@ -1,0 +1,178 @@
+{
+  "formatVersion": 1,
+  "caseId": "obs-deny-list-count-range",
+  "recordType": "known_bad_schema_v2_parent_payload",
+  "immutable": true,
+  "capture": {
+    "packageVersion": "0.8.9",
+    "schemaVersion": 2,
+    "capturedAt": "2026-07-13",
+    "fidelity": "live_api_reproduction",
+    "repoId": "cerebras-explorer-mcp",
+    "gitSha": "b3a7e75d39ff3f89d53de75bbcdf6e9f2bc4900e",
+    "dirtyTreeSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "note": "The response reports 64 entries as verified and complete; independent execution of the exported array reports 70."
+  },
+  "request": {
+    "tool": "explore_repo",
+    "task": "Count the entries in DEFAULT_SECRET_DENY_PATTERNS. Cite the definition and distinguish the number of array entries from the ending source line number.",
+    "scope": [
+      "src/explorer/security.mjs"
+    ]
+  },
+  "parentPayload": {
+    "content": [
+      {
+        "type": "text",
+        "text": "## Result\nConfidence: high\nVerification: verified\nEvidence Quality: high (3 exact, 0 partial, 0 dropped)\nSearch Coverage: scope-limited search across src/explorer/security.mjs; 1 file read(s), 1 grep search(es).\n\n## Answer\nDEFAULT_SECRET_DENY_PATTERNS contains 64 array entries. The definition starts at line 43, the array ends at line 117 (closing ]);), and the symbol scope ends at line 122. Entry count (64) is distinct from ending line numbers.\n\n## Targets\n- [read] `src/explorer/security.mjs:43-117` (E1) - Complete array definition; used to count 64 pattern entries.\n- [context] `src/explorer/security.mjs:119-122` - Usage in COMPILED_SECRET_DENY_PATTERNS and scope end.\n- [read] `src/explorer/security.mjs:43-43` (E2) - Definition start line from symbol context.\n- [read] `src/explorer/security.mjs:119-119` (E3) - Usage cross-check via grep confirms symbol reference.\n\n## Evidence (3 items, confidence: high)\n- E1 `src/explorer/security.mjs:43-117` - Full array definition with 64 entries; confirms entry count and array closing line.\n- E2 `src/explorer/security.mjs:43-43` - Definition start line from symbol context.\n- E3 `src/explorer/security.mjs:119-119` - Usage cross-check via grep confirms symbol reference."
+      }
+    ],
+    "structuredContent": {
+      "schemaVersion": 2,
+      "directAnswer": "DEFAULT_SECRET_DENY_PATTERNS contains 64 array entries. The definition starts at line 43, the array ends at line 117 (closing ]);), and the symbol scope ends at line 122. Entry count (64) is distinct from ending line numbers.",
+      "status": {
+        "confidence": "high",
+        "verification": "verified",
+        "complete": true,
+        "warnings": []
+      },
+      "targets": [
+        {
+          "path": "src/explorer/security.mjs",
+          "role": "read",
+          "reason": "Complete array definition; used to count 64 pattern entries.",
+          "evidenceRefs": [
+            "E1"
+          ],
+          "startLine": 43,
+          "endLine": 117
+        },
+        {
+          "path": "src/explorer/security.mjs",
+          "role": "context",
+          "reason": "Usage in COMPILED_SECRET_DENY_PATTERNS and scope end.",
+          "evidenceRefs": [],
+          "startLine": 119,
+          "endLine": 122
+        },
+        {
+          "path": "src/explorer/security.mjs",
+          "startLine": 43,
+          "endLine": 43,
+          "role": "read",
+          "reason": "Definition start line from symbol context.",
+          "evidenceRefs": [
+            "E2"
+          ]
+        },
+        {
+          "path": "src/explorer/security.mjs",
+          "startLine": 119,
+          "endLine": 119,
+          "role": "read",
+          "reason": "Usage cross-check via grep confirms symbol reference.",
+          "evidenceRefs": [
+            "E3"
+          ]
+        }
+      ],
+      "discoveredPaths": [
+        {
+          "path": "src/explorer/security.mjs",
+          "kind": "unknown",
+          "sourceTool": "repo_symbol_context",
+          "reason": "Discovered from tool result."
+        }
+      ],
+      "evidence": [
+        {
+          "path": "src/explorer/security.mjs",
+          "startLine": 43,
+          "endLine": 117,
+          "why": "Full array definition with 64 entries; confirms entry count and array closing line.",
+          "evidenceType": "file_range",
+          "groundingStatus": "exact",
+          "id": "E1",
+          "snippet": "43: export const DEFAULT_SECRET_DENY_PATTERNS = Object.freeze([\r\n44:   '[REDACTED:secret-path]',\r\n45:   '[REDACTED:secret-path].*',\r\n46:   '[REDACTED:secret-path]',\r\n47:   '**/.env',\r\n48:   '**/.env.*',\r\n49:   '**/.envrc',\r\n50:   '[REDACTED:secret-path]',\r\n51:   '[REDACTED:secret-path]',\r\n52:   '[REDACTED:secret-path]',\r\n53:   '[REDACTED:secret-path]',\r\n54:   'id_ecdsa',\r\n... [snippet truncated]",
+          "redacted": true,
+          "redactions": [
+            "secret-path"
+          ]
+        },
+        {
+          "path": "src/explorer/security.mjs",
+          "startLine": 43,
+          "endLine": 43,
+          "why": "Definition start line from symbol context.",
+          "evidenceType": "file_range",
+          "groundingStatus": "exact",
+          "id": "E2",
+          "snippet": "43: export const DEFAULT_SECRET_DENY_PATTERNS = Object.freeze([\r"
+        },
+        {
+          "path": "src/explorer/security.mjs",
+          "startLine": 119,
+          "endLine": 119,
+          "why": "Usage cross-check via grep confirms symbol reference.",
+          "evidenceType": "file_range",
+          "groundingStatus": "exact",
+          "id": "E3",
+          "snippet": "119: const COMPILED_SECRET_DENY_PATTERNS = DEFAULT_SECRET_DENY_PATTERNS.map(pattern => ({\r"
+        }
+      ],
+      "uncertainties": [],
+      "nextAction": {
+        "type": "stop",
+        "reason": "Explorer result is complete for the requested read-only investigation."
+      },
+      "evidenceQuality": {
+        "level": "high",
+        "exactCount": 3,
+        "partialCount": 0,
+        "droppedCount": 0,
+        "fileCount": 1,
+        "warnings": [],
+        "summary": "Verified: 1 files read, 1 grep searches, 1 symbol lookups, 3/3 retained evidence items grounded. All retained evidence grounded in inspected code."
+      },
+      "searchCoverage": {
+        "scope": [
+          "src/explorer/security.mjs"
+        ],
+        "scopeLimited": true,
+        "filesRead": 1,
+        "grepCalls": 1,
+        "listDirCalls": 0,
+        "symbolCalls": 1,
+        "toolResultsTruncated": 0,
+        "stoppedByBudget": false,
+        "omittedDiscoveredPaths": 0,
+        "warnings": [
+          "Result is limited to scope: src/explorer/security.mjs"
+        ],
+        "summary": "scope-limited search across src/explorer/security.mjs; 1 file read(s), 1 grep search(es)."
+      },
+      "critic": {
+        "status": "pass",
+        "warnings": [],
+        "droppedEvidence": 0,
+        "partialEvidence": 0
+      },
+      "failure": null
+    }
+  },
+  "operational": {
+    "model": "zai-glm-4.7",
+    "toolChoice": "explore_repo",
+    "turns": 4,
+    "toolCalls": 3,
+    "totalTokens": 29378,
+    "elapsedMs": 5211
+  },
+  "measurement": {
+    "encoding": "utf8",
+    "formula": "byteLength(JSON.stringify(content)) + byteLength(JSON.stringify(structuredContent))",
+    "contentBytes": 1268,
+    "structuredContentBytes": 3326,
+    "parentPayloadBytes": 4594
+  }
+}

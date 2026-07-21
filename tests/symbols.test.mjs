@@ -6,7 +6,7 @@ import path from 'node:path';
 
 import { extractSymbols, detectLanguage, categorizeReference, classifyReference } from '../src/explorer/symbols.mjs';
 import { RepoToolkit } from '../src/explorer/repo-tools.mjs';
-import { getBudgetConfig } from '../src/explorer/config.mjs';
+import { getRuntimeConfig } from '../src/explorer/config.mjs';
 
 // ─── detectLanguage ──────────────────────────────────────────────────────────
 
@@ -109,6 +109,27 @@ test('extractSymbols finds exported constants as variables', () => {
   const constant = symbols.find(s => s.name === 'DEFAULT_TIMEOUT');
   assert.ok(constant, 'DEFAULT_TIMEOUT should be found');
   assert.ok(['variable', 'function'].includes(constant.kind), 'kind should be variable or function');
+});
+
+test('extractSymbols ends a frozen static array before the following declaration', () => {
+  const source = [
+    'export const DEFAULT_SECRET_DENY_PATTERNS = Object.freeze([',
+    "  '.env',",
+    "  '**/.env',",
+    "  '*.pem',",
+    ']);',
+    '',
+    'const COMPILED = DEFAULT_SECRET_DENY_PATTERNS.map(pattern => ({',
+    '  pattern,',
+    '}));',
+  ].join('\n');
+  const symbols = extractSymbols(source, 'security.mjs');
+  const definition = symbols.find(symbol => symbol.name === 'DEFAULT_SECRET_DENY_PATTERNS');
+
+  assert.ok(definition);
+  assert.equal(definition.line, 1);
+  assert.equal(definition.endLine, 5,
+    'the next object-returning declaration must not extend the static array definition');
 });
 
 test('extractSymbols kind filter works', () => {
@@ -385,7 +406,7 @@ async function makeJsFixture() {
 
 test('repo_symbols extracts function and class definitions', async () => {
   const root = await makeJsFixture();
-  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig() });
+  const toolkit = new RepoToolkit({ repoRoot: root, runtimeConfig: getRuntimeConfig() });
   await toolkit.initialize([]);
 
   const result = await toolkit.callTool('repo_symbols', { path: 'src/auth.js' });
@@ -398,7 +419,7 @@ test('repo_symbols extracts function and class definitions', async () => {
 
 test('repo_symbols kind filter returns only requested kind', async () => {
   const root = await makeJsFixture();
-  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig() });
+  const toolkit = new RepoToolkit({ repoRoot: root, runtimeConfig: getRuntimeConfig() });
   await toolkit.initialize([]);
 
   const result = await toolkit.callTool('repo_symbols', { path: 'src/auth.js', kind: 'class' });
@@ -408,7 +429,7 @@ test('repo_symbols kind filter returns only requested kind', async () => {
 
 test('repo_references finds symbol definition and usages across files', async () => {
   const root = await makeJsFixture();
-  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig() });
+  const toolkit = new RepoToolkit({ repoRoot: root, runtimeConfig: getRuntimeConfig() });
   await toolkit.initialize([]);
 
   const result = await toolkit.callTool('repo_references', { symbol: 'requireAuth' });
@@ -426,7 +447,7 @@ test('repo_references finds symbol definition and usages across files', async ()
 
 test('repo_references handles JavaScript private symbol names', async () => {
   const root = await makeJsFixture();
-  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig() });
+  const toolkit = new RepoToolkit({ repoRoot: root, runtimeConfig: getRuntimeConfig() });
   await toolkit.initialize([]);
 
   const result = await toolkit.callTool('repo_references', { symbol: '#touch' });
@@ -436,7 +457,7 @@ test('repo_references handles JavaScript private symbol names', async () => {
 
 test('repo_symbol_context returns definition body and callers', async () => {
   const root = await makeJsFixture();
-  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig() });
+  const toolkit = new RepoToolkit({ repoRoot: root, runtimeConfig: getRuntimeConfig() });
   await toolkit.initialize([]);
 
   const result = await toolkit.callTool('repo_symbol_context', { symbol: 'requireAuth' });
@@ -454,7 +475,7 @@ test('repo_symbol_context returns definition body and callers', async () => {
 
 test('repo_grep with contextLines includes surrounding lines', async () => {
   const root = await makeJsFixture();
-  const toolkit = new RepoToolkit({ repoRoot: root, budgetConfig: getBudgetConfig() });
+  const toolkit = new RepoToolkit({ repoRoot: root, runtimeConfig: getRuntimeConfig() });
   await toolkit.initialize([]);
 
   const result = await toolkit.callTool('repo_grep', { pattern: 'requireAuth', contextLines: 2 });

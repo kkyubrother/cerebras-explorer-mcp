@@ -3,6 +3,22 @@ import fs from 'node:fs/promises';
 // Keep this benchmark classification aligned with the README/DESIGN internal tool inventory.
 const BROAD_SEARCH_TOOLS = new Set(['repo_grep', 'repo_find_files', 'repo_list_dir']);
 const READ_TOOLS = new Set(['repo_read_file', 'repo_symbol_context', 'repo_symbols', 'repo_references']);
+const SAFETY_LIMIT_NAMES = new Set([
+  'turn_limit',
+  'context_limit',
+  'generation_output_limit',
+  'walk_limit',
+  'tool_result_limit',
+]);
+const SAFETY_LIMIT_STAGES = new Set([
+  'planner',
+  'goal_audit',
+  'plan_revision',
+  'exploration',
+  'synthesis',
+  'verification',
+  'repair',
+]);
 
 function createEmptyMetrics() {
   return {
@@ -12,7 +28,7 @@ function createEmptyMetrics() {
     readCalls: 0,
     toolErrorCalls: 0,
     repeatedToolPlanTurns: 0,
-    stoppedByBudget: false,
+    safetyLimitCount: 0,
   };
 }
 
@@ -61,8 +77,13 @@ export function analyzeTranscriptEntries(entries) {
       continue;
     }
 
-    if (entry.type === 'meta' && entry.stats) {
-      metrics.stoppedByBudget = Boolean(entry.stats.stoppedByBudget);
+    if (entry.type === 'safety_limit' &&
+        SAFETY_LIMIT_NAMES.has(entry.name) &&
+        SAFETY_LIMIT_STAGES.has(entry.stage) &&
+        Array.isArray(entry.affectedSubgoalIds) &&
+        entry.affectedSubgoalIds.every(item => typeof item === 'string' && item) &&
+        typeof entry.truncated === 'boolean') {
+      metrics.safetyLimitCount += 1;
     }
   }
 

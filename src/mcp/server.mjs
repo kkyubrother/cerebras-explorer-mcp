@@ -3,20 +3,22 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
-import { DEFAULT_PROTOCOL_VERSION, getExplorerModel } from '../explorer/config.mjs';
-import { exploreRepository, freeExploreRepository } from '../explorer/runtime.mjs';
+import { DEFAULT_PROTOCOL_VERSION } from '../explorer/config.mjs';
+import { exploreRepository } from '../explorer/runtime.mjs';
 import {
   EXPLORE_REPO_INPUT_SCHEMA,
   EXPLORE_REPO_OUTPUT_SCHEMA,
   validateExploreRepoArgs,
+  validateParentHandoffV3,
 } from '../explorer/schemas.mjs';
-import { redactExploreResult, redactValue } from '../explorer/redact.mjs';
+import { redactValue } from '../explorer/redact.mjs';
+import { buildParentPayload } from '../explorer/parent-payload.mjs';
 import { isTranscriptEnabled, isTranscriptRawMode } from '../explorer/transcript.mjs';
 import { StdioJsonRpcServer } from './jsonrpc-stdio.mjs';
 
 const SERVER_INFO = {
   name: 'cerebras-explorer-mcp',
-  version: '0.8.9',
+  version: '0.9.0',
 };
 
 const READ_ONLY_TOOL_ANNOTATIONS = Object.freeze({
@@ -39,13 +41,7 @@ const EXPLORE_REPO_TOOL = {
   name: 'explore_repo',
   title: 'Autonomous repository explorer',
   description:
-    'Use as the general fallback for read-only repository exploration when no purpose-specific tool fits, or when you need programmable structured JSON spanning multiple files: ' +
-    'architecture, symbol usage, dependency/call tracing, bug root-cause hypotheses, change impact, config origin, or evidence collection. ' +
-    'Prefer the specialized tools when intent matches (find_relevant_code to locate code, trace_symbol for a known symbol, map_change_impact for blast radius, explain_code_path for a flow, collect_evidence to verify a claim, review_change_context for PR review). ' +
-    'Do not use for edits, running tests/builds, or single known-file inspection. ' +
-    'Returns structured JSON with directAnswer, status, targets, grounded file:line evidence with snippets, and nextAction. ' +
-    'After this tool, avoid broad grep/read; only read cited targets needed for verification or edits. ' +
-    'Omit hints.strategy unless required by an advanced workflow.',
+    'Use for repository investigations not clearly covered by another tool. Do not use it to control search tactics or effort.',
   inputSchema: EXPLORE_REPO_INPUT_SCHEMA,
   outputSchema: EXPLORE_REPO_OUTPUT_SCHEMA,
   annotations: readOnlyToolAnnotations('Autonomous repository explorer'),
@@ -57,10 +53,7 @@ const FIND_RELEVANT_CODE_TOOL = {
   name: 'find_relevant_code',
   title: 'Find relevant code targets',
   description:
-    'Use first when you need to locate the files and line ranges relevant to a feature, bug, config, route, or behavior before deciding what to read or edit. ' +
-    'Give the natural-language query plus any known anchors via knownFiles, knownSymbols, or knownText to narrow the search. ' +
-    'Do not use when the exact file/range is already known, a single grep would suffice, or a sibling tool fits the intent better (trace_symbol for a known symbol, explain_code_path for a request/event/job flow, map_change_impact for blast radius). ' +
-    'Returns targets and cited evidence; read only returned edit/read targets afterward.',
+    'Use when locating unknown implementation, configuration, test, or route positions. Do not use when the exact location is already known.',
   inputSchema: {
     type: 'object',
     additionalProperties: false,
@@ -82,9 +75,7 @@ const TRACE_SYMBOL_TOOL = {
   name: 'trace_symbol',
   title: 'Trace a symbol',
   description:
-    'Use when a known function, class, variable, or type needs definition plus usage/callsite context. ' +
-    'Returns grounded targets and evidence without requiring a manual grep-then-read loop. ' +
-    'Do not use when the symbol is unknown (use find_relevant_code) or you need a runtime flow (use explain_code_path).',
+    'Use when explaining a known function, class, type, or variable and its usages. Do not use for unknown-symbol discovery or execution-flow tracing.',
   inputSchema: {
     type: 'object',
     additionalProperties: false,
@@ -106,9 +97,7 @@ const MAP_CHANGE_IMPACT_TOOL = {
   name: 'map_change_impact',
   title: 'Map change impact',
   description:
-    'Use before editing when you know the intended change but need blast-radius context: likely edit files, callers, tests, config, and risky dependent paths. ' +
-    'Coverage of documentation and example fixtures is best-effort; mention docs/examples in the change description if their impact must be included. ' +
-    'Do not use for a one-line known-file edit.',
+    'Use before a planned change to identify its blast radius. Do not use for a one-line edit in a known file.',
   inputSchema: {
     type: 'object',
     additionalProperties: false,
@@ -129,9 +118,7 @@ const EXPLAIN_CODE_PATH_TOOL = {
   name: 'explain_code_path',
   title: 'Explain a code path',
   description:
-    'Use for route, middleware, request, event, job, or CLI flow tracing across files. ' +
-    'Returns the verified path through the code and the targets worth reading next. ' +
-    'Do not use for a single symbol (use trace_symbol) or a static blast-radius map (use map_change_impact).',
+    'Use when tracing an ordered request, event, job, CLI, or data flow. Do not use for static single-symbol usage.',
   inputSchema: {
     type: 'object',
     additionalProperties: false,
@@ -153,8 +140,7 @@ const COLLECT_EVIDENCE_TOOL = {
   name: 'collect_evidence',
   title: 'Collect cited evidence',
   description:
-    'Use when you already have a claim, hypothesis, or review point and need a compact bundle of grounded file:line evidence with snippets. ' +
-    'Best for verifying specific facts or a single review point before replying; for whole-PR/diff scoping use review_change_context.',
+    'Use when supporting or refuting an existing claim or hypothesis. Do not use for broad discovery without a claim.',
   inputSchema: {
     type: 'object',
     additionalProperties: false,
@@ -172,54 +158,6 @@ const COLLECT_EVIDENCE_TOOL = {
   annotations: readOnlyToolAnnotations('Collect cited evidence'),
 };
 
-const REVIEW_CHANGE_CONTEXT_TOOL = {
-  name: 'review_change_context',
-  title: 'Review change context',
-  description:
-    'Use for PR/review preparation or recent-change analysis when you need what changed, why it matters, and which files deserve review attention. ' +
-    'Combines git-guided discovery with grounded code evidence.',
-  inputSchema: {
-    type: 'object',
-    additionalProperties: false,
-    properties: {
-      reviewGoal: { type: 'string', description: 'What to review or validate.' },
-      since: { type: 'string' },
-      until: { type: 'string' },
-      path: { type: 'string' },
-      repo_root: { type: 'string' },
-      scope: { type: 'array', items: { type: 'string' } },
-    },
-    required: ['reviewGoal'],
-  },
-  outputSchema: EXPLORE_REPO_OUTPUT_SCHEMA,
-  annotations: readOnlyToolAnnotations('Review change context'),
-};
-
-// ─── Phase 5: Free-form explore tool (beta) ───────────────────────────────
-
-const EXPLORE_TOOL = {
-  name: 'explore',
-  title: 'Free-form repository exploration',
-  description:
-    'Use for a user-facing Markdown investigation report with inline file:line citations. ' +
-    'Best for architecture walkthroughs, onboarding explanations, or broad "how does X work?" answers when polished prose is what the requester needs. ' +
-    'For narrow lookups, symbol traces, impact maps, code-path walks, or PR/diff review context, prefer find_relevant_code, trace_symbol, map_change_impact, explain_code_path, or review_change_context — they return the same grounded evidence in their tool-specific shape. ' +
-    'Do not use when the parent agent needs structured edit planning or programmatic next steps; use explore_repo instead.',
-  inputSchema: {
-    type: 'object',
-    additionalProperties: false,
-    properties: {
-      prompt: { type: 'string', description: 'What to explore — a natural-language question or task.' },
-      scope: { type: 'array', items: { type: 'string' }, description: 'Optional path prefixes to focus on.' },
-      repo_root: { type: 'string', description: 'Repository root path.' },
-      language: { type: 'string', description: 'BCP-47 language tag for the report (e.g. "ko", "en").' },
-      context: { type: 'string', description: 'Optional additional context from the parent agent.' },
-    },
-    required: ['prompt'],
-  },
-  annotations: readOnlyToolAnnotations('Free-form repository exploration'),
-};
-
 // ─── Tool registry ─────────────────────────────────────────────────────────
 
 function buildToolList() {
@@ -229,11 +167,14 @@ function buildToolList() {
     MAP_CHANGE_IMPACT_TOOL,
     EXPLAIN_CODE_PATH_TOOL,
     COLLECT_EVIDENCE_TOOL,
-    REVIEW_CHANGE_CONTEXT_TOOL,
     EXPLORE_REPO_TOOL,
-    EXPLORE_TOOL,
   ];
 }
+
+const TOOL_DISPATCH_RULE =
+  'Need locations → find_relevant_code; Know the symbol → trace_symbol; ' +
+  'Plan a change → map_change_impact; Need an execution/data path → explain_code_path; ' +
+  'Need to verify one claim → collect_evidence; Anything else → explore_repo.';
 
 let memoizedGitSha;
 let memoizedPackageVersion;
@@ -347,7 +288,7 @@ function escapeRegexLiteral(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function buildAnchorHints({ knownFiles, knownSymbols, knownText, strategy } = {}) {
+function buildAnchorHints({ knownFiles, knownSymbols, knownText } = {}) {
   const hints = {};
   const files = cleanStringArray(knownFiles);
   const symbols = cleanStringArray(knownSymbols);
@@ -355,7 +296,6 @@ function buildAnchorHints({ knownFiles, knownSymbols, knownText, strategy } = {}
   if (files.length > 0) hints.files = files;
   if (symbols.length > 0) hints.symbols = symbols;
   if (regex.length > 0) hints.regex = regex;
-  if (strategy) hints.strategy = strategy;
   return Object.keys(hints).length > 0 ? hints : undefined;
 }
 
@@ -368,7 +308,7 @@ function buildTraceSymbolArgs(args) {
   return {
     task, repo_root, scope,
     taskMode: 'symbol_trace',
-    hints: { symbols: [symbol.trim()], strategy: 'symbol-first' },
+    hints: { symbols: [symbol.trim()] },
   };
 }
 
@@ -377,7 +317,7 @@ function buildFindRelevantCodeArgs(args) {
   if (!query || typeof query !== 'string' || !query.trim()) {
     throw makeInvalidArgsError('find_relevant_code requires a non-empty "query" argument.');
   }
-  const task = `Find the code most relevant to this task and return the smallest useful read/edit targets: ${query.trim()}.`;
+  const task = `Find the code most relevant to this task and return bounded useful targets: ${query.trim()}.`;
   return {
     task,
     repo_root,
@@ -392,13 +332,13 @@ function buildMapChangeImpactArgs(args) {
   if (!change || typeof change !== 'string' || !change.trim()) {
     throw makeInvalidArgsError('map_change_impact requires a non-empty "change" argument.');
   }
-  const task = `Map the likely impact of this intended change before editing: ${change.trim()}. Identify likely edit targets, read targets, callers, tests, configuration, and risky dependent paths.`;
+  const task = `Map the likely impact of this intended change before editing: ${change.trim()}. Identify actionable targets, dependent callers/consumers, affected verification or public-contract surfaces, and the remaining risk boundary.`;
   return {
     task,
     repo_root,
     scope,
     taskMode: 'edit_planning',
-    hints: buildAnchorHints({ knownFiles, knownSymbols, strategy: 'reference-chase' }),
+    hints: buildAnchorHints({ knownFiles, knownSymbols }),
   };
 }
 
@@ -409,13 +349,13 @@ function buildExplainCodePathArgs(args) {
   }
   const files = [...cleanStringArray(knownFiles)];
   if (typeof entryPoint === 'string' && entryPoint.trim()) files.unshift(entryPoint.trim());
-  const task = `Explain this code path across files with grounded citations: ${pathQuery.trim()}. Include the entry point, handoff points, and next read targets.`;
+  const task = `Explain this code path across files with grounded citations: ${pathQuery.trim()}`;
   return {
     task,
     repo_root,
     scope,
     taskMode: 'path_explanation',
-    hints: buildAnchorHints({ knownFiles: files, knownSymbols, strategy: 'reference-chase' }),
+    hints: buildAnchorHints({ knownFiles: files, knownSymbols }),
   };
 }
 
@@ -424,7 +364,7 @@ function buildCollectEvidenceArgs(args) {
   if (!claim || typeof claim !== 'string' || !claim.trim()) {
     throw makeInvalidArgsError('collect_evidence requires a non-empty "claim" argument.');
   }
-  const task = `Verify this claim and collect a compact evidence bundle with snippets: ${claim.trim()}. Mark uncertainties and avoid unsupported facts.`;
+  const task = `Verify this claim with repository evidence: ${claim.trim()}`;
   return {
     task,
     repo_root,
@@ -434,22 +374,26 @@ function buildCollectEvidenceArgs(args) {
   };
 }
 
-function buildReviewChangeContextArgs(args) {
-  const { reviewGoal, since, until, path: filePath, repo_root, scope } = args;
-  if (!reviewGoal || typeof reviewGoal !== 'string' || !reviewGoal.trim()) {
-    throw makeInvalidArgsError('review_change_context requires a non-empty "reviewGoal" argument.');
-  }
-  const sincePart = since ? ` since "${since}"` : '';
-  const untilPart = until ? ` until "${until}"` : '';
-  const pathPart = filePath ? ` for path "${filePath}"` : '';
-  const task = `Review change context${sincePart}${untilPart}${pathPart}: ${reviewGoal.trim()}. Summarize what changed, why it matters, likely review risks, and grounded read targets.`;
+/**
+ * Project a strict runtime-owned handoff into the only facts visible to the
+ * parent agent. Redaction precedes validation so text and structured output
+ * are generated from one identical safe value.
+ */
+export function buildParentHandoffResponse(parentHandoff) {
+  const safeHandoff = redactValue(parentHandoff).value;
+  validateParentHandoffV3(safeHandoff);
   return {
-    task,
-    repo_root,
-    scope,
-    taskMode: 'change_review',
-    hints: buildAnchorHints({ knownFiles: filePath ? [filePath] : [], strategy: 'git-guided' }),
+    ...(safeHandoff.state === 'failed' ? { isError: true } : {}),
+    ...buildParentPayload(safeHandoff),
   };
+}
+
+function validateExploreRepoPublicArgs(args) {
+  try {
+    validateExploreRepoArgs(args);
+  } catch (error) {
+    throw makeInvalidArgsError(error?.message ?? String(error));
+  }
 }
 
 // ─── Request handler ────────────────────────────────────────────────────────
@@ -463,6 +407,7 @@ export function createMcpRequestHandler({
 
   // Track active explorations for abort support
   const activeAbortControllers = new Map(); // requestId → AbortController
+  const hasRequestId = requestId => requestId !== null && requestId !== undefined;
 
   /**
    * Build an onProgress callback that fires MCP notifications/progress when
@@ -479,71 +424,6 @@ export function createMcpRequestHandler({
     };
   }
 
-  /**
-   * Format explore_repo result as readable text for the parent model.
-   * Provides a scannable summary at the top with full JSON in a collapsible block.
-   */
-  function formatExploreResult(result) {
-    const lines = [];
-
-    lines.push(`## Result`);
-    lines.push(`Confidence: ${result.status?.confidence ?? 'unknown'}`);
-    if (result.status?.verification) lines.push(`Verification: ${result.status.verification}`);
-    if (result.evidenceQuality) {
-      lines.push(`Evidence Quality: ${result.evidenceQuality.level} (${result.evidenceQuality.exactCount} exact, ${result.evidenceQuality.partialCount} partial, ${result.evidenceQuality.droppedCount} dropped)`);
-    }
-    if (result.searchCoverage) {
-      lines.push(`Search Coverage: ${result.searchCoverage.summary}`);
-    }
-    if (result.trustSummary) lines.push(`Grounding: ${result.trustSummary}`);
-    lines.push('');
-
-    lines.push(`## Answer`);
-    lines.push(result.directAnswer || '(no answer)');
-
-    if (result.nextAction?.type && result.nextAction.type !== 'stop') {
-      lines.push('');
-      lines.push(`## Next Action`);
-      lines.push(`${result.nextAction.type}: ${result.nextAction.reason}`);
-    }
-
-    if (result.targets?.length > 0) {
-      lines.push('');
-      lines.push(`## Targets`);
-      for (const target of result.targets.slice(0, 12)) {
-        const location = target.startLine ? `${target.path}:${target.startLine}-${target.endLine}` : target.path;
-        const refs = target.evidenceRefs?.length ? ` (${target.evidenceRefs.join(', ')})` : '';
-        lines.push(`- [${target.role}] \`${location}\`${refs} - ${target.reason}`);
-      }
-      if (result.targets.length > 12) {
-        lines.push(`- ... and ${result.targets.length - 12} more targets`);
-      }
-    }
-
-    if (result.evidence?.length > 0) {
-      lines.push('');
-      lines.push(`## Evidence (${result.evidence.length} items, confidence: ${result.status?.confidence ?? 'unknown'})`);
-      for (const e of result.evidence.slice(0, 10)) {
-        const grounding = e.groundingStatus === 'exact' ? '' : ' [partial]';
-        const id = e.id ? `${e.id} ` : '';
-        lines.push(`- ${id}\`${e.path}:${e.startLine}-${e.endLine}\`${grounding} - ${e.why}`);
-      }
-      if (result.evidence.length > 10) {
-        lines.push(`- ... and ${result.evidence.length - 10} more evidence items`);
-      }
-    }
-
-    if (result.uncertainties?.length > 0) {
-      lines.push('');
-      lines.push(`## Uncertainty`);
-      for (const uncertainty of result.uncertainties) {
-        lines.push(`- ${uncertainty}`);
-      }
-    }
-
-    return lines.join('\n');
-  }
-
   function formatOpsSummary({ tool, stats = {}, transcriptPath = null, raw = false, failureReason = '' }) {
     const safeStats = stats && typeof stats === 'object' ? stats : {};
     const elapsedSeconds = Math.round((safeStats.elapsedMs ?? 0) / 1000);
@@ -551,7 +431,7 @@ export function createMcpRequestHandler({
       `[cerebras-explorer] tool=${tool} ` +
       `turns=${safeStats.turns ?? 0} ` +
       `toolCalls=${safeStats.toolCalls ?? 0} ` +
-      `stoppedByBudget=${Boolean(safeStats.stoppedByBudget)} ` +
+      `safetyLimits=${Array.isArray(safeStats.safetyLimits) ? safeStats.safetyLimits.length : 0} ` +
       `elapsed=${elapsedSeconds}s`;
     if (transcriptPath) line += ` log=${path.basename(transcriptPath)}`;
     if (raw) line += ' raw=true';
@@ -567,179 +447,31 @@ export function createMcpRequestHandler({
     }
   }
 
-  function defaultEvidenceQuality(summary = 'No grounded evidence was retained.', warnings = []) {
-    return {
-      level: 'low',
-      exactCount: 0,
-      partialCount: 0,
-      droppedCount: 0,
-      fileCount: 0,
-      warnings: warnings.filter(item => typeof item === 'string').slice(0, 5),
-      summary,
-    };
-  }
-
-  function defaultSearchCoverage(summary = 'No search coverage was recorded.') {
-    return {
-      scope: [],
-      scopeLimited: false,
-      filesRead: 0,
-      grepCalls: 0,
-      listDirCalls: 0,
-      symbolCalls: 0,
-      toolResultsTruncated: 0,
-      stoppedByBudget: false,
-      omittedDiscoveredPaths: 0,
-      warnings: [],
-      summary,
-    };
-  }
-
-  function normalizeCriticWarning(warning) {
-    if (warning && typeof warning === 'object') {
-      return {
-        type: typeof warning.type === 'string' && warning.type ? warning.type : 'runtime_warning',
-        severity: ['low', 'medium', 'high'].includes(warning.severity) ? warning.severity : 'medium',
-        message: typeof warning.message === 'string' ? warning.message : '',
-        ...(typeof warning.target === 'string' && warning.target ? { target: warning.target } : {}),
-        action: typeof warning.action === 'string' && warning.action
-          ? warning.action
-          : 'Review this warning before relying on the result.',
-      };
-    }
-    return {
-      type: 'runtime_warning',
-      severity: 'medium',
-      message: typeof warning === 'string' ? warning : 'Explorer emitted an unspecified warning.',
-      action: 'Review this warning before relying on the result.',
-    };
-  }
-
-  function defaultCritic(warnings = []) {
-    const normalizedWarnings = Array.isArray(warnings)
-      ? warnings.map(normalizeCriticWarning).filter(warning => warning.message)
-      : [];
-    return {
-      status: normalizedWarnings.some(warning => warning.severity === 'high')
-        ? 'fail'
-        : (normalizedWarnings.length > 0 ? 'caution' : 'pass'),
-      warnings: normalizedWarnings,
-      droppedEvidence: 0,
-      partialEvidence: 0,
-    };
-  }
-
-  function toAgentFacingCritic(result = {}) {
-    const warnings = Array.isArray(result.critic?.warnings)
-      ? result.critic.warnings
-      : [];
-    return {
-      status: result.critic?.status ?? (warnings.length > 0 ? 'caution' : 'pass'),
-      warnings: warnings.map(normalizeCriticWarning).filter(warning => warning.message),
-      droppedEvidence: Number.isInteger(result.critic?.droppedEvidence)
-        ? result.critic.droppedEvidence
-        : (result.evidenceQuality?.droppedCount ?? 0),
-      partialEvidence: Number.isInteger(result.critic?.partialEvidence)
-        ? result.critic.partialEvidence
-        : (result.evidenceQuality?.partialCount ?? 0),
-    };
-  }
-
-  function buildHandledFailure({
-    category,
+  function handledParentFailureResult({
     reason,
     message,
-    retryTool = 'explore_repo',
-    hints = [],
+    retryTool = null,
     retryArgs = null,
-    expectedImprovement = '',
   }) {
-    return {
-      schemaVersion: 2,
-      directAnswer: '',
-      status: {
-        confidence: 'low',
-        verification: 'broad_search_needed',
-        complete: false,
-        warnings: [message],
-      },
-      targets: [],
-      discoveredPaths: [],
-      evidence: [],
-      uncertainties: [message],
-      nextAction: { type: 'ask_user', reason: message },
-      evidenceQuality: defaultEvidenceQuality(message, [message]),
-      searchCoverage: defaultSearchCoverage(message),
-      critic: defaultCritic([message]),
-      failure: {
-        category,
-        reason,
-        message,
-        retry: retryTool ? {
-          tool: retryTool,
-          hints,
-          ...(retryArgs ? { args: retryArgs } : {}),
-          ...(expectedImprovement ? { expectedImprovement } : {}),
-        } : null,
-      },
-    };
-  }
-
-  // Build a non-throwing isError tool result from a handled failure. The
-  // machine-readable reason is mirrored into content[0].text because some MCP
-  // clients surface only the text on isError and discard structuredContent (F7).
-  function handledFailureResult(opts) {
-    return {
-      isError: true,
-      content: [{ type: 'text', text: `${opts.message} [reason: ${opts.reason}]` }],
-      structuredContent: buildHandledFailure(opts),
-    };
-  }
-
-  function toAgentFacingResult(result) {
-    return {
-      schemaVersion: result.schemaVersion ?? 2,
-      directAnswer: result.directAnswer || '',
-      status: result.status ?? {
-        confidence: 'low',
-        verification: 'broad_search_needed',
-        complete: false,
-        warnings: [],
-      },
-      targets: Array.isArray(result.targets) ? result.targets : [],
-      discoveredPaths: Array.isArray(result.discoveredPaths) ? result.discoveredPaths : [],
-      evidence: Array.isArray(result.evidence) ? result.evidence : [],
-      uncertainties: Array.isArray(result.uncertainties) ? result.uncertainties : [],
-      nextAction: result.nextAction ?? { type: 'stop', reason: '' },
-      evidenceQuality: result.evidenceQuality ?? defaultEvidenceQuality(result.trustSummary),
-      searchCoverage: result.searchCoverage ?? defaultSearchCoverage(),
-      critic: toAgentFacingCritic(result),
-      failure: result.failure ?? null,
-    };
-  }
-
-  function toAgentFacingFreeExploreResult(result) {
-    return {
-      report: result.report ?? '',
-      citations: Array.isArray(result.citations) ? result.citations : [],
-      targets: Array.isArray(result.targets) ? result.targets : [],
-      searchCoverage: result.searchCoverage ?? defaultSearchCoverage(),
-      critic: {
-        ...defaultCritic(),
-        ...(result.critic && typeof result.critic === 'object' ? result.critic : {}),
-        warnings: Array.isArray(result.critic?.warnings)
-          ? result.critic.warnings.map(normalizeCriticWarning).filter(warning => warning.message)
-          : [],
-        droppedEvidence: 0,
-        partialEvidence: 0,
-      },
-      failure: result.failure ?? null,
-    };
+    const failure = { reason };
+    if (retryTool && retryArgs) {
+      failure.retry = {
+        type: 'tool',
+        tool: retryTool,
+        arguments: retryArgs,
+      };
+    }
+    return buildParentHandoffResponse({
+      schemaVersion: 3,
+      directAnswer: message,
+      state: 'failed',
+      failure,
+    });
   }
 
   async function callTool(exploreArgs, progressToken, requestId, toolName = 'explore_repo') {
     const abortController = new AbortController();
-    if (requestId) activeAbortControllers.set(requestId, abortController);
+    if (hasRequestId(requestId)) activeAbortControllers.set(requestId, abortController);
     let stats = null;
     let transcriptPath = null;
     let failureReason = '';
@@ -754,19 +486,25 @@ export function createMcpRequestHandler({
       });
       stats = result.stats;
       transcriptPath = result.transcriptPath ?? result.stats?.transcriptPath ?? null;
-      const agentResult = redactExploreResult(toAgentFacingResult(result)).value;
-      // Spec 025: ops side-channel, symmetric with callFreeExploreTool. This is
-      // operational/eval metadata (spec 022 boundary), not the answer contract.
-      const ops = redactValue({ stats: stats ?? {}, transcriptPath }).value;
-      return {
-        content: [{ type: 'text', text: formatExploreResult(agentResult) }],
-        structuredContent: agentResult,
-        _meta: { ops },
-      };
+      failureReason = result.parentHandoff?.failure?.reason ?? result.failure?.reason ?? '';
+      try {
+        return buildParentHandoffResponse(result.parentHandoff);
+      } catch (error) {
+        error.parentHandoffError = true;
+        throw error;
+      }
     } catch (error) {
       stats = error?.stats ?? stats;
       transcriptPath = error?.transcriptPath ?? transcriptPath;
-      failureReason = error?.failure?.reason ?? error?.reason ?? 'execution_failed';
+      failureReason = error?.name === 'AbortError'
+        ? 'aborted'
+        : error?.repoRootError
+          ? 'repo_mismatch'
+        : error?.explorerFailureKind === 'provider'
+          ? 'provider_error'
+        : error?.parentHandoffError
+          ? 'internal_error'
+        : error?.failure?.reason ?? error?.reason ?? 'execution_failed';
       throw error;
     } finally {
       writeOpsSummary({
@@ -776,54 +514,7 @@ export function createMcpRequestHandler({
         raw: isTranscriptRawMode(),
         failureReason,
       });
-      if (requestId) activeAbortControllers.delete(requestId);
-    }
-  }
-
-  async function callFreeExploreTool(exploreArgs, progressToken, requestId) {
-    const abortController = new AbortController();
-    if (requestId) activeAbortControllers.set(requestId, abortController);
-    let stats = null;
-    let transcriptPath = null;
-    let failureReason = '';
-    try {
-      const provenance = runtimeOptions.provenance ?? (isTranscriptEnabled() ? buildExecutionProvenance() : null);
-      const result = await freeExploreRepository(exploreArgs, {
-        logger,
-        ...runtimeOptions,
-        provenance,
-        onProgress: makeProgressCallback(progressToken),
-        abortSignal: abortController.signal,
-      });
-      stats = result.stats;
-      transcriptPath = result.transcriptPath ?? null;
-      const safeResult = redactValue(toAgentFacingFreeExploreResult(result)).value;
-      const ops = redactValue({
-        stats: stats ?? {},
-        transcriptPath,
-        toolTrace: result.toolTrace ?? null,
-        filesRead: result.filesRead ?? [],
-        toolsUsed: result.toolsUsed ?? [],
-      }).value;
-      return {
-        content: [{ type: 'text', text: safeResult.report }],
-        structuredContent: safeResult,
-        _meta: { ops },
-      };
-    } catch (error) {
-      stats = error?.stats ?? stats;
-      transcriptPath = error?.transcriptPath ?? transcriptPath;
-      failureReason = error?.failure?.reason ?? error?.reason ?? 'execution_failed';
-      throw error;
-    } finally {
-      writeOpsSummary({
-        tool: 'explore',
-        stats,
-        transcriptPath,
-        raw: isTranscriptRawMode(),
-        failureReason,
-      });
-      if (requestId) activeAbortControllers.delete(requestId);
+      if (hasRequestId(requestId)) activeAbortControllers.delete(requestId);
     }
   }
 
@@ -834,19 +525,16 @@ export function createMcpRequestHandler({
         if (typeof requestedVersion === 'string' && requestedVersion.trim()) {
           negotiatedProtocolVersion = requestedVersion;
         }
-        const toolCount = buildToolList().length;
         return {
           protocolVersion: negotiatedProtocolVersion,
           capabilities: { tools: { listChanged: false } },
           serverInfo: SERVER_INFO,
           instructions:
-            `Cerebras Explorer provides autonomous codebase exploration (${toolCount} tools, powered by ${getExplorerModel()}). ` +
-            'PREFER these tools over manual file search (Grep/Glob/Read) whenever you would otherwise run a grep-then-read loop — including for a single known symbol or claim — and especially for multi-file or cross-file understanding. ' +
-            'explore_repo returns structured JSON with directAnswer, status, targets, discoveredPaths, and grounded evidence snippets; explore returns a Markdown report for human consumption. ' +
-            'Purpose shortcuts: find_relevant_code, trace_symbol, map_change_impact, explain_code_path, collect_evidence, review_change_context. ' +
-            'Pass _meta.progressToken for heavy calls (broad reports / path / impact) to receive turn-by-turn progress updates. ' +
-            'When summarizing or handing off a result to another agent, preserve these control-plane fields verbatim: ' +
-            'status.verification, status.complete, evidenceQuality, searchCoverage, failure, and any critic.warnings.',
+            'Cerebras Explorer provides read-only repository exploration with grounded schema-v3 handoffs. ' +
+            `${TOOL_DISPATCH_RULE} ` +
+            'For state: use complete directly; inspect only targets for verify_targets; for incomplete, use supported partial facts, inspect only returned targets when present, and preserve gaps and at most one followUp; retry failed only when failure.retry exists. ' +
+            'Repository scope is a hard boundary. Pass known file, symbol, or text anchors when available. ' +
+            'Use _meta.progressToken for long path or impact calls.',
         };
       }
       case 'ping':
@@ -868,7 +556,7 @@ export function createMcpRequestHandler({
           }
 
           if (name === 'explore_repo') {
-            validateExploreRepoArgs(args);
+            validateExploreRepoPublicArgs(args);
             return await callTool(args, progressToken, requestId, name);
           }
           if (name === 'find_relevant_code') {
@@ -891,14 +579,6 @@ export function createMcpRequestHandler({
             validatePublicToolArgs(COLLECT_EVIDENCE_TOOL, args);
             return await callTool(buildCollectEvidenceArgs(args), progressToken, requestId, name);
           }
-          if (name === 'review_change_context') {
-            validatePublicToolArgs(REVIEW_CHANGE_CONTEXT_TOOL, args);
-            return await callTool(buildReviewChangeContextArgs(args), progressToken, requestId, name);
-          }
-          if (name === 'explore') {
-            validatePublicToolArgs(EXPLORE_TOOL, args);
-            return await callFreeExploreTool(args, progressToken, requestId);
-          }
 
           // Unreachable: all exposed tool names are handled above.
           // If a new tool is added to buildToolList() but not dispatched here,
@@ -907,8 +587,17 @@ export function createMcpRequestHandler({
           error.code = -32603;
           throw error;
         } catch (error) {
+          const handledResult = handledParentFailureResult;
+          if (error?.name === 'AbortError') {
+            return handledResult({
+              category: 'execution',
+              reason: 'aborted',
+              message: `${name} was cancelled before completion.`,
+              retryTool: null,
+            });
+          }
           if (error.repoRootError) {
-            return handledFailureResult({
+            return handledResult({
               category: 'input',
               reason: 'repo_mismatch',
               message: `Unable to resolve repo_root for ${name}: ${error.message}`,
@@ -916,7 +605,7 @@ export function createMcpRequestHandler({
             });
           }
           if (error.code === -32602) {
-            return handledFailureResult({
+            return handledResult({
               category: 'input',
               reason: 'invalid_arguments',
               message: `Invalid arguments for ${name}: ${error.message}`,
@@ -927,24 +616,19 @@ export function createMcpRequestHandler({
             const retryScope = Array.isArray(args?.scope)
               ? args.scope.filter(item => typeof item === 'string').slice(0, 8)
               : [];
-            return handledFailureResult({
-              category: 'provider',
-              reason: 'provider_error',
-              message: `${name} execution failed: ${error.message}`,
-              retryTool: name === 'explore' ? 'explore' : 'explore_repo',
+            const parentProjectionFailure = error?.parentHandoffError;
+            return handledResult({
+              category: parentProjectionFailure ? 'internal' : 'provider',
+              reason: parentProjectionFailure ? 'internal_error' : 'provider_error',
+              message: parentProjectionFailure
+                ? `${name} execution failed because its parent handoff was invalid.`
+                : `${name} execution failed because the provider was unavailable.`,
+              retryTool: 'explore_repo',
               hints: ['Retry after the provider recovers, or narrow the task and scope.'],
-              // The retry recipe must match the target tool's input schema:
-              // explore requires `prompt`, while explore_repo (and the wrappers
-              // that lower into it) require `task`.
-              retryArgs: name === 'explore'
-                ? {
-                    prompt: 'Retry after the provider recovers, or narrow the prompt and scope.',
-                    scope: retryScope,
-                  }
-                : {
-                    task: 'Retry after the provider recovers, or narrow the task and scope.',
-                    scope: retryScope,
-                  },
+              retryArgs: {
+                task: 'Retry after the provider recovers, or narrow the task and scope.',
+                scope: retryScope,
+              },
               expectedImprovement: 'A provider recovery or narrower scope should reduce failure risk.',
             });
           }
@@ -965,7 +649,7 @@ export function createMcpRequestHandler({
     }
     if (message.method === 'notifications/cancelled') {
       const requestId = message.params?.requestId;
-      if (requestId) {
+      if (hasRequestId(requestId)) {
         const controller = activeAbortControllers.get(requestId);
         if (controller) {
           controller.abort();

@@ -1,0 +1,182 @@
+{
+  "fixtureVersion": 1,
+  "scenario": "external_process_inference",
+  "responses": [
+    {
+      "stage": "planner",
+      "result": {
+        "message": {
+          "content": {
+            "taskSummary": "Trace only the Python transitions visible in flow/** and keep an external-process inference unresolved.",
+            "constraints": ["Do not infer an external process without direct proof."],
+            "subgoals": [
+              {
+                "id": "S1",
+                "question": "What transitions are directly observed?",
+                "originRefs": ["request:0-97"],
+                "claimType": "positive",
+                "proofCondition": "Read the local handler and worker handoff and report only directly observed transitions.",
+                "constraints": ["Do not infer unobserved process launches."]
+              },
+              {
+                "id": "S2",
+                "question": "Can an external process be established from flow/**?",
+                "originRefs": ["request:0-97"],
+                "claimType": "positive",
+                "proofCondition": "Require direct repository evidence of an external-process launch.",
+                "constraints": ["Leave the inference unresolved when direct proof is unavailable."]
+              }
+            ]
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "goal_audit",
+      "result": {
+        "message": {
+          "content": {
+            "goals": [
+              {
+                "proposedGoalId": "S1",
+                "verdict": "ready",
+                "originRefs": ["request:0-97"],
+                "missingRequestParts": [],
+                "reason": "The local handoff is directly observable in the scoped source."
+              },
+              {
+                "proposedGoalId": "S2",
+                "verdict": "unverifiable",
+                "originRefs": ["request:0-97"],
+                "missingRequestParts": [],
+                "reason": "The scoped local source contains no direct observation of an external process."
+              }
+            ],
+            "uncoveredRequestParts": []
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "exploration",
+      "result": {
+        "message": {
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "read-handler",
+              "function": {
+                "name": "repo_read_file",
+                "arguments": {
+                  "path": "flow/handler.py",
+                  "startLine": 1,
+                  "endLine": 5
+                }
+              }
+            },
+            {
+              "id": "read-worker",
+              "function": {
+                "name": "repo_read_file",
+                "arguments": {
+                  "path": "flow/worker.py",
+                  "startLine": 1,
+                  "endLine": 2
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "stage": "exploration",
+      "result": {
+        "message": {
+          "content": "The local handler and normalization handoff were inspected.",
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "synthesis",
+      "result": {
+        "message": {
+          "content": {
+            "directAnswer": "The observed local transition requires isolated verification.",
+            "status": {
+              "confidence": "high",
+              "verification": "follow_up_needed",
+              "complete": false,
+              "warnings": []
+            },
+            "targets": [],
+            "evidence": [
+              {
+                "id": "E1",
+                "path": "flow/handler.py",
+                "startLine": 1,
+                "endLine": 5,
+                "why": "The handler passes its payload to normalize_payload."
+              },
+              {
+                "id": "E2",
+                "path": "flow/worker.py",
+                "startLine": 1,
+                "endLine": 2,
+                "why": "The worker returns a locally normalized value."
+              }
+            ],
+            "uncertainties": ["No direct external-process launch is observable in the immutable scope."],
+            "nextAction": {
+              "type": "stop",
+              "reason": "The runtime preserves the unresolved external-process obligation."
+            }
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "claim_synthesis",
+      "result": {
+        "message": {
+          "content": {
+            "claims": [
+              {
+                "id": "C1",
+                "subgoalId": "S1",
+                "text": "handle passes the payload to normalize_payload, which returns a locally normalized value.",
+                "evidenceRefs": ["E1", "E2"]
+              }
+            ]
+          },
+          "toolCalls": []
+        }
+      }
+    },
+    {
+      "stage": "semantic_verifier",
+      "result": {
+        "message": {
+          "content": {
+            "verdicts": [
+              {
+                "claimId": "C1",
+                "result": "supported",
+                "resolution": "affirmed",
+                "supportingEvidenceRefs": ["E1", "E2"],
+                "reasonCode": "entailed",
+                "note": "The two scoped files directly show the local call and returned normalization."
+              }
+            ],
+            "uncoveredRequestParts": []
+          },
+          "toolCalls": []
+        }
+      }
+    }
+  ]
+}
